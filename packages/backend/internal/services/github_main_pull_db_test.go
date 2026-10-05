@@ -12,16 +12,18 @@ import (
 
 // TestGitHubMainPullQueriesOnProductSchema runs the hand-written SQL against
 // the real product migrations, including 0024.
+// Fixture users start at 1001: migration 0108 seeds the service user
+// smithers-machines with the first users id.
 func TestGitHubMainPullQueriesOnProductSchema(t *testing.T) {
 	pool := newProductTestPool(t)
 	ctx := context.Background()
 	q := db.New(pool)
-	_, err := pool.Exec(ctx, `INSERT INTO users(id, username, lower_username) VALUES (1, 'smithers-canary', 'smithers-canary'), (2, 'other', 'other')`)
+	_, err := pool.Exec(ctx, `INSERT INTO users(id, username, lower_username) VALUES (1001, 'smithers-canary', 'smithers-canary'), (1002, 'other', 'other')`)
 	require.NoError(t, err)
 	var canary, stale, unrelated int64
-	require.NoError(t, pool.QueryRow(ctx, `INSERT INTO repositories(user_id, name, lower_name) VALUES (1, 'smithers', 'smithers') RETURNING id`).Scan(&canary))
-	require.NoError(t, pool.QueryRow(ctx, `INSERT INTO repositories(user_id, name, lower_name) VALUES (2, 'copy', 'copy') RETURNING id`).Scan(&stale))
-	require.NoError(t, pool.QueryRow(ctx, `INSERT INTO repositories(user_id, name, lower_name) VALUES (2, 'unrelated', 'unrelated') RETURNING id`).Scan(&unrelated))
+	require.NoError(t, pool.QueryRow(ctx, `INSERT INTO repositories(user_id, name, lower_name) VALUES (1001, 'smithers', 'smithers') RETURNING id`).Scan(&canary))
+	require.NoError(t, pool.QueryRow(ctx, `INSERT INTO repositories(user_id, name, lower_name) VALUES (1002, 'copy', 'copy') RETURNING id`).Scan(&stale))
+	require.NoError(t, pool.QueryRow(ctx, `INSERT INTO repositories(user_id, name, lower_name) VALUES (1002, 'unrelated', 'unrelated') RETURNING id`).Scan(&unrelated))
 	// canary: ready import of smithersai/smithers. stale: imported it once,
 	// then a newer ready import points elsewhere, so it is not a candidate.
 	for _, row := range []struct {
@@ -30,9 +32,9 @@ func TestGitHubMainPullQueriesOnProductSchema(t *testing.T) {
 		owner, source string
 		age           string
 	}{
-		{canary, 1, "smithers-canary", "smithers", "1 hour"},
-		{stale, 2, "other", "smithers", "2 hours"},
-		{stale, 2, "other", "elsewhere", "1 hour"},
+		{canary, 1001, "smithers-canary", "smithers", "1 hour"},
+		{stale, 1002, "other", "smithers", "2 hours"},
+		{stale, 1002, "other", "elsewhere", "1 hour"},
 	} {
 		_, err = pool.Exec(ctx, `INSERT INTO import_jobs (user_id, github_owner, github_repo, repo_owner, repo_name, branch, status, repository_id, created_at)
 			VALUES ($1, CASE WHEN $2 = 'smithers' THEN 'SmithersAI' ELSE 'someone' END, $2, $3, 'x', 'main', 'ready', $4, NOW() - $5::interval)`,

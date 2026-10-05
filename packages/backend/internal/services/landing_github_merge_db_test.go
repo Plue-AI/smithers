@@ -13,16 +13,18 @@ import (
 
 // TestLandingGitHubMergeQueriesOnProductSchema runs the hand-written SQL
 // against the real product migrations, including 0035.
+// Fixture users start at 1001: migration 0108 seeds the service user
+// smithers-machines with the first users id.
 func TestLandingGitHubMergeQueriesOnProductSchema(t *testing.T) {
 	pool := newProductTestPool(t)
 	ctx := context.Background()
 	q := db.New(pool)
-	_, err := pool.Exec(ctx, `INSERT INTO users(id, username, lower_username) VALUES (1, 'smithers-canary', 'smithers-canary')`)
+	_, err := pool.Exec(ctx, `INSERT INTO users(id, username, lower_username) VALUES (1001, 'smithers-canary', 'smithers-canary')`)
 	require.NoError(t, err)
 	var repository, landing int64
-	require.NoError(t, pool.QueryRow(ctx, `INSERT INTO repositories(user_id, name, lower_name) VALUES (1, 'smithers', 'smithers') RETURNING id`).Scan(&repository))
+	require.NoError(t, pool.QueryRow(ctx, `INSERT INTO repositories(user_id, name, lower_name) VALUES (1001, 'smithers', 'smithers') RETURNING id`).Scan(&repository))
 	require.NoError(t, pool.QueryRow(ctx, `INSERT INTO landing_requests(repository_id, number, title, author_id, target_bookmark, stack_size)
-		VALUES ($1, 7, 'send upstream', 1, 'main', 2) RETURNING id`, repository).Scan(&landing))
+		VALUES ($1, 7, 'send upstream', 1001, 'main', 2) RETURNING id`, repository).Scan(&landing))
 	_, err = pool.Exec(ctx, `INSERT INTO landing_request_changes(landing_request_id, change_id, position_in_stack) VALUES ($1, 'kbase', 1), ($1, 'ktip', 2)`, landing)
 	require.NoError(t, err)
 	// The projected changes lag repo-host; the merge records what GitHub merged.
@@ -32,7 +34,7 @@ func TestLandingGitHubMergeQueriesOnProductSchema(t *testing.T) {
 	require.NoError(t, err)
 	var closed int64
 	require.NoError(t, pool.QueryRow(ctx, `INSERT INTO landing_requests(repository_id, number, title, author_id, target_bookmark, state)
-		VALUES ($1, 8, 'closed', 1, 'main', 'closed') RETURNING id`, repository).Scan(&closed))
+		VALUES ($1, 8, 'closed', 1001, 'main', 'closed') RETURNING id`, repository).Scan(&closed))
 	numbers, err := q.ListOpenLandingNumbers(ctx, repository, 0, 50)
 	require.NoError(t, err)
 	assert.Equal(t, []int64{7}, numbers)
