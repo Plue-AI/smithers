@@ -63,8 +63,11 @@ type GitHubAppManifestStart struct {
 }
 
 func gitHubAppPermissions() map[string]string {
-	// email_addresses: GitHub answers the owner's /user/emails read 403 without it.
-	return map[string]string{"contents": "write", "email_addresses": "read", "workflows": "write", "pull_requests": "write", "issues": "write", "checks": "read", "statuses": "read", "administration": "read", "metadata": "read", "members": "read"}
+	// emails: GitHub answers the owner's /user/emails read 403 without it. A
+	// manifest names this permission "emails"; GitHub refuses the REST name
+	// "email_addresses" ("Default permission records resource is not included
+	// in the list"), proven on github.com 2026-10-05.
+	return map[string]string{"contents": "write", "emails": "read", "workflows": "write", "pull_requests": "write", "issues": "write", "checks": "read", "statuses": "read", "administration": "read", "metadata": "read", "members": "read"}
 }
 
 func gitHubAppWebhookEvents() []string {

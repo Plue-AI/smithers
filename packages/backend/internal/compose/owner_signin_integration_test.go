@@ -214,7 +214,7 @@ func TestOwnerSignInRefusalLandsOnSetupCardPostgres(t *testing.T) {
 	require.Equal(t, "GitHub sign-in did not complete", signInStep().Error.Message)
 
 	// The owner grants Email addresses on the App and signs in again.
-	post(`{"contents":"write","metadata":"read","email_addresses":"read"}`)
+	post(`{"contents":"write","metadata":"read","emails":"read"}`)
 	accepted := signIn(func(url.Values) {})
 	require.Equal(t, http.StatusFound, accepted.Code, accepted.Body.String())
 	step = signInStep()

@@ -84,6 +84,15 @@ func TestBrowserPages(t *testing.T) {
 				t.Fatal(body)
 			}
 		}
+		// GitHub refuses a permission key outside its manifest list, such as
+		// email_addresses, the REST name of the manifest key emails.
+		for _, permissions := range []string{`{"contents":"write","email_addresses":"read"}`, `{"emails":"read","teleport":"write"}`} {
+			body := post(path, url.Values{"manifest": {`{"redirect_url":"http://localhost:4000/setup/github/callback","default_permissions":` + permissions + `}`}}, 422)
+			if !strings.Contains(body, "Default permission records resource is not included in the list") {
+				t.Fatal(body)
+			}
+		}
+		post(path, url.Values{"manifest": {`{"redirect_url":"http://localhost:4000/setup/github/callback","default_permissions":{"contents":"write","emails":"read"}}`}}, 200)
 		post(path, url.Values{"manifest": {`{"redirect_url":"http://localhost:4000/setup/github/callback","hook_attributes":{"url":"https://factory.example/webhooks/github","active":true},"default_events":["push"]}`}}, 200)
 		u := target(post(path, url.Values{"manifest": {`{"redirect_url":"http://localhost:4000/setup/github/callback?keep=yes","callback_urls":["http://localhost:4000/api/auth/github/callback"]}`}, "state": {"state&one"}}, 200))
 		if u.Query().Get("state") != "state&one" || u.Query().Get("code") != cfg.ConversionCode || u.Query().Get("keep") != "yes" {

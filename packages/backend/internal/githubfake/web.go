@@ -25,6 +25,22 @@ func publicHookURL(raw string) bool {
 	return strings.Contains(host, ".") && !strings.HasSuffix(host, ".localhost") && !strings.HasSuffix(host, ".local")
 }
 
+// manifestPermissions are the default_permissions keys github.com accepted in
+// the install's manifest (J1 setup walk, 2026-10-05). GitHub refuses a manifest
+// naming any other key, such as email_addresses, the REST name of the manifest
+// key emails. The fake refuses the same way, so a key joins this list only
+// after GitHub has accepted it.
+var manifestPermissions = map[string]bool{"administration": true, "checks": true, "contents": true, "emails": true, "issues": true, "members": true, "metadata": true, "pull_requests": true, "statuses": true, "workflows": true}
+
+func unknownManifestPermission(permissions map[string]string) bool {
+	for key := range permissions {
+		if !manifestPermissions[key] {
+			return true
+		}
+	}
+	return false
+}
+
 func freshCode() string {
 	var bytes [24]byte
 	if _, err := rand.Read(bytes[:]); err != nil {
@@ -93,6 +109,8 @@ func (s *Server) web(w http.ResponseWriter, r *http.Request) bool {
 			status, refusal = 422, "Hook url is not supported because it isn't reachable over the public Internet (localhost)"
 		} else if hook == "" && (m.HookAttributes != nil || len(m.DefaultEvents) > 0) {
 			status, refusal = 422, "Hook url cannot be blank"
+		} else if unknownManifestPermission(m.DefaultPermissions) {
+			status, refusal = 422, "The configuration does not appear to be a valid GitHub App manifest. Error Default permission records resource is not included in the list"
 		}
 		s.writes = append(s.writes, Write{Sequence: uint64(len(s.writes) + 1), Method: r.Method, Path: r.URL.Path, Status: status})
 		if status != 200 {

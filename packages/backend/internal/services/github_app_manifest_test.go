@@ -4,12 +4,17 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
+	"net/http"
+	"net/url"
 	"os"
 	"strings"
 	"testing"
 	"time"
 
 	"github.com/stretchr/testify/require"
+
+	"github.com/smithersai/smithers/packages/backend/internal/githubfake"
 )
 
 func TestGitHubAppManifestExactPermissionsAndLocalhostCallbacks(t *testing.T) {
@@ -173,5 +178,28 @@ func TestGitHubAppManifestDefaultConfigurationAndUnavailableService(t *testing.T
 			_, err = s.Convert(context.Background(), code, state, state)
 			require.Error(t, err)
 		}
+	}
+}
+
+// The install's manifest is one GitHub accepts. The fake refuses any
+// permission key github.com has not accepted, as GitHub refused
+// email_addresses, so a new key fails here before it fails on GitHub.
+func TestGitHubAppManifestAcceptedByGitHubFake(t *testing.T) {
+	seed, err := githubfake.LocalSeed()
+	require.NoError(t, err)
+	fake, err := githubfake.New(seed)
+	require.NoError(t, err)
+	defer fake.Close()
+	for _, origins := range [][]string{{"http://Williams-Mac-mini.local:4000"}, {"https://factory.example"}} {
+		manifest, action, err := BuildGitHubAppManifest(seed.OwnerLogin, "user", origins, "state")
+		require.NoError(t, err)
+		require.Equal(t, "read", manifest.DefaultPermissions["emails"], "sign-in reads /user/emails")
+		encoded, err := json.Marshal(manifest)
+		require.NoError(t, err)
+		response, err := http.PostForm(fake.URL+strings.TrimPrefix(strings.Split(action, "?")[0], "https://github.com"), url.Values{"manifest": {string(encoded)}, "state": {"state"}})
+		require.NoError(t, err)
+		body, _ := io.ReadAll(response.Body)
+		response.Body.Close()
+		require.Equal(t, http.StatusOK, response.StatusCode, string(body))
 	}
 }

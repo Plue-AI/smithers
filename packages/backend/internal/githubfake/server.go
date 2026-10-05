@@ -574,7 +574,7 @@ func (s *Server) respond(r *http.Request, body []byte) (int, any) {
 		case "/user":
 			return 200, map[string]any{"id": 7, "login": s.config.OwnerLogin, "name": "Rehearsal owner"}
 		case "/user/emails":
-			if s.permissions != nil && s.permissions["email_addresses"] == "" {
+			if s.permissions != nil && s.permissions["emails"] == "" {
 				return failure(http.StatusForbidden, "Resource not accessible by integration")
 			}
 			return 200, []any{map[string]any{"email": "owner@example.test", "primary": true, "verified": true}}
