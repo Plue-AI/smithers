@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"strconv"
@@ -805,4 +806,54 @@ func TestTodoAdmissionLaunchesTheCodingRequest(t *testing.T) {
 	require.True(t, mythicalChecksOf(item).RunAttached)
 	o.project(launch, jobs.StateWaiting, "replacement-run", "")
 	require.Equal(t, "request-run-1", o.byID(id).RequestRunID, "the first bound run wins")
+}
+
+// A TODO made from an issue (Make TODO; the label door alike) starts on the
+// same coding path as an owner's: its lane is the TODO's, its run receives
+// the TODO's own prompt (the member's Draft, never the issue's text), and
+// its runs are TODO lifecycle facts. A label-door TODO's revision 1 is the
+// issue's title and body, which its prompt states once.
+func TestTodoAdmissionStartsAnIssueTodoFromItsDraft(t *testing.T) {
+	o, session := newTodoAdmission(t)
+	issue := mythicalIssue{Number: 7, Title: "Webhooks fail on 502", Body: "Webhooks fail on 502", URL: "https://github.com/smithersai/smithers/issues/7", State: "open", TextByMaintainer: true}
+	o.github.mu.Lock()
+	o.github.issues = append(o.github.issues, issue)
+	o.github.mu.Unlock()
+	seven := int64(7)
+	view, err := o.service.FileTodo(session, o.repoID, o.userID, MythicalTodoInput{Title: "Retry webhooks", Prompt: "Retry a 502 at most 5 times.",
+		Acceptance: []string{"a 502 is retried 5 times"}, Issue: &seven, IssueDigest: mythicalIssueDigest(issue), Request: "make-todo-7"})
+	require.NoError(t, err)
+	item := o.byID(view.ID)
+	require.Equal(t, "issue", item.Source)
+	require.True(t, mythicalTodo(item))
+	id := uuidString(item.ID)
+
+	o.wake()
+	item = o.byID(id)
+	require.Equal(t, "running", item.State, item.Reason)
+	require.Equal(t, "starting", todoState(item))
+	launches := o.launcher.byFlow("coding/request")
+	require.Len(t, launches, 1)
+	require.Equal(t, "Retry webhooks\n\nRetry a 502 at most 5 times.\n\nAcceptance:\n- a 502 is retried 5 times\n", decodeJSON(t, launches[0].Payload)["prompt"])
+	var lane string
+	require.NoError(t, o.pool.QueryRow(context.Background(), `SELECT name FROM mythical_lanes WHERE workspace_id=$1`, item.WorkspaceID).Scan(&lane))
+	require.Equal(t, fmt.Sprintf("TODO %d attempt 1 g1", item.Number.Int64), lane)
+
+	o.project(launches[0], jobs.StateWaiting, "request-run-7", "")
+	require.Equal(t, "working", todoState(o.byID(id)))
+	store, err := jobs.NewStore(o.pool.(*pgxpool.Pool))
+	require.NoError(t, err)
+	events, err := store.Replay(context.Background(), todoOperationScope(item), 0, 100)
+	require.NoError(t, err)
+	types := []string{}
+	for _, event := range events.Events {
+		types = append(types, event.Type)
+	}
+	require.Equal(t, []string{"todo.created", "todo.run_updated"}, types)
+
+	labeled := db.MythicalItem{Source: "issue", IssueTitle: "Say goodbye", Revisions: []byte(`[{"text":"Say goodbye\n\nEnd with a farewell.","acceptance":[]}]`)}
+	require.True(t, mythicalTodo(labeled))
+	require.Equal(t, "Say goodbye\n\nEnd with a farewell.\n", todoPrompt(labeled))
+	require.False(t, mythicalTodo(db.MythicalItem{Source: "issue", Revisions: []byte(`[]`)}), "a legacy issue item runs from the issue's text")
+	require.False(t, mythicalTodo(db.MythicalItem{Source: "issue"}))
 }

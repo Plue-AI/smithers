@@ -229,7 +229,7 @@ func currentTodoEvidence(item db.MythicalItem) todoAttemptEvidence {
 }
 
 func retainTodoAttemptEvidence(item db.MythicalItem) db.MythicalItem {
-	if item.Source != "todo" || item.Attempt <= 0 {
+	if !mythicalTodo(item) || item.Attempt <= 0 {
 		return item
 	}
 	checks := mythicalChecksOf(item)

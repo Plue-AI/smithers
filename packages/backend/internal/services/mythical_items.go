@@ -517,7 +517,7 @@ func (s *MythicalService) ProjectFlowRuntime(ctx context.Context, update flowdis
 			if err != nil {
 				return err
 			}
-			if saved.Source == "todo" && saved.Number.Valid {
+			if mythicalTodo(saved) && saved.Number.Valid {
 				fact, _ := json.Marshal(map[string]any{"item": uuidString(saved.ID), "n": saved.Number.Int64, "attempt": saved.Attempt, "generation": saved.Generation, "phase": projection.Phase, "run": runID, "actor": map[string]string{"kind": "run", "id": runID}, "from": todoState(item), "to": todoState(saved)})
 				if _, err := jobs.RecordFactInTx(ctx, tx, todoOperationScope(saved), uuid.NewString(), "todo.run_updated", todoState(saved), fact); err != nil {
 					return err
@@ -1758,7 +1758,7 @@ func (st *mythicalItemStep) start(ctx context.Context, item db.MythicalItem) (*d
 	workspaceID := item.WorkspaceID
 	if !reuse {
 		name := fmt.Sprintf("mythical #%d attempt %d g%d", item.IssueNumber.Int64, next.Attempt, next.Generation)
-		if item.Source == "todo" {
+		if mythicalTodo(item) {
 			name = fmt.Sprintf("TODO %d attempt %d g%d", item.Number.Int64, next.Attempt, next.Generation)
 		}
 		workspaceID, err = st.lane(ctx, item, name, placement)
@@ -1783,7 +1783,7 @@ func (st *mythicalItemStep) start(ctx context.Context, item db.MythicalItem) (*d
 		return mythicalInfraOutage(item, "launch", "the stack tip could not reach the lane: "+err.Error(), st.now), false, nil
 	}
 	prompt := st.prompt(item, next.Attempt)
-	if item.Source == "todo" {
+	if mythicalTodo(item) {
 		prompt = todoPrompt(item)
 	}
 	request := map[string]any{"prompt": prompt, "maxRounds": 3,
@@ -1937,9 +1937,19 @@ func (st *mythicalItemStep) startPinned(ctx context.Context, item db.MythicalIte
 	return &saved, true, nil
 }
 
-// todoPrompt is an owner's TODO as its run receives it (spec §10.4.2): the
-// title, revision 1's text and its acceptance, capped like an issue prompt.
-// Later revisions reach a running attempt as steers, never here.
+// mythicalTodo reports an item that is a TODO with its own prompt: an
+// owner's (source todo), or one made from an issue by Make TODO or the label
+// door, whose revision 1 is its prompt. A legacy issue item has no revision
+// and runs from the issue's approved text (prompt).
+func mythicalTodo(item db.MythicalItem) bool {
+	var revisions []json.RawMessage
+	return item.Source == "todo" || item.Source == "issue" && json.Unmarshal(item.Revisions, &revisions) == nil && len(revisions) > 0
+}
+
+// todoPrompt is a TODO as its run receives it (spec §10.4.2): the title,
+// revision 1's text and its acceptance, capped like an issue prompt; a text
+// that opens with the title (the label door's title and body) states it
+// once. Later revisions reach a running attempt as steers, never here.
 func todoPrompt(item db.MythicalItem) string {
 	var revisions []struct {
 		Text       string   `json:"text"`
@@ -1954,7 +1964,10 @@ func todoPrompt(item db.MythicalItem) string {
 	if item.Title.Valid && item.Title.String != "" {
 		title = item.Title.String
 	}
-	b.WriteString(title + "\n\n" + text + "\n")
+	if !strings.HasPrefix(text, title+"\n") {
+		b.WriteString(title + "\n\n")
+	}
+	b.WriteString(text + "\n")
 	if len(acceptance) > 0 {
 		b.WriteString("\nAcceptance:\n")
 		for _, line := range acceptance {
