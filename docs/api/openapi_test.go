@@ -13,9 +13,9 @@ func TestOpenAPIOperationIDsAreUnique(t *testing.T) {
 		t.Fatal(err)
 	}
 	var document struct {
-		Paths map[string]map[string]struct {
-			OperationID string `yaml:"operationId"`
-		} `yaml:"paths"`
+		// A path item also holds extensions such as x-composition and shared
+		// parameters, so only method keys are decoded as operations.
+		Paths map[string]map[string]yaml.Node `yaml:"paths"`
 	}
 	if err := yaml.Unmarshal(data, &document); err != nil {
 		t.Fatal(err)
@@ -26,11 +26,18 @@ func TestOpenAPIOperationIDsAreUnique(t *testing.T) {
 	seen := map[string]string{}
 	for path, item := range document.Paths {
 		for _, method := range []string{"get", "post", "put", "patch", "delete", "head", "options", "trace"} {
-			op, ok := item[method]
+			node, ok := item[method]
 			if !ok {
 				continue
 			}
 			location := method + " " + path
+			var op struct {
+				OperationID string `yaml:"operationId"`
+			}
+			if err := node.Decode(&op); err != nil {
+				t.Errorf("%s: %v", location, err)
+				continue
+			}
 			if op.OperationID == "" {
 				t.Errorf("%s has no operationId", location)
 				continue
