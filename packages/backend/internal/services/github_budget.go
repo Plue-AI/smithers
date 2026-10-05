@@ -273,6 +273,29 @@ func (t *BudgetTracker) StreamCadence(installationID int64, stream string, base 
 	return base
 }
 
+// StreamRetryAt exposes shared admission to the existing pollers, so a paused
+// stream does not attempt even token minting. Expired receipts do not pause it.
+func (t *BudgetTracker) StreamRetryAt(installationID int64, stream string) time.Time {
+	if t == nil || !t.headers {
+		return time.Time{}
+	}
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	key := fmt.Sprintf("installation:%d", installationID)
+	resource := t.streamResources[key+"/"+stream]
+	if resource == "" {
+		resource = "core"
+	}
+	retryAt := t.pauses[key+"/"+stream]
+	if receipt, ok := t.resources[key+"/"+resource]; ok && receipt.Remaining == 0 && receipt.ResetAt.After(retryAt) {
+		retryAt = receipt.ResetAt
+	}
+	if !retryAt.After(t.now()) {
+		return time.Time{}
+	}
+	return retryAt
+}
+
 // WrapClient shares admission/accounting across existing callers without
 // changing their authentication, body handling or retry policy.
 func (t *BudgetTracker) WrapClient(client *http.Client) *http.Client {

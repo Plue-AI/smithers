@@ -36,8 +36,8 @@ const (
 	githubSyncedRepoSyncFreshness = 10 * time.Minute
 	// githubSyncedRepoBackfillBudget bounds one full backfill/revalidate.
 	githubSyncedRepoBackfillBudget = 90 * time.Second
-	// githubSyncedRepoBackfillPageSize / MaxPages bound the backfill at 1000
-	// rows per resource, matching the repo-listing cache's ceiling.
+	// Hosted backfills retain their 100-row pages and ten-page ceiling.
+	// Install streams page to their complete boundary within the run deadline.
 	githubSyncedRepoBackfillPageSize = 100
 	githubSyncedRepoBackfillMaxPages = 10
 	// githubSyncedRepoDefaultPerPage mirrors GitHub's default page size.
@@ -991,6 +991,14 @@ func (s *GitHubSyncedRepoService) stale(row db.GithubSyncedRepo) bool {
 // background. Never uses the request context: the request that scheduled it has
 // long returned.
 func (s *GitHubSyncedRepoService) scheduleBackfill(row db.GithubSyncedRepo, fetch gitHubSyncedRepoPageFetcher) {
+	if s.install != nil {
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		if err := s.requestInstallFetch(ctx, row.GithubRepositoryID.Int64); err != nil {
+			slog.Warn("GitHub metadata fetch request failed", "error", err)
+		}
+		return
+	}
 	// R2: prefer the installation-token fetcher whenever the row has an
 	// installation; the request-bound user-token fetcher is only the fallback
 	// for repos synced without an App installation.
@@ -1114,17 +1122,18 @@ func (s *GitHubSyncedRepoService) loadCommentBaseline(ctx context.Context, row d
 // releases the singleflight claim) — the proxy then serves last-good behind a
 // staleness header rather than inventing anything.
 func (s *GitHubSyncedRepoService) backfill(ctx context.Context, row db.GithubSyncedRepo, fetch gitHubSyncedRepoPageFetcher) error {
+	if s.install != nil {
+		plans := make([]gitHubStreamPlan, 0, len(installMetadataResources))
+		for _, resource := range installMetadataResources {
+			plans = append(plans, gitHubStreamPlan{resource: resource, scheduled: true})
+		}
+		return s.backfillInstallStreams(ctx, row, fetch, plans)
+	}
 	for _, resource := range []string{GitHubRepoMetadataIssues, GitHubRepoMetadataPulls} {
 		if err := s.backfillResource(ctx, row, resource, fetch); err != nil {
 			s.recordSyncError(row.ID, err)
 			slog.Warn("github synced metadata backfill failed; serving last-good",
 				"owner", row.OwnerLogin, "repo", row.RepoName, "resource", resource, "error", err)
-			return err
-		}
-	}
-	if s.install != nil {
-		if err := s.backfillIssueEvents(ctx, row, fetch); err != nil {
-			s.recordSyncError(row.ID, err)
 			return err
 		}
 	}
@@ -1146,7 +1155,11 @@ func (s *GitHubSyncedRepoService) backfillResource(ctx context.Context, row db.G
 		}
 	}
 	fetch, committed := s.conditionalPages(row, fetch)
-	seen := make([]int64, 0, githubSyncedRepoBackfillPageSize)
+	pageSize := githubSyncedRepoBackfillPageSize
+	if s.install != nil && resource == GitHubRepoMetadataPulls {
+		pageSize = 50
+	}
+	seen := make([]int64, 0, pageSize)
 	singlePage := false
 	for page := 1; s.install != nil || page <= githubSyncedRepoBackfillMaxPages; page++ {
 		if err := ctx.Err(); err != nil {
@@ -1158,7 +1171,7 @@ func (s *GitHubSyncedRepoService) backfillResource(ctx context.Context, row db.G
 		query.Set("state", "all")
 		query.Set("sort", "updated")
 		query.Set("direction", "desc")
-		query.Set("per_page", strconv.Itoa(githubSyncedRepoBackfillPageSize))
+		query.Set("per_page", strconv.Itoa(pageSize))
 		query.Set("page", strconv.Itoa(page))
 
 		body, err := fetch(ctx, resource, query)
@@ -1188,7 +1201,7 @@ func (s *GitHubSyncedRepoService) backfillResource(ctx context.Context, row db.G
 				seen = append(seen, number)
 			}
 		}
-		if len(objects) < githubSyncedRepoBackfillPageSize {
+		if len(objects) < pageSize {
 			singlePage = page == 1
 			break
 		}
@@ -1265,7 +1278,7 @@ func (s *GitHubSyncedRepoService) recordSyncError(syncedRepoID int64, cause erro
 		// Install streams must recover when providers or GitHub return; the
 		// hosted reconcile kill switch must not permanently disable them.
 		if _, err := s.install.pool.Exec(ctx, `UPDATE github_synced_repos SET
-		 sync_error=$2, sync_state=CASE WHEN sync_state='disabled' THEN 'disabled' ELSE 'error' END,
+		 sync_error=$2, sync_state=CASE WHEN sync_state IN ('disabled','failed') THEN sync_state ELSE 'error' END,
 		 syncing_since=NULL, updated_at=NOW() WHERE id=$1`, syncedRepoID, sanitizedSyncErrorMessage(cause)); err != nil {
 			slog.Warn("github install sync error not recorded", "synced_repo_id", syncedRepoID, "error", err)
 		}
@@ -1304,7 +1317,7 @@ func (s *GitHubSyncedRepoService) preferredFetcher(row db.GithubSyncedRepo, fall
 // reconcile keeps the accounting coarse but centralized — the proxy layer
 // charges the same tracker per request.
 func (s *GitHubSyncedRepoService) allowBudget(row db.GithubSyncedRepo) bool {
-	if s.budget == nil || s.budget.headers || !row.InstallationID.Valid {
+	if s.install != nil || s.budget == nil || s.budget.headers || !row.InstallationID.Valid {
 		return true
 	}
 	allowed, retryAfter := s.budget.Allow(row.InstallationID.Int64)
@@ -1345,9 +1358,9 @@ func (s *GitHubSyncedRepoService) reconcileDue(row db.GithubSyncedRepo) bool {
 }
 
 // StartReconciler runs the mandatory reconciliation backstop (R3): webhooks
-// are hints, this sweep is the truth. A single loop per process — repos are
-// reconciled sequentially, oldest staleness first, so GitHub never sees a
-// thundering herd and rate-limit accounting stays in one place (R5). The DB
+// are hints, this sweep is the truth. A single loop per process reconciles
+// repositories sequentially. Hosted scans use oldest staleness first; install
+// scans use each stream's memory schedule. The DB
 // singleflight claim keeps multiple API replicas from double-sweeping a repo.
 // Blocks until ctx is done; run it as `go svc.StartReconciler(workerCtx)`.
 func (s *GitHubSyncedRepoService) StartReconciler(ctx context.Context) {
@@ -1368,7 +1381,12 @@ func (s *GitHubSyncedRepoService) StartReconciler(ctx context.Context) {
 		}()
 		defer func() { stop(); <-done }()
 	}
-	ticker := time.NewTicker(githubSyncedRepoReconcilerTick)
+	tickEvery := githubSyncedRepoReconcilerTick
+	if s.install != nil {
+		tickEvery = time.Second
+		s.reconcileOnce(ctx)
+	}
+	ticker := time.NewTicker(tickEvery)
 	defer ticker.Stop()
 	for {
 		select {
@@ -1386,7 +1404,13 @@ func (s *GitHubSyncedRepoService) StartReconciler(ctx context.Context) {
 // service's test seams; production only reaches it through StartReconciler.
 func (s *GitHubSyncedRepoService) reconcileOnce(ctx context.Context) {
 	listCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
-	rows, err := s.store.ListDueGitHubSyncedRepos(listCtx, githubSyncedRepoReconcilerBatch)
+	var rows []db.GithubSyncedRepo
+	var err error
+	if s.install != nil {
+		rows, err = s.store.ListGitHubSyncedRepos(listCtx, false)
+	} else {
+		rows, err = s.store.ListDueGitHubSyncedRepos(listCtx, githubSyncedRepoReconcilerBatch)
+	}
 	cancel()
 	if err != nil {
 		slog.Warn("github synced repo reconciler list failed", "error", err)
@@ -1396,7 +1420,13 @@ func (s *GitHubSyncedRepoService) reconcileOnce(ctx context.Context) {
 		if ctx.Err() != nil {
 			return
 		}
-		if !s.fetchRequested(row.ID) && !s.reconcileDue(row) {
+		var plans []gitHubStreamPlan
+		if s.install != nil {
+			plans = s.dueInstallStreams(row)
+			if len(plans) == 0 {
+				continue
+			}
+		} else if !s.reconcileDue(row) {
 			continue
 		}
 		fetch := s.preferredFetcher(row, nil)
@@ -1415,7 +1445,12 @@ func (s *GitHubSyncedRepoService) reconcileOnce(ctx context.Context) {
 			continue
 		}
 		runCtx, cancelRun := context.WithTimeout(ctx, githubSyncedRepoBackfillBudget)
-		err := s.backfill(runCtx, row, fetch)
+		var err error
+		if s.install != nil {
+			err = s.backfillInstallStreams(runCtx, row, fetch, plans)
+		} else {
+			err = s.backfill(runCtx, row, fetch)
+		}
 		cancelRun()
 		if s.syncDone != nil {
 			s.syncDone(row.ID, err)
@@ -1446,7 +1481,10 @@ type gitHubCommentHeader struct {
 // installed on repos nobody has asked us to sync).
 func (s *GitHubSyncedRepoService) ApplyIssueEvent(ctx context.Context, owner, repo string, githubRepoID int64, resource, action string, object json.RawMessage) error {
 	if s.install != nil {
-		return s.requestInstallFetch(ctx, githubRepoID)
+		if resource == GitHubRepoMetadataIssues {
+			return s.requestInstallFetch(ctx, githubRepoID, resource, gitHubIssueEvents)
+		}
+		return s.requestInstallFetch(ctx, githubRepoID, resource)
 	}
 	row, ok, err := s.lookupEnrolled(ctx, owner, repo, githubRepoID)
 	if err != nil || !ok {

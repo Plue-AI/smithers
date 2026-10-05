@@ -474,6 +474,12 @@ func TestGitHubFetchedInstallWebhookBoundary(t *testing.T) {
 						t.Error("reconciler did not stop")
 					}
 				})
+				select {
+				case err := <-notified:
+					require.Error(t, err, "initial polling stays dark")
+				case <-time.After(5 * time.Second):
+					t.Fatal("initial reconcile did not run")
+				}
 			}
 			service := services.NewGitHubWebhookService(pool, fetchedWebhookSecret{}, services.WithGitHubWebhookSyncedRepos(synced))
 			cfg := testConfigAllFlagsOn()

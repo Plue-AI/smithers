@@ -3,9 +3,9 @@
   "producer": null,
   "output": {
     "path": "packages/backend/docs/github-app.md",
-    "digest": "afd332a054d23dbafae475325eac9e34bf5da972b4d99e4c54a3d0a50cd33c73"
+    "digest": "9891321aa169dbd95347479849c5661c6f4d4c1d0e0d7933bc2786c8637d4964"
   },
-  "closure": "153819f4d4d6a29db3c450c383551664c9e4ba755ef7b7800c74ad556d70e9fc",
+  "closure": "6898187b15f1f585a4dd7971ce99859cf015ef2ca499b9cfeca2f48b49e0a383",
   "inputs": [
     {
       "path": "docs/api/openapi/install.yaml",
@@ -41,7 +41,7 @@
     },
     {
       "path": "packages/backend/internal/services/github_budget.go",
-      "digest": "821507b180bc82b58e84c159d570ce80330efea9d7d7e1e903ec6a7b54f25c1e"
+      "digest": "c8d3938b677550b0586b2977a62c2cff9200fdbddad993d5f4076b2a5477b5cf"
     },
     {
       "path": "packages/backend/internal/services/github_issue_text_writer.go",
@@ -49,19 +49,23 @@
     },
     {
       "path": "packages/backend/internal/services/github_synced_conditional.go",
-      "digest": "b075fee99df8b957318891f540acca89e0a9202db1c6a1b86fddddcc5e9961dd"
+      "digest": "d2924421ba0a2fbdb90f17c0771a83074900dfc118d986072c57f6fab2755daa"
     },
     {
       "path": "packages/backend/internal/services/github_synced_delivery.go",
-      "digest": "c95b2346c89bbdbe089025bfb8cd008d7dcb57d1c70b6b92201d481769c9f087"
+      "digest": "2f86b4d88efe34a8415ba2c89a5ad05bb6f895c2abcf4aabf989ab27c0d70cad"
     },
     {
       "path": "packages/backend/internal/services/github_synced_events.go",
       "digest": "56ec2d5ffef807f7e8866f5146621ec1829062c6179960a3fbfb7441c5520720"
     },
     {
+      "path": "packages/backend/internal/services/github_synced_poll.go",
+      "digest": "39dc8759716cee23ef373e064a92971da0550d4dd417b8a21dd9f43db83fe2e7"
+    },
+    {
       "path": "packages/backend/internal/services/github_synced_repos.go",
-      "digest": "6dcb624e1945e45eb7098cecc8c65b6191cb362803bb29c586193f52c427a33f"
+      "digest": "b73193dc5e17e95d907e9d95b3b2ef193e1d7aae44dd22611ad669a34c193870"
     },
     {
       "path": "packages/backend/internal/services/install_setup_session.go",

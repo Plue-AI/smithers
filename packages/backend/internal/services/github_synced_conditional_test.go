@@ -85,6 +85,7 @@ func TestGitHubConditionalPullPagingFailureAndUnchangedTail(t *testing.T) {
 		validators = append(validators, r.Header.Get("If-None-Match"))
 		require.Equal(t, "Bearer minted-token", r.Header.Get("Authorization"))
 		require.Equal(t, "/repos/factory/app/pulls", r.URL.Path)
+		require.Equal(t, "50", r.URL.Query().Get("per_page"))
 		page, err := strconv.Atoi(r.URL.Query().Get("page"))
 		require.NoError(t, err)
 		if fail && page == 11 {
@@ -101,7 +102,7 @@ func TestGitHubConditionalPullPagingFailureAndUnchangedTail(t *testing.T) {
 			return
 		}
 		batch := make([]json.RawMessage, 0)
-		for n := (page-1)*100 + 1; n <= page*100 && n <= 1101; n++ {
+		for n := (page-1)*50 + 1; n <= page*50 && n <= 1101; n++ {
 			title := "original"
 			if changed && n == 1 {
 				title = "changed"
@@ -125,7 +126,7 @@ func TestGitHubConditionalPullPagingFailureAndUnchangedTail(t *testing.T) {
 	mu.Unlock()
 	require.NoError(t, s.backfillResource(ctx, row, "pulls", nil))
 	mu.Lock()
-	require.Len(t, paths, 12, "install paging continues beyond the former ten-page cap")
+	require.Len(t, paths, 23, "install paging continues beyond the former ten-page cap")
 	for _, validator := range validators {
 		require.Empty(t, validator, "failed walk retained no candidate ETags")
 	}

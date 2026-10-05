@@ -20,9 +20,18 @@ type GitHubSyncedRepoConditionalPage struct {
 
 type GitHubSyncedRepoConditionalFetcher func(context.Context, string, url.Values, string) (GitHubSyncedRepoConditionalPage, error)
 
-type gitHubPageKey struct {
+type gitHubStreamKey struct {
 	registry, installation, repository int64
-	owner, repo, resource, query       string
+	owner, repo, resource              string
+}
+
+type gitHubPageKey struct {
+	gitHubStreamKey
+	query string
+}
+
+func syncedStreamKey(row db.GithubSyncedRepo, resource string) gitHubStreamKey {
+	return gitHubStreamKey{row.ID, row.InstallationID.Int64, row.GithubRepositoryID.Int64, row.OwnerLogin, row.RepoName, resource}
 }
 
 var errGitHubPageUnchanged = errors.New("GitHub page already committed")
@@ -61,7 +70,7 @@ func (s *GitHubSyncedRepoService) conditionalPages(row db.GithubSyncedRepo, fall
 		if err := s.authorizeFetched(ctx, row); err != nil {
 			return nil, err
 		}
-		key := gitHubPageKey{row.ID, row.InstallationID.Int64, row.GithubRepositoryID.Int64, row.OwnerLogin, row.RepoName, resource, query.Encode()}
+		key := gitHubPageKey{syncedStreamKey(row, resource), query.Encode()}
 		page, err := transport(ctx, resource, query, known[key])
 		if err != nil {
 			return nil, err

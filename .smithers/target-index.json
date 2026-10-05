@@ -24126,6 +24126,10 @@
       },
       {
         "kind": "file",
+        "path": "packages/backend/internal/services/github_synced_poll.go"
+      },
+      {
+        "kind": "file",
         "path": "packages/backend/internal/services/landing_github_pull.go"
       },
       {

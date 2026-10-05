@@ -74,7 +74,27 @@ an unsolicited 304 is an error. Response bodies are never a second object cache.
 Restart drops ETags and rereads GitHub; durable event and object identities
 prevent duplicate deliveries. Install issue and pull walks no longer stop at
 ten pages, and incomplete HTTP bodies cannot be accepted as valid snapshots.
-Timestamp cursors and per-stream cadence integration remain pending.
+Timestamp cursors remain pending.
+
+The existing install metadata reconciler runs pulls every 45 seconds and issues
+and repository events every 120 seconds, using separate in-memory schedules.
+Issue and PR webhook hints request their corresponding streams without moving
+the next regular poll. Repeated hints coalesce, and a busy database claim leaves
+them pending. Final synchronization status rechecks the current binding and
+provider authority under the registry lock; an intervening disable or rebind
+cannot be overwritten by a successful read. Each due stream commits independently; an issue-stream refusal
+does not prevent a due pull read or erase its last successful state. The install
+reads all eligible registry entries rather than sharing the hosted batch limit.
+Pull requests use 50 rows per page; issues and events use 100.
+
+When response-header budget accounting is qualified and enabled, metadata
+scheduling consults its shared pauses before token minting. Issues and events
+double to 240 seconds below 20 percent remaining, returning to 120 at reset;
+pulls remain at 45. A 403 or 429 with Retry-After holds only that stream, including
+pending hints, until its retry time. Restart forgets these schedules and starts
+with a fresh read. Hosted scheduling remains unchanged. PR check, review/comment
+and permission stream scheduling, health projection and full production
+qualification remain incomplete.
 
 Label provenance readers use the same repository event pager. They isolate the
 requested issue, read complete history, and retain the check against its current

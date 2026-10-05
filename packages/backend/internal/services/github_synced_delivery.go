@@ -46,7 +46,8 @@ type gitHubInstallSync struct {
 	authorize func(context.Context, db.GithubSyncedRepo) error
 	consumers map[string]gitHubFetchedConsumer
 	mu        sync.Mutex
-	requested map[int64]bool
+	requested map[gitHubStreamKey]bool
+	streams   map[gitHubStreamKey]gitHubPollState
 	etags     map[gitHubPageKey]string
 	wake      chan struct{}
 }
@@ -60,7 +61,7 @@ func (s *GitHubSyncedRepoService) ConfigureInstallSync(pool *pgxpool.Pool) error
 	if err != nil {
 		return err
 	}
-	s.install = &gitHubInstallSync{pool: pool, jobs: store, consumers: map[string]gitHubFetchedConsumer{}, requested: map[int64]bool{}, wake: make(chan struct{}, 1)}
+	s.install = &gitHubInstallSync{pool: pool, jobs: store, consumers: map[string]gitHubFetchedConsumer{}, requested: map[gitHubStreamKey]bool{}, streams: map[gitHubStreamKey]gitHubPollState{}, wake: make(chan struct{}, 1)}
 	return nil
 }
 
@@ -75,7 +76,7 @@ func (s *GitHubSyncedRepoService) authorizeFetched(ctx context.Context, row db.G
 	return s.install.authorize(ctx, row)
 }
 
-func (s *GitHubSyncedRepoService) requestInstallFetch(ctx context.Context, githubRepoID int64) error {
+func (s *GitHubSyncedRepoService) requestInstallFetch(ctx context.Context, githubRepoID int64, resources ...string) error {
 	if githubRepoID <= 0 {
 		return nil
 	}
@@ -87,24 +88,18 @@ func (s *GitHubSyncedRepoService) requestInstallFetch(ctx context.Context, githu
 		return err
 	}
 	s.install.mu.Lock()
-	s.install.requested[row.ID] = true
+	if len(resources) == 0 {
+		resources = installMetadataResources
+	}
+	for _, resource := range resources {
+		s.install.requested[syncedStreamKey(row, resource)] = true
+	}
 	s.install.mu.Unlock()
 	select {
 	case s.install.wake <- struct{}{}:
 	default:
 	}
 	return nil
-}
-
-func (s *GitHubSyncedRepoService) fetchRequested(id int64) bool {
-	if s.install == nil {
-		return false
-	}
-	s.install.mu.Lock()
-	defer s.install.mu.Unlock()
-	requested := s.install.requested[id]
-	delete(s.install.requested, id)
-	return requested
 }
 
 // commitFetched atomically records a fetched batch and its durable deliveries.
