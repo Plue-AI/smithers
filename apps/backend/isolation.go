@@ -7,6 +7,7 @@ import (
 	"net"
 	"os"
 	"path/filepath"
+	"sort"
 	"strconv"
 	"strings"
 
@@ -202,15 +203,41 @@ func backendPort() (uint16, error) {
 	return uint16(port), nil
 }
 
-// runMicroVM serves `smithers-backend microvm doctor`: read-only checks of
-// Microsandbox, this installation's machines and layers, and the disk floor.
-func runMicroVM(ctx context.Context, args []string, executable func() (string, error)) error {
-	if len(args) != 1 || args[0] != "doctor" {
-		return errors.New("usage: smithers-backend microvm doctor")
+// microVMUsage names both microvm subcommands.
+const microVMUsage = "usage: smithers-backend microvm doctor | gc [--root <another install's microvm state root>]..."
+
+// microVMCommand parses `microvm doctor` or `microvm gc`, whose --root names
+// the state root of every other install on this host whose layer snapshots
+// must stay.
+func microVMCommand(args []string) (string, []string, error) {
+	if len(args) == 1 && args[0] == "doctor" {
+		return "doctor", nil, nil
 	}
-	// The doctor holds itself to a running backend's rules: no loader or git
+	if len(args) == 0 || args[0] != "gc" {
+		return "", nil, errors.New(microVMUsage)
+	}
+	var roots []string
+	for rest := args[1:]; len(rest) > 0; rest = rest[2:] {
+		if len(rest) < 2 || rest[0] != "--root" || !filepath.IsAbs(rest[1]) {
+			return "", nil, errors.New(microVMUsage)
+		}
+		roots = append(roots, filepath.Clean(rest[1]))
+	}
+	return "gc", roots, nil
+}
+
+// runMicroVM serves `smithers-backend microvm doctor`, read-only checks of
+// Microsandbox, this installation's machines and layers, and the disk floor,
+// and `microvm gc`, which removes the layer snapshots no install on this
+// host references (microsandbox.CollectSnapshots).
+func runMicroVM(ctx context.Context, args []string, executable func() (string, error)) error {
+	command, roots, err := microVMCommand(args)
+	if err != nil {
+		return err
+	}
+	// Both hold themselves to a running backend's rules: no loader or git
 	// injection variable, the hardened runtime, only the msb of the bundle
-	// it runs from, and a data root on a protected chain.
+	// they run from, and a data root on a protected chain.
 	if err := refuseInjected(os.Environ()); err != nil {
 		return err
 	}
@@ -232,6 +259,22 @@ func runMicroVM(ctx context.Context, args []string, executable func() (string, e
 	config := microsandbox.Config{Bundle: bundle, Root: filepath.Join(dataRoot, "microvm"),
 		Environments: &microsandbox.EnvironmentConfig{}}
 	config.Environments.MinFreeBytes = microsandbox.MinFreeDiskBytes
+	if command == "gc" {
+		report, err := microsandbox.CollectSnapshots(ctx, config, append([]string{config.Root}, roots...), microsandbox.SnapshotMinAge)
+		for _, name := range report.Removed {
+			fmt.Printf("removed %s\n", name)
+		}
+		kept := make([]string, 0, len(report.Kept))
+		for name := range report.Kept {
+			kept = append(kept, name)
+		}
+		sort.Strings(kept)
+		for _, name := range kept {
+			fmt.Printf("kept    %s (%s)\n", name, report.Kept[name])
+		}
+		fmt.Printf("free    %.1f GiB before, %.1f GiB after\n", float64(report.FreeBytesBefore)/(1<<30), float64(report.FreeBytesAfter)/(1<<30))
+		return err
+	}
 	failed := false
 	for _, line := range microsandbox.Doctor(ctx, config) {
 		status := "ok  "
