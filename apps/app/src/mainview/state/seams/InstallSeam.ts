@@ -26,6 +26,8 @@ export interface InstallSeamOptions {
    * or errors keeps its visible, retryable failure.
    */
   readonly quietWithoutInstall?: boolean
+  /** How often the card re-reads the install while the repository step waits on the App's installation on GitHub. */
+  readonly installPollMs?: number
 }
 export interface InstallAddress { readonly listen: "mac" | "network"; readonly bind: string; readonly origins: readonly string[] }
 export interface SetupInput { readonly step: InstallStepId; readonly owner?: string; readonly repository?: string; readonly bind?: string; readonly origins?: readonly string[] }
@@ -41,6 +43,12 @@ export const NO_INSTALL = "no_install"
  */
 const APP_LEASE_MS = 10 * 60_000
 /**
+ * The repository step is blocked on "Install the GitHub App": the person installs it in another tab, on GitHub, and
+ * GitHub's return lands there. This card re-reads the install until the repository is listed, so it needs no reload.
+ */
+const awaitingAppInstall = (model?: InstallModel) =>
+  !!model && !model.repositories?.length && model.steps.find(step => step.id === "repository")?.state === "blocked"
+/**
  * openai-chat has no default address (@smthrs/rpc MODEL_PROTOCOL_DEFAULTS), and the model host appends
  * /v1/chat/completions to the base URL, so each chat provider's base URL omits /v1.
  */
@@ -49,7 +57,7 @@ const CHAT_BASE_URLS: Readonly<Record<string, string>> = { OPENROUTER_API_KEY: "
 export const createInstallSeam = (ctx: SeamContext, withToast: FailureController["withToast"], options: InstallSeamOptions = {}) => {
   const shared = actorSharedState(ctx, "install", () => ({
     snapshot: {} as InstallSnapshot, authoritative: undefined as InstallModel | undefined, listeners: new Set<() => void>(), pending: new Map<string, Promise<unknown>>(),
-    stop: undefined as (() => void) | undefined, disposed: false, generation: 0,
+    stop: undefined as (() => void) | undefined, disposed: false, generation: 0, installPoll: undefined as ReturnType<typeof setTimeout> | undefined,
     cancel: new Set<() => void>(), tail: Promise.resolve() as Promise<unknown>, subscribing: false
   }))
   type SetupRequest = NonNullable<ReturnType<typeof ctx.store.session>["installRequests"]>[number]
@@ -85,12 +93,20 @@ export const createInstallSeam = (ctx: SeamContext, withToast: FailureController
       steps: served.steps.map(step => step.state === "pending" && active.some(row => row.step === step.id) ? { ...step, state: "running" }
         : step.id === "app_manifest" && step.state === "running" && app && lapsed(app) ? { ...step, state: "failed" } : step) }
   }
+  const watchAppInstall = () => {
+    if (shared.installPoll !== undefined || !current() || !awaitingAppInstall(shared.snapshot.model)) return
+    shared.installPoll = setTimeout(() => {
+      shared.installPoll = undefined
+      if (current() && awaitingAppInstall(shared.snapshot.model)) void readInstall().finally(watchAppInstall)
+    }, options.installPollMs ?? 3000)
+  }
   const receive = (data: unknown) => {
     const parsed = InstallModelSchema.safeParse(data)
     if (!parsed.success) { publish({ ...shared.snapshot, error: error("invalid_install", "Install response unavailable") }); return }
     shared.generation++
     shared.authoritative = parsed.data
     publish({ model: projection(parsed.data) })
+    watchAppInstall()
     if (parsed.data.github.signed_in && !shared.stop && !shared.subscribing && options.topic) {
       shared.subscribing = true
       try {
@@ -391,7 +407,9 @@ export const createInstallSeam = (ctx: SeamContext, withToast: FailureController
     snapshots, readInstall, showSetup: () => open("setup"), showSettings: () => open("settings"),
     setupStep, setInstallAddress: (input: InstallAddress) => write("address", "/install", { address: input }),
     setInstallCapacity, setInstallParallel, setInstallObsidian, saveInstallModelKey,
-    dispose: () => { shared.disposed = true; shared.generation++; shared.stop?.(); shared.stop = undefined;
+    dispose: () => { shared.disposed = true; shared.generation++; shared.stop?.(); shared.stop = undefined
+      if (shared.installPoll !== undefined) clearTimeout(shared.installPoll)
+      shared.installPoll = undefined
       for (const cancel of shared.cancel) cancel()
       shared.listeners.clear() }
   }

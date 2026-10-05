@@ -581,3 +581,41 @@ test("an App receipt that arrives after the step completed elsewhere never leave
   expect(handoffs).toEqual([])
   expect(h.seam.snapshots.get().model?.steps[1]?.state).toBe("done")
 })
+
+test("the card lists the repository installed on GitHub without a reload, then stops reading (J1 2.3)", async () => {
+  const blocked = installFixture()
+  delete blocked.repository; blocked.repositories = []; blocked.github.app_installed = false
+  blocked.steps = blocked.steps.map(step => step.id === "repository" ? { id: step.id, state: "blocked", blocked: { line: "Install the GitHub App", fix_url: "https://github.com/apps/smithers-1234/installations/new" } }
+    : ["models", "source", "machine"].includes(step.id) ? { id: step.id, state: "pending" } : step)
+  const installed = { ...blocked, github: { ...blocked.github, app_installed: true }, repositories: ["smithersai/smithers"],
+    steps: blocked.steps.map(step => step.id === "repository" ? { id: step.id, state: "pending" as const } : step) }
+  let served = blocked
+  const h = await harness(() => Response.json(served), { installPollMs: 5 })
+  await h.seam.readInstall()
+  await Bun.sleep(40)
+  const waiting = h.requests.length
+  expect(waiting).toBeGreaterThan(2)
+  expect(h.seam.snapshots.get().model?.repositories).toEqual([])
+  // GitHub returned the person in another tab; this card reads the install on its own.
+  served = installed
+  await Bun.sleep(40)
+  expect(h.seam.snapshots.get().model?.repositories).toEqual(["smithersai/smithers"])
+  expect(h.seam.snapshots.get().model?.steps.find(step => step.id === "repository")?.state).toBe("pending")
+  const settled = h.requests.length
+  await Bun.sleep(40)
+  expect(h.requests.length).toBe(settled)
+  expect(h.requests.every(request => request.path === "/api/install")).toBe(true)
+  h.seam.dispose()
+})
+
+test("a blocked repository step stops reading the install on dispose", async () => {
+  const blocked = installFixture()
+  delete blocked.repository; blocked.repositories = []
+  blocked.steps = blocked.steps.map(step => step.id === "repository" ? { id: step.id, state: "blocked", blocked: { line: "Install the GitHub App", fix_url: "https://github.com/apps/smithers-1234/installations/new" } } : step)
+  const h = await harness(() => Response.json(blocked), { installPollMs: 5 })
+  await h.seam.readInstall()
+  h.seam.dispose()
+  const count = h.requests.length
+  await Bun.sleep(30)
+  expect(h.requests.length).toBe(count)
+})

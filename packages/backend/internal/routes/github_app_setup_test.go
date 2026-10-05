@@ -316,8 +316,9 @@ func TestGitHubAppSetupCallbackAndInstallationBrowserRoundTrip(t *testing.T) {
 			r = githubAppSetupCallbackRequest(origin, "installed", "installation_id=123&state=browser-state", "browser-state")
 			w = httptest.NewRecorder()
 			h.Installed(w, r)
-			require.Equal(t, http.StatusOK, w.Code)
-			require.JSONEq(t, `{"installed":true}`, w.Body.String())
+			// GitHub returns the person in a browser tab: it lands on the Setup card.
+			require.Equal(t, http.StatusSeeOther, w.Code)
+			require.Equal(t, "/", w.Header().Get("Location"))
 			require.EqualValues(t, 0, s.installationID, "redirect id is never authority")
 			cookies := w.Result().Cookies()
 			require.Len(t, cookies, 1)
@@ -343,10 +344,25 @@ func TestGitHubAppSetupInstallationResumesWithoutConversionState(t *testing.T) {
 		}
 		w := httptest.NewRecorder()
 		h.Installed(w, r)
-		require.Equal(t, http.StatusOK, w.Code)
+		require.Equal(t, http.StatusSeeOther, w.Code)
+		require.Equal(t, "/", w.Header().Get("Location"))
 		require.Equal(t, 1, s.installedCalls)
 		require.Zero(t, s.convertCalls)
 	}
+}
+
+// A failed installation resume still returns the person to the Setup card,
+// which reads the repository step from GitHub itself; the page is never JSON.
+func TestGitHubAppSetupInstalledFailureReturnsToSetupCard(t *testing.T) {
+	h, s := githubAppSetupTestHandler()
+	s.err = pkgerrors.New(pkgerrors.CodeGitHubUnavailable, "GitHub App request failed (502)")
+	r := githubAppSetupCallbackRequest("http://localhost:4000", "installed", "installation_id=123&setup_action=install", "")
+	r.AddCookie(&http.Cookie{Name: GitHubAppSetupSessionCookie, Value: strings.Repeat("s", 64)})
+	w := httptest.NewRecorder()
+	h.Installed(w, r)
+	require.Equal(t, http.StatusSeeOther, w.Code, w.Body.String())
+	require.Equal(t, "/", w.Header().Get("Location"))
+	require.Equal(t, 1, s.installedCalls)
 }
 
 func TestGitHubAppSetupCallbackFailuresPreserveRetryCookie(t *testing.T) {
@@ -576,7 +592,7 @@ func TestGitHubAppSetupProxyOriginRequiresTrustAndExactAllowlist(t *testing.T) {
 				}
 				w = httptest.NewRecorder()
 				h.Installed(w, r)
-				require.Equal(t, http.StatusOK, w.Code)
+				require.Equal(t, http.StatusSeeOther, w.Code)
 				require.True(t, w.Result().Cookies()[0].Secure)
 			} else {
 				require.Zero(t, s.beginCalls)

@@ -259,7 +259,7 @@ func TestGitHubAppSetupAuthorityOnEveryListenerPostgres(t *testing.T) {
 	_, err = pool.Exec(ctx, `UPDATE github_app_manifest_states SET expires_at=now()-interval '1 second'`)
 	require.NoError(t, err)
 	status, body, _ = request(local, "GET", "/setup/github/installed?installation_id=999", live[:2], false)
-	require.Equal(t, 200, status, string(body))
+	require.Equal(t, 303, status, string(body))
 	loaded, err := store.Load(ctx)
 	require.NoError(t, err)
 	require.Zero(t, loaded.InstallationID, "repository selection, not App creation, records installation coverage")

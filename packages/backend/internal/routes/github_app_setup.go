@@ -6,6 +6,7 @@ import (
 	"errors"
 	"github.com/smithersai/smithers/packages/backend/microsandbox"
 	"io"
+	"log/slog"
 	"net/http"
 	"strings"
 	"time"
@@ -305,8 +306,13 @@ func (h *GitHubAppSetupHandler) Callback(w http.ResponseWriter, r *http.Request)
 	}
 	http.Redirect(w, r, "/", http.StatusSeeOther)
 }
+
+// Installed is GitHub's return after the App is installed, in a browser tab.
+// It lands the person back on the Setup card, whose repository step reads the
+// installation from GitHub itself; the page is never a JSON body.
 func (h *GitHubAppSetupHandler) Installed(w http.ResponseWriter, r *http.Request) {
-	if origin, ok := h.requestOrigin(r); !ok {
+	origin, ok := h.requestOrigin(r)
+	if !ok {
 		writeGitHubAppOriginError(w, origin)
 		return
 	}
@@ -318,21 +324,10 @@ func (h *GitHubAppSetupHandler) Installed(w http.ResponseWriter, r *http.Request
 		return
 	}
 	if err := h.Service.ResumeInstallation(r.Context()); err != nil {
-		WriteInstallSetupError(w, r, err)
-		return
+		slog.WarnContext(r.Context(), "GitHub App installation resume failed; the Setup card reads the installation itself", "error", err)
 	}
-	origin, _ := h.requestOrigin(r)
 	http.SetCookie(w, &http.Cookie{Name: GitHubAppStateCookie, Path: "/", MaxAge: -1, HttpOnly: true, SameSite: http.SameSiteLaxMode, Secure: strings.HasPrefix(origin, "https://")})
-	installed := true
-	if h.Setup != nil {
-		credentials, err := h.Store.Load(r.Context())
-		if err != nil {
-			WriteInstallSetupError(w, r, err)
-			return
-		}
-		installed = credentials.InstallationID > 0
-	}
-	pkgerrors.WriteJSON(w, http.StatusOK, map[string]bool{"installed": installed})
+	http.Redirect(w, r, "/", http.StatusSeeOther)
 }
 
 // Step admits slow setup work and returns before any provider executes.

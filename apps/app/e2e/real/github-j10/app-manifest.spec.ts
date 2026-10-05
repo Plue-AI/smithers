@@ -144,7 +144,8 @@ test("a fresh localhost install creates and installs its GitHub App", scenario("
     await expect(page.getByText(REPOSITORY, { exact: true }).last()).toBeVisible()
     await page.getByRole("button", { name: "Install", exact: true }).click()
     await refuseSudo(page)
-    await page.waitForURL(url => url.origin === ORIGIN && url.pathname === "/setup/github/installed")
+    // GitHub returns to /setup/github/installed, which lands the person back on the Setup card.
+    await page.waitForURL(url => url.origin === ORIGIN && url.pathname === "/")
     const installed = await (await context.request.get(`${ORIGIN}/api/install`, { headers })).json() as InstallStatus
     expect(installed.github_app.installed).toBe(true)
     expect(installed.github_app.installation_id).toBeGreaterThan(0)

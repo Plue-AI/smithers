@@ -275,7 +275,9 @@ func authorizeInstallationOwner(w http.ResponseWriter, r *http.Request, authInfo
 		return true
 	}
 	ctx := r.Context()
-	if r.URL.Path == "/api/install" || strings.HasPrefix(r.URL.Path, "/api/install/setup/") || strings.HasPrefix(r.URL.Path, "/api/github-app/") || r.URL.Path == "/api/auth/github" || r.URL.Path == "/api/auth/github/callback" || r.URL.Path == "/api/auth/logout" {
+	// GitHub returns the browser to /setup/github/* before the repository step
+	// verifies the owner, so those returns are setup routes too.
+	if r.URL.Path == "/api/install" || strings.HasPrefix(r.URL.Path, "/api/install/setup/") || strings.HasPrefix(r.URL.Path, "/api/github-app/") || r.URL.Path == "/api/auth/github" || r.URL.Path == "/api/auth/github/callback" || r.URL.Path == "/api/auth/logout" || r.URL.Path == "/setup/github/callback" || r.URL.Path == "/setup/github/installed" {
 		ctx = identity.WithSetupScope(ctx)
 	}
 	if err := boundary.AuthorizeMember(ctx, authInfo.User.ID); err != nil {
