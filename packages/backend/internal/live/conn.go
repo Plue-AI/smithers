@@ -101,6 +101,23 @@ func (s *subscription) close() {
 	}
 }
 
+// clientFrame reads one text frame a browser sends (spec §7.1): sub with a
+// topic, unsub or presence, each with a positive id, and a cursor that is
+// never negative. Anything else is malformed.
+func clientFrame(raw []byte) (frame, bool) {
+	var in frame
+	if json.Unmarshal(raw, &in) != nil || in.ID == 0 || (in.Cursor != nil && *in.Cursor < 0) {
+		return frame{}, false
+	}
+	switch in.T {
+	case "unsub", "presence":
+		return in, true
+	case "sub":
+		return in, in.Topic != ""
+	}
+	return frame{}, false
+}
+
 func encode(f frame) []byte {
 	b, _ := json.Marshal(f)
 	return b
@@ -164,11 +181,12 @@ func (h *Hub) Serve(ctx context.Context, conn *websocket.Conn, resolve Resolver)
 			_ = conn.Close(websocket.StatusUnsupportedData, "malformed_frame")
 			return
 		}
-		var in frame
-		if json.Unmarshal(raw, &in) != nil || in.ID == 0 || (in.Cursor != nil && *in.Cursor < 0) {
+		in, ok := clientFrame(raw)
+		if !ok {
 			_ = conn.Close(websocket.StatusInvalidFramePayloadData, "malformed_frame")
 			return
 		}
+		// A frame for an id replaces whatever that id subscribed to.
 		if previous := subscriptions[in.ID]; previous != nil {
 			previous.close()
 			delete(subscriptions, in.ID)
@@ -178,10 +196,6 @@ func (h *Hub) Serve(ctx context.Context, conn *websocket.Conn, resolve Resolver)
 		case "presence":
 			refuse(in.ID, Unsupported)
 		case "sub":
-			if in.Topic == "" {
-				_ = conn.Close(websocket.StatusInvalidFramePayloadData, "malformed_frame")
-				return
-			}
 			source, code := resolve(ctx, in.Topic)
 			if code != "" {
 				refuse(in.ID, code)
@@ -212,9 +226,6 @@ func (h *Hub) Serve(ctx context.Context, conn *websocket.Conn, resolve Resolver)
 			sub.leave = leave
 			sub.mu.Unlock()
 			subscriptions[in.ID] = sub
-		default:
-			_ = conn.Close(websocket.StatusInvalidFramePayloadData, "malformed_frame")
-			return
 		}
 	}
 }
