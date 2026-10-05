@@ -21614,6 +21614,10 @@
       },
       {
         "kind": "file",
+        "path": "flows/test/coding-pinned-source.test.ts"
+      },
+      {
+        "kind": "file",
         "path": "flows/test/coding-flow-load.test.ts"
       },
       {

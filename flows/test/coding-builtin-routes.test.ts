@@ -394,6 +394,11 @@ test("a pinned launch activates the TODO flow read at its source commit, never t
   )
   assert.deepEqual(reads.slice(-1), [`${"1".repeat(40)}:flows/todo/flow.ts`])
   assert.equal(descriptor.description, "Pinned todo")
+  // The same pin again activates the same version.
+  const again = await Effect.runPromise(
+    activate({ flow: "todo", sourceCommit: "1".repeat(40), executionDigest: digest })
+  )
+  assert.equal(again.path, descriptor.path)
   assert.equal((await Effect.runPromise(registry.get("todo"))).description, "Pinned todo")
   const listed = (await Effect.runPromise(registry.list())).filter((entry) => entry.name === "todo")
   assert.deepEqual(listed.map((entry) => entry.description), ["Pinned todo"])
