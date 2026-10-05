@@ -152,6 +152,16 @@ export const createTodoSeam = (ctx: SeamContext, options: TodoSeamOptions = {}) 
       // A drop settles once the TODO is dropped.
       if (request.operation === "drop") return model.state === "dropped"
         ? [{ key: request.key, outcome: { status: "ok" as const, detail: "Dropped" } }] : []
+      // A steer settles once the card lists it; a stop once the TODO is paused; a resume once it runs again.
+      if (request.operation === "steer") return model.steers.some(steer => steer.text === request.body.text)
+        ? [{ key: request.key, outcome: { status: "ok" as const, detail: "Sent" } }] : []
+      if (request.operation === "stop" || request.operation === "resume") {
+        if (model.state === "merged" || model.state === "dropped") return [{ key: request.key, outcome: { status: "failed" as const, detail: model.state === "merged" ? "Merged" : "Dropped" } }]
+        if (request.operation === "stop") return model.state === "paused" ? [{ key: request.key, outcome: { status: "ok" as const, detail: "Paused" } }] : []
+        if (["paused", "queued", "starting"].includes(model.state)) return []
+        return [{ key: request.key, outcome: model.state === "failed"
+          ? { status: "failed" as const, detail: model.failure?.message ?? "Failed" } : { status: "ok" as const, detail: "Resumed" } }]
+      }
       // A retry settles once the attempt its receipt named runs: Working or past it, or failed again.
       if (request.operation === "retry" || request.operation === "retry-current-flow") {
         if (model.state === "dropped") return [{ key: request.key, outcome: { status: "failed" as const, detail: "Dropped" } }]
