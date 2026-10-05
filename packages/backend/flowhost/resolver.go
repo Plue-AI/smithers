@@ -31,8 +31,8 @@ var reservedEnvironment = map[string]struct{}{
 	"SMITHERS_API_KEY": {}, "SMITHERS_GATEWAY_ID": {},
 	"SMITHERS_OWNER_GENERATION": {}, "SMITHERS_FLOW_ARTIFACT_SHA256": {},
 	"SMITHERS_SOURCE_REVISION": {}, "SMITHERS_REPO": {},
-	"SMITHERS_CODING_IMPLEMENT_MODEL": {},
-	AccountPoolURLEnv:                 {}, AccountPoolProvidersEnv: {}, AccountPoolKeyEnv: {},
+	"SMITHERS_CODING_IMPLEMENT_MODEL": {}, "SMITHERS_CODING_REVIEW_MODEL": {},
+	AccountPoolURLEnv: {}, AccountPoolProvidersEnv: {}, AccountPoolKeyEnv: {},
 }
 
 // startCredentialEnvironment is what a start supplies and no catalog may:
@@ -107,6 +107,7 @@ func validateCatalog(catalog Catalog) (Catalog, error) {
 	catalog.Executable = strings.TrimSpace(catalog.Executable)
 	catalog.ServiceName = strings.TrimSpace(catalog.ServiceName)
 	catalog.ImplementationModel = strings.TrimSpace(catalog.ImplementationModel)
+	catalog.ReviewModel = strings.TrimSpace(catalog.ReviewModel)
 	if !catalogKeyPattern.MatchString(catalog.Key) {
 		return Catalog{}, errors.New("flow host catalog key is invalid")
 	}
@@ -130,6 +131,9 @@ func validateCatalog(catalog Catalog) (Catalog, error) {
 	}
 	if catalog.ImplementationModel != "" && !explicitModel(catalog.ImplementationModel) {
 		return Catalog{}, fmt.Errorf("flow host catalog %q model must be provider:model", catalog.Key)
+	}
+	if catalog.ReviewModel != "" && !explicitModel(catalog.ReviewModel) {
+		return Catalog{}, fmt.Errorf("flow host catalog %q review model must be provider:model", catalog.Key)
 	}
 	copyEnvironment := make(map[string]string, len(catalog.Environment))
 	for name, value := range catalog.Environment {

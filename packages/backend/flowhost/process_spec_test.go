@@ -59,6 +59,7 @@ func TestBuildProcessSpecUsesSameImmutableIdentityForWorkspaceAdapters(t *testin
 	assert.Equal(t, "bearer", spec.Environment["SMITHERS_API_KEY"])
 	assert.Equal(t, "7", spec.Environment["SMITHERS_OWNER_GENERATION"])
 	assert.Equal(t, "openai:gpt-5", spec.Environment["SMITHERS_CODING_IMPLEMENT_MODEL"])
+	assert.NotContains(t, spec.Environment, "SMITHERS_CODING_REVIEW_MODEL", "unpinned, the host chooses the review seat")
 	assert.NotContains(t, spec.Identity, "bearer")
 	assert.NotContains(t, spec.Environment, "SMITHERS_POSTGRES_URL")
 	assert.NotContains(t, spec.Environment, "SMITHERS_POSTGRES_SCHEMA")
@@ -72,6 +73,23 @@ func TestBuildProcessSpecUsesSameImmutableIdentityForWorkspaceAdapters(t *testin
 	spec, err = BuildProcessSpec(HostLaunch{Binding: binding, Authority: authority, Catalog: catalog, Credential: "bearer"}, WorkspacePaths{Root: "/workspace/repo", StateDir: "/workspace/state"}, 4317)
 	require.NoError(t, err)
 	assert.NotContains(t, spec.Environment, "SMITHERS_CODING_IMPLEMENT_MODEL")
+
+	// The operator's review seat reaches the host as the coding host reads
+	// it, and a pinned host is a different host.
+	pinned := catalog
+	pinned.ReviewModel = " cerebras:gpt-oss-120b "
+	pinned, err = validateCatalog(pinned)
+	require.NoError(t, err)
+	reviewed, err := BuildProcessSpec(HostLaunch{Binding: binding, Authority: authority, Catalog: pinned, Credential: "bearer"}, WorkspacePaths{Root: "/workspace/repo", StateDir: "/workspace/state"}, 4317)
+	require.NoError(t, err)
+	assert.Equal(t, "cerebras:gpt-oss-120b", reviewed.Environment["SMITHERS_CODING_REVIEW_MODEL"])
+	assert.NotEqual(t, spec.Identity, reviewed.Identity)
+	pinned.ReviewModel = "sol"
+	_, err = validateCatalog(pinned)
+	require.ErrorContains(t, err, "review model must be provider:model")
+	_, err = validateCatalog(Catalog{Key: CatalogCoding, Family: CatalogCoding, Executable: "/host", SystemFlows: []string{"merge"},
+		ArtifactDigest: strings.Repeat("a", 64), ServiceName: "host", Environment: map[string]string{"SMITHERS_CODING_REVIEW_MODEL": "openai:gpt-5"}})
+	require.ErrorContains(t, err, "reserved identity SMITHERS_CODING_REVIEW_MODEL", "only the operator's pin names the review seat")
 
 	// A start's landing credential reaches the host but not its identity, so
 	// an inspection without it still matches the live host (#2198).

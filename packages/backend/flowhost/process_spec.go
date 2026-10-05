@@ -101,6 +101,9 @@ func BuildProcessSpec(launch HostLaunch, paths WorkspacePaths, port uint16) (Pro
 	if launch.Catalog.ImplementationModel != "" {
 		environment["SMITHERS_CODING_IMPLEMENT_MODEL"] = launch.Catalog.ImplementationModel
 	}
+	if launch.Catalog.ReviewModel != "" {
+		environment["SMITHERS_CODING_REVIEW_MODEL"] = launch.Catalog.ReviewModel
+	}
 	args := []string{launch.Catalog.Executable, "serve", "--root", root, "--state-dir", stateDir,
 		"--host", host, "--port", strconv.Itoa(int(port)), "--listen"}
 	return ProcessSpec{

@@ -93,6 +93,7 @@ func newFlowComposition(options runOptions, cfg *config.Config, pool *pgxpool.Po
 			Key: flowhost.CatalogCoding, Family: flowhost.CatalogCoding,
 			Executable: registry.Coding.Executable, ArtifactDigest: registry.Coding.SHA256,
 			ServiceName: "smithers-coding-host", ImplementationModel: strings.TrimSpace(cfg.Sandbox.WorkspaceCodingDefaultModel),
+			ReviewModel:   strings.TrimSpace(cfg.Sandbox.WorkspaceCodingReviewModel),
 			ReadyTimeout:  readyTimeout,
 			Environment:   environment,
 			SystemFlows:   services.SystemFlows,

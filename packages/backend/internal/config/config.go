@@ -316,6 +316,10 @@ type SandboxConfig struct {
 	// Optional public model pin for workspace coding. Repository model settings
 	// and runtime credentials keep precedence; pool-only defaults resolve at host start.
 	WorkspaceCodingDefaultModel string `mapstructure:"workspace_coding_default_model"`
+	// Optional provider:model pin for the coding/review role (the stack's
+	// review/change and the review check). Unset, the coding host reviews on
+	// a second vendor its keys reach (flows/coding/host.ts reviewSeats).
+	WorkspaceCodingReviewModel string `mapstructure:"workspace_coding_review_model"`
 
 	// FlowJournalPostgresURL keeps each workspace coding host's control and
 	// engine journals in its own database on the backend's PostgreSQL server
@@ -823,6 +827,7 @@ func Load(configFile string) (*Config, error) {
 		{"sandbox.workspace_ssh_dial_host", "SMITHERS_SANDBOX_WORKSPACE_SSH_DIAL_HOST"},
 		{"sandbox.agent_snapshot_id", "SMITHERS_SANDBOX_AGENT_SNAPSHOT_ID"},
 		{"sandbox.workspace_coding_default_model", "SMITHERS_WORKSPACE_CODING_DEFAULT_MODEL"},
+		{"sandbox.workspace_coding_review_model", "SMITHERS_WORKSPACE_CODING_REVIEW_MODEL"},
 		{"sandbox.flow_journal_postgres_url", "SMITHERS_FLOW_JOURNAL_POSTGRES_URL"},
 		{"sandbox.preview_relay_token", "SMITHERS_PREVIEW_RELAY_TOKEN"},
 	} {

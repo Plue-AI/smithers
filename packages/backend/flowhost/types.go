@@ -57,6 +57,9 @@ type Catalog struct {
 	ReadyTimeout        time.Duration
 	Environment         map[string]string
 	ImplementationModel string
+	// ReviewModel pins the coding/review role (SMITHERS_CODING_REVIEW_MODEL).
+	// Omitted from the host identity when empty, so unpinned hosts keep theirs.
+	ReviewModel string `json:",omitempty"`
 	// ModelProxyURL is the metered platform-model proxy reachable from the
 	// host; ModelSeats are the platform seats it serves. Each seat's key is
 	// the binding's model credential (ModelCredential), never a provider key.
