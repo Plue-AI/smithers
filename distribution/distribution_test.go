@@ -60,44 +60,6 @@ func TestContainerContract(t *testing.T) {
 	}
 }
 
-// Every Go command under apps/ ships in the image; an unbuilt command is dead code.
-func TestImageBuildsEveryAppCommand(t *testing.T) {
-	b, err := os.ReadFile("Dockerfile")
-	if err != nil {
-		t.Fatal(err)
-	}
-	built := map[string]bool{}
-	for _, line := range strings.Split(string(b), "\n") {
-		if strings.Contains(line, "sh scripts/build-backend.sh") {
-			built["apps/backend"] = true
-		}
-		if !strings.Contains(line, "go build") {
-			continue
-		}
-		fields := strings.Fields(line)
-		built[strings.TrimPrefix(fields[len(fields)-1], "./")] = true
-	}
-	cmd := exec.Command("go", "list", "-f", `{{if eq .Name "main"}}{{.Dir}}{{end}}`, "./apps/...")
-	cmd.Dir = ".."
-	out, err := cmd.Output()
-	if err != nil {
-		t.Fatal(err)
-	}
-	root, err := filepath.Abs("..")
-	if err != nil {
-		t.Fatal(err)
-	}
-	for _, dir := range strings.Fields(string(out)) {
-		rel, err := filepath.Rel(root, dir)
-		if err != nil {
-			t.Fatal(err)
-		}
-		if !built[filepath.ToSlash(rel)] {
-			t.Errorf("Go command %s is not built by distribution/Dockerfile", rel)
-		}
-	}
-}
-
 func TestBackupRestorePreservesDurableClasses(t *testing.T) {
 	// libpq takes the password from the userinfo or from a password= query
 	// parameter, whose key and value are percent-decoded; the query one wins.

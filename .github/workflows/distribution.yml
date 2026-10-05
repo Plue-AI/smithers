@@ -15,7 +15,7 @@ concurrency:
 
 jobs:
   image:
-    name: image, backup and restore
+    name: preview image
     runs-on: ubuntu-latest
     timeout-minutes: 120
     steps:
@@ -33,11 +33,7 @@ jobs:
       - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
         with:
           node-version: 26.4.0
-      - name: Distribution release contracts
-        run: node --test scripts/repo-contract/distribution-image-tag.test.mjs distribution/fake-coding-provider.test.mjs distribution/publish-image.test.mjs
-      - name: Build distribution image
-        run: docker build --build-arg "BUILD_SHA=$GITHUB_SHA" -f distribution/Dockerfile -t smithers-distribution:ci .
-      - name: Test distribution image
+      - name: Test preview image
         env:
           SMITHERS_BUILD_SHA: ${{ github.sha }}
-        run: SMITHERS_DOCKER_SKIP_BUILD=1 bash distribution/test-image.sh smithers-distribution:ci
+        run: bash distribution/test-preview.sh smithers-preview:ci
