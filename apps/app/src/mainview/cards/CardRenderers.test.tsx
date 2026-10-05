@@ -13,6 +13,7 @@ import { ControllerTestProvider } from "../ControllerContext"
 import type { AppController } from "../state/AppController"
 import { createDesignWorld } from "../state/seams/DesignWorld"
 import { BEN, MAYA } from "../state/seams/DesignWorld/world"
+import { designMembersRoster, designViewerRole } from "../state/seams/DesignWorld/settings"
 
 /*
  * The renderer map replaced ChatCards.tsx's render switch and pill switch.
@@ -287,11 +288,11 @@ test("repository chooser exposes one keyboard stop and the highlighted repositor
  */
 describe("subject card bodies", () => {
   const unanswered = { get: () => ({}), subscribe: () => () => {} }
-  const controller = (viewer: string, find: (name: string) => unknown) => ({
-    design: createDesignWorld({ viewer }),
-    installSnapshots: unanswered,
-    commands: { find, submit: async () => ({ status: "done" }) }
-  }) as unknown as AppController
+  const controller = (viewer: string, find: (name: string) => unknown) => {
+    const design = createDesignWorld({ viewer })
+    return { design, installSnapshots: unanswered, membersRoster: designMembersRoster(design), membersRole: () => designViewerRole(design),
+      commands: { find, submit: async () => ({ status: "done" }) } } as unknown as AppController
+  }
   const body = <K extends "settings" | "members" | "commands">(kind: K, viewer: string, find: (name: string) => unknown = () => undefined) =>
     renderToStaticMarkup(<ControllerTestProvider controller={controller(viewer, find)}>
       {cardRenderer(kind).render(CardSchema.parse({ ...base, kind, status: "active", payload: {} }) as CardOf<K>, handlers)}</ControllerTestProvider>)
@@ -300,8 +301,10 @@ describe("subject card bodies", () => {
     expect(body("settings", MAYA)).toContain("Machines")
     expect(body("settings", BEN)).toBe("")
   })
-  test("members renders nothing while its production providers are unavailable (T-APP-06 lands dark)", () => {
-    expect(body("members", MAYA)).toBe("")
+  test("members lists the seeded roster off an install", () => {
+    const markup = body("members", MAYA)
+    expect(markup).toContain('data-login="mayachen"')
+    expect(markup).toContain('data-login="benortiz"')
   })
   test("commands lists only the flows the registry holds", () => {
     const find = (name: string) => name === "help" || name === "members"

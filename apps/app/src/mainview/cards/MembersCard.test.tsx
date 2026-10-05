@@ -3,6 +3,9 @@ import { renderToStaticMarkup } from "react-dom/server"
 import { MembersCard } from "./MembersCard"
 import type { MembersViewProps } from "@smthrs/rpc/MembersCard"
 import { createMembersSeam } from "../state/seams/MembersSeam"
+import { ControllerTestProvider } from "../ControllerContext"
+import type { AppController } from "../state/AppController"
+import { CARD_RENDERERS } from "./CardRenderers"
 
 const row = (login: string, role: "owner" | "maintainer" | "member", needs_access = false, suspended = false) => ({
   login, name: login, avatar_url: "https://github.com/avatar.png", color_index: 0, role, needs_access, suspended, actions: []
@@ -146,4 +149,19 @@ test("a missing roster renders no controls or invented rows", () => {
   const html = renderToStaticMarkup(<MembersCard roster={{ get: () => ({}), subscribe: () => () => {} }} role="owner"
     dispatch={() => { throw new Error("unexpected dispatch") }} view={{ maximized: false }} onView={() => {}} />)
   expect(html).toBe("")
+})
+
+const actions = { onDecideApproval: () => {}, onConnectGitHub: () => {}, onRunWorkflow: () => {}, onStopRun: () => {}, onRetryRun: () => {}, onChooseWorkflowRepo: () => {}, worldDocuments: [], onChangeWorldDocument: () => {}, onRunCommand: () => {} }
+test("the registry renders the controller's roster: nothing before it reads, its rows after", () => {
+  let snapshot: { model?: typeof model } = {}
+  const submitted: unknown[] = []
+  const controller = { membersRoster: { get: () => snapshot, subscribe: () => () => {} }, membersRole: () => "member",
+    commands: { submit: (command: unknown) => { submitted.push(command) } } } as unknown as AppController
+  const card = { id: "members", kind: "members", title: "Members", status: "active", createdAt: 1, ordinal: 1, payload: {} } as const
+  const render = () => renderToStaticMarkup(<ControllerTestProvider controller={controller}>{CARD_RENDERERS.members.render(card, actions)}</ControllerTestProvider>)
+  expect(render()).toBe("")
+  snapshot = { model }
+  const markup = render()
+  for (const login of ["will", "ben", "sam", "lee"]) expect(markup).toContain(login)
+  expect(submitted).toEqual([])
 })

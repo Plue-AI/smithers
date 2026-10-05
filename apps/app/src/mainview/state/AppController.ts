@@ -132,10 +132,11 @@ import { createSecretsSeam } from "./seams/SecretsSeam"
 import type { StackSeam } from "./seams/StackSeam"
 import { createInstallSeam, type InstallSeam, type InstallTopic } from "./seams/InstallSeam"
 import { createGitHubSyncSeam, type GitHubSyncSeam } from "./seams/GitHubSyncSeam"
+import { createMembersSeam, type MembersSnapshots } from "./seams/MembersSeam"
 import { createTodoSeam, type TodoSeam, type TodoTopics } from "./seams/TodoSeam"
 import { createDesignWorld, type DesignWorld } from "./seams/DesignWorld"
 import { actCard, confirmSubject, designPlainTurn, designTurn, mergeCard, type DesignTurn } from "./seams/DesignWorld/chat"
-import { designSettings } from "./seams/DesignWorld/settings"
+import { designMembers, designMembersRoster, designSettings, designViewerRole } from "./seams/DesignWorld/settings"
 import { shellViewsOf } from "./seams/DesignWorld/shell"
 import { DESIGN_CARD, newWikiPage, wikiCard } from "./seams/DesignWorld/subjects"
 import { todoSourceProbe, withDesignTodos, type TodoRoute } from "./seams/DesignWorld/todo"
@@ -500,6 +501,14 @@ export interface AppController extends IssueFlowsController {
   readonly controlTodo: TodoSeam["controlTodo"]
   readonly refreshWiki: StackSeam["refreshWiki"]
   readonly installSnapshots: InstallSeam["snapshots"]
+  /** The roster the Members card reads: GET /api/members on an install; elsewhere the seeded roster (MOCK SEAM, DesignWorld/settings.ts). */
+  readonly membersRoster: MembersSnapshots
+  /** The signed-in person's role on that roster; "member" until the roster names them. */
+  readonly membersRole: () => "owner" | "maintainer" | "member"
+  /** Reads the roster for the Members card (an install rereads GET /api/members). */
+  readonly showMembers: () => void
+  /** members.add, members.role and members.remove: the install's routes, or the seeded roster off an install. A string is the refusal. */
+  readonly changeMembers: (tag: "members.add" | "members.role" | "members.remove", input: { readonly login: string; readonly role?: "maintainer" | "member" }) => Promise<string | { readonly value: string }>
   /** GET /api/todos, read while Home is open on a host with no `home` topic (T-APP-01). */
   readonly todoList: TodoSeam["list"]
   /** The install's GitHub sync health, which Home's `main` row shows (GET /api/github/sync); none on other hosts. */
@@ -848,6 +857,26 @@ export const createAppController = (
   ctx.onDispose(design.dispose)
   const gitHubSyncSeam = createGitHubSyncSeam({ http: installHost ? (path, init) => seamCtx.http(`${baseUrl.replace(/\/$/, "")}${path}`, init) : undefined })
   ctx.onDispose(gitHubSyncSeam.dispose)
+  /* Members (T-ACC-02): an install reads and changes its roster through /api/members; the seeded roster stands in only off an install. */
+  const membersSeam = createMembersSeam({ ready: installHost, http: (path, init) => seamCtx.http(`${baseUrl.replace(/\/$/, "")}${path}`, init),
+    live: services.live ?? { subscribe: () => () => {}, getSnapshot: () => undefined } })
+  ctx.onDispose(membersSeam.dispose)
+  const membersRoster = installHost ? membersSeam.snapshots : designMembersRoster(design)
+  const membersRole = (): "owner" | "maintainer" | "member" => {
+    if (!installHost) return designViewerRole(design)
+    const login = store.collections.identitySessions.get("identity")?.login?.toLowerCase()
+    return membersSeam.snapshots.get().model?.members.find(member => member.login.toLowerCase() === login)?.role ?? "member"
+  }
+  const showMembers = () => { if (installHost) { membersSeam.start(); void membersSeam.read() } }
+  const changeMembers: AppController["changeMembers"] = async (tag, { login, role }) => {
+    if (!installHost) {
+      if (designViewerRole(design) === "member") return "A maintainer manages members"
+      const seeded = designMembers(design)
+      return tag === "members.add" ? seeded.add(login, role) : tag === "members.role" ? seeded.role(login, role ?? "member") : seeded.remove(login)
+    }
+    const refused = await membersSeam.mutate(tag, tag === "members.remove" ? { login } : { login, role: role ?? "member" })
+    return refused ? refused.message : { value: tag === "members.add" ? `Added ${login}` : tag === "members.role" ? `${login}: ${role ?? "member"}` : `Removed ${login}` }
+  }
   const presentCard = async (kind: "settings" | "members" | "commands" | "branch" | "terminal", title: string, subject?: string): Promise<string> => {
     const id = subject === undefined ? kind : `${kind}:${subject}`
     const existing = store.collections.cards.get(id)
@@ -1644,6 +1673,8 @@ export const createAppController = (
     setInstallObsidian: installSeam.setInstallObsidian,
     setInstallParallel: parallel => !installHost && installSeam.snapshots.get().model === undefined ? designSettings(design).parallel(parallel) : installSeam.setInstallParallel(parallel),
     saveInstallModelKey: installSeam.saveInstallModelKey,
+    showMembers,
+    changeMembers,
     promptStorageRecovery,
     exportStorageRecovery,
     resetStorageRecovery,
@@ -2114,6 +2145,8 @@ export const createAppController = (
     nativeAgentAvailable: agent.available,
     tappedFetch: http,
     installSnapshots: installSeam.snapshots,
+    membersRoster,
+    membersRole,
     todoList: todoSeam.list,
     githubSyncSnapshots: gitHubSyncSeam.snapshots,
     design,

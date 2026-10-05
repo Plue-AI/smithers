@@ -37,6 +37,10 @@ const USER_ONLY_ALLOWLIST: Readonly<Record<string, string>> = {
   "debug.api": "raw API bypasses flow typing and approvals; agents use flows",
   "debug-api": "raw API bypasses flow typing and approvals; agents use flows",
   "storage.recovery.export": STORAGE_RECOVERY_USER_ONLY_REASON,
+  "members": "Only a person can do this",
+  "members.add": "Only a person can do this",
+  "members.role": "Only a person can do this",
+  "members.remove": "Only a person can do this",
   "storage.recovery.reset": STORAGE_RESET_USER_ONLY_REASON,
   "chat.queue": "the prompt queue is the human's composer",
   "chat.queue.edit": "the prompt queue is the human's composer",
@@ -378,9 +382,9 @@ test("versioned flow doors register on the design seam; a person's flow.edit dra
   expect(confirmationFor(store, "flow.edit")).toBeDefined()
 })
 
-test("Members has no slash, button or agent command while its production providers are unavailable", async () => {
+test("Members doors are a person's: the slash and card commands exist, and the agent has none", async () => {
   const { controller } = await boot()
   try {
-    for (const name of ["members", "members.add", "members.role", "members.remove"]) expect(controller.commands.find(name)).toBeUndefined()
+    for (const name of ["members", "members.add", "members.role", "members.remove"]) expect(modelInvocable(controller.commands.find(name)!)).toBe(false)
   } finally { controller.dispose() }
 })

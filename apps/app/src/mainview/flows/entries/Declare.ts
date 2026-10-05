@@ -54,6 +54,9 @@ export type CommandActions =
     // Live stack snapshots are what the Stack views read, never an act.
     | "installSnapshots"
     | "githubSyncSnapshots"
+    // The roster and the person's role are what the Members card reads, never an act.
+    | "membersRoster"
+    | "membersRole"
     | "stackSnapshots"
     // The TODO list Home reads where no `home` topic is served, never an act.
     | "todoList"

@@ -1,5 +1,6 @@
 import { useSyncExternalStore, type ComponentType } from "react"
-import type { CardFamily } from "./CardFamily"
+import { useController } from "../ControllerContext"
+import type { CardActions, CardFamily } from "./CardFamily"
 import { MembersCardSchema, type MembersViewProps } from "@smthrs/rpc/MembersCard"
 import { cardActions, type CardActionDefinition, type CardCommandDispatch } from "../flows/cardActions"
 import { toActor } from "../state/ProductActor"
@@ -43,5 +44,13 @@ export function MembersCard({ roster, role, dispatch, View = MembersView, view, 
     onAction={bindings.onAction} view={view} onView={onView} />
 }
 
-/* T-APP-06: joint provider/check activation is unavailable. The registry never mounts seed data. */
-export const membersCardFamily: CardFamily<"members"> = { members: { render: () => null, pill: () => "" } }
+/* The members card (card-kinds.md L5): subject only; maintainers and the owner manage people. On an install the roster is
+ * GET /api/members; elsewhere it is the seeded roster (MOCK SEAM, DesignWorld/settings.ts). */
+const MembersBody = ({ presentation }: { readonly presentation: CardActions["presentation"] }) => {
+  const controller = useController()
+  const roster = controller.membersRoster
+  useSyncExternalStore(roster.subscribe, roster.get, roster.get)
+  return <MembersCard roster={roster} role={controller.membersRole()} view={{ maximized: presentation === "maximized" }} onView={() => {}}
+    dispatch={(tag, input) => controller.commands.submit({ name: tag, payload: (input ?? {}) as Record<string, unknown>, actor: "user" })} />
+}
+export const membersCardFamily: CardFamily<"members"> = { members: { render: (_card, { presentation }) => <MembersBody presentation={presentation} />, pill: () => "" } }
