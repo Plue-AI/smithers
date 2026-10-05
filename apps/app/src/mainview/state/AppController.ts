@@ -980,6 +980,20 @@ export const createAppController = (
       }
   ))
     const { storageRecoveryState, promptStorageRecovery, exportStorageRecovery, resetStorageRecovery } = actors.pair(ctx, createStorageRecoveryController)
+  /*
+   * An install's owner is admitted part-way through Setup (GitHub sign-in, then the repository claim), after the
+   * page read its identity at boot. Each Setup step that finishes reads it again until it answers signed in, so the
+   * TODO, Draft and Members doors open for the owner without a reload.
+   */
+  let installStepsDone: string | undefined
+  ctx.onDispose(installSeam.snapshots.subscribe(() => {
+    const model = installSeam.snapshots.get().model
+    if (!installHost || model === undefined || !model.github.signed_in) return
+    const done = model.steps.flatMap(step => step.state === "done" ? [step.id] : []).join()
+    if (done === installStepsDone) return
+    installStepsDone = done
+    if (store.collections.identitySessions.get("identity")?.state !== "signed-in") void loadSession()
+  }))
 
   const {
     showChat,
