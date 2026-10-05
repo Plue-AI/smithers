@@ -20,8 +20,9 @@ import (
 // ([FLOWEDIT]): its PR changes exactly flows/todo/flow.ts, the built-in
 // composition plus a changelog step. Ben merges B; flow-load runs on every
 // main move (spec §11.3.1) and makes B's flow Active; a broken flow merged on
-// GitHub leaves it Active. Pinning the flow waits on its lane and is listed
-// as pending.
+// GitHub leaves it Active. Every TODO pins the Active version when it starts
+// (spec §11.4.1): A and R pin D1, C pins D2 and runs its changelog step, and
+// A's continuation and R's retry keep D1.
 func TestJ5Rehearsal(t *testing.T) {
 	// The install loads its flows after every main move.
 	t.Setenv("SMITHERS_FEATURE_FLAGS_FLOW_LOAD", "true")
@@ -38,7 +39,7 @@ func TestJ5Rehearsal(t *testing.T) {
 			return fmt.Errorf("the turn did not settle within a minute")
 		}
 	})
-	var a, b int64
+	var a, b, fails int64
 	if !r.step("2 TODO A asks and waits", "POST /api/todos; GET /api/todos/{A}", "202; needs_you with one question", "T-STK-01", func() error {
 		var err error
 		// B, the flow edit, is filed first: a TODO merges only after the
@@ -48,6 +49,11 @@ func TestJ5Rehearsal(t *testing.T) {
 			return err
 		}
 		if a, err = r.file("A asks first", "[ASK] [FILE a.md] Ask me which file to edit before editing"); err != nil {
+			return err
+		}
+		// R pins D1 beside A and fails on every attempt ([FAIL] empties
+		// JOURNEY.md); row 16 retries it once D2 is Active.
+		if fails, err = r.file("R fails", "[FAIL] [FILE r.md] Add a greeting to r.md"); err != nil {
 			return err
 		}
 		v, err := r.waitTodoWithin(a, 8*time.Minute, "needs_you")
@@ -283,10 +289,148 @@ func TestJ5Rehearsal(t *testing.T) {
 			}
 		}
 	})
-	r.pending("13 TODO A pinned D1", "GET /api/todos/{A}", "A's evidence pins D1", "T-FLW-11", "pinned-todo-flow")
-	r.pending("14 TODO C pins D2", "POST /api/todos; GET /api/todos/{C}", "C pins D2 at Starting; its evidence shows the changelog step", "T-FLW-11", "pinned-todo-flow")
-	r.pending("15 TODO A keeps D1", "answer A; GET /api/todos/{A}", "A continues on D1 with no changelog step", "T-FLW-11", "pinned-todo-flow")
-	r.pending("16 Retry keeps the pin", "POST /api/todos/{A} {op: retry}", "the retry attempt pins D1", "T-FLW-11, T-STK-05", "pinned-todo-flow")
+	r.step("13 TODO A pinned D1", "GET /api/todos/{A}", "A's evidence pins D1", "T-FLW-11", func() error {
+		if d1 == "" || d2 == "" {
+			return fmt.Errorf("blocked by 4 Flows or 10 Active after load: no D1 or D2")
+		}
+		v, err := r.todo(a)
+		if err != nil {
+			return err
+		}
+		if pin := todoFlowPin(v, 1); pin != d1 {
+			return fmt.Errorf("T%d attempt 1 pins todo %q, want D1 %s", a, pin, d1)
+		}
+		r.actual = fmt.Sprintf("200 T%d %s; attempt 1 pins todo D1 %s… while D2 %s… is Active", a, v.State, d1[:12], d2[:12])
+		return nil
+	})
+	var c int64
+	r.step("14 TODO C pins D2", "POST /api/todos; GET /api/todos/{C}; GitHub fake PR", "C pins D2 at Starting; its evidence shows the changelog step", "T-FLW-11", func() error {
+		if d2 == "" {
+			return fmt.Errorf("blocked by 10 Active after load: no D2")
+		}
+		var err error
+		if c, err = r.file("C after the edit", "[FILE c.md] Add a greeting to c.md"); err != nil {
+			return err
+		}
+		started, err := r.waitTodoWithin(c, 3*time.Minute, "starting", "working", "needs_you", "in_review")
+		if err != nil {
+			return err
+		}
+		if pin := todoFlowPin(started, 1); pin != d2 {
+			return fmt.Errorf("T%d is %s pinning todo %q, want D2 %s", c, started.State, pin, d2)
+		}
+		v, err := r.waitTodoWithin(c, 8*time.Minute, "in_review")
+		if err != nil {
+			return err
+		}
+		p, err := r.checkPull(v.PR.Number, v.PR.Head)
+		if err != nil {
+			return err
+		}
+		files, err := r.prFiles(p)
+		if err != nil {
+			return err
+		}
+		// D2's request asks every TODO for [CHANGELOG]: C's change carries it.
+		if !slices.Contains(files, "CHANGELOG.md") || !slices.Contains(files, "c.md") {
+			return fmt.Errorf("C's PR changes %v, want c.md and the changelog step's CHANGELOG.md", files)
+		}
+		if pin := todoFlowPin(v, 1); pin != d2 {
+			return fmt.Errorf("T%d in review pins todo %q, want D2 %s", c, pin, d2)
+		}
+		r.actual = fmt.Sprintf("200 T%d %s pinning D2 %s…; in_review, PR #%d changes %v", c, started.State, d2[:12], p.Number, files)
+		return nil
+	})
+	r.step("15 TODO A keeps D1", "POST /api/todos/{A}/answer; GET /api/todos/{A}; GitHub fake PR", "A continues on D1 with no changelog step", "T-FLW-11", func() error {
+		if d1 == "" {
+			return fmt.Errorf("blocked by 4 Flows: no D1")
+		}
+		v, err := r.todo(a)
+		if err != nil {
+			return err
+		}
+		if v.State != "needs_you" || len(v.Waits) != 1 {
+			return fmt.Errorf("T%d is %s with waits %+v, want one open question", a, v.State, v.Waits)
+		}
+		if code, data, err := r.answer(a, v.Waits[0].ID, "a.md"); err != nil || code != 202 {
+			return fmt.Errorf("answer T%d: HTTP %d %s %v", a, code, data, err)
+		}
+		if v, err = r.waitTodoWithin(a, 8*time.Minute, "in_review"); err != nil {
+			return err
+		}
+		p, err := r.checkPull(v.PR.Number, v.PR.Head)
+		if err != nil {
+			return err
+		}
+		files, err := r.prFiles(p)
+		if err != nil {
+			return err
+		}
+		if !slices.Equal(files, []string{"a.md"}) {
+			return fmt.Errorf("A's PR changes %v, want only a.md: D1 has no changelog step", files)
+		}
+		if v.Run == nil || v.Run.Attempt != 1 {
+			return fmt.Errorf("T%d continued on run %+v, want attempt 1", a, v.Run)
+		}
+		if pin := todoFlowPin(v, 1); pin != d1 {
+			return fmt.Errorf("T%d in review pins todo %q, want D1 %s", a, pin, d1)
+		}
+		r.actual = fmt.Sprintf("202; T%d in_review on attempt 1 pinning D1 %s…; PR #%d changes %v", a, d1[:12], p.Number, files)
+		return nil
+	})
+	r.step("16 Retry keeps the pin", "POST /api/todos/{R} {op: retry}", "R failed on D1; its retry attempt pins D1 while D2 is Active", "T-FLW-11, T-STK-05", func() error {
+		if d1 == "" || d2 == "" {
+			return fmt.Errorf("blocked by 4 Flows or 10 Active after load: no D1 or D2")
+		}
+		failed, err := r.waitTodoWithin(fails, 15*time.Minute, "failed")
+		if err != nil {
+			return err
+		}
+		if failed.Run == nil {
+			return fmt.Errorf("T%d failed with no run", fails)
+		}
+		attempt := failed.Run.Attempt
+		if pin := todoFlowPin(failed, int32(attempt)); pin != d1 {
+			return fmt.Errorf("T%d failed attempt %d pins todo %q, want D1 %s", fails, attempt, pin, d1)
+		}
+		code, data, err := r.keyed("POST", fmt.Sprintf("/api/todos/%d", fails), `{"op":"retry"}`, r.keyPrefix+"retry-r")
+		if err != nil || code != 202 {
+			return fmt.Errorf("retry T%d: HTTP %d %s %v", fails, code, data, err)
+		}
+		retried, err := r.waitTodoWithin(fails, 5*time.Minute, "starting", "working", "in_review", "failed")
+		if err != nil {
+			return err
+		}
+		for deadline := time.Now().Add(2 * time.Minute); retried.Run == nil || retried.Run.Attempt <= attempt; time.Sleep(500 * time.Millisecond) {
+			if time.Now().After(deadline) {
+				return fmt.Errorf("T%d has run %+v after the retry, want attempt %d", fails, retried.Run, attempt+1)
+			}
+			if retried, err = r.todo(fails); err != nil {
+				return err
+			}
+		}
+		if pin := todoFlowPin(retried, int32(retried.Run.Attempt)); pin != d1 {
+			return fmt.Errorf("T%d retry attempt %d pins todo %q, want D1 %s (Active is D2 %s)", fails, retried.Run.Attempt, pin, d1, d2)
+		}
+		r.actual = fmt.Sprintf("202; T%d failed on attempt %d pinning D1 %s…, retry attempt %d pins D1 while D2 %s… is Active", fails, attempt, d1[:12], retried.Run.Attempt, d2[:12])
+		return nil
+	})
+}
+
+// todoFlowPin answers the todo flow version an attempt's evidence pins.
+func todoFlowPin(v rehearsalTodo, attempt int32) string {
+	for _, evidence := range v.Evidence {
+		if evidence.Attempt != attempt {
+			continue
+		}
+		for _, item := range evidence.Items {
+			if item["kind"] == "flow" && item["name"] == "todo" {
+				version, _ := item["version"].(string)
+				return version
+			}
+		}
+	}
+	return ""
 }
 
 // rehearsalFlowCard is what the flow rows read of one GET /api/flows card.
