@@ -14,6 +14,7 @@ import { digest } from "@smthrs/core/Digest"
 import { codingVibeRequestOf } from "../../cards/CodingVibe"
 import { codingEvidenceOf } from "../../cards/CodingPlan"
 import { engineProjectionPending } from "../../cards/EngineTrace"
+import { randomUuid } from "../../runtime/RandomUuid"
 
 type RunCard = Extract<Card, { kind: "run-trace" }>
 /** A request that names its box: the only kind a new request card records. */
@@ -318,7 +319,7 @@ export const createWorkflowLaunchController = (
       else send(prior.id, held)
       return { value: `run-requested workflow=${args.workflow} request=${held.id} repo=${args.repo}` }
     }
-    const request: BoxLaunch = { version: 1, id: crypto.randomUUID(), owner: login, repo: args.repo, workspaceId: args.binding.workspaceId, workflow: args.workflow,
+    const request: BoxLaunch = { version: 1, id: randomUuid(), owner: login, repo: args.repo, workspaceId: args.binding.workspaceId, workflow: args.workflow,
       input, preparationStartedAt: Date.now(), ...(args.triggerRegistration === undefined ? {} : { triggerRegistration: args.triggerRegistration }), ...(args.triggerDispatch === undefined ? {} : { triggerDispatch: args.triggerDispatch }), ...(args.then === undefined ? {} : { then: args.then }), ...(args.source === undefined ? {} : { source: args.source }), ...(args.rerunOf === undefined ? {} : { rerunOf: args.rerunOf }) }
     const id = `flow-request-${request.id}`
     const saving = store.dispatch({ type: "card.upsert", actor: args.actor, card: requestCard(id, request) }).isPersisted.promise

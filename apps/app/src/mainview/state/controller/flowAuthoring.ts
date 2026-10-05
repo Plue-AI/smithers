@@ -12,6 +12,7 @@ import type { ControllerContext } from "./context"
 import { isFlowNotFound, type GatewayWorkspaceBinding } from "./gateway"
 import { TOAST_CANCELLED, TOAST_SUPERSEDED } from "./failures"
 import { failureDetail } from "@smthrs/rpc/UserFailure"
+import { randomUuid } from "../../runtime/RandomUuid"
 
 type Run = Extract<Card, { kind: "run-trace" }>
 type Plan = Extract<Card, { kind: "flow-plan" }>
@@ -194,7 +195,7 @@ export const createFlowAuthoringController = (
       saved = store.dispatch({ type: "card.upsert", actor, card: {
         id, kind: "run-trace", title: "Creating a flow", status: "active", ordinal, createdAt: Date.now(),
         payload: { repo, ...binding, gatewayBindingVersion: 1, runId: "", workflow: FLOW_AUTHORING_ENTRY, phase: "launching", steps: [], result: null, lastSeq: 0,
-          input: { args: description }, authoring: { requestId: crypto.randomUUID(), owner } }
+          input: { args: description }, authoring: { requestId: randomUuid(), owner } }
       } }).isPersisted.promise
       persisting.set(id, saved)
     }

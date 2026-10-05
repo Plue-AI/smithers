@@ -1,8 +1,8 @@
 import { MembersCardSchema, type MembersCard } from "@smthrs/rpc/MembersCard"
 import type { CardCommandInput } from "@smthrs/rpc/CardAction"
-import { installRequestId } from "./InstallRequestId"
 import type { LiveChannel } from "../../runtime/LiveChannel"
 import { InstallErrorSchema, type InstallError } from "./InstallModel"
+import { randomUuid } from "../../runtime/RandomUuid"
 
 // T-ACC-02 owns the shared validator; replace this boundary validator when it is exported.
 export const validMemberLogin = (login: string) => /^[a-z\d](?:[a-z\d]|-(?=[a-z\d])){0,38}$/i.test(login)
@@ -60,7 +60,7 @@ export function createMembersSeam(options: {
     try {
       const response = await options.http(path, { credentials: "same-origin",
         method: tag === "members.add" ? "POST" : tag === "members.role" ? "PATCH" : "DELETE",
-        headers: { "Content-Type": "application/json", "Idempotency-Key": installRequestId() },
+        headers: { "Content-Type": "application/json", "Idempotency-Key": randomUuid() },
         ...(tag === "members.remove" ? {} : { body: JSON.stringify(tag === "members.add" ? { login: input.login } : { role: "role" in input ? input.role : undefined }) }) })
       if (disposed) return
       if (!response.ok) {

@@ -11,6 +11,7 @@ import { refusalOf } from "@smthrs/rpc/Refusal"
 import { refusalLine } from "@smthrs/rpc/RefusalCopy"
 
 import type { PersonaRef } from "@smthrs/rpc/Threads"
+import { randomUuid } from "../../runtime/RandomUuid"
 
 /** Which rows a list shows: every issue, only conversations, or only issues (smithers-ui-DESIGN.md §3.1). */
 export type IssueKindFilter = "all" | "conversation" | "issue"
@@ -892,7 +893,7 @@ export const createIssuesSeam = (ctx: SeamContext, renderRepositoryForm?: Reposi
       if (!text.trim() || !owner || signedInOwner() !== owner || ctx.isDisposed?.()) return false
       const branchId = ctx.store.session().activeBranchId ?? "branch-main"
       const existing = [...ctx.store.collections.cards.values()].find(card => card.kind === "issue" && card.payload.conversation?.branchId === branchId && card.payload.conversation.owner === owner && card.payload.repo === repo)
-      const cardId = existing?.id ?? `conversation-issue:${crypto.randomUUID()}`
+      const cardId = existing?.id ?? `conversation-issue:${randomUuid()}`
       const request = { id: `message-${turnId}-user`, text, turnId, owner, actor: ctx.actor(), status: "requested" as const }
       if (existing?.kind === "issue") {
         if (existing.payload.pendingComments?.some(row => row.id === request.id || row.text === text && row.status === "requested")) return true
@@ -993,7 +994,7 @@ export const createIssuesSeam = (ctx: SeamContext, renderRepositoryForm?: Reposi
         if (chat.payload.pendingComments?.some(row => row.text === text && row.status === "requested" && JSON.stringify(row.persona) === JSON.stringify(persona))) return { value: "Requested" }
         const owner = signedInOwner()
         if (!owner) return "Sign in before sending a message."
-        const request = { id: crypto.randomUUID(), text, owner, actor: ctx.actor(), status: "requested" as const, ...(persona ? { persona } : {}) }
+        const request = { id: randomUuid(), text, owner, actor: ctx.actor(), status: "requested" as const, ...(persona ? { persona } : {}) }
         await updateLocalIssue(chat.id, payload => ({ ...payload, commentDraft: "", pendingComments: [...(payload.pendingComments ?? []), request] }))
         drainComments(chat.id)
         return { value: "Requested" }

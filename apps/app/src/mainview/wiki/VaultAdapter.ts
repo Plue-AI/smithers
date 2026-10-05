@@ -17,6 +17,7 @@ import { noteLabel, parseWikilinks, restoreWikilinks } from "@smthrs/ui/vault"
 import type { VaultAdapter, VaultLink, VaultNoteMeta } from "@smthrs/ui/vault"
 import type { WorldDocument } from "../state/AppState"
 import type { AppStore } from "../state/AppStore"
+import { randomUuid } from "../runtime/RandomUuid"
 
 /** What a note must carry to be linked; AppState's WorldDocument satisfies it. */
 export interface LinkableNote {
@@ -168,7 +169,7 @@ export const createVaultAdapter = (store: AppStore): VaultAdapter => {
       const links = [...new Set(parseWikilinks(body).map((link) => link.target).filter(Boolean))]
       const document = existing === undefined
         ? {
-          id: crypto.randomUUID(),
+          id: randomUuid(),
           path: missingPath(path),
           title: noteLabel(path),
           body,

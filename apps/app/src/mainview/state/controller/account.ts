@@ -16,6 +16,7 @@ import { actorSharedState } from "../ActorBindings"
 import type { Card } from "../AppState"
 import type { ControllerContext } from "./context"
 import { TOAST_SUPERSEDED } from "./failures"
+import { randomUuid } from "../../runtime/RandomUuid"
 
 export interface AccountController {
   /** The `account.show` handler: the account card, or the sign-in step when no session is signed in. */
@@ -151,7 +152,7 @@ export const createAccountController = (ctx: ControllerContext, deps: AccountCon
       resumeAccount()
       return REQUESTED
     }
-    const flight: Flight = { id: crypto.randomUUID(), epoch: ctx.accountEpoch, owner: identity.login, admission: Promise.resolve(REQUESTED) }
+    const flight: Flight = { id: randomUuid(), epoch: ctx.accountEpoch, owner: identity.login, admission: Promise.resolve(REQUESTED) }
     // The shared flight owns admission too: neither another actor nor an identity
     // re-probe may start the remote read before this card has actually been saved.
     reads.flight = flight

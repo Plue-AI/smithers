@@ -1,6 +1,7 @@
 import type { ControllerContext } from "./context"
 import type { RepositoryEntry } from "../AppState"
 import { TOAST_SUPERSEDED, type FailureController } from "./failures"
+import { randomUuid } from "../../runtime/RandomUuid"
 
 /** A catalog wait is admission, not authorization. The registry rechecks the bound payload after it settles. */
 export const createRepositoryReadiness = (
@@ -121,14 +122,14 @@ export const createRepositoryReadiness = (
       const entry = ctx.store.session().repositoryEntry
       const repositoryRetry = options.scope !== "command" && options.refresh && entry?.phase === "failed" && entry.failureKind !== "not-public" &&
         typeof payload.repo === "string" && entry.repo.toLowerCase() === payload.repo.toLowerCase()
-        ? { repo: entry.repo, requestId: crypto.randomUUID() } : undefined
+        ? { repo: entry.repo, requestId: randomUuid() } : undefined
       const epoch = ctx.accountEpoch
       const owner = accountOwner()
       const selection = ctx.store.session().activeRepoKey
       const commandEntry = ctx.store.session().repositoryCommandEntry
       const repositoryRequest = options.scope === "command" && owner !== undefined && typeof payload.repo === "string" &&
         (commandEntry?.repo.toLowerCase() !== payload.repo.toLowerCase() || commandEntry.owner !== owner || commandEntry.phase !== "pending")
-        ? { requestId: crypto.randomUUID(), repo: payload.repo, owner } : undefined
+        ? { requestId: randomUuid(), repo: payload.repo, owner } : undefined
       if (repositoryRequest !== undefined || repositoryRetry !== undefined || old?.requirement !== "repository-ready" || old.name !== name || old.args !== args) {
         const saving = ctx.store.dispatch({ type: "command.deferred", actor: "user", name, args, requirement: "repository-ready",
           ...(repositoryRetry === undefined ? {} : { repositoryRetry }), ...(repositoryRequest === undefined ? {} : { repositoryRequest }) }).isPersisted.promise

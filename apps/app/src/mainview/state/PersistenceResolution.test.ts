@@ -205,6 +205,25 @@ describe("the browser's persistence resolver", () => {
     expect(resolved.backend.storage!.getItem("key")).toBe("memory only")
   })
 
+  test("without Web Locks (a plain-HTTP origin) the store runs in memory, opens no saved store and says why", async () => {
+    const locks = Object.getOwnPropertyDescriptor(navigator, "locks")
+    const warn = spyOn(console, "warn").mockImplementation(() => {})
+    Object.defineProperty(navigator, "locks", { configurable: true, value: undefined })
+    try {
+      const store = await createAppStore()
+      expect(store.persistenceMode).toBe("memory")
+      expect(store.savedStoreUnavailable).toBe(false)
+      expect(store.collections.toasts.get("toast-store.degraded")).toMatchObject({
+        status: "failed", title: "This session will not be saved", detail: "On plain HTTP, nothing typed now will be kept."
+      })
+      await store.dispose?.()
+    } finally {
+      if (locks) Object.defineProperty(navigator, "locks", locks)
+      else Reflect.deleteProperty(navigator, "locks")
+      warn.mockRestore()
+    }
+  })
+
   test("a no-storage memory boot keeps its failure notice through the boot sweep and calls an archive temporary", async () => {
     const resolved = await resolvePersistence({
       bootRecord: () => undefined,

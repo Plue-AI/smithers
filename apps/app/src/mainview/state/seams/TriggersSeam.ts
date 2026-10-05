@@ -34,6 +34,7 @@ import { accountOwnerOf } from "../AccountOwner"
 import { captureCloudOwner, refusalWords, unreachableSentence } from "./SeamContext"
 import type { SeamContext } from "./SeamContext"
 import { errorCodeOf, gatewayRefusalSentence, workspaceAnswerSentence } from "../controller/GatewayFailureCopy"
+import { randomUuid } from "../../runtime/RandomUuid"
 
 type TriggerListCard = Extract<Card, { kind: "trigger-list" }>
 export type TriggerRow = TriggerListCard["payload"]["triggers"][number]
@@ -966,7 +967,7 @@ export const createTriggersSeam = (ctx: SeamContext, runtime: TriggersRuntime): 
       return ack
     }
     const entry: Preparation = existing ? { ...existing, ...approve, phase: existing.receipt ? "ready" : "requested", error: undefined }
-      : { id: crypto.randomUUID(), owner: login, workspaceId, draft, phase: "requested", ...approve }
+      : { id: randomUuid(), owner: login, workspaceId, draft, phase: "requested", ...approve }
     const current = capturePauseOwner()
     try { await savePreparation(repo, entry, ctx.actor()) } catch { return "Could not save the preparation. Retry." }
     if (current()) pumpPreparation(repo, entry)
@@ -1042,7 +1043,7 @@ export const createTriggersSeam = (ctx: SeamContext, runtime: TriggersRuntime): 
       catch { return refusePause("Could not save Pause. Retry.") }
       return { value: `Pause requested for ${slug} on ${repo}.` }
     }
-    const entry: Pause = { id: crypto.randomUUID(), slug, owner: login, phase: "requested" }
+    const entry: Pause = { id: randomUuid(), slug, owner: login, phase: "requested" }
     const current = capturePauseOwner()
     try { await savePause(repo, entry, ctx.actor()) }
     catch { return refusePause("Could not save Pause. Retry.") }

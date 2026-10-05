@@ -16,6 +16,7 @@ import {
   branchOf, canMerge, machineSlots, memberOf, mergeReadiness, needsAction, openItems, stackItems,
   type ActorId, type DesignMergeReadiness, type DesignResult, type DesignTodo, type DesignWorld, type DesignWorldRows
 } from "./index"
+import { randomUuid } from "../../../runtime/RandomUuid"
 
 /** A TODO's wire number from its ref: T9 → 9. */
 export const designTodoNumber = (todo: DesignTodo): number => Number(todo.ref.slice(1)) || 1
@@ -189,7 +190,7 @@ const safeStorage = (): StorageApi => {
   }
 }
 const noStorageEvents = { addEventListener: () => {}, removeEventListener: () => {} }
-const uid = () => globalThis.crypto?.randomUUID?.() ?? String(Date.now())
+const uid = randomUuid
 
 const createHomeViews = (storage: StorageApi) => {
   const collection = createCollection(localStorageCollectionOptions<DesignHomeView, ActorId>({

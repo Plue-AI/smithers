@@ -4,6 +4,7 @@ import { ToastSchema } from "../AppState"
 import { actorSharedState } from "../ActorBindings"
 import type { ControllerContext } from "./context"
 import type { CommandLifecycle } from "../../flows/CommandLifecycle"
+import { randomUuid } from "../../runtime/RandomUuid"
 
 export const PRIVACY_WRITE_PENDING = "Account cleanup is running. Try again in a moment."
 /* The same words as the startup panel's PrivacyCleanupPending copy; reloading opens that panel and its doors. */
@@ -17,7 +18,7 @@ const id = "toast-privacy-write"
  */
 export const createPrivacyActions = (ctx: ControllerContext) => actorSharedState(ctx, "privacy.actions", () => {
   const notices = createCollection(localOnlyCollectionOptions({
-    id: `privacy-actions-${crypto.randomUUID()}`,
+    id: `privacy-actions-${randomUuid()}`,
     schema: ToastSchema.extend({ actor: z.enum(["user", "smithers", "system"]), revision: z.number() }),
     getKey: row => row.id,
   }))

@@ -23,6 +23,7 @@ import { TOAST_SUPERSEDED } from "../controller/failures"
 import { presentAppFailure } from "../controller/AppFailure"
 import { actorSharedState } from "../ActorBindings"
 import { Data } from "effect"
+import { randomUuid } from "../../runtime/RandomUuid"
 
 export interface RepoImportSeam {
   readonly importRepository: (repo?: string, options?: { readonly registration?: boolean }) => Promise<string | void | { readonly value: string }>
@@ -494,7 +495,7 @@ export const createRepoImportSeam = (ctx: SeamContext): RepoImportSeam => {
 
   const reconnect = (card: Extract<Card, { kind: "repo-import" }>): Flight => {
     const repo = card.payload.repo
-    const requestId = crypto.randomUUID()
+    const requestId = randomUuid()
     const jobId = card.payload.jobId as string
     const persisted = upsert(repo, card.ordinal, card.createdAt, {
       phase: "running", detail: null, error: null, retryMode: "reconnect",
@@ -512,7 +513,7 @@ export const createRepoImportSeam = (ctx: SeamContext): RepoImportSeam => {
   ): Flight => {
     const ordinal = prior?.ordinal ?? ctx.nextOrdinal()
     const createdAt = prior?.createdAt ?? Date.now()
-    const requestId = recover && prior?.payload.requestId ? prior.payload.requestId : crypto.randomUUID()
+    const requestId = recover && prior?.payload.requestId ? prior.payload.requestId : randomUuid()
     const jobId = prior?.payload.jobId ?? null
     const persisted = ctx.dispatch({ type: "card.upsert", actor: ctx.actor(), card: {
       id: "repo-import-" + repo, kind: "repo-import", title: "Import · " + repo,

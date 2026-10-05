@@ -23,6 +23,7 @@ import { captureCloudOwner, readErrorMessage, readResult } from "./SeamContext"
 import type { CommandGesture } from "../../flows/CommandGesture"
 import type { FailureController } from "../controller/failures"
 import { TOAST_SUPERSEDED } from "../controller/failures"
+import { randomUuid } from "../../runtime/RandomUuid"
 
 const CONNECTIONS = "/api/user/provider-connections"
 const CONNECTION_ITEM = "/api/user/provider-connections/"
@@ -377,7 +378,7 @@ export const createSecretsSeam = (ctx: SeamContext, withToast: FailureController
       return flight ? acknowledgment(flight) : "Connection check failed."
     }
     if (!claudeToken(value)) return "Enter an Anthropic API key."
-    const row: Pending = { id: crypto.randomUUID(), owner: login, action: "connect", state: "requested" }
+    const row: Pending = { id: randomUuid(), owner: login, action: "connect", state: "requested" }
     const flight = admit(row, current)
     inFlight.set(flightKey, flight)
     let body: string | undefined = JSON.stringify({ provider: "claude", label: `web-${row.id}`, access_token: value })
@@ -423,7 +424,7 @@ export const createSecretsSeam = (ctx: SeamContext, withToast: FailureController
       const flight = flightAt(pending.id)
       return flight ? acknowledgment(flight) : "Connection check failed."
     }
-    const row: Pending = { id: crypto.randomUUID(), owner: login, action: "codex", state: "requested" }
+    const row: Pending = { id: randomUuid(), owner: login, action: "codex", state: "requested" }
     const flight = admit(row, current)
     inFlight.set(flightKey, flight)
     const receipt = await acknowledgment(flight)
@@ -475,7 +476,7 @@ export const createSecretsSeam = (ctx: SeamContext, withToast: FailureController
     const moved = [...peers]
     moved.splice(from, 1)
     moved.splice(to, 0, target)
-    const row: Pending = { id: crypto.randomUUID(), owner: login, action: "order", provider: target.provider, ids: moved.map(account => account.id), state: "requested" }
+    const row: Pending = { id: randomUuid(), owner: login, action: "order", provider: target.provider, ids: moved.map(account => account.id), state: "requested" }
     // The card takes the new order before any await, so a second press computes from it.
     ctx.dispatch({ type: "card.upsert", actor: "system", card: { ...card, payload: { ...card.payload,
       accounts: PROVIDERS.flatMap(provider => provider === target.provider ? moved : card.payload.accounts.filter(account => account.provider === provider)) } } })
@@ -527,7 +528,7 @@ export const createSecretsSeam = (ctx: SeamContext, withToast: FailureController
       const flight = flightAt(pending.id)
       return flight ? acknowledgment(flight) : "Connection check failed."
     }
-    const row: Pending = { id: crypto.randomUUID(), owner: login, action: "revoke", connectionId: id, state: "requested" }
+    const row: Pending = { id: randomUuid(), owner: login, action: "revoke", connectionId: id, state: "requested" }
     const flight = admit(row, current)
     inFlight.set(flightKey, flight)
     const receipt = await acknowledgment(flight)
@@ -649,7 +650,7 @@ export const createSecretsSeam = (ctx: SeamContext, withToast: FailureController
       const hosts = listOf(input.hosts)
       const headers = listOf(input.headers)
       if ((hosts.length === 0) !== (headers.length === 0)) return "Give both hosts and headers, or neither."
-      const row: SecretRequest = { id: crypto.randomUUID(), owner: login, repo: target.repo, name, action: "set", state: "requested" }
+      const row: SecretRequest = { id: randomUuid(), owner: login, repo: target.repo, name, action: "set", state: "requested" }
       const admitted = await admitSecret(row, current)
       if (typeof admitted === "string") return admitted
       let sending: string | undefined = value
@@ -684,7 +685,7 @@ export const createSecretsSeam = (ctx: SeamContext, withToast: FailureController
     if ("error" in target) return target.error
     const name = input.trim()
     if (!SECRET_NAME.test(name)) return "Use letters, digits and _ for the name."
-    const row: SecretRequest = { id: crypto.randomUUID(), owner: login, repo: target.repo, name, action: "delete", state: "requested" }
+    const row: SecretRequest = { id: randomUuid(), owner: login, repo: target.repo, name, action: "delete", state: "requested" }
     const admitted = await admitSecret(row, current)
     if (typeof admitted === "string") return admitted
     runSecret(row, admitted.flight, () => current() ? sendDelete(row, current) : Promise.resolve(TOAST_SUPERSEDED))

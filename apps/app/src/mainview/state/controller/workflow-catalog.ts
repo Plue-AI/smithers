@@ -5,6 +5,7 @@ import type { GatewayWorkspaceBinding } from "./gateway"
 import { recordedRunBinding } from "../RepoContext"
 import { TOAST_SUPERSEDED } from "./failures"
 import type { LaunchRefusal } from "./workflows"
+import { randomUuid } from "../../runtime/RandomUuid"
 
 type Catalog = Extract<Card, { kind: "workflow-list" }>
 type Scope = { readonly repo: string; readonly binding: GatewayWorkspaceBinding }
@@ -95,7 +96,7 @@ export function createWorkflowCatalogController(ctx: ControllerContext, options:
     const card: Catalog = { id, kind: "workflow-list", title: `Flows: ${scope.repo}`, status: "active", loading: true,
       createdAt: previous?.createdAt ?? Date.now(), ordinal: store.nextOrdinal(), tabId: previous?.tabId,
       payload: { repo: scope.repo, ...scope.binding, gatewayBindingVersion: 1, workflows: retained?.payload.workflows ?? [],
-        catalogRequest: { id: crypto.randomUUID(), owner: login, state: "pending" } } }
+        catalogRequest: { id: randomUuid(), owner: login, state: "pending" } } }
     const saved = store.dispatch({ type: "card.upsert", actor: ctx.commandActor, card }).isPersisted.promise
     shared.saving.set(id, saved)
     try { await saved } catch { return "The catalog request could not be saved. Try again." }

@@ -4,8 +4,8 @@ import type { SeamContext } from "./SeamContext"
 import { TOAST_SUPERSEDED, type FailureController } from "../controller/failures"
 import { MODEL_CREDENTIALS, ModelCredentialRequestSchema, ModelCredentialResultSchema } from "@smthrs/rpc/ConfiguredModel"
 import { actorSharedState } from "../ActorBindings"
-import { installRequestId } from "./InstallRequestId"
 import { InstallErrorSchema, InstallModelSchema, InstallReceiptSchema, type InstallManifest, type InstallError, type InstallModel, type InstallStepId } from "./InstallModel"
+import { randomUuid } from "../../runtime/RandomUuid"
 
 /** T-APP-03: the shared /api/live transport supplies complete install projections after snapshots/deltas. */
 export interface InstallTopic {
@@ -216,7 +216,7 @@ export const createInstallSeam = (ctx: SeamContext, withToast: FailureController
     if (!model || (!setup && !model.github.signed_in)) { publish({ error: permission }); return permission.message }
     if (setup && shared.pending.has(key)) return { value: "Requested" }
     const stepId = (path.endsWith("/app") ? "app_manifest" : path.split("/").at(-1)) as InstallStepId
-    const row: SetupRequest | undefined = setup ? recovered ?? { id: installRequestId(), origin: ctx.baseUrl, step: stepId,
+    const row: SetupRequest | undefined = setup ? recovered ?? { id: randomUuid(), origin: ctx.baseUrl, step: stepId,
       body: body as Record<string, unknown>, state: "requested",
       ...(stepId === "app_manifest" ? { expires_at: new Date(Date.now() + APP_LEASE_MS).toISOString() } : {}) } : undefined
     const saved = row ? saveRequest(row) : Promise.resolve()
@@ -231,7 +231,7 @@ export const createInstallSeam = (ctx: SeamContext, withToast: FailureController
         if (!current()) return false
         const generation = shared.generation
         const result = await request(path, { method: path === "/install" ? "PUT" : "POST",
-          headers: { "Idempotency-Key": row?.id ?? installRequestId() }, body: JSON.stringify(body) })
+          headers: { "Idempotency-Key": row?.id ?? randomUuid() }, body: JSON.stringify(body) })
         if (!current()) return false
         if ("class" in result) {
           if (generation !== shared.generation) return setup ? await waitStep(stepId) : TOAST_SUPERSEDED
@@ -357,7 +357,7 @@ export const createInstallSeam = (ctx: SeamContext, withToast: FailureController
       // A key is Validating while its one request is in flight; only the authoritative read below marks it Saved.
       mark("validating")
       // Values live only until the one HTTP request is constructed, never in install/card state.
-      const requestId = installRequestId()
+      const requestId = randomUuid()
       const request = ModelCredentialRequestSchema.safeParse({ requestId, name: credential.name, value,
         ...(rotate ? { action: "rotate" } : { action: "enroll", origin: credential.origins[0] }) })
       value = undefined
@@ -387,7 +387,7 @@ export const createInstallSeam = (ctx: SeamContext, withToast: FailureController
             : input.provider.toLowerCase() === "openai" ? "openai-responses" : "openai-chat"
           const baseUrl = protocol === "openai-chat" ? CHAT_BASE_URLS[credential.name] : undefined
           const response = await ctx.http(`${ctx.baseUrl.replace(/\/$/, "")}/api/model/default`, {
-            method: "PUT", credentials: "same-origin", headers: { "Content-Type": "application/json", "Idempotency-Key": installRequestId() },
+            method: "PUT", credentials: "same-origin", headers: { "Content-Type": "application/json", "Idempotency-Key": randomUuid() },
             body: JSON.stringify({ model: { protocol, modelId: input.model, credential: credential.name, ...(baseUrl ? { baseUrl } : {}) } })
           })
           if (!current()) return false

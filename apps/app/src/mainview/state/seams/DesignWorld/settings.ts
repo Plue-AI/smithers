@@ -14,6 +14,7 @@ import type { InstallModel } from "../InstallModel"
 import type { InstallAddress, InstallSnapshot, InstallSnapshots } from "../InstallSeam"
 import type { MembersSnapshot, MembersSnapshots } from "../MembersSeam"
 import type { ActorId, DesignMember, DesignResult, DesignSecret, DesignWorld, DesignWorldRows } from "./index"
+import { randomUuid } from "../../../runtime/RandomUuid"
 
 /** A flow handler's answer: an acknowledgment, or the refusal it shows. */
 export const designAnswer = (result: DesignResult): string | { readonly value: string } =>
@@ -85,7 +86,7 @@ export const designSettings = (design: DesignWorld) => ({
 /** The Settings card's per-member view state: the Address choice a person is looking at (`view.tab`), never shared. */
 export interface DesignSettingsView { readonly id: ActorId; readonly listen: InstallAddress["listen"] }
 const createSettingsViews = () => createCollection(localOnlyCollectionOptions<DesignSettingsView, ActorId>({
-  id: `design-settings-${globalThis.crypto?.randomUUID?.() ?? String(Date.now())}`,
+  id: `design-settings-${randomUuid()}`,
   getKey: row => row.id,
   initialData: []
 }))

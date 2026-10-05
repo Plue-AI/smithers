@@ -6,7 +6,6 @@ import { TOAST_SUPERSEDED, type FailureController } from "../controller/failures
 import { createInstallSeam, type InstallSeamOptions, type InstallTopic } from "./InstallSeam"
 import { InstallModelSchema, setupCardModel, settingsCardModel, type InstallError } from "./InstallModel"
 import { credentialReceipt, installFixture } from "./InstallFixtures.test-support"
-import { installRequestId } from "./InstallRequestId"
 import { writeOnlyGesture } from "../../flows/CommandGesture"
 
 const deferred = <T>() => { let resolve!: (value: T) => void; const promise = new Promise<T>(done => { resolve = done }); return { promise, resolve } }
@@ -364,10 +363,6 @@ describe("T-APP-03 install seam", () => {
     expect(InstallModelSchema.safeParse({ ...model, steps: [...model.steps].reverse() }).success).toBe(false)
     expect(InstallModelSchema.safeParse({ ...model, steps: model.steps.map((step, index) => index === 1 ? model.steps[0] : step) }).success).toBe(false)
     expect(InstallModelSchema.parse(model).steps.map(step => step.id)).toEqual(["address", "app_manifest", "sign_in", "repository", "models", "source", "machine"])
-  })
-  test("idempotency IDs work without randomUUID", () => {
-    expect(installRequestId()).toMatch(/^[a-f0-9]{8}-[a-f0-9]{4}-4[a-f0-9]{3}-[89ab][a-f0-9]{3}-[a-f0-9]{12}$/)
-    expect(installRequestId()).not.toBe(installRequestId())
   })
 })
 

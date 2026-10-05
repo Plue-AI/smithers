@@ -40,6 +40,7 @@ import { agentFrameCard } from "../HttpTurn"
 import { ZERO_BALANCE_EXHAUSTED_TEXT } from "./failures"
 import { outOfCreditRefusal, renderCreditExhausted } from "../seams/HostedBilling"
 import { latestOrdinal } from "./spokenLines"
+import { randomUuid } from "../../runtime/RandomUuid"
 
 /**
  * The client-side tool-loop leg cap, mirroring the chat worker's
@@ -976,7 +977,7 @@ export const createTurnController = (
     if (chatNeedsSignIn()) {
       return offerChatSignIn(text).then(() => false)
     }
-    const turnId = admission?.turnId ?? crypto.randomUUID()
+    const turnId = admission?.turnId ?? randomUuid()
     if (agent.journal !== undefined) {
       return httpTurns.start(turnId, prompt, false, ctx.commandActor, !draftCurrent())
     }

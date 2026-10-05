@@ -162,13 +162,13 @@ describe("the wiki spaces transport (#1922)", () => {
 describe("wikiAttachmentSlug", () => {
   const hello = new TextEncoder().encode("hello") // SHA-256 2cf24dba5fb0a30e...
 
-  test("is the path's slug and the first 12 hex digits of the bytes' SHA-256, as the server requires", async () => {
-    expect(await wikiAttachmentSlug("assets/Logo v2.png", hello)).toBe("assets-logo-v2-png-2cf24dba5fb0")
-    expect(await wikiAttachmentSlug("  a//..__b.png ", hello)).toBe("a-b-png-2cf24dba5fb0")
+  test("is the path's slug and the first 12 hex digits of the bytes' SHA-256, as the server requires", () => {
+    expect(wikiAttachmentSlug("assets/Logo v2.png", hello)).toBe("assets-logo-v2-png-2cf24dba5fb0")
+    expect(wikiAttachmentSlug("  a//..__b.png ", hello)).toBe("a-b-png-2cf24dba5fb0")
   })
 
-  test("falls back to attachment when the path has no slug characters, and bytes distinguish equal paths", async () => {
-    expect(await wikiAttachmentSlug("日本語", hello)).toBe("attachment-2cf24dba5fb0")
-    expect(await wikiAttachmentSlug("a.png", hello)).not.toBe(await wikiAttachmentSlug("a.png", new Uint8Array([1])))
+  test("falls back to attachment when the path has no slug characters, and bytes distinguish equal paths", () => {
+    expect(wikiAttachmentSlug("日本語", hello)).toBe("attachment-2cf24dba5fb0")
+    expect(wikiAttachmentSlug("a.png", hello)).not.toBe(wikiAttachmentSlug("a.png", new Uint8Array([1])))
   })
 })

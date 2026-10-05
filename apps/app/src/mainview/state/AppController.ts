@@ -138,6 +138,7 @@ import { createTriggersSeam } from "./seams/TriggersSeam"
 import type { LiveTopics } from "./useTopic"
 import type { WorkspaceSeam } from "./seams/WorkspaceSeam"
 import { createWorkspaceSeam } from "./seams/WorkspaceSeam"
+import { randomUuid } from "../runtime/RandomUuid"
 
 export interface AppController extends IssueFlowsController {
   readonly storageRecoveryState: StorageRecoveryAction["state"]
@@ -983,7 +984,9 @@ export const createAppController = (
   /*
    * An install's owner is admitted part-way through Setup (GitHub sign-in, then the repository claim), after the
    * page read its identity at boot. Each Setup step that finishes reads it again until it answers signed in, so the
-   * TODO, Draft and Members doors open for the owner without a reload.
+   * TODO, Draft and Members doors open for the owner without a reload. Source ready creates the repository's row
+   * after that read listed the owner's repositories, so its finishing reads them again: the agent's first answer
+   * names the repository instead of "no repository is selected".
    */
   let installStepsDone: string | undefined
   ctx.onDispose(installSeam.snapshots.subscribe(() => {
@@ -994,6 +997,7 @@ export const createAppController = (
     installStepsDone = done
     if (store.collections.identitySessions.get("identity")?.state !== "signed-in") void loadSession()
   }))
+    else if (mirrored) reloadRepositoriesWhenSignedIn()
 
   const {
     showChat,
@@ -1237,7 +1241,7 @@ export const createAppController = (
       action: {
         flow: name,
         ...(args === null ? {} : { args }),
-        revision: crypto.randomUUID(),
+        revision: randomUuid(),
         label: `Confirm: ${label}`
       }
     })
@@ -1300,7 +1304,7 @@ export const createAppController = (
       : undefined
     if (turn === undefined) return send(text, admission, capturedDraft)
     const draftCurrent = capturedDraft ?? store.captureComposerDraft(text)
-    const turnId = crypto.randomUUID()
+    const turnId = randomUuid()
     const admitted = store.dispatch({ type: "message.submitted", actor: "user", turnId, text: text.trim(), preserveDraft: !draftCurrent() }).isPersisted.promise
     void admitted.then(() => runDesignTurn(turnId, turn)).catch((error: unknown) => {
       if (ctx.disposed) return

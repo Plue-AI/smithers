@@ -13,6 +13,7 @@ import {
   RECOVERY_RESET_RUNNING
 } from "./StorageRecoveryContract"
 import { assertRecoverySnapshotCurrent } from "./BrowserStorageRecovery"
+import { randomUuid } from "../runtime/RandomUuid"
 const CANCELED = "Recovery was canceled because the app closed. Saved data was not reset."
 
 const RecoveryStateSchema = z.object({
@@ -45,7 +46,7 @@ export interface StorageRecoveryHost {
  */
 export const createStorageRecoveryAction = (host: StorageRecoveryHost, actor: "user" | "smithers") => {
   const state = createCollection(localOnlyCollectionOptions({
-    id: `storage-recovery-${crypto.randomUUID()}`,
+    id: `storage-recovery-${randomUuid()}`,
     schema: RecoveryStateSchema,
     getKey: (row) => row.id,
     initialData: [

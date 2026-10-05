@@ -8,6 +8,7 @@ import type { PreparedWikiEdit } from "../../flows/CommandGesture"
 import { linkGraphOf, linksOf, neighbourhoodOf, notesOf, resolveLink } from "../../wiki/VaultAdapter"
 import { actorSharedState } from "../ActorBindings"
 import type { ControllerContext } from "./context"
+import { randomUuid } from "../../runtime/RandomUuid"
 
 const documentPath = (store: AppStore): string => {
   const paths = new Set([...store.collections.worldDocuments.values()].map((document) => document.path))
@@ -105,7 +106,7 @@ export const createWorldController = (
       type: "world.document.upserted",
       actor: ctx.commandActor,
       document: {
-        id: crypto.randomUUID(),
+        id: randomUuid(),
         path,
         title,
         body: `# ${title}\n\n`,

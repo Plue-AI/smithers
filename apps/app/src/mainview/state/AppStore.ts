@@ -130,6 +130,7 @@ import { WIKI_RECOVERY_STORAGE_KEY,clearWikiRecovery,readWikiRecovery,writeWikiR
 import { createWorkspaceViews } from "./WorkspaceViews"
 import { createSavedSignInPrompts } from "./SavedSignInPrompts"
 import { createSavedRepositoryUpdates } from "./SavedRepositoryUpdates"
+import { randomUuid } from "../runtime/RandomUuid"
 
 export { MAX_TRANSITION_PAYLOAD_BYTES,journalPayload } from "./TransitionDiagnostics"
 
@@ -232,6 +233,8 @@ export interface ResolvedPersistence {
   readonly degraded: boolean
   /** A recorded OPFS store exists but this launch could not open it. */
   readonly savedStoreUnavailable?: boolean
+  /** The origin is plain HTTP: the browser offers no Web Locks, so no store is opened at all. */
+  readonly insecureOrigin?: true
   /** Record adoption only after the selected legacy store validates and initializes. */
   readonly recordSuccessfulOpen?: () => void
   /** Production always supplies this; isolated legacy injected hosts own their own storage contract. */
@@ -1024,6 +1027,14 @@ export const createAppStore = async (
   persistence?: PersistenceBackend | ResolvedPersistence,
   options: AppStoreOptions = {}
 ): Promise<AppStore> => {
+  /*
+   * Web Locks exist only in a secure context. On a plain-HTTP LAN origin (spec §16.3.2) no tab can own the saved
+   * store safely, so the page runs on a memory store: it saves nothing and never writes over another tab's store.
+   */
+  if (persistence === undefined && globalThis.navigator?.locks == null) {
+    console.warn("Smithers: this origin has no Web Locks (not a secure context); this session runs in memory and saves nothing.")
+    return createAppStore({ backend: { kind: "localStorage", storage: memoryStorage() }, mode: "memory", degraded: true, insecureOrigin: true }, options)
+  }
   // One origin owner covers BOTH backends, boot/migration, retirement and writes.
   // Explicit isolated injected hosts provide their own exclusion contract.
   const writer = persistence === undefined ? await acquireLocalStorageWriter(undefined, { steal: consumeWriterTakeover() }) : undefined
@@ -1268,7 +1279,7 @@ const initializeAppStore = async (
     const currentSeed = previous.sessions.length === 0
       ? { ...seeded, sessions: seeded.sessions.map(session => ({ ...session, palette: DEFAULT_PALETTE })) }
       : seeded
-    const baseline = initializeAppStream(currentSeed, crypto.randomUUID(),
+    const baseline = initializeAppStream(currentSeed, randomUuid(),
       previous.sessions.length === 0 ? "created" : "legacy-baseline")
     initial = { state: baseline, checkpoint: baseline.checkpoint }
   } else {
@@ -1279,7 +1290,7 @@ const initializeAppStore = async (
     const upgradeSource = upgrading ? readProjection(collections) : undefined
     retireLegacySignup = upgradeSource !== undefined && savedHead.projectorVersion < 26
     const upgraded = upgradeSource !== undefined
-      ? initializeAppStream(seedAppProjection(upgradeSource, seedContext, retireLegacySignup), crypto.randomUUID(), "projector-upgrade")
+      ? initializeAppStream(seedAppProjection(upgradeSource, seedContext, retireLegacySignup), randomUuid(), "projector-upgrade")
       : undefined
     const verified = upgraded ?? replayAppEvents(savedCheckpoint, [...collections.appEvents.values()].map(storedRow), savedHead)
     // Seeding a missing legacy identity does not prove that its owner signed out.
@@ -1309,7 +1320,7 @@ const initializeAppStore = async (
       (savedCheckpoint.reason === "projector-upgrade" && collections.appEventRetirements.has(retiredAppStreamKey(bootRetirement.targetStreamId))))
     if (bootRetirement !== undefined && bootRetirement.phase !== "pending" && !retirementApplied) throw new PrivacyAuthorityMissing()
     const boot = appendAppEvent(verified, { kind: "boot", seed: seedContext }, {
-      eventId: crypto.randomUUID(), createdAt: seedContext.createdAt, persistenceMode: resolved.mode
+      eventId: randomUuid(), createdAt: seedContext.createdAt, persistenceMode: resolved.mode
     })
     initial = upgraded !== undefined
       ? { state: upgraded, checkpoint: upgraded.checkpoint, clearEvents: true, retire: savedHead.streamId }
@@ -1321,7 +1332,7 @@ const initializeAppStore = async (
     if (scrubbing && bootRetirement?.phase !== "pending" && resolved.privacy !== undefined) {
       if (resolved.mode === "memory") throw new PrivacyStorageUnavailable()
       bootRetirement = beginPrivacyRetirement(privacyStorage(privacyRecord), {
-        id: crypto.randomUUID(), mode: foreignScrub ? "scrub" : "account", backend: resolved.mode, targetStreamId: crypto.randomUUID()
+        id: randomUuid(), mode: foreignScrub ? "scrub" : "account", backend: resolved.mode, targetStreamId: randomUuid()
       }, deriveTurnErasures(verified.snapshot.httpTurnLegs))
       retirementApplied = false
     }
@@ -1332,7 +1343,7 @@ const initializeAppStore = async (
         // stream. Its replacement needs a new identity before retiring it.
         if (scrubbing && retirementApplied) {
           foreignScrub = foreignProviderRequests
-          const targetStreamId = crypto.randomUUID()
+          const targetStreamId = randomUuid()
           retargetPrivacyRetirement(privacyRecord!, bootRetirement, targetStreamId)
           bootRetirement = { ...bootRetirement, targetStreamId }
           retirementApplied = false
@@ -1340,17 +1351,17 @@ const initializeAppStore = async (
       }
       if (!retirementApplied && (foreignScrub || bootRetirement?.mode === "scrub")) {
         const rotated = initializeAppStream(scrubForeignProviderRequests(initial.state.snapshot),
-          bootRetirement?.targetStreamId ?? crypto.randomUUID(), "privacy-reset")
+          bootRetirement?.targetStreamId ?? randomUuid(), "privacy-reset")
         initial = { state: rotated, checkpoint: rotated.checkpoint, clearEvents: true, retire: savedHead.streamId }
       } else if (!retirementApplied) {
         const transition: AppTransition = bootRetirement?.mode === "reset"
           ? { type: "app.reset", actor: "system" }
           : { type: "identity.session.cleared", actor: "user" }
         const cleaned = appendAppEvent(initial.state, { kind: "transition", transition }, {
-          eventId: crypto.randomUUID(), createdAt: seedContext.createdAt, persistenceMode: resolved.mode
+          eventId: randomUuid(), createdAt: seedContext.createdAt, persistenceMode: resolved.mode
         })
         if (cleaned === undefined) throw new PrivacyAuthorityMissing()
-        const rotated = initializeAppStream(cleaned.snapshot, bootRetirement?.targetStreamId ?? crypto.randomUUID(), "privacy-reset")
+        const rotated = initializeAppStream(cleaned.snapshot, bootRetirement?.targetStreamId ?? randomUuid(), "privacy-reset")
         initial = { state: rotated, checkpoint: rotated.checkpoint, clearEvents: true, retire: savedHead.streamId }
       }
     }
@@ -1718,7 +1729,7 @@ const initializeAppStore = async (
     commitDraft()
     const previous = optimistic
     const createdAt = Date.now()
-    const eventId = crypto.randomUUID()
+    const eventId = randomUuid()
     const next = appendAppEvent(previous, { kind: "transition", transition }, { eventId, createdAt, persistenceMode: resolved.mode })
     if (next === undefined) {
       const refused = createTransaction({ mutationFn: async () => {} })
@@ -1730,14 +1741,14 @@ const initializeAppStore = async (
       const recovery = readDraftRecovery(draftRecoveryStorage)
       if (recovery !== undefined) clearDraftRecovery(draftRecoveryStorage, recovery.raw)
       for (const key of [WIKI_RECOVERY_STORAGE_KEY, ENTITY_RECOVERY_STORAGE_KEY]) draftRecoveryStorage?.removeItem(key)
-      const rotated = initializeAppStream(next.snapshot, crypto.randomUUID(), "privacy-reset")
+      const rotated = initializeAppStream(next.snapshot, randomUuid(), "privacy-reset")
       write = { state: rotated, checkpoint: rotated.checkpoint, clearEvents: true, retire: previous.head.streamId }
       if (resolved.privacy !== undefined) {
         try {
           const record = privacyStorage(privacyRecord)
           const backend = resolved.mode === "memory" ? readRecordedBackend(record) : resolved.mode
           if (backend === null) throw new PrivacyStorageUnavailable()
-          const retirement = beginPrivacyRetirement(record, { id: crypto.randomUUID(),
+          const retirement = beginPrivacyRetirement(record, { id: randomUuid(),
             mode: transition.type === "app.reset" ? "reset" : "account", backend, targetStreamId: rotated.head.streamId },
             deriveTurnErasures(previous.snapshot.httpTurnLegs))
           if (resolved.mode === "memory") throw new PrivacyStorageUnavailable()
@@ -1970,8 +1981,9 @@ const initializeAppStore = async (
       key: "store.degraded",
       status: "failed",
       title: "This session will not be saved",
-      detail:
-        "The saved conversation could not be opened, so this session is running in memory. Nothing typed now will be kept. The saved conversation is untouched and returns on the next launch."
+      detail: resolved.insecureOrigin
+        ? "On plain HTTP, nothing typed now will be kept."
+        : "The saved conversation could not be opened, so this session is running in memory. Nothing typed now will be kept. The saved conversation is untouched and returns on the next launch."
     }).isPersisted.promise
   }
 

@@ -68,6 +68,7 @@ import { mayAutoRetry, statedRetryDelayMs, storedRefusal } from "@smthrs/rpc/Ref
 import type { Refusal, StoredRefusal } from "@smthrs/rpc/Refusal"
 import { refusalSentence } from "@smthrs/rpc/RefusalCopy"
 import type { SeamContext } from "./SeamContext"
+import { randomUuid } from "../../runtime/RandomUuid"
 
 export const DEGRADED_WORKSPACE_REFUSAL =
   "This Smithers Cloud sign-in can't use boxes — sign in again to enable them."
@@ -823,7 +824,7 @@ export const createWorkspaceSeam = (ctx: SeamContext, deps: WorkspaceSeamDeps = 
   ): Effect.Effect<ReadonlyArray<CloudWorkspaceInput> | string> => Effect.gen(function*() {
     if (!current()) return SIGN_OUT_REFUSAL
     const scope = repo === undefined ? {} : { repoId: repo }
-    const requestId = crypto.randomUUID()
+    const requestId = randomUuid()
     ctx.dispatch({ type: "workspaces.list.started", actor: "system", requestId, ...scope })
     const latest = (): boolean => {
       const observations = ctx.store.collections.cloudSessions.get("cloud")?.workspaceLists ?? []
@@ -1181,7 +1182,7 @@ export const createWorkspaceSeam = (ctx: SeamContext, deps: WorkspaceSeamDeps = 
       reconnectRecovery()
       return { value: "Creation requested." }
     }
-    const id = crypto.randomUUID()
+    const id = randomUuid()
     const request: NonNullable<WorkspaceRecovery["request"]> = { id, name: `recovery-${id}`, actor: ctx.actor(),
       bookmark: old.targetBookmark ?? ctx.store.collections.repositories.get(old.repoId)?.head?.bookmark ?? null,
       ...(kind === undefined ? {} : { kind }), state: "requested", ...(snapshot === undefined ? {} : { snapshotId: snapshot }) }

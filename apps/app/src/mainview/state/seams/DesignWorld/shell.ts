@@ -9,12 +9,13 @@ import type { Actor, TodoState } from "@smthrs/rpc/CardPrimitives"
 import { PlaceholderAvatarUrl } from "@smthrs/rpc/CardPrimitives"
 import type { BranchTreeNodeCard } from "@smthrs/rpc/BranchTreeNodeCard"
 import { homeCounts, memberOf, STACK, todoOf, type ActorId, type DesignBranch, type DesignWorld, type DesignWorldRows } from "./index"
+import { randomUuid } from "../../../runtime/RandomUuid"
 
 /** Where a viewer is: `main` or a branch id. Per person, never shared. */
 export interface DesignShellView { readonly id: ActorId; readonly at: string }
 
 const createShellViews = () => createCollection(localOnlyCollectionOptions<DesignShellView, ActorId>({
-  id: `design-shell-${globalThis.crypto?.randomUUID?.() ?? String(Date.now())}`,
+  id: `design-shell-${randomUuid()}`,
   getKey: row => row.id,
   initialData: []
 }))

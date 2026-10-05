@@ -3,6 +3,7 @@ import { parseSubmit } from "../../flows/registry"
 import { promptQueueScope } from "../PromptQueue"
 import type { ControllerContext } from "./context"
 import type { TurnController } from "./turns"
+import { randomUuid } from "../../runtime/RandomUuid"
 
 export const createPromptQueueController = (ctx: ControllerContext, send: TurnController["send"]) => {
   const { store } = ctx
@@ -46,7 +47,7 @@ export const createPromptQueueController = (ctx: ControllerContext, send: TurnCo
     const parsed = parseSubmit(text, ctx.commands.all())
     // Commands keep their normal immediate door, as in the terminal composer.
     if (parsed.kind !== "prompt") { void send(text, undefined, draftCurrent); return }
-    const prompt = { id: crypto.randomUUID(), text: parsed.text, scope: promptQueueScope(store.session()) }
+    const prompt = { id: randomUuid(), text: parsed.text, scope: promptQueueScope(store.session()) }
     void store.dispatch({ type: "prompt.queued", actor: "user", prompt, preserveDraft: !draftCurrent() }).isPersisted.promise.then(schedule)
       .catch(error => ctx.failures.report("prompt.queue", error))
   }

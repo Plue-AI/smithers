@@ -9,6 +9,7 @@ import { TodoNewInput, TodoAmendInput } from "../../flows/entries/todo"
 import { actorSharedState } from "../ActorBindings"
 import type { SeamContext } from "./SeamContext"
 import { readResult, unreachableSentence } from "./SeamContext"
+import { randomUuid } from "../../runtime/RandomUuid"
 
 class TodoTopicMismatch extends Data.TaggedError("TodoTopicMismatch") { readonly message = "TODO topic mismatch" }
 
@@ -233,7 +234,7 @@ export const createTodoSeam = (ctx: SeamContext, options: TodoSeamOptions = {}) 
     const refusal = signedIn(); if (refusal) return refusal
     const row = entry(n) ?? blank(n)
     const existing = row.payload.requests.find(old => old.owner === owner() && old.operation === operation && JSON.stringify(old.body) === JSON.stringify(body))
-    const pending = existing ?? { key: key ?? crypto.randomUUID(), owner: owner()!, operation, n, body, state: "requested" as const }
+    const pending = existing ?? { key: key ?? randomUuid(), owner: owner()!, operation, n, body, state: "requested" as const }
     await updateOrCreate(row, pending)
     watch(n)
     if (pending.state !== "accepted" || !shared.sending.has(pending.key)) send(row.id, pending)
@@ -289,9 +290,9 @@ export const createTodoSeam = (ctx: SeamContext, options: TodoSeamOptions = {}) 
   const newTodo = async (input: Schema.Schema.Type<typeof TodoNewInput>) => {
     const refusal = signedIn(); if (refusal) return refusal
     if (!input.cardId) {
-      const id = `draft:${crypto.randomUUID()}`
+      const id = `draft:${randomUuid()}`
       await write(draftCard({ id, author: owner()!, text: input.text ?? "", title: input.title, acceptance: input.acceptance, before: input.before,
-        options: placeOptions(), idempotencyKey: crypto.randomUUID() }, ctx.nextOrdinal(), Date.now()))
+        options: placeOptions(), idempotencyKey: randomUuid() }, ctx.nextOrdinal(), Date.now()))
       loadDraftPlaces(id)
       return { value: "Drafted" }
     }
@@ -305,10 +306,10 @@ export const createTodoSeam = (ctx: SeamContext, options: TodoSeamOptions = {}) 
     if (open) return { value: "Drafted" }
     let digest: string
     try { digest = issueDigest(source.title, source.body) } catch { return "This issue's text cannot be read." }
-    const id = `draft:${crypto.randomUUID()}`
+    const id = `draft:${randomUuid()}`
     await write(draftCard({ id, author: owner()!, text: issuePrompt(source), title: source.title, options: placeOptions(),
       issue: { number: source.number, title: source.title, url: source.url, fixes: true }, issueDigest: digest,
-      idempotencyKey: crypto.randomUUID() }, ctx.nextOrdinal(), Date.now()))
+      idempotencyKey: randomUuid() }, ctx.nextOrdinal(), Date.now()))
     loadDraftPlaces(id)
     return { value: "Drafted" }
   }

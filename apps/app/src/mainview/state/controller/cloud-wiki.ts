@@ -21,6 +21,7 @@ import type { Card, WikiIndexRow, WorldDocument } from "../AppState"
 import { DEFAULT_BRANCH_ID, WIKI_DISPLAY_NAME, wikiIndexRowId } from "../AppState"
 import { resolveTargetRepo } from "../RepoContext"
 import type { ControllerContext } from "./context"
+import { randomUuid } from "../../runtime/RandomUuid"
 
 /** The space a page row lives in; rows saved before spaces existed were public. */
 export const spaceOf = (cloud: Pick<CloudWikiState, "visibility">): WikiSpace => cloud.visibility ?? "public"
@@ -665,7 +666,7 @@ export const createCloudWikiController = (ctx: ControllerContext, nextOrdinal: (
         shared.clients.set(id, clientId)
       }
       const edit = editWikiState(document.cloud.state, body, clientId)
-      updateId = crypto.randomUUID()
+      updateId = randomUuid()
       if (needsAdmission) shared.preparations.add(updateId)
       saved = shared.run(shared.persist({
         ...document,
@@ -909,7 +910,7 @@ export const createCloudWikiController = (ctx: ControllerContext, nextOrdinal: (
           try: async () => new Uint8Array(await file.arrayBuffer()),
           catch: () => new CloudWikiError({ sentence: "The attachment could not be read. Choose the file again." })
         })
-        const slug = existing?.slug ?? (yield* Effect.promise(() => wikiAttachmentSlug(target, bytes)))
+        const slug = existing?.slug ?? wikiAttachmentSlug(target, bytes)
         const api = yield* CloudWikiTransport
         return yield* api.attach(repo, space, slug, { path: target, mediaType, expectedRevision, bytes })
       }).pipe(Effect.catch((error: CloudWikiError) =>

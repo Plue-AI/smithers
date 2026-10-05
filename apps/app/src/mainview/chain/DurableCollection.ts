@@ -3,6 +3,7 @@ import type { StandardSchemaV1 } from "@standard-schema/spec"
 import { localOnlyCollectionOptions } from "@tanstack/db"
 import type { InferSchemaOutput, StorageApi } from "@tanstack/db"
 import { normalizeStorageRowKey, storageRowKey as rowKey } from "./StorageRowKey"
+import { randomUuid } from "../runtime/RandomUuid"
 
 interface StoredItem {
   readonly versionKey: string
@@ -190,7 +191,7 @@ export const createCollectionPersistence = (options: {
           applied.push({ rows, key, prior })
           const delta: DurableRowDelta = mutation.type === "delete"
             ? { key, expectedVersionKey: prior?.versionKey, versionKey: undefined, data: undefined }
-            : { key, expectedVersionKey: prior?.versionKey, versionKey: crypto.randomUUID(), data: JSON.parse(JSON.stringify(mutation.modified)) as unknown }
+            : { key, expectedVersionKey: prior?.versionKey, versionKey: randomUuid(), data: JSON.parse(JSON.stringify(mutation.modified)) as unknown }
           if (delta.versionKey === undefined) rows.delete(key)
           else rows.set(key, { versionKey: delta.versionKey, data: delta.data })
           const changed = deltas.get(id) ?? []

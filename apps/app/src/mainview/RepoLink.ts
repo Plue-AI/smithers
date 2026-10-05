@@ -3,6 +3,7 @@ import type { FetchLike } from "@smthrs/rpc/NativeAgent"
 import type { AppController } from "./state/AppController"
 import type { AppStore } from "./state/AppStore"
 import { parseRepoSelection,repoTreeRowId,sharedCopyIdOf } from "./state/AppState"
+import { randomUuid } from "./runtime/RandomUuid"
 
 /*
  * A repository's app lives at `/owner/name` (https://smithers.sh/smithersai/smithers).
@@ -144,7 +145,7 @@ const defaultBookmarkOf = async (http: FetchLike, repo: string): Promise<string 
 
 /** Record the URL before the controller starts any background inventory work. */
 export const beginRepositoryEntry = (store: AppStore, requested: string | null): string | undefined => {
-  const requestId = requested === null ? undefined : crypto.randomUUID()
+  const requestId = requested === null ? undefined : randomUuid()
   store.dispatch({ type: "repository.entry.changed", actor: "system", entry: requested === null ? null : {
     requestId: requestId!, repo: requested, phase: "pending"
   } })
