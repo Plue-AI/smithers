@@ -2,6 +2,7 @@ package services
 
 import (
 	"context"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -18,6 +19,7 @@ func (s *MythicalService) UseInstallGitHubPolling(synced *GitHubSyncedRepoServic
 	s.installPullHints = &mythicalPullHints{pending: make(map[pgtype.UUID]mythicalPullHint), wake: make(chan struct{}, 1)}
 	if synced != nil && synced.install != nil {
 		synced.install.requestPulls = s.requestInstallPulls
+		synced.install.requiredPulls = s.requiredInstallPulls
 	}
 }
 
@@ -171,4 +173,31 @@ func (s *MythicalService) fetchInstallPullHint(ctx context.Context, item db.Myth
 		return hint.retryAt, err
 	}
 	return time.Time{}, nil
+}
+
+// requiredInstallPulls reports the same uncapped per-TODO working set that the
+// existing follow loop reads, including a missing observation before first fetch.
+func (s *MythicalService) requiredInstallPulls(ctx context.Context, row db.GithubSyncedRepo) ([]GitHubSyncStream, error) {
+	ids, err := s.queries().ListRepositoryIDsForGitHubSource(ctx, row.OwnerLogin, row.RepoName)
+	if err != nil {
+		return nil, err
+	}
+	var streams []GitHubSyncStream
+	for _, id := range ids {
+		owner, repo, err := resolveGitHubDestination(ctx, s.queries(), nil, 0, id, "", "")
+		if err != nil {
+			return nil, err
+		}
+		if !strings.EqualFold(owner, row.OwnerLogin) || !strings.EqualFold(repo, row.RepoName) {
+			continue
+		}
+		items, err := s.queries().ListMythicalOpenPullItems(ctx, id)
+		if err != nil {
+			return nil, err
+		}
+		for _, item := range items {
+			streams = append(streams, s.installGitHubSync.syncStreamObservation(row, "pulls/"+strconv.FormatInt(item.PRNumber.Int64, 10), "pulls"))
+		}
+	}
+	return streams, nil
 }

@@ -1113,7 +1113,9 @@ func TestGitMirrorSyncRechecksThePolicyAtExecution(t *testing.T) {
 func TestGitHubMainPullReadTokenIsReadOnly(t *testing.T) {
 	tokens := &fakeMainPullTokens{}
 	service := NewGitHubMainPullService(nil, nil, tokens, nil)
-	assert.Equal(t, "ghs_installation_secret", service.readToken(context.Background(), db.Repository{UserID: pgtype.Int8{Int64: 1, Valid: true}}, "acme", "app"))
+	token, err := service.readToken(context.Background(), db.Repository{UserID: pgtype.Int8{Int64: 1, Valid: true}}, "acme", "app")
+	require.NoError(t, err)
+	assert.Equal(t, "ghs_installation_secret", token)
 	assert.Equal(t, []map[string]string{{"contents": "read"}}, tokens.permissions)
 }
 

@@ -17,6 +17,8 @@ const docs = Smithers.Docs.Check({
     Smithers.file("internal/services/github_synced_conditional.go"),
     Smithers.file("internal/services/github_synced_cursor.go"),
     Smithers.file("internal/services/github_synced_poll.go"),
+    Smithers.file("internal/services/github_sync.go"),
+    Smithers.file("internal/services/github_main_pull.go"),
     Smithers.file("internal/services/github_synced_pull.go"),
     Smithers.file("internal/services/github_synced_comments.go"),
     Smithers.file("internal/services/mythical_github_poll.go"),

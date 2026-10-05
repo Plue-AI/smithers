@@ -55,8 +55,10 @@ func composeGitHubSync(pool *pgxpool.Pool, credentials services.GitHubAppCredent
 }
 
 // Bind the existing TODO loop to the same guarded fetched-state service.
-func composeGitHubTodoPolling(stack *services.MythicalService, synced *services.GitHubSyncedRepoService, topology topology) {
+func composeGitHubTodoPolling(stack *services.MythicalService, main *services.GitHubMainPullService, synced *services.GitHubSyncedRepoService, topology topology) {
 	if !topology.hosted() {
 		stack.UseInstallGitHubPolling(synced)
+		// Absent stream owners keep aggregate Retry, health and main polling dark.
+		main.SetInstallSyncStreams(synced, nil, nil, nil)
 	}
 }

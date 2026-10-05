@@ -80,7 +80,8 @@ type GitHubMainPullStore interface {
 
 // GitHubMainPullTokens mints the repository owner's GitHub App installation
 // token for its GitHub source. *RepoConnectionService implements it. Without
-// one, a public source is read anonymously, which also proves it is public now.
+// one, hosted workers may read public sources anonymously. Installs require a
+// qualified credential and preserve refusals without an anonymous fallback.
 type GitHubMainPullTokens interface {
 	CreateGitHubInstallationTokenForRepositoryOwner(ctx context.Context, ownerUserID, ownerOrgID int64, owner, repo string, permissions map[string]string) (GitHubInstallationToken, error)
 }
@@ -110,8 +111,12 @@ type GitHubMainPullStatus struct {
 type GitHubMainPullService struct {
 	// install is the install's GitHub sync (UseInstallPolicy): it always
 	// follows, polls on the install cadence and serves its health.
-	install     bool
-	syncStreams GitHubSyncStreams
+	install          bool
+	syncStreams      GitHubSyncStreams
+	refReadAdmission interface {
+		AuthorizeRefRead(context.Context, int64) error
+	}
+	wake chan struct{}
 
 	reconcileFactory func(context.Context, int64, string, FactoryProjection) error
 	readFactory      func(context.Context, string, string, string, string) ([]byte, error)
@@ -170,7 +175,7 @@ type gitHubMainPullGit interface {
 func NewGitHubMainPullService(store GitHubMainPullStore, host gitHubMainPullRepoHost, tokens GitHubMainPullTokens, connections RepoSyncConnectionChecker) *GitHubMainPullService {
 	client := gitHubProviderClient(tokens, 30*time.Second)
 	return &GitHubMainPullService{
-		store: store, host: host, tokens: tokens, connections: connections, logger: slog.Default(),
+		store: store, host: host, tokens: tokens, connections: connections, logger: slog.Default(), wake: make(chan struct{}, 1),
 		gitHubGitBaseURL: githubGitBaseURL,
 		readFactory: func(ctx context.Context, token, owner, repo, commit string) ([]byte, error) {
 			return readGitHubFactory(ctx, client, githubAPIBaseURL(), defaultGitHubRawBaseURL, token, owner, repo, commit)
@@ -313,6 +318,7 @@ func (s *GitHubMainPullService) Start(ctx context.Context) {
 		select {
 		case <-ctx.Done():
 			return
+		case <-s.wake:
 		case <-time.After(gitHubMainPullInterval):
 		}
 	}
@@ -321,6 +327,9 @@ func (s *GitHubMainPullService) Start(ctx context.Context) {
 // Sweep re-requests stale pull and skipped rows and starts tracking
 // GitHub-sourced repositories that have never been evaluated.
 func (s *GitHubMainPullService) Sweep(ctx context.Context) {
+	if s.installSyncReady(ctx) != nil {
+		return
+	}
 	pollEvery := gitHubMainPullPollInterval
 	if s.install {
 		pollEvery = gitHubMainPullInstallPollInterval
@@ -337,6 +346,9 @@ func (s *GitHubMainPullService) Sweep(ctx context.Context) {
 // immediately before its run, so the run deadline always ends inside its
 // lease.
 func (s *GitHubMainPullService) PollOnce(ctx context.Context) error {
+	if err := s.installSyncReady(ctx); err != nil {
+		return err
+	}
 	for range gitHubMainPullClaimLimit {
 		if ctx.Err() != nil {
 			return nil
@@ -356,6 +368,7 @@ func (s *GitHubMainPullService) PollOnce(ctx context.Context) error {
 // gitHubMainPullOutcome is what one run records.
 type gitHubMainPullOutcome struct {
 	forcePush *GitHubMainForcePush
+	retryAt   time.Time
 
 	state, githubRepository, branch, policy, policyCommit, githubHead, smithersHead, err string
 	// resetPolicy forgets the recorded source/policy tuple, so a policy is
@@ -391,6 +404,9 @@ func (s *GitHubMainPullService) runClaimed(parent context.Context, row db.Github
 		outcome = s.pull(ctx, row)
 	}()
 	backoff := gitHubMainPullBackoff(row.Attempts)
+	if pause := outcome.retryAt.Sub(s.now()); pause > backoff {
+		backoff = pause
+	}
 	finishCtx, finishCancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer finishCancel()
 	written, err := s.store.FinishGithubMainPull(finishCtx, db.FinishGithubMainPullParams{
@@ -458,6 +474,24 @@ func (s *GitHubMainPullService) pull(ctx context.Context, row db.GithubMainPull)
 		out.state, out.err = gitHubMainPullStateFailed, message
 		return out
 	}
+	if err := s.installSyncReady(ctx); err != nil {
+		return fail(err.Error())
+	}
+	refused := func(err error) gitHubMainPullOutcome {
+		var fault *pkgerrors.APIError
+		if errors.As(err, &fault) && fault.RetryAt != nil {
+			out.retryAt = *fault.RetryAt
+		}
+		return fail(err.Error())
+	}
+	if s.install {
+		if s.refReadAdmission == nil {
+			return fail(githubSyncUnavailable().Error())
+		}
+		if err := s.refReadAdmission.AuthorizeRefRead(ctx, row.RepositoryID); err != nil {
+			return refused(err)
+		}
+	}
 	repository, err := s.store.GetRepoByID(ctx, row.RepositoryID)
 	if err != nil {
 		return fail("load repository: " + err.Error())
@@ -483,7 +517,10 @@ func (s *GitHubMainPullService) pull(ctx context.Context, row db.GithubMainPull)
 	out.branch = branch
 	ref := "refs/heads/" + branch
 
-	token := s.readToken(ctx, repository, githubOwner, githubRepo)
+	token, tokenErr := s.readToken(ctx, repository, githubOwner, githubRepo)
+	if tokenErr != nil {
+		return refused(tokenErr)
+	}
 	githubURL, err := gitMirrorURL(s.gitHubGitBaseURL(), token, githubOwner, githubRepo)
 	if err != nil {
 		return fail("build GitHub URL: " + err.Error())
@@ -683,15 +720,25 @@ func repositoryOwnerName(ctx context.Context, store interface {
 var gitHubMainPullPermissions = map[string]string{"contents": "read"}
 
 // readToken resolves a read credential now; it is never stored.
-func (s *GitHubMainPullService) readToken(ctx context.Context, repository db.Repository, owner, repo string) string {
+func (s *GitHubMainPullService) readToken(ctx context.Context, repository db.Repository, owner, repo string) (string, error) {
 	if s.tokens == nil {
-		return ""
+		if s.install {
+			return "", githubSyncUnavailable()
+		}
+		return "", nil
 	}
 	installation, err := s.tokens.CreateGitHubInstallationTokenForRepositoryOwner(ctx, repository.UserID.Int64, repository.OrgID.Int64, owner, repo, gitHubMainPullPermissions)
 	if err != nil {
-		return ""
+		if s.install {
+			return "", err
+		}
+		return "", nil
 	}
-	return strings.TrimSpace(installation.Token)
+	token := strings.TrimSpace(installation.Token)
+	if s.install && token == "" {
+		return "", githubSyncUnavailable()
+	}
+	return token, nil
 }
 
 func (s *GitHubMainPullService) bookmarkCommit(ctx context.Context, owner, repo, name string) (string, error) {

@@ -119,7 +119,7 @@ func TestInstallMainPullFastForwardsThroughTheInstallEngine(t *testing.T) {
 
 	service := NewGitHubMainPullService(newFakeMainPullStore(), s.client, &fixtureTokens{}, nil)
 	service.gitHubGitBaseURL = func() string { return s.server.URL }
-	service.UseInstallPolicy()
+	qualifyMainPullFixture(service)
 	out := service.pull(ctx, db.GithubMainPull{RepositoryID: 19})
 	require.Equal(t, "synced", out.state, out.err)
 	assert.Equal(t, next, out.smithersHead)

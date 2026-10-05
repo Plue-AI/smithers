@@ -14,7 +14,7 @@ func TestInstallMainPullAlwaysFollowsWithoutDeclaration(t *testing.T) {
 		t.Run(policy, func(t *testing.T) {
 			h := newPullHarness(t)
 			h.policy = policy
-			h.service.UseInstallPolicy()
+			qualifyMainPullFixture(h.service)
 			out := h.service.pull(t.Context(), db.GithubMainPull{RepositoryID: 19})
 			require.Equal(t, "synced", out.state)
 			require.Equal(t, "pull", out.policy)
@@ -30,7 +30,7 @@ func TestInstallMainPullAlwaysFollowsWithoutDeclaration(t *testing.T) {
 
 func TestInstallMainPullForcePushBindsTipsWithoutWriting(t *testing.T) {
 	h := newPullHarness(t)
-	h.service.UseInstallPolicy()
+	qualifyMainPullFixture(h.service)
 	h.git.ancestor = false
 	out := h.service.pull(t.Context(), db.GithubMainPull{RepositoryID: 19})
 	require.Equal(t, &GitHubMainForcePush{Old: pullOld, New: pullNew}, out.forcePush)

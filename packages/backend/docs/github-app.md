@@ -147,8 +147,28 @@ the worker fetches the hinted PR without moving its regular deadline. Repeated
 hints coalesce; a hint arriving during a fetch survives for the next pass. Both
 shared budget pauses and failed-read backoff remain in force after another hint.
 The worker rechecks the effective repository destination before fetching. Missing
-provider qualification leaves this path disabled. The public Retry hook still
-needs to join these readers and the other required streams.
+provider qualification leaves this path disabled.
+
+The install's existing sync service now requires every stream owner: refs,
+repository metadata and per-TODO reads, checks, reviews and permissions. A main
+receipt alone cannot qualify polling, aggregate health or Retry. The production
+assembly leaves the absent check, review and permission owners unregistered;
+main polling and the sync actions report unavailable until the complete provider
+boundary is qualified.
+
+Retry checks all owners before scheduling their existing workers. Repository
+reads and per-TODO reads use the same hints as webhooks; main pulls use their
+existing durable request generations and wake channel. Retry returns before
+HTTP, preserves cadence and shared budget state, and propagates scheduling
+failures instead of claiming completion. Repository health includes missing
+per-TODO observations rather than inferring them from the pull list.
+
+The main reader checks shared admission before token minting or ref reads.
+Install token refusals and empty credentials stop the read instead of falling
+back to anonymous GitHub access. Rate-limit failures retain their absolute retry
+deadline in the worker's existing backoff. Hosted anonymous public reads retain
+their previous behavior. Full stream, main-move/attention, live-health and
+production acceptance evidence remain outstanding.
 
 Conversation comments use the repository-wide `issues/comments` stream every
 45 seconds. The existing pager requests `sort=updated&direction=desc` with

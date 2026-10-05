@@ -24134,6 +24134,14 @@
       },
       {
         "kind": "file",
+        "path": "packages/backend/internal/services/github_sync.go"
+      },
+      {
+        "kind": "file",
+        "path": "packages/backend/internal/services/github_main_pull.go"
+      },
+      {
+        "kind": "file",
         "path": "packages/backend/internal/services/github_synced_pull.go"
       },
       {

@@ -23,7 +23,7 @@ func TestInstallMainFollowsAMergeInSmithers(t *testing.T) {
 	ctx := context.Background()
 	q := db.New(h.pool)
 	sync := NewGitHubMainPullService(q, h.host, h.connections, h.connections)
-	sync.UseInstallPolicy()
+	qualifyMainPullFixture(sync)
 	sync.SetMainMoved(h.service.MainMoved)
 	follows := 0
 	h.service.SetMainFollower(func(ctx context.Context, repositoryID int64) {

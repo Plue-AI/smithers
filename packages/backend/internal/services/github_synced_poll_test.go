@@ -3,6 +3,7 @@ package services
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
@@ -16,6 +17,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/smithersai/smithers/packages/backend/internal/db"
 	"github.com/smithersai/smithers/packages/backend/internal/githubfake"
+	pkgerrors "github.com/smithersai/smithers/packages/backend/internal/pkg/errors"
 	"github.com/stretchr/testify/require"
 )
 
@@ -27,6 +29,7 @@ type installPollFixture struct {
 	upstream       *githubfake.Server
 	clock          atomic.Int64
 	low            atomic.Bool
+	exhausted      atomic.Bool
 	refuseIssue    atomic.Int64
 	refuseComments atomic.Int64
 	mu             sync.Mutex
@@ -60,6 +63,9 @@ func newInstallPollFixture(t *testing.T) *installPollFixture {
 		w.Header().Set("X-RateLimit-Reset", "1300")
 		if f.low.Load() {
 			w.Header().Set("X-RateLimit-Remaining", "19")
+		}
+		if f.exhausted.Load() {
+			w.Header().Set("X-RateLimit-Remaining", "0")
 		}
 		if f.clock.Load() >= 1300 {
 			w.Header().Set("X-RateLimit-Reset", "4600")
@@ -290,4 +296,104 @@ func TestGitHubInstallMetadataFinishRechecksBindingAndDisable(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestGitHubRetrySchedulesExistingReadersAndPreservesPauses(t *testing.T) {
+	f := newInstallPollFixture(t)
+	s := f.service
+	ctx := t.Context()
+	q := db.New(f.pool)
+	_, err := s.RequiredStreams(ctx)
+	require.Error(t, err, "the TODO reader is required")
+	stack := NewMythicalService(f.pool, nil)
+	stack.UseInstallGitHubPolling(s)
+	user, err := q.CreateUser(ctx, db.CreateUserParams{Username: "retry-owner", LowerUsername: "retry-owner"})
+	require.NoError(t, err)
+	repo, err := q.CreateRepo(ctx, db.CreateRepoParams{UserID: pgtype.Int8{Int64: user.ID, Valid: true}, Name: "retry-repo", LowerName: "retry-repo", DefaultBookmark: "main"})
+	require.NoError(t, err)
+	_, err = f.pool.Exec(ctx, `UPDATE repositories SET mirror_destination='acme/app' WHERE id=$1`, repo.ID)
+	require.NoError(t, err)
+	_, err = q.RequestMythicalBootstrap(ctx, repo.ID, user.ID, 1, false)
+	require.NoError(t, err)
+	item, _, err := q.InsertMythicalItem(ctx, db.MythicalItem{RepositoryID: repo.ID, State: "proposed"})
+	require.NoError(t, err)
+	item.PRNumber = pgtype.Int8{Int64: 7, Valid: true}
+	item, err = q.SaveMythicalItem(ctx, item)
+	require.NoError(t, err)
+	main := NewGitHubMainPullService(q, nil, nil, nil)
+	main.UseInstallPolicy()
+	checks, reviews, permissions := &syncStreamFixture{}, &syncStreamFixture{}, &syncStreamFixture{}
+	main.SetInstallSyncStreams(s, checks, reviews, nil)
+	require.Error(t, main.RetrySync(ctx))
+	require.Equal(t, 0, fetchedCount(t, f.pool, `SELECT count(*) FROM github_main_pulls`))
+	require.Empty(t, stack.installPullHints.pending)
+	main.SetInstallSyncStreams(s, checks, reviews, permissions)
+	started := time.Now()
+	require.NoError(t, main.RetrySync(ctx))
+	require.Less(t, time.Since(started), time.Second, "Retry schedules; it does not await a fetch")
+	f.mu.Lock()
+	require.Empty(t, f.paths, "Retry sends no upstream request")
+	f.mu.Unlock()
+	require.Equal(t, 1, fetchedCount(t, f.pool, `SELECT count(*) FROM github_main_pulls WHERE requested_generation > synced_generation`))
+	require.Len(t, stack.installPullHints.pending, 1)
+	select {
+	case <-main.wake:
+	default:
+		t.Fatal("main worker not woken")
+	}
+	select {
+	case <-stack.installPullHints.wake:
+	default:
+		t.Fatal("TODO worker not woken")
+	}
+	select {
+	case <-s.install.wake:
+	default:
+		t.Fatal("repository worker not woken")
+	}
+	for _, owner := range []*syncStreamFixture{checks, reviews, permissions} {
+		require.Equal(t, 1, owner.retries)
+	}
+	f.poll(0, "issues", "pulls", "issues/events", "issues/comments")
+	streams, err := s.RequiredStreams(ctx)
+	require.NoError(t, err)
+	require.Len(t, streams, 5)
+	require.Equal(t, "stale", aggregateGitHubSyncHealth(streams, s.now()).State, "unread TODO must not appear fresh")
+	for _, stream := range streams[:4] {
+		require.NotNil(t, stream.LastSuccessAt)
+	}
+	require.Nil(t, streams[4].LastSuccessAt)
+	f.clock.Store(1010)
+	require.NoError(t, main.RetrySync(ctx))
+	f.poll(10, "issues", "pulls", "issues/events", "issues/comments")
+	f.poll(44)
+	f.poll(45, "pulls", "issues/comments")
+	// An issue-only secondary limit leaves other streams due; Retry cannot clear it.
+	f.refuseIssue.Store(429)
+	require.NoError(t, main.RetrySync(ctx))
+	f.poll(46, "issues", "pulls", "issues/events", "issues/comments")
+	require.NoError(t, main.RetrySync(ctx))
+	f.poll(47, "pulls", "issues/events", "issues/comments")
+	streams, err = s.RequiredStreams(ctx)
+	require.NoError(t, err)
+	require.Equal(t, "limited", aggregateGitHubSyncHealth(streams, s.now()).State)
+	// A primary-resource exhaustion holds every REST reader and the main token path.
+	f.exhausted.Store(true)
+	require.NoError(t, main.RetrySync(ctx))
+	f.poll(48, "pulls")
+	require.NoError(t, main.RetrySync(ctx))
+	f.poll(49)
+	err = s.AuthorizeRefRead(ctx, repo.ID)
+	var failure *pkgerrors.APIError
+	require.ErrorAs(t, err, &failure)
+	require.Equal(t, pkgerrors.CodeGitHubRateLimited, failure.Code)
+	require.Equal(t, time.Unix(1300, 0).UTC(), *failure.RetryAt)
+	out := main.pull(ctx, db.GithubMainPull{RepositoryID: repo.ID})
+	require.Equal(t, "failed", out.state)
+	require.Equal(t, *failure.RetryAt, out.retryAt)
+	// A revocation at retry time must not enqueue another pass of any owner.
+	before := checks.retries
+	s.install.authorize = func(context.Context, db.GithubSyncedRepo) error { return errors.New("revoked") }
+	require.ErrorContains(t, main.RetrySync(ctx), "revoked")
+	require.Equal(t, before, checks.retries)
 }

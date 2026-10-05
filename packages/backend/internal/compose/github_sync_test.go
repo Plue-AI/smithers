@@ -17,6 +17,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/smithersai/smithers/packages/backend/internal/config"
 	"github.com/smithersai/smithers/packages/backend/internal/db"
 	"github.com/smithersai/smithers/packages/backend/internal/githubfake"
@@ -345,4 +346,29 @@ func TestGitHubSharedBudgetComposition(t *testing.T) {
 
 		})
 	}
+}
+
+func TestInstallSyncCompositionDoesNotActivatePartialStreamOwners(t *testing.T) {
+	pool, _ := postgresfixture.NewProductDatabase(t)
+	q := db.New(pool)
+	synced := services.NewGitHubSyncedRepoService(q)
+	require.NoError(t, synced.ConfigureInstallSync(pool))
+	main := services.NewGitHubMainPullService(q, nil, nil, nil)
+	main.UseInstallPolicy()
+	stack := services.NewMythicalService(pool, nil)
+	composeGitHubTodoPolling(stack, main, synced, topology{})
+	user, err := q.CreateUser(t.Context(), db.CreateUserParams{Username: "dark-sync", LowerUsername: "dark-sync"})
+	require.NoError(t, err)
+	repo, err := q.CreateRepo(t.Context(), db.CreateRepoParams{UserID: pgtype.Int8{Int64: user.ID, Valid: true}, Name: "app", LowerName: "app", DefaultBookmark: "main"})
+	require.NoError(t, err)
+	_, err = pool.Exec(t.Context(), `UPDATE repositories SET mirror_destination='acme/app' WHERE id=$1`, repo.ID)
+	require.NoError(t, err)
+	main.Sweep(t.Context())
+	require.Error(t, main.RetrySync(t.Context()))
+	require.Error(t, main.PollOnce(t.Context()))
+	_, err = main.SyncHealth(t.Context())
+	require.Error(t, err)
+	var count int
+	require.NoError(t, pool.QueryRow(t.Context(), `SELECT count(*) FROM github_main_pulls`).Scan(&count))
+	require.Zero(t, count)
 }
