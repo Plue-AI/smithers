@@ -35,6 +35,7 @@ type TodoControlReceipt struct {
 // todoControls dispatches each TODO control to its service, one file per op
 // (mythical_todo_<op>.go). An op without an entry is unavailable.
 var todoControls = map[string]func(*MythicalService, context.Context, int64, TodoControlInput) (TodoControlReceipt, error){
+	"":      (*MythicalService).steerTodo,
 	"retry": (*MythicalService).retryTodo,
 	"drop":  (*MythicalService).dropTodo,
 	"move":  (*MythicalService).moveTodo,
@@ -104,6 +105,10 @@ func todoControlGuard(item db.MythicalItem, input TodoControlInput, facts todoCo
 		return &TodoControlError{http.StatusConflict, "merging", "conflict", "TODO is merging"}
 	}
 	if item.State == "landed" || item.State == "cancelled" || item.State == "rejected" || item.State == "declined" {
+		if input.Op == "" {
+			// A steer to a merged or dropped TODO (§10.7.3).
+			return &TodoControlError{http.StatusConflict, "todo_closed", "conflict", "TODO is closed"}
+		}
 		return todoControlConflict("TODO is settled")
 	}
 	switch input.Op {

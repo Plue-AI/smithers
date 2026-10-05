@@ -26,6 +26,13 @@ type todoSteer struct {
 	By      json.RawMessage `json:"by"`
 	At      time.Time       `json:"at"`
 	Attempt int32           `json:"attempt"`
+	// Request is the steer press's Idempotency-Key (mythical_todo_steer.go);
+	// a Retry's steer has none.
+	Request string `json:"request,omitempty"`
+	// Run is the live run the steer was sent to as a message; Pending, a
+	// steer that reached a starting attempt, waits for its run to attach.
+	Run     string `json:"run,omitempty"`
+	Pending bool   `json:"pending,omitempty"`
 }
 
 // todoRetry is one Retry a person pressed: its Idempotency-Key, who and when,
@@ -125,11 +132,12 @@ func (s *MythicalService) retryTodo(ctx context.Context, number int64, input Tod
 
 // todoFeedback is what attempt receives as its first input: every steer held
 // for it or an earlier attempt, in order, the latest kept whole when they
-// exceed todoFeedbackBytes.
+// exceed todoFeedbackBytes. A steer pending for this attempt's run to attach
+// reaches it then, as a message (todoAttachSteers).
 func todoFeedback(item db.MythicalItem, attempt int32) string {
 	var held []string
 	for _, steer := range mythicalChecksOf(item).Steers {
-		if steer.Attempt <= attempt {
+		if steer.Attempt < attempt || steer.Attempt == attempt && !steer.Pending {
 			held = append(held, steer.Text)
 		}
 	}
