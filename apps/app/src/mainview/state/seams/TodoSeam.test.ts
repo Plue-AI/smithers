@@ -5,6 +5,7 @@ import { memoryStorage, waitFor } from "../TestFixtures"
 import type { SeamContext } from "./SeamContext"
 import { createTodoSeam, type DraftEntry, type TodoEntry, type TodoReceipt, type TodoTopics, type TodoSeamOptions } from "./TodoSeam"
 import { fixtures } from "../../../../../../packages/rpc/test/fixtures/Todo"
+import { draftCard } from "@smthrs/rpc/TodoCommands"
 
 const json = (body: unknown, status = 202) => new Response(JSON.stringify(body), { status, headers: { "Content-Type": "application/json" } })
 const deferred = <T,>() => {
@@ -68,6 +69,29 @@ describe("TodoSeam — admission and live completion", () => {
       expect(CardSchema.parse(h.draft()).payload).toEqual(h.draft().payload)
       expect(await h.seam.newTodo(input)).toEqual({ value: "Committed T12" })
       expect(calls).toHaveLength(1)
+    } finally { h.close() }
+  })
+  test("a Draft the install's host wrote commits only on its author's press, through the same route", async () => {
+    const calls: { url: string; init?: RequestInit }[] = []
+    const h = await harness(async (url, init) => { calls.push({ url, init }); return json({ state: "accepted", n: 12 }) })
+    try {
+      // The host's todo.new answers with this card in a turn frame; the turn applies it as Smithers.
+      const hosted = (id: string, author: string) => draftCard({ id, author, text: "Log retry counts\nin the worker", options: [], idempotencyKey: `key-${id}` }, 1, 1)
+      for (const card of [hosted("draft:host-ben", "ben"), hosted("draft:host-maya", "maya")]) {
+        await h.store.dispatch({ type: "card.upsert", actor: "smithers", card }).isPersisted.promise
+      }
+      // Arriving files nothing: the Draft is the confirmation, and only its author's Commit acts.
+      expect(calls).toEqual([])
+      expect(await h.seam.newTodo({ text: "x", cardId: "draft:host-maya" })).toBe("This draft belongs to its author.")
+      expect(calls).toEqual([])
+      expect(await h.seam.newTodo({ text: "x", cardId: "draft:host-ben" })).toEqual({ value: "Requested" })
+      await waitFor(() => calls.length === 1)
+      expect(calls[0]!.url).toBe("https://install.test/api/todos")
+      expect(calls[0]!.init?.method).toBe("POST")
+      expect(new Headers(calls[0]!.init?.headers).get("Idempotency-Key")).toBe("key-draft:host-ben")
+      expect(JSON.parse(String(calls[0]!.init?.body))).toEqual({
+        title: "Log retry counts", prompt: "Log retry counts\nin the worker", acceptance: [], place: { mode: "append" }
+      })
     } finally { h.close() }
   })
   test("late answer keeps the text and answered_by, then steers it", async () => {

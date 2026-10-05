@@ -8,6 +8,8 @@
  */
 import { Schema } from "effect"
 import { hasCapability } from "@smthrs/rpc/AppBootstrap"
+/* The copy the model host binds its `stack` command to as well (@smthrs/rpc/TodoCommands). */
+import { STACK_COPY } from "@smthrs/rpc/TodoCommands"
 import { flow, NoPayload, type CommandActions } from "./Declare"
 import type { FlowEntry } from "../registry"
 import type { Grammar } from "../SlashPayload"
@@ -52,7 +54,7 @@ const idGrammar: Grammar = args => {
 }
 
 export const homeFlows = (actions: CommandActions): ReadonlyArray<FlowEntry> => [
-  flow({ name: "stack", summary: "Show the stack and background runs", input: NoPayload,
+  flow({ name: "stack", summary: STACK_COPY.summary, input: NoPayload,
     handler: () => result(openDesignHome(actions.design, actions.design.viewer())) }),
   flow({ name: "stack.move", summary: "Reorder an item", args: "<Tn> <up|down>", hidden: true, grammar: todoGrammar("direction"),
     input: Schema.Struct({ n: N, direction: Schema.Literals(["up", "down"]) }),

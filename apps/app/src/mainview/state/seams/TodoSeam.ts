@@ -2,6 +2,8 @@ import { todoActors, type ActorContext } from "../ProductActor"
 import { TodoCardSchema, type TodoCard } from "@smthrs/rpc/TodoCard"
 import { DraftCardSchema, type DraftCard } from "@smthrs/rpc/DraftCard"
 import type { Card } from "@smthrs/rpc/Cards"
+/* The routes and cards the model host's TODO commands share (@smthrs/rpc/TodoCommands). */
+import { draftCard, todoCard, todoPath, TODOS_PATH, type DraftEntry, type TodoEntry } from "@smthrs/rpc/TodoCommands"
 import { Data, Schema } from "effect"
 import { TodoNewInput, TodoAmendInput } from "../../flows/entries/todo"
 import { actorSharedState } from "../ActorBindings"
@@ -10,8 +12,7 @@ import { readResult, unreachableSentence } from "./SeamContext"
 
 class TodoTopicMismatch extends Data.TaggedError("TodoTopicMismatch") { readonly message = "TODO topic mismatch" }
 
-export type TodoEntry = Extract<Card, { kind: "todo" }>
-export type DraftEntry = Extract<Card, { kind: "draft" }>
+export type { DraftEntry, TodoEntry }
 type Request = TodoEntry["payload"]["requests"][number]
 export interface TodoReceipt {
   readonly key: string
@@ -50,10 +51,7 @@ export const createTodoSeam = (ctx: SeamContext, options: TodoSeamOptions = {}) 
   const write = async (card: Card, actor: "user" | "smithers" | "system" = ctx.actor()) => {
     await ctx.dispatch({ type: "card.upsert", actor, card }).isPersisted.promise
   }
-  const blank = (n: number): TodoEntry => ({
-    id: `todo:${n}`, kind: "todo", title: `T${n}`, status: "active", createdAt: Date.now(),
-    ordinal: ctx.nextOrdinal(), payload: { n, requests: [] }
-  })
+  const blank = (n: number): TodoEntry => todoCard(n, undefined, ctx.nextOrdinal(), Date.now())
   const noticeKey = (key: string) => `todo.request.${key}`
   const showNotice = (request: Request, title: string) => {
     if (shared.timers.has(request.key)) return
@@ -91,7 +89,7 @@ export const createTodoSeam = (ctx: SeamContext, options: TodoSeamOptions = {}) 
     const refresh = async () => {
       if (!active || published || !current(login, revision)) return
       try {
-        const response = await ctx.http(`${ctx.baseUrl}/api/todos/${n}`, { credentials: "include" })
+        const response = await ctx.http(`${ctx.baseUrl}${todoPath(n)}`, { credentials: "include" })
         if (response.ok && active && !published && current(login, revision)) {
           await applyProjection(n, await response.json(), [], () => active && !published && current(login, revision))
         }
@@ -167,8 +165,8 @@ export const createTodoSeam = (ctx: SeamContext, options: TodoSeamOptions = {}) 
     const title = row?.title ?? "TODO"
     showNotice(request, title)
     const control = ["answer", "steer", "stop", "resume", "retry", "retry-current-flow", "drop"].includes(request.operation)
-    const route = request.operation === "create" ? "/api/todos"
-      : `/api/todos/${request.n}${request.operation === "amend" || control ? "" : `/${request.operation}`}`
+    const route = request.operation === "create" ? TODOS_PATH
+      : `${todoPath(request.n!)}${request.operation === "amend" || control ? "" : `/${request.operation}`}`
     void (async () => {
       let response: Response
       try {
@@ -235,7 +233,7 @@ export const createTodoSeam = (ctx: SeamContext, options: TodoSeamOptions = {}) 
     const refusal = signedIn(); if (refusal) return refusal
     const login = owner(), revision = identity()?.ownerRevision ?? identity()?.revision
     try {
-      const response = await ctx.http(`${ctx.baseUrl}/api/todos/${n}`, { credentials: "include" })
+      const response = await ctx.http(`${ctx.baseUrl}${todoPath(n)}`, { credentials: "include" })
       if (!current(login, revision)) return
       if (!response.ok) return "Could not open the TODO."
       const model = TodoCardSchema.parse(todoActors(await response.json(), options.actors?.()))
@@ -249,7 +247,7 @@ export const createTodoSeam = (ctx: SeamContext, options: TodoSeamOptions = {}) 
     void (async () => {
       let options: DraftCard["place"]["options"] | undefined, failure: string | undefined
       try {
-        const response = await ctx.http(`${ctx.baseUrl}/api/todos`, { credentials: "include" })
+        const response = await ctx.http(`${ctx.baseUrl}${TODOS_PATH}`, { credentials: "include" })
         if (!response.ok) failure = "Could not load TODO placement."
         else options = TodoCardSchema.array().parse(await response.json()).filter((model): model is typeof model & { state: DraftCard["place"]["options"][number]["state"] } => model.state !== "merged" && model.state !== "dropped")
           .map(model => ({ n: model.n, title: model.title, state: model.state }))
@@ -265,15 +263,11 @@ export const createTodoSeam = (ctx: SeamContext, options: TodoSeamOptions = {}) 
     const refusal = signedIn(); if (refusal) return refusal
     if (!input.cardId) {
       const id = `draft:${crypto.randomUUID()}`
-      const text = input.text ?? ""
-      await write({ id, kind: "draft", audience_member_id: owner()!, title: input.title ?? text.split("\n")[0]!,
-        status: "active", createdAt: Date.now(), ordinal: ctx.nextOrdinal(), payload: {
-          title: input.title ?? text.split("\n")[0]!, prompt: text, acceptance: [...input.acceptance ?? []],
-          place: { ...(input.before ? { mode: "before" as const, n: input.before } : { mode: "append" as const }), options: [...ctx.store.collections.cards.values()]
-            .flatMap(row => row.kind === "todo" && row.payload.model && row.payload.model.state !== "merged" && row.payload.model.state !== "dropped"
-              ? [{ n: row.payload.n, title: row.title, state: row.payload.model.state }] : []) },
-          private: true, idempotencyKey: crypto.randomUUID()
-        } })
+      await write(draftCard({ id, author: owner()!, text: input.text ?? "", title: input.title, acceptance: input.acceptance, before: input.before,
+        options: [...ctx.store.collections.cards.values()]
+          .flatMap(row => row.kind === "todo" && row.payload.model && row.payload.model.state !== "merged" && row.payload.model.state !== "dropped"
+            ? [{ n: row.payload.n, title: row.title, state: row.payload.model.state }] : []),
+        idempotencyKey: crypto.randomUUID() }, ctx.nextOrdinal(), Date.now()))
       loadDraftPlaces(id)
       return { value: "Drafted" }
     }

@@ -7,7 +7,8 @@ import { memoryStorage, signupProfileFetch, waitFor } from "../../state/TestFixt
 import type { DraftEntry, TodoEntry } from "../../state/seams/TodoSeam"
 import { fixtures } from "../../../../../../packages/rpc/test/fixtures/Todo"
 import { modelInvocable, nameOf } from "../registry"
-import { TodoNewInput, todoGrammar } from "./todo"
+import { parseTodoArgs } from "@smthrs/rpc/TodoCommands"
+import { TodoNewInput } from "./todo"
 import { answerActions } from "../AnswerActions"
 import { designTodoCard } from "../../state/seams/DesignWorld/todo"
 
@@ -106,7 +107,7 @@ test("signed out, the Draft's Commit input commits through todo.new {cardId} and
   } finally { controller.dispose() }
 })
 test("TODO grammar and schema retain JSON whitespace, reject invalid numbers and keep missing fields", () => {
-  const parse = todoGrammar("answer")
+  const parse = parseTodoArgs("answer")
   expect(parse("T12 yes\nsecond line")).toEqual({ payload: { n: 12, answer: "yes\nsecond line" } })
   expect(parse("T12")).toEqual({ payload: { n: 12 } })
   expect(parse('{"n":12,"answer":" yes\\n "}')).toEqual({ payload: { n: 12, answer: " yes\n " } })
