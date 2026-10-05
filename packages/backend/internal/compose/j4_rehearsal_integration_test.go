@@ -342,13 +342,10 @@ func TestJ4Rehearsal(t *testing.T) {
 		return nil
 	})
 	// T2 started beside T1, so T1's candidate moved the stack under it: T2
-	// reaches review only once the stack rebases it (lane rebase-onto-prefix).
+	// reaches review once the stack rebases it onto its prefix and checks it.
 	r.step("11 T2 in review with the answer", "GET /api/todos/{T2}; GitHub fake PR", "in_review; the question settled; t2.md at the PR head carries the answer", "T-STK-01, T-STK-08", func() error {
 		v, err := r.waitTodoWithin(t2, 4*time.Minute, "in_review")
 		if err != nil {
-			if strings.Contains(r.logs.String(), "Rebase pending: validated branch rebase execution is unavailable") {
-				return fmt.Errorf("%w; the stack logs \"Rebase pending: validated branch rebase execution is unavailable\" (todo_rebase.go, lane rebase-onto-prefix)", err)
-			}
 			return err
 		}
 		if len(v.Waits) > 0 {
