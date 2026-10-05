@@ -8,6 +8,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/smithersai/smithers/packages/backend/flowdispatch"
 	"github.com/smithersai/smithers/packages/backend/flowruntime"
 	"github.com/smithersai/smithers/packages/backend/internal/db"
 	"github.com/smithersai/smithers/packages/backend/internal/middleware"
@@ -28,6 +29,11 @@ type browserFlowRecordingDispatcher struct {
 func (d *browserFlowRecordingDispatcher) CallRPC(_ context.Context, target flowruntime.Target, procedure string, payload json.RawMessage) (json.RawMessage, error) {
 	d.calls = append(d.calls, browserFlowRelayCall{target: target, procedure: procedure, payload: append(json.RawMessage(nil), payload...)})
 	return json.RawMessage(`{"ok":true,"relayed":true}`), nil
+}
+
+// RefuseRelay is the production classification, which needs no host.
+func (*browserFlowRecordingDispatcher) RefuseRelay(ctx context.Context, target flowruntime.Target, procedure string, payload json.RawMessage) error {
+	return (&flowdispatch.Service{}).RefuseRelay(ctx, target, procedure, payload)
 }
 
 func (*browserFlowRecordingDispatcher) StartHost(context.Context, flowruntime.Target) (bool, error) {
@@ -76,19 +82,30 @@ func TestRunCredentialCannotSteerOrCancelRuns(t *testing.T) {
 // before the box wakes or the host is reached; it runs only from a filed
 // TODO's pinned stack launch.
 func TestBrowserFlowRelayRefusesTheTodoComposition(t *testing.T) {
-	for _, flowID := range []string{"todo", "flows/todo/flow.ts"} {
-		t.Run(flowID, func(t *testing.T) {
+	for name, call := range map[string]struct {
+		procedure, payload, code string
+		status                   int
+	}{
+		"todo":                                 {"Plan", `{"flowId":"todo","input":{}}`, "todo_requires_stack_admission", http.StatusForbidden},
+		"flows/todo/flow.ts":                   {"Plan", `{"flowId":"flows/todo/flow.ts","input":{}}`, "todo_requires_stack_admission", http.StatusForbidden},
+		"./flows/todo/flow.ts":                 {"Plan", `{"flowId":"./flows/todo/flow.ts","input":{}}`, "todo_requires_stack_admission", http.StatusForbidden},
+		"todo beside a lower-case key":         {"Plan", `{"flowId":"todo","flowid":"coding/dispatch","input":{}}`, "todo_requires_stack_admission", http.StatusForbidden},
+		"duplicate key":                        {"Plan", `{"flowId":"coding/dispatch","flowId":"todo","input":{}}`, "Invalid workflow request.", http.StatusBadRequest},
+		"run of a plan the relay did not save": {"Run", `{"_tag":"Plan","planId":"stack-parked-todo","digest":"d","envelope":{},"idempotencyKey":"k"}`, "plan_unknown", http.StatusConflict},
+		"run without a run id":                 {"Resume", `{"reason":"again"}`, "Invalid workflow request.", http.StatusBadRequest},
+	} {
+		t.Run(name, func(t *testing.T) {
 			deps := &browserReadDependencies{canWrite: true, workspace: db.Workspace{ID: browserBoxID, Status: "suspended", RepositoryID: 23, UserID: 17}}
 			boxes := &resumingBoxes{resumed: make(chan string, 1)}
 			dispatcher := &browserFlowRecordingDispatcher{}
 			api := &browserFlowAPI{repos: deps, queries: deps, dispatcher: dispatcher, boxes: boxes}
-			body := `{"repo":"owner/repo","workspaceId":"` + browserBoxID + `","procedure":"Plan","payload":{"flowId":"` + flowID + `","input":{}}}`
+			body := `{"repo":"owner/repo","workspaceId":"` + browserBoxID + `","procedure":"` + call.procedure + `","payload":` + call.payload + `}`
 			request := httptest.NewRequest(http.MethodPost, "/api/workflow/rpc", strings.NewReader(body))
 			request = request.WithContext(middleware.ContextWithAuthInfo(request.Context(), &middleware.AuthInfo{User: &db.User{ID: 17, UserType: "user"}}))
 			writer := httptest.NewRecorder()
 			api.rpc(writer, request)
-			require.Equal(t, http.StatusForbidden, writer.Code, writer.Body.String())
-			require.Contains(t, writer.Body.String(), "todo_requires_stack_admission")
+			require.Equal(t, call.status, writer.Code, writer.Body.String())
+			require.Contains(t, writer.Body.String(), call.code)
 			require.Empty(t, dispatcher.calls, "the host was never reached")
 			require.Empty(t, boxes.resumed, "the box was never woken")
 		})

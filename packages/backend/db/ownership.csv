@@ -283,3 +283,4 @@ factory_issue_claims,product,durable shared implementation ownership
 install_settings,product,product migration 0104; shared install settings from spec section 3
 github_app,product,product migration 0105
 github_app_manifest_states,product,product migration 0105
+flow_relay_plans,product,product migration 0113; plans the browser workflow relay saved

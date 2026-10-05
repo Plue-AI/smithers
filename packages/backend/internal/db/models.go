@@ -705,6 +705,15 @@ type FindingFeedback struct {
 	CreatedAt time.Time   `json:"created_at"`
 }
 
+type FlowRelayPlan struct {
+	TenantID    string             `json:"tenant_id"`
+	PrincipalID string             `json:"principal_id"`
+	WorkspaceID string             `json:"workspace_id"`
+	PlanID      string             `json:"plan_id"`
+	FlowID      string             `json:"flow_id"`
+	CreatedAt   pgtype.Timestamptz `json:"created_at"`
+}
+
 type FlowRuntimeHostBinding struct {
 	ID                    string    `json:"id"`
 	TenantID              string    `json:"tenant_id"`

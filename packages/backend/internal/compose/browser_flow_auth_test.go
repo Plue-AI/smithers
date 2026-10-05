@@ -33,7 +33,17 @@ func TestBrowserFlowRejectsRunCredentialForControlProcedures(t *testing.T) {
 				deps := &browserReadDependencies{canWrite: true, workspace: db.Workspace{ID: browserBoxID, Status: "running"}}
 				dispatcher := &browserFlowRecordingDispatcher{}
 				api := &browserFlowAPI{repos: deps, queries: deps, dispatcher: dispatcher}
-				body := `{"repo":"owner/repo","workspaceId":"` + browserBoxID + `","procedure":"` + tc.procedure + `","payload":{"runId":"run-42"}}`
+				// Each payload is one the relay classifies exactly (RefuseRelay).
+				payload := `{"runId":"run-42"}`
+				switch tc.procedure {
+				case "Plan":
+					payload = `{"flowId":"coding/dispatch","input":{}}`
+				case "Run":
+					payload = `{"_tag":"Resume","runId":"run-42","idempotencyKey":"k"}`
+				case "Approval.Submit":
+					payload = `{"target":{"_tag":"Node","runId":"run-42","requestId":"r","digest":"d","envelope":{}},"scope":"once","decision":"approve"}`
+				}
+				body := `{"repo":"owner/repo","workspaceId":"` + browserBoxID + `","procedure":"` + tc.procedure + `","payload":` + payload + `}`
 				request := httptest.NewRequest(http.MethodPost, "/api/workflow/rpc", strings.NewReader(body))
 				request = request.WithContext(middleware.ContextWithAuthInfo(request.Context(), auth))
 				writer := httptest.NewRecorder()

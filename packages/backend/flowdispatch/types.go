@@ -27,6 +27,13 @@ var (
 	// ErrTodoOutsideStack refuses the todo composition on any route other
 	// than the stack's pinned launch of an owner's TODO attempt.
 	ErrTodoOutsideStack = errors.New("flow dispatch: the todo flow runs only from stack admission of a filed TODO")
+	// ErrRelayPayload refuses a relayed call whose payload the relay cannot
+	// classify exactly: not one object, a duplicate key, or a missing or
+	// mistyped field the call needs.
+	ErrRelayPayload = errors.New("flow dispatch: the relayed payload is not one exact object")
+	// ErrRelayPlanUnknown refuses a relayed run of a plan this relay did not
+	// save for the same caller and box.
+	ErrRelayPlanUnknown = errors.New("flow dispatch: the relay saved no such plan for this box; plan again")
 )
 
 // TodoFlow is the todo composition (flows/todo/flow.ts). StackBindingKind is
@@ -48,11 +55,11 @@ const (
 // IsTodoFlow reports whether flowID names the todo composition, by name or by
 // its flows/todo/flow.ts path.
 func IsTodoFlow(flowID string) bool {
-	name := strings.TrimSpace(flowID)
+	name := path.Clean(strings.TrimSpace(flowID))
 	if inner, ok := strings.CutPrefix(name, "flows/"); ok {
 		name = strings.TrimSuffix(inner, "/flow.ts")
 	}
-	return path.Clean(name) == TodoFlow
+	return name == TodoFlow
 }
 
 // todoLaunchAllowed is the one route to the todo composition: a stack item
@@ -169,6 +176,9 @@ type Config struct {
 	ObservationLimit    int
 	ObservationPages    int
 	RuntimeCallTimeout  time.Duration
+	// RelayPlans keeps the browser relay's plans; without it the relay runs
+	// and approves no plan.
+	RelayPlans RelayPlans
 }
 
 type launchPayload struct {

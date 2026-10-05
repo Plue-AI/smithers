@@ -12,6 +12,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/smithersai/smithers/packages/backend/admission"
@@ -160,11 +161,32 @@ func newFlowComposition(options runOptions, cfg *config.Config, pool *pgxpool.Po
 	if err != nil {
 		return nil, fmt.Errorf("Flow host resolver: %w", err)
 	}
-	dispatcher, err := flowdispatch.New(flowdispatch.Config{Store: store, Resolver: resolver, Projector: flowProjector(projectors...)})
+	dispatcher, err := flowdispatch.New(flowdispatch.Config{Store: store, Resolver: resolver, Projector: flowProjector(projectors...), RelayPlans: relayPlanStore{db.New(pool)}})
 	if err != nil {
 		return nil, fmt.Errorf("Flow dispatcher: %w", err)
 	}
 	return &flowComposition{jobs: store, dispatcher: dispatcher, bindings: bindings, stopper: stopper}, nil
+}
+
+// relayPlanStore keeps the browser relay's plans in PostgreSQL, so a plan
+// saved by one backend replica is known to every replica.
+type relayPlanStore struct{ queries *db.Queries }
+
+func (store relayPlanStore) SaveRelayPlan(ctx context.Context, target flowruntime.Target, planID, flowID string) error {
+	if _, err := store.queries.PruneFlowRelayPlans(ctx); err != nil {
+		return err
+	}
+	return store.queries.SaveFlowRelayPlan(ctx, db.SaveFlowRelayPlanParams{TenantID: target.TenantID, PrincipalID: target.PrincipalID,
+		WorkspaceID: target.WorkspaceID, PlanID: planID, FlowID: flowID})
+}
+
+func (store relayPlanStore) RelayPlanFlow(ctx context.Context, target flowruntime.Target, planID string) (string, bool, error) {
+	flowID, err := store.queries.GetFlowRelayPlan(ctx, db.GetFlowRelayPlanParams{TenantID: target.TenantID, PrincipalID: target.PrincipalID,
+		WorkspaceID: target.WorkspaceID, PlanID: planID})
+	if errors.Is(err, pgx.ErrNoRows) {
+		return "", false, nil
+	}
+	return flowID, err == nil, err
 }
 
 // codingHostEnvironment carries no model credential or provider origin in

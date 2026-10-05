@@ -61,6 +61,7 @@ type browserFlowAPI struct {
 type browserFlowDispatcher interface {
 	CallRPC(context.Context, flowruntime.Target, string, json.RawMessage) (json.RawMessage, error)
 	StartHost(context.Context, flowruntime.Target) (bool, error)
+	RefuseRelay(context.Context, flowruntime.Target, string, json.RawMessage) error
 }
 
 var _ browserFlowDispatcher = (*flowdispatch.Service)(nil)
@@ -90,6 +91,18 @@ func browserFlowRefusal(w http.ResponseWriter, status int, message string) {
 // Worker's platform proxy keeps only at the top level.
 // browserFlowTodoRefused answers a relay call that would plan, run, resume
 // or fork the todo composition outside the stack's pinned launch.
+// browserFlowRelayRefused answers a relay call refused before the box woke.
+func browserFlowRelayRefused(w http.ResponseWriter, err error) {
+	switch {
+	case errors.Is(err, flowdispatch.ErrTodoOutsideStack):
+		browserFlowTodoRefused(w)
+	case errors.Is(err, flowdispatch.ErrRelayPlanUnknown):
+		browserFlowTyped(w, http.StatusConflict, "plan_unknown", "Plan again.")
+	default:
+		browserFlowRefusal(w, http.StatusBadRequest, "Invalid workflow request.")
+	}
+}
+
 func browserFlowTodoRefused(w http.ResponseWriter) {
 	browserFlowTyped(w, http.StatusForbidden, "todo_requires_stack_admission", "File a TODO to run the todo flow.")
 }
@@ -282,9 +295,11 @@ func (api *browserFlowAPI) rpc(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	// The todo composition runs only from a filed TODO's pinned stack launch:
-	// refuse planning it here before the box wakes.
-	if flowdispatch.RelayNamesTodo(request.Procedure, request.Payload) {
-		browserFlowTodoRefused(w)
+	// a call the relay can classify without the box's host (a plan, a run
+	// of a saved plan, an unreadable payload) is refused before the box
+	// wakes.
+	if err := api.dispatcher.RefuseRelay(r.Context(), target, request.Procedure, request.Payload); err != nil {
+		browserFlowRelayRefused(w, err)
 		return
 	}
 	serve := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

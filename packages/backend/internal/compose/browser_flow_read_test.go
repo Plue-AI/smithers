@@ -13,6 +13,7 @@ import (
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgtype"
+	"github.com/smithersai/smithers/packages/backend/flowdispatch"
 	"github.com/smithersai/smithers/packages/backend/flowhost"
 	"github.com/smithersai/smithers/packages/backend/flowruntime"
 	"github.com/smithersai/smithers/packages/backend/internal/db"
@@ -153,6 +154,10 @@ func (d *startingDispatcher) CallRPC(context.Context, flowruntime.Target, string
 	return nil, errors.New("provision never relays a procedure")
 }
 
+func (*startingDispatcher) RefuseRelay(ctx context.Context, target flowruntime.Target, procedure string, payload json.RawMessage) error {
+	return (&flowdispatch.Service{}).RefuseRelay(ctx, target, procedure, payload)
+}
+
 func (d *startingDispatcher) StartHost(_ context.Context, target flowruntime.Target) (bool, error) {
 	d.targets = append(d.targets, target)
 	return d.ready, d.err
@@ -247,7 +252,7 @@ func TestBrowserFlowWakesASleepingBox(t *testing.T) {
 	writer = call("/api/workflow/rpc", `{`+box+`,"procedure":"Projection.Snapshot","payload":{}}`)
 	require.JSONEq(t, `{"status":"provisioning"}`, writer.Body.String())
 	<-boxes.resumed
-	writer = call("/api/workflow/rpc", `{`+box+`,"procedure":"Plan","payload":{}}`)
+	writer = call("/api/workflow/rpc", `{`+box+`,"procedure":"Plan","payload":{"flowId":"coding/dispatch","input":{}}}`)
 	require.Equal(t, 409, writer.Code)
 	require.Contains(t, writer.Body.String(), `"code":"workspace_starting"`)
 	require.Empty(t, dispatcher.targets, "a sleeping box's host is not started until it runs")
@@ -312,8 +317,9 @@ func TestBrowserFlowBudgetsAllButProgressReads(t *testing.T) {
 				next.ServeHTTP(w, r)
 			})
 		}}
-	for _, procedure := range []string{"Projection.Snapshot", "List", "Plan", "Run"} {
-		request := httptest.NewRequest("POST", "/api/workflow/rpc", strings.NewReader(`{"repo":"owner/repo","workspaceId":"`+browserBoxID+`","procedure":"`+procedure+`","payload":{}}`))
+	for procedure, payload := range map[string]string{"Projection.Snapshot": `{}`, "List": `{}`,
+		"Plan": `{"flowId":"coding/dispatch","input":{}}`, "Run": `{"_tag":"Resume","runId":"run-1","idempotencyKey":"k"}`} {
+		request := httptest.NewRequest("POST", "/api/workflow/rpc", strings.NewReader(`{"repo":"owner/repo","workspaceId":"`+browserBoxID+`","procedure":"`+procedure+`","payload":`+payload+`}`))
 		request = request.WithContext(context.WithValue(request.Context(), middleware.UserContextKey, &db.User{ID: 17}))
 		api.rpc(httptest.NewRecorder(), request)
 	}
