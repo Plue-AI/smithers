@@ -163,14 +163,15 @@ func TestTodoLabelDoorAdmitsOnlyAuthorizedLabels(t *testing.T) {
 		issue   mythicalIssue
 		applied gitHubLabelApplication
 	}{
-		"label without write":            {open, gitHubLabelApplication{Label: "todo", By: "Carol", EventID: 302}},
-		"label removed":                  {open, gitHubLabelApplication{Label: "todo", ByMaintainer: true, By: "Ben", EventID: 303, Removed: true}},
-		"no live label event":            {open, gitHubLabelApplication{Label: "todo", ByMaintainer: true, By: "Ben"}},
-		"another label":                  {open, gitHubLabelApplication{Label: "bug", ByMaintainer: true, By: "Ben", EventID: 304}},
-		"policy, not a label":            {open, gitHubLabelApplication{AutoTodo: "owner policy", EventID: 305}},
-		"outsider text, label taken off": {outsider, ben},
-		"closed issue":                   {closed, ben},
-		"pull request":                   {pull, ben},
+		"label without write":             {open, gitHubLabelApplication{Label: "todo", By: "Carol", EventID: 302}},
+		"the App's own label (Make TODO)": {open, gitHubLabelApplication{Label: "todo", By: "smithers[bot]", EventID: 307}},
+		"label removed":                   {open, gitHubLabelApplication{Label: "todo", ByMaintainer: true, By: "Ben", EventID: 303, Removed: true}},
+		"no live label event":             {open, gitHubLabelApplication{Label: "todo", ByMaintainer: true, By: "Ben"}},
+		"another label":                   {open, gitHubLabelApplication{Label: "bug", ByMaintainer: true, By: "Ben", EventID: 304}},
+		"policy, not a label":             {open, gitHubLabelApplication{AutoTodo: "owner policy", EventID: 305}},
+		"outsider text, label taken off":  {outsider, ben},
+		"closed issue":                    {closed, ben},
+		"pull request":                    {pull, ben},
 	} {
 		require.NoError(t, service.ObserveIssue(ctx, repo, c.issue, c.applied), name)
 		require.Zero(t, count(), name)

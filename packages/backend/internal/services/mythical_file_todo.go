@@ -66,7 +66,9 @@ func (p *MythicalTodoPlace) UnmarshalJSON(data []byte) error {
 // GitHub issue or machine launch is performed in the HTTP transaction. A
 // Draft made from an issue (Make TODO) commits as that issue's TODO:
 // revision 1 is the Draft's text with reason from-issue and the issue's
-// digest, and an issue holds one unmerged TODO.
+// digest, and an issue holds one unmerged TODO. The TODO owes its issue the
+// App's todo label and one "Committed as Tn" comment, which the stack's next
+// pass posts (deliverNotice).
 func (s *MythicalService) FileTodo(ctx context.Context, repositoryID, userID int64, input MythicalTodoInput) (MythicalItemView, error) {
 	if err := middleware.RequirePerson(ctx, "make a TODO"); err != nil {
 		return MythicalItemView{}, err
@@ -109,12 +111,16 @@ func (s *MythicalService) FileTodo(ctx context.Context, repositoryID, userID int
 	// new request: a replay answers the TODO it filed, whatever the issue
 	// says now.
 	var issue *db.MythicalTodoIssue
+	link := ""
 	if input.Issue != nil {
 		if _, err = s.queries().GetMythicalRequest(ctx, repositoryID, info.SessionHash, input.Request); errors.Is(err, pgx.ErrNoRows) {
 			if issue, err = s.readTodoIssue(ctx, repositoryID, userID, *input.Issue, input.IssueDigest); err != nil {
 				return MythicalItemView{}, err
 			}
 			issue.Fixes = *input.Fixes
+			if repository, owner, err := s.repository(ctx, repositoryID); err == nil && s.publicURL != "" {
+				link = s.publicURL + "/" + owner + "/" + repository.Name
+			}
 		} else if err != nil {
 			return MythicalItemView{}, err
 		}
@@ -159,6 +165,15 @@ func (s *MythicalService) FileTodo(ctx context.Context, repositoryID, userID int
 		if err != nil {
 			return err
 		}
+		if issue != nil {
+			committed := mythicalChecksOf(item)
+			notice := mythicalCommittedNotice(item.Number.Int64, link)
+			committed.Notice = &notice
+			item.Checks = committed.encode()
+			if item, err = q.SaveMythicalItem(ctx, item); err != nil {
+				return err
+			}
+		}
 		created := map[string]any{"item": uuidString(item.ID), "n": item.Number.Int64, "attempt": item.Attempt, "from": "draft", "to": "queued", "actor": userID}
 		if issue != nil {
 			created["issue"] = issue.Number
@@ -179,6 +194,21 @@ func (s *MythicalService) FileTodo(ctx context.Context, repositoryID, userID int
 }
 
 var mythicalDigestPattern = regexp.MustCompile(`^[0-9a-f]{64}$`)
+
+// mythicalCommittedKeyPrefix keys the notice a Make TODO owes its issue: the
+// App's todo label and one comment per TODO, which a retry edits rather than
+// repeats.
+const mythicalCommittedKeyPrefix = "todo-committed:"
+
+// mythicalCommittedNotice is that notice for TODO number: "Committed as Tn",
+// linking the repository in Smithers when the install has an address.
+func mythicalCommittedNotice(number int64, link string) mythicalNotice {
+	body := fmt.Sprintf("Committed as T%d ↗", number)
+	if link != "" {
+		body = fmt.Sprintf("Committed as [T%d ↗](%s)", number, link)
+	}
+	return mythicalNotice{Key: mythicalCommittedKeyPrefix + strconv.FormatInt(number, 10), Body: body, Label: todoLabel}
+}
 
 // readTodoIssue is Make TODO's read of the issue a Draft names, as GitHub
 // answers it now. The Draft carries the digest of the title and body its

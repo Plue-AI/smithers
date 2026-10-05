@@ -3205,9 +3205,10 @@ func (s *MythicalService) DailyTokenBudget(ctx context.Context, repositoryID int
 	return policy.DailyTokens, nil
 }
 
-// deliverNotice posts the comment an item owes its issue and records it
-// posted. A failure leaves it owed, so a later pass, settled item or not,
-// posts it.
+// deliverNotice posts the comment an item owes its issue, after the label it
+// owes, and records it posted. A failure leaves it owed, so a later pass,
+// settled item or not, posts it; GitHub keeps one label, and a keyed comment
+// is edited rather than repeated.
 func (s *MythicalService) deliverNotice(ctx context.Context, r *mythicalRun, item db.MythicalItem) db.MythicalItem {
 	checks := mythicalChecksOf(item)
 	if checks.Notice == nil || s.github == nil || !item.IssueNumber.Valid || !r.row.ActorUserID.Valid {
@@ -3217,12 +3218,17 @@ func (s *MythicalService) deliverNotice(ctx context.Context, r *mythicalRun, ite
 	if err == nil {
 		var gh mythicalGitHubRepo
 		if gh, err = s.github.Resolve(ctx, repository, owner, r.row.ActorUserID.Int64); err == nil {
-			body := checks.Notice.Body
-			// The completion comment already names the run.
-			if line := s.runLine(item, owner, repository.Name); line != "" && !strings.HasPrefix(checks.Notice.Key, mythicalCompletionKeyPrefix) {
+			body, key := checks.Notice.Body, mythicalNoticeCommentKey(checks.Notice.Key)
+			// A keyed comment (a completion, a commit) names its run or none.
+			if line := s.runLine(item, owner, repository.Name); line != "" && key == "" {
 				body += "\n" + line
 			}
-			err = s.github.Comment(ctx, gh, item.IssueNumber.Int64, mythicalNoticeCommentKey(checks.Notice.Key), body)
+			if checks.Notice.Label != "" {
+				err = s.github.AddLabel(ctx, gh, item.IssueNumber.Int64, checks.Notice.Label)
+			}
+			if err == nil {
+				err = s.github.Comment(ctx, gh, item.IssueNumber.Int64, key, body)
+			}
 		}
 	}
 	if err != nil {
@@ -3277,11 +3283,12 @@ func (s *MythicalService) completePending(ctx context.Context, r *mythicalRun, q
 const mythicalCompletionKeyPrefix = "landed:"
 
 // mythicalNoticeCommentKey is the key a notice's comment is posted under:
-// the completion comment is said once per merge commit, so a retry edits it
-// instead of repeating it; every other notice posts anew, so a hold raised
-// again after a person's retry says so again.
+// the completion comment is said once per merge commit and the commit
+// comment once per TODO, so a retry edits it instead of repeating it; every
+// other notice posts anew, so a hold raised again after a person's retry
+// says so again.
 func mythicalNoticeCommentKey(key string) string {
-	if strings.HasPrefix(key, mythicalCompletionKeyPrefix) {
+	if strings.HasPrefix(key, mythicalCompletionKeyPrefix) || strings.HasPrefix(key, mythicalCommittedKeyPrefix) {
 		return key
 	}
 	return ""
@@ -3614,10 +3621,11 @@ func (c *mythicalChecks) resume() {
 }
 
 // mythicalNotice is one issue comment the stack owes, keyed so it is posted
-// once.
+// once, and the label the App puts on the issue before it (none when empty).
 type mythicalNotice struct {
-	Key  string `json:"key"`
-	Body string `json:"body"`
+	Key   string `json:"key"`
+	Body  string `json:"body"`
+	Label string `json:"label,omitempty"`
 }
 
 // notice queues a comment for the item's issue unless one with key was

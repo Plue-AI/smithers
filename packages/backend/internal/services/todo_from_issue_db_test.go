@@ -3,8 +3,10 @@ package services
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"testing"
 
+	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/smithersai/smithers/packages/backend/internal/db"
 	"github.com/smithersai/smithers/packages/backend/internal/middleware"
 	"github.com/smithersai/smithers/packages/backend/jobs"
@@ -103,6 +105,30 @@ func TestTodoFromIssueCommitsTheDraftAsTheIssueTodo(t *testing.T) {
 	require.Len(t, events.Events, 1)
 	require.Equal(t, "todo.created", events.Events[0].Type)
 
+	// The TODO owes issue #7 the App's todo label and one comment, keyed by
+	// the TODO. The stack's pass posts them; a failed comment stays owed, and
+	// the retry puts the label on again (GitHub keeps one) and edits rather
+	// than repeats the comment.
+	require.Equal(t, &mythicalNotice{Key: "todo-committed:1", Body: "Committed as T1 ↗", Label: "todo"}, mythicalChecksOf(item).Notice)
+	run := &mythicalRun{row: db.MythicalStack{RepositoryID: repoID, ActorUserID: pgtype.Int8{Int64: userID, Valid: true}}}
+	gh.mu.Lock()
+	gh.commentErr = errors.New("GitHub is down")
+	gh.mu.Unlock()
+	owed := s.deliverNotice(ctx, run, item)
+	require.Equal(t, item.Version, owed.Version, "a failed post records nothing")
+	require.NotNil(t, mythicalChecksOf(owed).Notice)
+	gh.mu.Lock()
+	gh.commentErr = nil
+	gh.mu.Unlock()
+	posted := s.deliverNotice(ctx, run, owed)
+	require.Nil(t, mythicalChecksOf(posted).Notice)
+	require.Equal(t, []string{"todo-committed:1"}, mythicalChecksOf(posted).Noticed)
+	require.Equal(t, posted, s.deliverNotice(ctx, run, posted), "a posted notice is said once")
+	require.Equal(t, []string{"#7 todo", "#7 todo"}, gh.added)
+	require.Equal(t, []string{"#7 todo-committed:1"}, gh.commentKeys)
+	require.Equal(t, []string{"#7 Committed as T1 ↗"}, gh.comments, "a commit comment names no run")
+	item = posted
+
 	// The issue changes on GitHub after the commit. The same press again
 	// answers T1 and writes nothing; revision 1 stays the Draft.
 	gh.mu.Lock()
@@ -147,6 +173,7 @@ func TestTodoFromIssueCommitsTheDraftAsTheIssueTodo(t *testing.T) {
 	require.NoError(t, err)
 	require.True(t, second.Outsider)
 	require.False(t, second.FixesIssue)
+	require.Equal(t, "todo-committed:2", mythicalChecksOf(second).Notice.Key)
 	require.EqualValues(t, 8, second.IssueNumber.Int64)
 	require.Equal(t, 2, count())
 
@@ -158,6 +185,7 @@ func TestTodoFromIssueCommitsTheDraftAsTheIssueTodo(t *testing.T) {
 	stored, err := q.GetMythicalItemByNumber(ctx, repoID, plain.Number)
 	require.NoError(t, err)
 	require.Equal(t, "todo", stored.Source)
+	require.Nil(t, mythicalChecksOf(stored).Notice, "a TODO with no issue owes no issue a notice")
 	require.False(t, stored.IssueNumber.Valid)
 	require.False(t, stored.FixesIssue)
 	require.Equal(t, "No issue", stored.IssueBody)
