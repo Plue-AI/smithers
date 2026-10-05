@@ -469,6 +469,43 @@ test("a drop posts once and settles when the TODO is dropped", async () => {
   } finally { h.close() }
 })
 
+// J4, J3.6: Stop, Resume and Steer post once per press; each toast settles from the served card, never the 202:
+// a stop once the TODO is paused, a resume once it works again, a steer once the card lists it.
+test("stop, resume and steer settle from the served card", async () => {
+  const calls: { url: string; init?: RequestInit }[] = []
+  const h = await harness(async (url, init) => { calls.push({ url, init }); return json({ state: "accepted" }) })
+  try {
+    const working = { ...fixtures.working.model, n: 12 }
+    await h.seam.applyTodoProjection(12, working)
+    expect(await h.seam.controlTodo(12, "stop")).toEqual({ value: "Requested" })
+    await waitFor(() => h.todo().payload.requests[0]?.state === "accepted")
+    const stop = h.todo().payload.requests[0]!.key
+    await h.seam.applyTodoProjection(12, working)
+    expect(h.outcomes).toEqual([])
+    await h.seam.applyTodoProjection(12, { ...fixtures.paused.model, n: 12 })
+    expect(h.outcomes).toEqual([{ key: `todo.request.${stop}`, status: "ok", detail: "Paused" }])
+
+    expect(await h.seam.controlTodo(12, "resume")).toEqual({ value: "Requested" })
+    await waitFor(() => h.todo().payload.requests[0]?.state === "accepted")
+    const resume = h.todo().payload.requests[0]!.key
+    await h.seam.applyTodoProjection(12, { ...fixtures.queued.model, n: 12 })
+    expect(h.outcomes).toHaveLength(1)
+    await h.seam.applyTodoProjection(12, working)
+    expect(h.outcomes[1]).toEqual({ key: `todo.request.${resume}`, status: "ok", detail: "Resumed" })
+
+    expect(await h.seam.steerTodo(12, "Use the helper")).toEqual({ value: "Requested" })
+    await waitFor(() => h.todo().payload.requests[0]?.state === "accepted")
+    const steer = h.todo().payload.requests[0]!.key
+    expect(JSON.parse(String(calls[2]!.init?.body))).toEqual({ op: "steer", text: "Use the helper" })
+    await h.seam.applyTodoProjection(12, working)
+    expect(h.outcomes).toHaveLength(2)
+    await h.seam.applyTodoProjection(12, { ...working, steers: [{ text: "Use the helper", by: working.owner, at: "now" }] })
+    expect(h.outcomes[2]).toEqual({ key: `todo.request.${steer}`, status: "ok", detail: "Sent" })
+    expect(h.todo().payload.requests).toEqual([])
+    expect(calls).toHaveLength(3)
+  } finally { h.close() }
+})
+
 // The install serves each author as a full Actor (services.todoActor), so the
 // card names a terminal's answer with no roster in the seam (T-ACC-04, M-34).
 test("TODO projections name an install's served delegated authors without a roster", async () => {
