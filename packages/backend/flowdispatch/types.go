@@ -45,12 +45,8 @@ const (
 )
 
 // pinMismatch is the failure of a launch whose host planned, or ran, other
-// code than its pin; pinSourceMismatch of one whose host serves another
-// source commit than the pin's, refused before the host plans anything.
-const (
-	pinMismatch       = "pin_mismatch"
-	pinSourceMismatch = "pin_source_mismatch"
-)
+// code than its pin.
+const pinMismatch = "pin_mismatch"
 
 // IsTodoFlow reports whether flowID names the todo composition, by name or by
 // its flows/todo/flow.ts path.

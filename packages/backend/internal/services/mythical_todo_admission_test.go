@@ -562,6 +562,11 @@ func todoPinnedEngineLaunches(t *testing.T, review string) {
 	require.Equal(t, pin, todo[0]["launch"].(map[string]any)["pin"], "the durable launch holds the whole pin")
 	require.Empty(t, admitted("coding/request"))
 	require.Empty(t, admitted("coding/vibe"))
+	// Before the host accepted the composition no run is the attempt's, so
+	// nothing hands a result over for it.
+	early := o.laneResult(item.WorkspaceID, tip, map[string]string{"EARLY.md": "x\n"}, "✨ feat: early")
+	_, err := o.service.SubmitLane(ctx, o.repoID, o.userID, MythicalLaneSubmission{WorkspaceID: item.WorkspaceID, Base: tip, Source: early, RequestRunID: "todo-run", Summary: "✨ feat: early"})
+	require.ErrorContains(t, err, "not waiting for a validated result")
 
 	startWorker()
 	require.Eventually(t, func() bool { return todoState(o.byID(id)) == "working" }, 10*time.Second, 10*time.Millisecond)
@@ -569,13 +574,25 @@ func todoPinnedEngineLaunches(t *testing.T, review string) {
 	require.Equal(t, []string{"todo"}, peer.flows(), "the host launched the composition once")
 	require.Equal(t, []any{pin}, peer.pins(), "the host received the pin with the launch")
 
-	// Stands in for T-STK-12's stack.candidate, which records exactly these
-	// candidate fields: the engine pins the candidate on the prefix.
+	// The composition's delivery child hands the request child's validated
+	// result to the stack while the composition runs: the submission names
+	// the composition's run, the one the attempt bound.
 	item = o.byID(id)
 	candidate := o.laneResult(item.WorkspaceID, tip, map[string]string{"JOURNEY.md": "Hello, reader.\n"}, "✨ feat: greet the reader")
-	_, err := pool.Exec(ctx, `UPDATE mythical_items SET state='integrating', candidate_base=$2, candidate_head=$3, candidate_verified=true, summary='✨ feat: greet the reader' WHERE id=$1`,
-		item.ID, tip, candidate)
+	submission := MythicalLaneSubmission{WorkspaceID: item.WorkspaceID, Base: tip, Source: candidate, RequestRunID: "todo-run", Summary: "✨ feat: greet the reader"}
+	other := submission
+	other.RequestRunID = "another-run"
+	_, err = o.service.SubmitLane(ctx, o.repoID, o.userID, other)
+	require.ErrorContains(t, err, "does not come from this lane's current request", "only the attempt's composition run hands its result over")
+	receipt, err := o.service.SubmitLane(ctx, o.repoID, o.userID, submission)
 	require.NoError(t, err)
+	require.Equal(t, "integrating", receipt.State)
+	item = o.byID(id)
+	require.Equal(t, tip, item.CandidateBase)
+	require.Equal(t, candidate, item.CandidateHead)
+	require.True(t, item.CandidateVerified, "the request child's checks verified it")
+	require.Equal(t, "submitted", item.VibeOutcome)
+	require.Equal(t, todoPinOne, item.FlowDigest.String, "the pin stays the attempt's")
 	o.wake()
 	require.Equal(t, "proposing", o.byID(id).State)
 	require.Equal(t, candidate, o.hostRef(repohost.MythicalReservedRefNS+"keep/"+candidate))
@@ -645,23 +662,16 @@ func TestTodoRunOfAnotherFlowIsNeverTheAttempts(t *testing.T) {
 	for _, test := range []struct {
 		name, digest string
 		parked       bool
-		otherSource  bool
-		outage       string
 	}{
 		{name: "another flow", digest: todoPinTwo},
 		{name: "no digest", digest: ""},
 		{name: "parked plan of another flow", digest: todoPinTwo, parked: true},
-		{name: "host serving another source", digest: todoPinOne, otherSource: true, outage: "pin_source_mismatch"},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			o, session := newTodoAdmission(t)
-			peer := &todoRuntimeHost{digest: test.digest, parked: test.parked, source: o.landedMain()}
-			if test.otherSource {
-				peer.source = strings.Repeat("b", 40)
-			}
-			if test.outage == "" {
-				test.outage = mythicalPinMismatch
-			}
+			// The lane's host serves its own working copy, never the main
+			// commit the attempt pinned its flow at (spec §11.4.1).
+			peer := &todoRuntimeHost{digest: test.digest, parked: test.parked, source: strings.Repeat("b", 40)}
 			_, startWorker := o.runDispatcher(t, peer.resolver(t))
 			o.service.SetTodoFlow(func(context.Context, int64, string) (string, error) { return todoPinOne, nil })
 			id := uuidString(o.fileTodo(session, "pinned").ID)
@@ -670,33 +680,26 @@ func TestTodoRunOfAnotherFlowIsNeverTheAttempts(t *testing.T) {
 			startWorker()
 			require.Eventually(t, func() bool { return o.byID(id).RequestOutcome != "" }, 10*time.Second, 10*time.Millisecond)
 			cancels, denials := peer.stopped()
-			switch {
-			case test.otherSource:
-				require.Empty(t, peer.flows(), "a host serving another source is never asked to plan")
-				require.Empty(t, cancels)
-				require.Empty(t, denials)
-			case test.parked:
+			if test.parked {
 				require.Equal(t, []string{"todo-plan"}, denials, "the parked plan was denied, never approved")
 				require.Empty(t, cancels)
-			default:
+			} else {
 				require.Equal(t, []string{"todo-run"}, cancels, "the run was cancelled before the attempt settled")
 				require.Empty(t, denials)
 			}
 			item := o.byID(id)
-			require.Equal(t, mythicalOutage+"infra: "+test.outage, item.RequestOutcome)
+			require.Equal(t, mythicalOutage+"infra: "+mythicalPinMismatch, item.RequestOutcome)
 			require.Empty(t, item.RequestRunID, "the run was never bound")
 			require.False(t, mythicalChecksOf(item).RunAttached)
 			require.Equal(t, "starting", todoState(item), "never Working")
-			if !test.otherSource {
-				require.Equal(t, []string{"todo"}, peer.flows())
-			}
+			require.Equal(t, []string{"todo"}, peer.flows())
 
 			o.wake()
 			item = o.byID(id)
 			require.Equal(t, "retrying", item.State, item.Reason)
 			require.Zero(t, item.Attempt, "an outage spends no attempt")
 			require.Equal(t, todoPinOne, item.FlowDigest.String, "the retry keeps the pin")
-			require.Equal(t, &mythicalFault{Class: "infra", Tag: test.outage, Kind: mythicalFailRuntime}, mythicalChecksOf(item).Fault)
+			require.Equal(t, &mythicalFault{Class: "infra", Tag: mythicalPinMismatch, Kind: mythicalFailRuntime}, mythicalChecksOf(item).Fault)
 		})
 	}
 }

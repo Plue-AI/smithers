@@ -364,7 +364,12 @@ func (s *MythicalService) SubmitLane(ctx context.Context, repositoryID, userID i
 		}
 		// The lane's own request run, launched by the stack, validated the
 		// result before delivery started; that is the verification evidence.
-		if item.State != "delivering" || item.RequestOutcome != "validated" {
+		// A pinned attempt runs one todo composition (flows/todo/flow.ts): its
+		// delivery child hands the request child's validated result over
+		// while the composition runs, so its bound run is the composition's.
+		_, pinned := mythicalPinOf(item)
+		composed := pinned && item.State == "running" && mythicalChecksOf(item).RunAttached
+		if !composed && (item.State != "delivering" || item.RequestOutcome != "validated") {
 			return MythicalLaneReceipt{}, pkgerrors.Conflict("the lane's item is " + item.State + ", not waiting for a validated result")
 		}
 		if item.RequestRunID == "" || input.RequestRunID != item.RequestRunID || input.Base != item.BaseCommit {

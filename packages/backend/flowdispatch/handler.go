@@ -99,11 +99,9 @@ func (service *Service) handleLaunch(ctx context.Context, lease *jobs.Lease) err
 		return service.observe(ctx, runtime, lease, checkpoint)
 	}
 
-	// A pinned attempt runs only on a host serving its pinned source commit:
-	// any other is refused before the host is asked to plan anything.
-	if payload.Pin != nil && payload.Pin.SourceCommit != identity.SourceRevision {
-		return service.fail(lease, pinSourceMismatch, checkpoint)
-	}
+	// A pinned launch runs on its lane's host, which serves the lane's working
+	// copy: the host reads the pinned flow from the pin's source commit, never
+	// from that working copy, and plans nothing else (spec §11.4.1).
 	result, err := service.launch(ctx, runtime, identity, claim.OperationID, int64(lease.DeliveryAttempt()), payload)
 	if err != nil {
 		if claim.CancellationRequested && runtimeCode(err) == "plan_denied" {
@@ -225,9 +223,9 @@ func (service *Service) launch(
 // and model credential: it can push to its own branch, spend model tokens
 // and run commands in its machine. The cancel needs that host's cooperation;
 // nothing here revokes a credential or stops the machine. Opening or merging
-// a pull request is gated separately. A host that reports serving another
-// source is refused before launch (pin_source_mismatch), and the bridge
-// refuses it before import, but the reported source is the host's own claim.
+// a pull request is gated separately. The bridge reads the pinned flow from
+// the pin's source commit and refuses before import when its digest is not
+// the pin's, but that measurement is the host's own claim.
 func (service *Service) refusePin(
 	ctx context.Context,
 	runtime flowruntime.FlowRuntime,

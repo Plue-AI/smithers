@@ -15,8 +15,8 @@ import (
 )
 
 var (
-	// The recording runtime serves source "b"*40: the pin's own source.
-	todoPin       = flowruntime.Pin{Flow: TodoFlow, SourceCommit: strings.Repeat("b", 40), ExecutionDigest: strings.Repeat("d", 64)}
+	// The recording runtime serves source "b"*40, here the pin's own source.
+	todoPin      = flowruntime.Pin{Flow: TodoFlow, SourceCommit: strings.Repeat("b", 40), ExecutionDigest: strings.Repeat("d", 64)}
 	otherDigest   = strings.Repeat("e", 64)
 	stackScope    = jobs.Scope{TenantID: "repository:5", PrincipalID: "user:9"}
 	stackTarget   = flowruntime.Target{WorkspaceID: "lane-1", BindingKind: StackBindingKind, BindingID: "item-1"}
@@ -99,10 +99,11 @@ func TestTodoLaunchOutsideTheStackFailsBeforeResolution(t *testing.T) {
 	}
 }
 
-// Astra round 2, N3: every launch of a pinned attempt (its composition and
-// the engine's launches) runs only on a host serving the pinned source
-// commit; any other host is refused before it is asked to plan anything.
-func TestPinnedLaunchRunsOnlyOnItsPinnedSource(t *testing.T) {
+// Spec §11.4.1: a lane's host serves the lane's working copy, whose source
+// is never the main commit a TODO pinned its flow at. Every launch of a
+// pinned attempt still reaches that host with the pin, which names where the
+// host reads the pinned flow from; the pinned flow runs only at its digest.
+func TestPinnedLaunchRunsOnTheLanesHostWithItsPin(t *testing.T) {
 	for _, flowID := range []string{"todo", "review/change"} {
 		t.Run(flowID, func(t *testing.T) {
 			store, _ := newFlowDispatchStore(t)
@@ -114,17 +115,16 @@ func TestPinnedLaunchRunsOnlyOnItsPinnedSource(t *testing.T) {
 			require.NoError(t, err)
 			pin := todoPin
 			pin.SourceCommit = strings.Repeat("c", 40)
-			receipt, err := service.Admit(context.Background(), stackLaunch("other-source", flowID, &pin))
+			receipt, err := service.Admit(context.Background(), stackLaunch("lane-source", flowID, &pin))
 			require.NoError(t, err)
 			startTestWorker(t, service, "source-worker")
 			operation := waitOperation(t, store, stackScope, receipt.OperationID, func(operation jobs.Operation) bool { return operation.State.Terminal() })
-			require.Equal(t, jobs.StateFailed, operation.State)
-			var settled terminalReceipt
-			require.NoError(t, json.Unmarshal(operation.TerminalReceipt, &settled))
-			require.Equal(t, "pin_source_mismatch", settled.ErrorCode)
+			require.Equal(t, jobs.StateCompleted, operation.State, string(operation.TerminalReceipt))
 			runtime.mu.Lock()
 			defer runtime.mu.Unlock()
-			require.Empty(t, runtime.launches, "the host was never asked to plan")
+			require.Len(t, runtime.launches, 1)
+			require.Equal(t, &pin, runtime.launches[0].Pin, "the host receives the pin and its source commit")
+			require.NotEqual(t, pin.SourceCommit, runtime.launches[0].SourceRevision, "the host serves its own source")
 		})
 	}
 }
