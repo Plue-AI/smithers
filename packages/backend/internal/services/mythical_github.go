@@ -318,6 +318,96 @@ func (g *mythicalGitHubAPI) Pull(ctx context.Context, gh mythicalGitHubRepo, num
 	return pull.pull(), nil
 }
 
+// PushActor resolves attribution for an already-observed TODO branch head.
+// Activity is matched by both ref and resulting SHA, never by the most recent
+// actor alone. If activity has no pusher, the exact commit's GitHub author is
+// the fallback. This read does not classify a push as Smithers' own or grant
+// the actor permission to answer a wait.
+func (g *mythicalGitHubAPI) PushActor(ctx context.Context, gh mythicalGitHubRepo, branch, head string) (gitHubActor, error) {
+	if !mythicalTodoBranchValid(branch) || !mythicalSHA.MatchString(head) || strings.Trim(head, "0") == "" {
+		return gitHubActor{}, errors.New("invalid GitHub push attribution binding")
+	}
+	path := landingGitHubRepoPath(gh.Owner, gh.Name) + "/activity"
+	ref := "refs/heads/" + branch
+	query := url.Values{"ref": {ref}, "direction": {"desc"}, "per_page": {"100"}}
+	seen := map[string]bool{}
+	for {
+		if err := ctx.Err(); err != nil {
+			return gitHubActor{}, err
+		}
+		key := query.Encode()
+		if seen[key] {
+			return gitHubActor{}, errors.New("GitHub activity cursor repeated")
+		}
+		seen[key] = true
+		var activity []struct {
+			Ref, After string
+			Pusher     gitHubActor
+		}
+		status, headers, err := g.api.requestHeaders(ctx, gh.Token, http.MethodGet, path+"?"+key, "", nil, &activity)
+		if err != nil {
+			return gitHubActor{}, err
+		}
+		if status != http.StatusOK {
+			return gitHubActor{}, landingGitHubStatusError(status, gh.Owner, gh.Name, "read push activity")
+		}
+		if activity == nil {
+			return gitHubActor{}, GitHubRequestFailure(ctx, "GitHub returned incomplete push activity")
+		}
+		matched := false
+		for _, event := range activity {
+			if event.Ref == ref && event.After == head {
+				if event.Pusher.ID > 0 && strings.TrimSpace(event.Pusher.Login) != "" {
+					return event.Pusher, nil
+				}
+				// An older push of the same SHA is not the current pusher.
+				matched = true
+				break
+			}
+		}
+		next := parseGitHubNextLink(headers.Get("Link"))
+		if matched || next == "" {
+			break
+		}
+		base, baseErr := url.Parse(strings.TrimRight(g.api.baseURL(), "/") + path)
+		page, pageErr := url.Parse(next)
+		if baseErr != nil || pageErr != nil {
+			return gitHubActor{}, errors.New("invalid GitHub activity pagination")
+		}
+		page = base.ResolveReference(page)
+		if page.Scheme != base.Scheme || page.Host != base.Host || page.Path != base.Path || page.User != nil || page.Fragment != "" {
+			return gitHubActor{}, errors.New("GitHub activity pagination changed source")
+		}
+		cursor, err := url.ParseQuery(page.RawQuery)
+		if err != nil || (cursor.Get("after") == "") == (cursor.Get("before") == "") ||
+			(cursor.Get("ref") != "" && cursor.Get("ref") != ref) || (cursor.Get("direction") != "" && cursor.Get("direction") != "desc") {
+			return gitHubActor{}, errors.New("invalid GitHub activity cursor")
+		}
+		query.Del("after")
+		query.Del("before")
+		if after := cursor.Get("after"); after != "" {
+			query.Set("after", after)
+		} else {
+			query.Set("before", cursor.Get("before"))
+		}
+	}
+	var commit struct {
+		SHA    string      `json:"sha"`
+		Author gitHubActor `json:"author"`
+	}
+	status, err := g.api.request(ctx, gh.Token, http.MethodGet, landingGitHubRepoPath(gh.Owner, gh.Name)+"/commits/"+head, nil, &commit)
+	if err != nil {
+		return gitHubActor{}, err
+	}
+	if status != http.StatusOK {
+		return gitHubActor{}, landingGitHubStatusError(status, gh.Owner, gh.Name, "read pushed commit author")
+	}
+	if commit.SHA != head || commit.Author.ID <= 0 || strings.TrimSpace(commit.Author.Login) == "" {
+		return gitHubActor{}, GitHubRequestFailure(ctx, "GitHub push attribution is unavailable")
+	}
+	return commit.Author, nil
+}
+
 // ClosePull is the Drop write primitive. Its caller must first persist the
 // outbound intent and reconcile uncertain results through Pull (T-GH-09):
 // appSend sends it only for a dropped TODO's close pending_op, which Drop

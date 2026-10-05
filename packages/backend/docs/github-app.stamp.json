@@ -3,9 +3,9 @@
   "producer": null,
   "output": {
     "path": "packages/backend/docs/github-app.md",
-    "digest": "4dce4233add817c3b38f840c4cc5debb1ea0fb2f165c5e48d075831ccfcd6609"
+    "digest": "6bb99944a19d8d2d34f47d8d38d1da50c97d69a9577ba966c756e2914a38fae7"
   },
-  "closure": "270bb395da002c0ed060c5719349c9cbc68285a949c5e58e6c9546b33f96371e",
+  "closure": "3ad841a76c06fa519ddc023c7e3cf38ad330404dc5bdd18ce0bc7a76a6faf57f",
   "inputs": [
     {
       "path": "docs/api/openapi/install.yaml",
@@ -217,7 +217,7 @@
     },
     {
       "path": "packages/backend/internal/services/mythical_github.go",
-      "digest": "44da4f9548d9cceeb1888e39c5b590b3e132f246c5bcb86a78b8c4c58d78f5c4"
+      "digest": "28b76656028f354e1107785aaf7f92d58852962db79228ee9639e0f59560dbb1"
     },
     {
       "path": "packages/backend/internal/services/mythical_github_poll.go",

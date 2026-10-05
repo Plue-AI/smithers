@@ -11,6 +11,7 @@ import (
 	"sync"
 	"testing"
 
+	pkgerrors "github.com/smithersai/smithers/packages/backend/internal/pkg/errors"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -89,6 +90,159 @@ func answer(status int, body any) func(http.ResponseWriter) {
 }
 
 var stackRepo = mythicalGitHubRepo{Owner: "o", Name: "r", Token: "read-token", userID: 1}
+
+func TestMythicalGitHubPushActorExactBindingAndFallback(t *testing.T) {
+	const activityPath = "GET /repos/o/r/activity?direction=desc&per_page=100&ref=refs%2Fheads%2Fsmithers%2Fretry"
+	const head = "1111111111111111111111111111111111111111"
+	const event = `{"ref":"refs/heads/smithers/retry","after":"1111111111111111111111111111111111111111","pusher":{"id":4,"login":"alice","type":"User"}}`
+	for _, tc := range []struct {
+		name, activity, author, login string
+		status, calls                 int
+		fail                          bool
+	}{
+		{"exact", "[" + event + "]", "", "alice", 200, 1, false},
+		{"wrong ref", `[{"ref":"refs/heads/smithers/other","after":"` + head + `","pusher":{"id":8,"login":"wrong"}}]`, `{"sha":"` + head + `","author":{"id":5,"login":"author","type":"User"}}`, "author", 200, 2, false},
+		{"wrong head", `[{"ref":"refs/heads/smithers/retry","after":"2222222222222222222222222222222222222222","pusher":{"id":8,"login":"wrong"}}]`, `{"sha":"` + head + `","author":{"id":5,"login":"author"}}`, "author", 200, 2, false},
+		{"missing pusher ignores older repeat", `[{"ref":"refs/heads/smithers/retry","after":"` + head + `","pusher":null},` + event + `]`, `{"sha":"` + head + `","author":{"id":5,"login":"author"}}`, "author", 200, 2, false},
+		{"no activity", `[]`, `{"sha":"` + head + `","author":{"id":5,"login":"author"}}`, "author", 200, 2, false},
+		{"wrong commit", `[]`, `{"sha":"2222222222222222222222222222222222222222","author":{"id":5,"login":"author"}}`, "", 200, 2, true},
+		{"unlinked commit author", `[]`, `{"sha":"` + head + `","author":null,"commit":{"author":{"name":"Not a GitHub login"}}}`, "", 200, 2, true},
+		{"null activity", `null`, "", "", 200, 1, true},
+		{"malformed activity", `{`, "", "", 200, 1, true},
+		{"permission refused", `{}`, "", "", 403, 1, true},
+		{"transient", `{}`, "", "", 503, 1, true},
+		{"unchanged without cache", `[]`, "", "", 304, 1, true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			recorded := &recordedGitHub{routes: map[string]func(http.ResponseWriter){
+				activityPath:                     func(w http.ResponseWriter) { w.WriteHeader(tc.status); _, _ = io.WriteString(w, tc.activity) },
+				"GET /repos/o/r/commits/" + head: func(w http.ResponseWriter) { _, _ = io.WriteString(w, tc.author) },
+			}}
+			actor, err := recorded.api(t).PushActor(t.Context(), stackRepo, "smithers/retry", head)
+			if tc.fail {
+				require.Error(t, err)
+				require.Empty(t, actor)
+			} else {
+				require.NoError(t, err)
+				require.Equal(t, tc.login, actor.Login)
+			}
+			require.Len(t, recorded.calls, tc.calls)
+			for _, call := range recorded.calls {
+				require.Contains(t, call, " read-token ")
+				require.True(t, strings.HasPrefix(call, "GET "))
+			}
+		})
+	}
+}
+
+func TestMythicalGitHubPushActorFailurePreservesPacing(t *testing.T) {
+	const head = "1111111111111111111111111111111111111111"
+	const first = "GET /repos/o/r/activity?direction=desc&per_page=100&ref=refs%2Fheads%2Fsmithers%2Fretry"
+	const second = "GET /repos/o/r/activity?after=next&direction=desc&per_page=100&ref=refs%2Fheads%2Fsmithers%2Fretry"
+	for _, stage := range []string{"first page", "later page", "commit author"} {
+		for _, limited := range []bool{false, true} {
+			t.Run(stage+" limited="+strconv.FormatBool(limited), func(t *testing.T) {
+				failure := func(w http.ResponseWriter) {
+					if limited {
+						w.Header().Set("Retry-After", "120")
+						w.WriteHeader(429)
+					} else {
+						w.WriteHeader(503)
+					}
+					_, _ = io.WriteString(w, `{"message":"secret-upstream"}`)
+				}
+				recorded := &recordedGitHub{routes: map[string]func(http.ResponseWriter){first: failure}}
+				calls := 1
+				switch stage {
+				case "later page":
+					calls = 2
+					recorded.routes[first] = func(w http.ResponseWriter) {
+						w.Header().Set("Link", `</repos/o/r/activity?after=next>; rel="next"`)
+						_, _ = io.WriteString(w, `[]`)
+					}
+					recorded.routes[second] = failure
+				case "commit author":
+					calls = 2
+					recorded.routes[first] = answer(200, []any{})
+					recorded.routes["GET /repos/o/r/commits/"+head] = failure
+				}
+				actor, err := recorded.api(t).PushActor(t.Context(), stackRepo, "smithers/retry", head)
+				require.Empty(t, actor)
+				code := pkgerrors.CodeGitHubUnavailable
+				if limited {
+					code = pkgerrors.CodeGitHubRateLimited
+				}
+				apiErr := requireGitHubFailure(t, err, code)
+				if limited {
+					require.NotNil(t, apiErr.RetryAt)
+					require.Equal(t, 120, apiErr.RetryAfter)
+				}
+				require.Len(t, recorded.calls, calls)
+			})
+		}
+	}
+}
+
+func TestMythicalGitHubPushActorPagination(t *testing.T) {
+	const head = "1111111111111111111111111111111111111111"
+	const path = "/repos/o/r/activity"
+	const query = "direction=desc&per_page=100&ref=refs%2Fheads%2Fsmithers%2Fretry"
+	t.Run("pusher beyond ten pages", func(t *testing.T) {
+		recorded := &recordedGitHub{routes: map[string]func(http.ResponseWriter){}}
+		for page := range 12 {
+			key := "GET " + path + "?" + query
+			if page > 0 {
+				key = "GET " + path + "?after=" + strconv.Itoa(page) + "&" + query
+			}
+			recorded.routes[key] = func(w http.ResponseWriter) {
+				if page < 11 {
+					w.Header().Set("Link", "<"+path+"?after="+strconv.Itoa(page+1)+">; rel=\"next\"")
+					_, _ = io.WriteString(w, `[]`)
+				} else {
+					_, _ = io.WriteString(w, `[{"ref":"refs/heads/smithers/retry","after":"`+head+`","pusher":{"id":4,"login":"alice"}}]`)
+				}
+			}
+		}
+		actor, err := recorded.api(t).PushActor(t.Context(), stackRepo, "smithers/retry", head)
+		require.NoError(t, err)
+		require.Equal(t, "alice", actor.Login)
+		require.Len(t, recorded.calls, 12)
+	})
+	for _, link := range []string{"https://other.example/repos/o/r/activity?after=1", "/repos/other/r/activity?after=1", path + "?after=1&ref=refs/heads/main", path + "?after=1&direction=asc", path + "?page=2", path + "?after=1&before=2", path + "?after=%ZZ", path + "?after=1#fragment"} {
+		t.Run(link, func(t *testing.T) {
+			recorded := &recordedGitHub{routes: map[string]func(http.ResponseWriter){"GET " + path + "?" + query: func(w http.ResponseWriter) {
+				w.Header().Set("Link", "<"+link+">; rel=\"next\"")
+				_, _ = io.WriteString(w, `[]`)
+			}}}
+			_, err := recorded.api(t).PushActor(t.Context(), stackRepo, "smithers/retry", head)
+			require.Error(t, err)
+			require.Len(t, recorded.calls, 1, "a changed source cannot receive credentials or trigger author fallback")
+		})
+	}
+	t.Run("repeated cursor", func(t *testing.T) {
+		reply := func(w http.ResponseWriter) {
+			w.Header().Set("Link", "<"+path+"?after=1>; rel=\"next\"")
+			_, _ = io.WriteString(w, `[]`)
+		}
+		recorded := &recordedGitHub{routes: map[string]func(http.ResponseWriter){"GET " + path + "?" + query: reply, "GET " + path + "?after=1&" + query: reply}}
+		_, err := recorded.api(t).PushActor(t.Context(), stackRepo, "smithers/retry", head)
+		require.ErrorContains(t, err, "cursor repeated")
+		require.Len(t, recorded.calls, 2)
+	})
+	t.Run("invalid inputs and cancellation", func(t *testing.T) {
+		recorded := &recordedGitHub{routes: map[string]func(http.ResponseWriter){}}
+		api := recorded.api(t)
+		for _, input := range [][2]string{{"main", head}, {"smithers/retry", "bad"}, {"smithers/retry", strings.Repeat("0", 40)}} {
+			_, err := api.PushActor(t.Context(), stackRepo, input[0], input[1])
+			require.Error(t, err)
+		}
+		ctx, cancel := context.WithCancel(t.Context())
+		cancel()
+		_, err := api.PushActor(ctx, stackRepo, "smithers/retry", head)
+		require.ErrorIs(t, err, context.Canceled)
+		require.Empty(t, recorded.calls)
+	})
+}
 
 func TestMythicalGitHubHeadChecksNeedsEveryReportGreen(t *testing.T) {
 	t.Parallel()
