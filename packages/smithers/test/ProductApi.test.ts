@@ -96,7 +96,13 @@ describe("the generated product API client", () => {
     expect(spec.paths).not.toHaveProperty("/api/repository-setup/{operation}")
     expect(operations.filter(({ path }) => path.startsWith("/api/install")).map(({ path, method }) =>
       `${method.toUpperCase()} ${path}`
-    ).sort()).toEqual(["DELETE /api/install/quiesce", "GET /api/install", "GET /api/install/scorecard", "POST /api/install/quiesce", "POST /api/install/setup/app_manifest"])
+    ).sort()).toEqual([
+      // T-INS-06 setup steps in §16.2 order (9e9493943, #3455) plus the install read/write, scorecard and quiesce.
+      "DELETE /api/install/quiesce", "GET /api/install", "GET /api/install/scorecard", "POST /api/install/quiesce",
+      "POST /api/install/setup/address", "POST /api/install/setup/app", "POST /api/install/setup/machine",
+      "POST /api/install/setup/models", "POST /api/install/setup/repository", "POST /api/install/setup/sign_in",
+      "POST /api/install/setup/source", "PUT /api/install"
+    ])
     for (const path of Object.keys(spec.paths)) {
       expect(path).not.toMatch(/^\/api\/(?:pair-sessions|share|oauth2\/applications)(?:\/|$)/)
     }
