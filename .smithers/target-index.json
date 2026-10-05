@@ -12712,6 +12712,26 @@
     }
   },
   {
+    "label": "//apps/server:appsDeploy",
+    "package": "apps/server",
+    "name": "appsDeploy",
+    "rule": "GithubCiGen",
+    "kinds": [
+      "build",
+      "lint"
+    ],
+    "mode": "write",
+    "cacheable": false,
+    "inputs": [],
+    "outputs": [
+      "apps/server/.github/workflows/apps-deploy.yml"
+    ],
+    "dependencies": [],
+    "source": {
+      "file": "apps/server/PACKAGE.ts"
+    }
+  },
+  {
     "label": "//apps/server:check",
     "package": "apps/server",
     "name": "check",

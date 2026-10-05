@@ -91,8 +91,9 @@ to the shared backend and is never synthesized from that asset stamp.
 
 ## Scripted deploy
 
-Use `bun scripts/deploy.ts --dry-run` for a local bundle check. A real deploy is
-the CI path below. Preserve the existing script,
+Use `pnpm --filter smithers-server run deploy:dry` for a local bundle check.
+People run `pnpm --filter smithers-server run deploy`; CI runs the same guarded
+`scripts/deploy.ts` through `//apps/server:deploy`. Preserve the existing script,
 domain and migrations. The frontend and API build identities are separate
 receipts and both must name the integrated candidate.
 
@@ -112,7 +113,10 @@ backend release contract; keep it independent of candidate schema generation.
 
 ## CI (every push to main)
 
-`.github/workflows/apps-deploy.yml` ("Deploy apps") is the one deploy path.
+`.github/workflows/apps-deploy.yml` ("Deploy apps") is generated from
+`apps/server/PACKAGE.ts` (`appsDeploy`). Regenerate with
+`pnpm exec smthrs build //apps/server:appsDeploy`; drift-check with
+`pnpm exec smthrs lint //apps/server:appsDeploy`.
 A push to `main` of `smithersai/smithers` runs two jobs; fork pushes cannot
 start the deploy job. Code on `main` is trusted with deploy credentials inside
 the protected `production` environment, as in the hand-written workflow.
@@ -124,15 +128,21 @@ the protected `production` environment, as in the hand-written workflow.
    `scripts/canary/workflow-wiring.test.ts` fails if its targets fall behind
    `apps-e2e`'s.
 2. `deploy` needs `gate` and runs in the `production` environment, whose
-   secrets `CLOUDFLARE_API_TOKEN` and `CLOUDFLARE_ACCOUNT_ID` are the only
-   deploy credentials; the Worker's own secrets live on the script and are
-   kept.
+   Run step alone receives `CLOUDFLARE_API_TOKEN` and `GITHUB_TOKEN`. The secret
+   proxy brokers both and hands child processes placeholders.
+   `CLOUDFLARE_API_BASE_URL` is the full API base, including `/client/v4`,
+   shared by wrangler and all Cloudflare readers. It defaults to the real API
+   for local invocation; the target sets a brokered origin. `GITHUB_API_URL`
+   points to the broker for receipt restore. The account defaults to the frozen
+   Worker identity; the Worker's own secrets stay on the script.
    `scripts/deploy.ts` owns publication, the required probes, automatic
    restoration and re-verification. The workflow uploads its receipts as the
    `deploy-receipt` artifact.
 
-A manual `workflow_dispatch` run, or a push while the `production`
-environment has no token, runs the gates and the dry-run deploy.
+A manual `workflow_dispatch` runs gates only: the production job permits pushes
+on `main` only. A push without either required token fails red; it never falls
+back to a dry run. The `production` environment must restrict branches to `main`
+in GitHub settings.
 
 Deploys run one at a time and are never cancelled mid-publish. GitHub keeps
 one pending run and replaces it on each push, so under load the newest `main`
@@ -277,7 +287,11 @@ Arbitrary older versions, missing or mismatched evidence and split traffic
 remain refused. A red restored baseline can still take the fix-forward path,
 even if the restore command reported failure but CN-24 proved the baseline is live.
 
-The existing Actions deploy restores this evidence from the latest applicable
+Before reading rollback evidence or entering the interlock, `scripts/deploy.ts`
+restores missing evidence through the broker when `GITHUB_API_URL` is set.
+The GitHub API receives the credential; the artifact zip's redirect is followed
+without one, then extracted with `unzip`. A failed restore stops the deploy.
+It selects the latest applicable
 `deploy-receipt` artifact of a completed main-push Deploy apps run, including
 failed runs, and carries it into the next artifact. Receipt storage is trusted
 host state; self-hosters must retain it under their deployment lease. Missing

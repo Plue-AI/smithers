@@ -13,7 +13,10 @@
  * passing after someone adds probe six.
  */
 import { describe, expect, it } from "bun:test"
-import { readdirSync, readFileSync } from "node:fs"
+import { readdirSync, readFileSync, mkdtempSync, mkdirSync, writeFileSync, rmSync } from "node:fs"
+import { execFileSync } from "node:child_process"
+import { tmpdir } from "node:os"
+import { join } from "node:path"
 import { fileURLToPath } from "node:url"
 
 const canaryDir = fileURLToPath(new URL(".", import.meta.url))
@@ -44,13 +47,15 @@ interface CiWorkflow {
 }
 
 interface DeployJob {
+  readonly if?: string
+  readonly permissions?: Record<string, string>
   readonly needs?: string | ReadonlyArray<string>
   readonly environment?: string
   readonly steps: ReadonlyArray<WorkflowStep & { readonly with?: Record<string, unknown> }>
 }
 
 interface DeployWorkflow {
-  readonly on: { readonly push?: { readonly branches?: ReadonlyArray<string>; readonly tags?: ReadonlyArray<string> } }
+  readonly on: { readonly pull_request?: unknown; readonly workflow_dispatch?: unknown; readonly push?: { readonly branches?: ReadonlyArray<string>; readonly tags?: ReadonlyArray<string> } }
   readonly concurrency?: unknown
   readonly jobs: Record<string, DeployJob> & { readonly gate: DeployJob; readonly deploy: DeployJob }
 }
@@ -153,7 +158,7 @@ describe("canary probes are wired into a gate", () => {
 
   it("delegates publication and required checks to the deploy command", () => {
     const deploy = Bun.YAML.parse(readWorkflow("apps-deploy.yml")) as DeployWorkflow
-    expect(deploy.jobs.deploy.steps.find(step => step.id === "deploy_real")?.run).toBe("pnpm --filter smithers-server run deploy")
+    expect(deploy.jobs.deploy.steps.find(step => step.name === "Deploy")?.run).toMatch(/^pnpm exec smthrs run '\/\/apps\/server:deploy' --outward-only(?: --verbose)?$/)
     expect(deploy.jobs.deploy.steps.some(step => step.run?.includes("scripts/canary/"))).toBe(false)
     const source = readFileSync(new URL("../deploy.ts", import.meta.url), "utf8")
     expect(source).toContain("rollout(workerRolloutHost(")
@@ -170,12 +175,14 @@ describe("canary probes are wired into a gate", () => {
     const deploy = Bun.YAML.parse(readWorkflow("apps-deploy.yml")) as DeployWorkflow
     expect(deploy.on.push?.branches).toEqual(["main"])
     expect(deploy.on.push?.tags).toBeUndefined()
-    expect(deploy.concurrency).toEqual({ group: "apps-deploy", "cancel-in-progress": false })
+    const concurrency = deploy.concurrency as { group: string; "cancel-in-progress": boolean }
+    expect(concurrency.group.startsWith("${{ github.workflow }}-")).toBe(true)
+    expect(concurrency["cancel-in-progress"]).toBe(false)
     expect([deploy.jobs.deploy.needs].flat()).toContain("gate")
     expect(deploy.jobs.deploy.environment).toBe("production")
     expect(deploy.jobs.gate.environment).toBeUndefined()
     // The ancestry check in scripts/deploy.ts needs origin/main's history.
-    expect(deploy.jobs.deploy.steps[0]?.with?.["fetch-depth"]).toBe(0)
+    expect(String(deploy.jobs.deploy.steps[0]?.with?.["fetch-depth"])).toBe("0")
     expect(JSON.stringify(deploy.jobs.gate)).not.toContain("CLOUDFLARE_API_TOKEN")
 
     const ci = Bun.YAML.parse(readWorkflow("ci.yml")) as DeployWorkflow
@@ -191,20 +198,40 @@ describe("canary probes are wired into a gate", () => {
     expect(JSON.stringify(deploy)).not.toContain("continue-on-error")
   })
 
-  it("passes no retired identity probe inputs and always retains rollback evidence", () => {
+  it("publishes only after push gates and scopes both secrets to its single Run step", () => {
     const deploy = Bun.YAML.parse(readWorkflow("apps-deploy.yml")) as DeployWorkflow
+    expect(deploy.on.pull_request).toBeUndefined()
+    expect(deploy.on.workflow_dispatch).toBeDefined()
+    expect(deploy.jobs.deploy.if).toBe("${{ github.event_name == 'push' && github.ref == 'refs/heads/main' && github.repository == 'smithersai/smithers' }}")
+    expect(deploy.jobs.gate.if).toBeUndefined()
+    expect(deploy.jobs.deploy.permissions).toEqual({ contents: "read", actions: "read" })
     const steps = deploy.jobs.deploy.steps
-    const restore = steps.find(step => step.name === "Restore rollback receipt")!
-    expect(restore.run).toBe("bun apps/server/scripts/rollout-receipt.ts")
-    expect(steps.indexOf(restore)).toBeLessThan(steps.findIndex(step => step.id === "deploy_real"))
-    const dry = steps.find(step => step.id === "deploy_dry")!
-    expect(dry.env).toBeUndefined()
-    expect(readFileSync(new URL("../deploy.ts", import.meta.url), "utf8")).toContain("rehearsalChecks = await dryRunChecks(")
-    const real = steps.find(step => step.id === "deploy_real")!
-    expect(Object.keys(real.env ?? {}).sort()).toEqual(["CLOUDFLARE_ACCOUNT_ID", "CLOUDFLARE_API_TOKEN"])
+    const run = steps.find(step => step.name === "Deploy")!
+    expect(run.if).toBeUndefined()
+    expect(run.env).toEqual({ CLOUDFLARE_API_TOKEN: "${{ secrets.CLOUDFLARE_API_TOKEN }}", GITHUB_TOKEN: "${{ secrets.GITHUB_TOKEN }}" })
+    expect(steps.filter(step => step.env && Object.keys(step.env).some(key => ["CLOUDFLARE_API_TOKEN", "GITHUB_TOKEN"].includes(key)))).toEqual([run])
+    expect(JSON.stringify(deploy.jobs.gate)).not.toContain("secrets.")
+    expect(steps.some(step => /dry-run|restore rollback/i.test(step.name ?? ""))).toBe(false)
+    expect(steps.filter(step => step.run?.includes("smthrs run"))).toEqual([run])
     const upload = steps.find(step => step.with?.name === "deploy-receipt")!
     expect(upload.if).toBe("always()")
-    expect(upload.with?.path).toBe("apps/server/deploy-receipts/**/*.json")
+    expect(upload.with?.path).toBe("${{ runner.temp }}/deploy-receipt")
+  })
+
+  it("collects latest and rollback receipts at the artifact root", () => {
+    const deploy = Bun.YAML.parse(readWorkflow("apps-deploy.yml")) as DeployWorkflow
+    const collect = deploy.jobs.deploy.steps.find(step => step.name === "Collect deploy-receipt")!
+    expect(collect.if).toBe("always()")
+    const directory = mkdtempSync(join(tmpdir(), "deploy-artifact-root-"))
+    try {
+      mkdirSync(join(directory, "apps/server/deploy-receipts/rollout"), { recursive: true })
+      mkdirSync(join(directory, "temp"))
+      writeFileSync(join(directory, "apps/server/deploy-receipts/latest.json"), '{"latest":true}')
+      writeFileSync(join(directory, "apps/server/deploy-receipts/rollout/last-rollback.json"), '{"rollback":true}')
+      execFileSync("bash", ["-eu", "-c", collect.run!], { cwd: directory, env: { PATH: process.env.PATH, RUNNER_TEMP: join(directory, "temp") } })
+      expect(JSON.parse(readFileSync(join(directory, "temp/deploy-receipt/latest.json"), "utf8"))).toEqual({ latest: true })
+      expect(JSON.parse(readFileSync(join(directory, "temp/deploy-receipt/rollout/last-rollback.json"), "utf8"))).toEqual({ rollback: true })
+    } finally { rmSync(directory, { recursive: true, force: true }) }
   })
 
   it("lints every workflow file in ci.yml's actionlint step", () => {
