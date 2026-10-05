@@ -795,7 +795,7 @@ const CurrentCardSchema = z.discriminatedUnion("kind", [
   z.object({ ...cardBaseShape, kind: z.literal("confirm"), audience_member_id: z.string().nullable(), payload: z.object({ id: z.string() }) }),
   /* L5 subject references: the Run card (T-FLW-07) names its run; the Flow card (T-APP-05) its flow and chosen version. */
   z.object({ ...cardBaseShape, kind: z.literal("run"), payload: z.object({ id: z.string() }) }),
-  z.object({ ...cardBaseShape, kind: z.literal("flow"), payload: z.object({ name: z.string(), version: z.string().optional() }) }),
+  z.object({ ...cardBaseShape, kind: z.literal("flow"), payload: z.object({ name: z.string(), version: z.string().optional(), proposal: z.object({ request: z.string(), context: z.string(), draftId: z.string() }).optional() }) }),
   /* card-kinds.md L5: subject-only kinds; the card file reads its data (T-APP-03, T-APP-06, T-UI-14). */
   z.object({ ...cardBaseShape, kind: z.literal("settings"), payload: z.object({}) }),
   z.object({ ...cardBaseShape, kind: z.literal("members"), payload: z.object({}) }),

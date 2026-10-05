@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"errors"
 	"net/http"
+	"strings"
 
 	"github.com/jackc/pgx/v5"
 
@@ -27,6 +28,11 @@ func (h *FlowsHandler) List(w http.ResponseWriter, r *http.Request) {
 	}
 	if _, err := services.Authorize(r.Context(), h.Queries, "flows.read"); err != nil {
 		todoRouteError(w, err)
+		return
+	}
+	if name := r.URL.Query().Get("name"); name != "" && !services.Overridable(name) {
+		title := strings.ToUpper(name[:1]) + name[1:]
+		todoRouteError(w, &services.TodoControlError{Status: 400, Code: "system_flow", Class: "user", Message: title + " flow is built in"})
 		return
 	}
 	cards, err := h.catalog(r)

@@ -17,6 +17,7 @@ export const FlowCardSchema = z.object({
   name: z.string(),
   source: z.union([z.object({ builtin: z.literal(true) }), z.object({ path: z.string() })]),
   system: z.boolean(),
+  proposal: z.object({ request: z.string(), context: z.string(), draftId: z.string() }).optional(),
   versions: z.array(z.object({
     id: z.string(),
     state: z.enum(["active", "proposed", "merged-syncing", "merged-failed", "previous"]),
@@ -60,4 +61,4 @@ export type FlowViewProps = CardProps<FlowCard>
  * @since 1.0.0
  * @category models
  */
-export type FlowCardCallbacks = CardCallbacks<"flow.source" | "flow.plan" | "flow.run" | "flow.edit">
+export type FlowCardCallbacks = CardCallbacks<"flow.source" | "flow.plan" | "flow.run" | "flow.edit" | "todo.new">

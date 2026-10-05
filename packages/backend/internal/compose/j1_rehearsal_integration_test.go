@@ -178,6 +178,8 @@ func TestJ1Rehearsal(t *testing.T) {
 			"- /stack — Show the stack and background runs",
 			"- /todo <Tn> — Open a TODO",
 			"- /todo.new [text] — Write and place a TODO (asks the person: it only shows them what to confirm, and their press acts)",
+			"- /flow <name> — Show a flow's steps and versions",
+			"- /flow.edit <name> <request> [JSON: source] — Propose a change to a flow (asks the person: it only shows them what to confirm, and their press acts)",
 		}, "\n")
 		// The instructions list exactly the commands the host runs for the owner's session.
 		answer, _, terminal, err := r.ask("", "What can you run? (instructions)")

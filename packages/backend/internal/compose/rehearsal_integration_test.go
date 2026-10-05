@@ -1072,6 +1072,8 @@ type rehearsalTurnFrame struct {
 		Kind     string  `json:"kind"`
 		Audience *string `json:"audience_member_id"`
 		Payload  struct {
+			Name    string `json:"name"`
+			Context string `json:"context"`
 			Path    string `json:"path"`
 			Content string `json:"content"`
 			ReadAt  struct {
@@ -1167,8 +1169,12 @@ func (r *rehearsal) token(scopes ...string) (string, error) {
 // file files one TODO appended to the stack as the owner's Draft commits it
 // and answers its number. Each TODO is its own request: its Idempotency-Key
 // names its title.
-func (r *rehearsal) file(title, prompt string) (int64, error) {
-	body, _ := json.Marshal(map[string]any{"title": title, "prompt": prompt, "place": map[string]string{"mode": "append"}})
+func (r *rehearsal) file(title, prompt string, context ...string) (int64, error) {
+	value := map[string]any{"title": title, "prompt": prompt, "place": map[string]string{"mode": "append"}}
+	if len(context) > 0 {
+		value["context"] = context[0]
+	}
+	body, _ := json.Marshal(value)
 	code, data, err := r.keyed("POST", "/api/todos", string(body), r.keyPrefix+"todo-"+strings.ReplaceAll(strings.ToLower(title), " ", "-"))
 	if err != nil {
 		return 0, err

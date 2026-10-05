@@ -50,6 +50,9 @@ import type { Card } from "@smthrs/rpc/Cards"
 import { fileListCard, FILES_LIST_COMMAND, parseFileListArgs } from "@smthrs/rpc/FileList"
 import { fileReadCard, FILES_READ_COMMAND, parseFileReadArgs } from "@smthrs/rpc/FileRead"
 import type { AgentChatMessage, AgentTurnUsage, FetchLike, StartAgentTurnRequest } from "@smthrs/rpc/NativeAgent"
+import { digestSync } from "@smthrs/rpc/Sha256"
+import { FlowCardSchema } from "@smthrs/rpc/FlowCard"
+import { flowCard, FlowInputSchema, FlowEditInputSchema, flowEditPrompt, flowProposalDiff, packagedTodoSource, parseFlowArgs } from "@smthrs/rpc/FlowCommands"
 import { TodoCardSchema } from "@smthrs/rpc/TodoCard"
 import { draftCard, parseTodoArgs, todoCard, TodoNewInputSchema, todoPath, TODOS_PATH } from "@smthrs/rpc/TodoCommands"
 import { Effect } from "effect"
@@ -481,7 +484,7 @@ const todoNew: Bind = (grant) => {
       if (!draft.success || draft.data.idempotencyKey !== undefined) {
         return { refusal: "todo.new takes the TODO's text, and optionally its title and acceptance." }
       }
-      const { text = "", title, acceptance, before } = draft.data
+      const { text = "", title, acceptance, context, before } = draft.data
       if (before !== undefined) {
         return { refusal: "A new TODO goes at the end of the stack for now: draft it without before." }
       }
@@ -492,6 +495,7 @@ const todoNew: Bind = (grant) => {
           text,
           title,
           acceptance,
+          context,
           options: [],
           idempotencyKey: globalThis.crypto.randomUUID()
         },
@@ -502,13 +506,44 @@ const todoNew: Bind = (grant) => {
     })
 }
 
+/** Reads use the install's route and authority; proposals write only conversation cards. */
+const flowCommand = (edit: boolean): Bind => (grant, { api }) => {
+  const author = grant.api?.author
+  if (author === undefined) return undefined
+  return (args, ordinal) => Effect.gen(function*() {
+    const parsed = parseFlowArgs(args)
+    if ("error" in parsed) return { refusal: parsed.error }
+    const input = (edit ? FlowEditInputSchema : FlowInputSchema).safeParse(parsed.payload)
+    if (!input.success) return { refusal: edit ? "Name the flow and the requested change." : "Name the flow: /flow todo." }
+    const { name } = input.data
+    const listed = yield* readRoute(api, `/api/flows?name=${encodeURIComponent(name)}`, z.array(FlowCardSchema))
+    if ("refusal" in listed) return listed
+    const model = listed.value.find(flow => flow.name === name)
+    if (model === undefined) return { refusal: `No flow ${name}` }
+    if (edit && model.system) return { refusal: `${name === "todo" ? "TODO" : name[0]!.toUpperCase() + name.slice(1)} flow is built in` }
+    const card = flowCard(name, ordinal, Date.now())
+    if (!edit) return { cards: [card], value: JSON.stringify({ ...model, ...(name === "todo" ? { sourceText: packagedTodoSource } : {}) }) }
+    const proposal = FlowEditInputSchema.parse(input.data)
+    if (proposal.source === undefined) return { cards: [card], value: JSON.stringify({ sourceText: name === "todo" ? packagedTodoSource : null,
+      next: "Propose the changed source with flow.edit JSON {name, request, source}. This shows a private Draft; the person presses Make TODO." }) }
+    let context: string
+    try { context = flowProposalDiff(name, proposal.source) } catch (error) { return { refusal: String(error instanceof Error ? error.message : error) } }
+    const key = `flow:${grant.turnId}:${digestSync(JSON.stringify(proposal))}`
+    const draft = draftCard({ id: `draft:${key}`, author, text: flowEditPrompt(name, proposal.request),
+      title: `Change the ${name === "todo" ? "TODO" : name} flow: ${proposal.request}`, context, options: [], idempotencyKey: key }, ordinal, Date.now())
+    return { cards: [draft, { ...card, audience_member_id: author, payload: { name, proposal: { request: proposal.request, context, draftId: draft.id } } }], value: DRAFTED }
+  })
+}
+
 /** Each command this host runs, bound by name: a declared command without a binding, or the reverse, does not compile. */
 const binds: { readonly [Name in (typeof INSTALL_HOST_COMMANDS)[number]["name"]]: Bind } = {
   "files.list": filesList,
   "files.read": filesRead,
   stack,
   todo,
-  "todo.new": todoNew
+  "todo.new": todoNew,
+  flow: flowCommand(false),
+  "flow.edit": flowCommand(true)
 }
 
 /** A command this turn's grant runs. */

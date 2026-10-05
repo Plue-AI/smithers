@@ -4,6 +4,8 @@
  * the aggregator order.
  */
 import { Schema } from "effect"
+import { FLOW_COMMAND, FLOW_EDIT_COMMAND, flowEditPrompt, flowProposalDiff, parseFlowArgs } from "@smthrs/rpc/FlowCommands"
+export { flowEditPrompt } from "@smthrs/rpc/FlowCommands"
 import { flow,  CardTarget } from "./Declare"
 import type { FlowEntry, Namespace } from "../registry"
 import { flowPlanParts, flowRunParts, payloadFor } from "../SlashPayload"
@@ -18,14 +20,7 @@ import { fileCard, findFile } from "../../state/seams/DesignWorld/subjects"
 /** The `flow` namespace row: the slash tree lists it in registry.ts NAMESPACES order. */
 export const namespace: Namespace = { id: "flow", label: "Flows", summary: "Create, list, and run flows" }
 
-const flowNameGrammar = (args: string | undefined) => {
-  const [name, ...request] = (args ?? "").trim().split(/\s+/)
-  return { payload: { ...(name ? { name } : {}), ...(request.length ? { request: request.join(" ") } : {}) } }
-}
-
-/** The TODO a flow edit becomes (spec §11.5.1): the agent derives the change from this request; nothing else is stored. */
-export const flowEditPrompt = (name: string, request: string): string =>
-  `Change flows/${name}/flow.ts: ${request}; start from the built-in composition when no override exists`
+const flowNameGrammar = parseFlowArgs
 
 /*
  * The versioned flow doors (T-APP-05, J5): the Flow card, a proposed edit as
@@ -42,22 +37,26 @@ export const flowVersionFlows = (actions: CommandActions): ReadonlyArray<FlowEnt
     return cards === undefined ? flowsUnavailable : cards.find(card => card.name === name) ?? `No flow ${name}`
   }
   return [
-    flow({ name: "flow", summary: "Show a flow's steps and versions", args: "<name>",
+    flow({ name: "flow", summary: FLOW_COMMAND.summary, args: FLOW_COMMAND.args,
       input: Schema.Struct({ name: Schema.NonEmptyString }), grammar: flowNameGrammar,
       handler: async ({ name }) => {
         const model = await named(name)
         return typeof model === "string" ? model : { value: await actions.presentFlow(name, flowTitle(name)) }
       } }),
-    flow({ name: "flow.edit", summary: "Propose a change to a flow", args: "<name> <request>",
-      input: Schema.Struct({ name: Schema.NonEmptyString, request: Schema.NonEmptyString }),
+    flow({ name: "flow.edit", summary: FLOW_EDIT_COMMAND.summary, args: FLOW_EDIT_COMMAND.args,
+      input: Schema.Struct({ name: Schema.NonEmptyString, request: Schema.NonEmptyString, source: Schema.optional(Schema.String) }),
       grammar: flowNameGrammar, confirm: "change this flow",
       form: { fields: { name: { label: "Flow" }, request: { label: "Request" } },
         args: payload => line(text(payload, "name"), text(payload, "request")) },
-      handler: async ({ name, request }) => {
+      handler: async ({ name, request, source }) => {
         const model = await named(name)
         if (typeof model === "string") return model
         if (model.system) return `${flowTitle(name)} is built in`
-        return actions.newTodo({ text: flowEditPrompt(name, request), title: `Change the ${flowTitle(name)}: ${request}` })
+        let context: string | undefined
+        if (source !== undefined) {
+          try { context = flowProposalDiff(name, source) } catch (error) { return String(error instanceof Error ? error.message : error) }
+        }
+        return actions.newTodo({ text: flowEditPrompt(name, request), context, title: `Change the ${flowTitle(name)}: ${request}` })
       } }),
     flow({ name: "flow.source", summary: "Co-edit a flow's source", args: "<name>",
       input: Schema.Struct({ name: Schema.NonEmptyString }), grammar: flowNameGrammar,

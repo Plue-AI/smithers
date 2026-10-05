@@ -1,3 +1,4 @@
+import { DiffHunks, parseUnifiedFile } from "@smthrs/ui"
 import { useState } from "react"
 import type { DraftViewProps } from "@smthrs/rpc/DraftCard"
 import { GitCommitHorizontal, LockKeyhole } from "lucide-react"
@@ -53,6 +54,7 @@ export function DraftView({ model, actions, gestures, onAction: dispatch }: Draf
             {editable ? <textarea rows={4} value={prompt.value} onInput={event => setPrompt({ current: prompt.current, value: event.currentTarget.value })} data-flow={edit.tag}
               onBlur={() => onAction(edit.tag, { ...edit.args, field: "prompt", value: prompt.value })} /> : <textarea rows={4} value={prompt.value} readOnly />}
           </label>
+          {model.context ? <DiffHunks file={parseUnifiedFile(model.context)} /> : null}
           <label className="draft-field"><span>Acceptance</span>
             {editable ? <textarea rows={Math.max(2, model.acceptance.length)}
               value={acceptance.value} onInput={event => setAcceptance({ current: acceptance.current, value: event.currentTarget.value })} data-flow={edit.tag}

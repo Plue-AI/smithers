@@ -1,3 +1,4 @@
+import { packagedTodoSource } from "@smthrs/rpc/FlowCommands"
 import * as Model from "@smthrs/model/Model"
 import type * as ModelEvent from "@smthrs/model/ModelEvent"
 import type { JsonObject, ModelRequest } from "@smthrs/model/ModelRequest"
@@ -231,7 +232,9 @@ const FILES_LINES = [
 const TODO_LINES = [
   "- /stack — Show the stack and background runs",
   "- /todo <Tn> — Open a TODO",
-  "- /todo.new [text] — Write and place a TODO (asks the person: it only shows them what to confirm, and their press acts)"
+  "- /todo.new [text] — Write and place a TODO (asks the person: it only shows them what to confirm, and their press acts)",
+  "- /flow <name> — Show a flow's steps and versions",
+  "- /flow.edit <name> <request> [JSON: source] — Propose a change to a flow (asks the person: it only shows them what to confirm, and their press acts)"
 ]
 const commandLines = (text: string): ReadonlyArray<string> => text.split("\n").filter((line) => line.startsWith("- /"))
 
@@ -1187,4 +1190,50 @@ describe("an install's host runs the catalog commands its grant allows, as the t
       expect(answerText(journal.frames)).toBe(`From the source: ${unknownCommandResult(name)}`)
     }
   })
+})
+
+describe("install flow commands", () => {
+  const catalog = [{ name: "todo", source: { builtin: true }, system: false, versions: [{ id: "d1", state: "active", steps: [] }] }]
+  const flowRoutes = routes({ "/api/flows?name=todo": [200, catalog], "/api/flows?name=merge": [400, { message: "Merge flow is built in" }] })
+  test("flow reads the served card, then edit shows exactly one private Draft and its quoted proposal without filing", async () => {
+    const journal = producer(path => file(path, JOURNEY), flowRoutes)
+    const provider = model([execute("flow", "todo"), execute("flow.edit", JSON.stringify({name:"todo",request:"Run make test",source:packagedTodoSource + "// make test\n"}))])
+    await run(install, provider, journal)
+    const cards = journal.frames.flatMap(frame => frame.type === "card" ? [frame.card] : [])
+    expect(cards.filter(card=>card.kind === "draft")).toHaveLength(1)
+    expect(cards[1]).toMatchObject({kind:"draft",audience_member_id:"ben",payload:{private:true,context:expect.stringContaining("+// make test"),prompt:"Change flows/todo/flow.ts: Run make test; start from the built-in composition when no override exists"}})
+    expect(cards[2]).toMatchObject({kind:"flow",audience_member_id:"ben",payload:{proposal:{draftId:cards[1]!.id,context:expect.stringContaining("--- a/flows/todo/flow.ts")}}})
+    expect(journal.calls.every(call => (call.body as {method:string}).method === "GET")).toBe(true)
+    for (const frame of journal.frames) expect(AgentTurnFrameSchema.safeParse(frame).success).toBe(true)
+  })
+  test("system flow, malformed input, unchanged source and unavailable reads never draft", async () => {
+    for (const call of [execute("flow.edit", "merge change it"),execute("flow.edit", "{broken"),execute("flow.edit", JSON.stringify({name:"todo",request:"x",source:packagedTodoSource}))]) {
+      const journal = producer(path=>file(path,JOURNEY),flowRoutes), provider = model([call])
+      await run(install,provider,journal)
+      expect(journal.frames.filter(frame=>frame.type === "card")).toEqual([])
+    }
+    for (const status of [403,503]) {
+      const journal = producer(path=>file(path,JOURNEY),routes({"/api/flows?name=todo":[status,{message:"Flows unavailable"}]}))
+      await run(install,model([execute("flow.edit","todo change")]),journal)
+      expect(journal.frames.filter(frame=>frame.type === "card")).toEqual([])
+    }
+  })
+  test("a request without a proposed source reads the packaged source but creates no Draft", async () => {
+    const journal = producer(path=>file(path,JOURNEY),flowRoutes), provider = model([execute("flow.edit","todo Run make test")])
+    await run(install,provider,journal)
+    expect(journal.frames.filter(frame=>frame.type === "card")).toHaveLength(1)
+    expect(JSON.parse(toolOutputs(provider)[0]!).sourceText).toBe(packagedTodoSource)
+  })
+})
+
+test("duplicate flow proposals have one Draft identity and one Commit key", async () => {
+  const catalog = [{name:"todo",source:{builtin:true},system:false,versions:[]}]
+  const journal = producer(path=>file(path,JOURNEY),routes({"/api/flows?name=todo":[200,catalog]}))
+  const args = JSON.stringify({name:"todo",request:"Test it",source:packagedTodoSource+"// Test it\n"})
+  await run(install,model([execute("flow.edit",args),execute("flow.edit",args)]),journal)
+  const drafts = journal.frames.flatMap(frame=>frame.type === "card" && frame.card.kind === "draft" ? [frame.card] : [])
+  expect(drafts).toHaveLength(2)
+  expect(new Set(drafts.map(card=>card.id)).size).toBe(1)
+  expect(drafts[0]!.payload.idempotencyKey).toBe(drafts[1]!.payload.idempotencyKey)
+  expect(journal.calls).toHaveLength(2)
 })

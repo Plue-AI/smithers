@@ -115,3 +115,16 @@ test("the card forwards each member's view and callback without sharing selectio
   expect(props.view).toBe(right)
   expect(left).toEqual({ maximized: false, tab: "active" })
 })
+
+test("a quoted flow proposal binds Make TODO to its private Draft and refuses a forged system proposal", () => {
+  const proposal = {request:"Run make test", context:"--- a/flows/todo/flow.ts\n+++ b/flows/todo/flow.ts\n+make test",draftId:"draft:flow:1"}
+  const model = {name:"todo", source:{builtin:true as const},system:false,versions:[],proposal}
+  const h=mount(model,new Set(["todo.new"]))
+  expect(h.props.actions.map(action=>[action.tag,action.label])).toEqual([["todo.new","Make TODO"]])
+  h.props.onAction("todo.new")
+  expect(h.calls).toEqual([{tag:"todo.new",input:{cardId:"draft:flow:1"}}])
+  const denied=mount({...model,system:true},new Set(["todo.new"]))
+  expect(denied.props.actions).toEqual([])
+  denied.props.onAction("todo.new")
+  expect(denied.calls).toEqual([])
+})

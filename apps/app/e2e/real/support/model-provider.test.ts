@@ -253,6 +253,11 @@ describe("reads: the app agent asked about a file", () => {
     expect(texts(events)).toEqual([PROVIDER_READ_LEAD, "README.md in local-owner/demo:\n# demo\n"])
   })
 
+  test("the explicit flow command goes through the app agent's commands tool", async () => {
+    const settled = ModelEvent.settledMessage(await Effect.runPromise(read([ModelRequest.Message.user("Run /flow todo")], [commands])))
+    expect(settled.message.content).toContainEqual({ type: "tool-call", id: "call_loopback_read", name: "commands", arguments: JSON.stringify({action:"execute",name:"flow",args:"todo"}) })
+  })
+
   test("without the commands tool, or without a path, it streams the ordinary reply", async () => {
     expect(texts(await Effect.runPromise(read([question], [])))).toEqual([...PROVIDER_REPLY])
     expect(texts(await Effect.runPromise(read([ModelRequest.Message.user("hello there")], [commands])))).toEqual([...PROVIDER_REPLY])

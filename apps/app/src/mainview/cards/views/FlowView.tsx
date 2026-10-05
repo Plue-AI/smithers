@@ -1,3 +1,4 @@
+import { DiffHunks, parseUnifiedFile } from "@smthrs/ui"
 import { useState } from "react"
 import { Check, GitPullRequest, Hourglass, Loader, TriangleAlert } from "lucide-react"
 import type { FlowViewProps } from "@smthrs/rpc/FlowCard"
@@ -30,6 +31,7 @@ export function FlowView({ model, actions, onAction }: FlowViewProps) {
         {step.detail === undefined ? null : <span className="mvp-flow-detail">{step.detail}</span>}
       </li>)}</ol>
       {selected?.state === "merged-failed" ? <div className="flow-failure"><TriangleAlert size={14} aria-hidden="true" /><b>Load failed</b><FailureDetails detail={failureDetail(selected.error ?? "")} /></div> : null}
+      {model.proposal ? <DiffHunks file={parseUnifiedFile(model.proposal.context)} /> : null}
       <div className="flow-actions">{actions.map((action, index) => <FlowActionView key={index} action={action} onAction={onAction} />)}</div>
     </div>
   </section>

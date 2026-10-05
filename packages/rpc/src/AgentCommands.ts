@@ -5,6 +5,7 @@
  * @since 1.0.0
  */
 
+import { FLOW_COMMAND, FLOW_EDIT_COMMAND } from "./FlowCommands.ts"
 import { FILES_LIST_COMMAND } from "./FileList.ts"
 import { FILES_READ_COMMAND } from "./FileRead.ts"
 import type { AgentToolSpec } from "./NativeAgent.ts"
@@ -35,7 +36,9 @@ export const INSTALL_HOST_COMMANDS = [
   FILES_READ_COMMAND,
   STACK_COMMAND,
   TODO_COMMAND,
-  TODO_NEW_COMMAND
+  TODO_NEW_COMMAND,
+  FLOW_COMMAND,
+  FLOW_EDIT_COMMAND
 ] as const
 
 /**

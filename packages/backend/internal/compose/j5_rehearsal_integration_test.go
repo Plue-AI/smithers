@@ -3,6 +3,8 @@ package compose
 import (
 	"encoding/json"
 	"fmt"
+	"os"
+	"path/filepath"
 	"regexp"
 	"slices"
 	"strconv"
@@ -44,7 +46,7 @@ func TestJ5Rehearsal(t *testing.T) {
 		// B, the flow edit, is filed first: a TODO merges only after the
 		// TODOs ahead of it on the stack, and B merges while A waits (step 9).
 		// Both run at once on their own lanes.
-		if b, err = r.file("B changes the TODO flow", "[FLOWEDIT] Every TODO must run `make test` and update the changelog."); err != nil {
+		if b, err = r.file("B changes the TODO flow", "[FLOWEDIT] Every TODO must run `make test` and update the changelog.", "--- a/flows/todo/flow.ts\n+++ b/flows/todo/flow.ts\n+// [CHANGELOG] Run make test and update the changelog."); err != nil {
 			return err
 		}
 		if a, err = r.file("A asks first", "[ASK] [FILE a.md] Ask me which file to edit before editing"); err != nil {
@@ -145,9 +147,74 @@ func TestJ5Rehearsal(t *testing.T) {
 		r.actual = fmt.Sprintf("200 %v; todo built in, system false, Active D1 %s… with %d steps and the merge wait", names, active[0][:12], len(steps)-1)
 		return nil
 	})
-	r.pending("5 App agent shows the TODO flow", "POST "+chat.TurnPath+" /flow todo", "the Flow card of the served todo flow", "T-FLW-05", "flow-agent-edit")
-	r.pending("6 App agent proposes the edit", "POST "+chat.TurnPath+" /flow.edit todo", "one private Draft quoting the diff; the TODO count unchanged", "T-FLW-05", "flow-agent-edit")
-	r.pending("7 System flow refused", "POST "+chat.TurnPath+" /flow.edit merge", "'Merge flow is built in'", "T-FLW-05", "flow-agent-edit")
+
+	r.step("5 App agent shows the TODO flow", "POST "+chat.TurnPath+" /flow todo", "the Flow card of the served todo flow", "T-FLW-05", func() error {
+		_, frames, done, err := r.ask("", "Run /flow todo")
+		if err != nil {
+			return err
+		}
+		if !done {
+			return fmt.Errorf("flow turn did not finish")
+		}
+		for _, frame := range frames {
+			if frame.Type == "card" && frame.Card.Kind == "flow" && frame.Card.Payload.Name == "todo" {
+				r.actual = "200 served TODO Flow card"
+				return nil
+			}
+		}
+		return fmt.Errorf("no TODO Flow card")
+	})
+	r.step("6 App agent proposes the edit", "POST "+chat.TurnPath+" /flow.edit todo", "one private Draft quoting the diff; the TODO count unchanged", "T-FLW-05", func() error {
+		var before, after int
+		if err := r.pool.QueryRow(r.ctx, `SELECT count(*) FROM mythical_items`).Scan(&before); err != nil {
+			return err
+		}
+		source, err := os.ReadFile(filepath.Join(r.root, "flows/todo/flow.ts"))
+		if err != nil {
+			return err
+		}
+		input, _ := json.Marshal(map[string]string{"name": "todo", "request": "Every TODO must run make test and update the changelog", "source": string(source) + "// [CHANGELOG] Run make test and update the changelog.\n"})
+		_, frames, done, err := r.ask("", "Run /flow.edit "+string(input))
+		if err != nil {
+			return err
+		}
+		if !done {
+			return fmt.Errorf("edit turn did not finish")
+		}
+		drafts := 0
+		for _, frame := range frames {
+			if frame.Type == "card" && frame.Card.Kind == "draft" {
+				drafts++
+				if frame.Card.Audience == nil || *frame.Card.Audience != "rehearsal-owner" || !frame.Card.Payload.Private || !strings.Contains(frame.Card.Payload.Context, "+++ b/flows/todo/flow.ts") || !strings.Contains(frame.Card.Payload.Context, "+// [CHANGELOG]") {
+					return fmt.Errorf("Draft lacks author-private quoted proposal: %+v", frame.Card)
+				}
+			}
+		}
+		if err := r.pool.QueryRow(r.ctx, `SELECT count(*) FROM mythical_items`).Scan(&after); err != nil {
+			return err
+		}
+		if drafts != 1 || before != after {
+			return fmt.Errorf("drafts=%d TODO count %d -> %d", drafts, before, after)
+		}
+		r.actual = fmt.Sprintf("200 one private Draft with quoted diff; TODO count stays %d", after)
+		return nil
+	})
+	r.step("7 System flow refused", "POST "+chat.TurnPath+" /flow.edit merge", "Merge flow is built in", "T-FLW-05", func() error {
+		answer, frames, _, err := r.ask("", "Run /flow.edit merge change it")
+		if err != nil {
+			return err
+		}
+		if !strings.Contains(answer, "Merge flow is built in") {
+			return fmt.Errorf("system refusal %q", answer)
+		}
+		for _, frame := range frames {
+			if frame.Type == "card" {
+				return fmt.Errorf("system flow showed a card")
+			}
+		}
+		r.actual = "200 Merge flow is built in; no Draft"
+		return nil
+	})
 	r.pending("8 Repository copy resolves", "coding host module resolver", "a repository flows/todo/flow.ts loads and has a digest", "T-FLW-04", "coding-steps-package")
 	var squash string
 	r.step("9 Merge B", "POST /api/todos/{B}/merge as maintainer Ben", "202 while A waits; merged after GitHub's squash", "T-STK-04, T-ACC-02", func() error {

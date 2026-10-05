@@ -84,6 +84,9 @@ func TestInstallAPIReadsTodosThroughTheirOwnRoutes(t *testing.T) {
 	// The flow catalog reads through the same mount: the built-in TODO flow,
 	// not a system flow, with one Active version.
 	status, _, flows := read(ownerSession, owner.ID, "/api/flows")
+	deniedStatus, deniedFlow, _ := read(ownerSession, owner.ID, "/api/flows?name=merge")
+	require.Equal(t, 400, deniedStatus)
+	require.Equal(t, "Merge flow is built in", deniedFlow["message"])
 	require.Equal(t, http.StatusOK, status)
 	require.Len(t, flows, 1)
 	require.Equal(t, "todo", flows[0]["name"])

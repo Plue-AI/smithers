@@ -111,7 +111,10 @@ const readsAnswer = (modelId: string, body: Record<string, unknown>): Response |
   const result = latest.find((message) => message.role === "tool")
   if (result !== undefined) return openaiStream(modelId, false, [PROVIDER_READ_LEAD, messageText(result.content)])
   const offered = Array.isArray(body.tools) && body.tools.some((tool) => isRecord(tool) && isRecord(tool.function) && tool.function.name === "commands")
-  const path = FILE_PATH.exec(messageText(latest.find((message) => message.role === "user")?.content))?.[0]
+  const asked = messageText(latest.find((message) => message.role === "user")?.content)
+  const command = /^Run \/(flow(?:\.edit)?)\s+([\s\S]+)$/.exec(asked)
+  if (offered && command) return openaiToolCall(modelId, { name: "commands", arguments: JSON.stringify({ action: "execute", name: command[1], args: command[2] }) })
+  const path = FILE_PATH.exec(asked)?.[0]
   return offered && path !== undefined
     ? openaiToolCall(modelId, { name: "commands", arguments: JSON.stringify({ action: "execute", name: "files.read", args: path }) })
     : undefined

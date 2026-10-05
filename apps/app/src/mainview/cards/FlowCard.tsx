@@ -38,6 +38,7 @@ export const FlowCard = ({ model: source, allowed, dispatch, View = FlowView, vi
   for (const [tag, label] of [["flow.source", "Source"], ["flow.plan", "Plan"], ["flow.run", "Run"], ["flow.edit", "Edit"]] as const) {
     if (allowed.has(tag) && (!model.system || tag === "flow.plan")) definitions.push({ tag, label, command_input: { name: model.name } })
   }
+  if (!model.system && model.proposal && allowed.has("todo.new")) definitions.push({ tag: "todo.new", label: "Make TODO", primary: true, command_input: { cardId: model.proposal.draftId } })
   const bindings = cardActions(dispatch, definitions)
   return <View model={model} actions={bindings.actions} gestures={bindings.gestures} onAction={bindings.onAction} view={view} onView={onView} />
 }
@@ -169,7 +170,7 @@ export const workflowCardFamily: CardFamily<"workflow-repo" | "workflow-list"> =
  * whose Source and Edit are the design seam's presses.
  */
 const DESIGN_FLOW_ACTIONS: ReadonlySet<CatalogTag> = new Set<CatalogTag>(["flow.source", "flow.edit"])
-const INSTALL_FLOW_ACTIONS: ReadonlySet<CatalogTag> = new Set<CatalogTag>(["flow.edit"])
+const INSTALL_FLOW_ACTIONS: ReadonlySet<CatalogTag> = new Set<CatalogTag>(["flow.edit", "todo.new"])
 const NO_FLOWS: FlowsSnapshot = {}
 const noCatalog: FlowsSnapshots = { subscribe: () => () => {}, get: () => NO_FLOWS }
 const FlowBody = ({ card, maximized }: { readonly card: CardOf<"flow">; readonly maximized: boolean }) => {
@@ -180,7 +181,7 @@ const FlowBody = ({ card, maximized }: { readonly card: CardOf<"flow">; readonly
   const model = controller.flowCatalog === undefined ? flowCardOf(world, card.payload.name) : served.flows?.find(flow => flow.name === card.payload.name)
   const dispatch: CardCommandDispatch = (tag, input) =>
     controller.commands.submit({ name: tag, payload: (input ?? {}) as Record<string, unknown>, actor: "user", originCardId: card.id })
-  return <FlowCard model={model} allowed={controller.flowCatalog === undefined ? DESIGN_FLOW_ACTIONS : INSTALL_FLOW_ACTIONS} dispatch={dispatch}
+  return <FlowCard model={model && card.payload.proposal ? { ...model, proposal: card.payload.proposal } : model} allowed={controller.flowCatalog === undefined ? DESIGN_FLOW_ACTIONS : INSTALL_FLOW_ACTIONS} dispatch={dispatch}
     view={{ maximized }} onView={() => {}} />
 }
 export const flowCardFamily: CardFamily<"flow"> = {
