@@ -72,7 +72,7 @@ const test = Smithers.Shell.Test({
   ],
   timeout: "40m",
   hosts: ["linux"],
-  // Only `HistoryPostgres.test.ts` reads this URL. It is deliberately not
+  // The package's PostgreSQL cases read this URL. It is deliberately not
   // `SMITHERS_TEST_PG_URL`: that name switches every `TestDatabase` case into
   // the PostgreSQL matrix, and the CLI announces it as an ignored 0.x setting
   // on stderr, so exporting it here changed every spawned command's output.
