@@ -100,8 +100,11 @@ export const bundle = async (entryPoint, outfile) => {
   // review task alone keeps prior reviews (#1971).
   const policyTexts = new Map()
   for (const source of policySources) policyTexts.set(source, await readFile(resolve(root, source), "utf8"))
+  // The built-in TODO composition's source: the version a TODO pins when
+  // main has none (flows/repository/builtin-flows.ts).
+  const builtinFlows = { todo: await readFile(resolve(root, "flows/todo/flow.ts"), "utf8") }
   const compiled = result.outputFiles[0].text.replace(/^(#![^\n]*\n)/,
-    `$1const __SMITHERS_CREATE_FLOW_PACK__ = ${JSON.stringify(pack)};\nconst __SMITHERS_CODING_WIKI_POLICY__ = ${JSON.stringify(wikiPolicyIdentity(policyTexts))};\n`)
+    `$1const __SMITHERS_CREATE_FLOW_PACK__ = ${JSON.stringify(pack)};\nconst __SMITHERS_CODING_WIKI_POLICY__ = ${JSON.stringify(wikiPolicyIdentity(policyTexts))};\nconst __SMITHERS_BUILTIN_FLOWS__ = ${JSON.stringify(builtinFlows)};\n`)
   if (compiled === result.outputFiles[0].text) throw new Error("Coding artifact has no executable banner")
   const digest = createHash("sha256").update(compiled).digest("hex")
   // Hash the exact compiled artifact before inserting its own identity. This

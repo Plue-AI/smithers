@@ -13,6 +13,10 @@ import { ModuleOwner } from "../../packages/smithers/src/internal/ModuleOwner.ts
 import { CodingError, PlanningInput } from "./schema.ts"
 
 const flowId = "coding/request"
+// A request's coordinator is its own approved run, or the TODO's `todo`
+// composition (flows/todo/flow.ts) that runs the request as its child. Both
+// receive messages on the request's lineage.
+const coordinators: ReadonlySet<string> = new Set([flowId, "todo"])
 const lineage = (rootId: string) => JSON.stringify([flowId, rootId])
 const unavailable = (notificationId: string) =>
   new NotificationQueue.NotificationError({
@@ -38,11 +42,12 @@ export const routeMessages = (
       }
       return journal.transact(Effect.gen(function*() {
         const run = yield* control.getRun(runId).pipe(Effect.mapError(() => unavailable(notification.id)))
-        // TODO ownership, boundary closure and guest delivery are supplied by
-        // T-FLW-11/T-STK-01. Until their production gates pass, a TODO message
-        // must not fall through to generic admission and reach a model turn.
-        if (run.flowId === "todo") return yield* Effect.fail(unavailable(notification.id))
-        if (notification.targetLineageId !== runId || run.flowId !== flowId) {
+        // A TODO's message reaches its request on the composition's lineage;
+        // it never falls through to generic admission.
+        if (run.flowId === "todo" && notification.targetLineageId !== runId) {
+          return yield* Effect.fail(unavailable(notification.id))
+        }
+        if (notification.targetLineageId !== runId || !coordinators.has(run.flowId)) {
           return yield* queue.admit(runId, notification)
         }
         if (
@@ -53,7 +58,7 @@ export const routeMessages = (
         }
         const plan = yield* control.getPlan(run.planId).pipe(Effect.mapError(() => unavailable(notification.id)))
         if (
-          plan.decision !== "approved" || plan.card.flowId !== flowId || run.planDigest !== plan.card.digest ||
+          plan.decision !== "approved" || plan.card.flowId !== run.flowId || run.planDigest !== plan.card.digest ||
           plan.card.executionDigest === undefined ||
           // `coding/request` IS its own flow, so its approved envelope names no
           // delegate. An envelope that names one was approved for a descriptor
@@ -173,7 +178,7 @@ export const ReceiveFeedback = Action.make("coding/receive-request-feedback", {
 export const receiveFeedback = (input: typeof ReceiveFeedback.payloadSchema.Type) =>
   Effect.gen(function*() {
     const owner = yield* Effect.serviceOption(ModuleOwner)
-    if (Option.isNone(owner) || owner.value.flowId !== flowId) {
+    if (Option.isNone(owner) || !coordinators.has(owner.value.flowId)) {
       return yield* Effect.fail(
         new CodingError({
           code: "unavailable",

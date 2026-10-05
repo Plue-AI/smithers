@@ -61,8 +61,8 @@ const common = {
 }
 
 // The version a launch must run: a flow, the source commit it was chosen
-// from and that flow's execution digest. A pinned launch runs only a plan
-// with that exact identity.
+// from and that version's digest. The host reads the pinned flow from that
+// commit, never from the working copy it serves, and runs only that version.
 const LaunchPin = Schema.Struct({
   flow: Schema.NonEmptyString,
   sourceCommit: SourceRevision,
@@ -197,6 +197,15 @@ export interface Config {
   readonly authenticate: (
     headers: Readonly<Record<string, string>>
   ) => Effect.Effect<Principal, ControlError.Unauthorized>
+  /**
+   * Prepares this host to plan a pinned flow: reads it from the pin's source
+   * commit, refuses unless it measures the pin's digest, and answers the
+   * execution digest a plan of that version carries. A host without it runs
+   * no pinned flow.
+   */
+  readonly pin?:
+    | ((pin: typeof LaunchPin.Type) => Effect.Effect<{ readonly executionDigest: string }, BridgeError>)
+    | undefined
 }
 
 /**
@@ -272,18 +281,20 @@ export const execute = (
             })
           )
         }
-        // Every launch of a pinned attempt (its composition and the engine's
-        // launches) runs from the pinned source commit: a host serving any
-        // other source refuses before planning imports anything.
-        if (input.pin !== undefined && input.pin.sourceCommit !== config.sourceRevision) {
-          return yield* Effect.fail(
+        // The pinned flow is read from the pin's source commit, never from the
+        // working copy this host serves: a host that cannot, or that measures
+        // another version there, refuses before planning imports anything.
+        const pinned = input.pin === undefined || input.pin.flow !== input.flowId
+          ? undefined
+          : config.pin === undefined
+          ? yield* Effect.fail(
             new BridgeError({
               code: "source_mismatch",
-              message: "Flow source revision does not match the pinned launch",
+              message: "This host cannot load a pinned flow",
               retryable: false
             })
           )
-        }
+          : yield* config.pin(input.pin)
         const plan = yield* control.plan({
           flowId: input.flowId,
           input: input.payload,
@@ -307,7 +318,7 @@ export const execute = (
         if (
           input.pin !== undefined &&
           (plan.executionDigest === undefined ||
-            (input.pin.flow === input.flowId && plan.executionDigest !== input.pin.executionDigest))
+            (pinned !== undefined && plan.executionDigest !== pinned.executionDigest))
         ) {
           return yield* Effect.fail(
             new BridgeError({
@@ -333,7 +344,12 @@ export const execute = (
           sourceRevision: input.sourceRevision,
           planId: plan.planId,
           planDigest: plan.digest,
-          ...(plan.executionDigest === undefined ? {} : { executionDigest: plan.executionDigest }),
+          // The pinned flow's identity is the version its pin names.
+          ...(pinned !== undefined
+            ? { executionDigest: input.pin!.executionDigest }
+            : plan.executionDigest === undefined
+            ? {}
+            : { executionDigest: plan.executionDigest }),
           envelope: plan.envelope,
           approval: plan.approval,
           receipt

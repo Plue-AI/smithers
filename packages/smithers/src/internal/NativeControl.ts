@@ -36,6 +36,7 @@ import type * as NodeFlowsRuntime from "@smthrs/flows/NodeRuntime"
 import type * as GatewayServer from "@smthrs/gateway/GatewayServer"
 import type * as NodeGateway from "@smthrs/gateway/node/NodeGateway"
 import * as GatewayProjections from "@smthrs/gateway/Projections"
+import * as RuntimeBridge from "@smthrs/gateway/RuntimeBridge"
 import * as QuickJSSandbox from "@smthrs/harness/QuickJSSandbox"
 import type * as Sandbox from "@smthrs/harness/Sandbox"
 import * as Steering from "@smthrs/harness/Steering"
@@ -127,6 +128,7 @@ import {
 } from "./NativeEquipment.ts"
 import * as NativeExecutionRead from "./NativeExecutionRead.ts"
 import * as NodeWorkspaceObservation from "./NodeWorkspaceObservation.ts"
+import * as PinnedFlow from "./PinnedFlow.ts"
 import * as RegistryWorkspace from "./RegistryWorkspace.ts"
 import * as ReleasedChildResume from "./ReleasedChildResume.ts"
 import * as RoleProfile from "./RoleProfile.ts"
@@ -239,6 +241,42 @@ export interface HostState {
 
 /** A composition's host state before its executor registers anything. */
 const emptyHost = (): HostState => ({ catalog: undefined, revision: undefined, executor: undefined })
+
+/**
+ * Prepares a pinned launch (engineering spec §11.4.1): the registry reads the
+ * pinned version from its source commit and refuses unless it measures the
+ * pin's digest, then the catalog rebuilds that one entry from it, so the plan
+ * that follows is of exactly that version. Answers its execution digest.
+ */
+const pinFlow = (host: HostState, pin: PinnedFlow.Pin) =>
+  Effect.gen(function*() {
+    const executor = host.executor
+    const activate = executor === undefined ? undefined : PinnedFlow.of(executor.registry)
+    const refresh = executor?.refresh
+    if (executor === undefined || refresh === undefined || activate === undefined) {
+      return yield* Effect.fail("This host cannot load a pinned flow")
+    }
+    return yield* executor.onHost(Effect.gen(function*() {
+      const descriptor = yield* activate(pin).pipe(Effect.mapError((error) => error.message))
+      const digest = Descriptor.executionDigest(descriptor)
+      const rebuilt = yield* refresh.flow(pin.flow).pipe(Effect.mapError((error) => error.message))
+      if (
+        digest === undefined || rebuilt._tag !== "Registered" ||
+        Descriptor.executionDigest(rebuilt.executable.descriptor) !== digest
+      ) {
+        return yield* Effect.fail(
+          `The pinned ${pin.flow} could not be registered${
+            rebuilt._tag === "Refused" ? `: ${rebuilt.error.message}` : ` (${rebuilt._tag})`
+          }`
+        )
+      }
+      return { executionDigest: digest }
+    }))
+  }).pipe(
+    Effect.mapError((message) =>
+      new RuntimeBridge.BridgeError({ code: "source_mismatch", message: message.slice(0, 2000), retryable: false })
+    )
+  )
 /** Existing executable registration input to the native runtime final phase.
  * @since 1.0.0
  * @private
@@ -1930,7 +1968,11 @@ export const make = (
               // registration, never the environment's unverified revision.
               const verifiedOptions = options.runtimeBridge === undefined ? options : {
                 ...options,
-                runtimeBridge: { ...options.runtimeBridge, verifiedCatalogSourceRevision: engine.host.revision }
+                runtimeBridge: {
+                  ...options.runtimeBridge,
+                  verifiedCatalogSourceRevision: engine.host.revision,
+                  pin: (pin: PinnedFlow.Pin) => pinFlow(engine.host, pin)
+                }
               }
               return Layer.launch(
                 layerGateway(health, verifiedOptions, root, engine, Layer.succeed(Journal.Journal, journalService))

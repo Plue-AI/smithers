@@ -351,7 +351,7 @@ export const landingLayers = Layer.mergeAll(
   ),
   SubmitLane.toLayer(({ cleanup, cleanedSource }) =>
     Effect.gen(function*() {
-      const landing = yield* requireBackend, instance = yield* FlowRuntime.FlowInstance
+      const landing = yield* requireBackend
       if (landing.submitLane === undefined) return yield* invalid("This host cannot hand results to the mythical stack")
       const original = cleanup.admission.originalSource
       if (cleanedSource.source.commitId !== cleanup.head.commitId || original.parentCommitIds.length !== 1) {
@@ -363,7 +363,9 @@ export const landingLayers = Layer.mergeAll(
         workspaceId: landing.binding.workspaceId,
         base: original.parentCommitIds[0]!,
         source: cleanup.head.commitId,
-        requestRunId: cleanup.admission.requestExecutionId || instance.executionId,
+        // The run the stack launched and bound: the request's approved control
+        // run, a coding/request run or a TODO's todo composition.
+        requestRunId: cleanup.admission.controlRunId,
         summary: cleanup.summary
       })
       return { cleanup, cleanedSource, lane }

@@ -11,7 +11,7 @@ import { ModuleOwner } from "../../packages/smithers/src/internal/ModuleOwner.ts
 import { Poc, PocInput } from "./poc.ts"
 import { PrepareRequest } from "./preparation.ts"
 import { Request } from "./request.ts"
-import { CodingError, RequestInput, sameRevision } from "./schema.ts"
+import { CodingError, RequestInput, sameRevision, StackBase } from "./schema.ts"
 import { VibeEvidence, VibeInput } from "./vibe-schema.ts"
 export { VibeEvidence, VibeInput } from "./vibe-schema.ts"
 
@@ -40,14 +40,21 @@ export const readVibeRequest = (input: typeof VibeInput.Type) =>
   Effect.gen(function*() {
     // ModuleAuthority supplies this per handler, never while layers are built.
     const currentOwner = yield* Effect.serviceOption(ModuleOwner)
-    if (Option.isNone(currentOwner) || currentOwner.value.flowId !== "coding/vibe") {
-      return yield* invalid("Only an approved coding/vibe execution may admit finalization")
+    // Finalization is coding/vibe's own approved run, or the delivery child of
+    // a TODO's `todo` composition (flows/todo/flow.ts), which finalizes the
+    // request child that same composition ran.
+    if (
+      Option.isNone(currentOwner) ||
+      (currentOwner.value.flowId !== "coding/vibe" && currentOwner.value.flowId !== "todo")
+    ) {
+      return yield* invalid("Only an approved coding/vibe execution or TODO flow may admit finalization")
     }
-    const owner = currentOwner.value
+    const owner = currentOwner.value, composed = owner.flowId === "todo"
     const store = yield* RunStore.RunStore, graph = yield* DurableEngineState.DurableEngineState
     const control = yield* ControlRuntime, catalog = yield* RunCatalogRead.RunCatalogRead
     let totalBytes = 0
-    const read = (id: string) =>
+    // A composition's ancestry is still running: it finalizes from inside it.
+    const read = (id: string, live = false) =>
       Effect.gen(function*() {
         const row = yield* store.get(id).pipe(Effect.mapError((error) =>
           error.code === "not_found_row"
@@ -61,7 +68,8 @@ export const readVibeRequest = (input: typeof VibeInput.Type) =>
           return yield* invalid("Finalization evidence exceeds its bounded native-state lookup")
         }
         const state = Schema.decodeUnknownOption(Schema.fromJsonString(RunState))(row.stateJson)
-        if (Option.isNone(state) || row.status !== "completed" || state.value.cancellation !== undefined) {
+        const settled = row.status === "completed" || (live && row.status !== "failed" && row.status !== "cancelled")
+        if (Option.isNone(state) || !settled || state.value.cancellation !== undefined) {
           return yield* invalid("Finalization requires completed, uncancelled native ancestry")
         }
         return { row, state: state.value }
@@ -72,7 +80,10 @@ export const readVibeRequest = (input: typeof VibeInput.Type) =>
     let selected = input.requestExecutionId
     let requestRow = yield* read(selected)
     if (requestRow.state.flowName === "agent/run") {
-      const children = yield* catalog.listRuns({ filters: { flowName: "coding/request", parentRunId: selected }, limit: 2 })
+      const children = yield* catalog.listRuns({
+        filters: { flowName: "coding/request", parentRunId: selected },
+        limit: 2
+      })
       if (children.cursor !== null || children.runs.length !== 1) {
         return yield* invalid("Select a native coding/Request execution")
       }
@@ -109,7 +120,7 @@ export const readVibeRequest = (input: typeof VibeInput.Type) =>
         return yield* invalid("Finalization ancestry is cyclic or exceeds 1024 native executions")
       }
       visited.add(id)
-      const entry = id === selected ? requestRow : yield* read(id)
+      const entry = id === selected ? requestRow : yield* read(id, composed)
       // Executable.fromDescriptor persists the descriptor's name and inlines
       // delegate.call. There need not be a separate coding/Request row.
       if (entry.state.flowName === "coding/request") {
@@ -128,7 +139,31 @@ export const readVibeRequest = (input: typeof VibeInput.Type) =>
         Effect.map(Option.some),
         Effect.catchTag("/control/RunNotFound", () => Effect.succeedNone)
       )
-      if (Option.isSome(run)) {
+      if (Option.isSome(run) && composed) {
+        // The composition's own control run: the request child descends from
+        // it through no other control run, and its approved plan is the TODO
+        // flow's. The composition decides its request's input, but never the
+        // stack base the TODO was admitted on.
+        const nativePayload = entry.state.payload as { readonly planId?: unknown } | null
+        if (
+          id !== owner.rootId || bridged || run.value.status === "failed" || run.value.status === "cancelled" ||
+          run.value.planId === undefined || entry.state.flowName !== "agent/run" ||
+          nativePayload?.planId !== run.value.planId || parents.length !== 0 ||
+          entry.state.parentExecutionId !== undefined
+        ) {
+          return yield* invalid("The request is not this TODO flow's own child")
+        }
+        const plan = yield* control.getPlan(run.value.planId)
+        const approvedBase = Schema.decodeUnknownOption(Schema.Struct({ base: StackBase }))(plan.decodedInput)
+        if (
+          plan.decision !== "approved" || run.value.planDigest !== plan.card.digest ||
+          run.value.flowId !== "todo" || plan.card.flowId !== "todo" || Option.isNone(approvedBase) ||
+          Digest.canonical(approvedBase.value.base) !== Digest.canonical(payload.value.base ?? null)
+        ) {
+          return yield* invalid("The request does not build on its approved TODO flow's stack base")
+        }
+        root = { controlRunId: id, planId: run.value.planId, planDigest: plan.card.digest }
+      } else if (Option.isSome(run)) {
         const nativePayload = entry.state.payload as { readonly planId?: unknown } | null
         if (
           !bridged || id === owner.rootId || run.value.status !== "completed" || run.value.planId === undefined ||

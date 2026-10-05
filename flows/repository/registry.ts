@@ -16,6 +16,7 @@ import {
   FLOW_AUTHORING_PACK,
   FLOW_AUTHORING_STAGES
 } from "../../packages/rpc/src/FlowAuthoring.ts"
+import * as PinnedFlow from "../../packages/smithers/src/internal/PinnedFlow.ts"
 import Dispatch from "../coding/dispatch/flow.ts"
 import FlowLoad from "../coding/flow-load/flow.ts"
 import ImplementPlan from "../coding/flow.ts"
@@ -24,6 +25,7 @@ import Verify from "../coding/verify/flow.ts"
 import CodingWiki from "../coding/wiki/flow.ts"
 import Register from "../register-repository/flow.ts"
 import { deploymentMinutes, deploymentTokens } from "./inspection.ts"
+import { pinnable, type PinnedFlows } from "./pinned.ts"
 import { JobInput, JobResult, OperationResult, SetupInput, TriggerRequest } from "./schema.ts"
 import { TriggerOutcome } from "./triggers.ts"
 
@@ -455,13 +457,15 @@ export const bindRepositoryRegistry = (
   base: Registry.Registry,
   builtins: Registry.Registry,
   policy: string,
-  systemFlows: ReadonlyArray<string>
+  systemFlows: ReadonlyArray<string>,
+  pinned?: PinnedFlows
 ): Registry.Registry => {
-  // The `todo` composition (flows/todo/flow.ts) runs only from stack admission
-  // with the real pinned-source and current-attempt providers (T-FLW-03/04,
-  // T-FLW-11). Until they bind a launch to its attempt, no generic route may
-  // reach it: refuse before module import, packaged or repository alike.
-  const dark = (name: string) => name === "todo"
+  // The `todo` composition (flows/todo/flow.ts) runs only from a TODO
+  // attempt's pinned launch (spec §11.4.1): the version the bridge activated
+  // from the pin's source commit (`pinned.ts`). No other route reaches it, and
+  // the working copy's `flows/todo` is never imported: refuse before import.
+  const dark = (name: string) => pinnable.has(name) && pinned?.active(name) === undefined
+  const pin = (name: string) => pinnable.has(name) ? pinned?.active(name) : undefined
   const names = new Set(systemFlows)
   const bundled = (name: string) => names.has(name)
   // Legacy packaged delegates retain their codecs and policy fence. These
@@ -498,22 +502,31 @@ export const bindRepositoryRegistry = (
         registryError({
           code: "body_unavailable",
           method: "get",
-          description: "TODO pinned-source activation is unavailable"
+          description: "The TODO flow runs only from a TODO's pinned launch"
         })
       )
+      : pin(name) !== undefined
+      ? Effect.succeed(pin(name)!)
       : bundled(name)
       ? Effect.succeed(builtins)
       : base.getOption(name).pipe(Effect.map((found) => Option.isSome(found) ? base : builtins))
   const get = (name: string) => owned(name).pipe(Effect.flatMap((registry) => registry.get(name)), Effect.map(derived))
+  const pinnedList = () =>
+    Effect.forEach([...pinnable].filter((name) => pin(name) !== undefined), (name) => pin(name)!.get(name))
   const list = () =>
-    Effect.all([base.list(), builtins.list()]).pipe(Effect.map(([project, defaults]) =>
-      [
-        ...project.filter((entry) => !dark(entry.name) && !bundled(entry.name)),
-        ...defaults.filter((entry) =>
-          !dark(entry.name) && (bundled(entry.name) || !project.some((candidate) => candidate.name === entry.name))
-        )
-      ].map(derived)
-    ))
+    Effect.all([base.list(), builtins.list(), pinnedList()]).pipe(
+      Effect.map(([project, defaults, versions]) =>
+        [
+          ...project.filter((entry) => !pinnable.has(entry.name) && !bundled(entry.name)),
+          ...defaults.filter((entry) =>
+            !pinnable.has(entry.name) &&
+            (bundled(entry.name) || !project.some((candidate) => candidate.name === entry.name))
+          ),
+          ...versions
+        ].map(derived)
+      ),
+      Effect.orDie
+    )
   const loadBody: Registry.Registry["loadBody"] = (name, expected) =>
     Effect.gen(function*() {
       const registry = yield* owned(name), original = yield* registry.get(name), descriptor = derived(original)
@@ -548,21 +561,24 @@ export const bindRepositoryRegistry = (
     refresh: () => Effect.all([base.refresh(), builtins.refresh()]).pipe(Effect.asVoid),
     warnings: () => Effect.all([base.warnings(), builtins.warnings()]).pipe(Effect.map((values) => values.flat()))
   })
-  return Object.assign(registry, {
-    [repositoryRefusals]: base.list().pipe(
-      Effect.map((entries) =>
-        entries.filter((entry) => dark(entry.name) || bundled(entry.name)).map((entry) =>
-          new Executable.ExecutableError({
-            code: dark(entry.name) ? "missing_service" : "reserved_name",
-            flow: entry.name,
-            path: entry.path,
-            available: [],
-            message: dark(entry.name)
-              ? "TODO pinned-source activation is unavailable"
-              : `Repository flow "${entry.name}" uses a reserved system name`
-          })
+  const bound = Object.assign(registry, {
+    [repositoryRefusals]: Effect.suspend(() =>
+      base.list().pipe(
+        Effect.map((entries) =>
+          entries.filter((entry) => dark(entry.name) || bundled(entry.name)).map((entry) =>
+            new Executable.ExecutableError({
+              code: dark(entry.name) ? "missing_service" : "reserved_name",
+              flow: entry.name,
+              path: entry.path,
+              available: [],
+              message: dark(entry.name)
+                ? "The TODO flow runs only from a TODO's pinned launch"
+                : `Repository flow "${entry.name}" uses a reserved system name`
+            })
+          )
         )
       )
     )
   })
+  return pinned === undefined ? bound : PinnedFlow.attach(bound, pinned.activate)
 }

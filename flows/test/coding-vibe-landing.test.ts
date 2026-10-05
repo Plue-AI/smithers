@@ -346,7 +346,7 @@ test(
         Effect.sync(() => {
           calls.push(`submit:${submission.base}:${submission.source}`)
           assert.equal(submission.workspaceId, fake.binding.workspaceId)
-          assert.equal(submission.requestRunId, "request")
+          assert.equal(submission.requestRunId, "control", "the run the stack bound")
           assert.equal(submission.summary, cleanup.summary)
           return { itemId: "item-1", state: "integrating", source: submission.source }
         })
@@ -423,7 +423,7 @@ test(
       submitLane: (submission) =>
         Effect.sync(() => {
           calls.push(`submit:${submission.base}:${submission.source}`)
-          assert.equal(submission.requestRunId, "request")
+          assert.equal(submission.requestRunId, "control", "the run the stack bound")
           return { itemId: "item-2", state: "integrating", source: submission.source }
         })
     }

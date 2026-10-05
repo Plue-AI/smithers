@@ -699,27 +699,32 @@ test(
   }
 )
 
-
-test("TODO messages refuse before queue effects while the pinned delivery providers are unavailable", async () => {
-  const host = ManagedRuntime.make(Layer.mergeAll(controlLayer, Journal.layerNoop()))
-  try {
-    await host.runPromise(Effect.gen(function*() {
-      const control = yield* ControlRuntime.ControlRuntime
-      const owner = yield* launch(control, "todo")
-      let admissions = 0
-      const queue = {
-        admit: () => Effect.sync(() => { admissions++; throw new Error("unexpected admission") })
-      } as unknown as NotificationQueue.Service
-      const journal = yield* Journal.Journal
-      for (const target of [owner.runId, "explicit-todo-step"]) {
-        const error = yield* routeMessages(queue, control, journal)
-          .admit(owner.runId, message("todo-steer", target)).pipe(Effect.flip)
-        assert.equal(error.code, "notification_unavailable")
-        assert.equal(error.notificationId, "todo-steer")
-      }
-      assert.equal(admissions, 0)
-    }))
-  } finally {
-    await host.dispose()
-  }
+test("a TODO's message reaches its request on the composition's lineage; another lineage refuses first", {
+  timeout: 60_000
+}, async (t) => {
+  const root = await mkdtemp(join(tmpdir(), "coding-steering-todo-"))
+  t.after(() => rm(root, { recursive: true, force: true }))
+  const journal = await journalLayer(join(root, "control.db"))
+  const host = ManagedRuntime.make(
+    Layer.mergeAll(controlLayer, NotificationQueue.layer.pipe(Layer.provideMerge(journal)))
+  )
+  t.after(() => host.dispose())
+  await host.runPromise(Effect.gen(function*() {
+    const control = yield* ControlRuntime.ControlRuntime
+    const native = yield* NotificationQueue.NotificationQueue
+    const queue = routeMessages(native, control, yield* Journal.Journal)
+    const owner = yield* launch(control, "todo")
+    // A TODO's message never falls through to generic admission.
+    const error = yield* queue.admit(owner.runId, message("leaf-steer", "explicit-todo-step")).pipe(Effect.flip)
+    assert.equal(error.code, "notification_unavailable")
+    assert.equal(error.notificationId, "leaf-steer")
+    assert.deepEqual(yield* native.pending(owner.runId), [])
+    // The composition runs the request as its child, so its message is the
+    // request coordinator's, on the lineage that request drains.
+    assert.equal((yield* queue.admit(owner.runId, message("todo-steer", owner.runId))).duplicate, false)
+    assert.deepEqual(
+      (yield* native.pending(owner.runId)).map((pending) => [pending.id, pending.targetLineageId]),
+      [["todo-steer", JSON.stringify(["coding/request", owner.runId])]]
+    )
+  }))
 })

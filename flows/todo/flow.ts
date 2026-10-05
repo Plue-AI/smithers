@@ -1,10 +1,11 @@
 /** The built-in TODO composition: route, plan, implement and deliver one TODO
  * over the coding package's step flows (`@smthrs/coding`). A repository
  * overrides it by copying only this file to `flows/todo/flow.ts`; the steps it
- * keeps come from the coding host the install ships. The stack engine launches it once per attempt, pinned to its digest, and
- * keeps verification and review as its own launches. No host serves it,
- * packaged or overridden, until pinned-source activation (T-FLW-03/04) binds
- * each launch to its attempt (flows/repository/registry.ts).
+ * keeps come from the coding host the install ships. The stack engine
+ * launches it once per attempt, pinned to the Active version at a main
+ * commit, and keeps verification and review as its own launches. The lane's
+ * host reads that version from that commit and serves it to that launch alone
+ * (flows/repository/pinned.ts).
  */
 import { Request, RequestInput, StackBase, TodoDelivery, Vibe, VibeDelivered, VibeError } from "@smthrs/coding"
 import { Flow } from "@smthrs/flow"

@@ -6,7 +6,8 @@ import * as Digest from "@smthrs/core/Digest"
 import { HumanTask } from "@smthrs/flow"
 import * as Executable from "@smthrs/registry/Executable"
 import * as Registry from "@smthrs/registry/Registry"
-import { Context, Effect, FileSystem, Layer } from "effect"
+import { Context, Effect, FileSystem, Layer, Path } from "effect"
+import { ChildProcessSpawner } from "effect/unstable/process"
 import { join } from "node:path"
 import type * as Application from "../../packages/smithers/src/Application.ts"
 import * as NativeControl from "../../packages/smithers/src/internal/NativeControl.ts"
@@ -15,6 +16,7 @@ import { expandSeat, seatAliases, seatRefusal } from "../../packages/smithers/sr
 import * as Serve from "../../packages/smithers/src/Serve.ts"
 import { registration as registerRepository } from "../register-repository/host.ts"
 import { activationLayers } from "../repository/activation.ts"
+import { builtinFlowSource } from "../repository/builtin-flows.ts"
 import { changeLayers, changeModelLayers, changeModelNames } from "../repository/changes.ts"
 import { checkLayers as repositoryCheckLayers } from "../repository/checks.ts"
 import { deliveryLayers } from "../repository/delivery.ts"
@@ -23,6 +25,7 @@ import { executionLayers } from "../repository/execution.ts"
 import { inspectionLayers } from "../repository/inspection.ts"
 import { evaluatorLayer } from "../repository/jev-checks.ts"
 import { failureLayer, jobFlows, modelLayers, modelNames } from "../repository/jobs.ts"
+import { makePinnedFlows, repositorySource } from "../repository/pinned.ts"
 import {
   bindRepositoryRegistry,
   type CodingRoute,
@@ -46,9 +49,16 @@ import * as CodingFileSystem from "./filesystem.ts"
 import { flowLoadRegistration } from "./flow-load/flow.ts"
 import { atomFlows } from "./implementation/flow.ts"
 import { jevCheckDelegate, jevCheckLayers } from "./jev-check.ts"
-import type { Landing } from "./landing.ts"
+import { Landing } from "./landing.ts"
 import * as LocalLanding from "./local-landing.ts"
-import { nativeActions, NativeCoding, nativeLayer, type NativeOptions, NativeTransport } from "./native.ts"
+import {
+  nativeActions,
+  NativeCoding,
+  nativeLayer,
+  type NativeOptions,
+  NativeTransport,
+  requestIdFor
+} from "./native.ts"
 import { evidenceOnly } from "./planning-authority.ts"
 import { memoryLayer, type MemoryOptions } from "./planning-memory.ts"
 import { planningWikiLayers } from "./planning-wiki.ts"
@@ -71,7 +81,7 @@ import { sourceAdmission } from "./source-admission.ts"
 import { stackBaseLayer } from "./stack.ts"
 import * as CodingState from "./state.ts"
 import { feedbackLayer, routeMessages } from "./steering.ts"
-import { todoLayers } from "./todo.ts"
+import { todoDeliveryLayer, todoLayers } from "./todo.ts"
 import { verifyRegistration } from "./verify.ts"
 import { cleanupModels } from "./vibe-cleanup.ts"
 import { vibeRegistration } from "./vibe.ts"
@@ -517,12 +527,31 @@ export const layer = (platform: NativeControl.Platform, options: Options, suppli
           }
         // One Landing per host: the deployment's backend adapter, or the local
         // lander the project declares for a host without a repository binding.
-        const landing = options.landing ?? (options.planning?.landing === undefined ? undefined : LocalLanding.layer({
+        // The lane's stack binding and native helper, captured as this host
+        // builds them: a TODO's pinned launch imports its pinned commit
+        // through them, as the request imports its stack base (stack.ts).
+        let laneWorkspace: string | undefined
+        let laneNative: NativeCoding["Service"] | undefined
+        const landing = (options.landing ?? (options.planning?.landing === undefined ? undefined : LocalLanding.layer({
           kind: options.planning.landing,
           repositoryPath: options.repositoryPath,
           fs,
           environment: options.landingEnvironment ?? options.checkEnvironment ?? {}
-        }))
+        })))?.pipe(Layer.tap((context) =>
+          Effect.sync(() => {
+            const lander = Context.get(context, Landing)
+            if (lander.kind === "backend") laneWorkspace = lander.binding.workspaceId
+          })
+        ))
+        const importPinned = (commit: string) =>
+          Effect.suspend(() =>
+            laneWorkspace === undefined || laneNative?.importSource === undefined
+              ? Effect.fail("this host has no stack lane binding to import it through")
+              : laneNative.importSource({
+                requestId: requestIdFor(`pinned-source:${commit}`, "import"),
+                commits: [{ commitId: commit, ref: `refs/smithers/workspaces/${laneWorkspace}/sources/${commit}` }]
+              }).pipe(Effect.asVoid, Effect.mapError((error) => error.message))
+          )
         const repositoryBundle = yield* runningRepositoryPolicy
         const repositoryPolicy = Digest.digest(
           Digest.canonical({
@@ -534,6 +563,24 @@ export const layer = (platform: NativeControl.Platform, options: Options, suppli
           })
         )
         const builtins = yield* provisionHostBuiltins(stateRoot, repositoryPolicy, options)
+        // A TODO's pinned launch reads its flow from the pinned main commit,
+        // never from this working copy (spec §11.4.1).
+        const path = yield* Path.Path
+        const pinned = makePinnedFlows({
+          // Inside the checkout the catalog's guarded file system reads, in
+          // JJ's own directory, which no snapshot or tracked change holds.
+          root: join(options.repositoryPath, ".jj", "smithers-pinned-flows"),
+          read: repositorySource(
+            options.repositoryPath,
+            yield* ChildProcessSpawner.ChildProcessSpawner,
+            fs,
+            path,
+            importPinned
+          ),
+          builtin: builtinFlowSource,
+          fs,
+          path
+        })
         const registry = Layer.effect(Registry.Registry)(
           Effect.map(Registry.Registry, (base) =>
             bindRepositoryRegistry(
@@ -542,7 +589,8 @@ export const layer = (platform: NativeControl.Platform, options: Options, suppli
                 : bindWikiRegistry(base, wikiCheckPolicy(wikiOptions)),
               builtins.registry,
               repositoryPolicy,
-              options.systemFlows
+              options.systemFlows,
+              pinned
             ))
         ).pipe(Layer.provide(native.layerRegistry(options.repositoryPath)))
         const request = options.planning === undefined ? Layer.empty : Layer.mergeAll(
@@ -575,6 +623,7 @@ export const layer = (platform: NativeControl.Platform, options: Options, suppli
           dependencyPagesLayer(options.repositoryPath, fs),
           requestRegistration,
           todoLayers(evaluator),
+          todoDeliveryLayer,
           feedbackLayer,
           verifyRegistration,
           flowLoadRegistration(options.repositoryPath, options.systemFlows),
@@ -683,7 +732,16 @@ export const layer = (platform: NativeControl.Platform, options: Options, suppli
             // The helper operations that read the workspace's protected binding
             // (read, source creation, import, publication) run on the host's raw
             // spawner (NativeTransport).
-            Layer.provideMerge(nativeLayer(options).pipe(Layer.provide(NativeTransport.layerFrom(platform.host)))),
+            Layer.provideMerge(
+              nativeLayer(options).pipe(
+                Layer.provide(NativeTransport.layerFrom(platform.host)),
+                Layer.tap((context) =>
+                  Effect.sync(() => {
+                    laneNative = Context.get(context, NativeCoding)
+                  })
+                )
+              )
+            ),
             (layers) =>
               options.repositoryRemote === undefined
                 ? layers

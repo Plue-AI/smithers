@@ -14,8 +14,8 @@ import Vibe from "../../coding/vibe/flow.ts"
 
 // A packaged host discovers a repository's `flows/todo/flow.ts`, measures its
 // digest and loads it with its own loader, as flow-load will (spec §11.3.1).
-// The registry the host binds keeps `todo` dark until pinned-source
-// activation, so this reads the project registry directly. Arguments: the
+// The registry the host binds serves `todo` only to a TODO's pinned launch
+// (flows/repository/pinned.ts), so this reads the project registry directly. Arguments: the
 // repository's flows root, a repository module re-exporting the step entry
 // point, and the JSON payload to build the composition's graph with.
 share()

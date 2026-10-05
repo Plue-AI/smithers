@@ -16,7 +16,7 @@ import * as Descriptor from "@smthrs/registry/Descriptor"
 import * as Discovery from "@smthrs/registry/Discovery"
 import * as Executable from "@smthrs/registry/Executable"
 import * as Registry from "@smthrs/registry/Registry"
-import { Effect, Layer, Option, Schema } from "effect"
+import { Effect, FileSystem, Layer, Option, Path, Schema } from "effect"
 import assert from "node:assert/strict"
 import { execFileSync } from "node:child_process"
 import { access, copyFile, mkdir, mkdtemp, rm, symlink, writeFile } from "node:fs/promises"
@@ -25,10 +25,12 @@ import { join } from "node:path"
 import { test, type TestContext } from "node:test"
 import { fileURLToPath } from "node:url"
 import { factory } from "../../.smithers/FACTORY.ts"
+import * as PinnedFlow from "../../packages/smithers/src/internal/PinnedFlow.ts"
 import { bundle } from "../coding/build.mjs"
 import { missingCodingExecutables, provisionHostBuiltins } from "../coding/host.ts"
 import { Landing } from "../coding/landing.ts"
 import { loadProject } from "../coding/project-config.ts"
+import { makePinnedFlows, type PinnedFlows } from "../repository/pinned.ts"
 import { bindRepositoryRegistry, provisionBuiltins, repositoryCatalog } from "../repository/registry.ts"
 import { RunJob, RunSetup } from "../repository/setup.ts"
 import { RunTrigger } from "../repository/triggers.ts"
@@ -175,7 +177,8 @@ export default Flow.make(${JSON.stringify(name)}, {
 const boundary = async (
   t: TestContext,
   names: ReadonlyArray<string> = systemFlows,
-  packagedNames: ReadonlyArray<string> = ["merge", "review"]
+  packagedNames: ReadonlyArray<string> = ["merge", "review"],
+  pinned?: (repositoryPath: string) => PinnedFlows
 ) => {
   const { repositoryPath, stateRoot } = await workspace(t)
   await symlink(fileURLToPath(new URL("../node_modules", import.meta.url)), join(repositoryPath, "node_modules"), "dir")
@@ -191,7 +194,7 @@ const boundary = async (
           .pipe(Effect.provide(Discovery.layer))
       const base = yield* make(join(repositoryPath, "flows"), "project")
       const packaged = yield* make(defaults, "repository-host")
-      const registry = bindRepositoryRegistry(base, packaged, policy, names)
+      const registry = bindRepositoryRegistry(base, packaged, policy, names, pinned?.(repositoryPath))
       const built = yield* repositoryCatalog({ delegates: [] }, (file) => {
         const name = packagedNames.find((candidate) => file.includes(`/${candidate}/`)) ?? "review"
         return Effect.succeed({
@@ -287,9 +290,9 @@ for (
   })
 }
 
-// Composition inspection does not claim the joint guest/Active-source gate.
-// Existing routes remain discoverable exclusively for legacy draining.
-test("the TODO composition reuses the request and delivery children and no host serves it", async (t) => {
+// The composition plans the host's own request and delivery children, and a
+// host lists it only while a TODO's pinned launch has activated a version.
+test("the TODO composition reuses the request and delivery children and no host lists it unpinned", async (t) => {
   assert.equal(Todo._tag, "todo")
   const graph = Graph.build(Todo, {
     prompt: "Add a regression test.",
@@ -309,11 +312,11 @@ test("the TODO composition reuses the request and delivery children and no host 
   assert.equal(started.listed.includes("todo"), false)
 })
 
-// Packaged or repository, `todo` is refused before import until pinned-source
-// activation binds a launch to its attempt (T-FLW-03/04): a generic route,
-// such as an invoked or triggered run, never reaches it.
+// Packaged or repository, `todo` is refused before import unless a TODO's
+// pinned launch activated its version (spec §11.4.1): a generic route, such as
+// an invoked or triggered run, never reaches it.
 for (const packaged of [false, true]) {
-  test(`a TODO ${packaged ? "beside a packaged composition " : ""}is refused before import until pinned-source activation is integrated`, async (t) => {
+  test(`a TODO ${packaged ? "beside a packaged composition " : ""}is refused before import without a pinned launch`, async (t) => {
     const { catalog, write, repositoryPath } = await boundary(
       t,
       systemFlows,
@@ -334,6 +337,98 @@ for (const packaged of [false, true]) {
     await assert.rejects(access(marker), { code: "ENOENT" })
   })
 }
+
+/** The version digest flow-load measures for a `todo` source (flow-load.ts versionDigest). */
+const measuredDigest = async (t: TestContext, source: string) => {
+  const root = await mkdtemp(join(tmpdir(), "coding-pinned-measure-"))
+  t.after(() => rm(root, { recursive: true, force: true }))
+  await mkdir(join(root, "todo"), { recursive: true })
+  await writeFile(join(root, "todo", "flow.ts"), source)
+  return (await todoDescriptor(root)).body.contentDigest!
+}
+
+// Spec §11.4.1: a TODO's pinned launch reads `flows/todo/flow.ts` from the
+// pinned main commit, or the built-in when that commit has none, never from
+// the working copy, and serves it only at the pinned digest.
+test("a pinned launch activates the TODO flow read at its source commit, never the working copy", async (t) => {
+  const pinnedSource = moduleSource("todo", "Pinned todo")
+  const reads: Array<string> = []
+  let pinned: PinnedFlows | undefined
+  const { catalog, write, repositoryPath } = await boundary(
+    t,
+    systemFlows,
+    ["merge", "review"],
+    (repositoryPath) =>
+      pinned ??= Effect.gen(function*() {
+        return makePinnedFlows({
+          // Host state beside the fixture's node_modules, outside its flows/.
+          root: join(repositoryPath, ".host-state"),
+          read: (commit, relative) => {
+            reads.push(`${commit}:${relative}`)
+            return Effect.succeed(commit === "1".repeat(40) ? pinnedSource : undefined)
+          },
+          builtin: (name) => name === "todo" ? moduleSource("todo", "Built-in todo") : undefined,
+          fs: yield* FileSystem.FileSystem,
+          path: yield* Path.Path
+        })
+      }).pipe(Effect.provide(platform), Effect.runSync)
+  )
+  const marker = join(repositoryPath, "working-copy-todo-imported")
+  await write("todo", `import { writeFileSync } from "node:fs"; writeFileSync(${JSON.stringify(marker)}, "imported")`)
+  const { registry } = await catalog()
+  const activate = PinnedFlow.of(registry)
+  assert.ok(activate, "the bound registry carries its pinning capability")
+  const digest = await measuredDigest(t, pinnedSource)
+  // Another digest is refused and leaves the TODO flow dark.
+  await assert.rejects(
+    Effect.runPromise(activate({ flow: "todo", sourceCommit: "1".repeat(40), executionDigest: "e".repeat(64) })),
+    /execution_changed|measures/
+  )
+  await assert.rejects(Effect.runPromise(registry.get("todo")), /body_unavailable/)
+  await assert.rejects(
+    Effect.runPromise(activate({ flow: "review", sourceCommit: "1".repeat(40), executionDigest: digest })),
+    /not a pinned flow/
+  )
+  const descriptor = await Effect.runPromise(
+    activate({ flow: "todo", sourceCommit: "1".repeat(40), executionDigest: digest })
+  )
+  assert.deepEqual(reads.slice(-1), [`${"1".repeat(40)}:flows/todo/flow.ts`])
+  assert.equal(descriptor.description, "Pinned todo")
+  assert.equal((await Effect.runPromise(registry.get("todo"))).description, "Pinned todo")
+  const listed = (await Effect.runPromise(registry.list())).filter((entry) => entry.name === "todo")
+  assert.deepEqual(listed.map((entry) => entry.description), ["Pinned todo"])
+  // The catalog builds the pinned version, and the working copy's is never imported.
+  const { built } = await catalog()
+  const executable = built.executables.find((entry) => entry.descriptor.name === "todo")
+  assert.ok(executable, JSON.stringify(built.refused))
+  assert.equal(executable.descriptor.description, "Pinned todo")
+  assert.equal(built.refused.some((entry) => entry.flow === "todo"), false)
+  await assert.rejects(access(marker), { code: "ENOENT" })
+  assert.ok(pinned?.active("todo"))
+})
+
+test("a pinned launch at a commit without flows/todo runs the built-in composition at its digest", async (t) => {
+  const builtin = moduleSource("todo", "Built-in todo")
+  const { catalog } = await boundary(t, systemFlows, ["merge", "review"], (repositoryPath) =>
+    Effect.gen(function*() {
+      return makePinnedFlows({
+        root: join(repositoryPath, ".host-state"),
+        read: () => Effect.succeed(undefined),
+        builtin: (name) => name === "todo" ? builtin : undefined,
+        fs: yield* FileSystem.FileSystem,
+        path: yield* Path.Path
+      })
+    }).pipe(Effect.provide(platform), Effect.runSync))
+  const { registry } = await catalog()
+  const descriptor = await Effect.runPromise(
+    PinnedFlow.of(registry)!({
+      flow: "todo",
+      sourceCommit: "2".repeat(40),
+      executionDigest: await measuredDigest(t, builtin)
+    })
+  )
+  assert.equal(descriptor.description, "Built-in todo")
+})
 
 /** The `todo` descriptor discovery measures under a flows root, without importing it. */
 const todoDescriptor = (flowsRoot: string) =>

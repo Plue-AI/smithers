@@ -543,3 +543,131 @@ for (const mode of stackModes) {
     }
   })
 }
+
+// A TODO's `todo` composition (flows/todo/flow.ts) runs its request and its
+// delivery as children of one control run: the delivery finalizes the request
+// child that composition ran while the composition still runs. The composition
+// decides its request's input (an override may add a step), never its base.
+const composedModes = [
+  "composed",
+  "composed-other-base",
+  "composed-foreign-root",
+  "composed-other-owner",
+  "composed-failed-root"
+] as const
+for (const mode of composedModes) {
+  test(`vibe evidence from a TODO flow: ${mode}`, async () => {
+    const todoInput = { ...input, base: stackBase }
+    const requestInput = {
+      ...todoInput,
+      prompt: `${input.prompt}\n\n[CHANGELOG] Add one line for this change to CHANGELOG.md.`,
+      ...(mode === "composed-other-base" ? { base: { ...stackBase, commitId: "b".repeat(40) } } : {})
+    }
+    const program = Effect.gen(function*() {
+      const control = yield* ControlRuntime.ControlRuntime, graph = yield* DurableEngineState.DurableEngineState
+      const { card } = yield* control.plan({ flowId: "todo", input: todoInput })
+      const token = yield* control.lookupApproval(card.approval.target)
+      yield* control.resolveApproval(token, "approved", { id: "memory", kind: "test", stampedAt: 0 })
+      const launch = yield* control.launch(card.planId, card.digest, card.envelope)
+      if (launch._tag !== "Started") throw new Error("fixture must launch")
+      const root = launch.run.runId
+      if (mode === "composed-failed-root") {
+        const fence = yield* control.claimFence(root)
+        assert(fence !== undefined)
+        yield* control.writeStatus(root, fence, "failed")
+      }
+      const running = (value: RunStore.RunRow): RunStore.RunRow => ({ ...value, status: "running", finishedAtMs: null })
+      const { observedHead: _, ...withoutSource } = plan
+      const prepared = Schema.encodeSync(
+        Schema.toCodecJson(Flow.Result({ success: PrepareRequest.successSchema, error: PrepareRequest.errorSchema }))
+      )(
+        new Flow.Complete({
+          exit: Exit.succeed({ ...withoutSource, prompt: requestInput.prompt, base: original, observedHead: original })
+        })
+      )
+      // The control run, the composition it runs (still running), its
+      // request child (completed) and that request's original preparation.
+      const rows = new Map([
+        [root, running(row(root, "agent/run", { planId: card.planId }))],
+        ["todo", running(row("todo", "todo", { input: todoInput }, undefined, root))],
+        ["request", row("request", Request._tag, requestInput, requestResult(request), "todo")],
+        [
+          "preparation",
+          row("preparation", PrepareRequest._tag, { prompt: requestInput.prompt, feedback: "" }, prepared, "request")
+        ]
+      ])
+      yield* graph.recordRunParent("todo", root)
+      yield* graph.recordRunParent("request", "todo")
+      yield* graph.recordRunParent("preparation", "request")
+      const catalog: RunCatalogRead.Service = {
+        listRunIds: () => Effect.die("Vibe must not scan the global run catalog"),
+        listRuns: (options) =>
+          Effect.sync(() =>
+            listed(
+              PrepareRequest._tag,
+              "request",
+              options?.filters?.flowName === PrepareRequest._tag && options.filters.parentRunId === "request"
+                ? ["preparation"]
+                : []
+            )
+          )
+      }
+      const owner = mode === "composed-foreign-root"
+        ? { rootId: "another-todo", flowId: "todo" }
+        : mode === "composed-other-owner"
+        ? { rootId: root, flowId: "review/change" }
+        : { rootId: root, flowId: "todo" }
+      const outcome = yield* Effect.result(readVibeRequest({ requestExecutionId: "request" })).pipe(
+        Effect.provideService(ModuleOwner, owner),
+        Effect.provideService(RunCatalogRead.RunCatalogRead, catalog),
+        Effect.provide(RunStore.layerNoop({
+          get: (id) =>
+            rows.has(id) ? Effect.succeed(rows.get(id)!) : Effect.fail(
+              new RunStore.RunStoreError({ code: "not_found_row", method: "get", message: "absent", cause: null })
+            )
+        }))
+      )
+      return { root, outcome }
+    }).pipe(
+      Effect.provide(
+        Layer.mergeAll(
+          DurableEngineState.layerMemory,
+          ControlRuntime.layerMemory({
+            flows: [{
+              flowId: "todo",
+              description: "fixture",
+              deployClass: false,
+              envelope: { capabilities: [], flows: [], budget: {} }
+            }]
+          }).pipe(Layer.provide(NodeServices.layer))
+        )
+      )
+    )
+    const { root, outcome } = await Effect.runPromise(program)
+    if (mode === "composed") {
+      assert.equal(outcome._tag, "Success", outcome._tag === "Failure" ? String(outcome.failure) : "")
+      if (outcome._tag !== "Success") return
+      assert.equal(outcome.success.requestExecutionId, "request", "the delivery names the composition's request child")
+      assert.equal(outcome.success.controlRunId, root, "the stack's bound run is the composition's")
+      assert.equal(outcome.success.fromStack, true)
+      assert.equal(
+        "preparationExecutionId" in outcome.success && outcome.success.preparationExecutionId,
+        "preparation"
+      )
+      return
+    }
+    assert.equal(outcome._tag, "Failure")
+    if (outcome._tag !== "Failure") return
+    assert(outcome.failure instanceof CodingError)
+    assert.equal(outcome.failure.code, "invalid_receipt")
+    assert.equal(
+      outcome.failure.message,
+      {
+        "composed-other-base": "The request does not build on its approved TODO flow's stack base",
+        "composed-foreign-root": "The request is not this TODO flow's own child",
+        "composed-other-owner": "Only an approved coding/vibe execution or TODO flow may admit finalization",
+        "composed-failed-root": "The request is not this TODO flow's own child"
+      }[mode]
+    )
+  })
+}
