@@ -14,7 +14,8 @@ One App belongs to each install. Its PEM, webhook secret, and OAuth client secre
 
 ## Pushes from outside
 
-TODO branch publication is held while the current GitHub facts, own-push reconciliation and independent wait providers are unavailable. A previously observed foreign head remains held even if a later poll reports the recorded Smithers head or a PR behind main. Polling does not answer a person's wait.
+TODO branch publication is held while the current GitHub facts, own-push reconciliation and independent wait providers are unavailable. A previously observed foreign head remains held even if a later poll reports the recorded Smithers head or a PR behind main. Polling does not answer a person's wait. Both proposal preparation and the
+direct push boundary enforce this hold, including replayed outbound pushes.
 
 The shared inbound decision recognizes the intended head of a recoverable push
 bound to the TODO's recorded branch. Seeing that head does not open a foreign
@@ -32,14 +33,26 @@ The GitHub transport resolves a pushed head's attribution from repository
 activity, matching both the TODO ref and resulting SHA across cursor pages.
 When no matching pusher is available, it reads the exact commit's GitHub author.
 Failed reads, changed pagination sources and unlinked authors leave attribution
-unavailable. This reader is not yet mounted by the install's ref consumer.
+unavailable. The TODO ref consumer uses an installation token restricted to the immutable
+repository id and `contents: read`; it requests no member credential or push
+permission. Production registration remains disabled.
 
 Outside-commit retention uses the existing restricted smart-HTTP bridge to
 create `refs/smithers/kept/<sha>` in the host store. Only a control-plane write
 may create or identically replay the named SHA; deletion and replacement are
 refused. The transport verifies the commit object and the stored ref, and a
-retry can recover from the host pin after the source commit disappears. This
-primitive is not yet connected to the transaction that raises a foreign wait.
+retry can recover from the host pin after the source commit disappears. The TODO ref consumer retains the observed commit before recording a wait,
+rechecks current authority after the reads, and commits the wait, activity and
+delivery acknowledgement together. A failed acknowledgement rolls back those
+records while leaving the host pin available for retry after restart. A newer
+push updates the same wait and keeps both commits. Other waits, pause, failure
+and candidate facts remain intact. Selection includes failed TODOs without a
+display limit; the shared decision skips recorded heads, recoverable own pushes
+and terminal items before reading GitHub or the host.
+
+This consumer remains unregistered in production. Queued TODOs without a PR
+refuse delivery until outbound lease coordination is implemented. Main-ref
+effects and the complete refs consumer still require qualification.
 
 Bring in and Discard remain unavailable until the shared authorization, confirmation, catalog and checkpoint contracts pass their production boundary tests. No repository code runs on the host to bring in a commit. The eventual branch answer input is `{id, revision}`: the foreign wait id and its displayed `sha`, with an `Idempotency-Key`; a newer head requires a new decision.
 

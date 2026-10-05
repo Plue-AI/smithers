@@ -395,6 +395,15 @@ func (q *Queries) ListMythicalPendingOperations(ctx context.Context, repositoryI
 	return scanMythicalItems(rows, err)
 }
 
+// ListMythicalGitHubBranchItems is the uncapped source-observation selection.
+// Failed and terminal items are included: the shared fact decision, not a
+// display or worker-state filter, decides whether an observation changes them.
+func (q *Queries) ListMythicalGitHubBranchItems(ctx context.Context, repositoryID int64) ([]MythicalItem, error) {
+	rows, err := q.db.Query(ctx, `SELECT `+mythicalItemColumns+` FROM mythical_items
+ WHERE repository_id=$1 AND checks ? 'branch' ORDER BY id`, repositoryID)
+	return scanMythicalItems(rows, err)
+}
+
 // ListMythicalPendingCompletions lists the landed items whose issue is
 // still owed its completion evidence: one the stack saw land (a completion
 // recorded) and not yet settled (closed, or never on main).

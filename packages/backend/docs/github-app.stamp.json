@@ -3,9 +3,9 @@
   "producer": null,
   "output": {
     "path": "packages/backend/docs/github-app.md",
-    "digest": "558d0a1430699a0698bb7e3490fc550f924080acccbfaae58300ba554cc3ae3a"
+    "digest": "6e97d2cdb1d0b980cf21dae71a04b1e6c6e27b6ed63613499a80a30d2251eb1b"
   },
-  "closure": "1b6e23d1e28fc06b66a346ab3de911d97c2848df8f7b84bce603e6d2cce4afe0",
+  "closure": "2e38ae319fb3610685540377d41ee97fe40f6c204f163cdb92f465d4e0e966d4",
   "inputs": [
     {
       "path": "docs/api/openapi/install.yaml",
@@ -49,7 +49,7 @@
     },
     {
       "path": "packages/backend/internal/db/mythical_ext.go",
-      "digest": "69bb51d8637863f2d20a676ab7af4494a82ae008b68abaed3184abca2b20033d"
+      "digest": "4e324c1ed45601358b6f0a574d3332d71f993dca2c57697e035d099a74e1c7ef"
     },
     {
       "path": "packages/backend/internal/middleware/effective_origin.go",
@@ -221,7 +221,7 @@
     },
     {
       "path": "packages/backend/internal/services/mythical_github.go",
-      "digest": "28b76656028f354e1107785aaf7f92d58852962db79228ee9639e0f59560dbb1"
+      "digest": "864ebd3fee56142d6e137e923973114965425104573232172306693dcd9744bc"
     },
     {
       "path": "packages/backend/internal/services/mythical_github_poll.go",
@@ -233,7 +233,7 @@
     },
     {
       "path": "packages/backend/internal/services/mythical_items.go",
-      "digest": "fffd6bf2d12b4dd6de041fa993b7df00a6c0e46803b8228a0cd3c7eaefe015aa"
+      "digest": "66940cc14f08a37bb4f410103a1fdb46dde1af71f2dc35be68b01debd08ec3d5"
     },
     {
       "path": "packages/backend/internal/services/mythical_pr.go",

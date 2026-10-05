@@ -11,6 +11,8 @@ import (
 	"sync"
 	"testing"
 
+	"github.com/jackc/pgx/v5/pgtype"
+	"github.com/smithersai/smithers/packages/backend/internal/db"
 	pkgerrors "github.com/smithersai/smithers/packages/backend/internal/pkg/errors"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -90,6 +92,66 @@ func answer(status int, body any) func(http.ResponseWriter) {
 }
 
 var stackRepo = mythicalGitHubRepo{Owner: "o", Name: "r", Token: "read-token", userID: 1}
+
+func TestMythicalGitHubReadPushSourceUsesNarrowInstallation(t *testing.T) {
+	minter, upstream := newScopedTokenMinter(t)
+	source := db.GithubSyncedRepo{OwnerLogin: "acme", RepoName: "app", InstallationID: pgtype.Int8{Int64: 91, Valid: true}, GithubRepositoryID: pgtype.Int8{Int64: 100, Valid: true}}
+	// No member credentials, push prover or store are supplied: inbound reads
+	// depend only on the already-authorized immutable installation source.
+	api := &mythicalGitHubAPI{tokens: minter, gitBase: func() string { return "https://github.com" }}
+	gh, err := api.ReadPushSource(t.Context(), source)
+	require.NoError(t, err)
+	require.Equal(t, "acme", gh.Owner)
+	require.Equal(t, "app", gh.Name)
+	require.NotEmpty(t, gh.Token)
+	require.Contains(t, gh.GitURL, "@github.com/acme/app.git")
+	require.Zero(t, gh.userID)
+	writes := upstream.Writes()
+	require.Len(t, writes, 1)
+	require.Equal(t, "/app/installations/91/access_tokens", writes[0].Path)
+	require.JSONEq(t, `{"repository_ids":[100],"permissions":{"contents":"read"}}`, string(writes[0].Body))
+	for _, field := range []string{"installation", "repository"} {
+		t.Run(field, func(t *testing.T) {
+			invalid := source
+			if field == "installation" {
+				invalid.InstallationID.Valid = false
+			} else {
+				invalid.GithubRepositoryID.Int64 = 0
+			}
+			_, err := api.ReadPushSource(t.Context(), invalid)
+			require.Error(t, err)
+			require.Len(t, upstream.Writes(), 1)
+		})
+	}
+}
+
+type pushSourceTokenFixture struct {
+	stackTokens
+	token GitHubInstallationToken
+}
+
+func (f pushSourceTokenFixture) CreateGitHubInstallationToken(context.Context, int64, GitHubTokenScope) (GitHubInstallationToken, error) {
+	return f.token, nil
+}
+
+func TestMythicalGitHubReadPushSourceRejectsInvalidToken(t *testing.T) {
+	for _, token := range []GitHubInstallationToken{{InstallationID: 92, Token: "token"}, {InstallationID: 91, Token: " "}, {Token: "token"}} {
+		api := &mythicalGitHubAPI{tokens: pushSourceTokenFixture{token: token}, gitBase: func() string { return "https://github.com" }}
+		gh, err := api.ReadPushSource(t.Context(), db.GithubSyncedRepo{OwnerLogin: "acme", RepoName: "app", InstallationID: pgtype.Int8{Int64: 91, Valid: true}, GithubRepositoryID: pgtype.Int8{Int64: 100, Valid: true}})
+		require.Error(t, err)
+		require.Empty(t, gh.Token)
+		require.Empty(t, gh.GitURL)
+	}
+}
+
+func TestMythicalGitHubReadPushSourcePreservesMintFailure(t *testing.T) {
+	minter, _ := newScopedTokenMinter(t)
+	calls := scopedTokenServer(t, http.StatusForbidden, `{"message":"secret-upstream"}`)
+	api := &mythicalGitHubAPI{tokens: minter, gitBase: func() string { return "https://github.com" }}
+	_, err := api.ReadPushSource(t.Context(), db.GithubSyncedRepo{OwnerLogin: "acme", RepoName: "app", InstallationID: pgtype.Int8{Int64: 91, Valid: true}, GithubRepositoryID: pgtype.Int8{Int64: 100, Valid: true}})
+	requireGitHubFailure(t, err, pkgerrors.CodeGitHubPermission)
+	require.Equal(t, 1, *calls)
+}
 
 func TestMythicalGitHubPushActorExactBindingAndFallback(t *testing.T) {
 	const activityPath = "GET /repos/o/r/activity?direction=desc&per_page=100&ref=refs%2Fheads%2Fsmithers%2Fretry"

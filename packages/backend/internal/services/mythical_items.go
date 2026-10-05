@@ -9,6 +9,8 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"os"
+	"path/filepath"
 	"regexp"
 	"slices"
 	"sort"
@@ -2597,6 +2599,169 @@ type mythicalForeignHead struct {
 	Branch, Head string
 }
 
+// consumeGitHubRefTodos is the TODO portion of the existing refs delivery.
+// It remains unregistered until the complete refs consumer and its providers
+// qualify. Its caller commits these effects with the fetched acknowledgement.
+// Main observations continue to belong to the main-sync integration.
+func (s *MythicalService) consumeGitHubRefTodos(ctx context.Context, tx pgx.Tx, fact gitHubFetchedObject) (json.RawMessage, error) {
+	if s == nil || !s.installGitHubPolling || s.installGitHubSync == nil || s.host == nil || fact.Resource != gitHubRefs {
+		return nil, gitHubFetchUnavailable()
+	}
+	reader, ok := s.github.(mythicalPushReader)
+	if !ok {
+		return nil, gitHubFetchUnavailable()
+	}
+	source, err := lockFetchedRepo(ctx, tx, fact.Repo)
+	if err != nil {
+		return nil, err
+	}
+	if source.GithubRepositoryID.Int64 != fact.GitHubRepository || source.InstallationID.Int64 != fact.Installation {
+		return nil, gitHubFetchUnavailable()
+	}
+	if err := s.installGitHubSync.authorizeFetched(ctx, source); err != nil {
+		return nil, err
+	}
+	if err := checkFetchedRefs(ctx, tx, source, fact); err != nil {
+		return nil, err
+	}
+	var snapshot gitHubRefSnapshot
+	if err := json.Unmarshal(fact.Object, &snapshot); err != nil {
+		return nil, err
+	}
+	var generation int64
+	err = tx.QueryRow(ctx, `SELECT generation FROM mythical_stacks WHERE repository_id=$1 FOR UPDATE`, fact.RefRepositoryID).Scan(&generation)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return json.RawMessage(`{"todos":0}`), nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	q := db.New(tx)
+	items, err := q.ListMythicalGitHubBranchItems(ctx, fact.RefRepositoryID)
+	if err != nil {
+		return nil, err
+	}
+	changed := 0
+	for _, item := range items {
+		var checks mythicalChecks
+		if err := json.Unmarshal(item.Checks, &checks); err != nil {
+			return nil, err
+		}
+		if !checks.Todo {
+			continue
+		}
+		head := snapshot.Refs["refs/heads/"+checks.Branch]
+		if head == "" {
+			continue
+		}
+		if !mythicalTodoBranchValid(checks.Branch) {
+			return nil, gitHubFetchUnavailable()
+		}
+		input := mythicalGitHubFactItem{State: item.State, Head: item.PRHead}
+		push := mythicalGitHubFact{Kind: "push", Head: head}
+		decision := decideGitHubFact(push, input, s.now())
+		if decision.Attention != "foreign_push" {
+			continue
+		}
+		input.PendingHead, err = pendingGitHubPushHead(item, checks.Branch)
+		if err != nil {
+			return nil, err
+		}
+		if decideGitHubFact(push, input, s.now()).Attention != "foreign_push" {
+			continue
+		}
+		waitIndex := -1
+		for i, wait := range checks.Waits {
+			if wait.Kind == "foreign_push" && wait.SettledAt == nil {
+				if waitIndex >= 0 {
+					return nil, errors.New("multiple open foreign-push waits")
+				}
+				waitIndex = i
+			}
+		}
+		if waitIndex >= 0 && checks.ForeignHead == head && checks.Waits[waitIndex].SHA == head && len(checks.Waits[waitIndex].By) > 0 {
+			continue
+		}
+		// No-PR leasing needs coordinated outbound reconciliation; never turn
+		// that observation into an open-PR wait or acknowledge it as handled.
+		if !item.PRNumber.Valid || item.PRNumber.Int64 <= 0 || item.PRState != "open" {
+			return nil, gitHubFetchUnavailable()
+		}
+		gh, err := reader.ReadPushSource(ctx, source)
+		if err != nil {
+			return nil, err
+		}
+		if gh.Owner != source.OwnerLogin || gh.Name != source.RepoName {
+			return nil, gitHubFetchUnavailable()
+		}
+		repo, err := q.GetRepoByID(ctx, item.RepositoryID)
+		if err != nil {
+			return nil, err
+		}
+		owner, err := mythicalRepositoryOwner(ctx, q, repo)
+		if err != nil {
+			return nil, err
+		}
+		if err := s.retainFetchedPush(ctx, q, repo, owner, gh, head); err != nil {
+			return nil, err
+		}
+		actor, err := reader.PushActor(ctx, gh, checks.Branch, head)
+		if err != nil {
+			return nil, err
+		}
+		if actor.ID <= 0 || strings.TrimSpace(actor.Login) == "" {
+			return nil, gitHubFetchUnavailable()
+		}
+		if err := s.installGitHubSync.authorizeFetched(ctx, source); err != nil {
+			return nil, err
+		}
+		by, _ := json.Marshal(map[string]any{"kind": "github", "login": actor.Login, "color_index": 7})
+		if waitIndex < 0 {
+			waitIndex = len(checks.Waits)
+			checks.Waits = append(checks.Waits, TodoWait{ID: uuid.NewString(), Kind: "foreign_push", Since: s.now().UTC()})
+		}
+		wait := &checks.Waits[waitIndex]
+		wait.SHA, wait.By = head, by
+		wait.Prompt = actor.Login + " pushed to `" + checks.Branch + "` on GitHub"
+		checks.ForeignHead = head
+		next := item
+		next.Checks = checks.encode()
+		saved, err := q.SaveMythicalItem(ctx, next)
+		if err != nil {
+			return nil, err
+		}
+		activity, _ := json.Marshal(map[string]any{"item": uuidString(item.ID), "n": item.Number.Int64, "wait": wait.ID,
+			"sha": head, "by": by, "url": "https://github.com/" + source.OwnerLogin + "/" + source.RepoName + "/commit/" + head,
+			"from": todoState(item), "to": todoState(saved), "ref_claim": fact.RefClaim})
+		if _, err := jobs.RecordFactInTx(ctx, tx, todoOperationScope(saved), uuid.NewString(), "todo.foreign_push", todoState(saved), activity); err != nil {
+			return nil, err
+		}
+		if _, err := q.RequestMythicalStack(ctx, item.RepositoryID); err != nil {
+			return nil, err
+		}
+		notification, _ := json.Marshal(map[string]any{"generation": generation, "kind": "item", "itemId": uuidString(item.ID), "event_id": strconv.FormatInt(generation, 10)})
+		if err := q.NotifyMythical(ctx, item.RepositoryID, string(notification)); err != nil {
+			return nil, err
+		}
+		changed++
+	}
+	return json.Marshal(map[string]int{"todos": changed})
+}
+
+func (s *MythicalService) retainFetchedPush(ctx context.Context, q *db.Queries, repo db.Repository, owner string, gh mythicalGitHubRepo, head string) error {
+	bridge, err := startMythicalBridge(ctx, s.host, owner, repo.Name, RepositoryStillAt(q, repo.ID, owner, repo.Name))
+	if err != nil {
+		return err
+	}
+	defer bridge.Close()
+	dir, err := os.MkdirTemp("", "smithers-kept-")
+	if err != nil {
+		return err
+	}
+	defer os.RemoveAll(dir)
+	return (mythicalGit{dir: filepath.Join(dir, "objects.git")}).retainGitHubPush(ctx, bridge, repo.ID, gh.GitURL, head)
+}
+
 // retainGitHubPush copies an observed commit as data into the host repository's
 // immutable kept ref. The caller supplies a repository-bound bridge and trusted
 // scratch directory. An existing pin is read from the host, so retry can finish
@@ -2687,8 +2852,8 @@ func pendingGitHubPushHead(item db.MythicalItem, branch string) (string, error) 
 // with a lease on exactly that value, the proposal itself is already there,
 // and anything else is a person's push that is never overwritten.
 func (st *mythicalItemStep) pushProposal(ctx context.Context, item db.MythicalItem, gh mythicalGitHubRepo, op mythicalProposalOp) error {
-	if st.s == nil || st.s.publication == nil {
-		return errors.New(mythicalPublicationUnavailable)
+	if err := st.publicationAuthority(item); err != nil {
+		return err
 	}
 	if recorded := mythicalChecksOf(item).Branch; !mythicalTodoBranchValid(op.Branch) || op.Branch != recorded {
 		return fmt.Errorf("refusing to push %q: this TODO publishes only to its recorded branch %q", op.Branch, recorded)

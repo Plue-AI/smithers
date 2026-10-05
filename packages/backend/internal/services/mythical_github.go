@@ -147,6 +147,37 @@ type mythicalGitHubAPI struct {
 	gitBase     func() string
 }
 
+// mythicalPushReader reads an authorized immutable installation source. It
+// never asks for push permission or uses a member credential for observation.
+type mythicalPushReader interface {
+	ReadPushSource(context.Context, db.GithubSyncedRepo) (mythicalGitHubRepo, error)
+	PushActor(context.Context, mythicalGitHubRepo, string, string) (gitHubActor, error)
+}
+
+func (g *mythicalGitHubAPI) ReadPushSource(ctx context.Context, source db.GithubSyncedRepo) (mythicalGitHubRepo, error) {
+	if g == nil || g.gitBase == nil || !source.InstallationID.Valid || source.InstallationID.Int64 <= 0 || !source.GithubRepositoryID.Valid || source.GithubRepositoryID.Int64 <= 0 {
+		return mythicalGitHubRepo{}, gitHubFetchUnavailable()
+	}
+	minter, ok := g.tokens.(GitHubInstallationTokenMinter)
+	if !ok {
+		return mythicalGitHubRepo{}, gitHubFetchUnavailable()
+	}
+	token, err := minter.CreateGitHubInstallationToken(ctx, source.InstallationID.Int64, GitHubTokenScope{
+		RepositoryIDs: []int64{source.GithubRepositoryID.Int64}, Permissions: map[string]string{"contents": "read"},
+	})
+	if err != nil {
+		return mythicalGitHubRepo{}, err
+	}
+	if token.InstallationID != source.InstallationID.Int64 || strings.TrimSpace(token.Token) == "" {
+		return mythicalGitHubRepo{}, gitHubFetchUnavailable()
+	}
+	remote, err := gitMirrorURL(g.gitBase(), token.Token, source.OwnerLogin, source.RepoName)
+	if err != nil {
+		return mythicalGitHubRepo{}, err
+	}
+	return mythicalGitHubRepo{Owner: source.OwnerLogin, Name: source.RepoName, Token: token.Token, GitURL: remote}, nil
+}
+
 // NewMythicalGitHub resolves the repository owner's App installation token at
 // dispatch and proves the stack actor's own push access before any write, the
 // credential policy of landing pull requests.
