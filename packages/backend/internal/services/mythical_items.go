@@ -482,7 +482,7 @@ func (s *MythicalService) ProjectFlowRuntime(ctx context.Context, update flowdis
 			runID := strings.TrimSpace(update.Checkpoint.RunID)
 			// A TODO's runs are bound by run ID. Only its composition's launch
 			// may end without one: refused before any run existed.
-			unstarted := (projection.Phase == "todo" || projection.Phase == "request") && runID == "" && update.State.Terminal()
+			unstarted := (projection.Phase == "todo" || projection.Phase == "request" || projection.Phase == "conflict") && runID == "" && update.State.Terminal()
 			if item.Source == "todo" && ((runID == "" && !unstarted) || (update.Checkpoint.Run != nil && update.Checkpoint.Run.RunID != runID)) {
 				return nil
 			}
@@ -584,6 +584,40 @@ func mythicalProjectRun(next *db.MythicalItem, item db.MythicalItem, projection 
 	if runID != "" && bound[projection.Phase] != "" && bound[projection.Phase] != runID {
 		return false
 	}
+	if projection.Phase == "conflict" {
+		checks := mythicalChecksOf(item)
+		if checks.Conflict == nil || checks.ConflictAttempts != 1 || (checks.Conflict.Run != "" && checks.Conflict.Run != runID) {
+			return false
+		}
+		if runID != "" {
+			checks.Conflict.Run = runID
+		}
+		if checks.Conflict.Outcome == "" {
+			checks.Conflict.Outcome = mythicalRunOutcome("request", update)
+			if update.Checkpoint.Run != nil && update.Checkpoint.Run.FinalOutput != nil {
+				var result struct {
+					Outcome struct {
+						Result *struct {
+							Changes []struct {
+								Implementation struct {
+									Head struct {
+										CommitID string `json:"commitId"`
+									} `json:"head"`
+								} `json:"implementation"`
+							} `json:"changes"`
+						} `json:"result"`
+					} `json:"outcome"`
+				}
+				if json.Unmarshal([]byte(*update.Checkpoint.Run.FinalOutput), &result) == nil && result.Outcome.Result != nil && len(result.Outcome.Result.Changes) > 0 {
+					checks.Conflict.Head = result.Outcome.Result.Changes[len(result.Outcome.Result.Changes)-1].Implementation.Head.CommitID
+				}
+			}
+
+		}
+		next.Checks = checks.encode()
+		return true
+	}
+
 	outcome := mythicalRunOutcome(projection.Phase, update)
 	switch projection.Phase {
 	case "todo":
@@ -1013,6 +1047,9 @@ func mythicalHoldsLane(item db.MythicalItem) bool {
 // mythicalRunInFlight reports whether item's latest launch is still running:
 // its phase has no outcome yet, or its review of the current head no verdict.
 func mythicalRunInFlight(item db.MythicalItem) bool {
+	if conflict := mythicalChecksOf(item).Conflict; conflict != nil && conflict.Outcome == "" {
+		return true
+	}
 	switch item.State {
 	case "running":
 		return item.RequestOutcome == ""
@@ -2228,6 +2265,9 @@ func (st *mythicalItemStep) protectedChanges(ctx context.Context, item db.Mythic
 // item's next verified head.
 func (st *mythicalItemStep) integrate(ctx context.Context, item db.MythicalItem) (*db.MythicalItem, bool, error) {
 	s, r := st.s, st.r
+	if mythicalChecksOf(item).Conflict != nil {
+		return st.finishConflict(ctx, item)
+	}
 	if item.CandidateHead == "" {
 		return nil, false, nil
 	}
@@ -2268,13 +2308,16 @@ func (st *mythicalItemStep) integrate(ctx context.Context, item db.MythicalItem)
 	case errors.Is(err, errMythicalRewrite):
 		return mythicalRetry(item, "the stack moved while this attempt amended or inserted changes; re-planning on the new tip", nil, st.now), false, nil
 	case errors.As(err, &conflict):
-		integration, _ := json.Marshal(map[string]any{"conflict": map[string]any{"paths": conflict.Paths, "onto": onto}})
-		retried := mythicalRetry(item, "rebasing onto the new tip conflicted in "+strings.Join(conflict.Paths, ", "), nil, st.now)
-		retried.Integration = integration
-		return retried, false, nil
+		return st.beginConflict(ctx, item, onto, conflict)
 	case err != nil:
 		return mythicalInfraOutage(item, "launch", "the candidate could not be rebased: "+err.Error(), st.now), false, nil
 	}
+	return st.verifyRebased(ctx, item, onto, rebased)
+}
+
+func (st *mythicalItemStep) verifyRebased(ctx context.Context, item db.MythicalItem, onto, rebased string) (*db.MythicalItem, bool, error) {
+	s, r := st.s, st.r
+	next := item
 	var plan struct {
 		Checks []json.RawMessage `json:"checks"`
 	}
@@ -2353,6 +2396,9 @@ func (st *mythicalItemStep) integrate(ctx context.Context, item db.MythicalItem)
 	next.Checks = rebase.encode()
 	payload, _ := json.Marshal(map[string]any{"source": map[string]string{"commitId": rebased, "ref": ref}, "checks": plan.Checks, "writes": writes})
 	saved, err := st.commitWith(ctx, next, "verify", "coding/verify", payload, func(tx pgx.Tx, saved db.MythicalItem) error {
+		if err := scopeConflictCredentials(ctx, tx, saved, nil); err != nil {
+			return err
+		}
 		return recordTodoRebased(ctx, tx, saved, from, name)
 	})
 	if err != nil {
@@ -3864,13 +3910,15 @@ type mythicalChecks struct {
 	// Steers are the TODO's steers in order, each held for an attempt
 	// (todoFeedback); Retries are the Retry presses by Idempotency-Key, so a
 	// press sent again starts nothing more (retryTodo).
-	Steers          []todoSteer `json:"steers,omitempty"`
-	Retries         []todoRetry `json:"retries,omitempty"`
-	CreationSession string      `json:"creation_session,omitempty"`
-	CreationPayload string      `json:"creation_payload,omitempty"`
-	Waits           []TodoWait  `json:"waits,omitempty"`
-	RunLaunched     bool        `json:"run_launched,omitempty"`
-	RunAttached     bool        `json:"run_attached,omitempty"`
+	Steers           []todoSteer       `json:"steers,omitempty"`
+	Retries          []todoRetry       `json:"retries,omitempty"`
+	CreationSession  string            `json:"creation_session,omitempty"`
+	CreationPayload  string            `json:"creation_payload,omitempty"`
+	Waits            []TodoWait        `json:"waits,omitempty"`
+	ConflictAttempts int               `json:"conflictAttempts,omitempty"`
+	Conflict         *mythicalConflict `json:"conflict,omitempty"`
+	RunLaunched      bool              `json:"run_launched,omitempty"`
+	RunAttached      bool              `json:"run_attached,omitempty"`
 	// FlowSource is the main commit the attempt's todo pin was chosen from;
 	// flow_digest holds the pin's execution digest (mythicalPinOf).
 	FlowSource string `json:"flowSource,omitempty"`

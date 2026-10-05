@@ -92,7 +92,10 @@ func (s *MythicalService) todoCard(ctx context.Context, item db.MythicalItem, it
 			actions = append(actions, map[string]any{"tag": "todo.answer", "label": "Answer",
 				"input": []any{map[string]any{"name": "answer", "label": "Answer", "kind": "text", "required": true}}})
 		}
-		waits = append(waits, map[string]any{"id": wait.ID, "kind": wait.Kind, "prompt": wait.Prompt, "since": wait.Since, "actions": actions})
+		if wait.Kind == "conflict" {
+			actions = append(actions, map[string]any{"tag": "todo.answer", "label": "Resolve", "input": []any{map[string]any{"name": "answer", "label": "Done", "kind": "text", "required": true}}})
+		}
+		waits = append(waits, map[string]any{"id": wait.ID, "kind": wait.Kind, "prompt": wait.Prompt, "since": wait.Since, "actions": actions, "paths": wait.Paths})
 	}
 	// There is no branch or machine before admission. Never invent an ID or
 	// machine state for a queued item; TodoCard permits that absence.

@@ -32,6 +32,8 @@ var (
 // errMythicalConflict is a textual conflict in a three-way tree merge.
 type errMythicalConflict struct {
 	Paths []string
+	// Tree retains merge-tree's conflict markers for the lane resolver.
+	Tree string
 }
 
 func (e *errMythicalConflict) Error() string {
@@ -276,7 +278,7 @@ func (g mythicalGit) merge3(ctx context.Context, base, ours, theirs string) (str
 		if errors.As(err, &exit) && exit.ExitCode() == 1 && len(fields) > 0 && mythicalSHA.MatchString(fields[0]) {
 			paths := append([]string(nil), fields[1:]...)
 			sort.Strings(paths)
-			return "", &errMythicalConflict{Paths: dedupe(paths)}
+			return fields[0], &errMythicalConflict{Paths: dedupe(paths), Tree: fields[0]}
 		}
 		return "", err
 	}

@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"github.com/jackc/pgx/v5/pgtype"
 	"log/slog"
 	"net/url"
 	"slices"
@@ -149,7 +150,7 @@ func (s *WorkspaceService) PrepareBoxHost(ctx context.Context, hostID, workspace
 	}
 	s.RetireBoxHostCredential(ctx, hostID, userID)
 	token, err := issueTemporaryRepoTokenWithTTL(ctx, q, userID, boxHostLandingTokenName(hostID),
-		boxHostLandingTokenScopes(repositoryID, workspace.ID), boxHostLandingTokenTTL)
+		boxHostConflictTokenScopes(ctx, q, repositoryID, workspace.ID), boxHostLandingTokenTTL)
 	if err != nil {
 		return nil, err
 	}
@@ -410,3 +411,29 @@ func (e boxToolsMissing) Error() string {
 }
 func (boxToolsMissing) FlowRuntimeCode() string    { return placementToolsMissing }
 func (boxToolsMissing) FlowRuntimeRetryable() bool { return false }
+
+// Existing hosts are narrowed by conflict admission; a host starting after
+// admission gets the same path set when its credential is minted.
+func boxHostConflictTokenScopes(ctx context.Context, store boxHostQuerier, repositoryID int64, workspaceID string) string {
+	base := boxHostLandingTokenScopes(repositoryID, workspaceID)
+	q, ok := store.(interface {
+		GetMythicalLane(context.Context, string) (db.MythicalLane, error)
+		GetMythicalItem(context.Context, pgtype.UUID) (db.MythicalItem, error)
+	})
+	if !ok {
+		return base
+	}
+	lane, err := q.GetMythicalLane(ctx, workspaceID)
+	if err != nil {
+		return base
+	}
+	item, err := q.GetMythicalItem(ctx, lane.ItemID)
+	if err != nil || item.RepositoryID != repositoryID || item.WorkspaceID != workspaceID {
+		return base
+	}
+	conflict := mythicalChecksOf(item).Conflict
+	if conflict == nil {
+		return base
+	}
+	return strings.Join(append([]string{string(middleware.ScopeWriteRepository), middleware.RepositoryRestrictionScope(repositoryID), middleware.LandingWorkspaceScope(workspaceID)}, middleware.PathRestrictionScopes(conflict.Paths)...), ",")
+}

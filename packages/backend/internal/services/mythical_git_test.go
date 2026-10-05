@@ -328,10 +328,14 @@ func TestMythicalMergeRunsWithoutMergeBaseOption(t *testing.T) {
 
 	f.run("checkout", "--quiet", "-b", "clash", base)
 	clash := f.commit("clash", map[string]string{"c.txt": "c2\n"})
-	_, err = f.git.merge3(ctx, base, left, clash)
+	tree, err = f.git.merge3(ctx, base, left, clash)
 	var conflict *errMythicalConflict
 	require.ErrorAs(t, err, &conflict)
 	assert.Equal(t, []string{"c.txt"}, conflict.Paths)
+	require.Equal(t, tree, conflict.Tree)
+	require.Regexp(t, mythicalSHA, tree)
+	assert.Contains(t, f.run("show", tree+":c.txt"), "<<<<<<<")
+	assert.Equal(t, "a1\n", f.run("show", tree+":a.txt")+"\n")
 }
 
 func TestMythicalNotesAndIdsAreDeterministic(t *testing.T) {

@@ -12,6 +12,7 @@ import (
 // in checks as evidence; projection considers only the open ones.
 type TodoWait struct {
 	ID         string     `json:"id"`
+	Paths      []string   `json:"paths,omitempty"`
 	Kind       string     `json:"kind"`
 	Prompt     string     `json:"prompt"`
 	Since      time.Time  `json:"since"`

@@ -36,6 +36,7 @@ type TodoControlReceipt struct {
 // (mythical_todo_<op>.go). An op without an entry is unavailable.
 var todoControls = map[string]func(*MythicalService, context.Context, int64, TodoControlInput) (TodoControlReceipt, error){
 	"retry": (*MythicalService).retryTodo,
+	"done":  (*MythicalService).doneConflictTodo,
 	"drop":  (*MythicalService).dropTodo,
 	"move":  (*MythicalService).moveTodo,
 }
@@ -67,7 +68,7 @@ func (input TodoControlInput) validate() error {
 		if input.Direction != "up" && input.Direction != "down" {
 			return &TodoControlError{http.StatusBadRequest, "invalid_control", "user", "Move up or down"}
 		}
-	case "stop", "resume", "drop":
+	case "stop", "resume", "drop", "done":
 		if input.Steer != nil {
 			return &TodoControlError{http.StatusBadRequest, "invalid_control", "user", "This control does not accept a steer"}
 		}

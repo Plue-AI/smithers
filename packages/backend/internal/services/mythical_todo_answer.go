@@ -268,7 +268,7 @@ func (s *MythicalService) AnswerTodo(ctx context.Context, repositoryID, userID, 
 			checks := mythicalChecksOf(item)
 			index := -1
 			for i, wait := range checks.Waits {
-				if wait.ID == input.Wait && wait.Kind == "question" {
+				if wait.ID == input.Wait && (wait.Kind == "question" || wait.Kind == "conflict") {
 					index = i
 				}
 			}
@@ -283,8 +283,39 @@ func (s *MythicalService) AnswerTodo(ctx context.Context, repositoryID, userID, 
 				return &TodoAnsweredError{AnsweredBy: wait.AnsweredBy}
 			case wait.SettledAt != nil:
 				return todoControlConflict("The agent no longer asks this question")
-			case len(todoOpenWaits(item)) == 0 || wait.Signal == nil:
+			case len(todoOpenWaits(item)) == 0 || (wait.Kind == "question" && wait.Signal == nil):
 				return todoControlConflict("TODO is settled")
+			}
+			if wait.Kind == "conflict" {
+				if input.Answer != "Done" || checks.Conflict == nil {
+					return &TodoControlError{409, "still_conflicted", "conflict", "Resolve the conflicts first"}
+				}
+				head, err := s.checkConflictDone(ctx, q, item)
+				if err != nil {
+					return err
+				}
+				now := s.now().UTC()
+				wait.SettledAt, wait.AnsweredBy, wait.Answer, wait.By = &now, person.Username, input.Answer, by
+				checks.Conflict.DoneHead = head
+				next := item
+				next.Checks = checks.encode()
+				saved, err := q.SaveMythicalItem(ctx, next)
+				if errors.Is(err, pgx.ErrNoRows) {
+					continue
+				}
+				if err != nil {
+					return err
+				}
+				fact, _ := json.Marshal(map[string]any{"item": uuidString(saved.ID), "n": saved.Number.Int64, "wait": input.Wait, "head": head, "paths": wait.Paths, "by": todoActorRef(ctx, person)})
+				if _, err := jobs.RecordFactInTx(ctx, tx, todoOperationScope(saved), uuid.NewString(), "todo.conflict_resolved", todoState(saved), fact); err != nil {
+					return err
+				}
+				stack, err := q.GetMythicalStack(ctx, repositoryID)
+				if err != nil {
+					return err
+				}
+				s.itemChanged(ctx, q, stack, saved.ID)
+				return nil
 			}
 			now := s.now().UTC()
 			wait.SettledAt, wait.AnsweredBy, wait.Answer, wait.By = &now, person.Username, input.Answer, by
