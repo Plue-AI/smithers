@@ -25,8 +25,47 @@ const record = (kind, step, detail) => {
 const text = (content) =>
   typeof content === "string" ? content : Array.isArray(content) ? content.map((part) => part?.text ?? "").join("") : ""
 
-/** The step's JSON payload: the last user message, or the JSON object inside it. */
-const payloadOf = (messages) => {
+/** The JSON value that opens `raw`, when it opens with an object or array. */
+const leadingJson = (raw) => {
+  const text = raw.trimStart()
+  if (text[0] !== "{" && text[0] !== "[") return undefined
+  let depth = 0, quoted = false, escaped = false
+  for (let i = 0; i < text.length; i++) {
+    const c = text[i]
+    if (quoted) {
+      if (escaped) escaped = false
+      else if (c === "\\") escaped = true
+      else if (c === "\"") quoted = false
+    } else if (c === "\"") quoted = true
+    else if (c === "{" || c === "[") depth++
+    else if ((c === "}" || c === "]") && --depth === 0) {
+      try {
+        return JSON.parse(text.slice(0, i + 1))
+      } catch {
+        return undefined
+      }
+    }
+  }
+  return undefined
+}
+
+/**
+ * The step's arguments. An agent action's task is its payload's JSON after
+ * "The task for this run:" in the system context; a prompt flow renders each
+ * field as a `## <field>` section under "# Arguments"; older hosts sent the
+ * payload as the last user message.
+ */
+const payloadOf = (system, messages) => {
+  const task = system.lastIndexOf("The task for this run:")
+  const payload = task < 0 ? undefined : leadingJson(system.slice(task + "The task for this run:".length))
+  if (payload !== null && typeof payload === "object" && !Array.isArray(payload)) return payload
+  const at = system.lastIndexOf("# Arguments\n")
+  if (at >= 0) {
+    const parts = system.slice(at).split(/\n\n## ([^\n]+)\n\n/)
+    const fields = {}
+    for (let i = 1; i + 1 < parts.length; i += 2) fields[parts[i]] = leadingJson(parts[i + 1]) ?? parts[i + 1].trim()
+    if (Object.keys(fields).length > 0) return fields
+  }
   for (const message of [...messages].reverse()) {
     if (message.role !== "user") continue
     const body = text(message.content)
@@ -102,13 +141,14 @@ const chat = (input) => {
   const messages = input.messages ?? []
   const system = messages.filter((message) => message.role === "system").map((message) => text(message.content)).join("\n")
   const matched = steps.find((entry) => system.includes(entry.teaching))
-  const payload = payloadOf(messages)
+  const payload = payloadOf(system, messages)
   const step = matched?.step ?? "unscripted"
   record("chat", step, {
     model: input.model,
     messages: messages.length,
     // Unscripted turns keep their teaching, so the next step can be scripted.
-    ...(matched === undefined ? { system: system.slice(0, 6000), last: text(messages.at(-1)?.content).slice(0, 6000) } : {})
+    ...(matched === undefined ? { system: system.slice(0, 6000), last: text(messages.at(-1)?.content).slice(0, 6000) } : {}),
+    ...(process.env.TRACE_MESSAGES === "1" ? { all: messages.map((message) => ({ role: message.role, content: text(message.content).slice(0, 5000) })) } : {})
   })
   return matched === undefined ? done({ messages: ["scripted"] }) : matched.answer(payload)
 }

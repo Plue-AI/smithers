@@ -32,6 +32,7 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
+	"github.com/smithersai/smithers/packages/backend/credits"
 	"github.com/smithersai/smithers/packages/backend/flowhost"
 	"github.com/smithersai/smithers/packages/backend/flowmanifest"
 	"github.com/smithersai/smithers/packages/backend/internal/chat"
@@ -80,8 +81,18 @@ func TestJ1Rehearsal(t *testing.T) {
 	require.NoError(t, os.MkdirAll(evidence, 0700))
 	table := "step\troute\texpected\tactual\tresult\tticket\n"
 	var coder rehearsalCodingModel
+	// The real path: a confined check's directory is canonical (macOS's /var is
+	// /private/var) and confinement compares it with the workspace root.
+	processRoot, err := filepath.EvalSymlinks(t.TempDir())
+	require.NoError(t, err)
 	defer func() {
 		require.NoError(t, os.WriteFile(filepath.Join(evidence, "steps.tsv"), []byte(table), 0600))
+		// Each coding host's journal (control.db, engine.db) names why a run
+		// failed; the runtime's directory is gone after the test.
+		states, _ := filepath.Glob(filepath.Join(processRoot, "workspaces", "*", "state", "managed-hosts"))
+		for n, state := range states {
+			_ = exec.Command("/bin/cp", "-R", state, filepath.Join(evidence, fmt.Sprintf("host-state-%d", n))).Run()
+		}
 		fmt.Print(table)
 		if coder.url != "" {
 			fmt.Println("scripted coding model turns:", coder.turns())
@@ -100,7 +111,10 @@ func TestJ1Rehearsal(t *testing.T) {
 	}
 	git("init", "-b", "main", seed)
 	require.NoError(t, os.WriteFile(filepath.Join(seed, "JOURNEY.md"), []byte("Add a greeting to JOURNEY.md\n"), 0600))
-	git("-C", seed, "add", "JOURNEY.md")
+	// A repository with no Smithers files gets one check per command the
+	// detector finds; planning needs a fast and a slow one (make build, make test).
+	require.NoError(t, os.WriteFile(filepath.Join(seed, "Makefile"), []byte("build:\n\ttest -s JOURNEY.md\n\ntest:\n\tgrep -q . JOURNEY.md\n"), 0600))
+	git("-C", seed, "add", "JOURNEY.md", "Makefile")
 	git("-C", seed, "-c", "user.name=Rehearsal", "-c", "user.email=owner@example.test", "commit", "-m", "Canary")
 	seedHead, err := exec.Command("/usr/bin/git", "-C", seed, "rev-parse", "HEAD").Output()
 	require.NoError(t, err)
@@ -160,9 +174,10 @@ func TestJ1Rehearsal(t *testing.T) {
 	build.Dir = root
 	output, err := build.CombinedOutput()
 	require.NoError(t, err, string(output))
-	workspace, err := process.New(process.Config{Root: t.TempDir()})
+	processRuntime, err := process.New(process.Config{Root: processRoot})
 	require.NoError(t, err)
-	t.Cleanup(func() { require.NoError(t, workspace.Close()) })
+	t.Cleanup(func() { require.NoError(t, processRuntime.Close()) })
+	var workspace workspaceapi.WorkspaceRuntime = processRuntime
 	launcher, err := modelhost.NewLocalLauncher(modelhost.LocalConfig{Runtime: workspace, NodeBinary: node, BundlePath: bundle})
 	require.NoError(t, err)
 	resolver, err := modelhost.NewOwnerSecretResolver(func() string { return databaseURL }, func() string { return "rehearsal-encryption-key" })
@@ -180,6 +195,14 @@ func TestJ1Rehearsal(t *testing.T) {
 		fmt.Println("rehearsal: no smithers-jj-export (SMITHERS_WORKSPACE_JJ_EXPORT_BINARY, beside the FFI library, or target/release); the TODO's coding run is not composed")
 	} else {
 		t.Setenv("SMITHERS_WORKSPACE_JJ_EXPORT_BINARY", helper)
+		// A helper built with trusted-process-binding imports the stack's
+		// base and publishes the lane's result as a guest's does; any other
+		// stays local-only, and the TODO stops at its base import.
+		if capabilities, err := exec.Command(helper, "--capabilities").Output(); err == nil && bytes.Contains(capabilities, []byte(`"trusted-process-binding/v1"`)) {
+			workspace = bindingProcessRuntime{processRuntime, evidence}
+		} else {
+			fmt.Println("rehearsal: smithers-jj-export lacks trusted-process-binding (cargo build --release -p smithers-ffi --bin smithers-jj-export --features trusted-process-binding); the TODO cannot import its base")
+		}
 		built := buildRehearsalCodingHost(t, node, root)
 		registry = &built
 		// The coding host's model is scripted: every turn it asks goes through
@@ -737,6 +760,17 @@ func TestJ1Rehearsal(t *testing.T) {
 	}) {
 		return
 	}
+	// The TODO's coding run reaches the scripted model through the metered
+	// platform-key proxy, which charges the owner's credit. The deployment
+	// grants none at signup, so the owner gets a grant, as an operator's would.
+	if coder.url != "" {
+		ledger := credits.Ledger{DB: pool}
+		var owner int64
+		require.NoError(t, pool.QueryRow(ctx, `SELECT id FROM users WHERE lower_username = 'rehearsal-owner'`).Scan(&owner))
+		account, err := ledger.EnsureAccount(ctx, "user", owner)
+		require.NoError(t, err)
+		require.NoError(t, ledger.Grant(ctx, account, "j1-rehearsal", 100_000_000_000, nil))
+	}
 	var number int64
 	if !step("First TODO", "GET /api/repos/{o}/{r}/mythical; POST /api/todos", "stack active; 202 accepted; positive n; exact app place body", "T-STK-01", func() error {
 		// Source ready asked for the stack and did not wait for it (§8.6.3); the
@@ -1203,6 +1237,87 @@ var trustedProcessBranchMachines = services.BranchMachineProviders{
 	LaneBinding:     func(context.Context, pgx.Tx, int64, string) error { return nil },
 	MicroVM:         func(context.Context) error { return nil },
 	SessionIdentity: func(context.Context) error { return nil },
+}
+
+// bindingProcessRuntime is the trusted-process runtime with the source binding
+// a guest gets (installRuntimeBoxCodingBinding): the binding is written as this
+// user in the checkout's .jj directory, and each coding host the
+// workspace starts names it in SMITHERS_WORKSPACE_CODING_CONFIG. Only a
+// smithers-jj-export built with trusted-process-binding reads that file; the
+// credential is the head publisher's Git cache, as in a guest.
+// A host that exits before it is ready leaves its stderr in the evidence.
+type bindingProcessRuntime struct {
+	*process.Runtime
+	evidence string
+}
+
+var _ workspaceapi.WorkspaceCodingBindingInstaller = bindingProcessRuntime{}
+
+func (r bindingProcessRuntime) binding(ctx context.Context, workspaceID string) (string, workspaceapi.Workspace, error) {
+	observed, err := r.InspectWorkspace(ctx, workspaceID)
+	if err != nil {
+		return "", observed, err
+	}
+	// The coding host runs its helper confined to the checkout's reads, so
+	// the binding sits in the checkout's .jj directory, which no source holds.
+	return filepath.Join(observed.Root, ".jj", "workspace-coding.json"), observed, nil
+}
+
+func (r bindingProcessRuntime) InstallWorkspaceCodingBinding(ctx context.Context, workspaceID string, binding workspaceapi.WorkspaceCodingBinding) error {
+	if err := binding.Validate(); err != nil {
+		return err
+	}
+	file, observed, err := r.binding(ctx, workspaceID)
+	if err != nil {
+		return err
+	}
+	data, err := json.Marshal(struct {
+		workspaceapi.WorkspaceCodingBinding
+		Version          int    `json:"version"`
+		WorkspaceID      string `json:"workspaceId"`
+		RepositoryPath   string `json:"repositoryPath"`
+		CredentialSocket string `json:"credentialSocket"`
+	}{binding, 1, workspaceID, observed.Root, filepath.Join(observed.Home, ".cache", "smithers", "git-credential", "socket")})
+	if err != nil {
+		return err
+	}
+	temporary := file + ".tmp"
+	if err = os.WriteFile(temporary, data, 0600); err != nil {
+		return err
+	}
+	return os.Rename(temporary, file)
+}
+
+func (r bindingProcessRuntime) StartManagedHost(ctx context.Context, workspaceID string, spec workspaceapi.ManagedHostSpec) (workspaceapi.ManagedHostConnection, error) {
+	file, _, err := r.binding(ctx, workspaceID)
+	if err != nil {
+		return workspaceapi.ManagedHostConnection{}, err
+	}
+	build := spec.Builder
+	spec.Builder = workspaceapi.ManagedHostBuilderFunc(func(ctx context.Context, placement workspaceapi.ManagedHostPlacement) (workspaceapi.Command, error) {
+		command, err := build.BuildManagedHost(ctx, placement)
+		if err != nil {
+			return command, err
+		}
+		environment := make(map[string]string, len(command.Environment)+1)
+		for name, value := range command.Environment {
+			environment[name] = value
+		}
+		environment["SMITHERS_WORKSPACE_CODING_CONFIG"] = file
+		command.Environment = environment
+		return command, nil
+	})
+	connection, err := r.Runtime.StartManagedHost(ctx, workspaceID, spec)
+	if err != nil {
+		if service, inspectErr := r.InspectService(context.WithoutCancel(ctx), workspaceID, spec.Name); inspectErr == nil && service.Stderr != "" {
+			stderr, _ := os.OpenFile(filepath.Join(r.evidence, "coding-host.stderr.log"), os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0600)
+			if stderr != nil {
+				fmt.Fprintf(stderr, "--- %s %s: %v\n%s\n", time.Now().UTC().Format(time.RFC3339), spec.Name, err, service.Stderr)
+				_ = stderr.Close()
+			}
+		}
+	}
+	return connection, err
 }
 
 // trustedProcessImages is the machine image adapter for the trusted-process
