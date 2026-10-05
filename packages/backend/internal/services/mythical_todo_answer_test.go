@@ -11,6 +11,7 @@ import (
 	"sync"
 	"testing"
 	"time"
+	"unicode/utf8"
 
 	"github.com/jackc/pgx/v5"
 	"github.com/stretchr/testify/require"
@@ -528,4 +529,122 @@ func TestTodoAnswerResumesTheRunThatAsked(t *testing.T) {
 	require.Equal(t, "Use backoff", settled[0].Answer)
 	require.NotNil(t, settled[0].SettledAt)
 	require.Len(t, peer.delivered(), 1)
+}
+
+// failTodo stops the TODO's attempt as every plan failing does: a typed stop
+// only a person lifts with Retry.
+func (o *mythicalOrchestration) failTodo(id string) {
+	o.t.Helper()
+	failed := o.byID(id)
+	checks := mythicalChecksOf(failed)
+	checks.Fault = &mythicalFault{Class: "factory", Tag: "very_hard", Kind: mythicalFailPlan}
+	failed.State, failed.Reason, failed.Checks = "blocked", mythicalVeryHard+"the lane's request ended blocked", checks.encode()
+	_, err := o.service.queries().SaveMythicalItem(context.Background(), failed)
+	require.NoError(o.t, err)
+	require.Equal(o.t, "failed", todoState(o.byID(id)))
+}
+
+// J1 6 / J2 4 (the 2026-10-05 real walk): attempt 1 asks where the code
+// goes and the owner answers, then the attempt fails. Retry starts attempt 2
+// with that question and answer, and who gave it, next to the steer; a
+// question its run withdrew unanswered carries nothing. Attempt 3 carries
+// every answer so far, in the order asked.
+func TestTodoAnswersReachEveryLaterAttempt(t *testing.T) {
+	o, session, _, item, launch := newAskingTodo(t)
+	ctx := context.Background()
+	n, id := item.Number.Int64, uuidString(item.ID)
+	var ownerLogin string
+	require.NoError(t, o.pool.QueryRow(ctx, `SELECT username FROM users WHERE id=$1`, o.userID).Scan(&ownerLogin))
+	require.NotContains(t, decodeJSON(t, launch.Payload), "answers", "attempt 1 has nothing to carry")
+
+	where := "Put greet.mjs in the repository root or in src/?"
+	o.projectAsking(launch, jobs.StateWaiting, "todo-run-1", humanAsk("WaitFor-token-1", "coding-clarification", where))
+	asked := todoOpenWaits(o.byID(id))
+	require.Len(t, asked, 1)
+	require.NoError(t, o.service.AnswerTodo(session, o.repoID, o.userID, n, TodoAnswerInput{Wait: asked[0].ID, Answer: "Put it in the repository root."}))
+	// A second question the run withdraws unanswered.
+	o.projectAsking(launch, jobs.StateWaiting, "todo-run-1", humanAsk("WaitFor-token-2", "coding-clarification", "Which test runner?"))
+	o.projectAsking(launch, jobs.StateWaiting, "todo-run-1")
+	require.Len(t, mythicalChecksOf(o.byID(id)).Waits, 2)
+	o.failTodo(id)
+
+	steer := "keep the existing adds test"
+	receipt, err := o.service.ControlTodo(session, n, TodoControlInput{Op: "retry", Steer: &steer, Repository: o.repoID, Actor: o.userID, Request: "retry-1"})
+	require.NoError(t, err)
+	require.EqualValues(t, 2, receipt.Attempt)
+	o.wake()
+	o.wake()
+	launches := o.launcher.byFlow("todo")
+	require.Len(t, launches, 2)
+	second := decodeJSON(t, launches[1].Payload)
+	require.Equal(t, steer, second["feedback"])
+	require.Equal(t, []any{map[string]any{"question": where, "answer": "Put it in the repository root.", "by": ownerLogin}}, second["answers"])
+
+	// Attempt 2 asks again; another member answers; the attempt fails and a
+	// Retry without a steer carries both answers, in the order asked.
+	o.projectAsking(launches[1], jobs.StateWaiting, "todo-run-2")
+	name := "Export it as greet or as hello?"
+	o.projectAsking(launches[1], jobs.StateWaiting, "todo-run-2", humanAsk("WaitFor-token-3", "coding-clarification", name))
+	asked = todoOpenWaits(o.byID(id))
+	require.Len(t, asked, 1)
+	alice, aliceSession := o.person("alice")
+	require.NoError(t, o.service.AnswerTodo(aliceSession, o.repoID, alice, n, TodoAnswerInput{Wait: asked[0].ID, Answer: "greet"}))
+	o.failTodo(id)
+	_, err = o.service.ControlTodo(session, n, TodoControlInput{Op: "retry", Repository: o.repoID, Actor: o.userID, Request: "retry-2"})
+	require.NoError(t, err)
+	o.wake()
+	o.wake()
+	launches = o.launcher.byFlow("todo")
+	require.Len(t, launches, 3)
+	third := decodeJSON(t, launches[2].Payload)
+	require.Equal(t, steer, third["feedback"], "the steer stays with every later attempt")
+	require.Equal(t, []any{
+		map[string]any{"question": where, "answer": "Put it in the repository root.", "by": ownerLogin},
+		map[string]any{"question": name, "answer": "greet", "by": "alice"},
+	}, third["answers"])
+}
+
+// The carried answers keep the latest within their bounds: at most
+// todoCarriedAnswers, whole entries within todoCarriedBytes, each field
+// clipped on a rune boundary; unanswered and withdrawn questions and other
+// waits carry nothing.
+func TestTodoAnswersKeepTheLatestWithinTheirBounds(t *testing.T) {
+	at := time.Now()
+	answered := func(prompt, answer, by string) TodoWait {
+		return TodoWait{Kind: "question", Prompt: prompt, Answer: answer, AnsweredBy: by, SettledAt: &at}
+	}
+	item := func(waits ...TodoWait) db.MythicalItem {
+		return db.MythicalItem{Checks: mythicalChecks{Waits: waits}.encode()}
+	}
+	require.Empty(t, todoAnswers(db.MythicalItem{}))
+	require.Equal(t, []todoCarriedAnswer{{Question: "root or src?", Answer: "root", By: "ben"}}, todoAnswers(item(
+		TodoWait{Kind: "question", Prompt: "still open?"},
+		TodoWait{Kind: "question", Prompt: "withdrawn?", SettledAt: &at},
+		TodoWait{Kind: "conflict", Prompt: "conflict", Answer: "x", AnsweredBy: "ben", SettledAt: &at},
+		answered("root or src?", "root", "ben"),
+		answered("blank?", "  ", "ben"),
+	)))
+
+	var many []TodoWait
+	for i := range todoCarriedAnswers + 3 {
+		many = append(many, answered("q"+strconv.Itoa(i), "a"+strconv.Itoa(i), "ben"))
+	}
+	kept := todoAnswers(item(many...))
+	require.Len(t, kept, todoCarriedAnswers)
+	require.Equal(t, "q3", kept[0].Question, "the oldest are dropped")
+	require.Equal(t, "q"+strconv.Itoa(todoCarriedAnswers+2), kept[len(kept)-1].Question)
+
+	// The middle answer clips to its bound; with the latest it fills the
+	// byte bound exactly, so the oldest no longer fits whole.
+	clipped := answered(strings.Repeat("ü", todoCarriedQuestionBytes), strings.Repeat("é", todoCarriedAnswerBytes), strings.Repeat("b", 300))
+	last := answered("last?", strings.Repeat("x", todoCarriedBytes-todoCarriedQuestionBytes-todoCarriedAnswerBytes-len("last?")), "ben")
+	big := todoAnswers(item(answered("first?", "a", "ben"), clipped, last))
+	require.Len(t, big, 2)
+	require.Equal(t, todoCarriedQuestionBytes, len(big[0].Question))
+	require.Equal(t, todoCarriedAnswerBytes, len(big[0].Answer), "é and ü are two bytes: the clip keeps every whole one")
+	require.Equal(t, todoCarriedByBytes, len(big[0].By))
+	require.True(t, utf8.ValidString(big[0].Question) && utf8.ValidString(big[0].Answer))
+	require.Equal(t, "last?", big[1].Question)
+	require.Equal(t, todoCarriedBytes, len(big[0].Question)+len(big[0].Answer)+len(big[1].Question)+len(big[1].Answer))
+	require.Equal(t, "ab", todoClip("ab\u00e9", 3), "a rune is never split")
 }

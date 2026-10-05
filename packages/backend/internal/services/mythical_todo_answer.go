@@ -131,6 +131,63 @@ func todoFirstAnswer(item db.MythicalItem) map[string]any {
 	return map[string]any{"by": latest.By, "text": latest.Answer, "at": latest.SettledAt.UTC().Format(time.RFC3339Nano)}
 }
 
+// The answers an attempt carries (flows/coding/schema.ts CarriedAnswer): at
+// most todoCarriedAnswers, the latest kept whole within todoCarriedBytes, and
+// each field clipped to its own bound. Bytes bound UTF-16 units from above.
+const (
+	todoCarriedAnswers       = 16
+	todoCarriedBytes         = 64 << 10
+	todoCarriedQuestionBytes = 16 << 10
+	todoCarriedAnswerBytes   = 32 << 10
+	todoCarriedByBytes       = 256
+)
+
+// todoCarriedAnswer is one answered question as a later attempt receives it.
+type todoCarriedAnswer struct {
+	Question string `json:"question"`
+	Answer   string `json:"answer"`
+	By       string `json:"by"`
+}
+
+// todoAnswers is every question a person answered on the TODO, in the order
+// asked, with the answer and who gave it. Each later attempt receives them
+// next to its steers (todoFeedback), so a question answered once stays
+// answered; a question its run withdrew unanswered carries nothing.
+func todoAnswers(item db.MythicalItem) []todoCarriedAnswer {
+	var answered []todoCarriedAnswer
+	for _, wait := range mythicalChecksOf(item).Waits {
+		if wait.Kind != "question" || wait.SettledAt == nil || wait.AnsweredBy == "" || strings.TrimSpace(wait.Answer) == "" {
+			continue
+		}
+		answered = append(answered, todoCarriedAnswer{
+			Question: todoClip(wait.Prompt, todoCarriedQuestionBytes),
+			Answer:   todoClip(wait.Answer, todoCarriedAnswerBytes),
+			By:       todoClip(wait.AnsweredBy, todoCarriedByBytes),
+		})
+	}
+	first, size := len(answered), 0
+	for first > 0 && len(answered)-first < todoCarriedAnswers {
+		next := size + len(answered[first-1].Question) + len(answered[first-1].Answer)
+		if next > todoCarriedBytes {
+			break
+		}
+		first, size = first-1, next
+	}
+	return answered[first:]
+}
+
+// todoClip is text's first max bytes, cut on a rune boundary.
+func todoClip(text string, max int) string {
+	if len(text) <= max {
+		return text
+	}
+	cut := max
+	for cut > 0 && !utf8.RuneStart(text[cut]) {
+		cut--
+	}
+	return text[:cut]
+}
+
 // TodoAnswerInput is POST /api/todos/{n}/answer: the open question the
 // person's card showed (its wait id) and their answer.
 type TodoAnswerInput struct {

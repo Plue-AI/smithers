@@ -1926,6 +1926,10 @@ func (st *mythicalItemStep) start(ctx context.Context, item db.MythicalItem) (*d
 	if feedback := todoFeedback(item, next.Attempt); feedback != "" {
 		request["feedback"] = feedback
 	}
+	// Every question a person answered rides next to the steers.
+	if answers := todoAnswers(item); len(answers) > 0 {
+		request["answers"] = answers
+	}
 	// The lane plans with the published wiki; it never reviews the pages again.
 	if wiki, ok := s.suppliedWiki(ctx, r.row.RepositoryID); ok {
 		request["wiki"] = wiki
@@ -2060,6 +2064,10 @@ func (st *mythicalItemStep) startPinned(ctx context.Context, item db.MythicalIte
 	// The steers held for this attempt are its first input (spec §10.7.3).
 	if feedback := todoFeedback(item, next.Attempt); feedback != "" {
 		request["feedback"] = feedback
+	}
+	// Every question a person answered rides next to the steers.
+	if answers := todoAnswers(item); len(answers) > 0 {
+		request["answers"] = answers
 	}
 	// The lane plans with the published wiki; it never reviews the pages again.
 	if wiki, ok := s.suppliedWiki(ctx, r.row.RepositoryID); ok {
