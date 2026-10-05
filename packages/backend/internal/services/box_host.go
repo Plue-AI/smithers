@@ -100,7 +100,10 @@ func (s *WorkspaceService) PrepareBoxHost(ctx context.Context, hostID, workspace
 	base := strings.TrimRight(strings.TrimSpace(s.gitBaseURL), "/")
 	q, ok := s.q.(boxHostQuerier)
 	guest := s.runtime != nil && s.runtime.Isolation() == workspaceapi.IsolationSandboxed
-	if s.sandbox == nil && !guest {
+	// A trusted-process box is a host process, never a sandbox client's VM,
+	// even when the composition also holds a sandbox client.
+	process := s.runtime != nil && s.runtime.Isolation() == workspaceapi.IsolationTrustedProcess
+	if (s.sandbox == nil || process) && !guest {
 		return environment, nil
 	}
 	if base == "" || !ok {

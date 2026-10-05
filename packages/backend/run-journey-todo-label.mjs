@@ -10,7 +10,7 @@ if (!process.env.SMITHERS_TEST_DATABASE_URL) {
   process.exit(1)
 }
 const args = j1
-  ? ['test', '-v', '-count=1', '-run', '^TestJ1Rehearsal$', './packages/backend/internal/compose']
+  ? ['test', '-v', '-count=1', '-timeout', '30m', '-run', '^TestJ1Rehearsal$', './packages/backend/internal/compose']
   : ['test', '-json', '-count=1', '-run', '^TestJourneyTodoLabel', './packages/backend/internal/services']
 const result = spawnSync('go', args, {
   cwd: new URL('../../', import.meta.url),

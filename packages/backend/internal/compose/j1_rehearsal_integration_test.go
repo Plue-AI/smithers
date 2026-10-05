@@ -15,6 +15,7 @@ import (
 	"fmt"
 	"io"
 	"io/fs"
+	"net"
 	"net/http"
 	"net/http/cookiejar"
 	"net/http/httptest"
@@ -24,17 +25,22 @@ import (
 	"path/filepath"
 	"regexp"
 	"runtime"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5"
+	"github.com/smithersai/smithers/packages/backend/flowhost"
+	"github.com/smithersai/smithers/packages/backend/flowmanifest"
 	"github.com/smithersai/smithers/packages/backend/internal/chat"
 	"github.com/smithersai/smithers/packages/backend/internal/githubfake"
 	"github.com/smithersai/smithers/packages/backend/internal/services"
 	"github.com/smithersai/smithers/packages/backend/internal/webhook"
 	"github.com/smithersai/smithers/packages/backend/microsandbox"
 	"github.com/smithersai/smithers/packages/backend/modelhost"
+	"github.com/smithersai/smithers/packages/backend/modelproxy"
 	"github.com/smithersai/smithers/packages/backend/process"
 	"github.com/smithersai/smithers/packages/backend/repository"
 	"github.com/smithersai/smithers/packages/backend/sandbox/sandboxfake"
@@ -56,9 +62,13 @@ func TestJ1Rehearsal(t *testing.T) {
 	evidence := filepath.Join(root, ".artifacts/checks/C-J1-04/rehearsal", time.Now().UTC().Format("20060102T150405.000000000Z"))
 	require.NoError(t, os.MkdirAll(evidence, 0700))
 	table := "step\troute\texpected\tactual\tresult\tticket\n"
+	var coder rehearsalCodingModel
 	defer func() {
 		require.NoError(t, os.WriteFile(filepath.Join(evidence, "steps.tsv"), []byte(table), 0600))
 		fmt.Print(table)
+		if coder.url != "" {
+			fmt.Println("scripted coding model turns:", coder.turns())
+		}
 		fmt.Println("rehearsal evidence:", evidence)
 	}()
 	pool, databaseURL := postgresfixture.NewProductDatabase(t)
@@ -96,6 +106,10 @@ func TestJ1Rehearsal(t *testing.T) {
 			library = filepath.Join(root, "target/release/libsmithers_ffi.so")
 		}
 	}
+	node, err := exec.LookPath("node")
+	require.NoError(t, err)
+	node, err = filepath.EvalSymlinks(node)
+	require.NoError(t, err)
 	// The install's engine, composed as localbootstrap.Prepare composes it:
 	// it reserves main for the GitHub sync, and every door reads that fact
 	// from its in-process client. Source ready must import main through it.
@@ -115,15 +129,15 @@ func TestJ1Rehearsal(t *testing.T) {
 		"SMITHERS_AUTH_GITHUB_API_BASE_URL": fake.URL, "SMITHERS_AUTH_GITHUB_OAUTH_BASE_URL": fake.URL, "SMITHERS_GITHUB_APP_API_BASE_URL": fake.URL,
 		// TODO branches are pushed to the fake's Git, never to github.com.
 		"SMITHERS_GITHUB_GIT_BASE_URL": fake.URL,
+		// The coding host binds its lane's checkout through the native helper
+		// and implements on the platform seat the scripted model answers.
+		// The coding host implements on the platform seat the scripted model answers.
+		"SMITHERS_WORKSPACE_CODING_DEFAULT_MODEL": "cerebras:gpt-oss-120b",
 	} {
 		t.Setenv(name, value)
 	}
 	provider := localChatProvider(make(chan string, 16), "JOURNEY.md", "../../etc/passwd")
 	t.Cleanup(provider.Close)
-	node, err := exec.LookPath("node")
-	require.NoError(t, err)
-	node, err = filepath.EvalSymlinks(node)
-	require.NoError(t, err)
 	bundle := filepath.Join(t.TempDir(), "model-host")
 	build := exec.Command(node, filepath.Join(root, "apps/model-host/build.mjs"), bundle)
 	build.Dir = root
@@ -138,6 +152,25 @@ func TestJ1Rehearsal(t *testing.T) {
 	require.NoError(t, err)
 	host, err := modelhost.New(resolver, launcher)
 	require.NoError(t, err)
+	// A TODO's coding run executes on the packaged coding host, served by the
+	// trusted-process runtime as apps/backend's chat integration composes it.
+	// It binds its lane's checkout through the native helper; without one the
+	// rehearsal composes no flow host and no TODO starts.
+	var registry *flowmanifest.Registry
+	var platformKeys modelproxy.Keys
+	var upstreams map[string]string
+	if helper := rehearsalJJExport(root, library); helper == "" {
+		fmt.Println("rehearsal: no smithers-jj-export (SMITHERS_WORKSPACE_JJ_EXPORT_BINARY, beside the FFI library, or target/release); the TODO's coding run is not composed")
+	} else {
+		t.Setenv("SMITHERS_WORKSPACE_JJ_EXPORT_BINARY", helper)
+		built := buildRehearsalCodingHost(t, node, root)
+		registry = &built
+		// The coding host's model is scripted: every turn it asks goes through
+		// the composed install's metered model proxy to this provider.
+		coder = startRehearsalCodingModel(t, node, root, evidence)
+		platformKeys = modelproxy.NewStaticKeys(map[string]string{modelproxy.ProviderCerebras: "scripted-coding-key", modelproxy.ProviderVercel: "scripted-evaluator-key"})
+		upstreams = map[string]string{modelproxy.ProviderCerebras: coder.url, modelproxy.ProviderVercel: coder.url}
+	}
 	// The question before Machine ready must start no machine.
 	compute := sandboxfake.New()
 	ctx, cancel := context.WithCancel(t.Context())
@@ -146,8 +179,14 @@ func TestJ1Rehearsal(t *testing.T) {
 	done := make(chan error, 1)
 	logs := &lockedBuffer{}
 	stdout := &lockedBuffer{}
+	// The coding run takes minutes: its log is also followed while it runs.
+	live, err := os.OpenFile(filepath.Join(evidence, "backend.live.log"), os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0600)
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = live.Close() })
 	go func() {
-		done <- StartWithOptions(ctx, nil, stdout, logs, Options{Repository: engine.Client(), Workspace: workspace, MachineImages: trustedProcessImages{sources: repositorySourceFiles{client: engine.Client()}}, ComputeProvider: compute, ChatHost: host, FlowHostProductAPIURL: origin}, func(h http.Handler) { ready <- h })
+		done <- StartWithOptions(ctx, nil, stdout, io.MultiWriter(logs, live), Options{Repository: engine.Client(), Workspace: workspace, MachineImages: trustedProcessImages{sources: repositorySourceFiles{client: engine.Client()}}, ComputeProvider: compute, ChatHost: host, FlowHostProductAPIURL: origin,
+			FlowHostRegistry: registry, FlowHostConfig: flowhost.WorkspaceLauncherConfig{AllowTrustedProcessForTests: true},
+			PlatformModelKeys: platformKeys, ModelProxyUpstreams: upstreams, BranchMachines: &trustedProcessBranchMachines}, func(h http.Handler) { ready <- h })
 	}()
 	select {
 	case h := <-ready:
@@ -867,12 +906,17 @@ func TestJ1Rehearsal(t *testing.T) {
 	}
 	head := ""
 	var prNumber int64
+	// Each state lasts as long as the work behind it: Starting until the lane's
+	// coding host accepts the run, Working for the scripted coding/request,
+	// In review once coding/vibe delivered and the PR opened.
+	waits := map[string]time.Duration{"queued": 3 * time.Second, "starting": 2 * time.Minute, "working": 3 * time.Minute, "in_review": 10 * time.Minute}
 	for _, state := range []string{"queued", "starting", "working", "in_review"} {
 		if !step("TODO "+state, "GET "+todoPath, "200 state="+state, "T-STK-01", func() error {
 			if number <= 0 {
 				return fmt.Errorf("blocked by First TODO: no TODO number from public creation receipt")
 			}
-			deadline := time.Now().Add(3 * time.Second)
+			began := time.Now()
+			deadline := began.Add(waits[state])
 			for {
 				data, err := expect("GET", todoPath, "", 200)
 				if err != nil {
@@ -893,10 +937,21 @@ func TestJ1Rehearsal(t *testing.T) {
 					prNumber = v.PR.Number
 					return nil
 				}
-				if time.Now().After(deadline) {
-					return fmt.Errorf("state %q, expected %q", v.State, state)
+				// The stack's own record says why it did not move; an attempt
+				// that failed or stopped does not reach the state in this run.
+				var itemState, reason string
+				_ = pool.QueryRow(ctx, `SELECT state, reason FROM mythical_items WHERE number=$1`, number).Scan(&itemState, &reason)
+				settled := itemState == "retrying" || itemState == "failed" || itemState == "stopped" || itemState == "blocked"
+				if settled || time.Now().After(deadline) {
+					return fmt.Errorf("state %q, expected %q (item %s: %q)", v.State, state, itemState, reason)
 				}
-				time.Sleep(40 * time.Millisecond)
+				// Fast while a short state may pass, then within the API's rate
+				// limit for a wait that lasts minutes.
+				if time.Since(began) < 5*time.Second {
+					time.Sleep(40 * time.Millisecond)
+				} else {
+					time.Sleep(500 * time.Millisecond)
+				}
 			}
 		}) {
 			return
@@ -1030,6 +1085,108 @@ func TestJ1Rehearsal(t *testing.T) {
 }
 
 func mustRehearsalURL(raw string) *url.URL { u, _ := url.Parse(raw); return u }
+
+// buildRehearsalCodingHost builds the packaged coding host from source and
+// pins it the way the install bundle's flow-hosts.json does.
+func buildRehearsalCodingHost(t *testing.T, node, root string) flowmanifest.Registry {
+	t.Helper()
+	coding := filepath.Join(t.TempDir(), "smithers-coding-host")
+	build := exec.Command(node, filepath.Join(root, "flows/coding/build.mjs"), coding)
+	build.Dir = root
+	output, err := build.CombinedOutput()
+	require.NoError(t, err, string(output))
+	data, err := os.ReadFile(coding)
+	require.NoError(t, err)
+	// Pin the fixture's Node interpreter as the packaged host does; the digest
+	// measures the exact executable bytes, banner included.
+	newline := bytes.IndexByte(data, '\n')
+	require.GreaterOrEqual(t, newline, 0)
+	quoted := "'" + strings.ReplaceAll(node, "'", `'"'"'`) + "'"
+	data = append([]byte(fmt.Sprintf("#!/bin/sh\n':' //; exec %s \"$0\" \"$@\"\n", quoted)), data[newline+1:]...)
+	require.NoError(t, os.WriteFile(coding, data, 0700))
+	sum := sha256.Sum256(data)
+	return flowmanifest.Registry{Coding: flowmanifest.Host{Executable: coding, SHA256: hex.EncodeToString(sum[:])}}
+}
+
+// rehearsalJJExport is the native source helper a lane's coding host binds
+// its checkout with: SMITHERS_WORKSPACE_JJ_EXPORT_BINARY, else the one built
+// beside the repository engine's library.
+func rehearsalJJExport(root, library string) string {
+	for _, candidate := range []string{os.Getenv("SMITHERS_WORKSPACE_JJ_EXPORT_BINARY"), filepath.Join(filepath.Dir(library), "smithers-jj-export"), filepath.Join(root, "target/release/smithers-jj-export")} {
+		if !filepath.IsAbs(candidate) {
+			continue
+		}
+		if info, err := os.Stat(candidate); err == nil && info.Mode().IsRegular() && info.Mode()&0o111 != 0 {
+			return candidate
+		}
+	}
+	return ""
+}
+
+// rehearsalCodingModel is distribution/fake-todo-provider.mjs on a loopback
+// port: the scripted model every coding turn of the TODO reaches.
+type rehearsalCodingModel struct{ url string }
+
+func startRehearsalCodingModel(t *testing.T, node, root, evidence string) rehearsalCodingModel {
+	t.Helper()
+	listener, err := net.Listen("tcp4", "127.0.0.1:0")
+	require.NoError(t, err)
+	port := strconv.Itoa(listener.Addr().(*net.TCPAddr).Port)
+	require.NoError(t, listener.Close())
+	logs := &lockedBuffer{}
+	command := exec.Command(node, filepath.Join(root, "distribution/fake-todo-provider.mjs"))
+	// The trace keeps each turn's role and request shape, never a credential.
+	command.Env = append(os.Environ(), "PORT="+port, "HOST=127.0.0.1", "TRACE_FILE="+filepath.Join(evidence, "model-turns.jsonl"))
+	command.Stdout, command.Stderr = logs, logs
+	require.NoError(t, command.Start())
+	t.Cleanup(func() {
+		_ = command.Process.Kill()
+		_ = command.Wait()
+		_ = os.WriteFile(filepath.Join(evidence, "model.log"), []byte(logs.String()), 0600)
+	})
+	model := rehearsalCodingModel{url: "http://127.0.0.1:" + port}
+	for deadline := time.Now().Add(10 * time.Second); time.Now().Before(deadline); time.Sleep(50 * time.Millisecond) {
+		if response, err := http.Get(model.url + "/health"); err == nil {
+			_ = response.Body.Close()
+			if response.StatusCode == http.StatusOK {
+				return model
+			}
+		}
+	}
+	t.Fatalf("scripted coding model did not start\n%s", logs.String())
+	return model
+}
+
+// turns answers the scripted model's served turns by role.
+func (model rehearsalCodingModel) turns() string {
+	response, err := http.Get(model.url + "/turns")
+	if err != nil {
+		return err.Error()
+	}
+	defer response.Body.Close()
+	data, _ := io.ReadAll(io.LimitReader(response.Body, 1<<16))
+	return string(data)
+}
+
+// trustedProcessBranchMachines admits a TODO's lane machine on the
+// trusted-process runtime the rehearsal composes. That runtime isolates
+// nothing, so there is no microVM (R1-R5) or per-member execution identity to
+// validate: those providers admit, and the install bundle keeps branch
+// machines dark until T-MCH-04 composes the real ones (#3565). Membership is
+// still the acting account's own, read in the creating transaction.
+var trustedProcessBranchMachines = services.BranchMachineProviders{
+	Membership: func(ctx context.Context, tx pgx.Tx, _, actor int64) error {
+		var id int64
+		if err := tx.QueryRow(ctx, `SELECT id FROM users WHERE id=$1 AND is_active AND deleted_at IS NULL AND NOT prohibit_login FOR SHARE`, actor).Scan(&id); err != nil {
+			return fmt.Errorf("user %d is no active member: %w", actor, err)
+		}
+		return nil
+	},
+	Authorize:       func(context.Context, pgx.Tx, string, int64, string, int64) error { return nil },
+	LaneBinding:     func(context.Context, pgx.Tx, int64, string) error { return nil },
+	MicroVM:         func(context.Context) error { return nil },
+	SessionIdentity: func(context.Context) error { return nil },
+}
 
 // trustedProcessImages is the machine image adapter for the trusted-process
 // runtime the rehearsal composes. Its machines run on the host toolchain, so it

@@ -134,6 +134,11 @@ type Options struct {
 	// runtime that only tests compose. app.Config cannot set it; the install
 	// bundle binds its microVM runtime's builder (installMachineImages).
 	MachineImages services.InstallMachineLayerBuilder
+	// BranchMachines admits branch machine creation for a workspace runtime
+	// that isolates nothing: the trusted-process runtime only tests compose.
+	// app.Config cannot set it, so the install keeps every machine dark until
+	// T-MCH-04 composes the real providers (#3565).
+	BranchMachines *services.BranchMachineProviders
 	// EnvGitHubAppCredentials is an explicit Plue adapter; self-hosting leaves it false.
 	EnvGitHubAppCredentials bool
 	CanaryRuns              ports.CanaryRunSource
@@ -850,6 +855,12 @@ func runWithOptions(ctx context.Context, args []string, stdout, stderr io.Writer
 		services.WithWorkspaceProviderConnections(subscriptionPool),
 		services.WithWorkspaceProviderBootstrap(modelSeats, cfg.Sandbox.WorkspaceCodingDefaultModel),
 	)
+	if options.BranchMachines != nil {
+		if options.Workspace == nil || options.Workspace.Isolation() != workspace.IsolationTrustedProcess {
+			return errors.New("injected branch machine providers are for the trusted-process runtime only")
+		}
+		services.WithBranchMachineProviders(*options.BranchMachines)(workspaceService)
+	}
 	adminUserService := services.NewAdminUserService(queries,
 		services.WithTokenCreator(authService),
 		services.WithAdminAuditor(auditService),
