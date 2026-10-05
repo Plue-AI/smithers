@@ -1,4 +1,5 @@
 import { todoActors, type ActorContext } from "../ProductActor"
+import { ZodError } from "zod"
 import { TodoCardSchema, type TodoCard } from "@smthrs/rpc/TodoCard"
 import { DraftCardSchema, type DraftCard } from "@smthrs/rpc/DraftCard"
 import type { Card } from "@smthrs/rpc/Cards"
@@ -10,6 +11,10 @@ import { actorSharedState } from "../ActorBindings"
 import type { SeamContext } from "./SeamContext"
 import { readResult, unreachableSentence } from "./SeamContext"
 import { randomUuid } from "../../runtime/RandomUuid"
+
+export const todoDecodeError = (error: ZodError | SyntaxError): string => error instanceof ZodError
+  ? `Could not decode TODOs: ${error.issues.map(issue => `${issue.path.join(".") || "TODO"}: ${issue.message}`).join("; ")}`
+  : "Could not decode TODOs: invalid JSON."
 
 class TodoTopicMismatch extends Data.TaggedError("TodoTopicMismatch") { readonly message = "TODO topic mismatch" }
 
@@ -50,6 +55,7 @@ export interface TodoListSnapshot {
   readonly todos?: ReadonlyArray<TodoCard>
   /** `forbidden` drops the list; `internal`, `invalid` and `unreachable` keep the last list read. */
   readonly error?: "forbidden" | "internal" | "invalid" | "unreachable"
+  readonly detail?: string
 }
 export interface TodoListSnapshots {
   readonly get: () => TodoListSnapshot
@@ -297,7 +303,7 @@ export const createTodoSeam = (ctx: SeamContext, options: TodoSeamOptions = {}) 
       await applyProjection(n, model)
       watch(n)
       return readResult(JSON.stringify(model))
-    } catch (error) { return unreachableSentence("TODOs", error) }
+    } catch (error) { return error instanceof ZodError || error instanceof SyntaxError ? todoDecodeError(error) : unreachableSentence("TODOs", error) }
   }
   const publishList = (snapshot: TodoListSnapshot) => {
     shared.list.snapshot = snapshot
@@ -314,8 +320,8 @@ export const createTodoSeam = (ctx: SeamContext, options: TodoSeamOptions = {}) 
       const parsed = Array.isArray(body) ? TodoCardSchema.array().safeParse(body.map(value => todoActors(value, options.actors?.()))) : undefined
       next = response.status === 401 || response.status === 403 ? { error: "forbidden" }
         : !response.ok ? { ...shared.list.snapshot, error: "internal" }
-        : parsed?.success ? { todos: parsed.data } : { ...shared.list.snapshot, error: "invalid" }
-    } catch { next = { ...shared.list.snapshot, error: "unreachable" } }
+        : parsed?.success ? { todos: parsed.data } : { ...shared.list.snapshot, error: "invalid", detail: parsed ? todoDecodeError(parsed.error) : "Could not decode TODOs: expected a list." }
+    } catch (error) { next = { ...shared.list.snapshot, error: error instanceof ZodError || error instanceof SyntaxError ? "invalid" : "unreachable", ...(error instanceof ZodError || error instanceof SyntaxError ? { detail: todoDecodeError(error) } : {}) } }
     if (current(login, revision)) publishList(next)
   }
   const pollList = () => {

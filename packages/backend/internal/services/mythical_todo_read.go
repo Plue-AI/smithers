@@ -96,7 +96,7 @@ func (s *MythicalService) todoCard(ctx context.Context, item db.MythicalItem, it
 	}
 	// There is no branch or machine before admission. Never invent an ID or
 	// machine state for a queued item; TodoCard permits that absence.
-	card := map[string]any{"n": item.Number.Int64, "title": item.Title.String, "state": todoState(item),
+	card := map[string]any{"n": item.Number.Int64, "title": mythicalTodoTitle(item), "state": todoState(item),
 		"owner":            map[string]any{"login": owner.Username, "name": owner.DisplayName, "avatar_url": todoAvatar(owner)},
 		"prompt_revisions": revisions, "steps": todoSteps(item), "waits": waits, "steers": todoSteers(item), "evidence": []any{},
 		"present": []any{}}
@@ -196,6 +196,14 @@ func (s *MythicalService) todoCard(ctx context.Context, item db.MythicalItem, it
 		}
 	}
 	card["evidence"] = evidence
+	for _, field := range []string{"prompt_revisions", "steers", "first_answer", "waits"} {
+		if value, ok := card[field]; ok {
+			card[field], err = s.authoredRows(ctx, item.RepositoryID, value)
+			if err != nil {
+				return nil, err
+			}
+		}
+	}
 	return card, nil
 }
 

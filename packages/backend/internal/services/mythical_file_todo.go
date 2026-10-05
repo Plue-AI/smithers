@@ -180,7 +180,11 @@ func (s *MythicalService) FileTodo(ctx context.Context, repositoryID, userID int
 				return &TodoControlError{409, "merging", "conflict", fmt.Sprintf("T%d is merging", *input.Place.N)}
 			}
 		}
-		first := map[string]any{"text": input.Prompt, "acceptance": input.Acceptance, "by": map[string]any{"kind": "person", "login": person.Username, "name": person.DisplayName, "avatar_url": todoAvatar(person), "color_index": 0}, "at": s.now().UTC().Format(time.RFC3339Nano)}
+		by, err := s.personProfile(ctx, repositoryID, person.Username)
+		if err != nil {
+			return err
+		}
+		first := map[string]any{"text": input.Prompt, "acceptance": input.Acceptance, "by": by, "at": s.now().UTC().Format(time.RFC3339Nano)}
 		if issue != nil {
 			first["reason"], first["issue_digest"] = "from-issue", issue.Digest
 		}

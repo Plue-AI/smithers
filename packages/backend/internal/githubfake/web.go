@@ -8,6 +8,7 @@ import (
 	"net"
 	"net/http"
 	"net/url"
+	"slices"
 	"sort"
 	"strings"
 	"time"
@@ -165,6 +166,30 @@ func (s *Server) web(w http.ResponseWriter, r *http.Request) bool {
 		s.opened[issueKey(body.Repo, number)] = &issue{Number: number, Title: body.Title, Body: body.Body, Author: body.Login, State: "open", CreatedAt: now, UpdatedAt: now}
 		w.Header().Set("Content-Type", "application/json")
 		_ = json.NewEncoder(w).Encode(map[string]int64{"number": number})
+		return true
+	}
+	// The browser proof's person applies a label on GitHub, producing the same
+	// repository issue event as LabelIssue; no product state is seeded.
+	if r.Method == "POST" && r.URL.Path == "/_fake/labels" {
+		var body struct {
+			Repo, Login, Label string
+			Number             int64
+		}
+		if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 1<<16)).Decode(&body); err != nil || body.Repo == "" || body.Login == "" || body.Label == "" || body.Number <= 0 {
+			http.Error(w, "repo, number, login and label are required", 400)
+			return true
+		}
+		key := issueKey(body.Repo, body.Number)
+		if s.opened[key] == nil {
+			http.Error(w, "issue not found", 404)
+			return true
+		}
+		if !slices.Contains(s.labels[key], body.Label) {
+			s.labels[key] = append(s.labels[key], body.Label)
+		}
+		id := s.event(key, "labeled", body.Login, false, body.Label)
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(map[string]int64{"id": id})
 		return true
 	}
 	// A person comments on an issue on GitHub (J2.1), as CommentIssue does.

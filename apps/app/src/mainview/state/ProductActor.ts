@@ -20,7 +20,7 @@ export { actorName } from "../cards/views/actorName"
 export const todoActors = (value: unknown, context: ActorContext = {}): unknown => {
   if (!value || typeof value !== "object") return value
   const model = value as Record<string, unknown>
-  const actor = (wire: unknown) => toActor(wire as ProductActor | Actor, context.roster, context.runs, context.sessions)
+  const actor = (wire: unknown) => wire && typeof wire === "object" && "kind" in wire ? wire : toActor(wire as ProductActor | Actor, context.roster, context.runs, context.sessions)
   const authored = (value: unknown) => {
     if (!value || typeof value !== "object") return value
     const row = value as Record<string, unknown>

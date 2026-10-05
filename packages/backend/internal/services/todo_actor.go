@@ -20,7 +20,8 @@ func todoActor(ctx context.Context, person db.User) json.RawMessage {
 	if name == "" {
 		name = person.Username
 	}
-	ref := map[string]any{"login": person.Username, "name": name, "avatar_url": todoAvatar(person)}
+	ref := memberProfile(person.Username, name, 0)
+	delete(ref, "color_index")
 	info := middleware.AuthInfoFromContext(ctx)
 	delegation, delegated := info.Delegation()
 	actor := map[string]any{"kind": "person", "color_index": 0}

@@ -92,6 +92,7 @@ type mythicalPRShape struct {
 	First                                                                     bool
 	FixesIssue                                                                bool
 	DraftsAvailable                                                           bool
+	IssueNumber                                                               int64
 	FirstNumber                                                               int64
 	Included                                                                  []mythicalPRIncluded
 }
@@ -122,6 +123,9 @@ func (p mythicalPRShape) render() (string, string, error) {
 	footer := ""
 	if len(included) > 0 {
 		footer = "\n\nIncludes " + strings.Join(included, ", ") + " until they merge"
+	}
+	if p.FixesIssue && p.IssueNumber > 0 {
+		footer += fmt.Sprintf("\n\nFixes #%d", p.IssueNumber)
 	}
 	footer += "\n\n" + p.URL + "\n\nRequested by @" + p.Owner
 	// Keep identity and the latest prompt; evidence is the truncatable section.

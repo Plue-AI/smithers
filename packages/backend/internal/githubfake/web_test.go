@@ -187,6 +187,22 @@ func TestBrowserPages(t *testing.T) {
 	if bad, err := http.Post(fake.URL+"/_fake/issues", "application/json", strings.NewReader(`{"repo":"local-owner/demo"}`)); err != nil || bad.StatusCode != 400 {
 		t.Fatal(err, bad.StatusCode)
 	}
+	for body, status := range map[string]int{
+		`{"repo":"local-owner/demo","number":1,"login":"ben","label":"todo"}`:              200,
+		`{"repo":"local-owner/demo","number":9,"login":"ben","label":"todo"}`:              404,
+		`{"repo":"local-owner/demo","number":1,"login":"ben"}`:                             400,
+		`{"repo":"local-owner/demo","number":0,"login":"ben","label":"todo"}`:              400,
+		`{"repo":"local-owner/demo","number":1,"login":"ben","label":"todo","extra":true}`: 200,
+	} {
+		response, err := http.Post(fake.URL+"/_fake/labels", "application/json", strings.NewReader(body))
+		if err != nil {
+			t.Fatal(err)
+		}
+		response.Body.Close()
+		if response.StatusCode != status {
+			t.Fatalf("label: %d want %d", response.StatusCode, status)
+		}
+	}
 	// Someone comments on it; a comment needs an issue and words.
 	commented, err := http.Post(fake.URL+"/_fake/comments", "application/json", strings.NewReader(`{"repo":"local-owner/demo","number":1,"login":"carol","body":"Seen it too."}`))
 	if err != nil || commented.StatusCode != 200 {

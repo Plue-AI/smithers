@@ -747,3 +747,23 @@ describe("TodoSeam — the TODO list Home reads where no `home` topic is served 
     } finally { out.close() }
   })
 })
+
+ describe("TODO decode diagnostics", () => {
+ test("missing author fields name their path, never a connection failure", async () => {
+  const model = structuredClone(fixtures.in_review.model) as any
+  model.prompt_revisions[0].by = { kind: "person", login: "ben" }
+  const h = await harness(async () => json(model, 200))
+  try {
+   const result = await h.seam.showTodo(12)
+   expect(result).toContain("Could not decode TODOs")
+   expect(result).toContain("prompt_revisions.0.by.name")
+   expect(result).not.toContain("connection")
+  } finally { h.close() }
+ })
+ test("invalid JSON is decoded distinctly from an unreachable server", async () => {
+  for (const mode of ["json", "network"]) {
+   const h = await harness(async () => { if (mode === "network") throw new TypeError("offline"); return new Response("{") })
+   try { expect(await h.seam.showTodo(12)).toContain(mode === "json" ? "invalid JSON" : "Could not reach TODOs") } finally { h.close() }
+  }
+ })
+})

@@ -73,6 +73,14 @@ func TestInstallIssueEventsCommitAMembersTodoLabelOnce(t *testing.T) {
 	require.Equal(t, "ben", revisions[0].By.Login)
 	require.Equal(t, "from-issue", revisions[0].Reason)
 	require.Equal(t, event, mythicalChecksOf(item).TodoEvent)
+	require.NotNil(t, mythicalChecksOf(item).Notice)
+	require.Equal(t, mythicalCommittedKeyPrefix+strconv.FormatInt(item.Number.Int64, 10), mythicalChecksOf(item).Notice.Key)
+	var authors []map[string]any
+	require.NoError(t, json.Unmarshal(item.Revisions, &authors))
+	by := authors[0]["by"].(map[string]any)
+	require.NotEmpty(t, by["name"])
+	require.Equal(t, "https://github.com/ben.png", by["avatar_url"])
+	require.Contains(t, by, "color_index")
 
 	// Later reads hand nothing over again, and the cursor never moves back.
 	require.NoError(t, f.service.ReadIssueEvents(ctx, f.repoID))

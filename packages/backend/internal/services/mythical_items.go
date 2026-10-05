@@ -196,12 +196,16 @@ func (s *MythicalService) ObserveIssue(ctx context.Context, repositoryID int64, 
 	if len(body) > mythicalPromptBytes {
 		body = body[:mythicalPromptBytes]
 	}
+	by, err := s.personProfile(ctx, repositoryID, applied.By)
+	if err != nil {
+		return err
+	}
 	revision, _ := json.Marshal([]map[string]any{{"text": issue.Title + "\n\n" + body, "acceptance": []string{},
-		"by": map[string]any{"kind": "person", "login": applied.By}, "at": s.now().UTC().Format(time.RFC3339Nano),
+		"by": by, "at": s.now().UTC().Format(time.RFC3339Nano),
 		"reason": "from-issue", "issue_digest": digest}})
 	var created db.MythicalItem
 	var generation int64
-	err := pgx.BeginFunc(ctx, s.store, func(tx pgx.Tx) error {
+	err = pgx.BeginFunc(ctx, s.store, func(tx pgx.Tx) error {
 		q := db.New(tx)
 		if _, err := tx.Exec(ctx, `SELECT pg_advisory_xact_lock($1)`, repositoryID); err != nil {
 			return err
@@ -219,6 +223,13 @@ func (s *MythicalService) ObserveIssue(ctx context.Context, repositoryID int64, 
 			IssueDigest: digest, IssueBody: body, ApprovedDigest: digest, State: "queued", Outsider: !issue.TextByMaintainer,
 			Checks: checks.encode(), Revisions: revision, FixesIssue: true})
 		if err != nil || !inserted {
+			return err
+		}
+		checks = mythicalChecksOf(item)
+		notice := mythicalCommittedNotice(item.Number.Int64, s.origin())
+		checks.Notice = &notice
+		item.Checks = checks.encode()
+		if item, err = q.SaveMythicalItem(ctx, item); err != nil {
 			return err
 		}
 		fact, _ := json.Marshal(map[string]any{"item": uuidString(item.ID), "n": item.Number.Int64, "attempt": item.Attempt,

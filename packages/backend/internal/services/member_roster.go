@@ -281,8 +281,10 @@ func (m *Members) List(ctx context.Context) (MembersProjection, error) {
 		if owner {
 			row.Role = string(InstallOwner)
 		}
-		row.AvatarURL = "https://github.com/" + row.Login + ".png"
-		row.ColorIndex = len(out.Members) % 6
+		profile := memberProfile(row.Login, row.Name, len(out.Members))
+		row.Name = profile["name"].(string)
+		row.AvatarURL = profile["avatar_url"].(string)
+		row.ColorIndex = profile["color_index"].(int)
 		row.Actions = []map[string]any{}
 		if canWrite && !owner {
 			row.Actions = []map[string]any{{"tag": "members.role", "label": "Role", "args": map[string]string{"login": row.Login}}, {"tag": "members.remove", "label": "Remove", "args": map[string]string{"login": row.Login}}}
