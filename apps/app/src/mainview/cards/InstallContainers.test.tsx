@@ -94,7 +94,7 @@ describe("T-APP-03 Containers with recording Views", () => {
     expect(keys.map(action => ({ args: action.args, label: action.label, input: action.input }))).toEqual([
       { args: { step: "models", role: "fast" }, label: "Save", input: [{ name: "value", label: "Cerebras key", kind: "secret", required: true }] },
       { args: { step: "models", role: "coding" }, label: "Save", input: [
-        { name: "provider", label: "Provider", kind: "choice", required: true, value: "OpenAI", choices: ["OpenAI", "Anthropic", "OpenRouter"] },
+        { name: "provider", label: "Provider", kind: "choice", required: true, value: "OpenAI", choices: ["OpenAI", "Anthropic", "OpenRouter", "AI Gateway"] },
         { name: "model", label: "Model", kind: "text", required: true },
         { name: "value", label: "API key", kind: "secret", required: true }] },
       { args: { step: "models", role: "jev" }, label: "Save", input: [{ name: "value", label: "AI Gateway key", kind: "secret", required: true }] }

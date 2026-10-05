@@ -229,7 +229,8 @@ describe("T-APP-03 install seam", () => {
   test("coding Save names each provider's address: chat protocols carry a base URL without /v1", async () => {
     for (const [provider, credential, model] of [
       ["OpenRouter", "OPENROUTER_API_KEY", { protocol: "openai-chat", modelId: "openai/gpt-5", credential: "OPENROUTER_API_KEY", baseUrl: "https://openrouter.ai/api" }],
-      ["Anthropic", "ANTHROPIC_API_KEY", { protocol: "anthropic-messages", modelId: "openai/gpt-5", credential: "ANTHROPIC_API_KEY" }]
+      ["Anthropic", "ANTHROPIC_API_KEY", { protocol: "anthropic-messages", modelId: "openai/gpt-5", credential: "ANTHROPIC_API_KEY" }],
+      ["AI Gateway", "AI_GATEWAY_API_KEY", { protocol: "openai-chat", modelId: "openai/gpt-5", credential: "AI_GATEWAY_API_KEY", baseUrl: "https://ai-gateway.vercel.sh" }]
     ] as const) {
       const h = await harness(path => path === "/api/model/credential" ? Response.json(credentialReceipt(credential))
         : path === "/api/model/default" ? Response.json({ ok: true }) : Response.json(installFixture()))
@@ -238,6 +239,24 @@ describe("T-APP-03 install seam", () => {
       await h.idle()
       const request = h.requests.find(request => request.path === "/api/model/default")!
       expect(JSON.parse(String(request.init?.body))).toEqual({ model })
+    }
+  })
+  test("coding on the AI Gateway rotates the Gateway key Decisions saved, and enrolls it when none is saved", async () => {
+    for (const [decisions, credential] of [
+      ["saved", { action: "rotate", name: "AI_GATEWAY_API_KEY" }],
+      ["none", { action: "enroll", name: "AI_GATEWAY_API_KEY", origin: "https://ai-gateway.vercel.sh" }]
+    ] as const) {
+      const model = installFixture(); model.models[2] = { role: "jev", provider: "AI Gateway", key: decisions }
+      const h = await harness(path => path === "/api/model/credential" ? Response.json(credentialReceipt("AI_GATEWAY_API_KEY"))
+        : path === "/api/model/default" ? Response.json({ ok: true }) : Response.json(model))
+      await h.seam.readInstall()
+      h.seam.saveInstallModelKey({ role: "coding", provider: "AI Gateway", model: "anthropic/claude-sonnet-4.5" }, writeOnlyGesture("settings.model-key", { value: "private-key" }))
+      await h.idle()
+      const sent = JSON.parse(String(h.requests.find(request => request.path === "/api/model/credential")!.init?.body))
+      expect(sent).toMatchObject({ ...credential, value: "private-key" })
+      expect(JSON.parse(String(h.requests.find(request => request.path === "/api/model/default")!.init?.body))).toEqual({ model: {
+        protocol: "openai-chat", modelId: "anthropic/claude-sonnet-4.5", credential: "AI_GATEWAY_API_KEY", baseUrl: "https://ai-gateway.vercel.sh" } })
+      expect(h.toasts[0]?.outcome).toBe(true)
     }
   })
   test("saved keys refresh from GET; repeated submissions send one write", async () => {

@@ -52,7 +52,9 @@ const awaitingAppInstall = (model?: InstallModel) =>
  * openai-chat has no default address (@smthrs/rpc MODEL_PROTOCOL_DEFAULTS), and the model host appends
  * /v1/chat/completions to the base URL, so each chat provider's base URL omits /v1.
  */
-const CHAT_BASE_URLS: Readonly<Record<string, string>> = { OPENROUTER_API_KEY: "https://openrouter.ai/api", CEREBRAS_API_KEY: "https://api.cerebras.ai" }
+const CHAT_BASE_URLS: Readonly<Record<string, string>> = {
+  OPENROUTER_API_KEY: "https://openrouter.ai/api", CEREBRAS_API_KEY: "https://api.cerebras.ai", AI_GATEWAY_API_KEY: "https://ai-gateway.vercel.sh"
+}
 
 export const createInstallSeam = (ctx: SeamContext, withToast: FailureController["withToast"], options: InstallSeamOptions = {}) => {
   const shared = actorSharedState(ctx, "install", () => ({
@@ -341,8 +343,9 @@ export const createInstallSeam = (ctx: SeamContext, withToast: FailureController
     const name = input.role === "jev" ? "AI_GATEWAY_API_KEY" : input.provider.toUpperCase().replace(/[ -]/g, "_") + "_API_KEY"
     const credential = MODEL_CREDENTIALS.find(credential => credential.name === name)
     if (!credential) { value = undefined; return "Choose a provider" }
-    const prior = shared.snapshot.model.models.find(role => role.role === input.role)
-    const rotate = prior?.provider === input.provider && prior.key === "saved"
+    // One provider's key is one credential: a key another role already saved (the AI Gateway's, for coding and
+    // Decisions) is rotated, never enrolled twice.
+    const rotate = shared.snapshot.model.models.some(role => role.provider === input.provider && role.key === "saved")
     if (shared.pending.has(`key:${input.role}`)) { value = undefined; return { value: "Requested" } }
     const mark = (key: "validating" | "failed", reason?: string) => {
       const model = shared.snapshot.model

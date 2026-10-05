@@ -17,8 +17,11 @@ export interface SetupCardProps {
 const labels = { address: "Address", app_manifest: "Create GitHub App", sign_in: "Sign in", repository: "Repository",
   models: "Model access", source: "Mirror", machine: "Build image" } as const
 
-/* The coding model's key providers (MODEL_CREDENTIALS); the fast model is Cerebras and Decisions the AI Gateway (mvp.md §6.5). */
-const CODING_PROVIDERS = ["OpenAI", "Anthropic", "OpenRouter"] as const
+/*
+ * The coding model's key providers (MODEL_CREDENTIALS); the fast model is Cerebras and Decisions the AI Gateway (mvp.md §6.5).
+ * The AI Gateway also serves the coding model by its vendor/model id, on the one Gateway key Decisions uses.
+ */
+const CODING_PROVIDERS = ["OpenAI", "Anthropic", "OpenRouter", "AI Gateway"] as const
 
 /**
  * One key control per model role (mvp.md J1 2.4, §6.5), each bound to its role so the View puts it on that role's row.
