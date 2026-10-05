@@ -266,6 +266,34 @@ func TestMythicalMergeTodoSquashesAtTheReviewedHead(t *testing.T) {
 	assert.Len(t, h.merges(), 1, "settlement and later passes never merge again")
 }
 
+// A stack pass saving the TODO while a person presses Merge (J4 row 9: the
+// lane released once the review answered) delays the press; it never refuses
+// it with "The TODO changed".
+func TestMythicalMergeTodoPressOutlastsAStackWriteOnItsTodo(t *testing.T) {
+	h := newMergeHarness(t)
+	n, head, _ := h.first("Add a greeting")
+	ctx := context.Background()
+	pool := h.pool.(*pgxpool.Pool)
+	pass, err := pool.Begin(ctx)
+	require.NoError(t, err)
+	defer func() { _ = pass.Rollback(ctx) }()
+	_, err = pass.Exec(ctx, `UPDATE mythical_items SET version = version + 1, updated_at = NOW() WHERE repository_id = $1 AND number = $2`, h.repoID, n)
+	require.NoError(t, err)
+	pressed := make(chan error, 1)
+	go func() { pressed <- h.press(h.ctx, n, head) }()
+	// The press reaches the TODO's row and waits for the pass.
+	require.Eventually(t, func() bool {
+		var waiting int
+		require.NoError(t, pool.QueryRow(ctx, `SELECT count(*) FROM pg_stat_activity WHERE datname = current_database() AND wait_event_type = 'Lock'`).Scan(&waiting))
+		return waiting > 0
+	}, 30*time.Second, 10*time.Millisecond)
+	require.NoError(t, pass.Commit(ctx))
+	require.NoError(t, <-pressed)
+	land := h.land(n)
+	require.NotNil(t, land)
+	assert.Equal(t, head, land.Head)
+}
+
 // GitHub reporting the merge is not enough: the TODO stays in review, still
 // fenced, until main contains the merge commit.
 func TestMythicalMergeTodoWaitsForMainToContainTheMerge(t *testing.T) {

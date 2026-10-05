@@ -296,6 +296,12 @@ func (s *MythicalService) requestMerge(ctx context.Context, repositoryID, userID
 		} else if !errors.Is(err, pgx.ErrNoRows) {
 			return err
 		}
+		// The TODO's row, after the stack's: a stack pass saving the TODO
+		// (a lane release, a pull request poll) finishes first, and the
+		// press decides on what it saved instead of losing the version check.
+		if _, err := tx.Exec(ctx, `SELECT 1 FROM mythical_items WHERE id = $1 FOR UPDATE`, item.ID); err != nil {
+			return err
+		}
 		current, err := q.GetMythicalItem(ctx, item.ID)
 		if err != nil {
 			return err
