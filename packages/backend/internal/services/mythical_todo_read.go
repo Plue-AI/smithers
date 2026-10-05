@@ -121,8 +121,11 @@ func (s *MythicalService) todoCard(ctx context.Context, item db.MythicalItem, it
 		machine := map[string]any{"state": state}
 		// A lane the full host queued waits in line: "Waiting for a
 		// machine · #2" (spec §4.2), never a failure.
+		// The card says why the TODO waits and where it is in line, whatever
+		// step the lane is for (its run, its review).
 		if place, waiting := s.machinePlace(workspace); waiting {
 			machine = map[string]any{"state": "waiting", "position": place}
+			card["queue"] = map[string]any{"reason": "machine", "position": int64(place)}
 		}
 		if state == "failed" {
 			machine["error"] = map[string]any{"class": "infra", "message": workspace.FailureMessage.String}
@@ -162,8 +165,14 @@ func (s *MythicalService) todoCard(ctx context.Context, item db.MythicalItem, it
 			"included_items": append(append([]int64{}, checks.PRIncludes...), item.Number.Int64)}
 	}
 	evidence := todoEvidence(item)
-	if item.Attempt > 0 && hasBranch {
-		access, err := s.queries().MythicalWorkspaceModelAccess(ctx, item.RepositoryID, workspace.ID)
+	// The run's model access is read from the lane it holds, else from the
+	// lane the card names once that lane was released.
+	accessLane := item.WorkspaceID
+	if accessLane == "" && hasBranch {
+		accessLane = workspace.ID
+	}
+	if item.Attempt > 0 && accessLane != "" {
+		access, err := s.queries().MythicalWorkspaceModelAccess(ctx, item.RepositoryID, accessLane)
 		if err != nil {
 			return nil, err
 		}
