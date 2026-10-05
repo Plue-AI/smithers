@@ -89,7 +89,7 @@ try {
       assert.equal(requests, 1)
       assert.equal(exchange.response?.status, fixtures.signout.status)
       assert.deepEqual(JSON.parse(exchange.response!.body), fixtures.signout.body)
-      assert.deepEqual(exchange.failure, { class: "permission", message: fixtures.signout.body.message, status: 401 })
+      assert.deepEqual(exchange.failure, { class: "permission", code: fixtures.signout.body.code, message: fixtures.signout.body.message, status: 401 })
       assert.equal(seam.get().busy, false, "Typed failure settles Send without a crash")
       // Apply the cleared browser credential and the existing account lifecycle.
       activeCookie = ""
