@@ -52,6 +52,8 @@ type mythicalPull struct {
 	MergeCommit string
 	HeadRef     string
 	HeadSHA     string
+	// Body is the pull request's description as GitHub holds it now.
+	Body string
 	// BaseRef is the branch GitHub would merge the pull request into.
 	BaseRef string
 	// MergeableState is GitHub's word: clean, dirty (conflicts), behind
@@ -79,6 +81,8 @@ type mythicalGitHub interface {
 	Pull(ctx context.Context, gh mythicalGitHubRepo, number int64) (mythicalPull, error)
 	FindPull(ctx context.Context, gh mythicalGitHubRepo, branch string) (*mythicalPull, error)
 	CreatePull(ctx context.Context, gh mythicalGitHubRepo, title, head, base, body string, draft bool) (mythicalPull, error)
+	// UpdatePullBody replaces a pull request's description.
+	UpdatePullBody(ctx context.Context, gh mythicalGitHubRepo, number int64, body string) error
 	// HeadChecks answers GitHub CI's verdict on one commit (mythicalCIGreen,
 	// mythicalCIPending or mythicalCIRed).
 	HeadChecks(ctx context.Context, gh mythicalGitHubRepo, sha string) (string, error)
@@ -270,11 +274,16 @@ func (g *mythicalGitHubAPI) OpenIssues(ctx context.Context, gh mythicalGitHubRep
 type mythicalGitHubPull struct {
 	landingGitHubPullRequest
 	MergeableState string `json:"mergeable_state"`
+	// Body is null when the description is empty.
+	Body *string `json:"body"`
 }
 
 func (p mythicalGitHubPull) pull() mythicalPull {
 	out := mythicalPull{Draft: p.Draft, NodeID: p.NodeID, Number: p.Number, URL: p.HTMLURL, State: p.State, Merged: p.MergedAt != nil,
 		HeadRef: p.Head.Ref, HeadSHA: p.Head.SHA, BaseRef: p.Base.Ref, MergeableState: p.MergeableState}
+	if p.Body != nil {
+		out.Body = *p.Body
+	}
 	if out.Merged && p.MergeCommitSHA != nil {
 		out.MergeCommit = *p.MergeCommitSHA
 	}

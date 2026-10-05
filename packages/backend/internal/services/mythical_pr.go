@@ -27,8 +27,8 @@ type GitHubRefusal struct {
 
 func (e *GitHubRefusal) Error() string { return e.Message }
 
-// These adapter writes are intentionally not mounted: T-GH-09 must journal
-// their intent and reconcile ambiguous success before any production caller.
+// UpdatePullBody is the "body" outbound operation's send: the stack journals
+// it in the item's pending_op and settles it by lookup (reviewBody, T-GH-09).
 func (g *mythicalGitHubAPI) UpdatePullBody(ctx context.Context, gh mythicalGitHubRepo, number int64, body string) error {
 	path := landingGitHubRepoPath(gh.Owner, gh.Name) + "/pulls/" + strconv.FormatInt(number, 10)
 	status, err := g.api.request(ctx, gh.Token, http.MethodPatch, path, map[string]string{"body": body}, nil)
@@ -40,6 +40,9 @@ func (g *mythicalGitHubAPI) UpdatePullBody(ctx context.Context, gh mythicalGitHu
 	}
 	return nil
 }
+
+// These adapter writes are intentionally not mounted: T-GH-09 must journal
+// their intent and reconcile ambiguous success before any production caller.
 func (g *mythicalGitHubAPI) MarkReadyForReview(ctx context.Context, gh mythicalGitHubRepo, nodeID string) error {
 	return g.pullDraftMutation(ctx, gh, nodeID, "markPullRequestReadyForReview")
 }

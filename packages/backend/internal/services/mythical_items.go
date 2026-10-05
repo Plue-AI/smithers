@@ -2509,6 +2509,14 @@ func (st *mythicalItemStep) proposedFrom(item db.MythicalItem, pull mythicalPull
 	next.PRURL, next.PRState = pull.URL, pull.State
 	proposed := mythicalChecksOf(next)
 	proposed.PRDraft = pull.Draft
+	if proposed.PRBody == "" || !item.PRNumber.Valid || item.PRNumber.Int64 != pull.Number {
+		// The body this pull request opened with: createPull renders the
+		// same accepted shape. Later binds of the same pull request keep it.
+		proposed.PRBody = ""
+		if _, body, err := shape.render(); err == nil {
+			proposed.PRBody = mythicalBodyDigest(body)
+		}
+	}
 	proposed.PRIncludes = nil
 	for _, included := range shape.Included {
 		proposed.PRIncludes = append(proposed.PRIncludes, included.Number)
@@ -2669,10 +2677,67 @@ func (st *mythicalItemStep) gate(ctx context.Context, item db.MythicalItem) (*db
 			reason = "the review of this head failed (" + detail + "); a person decides"
 		}
 		return mythicalHold(item, "review:"+item.PRHead, reason, nil, st.now), false, nil
+	case (review.Verdict == "approve" || review.Verdict == "request-changes") && !review.Posted && st.s.outbound.Send != nil:
+		// The verdict goes on the pull request body first; an approved
+		// automerge TODO merges on the next pass.
+		return st.reviewBody(ctx, item)
 	case review.Verdict == "approve" && checks.Automerge && checks.Todo && st.gh != nil:
 		return st.merge(ctx, item), false, nil
 	}
 	return &item, false, nil
+}
+
+// reviewBody writes the review's verdict onto the pull request body, as the
+// TODO's evidence shows it (mythicalTodoEvidenceText's Review line), through
+// the "body" outbound operation: intended, sent after a lookup and settled by
+// another, all in this pass. Its precondition is the body Smithers last
+// wrote (PRBody), so a body a person edited is never overwritten. Nothing
+// here holds the TODO: a body that cannot be written leaves the verdict on
+// the card alone.
+func (st *mythicalItemStep) reviewBody(ctx context.Context, item db.MythicalItem) (*db.MythicalItem, bool, error) {
+	checks := mythicalChecksOf(item)
+	unwritten := func(why string) (*db.MythicalItem, bool, error) {
+		st.s.logger.Info("mythical.review_body_unwritten", "item", uuidString(item.ID), "reason", why)
+		next := item
+		checks.Review.Posted = true
+		next.Checks = checks.encode()
+		return &next, false, nil
+	}
+	if checks.PRBody == "" || !item.PRNumber.Valid {
+		return unwritten("the body Smithers opened the pull request with is unknown")
+	}
+	shape, err := st.acceptedShape(ctx, item, checks.Branch)
+	if err != nil {
+		return unwritten(err.Error())
+	}
+	_, body, err := shape.render()
+	if err != nil {
+		return unwritten(err.Error())
+	}
+	desired := mythicalBodyDigest(body)
+	if desired == checks.PRBody {
+		return unwritten("the body already carries the verdict")
+	}
+	if err := st.s.outboundReady(ctx, item, "body"); err != nil {
+		return unwritten(err.Error())
+	}
+	op := MythicalOutboundOp{Kind: "body", Target: strconv.FormatInt(item.PRNumber.Int64, 10), Desired: desired, Precondition: checks.PRBody, State: "intended"}
+	next := item
+	next.PendingOp, _ = json.Marshal(op)
+	next, err = st.q.SaveMythicalItemUnderLease(ctx, next, st.r.row.Claim)
+	if err != nil {
+		return nil, false, err
+	}
+	// The first recovery looks the body up and sends; the second settles it
+	// by lookup. Either one failing leaves the slot for the next pass.
+	sent, err := st.recoverOutbound(ctx, next)
+	if err == nil && len(sent.PendingOp) > 0 {
+		sent, err = st.recoverOutbound(ctx, *sent)
+	}
+	if err != nil {
+		return nil, false, err
+	}
+	return sent, true, nil
 }
 
 // mythicalReviewFlow reviews a proposed change read-only, from the change
@@ -3544,6 +3609,10 @@ type mythicalChecks struct {
 	// PRIncludes are the earlier items the pull request body includes until
 	// they merge, as it was opened.
 	PRIncludes []int64 `json:"prIncludes,omitempty"`
+	// PRBody is the digest of the pull request body Smithers last wrote: the
+	// one it opened the pull request with, then each update (reviewBody). A
+	// body GitHub holds that differs is a person's edit, never overwritten.
+	PRBody string `json:"prBody,omitempty"`
 	// Notice is an issue comment waiting to be posted, and Noticed the keys
 	// of every comment posted, so each is said once and a failed post is
 	// retried on a later pass (mythicalNotice).
@@ -3680,6 +3749,10 @@ type mythicalReview struct {
 	Candidate string `json:"candidate,omitempty"`
 	RunID     string `json:"runId,omitempty"`
 	Verdict   string `json:"verdict,omitempty"`
+	// Posted reports that the pull request body carries this verdict
+	// (reviewBody), or that it will not: a person's body stands, or the body
+	// could not be written.
+	Posted bool `json:"posted,omitempty"`
 }
 
 func mythicalChecksOf(item db.MythicalItem) mythicalChecks {

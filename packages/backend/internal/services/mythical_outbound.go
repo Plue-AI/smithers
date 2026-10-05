@@ -137,6 +137,11 @@ func (st *mythicalItemStep) recoverOutbound(ctx context.Context, item db.Mythica
 		return nil, err
 	}
 	op.State = outboundResult(op, observed, appliedClose)
+	if op.Kind == "body" && op.State == "conflict" {
+		// A person edited the body or the pull request closed: nothing is
+		// written, and the verdict stays on the card.
+		return st.yieldBody(ctx, item)
+	}
 	if op.State == "conflict" && mythicalPublishes(op.Kind) {
 		// The branch holds a head Smithers neither recorded nor published: a
 		// person's push, held exactly as one found before the push.
@@ -166,6 +171,12 @@ func (st *mythicalItemStep) recoverOutbound(ctx context.Context, item db.Mythica
 			return nil, err
 		}
 		if err := p.Send(st, ctx, item, op); err != nil {
+			if errors.Is(err, errMythicalBodyStale) {
+				// Nothing was sent: the gate prepares the body again.
+				item.PendingOp = nil
+				saved, saveErr := st.q.SaveMythicalItemUnderLease(ctx, item, st.r.row.Claim)
+				return &saved, saveErr
+			}
 			return nil, err
 		}
 		// A successful response still needs lookup before settlement. This retains
@@ -205,6 +216,20 @@ func (st *mythicalItemStep) settleOutbound(ctx context.Context, item db.Mythical
 		}
 	}
 	next.PendingOp = nil
+	saved, err := st.q.SaveMythicalItemUnderLease(ctx, next, st.r.row.Claim)
+	return &saved, err
+}
+
+// yieldBody drops a "body" operation that must not be sent; the current
+// head's verdict counts as posted, so the gate does not prepare it again.
+func (st *mythicalItemStep) yieldBody(ctx context.Context, item db.MythicalItem) (*db.MythicalItem, error) {
+	next := item
+	next.PendingOp = nil
+	checks := mythicalChecksOf(next)
+	if checks.Review != nil && checks.Review.Head == next.PRHead {
+		checks.Review.Posted = true
+	}
+	next.Checks = checks.encode()
 	saved, err := st.q.SaveMythicalItemUnderLease(ctx, next, st.r.row.Claim)
 	return &saved, err
 }

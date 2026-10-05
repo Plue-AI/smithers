@@ -2,6 +2,8 @@ package services
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -38,7 +40,8 @@ type mythicalPublication struct {
 }
 
 // EnableTodoPublication composes the install App's TODO writes: publication
-// of a TODO's branch and pull request, and the squash merge a person's
+// of a TODO's branch and pull request, its body's review line, and the
+// squash merge a person's
 // Review & merge approves (§10.6.2). Without it every TODO-branch write is
 // held (publicationAuthority) and the merge route refuses before approval.
 func (s *MythicalService) EnableTodoPublication(app GitHubAppCredentialReader, connections MythicalPublicationConnections, budget *BudgetTracker) {
@@ -470,7 +473,8 @@ func (st *mythicalItemStep) publicationGitHub(ctx context.Context) (mythicalGitH
 }
 
 // appLookup observes an operation's target on GitHub: the branch head for a
-// push, the open pull request's head for an open, the merge for a merge.
+// push, the open pull request's head for an open, the merge for a merge, the
+// open pull request's body digest for a body.
 func (st *mythicalItemStep) appLookup(ctx context.Context, item db.MythicalItem, op MythicalOutboundOp) (string, bool, error) {
 	gh, err := st.publicationGitHub(ctx)
 	if err != nil {
@@ -494,9 +498,35 @@ func (st *mythicalItemStep) appLookup(ctx context.Context, item db.MythicalItem,
 		return pull.HeadSHA, false, nil
 	case "merge":
 		return st.s.mergeLookup(ctx, gh, item, op)
+	case "body":
+		number, err := strconv.ParseInt(op.Target, 10, 64)
+		if err != nil {
+			return "", false, fmt.Errorf("invalid pull request number %q", op.Target)
+		}
+		pull, err := st.s.github.Pull(ctx, gh, number)
+		if err != nil {
+			return "", false, err
+		}
+		if pull.State != "open" {
+			// A closed pull request's body is no longer the stack's to write.
+			return "", false, nil
+		}
+		return mythicalBodyDigest(pull.Body), false, nil
 	}
 	return "", false, fmt.Errorf("GitHub %s reconciliation is not composed", op.Kind)
 }
+
+// mythicalBodyDigest identifies a pull request body: a "body" operation's
+// desired and precondition values, and PRBody.
+func mythicalBodyDigest(body string) string {
+	sum := sha256.Sum256([]byte(body))
+	return hex.EncodeToString(sum[:])
+}
+
+// errMythicalBodyStale: the body a "body" operation was prepared with is not
+// the body the item renders now, so nothing is sent and the gate prepares
+// it again.
+var errMythicalBodyStale = errors.New("the pull request body changed since its update was prepared")
 
 // appSend repeats an operation whose lookup proved it never took effect. A
 // merge is sent through prepareMerge instead.
@@ -510,6 +540,22 @@ func (st *mythicalItemStep) appSend(ctx context.Context, item db.MythicalItem, o
 		return st.pushProposal(ctx, item, gh, mythicalProposalOp{Branch: op.Target, Expected: op.Precondition, Head: op.Desired})
 	case "open":
 		return st.createPull(ctx, item, gh, op.Target)
+	case "body":
+		// The operation carries only the body's digest: the body is rendered
+		// again from the item, and sent only if it is the one prepared.
+		number, err := strconv.ParseInt(op.Target, 10, 64)
+		if err != nil || !item.PRNumber.Valid || number != item.PRNumber.Int64 {
+			return errMythicalBodyStale
+		}
+		shape, err := st.acceptedShape(ctx, item, mythicalChecksOf(item).Branch)
+		if err != nil {
+			return fmt.Errorf("%w: %v", errMythicalBodyStale, err)
+		}
+		_, body, err := shape.render()
+		if err != nil || mythicalBodyDigest(body) != op.Desired {
+			return errMythicalBodyStale
+		}
+		return st.s.github.UpdatePullBody(ctx, gh, number, body)
 	}
 	return fmt.Errorf("GitHub %s dispatch is not composed", op.Kind)
 }
@@ -545,9 +591,21 @@ func (st *mythicalItemStep) prepareMerge(ctx context.Context, item db.MythicalIt
 }
 
 // appSettle binds an opened pull request from GitHub's own answer at the
-// proposed head, and lands a merge once main contains it; a push settles
-// from lookup alone.
+// proposed head, records a written body, and lands a merge once main
+// contains it; a push settles from lookup alone.
 func (st *mythicalItemStep) appSettle(ctx context.Context, item db.MythicalItem, op MythicalOutboundOp) (db.MythicalItem, error) {
+	if op.Kind == "body" {
+		// Lookup found the body written: it is the one Smithers last wrote,
+		// and it carries the current head's verdict.
+		next := item
+		checks := mythicalChecksOf(next)
+		checks.PRBody = op.Desired
+		if checks.Review != nil && checks.Review.Head == next.PRHead {
+			checks.Review.Posted = true
+		}
+		next.Checks = checks.encode()
+		return next, nil
+	}
 	if op.Kind != "open" && op.Kind != "merge" {
 		return item, fmt.Errorf("GitHub %s settlement is not composed", op.Kind)
 	}

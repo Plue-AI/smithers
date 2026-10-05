@@ -277,9 +277,20 @@ func (g *fakeMythicalGitHub) CreatePull(_ context.Context, _ mythicalGitHubRepo,
 		g.pulls = map[int64]*mythicalPull{}
 	}
 	number := int64(100 + len(g.pulls))
-	pull := &mythicalPull{Number: number, URL: "https://github.com/smithersai/smithers/pull/" + strconv.FormatInt(number, 10), State: "open", HeadRef: head}
+	pull := &mythicalPull{Number: number, URL: "https://github.com/smithersai/smithers/pull/" + strconv.FormatInt(number, 10), State: "open", HeadRef: head, Body: body}
 	g.pulls[pull.Number] = pull
 	return *pull, nil
+}
+
+func (g *fakeMythicalGitHub) UpdatePullBody(_ context.Context, _ mythicalGitHubRepo, number int64, body string) error {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	pull, ok := g.pulls[number]
+	if !ok {
+		return fmt.Errorf("no pull %d", number)
+	}
+	pull.Body = body
+	return nil
 }
 
 func (g *fakeMythicalGitHub) merge(number int64, commit string) {

@@ -149,22 +149,6 @@ func (h *mergeHarness) merges() []githubfake.Write {
 	return out
 }
 
-// pull reads the pull request as GitHub serves it now.
-func (h *mergeHarness) pull(number int64) githubfake.Pull {
-	h.t.Helper()
-	token, err := h.connections.CreateGitHubInstallationTokenForRepositoryOwner(context.Background(), h.userID, 0, "rehearsal-owner", "app", map[string]string{"pull_requests": "read"})
-	require.NoError(h.t, err)
-	request, err := http.NewRequest(http.MethodGet, fmt.Sprintf("%s/repos/rehearsal-owner/app/pulls/%d", h.fake.URL, number), nil)
-	require.NoError(h.t, err)
-	request.Header.Set("Authorization", "Bearer "+token.Token)
-	response, err := h.fake.Client().Do(request)
-	require.NoError(h.t, err)
-	defer response.Body.Close()
-	var pull githubfake.Pull
-	require.NoError(h.t, json.NewDecoder(response.Body).Decode(&pull))
-	return pull
-}
-
 func (h *mergeHarness) operation(number int64) MythicalOutboundOp {
 	h.t.Helper()
 	item := h.item(number)
