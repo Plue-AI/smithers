@@ -130,26 +130,66 @@ for (const who of ["ben", "alice"] as const) test(`J2 ${who} asks the app agent 
   await expect(file).toContainText("README.md", { timeout: 20_000 })
   await expect(file).toContainText(README.trim().split("\n").at(-1)!)
 })
+// J2 1-3 in the browser: Ben opens an issue on GitHub and Carol comments on it. Each person lists the install's issues
+// and opens the issue card; Alice presses Make TODO on the card, commits the Draft and watches the TODO start.
+const issueTitle = "Greet in JOURNEY.md"
+let issueNumber = 0
+/** The walk's issue, opened once per worker (a failed test restarts the worker). */
+const walkIssue = async () => {
+  if (issueNumber === 0) {
+    issueNumber = (await fake("/_fake/issues", { repo: "local-owner/demo", login: "ben", title: issueTitle, body: "Add a greeting line to JOURNEY.md." })).number
+    await fake("/_fake/comments", { repo: "local-owner/demo", number: issueNumber, login: "carol", body: "Keep it to one line." })
+  }
+  return issueNumber
+}
+/** Opens the issue card with /issue #n and answers it once it shows the issue and its comment. */
+const issueCard = async (page: Page, number: number) => {
+  await say(page, `/issue #${number}`)
+  const card = page.locator(`[data-kind="issue"]:has(article[data-issue="${number}"])`).last()
+  await expect(card).toContainText("Add a greeting line to JOURNEY.md.", { timeout: 15_000 })
+  await expect(card).toContainText("Keep it to one line.")
+  return card
+}
+for (const who of ["owner", "ben", "alice"] as const) test(`J2 1 ${who} lists the install's issues and opens the issue card`, async ({ browser }) => {
+  const number = await walkIssue()
+  const page = await person(browser, who)
+  await say(page, "/issues")
+  await expect(page.locator(`[data-kind="issue-list"] li[data-issue="${number}"]`).last()).toContainText(issueTitle, { timeout: 15_000 })
+  const card = await issueCard(page, number)
+  await expect(card.getByRole("button", { name: "Make TODO", exact: true })).toBeVisible()
+})
+test("J2 2-3 Alice makes a TODO on the issue card, commits it and watches it start", async ({ browser }) => {
+  const page = await person(browser, "alice")
+  const card = await issueCard(page, await walkIssue())
+  await card.getByRole("button", { name: "Make TODO", exact: true }).click()
+  const draft = page.getByRole("region", { name: "Draft", exact: true }).last()
+  await expect(draft.getByLabel("Title", { exact: true })).toHaveValue(issueTitle, { timeout: 20_000 })
+  await expect(draft.getByRole("textbox", { name: "Prompt", exact: true })).toHaveValue("Add a greeting line to JOURNEY.md.\n\n@carol:\n> Keep it to one line.", { timeout: 10_000 })
+  await draft.getByRole("combobox", { name: "Place", exact: true }).selectOption({ label: "Append" })
+  await draft.getByRole("button", { name: "Commit", exact: true }).click()
+  let made: { n: number; state: string; title: string } | undefined
+  await expect.poll(async () => (made = list(await todos(page)).find(todo => todo.title === issueTitle))?.n ?? 0, { timeout: 15_000 }).toBeGreaterThan(0)
+  // It is the issue's TODO: committed with the issue it fixes.
+  const committed = await (await page.request.get(`${app}/api/todos/${made!.n}`)).json() as { issue?: { number: number; fixes: boolean } }
+  expect(committed.issue).toMatchObject({ number: issueNumber, fixes: true })
+  await say(page, `/todo T${made!.n}`)
+  await expect(page.getByRole("article", { name: `TODO T${made!.n}`, exact: true }).last()).toBeVisible()
+  // The TODO starts: it leaves queued for a branch machine. Each state the walk sees is recorded.
+  const seen: string[] = []
+  await expect.poll(async () => {
+    const response = await page.request.get(`${app}/api/todos/${made!.n}`)
+    const state = response.ok() ? (await response.json() as { state: string }).state : `status ${response.status()}`
+    if (seen.at(-1) !== state) seen.push(state)
+    return state
+  }, { timeout: 180_000, intervals: [2_000] }).toMatch(/^(starting|working|needs_you|in_review|merging|merged)$/)
+  appendFileSync(`${output}/j2-todo-states.txt`, `T${made!.n} issue #${issueNumber}: ${seen.join(" -> ")}\n`)
+})
 for (const who of ["ben", "alice"] as const) test(`J2 ${who} writes and commits a TODO`, async ({ browser }) => {
   const page = await person(browser, who)
   await commitTodo(page, `TODO from ${who}`)
   const mine = list(await todos(page)).find(todo => todo.title === `TODO from ${who}`)!
   await say(page, `/todo T${mine.n}`)
   await expect(page.getByRole("article", { name: `TODO T${mine.n}`, exact: true }).last()).toBeVisible()
-})
-test("J2 Alice makes a TODO from a GitHub issue", async ({ browser }, info) => {
-  // The issue card does not open on an install for anyone: /issues.view makes no request there.
-  info.annotations.push({ type: "owner", description: "J2 issue card on an install (lane j2-close)" }); test.fail()
-  const page = await person(browser, "alice")
-  const { number } = await fake("/_fake/issues", { repo: "local-owner/demo", login: "carol", title: "Greet in JOURNEY.md", body: "Add a greeting line." })
-  await say(page, `/issues.view ${number} --source github`)
-  await expect(page.getByText("Greet in JOURNEY.md").first()).toBeVisible({ timeout: 15_000 })
-  await say(page, `/todo.from-issue #${number}`)
-  const draft = page.getByRole("region", { name: "Draft", exact: true }).last()
-  await expect(draft.getByLabel("Title", { exact: true })).toHaveValue("Greet in JOURNEY.md", { timeout: 20_000 })
-  await draft.getByRole("combobox", { name: "Place", exact: true }).selectOption({ label: "Append" })
-  await draft.getByRole("button", { name: "Commit", exact: true }).click()
-  await expect.poll(async () => list(await todos(page)).length, { timeout: 15_000 }).toBeGreaterThan(3)
 })
 test("J4 2 Ben steers a TODO and opens Review & merge", async ({ browser }) => {
   const page = await person(browser, "ben")
