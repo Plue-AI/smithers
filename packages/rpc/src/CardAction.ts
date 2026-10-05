@@ -5,7 +5,7 @@
 
 import { z } from "zod"
 import { ModelIdSchema } from "./AgentRoles.ts"
-import { type ModelRoleId, ModelRoleIdSchema } from "./CardPrimitives.ts"
+import { type ModelRoleId, ModelRoleIdSchema, type NeedsYouKind, type TodoState } from "./CardPrimitives.ts"
 import { type CatalogTag, CatalogTagSchema } from "./catalog/index.ts"
 import { ConfirmRevisionSchema } from "./ConfirmCard.ts"
 import { DraftIdSchema } from "./DraftCard.ts"
@@ -60,6 +60,35 @@ export const ActionSchema = z.object({
  * @category models
  */
 export type Action = z.infer<typeof ActionSchema>
+
+/**
+ * Derive the one action from shared TODO facts and the viewer's role (§14.5.2).
+ * The caller gates command providers; this function grants no execution authority.
+ * @since 1.0.0
+ * @category constructors
+ */
+export const actionFor = (
+  entry: { readonly n?: number; readonly state?: TodoState | null; readonly needs_you?: { readonly kind: NeedsYouKind }; readonly first_in_order?: boolean },
+  viewer: { readonly role: "owner" | "maintainer" | "member" }
+): Action | undefined => {
+  if (entry.n === undefined || !Number.isSafeInteger(entry.n) || entry.n < 1) return undefined
+  const args = { n: String(entry.n) }
+  if (entry.state === "needs_you") {
+    switch (entry.needs_you?.kind) {
+      case "question":
+      case "approval": return { tag: "todo.answer", label: "Answer", args }
+      case "conflict":
+      case "moved_off": return { tag: "branch", label: "Resolve", args: { name: `T${entry.n}` } }
+      case "foreign_push": return { tag: "todo", label: "Review", args }
+    }
+  }
+  if (entry.state === "failed") return { tag: "todo.retry", label: "Retry", args }
+  if (entry.state === "in_review" && entry.first_in_order === true && viewer.role !== "member") {
+    return { tag: "merge", label: "Merge", args }
+  }
+  return undefined
+}
+
 
 /**
  * `draft.discard` input: delete the author's uncommitted private Draft; it never drops a TODO. Author-only is

@@ -4,6 +4,7 @@
  * foot. A card file, not a View: it maps the transcript, the toasts and the
  * design world to the Views' props and binds their callbacks to flows.
  */
+import type { EntryRowCard } from "@smthrs/rpc/EntryRowCard"
 import type { CatalogTag } from "@smthrs/rpc/CardAction"
 import type { ShellView, ToastCard } from "@smthrs/rpc/ToastCard"
 import type { TimelineLine } from "@smthrs/rpc/TimelineCard"
@@ -20,6 +21,7 @@ import { Timeline } from "./Timeline"
 import { ToastStack } from "./ToastStackView"
 
 export type RailEntry =
+  | { readonly kind: "entry"; readonly id: string; readonly entry: EntryRowCard }
   | { readonly kind: "message"; readonly message: Message }
   | { readonly kind: "init"; readonly message: InitMessage }
   | { readonly kind: "card"; readonly card: Card }
@@ -30,6 +32,13 @@ const cardTone = (card: Card): TimelineLine["tone"] => card.status === "error" ?
 
 /** One timeline line per transcript entry (spec §14.5.4). The opening read has none. */
 export const railLines = (entries: ReadonlyArray<RailEntry>): TimelineLine[] => entries.flatMap((entry): TimelineLine[] => {
+  // T-APP-07: shared facts are authoritative; never re-derive host tone or title.
+  // T-APP-16 can supply this model when its shared-entry provider is mounted.
+  if (entry.kind === "entry") {
+    const row = entry.entry
+    return [{ entry_id: entry.id, kind: row.kind, title: row.title, tone: row.tone,
+      ...(row.summary === undefined || row.tombstone ? {} : { summary: row.summary }) }]
+  }
   if (entry.kind === "init") return []
   if (entry.kind === "card") return [{ entry_id: entry.card.id, kind: "card", title: entry.card.title || entry.card.kind, tone: cardTone(entry.card) }]
   const { message } = entry

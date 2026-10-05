@@ -44,6 +44,17 @@ const toast = (id: string, status: Toast["status"], createdAt: number, extra: Pa
   ({ id, key: id, title: `Toast ${id}`, detail: "", status, createdAt, updatedAt: createdAt, ...extra })
 
 describe("ShellRail maps the conversation to the rail", () => {
+  test("shared entry facts keep their host title, tone and last summary", () => {
+    expect(railLines([
+      { kind: "entry", id: "t3-starting", entry: { kind: "event", author: { kind: "system", color_index: 7 }, title: "Starting", tone: "live", state: "starting", summary: "Preparing checks" } },
+      { kind: "entry", id: "t3-review", entry: { kind: "card", author: { kind: "system", color_index: 7 }, title: "Ready for review", tone: "quiet", state: "in_review" } },
+      { kind: "entry", id: "removed", entry: { kind: "answer", author: { kind: "system", color_index: 7 }, title: "Removed", tone: "quiet", summary: "Hidden content", tombstone: true } }
+    ])).toEqual([
+      { entry_id: "t3-starting", kind: "event", title: "Starting", tone: "live", summary: "Preparing checks" },
+      { entry_id: "t3-review", kind: "card", title: "Ready for review", tone: "quiet" },
+      { entry_id: "removed", kind: "answer", title: "Removed", tone: "quiet" }
+    ])
+  })
   test("one line per entry: prompts quoted, answers by first line, cards by status; the opening read and blank text have none", () => {
     const entries: RailEntry[] = [
       { kind: "init", message: { id: "init-state", role: "assistant", text: "Smithers here.", status: "complete", ordinal: 0, createdAt: 0 } as never },
