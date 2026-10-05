@@ -646,6 +646,7 @@ export type GitHubAppManifest = {
   url: string
   redirect_url: string
   setup_url: string
+  setup_on_update: true
   callback_urls: Array<string>
   public: false
   hook_attributes?: {

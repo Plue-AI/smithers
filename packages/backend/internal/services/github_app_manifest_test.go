@@ -43,6 +43,7 @@ func TestGitHubAppManifestExactPermissionsAndLocalhostCallbacks(t *testing.T) {
 	require.NoError(t, json.Unmarshal(actual["setup_url"], &setup))
 	require.Equal(t, "http://localhost:4000/setup/github/callback", redirect)
 	require.Equal(t, "http://localhost:4000/setup/github/installed", setup)
+	require.JSONEq(t, "true", string(actual["setup_on_update"]), "GitHub returns the owner to setup_url after an installation's repositories change")
 	require.NoError(t, json.Unmarshal(actual["name"], &name))
 	require.NotEmpty(t, name)
 	require.LessOrEqual(t, len(name), 34)

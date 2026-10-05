@@ -595,6 +595,7 @@ components:
         - url
         - redirect_url
         - setup_url
+        - setup_on_update
         - callback_urls
         - public
         - default_permissions
@@ -611,6 +612,10 @@ components:
         setup_url:
           type: string
           format: uri
+        setup_on_update:
+          description: GitHub returns the owner to setup_url after they change the installation's repositories, so the install lists them again without a webhook.
+          type: boolean
+          const: true
         callback_urls:
           type: array
           maxItems: 10

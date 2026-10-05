@@ -1153,6 +1153,7 @@ type GitHubAppManifest struct {
 	URL                string                           `json:"url"`
 	RedirectURL        string                           `json:"redirect_url"`
 	SetupURL           string                           `json:"setup_url"`
+	SetupOnUpdate      bool                             `json:"setup_on_update"`
 	CallbackURLs       []string                         `json:"callback_urls"`
 	Public             bool                             `json:"public"`
 	HookAttributes     *GitHubAppManifestHookAttributes `json:"hook_attributes,omitempty"`

@@ -39,6 +39,10 @@ type GitHubAppManifest struct {
 	HookAttributes     *GitHubAppHookAttributes `json:"hook_attributes,omitempty"`
 	DefaultPermissions map[string]string        `json:"default_permissions"`
 	DefaultEvents      []string                 `json:"default_events,omitempty"`
+	// SetupOnUpdate returns the owner to SetupURL after they change the
+	// installation's repositories on GitHub, so the install lists them again
+	// without the installation webhook a non-public address never receives.
+	SetupOnUpdate bool `json:"setup_on_update"`
 }
 type GitHubAppHookAttributes struct {
 	URL    string `json:"url"`
@@ -136,7 +140,7 @@ func BuildGitHubAppManifest(ownerLogin, ownerKind string, origins []string, stat
 	suffix := make([]byte, 4)
 	// crypto/rand.Read fills the buffer or terminates the process (Go 1.26).
 	rand.Read(suffix)
-	manifest := GitHubAppManifest{Name: "Smithers " + hex.EncodeToString(suffix), URL: gitHubAppLocalOrigin, RedirectURL: gitHubAppLocalOrigin + "/setup/github/callback", SetupURL: gitHubAppLocalOrigin + "/setup/github/installed", CallbackURLs: callbacks, HookAttributes: hook, DefaultPermissions: gitHubAppPermissions()}
+	manifest := GitHubAppManifest{Name: "Smithers " + hex.EncodeToString(suffix), URL: gitHubAppLocalOrigin, RedirectURL: gitHubAppLocalOrigin + "/setup/github/callback", SetupURL: gitHubAppLocalOrigin + "/setup/github/installed", SetupOnUpdate: true, CallbackURLs: callbacks, HookAttributes: hook, DefaultPermissions: gitHubAppPermissions()}
 	if hook != nil {
 		manifest.DefaultEvents = gitHubAppWebhookEvents()
 	}

@@ -365,6 +365,44 @@ func TestGitHubAppSetupInstalledFailureReturnsToSetupCard(t *testing.T) {
 	require.Equal(t, 1, s.installedCalls)
 }
 
+type installationListingStub struct {
+	calls int
+	err   error
+}
+
+func (s *installationListingStub) ReconcileGitHubAppInstallations(context.Context) error {
+	s.calls++
+	return s.err
+}
+
+// GitHub returns the owner to the setup URL after an install and, with
+// setup_on_update, after a change to the installation's repositories. The
+// return lists the App's repositories at once; a failed listing still lands
+// on the Setup card, and an unauthorized return lists nothing.
+func TestGitHubAppSetupInstalledListsTheAppsRepositories(t *testing.T) {
+	for _, failure := range []error{nil, pkgerrors.New(pkgerrors.CodeGitHubUnavailable, "github repositories request was rejected")} {
+		h, s := githubAppSetupTestHandler()
+		listing := &installationListingStub{err: failure}
+		h.Installations = listing
+		r := githubAppSetupCallbackRequest("http://localhost:4000", "installed", "installation_id=123&setup_action=update", "")
+		r.AddCookie(&http.Cookie{Name: GitHubAppSetupSessionCookie, Value: strings.Repeat("s", 64)})
+		w := httptest.NewRecorder()
+		h.Installed(w, r)
+		require.Equal(t, http.StatusSeeOther, w.Code, w.Body.String())
+		require.Equal(t, "/", w.Header().Get("Location"))
+		require.Equal(t, 1, s.installedCalls)
+		require.Equal(t, 1, listing.calls)
+	}
+	h, s := githubAppSetupTestHandler()
+	listing := &installationListingStub{}
+	h.Installations = listing
+	w := httptest.NewRecorder()
+	h.Installed(w, githubAppSetupCallbackRequest("http://localhost:4000", "installed", "installation_id=123&setup_action=update", ""))
+	require.Equal(t, http.StatusUnauthorized, w.Code)
+	require.Zero(t, s.installedCalls)
+	require.Zero(t, listing.calls)
+}
+
 func TestGitHubAppSetupCallbackFailuresPreserveRetryCookie(t *testing.T) {
 	for _, installed := range []bool{false} {
 		h, s := githubAppSetupTestHandler()

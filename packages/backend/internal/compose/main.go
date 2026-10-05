@@ -1507,6 +1507,9 @@ func runWithOptions(ctx context.Context, args []string, stdout, stderr io.Writer
 			Store:   gitHubAppStore, Owners: queries,
 			Origins:  installAddress.Origins,
 			Sessions: authService.InstallSetup,
+			// GitHub returns the owner here after an install or a repository
+			// change; a non-public address gets no installation webhook.
+			Installations: repoConnectionService,
 		}
 	}
 	router := buildRouter(

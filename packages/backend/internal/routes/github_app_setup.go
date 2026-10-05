@@ -47,6 +47,10 @@ type GitHubAppSetupHandler struct {
 	Service  GitHubAppSetupService
 	Store    GitHubAppSetupCredentials
 	Owners   GitHubAppSetupOwners
+	// Installations lists the App's installations and repositories when
+	// GitHub returns the owner after an install or a repository change: an
+	// install whose address is not public https gets no installation webhook.
+	Installations GitHubAppInstallationReconciler
 	// Origins are the install's known origins: the configured ones and the
 	// Address the owner saved, read on every request (M-28).
 	Origins func() []string
@@ -325,6 +329,11 @@ func (h *GitHubAppSetupHandler) Installed(w http.ResponseWriter, r *http.Request
 	}
 	if err := h.Service.ResumeInstallation(r.Context()); err != nil {
 		slog.WarnContext(r.Context(), "GitHub App installation resume failed; the Setup card reads the installation itself", "error", err)
+	}
+	if h.Installations != nil {
+		if err := h.Installations.ReconcileGitHubAppInstallations(r.Context()); err != nil {
+			slog.WarnContext(r.Context(), "GitHub App installation listing failed; the repository step and the hourly sweep list again", "error", err)
+		}
 	}
 	http.SetCookie(w, &http.Cookie{Name: GitHubAppStateCookie, Path: "/", MaxAge: -1, HttpOnly: true, SameSite: http.SameSiteLaxMode, Secure: strings.HasPrefix(origin, "https://")})
 	http.Redirect(w, r, "/", http.StatusSeeOther)
