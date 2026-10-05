@@ -1,5 +1,5 @@
 import { expect, test } from "../browserTest"
-import { setup } from "./j1-fixtures"
+import { setup, installSetup } from "./j1-fixtures"
 
 // UI projection of .specs/engineering/checks/C-J1-01.md.
 // Real host, GitHub, installation and timing receipts remain in the reference-host check.
@@ -7,7 +7,7 @@ import { setup } from "./j1-fixtures"
 // mirrored src/mail/expiry.ts, and the access outcomes named below.
 // Written before implementation: mvp.md J1; lands with T-INS-08
 test("C-J1-01: Fresh install opens the ordered setup card", async ({ page }) => {
-  test.fixme(true, "Written before implementation: mvp.md J1; lands with T-INS-08")
+  await installSetup(page)
   await page.goto("/setup")
   const card = setup(page)
   await expect(card).toBeVisible()
@@ -26,6 +26,7 @@ test("C-J1-01: Fresh install opens the ordered setup card", async ({ page }) => 
 
 // Implemented UI portion; this does not qualify bundle, launchd or LAN isolation.
 test("C-J1-01: current setup renders detected capacity and ordered steps without an account", async ({ page }) => {
+  await installSetup(page)
   await page.route("**/api/install", route => route.fulfill({ json: {
     address: { listen: "mac", bind: "127.0.0.1", origins: ["http://localhost:4000"] },
     steps: ["address", "app_manifest", "sign_in", "repository", "models", "source", "machine"]

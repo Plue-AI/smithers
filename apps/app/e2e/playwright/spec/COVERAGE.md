@@ -5,7 +5,7 @@ Fixmes await the seeded DesignWorld and complete journey controls; standalone ca
 
 | id | spec file | status | ticket |
 | --- | --- | --- | --- |
-| C-J1-01 | [C-J1-01.spec.ts](C-J1-01.spec.ts) | fixme-before-implementation | T-INS-08 |
+| C-J1-01 | [C-J1-01.spec.ts](C-J1-01.spec.ts) | passing | T-INS-08 |
 | C-J1-02 | [C-J1-02.spec.ts](C-J1-02.spec.ts) | fixme-before-implementation | T-APP-03 |
 | C-J1-03 | [C-J1-03.spec.ts](C-J1-03.spec.ts) | fixme-before-implementation | T-APP-15 |
 | C-J1-04 | [C-J1-04.spec.ts](C-J1-04.spec.ts) | fixme-before-implementation | T-APP-02 |
