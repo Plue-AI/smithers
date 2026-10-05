@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"strconv"
 	"strings"
 	"time"
@@ -631,8 +632,22 @@ func (q *Queries) RetireMythicalLane(ctx context.Context, workspaceID string) er
 	return err
 }
 
+// The two ways a save under a stack claim loses its race. Each is also
+// pgx.ErrNoRows, so a caller that reads no rows as a lost race still does.
+// Either way the pass's view is stale and nothing was saved: the stack's
+// next pass reads the item again.
+var (
+	// ErrMythicalLeaseLost: the claim is no longer live (a newer claim took
+	// the stack, or its lease ended).
+	ErrMythicalLeaseLost = fmt.Errorf("the stack's claim is no longer live: %w", pgx.ErrNoRows)
+	// ErrMythicalItemMoved: another writer saved the item after this pass
+	// read it.
+	ErrMythicalItemMoved = fmt.Errorf("the item changed after this pass read it: %w", pgx.ErrNoRows)
+)
+
 // SaveMythicalItemUnderLease couples item CAS with the worker's live stack
-// claim. It replaces unfenced persistence at the outbound send boundary.
+// claim. It replaces unfenced persistence at the outbound send boundary. A
+// lost race answers ErrMythicalLeaseLost or ErrMythicalItemMoved.
 func (q *Queries) SaveMythicalItemUnderLease(ctx context.Context, item MythicalItem, claim int64) (MythicalItem, error) {
 	beginner, ok := q.db.(interface {
 		Begin(context.Context) (pgx.Tx, error)
@@ -649,10 +664,16 @@ func (q *Queries) SaveMythicalItemUnderLease(ctx context.Context, item MythicalI
 	err = tx.QueryRow(ctx, `SELECT repository_id FROM mythical_stacks
  WHERE repository_id = $1 AND claim = $2 AND running AND lease_expires_at > NOW()
  FOR UPDATE`, item.RepositoryID, claim).Scan(&repositoryID)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return MythicalItem{}, ErrMythicalLeaseLost
+	}
 	if err != nil {
 		return MythicalItem{}, err
 	}
 	saved, err := New(tx).SaveMythicalItem(ctx, item)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return MythicalItem{}, ErrMythicalItemMoved
+	}
 	if err != nil {
 		return MythicalItem{}, err
 	}

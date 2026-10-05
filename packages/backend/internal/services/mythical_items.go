@@ -50,6 +50,7 @@ const (
 	mythicalBindingKind    = flowdispatch.StackBindingKind
 	mythicalAttempts       = 3
 	mythicalPullPollEvery  = 5 * time.Minute
+	mythicalLaterAfter     = time.Minute // a transient failure looks again (mythicalLater)
 	mythicalLaunchesPerRun = 4
 	mythicalPromptBytes    = 24 << 10
 )
@@ -1110,8 +1111,14 @@ func (s *MythicalService) advanceItems(ctx context.Context, r *mythicalRun) {
 			return
 		}
 		if len(item.PendingOp) > 0 {
-			if _, err := step.recoverOutbound(ctx, item); err != nil {
+			recovered, err := step.recoverOutbound(ctx, item)
+			if err != nil {
 				s.logger.Warn("mythical.outbound_pending", "item", uuidString(item.ID), "error", err)
+				r.dueAt(mythicalStepFailedDue(err, step.now))
+			} else if recovered != nil && recovered.Version != item.Version {
+				// A sent operation is looked up, and a settled one's item
+				// steps on, at the next pass, not at the stale sweep.
+				r.dueAt(mythicalDue(*recovered, true, step.now))
 			}
 			// Never advance or retire a dropped item's obligation before lookup.
 			continue
@@ -1137,6 +1144,7 @@ func (s *MythicalService) advanceItems(ctx context.Context, r *mythicalRun) {
 		next, saved, err := step.advance(ctx, item)
 		if err != nil {
 			s.logger.Warn("mythical.item_failed", "repository_id", r.row.RepositoryID, "item", uuidString(item.ID), "error", err)
+			r.dueAt(mythicalStepFailedDue(err, step.now))
 			continue
 		}
 		if next == nil {
@@ -1149,6 +1157,11 @@ func (s *MythicalService) advanceItems(ctx context.Context, r *mythicalRun) {
 		if !saved {
 			if result, err = q.SaveMythicalItem(ctx, *next); err != nil {
 				s.logger.Warn("mythical.item_save_failed", "repository_id", r.row.RepositoryID, "item", uuidString(item.ID), "error", err)
+				if errors.Is(err, pgx.ErrNoRows) {
+					// Its version check failed: another writer moved the item.
+					err = db.ErrMythicalItemMoved
+				}
+				r.dueAt(mythicalStepFailedDue(err, step.now))
 				continue
 			}
 		}
@@ -1174,15 +1187,35 @@ func (s *MythicalService) advanceItems(ctx context.Context, r *mythicalRun) {
 // to proposed). A run in flight wakes the stack when it settles
 // (ProjectFlowRuntime), and a settled item takes no step: both answer zero.
 func mythicalNextDue(before, after db.MythicalItem, now time.Time) time.Time {
+	return mythicalDue(after, after.State != before.State, now)
+}
+
+// mythicalDue answers when item can take its next step with no outside
+// event; moved says the step that saved it changed what the worker does
+// next (a new state, or a GitHub operation sent or settled).
+func mythicalDue(item db.MythicalItem, moved bool, now time.Time) time.Time {
 	switch {
-	case mythicalSettledStates[after.State]:
+	case mythicalSettledStates[item.State]:
 		return time.Time{}
-	case after.NextAttemptAt.Valid && after.NextAttemptAt.Time.After(now):
-		return after.NextAttemptAt.Time
-	case mythicalRunInFlight(after), after.State == before.State:
+	case item.NextAttemptAt.Valid && item.NextAttemptAt.Time.After(now):
+		return item.NextAttemptAt.Time
+	case mythicalRunInFlight(item), !moved:
 		return time.Time{}
 	}
 	return now
+}
+
+// mythicalStepFailedDue answers when the stack runs again after an item's
+// step failed partway: what it saved stands, the rest was not done. A save
+// that lost its race (the stack's claim ended, or another writer moved the
+// item) is due at once: the next pass reads the item again and goes on
+// from there. Any other failure waits the minute a transient one does
+// (mythicalLater). The stale sweep stays the safety net.
+func mythicalStepFailedDue(err error, now time.Time) time.Time {
+	if errors.Is(err, db.ErrMythicalLeaseLost) || errors.Is(err, db.ErrMythicalItemMoved) {
+		return now
+	}
+	return now.Add(mythicalLaterAfter)
 }
 
 // releaseLane retires a finished item's lane workspace; the candidate is
@@ -1328,7 +1361,7 @@ func mythicalLater(item db.MythicalItem, reason string, now time.Time) *db.Mythi
 		checks.Fault = nil
 		next.Checks = checks.encode()
 	}
-	next.NextAttemptAt = pgtype.Timestamptz{Time: now.Add(time.Minute), Valid: true}
+	next.NextAttemptAt = pgtype.Timestamptz{Time: now.Add(mythicalLaterAfter), Valid: true}
 	return &next
 }
 

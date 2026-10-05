@@ -278,12 +278,18 @@ func (s *MythicalService) runClaimed(parent context.Context, row db.MythicalStac
 	}()
 	finishCtx, finishCancel := context.WithTimeout(context.Background(), 15*time.Second)
 	defer finishCancel()
-	if err := s.finish(finishCtx, row, outcome); err != nil {
+	switch err := s.finish(finishCtx, row, outcome); {
+	case errors.Is(err, errMythicalClaimLost):
+		// A newer claim took the stack mid-pass: what this pass could not
+		// record is decided again on the pass after that claim's.
+		s.logger.Warn("mythical.claim_lost", "repository_id", row.RepositoryID, "claim", row.Claim)
+		s.MainMoved(finishCtx, row.RepositoryID)
+	case err != nil:
 		s.logger.Error("mythical.finish_failed", "repository_id", row.RepositoryID, "error", err)
-	} else if outcome.op != nil {
+	case outcome.op != nil:
 		// Items advance on the next claim, against the new tip.
 		s.MainMoved(finishCtx, row.RepositoryID)
-	} else if !outcome.due.IsZero() {
+	case !outcome.due.IsZero():
 		s.runAgainAt(finishCtx, row.RepositoryID, outcome.due)
 	}
 	attrs := []any{"repository_id", row.RepositoryID, "state", outcome.state}
@@ -314,6 +320,10 @@ func (s *MythicalService) runAgainAt(ctx context.Context, repositoryID int64, du
 	}
 }
 
+// errMythicalClaimLost: finish found a newer claim on the stack; nothing
+// this pass decided was recorded.
+var errMythicalClaimLost = errors.New("the stack's claim was lost before the pass finished")
+
 func (s *MythicalService) finish(ctx context.Context, row db.MythicalStack, outcome mythicalOutcome) error {
 	tx, err := s.store.Begin(ctx)
 	if err != nil {
@@ -339,8 +349,7 @@ func (s *MythicalService) finish(ctx context.Context, row db.MythicalStack, outc
 	}
 	generation, err := q.FinishMythicalStack(ctx, params)
 	if errors.Is(err, pgx.ErrNoRows) {
-		s.logger.Warn("mythical.claim_lost", "repository_id", row.RepositoryID, "claim", row.Claim)
-		return nil
+		return errMythicalClaimLost
 	}
 	if err != nil {
 		return err
