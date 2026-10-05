@@ -920,6 +920,9 @@ func buildRouter(
 			r.Patch("/members/{login}", extras.Members.Mutate)
 			r.Delete("/members/{login}", extras.Members.Mutate)
 		}
+		if config.IsSingleOwner(cfg.Auth) {
+			mountFlowReads(r, &routes.FlowsHandler{Queries: queries})
+		}
 		// Unmounted until T-ACC-03 supplies the qualified owner-person authorizer.
 		if extras.InstallScorecard.Available() {
 			r.Get("/install/scorecard", extras.InstallScorecard.Summary)
@@ -1924,18 +1927,27 @@ func authLoader(queries *db.Queries, cfg config.AuthConfig) func(http.Handler) h
 }
 
 // mountTodoReads mounts the install's TODO read routes. The app agent's
-// host-run commands read through the same mount (todoReadRoutes), as the
+// host-run commands read through the same mount (installReadRoutes), as the
 // credential that admitted their turn.
 func mountTodoReads(r chi.Router, todos *routes.TodoHandler) {
 	r.Get("/todos", todos.List)
 	r.Get("/todos/{n}", todos.Get)
 }
 
-// todoReadRoutes are the install API routes a host-run command may read,
-// under /api as the public router mounts them.
-func todoReadRoutes(queries *db.Queries, service routes.TodoRouteService) http.Handler {
+// mountFlowReads mounts the install's flow catalog, which the Flow card and
+// the app agent's host-run commands read (installReadRoutes).
+func mountFlowReads(r chi.Router, flows *routes.FlowsHandler) {
+	r.Get("/flows", flows.List)
+}
+
+// installReadRoutes are the install API routes a host-run command may read,
+// under /api as the public router mounts them: the TODOs and the flows.
+func installReadRoutes(queries *db.Queries, service routes.TodoRouteService) http.Handler {
 	router := chi.NewRouter()
-	router.Route("/api", func(r chi.Router) { mountTodoReads(r, &routes.TodoHandler{Queries: queries, Service: service}) })
+	router.Route("/api", func(r chi.Router) {
+		mountTodoReads(r, &routes.TodoHandler{Queries: queries, Service: service})
+		mountFlowReads(r, &routes.FlowsHandler{Queries: queries})
+	})
 	return router
 }
 

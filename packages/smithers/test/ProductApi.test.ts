@@ -90,9 +90,10 @@ describe("the generated product API client", () => {
     expect(exported).toEqual(expected)
     // Reviewed deployed resource inventory (2026-10-05, smithers-b8): the members roster (#3491), the TODO
     // edit and answer routes, and the dark TODO branch diff (#3452) were added; the unserved branch reads
-    // (fc5676df0, #3565) and the mythical config setter (44b074f80, #3572) were removed.
+    // (fc5676df0, #3565) and the mythical config setter (44b074f80, #3572) were removed. The flow catalog
+    // read, GET /api/flows (#3499), was added.
     // Exact parity above and the literal resource inventory below remain independent.
-    expect(expected).toHaveLength(504)
+    expect(expected).toHaveLength(505)
     expect(spec.paths).not.toHaveProperty("/api/repository-setup/{operation}")
     expect(operations.filter(({ path }) => path.startsWith("/api/install")).map(({ path, method }) =>
       `${method.toUpperCase()} ${path}`

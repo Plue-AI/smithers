@@ -1,20 +1,23 @@
 package compose
 
 import (
+	"encoding/json"
 	"fmt"
+	"regexp"
 	"slices"
 	"strings"
 	"testing"
 	"time"
 
 	"github.com/smithersai/smithers/packages/backend/internal/chat"
+	"github.com/smithersai/smithers/packages/backend/internal/services"
 )
 
 // TestJ5Rehearsal walks journey J5 (mvp.md §5, teach the factory; C-J5-01,
 // C-J5-02) on the install J1 sets up. TODO A asks a question and waits
 // (distribution/fake-todo-turns.mjs [ASK]); TODO B is the flow edit
 // ([FLOWEDIT]): its PR changes exactly flows/todo/flow.ts, the built-in
-// composition plus a changelog step. Serving, loading and pinning the flow
+// composition plus a changelog step. Loading and pinning the flow
 // wait on their lanes and are listed as pending.
 func TestJ5Rehearsal(t *testing.T) {
 	r := newRehearsal(t, "SMITHERS_J5_REHEARSAL", "C-J5", "j5-")
@@ -77,7 +80,62 @@ func TestJ5Rehearsal(t *testing.T) {
 		r.actual = fmt.Sprintf("200 T%d in_review; PR #%d changes %v", b, p.Number, files)
 		return nil
 	})
-	r.pending("4 Flows", "GET /api/flows", "todo: source builtin, system false, one active version D1; no system names", "T-APP-05", "flows-read")
+	r.step("4 Flows", "GET /api/flows", "todo: source builtin, system false, one active version D1; no system names", "T-APP-05", func() error {
+		data, err := r.expect("GET", "/api/flows", "", 200)
+		if err != nil {
+			return err
+		}
+		var flows []struct {
+			Name     string          `json:"name"`
+			Source   json.RawMessage `json:"source"`
+			System   *bool           `json:"system"`
+			Versions []struct {
+				ID    string `json:"id"`
+				State string `json:"state"`
+				Steps []struct {
+					ID   string `json:"id"`
+					Wait bool   `json:"wait"`
+				} `json:"steps"`
+			} `json:"versions"`
+		}
+		if err = json.Unmarshal(data, &flows); err != nil {
+			return err
+		}
+		var names, active, steps []string
+		todo := -1
+		for i, flow := range flows {
+			names = append(names, flow.Name)
+			if !services.Overridable(flow.Name) {
+				return fmt.Errorf("GET /api/flows lists the system flow %q", flow.Name)
+			}
+			if flow.Name == "todo" {
+				todo = i
+			}
+		}
+		if todo < 0 {
+			return fmt.Errorf("GET /api/flows lists %v, no todo", names)
+		}
+		flow := flows[todo]
+		if string(flow.Source) != `{"builtin":true}` || flow.System == nil || *flow.System {
+			return fmt.Errorf("todo has source %s, system %v; want built in and not system", flow.Source, flow.System)
+		}
+		for _, version := range flow.Versions {
+			if version.State == "active" {
+				active = append(active, version.ID)
+				for _, step := range version.Steps {
+					steps = append(steps, step.ID+map[bool]string{true: " (wait)"}[step.Wait])
+				}
+			}
+		}
+		if len(active) != 1 || !regexp.MustCompile(`^[0-9a-f]{64}$`).MatchString(active[0]) {
+			return fmt.Errorf("todo has Active versions %v, want one digest", active)
+		}
+		if want := []string{"plan", "implement", "verify", "review", "propose", "merge (wait)"}; !slices.Equal(steps, want) {
+			return fmt.Errorf("todo's Active steps are %v, want %v", steps, want)
+		}
+		r.actual = fmt.Sprintf("200 %v; todo built in, system false, Active D1 %s… with %d steps and the merge wait", names, active[0][:12], len(steps)-1)
+		return nil
+	})
 	r.pending("5 App agent shows the TODO flow", "POST "+chat.TurnPath+" /flow todo", "the Flow card of the served todo flow", "T-FLW-05", "flow-agent-edit")
 	r.pending("6 App agent proposes the edit", "POST "+chat.TurnPath+" /flow.edit todo", "one private Draft quoting the diff; the TODO count unchanged", "T-FLW-05", "flow-agent-edit")
 	r.pending("7 System flow refused", "POST "+chat.TurnPath+" /flow.edit merge", "'Merge flow is built in'", "T-FLW-05", "flow-agent-edit")

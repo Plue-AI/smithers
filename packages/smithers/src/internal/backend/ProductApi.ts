@@ -641,6 +641,30 @@ export type TODOBranchDiffModel = {
   }>
 }
 
+export type FlowCard = {
+  name: string
+  source: {
+    builtin?: boolean
+    path?: string
+  }
+  system: boolean
+  versions: Array<{
+    id: string
+    state: "active" | "proposed" | "merged-syncing" | "merged-failed" | "previous"
+    todo?: number
+    error?: string
+    steps: Array<{
+      id: string
+      label?: string
+      wait?: boolean
+      signals?: Array<{
+        on: "rebase" | "steer"
+        to: string
+      }>
+    }>
+  }>
+}
+
 /** Dark install-settings contract; no write route is served until settings, shared authority and catalog policy are composed. Settings retains the request; Home reports min(parallel, capacity), including zero. */
 export type InstallParallelSetting = {
   parallel: number
@@ -1393,6 +1417,12 @@ export type GetApiFeatureFlagsResponse = AnyJSON
 /** GET /api/feature-flags */
 export const getApiFeatureFlags = (transport: Transport): Promise<GetApiFeatureFlagsResponse> =>
   transport.request("GET", `/api/feature-flags`) as Promise<GetApiFeatureFlagsResponse>
+
+export type GetApiFlowsResponse = Array<FlowCard>
+
+/** GET /api/flows: Read the install's flow catalog */
+export const getApiFlows = (transport: Transport): Promise<GetApiFlowsResponse> =>
+  transport.request("GET", `/api/flows`) as Promise<GetApiFlowsResponse>
 
 export type PutApiGatewaysHostRepositoryJobsCiCheckReceiptsRequestBody = AnyJSON
 

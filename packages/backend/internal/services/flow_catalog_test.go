@@ -1,6 +1,7 @@
 package services
 
 import (
+	"encoding/json"
 	"os"
 	"slices"
 	"strings"
@@ -104,6 +105,49 @@ func TestOverridableFlowMatchingIsExact(t *testing.T) {
 				t.Fatalf("non-system name %q is not overridable", name)
 			}
 		})
+	}
+}
+
+// GET /api/flows lists the TODO flow the install ships, built in and not
+// system, with one Active version and the merge wait; no system name.
+func TestFlowCatalogServesTheBuiltinTodoFlow(t *testing.T) {
+	cards, err := FlowCatalog()
+	if err != nil {
+		t.Fatal(err)
+	}
+	served, err := json.Marshal(cards)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var digests map[string]string
+	if err := json.Unmarshal(builtinFlowsJSON, &digests); err != nil {
+		t.Fatal(err)
+	}
+	want := `[{"name":"todo","source":{"builtin":true},"system":false,"versions":[{"id":"` + digests["todo"] + `","state":"active","steps":[` +
+		`{"id":"plan","label":"Plan"},{"id":"implement","label":"Implement"},{"id":"verify","label":"Verify"},` +
+		`{"id":"review","label":"Review"},{"id":"propose","label":"Propose"},` +
+		`{"id":"merge","wait":true,"signals":[{"on":"rebase","to":"Verify"},{"on":"steer","to":"Implement"}]}]}]}]`
+	if string(served) != want {
+		t.Fatalf("catalog\n got %s\nwant %s", served, want)
+	}
+	if len(digests["todo"]) != 64 {
+		t.Fatalf("todo digest %q is not a sha256 hex digest", digests["todo"])
+	}
+	for _, card := range cards {
+		if !Overridable(card.Name) {
+			t.Errorf("catalog lists system flow %q", card.Name)
+		}
+	}
+}
+
+func TestFlowCatalogRefusesABuiltinWithoutADigest(t *testing.T) {
+	saved := builtinFlowsJSON
+	t.Cleanup(func() { builtinFlowsJSON = saved })
+	for _, body := range []string{`{}`, `{"todo":"D1"}`, `{"todo":"` + strings.Repeat("A", 64) + `"}`, `not json`} {
+		builtinFlowsJSON = []byte(body)
+		if _, err := FlowCatalog(); err == nil {
+			t.Errorf("catalog with digests %s served", body)
+		}
 	}
 }
 

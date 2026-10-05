@@ -308,6 +308,7 @@ var installCommandRoles = map[string]InstallRole{
 	"todo.retry":    InstallMember,
 	"todo.drop":     InstallMember,
 	"merge":         InstallMaintainer,
+	"flows.read":    InstallMember,
 	"members.list":  InstallMember,
 	"members.write": InstallMaintainer,
 }

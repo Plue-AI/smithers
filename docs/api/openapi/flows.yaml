@@ -1,0 +1,79 @@
+paths:
+  /api/flows:
+    get:
+      x-composition: install
+      summary: Read the install's flow catalog
+      description: Each overridable flow with its versions, as the Flow card shows it. The TODO flow is built in and Active at its digest until the repository overrides it. No system flow is listed. Any member's browser session reads it.
+      operationId: get_api_flows
+      tags:
+        - Flows
+      security:
+        - sessionCookie: []
+      responses:
+        '200':
+          description: Flow card models; FlowCardSchema in packages/rpc/src/FlowCard.ts is the full contract
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/FlowCard'
+        '401':
+          description: Not signed in
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AccessError'
+        '403':
+          description: Not a member, or not a person's browser session
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AccessError'
+        '503':
+          description: Flows unavailable
+components:
+  schemas:
+    FlowCard:
+      type: object
+      required: [name, source, system, versions]
+      properties:
+        name: {type: string}
+        source:
+          description: '{"builtin": true} for the install''s version, or {"path": "flows/<name>/flow.ts"} for the repository''s'
+          type: object
+          properties:
+            builtin: {type: boolean}
+            path: {type: string}
+        system:
+          description: A system flow is never overridable and has no Edit; a built-in flow need not be one.
+          type: boolean
+        versions:
+          type: array
+          items:
+            type: object
+            required: [id, state, steps]
+            properties:
+              id:
+                description: The version's digest
+                type: string
+              state: {type: string, enum: [active, proposed, merged-syncing, merged-failed, previous]}
+              todo: {type: integer, minimum: 1}
+              error: {type: string}
+              steps:
+                type: array
+                items:
+                  type: object
+                  required: [id]
+                  properties:
+                    id: {type: string}
+                    label: {type: string}
+                    wait: {type: boolean}
+                    signals:
+                      type: array
+                      items:
+                        type: object
+                        required: ['on', to]
+                        properties:
+                          'on': {type: string, enum: [rebase, steer]}
+                          to: {type: string}

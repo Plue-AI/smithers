@@ -29,9 +29,10 @@ type everyInstallMember struct{}
 
 func (everyInstallMember) AuthorizeMember(context.Context, int64) *pkgerrors.APIError { return nil }
 
-// A host-run command reads the install's TODOs through the routes the
-// person's browser reads, mounted once (mountTodoReads), and each route
-// decides for the turn's credential as it decides for the browser.
+// A host-run command reads the install's TODOs and flows through the routes
+// the person's browser reads, mounted once (mountTodoReads, mountFlowReads),
+// and each route decides for the turn's credential as it decides for the
+// browser.
 func TestInstallAPIReadsTodosThroughTheirOwnRoutes(t *testing.T) {
 	pool, _ := postgresfixture.NewProductDatabase(t)
 	ctx := t.Context()
@@ -59,7 +60,7 @@ func TestInstallAPIReadsTodosThroughTheirOwnRoutes(t *testing.T) {
 		require.NoError(t, err)
 		return middleware.Credential{SessionHash: key}
 	}
-	api := services.InstallAPI{Pool: pool, Members: everyInstallMember{}, Routes: todoReadRoutes(q, services.NewMythicalService(pool, nil))}
+	api := services.InstallAPI{Pool: pool, Members: everyInstallMember{}, Routes: installReadRoutes(q, services.NewMythicalService(pool, nil))}
 	read := func(credential middleware.Credential, userID int64, path string) (int, map[string]any, []map[string]any) {
 		t.Helper()
 		answer, err := api.Call(ctx, credential, userID, http.MethodGet, path)
@@ -80,6 +81,16 @@ func TestInstallAPIReadsTodosThroughTheirOwnRoutes(t *testing.T) {
 	status, todo, _ := read(ownerSession, owner.ID, "/api/todos/1")
 	require.Equal(t, http.StatusOK, status)
 	require.Equal(t, "Add a greeting", todo["title"])
+	// The flow catalog reads through the same mount: the built-in TODO flow,
+	// not a system flow, with one Active version.
+	status, _, flows := read(ownerSession, owner.ID, "/api/flows")
+	require.Equal(t, http.StatusOK, status)
+	require.Len(t, flows, 1)
+	require.Equal(t, "todo", flows[0]["name"])
+	require.Equal(t, map[string]any{"builtin": true}, flows[0]["source"])
+	require.Equal(t, false, flows[0]["system"])
+	require.Len(t, flows[0]["versions"], 1)
+	require.Equal(t, "active", flows[0]["versions"].([]any)[0].(map[string]any)["state"])
 	status, refusal, _ := read(ownerSession, owner.ID, "/api/todos/2")
 	require.Equal(t, http.StatusNotFound, status)
 	require.Equal(t, "todo_not_found", refusal["code"])
@@ -99,9 +110,11 @@ func TestInstallAPIReadsTodosThroughTheirOwnRoutes(t *testing.T) {
 		userID     int64
 		message    string
 	}{{middleware.Credential{TokenHash: hash}, owner.ID, "Sign in with a browser session"}, {session(member), member.ID, "Not a member"}} {
-		status, refusal, _ = read(asker.credential, asker.userID, "/api/todos")
-		require.Equal(t, http.StatusForbidden, status)
-		require.Equal(t, map[string]any{"class": "permission", "code": "permission", "message": asker.message}, refusal)
+		for _, path := range []string{"/api/todos", "/api/flows"} {
+			status, refusal, _ = read(asker.credential, asker.userID, path)
+			require.Equal(t, http.StatusForbidden, status, path)
+			require.Equal(t, map[string]any{"class": "permission", "code": "permission", "message": asker.message}, refusal, path)
+		}
 	}
 	// The read is a request of its own: made from inside the producer
 	// callback, itself a routed POST, it is routed afresh and never inherits

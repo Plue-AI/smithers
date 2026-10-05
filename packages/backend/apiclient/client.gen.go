@@ -1139,6 +1139,43 @@ type TODOBranchDiffModelHunksItemLinesItem struct {
 	Text string `json:"text"`
 }
 
+// FlowCard is generated from docs/api/openapi.yaml.
+type FlowCard struct {
+	Name     string                 `json:"name"`
+	Source   FlowCardSource         `json:"source"`
+	System   bool                   `json:"system"`
+	Versions []FlowCardVersionsItem `json:"versions"`
+}
+
+// FlowCardSource is generated from docs/api/openapi.yaml.
+type FlowCardSource struct {
+	Builtin *bool   `json:"builtin,omitempty"`
+	Path    *string `json:"path,omitempty"`
+}
+
+// FlowCardVersionsItem is generated from docs/api/openapi.yaml.
+type FlowCardVersionsItem struct {
+	ID    string                          `json:"id"`
+	State string                          `json:"state"`
+	Todo  *int64                          `json:"todo,omitempty"`
+	Error *string                         `json:"error,omitempty"`
+	Steps []FlowCardVersionsItemStepsItem `json:"steps"`
+}
+
+// FlowCardVersionsItemStepsItem is generated from docs/api/openapi.yaml.
+type FlowCardVersionsItemStepsItem struct {
+	ID      string                                     `json:"id"`
+	Label   *string                                    `json:"label,omitempty"`
+	Wait    *bool                                      `json:"wait,omitempty"`
+	Signals []FlowCardVersionsItemStepsItemSignalsItem `json:"signals,omitempty"`
+}
+
+// FlowCardVersionsItemStepsItemSignalsItem is generated from docs/api/openapi.yaml.
+type FlowCardVersionsItemStepsItemSignalsItem struct {
+	On string `json:"on"`
+	To string `json:"to"`
+}
+
 // InstallParallelSetting — Dark install-settings contract; no write route is served until settings, shared authority and catalog policy are composed. Settings retains the request; Home reports min(parallel, capacity), including zero.
 type InstallParallelSetting struct {
 	Parallel int64 `json:"parallel"`
@@ -2379,6 +2416,13 @@ func (c *Client) PostAPICommandsSelect(ctx context.Context, body any) (AnyJSON, 
 func (c *Client) GetAPIFeatureFlags(ctx context.Context) (AnyJSON, error) {
 	var out AnyJSON
 	err := c.do(ctx, "GET", "/api/feature-flags", nil, nil, &out)
+	return out, err
+}
+
+// GetAPIFlows calls GET /api/flows.
+func (c *Client) GetAPIFlows(ctx context.Context) ([]FlowCard, error) {
+	var out []FlowCard
+	err := c.do(ctx, "GET", "/api/flows", nil, nil, &out)
 	return out, err
 }
 

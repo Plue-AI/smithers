@@ -1343,11 +1343,11 @@ func runWithOptions(ctx context.Context, args []string, stdout, stderr io.Writer
 	}
 	if config.IsSingleOwner(cfg.Auth) {
 		// Questions read the install's mirrored main once Source is ready, and
-		// their commands read the install's TODO routes, as the credential
-		// that asked, behind the same member boundary.
+		// their commands read the install's TODO and flow routes, as the
+		// credential that asked, behind the same member boundary.
 		members := identity.NewMemberBoundary(queries)
 		chatSizing.Sources = services.InstallSource{Pool: pool, Repos: repoService, Members: members}
-		chatSizing.API = services.InstallAPI{Pool: pool, Members: members, Routes: todoReadRoutes(queries, mythicalService)}
+		chatSizing.API = services.InstallAPI{Pool: pool, Members: members, Routes: installReadRoutes(queries, mythicalService)}
 	}
 	chatService, err := newChatComposition(options, pool, chatSizing)
 	if err != nil {

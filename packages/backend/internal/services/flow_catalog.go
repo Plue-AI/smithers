@@ -1,6 +1,12 @@
 package services
 
-import "slices"
+import (
+	_ "embed"
+	"encoding/json"
+	"fmt"
+	"maps"
+	"slices"
+)
 
 // SystemFlows is the install-owned catalog (engineering spec §11.1). The
 // coding host receives these exact names; a repository cannot replace them.
@@ -46,4 +52,91 @@ var BuiltinFlowDefaults = map[string]string{
 	"todo":     "flows/todo/flow.ts",
 	"learning": "flows/learning/flow.ts",
 	"review":   "flows/review/flow.ts",
+}
+
+// FlowCard is one flow as GET /api/flows serves it: the Flow card's model
+// (FlowCardSchema in packages/rpc/src/FlowCard.ts). System is separate from
+// Source: a built-in flow is overridable unless it is a system flow, and only
+// a system flow refuses Edit (§11.1).
+type FlowCard struct {
+	Name     string        `json:"name"`
+	Source   FlowSource    `json:"source"`
+	System   bool          `json:"system"`
+	Versions []FlowVersion `json:"versions"`
+}
+
+// FlowSource is where a flow's Active version comes from: the install
+// ({"builtin": true}) or the repository's file ({"path": ...}).
+type FlowSource struct {
+	Builtin bool   `json:"builtin,omitempty"`
+	Path    string `json:"path,omitempty"`
+}
+
+// FlowVersion is one version of a flow (§4.3). Its ID is the version's digest.
+type FlowVersion struct {
+	ID    string     `json:"id"`
+	State string     `json:"state"`
+	Todo  int64      `json:"todo,omitempty"`
+	Error string     `json:"error,omitempty"`
+	Steps []FlowStep `json:"steps"`
+}
+
+// FlowStep is one step of a version, or the TODO flow's trailing wait for
+// merge (ID "merge", Wait) with the signals that resume it.
+type FlowStep struct {
+	ID      string       `json:"id"`
+	Label   string       `json:"label,omitempty"`
+	Wait    bool         `json:"wait,omitempty"`
+	Signals []FlowSignal `json:"signals,omitempty"`
+}
+
+// FlowSignal sends the merge wait back to a step: a clean rebase to Verify,
+// a steer to Implement (§10.4.1).
+type FlowSignal struct {
+	On string `json:"on"`
+	To string `json:"to"`
+}
+
+// builtinFlowsJSON holds the digest of each built-in version the install
+// ships: the composition's content digest, as the flow registry measures the
+// descriptor Executable.catalog binds. flows/test/coding-builtin-routes.test.ts
+// fails when a built-in composition changes without this file.
+//
+//go:embed builtin_flows.json
+var builtinFlowsJSON []byte
+
+// builtinFlowSteps are the steps of each built-in version the Flow card
+// shows, in order (mvp.md J5.2: plan, implement, verify, review, propose,
+// then wait for merge).
+var builtinFlowSteps = map[string][]FlowStep{
+	"todo": {
+		{ID: "plan", Label: "Plan"},
+		{ID: "implement", Label: "Implement"},
+		{ID: "verify", Label: "Verify"},
+		{ID: "review", Label: "Review"},
+		{ID: "propose", Label: "Propose"},
+		{ID: "merge", Wait: true, Signals: []FlowSignal{{On: "rebase", To: "Verify"}, {On: "steer", To: "Implement"}}},
+	},
+}
+
+// FlowCatalog is the install's flow catalog (GET /api/flows): each
+// overridable flow the install ships, with its built-in version Active. No
+// system flow is listed. The repository's versions (proposed, merged-syncing,
+// merged-failed, previous) join it once flow-load records them (T-FLW-03).
+func FlowCatalog() ([]FlowCard, error) {
+	var digests map[string]string
+	if err := json.Unmarshal(builtinFlowsJSON, &digests); err != nil {
+		return nil, fmt.Errorf("built-in flow digests: %w", err)
+	}
+	names := slices.Sorted(maps.Keys(builtinFlowSteps))
+	cards := make([]FlowCard, 0, len(names))
+	for _, name := range names {
+		digest := digests[name]
+		if !Overridable(name) || !repositoryJobDigest.MatchString(digest) {
+			return nil, fmt.Errorf("built-in flow %q has no valid digest", name)
+		}
+		cards = append(cards, FlowCard{Name: name, Source: FlowSource{Builtin: true},
+			Versions: []FlowVersion{{ID: digest, State: "active", Steps: builtinFlowSteps[name]}}})
+	}
+	return cards, nil
 }

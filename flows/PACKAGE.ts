@@ -48,6 +48,7 @@ const suite = Smithers.NodeTest({
     scripts,
     Smithers.file("//flows/review/flow.ts"),
     Smithers.file("//packages/backend/internal/services/flow_catalog.go"),
+    Smithers.file("//packages/backend/internal/services/builtin_flows.json"),
     Smithers.file("//packages/backend/flowdispatch/real_host_test.go"),
     Smithers.file("//pnpm-workspace.yaml"),
     Smithers.file("//flows/rollout/refuse-unqualified.mjs"),
