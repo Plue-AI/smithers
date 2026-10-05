@@ -337,6 +337,49 @@ test("an answer posts to POST /api/todos/{n}/answer and settles with the questio
   } finally { h.close() }
 })
 
+// J4.2d / J4.3a: Retry with a steer posts {op: retry, steer} to POST /api/todos/{n} once per press; its toast settles
+// only when the attempt the receipt names runs (Working), never on the 202, and fails if that attempt fails again.
+test("a retry posts its steer once and settles when the attempt its receipt names runs", async () => {
+  const calls: { url: string; init?: RequestInit }[] = []
+  let attempt = 2
+  const h = await harness(async (url, init) => { calls.push({ url, init }); return json({ state: "accepted", attempt: ++attempt }) })
+  try {
+    const failed = fixtures.failed.model
+    await h.seam.applyTodoProjection(12, failed)
+    expect(await h.seam.controlTodo(12, "retry", "[FIXED] use the helper")).toEqual({ value: "Requested" })
+    expect(await h.seam.controlTodo(12, "retry", "[FIXED] use the helper")).toEqual({ value: "Requested" })
+    await waitFor(() => h.todo().payload.requests[0]?.state === "accepted")
+    expect(calls).toHaveLength(1)
+    expect(calls[0]!.url).toBe("https://install.test/api/todos/12")
+    expect(calls[0]!.init?.method).toBe("POST")
+    expect(JSON.parse(String(calls[0]!.init?.body))).toEqual({ op: "retry", steer: "[FIXED] use the helper" })
+    const key = h.todo().payload.requests[0]!.key
+    expect(new Headers(calls[0]!.init?.headers).get("Idempotency-Key")).toBe(key)
+    expect(h.todo().payload.requests[0]!.attempt).toBe(3)
+    expect(CardSchema.parse(h.todo()).payload).toEqual(h.todo().payload)
+    // The failed attempt, the queue and the start settle nothing.
+    await h.seam.applyTodoProjection(12, failed)
+    await h.seam.applyTodoProjection(12, { ...fixtures.working.model, state: "queued", run: undefined })
+    await h.seam.applyTodoProjection(12, { ...fixtures.working.model, state: "starting", run: undefined })
+    expect(h.outcomes).toEqual([])
+    await h.seam.applyTodoProjection(12, { ...fixtures.working.model, run: { id: "run-43", attempt: 3, indicators: [] } })
+    expect(h.outcomes).toEqual([{ key: `todo.request.${key}`, status: "ok", detail: "Working" }])
+    expect(h.todo().payload.requests).toEqual([])
+
+    // A later retry whose attempt fails again settles failed, with the failure's words.
+    calls.length = 0
+    await h.seam.applyTodoProjection(12, { ...failed, run: { id: "run-43", attempt: 3, indicators: [] } })
+    expect(await h.seam.controlTodo(12, "retry")).toEqual({ value: "Requested" })
+    await waitFor(() => h.todo().payload.requests[0]?.state === "accepted")
+    expect(JSON.parse(String(calls[0]!.init?.body))).toEqual({ op: "retry" })
+    const again = h.todo().payload.requests[0]!.key
+    await h.seam.applyTodoProjection(12, { ...failed, run: { id: "run-44", attempt: 3, indicators: [] } })
+    expect(h.outcomes).toHaveLength(1)
+    await h.seam.applyTodoProjection(12, { ...failed, run: { id: "run-44", attempt: 4, indicators: [] } })
+    expect(h.outcomes[1]).toEqual({ key: `todo.request.${again}`, status: "failed", detail: failed.failure!.message })
+  } finally { h.close() }
+})
+
 test("Needs you toasts anyone on the branch, but not a member who neither owns the TODO nor is on its branch (M-14)", async () => {
   const h = await harness(async () => json({ state: "accepted" }))
   try {

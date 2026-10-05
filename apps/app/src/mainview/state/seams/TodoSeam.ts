@@ -149,6 +149,13 @@ export const createTodoSeam = (ctx: SeamContext, options: TodoSeamOptions = {}) 
       // An accepted answer is done once its question is no longer open.
       if (request.operation === "answer") return model.waits.some(wait => wait.id === request.body.wait)
         ? [] : [{ key: request.key, outcome: { status: "ok" as const, detail: "Answered" } }]
+      // A retry settles once the attempt its receipt named runs: Working or past it, or failed again.
+      if (request.operation === "retry" || request.operation === "retry-current-flow") {
+        if (model.state === "dropped") return [{ key: request.key, outcome: { status: "failed" as const, detail: "Dropped" } }]
+        if (request.attempt === undefined || (model.run?.attempt ?? 0) < request.attempt || ["queued", "starting"].includes(model.state)) return []
+        return [{ key: request.key, outcome: model.state === "failed"
+          ? { status: "failed" as const, detail: model.failure?.message ?? "Failed" } : { status: "ok" as const, detail: "Working" } }]
+      }
       if (request.operation !== "create" || model.title !== request.body.title || model.prompt_revisions[0]?.text !== request.body.prompt) return []
       const terminal = ["in_review", "merged", "failed", "dropped"].includes(model.state)
       return [{ key: request.key, committed: { n, rev: 1 }, ...(terminal ? {
@@ -244,7 +251,8 @@ export const createTodoSeam = (ctx: SeamContext, options: TodoSeamOptions = {}) 
       const held = latest?.kind === "todo" ? latest.payload.requests.find(r => r.key === request.key)
         : latest?.kind === "draft" ? latest.payload.request : undefined
       if (held?.key !== request.key || latest?.kind === "draft" && latest.payload.committed) return
-      const accepted: Request = { ...request, n, state: result.state }
+      const attempt = typeof result.attempt === "number" && Number.isInteger(result.attempt) && result.attempt > 0 ? result.attempt : undefined
+      const accepted: Request = { ...request, n, state: result.state, ...(attempt === undefined ? {} : { attempt }) }
       await updateRequest(cardId, accepted)
       if (n) {
         if (cardId !== `todo:${n}`) {

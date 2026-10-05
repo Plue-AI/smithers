@@ -21,8 +21,9 @@ type TodoControlInput struct {
 	Request    string `json:"-"`
 }
 
-// TodoControlReceipt is a recorded control: "requested", and for a retry the
-// attempt it starts, so the app settles its toast from that attempt.
+// TodoControlReceipt is a recorded control: "accepted" once it is durable, and
+// for a retry the attempt it starts, so the app settles its toast from that
+// attempt.
 type TodoControlReceipt struct {
 	State   string `json:"state"`
 	Attempt int32  `json:"attempt,omitempty"`
@@ -30,7 +31,9 @@ type TodoControlReceipt struct {
 
 // todoControls dispatches each TODO control to its service, one file per op
 // (mythical_todo_<op>.go). An op without an entry is unavailable.
-var todoControls = map[string]func(*MythicalService, context.Context, int64, TodoControlInput) (TodoControlReceipt, error){}
+var todoControls = map[string]func(*MythicalService, context.Context, int64, TodoControlInput) (TodoControlReceipt, error){
+	"retry": (*MythicalService).retryTodo,
+}
 
 // TodoControlError uses the install command error envelope (§6.2.3).
 // Legacy repository API errors retain their existing wire format.

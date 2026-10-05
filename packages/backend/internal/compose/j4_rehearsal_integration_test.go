@@ -1,7 +1,12 @@
 package compose
 
 import (
+	"bufio"
+	"encoding/json"
 	"fmt"
+	"os"
+	"path/filepath"
+	"reflect"
 	"slices"
 	"strings"
 	"testing"
@@ -10,6 +15,94 @@ import (
 	"github.com/smithersai/smithers/packages/backend/internal/chat"
 )
 
+// j4Card is what the retry rows read of GET /api/todos/{n} beyond
+// rehearsalTodo: the failure, the steers and each attempt's evidence.
+type j4Card struct {
+	State string `json:"state"`
+	Run   *struct {
+		ID      string `json:"id"`
+		Attempt int32  `json:"attempt"`
+	} `json:"run"`
+	Failure *struct {
+		Step      string `json:"step"`
+		Class     string `json:"class"`
+		Message   string `json:"message"`
+		Retryable bool   `json:"retryable"`
+	} `json:"failure"`
+	Steers []struct {
+		Text string `json:"text"`
+		By   struct {
+			Kind  string `json:"kind"`
+			Login string `json:"login"`
+		} `json:"by"`
+		At string `json:"at"`
+	} `json:"steers"`
+	Evidence []j4Evidence `json:"evidence"`
+}
+
+// j4Evidence is one attempt's evidence on the card.
+type j4Evidence struct {
+	Attempt int32            `json:"attempt"`
+	Items   []map[string]any `json:"items"`
+}
+
+// recordedEvidence is an attempt's recorded evidence items: the card reads
+// model access live for the current attempt only, so it is left out.
+func recordedEvidence(items []map[string]any) []map[string]any {
+	return slices.DeleteFunc(slices.Clone(items), func(item map[string]any) bool { return item["kind"] == "model_access" })
+}
+
+// attemptsOf is TODO n's stored evidence per attempt (checks.attempts).
+func (r *rehearsal) attemptsOf(number int64) ([]j4Evidence, error) {
+	var raw []byte
+	if err := r.pool.QueryRow(r.ctx, `SELECT coalesce(checks->'attempts', '[]'::jsonb) FROM mythical_items WHERE number=$1`, number).Scan(&raw); err != nil {
+		return nil, err
+	}
+	var attempts []j4Evidence
+	return attempts, json.Unmarshal(raw, &attempts)
+}
+
+func (r *rehearsal) j4Card(number int64) (j4Card, error) {
+	var card j4Card
+	data, err := r.expect("GET", fmt.Sprintf("/api/todos/%d", number), "", 200)
+	if err == nil {
+		err = json.Unmarshal(data, &card)
+	}
+	return card, err
+}
+
+// modelTurns are the scripted model's traced turns (TRACE_MESSAGES=1 keeps
+// each message's text), in the order it served them.
+func (r *rehearsal) modelTurns() ([]map[string]any, error) {
+	file, err := os.Open(filepath.Join(r.evidence, "model-turns.jsonl"))
+	if err != nil {
+		return nil, err
+	}
+	defer file.Close()
+	var turns []map[string]any
+	lines := bufio.NewScanner(file)
+	lines.Buffer(make([]byte, 0, 1<<20), 16<<20)
+	for lines.Scan() {
+		var turn map[string]any
+		if json.Unmarshal(lines.Bytes(), &turn) == nil {
+			turns = append(turns, turn)
+		}
+	}
+	return turns, lines.Err()
+}
+
+// turnText is every traced message of a turn, joined.
+func turnText(turn map[string]any) string {
+	var b strings.Builder
+	messages, _ := turn["all"].([]any)
+	for _, message := range messages {
+		if m, ok := message.(map[string]any); ok {
+			b.WriteString(fmt.Sprint(m["content"]) + "\n")
+		}
+	}
+	return b.String()
+}
+
 // TestJ4Rehearsal walks journey J4 (mvp.md §5, the team's work; C-J4-01..03)
 // as the owner on the install J1 sets up. T1 goes straight to review, T2
 // asks a question and T3 fails its checks (distribution/fake-todo-turns.mjs
@@ -17,6 +110,9 @@ import (
 // once T3 failed, is the ready item a person moves above T3. Rows that wait
 // on a lane are listed as pending.
 func TestJ4Rehearsal(t *testing.T) {
+	// The model trace keeps each turn's messages: row 14b reads the steer in
+	// the first turn of T3's retried attempt.
+	t.Setenv("TRACE_MESSAGES", "1")
 	r := newRehearsal(t, "SMITHERS_J4_REHEARSAL", "C-J4", "j4-")
 	if !r.install("0 Install through Machine ready") {
 		return
@@ -280,8 +376,132 @@ func TestJ4Rehearsal(t *testing.T) {
 		return err
 	})
 	r.pending("12 Move T4 above T3", "POST /api/todos/{T4} {op: move}", "order T2, T4, T3; T4 reads 'Merges after T2'; T4 holds no bytes of T3", "T-STK-02", "stack-order")
-	r.pending("13 Retry T3 with a steer", "POST /api/todos/{T3} {op: retry, steer: '[FIXED] …'}", "202 within 1 s; attempt 2 reaches working; a double press makes one attempt", "T-STK-05", "retry-steer")
-	r.pending("14b The steer reaches attempt 2", "GET /api/todos/{T3}; model trace", "steers[0] is the steer; attempt 1 evidence kept; attempt 2's first message carries the steer", "T-STK-05", "retry-steer")
+	// T3 failed on attempt n; Retry with a [FIXED] steer starts attempt n+1,
+	// whose first input is the steer, so its checks pass.
+	const steer3 = "[FIXED] Keep JOURNEY.md as it is and add the greeting to t3.md"
+	var failed3 j4Card
+	var traced3 int
+	var attempts3 []j4Evidence
+	retried := false
+	r.step("13 Retry T3 with a steer", "POST /api/todos/{T3} {op: retry, steer: '[FIXED] …'} ×3", "202 within 1 s naming attempt n+1; the same press again answers it; attempt n+1 reaches working; a new press is 409", "T-STK-05", func() error {
+		var err error
+		if failed3, err = r.j4Card(t3); err != nil {
+			return err
+		}
+		if failed3.State != "failed" || failed3.Run == nil || failed3.Failure == nil || !failed3.Failure.Retryable {
+			return fmt.Errorf("T%d is not a retryable failure: state %s, failure %+v", t3, failed3.State, failed3.Failure)
+		}
+		if attempts3, err = r.attemptsOf(t3); err != nil {
+			return err
+		}
+		turns, err := r.modelTurns()
+		if err != nil {
+			return err
+		}
+		traced3 = len(turns)
+		path, body, key := fmt.Sprintf("/api/todos/%d", t3), `{"op":"retry","steer":"`+steer3+`"}`, r.keyPrefix+"retry-t3"
+		want := failed3.Run.Attempt + 1
+		var receipt struct {
+			State   string `json:"state"`
+			Attempt int32  `json:"attempt"`
+		}
+		began := time.Now()
+		code, data, err := r.keyed("POST", path, body, key)
+		took := time.Since(began)
+		if err != nil {
+			return err
+		}
+		if code != 202 || took > time.Second || json.Unmarshal(data, &receipt) != nil || receipt.State != "accepted" || receipt.Attempt != want {
+			return fmt.Errorf("retry: HTTP %d after %s: %s (want attempt %d)", code, took, data, want)
+		}
+		// A double press sends the same request again: it is that retry.
+		if code, data, err = r.keyed("POST", path, body, key); err != nil || code != 202 || !strings.Contains(string(data), fmt.Sprintf(`"attempt":%d`, want)) {
+			return fmt.Errorf("the same press again: HTTP %d %s %v", code, data, err)
+		}
+		v, err := r.waitTodoWithin(t3, 5*time.Minute, "working", "in_review")
+		if err != nil {
+			return err
+		}
+		if v.Run == nil || int32(v.Run.Attempt) != want {
+			return fmt.Errorf("T%d is %s on run %+v, want attempt %d", t3, v.State, v.Run, want)
+		}
+		// A new press once T3 left failed starts nothing.
+		if code, data, err = r.keyed("POST", path, body, key+"-again"); err != nil || code != 409 {
+			return fmt.Errorf("a new press after the retry: HTTP %d %s %v", code, data, err)
+		}
+		r.actual = fmt.Sprintf("202 in %s: attempt %d (was %d, %s: %s); again 202; T%d %s on attempt %d; new press 409", took.Round(time.Millisecond), want, failed3.Run.Attempt, failed3.Failure.Step, failed3.Failure.Message, t3, v.State, v.Run.Attempt)
+		retried = true
+		return nil
+	})
+	r.step("14b The steer reaches attempt n+1", "GET /api/todos/{T3}; model trace; SQL mythical_items", "steers[0] is the owner's steer; attempts 1..n keep their evidence; attempt n+1's first model turn carries the steer; one retry; T3 in_review on attempt n+1", "T-STK-05", func() error {
+		if !retried {
+			return fmt.Errorf("blocked by row 13: T%d was not retried", t3)
+		}
+		if _, err := r.waitTodoWithin(t3, 8*time.Minute, "in_review"); err != nil {
+			return err
+		}
+		card, err := r.j4Card(t3)
+		if err != nil {
+			return err
+		}
+		want := failed3.Run.Attempt + 1
+		if card.Run == nil || card.Run.Attempt != want {
+			return fmt.Errorf("T%d in review on run %+v, want attempt %d", t3, card.Run, want)
+		}
+		if len(card.Steers) != 1 || card.Steers[0].Text != steer3 || card.Steers[0].By.Kind != "person" || card.Steers[0].By.Login == "" {
+			return fmt.Errorf("steers %+v, want one by the owner: %q", card.Steers, steer3)
+		}
+		// Every earlier attempt keeps its recorded evidence: on the card, and
+		// as the stack stored it (checks.attempts), where attempt 1's row is.
+		for _, before := range failed3.Evidence {
+			if len(recordedEvidence(before.Items)) == 0 {
+				continue // the card lists an attempt only with recorded items
+			}
+			i := slices.IndexFunc(card.Evidence, func(after j4Evidence) bool { return after.Attempt == before.Attempt })
+			if before.Attempt < want && (i < 0 || !reflect.DeepEqual(recordedEvidence(card.Evidence[i].Items), recordedEvidence(before.Items))) {
+				return fmt.Errorf("attempt %d's evidence changed after the retry: %+v", before.Attempt, card.Evidence)
+			}
+		}
+		stored, err := r.attemptsOf(t3)
+		if err != nil {
+			return err
+		}
+		if len(attempts3) == 0 || attempts3[0].Attempt != 1 {
+			return fmt.Errorf("T%d stored no attempt 1 evidence before the retry: %+v", t3, attempts3)
+		}
+		for _, before := range attempts3 {
+			i := slices.IndexFunc(stored, func(after j4Evidence) bool { return after.Attempt == before.Attempt })
+			if i < 0 || !reflect.DeepEqual(stored[i], before) {
+				return fmt.Errorf("stored attempt %d changed after the retry: %+v, was %+v", before.Attempt, stored, attempts3)
+			}
+		}
+		kept := len(attempts3)
+		turns, err := r.modelTurns()
+		if err != nil {
+			return err
+		}
+		first := -1
+		for i := traced3; i < len(turns) && first < 0; i++ {
+			if strings.Contains(turnText(turns[i]), "t3.md") {
+				first = i
+			}
+		}
+		if first < 0 {
+			return fmt.Errorf("no model turn of T%d after the retry (%d turns traced)", t3, len(turns))
+		}
+		if !strings.Contains(turnText(turns[first]), steer3) {
+			return fmt.Errorf("attempt %d's first model turn (%v) does not carry the steer", want, turns[first]["step"])
+		}
+		var retries int
+		if err = r.pool.QueryRow(r.ctx, `SELECT coalesce(jsonb_array_length(checks->'retries'), 0) FROM mythical_items WHERE number=$1`, t3).Scan(&retries); err != nil {
+			return err
+		}
+		if retries != 1 {
+			return fmt.Errorf("T%d recorded %d retries, want 1", t3, retries)
+		}
+		r.actual = fmt.Sprintf("200 T%d in_review on attempt %d; steers[0] by %s; %d earlier attempts' evidence kept; turn %d (%v) carries the steer; 1 retry", t3, want, card.Steers[0].By.Login, kept, first+1, turns[first]["step"])
+		return nil
+	})
 	r.pending("15 Receipts settle late", "GET /api/live (home)", "each toast settles from the served fact, not the 202", "T-APP-01", "live-slice")
 	r.pending("16 Merged since last look", "PUT view state; GET /api/todos", "the browser derives [T1] after the merge and [] after a new look", "T-APP-01", "last-look")
 	r.pending("17 T2 ready after T1 merges", "GitHub fake PR; GET /api/todos", "T2 rebases onto the merged main; one ready-for-review change on T2's PR; merge.state ready on T2 only", "T-STK-04, T-STK-08", "second-merge")

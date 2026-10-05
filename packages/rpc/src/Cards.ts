@@ -713,7 +713,9 @@ const TodoRequestSchema = z.object({
   body: z.record(z.string(), z.unknown()),
   n: z.number().int().positive().optional(),
   state: z.enum(["requested", "accepted", "failed"]),
-  error: z.string().optional()
+  error: z.string().optional(),
+  /* The attempt an accepted retry starts, from its receipt: the retry settles once that attempt runs. */
+  attempt: z.number().int().positive().optional()
 })
 type TodoRequest = z.infer<typeof TodoRequestSchema>
 // Named types keep declaration emit from inlining the whole TODO and Draft

@@ -133,12 +133,16 @@ func TestTodoRoutesAuthorizeByRole(t *testing.T) {
 			require.Equal(t, tc.merge, status, envelope)
 			require.Equal(t, tc.mergeCode, envelope["code"])
 			// Every control, as the app sends it: a person on the roster gets
-			// past authorization to the service, which keeps controls dark;
+			// past authorization to the service, which refuses Retry of a
+			// working TODO and keeps the controls it has no service for dark;
 			// nobody else gets past authorization.
 			for _, body := range []string{`{"op":"steer","text":"Keep the max at 5"}`, `{"steer":"Keep the max at 5"}`, `{"op":"stop"}`, `{"op":"resume"}`,
 				`{"op":"retry"}`, `{"op":"retry","steer":"Use the retry helper"}`, `{"op":"retry-current-flow"}`, `{"op":"drop"}`} {
 				status, envelope = call(http.MethodPost, "/api/todos/3", body, "control-"+tc.who, info)
-				if tc.list == 200 {
+				if tc.list == 200 && strings.HasPrefix(body, `{"op":"retry"`) {
+					require.Equal(t, http.StatusConflict, status, body)
+					require.Equal(t, map[string]any{"code": "conflict", "class": "conflict", "message": "TODO has not failed"}, envelope, body)
+				} else if tc.list == 200 {
 					require.Equal(t, http.StatusServiceUnavailable, status, body)
 					require.Equal(t, map[string]any{"code": "todo_control_unavailable", "class": "infra", "message": "TODO controls are unavailable"}, envelope, body)
 				} else {

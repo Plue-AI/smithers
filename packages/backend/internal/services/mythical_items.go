@@ -1261,7 +1261,7 @@ func mythicalRetry(item db.MythicalItem, reason string, fault *mythicalFault, no
 		said = fault.sentence()
 	}
 	switch {
-	case item.Attempt < mythicalAttempts:
+	case item.Attempt-checks.AttemptBase < mythicalAttempts:
 		checks.Replans++
 		next.State, next.Reason = "retrying", reason
 	case !checks.VeryHard:
@@ -1817,12 +1817,17 @@ func (st *mythicalItemStep) start(ctx context.Context, item db.MythicalItem) (*d
 	if err != nil {
 		return mythicalInfraOutage(item, "launch", "the stack tip could not reach the lane: "+err.Error(), st.now), false, nil
 	}
-	prompt := st.prompt(item, next.Attempt)
+	// The attempt's number among those since the last Retry: a Retry starts
+	// them again while the attempt number keeps counting.
+	prompt := st.prompt(item, next.Attempt-mythicalChecksOf(item).AttemptBase)
 	if mythicalTodo(item) {
 		prompt = todoPrompt(item)
 	}
 	request := map[string]any{"prompt": prompt, "maxRounds": 3,
 		"base": map[string]string{"commitId": base, "ref": ref}}
+	if feedback := todoFeedback(item, next.Attempt); feedback != "" {
+		request["feedback"] = feedback
+	}
 	// The lane plans with the published wiki; it never reviews the pages again.
 	if wiki, ok := s.suppliedWiki(ctx, r.row.RepositoryID); ok {
 		request["wiki"] = wiki
@@ -1954,6 +1959,10 @@ func (st *mythicalItemStep) startPinned(ctx context.Context, item db.MythicalIte
 	}
 	request := map[string]any{"prompt": todoPrompt(item), "maxRounds": 3,
 		"base": map[string]string{"commitId": base, "ref": ref}}
+	// The steers held for this attempt are its first input (spec §10.7.3).
+	if feedback := todoFeedback(item, next.Attempt); feedback != "" {
+		request["feedback"] = feedback
+	}
 	// The lane plans with the published wiki; it never reviews the pages again.
 	if wiki, ok := s.suppliedWiki(ctx, r.row.RepositoryID); ok {
 		request["wiki"] = wiki
@@ -3124,17 +3133,12 @@ func (l *workspaceMythicalLanes) Delete(ctx context.Context, repositoryID, _ int
 // verified final capture and settlement.
 var errTodoWorkspaceRetained = errors.New("TODO workspace retained until verified final capture and settlement")
 
-// retryItem retains the legacy CAS for the hidden maintainer machinery. It
-// has no production caller; ControlTodo is the install boundary and refuses
-// until durable attempts and validated machine dispatch are composed.
-// A blocked, rejected or declined item gets a fresh set of
-// attempts. A rejected item's pull request was closed by its owner, and a
-// declined item was declined by the planner: retrying either is a person's
-// decision (middleware.RequirePerson). A run may retry a blocked item. A
-// skipped item is not retried: admission (labels, approval) decides it. A
-// proposed TODO held on its review (mythicalReviewHeld) is retried by a
-// person too: the review of its current head runs again, with its bounds
-// lifted, and the pull request stays as it is.
+// retryItem retains the legacy CAS by item id for the hidden maintainer
+// machinery; it has no production caller. A TODO's Retry is ControlTodo
+// (retryTodo), which shares its reset (mythicalRetried). A proposed TODO
+// held on its review (mythicalReviewHeld) is retried by a person too: the
+// review of its current head runs again, with its bounds lifted, and the
+// pull request stays as it is.
 func (s *MythicalService) retryItem(ctx context.Context, repositoryID int64, itemID string) (MythicalItemView, error) {
 	id, err := uuid.Parse(itemID)
 	if err != nil {
@@ -3149,54 +3153,14 @@ func (s *MythicalService) retryItem(ctx context.Context, repositoryID int64, ite
 		if err != nil {
 			return MythicalItemView{}, err
 		}
+		next := item
 		if item.Source == "issue" && mythicalReviewHeld(item) {
 			if err := middleware.RequirePerson(ctx, "retry the review of a TODO"); err != nil {
 				return MythicalItemView{}, err
 			}
-			saved, err := q.SaveMythicalItem(ctx, mythicalRetryReview(item))
-			if errors.Is(err, pgx.ErrNoRows) {
-				continue
-			}
-			if err != nil {
-				return MythicalItemView{}, err
-			}
-			if stack, err := q.GetMythicalStack(ctx, repositoryID); err == nil {
-				s.itemChanged(ctx, q, stack, saved.ID)
-			}
-			return mythicalItemView(saved), nil
-		}
-		if item.State != "blocked" && item.State != "rejected" && item.State != "declined" {
-			return MythicalItemView{}, pkgerrors.Conflict("only a blocked, rejected or declined item, or a TODO held on its review, is retried")
-		}
-		// A person, never a run, retries past a bound.
-		// A typed stop (a bound, a cancel, very hard, a defect) is a person's
-		// to lift; a run may retry only a block no fault names.
-		person := item.State != "blocked" || mythicalChecksOf(item).Fault != nil
-		if person {
-			if err := middleware.RequirePerson(ctx, "retry a "+item.State+" item"); err != nil {
-				return MythicalItemView{}, err
-			}
-		}
-		next := retainTodoAttemptEvidence(item)
-		next.State, next.Reason, next.Attempt, next.NextAttemptAt = "queued", "", 0, pgtype.Timestamptz{}
-		retried := mythicalChecksOf(next)
-		retried.Replans = 0
-		if person {
-			// A person's retry lifts every bound: they count again from now.
-			retried.resume()
-		} else {
-			// A run's retry keeps the launch bound where it was.
-			retried.Outages, retried.GitHubOutages, retried.VeryHard, retried.Fault = 0, 0, false, nil
-		}
-		next.Checks = retried.encode()
-		if item.PRNumber.Valid && item.PRState != "open" {
-			// The closed proposal stays closed: the retried item proposes anew.
-			// An open one is kept: the retry pushes its branch again.
-			next.ProposalRound++
-			next.PRNumber, next.PRURL, next.PRState, next.PRHead, next.PRMergeCommit = pgtype.Int8{}, "", "", "", ""
-		}
-		if len(item.PendingOp) > 0 {
-			return MythicalItemView{}, pkgerrors.Conflict("pending GitHub operation must settle before retry")
+			next = mythicalRetryReview(item)
+		} else if next, err = mythicalRetried(ctx, item); err != nil {
+			return MythicalItemView{}, err
 		}
 		saved, err := q.SaveMythicalItem(ctx, next)
 		if errors.Is(err, pgx.ErrNoRows) {
@@ -3211,6 +3175,49 @@ func (s *MythicalService) retryItem(ctx context.Context, repositoryID int64, ite
 		return mythicalItemView(saved), nil
 	}
 	return MythicalItemView{}, pkgerrors.Conflict("the item changed concurrently; retry")
+}
+
+// mythicalRetried is a blocked, rejected or declined item queued again for a
+// fresh set of plans. A rejected item's pull request was closed by its
+// owner, and a declined item was declined by the planner: retrying either is
+// a person's decision (middleware.RequirePerson), as is lifting a typed stop
+// (a bound, a cancel, very hard, a defect); a run may retry only a block no
+// fault names. A skipped item is not retried: admission (labels, approval)
+// decides it. The attempt number keeps counting, so the next launch is a new
+// attempt and every earlier attempt's evidence stays its own (spec §4.1);
+// the attempt bound counts from here (AttemptBase).
+func mythicalRetried(ctx context.Context, item db.MythicalItem) (db.MythicalItem, error) {
+	if item.State != "blocked" && item.State != "rejected" && item.State != "declined" {
+		return db.MythicalItem{}, pkgerrors.Conflict("only a blocked, rejected or declined item, or a TODO held on its review, is retried")
+	}
+	person := item.State != "blocked" || mythicalChecksOf(item).Fault != nil
+	if person {
+		if err := middleware.RequirePerson(ctx, "retry a "+item.State+" item"); err != nil {
+			return db.MythicalItem{}, err
+		}
+	}
+	if len(item.PendingOp) > 0 {
+		return db.MythicalItem{}, pkgerrors.Conflict("pending GitHub operation must settle before retry")
+	}
+	next := retainTodoAttemptEvidence(item)
+	next.State, next.Reason, next.NextAttemptAt = "queued", "", pgtype.Timestamptz{}
+	retried := mythicalChecksOf(next)
+	retried.Replans, retried.AttemptBase = 0, item.Attempt
+	if person {
+		// A person's retry lifts every bound: they count again from now.
+		retried.resume()
+	} else {
+		// A run's retry keeps the launch bound where it was.
+		retried.Outages, retried.GitHubOutages, retried.VeryHard, retried.Fault = 0, 0, false, nil
+	}
+	next.Checks = retried.encode()
+	if item.PRNumber.Valid && item.PRState != "open" {
+		// The closed proposal stays closed: the retried item proposes anew.
+		// An open one is kept: the retry pushes its branch again.
+		next.ProposalRound++
+		next.PRNumber, next.PRURL, next.PRState, next.PRHead, next.PRMergeCommit = pgtype.Int8{}, "", "", "", ""
+	}
+	return next, nil
 }
 
 // mythicalReviewHeld reports whether a proposed item waits for a person
@@ -3587,12 +3594,17 @@ func appliedByMaintainer(applied gitHubLabelApplication, label string) bool {
 // made its issue a TODO and asked for automerge, and the review of its pull
 // request's head.
 type mythicalChecks struct {
-	Attempts        []todoAttemptEvidence `json:"attempts,omitempty"`
-	CreationSession string                `json:"creation_session,omitempty"`
-	CreationPayload string                `json:"creation_payload,omitempty"`
-	Waits           []TodoWait            `json:"waits,omitempty"`
-	RunLaunched     bool                  `json:"run_launched,omitempty"`
-	RunAttached     bool                  `json:"run_attached,omitempty"`
+	Attempts []todoAttemptEvidence `json:"attempts,omitempty"`
+	// Steers are the TODO's steers in order, each held for an attempt
+	// (todoFeedback); Retries are the Retry presses by Idempotency-Key, so a
+	// press sent again starts nothing more (retryTodo).
+	Steers          []todoSteer `json:"steers,omitempty"`
+	Retries         []todoRetry `json:"retries,omitempty"`
+	CreationSession string      `json:"creation_session,omitempty"`
+	CreationPayload string      `json:"creation_payload,omitempty"`
+	Waits           []TodoWait  `json:"waits,omitempty"`
+	RunLaunched     bool        `json:"run_launched,omitempty"`
+	RunAttached     bool        `json:"run_attached,omitempty"`
 	// FlowSource is the main commit the attempt's todo pin was chosen from;
 	// flow_digest holds the pin's execution digest (mythicalPinOf).
 	FlowSource string `json:"flowSource,omitempty"`
@@ -3644,6 +3656,9 @@ type mythicalChecks struct {
 	VeryHard   bool  `json:"veryHard,omitempty"`
 	Launches   int64 `json:"launches,omitempty"`
 	LaunchBase int64 `json:"launchBase,omitempty"`
+	// AttemptBase is the attempt a Retry left the item at: its attempt bound
+	// counts from there while the attempt number keeps counting.
+	AttemptBase int32 `json:"attemptBase,omitempty"`
 	// TodoEvent is the GitHub event id of the last maintainer application
 	// of todo the stack acted on.
 	TodoEvent int64 `json:"todoEvent,omitempty"`

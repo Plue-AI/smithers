@@ -187,7 +187,7 @@ func (s *MythicalService) AnswerTodo(ctx context.Context, repositoryID, userID, 
 	if err != nil {
 		return err
 	}
-	by, _ := json.Marshal(map[string]any{"kind": "person", "login": person.Username, "name": person.DisplayName, "avatar_url": todoAvatar(person), "color_index": 0})
+	by := todoPersonActor(person)
 	return pgx.BeginFunc(ctx, s.store, func(tx pgx.Tx) error {
 		if _, err := tx.Exec(ctx, `SELECT 1 FROM mythical_stacks WHERE repository_id = $1 FOR UPDATE`, repositoryID); err != nil {
 			return err

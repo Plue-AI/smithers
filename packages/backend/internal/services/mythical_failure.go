@@ -173,6 +173,21 @@ func mythicalFailureOf(item db.MythicalItem) (*MythicalFailureView, string) {
 	return &MythicalFailureView{Kind: fault.kind(), Fault: fault.fault()}, fault.sentence()
 }
 
+// todoFailure is a failed TODO's card failure {step, class, message,
+// retryable} (spec §14.3): the step its typed fault names, whose fault it
+// was, and its sentence. A person may Retry every failed TODO, so it is
+// retryable; a TODO that is not failed has none.
+func todoFailure(item db.MythicalItem) map[string]any {
+	if todoState(item) != "failed" {
+		return nil
+	}
+	failure, sentence := mythicalFailureOf(item)
+	if failure == nil {
+		return map[string]any{"step": mythicalFailStopped, "class": "factory", "message": "Smithers stopped this TODO", "retryable": true}
+	}
+	return map[string]any{"step": failure.Kind, "class": failure.Fault, "message": sentence, "retryable": true}
+}
+
 // mythicalSentence starts an authored reason as a sentence.
 func mythicalSentence(reason string) string {
 	if reason == "" {

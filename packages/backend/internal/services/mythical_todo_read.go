@@ -98,10 +98,13 @@ func (s *MythicalService) todoCard(ctx context.Context, item db.MythicalItem, it
 	// machine state for a queued item; TodoCard permits that absence.
 	card := map[string]any{"n": item.Number.Int64, "title": item.Title.String, "state": todoState(item),
 		"owner":            map[string]any{"login": owner.Username, "name": owner.DisplayName, "avatar_url": todoAvatar(owner)},
-		"prompt_revisions": revisions, "steps": todoSteps(item), "waits": waits, "steers": []any{}, "evidence": []any{},
+		"prompt_revisions": revisions, "steps": todoSteps(item), "waits": waits, "steers": todoSteers(item), "evidence": []any{},
 		"present": []any{}}
 	if answer := todoFirstAnswer(item); answer != nil {
 		card["first_answer"] = answer
+	}
+	if failure := todoFailure(item); failure != nil {
+		card["failure"] = failure
 	}
 	if card["merge"], err = s.todoMerge(ctx, item); err != nil {
 		return nil, err
