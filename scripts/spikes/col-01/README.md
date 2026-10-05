@@ -114,7 +114,7 @@ export COL01_DOCHOST_BINARY="$CARGO_TARGET_DIR/debug/col01-dochost"
 (cd scripts/spikes/col-01 && go test -race ./... && go vet ./...)
 ```
 
-Remove this prototype after ADR 0003 records the result. Raw evidence stays. Run measurements with `--no-cache`. Declared exclusive targets: `//scripts/spikes/col-01:test`, `:rtt`, `:keystrokes`, `:snapshot`.
+Retain this prototype and its raw evidence as the reproducible T-COL-11 benchmark method; do not port it into product code. Run measurements with `--no-cache`. Declared exclusive targets: `//scripts/spikes/col-01:test`, `:rtt`, `:keystrokes`, `:snapshot`.
 Nothing here becomes product code. See [control/README.md](control/README.md)
 for the current two-exec service versus one-exec rejected-alternative gap.
 
@@ -133,3 +133,28 @@ an intrinsic bridge transport limitation. ADR 0004 supports both topologies.
 Reference-host findings (lead ruling 10-03):
 - Astra1/Fable1: **moved to T-COL-11 (lead ruling 10-03)**. Prepare a populated Linux ARM64 pnpm 11 store archive for the measured revision, then run the snapshot target on the reference host with `SPIKE_SNAPSHOT_STORE_ARCHIVE`; retain all eight 0/1/12/200-file idle/busy cells (100 samples each), dependency identities and the 12-file idle budget result.
 - Astra2/Fable3: **moved to T-COL-11 (lead ruling 10-03)**. Run the complete isolated reference-host RTT matrix with no competing VM (both transports, 64 B/4 KiB, idle/busy, 1,000 samples per cell and 20 setup samples), then obtain the second-Mac plain-LAN browser receipt for all three workloads with convergence and disk hashes. Retain the bridge delayed ACK/Nagle confounder and resolve it in the ADR 0003 topology decision; this harness landing claims neither reference-host acceptance nor a second-Mac pass.
+
+T-COL-11 follow-up measurements run inside the same disposable guest after
+snapshot mode's eight cells. `growth.py` snapshots 1,000 additional bursts of
+12 changed 128-byte fixture files, retains allocated `.jj`/`.git` bytes after
+each capture, abandons operations older than the newest 100, and runs GC with
+`--expire now`. Non-colocated Git objects are counted under `.jj` once. Its
+14-day projection uses 80,640 captures and the strict 2 GiB budget; this gross
+pre-GC projection does not approve a retention change. Then 100 synthetic
+12-blob, flat-tree, parentless versions commits are timed and byte-verified.
+This isolates the requested object-creation workload, not the production
+before/after directory-tree builder. Preparation and validation warm caches.
+
+The guest filesystem probe validates EXCHANGE, NOREPLACE's EEXIST with intact
+files, and RESOLVE_BENEATH with a readable local file and a rejected escaping
+symlink. Both follow-up tools refuse any identity except Linux agent uid 19999
+before creating evidence. Freeze and kill remain explicitly **blocked** until
+a reviewed main-pinned privileged helper exists; checking control-file existence
+would not measure them. The kernel command exits nonzero for this incomplete
+inventory, so the extended run cannot claim a passing check. No privileged
+helper is built, installed or invoked by this extension.
+
+C-SPK-03 retains `growth-samples.csv`, `versions-samples.csv`, `growth-summary.json`,
+`growth-abandon.log`, `growth-gc.log`, `kernel-probes.json` and failure evidence.
+The reference-host rerun, second-device browser results and signed ADR topology
+are still required. No topology decision is inferred from missing observations.

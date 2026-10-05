@@ -26,10 +26,17 @@ func (h *harness) snapshots(dir string, cpus int) (retErr error) {
 			"snapshot-summary.json": "jj-snapshot-output/summary.json",
 			"snapshot-env.json":     "jj-snapshot-output/env.json",
 			"snapshot-failure.json": "jj-snapshot-output/failure.json",
+			"kernel-probes.json":    "kernel-probes.json",
+			"growth-samples.csv":    "jj-growth-output/growth.csv",
+			"versions-samples.csv":  "jj-growth-output/versions.csv",
+			"growth-abandon.log":    "jj-growth-output/abandon.log",
+			"growth-gc.log":         "jj-growth-output/gc.log",
+			"growth-summary.json":   "jj-growth-output/summary.json",
+			"growth-failure.json":   "jj-growth-output/failure.json",
 		} {
 			data, err := h.runtime.ReadFile(copyCtx, h.id, source)
 			if err != nil {
-				if errors.Is(err, os.ErrNotExist) && (!completed || destination == "snapshot-failure.json") {
+				if errors.Is(err, os.ErrNotExist) && (!completed || (destination == "snapshot-failure.json" || destination == "growth-failure.json")) {
 					continue
 				}
 				retErr = errors.Join(retErr, fmt.Errorf("preserve snapshot artifact %s: %w", source, err))
@@ -38,7 +45,7 @@ func (h *harness) snapshots(dir string, cpus int) (retErr error) {
 			if err = os.WriteFile(filepath.Join(dir, destination), data, 0600); err != nil {
 				retErr = errors.Join(retErr, err)
 			}
-			if completed && destination == "snapshot-failure.json" {
+			if completed && (destination == "snapshot-failure.json" || destination == "growth-failure.json") {
 				retErr = errors.Join(retErr, errors.New("snapshot failure receipt exists despite command success"))
 			}
 		}
@@ -63,6 +70,9 @@ func (h *harness) snapshots(dir string, cpus int) (retErr error) {
 		"col01-jj":            filepath.Join(h.build, "col01-jj"),
 		"snapshot-prepare.py": "scripts/spikes/col-01/jj-snapshot/prepare.py",
 		"snapshot-measure.py": "scripts/spikes/col-01/jj-snapshot/snapshot.py",
+		"snapshot.py":         "scripts/spikes/col-01/jj-snapshot/snapshot.py",
+		"growth.py":           "scripts/spikes/col-01/jj-snapshot/growth.py",
+		"kernel.py":           "scripts/spikes/col-01/jj-snapshot/kernel.py",
 	} {
 		data, err := os.ReadFile(source)
 		if err != nil {
@@ -95,6 +105,8 @@ func (h *harness) snapshots(dir string, cpus int) (retErr error) {
 	commands := [][]string{
 		{"python3", "/workspace/snapshot-prepare.py", "http://" + h.rttBridge.Addr().String()},
 		{"python3", "/workspace/snapshot-measure.py", "/workspace/snapshot-repo", "/workspace/jj-snapshot-output", "--jj", "/workspace/col01-jj", "--busy-workers", fmt.Sprint(cpus), "--samples", "100"},
+		{"python3", "/workspace/growth.py", "/workspace/snapshot-repo", "/workspace/jj-growth-output", "--jj", "/workspace/col01-jj"},
+		{"python3", "/workspace/kernel.py", "/workspace/snapshot-repo", "/workspace/kernel-probes.json"},
 	}
 	for i, args := range commands {
 		fmt.Println("SNAPSHOT", args)
