@@ -29,7 +29,14 @@ func TestWorkflowDefaultHeadDeletionPostgres(t *testing.T) {
 	require.NoError(t, err)
 	// The DB is real. Controlled repository snapshots reproduce late delivery
 	// without depending on webhook timing or moving a live repository's refs.
+	// main moved older-main-push -> deletion-head; the feature ref forked
+	// from older-main-push. Neither late commit descends from the head.
 	host := &mockWorkflowSyncRepoHost{
+		parents: map[string][]string{
+			"older-main-push":     nil,
+			"deletion-head":       {"older-main-push"},
+			"feature-ref-with-ci": {"older-main-push"},
+		},
 		getBookmarkFn: func(context.Context, string, string, string) (repohost.Bookmark, error) {
 			return repohost.Bookmark{TargetCommitID: "deletion-head"}, nil
 		},

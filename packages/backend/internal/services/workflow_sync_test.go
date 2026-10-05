@@ -21,6 +21,9 @@ type mockWorkflowSyncRepoHost struct {
 	listFilesAtChangeFn func(ctx context.Context, owner, repo, changeID, prefix string) ([]repohost.ChangeFile, error)
 	getFileAtChangeFn   func(ctx context.Context, owner, repo, changeID, path string) (repohost.FileContent, error)
 	listBookmarksFn     func(ctx context.Context, owner, repo, cursor string, limit int) ([]repohost.Bookmark, string, error)
+	// parents is the fixture commit graph: commit -> parent commits. Every
+	// known commit is a key; a root commit maps to no parents.
+	parents map[string][]string
 
 	listFilesAtChangeCalls []struct {
 		owner    string
@@ -43,6 +46,32 @@ func (m *mockWorkflowSyncRepoHost) ListBookmarks(ctx context.Context, owner, rep
 		return m.listBookmarksFn(ctx, owner, repo, cursor, limit)
 	}
 	return nil, "", nil
+}
+
+// IsAncestor mirrors `git merge-base --is-ancestor` over m.parents: a commit
+// is its own ancestor, and an unknown commit is an error.
+func (m *mockWorkflowSyncRepoHost) IsAncestor(_ context.Context, _, _, ancestor, descendant string) (bool, error) {
+	if m.parents == nil {
+		return false, fmt.Errorf("mock repo host has no commit graph")
+	}
+	for _, commit := range []string{ancestor, descendant} {
+		if _, ok := m.parents[commit]; !ok {
+			return false, fmt.Errorf("unknown commit %q", commit)
+		}
+	}
+	seen := map[string]bool{}
+	for pending := []string{descendant}; len(pending) > 0; {
+		commit := pending[len(pending)-1]
+		pending = pending[:len(pending)-1]
+		if commit == ancestor {
+			return true, nil
+		}
+		if !seen[commit] {
+			seen[commit] = true
+			pending = append(pending, m.parents[commit]...)
+		}
+	}
+	return false, nil
 }
 
 func (m *mockWorkflowSyncRepoHost) ListFilesAtChange(ctx context.Context, owner, repo, changeID, prefix string) ([]repohost.ChangeFile, error) {

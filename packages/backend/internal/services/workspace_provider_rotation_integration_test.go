@@ -26,7 +26,7 @@ func TestWorkspaceProviderPoolRotationDoesNotPersistBootAccountModel(t *testing.
 	node, err := exec.LookPath("node")
 	if err != nil {
 		if strict {
-			t.Fatalf("node required for coding-host integration: %v", err)
+			t.Fatalf("requires node on PATH (SMITHERS_REQUIRE_DATABASE_TESTS=1 forbids skipping): %v", err)
 		}
 		t.Skipf("node unavailable: %v", err)
 	}
@@ -36,7 +36,7 @@ func TestWorkspaceProviderPoolRotationDoesNotPersistBootAccountModel(t *testing.
 		path := filepath.Join(root, "flows", "node_modules", dependency)
 		if _, err := os.Stat(path); err != nil {
 			if strict {
-				t.Fatalf("coding-host dependency %s required: %v", path, err)
+				t.Fatalf("requires %s; run pnpm install (SMITHERS_REQUIRE_DATABASE_TESTS=1 forbids skipping): %v", path, err)
 			}
 			t.Skipf("coding-host dependency %s unavailable: %v", path, err)
 		}
