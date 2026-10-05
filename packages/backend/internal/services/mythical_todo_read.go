@@ -131,7 +131,9 @@ func (s *MythicalService) todoCard(ctx context.Context, item db.MythicalItem, it
 	if item.Attempt > 0 && item.RequestRunID != "" {
 		card["run"] = map[string]any{"id": item.RequestRunID, "attempt": item.Attempt, "indicators": []any{}}
 	}
-	if item.StackPosition.Valid {
+	// A merged or dropped TODO has left the stack: it has no place, so its
+	// card never reads "Next to merge".
+	if state := card["state"]; item.StackPosition.Valid && state != "merged" && state != "dropped" {
 		card["place"] = item.StackPosition.Int64
 	}
 	// A queued TODO waits for a lane machine; the card says so and where it is
