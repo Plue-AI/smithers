@@ -103,8 +103,53 @@ func (s *MythicalService) todoCard(ctx context.Context, item db.MythicalItem) (m
 		card["pr"] = map[string]any{"number": item.PRNumber.Int64, "url": item.PRURL, "head": item.PRHead, "draft": checks.PRDraft,
 			"included_items": append(append([]int64{}, checks.PRIncludes...), item.Number.Int64)}
 	}
-	card["evidence"] = todoEvidence(item)
+	evidence := todoEvidence(item)
+	if item.Attempt > 0 && item.WorkspaceID != "" {
+		access, err := s.queries().MythicalWorkspaceModelAccess(ctx, item.RepositoryID, item.WorkspaceID)
+		if err != nil {
+			return nil, err
+		}
+		if label := modelAccessLabel(access); label != "" {
+			entry := map[string]any{"kind": "model_access", "label": label}
+			if n := len(evidence); n > 0 && evidence[n-1].Attempt == item.Attempt {
+				evidence[n-1].Items = append(append([]map[string]any{}, evidence[n-1].Items...), entry)
+			} else {
+				evidence = append(evidence, todoAttemptEvidence{Attempt: item.Attempt, Revision: item.CandidateHead, Items: []map[string]any{entry}})
+			}
+		}
+	}
+	card["evidence"] = evidence
 	return card, nil
+}
+
+// modelAccessLabel names the model access a run used, one group per provider
+// and payer: "AI Gateway · owner key: openai/gpt-5.1, anthropic/claude-sonnet-4.5".
+func modelAccessLabel(access []db.ModelAccess) string {
+	providers := map[string]string{"vercel": "AI Gateway", "openai": "OpenAI", "anthropic": "Anthropic",
+		"openrouter": "OpenRouter", "cerebras": "Cerebras"}
+	payers := map[string]string{"owner": "owner key", "credit": "Smithers credit"}
+	var groups []string
+	models := map[string][]string{}
+	for _, row := range access {
+		provider := providers[row.Provider]
+		if provider == "" {
+			provider = row.Provider
+		}
+		payer := payers[row.PaidBy]
+		if payer == "" {
+			payer = row.PaidBy
+		}
+		group := provider + " · " + payer
+		if _, seen := models[group]; !seen {
+			groups = append(groups, group)
+		}
+		models[group] = append(models[group], row.Model)
+	}
+	labels := make([]string, 0, len(groups))
+	for _, group := range groups {
+		labels = append(labels, group+": "+strings.Join(models[group], ", "))
+	}
+	return strings.Join(labels, "; ")
 }
 
 // Attempts retain the card evidence in the canonical checks column. Runtime

@@ -460,6 +460,36 @@ func (q *Queries) MythicalRepositoryTokensSince(ctx context.Context, repositoryI
 	return tokens, err
 }
 
+// ModelAccess is one provider, model and payer ('credit' or 'owner') that
+// model_usage recorded.
+type ModelAccess struct {
+	PaidBy   string
+	Provider string
+	Model    string
+}
+
+// MythicalWorkspaceModelAccess is each distinct provider, model and payer the
+// repository's calls on workspaceID recorded, first used first: the model
+// access a TODO's run on that branch machine used (engineering spec §15.2.1).
+func (q *Queries) MythicalWorkspaceModelAccess(ctx context.Context, repositoryID int64, workspaceID string) ([]ModelAccess, error) {
+	rows, err := q.db.Query(ctx, `SELECT paid_by, provider, model FROM model_usage
+		WHERE repository_id = $1 AND workspace_id = $2
+		GROUP BY paid_by, provider, model ORDER BY min(id)`, repositoryID, workspaceID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var access []ModelAccess
+	for rows.Next() {
+		var row ModelAccess
+		if err := rows.Scan(&row.PaidBy, &row.Provider, &row.Model); err != nil {
+			return nil, err
+		}
+		access = append(access, row)
+	}
+	return access, rows.Err()
+}
+
 // MythicalItemCosts is the settled platform-key model cost, in USD nanos,
 // each listed item recorded on its lane workspaces (mythical_lanes binds
 // every one to its item). A call still pending has no price yet, and a call
