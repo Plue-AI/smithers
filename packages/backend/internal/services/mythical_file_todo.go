@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"net/http"
 	"regexp"
+	"slices"
 	"strconv"
 	"strings"
 	"time"
@@ -38,7 +39,8 @@ type MythicalTodoInput struct {
 }
 
 // MythicalTodoPlace is where a new TODO goes on the stack: the Draft's place
-// {mode: append|before|amend, n?}. The zero value (no place) appends.
+// {mode: append|before|amend, n?}. The zero value (no place) appends; before
+// names the TODO n it goes before.
 type MythicalTodoPlace struct {
 	Mode string `json:"mode"`
 	N    *int64 `json:"n,omitempty"`
@@ -62,8 +64,10 @@ func (p *MythicalTodoPlace) UnmarshalJSON(data []byte) error {
 	return nil
 }
 
-// FileTodo appends the person's prompt directly to the existing stack. No
-// GitHub issue or machine launch is performed in the HTTP transaction. A
+// FileTodo puts the person's prompt on the existing stack: appended, or
+// before Tn, where it takes Tn's place and Tn and every later item move one
+// place later, so the stack admits it first. No GitHub issue or machine
+// launch is performed in the HTTP transaction. A
 // Draft made from an issue (Make TODO) commits as that issue's TODO:
 // revision 1 is the Draft's text with reason from-issue and the issue's
 // digest, and an issue holds one unmerged TODO. The TODO owes its issue the
@@ -94,12 +98,16 @@ func (s *MythicalService) FileTodo(ctx context.Context, repositoryID, userID int
 		return MythicalItemView{}, &TodoControlError{400, "invalid_todo", "user", "Title, prompt and Idempotency-Key are required"}
 	}
 	switch place := input.Place; {
-	case place.Mode == "before" || place.Mode == "amend":
-		return MythicalItemView{}, invalidTodoPlace("Only append is available; before and amend arrive with T-STK-02")
+	case place.Mode == "amend":
+		return MythicalItemView{}, invalidTodoPlace("Amend arrives with T-STK-06")
+	case place.Mode == "before" && (place.N == nil || *place.N <= 0):
+		return MythicalItemView{}, invalidTodoPlace("Before needs the TODO it goes before")
+	case place.Mode == "before":
 	case place.N != nil || place.Mode != "" && place.Mode != "append":
 		return MythicalItemView{}, invalidTodoPlace("place must be {mode, n?}")
+	default:
+		input.Place = MythicalTodoPlace{Mode: "append"}
 	}
-	input.Place = MythicalTodoPlace{Mode: "append"}
 	if input.Acceptance == nil {
 		input.Acceptance = []string{}
 	}
@@ -156,6 +164,22 @@ func (s *MythicalService) FileTodo(ctx context.Context, repositoryID, userID int
 		if err != nil || stack.State != "active" {
 			return &TodoControlError{503, "stack_unavailable", "infra", "Repository stack is not ready"}
 		}
+		// Before Tn takes Tn's place: Tn must still be on the stack and not
+		// merging (spec §10.2.2).
+		var before db.MythicalItem
+		if input.Place.Mode == "before" {
+			order, err := q.LockMythicalStackOrder(ctx, repositoryID)
+			if err != nil {
+				return err
+			}
+			at := slices.IndexFunc(order, func(item db.MythicalItem) bool { return item.Number.Int64 == *input.Place.N })
+			if at < 0 {
+				return invalidTodoPlace(fmt.Sprintf("T%d is not on the stack", *input.Place.N))
+			}
+			if before = order[at]; mythicalMergeFenced(before) {
+				return &TodoControlError{409, "merging", "conflict", fmt.Sprintf("T%d is merging", *input.Place.N)}
+			}
+		}
 		first := map[string]any{"text": input.Prompt, "acceptance": input.Acceptance, "by": map[string]any{"kind": "person", "login": person.Username, "name": person.DisplayName, "avatar_url": todoAvatar(person), "color_index": 0}, "at": s.now().UTC().Format(time.RFC3339Nano)}
 		if issue != nil {
 			first["reason"], first["issue_digest"] = "from-issue", issue.Digest
@@ -170,6 +194,16 @@ func (s *MythicalService) FileTodo(ctx context.Context, repositoryID, userID int
 		if err != nil {
 			return err
 		}
+		if before.StackPosition.Valid {
+			// Tn and every item after it move one place later. A new TODO has
+			// no verified candidate, so no later item's prefix changes yet.
+			if err := q.MakeMythicalPlace(ctx, repositoryID, before.StackPosition.Int64, item.ID); err != nil {
+				return err
+			}
+			if item, err = q.PlaceMythicalItem(ctx, item.ID, before.StackPosition.Int64); err != nil {
+				return err
+			}
+		}
 		if issue != nil {
 			committed := mythicalChecksOf(item)
 			notice := mythicalCommittedNotice(item.Number.Int64, link)
@@ -179,7 +213,11 @@ func (s *MythicalService) FileTodo(ctx context.Context, repositoryID, userID int
 				return err
 			}
 		}
-		created := map[string]any{"item": uuidString(item.ID), "n": item.Number.Int64, "attempt": item.Attempt, "from": "draft", "to": "queued", "actor": userID}
+		created := map[string]any{"item": uuidString(item.ID), "n": item.Number.Int64, "attempt": item.Attempt, "from": "draft", "to": "queued", "actor": userID,
+			"place": item.StackPosition.Int64}
+		if before.Number.Valid {
+			created["before"] = before.Number.Int64
+		}
 		if issue != nil {
 			created["issue"] = issue.Number
 		}

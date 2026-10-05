@@ -313,13 +313,14 @@ var installCommands = map[string]installCommand{
 	"todo.new":         {role: InstallMember},
 	"todo.answer":      {role: InstallMember},
 	// todo.control is POST /api/todos/{n}; its handler authorizes the
-	// control itself: steer, stop, resume, retry or drop.
+	// control itself: steer, stop, resume, retry, drop or move.
 	"todo.control":  {role: InstallMember},
 	"todo.steer":    {role: InstallMember},
 	"todo.stop":     {role: InstallMember},
 	"todo.resume":   {role: InstallMember},
 	"todo.retry":    {role: InstallMember},
 	"todo.drop":     {role: InstallMember},
+	"stack.move":    {role: InstallMember},
 	"merge":         {role: InstallMaintainer},
 	"flows.read":    {role: InstallMember},
 	"members.list":  {role: InstallMember},

@@ -18,9 +18,10 @@ import (
 // on the install J1 sets up. Its setup is C-J7-01's stack at the default
 // parallel of 2: T1 in review, T2 working and held at its edit, T3 behind
 // it and held too ([HOLD key] markers of distribution/fake-todo-turns.mjs).
-// T2 and T3 rebase onto their moved prefix (rows 9 and 16), and T2 is
-// dropped (row 15). The insert, amend, fork, add-to-stack and conflict rows
-// wait on their lanes and are listed as pending.
+// TN goes before T3 and is held at its edit too (row 6). TN and T1 rebase
+// onto their moved prefix (rows 9 and 16), and T2 is dropped (row 15). The
+// amend, fork, add-to-stack and conflict rows wait on their lanes and are
+// listed as pending.
 func TestJ7Rehearsal(t *testing.T) {
 	r := newRehearsal(t, "SMITHERS_J7_REHEARSAL", "C-J7", "j7-")
 	if !r.install("0 Install through Machine ready") {
@@ -29,6 +30,7 @@ func TestJ7Rehearsal(t *testing.T) {
 	// Held turns are answered before the install stops.
 	defer func() {
 		_ = r.release("t2")
+		_ = r.release("tn")
 		_ = r.release("t3")
 	}()
 	if !r.step("1 Parallel defaults to 2", "SQL mythical_stacks.max_parallel", "2, with no PUT /api/install", "T-STK-03", func() error {
@@ -112,49 +114,110 @@ func TestJ7Rehearsal(t *testing.T) {
 		r.actual = fmt.Sprintf("200 T%d %s at place %d", t3, v.State, v.Place)
 		return nil
 	})
-	r.pending("6 Insert TN before T3", "POST /api/todos {place: before T3}", "order T1, T2, TN, T3; T3 is not admitted before TN; one product_job_events row", "T-STK-02", "stack-order")
+	var tn int64
+	r.step("6 Insert TN before T3", "POST /api/todos {place: before T3}; GET /api/todos; SQL product_job_events", "order T1, T2, TN, T3; T3 is not admitted before TN; one product_job_events row", "T-STK-02", func() error {
+		body, _ := json.Marshal(map[string]any{"title": "TN jitter helper", "prompt": "[HOLD tn] [FILE tn.md] Add a jitter helper note to tn.md",
+			"place": map[string]any{"mode": "before", "n": t3}})
+		code, data, err := r.keyed("POST", "/api/todos", string(body), r.keyPrefix+"todo-tn")
+		if err != nil {
+			return err
+		}
+		var receipt struct {
+			State string `json:"state"`
+			N     int64  `json:"n"`
+		}
+		if code != 202 || json.Unmarshal(data, &receipt) != nil || receipt.State != "accepted" || receipt.N <= 0 {
+			return fmt.Errorf("Before T%d: HTTP %d %s", t3, code, data)
+		}
+		tn = receipt.N
+		list, err := r.todoList()
+		if err != nil {
+			return err
+		}
+		var placed []int64
+		for _, todo := range list {
+			if todo.State != "merged" && todo.State != "dropped" {
+				placed = append(placed, todo.N)
+			}
+		}
+		if !slices.Equal(placed, []int64{t1, t2, tn, t3}) {
+			return fmt.Errorf("GET /api/todos lists %v, want T%d, T%d, T%d, T%d", placed, t1, t2, tn, t3)
+		}
+		var facts int
+		if err = r.pool.QueryRow(r.ctx, `SELECT count(*) FROM product_job_events WHERE event_type = 'todo.created' AND (data->>'n')::bigint = $1 AND (data->>'before')::bigint = $2`, tn, t3).Scan(&facts); err != nil {
+			return err
+		}
+		if facts != 1 {
+			return fmt.Errorf("T%d has %d todo.created facts naming Before T%d, want 1", tn, facts, t3)
+		}
+		// The next free slot goes to TN: T3 stays queued until TN starts.
+		for deadline := time.Now().Add(5 * time.Minute); ; time.Sleep(500 * time.Millisecond) {
+			n, err := r.todo(tn)
+			if err != nil {
+				return err
+			}
+			three, err := r.todo(t3)
+			if err != nil {
+				return err
+			}
+			if three.State != "queued" {
+				return fmt.Errorf("T%d is %s while T%d is %s: T%d was admitted first", t3, three.State, tn, n.State, t3)
+			}
+			if n.State != "queued" {
+				r.actual = fmt.Sprintf("202 T%d; order T%d, T%d, T%d, T%d; T%d %s while T%d queued; 1 todo.created naming Before T%d", tn, t1, t2, tn, t3, tn, n.State, t3, t3)
+				return nil
+			}
+			if time.Now().After(deadline) {
+				return fmt.Errorf("neither T%d nor T%d was admitted within 5m", tn, t3)
+			}
+		}
+	})
 	r.pending("7 Amend T2", "POST /api/todos {place: amend T2}", "revision 2 with reason amend; T2 shows +1; same run, no new TODO", "T-STK-06", "amend")
 	r.pending("8 The amendment reaches T2's run", "release [HOLD t2]; model trace", "T2's next implement turn carries the amendment as a steer", "T-STK-06", "amend")
-	// Until stack-order inserts TN (row 6), the TODO after T2 is T3: it
-	// started on T1's verified head beside T2, so T2's verified head moves
-	// its prefix and T3 rebases onto it.
-	r.step("9 TN builds on T2's verified head", "release [HOLD t2], [HOLD t3]; GET /api/todos/{T2,T3}; SQL mythical_items; GitHub fake PR",
-		"TN (T3 until stack-order lands)'s base is T2's verified head after one verify run; its PR waits on T1 and includes T1 and T2", "T-STK-12, T-STK-08", func() error {
+	// The TODO after T2 is TN (row 6), else T3: it started on T1's verified
+	// head beside T2, so T2's verified head moves its prefix and it rebases
+	// onto it.
+	r.step("9 TN builds on T2's verified head", "release [HOLD t2], [HOLD tn]; GET /api/todos/{T2,TN}; SQL mythical_items; GitHub fake PR",
+		"TN's base is T2's verified head after one verify run; its PR waits on T1 and includes T1 and T2", "T-STK-12, T-STK-08", func() error {
 			if err := r.release("t2"); err != nil {
 				return err
 			}
 			if _, err := r.waitTodoWithin(t2, 8*time.Minute, "in_review"); err != nil {
 				return fmt.Errorf("T%d: %w", t2, err)
 			}
-			if err := r.waitHeld("t3", 8*time.Minute); err != nil {
+			next, key, file := t3, "t3", "t3.md"
+			if tn > 0 {
+				next, key, file = tn, "tn", "tn.md"
+			}
+			if err := r.waitHeld(key, 8*time.Minute); err != nil {
 				return err
 			}
-			if err := r.release("t3"); err != nil {
+			if err := r.release(key); err != nil {
 				return err
 			}
-			if _, err := r.waitTodoWithin(t3, 8*time.Minute, "in_review"); err != nil {
-				return fmt.Errorf("T%d: %w", t3, err)
+			if _, err := r.waitTodoWithin(next, 8*time.Minute, "in_review"); err != nil {
+				return fmt.Errorf("T%d: %w", next, err)
 			}
 			c2, err := r.candidate(t2)
 			if err != nil {
 				return err
 			}
-			c3, err := r.candidate(t3)
+			cn, err := r.candidate(next)
 			if err != nil {
 				return err
 			}
-			if !c2.Verified || c3.Base != c2.Head {
-				return fmt.Errorf("T%d's base %s is not T%d's verified head %s (verified=%t)", t3, short7(c3.Base), t2, short7(c2.Head), c2.Verified)
+			if !c2.Verified || cn.Base != c2.Head {
+				return fmt.Errorf("T%d's base %s is not T%d's verified head %s (verified=%t)", next, short7(cn.Base), t2, short7(c2.Head), c2.Verified)
 			}
-			if c3.Verifies != 1 {
-				return fmt.Errorf("T%d ran %d verify runs, want 1", t3, c3.Verifies)
+			if cn.Verifies != 1 {
+				return fmt.Errorf("T%d ran %d verify runs, want 1", next, cn.Verifies)
 			}
-			card, err := r.j7Card(t3)
+			card, err := r.j7Card(next)
 			if err != nil {
 				return err
 			}
 			if !slices.Contains(card.PR.IncludedItems, t1) || !slices.Contains(card.PR.IncludedItems, t2) {
-				return fmt.Errorf("T%d's PR includes %v, want T%d and T%d", t3, card.PR.IncludedItems, t1, t2)
+				return fmt.Errorf("T%d's PR includes %v, want T%d and T%d", next, card.PR.IncludedItems, t1, t2)
 			}
 			pull, err := r.readFakePull(card.PR.Number)
 			if err != nil {
@@ -163,15 +226,15 @@ func TestJ7Rehearsal(t *testing.T) {
 			// A private repository has no drafts: the later PR opens ready,
 			// titled with the TODO it waits for (§12.5.1).
 			if pull.Head.SHA != card.PR.Head || !pull.Draft && !strings.HasPrefix(pull.Title, fmt.Sprintf("[waits for T%d]", t1)) {
-				return fmt.Errorf("T%d's PR #%d head %s draft=%t title %q", t3, pull.Number, short7(pull.Head.SHA), pull.Draft, pull.Title)
+				return fmt.Errorf("T%d's PR #%d head %s draft=%t title %q", next, pull.Number, short7(pull.Head.SHA), pull.Draft, pull.Title)
 			}
-			for _, file := range []string{"t1.md", "t2.md", "t3.md"} {
+			for _, file := range []string{"t1.md", "t2.md", file} {
 				if _, err := r.githubGit("cat-file", "-e", card.PR.Head+":"+file); err != nil {
-					return fmt.Errorf("T%d's PR head lacks %s: %w", t3, file, err)
+					return fmt.Errorf("T%d's PR head lacks %s: %w", next, file, err)
 				}
 			}
-			r.actual = fmt.Sprintf("200 T%d base %s = T%d's verified head; 1 verify run; PR #%d %q includes %v with t1.md, t2.md, t3.md",
-				t3, short7(c3.Base), t2, pull.Number, pull.Title, card.PR.IncludedItems)
+			r.actual = fmt.Sprintf("200 T%d base %s = T%d's verified head; 1 verify run; PR #%d %q includes %v with t1.md, t2.md, %s",
+				next, short7(cn.Base), t2, pull.Number, pull.Title, card.PR.IncludedItems, file)
 			return nil
 		})
 	r.pending("10 Fork T2", "POST /api/branches {from: T2}", "201; forked_from {T2, H2, C1}; T2's run and workspace unchanged", "T-MCH-08", "fork")

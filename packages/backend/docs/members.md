@@ -47,7 +47,7 @@ delegated credentials land.
 | `agent.turn` | Member | `POST /api/agent/turn`, `POST /api/agent/turn/cancel` |
 | `issue.read` | Member | `GET /api/issues`, `GET /api/issues/{n}` |
 | `todo.read`, `todo.new`, `todo.answer` | Member | `GET /api/todos`, `GET /api/todos/{n}`, `POST /api/todos`, `POST /api/todos/{n}/answer` |
-| `todo.steer`, `todo.stop`, `todo.resume`, `todo.retry`, `todo.drop` | Member | `POST /api/todos/{n}` (by `op`) |
+| `todo.steer`, `todo.stop`, `todo.resume`, `todo.retry`, `todo.drop`, `stack.move` | Member | `POST /api/todos/{n}` (by `op`) |
 | `merge` | Maintainer | `POST /api/todos/{n}/merge` |
 | `members.list` | Member | `GET /api/members` |
 | `members.write` | Maintainer | `POST /api/members`, `PATCH`, `DELETE /api/members/{login}` |

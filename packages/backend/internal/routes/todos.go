@@ -238,16 +238,17 @@ func (h *TodoHandler) Merge(w http.ResponseWriter, r *http.Request) {
 }
 
 // todoControlCommands is each TODO control's command (§6.15: members steer,
-// stop, resume, retry and drop TODOs). A steer has no op.
-var todoControlCommands = map[string]string{"": "todo.steer", "stop": "todo.stop", "resume": "todo.resume", "retry": "todo.retry", "retry-current-flow": "todo.retry", "drop": "todo.drop"}
+// stop, resume, retry, drop and move TODOs). A steer has no op.
+var todoControlCommands = map[string]string{"": "todo.steer", "stop": "todo.stop", "resume": "todo.resume", "retry": "todo.retry", "retry-current-flow": "todo.retry", "drop": "todo.drop", "move": "stack.move"}
 
 // Control is POST /api/todos/{n}: steer the coding agent, or stop, resume,
-// retry (with an optional steer) or drop the TODO. The app sends a steer as
-// {"op":"steer","text":...}; the service's input is {"steer":...} with no
-// op. The control's command authorizes the person (a terminal's credential
-// only steers, and only its own branch's TODO), then the service runs the
-// op for the install's repository as that person under the request's
-// Idempotency-Key; an op it has no service for is 503 unavailable.
+// retry (with an optional steer), drop or move (with a direction, up or down)
+// the TODO. The app sends a steer as {"op":"steer","text":...}; the service's
+// input is {"steer":...} with no op. The control's command authorizes the
+// person (a terminal's credential only steers, and only its own branch's
+// TODO), then the service runs the op for the install's repository as that
+// person under the request's Idempotency-Key; an op it has no service for is
+// 503 unavailable.
 func (h *TodoHandler) Control(w http.ResponseWriter, r *http.Request) {
 	n, err := strconv.ParseInt(chi.URLParam(r, "n"), 10, 64)
 	if err != nil || n <= 0 {
@@ -255,9 +256,10 @@ func (h *TodoHandler) Control(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	var body struct {
-		Op    string  `json:"op"`
-		Steer *string `json:"steer,omitempty"`
-		Text  *string `json:"text,omitempty"`
+		Op        string  `json:"op"`
+		Steer     *string `json:"steer,omitempty"`
+		Text      *string `json:"text,omitempty"`
+		Direction string  `json:"direction,omitempty"`
 	}
 	invalid := &services.TodoControlError{Status: 400, Code: "invalid_control", Class: "user", Message: "Invalid TODO control"}
 	decoder := json.NewDecoder(http.MaxBytesReader(w, r.Body, 64<<10))
@@ -266,10 +268,10 @@ func (h *TodoHandler) Control(w http.ResponseWriter, r *http.Request) {
 		todoRouteError(w, invalid)
 		return
 	}
-	input := services.TodoControlInput{Op: body.Op, Steer: body.Steer}
+	input := services.TodoControlInput{Op: body.Op, Steer: body.Steer, Direction: body.Direction}
 	switch {
 	case body.Op == "steer" && body.Steer == nil:
-		input = services.TodoControlInput{Steer: body.Text}
+		input = services.TodoControlInput{Steer: body.Text, Direction: body.Direction}
 	case body.Text != nil || body.Op == "steer":
 		todoRouteError(w, invalid)
 		return

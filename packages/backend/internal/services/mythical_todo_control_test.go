@@ -69,8 +69,8 @@ func TestTodoControlsRefuseBeforeDependencies(t *testing.T) {
 	// A completely absent store/launcher is intentional: touching either would
 	// panic. No optional orchestration field can accidentally enable execution.
 	service := NewMythicalService(nil, nil)
-	for _, op := range []string{"stop", "resume", "retry", "retry-current-flow", "drop"} {
-		_, err := service.ControlTodo(context.Background(), 12, TodoControlInput{Op: op})
+	for _, input := range []TodoControlInput{{Op: "stop"}, {Op: "resume"}, {Op: "retry"}, {Op: "retry-current-flow"}, {Op: "drop"}, {Op: "move", Direction: "up"}} {
+		_, err := service.ControlTodo(context.Background(), 12, input)
 		refusal := err.(*TodoControlError)
 		require.Equal(t, http.StatusServiceUnavailable, refusal.Status)
 		require.Equal(t, "infra", refusal.Class)
@@ -84,8 +84,12 @@ func TestTodoControlInputBoundaries(t *testing.T) {
 		{}, {Op: "cancel"}, {Op: "stop", Steer: text("x")}, {Op: "resume", Steer: text("x")},
 		{Op: "drop", Steer: text("x")}, {Op: "retry", Steer: text(" ")},
 		{Op: "retry", Steer: text(string([]byte{0xff}))}, {Op: "retry-current-flow", Steer: text(strings.Repeat("x", mythicalPromptBytes+1))},
+		{Op: "move"}, {Op: "move", Direction: "left"}, {Op: "move", Direction: "up", Steer: text("x")}, {Op: "retry", Direction: "up"}, {Direction: "down", Steer: text("x")},
 	} {
 		require.Error(t, input.validate())
+	}
+	for _, direction := range []string{"up", "down"} {
+		require.NoError(t, (TodoControlInput{Op: "move", Direction: direction}).validate())
 	}
 	for _, op := range []string{"retry", "retry-current-flow"} {
 		require.NoError(t, (TodoControlInput{Op: op, Steer: text(strings.Repeat("x", mythicalPromptBytes))}).validate())

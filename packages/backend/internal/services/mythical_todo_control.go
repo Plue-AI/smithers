@@ -9,24 +9,27 @@ import (
 	"github.com/smithersai/smithers/packages/backend/internal/db"
 )
 
-// TodoControlInput is the POST /api/todos/{n} control: its op and optional
-// steer, and, set only by the route from the request it authorized, the
-// install's repository, the person and the request's Idempotency-Key.
+// TodoControlInput is the POST /api/todos/{n} control: its op, an optional
+// steer, a move's direction (up or down), and, set only by the route from the
+// request it authorized, the install's repository, the person and the
+// request's Idempotency-Key.
 type TodoControlInput struct {
-	Op    string  `json:"op"`
-	Steer *string `json:"steer,omitempty"`
+	Op        string  `json:"op"`
+	Steer     *string `json:"steer,omitempty"`
+	Direction string  `json:"direction,omitempty"`
 	// Repository, Actor and Request are never read from the body.
 	Repository int64  `json:"-"`
 	Actor      int64  `json:"-"`
 	Request    string `json:"-"`
 }
 
-// TodoControlReceipt is a recorded control: "accepted" once it is durable, and
-// for a retry the attempt it starts, so the app settles its toast from that
-// attempt.
+// TodoControlReceipt is a recorded control: "accepted" once it is durable,
+// for a retry the attempt it starts and for a move the place it took, so the
+// app settles its toast once the TODO card shows that attempt or place.
 type TodoControlReceipt struct {
 	State   string `json:"state"`
 	Attempt int32  `json:"attempt,omitempty"`
+	Place   int64  `json:"place,omitempty"`
 }
 
 // todoControls dispatches each TODO control to its service, one file per op
@@ -34,6 +37,7 @@ type TodoControlReceipt struct {
 var todoControls = map[string]func(*MythicalService, context.Context, int64, TodoControlInput) (TodoControlReceipt, error){
 	"retry": (*MythicalService).retryTodo,
 	"drop":  (*MythicalService).dropTodo,
+	"move":  (*MythicalService).moveTodo,
 }
 
 // TodoControlError uses the install command error envelope (§6.2.3).
@@ -52,7 +56,17 @@ func todoControlConflict(message string) error {
 }
 
 func (input TodoControlInput) validate() error {
+	if input.Direction != "" && input.Op != "move" {
+		return &TodoControlError{http.StatusBadRequest, "invalid_control", "user", "Only a move takes a direction"}
+	}
 	switch input.Op {
+	case "move":
+		if input.Steer != nil {
+			return &TodoControlError{http.StatusBadRequest, "invalid_control", "user", "This control does not accept a steer"}
+		}
+		if input.Direction != "up" && input.Direction != "down" {
+			return &TodoControlError{http.StatusBadRequest, "invalid_control", "user", "Move up or down"}
+		}
 	case "stop", "resume", "drop":
 		if input.Steer != nil {
 			return &TodoControlError{http.StatusBadRequest, "invalid_control", "user", "This control does not accept a steer"}

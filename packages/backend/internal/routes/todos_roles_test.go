@@ -134,11 +134,11 @@ func TestTodoRoutesAuthorizeByRole(t *testing.T) {
 			require.Equal(t, tc.mergeCode, envelope["code"])
 			// Every control, as the app sends it: a person on the roster gets
 			// past authorization to the service, which refuses Retry of a
-			// working TODO, answers Drop of an unknown TODO 404 and keeps the
-			// controls it has no service for dark; nobody else gets past
-			// authorization.
+			// working TODO, answers Drop of an unknown TODO 404, refuses Move up
+			// of the first one and keeps the controls it has no service for
+			// dark; nobody else gets past authorization.
 			for _, body := range []string{`{"op":"steer","text":"Keep the max at 5"}`, `{"steer":"Keep the max at 5"}`, `{"op":"stop"}`, `{"op":"resume"}`,
-				`{"op":"retry"}`, `{"op":"retry","steer":"Use the retry helper"}`, `{"op":"retry-current-flow"}`, `{"op":"drop"}`} {
+				`{"op":"retry"}`, `{"op":"retry","steer":"Use the retry helper"}`, `{"op":"retry-current-flow"}`, `{"op":"drop"}`, `{"op":"move","direction":"up"}`} {
 				path := "/api/todos/3"
 				if body == `{"op":"drop"}` {
 					path = "/api/todos/99"
@@ -150,6 +150,9 @@ func TestTodoRoutesAuthorizeByRole(t *testing.T) {
 				} else if tc.list == 200 && body == `{"op":"drop"}` {
 					require.Equal(t, http.StatusNotFound, status, body)
 					require.Equal(t, "todo_not_found", envelope["code"], body)
+				} else if tc.list == 200 && strings.HasPrefix(body, `{"op":"move"`) {
+					require.Equal(t, http.StatusConflict, status, body)
+					require.Equal(t, map[string]any{"code": "conflict", "class": "conflict", "message": "T3 is already first"}, envelope, body)
 				} else if tc.list == 200 {
 					require.Equal(t, http.StatusServiceUnavailable, status, body)
 					require.Equal(t, map[string]any{"code": "todo_control_unavailable", "class": "infra", "message": "TODO controls are unavailable"}, envelope, body)
@@ -174,6 +177,10 @@ func TestTodoRoutesAuthorizeByRole(t *testing.T) {
 		{"3", `{"op":"steer","steer":"x","text":"x"}`, "key", "invalid_control"},
 		{"3", `{"op":"steer"}`, "key", "invalid_steer"},
 		{"3", `{"op":"steer","text":" "}`, "key", "invalid_steer"},
+		{"3", `{"op":"move"}`, "key", "invalid_control"},
+		{"3", `{"op":"move","direction":"left"}`, "key", "invalid_control"},
+		{"3", `{"op":"move","direction":"up","steer":"x"}`, "key", "invalid_control"},
+		{"3", `{"op":"stop","direction":"up"}`, "key", "invalid_control"},
 		{"3", `{}`, "key", "invalid_steer"},
 		{"3", `{"steer":"x","via":"smithers"}`, "key", "invalid_control"},
 		{"3", strings.Repeat(" ", 64<<10) + `{}`, "key", "invalid_control"},

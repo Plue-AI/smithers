@@ -343,6 +343,33 @@ func (q *Queries) ListMythicalItems(ctx context.Context, repositoryID int64, lim
 	return scanMythicalItems(rows, err)
 }
 
+// LockMythicalStackOrder is the repository's stack in place order: every item
+// still on it (not landed, dropped, rejected or declined, as the numbering
+// trigger counts them), each row locked until the transaction ends, so a
+// placement reads and rewrites one order.
+func (q *Queries) LockMythicalStackOrder(ctx context.Context, repositoryID int64) ([]MythicalItem, error) {
+	rows, err := q.db.Query(ctx, `SELECT `+mythicalItemColumns+` FROM mythical_items WHERE repository_id = $1
+		AND state NOT IN ('landed', 'cancelled', 'rejected', 'declined') AND stack_position IS NOT NULL
+		ORDER BY stack_position, created_at FOR UPDATE`, repositoryID)
+	return scanMythicalItems(rows, err)
+}
+
+// PlaceMythicalItem gives item the stack position place. Its version moves
+// too, so a worker pass that read the old order cannot save over the new one.
+func (q *Queries) PlaceMythicalItem(ctx context.Context, item pgtype.UUID, place int64) (MythicalItem, error) {
+	return scanMythicalItem(q.db.QueryRow(ctx, `UPDATE mythical_items SET stack_position = $2, version = version + 1, updated_at = NOW()
+		WHERE id = $1 RETURNING `+mythicalItemColumns, item, place))
+}
+
+// MakeMythicalPlace moves every item still on the stack at place or after it,
+// except item, one place later, so item can take place.
+func (q *Queries) MakeMythicalPlace(ctx context.Context, repositoryID, place int64, item pgtype.UUID) error {
+	_, err := q.db.Exec(ctx, `UPDATE mythical_items SET stack_position = stack_position + 1, version = version + 1, updated_at = NOW()
+		WHERE repository_id = $1 AND stack_position >= $2 AND id <> $3
+		AND state NOT IN ('landed', 'cancelled', 'rejected', 'declined')`, repositoryID, place, item)
+	return err
+}
+
 // ListMythicalItemsInStates returns every one of a repository's items in one
 // of states, with no limit.
 func (q *Queries) ListMythicalItemsInStates(ctx context.Context, repositoryID int64, states []string) ([]MythicalItem, error) {

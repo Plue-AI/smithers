@@ -64,6 +64,36 @@ No root operation or host-process execution fallback is added. Full
 Stop/Resume, attempt creation, Drop/fold/removal and restored-input execution
 remain disabled pending their production PostgreSQL/microVM boundary receipts.
 
+## Place and Move
+
+A TODO's place is `mythical_items.stack_position` among the items still on the
+stack (not landed, dropped, rejected or declined). The stack admits queued
+TODOs, builds each candidate on its prefix and merges in place order.
+
+`POST /api/todos` with `place: {mode: "before", n}` takes TODO n's place: n
+and every later item move one place later, in the filing transaction, under
+the repository's placement lock (`pg_advisory_xact_lock` on the repository id,
+the lock the numbering trigger takes). Before a TODO that is not on the stack
+is `400 invalid_place`; Before a merging TODO is `409 merging`. The
+`todo.created` fact names the place and the TODO it went before.
+
+`POST /api/todos/{n}` with `{op: "move", direction: "up" | "down"}` swaps n
+with the nearest item still on the stack above or below it, failed items
+included, and answers `202 {state: "accepted", place}`. It takes the
+placement lock, then the stack's row, then every item row on the stack. The
+first item moving up or the last moving down is `409 conflict`; a merging
+TODO or neighbor is `409 merging`. The same `Idempotency-Key` answers the
+same move again; one `todo.moved` fact records each move. Both placements
+move the version of every item whose place changed, so a stack pass that read
+the old order cannot launch or save over the new one.
+
+A move changes which verified candidates form a later item's prefix. Each
+item whose verified candidate was built on its old prefix and whose prefix
+changed loses its verification in the move's transaction and waits in
+`integrating` with reason `rebase_pending`; its candidate stays, and the
+stack rebases it onto the new prefix. A new TODO filed Before has no
+verified candidate, so it changes no prefix until it is verified.
+
 ## Steer and Amend refusal boundary
 
 The same unmounted control handler recognizes `POST /api/todos/{n}` with

@@ -372,7 +372,90 @@ func TestJ4Rehearsal(t *testing.T) {
 		_, err = r.waitTodoWithin(t4, 10*time.Minute, "in_review")
 		return err
 	})
-	r.pending("12 Move T4 above T3", "POST /api/todos/{T4} {op: move}", "order T2, T4, T3; T4 reads 'Merges after T2'; T4 holds no bytes of T3", "T-STK-02", "stack-order")
+	// T4, in review, moves above the failed T3: the stack now merges T2, T4,
+	// T3, and T4, built on main, holds none of T3's bytes.
+	r.step("12 Move T4 above T3", "POST /api/todos/{T4} {op: move, direction: up} ×2", "202 within 1 s naming T4's new place; the same press again answers it; order T2, T4, T3; T4 reads 'Merges after T2'; T4 holds no bytes of T3; one todo.moved fact", "T-STK-02", func() error {
+		if t4 <= 0 {
+			return fmt.Errorf("blocked by row 11b: T4 was not filed")
+		}
+		path, body, key := fmt.Sprintf("/api/todos/%d", t4), `{"op":"move","direction":"up"}`, r.keyPrefix+"move-t4"
+		var receipt struct {
+			State string `json:"state"`
+			Place int64  `json:"place"`
+		}
+		began := time.Now()
+		code, data, err := r.keyed("POST", path, body, key)
+		took := time.Since(began)
+		if err != nil {
+			return err
+		}
+		if code != 202 || took > time.Second || json.Unmarshal(data, &receipt) != nil || receipt.State != "accepted" || receipt.Place <= 0 {
+			return fmt.Errorf("move: HTTP %d after %s: %s", code, took, data)
+		}
+		// A double press sends the same request again: it is that move.
+		if code, again, err := r.keyed("POST", path, body, key); err != nil || code != 202 || string(again) != string(data) {
+			return fmt.Errorf("the same press again: HTTP %d %s %v (first %s)", code, again, err, data)
+		}
+		rows, err := r.pool.Query(r.ctx, `SELECT number FROM mythical_items WHERE number IS NOT NULL AND state NOT IN ('landed', 'cancelled', 'rejected', 'declined') ORDER BY stack_position`)
+		if err != nil {
+			return err
+		}
+		var order []int64
+		for rows.Next() {
+			var n int64
+			if err = rows.Scan(&n); err != nil {
+				rows.Close()
+				return err
+			}
+			order = append(order, n)
+		}
+		rows.Close()
+		if !slices.Equal(order, []int64{t2, t4, t3}) {
+			return fmt.Errorf("the stack's order is %v, want T%d, T%d, T%d", order, t2, t4, t3)
+		}
+		var card struct {
+			State string `json:"state"`
+			Place int64  `json:"place"`
+			PR    struct {
+				Number int64  `json:"number"`
+				Head   string `json:"head"`
+			} `json:"pr"`
+			Merge struct {
+				State  string `json:"state"`
+				Reason string `json:"reason"`
+				Detail string `json:"detail"`
+			} `json:"merge"`
+		}
+		if data, err = r.expect("GET", path, "", 200); err != nil {
+			return err
+		}
+		if err = json.Unmarshal(data, &card); err != nil {
+			return err
+		}
+		if card.Place != receipt.Place || card.State != "in_review" || card.Merge.Reason != "order" || card.Merge.Detail != fmt.Sprintf("T%d", t2) {
+			return fmt.Errorf("T%d reads %s at place %d, merge %s (%s %q); want in_review at place %d, 'Merges after T%d'", t4, card.State, card.Place, card.Merge.State, card.Merge.Reason, card.Merge.Detail, receipt.Place, t2)
+		}
+		pull, err := r.readFakePull(card.PR.Number)
+		if err != nil {
+			return err
+		}
+		files, err := r.prFiles(pull)
+		if err != nil {
+			return err
+		}
+		if slices.Contains(files, "t3.md") || !slices.Contains(files, "t4.md") {
+			return fmt.Errorf("T%d's PR changes %v, want t4.md and nothing of T%d", t4, files, t3)
+		}
+		var moves int
+		if err = r.pool.QueryRow(r.ctx, `SELECT count(*) FROM product_job_events WHERE event_type = 'todo.moved' AND (data->>'n')::bigint = $1`, t4).Scan(&moves); err != nil {
+			return err
+		}
+		if moves != 1 {
+			return fmt.Errorf("T%d recorded %d todo.moved facts, want 1", t4, moves)
+		}
+		r.actual = fmt.Sprintf("202 in %s: place %d; again 202; order T%d, T%d, T%d; T%d in_review 'Merges after T%d'; PR #%d changes %v; 1 todo.moved", took.Round(time.Millisecond), receipt.Place, t2, t4, t3, t4, t2, card.PR.Number, files)
+		return nil
+	})
 	// T3 failed on attempt n; Retry with a [FIXED] steer starts attempt n+1,
 	// whose first input is the steer, so its checks pass.
 	const steer3 = "[FIXED] Keep JOURNEY.md as it is and add the greeting to t3.md"
