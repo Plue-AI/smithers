@@ -69,6 +69,19 @@ complete refs consumer still require qualification.
 
 Bring in and Discard remain unavailable until the shared authorization, confirmation, catalog and checkpoint contracts pass their production boundary tests. Their exact command names, `branch.bring-in` and `branch.discard-foreign`, are reserved to the install. Repository versions cannot activate or resolve under those names, including historical Active rows; flow-load retires those rows while retaining their history. No repository code runs on the host to bring in a commit. The eventual branch answer input is `{id, revision}`: the foreign wait id and its displayed `sha`, with an `Idempotency-Key`; a newer head requires a new decision.
 
+The confirmation storage candidate extends `approvals`, retaining guest approvals
+and their history. It binds person confirmations to a member, issuing credential,
+command, subject revision and request key; merge confirmations additionally bind
+generation and reviewed head. The binding and terminal decision are immutable.
+Legacy guest approval reads and decisions exclude both person-confirmation kinds,
+and a guest cannot create them through the approval emission service.
+Deleting a member removes their confirmations before legacy decision-author
+cleanup; legacy approvals retain their existing history and null-author behavior.
+The candidate migration under `migrations/pending` is tested against the product
+schema but is unnumbered and unregistered until landing. These store primitives
+do not authorize or execute commands; confirmation routes remain unavailable
+until shared descriptor, authorization, subject and action consumers qualify.
+
 ## Polling transport
 
 The install's production service assembly selects shared response-header budget admission for repository lists, visibility checks, installation-token minting and stack decoration. Scoped tokens for the same installation share its resource budget; a person's own credential has separate headroom shared by their repository-list and access-check clients. GitHub's limit, remaining and reset headers supply capacity; no local hourly request-count cap or linear refill applies. Hosted compositions retain their existing worker and budget policy. Selecting the install budget does not enable unqualified metadata workers or consumers: the install metadata reconciler uses the guarded fetched-state path described below.

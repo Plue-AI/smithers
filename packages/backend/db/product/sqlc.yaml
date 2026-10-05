@@ -2,7 +2,9 @@ version: "2"
 # Product migrations are the only authored product DDL.
 sql:
   - engine: "postgresql"
-    schema: "migrations/"
+    # Unnumbered migration candidates in migrations/pending are tested
+    # separately and are not installed or generated until landing.
+    schema: "migrations/*.sql"
     queries: "queries/"
     strict_function_checks: true
     gen:

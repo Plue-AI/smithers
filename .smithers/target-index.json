@@ -24178,6 +24178,26 @@
       },
       {
         "kind": "file",
+        "path": "packages/backend/internal/services/approvals.go"
+      },
+      {
+        "kind": "file",
+        "path": "packages/backend/internal/db/approvals_ext.go"
+      },
+      {
+        "kind": "file",
+        "path": "packages/backend/db/product/queries/approvals.sql"
+      },
+      {
+        "kind": "file",
+        "path": "packages/backend/db/product/migrations/pending/approvals_confirmations.sql"
+      },
+      {
+        "kind": "file",
+        "path": "packages/backend/db/product/sqlc.yaml"
+      },
+      {
+        "kind": "file",
         "path": "packages/backend/internal/services/mythical_pr.go"
       },
       {

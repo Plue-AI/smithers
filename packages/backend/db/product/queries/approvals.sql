@@ -20,12 +20,13 @@ RETURNING *;
 -- name: GetApproval :one
 -- Returns a single approval row. Does NOT filter on repository_id; the route
 -- layer enforces repo scoping using the row's repository_id value.
-SELECT * FROM approvals WHERE id = $1;
+SELECT * FROM approvals WHERE id = $1 AND kind NOT IN ('one_click', 'review_merge');
 
 -- name: ListApprovalsByRepo :many
 -- Repo-scoped approval inbox. Empty state_filter returns all approvals.
 SELECT * FROM approvals
 WHERE repository_id = $1
+  AND kind NOT IN ('one_click', 'review_merge')
   AND (sqlc.arg(state)::text = '' OR state = sqlc.arg(state))
 ORDER BY created_at DESC
 LIMIT sqlc.arg(page_size) OFFSET sqlc.arg(page_offset);
@@ -46,6 +47,7 @@ SET state       = $2,
 WHERE id = $1
   AND repository_id = $4
   AND state = 'pending'
+  AND kind NOT IN ('one_click', 'review_merge')
 RETURNING *;
 
 -- name: ListPendingApprovalsBySession :many
@@ -53,4 +55,5 @@ RETURNING *;
 -- production read path for connected clients.
 SELECT * FROM approvals
 WHERE repository_id = $1 AND session_id = $2 AND state = 'pending'
+  AND kind NOT IN ('one_click', 'review_merge')
 ORDER BY created_at DESC;

@@ -3,9 +3,9 @@
   "producer": null,
   "output": {
     "path": "packages/backend/docs/github-app.md",
-    "digest": "4bea88e89933f59e3ed1e164c785e5d8fe704ce5e1fefe077b0f0af08ee4b43a"
+    "digest": "b5c2045c5026fd6f1f024e9ccef067aa5f49250a7801303c81986fa9f0cb4680"
   },
-  "closure": "35ba3e50472cac53f28a89cef6d42ecd34d93dd714ea1a35ef44805ae0118031",
+  "closure": "b9b4f06f7c027dcca98896cee50c56063719ff198315a938bdfd17592d18070f",
   "inputs": [
     {
       "path": "docs/api/openapi/install.yaml",
@@ -16,8 +16,20 @@
       "digest": "7915580ca677e904d0c0aa6f0edbb5d4b3ccbf036c7f6beb3a121cf93d5159f3"
     },
     {
+      "path": "packages/backend/db/product/migrations/pending/approvals_confirmations.sql",
+      "digest": "b448778162180ab46457a7f1003647a50e5cac40108efd75e4d22df9aa05ead8"
+    },
+    {
+      "path": "packages/backend/db/product/queries/approvals.sql",
+      "digest": "0afe2c6f20b1374c87e95a2196970a22c6b35c33914ef080c03ac37d1f698f9f"
+    },
+    {
       "path": "packages/backend/db/product/queries/github_app.sql",
       "digest": "c7028c1f6b8954e391c26202ceeace5ffb8614d63dabfe34f41602de9848c85a"
+    },
+    {
+      "path": "packages/backend/db/product/sqlc.yaml",
+      "digest": "f8d58b72608c69d93969553a8859a6763f77301e5e9f93bc0f533679d0bf7ad2"
     },
     {
       "path": "packages/backend/internal/auth/github.go",
@@ -48,6 +60,10 @@
       "digest": "e22d2376aa333a97bd30d4c3d615fa32c929f2fc08064062c9c60e00ee1cd173"
     },
     {
+      "path": "packages/backend/internal/db/approvals_ext.go",
+      "digest": "238cf122875b131f7745779dc4b63b5e4926ebdb93866ca4752176650a463038"
+    },
+    {
       "path": "packages/backend/internal/db/mythical_ext.go",
       "digest": "4e324c1ed45601358b6f0a574d3332d71f993dca2c57697e035d099a74e1c7ef"
     },
@@ -74,6 +90,10 @@
     {
       "path": "packages/backend/internal/routes/members.go",
       "digest": "213b9261e09ee87b9ff30ce6c0127eb91b714b4dc10a05b330daa8844f3dcfc3"
+    },
+    {
+      "path": "packages/backend/internal/services/approvals.go",
+      "digest": "a7f347dbef3e8b01bf455e21630a4a916f9e305fb464c140a9b021b419ef5033"
     },
     {
       "path": "packages/backend/internal/services/auth.go",
