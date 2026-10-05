@@ -384,7 +384,7 @@ func (s *WorkspaceService) workspaceHeadReporterEnvironment(workspace db.Workspa
 		"SMITHERS_WORKSPACE_BOOKMARK":                       targetWorkspaceBookmark(workspace.TargetBookmark),
 		"SMITHERS_WORKSPACE_PATH":                           repositoryPath,
 		"SMITHERS_WORKSPACE_TOKEN":                          token.Plaintext,
-		"SMITHERS_API_BASE_URL":                             strings.TrimRight(strings.TrimSpace(s.gitBaseURL), "/"),
+		"SMITHERS_API_BASE_URL":                             normalizePublicBaseURL(s.gitBaseURL),
 		"SMITHERS_WORKSPACE_GIT_URL":                        gitURL,
 		"SMITHERS_WORKSPACE_GIT_CREDENTIAL_SOCKET":          credentialSocket,
 		"SMITHERS_WORKSPACE_GIT_CREDENTIAL_TIMEOUT_SECONDS": fmt.Sprint(int64(workspaceHeadTokenTTL / time.Second)),
