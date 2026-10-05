@@ -211,6 +211,18 @@ func New(ctx context.Context, config Config) (*Runtime, error) {
 			return nil, err
 		}
 	}
+	if config.Bundle != nil {
+		archive := config.Bundle.Library("share/microsandbox/base-image.oci.tar")
+		if err := archive.Check(); err != nil {
+			return nil, fmt.Errorf("%w: bundled base image: %w", ErrUnavailable, err)
+		}
+		loadCtx, cancel := context.WithTimeout(ctx, 2*time.Minute)
+		_, err := client.run(loadCtx, nil, "image", "load", "--input", archive.Path(), "--tag", DefaultImage)
+		cancel()
+		if err != nil {
+			return nil, fmt.Errorf("%w: load bundled base image: %w", ErrUnavailable, err)
+		}
+	}
 	if strings.TrimSpace(config.Root) == "" {
 		return nil, errors.New("microsandbox workspace root is required")
 	}
@@ -647,7 +659,11 @@ func (r *Runtime) createMachine(ctx context.Context, ws *workspace) error {
 	if ws.Snapshot != "" {
 		args = append([]string{"run", "--from-snapshot", ws.Snapshot, "-d"}, r.machineFlags(ws.ID)...)
 	} else {
-		args = append([]string{"create", r.config.Image, "--pull", "if-missing", "--root-disk", strconv.Itoa(r.config.DiskMiB) + "M"}, r.machineFlags(ws.ID)...)
+		pull := "if-missing"
+		if r.config.Bundle != nil {
+			pull = "never"
+		}
+		args = append([]string{"create", r.config.Image, "--pull", pull, "--root-disk", strconv.Itoa(r.config.DiskMiB) + "M"}, r.machineFlags(ws.ID)...)
 	}
 	createCtx, cancel := context.WithTimeout(ctx, 10*time.Minute)
 	defer cancel()
