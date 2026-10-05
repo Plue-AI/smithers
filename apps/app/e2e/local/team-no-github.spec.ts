@@ -199,6 +199,44 @@ test("J4 2 Ben steers a TODO and opens Review & merge", async ({ browser }) => {
   await say(page, "/merge T1")
   await page.waitForTimeout(2000)
 })
+// J7 1b (mvp.md J7.1, C-J7-01): Ben amends his TODO from chat and Alice amends it from a Draft placed Amend Tn. No
+// TODO is made; each amendment is the next revision by its person; the TODO card and Home show +2; amending a TODO
+// that does not exist fails its toast with the install's words.
+type Revision = { n?: number; reason?: string; text: string; acceptance: string[]; by: { login: string } }
+test("J7 1b Ben amends a TODO from chat and Alice from a Draft; the card and Home show +2", async ({ browser }) => {
+  const ben = await person(browser, "ben")
+  const before = list(await todos(ben))
+  const target = before.find(todo => todo.title === "TODO from ben")!
+  const revisions = async () => (await (await ben.request.get(`${app}/api/todos/${target.n}`)).json() as { prompt_revisions: Revision[] }).prompt_revisions
+  await say(ben, `/todo.amend T${target.n} Also say goodbye in JOURNEY.md`)
+  await expect.poll(async () => (await revisions()).length, { timeout: 15_000 }).toBe(2)
+  expect((await revisions())[1]).toMatchObject({ n: 2, reason: "amend", text: "Also say goodbye in JOURNEY.md", by: { login: "ben" } })
+  await expect(ben.getByText("Amended").first()).toBeVisible({ timeout: 10_000 })
+
+  const alice = await person(browser, "alice")
+  await say(alice, "/todo.new")
+  const draft = alice.getByRole("region", { name: "Draft", exact: true }).last()
+  await draft.getByLabel("Prompt", { exact: true }).fill("Keep the goodbye to one line")
+  await draft.getByLabel("Acceptance", { exact: true }).fill("JOURNEY.md ends with one goodbye line")
+  await draft.getByRole("combobox", { name: "Place", exact: true }).selectOption({ label: `Amend T${target.n} TODO from ben` })
+  await draft.getByRole("button", { name: "Commit", exact: true }).click()
+  await expect.poll(async () => (await revisions()).length, { timeout: 15_000 }).toBe(3)
+  expect((await revisions())[2]).toMatchObject({ n: 3, reason: "amend", text: "Keep the goodbye to one line",
+    acceptance: ["JOURNEY.md ends with one goodbye line"], by: { login: "alice" } })
+  await expect(alice.getByRole("region", { name: "Draft", exact: true }).last()).toContainText(`Committed as T${target.n}`, { timeout: 10_000 })
+  await expect(alice.getByRole("region", { name: "Draft", exact: true }).last()).toContainText("+2")
+  expect(list(await todos(ben)).map(todo => todo.n)).toEqual(before.map(todo => todo.n))
+
+  await say(ben, `/todo T${target.n}`)
+  const card = ben.getByRole("article", { name: `TODO T${target.n}`, exact: true }).last()
+  await expect(card.getByText("+2", { exact: true })).toBeVisible({ timeout: 10_000 })
+  await say(ben, "/stack")
+  await expect(ben.locator(".mvp-stack-row", { hasText: "TODO from ben" }).last().locator(".mvp-count-chip")).toHaveText("+2", { timeout: 10_000 })
+
+  await say(ben, "/todo.amend T999 Nothing to amend")
+  await expect(ben.getByText("TODO not found").first()).toBeVisible({ timeout: 10_000 })
+  expect(await revisions()).toHaveLength(3)
+})
 test("members see no refusal on their paths", async () => {
   const rows = recorded()
   expect(rows.filter(row => "aborted" in row)).toEqual([])
