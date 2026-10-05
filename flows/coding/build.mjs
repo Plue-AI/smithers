@@ -92,7 +92,7 @@ export const bundle = async (entryPoint, outfile) => {
     const file = resolve(packRoot, name, "flow.mdx")
     pack[name === "" ? "create-flow" : `create-flow/${name}`] = await readFile(file, "utf8")
   }
-  for (const name of ["issue/repro", "issue/poc", "pr-triage"]) {
+  for (const name of ["issue/repro", "issue/poc", "pr-triage", "review/change"]) {
     pack[name] = await readFile(resolve(root, "flows", name, "flow.mdx"), "utf8")
   }
   // The wiki review task's identity, from the same policy files the source

@@ -115,7 +115,7 @@ test("a freshly imported repository can run the flow the app's create door launc
 
 test("a freshly imported repository carries the first-party issue and PR review prompts", async (t) => {
   const { repositoryPath, stateRoot } = await workspace(t)
-  const names = ["issue/repro", "issue/poc", "pr-triage"]
+  const names = ["issue/repro", "issue/poc", "pr-triage", "review/change"]
   const installed = await run(
     composedRegistry(repositoryPath, stateRoot).pipe(
       Effect.flatMap((registry) =>
@@ -136,13 +136,26 @@ test("a freshly imported repository carries the first-party issue and PR review 
     if (flow.descriptor.model._tag === "Some") {
       assert.equal(
         flow.descriptor.model.value,
-        name === "issue/repro" ? "repository/research" : name === "issue/poc" ? "coding/poc" : "luna"
+        name === "issue/repro"
+          ? "repository/research"
+          : name === "issue/poc"
+          ? "coding/poc"
+          : name === "review/change"
+          ? "coding/review"
+          : "luna"
       )
     }
     if (name === "pr-triage") {
       assert.deepEqual(flow.descriptor.capabilities, ["fs:read:**", "fs:write:.triage/report.json", "proc:spawn:rg *"])
       assert.match(flow.body.text, /Never execute code from the PR/)
       assert.match(flow.body.text, /Never\s+approve, merge, close, or assign the PR/)
+      assert.equal(flow.descriptor.provenance.source, "repository-host")
+    }
+    if (name === "review/change") {
+      // The stack's engine review (mythicalReviewFlow): read-only, and its
+      // first line is the verdict the stack reads.
+      assert.deepEqual(flow.descriptor.capabilities, ["fs:read:**"])
+      assert.match(flow.body.text, /first line is exactly `approve` or `request-changes`/)
       assert.equal(flow.descriptor.provenance.source, "repository-host")
     }
   }
@@ -201,7 +214,10 @@ test("a repository's own PR triage prompt overrides the bundled default", async 
 
 test("the bodies the host installs are the bodies in this repository", async () => {
   const bodies = await run(authoringBodies.pipe(Effect.provide(platform)))
-  assert.deepEqual([...bodies.keys()].sort(), [...FLOW_AUTHORING_PACK, "issue/repro", "issue/poc", "pr-triage"].sort())
+  assert.deepEqual(
+    [...bodies.keys()].sort(),
+    [...FLOW_AUTHORING_PACK, "issue/repro", "issue/poc", "pr-triage", "review/change"].sort()
+  )
   for (const [name, text] of bodies) {
     assert.ok(text.startsWith("---\n"), `${name} must carry frontmatter`)
     const seat = name === "issue/repro"
@@ -210,6 +226,8 @@ test("the bodies the host installs are the bodies in this repository", async () 
       ? "coding/poc"
       : name === "pr-triage"
       ? "luna"
+      : name === "review/change"
+      ? "coding/review"
       : "flow/author"
     assert.ok(text.includes(`model: ${seat}`), `${name} must declare the configured seat`)
   }

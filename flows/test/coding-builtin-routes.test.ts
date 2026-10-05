@@ -16,7 +16,7 @@ import * as Descriptor from "@smthrs/registry/Descriptor"
 import * as Discovery from "@smthrs/registry/Discovery"
 import * as Executable from "@smthrs/registry/Executable"
 import * as Registry from "@smthrs/registry/Registry"
-import { Effect, Layer, Schema } from "effect"
+import { Effect, Layer, Option, Schema } from "effect"
 import assert from "node:assert/strict"
 import { execFileSync } from "node:child_process"
 import { access, copyFile, mkdir, mkdtemp, rm, symlink, writeFile } from "node:fs/promises"
@@ -93,6 +93,26 @@ const startup = (repositoryPath: string, stateRoot: string, provision: "host" | 
 test("a coding project with no flows/coding tree serves every configured coding route", async (t) => {
   const { repositoryPath, stateRoot } = await workspace(t)
   assert.deepEqual((await startup(repositoryPath, stateRoot, "host")).missing, [])
+})
+
+test("a repository with no flows of its own serves the stack's review on the coding/review role", async (t) => {
+  // The stack launches review/change on every open TODO pull request
+  // (mythicalReviewFlow); a customer's repository carries no flows/review.
+  const { repositoryPath, stateRoot } = await workspace(t)
+  for (const provision of ["host", "defaults"] as const) {
+    assert.ok((await startup(repositoryPath, stateRoot, provision)).listed.includes("review/change"), provision)
+  }
+  const review = await Effect.gen(function*() {
+    const builtins = yield* provisionBuiltins(stateRoot, policy)
+    const project = yield* Registry.make({
+      sources: [{ root: join(repositoryPath, "flows"), source: "project", naming: "path" }]
+    }).pipe(Effect.provide(Discovery.layer))
+    return yield* bindRepositoryRegistry(project, builtins.registry, policy, systemFlows).get("review/change")
+  }).pipe(Effect.provide(platform), Effect.runPromise)
+  assert.equal(review.provenance.source, "repository-host")
+  // A seat alias would need that vendor's key; the role resolves on the
+  // host's own keys (reviewSeats), so an install with one key still reviews.
+  assert.equal(Option.getOrUndefined(review.model), "coding/review")
 })
 
 test("without the built-in routes the same repository fails the host's startup check", async (t) => {

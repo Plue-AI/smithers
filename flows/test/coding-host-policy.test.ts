@@ -97,6 +97,7 @@ test("deployment embeds its compiled identity and the review policy it was built
   assert.ok(deployed.includes("issue/repro") && deployed.includes("Research and reproduce an issue"))
   assert.ok(deployed.includes("issue/poc") && deployed.includes("Build a small proof of concept"))
   assert.ok(deployed.includes("pr-triage") && deployed.includes("Never execute code from the PR"))
+  assert.ok(deployed.includes("review/change") && deployed.includes("Review a proposed change"))
   const first = await verify()
   // The deployed host answers the same review identity as source mode.
   assert.equal(execFileSync(process.execPath, [output], { encoding: "utf8", timeout: 60_000 }).trim(), sourcePolicy)

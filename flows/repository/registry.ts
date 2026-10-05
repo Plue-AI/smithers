@@ -39,7 +39,7 @@ declare const __SMITHERS_CODING_ARTIFACT_DIGEST__: string | undefined
 declare const __SMITHERS_CREATE_FLOW_PACK__: Readonly<Record<string, string>> | undefined
 /** Where each pack body lives, relative to this module, in source and in the bundler. */
 const authoringSource = (name: string) => `../${name}/flow.mdx`
-const firstPartyPrompts = ["issue/repro", "issue/poc", "pr-triage"] as const
+const firstPartyPrompts = ["issue/repro", "issue/poc", "pr-triage", "review/change"] as const
 const policySources = [
   "../coding/host.ts",
   "../coding/native.ts",
@@ -103,7 +103,7 @@ export const runningRepositoryPolicy = Effect.gen(function*() {
   return Digest.digest(Digest.canonical(sources))
 })
 /**
- * The flow-authoring and issue prompt bodies this host installs on every workspace.
+ * The flow-authoring, issue and review prompt bodies this host installs on every workspace.
  *
  * From the bundle they are the constant compiled into it; from source they are
  * the repository's own files. A missing body is a startup failure rather than

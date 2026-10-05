@@ -206,6 +206,7 @@ const codingFiles = [
   Smithers.file("//flows/issue/repro/flow.mdx"),
   Smithers.file("//flows/issue/poc/flow.mdx"),
   Smithers.file("//flows/pr-triage/flow.mdx"),
+  Smithers.file("//flows/review/change/flow.mdx"),
   Smithers.file("//flows/tsconfig.json")
 ]
 const codingSources = [
