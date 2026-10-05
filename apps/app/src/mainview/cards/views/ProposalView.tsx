@@ -23,7 +23,7 @@ export function ProposalView({ model, actions, gestures, onAction }: ProposalVie
   const open = gestures.todo
   return <section className="smithers-card proposal-view" data-kind="proposal" data-keyboard-pane="Proposal" aria-label={model.title}>
     <header className="smithers-card-header"><h2 className="smithers-card-title"><Lightbulb size={14} aria-hidden="true" />{model.title}</h2>
-      <span className="mvp-state proposal-status" data-state={model.state}>{model.state === "open" ? "Suggested" : model.state === "dismissed" ? "Dismissed" : "Accepted"}</span>
+      <span className="state proposal-status" data-state={model.state}>{model.state === "open" ? "Suggested" : model.state === "dismissed" ? "Dismissed" : "Accepted"}</span>
     </header>
     <div className="smithers-card-body">
       {model.evidence.length || model.refs.length ? <details className="proposal-evidence" open={model.state === "open"}>

@@ -31,7 +31,7 @@ test("every View story: light/dark, desktop/mobile, axe and overflow", async ({ 
       expect(copy).not.toMatch(/jev/i)
     }
     if (story.name.includes("/actor-")) {
-      const agents = page.locator(".mvp-avatar[data-agent]")
+      const agents = page.locator(".avatar[data-agent]")
       await expect(agents.locator("img")).toHaveCount(0)
       for (const chip of await agents.all()) {
         const label = await chip.getAttribute("aria-label")
@@ -94,14 +94,14 @@ test("primitive labels, starting animation and neutral glyph colors", async ({ p
   await page.emulateMedia({ reducedMotion: "no-preference" })
   for (const theme of ["light", "dark"]) {
     await page.goto(`/view-stories.html?story=PrimitivesView/state-starting-step&theme=${theme}`)
-    await expect(page.locator(".mvp-state")).toHaveText("Starting · Implement")
-    await expect(page.locator(".mvp-dot")).toHaveCSS("animation-name", "mvp-blink")
+    await expect(page.locator(".state")).toHaveText("Starting · Implement")
+    await expect(page.locator(".dot")).toHaveCSS("animation-name", "blink")
     await page.emulateMedia({ reducedMotion: "reduce" })
-    await expect(page.locator(".mvp-dot")).toHaveCSS("animation-name", "none")
+    await expect(page.locator(".dot")).toHaveCSS("animation-name", "none")
     await page.emulateMedia({ reducedMotion: "no-preference" })
     for (const [state, token] of [["in_review", "--text-muted"], ["merged", "--text-faint"]]) {
       await page.goto(`/view-stories.html?story=PrimitivesView/state-${state}&theme=${theme}`)
-      const colors = await page.locator(".mvp-glyph").evaluate((glyph, token) => {
+      const colors = await page.locator(".glyph").evaluate((glyph, token) => {
         const probe = document.createElement("span")
         probe.style.color = `var(${token})`
         document.body.append(probe)
@@ -112,7 +112,7 @@ test("primitive labels, starting animation and neutral glyph colors", async ({ p
       expect(colors.actual).toBe(colors.expected)
     }
     await page.goto(`/view-stories.html?story=PrimitivesView/actor-fixture-system&theme=${theme}`)
-    await expect(page.locator(".mvp-avatar")).toHaveAttribute("aria-label", "Install event")
+    await expect(page.locator(".avatar")).toHaveAttribute("aria-label", "Install event")
   }
 })
 

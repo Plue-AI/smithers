@@ -1,3 +1,7 @@
+import { createRoot } from "../../cards/views/testDom"
+import { act, createElement } from "react"
+import { TodoContainer } from "../../cards/TodoCard"
+import { TodoView } from "../../cards/views/TodoView"
 import { expect, test } from "bun:test"
 import { Schema } from "effect"
 import type { AgentPort } from "../../runtime/AgentPort"
@@ -191,6 +195,17 @@ test("a configured host dispatches Draft, TODO and reviewed Merge to real routes
       body: { title: "Real prompt", prompt: "Real prompt", acceptance: ["Real acceptance"], place: { mode: "append" } } })
     await controller.runCommandForResult("todo", "T12")
     expect(store.collections.cards.get("todo:12")).toMatchObject({ kind: "todo", payload: { model: { title: fixtures.in_review.model.title } } })
+    // Exercise the installed provider's persisted card through the same View as the transcript.
+    const host = document.createElement("div")
+    document.body.append(host)
+    const root = createRoot(host)
+    try {
+      const card = store.collections.cards.get("todo:12") as TodoEntry
+      await act(async () => root.render(createElement(TodoContainer, { card, role: "owner", dispatch: () => {}, View: TodoView, view: { maximized: false }, onView: () => {} })))
+      expect(host.querySelector('.state[data-state="in_review"]')?.textContent).toContain("In review")
+      expect(host.querySelectorAll(".avatar").length).toBeGreaterThan(0)
+      expect(host.querySelector(".state")?.className).toBe("state")
+    } finally { await act(async () => root.unmount()); host.remove() }
     await controller.submitCommand({ name: "merge", actor: "user", payload: { n: 12, reviewed_head_sha: fixtures.in_review.model.pr!.head } })
     await waitFor(() => calls.some(call => call.path === "/api/todos/12/merge"))
     expect(calls.find(call => call.path.endsWith("/merge"))?.body).toEqual({ reviewed_head_sha: fixtures.in_review.model.pr!.head })

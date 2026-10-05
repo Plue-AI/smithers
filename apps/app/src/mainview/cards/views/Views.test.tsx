@@ -62,7 +62,7 @@ for (const path of paths) {
         }
         for (const text of story.expect) {
           if (story.name.startsWith("actor-")) {
-            const chips = host.querySelectorAll(".mvp-avatar"); expect(chips.length).toBeGreaterThan(0)
+            const chips = host.querySelectorAll(".avatar"); expect(chips.length).toBeGreaterThan(0)
             for (const chip of chips) expect(story.name === "actor-fixture-system" ? chip.getAttribute("data-kind") : chip.getAttribute("aria-label")).toContain(text)
           } else expect([...displays, host.querySelector("diffs-container")?.shadowRoot?.textContent ?? "", ...[...host.querySelectorAll<HTMLInputElement>("input:not([type=password]),textarea")].map(input => input.value)].join("\n")).toContain(text)
         }
@@ -262,15 +262,15 @@ for (const styleCase of ["starting", "in_review", "merged", "harness"]) test(`pr
   if (styleCase === "harness") css.textContent += readFileSync(new URL("./view-stories.css", import.meta.url), "utf8")
   document.head.append(css)
   const state = document.createElement("span")
-  state.className = "mvp-state"
+  state.className = "state"
   state.dataset.state = styleCase
   const node = document.createElement("span")
   state.append(node)
   document.body.append(state)
   try {
-    node.className = styleCase === "starting" ? "mvp-dot" : styleCase === "harness" ? "view-story" : "mvp-glyph"
+    node.className = styleCase === "starting" ? "dot" : styleCase === "harness" ? "view-story" : "glyph"
     node.dataset.state = styleCase
-    if (styleCase === "starting") expect(getComputedStyle(node).animation).toContain("mvp-blink")
+    if (styleCase === "starting") expect(getComputedStyle(node).animation).toContain("blink")
     else if (styleCase === "harness") {
       expect(getComputedStyle(node).maxWidth).toBe("900px")
       expect(getComputedStyle(node).boxSizing).toBe("border-box")
@@ -328,7 +328,7 @@ for (const [name, story] of Object.entries(confirmStories)) {
     for (const text of story.expect) expect(host.textContent).toContain(text)
     if (story.model.kind === "one_click" && !story.model.receipt) {
       const label = actorName(story.model.asked_by)
-      expect(host.querySelector(".mvp-avatar")?.getAttribute("aria-label")).toBe(label)
+      expect(host.querySelector(".avatar")?.getAttribute("aria-label")).toBe(label)
       expect(host.querySelector(".confirm-asker")?.textContent).toContain(label)
     }
   })
@@ -779,7 +779,7 @@ test("Conversation shell renders branch navigation, entries and Earlier", async 
   const row = await mounted({ name: "tombstone", expect: [], render: ({ onAction }) => <EntryRow {...fixtures.tombstone.model} private action={{ tag: "merge", label: "Merge", args: { n: "12" } }} card={<button>Forbidden body</button>} onAction={onAction} /> })
   try {
     expect(row.host.textContent).toBe("Card model contracts")
-    expect(row.host.querySelectorAll("button, .mvp-avatar, .mvp-locked")).toHaveLength(0)
+    expect(row.host.querySelectorAll("button, .avatar, .mvp-locked")).toHaveLength(0)
     expect(row.host.querySelector(".mvp-tombstone")).not.toBeNull()
   } finally { await row.close() }
   const tree = await mounted({ name: "ancestry", expect: [], render: ({ onAction, onView }) => <BranchTree nodes={[branches.main.model]} view={{ selected_branch: "todo-12" }} onAction={onAction} onView={onView} /> })
@@ -814,7 +814,7 @@ test("shell text is inert; private, empty and disabled boundaries", async () => 
   try {
     expect(row.host.querySelector(".mvp-entry-title")?.textContent).toBe(hostile)
     expect(row.host.querySelector(".mvp-entry-summary")?.textContent).toBe(hostile)
-    expect(row.host.querySelector(".mvp-avatar")?.getAttribute("aria-label")).toBe("Install event")
+    expect(row.host.querySelector(".avatar")?.getAttribute("aria-label")).toBe("Install event")
     expect(row.host.querySelector("script")).toBeNull()
     expect(row.host.querySelector("button")).toBeNull()
   } finally { await row.close() }
@@ -950,7 +950,7 @@ test("Members reordered colors and absent owner actions", async () => {
   const root = createRoot(host)
   try {
     await act(async () => root.render(<MembersView {...fixtures.team} model={{ ...fixtures.team.model, members: [...fixtures.team.model.members].reverse() }} onAction={() => {}} onView={() => {}} />))
-    expect([...host.querySelectorAll<HTMLElement>(".mvp-avatar")].map(node => node.style.getPropertyValue("--who"))).toEqual(["var(--lane-2)", "var(--lane-0)", "var(--lane-1)"])
+    expect([...host.querySelectorAll<HTMLElement>(".avatar")].map(node => node.style.getPropertyValue("--who"))).toEqual(["var(--lane-2)", "var(--lane-0)", "var(--lane-1)"])
     expect(host.querySelector('[data-login="williamcory"]')?.querySelectorAll("button[data-flow]").length).toBe(0)
   } finally { await act(async () => root.unmount()) }
 })
@@ -1387,10 +1387,10 @@ test("Terminal forwards owner bytes and suppresses watcher/frozen bytes through 
 test("Terminal gives the working agent its own avatar and acting-for label", async () => {
   const item = await mountedTerminal(terminalStories.find(story => story.name === "Claude Code working in Ben's terminal")!)
   try {
-    expect(item.host.querySelectorAll('.mvp-avatar[data-kind="agent"]')).toHaveLength(1)
-    expect(item.host.querySelectorAll('.mvp-avatar[data-kind="person"]')).toHaveLength(1)
+    expect(item.host.querySelectorAll('.avatar[data-kind="agent"]')).toHaveLength(1)
+    expect(item.host.querySelectorAll('.avatar[data-kind="person"]')).toHaveLength(1)
     expect(item.host.textContent).toContain("Claude Code for Ben")
-    expect(item.host.querySelector('.mvp-avatar[data-kind="agent"]')!.hasAttribute("data-live")).toBe(true)
+    expect(item.host.querySelector('.avatar[data-kind="agent"]')!.hasAttribute("data-live")).toBe(true)
   } finally { await item.close() }
 })
 
@@ -1425,10 +1425,10 @@ test("Branch actions retain burst identities, forms, omissions and supplied orde
     await act(async () => root.render(<BranchView {...branchFixtures.active} view={{ maximized: false, tab: "terminals" }} onAction={onAction} onView={onView} />))
     expect(host.textContent).toContain("pnpm check")
     expect(host.textContent).toContain("Rebasing…")
-    expect(host.querySelectorAll(".branch-watchers .mvp-avatar")).toHaveLength(2)
+    expect(host.querySelectorAll(".branch-watchers .avatar")).toHaveLength(2)
     await act(async () => root.render(<BranchView {...branchFixtures.active} view={{ maximized: false, tab: "files" }} onAction={onAction} onView={onView} />))
     expect(host.textContent).toContain("flows/todo/prompt.md → flows/todo/instructions/implementer.md")
-    expect(host.querySelectorAll(".branch-list .mvp-avatar")).toHaveLength(6)
+    expect(host.querySelectorAll(".branch-list .avatar")).toHaveLength(6)
   } finally { await act(async () => root.unmount()); host.remove() }
 })
 
@@ -1693,7 +1693,7 @@ describe("File presence review regressions", () => {
     await act(async () => root.render(<FilePresenceView {...fixtures.live} model={{ ...fixtures.live.model, editors: [{ actor: agent, line: 1 }] }} onAction={() => {}} onView={() => {}} />))
     expect(host.querySelector(".code-name-flag")).not.toBeNull()
     const flag = host.querySelector<HTMLElement>(".code-name-flag")!
-    const avatar = host.querySelector<HTMLElement>(".code-avatar-stack .mvp-avatar")!
+    const avatar = host.querySelector<HTMLElement>(".code-avatar-stack .avatar")!
     expect(flag.style.getPropertyValue("--who")).toBe("var(--lane-6)")
     expect(flag.style.getPropertyValue("--who")).toBe(avatar.style.getPropertyValue("--who"))
     expect(host.querySelector(".cm-editor")).toBeNull()
@@ -1731,7 +1731,7 @@ describe("File presence review regressions", () => {
 test("File editor avatars overlap and cap at four", async () => {
   const { stories } = await import("./FilePresenceView.stories")
   const { host, close } = await mounted(stories.find(story => story.name === "five_editors")!)
-  expect(host.querySelectorAll(".code-avatar-stack .mvp-avatar")).toHaveLength(4)
+  expect(host.querySelectorAll(".code-avatar-stack .avatar")).toHaveLength(4)
   expect(host.querySelector(".code-avatar-stack")?.textContent).toContain("+1")
   expect(host.querySelector(".code-avatar-stack")?.getAttribute("aria-label")).toBe("Ben, Claude Code for Ben, Ben, Claude Code for Ben, Ben")
   await close()
@@ -2403,7 +2403,7 @@ test("TODO and Home share absent, zero, one and multiple lesson counts without c
   try {
     for (const [lessons, label] of [[undefined, null], [0, "0 lessons"], [1, "1 lesson"], [3, "3 lessons"]] as const) {
       await act(async () => root.render(<TodoView {...todoStories.merged} model={{ ...todoStories.merged.model, lessons }} onAction={() => {}} onView={() => {}} />))
-      expect(host.querySelector(".mvp-state")?.textContent).toBe("Merged")
+      expect(host.querySelector(".state")?.textContent).toBe("Merged")
       if (label) expect(host.textContent).toContain(label)
       else expect(host.textContent).not.toContain("lesson")
       const item = homeReceiptFixtures.active.model.items[0]!
