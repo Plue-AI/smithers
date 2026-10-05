@@ -3,8 +3,6 @@ title: "GitHub App setup"
 description: "Create the install's GitHub App and keep its credentials sealed on the host."
 ---
 
-# GitHub App setup
-
 Open the terminal's `/setup?token=…` URL on a configured origin. It exchanges the token for a durable setup session. Before claim, `GET /api/install` and `POST /api/install/setup/app_manifest` require that session; a raw bootstrap header cannot start a step. Afterwards they require the owner's browser session. Setup POSTs require the same origin and CSRF cookie/header.
 Post `{ "owner_login": "your-login", "owner_kind": "user", "repository": "your-repo" }` to `/api/install/setup/app_manifest`. In the same browser, submit the returned `manifest` as a JSON string in a form field named `manifest` to `action_url`, using `POST`. Organization repositories use `https://github.com/organizations/<org>/settings/apps/new`; an organization owner must create the App there. Hand that URL to an owner if needed.
 
@@ -22,8 +20,35 @@ Bring in and Discard remain unavailable until the shared authorization, confirma
 
 ## Polling transport
 
-The existing GitHub callers have shared client wiring for response-header budget admission, including repository lists, visibility checks, installation-token minting and stack decoration. Header-based accounting remains unmounted until the install's production guards and delivery checks qualify it. Scoped tokens for the same installation share its resource budget. GitHub's limit, remaining and reset headers supply capacity; no local hourly request-count cap or linear refill applies. Production compositions retain their existing worker and budget policy until that qualification.
+The existing GitHub callers have shared client wiring for response-header budget admission, including repository lists, visibility checks, installation-token minting and stack decoration. Header-based accounting remains unmounted until the install's production guards and delivery checks qualify it. Scoped tokens for the same installation share its resource budget. GitHub's limit, remaining and reset headers supply capacity; no local hourly request-count cap or linear refill applies. Hosted compositions retain their existing worker and budget policy. The install metadata reconciler uses the guarded fetched-state path described below.
 
 A 403 or 429 with `Retry-After` pauses only its stream. Exhausted primary capacity pauses the resource until its reset. Below 20 percent remaining, the cadence helper doubles issues, issue events and permission reads until reset. Conditional 304 responses consume no local debit. The existing request API also exposes `If-None-Match`, 304 status and response headers without replacing a cached fact.
 
-The install polling integration remains incomplete. Required cadences are refs every 30 seconds; pulls, PR checks and comment streams every 45 seconds; issues and repository issue events every 120 seconds; permissions every hour. Stream ETags and health belong in memory. Repository issue events require an `install_settings` cursor and an atomic cache/cursor/pending-delivery commit, followed by consumer receipt/effect commit and acknowledgement. These delivery and worker contracts are not activated by the transport increment; it does not establish freshness or recovery acceptance.
+The install polling integration remains incomplete. Required cadences are refs every 30 seconds; pulls, PR checks and comment streams every 45 seconds; issues and repository issue events every 120 seconds; permissions every hour. Stream ETags and health belong in memory. Repository issue events require an `install_settings` cursor and an atomic cache/cursor/pending-delivery commit, followed by consumer receipt/effect commit and acknowledgement. The full stream, cursor and freshness contracts remain unqualified.
+
+## Fetched-state delivery
+
+On installs, issue, pull-request and comment webhooks wake the existing metadata
+reconciler. Their payloads cannot update cached objects, rename the registry row
+or establish freshness. Hosted webhook/cache behavior is unchanged.
+
+Fetched issue and pull-request batches commit their cache rows and consumer
+requests together in the existing product jobs store. Each request identifies
+the installation, immutable GitHub repository, stream and object version.
+Repeated polls reuse the request; stale object versions do not replace newer
+cache rows. A malformed object or failed delivery write rolls back the batch.
+Absence from a fetched page does not silently delete a cached object; deletion
+still needs an authoritative tombstone and its consumer delivery.
+
+The shared jobs worker retains requests when no consumer is registered. A
+consumer writes through the same PostgreSQL transaction that acknowledges its
+request. Failure rolls back both, and a later version in the stream waits for
+earlier pending work. Delivery rechecks current repository/installation binding
+and provider authority. No separate delivery table or scheduler is introduced.
+
+Production provider qualification and downstream handlers are not registered
+yet. Install metadata fetching and per-issue comment baselines remain disabled;
+last-good cached data stays visibly stale. Main-ref polling is separate and
+continues through its existing service. Repository issue-event paging/cursors,
+review and comment streams, ETags, cadence integration and the full production
+recovery/freshness checks remain required before activation.

@@ -18,6 +18,7 @@ import (
 	"net/http/httptest"
 	"net/url"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -422,4 +423,93 @@ func TestGitHubAppSetupOriginUsesSocketPeerThroughRouterPostgres(t *testing.T) {
 	router.ServeHTTP(w, r)
 	require.Equal(t, http.StatusMisdirectedRequest, w.Code)
 	require.Contains(t, w.Body.String(), "unknown_origin")
+}
+
+type fetchedWebhookSecret struct{}
+
+func (fetchedWebhookSecret) WebhookSecret(context.Context) (string, error) {
+	return "fetched-test-secret", nil
+}
+
+// The served signed-webhook route changes the hosted cache as before. On an
+// install the same delivery only wakes the existing reconciler, whose missing
+// qualification prevents GitHub reads and product/cache changes.
+func TestGitHubFetchedInstallWebhookBoundary(t *testing.T) {
+	for _, install := range []bool{false, true} {
+		name := "hosted"
+		if install {
+			name = "install"
+		}
+		t.Run(name, func(t *testing.T) {
+			pool, _ := postgresfixture.NewProductDatabase(t)
+			q := db.New(pool)
+			ctx := context.Background()
+			synced := services.NewGitHubSyncedRepoService(q)
+			row, err := synced.EnrollGitHubRepo(ctx, services.EnrollGitHubRepoInput{Owner: "factory", Repo: "app", InstallationID: 12, GitHubRepositoryID: 99})
+			require.NoError(t, err)
+			var calls atomic.Int32
+			notified := make(chan error, 1)
+			if install {
+				synced = services.NewGitHubSyncedRepoService(q, services.WithGitHubSyncedRepoSyncNotify(func(_ int64, err error) {
+					select {
+					case notified <- err:
+					default:
+					}
+				}))
+				require.NoError(t, synced.ConfigureInstallSync(pool))
+				synced.SetFetcherFactory(func(db.GithubSyncedRepo) services.GitHubSyncedRepoPageFetcher {
+					return func(context.Context, string, url.Values) (json.RawMessage, error) {
+						calls.Add(1)
+						return json.RawMessage(`[]`), nil
+					}
+				})
+				workerCtx, cancel := context.WithCancel(ctx)
+				done := make(chan struct{})
+				go func() { defer close(done); synced.StartReconciler(workerCtx) }()
+				t.Cleanup(func() {
+					cancel()
+					select {
+					case <-done:
+					case <-time.After(5 * time.Second):
+						t.Error("reconciler did not stop")
+					}
+				})
+			}
+			service := services.NewGitHubWebhookService(pool, fetchedWebhookSecret{}, services.WithGitHubWebhookSyncedRepos(synced))
+			cfg := testConfigAllFlagsOn()
+			if install {
+				cfg.Auth.Mode = "selfhost"
+			}
+			router := githubAppSetupComposeRouter(cfg, pool, &routes.GitHubAppSetupHandler{}, &routes.GitHubWebhookHandler{Service: service})
+			payload := []byte(`{"action":"opened","repository":{"id":99,"name":"app","owner":{"login":"factory"}},"issue":{"id":1001,"number":1,"state":"open","title":"Webhook text","updated_at":"2026-10-05T10:00:00Z"}}`)
+			mac := hmac.New(sha256.New, []byte("fetched-test-secret"))
+			_, err = mac.Write(payload)
+			require.NoError(t, err)
+			request := httptest.NewRequest(http.MethodPost, "/webhooks/github", bytes.NewReader(payload))
+			request.Header.Set("X-GitHub-Delivery", uuid.NewString())
+			request.Header.Set("X-GitHub-Event", "issues")
+			request.Header.Set("X-Hub-Signature-256", "sha256="+hex.EncodeToString(mac.Sum(nil)))
+			response := httptest.NewRecorder()
+			router.ServeHTTP(response, request)
+			require.Equal(t, http.StatusOK, response.Code, response.Body.String())
+			if install {
+				select {
+				case err := <-notified:
+					require.Error(t, err)
+				case <-time.After(5 * time.Second):
+					t.Fatal("signed delivery did not wake reconciler")
+				}
+			}
+			var count int
+			require.NoError(t, pool.QueryRow(ctx, `SELECT count(*) FROM github_synced_issues WHERE synced_repo_id=$1`, row.ID).Scan(&count))
+			if install {
+				require.Zero(t, count)
+			} else {
+				require.Equal(t, 1, count)
+			}
+			require.Zero(t, calls.Load())
+			require.NoError(t, pool.QueryRow(ctx, `SELECT count(*) FROM product_job_requests WHERE operation='github.fetched.consume'`).Scan(&count))
+			require.Zero(t, count)
+		})
+	}
 }

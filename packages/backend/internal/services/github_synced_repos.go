@@ -119,6 +119,7 @@ type gitHubSyncedRepoPageFetcher = GitHubSyncedRepoPageFetcher
 // metadata store: enrollment, webhook-driven freshness, backfill, and the
 // stale-while-revalidate read the metadata proxy serves from.
 type GitHubSyncedRepoService struct {
+	install  *gitHubInstallSync
 	store    GitHubSyncedRepoStore
 	mirrorer GitHubSyncedRepoMirrorer
 	now      func() time.Time
@@ -973,6 +974,11 @@ func (s *GitHubSyncedRepoService) ServeComments(
 // stale reports whether the store has neither a recent webhook heartbeat nor a
 // recent reconcile. A repo with a live App is kept fresh by deliveries alone.
 func (s *GitHubSyncedRepoService) stale(row db.GithubSyncedRepo) bool {
+	if s.install != nil {
+		// Webhook arrival is not fetched-state freshness. The install remains
+		// unqualified until all of its required streams are integrated.
+		return true
+	}
 	now := s.now()
 	if row.LastWebhookAt.Valid && now.Sub(row.LastWebhookAt.Time) <= githubSyncedRepoWebhookFreshness {
 		return false
@@ -1057,6 +1063,9 @@ func (s *GitHubSyncedRepoService) scheduleCommentBaseline(row db.GithubSyncedRep
 // GitHub lists issue comments oldest first, so a comment created mid-walk only
 // appends; a list longer than the page ceiling is stored without pruning.
 func (s *GitHubSyncedRepoService) loadCommentBaseline(ctx context.Context, row db.GithubSyncedRepo, issueNumber int64, fetch gitHubSyncedRepoPageFetcher) error {
+	if s.install != nil {
+		return gitHubFetchUnavailable()
+	}
 	resource := "issues/" + strconv.FormatInt(issueNumber, 10) + "/comments"
 	seen := make([]int64, 0, githubSyncedRepoBackfillPageSize)
 	for page := 1; page <= githubSyncedRepoBackfillMaxPages; page++ {
@@ -1123,6 +1132,12 @@ func (s *GitHubSyncedRepoService) backfill(ctx context.Context, row db.GithubSyn
 }
 
 func (s *GitHubSyncedRepoService) backfillResource(ctx context.Context, row db.GithubSyncedRepo, resource string, fetch gitHubSyncedRepoPageFetcher) error {
+	var fetched []json.RawMessage
+	if s.install != nil {
+		if err := s.authorizeFetched(ctx, row); err != nil {
+			return err
+		}
+	}
 	seen := make([]int64, 0, githubSyncedRepoBackfillPageSize)
 	singlePage := false
 	for page := 1; page <= githubSyncedRepoBackfillMaxPages; page++ {
@@ -1144,6 +1159,10 @@ func (s *GitHubSyncedRepoService) backfillResource(ctx context.Context, row db.G
 			return fmt.Errorf("decode github %s page: %w", resource, err)
 		}
 		for _, object := range objects {
+			if s.install != nil {
+				fetched = append(fetched, object)
+				continue
+			}
 			number, upsertErr := s.storeSyncedIssue(ctx, row.ID, resource, object)
 			if upsertErr != nil {
 				return upsertErr
@@ -1156,6 +1175,10 @@ func (s *GitHubSyncedRepoService) backfillResource(ctx context.Context, row db.G
 			singlePage = page == 1
 			break
 		}
+	}
+
+	if s.install != nil {
+		return s.commitFetched(ctx, row, resource, fetched)
 	}
 
 	// Prune rows GitHub no longer returns — but only when the backfill actually
@@ -1217,6 +1240,16 @@ func (s *GitHubSyncedRepoService) storeSyncedIssue(ctx context.Context, syncedRe
 func (s *GitHubSyncedRepoService) recordSyncError(syncedRepoID int64, cause error) {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
+	if s.install != nil {
+		// Install streams must recover when providers or GitHub return; the
+		// hosted reconcile kill switch must not permanently disable them.
+		if _, err := s.install.pool.Exec(ctx, `UPDATE github_synced_repos SET
+		 sync_error=$2, sync_state=CASE WHEN sync_state='disabled' THEN 'disabled' ELSE 'error' END,
+		 syncing_since=NULL, updated_at=NOW() WHERE id=$1`, syncedRepoID, sanitizedSyncErrorMessage(cause)); err != nil {
+			slog.Warn("github install sync error not recorded", "synced_repo_id", syncedRepoID, "error", err)
+		}
+		return
+	}
 	if err := s.store.SetGitHubSyncedRepoSyncError(ctx, db.SetGitHubSyncedRepoSyncErrorParams{
 		// Sanitized: sync_error is echoed to clients in the staleness header and
 		// cause may carry internal detail (hostnames, constraint names).
@@ -1298,6 +1331,19 @@ func (s *GitHubSyncedRepoService) StartReconciler(ctx context.Context) {
 		slog.Warn("github synced repo reconciler not started: no installation fetcher wired")
 		return
 	}
+	var wake <-chan struct{}
+	if s.install != nil {
+		wake = s.install.wake
+		workerCtx, stop := context.WithCancel(ctx)
+		done := make(chan struct{})
+		go func() {
+			defer close(done)
+			if err := s.runFetchedDeliveries(workerCtx); err != nil && workerCtx.Err() == nil {
+				slog.Error("GitHub fetched delivery worker stopped", "error", err)
+			}
+		}()
+		defer func() { stop(); <-done }()
+	}
 	ticker := time.NewTicker(githubSyncedRepoReconcilerTick)
 	defer ticker.Stop()
 	for {
@@ -1305,6 +1351,8 @@ func (s *GitHubSyncedRepoService) StartReconciler(ctx context.Context) {
 		case <-ctx.Done():
 			return
 		case <-ticker.C:
+			s.reconcileOnce(ctx)
+		case <-wake:
 			s.reconcileOnce(ctx)
 		}
 	}
@@ -1324,7 +1372,7 @@ func (s *GitHubSyncedRepoService) reconcileOnce(ctx context.Context) {
 		if ctx.Err() != nil {
 			return
 		}
-		if !s.reconcileDue(row) {
+		if !s.fetchRequested(row.ID) && !s.reconcileDue(row) {
 			continue
 		}
 		fetch := s.preferredFetcher(row, nil)
@@ -1373,6 +1421,9 @@ type gitHubCommentHeader struct {
 // heartbeats the registry row. Unenrolled repos are ignored (the App can be
 // installed on repos nobody has asked us to sync).
 func (s *GitHubSyncedRepoService) ApplyIssueEvent(ctx context.Context, owner, repo string, githubRepoID int64, resource, action string, object json.RawMessage) error {
+	if s.install != nil {
+		return s.requestInstallFetch(ctx, githubRepoID)
+	}
 	row, ok, err := s.lookupEnrolled(ctx, owner, repo, githubRepoID)
 	if err != nil || !ok {
 		return err
@@ -1402,6 +1453,9 @@ func (s *GitHubSyncedRepoService) ApplyIssueEvent(ctx context.Context, owner, re
 // delivery's issue object carries the issue's current comment count; storing it
 // keeps the per-issue coverage check in ServeComments exact.
 func (s *GitHubSyncedRepoService) ApplyIssueCommentEvent(ctx context.Context, owner, repo string, githubRepoID int64, action string, issue, comment json.RawMessage) error {
+	if s.install != nil {
+		return s.requestInstallFetch(ctx, githubRepoID)
+	}
 	row, ok, err := s.lookupEnrolled(ctx, owner, repo, githubRepoID)
 	if err != nil || !ok {
 		return err
@@ -1444,6 +1498,9 @@ func (s *GitHubSyncedRepoService) ApplyIssueCommentEvent(ctx context.Context, ow
 // any stored object (push, check_run, …). This heartbeat is what lets the proxy
 // call a quiet repo fresh instead of polling it.
 func (s *GitHubSyncedRepoService) TouchWebhook(ctx context.Context, owner, repo string, githubRepoID int64) error {
+	if s.install != nil {
+		return s.requestInstallFetch(ctx, githubRepoID)
+	}
 	row, ok, err := s.lookupEnrolled(ctx, owner, repo, githubRepoID)
 	if err != nil || !ok {
 		return err

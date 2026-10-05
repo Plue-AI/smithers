@@ -631,6 +631,13 @@ func runWithOptions(ctx context.Context, args []string, stdout, stderr io.Writer
 		// R5: sync draws from the same per-installation budget as the proxy.
 		services.WithGitHubSyncedRepoBudget(gitHubBudgetTracker),
 	)
+	// Install webhooks are fetch hints. Cache/consumer commits use the shared
+	// jobs store and stay dark until the required providers are qualified.
+	if !options.topology.hosted() {
+		if err := gitHubSyncedRepoService.ConfigureInstallSync(pool); err != nil {
+			return err
+		}
+	}
 	gitHubUserReposService := services.NewGitHubUserReposService(queries, authService,
 		services.WithGitHubUserReposTokenRefresher(authService),
 		services.WithGitHubUserReposHTTPClient(gitHubBudgetTracker.WrapClient(observability.NewHTTPClient(15*time.Second))),

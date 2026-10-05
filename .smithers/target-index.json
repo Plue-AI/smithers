@@ -24110,6 +24110,22 @@
       },
       {
         "kind": "file",
+        "path": "packages/backend/internal/services/github_synced_repos.go"
+      },
+      {
+        "kind": "file",
+        "path": "packages/backend/internal/services/github_synced_delivery.go"
+      },
+      {
+        "kind": "file",
+        "path": "packages/backend/internal/services/github_budget.go"
+      },
+      {
+        "kind": "file",
+        "path": "packages/backend/internal/compose/main.go"
+      },
+      {
+        "kind": "file",
         "path": "packages/backend/internal/services/install_setup_session.go"
       },
       {
