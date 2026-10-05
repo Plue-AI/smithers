@@ -123,7 +123,7 @@ test("later runs preserve the original note's provenance and rejected status", a
   }).pipe(Effect.provide(TestMemory.layer)))
 })
 
-test("a rejected correction round records one pending note that planning reads once accepted", {
+test("a rejected correction round records each failure pattern once and planning reads only accepted notes", {
   timeout: 180_000
 }, async (t) => {
   const root = await mkdtemp(join(tmpdir(), "coding-learnings-"))
@@ -200,7 +200,9 @@ test("a rejected correction round records one pending note that planning reads o
   const pending = await host.runPromise(
     Effect.flatMap(MemoryStore.MemoryStore, (store) => store.listNotes({ namespace, status: "any" }))
   )
-  assert.equal(pending.length, 1)
+  assert.equal(pending.length, 2)
+  assert.deepEqual(pending.map(note => note.id).sort(), failureSignatures(first.result!).slice().sort())
+  assert.equal(writes, 2, "one write for each distinct check and review pattern")
   assert.equal(pending[0]!.status, "pending")
   assert.match(pending[0]!.text, /Title owner: Reject empty names/)
   assert.deepEqual(await host.runPromise(acceptedLearnings), [], "pending notes never reach planning")
@@ -214,7 +216,7 @@ test("a rejected correction round records one pending note that planning reads o
   const notes = await host.runPromise(
     Effect.flatMap(MemoryStore.MemoryStore, (store) => store.listNotes({ namespace, status: "any" }))
   )
-  assert.equal(notes.length, 1)
+  assert.equal(notes.length, 2)
 
   // The existing gate accepts it; the next planning read includes it.
   await host.runPromise(
