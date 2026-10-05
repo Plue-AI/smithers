@@ -199,6 +199,22 @@ test("J4 2 Ben steers a TODO and opens Review & merge", async ({ browser }) => {
   await say(page, "/merge T1")
   await page.waitForTimeout(2000)
 })
+// J5 4a: the setup walk's first TODO pinned the Active todo flow version when it started (engineering spec
+// §11.4.1); GET /api/todos/1 names it and the TODO card shows it. The one machine runs T1, so later TODOs may wait queued.
+test("J5 4a the first TODO's card shows the todo flow version it pinned", async ({ browser }) => {
+  const page = await person(browser, "owner")
+  const flows = await (await page.request.get(`${app}/api/flows`)).json() as { name: string; versions: { id: string; state: string }[] }[]
+  const active = flows.find(flow => flow.name === "todo")?.versions.find(version => version.state === "active")?.id
+  expect(active).toMatch(/^[0-9a-f]{64}$/)
+  await expect.poll(async () => {
+    const card = await (await page.request.get(`${app}/api/todos/1`)).json() as { evidence: { items: { kind: string; version?: string }[] }[] }
+    return card.evidence.flatMap(attempt => attempt.items).find(item => item.kind === "flow")?.version
+  }, { timeout: 60_000 }).toBe(active)
+  await say(page, "/todo T1")
+  const card = page.getByRole("article", { name: "TODO T1", exact: true }).last()
+  await expect(card).toBeVisible()
+  await expect(card.getByText(`todo · ${active}`, { exact: true })).toBeVisible()
+})
 test("members see no refusal on their paths", async () => {
   const rows = recorded()
   expect(rows.filter(row => "aborted" in row)).toEqual([])
