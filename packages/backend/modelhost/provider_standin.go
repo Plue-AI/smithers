@@ -6,6 +6,8 @@ import (
 	"net"
 	"net/url"
 	"strings"
+
+	"github.com/smithersai/smithers/packages/backend/modelproxy"
 )
 
 // ProviderStandInVariable names the loopback origin that answers for every
@@ -13,6 +15,22 @@ import (
 // (apps/app/scripts/run-local-no-github.ts) as it sets the GitHub base URLs;
 // unset, every call goes to its provider.
 const ProviderStandInVariable = "SMITHERS_MODEL_PROVIDER_ORIGIN"
+
+// ProviderStandInUpstreams is the model proxy's upstream for every provider
+// it fronts when origin names a stand-in (modelproxy.Handler.Upstreams), so a
+// coding host's calls, which reach providers only through the proxy, go to
+// the stand-in too. An empty origin gives none.
+func ProviderStandInUpstreams(origin string) (map[string]string, error) {
+	standIn, err := parseProviderStandIn(origin)
+	if err != nil || standIn == "" {
+		return nil, err
+	}
+	upstreams := make(map[string]string, len(modelproxy.Seats))
+	for _, seat := range modelproxy.Seats {
+		upstreams[seat.Provider] = string(standIn)
+	}
+	return upstreams, nil
+}
 
 // standInPrefix renames a built-in credential for the stand-in. The model
 // host pins a built-in to its provider's origin and never re-pins one

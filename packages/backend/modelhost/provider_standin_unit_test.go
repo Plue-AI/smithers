@@ -140,3 +140,17 @@ func TestModelTestRunsOnTheProviderStandIn(t *testing.T) {
 	_, err = New(resolver, bindingLauncher{binding: &launched}, WithProviderStandIn("https://api.anthropic.com"))
 	assert.ErrorContains(t, err, ProviderStandInVariable)
 }
+
+// The coding host reaches providers only through the model proxy, so the
+// stand-in is every proxied provider's upstream as well.
+func TestProviderStandInIsEveryProxiedProvidersUpstream(t *testing.T) {
+	upstreams, err := ProviderStandInUpstreams("http://127.0.0.1:47400/")
+	require.NoError(t, err)
+	assert.Equal(t, map[string]string{"anthropic": "http://127.0.0.1:47400", "openai": "http://127.0.0.1:47400", "cerebras": "http://127.0.0.1:47400",
+		"openrouter": "http://127.0.0.1:47400", "vercel": "http://127.0.0.1:47400"}, upstreams)
+	upstreams, err = ProviderStandInUpstreams("")
+	require.NoError(t, err)
+	assert.Nil(t, upstreams)
+	_, err = ProviderStandInUpstreams("https://ai-gateway.vercel.sh")
+	assert.ErrorContains(t, err, ProviderStandInVariable)
+}

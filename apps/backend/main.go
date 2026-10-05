@@ -149,7 +149,8 @@ func serve(ctx context.Context, args []string, executable func() (string, error)
 	if err != nil {
 		return err
 	}
-	chatHost, err := modelhost.New(resolver, launcher, modelhost.WithProviderStandIn(os.Getenv(modelhost.ProviderStandInVariable)))
+	standIn := os.Getenv(modelhost.ProviderStandInVariable)
+	chatHost, err := modelhost.New(resolver, launcher, modelhost.WithProviderStandIn(standIn))
 	if err != nil {
 		return err
 	}
@@ -158,6 +159,10 @@ func serve(ctx context.Context, args []string, executable func() (string, error)
 		return fmt.Errorf("configure owner recommender: %w", err)
 	}
 
+	upstreams, err := modelhost.ProviderStandInUpstreams(standIn)
+	if err != nil {
+		return err
+	}
 	appConfig := app.Config{
 		HostProfile:      runtimes.profile,
 		Args:             args,
@@ -170,6 +175,8 @@ func serve(ctx context.Context, args []string, executable func() (string, error)
 		// The coding host reaches the owner's Gateway key through the model
 		// proxy (engineering spec §15.2.1); the key never enters a machine.
 		OwnerModelKeys: modelhost.OwnerGatewayKeys{Resolver: resolver},
+		// Unset in production; the no-GitHub walk's model stand-in otherwise.
+		ModelProxyUpstreams: upstreams,
 	}
 
 	if inputs.postgresBin != "" {
