@@ -7,13 +7,17 @@ import { installFixture } from "../state/seams/InstallFixtures.test-support"
 import type { InstallModel } from "../state/seams/InstallModel"
 import type { InstallCardDispatch } from "./installKeyAction"
 
-async function mount(model: InstallModel, dispatch: InstallCardDispatch = () => {}) {
+async function mount(model: InstallModel, dispatch: InstallCardDispatch = () => {}, tab?: "mac" | "network") {
   const host = document.createElement("div")
   document.body.append(host)
   const snapshot = { model }
   const root = createRoot(host)
-  await act(async () => root.render(<SettingsContainer View={SettingsView} owner install={{ get: () => snapshot, subscribe: () => () => {} }} dispatch={dispatch}
-    origin="http://mini.local:4000" view={{ maximized: false }} onView={() => {}} />))
+  const render = () => root.render(<SettingsContainer View={SettingsView} owner install={{ get: () => snapshot, subscribe: () => () => {} }} dispatch={dispatch}
+    origin="http://mini.local:4000" view={{ maximized: false, tab }} onView={patch => {
+      if (patch.tab === "mac" || patch.tab === "network") tab = patch.tab
+      render()
+    }} />)
+  await act(async () => render())
   return host
 }
 
@@ -35,17 +39,37 @@ test.each([0, 2, 3])("Machines buttons enforce the served formula at %i", async 
 test("Address keeps all origins and the bind input; LAN HTTP is marked per origin", async () => {
   const model = installFixture()
   model.address.origins.push("http://127.0.0.1:4000", "http://[::1]:4000")
-  model.github.squash_allowed = false
+  const expectedOrigins = [
+    "http://localhost:4000", "http://mini.local:4000", "https://smithers.example.test",
+    "http://127.0.0.1:4000", "http://[::1]:4000"
+  ]
   const commands: unknown[] = []
-  const host = await mount(model, (tag, input) => { commands.push({ tag, input }) })
-  const origins = host.querySelector<HTMLInputElement>('input[id$="-origins"]')!
-  expect(origins.value).toBe(model.address.origins.join(", "))
-  expect(host.querySelector<HTMLInputElement>('input[id$="-bind"]')!.value).toBe("0.0.0.0:4000")
-  expect(host.textContent!.match(/unencrypted/g)).toHaveLength(1)
-  const fix = [...host.querySelectorAll("a")].find(link => link.textContent === "Enable squash merging on GitHub ↗")!
-  expect(fix.href).toBe("https://github.com/smithersai/smithers/settings")
-  await act(async () => origins.closest("form")!.dispatchEvent(new Event("submit", { bubbles: true, cancelable: true })))
-  expect(commands).toEqual([{ tag: "settings.address", input: model.address }])
+  const host = await mount(model, (tag, input) => { commands.push({ tag, input }) }, "mac")
+  const choice = host.querySelector('[role="group"][aria-label="Who can reach it"]')!
+  const [mac, network] = [...choice.querySelectorAll<HTMLButtonElement>("button")]
+  expect(mac!.textContent).toBe("This Mac only")
+  expect(network!.textContent).toBe("Network")
+  expect(mac!.getAttribute("aria-pressed")).toBe("true")
+  expect(network!.getAttribute("aria-pressed")).toBe("false")
+  expect(host.querySelector('textarea[id$="-origins"]')).toBeNull()
+  await act(async () => network!.click())
+  expect(mac!.getAttribute("aria-pressed")).toBe("false")
+  expect(network!.getAttribute("aria-pressed")).toBe("true")
+  const origins = host.querySelector<HTMLTextAreaElement>('textarea[id$="-origins"]')!
+  expect(origins.value).toBe(expectedOrigins.join("\n"))
+  const form = origins.closest("form")!
+  expect(form.dataset.flow).toBe("settings.address")
+  expect(form.querySelector<HTMLInputElement>('input[id$="-bind"]')!.value).toBe("0.0.0.0:4000")
+  for (const origin of expectedOrigins) {
+    const rendered = [...host.querySelectorAll("code")].find(code => code.textContent === origin)!
+    expect(rendered).toBeDefined()
+    expect(rendered.parentElement!.textContent!.includes("unencrypted")).toBe(origin === "http://mini.local:4000")
+  }
+  expect(commands).toEqual([])
+  await act(async () => form.querySelector<HTMLButtonElement>('button[type="submit"]')!.click())
+  expect(commands).toEqual([{ tag: "settings.address", input: {
+    listen: "network", bind: "0.0.0.0:4000", origins: expectedOrigins
+  } }])
 })
 
 test("Each model key stays on its role row, clears on submission and carries only a transient gesture", async () => {
