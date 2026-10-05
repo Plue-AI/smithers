@@ -304,13 +304,15 @@ describe("rebuilding one catalog entry without restarting the host", () => {
           expect((yield* refresh.flow("other"))._tag).toBe("Registered")
           const other = catalog.executables.find((entry) => entry.descriptor.name === "other")!
 
-          // A refusal takes the entry out and records why.
+          // A refusal records why and keeps the entry the host was serving.
+          const served = catalog.executables.find((entry) => entry.descriptor.name === "early")!
           yield* fs.writeFileString(`${root}/flows/early/flow.ts`, halfWritten("early"))
           const refusal = yield* refresh.flow("early")
           expect(refusal._tag).toBe("Refused")
           if (refusal._tag !== "Refused") return
           expect(refusal.error.code).toBe("body_unavailable")
-          expect(catalog.executables.map((entry) => entry.descriptor.name)).toEqual(["other"])
+          expect(catalog.executables.find((entry) => entry.descriptor.name === "early")).toBe(served)
+          expect(catalog.executables.map((entry) => entry.descriptor.name).sort()).toEqual(["early", "other"])
           expect(catalog.refused.map((failure) => failure.flow)).toEqual(["early"])
 
           // Repairing the file puts it back and drops the refusal with it.
@@ -329,6 +331,38 @@ describe("rebuilding one catalog entry without restarting the host", () => {
         })),
     60_000
   )
+
+  // C-J5-02 step 10: a merged edit that breaks a flow leaves the previous
+  // version runnable (engineering spec §11.3.2).
+  it.effect("edit breaks an existing flow", () => {
+    const registered: Array<string> = []
+    return withProject(registered, (root) =>
+      Effect.gen(function*() {
+        const fs = yield* FileSystem.FileSystem
+        const catalog = yield* Executable.Catalog
+        const refresh = yield* Executable.Refresh
+        const first = catalog.executables.find((entry) => entry.descriptor.name === "early")!
+        const digest = first.descriptor.body.contentDigest
+
+        yield* fs.writeFileString(`${root}/flows/early/flow.ts`, halfWritten("early"))
+        const outcome = yield* refresh.flow("early")
+        expect(outcome._tag).toBe("Refused")
+        if (outcome._tag !== "Refused") return
+        expect(outcome.error.flow).toBe("early")
+
+        // Still the first build: same object, same digest, same plan, and the
+        // runtime was asked to register nothing new.
+        const kept = catalog.executables.filter((entry) => entry.descriptor.name === "early")
+        expect(kept).toHaveLength(1)
+        expect(kept[0]).toBe(first)
+        expect(kept[0]!.descriptor.body.contentDigest).toBe(digest)
+        expect(drafts(kept[0]!.flow)).toContain("root.flow.flow.andThen")
+        expect(catalog.refused.map((failure) => failure.flow)).toEqual(["early"])
+        expect(registered).toEqual(["early", "refresh/early"])
+        // First use still reaches the runnable entry.
+        expect(yield* catalog.load!("early")).toBe(first)
+      }))
+  }, 60_000)
 
   it.effect("drops the entry when the flow it names is gone from disk", () => {
     const registered: Array<string> = []

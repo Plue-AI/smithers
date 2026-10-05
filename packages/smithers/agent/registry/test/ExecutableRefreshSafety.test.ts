@@ -197,6 +197,7 @@ describe("a load reserves its own module file", () => {
         const catalog = yield* Executable.Catalog
         const refresh = yield* Executable.Refresh
         const first = sites.at(-1)!
+        const served = catalog.executables.find((entry) => entry.descriptor.name === "early")
         const taken = Array.from({ length: 8 }, (_, index) => sibling(first, index + 1))
         yield* Effect.forEach(taken, (path) => Effect.promise(() => writeFile(path, "held by somebody else")))
 
@@ -205,7 +206,10 @@ describe("a load reserves its own module file", () => {
         if (outcome._tag !== "Refused") return
         expect(outcome.error.code).toBe("body_unavailable")
         expect(sites.at(-1)).toBe(first)
-        expect(catalog.executables).toEqual([])
+        // The refused rebuild leaves the body the host was serving (spec §11.3.2).
+        expect(served).toBeDefined()
+        expect(catalog.executables).toEqual([served])
+        expect(catalog.refused.map((failure) => failure.flow)).toEqual(["early"])
         for (const path of taken) {
           expect(yield* Effect.promise(() => readFile(path, "utf8"))).toBe("held by somebody else")
         }

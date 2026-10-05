@@ -1855,11 +1855,17 @@ export interface Refresh {
    * on disk, registers its body with the runtime, and swaps it into the
    * catalog. Serialized: two refreshes of the same host never interleave.
    *
-   * `Removed` and `Refused` take the entry out of the catalog and close the
-   * scope of a body THIS seam registered. An exported implementation layer's
-   * lifetime also owns its original registrations, so retiring that entry
-   * unregisters them and closes its resources. Other startup registrations
-   * remain owned by their original provider scope until the host closes.
+   * `Removed` takes the entry out of the catalog and closes the scope of a
+   * body THIS seam registered. An exported implementation layer's lifetime
+   * also owns its original registrations, so retiring that entry unregisters
+   * them and closes its resources. Other startup registrations remain owned by
+   * their original provider scope until the host closes.
+   *
+   * `Refused` never retires a runnable entry: an edit that breaks a flow
+   * leaves its previous executable registered with its scope held, and the
+   * refusal is recorded beside it in `refused` (engineering spec §11.3.2). A
+   * flow that was never runnable stays out of the catalog. A successful
+   * rebuild replaces the entry, transfers the scope and clears the refusal.
    */
   readonly flow: (name: string) => Effect.Effect<Refreshed, RegistryError | DiscoveryError>
 }
@@ -2045,8 +2051,11 @@ const makeRefresh = (
               fromDescriptor(descriptor, options).pipe(Effect.provideService(Scope.Scope, scope))
             ))
             if (result._tag === "Failure") {
-              put(name, undefined, result.failure)
-              yield* release(name)
+              // The previous executable, if any, keeps serving with its scope
+              // held; only the refusal beside it changes.
+              const previous = read().executables.find((entry) => entry.descriptor.name === name)
+              put(name, previous, result.failure)
+              if (previous === undefined) yield* release(name)
               if (!isUnregisteredAgent(result.failure, options)) {
                 yield* Effect.logWarning("refreshed flow is not runnable on this host", {
                   flow: result.failure.flow,
