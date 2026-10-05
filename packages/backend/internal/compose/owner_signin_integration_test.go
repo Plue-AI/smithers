@@ -71,6 +71,9 @@ func TestOwnerSignInHTTPPostgres(t *testing.T) {
 			require.NoError(t, err)
 			cfg := config.AuthConfig{Mode: "selfhost", SessionSecret: "test-secret", SessionCookieName: "session", SessionDuration: "24h"}
 			svc := services.NewAuthService(q, cfg, nil, auth.NewGitHubClient(ownerOAuthCredentials{seed.ClientID, seed.ClientSecret}, "", provider.URL, provider.URL))
+			// Configuration names localhost, as the bundle's does: the sign-in
+			// still returns to the address the browser started it from.
+			cfg.GitHubRedirectURL = "http://localhost:4000/api/auth/github/callback"
 			svc.InstallSetup = setup
 			handler := &routes.AuthHandler{Service: svc, AuthConfig: cfg, Origins: middleware.FixedOrigins(tc.saved), InstallSetup: setup}
 			request := func(path string, cookies ...*http.Cookie) *http.Request {
@@ -104,6 +107,7 @@ func TestOwnerSignInHTTPPostgres(t *testing.T) {
 			result := httptest.NewRecorder()
 			handler.GetGitHubOAuthCallback(result, callback)
 			require.Equal(t, 302, result.Code, result.Body.String())
+			require.Equal(t, origin+"/", result.Header().Get("Location"), "the sign-in returns to the origin that started it")
 			owner, err := q.GetSelfHostOwner(ctx)
 			require.NoError(t, err)
 			require.Equal(t, "local-owner", owner.Username)

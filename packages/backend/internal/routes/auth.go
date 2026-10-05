@@ -350,6 +350,7 @@ func (h *AuthHandler) setupSignInFailed(w http.ResponseWriter, r *http.Request, 
 }
 
 func (h *AuthHandler) GetGitHubOAuthCallback(w http.ResponseWriter, r *http.Request) {
+	browserOrigin := h.githubBrowserOrigin()
 	if h.InstallSetup != nil {
 		origin, ok := middleware.ResolveEffectiveOrigin(r, h.knownOrigins())
 		if !ok {
@@ -360,6 +361,11 @@ func (h *AuthHandler) GetGitHubOAuthCallback(w http.ResponseWriter, r *http.Requ
 			errors.WriteError(w, errors.Forbidden("request origin differs from install origin"))
 			return
 		}
+		// The sign-in returns to the origin that started it: GitHub sends the
+		// browser to the redirect_uri the start built from its effective origin,
+		// and the code exchange below repeats that URI, so a teammate's laptop
+		// lands on the address it used, never on configuration's localhost.
+		browserOrigin = origin
 		local := *h
 		local.AuthConfig.CookieSecure = strings.HasPrefix(origin, "https://")
 		h = &local
@@ -452,7 +458,7 @@ func (h *AuthHandler) GetGitHubOAuthCallback(w http.ResponseWriter, r *http.Requ
 
 	redirectURL := result.RedirectURL
 	if redirectURL == "" || redirectURL == "/" {
-		redirectURL = h.githubBrowserOrigin() + "/"
+		redirectURL = browserOrigin + "/"
 	}
 	if returnTo != "" {
 		redirectURL = returnTo
