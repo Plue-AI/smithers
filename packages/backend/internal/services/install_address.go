@@ -12,6 +12,7 @@ import (
 
 	"github.com/jackc/pgx/v5"
 	"github.com/smithersai/smithers/packages/backend/internal/db"
+	"github.com/smithersai/smithers/packages/backend/internal/middleware"
 )
 
 // NetworkBind is the address the install listens on beside loopback for a
@@ -61,7 +62,9 @@ type InstallAddress struct {
 	served string
 }
 
-// Origins are the configured origins, then the saved ones, without repeats.
+// Origins are the configured origins, then the saved ones, without repeats,
+// each canonical (middleware.CanonicalOrigin), including one an earlier
+// install saved as typed.
 func (a *InstallAddress) Origins() []string {
 	if a == nil {
 		return nil
@@ -71,9 +74,9 @@ func (a *InstallAddress) Origins() []string {
 	result := make([]string, 0, len(a.Configured)+len(a.saved))
 	seen := map[string]bool{}
 	for _, origin := range append(append([]string(nil), a.Configured...), a.saved...) {
-		origin = strings.TrimRight(strings.TrimSpace(origin), "/")
-		if origin != "" && !seen[strings.ToLower(origin)] {
-			seen[strings.ToLower(origin)] = true
+		origin = middleware.CanonicalOrigin(origin)
+		if origin != "" && !seen[origin] {
+			seen[origin] = true
 			result = append(result, origin)
 		}
 	}

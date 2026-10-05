@@ -226,7 +226,7 @@ func (h *AuthHandler) GetGitHubOAuthStart(w http.ResponseWriter, r *http.Request
 			return
 		}
 
-		if r.Header.Get("Origin") != "" && r.Header.Get("Origin") != origin {
+		if r.Header.Get("Origin") != "" && !middleware.SameOrigin(r.Header.Get("Origin"), origin) {
 			errors.WriteError(w, errors.Forbidden("request origin differs from install origin"))
 			return
 		}
@@ -356,7 +356,7 @@ func (h *AuthHandler) GetGitHubOAuthCallback(w http.ResponseWriter, r *http.Requ
 			errors.WriteError(w, errors.New(errors.CodeUnknownOrigin, "unknown_origin"))
 			return
 		}
-		if r.Header.Get("Origin") != "" && r.Header.Get("Origin") != origin {
+		if r.Header.Get("Origin") != "" && !middleware.SameOrigin(r.Header.Get("Origin"), origin) {
 			errors.WriteError(w, errors.Forbidden("request origin differs from install origin"))
 			return
 		}

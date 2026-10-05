@@ -54,3 +54,32 @@ func TestEffectiveOriginAfterRealIP(t *testing.T) {
 		})).ServeHTTP(httptest.NewRecorder(), r)
 	}
 }
+
+// An origin saved as typed (macOS names the Mac Williams-Mac-mini.local)
+// resolves to the lower-case origin the browser sends.
+func TestEffectiveOriginIsCanonicalWhateverTheSavedSpelling(t *testing.T) {
+	r := httptest.NewRequest("GET", "http://williams-mac-mini.local:4000/", nil)
+	r.RemoteAddr = "10.0.0.20:51000"
+	origin, ok := ResolveEffectiveOrigin(r, []string{"http://Williams-Mac-mini.local:4000/"})
+	require.True(t, ok)
+	require.Equal(t, "http://williams-mac-mini.local:4000", origin)
+	_, ok = ResolveEffectiveOrigin(r, []string{"http://Williams-Mac-mini.local:4000", "http://williams-mac-mini.local:4000"})
+	require.True(t, ok, "two spellings of one origin are not ambiguous")
+	_, ok = ResolveEffectiveOrigin(r, []string{"http://Williams-Mac-mini.local:4000", "https://williams-mac-mini.local:4000"})
+	require.False(t, ok, "an ambiguous scheme still fails closed")
+
+	for _, tc := range []struct {
+		a, b string
+		same bool
+	}{
+		{"http://Williams-Mac-mini.local:4000", "http://williams-mac-mini.local:4000", true},
+		{"HTTP://LOCALHOST:4000/", "http://localhost:4000", true},
+		{"https://Box.Example", "https://box.example", true},
+		{"http://box.example", "https://box.example", false},
+		{"http://box.example:4000", "http://box.example:4001", false},
+		{"", "http://localhost:4000", false},
+		{"null", "http://localhost:4000", false},
+	} {
+		require.Equal(t, tc.same, SameOrigin(tc.a, tc.b), "%q %q", tc.a, tc.b)
+	}
+}

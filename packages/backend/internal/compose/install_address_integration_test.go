@@ -83,7 +83,8 @@ func TestInstallAddressNetworkReachesTeammateOriginThroughRouterPostgres(t *test
 	before := teammate("mini.local:4000", "192.0.2.10:51000", "")
 	require.Equal(t, http.StatusMisdirectedRequest, before.Code, before.Body.String())
 
-	r, err := http.NewRequestWithContext(ctx, http.MethodPost, origin+"/api/install/setup/address", strings.NewReader(`{"bind":"0.0.0.0:4000","origins":["http://mini.local:4000"]}`))
+	// The owner types the host as macOS names it; the browser sends it in lower case.
+	r, err := http.NewRequestWithContext(ctx, http.MethodPost, origin+"/api/install/setup/address", strings.NewReader(`{"bind":"0.0.0.0:4000","origins":["http://Mini.local:4000"]}`))
 	require.NoError(t, err)
 	r.Header.Set("Content-Type", "application/json")
 	r.Header.Set("Origin", origin)

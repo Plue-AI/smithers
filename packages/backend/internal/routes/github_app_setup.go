@@ -115,7 +115,7 @@ func (h *GitHubAppSetupHandler) authorize(w http.ResponseWriter, r *http.Request
 }
 func (h *GitHubAppSetupHandler) requestOrigin(r *http.Request) (string, bool) {
 	origin, ok := middleware.ResolveEffectiveOrigin(r, h.knownOrigins())
-	if ok && r.Header.Get("Origin") != "" && r.Header.Get("Origin") != origin {
+	if ok && r.Header.Get("Origin") != "" && !middleware.SameOrigin(r.Header.Get("Origin"), origin) {
 		return origin, false
 	}
 	return origin, ok
@@ -216,7 +216,7 @@ func (h *GitHubAppSetupHandler) Begin(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	csrf, err := r.Cookie(middleware.CSRFCookieName)
-	if r.Header.Get("Origin") != origin || err != nil || csrf.Value == "" || subtle.ConstantTimeCompare([]byte(csrf.Value), []byte(r.Header.Get("X-CSRF-Token"))) != 1 {
+	if !middleware.SameOrigin(r.Header.Get("Origin"), origin) || err != nil || csrf.Value == "" || subtle.ConstantTimeCompare([]byte(csrf.Value), []byte(r.Header.Get("X-CSRF-Token"))) != 1 {
 		writeInstallAPIError(w, pkgerrors.Forbidden("setup origin and CSRF token required"))
 		return
 	}
@@ -350,7 +350,7 @@ func (h *GitHubAppSetupHandler) Step(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	csrf, err := r.Cookie(middleware.CSRFCookieName)
-	if r.Header.Get("Origin") != origin || err != nil || csrf.Value == "" || subtle.ConstantTimeCompare([]byte(csrf.Value), []byte(r.Header.Get("X-CSRF-Token"))) != 1 {
+	if !middleware.SameOrigin(r.Header.Get("Origin"), origin) || err != nil || csrf.Value == "" || subtle.ConstantTimeCompare([]byte(csrf.Value), []byte(r.Header.Get("X-CSRF-Token"))) != 1 {
 		writeInstallAPIError(w, pkgerrors.Forbidden("setup origin and CSRF token required"))
 		return
 	}
@@ -402,7 +402,7 @@ func (h *GitHubAppSetupHandler) SetCapacity(w http.ResponseWriter, r *http.Reque
 		return
 	}
 	csrf, err := r.Cookie(middleware.CSRFCookieName)
-	if r.Header.Get("Origin") != origin || err != nil || csrf.Value == "" || subtle.ConstantTimeCompare([]byte(csrf.Value), []byte(r.Header.Get("X-CSRF-Token"))) != 1 {
+	if !middleware.SameOrigin(r.Header.Get("Origin"), origin) || err != nil || csrf.Value == "" || subtle.ConstantTimeCompare([]byte(csrf.Value), []byte(r.Header.Get("X-CSRF-Token"))) != 1 {
 		writeInstallAPIError(w, pkgerrors.Forbidden("setup origin and CSRF token required"))
 		return
 	}

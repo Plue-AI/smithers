@@ -36,6 +36,9 @@ func TestInstallAddressOriginsJoinConfiguredThenSaved(t *testing.T) {
 	require.Equal(t, []string{"http://127.0.0.1:4000"}, address.Origins())
 	address.commit("0.0.0.0:4000", []string{"http://mini.local:4000", "HTTP://127.0.0.1:4000/", " https://box.example "})
 	require.Equal(t, []string{"http://127.0.0.1:4000", "http://mini.local:4000", "https://box.example"}, address.Origins())
+	// An Address an earlier install saved as typed reads as the browser's origin.
+	address.commit("0.0.0.0:4000", []string{"http://Williams-Mac-mini.local:4000", "http://williams-mac-mini.local:4000"})
+	require.Equal(t, []string{"http://127.0.0.1:4000", "http://williams-mac-mini.local:4000"}, address.Origins())
 	// Saving replaces the saved origins; a removed origin is unknown on the next request.
 	address.commit("127.0.0.1:4000", []string{"http://localhost:4000"})
 	require.Equal(t, []string{"http://127.0.0.1:4000", "http://localhost:4000"}, address.Origins())

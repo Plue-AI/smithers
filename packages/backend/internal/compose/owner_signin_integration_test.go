@@ -32,8 +32,16 @@ func (c ownerOAuthCredentials) OAuthClient(context.Context) (string, string, err
 }
 
 func TestOwnerSignInHTTPPostgres(t *testing.T) {
-	for _, origin := range []string{"http://localhost:4000", "http://lan-a:4000", "https://box.example"} {
-		t.Run(origin, func(t *testing.T) {
+	// saved is the origin as the owner typed it; the browser sends origin, the
+	// same origin in lower case (macOS names the Mac Williams-Mac-mini.local).
+	for _, tc := range []struct{ saved, origin string }{
+		{"http://localhost:4000", "http://localhost:4000"},
+		{"http://lan-a:4000", "http://lan-a:4000"},
+		{"https://box.example", "https://box.example"},
+		{"http://Williams-Mac-mini.local:4000", "http://williams-mac-mini.local:4000"},
+	} {
+		origin := tc.origin
+		t.Run(tc.saved, func(t *testing.T) {
 			pool, _ := postgresfixture.NewProductDatabase(t)
 			q := db.New(pool)
 			ctx := t.Context()
@@ -64,7 +72,7 @@ func TestOwnerSignInHTTPPostgres(t *testing.T) {
 			cfg := config.AuthConfig{Mode: "selfhost", SessionSecret: "test-secret", SessionCookieName: "session", SessionDuration: "24h"}
 			svc := services.NewAuthService(q, cfg, nil, auth.NewGitHubClient(ownerOAuthCredentials{seed.ClientID, seed.ClientSecret}, "", provider.URL, provider.URL))
 			svc.InstallSetup = setup
-			handler := &routes.AuthHandler{Service: svc, AuthConfig: cfg, Origins: middleware.FixedOrigins(origin), InstallSetup: setup}
+			handler := &routes.AuthHandler{Service: svc, AuthConfig: cfg, Origins: middleware.FixedOrigins(tc.saved), InstallSetup: setup}
 			request := func(path string, cookies ...*http.Cookie) *http.Request {
 				r := httptest.NewRequest("GET", origin+path, nil)
 				r.RemoteAddr = "127.0.0.1:1234"

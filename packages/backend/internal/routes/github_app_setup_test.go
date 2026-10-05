@@ -717,3 +717,39 @@ func TestGitHubAppSetupOriginAndCSRFBeforeBegin(t *testing.T) {
 	require.Contains(t, w.Body.String(), `"code":"unknown_origin"`)
 	require.Zero(t, s.beginCalls)
 }
+
+// macOS names the Mac Williams-Mac-mini.local, and the owner saves the Address
+// as typed. The browser sends Host and Origin in lower case. App creation
+// accepts that browser as the same origin and binds the lower-case origin
+// GitHub will return to.
+func TestGitHubAppSetupMixedCaseSavedOriginIsTheBrowserOrigin(t *testing.T) {
+	for _, header := range []string{"http://williams-mac-mini.local:4000", "http://Williams-Mac-mini.local:4000"} {
+		t.Run(header, func(t *testing.T) {
+			h, s := githubAppSetupTestHandler()
+			h.Origins = middleware.FixedOrigins("http://localhost:4000", "http://Williams-Mac-mini.local:4000")
+			r := githubAppSetupBeginRequest("http://williams-mac-mini.local:4000")
+			r.RemoteAddr = "10.0.0.20:51000"
+			r.AddCookie(&http.Cookie{Name: GitHubAppSetupSessionCookie, Value: strings.Repeat("s", 64)})
+			r.AddCookie(&http.Cookie{Name: middleware.CSRFCookieName, Value: "csrf"})
+			r.Header.Set("X-CSRF-Token", "csrf")
+			r.Header.Set("Origin", header)
+			w := httptest.NewRecorder()
+			h.Begin(w, r)
+			require.Equal(t, http.StatusOK, w.Code, w.Body.String())
+			require.Equal(t, 1, s.beginCalls)
+			require.Equal(t, "http://williams-mac-mini.local:4000", s.request.Origin)
+		})
+	}
+	h, s := githubAppSetupTestHandler()
+	h.Origins = middleware.FixedOrigins("http://Williams-Mac-mini.local:4000")
+	r := githubAppSetupBeginRequest("http://williams-mac-mini.local:4000")
+	r.RemoteAddr = "10.0.0.20:51000"
+	r.AddCookie(&http.Cookie{Name: GitHubAppSetupSessionCookie, Value: strings.Repeat("s", 64)})
+	r.AddCookie(&http.Cookie{Name: middleware.CSRFCookieName, Value: "csrf"})
+	r.Header.Set("X-CSRF-Token", "csrf")
+	r.Header.Set("Origin", "http://williams-mac-mini.local:4001")
+	w := httptest.NewRecorder()
+	h.Begin(w, r)
+	require.Equal(t, http.StatusForbidden, w.Code, "another port is another origin")
+	require.Zero(t, s.beginCalls)
+}

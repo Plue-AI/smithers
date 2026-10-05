@@ -14,6 +14,7 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/smithersai/smithers/packages/backend/internal/db"
+	"github.com/smithersai/smithers/packages/backend/internal/middleware"
 	pkgerrors "github.com/smithersai/smithers/packages/backend/internal/pkg/errors"
 	"github.com/smithersai/smithers/packages/backend/jobs"
 )
@@ -84,12 +85,15 @@ func ValidateInstallSetupBody(step string, raw []byte) (InstallSetupInput, error
 		}
 		seen := map[string]bool{}
 		teammates := false
-		for _, origin := range input.Origins {
+		for i, origin := range input.Origins {
 			u, err := url.Parse(origin)
-			if err != nil || (u.Scheme != "http" && u.Scheme != "https") || u.Host == "" || u.User != nil || u.Path != "" || u.RawQuery != "" || u.Fragment != "" || seen[u.Host] {
+			if err != nil || (u.Scheme != "http" && u.Scheme != "https") || u.Host == "" || u.User != nil || u.Path != "" || u.RawQuery != "" || u.Fragment != "" || seen[strings.ToLower(u.Host)] {
 				return input, pkgerrors.BadRequest("invalid public origin")
 			}
-			seen[u.Host] = true
+			seen[strings.ToLower(u.Host)] = true
+			// Saved as the browser sends it: macOS names the host
+			// Williams-Mac-mini.local, the browser's Origin is lower case.
+			input.Origins[i] = middleware.CanonicalOrigin(origin)
 			teammates = teammates || !loopbackOrigin(origin)
 		}
 		// A network bind serves teammates only at an origin they can open;

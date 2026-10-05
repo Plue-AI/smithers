@@ -85,7 +85,7 @@ func TestGitHubAppManifestHookUsesFirstPublicHTTPSOrigin(t *testing.T) {
 		{[]string{"https://factory.example"}, "https://factory.example/webhooks/github"},
 		{[]string{"http://mini.local:4000", "https://factory.example:8443", "https://second.example"}, "https://factory.example:8443/webhooks/github"},
 		{[]string{"https://203.0.113.9"}, "https://203.0.113.9/webhooks/github"},
-		{[]string{"https://Factory.Example/"}, "https://Factory.Example/webhooks/github"},
+		{[]string{"https://Factory.Example/"}, "https://factory.example/webhooks/github"},
 	} {
 		manifest, _, err := BuildGitHubAppManifest("acme", "user", tc.origins, "state")
 		require.NoError(t, err)
@@ -93,6 +93,18 @@ func TestGitHubAppManifestHookUsesFirstPublicHTTPSOrigin(t *testing.T) {
 		require.Equal(t, GitHubAppHookAttributes{URL: tc.hook, Active: true}, *manifest.HookAttributes)
 		require.NotEmpty(t, manifest.DefaultEvents)
 	}
+}
+
+// macOS names the Mac Williams-Mac-mini.local and an owner may type it so; the
+// browser sends the lower-case origin. Callbacks name the origin the browser
+// returns to, once, however the owner spelled it.
+func TestGitHubAppManifestCallbacksAreCanonicalOrigins(t *testing.T) {
+	manifest, _, err := BuildGitHubAppManifest("acme", "user", []string{"http://Williams-Mac-mini.local:4000", "http://williams-mac-mini.local:4000", "HTTP://LOCALHOST:4000"}, "state")
+	require.NoError(t, err)
+	require.Equal(t, []string{"http://williams-mac-mini.local:4000/api/auth/github/callback", "http://localhost:4000/api/auth/github/callback"}, manifest.CallbackURLs)
+	callbacks, err := validateGitHubAppCallbackURLs([]string{"http://Williams-Mac-mini.local:4000/api/auth/github/callback", "http://williams-mac-mini.local:4000/api/auth/github/callback"})
+	require.NoError(t, err)
+	require.Equal(t, []string{"http://williams-mac-mini.local:4000/api/auth/github/callback"}, callbacks)
 }
 
 func TestGitHubAppManifestBrowserStateBinding(t *testing.T) {

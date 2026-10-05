@@ -52,6 +52,16 @@ func TestInstallSetupLiteralBodyContracts(t *testing.T) {
 		})
 	}
 }
+
+// Address saves each origin as the browser sends it: macOS names the Mac
+// Williams-Mac-mini.local, and the browser's Origin is lower case.
+func TestInstallSetupAddressSavesCanonicalOrigins(t *testing.T) {
+	input, err := ValidateInstallSetupBody("address", []byte(`{"bind":"0.0.0.0:4000","origins":["http://Williams-Mac-mini.local:4000","HTTPS://Box.Example","http://localhost:4000"]}`))
+	require.NoError(t, err)
+	require.Equal(t, []string{"http://williams-mac-mini.local:4000", "https://box.example", "http://localhost:4000"}, input.Origins)
+	_, err = ValidateInstallSetupBody("address", []byte(`{"bind":"0.0.0.0:4000","origins":["http://Mini.local:4000","http://mini.local:4000"]}`))
+	require.Error(t, err, "two spellings of one origin are one origin")
+}
 func TestInstallSetupTransitionLeaseBoundaries(t *testing.T) {
 	now := time.Unix(1000, 0)
 	for _, test := range []struct {
