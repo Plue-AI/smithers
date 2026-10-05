@@ -944,6 +944,15 @@ func buildRouter(
 			// Accepted-prefix reads stay dark until T-GH-03 dependency checks qualify.
 			diff := &routes.BranchDiffHandler{}
 			r.Get("/branches/{b}/diff", diff.Diff)
+			// The branch projection and Fork, which the stack service performs.
+			branches := &routes.BranchHandler{Authorize: routes.InstallBranchAuthorizer(queries)}
+			if workspaceHandler != nil {
+				branches.Reads, _ = workspaceHandler.Service.(routes.BranchReadService)
+			}
+			if extras.Mythical != nil {
+				branches.Forks, _ = extras.Mythical.Service.(routes.BranchForkService)
+			}
+			routes.RegisterBranchRoutes(r, branches)
 		}
 		if cfg.Install.QuiesceEnabled {
 			h := &routes.InstallQuiesceHandler{Owners: queries, Service: &services.InstallQuiesce{Gate: quiesce}}

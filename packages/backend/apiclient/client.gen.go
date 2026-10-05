@@ -1099,6 +1099,25 @@ type SavedConversationProblem struct {
 	Code   string `json:"code"`
 }
 
+// Branch is generated from docs/api/openapi.yaml.
+type Branch struct {
+	Name       string                     `json:"name"`
+	Kind       string                     `json:"kind"`
+	State      string                     `json:"state"`
+	Head       *string                    `json:"head,omitempty"`
+	ForkedFrom *BranchForkedFrom          `json:"forked_from,omitempty"`
+	Machine    map[string]json.RawMessage `json:"machine"`
+}
+
+// BranchForkedFrom is generated from docs/api/openapi.yaml.
+type BranchForkedFrom struct {
+	Kind   string `json:"kind"`
+	Ref    string `json:"ref"`
+	Commit string `json:"commit"`
+	Base   string `json:"base"`
+	Item   *int64 `json:"item,omitempty"`
+}
+
 // TODOBranchDiff is generated from docs/api/openapi.yaml.
 type TODOBranchDiff struct {
 	Files []TODOBranchDiffModel `json:"files"`
@@ -1540,6 +1559,12 @@ type GetAPIAuthGithubCliParams struct {
 type PostAPIBillingCheckoutBody struct {
 	Plan     string `json:"plan"`
 	Interval string `json:"interval"`
+}
+
+// PostAPIBranchesBody is generated from docs/api/openapi.yaml.
+type PostAPIBranchesBody struct {
+	From string  `json:"from"`
+	Name *string `json:"name,omitempty"`
 }
 
 // GetAPIGithubSyncResponse is generated from docs/api/openapi.yaml.
@@ -2435,6 +2460,27 @@ func (c *Client) GetAPIBootstrap(ctx context.Context) (AppBootstrap, error) {
 // HeadAPIBootstrap calls HEAD /api/bootstrap.
 func (c *Client) HeadAPIBootstrap(ctx context.Context) error {
 	return c.do(ctx, "HEAD", "/api/bootstrap", nil, nil, nil)
+}
+
+// GetAPIBranches calls GET /api/branches.
+func (c *Client) GetAPIBranches(ctx context.Context) ([]Branch, error) {
+	var out []Branch
+	err := c.do(ctx, "GET", "/api/branches", nil, nil, &out)
+	return out, err
+}
+
+// PostAPIBranches calls POST /api/branches.
+func (c *Client) PostAPIBranches(ctx context.Context, body PostAPIBranchesBody) (Branch, error) {
+	var out Branch
+	err := c.do(ctx, "POST", "/api/branches", nil, body, &out)
+	return out, err
+}
+
+// GetAPIBranchesB calls GET /api/branches/{b}.
+func (c *Client) GetAPIBranchesB(ctx context.Context, b string) (Branch, error) {
+	var out Branch
+	err := c.do(ctx, "GET", "/api/branches/"+url.PathEscape(b), nil, nil, &out)
+	return out, err
 }
 
 // GetAPIBranchesBDiff calls GET /api/branches/{b}/diff.

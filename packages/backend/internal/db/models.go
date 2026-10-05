@@ -2999,6 +2999,8 @@ type Workspace struct {
 	VcpuCount               pgtype.Int4        `json:"vcpu_count"`
 	MemoryMb                pgtype.Int4        `json:"memory_mb"`
 	DiskMb                  pgtype.Int4        `json:"disk_mb"`
+	ForkedFromItem          pgtype.UUID        `json:"forked_from_item"`
+	ForkedFromBase          string             `json:"forked_from_base"`
 }
 
 type WorkspaceChild struct {

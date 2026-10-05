@@ -2,6 +2,7 @@ package services
 
 import (
 	"context"
+	"encoding/json"
 	stdErrors "errors"
 	"log/slog"
 	"net/http"
@@ -314,15 +315,19 @@ var installCommands = map[string]installCommand{
 	"todo.answer":      {role: InstallMember},
 	// todo.control is POST /api/todos/{n}; its handler authorizes the
 	// control itself: steer, stop, resume, retry, drop or move.
-	"todo.control":  {role: InstallMember},
-	"todo.steer":    {role: InstallMember},
-	"todo.stop":     {role: InstallMember},
-	"todo.resume":   {role: InstallMember},
-	"todo.retry":    {role: InstallMember},
-	"todo.drop":     {role: InstallMember},
-	"stack.move":    {role: InstallMember},
-	"merge":         {role: InstallMaintainer},
-	"flows.read":    {role: InstallMember},
+	"todo.control": {role: InstallMember},
+	"todo.steer":   {role: InstallMember},
+	"todo.stop":    {role: InstallMember},
+	"todo.resume":  {role: InstallMember},
+	"todo.retry":   {role: InstallMember},
+	"todo.drop":    {role: InstallMember},
+	"stack.move":   {role: InstallMember},
+	"merge":        {role: InstallMaintainer},
+	"flows.read":   {role: InstallMember},
+	// Branches (spec §6.3): any member reads them and forks a scratch
+	// branch (§15.1.5: fork is run).
+	"branches.read": {role: InstallMember},
+	"branch.fork":   {role: InstallMember},
 	"members.list":  {role: InstallMember},
 	"members.write": {role: InstallMaintainer},
 	// secrets.write is POST /secrets and PATCH and DELETE /secrets/{name}
@@ -470,6 +475,24 @@ func todoBranchForbids(ctx context.Context, item db.MythicalItem) error {
 
 func todoBranchRefusal() error {
 	return &AccessError{Status: http.StatusForbidden, Class: "permission", Code: "permission", Message: "A terminal acts only on its own branch's TODO"}
+}
+
+// InstallRepositoryID is the install's repository: the GitHub repository the
+// repository step stores (github.repository); a caller never names it.
+func InstallRepositoryID(ctx context.Context, q *db.Queries) (int64, error) {
+	setting, err := q.GetInstallSetting(ctx, "github.repository")
+	if err != nil {
+		return 0, err
+	}
+	var binding struct {
+		Owner string `json:"owner_login"`
+		Name  string `json:"repository_name"`
+	}
+	if err = json.Unmarshal(setting.Value, &binding); err != nil || binding.Owner == "" || binding.Name == "" {
+		return 0, &AccessError{Status: http.StatusServiceUnavailable, Class: "infra", Code: "unavailable", Message: "Repository unavailable"}
+	}
+	row, err := q.GetRepoByOwnerAndName(ctx, db.GetRepoByOwnerAndNameParams{Owner: binding.Owner, Name: binding.Name})
+	return row.ID, err
 }
 
 // InstallRoleOf is userID's current role, or "" for a person who is not an

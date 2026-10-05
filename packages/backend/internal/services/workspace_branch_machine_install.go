@@ -71,16 +71,21 @@ func installBranchAuthorizer(members identity.MemberAuthorizer) func(context.Con
 	}
 }
 
+// scratchBranchPrefix starts every scratch branch: scratch/<member>/<name>
+// (spec §8.1.1), which only a fork creates (forkScratchWorkspace).
+const scratchBranchPrefix = "scratch/"
+
 // installLaneBinding admits a machine on the stack's bookmark only while the
 // stack creates it as a lane (StackLaneCreation: the binding is recorded
 // right after) or while it is a lane the stack bound and has not retired, or
 // the workspace the repository's flow-load is bound to (flow_load.go). An
 // item branch (smithers/<slug>) has a machine only through its TODO's lane,
-// so one is never created by name. Every other branch is a scratch branch,
-// identified by its workspace.
+// so one is never created by name. A scratch branch (scratch/<member>/<name>)
+// is no lane: it is admitted by name, created and joined as its own machine.
+// Every other branch is identified by its workspace.
 func installLaneBinding(ctx context.Context, tx pgx.Tx, repositoryID int64, branch, workspaceID string) error {
 	stack := branch == MythicalBookmark
-	if !stack && !strings.HasPrefix(branch, "smithers/") {
+	if strings.HasPrefix(branch, scratchBranchPrefix) || !stack && !strings.HasPrefix(branch, "smithers/") {
 		return nil
 	}
 	if workspaceID == "" {

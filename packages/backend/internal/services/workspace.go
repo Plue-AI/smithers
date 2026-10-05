@@ -567,7 +567,9 @@ type WorkspaceService struct {
 	sourceReader          WorkspaceSourceReader
 	refDeleter            WorkspaceRefDeleter
 	userRefs              UserRefHost
-	q                     WorkspaceQuerier
+	// branchHeads reads a scratch branch's head (WithBranchHeads).
+	branchHeads BranchHeadReader
+	q           WorkspaceQuerier
 	// transactions holds each workspace's provisioning lock (a transaction-
 	// scoped advisory lock).
 	transactions                 RepositoryJobTransactions

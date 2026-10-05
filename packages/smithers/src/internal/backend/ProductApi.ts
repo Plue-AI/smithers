@@ -615,6 +615,21 @@ export type SavedConversationProblem = {
   code: "request_invalid" | "forbidden" | "not-found" | "retired" | "cursor" | "conflict" | "terminal" | "limit" | "corrupt" | "storage_failed"
 }
 
+export type Branch = {
+  name: string
+  kind: "scratch" | "item" | "main"
+  state: "awake" | "asleep" | "waking" | "provisioning" | "failed" | "closed"
+  head?: string
+  forked_from?: {
+    kind: "main" | "item"
+    ref: string
+    commit: string
+    base: string
+    item?: number
+  }
+  machine: Record<string, unknown>
+}
+
 export type TODOBranchDiff = {
   files: Array<TODOBranchDiffModel>
 }
@@ -1414,6 +1429,37 @@ export const getApiBootstrap = (transport: Transport): Promise<GetApiBootstrapRe
 /** HEAD /api/bootstrap: Probe the instance bootstrap document */
 export const headApiBootstrap = (transport: Transport): Promise<void> =>
   transport.request("HEAD", `/api/bootstrap`).then(() => undefined)
+
+export type GetApiBranchesResponse = Array<Branch>
+
+/** GET /api/branches: List the install repository's branches */
+export const getApiBranches = (transport: Transport): Promise<GetApiBranchesResponse> =>
+  transport.request("GET", `/api/branches`) as Promise<GetApiBranchesResponse>
+
+export type PostApiBranchesBody = {
+  from: string
+  name?: string
+}
+
+export type PostApiBranchesResponse = Branch
+
+export interface PostApiBranchesInput {
+  readonly body: PostApiBranchesBody
+}
+
+/** POST /api/branches: Fork a scratch branch */
+export const postApiBranches = (transport: Transport, input: PostApiBranchesInput): Promise<PostApiBranchesResponse> =>
+  transport.request("POST", `/api/branches`, input.body) as Promise<PostApiBranchesResponse>
+
+export type GetApiBranchesBResponse = Branch
+
+export interface GetApiBranchesBInput {
+  readonly path: { readonly b: string }
+}
+
+/** GET /api/branches/{b}: Read one branch */
+export const getApiBranchesB = (transport: Transport, input: GetApiBranchesBInput): Promise<GetApiBranchesBResponse> =>
+  transport.request("GET", `/api/branches/${segment(input.path.b)}`) as Promise<GetApiBranchesBResponse>
 
 export type GetApiBranchesBDiffResponse = TODOBranchDiff
 

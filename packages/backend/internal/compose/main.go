@@ -883,6 +883,7 @@ func runWithOptions(ctx context.Context, args []string, stdout, stderr io.Writer
 		services.WithWorkspaceSourceReader(repoHostClient),
 		services.WithWorkspaceRefDeleter(repoHostClient),
 		services.WithWorkspaceUserRefs(repoHostClient),
+		services.WithBranchHeads(repoHostClient),
 		services.WithWorkspaceSandboxMetrics(smithersMetrics),
 		services.WithWorkspaceGitBaseURL(workspaceGitBaseURL),
 		services.WithWorkspaceSSHHost(cfg.Sandbox.WorkspaceSSHHost),

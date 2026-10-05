@@ -20,7 +20,9 @@ INSERT INTO workspaces (
     idle_timeout_secs,
     vcpu_count,
     memory_mb,
-    disk_mb
+    disk_mb,
+    forked_from_item,
+    forked_from_base
 )
 VALUES (
     COALESCE(sqlc.narg(id)::uuid, gen_random_uuid()),
@@ -37,7 +39,9 @@ VALUES (
     COALESCE(sqlc.narg(idle_timeout_secs)::integer, 1800),
     sqlc.narg(vcpu_count)::integer,
     sqlc.narg(memory_mb)::integer,
-    sqlc.narg(disk_mb)::integer
+    sqlc.narg(disk_mb)::integer,
+    sqlc.narg(forked_from_item)::uuid,
+    sqlc.arg(forked_from_base)::text
 )
 RETURNING *;
 

@@ -175,7 +175,9 @@ func branchMachineCompatible(row db.Workspace, arg db.CreateWorkspaceParams, own
 	}
 	if arg.SourceCommit != "" && arg.SourceCommit != row.SourceCommit ||
 		arg.SourceSnapshotID.Valid && arg.SourceSnapshotID != row.SourceSnapshotID ||
-		arg.ParentWorkspaceID.Valid && arg.ParentWorkspaceID != row.ParentWorkspaceID {
+		arg.ParentWorkspaceID.Valid && arg.ParentWorkspaceID != row.ParentWorkspaceID ||
+		arg.ForkedFromItem.Valid && arg.ForkedFromItem != row.ForkedFromItem ||
+		arg.ForkedFromBase != "" && arg.ForkedFromBase != row.ForkedFromBase {
 		return pkgerrors.Conflict("branch already has a different machine source")
 	}
 	if arg.VcpuCount.Valid && arg.VcpuCount != row.VcpuCount ||

@@ -3,6 +3,7 @@ package product
 import (
 	"fmt"
 	"github.com/jackc/pgx/v5/pgtype"
+	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/smithersai/smithers/packages/backend/internal/db"
 	"github.com/stretchr/testify/require"
 	"testing"
@@ -19,9 +20,9 @@ func TestBranchMachineMigration(t *testing.T) {
 			repo := reviewRepo(t, pool)
 			ctx := t.Context()
 			q := db.New(pool)
-			source, err := q.CreateWorkspace(ctx, db.CreateWorkspaceParams{RepositoryID: repo, UserID: 1001, Name: "main", TargetBookmark: "main", Kind: "container", Status: "running"})
+			source, err := historicWorkspace(t, pool, db.CreateWorkspaceParams{RepositoryID: repo, UserID: 1001, Name: "main", TargetBookmark: "main", Kind: "container", Status: "running"})
 			require.NoError(t, err)
-			snapshot, err := q.CreateWorkspaceSnapshot(ctx, db.CreateWorkspaceSnapshotParams{RepositoryID: repo, UserID: 1001, WorkspaceID: source.ID, Name: "saved", SnapshotID: "retained-snapshot"})
+			snapshot, err := q.CreateWorkspaceSnapshot(ctx, db.CreateWorkspaceSnapshotParams{RepositoryID: repo, UserID: 1001, WorkspaceID: source, Name: "saved", SnapshotID: "retained-snapshot"})
 			require.NoError(t, err)
 			for _, kind := range []string{"named", "fork", "snapshot", "pushed-ref", "agent"} {
 				arg := db.CreateWorkspaceParams{RepositoryID: repo, UserID: 2, Name: kind, TargetBookmark: "scratch/bob/" + kind, Kind: "container", Status: "running"}
@@ -30,7 +31,7 @@ func TestBranchMachineMigration(t *testing.T) {
 					arg.Name = "conflict"
 				}
 				if kind == "fork" {
-					arg.ParentWorkspaceID = uuidValue(source.ID)
+					arg.ParentWorkspaceID = uuidValue(source)
 				}
 				if kind == "snapshot" {
 					arg.SourceSnapshotID = uuidValue(snapshot.ID)
@@ -45,11 +46,11 @@ func TestBranchMachineMigration(t *testing.T) {
 					arg.AgentSessionID = uuidValue(session)
 					arg.Kind = "agent"
 				}
-				row, err := q.CreateWorkspace(ctx, arg)
+				row, err := historicWorkspace(t, pool, arg)
 				require.NoError(t, err)
-				_, err = pool.Exec(ctx, `UPDATE workspaces SET vm_id=$2 WHERE id=$1`, row.ID, "retained-"+kind)
+				_, err = pool.Exec(ctx, `UPDATE workspaces SET vm_id=$2 WHERE id=$1`, row, "retained-"+kind)
 				require.NoError(t, err)
-				_, err = q.UpsertWorkspaceShare(ctx, db.UpsertWorkspaceShareParams{WorkspaceID: row.ID, OwnerUserID: 2, GranteeUserID: 3, Level: "write"})
+				_, err = q.UpsertWorkspaceShare(ctx, db.UpsertWorkspaceShareParams{WorkspaceID: row, OwnerUserID: 2, GranteeUserID: 3, Level: "write"})
 				require.NoError(t, err)
 				if conflict {
 					break
@@ -94,3 +95,16 @@ func TestBranchMachineMigration(t *testing.T) {
 }
 
 func uuidValue(raw string) pgtype.UUID { var id pgtype.UUID; _ = id.Scan(raw); return id }
+
+// historicWorkspace inserts a workspace with only the columns the schema had
+// at 0108, so a test of an older migration never depends on a column a later
+// one adds (the generated queries select every current column).
+func historicWorkspace(t *testing.T, pool *pgxpool.Pool, arg db.CreateWorkspaceParams) (string, error) {
+	t.Helper()
+	var id string
+	err := pool.QueryRow(t.Context(), `INSERT INTO workspaces (repository_id, user_id, name, is_fork, parent_workspace_id, target_bookmark,
+		source_snapshot_id, kind, status, agent_session_id, source_commit) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11) RETURNING id::text`,
+		arg.RepositoryID, arg.UserID, arg.Name, arg.IsFork, arg.ParentWorkspaceID, arg.TargetBookmark, arg.SourceSnapshotID,
+		arg.Kind, arg.Status, arg.AgentSessionID, arg.SourceCommit).Scan(&id)
+	return id, err
+}

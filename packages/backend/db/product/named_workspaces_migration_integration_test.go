@@ -35,25 +35,24 @@ func TestNamedWorkspaceMigrationPreservesDuplicateGuests(t *testing.T) {
 	exec(`INSERT INTO workspaces(repository_id,user_id,name,target_bookmark,is_fork,status)
 		VALUES(1,1,$1,'feature/one',true,'starting')`, "\u2003unicode\u00a0")
 	require.NoError(t, applyNamed())
-	q := db.New(pool)
-	unicodeRow, err := q.GetActiveWorkspaceForIdentity(ctx, db.GetActiveWorkspaceForIdentityParams{
-		RepositoryID: 1, UserID: 1, Name: "unicode", TargetBookmark: "feature/one", Kind: "container",
-	})
-	require.NoError(t, err)
-	require.Equal(t, "unicode", unicodeRow.Name)
+	var unicodeName string
+	require.NoError(t, pool.QueryRow(ctx, `SELECT name FROM workspaces WHERE repository_id = 1 AND user_id = 1 AND name = 'unicode'
+		AND target_bookmark = 'feature/one' AND kind = 'container' AND deleted_at IS NULL`).Scan(&unicodeName))
+	require.Equal(t, "unicode", unicodeName)
 	for _, tc := range []struct{ id, name, vm, status string }{
 		{older, "issue [" + older + "]~", "guest-older", "running"},
 		{winner, "issue", "guest-winner", "running"},
 		{pending, "issue [" + pending + "]", "", "starting"},
 	} {
-		row, err := q.GetWorkspace(ctx, tc.id)
-		require.NoError(t, err)
-		require.Equal(t, tc.name, row.Name)
-		require.Equal(t, tc.vm, row.VmID)
-		require.Equal(t, tc.status, row.Status)
-		require.False(t, row.DeletedAt.Valid)
+		var name, vm, status string
+		var deleted bool
+		require.NoError(t, pool.QueryRow(ctx, `SELECT name, vm_id, status, deleted_at IS NOT NULL FROM workspaces WHERE id = $1`, tc.id).Scan(&name, &vm, &status, &deleted))
+		require.Equal(t, tc.name, name)
+		require.Equal(t, tc.vm, vm)
+		require.Equal(t, tc.status, status)
+		require.False(t, deleted)
 	}
-	_, err = q.CreateWorkspace(ctx, db.CreateWorkspaceParams{RepositoryID: 1, UserID: 1,
+	_, err = historicWorkspace(t, pool, db.CreateWorkspaceParams{RepositoryID: 1, UserID: 1,
 		Name: "issue", TargetBookmark: "feature/one", Kind: "container", IsFork: true, Status: "starting"})
 	require.Error(t, err, "the migrated ready guest reserves its identity")
 	require.NoError(t, applyNamed(), "recorded migration can be applied again")

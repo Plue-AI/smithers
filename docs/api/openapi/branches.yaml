@@ -1,4 +1,115 @@
 paths:
+  /api/branches:
+    get:
+      x-composition: install
+      summary: List the install repository's branches
+      description: Each branch is a projection of its workspace (spec §6.3, §8.1.2); there is no branches table.
+      operationId: get_api_branches
+      tags:
+        - Branches
+      security:
+        - sessionCookie: []
+      responses:
+        '200':
+          description: Branches with their kind, head and machine
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/Branch'
+        '401':
+          description: No person's browser session
+        '403':
+          description: Not a member of the install
+        '503':
+          description: Branch machines or the install repository unavailable
+    post:
+      x-composition: install
+      summary: Fork a scratch branch
+      description: >-
+        The stack service forks main's tip or a TODO's last verified head into
+        scratch/<member>/<name> (spec §8.5): it never stops or reads the source
+        machine, records forked_from on the new workspace, and publishes the
+        branch in the install's repository only, never on GitHub (M-22).
+        Forking a scratch branch waits for stage 2.
+      operationId: post_api_branches
+      tags:
+        - Branches
+      security:
+        - sessionCookie: []
+      parameters:
+        - name: Idempotency-Key
+          in: header
+          required: false
+          schema: {type: string, minLength: 1, maxLength: 256}
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [from]
+              properties:
+                from:
+                  description: main, or a TODO such as T2.
+                  type: string
+                name:
+                  description: The scratch branch's last segment; defaults to fork-<from>.
+                  type: string
+                  pattern: '^[a-z0-9][a-z0-9_-]*(\.[a-z0-9_-]+)*$'
+                  maxLength: 48
+      responses:
+        '201':
+          description: The scratch branch, forked from its source; the same name from the same revision answers the same branch
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Branch'
+        '400':
+          description: Invalid from or name, or a scratch branch as from (scratch_fork_unavailable)
+        '401':
+          description: No person's browser session
+        '403':
+          description: Not a member, or not a person
+        '404':
+          description: No such TODO (todo_not_found)
+        '409':
+          description: The TODO has no verified head yet (no_verified_head), is settled (todo_settled), or the branch exists from another revision
+        '503':
+          description: The stack service, the repository or branch machines unavailable
+  /api/branches/{b}:
+    get:
+      x-composition: install
+      summary: Read one branch
+      operationId: get_api_branches_b
+      tags:
+        - Branches
+      security:
+        - sessionCookie: []
+      parameters:
+        - in: path
+          name: b
+          required: true
+          description: The branch name, URL-encoded (scratch%2Fben%2Ftry).
+          schema:
+            type: string
+      responses:
+        '200':
+          description: The branch
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Branch'
+        '401':
+          description: No person's browser session
+        '403':
+          description: Not a member of the install
+        '404':
+          description: No such branch
+        '503':
+          description: Branch machines unavailable
   /api/branches/{b}/diff:
     get:
       x-composition: install
@@ -42,6 +153,44 @@ paths:
                     type: string
 components:
   schemas:
+    Branch:
+      type: object
+      required: [name, kind, state, machine]
+      properties:
+        name:
+          type: string
+        kind:
+          type: string
+          enum: [scratch, item, main]
+        state:
+          type: string
+          enum: [awake, asleep, waking, provisioning, failed, closed]
+        head:
+          description: A scratch branch's branch ref in the install's repository; any other branch's machine head.
+          type: string
+        forked_from:
+          type: object
+          required: [kind, ref, commit, base]
+          properties:
+            kind:
+              type: string
+              enum: [main, item]
+            ref:
+              description: main, or the TODO (T2).
+              type: string
+            commit:
+              description: The revision the fork started from (main's tip or the TODO's verified head).
+              type: string
+            base:
+              description: The revision the TODO's change is measured from in that head; main's tip for a fork of main.
+              type: string
+            item:
+              description: The TODO's number.
+              type: integer
+              minimum: 1
+        machine:
+          type: object
+          additionalProperties: true
     TODOBranchDiff:
       type: object
       required: [files]
