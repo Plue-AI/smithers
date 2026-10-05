@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/smithersai/smithers/packages/backend/runtimeports"
+	"github.com/smithersai/smithers/packages/backend/workspace"
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgtype"
@@ -330,6 +331,7 @@ type WorkflowCacheDescriptor struct {
 }
 
 type workflowRunService struct {
+	machineRuntime       workspace.WorkspaceRuntime
 	queries              WorkflowRunQuerier
 	cancelParticipant    WorkflowRunCancelParticipant
 	dispatcher           webhooks.Dispatcher
@@ -371,6 +373,24 @@ func (s *workflowRunService) SetCancelParticipant(participant WorkflowRunCancelP
 }
 
 type WorkflowRunServiceOption func(*workflowRunService)
+
+// WithWorkflowRunMachineRuntime binds admission to the execution runtime.
+func WithWorkflowRunMachineRuntime(runtime workspace.WorkspaceRuntime) WorkflowRunServiceOption {
+	return func(s *workflowRunService) { s.machineRuntime = runtime }
+}
+
+func (s *workflowRunService) admitMachines() error {
+	if s.machineRuntime == nil {
+		if workspace.PreviewBuild {
+			return workspace.MachinesDisabled()
+		}
+		return nil
+	}
+	if s.machineRuntime.Isolation() == workspace.IsolationDisabled {
+		return workspace.MachinesDisabled()
+	}
+	return nil
+}
 
 // WithWorkflowRunWebhookDispatcher wires a webhook dispatcher into WorkflowRunService.
 func WithWorkflowRunWebhookDispatcher(dispatcher webhooks.Dispatcher) WorkflowRunServiceOption {
@@ -447,6 +467,9 @@ func NewWorkflowRunService(queries WorkflowRunQuerier, opts ...WorkflowRunServic
 }
 
 func (s *workflowRunService) DispatchForEvent(ctx context.Context, input DispatchForEventInput) ([]WorkflowRunResult, error) {
+	if err := s.admitMachines(); err != nil {
+		return nil, err
+	}
 	if input.RepositoryID <= 0 {
 		return nil, pkgerrors.BadRequest("repository id must be positive")
 	}
@@ -1445,6 +1468,9 @@ func (s *workflowRunService) completeGitHubCheckRunForCancellation(ctx context.C
 // incomplete (cancelled/failed) tasks and steps, then setting the run status
 // back to queued. Only cancelled or failed runs may be resumed.
 func (s *workflowRunService) ResumeRun(ctx context.Context, repositoryID, runID int64) error {
+	if err := s.admitMachines(); err != nil {
+		return err
+	}
 	if s.queries == nil {
 		return pkgerrors.Internal("workflow run store unavailable")
 	}
@@ -1527,6 +1553,9 @@ func (s *workflowRunService) ResumeRun(ctx context.Context, repositoryID, runID 
 // It fetches the original run and definition, then dispatches a new run
 // with the same configuration.
 func (s *workflowRunService) RerunRun(ctx context.Context, input RerunInput) (*WorkflowRunResult, error) {
+	if err := s.admitMachines(); err != nil {
+		return nil, err
+	}
 	if s.queries == nil {
 		return nil, pkgerrors.Internal("workflow run store unavailable")
 	}

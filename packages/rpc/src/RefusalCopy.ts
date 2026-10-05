@@ -358,6 +358,12 @@ const BY_CODE: Partial<Record<PlueFailureCode, Partial<RefusalCopyRow>>> = {
       "fault=infra: this BOX's jj is older than the version Smithers' parser is pinned to, and it refuses to guess rather than misread the output. The version comes from the image the box booted, which Smithers built. Not the user's fault and not their request's, and nothing is full, so do NOT say Smithers ran out of infra and do NOT tell them to ask for more of it. Retrying fails identically on this box — a box opened now boots the current image and its pinned jj.",
     doors: ["report"]
   },
+  // Preview builds cannot execute machine work.
+  machines_disabled: {
+    lead: "Machines are off in this preview.",
+    agent: "fault=infra: Machines are off in this preview. Not your fault. Retrying fails identically in this build; do not say Smithers ran out of infra.",
+    doors: ["report"]
+  },
   /*
    * Deployment shape, the three of them. Nothing is full, nothing is down, and
    * nothing the reader does changes any of it: a table was never migrated, a

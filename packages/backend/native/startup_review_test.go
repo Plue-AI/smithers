@@ -10,6 +10,7 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+	"syscall"
 	"testing"
 	"time"
 
@@ -57,7 +58,7 @@ func TestNativeStartupAdoptsBinaryVersion(t *testing.T) {
 				}
 				pool, err := pgxpool.New(t.Context(), p.ConnectionString)
 				if err != nil {
-					_ = stop(p)
+					_ = stop(p, 15*time.Second)
 					t.Fatal(err)
 				}
 				if name == "existing head" || name == "existing newer" {
@@ -69,13 +70,13 @@ func TestNativeStartupAdoptsBinaryVersion(t *testing.T) {
 					body, readErr := os.ReadFile(files[0])
 					if readErr != nil {
 						pool.Close()
-						_ = stop(p)
+						_ = stop(p, 15*time.Second)
 						t.Fatal(readErr)
 					}
 					tx, beginErr := pool.Begin(t.Context())
 					if beginErr != nil {
 						pool.Close()
-						_ = stop(p)
+						_ = stop(p, 15*time.Second)
 						t.Fatal(beginErr)
 					}
 					_, err = tx.Exec(t.Context(), string(body), pgx.QueryExecModeSimpleProtocol)
@@ -92,7 +93,7 @@ func TestNativeStartupAdoptsBinaryVersion(t *testing.T) {
 					}
 				}
 				pool.Close()
-				stopErr := stop(p)
+				stopErr := stop(p, 15*time.Second)
 				if err != nil || stopErr != nil {
 					t.Fatal(errors.Join(err, stopErr))
 				}
@@ -171,13 +172,13 @@ func TestNativeStartupAdoptsBinaryVersion(t *testing.T) {
 					}
 					pool, err := pgxpool.New(t.Context(), p.ConnectionString)
 					if err != nil {
-						_ = stop(p)
+						_ = stop(p, 15*time.Second)
 						t.Fatal(err)
 					}
 					var value string
 					err = pool.QueryRow(t.Context(), `SELECT value FROM adoption_proof`).Scan(&value)
 					pool.Close()
-					stopErr := stop(p)
+					stopErr := stop(p, 15*time.Second)
 					if err != nil || stopErr != nil || value != "keep" {
 						t.Fatalf("existing rows: %q %v", value, errors.Join(err, stopErr))
 					}
@@ -201,5 +202,120 @@ func TestNativeStartupAdoptsBinaryVersion(t *testing.T) {
 				t.Fatal("refusal published state manifest")
 			}
 		})
+	}
+}
+
+func TestNativeStopBudgetRealPostgres(t *testing.T) {
+	bin, major := testdb.Tools(t)
+	for _, budget := range []time.Duration{0, 8 * time.Second} {
+		t.Run(budget.String(), func(t *testing.T) {
+			database, err := postgres.Start(t.Context(), postgres.Config{BinDir: bin, Major: major, StateDir: filepath.Join(t.TempDir(), "postgres")})
+			if err != nil {
+				t.Fatal(err)
+			}
+			started := time.Now()
+			if err := stop(database, budget); err != nil {
+				t.Fatal(err)
+			}
+			select {
+			case <-database.Done():
+			default:
+				t.Fatal("PostgreSQL survived stop")
+			}
+			limit := budget
+			if limit == 0 {
+				limit = 15 * time.Second
+			}
+			if time.Since(started) >= limit {
+				t.Fatalf("PostgreSQL stop exceeded %s", limit)
+			}
+		})
+	}
+}
+
+// A stopped child cannot handle PostgreSQL's graceful signals. The caller's
+// deadline still bounds escalation, including the forced process-group stop.
+func TestNativeStopBudgetBoundsUnresponsivePostgres(t *testing.T) {
+	bin, major := testdb.Tools(t)
+	root := filepath.Join(t.TempDir(), "postgres")
+	database, err := postgres.Start(t.Context(), postgres.Config{BinDir: bin, Major: major, StateDir: root})
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = database.Stop(context.Background()) })
+	// postmaster.pid is owned by this fixture; never inspect a system server.
+	files, err := filepath.Glob(filepath.Join(root, "*", "postmaster.pid"))
+	if err != nil || len(files) != 1 {
+		t.Fatalf("postmaster pid: %v %v", files, err)
+	}
+	contents, err := os.ReadFile(files[0])
+	if err != nil {
+		t.Fatal(err)
+	}
+	pid, err := strconv.Atoi(strings.Fields(string(contents))[0])
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := syscall.Kill(pid, syscall.SIGSTOP); err != nil {
+		t.Fatal(err)
+	}
+	started := time.Now()
+	err = stop(database, 300*time.Millisecond)
+	if err == nil {
+		t.Fatal("an unresponsive child should report forced shutdown")
+	}
+	if time.Since(started) >= time.Second {
+		t.Fatal("PostgreSQL exceeded the caller's stop budget")
+	}
+	select {
+	case <-database.Done():
+	default:
+		t.Fatal("PostgreSQL survived forced stop")
+	}
+}
+
+func TestNativeSlowDrainReservesPostgresGrace(t *testing.T) {
+	bin, major := testdb.Tools(t)
+	database, err := postgres.Start(t.Context(), postgres.Config{BinDir: bin, Major: major, StateDir: filepath.Join(t.TempDir(), "postgres")})
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = database.Stop(context.Background()) })
+	appDone := make(chan error, 1)
+	started := time.Now()
+	appErr, pgErr := drainAndStop(appDone, database, 3500*time.Millisecond)
+	if !errors.Is(appErr, context.DeadlineExceeded) {
+		t.Fatalf("slow drain: %v", appErr)
+	}
+	if pgErr != nil {
+		t.Fatalf("PostgreSQL lost its reserved grace: %v", pgErr)
+	}
+	if time.Since(started) >= 3500*time.Millisecond {
+		t.Fatal("exceeded stop budget")
+	}
+	select {
+	case <-database.Done():
+	default:
+		t.Fatal("PostgreSQL survived")
+	}
+}
+
+func TestNativeInstallWaitsForDrainBeforePostgresStop(t *testing.T) {
+	bin, major := testdb.Tools(t)
+	database, err := postgres.Start(t.Context(), postgres.Config{BinDir: bin, Major: major, StateDir: filepath.Join(t.TempDir(), "postgres")})
+	if err != nil {
+		t.Fatal(err)
+	}
+	appDone := make(chan error, 1)
+	finished := make(chan error, 1)
+	go func() { a, b := drainAndStop(appDone, database, 0); finished <- errors.Join(a, b) }()
+	select {
+	case <-database.Done():
+		t.Fatal("install stopped before drain")
+	case <-time.After(100 * time.Millisecond):
+	}
+	appDone <- context.Canceled
+	if err := <-finished; err != nil && !errors.Is(err, context.Canceled) {
+		t.Fatal(err)
 	}
 }

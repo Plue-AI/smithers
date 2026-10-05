@@ -21,6 +21,7 @@ import (
 	"github.com/smithersai/smithers/packages/backend/native"
 	"github.com/smithersai/smithers/packages/backend/operator"
 	"github.com/smithersai/smithers/packages/backend/postgres"
+	"github.com/smithersai/smithers/packages/backend/workspace"
 )
 
 func main() {
@@ -97,7 +98,7 @@ func run(ctx context.Context, args []string, testFlowHostConfigs ...flowhost.Wor
 		return err
 	}
 	defer func() {
-		shutdownCtx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+		shutdownCtx, cancel := context.WithTimeout(context.Background(), localShutdownBudget())
 		defer cancel()
 		cleanupErr = errors.Join(cleanupErr, local.Shutdown(shutdownCtx))
 	}()
@@ -111,29 +112,33 @@ func run(ctx context.Context, args []string, testFlowHostConfigs ...flowhost.Wor
 	// app.Run normally owns the workspace runtime's close. Retain a final
 	// close for migration or startup failures before app.Run gets control.
 	defer func() { cleanupErr = errors.Join(cleanupErr, runtimes.Close()) }()
-	launcher, err := modelhost.NewLocalLauncher(modelhost.LocalConfig{
-		Runtime:    runtimes.control,
-		NodeBinary: strings.TrimSpace(os.Getenv("SMITHERS_NODE_BINARY")),
-		BundlePath: strings.TrimSpace(os.Getenv("SMITHERS_MODEL_HOST_BUNDLE")),
-	})
-	if err != nil {
-		return fmt.Errorf("configure local model host: %w", err)
-	}
-	resolver, err := modelhost.NewOwnerSecretResolver(
-		func() string { return os.Getenv("SMITHERS_DATABASE_URL") },
-		func() string { return os.Getenv("SMITHERS_WEBHOOK_SECRET_ENCRYPTION_KEY") },
-		modelhost.WithPreviousSecretKeys(func() string { return os.Getenv("SMITHERS_WEBHOOK_SECRET_ENCRYPTION_PREVIOUS_KEYS") }),
-	)
-	if err != nil {
-		return err
-	}
-	chatHost, err := modelhost.New(resolver, launcher)
-	if err != nil {
-		return err
-	}
-	recommender, err := modelhost.NewJevRecommender(modelhost.OwnerGatewayKeys{Resolver: resolver}, os.Getenv("SMITHERS_JEV_ENDPOINT"), nil)
-	if err != nil {
-		return fmt.Errorf("configure owner recommender: %w", err)
+	var chatHost *modelhost.Host
+	var recommender *modelhost.JevRecommender
+	if workspaceRuntime.Isolation() != workspace.IsolationDisabled {
+		launcher, err := modelhost.NewLocalLauncher(modelhost.LocalConfig{
+			Runtime:    runtimes.control,
+			NodeBinary: strings.TrimSpace(os.Getenv("SMITHERS_NODE_BINARY")),
+			BundlePath: strings.TrimSpace(os.Getenv("SMITHERS_MODEL_HOST_BUNDLE")),
+		})
+		if err != nil {
+			return fmt.Errorf("configure local model host: %w", err)
+		}
+		resolver, err := modelhost.NewOwnerSecretResolver(
+			func() string { return os.Getenv("SMITHERS_DATABASE_URL") },
+			func() string { return os.Getenv("SMITHERS_WEBHOOK_SECRET_ENCRYPTION_KEY") },
+			modelhost.WithPreviousSecretKeys(func() string { return os.Getenv("SMITHERS_WEBHOOK_SECRET_ENCRYPTION_PREVIOUS_KEYS") }),
+		)
+		if err != nil {
+			return err
+		}
+		chatHost, err = modelhost.New(resolver, launcher)
+		if err != nil {
+			return err
+		}
+		recommender, err = modelhost.NewJevRecommender(modelhost.OwnerGatewayKeys{Resolver: resolver}, os.Getenv("SMITHERS_JEV_ENDPOINT"), nil)
+		if err != nil {
+			return fmt.Errorf("configure owner recommender: %w", err)
+		}
 	}
 
 	appConfig := app.Config{
@@ -143,8 +148,13 @@ func run(ctx context.Context, args []string, testFlowHostConfigs ...flowhost.Wor
 		Workspace:        workspaceRuntime,
 		FlowHostRegistry: &registry,
 		FlowHostConfig:   testFlowHostConfig,
-		ChatHost:         chatHost,
-		Recommender:      recommender,
+	}
+
+	if chatHost != nil {
+		appConfig.ChatHost = chatHost
+	}
+	if recommender != nil {
+		appConfig.Recommender = recommender
 	}
 
 	if nativeBin != "" {
@@ -153,7 +163,8 @@ func run(ctx context.Context, args []string, testFlowHostConfigs ...flowhost.Wor
 			stateRoot = dataRoot
 		}
 		return native.Run(ctx, native.Config{
-			App: appConfig,
+			App:        appConfig,
+			StopBudget: nativeStopBudget(),
 			Postgres: postgres.Config{
 				BinDir:   nativeBin,
 				StateDir: filepath.Join(stateRoot, "postgres"),
@@ -188,4 +199,20 @@ func externalDatabaseURL() (string, error) {
 		return "", err
 	}
 	return databaseURL, nil
+}
+
+func nativeStopBudget() time.Duration {
+	if workspace.PreviewBuild {
+		return 8 * time.Second
+	}
+	return 0
+}
+
+// Preview cleanup must fit after the bounded app/PostgreSQL stop. Install
+// cleanup retains its original timeout.
+func localShutdownBudget() time.Duration {
+	if workspace.PreviewBuild {
+		return time.Second
+	}
+	return 15 * time.Second
 }

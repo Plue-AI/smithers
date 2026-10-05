@@ -259,6 +259,10 @@ func runWithOptions(ctx context.Context, args []string, stdout, stderr io.Writer
 			if options.topology.hosted() {
 				return fmt.Errorf("auth.mode=%q requires an isolated workspace runtime", cfg.Auth.Mode)
 			}
+		case workspace.IsolationDisabled:
+			if !workspace.PreviewBuild || options.topology.hosted() {
+				return errors.New("disabled machines require a single-owner preview build")
+			}
 		case workspace.IsolationSandboxed:
 			// Hosted deployments require it; a single-owner installation may
 			// choose it (SMITHERS_WORKSPACE_ISOLATION=microvm) and then never
@@ -504,7 +508,7 @@ func runWithOptions(ctx context.Context, args []string, stdout, stderr io.Writer
 	// One public origin serves browser redirects, email, Git and blob transfers.
 	publicBaseURL := config.PublicOrigin(cfg)
 	workspaceGitBaseURL := publicBaseURL
-	if !options.topology.hosted() && options.Workspace != nil {
+	if !options.topology.hosted() && options.Workspace != nil && options.Workspace.Isolation() != workspace.IsolationDisabled {
 		workspaceGitBaseURL, err = flowHostProductAPIURL(options, cfg.Server.Addr)
 		if err != nil {
 			return fmt.Errorf("workspace Git origin: %w", err)
@@ -595,6 +599,7 @@ func runWithOptions(ctx context.Context, args []string, stdout, stderr io.Writer
 	workflowSyncService := services.NewWorkflowSyncService(queries, repoHostClient, workflowParser)
 	workflowRunService := services.NewWorkflowRunService(
 		runtimeStores.WorkflowRuns,
+		services.WithWorkflowRunMachineRuntime(options.Workspace),
 		services.WithWorkflowRunMetrics(smithersMetrics),
 		services.WithWorkflowRunWebhookDispatcher(webhookDispatcher),
 		services.WithWorkflowRunCommitStatusWriter(commitStatusService),
@@ -1226,8 +1231,9 @@ func runWithOptions(ctx context.Context, args []string, stdout, stderr io.Writer
 	if options.topology.workers() && options.Workspace != nil && options.Workspace.Capabilities().Execution {
 		workspaceCommandWorker = newCriticalWorker()
 	}
+	machinesDisabled := options.Workspace != nil && options.Workspace.Isolation() == workspace.IsolationDisabled
 	var messageDispatchWorker *criticalWorker
-	if options.topology.workers() {
+	if options.topology.workers() && !machinesDisabled {
 		messageDispatchWorker = newCriticalWorker()
 	}
 	var flowWorker *criticalWorker
@@ -1547,6 +1553,10 @@ func runWithOptions(ctx context.Context, args []string, stdout, stderr io.Writer
 			limit:   middleware.GlobalAPIRateLimit(queries)}
 		mountBrowserFlow(router, cfg, queries, browser)
 	}
+	if machinesDisabled {
+		router.With(gateMachines).Post("/api/workflow/provision", writeMachinesDisabled)
+		router.With(gateMachines).Post("/api/workflow/rpc", writeMachinesDisabled)
+	}
 	if chatService != nil && options.topology.servesHTTP() {
 		mountChatPublic(router, chatService.runtime, queries, cfg)
 		mountChatProducerOnSharedListener(router, chatService)
@@ -1591,6 +1601,9 @@ func runWithOptions(ctx context.Context, args []string, stdout, stderr io.Writer
 	// client, whatever the identity mode, is probed at repo_host.url by the router.
 	if options.Repository != nil && options.Repository.InProcess() {
 		r = withLocalReadiness(r, pool, options.Repository)
+	}
+	if machinesDisabled {
+		r = withMachinesDisabled(router, r)
 	}
 	r = mountBlobTransferHandler(r, transferStore, cfg)
 	r = withCriticalWorkerReadiness(r, workspaceCommandWorker)
@@ -1694,7 +1707,11 @@ func runWithOptions(ctx context.Context, args []string, stdout, stderr io.Writer
 	}
 	if installSetup != nil {
 		launchWorker(func() {
-			err := commandJobs.RunWorker(workerCtx, jobs.WorkerConfig{WorkerID: "install-" + uuid.NewString(), Capacity: 1, Lease: time.Minute, Operations: []string{"install.setup.address", "install.setup.repository", "install.setup.models", "install.setup.source", "install.setup.machine"}}, installSetup.Handle)
+			operations := []string{"install.setup.address", "install.setup.repository", "install.setup.models", "install.setup.source"}
+			if !machinesDisabled {
+				operations = append(operations, "install.setup.machine")
+			}
+			err := commandJobs.RunWorker(workerCtx, jobs.WorkerConfig{WorkerID: "install-" + uuid.NewString(), Capacity: 1, Lease: time.Minute, Operations: operations}, installSetup.Handle)
 			if err != nil && workerCtx.Err() == nil {
 				slog.Error("install setup worker stopped", "error", err)
 			}
@@ -1721,7 +1738,9 @@ func runWithOptions(ctx context.Context, args []string, stdout, stderr io.Writer
 	if options.topology.workers() {
 		// Re-drive workspaces and sessions a stopped process left pending.
 		// Per-workspace advisory locks make every worker replica safe to run it.
-		launchWorker(func() { workspaceService.RunProvisioningReconciler(workerCtx) })
+		if !machinesDisabled {
+			launchWorker(func() { workspaceService.RunProvisioningReconciler(workerCtx) })
+		}
 		launchWorker(func() { landingWorker.Start(workerCtx) })
 		launchWorker(func() {
 			services.RunRuntimeMetricsCollector(workerCtx, queries, smithersMetrics, services.RuntimeMetricsInterval)
@@ -1747,7 +1766,7 @@ func runWithOptions(ctx context.Context, args []string, stdout, stderr io.Writer
 		})
 	}
 	var gitHubImportWorker *joinedBackgroundWorker
-	if options.topology.workers() && (!options.topology.hosted() || provisioningEnforced) {
+	if !machinesDisabled && options.topology.workers() && (!options.topology.hosted() || provisioningEnforced) {
 		gitHubImportWorker = startJoinedBackgroundWorker(func() {
 			gitHubImportService.Start(workerCtx)
 		})
@@ -1758,7 +1777,9 @@ func runWithOptions(ctx context.Context, args []string, stdout, stderr io.Writer
 		// The poll catches missed webhooks even where workflows are off.
 		launchWorker(func() { gitHubMainPullService.Start(workerCtx) })
 		launchWorker(func() { gitMirrorSyncService.StartRecovery(workerCtx) })
-		launchWorker(func() { mythicalService.Start(workerCtx) })
+		if !machinesDisabled {
+			launchWorker(func() { mythicalService.Start(workerCtx) })
+		}
 	}
 	if options.topology.workers() && cfg.FeatureFlags.Workflows {
 		launchWorker(func() { cronSchedulerWorker.Start(workerCtx) })

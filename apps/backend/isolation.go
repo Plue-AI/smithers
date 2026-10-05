@@ -23,6 +23,7 @@ import (
 // runs every workspace in a local Microsandbox microVM and refuses to start
 // when microVMs are unavailable; it never falls back.
 const (
+	isolationOff     = "off"
 	isolationProcess = "process"
 	isolationMicroVM = "microvm"
 )
@@ -40,7 +41,7 @@ type executionRuntimes struct {
 
 func (r executionRuntimes) Close() error {
 	err := r.workspace.Close()
-	if r.control != r.workspace {
+	if r.control != nil && r.control != r.workspace {
 		err = errors.Join(err, r.control.Close())
 	}
 	if r.relay != nil {
@@ -94,6 +95,13 @@ func workspaceIsolation(allowProcessForTests bool) (string, error) {
 	}
 	mode := strings.ToLower(strings.TrimSpace(os.Getenv("SMITHERS_WORKSPACE_ISOLATION")))
 	switch mode {
+	case isolationOff:
+		if workspaceapi.PreviewBuild {
+			return isolationOff, nil
+		}
+		fallthrough
+	case "":
+		return "", fmt.Errorf("SMITHERS_WORKSPACE_ISOLATION must be %q; process isolation is tests-only", isolationMicroVM)
 	case isolationMicroVM:
 		return isolationMicroVM, nil
 	default:
@@ -108,6 +116,9 @@ func openExecutionRuntimes(ctx context.Context, dataRoot, hostBundle string, all
 	mode, err := workspaceIsolation(allowProcessForTests)
 	if err != nil {
 		return executionRuntimes{}, err
+	}
+	if mode == isolationOff {
+		return executionRuntimes{workspace: workspaceapi.NewDisabled()}, nil
 	}
 	if mode == isolationProcess {
 		relay, err := openEgressRelay(0)

@@ -116,6 +116,7 @@ const (
 // Deployment shape: this build of plue is running somewhere that has not been
 // given everything an endpoint needs.
 const (
+	CodeMachinesDisabled           Code = "machines_disabled"
 	CodeFeatureNotEnabled          Code = "feature_not_enabled"
 	CodeCodingGatewayNotConfigured Code = "coding_gateway_not_configured"
 )
@@ -356,6 +357,8 @@ var registry = map[Code]Entry{
 	// the body as well as the header.
 	CodeRateLimiterUnavailable:    {Status: http.StatusServiceUnavailable, Fault: FaultInfra, RetryAfter: 1, Doc: "plue's rate-limit store is not answering and the endpoint fails closed rather than let a budget go unenforced."},
 	CodeRepositoryCIRunUnverified: {Status: http.StatusForbidden, Fault: FaultUser, RetryAfter: 0, Doc: "The CI check receipt names a run this repository and workspace retain no usable dispatch for."},
+	// Preview builds cannot execute machine work.
+	CodeMachinesDisabled: {Status: http.StatusServiceUnavailable, Fault: FaultInfra, Doc: "Machines are off in this preview. Retrying does not help in this build."},
 	// The endpoint's storage is not provisioned on this deployment, so the
 	// feature is switched off here. Nothing the caller sent is wrong, and no
 	// retry helps until the deployment is migrated.

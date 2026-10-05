@@ -113,6 +113,7 @@ const TERMINAL_UNTIL_WE_SHIP: ReadonlyArray<PlueFailureCode> = [
   "coding_unsupported_jj",
   "environment_image_unavailable",
   "feature_not_enabled",
+  "machines_disabled",
   "secret_delivery_unavailable"
 ]
 
@@ -211,7 +212,11 @@ describe("the infra line", () => {
    */
   test("every infra lead says plainly it is not the reader's fault", async () => {
     for (const code of INFRA_CODES) {
-      expect(refusalLead(forCode(code)).toLowerCase(), code).toContain("not your fault")
+      if (code === "machines_disabled") {
+        expect(refusalLead(forCode(code))).toBe("Machines are off in this preview.")
+      } else {
+        expect(refusalLead(forCode(code)).toLowerCase(), code).toContain("not your fault")
+      }
     }
   })
 

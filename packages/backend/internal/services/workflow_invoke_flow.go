@@ -19,6 +19,7 @@ import (
 	pkgerrors "github.com/smithersai/smithers/packages/backend/internal/pkg/errors"
 	"github.com/smithersai/smithers/packages/backend/internal/repohost"
 	"github.com/smithersai/smithers/packages/backend/jobs"
+	"github.com/smithersai/smithers/packages/backend/workspace"
 )
 
 // invokedFlowBinding names an invoked run's Flow host target and projection.
@@ -36,18 +37,21 @@ type InvokedFlowDispatcher interface {
 // runtime's receipts, journal and failures back onto workflow_runs and the
 // run's step and log.
 type InvokedFlowService struct {
-	pool           *pgxpool.Pool
-	repositoryJobs *RepositoryJobService
-	workspaces     RepositorySetupWorkspace
-	dispatcher     InvokedFlowDispatcher
-	secrets        *SecretInjector
-	terminal       WorkflowRunTerminalPublisher
-	sources        repositorySourceHost
+	pool             *pgxpool.Pool
+	repositoryJobs   *RepositoryJobService
+	workspaces       RepositorySetupWorkspace
+	machinesDisabled bool
+	dispatcher       InvokedFlowDispatcher
+	secrets          *SecretInjector
+	terminal         WorkflowRunTerminalPublisher
+	sources          repositorySourceHost
 }
 
 func NewInvokedFlowService(pool *pgxpool.Pool, repositoryJobs *RepositoryJobService, workspaces RepositorySetupWorkspace) *InvokedFlowService {
 	return &InvokedFlowService{pool: pool, repositoryJobs: repositoryJobs, workspaces: workspaces}
 }
+
+func (s *InvokedFlowService) SetMachinesDisabled() { s.machinesDisabled = true }
 
 func (s *InvokedFlowService) SetFlowDispatcher(dispatcher InvokedFlowDispatcher) {
 	s.dispatcher = dispatcher
@@ -125,6 +129,9 @@ func (s *InvokedFlowService) flowSourceCommit(ctx context.Context, launch Invoke
 // Invoke creates the queued flow-plane run and admits its Flow launch in one
 // transaction. It returns before any host is resolved or contacted.
 func (s *InvokedFlowService) Invoke(ctx context.Context, launch InvokedFlowLaunch, admit WorkflowRunAdmission) (db.WorkflowRun, db.WorkflowDefinition, error) {
+	if s != nil && s.machinesDisabled {
+		return db.WorkflowRun{}, db.WorkflowDefinition{}, workspace.MachinesDisabled()
+	}
 	if s == nil || s.pool == nil || s.dispatcher == nil || s.repositoryJobs == nil || s.sources == nil {
 		return db.WorkflowRun{}, db.WorkflowDefinition{}, pkgerrors.New(pkgerrors.CodeServiceUnavailable, "the Flow runtime is not configured on this deployment")
 	}

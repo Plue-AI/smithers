@@ -1,9 +1,11 @@
 package compose
 
 import (
+	"github.com/smithersai/smithers/packages/backend/workspace"
 	"log/slog"
 	"net/http"
 	"os"
+	"reflect"
 	"regexp"
 	"strings"
 	"time"
@@ -19,6 +21,7 @@ import (
 	"github.com/smithersai/smithers/packages/backend/internal/identity"
 	"github.com/smithersai/smithers/packages/backend/internal/lfsauth"
 	"github.com/smithersai/smithers/packages/backend/internal/middleware"
+	apierrors "github.com/smithersai/smithers/packages/backend/internal/pkg/errors"
 	"github.com/smithersai/smithers/packages/backend/internal/routes"
 	"github.com/smithersai/smithers/packages/backend/internal/services"
 	"github.com/smithersai/smithers/packages/backend/internal/sse"
@@ -500,7 +503,7 @@ func buildRouter(
 				readAgent = append(readAgent, middleware.RequireRepoPermission(middleware.PermissionRead))
 			}
 			readAgent = append(readAgent, repoAPIQuota)
-			readAgent = append(readAgent, gateAgents)
+			readAgent = append(readAgent, gateMachines, gateAgents)
 			r.With(readAgent...).Get("/api/repos/{owner}/{repo}/agent/sessions/{id}/stream", agentSessionStreamHandler.AgentSessionStream)
 		})
 	}
@@ -528,9 +531,9 @@ func buildRouter(
 				vmProvision = append(vmProvision, middleware.RequireRepoPermission(middleware.PermissionWrite))
 			}
 			vmProvision = append(vmProvision, repoAPIQuota)
-			vmProvision = append(vmProvision, gateWorkspaces)
+			vmProvision = append(vmProvision, gateMachines, gateWorkspaces)
 			vmProvisionSandbox := append([]func(http.Handler) http.Handler{}, vmProvision...)
-			vmProvisionSandbox = append(vmProvisionSandbox, gateSandboxes, userSandboxesQuota)
+			vmProvisionSandbox = append(vmProvisionSandbox, gateMachines, gateSandboxes, userSandboxesQuota)
 			// Session create deliberately does NOT take userSandboxesQuota on the
 			// no-workspace_id path: the service REUSES the repo's existing primary
 			// workspace (findOrCreatePrimaryWorkspace) and only creates one when
@@ -549,7 +552,7 @@ func buildRouter(
 			workspaceSessionProvision := append([]func(http.Handler) http.Handler{}, vmProvision...)
 			workspaceSessionProvision = append(
 				workspaceSessionProvision,
-				gateSandboxes,
+				gateMachines, gateSandboxes,
 				workspaceSessionSandboxQuota(
 					workspaceSessionStore,
 					nil,
@@ -808,7 +811,7 @@ func buildRouter(
 			if queries != nil {
 				readWorkspaceSSE = append(readWorkspaceSSE, middleware.RequireRepoPermission(middleware.PermissionRead))
 			}
-			readWorkspaceSSE = append(readWorkspaceSSE, gateWorkspaces, gateSandboxes)
+			readWorkspaceSSE = append(readWorkspaceSSE, gateMachines, gateWorkspaces, gateSandboxes)
 			r.With(readWorkspaceSSE...).Get("/api/repos/{owner}/{repo}/workspaces/{id}/stream", workspaceHandler.StreamWorkspace)
 			r.With(readWorkspaceSSE...).Get("/api/repos/{owner}/{repo}/workspace/sessions/{id}/stream", workspaceHandler.StreamSession)
 		})
@@ -832,7 +835,7 @@ func buildRouter(
 			if queries != nil {
 				writeTerminal = append(writeTerminal, middleware.RequireRepoPermission(middleware.PermissionWrite))
 			}
-			writeTerminal = append(writeTerminal, gateWorkspaces, gateSandboxes)
+			writeTerminal = append(writeTerminal, gateMachines, gateWorkspaces, gateSandboxes)
 			// Ticket 0132: open-rate limit applied at route registration time.
 			// Active-connection cap is enforced inside the handler (before dialSSH).
 			writeTerminal = append(
@@ -897,10 +900,10 @@ func buildRouter(
 		if config.IsSingleOwner(cfg.Auth) && extras.Mythical != nil {
 			service, _ := extras.Mythical.Service.(routes.TodoRouteService)
 			todos := &routes.TodoHandler{Queries: queries, Service: service}
-			r.Get("/todos", todos.List)
-			r.Post("/todos", todos.Create)
-			r.Get("/todos/{n}", todos.Get)
-			r.Post("/todos/{n}/merge", todos.Merge)
+			r.With(gateMachines).Get("/todos", todos.List)
+			r.With(gateMachines).Post("/todos", todos.Create)
+			r.With(gateMachines).Get("/todos/{n}", todos.Get)
+			r.With(gateMachines).Post("/todos/{n}/merge", todos.Merge)
 		}
 		// Unmounted until T-ACC-03 supplies the qualified owner-person authorizer.
 		if extras.InstallScorecard.Available() {
@@ -924,7 +927,11 @@ func buildRouter(
 			r.Get("/install", extras.GitHubAppSetup.Status)
 			r.Put("/install", extras.GitHubAppSetup.SetCapacity)
 			for _, step := range []string{"address", "app", "sign_in", "repository", "models", "source", "machine"} {
-				r.Post("/install/setup/"+step, extras.GitHubAppSetup.Step)
+				if step == "machine" {
+					r.With(gateMachines).Post("/install/setup/"+step, extras.GitHubAppSetup.Step)
+				} else {
+					r.Post("/install/setup/"+step, extras.GitHubAppSetup.Step)
+				}
 			}
 		}
 		if extras.Recommender != nil {
@@ -1338,7 +1345,8 @@ func buildRouter(
 					// an agent would otherwise run the default bookmark's
 					// workflows with inputs it chooses, or cancel a person's run.
 					workflowPersonRepo := append(append([]func(http.Handler) http.Handler{}, workflowWriteRepo...), middleware.RefuseRunCredentials)
-					workflowDispatchWriteRepo := append([]func(http.Handler) http.Handler{}, workflowPersonRepo...)
+					workflowMachinePersonRepo := append(append([]func(http.Handler) http.Handler{}, workflowPersonRepo...), gateMachines)
+					workflowDispatchWriteRepo := append([]func(http.Handler) http.Handler{}, workflowMachinePersonRepo...)
 					workflowDispatchWriteRepo = append(
 						workflowDispatchWriteRepo,
 						repoWorkflowQuota,
@@ -1352,17 +1360,17 @@ func buildRouter(
 					// write-scoped session or token.
 					r.With(workflowDispatchWriteRepo...).Post("/invoke", workflowHandler.InvokeWorkflow)
 					r.With(workflowPersonRepo...).Post("/workflows/runs/{id}/cancel", workflowHandler.CancelWorkflowRun)
-					r.With(workflowPersonRepo...).Post("/workflows/runs/{id}/rerun", workflowHandler.RerunWorkflowRun)
-					r.With(workflowPersonRepo...).Post("/workflows/runs/{id}/resume", workflowHandler.ResumeWorkflowRun)
+					r.With(workflowMachinePersonRepo...).Post("/workflows/runs/{id}/rerun", workflowHandler.RerunWorkflowRun)
+					r.With(workflowMachinePersonRepo...).Post("/workflows/runs/{id}/resume", workflowHandler.ResumeWorkflowRun)
 					r.With(workflowPersonRepo...).Post("/actions/runs/{id}/cancel", workflowHandler.CancelWorkflowRun)
-					r.With(workflowPersonRepo...).Post("/actions/runs/{id}/rerun", workflowHandler.RerunWorkflowRun)
+					r.With(workflowMachinePersonRepo...).Post("/actions/runs/{id}/rerun", workflowHandler.RerunWorkflowRun)
 					// Ticket 0111: canonical `/runs/{id}/...` client surface.
 					// Aliases the existing `/workflows/runs/...` and
 					// `/actions/runs/...` paths at the same handlers — no new
 					// semantics; just one naming clients can standardize on.
 					r.With(workflowPersonRepo...).Post("/runs/{id}/cancel", workflowHandler.CancelWorkflowRun)
-					r.With(workflowPersonRepo...).Post("/runs/{id}/rerun", workflowHandler.RerunWorkflowRun)
-					r.With(workflowPersonRepo...).Post("/runs/{id}/resume", workflowHandler.ResumeWorkflowRun)
+					r.With(workflowMachinePersonRepo...).Post("/runs/{id}/rerun", workflowHandler.RerunWorkflowRun)
+					r.With(workflowMachinePersonRepo...).Post("/runs/{id}/resume", workflowHandler.ResumeWorkflowRun)
 				}
 				if workflowCacheHandler != nil {
 					// Clearing every cache belongs to a person, not a run.
@@ -1393,15 +1401,15 @@ func buildRouter(
 						agentMessageWriteRepo,
 						middleware.AgentMessagePostRateLimit(queries, 0),
 					)
-					r.With(append(agentMessageWriteRepo, gateAgents)...).Post("/changes/{change_id}/conflicts/resolve", jjVCSHandler.ResolveChangeConflict)
-					r.With(append(agentMessageWriteRepo, gateAgents)...).Post("/changes/{change_id}/findings/{finding_id}/dispatch", jjVCSHandler.DispatchFinding)
-					r.With(append(writeRepo, gateAgents)...).Post("/agent/sessions", agentSessionHandler.CreateSession)
-					r.With(append(readRepo, gateAgents)...).Get("/agent/sessions", agentSessionHandler.ListSessions)
-					r.With(append(readRepo, gateAgents)...).Get("/agent/sessions/{id}", agentSessionHandler.GetSession)
-					r.With(append(readRepo, gateAgents)...).Get("/agent-sessions/{id}/egress", agentSessionHandler.ListEgressAudit)
-					r.With(append(writeRepo, gateAgents)...).Delete("/agent/sessions/{id}", agentSessionHandler.DeleteSession)
-					r.With(append(readRepo, gateAgents)...).Get("/agent/sessions/{id}/messages", agentSessionHandler.ListMessages)
-					r.With(append(agentMessageWriteRepo, gateAgents)...).Post("/agent/sessions/{id}/messages", agentSessionHandler.PostMessage)
+					r.With(append(agentMessageWriteRepo, gateMachines, gateAgents)...).Post("/changes/{change_id}/conflicts/resolve", jjVCSHandler.ResolveChangeConflict)
+					r.With(append(agentMessageWriteRepo, gateMachines, gateAgents)...).Post("/changes/{change_id}/findings/{finding_id}/dispatch", jjVCSHandler.DispatchFinding)
+					r.With(append(writeRepo, gateMachines, gateAgents)...).Post("/agent/sessions", agentSessionHandler.CreateSession)
+					r.With(append(readRepo, gateMachines, gateAgents)...).Get("/agent/sessions", agentSessionHandler.ListSessions)
+					r.With(append(readRepo, gateMachines, gateAgents)...).Get("/agent/sessions/{id}", agentSessionHandler.GetSession)
+					r.With(append(readRepo, gateMachines, gateAgents)...).Get("/agent-sessions/{id}/egress", agentSessionHandler.ListEgressAudit)
+					r.With(append(writeRepo, gateMachines, gateAgents)...).Delete("/agent/sessions/{id}", agentSessionHandler.DeleteSession)
+					r.With(append(readRepo, gateMachines, gateAgents)...).Get("/agent/sessions/{id}/messages", agentSessionHandler.ListMessages)
+					r.With(append(agentMessageWriteRepo, gateMachines, gateAgents)...).Post("/agent/sessions/{id}/messages", agentSessionHandler.PostMessage)
 				}
 				r.With(writeRepo...).Post("/changes/{change_id}/findings/{finding_id}/feedback", jjVCSHandler.SubmitFindingFeedback)
 
@@ -1453,8 +1461,8 @@ func buildRouter(
 					}
 					readWorkspace = append(readWorkspace, repoAPIQuota)
 					writeWorkspace = append(writeWorkspace, repoAPIQuota)
-					readWorkspace = append(readWorkspace, gateWorkspaces)
-					writeWorkspace = append(writeWorkspace, gateWorkspaces)
+					readWorkspace = append(readWorkspace, gateMachines, gateWorkspaces)
+					writeWorkspace = append(writeWorkspace, gateMachines, gateWorkspaces)
 					r.With(readWorkspace...).Get("/workspaces", workspaceHandler.ListWorkspaces)
 					r.With(readWorkspace...).Get("/workspaces/{id}", workspaceHandler.GetWorkspace)
 					r.With(readWorkspace...).Get("/workspaces/{id}/egress", workspaceHandler.ListEgressAudit)
@@ -1487,8 +1495,8 @@ func buildRouter(
 						readChildren = append(readChildren, middleware.RequireRepoPermission(middleware.PermissionRead))
 						writeChildren = append(writeChildren, middleware.RequireRepoPermission(middleware.PermissionWrite))
 					}
-					readChildren = append(readChildren, repoAPIQuota, gateWorkspaces)
-					writeChildren = append(writeChildren, repoAPIQuota, gateWorkspaces, gateSandboxes)
+					readChildren = append(readChildren, repoAPIQuota, gateMachines, gateWorkspaces)
+					writeChildren = append(writeChildren, repoAPIQuota, gateMachines, gateWorkspaces, gateSandboxes)
 					routes.RegisterWorkspaceChildrenRoutes(r, workspaceHandler, readChildren, writeChildren)
 
 					if workspaceHandler.EnvironmentImages != nil {
@@ -1502,7 +1510,7 @@ func buildRouter(
 						if queries != nil {
 							adminWorkspaceImages = append(adminWorkspaceImages, middleware.RequireRepoPermission(middleware.PermissionAdmin))
 						}
-						adminWorkspaceImages = append(adminWorkspaceImages, repoAPIQuota, gateWorkspaces)
+						adminWorkspaceImages = append(adminWorkspaceImages, repoAPIQuota, gateMachines, gateWorkspaces)
 						r.With(adminWorkspaceImages...).Post("/environment-images", workspaceHandler.EnvironmentImages.RegisterRepoImage)
 						r.With(adminWorkspaceImages...).Delete("/environment-images/{id}", workspaceHandler.EnvironmentImages.RetireRepoImage)
 					}
@@ -1571,15 +1579,15 @@ func buildRouter(
 				).Post("/github/synced-repos/{owner}/{repo}/mirror-status", gitHubSyncedReposHandler.RecordMirrorStatus)
 			}
 			if gitHubImportHandler != nil {
-				r.With(middleware.RequireAuth, middleware.RequireScope(middleware.ScopeWriteRepository)).Post("/github/import", gitHubImportHandler.StartImport)
-				r.With(middleware.RequireAuth, middleware.RequireScope(middleware.ScopeWriteRepository)).Post("/github/import/{id}/retry", gitHubImportHandler.RetryImportJob)
-				r.With(middleware.RequireAuth, middleware.RequireScope(middleware.ScopeWriteRepository)).Post("/repos/from-template", gitHubImportHandler.StartTemplateImport)
+				r.With(gateMachines, middleware.RequireAuth, middleware.RequireScope(middleware.ScopeWriteRepository)).Post("/github/import", gitHubImportHandler.StartImport)
+				r.With(gateMachines, middleware.RequireAuth, middleware.RequireScope(middleware.ScopeWriteRepository)).Post("/github/import/{id}/retry", gitHubImportHandler.RetryImportJob)
+				r.With(gateMachines, middleware.RequireAuth, middleware.RequireScope(middleware.ScopeWriteRepository)).Post("/repos/from-template", gitHubImportHandler.StartTemplateImport)
 			}
 			// Ticket 0135: cross-repo workspace listing + readable-repos discovery
 			// for the recent-first switcher. Both behind ScopeReadRepository so
 			// the same token that drives repo-scoped reads populates the switcher.
-			r.With(middleware.RequireAuth, middleware.RequireScope(middleware.ScopeReadRepository), gateWorkspaces).Get("/user/workspaces", workspaceHandler.GetUserWorkspaces)
-			r.With(middleware.RequireAuth, middleware.RequireScope(middleware.ScopeReadRepository), gateWorkspaces).Get("/user/readable-repos", userHandler.GetAuthenticatedUserReadableRepos)
+			r.With(middleware.RequireAuth, middleware.RequireScope(middleware.ScopeReadRepository), gateMachines, gateWorkspaces).Get("/user/workspaces", workspaceHandler.GetUserWorkspaces)
+			r.With(middleware.RequireAuth, middleware.RequireScope(middleware.ScopeReadRepository), gateMachines, gateWorkspaces).Get("/user/readable-repos", userHandler.GetAuthenticatedUserReadableRepos)
 			r.With(middleware.RequireAuth, middleware.RequireScope(middleware.ScopeReadUser)).Get("/user/orgs", userHandler.GetAuthenticatedUserOrgs)
 
 			// Bring-your-own subscriptions (RFD-003), self-host only behind
@@ -1922,4 +1930,38 @@ func withAdminAuditActor(next http.HandlerFunc) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		next(w, r.WithContext(routes.AdminUserAuditContext(r)))
 	})
+}
+
+// gateMachines marks routes whose handlers require execution. The preview
+// preflight below refuses them before auth, quotas or any other side effect.
+func gateMachines(next http.Handler) http.Handler { return next }
+
+func machineRoutes(router chi.Routes) *chi.Mux {
+	refusals := chi.NewRouter()
+	marker := reflect.ValueOf(gateMachines).Pointer()
+	_ = chi.Walk(router, func(method, route string, handler http.Handler, middlewares ...func(http.Handler) http.Handler) error {
+		for _, gate := range middlewares {
+			if reflect.ValueOf(gate).Pointer() == marker {
+				refusals.Method(method, route, http.HandlerFunc(writeMachinesDisabled))
+				break
+			}
+		}
+		return nil
+	})
+	return refusals
+}
+
+func withMachinesDisabled(router chi.Routes, next http.Handler) http.Handler {
+	refusals := machineRoutes(router)
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if refusals.Match(chi.NewRouteContext(), r.Method, r.URL.Path) {
+			refusals.ServeHTTP(w, r)
+			return
+		}
+		next.ServeHTTP(w, r)
+	})
+}
+
+func writeMachinesDisabled(w http.ResponseWriter, _ *http.Request) {
+	apierrors.WriteError(w, workspace.MachinesDisabled())
 }

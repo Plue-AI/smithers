@@ -9,6 +9,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/smithersai/smithers/packages/backend/flowhost"
 	"github.com/smithersai/smithers/packages/backend/flowruntime"
@@ -285,5 +286,25 @@ func TestMicroVMIsolationRefusesWrongVersion(t *testing.T) {
 	_, err := openExecutionRuntimes(context.Background(), t.TempDir(), guestBundle(t), false)
 	if !errors.Is(err, microsandbox.ErrUnavailable) || !strings.Contains(err.Error(), "qualified with msb 0.6.16") {
 		t.Fatalf("version refusal = %v", err)
+	}
+}
+
+func TestInstallIsolationRejectsOff(t *testing.T) {
+	if workspaceapi.PreviewBuild {
+		t.Skip("install build guard")
+	}
+	t.Setenv("SMITHERS_WORKSPACE_ISOLATION", "off")
+	_, err := workspaceIsolation(false)
+	if err == nil || !strings.Contains(err.Error(), `must be "microvm"; process isolation is tests-only`) {
+		t.Fatalf("off accepted: %v", err)
+	}
+}
+
+func TestInstallRetainsShutdownBudgets(t *testing.T) {
+	if workspaceapi.PreviewBuild {
+		t.Skip("install build only")
+	}
+	if nativeStopBudget() != 0 || localShutdownBudget() != 15*time.Second {
+		t.Fatal("install shutdown changed")
 	}
 }

@@ -35,7 +35,7 @@ export const PLUE_FAILURE_SCHEMA_VERSION = 1
  * @since 1.0.0
  * @category constants
  */
-export const PLUE_FAILURE_DIGEST = "sha256:0da5169ab290e4dcc7bf2ff50d935c6b967d57d713e83e0848254624304bc8fa"
+export const PLUE_FAILURE_DIGEST = "sha256:ecf993eea3a26ec2eaf153f4c399e02a09bd3450281ccc41ef4fa5b1c6435c0e"
 
 /**
  * Whose problem a failure is — the registry's verdict, and the only question the app
@@ -132,6 +132,7 @@ export const PLUE_FAILURE_CODES = [
   "landing_stack_in_flight",
   "language_server_missing",
   "listing_secret_detected",
+  "machines_disabled",
   "no_capacity",
   "non_replayable_operation",
   "not_found",
@@ -139,6 +140,7 @@ export const PLUE_FAILURE_CODES = [
   "operation_in_progress",
   "org_membership_required",
   "out_of_credit",
+  "owner_unverified",
   "peer_identity_denied",
   "plan_limit_exceeded",
   "preview_unavailable",
@@ -358,6 +360,8 @@ export const PLUE_FAILURES = {
   "language_server_missing": { fault: "user", status: 409, retryAfter: 0 },
   /** The share listing contains something that scans as a credential; it was not published. */
   "listing_secret_detected": { fault: "user", status: 400, retryAfter: 0 },
+  /** Machines are off in this preview. Retrying does not help in this build. */
+  "machines_disabled": { fault: "infra", status: 503, retryAfter: 0 },
   /** No worker in the pool has free CPU, memory or VM slots for the box, at placement or at resume. The box and its disk are untouched. */
   "no_capacity": { fault: "infra", status: 503, retryAfter: 30 },
   /** The recorded operation for this idempotency key cannot be replayed. */
@@ -372,6 +376,8 @@ export const PLUE_FAILURES = {
   "org_membership_required": { fault: "user", status: 403, retryAfter: 0 },
   /** The account's credit balance cannot cover the next model call; upgrade or top up, then retry. */
   "out_of_credit": { fault: "user", status: 402, retryAfter: 0 },
+  /** Owner repository access has not been verified. */
+  "owner_unverified": { fault: "user", status: 403, retryAfter: 0 },
   /** The calling peer's mTLS identity is not one this worker accepts. */
   "peer_identity_denied": { fault: "user", status: 403, retryAfter: 0 },
   /** The user has exhausted a limit included in their plan. */

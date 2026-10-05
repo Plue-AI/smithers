@@ -233,7 +233,7 @@ func TestRealFailedUpgradeRecoveryPostgreSQL(t *testing.T) {
 		t.Fatal(err)
 	}
 	command("pg_restore", "--dbname="+target.ConnectionString, "--exit-on-error", "--single-transaction", "--no-owner", "--no-privileges", filepath.Join(backup, "postgres.dump"))
-	cmd = exec.Command("tar", "-C", restored, "-xf", filepath.Join(backup, "files.tar"))
+	cmd = exec.Command("tar", "-C", restored, "-xpf", filepath.Join(backup, "files.tar"))
 	if out, err := cmd.CombinedOutput(); err != nil {
 		t.Fatalf("tar: %v %s", err, out)
 	}
