@@ -8,7 +8,7 @@ import { dirname, join } from "node:path"
 import { test } from "node:test"
 import { failedCheckFinding } from "../coding/checks.ts"
 import { observeRound, ownerRepair, repairContext, roundSignals, SelectRepair } from "../coding/correction.ts"
-import { outputTailBytes, redactTail, runSourceProcess } from "../coding/immutable-source.ts"
+import { outputTailBytes, redactTail, runSourceProcess, withImmutableCommit } from "../coding/immutable-source.ts"
 import { type Finding, type Plan, Result, type Revision } from "../coding/schema.ts"
 
 /*
@@ -235,4 +235,44 @@ test("the same failing check twice still stalls when only its output's timing mo
   assert.equal(outcomes[0]!.stalled, null)
   assert.equal(outcomes[1]!.stalled?.signal, "checks")
   assert.equal(outcomes[1]!.blocked?.message, "Correction stalled: the same checks for 2 rounds")
+})
+
+test("immutable export failures retain only the redacted stderr tail", async (t) => {
+  const root = await mkdtemp(join(tmpdir(), "coding-export-error-"))
+  t.after(() => rm(root, { recursive: true, force: true }))
+  const exporter = join(root, "exporter")
+  await writeFile(
+    exporter,
+    `#!/bin/sh
+"${process.execPath}" -e 'process.stderr.write("noise".repeat(40000)+process.env.EXPORT_TOKEN+" final diagnostic");process.exitCode=1'
+`,
+    { mode: 0o700 }
+  )
+  for (let attempt = 0; attempt < 2; attempt++) {
+    await assert.rejects(
+      Effect.runPromise(
+        Effect.gen(function*() {
+          const fs = yield* FileSystem.FileSystem
+          return yield* withImmutableCommit(
+            {
+              repositoryPath: root,
+              fs,
+              exporterPath: exporter,
+              environment: { EXPORT_TOKEN: "private_export_secret" }
+            },
+            "a".repeat(40),
+            () => Effect.die("must not accept failed export")
+          )
+        }).pipe(Effect.provide(NodeServices.layer))
+      ),
+      (error: unknown) => {
+        const message = String(error)
+        assert.match(message, /Native immutable tree export failed/)
+        assert.match(message, /\[redacted\] final diagnostic/)
+        assert.ok(!message.includes("private_export_secret"))
+        assert.ok(message.length < outputTailBytes + 1000)
+        return true
+      }
+    )
+  }
 })

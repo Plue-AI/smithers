@@ -222,7 +222,11 @@ const exportTree = <A, E, R>(
       60_000
     )
     if (exported.exitCode !== 0 || exported.stdout.truncated) {
-      return yield* invalid("Native immutable tree export failed; no check receipt was accepted")
+      return yield* invalid(
+        `Native immutable tree export failed; no check receipt was accepted${
+          exported.stderr.tail.text ? `\n${exported.stderr.tail.text}` : ""
+        }`
+      )
     }
     const tree = yield* Effect.try({
       try: () => JSON.parse(exported.stdout.text) as unknown,
