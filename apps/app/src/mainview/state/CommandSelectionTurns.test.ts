@@ -12,6 +12,8 @@ import { createAppStore } from "./AppStore"
 import type { CommandSelectRequest, CommandSelector, SelectedCommand } from "./CommandSelection"
 import { CommandSelectError } from "./CommandSelection"
 import { memoryStorage, settled } from "./TestFixtures"
+import { installFixture } from "./seams/InstallFixtures.test-support"
+import type { AppBootstrap } from "@smthrs/rpc/AppBootstrap"
 
 const createAppController = scopedControllers()
 
@@ -236,4 +238,25 @@ describe("the web turn path (HTTP journal)", () => {
     await until(() => store.session().phase === "idle")
     expect(remote.starts).toHaveLength(1)
   })
+
+  // The no-GitHub walk's question (C-J1-03): on an install the browser's repository inventory is empty, so its own
+  // files.read refused; the host reads main's mirror for a turn that offers no tools (model-host HostTools.ts).
+  for (const install of [false, true]) {
+    test(`install=${install}: ${install ? "the host runs the tools: no selection, no browser tools" : "the browser selects and offers its commands"}`, async () => {
+      const store = await createAppStore({ kind: "localStorage", storage: memoryStorage() })
+      const { selector, asked } = fakeSelector(() => [{ name: "theme", probability: 0.99 }])
+      const remote = journalAgent()
+      const bootstrap: AppBootstrap = { apiVersion: 1, host: "local", version: "test", buildSha: "test", capabilities: install ? ["install"] : [], authFlow: "none", sandbox: null }
+      const controller = createAppController(store, remote.agent, {
+        commandSelector: selector, bootstrap,
+        fetchImpl: async input => String(input).endsWith("/api/install") ? Response.json(installFixture()) : new Response("", { status: 404 })
+      })
+      controller.send("What is in README.md? Show the file.")
+      await until(() => remote.starts.length === 1)
+      expect(asked).toHaveLength(install ? 0 : 1)
+      expect(userMessage(store)?.disclosed).toEqual(install ? undefined : ["theme"])
+      expect(remote.starts[0]!.tools?.map(tool => tool.name)).toEqual(install ? undefined : ["commands"])
+      expect(remote.starts[0]!.messages.at(-1)).toEqual({ role: "user", content: "What is in README.md? Show the file." })
+    })
+  }
 })

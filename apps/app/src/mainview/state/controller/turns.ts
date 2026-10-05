@@ -5,7 +5,7 @@ import { lostActRefusal } from "../BrowserWriteFailure"
 import type { AgentRuntimeContext } from "@smthrs/rpc/AgentContext"
 import { AGENT_RUNTIME_CONTEXT_VERSION } from "@smthrs/rpc/AgentContext"
 import { hasCapability } from "@smthrs/rpc/AppBootstrap"
-import type { AgentChatMessage,AgentTurnFrame,TurnRefusal } from "@smthrs/rpc/NativeAgent"
+import type { AgentChatMessage,AgentToolSpec,AgentTurnFrame,TurnRefusal } from "@smthrs/rpc/NativeAgent"
 import { clientRefusal } from "@smthrs/rpc/Refusal"
 import { agentRefusalText } from "@smthrs/rpc/RefusalCopy"
 import type { CommandOutcome } from "../../flows/Commands"
@@ -382,14 +382,23 @@ export const createTurnController = (
   }
 
   /*
-   * One leg's instructions and hidden context, both derived fresh. No byte
-   * budget: the 16 KiB instructions cap this once fitted is gone (the backend
-   * turn route takes 1 MiB), and the catalog no longer rides the prompt whole
-   * (CommandSelection.ts), so nothing here degrades.
+   * On an install the host runs the app agent's tools (T-APP-16, first
+   * slice): a turn carries none of the browser's, so the host offers its own
+   * `commands` and reads main's mirror as the turn's author
+   * (model-host HostTools.ts). The browser's repository inventory is empty
+   * there, so its own files.read could only refuse.
    */
-  const composeTurn = (): { readonly context: AgentRuntimeContext; readonly instructions: string } => {
+  const hostRunsTools = (): boolean => ctx.services.bootstrap !== undefined && hasCapability(ctx.services.bootstrap, "install")
+
+  /*
+   * One leg's instructions, hidden context and tools, all derived fresh. No
+   * byte budget: the 16 KiB instructions cap this once fitted is gone (the
+   * backend turn route takes 1 MiB), and the catalog no longer rides the
+   * prompt whole (CommandSelection.ts), so nothing here degrades.
+   */
+  const composeTurn = (): { readonly context: AgentRuntimeContext; readonly instructions: string; readonly tools?: ReadonlyArray<AgentToolSpec> } => {
     const context = agentRuntimeContext()
-    return { context, instructions: turnInstructions() }
+    return { context, instructions: turnInstructions(), ...(hostRunsTools() ? {} : { tools: ctx.commands.toolSpecs() }) }
   }
 
   /*
@@ -398,7 +407,8 @@ export const createTurnController = (
    * commands this message needs, and the names land on that message before
    * any model leg is posted. A message that already carries a selection (a
    * retry, a recovered turn) reuses it. A failed selection is the turn's
-   * failure, retryable, never a fallback.
+   * failure, retryable, never a fallback. A turn whose tools the host runs
+   * offers none of the browser's commands, so there is nothing to select.
    */
   /** Only names this request offered, in the selector's order: a selector never widens the set. */
   const offeredNames = (selected: ReadonlyArray<{ readonly name: string }>, offered: ReadonlyArray<{ readonly name: string }>): ReadonlyArray<string> => {
@@ -410,7 +420,7 @@ export const createTurnController = (
     const selector = ctx.services.commandSelector
     const messageId = `message-${turnId}-user`
     const message = store.collections.messages.get(messageId)
-    if (selector === undefined || message === undefined || message.disclosed !== undefined) return { ok: true }
+    if (selector === undefined || hostRunsTools() || message === undefined || message.disclosed !== undefined) return { ok: true }
     const snapshot = store.agentContextSnapshot().messages
     const index = snapshot.findIndex(row => row.id === messageId)
     const catalog = agentVisibleCatalog(ctx.commands.callable())
@@ -505,17 +515,7 @@ export const createTurnController = (
      * every later turn failed the same way, and /clear could not recover it
      * because /clear runs a model turn of its own into the same wall.
      */
-    const { context, instructions } = composeTurn()
-    const { request } = boundTurnRequest(
-      {
-        runId: turnId,
-        messages,
-        instructions,
-        tools: ctx.commands.toolSpecs(),
-        context
-      },
-      keepTail
-    )
+    const { request } = boundTurnRequest({ runId: turnId, messages, ...composeTurn() }, keepTail)
     const cancellation = pendingCancellations.get(turnId)
     const started = cancellation === undefined
       ? agent.startTurn(request)

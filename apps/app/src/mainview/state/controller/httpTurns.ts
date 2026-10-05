@@ -14,7 +14,7 @@ interface Dependencies {
   readonly ownTurn: (turn: ActiveTurn) => ActiveTurn
   readonly isCurrentTurn: (turn: ActiveTurn) => boolean
   readonly contextMessages: () => ReadonlyArray<AgentChatMessage>
-  readonly composeTurn: () => Pick<StartAgentTurnRequest, "context" | "instructions">
+  readonly composeTurn: () => Pick<StartAgentTurnRequest, "context" | "instructions" | "tools">
   /** Command selection for the turn's message, before its first leg (CommandSelection.ts). */
   readonly select: (turnId: string) => Promise<{ readonly ok: true } | { readonly ok: false; readonly message: string }>
   readonly discover: AgentCommandDiscovery
@@ -96,7 +96,7 @@ export const createHttpTurnDriver = (ctx: ControllerContext, dependencies: Depen
     if (!active(attemptId)) return
     const items = httpToolItems(store.collections.httpTurnLegs.values(), turn.id)
     const { request } = boundTurnRequest({ runId: turn.turnId, conversationId: store.session().activeBranchId ?? "branch-main", ...dependencies.composeTurn(), messages: [...dependencies.contextMessages(), ...items],
-      tools: ctx.commands.toolSpecs(), journal: leg.journal }, items.length + 1)
+      journal: leg.journal }, items.length + 1)
     schedule(attemptId)
     try {
       const result = await agent.startTurn(request)
