@@ -35,10 +35,6 @@ import { WIKI_ATTACH_USER_ONLY_REASON, WIKI_HEADING_USER_ONLY_REASON } from "@sm
 const USER_ONLY_ALLOWLIST: Readonly<Record<string, string>> = {
   "notifications.allow": "browser permission requires the person’s in-card gesture",
   "storage.recovery.export": STORAGE_RECOVERY_USER_ONLY_REASON,
-  "members": "Only a person can do this",
-  "members.add": "Only a person can do this",
-  "members.role": "Only a person can do this",
-  "members.remove": "Only a person can do this",
   "storage.recovery.reset": STORAGE_RESET_USER_ONLY_REASON,
   "chat.queue": "the prompt queue is the human's composer",
   "chat.queue.edit": "the prompt queue is the human's composer",
@@ -378,4 +374,11 @@ test("versioned flow doors register on the design seam; a person's flow.edit dra
   expect([...store.collections.cards.values()].some(card => card.kind === "draft")).toBe(true)
   await execute(controller, "flow.edit", "todo Add lint")
   expect(confirmationFor(store, "flow.edit")).toBeDefined()
+})
+
+test("Members has no slash, button or agent command while its production providers are unavailable", async () => {
+  const { controller } = await boot()
+  try {
+    for (const name of ["members", "members.add", "members.role", "members.remove"]) expect(controller.commands.find(name)).toBeUndefined()
+  } finally { controller.dispose() }
 })
