@@ -74,10 +74,11 @@ export const main = async (host: Host): Promise<void> => {
       mcp
     })
     const cli = makeCli({
+      verifiedGreenBase: host.env.SMITHERS_VERIFIED_GREEN_BASE,
       cacheUrl,
       cacheToken,
       signal: controller.signal,
-      environment: host.env,
+      environment: { ...host.env },
       stdout: host.stdout,
       stderr: host.stderr,
       presentation,

@@ -37,7 +37,8 @@ for (const line of history.split('\n')) {
 }
 JS
 start=$SECONDS
-docker run -d --name "$container" -e PORT=8080 --memory 4g --cpus 2 --cap-drop ALL -p 4100:8080 "$image" >/dev/null
+docker run -d --name "$container" -e PORT=8080 --memory 4g --cpus 2 --cap-drop ALL -p 127.0.0.1:4100:8080 "$image" >/dev/null
+test "$(docker inspect --format '{{(index (index .NetworkSettings.Ports "8080/tcp") 0).HostIp}}' "$container")" = 127.0.0.1
 until curl --connect-timeout 1 --max-time 2 --fail --silent http://127.0.0.1:4100/readyz >/dev/null; do
   if (( SECONDS - start >= 120 )); then echo 'readiness timeout' >&2; exit 1; fi
   sleep 1

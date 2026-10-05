@@ -13,6 +13,7 @@ import { executionPresentation } from "../fixtures/presentation.ts"
 
 export interface ServeOptions {
   /** The hermetic environment `RuntimeConfig.environment` receives; `process.env` when omitted. */
+  readonly baseTransport?: typeof fetch | undefined
   readonly environment?: Readonly<Record<string, string | undefined>> | undefined
   /** The audience policy; the plain, structured {@link executionPresentation} when omitted. */
   readonly presentation?: Audience.Policy | undefined
@@ -54,6 +55,7 @@ export const serve = async (
   await makeCli({
     presentation: options.presentation ?? executionPresentation,
     environment: options.environment,
+    baseTransport: options.baseTransport,
     signal: options.signal,
     approvals: options.approvals,
     stdout: terminal((text) => {

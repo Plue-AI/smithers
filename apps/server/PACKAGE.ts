@@ -143,6 +143,11 @@ const securityReview = Smithers.SecurityReview({
 })
 
 /** Explicit, uncached publication through the guarded deploy script. */
+const deployRunMetadata: Record<string, string> = process.env.GITHUB_SERVER_URL === "https://github.com" &&
+  /^[1-9][0-9]{0,19}$/.test(process.env.GITHUB_RUN_ID ?? "")
+  ? { GITHUB_SERVER_URL: "https://github.com", GITHUB_RUN_ID: process.env.GITHUB_RUN_ID! }
+  : {}
+
 const deploy = Smithers.Shell.Run({
   shell: "cd apps/server && bun scripts/deploy.ts",
   manual: true,
@@ -151,7 +156,8 @@ const deploy = Smithers.Shell.Run({
   env: {
     CLOUDFLARE_API_BASE_URL: `${Smithers.SecretOrigin("https://api.cloudflare.com")}/client/v4`,
     GITHUB_API_URL: Smithers.SecretOrigin("https://api.github.com"),
-    GITHUB_REPOSITORY: "smithersai/smithers"
+    GITHUB_REPOSITORY: "smithersai/smithers",
+    ...deployRunMetadata
   },
   secrets: [
     Smithers.HttpSecret(Smithers.Secret("CLOUDFLARE_API_TOKEN"), ["https://api.cloudflare.com"]),

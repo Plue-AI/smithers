@@ -29,8 +29,14 @@ disabled. A current tagged digest without traffic is reused until expiry.
 
 The anonymous HTTP probe follows no redirects and must receive 401 or 403.
 Failure removes the tag and deletes the preview revision. Expiry cleanup
-removes tags before deleting only revisions with both Smithers labels and no
-traffic. Unlabeled revisions remain untouched. Successful runs write a
+removes tags before deleting only expired revisions with `smthrs-expires`,
+`smthrs-commit`, matching `smthrs-owner`, and no traffic. The owner is the first
+40 hex characters of SHA-256 over `[repository origin, target label, image
+namespace]` serialized as JSON. Reuse also requires that owner; foreign and
+legacy revisions remain untouched. A UUID `smthrs-deployment` identifies each
+mutation. Failed or cancelled deploy/discovery results reconcile the owner and
+UUID and clean up with an independent 30-second signal, preserving the original
+error if cleanup fails. Successful runs write a
 version-1 receipt in the package's `cloud-run-preview/<target>.json` and print
 the proxy command and local URL. Subprocess output stays private; failures
 report command/status without echoing credentials. See the

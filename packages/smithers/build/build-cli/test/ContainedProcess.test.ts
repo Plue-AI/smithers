@@ -1,5 +1,7 @@
+import { Effect, Stream } from "effect"
 import { describe, expect, it } from "vitest"
 import * as ContainedProcess from "../src/internal/ContainedProcess.ts"
+import { fixture, until } from "./helpers/ContainedCommand.ts"
 
 describe("contained process capture", () => {
   it.each([7, 8, 9])("enforces the output ceiling in bytes at %s bytes", async (size) => {
@@ -90,5 +92,82 @@ describe("contained process capture", () => {
         stderr: () => {}
       })
     ).toBe(5)
+  })
+})
+
+describe.skipIf(process.platform === "win32")("contained protocol input", () => {
+  it("propagates input failure after joining the leader and resistant descendant", async () => {
+    const child = await fixture({ natural: false, inheritedOutput: false })
+    const failure = new Error("protocol reader failed")
+    try {
+      const input = Stream.fromEffect(
+        Effect.promise(async () => {
+          await child.ready()
+          const descendant = (await child.beat())!
+          expect(child.stopped(descendant)).toBe(false)
+        }).pipe(Effect.andThen(Effect.fail(failure)))
+      )
+      await expect(ContainedProcess.run({
+        command: child.argv[0],
+        args: child.argv.slice(1),
+        cwd: child.directory,
+        input,
+        timeoutMs: 15_000,
+        stdout: () => {},
+        stderr: () => {}
+      })).rejects.toMatchObject({ code: "process_failed", cause: failure })
+      const leader = await child.leader()
+      const descendant = await child.beat()
+      expect(leader).toBeDefined()
+      expect(descendant).toBeDefined()
+      expect(child.stopped(leader!)).toBe(true)
+      expect(child.stopped(descendant!)).toBe(true)
+    } finally {
+      await child.dispose()
+    }
+  })
+
+  it("cancels and joins an open input reader when the process exits", async () => {
+    const child = await fixture({ natural: false, inheritedOutput: false })
+    let readerStarted = false, readerReleased = false
+    const controller = new AbortController()
+    try {
+      const input = Stream.fromEffect(
+        Effect.sync(() => {
+          readerStarted = true
+        }).pipe(
+          Effect.andThen(Effect.never),
+          Effect.ensuring(Effect.sync(() => {
+            readerReleased = true
+          }))
+        )
+      )
+      const pending = ContainedProcess.run({
+        command: child.argv[0],
+        args: child.argv.slice(1),
+        cwd: child.directory,
+        input,
+        signal: controller.signal,
+        timeoutMs: 15_000,
+        stdout: () => {},
+        stderr: () => {}
+      })
+      const completed = expect(pending).resolves.toBe(0)
+      await child.ready()
+      await until(async () => readerStarted)
+      expect(readerReleased).toBe(false)
+      const leader = (await child.leader())!
+      const descendant = (await child.beat())!
+      expect(child.stopped(leader)).toBe(false)
+      expect(child.stopped(descendant)).toBe(false)
+      await child.exit()
+      await completed
+      expect(readerReleased).toBe(true)
+      expect(child.stopped(leader)).toBe(true)
+      expect(child.stopped(descendant)).toBe(true)
+    } finally {
+      controller.abort()
+      await child.dispose()
+    }
   })
 })

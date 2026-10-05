@@ -39,6 +39,8 @@ it("selects MCP only from option roles through real CLI, HTTP and stdin lifetime
         XDG_DATA_HOME: root,
         SMITHERS_API_ORIGIN: `http://127.0.0.1:${address.port}`,
         SMITHERS_TOKEN: "synthetic-mcp-role",
+        GITHUB_TOKEN: "synthetic-mcp-broker-github",
+        CLOUDFLARE_API_TOKEN: "synthetic-mcp-broker-cloudflare",
         SMITHERS_DISABLE_SYSTEM_KEYRING: "1",
         GIT_TRACE2_EVENT: join(root, "git-trace.jsonl")
       }
@@ -64,6 +66,8 @@ it("selects MCP only from option roles through real CLI, HTTP and stdin lifetime
         child.once("error", reject)
         child.once("close", resolve)
       })
+      expect(stdout + stderr).not.toContain("synthetic-mcp-broker-github")
+      expect(stdout + stderr).not.toContain("synthetic-mcp-broker-cloudflare")
       const result = { code, stdout, stderr, handshook }
       // These logs retain real process/HTTP evidence independently of assertions.
       console.log(JSON.stringify({ args, ...result, requests: requests.slice() }))

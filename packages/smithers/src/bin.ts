@@ -6,7 +6,9 @@
 
 import * as Audience from "@smthrs/build-cli/Audience"
 import { installEffectResolution } from "@smthrs/build-cli/effect-resolution"
+import { isolateProcess } from "@smthrs/build-cli/Entry"
 import * as Redaction from "@smthrs/journal/Redaction"
+import { normalizeArguments, targetCommands } from "./cli/Arguments.ts"
 import * as Argv from "./cli/Argv.ts"
 import { agentArguments, formattedLogArguments, legacyArguments } from "./cli/Compatibility.ts"
 import * as Failure from "./internal/Failure.ts"
@@ -15,6 +17,17 @@ const start = async (): Promise<void> => {
   installEffectResolution({ "@smthrs/agent": import.meta.url })
   const original = process.argv.slice(2)
   const parsed = Argv.parse(original)
+  const normalized = normalizeArguments(original)
+  if (process.env.GITHUB_TOKEN || process.env.GH_TOKEN || process.env.CLOUDFLARE_API_TOKEN) {
+    // Use the command's option roles: a --mcp value is ordinary input.
+    const { makeCli } = await import("./Cli.ts")
+    const roles = Argv.parse(normalized, makeCli())
+    if (
+      (roles.mcp || targetCommands.has(normalized[0] ?? "") ||
+        normalized[0] === "generate" && ["ci", "package"].includes(normalized[1] ?? "")) &&
+      await isolateProcess(undefined, roles.mcp)
+    ) return
+  }
   let agentAlias = formattedLogArguments(parsed)
   try {
     agentAlias ??= Audience.fromArguments(original).audience === "agent" ? agentArguments(parsed) : undefined

@@ -4,11 +4,12 @@ import { Journal } from "@smthrs/flows"
 import { Node } from "@smthrs/plan"
 import { Effect, Schema } from "effect"
 import { TaggedError } from "effect/Schema"
-import { execFileSync, spawn } from "node:child_process"
+import { execFileSync } from "node:child_process"
 import { existsSync, readFileSync } from "node:fs"
 import { mkdtemp, readFile, rm } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { join, resolve } from "node:path"
+import * as ContainedProcess from "../../packages/smithers/build/build-cli/src/internal/ContainedProcess.ts"
 
 export class PreviewFailed extends TaggedError<PreviewFailed>()("preview/Failed", {
   code: Schema.Literals([
@@ -120,22 +121,22 @@ const diagnostic = (text: string) =>
     text.split(/\r?\n/).find((line) => /error|failed|tool_missing|public_access_off/i.test(line)) ??
       text.split(/\r?\n/).find((line) => line.trim()) ?? "Preview failed"
   ))
-const launch = (label: string, results: string, signal: AbortSignal) =>
-  new Promise<{ status: number; stderr: string }>((done, reject) => {
-    const child = spawn("pnpm", ["exec", "smthrs", "run", label, "--results-file", results], {
-      stdio: ["ignore", "pipe", "pipe"],
-      signal
-    })
+const launch = (label: string, results: string) =>
+  Effect.suspend(() => {
     let stderr = ""
     let stdout = ""
-    child.stdout.setEncoding("utf8").on("data", (chunk) => {
-      stdout += chunk
-    })
-    child.stderr.setEncoding("utf8").on("data", (chunk) => {
-      stderr += chunk
-    })
-    child.once("error", reject)
-    child.once("close", (status) => done({ status: status ?? 1, stderr: stderr + "\n" + stdout }))
+    return ContainedProcess.runEffect({
+      command: "pnpm",
+      args: ["exec", "smthrs", "run", label, "--results-file", results],
+      cwd: process.cwd(),
+      maxOutputBytes: 1024 * 1024,
+      stdout: (chunk) => {
+        stdout += chunk
+      },
+      stderr: (chunk) => {
+        stderr += chunk
+      }
+    }).pipe(Effect.map((status) => ({ status, stderr: stderr + "\n" + stdout })))
   })
 export const validateReceipt = async (file: string, label: string, commit: string) => {
   const raw = JSON.parse(await readFile(file, "utf8"))
@@ -148,8 +149,13 @@ export const validateReceipt = async (file: string, label: string, commit: strin
   }
   const output = Schema.decodeUnknownSync(Success)(raw)
   if (
-    !/^http:\/\/(?:preview\.localhost|localhost|127\.0\.0\.1):\d+\/?$/.test(output.open.localUrl) ||
-    !/^gcloud run services proxy [\w .:/=-]+$/.test(output.open.command) ||
+    output.open.localUrl !== "http://preview.localhost:4100" ||
+    ![raw.service, raw.region, raw.project].every((value) =>
+      typeof value === "string" && /^[a-zA-Z0-9][a-zA-Z0-9-]*$/.test(value)
+    ) ||
+    raw.tag !== `r-${commit.slice(0, 7)}` ||
+    output.open.command !==
+      `gcloud run services proxy ${raw.service} --tag ${raw.tag} --region ${raw.region} --project ${raw.project} --port 4100` ||
     diagnostic(JSON.stringify(output)) !== JSON.stringify(output)
   ) {
     throw fail("deploy_failed", "Invalid preview opener")
@@ -157,61 +163,70 @@ export const validateReceipt = async (file: string, label: string, commit: strin
   return output
 }
 export const layer = Deploy.toLayer((input) =>
-  Effect.tryPromise({
-    try: async (signal) => {
-      const row = target()
-      const commit = head()
-      if (input.revision !== undefined && input.revision !== commit) {
-        throw fail("revision_not_checked_out", "Revision is not checked out")
-      }
-      if (input.branch !== undefined) {
-        let branch: string
-        try {
-          branch = execFileSync("git", ["branch", "--show-current"], {
-            encoding: "utf8",
-            stdio: ["ignore", "pipe", "ignore"]
-          }).trim()
-        } catch {
-          throw fail("revision_not_checked_out", "Branch is not checked out")
-        }
-        if (branch !== input.branch) {
-          throw fail("revision_not_checked_out", "Branch is not checked out")
-        }
-      }
-      const file = join(row.package, "cloud-run-preview", `${row.name}.json`)
+  Effect.gen(function*() {
+    const row = yield* Effect.try({ try: target, catch: (error) => error })
+    const commit = yield* Effect.try({ try: head, catch: (error) => error })
+    if (input.revision !== undefined && input.revision !== commit) {
+      return yield* Effect.fail(fail("revision_not_checked_out", "Revision is not checked out"))
+    }
+    if (input.branch !== undefined) {
+      let branch: string
       try {
-        return await validateReceipt(file, row.label, commit)
-      } catch { /* Only a current private receipt can replay. */ }
-      const directory = await mkdtemp(join(tmpdir(), "smthrs-preview-"))
-      try {
-        const results = join(directory, "results.json")
-        const result = await launch(row.label, results, signal).catch(() => {
-          throw fail("builder_unavailable", "Package manager unavailable", "build", true)
-        })
-        if (result.status !== 0) {
-          let step: PreviewFailed["step"] = "deploy"
-          try {
-            const rows = JSON.parse(await readFile(results, "utf8")).results as Array<{ label: string; status: string }>
-            if (rows.some((r) => r.status === "failed" && r.label !== row.label)) step = "build"
-          } catch { /* A launch refusal may precede results-file creation. */ }
-          const message = diagnostic(result.stderr)
-          if (/tool_missing|docker.*(?:not found|unavailable)|command not found/i.test(result.stderr)) {
-            throw fail("builder_unavailable", message, "build", true)
-          }
-          if (
-            /gcloud.*(?:auth|login|active account)|(?:credentials|authentication).*\b(?:missing|invalid|required)|reauthentication/i
-              .test(result.stderr)
-          ) {
-            throw fail("credentials_missing", message)
-          }
-          if (/public_access_off|public_surface/.test(result.stderr)) throw fail("public_access_off", message)
-          throw fail(step === "build" ? "build_failed" : "deploy_failed", message, step, true)
-        }
-        return await validateReceipt(file, row.label, commit)
-      } finally {
-        await rm(directory, { recursive: true, force: true })
+        branch = execFileSync("git", ["branch", "--show-current"], {
+          encoding: "utf8",
+          stdio: ["ignore", "pipe", "ignore"]
+        }).trim()
+      } catch {
+        return yield* Effect.fail(fail("revision_not_checked_out", "Branch is not checked out"))
       }
-    },
-    catch: (error) =>
+      if (branch !== input.branch) {
+        return yield* Effect.fail(fail("revision_not_checked_out", "Branch is not checked out"))
+      }
+    }
+    const file = join(row.package, "cloud-run-preview", `${row.name}.json`)
+    const replay = yield* Effect.promise(() => validateReceipt(file, row.label, commit).catch(() => undefined))
+    if (replay !== undefined) return replay
+    return yield* Effect.acquireUseRelease(
+      Effect.promise(() => mkdtemp(join(tmpdir(), "smthrs-preview-"))),
+      (directory) =>
+        Effect.gen(function*() {
+          const results = join(directory, "results.json")
+          const result = yield* launch(row.label, results).pipe(Effect.mapError((error) =>
+            error.code === "output_limit"
+              ? fail("build_failed", "Preview output limit exceeded", "build", true)
+              : fail("builder_unavailable", "Package manager unavailable", "build", true)
+          ))
+          if (result.status !== 0) {
+            let step: PreviewFailed["step"] = "deploy"
+            try {
+              const rows = JSON.parse(yield* Effect.promise(() => readFile(results, "utf8").catch(() => "{}")))
+                .results as Array<{ label: string; status: string }>
+              if (rows.some((r) => r.status === "failed" && r.label !== row.label)) step = "build"
+            } catch { /* A launch refusal may precede results-file creation. */ }
+            const message = diagnostic(result.stderr)
+            if (/tool_missing|docker.*(?:not found|unavailable)|command not found/i.test(result.stderr)) {
+              return yield* Effect.fail(fail("builder_unavailable", message, "build", true))
+            }
+            if (
+              /gcloud.*(?:auth|login|active account)|(?:credentials|authentication).*\b(?:missing|invalid|required)|reauthentication/i
+                .test(result.stderr)
+            ) {
+              return yield* Effect.fail(fail("credentials_missing", message))
+            }
+            if (/public_access_off|public_surface/.test(result.stderr)) {
+              return yield* Effect.fail(fail("public_access_off", message))
+            }
+            return yield* Effect.fail(fail(step === "build" ? "build_failed" : "deploy_failed", message, step, true))
+          }
+          return yield* Effect.tryPromise({
+            try: () => validateReceipt(file, row.label, commit),
+            catch: (error) => error
+          })
+        }),
+      (directory) => Effect.promise(() => rm(directory, { recursive: true, force: true }))
+    )
+  }).pipe(Effect.catch((error) =>
+    Effect.fail(
       error instanceof PreviewFailed ? error : fail("deploy_failed", "Cannot read preview receipt", "deploy", true)
-  }), { implementationVersion: "preview/v1" })
+    )
+  )), { implementationVersion: "preview/v1" })

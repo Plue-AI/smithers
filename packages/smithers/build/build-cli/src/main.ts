@@ -6,22 +6,24 @@
  * @since 0.1.0
  */
 
-import { main } from "./Entry.ts"
+import { isolateProcess, main } from "./Entry.ts"
 import { terminalOf } from "./Reporter.ts"
 
-await main({
-  argv: process.argv.slice(2),
-  env: process.env,
-  stdin: process.stdin,
-  stdout: terminalOf(process.stdout),
-  stderr: terminalOf(process.stderr),
-  on: (signal, listener) => {
-    process.on(signal, listener)
-  },
-  removeListener: (signal, listener) => {
-    process.removeListener(signal, listener)
-  },
-  setExitCode: (code) => {
-    process.exitCode = code
-  }
-})
+if (!await isolateProcess(undefined, process.argv.includes("--mcp"))) {
+  await main({
+    argv: process.argv.slice(2),
+    env: process.env,
+    stdin: process.stdin,
+    stdout: terminalOf(process.stdout),
+    stderr: terminalOf(process.stderr),
+    on: (signal, listener) => {
+      process.on(signal, listener)
+    },
+    removeListener: (signal, listener) => {
+      process.removeListener(signal, listener)
+    },
+    setExitCode: (code) => {
+      process.exitCode = code
+    }
+  })
+}

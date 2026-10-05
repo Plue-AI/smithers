@@ -57,6 +57,13 @@ export const Workspace = S.Workspace("deploy-boundary", {
 })
 `)
     await writeFile(join(root, "PACKAGE.ts"), `import { Smithers as S } from "@smthrs/targets"
+import { execFileSync } from "node:child_process"
+import { writeFileSync } from "node:fs"
+const probe = 'console.log(JSON.stringify({github:process.env.GITHUB_TOKEN?.startsWith("smithers-build-secret-"),cloudflare:process.env.CLOUDFLARE_API_TOKEN?.startsWith("smithers-build-secret-")}))'
+writeFileSync(${JSON.stringify(join(root, "declaration-credentials.json"))}, JSON.stringify({
+ direct: { github: process.env.GITHUB_TOKEN?.startsWith("smithers-build-secret-"), cloudflare: process.env.CLOUDFLARE_API_TOKEN?.startsWith("smithers-build-secret-") },
+ child: JSON.parse(execFileSync(process.execPath, ["-e", probe], { encoding: "utf8" }))
+}))
 export const Package = S.Package({ targets: {
   deploy: S.Shell.Run({
     shell: "cd apps/server && bun scripts/deploy.ts", manual: true, timeout: "55m",
@@ -103,7 +110,18 @@ process.exit(await wrangler.exited)
     execFileSync("git", ["init", "-q"], { cwd: root })
     execFileSync("git", ["add", "WORKSPACE.ts", "PACKAGE.ts", "package.json", "yarn.lock", "apps"], { cwd: root })
     execFileSync("git", ["-c", "user.name=fixture", "-c", "user.email=fixture@example.invalid", "commit", "-qm", "fixture"], { cwd: root })
-    const proc = Bun.spawn(["pnpm", "exec", "smthrs", "run", "//:deploy", "--workspace", root], {
+    // The test entry injects only loopback audiences; production entries pin
+    // GitHub/Cloudflare and never accept audience settings from the environment.
+    const brokerEntry = join(root, "broker-entry.mjs")
+    await writeFile(brokerEntry, `
+import { installEffectResolution, importDeclarationModule } from ${JSON.stringify(join(repository, "packages/smithers/build/build-cli/src/effect-resolution.js"))};
+installEffectResolution();
+const { isolateProcess } = await importDeclarationModule(${JSON.stringify(join(repository, "packages/smithers/build/build-cli/src/Entry.ts"))}, import.meta.url);
+if (!await isolateProcess(${JSON.stringify({ GITHUB_TOKEN: githubAudience, CLOUDFLARE_API_TOKEN: audience })})) {
+  await import(${JSON.stringify(join(repository, "packages/smithers/bin/smithers.mjs"))});
+}
+`)
+    const proc = Bun.spawn(["node", brokerEntry, "run", "//:deploy", "--workspace", root], {
       cwd: repository,
       // Do not let the fixture inherit the host's GitHub credentials.
       env: {
@@ -123,6 +141,9 @@ process.exit(await wrangler.exited)
       expect(stdout).not.toContain(token)
       expect(stderr).not.toContain(token)
       expect(code, stdout + stderr).toBe(0)
+      expect(JSON.parse(await readFile(join(root, "declaration-credentials.json"), "utf8"))).toEqual({
+        direct: { github: true, cloudflare: true }, child: { github: true, cloudflare: true }
+      })
       expect(requests).toContainEqual({ authorization: `Bearer ${token}`, path: "/client/v4/accounts" })
       expect(requests).toContainEqual({ authorization: `Bearer ${token}`, path: "/client/v4/user/tokens/verify" })
       expect(githubRequests).toEqual(Array(3).fill(`Bearer ${githubToken}`))
@@ -224,4 +245,48 @@ console.log(JSON.stringify({ cwd: node.cwd, argv: node.argv, timeoutMs: node.tim
   expect(details.secrets).toHaveLength(2)
   expect(explicit).not.toContain("unservable")
   expect(plan("//apps/server/...")).not.toContain("//apps/server:deploy")
+}, 60_000)
+
+test("the real deploy declaration forwards validated run metadata to its receipt child", async () => {
+  const root = await mkdtemp(join(tmpdir(), "deploy-run-metadata-"))
+  try {
+    await symlink(join(repository, "node_modules"), join(root, "node_modules"))
+    await mkdir(join(root, "apps/server"), { recursive: true })
+    await writeFile(join(root, "package.json"), '{"name":"deploy-metadata","private":true,"type":"module"}\n')
+    await writeFile(join(root, "yarn.lock"), "")
+    await writeFile(join(root, "WORKSPACE.ts"), `import { Smithers as S } from "@smthrs/targets"
+const packageJson = S.file("//package.json")
+export const Workspace = S.Workspace("deploy-metadata", {
+  repository: "git+https://example.invalid/deploy-metadata.git", cache: S.Cache({ directory: ".flows" }),
+  runtime: S.Runtime.Node({ version: ">=26.4.0" }),
+  packageManager: S.PackageManager.Yarn({ manifest: packageJson, lockfile: S.file("//yarn.lock") }),
+  nodeModules: S.Npm.NodeModules({ packageJson })
+})`)
+    // Substitute only the outward command: use the production declaration and
+    // receipt's runUrl calculation, without executing any deployment steps.
+    const declaration = await readFile(join(repository, "apps/server/PACKAGE.ts"), "utf8")
+    await writeFile(join(root, "apps/server/PACKAGE.ts"), `import { Smithers } from "@smthrs/targets"\n${declaration.slice(declaration.indexOf("/** Explicit, uncached"), declaration.indexOf("/** Generated deploy workflow")).replace("cd apps/server && bun scripts/deploy.ts", "cd apps/server && bun receipt.ts")}\nexport const Package = Smithers.Package({ targets: { deploy } })`)
+    const deploy = await readFile(join(repository, "apps/server/scripts/deploy.ts"), "utf8")
+    const provenance = deploy.slice(deploy.indexOf("const { GITHUB_SERVER_URL"), deploy.indexOf("\nconsole.log(`[deploy] building"))
+    await writeFile(join(root, "apps/server/receipt.ts"), `import { writeFileSync } from "node:fs"\n${provenance}\nwriteFileSync("receipt.json", JSON.stringify({ runUrl }));`)
+    execFileSync("git", ["init", "-q"], { cwd: root })
+    execFileSync("git", ["add", "."], { cwd: root })
+    execFileSync("git", ["-c", "user.name=fixture", "-c", "user.email=fixture@example.invalid", "commit", "-qm", "fixture"], { cwd: root })
+    for (const [server, id, expected] of [
+      ["https://github.com", "123456", "https://github.com/smithersai/smithers/actions/runs/123456"],
+      ["https://foreign.invalid", "123456", null],
+      ["https://github.com", "123/evil", null]
+    ] as const) {
+      const proc = Bun.spawn(["pnpm", "exec", "smthrs", "run", "//apps/server:deploy", "--workspace", root], {
+        cwd: repository,
+        env: { PATH: process.env.PATH, HOME: root, TMPDIR: tmpdir(), GITHUB_SERVER_URL: server, GITHUB_RUN_ID: id,
+          GITHUB_TOKEN: "metadata-fixture-github", CLOUDFLARE_API_TOKEN: "metadata-fixture-cloudflare",
+          COREPACK_HOME: process.env.COREPACK_HOME ?? join(process.env.HOME!, ".cache", "node", "corepack") },
+        stdout: "pipe", stderr: "pipe"
+      })
+      const [stdout, stderr, code] = await Promise.all([new Response(proc.stdout).text(), new Response(proc.stderr).text(), proc.exited])
+      expect(code, stdout + stderr).toBe(0)
+      expect(JSON.parse(await readFile(join(root, "apps/server/receipt.json"), "utf8")).runUrl).toBe(expected)
+    }
+  } finally { await rm(root, { recursive: true, force: true }) }
 }, 60_000)

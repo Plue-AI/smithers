@@ -1,13 +1,14 @@
 import { NodeCrypto } from "@effect/platform-node"
 import { FlowEngine } from "@smthrs/engine"
 import { Interpreter } from "@smthrs/flow"
-import { Effect, Layer, ManagedRuntime } from "effect"
+import { Cause, Effect, Exit, Fiber, Layer, ManagedRuntime } from "effect"
 import assert from "node:assert/strict"
 import { execFileSync, spawnSync } from "node:child_process"
 import { createHash } from "node:crypto"
 import {
   chmodSync,
   copyFileSync,
+  existsSync,
   mkdirSync,
   mkdtempSync,
   readFileSync,
@@ -19,7 +20,7 @@ import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { test, type TestContext } from "node:test"
 import { fileURLToPath } from "node:url"
-import Preview, { layer, PreviewFailed } from "../preview/flow.ts"
+import Preview, { layer, PreviewFailed, validateReceipt } from "../preview/flow.ts"
 
 const label = "//distribution:preview"
 const fixture = (
@@ -32,6 +33,8 @@ const fixture = (
     noResults?: boolean
     noReceipt?: boolean
     signalExit?: boolean
+    tree?: boolean
+    flood?: boolean
     receipt?: Record<string, unknown>
   } = {}
 ) => {
@@ -59,7 +62,12 @@ const fixture = (
     revision: commit.slice(0, 7),
     expiresAt: "2099-10-07T14:40:00Z",
     access: "private",
-    open: { command: "gcloud run services proxy fixture --port 4100", localUrl: "http://preview.localhost:4100" }
+    open: {
+      command: `gcloud run services proxy fixture --tag r-${
+        commit.slice(0, 7)
+      } --region fixture-region --project fixture-project --port 4100`,
+      localUrl: "http://preview.localhost:4100"
+    }
   }
   writeFileSync(
     join(root, ".smithers", "target-index.json"),
@@ -85,10 +93,30 @@ const fixture = (
           JSON.stringify(options.build ? "//distribution:image" : label)
         },status:${JSON.stringify(options.failure ? "failed" : "ran")}}]}));`
     }\n${
-      options.signalExit ? "process.kill(process.pid, 'SIGTERM');" : options.noReceipt ? "" : options.failure
+      options.flood ? "process.stdout.write('x'.repeat(2*1024*1024)); setInterval(()=>{},1000);" : options.tree ?
+        `const {spawn}=await import("node:child_process"); spawn(process.execPath,["-e", ${
+          JSON.stringify(
+            "process.on('SIGTERM',()=>{}); require('node:fs').writeFileSync('descendant.pid',String(process.pid)); setInterval(()=>{},1000)"
+          )
+        }],{stdio:"ignore"}); setInterval(()=>{},1000);` :
+        options.signalExit ?
+        "process.kill(process.pid, 'SIGTERM');" :
+        options.noReceipt ?
+        "" :
+        options.failure
         ? `console.${options.stdout ? "log" : "error"}(${JSON.stringify(options.failure)});process.exit(1);`
         : `fs.writeFileSync('distribution/cloud-run-preview/preview.json',JSON.stringify(${
-          JSON.stringify({ version: 1, label, commit, ...success, ...options.receipt })
+          JSON.stringify({
+            version: 1,
+            label,
+            commit,
+            service: "fixture",
+            tag: `r-${commit.slice(0, 7)}`,
+            region: "fixture-region",
+            project: "fixture-project",
+            ...success,
+            ...options.receipt
+          })
         }));`
     }\n`
   )
@@ -207,12 +235,18 @@ test("the CLI executes preview through the same deploy action", { timeout: 90_00
   const f = fixture(t)
   const source = fileURLToPath(new URL("../preview/flow.ts", import.meta.url))
   const entry = fileURLToPath(new URL("../../packages/smithers/bin/smithers.mjs", import.meta.url))
+  const helperDirectory = join(f.root, "packages", "smithers", "build", "build-cli", "src", "internal")
+  mkdirSync(helperDirectory, { recursive: true })
+  copyFileSync(
+    fileURLToPath(new URL("../../packages/smithers/build/build-cli/src/internal/ContainedProcess.ts", import.meta.url)),
+    join(helperDirectory, "ContainedProcess.ts")
+  )
   mkdirSync(join(f.root, ".flows"))
   mkdirSync(join(f.root, "flows", "preview"), { recursive: true })
   copyFileSync(source, join(f.root, "flows", "preview", "flow.ts"))
   symlinkSync(fileURLToPath(new URL("../node_modules", import.meta.url)), join(f.root, "node_modules"), "dir")
   writeFileSync(join(f.root, "package.json"), JSON.stringify({ type: "module" }))
-  const result = spawnSync(process.execPath, [entry, "flow", "start", "preview", "--wait"], {
+  const result = spawnSync(process.execPath, [entry, "flow", "start", "preview", "--wait", "--verbose"], {
     encoding: "utf8",
     timeout: 80_000
   })
@@ -374,4 +408,108 @@ test("preview refuses a successful exit without a receipt", async (t) => {
     assert.equal(result.failure.message, "Cannot read preview receipt")
   }
   assert.equal(f.calls().length, 1)
+})
+
+for (
+  const url of [
+    "http://localhost:4000",
+    "http://127.0.0.1:4000",
+    "http://preview.localhost:4101",
+    "http://preview.localhost:4100/"
+  ]
+) {
+  test(`preview refuses cookie-bearing or alternate origin ${url}`, async (t) => {
+    const f = fixture(t, { noReceipt: true })
+    const file = join(f.root, "distribution", "cloud-run-preview", "preview.json")
+    writeFileSync(
+      file,
+      JSON.stringify({
+        version: 1,
+        label,
+        commit: f.commit,
+        service: "fixture",
+        tag: `r-${f.commit.slice(0, 7)}`,
+        region: "fixture-region",
+        project: "fixture-project",
+        ...f.success,
+        open: { ...f.success.open, localUrl: url }
+      })
+    )
+    await assert.rejects(validateReceipt(file, label, f.commit), /Invalid preview opener/)
+    const result = await f.runtime.runPromise(Effect.result(Preview.execute({})))
+    assert.equal(result._tag, "Failure")
+    assert.equal(f.calls().length, 1, "invalid receipt cannot replay")
+  })
+}
+for (const field of ["service", "tag", "region", "project", "port"]) {
+  test(`preview refuses conflicting opener ${field}`, async (t) => {
+    const f = fixture(t, { noReceipt: true })
+    const file = join(f.root, "distribution", "cloud-run-preview", "preview.json")
+    const command = f.success.open.command.replace(
+      field === "service"
+        ? "proxy fixture"
+        : field === "tag"
+        ? `--tag r-${f.commit.slice(0, 7)}`
+        : field === "port"
+        ? "--port 4100"
+        : `--${field} fixture-${field}`,
+      field === "service" ? "proxy other" : `--${field} other`
+    )
+    writeFileSync(
+      file,
+      JSON.stringify({
+        version: 1,
+        label,
+        commit: f.commit,
+        service: "fixture",
+        tag: `r-${f.commit.slice(0, 7)}`,
+        region: "fixture-region",
+        project: "fixture-project",
+        ...f.success,
+        open: { ...f.success.open, command }
+      })
+    )
+    await assert.rejects(validateReceipt(file, label, f.commit), /Invalid preview opener/)
+    const result = await f.runtime.runPromise(Effect.result(Preview.execute({})))
+    assert.equal(result._tag, "Failure")
+    assert.equal(f.calls().length, 1, "invalid receipt cannot replay")
+  })
+}
+test("preview cancellation joins a descendant ignoring SIGTERM with closed pipes", { timeout: 20000 }, async (t) => {
+  const f = fixture(t, { tree: true })
+  const fiber = f.runtime.runFork(Preview.execute({}, { executionId: "cancel-tree" }))
+  const pidFile = join(f.root, "descendant.pid")
+  for (let i = 0; i < 300 && !existsSync(pidFile); i++) await new Promise((r) => setTimeout(r, 20))
+  assert.ok(existsSync(pidFile), "descendant started")
+  const pid = Number(readFileSync(pidFile, "utf8"))
+  t.after(() => {
+    try {
+      process.kill(pid, "SIGKILL")
+    } catch {}
+  })
+  await f.runtime.runPromise(Preview.interrupt("cancel-tree"))
+  const exit = await f.runtime.runPromise(Fiber.await(fiber))
+  assert.ok(Exit.isFailure(exit))
+  if (Exit.isFailure(exit)) assert.ok(Cause.hasInterrupts(exit.cause), "cancellation remains interruption")
+  let alive = true
+  for (let i = 0; i < 100 && alive; i++) {
+    try {
+      process.kill(pid, 0)
+      await new Promise((r) => setTimeout(r, 20))
+    } catch {
+      alive = false
+    }
+  }
+  assert.equal(alive, false, "descendant is gone after cancellation")
+})
+
+test("preview bounds captured build output", { timeout: 15000 }, async (t) => {
+  const f = fixture(t, { flood: true })
+  const result = await f.runtime.runPromise(Effect.result(Preview.execute({})))
+  assert.equal(result._tag, "Failure")
+  if (result._tag === "Failure") {
+    assert.ok(result.failure instanceof PreviewFailed)
+    assert.equal(result.failure.code, "build_failed")
+    assert.equal(result.failure.message, "Preview output limit exceeded")
+  }
 })

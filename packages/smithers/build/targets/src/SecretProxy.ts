@@ -478,6 +478,8 @@ interface Route {
  * Sends one accepted child request to its route through a request boundary,
  * and returns the bounded, redacted response.
  */
+const delegation = new WeakMap<Vault, Readonly<Record<string, string>>>()
+
 const forward = (
   vault: Vault,
   request: NodeHttp.IncomingMessage,
@@ -548,7 +550,9 @@ const forward = (
       response.writeHead(denied ? 403 : 502).end(message)
       return
     }
-    const requestUpstream = target.protocol === "https:" ? NodeHttps.request : NodeHttp.request
+    const delegated = delegation.get(vault)?.[target.origin]
+    const transportTarget = delegated === undefined ? target : new URL(delegated)
+    const requestUpstream = transportTarget.protocol === "https:" ? NodeHttps.request : NodeHttp.request
     // Constructing the client request validates the method, the request
     // target, and every header value, and throws synchronously when one is
     // not something HTTP can carry. Outside a handler that throw is an
@@ -585,9 +589,9 @@ const forward = (
     try {
       upstream = requestUpstream(
         {
-          protocol: target.protocol,
-          hostname: target.hostname,
-          port: target.port === "" ? (target.protocol === "https:" ? 443 : 80) : target.port,
+          protocol: transportTarget.protocol,
+          hostname: transportTarget.hostname,
+          port: transportTarget.port === "" ? (transportTarget.protocol === "https:" ? 443 : 80) : transportTarget.port,
           method: request.method,
           path,
           headers
@@ -709,8 +713,22 @@ const audienceAt = (
  * @category constructors
  * @since 0.1.0
  */
-export const startProxy = (vault: Vault): Promise<Proxy> =>
+export const startProxy = (
+  vault: Vault,
+  delegatedOrigins: Readonly<Record<string, string>> = JSON.parse(process.env.SMITHERS_SECRET_ORIGINS ?? "{}")
+): Promise<Proxy> =>
   new Promise((resolve, reject) => {
+    for (const origin of Object.values(delegatedOrigins)) {
+      const url = new URL(origin)
+      if (
+        url.protocol !== "http:" || url.hostname !== "127.0.0.1" || url.username !== "" || url.password !== "" ||
+        url.pathname !== "/" || url.search !== "" || url.hash !== ""
+      ) {
+        reject(new TypeError("secret delegation requires a loopback origin"))
+        return
+      }
+    }
+    delegation.set(vault, { ...delegatedOrigins })
     const destinations = new Map<string, { readonly secret: Secret.Secret; readonly url: string }>()
     const destinationByDeclaration = new Map<string, string>()
     const origins = new Map<string, Promise<string>>()

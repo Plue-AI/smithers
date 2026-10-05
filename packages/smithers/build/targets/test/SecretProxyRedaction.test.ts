@@ -421,3 +421,20 @@ describe("proxy connection cleanup", () => {
     }
   })
 })
+
+describe("delegated secret broker origins", () => {
+  it.each([
+    "https://foreign.invalid",
+    "https://127.0.0.1:4100",
+    "http://localhost:4100",
+    "http://user:password@127.0.0.1:4100",
+    "http://127.0.0.1:4100/path",
+    "http://127.0.0.1:4100/?query=1",
+    "http://127.0.0.1:4100/#fragment"
+  ])("refuses %s before opening a proxy", async (origin) => {
+    const vault = SecretProxy.makeVault({ read: () => undefined })
+    await expect(SecretProxy.startProxy(vault, { "https://api.example.test": origin })).rejects.toThrow(
+      "secret delegation requires a loopback origin"
+    )
+  })
+})

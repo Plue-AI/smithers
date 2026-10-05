@@ -51,6 +51,12 @@ const fixture = async (options: {
   removeFails?: boolean
   deleteFails?: boolean
   pendingPush?: boolean
+  pendingDeploy?: boolean
+  reconcileFails?: boolean
+  deployFails?: boolean
+  postDescribeFails?: boolean
+  postDescribeMalformed?: boolean
+  foreignLabeled?: boolean
   status?: number
 } = {}) => {
   const root = await Fs.realpath(await Fs.mkdtemp(Path.join(Os.tmpdir(), "cloud-run-preview-")))
@@ -97,6 +103,8 @@ export const Package = S.Package({ targets: { image, preview } })`
   ) {
     expect(spawnSync("git", args, { cwd: root }).status).toBe(0)
   }
+  expect(spawnSync("git", ["remote", "add", "origin", "https://example.invalid/preview.git"], { cwd: root }).status)
+    .toBe(0)
   const commit = spawnSync("git", ["rev-parse", "HEAD"], { cwd: root, encoding: "utf8" }).stdout.trim()
   const config = JSON.stringify({
     architecture: options.architecture ?? "amd64",
@@ -178,13 +186,20 @@ if (tool === "docker") {
  }
  else if (argv[2] === "update-traffic" && ${options.removeFails === true}) process.exit(23);
  else if (argv[2] === "delete" && ${options.deleteFails === true}) process.exit(23);
- else if (argv[1] === "deploy") fs.writeFileSync(${JSON.stringify(state)}, String(Number(fs.existsSync(${
+ else if (argv[1] === "deploy") { fs.writeFileSync(${JSON.stringify(state)}, String(Number(fs.existsSync(${
     JSON.stringify(state)
-  }) ? fs.readFileSync(${JSON.stringify(state)}, "utf8") : 0) + 1));
+  }) ? fs.readFileSync(${JSON.stringify(state)}, "utf8") : 0) + 1)); fs.writeFileSync(${
+    JSON.stringify(Path.join(root, "labels"))
+  }, argv[argv.indexOf("--labels") + 1]); ${options.deployFails ? "process.exit(23);" : ""} ${
+    options.pendingDeploy ? "setInterval(() => {}, 1000);" : ""
+  } }
  else if (argv[1] === "services" && argv[2] === "describe") {
+  if (fs.existsSync(${JSON.stringify(state)})) { ${options.postDescribeFails ? "process.exit(23);" : ""} ${
+    options.postDescribeMalformed ? "console.log('malformed'); process.exit(0);" : ""
+  } }
   ${options.missingService ? "process.exit(1);" : ""}
   ${options.malformedService ? `console.log(${JSON.stringify(token)}); process.exit(0);` : ""}
-  const kept = [{tag:"old",revisionName:"fixture-expired",percent:0},${
+  const kept = [{tag:"old",revisionName:"fixture-expired",percent:0},{tag:"foreign",revisionName:"fixture-foreign",percent:0},${
     JSON.stringify(
       options.unresolvedTraffic
         ? { percent: 100 }
@@ -203,13 +218,23 @@ if (tool === "docker") {
   }",revisionName:Number(fs.readFileSync(${
     JSON.stringify(state)
   }, "utf8")) > 1 ? "fixture-current-2" : "fixture-current",url:${JSON.stringify(url)},percent:0}] : kept } }));
- } else if (argv[1] === "revisions" && argv[2] === "describe") console.log(JSON.stringify({metadata:{labels:{"smthrs-expires":${
+ } else if (argv[1] === "revisions" && argv[2] === "describe") console.log(JSON.stringify({metadata:{labels:{"smthrs-owner": fs.readFileSync(${
+    JSON.stringify(Path.join(root, "labels"))
+  }, "utf8").split("smthrs-owner=")[1], "smthrs-expires":${
     JSON.stringify(options.reuseExpires ?? String(Math.floor(Date.now() / 1000) + 72 * 3600))
   }}},status:{imageDigest:${JSON.stringify(options.reuseDigest ?? digest)}}}));
- else if (argv[1] === "revisions" && argv[2] === "list") console.log(JSON.stringify([
- {metadata:{name:"fixture-expired",labels:{"smthrs-expires":"1","smthrs-commit":"abcdef0"}}},
- {metadata:{name:"fixture-unlabeled"}}, {metadata:{name:"fixture-serving",labels:{"smthrs-expires":"1","smthrs-commit":"abcdef2"}}}, {metadata:{name:"fixture-live",labels:{"smthrs-expires":"9999999999","smthrs-commit":"abcdef1"}}}
- ]));
+ else if (argv[1] === "revisions" && argv[2] === "list") { ${
+    options.reconcileFails ? "process.exit(23);" : ""
+  } const labels = Object.fromEntries(fs.readFileSync(${
+    JSON.stringify(Path.join(root, "labels"))
+  }, "utf8").split(",").map(x => x.split("="))); const owner = labels["smthrs-owner"]; console.log(JSON.stringify([
+ {metadata:{name:"fixture-current",labels}},
+ ...(${
+    options.foreignLabeled === true
+  } ? [{metadata:{name:"fixture-foreign",labels:{"smthrs-owner":"foreign","smthrs-expires":"1","smthrs-commit":"abcdef0"}}}] : []),
+ {metadata:{name:"fixture-expired",labels:{"smthrs-owner":owner,"smthrs-expires":"1","smthrs-commit":"abcdef0"}}},
+ {metadata:{name:"fixture-legacy",labels:{"smthrs-expires":"1","smthrs-commit":"abcdef0"}}}, {metadata:{name:"fixture-unlabeled"}}, {metadata:{name:"fixture-serving",labels:{"smthrs-owner":owner,"smthrs-expires":"1","smthrs-commit":"abcdef2"}}}, {metadata:{name:"fixture-live",labels:{"smthrs-owner":owner,"smthrs-expires":"9999999999","smthrs-commit":"abcdef1"}}}
+ ])); }
 }
 }; if (argv[0] === "login") { process.stdin.on("data", b => stdin += b); process.stdin.on("end", run); process.stdin.resume(); } else run();`
   if (options.missingTool !== "docker") await Fs.writeFile(Path.join(bin, "docker"), script, { mode: 0o755 })
@@ -232,6 +257,50 @@ if (tool === "docker") {
 }
 
 describe("CloudRun.Preview through smthrs run", { timeout: 60_000 }, () => {
+  it.each([{ deployFails: true }, { postDescribeFails: true }, { postDescribeMalformed: true }])(
+    "reconciles and removes an uncertain deployment %j",
+    async (options) => {
+      const f = await fixture(options)
+      const result = await serve(f.root, ["run", "//:preview"], { environment: f.environment })
+      expect(result.exitCode).toBe(1)
+      expect((await f.calls()).some((c) => c.argv[2] === "delete" && c.argv.includes("fixture-current"))).toBe(true)
+      expect((await f.calls()).some((c) => c.argv.includes("--remove-tags"))).toBe(true)
+    }
+  )
+  it("preserves an expired fully labeled foreign revision", async () => {
+    const f = await fixture({ foreignLabeled: true })
+    const result = await serve(f.root, ["run", "//:preview"], { environment: f.environment })
+    expect(result.exitCode, result.output + result.logs).toBe(0)
+    const owner = createHash("sha256").update(JSON.stringify([
+      "https://example.invalid/preview.git",
+      "//:preview",
+      "us-central1-docker.pkg.dev/fixture-project/previews/preview"
+    ])).digest("hex").slice(0, 40)
+    expect((await f.calls()).find((c) => c.argv[1] === "deploy")!.argv.join(" ")).toContain(`smthrs-owner=${owner}`)
+    expect((await f.calls()).some((c) => c.argv[2] === "delete" && c.argv.includes("fixture-foreign"))).toBe(false)
+    expect((await f.calls()).some((c) => c.argv.includes("foreign") || c.argv.includes("fixture-legacy"))).toBe(false)
+  })
+  it("preserves the deploy error when reconciliation also fails", async () => {
+    const f = await fixture({ deployFails: true, reconcileFails: true })
+    const result = await serve(f.root, ["run", "//:preview"], { environment: f.environment })
+    expect(result.exitCode).toBe(1)
+    expect(result.output + result.logs).toContain("gcloud run deploy fixture failed (23)")
+    expect(result.output + result.logs).toContain("cleanup failed")
+  })
+  it("reconciles a cancelled deployment with an independent cleanup signal", async () => {
+    const f = await fixture({ pendingDeploy: true })
+    const controller = new AbortController()
+    const running = serve(f.root, ["run", "//:preview"], { environment: f.environment, signal: controller.signal })
+    const deadline = Date.now() + 30_000
+    while (Date.now() < deadline && !(await Fs.stat(Path.join(f.root, "labels")).catch(() => undefined))) {
+      await delay(20)
+    }
+    expect(await Fs.stat(Path.join(f.root, "labels"))).toBeDefined()
+    controller.abort()
+    const result = await running
+    expect(result.exitCode).toBe(1)
+    expect((await f.calls()).some((c) => c.argv[2] === "delete" && c.argv.includes("fixture-current"))).toBe(true)
+  })
   it("admits a CloudRun preview outward-only and validates its written receipt in the flow", async () => {
     const f = await fixture()
     const refused = await serve(f.root, ["run", "//:image", "--outward-only"], { environment: f.environment })

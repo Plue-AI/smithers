@@ -5,7 +5,11 @@
 
 import * as Argv from "./Argv.ts"
 
-const targets = new Set([
+/** Commands that evaluate the shared target declarations.
+ * @category parsing
+ * @since 1.0.0
+ */
+export const targetCommands = new Set([
   "build",
   "test",
   "lint",
@@ -61,7 +65,7 @@ export const normalizeArguments = (args: ReadonlyArray<string>): Array<string> =
   if (command === ".") return normalizeArguments([...args.slice(0, index), "open", ".", ...args.slice(index + 1)])
   const bare = command.startsWith("//") || command.startsWith(":")
   const generator = command === "generate" && ["ci", "package"].includes(args[index + 1] ?? "")
-  if (!bare && !targets.has(command) && !generator) {
+  if (!bare && !targetCommands.has(command) && !generator) {
     // Connection flags belong to the leaf command in Incur. Legacy callers
     // put them before the command; move that prefix after the command's
     // arguments, retaining the literal tail behind `--` untouched.

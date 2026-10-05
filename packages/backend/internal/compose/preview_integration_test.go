@@ -160,3 +160,30 @@ func TestPreviewFlowInvocationRefusesBeforeDatabase(t *testing.T) {
 	_, _, err = invoked.Invoke(context.Background(), services.InvokedFlowLaunch{}, nil)
 	require.EqualError(t, err, "Machines are off in this preview.")
 }
+
+// This inventory is independent of route middleware declarations.
+func TestPreviewReplayExecutionDoors(t *testing.T) {
+	router := openAPIConformanceRouter(testConfigAllFlagsOn())
+	server := httptest.NewServer(withMachinesDisabled(router, router))
+	defer server.Close()
+	for _, suffix := range []string{"workflows/runs/123/rerun", "workflows/runs/123/resume", "actions/runs/123/rerun", "runs/123/rerun", "runs/123/resume"} {
+		t.Run(suffix, func(t *testing.T) {
+			response, err := server.Client().Post(server.URL+"/api/repos/o/r/"+suffix, "application/json", nil)
+			require.NoError(t, err)
+			defer response.Body.Close()
+			body, err := io.ReadAll(response.Body)
+			require.NoError(t, err)
+			require.Equal(t, 503, response.StatusCode, string(body))
+			require.Contains(t, string(body), `"code":"machines_disabled"`)
+		})
+	}
+}
+
+func TestPreviewLegacyWorkersFlagRejectedBeforeStartup(t *testing.T) {
+	splitProcessDatabase(t)
+	t.Setenv("SMITHERS_FEATURE_FLAGS_WORKFLOWS", "true")
+	ready := false
+	err := StartWithOptions(context.Background(), nil, io.Discard, io.Discard, Options{Workspace: workspace.NewDisabled()}, func(http.Handler) { ready = true })
+	require.EqualError(t, err, "legacy workflow triggers are unavailable in single-owner mode; use canonical Flow hosts")
+	require.False(t, ready)
+}

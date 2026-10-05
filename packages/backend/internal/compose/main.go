@@ -599,6 +599,7 @@ func runWithOptions(ctx context.Context, args []string, stdout, stderr io.Writer
 	workflowSyncService := services.NewWorkflowSyncService(queries, repoHostClient, workflowParser)
 	workflowRunService := services.NewWorkflowRunService(
 		runtimeStores.WorkflowRuns,
+		services.WithWorkflowRunMachineRuntime(options.Workspace),
 		services.WithWorkflowRunMetrics(smithersMetrics),
 		services.WithWorkflowRunWebhookDispatcher(webhookDispatcher),
 		services.WithWorkflowRunCommitStatusWriter(commitStatusService),

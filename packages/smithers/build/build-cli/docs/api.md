@@ -80,6 +80,8 @@ no interruption signal, and no exit hook.
 
 ```ts
 interface RuntimeConfig {
+  readonly verifiedGreenBase?: string | undefined
+  readonly baseTransport?: typeof fetch | undefined
   readonly cliName?: string | undefined
   readonly cliVersion?: string | undefined
   readonly cliDescription?: string | undefined
@@ -100,21 +102,23 @@ Process-scoped configuration captured before declaration evaluation. Every
 field is optional and replaces something the process would otherwise supply.
 This block is the one copy; the other pages link here.
 
-| Field            | Replaces                                                                                                                      |
-| ---------------- | ----------------------------------------------------------------------------------------------------------------------------- |
-| `cliName`        | The binary name in help and usage output. Defaults to `smithers-build`.                                                       |
-| `cliVersion`     | The version `--version` prints. Defaults to this package's version.                                                           |
-| `cliDescription` | The one-line description help output leads with.                                                                              |
-| `sync`           | `skills add`'s sources: `include` globs the `SKILL.md` directories under `cwd` (default `process.cwd()`).                     |
-| `cacheUrl`       | `SMITHERS_CACHE_URL`, already captured by the caller.                                                                         |
-| `cacheToken`     | `SMITHERS_CACHE_TOKEN`, already captured by the caller.                                                                       |
-| `cacheSteps`     | Nothing by default. An Incur CLI mounted under `cache`, so `cache steps` runs the unified CLI's durable step-cache commands.  |
-| `signal`         | The interruption source. Aborting it aborts every running target.                                                             |
-| `environment`    | `process.env`, read for agent-fake selection, `PATH` lookups, and preconditions.                                              |
-| `stdout`         | `process.stdout` as a `Reporter.Terminal`.                                                                                    |
-| `stderr`         | `process.stderr` as a `Reporter.Terminal`.                                                                                    |
-| `presentation`   | The ambient audience facts detection would read. `Audience.resolve` seeds from this policy; explicit flags still override it. |
-| `exit`           | The exit-code setter. Omit it and a failure returns the structured error.                                                     |
+| Field               | Replaces                                                                                                                      |
+| ------------------- | ----------------------------------------------------------------------------------------------------------------------------- |
+| `verifiedGreenBase` | The broker-verified base captured before declarations; empty means full gate.                                                 |
+| `baseTransport`     | A trusted test transport. Production API discovery remains pinned to GitHub.                                                  |
+| `cliName`           | The binary name in help and usage output. Defaults to `smithers-build`.                                                       |
+| `cliVersion`        | The version `--version` prints. Defaults to this package's version.                                                           |
+| `cliDescription`    | The one-line description help output leads with.                                                                              |
+| `sync`              | `skills add`'s sources: `include` globs the `SKILL.md` directories under `cwd` (default `process.cwd()`).                     |
+| `cacheUrl`          | `SMITHERS_CACHE_URL`, already captured by the caller.                                                                         |
+| `cacheToken`        | `SMITHERS_CACHE_TOKEN`, already captured by the caller.                                                                       |
+| `cacheSteps`        | Nothing by default. An Incur CLI mounted under `cache`, so `cache steps` runs the unified CLI's durable step-cache commands.  |
+| `signal`            | The interruption source. Aborting it aborts every running target.                                                             |
+| `environment`       | `process.env`, read for agent-fake selection, `PATH` lookups, and preconditions.                                              |
+| `stdout`            | `process.stdout` as a `Reporter.Terminal`.                                                                                    |
+| `stderr`            | `process.stderr` as a `Reporter.Terminal`.                                                                                    |
+| `presentation`      | The ambient audience facts detection would read. `Audience.resolve` seeds from this policy; explicit flags still override it. |
+| `exit`              | The exit-code setter. Omit it and a failure returns the structured error.                                                     |
 
 `exit` records the exit code of a failure a human renderer has already
 explained, so the envelope's error block is not printed twice; without it the
@@ -817,7 +821,7 @@ than driving them directly.
 | `effect-resolution`                                                                                                        | The single-instance Effect resolver the process entry installs.                              |
 | `CacheAdmin`                                                                                                               | Local action-cache inspection and retention: `directory`, `entries`, `inspect`, `remove`.    |
 | `OutputStream`                                                                                                             | Bounded, redacted live views of subprocess output.                                           |
-| `Entry`                                                                                                                    | `Host` and `main`.                                                                           |
+| `Entry`                                                                                                                    | `Host`, `main`, and `isolateProcess` (the credential-owning executable boundary).            |
 | `engine`                                                                                                                   | The install adapter and its layers.                                                          |
 | `Cache`                                                                                                                    | The result cache and the content-addressed store.                                            |
 | `PackageDiscovery`, `PackageLoader`, `PackageIndex`                                                                        | Discovery, declaration loading, and the validated index.                                     |

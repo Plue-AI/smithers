@@ -59,7 +59,9 @@ describe("unified process entry", () => {
       expect(env).toEqual({ KEEP: "yes" })
       expect(runtime.cacheUrl).toBe("https://cache.invalid")
       expect(runtime.cacheToken).toBe("fixture-token")
-      expect(runtime.environment).toBe(env)
+      expect(runtime.environment).toEqual(env)
+      env.KEEP = "changed by declaration"
+      expect(runtime.environment).toEqual({ KEEP: "yes" })
       return { serve }
     })
     serve.mockImplementation(async (_args, options) => {

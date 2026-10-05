@@ -1344,10 +1344,10 @@ func buildRouter(
 					// an agent would otherwise run the default bookmark's
 					// workflows with inputs it chooses, or cancel a person's run.
 					workflowPersonRepo := append(append([]func(http.Handler) http.Handler{}, workflowWriteRepo...), middleware.RefuseRunCredentials)
-					workflowDispatchWriteRepo := append([]func(http.Handler) http.Handler{}, workflowPersonRepo...)
+					workflowMachinePersonRepo := append(append([]func(http.Handler) http.Handler{}, workflowPersonRepo...), gateMachines)
+					workflowDispatchWriteRepo := append([]func(http.Handler) http.Handler{}, workflowMachinePersonRepo...)
 					workflowDispatchWriteRepo = append(
 						workflowDispatchWriteRepo,
-						gateMachines,
 						repoWorkflowQuota,
 						userWorkflowRunsQuota,
 						middleware.WorkflowDispatchRateLimit(queries, 0),
@@ -1359,17 +1359,17 @@ func buildRouter(
 					// write-scoped session or token.
 					r.With(workflowDispatchWriteRepo...).Post("/invoke", workflowHandler.InvokeWorkflow)
 					r.With(workflowPersonRepo...).Post("/workflows/runs/{id}/cancel", workflowHandler.CancelWorkflowRun)
-					r.With(workflowPersonRepo...).Post("/workflows/runs/{id}/rerun", workflowHandler.RerunWorkflowRun)
-					r.With(workflowPersonRepo...).Post("/workflows/runs/{id}/resume", workflowHandler.ResumeWorkflowRun)
+					r.With(workflowMachinePersonRepo...).Post("/workflows/runs/{id}/rerun", workflowHandler.RerunWorkflowRun)
+					r.With(workflowMachinePersonRepo...).Post("/workflows/runs/{id}/resume", workflowHandler.ResumeWorkflowRun)
 					r.With(workflowPersonRepo...).Post("/actions/runs/{id}/cancel", workflowHandler.CancelWorkflowRun)
-					r.With(workflowPersonRepo...).Post("/actions/runs/{id}/rerun", workflowHandler.RerunWorkflowRun)
+					r.With(workflowMachinePersonRepo...).Post("/actions/runs/{id}/rerun", workflowHandler.RerunWorkflowRun)
 					// Ticket 0111: canonical `/runs/{id}/...` client surface.
 					// Aliases the existing `/workflows/runs/...` and
 					// `/actions/runs/...` paths at the same handlers — no new
 					// semantics; just one naming clients can standardize on.
 					r.With(workflowPersonRepo...).Post("/runs/{id}/cancel", workflowHandler.CancelWorkflowRun)
-					r.With(workflowPersonRepo...).Post("/runs/{id}/rerun", workflowHandler.RerunWorkflowRun)
-					r.With(workflowPersonRepo...).Post("/runs/{id}/resume", workflowHandler.ResumeWorkflowRun)
+					r.With(workflowMachinePersonRepo...).Post("/runs/{id}/rerun", workflowHandler.RerunWorkflowRun)
+					r.With(workflowMachinePersonRepo...).Post("/runs/{id}/resume", workflowHandler.ResumeWorkflowRun)
 				}
 				if workflowCacheHandler != nil {
 					// Clearing every cache belongs to a person, not a run.

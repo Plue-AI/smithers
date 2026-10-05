@@ -1,9 +1,12 @@
-import { execFileSync } from "node:child_process"
+import { execFile, execFileSync } from "node:child_process"
 import * as Fs from "node:fs/promises"
 import { createServer } from "node:http"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
-import { expect, it } from "vitest"
+import { fileURLToPath } from "node:url"
+import { promisify } from "node:util"
+import { expect, it, vi } from "vitest"
+import * as AffectedBase from "../src/AffectedBase.ts"
 import { serve } from "./helpers/ServeCli.ts"
 import { write } from "./helpers/WriteFile.ts"
 
@@ -104,7 +107,10 @@ it("uses this job's last successful ancestor and reports the selection at the CL
         head_branch: "main"
       }
       const wrongBranch = { ...green, head_branch: "other" }
-      const runs = mode === "none" ? [] : mode === "bounded" || (mode === "pagination" && new URL(req.url!, "http://fixture.invalid").searchParams.get("page") === "1") ?
+      const runs = mode === "none" ?
+        [] :
+        mode === "bounded" ||
+          (mode === "pagination" && new URL(req.url!, "http://fixture.invalid").searchParams.get("page") === "1") ?
         Array.from({ length: 100 }, () => wrongBranch) :
         mode === "ordering"
         ? [{ ...green, id: 2, run_number: 2 }, green, wrongBranch, { ...green, run_number: 3 }]
@@ -116,7 +122,7 @@ it("uses this job's last successful ancestor and reports the selection at the CL
   await new Promise<void>((resolve) => api.listen(0, "127.0.0.1", resolve))
   const environment = {
     ...process.env,
-    GITHUB_API_URL: `http://127.0.0.1:${(api.address() as { port: number }).port}`,
+    GITHUB_API_URL: "https://api.github.com",
     GITHUB_TOKEN: "fixture-token",
     GITHUB_REPOSITORY: "fixture/repo",
     GITHUB_WORKFLOW_REF: "fixture/repo/.github/workflows/ci.yml@refs/heads/main",
@@ -126,9 +132,21 @@ it("uses this job's last successful ancestor and reports the selection at the CL
     GITHUB_EVENT_NAME: "push",
     GITHUB_SHA: f.git("rev-parse", "HEAD")
   }
+  const execute: typeof serve = (root, args, options = {}) =>
+    serve(root, args, {
+      ...options,
+      baseTransport: (url, init) =>
+        fetch(
+          new URL(
+            new URL(String(url)).pathname + new URL(String(url)).search,
+            `http://127.0.0.1:${(api.address() as { port: number }).port}`
+          ),
+          init
+        )
+    })
   try {
     const run = (extra: Array<string> = []) =>
-      serve(f.root, ["affected", "build", "//...", "--base-green", "--list", ...extra], { environment })
+      execute(f.root, ["affected", "build", "//...", "--base-green", "--list", ...extra], { environment })
     const selected = await run()
     expect(selected.exitCode, selected.output + selected.logs).toBe(0)
     expect(selected.logs).toContain(`3 files changed since ${f.base.slice(0, 7)}`)
@@ -159,7 +177,7 @@ it("uses this job's last successful ancestor and reports the selection at the CL
     }
     expect(requests.some((request) => request.path === "other")).toBe(false)
     for (mode of ["ordering", "pagination"]) {
-      const partial = await serve(f.root, ["affected", "build", "//...", "--base-green", "--list"], {
+      const partial = await execute(f.root, ["affected", "build", "//...", "--base-green", "--list"], {
         environment: { ...environment, GITHUB_RUN_NUMBER: "3" },
         signal: new AbortController().signal
       })
@@ -171,17 +189,19 @@ it("uses this job's last successful ancestor and reports the selection at the CL
         { GITHUB_REPOSITORY: "invalid" },
         { GITHUB_WORKFLOW_REF: "invalid" },
         { GITHUB_API_URL: "http://example.invalid" },
+        { GITHUB_API_URL: "https://example.invalid" },
+        { GITHUB_EVENT_NAME: "workflow_dispatch" },
         { GITHUB_RUN_NUMBER: "0" }
       ]
     ) {
-      const full = await serve(f.root, ["affected", "build", "//...", "--base-green", "--list"], {
+      const full = await execute(f.root, ["affected", "build", "//...", "--base-green", "--list"], {
         environment: { ...environment, ...override }
       })
       expect(full.logs).toContain("212 of 212 targets")
     }
     const cancelled = new AbortController()
     cancelled.abort()
-    const aborted = await serve(f.root, ["affected", "build", "//...", "--base-green", "--list"], {
+    const aborted = await execute(f.root, ["affected", "build", "//...", "--base-green", "--list"], {
       environment,
       signal: cancelled.signal
     })
@@ -190,20 +210,20 @@ it("uses this job's last successful ancestor and reports the selection at the CL
     f.git("remote", "remove", "origin")
     expect((await run()).logs).toContain("212 of 212 targets")
     f.git("remote", "add", "origin", f.root)
-    const unchanged = await serve(f.root, ["affected", "build", "//other/...", "--base-green"], { environment })
+    const unchanged = await execute(f.root, ["affected", "build", "//other/...", "--base-green"], { environment })
     expect(unchanged.exitCode, unchanged.output + unchanged.logs).toBe(0)
     expect(unchanged.logs).toContain(`0 of 198 targets · unchanged since ${f.base.slice(0, 7)}`)
-    const ran = await serve(f.root, ["affected", "build", "//changed:t0", "--base-green"], { environment })
+    const ran = await execute(f.root, ["affected", "build", "//changed:t0", "--base-green"], { environment })
     expect(ran.exitCode, ran.output + ran.logs).toBe(0)
     expect(await Fs.readFile(join(f.root, "changed/out0.txt"), "utf8")).toBe("after")
     await Fs.rm(join(f.root, "changed/out0.txt"))
     const equal = await run(["--head", f.base])
     expect(equal.logs).toContain("212 of 212 targets")
-    const pr = await serve(f.root, ["affected", "build", "//...", "--base-green", "--list"], {
+    const pr = await execute(f.root, ["affected", "build", "//...", "--base-green", "--list"], {
       environment: { ...environment, GITHUB_EVENT_NAME: "pull_request" }
     })
     expect(pr.logs).toContain(`3 files changed since ${f.base.slice(0, 7)}`)
-    const prUnchanged = await serve(f.root, ["affected", "build", "//other/...", "--base-green", "--list"], {
+    const prUnchanged = await execute(f.root, ["affected", "build", "//other/...", "--base-green", "--list"], {
       environment: { ...environment, GITHUB_EVENT_NAME: "pull_request" }
     })
     expect(prUnchanged.logs).toContain("198 of 198 targets")
@@ -278,6 +298,120 @@ export const Package = S.Package({ targets: {
     const run = await serve(f.root, ["run", "//fixture:publish", "--outward-only"])
     expect(run.exitCode, run.output + run.logs).toBe(0)
     expect(run.output + run.logs).toContain("OUTWARD_RAN")
+  } finally {
+    await Fs.rm(f.root, { recursive: true, force: true })
+  }
+}, 30_000)
+
+it("refuses token-bearing foreign HTTPS origins before the transport boundary", async () => {
+  const f = await fixture()
+  const transport = vi.spyOn(globalThis, "fetch").mockImplementation(async (url) => {
+    const path = String(url)
+    return Response.json(
+      path.includes("/jobs") ?
+        { jobs: [{ name: "gate", conclusion: "success" }] }
+        : path.includes("/compare/") ?
+        { status: "ahead", merge_base_commit: { sha: f.base } }
+        : { workflow_runs: [{ id: 1, run_number: 1, head_branch: "main", head_sha: f.base }] }
+    )
+  })
+  try {
+    for (
+      const origin of [
+        "https://foreign.invalid",
+        "https://user:password@api.github.com",
+        "https://api.github.com/unexpected",
+        "https://api.github.com?other=1"
+      ]
+    ) {
+      const base = await AffectedBase.resolve(f.root, {
+        ...process.env,
+        GITHUB_EVENT_NAME: "push",
+        GITHUB_API_URL: origin,
+        GITHUB_TOKEN: "fixture-token",
+        GITHUB_REPOSITORY: "fixture/repo",
+        GITHUB_JOB: "gate",
+        GITHUB_REF_NAME: "main",
+        GITHUB_WORKFLOW_REF: "fixture/repo/.github/workflows/ci.yml@refs/heads/main",
+        GITHUB_RUN_NUMBER: "2"
+      })
+      expect(base).toBeUndefined()
+      expect(transport).not.toHaveBeenCalled()
+    }
+  } finally {
+    transport.mockRestore()
+    await Fs.rm(f.root, { recursive: true, force: true })
+  }
+})
+
+it("isolates real CLI declaration reads and inherited children from credentials", async () => {
+  const f = await fixture()
+  try {
+    await write(
+      f.root,
+      "changed/PACKAGE.ts",
+      `import { Smithers as S } from "@smthrs/targets"
+import { execFileSync } from "node:child_process"
+import { writeFileSync } from "node:fs"
+const direct = process.env.GITHUB_TOKEN === "fixture-token" || process.env.CLOUDFLARE_API_TOKEN === "fixture-cloud-token" || process.env.GH_TOKEN === "fixture-alias-token"
+const child = execFileSync(process.execPath, ["-e", 'console.log(process.env.GITHUB_TOKEN === "fixture-token" || process.env.CLOUDFLARE_API_TOKEN === "fixture-cloud-token" || process.env.GH_TOKEN === "fixture-alias-token")'], { encoding: "utf8" }).trim() === "true"
+writeFileSync(${JSON.stringify(join(f.root, "credential-observation.json"))}, JSON.stringify({ direct, child }))
+process.env.GITHUB_EVENT_NAME = "push"
+export const Package = S.Package({ targets: { env: S.Shell.Run({ shell: "echo SAFE_RUN" }) } })`
+    )
+    const realGit = execFileSync("which", ["git"], { encoding: "utf8" }).trim()
+    await Fs.mkdir(join(f.root, "bin"))
+    await write(
+      f.root,
+      "bin/git",
+      `#!${process.execPath}
+import { appendFileSync } from "node:fs"
+import { execFileSync } from "node:child_process"
+appendFileSync(${
+        JSON.stringify(join(f.root, "git-credentials.jsonl"))
+      }, JSON.stringify({github:process.env.GITHUB_TOKEN === "fixture-token",cloudflare:process.env.CLOUDFLARE_API_TOKEN === "fixture-cloud-token",alias:process.env.GH_TOKEN === "fixture-alias-token"}) + "\\n")
+process.stdout.write(execFileSync(${JSON.stringify(realGit)}, process.argv.slice(2)))
+`
+    )
+    await Fs.chmod(join(f.root, "bin/git"), 0o755)
+    await Fs.appendFile(join(f.root, ".gitignore"), "bin/\n*-credentials.jsonl\ncredential-observation.json\n")
+    f.git("add", ".gitignore", "changed/PACKAGE.ts")
+    f.git("commit", "-qm", "declaration fixture")
+    await write(f.root, "changed/input.txt", "latest")
+    f.git("add", "changed/input.txt")
+    f.git("commit", "-qm", "change one package")
+    const entry = fileURLToPath(new URL("../src/main.js", import.meta.url))
+    for (
+      const args of [
+        ["affected", "run", "//changed:env", "--base-green"],
+        ["run", "//changed:env", "--outward-only"],
+        ["affected", "build", "//other/...", "--base-green", "--list", `--workspace=${f.root}`]
+      ]
+    ) {
+      const result = await promisify(execFile)(process.execPath, [entry, ...args], {
+        cwd: args.includes("--list") ? fileURLToPath(new URL("../../../../../", import.meta.url)) : f.root,
+        env: {
+          ...process.env,
+          GITHUB_TOKEN: "fixture-token",
+          CLOUDFLARE_API_TOKEN: "fixture-cloud-token",
+          GH_TOKEN: "fixture-alias-token",
+          GITHUB_EVENT_NAME: "pull_request",
+          PATH: `${join(f.root, "bin")}:${process.env.PATH}`
+        }
+      })
+      if (args.includes("--list")) expect(result.stdout + result.stderr).toContain("198 of 198 targets")
+      const observations = (await Fs.readFile(join(f.root, "git-credentials.jsonl"), "utf8")).trim().split("\n").map((
+        line
+      ) => JSON.parse(line))
+      expect(observations.length).toBeGreaterThan(0)
+      expect(observations.every((row) => !row.github && !row.cloudflare && !row.alias)).toBe(true)
+      expect(JSON.parse(await Fs.readFile(join(f.root, "credential-observation.json"), "utf8"))).toEqual({
+        direct: false,
+        child: false
+      })
+      expect(result.stdout + result.stderr).not.toContain("fixture-token")
+      expect(result.stdout + result.stderr).not.toContain("fixture-cloud-token")
+    }
   } finally {
     await Fs.rm(f.root, { recursive: true, force: true })
   }

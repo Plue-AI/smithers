@@ -327,8 +327,14 @@ config digest at the registry, and deploys by digest. The revision is tagged
 `r-<sha7>` with no traffic and `--no-allow-unauthenticated`. A matching tagged
 digest with no traffic is reused until it expires. An anonymous GET must answer 401 or 403;
 otherwise Smithers removes the tag and deletes that revision. Cleanup removes
-tags before deleting expired revisions carrying both `smthrs-expires` and
-`smthrs-commit`, and keeps revisions carrying traffic and unlabeled revisions.
+tags before deleting expired revisions carrying `smthrs-expires`, `smthrs-commit`
+and a matching `smthrs-owner`. The owner is the first 40 hex characters of
+SHA-256 over the JSON array `[repository origin, target label, image namespace]`.
+Reuse and cleanup refuse foreign or legacy ownership. Each deploy also stamps
+a UUID `smthrs-deployment`; uncertain deploy results reconcile that UUID and
+owner before removing the owned tag/revision with an independent 30-second
+cleanup signal. Cleanup failures preserve the original error. Revisions
+carrying traffic remain untouched.
 
 | Refusal code        | Meaning                                                                       |
 | ------------------- | ----------------------------------------------------------------------------- |
@@ -337,7 +343,7 @@ tags before deleting expired revisions carrying both `smthrs-expires` and
 | `stale_image`       | Archive revision differs from the run commit, or is not a single amd64 image. |
 | `service_missing`   | The existing service could not be described.                                  |
 | `public_surface`    | Anonymous access was not refused; the preview is removed.                     |
-| `invalid_target`    | The target key is not a registry image name.                                  |
+| `invalid_target`    | Target key, repository origin or preview ownership is invalid.                |
 | `tool_failed`       | A transport command or response failed.                                       |
 
 On success, `<package dir>/cloud-run-preview/<target>.json` contains the

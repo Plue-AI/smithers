@@ -10,10 +10,17 @@
  * @since 0.1.0
  */
 
+import { NodeStream } from "@effect/platform-node"
+import * as Secret from "@smthrs/targets/Secret"
+import * as SecretProxy from "@smthrs/targets/SecretProxy"
+import * as NodePath from "node:path"
+import * as AffectedBase from "./AffectedBase.ts"
 import * as Audience from "./Audience.ts"
 import { makeCli, normalizeArgv } from "./Cli.ts"
 import * as Environment from "./Environment.ts"
 import * as ApprovalBridge from "./internal/ApprovalBridge.ts"
+import * as ContainedProcess from "./internal/ContainedProcess.ts"
+import * as PackageDiscovery from "./PackageDiscovery.ts"
 import type * as Reporter from "./Reporter.ts"
 
 /**
@@ -96,10 +103,11 @@ export const main = async (host: Host): Promise<void> => {
   host.on("SIGTERM", onSigterm)
   try {
     await makeCli({
+      verifiedGreenBase: host.env.SMITHERS_VERIFIED_GREEN_BASE,
       cacheUrl,
       cacheToken,
       signal: controller.signal,
-      environment: host.env,
+      environment: { ...host.env },
       stdout: host.stdout,
       stderr: host.stderr,
       presentation,
@@ -113,5 +121,97 @@ export const main = async (host: Host): Promise<void> => {
     host.removeListener("SIGINT", onSigint)
     host.removeListener("SIGTERM", onSigterm)
     if (interrupted) host.setExitCode(1)
+  }
+}
+
+/** Keeps real API credentials in a trusted process, outside declaration execution.
+ * The explicit audience option is for hermetic transport tests; executable entries
+ * always use the fixed production audiences.
+ * @category execution
+ * @since 1.0.0
+ */
+export const isolateProcess = async (
+  audiences: Readonly<Record<string, string>> = {
+    GITHUB_TOKEN: "https://api.github.com",
+    CLOUDFLARE_API_TOKEN: "https://api.cloudflare.com"
+  },
+  protocolInput = false
+): Promise<boolean> => {
+  const credentials = Object.fromEntries(
+    Object.keys(audiences).flatMap((name) => {
+      const value = process.env[name] ?? (name === "GITHUB_TOKEN" ? process.env.GH_TOKEN : undefined)
+      return value === undefined || value.startsWith("smithers-build-secret-") ? [] : [[name, value]]
+    })
+  )
+  if (Object.keys(credentials).length === 0) return false
+  const environment = { ...process.env }
+  delete environment.GH_TOKEN
+  delete environment.SMITHERS_SECRET_ORIGINS
+  delete environment.SMITHERS_VERIFIED_GREEN_BASE
+  for (const name of Object.keys(credentials)) delete environment[name]
+  const controller = new AbortController()
+  let interrupted: number | undefined
+  const stop = (code: number) => {
+    interrupted = code
+    controller.abort()
+    if (protocolInput) process.stdin.destroy()
+  }
+  const onSigint = () => stop(130)
+  const onSigterm = () => stop(143)
+  const vault = SecretProxy.makeVault({ read: (name) => credentials[name] })
+  const proxy = await SecretProxy.startProxy(vault, {})
+  process.on("SIGINT", onSigint)
+  process.on("SIGTERM", onSigterm)
+  try {
+    const origins: Record<string, string> = {}
+    for (const name of Object.keys(credentials)) {
+      const origin = audiences[name]!
+      environment[name] = vault.mint(Secret.HttpSecret(Secret.Secret(name), [origin]))
+      origins[origin] = await proxy.originFor(origin)
+    }
+    environment.SMITHERS_SECRET_ORIGINS = JSON.stringify(origins)
+    const args = process.argv.slice(2)
+    if (args.includes("--base-green")) {
+      const workspaceIndex = args.findIndex((arg) =>
+        arg === "--workspace" || arg === "-w" || arg.startsWith("--workspace=") || arg.startsWith("-w=") ||
+        arg === "--root" || arg.startsWith("--root=")
+      )
+      const flag = args[workspaceIndex]
+      const workspace = flag === undefined ? process.cwd() : flag.includes("=")
+        ? flag.slice(flag.indexOf("=") + 1) :
+        args[workspaceIndex + 1] ?? process.cwd()
+      const root = await PackageDiscovery.findWorkspaceRoot(NodePath.resolve(workspace))
+      environment.SMITHERS_VERIFIED_GREEN_BASE = root === undefined ?
+        "" :
+        await AffectedBase.resolve(
+          root,
+          { ...environment, GITHUB_TOKEN: credentials.GITHUB_TOKEN },
+          controller.signal
+        ) ?? ""
+    }
+    const code = await ContainedProcess.run({
+      command: process.execPath,
+      args: [...process.execArgv, process.argv[1]!, ...args],
+      cwd: process.cwd(),
+      environment,
+      signal: controller.signal,
+      input: protocolInput ? NodeStream.fromReadable({ evaluate: () => process.stdin }) : undefined,
+      maxOutputBytes: protocolInput ? undefined : 16 * 1024 * 1024,
+      stdout: (text) => process.stdout.write(text),
+      stderr: (text) => process.stderr.write(text)
+    })
+    process.exitCode = interrupted ?? code
+    return true
+  } catch (cause) {
+    if (
+      interrupted === undefined ||
+      cause instanceof ContainedProcess.ProcessError && cause.code === "cleanup_failed"
+    ) throw cause
+    process.exitCode = interrupted
+    return true
+  } finally {
+    await proxy.close()
+    process.removeListener("SIGINT", onSigint)
+    process.removeListener("SIGTERM", onSigterm)
   }
 }

@@ -16,7 +16,8 @@ class BaseUnavailable extends Data.TaggedError("smithers-build/BaseUnavailable")
 export const resolve = async (
   root: string,
   environment: Readonly<Record<string, string | undefined>>,
-  signal?: AbortSignal
+  signal?: AbortSignal,
+  transport: typeof fetch = fetch
 ): Promise<string | undefined> => {
   const git = async (args: ReadonlyArray<string>): Promise<string> => {
     let output = ""
@@ -41,6 +42,7 @@ export const resolve = async (
     if (environment.GITHUB_EVENT_NAME === "pull_request") {
       return await git(["rev-parse", "--verify", "--end-of-options", "HEAD^1^{commit}"])
     }
+    if (environment.GITHUB_EVENT_NAME !== "push") return undefined
     const {
       GITHUB_REPOSITORY: repo,
       GITHUB_JOB: job,
@@ -59,13 +61,13 @@ export const resolve = async (
     if (!/^[\w.-]+\/[\w.-]+$/.test(repo)) return undefined
     const api = new URL(environment.GITHUB_API_URL ?? "https://api.github.com")
     if (
-      api.protocol !== "https:" &&
-      !(api.protocol === "http:" && ["127.0.0.1", "localhost", "[::1]"].includes(api.hostname))
+      api.origin !== "https://api.github.com" || api.username !== "" || api.password !== "" ||
+      api.pathname !== "/" || api.search !== "" || api.hash !== ""
     ) return undefined
     const get = async (path: string): Promise<unknown> => {
       const url = new URL(`${api.pathname.replace(/\/$/, "")}/repos/${repo}/${path}`, api.origin)
       // Never follow a redirect with the token, even to the same host.
-      const response = await fetch(url, {
+      const response = await transport(url, {
         redirect: "error",
         headers: { Authorization: `Bearer ${token}`, Accept: "application/vnd.github+json" },
         signal: signal === undefined

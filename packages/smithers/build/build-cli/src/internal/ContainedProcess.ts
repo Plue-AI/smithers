@@ -71,6 +71,7 @@ export interface Options {
   readonly maxOutputBytes?: number | undefined
   readonly fatalUtf8?: boolean | undefined
   /** Written to the command's stdin, which is then closed; without it stdin is ignored. */
+  readonly input?: Stream.Stream<Uint8Array, unknown> | undefined
   readonly stdin?: string | undefined
   readonly stdout: (text: string) => void
   readonly stderr: (text: string) => void
@@ -94,7 +95,7 @@ export const runEffect = (options: Omit<Options, "signal">): Effect.Effect<numbe
             args: options.args,
             cwd: options.cwd,
             env: options.environment,
-            stdin: options.stdin === undefined ? "ignore" : "pipe",
+            stdin: options.stdin === undefined && options.input === undefined ? "ignore" : "pipe",
             killSignal: "SIGTERM",
             forceKillAfter: graceMs
           })
@@ -134,7 +135,7 @@ export const runEffect = (options: Omit<Options, "signal">): Effect.Effect<numbe
             catch: (cause) => cause
           })))
       }
-      const [code] = yield* Effect.all([
+      const joined = Effect.all([
         process.platform === "win32"
           ? handle.exitCode.pipe(Effect.catch(() => Effect.succeed(1)))
           : ScopedProcess.status(handle).pipe(Effect.map((status) => status.code ?? 1)),
@@ -148,8 +149,19 @@ export const runEffect = (options: Omit<Options, "signal">): Effect.Effect<numbe
             () => Effect.void
           )
         )
-      ], { concurrency: "unbounded" })
-      return code
+      ], { concurrency: "unbounded" }).pipe(Effect.map(([code]) => code))
+      // Input EOF waits for the process. Input failure terminates it; process
+      // exit interrupts an open protocol reader before the scope joins teardown.
+      return yield* options.input === undefined ? joined : Effect.raceFirst(
+        joined,
+        Stream.run(options.input, handle.stdin).pipe(
+          Effect.andThen(Effect.never),
+          Effect.catchIf(
+            (error) => (error as { cause?: NodeJS.ErrnoException }).cause?.code === "EPIPE",
+            () => Effect.never
+          )
+        )
+      )
     })
     const bounded = options.timeoutMs === undefined ? program : program.pipe(Effect.timeoutOrElse({
       duration: options.timeoutMs,

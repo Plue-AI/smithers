@@ -6,6 +6,7 @@
 
 import type * as CloudRun from "@smthrs/targets/CloudRun"
 import * as Data from "effect/Data"
+import { createHash, randomUUID } from "node:crypto"
 import * as Fs from "node:fs/promises"
 import * as Os from "node:os"
 import * as Path from "node:path"
@@ -176,6 +177,15 @@ export const preview = async (options: {
   if (image.architecture !== "amd64") {
     throw new PreviewError({ message: "CloudRun.Preview: stale_image: Cloud Run requires an amd64 image" })
   }
+  const origin =
+    (await PackageTree.runGit(options.root, ["config", "--get", "remote.origin.url"]).catch(() => undefined))?.trim()
+  if (origin === undefined || origin === "") {
+    throw new PreviewError({ message: "CloudRun.Preview: invalid_target: repository origin required" })
+  }
+  const owner = createHash("sha256").update(
+    JSON.stringify([origin, options.label, `${attrs.repository}/${options.name}`])
+  ).digest("hex").slice(0, 40)
+  const deployment = randomUUID()
   const sha = options.commit.slice(0, 7)
   const tag = `r-${sha}`
   const base = [
@@ -274,6 +284,9 @@ export const preview = async (options: {
     const revision = json<Revision>(
       (await cloud(["run", "revisions", "describe", traffic.revisionName, "--format=json"])).stdout
     )
+    if (revision.metadata?.labels?.["smthrs-owner"] !== owner) {
+      throw new PreviewError({ message: "CloudRun.Preview: invalid_target: preview tag belongs to another owner" })
+    }
     reused = revision.status?.imageDigest === pushed.digest ||
       revision.status?.imageDigest?.endsWith(`@${pushed.digest}`) === true
     reused = reused && !carriesTraffic(service, traffic.revisionName)
@@ -286,46 +299,6 @@ export const preview = async (options: {
       else expiresAt = prior
     }
   }
-  if (!reused) {
-    const env = Object.entries(attrs.env ?? {})
-    // gcloud's dictionary syntax permits a custom delimiter; choose one absent
-    // from every value so commas and equals signs survive without shell parsing.
-    let delimiter = "|"
-    while (env.some(([key, value]) => `${key}=${value}`.includes(delimiter))) delimiter += "|"
-    await cloud([
-      "run",
-      "deploy",
-      attrs.service,
-      "--image",
-      `${attrs.repository}/${options.name}@${pushed.digest}`,
-      "--tag",
-      tag,
-      "--no-traffic",
-      "--no-allow-unauthenticated",
-      "--service-account",
-      attrs.serviceAccount,
-      "--execution-environment",
-      "gen2",
-      "--no-cpu-throttling",
-      "--max-instances",
-      "1",
-      "--memory",
-      "4Gi",
-      "--cpu",
-      "2",
-      "--timeout",
-      "3600",
-      "--startup-probe",
-      "httpGet.path=/readyz",
-      "--labels",
-      `smthrs-expires=${expires},smthrs-commit=${sha}`,
-      "--set-env-vars",
-      env.length === 0 ? "" : `^${delimiter}^${env.map(([key, value]) => `${key}=${value}`).join(delimiter)}`
-    ])
-    service = serviceDocument((await cloud(["run", "services", "describe", attrs.service, "--format=json"])).stdout)
-    traffic = service.status?.traffic?.find((entry) => entry.tag === tag)
-  }
-  const revision = traffic?.revisionName
   const remove = async (
     tags: ReadonlyArray<string>,
     name: string,
@@ -336,36 +309,116 @@ export const preview = async (options: {
     }
     await cloud(["run", "revisions", "delete", name], true, signal)
   }
-  let privateSurface = false
+  let revision: string | undefined
+  let mutationStarted = false
   try {
-    if (traffic?.url !== undefined) {
-      const response = await fetch(traffic.url, {
-        redirect: "manual",
-        signal: AbortSignal.any([
-          AbortSignal.timeout(30_000),
-          ...(options.signal === undefined ? [] : [options.signal])
-        ])
-      })
-      privateSurface = response.status === 401 || response.status === 403
-      await response.body?.cancel()
+    if (!reused) {
+      const env = Object.entries(attrs.env ?? {})
+      // gcloud's dictionary syntax permits a custom delimiter; choose one absent
+      // from every value so commas and equals signs survive without shell parsing.
+      let delimiter = "|"
+      while (env.some(([key, value]) => `${key}=${value}`.includes(delimiter))) delimiter += "|"
+      mutationStarted = true
+      await cloud([
+        "run",
+        "deploy",
+        attrs.service,
+        "--image",
+        `${attrs.repository}/${options.name}@${pushed.digest}`,
+        "--tag",
+        tag,
+        "--no-traffic",
+        "--no-allow-unauthenticated",
+        "--service-account",
+        attrs.serviceAccount,
+        "--execution-environment",
+        "gen2",
+        "--no-cpu-throttling",
+        "--max-instances",
+        "1",
+        "--memory",
+        "4Gi",
+        "--cpu",
+        "2",
+        "--timeout",
+        "3600",
+        "--startup-probe",
+        "httpGet.path=/readyz",
+        "--labels",
+        `smthrs-expires=${expires},smthrs-commit=${sha},smthrs-deployment=${deployment},smthrs-owner=${owner}`,
+        "--set-env-vars",
+        env.length === 0 ? "" : `^${delimiter}^${env.map(([key, value]) => `${key}=${value}`).join(delimiter)}`
+      ])
+      service = serviceDocument((await cloud(["run", "services", "describe", attrs.service, "--format=json"])).stdout)
+      traffic = service.status?.traffic?.find((entry) => entry.tag === tag)
     }
-  } catch { /* Missing or unreachable private proof fails closed. */ }
-  if (!privateSurface || revision === undefined) {
-    let cleanupFailed = false
+    revision = traffic?.revisionName
+    let privateSurface = false
     try {
-      await cloud(["run", "services", "update-traffic", attrs.service, "--remove-tags", tag], true, null)
+      if (traffic?.url !== undefined) {
+        const response = await fetch(traffic.url, {
+          redirect: "manual",
+          signal: AbortSignal.any([
+            AbortSignal.timeout(30_000),
+            ...(options.signal === undefined ? [] : [options.signal])
+          ])
+        })
+        privateSurface = response.status === 401 || response.status === 403
+        await response.body?.cancel()
+      }
+    } catch { /* Missing or unreachable private proof fails closed. */ }
+    if (!privateSurface || revision === undefined) {
+      throw new PreviewError({ message: "CloudRun.Preview: public_surface: anonymous probe did not refuse access" })
+    }
+  } catch (cause) {
+    let cleanupFailed = false
+    const cleanupSignal = AbortSignal.timeout(30_000)
+    try {
+      // An uncertain deploy is identified by its unique mutation label, never
+      // by a tag or expiry alone. Reuse cleanup also requires stable ownership.
+      const rows = json<ReadonlyArray<Revision>>(
+        (await cloud(
+          [
+            "run",
+            "revisions",
+            "list",
+            "--service",
+            attrs.service,
+            "--format=json"
+          ],
+          true,
+          cleanupSignal
+        )).stdout
+      )
+      if (!Array.isArray(rows)) throw new Error("invalid revision list")
+      const owned = rows.filter((row) =>
+        row.metadata?.labels?.["smthrs-owner"] === owner && (
+          mutationStarted ? row.metadata?.labels?.["smthrs-deployment"] === deployment : row.metadata?.name === revision
+        )
+      )
+      if (owned.length === 0) cleanupFailed = true
+      for (const row of owned) {
+        const name = row.metadata?.name
+        if (name === undefined || carriesTraffic(service, name)) {
+          cleanupFailed = true
+          continue
+        }
+        try {
+          await cloud(["run", "services", "update-traffic", attrs.service, "--remove-tags", tag], true, cleanupSignal)
+        } catch {
+          cleanupFailed = true
+        }
+        try {
+          await cloud(["run", "revisions", "delete", name], true, cleanupSignal)
+        } catch {
+          cleanupFailed = true
+        }
+      }
     } catch {
       cleanupFailed = true
     }
-    if (revision !== undefined) {
-      try {
-        await cloud(["run", "revisions", "delete", revision], true, null)
-      } catch {
-        cleanupFailed = true
-      }
-    } else cleanupFailed = true
     throw new PreviewError({
-      message: `CloudRun.Preview: public_surface: anonymous probe did not refuse access${
+      message: `${cause instanceof Error ? cause.message : "CloudRun.Preview: tool_failed"}${
         cleanupFailed ? "; cleanup failed" : ""
       }`
     })
@@ -384,7 +437,8 @@ export const preview = async (options: {
     const expiration = Number(labels?.["smthrs-expires"])
     const entries = service.status?.traffic ?? []
     if (
-      name === undefined || name === revision || !/^[a-f0-9]{7}$/.test(labels?.["smthrs-commit"] ?? "") ||
+      name === undefined || name === revision || labels?.["smthrs-owner"] !== owner ||
+      !/^[a-f0-9]{7}$/.test(labels?.["smthrs-commit"] ?? "") ||
       !/^\d+$/.test(labels?.["smthrs-expires"] ?? "") || !Number.isSafeInteger(expiration) ||
       expiration > Math.floor(Date.now() / 1000) || carriesTraffic(service, name)
     ) continue

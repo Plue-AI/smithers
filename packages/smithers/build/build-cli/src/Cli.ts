@@ -146,6 +146,10 @@ export interface ExecutionFlags extends WorkspaceFlags {
  * @slop
  */
 export interface RuntimeConfig {
+  /** Trusted test transport; production discovery is pinned to GitHub. */
+  /** Base resolved by the credential-owning process before declaration loading. */
+  readonly verifiedGreenBase?: string | undefined
+  readonly baseTransport?: typeof fetch | undefined
   readonly cliName?: string | undefined
   readonly cliVersion?: string | undefined
   readonly cliDescription?: string | undefined
@@ -889,8 +893,12 @@ const writeResults = async (file: FileHandle, summary: Executor.Summary): Promis
 }
 
 /** The results path, resolved like `--known-red` against the workspace. */
-const resultsPath = (options: { readonly workspace?: string; readonly resultsFile?: string } | undefined): string | undefined =>
-  options?.resultsFile === undefined ? undefined : NodePath.resolve(options.workspace ?? process.cwd(), options.resultsFile)
+const resultsPath = (
+  options: { readonly workspace?: string; readonly resultsFile?: string } | undefined
+): string | undefined =>
+  options?.resultsFile === undefined
+    ? undefined
+    : NodePath.resolve(options.workspace ?? process.cwd(), options.resultsFile)
 
 /**
  * Runs one execution command under a reporter that is closed however the
@@ -902,7 +910,11 @@ const executeCommand = async <A extends Outcome>(
   code: string,
   body: (reporter: Reporter.Reporter) => Promise<A>
 ): Promise<A | undefined> => {
-  const options = context.options as { readonly workspace?: string; readonly knownRed?: string; readonly resultsFile?: string } | undefined
+  const options = context.options as {
+    readonly workspace?: string
+    readonly knownRed?: string
+    readonly resultsFile?: string
+  } | undefined
   const resultsFile = resultsPath(options)
   // Open (create) the results file before any target runs, so an existing one refuses up front.
   let results: FileHandle | undefined
@@ -911,7 +923,11 @@ const executeCommand = async <A extends Outcome>(
       await NodeFs.mkdir(NodePath.dirname(resultsFile), { recursive: true })
       results = await NodeFs.open(resultsFile, "wx")
     } catch (cause) {
-      return context.error({ code, exitCode: 1, message: `results file ${resultsFile}: ${cause instanceof Error ? cause.message : String(cause)}` })
+      return context.error({
+        code,
+        exitCode: 1,
+        message: `results file ${resultsFile}: ${cause instanceof Error ? cause.message : String(cause)}`
+      })
     }
   }
   try {
@@ -919,7 +935,9 @@ const executeCommand = async <A extends Outcome>(
   } finally {
     // A step that failed before summarizing still leaves a readable record with no rows,
     // so it reads as "these labels did not run", never as an unreadable run.
-    if (results !== undefined && (await results.stat()).size === 0) await results.writeFile(`${JSON.stringify({ results: [], version: 1 })}\n`)
+    if (results !== undefined && (await results.stat()).size === 0) {
+      await results.writeFile(`${JSON.stringify({ results: [], version: 1 })}\n`)
+    }
     await results?.close()
   }
 }
@@ -1317,10 +1335,13 @@ const makeCommands = (config: RuntimeConfig) =>
           const executionConfig = context.options.baseGreen
             ? { ...config, environment: AffectedBase.withoutToken(environmentOf(config)) }
             : config
-          const index = await openPackageIndex(context.options, executionConfig)
-          const green = context.options.baseGreen
-            ? await AffectedBase.resolve(index.root, environmentOf(config), config.signal)
+          const root = await PackageDiscovery.findWorkspaceRoot(NodePath.resolve(context.options.workspace))
+          const green = context.options.baseGreen && root !== undefined
+            ? config.verifiedGreenBase !== undefined ?
+              config.verifiedGreenBase || undefined
+              : await AffectedBase.resolve(root, environmentOf(config), config.signal, config.baseTransport)
             : undefined
+          const index = await openPackageIndex(context.options, executionConfig)
           const files = context.options.baseGreen && green === undefined ?
             [] :
             await Affected.changedPaths(index.root, {
@@ -1330,7 +1351,7 @@ const makeCommands = (config: RuntimeConfig) =>
               environment: environmentOf(executionConfig)
             })
           const partial = Affected.select(index, context.args.patterns, files, { explain: context.options.list })
-          const vouched = environmentOf(config).GITHUB_EVENT_NAME !== "pull_request"
+          const vouched = environmentOf(config).GITHUB_EVENT_NAME === "push"
           const full = context.options.baseGreen &&
             Affected.needsFullGate(green, files, partial.targets.length, vouched)
           const changed = full ?
@@ -1798,7 +1819,8 @@ const makeCommands = (config: RuntimeConfig) =>
           context,
           config,
           "ci_failed",
-          (reporter) => runCi(context.args.patterns, context.options, config, reporter)
+          (reporter) =>
+            runCi(context.args.patterns, context.options, config, reporter)
         )
     })
     .command("query", {
@@ -1811,7 +1833,8 @@ const makeCommands = (config: RuntimeConfig) =>
         try {
           const index = await openPackageIndex(context.options, config)
           const result = await packageQuery(index, context.args.expr, environmentOf(config))
-          return present(context, config, result, (style) => Query.text(result, style))
+          return present(context, config, result, (style) =>
+            Query.text(result, style))
         } catch (cause) {
           return context.error({ code: "query_failed", exitCode: 1, message: failureText(context, cause) })
         }
