@@ -88,9 +88,11 @@ describe("the generated product API client", () => {
     const exported = Object.entries(ProductApi).filter(([, value]) => typeof value === "function").map(([name]) => name)
       .sort()
     expect(exported).toEqual(expected)
-    // Reviewed deployed resource inventory plus T-MCH-04's two dark branch reads.
+    // Reviewed deployed resource inventory (2026-10-05, smithers-b8): the members roster (#3491), the TODO
+    // edit and answer routes, and the dark TODO branch diff (#3452) were added; the unserved branch reads
+    // (fc5676df0, #3565) and the mythical config setter (44b074f80, #3572) were removed.
     // Exact parity above and the literal resource inventory below remain independent.
-    expect(expected).toHaveLength(497)
+    expect(expected).toHaveLength(504)
     expect(spec.paths).not.toHaveProperty("/api/repository-setup/{operation}")
     expect(operations.filter(({ path }) => path.startsWith("/api/install")).map(({ path, method }) =>
       `${method.toUpperCase()} ${path}`
