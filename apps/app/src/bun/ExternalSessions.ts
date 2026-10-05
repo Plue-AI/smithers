@@ -1,40 +1,57 @@
 /*
  * Codex sessions on this machine, read for the conversation (mvp.md M-38).
- * A session is found by id or unique prefix under every Codex home, decoded
+ * A session is found by id or unique prefix under the running user’s Codex home, decoded
  * with @smthrs/harness/ExternalTranscript, and tailed: each read decodes only
  * the bytes appended since the last one. Command output and diffs are
  * clipped here, so a poll never ships a whole log.
  */
-import { open, readdir, stat } from "node:fs/promises"
+import { constants } from "node:fs"
+import { open, readdir, lstat, realpath } from "node:fs/promises"
 import { homedir } from "node:os"
-import { join } from "node:path"
+import { join, resolve, relative, sep } from "node:path"
 import { Result } from "effect"
 import { codexStart, decodeCodex, type CodexState, type Entry } from "@smthrs/harness/ExternalTranscript"
 
-/** Every sessions directory a Codex home on this machine can hold, CODEX_HOME first. */
+/** Only the running user's configured home, or ~/.codex when unset. */
 export async function sessionRoots(home = homedir(), env: Readonly<Record<string, string | undefined>> = process.env): Promise<string[]> {
-  const roots = [env.CODEX_HOME ? join(env.CODEX_HOME, "sessions") : "", join(home, ".codex", "sessions")]
-  const accounts = join(home, ".smithers", "accounts")
-  for (const name of await readdir(accounts).catch(() => [] as string[])) if (name.startsWith("codex")) roots.push(join(accounts, name, "sessions"))
-  return [...new Set(roots.filter(Boolean))]
+  return [join(env.CODEX_HOME || join(home, ".codex"), "sessions")]
 }
 
-async function* rollouts(directory: string): AsyncGenerator<string> {
-  for (const entry of await readdir(directory, { withFileTypes: true }).catch(() => [])) {
-    const path = join(directory, entry.name)
-    if (entry.isDirectory()) yield* rollouts(path)
-    else if (entry.name.startsWith("rollout-") && entry.name.endsWith(".jsonl")) yield path
+/** Reject links in every component below the filesystem root. */
+async function regularPath(path: string, root: string) {
+  const absolute = resolve(path)
+  let component: string = sep
+  for (const name of absolute.split(sep).filter(Boolean)) {
+    component = join(component, name)
+    if ((await lstat(component)).isSymbolicLink()) throw new Error("Symlink transcript path")
   }
+  const canonicalRoot = await realpath(root)
+  const canonical = await realpath(absolute)
+  const below = relative(canonicalRoot, canonical)
+  if (below === ".." || below.startsWith(`..${sep}`) || resolve(canonicalRoot, below) !== canonical) throw new Error("Outside transcript root")
+  return lstat(absolute)
+}
+
+async function* rollouts(directory: string, root = directory): AsyncGenerator<string> {
+  try {
+    if (!(await regularPath(directory, root)).isDirectory()) return
+    for (const entry of await readdir(directory, { withFileTypes: true })) {
+      const path = join(directory, entry.name)
+      const info = await regularPath(path, root).catch(() => undefined)
+      if (info?.isDirectory()) yield* rollouts(path, root)
+      else if (info?.isFile() && entry.name.startsWith("rollout-") && entry.name.endsWith(".jsonl")) yield path
+    }
+  } catch { /* Missing or unsafe roots expose no sessions. */ }
 }
 
 export type Lookup = { readonly path: string } | { readonly error: "unknown" | "ambiguous"; readonly message: string }
 
-/** The newest rollout whose session id starts with `id`; a session copied into several homes reads the copy written last. */
+/** The newest rollout whose session id starts with `id`; only regular files beneath the supplied root are eligible. */
 export async function findRollout(id: string, roots: readonly string[]): Promise<Lookup> {
   const matches: Array<{ path: string; session: string; modified: number }> = []
   for (const root of roots) for await (const path of rollouts(root)) {
     const session = /rollout-\d{4}-\d{2}-\d{2}T\d{2}-\d{2}-\d{2}-(.+)\.jsonl$/.exec(path)?.[1]
-    if (session?.startsWith(id)) matches.push({ path, session, modified: (await stat(path)).mtimeMs })
+    if (session?.startsWith(id)) matches.push({ path, session, modified: (await lstat(path)).mtimeMs })
   }
   const sessions = [...new Set(matches.map(match => match.session))]
   if (sessions.length === 0) return { error: "unknown", message: `No Codex session ${id} on this machine.` }
@@ -76,14 +93,21 @@ interface Tail { offset: number; state: CodexState; readonly decoder: TextDecode
 export function externalSessions(roots: () => Promise<readonly string[]> = () => sessionRoots()) {
   const tails = new Map<string, Tail>()
   return async (id: string, since = 0): Promise<SessionRead | Exclude<Lookup, { path: string }>> => {
-    const found = await findRollout(id, await roots())
+    const directories = await roots()
+    const found = await findRollout(id, directories)
     if (!("path" in found)) return found
     const tail = tails.get(found.path) ?? { offset: 0, state: codexStart, decoder: new TextDecoder(), entries: [] }
     tails.set(found.path, tail)
-    const size = (await stat(found.path)).size
+    const root = directories.find(root => found.path.startsWith(resolve(root) + sep))!
+    const info = await regularPath(found.path, root)
+    if (!info.isFile()) return { error: "unknown", message: `No Codex session ${id} on this machine.` }
+    const size = info.size
     if (tail.error === undefined && size > tail.offset) {
-      const file = await open(found.path)
+      const file = await open(found.path, constants.O_RDONLY | constants.O_NOFOLLOW)
       try {
+        const opened = await file.stat()
+        const current = await regularPath(found.path, root)
+        if (!opened.isFile() || opened.dev !== current.dev || opened.ino !== current.ino) return { error: "unknown", message: `No Codex session ${id} on this machine.` }
         const bytes = new Uint8Array(size - tail.offset)
         const { bytesRead } = await file.read(bytes, 0, bytes.length, tail.offset)
         tail.offset += bytesRead

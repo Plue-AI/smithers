@@ -152,8 +152,6 @@ export interface LocalServerOptions {
   readonly backendApi?: string | null
   /** Codex sessions on this machine (M-38); tests pass their own Codex homes. */
   readonly externalSessions?: ReturnType<typeof externalSessions>
-  /** Who ran those sessions; defaults to this machine's jj user, then the OS user. */
-  readonly externalOwner?: { readonly login: string; readonly name: string }
   /**
    * Where `/api/cloud/*` forwards (the Smithers Cloud API) and where the
    * `/api/cloud-auth/*` login points. `undefined` reads SMITHERS_CLOUD_API,
@@ -666,15 +664,10 @@ const proxyCloud = async (
   return new Response(response.body, { status: response.status, headers: out })
 }
 
-/** The person at this machine: jj's configured name, else the OS account. */
+/** The OS user whose own Codex home the local preview reads. */
 const machineOwner = (): { readonly login: string; readonly name: string } => {
   const login = userInfo().username
-  let name = ""
-  try {
-    const jj = Bun.spawnSync(["jj", "config", "get", "user.name"], { stdout: "pipe", stderr: "ignore" })
-    if (jj.success) name = jj.stdout.toString().trim()
-  } catch { /* no jj on this machine: the OS account names the person */ }
-  return { login, name: name || login }
+  return { login, name: login }
 }
 
 export const startLocalServer = async (options: LocalServerOptions): Promise<LocalServer> => {
@@ -771,9 +764,8 @@ export const startLocalServer = async (options: LocalServerOptions): Promise<Loc
    * session is polled for what it appended.
    */
   const readSession = options.externalSessions ?? externalSessions()
-  let owner = options.externalOwner
+  const owner = machineOwner()
   router.add("GET", EXTERNAL_CODEX_PATH, async ({ url }) => {
-    owner ??= machineOwner()
     const id = url.searchParams.get("session") ?? ""
     if (!/^[0-9a-f-]{4,36}$/.test(id)) return jsonError("invalid_request", "A Codex session id or a prefix of at least four characters is required.")
     const read = await readSession(id, Number(url.searchParams.get("since") ?? 0) || 0)

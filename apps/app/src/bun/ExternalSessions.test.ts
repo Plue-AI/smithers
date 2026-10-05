@@ -1,6 +1,6 @@
 import { afterAll, beforeAll, describe, expect, test } from "bun:test"
-import { appendFile, mkdir, mkdtemp, rm, utimes, writeFile } from "node:fs/promises"
-import { tmpdir } from "node:os"
+import { appendFile, mkdir, mkdtemp, rm, realpath, symlink, utimes, writeFile } from "node:fs/promises"
+import { tmpdir, userInfo } from "node:os"
 import { join } from "node:path"
 import { EXTERNAL_CODEX_PATH } from "@smthrs/rpc/AgentApiRoutes"
 import { LOCAL_SESSION_HEADER } from "@smthrs/rpc/LocalSession"
@@ -22,28 +22,41 @@ const write = async (path: string, lines: readonly string[]) => {
 }
 
 beforeAll(async () => {
-  home = await mkdtemp(join(tmpdir(), "codex-home-"))
+  home = await realpath(await mkdtemp(join(tmpdir(), "codex-home-")))
   await write(rolloutPath(join(home, ".codex", "sessions"), ID), [meta(ID), prompt(1, "stale copy")])
   await write(rolloutPath(join(home, ".smithers", "accounts", "codex-2", "sessions"), ID), [meta(ID), prompt(1, "live copy")])
   await write(rolloutPath(join(home, ".smithers", "accounts", "codex-2", "sessions"), OTHER), [meta(OTHER), prompt(1, "other")])
-  await mkdir(join(home, ".smithers", "accounts", "claude-1", "sessions"), { recursive: true })
+  await write(rolloutPath(join(home, ".codex", "sessions"), OTHER), [meta(OTHER), prompt(1, "other")])
   await utimes(rolloutPath(join(home, ".codex", "sessions"), ID), new Date(1_000), new Date(1_000))
 })
 afterAll(() => rm(home, { recursive: true, force: true }))
 
 describe("finding a session", () => {
-  test("roots: CODEX_HOME first, then the default home and every Codex account, never another agent's", async () => {
+  test("roots select CODEX_HOME exclusively or the default home", async () => {
     expect(await sessionRoots(home, { CODEX_HOME: "/custom" })).toEqual([
-      "/custom/sessions", join(home, ".codex", "sessions"), join(home, ".smithers", "accounts", "codex-2", "sessions")
+      "/custom/sessions"
     ])
     expect(await sessionRoots(join(home, "missing"), {})).toEqual([join(home, "missing", ".codex", "sessions")])
   })
 
-  test("a full id or unique prefix reads the copy written last", async () => {
+  test("a full id or unique prefix reads only the own-home copy", async () => {
     const roots = await sessionRoots(home, {})
-    const live = { path: rolloutPath(join(home, ".smithers", "accounts", "codex-2", "sessions"), ID) }
+    const live = { path: rolloutPath(join(home, ".codex", "sessions"), ID) }
     expect(await findRollout(ID, roots)).toEqual(live)
     expect(await findRollout("0199aaaa", roots)).toEqual(live)
+  })
+
+  test("other homes and symlinked transcripts or sessions are never read", async () => {
+    const own = await externalSessions(() => sessionRoots(home, {}))(ID)
+    expect(own).toMatchObject({ entries: [{ part: { text: "stale copy" } }] })
+    const account = join(home, ".smithers", "accounts", "codex-2", "sessions")
+    const root = join(home, "links", "sessions")
+    await mkdir(root, { recursive: true })
+    await symlink(rolloutPath(account, ID), join(root, `rollout-2026-10-05T11-45-26-${ID}.jsonl`))
+    await symlink(account, join(root, "x"))
+    expect(await externalSessions(() => sessionRoots(home, { CODEX_HOME: join(home, "links") }))(ID)).toMatchObject({ error: "unknown" })
+    await symlink(account, join(home, "linked-sessions"))
+    expect(await externalSessions(async () => [join(home, "linked-sessions")])(ID)).toMatchObject({ error: "unknown" })
   })
 
   test("an unknown or ambiguous id says which", async () => {
@@ -117,7 +130,7 @@ describe(`GET ${EXTERNAL_CODEX_PATH}`, () => {
     dist = await mkdtemp(join(tmpdir(), "smithers-dist-"))
     await writeFile(join(dist, "index.html"), "<!doctype html><div id=\"root\"></div>")
     server = await startLocalServer({ port: 0, distDir: dist, home: "/fake/home", log: () => {},
-      externalSessions: externalSessions(async () => sessionRoots(home, {})), externalOwner: { login: "ben", name: "Ben Ito" } })
+      externalSessions: externalSessions(async () => sessionRoots(home, {})) })
   })
   afterAll(async () => { await server.stop(); await rm(dist, { recursive: true, force: true }) })
   const get = (query: string, session = true) =>
@@ -126,7 +139,7 @@ describe(`GET ${EXTERNAL_CODEX_PATH}`, () => {
   test("answers the session with its owner", async () => {
     const response = await get(`?session=0199bbbb`)
     expect(response.status).toBe(200)
-    expect(await response.json()).toMatchObject({ session_id: OTHER, owner: { login: "ben", name: "Ben Ito" }, next: 1,
+    expect(await response.json()).toMatchObject({ session_id: OTHER, owner: { login: userInfo().username, name: userInfo().username }, next: 1,
       entries: [{ origin: "external", agent_kind: "codex", read_only: true, role: "user", part: { type: "prompt", text: "other" } }] })
   })
 
