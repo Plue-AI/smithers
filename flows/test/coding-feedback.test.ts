@@ -12,6 +12,7 @@ import * as MemoryStore from "../../packages/smithers/agent/memory/src/MemorySto
 import * as NodeJj from "../../packages/smithers/flows/jj/src/node/NodeJj.ts"
 import { correctionLayers, CorrectPlan } from "../coding/correction.ts"
 import { EarlyFeedback, feedbackLayers, ObservePlan } from "../coding/feedback.ts"
+import { ChangeDiff } from "../coding/kept-tests.ts"
 import { NativeCoding } from "../coding/native.ts"
 import {
   checkInputDigest,
@@ -72,7 +73,8 @@ for (const mode of ["fast-infra", "slow-infra", "real-red"] as const) {
       },
       Layer.mergeAll(
         policyLayers,
-        correctionLayers,
+        // No test file changes in these rounds: the guard reads an empty diff.
+        correctionLayers.pipe(Layer.provide(Layer.succeed(ChangeDiff, { read: () => Effect.succeed("") }))),
         Implement.toLayer(({ parent }) => Effect.succeed(implementation(0, parent))),
         RunCheck.toLayer(({ implementation: impl, check }) =>
           Effect.succeed({

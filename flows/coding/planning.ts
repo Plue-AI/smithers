@@ -133,7 +133,8 @@ export const DraftPlan = AgentAction.make("coding/draft-plan", {
   memory: planningMemory
 })
 export const FinalizePlan = Action.make("coding/finalize-plan", {
-  payload: { input: PlanningInput, context: PlanningContext, draft: Draft },
+  // The answer to planning's question rides into the plan's feedback.
+  payload: { input: PlanningInput, context: PlanningContext, draft: Draft, answer: Schema.optionalKey(Schema.Json) },
   success: Plan,
   error: CodingError
 })
@@ -197,10 +198,13 @@ export const PreparePlan = Flow.make("coding/PreparePlan", {
                     Node.map((review) => carriedAnswer(planning.answers, review.clarification) ?? "")
                   )
               }).pipe(
-                Node.bindPlanned((answer) => DraftPlan.call({ input, context, review, answer })),
-                Node.bindPlanned((draft) =>
-                  VerifyContext.call({ context, draft }).pipe(
-                    Node.bindPlanned((context) => FinalizePlan.call({ input, context, draft }))
+                Node.bindPlanned((answer) =>
+                  DraftPlan.call({ input, context, review, answer }).pipe(
+                    Node.bindPlanned((draft) =>
+                      VerifyContext.call({ context, draft }).pipe(
+                        Node.bindPlanned((context) => FinalizePlan.call({ input, context, draft, answer }))
+                      )
+                    )
                   )
                 )
               )
@@ -325,8 +329,21 @@ export const emptyWorkingChange = (history: PlanningContext["history"]): string 
     undefined
 }
 
+/** A person's answer as text, whether the wait settled with a string or an object. */
+const answerText = (answer: unknown): string => {
+  if (typeof answer === "string") return answer.trim()
+  if (answer === null || answer === undefined) return ""
+  const text = (answer as { answer?: unknown }).answer
+  return typeof text === "string" ? text.trim() : JSON.stringify(answer)
+}
+
 /** Binds model choices to host-measured facts before any mutation is scheduled. */
-export const finalize = (input: typeof PlanningInput.Type, context: PlanningContext, draft: Draft): Plan => {
+export const finalize = (
+  input: typeof PlanningInput.Type,
+  context: PlanningContext,
+  draft: Draft,
+  answer?: unknown
+): Plan => {
   const nativeIds = new Set<string>()
   for (const [index, atom] of context.history.entries()) {
     if (
@@ -399,8 +416,18 @@ export const finalize = (input: typeof PlanningInput.Type, context: PlanningCont
     )
   }
   const memory = projectMemory(context)
+  // The person's own words only: steers, carried answers and this pass's
+  // answer, never the agent's questions.
+  const feedback = [
+    ...new Set([
+      input.feedback.trim(),
+      ...(input.answers ?? []).map((carried) => carried.answer.trim()),
+      answerText(answer)
+    ])
+  ].filter((text) => text !== "").join("\n\n")
   const plan: Plan = {
     prompt: input.prompt,
+    ...(feedback === "" ? {} : { feedback }),
     memoryRevision: context.memoryRevision,
     ...(memory.length === 0 ? {} : { memory }),
     base: context.history[baseIndex]!,
@@ -410,9 +437,9 @@ export const finalize = (input: typeof PlanningInput.Type, context: PlanningCont
   validatePlan(plan)
   return plan
 }
-export const planningPolicy = FinalizePlan.toLayer(({ input, context, draft }) =>
+export const planningPolicy = FinalizePlan.toLayer(({ input, context, draft, answer }) =>
   Effect.try({
-    try: () => finalize(input, context, draft),
+    try: () => finalize(input, context, draft, answer),
     catch: (error) => error instanceof CodingError ? error : invalid(String(error))
   })
 )

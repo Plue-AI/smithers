@@ -46,6 +46,7 @@ import * as CodingFileSystem from "./filesystem.ts"
 import { flowLoadRegistration } from "./flow-load/flow.ts"
 import { atomFlows } from "./implementation/flow.ts"
 import { jevCheckDelegate, jevCheckLayers } from "./jev-check.ts"
+import { changeDiffLayer } from "./kept-tests.ts"
 import type { Landing } from "./landing.ts"
 import * as LocalLanding from "./local-landing.ts"
 import { nativeActions, NativeCoding, nativeLayer, type NativeOptions, NativeTransport } from "./native.ts"
@@ -569,7 +570,8 @@ export const layer = (platform: NativeControl.Platform, options: Options, suppli
           declineLayer,
           preparePlanLayer(options.planning.limits?.toolMs),
           HumanTask.layer,
-          correctionLayers,
+          // The correction loop's test guard reads the lane's own jj diff.
+          correctionLayers.pipe(Layer.provide(changeDiffLayer)),
           sourceAdmission,
           stackBaseLayer,
           dependencyPagesLayer(options.repositoryPath, fs),

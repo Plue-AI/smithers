@@ -174,6 +174,24 @@ test("reordering or dropping an existing descendant is refused", () => {
   )
 })
 
+test("the plan carries the request's feedback and the answer to planning's question", () => {
+  const appended = draft(c.changeId, [atom(null, "✨ feat: d")])
+  const steered = { ...input, feedback: "Steer: keep it small." }
+  assert.equal(
+    finalize(steered, context, appended, "Drop the adds test.").feedback,
+    "Steer: keep it small.\n\nDrop the adds test."
+  )
+  assert.equal(finalize(input, context, appended, { answer: " Yes " }).feedback, "Yes", "an answer object's text")
+  assert.equal(finalize(input, context, appended, "").feedback, undefined, "no words, no field")
+  assert.equal(finalize(input, context, appended).feedback, undefined)
+  const answers = [{ question: "Remove the adds test?", answer: "Yes, drop it.", by: "ben" }]
+  assert.equal(
+    finalize({ ...input, answers }, context, appended, "Yes, drop it.").feedback,
+    "Yes, drop it.",
+    "a carried answer counts once, and never the agent's question"
+  )
+})
+
 const host = (decline: string | undefined) => {
   const counts = { drafts: 0 }
   const layer = Layer.mergeAll(

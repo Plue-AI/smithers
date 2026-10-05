@@ -37,6 +37,7 @@ import {
   RecordGate,
   RecordSlow
 } from "./feedback.ts"
+import { keepTests } from "./kept-tests.ts"
 import { recordLearning } from "./learnings.ts"
 import { stepMemory, withoutMemory } from "./project-memory.ts"
 import { Assess, FastGate, Implement, RunCheck } from "./workflow.ts"
@@ -585,7 +586,14 @@ export const correctionLayers = Layer.mergeAll(
           })
         })
       )
-      return observeRound(cursor, executionId, yield* settled)
+      // The test guard reads every settled result: a deleted, emptied or
+      // skipped existing test is a finding this loop repairs (kept-tests.ts).
+      const pass = yield* settled
+      return observeRound(
+        cursor,
+        executionId,
+        pass.result === null || pass.blocked !== null ? pass : { ...pass, result: yield* keepTests(plan, pass.result) }
+      )
     })
   )
 )

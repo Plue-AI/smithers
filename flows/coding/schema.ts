@@ -58,6 +58,10 @@ export const ProjectMemory = Schema.Array(MemoryRow).check(Schema.isMaxLength(64
 export type ProjectMemory = typeof ProjectMemory.Type
 export const Plan = Schema.Struct({
   prompt: Text,
+  // The person's other words this plan answers: the request's feedback
+  // (steers), its carried answers and the answer to planning's question. The
+  // test guard reads them with the prompt (kept-tests.ts). Absent when none.
+  feedback: Schema.optionalKey(Text),
   memoryRevision: Text,
   // The project memory the planner was given, bounded and cited, so every
   // later step opens with the same block. Absent on plans made before it.

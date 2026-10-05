@@ -11,6 +11,7 @@ import * as MemoryStore from "../../packages/smithers/agent/memory/src/MemorySto
 import * as TestMemory from "../../packages/smithers/agent/memory/src/test/TestMemory.ts"
 import * as NodeJj from "../../packages/smithers/flows/jj/src/node/NodeJj.ts"
 import { correctionLayers, CorrectPlan } from "../coding/correction.ts"
+import { ChangeDiff } from "../coding/kept-tests.ts"
 import { acceptedLearnings, failureSignatures, learningNote, learningNotes, namespace, recordLearning } from "../coding/learnings.ts"
 import { NativeCoding } from "../coding/native.ts"
 import {
@@ -146,7 +147,8 @@ test("a rejected correction round records one pending note that planning reads o
     { filename: join(root, ".flows", "engine.db"), workspaceRoot: root, owner: { hostId: "learnings" }, signals: [] },
     Layer.mergeAll(
       policyLayers,
-      correctionLayers,
+      // No test file changes in these rounds: the guard reads an empty diff.
+      correctionLayers.pipe(Layer.provide(Layer.succeed(ChangeDiff, { read: () => Effect.succeed("") }))),
       Implement.toLayer(({ change, parent }) =>
         Effect.succeed(implementation(plan.changes.findIndex((value) => value.id === change.id), parent))
       ),
