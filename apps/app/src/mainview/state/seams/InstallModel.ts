@@ -54,7 +54,7 @@ export const setupCardModel = (model: InstallModel): SetupCard => SetupCardSchem
   models: ["fast", "coding", "jev"].map(role => model.models.find(model => model.role === role)!)
 })
 /** Plain HTTP at a host other than loopback: notifications need HTTPS there and Settings marks the origin unencrypted. */
-const plainHttpOffLoopback = (origin: string) => {
+export const plainHttpOffLoopback = (origin: string) => {
   const url = new URL(origin)
   return url.protocol === "http:" && !["localhost", "127.0.0.1", "[::1]"].includes(url.hostname)
 }

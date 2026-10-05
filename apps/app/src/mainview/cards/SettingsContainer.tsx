@@ -9,7 +9,7 @@ import type { CardProps } from "@smthrs/rpc/CardAction"
 import type { SettingsCard } from "@smthrs/rpc/SettingsCard"
 import { cardActions, type CardActionDefinition } from "../flows/cardActions"
 import { installKeyAction, type InstallCardDispatch } from "./installKeyAction"
-import { limitFix, settingsCardModel } from "../state/seams/InstallModel"
+import { limitFix, plainHttpOffLoopback, settingsCardModel } from "../state/seams/InstallModel"
 import type { InstallAddress, InstallSnapshots } from "../state/seams/InstallSeam"
 import { addressPort as port, parseOrigins as origins, roleKeyActions } from "./SetupCard"
 
@@ -45,7 +45,8 @@ export const addressActions = (address: InstallAddress): CardActionDefinition<"s
 export const SettingsContainer = ({ View, install, dispatch, owner, origin, view, onView, docsAvailable = () => false }: SettingsContainerProps) => {
   const snapshot = useSyncExternalStore(install.subscribe, install.get, install.get)
   const model = snapshot.model
-  const needsHttps = model ? settingsCardModel(model, origin).notifications_need_https : false
+  // The viewer origin alone decides this; parsing the whole Settings card here would throw before the health guard below.
+  const needsHttps = model ? plainHttpOffLoopback(origin) : false
   const dispatchAvailable: InstallCardDispatch = (tag, input, gesture) => {
     if (tag === "docs" && (!owner || !needsHttps || !docsAvailable())) return
     return dispatch(tag, input, gesture)
