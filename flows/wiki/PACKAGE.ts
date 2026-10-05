@@ -27,7 +27,8 @@ const preview = S.Shell.Build({
   args: ["--experimental-strip-types", "flows/wiki/main.ts"],
   data,
   timeout: "10m",
-  outDirs: [".flows/wiki"]
+  // main.ts runs from the workspace root and writes --root/.flows/wiki.
+  outDirs: ["//.flows/wiki"]
 })
 const verify = S.Shell.Run({
   bin: S.Runtime.bin,
