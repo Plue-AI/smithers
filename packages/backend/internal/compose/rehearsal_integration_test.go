@@ -917,15 +917,20 @@ func (r *rehearsal) checkPull(number int64, head string) (githubfake.Pull, error
 // merge is the owner's Merge of TODO n at the reviewed head, from the
 // browser session: the route records one session-bound checks.Land.
 func (r *rehearsal) merge(number int64, head string) error {
+	return r.mergeAs(r.jar, number, head)
+}
+
+// mergeAs is Merge from the browser that holds jar (a maintainer's).
+func (r *rehearsal) mergeAs(jar http.CookieJar, number int64, head string) error {
 	if number <= 0 || head == "" {
 		return fmt.Errorf("blocked by First TODO/PR: no reviewed head from public routes")
 	}
 	body, _ := json.Marshal(map[string]string{"reviewed_head_sha": head})
-	if _, err := r.expect("POST", fmt.Sprintf("/api/todos/%d/merge", number), string(body), 202); err != nil {
+	if _, err := r.expectAs(jar, "POST", fmt.Sprintf("/api/todos/%d/merge", number), string(body), 202); err != nil {
 		return err
 	}
 	session := ""
-	for _, cookie := range r.jar.Cookies(mustRehearsalURL(r.origin)) {
+	for _, cookie := range jar.Cookies(mustRehearsalURL(r.origin)) {
 		if cookie.Name == "smithers_session" {
 			digest := sha256.Sum256([]byte(cookie.Value))
 			session = hex.EncodeToString(digest[:])
@@ -1227,6 +1232,94 @@ func (r *rehearsal) waitHeld(key string, within time.Duration) error {
 		}
 		if time.Now().After(deadline) {
 			return fmt.Errorf("no coding turn held on [HOLD %s] after %s (held: %v)", key, within, keys)
+		}
+	}
+}
+
+// member adds login to the roster with permission on GitHub and signs them
+// in with GitHub in a browser of their own (J1 step 8).
+func (r *rehearsal) member(login string, id int64, permission string) (http.CookieJar, error) {
+	r.fake.SetCollaborator(id, login, permission)
+	if _, err := r.expect("POST", "/api/members", `{"login":"`+login+`"}`, 204); err != nil {
+		return nil, err
+	}
+	browser, err := cookiejar.New(nil)
+	if err != nil {
+		return nil, err
+	}
+	if _, err := r.expectAs(browser, "GET", "/api/auth/github", "", 302); err != nil {
+		return nil, err
+	}
+	start, err := url.Parse(r.location)
+	if err != nil {
+		return nil, err
+	}
+	code := login + "-code"
+	r.fake.SignInAs(code, id)
+	if _, err = r.expectAs(browser, "GET", "/api/auth/github/callback?code="+code+"&state="+url.QueryEscape(start.Query().Get("state")), "", 302); err != nil {
+		return nil, err
+	}
+	return browser, nil
+}
+
+// pushGitHubMain commits files onto GitHub's main, as a merge on GitHub
+// would, asks the install's sync to read now, and waits until the stack has
+// folded that commit as the install's main. It answers the commit.
+func (r *rehearsal) pushGitHubMain(message string, files map[string]string) (string, error) {
+	work := r.t.TempDir()
+	run := func(args ...string) (string, error) {
+		cmd := exec.Command("/usr/bin/git", args...)
+		cmd.Dir = work
+		cmd.Env = append(os.Environ(), "GIT_AUTHOR_NAME=Ben", "GIT_AUTHOR_EMAIL=ben@example.test", "GIT_COMMITTER_NAME=GitHub", "GIT_COMMITTER_EMAIL=noreply@github.test")
+		out, err := cmd.CombinedOutput()
+		if err != nil {
+			return "", fmt.Errorf("git %s: %v: %s", strings.Join(args, " "), err, out)
+		}
+		return strings.TrimSpace(string(out)), nil
+	}
+	if _, err := run("clone", "-q", "--branch", "main", filepath.Join(r.gitRoot, "rehearsal-owner/app.git"), "."); err != nil {
+		return "", err
+	}
+	for path, content := range files {
+		if err := os.MkdirAll(filepath.Join(work, filepath.Dir(path)), 0700); err != nil {
+			return "", err
+		}
+		if err := os.WriteFile(filepath.Join(work, path), []byte(content), 0600); err != nil {
+			return "", err
+		}
+	}
+	if _, err := run("add", "-A"); err != nil {
+		return "", err
+	}
+	if _, err := run("commit", "-q", "-m", message); err != nil {
+		return "", err
+	}
+	if _, err := run("push", "-q", "origin", "HEAD:refs/heads/main"); err != nil {
+		return "", err
+	}
+	commit, err := run("rev-parse", "HEAD")
+	if err != nil {
+		return "", err
+	}
+	if code, _, err := r.keyed("POST", "/api/github/sync", "", r.keyPrefix+"sync-"+commit[:12]); err != nil || code != 202 {
+		return commit, fmt.Errorf("the sync was not asked to read GitHub's main: %d %v %s", code, err, r.actual)
+	}
+	for deadline := time.Now().Add(90 * time.Second); ; time.Sleep(250 * time.Millisecond) {
+		data, err := r.expect("GET", "/api/repos/rehearsal-owner/app/mythical", "", 200)
+		if err != nil {
+			return commit, err
+		}
+		var stack struct {
+			LandedMain string `json:"landedMain"`
+		}
+		if err = json.Unmarshal(data, &stack); err != nil {
+			return commit, err
+		}
+		if stack.LandedMain == commit {
+			return commit, nil
+		}
+		if time.Now().After(deadline) {
+			return commit, fmt.Errorf("the install's main did not follow GitHub's %s: stack folded %s", commit, stack.LandedMain)
 		}
 	}
 }
