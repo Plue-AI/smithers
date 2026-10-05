@@ -1,11 +1,18 @@
 import { describe, expect, test } from "vitest"
-import { boundToolResult, MAX_TOOL_RESULT_BYTES, MAX_TOOL_RESULT_LINES, utf8Bytes } from "../src/AgentToolResult.ts"
+import {
+  boundToolResult,
+  MAX_TOOL_LEGS,
+  MAX_TOOL_RESULT_BYTES,
+  MAX_TOOL_RESULT_LINES,
+  utf8Bytes
+} from "../src/AgentToolResult.ts"
 
 describe("one tool result is bounded before the next model request", () => {
   test("measures UTF-8 bytes rather than JS code units", () => {
     expect(utf8Bytes("🙂")).toBe(4)
     expect(MAX_TOOL_RESULT_BYTES).toBe(16_384)
     expect(MAX_TOOL_RESULT_LINES).toBe(1_000)
+    expect(MAX_TOOL_LEGS).toBe(8)
   })
 
   test("tool outputs pass through losslessly under both limits", () => {

@@ -12,7 +12,7 @@ import { preparedView,type ViewAction,type ViewResult } from "../PreparedView"
  * payload out, malformed rows drop; failures are honest strings, never throws.
  */
 import { FileCardSchema, type FileCard } from "@smthrs/rpc/FileCard"
-import { CARD_CONTENT_CAP, fileValue } from "@smthrs/rpc/FileRead"
+import { fileReadCard } from "@smthrs/rpc/FileRead"
 import { refusalOf } from "@smthrs/rpc/Refusal"
 import { refusalLine } from "@smthrs/rpc/RefusalCopy"
 import type { Card } from "../AppState"
@@ -328,54 +328,24 @@ export const createFilesSeam = (ctx: SeamContext, branchOptions?: BranchFileOpti
        * what this read did NOT ask for, so a revision read carries the
        * revision it asked for instead.
        */
-      const revisionFields = ref === undefined
-        ? cloudAddressing(ctx.store, repo, normalized)
-        : { address: `/${repo}/${normalized}`, ref }
-      const cardId = ref === undefined ? `file-${repo}-${normalized}` : `file-${repo}-${normalized}@${ref}`
-      const binaryCard = async (): Promise<ViewResult> => {
-        const card: Card = {
-          id: cardId,
-          kind: "file",
-          title: `File · ${repo} · ${normalized}`,
-          status: "active",
-          createdAt: Date.now(),
-          ordinal: ctx.nextOrdinal(),
-          payload: { repo, path: normalized, content: "", truncated: false, binary: true, ...revisionFields }
-        }
-        return { card, value: fileValue(repo, normalized, { content: "", truncated: false, binary: true }) }
-      }
-      let content: string
+      const { readAt } = cloudAddressing(ctx.store, repo, normalized)
+      const at = ref !== undefined ? { ref } : readAt === undefined ? {} : { readAt }
+      const shown = (content: string, binary: boolean): ViewResult =>
+        fileReadCard(
+          { repo, path: normalized, content, binary, ...at, ...(binary ? {} : anchored(anchor)) },
+          ctx.nextOrdinal(),
+          Date.now()
+        )
       if (body.encoding === "base64") {
         const decoded = decodeBase64(rawContent)
-        if (decoded.binary) return binaryCard()
-        content = decoded.text
-      } else {
-        if (rawContent.includes("\u0000")) return binaryCard()
-        const size = body.size
-        const hasBase64Length = typeof size === "number" && Number.isSafeInteger(size) && size > 0 &&
-          rawContent.replace(/\s+/g, "").length === 4 * Math.ceil(size / 3)
-        if (hasBase64Length && decodeBase64(rawContent).binary) return binaryCard()
-        content = rawContent
+        return shown(decoded.text, decoded.binary)
       }
-      const truncated = content.length > CARD_CONTENT_CAP
-      const payload = {
-        repo,
-        path: normalized,
-        content: truncated ? content.slice(0, CARD_CONTENT_CAP) : content,
-        truncated,
-        ...revisionFields,
-        ...anchored(anchor)
-      }
-      const card: Card = {
-        id: cardId,
-        kind: "file",
-        title: `File · ${repo} · ${normalized}`,
-        status: "active",
-        createdAt: Date.now(),
-        ordinal: ctx.nextOrdinal(),
-        payload
-      }
-      return { card, value: fileValue(repo, normalized, payload) }
+      if (rawContent.includes("\u0000")) return shown("", true)
+      const size = body.size
+      const hasBase64Length = typeof size === "number" && Number.isSafeInteger(size) && size > 0 &&
+        rawContent.replace(/\s+/g, "").length === 4 * Math.ceil(size / 3)
+      if (hasBase64Length && decodeBase64(rawContent).binary) return shown("", true)
+      return shown(rawContent, false)
     }
   }
   const plan = (kind: "file" | "files", path: string, repo?: string, anchor?: FileAnchor, ref?: string) => {

@@ -4,7 +4,7 @@
  * the aggregator order.
  */
 import { Schema } from "effect"
-import { fileArgs } from "../FileArgs"
+import { fileArgs, FILES_READ_COPY } from "@smthrs/rpc/FileRead"
 import { flowArgs } from "../FlowArgs"
 import { text } from "@smthrs/ui/flow-form"
 import { flow } from "./Declare"
@@ -51,10 +51,11 @@ export const filesFlows = (actions: CommandActions): ReadonlyArray<FlowEntry> =>
         ...(payload.column === undefined ? {} : { column: Number(payload.column) })
       })
     },
-    summary: "Read a file from a repository",
+    /* The model host binds its read of the mirrored main to the same copy and grammar (@smthrs/rpc/FileRead). */
+    summary: FILES_READ_COPY.summary,
     runtimeAny: ["cloud"],
     /* `:line[:col]` (docs/code-intel/PLAN.md §1): the card scrolls to and marks the line; the parser strips it off the path token. */
-    args: "<path>[:<line>[:<col>]] [owner/repo] [--ref <revision>]",
+    args: FILES_READ_COPY.args,
     requires: ["first-run-target", "repo-source"],
     input: Schema.Struct({
       path: Schema.String,

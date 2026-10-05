@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test"
-import { fileArgs, parseFileArgs } from "./FileArgs"
+import { fileArgs, parseFileArgs } from "@smthrs/rpc/FileRead"
 import { payloadFor } from "./SlashPayload"
 import { flowArgs } from "./FlowArgs"
 

@@ -1,6 +1,6 @@
 import { expect, test } from "bun:test"
 import type { AgentTurnFrame, StartAgentTurnRequest } from "@smthrs/rpc/NativeAgent"
-import { commandsToolSpec } from "../src/mainview/flows/agentTools"
+import { commandsToolSpec } from "@smthrs/rpc/AgentCommands"
 import { createLocalCommandChat } from "../e2e/graph/LocalCommandChat"
 
 const reply = async (messages: StartAgentTurnRequest["messages"]) => {

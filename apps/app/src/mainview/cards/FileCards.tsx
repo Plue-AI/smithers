@@ -4,7 +4,7 @@ import { LiveFileContext, liveFileModel, type FileDocumentBinding } from "./live
 import { CodeSurface } from "../ViewModules"
 import { cardActions } from "../flows/cardActions"
 import { flowAction } from "../flows/FlowAction"
-import { fileArgs } from "../flows/FileArgs"
+import { fileArgs } from "@smthrs/rpc/FileRead"
 /*
  * The repo file cards: a directory listing ("file-list") whose rows open
  * /files.list or /files.read, and a file view ("file") rendered as a fenced

@@ -3,7 +3,7 @@ import { isTraceFilter,TRACE_FILTER_IDS } from "../cards/RunTrace"
 import { isGraphDrawerTab, unknownTabRefusal } from "../state/controller/graph"
 import type { KnownRepositories } from "../state/RepoContext"
 import { REPO_TOKEN,splitTrailingRepo } from "../state/RepoContext"
-import { parseFileArgs } from "./FileArgs"
+import { parseFileArgs, parseFileReadArgs } from "@smthrs/rpc/FileRead"
 import { splitRunSource,takesRunSource } from "@smthrs/ui/run-command"
 
 /** A parsed invocation, or the honest refusal that names what is missing. */
@@ -1010,31 +1010,8 @@ const GRAMMAR: Readonly<Record<string, Grammar>> = {
     }
   },
   "files.read": (args) => {
-    const parsed = parseFileArgs(args)
-    if ("error" in parsed) return parsed
-    const tokens = [...parsed.tokens]
-    const refAt = tokens.indexOf("--ref")
-    const ref = refAt === -1 ? undefined : tokens[refAt + 1]
-    if (refAt !== -1) {
-      if (refAt !== tokens.length - 2 || !ref) return no("files.read --ref needs a revision")
-      tokens.splice(refAt, 2)
-    }
-    const [token, repo] = tokens
-    if (token === undefined) return no("files.read needs a file path")
-    if (tokens.length > 2) return no("files.read takes a path and optionally an owner/repo")
-    const anchor = /^(.*?):(\d+)(?::(\d+))?$/.exec(token)
-    const path = anchor === null ? token : anchor[1] ?? ""
-    if (path === "") return no("files.read needs a file path")
-    const line = anchor === null ? undefined : Number(anchor[2])
-    const column = anchor?.[3] === undefined ? undefined : Number(anchor[3])
-    if (line === 0 || column === 0) return no("files.read lines and columns count from 1: /files.read <path>[:<line>[:<col>]]")
-    return ok({
-      path,
-      ...(line === undefined ? {} : { line }),
-      ...(column === undefined ? {} : { column }),
-      ...(ref === undefined ? {} : { ref }),
-      ...(repo === undefined ? {} : { repo })
-    })
+    const parsed = parseFileReadArgs(args)
+    return "error" in parsed ? no(parsed.error) : ok({ ...parsed.payload })
   },
   /* Code intelligence (docs/code-intel/PLAN.md §4): a position for hover and definition, a path for diagnostics. */
   "code.hover": (args) => positioned("code.hover", args),

@@ -10,10 +10,10 @@
  * string below is what the continuation turn posts back to the model.
  */
 import type { AgentToolSpec } from "@smthrs/rpc/NativeAgent"
+import { commandsToolSpec, decodeCommandsCall, unknownCommandResult, unknownToolResult } from "@smthrs/rpc/AgentCommands"
 import { agentFaultNote } from "@smthrs/rpc/RefusalCopy"
 import { MAX_TOOL_RESULT_BYTES, utf8Bytes } from "@smthrs/rpc/AgentToolResult"
 import { selectFailureToolResult } from "../state/CommandSelection"
-import { canonicalCommandName } from "@smthrs/ui/command-line"
 import type { CommandRegistry } from "./Commands"
 import type { CatalogItem, CommandState, FlowEntry } from "./registry"
 import { disclosedToAgent, itemOf } from "./registry"
@@ -118,40 +118,6 @@ export const agentFailureText = (error: string): string => {
   return note === null ? worded : `${worded} ${note}`
 }
 
-/** The one tool the chat model gets. */
-export const commandsToolSpec: AgentToolSpec = {
-  type: "function",
-  name: "commands",
-  description: "action \"list\" returns {state, commands}: the live app state (surface, whether work is " +
-    "connected, whether a turn is streaming) and every command callable right now; an optional " +
-    "\"namespace\" narrows it to one namespace with every command's args, and an optional \"query\" " +
-    "(the act you need, in words) returns the few commands that do it with their args. " +
-    "action \"execute\" runs one command by name through the same code path the UI buttons " +
-    "and slash commands use.",
-  parameters: {
-    type: "object",
-    properties: {
-      action: { type: "string", enum: ["list", "execute"], description: "list commands or execute one." },
-      query: {
-        type: "string",
-        description: "For list: the act you need, in words (\"switch to dark mode\"); answers the matching commands not already in your prompt."
-      },
-      namespace: {
-        type: "string",
-        description: "For list: only the commands in this namespace, the part of the name before the first dot (repo, search, target)."
-      },
-      name: {
-        type: "string",
-        description:
-          "The command name (required for execute), e.g. \"browser.open\" — the catalog's leading slash is accepted too."
-      },
-      args: { type: "string", description: "Optional argument text for commands that accept it." }
-    },
-    required: ["action"],
-    additionalProperties: false
-  }
-}
-
 export const agentToolSpecs: ReadonlyArray<AgentToolSpec> = [commandsToolSpec]
 
 const ARGS_OMITTED_NOTE = "args omitted to fit the tool-result limit; list one namespace ({\"action\":\"list\",\"namespace\":\"repo\"}) to see them"
@@ -187,21 +153,14 @@ export const executeAgentToolCall = async (
   call: AgentToolCall,
   discover?: AgentCommandDiscovery
 ): Promise<string> => {
-  if (call.name !== commandsToolSpec.name) return `unknown-tool: ${call.name}`
-  let input: { readonly action?: unknown; readonly name?: unknown; readonly args?: unknown; readonly namespace?: unknown; readonly query?: unknown }
-  try {
-    input = JSON.parse(call.arguments) as typeof input
-  } catch {
-    return "failed: the commands tool arguments were not valid JSON"
-  }
-  if (typeof input !== "object" || input === null || Array.isArray(input)) {
-    return "failed: the commands tool arguments must be an object"
-  }
-  if (input.action === "list" && typeof input.query === "string" && input.query.trim() !== "") {
+  if (call.name !== commandsToolSpec.name) return unknownToolResult(call.name)
+  const input = decodeCommandsCall(call.arguments)
+  if ("failure" in input) return input.failure
+  if (input.action === "list" && input.query !== "") {
     if (discover === undefined) return "failed: the list action's query is not available in this conversation; list a namespace instead"
     let names: ReadonlyArray<string>
     try {
-      names = await discover(input.query.trim(), call.httpCall?.turnId)
+      names = await discover(input.query, call.httpCall?.turnId)
     } catch (error) {
       return selectFailureToolResult(error)
     }
@@ -209,31 +168,22 @@ export const executeAgentToolCall = async (
     return listResult(registry.state(), names.flatMap(name => catalog.filter(command => command.name === name)))
   }
   if (input.action === "list") {
-    const namespace = typeof input.namespace === "string" ? canonicalCommandName(input.namespace).replace(/\.$/u, "") : ""
+    const namespace = input.namespace
     const catalog = agentVisibleCatalog(registry.callable()).filter(
       (command) => namespace === "" || command.name === namespace || command.name.startsWith(`${namespace}.`)
     )
     return listResult(registry.state(), catalog)
   }
-  if (input.action !== "execute") {
-    return "failed: the commands tool action must be \"list\" or \"execute\""
-  }
-  if (typeof input.name !== "string" || input.name.trim() === "") {
-    return "failed: the execute action requires a command name"
-  }
   /*
    * The model reads command names in their user-facing spelling — the
    * generated catalog and every result string here write "/browser" — so a
    * leading slash in the tool call is the model speaking the app's own
-   * dialect, not a typo. The agent boundary strips it exactly as the
-   * composer's parseSubmit strips the human's; the registry's names stay
-   * bare. (Live on canary, execute {"name":"/browser"} died as
-   * unknown-command and the turn degraded into asking permission.)
+   * dialect, not a typo. The decoder strips it exactly as the composer's
+   * parseSubmit strips the human's; the registry's names stay bare. (Live on
+   * canary, execute {"name":"/browser"} died as unknown-command and the turn
+   * degraded into asking permission.)
    */
-  const name = canonicalCommandName(input.name)
-  if (name === "") {
-    return "failed: the execute action requires a command name"
-  }
+  const name = input.name
   /*
    * The trigger axis, enforced structurally: a user-only command is neither
    * listed nor executable by the agent — the model gets the honest error
@@ -248,11 +198,7 @@ export const executeAgentToolCall = async (
    * as an honest failure naming the missing step — the model can tell the
    * user, but can never park work that fires after its turn ends.
    */
-  const outcome = await registry.runAsAgent(
-    name,
-    typeof input.args === "string" ? input.args : undefined,
-    call.httpCall
-  )
+  const outcome = await registry.runAsAgent(name, input.args, call.httpCall)
   switch (outcome.status) {
     case "executed":
       return outcome.value ?? `executed /${name}`
@@ -262,7 +208,7 @@ export const executeAgentToolCall = async (
        * the live model telling the USER to run the command. Point it back
        * at the list action so the retry happens in the same turn.
        */
-      return `unknown-command: ${name} — no command has that name; use the list action for every command callable right now`
+      return unknownCommandResult(name)
     case "unavailable":
       /*
        * A flow this host lacks the door for: nothing ran ("failed:" is the

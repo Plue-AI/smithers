@@ -393,9 +393,11 @@ func (b *lockedBuffer) String() string {
 	return b.buffer.String()
 }
 
-// Reuse the same model HTTP fixture for composed journeys. Offered the host's
-// source tool and asked about one of fileQuestions, it calls the tool; given a
-// tool result, it answers by quoting it, so an answer shows what was read.
+// Reuse the same model HTTP fixture for composed journeys. Offered the app
+// agent's commands tool and asked about one of fileQuestions, it executes
+// files.read on that path; a question marked "(forced)" calls it even when no
+// tool is offered. Given a tool result, it answers by quoting it, so an
+// answer shows what was read.
 func localChatProvider(receivedKey chan string, fileQuestions ...string) *httptest.Server {
 	return httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		select {
@@ -437,13 +439,14 @@ func localChatProvider(receivedKey chan string, fileQuestions ...string) *httpte
 		}
 		offered := false
 		for _, tool := range body.Tools {
-			offered = offered || tool.Function.Name == "files_read"
+			offered = offered || tool.Function.Name == "commands"
 		}
 		for _, path := range fileQuestions {
 			for _, message := range body.Messages {
-				if offered && message.Role == "user" && strings.Contains(string(message.Content), path) {
-					arguments, _ := json.Marshal(map[string]string{"path": path})
-					chunk, _ := json.Marshal(map[string]any{"id": "chatcmpl-local", "choices": []any{map[string]any{"index": 0, "delta": map[string]any{"role": "assistant", "tool_calls": []any{map[string]any{"index": 0, "id": "read-source", "type": "function", "function": map[string]string{"name": "files_read", "arguments": string(arguments)}}}}, "finish_reason": "tool_calls"}}})
+				question := string(message.Content)
+				if message.Role == "user" && strings.Contains(question, path) && (offered || strings.Contains(question, "(forced)")) {
+					arguments, _ := json.Marshal(map[string]string{"action": "execute", "name": "files.read", "args": path})
+					chunk, _ := json.Marshal(map[string]any{"id": "chatcmpl-local", "choices": []any{map[string]any{"index": 0, "delta": map[string]any{"role": "assistant", "tool_calls": []any{map[string]any{"index": 0, "id": "read-source", "type": "function", "function": map[string]string{"name": "commands", "arguments": string(arguments)}}}}, "finish_reason": "tool_calls"}}})
 					_, _ = fmt.Fprintf(w, "data: %s\n\ndata: [DONE]\n\n", chunk)
 					return
 				}
@@ -453,8 +456,6 @@ func localChatProvider(receivedKey chan string, fileQuestions ...string) *httpte
 	}))
 }
 
-// The source question shares the ordinary provider fixture and exercises an
-// actual model tool call, rather than synthesizing a File card in a response.
 func TestLocalChatProviderSourceQuestion(t *testing.T) {
 	server := localChatProvider(make(chan string, 4), "JOURNEY.md")
 	defer server.Close()
@@ -468,16 +469,21 @@ func TestLocalChatProviderSourceQuestion(t *testing.T) {
 		require.NoError(t, err)
 		return string(data)
 	}
-	offered := `"tools":[{"type":"function","function":{"name":"files_read","parameters":{"type":"object"}}}]`
+	offered := `"tools":[{"type":"function","function":{"name":"commands","parameters":{"type":"object"}}}]`
 	question := request(`{"messages":[{"role":"user","content":"What is in JOURNEY.md?"}],` + offered + `}`)
-	require.Contains(t, question, `"name":"files_read"`)
+	require.Contains(t, question, `"name":"commands"`)
 	require.Contains(t, question, `"finish_reason":"tool_calls"`)
-	require.Contains(t, question, `\"path\":\"JOURNEY.md\"`)
+	require.Contains(t, question, `\"action\":\"execute\"`)
+	require.Contains(t, question, `\"name\":\"files.read\"`)
+	require.Contains(t, question, `\"args\":\"JOURNEY.md\"`)
 	require.NotContains(t, question, `"kind":"file"`)
 	// Without the host's tool on offer the provider cannot call it.
 	unoffered := request(`{"messages":[{"role":"user","content":"What is in JOURNEY.md?"}]}`)
 	require.Contains(t, unoffered, "hello from provider")
 	require.NotContains(t, unoffered, "tool_calls")
+	// A question marked forced calls it anyway, to prove the host refuses it.
+	forced := request(`{"messages":[{"role":"user","content":"What is in JOURNEY.md? (forced)"}]}`)
+	require.Contains(t, forced, `"name":"commands"`)
 	continuation := request(`{"messages":[{"role":"user","content":"What is in JOURNEY.md?"},{"role":"tool","content":"JOURNEY.md in acme/app:\nAdd a greeting to JOURNEY.md\n"}],` + offered + `}`)
 	require.Contains(t, continuation, `From the source: JOURNEY.md in acme/app:\nAdd a greeting to JOURNEY.md\n`)
 	require.NotContains(t, continuation, "tool_calls")

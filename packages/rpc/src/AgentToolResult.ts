@@ -18,6 +18,13 @@ export const MAX_TOOL_RESULT_BYTES = 16 * 1024
  */
 export const MAX_TOOL_RESULT_LINES = 1_000
 
+/**
+ * The most model legs one agent turn runs; a turn still calling tools after them ends at the tool limit.
+ * @since 1.0.0
+ * @category constants
+ */
+export const MAX_TOOL_LEGS = 8
+
 const encoder = new TextEncoder()
 
 /**
@@ -67,7 +74,7 @@ export const boundToolResult = (
   const marker = `\n\n[Tool result truncated: ${totalBytes} bytes, ${totalLines} lines total.]`
   const contentBudget = Math.max(0, maxBytes - utf8Bytes(marker))
   const lineLimited = lines.slice(0, maxLines).join("\n")
-  const prefix = byteSafePrefix(lineLimited, contentBudget).replace(/�$/u, "")
+  const prefix = byteSafePrefix(lineLimited, contentBudget).replace(/\uFFFD$/u, "")
   return {
     modelOutput: `${prefix}${marker}`,
     truncated: true,

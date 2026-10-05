@@ -4,7 +4,7 @@
  * the aggregator order.
  */
 import { Schema } from "effect"
-import { fileArgs } from "../FileArgs"
+import { fileArgs } from "@smthrs/rpc/FileRead"
 import { text } from "@smthrs/ui/flow-form"
 import { flow, CodePosition } from "./Declare"
 import type { FlowEntry } from "../registry"

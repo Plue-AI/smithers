@@ -2,6 +2,7 @@ package compose
 
 import (
 	"bufio"
+	"bytes"
 	"context"
 	"crypto/rand"
 	"crypto/rsa"
@@ -21,6 +22,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"regexp"
 	"runtime"
 	"strings"
 	"testing"
@@ -172,6 +174,7 @@ func TestJ1Rehearsal(t *testing.T) {
 	}()
 	actual := ""
 	location := ""
+	tokenField := regexp.MustCompile(`"token":"[^"]*"`)
 	request := func(method, path, body string) (int, []byte, error) {
 		req, err := http.NewRequest(method, origin+path, strings.NewReader(body))
 		if err != nil {
@@ -193,8 +196,10 @@ func TestJ1Rehearsal(t *testing.T) {
 		defer resp.Body.Close()
 		data, err := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
 		location = resp.Header.Get("Location")
-		fmt.Fprintf(&exchanges, "%s %s → %d %s\n", method, strings.Split(path, "?")[0], resp.StatusCode, data)
-		excerpt := string(data)
+		// Evidence never keeps a minted credential.
+		logged := tokenField.ReplaceAll(data, []byte(`"token":"<redacted>"`))
+		fmt.Fprintf(&exchanges, "%s %s → %d %s\n", method, strings.Split(path, "?")[0], resp.StatusCode, logged)
+		excerpt := string(logged)
 		if path == "/api/install" {
 			var projection struct {
 				Steps json.RawMessage `json:"steps"`
@@ -430,11 +435,33 @@ func TestJ1Rehearsal(t *testing.T) {
 				} `json:"payload"`
 			} `json:"card"`
 		}
-		// ask posts one question from the composer's wire: no tools of its
-		// own, so the host runs the turn's reads.
-		ask := func(question string) (string, []turnFrame, bool, error) {
+		// ask posts one question from the composer's wire, with no tools of
+		// its own, so the host runs the turn's reads. A bearer token asks as
+		// that token instead of the owner's browser session.
+		ask := func(bearer, question string) (string, []turnFrame, bool, error) {
 			body, _ := json.Marshal(map[string]any{"runId": "j1-" + uuid.NewString(), "journal": map[string]any{"version": 1, "legId": uuid.NewString(), "token": strings.Repeat("a", 48)}, "instructions": "Answer briefly using file cards.", "messages": []any{map[string]string{"role": "user", "content": question}}})
-			data, err := expect("POST", chat.TurnPath, string(body), 200)
+			var data []byte
+			var err error
+			if bearer == "" {
+				data, err = expect("POST", chat.TurnPath, string(body), 200)
+			} else {
+				req, reqErr := http.NewRequest("POST", origin+chat.TurnPath, bytes.NewReader(body))
+				if reqErr != nil {
+					return "", nil, false, reqErr
+				}
+				req.Header.Set("Content-Type", "application/json")
+				req.Header.Set("Authorization", "Bearer "+bearer)
+				resp, doErr := (&http.Client{Timeout: 30 * time.Second}).Do(req)
+				if doErr != nil {
+					return "", nil, false, doErr
+				}
+				data, err = io.ReadAll(io.LimitReader(resp.Body, 1<<20))
+				resp.Body.Close()
+				fmt.Fprintf(&exchanges, "POST %s (bearer) → %d %s\n", chat.TurnPath, resp.StatusCode, data)
+				if err == nil && resp.StatusCode != 200 {
+					err = fmt.Errorf("bearer turn: HTTP %d %s", resp.StatusCode, data)
+				}
+			}
 			if err != nil {
 				return "", nil, false, err
 			}
@@ -467,8 +494,32 @@ func TestJ1Rehearsal(t *testing.T) {
 			}
 			return answer.String(), frames, terminal, scanner.Err()
 		}
+		// token mints a personal access token through the production route.
+		token := func(scopes ...string) (string, error) {
+			body, _ := json.Marshal(map[string]any{"name": "j1-" + strings.Join(scopes, "-"), "scopes": scopes})
+			data, err := expect("POST", "/api/user/tokens", string(body), 201)
+			if err != nil {
+				return "", err
+			}
+			var created struct {
+				Token string `json:"token"`
+			}
+			if err = json.Unmarshal(data, &created); err != nil || created.Token == "" {
+				return "", fmt.Errorf("token create answered no token: %v", err)
+			}
+			return created.Token, nil
+		}
+		// Tokens are minted first, so the row's evidence ends on a question.
+		chatOnly, err := token("write:user")
+		if err != nil {
+			return err
+		}
+		reader, err := token("write:user", "read:repository")
+		if err != nil {
+			return err
+		}
 		creates, live := len(compute.Creates()), len(compute.Live())
-		answer, frames, terminal, err := ask("What is in JOURNEY.md? Show the file.")
+		answer, frames, terminal, err := ask("", "What is in JOURNEY.md? Show the file.")
 		if err != nil {
 			return err
 		}
@@ -492,7 +543,7 @@ func TestJ1Rehearsal(t *testing.T) {
 			return fmt.Errorf("answer/file card missing (terminal=%t file_read=%t file_card=%t renderer_tool_call=%t) answer=%q", terminal, fileRead, fileCard, toolCall, answer)
 		}
 		// A path out of the repository is refused, stated and answered; no card.
-		answer, frames, terminal, err = ask("Show ../../etc/passwd")
+		answer, frames, terminal, err = ask("", "Show ../../etc/passwd")
 		if err != nil {
 			return err
 		}
@@ -505,6 +556,38 @@ func TestJ1Rehearsal(t *testing.T) {
 		}
 		if !terminal || !refused || !strings.Contains(answer, "failed: ../../etc/passwd is not a path inside this repository") {
 			return fmt.Errorf("traversal refusal missing (terminal=%t refused=%t) answer=%q", terminal, refused, answer)
+		}
+		// A token that may chat but not read repositories reads nothing
+		// through the agent: no tool is offered, a call made anyway runs
+		// nothing, and no byte of the file reaches the answer. A token that
+		// reads repositories gets the File card.
+		for _, question := range []string{"What is in JOURNEY.md? Show the file.", "What is in JOURNEY.md? (forced)"} {
+			answer, frames, terminal, err = ask(chatOnly, question)
+			if err != nil {
+				return err
+			}
+			for _, frame := range frames {
+				if frame.Type == "card" || frame.Type == "call.started" || frame.Type == "call.settled" || frame.Type == "gate.rejected" {
+					return fmt.Errorf("a write:user token's question ran %s %s", frame.Type, frame.Name)
+				}
+			}
+			if !terminal || strings.Contains(answer, "Add a greeting") {
+				return fmt.Errorf("a write:user token's question read source (terminal=%t) answer=%q", terminal, answer)
+			}
+		}
+		if !strings.Contains(answer, "unknown-tool: commands") {
+			return fmt.Errorf("a forced call by a write:user token was not refused: %q", answer)
+		}
+		answer, frames, terminal, err = ask(reader, "What is in JOURNEY.md? Show the file.")
+		if err != nil {
+			return err
+		}
+		fileCard = false
+		for _, frame := range frames {
+			fileCard = fileCard || (frame.Type == "card" && frame.Card.Kind == "file" && frame.Card.Payload.Content == "Add a greeting to JOURNEY.md\n")
+		}
+		if !terminal || !fileCard || !strings.Contains(answer, "Add a greeting to JOURNEY.md") {
+			return fmt.Errorf("a read:repository token's question got no File card (terminal=%t card=%t) answer=%q", terminal, fileCard, answer)
 		}
 		if len(compute.Creates()) != creates || len(compute.Live()) != live {
 			return fmt.Errorf("a question started a machine: creates %d→%d, live %d→%d", creates, len(compute.Creates()), live, len(compute.Live()))

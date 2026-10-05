@@ -1,4 +1,4 @@
-import { fileArgs, parseFileArgs } from "../flows/FileArgs"
+import { fileArgs, parseFileArgs } from "@smthrs/rpc/FileRead"
 import { dynamicFlowAction } from "../flows/FlowAction"
 /*
  * The search-results card (Search and Command Palette Spec 2026-09-07 §3,

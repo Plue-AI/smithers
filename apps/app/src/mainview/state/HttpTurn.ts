@@ -7,10 +7,9 @@ import type { AgentChatMessage, AgentTurnFrame } from "@smthrs/rpc/NativeAgent"
 import type { AppTransition, Card } from "./AppState"
 import { CardPatchSchema, CardSchema } from "./AppState"
 import { isRuntimeOwnedCard } from "./isRuntimeOwnedCard"
-import { boundToolResult } from "@smthrs/rpc/AgentToolResult"
+import { boundToolResult, MAX_TOOL_LEGS } from "@smthrs/rpc/AgentToolResult"
 import { renderedAskTurnText, renderedRunTurnText, RUN_LAUNCH_COMMANDS } from "./RunClaims"
 
-export const HTTP_MAX_TOOL_LEGS = 8
 export class HttpTurnIntegrityError extends Data.TaggedError("HttpTurnIntegrityError")<{ readonly message: string }> {
   constructor(message = "The turn failed verification.") { super({ message }) }
 }
@@ -124,7 +123,7 @@ export function projectHttpFrame(prior: HttpTurn, priorLeg: HistoricalHttpLeg, f
   else if (frame.type === "steering.drained") act("Smithers picked up your note")
   else if (frame.type === "done") {
     if (frame.usage !== undefined) transitions.push({ type: "chat.usage.recorded", actor: "smithers", turnId: turn.turnId, usage: frame.usage })
-    if (frame.error === undefined && frame.reason !== "cancelled" && frame.reason !== "tool_limit" && leg.call !== undefined && view.executedLegs < HTTP_MAX_TOOL_LEGS) {
+    if (frame.error === undefined && frame.reason !== "cancelled" && frame.reason !== "tool_limit" && leg.call !== undefined && view.executedLegs < MAX_TOOL_LEGS) {
       leg.status = "tool-ready"
     } else {
       const claims = settleHttpClaims(turn, view.answer); turn = claims.turn; transitions.push(...claims.transitions)
@@ -133,7 +132,7 @@ export function projectHttpFrame(prior: HttpTurn, priorLeg: HistoricalHttpLeg, f
         transitions.push({ type: "message.response.cancelled", actor: "system", turnId: turn.turnId, detail: "That turn was stopped by the server." })
       } else {
         const error = frame.error ?? (frame.reason === "tool_limit" ? "Smithers Cloud stopped this turn at its tool-call limit."
-          : leg.call !== undefined ? `I hit the tool-call limit for this turn (${HTTP_MAX_TOOL_LEGS}) — stopping here instead of looping.`
+          : leg.call !== undefined ? `I hit the tool-call limit for this turn (${MAX_TOOL_LEGS}) — stopping here instead of looping.`
           : !turn.receivedText ? "Smithers Cloud returned an empty response." : undefined)
         turn.status = error === undefined ? "complete" : "failed"; leg.status = turn.status
         transitions.push(error === undefined ? { type: "message.response.completed", actor: "smithers", turnId: turn.turnId }

@@ -1,4 +1,4 @@
-import { fileArgs } from "./FileArgs"
+import { fileArgs } from "@smthrs/rpc/FileRead"
 
 /** The typed input of every flow a card raises with structured values. */
 export interface FlowInput {
