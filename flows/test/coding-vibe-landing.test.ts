@@ -96,6 +96,12 @@ const cleanup: VibeCleanup = {
     request: { plan, outcome: { status: "validated", rounds: 1, blocked: null, result } }
   }
 }
+/** A request the stack launched from its base (the stack's tip): its result belongs to that stack. */
+const stackTip = "7".repeat(40)
+const fromStack: VibeCleanup = {
+  ...cleanup,
+  admission: { ...cleanup.admission, fromStack: true, originalSource: { ...original, parentCommitIds: [stackTip] } }
+}
 const main = "5".repeat(40)
 /** The backend verifies through its own landing policy; no check runs in this host. */
 const noChecks = RunCheck.toLayer(() => Effect.die("the backend lander never runs checks here"))
@@ -125,6 +131,8 @@ const landed = (status: AppendObservation["status"]) =>
 const modes = [
   "valid",
   "native-stack",
+  // A stack request whose repository has no active stack lands as any other.
+  "from-stack-without-stack",
   "pending-then-landed",
   "policy-failed",
   "foreign-tail",
@@ -250,7 +258,7 @@ for (const mode of modes) {
       )
     )
     t.after(() => host.dispose())
-    const execute = LandVibe.execute(cleanup, { executionId: "land" })
+    const execute = LandVibe.execute(mode === "from-stack-without-stack" ? fromStack : cleanup, { executionId: "land" })
     if (mode === "pull-request") {
       const value = await host.runPromise(execute)
       assert.ok("pullRequest" in value && "landing" in value)
@@ -268,7 +276,10 @@ for (const mode of modes) {
       const count = calls.length
       assert.deepEqual(await host.runPromise(execute), value)
       assert.equal(calls.length, count, "replay uses receipts; no second pull request")
-    } else if (mode === "valid" || mode === "native-stack" || mode === "pending-then-landed") {
+    } else if (
+      mode === "valid" || mode === "native-stack" || mode === "from-stack-without-stack" ||
+      mode === "pending-then-landed"
+    ) {
       // The pending case waits two real durable rounds (10 s each); nothing re-queues.
       const value = await host.runPromise(execute)
       assert.ok("taskId" in value)
@@ -381,6 +392,72 @@ test(
     const count = calls.length
     assert.deepEqual(await host.runPromise(execute), value)
     assert.equal(calls.length, count, "replay uses receipts; nothing is submitted twice")
+  }
+)
+
+test(
+  "vibe landing: a request started from a stack base returns to its stack though main has no factory.json",
+  { timeout: 60_000 },
+  async (t) => {
+    const calls: string[] = []
+    const unused = () => Effect.die("a stack request neither appends nor opens its own pull request")
+    const fake: BackendLanding = {
+      kind: "backend",
+      binding: { repositoryId: 42, workspaceId: "11111111-1111-4111-a111-111111111111" },
+      readMain: unused(),
+      pinMain: unused(),
+      // Main has no .smithers/factory.json, so the declared delivery is the landing append.
+      readDelivery: Effect.sync(() => {
+        calls.push("delivery")
+        return "append" as const
+      }),
+      openPull: unused,
+      prepare: unused,
+      create: unused,
+      queue: unused,
+      observe: unused,
+      readStack: Effect.sync(() => {
+        calls.push("stack")
+        return true
+      }),
+      submitLane: (submission) =>
+        Effect.sync(() => {
+          calls.push(`submit:${submission.base}:${submission.source}`)
+          assert.equal(submission.requestRunId, "request")
+          return { itemId: "item-2", state: "integrating", source: submission.source }
+        })
+    }
+    const native = Layer.succeed(NativeCoding, {
+      sourcePublication: "cloud",
+      read: () => Effect.die("no reads"),
+      apply: () => Effect.die("no writes"),
+      publishOriginalSource: (request) =>
+        Effect.sync(() => {
+          calls.push(`retain:${request.source.commitId}`)
+          return {
+            status: "retained" as const,
+            requestId: request.requestId,
+            workspaceId: fake.binding.workspaceId,
+            repositoryId: 42,
+            ref: `refs/smithers/workspaces/${fake.binding.workspaceId}/sources/${request.source.commitId}`,
+            source: request.source
+          }
+        })
+    })
+    const host = ManagedRuntime.make(
+      Layer.mergeAll(landingLayers, landerLayer, publicationLayers, noChecks, Poll.layer, Sleep.layer).pipe(
+        Layer.provide(Layer.mergeAll(Layer.succeed(Landing, fake), native)),
+        Layer.provideMerge(Action.layerImplementations),
+        Layer.provideMerge(FlowEngine.layerMemory),
+        Layer.provideMerge(NodeCrypto.layer)
+      )
+    )
+    t.after(() => host.dispose())
+    const value = await host.runPromise(LandVibe.execute(fromStack, { executionId: "from-stack" }))
+    assert.ok("lane" in value)
+    assert.equal(value.lane.itemId, "item-2")
+    // The stack's lane waits for this result; the repository's delivery policy is never consulted.
+    assert.deepEqual(calls, [`retain:${last.commitId}`, "stack", `submit:${stackTip}:${last.commitId}`])
   }
 )
 
