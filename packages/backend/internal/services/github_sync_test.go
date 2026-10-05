@@ -93,8 +93,8 @@ func TestInstallGitHubSyncFollowsMainAndServesItsHealth(t *testing.T) {
 
 	// The network drops: Retry reads at once and fails; the last success stands.
 	h.github = pullNext
-	h.service.lsRemote = func(context.Context, string, string) (string, error) {
-		return "", errors.New("git ls-remote failed: Could not resolve host: github.com")
+	h.service.lsRemote = func(context.Context, string, ...string) (map[string]string, error) {
+		return nil, errors.New("git ls-remote failed: Could not resolve host: github.com")
 	}
 	require.NoError(t, h.service.RetrySync(ctx))
 	require.NoError(t, h.service.PollOnce(ctx))
@@ -113,7 +113,9 @@ func TestInstallGitHubSyncFollowsMainAndServesItsHealth(t *testing.T) {
 
 	// The network is back: Retry overrides the failure's backoff.
 	h.service.now = time.Now
-	h.service.lsRemote = func(context.Context, string, string) (string, error) { return h.github, nil }
+	h.service.lsRemote = func(context.Context, string, ...string) (map[string]string, error) {
+		return map[string]string{"refs/heads/main": h.github}, nil
+	}
 	require.True(t, h.row(t).NextAttemptAt.Time.After(time.Now()), "a failure backs off")
 	require.NoError(t, h.service.RetrySync(ctx))
 	require.NoError(t, h.service.PollOnce(ctx))
@@ -316,7 +318,9 @@ func qualifyMainPullFixture(s *GitHubMainPullService) {
 
 type allowRefFixture struct{}
 
-func (allowRefFixture) AuthorizeRefRead(context.Context, int64) error { return nil }
+func (allowRefFixture) prepareRefRead(context.Context, db.GithubMainPull) (gitHubRefReadCommit, error) {
+	return func(context.Context, string, string, string, map[string]string) error { return nil }, nil
+}
 
 func TestRequiredGitHubStreamsRejectIncompleteProvidersBeforeScheduling(t *testing.T) {
 	for missing := 0; missing < 5; missing++ {
@@ -397,7 +401,10 @@ func TestInstallMainPullDoesNotFallBackToAnonymousAfterTokenRefusal(t *testing.T
 				tokens.err = GitHubResponseFailure(403, http.Header{}, now)
 			}
 			reads := 0
-			h.service.lsRemote = func(context.Context, string, string) (string, error) { reads++; return pullNew, nil }
+			h.service.lsRemote = func(context.Context, string, ...string) (map[string]string, error) {
+				reads++
+				return map[string]string{"refs/heads/main": pullNew}, nil
+			}
 			_, err := h.service.Request(t.Context(), 19)
 			require.NoError(t, err)
 			require.NoError(t, h.service.PollOnce(t.Context()))

@@ -44,11 +44,11 @@ func TestInstallMainPullRequestWakesWorkerBeforePeriodicTick(t *testing.T) {
 			qualifyMainPullFixture(h.service)
 			started := make(chan struct{}, 1)
 			var reads atomic.Int32
-			h.service.lsRemote = func(ctx context.Context, _, _ string) (string, error) {
+			h.service.lsRemote = func(ctx context.Context, _ string, _ ...string) (map[string]string, error) {
 				reads.Add(1)
 				started <- struct{}{}
 				<-ctx.Done()
-				return "", ctx.Err()
+				return nil, ctx.Err()
 			}
 			ctx, cancel := context.WithCancel(t.Context())
 			done := make(chan struct{})

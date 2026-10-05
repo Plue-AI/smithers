@@ -39,6 +39,17 @@ backend's checkout. Transfers name their scratch repository explicitly. The
 packaged Git command and controlled environment remain shared with the existing
 mirror transport; the backend's current checkout supplies no local Git config.
 
+The install's main worker reads the followed branch and `refs/heads/smithers/*`
+in one ref listing. Before continuing the pull, it records that complete
+observation as a pending delivery in the existing product jobs store. Admission
+rechecks the source captured before the read, the current repository binding
+and the worker's live claim, checked again after lock waits. Unchanged listings
+reuse the latest delivery. Poll claims order changed observations, including
+changes back to an earlier SHA and empty listings. They are delivery records,
+not a second current-state cache. Missing ref consumers retain them across
+restart; consumer effects and acknowledgement share one transaction. Production
+ref consumers and full stream qualification remain outstanding.
+
 ## Fetched-state delivery
 
 On installs, issue, pull-request and comment webhooks wake the existing metadata

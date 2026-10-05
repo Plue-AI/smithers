@@ -373,10 +373,14 @@ func newPullHarness(t *testing.T) *pullHarness {
 	h.service = NewGitHubMainPullService(h.store, h.host, &fakeMainPullTokens{}, nil)
 	h.service.git = h.git
 	h.service.gitHubGitBaseURL = func() string { return "https://github.example" }
-	h.service.lsRemote = func(_ context.Context, remote, ref string) (string, error) {
-		require.Equal(t, "refs/heads/main", ref)
+	h.service.lsRemote = func(_ context.Context, remote string, refs ...string) (map[string]string, error) {
+		expected := []string{"refs/heads/main"}
+		if h.service.install {
+			expected = append(expected, "refs/heads/smithers/*")
+		}
+		require.Equal(t, expected, refs)
 		require.Contains(t, remote, "ghs_installation_secret", "the credential rides the URL only into mirrorCommand")
-		return h.github, nil
+		return map[string]string{"refs/heads/main": h.github}, nil
 	}
 	h.service.readPolicy = func(_ context.Context, token, owner, repo, commit string) (string, error) {
 		h.policyReads++
@@ -583,8 +587,8 @@ func TestGitHubMainPullDivergenceFailsVisiblyAndRetries(t *testing.T) {
 
 func TestGitHubMainPullFailuresNeverLeakCredentials(t *testing.T) {
 	h := newPullHarness(t)
-	h.service.lsRemote = func(_ context.Context, remote, _ string) (string, error) {
-		return "", fmt.Errorf("git ls-remote failed: fatal: unable to access '%s': 503", remote)
+	h.service.lsRemote = func(_ context.Context, remote string, _ ...string) (map[string]string, error) {
+		return nil, fmt.Errorf("git ls-remote failed: fatal: unable to access '%s': 503", remote)
 	}
 	_, err := h.service.Request(context.Background(), 19)
 	require.NoError(t, err)
@@ -1268,7 +1272,9 @@ func TestGitHubMainPullKeepsFactoryResultWhenNextPullFailsBeforeReconcile(t *tes
 	require.Equal(t, "skipped", first.FactoryState)
 	require.Contains(t, first.FactoryError, ErrFactoryNeedsOwner.Error())
 
-	h.service.lsRemote = func(context.Context, string, string) (string, error) { return "", errors.New("GitHub unavailable") }
+	h.service.lsRemote = func(context.Context, string, ...string) (map[string]string, error) {
+		return nil, errors.New("GitHub unavailable")
+	}
 	require.NoError(t, h.service.RequestForGitHub(context.Background(), "smithersai", "smithers"))
 	require.NoError(t, h.service.PollOnce(context.Background()))
 	second := h.row(t)

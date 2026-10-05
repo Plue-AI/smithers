@@ -114,7 +114,7 @@ type GitHubMainPullService struct {
 	install          bool
 	syncStreams      GitHubSyncStreams
 	refReadAdmission interface {
-		AuthorizeRefRead(context.Context, int64) error
+		prepareRefRead(context.Context, db.GithubMainPull) (gitHubRefReadCommit, error)
 	}
 	wake        chan struct{}
 	refHealthMu sync.Mutex
@@ -129,7 +129,7 @@ type GitHubMainPullService struct {
 	logger           *slog.Logger
 
 	gitHubGitBaseURL func() string
-	lsRemote         func(ctx context.Context, remote, ref string) (string, error)
+	lsRemote         func(ctx context.Context, remote string, refs ...string) (map[string]string, error)
 	readPolicy       func(ctx context.Context, token, owner, repo, commit string) (string, error)
 	git              gitHubMainPullGit
 	now              func() time.Time
@@ -182,7 +182,7 @@ func NewGitHubMainPullService(store GitHubMainPullStore, host gitHubMainPullRepo
 		readFactory: func(ctx context.Context, token, owner, repo, commit string) ([]byte, error) {
 			return readGitHubFactory(ctx, client, githubAPIBaseURL(), defaultGitHubRawBaseURL, token, owner, repo, commit)
 		},
-		lsRemote: defaultLsRemoteRef,
+		lsRemote: defaultLsRemoteRefs,
 		readPolicy: func(ctx context.Context, token, owner, repo, commit string) (string, error) {
 			return readGitHubMirrorPolicy(ctx, client, githubAPIBaseURL(), defaultGitHubRawBaseURL, token, owner, repo, commit)
 		},
@@ -502,12 +502,18 @@ func (s *GitHubMainPullService) pull(ctx context.Context, row db.GithubMainPull)
 	if err := s.installSyncReady(ctx); err != nil {
 		return refused(err)
 	}
+	var commitRefs gitHubRefReadCommit
 	if s.install {
 		if s.refReadAdmission == nil {
 			return fail(githubSyncUnavailable().Error())
 		}
-		if err := s.refReadAdmission.AuthorizeRefRead(ctx, row.RepositoryID); err != nil {
+		var err error
+		commitRefs, err = s.refReadAdmission.prepareRefRead(ctx, row)
+		if err != nil {
 			return refused(err)
+		}
+		if commitRefs == nil {
+			return refused(githubSyncUnavailable())
 		}
 	}
 	repository, err := s.store.GetRepoByID(ctx, row.RepositoryID)
@@ -543,10 +549,20 @@ func (s *GitHubMainPullService) pull(ctx context.Context, row db.GithubMainPull)
 	if err != nil {
 		return fail("build GitHub URL: " + err.Error())
 	}
-	githubHead, err := s.lsRemote(ctx, githubURL, ref)
+	patterns := []string{ref}
+	if s.install {
+		patterns = append(patterns, "refs/heads/smithers/*")
+	}
+	refs, err := s.lsRemote(ctx, githubURL, patterns...)
 	if err != nil {
 		return fail("read GitHub " + branch + ": " + sanitizeMirrorError(err, githubURL))
 	}
+	if commitRefs != nil {
+		if err := commitRefs(ctx, githubOwner, githubRepo, branch, refs); err != nil {
+			return refused(err)
+		}
+	}
+	githubHead := refs[ref]
 	if githubHead == "" {
 		return fail("GitHub " + out.githubRepository + " has no " + branch + " branch")
 	}
@@ -775,16 +791,17 @@ func gitHubMainPullCommand(ctx context.Context, args ...string) *exec.Cmd {
 	return cmd
 }
 
-func defaultLsRemoteRef(ctx context.Context, remote, ref string) (string, error) {
-	out, err := gitHubMainPullCommand(ctx, "ls-remote", "--refs", remote, ref).CombinedOutput()
+func defaultLsRemoteRefs(ctx context.Context, remote string, patterns ...string) (map[string]string, error) {
+	args := append([]string{"ls-remote", "--refs", remote}, patterns...)
+	out, err := gitHubMainPullCommand(ctx, args...).CombinedOutput()
 	if err != nil {
-		return "", gitHubMainPullCommandError("git ls-remote", err, out)
+		return nil, gitHubMainPullCommandError("git ls-remote", err, out)
 	}
 	refs, err := parseRemoteRefs(string(out))
 	if err != nil {
-		return "", err
+		return nil, err
 	}
-	return refs[ref], nil
+	return refs, nil
 }
 
 func gitHubMainPullCommandError(what string, err error, out []byte) error {

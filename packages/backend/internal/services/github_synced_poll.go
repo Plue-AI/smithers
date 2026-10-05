@@ -273,19 +273,24 @@ func gitHubSyncFaultCause(err error) string {
 // AuthorizeRefRead shares the install qualification and observed budget with
 // the existing main-ref reader before it can mint a token or contact GitHub.
 func (s *GitHubSyncedRepoService) AuthorizeRefRead(ctx context.Context, repositoryID int64) error {
+	_, err := s.authorizeRefSource(ctx, repositoryID)
+	return err
+}
+
+func (s *GitHubSyncedRepoService) authorizeRefSource(ctx context.Context, repositoryID int64) (db.GithubSyncedRepo, error) {
 	if s == nil || s.install == nil {
-		return githubSyncUnavailable()
+		return db.GithubSyncedRepo{}, githubSyncUnavailable()
 	}
 	owner, repo, err := resolveGitHubDestination(ctx, db.New(s.install.pool), nil, 0, repositoryID, "", "")
 	if err != nil {
-		return err
+		return db.GithubSyncedRepo{}, err
 	}
 	row, err := s.store.GetGitHubSyncedRepo(ctx, db.GetGitHubSyncedRepoParams{OwnerLogin: owner, RepoName: repo})
 	if err != nil {
-		return err
+		return db.GithubSyncedRepo{}, err
 	}
 	if err := s.authorizeFetched(ctx, row); err != nil {
-		return err
+		return db.GithubSyncedRepo{}, err
 	}
 	pause := s.budget.StreamRetryAt(row.InstallationID.Int64, "refs")
 	mintPause := s.budget.StreamRetryAt(row.InstallationID.Int64, gitHubInstallationTokenPath(row.InstallationID.Int64))
@@ -293,7 +298,7 @@ func (s *GitHubSyncedRepoService) AuthorizeRefRead(ctx context.Context, reposito
 		pause = mintPause
 	}
 	if pause.After(s.now()) {
-		return GitHubRateLimitError(http.StatusTooManyRequests, http.Header{"Retry-After": {pause.UTC().Format(http.TimeFormat)}}, s.now())
+		return db.GithubSyncedRepo{}, GitHubRateLimitError(http.StatusTooManyRequests, http.Header{"Retry-After": {pause.UTC().Format(http.TimeFormat)}}, s.now())
 	}
-	return nil
+	return row, nil
 }

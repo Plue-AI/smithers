@@ -33,6 +33,8 @@ type gitHubFetchedObject struct {
 	Number           int64           `json:"number"`
 	Version          string          `json:"version"`
 	EventID          int64           `json:"event_id,omitempty"`
+	RefRepositoryID  int64           `json:"ref_repository_id,omitempty"`
+	RefClaim         int64           `json:"ref_claim,omitempty"`
 	Object           json.RawMessage `json:"object"`
 }
 
@@ -215,6 +217,11 @@ func (s *GitHubSyncedRepoService) consumeFetched(ctx context.Context, lease *job
 		if err = s.authorizeFetched(ctx, row); err != nil {
 			return err
 		}
+		if fact.Resource == gitHubRefs {
+			if err := checkFetchedRefs(ctx, tx, row, fact); err != nil {
+				return err
+			}
+		}
 		// A failed earlier version must finish before a later one from this stream.
 		var earlier bool
 		if err = tx.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM product_job_requests p JOIN product_job_requests current ON current.id=$1 WHERE p.tenant_id=current.tenant_id AND p.principal_id=current.principal_id AND p.operation=current.operation AND (p.created_at,p.id)<(current.created_at,current.id) AND p.state NOT IN ('completed','failed','cancelled'))`, claim.OperationID).Scan(&earlier); err != nil {
@@ -222,6 +229,13 @@ func (s *GitHubSyncedRepoService) consumeFetched(ctx context.Context, lease *job
 		}
 		if fact.EventID > 0 {
 			if err = tx.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM product_job_requests p JOIN product_job_requests current ON current.id=$1 WHERE p.tenant_id=current.tenant_id AND p.principal_id=current.principal_id AND p.operation=current.operation AND (p.payload->>'event_id')::bigint<$2 AND p.state<>'completed')`, claim.OperationID, fact.EventID).Scan(&earlier); err != nil {
+				return err
+			}
+		}
+		if fact.Resource == gitHubRefs {
+			// Poll claims, not transaction start timestamps, order snapshots.
+			// Reverting a branch to a previously seen SHA is a new observation.
+			if err = tx.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM product_job_requests p JOIN product_job_requests current ON current.id=$1 WHERE p.tenant_id=current.tenant_id AND p.principal_id=current.principal_id AND p.operation=current.operation AND (p.payload->>'ref_repository_id')::bigint=$2 AND (p.payload->>'ref_claim')::bigint<$3 AND p.state<>'completed')`, claim.OperationID, fact.RefRepositoryID, fact.RefClaim).Scan(&earlier); err != nil {
 				return err
 			}
 		}

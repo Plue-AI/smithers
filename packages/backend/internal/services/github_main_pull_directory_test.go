@@ -28,6 +28,8 @@ func TestGitHubMainPullDoesNotDiscoverBackendCheckout(t *testing.T) {
 	require.NoError(t, os.WriteFile(filepath.Join(repo, "fixture.txt"), []byte("ref read fixture\n"), 0o600))
 	jj("describe", "-m", "ref read fixture")
 	jj("bookmark", "create", "main", "-r", "@")
+	jj("bookmark", "create", "smithers/one", "-r", "@")
+	jj("bookmark", "create", "unrelated", "-r", "@")
 	head := jj("log", "-r", "main", "--no-graph", "-T", "commit_id")
 	require.Len(t, head, 40)
 
@@ -47,7 +49,10 @@ func TestGitHubMainPullDoesNotDiscoverBackendCheckout(t *testing.T) {
 	out, err = cmd.CombinedOutput()
 	require.NoError(t, err, "%s", out)
 	require.Equal(t, head, strings.TrimSpace(string(out)))
-	actual, err := defaultLsRemoteRef(ctx, gitDir, "refs/heads/main")
+	actual, err := defaultLsRemoteRefs(ctx, gitDir, "refs/heads/main")
 	require.NoError(t, err)
-	require.Equal(t, head, actual)
+	require.Equal(t, map[string]string{"refs/heads/main": head}, actual)
+	actual, err = defaultLsRemoteRefs(ctx, gitDir, "refs/heads/main", "refs/heads/smithers/*")
+	require.NoError(t, err)
+	require.Equal(t, map[string]string{"refs/heads/main": head, "refs/heads/smithers/one": head}, actual)
 }

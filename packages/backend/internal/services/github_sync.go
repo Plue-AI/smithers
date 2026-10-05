@@ -210,7 +210,7 @@ func (s *GitHubMainPullService) SetInstallSyncStreams(repository, checks, review
 		return
 	}
 	s.refReadAdmission, _ = repository.(interface {
-		AuthorizeRefRead(context.Context, int64) error
+		prepareRefRead(context.Context, db.GithubMainPull) (gitHubRefReadCommit, error)
 	})
 	if s.refReadAdmission == nil {
 		s.syncStreams = nil

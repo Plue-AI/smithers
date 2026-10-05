@@ -17,8 +17,13 @@ type mainHealthProvider struct{ err error }
 func (*mainHealthProvider) RequiredStreams(context.Context) ([]GitHubSyncStream, error) {
 	return nil, nil
 }
-func (*mainHealthProvider) RetryStreams(context.Context) error              { return nil }
-func (p *mainHealthProvider) AuthorizeRefRead(context.Context, int64) error { return p.err }
+func (*mainHealthProvider) RetryStreams(context.Context) error { return nil }
+func (p *mainHealthProvider) prepareRefRead(ctx context.Context, row db.GithubMainPull) (gitHubRefReadCommit, error) {
+	if p.err != nil {
+		return nil, p.err
+	}
+	return (allowRefFixture{}).prepareRefRead(ctx, row)
+}
 
 func TestMainPullHealthRetainsTypedRefusal(t *testing.T) {
 	for _, boundary := range []string{"admission", "token"} {

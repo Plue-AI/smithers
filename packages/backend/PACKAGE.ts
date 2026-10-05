@@ -13,6 +13,7 @@ const docs = Smithers.Docs.Check({
     Smithers.file("internal/services/github_app_credentials.go"),
     Smithers.file("internal/services/github_synced_repos.go"),
     Smithers.file("internal/services/github_synced_delivery.go"),
+    Smithers.file("internal/services/github_synced_refs.go"),
     Smithers.file("internal/services/github_synced_events.go"),
     Smithers.file("internal/services/github_synced_conditional.go"),
     Smithers.file("internal/services/github_synced_cursor.go"),
