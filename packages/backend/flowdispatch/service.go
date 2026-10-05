@@ -116,6 +116,12 @@ func (service *Service) SignalInTx(ctx context.Context, tx pgx.Tx, request Signa
 }
 
 func signalAdmission(request SignalRequest) (jobs.Admission, error) {
+	if request.Steer != nil {
+		if strings.TrimSpace(request.Steer.MessageID) == "" || strings.TrimSpace(request.Steer.Body) == "" {
+			return jobs.Admission{}, errors.New("flow dispatch: a steer's message id and body are required")
+		}
+		request.Name, request.Payload = "steer", nil
+	}
 	if strings.TrimSpace(request.RequestID) == "" || strings.TrimSpace(request.FlowID) == "" ||
 		strings.TrimSpace(request.RunID) == "" || strings.TrimSpace(request.Name) == "" {
 		return jobs.Admission{}, errors.New("flow dispatch: signal request, flow, run, and name are required")
@@ -129,7 +135,7 @@ func signalAdmission(request SignalRequest) (jobs.Admission, error) {
 	}
 	payload, err := json.Marshal(signalPayload{
 		Target: request.Target, FlowID: request.FlowID, RunID: request.RunID,
-		Name: request.Name, Payload: request.Payload, Projection: request.Projection,
+		Name: request.Name, Payload: request.Payload, Projection: request.Projection, Steer: request.Steer,
 	})
 	if err != nil {
 		return jobs.Admission{}, fmt.Errorf("flow dispatch: encode signal: %w", err)
