@@ -79,6 +79,11 @@ func newFlowComposition(options runOptions, cfg *config.Config, pool *pgxpool.Po
 			return nil, errors.New("process Flow host tests require an absolute source helper")
 		}
 		environment = map[string]string{"SMITHERS_CODING_LOCAL_OWNER": "1", "SMITHERS_WORKSPACE_JJ_EXPORT_BINARY": helper}
+		// A fixture runtime that installs each box's source binding
+		// publishes source as a guest does (PrepareBoxHost binds it).
+		if _, binds := options.Workspace.(workspace.WorkspaceCodingBindingInstaller); binds {
+			delete(environment, "SMITHERS_CODING_LOCAL_OWNER")
+		}
 		// This bundled Node fixture exceeded 30s readiness under concurrent
 		// database/compiler load. Match the real fresh-box fixture's bound.
 		readyTimeout = 2 * time.Minute

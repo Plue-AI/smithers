@@ -101,13 +101,17 @@ func (s *WorkspaceService) PrepareBoxHost(ctx context.Context, hostID, workspace
 	q, ok := s.q.(boxHostQuerier)
 	guest := s.runtime != nil && s.runtime.Isolation() == workspaceapi.IsolationSandboxed
 	// A trusted-process box is a host process, never a sandbox client's VM,
-	// even when the composition also holds a sandbox client.
+	// even when the composition also holds a sandbox client. It binds its
+	// source as a runtime guest does only when its runtime installs a
+	// binding: no install composes one; a test runtime that publishes does.
 	process := s.runtime != nil && s.runtime.Isolation() == workspaceapi.IsolationTrustedProcess
-	if (s.sandbox == nil || process) && !guest {
+	_, installs := s.runtime.(workspaceapi.WorkspaceCodingBindingInstaller)
+	runtimeBinding := (guest && s.sandbox == nil) || (process && installs)
+	if (s.sandbox == nil || process) && !guest && !runtimeBinding {
 		return environment, nil
 	}
 	if base == "" || !ok {
-		if guest {
+		if guest || runtimeBinding {
 			return nil, pkgerrors.Conflict("workspace coding source binding configuration is unavailable")
 		}
 		return environment, nil
@@ -122,7 +126,7 @@ func (s *WorkspaceService) PrepareBoxHost(ctx context.Context, hostID, workspace
 	if err != nil || !alone {
 		return environment, err
 	}
-	if guest && s.sandbox == nil {
+	if runtimeBinding {
 		if err = s.installRuntimeBoxCodingBinding(ctx, workspace, userID); err != nil {
 			return nil, err
 		}

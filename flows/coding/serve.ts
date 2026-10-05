@@ -158,7 +158,9 @@ if (parsed.values.version) {
   const run = (platform: NativeControl.Platform, http: Layer.Layer<HttpClient.HttpClient>) =>
     Effect.all([
       loadProject(root, process.env.SMITHERS_CODING_PROJECT),
-      loadLanding(root, process.env),
+      // A guest's binding is root-owned /etc/smithers; a trusted-process
+      // test runtime names its own (the landing credential stays env-only).
+      loadLanding(root, process.env, process.env.SMITHERS_WORKSPACE_CODING_CONFIG),
       optionsFromEnv(process.env).pipe(Effect.provide(platform.requestExecutor))
     ]).pipe(
       Effect.flatMap(([planning, landing, models]) =>

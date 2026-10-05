@@ -102,3 +102,49 @@ func TestPrepareBoxHostSelfHostedBindingFailuresStopTheLaunch(t *testing.T) {
 		})
 	}
 }
+
+// trustedBindingRuntime is a trusted-process runtime that installs a box's
+// source binding (the J1 rehearsal's); trustedPlainRuntime installs none (the
+// trusted-process runtime as composed everywhere else).
+type trustedBindingRuntime struct{ *codingBindingRuntime }
+
+func (trustedBindingRuntime) Isolation() workspaceapi.IsolationLevel {
+	return workspaceapi.IsolationTrustedProcess
+}
+
+type trustedPlainRuntime struct{ workspaceapi.WorkspaceRuntime }
+
+func (trustedPlainRuntime) Isolation() workspaceapi.IsolationLevel {
+	return workspaceapi.IsolationTrustedProcess
+}
+
+func TestPrepareBoxHostBindsATrustedProcessBoxOnlyWhenItsRuntimeInstallsTheBinding(t *testing.T) {
+	t.Run("installs", func(t *testing.T) {
+		_, runtime, q, row := codingBindingServiceFixture(t)
+		service := newWorkspaceServiceForTests(q, WithWorkspaceRuntime(trustedBindingRuntime{runtime}), WithWorkspaceGitBaseURL("http://127.0.0.1:4000"))
+		environment, err := service.PrepareBoxHost(context.Background(), "host", row.ID, row.RepositoryID, row.UserID)
+		require.NoError(t, err)
+		require.Equal(t, []string{"publisher", "binding:coding-lane"}, runtime.events, "the publisher's credential precedes the binding, as in a guest")
+		require.Equal(t, "http://127.0.0.1:4000/acme/widgets.git", runtime.binding.GitURL)
+		require.NotEmpty(t, environment["SMITHERS_JJHUB_TOKEN"])
+		require.Equal(t, "http://127.0.0.1:4000/api", environment["SMITHERS_JJHUB_API_URL"])
+	})
+	t.Run("installs none", func(t *testing.T) {
+		_, runtime, q, row := codingBindingServiceFixture(t)
+		service := newWorkspaceServiceForTests(q, WithWorkspaceRuntime(trustedPlainRuntime{runtime}), WithWorkspaceGitBaseURL("http://127.0.0.1:4000"))
+		environment, err := service.PrepareBoxHost(context.Background(), "host", row.ID, row.RepositoryID, row.UserID)
+		require.NoError(t, err)
+		require.Empty(t, runtime.events, "a plain trusted-process box gets no publisher and no binding")
+		require.NotContains(t, environment, "SMITHERS_JJHUB_TOKEN")
+		require.Empty(t, q.tokens, "and no host credential")
+	})
+	t.Run("binding failure stops the launch", func(t *testing.T) {
+		_, runtime, q, row := codingBindingServiceFixture(t)
+		runtime.installErr = errors.New("binding unavailable")
+		service := newWorkspaceServiceForTests(q, WithWorkspaceRuntime(trustedBindingRuntime{runtime}), WithWorkspaceGitBaseURL("http://127.0.0.1:4000"))
+		environment, err := service.PrepareBoxHost(context.Background(), "host", row.ID, row.RepositoryID, row.UserID)
+		require.Error(t, err)
+		require.NotContains(t, environment, "SMITHERS_JJHUB_TOKEN")
+		require.Empty(t, q.tokens)
+	})
+}
