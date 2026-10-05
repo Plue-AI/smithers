@@ -1276,7 +1276,7 @@ describe("launch-law parity: every affordance is a command", () => {
        * facet's rows belong to the imported FileListCardBody and are counted
        * in its file. Retained facets: terminal, browser, editor, files and status.
        */
-      "../cards/WorkspaceCard.tsx": 13,
+      "../cards/WorkspaceCard.tsx": 11,
       /* The trace owns selection, views, filters and child navigation.
        * The extracted strip selects recorded sequences; summary actions reuse
        * approvals.open and runs.resume; goals reuse runs.coding.select. */

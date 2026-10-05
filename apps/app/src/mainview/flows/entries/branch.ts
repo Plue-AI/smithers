@@ -66,6 +66,7 @@ export const branchFlows = (actions: CommandActions): ReadonlyArray<FlowEntry> =
     flow({ name: "terminal", summary: "Open a terminal on a branch", args: "<branch>", hidden: true, discloseToAgent: true,
       grammar: field("branch"), input: BranchInput,
       handler: async ({ branch }) => {
+        if (actions.bootstrap || actions.live) return "Terminal unavailable"
         const target = branchOf(branch)
         if (target === undefined) return `No branch ${branch}`
         const result = design.newTerminal(target.id, design.viewer())
@@ -75,6 +76,7 @@ export const branchFlows = (actions: CommandActions): ReadonlyArray<FlowEntry> =
     flow({ name: "terminal.watch", summary: "Watch a terminal", args: "<terminal>", hidden: true,
       grammar: field("id"), input: Schema.Struct({ id: Schema.String }),
       handler: ({ id }) => {
+        if (actions.bootstrap || actions.live) return "Terminal unavailable"
         const terminal = design.world().terminals.find(each => each.id === id)
         if (terminal !== undefined && terminal.owner !== design.viewer()) design.watchTerminal(id, design.viewer())
         return openTerminal(id)
@@ -82,6 +84,7 @@ export const branchFlows = (actions: CommandActions): ReadonlyArray<FlowEntry> =
     flow({ name: "terminal.send", summary: "Run a command in your terminal", args: "<terminal> <command>", hidden: true,
       grammar: field("id"), input: Schema.Struct({ id: Schema.String, command: Schema.String }),
       handler: ({ id, command }) => {
+        if (actions.bootstrap || actions.live) return "Terminal unavailable"
         const result = design.typeTerminal(id, command, design.viewer())
         return result.ok ? undefined : result.refusal
       } }),

@@ -283,11 +283,11 @@ describe("the three-door law", () => {
     const { store, controller } = await boot()
     cloudSession(store, "signed-out", null)
     await settle(2)
-    const agent = await execute(controller, "box.terminal")
+    const agent = await execute(controller, "change.view", "change-1")
     expect(agent).toStartWith("failed: Sign in to Smithers Cloud to continue")
     expect(agent).toContain("cloud.prompt")
     expect(agent).not.toContain("/cloud.sign-in")
-    const human = await controller.commands.run("box.terminal")
+    const human = await controller.commands.run("change.view", "change-1")
     expect(human).toEqual({ status: "failed", error: "Sign in to Smithers Cloud to continue." })
   })
 
@@ -297,7 +297,7 @@ describe("the three-door law", () => {
       cloudSession(store, "signed-out", null)
       const flow = host.host === "cloud" ? "sign-in" : "cloud.sign-in"
       try {
-        for (const name of ["box.terminal", "change.view"] as const) {
+        for (const name of ["change.view"] as const) {
           const outcome = await controller.commands.run(name, name === "change.view" ? "change-1" : undefined)
           expect(outcome).toEqual({ status: "failed", error: "Sign in to Smithers Cloud to continue." })
           const step = messages(store).at(-1)
@@ -305,7 +305,7 @@ describe("the three-door law", () => {
           expect(controller.commands.find(step!.action!.flow)).toBeDefined()
           expect(step?.text).not.toContain("/cloud.sign-in")
         }
-        expect(await execute(controller, "box.terminal")).toContain("cloud.prompt")
+        expect(await execute(controller, "change.view", "change-1")).toContain("cloud.prompt")
         expect(messages(store).at(-1)?.action?.flow).toBe(flow)
       } finally { controller.dispose() }
     })

@@ -1,4 +1,3 @@
-import { TerminalView } from "../tabs/TerminalView"
 import { Copy } from "lucide-react"
 import { ViewSkeleton } from "../ViewSkeleton"
 import { flowAction, flowProps } from "../flows/FlowAction"
@@ -33,11 +32,9 @@ import { eq } from "@tanstack/db"
 import { useLiveQuery } from "@tanstack/react-db"
 import { useState } from "react"
 import { Button, StatusPill } from "@smthrs/ui"
-import { Globe, Monitor, Play, RefreshCw, Server, Square, Trash2 } from "lucide-react"
+import { Globe, Play, Server, Square, Trash2 } from "lucide-react"
 import { useController } from "../ControllerContext"
 import type { Card } from "../state/AppState"
-import { refusalFromStored } from "@smthrs/rpc/Refusal"
-import { refusalUserFailure } from "@smthrs/rpc/RefusalCopy"
 import { describedFailure, FailureNotice } from "../FailureNotice"
 import type { UserFailureCopy } from "@smthrs/rpc/UserFailure"
 import { EGRESS_PROXY_UNAVAILABLE } from "../state/seams/WorkspaceSeam"
@@ -62,7 +59,7 @@ export interface WorkspaceCardActions {
 type WorkspaceCard = Extract<Card, { kind: "workspace" }>
 type WorkspacePayload = WorkspaceCard["payload"]
 
-const FACETS = ["terminal", "files", "services", "egress"] as const
+const FACETS = ["files", "services", "egress"] as const
 
 /*
  * Lane L3b — ADR 0002: "three sandbox kinds share one option surface; the kind
@@ -164,15 +161,10 @@ const listingCard = (payload: WorkspacePayload): Extract<Card, { kind: "file-lis
 const WorkspaceFacetBody = ({
   card,
   facet,
-  canTerminal,
-  terminalUnavailableOnWeb,
   onRunCommand
 }: {
   readonly card: WorkspaceCard
   readonly facet: (typeof FACETS)[number]
-  /** Whether this host registers `box.terminal` (its tunnel is open); false renders the fact, not a button. */
-  readonly canTerminal: boolean
-  readonly terminalUnavailableOnWeb: boolean
   readonly onRunCommand: WorkspaceCardActions["onRunCommand"]
 }) => {
   const { payload } = card
@@ -255,71 +247,7 @@ const WorkspaceFacetBody = ({
       </div>
     )
   }
-  /* The terminal facet: the attachment, then every session the workspace holds. */
-  const storedTerminalRefusal = payload.terminalRefusal ?? null
-  const terminalRefusal = storedTerminalRefusal === null ? null : refusalFromStored(storedTerminalRefusal)
-  return (
-    <div className="world-card-list">
-      {payload.terminalSessionId !== undefined ?
-        (
-          <div className="workspace-terminal-embed" style={{ height: 320 }}>
-            <TerminalView repo={payload.repo} sessionId={payload.terminalSessionId} />
-          </div>
-        ) :
-        <p className="world-card-empty">No terminal attached.</p>}
-      {/*
-       * The lead line for this fault; plue's code and words for a refused
-       * session POST (plue#504) stay behind Details. A `wait` fault —
-       * `guest_not_ready` is one — is ALSO retried
-       * by the seam on the server's own pacing, so the button is the human's
-       * way to stop waiting for that clock, not the only way forward. (The
-       * `report` door for an infra refusal has no control yet; see the terminal
-       * facet's seam note.)
-       */}
-      {terminalRefusal !== null ?
-        (
-          <>
-            <FailureNotice failure={refusalUserFailure(terminalRefusal)} role="status" className="world-card-empty" />
-            {terminalRefusal.fault === "wait" && terminalRefusal.retryAfter != null ?
-              <p className="world-card-path">{`Try again in ${terminalRefusal.retryAfter}s.`}</p> :
-              null}
-          </>
-        ) :
-        null}
-      {canTerminal ?
-        (
-          <Button
-            size="sm"
-            {...(terminalRefusal === null ? {} : { variant: "outline" as const, "aria-label": "Try the terminal again" })}
-            {...flowAction(onRunCommand, "box.terminal", payload.workspaceId)}
-          >
-            {terminalRefusal === null ? "Open terminal" : <><RefreshCw size={12} aria-hidden="true" /> Retry</>}
-          </Button>
-        ) :
-        terminalUnavailableOnWeb ? <p className="world-card-empty">Terminals are not on the web yet.</p> : null}
-      {payload.sessions.length === 0 ?
-        null :
-        (
-          <ul className="world-card-list">
-            {payload.sessions.map((session) => (
-              <li key={session.id} className="world-card-row">
-                <Monitor size={14} aria-hidden="true" />
-                <span className="world-card-title">{session.id}</span>
-                <StatusPill status={session.status} />
-                <Button
-                  size="sm"
-                  variant="outline"
-                  aria-label={`Destroy session ${session.id}`}
-                  {...flowAction(onRunCommand, "box.session.destroy", flowArgs("box.session.destroy", { sessionId: session.id, workspaceId: payload.workspaceId }))}
-                >
-                  Destroy
-                </Button>
-              </li>
-            ))}
-          </ul>
-        )}
-    </div>
-  )
+  return null
 }
 
 export const WorkspaceCardBody = ({
@@ -327,7 +255,7 @@ export const WorkspaceCardBody = ({
   onRunCommand
 }: { readonly card: WorkspaceCard } & WorkspaceCardActions) => {
   const { payload } = card
-  const facet = payload.facet === "desktop" ? "terminal" : payload.facet ?? "terminal"
+  const facet = payload.facet === "files" || payload.facet === "services" || payload.facet === "egress" ? payload.facet : "files"
   /* The registry is the truth about the terminal door: the Worker registers box.terminal only once its relay is on. */
   const controller = useController()
   const { data: recoveryRows } = useLiveQuery(q => q.from({ workspace: controller.store.collections.cloudWorkspaces })
@@ -343,9 +271,6 @@ export const WorkspaceCardBody = ({
     && (identity?.ownerRevision ?? identity?.revision) === offered.identityOwnerRevision ? offered : undefined
   const recoveryKind = recoveryRows[0]?.kind
   const recoveryPending = recovery?.request?.state === "requested" || recovery?.request?.state === "running"
-  const canTerminal = controller.commands.find("box.terminal") !== undefined
-  const terminalUnavailableOnWeb = controller.bootstrap?.host === "cloud"
-    && !controller.bootstrap.capabilities.includes("cloud.terminal")
   /* The delete act's typed confirm: the draft is transient chrome state, never a store fact. */
   const [deleteDraft, setDeleteDraft] = useState<string | null>(null)
   /* Uptime is derived at render from the payload's start time — no lifecycle, no timer, no stored duration. */
@@ -463,7 +388,7 @@ export const WorkspaceCardBody = ({
           </Button>
         ))}
       </div>
-      <WorkspaceFacetBody card={card} facet={facet} canTerminal={canTerminal} terminalUnavailableOnWeb={terminalUnavailableOnWeb} onRunCommand={onRunCommand} />
+      <WorkspaceFacetBody card={card} facet={facet} onRunCommand={onRunCommand} />
       <div className="world-card-row">
         {payload.status === "running" ?
           (

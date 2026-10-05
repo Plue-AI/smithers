@@ -1,3 +1,4 @@
+import type { TerminalCardSource } from "./seams/TerminalSeam"
 import { confirmCancelRefusal } from "@smthrs/rpc/ConfirmCard"
 import type { Refusal } from "@smthrs/rpc/Refusal"
 import { openRequestedRepo } from "../RepoLink"
@@ -321,6 +322,8 @@ export interface AppController extends IssueFlowsController {
   readonly submitForm: FormsController["submitForm"]
   readonly dismissCard: FormsController["dismissCard"]
   /** Lane citc: the cloud-workspace terminal transport (one socket per workspace session). */
+  /** T-APP-12 stays dark until the owner-only machine provider supplies this scope. */
+  readonly terminalCards?: TerminalCardSource
   readonly cloudTerminal: CloudTerminalClient
   /* The admin dev-tools panel + debug reads (§2b/§2d; admin registry only). */
   readonly toggleDevtools: () => void

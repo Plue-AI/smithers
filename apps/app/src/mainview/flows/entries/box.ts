@@ -74,7 +74,7 @@ export const workspaceFlows = (actions: CommandActions): ReadonlyArray<FlowEntry
     args: "[workspaceId]",
     requires: ["signed-in"],
     input: Schema.Struct({ workspaceId: Schema.optional(Schema.String) }),
-    handler: ({ workspaceId }) => actions.openWorkspaceTerminal(workspaceId)
+    handler: () => "Terminal unavailable"
   }),
   flow({
     name: "box.suspend",
@@ -103,7 +103,7 @@ export const workspaceFlows = (actions: CommandActions): ReadonlyArray<FlowEntry
     args: "[workspaceId]",
     requires: ["signed-in"],
     input: Schema.Struct({ workspaceId: Schema.optional(Schema.String) }),
-    handler: ({ workspaceId }) => actions.listWorkspaceSessions(workspaceId)
+    handler: () => "Terminal unavailable"
   }),
   flow({
     name: "box.session.destroy",
