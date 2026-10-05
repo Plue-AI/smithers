@@ -737,7 +737,14 @@ export type TodoCard = {
     acceptance: Array<string>
     by: Record<string, unknown>
     at: string
+    reason?: string
+    issue_digest?: string
   }>
+  issue?: {
+    number: number
+    url: string
+    fixes: boolean
+  }
   branch?: {
     id: string
     name: string
@@ -5008,6 +5015,9 @@ export type PostApiTodosBody = {
     mode: "append" | "before" | "amend"
     n?: number
   }
+  issue?: number
+  issue_digest?: string
+  fixes?: boolean
 }
 
 export type PostApiTodosResponse = {

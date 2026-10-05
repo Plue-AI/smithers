@@ -93,6 +93,9 @@ func (s *MythicalService) todoCard(ctx context.Context, item db.MythicalItem) (m
 	if item.StackPosition.Valid {
 		card["place"] = item.StackPosition.Int64
 	}
+	if item.IssueNumber.Valid && item.IssueURL != "" {
+		card["issue"] = map[string]any{"number": item.IssueNumber.Int64, "url": item.IssueURL, "fixes": item.FixesIssue}
+	}
 	if item.PRNumber.Valid && item.PRURL != "" {
 		// draft is GitHub's flag as the stack last read the pull request;
 		// included_items are the earlier items its body includes, then this TODO.

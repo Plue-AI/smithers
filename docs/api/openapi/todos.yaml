@@ -56,6 +56,17 @@ paths:
                   properties:
                     mode: {type: string, enum: [append, before, amend]}
                     n: {type: integer, minimum: 1}
+                issue:
+                  description: Make TODO. The GitHub issue number the Draft was made from; requires issue_digest. The TODO becomes the issue's, and an issue holds one unmerged TODO.
+                  type: integer
+                  minimum: 1
+                issue_digest:
+                  description: SHA-256 hex of the issue's title, a NUL byte and its body, as the Draft read them. An issue changed since is refused with issue_changed.
+                  type: string
+                  pattern: '^[0-9a-f]{64}$'
+                fixes:
+                  description: Whether merging the TODO closes the issue; requires issue. Absent means true.
+                  type: boolean
       responses:
         '202':
           description: Persisted TODO creation; execution has not completed
@@ -69,13 +80,13 @@ paths:
                   n: {type: integer, minimum: 1}
                   rev: {type: integer, minimum: 1}
         '400':
-          description: Invalid TODO, missing Idempotency-Key, or invalid_place
+          description: Invalid TODO, missing Idempotency-Key, invalid_place, or an issue reference that is incomplete or names a pull request
         '403':
           description: Install owner session required
         '409':
-          description: Idempotency-Key reused for a different request
+          description: Idempotency-Key reused for a different request; issue_changed, issue_closed, or issue_has_todo for Make TODO
         '503':
-          description: Repository stack unavailable
+          description: Repository stack unavailable, or github_unavailable when Make TODO cannot read the issue
   /api/todos/{n}:
     get:
       x-composition: install
@@ -180,6 +191,18 @@ components:
                 items: {type: string}
               by: {type: object, additionalProperties: true}
               at: {type: string}
+              reason:
+                description: from-issue on revision 1 of a TODO made from an issue (Make TODO or the todo label).
+                type: string
+              issue_digest: {type: string}
+        issue:
+          description: The GitHub issue the TODO was made from, and whether merging the TODO closes it.
+          type: object
+          required: [number, url, fixes]
+          properties:
+            number: {type: integer, minimum: 1}
+            url: {type: string}
+            fixes: {type: boolean}
         branch:
           type: object
           required: [id, name, machine]

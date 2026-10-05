@@ -5,7 +5,9 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"net/http"
+	"regexp"
 	"strconv"
 	"strings"
 	"time"
@@ -20,13 +22,19 @@ import (
 
 // MythicalTodoInput is a TODO a person files through Smithers. Request,
 // when given, names the filing: the same request again answers the TODO it
-// filed instead of opening another issue.
+// filed instead of opening another issue. Issue, IssueDigest and Fixes come
+// together from Make TODO (/todo.from-issue): the GitHub issue the Draft was
+// made from, the digest of the title and body the member read, and whether
+// the TODO closes the issue when it merges (absent: it does).
 type MythicalTodoInput struct {
-	Prompt     string            `json:"prompt"`
-	Acceptance []string          `json:"acceptance"`
-	Place      MythicalTodoPlace `json:"place"`
-	Title      string            `json:"title"`
-	Request    string            `json:"-"`
+	Prompt      string            `json:"prompt"`
+	Acceptance  []string          `json:"acceptance"`
+	Place       MythicalTodoPlace `json:"place"`
+	Title       string            `json:"title"`
+	Issue       *int64            `json:"issue,omitempty"`
+	IssueDigest string            `json:"issue_digest,omitempty"`
+	Fixes       *bool             `json:"fixes,omitempty"`
+	Request     string            `json:"-"`
 }
 
 // MythicalTodoPlace is where a new TODO goes on the stack: the Draft's place
@@ -55,7 +63,10 @@ func (p *MythicalTodoPlace) UnmarshalJSON(data []byte) error {
 }
 
 // FileTodo appends the person's prompt directly to the existing stack. No
-// GitHub issue or machine launch is performed in the HTTP transaction.
+// GitHub issue or machine launch is performed in the HTTP transaction. A
+// Draft made from an issue (Make TODO) commits as that issue's TODO:
+// revision 1 is the Draft's text with reason from-issue and the issue's
+// digest, and an issue holds one unmerged TODO.
 func (s *MythicalService) FileTodo(ctx context.Context, repositoryID, userID int64, input MythicalTodoInput) (MythicalItemView, error) {
 	if err := middleware.RequirePerson(ctx, "make a TODO"); err != nil {
 		return MythicalItemView{}, err
@@ -85,7 +96,29 @@ func (s *MythicalService) FileTodo(ctx context.Context, repositoryID, userID int
 	if input.Acceptance == nil {
 		input.Acceptance = []string{}
 	}
+	if input.Issue == nil && (input.IssueDigest != "" || input.Fixes != nil) ||
+		input.Issue != nil && (*input.Issue <= 0 || !mythicalDigestPattern.MatchString(input.IssueDigest)) {
+		return MythicalItemView{}, &TodoControlError{400, "invalid_todo", "user", "issue, issue_digest and fixes go together"}
+	}
+	if input.Issue != nil && input.Fixes == nil {
+		fixes := true
+		input.Fixes = &fixes
+	}
 	canonical, _ := json.Marshal(input)
+	// Make TODO reads the issue once, before the transaction and only for a
+	// new request: a replay answers the TODO it filed, whatever the issue
+	// says now.
+	var issue *db.MythicalTodoIssue
+	if input.Issue != nil {
+		if _, err = s.queries().GetMythicalRequest(ctx, repositoryID, info.SessionHash, input.Request); errors.Is(err, pgx.ErrNoRows) {
+			if issue, err = s.readTodoIssue(ctx, repositoryID, userID, *input.Issue, input.IssueDigest); err != nil {
+				return MythicalItemView{}, err
+			}
+			issue.Fixes = *input.Fixes
+		} else if err != nil {
+			return MythicalItemView{}, err
+		}
+	}
 	var item db.MythicalItem
 	err = pgx.BeginFunc(ctx, s.store, func(tx pgx.Tx) error {
 		q := db.New(tx)
@@ -105,17 +138,32 @@ func (s *MythicalService) FileTodo(ctx context.Context, repositoryID, userID int
 		if !errors.Is(err, pgx.ErrNoRows) {
 			return err
 		}
+		if input.Issue != nil && issue == nil {
+			return &TodoControlError{409, "idempotency_mismatch", "conflict", "Commit the Draft again"}
+		}
 		stack, err := q.GetMythicalStack(ctx, repositoryID)
 		if err != nil || stack.State != "active" {
 			return &TodoControlError{503, "stack_unavailable", "infra", "Repository stack is not ready"}
 		}
-		revision, _ := json.Marshal([]map[string]any{{"text": input.Prompt, "acceptance": input.Acceptance, "by": map[string]any{"kind": "person", "login": owner.Username, "name": owner.DisplayName, "avatar_url": todoAvatar(owner), "color_index": 0}, "at": s.now().UTC().Format(time.RFC3339Nano)}})
+		first := map[string]any{"text": input.Prompt, "acceptance": input.Acceptance, "by": map[string]any{"kind": "person", "login": owner.Username, "name": owner.DisplayName, "avatar_url": todoAvatar(owner), "color_index": 0}, "at": s.now().UTC().Format(time.RFC3339Nano)}
+		if issue != nil {
+			first["reason"], first["issue_digest"] = "from-issue", issue.Digest
+		}
+		revision, _ := json.Marshal([]map[string]any{first})
 		checks := mythicalChecks{Todo: true, FiledRequest: input.Request, CreationSession: info.SessionHash, CreationPayload: string(canonical)}
-		item, err = q.InsertMythicalTodo(ctx, repositoryID, userID, input.Title, input.Prompt, revision, checks.encode())
+		item, err = q.InsertMythicalIssueTodo(ctx, repositoryID, userID, input.Title, input.Prompt, revision, checks.encode(), issue)
+		if issue != nil && errors.Is(err, pgx.ErrNoRows) {
+			held, _ := q.GetActiveMythicalItemByIssue(ctx, repositoryID, issue.Number)
+			return &TodoControlError{409, "issue_has_todo", "conflict", fmt.Sprintf("Issue #%d already has T%d", issue.Number, held.Number.Int64)}
+		}
 		if err != nil {
 			return err
 		}
-		fact, _ := json.Marshal(map[string]any{"item": uuidString(item.ID), "n": item.Number.Int64, "attempt": item.Attempt, "from": "draft", "to": "queued", "actor": userID})
+		created := map[string]any{"item": uuidString(item.ID), "n": item.Number.Int64, "attempt": item.Attempt, "from": "draft", "to": "queued", "actor": userID}
+		if issue != nil {
+			created["issue"] = issue.Number
+		}
+		fact, _ := json.Marshal(created)
 		if _, err = jobs.RecordFactInTx(ctx, tx, todoOperationScope(item), uuid.NewString(), "todo.created", "queued", fact); err != nil {
 			return err
 		}
@@ -128,6 +176,53 @@ func (s *MythicalService) FileTodo(ctx context.Context, repositoryID, userID int
 		return MythicalItemView{}, err
 	}
 	return mythicalItemView(item), nil
+}
+
+var mythicalDigestPattern = regexp.MustCompile(`^[0-9a-f]{64}$`)
+
+// readTodoIssue is Make TODO's read of the issue a Draft names, as GitHub
+// answers it now. The Draft carries the digest of the title and body its
+// author read (mythicalIssueDigest); an issue changed since then is refused,
+// so the TODO never keeps issue text nobody read (spec §10.2.1b). Only the
+// install owner commits today, and the owner may make a TODO from an
+// outsider's text, which marks the TODO outsider like a maintainer's label.
+func (s *MythicalService) readTodoIssue(ctx context.Context, repositoryID, userID, number int64, digest string) (*db.MythicalTodoIssue, error) {
+	unavailable := &TodoControlError{503, "github_unavailable", "infra", fmt.Sprintf("Could not read issue #%d from GitHub", number)}
+	if s.github == nil {
+		return nil, unavailable
+	}
+	repository, owner, err := s.repository(ctx, repositoryID)
+	if err != nil {
+		return nil, err
+	}
+	gh, err := s.github.Resolve(ctx, repository, owner, userID)
+	if err != nil {
+		s.logger.Warn("mythical.todo_issue_unavailable", "repository_id", repositoryID, "issue", number, "error", err)
+		return nil, unavailable
+	}
+	issue, err := s.github.Issue(ctx, gh, number)
+	if err != nil {
+		s.logger.Warn("mythical.todo_issue_unavailable", "repository_id", repositoryID, "issue", number, "error", err)
+		return nil, unavailable
+	}
+	switch {
+	case issue.Number != number || issue.PullRequest:
+		return nil, &TodoControlError{400, "invalid_todo", "user", fmt.Sprintf("#%d is not an issue", number)}
+	case !strings.EqualFold(issue.State, "open"):
+		return nil, &TodoControlError{409, "issue_closed", "conflict", fmt.Sprintf("Issue #%d is closed", number)}
+	case mythicalIssueDigest(issue) != digest:
+		return nil, &TodoControlError{409, "issue_changed", "conflict", fmt.Sprintf("Issue #%d changed after the Draft was made. Make the TODO again.", number)}
+	}
+	byMaintainer, err := s.github.IssueTextByMaintainer(ctx, gh, issue)
+	if err != nil {
+		s.logger.Warn("mythical.todo_issue_unavailable", "repository_id", repositoryID, "issue", number, "error", err)
+		return nil, unavailable
+	}
+	body := issue.Body
+	if len(body) > mythicalPromptBytes {
+		body = body[:mythicalPromptBytes]
+	}
+	return &db.MythicalTodoIssue{Number: number, Title: issue.Title, Body: body, URL: issue.URL, Digest: digest, Outsider: !byMaintainer}, nil
 }
 
 func todoOperationScope(item db.MythicalItem) jobs.Scope {

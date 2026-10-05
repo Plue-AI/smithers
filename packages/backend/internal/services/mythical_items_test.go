@@ -231,6 +231,18 @@ func (g *fakeMythicalGitHub) OpenIssues(context.Context, mythicalGitHubRepo) ([]
 	return append([]mythicalIssue(nil), g.issues...), nil
 }
 
+// Issue answers the issue as listed, or GitHub's 404.
+func (g *fakeMythicalGitHub) Issue(_ context.Context, _ mythicalGitHubRepo, number int64) (mythicalIssue, error) {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	for _, issue := range g.issues {
+		if issue.Number == number {
+			return issue, nil
+		}
+	}
+	return mythicalIssue{}, landingGitHubStatusError(http.StatusNotFound, "smithersai", "smithers", "read issues")
+}
+
 // Pull answers the pull request with its branch's head as GitHub reads it.
 func (g *fakeMythicalGitHub) Pull(_ context.Context, _ mythicalGitHubRepo, number int64) (mythicalPull, error) {
 	g.mu.Lock()

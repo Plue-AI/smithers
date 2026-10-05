@@ -65,6 +65,8 @@ type mythicalPull struct {
 type mythicalGitHub interface {
 	Resolve(ctx context.Context, repository db.Repository, owner string, actorUserID int64) (mythicalGitHubRepo, error)
 	OpenIssues(ctx context.Context, gh mythicalGitHubRepo) ([]mythicalIssue, error)
+	// Issue reads one issue as GitHub answers it now (Make TODO's read).
+	Issue(ctx context.Context, gh mythicalGitHubRepo, number int64) (mythicalIssue, error)
 	// IssueTextByMaintainer reads whether an open issue's author and the
 	// last writers of its title and body, still as listed, are maintainers.
 	IssueTextByMaintainer(ctx context.Context, gh mythicalGitHubRepo, issue mythicalIssue) (bool, error)
@@ -277,6 +279,20 @@ func (p mythicalGitHubPull) pull() mythicalPull {
 		out.MergeCommit = *p.MergeCommitSHA
 	}
 	return out
+}
+
+// Issue is one GET of the issue: OpenIssues pages through every open issue
+// and never answers a closed one.
+func (g *mythicalGitHubAPI) Issue(ctx context.Context, gh mythicalGitHubRepo, number int64) (mythicalIssue, error) {
+	var issue mythicalGitHubIssue
+	status, err := g.api.request(ctx, gh.Token, http.MethodGet, landingGitHubRepoPath(gh.Owner, gh.Name)+"/issues/"+strconv.FormatInt(number, 10), nil, &issue)
+	if err != nil {
+		return mythicalIssue{}, err
+	}
+	if status != http.StatusOK {
+		return mythicalIssue{}, landingGitHubStatusError(status, gh.Owner, gh.Name, "read issues")
+	}
+	return issue.issue(), nil
 }
 
 func (g *mythicalGitHubAPI) Pull(ctx context.Context, gh mythicalGitHubRepo, number int64) (mythicalPull, error) {

@@ -624,6 +624,36 @@ func (q *Queries) GetMythicalRequest(ctx context.Context, repositoryID int64, se
 		ORDER BY id LIMIT 1`, repositoryID, session, request))
 }
 func (q *Queries) InsertMythicalTodo(ctx context.Context, repositoryID, userID int64, title, prompt string, revisions, checks json.RawMessage) (MythicalItem, error) {
-	return scanMythicalItem(q.db.QueryRow(ctx, `INSERT INTO mythical_items(repository_id,source,state,title,issue_title,issue_body,created_by,owner_id,revisions,checks)
- VALUES($1,'todo','queued',$3,$3,$4,$2,$2,$5,$6) RETURNING `+mythicalItemColumns, repositoryID, userID, title, prompt, jsonArg(revisions), jsonArg(checks)))
+	return q.InsertMythicalIssueTodo(ctx, repositoryID, userID, title, prompt, revisions, checks, nil)
+}
+
+// MythicalTodoIssue is the GitHub issue a person's TODO was made from (Make
+// TODO): its number, the title, body and URL read for the Draft, that text's
+// digest, whether the text is an outsider's, and whether the TODO fixes it.
+type MythicalTodoIssue struct {
+	Number                   int64
+	Title, Body, URL, Digest string
+	Outsider, Fixes          bool
+}
+
+// InsertMythicalIssueTodo files a person's TODO, from issue when it is not
+// nil: source issue with the issue's own title, body and digest beside the
+// TODO's title. An unmerged TODO already holding the issue answers
+// pgx.ErrNoRows and nothing is written.
+func (q *Queries) InsertMythicalIssueTodo(ctx context.Context, repositoryID, userID int64, title, prompt string, revisions, checks json.RawMessage, issue *MythicalTodoIssue) (MythicalItem, error) {
+	source, issueTitle, body := "todo", title, prompt
+	var number pgtype.Int8
+	var url, digest string
+	var outsider, fixes bool
+	if issue != nil {
+		source, issueTitle, body, url, digest = "issue", issue.Title, issue.Body, issue.URL, issue.Digest
+		number, outsider, fixes = pgtype.Int8{Int64: issue.Number, Valid: true}, issue.Outsider, issue.Fixes
+	}
+	return scanMythicalItem(q.db.QueryRow(ctx, `INSERT INTO mythical_items(repository_id,source,state,title,issue_title,issue_body,created_by,owner_id,revisions,checks,
+ issue_number,issue_url,issue_digest,approved_digest,outsider,fixes_issue)
+ VALUES($1,$7,'queued',$3,$8,$4,$2,$2,$5,$6,$9,$10,$11,$11,$12,$13)
+ ON CONFLICT (repository_id, issue_number) WHERE issue_number IS NOT NULL
+ AND state NOT IN ('landed', 'cancelled', 'rejected', 'declined') DO NOTHING
+ RETURNING `+mythicalItemColumns, repositoryID, userID, title, body, jsonArg(revisions), jsonArg(checks), source, issueTitle,
+		number, url, digest, outsider, fixes))
 }

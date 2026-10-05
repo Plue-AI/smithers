@@ -1266,6 +1266,7 @@ type TodoCard struct {
 	Owner                TodoCardOwner                 `json:"owner"`
 	Place                *int64                        `json:"place,omitempty"`
 	PromptRevisions      []TodoCardPromptRevisionsItem `json:"prompt_revisions"`
+	Issue                *TodoCardIssue                `json:"issue,omitempty"`
 	Branch               *TodoCardBranch               `json:"branch,omitempty"`
 	Run                  *TodoCardRun                  `json:"run,omitempty"`
 	Pr                   *TodoCardPr                   `json:"pr,omitempty"`
@@ -1284,7 +1285,7 @@ func (v *TodoCard) UnmarshalJSON(data []byte) error {
 	if err := json.Unmarshal(data, (*plain)(v)); err != nil {
 		return err
 	}
-	return splitAdditional(data, &v.AdditionalProperties, "n", "title", "state", "owner", "place", "prompt_revisions", "branch", "run", "pr", "steps", "waits", "steers", "evidence", "merge", "present")
+	return splitAdditional(data, &v.AdditionalProperties, "n", "title", "state", "owner", "place", "prompt_revisions", "issue", "branch", "run", "pr", "steps", "waits", "steers", "evidence", "merge", "present")
 }
 
 // MarshalJSON writes AdditionalProperties beside the declared members of TodoCard.
@@ -1302,10 +1303,19 @@ type TodoCardOwner struct {
 
 // TodoCardPromptRevisionsItem is generated from docs/api/openapi.yaml.
 type TodoCardPromptRevisionsItem struct {
-	Text       string                     `json:"text"`
-	Acceptance []string                   `json:"acceptance"`
-	By         map[string]json.RawMessage `json:"by"`
-	At         string                     `json:"at"`
+	Text        string                     `json:"text"`
+	Acceptance  []string                   `json:"acceptance"`
+	By          map[string]json.RawMessage `json:"by"`
+	At          string                     `json:"at"`
+	Reason      *string                    `json:"reason,omitempty"`
+	IssueDigest *string                    `json:"issue_digest,omitempty"`
+}
+
+// TodoCardIssue is generated from docs/api/openapi.yaml.
+type TodoCardIssue struct {
+	Number int64  `json:"number"`
+	URL    string `json:"url"`
+	Fixes  bool   `json:"fixes"`
 }
 
 // TodoCardBranch is generated from docs/api/openapi.yaml.
@@ -1600,10 +1610,13 @@ type PostAPIReposOwnerRepoWorkspacesIDChildrenChildIDStopResponse struct {
 
 // PostAPITodosBody is generated from docs/api/openapi.yaml.
 type PostAPITodosBody struct {
-	Title      string                 `json:"title"`
-	Prompt     string                 `json:"prompt"`
-	Acceptance []string               `json:"acceptance,omitempty"`
-	Place      *PostAPITodosBodyPlace `json:"place,omitempty"`
+	Title       string                 `json:"title"`
+	Prompt      string                 `json:"prompt"`
+	Acceptance  []string               `json:"acceptance,omitempty"`
+	Place       *PostAPITodosBodyPlace `json:"place,omitempty"`
+	Issue       *int64                 `json:"issue,omitempty"`
+	IssueDigest *string                `json:"issue_digest,omitempty"`
+	Fixes       *bool                  `json:"fixes,omitempty"`
 }
 
 // PostAPITodosBodyPlace is generated from docs/api/openapi.yaml.
