@@ -145,7 +145,7 @@ func (h *TodoHandler) List(w http.ResponseWriter, r *http.Request) {
 // the same Idempotency-Key's earlier request again; the TODO is Merged only
 // once GitHub reports the merge and main contains it.
 func (h *TodoHandler) Merge(w http.ResponseWriter, r *http.Request) {
-	if err := services.MergeCredential(r.Context()); err != nil {
+	if err := services.MergeCredential(r.Context(), r.Header.Get("Smithers-Via")); err != nil {
 		todoRouteError(w, err)
 		return
 	}

@@ -49,11 +49,14 @@ func TestTodoMergeHTTPRefusals(t *testing.T) {
 	// No queries or service at all: a refusal it still answers read nothing.
 	unread := chi.NewRouter()
 	unread.Post("/api/todos/{n}/merge", (&TodoHandler{}).Merge)
-	post := func(router http.Handler, path, body string, info *middleware.AuthInfo, key string) (int, map[string]any) {
+	post := func(router http.Handler, path, body string, info *middleware.AuthInfo, key string, via ...string) (int, map[string]any) {
 		t.Helper()
 		req := httptest.NewRequest(http.MethodPost, "/api/todos/"+path+"/merge", strings.NewReader(body))
 		if key != "" {
 			req.Header.Set("Idempotency-Key", key)
+		}
+		for _, actor := range via {
+			req.Header.Set("Smithers-Via", actor)
 		}
 		req = req.WithContext(middleware.ContextWithAuthInfo(ctx, info))
 		response := httptest.NewRecorder()
@@ -87,6 +90,13 @@ func TestTodoMergeHTTPRefusals(t *testing.T) {
 		})
 	}
 	ownerSession := &middleware.AuthInfo{User: &db.User{ID: owner}, SessionHash: "browser-session"}
+	t.Run("an in-app agent action riding the owner's session", func(t *testing.T) {
+		for _, router := range []http.Handler{router, unread} {
+			status, envelope := post(router, "7", body, ownerSession, "press-1", "smithers")
+			require.Equal(t, 403, status)
+			require.Equal(t, map[string]any{"code": "never", "class": "never", "message": "Only a person can do this"}, envelope)
+		}
+	})
 	for _, tc := range []struct {
 		name, path, body, key, code string
 		status                      int

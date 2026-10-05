@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"regexp"
 	"time"
 
 	"github.com/go-chi/chi/v5"
@@ -207,9 +208,34 @@ func (h *MythicalHandler) Lanes(w http.ResponseWriter, r *http.Request) {
 	pkgerrors.WriteJSON(w, http.StatusAccepted, receipt)
 }
 
+// mythicalMergePath is the repository door's merge request.
+var mythicalMergePath = regexp.MustCompile(`^/api/repos/[^/]+/[^/]+/mythical/items/[^/]+/merge$`)
+
+// MergeCredentialFirst refuses a repository-door merge from every
+// credential but a person's own browser session before the repository is
+// resolved, as the numbered door refuses one before the TODO is read: both
+// doors answer every credential alike (services.MergeCredential).
+func MergeCredentialFirst(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method == http.MethodPost && mythicalMergePath.MatchString(r.URL.Path) {
+			if err := services.MergeCredential(r.Context(), r.Header.Get("Smithers-Via")); err != nil {
+				refusal := err.(*services.TodoControlError)
+				pkgerrors.WriteJSON(w, refusal.Status, refusal)
+				return
+			}
+		}
+		next.ServeHTTP(w, r)
+	})
+}
+
 // Merge acknowledges the person's persisted, head-bound request. Only the
 // claimed stack worker can dispatch and reconcile a GitHub merge.
 func (h *MythicalHandler) Merge(w http.ResponseWriter, r *http.Request) {
+	if err := services.MergeCredential(r.Context(), r.Header.Get("Smithers-Via")); err != nil {
+		refusal := err.(*services.TodoControlError)
+		pkgerrors.WriteJSON(w, refusal.Status, refusal)
+		return
+	}
 	user, err := requireRouteUser(r)
 	if err != nil {
 		pkgerrors.WriteError(w, err.(*pkgerrors.APIError))

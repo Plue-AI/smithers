@@ -19161,11 +19161,11 @@ paths:
         '401':
           description: No credential, or the browser session has ended
         '403':
-          description: Install owner browser session or GitHub maintainer required
+          description: Install owner browser session or GitHub maintainer required (permission); a request an in-app agent makes with the person's session, Smithers-Via, is never
         '404':
           description: TODO not found
         '409':
-          description: A MergeReady row refuses (stale_head carries GitHub's current head), GitHub's facts are not fresh, or the Idempotency-Key was used for a different request; no merge sent
+          description: A MergeReady row refuses (stale_head carries GitHub's current head), GitHub's facts are not fresh, the Idempotency-Key was used for a different request, or the same request's approval was refused or expired (its retained refusal); no merge sent
         '503':
           description: Install repository unavailable
   /api/user/connections/{id}:

@@ -1096,6 +1096,9 @@ func buildRouter(
 			r.With(middleware.RequireAuth, middleware.RequireScope(middleware.ScopeWriteOrganization)).Post("/orgs/{org}/repos", repoHandler.CreateOrgRepo)
 
 			r.Route("/repos/{owner}/{repo}", func(r chi.Router) {
+				// A merge's credential is refused before the repository is
+				// resolved, as the numbered door refuses it.
+				r.Use(routes.MergeCredentialFirst)
 				if queries != nil {
 					r.Use(middleware.LoadRepoContext(queries))
 				}

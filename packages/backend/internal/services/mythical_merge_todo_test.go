@@ -1,25 +1,30 @@
 package services
 
 import (
+	"bytes"
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
+	"log/slog"
 	"net/http"
 	"strconv"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
+	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgtype"
+	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
 	"github.com/smithersai/smithers/packages/backend/internal/db"
 	"github.com/smithersai/smithers/packages/backend/internal/githubfake"
 	"github.com/smithersai/smithers/packages/backend/internal/middleware"
-	pkgerrors "github.com/smithersai/smithers/packages/backend/internal/pkg/errors"
 )
 
 // HeadCheckFacts answers ci[sha] as one required check, none when green.
@@ -373,20 +378,18 @@ func TestMythicalMergeTodoUnauthorizedMergeIsDefinitive(t *testing.T) {
 	}
 }
 
-// A failure that settles nothing (GitHub answering 502, a read GitHub will
-// not answer, main's protection unreadable) never loops forever: no merge
-// GitHub has not received is sent once mythicalMergeExpiry has passed since
-// the approval, and the fence clears with a receipt the person can act on.
-// Unreadable protection is never taken for no protection.
+// A failure before any send that settles nothing (a read GitHub will not
+// answer, main's protection unreadable) never loops forever: a merge never
+// sent is not sent once mythicalMergeExpiry has passed since the approval,
+// and the fence clears with a receipt the person can act on. Unreadable
+// protection is never taken for no protection. A sent merge is another
+// matter (TestMythicalMergeTodoAttemptedMergeIsSettledOnlyByGitHub).
 func TestMythicalMergeTodoUnsettledMergeIsBounded(t *testing.T) {
 	for _, tc := range []struct {
 		name   string
 		breaks func(h *mergeHarness, pr int64)
 		sends  int
 	}{
-		{"merge answers 502", func(h *mergeHarness, pr int64) {
-			h.fake.FailNextWrites(fmt.Sprintf("/repos/rehearsal-owner/app/pulls/%d/merge", pr), 100)
-		}, 2},
 		{"protection unreadable", func(h *mergeHarness, _ int64) {
 			h.fake.SetInstallationPermission("administration", "")
 		}, 0},
@@ -946,10 +949,8 @@ func TestMythicalMergeRepositoryDoor(t *testing.T) {
 	}
 
 	_, err := h.service.Merge(h.ctx, h.repoID, h.userID, "not-a-uuid", MythicalMergeInput{Head: head, Request: "door-1"})
-	var invalid *pkgerrors.APIError
-	require.ErrorAs(t, err, &invalid)
-	assert.Equal(t, http.StatusBadRequest, invalid.Status)
-	assert.Equal(t, "invalid item id", invalid.Message)
+	assert.Equal(t, TodoControlError{Status: 400, Code: "invalid_todo", Class: "user", Message: "Invalid TODO id"}, *refusalOf(t, err),
+		"the numbered door's refusal of a malformed target, naming this door's form")
 
 	_, err = h.service.Merge(h.ctx, h.repoID, h.userID, "00000000-0000-4000-8000-000000000001", MythicalMergeInput{Head: head, Request: "door-2"})
 	assert.Equal(t, TodoControlError{Status: 404, Code: "todo_not_found", Class: "user", Message: "TODO not found"}, *refusalOf(t, err))
@@ -1058,7 +1059,8 @@ func TestMythicalMergeTodoIdempotencyKeyNamesThePress(t *testing.T) {
 	refused := h.item(n)
 	require.NotNil(t, mythicalChecksOf(refused).Land.Refused)
 
-	require.NoError(t, h.pressAs(h.ctx, "first", n, head), "a retry after the refusal answers the receipt")
+	retained := TodoControlError{Status: 409, Code: "github_refused", Class: "github", Message: "Base branch was modified."}
+	assert.Equal(t, retained, *refusalOf(t, h.pressAs(h.ctx, "first", n, head)), "a retry after the refusal answers that refusal")
 	assert.Equal(t, refused.Version, h.item(n).Version, "and records no fresh approval")
 	assert.Empty(t, h.item(n).PendingOp)
 	assert.NotNil(t, h.land(n).Refused)
@@ -1082,7 +1084,7 @@ func TestMythicalMergeTodoIdempotencyKeyNamesThePress(t *testing.T) {
 
 	h.exec(`UPDATE mythical_items SET generation = generation + 1 WHERE repository_id = $1 AND number = $2`, h.repoID, n)
 	regenerated := h.item(n)
-	require.NoError(t, h.pressAs(h.ctx, "first", n, head), "an old request is answered, never renewed")
+	assert.Equal(t, retained, *refusalOf(t, h.pressAs(h.ctx, "first", n, head)), "an old request is answered, never renewed")
 	assert.Equal(t, regenerated.Version, h.item(n).Version)
 	assert.Equal(t, refused.Generation, h.land(n).Generation)
 
@@ -1207,5 +1209,331 @@ func TestMythicalMergeLiveRereadsEveryRow(t *testing.T) {
 			}
 			assert.Equal(t, tc.code, refusalOf(t, err).Code)
 		})
+	}
+}
+
+// passAsync runs one claimed stack pass in the background, as the worker
+// does, and answers when it ends.
+func (h *mergeHarness) passAsync() <-chan error {
+	h.t.Helper()
+	h.exec(`UPDATE mythical_items SET next_attempt_at = NOW() WHERE repository_id = $1`, h.repoID)
+	h.service.MainMoved(context.Background(), h.repoID)
+	done := make(chan error, 1)
+	go func() { done <- h.service.PollOnce(context.Background()) }()
+	return done
+}
+
+// holdTodo takes TODO n's row lock when GitHub is next asked for pull
+// request pr, as a writer of the TODO would, so the dispatch claim that
+// follows waits for release.
+func (h *mergeHarness) holdTodo(n, pr int64) (release func()) {
+	id := h.item(n).ID
+	held := make(chan pgx.Tx, 1)
+	h.fake.OnNextRequest(http.MethodGet, fmt.Sprintf("/repos/rehearsal-owner/app/pulls/%d", pr), func() {
+		tx, err := h.pool.(*pgxpool.Pool).Begin(context.Background())
+		if err == nil {
+			_, err = tx.Exec(context.Background(), `SELECT 1 FROM mythical_items WHERE id = $1 FOR UPDATE`, id)
+		}
+		if err != nil {
+			panic(err)
+		}
+		held <- tx
+	})
+	var once sync.Once
+	release = func() {
+		once.Do(func() {
+			select {
+			case tx := <-held:
+				require.NoError(h.t, tx.Rollback(context.Background()))
+			default:
+			}
+		})
+	}
+	// A failed test still frees the lock, so its database can close.
+	h.t.Cleanup(release)
+	return release
+}
+
+// waitForTheClaim waits until a statement of this test's database waits on
+// a lock: the dispatch claim behind holdTodo.
+func (h *mergeHarness) waitForTheClaim() {
+	h.t.Helper()
+	for deadline := time.Now().Add(2 * time.Minute); ; {
+		var waiting int
+		require.NoError(h.t, h.pool.QueryRow(context.Background(),
+			`SELECT count(*) FROM pg_stat_activity WHERE datname = current_database() AND wait_event_type = 'Lock'`).Scan(&waiting))
+		if waiting > 0 {
+			return
+		}
+		require.False(h.t, time.Now().After(deadline), "the dispatch never reached its claim")
+		time.Sleep(20 * time.Millisecond)
+	}
+}
+
+// approvedAt moves TODO n's approval time: the clock of mythicalMergeExpiry.
+func (h *mergeHarness) approvedAt(n int64, at time.Time) {
+	h.t.Helper()
+	h.exec(`UPDATE mythical_items SET checks = jsonb_set(checks, '{land,at}', to_jsonb($2::text)) WHERE repository_id = $1 AND number = $3`,
+		h.repoID, at.UTC().Format(time.RFC3339Nano), n)
+}
+
+// A sign-out, a suspension or an owner change committed before the dispatch
+// claim sends nothing (§10.6.2b step 2): the claim takes the TODO's row, then
+// reads the session, the person and the owner with locks those revocations
+// wait on, so one committed while the claim waited is seen.
+func TestMythicalMergeTodoRevocationBeforeTheClaimSendsNothing(t *testing.T) {
+	const ended = "The approving browser session has ended; sign in again to merge"
+	for _, tc := range []struct {
+		name, revoke, code, message string
+	}{
+		{"signed out", `DELETE FROM auth_sessions WHERE user_id = $1`, "unauthenticated", ended},
+		{"suspended", `UPDATE users SET prohibit_login = true WHERE id = $1`, "unauthenticated", ended},
+		{"owner changed", `WITH other AS (INSERT INTO users(username,lower_username) VALUES ('next','next') RETURNING id)
+			UPDATE self_host_owners SET user_id = (SELECT id FROM other) WHERE user_id = $1`, "permission", "Merge requires an owner or maintainer browser session"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			h := newMergeHarness(t)
+			n, head, pr := h.first("Claimed")
+			require.NoError(t, h.press(h.ctx, n, head))
+			release := h.holdTodo(n, pr)
+			done := h.passAsync()
+			h.waitForTheClaim()
+			h.exec(tc.revoke, h.userID)
+			release()
+			require.NoError(t, <-done)
+			h.refused(n, tc.code, tc.message)
+		})
+	}
+}
+
+// A revocation in flight when the claim reads the approver's standing is
+// serialized with it: the claim's locked read waits for the revocation, and
+// sees it once committed.
+func TestMythicalMergeTodoRevocationInFlightAtTheClaimSendsNothing(t *testing.T) {
+	for _, tc := range []struct {
+		name, revoke, code string
+	}{
+		{"signing out", `DELETE FROM auth_sessions WHERE user_id = $1`, "unauthenticated"},
+		{"suspending", `UPDATE users SET prohibit_login = true WHERE id = $1`, "unauthenticated"},
+		{"changing the owner", `UPDATE self_host_owners SET user_id = (SELECT id FROM users WHERE username = 'next') WHERE user_id = $1`, "permission"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			h := newMergeHarness(t)
+			n, head, _ := h.first("Serialized")
+			h.exec(`INSERT INTO users(username,lower_username) VALUES ('next','next')`)
+			require.NoError(t, h.press(h.ctx, n, head))
+			revocation, err := h.pool.(*pgxpool.Pool).Begin(context.Background())
+			require.NoError(t, err)
+			defer func() { _ = revocation.Rollback(context.Background()) }()
+			_, err = revocation.Exec(context.Background(), tc.revoke, h.userID)
+			require.NoError(t, err)
+			done := h.passAsync()
+			h.waitForTheClaim()
+			require.NoError(t, revocation.Commit(context.Background()))
+			require.NoError(t, <-done)
+			assert.Empty(t, h.merges())
+			refused := h.land(n).Refused
+			require.NotNil(t, refused)
+			assert.Equal(t, tc.code, refused.Code)
+		})
+	}
+}
+
+// mythicalMergeExpiry is read at the claim, against the time then: an
+// approval that expires while GitHub is read, or while the claim waits,
+// is not sent.
+func TestMythicalMergeTodoExpiryIsReadAtTheClaim(t *testing.T) {
+	const unfinished = "The merge did not complete within 10 minutes; press Merge again"
+	t.Run("during the live reads", func(t *testing.T) {
+		h := newMergeHarness(t)
+		n, head, _ := h.first("Expiring")
+		require.NoError(t, h.press(h.ctx, n, head))
+		h.fake.OnNextRequest(http.MethodGet, "/repos/rehearsal-owner/app/branches/main/protection", func() { time.Sleep(12 * time.Second) })
+		h.approvedAt(n, time.Now().Add(-mythicalMergeExpiry+10*time.Second))
+		h.pass()
+		h.refused(n, "github", unfinished)
+	})
+	t.Run("while the claim waits", func(t *testing.T) {
+		h := newMergeHarness(t)
+		n, head, pr := h.first("Expiring")
+		require.NoError(t, h.press(h.ctx, n, head))
+		release := h.holdTodo(n, pr)
+		deadline := time.Now().Add(15 * time.Second)
+		h.approvedAt(n, deadline.Add(-mythicalMergeExpiry))
+		done := h.passAsync()
+		h.waitForTheClaim()
+		time.Sleep(time.Until(deadline) + time.Second)
+		release()
+		require.NoError(t, <-done)
+		h.refused(n, "github", unfinished)
+	})
+}
+
+// A merge whose request was sent is never sent again and never ended by
+// the bound or by its approver's refusal: only what GitHub then shows
+// settles it. Here the request times out, GitHub shows the pull request
+// still open, then completes the merge: one merge request, and Merged only
+// once main contains the commit.
+func TestMythicalMergeTodoAttemptedMergeIsSettledOnlyByGitHub(t *testing.T) {
+	h := newMergeHarness(t)
+	n, head, pr := h.first("Delayed")
+	h.fake.HoldMain()
+	h.fake.DelayNextMerge("rehearsal-owner/app", pr)
+	require.NoError(t, h.press(h.ctx, n, head))
+	h.pass()
+	require.Len(t, h.merges(), 1)
+	assert.Equal(t, http.StatusBadGateway, h.merges()[0].Status)
+	assert.Equal(t, "unknown", h.operation(n).State, "a send is recorded before the request leaves")
+
+	h.pass()
+	assert.Len(t, h.merges(), 1, "GitHub shows it open: not sent again")
+	h.approvedAt(n, time.Now().Add(-mythicalMergeExpiry-time.Minute))
+	h.pass()
+	h.exec(`DELETE FROM auth_sessions WHERE session_key = $1`, h.session)
+	h.pass()
+	assert.Len(t, h.merges(), 1)
+	assert.Equal(t, "unknown", h.operation(n).State, "neither the bound nor a sign-out ends a sent merge")
+	_, merge := h.mergeCard(n)
+	assert.Equal(t, "merging", merge["state"])
+
+	h.fake.CompleteDelayedMerges()
+	h.pass()
+	state, merge := h.mergeCard(n)
+	assert.Equal(t, "in_review", state, "GitHub merged it; main does not contain it yet")
+	assert.Equal(t, "merging", merge["state"])
+	h.fake.ReleaseMain()
+	h.pass()
+	state, _ = h.mergeCard(n)
+	assert.Equal(t, "merged", state)
+	assert.Len(t, h.merges(), 1)
+	assert.Nil(t, h.land(n).Refused)
+}
+
+// What GitHub shows ends a sent merge it never completed: the pull request
+// closed, or moved to a head the sha-bound request can no longer merge.
+func TestMythicalMergeTodoAttemptedMergeEndsOnGitHubsOutcome(t *testing.T) {
+	for _, tc := range []struct {
+		name, code, message string
+		change              func(h *mergeHarness, n, pr int64)
+	}{
+		{"closed", "state", "PR is closed on GitHub", func(h *mergeHarness, _, pr int64) {
+			h.fake.UpdatePull("rehearsal-owner/app", pr, func(p *githubfake.Pull) { p.State = "closed" })
+		}},
+		{"moved", "stale_head", "the pull request changed since you saw it", func(h *mergeHarness, n, _ int64) { h.push(n, "moved\n") }},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			h := newMergeHarness(t)
+			n, head, pr := h.first("Unanswered")
+			h.fake.FailNextWrites(fmt.Sprintf("/repos/rehearsal-owner/app/pulls/%d/merge", pr), 1)
+			require.NoError(t, h.press(h.ctx, n, head))
+			h.pass()
+			h.pass()
+			require.Len(t, h.merges(), 1)
+			assert.Equal(t, "unknown", h.operation(n).State)
+			tc.change(h, n, pr)
+			h.pass()
+			assert.Len(t, h.merges(), 1)
+			item := h.item(n)
+			assert.Empty(t, item.PendingOp)
+			refused := mythicalChecksOf(item).Land.Refused
+			require.NotNil(t, refused)
+			assert.Equal(t, []string{tc.code, tc.message}, []string{refused.Code, refused.Message})
+		})
+	}
+}
+
+// GitHub answering 405 because the pull request is already merged (a
+// person merged it first) is no refusal: the TODO settles Merged by lookup
+// once main contains the commit.
+func TestMythicalMergeTodoMergedBeforeItsRequest(t *testing.T) {
+	h := newMergeHarness(t)
+	n, head, pr := h.first("Raced")
+	h.fake.HoldMain()
+	require.NoError(t, h.press(h.ctx, n, head))
+	h.fake.OnNextRequest(http.MethodPut, fmt.Sprintf("/repos/rehearsal-owner/app/pulls/%d/merge", pr), func() { h.fake.MergeAsPerson("rehearsal-owner/app", pr) })
+	h.pass()
+	require.Len(t, h.merges(), 1)
+	assert.Equal(t, http.StatusMethodNotAllowed, h.merges()[0].Status)
+	assert.Nil(t, h.land(n).Refused, "no refusal is shown")
+	_, merge := h.mergeCard(n)
+	assert.Equal(t, "merging", merge["state"])
+	h.fake.ReleaseMain()
+	h.pass()
+	state, _ := h.mergeCard(n)
+	assert.Equal(t, "merged", state)
+	assert.Len(t, h.merges(), 1)
+}
+
+// The retarget race, as the lead ruled (§10.6.2b): GitHub's merge takes no
+// base, so the base is read at the press and again immediately before the
+// claim, and a merge GitHub nonetheless made into another branch never
+// shows Merged: its fence clears with a receipt naming the branch, the TODO
+// is closed as a pull request closed on GitHub is, later TODOs are not held
+// behind it, and the owner's log records it.
+func TestMythicalMergeTodoRetargetRace(t *testing.T) {
+	t.Run("retargeted before the claim", func(t *testing.T) {
+		h := newMergeHarness(t)
+		n, head, pr := h.first("Retargeted")
+		require.NoError(t, h.press(h.ctx, n, head))
+		h.fake.OnNextRequest(http.MethodGet, "/repos/rehearsal-owner/app/collaborators/rehearsal-owner/permission", func() {
+			h.fake.UpdatePull("rehearsal-owner/app", pr, func(p *githubfake.Pull) { p.Base.Ref = "release" })
+		})
+		h.pass()
+		h.refused(n, "state", "PR no longer targets main on GitHub")
+	})
+	t.Run("merged into another branch", func(t *testing.T) {
+		h := newMergeHarness(t)
+		var logs bytes.Buffer
+		h.service.logger = slog.New(slog.NewJSONHandler(&logs, nil))
+		n, head, pr := h.first("Elsewhere")
+		second, _, _ := h.todoInReview("Behind", h.item(n).CandidateHead)
+		require.NoError(t, h.press(h.ctx, n, head))
+		h.fake.OnNextRequest(http.MethodPut, fmt.Sprintf("/repos/rehearsal-owner/app/pulls/%d/merge", pr), func() {
+			h.fake.UpdatePull("rehearsal-owner/app", pr, func(p *githubfake.Pull) { p.Base.Ref = "release" })
+		})
+		h.pass()
+		require.Len(t, h.merges(), 1)
+		assert.Equal(t, http.StatusOK, h.merges()[0].Status, "GitHub merged it into release")
+		item := h.item(n)
+		assert.Empty(t, item.PendingOp, "the fence clears")
+		assert.NotEqual(t, "landed", item.State, "never Merged")
+		refused := mythicalChecksOf(item).Land.Refused
+		require.NotNil(t, refused)
+		const elsewhere = "GitHub merged the pull request into release, not main"
+		assert.Equal(t, []string{"github", elsewhere}, []string{refused.Code, refused.Message})
+		state, merge := h.mergeCard(n)
+		assert.NotEqual(t, "merged", state)
+		assert.Equal(t, map[string]any{"state": "blocked", "reason": "github", "detail": elsewhere, "on_github": true}, merge)
+		var drop *TodoControlError
+		if errors.As(todoControlGuard(item, TodoControlInput{Op: "drop"}, todoControlFacts{}), &drop) {
+			assert.NotEqual(t, "merging", drop.Code, "no fence holds Drop")
+		}
+		_, merge = h.mergeCard(second)
+		assert.NotEqual(t, "order", merge["reason"], "later TODOs are not held behind it")
+		assert.Contains(t, logs.String(), `"msg":"mythical.merge_off_main"`)
+		assert.Contains(t, logs.String(), `"base":"release"`)
+		h.pass()
+		assert.Len(t, h.merges(), 1)
+		assert.NotEqual(t, "landed", h.item(n).State)
+	})
+}
+
+// The squash commit title is the TODO's stored title, so CI-skip directives
+// in it are made plain, as closing keywords are.
+func TestMythicalMergeCommitNeutralizesDirectives(t *testing.T) {
+	head := strings.Repeat("a", 40)
+	for title, want := range map[string]string{
+		"Add a greeting":                            "Add a greeting (#7)",
+		"Fixes #12 greet":                           "Refs #12 greet (#7)",
+		"Greet [skip ci]":                           "Greet (skip ci) (#7)",
+		"[CI SKIP] greet [no ci]":                   "(CI SKIP) greet (no ci) (#7)",
+		"Greet [ skip actions ] and [actions skip]": "Greet (skip actions) and (actions skip) (#7)",
+		"Greet skip-checks: true":                   "Greet skip-checks true (#7)",
+		"Greet\n\nskip-checks:true":                 "Greet skip-checks true (#7)",
+	} {
+		item := db.MythicalItem{Number: pgtype.Int8{Int64: 3, Valid: true}, Title: pgtype.Text{String: title, Valid: true}}
+		commit := mythicalMergeCommit(item, 7, head)
+		assert.Equal(t, want, commit.Title, title)
+		assert.Equal(t, "TODO T3, reviewed at "+head+".", commit.Message)
 	}
 }

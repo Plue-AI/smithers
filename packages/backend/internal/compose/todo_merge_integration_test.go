@@ -19,6 +19,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/stretchr/testify/require"
@@ -185,10 +186,26 @@ func TestTodoMergeComposedRouteBoundaryPostgres(t *testing.T) {
 	server.Start()
 	t.Cleanup(server.Close)
 
-	merge := func(set func(*http.Request)) (int, map[string]any) {
+	itemID := uuid.UUID(before.ID.Bytes).String()
+	numbered := func(target string) string { return "/api/todos/" + target + "/merge" }
+	repository := func(target string) string { return "/api/repos/merge-owner/app/mythical/items/" + target + "/merge" }
+	elsewhere := func(target string) string {
+		return "/api/repos/merge-owner/no-such-repo/mythical/items/" + target + "/merge"
+	}
+	doors := []struct {
+		name string
+		path func(string) string
+		// valid, unknown and malformed name the TODO, none and nothing.
+		valid, unknown, malformed string
+	}{
+		{"numbered", numbered, strconv.FormatInt(filed.Number, 10), "999", "abc"},
+		{"repository", repository, itemID, uuid.NewString(), "not-a-uuid"},
+		{"unknown repository", elsewhere, itemID, uuid.NewString(), "not-a-uuid"},
+	}
+	post := func(path string, set func(*http.Request)) (int, map[string]any) {
 		t.Helper()
 		body, _ := json.Marshal(map[string]string{"reviewed_head_sha": pull.Head.SHA})
-		r, err := http.NewRequest(http.MethodPost, origin+"/api/todos/"+strconv.FormatInt(filed.Number, 10)+"/merge", bytes.NewReader(body))
+		r, err := http.NewRequest(http.MethodPost, origin+path, bytes.NewReader(body))
 		require.NoError(t, err)
 		r.Header.Set("Content-Type", "application/json")
 		r.Header.Set("Origin", origin)
@@ -213,7 +230,16 @@ func TestTodoMergeComposedRouteBoundaryPostgres(t *testing.T) {
 			}
 		}
 	}
-	permission := map[string]any{"code": "permission", "class": "permission", "message": "Merge requires an owner or maintainer browser session"}
+	unchanged := func(t *testing.T) {
+		t.Helper()
+		refused := item()
+		require.Equal(t, before.Version, refused.Version, "a refusal writes nothing")
+		require.Empty(t, refused.PendingOp)
+	}
+
+	// Every credential but the owner's browser session is refused the same
+	// way through both doors, whatever the target names, before any
+	// repository or TODO is read.
 	for _, tc := range []struct {
 		name     string
 		set      func(*http.Request)
@@ -225,25 +251,63 @@ func TestTodoMergeComposedRouteBoundaryPostgres(t *testing.T) {
 		{"the owner's personal access token", func(r *http.Request) {
 			r.Header.Set("Authorization", "Bearer "+pat)
 			r.Header.Set("Idempotency-Key", "token")
-		}, 403, permission},
+		}, 403, map[string]any{"code": "permission", "class": "permission", "message": "Merge requires an owner or maintainer browser session"}},
+		{"an agent action riding the owner's session", func(r *http.Request) {
+			browser("owner-browser-session", true, "via-agent")(r)
+			r.Header.Set("Smithers-Via", "smithers")
+		}, 403, map[string]any{"code": "never", "class": "never", "message": "Only a person can do this"}},
 		{"the owner's session without its CSRF token", browser("owner-browser-session", false, "no-csrf"), 403, nil},
 		{"another member's session", browser("member-browser-session", true, "member"), 403, nil},
-		{"the owner's session without an Idempotency-Key", browser("owner-browser-session", true, ""), 400,
-			map[string]any{"code": "idempotency_key_required", "class": "user", "message": "Idempotency-Key is required"}},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			status, envelope := merge(tc.set)
-			require.Equal(t, tc.status, status, envelope)
-			if tc.envelope != nil {
-				require.Equal(t, tc.envelope, envelope)
+			var first map[string]any
+			for _, door := range doors {
+				for _, target := range []string{door.valid, door.unknown, door.malformed} {
+					status, envelope := post(door.path(target), tc.set)
+					require.Equal(t, tc.status, status, "%s %s: %v", door.name, target, envelope)
+					if tc.envelope != nil {
+						require.Equal(t, tc.envelope, envelope, "%s %s", door.name, target)
+					}
+					if first == nil {
+						first = envelope
+					}
+					require.Equal(t, first, envelope, "%s %s: the same refusal through every door", door.name, target)
+				}
 			}
-			refused := item()
-			require.Equal(t, before.Version, refused.Version, "a refusal writes nothing")
-			require.Empty(t, refused.PendingOp)
+			unchanged(t)
 		})
 	}
 
-	status, envelope := merge(browser("owner-browser-session", true, "owner-press"))
+	// The owner's session: the same refusals of the TODO it names.
+	for _, tc := range []struct {
+		name    string
+		target  func(valid, unknown, malformed string) string
+		key     string
+		status  int
+		code    string
+		message map[string]string
+	}{
+		{"no Idempotency-Key", func(v, _, _ string) string { return v }, "", 400, "idempotency_key_required", nil},
+		{"an unknown TODO", func(_, u, _ string) string { return u }, "unknown", 404, "todo_not_found", nil},
+		{"a malformed target", func(_, _, m string) string { return m }, "malformed", 400, "invalid_todo",
+			map[string]string{"numbered": "Invalid TODO number", "repository": "Invalid TODO id"}},
+	} {
+		t.Run("owner session, "+tc.name, func(t *testing.T) {
+			for _, door := range doors[:2] {
+				status, envelope := post(door.path(tc.target(door.valid, door.unknown, door.malformed)), browser("owner-browser-session", true, tc.key))
+				require.Equal(t, tc.status, status, "%s: %v", door.name, envelope)
+				require.Equal(t, tc.code, envelope["code"], door.name)
+				if tc.message != nil {
+					require.Equal(t, tc.message[door.name], envelope["message"], door.name)
+				}
+			}
+			status, _ := post(elsewhere(itemID), browser("owner-browser-session", true, "elsewhere"))
+			require.Equal(t, http.StatusNotFound, status, "an unknown repository")
+			unchanged(t)
+		})
+	}
+
+	status, envelope := post(numbered(strconv.FormatInt(filed.Number, 10)), browser("owner-browser-session", true, "owner-press"))
 	require.Equal(t, http.StatusAccepted, status, envelope)
 	require.Equal(t, map[string]any{"state": "accepted"}, envelope)
 	approved := item()
@@ -259,9 +323,11 @@ func TestTodoMergeComposedRouteBoundaryPostgres(t *testing.T) {
 	require.Equal(t, int64(7), checks.Land.Account)
 	require.JSONEq(t, `{"kind":"merge","target":"`+strconv.FormatInt(pull.Number, 10)+`","desired":"`+pull.Head.SHA+`","precondition":"open","state":"intended"}`, string(approved.PendingOp))
 
-	status, envelope = merge(browser("owner-browser-session", true, "owner-press"))
-	require.Equal(t, http.StatusAccepted, status, envelope)
-	require.Equal(t, approved.Version, item().Version, "the same request is answered again, never recorded twice")
+	for _, door := range doors[:2] {
+		status, envelope = post(door.path(door.valid), browser("owner-browser-session", true, "owner-press"))
+		require.Equal(t, http.StatusAccepted, status, "%s: %v", door.name, envelope)
+		require.Equal(t, approved.Version, item().Version, "%s: the same request through either door is answered again, never recorded twice", door.name)
+	}
 	for _, write := range fake.Writes() {
 		require.False(t, write.Method == http.MethodPut && strings.HasSuffix(write.Path, "/merge"), "the press never merges")
 	}
