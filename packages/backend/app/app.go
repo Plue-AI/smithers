@@ -74,6 +74,11 @@ type Config struct {
 	// requests and workers stop. Coding hosts require an isolated runtime;
 	// trusted process coding hosts require explicit test configuration.
 	Workspace ports.WorkspaceRuntime
+	// BranchMachines composes the install's branch machine providers on its
+	// microVM Workspace, so each TODO gets its own lane machine (T-MCH-04).
+	// Only a single-owner install with a microVM Workspace may set it; unset,
+	// every branch machine stays dark.
+	BranchMachines bool
 	// FlowHostRegistry is the verified set of packaged canonical Flow hosts.
 	// Nil leaves durable Flow admission unavailable for development setups
 	// without a built host bundle.
@@ -225,6 +230,7 @@ func (cfg Config) options() compose.Options {
 		RepositoryPlacement:    cfg.RepositoryPlacement,
 		RepositoryProvisioning: cfg.RepositoryProvisioning,
 		Workspace:              cfg.Workspace,
+		InstallBranchMachines:  cfg.BranchMachines,
 		FlowHostRegistry:       cfg.FlowHostRegistry,
 		FlowHostConfig:         cfg.FlowHostConfig,
 		FlowHostProductAPIURL:  cfg.FlowHostProductAPIURL,

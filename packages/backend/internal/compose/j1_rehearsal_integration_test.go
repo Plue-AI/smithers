@@ -31,12 +31,14 @@ import (
 	"time"
 
 	"github.com/google/uuid"
-	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/smithersai/smithers/packages/backend/credits"
 	"github.com/smithersai/smithers/packages/backend/flowhost"
 	"github.com/smithersai/smithers/packages/backend/flowmanifest"
 	"github.com/smithersai/smithers/packages/backend/internal/chat"
+	"github.com/smithersai/smithers/packages/backend/internal/db"
 	"github.com/smithersai/smithers/packages/backend/internal/githubfake"
+	"github.com/smithersai/smithers/packages/backend/internal/identity"
 	"github.com/smithersai/smithers/packages/backend/internal/services"
 	"github.com/smithersai/smithers/packages/backend/internal/webhook"
 	"github.com/smithersai/smithers/packages/backend/microsandbox"
@@ -226,7 +228,7 @@ func TestJ1Rehearsal(t *testing.T) {
 	go func() {
 		done <- StartWithOptions(ctx, nil, stdout, io.MultiWriter(logs, live), Options{Repository: engine.Client(), Workspace: workspace, MachineImages: trustedProcessImages{sources: repositorySourceFiles{client: engine.Client()}}, ComputeProvider: compute, ChatHost: offlineGatewayHost{host}, FlowHostProductAPIURL: origin,
 			FlowHostRegistry: registry, FlowHostConfig: flowhost.WorkspaceLauncherConfig{AllowTrustedProcessForTests: true},
-			PlatformModelKeys: platformKeys, ModelProxyUpstreams: upstreams, BranchMachines: &trustedProcessBranchMachines}, func(h http.Handler) { ready <- h })
+			PlatformModelKeys: platformKeys, ModelProxyUpstreams: upstreams, BranchMachines: rehearsalBranchMachines(pool)}, func(h http.Handler) { ready <- h })
 	}()
 	select {
 	case h := <-ready:
@@ -1220,24 +1222,17 @@ func (model rehearsalCodingModel) turns() string {
 	return string(data)
 }
 
-// trustedProcessBranchMachines admits a TODO's lane machine on the
-// trusted-process runtime the rehearsal composes. That runtime isolates
-// nothing, so there is no microVM (R1-R5) or per-member execution identity to
-// validate: those providers admit, and the install bundle keeps branch
-// machines dark until T-MCH-04 composes the real ones (#3565). Membership is
-// still the acting account's own, read in the creating transaction.
-var trustedProcessBranchMachines = services.BranchMachineProviders{
-	Membership: func(ctx context.Context, tx pgx.Tx, _, actor int64) error {
-		var id int64
-		if err := tx.QueryRow(ctx, `SELECT id FROM users WHERE id=$1 AND is_active AND deleted_at IS NULL AND NOT prohibit_login FOR SHARE`, actor).Scan(&id); err != nil {
-			return fmt.Errorf("user %d is no active member: %w", actor, err)
-		}
-		return nil
-	},
-	Authorize:       func(context.Context, pgx.Tx, string, int64, string, int64) error { return nil },
-	LaneBinding:     func(context.Context, pgx.Tx, int64, string, string) error { return nil },
-	MicroVM:         func(context.Context) error { return nil },
-	SessionIdentity: func(context.Context) error { return nil },
+// rehearsalBranchMachines are the install's branch machine providers
+// (services.InstallBranchMachineProviders): its roster, the one member
+// authorizer and the stack's lane binding, read in the creating transaction.
+// The trusted-process runtime the rehearsal composes isolates nothing, so its
+// microVM (R1-R5) and guest identity providers admit; the bundle's microVM
+// install composes the real ones (app.Config.BranchMachines).
+func rehearsalBranchMachines(pool *pgxpool.Pool) *services.BranchMachineProviders {
+	providers := services.InstallBranchMachineProviders(identity.NewMemberBoundary(db.New(pool)), nil)
+	providers.MicroVM = func(context.Context) error { return nil }
+	providers.SessionIdentity = func(context.Context) error { return nil }
+	return &providers
 }
 
 // bindingProcessRuntime is the trusted-process runtime with the source binding

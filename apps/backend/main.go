@@ -177,6 +177,9 @@ func serve(ctx context.Context, args []string, executable func() (string, error)
 		OwnerModelKeys: modelhost.OwnerGatewayKeys{Resolver: resolver},
 		// Unset in production; the no-GitHub walk's model stand-in otherwise.
 		ModelProxyUpstreams: upstreams,
+		// A microVM install composes its branch machine providers, so each
+		// TODO gets its own lane; a process backend keeps machines dark.
+		BranchMachines: mode == isolationMicroVM,
 	}
 
 	if inputs.postgresBin != "" {

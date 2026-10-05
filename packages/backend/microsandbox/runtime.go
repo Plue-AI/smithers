@@ -481,6 +481,10 @@ func (r *Runtime) recover(ctx context.Context) error {
 
 func (r *Runtime) Isolation() workspaceapi.IsolationLevel { return workspaceapi.IsolationSandboxed }
 
+// GuestIdentity is the one account every repository command, file operation
+// and layer recipe runs as in a guest: the non-root agent user.
+func (r *Runtime) GuestIdentity() (string, int) { return guestUser, guestUID }
+
 func (r *Runtime) Capabilities() workspaceapi.WorkspaceCapabilities {
 	return workspaceapi.WorkspaceCapabilities{
 		PersistentFiles: true, Execution: true, ManagedServices: true, ManagedHTTPHosts: true,

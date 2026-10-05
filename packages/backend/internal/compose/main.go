@@ -124,6 +124,37 @@ func installMachineImages(options Options) (services.InstallMachineLayerBuilder,
 	return options.MachineImages, nil
 }
 
+// composeBranchMachines selects the branch machine providers: injected ones
+// for the trusted-process runtime that only tests compose, or the install's own
+// on its microVM runtime. Without either, every branch machine stays dark.
+func composeBranchMachines(options Options, hosted bool, members identity.MemberAuthorizer) (*services.BranchMachineProviders, error) {
+	isolation := func() workspace.IsolationLevel {
+		if options.Workspace == nil {
+			return ""
+		}
+		return options.Workspace.Isolation()
+	}
+	switch {
+	case options.BranchMachines != nil && options.InstallBranchMachines:
+		return nil, errors.New("branch machine providers are injected or the install's, not both")
+	case options.BranchMachines != nil:
+		if isolation() != workspace.IsolationTrustedProcess {
+			return nil, errors.New("injected branch machine providers are for the trusted-process runtime only")
+		}
+		return options.BranchMachines, nil
+	case options.InstallBranchMachines:
+		if hosted {
+			return nil, errors.New("install branch machines require a single-owner install")
+		}
+		if isolation() != workspace.IsolationSandboxed {
+			return nil, errors.New("install branch machines require the microVM workspace runtime")
+		}
+		providers := services.InstallBranchMachineProviders(members, options.Workspace)
+		return &providers, nil
+	}
+	return nil, nil
+}
+
 // Options are the only deployment seams in the common product assembly.
 type Options struct {
 	HostProfile *microsandbox.HostProfile
@@ -136,9 +167,14 @@ type Options struct {
 	MachineImages services.InstallMachineLayerBuilder
 	// BranchMachines admits branch machine creation for a workspace runtime
 	// that isolates nothing: the trusted-process runtime only tests compose.
-	// app.Config cannot set it, so the install keeps every machine dark until
-	// T-MCH-04 composes the real providers (#3565).
+	// app.Config cannot set it.
 	BranchMachines *services.BranchMachineProviders
+	// InstallBranchMachines composes the install's own branch machine
+	// providers (services.InstallBranchMachineProviders, T-MCH-04 #3565) on
+	// its microVM runtime: a TODO gets its lane only then. A single-owner
+	// install with a microVM Workspace sets it (app.Config.BranchMachines);
+	// any other composition refuses to start with it.
+	InstallBranchMachines bool
 	// EnvGitHubAppCredentials is an explicit Plue adapter; self-hosting leaves it false.
 	EnvGitHubAppCredentials bool
 	CanaryRuns              ports.CanaryRunSource
@@ -869,11 +905,12 @@ func runWithOptions(ctx context.Context, args []string, stdout, stderr io.Writer
 		services.WithWorkspaceProviderConnections(subscriptionPool),
 		services.WithWorkspaceProviderBootstrap(modelSeats, cfg.Sandbox.WorkspaceCodingDefaultModel),
 	)
-	if options.BranchMachines != nil {
-		if options.Workspace == nil || options.Workspace.Isolation() != workspace.IsolationTrustedProcess {
-			return errors.New("injected branch machine providers are for the trusted-process runtime only")
-		}
-		services.WithBranchMachineProviders(*options.BranchMachines)(workspaceService)
+	branchMachines, err := composeBranchMachines(options.Options, options.topology.hosted(), identity.NewMemberBoundary(queries))
+	if err != nil {
+		return err
+	}
+	if branchMachines != nil {
+		services.WithBranchMachineProviders(*branchMachines)(workspaceService)
 	}
 	adminUserService := services.NewAdminUserService(queries,
 		services.WithTokenCreator(authService),
