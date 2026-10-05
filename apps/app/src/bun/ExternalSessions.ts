@@ -4,6 +4,7 @@
  * with @smthrs/harness/ExternalTranscript, and tailed: each read decodes only
  * the bytes appended since the last one. Command output and diffs are
  * clipped here, so a poll never ships a whole log.
+ * If CODEX_HOME or ~/.codex is a symlink, the local preview shows no sessions: it reads only real directories.
  */
 import { constants } from "node:fs"
 import { open, readdir, lstat, realpath } from "node:fs/promises"
@@ -98,7 +99,7 @@ export function externalSessions(
   const lookup = options.lookup ?? findRollout
   const paths = new Map<string, { path: string; root: string; dev: number; ino: number }>()
   const tails = new Map<string, Tail>()
-  return async (id: string, since = 0): Promise<SessionRead | Exclude<Lookup, { path: string }>> => {
+  const read = async (id: string, since = 0): Promise<SessionRead | Exclude<Lookup, { path: string }>> => {
     const time = now()
     for (const [path, tail] of tails) if (time - tail.lastRead >= 10 * 60_000) {
       tails.delete(path)
@@ -138,7 +139,7 @@ export function externalSessions(
       try {
         const opened = await file.stat()
         const current = await regularPath(found.path, root)
-        if (!opened.isFile() || opened.dev !== current.dev || opened.ino !== current.ino) return { error: "unknown", message: `No Codex session ${id} on this machine.` }
+        if (!opened.isFile() || opened.dev !== info.dev || opened.ino !== info.ino || opened.dev !== current.dev || opened.ino !== current.ino) return { error: "unknown", message: `No Codex session ${id} on this machine.` }
         const bytes = new Uint8Array(size - tail.offset)
         const { bytesRead } = await file.read(bytes, 0, bytes.length, tail.offset)
         tail.offset += bytesRead
@@ -161,6 +162,16 @@ export function externalSessions(
       session_id: session?.id ?? id, format_version: session?.format_version ?? "", cwd: session?.cwd ?? "",
       entries: tail.entries.slice(Math.max(0, since)), next: tail.entries.length,
       ...(tail.error === undefined ? {} : { error: tail.error })
+    }
+  }
+  return async (id: string, since = 0): Promise<SessionRead | Exclude<Lookup, { path: string }>> => {
+    try { return await read(id, since) }
+    catch {
+      // Discovery and every read-time path check fail closed with the same refusal.
+      const cached = paths.get(id)
+      if (cached) tails.delete(cached.path)
+      paths.delete(id)
+      return { error: "unknown", message: `No Codex session ${id} on this machine.` }
     }
   }
 }

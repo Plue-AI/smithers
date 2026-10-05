@@ -59,6 +59,17 @@ describe("finding a session", () => {
     expect(await externalSessions(async () => [join(home, "linked-sessions")])(ID)).toMatchObject({ error: "unknown" })
   })
 
+  test("a symlinked default or configured Codex home exposes no sessions", async () => {
+    const linkedHome = join(home, "dotfiles")
+    await mkdir(linkedHome)
+    await symlink(join(home, ".codex"), join(linkedHome, ".codex"))
+    for (const env of [{}, { CODEX_HOME: join(linkedHome, ".codex") }]) {
+      expect(await externalSessions(() => sessionRoots(linkedHome, env))(ID)).toEqual({
+        error: "unknown", message: `No Codex session ${ID} on this machine.`
+      })
+    }
+  })
+
   test("an unknown or ambiguous id says which", async () => {
     const roots = await sessionRoots(home, {})
     expect(await findRollout("ffff", roots)).toEqual({ error: "unknown", message: "No Codex session ffff on this machine." })
@@ -88,6 +99,59 @@ describe("tailing a session", () => {
     expect(walks).toBe(4)
     await read(ID)
     expect(walks).toBe(4)
+  })
+
+  test("a discovered file replaced by another account's symlink answers no-session through the route", async () => {
+    const root = join(home, "discovery-race", "sessions")
+    const path = rolloutPath(root, ID)
+    await write(path, [meta(ID), prompt(1, "own prompt")])
+    const linked = rolloutPath(join(home, ".smithers", "accounts", "codex-2", "sessions"), ID)
+    const read = externalSessions(async () => [root], { lookup: async (id, roots) => {
+      const discovered = await findRollout(id, roots)
+      expect(discovered).toEqual({ path })
+      await rm(path)
+      await symlink(linked, path)
+      return discovered
+    } })
+    const dist = await mkdtemp(join(tmpdir(), "smithers-race-dist-"))
+    await writeFile(join(dist, "index.html"), "<!doctype html>")
+    const host = await startLocalServer({ port: 0, distDir: dist, log: () => {}, externalSessions: read })
+    try {
+      const response = await fetch(`${host.origin}${EXTERNAL_CODEX_PATH}?session=${ID}`, {
+        headers: { [LOCAL_SESSION_HEADER]: host.sessionToken }
+      })
+      expect(response.status).toBe(404)
+      const body = await response.json()
+      expect(body).toMatchObject({ error: { code: "source_not_found", message: `No Codex session ${ID} on this machine.` } })
+      const unknown = await externalSessions(async () => [root])(ID)
+      expect(unknown).toEqual({ error: "unknown", message: `No Codex session ${ID} on this machine.` })
+      expect(JSON.stringify(body)).not.toContain("live copy")
+      expect(JSON.stringify(body)).not.toContain(linked)
+      expect(JSON.stringify(body)).not.toContain("Symlink")
+    } finally { await host.stop(); await rm(dist, { recursive: true, force: true }) }
+  })
+
+  test("a file disappearing after discovery answers no-session", async () => {
+    const root = join(home, "missing-race")
+    const path = rolloutPath(root, ID)
+    await write(path, [meta(ID), prompt(1, "own prompt")])
+    const read = externalSessions(async () => [root], { lookup: async (id, roots) => {
+      const discovered = await findRollout(id, roots)
+      await rm(path)
+      return discovered
+    } })
+    expect(await read(ID)).toEqual({ error: "unknown", message: `No Codex session ${ID} on this machine.` })
+  })
+
+  test("a cached file replaced by another account's symlink exposes no cached or linked entries", async () => {
+    const root = join(home, "cached-race")
+    const path = rolloutPath(root, ID)
+    await write(path, [meta(ID), prompt(1, "own prompt")])
+    const read = externalSessions(async () => [root])
+    expect(await read(ID)).toMatchObject({ next: 1 })
+    await rm(path)
+    await symlink(rolloutPath(join(home, ".smithers", "accounts", "codex-2", "sessions"), ID), path)
+    expect(await read(ID)).toEqual({ error: "unknown", message: `No Codex session ${ID} on this machine.` })
   })
 
   test("idle tails expire at ten minutes; active reads refresh their lifetime", async () => {
