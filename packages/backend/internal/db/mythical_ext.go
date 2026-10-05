@@ -716,13 +716,17 @@ func (q *Queries) GetMythicalItemByNumber(ctx context.Context, repositoryID, num
 }
 
 // GetMythicalRequest finds a credential's request in the existing TODO
-// records: creation, Review & merge, or feedback. Browser credentials use
+// records: creation, Review & merge, feedback, and control facts. Browser credentials use
 // their server-side session identity; feedback also supports bound tokens.
 func (q *Queries) GetMythicalRequest(ctx context.Context, repositoryID int64, credential, request string) (MythicalItem, error) {
 	return scanMythicalItem(q.db.QueryRow(ctx, `SELECT `+mythicalItemColumns+` FROM mythical_items WHERE repository_id=$1
 		AND (checks->>'creation_session'=$2 AND checks->>'filedRequest'=$3
 		  OR checks->'mergeRequests' @> jsonb_build_array(jsonb_build_object('session', $2::text, 'request', $3::text))
-		  OR checks->'steers' @> jsonb_build_array(jsonb_build_object('credential', $2::text, 'request', $3::text)))
+		  OR checks->'steers' @> jsonb_build_array(jsonb_build_object('credential', $2::text, 'request', $3::text))
+		  OR EXISTS (SELECT 1 FROM product_job_requests r
+		    WHERE r.operation IN ('todo.retried', 'todo.dropped', 'todo.moved')
+		    AND r.payload->>'item'=mythical_items.id::text
+		    AND r.authorization_context->>'credential'=$2 AND r.authorization_context->>'request'=$3))
 		ORDER BY id LIMIT 1`, repositoryID, credential, request))
 }
 func (q *Queries) InsertMythicalTodo(ctx context.Context, repositoryID, userID int64, title, prompt string, revisions, checks json.RawMessage) (MythicalItem, error) {

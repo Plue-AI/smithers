@@ -255,9 +255,30 @@ func TestTodoRoutesAuthorizeByRole(t *testing.T) {
 	require.Equal(t, http.StatusOK, status, envelope)
 	require.Equal(t, "dropped", envelope["state"])
 
+	// The key names this exact operation and subject in Alice's session.
+	for _, body := range []string{`{"op":"retry"}`, `{"op":"move","direction":"up"}`} {
+		status, envelope = call(http.MethodPost, "/api/todos/3", body, "drop-alice", sessions["member"])
+		require.Equal(t, http.StatusConflict, status)
+		require.Equal(t, map[string]any{"code": "idempotency_mismatch", "class": "conflict", "message": "Idempotency-Key was already used for a different request"}, envelope)
+	}
+	var otherNumber int64
+	require.NoError(t, pool.QueryRow(ctx, `SELECT number FROM mythical_items WHERE title='By member'`).Scan(&otherNumber))
+	otherPath := fmt.Sprintf("/api/todos/%d", otherNumber)
+	status, envelope = call(http.MethodPost, otherPath, `{"op":"drop"}`, "drop-alice", sessions["member"])
+	require.Equal(t, http.StatusConflict, status)
+	require.Equal(t, "idempotency_mismatch", envelope["code"])
+	// A replacement session may independently use the same key.
+	replacement := session(alice, "alice-replacement")
+	status, envelope = call(http.MethodPost, otherPath, `{"op":"drop"}`, "drop-alice", replacement)
+	require.Equal(t, http.StatusAccepted, status, envelope)
+
 	// A member removed now is refused on the very next request.
 	_, err = pool.Exec(ctx, `UPDATE collaborators SET suspended_at=now() WHERE user_id=$1`, alice)
 	require.NoError(t, err)
 	status, _ = call(http.MethodGet, "/api/todos", "", "", sessions["member"])
 	require.Equal(t, http.StatusForbidden, status)
+	status, envelope = call(http.MethodPost, "/api/todos/3", `{"op":"drop"}`, "drop-alice", sessions["member"])
+	require.Equal(t, http.StatusForbidden, status)
+	require.Equal(t, "permission", envelope["code"], "revocation refuses a previously accepted request")
+	require.NotContains(t, envelope, "state")
 }

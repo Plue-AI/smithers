@@ -57,7 +57,7 @@ func (s *MythicalService) AmendTodo(ctx context.Context, number int64, input Tod
 }
 
 func prepareTodoAmend(ctx context.Context, item db.MythicalItem, input TodoControlInput, amendment TodoAmendInput, by json.RawMessage, attribution map[string]string, now time.Time) (db.MythicalItem, todoSteer, bool, error) {
-	credential, err := todoFeedbackCredential(ctx, input.Actor)
+	credential, err := todoRequestCredential(ctx, input.Actor)
 	if err != nil {
 		return item, todoSteer{}, false, err
 	}
@@ -82,7 +82,7 @@ func prepareTodoAmend(ctx context.Context, item db.MythicalItem, input TodoContr
 		if feedback.Revision <= 1 || feedback.Revision > len(revisions) ||
 			json.Unmarshal(revisions[feedback.Revision-1], &revision) != nil ||
 			revision.Text != amendment.Prompt || !slices.Equal(revision.Acceptance, amendment.Acceptance) {
-			return item, todoSteer{}, false, todoFeedbackMismatch()
+			return item, todoSteer{}, false, todoRequestMismatch()
 		}
 		return item, feedback, true, nil
 	}

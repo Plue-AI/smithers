@@ -54,6 +54,8 @@ func newTodoAdmission(t *testing.T) (*mythicalOrchestration, context.Context) {
 	ctx := context.Background()
 	_, err := o.pool.Exec(ctx, `INSERT INTO self_host_owners(singleton,user_id) VALUES(true,$1)`, o.userID)
 	require.NoError(t, err)
+	binding := fmt.Sprintf(`{"owner_login":"smithers-canary","repository_name":"smithers","repository_id":%d}`, o.repoID)
+	require.NoError(t, db.New(o.pool).UpsertInstallSetting(ctx, db.UpsertInstallSettingParams{Key: "github.repository", Value: []byte(binding)}))
 	return o, middleware.ContextWithAuthInfo(ctx, &middleware.AuthInfo{User: &db.User{ID: o.userID}, SessionHash: "owner-session"})
 }
 

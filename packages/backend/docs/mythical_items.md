@@ -63,8 +63,9 @@ existing prefix calculation. It allocates no TODO number, branch or PR.
 The feedback entry links to the amendment's revision. Repeating an admitted
 request with the same authenticated credential returns that revision without
 another event or delivery. Reuse for another TODO, prompt, acceptance array or
-operation returns `409 conflict/idempotency_mismatch`. Creation, Merge, Steer
-and Amend share the existing request lookup and repository request lock.
+operation returns `409 conflict/idempotency_mismatch`. Creation, Merge, Steer,
+Amend, Retry, Drop and Move share the existing request lookup and repository
+request lock.
 
 A replacement browser session or terminal credential starts a separate
 authorized request even for the same member and key. The server derives the
@@ -129,6 +130,16 @@ The request carries `Idempotency-Key` and JSON `{op, steer?}`. `op` is `stop`,
 `resume`, `retry`, `retry-current-flow` or `drop`. Only the two retries accept a
 steer. The browser retains the request and its key until a committed projection
 receipt arrives; HTTP acceptance alone never completes the toast.
+
+Retry, Drop and Move recheck current authority after waiting for the repository
+and stack locks. A repeated request from the same authenticated session returns
+its original receipt; another operation, TODO, direction or Retry text with
+that key returns `409 conflict/idempotency_mismatch`. A replacement session has
+its own request scope. Replay identity, validated input and the original receipt
+are private metadata on the existing product request, committed atomically
+with the state change and activity. Activity events contain none of that replay
+metadata. Historical controls without a recorded credential remain readable;
+their keys cannot authorize replay.
 
 Stop requires an executing run and no question or approval; branch waits do
 not refuse Stop. Resume requires the committed pause fact. Both retries require

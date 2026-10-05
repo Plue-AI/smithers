@@ -9,12 +9,10 @@ import (
 	"time"
 	"unicode/utf8"
 
-	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 
 	"github.com/smithersai/smithers/packages/backend/internal/db"
 	"github.com/smithersai/smithers/packages/backend/internal/middleware"
-	"github.com/smithersai/smithers/packages/backend/jobs"
 )
 
 // todoSteer is one steer a person gave a TODO (spec §10.7.3): its text, its
@@ -47,10 +45,11 @@ type todoSteer struct {
 // and the attempt it starts. The same key again answers this receipt and
 // starts nothing more.
 type todoRetry struct {
-	Request string    `json:"request"`
-	By      string    `json:"by"`
-	At      time.Time `json:"at"`
-	Attempt int32     `json:"attempt"`
+	Request    string    `json:"request"`
+	Credential string    `json:"credential,omitempty"`
+	By         string    `json:"by"`
+	At         time.Time `json:"at"`
+	Attempt    int32     `json:"attempt"`
 }
 
 // todoFeedbackBytes bounds the steers an attempt receives as its coding
@@ -73,16 +72,13 @@ func (s *MythicalService) retryTodo(ctx context.Context, number int64, input Tod
 	if err := middleware.RequirePerson(ctx, "retry a TODO"); err != nil {
 		return TodoControlReceipt{}, &TodoControlError{http.StatusForbidden, "permission", "permission", "Only a person retries a TODO"}
 	}
-	person, err := s.queries().GetUserByID(ctx, input.Actor)
-	if err != nil {
-		return TodoControlReceipt{}, err
-	}
 	var receipt TodoControlReceipt
-	err = pgx.BeginFunc(ctx, s.store, func(tx pgx.Tx) error {
-		if _, err := tx.Exec(ctx, `SELECT 1 FROM mythical_stacks WHERE repository_id = $1 FOR UPDATE`, input.Repository); err != nil {
+	err := pgx.BeginFunc(ctx, s.store, func(tx pgx.Tx) error {
+		q := db.New(tx)
+		person, credential, err := lockTodoRequest(ctx, tx, q, "todo.retry", input)
+		if err != nil {
 			return err
 		}
-		q := db.New(tx)
 		for range 3 {
 			item, err := q.GetMythicalItemByNumber(ctx, input.Repository, number)
 			if errors.Is(err, pgx.ErrNoRows) {
@@ -91,11 +87,13 @@ func (s *MythicalService) retryTodo(ctx context.Context, number int64, input Tod
 			if err != nil {
 				return err
 			}
-			checks := mythicalChecksOf(item)
-			for _, done := range checks.Retries {
-				if input.Request != "" && done.Request == input.Request {
-					receipt = TodoControlReceipt{State: "accepted", Attempt: done.Attempt}
-					return nil
+			if prior, found, err := todoControlReplay(ctx, tx, q, item, input, credential, "todo.retried"); found || err != nil {
+				receipt = prior
+				return err
+			}
+			for _, done := range mythicalChecksOf(item).Retries {
+				if done.Request == input.Request && done.Credential == "" {
+					return todoControlUnavailable()
 				}
 			}
 			if err := todoControlGuard(item, input, todoControlFacts{}); err != nil {
@@ -113,7 +111,7 @@ func (s *MythicalService) retryTodo(ctx context.Context, number int64, input Tod
 			if input.Steer != nil {
 				retried.Steers = append(retried.Steers, todoSteer{Text: *input.Steer, By: todoActor(ctx, person), At: now, Attempt: attempt})
 			}
-			retried.Retries = append(retried.Retries, todoRetry{Request: input.Request, By: person.Username, At: now, Attempt: attempt})
+			retried.Retries = append(retried.Retries, todoRetry{Request: input.Request, Credential: credential, By: person.Username, At: now, Attempt: attempt})
 			next.Checks = retried.encode()
 			saved, err := q.SaveMythicalItem(ctx, next)
 			if errors.Is(err, pgx.ErrNoRows) {
@@ -122,15 +120,16 @@ func (s *MythicalService) retryTodo(ctx context.Context, number int64, input Tod
 			if err != nil {
 				return err
 			}
-			fact, _ := json.Marshal(map[string]any{"item": uuidString(saved.ID), "n": saved.Number.Int64, "attempt": attempt, "steer": input.Steer != nil,
-				"actor": map[string]any{"kind": "person", "id": person.ID, "login": person.Username}, "from": todoState(item), "to": todoState(saved)})
-			if _, err := jobs.RecordFactInTx(ctx, tx, todoOperationScope(saved), uuid.NewString(), "todo.retried", todoState(saved), fact); err != nil {
+			receipt = TodoControlReceipt{State: "accepted", Attempt: attempt}
+			if err := recordTodoControl(ctx, tx, saved, input, credential, "todo.retried", receipt, map[string]any{
+				"item": uuidString(saved.ID), "n": saved.Number.Int64, "attempt": attempt, "steer": input.Steer != nil,
+				"actor": map[string]any{"kind": "person", "id": person.ID, "login": person.Username}, "from": todoState(item), "to": todoState(saved),
+			}); err != nil {
 				return err
 			}
 			if stack, err := q.GetMythicalStack(ctx, input.Repository); err == nil {
 				s.itemChanged(ctx, q, stack, saved.ID)
 			}
-			receipt = TodoControlReceipt{State: "accepted", Attempt: attempt}
 			return nil
 		}
 		return &TodoControlError{http.StatusConflict, "conflict", "conflict", "TODO is busy; retry again"}
