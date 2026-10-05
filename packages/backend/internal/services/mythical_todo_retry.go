@@ -33,6 +33,9 @@ type todoSteer struct {
 	// steer that reached a starting attempt, waits for its run to attach.
 	Run     string `json:"run,omitempty"`
 	Pending bool   `json:"pending,omitempty"`
+	// GitHub is the review a steer came from ("review:<id>",
+	// mythical_review_steer.go): each review is a steer once.
+	GitHub string `json:"github,omitempty"`
 }
 
 // todoRetry is one Retry a person pressed: its Idempotency-Key, who and when,

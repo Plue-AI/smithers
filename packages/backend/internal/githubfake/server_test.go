@@ -1235,3 +1235,107 @@ func TestDelayedMergesAndMergesByAPerson(t *testing.T) {
 	}
 	require.Equal(t, 5, puts, "a person's merge is not an App write")
 }
+
+// Reviews and their line comments are served as GitHub's REST API serves
+// them: ids that never repeat, the author's id, login and type (Bot for an
+// App), the body, the state, the head they were submitted on, submitted_at,
+// and each comment's own id, review id, path, line and original_line; a
+// page at a time; a read GitHub fails is 502 and changes nothing.
+func TestSubmittedReviewsAndLineCommentsAreServedWithBodiesAndAuthors(t *testing.T) {
+	server, cfg, key := fixture(t)
+	server.SetCollaborator(12, "alice", "write")
+	status, body := request(t, server, "POST", "/app/installations/91/access_tokens", jwt(t, key, cfg.AppID, time.Now().Add(time.Minute)), nil)
+	require.Equal(t, 201, status, string(body))
+	var access struct {
+		Token string `json:"token"`
+	}
+	require.NoError(t, json.Unmarshal(body, &access))
+	token := access.Token
+	status, body = request(t, server, "POST", "/repos/acme/app/pulls", token, []byte(`{"title":"T","head":"smithers/t","base":"main"}`))
+	require.Equal(t, 201, status)
+	var pull Pull
+	require.NoError(t, json.Unmarshal(body, &pull))
+
+	status, body = request(t, server, "GET", "/repos/acme/app/pulls/1/reviews", token, nil)
+	require.Equal(t, []any{200, "[]"}, []any{status, strings.TrimSpace(string(body))}, "no review yet")
+	require.Zero(t, server.SubmitReview("acme/app", 9, ReviewSubmission{Login: "alice", State: "COMMENTED", Body: "x"}), "no such pull request")
+
+	before := time.Now().UTC().Add(-time.Second)
+	first := server.SubmitReview("acme/app", 1, ReviewSubmission{Login: "alice", State: "CHANGES_REQUESTED", Body: "Use the helper",
+		Comments: []ReviewLine{{Path: "src/retry.ts", Line: 12, Body: "Use the existing backoff helper"}, {Path: "README.md", Body: "Whole file"}}})
+	second := server.SubmitReview("acme/app", 1, ReviewSubmission{Login: "smithers-test", Bot: true, State: "COMMENTED", Body: "bot says"})
+	third := server.SubmitReview("acme/app", 1, ReviewSubmission{Login: "dana", State: "APPROVED"})
+	require.Less(t, first, second)
+	require.Less(t, second, third)
+
+	type user struct {
+		ID    int64  `json:"id"`
+		Login string `json:"login"`
+		Type  string `json:"type"`
+	}
+	var reviews []struct {
+		ID          int64     `json:"id"`
+		User        user      `json:"user"`
+		Body        string    `json:"body"`
+		State       string    `json:"state"`
+		CommitID    string    `json:"commit_id"`
+		SubmittedAt time.Time `json:"submitted_at"`
+	}
+	status, body = request(t, server, "GET", "/repos/acme/app/pulls/1/reviews?per_page=100", token, nil)
+	require.Equal(t, 200, status)
+	require.NoError(t, json.Unmarshal(body, &reviews))
+	require.Len(t, reviews, 3)
+	require.Equal(t, user{ID: 12, Login: "alice", Type: "User"}, reviews[0].User)
+	require.Equal(t, []string{"CHANGES_REQUESTED", "Use the helper", pull.Head.SHA}, []string{reviews[0].State, reviews[0].Body, reviews[0].CommitID})
+	require.False(t, reviews[0].SubmittedAt.Before(before))
+	require.Equal(t, []string{"smithers-test[bot]", "Bot"}, []string{reviews[1].User.Login, reviews[1].User.Type})
+	require.Equal(t, "", reviews[2].Body, "an approval with no body")
+	require.NotZero(t, reviews[2].User.ID, "an unknown login still has a stable account id")
+
+	status, body = request(t, server, "GET", "/repos/acme/app/pulls/1/reviews?per_page=2&page=2", token, nil)
+	require.Equal(t, 200, status)
+	require.NoError(t, json.Unmarshal(body, &reviews))
+	require.Len(t, reviews, 1)
+	require.Equal(t, third, reviews[0].ID, "the second page")
+
+	var comments []struct {
+		ID           int64  `json:"id"`
+		Review       int64  `json:"pull_request_review_id"`
+		User         user   `json:"user"`
+		Body         string `json:"body"`
+		Path         string `json:"path"`
+		Line         *int64 `json:"line"`
+		OriginalLine *int64 `json:"original_line"`
+		CommitID     string `json:"commit_id"`
+		Original     string `json:"original_commit_id"`
+	}
+	status, body = request(t, server, "GET", "/repos/acme/app/pulls/1/comments?per_page=100", token, nil)
+	require.Equal(t, 200, status)
+	require.NoError(t, json.Unmarshal(body, &comments))
+	require.Len(t, comments, 2)
+	require.Equal(t, []int64{first, first}, []int64{comments[0].Review, comments[1].Review})
+	require.Less(t, first, comments[0].ID, "each comment has its own id")
+	require.Less(t, comments[0].ID, comments[1].ID)
+	require.Equal(t, []any{"src/retry.ts", int64(12), int64(12), pull.Head.SHA, pull.Head.SHA, "Use the existing backoff helper", "alice"},
+		[]any{comments[0].Path, *comments[0].Line, *comments[0].OriginalLine, comments[0].CommitID, comments[0].Original, comments[0].Body, comments[0].User.Login})
+	require.Nil(t, comments[1].Line, "a comment on the whole file has no line")
+
+	server.OutdateReviewComments("acme/app", 1)
+	_, body = request(t, server, "GET", "/repos/acme/app/pulls/1/comments", token, nil)
+	require.NoError(t, json.Unmarshal(body, &comments))
+	require.Nil(t, comments[0].Line, "an outdated comment's line is null")
+	require.Equal(t, int64(12), *comments[0].OriginalLine)
+
+	server.FailNextReads("/repos/acme/app/pulls/1/reviews", 1)
+	status, _ = request(t, server, "GET", "/repos/acme/app/pulls/1/reviews", token, nil)
+	require.Equal(t, 502, status, "GitHub did not answer")
+	status, _ = request(t, server, "GET", "/repos/acme/app/pulls/1/reviews", token, nil)
+	require.Equal(t, 200, status, "the next read answers")
+	status, _ = request(t, server, "GET", "/repos/acme/app/pulls/9/reviews", token, nil)
+	require.Equal(t, 404, status)
+
+	server.RequireReviews(1)
+	require.Equal(t, "CHANGES_REQUESTED", server.reviewDecision(server.current("acme/app/1")), "a submitted CHANGES_REQUESTED counts for the review rule")
+	server.SubmitReview("acme/app", 1, ReviewSubmission{Login: "alice", State: "COMMENTED", Body: "later"})
+	require.Equal(t, "CHANGES_REQUESTED", server.reviewDecision(server.current("acme/app/1")), "a COMMENTED review does not replace the latest state")
+}

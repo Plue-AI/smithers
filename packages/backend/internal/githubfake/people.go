@@ -21,6 +21,12 @@ type PullReview struct {
 	Line        int       `json:"line,omitempty"`
 	CommitID    string    `json:"commit_id"`
 	SubmittedAt time.Time `json:"submitted_at"`
+	// Bot is a review an App's bot account submitted (SubmitReview);
+	// Comments are the further line comments it carried; Outdated, that
+	// its line comments' lines left the diff (reviews.go).
+	Bot      bool             `json:"bot,omitempty"`
+	Comments []PullReviewLine `json:"comments,omitempty"`
+	Outdated bool             `json:"outdated,omitempty"`
 }
 
 // reviewStates are the states a person can submit a review in.
@@ -147,21 +153,18 @@ func (s *Server) people(w http.ResponseWriter, r *http.Request) bool {
 		if !strings.HasPrefix(r.Header.Get("Authorization"), "Bearer ") {
 			return reply(401, map[string]string{"message": "Requires authentication"})
 		}
+		if s.unread[r.URL.Path] > 0 {
+			// FailNextReads: GitHub did not answer this read.
+			s.unread[r.URL.Path]--
+			return reply(http.StatusBadGateway, map[string]string{"message": "Bad Gateway"})
+		}
 		key := path[1] + "/" + path[2] + "/" + path[4]
 		if _, ok := s.pulls[key]; !ok {
 			return reply(404, map[string]string{"message": "Not Found"})
 		}
-		result := []map[string]any{}
-		for _, review := range s.pullReviews[key] {
-			user := map[string]string{"login": review.Login, "type": "User"}
-			if path[5] == "reviews" {
-				result = append(result, map[string]any{"id": review.ID, "user": user, "state": review.State, "body": review.Body, "commit_id": review.CommitID, "submitted_at": review.SubmittedAt})
-			} else if review.Path != "" {
-				result = append(result, map[string]any{"id": review.ID, "pull_request_review_id": review.ID, "user": user, "body": review.Body, "path": review.Path,
-					"line": review.Line, "commit_id": review.CommitID, "created_at": review.SubmittedAt, "updated_at": review.SubmittedAt})
-			}
-		}
-		return reply(200, result)
+		result := s.reviewListing(s.pullReviews[key], path[5] == "comments")
+		start, end := pageBounds(r, len(result))
+		return reply(200, result[start:end])
 	}
 	return false
 }

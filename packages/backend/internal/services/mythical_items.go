@@ -1496,6 +1496,10 @@ func (st *mythicalItemStep) advance(ctx context.Context, item db.MythicalItem) (
 			// settles it) but not reviewed or merged until Resume.
 			return next, false, err
 		}
+		// A person's review on GitHub sends the TODO back to Working.
+		if steered, err := st.reviewSteer(ctx, *next); steered != nil || err != nil {
+			return steered, steered != nil, err
+		}
 		return st.gate(ctx, *next)
 	}
 	return nil, false, nil
