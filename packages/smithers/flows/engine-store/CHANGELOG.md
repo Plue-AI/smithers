@@ -2,6 +2,13 @@
 
 ## [Unreleased]
 
+### Added
+
+- `EngineStateFault`: a durable engine-state invariant that breaks (a JSON
+  column that cannot be written or read back, or a row a lost first-writer
+  transaction expected) dies with this tagged defect, carrying `reason` and
+  `field`, instead of a plain `Error`. Its message is unchanged.
+
 ### Fixed
 
 - Failed unknown effect-boundary appends now warn with their cause, run ID, and
