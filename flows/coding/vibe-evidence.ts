@@ -66,8 +66,23 @@ export const readVibeRequest = (input: typeof VibeInput.Type) =>
         }
         return { row, state: state.value }
       })
-    const requestRow = yield* read(input.requestExecutionId)
-    if (requestRow.state.flowName !== Request._tag) return yield* invalid("Select a native coding/Request execution")
+    // A registry launch persists the request under its registered name,
+    // coding/request, with delegate.call inlined, and the stack names the
+    // control run it launched (agent/run): select that run's one request.
+    let selected = input.requestExecutionId
+    let requestRow = yield* read(selected)
+    if (requestRow.state.flowName === "agent/run") {
+      const children = yield* catalog.listRuns({ filters: { flowName: "coding/request", parentRunId: selected }, limit: 2 })
+      if (children.cursor !== null || children.runs.length !== 1) {
+        return yield* invalid("Select a native coding/Request execution")
+      }
+      selected = children.runs[0]!.runId
+      requestRow = yield* read(selected)
+    }
+    const inlined = requestRow.state.flowName === "coding/request"
+    if (requestRow.state.flowName !== Request._tag && !inlined) {
+      return yield* invalid("Select a native coding/Request execution")
+    }
     const request = yield* completed(requestRow.state, Request.successSchema, Request.errorSchema)
     if (
       request.outcome.status !== "validated" || request.outcome.blocked !== null ||
@@ -82,17 +97,19 @@ export const readVibeRequest = (input: typeof VibeInput.Type) =>
     ) {
       return yield* invalid("Finalization check receipts must have unique IDs within each Change")
     }
-    const payload = Schema.decodeUnknownOption(RequestInput)(requestRow.state.payload)
+    const payload = Schema.decodeUnknownOption(RequestInput)(
+      inlined ? (requestRow.state.payload as { readonly input?: unknown } | null)?.input : requestRow.state.payload
+    )
     if (Option.isNone(payload)) return yield* invalid("The request's retained input is invalid")
     const visited = new Set<string>()
-    let id = input.requestExecutionId, bridged = false
+    let id = selected, bridged = false
     let root: { controlRunId: string; planId: string; planDigest: string } | undefined
     while (root === undefined) {
       if (visited.has(id) || visited.size >= 1024) {
         return yield* invalid("Finalization ancestry is cyclic or exceeds 1024 native executions")
       }
       visited.add(id)
-      const entry = id === input.requestExecutionId ? requestRow : yield* read(id)
+      const entry = id === selected ? requestRow : yield* read(id)
       // Executable.fromDescriptor persists the descriptor's name and inlines
       // delegate.call. There need not be a separate coding/Request row.
       if (entry.state.flowName === "coding/request") {
@@ -152,7 +169,7 @@ export const readVibeRequest = (input: typeof VibeInput.Type) =>
     // Later steered plans may start after implementation. The one original
     // prepared child is source-qualified before any correction can mutate code.
     const preparations = yield* catalog.listRuns({
-      filters: { flowName: PrepareRequest._tag, parentRunId: input.requestExecutionId },
+      filters: { flowName: PrepareRequest._tag, parentRunId: selected },
       limit: 2
     })
     if (preparations.cursor !== null || preparations.runs.length > 1) {
@@ -164,8 +181,8 @@ export const readVibeRequest = (input: typeof VibeInput.Type) =>
       const parents = yield* graph.runParents(preparationExecutionId)
       if (
         preparation.state.flowName !== PrepareRequest._tag ||
-        preparation.state.parentExecutionId !== input.requestExecutionId ||
-        parents.length !== 1 || parents[0]!.parentId !== input.requestExecutionId
+        preparation.state.parentExecutionId !== selected ||
+        parents.length !== 1 || parents[0]!.parentId !== selected
       ) {
         return yield* invalid("The original preparation is not a direct child of this request")
       }
@@ -178,12 +195,19 @@ export const readVibeRequest = (input: typeof VibeInput.Type) =>
       ) {
         return yield* invalid("The original prepared source does not match the approved request input")
       }
-      return { ...input, ...root, preparationExecutionId, originalSource: plan.observedHead, request }
+      return {
+        ...input,
+        ...root,
+        preparationExecutionId,
+        originalSource: plan.observedHead,
+        request,
+        fromStack: payload.value.base !== undefined
+      }
     }
     // Compatibility for requests completed before the independent-POC change.
     // An absent modern receipt cannot borrow an unrelated prototype's source.
     const children = yield* catalog.listRuns({
-      filters: { flowName: Poc._tag, parentRunId: input.requestExecutionId },
+      filters: { flowName: Poc._tag, parentRunId: selected },
       limit: 2
     })
     if (children.cursor !== null || children.runs.length !== 1) {
@@ -193,8 +217,8 @@ export const readVibeRequest = (input: typeof VibeInput.Type) =>
     const poc = yield* read(pocExecutionId)
     const pocParents = yield* graph.runParents(pocExecutionId)
     if (
-      poc.state.flowName !== Poc._tag || poc.state.parentExecutionId !== input.requestExecutionId ||
-      pocParents.length !== 1 || pocParents[0]!.parentId !== input.requestExecutionId
+      poc.state.flowName !== Poc._tag || poc.state.parentExecutionId !== selected ||
+      pocParents.length !== 1 || pocParents[0]!.parentId !== selected
     ) {
       return yield* invalid("The original POC is not a direct child of this request")
     }
@@ -209,7 +233,14 @@ export const readVibeRequest = (input: typeof VibeInput.Type) =>
     ) {
       return yield* invalid("The original POC source does not match its captured request input")
     }
-    return { ...input, ...root, pocExecutionId, originalSource: pocResult.source, request }
+    return {
+      ...input,
+      ...root,
+      pocExecutionId,
+      originalSource: pocResult.source,
+      request,
+      fromStack: payload.value.base !== undefined
+    }
   }).pipe(Effect.mapError((error) =>
     error instanceof CodingError ? error : new CodingError({
       code: "unavailable",

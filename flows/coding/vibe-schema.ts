@@ -24,7 +24,10 @@ export const VibeEvidence = Schema.Struct({
   pocExecutionId: Schema.optionalKey(Schema.NonEmptyString),
   preparationExecutionId: Schema.optionalKey(Schema.NonEmptyString),
   originalSource: Revision,
-  request: RequestResult
+  request: RequestResult,
+  // The request started from a stack base the stack service retained: its
+  // result goes back to that stack. Absent in evidence read before it existed.
+  fromStack: Schema.optionalKey(Schema.Boolean)
 })
 export type VibeEvidence = typeof VibeEvidence.Type
 /** Admission is permission to begin cleanup, not a landed or shipped result. */

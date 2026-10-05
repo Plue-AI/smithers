@@ -336,14 +336,17 @@ export const landingLayers = Layer.mergeAll(
   Interpreter.layer(LandVibe),
   Interpreter.layer(AwaitAppend),
   Interpreter.layer(AwaitPullChecks),
-  ReadStack.toLayer(() =>
+  ReadStack.toLayer(({ cleanup }) =>
     Effect.flatMap(
       requireBackend,
       (landing) =>
         Effect.flatMap(landing.readStack ?? Effect.succeed(false), (stacked) =>
-          stacked
-            ? Effect.map(landing.readDelivery, (delivery) => delivery === "pull-request")
-            : Effect.succeed(false))
+          !stacked
+            ? Effect.succeed(false)
+            // The stack launched this request from its base; its lane waits for the result.
+            : cleanup.admission.fromStack === true
+            ? Effect.succeed(true)
+            : Effect.map(landing.readDelivery, (delivery) => delivery === "pull-request"))
     )
   ),
   SubmitLane.toLayer(({ cleanup, cleanedSource }) =>
