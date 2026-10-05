@@ -305,7 +305,7 @@ func TestCachedLayerMarkerFailureClassification(t *testing.T) {
 			require.NoError(t, os.MkdirAll(artifact, 0700))
 			require.NoError(t, os.WriteFile(filepath.Join(artifact, "disk"), []byte("snapshot"), 0600))
 			r := &Runtime{config: Config{CPUs: 2, MemoryMiB: 2048, DiskMiB: 8192, MaxRunningVMs: 1}, root: root, owner: "smithers-backend-0123456789abcdef", workspaces: map[string]*workspace{}}
-			e := &environments{runtime: r, config: EnvironmentConfig{PrepareTimeout: time.Minute, KeepPerFamily: 1}}
+			e := &environments{runtime: r, config: EnvironmentConfig{Image: DefaultImage, PrepareTimeout: time.Minute, KeepPerFamily: 1}}
 			value := dependencyLayer{DetectorVersion: DetectorVersion}
 			key, encoded, err := recipeKey("", value)
 			require.NoError(t, err)
