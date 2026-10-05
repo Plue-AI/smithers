@@ -1544,6 +1544,7 @@ type MythicalItem struct {
 	OwnerID           pgtype.Int8        `json:"owner_id"`
 	FlowDigest        pgtype.Text        `json:"flow_digest"`
 	Revisions         json.RawMessage    `json:"revisions"`
+	FixesIssue        bool               `json:"fixes_issue"`
 }
 
 type MythicalLane struct {

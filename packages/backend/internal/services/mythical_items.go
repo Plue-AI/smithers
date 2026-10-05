@@ -164,11 +164,71 @@ func mythicalIssueDigest(issue mythicalIssue) string {
 	return hex.EncodeToString(sum[:])
 }
 
-// ObserveIssue refuses legacy admission until the install's issue-events,
-// membership and transactional revision providers are composed. Webhook stamps
-// and repository policy are not install membership or admission authority.
+// ObserveIssue is the label door (spec §10.2.1): a maintainer's live `todo`
+// label event on an issue whose text it approves appends one TODO. Revision 1
+// is the issue's title and body as read, with reason from-issue and its
+// issue_digest, and the TODO fixes the issue. The item, revision 1 and its
+// todo.created fact commit in one transaction. An issue with an unmerged TODO
+// is a no-op: later edits, redeliveries and new label events never touch it.
+// No production door calls it yet; ObserveGitHubEvent stays unavailable until
+// the issue-events cursor (T-GH-02) and install membership (T-ACC-02) feed it.
 func (s *MythicalService) ObserveIssue(ctx context.Context, repositoryID int64, issue mythicalIssue, applied gitHubLabelApplication) error {
-	return issueTodoUnavailable()
+	if s == nil || s.store == nil {
+		return issueTodoUnavailable()
+	}
+	if applied.Removed || applied.EventID == 0 || !appliedByMaintainer(applied, todoLabel) ||
+		!approvesIssueText(issueText{ByMaintainer: issue.TextByMaintainer}, nil, issue.Labels, applied, todoLabel) {
+		return nil
+	}
+	if state, _ := mythicalAdmission(issue, true); state != "queued" {
+		return nil
+	}
+	digest := mythicalIssueDigest(issue)
+	body := issue.Body
+	if len(body) > mythicalPromptBytes {
+		body = body[:mythicalPromptBytes]
+	}
+	revision, _ := json.Marshal([]map[string]any{{"text": issue.Title + "\n\n" + body, "acceptance": []string{},
+		"by": map[string]any{"kind": "person", "login": applied.By}, "at": s.now().UTC().Format(time.RFC3339Nano),
+		"reason": "from-issue", "issue_digest": digest}})
+	var created db.MythicalItem
+	var generation int64
+	err := pgx.BeginFunc(ctx, s.store, func(tx pgx.Tx) error {
+		q := db.New(tx)
+		if _, err := tx.Exec(ctx, `SELECT pg_advisory_xact_lock($1)`, repositoryID); err != nil {
+			return err
+		}
+		stack, err := q.GetMythicalStack(ctx, repositoryID)
+		if errors.Is(err, pgx.ErrNoRows) {
+			return nil
+		}
+		if err != nil {
+			return err
+		}
+		checks := mythicalChecks{Todo: true, TodoEvent: applied.EventID}
+		item, inserted, err := q.InsertMythicalItem(ctx, db.MythicalItem{RepositoryID: repositoryID,
+			IssueNumber: pgtype.Int8{Int64: issue.Number, Valid: true}, IssueTitle: issue.Title, IssueURL: issue.URL,
+			IssueDigest: digest, IssueBody: body, ApprovedDigest: digest, State: "queued", Outsider: !issue.TextByMaintainer,
+			Checks: checks.encode(), Revisions: revision, FixesIssue: true})
+		if err != nil || !inserted {
+			return err
+		}
+		fact, _ := json.Marshal(map[string]any{"item": uuidString(item.ID), "n": item.Number.Int64, "attempt": item.Attempt,
+			"from": "issue", "to": "queued", "issue": issue.Number, "label_event": applied.EventID, "by": applied.By})
+		if _, err = jobs.RecordFactInTx(ctx, tx, todoOperationScope(item), uuid.NewString(), "todo.created", "queued", fact); err != nil {
+			return err
+		}
+		if _, err = q.RequestMythicalStack(ctx, repositoryID); err != nil {
+			return err
+		}
+		created, generation = item, stack.Generation
+		return nil
+	})
+	if err != nil || !created.ID.Valid {
+		return err
+	}
+	s.notify(ctx, s.queries(), repositoryID, generation, "item", uuidString(created.ID))
+	return nil
 }
 
 // The worker distinguishes an unavailable admission provider from a failing

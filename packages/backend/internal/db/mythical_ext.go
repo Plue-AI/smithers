@@ -289,7 +289,7 @@ const mythicalItemColumns = `id, repository_id, issue_number, issue_title, issue
 source, version, state, reason, attempt,
 generation, lane, workspace_id, base_commit, candidate_base, candidate_head, candidate_verified, request_run_id, vibe_run_id, verify_run_id,
 request_outcome, vibe_outcome, verify_outcome, summary, plan, integration, checks, pr_number, pr_url, pr_state, pr_head, pr_merge_commit,
-pending_op, next_attempt_at, lane_started_at, created_at, updated_at, outsider, number, title, stack_position, paused_at, created_by, owner_id, flow_digest, revisions`
+pending_op, next_attempt_at, lane_started_at, created_at, updated_at, outsider, number, title, stack_position, paused_at, created_by, owner_id, flow_digest, revisions, fixes_issue`
 
 func scanMythicalItem(row interface{ Scan(...any) error }) (MythicalItem, error) {
 	var i MythicalItem
@@ -298,7 +298,7 @@ func scanMythicalItem(row interface{ Scan(...any) error }) (MythicalItem, error)
 		&i.ProposalRound, &i.Source, &i.Version, &i.State,
 		&i.Reason, &i.Attempt, &i.Generation, &i.Lane, &i.WorkspaceID, &i.BaseCommit, &i.CandidateBase, &i.CandidateHead, &i.CandidateVerified,
 		&i.RequestRunID, &i.VibeRunID, &i.VerifyRunID, &i.RequestOutcome, &i.VibeOutcome, &i.VerifyOutcome, &i.Summary, &plan, &integration,
-		&checks, &i.PRNumber, &i.PRURL, &i.PRState, &i.PRHead, &i.PRMergeCommit, &pending, &i.NextAttemptAt, &i.LaneStartedAt, &i.CreatedAt, &i.UpdatedAt, &i.Outsider, &i.Number, &i.Title, &i.StackPosition, &i.PausedAt, &i.CreatedBy, &i.OwnerID, &i.FlowDigest, &i.Revisions)
+		&checks, &i.PRNumber, &i.PRURL, &i.PRState, &i.PRHead, &i.PRMergeCommit, &pending, &i.NextAttemptAt, &i.LaneStartedAt, &i.CreatedAt, &i.UpdatedAt, &i.Outsider, &i.Number, &i.Title, &i.StackPosition, &i.PausedAt, &i.CreatedBy, &i.OwnerID, &i.FlowDigest, &i.Revisions, &i.FixesIssue)
 	i.Plan, i.Integration, i.Checks, i.PendingOp = rawJSON(plan), rawJSON(integration), rawJSON(checks), rawJSON(pending)
 	return i, err
 }
@@ -407,13 +407,14 @@ func (q *Queries) GetActiveMythicalItemByIssue(ctx context.Context, repositoryID
 // same issue is returned unchanged (inserted false). Settled history remains.
 func (q *Queries) InsertMythicalItem(ctx context.Context, item MythicalItem) (MythicalItem, bool, error) {
 	created, err := scanMythicalItem(q.db.QueryRow(ctx, `INSERT INTO mythical_items
-		(repository_id, issue_number, issue_title, issue_url, issue_digest, issue_body, approved_digest, source, state, reason, outsider, checks)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, 'issue', $8, $9, $10, $11)
+		(repository_id, issue_number, issue_title, issue_url, issue_digest, issue_body, approved_digest, source, state, reason, outsider, checks,
+		 revisions, fixes_issue)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, 'issue', $8, $9, $10, $11, $12, $13)
 		ON CONFLICT (repository_id, issue_number) WHERE issue_number IS NOT NULL
 		AND state NOT IN ('landed', 'cancelled', 'rejected', 'declined') DO NOTHING
 		RETURNING `+mythicalItemColumns,
 		item.RepositoryID, item.IssueNumber, item.IssueTitle, item.IssueURL, item.IssueDigest, item.IssueBody, item.ApprovedDigest,
-		item.State, item.Reason, item.Outsider, jsonArg(item.Checks)))
+		item.State, item.Reason, item.Outsider, jsonArg(item.Checks), jsonArg(item.Revisions), item.FixesIssue))
 	if err == nil {
 		return created, true, nil
 	}

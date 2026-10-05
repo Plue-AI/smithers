@@ -238,7 +238,7 @@ func (s *MythicalService) todoPRFacts(ctx context.Context, item db.MythicalItem)
 	}
 	shape := mythicalPRShape{Branch: branch, Title: mythicalTodoTitle(item), Owner: person.Username,
 		URL:        s.publicURL + "/" + target.owner + "/" + target.repository.Name,
-		FixesIssue: item.Source == "issue" && item.IssueNumber.Valid}
+		FixesIssue: item.FixesIssue && item.IssueNumber.Valid}
 	shape.Prompt, shape.Acceptance = mythicalTodoPrompt(item)
 	shape.Evidence, shape.Review = mythicalTodoEvidenceText(item)
 	var private bool
