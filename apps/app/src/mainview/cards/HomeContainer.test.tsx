@@ -581,14 +581,14 @@ test("the rail's home line on an install names the repository and counts GET /ap
   const owner = rehearsalHost("rehearsal-owner")
   const home = answered(probeHome(owner.controller))
   expect(home).toMatchObject({ kind: "served", role: "owner", model: { repository: "rehearsal-owner/app" } })
-  expect(homeLine(home)).toEqual({ entry_id: "home", kind: "card", title: "rehearsal-owner/app", summary: "0 need you · 0 working", tone: "quiet" })
+  expect(homeLine(home)).toEqual({ entry_id: "home", kind: "card", title: "rehearsal-owner/app", summary: "0 need you · 0 working", tone: "quiet", glyph: { state: "queued" } })
   owner.controller.design.dispose()
   const [t1] = rehearsalTodos
   const busy = rehearsalHost("rehearsal-owner", [
     { ...t1, n: 2, state: "needs_you", place: 2, waits: [{ id: "w2", kind: "question", prompt: "Which greeting?", since: "2026-10-05T10:27:00Z", actions: [] }] },
     { ...t1, n: 3, state: "starting", place: 3, pr: undefined }, { ...t1, n: 4, state: "working", place: 4, pr: undefined }])
   const counted = answered(probeHome(busy.controller))
-  expect(homeLine(counted)).toEqual({ entry_id: "home", kind: "card", title: "rehearsal-owner/app", summary: "1 need you · 2 working", tone: "attention" })
+  expect(homeLine(counted)).toEqual({ entry_id: "home", kind: "card", title: "rehearsal-owner/app", summary: "1 need you · 2 working", tone: "attention", glyph: { state: "needs_you" } })
   expect(homeLine({ ...counted, model: { ...counted.model, counts: { ...counted.model.counts, needs_you: 0 } } }).tone).toBe("live")
   busy.controller.design.dispose()
   // Until the first list read answers there is no line; a failed read names the repository and claims no counts.
@@ -597,7 +597,7 @@ test("the rail's home line on an install names the repository and counts GET /ap
   expect(probeHome(pending)).toBeUndefined()
   const refused = { ...pending, todoList: { get: () => forbidden, subscribe: () => () => {} } } as unknown as AppController
   const failed = answered(probeHome(refused))
-  expect(homeLine(failed)).toEqual({ entry_id: "home", kind: "card", title: "rehearsal-owner/app", tone: "quiet" })
+  expect(homeLine(failed)).toEqual({ entry_id: "home", kind: "card", title: "rehearsal-owner/app", tone: "quiet", glyph: { state: "queued" } })
   pending.design.dispose()
 })
 
@@ -605,6 +605,6 @@ test("on a host with the seed the rail's home line reads the seeded stack", () =
   const h = seeded(MAYA)
   const home = answered(probeHome(h.controller))
   expect(home.kind).toBe("seed")
-  expect(homeLine(home)).toEqual({ entry_id: "home", kind: "card", title: home.model.repository, summary: "1 need you · 1 working", tone: "attention" })
+  expect(homeLine(home)).toEqual({ entry_id: "home", kind: "card", title: home.model.repository, summary: "1 need you · 1 working", tone: "attention", glyph: { state: "needs_you" } })
   h.controller.design.dispose()
 })
