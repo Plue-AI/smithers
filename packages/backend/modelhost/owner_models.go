@@ -1,6 +1,7 @@
 package modelhost
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -309,13 +310,19 @@ func (s OwnerModels) SetDefault(w http.ResponseWriter, r *http.Request) {
 		modelJSON(w, http.StatusOK, map[string]bool{"ok": true})
 		return
 	}
+	// The model host plans exactly these fields for a turn that names no
+	// model (@smthrs/rpc ModelBindingSchema, a strict object), so a field it
+	// does not know is refused here rather than at every turn.
 	var binding struct {
 		Protocol   string `json:"protocol"`
 		ModelID    string `json:"modelId"`
 		Credential string `json:"credential"`
 		BaseURL    string `json:"baseUrl"`
+		Path       string `json:"path"`
 	}
-	if json.Unmarshal(input.Model, &binding) != nil ||
+	decoder := json.NewDecoder(bytes.NewReader(input.Model))
+	decoder.DisallowUnknownFields()
+	if decoder.Decode(&binding) != nil ||
 		(binding.Protocol != "openai-chat" && binding.Protocol != "openai-responses" && binding.Protocol != "anthropic-messages") ||
 		binding.ModelID == "" || len(binding.ModelID) > 256 || !validCredentialName(binding.Credential) {
 		modelJSON(w, http.StatusBadRequest, map[string]string{"code": "request_invalid"})

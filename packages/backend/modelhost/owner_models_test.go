@@ -209,6 +209,25 @@ func TestResolveChatModelCredentialSources(t *testing.T) {
 	require.Equal(t, "OPENAI_API_KEY", defaults["model"].(map[string]any)["credential"])
 }
 
+// A default model is the binding the model host plans for a turn that names
+// none, and the host plans a strict object (@smthrs/rpc ModelBindingSchema). A
+// configured model's record id, or any field the host does not know, used to be
+// stored here and refused at every turn: the turn failed before its provider
+// started, five generations in a row, with no reason the owner could act on.
+func TestOwnerModelDefaultRefusesWhatATurnCannotRun(t *testing.T) {
+	f := newOwnerModelsFixture(t)
+	for name, model := range map[string]map[string]string{
+		"record id":     {"id": "local-coding", "protocol": "openai-chat", "modelId": "m", "credential": "LOCAL_KEY", "baseUrl": "http://127.0.0.1:9"},
+		"unknown field": {"protocol": "openai-chat", "modelId": "m", "credential": "LOCAL_KEY", "label": "Local"},
+	} {
+		require.Equal(t, "request_invalid", f.call(t, f.handlers.SetDefault, http.MethodPut, map[string]any{"model": model})["code"], name)
+		require.Nil(t, f.call(t, f.handlers.Default, http.MethodGet, nil)["model"], name)
+	}
+	binding := map[string]any{"protocol": "openai-chat", "modelId": "m", "credential": "LOCAL_KEY", "baseUrl": "http://127.0.0.1:9", "path": "/v1/chat/completions"}
+	require.Equal(t, true, f.call(t, f.handlers.SetDefault, http.MethodPut, map[string]any{"model": binding})["ok"])
+	require.Equal(t, binding, f.call(t, f.handlers.Default, http.MethodGet, nil)["model"])
+}
+
 // #2222: a model credential is an API key. A Claude or ChatGPT subscription
 // token is refused on save and on read, with the detector secrets use, on
 // every deployment; subscription logins belong to the provider connections
