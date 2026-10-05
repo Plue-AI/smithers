@@ -47,6 +47,7 @@ type gitHubInstallSync struct {
 	consumers map[string]gitHubFetchedConsumer
 	mu        sync.Mutex
 	requested map[int64]bool
+	etags     map[gitHubPageKey]string
 	wake      chan struct{}
 }
 

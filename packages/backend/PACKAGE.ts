@@ -14,6 +14,8 @@ const docs = Smithers.Docs.Check({
     Smithers.file("internal/services/github_synced_repos.go"),
     Smithers.file("internal/services/github_synced_delivery.go"),
     Smithers.file("internal/services/github_synced_events.go"),
+    Smithers.file("internal/services/github_synced_conditional.go"),
+    Smithers.file("internal/services/landing_github_pull.go"),
     Smithers.file("internal/services/github_issue_text_writer.go"),
     Smithers.file("internal/services/mythical_issue_events.go"),
     Smithers.file("internal/services/mythical_github.go"),

@@ -127,7 +127,8 @@ type GitHubSyncedRepoService struct {
 	// registry row (R2: sync uses installation tokens, cached ~1h, never user
 	// tokens). When set it is preferred over any request-bound user fetcher;
 	// it also powers the background reconciler, which has no user in scope.
-	fetcherFactory func(row db.GithubSyncedRepo) GitHubSyncedRepoPageFetcher
+	fetcherFactory            func(row db.GithubSyncedRepo) GitHubSyncedRepoPageFetcher
+	conditionalFetcherFactory func(db.GithubSyncedRepo) GitHubSyncedRepoConditionalFetcher
 	// budget is the shared per-installation GitHub API budget (R5: one
 	// process-wide accounting point, the same tracker the proxy layer uses).
 	budget *BudgetTracker
@@ -994,7 +995,7 @@ func (s *GitHubSyncedRepoService) scheduleBackfill(row db.GithubSyncedRepo, fetc
 	// installation; the request-bound user-token fetcher is only the fallback
 	// for repos synced without an App installation.
 	fetch = s.preferredFetcher(row, fetch)
-	if fetch == nil {
+	if fetch == nil && !s.hasConditionalFetcher() {
 		return
 	}
 	if !s.allowBudget(row) {
@@ -1144,9 +1145,13 @@ func (s *GitHubSyncedRepoService) backfillResource(ctx context.Context, row db.G
 			return err
 		}
 	}
+	fetch, committed := s.conditionalPages(row, fetch)
 	seen := make([]int64, 0, githubSyncedRepoBackfillPageSize)
 	singlePage := false
-	for page := 1; page <= githubSyncedRepoBackfillMaxPages; page++ {
+	for page := 1; s.install != nil || page <= githubSyncedRepoBackfillMaxPages; page++ {
+		if err := ctx.Err(); err != nil {
+			return err
+		}
 		query := url.Values{}
 		// state=all: the store holds both open and closed rows and filters on
 		// read, so one backfill serves every state the proxy can be asked for.
@@ -1157,12 +1162,18 @@ func (s *GitHubSyncedRepoService) backfillResource(ctx context.Context, row db.G
 		query.Set("page", strconv.Itoa(page))
 
 		body, err := fetch(ctx, resource, query)
+		if s.install != nil && stdErrors.Is(err, errGitHubPageUnchanged) {
+			break
+		}
 		if err != nil {
 			return err
 		}
 		var objects []json.RawMessage
 		if err := json.Unmarshal(body, &objects); err != nil {
 			return fmt.Errorf("decode github %s page: %w", resource, err)
+		}
+		if s.install != nil && objects == nil {
+			return fmt.Errorf("invalid github %s page", resource)
 		}
 		for _, object := range objects {
 			if s.install != nil {
@@ -1184,7 +1195,11 @@ func (s *GitHubSyncedRepoService) backfillResource(ctx context.Context, row db.G
 	}
 
 	if s.install != nil {
-		return s.commitFetched(ctx, row, resource, fetched)
+		if err := s.commitFetched(ctx, row, resource, fetched); err != nil {
+			return err
+		}
+		committed()
+		return nil
 	}
 
 	// Prune rows GitHub no longer returns — but only when the backfill actually
@@ -1273,6 +1288,9 @@ func (s *GitHubSyncedRepoService) recordSyncError(syncedRepoID int64, cause erro
 // whenever the row carries an installation; the caller-supplied (user-token)
 // fetcher is only the fallback for rows with none.
 func (s *GitHubSyncedRepoService) preferredFetcher(row db.GithubSyncedRepo, fallback gitHubSyncedRepoPageFetcher) gitHubSyncedRepoPageFetcher {
+	if s.hasConditionalFetcher() {
+		return nil // Install reads are built at the stream commit boundary.
+	}
 	if s.fetcherFactory != nil && row.InstallationID.Valid {
 		if fetch := s.fetcherFactory(row); fetch != nil {
 			return fetch
@@ -1333,7 +1351,7 @@ func (s *GitHubSyncedRepoService) reconcileDue(row db.GithubSyncedRepo) bool {
 // singleflight claim keeps multiple API replicas from double-sweeping a repo.
 // Blocks until ctx is done; run it as `go svc.StartReconciler(workerCtx)`.
 func (s *GitHubSyncedRepoService) StartReconciler(ctx context.Context) {
-	if s == nil || s.store == nil || s.fetcherFactory == nil {
+	if s == nil || s.store == nil || (s.fetcherFactory == nil && !s.hasConditionalFetcher()) {
 		slog.Warn("github synced repo reconciler not started: no installation fetcher wired")
 		return
 	}
@@ -1382,7 +1400,7 @@ func (s *GitHubSyncedRepoService) reconcileOnce(ctx context.Context) {
 			continue
 		}
 		fetch := s.preferredFetcher(row, nil)
-		if fetch == nil {
+		if fetch == nil && !s.hasConditionalFetcher() {
 			// No installation and no user in scope: this row can only be
 			// revalidated by the read path's user-token fetcher.
 			continue

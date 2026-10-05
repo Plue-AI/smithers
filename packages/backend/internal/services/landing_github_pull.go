@@ -452,7 +452,10 @@ func (a *landingGitHubAPI) requestHeaders(ctx context.Context, token, method, pa
 		return 0, nil, pkgerrors.New(pkgerrors.CodeBadGateway, "GitHub did not answer")
 	}
 	defer func() { _ = resp.Body.Close() }()
-	raw, _ := io.ReadAll(io.LimitReader(resp.Body, 4<<20))
+	raw, readErr := io.ReadAll(io.LimitReader(resp.Body, githubRepoMetadataMaxResponseBytes+1))
+	if readErr != nil || int64(len(raw)) > githubRepoMetadataMaxResponseBytes {
+		return resp.StatusCode, resp.Header.Clone(), pkgerrors.New(pkgerrors.CodeBadGateway, "GitHub returned an incomplete response")
+	}
 	if resp.StatusCode >= 400 && len(refusal) > 0 && refusal[0] != nil {
 		_ = json.Unmarshal(raw, refusal[0])
 		refusal[0].Status = resp.StatusCode

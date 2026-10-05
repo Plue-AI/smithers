@@ -24122,6 +24122,14 @@
       },
       {
         "kind": "file",
+        "path": "packages/backend/internal/services/github_synced_conditional.go"
+      },
+      {
+        "kind": "file",
+        "path": "packages/backend/internal/services/landing_github_pull.go"
+      },
+      {
+        "kind": "file",
         "path": "packages/backend/internal/services/github_issue_text_writer.go"
       },
       {

@@ -60,11 +60,16 @@ func (s *GitHubSyncedRepoService) backfillIssueEvents(ctx context.Context, row d
 	if err != nil {
 		return err
 	}
+	fetch, committed := s.conditionalPages(row, fetch)
 	objects, _, err := readGitHubIssueEvents(ctx, cursor, fetch)
 	if err != nil {
 		return err
 	}
-	return s.commitIssueEvents(ctx, row, objects)
+	if err := s.commitIssueEvents(ctx, row, objects); err != nil {
+		return err
+	}
+	committed()
+	return nil
 }
 
 // issueEventPages adapts the existing authenticated HTTP client to the one
@@ -95,6 +100,9 @@ func readGitHubIssueEvents(ctx context.Context, cursor int64, fetch gitHubSynced
 			return nil, 0, err
 		}
 		body, err := fetch(ctx, gitHubIssueEvents, url.Values{"per_page": {"100"}, "page": {strconv.Itoa(page)}})
+		if errors.Is(err, errGitHubPageUnchanged) {
+			return objects, newest, nil
+		}
 		if err != nil {
 			return nil, 0, err
 		}

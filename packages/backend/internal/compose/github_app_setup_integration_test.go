@@ -457,10 +457,10 @@ func TestGitHubFetchedInstallWebhookBoundary(t *testing.T) {
 					}
 				}))
 				require.NoError(t, synced.ConfigureInstallSync(pool))
-				synced.SetFetcherFactory(func(db.GithubSyncedRepo) services.GitHubSyncedRepoPageFetcher {
-					return func(context.Context, string, url.Values) (json.RawMessage, error) {
+				synced.SetConditionalFetcherFactory(func(db.GithubSyncedRepo) services.GitHubSyncedRepoConditionalFetcher {
+					return func(context.Context, string, url.Values, string) (services.GitHubSyncedRepoConditionalPage, error) {
 						calls.Add(1)
-						return json.RawMessage(`[]`), nil
+						return services.GitHubSyncedRepoConditionalPage{Body: json.RawMessage(`[]`)}, nil
 					}
 				})
 				workerCtx, cancel := context.WithCancel(ctx)

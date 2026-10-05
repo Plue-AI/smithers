@@ -72,6 +72,13 @@ type Write struct {
 	Permissions map[string]string `json:"permissions,omitempty"`
 }
 
+// Read records a repository REST read without retaining credentials.
+type Read struct {
+	Path        string
+	IfNoneMatch string
+	Status      int
+}
+
 type Server struct {
 	*httptest.Server
 	URL       string
@@ -92,6 +99,7 @@ type Server struct {
 	// (SignInAs) rather than the owner, by code.
 	signIns map[string]int64
 	writes  []Write
+	reads   []Read
 	tokens  map[string]int64
 	pulls   map[string]Pull
 	// grants are each installation token's permissions: those requested
@@ -640,6 +648,12 @@ func (s *Server) Writes() []Write {
 	return writes
 }
 
+func (s *Server) Reads() []Read {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return append([]Read(nil), s.reads...)
+}
+
 func (s *Server) serveHTTP(w http.ResponseWriter, r *http.Request) {
 	s.mu.Lock()
 	hook := s.hooks[r.Method+" "+r.URL.Path]
@@ -684,9 +698,26 @@ func (s *Server) serveHTTP(w http.ResponseWriter, r *http.Request) {
 		s.writes = append(s.writes, Write{Sequence: uint64(len(s.writes) + 1), Method: r.Method, Path: r.URL.Path, Body: append(json.RawMessage(nil), body...), Status: status,
 			Permissions: s.grants[strings.TrimPrefix(r.Header.Get("Authorization"), "Bearer ")]})
 	}
+	if r.Method == http.MethodGet && strings.HasPrefix(r.URL.Path, "/repos/") {
+		if status == http.StatusOK {
+			raw, err := json.Marshal(response)
+			if err != nil {
+				status, response = failure(http.StatusInternalServerError, "invalid fixture response")
+			} else {
+				etag := fmt.Sprintf(`"%x"`, sha256.Sum256(raw))
+				w.Header().Set("ETag", etag)
+				if r.Header.Get("If-None-Match") == etag {
+					status = http.StatusNotModified
+				}
+			}
+		}
+		s.reads = append(s.reads, Read{Path: r.URL.RequestURI(), IfNoneMatch: r.Header.Get("If-None-Match"), Status: status})
+	}
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(status)
-	_ = json.NewEncoder(w).Encode(response)
+	if status != http.StatusNotModified {
+		_ = json.NewEncoder(w).Encode(response)
+	}
 }
 
 func (s *Server) respond(r *http.Request, body []byte) (int, any) {

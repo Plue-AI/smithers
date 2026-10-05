@@ -653,8 +653,13 @@ func runWithOptions(ctx context.Context, args []string, stdout, stderr io.Writer
 	// R2: backfills and the reconciliation sweep fetch with cached App
 	// installation tokens whenever the registry row has an installation;
 	// request-bound user tokens remain only the fallback for rows without one.
-	gitHubSyncedRepoService.SetFetcherFactory(
-		gitHubUserReposService.SyncedRepoInstallationFetcherFactory(repoConnectionService))
+	if options.topology.hosted() {
+		gitHubSyncedRepoService.SetFetcherFactory(
+			gitHubUserReposService.SyncedRepoInstallationFetcherFactory(repoConnectionService))
+	} else {
+		gitHubSyncedRepoService.SetConditionalFetcherFactory(
+			gitHubUserReposService.SyncedRepoConditionalFetcherFactory(repoConnectionService))
+	}
 	gitHubCheckRunService := services.NewGitHubCheckRunService(repoConnectionService)
 	agentEnvironmentService := services.NewAgentEnvironmentService(
 		queries,

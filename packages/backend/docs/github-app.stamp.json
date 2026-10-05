@@ -3,9 +3,9 @@
   "producer": null,
   "output": {
     "path": "packages/backend/docs/github-app.md",
-    "digest": "94c141c53c37d64985815ea5aa6ebf0779f53dd57ff313796d34ec6d731a6285"
+    "digest": "afd332a054d23dbafae475325eac9e34bf5da972b4d99e4c54a3d0a50cd33c73"
   },
-  "closure": "b14b918ee487525ad63c87521471f6af99d068a6b92d8edb1c96f4c120c9db48",
+  "closure": "153819f4d4d6a29db3c450c383551664c9e4ba755ef7b7800c74ad556d70e9fc",
   "inputs": [
     {
       "path": "docs/api/openapi/install.yaml",
@@ -21,7 +21,7 @@
     },
     {
       "path": "packages/backend/internal/compose/main.go",
-      "digest": "7bb4db54bb92fc90dc1e1e53329a867d2a53488675d1fcff4929ad0eb9aa6d2a"
+      "digest": "4faf2982513183fa02d2b33175805559cea146a75cf88bdb63a0238dc33b85cf"
     },
     {
       "path": "packages/backend/internal/middleware/effective_origin.go",
@@ -48,20 +48,28 @@
       "digest": "c06ab5e6a96d30032e4c40784fb724affa1c965a7274ca3c6e5b14730cb0cdb4"
     },
     {
+      "path": "packages/backend/internal/services/github_synced_conditional.go",
+      "digest": "b075fee99df8b957318891f540acca89e0a9202db1c6a1b86fddddcc5e9961dd"
+    },
+    {
       "path": "packages/backend/internal/services/github_synced_delivery.go",
-      "digest": "a713ba96258ff95a16b547966320a72f0030a8c069fa8b85c20ab99fdd961379"
+      "digest": "c95b2346c89bbdbe089025bfb8cd008d7dcb57d1c70b6b92201d481769c9f087"
     },
     {
       "path": "packages/backend/internal/services/github_synced_events.go",
-      "digest": "b432d30860e10a481f1624dc298794d2d4eaa2585eace401755b596860c1391d"
+      "digest": "56ec2d5ffef807f7e8866f5146621ec1829062c6179960a3fbfb7441c5520720"
     },
     {
       "path": "packages/backend/internal/services/github_synced_repos.go",
-      "digest": "f35eb26be510472d49fbb171eb1a4595a279d2230b6b3e2b3a32d269c195bebd"
+      "digest": "6dcb624e1945e45eb7098cecc8c65b6191cb362803bb29c586193f52c427a33f"
     },
     {
       "path": "packages/backend/internal/services/install_setup_session.go",
       "digest": "bfd71930e69b9e5fec0692e027f15caf3e04b3253f19468b60b265a3ef4c79c1"
+    },
+    {
+      "path": "packages/backend/internal/services/landing_github_pull.go",
+      "digest": "09fba6ae1ca34a9c6df17a16bd29dd009a0703329f85f2f3fb02c651eb8ca8dd"
     },
     {
       "path": "packages/backend/internal/services/mythical_github.go",
