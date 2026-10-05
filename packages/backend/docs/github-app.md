@@ -175,6 +175,13 @@ deadline in the worker's existing backoff. Hosted anonymous public reads retain
 their previous behavior. Full stream, main-move/attention, live-health and
 production acceptance evidence remain outstanding.
 
+Main-read permission refusals and rate-limit deadlines now contribute to
+aggregate health after their pull receipt commits. The in-memory classification
+is bound to that receipt's read time, source, branch and error. A Retry request
+does not clear it; a successful read does. A restart or changed receipt requires
+an unclassified failure to be read again before reporting fresh. Ordinary
+transient failures retain the last success until the stale boundary.
+
 Permission polling uses the existing member-recheck worker. Its one-second
 driver checks an hourly read deadline; low shared budget doubles that deadline
 until reset. Retry wakes this same worker, preserves the regular deadline and

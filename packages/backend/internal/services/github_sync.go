@@ -50,23 +50,77 @@ type gitHubMainPullReceipts interface {
 type gitHubMainPullStreams struct {
 	receipts gitHubMainPullReceipts
 	wake     func()
+	observe  func(db.GithubMainPull) GitHubSyncStream
 }
 
 func (g gitHubMainPullStreams) RequiredStreams(ctx context.Context) ([]GitHubSyncStream, error) {
+	if g.observe == nil {
+		return nil, githubSyncUnavailable()
+	}
 	rows, err := g.receipts.ListGithubMainPulls(ctx)
 	if err != nil {
 		return nil, err
 	}
 	streams := make([]GitHubSyncStream, 0, len(rows))
 	for _, row := range rows {
-		var stream GitHubSyncStream
-		if row.LastSyncedAt.Valid {
-			at := row.LastSyncedAt.Time
-			stream.LastSuccessAt = &at
-		}
-		streams = append(streams, stream)
+		streams = append(streams, g.observe(row))
 	}
 	return streams, nil
+}
+
+// Only health metadata lives here; the durable pull row remains the receipt.
+// Bind the observation to that exact completed read so an old worker cannot
+// publish a refusal over a later success or a changed repository binding.
+type gitHubMainPullHealthObservation struct {
+	claim                                    int64
+	checkedAt                                time.Time
+	githubRepository, branch, message, cause string
+	retryAt                                  time.Time
+}
+
+func (s *GitHubMainPullService) recordRefHealth(ctx context.Context, claimed db.GithubMainPull, outcome gitHubMainPullOutcome) {
+	row, err := s.store.GetGithubMainPull(ctx, claimed.RepositoryID)
+	if err != nil || row.Claim != claimed.Claim || row.LeaseExpiresAt.Valid || !row.LastCheckedAt.Valid || row.LastError != outcome.err {
+		return
+	}
+	s.refHealthMu.Lock()
+	defer s.refHealthMu.Unlock()
+	if s.refHealth == nil {
+		s.refHealth = make(map[int64]gitHubMainPullHealthObservation)
+	}
+	old, exists := s.refHealth[row.RepositoryID]
+	if exists && old.claim > row.Claim {
+		return
+	}
+	s.refHealth[row.RepositoryID] = gitHubMainPullHealthObservation{
+		claim: row.Claim, checkedAt: row.LastCheckedAt.Time, githubRepository: row.GithubRepository, branch: row.Branch,
+		message: row.LastError, cause: outcome.faultCause, retryAt: outcome.retryAt,
+	}
+}
+
+func (s *GitHubMainPullService) refHealthStream(row db.GithubMainPull) GitHubSyncStream {
+	var stream GitHubSyncStream
+	if row.LastSyncedAt.Valid {
+		at := row.LastSyncedAt.Time
+		stream.LastSuccessAt = &at
+	}
+	s.refHealthMu.Lock()
+	observed, exists := s.refHealth[row.RepositoryID]
+	s.refHealthMu.Unlock()
+	if exists && row.LastCheckedAt.Valid && observed.checkedAt.Equal(row.LastCheckedAt.Time) &&
+		observed.githubRepository == row.GithubRepository && observed.branch == row.Branch && observed.message == row.LastError {
+		stream.Cause = observed.cause
+		if !observed.retryAt.IsZero() {
+			at := observed.retryAt
+			stream.RetryAt = &at
+		}
+	} else if row.LastError != "" {
+		// Health is intentionally in memory. After restart, or when another
+		// worker completed this row, an unclassified failure must be reread
+		// before a previous success can qualify the stream as fresh.
+		stream.LastSuccessAt = nil
+	}
+	return stream
 }
 
 // RetryStreams makes every followed main due now, enrolling any repository
@@ -163,7 +217,7 @@ func (s *GitHubMainPullService) SetInstallSyncStreams(repository, checks, review
 		return
 	}
 	s.syncStreams = requiredGitHubSyncStreams{
-		refs:       gitHubMainPullStreams{receipts: receipts, wake: s.wakePull},
+		refs:       gitHubMainPullStreams{receipts: receipts, wake: s.wakePull, observe: s.refHealthStream},
 		repository: repository, checks: checks, reviews: reviews, permissions: permissions,
 	}
 }

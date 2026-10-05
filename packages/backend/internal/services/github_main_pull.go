@@ -116,7 +116,9 @@ type GitHubMainPullService struct {
 	refReadAdmission interface {
 		AuthorizeRefRead(context.Context, int64) error
 	}
-	wake chan struct{}
+	wake        chan struct{}
+	refHealthMu sync.Mutex
+	refHealth   map[int64]gitHubMainPullHealthObservation
 
 	reconcileFactory func(context.Context, int64, string, FactoryProjection) error
 	readFactory      func(context.Context, string, string, string, string) ([]byte, error)
@@ -378,8 +380,9 @@ func (s *GitHubMainPullService) PollOnce(ctx context.Context) error {
 
 // gitHubMainPullOutcome is what one run records.
 type gitHubMainPullOutcome struct {
-	forcePush *GitHubMainForcePush
-	retryAt   time.Time
+	forcePush  *GitHubMainForcePush
+	retryAt    time.Time
+	faultCause string
 
 	state, githubRepository, branch, policy, policyCommit, githubHead, smithersHead, err string
 	// resetPolicy forgets the recorded source/policy tuple, so a policy is
@@ -425,6 +428,9 @@ func (s *GitHubMainPullService) runClaimed(parent context.Context, row db.Github
 		Branch: outcome.branch, Policy: outcome.policy, PolicyCommit: outcome.policyCommit, GithubHead: outcome.githubHead,
 		SmithersHead: outcome.smithersHead, Error: outcome.err, FactoryState: outcome.factoryState, FactoryError: outcome.factoryError, BackoffSeconds: backoff.Seconds(), ResetPolicy: outcome.resetPolicy,
 	})
+	if s.install && err == nil && written > 0 {
+		s.recordRefHealth(finishCtx, row, outcome)
+	}
 	switch {
 	case err != nil:
 		s.logger.Error("github.main_pull.finish_failed", "repository_id", row.RepositoryID, "error", err)
@@ -485,15 +491,16 @@ func (s *GitHubMainPullService) pull(ctx context.Context, row db.GithubMainPull)
 		out.state, out.err = gitHubMainPullStateFailed, message
 		return out
 	}
-	if err := s.installSyncReady(ctx); err != nil {
-		return fail(err.Error())
-	}
 	refused := func(err error) gitHubMainPullOutcome {
+		out.faultCause = gitHubSyncFaultCause(err)
 		var fault *pkgerrors.APIError
 		if errors.As(err, &fault) && fault.RetryAt != nil {
 			out.retryAt = *fault.RetryAt
 		}
 		return fail(err.Error())
+	}
+	if err := s.installSyncReady(ctx); err != nil {
+		return refused(err)
 	}
 	if s.install {
 		if s.refReadAdmission == nil {

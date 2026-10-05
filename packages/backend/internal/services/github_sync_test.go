@@ -311,7 +311,7 @@ func TestInstallSyncReadsIssueEventsOnItsCadence(t *testing.T) {
 func qualifyMainPullFixture(s *GitHubMainPullService) {
 	s.UseInstallPolicy()
 	s.refReadAdmission = allowRefFixture{}
-	s.syncStreams = gitHubMainPullStreams{receipts: s.store.(gitHubMainPullReceipts), wake: s.wakePull}
+	s.syncStreams = gitHubMainPullStreams{receipts: s.store.(gitHubMainPullReceipts), wake: s.wakePull, observe: s.refHealthStream}
 }
 
 type allowRefFixture struct{}

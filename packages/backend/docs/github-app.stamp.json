@@ -3,9 +3,9 @@
   "producer": null,
   "output": {
     "path": "packages/backend/docs/github-app.md",
-    "digest": "dc7cd35e0ec59e6ad90e2e050790258d72aeba0cf8c578c55ac7fe0d22583bf4"
+    "digest": "39dd4d5a86fde2ed86a94f513b8d3565f0a1146e55d2ca3c296a2366cfda2e5a"
   },
-  "closure": "d7fb4a0ab02c26475cadb2b7e3e081a21ee896787f8b28cce82c1d50fe57c894",
+  "closure": "52188019b0d1c942ce0a91b703c176b1159fb1cd9317ce2e029d00cebcd152c3",
   "inputs": [
     {
       "path": "docs/api/openapi/install.yaml",
@@ -109,7 +109,7 @@
     },
     {
       "path": "packages/backend/internal/services/github_main_pull.go",
-      "digest": "10ffc0c82d7a658aff2372bae1b60e775b38a506d27260420208cc624d77b038"
+      "digest": "b7b9409e87f95d2cc43dd04cbd6d4fa7366a076e34ca2b9e1e976532ba5b5a4f"
     },
     {
       "path": "packages/backend/internal/services/github_pull_diff.go",
@@ -137,7 +137,7 @@
     },
     {
       "path": "packages/backend/internal/services/github_sync.go",
-      "digest": "925794b55b3b8257dcf5f4db68fe7301f39f06a608997d24827a9a75edfb0e5a"
+      "digest": "86d87531ace9770d43e0ad6aab963dbd5afaadd9b78da94aeac5f40540ede372"
     },
     {
       "path": "packages/backend/internal/services/github_synced_comments.go",
