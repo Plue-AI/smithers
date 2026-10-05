@@ -483,6 +483,8 @@ export interface AppController extends IssueFlowsController {
   readonly controlTodo: TodoSeam["controlTodo"]
   readonly refreshWiki: StackSeam["refreshWiki"]
   readonly installSnapshots: InstallSeam["snapshots"]
+  /** GET /api/todos, read while Home is open on a host with no `home` topic (T-APP-01). */
+  readonly todoList: TodoSeam["list"]
   /** MOCK SEAM (state/seams/DesignWorld): the seeded design world and its stub mutations, deleted in one change. */
   readonly design: DesignWorld
   /** The `/api/live` channel the Home card subscribes through; absent when the composition supplied none. */
@@ -2032,6 +2034,7 @@ export const createAppController = (
     nativeAgentAvailable: agent.available,
     tappedFetch: http,
     installSnapshots: installSeam.snapshots,
+    todoList: todoSeam.list,
     design,
     live: services.live,
     presentCard,

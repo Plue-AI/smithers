@@ -516,3 +516,62 @@ test("the install's queued TODO projection, as GET /api/todos/{n} serves it, ren
     expect(await h.seam.reviewMerge(1)).toBe("Not in review yet")
   } finally { h.close() }
 })
+
+describe("TodoSeam — the TODO list Home reads where no `home` topic is served (T-APP-01)", () => {
+  const listHarness = async (answers: Array<() => Response | Promise<Response>>, login: string | null = "ben") => {
+    const store = await createAppStore({ kind: "localStorage", storage: memoryStorage() })
+    if (login !== null) await store.dispatch({ type: "identity.session.loaded", actor: "system", state: "signed-in", login, admin: false, scopesPlain: null }).isPersisted.promise
+    const calls: string[] = []
+    let disposed = false
+    const finalizers: (() => void)[] = []
+    const context: SeamContext = {
+      http: async (url, init) => { calls.push(`${init?.method ?? "GET"} ${url}`); return answers.shift()?.() ?? new Promise<Response>(() => {}) },
+      store, dispatch: store.dispatch, baseUrl: "https://install.test", actor: () => "user", nextOrdinal: store.nextOrdinal, isDisposed: () => disposed
+    }
+    const seam = createTodoSeam(context, { debounceMs: 1, listPollMs: 5, onDispose: fn => finalizers.push(fn) })
+    return { seam, calls, close: () => { disposed = true; finalizers.forEach(fn => fn()) } }
+  }
+
+  test("the first reader reads at once and again until it leaves; a refusal drops the list, a failure keeps the last one", async () => {
+    const last = deferred<Response>()
+    const h = await listHarness([
+      () => json([fixtures.queued.model, fixtures.in_review.model], 200), () => json({ code: "internal" }, 500),
+      () => json({ code: "forbidden" }, 403), () => last.promise
+    ])
+    try {
+      expect(h.seam.list.get()).toEqual({})
+      const seen: Array<{ readonly n?: ReadonlyArray<number>; readonly error?: string }> = []
+      const leave = h.seam.list.subscribe(() => {
+        const snapshot = h.seam.list.get()
+        seen.push({ ...(snapshot.todos ? { n: snapshot.todos.map(todo => todo.n) } : {}), ...(snapshot.error ? { error: snapshot.error } : {}) })
+      })
+      await waitFor(() => h.calls.length === 4)
+      leave()
+      expect(seen).toEqual([{ n: [fixtures.queued.model.n, 12] }, { n: [fixtures.queued.model.n, 12], error: "internal" }, { error: "forbidden" }])
+      last.resolve(json([], 200))
+      await new Promise(resolve => setTimeout(resolve, 30))
+      // The read in flight when the last reader left settles, and nothing reads again.
+      expect(h.calls).toEqual(Array(4).fill("GET https://install.test/api/todos"))
+      expect(h.seam.list.get()).toEqual({ todos: [] })
+      expect(seen).toHaveLength(3)
+    } finally { h.close() }
+  })
+
+  test("a list that does not parse keeps the last list; signed out, nothing is read", async () => {
+    const h = await listHarness([() => json([fixtures.queued.model], 200), () => json([{ n: "one" }], 200)])
+    try {
+      const leave = h.seam.list.subscribe(() => {})
+      await waitFor(() => h.seam.list.get().error === "invalid")
+      leave()
+      expect(h.seam.list.get().todos?.map(todo => todo.n)).toEqual([fixtures.queued.model.n])
+    } finally { h.close() }
+    const out = await listHarness([() => json([], 200)], null)
+    try {
+      const leave = out.seam.list.subscribe(() => {})
+      await new Promise(resolve => setTimeout(resolve, 30))
+      leave()
+      expect(out.calls).toEqual([])
+      expect(out.seam.list.get()).toEqual({})
+    } finally { out.close() }
+  })
+})

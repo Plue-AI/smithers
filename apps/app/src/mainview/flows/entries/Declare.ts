@@ -54,6 +54,8 @@ export type CommandActions =
     // Live stack snapshots are what the Stack views read, never an act.
     | "installSnapshots"
     | "stackSnapshots"
+    // The TODO list Home reads where no `home` topic is served, never an act.
+    | "todoList"
     // Live wiki navigation indexes and attachments are what the Wiki views read, never an act.
     | "wikiIndexes"
     | "wikiAttachments"

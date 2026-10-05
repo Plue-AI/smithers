@@ -41,12 +41,26 @@ export interface TodoSeamOptions {
   readonly actors?: () => ActorContext
   readonly topics?: TodoTopics
   readonly debounceMs?: number
+  /** How often an open Home reads GET /api/todos again; 2 s by default. */
+  readonly listPollMs?: number
   readonly onDispose?: (stop: () => void) => void
+}
+/** GET /api/todos as Home reads it where this host serves no `home` topic (T-APP-01): every TODO card, or why the read failed. */
+export interface TodoListSnapshot {
+  readonly todos?: ReadonlyArray<TodoCard>
+  /** `forbidden` drops the list; `internal`, `invalid` and `unreachable` keep the last list read. */
+  readonly error?: "forbidden" | "internal" | "invalid" | "unreachable"
+}
+export interface TodoListSnapshots {
+  readonly get: () => TodoListSnapshot
+  /** The first reader starts the reads: one at once, then one every `listPollMs` until the last reader leaves. */
+  readonly subscribe: (listener: () => void) => () => void
 }
 export const createTodoSeam = (ctx: SeamContext, options: TodoSeamOptions = {}) => {
   const shared = actorSharedState(ctx, "todo", () => ({
     sending: new Set<string>(), aborts: new Map<string, AbortController>(), watches: new Map<number, () => void>(),
-    timers: new Map<string, ReturnType<typeof setTimeout>>(), epoch: ctx.store.collections.identitySessions.get("identity")?.ownerRevision ?? ctx.store.collections.identitySessions.get("identity")?.revision
+    timers: new Map<string, ReturnType<typeof setTimeout>>(), epoch: ctx.store.collections.identitySessions.get("identity")?.ownerRevision ?? ctx.store.collections.identitySessions.get("identity")?.revision,
+    list: { snapshot: {} as TodoListSnapshot, listeners: new Set<() => void>(), timer: undefined as ReturnType<typeof setTimeout> | undefined, reading: false, disposed: false }
   }))
   const owner = () => ctx.store.collections.identitySessions.get("identity")?.login
   const identity = () => ctx.store.collections.identitySessions.get("identity")
@@ -255,6 +269,45 @@ export const createTodoSeam = (ctx: SeamContext, options: TodoSeamOptions = {}) 
       return readResult(JSON.stringify(model))
     } catch (error) { return unreachableSentence("TODOs", error) }
   }
+  const publishList = (snapshot: TodoListSnapshot) => {
+    shared.list.snapshot = snapshot
+    for (const listener of shared.list.listeners) listener()
+  }
+  /** One read of every TODO; an answer for an earlier sign-in is dropped. */
+  const readList = async () => {
+    if (signedIn()) return
+    const login = owner(), revision = identity()?.ownerRevision ?? identity()?.revision
+    let next: TodoListSnapshot
+    try {
+      const response = await ctx.http(`${ctx.baseUrl}${TODOS_PATH}`, { credentials: "include" })
+      const body: unknown = response.ok ? await response.json() : undefined
+      const parsed = Array.isArray(body) ? TodoCardSchema.array().safeParse(body.map(value => todoActors(value, options.actors?.()))) : undefined
+      next = response.status === 401 || response.status === 403 ? { error: "forbidden" }
+        : !response.ok ? { ...shared.list.snapshot, error: "internal" }
+        : parsed?.success ? { todos: parsed.data } : { ...shared.list.snapshot, error: "invalid" }
+    } catch { next = { ...shared.list.snapshot, error: "unreachable" } }
+    if (current(login, revision)) publishList(next)
+  }
+  const pollList = () => {
+    const list = shared.list
+    if (list.disposed || list.reading || list.timer !== undefined || list.listeners.size === 0) return
+    list.reading = true
+    void readList().catch(error => ctx.report?.("todo.list", error)).finally(() => {
+      list.reading = false
+      if (!list.disposed && list.listeners.size > 0) list.timer = setTimeout(() => { list.timer = undefined; pollList() }, options.listPollMs ?? 2000)
+    })
+  }
+  const list: TodoListSnapshots = {
+    get: () => shared.list.snapshot,
+    subscribe: listener => {
+      shared.list.listeners.add(listener)
+      pollList()
+      return () => {
+        shared.list.listeners.delete(listener)
+        if (shared.list.listeners.size === 0 && shared.list.timer !== undefined) { clearTimeout(shared.list.timer); shared.list.timer = undefined }
+      }
+    }
+  }
   /** Review & merge (T-APP-04): the person's private Confirm card for Tn in review, read live from the TODO card. */
   const reviewMerge = async (n: number) => {
     const shown = await showTodo(n)
@@ -376,8 +429,9 @@ export const createTodoSeam = (ctx: SeamContext, options: TodoSeamOptions = {}) 
     ? commitDraft(input.cardId) : request(input.n, "amend", { prompt: input.text }, input.idempotencyKey)
   const resumeTodos = () => {
     const epoch = identity()?.ownerRevision ?? identity()?.revision
-    if (epoch !== shared.epoch) { stop(); shared.epoch = epoch }
+    if (epoch !== shared.epoch) { stop(); shared.epoch = epoch; publishList({}) }
     if (signedIn()) return
+    pollList()
     for (const row of ctx.store.collections.cards.values()) {
       if (row.kind === "todo") {
         // Follow only TODOs this seam fetched or requested; a row without either is the design seed's (MOCK SEAM).
@@ -399,10 +453,11 @@ export const createTodoSeam = (ctx: SeamContext, options: TodoSeamOptions = {}) 
     shared.watches.clear()
     for (const timer of shared.timers.values()) clearTimeout(timer)
     shared.timers.clear()
+    if (shared.list.timer !== undefined) { clearTimeout(shared.list.timer); shared.list.timer = undefined }
   }
   const subscription = ctx.store.collections.identitySessions.subscribeChanges(() => queueMicrotask(resumeTodos))
-  options.onDispose?.(() => { subscription.unsubscribe(); stop() })
-  return { mergeTodo: (n: number, head: string) => request(n, "merge", { reviewed_head_sha: head }), reviewMerge, showTodo, newTodo, draftFromIssue, amendTodo, setTodoFormField, dismissTodoDraft, resumeTodos, applyTodoProjection: applyProjection,
+  options.onDispose?.(() => { subscription.unsubscribe(); shared.list.disposed = true; stop() })
+  return { list, mergeTodo: (n: number, head: string) => request(n, "merge", { reviewed_head_sha: head }), reviewMerge, showTodo, newTodo, draftFromIssue, amendTodo, setTodoFormField, dismissTodoDraft, resumeTodos, applyTodoProjection: applyProjection,
     answerTodo: (n: number, answer: string, wait?: string) => {
       const waits = entry(n)?.payload.model?.waits.filter(row => row.actions.some(action => action.tag === "todo.answer")) ?? []
       const id = wait ?? (waits.length === 1 ? waits[0]!.id : undefined)

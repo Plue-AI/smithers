@@ -6,7 +6,10 @@ import { fixtures } from "@smthrs/rpc/fixtures/Home"
 import { GlobalRegistrator } from "@happy-dom/global-registrator"
 import { act } from "react"
 import { createRoot } from "react-dom/client"
-import { HOME_TAGS, HomeCard, HomeContainer, homeFailureModel, homeSource } from "./HomeContainer"
+import { HOME_TAGS, HomeCard, HomeContainer, homeFailureModel, homeFromTodos, homeSource } from "./HomeContainer"
+import { fixtures as todoFixtures } from "@smthrs/rpc/fixtures/Todo"
+import type { TodoCard } from "@smthrs/rpc/TodoCard"
+import type { TodoListSnapshot } from "../state/seams/TodoSeam"
 import { ControllerTestProvider } from "../ControllerContext"
 import type { AppController } from "../state/AppController"
 import { createDesignWorld } from "../state/seams/DesignWorld"
@@ -373,4 +376,62 @@ test("Home's machines line reads the install's capacity from GET /api/install, o
   model.capacity = 0
   expect(renderToStaticMarkup(<ControllerTestProvider controller={disabled}><HomeCard /></ControllerTestProvider>)).toContain("0/0 machines")
   disabled.design.dispose()
+})
+
+// GET /api/todos/1 as the install serves a TODO waiting for a lane (J1 rehearsal evidence, 2026-10-05), with the queue
+// the card now carries: no branch, run, PR or steps.
+const installQueued: TodoCard = {
+  ...todoFixtures.queued.model, n: 1, title: "First local TODO", state: "queued", place: 1, queue: { reason: "machine", position: 1 },
+  branch: undefined, run: undefined, steps: [], waits: [], present: [], pr: undefined, merge: { state: "waiting", reason: "state", on_github: false }
+}
+
+test("Home from GET /api/todos: one row per unmerged TODO in served order, every state counted, a machine per awake or waking branch", () => {
+  const working = { ...todoFixtures.in_review.model, n: 2, title: "Working", state: "working" as const, place: 2, pr: undefined,
+    branch: { id: "b2", name: "todo-2", machine: { state: "awake" as const } } }
+  const review = { ...todoFixtures.in_review.model, n: 3, place: 1, merge: { state: "ready" as const, on_github: false }, pr: { ...todoFixtures.in_review.model.pr!, draft: false } }
+  const merged = { ...todoFixtures.merged.model, n: 4 }
+  const home = homeFromTodos("local-owner/demo", [installQueued, working, review, merged])
+  expect(HomeCardSchema.parse(home)).toEqual(home)
+  expect(home.repository).toBe("local-owner/demo")
+  expect(home.items.map(item => [item.n, item.state])).toEqual([[1, "queued"], [2, "working"], [3, "in_review"]])
+  expect(home.counts).toEqual({ queued: 1, starting: 0, working: 1, needs_you: 0, paused: 0, failed: 0, in_review: 1, merged: 1, dropped: 0 })
+  expect(home.items[0]).toMatchObject({ queue: { reason: "machine", position: 1 }, branch: { id: "", name: "" }, place: 1 })
+  expect(home.items[0]!.actions).toEqual([{ tag: "todo", label: "First local TODO", args: { n: "1", door: "title" } }])
+  expect(home.items[2]!.actions.map(action => [action.tag, action.label])).toEqual([["todo", review.title], ["merge", "Merge"]])
+  expect(home.machines.in_use).toBe(2)
+  expect(home.machines.slots.map(slot => [slot.branch, slot.awake, slot.actor.kind === "agent" && slot.actor.todo])).toEqual([["todo-2", true, 2], ["todo/12", true, 3]])
+  expect(home.main).toMatchObject({ title: "main", health: "limited" })
+  expect(home.main.cause).toBeUndefined()
+})
+
+test("an install's Home reads its rows from GET /api/todos: nothing until the list answers, then the rows, never the seed", () => {
+  const install = installFixture(); install.capacity = 2; install.repository = { owner: "local-owner", name: "demo" }
+  let snapshot: TodoListSnapshot = {}
+  let subscribed = 0
+  const todoList = { get: () => snapshot, subscribe: () => { subscribed++; return () => {} } }
+  const controller = { ...seeded(MAYA).controller, design: createDesignWorld({ enabled: false }), todoList,
+    installSnapshots: { get: () => ({ model: install }), subscribe: () => () => {} } } as unknown as AppController
+  const render = () => renderToStaticMarkup(<ControllerTestProvider controller={controller}><HomeCard /></ControllerTestProvider>)
+  try {
+    expect(render()).toBe("")
+    snapshot = { todos: [installQueued] }
+    const markup = render()
+    expect(markup).toContain("local-owner/demo")
+    expect(markup).toContain("First local TODO")
+    expect(markup).toContain("waiting for a machine #1")
+    expect(markup).toContain("0/2 machines")
+    expect(markup).not.toContain("Stack unavailable")
+    expect(markup).not.toContain("Stripe")
+    snapshot = { todos: [installQueued], error: "unreachable" }
+    expect(render()).toContain("First local TODO")
+    snapshot = { error: "forbidden" }
+    expect(render()).toContain("Stack access refused")
+    snapshot = { error: "internal" }
+    expect(render()).toContain("Stack unavailable")
+    // A host that serves the `home` topic or keeps the seed never reads the list.
+    const seed = { ...seeded(MAYA).controller, todoList } as unknown as AppController
+    expect(renderToStaticMarkup(<ControllerTestProvider controller={seed}><HomeCard /></ControllerTestProvider>)).toContain("Stripe")
+    expect(subscribed).toBe(0)
+    seed.design.dispose()
+  } finally { controller.design.dispose() }
 })
