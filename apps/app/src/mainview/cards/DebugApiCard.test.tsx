@@ -220,3 +220,25 @@ test("debug bodies are viewer-only and ephemeral: no storage write, store row or
   expect(writes.join("\n")).not.toContain(BODY)
   expect(writes.join("\n")).not.toContain("req-7f3a")
 })
+
+test("Debug API requests never enter the network ring: neither /debug.net door shows a private query value", async () => {
+  const PRIVATE = "PRIVATE-Q-91c4"
+  const store = await createAppStore({ kind: "localStorage", storage: memoryStorage() })
+  await store.dispatch({ type: "identity.session.loaded", actor: "system", state: "signed-in", login: "will", admin: true, scopesPlain: null }).isPersisted.promise
+  const calls: string[] = []
+  const controller = createController(store, silentAgent, { openApi: async () => apiFixture, debugApiOrigin: "http://mini.local",
+    debugApiGates: () => ({ view: true, catalog: true, authorizer: true }), toastDebounceMs: 0, toastAutoDismissMs: 60_000,
+    fetchImpl: async url => { calls.push(String(url)); return Response.json({ items: [] }) } })
+  await controller.runCommandForResult("debug-api", "readFile")
+  await settle(() => store.collections.cards.has("debug-api"))
+  await controller.runCommandForResult("debug.api", JSON.stringify({ operationId: "readFile", intent: "send", values: { "path:path": "a.ts", "query:line": PRIVATE } }))
+  await settle(() => calls.some(url => url.includes(PRIVATE)) && !controller.debugApi.get().busy)
+  expect(controller.netTapEntries().some(entry => entry.url.includes(PRIVATE))).toBe(false)
+  expect((await controller.runCommandForResult("debug.net")).status).toBe("executed")
+  const transcript = [...store.collections.messages.values()].map(message => message.text).join("\n")
+  expect(transcript).toContain("Network tap")
+  expect(transcript).not.toContain(PRIVATE)
+  const agent = await controller.commands.runForAgent("debug.net")
+  expect(agent.status).toBe("executed")
+  expect(agent.status === "executed" ? agent.value : "").not.toContain(PRIVATE)
+})

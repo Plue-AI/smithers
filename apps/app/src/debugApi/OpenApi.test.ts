@@ -60,6 +60,33 @@ test("every install operation whose success schema names a credential field is p
   expect(Object.keys(CREDENTIAL_EXEMPTIONS).filter(id => !flagged.includes(id))).toEqual([])
   expect(Object.keys(CREDENTIAL_EXEMPTIONS).filter(id => CREDENTIAL_OPERATIONS.has(id))).toEqual([])
 })
+test("every install operation that documents a redirect or a Location or Set-Cookie header is pinned or exempt with a reason", () => {
+  const resolve = (value: unknown): { headers?: Record<string, unknown> } | undefined => {
+    const ref = (value as { $ref?: string } | undefined)?.$ref
+    if (!ref) return value as { headers?: Record<string, unknown> } | undefined
+    let target: unknown = document
+    for (const part of ref.slice(2).split("/")) target = (target as Record<string, unknown> | undefined)?.[part]
+    return target as { headers?: Record<string, unknown> } | undefined
+  }
+  const flagged = installOperations(document).filter(operation => Object.entries(operation.spec.responses ?? {}).some(([status, response]) =>
+    /^3/.test(status) || Object.keys(resolve(response)?.headers ?? {}).some(name => /^(?:location|set-cookie)$/i.test(name))))
+    .map(operation => operation.id)
+  expect(flagged.length).toBeGreaterThan(0)
+  expect(flagged.filter(id => !CREDENTIAL_OPERATIONS.has(id) && !Object.hasOwn(CREDENTIAL_EXEMPTIONS, id))).toEqual([])
+})
+for (const id of ["get_api_repos_owner_repo_workspaces_id_preview_port", "get_api_repos_owner_repo_workspaces_id_preview_port_path"]) test(`release ${id} withholds its preview ticket redirect, body and URL values`, async () => {
+  const seam = createDebugApiSeam({ document: async () => document, gates: () => ({ view: true, catalog: true, authorizer: true }),
+    origin: "http://mini.local", fetch: async () => new Response('{"ticket":"preview-secret-ticket"}', { status: 307,
+      headers: { Location: "https://preview.example/?smithers_preview_ticket=preview-secret-ticket", "Set-Cookie": "p=preview-secret-ticket", "Content-Type": "application/json" } }) })
+  await seam.open(id)
+  const values: Record<string, string> = { "path:owner": "acme", "path:repo": "app", "path:id": "ws-private-id", "path:port": "3000" }
+  if (id.endsWith("_path")) values["path:path"] = "private-asset"
+  await seam.send({ operationId: id, values })
+  const shown = JSON.stringify(seam.get())
+  expect(seam.get().model.exchange?.response?.status).toBe(307)
+  for (const secret of ["preview-secret-ticket", "ws-private-id", "private-asset", "preview.example"]) expect(shown).not.toContain(secret)
+  seam.dispose()
+})
 test("the pinned credential-minting list", () => {
   expect([...CREDENTIAL_OPERATIONS].sort()).toEqual([
     "get_api_auth_auth0_callback", "get_api_auth_github_callback", "get_api_auth_github_cli", "get_api_auth_github_cli_consent", "get_api_oauth2_authorize",
@@ -68,8 +95,9 @@ test("the pinned credential-minting list", () => {
     "post_api_model_credential", "post_api_oauth2_authorize", "post_api_oauth2_token", "post_api_orgs_org_provider_connections",
     "post_api_repos_owner_repo_build_cache_tokens", "post_api_user_emails_verify_token", "post_api_user_provider_connections",
     "post_api_user_provider_connections_codex_device", "post_api_user_provider_connections_codex_device_id", "post_api_user_provider_connections_id_refresh",
-    "post_api_user_tokens", "post_api_v1_sse_ticket"
-  ])
+    "post_api_user_tokens", "post_api_v1_sse_ticket",
+    "get_api_repos_owner_repo_workspaces_id_preview_port", "get_api_repos_owner_repo_workspaces_id_preview_port_path"
+  ].sort())
 })
 for (const id of ["post_api_auth_sse_ticket", "post_api_v1_sse_ticket"]) test(`release ${id} ticket never renders in the response pane`, async () => {
   const ticket = `${"5e".repeat(32)}.eyJzZXNzaW9uX2hhc2giOiJhYmMifQ`

@@ -51,7 +51,11 @@ export const CREDENTIAL_OPERATIONS: ReadonlySet<string> = new Set([
   "post_api_user_provider_connections_codex_device_id", "post_api_user_provider_connections_id_refresh",
   // Token mints and SSH access
   "post_api_user_tokens", "post_api_repos_owner_repo_build_cache_tokens", "get_api_user_emails_verify_token", "post_api_user_emails_verify_token",
-  "get_api_repos_owner_repo_workspace_sessions_id_ssh", "get_api_repos_owner_repo_workspaces_id_ssh"
+  "get_api_repos_owner_repo_workspace_sessions_id_ssh", "get_api_repos_owner_repo_workspaces_id_ssh",
+  // Workspace previews mint a preview ticket into the 307 Location
+  // (backend routes/workspace.go withPreviewTicket); the OpenAPI rows do not
+  // document the redirect, so the schema check cannot find them.
+  "get_api_repos_owner_repo_workspaces_id_preview_port", "get_api_repos_owner_repo_workspaces_id_preview_port_path"
 ])
 const WITHHELD = "[withheld]"
 /** Field names a schema uses for credential material; an operation whose success schema declares one is withheld like a pinned one. */

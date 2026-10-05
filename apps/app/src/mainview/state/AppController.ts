@@ -59,7 +59,7 @@ import { createCommandIntentLifecycle } from "./controller/commandIntents"
 import { createPrivacyActions, PRIVACY_WRITE_PENDING, PRIVACY_WRITE_FAILED } from "./controller/privacyActions"
 import { createConnectorController } from "./controller/connectors"
 import type { NetEntry } from "./controller/context"
-import { createControllerContext } from "./controller/context"
+import { createControllerContext, UNRECORDED_NET, type UnrecordedInit } from "./controller/context"
 import type { ControlFocusController } from "./controller/controlFocus"
 import { createControlFocus } from "./controller/controlFocus"
 import { createDictation } from "./controller/dictation"
@@ -1218,7 +1218,7 @@ export const createAppController = (
     setWikiCardView
   } = actors.pair(ctx, (context, select) => createWorldController(context, { nextOrdinal: store.nextOrdinal, cloudWiki: select(cloudWiki) }))
   const debugApi = createDebugApiSeam({
-    document: services.openApi ?? bundledOpenApi, fetch: (url, init) => ctx.boundedFetch(url, init),
+    document: services.openApi ?? bundledOpenApi, fetch: (url, init) => ctx.boundedFetch(url, { ...init, [UNRECORDED_NET]: true } as UnrecordedInit),
     origin: services.debugApiOrigin ?? (typeof window === "undefined" ? "http://localhost" : window.location.origin),
     gates: services.debugApiGates ?? (() => ({ view: true, catalog: false, authorizer: false }))
   })

@@ -16,6 +16,14 @@ import type { AppStore } from "../AppStore"
 import type { ImpossibleAskClass } from "../Instructions"
 import type { GatewaySeam } from "./gateway"
 
+/**
+ * Marks a RequestInit whose URL must never be recorded in the network ring
+ * (T-APP-21: Debug API URLs carry the viewer's own path and query values).
+ * Object spread keeps symbol keys, so the mark survives boundedFetch.
+ */
+export const UNRECORDED_NET: unique symbol = Symbol("unrecorded network request")
+export type UnrecordedInit = RequestInit & { readonly [UNRECORDED_NET]?: true }
+
 export interface PendingToolCall {
   readonly callId: string
   readonly name: string
@@ -311,16 +319,19 @@ export const createControllerContext = (
   }
   ctx.http = async (input: RequestInfo | URL, init?: RequestInit) => {
     const started = Date.now()
+    // A request marked unrecorded (the Debug API's viewer-only exchange)
+    // never enters the shared network ring that /debug.net reads.
+    const unrecorded = (init as UnrecordedInit | undefined)?.[UNRECORDED_NET] === true
     const generation = accountEpoch
     const method = init?.method ?? (input instanceof Request ? input.method : "GET")
     const url = typeof input === "string" ? input : input instanceof URL ? input.href : input.url
     try {
       const response = await rawHttp(input, init)
-      recordNet({ at: started, method, url, status: response.status, ms: Date.now() - started }, generation)
+      if (!unrecorded) recordNet({ at: started, method, url, status: response.status, ms: Date.now() - started }, generation)
       if (response.status === 401) noteUnauthorized(url)
       return response
     } catch (error) {
-      recordNet({ at: started, method, url, status: "error", ms: Date.now() - started }, generation)
+      if (!unrecorded) recordNet({ at: started, method, url, status: "error", ms: Date.now() - started }, generation)
       throw error
     }
   }
