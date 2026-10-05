@@ -10,9 +10,11 @@
  * never claims success, a credential is masked from its first character,
  * and every key validates before it is saved.
  *
- * Model access is one key per role (§6.5): the fast model, the coding model
- * (or a ChatGPT sign-in in its place) and the AI Gateway. Setup asks for all
- * three; later, without a fast key, the app agent uses the coding model.
+ * Model access has three roles (§6.5; Will, 2026-10-03). The fast model is
+ * Cerebras through Smithers' own infrastructure: a Smithers sign-in, no key.
+ * The coding model (a key, or a ChatGPT sign-in in its place) and the AI
+ * Gateway are the team's own keys. Later, without the Smithers sign-in, the
+ * app agent uses the coding model.
  *
  * The one prerequisite check is engineering's `squash`, shown on the chosen
  * repository; a failure links to the fix.
@@ -35,13 +37,23 @@ import type { ExtraCardProps } from "./extra"
 /* The same GitHub mark the signup button uses (apps/app cards/SignupCards.tsx), in the button's own colour. */
 const SignInMark = () => <svg aria-hidden="true" viewBox="0 0 24 24" width="15" height="15" fill="currentColor"><path d="M12 .5A11.5 11.5 0 0 0 8.36 22.9c.58.1.79-.25.79-.56v-2c-3.2.7-3.88-1.37-3.88-1.37-.52-1.33-1.28-1.68-1.28-1.68-1.05-.72.08-.7.08-.7 1.16.08 1.77 1.19 1.77 1.19 1.03 1.77 2.7 1.26 3.36.96.1-.75.4-1.26.73-1.55-2.55-.29-5.23-1.28-5.23-5.68 0-1.26.45-2.28 1.19-3.09-.12-.29-.52-1.46.11-3.05 0 0 .97-.31 3.17 1.18a11 11 0 0 1 5.78 0c2.2-1.49 3.17-1.18 3.17-1.18.63 1.59.23 2.76.11 3.05.74.81 1.19 1.83 1.19 3.09 0 4.41-2.69 5.38-5.25 5.67.41.36.78 1.05.78 2.12v3.14c0 .31.2.67.8.56A11.5 11.5 0 0 0 12 .5z" /></svg>
 
-type KeyState = NonNullable<Setup["fastKey"]>
+type KeyState = NonNullable<Setup["codingKey"]>
 
-/* The fast model's provider (Cerebras by default) and the AI Gateway's. */
-const FAST = "Cerebras"
+/* The fast model, Cerebras through Smithers' infrastructure, and the AI Gateway's provider. */
+const FAST = "Cerebras via Smithers"
 const GATEWAY = "Vercel"
 
-const keyStates = (setup: Setup): ReadonlyArray<KeyState | undefined> => [setup.fastKey, setup.codingKey, setup.gatewayKey]
+/* The team's own keys: the coding model's and the AI Gateway's. */
+const keyStates = (setup: Setup): ReadonlyArray<KeyState | undefined> => [setup.codingKey, setup.gatewayKey]
+
+/* The Smithers sign-in, in the state vocabulary the key rows share. */
+const signIn = (state: Setup["smithers"]): KeyState | undefined =>
+  state === "connecting" ? "validating" : state === "connected" ? "saved" : state === "failed" ? "failed" : undefined
+
+/* What a row's state is called: a key validates and saves; a sign-in signs in. */
+interface Words { readonly validating: string; readonly saved: string }
+const KEY_WORDS: Words = { validating: "Validating", saved: "Saved" }
+const SIGN_IN_WORDS: Words = { validating: "Signing in", saved: "Signed in" }
 
 /* The install's own Mac, which needs no HTTPS. */
 const local = (address: string): boolean => /^https?:\/\/(localhost|127\.0\.0\.1|\[::1\])(:\d+)?(\/|$)/.test(address)
@@ -85,10 +97,10 @@ const SquashCheck = ({ repo, off }: { readonly repo: string; readonly off: boole
   </span>
 )
 
-const KeyStatus = ({ state }: { readonly state: KeyState | undefined }) => {
+const KeyStatus = ({ state, words = KEY_WORDS }: { readonly state: KeyState | undefined; readonly words?: Words }) => {
   switch (state) {
-    case "validating": return <span className="mvp-key-status" data-state={state}><Spinner size="sm" aria-label="Validating" />Validating</span>
-    case "saved": return <span className="mvp-key-status" data-state={state}><Check size={14} aria-hidden="true" />Saved</span>
+    case "validating": return <span className="mvp-key-status" data-state={state}><Spinner size="sm" aria-label={words.validating} />{words.validating}</span>
+    case "saved": return <span className="mvp-key-status" data-state={state}><Check size={14} aria-hidden="true" />{words.saved}</span>
     case "failed": return <span className="mvp-key-status" data-state={state}><X size={14} role="img" aria-label="Failed" /></span>
     default: return <span className="mvp-key-status" />
   }
@@ -102,11 +114,18 @@ const KeyInput = ({ input, label, state }: { readonly input: string; readonly la
   )
 }
 
-/* One model role: its name, whose key, the key and its state. A failed key keeps its field open with its provider's reason. */
-const ModelRow = ({ role, provider, input, state, error, children }: {
+/*
+ * One model role: its name, whose it is, its key (or, for the fast model, its Smithers sign-in) and its state.
+ * A failed key keeps its field open with its provider's reason.
+ */
+const ModelRow = ({ role, provider, input, control, words, state, error, children }: {
   readonly role: string
   readonly provider: ReactNode
-  readonly input: string
+  /** The key's input id; absent when `control` fills the role instead. */
+  readonly input?: string
+  /** What fills the role in place of a key: a sign-in button, then the account. */
+  readonly control?: ReactNode
+  readonly words?: Words
   readonly state: KeyState | undefined
   readonly error: string | undefined
   /** Another way to fill the role, under the key. */
@@ -115,8 +134,8 @@ const ModelRow = ({ role, provider, input, state, error, children }: {
   <div className="mvp-model">
     <span className="mvp-model-role">{role}</span>
     {provider}
-    <KeyInput input={input} label={`${role} key`} state={state} />
-    <KeyStatus state={state} />
+    {control ?? (input === undefined ? null : <KeyInput input={input} label={`${role} key`} state={state} />)}
+    <KeyStatus state={state} {...(words === undefined ? {} : { words })} />
     {state === "failed" ? <p className="mvp-key-error" role="alert">{error}</p> : null}
     {children}
   </div>
@@ -162,8 +181,8 @@ export const SetupCard = ({ id }: ExtraCardProps) => {
   /* Decided once the network has a public address, or once she moves on to GitHub with this Mac only. */
   const addressDone = appCreated || setup.github !== "todo" || !local(setup.addresses[0] ?? "")
   const appInstalled = setup.github === "app-installed"
-  const keysDone = keyStates(setup).every(each => each === "saved")
-  const keyFailed = keyStates(setup).includes("failed")
+  const keysDone = setup.smithers === "connected" && keyStates(setup).every(each => each === "saved")
+  const keyFailed = setup.smithers === "failed" || keyStates(setup).includes("failed")
   return (
     <Card id={id} kind="setup" title="Set up Smithers">
       <ol className="mvp-setup">
@@ -213,7 +232,10 @@ export const SetupCard = ({ id }: ExtraCardProps) => {
           <div className="mvp-setup-body">
             <span className="mvp-setup-title">Model access</span>
             <div className="mvp-models">
-              <ModelRow role="Fast model" provider={<span className="mvp-model-name">{FAST}</span>} input="setup-fast" state={setup.fastKey} error={setup.keyError} />
+              <ModelRow role="Fast model" provider={<span className="mvp-model-name">{FAST}</span>} state={signIn(setup.smithers)} words={SIGN_IN_WORDS} error={setup.keyError}
+                control={setup.smithers === "connected"
+                  ? <span className="mvp-model-control"><Avatar world={world} who={owner?.id ?? "maya"} size={18} />{owner?.login}</span>
+                  : <span className="mvp-model-control"><Button size="sm" variant="solid" data-mock="setup-smithers" disabled={setup.repository === undefined}><SignInMark />Sign in to Smithers</Button></span>} />
               <ModelRow role="Coding model" input="setup-coding" state={setup.codingKey} error={setup.keyError}
                 provider={<button type="button" className="mvp-select mvp-model-name" aria-haspopup="listbox" aria-label={`Provider: ${setup.provider}`} data-mock="setup-provider-choice">
                   <span>{setup.provider}</span><ChevronDown size={13} aria-hidden="true" /></button>}>
@@ -240,13 +262,18 @@ export const SetupCard = ({ id }: ExtraCardProps) => {
 
 /* ── Settings ────────────────────────────────────────────── */
 
-/* One role's provider, with its key's state as a glyph. */
-const Access = ({ name, state }: { readonly name: string; readonly state: KeyState | undefined }) => (
+/* What a glyph in Settings means for a key, and for the Smithers sign-in. */
+interface AccessWords extends Words { readonly failed: string; readonly none: string }
+const ACCESS_KEY_WORDS: AccessWords = { validating: "Validating", saved: "Key saved", failed: "Key failed", none: "No key" }
+const ACCESS_SIGN_IN_WORDS: AccessWords = { validating: "Signing in", saved: "Signed in", failed: "Sign-in failed", none: "Not signed in" }
+
+/* One role's provider, with its key's (or sign-in's) state as a glyph. */
+const Access = ({ name, state, words = ACCESS_KEY_WORDS }: { readonly name: string; readonly state: KeyState | undefined; readonly words?: AccessWords }) => (
   <span className="mvp-setting-state" data-state={state}>
-    {state === "saved" ? <Check size={13} role="img" aria-label="Key saved" />
-      : state === "failed" ? <X size={13} role="img" aria-label="Key failed" />
-      : state === "validating" ? <Spinner size="sm" aria-label="Validating" />
-      : <Circle size={9} role="img" aria-label="No key" />}
+    {state === "saved" ? <Check size={13} role="img" aria-label={words.saved} />
+      : state === "failed" ? <X size={13} role="img" aria-label={words.failed} />
+      : state === "validating" ? <Spinner size="sm" aria-label={words.validating} />
+      : <Circle size={9} role="img" aria-label={words.none} />}
     {name}
   </span>
 )
@@ -299,7 +326,7 @@ export const SettingsCard = ({ id, view }: ExtraCardProps) => {
         <dt>Models</dt>
         <dd className="mvp-models-setting">
           <span className="mvp-roles">
-            <span>Fast model</span><Access name={FAST} state={setup.fastKey} />
+            <span>Fast model</span><Access name={FAST} state={signIn(setup.smithers)} words={ACCESS_SIGN_IN_WORDS} />
             <span>Coding model</span><Access name={setup.provider} state={setup.codingKey} />
             <span>AI Gateway</span><Access name={GATEWAY} state={setup.gatewayKey} />
           </span>
