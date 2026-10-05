@@ -1485,6 +1485,10 @@ func runWithOptions(ctx context.Context, args []string, stdout, stderr io.Writer
 			installSetup.BindMachineProvider(repositorySourceFiles{client: repoHostClient}, machineImages)
 		}
 		installSetup.Capacity = installCapacity
+		// Model access tests each key on the host POST /api/model/test uses.
+		if tester, ok := options.ChatHost.(services.InstallModelTester); ok {
+			installSetup.Models = tester
+		}
 		if err := installSetup.Initialize(ctx); err != nil {
 			return fmt.Errorf("initialize install setup: %w", err)
 		}

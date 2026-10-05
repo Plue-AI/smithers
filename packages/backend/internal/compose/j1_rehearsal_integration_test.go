@@ -49,6 +49,23 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+// offlineGatewayHost is the composed model host, except that Model access
+// does not send the rehearsal's placeholder AI Gateway key to the real
+// Gateway. The coding key's test still runs through the model host.
+type offlineGatewayHost struct{ *modelhost.Host }
+
+func (h offlineGatewayHost) RunModelTest(ctx context.Context, owner int64, request json.RawMessage) (json.RawMessage, error) {
+	var body struct {
+		Model struct {
+			Credential string `json:"credential"`
+		} `json:"model"`
+	}
+	if json.Unmarshal(request, &body) == nil && body.Model.Credential == "AI_GATEWAY_API_KEY" {
+		return json.RawMessage(`{"ok":true,"latencyMs":0,"sample":"","output":{"kind":"decision","answers":{}}}`), nil
+	}
+	return h.Host.RunModelTest(ctx, owner, request)
+}
+
 // This is an opt-in diagnostic, not a C-J1-04 reference-host passing receipt.
 // New orchestration is necessary: isolated setup/TODO tests seed past the journey.
 func TestJ1Rehearsal(t *testing.T) {
@@ -184,7 +201,7 @@ func TestJ1Rehearsal(t *testing.T) {
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = live.Close() })
 	go func() {
-		done <- StartWithOptions(ctx, nil, stdout, io.MultiWriter(logs, live), Options{Repository: engine.Client(), Workspace: workspace, MachineImages: trustedProcessImages{sources: repositorySourceFiles{client: engine.Client()}}, ComputeProvider: compute, ChatHost: host, FlowHostProductAPIURL: origin,
+		done <- StartWithOptions(ctx, nil, stdout, io.MultiWriter(logs, live), Options{Repository: engine.Client(), Workspace: workspace, MachineImages: trustedProcessImages{sources: repositorySourceFiles{client: engine.Client()}}, ComputeProvider: compute, ChatHost: offlineGatewayHost{host}, FlowHostProductAPIURL: origin,
 			FlowHostRegistry: registry, FlowHostConfig: flowhost.WorkspaceLauncherConfig{AllowTrustedProcessForTests: true},
 			PlatformModelKeys: platformKeys, ModelProxyUpstreams: upstreams, BranchMachines: &trustedProcessBranchMachines}, func(h http.Handler) { ready <- h })
 	}()

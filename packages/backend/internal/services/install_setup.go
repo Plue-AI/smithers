@@ -8,6 +8,7 @@ import (
 	"net"
 	"net/url"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/jackc/pgx/v5"
@@ -127,6 +128,15 @@ type InstallSetupService struct {
 	RepositoryAccess *GitHubUserReposService
 	// Providers are host-side orchestration only. No repository flow is loaded.
 	Providers map[string]func(context.Context, *jobs.Lease, InstallSetupInput) error
+	// Models runs POST /api/model/test's call for each key before Model
+	// access is done. Without it the step fails: an untested key is not done.
+	Models InstallModelTester
+}
+
+// InstallModelTester is modelhost.ModelTester: one owner-scoped call through
+// the private model host, answered as a @smthrs/rpc ModelTestResult.
+type InstallModelTester interface {
+	RunModelTest(context.Context, int64, json.RawMessage) (json.RawMessage, error)
 }
 
 // Initialize retains every previously committed step during restart.
@@ -337,8 +347,12 @@ func (s *InstallSetupService) Handle(ctx context.Context, lease *jobs.Lease) err
 	if err = lease.StartExternal(ctx, json.RawMessage(`{"phase":"setup"}`)); err != nil {
 		return err
 	}
+	var models *installModelCheck
 	switch id {
-	case "address", "models": // Local settings commit with completion below.
+	case "address": // Local settings commit with completion below.
+	case "models":
+		// Provider calls run before the settings transaction opens.
+		models, err = s.checkModels(ctx)
 	default:
 		provider := s.Providers[id]
 		if provider == nil {
@@ -358,8 +372,10 @@ func (s *InstallSetupService) Handle(ctx context.Context, lease *jobs.Lease) err
 	if id == "address" {
 		err = s.writeAddress(ctx, tx, input)
 	}
-	if id == "models" {
-		err = s.confirmModels(ctx, tx)
+	if id == "models" && models != nil {
+		if writeErr = models.save(ctx, tx, err == nil); writeErr != nil {
+			return writeErr
+		}
 	}
 	state := InstallReady
 	var failure *InstallReadinessError
@@ -407,45 +423,195 @@ func (s *InstallSetupService) writeAddress(ctx context.Context, tx pgx.Tx, input
 	return nil
 }
 
-func (s *InstallSetupService) confirmModels(ctx context.Context, tx pgx.Tx) error {
-	owner, err := db.New(tx).GetSelfHostOwner(ctx)
-	if err != nil {
-		return err
-	}
-	var coding json.RawMessage
-	if err = tx.QueryRow(ctx, `SELECT model FROM owner_model_defaults WHERE user_id=$1`, owner.ID).Scan(&coding); err != nil {
-		return &InstallReadinessError{Code: "model_missing", Class: "user", Message: "Choose a coding model"}
-	}
+// InstallFastModel is the fast role on a Cerebras key (mvp.md §6.5). The
+// openai-chat protocol has no default address; Cerebras serves
+// /v1/chat/completions at its origin, so the base URL carries no /v1.
+const InstallFastModel = `{"protocol":"openai-chat","modelId":"gpt-oss-120b","credential":"CEREBRAS_API_KEY","baseUrl":"https://api.cerebras.ai"}`
+
+// installDecisionModel is the Decisions role: the evaluation protocol the
+// Gateway key serves, so the setup test asks it a typed decision.
+const installDecisionModel = `{"protocol":"evaluation","modelId":"typesafe-ai/jev","credential":"AI_GATEWAY_API_KEY"}`
+
+// ModelProviderNames are the built-in keys' providers in product words.
+var ModelProviderNames = map[string]string{"OPENAI_API_KEY": "OpenAI", "ANTHROPIC_API_KEY": "Anthropic", "CEREBRAS_API_KEY": "Cerebras", "OPENROUTER_API_KEY": "OpenRouter", "AI_GATEWAY_API_KEY": "AI Gateway"}
+
+// installModelFailure is one role's failed key test. Digest is the sealed
+// key's md5 at test time, so a key saved since then reads as saved again.
+type installModelFailure struct {
+	Credential string `json:"credential"`
+	Digest     string `json:"digest"`
+	Error      string `json:"error"`
+}
+
+type installModelCheck struct {
+	roles  map[string]json.RawMessage
+	failed map[string]installModelFailure
+}
+
+func modelCredentialOf(binding json.RawMessage) string {
 	var model struct {
 		Credential string `json:"credential"`
 	}
-	if json.Unmarshal(coding, &model) != nil || model.Credential == "" {
-		return fmt.Errorf("invalid coding model")
+	_ = json.Unmarshal(binding, &model)
+	return model.Credential
+}
+
+// checkModels derives the three role bindings from the owner's coding model
+// and saved keys, then tests each role's key with one real call.
+func (s *InstallSetupService) checkModels(ctx context.Context) (*installModelCheck, error) {
+	owner, err := db.New(s.Pool).GetSelfHostOwner(ctx)
+	if err != nil {
+		return nil, err
 	}
-	for _, name := range []string{model.Credential, "AI_GATEWAY_API_KEY"} {
-		var exists bool
-		if err = tx.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM owner_model_credentials WHERE user_id=$1 AND name=$2)`, owner.ID, name).Scan(&exists); err != nil {
-			return err
-		}
-		if !exists {
-			return &InstallReadinessError{Code: "model_key_missing", Class: "user", Message: "Save coding and Gateway keys"}
+	var coding json.RawMessage
+	if err = s.Pool.QueryRow(ctx, `SELECT model FROM owner_model_defaults WHERE user_id=$1`, owner.ID).Scan(&coding); err != nil {
+		return nil, &InstallReadinessError{Code: "model_missing", Class: "user", Message: "Choose a coding model"}
+	}
+	if modelCredentialOf(coding) == "" {
+		return nil, fmt.Errorf("invalid coding model")
+	}
+	digests, err := s.modelKeyDigests(ctx, owner.ID)
+	if err != nil {
+		return nil, err
+	}
+	for _, name := range []string{modelCredentialOf(coding), "AI_GATEWAY_API_KEY"} {
+		if digests[name] == "" {
+			return nil, &InstallReadinessError{Code: "model_key_missing", Class: "user", Message: "Save coding and Gateway keys"}
 		}
 	}
-	jev := json.RawMessage(`{"protocol":"openai-chat","modelId":"typesafe-ai/jev","credential":"AI_GATEWAY_API_KEY"}`)
-	fast := coding
-	var hasFast bool
-	if err = tx.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM owner_model_credentials WHERE user_id=$1 AND name='CEREBRAS_API_KEY')`, owner.ID).Scan(&hasFast); err != nil {
+	check := &installModelCheck{failed: map[string]installModelFailure{},
+		roles: map[string]json.RawMessage{"coding": coding, "fast": coding, "jev": json.RawMessage(installDecisionModel)}}
+	tested := []string{"coding", "jev"}
+	// Without a fast key the app agent uses the coding model (mvp.md §6.5).
+	if digests["CEREBRAS_API_KEY"] != "" {
+		check.roles["fast"] = json.RawMessage(InstallFastModel)
+		tested = append(tested, "fast")
+	}
+	if s.Models == nil {
+		return check, &InstallReadinessError{Code: "model_host_unavailable", Class: "infra", Message: "Model host unavailable"}
+	}
+	reasons := make([]string, len(tested))
+	var calls sync.WaitGroup
+	for i, role := range tested {
+		calls.Go(func() { reasons[i] = installModelTestReason(s.runModelTest(ctx, owner.ID, role, check.roles[role])) })
+	}
+	calls.Wait()
+	var lines []string
+	for i, role := range tested {
+		if reasons[i] == "" {
+			continue
+		}
+		credential := modelCredentialOf(check.roles[role])
+		check.failed[role] = installModelFailure{Credential: credential, Digest: digests[credential], Error: reasons[i]}
+		lines = append(lines, ModelProviderNames[credential]+" key: "+reasons[i])
+	}
+	if len(lines) > 0 {
+		return check, &InstallReadinessError{Code: "model_key_refused", Class: "user", Message: strings.Join(lines, "; ")}
+	}
+	return check, nil
+}
+
+// modelKeyDigests names the owner's saved keys with each sealed value's md5.
+func (s *InstallSetupService) modelKeyDigests(ctx context.Context, ownerID int64) (map[string]string, error) {
+	rows, err := s.Pool.Query(ctx, `SELECT name, md5(value_encrypted) FROM owner_model_credentials WHERE user_id=$1 AND value_encrypted IS NOT NULL`, ownerID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	digests := map[string]string{}
+	for rows.Next() {
+		var name, digest string
+		if err = rows.Scan(&name, &digest); err != nil {
+			return nil, err
+		}
+		digests[name] = digest
+	}
+	return digests, rows.Err()
+}
+
+// runModelTest sends the role's binding as POST /api/model/test's record.
+func (s *InstallSetupService) runModelTest(ctx context.Context, ownerID int64, role string, binding json.RawMessage) (json.RawMessage, error) {
+	var record map[string]json.RawMessage
+	if err := json.Unmarshal(binding, &record); err != nil {
+		return nil, err
+	}
+	record["id"], _ = json.Marshal(role)
+	request, err := json.Marshal(map[string]any{"model": record})
+	if err != nil {
+		return nil, err
+	}
+	return s.Models.RunModelTest(ctx, ownerID, request)
+}
+
+// installModelTestReason is a test's outcome in product words, empty when it
+// passed. It reads the ModelTestFailure codes and statuses, never provider text.
+func installModelTestReason(result json.RawMessage, err error) string {
+	if err != nil {
+		return "Could not test the key"
+	}
+	var outcome struct {
+		OK      bool `json:"ok"`
+		Failure struct {
+			Code   string `json:"code"`
+			Status int    `json:"status"`
+		} `json:"failure"`
+	}
+	if json.Unmarshal(result, &outcome) != nil {
+		return "Could not test the key"
+	}
+	if outcome.OK {
+		return ""
+	}
+	switch outcome.Failure.Code {
+	case "refused":
+		switch status := outcome.Failure.Status; {
+		case status == 401 || status == 403:
+			return "Key rejected"
+		case status == 402:
+			return "Out of credits"
+		case status == 429:
+			return "Out of credits or rate limited"
+		case status == 404:
+			return "Model not found"
+		case status >= 500:
+			return "Provider error; try again"
+		default:
+			return fmt.Sprintf("Refused (HTTP %d)", status)
+		}
+	case "timeout":
+		return "No answer in time"
+	case "unreachable":
+		return "Provider unreachable"
+	case "credential_missing", "credential_unknown":
+		return "Key missing"
+	case "model_not_allowed":
+		return "Model not allowed"
+	case "endpoint_forbidden":
+		return "Address not allowed for this key"
+	case "empty_output":
+		return "Empty answer"
+	case "invalid":
+		return "Model settings invalid"
+	}
+	return "Test failed"
+}
+
+// save writes the role bindings once every test passed, and the failures
+// either way, so Status shows each refused key on its role.
+func (c *installModelCheck) save(ctx context.Context, tx pgx.Tx, passed bool) error {
+	q := db.New(tx)
+	if passed {
+		for role, value := range c.roles {
+			if err := q.UpsertInstallSetting(ctx, db.UpsertInstallSettingParams{Key: "agent:" + role, Value: value}); err != nil {
+				return err
+			}
+		}
+	}
+	raw, err := json.Marshal(c.failed)
+	if err != nil {
 		return err
 	}
-	if hasFast {
-		fast = json.RawMessage(`{"protocol":"openai-chat","modelId":"gpt-oss-120b","credential":"CEREBRAS_API_KEY"}`)
-	}
-	for role, value := range map[string]json.RawMessage{"coding": coding, "fast": fast, "jev": jev} {
-		if err = db.New(tx).UpsertInstallSetting(ctx, db.UpsertInstallSettingParams{Key: "agent:" + role, Value: value}); err != nil {
-			return err
-		}
-	}
-	return nil
+	return q.UpsertInstallSetting(ctx, db.UpsertInstallSettingParams{Key: "models.tests", Value: raw})
 }
 
 // Status reads only persisted settings and credential flags; secrets are never
@@ -522,21 +688,16 @@ func (s *InstallSetupService) Status(ctx context.Context) (map[string]any, error
 	if err := s.Pool.QueryRow(ctx, `SELECT model FROM owner_model_defaults WHERE user_id=$1`, owner.ID).Scan(&coding); err != nil && !errors.Is(err, pgx.ErrNoRows) {
 		return nil, err
 	}
-	keys := map[string]bool{}
-	rows, err := s.Pool.Query(ctx, `SELECT name FROM owner_model_credentials WHERE user_id=$1`, owner.ID)
+	keys, err := s.modelKeyDigests(ctx, owner.ID)
 	if err != nil {
 		return nil, err
 	}
-	for rows.Next() {
-		var name string
-		if err = rows.Scan(&name); err != nil {
-			rows.Close()
+	failed := map[string]installModelFailure{}
+	if row, err := q.GetInstallSetting(ctx, "models.tests"); err == nil {
+		if err = json.Unmarshal(row.Value, &failed); err != nil {
 			return nil, err
 		}
-		keys[name] = true
-	}
-	rows.Close()
-	if err = rows.Err(); err != nil {
+	} else if !errors.Is(err, pgx.ErrNoRows) {
 		return nil, err
 	}
 	fast := json.RawMessage(`{"protocol":"openai-chat","credential":"CEREBRAS_API_KEY"}`)
@@ -559,13 +720,18 @@ func (s *InstallSetupService) Status(ctx context.Context) (map[string]any, error
 			if err = json.Unmarshal(binding, &model); err != nil {
 				return nil, err
 			}
-			provider := map[string]string{"OPENAI_API_KEY": "OpenAI", "ANTHROPIC_API_KEY": "Anthropic", "CEREBRAS_API_KEY": "Cerebras", "OPENROUTER_API_KEY": "OpenRouter", "AI_GATEWAY_API_KEY": "AI Gateway"}[model.Credential]
+			provider := ModelProviderNames[model.Credential]
 			if provider == "" {
 				provider = model.Protocol
 			}
 			value["provider"] = provider
-			if keys[model.Credential] {
+			if keys[model.Credential] != "" {
 				value["key"] = "saved"
+			}
+			// A refused key stays failed until a new value is saved for it.
+			if failure, ok := failed[role]; ok && failure.Credential == model.Credential && failure.Digest == keys[model.Credential] && failure.Digest != "" {
+				value["key"] = "failed"
+				value["error"] = failure.Error
 			}
 		}
 		models = append(models, value)
