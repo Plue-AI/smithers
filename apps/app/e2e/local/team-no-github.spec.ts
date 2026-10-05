@@ -158,20 +158,81 @@ for (const who of ["owner", "ben", "alice"] as const) test(`J2 1 ${who} lists th
   const card = await issueCard(page, number)
   await expect(card.getByRole("button", { name: "Make TODO", exact: true })).toBeVisible()
 })
-test("J2 2-3 Alice makes a TODO on the issue card, commits it and watches it start", async ({ browser }) => {
+test("J2 2-3 Alice privately drafts, edits and commits once, then watches the TODO start", async ({ browser }) => {
   const page = await person(browser, "alice")
   const card = await issueCard(page, await walkIssue())
+  const owner = await person(browser, "owner")
+  const before = list(await todos(page))
+  const ownerDrafts = await owner.getByRole("region", { name: "Draft", exact: true }).count()
+  const writes = async () => {
+    const response = await fetch(`${run.fakeURL}/_fake/writes`)
+    expect(response.status).toBe(200)
+    return await response.json() as { method: string; path: string; status: number }[]
+  }
+  const issueWrites = (rows: Awaited<ReturnType<typeof writes>>) => rows.filter(row =>
+    row.path.startsWith(`/repos/local-owner/demo/issues/${issueNumber}/`) && row.method !== "GET")
+  const beforeWrites = issueWrites(await writes())
   await card.getByRole("button", { name: "Make TODO", exact: true }).click()
   const draft = page.getByRole("region", { name: "Draft", exact: true }).last()
   await expect(draft.getByLabel("Title", { exact: true })).toHaveValue(issueTitle, { timeout: 20_000 })
   await expect(draft.getByRole("textbox", { name: "Prompt", exact: true })).toHaveValue("Add a greeting line to JOURNEY.md.\n\n@carol:\n> Keep it to one line.", { timeout: 10_000 })
+  await expect(owner.getByRole("region", { name: "Draft", exact: true })).toHaveCount(ownerDrafts)
+  expect(list(await todos(page))).toEqual(before)
+  expect(issueWrites(await writes())).toEqual(beforeWrites)
+  const edited = "Add a greeting line to JOURNEY.md.\n\n@carol:\n> Keep it to one line.\nLog the greeting."
+  await draft.getByRole("textbox", { name: "Prompt", exact: true }).fill(edited)
+  // ui-components.md: the fixes toggle reads "Closes #i when merged".
+  await draft.getByRole("checkbox", { name: `Closes #${issueNumber} when merged`, exact: true }).check()
   await draft.getByRole("combobox", { name: "Place", exact: true }).selectOption({ label: "Append" })
+  const submitted = page.waitForRequest(r => r.method() === "POST" && new URL(r.url()).pathname === "/api/todos")
+  const committedResponse = page.waitForResponse(r => r.request().method() === "POST" && new URL(r.url()).pathname === "/api/todos")
   await draft.getByRole("button", { name: "Commit", exact: true }).click()
+  const request = await submitted
+  // docs/api/openapi.yaml: POST /api/todos answers 202 Accepted.
+  expect((await committedResponse).status()).toBe(202)
+  const data = request.postDataJSON()
+  const headers = await request.allHeaders()
+  expect(data.issue_digest).toEqual(expect.any(String))
+  expect(headers["idempotency-key"]).toEqual(expect.any(String))
   let made: { n: number; state: string; title: string } | undefined
   await expect.poll(async () => (made = list(await todos(page)).find(todo => todo.title === issueTitle))?.n ?? 0, { timeout: 15_000 }).toBeGreaterThan(0)
   // It is the issue's TODO: committed with the issue it fixes.
   const committed = await (await page.request.get(`${app}/api/todos/${made!.n}`)).json() as { issue?: { number: number; fixes: boolean } }
   expect(committed.issue).toMatchObject({ number: issueNumber, fixes: true })
+  const detail = await (await page.request.get(`${app}/api/todos/${made!.n}`)).json()
+  expect(detail.prompt_revisions).toHaveLength(1)
+  expect(detail.prompt_revisions[0]).toMatchObject({ reason: "from-issue", text: edited, issue_digest: data.issue_digest, by: { kind: "person", login: "alice" } })
+  const assertOne = async () => {
+    expect(list(await todos(page)).filter(todo => todo.title === issueTitle)).toHaveLength(1)
+    const response = await fetch(`${run.fakeURL}/_fake/issue?repo=local-owner/demo&number=${issueNumber}`)
+    expect(response.status).toBe(200)
+    // githubfake IssueView has no JSON tags: Labels and Comments; each comment is {body, via_app}.
+    const remote = await response.json() as { Labels: string[]; Comments: { body: string; via_app: boolean }[] }
+    expect(remote.Labels.filter(label => label === "todo")).toHaveLength(1)
+    // The App's notice reads "Committed as Tn ↗"; with an install address it is the Markdown link
+    // "Committed as [Tn ↗](url)". C-J2-01 says it links the TODO, but no TODO URL exists yet (the product
+    // links the repository page); that target is an open spec question with 8a, so only the text is asserted.
+    // What GitHub renders: Markdown links as their text, without HTML comments (the App's dedup marker).
+    const visible = (body: string) => body.replace(/<!--[\s\S]*?-->/g, "").replace(/\[([^\]]*)\]\([^)]*\)/g, "$1").trim()
+    const comments = remote.Comments.filter(comment => visible(comment.body) === `Committed as T${made!.n} ↗`)
+    expect(comments, JSON.stringify(remote.Comments)).toHaveLength(1)
+    expect(comments[0].via_app).toBe(true)
+    for (const suffix of ["labels", "comments"]) expect(issueWrites(await writes()).filter(row =>
+      row.path.endsWith(`/${suffix}`) && row.status >= 200 && row.status < 300)).toHaveLength(1)
+    const current = await (await page.request.get(`${app}/api/todos/${made!.n}`)).json()
+    expect(current.prompt_revisions).toEqual(detail.prompt_revisions)
+  }
+  await expect.poll(async () => issueWrites(await writes()).filter(row => row.path.endsWith("/comments") && row.status < 300).length).toBe(1)
+  await assertOne()
+  const duplicate = await page.request.post(request.url(), { headers, data })
+  // An idempotent replay answers the original 202; assertOne proves it created nothing.
+  expect(duplicate.status()).toBe(202)
+  await assertOne()
+  const invalid = await page.request.post(request.url(), {
+    headers: { ...headers, "idempotency-key": crypto.randomUUID() }, data: { ...data, issue_digest: "0".repeat(64) }
+  })
+  expect(invalid.ok()).toBe(false)
+  await assertOne()
   await say(page, `/todo T${made!.n}`)
   await expect(page.getByRole("article", { name: `TODO T${made!.n}`, exact: true }).last()).toBeVisible()
   // The TODO starts: it leaves queued for a branch machine. Each state the walk sees is recorded.
@@ -183,6 +244,36 @@ test("J2 2-3 Alice makes a TODO on the issue card, commits it and watches it sta
     return state
   }, { timeout: 180_000, intervals: [2_000] }).toMatch(/^(starting|working|needs_you|in_review|merging|merged)$/)
   appendFileSync(`${output}/j2-todo-states.txt`, `T${made!.n} issue #${issueNumber}: ${seen.join(" -> ")}\n`)
+})
+test("C-J2-04 owner opens the completed canary's attempt evidence", async ({ browser }) => {
+  test.fixme(true, "Written before implementation: C-J2-04 step 2; the TODO evidence projection (mythical_todo_read.go currentTodoEvidence) emits no diff, usage, model_access or github_check item; lands with T-STK-10")
+  const page = await person(browser, "owner")
+  await say(page, "/todo T1")
+  const card = page.getByRole("article", { name: "TODO T1", exact: true }).last()
+  const response = await page.request.get(`${app}/api/todos/1`)
+  expect(response.status()).toBe(200)
+  const todo = await response.json()
+  const attempt = todo.evidence.find((entry: { attempt: number }) => entry.attempt === 1)
+  expect(attempt).toBeTruthy()
+  expect(attempt.revision).toMatch(/^[a-f0-9]{40}$/)
+  const evidence = card.getByRole("region", { name: "Attempt 1 evidence", exact: true })
+  await expect(evidence).toBeVisible()
+  const diff = attempt.items.find((item: { kind: string }) => item.kind === "diff")
+  expect(diff.files).toBeGreaterThan(0)
+  expect(diff.added).toBeGreaterThan(0)
+  expect(diff.removed).toBeGreaterThanOrEqual(0)
+  const checks = attempt.items.filter((item: { kind: string }) => item.kind === "check")
+  expect(checks.length).toBeGreaterThanOrEqual(2)
+  for (const check of checks) {
+    expect(check.state).toBe("passed")
+    expect(check.took_s).toBeGreaterThanOrEqual(0)
+    await expect(evidence).toContainText(check.name)
+  }
+  const review = attempt.items.find((item: { kind: string }) => item.kind === "review")
+  expect(review.summary).toBe("approve")
+  await expect(evidence).toContainText("approve")
+  await expect(evidence).not.toContainText("not measured yet")
+  appendFileSync(`${output}/j2-evidence.jsonl`, JSON.stringify({ todo: 1, attempt }) + "\n")
 })
 for (const who of ["ben", "alice"] as const) test(`J2 ${who} writes and commits a TODO`, async ({ browser }) => {
   const page = await person(browser, who)
