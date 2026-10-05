@@ -131,7 +131,14 @@ func (d *Dispatcher) renew(ctx context.Context, grant ProducerGrant, lost contex
 func (d *Dispatcher) fail(ctx context.Context, grant ProducerGrant, code string, cause error) {
 	d.metrics.failures.WithLabelValues(code).Inc()
 	d.logger.Error("chat turn failed", "turn_id", grant.TurnID, "generation", grant.Generation, "code", code, "error", cause)
-	if err := d.store.FailProducer(ctx, grant, code); err != nil && !errors.Is(err, ErrProducerFenced) {
+	// A provider's refusal ends the turn with the provider's reason.
+	var err error
+	if refusal := (*ProviderRefusal)(nil); errors.As(cause, &refusal) {
+		err = d.store.RefuseProducer(ctx, grant, refusal)
+	} else {
+		err = d.store.FailProducer(ctx, grant, code)
+	}
+	if err != nil && !errors.Is(err, ErrProducerFenced) {
 		d.logger.Error("chat turn failure was not recorded", "turn_id", grant.TurnID, "generation", grant.Generation, "code", errorCode(err), "error", err)
 	}
 }
@@ -231,6 +238,11 @@ func (d *Dispatcher) runOne(parent context.Context, candidate Candidate) {
 		// before interrupting this host, so the store leaves it unchanged.
 		if errors.Is(err, ports.ErrModelCredentialMissing) {
 			d.fail(detached, grant, "credential_missing", err)
+			return
+		}
+		// The provider answered with a refusal: a rerun meets the same one.
+		if refusal := (*ProviderRefusal)(nil); errors.As(err, &refusal) {
+			d.fail(detached, grant, refusal.Code, err)
 			return
 		}
 		d.retry(detached, grant, "host_failed", err)

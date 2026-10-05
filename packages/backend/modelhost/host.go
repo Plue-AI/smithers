@@ -18,6 +18,7 @@ import (
 
 	"github.com/smithersai/smithers/packages/backend/internal/chat"
 	"github.com/smithersai/smithers/packages/backend/internal/chat/turncredential"
+	"github.com/smithersai/smithers/packages/backend/internal/services"
 	"github.com/smithersai/smithers/packages/backend/ports"
 )
 
@@ -115,7 +116,13 @@ func (host *Host) RunChatTurn(ctx context.Context, grant ports.ChatTurnGrant) (r
 	if err != nil {
 		return err
 	}
-	return transport.RunChatTurn(ctx, grant)
+	err = transport.RunChatTurn(ctx, grant)
+	// The binding names the key, so a provider's refusal names its provider.
+	var refusal *chat.ProviderRefusal
+	if errors.As(err, &refusal) {
+		refusal.Provider = services.ModelProviderNames[binding.CredentialName]
+	}
+	return err
 }
 
 // RunModelStream uses the same owner resolver and short-lived local host as a

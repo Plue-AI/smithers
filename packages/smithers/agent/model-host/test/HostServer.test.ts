@@ -351,7 +351,10 @@ test.each(
   [
     ["rate_limited", "provider_quota"],
     ["quota_exceeded", "provider_quota"],
-    ["provider_internal", "turn_failed"]
+    ["out_of_credit", "provider_quota"],
+    ["authentication", "provider_auth"],
+    ["provider_internal", "turn_failed"],
+    ["invalid_request", "turn_failed"]
   ] as const
 )("answers a provider %s as %s", async (code, answer) => {
   const response = await failing(new ModelError({ code, message: "signed request detail" }))(

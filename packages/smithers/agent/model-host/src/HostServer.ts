@@ -228,8 +228,14 @@ interface TurnFailure {
   readonly failure: string
   readonly status?: number
   readonly code?: string
-  readonly response: "turn_failed" | "provider_quota" | "cancelled"
+  readonly response: "turn_failed" | "provider_quota" | "provider_auth" | "cancelled"
 }
+
+/** The provider refusals a person acts on: wait or add credit, or replace the key. */
+const providerResponse = (code: string): TurnFailure["response"] =>
+  code === "rate_limited" || code === "quota_exceeded" || code === "out_of_credit" ? "provider_quota"
+  : code === "authentication" ? "provider_auth"
+  : "turn_failed"
 
 const classify = (cause: Cause.Cause<ResolveFailed | ProducerError | Model.ModelFailure>): TurnFailure => {
   const error = Option.getOrUndefined(Cause.findErrorOption(cause))
@@ -242,7 +248,7 @@ const classify = (cause: Cause.Cause<ResolveFailed | ProducerError | Model.Model
     return {
       failure: "ModelFailure",
       code: error.code,
-      response: error.code === "rate_limited" || error.code === "quota_exceeded" ? "provider_quota" : "turn_failed"
+      response: providerResponse(error.code)
     }
   }
   return {

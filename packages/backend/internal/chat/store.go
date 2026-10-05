@@ -1291,6 +1291,17 @@ func (s *Store) FailProducer(ctx context.Context, grant ProducerGrant, code stri
 	return err
 }
 
+// RefuseProducer seals a turn the model provider refused. Its outcome is
+// known, so it fails with the provider's reason even after the provider
+// started, and the person retries it.
+func (s *Store) RefuseProducer(ctx context.Context, grant ProducerGrant, refusal *ProviderRefusal) error {
+	if refusal == nil {
+		return ErrInvalidRequest
+	}
+	_, err := s.stopProducerWith(ctx, grant, refusal.Code, -1, refusal.Text())
+	return err
+}
+
 // RetryProducer hands a turn back for another attempt after delay when its
 // host failed before any provider started, such as a model host that was
 // restarting. Nothing reached a provider, so a rerun is safe. The old
@@ -1305,6 +1316,12 @@ func (s *Store) RetryProducer(ctx context.Context, grant ProducerGrant, code str
 
 // stopProducer ends one producer generation. A negative delay never retries.
 func (s *Store) stopProducer(ctx context.Context, grant ProducerGrant, code string, delay time.Duration) (bool, error) {
+	return s.stopProducerWith(ctx, grant, code, delay, "")
+}
+
+// stopProducerWith ends one producer generation; a refusal reason seals the
+// turn failed with that reason.
+func (s *Store) stopProducerWith(ctx context.Context, grant ProducerGrant, code string, delay time.Duration, refused string) (bool, error) {
 	tx, err := s.pool.Begin(ctx)
 	if err != nil {
 		return false, err
@@ -1336,7 +1353,9 @@ func (s *Store) stopProducer(ctx context.Context, grant ProducerGrant, code stri
 	if code == "credential_missing" {
 		frame, _ = json.Marshal(map[string]any{"runId": turn.RunID, "type": "done", "code": "credential_missing", "error": "Model credential missing."})
 	}
-	if turn.ProducerStartedAt != nil {
+	if refused != "" {
+		frame = errorFrame(turn.RunID, refused)
+	} else if turn.ProducerStartedAt != nil {
 		state = StateUncertain
 	}
 	if err = s.appendTerminalTx(ctx, tx, &turn, frame, state, now); err != nil {
