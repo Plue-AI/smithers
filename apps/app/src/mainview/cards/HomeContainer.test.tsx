@@ -18,6 +18,7 @@ import { BEN, MAYA } from "../state/seams/DesignWorld/world"
 import { designHomeView } from "../state/seams/DesignWorld/home"
 import { liveChannel } from "../runtime/LiveChannel"
 import { installFixture } from "../state/seams/InstallFixtures.test-support"
+import type { GitHubSyncHealth } from "../state/seams/GitHubSyncSeam"
 const allowed = new Set<CatalogTag>(["todo.new", "github.retry", "todo", "todo.answer", "todo.retry", "todo.drop", "branch", "merge", "stack.move", "order.ok", "main.reset-to-github", "background.retry", "background.dismiss"])
 const mount = (model: unknown, role: "owner" | "maintainer" | "member" = "owner", admission = allowed) => {
   let props!: HomeViewProps
@@ -366,6 +367,34 @@ test("an install without a home provider shows unavailable and never demo rows",
   controller.design.dispose()
 })
 
+test("an install's main row reads its GitHub sync over an unavailable stack: synced N s ago, gold with Retry past 120 s", () => {
+  const h = seeded(MAYA)
+  h.controller.design.dispose()
+  let health: GitHubSyncHealth | undefined = { state: "fresh", last_success_at: new Date(Date.now() - 40_000).toISOString() }
+  const githubSyncSnapshots = { get: () => health, subscribe: () => () => {} }
+  const controller = { ...h.controller, design: createDesignWorld({ enabled: false }), githubSyncSnapshots } as AppController
+  const render = () => renderToStaticMarkup(<ControllerTestProvider controller={controller}><HomeCard /></ControllerTestProvider>)
+  let markup = render()
+  expect(markup).toContain("synced 40 s ago")
+  expect(markup).not.toContain("Stack unavailable")
+  expect(markup).not.toContain('data-flow="github.retry"')
+  health = { state: "fresh", last_success_at: new Date(Date.now() - 6 * 60_000).toISOString() }
+  markup = render()
+  expect(markup).toContain("synced 6 min ago")
+  expect(markup).toContain('data-health="stale"')
+  expect(markup).toContain('data-flow="github.retry"')
+  health = { state: "refused", last_success_at: null, cause: "not_installed" }
+  markup = render()
+  expect(markup).toContain('data-health="refused"')
+  expect(markup).toContain("GitHub App not installed")
+  // No success yet, or a host with no sync: the row is the stack's.
+  for (const none of [{ state: "stale", last_success_at: null } as const, undefined]) {
+    health = none
+    expect(render()).toContain("Stack unavailable")
+  }
+  controller.design.dispose()
+})
+
 test("Home's machines line reads the install's capacity from GET /api/install, over a served or unavailable stack (#3658)", () => {
   const model = installFixture(); model.capacity = 2; model.parallel = undefined
   const installSnapshots = { get: () => ({ model }), subscribe: () => () => {} }
@@ -434,5 +463,26 @@ test("an install's Home reads its rows from GET /api/todos: nothing until the li
     expect(renderToStaticMarkup(<ControllerTestProvider controller={seed}><HomeCard /></ControllerTestProvider>)).toContain("Stripe")
     expect(subscribed).toBe(0)
     seed.design.dispose()
+  } finally { controller.design.dispose() }
+})
+
+test("over the rows GET /api/todos serves, main's row is the install's GitHub sync, with Retry once it is stale", () => {
+  let health: GitHubSyncHealth | undefined = { state: "fresh", last_success_at: new Date(Date.now() - 6 * 60_000).toISOString() }
+  const controller = { ...seeded(MAYA).controller, design: createDesignWorld({ enabled: false }),
+    todoList: { get: () => ({ todos: [installQueued] }), subscribe: () => () => {} },
+    githubSyncSnapshots: { get: () => health, subscribe: () => () => {} } } as unknown as AppController
+  const render = () => renderToStaticMarkup(<ControllerTestProvider controller={controller}><HomeCard /></ControllerTestProvider>)
+  try {
+    let markup = render()
+    expect(markup).toContain("First local TODO")
+    expect(markup).toContain("synced 6 min ago")
+    expect(markup).toContain('data-health="stale"')
+    expect(markup).toContain('data-flow="github.retry"')
+    health = { state: "fresh", last_success_at: new Date(Date.now() - 12_000).toISOString() }
+    markup = render()
+    expect(markup).toContain("synced 12 s ago")
+    expect(markup).not.toContain('data-flow="github.retry"')
+    health = undefined
+    expect(render()).not.toContain("synced")
   } finally { controller.design.dispose() }
 })

@@ -3,8 +3,8 @@
  * background runs and main's sync retry. MOCK SEAM: each handler acts on the seeded design world
  * (state/seams/DesignWorld/home.ts); the real handlers POST
  * /api/todos/{n}/move, /api/todos/{n}/merge, /api/runs/{id} and
- * /api/github/sync (spec §6.3). Sync Retry already calls the real door where this host serves one
- * (`github.reconcile`, GitHubSeam); the install's T-GH-07 `/api/github/sync` has no app seam yet.
+ * /api/github/sync (spec §6.3). Sync Retry calls the real door where this host serves one: the install's
+ * POST /api/github/sync (GitHubSyncSeam), or the Cloud's `github.reconcile` (GitHubSeam).
  */
 import { Schema } from "effect"
 import { hasCapability } from "@smthrs/rpc/AppBootstrap"
@@ -91,8 +91,11 @@ export const homeFlows = (actions: CommandActions): ReadonlyArray<FlowEntry> => 
   flow({ name: "github", summary: "Show sync status", input: NoPayload,
     handler: () => result(openDesignHome(actions.design, actions.design.viewer())) }),
   flow({ name: "github.retry", summary: "Retry GitHub sync", hidden: true, input: NoPayload,
-    /* The real sync door where this host serves it (GitHubSeam `github.reconcile`); MOCK SEAM: the seed's sync otherwise. */
-    handler: () => actions.bootstrap !== undefined && hasCapability(actions.bootstrap, "cloud")
+    /*
+     * The install's sync (POST /api/github/sync) where this host serves it, else the Cloud's door (GitHubSeam
+     * `github.reconcile`); MOCK SEAM: the seed's sync otherwise.
+     */
+    handler: async () => await actions.retryGitHubSync() ?? (actions.bootstrap !== undefined && hasCapability(actions.bootstrap, "cloud")
       ? actions.githubReconcile()
-      : result(actions.design.syncRetry()) })
+      : result(actions.design.syncRetry())) })
 ]

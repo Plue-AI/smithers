@@ -129,6 +129,7 @@ import type { SecretsSeam } from "./seams/SecretsSeam"
 import { createSecretsSeam } from "./seams/SecretsSeam"
 import type { StackSeam } from "./seams/StackSeam"
 import { createInstallSeam, type InstallSeam, type InstallTopic } from "./seams/InstallSeam"
+import { createGitHubSyncSeam, type GitHubSyncSeam } from "./seams/GitHubSyncSeam"
 import { createTodoSeam, type TodoSeam, type TodoTopics } from "./seams/TodoSeam"
 import { createDesignWorld, type DesignWorld } from "./seams/DesignWorld"
 import { actCard, confirmSubject, designPlainTurn, designTurn, mergeCard, type DesignTurn } from "./seams/DesignWorld/chat"
@@ -497,6 +498,8 @@ export interface AppController extends IssueFlowsController {
   readonly installSnapshots: InstallSeam["snapshots"]
   /** GET /api/todos, read while Home is open on a host with no `home` topic (T-APP-01). */
   readonly todoList: TodoSeam["list"]
+  /** The install's GitHub sync health, which Home's `main` row shows (GET /api/github/sync); none on other hosts. */
+  readonly githubSyncSnapshots: GitHubSyncSeam["snapshots"]
   /** MOCK SEAM (state/seams/DesignWorld): the seeded design world and its stub mutations, deleted in one change. */
   readonly design: DesignWorld
   /** The `/api/live` channel the Home card subscribes through; absent when the composition supplied none. */
@@ -541,6 +544,8 @@ export interface AppController extends IssueFlowsController {
   readonly githubChooseInstallation: GitHubSeam["chooseInstallation"]
   readonly githubOpenInstall: GitHubSeam["openInstall"]
   readonly githubReconcile: GitHubSeam["reconcile"]
+  /** `github.retry` on the install (POST /api/github/sync); undefined where this host serves no sync. */
+  readonly retryGitHubSync: GitHubSyncSeam["retry"]
   readonly retryMirrorRef: GitHubSeam["retryMirrorRef"]
   readonly githubMirrorSync: GitHubSeam["mirrorSync"]
   /*
@@ -834,6 +839,8 @@ export const createAppController = (
   if (installHost) void installSeam.showSetup()
   const design = createDesignWorld({ enabled: !installHost })
   ctx.onDispose(design.dispose)
+  const gitHubSyncSeam = createGitHubSyncSeam({ http: installHost ? (path, init) => seamCtx.http(`${baseUrl.replace(/\/$/, "")}${path}`, init) : undefined })
+  ctx.onDispose(gitHubSyncSeam.dispose)
   const presentCard = async (kind: "settings" | "members" | "commands" | "branch" | "terminal", title: string, subject?: string): Promise<string> => {
     const id = subject === undefined ? kind : `${kind}:${subject}`
     const existing = store.collections.cards.get(id)
@@ -1822,6 +1829,7 @@ export const createAppController = (
     githubChooseInstallation: gitHubSeam.chooseInstallation,
     githubOpenInstall: gitHubSeam.openInstall,
     githubReconcile: gitHubSeam.reconcile,
+    retryGitHubSync: gitHubSyncSeam.retry,
     retryMirrorRef: gitHubSeam.retryMirrorRef,
     githubMirrorSync: gitHubSeam.mirrorSync,
     loadCloudSession,
@@ -2066,6 +2074,7 @@ export const createAppController = (
     tappedFetch: http,
     installSnapshots: installSeam.snapshots,
     todoList: todoSeam.list,
+    githubSyncSnapshots: gitHubSyncSeam.snapshots,
     design,
     live: services.live,
     presentCard,

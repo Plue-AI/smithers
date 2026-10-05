@@ -53,6 +53,7 @@ export type CommandActions =
     // Owner credential presentation is a composition-owned panel, never a command action.
     // Live stack snapshots are what the Stack views read, never an act.
     | "installSnapshots"
+    | "githubSyncSnapshots"
     | "stackSnapshots"
     // The TODO list Home reads where no `home` topic is served, never an act.
     | "todoList"

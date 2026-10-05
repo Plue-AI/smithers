@@ -12,6 +12,7 @@ import type { InstallModel } from "../state/seams/InstallModel"
 import type { InstallSnapshots } from "../state/seams/InstallSeam"
 import type { TodoListSnapshots } from "../state/seams/TodoSeam"
 import { homeFromTodos } from "../state/seams/HomeFromTodos"
+import type { GitHubSyncHealth, GitHubSyncSnapshots } from "../state/seams/GitHubSyncSeam"
 
 export interface HomeContainerProps {
   /** Injectable Home projection, like TodoContainer's seam-populated model. */
@@ -100,6 +101,8 @@ export const HOME_TAGS: ReadonlySet<CatalogTag> = new Set<CatalogTag>([
 ])
 /** A failed `home` provider offers no row or sync control: nothing it shows is a live TODO. */
 const FAILED_TAGS: ReadonlySet<CatalogTag> = new Set<CatalogTag>(["todo.new"])
+/** The install's own sync still serves `main`'s row under a failed `home` provider, and its Retry. */
+const FAILED_SYNC_TAGS: ReadonlySet<CatalogTag> = new Set<CatalogTag>(["todo.new", "github.retry"])
 
 /** `/api/live` refusal codes meaning this host serves no `home` topic (the live channel's 404): the seed stands in. */
 const NO_PROVIDER = new Set(["unknown_topic", "unsupported"])
@@ -133,6 +136,19 @@ export const withInstallCapacity = (model: HomeModel, install: InstallModel | un
 const NO_INSTALL: InstallSnapshots = { get: () => NO_INSTALL_SNAPSHOT, subscribe: () => () => {} }
 const NO_INSTALL_SNAPSHOT = {}
 const NO_TODO_LIST: TodoListSnapshots = { get: () => NO_INSTALL_SNAPSHOT, subscribe: () => () => {} }
+const NO_SYNC: GitHubSyncSnapshots = { get: () => undefined, subscribe: () => () => {} }
+const SYNC_CAUSES = { permission: "GitHub App permission missing", not_installed: "GitHub App not installed" } as const
+
+/**
+ * `main`'s row from the install's GitHub sync (GET /api/github/sync), where no `home` topic serves it. A sync with no
+ * success yet leaves the row as it was.
+ */
+export const withGitHubSync = (model: HomeModel, sync: GitHubSyncHealth | undefined): HomeModel => {
+  if (sync === undefined || (sync.last_success_at === null && sync.state !== "refused")) return model
+  const { cause: _cause, retry_at: _retry, ...main } = model.main
+  return { ...model, main: { ...main, health: sync.state, last_success_at: sync.last_success_at ?? new Date(0).toISOString(),
+    ...(sync.cause ? { cause: SYNC_CAUSES[sync.cause] } : {}), ...(sync.retry_at ? { retry_at: sync.retry_at } : {}) } }
+}
 
 /**
  * The card's one dispatch: every press runs as the person through the command registry. Answer pressed
@@ -164,14 +180,17 @@ export const HomeCard = ({ production }: {
   const install = useSyncExternalStore(installs.subscribe, installs.get, installs.get).model
   const listed = answer.kind === "seed" && controller.design.enabled === false ? controller.todoList ?? NO_TODO_LIST : NO_TODO_LIST
   const list = useSyncExternalStore(listed.subscribe, listed.get, listed.get)
+  const syncs = controller.githubSyncSnapshots ?? NO_SYNC
+  const sync = useSyncExternalStore(syncs.subscribe, syncs.get, syncs.get)
   const repository = install?.repository ? `${install.repository.owner}/${install.repository.name}` : seeded.model.repository
   const source = answer.kind !== "seed" || controller.design.enabled !== false ? answer
     : list.todos !== undefined ? { kind: "served" as const, model: homeFromTodos(repository, list.todos) }
     : { kind: "failed" as const, code: list.error ?? (listed === NO_TODO_LIST ? "unsupported" : "loading") }
   if (source.kind === "failed" && source.code === "loading") return null
   const home = source.kind === "served" ? source.model : source.kind === "failed" ? homeFailureModel(repository, source.code) : seeded.model
-  const model = withInstallCapacity(home, install)
+  /* A home topic serves main's row itself; elsewhere the install's GitHub sync does. */
+  const model = withInstallCapacity(answer.kind === "served" ? home : withGitHubSync(home, sync), install)
   return <HomeContainer model={model} role={production?.role ?? seeded.role}
-    allowed={source.kind === "failed" ? FAILED_TAGS : production?.allowed ?? HOME_TAGS} dispatch={production?.dispatch ?? dispatch}
+    allowed={source.kind === "failed" ? sync === undefined ? FAILED_TAGS : FAILED_SYNC_TAGS : production?.allowed ?? HOME_TAGS} dispatch={production?.dispatch ?? dispatch}
     view={production?.view ?? member.view} onView={production?.onView ?? member.onView} />
 }

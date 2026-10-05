@@ -145,6 +145,26 @@ test("on a host that serves GitHub sync, Retry calls that door (github.reconcile
   } finally { h.controller.dispose() }
 })
 
+test("on an install, Retry asks its GitHub sync (POST /api/github/sync) and leaves the seed alone", async () => {
+  const bootstrap: AppBootstrap = { apiVersion: 1, host: "cloud", version: "test", buildSha: "test", capabilities: ["identity", "install"], authFlow: "redirect", sandbox: null }
+  const posts: RequestInit[] = []
+  const h = await boot({ bootstrap, fetch: (url, init) => {
+    if (!url.endsWith("/api/github/sync")) return undefined
+    if (init?.method === "POST") { posts.push(init); return Response.json({ state: "accepted" }, { status: 202 }) }
+    return Response.json({ state: "stale", last_success_at: "2026-10-05T08:00:00Z" })
+  } })
+  const stop = h.controller.githubSyncSnapshots.subscribe(() => {})
+  try {
+    await waitFor(() => h.controller.githubSyncSnapshots.get()?.state === "stale")
+    const before = h.controller.design.world().repo
+    expect(await button(h, "github.retry", {})).toEqual({ status: "executed", value: "Sync requested" })
+    expect(posts).toHaveLength(1)
+    expect(new Headers(posts[0]!.headers).get("Idempotency-Key")).toBeTruthy()
+    expect(h.requests).not.toContain("POST /api/repos/acme/api/github/reconcile")
+    expect(h.controller.design.world().repo).toEqual(before)
+  } finally { stop(); h.controller.dispose() }
+})
+
 test("/stack returns the member to main, where the Home card stands first", async () => {
   const h = await boot()
   try {
