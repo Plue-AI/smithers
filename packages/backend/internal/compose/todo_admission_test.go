@@ -112,24 +112,25 @@ func isSingleOwnerCondition(condition ast.Expr) bool {
 	return ok && pkg.Name == "config" && selector.Sel.Name == "IsSingleOwner"
 }
 
-// The install's composition admits an owner's TODOs into the existing coding
-// path: compose/main.go calls EnableTodoAdmission under the single-owner
-// branch, beside the install App's TODO publication.
+// The install's composition admits an owner's TODOs and pins each attempt to
+// the Active todo flow (spec §11.4.1): compose/main.go calls
+// EnableTodoAdmission and SetTodoFlow under the single-owner branch, beside
+// the install App's TODO publication.
 func TestInstallCompositionAdmitsOwnerTodos(t *testing.T) {
 	calls := scanTodoAdmissionCalls(t)
-	require.Equal(t, []todoAdmissionCall{{file: "packages/backend/internal/compose/main.go", singleOwner: true}}, calls["EnableTodoAdmission"])
+	install := []todoAdmissionCall{{file: "packages/backend/internal/compose/main.go", singleOwner: true}}
+	require.Equal(t, install, calls["EnableTodoAdmission"])
+	require.Equal(t, install, calls["SetTodoFlow"], "every install TODO runs its pinned todo composition")
 }
 
 // Hosted composition (Plue) leaves TODO admission off: no production call
-// of EnableTodoAdmission is reachable outside the single-owner branch. The
-// pinned todo composition stays the unreached destination: nothing in
-// production supplies its flow digest (SetTodoFlow) until pinned-source
-// loading (T-FLW-03/04) and stopping a machine whose host ignores a cancel
-// exist (flowdispatch refusePin).
+// of EnableTodoAdmission or SetTodoFlow is reachable outside the
+// single-owner branch.
 func TestHostedCompositionLeavesOwnerTodosOff(t *testing.T) {
 	calls := scanTodoAdmissionCalls(t)
-	for _, call := range calls["EnableTodoAdmission"] {
-		require.True(t, call.singleOwner, "%s admits owner TODOs outside the single-owner composition", call.file)
+	for _, name := range []string{"EnableTodoAdmission", "SetTodoFlow"} {
+		for _, call := range calls[name] {
+			require.True(t, call.singleOwner, "%s calls %s outside the single-owner composition", call.file, name)
+		}
 	}
-	require.Empty(t, calls["SetTodoFlow"], "no production code pins TODO attempts to the todo composition yet")
 }

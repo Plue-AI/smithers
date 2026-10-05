@@ -1086,6 +1086,11 @@ func runWithOptions(ctx context.Context, args []string, stdout, stderr io.Writer
 		// An owner's TODO runs the existing coding path on its own lane;
 		// Plue's composition admits none.
 		mythicalService.EnableTodoAdmission()
+		// A fresh attempt pins the Active todo flow: the newest loaded
+		// workflow_definitions version, else the built-in composition.
+		mythicalService.SetTodoFlow(func(ctx context.Context, repositoryID int64, _ string) (string, error) {
+			return services.ActiveFlowDigest(ctx, queries, repositoryID, "todo")
+		})
 	}
 	// A lane's coding host starts only on a box with its declared tools.
 	services.WithWorkspaceBoxTools(mythicalService.LaneTools)(workspaceService)

@@ -573,6 +573,10 @@ func todoPinnedEngineLaunches(t *testing.T, review string) {
 	require.Equal(t, "todo-run", o.byID(id).RequestRunID)
 	require.Equal(t, []string{"todo"}, peer.flows(), "the host launched the composition once")
 	require.Equal(t, []any{pin}, peer.pins(), "the host received the pin with the launch")
+	// The lane's host reads the pinned flow from the pin's commit: the stack
+	// retained it for the lane beside the base.
+	item = o.byID(id)
+	require.Equal(t, landed, o.hostRef(repohost.WorkspaceSourceRef(item.WorkspaceID, landed)))
 
 	// The composition's delivery child hands the request child's validated
 	// result to the stack while the composition runs: the submission names
@@ -593,8 +597,9 @@ func todoPinnedEngineLaunches(t *testing.T, review string) {
 	require.True(t, item.CandidateVerified, "the request child's checks verified it")
 	require.Equal(t, "submitted", item.VibeOutcome)
 	require.Equal(t, todoPinOne, item.FlowDigest.String, "the pin stays the attempt's")
-	o.wake()
-	require.Equal(t, "proposing", o.byID(id).State)
+	// The submission requests the stack, so a pass may already hold it: the
+	// next pass integrates the candidate onto the prefix as is.
+	require.Eventually(t, func() bool { o.wake(); return o.byID(id).State == "proposing" }, 10*time.Second, 10*time.Millisecond)
 	require.Equal(t, candidate, o.hostRef(repohost.MythicalReservedRefNS+"keep/"+candidate))
 	o.wake()
 	require.Equal(t, mythicalPublicationUnavailable, o.byID(id).Reason, "publication stays the PR lane's gate")

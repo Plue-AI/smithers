@@ -130,14 +130,11 @@ func (s *MythicalService) SetLauncher(launcher mythicalLauncher) { s.launcher = 
 // it; hosted composition does not, so no fresh attempt starts there.
 func (s *MythicalService) EnableTodoAdmission() { s.todoAdmission = true }
 
-// SetTodoFlow supplies the Active todo flow's execution digest at a main
+// SetTodoFlow supplies the Active todo flow's version digest at a main
 // source commit, which a fresh TODO attempt pins with that commit (T-FLW-11,
-// spec §11.4.1), and so opens owner TODO admission. Production composition
-// leaves it unset, so admission stays dark (TestProductionCompositionLeaves
-// TodoAdmissionDark), until one joint change binds it with every provider the
-// composition needs: isolated guest dispatch (T-FLW-01), retained wake
-// (T-MCH-14), candidate authorization (T-STK-12), outbound recovery (T-GH-09),
-// validated root startup (T-SEC-01) and pinned-source loading (T-FLW-03/04).
+// spec §11.4.1): every launch of the attempt runs the todo composition at
+// that version, which its lane's host reads from that commit. The install's
+// composition sets it (services.ActiveFlowDigest); hosted composition does not.
 func (s *MythicalService) SetTodoFlow(active func(ctx context.Context, repositoryID int64, sourceCommit string) (string, error)) {
 	s.todoFlow = active
 }
@@ -2058,6 +2055,13 @@ func (st *mythicalItemStep) startPinned(ctx context.Context, item db.MythicalIte
 	ref, err := s.retainFor(ctx, r, workspaceID, base)
 	if err != nil {
 		return mythicalInfraOutage(item, "launch", "the stack tip could not reach the lane: "+err.Error(), st.now), false, nil
+	}
+	// The lane's host reads the pinned todo flow from the pin's main commit,
+	// which its clone of the stack need not hold (spec §11.4.1).
+	if pin.SourceCommit != base {
+		if _, err := s.retainFor(ctx, r, workspaceID, pin.SourceCommit); err != nil {
+			return mythicalInfraOutage(item, "launch", "the pinned flow's commit could not reach the lane: "+err.Error(), st.now), false, nil
+		}
 	}
 	request := map[string]any{"prompt": todoPrompt(item), "maxRounds": 3,
 		"base": map[string]string{"commitId": base, "ref": ref}}
