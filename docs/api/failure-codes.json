@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "digest": "sha256:6e7b46b7e63f05d2973d0d13d66aa9bb3fcff05b6312e904622737665b2b3727",
+  "digest": "sha256:54bec24fb3ba760e8d4e7b1156d940653112b26d42f46e0ac8588dc6ae6bb73e",
   "faults": [
     "user",
     "wait",
@@ -612,6 +612,13 @@
       "status": 503,
       "retry_after": 0,
       "doc": "Repository provisioning is mid-rollout on this deployment and is not accepting new work."
+    },
+    {
+      "code": "repository_rollback_held",
+      "fault": "infra",
+      "status": 503,
+      "retry_after": 0,
+      "doc": "The repository refuses writes because a refused push could not be rolled back; the operator restores its refs and removes the hold. Reads still work."
     },
     {
       "code": "repository_workspace_pending",

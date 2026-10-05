@@ -211,6 +211,7 @@ const (
 	CodeSSEUnavailable            Code = "sse_unavailable"
 	CodeProfileUnavailable        Code = "profile_unavailable"
 	CodeRepositoryHeld            Code = "repository_held"
+	CodeRepositoryRollbackHeld    Code = "repository_rollback_held"
 	CodePushTooSlow               Code = "push_too_slow"
 	CodePushTooLarge              Code = "push_too_large"
 	CodeUserRefPushTooLarge       Code = "user_ref_push_too_large"
@@ -298,6 +299,7 @@ var registry = map[Code]Entry{
 	CodePushTooLarge:             {Status: http.StatusRequestEntityTooLarge, Fault: FaultUser, Doc: "The push exceeds the repository push size limit."},
 	CodeUserRefPushTooLarge:      {Status: http.StatusRequestEntityTooLarge, Fault: FaultUser, Doc: "The push exceeds the user ref push size limit."},
 	CodeRepositoryHeld:           {Status: http.StatusServiceUnavailable, Fault: FaultWait, RetryAfter: 5, Doc: "The repository refuses writes until maintenance a restarted repository host found running there has finished; reads still work."},
+	CodeRepositoryRollbackHeld:   {Status: http.StatusServiceUnavailable, Fault: FaultInfra, Doc: "The repository refuses writes because a refused push could not be rolled back; the operator restores its refs and removes the hold. Reads still work."},
 	CodeAppendPrepareInvalid:     {Status: http.StatusServiceUnavailable, Fault: FaultInfra, Doc: "Native append preparation did not return the requested exact source identities."},
 	CodeLandingCreateUnavailable: {Status: http.StatusServiceUnavailable, Fault: FaultInfra, Doc: "Idempotent landing creation requires the existing transactional store."},
 	CodeLandingRequestConflict:   {Status: http.StatusConflict, Fault: FaultUser, Doc: "The landing request identity was already used with different input or agent authority."},

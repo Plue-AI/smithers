@@ -51,3 +51,22 @@ func TestValidateBookmarkNameRejectsUnexportableAndReservedNames(t *testing.T) {
 		})
 	}
 }
+
+// ValidateRefName admits a receive command's ref: fully qualified under
+// refs/ and within git-check-ref-format, the rule bookmark names share.
+func TestValidateRefName(t *testing.T) {
+	for _, tc := range []struct{ name, want string }{
+		{"HEAD", `ref "HEAD" is not a fully qualified name under refs/`},
+		{"FETCH_HEAD", `ref "FETCH_HEAD" is not a fully qualified name under refs/`},
+		{"heads/main", `ref "heads/main" is not a fully qualified name under refs/`},
+		{"refs/", `ref "refs/" must not start or end with '/'`},
+		{"refs/heads/a..b", `ref "refs/heads/a..b" must not contain '..'`},
+		{"refs/heads/x.lock", `ref "refs/heads/x.lock" components must not end with '.lock'`},
+		{"refs/heads/a b", `ref "refs/heads/a b" must not contain ' '`},
+	} {
+		require.EqualError(t, ValidateRefName(tc.name), tc.want, tc.name)
+	}
+	for _, name := range []string{"refs/heads/main", "refs/tags/v1", "refs/heads/@"} {
+		require.NoError(t, ValidateRefName(name), name)
+	}
+}

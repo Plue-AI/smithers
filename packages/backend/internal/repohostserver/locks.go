@@ -51,8 +51,8 @@ func (l *repoLocker) LockAll(ctx context.Context, keys ...string) (func(), error
 		}
 	}
 	for _, key := range deduped {
-		if l.Held(key) {
-			return nil, errRepositoryHeld()
+		if refusal := l.Refusal(key); refusal != nil {
+			return nil, refusal
 		}
 	}
 	unlocks := make([]func(), 0, len(deduped))
@@ -123,17 +123,31 @@ func (l *repoLocker) Hold(key string) (release func()) {
 
 // Held reports whether key is held.
 func (l *repoLocker) Held(key string) bool {
+	return l.Refusal(key) != nil
+}
+
+// Refusal is the answer to a write to key while it is held, or nil. A key
+// is held by Hold, and by a rollback hold in its git directory
+// (rollbackHoldFile), which outlives the process and lifts only when the
+// operator removes the file.
+func (l *repoLocker) Refusal(key string) *appError {
+	if rollbackHeld(repoGitDir(key)) {
+		return errRollbackHeld()
+	}
 	l.mu.Lock()
 	defer l.mu.Unlock()
-	_, held := l.held[key]
-	return held
+	if _, held := l.held[key]; held {
+		return errRepositoryHeld()
+	}
+	return nil
 }
 
 // repositoryHeldCode is the error code of a write to a held repository.
 const repositoryHeldCode = "repository_held"
 
-// errRepositoryHeld is the answer to a write to a held repository: 503, to
-// be retried once the hold is checked again (holdPollInterval).
+// errRepositoryHeld is the answer to a write to a repository held for
+// maintenance outside repo-host: 503, to be retried once the hold is checked
+// again (holdPollInterval).
 func errRepositoryHeld() *appError {
 	return &appError{
 		StatusCode: http.StatusServiceUnavailable,

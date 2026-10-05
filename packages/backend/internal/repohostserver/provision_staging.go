@@ -572,7 +572,7 @@ func (s *Server) stagedProvisionInfoRefs(w http.ResponseWriter, r *http.Request)
 	return nil
 }
 
-func (s *Server) stagedProvisionReceivePack(w http.ResponseWriter, r *http.Request) error {
+func (s *Server) stagedProvisionReceivePack(w http.ResponseWriter, r *http.Request) (retErr error) {
 	done := s.metrics.StartOperation("StagedProvisionReceivePack")
 	defer done()
 	repoPath, gitDir, release, err := s.lockStagedImportRepository(r.Context(), r)
@@ -580,6 +580,9 @@ func (s *Server) stagedProvisionReceivePack(w http.ResponseWriter, r *http.Reque
 		return err
 	}
 	defer release()
+	// Runs before release: a refused push left standing holds the stage, so
+	// it is never published.
+	defer func() { retErr = s.holdFailedRollback(gitDir, retErr) }()
 	beforeRefs, err := listGitRefs(r.Context(), gitDir)
 	if err != nil {
 		return internalError("failed to snapshot staged refs before receive-pack", err)
@@ -600,8 +603,14 @@ func (s *Server) stagedProvisionReceivePack(w http.ResponseWriter, r *http.Reque
 	if peekErr != nil {
 		return pushLimited(badRequest("malformed receive-pack command list"))
 	}
+	if err := refuseRefListingGrowth(beforeRefs, commands); err != nil {
+		return err
+	}
 	if msg := repohost.ReservedRefViolation(commands, "", 0); msg != "" {
 		return forbidden(msg)
+	}
+	if err := s.refuseInstallStagedImport(commands); err != nil {
+		return err
 	}
 	// An import adds to its owner's storage like any push (smithersai/plue#768).
 	pack, err := capStoragePack(pushCtx, r.Header, gitDir, peeked, source.n, s.config.maxGitRequestBytes())
@@ -617,7 +626,7 @@ func (s *Server) stagedProvisionReceivePack(w http.ResponseWriter, r *http.Reque
 	defer cancelReconcile()
 	afterRefs, err := listGitRefs(reconcileCtx, gitDir)
 	if err != nil {
-		return rollBackUnlistablePush(reconcileCtx, gitDir, err, commands, beforeRefs)
+		return rollBackUnlistablePush(reconcileCtx, gitDir, err, beforeRefs)
 	}
 	if gitErr != nil {
 		return rollBackPublishedPush(reconcileCtx, gitDir, beforeRefs, afterRefs, gitErr)

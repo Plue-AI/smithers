@@ -35,7 +35,7 @@ export const PLUE_FAILURE_SCHEMA_VERSION = 1
  * @since 1.0.0
  * @category constants
  */
-export const PLUE_FAILURE_DIGEST = "sha256:0da5169ab290e4dcc7bf2ff50d935c6b967d57d713e83e0848254624304bc8fa"
+export const PLUE_FAILURE_DIGEST = "sha256:54bec24fb3ba760e8d4e7b1156d940653112b26d42f46e0ac8588dc6ae6bb73e"
 
 /**
  * Whose problem a failure is — the registry's verdict, and the only question the app
@@ -139,7 +139,9 @@ export const PLUE_FAILURE_CODES = [
   "operation_in_progress",
   "org_membership_required",
   "out_of_credit",
+  "owner_unverified",
   "peer_identity_denied",
+  "permission",
   "plan_limit_exceeded",
   "preview_unavailable",
   "profile_unavailable",
@@ -153,6 +155,7 @@ export const PLUE_FAILURE_CODES = [
   "repository_ci_run_unverified",
   "repository_held",
   "repository_provisioning_rollout",
+  "repository_rollback_held",
   "repository_workspace_pending",
   "request_entity_too_large",
   "request_too_large",
@@ -372,8 +375,12 @@ export const PLUE_FAILURES = {
   "org_membership_required": { fault: "user", status: 403, retryAfter: 0 },
   /** The account's credit balance cannot cover the next model call; upgrade or top up, then retry. */
   "out_of_credit": { fault: "user", status: 402, retryAfter: 0 },
+  /** Owner repository access has not been verified. */
+  "owner_unverified": { fault: "user", status: 403, retryAfter: 0 },
   /** The calling peer's mTLS identity is not one this worker accepts. */
   "peer_identity_denied": { fault: "user", status: 403, retryAfter: 0 },
+  /** Install permission policy refused the operation. */
+  "permission": { fault: "user", status: 403, retryAfter: 0 },
   /** The user has exhausted a limit included in their plan. */
   "plan_limit_exceeded": { fault: "user", status: 402, retryAfter: 0 },
   /** The preview gateway could not reach the port the box is serving. */
@@ -400,6 +407,8 @@ export const PLUE_FAILURES = {
   "repository_held": { fault: "wait", status: 503, retryAfter: 5 },
   /** Repository provisioning is mid-rollout on this deployment and is not accepting new work. */
   "repository_provisioning_rollout": { fault: "infra", status: 503, retryAfter: 0 },
+  /** The repository refuses writes because a refused push could not be rolled back; the operator restores its refs and removes the hold. Reads still work. */
+  "repository_rollback_held": { fault: "infra", status: 503, retryAfter: 0 },
   /** The repository workspace or gateway is still starting. Poll the same request; an unverified primary is not an authoritative workspace selection. */
   "repository_workspace_pending": { fault: "wait", status: 409, retryAfter: 2 },
   /** The request body is larger than the endpoint accepts. */

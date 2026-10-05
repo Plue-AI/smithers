@@ -29,6 +29,7 @@ func TestEnforcePushPathAllowlistRejectsAndRestoresRefs(t *testing.T) {
 case " $* " in
   *" log "*) printf 'src/main.go\000secret/key.txt\000'; exit 0 ;;
   *" update-ref "*) exit 0 ;;
+  *" for-each-ref "*) exit 0 ;;
 esac
 exit 9
 `)

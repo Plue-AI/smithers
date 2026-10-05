@@ -17,7 +17,11 @@ For one credential, fetches and pushes advertise the same refs, so a mirror clon
 
 Hiding is per ref name. It does not make objects secret: they share one object store.
 
-On an install, `main` and the default bookmark belong to the GitHub sync, which only fast-forwards them. Every push, bookmark write, landing and ref repair that would create, move or delete either is refused with `403 permission`. A GitHub rewrite of `main` waits for the owner's reset.
+A push names refs under `refs/` in git's ref format. A push that names `HEAD`, another pseudoref such as `FETCH_HEAD`, or a bare name is refused with `400` before git runs, whoever sends it. A push whose new refs would grow the repository's ref listing past 64 MiB is refused with `413 push_too_large` before git applies anything.
+
+A push refused after git applied it is rolled back. The rollback writes each ref by its own name, never through a symbolic ref. When it cannot finish, or the refs the push left cannot be listed, every write to the repository fails with `503 repository_rollback_held`; reads still work. The file `smithers-rollback-hold` in the repository's git directory records when and why. Restore the refs, then delete the file; writes resume at once.
+
+On an install, `main` and the default bookmark belong to the GitHub sync, which only fast-forwards them. Every push, bookmark write, landing and ref repair that would create, move or delete either is refused with `403 permission`. A GitHub rewrite of `main` waits for the owner's reset: the import that would copy it fails with the rewrite, also when the mirror's `main` moved after the import compared it. When GitHub's default branch stops being `main`, every import fails with `default_branch_not_main` and leaves `main` as it is. An install's mirror holds no replacement refs (`refs/replace/*`): its first import drops GitHub's.
 
 ## Back up
 

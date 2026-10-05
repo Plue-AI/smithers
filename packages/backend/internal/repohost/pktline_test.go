@@ -293,3 +293,39 @@ func TestPeekReceivePackUpdate_UppercaseLengthParses(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, stream, string(replayed))
 }
+
+// Astra round 3, B1: a command naming HEAD, another pseudoref or any name
+// outside refs/ reached git, which resolves it through HEAD, and the
+// fallback rollback deleted the branch HEAD names. The command list now
+// fails to parse, so every door and the engine refuse the push before git
+// runs, whatever credential sent it; the stream still replays unchanged.
+func TestPeekReceivePackCommandsRefusesNamesGitResolvesThroughHEAD(t *testing.T) {
+	t.Parallel()
+	const oldOID = "340ecc0ee56893ec516de12e72468ffe9a2886f0"
+	const newOID = "deadbeefdeadbeefdeadbeefdeadbeefdeadbeef"
+	for _, name := range []string{
+		"HEAD", "FETCH_HEAD", "ORIG_HEAD", "MERGE_HEAD", "CHERRY_PICK_HEAD", "main", "heads/main",
+		"refs", "refs/", "refs/heads/", "refs//heads/main", "/refs/heads/main", "refs/heads/a..b",
+		"refs/heads/x.lock", "refs/heads/.x", "refs/heads/x.", "refs/heads/a@{1}", "refs/heads/a b",
+		"refs/heads/a~1", "refs/heads/a^", "refs/heads/a:b", "refs/heads/a?", "refs/heads/a*",
+		"refs/heads/a[", "refs/heads/a\\b", "refs/heads/a\x01",
+	} {
+		t.Run(name, func(t *testing.T) {
+			input := pktlineCovPacket(oldOID+" "+newOID+" refs/tags/v1\x00report-status") +
+				pktlineCovPacket(oldOID+" "+newOID+" "+name) + "0000PACK"
+			commands, rebuilt, err := PeekReceivePackCommands(strings.NewReader(input))
+			require.Error(t, err)
+			assert.Empty(t, commands)
+			assert.Equal(t, input, pktlineCovReadAll(t, rebuilt))
+		})
+	}
+	for _, name := range []string{
+		"refs/heads/main", "refs/heads/feature/login", "refs/tags/v1.0", "refs/smithers/users/7/x",
+		"refs/notes/commits", "refs/stash", "refs/heads/@", "refs/heads/a@b",
+	} {
+		input := pktlineCovPacket(oldOID+" "+newOID+" "+name+"\x00report-status") + "0000PACK"
+		commands, _, err := PeekReceivePackCommands(strings.NewReader(input))
+		require.NoError(t, err, name)
+		assert.Equal(t, []ReceivePackCommand{{OldOID: oldOID, NewOID: newOID, RefName: name}}, commands)
+	}
+}

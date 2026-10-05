@@ -488,6 +488,11 @@ type StatusError struct {
 // RetryAfter.
 const RepositoryHeldCode = "repository_held"
 
+// RollbackHeldCode is repo-host's error code for a write to a repository it
+// holds because a refused push could not be rolled back: no retry helps until
+// the operator restores its refs and removes the hold.
+const RollbackHeldCode = "repository_rollback_held"
+
 // HeldRetryAfter reports whether err, anywhere in its chain, is repo-host
 // refusing a write to a held repository, and when to try again: repo-host's
 // Retry-After, or the hold's re-check interval when it sent none. It is how
@@ -510,11 +515,11 @@ func (e *StatusError) Held() bool {
 }
 
 // gitStatusError is statusError for a git route: only the messages meant for
-// the pusher (a hold, a forbidden push, or a duration or size limit) are repo-host's
+// the pusher (a hold of either kind, a forbidden push, or a duration or size limit) are repo-host's
 // to show, and any other body stays out of the error.
 func gitStatusError(resp *http.Response) *StatusError {
 	status := statusError(resp)
-	if !status.Held() && status.StatusCode != http.StatusForbidden && status.Code != PushTooSlowCode &&
+	if !status.Held() && status.StatusCode != http.StatusForbidden && status.Code != PushTooSlowCode && status.Code != RollbackHeldCode &&
 		!(status.StatusCode == http.StatusRequestEntityTooLarge &&
 			(status.Code == PushTooLargeCode || status.Code == UserRefPushTooLargeCode || status.Code == StorageLimitCode)) {
 		status.Message = ""
@@ -536,8 +541,8 @@ func statusError(resp *http.Response) *StatusError {
 }
 
 // refusalTransport records, on the calling request's context, repo-host's
-// refusal of a write to a held repository, or of a write past the owner's
-// storage limit, whichever client call received it and whatever the caller
+// refusal of a write to a held repository (for maintenance or after a failed
+// rollback), or of a write past the owner's storage limit, whichever client call received it and whatever the caller
 // makes of the error: the product's error layer answers with it
 // (middleware.DependencyRefusals). It sees every response the client gets,
 // JSON and git alike.
@@ -556,6 +561,9 @@ func (t refusalTransport) RoundTrip(req *http.Request) (*http.Response, error) {
 			refusal.RetryAfter = retryAfter
 		}
 		apierrors.RecordRefusal(req.Context(), refusal)
+	case code == RollbackHeldCode:
+		apierrors.RecordRefusal(req.Context(), apierrors.New(apierrors.CodeRepositoryRollbackHeld,
+			"Repository writes are held until the operator restores its refs"))
 	case resp.StatusCode == http.StatusRequestEntityTooLarge && code == StorageLimitCode:
 		// A staged fork refused here reaches its caller as a failed
 		// provision; the request still answers as a refused push does

@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "digest": "sha256:0da5169ab290e4dcc7bf2ff50d935c6b967d57d713e83e0848254624304bc8fa",
+  "digest": "sha256:54bec24fb3ba760e8d4e7b1156d940653112b26d42f46e0ac8588dc6ae6bb73e",
   "faults": [
     "user",
     "wait",
@@ -502,11 +502,25 @@
       "doc": "The account's credit balance cannot cover the next model call; upgrade or top up, then retry."
     },
     {
+      "code": "owner_unverified",
+      "fault": "user",
+      "status": 403,
+      "retry_after": 0,
+      "doc": "Owner repository access has not been verified."
+    },
+    {
       "code": "peer_identity_denied",
       "fault": "user",
       "status": 403,
       "retry_after": 0,
       "doc": "The calling peer's mTLS identity is not one this worker accepts."
+    },
+    {
+      "code": "permission",
+      "fault": "user",
+      "status": 403,
+      "retry_after": 0,
+      "doc": "Install permission policy refused the operation."
     },
     {
       "code": "plan_limit_exceeded",
@@ -598,6 +612,13 @@
       "status": 503,
       "retry_after": 0,
       "doc": "Repository provisioning is mid-rollout on this deployment and is not accepting new work."
+    },
+    {
+      "code": "repository_rollback_held",
+      "fault": "infra",
+      "status": 503,
+      "retry_after": 0,
+      "doc": "The repository refuses writes because a refused push could not be rolled back; the operator restores its refs and removes the hold. Reads still work."
     },
     {
       "code": "repository_workspace_pending",

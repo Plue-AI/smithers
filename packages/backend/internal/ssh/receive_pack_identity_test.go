@@ -169,3 +169,30 @@ func TestSSHReceivePackInstallMainCoversDefaultBookmarkAliasesAndMultiRef(t *tes
 	require.NoError(t, server.proxyReceivePack(context.Background(), newTestSession("", sshPushBody("refs/heads/main")), "alice", "demo", sshPrincipal{UserID: 1}))
 	assert.Equal(t, 2, calls)
 }
+
+// Round 4 admission at the SSH door: a command naming HEAD, another
+// pseudoref or a bare name is refused before repo-host, with the reason on
+// stderr, for user and deploy keys, on an install and hosted.
+func TestSSHReceivePackRefusesPseudorefs(t *testing.T) {
+	calls := 0
+	server := &Server{Queries: pushRepoQuerier(), RepoHostClient: &mockRepoHostGitProxy{
+		infoRefsReceivePackFn: func(context.Context, string, string) ([]byte, error) { return []byte("0000"), nil },
+		proxyReceivePackFn: func(_ context.Context, _, _ string, stdin io.Reader, _ io.Writer, _ ...repohost.ReceivePackMetadata) error {
+			_, _ = io.Copy(io.Discard, stdin)
+			calls++
+			return nil
+		},
+	}}
+	for _, install := range []bool{true, false} {
+		for _, deploy := range []bool{false, true} {
+			for _, name := range []string{"HEAD", "FETCH_HEAD", "ORIG_HEAD", "MERGE_HEAD", "main"} {
+				server.InstallMainMirror = install
+				sess := newTestSession("", sshPushBody("refs/tags/v1", name))
+				err := server.proxyReceivePack(context.Background(), sess, "alice", "demo", sshPrincipal{UserID: 1, IsDeployKey: deploy})
+				require.Error(t, err, "install=%v deploy=%v %s", install, deploy, name)
+				assert.Contains(t, sess.stderr.String(), `"`+name+`" is not a fully qualified name under refs/`)
+			}
+		}
+	}
+	assert.Zero(t, calls)
+}

@@ -64,9 +64,15 @@ func (s *Server) refuseInstallMainPush(ctx context.Context, gitDir string, kind 
 	if err != nil {
 		return internalError("failed to list symbolic refs", err)
 	}
+	// RefKey matches git's lookup on a case-insensitive filesystem, where a
+	// command naming refs/heads/ALIAS opens the file of refs/heads/alias.
+	aliases := make(map[string]struct{}, len(symbolic))
+	for name := range symbolic {
+		aliases[repohost.RefKey(name)] = struct{}{}
+	}
 	needsDefault := false
 	for _, command := range commands {
-		if symbolic[repohost.RefKey(command.RefName)] != "" {
+		if _, alias := aliases[repohost.RefKey(command.RefName)]; alias {
 			return installMainRefusal("the push is refused: " + command.RefName + " is a symbolic ref")
 		}
 		if err := repohost.RequireInstallMainMirror(true, kind, command.RefName, ""); err != nil {
@@ -84,6 +90,18 @@ func (s *Server) refuseInstallMainPush(ctx context.Context, gitDir string, kind 
 	}
 	for _, command := range commands {
 		if err := repohost.RequireInstallMainMirror(true, kind, command.RefName, defaultBookmark); err != nil {
+			return installMainRefusal(err.Error())
+		}
+	}
+	return nil
+}
+
+// refuseInstallStagedImport applies the install predicate to a fresh
+// import's staged push. The import is the sync's first write, so it may
+// create main; like every receive it may not carry refs/replace/*.
+func (s *Server) refuseInstallStagedImport(commands []repohost.ReceivePackCommand) error {
+	for _, command := range commands {
+		if err := repohost.RequireInstallMainMirror(s.config.InstallMainMirror, middleware.CredentialSync, command.RefName, ""); err != nil {
 			return installMainRefusal(err.Error())
 		}
 	}
@@ -110,9 +128,8 @@ func (s *Server) reportInstallReplaceRefs(owner, repo string, refs map[string]st
 	}
 }
 
-// listSymbolicRefs maps each symbolic ref's RefKey to the ref it names.
-// RefKey matches git's lookup on a case-insensitive filesystem, where a
-// command naming refs/heads/ALIAS opens the file of refs/heads/alias.
+// listSymbolicRefs maps each symbolic ref under refs/ to the ref it names.
+// Like every for-each-ref listing it omits one whose target does not exist.
 func listSymbolicRefs(ctx context.Context, gitDir string) (map[string]string, error) {
 	cmdCtx, cancel := context.WithCancel(ctx)
 	defer cancel()
@@ -144,7 +161,7 @@ func listSymbolicRefs(ctx context.Context, gitDir string) (map[string]string, er
 	for _, line := range strings.Split(string(output), "\n") {
 		name, target, ok := strings.Cut(strings.TrimSpace(line), "\x00")
 		if ok && name != "" && target != "" {
-			symbolic[repohost.RefKey(name)] = target
+			symbolic[name] = target
 		}
 	}
 	return symbolic, nil

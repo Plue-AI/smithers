@@ -1272,6 +1272,7 @@ func (s *Server) proxyReceivePack(ctx context.Context, sess ssh.Session, owner, 
 	// bookmark. This must fail closed — a parse failure aborts the push.
 	commands, packReader, err := repohost.PeekReceivePackCommands(sessionReader)
 	if err != nil {
+		_, _ = fmt.Fprintf(sess.Stderr(), "ERROR: %s\n", err)
 		return fmt.Errorf("parse receive-pack commands: %w", err)
 	}
 	if err := s.rejectProtectedBookmarkPush(ctx, sess, owner, repo, commands); err != nil {

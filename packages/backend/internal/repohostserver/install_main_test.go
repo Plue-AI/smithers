@@ -195,7 +195,8 @@ func installJSON(t *testing.T, f *laneHTTPFixture, method, path, body string) (i
 // No JSON route carries the sync's authority: on an install, creating,
 // moving or deleting main or the default bookmark through the bookmark or
 // landing routes is refused before the engine is called, whatever the name's
-// spelling. The import's create-if-absent neither moves nor deletes.
+// spelling. The import's create-if-absent neither moves nor deletes, and on
+// an install it may not create a missing main or default.
 func TestInstallMainJSONWritesAreRefused(t *testing.T) {
 	for _, install := range []bool{true, false} {
 		t.Run(fmt.Sprintf("install=%v", install), func(t *testing.T) {
@@ -249,10 +250,27 @@ func TestInstallMainJSONWritesAreRefused(t *testing.T) {
 					}
 				}
 			}
-			// The import's create-if-absent and every other bookmark remain.
+			// The import's create-if-absent of an existing main writes nothing
+			// and remains; every other bookmark remains.
 			code, _, body := installJSON(t, f, http.MethodPost, "/bookmarks", `{"name":"main","target_change_id":"x","if_absent":true}`)
 			require.Equal(t, http.StatusCreated, code, body)
 			assert.Equal(t, 1, calls["if_absent"])
+			// Audit row 6: create-if-absent would create a missing main or
+			// default; on an install that is refused before the engine.
+			mock.getBookmarkFn = func(string, string) (*repohost.Bookmark, error) { return nil, nil }
+			for _, name := range []string{"main", "Main", "trunk"} {
+				code, errCode, body := installJSON(t, f, http.MethodPost, "/bookmarks", `{"name":"`+name+`","target_change_id":"x","if_absent":true}`)
+				if install {
+					require.Equal(t, http.StatusForbidden, code, "%s: %s", name, body)
+					assert.Equal(t, "permission", errCode)
+					assert.Equal(t, 1, calls["if_absent"], "%s reached the engine", name)
+				} else if name != "Main" {
+					require.Equal(t, http.StatusCreated, code, "hosted %s: %s", name, body)
+				}
+			}
+			mock.getBookmarkFn = func(string, string) (*repohost.Bookmark, error) {
+				return &repohost.Bookmark{Name: "main", TargetCommitID: f.base}, nil
+			}
 			code, _, body = installJSON(t, f, http.MethodPost, "/bookmarks", `{"name":"feature","target_change_id":"x"}`)
 			require.Equal(t, http.StatusCreated, code, body)
 			// The guard and the engine read the same, decoded name.
@@ -509,6 +527,74 @@ func TestSymbolicNamespaceRefsNeverWriteTheirTarget(t *testing.T) {
 			require.Equal(t, http.StatusInternalServerError, rec.Code, rec.Body.String())
 			assert.NotContains(t, f.repo.refs(), "refs/heads/planted", "retain wrote through a symbolic source ref")
 			protected("the retain")
+		})
+	}
+}
+
+// rawRefs lists refs with plain git, past any listing cap a test lowered.
+func rawRefs(t *testing.T, gitDir string) map[string]string {
+	t.Helper()
+	out, err := exec.Command("git", "--git-dir", gitDir, "for-each-ref", "--format=%(refname) %(objectname)").Output()
+	require.NoError(t, err)
+	refs := map[string]string{}
+	for _, line := range strings.Split(strings.TrimSpace(string(out)), "\n") {
+		if name, oid, ok := strings.Cut(line, " "); ok {
+			refs[name] = oid
+		}
+	}
+	return refs
+}
+
+// nonAtomicPushBody builds a receive-pack request without the atomic
+// capability: git applies each command it accepts and rejects the others.
+func nonAtomicPushBody(t *testing.T, f *laneHTTPFixture, packTip string, commands ...installCommand) []byte {
+	t.Helper()
+	var body bytes.Buffer
+	for i, command := range commands {
+		line := fmt.Sprintf("%s %s %s", command.old, command.new, command.ref)
+		if i == 0 {
+			line += "\x00report-status"
+		}
+		line += "\n"
+		fmt.Fprintf(&body, "%04x%s", len(line)+4, line)
+	}
+	body.WriteString("0000")
+	cmd := exec.Command("git", "-C", f.clientDir, "pack-objects", "--revs", "--stdout", "-q")
+	cmd.Stdin = strings.NewReader(packTip + "\n^" + f.base + "\n")
+	pack, err := cmd.Output()
+	require.NoError(t, err)
+	body.Write(pack)
+	return body.Bytes()
+}
+
+// Astra round 3, B1: a member's non-atomic push names raw HEAD beside new
+// tags that carry the ref listing past its cap. Git rejected HEAD and applied
+// the tags, the listing failed, and the rollback ran `git update-ref -d
+// HEAD`, which deleted refs/heads/main. Now the engine refuses a pseudoref
+// before git runs, refuses a push that would carry the listing past its cap
+// before git applies anything, and main and every other ref stay unchanged.
+func TestReceivePackListingCapNeverDeletesMainThroughHEAD(t *testing.T) {
+	for _, install := range []bool{true, false} {
+		t.Run(fmt.Sprintf("install=%v", install), func(t *testing.T) {
+			f, tip := installFixture(t, "main")
+			f.srv.config.InstallMainMirror = install
+			before := rawRefs(t, f.repo.gitDir)
+			listing := int64(0)
+			for name, oid := range before {
+				listing += int64(len(name) + len(oid) + 2)
+			}
+			previous := maxRefListingBytes
+			maxRefListingBytes = listing + 300
+			t.Cleanup(func() { maxRefListingBytes = previous })
+
+			commands := []installCommand{{f.base, tip, "HEAD"}}
+			for i := 0; i < 4; i++ {
+				commands = append(commands, installCommand{laneZeroOID, tip, fmt.Sprintf("refs/tags/%s-%d", strings.Repeat("t", 120), i)})
+			}
+			rec := postReceivePack(t, f, nonAtomicPushBody(t, f, tip, commands...), repohost.PusherCredentialHeader, "person")
+			require.Equal(t, http.StatusBadRequest, rec.Code, rec.Body.String())
+			assert.Equal(t, before, rawRefs(t, f.repo.gitDir), "the refused push changed refs")
+			assert.Equal(t, f.base, rawRefs(t, f.repo.gitDir)["refs/heads/main"], "main was deleted through HEAD")
 		})
 	}
 }

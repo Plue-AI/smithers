@@ -105,6 +105,40 @@ func TestClient_RecordsHeldRefusalOnTheCallersContext(t *testing.T) {
 	}
 }
 
+// A repository held after a failed rollback refuses discovery, pushes and
+// JSON writes alike; the pusher reads repo-host's message, and the caller's
+// context records the typed refusal. No retry is offered.
+func TestClient_RollbackHeldRepositoryIsVisible(t *testing.T) {
+	t.Parallel()
+	const message = "writes to this repository are held: a refused push could not be rolled back, and the operator must restore its refs"
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("X-Smithers-Error-Code", RollbackHeldCode)
+		w.Header().Set("Content-Type", "text/plain; charset=utf-8")
+		w.WriteHeader(http.StatusServiceUnavailable)
+		_, _ = w.Write([]byte(message + "\n"))
+	}))
+	t.Cleanup(server.Close)
+
+	client := NewClient(&StaticStorageSetResolver{URL: server.URL}, "test-token")
+	_, discoveryErr := client.InfoRefsReceivePack(context.Background(), "alice", "demo")
+	pushErr := client.ProxyReceivePack(context.Background(), "alice", "demo", bytes.NewBufferString("in"), io.Discard)
+	for _, err := range []error{discoveryErr, pushErr} {
+		status, ok := IsStatusError(err)
+		require.True(t, ok, "%v", err)
+		assert.False(t, status.Held(), "a rollback hold is not a wait")
+		assert.Equal(t, RollbackHeldCode, status.Code)
+		assert.Equal(t, message, status.Message)
+		_, wait := HeldRetryAfter(err)
+		assert.False(t, wait)
+	}
+	ctx := apierrors.WithRefusalRecorder(context.Background())
+	require.Error(t, client.ImportRefs(ctx, "alice", "demo"))
+	refusal := apierrors.RecordedRefusal(ctx)
+	require.NotNil(t, refusal)
+	assert.Equal(t, apierrors.CodeRepositoryRollbackHeld, refusal.Code)
+	assert.Zero(t, refusal.RetryAfter)
+}
+
 // A push that asks for it learns when repo-host has taken the repository's
 // lock (102 Processing), over the network and in process alike.
 func TestClient_ProxyReceivePack_ReportsWhenThePushStarts(t *testing.T) {

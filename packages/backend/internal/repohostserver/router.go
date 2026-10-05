@@ -796,8 +796,10 @@ func (s *Server) infoRefs(w http.ResponseWriter, r *http.Request) error {
 	repoPath := s.config.RepoPath(owner, repo)
 	// A push to a held repository is refused at discovery, before its pack is
 	// sent, and git shows the discovery's error text to the user.
-	if service == "git-receive-pack" && s.locks.Held(repoPath) {
-		return errRepositoryHeld()
+	if service == "git-receive-pack" {
+		if refusal := s.locks.Refusal(repoPath); refusal != nil {
+			return refusal
+		}
 	}
 
 	// Bring the git backend up to date with the jj view only when the jj
@@ -894,7 +896,7 @@ type limitedReadCloser struct {
 	io.Closer
 }
 
-func (s *Server) receivePack(w http.ResponseWriter, r *http.Request) error {
+func (s *Server) receivePack(w http.ResponseWriter, r *http.Request) (retErr error) {
 	done := s.metrics.StartOperation("ProxyReceivePack")
 	defer done()
 
@@ -919,6 +921,9 @@ func (s *Server) receivePack(w http.ResponseWriter, r *http.Request) error {
 		return err
 	}
 	defer unlock()
+	// Runs before unlock: a refused push left standing holds the repository
+	// before any other write can take its lock.
+	defer func() { retErr = s.holdFailedRollback(gitDir, retErr) }()
 
 	if _, err := os.Stat(gitDir); err != nil {
 		return notFound("repository not found")
@@ -966,6 +971,9 @@ func (s *Server) receivePack(w http.ResponseWriter, r *http.Request) error {
 	commands, peeked, peekErr := repohost.PeekReceivePackCommands(source)
 	if peekErr != nil {
 		return pushLimited(badRequest("malformed receive-pack command list"))
+	}
+	if err := refuseRefListingGrowth(beforeRefs, commands); err != nil {
+		return err
 	}
 	// The API sets X-Smithers-Pusher-Id from the credential it authenticated;
 	// it names whose refs/smithers/users/<id>/ namespace this push may write.
@@ -1030,7 +1038,7 @@ func (s *Server) receivePack(w http.ResponseWriter, r *http.Request) error {
 	defer cancelEnforce()
 	afterRefs, err := listGitRefs(enforceCtx, gitDir)
 	if err != nil {
-		return rollBackUnlistablePush(enforceCtx, gitDir, err, commands, beforeRefs)
+		return rollBackUnlistablePush(enforceCtx, gitDir, err, beforeRefs)
 	}
 	if gitErr != nil {
 		return rollBackPublishedPush(enforceCtx, gitDir, beforeRefs, afterRefs, gitErr)
@@ -1590,10 +1598,18 @@ func (s *Server) createBookmark(w http.ResponseWriter, r *http.Request) error {
 	if err := checkMutationDeadline(r.Context()); err != nil {
 		return err
 	}
-	// The import's create-if-absent can neither move nor delete a bookmark;
-	// on an install every other write of main is the sync's receive-pack.
-	if req.Delete || !req.IfAbsent {
-		if err := s.refuseInstallMainBookmark(r.Context(), chi.URLParam(r, "id"), req.Name); err != nil {
+	// On an install every write of main is the sync's receive-pack. The
+	// import's create-if-absent may leave an existing main alone, which
+	// writes nothing; it may not create one.
+	if err := s.refuseInstallMainBookmark(r.Context(), chi.URLParam(r, "id"), req.Name); err != nil {
+		if req.Delete || !req.IfAbsent {
+			return err
+		}
+		existing, getErr := s.ffi.GetBookmark(repoPath, req.Name)
+		if getErr != nil {
+			return getErr
+		}
+		if existing == nil {
 			return err
 		}
 	}

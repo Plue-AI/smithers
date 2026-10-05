@@ -51,8 +51,9 @@ type ReceivePackRequest struct {
 // request stream. It returns the parsed commands plus a reader that
 // reproduces the original bytes verbatim, so the request can still be
 // forwarded to git unchanged. Unlike the best-effort peek helpers below it
-// returns an error on malformed pkt-lines or command lines: callers enforcing
-// policy on the commands must fail closed.
+// returns an error on malformed pkt-lines or command lines, and on a command
+// whose ref ValidateRefName refuses: callers enforcing policy on the commands
+// must fail closed.
 func PeekReceivePackCommands(r io.Reader) ([]ReceivePackCommand, io.Reader, error) {
 	request, rebuilt, err := PeekReceivePackRequest(r)
 	return request.Commands, rebuilt, err
@@ -120,6 +121,11 @@ func PeekReceivePackRequest(r io.Reader) (ReceivePackRequest, io.Reader, error) 
 		parts := strings.SplitN(line, " ", 3)
 		if len(parts) != 3 || parts[0] == "" || parts[1] == "" || parts[2] == "" {
 			return ReceivePackRequest{}, io.MultiReader(&buf, r), fmt.Errorf("malformed receive-pack command: %q", line)
+		}
+		// Every door and the engine read commands here, so a name git would
+		// resolve through HEAD never reaches git or a rollback (ValidateRefName).
+		if err := ValidateRefName(parts[2]); err != nil {
+			return ReceivePackRequest{}, io.MultiReader(&buf, r), fmt.Errorf("malformed receive-pack command: %w", err)
 		}
 		request.Commands = append(request.Commands, ReceivePackCommand{
 			OldOID:  parts[0],

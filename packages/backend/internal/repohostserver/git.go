@@ -372,6 +372,42 @@ func validGitObjectID(s string) bool {
 // bound. Matches maxRefAdvertisementBytes. Variable so tests can lower it.
 var maxRefListingBytes int64 = 64 * 1024 * 1024
 
+// refuseRefListingGrowth refuses, before git applies anything, a push whose
+// new refs would carry the ref listing past maxRefListingBytes: every later
+// listing would fail, the one that checks this push among them. It counts
+// each ref the commands create as listGitRefs reads it; deletions are not
+// subtracted.
+func refuseRefListingGrowth(before map[string]string, commands []repohost.ReceivePackCommand) error {
+	size := int64(0)
+	for name, oid := range before {
+		size += refListingLineBytes(name, oid)
+	}
+	created := map[string]struct{}{}
+	for _, command := range commands {
+		if _, exists := before[command.RefName]; exists || strings.Trim(command.NewOID, "0") == "" {
+			continue
+		}
+		if _, counted := created[command.RefName]; counted {
+			continue
+		}
+		created[command.RefName] = struct{}{}
+		size += refListingLineBytes(command.RefName, command.NewOID)
+	}
+	if size > maxRefListingBytes {
+		return &appError{
+			StatusCode: http.StatusRequestEntityTooLarge,
+			Code:       repohost.PushTooLargeCode,
+			Message:    fmt.Sprintf("the push would grow the repository's ref listing past %d bytes", maxRefListingBytes),
+		}
+	}
+	return nil
+}
+
+// refListingLineBytes is the size of one ref's line in listGitRefs' listing.
+func refListingLineBytes(name, oid string) int64 {
+	return int64(len(name) + len(oid) + 2)
+}
+
 // errRefListingTooLarge reports a ref listing past maxRefListingBytes.
 var errRefListingTooLarge = errors.New("git ref listing exceeds maximum size")
 

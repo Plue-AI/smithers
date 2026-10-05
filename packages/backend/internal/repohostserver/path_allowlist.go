@@ -63,7 +63,8 @@ func pushPathAllowlist(headers http.Header) ([]string, bool, error) {
 // (before -> after) against the lane's path allowlist. It fails closed: a
 // denied push, and a push whose history could not be inspected, are both
 // rolled back to before, and neither inspection nor rollback is abandoned
-// when the caller's context is cancelled.
+// when the caller's context is cancelled. A rollback that cannot finish is a
+// rollbackFailure, which holds the repository (holdFailedRollback).
 func enforcePushPathAllowlist(ctx context.Context, gitDir string, before, after map[string]string, allowed []string) error {
 	inspectCtx, cancelInspect := detachedPushContext(ctx)
 	defer cancelInspect()
@@ -73,7 +74,7 @@ func enforcePushPathAllowlist(ctx context.Context, gitDir string, before, after 
 		restoreCtx, cancelRestore := detachedPushContext(ctx)
 		defer cancelRestore()
 		if restoreErr := restoreGitRefs(restoreCtx, gitDir, before, after); restoreErr != nil {
-			return internalError("failed to roll back uninspected push", errors.Join(err, restoreErr))
+			return &rollbackFailure{err: errors.Join(err, restoreErr)}
 		}
 		return internalError("failed to inspect pushed paths", err)
 	}
@@ -96,7 +97,7 @@ func enforcePushPathAllowlist(ctx context.Context, gitDir string, before, after 
 	restoreCtx, cancelRestore := detachedPushContext(ctx)
 	defer cancelRestore()
 	if err := restoreGitRefs(restoreCtx, gitDir, before, after); err != nil {
-		return internalError("failed to roll back disallowed push", err)
+		return &rollbackFailure{err: errors.Join(errors.New("push touches paths outside the agent lane"), err)}
 	}
 	sort.Strings(denied)
 	return forbidden("push touches paths outside the agent lane: " + strings.Join(denied, ", "))
@@ -222,14 +223,31 @@ func collectTouchedPaths(ctx context.Context, gitDir string, include, exclude []
 // command names the after value as the expected old value: a ref that moved
 // again since the listing aborts the whole transaction instead of being
 // clobbered.
+//
+// The rollback is itself a ref writer, so it never dereferences. Each command
+// writes the ref it names (--no-deref), every name passes
+// repohost.ValidateRefName, and a symbolic ref is left out: the listing shows
+// it at its target's value, the transaction restores that target under the
+// target's own name, and naming both would abort it.
 func restoreGitRefs(ctx context.Context, gitDir string, before, after map[string]string) error {
+	symbolic, err := listSymbolicRefs(ctx, gitDir)
+	if err != nil {
+		return fmt.Errorf("restore refs: %w", err)
+	}
 	var commands bytes.Buffer
 	for _, refName := range sortedRefNames(before, after) {
 		oldOID, existed := before[refName]
 		newOID, exists := after[refName]
-		switch {
-		case existed && exists && oldOID == newOID:
+		if existed && exists && oldOID == newOID {
 			continue
+		}
+		if _, alias := symbolic[refName]; alias {
+			continue
+		}
+		if err := repohost.ValidateRefName(refName); err != nil {
+			return fmt.Errorf("restore refs: %w", err)
+		}
+		switch {
 		case existed && exists:
 			fmt.Fprintf(&commands, "update %s\x00%s\x00%s\x00", refName, oldOID, newOID)
 		case existed:
@@ -241,7 +259,7 @@ func restoreGitRefs(ctx context.Context, gitDir string, before, after map[string
 	if commands.Len() == 0 {
 		return nil
 	}
-	cmd := hostexec.Git(ctx, "--git-dir", gitDir, "update-ref", "--stdin", "-z")
+	cmd := hostexec.Git(ctx, "--git-dir", gitDir, "update-ref", "--no-deref", "--stdin", "-z")
 	cmd.Stdin = &commands
 	if out, err := cmd.CombinedOutput(); err != nil {
 		return fmt.Errorf("restore refs: %w: %s", err, strings.TrimSpace(string(out)))
@@ -265,41 +283,32 @@ func sortedRefNames(a, b map[string]string) []string {
 	return names
 }
 
+// rollBackPublishedPush restores the refs a refused push changed and returns
+// why it was refused. A rollback that cannot finish is a rollbackFailure,
+// which holds the repository (holdFailedRollback).
 func rollBackPublishedPush(ctx context.Context, gitDir string, before, after map[string]string, cause error) error {
 	restoreCtx, cancelRestore := detachedPushContext(ctx)
 	defer cancelRestore()
 	if err := restoreGitRefs(restoreCtx, gitDir, before, after); err != nil {
-		return internalError("failed to roll back rejected push", errors.Join(cause, err))
+		return &rollbackFailure{err: errors.Join(cause, err)}
 	}
 	return cause
 }
 
-// rollBackUnlistablePush handles a path-restricted push whose post-receive
-// ref listing failed: nothing can be authorized, so every ref the client's
-// command list named is put back to its pre-push value (or deleted when it
-// did not exist). A command list that failed to parse names no ref git could
-// have applied. The returned error carries both failures.
-func rollBackUnlistablePush(ctx context.Context, gitDir string, listErr error, commands []repohost.ReceivePackCommand, before map[string]string) error {
-	restoreCtx, cancelRestore := detachedPushContext(ctx)
-	defer cancelRestore()
-	var restoreErr error
-	for _, command := range commands {
-		refName := strings.TrimSpace(command.RefName)
-		if refName == "" {
-			continue
-		}
-		var cmd *exec.Cmd
-		if oldOID, existed := before[refName]; existed {
-			cmd = hostexec.Git(restoreCtx, "--git-dir", gitDir, "update-ref", refName, oldOID)
-		} else {
-			cmd = hostexec.Git(restoreCtx, "--git-dir", gitDir, "update-ref", "-d", refName)
-		}
-		if out, err := cmd.CombinedOutput(); err != nil {
-			restoreErr = errors.Join(restoreErr, fmt.Errorf("restore %s: %w: %s", refName, err, strings.TrimSpace(string(out))))
-		}
+// rollBackUnlistablePush handles a push whose refs could not be listed after
+// git applied them, so nothing can be authorized. It lists them once more:
+// with that listing the push is refused and rolled back like any other.
+// Without one nothing is written, since only a listing says what git
+// changed; the push's own command names may include refs git refused or
+// wrote through a symbolic ref. The push is then a rollbackFailure, which
+// holds the repository. A push cannot reach here by growing the listing past
+// its cap: refuseRefListingGrowth refuses that one before git runs.
+func rollBackUnlistablePush(ctx context.Context, gitDir string, listErr error, before map[string]string) error {
+	listCtx, cancelList := detachedPushContext(ctx)
+	defer cancelList()
+	after, err := listGitRefs(listCtx, gitDir)
+	if err != nil {
+		return &rollbackFailure{err: errors.Join(listErr, err)}
 	}
-	if restoreErr != nil {
-		return internalError("failed to roll back unverifiable push", errors.Join(listErr, restoreErr))
-	}
-	return internalError("failed to inspect pushed refs", listErr)
+	return rollBackPublishedPush(ctx, gitDir, before, after, internalError("failed to inspect pushed refs", listErr))
 }

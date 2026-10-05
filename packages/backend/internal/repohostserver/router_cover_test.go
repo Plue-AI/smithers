@@ -537,7 +537,7 @@ func TestRouter_Cov_ReceivePackSnapshotAndCallbackErrors(t *testing.T) {
 		t.Setenv("STUB_GIT_STATE_FILE", filepath.Join(t.TempDir(), "state"))
 		updateLog := filepath.Join(t.TempDir(), "update-ref")
 		t.Setenv("STUB_GIT_UPDATE_LOG", updateLog)
-		installGitStub(t, "#!/bin/sh\nif [ \"$1\" = \"--git-dir\" ] && [ \"$3\" = \"update-ref\" ]; then { echo \"$@\"; tr '\\000' ' '; } >> \"$STUB_GIT_UPDATE_LOG\"; exit 0; fi\nif [ \"$1\" = \"--git-dir\" ]; then\n  if [ -f \"$STUB_GIT_STATE_FILE\" ]; then printf 'refs/heads/main\\000bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb\\n'; else printf 'refs/heads/main\\000aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\\n'; fi\n  exit 0\nfi\nif [ \"$1\" = \"receive-pack\" ]; then cat >/dev/null; : > \"$STUB_GIT_STATE_FILE\"; printf ok; exit 0; fi\nexit 1\n")
+		installGitStub(t, "#!/bin/sh\nif [ \"$1\" = \"--git-dir\" ] && [ \"$3\" = \"update-ref\" ]; then { echo \"$@\"; tr '\\000' ' '; } >> \"$STUB_GIT_UPDATE_LOG\"; exit 0; fi\ncase \"$4\" in \"--format=%(if)%(symref)\"*) exit 0 ;; esac\nif [ \"$1\" = \"--git-dir\" ]; then\n  if [ -f \"$STUB_GIT_STATE_FILE\" ]; then printf 'refs/heads/main\\000bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb\\n'; else printf 'refs/heads/main\\000aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\\n'; fi\n  exit 0\nfi\nif [ \"$1\" = \"receive-pack\" ]; then cat >/dev/null; : > \"$STUB_GIT_STATE_FILE\"; printf ok; exit 0; fi\nexit 1\n")
 		imported := false
 		srv := newTestServerWithMock(t, &mockFFI{importGitRefsFn: func(string) error { imported = true; return nil }})
 		srv.config.PushHookCallbackURL = "https://example.test/hook"
