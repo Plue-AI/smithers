@@ -1,3 +1,4 @@
+import { SetupAction } from "./SetupAction"
 import type { Action } from "@smthrs/rpc/CardAction"
 import { stories as secretsStories } from "./SecretsView.stories"
 import { SecretsView } from "./SecretsView"
@@ -2443,5 +2444,32 @@ test("Proposal copy blocks use product words and stay brief", async () => {
         expect(block.textContent!.length).toBeLessThanOrEqual(80)
       }
     } finally { await close() }
+  }
+})
+
+
+test("Settings origin markers follow the server list, not URL text", () => {
+  const origins = ["http://mini.local:8080", "https://smithers.example.test", "not a URL"]
+  for (const unencrypted of [undefined, [], ["https://smithers.example.test", "not a URL"]]) {
+    const model = { ...settings.ready.model, address: { ...settings.ready.model.address, origins, origins_unencrypted: unencrypted } }
+    const host = render(<SettingsView {...settings.ready} model={model} onAction={() => {}} onView={() => {}} />)
+    const rows = [...host.querySelectorAll(".setup-settings dd code")].filter(code => origins.includes(code.textContent!))
+    expect(rows.map(code => code.parentElement!.textContent)).toEqual([
+      "http://mini.local:8080",
+      unencrypted?.length ? "https://smithers.example.test · unencrypted" : "https://smithers.example.test",
+      unencrypted?.length ? "not a URL · unencrypted" : "not a URL"
+    ])
+  }
+})
+
+
+test("SetupAction origin markers follow its optional prop", () => {
+  for (const [origin, unencrypted, expected] of [
+    ["http://mini.local:8080", undefined, "Origins"],
+    ["http://mini.local:8080", [], "Origins"],
+    ["https://smithers.example.test", ["https://smithers.example.test"], "Origins · unencrypted"]
+  ] as const) {
+    const host = render(<SetupAction action={{ tag: "settings.address", label: "Save", input: [{ name: "origins", label: "Origins", kind: "text", required: true, value: origin }] }} unencrypted={unencrypted ? [...unencrypted] : undefined} onAction={() => {}} />)
+    expect(host.querySelector(".setup-field")!.textContent).toBe(expected)
   }
 })

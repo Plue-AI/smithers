@@ -5,6 +5,7 @@ import { fixtures as setup } from "./Setup.ts"
 
 const memberBase: SettingsCard = {
   ...setup.done.model,
+  address: { ...setup.done.model.address, origins_unencrypted: ["http://mac-mini.local:8080"] },
   capacity: 2,
   laptop_lines: ["smthrs login http://mac-mini.local:8080", "smthrs login https://smithers.example.test"],
   notifications_need_https: false,
@@ -140,7 +141,7 @@ export const fixtures = {
   ),
   no_capacity: story(
     "No machine capacity",
-    { ...base, ...setup.no_capacity.model, capacity: 0 },
+    { ...base, ...setup.no_capacity.model, address: base.address, capacity: 0 },
     { actions: owner, expect: ["Close apps to free 6 GB"] }
   ),
   // TODOs at once binds only after T-STK-03's S2 guard; S1 projections omit parallel (C-J4-01).

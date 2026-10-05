@@ -1,7 +1,7 @@
 import { useId, useState } from "react"
 import type { Action, CardProps } from "@smthrs/rpc/CardAction"
 
-export function SetupAction({ action, onAction, inline = false, choiceLabels = {}, placeholders = false }: { action: Action; onAction: CardProps<unknown>["onAction"]; inline?: boolean; choiceLabels?: Record<string, string>; placeholders?: boolean }) {
+export function SetupAction({ action, onAction, inline = false, choiceLabels = {}, placeholders = false, unencrypted }: { action: Action; onAction: CardProps<unknown>["onAction"]; inline?: boolean; choiceLabels?: Record<string, string>; placeholders?: boolean; unencrypted?: string[] }) {
   const id = useId()
   const [input, setInput] = useState<Record<string, string>>({})
   const values = Object.fromEntries((action.input ?? []).map(field => [field.name, input[field.name] ?? field.value ?? field.choices?.[0] ?? ""]))
@@ -21,6 +21,7 @@ export function SetupAction({ action, onAction, inline = false, choiceLabels = {
       </span> : field.kind === "choice" ? <select aria-label={inline ? field.label : undefined} id={`${id}-${field.name}`} value={values[field.name]} required={field.required} disabled={!!action.disabled} onChange={event => setInput({ ...input, [field.name]: event.target.value })}>{field.choices?.map(choice => <option key={choice} value={choice}>{choiceLabels[choice] ?? choice}</option>)}</select>
         : field.multiline && field.kind === "text" && !inline ? <textarea placeholder={placeholders ? field.label : undefined} aria-label={inline ? field.label : undefined} id={`${id}-${field.name}`} value={values[field.name]} required={field.required} disabled={!!action.disabled} onChange={event => setInput({ ...input, [field.name]: event.target.value })} />
         : <input placeholder={placeholders || inline ? field.label : undefined} aria-label={inline ? field.label : undefined} id={`${id}-${field.name}`} type={field.kind === "secret" ? "password" : "text"} autoComplete={field.kind === "secret" ? "new-password" : "off"} value={values[field.name]} required={field.required} disabled={!!action.disabled} onChange={event => setInput({ ...input, [field.name]: event.target.value })} />}
+      {field.name === "origins" && unencrypted?.includes(values[field.name]) && <span> · unencrypted</span>}
     </div>)}
     {stepper ? null : <button type="submit" data-flow={action.tag} data-primary={action.primary || undefined} disabled={!!action.disabled}>{action.label}</button>}
     {action.disabled && <span className="setup-reason">{action.disabled.reason}</span>}
