@@ -1,3 +1,4 @@
+import type { AgentPort } from "../../runtime/AgentPort"
 import { describe, expect, test } from "bun:test"
 import { CardSchema } from "@smthrs/rpc/Cards"
 import { createAppStore } from "../AppStore"
@@ -16,7 +17,7 @@ const deferred = <T,>() => {
   const promise = new Promise<T>(done => { resolve = done })
   return { promise, resolve }
 }
-const harness = async (http: SeamContext["http"], storage = memoryStorage(), actors?: TodoSeamOptions["actors"], live = true) => {
+const harness = async (http: SeamContext["http"], storage = memoryStorage(), actors?: TodoSeamOptions["actors"], live = true, draftAgent?: AgentPort) => {
   const store = await createAppStore({ kind: "localStorage", storage })
   await store.dispatch({ type: "identity.session.loaded", actor: "system", state: "signed-in", login: "ben", admin: false, scopesPlain: null }).isPersisted.promise
   const observed = new Map<string, (model: unknown, receipts?: readonly TodoReceipt[]) => void>()
@@ -30,7 +31,7 @@ const harness = async (http: SeamContext["http"], storage = memoryStorage(), act
     isDisposed: () => disposed,
     resolveToast: (key, outcome) => { outcomes.push({ key, ...outcome }); store.dispatch({ type: "toast.resolved", actor: "system", key, status: outcome.status, detail: outcome.detail }) }
   }
-  const seam = createTodoSeam(context, { actors, topics: live ? topics : undefined, debounceMs: 1, onDispose: fn => finalizers.push(fn) })
+  const seam = createTodoSeam(context, { draftAgent: draftAgent ?? { available: true, subscribe: () => () => {}, startTurn: async () => ({ status: "error", message: "Offline" }), cancelTurn: async () => {} }, actors, topics: live ? topics : undefined, debounceMs: 1, onDispose: fn => finalizers.push(fn) })
   return { store, seam, observed, outcomes, context, storage,
     draft: () => [...store.collections.cards.values()].find(row => row.kind === "draft") as DraftEntry,
     todo: () => store.collections.cards.get("todo:12") as TodoEntry,
@@ -109,6 +110,8 @@ describe("TodoSeam — admission and live completion", () => {
       // A second press while the Draft is open opens no second Draft.
       expect(await h.seam.draftFromIssue(issue)).toEqual({ value: "Drafted" })
       expect([...h.store.collections.cards.values()].filter(row => row.kind === "draft")).toHaveLength(1)
+      await waitFor(() => h.draft().payload.drafting === false)
+      expect(h.draft().payload.draftNote).toBe("Agent unavailable. Using quoted discussion.")
       const id = h.draft().id
       expect(h.draft().audience_member_id).toBe("ben")
       expect(h.draft().payload).toMatchObject({
@@ -746,4 +749,35 @@ describe("TodoSeam — the TODO list Home reads where no `home` topic is served 
       expect(out.seam.list.get()).toEqual({})
     } finally { out.close() }
   })
+})
+
+const issueSource = { number: 81, title: "Add retry", body: "Retry forever", url: "https://github.com/acme/app/issues/81", comments: [{ author: "maya", body: "Actually stop after five attempts." }] }
+test("Make TODO returns before the model, deduplicates, blocks Commit, then preserves edited synthesized fields", async () => {
+  const listeners = new Set<(frame: AgentTurnFrame) => void>(); let runId = "", calls = 0
+  const agent: AgentPort = { available: true, subscribe: fn => { listeners.add(fn); return () => { listeners.delete(fn) } }, cancelTurn: async () => {},
+    startTurn: async request => { runId = request.runId; calls++; expect(request.model).toBeUndefined(); expect(request.tools).toEqual([]); expect(request.messages[0]).toMatchObject({ content: expect.stringContaining("stop after five") }); return { status: "started" } } }
+  const h = await harness(async () => json({ state: "accepted", n: 12 }), memoryStorage(), undefined, true, agent)
+  try {
+    await Promise.all([h.seam.draftFromIssue(issueSource), h.seam.draftFromIssue(issueSource)])
+    expect(calls).toBe(1); expect(h.draft().payload.drafting).toBe(true)
+    expect(await h.seam.newTodo({ cardId: h.draft().id })).toBe("Drafting TODO.")
+    expect(await h.seam.setTodoFormField(h.draft().id, "prompt", "too soon")).toBe("Drafting TODO.")
+    for (const fn of listeners) { fn({ runId, type: "delta", kind: "text", text: JSON.stringify({ title: "Bound retries", prompt: "Stop after five attempts.", acceptance: ["No sixth attempt"] }) }); fn({ runId, type: "done" }) }
+    await waitFor(() => h.draft().payload.drafting === false)
+    expect(h.draft().payload).toMatchObject({ title: "Bound retries", prompt: "Stop after five attempts.", acceptance: ["No sixth attempt"] })
+    expect(await h.seam.setTodoFormField(h.draft().id, "prompt", "Member's final request")).toBeUndefined()
+    expect(h.draft().payload.prompt).toBe("Member's final request")
+  } finally { h.close() }
+})
+test("Discard cancels a pending issue draft and ignores a late completion; a new press retries", async () => {
+  let runId = "", cancelled = 0; const listeners = new Set<(frame: AgentTurnFrame) => void>()
+  const agent: AgentPort = { available: true, subscribe: fn => { listeners.add(fn); return () => { listeners.delete(fn) } }, startTurn: async r => { runId = r.runId; return { status: "started" } }, cancelTurn: async () => { cancelled++ } }
+  const h = await harness(async () => json({}), memoryStorage(), undefined, true, agent)
+  try {
+    await h.seam.draftFromIssue(issueSource); const id = h.draft().id
+    expect(h.seam.dismissTodoDraft(id)).toBeUndefined()
+    await waitFor(() => !h.store.collections.cards.has(id)); expect(cancelled).toBe(1)
+    for (const fn of listeners) fn({ runId, type: "done" })
+    await h.seam.draftFromIssue(issueSource); expect(h.draft().id).not.toBe(id)
+  } finally { h.close() }
 })

@@ -119,6 +119,51 @@ test("6 source", async ({}, info) => {
   await done("source", 2 * 60_000)
   expect(await writes()).toEqual(expect.arrayContaining([expect.objectContaining({ method: "POST", path: "/local-owner/demo.git/git-upload-pack", status: 200 })]))
 })
+test("Make TODO drafts the changed discussion with the install fast model", async ({}, info) => {
+  info.annotations.push({ type: "owner", description: "make-todo-draft #3721 J2.2" })
+  const repo = "local-owner/demo"
+  const created = await context.request.post(`${run.fakeURL}/_fake/issues`, { data: { repo, title: "Retry webhook delivery", body: "Retry forever after a 502." } })
+  expect(created.ok()).toBe(true)
+  const { number } = await created.json()
+  const clarification = "Stop after five attempts and use jittered backoff."
+  expect((await context.request.post(`${run.fakeURL}/_fake/comments`, { data: { repo, number, login: "local-owner", body: clarification } })).ok()).toBe(true)
+  const input = page.getByTestId("composer-input")
+  if (!await input.isVisible()) await page.keyboard.press("Control+k")
+  await input.fill(`/issues.view ${number} ${repo}`); await input.press("Enter")
+  const make = page.getByRole("button", { name: "Make TODO", exact: true }).last()
+  await expect(make).toBeVisible(); await make.click()
+  const draft = page.locator('[data-kind="draft"]').last()
+  await expect(draft.getByLabel("Prompt", { exact: true })).toHaveValue(clarification, { timeout: 30_000 })
+  await expect(draft.getByLabel("Acceptance", { exact: true })).toHaveValue(clarification)
+  await expect(draft.getByLabel("Prompt", { exact: true })).not.toHaveValue(/Retry forever/)
+  const calls = (await modelRequests()).filter((entry: { step?: string }) => entry.step === "todo/draft")
+  expect(calls).toHaveLength(1); expect(calls[0]).toMatchObject({ modelId: INSTALL_MODEL.fast, status: 200, authorized: true })
+  await make.click(); await expect(page.locator('[data-kind="draft"]')).toHaveCount(1)
+  await draft.getByLabel("Title", { exact: true }).fill("Member edited retry policy")
+  await draft.getByLabel("Prompt", { exact: true }).fill(`${clarification} Log each attempt.`)
+  await draft.getByLabel("Acceptance", { exact: true }).focus()
+  await draft.getByLabel("Place", { exact: true }).selectOption({ label: "Append" })
+  await expect(draft.getByRole("button", { name: "Commit", exact: true })).toBeEnabled()
+  await draft.getByRole("button", { name: "Discard", exact: true }).click()
+  await expect(page.locator('[data-kind="draft"]')).toHaveCount(0)
+})
+test("Make TODO model failure visibly falls back to discussion and can retry after Discard", async () => {
+  const input = page.getByTestId("composer-input")
+  // Only the failure case injects a transport refusal; success above drives the real backend and provider.
+  await context.route("**/api/agent/turn", route => route.fulfill({ status: 503, body: "model unavailable" }))
+  try {
+    const repo = "local-owner/demo"
+    const created = await context.request.post(`${run.fakeURL}/_fake/issues`, { data: { repo, title: "Fallback request", body: "Original request" } })
+    const { number } = await created.json()
+    await context.request.post(`${run.fakeURL}/_fake/comments`, { data: { repo, number, login: "local-owner", body: "Changed request" } })
+    await input.fill(`/todo.from-issue ${number} ${repo}`); await input.press("Enter")
+    const draft = page.locator('[data-kind="draft"]').last()
+    await expect(draft).toContainText("Agent unavailable. Using quoted discussion.")
+    await expect(draft.getByLabel("Prompt", { exact: true })).toHaveValue("Original request\n\n@local-owner:\n> Changed request")
+    await expect(draft.getByRole("button", { name: "Commit", exact: true })).toBeEnabled()
+    await draft.getByRole("button", { name: "Discard", exact: true }).click()
+  } finally { await context.unroute("**/api/agent/turn") }
+})
 test("7 machine", async ({}, info) => {
   info.annotations.push({ type: "owner", description: "w-machine (T-MCH-10; now passing)" })
   // A cold store loads the bundled base image, then builds and verifies the

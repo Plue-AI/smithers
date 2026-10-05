@@ -1,3 +1,6 @@
+import { createWebAgent } from "../../native/WebAgent"
+import type { AgentPort } from "../../runtime/AgentPort"
+import { draftIssueWithAgent, quotedIssuePrompt } from "./IssueTodoDraft"
 import { todoActors, type ActorContext } from "../ProductActor"
 import { TodoCardSchema, type TodoCard } from "@smthrs/rpc/TodoCard"
 import { DraftCardSchema, type DraftCard } from "@smthrs/rpc/DraftCard"
@@ -29,15 +32,12 @@ export interface IssueDraftSource {
   readonly url: string
   readonly comments: ReadonlyArray<{ readonly author: string | null; readonly body: string }>
 }
-/** The Draft's prompt: the issue's body, then each comment quoted under its author. */
-const issuePrompt = (source: IssueDraftSource): string => [source.body.trim(), ...source.comments.flatMap(comment => comment.body.trim()
-  ? [`@${comment.author ?? "someone"}:\n${comment.body.trim().split("\n").map(line => `> ${line}`).join("\n")}`] : [])]
-  .filter(Boolean).join("\n\n") || source.title
 /** T-APP-08 binds the shared live transport; the payload is the todo:<n> projection. */
 export interface TodoTopics {
   readonly subscribe: (topic: `todo:${number}`, receive: (model: unknown, receipts?: readonly TodoReceipt[]) => void) => () => void
 }
 export interface TodoSeamOptions {
+  readonly draftAgent?: AgentPort
   readonly actors?: () => ActorContext
   readonly topics?: TodoTopics
   readonly debounceMs?: number
@@ -57,8 +57,9 @@ export interface TodoListSnapshots {
   readonly subscribe: (listener: () => void) => () => void
 }
 export const createTodoSeam = (ctx: SeamContext, options: TodoSeamOptions = {}) => {
+  const draftAgent = options.draftAgent ?? createWebAgent({ baseUrl: ctx.baseUrl, fetchImpl: ctx.stream ?? ctx.http })
   const shared = actorSharedState(ctx, "todo", () => ({
-    sending: new Set<string>(), aborts: new Map<string, AbortController>(), watches: new Map<number, () => void>(),
+    draftingIssues: new Set<number>(), sending: new Set<string>(), aborts: new Map<string, AbortController>(), watches: new Map<number, () => void>(),
     timers: new Map<string, ReturnType<typeof setTimeout>>(), epoch: ctx.store.collections.identitySessions.get("identity")?.ownerRevision ?? ctx.store.collections.identitySessions.get("identity")?.revision,
     list: { snapshot: {} as TodoListSnapshot, listeners: new Set<() => void>(), timer: undefined as ReturnType<typeof setTimeout> | undefined, reading: false, disposed: false }
   }))
@@ -386,20 +387,42 @@ export const createTodoSeam = (ctx: SeamContext, options: TodoSeamOptions = {}) 
     const refusal = signedIn(); if (refusal) return refusal
     const open = [...ctx.store.collections.cards.values()].some(row => row.kind === "draft" && row.audience_member_id === owner()
       && !row.payload.committed && row.payload.issue?.number === source.number)
-    if (open) return { value: "Drafted" }
+    if (open || shared.draftingIssues.has(source.number)) return { value: "Drafted" }
     let digest: string
     try { digest = issueDigest(source.title, source.body) } catch { return "This issue's text cannot be read." }
     const id = `draft:${randomUuid()}`
-    await write(draftCard({ id, author: owner()!, text: issuePrompt(source), title: source.title, options: placeOptions(),
-      issue: { number: source.number, title: source.title, url: source.url, fixes: true }, issueDigest: digest,
-      idempotencyKey: randomUuid() }, ctx.nextOrdinal(), Date.now()))
+    const login = owner(), revision = identity()?.ownerRevision ?? identity()?.revision
+    const abort = new AbortController()
+    shared.draftingIssues.add(source.number)
+    shared.aborts.set(id, abort)
+    try {
+      const card = draftCard({ id, author: owner()!, text: quotedIssuePrompt(source), title: source.title, options: placeOptions(),
+        issue: { number: source.number, title: source.title, url: source.url, fixes: true }, issueDigest: digest,
+        idempotencyKey: randomUuid() }, ctx.nextOrdinal(), Date.now())
+      await write({ ...card, payload: { ...card.payload, drafting: true } })
+    } finally { shared.draftingIssues.delete(source.number) }
     loadDraftPlaces(id)
+    const synthesize = async () => {
+      let generated: Awaited<ReturnType<typeof draftIssueWithAgent>> | undefined
+      try { generated = await draftIssueWithAgent(draftAgent, source, abort.signal) }
+      catch (error) { if (!abort.signal.aborted) ctx.report?.("todo.draft", error) }
+      finally { shared.aborts.delete(id) }
+      if (abort.signal.aborted || !current(login, revision)) return
+      const latest = draft(id)
+      if (!latest || latest.payload.committed || !latest.payload.drafting) return
+      await write({ ...latest, title: generated?.title ?? latest.title, payload: { ...latest.payload,
+        ...generated, drafting: false, draftNote: generated ? undefined : "Agent unavailable. Using quoted discussion." } }, "smithers")
+    }
+    const work = async () => { await synthesize(); return draft(id)?.payload.draftNote }
+    void (ctx.withToast ? ctx.withToast(`todo.draft:${id}`, "Drafting TODO", "Drafted", work, false,
+      () => !abort.signal.aborted && current(login, revision), id) : work()).catch(error => ctx.report?.("todo.draft", error))
     return { value: "Drafted" }
   }
   const commitDraft = async (cardId: string) => {
     const refusal = signedIn(); if (refusal) return refusal
     const row = draft(cardId)
     if (!row || row.audience_member_id !== owner() && !row.payload.committed) return "This draft belongs to its author."
+    if (row.payload.drafting) return "Drafting TODO."
     if (row.payload.committed) return { value: `Committed T${row.payload.committed.n}` }
     if (row.payload.request?.state === "accepted") return { value: "Requested" }
     const parsed = DraftCardSchema.safeParse(row.payload)
@@ -421,6 +444,7 @@ export const createTodoSeam = (ctx: SeamContext, options: TodoSeamOptions = {}) 
   const setTodoFormField = async (cardId: string, field: string, value: string): Promise<string | void> => {
     const row = draft(cardId)
     if (!row || row.audience_member_id !== owner() || row.payload.committed) return "This draft belongs to its author."
+    if (row.payload.drafting) return "Drafting TODO."
     if (row.payload.request && row.payload.request.state !== "failed") return "Commit is pending."
     if (row.payload.request) return "Retry the pending commit before editing."
     let patch: Partial<DraftCard>
@@ -453,6 +477,8 @@ export const createTodoSeam = (ctx: SeamContext, options: TodoSeamOptions = {}) 
     if (!row || row.audience_member_id !== owner()) return "This draft belongs to its author."
     if (row.payload.committed) return "This draft was committed."
     if (row.payload.request) return "Commit was requested."
+    shared.aborts.get(cardId)?.abort()
+    shared.aborts.delete(cardId)
     ctx.dispatch({ type: "card.removed", actor: ctx.actor(), id: cardId })
   }
   const amendTodo = (input: Schema.Schema.Type<typeof TodoAmendInput>) => input.cardId
@@ -471,6 +497,8 @@ export const createTodoSeam = (ctx: SeamContext, options: TodoSeamOptions = {}) 
         }
       }
       if (row.kind === "draft" && row.audience_member_id === owner()) {
+        if (row.payload.drafting && !shared.aborts.has(row.id)) void write({ ...row, payload: { ...row.payload, drafting: false,
+          draftNote: "Agent interrupted. Using quoted discussion." } }, "system").catch(error => ctx.report?.("todo.draft", error))
         if (row.payload.request && row.payload.request.state !== "failed") send(row.id, row.payload.request)
         if (!row.payload.request) loadDraftPlaces(row.id)
       }

@@ -32,6 +32,7 @@ export function DraftView({ model, actions, gestures, onAction: dispatch }: Draf
   const unavailable = placeN !== undefined && !model.place.options.some(item => item.n === placeN)
   return (
     <section className="smithers-card draft-view" data-kind="draft" data-keyboard-pane="Draft" aria-label="Draft">
+      {model.drafting ? <p role="status">Drafting TODO…</p> : model.draftNote ? <p role="status">{model.draftNote}</p> : null}
       <header className="smithers-card-header draft-head">
         <GitCommitHorizontal size={14} aria-hidden="true" />
         <span>{model.place.mode === "amend" ? `Amend T${model.place.n}` : "New TODO"}</span>

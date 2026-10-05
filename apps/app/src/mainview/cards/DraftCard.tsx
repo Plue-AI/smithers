@@ -27,13 +27,13 @@ export const DraftContainer = ({ card, memberId, dispatch, View, view, onView }:
   const definitions: CardActionDefinition[] = []
   if (model.committed) definitions.push({ tag: "todo", label: `T${model.committed.n}`, command_input: { n: model.committed.n } })
   else {
-    const pending = card.payload.request && card.payload.request.state !== "failed"
+    const pending = model.drafting || card.payload.request && card.payload.request.state !== "failed"
     const place = model.place
     /* Title and prompt save on blur, so a Commit pressed while typing must stay live; the flow refuses an empty draft. */
     const invalid = place.mode !== "append" && !place.options.some(option => option.n === place.n)
     /* Absent keys stay absent: the flow input decodes `before?: number`, not `before: undefined`. */
     const common = { cardId: card.id, text: model.prompt, ...(card.payload.idempotencyKey === undefined ? {} : { idempotencyKey: card.payload.idempotencyKey }) }
-    const disabled = pending ? { reason: "Commit pending" } : invalid ? { reason: "Complete the draft" } : undefined
+    const disabled = pending ? { reason: model.drafting ? "Drafting TODO" : "Commit pending" } : invalid ? { reason: "Complete the draft" } : undefined
     if (place.mode === "amend") definitions.push({ tag: "todo.amend", label: "Commit", primary: true,
       command_input: { ...common, n: place.n }, disabled })
     else {
@@ -41,9 +41,9 @@ export const DraftContainer = ({ card, memberId, dispatch, View, view, onView }:
       const input = { ...common, ...(model.title ? { title: model.title } : {}), acceptance: model.acceptance, ...(place.mode === "before" ? { before: place.n } : {}) }
       definitions.push({ tag: "todo.new", label: "Commit", primary: true, command_input: input, disabled })
     }
-    definitions.push({ tag: "draft.discard", label: "Discard", command_input: { draft: card.id }, disabled: pending ? { reason: "Commit pending" } : undefined })
+    definitions.push({ tag: "draft.discard", label: "Discard", command_input: { draft: card.id }, disabled: card.payload.request && card.payload.request.state !== "failed" ? { reason: "Commit pending" } : undefined })
     definitions.push({ tag: "form.set", gesture: "set", label: "Edit", command_input: { cardId: card.id, field: "", value: "" },
-      disabled: pending ? { reason: "Commit pending" } : undefined,
+      disabled: pending ? { reason: model.drafting ? "Drafting TODO" : "Commit pending" } : undefined,
       resolve_input: input => ({ cardId: card.id, field: input.field ?? "", value: input.value ?? "" }) })
   }
   const bindings = cardActions(dispatch, definitions)

@@ -31,6 +31,8 @@ export const DraftIdSchema = z.string().min(1)
  * @category schemas
  */
 export const DraftCardSchema = z.object({
+  drafting: z.boolean().optional(),
+  draftNote: z.string().optional(),
   title: z.string(),
   prompt: z.string(),
   acceptance: z.array(z.string()),

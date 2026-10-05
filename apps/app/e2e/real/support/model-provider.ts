@@ -211,6 +211,13 @@ const serve = async (protocol: ProviderProtocol, request: Request): Promise<Resp
   const reply = modelId === PROVIDER_MODEL.echoes
     ? [`${PROVIDER_ECHO_LEAD}${presented.slice(0, cut).repeat(2)}`, presented.slice(cut), presented.slice(cut)] : PROVIDER_REPLY
   const includeUsage = isRecord(body.stream_options) && body.stream_options.include_usage === true
+  if (protocol === "openai-chat" && Array.isArray(body.messages) && body.messages.filter(isRecord).some(m => m.role === "system" && messageText(m.content).includes("Draft a TODO from the GitHub issue and its discussion."))) {
+    const message = body.messages.filter(isRecord).findLast(m => m.role === "user")
+    let source: { title: string; body: string; comments: { body: string }[] }
+    try { source = JSON.parse(messageText(message?.content)) } catch { return record(failure(protocol, 400, "invalid_request_error", "Invalid draft source")) }
+    const clarification = source.comments.at(-1)?.body ?? source.body
+    return record(openaiStream(modelId, includeUsage, [JSON.stringify({ title: source.title, prompt: clarification, acceptance: [clarification] })]), "todo/draft")
+  }
   const coding = protocol === "openai-chat" && Array.isArray(body.messages) ? todoTurn(body.messages.filter(isRecord)) : undefined
   if (coding !== undefined) return record(openaiStream(modelId, includeUsage, [coding.content]), coding.step)
   if (protocol === "evaluation" && isTodoJudgement(questions)) return record(judgeTodo(questions ?? {}), "todo/judge")
