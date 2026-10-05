@@ -368,13 +368,18 @@ export const startNativeBackend = async (
     stopping ? undefined : new Error(`Owned backend exited unexpectedly with code ${code}.`)
   )
   const sleep = options.sleep ?? Bun.sleep
+  // The grace timer is unref'd: once the backend exits, a pending timer must
+  // not hold this launcher for the rest of the grace (serve.ts exits when its
+  // event loop drains). A running backend keeps the loop alive meanwhile.
+  const grace = options.sleep ?? ((milliseconds: number) =>
+    new Promise<void>((resolve) => { setTimeout(resolve, milliseconds).unref() }))
   const stop = (): Promise<void> => stopped ??= (async () => {
     stopping = true
     if (exitCode !== undefined) return
     child.kill("SIGTERM")
     const graceful = await Promise.race([
       child.exited.then(() => true),
-      sleep(BACKEND_STOP_GRACE_MS).then(() => false)
+      grace(BACKEND_STOP_GRACE_MS).then(() => false)
     ])
     if (!graceful) {
       child.kill("SIGKILL")

@@ -212,6 +212,33 @@ describe("native backend ownership", () => {
     expect(slept).not.toContain(10_000)
   })
 
+  // The bundle boot proof's launcher exited 25.5 s after SIGTERM although
+  // its backend and PostgreSQL had stopped within a second: the pending
+  // grace timer held the event loop.
+  test("a stopped launcher exits with its backend, not at the end of the stop grace", async () => {
+    const runtime = packagedRuntime()
+    const script = join(runtime.root, "..", "launch.ts")
+    writeFileSync(script, [
+      `import { startNativeBackend } from ${JSON.stringify(join(import.meta.dir, "NativeBackendProcess.ts"))}`,
+      "let resolveExit: (code: number) => void = () => {}",
+      "const exited = new Promise<number>((resolve) => { resolveExit = resolve })",
+      "const backend = await startNativeBackend({",
+      `  executablePath: ${JSON.stringify(join(runtime.root, "smithers-server"))},`,
+      `  stateDir: ${JSON.stringify(runtime.state)},`,
+      `  webRoot: ${JSON.stringify(webRoot)},`,
+      "  spawn: () => ({ exited, kill: () => { setTimeout(() => resolveExit(0), 50) } }),",
+      "  fetch: async () => new Response(null, { status: 200 })",
+      "})",
+      "await backend.stop()",
+      "console.log(\"stopped\")"
+    ].join("\n"))
+    const started = Date.now()
+    const child = Bun.spawn([process.execPath, script], { stdout: "pipe", stderr: "pipe" })
+    expect(await child.exited).toBe(0)
+    expect(await new Response(child.stdout).text()).toContain("stopped")
+    expect(Date.now() - started).toBeLessThan(10_000)
+  }, 40_000)
+
   // The real-GitHub walk's first boot at load 67 failed: 116 migrations took
   // 29.5 s against a fixed 30 s deadline. Each migration step now restarts it.
   const migratingBackend = (steps: number, advance: boolean) => {
