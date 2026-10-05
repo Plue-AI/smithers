@@ -159,7 +159,7 @@ func listSymbolicRefs(ctx context.Context, gitDir string) (map[string]string, er
 	}
 	symbolic := map[string]string{}
 	for _, line := range strings.Split(string(output), "\n") {
-		name, target, ok := strings.Cut(strings.TrimSpace(line), "\x00")
+		name, target, ok := strings.Cut(line, "\x00")
 		if ok && name != "" && target != "" {
 			symbolic[name] = target
 		}

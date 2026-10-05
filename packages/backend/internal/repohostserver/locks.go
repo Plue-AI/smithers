@@ -40,7 +40,10 @@ func (l *repoLocker) Lock(ctx context.Context, key string) (func(), error) {
 }
 
 // LockAll takes the write locks of keys, in a fixed order. It fails at once,
-// taking none, while any of them is held, and when ctx ends first.
+// taking none, while any of them is held, and when ctx ends first. A hold
+// that began while it waited, such as the rollback hold the writer ahead of
+// it wrote before releasing the lock, refuses it once it has the locks, and
+// it releases them all.
 func (l *repoLocker) LockAll(ctx context.Context, keys ...string) (func(), error) {
 	ordered := append([]string(nil), keys...)
 	sort.Strings(ordered)
@@ -68,6 +71,12 @@ func (l *repoLocker) LockAll(ctx context.Context, keys ...string) (func(), error
 			return nil, err
 		}
 		unlocks = append(unlocks, unlock)
+	}
+	for _, key := range deduped {
+		if refusal := l.Refusal(key); refusal != nil {
+			unlockAll()
+			return nil, refusal
+		}
 	}
 	return unlockAll, nil
 }

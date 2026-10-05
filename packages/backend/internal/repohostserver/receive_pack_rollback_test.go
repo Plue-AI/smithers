@@ -3,6 +3,9 @@ package repohostserver
 import (
 	"bytes"
 	"context"
+	"encoding/base64"
+	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
@@ -11,6 +14,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -81,6 +85,39 @@ func TestReceivePackRefusesListingGrowthBeforeGit(t *testing.T) {
 	}
 }
 
+// Astra round 4, N1: the ref listing keeps each name's exact bytes, so a tag
+// whose name ends in U+00A0 counts at its full length against the cap. At
+// round 4 the listing trimmed the name, the second push was admitted two bytes
+// short, the listing after git failed, and the repository was held. Now the
+// second push is refused before git and nothing is held.
+func TestReceivePackCountsExactRefNameBytes(t *testing.T) {
+	for _, install := range []bool{true, false} {
+		t.Run(fmt.Sprintf("install=%v", install), func(t *testing.T) {
+			f, tip := installFixture(t, "main")
+			f.srv.config.InstallMainMirror = install
+			spaced := "refs/tags/v1\u00a0"
+			rec := postReceivePack(t, f, f.pushBody(laneZeroOID, tip, spaced), repohost.PusherCredentialHeader, "person")
+			require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
+			before := rawRefs(t, f.repo.gitDir)
+			require.Equal(t, tip, before[spaced])
+			size := int64(0)
+			for name, oid := range before {
+				size += refListingLineBytes(name, oid)
+			}
+			next := "refs/tags/" + strings.Repeat("n", 40)
+			previous := maxRefListingBytes
+			maxRefListingBytes = size + refListingLineBytes(next, tip) - 1
+			t.Cleanup(func() { maxRefListingBytes = previous })
+
+			rec = postReceivePack(t, f, f.pushBody(laneZeroOID, tip, next), repohost.PusherCredentialHeader, "person")
+			require.Equal(t, http.StatusRequestEntityTooLarge, rec.Code, rec.Body.String())
+			assert.Equal(t, repohost.PushTooLargeCode, rec.Header().Get("X-Smithers-Error-Code"))
+			assert.Equal(t, before, rawRefs(t, f.repo.gitDir))
+			assert.NoFileExists(t, filepath.Join(f.repo.gitDir, rollbackHoldFile))
+		})
+	}
+}
+
 // Fable round 3, R3-2: a refused push is rolled back even when a symbolic
 // ref aliases the ref it moved. At round 3 the restore named both the alias
 // and its target, git aborted the transaction, and the refused rewrite of
@@ -113,6 +150,45 @@ func TestRefusedPushRollsBackPastSymbolicAlias(t *testing.T) {
 			assert.Equal(t, "refs/heads/main", strings.TrimSpace(string(target)), "the rollback replaced the alias")
 			assert.NoFileExists(t, filepath.Join(f.repo.gitDir, rollbackHoldFile))
 		})
+	}
+}
+
+// Fable round 4, R4-1: a refused push that deleted one ref and created
+// another whose name nests under it, or the reverse, is rolled back. Git
+// applies both in one non-atomic receive. At round 4 the restore was one
+// transaction, git aborted it on the name conflict, the refused refs stayed
+// applied and the repository was held. Here an agent run's swap carries a
+// commit outside its lane, which is refused after git.
+func TestRefusedSwapPushRollsBack(t *testing.T) {
+	allowed, err := json.Marshal(laneSrcOnly)
+	require.NoError(t, err)
+	lane := base64.RawURLEncoding.EncodeToString(allowed)
+	for _, swap := range []struct{ name, deleted, created string }{
+		{"parent to child", "refs/heads/feature", "refs/heads/feature/x"},
+		{"child to parent", "refs/heads/feature/x", "refs/heads/feature"},
+	} {
+		for _, install := range []bool{true, false} {
+			t.Run(fmt.Sprintf("%s/install=%v", swap.name, install), func(t *testing.T) {
+				f, tip := installFixture(t, "main")
+				f.srv.config.InstallMainMirror = install
+				out, err := exec.Command("git", "--git-dir", f.repo.gitDir, "update-ref", swap.deleted, f.base).CombinedOutput()
+				require.NoError(t, err, string(out))
+				before := rawRefs(t, f.repo.gitDir)
+
+				body := nonAtomicPushBody(t, f, tip,
+					installCommand{f.base, laneZeroOID, swap.deleted},
+					installCommand{laneZeroOID, tip, swap.created})
+				rec := postReceivePack(t, f, body, repohost.PusherCredentialHeader, "run", "X-Smithers-Allowed-Paths", lane)
+				require.Equal(t, http.StatusForbidden, rec.Code, rec.Body.String())
+				assert.Contains(t, rec.Body.String(), "outside the agent lane")
+				assert.Equal(t, before, rawRefs(t, f.repo.gitDir), "the refused swap stayed applied")
+				assert.NoFileExists(t, filepath.Join(f.repo.gitDir, rollbackHoldFile))
+
+				rec = postReceivePack(t, f, f.pushBody(f.base, tip, swap.deleted), repohost.PusherCredentialHeader, "person")
+				require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
+				assert.Equal(t, tip, rawRefs(t, f.repo.gitDir)[swap.deleted])
+			})
+		}
 	}
 }
 
@@ -210,6 +286,48 @@ func TestUnlistablePushHoldsTheRepository(t *testing.T) {
 			require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
 		})
 	}
+}
+
+// Fable round 4, R4-2 / Astra N3: a writer queued behind a push that holds
+// the repository is refused once it gets the lock. At round 4 the hold was
+// checked only before the wait, and the queued push wrote.
+func TestQueuedWriterRechecksTheRollbackHold(t *testing.T) {
+	f, tip := installFixture(t, "main")
+	repoPath := f.srv.config.RepoPath("alice", "demo")
+	unlock, err := f.srv.locks.Lock(context.Background(), repoPath)
+	require.NoError(t, err)
+	body := f.pushBody(laneZeroOID, tip, "refs/heads/feature")
+	queued := make(chan *httptest.ResponseRecorder, 1)
+	go func() {
+		queued <- postReceivePack(t, f, body, repohost.PusherCredentialHeader, "person")
+	}()
+	require.Eventually(t, func() bool {
+		f.srv.locks.mu.Lock()
+		defer f.srv.locks.mu.Unlock()
+		entry := f.srv.locks.locks[repoPath]
+		return entry != nil && entry.refs == 2
+	}, 10*time.Second, time.Millisecond, "the second push never queued for the lock")
+
+	// The push ahead of it could not roll back: it holds the repository,
+	// then releases the lock.
+	held := f.srv.holdFailedRollback(f.repo.gitDir, &rollbackFailure{err: errors.New("restore refs: cannot lock ref")})
+	var appErr *appError
+	require.ErrorAs(t, held, &appErr)
+	require.FileExists(t, filepath.Join(f.repo.gitDir, rollbackHoldFile))
+	unlock()
+
+	var rec *httptest.ResponseRecorder
+	select {
+	case rec = <-queued:
+	case <-time.After(30 * time.Second):
+		t.Fatal("the queued push never answered")
+	}
+	require.Equal(t, http.StatusServiceUnavailable, rec.Code, rec.Body.String())
+	assert.Equal(t, repohost.RollbackHeldCode, rec.Header().Get("X-Smithers-Error-Code"))
+	assert.NotContains(t, rawRefs(t, f.repo.gitDir), "refs/heads/feature", "the queued push wrote to a held repository")
+	f.srv.locks.mu.Lock()
+	assert.Empty(t, f.srv.locks.locks, "the refused writer kept a lock")
+	f.srv.locks.mu.Unlock()
 }
 
 // serveGit serves one authenticated GET to the repo-host git routes.

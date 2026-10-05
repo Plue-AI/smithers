@@ -217,12 +217,15 @@ func collectTouchedPaths(ctx context.Context, gitDir string, include, exclude []
 }
 
 // restoreGitRefs puts every ref the push changed back to its before value
-// in one `git update-ref --stdin` transaction. Only refs whose value differs
+// in two `git update-ref --stdin` transactions: the deletes of refs the push
+// created, then the creates and updates. A push may delete refs/heads/a and
+// create refs/heads/a/b; one transaction restoring both is refused on the
+// name conflict, so the created ref goes first. Only refs whose value differs
 // between the listings are written, so a repository holding thousands of
-// refs/jj/keep/* pins still rolls back with a single git process. Each
+// refs/jj/keep/* pins still rolls back with at most two git processes. Each
 // command names the after value as the expected old value: a ref that moved
-// again since the listing aborts the whole transaction instead of being
-// clobbered.
+// again since the listing aborts its transaction instead of being clobbered,
+// and the restore fails.
 //
 // The rollback is itself a ref writer, so it never dereferences. Each command
 // writes the ref it names (--no-deref), every name passes
@@ -234,7 +237,7 @@ func restoreGitRefs(ctx context.Context, gitDir string, before, after map[string
 	if err != nil {
 		return fmt.Errorf("restore refs: %w", err)
 	}
-	var commands bytes.Buffer
+	var deletes, writes bytes.Buffer
 	for _, refName := range sortedRefNames(before, after) {
 		oldOID, existed := before[refName]
 		newOID, exists := after[refName]
@@ -249,20 +252,22 @@ func restoreGitRefs(ctx context.Context, gitDir string, before, after map[string
 		}
 		switch {
 		case existed && exists:
-			fmt.Fprintf(&commands, "update %s\x00%s\x00%s\x00", refName, oldOID, newOID)
+			fmt.Fprintf(&writes, "update %s\x00%s\x00%s\x00", refName, oldOID, newOID)
 		case existed:
-			fmt.Fprintf(&commands, "create %s\x00%s\x00", refName, oldOID)
+			fmt.Fprintf(&writes, "create %s\x00%s\x00", refName, oldOID)
 		default:
-			fmt.Fprintf(&commands, "delete %s\x00%s\x00", refName, newOID)
+			fmt.Fprintf(&deletes, "delete %s\x00%s\x00", refName, newOID)
 		}
 	}
-	if commands.Len() == 0 {
-		return nil
-	}
-	cmd := hostexec.Git(ctx, "--git-dir", gitDir, "update-ref", "--no-deref", "--stdin", "-z")
-	cmd.Stdin = &commands
-	if out, err := cmd.CombinedOutput(); err != nil {
-		return fmt.Errorf("restore refs: %w: %s", err, strings.TrimSpace(string(out)))
+	for _, commands := range []*bytes.Buffer{&deletes, &writes} {
+		if commands.Len() == 0 {
+			continue
+		}
+		cmd := hostexec.Git(ctx, "--git-dir", gitDir, "update-ref", "--no-deref", "--stdin", "-z")
+		cmd.Stdin = commands
+		if out, err := cmd.CombinedOutput(); err != nil {
+			return fmt.Errorf("restore refs: %w: %s", err, strings.TrimSpace(string(out)))
+		}
 	}
 	return nil
 }

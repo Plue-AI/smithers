@@ -441,17 +441,21 @@ func listGitRefs(ctx context.Context, gitDir string, patterns ...string) (map[st
 		return nil, fmt.Errorf("list git refs: %w", waitErr)
 	}
 
+	// Each line is "<refname>\x00<objectname>\n". A ref name is kept byte for
+	// byte: git admits names that end in a Unicode space such as U+00A0, and
+	// trimming one would undercount the listing (refuseRefListingGrowth) and
+	// name a different ref in a rollback.
 	refs := make(map[string]string)
-	for _, line := range strings.Split(strings.TrimSpace(string(output)), "\n") {
-		if strings.TrimSpace(line) == "" {
+	for _, line := range strings.Split(string(output), "\n") {
+		if line == "" {
 			continue
 		}
 		parts := strings.SplitN(line, "\x00", 2)
 		if len(parts) != 2 {
 			return nil, fmt.Errorf("parse git ref listing: malformed line %q", line)
 		}
-		refName := strings.TrimSpace(parts[0])
-		objectID := strings.TrimSpace(parts[1])
+		refName := parts[0]
+		objectID := parts[1]
 		if refName == "" || !validGitObjectID(objectID) {
 			return nil, fmt.Errorf("parse git ref listing: malformed line %q", line)
 		}
