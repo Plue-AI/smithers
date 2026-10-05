@@ -9,6 +9,7 @@ import { lstat, readdir } from "node:fs/promises"
 import { createRequire } from "node:module"
 import { fileURLToPath, pathToFileURL } from "node:url"
 import * as ContainedProcess from "./internal/ContainedProcess.ts"
+import { PackageError } from "./PackageError.ts"
 
 /** Runs fresh CLI processes until interrupted, cancelling stale work when an input changes.
  * @category execution
@@ -64,7 +65,8 @@ export const run = async (options: {
     const since = observed
     return Effect.tryPromise({
       try: () => digest(options.root, relevant),
-      catch: (cause) => cause instanceof Error ? cause : new Error("workspace rescan failed", { cause })
+      catch: (cause) =>
+        cause instanceof Error ? cause : new PackageError("watch_refresh_failed", "workspace rescan failed", { cause })
     }).pipe(Effect.map((tree) => {
       baseline = tree
       baselineObserved = since

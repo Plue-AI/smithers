@@ -11,7 +11,8 @@ const fixtureEntry = vi.hoisted(() => ({
   // stream under load does; `notify` still delivers an injected one.
   drop: false,
   notify: (_event: string, _file: string | null) => {},
-  rootReads: 0
+  rootReads: 0,
+  rescanFailure: undefined as unknown
 }))
 vi.mock("node:fs", async (original) => {
   const fs = await original<typeof import("node:fs")>()
@@ -29,6 +30,7 @@ vi.mock("node:fs", async (original) => {
 vi.mock("node:fs/promises", async (original) => {
   const fs = await original<typeof import("node:fs/promises")>()
   const readdir = ((path: string, options: object) => {
+    if (fixtureEntry.rescanFailure !== undefined) return Promise.reject(fixtureEntry.rescanFailure)
     if (path === fixtureEntry.manifest.slice(0, -"/package.json".length)) fixtureEntry.rootReads++
     return fs.readdir(path, options as never)
   }) as typeof fs.readdir
@@ -69,6 +71,7 @@ afterEach(async () => {
   vi.restoreAllMocks()
   fixtureEntry.drop = false
   fixtureEntry.rootReads = 0
+  fixtureEntry.rescanFailure = undefined
   for (const pid of pids.splice(0)) if (alive(pid)) process.kill(pid, "SIGKILL")
   for (const root of roots.splice(0)) await Fs.rm(root, { recursive: true, force: true })
 })
@@ -436,6 +439,33 @@ describe.skipIf(process.platform === "win32")("watch process-group containment",
       })
     ).toEqual({ cycles: 1, exitCode: 1, stopped: true })
   })
+
+  it.each([new TypeError("rescan unavailable"), { detail: "rescan unavailable" }])(
+    "preserves initial rescan failures and never launches a cycle: %j",
+    async (cause) => {
+      const root = await fixture("")
+      fixtureEntry.rescanFailure = cause
+      const launch = vi.spyOn(ContainedProcess, "runEffect")
+      const result = Watch.run({
+        root,
+        args: [],
+        ignored: [],
+        debounceMs: 1,
+        once: false,
+        stdout: () => {},
+        stderr: () => {}
+      })
+      if (cause instanceof Error) await expect(result).rejects.toBe(cause)
+      else {
+        await expect(result).rejects.toMatchObject({
+          _tag: "smithers-build/PackageError",
+          code: "watch_refresh_failed",
+          cause
+        })
+      }
+      expect(launch).not.toHaveBeenCalled()
+    }
+  )
 
   it("fails the watch when a rescan cannot read the workspace", async () => {
     const root = await fixture("")

@@ -1,6 +1,6 @@
 ---
 title: "API reference"
-description: "Every export of @smthrs/build-cli: the CLI constructors, the process entry, the install adapter, and the sixteen namespaces the root barrel re-exports, with signatures."
+description: "Every export of @smthrs/build-cli: the CLI constructors, the process entry, the install adapter, and the fifteen namespaces the root barrel re-exports, with signatures."
 ---
 
 ```ts
@@ -53,7 +53,14 @@ runtime signal and environment through to discovery.
 only after its owned POSIX process group is gone. File changes, watcher errors,
 and the caller's signal all await that cleanup. Cleanup failure rejects the
 watch instead of starting another cycle. See [Commands](./cli.md) for the
-platform and parent-crash limits.
+platform and parent-crash limits. Workspace rescan failures that are not
+`Error` instances carry `PackageError` with code `watch_refresh_failed`
+and preserve the original `cause`.
+
+Trusted review refuses duplicate or inconsistent index labels with the tagged
+`smithers-build/ReviewRefused` error and code `invalid_index_labels`. A proposed
+policy projection exceeding the review file limit uses the same tag with code
+`policy_changes_too_large`. Both preserve the operator diagnostic in `message`.
 
 ### makeCli
 
@@ -93,6 +100,7 @@ interface RuntimeConfig {
   readonly stderr?: Reporter.Terminal | undefined
   readonly presentation?: Audience.Policy | undefined
   readonly exit?: ((code: number) => void) | undefined
+  readonly approvals?: PackageExec.TargetApprovals | undefined
 }
 ```
 
@@ -115,6 +123,9 @@ This block is the one copy; the other pages link here.
 | `stderr`         | `process.stderr` as a `Reporter.Terminal`.                                                                                    |
 | `presentation`   | The ambient audience facts detection would read. `Audience.resolve` seeds from this policy; explicit flags still override it. |
 | `exit`           | The exit-code setter. Omit it and a failure returns the structured error.                                                     |
+
+`approvals` supplies the durable approval store for targets declaring
+`approval: "required"`; they refuse execution when no store is supplied.
 
 `exit` records the exit code of a failure a human renderer has already
 explained, so the envelope's error block is not printed twice; without it the

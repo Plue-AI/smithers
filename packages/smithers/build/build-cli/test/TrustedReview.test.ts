@@ -363,14 +363,22 @@ describe("TrustedReview Git boundary", () => {
       git(trustedFixture.root, "add", ".smithers/target-index.json")
       git(trustedFixture.root, "commit", "-qm", "malformed trusted index")
       await expect(prepare(options(trustedFixture.root, git(trustedFixture.root, "rev-parse", "HEAD"))))
-        .rejects.toThrow("duplicate or inconsistent labels")
+        .rejects.toMatchObject({
+          _tag: "smithers-build/ReviewRefused",
+          code: "invalid_index_labels",
+          message: "Review index contains duplicate or inconsistent labels"
+        })
 
       const proposedFixture = await fixture()
       await write(proposedFixture.root, ".smithers/target-index.json", malformed)
       git(proposedFixture.root, "add", ".smithers/target-index.json")
       git(proposedFixture.root, "commit", "-qm", "malformed proposed index")
       await expect(prepare(options(proposedFixture.root, proposedFixture.trusted)))
-        .rejects.toThrow("duplicate or inconsistent labels")
+        .rejects.toMatchObject({
+          _tag: "smithers-build/ReviewRefused",
+          code: "invalid_index_labels",
+          message: "Review index contains duplicate or inconsistent labels"
+        })
     }
   )
 
@@ -571,6 +579,23 @@ const seat =
 
 describe("TrustedReview on another host's immutable source", () => {
   const all = [Label.parse("//...", "")]
+
+  it("refuses an oversized proposed policy projection before reading source", async () => {
+    const proposed = JSON.stringify(
+      Array.from({ length: 16 }, (_, index) => row(`//:review-${index}`, policy("x".repeat(128 * 1024))))
+    )
+    const { source, reads } = memorySource({
+      base: trustedFiles,
+      head: { ...headFiles, ".smithers/target-index.json": proposed }
+    })
+    await expect(prepareSource(source, { policyRevision: "base", revision: "head", patterns: all }))
+      .rejects.toMatchObject({
+        _tag: "smithers-build/ReviewRefused",
+        code: "policy_changes_too_large",
+        message: "Proposed policy changes exceed the review limit"
+      })
+    expect(reads.every((path) => path.endsWith(":.smithers/target-index.json"))).toBe(true)
+  })
 
   it("selects trusted policy, changed and deleted source and their callers without Git", async () => {
     const { source, reads } = memorySource({ base: trustedFiles, head: headFiles })
