@@ -16,8 +16,8 @@ Two independent series retain 100 sequential writes of a 400-line file:
 
 The current service's provider path uses **two** guest execs per write, whereas
 the ticket describes one. Its provider adapter forwards real observations,
-execs, and writes to microsandbox, translating the fixed provider working-copy
-root to the microsandbox root. These are separate results, not interchangeable
+execs, and writes to microsandbox; both use `/workspace` as the working-copy
+root. These are separate results, not interchangeable
 latency claims. The runtime service path additionally validates Git/Jujutsu
 repository initialization, so this control explicitly measures the provider
 service path and does not claim to measure that runtime path.

@@ -52,7 +52,7 @@ func main() {
 	}
 }
 func run() (retErr error) {
-	mode := flag.String("mode", "all", "all|rtt|keystrokes|snapshot|serve")
+	mode := flag.String("mode", "all", "all|rtt|control|keystrokes|snapshot|serve")
 	build := flag.String("build", "", "private build directory")
 	evidence := flag.String("evidence-root", "", "checks artifact root")
 	lan := flag.String("lan", "", "host LAN IPv4 address")
@@ -62,7 +62,7 @@ func run() (retErr error) {
 	if *build == "" || *evidence == "" || net.ParseIP(*lan) == nil || net.ParseIP(*lan).IsLoopback() {
 		return errors.New("build, evidence-root and non-loopback LAN IPv4 are required")
 	}
-	if !strings.Contains(" all rtt keystrokes snapshot serve ", " "+*mode+" ") {
+	if !strings.Contains(" all rtt control keystrokes snapshot serve ", " "+*mode+" ") {
 		return errors.New("invalid mode")
 	}
 	ctx, cancel := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
@@ -167,6 +167,8 @@ func run() (retErr error) {
 		if err = h.rtt(dir03, cpus); err != nil {
 			return err
 		}
+	}
+	if *mode == "all" || *mode == "rtt" || *mode == "control" {
 		if err = control.Run(ctx, runtime, h.id, dir03); err != nil {
 			return err
 		}

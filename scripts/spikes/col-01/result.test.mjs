@@ -37,3 +37,19 @@ test('combined report rejects absent RTT, controls and browser runs', async () =
     assert.match(result.stdout, /browser.*expected 3/);
   } finally { await rm(dir, { recursive: true, force: true }); }
 });
+
+for (const [name, n, verified, status] of [['complete', 100, true, 0], ['short', 99, true, 2], ['unverified', 100, false, 2]]) {
+  test(`control-only report ${name} requires both verified 100-write baselines`, async () => {
+    const dir = await mkdtemp(join(tmpdir(), 'col01-result-'));
+    try {
+      for (const baseline of ['control', 'one-exec-control']) {
+        await writeFile(join(dir, `${baseline}-summary.json`), JSON.stringify({ n, all_readbacks_verified: verified, p50_ns: 1, p95_ns: 2, p99_ns: 3 }));
+      }
+      const result = spawnSync(process.execPath, ['scripts/spikes/col-01/result.mjs', dir, dir, dir, 'control'], { encoding: 'utf8' });
+      assert.equal(result.status, status, result.stderr);
+      assert.match(result.stdout, /control writes/);
+      if (status) assert.match(result.stdout, /expected 100 verified writes/);
+      else assert.doesNotMatch(result.stdout, /Incomplete requested measurements/);
+    } finally { await rm(dir, { recursive: true, force: true }); }
+  });
+}

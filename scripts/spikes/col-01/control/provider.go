@@ -12,8 +12,8 @@ import (
 	workspaceapi "github.com/smithersai/smithers/packages/backend/workspace"
 )
 
-// This disposable provider translates the provider's fixed working-copy root
-// to the real microsandbox root. It does not synthesize runtime observations,
+// This disposable provider uses the provider's fixed working-copy root
+// shared with the real microsandbox root. It does not synthesize runtime observations,
 // command output, write completion, repository receipts, or database results.
 type runtimeProvider struct {
 	runtime *microsandbox.Runtime
@@ -33,14 +33,13 @@ func (p *runtimeProvider) Execute(ctx context.Context, id string, request sandbo
 		ctx, cancel = context.WithTimeout(ctx, time.Duration(*request.TimeoutMS)*time.Millisecond)
 		defer cancel()
 	}
-	command := strings.ReplaceAll(request.Command, "/home/developer/workspace", "/workspace")
-	r, err := p.runtime.ExecuteCommand(ctx, id, workspaceapi.Command{Args: []string{"/bin/sh", "-c", command}})
+	r, err := p.runtime.ExecuteCommand(ctx, id, workspaceapi.Command{Args: []string{"/bin/sh", "-c", request.Command}})
 	code := int32(r.ExitCode)
 	return sandbox.ExecResult{Stdout: r.Stdout, Stderr: r.Stderr, StatusCode: &code}, err
 }
 
 func (p *runtimeProvider) WriteFile(ctx context.Context, id, path string, request sandbox.WriteFileRequest) error {
-	const root = "/home/developer/workspace/"
+	const root = "/workspace/"
 	if !strings.HasPrefix(path, root) {
 		return fmt.Errorf("control provider refuses path %q", path)
 	}

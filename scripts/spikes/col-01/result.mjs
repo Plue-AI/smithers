@@ -4,7 +4,7 @@ import { readFile, readdir, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 const [dir03, dir07, snapshotDir = dir03, mode = "all"] = process.argv.slice(2);
 const failures = [];
-if (!["all", "rtt", "keystrokes", "snapshot"].includes(mode)) throw new Error(`Unknown mode: ${mode}`);
+if (!["all", "rtt", "control", "keystrokes", "snapshot"].includes(mode)) throw new Error(`Unknown mode: ${mode}`);
 const requested = kind => mode === "all" || mode === kind;
 const read = async (p, required = false) => {
   try { return JSON.parse(await readFile(p, "utf8")); }
@@ -42,7 +42,8 @@ const fmt=n=>(n/1e6).toFixed(3);
 for(const c of rtt?.cells??[])rows.push(`| ${c.transport} RTT ${c.load} ${c.size} B | ${c.stats.n} | ${fmt(c.stats.p50_ns)} | ${fmt(c.stats.p95_ns)} | ${fmt(c.stats.p99_ns)} | Recorded host profile; same-Mac browser deviation applies to keystrokes |`);
 for(const t of rtt?.connection_setup??[])rows.push(`| ${t.transport} ready connection setup | ${t.stats.n} | ${fmt(t.stats.p50_ns)} | ${fmt(t.stats.p95_ns)} | ${fmt(t.stats.p99_ns)} | Recorded host profile; same-Mac browser deviation applies to keystrokes |`);
 for(const name of ["control","one-exec-control"]) {
-  const c=await read(join(dir03,`${name}-summary.json`), requested("rtt"));
+  const c=await read(join(dir03,`${name}-summary.json`), requested("rtt") || requested("control"));
+  if (requested("control") && (!c || c.n !== 100 || c.all_readbacks_verified !== true)) failures.push(`${name}: expected 100 verified writes`);
   if(c)rows.push(`| ${name} writes | ${c.n} | ${fmt(c.p50_ns)} | ${fmt(c.p95_ns)} | ${fmt(c.p99_ns)} | Recorded host profile; same-Mac browser deviation applies to keystrokes |`);
 }
 for(const {transport,data:d} of measuredRuns)rows.push(`| ${transport} keystrokes ${d.workload.name}${d.local_assertions!=="passed"?" FAILED":""}, actual ${Object.entries(d.editors).map(([editor,s])=>`${editor} ${s.achieved_hz.value.toFixed(3)}/s`).join(", ")} | ${d.sample_count.value} | ${d.p50_ms.value.toFixed(3)} | ${d.p95_ms.value.toFixed(3)} | ${d.p99_ms.value.toFixed(3)} | Two headless tabs on this Mac via LAN IPv4; second Mac not run |`);

@@ -15,7 +15,7 @@ No container runtime or guest build toolchain is needed. The Rust toolchain cros
 binaries with its bundled musl and LLD.
 
 Modes: `rtt` (both transports, idle/busy, setup, controls), `keystrokes` (both
-transports), `snapshot` (jj burst capture), and `serve relay|bridge` (keep one document VM and host endpoint up
+transports), `control` (retry only the write baselines), `snapshot` (jj burst capture), and `serve relay|bridge` (keep one document VM and host endpoint up
 for a second Mac). The default runs everything. `SPIKE_LAN` selects the LAN
 IPv4 address; otherwise it uses the default-route interface (`SPIKE_INTERFACE` overrides it). It refuses loopback. The HTTP server
 binds exactly that address and loopback, uses plain HTTP, and exposes no UI.

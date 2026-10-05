@@ -158,7 +158,7 @@ func Run(ctx context.Context, runtime *microsandbox.Runtime, workspaceID, artifa
 	}, read); err != nil {
 		return err
 	}
-	method := map[string]any{"service": "WorkspaceService.WriteWorkspaceFile", "service_path": "sandbox provider with live microsandbox adapter", "service_execs_per_write": 2, "one_exec_path": "microsandbox.Runtime.WriteFile", "one_exec_execs_per_write": 1, "postgres": "isolated local unix socket; product table definitions; fsync enabled; permission and DB work inside service interval", "path_translation": "provider /home/developer/workspace becomes microsandbox /workspace", "readback": "real VM Runtime.ReadFile after each write; outside measured interval", "samples_per_path": 100, "warmup_discarded": 0}
+	method := map[string]any{"service": "WorkspaceService.WriteWorkspaceFile", "service_path": "sandbox provider with live microsandbox adapter", "service_execs_per_write": 2, "one_exec_path": "microsandbox.Runtime.WriteFile", "one_exec_execs_per_write": 1, "postgres": "isolated local unix socket; product table definitions; fsync enabled; permission and DB work inside service interval", "path_translation": "provider and microsandbox share /workspace", "readback": "real VM Runtime.ReadFile after each write; outside measured interval", "samples_per_path": 100, "warmup_discarded": 0}
 	data, err := json.MarshalIndent(method, "", "  ")
 	if err != nil {
 		return err
