@@ -75,9 +75,9 @@ which the host writes beside its other built-ins with the body
 are fast checks; test is the slow check. A Go repository gets `go test ./...`,
 `go vet ./...` and `go build ./...`; a pnpm repository with `test` and `lint`
 scripts gets `pnpm run test` and `pnpm run lint`. A field the file declares,
-including an empty `checks`, always wins. Planning still needs a required fast
-and a required slow check, so a request in a repository whose detected
-commands lack either fails at planning.
+including an empty `checks`, always wins. Planning takes any number of checks:
+a repository with only a `test` script plans with that one slow check, and one
+with no detected command plans with none (mvp.md J1.4).
 
 ## Landing
 

@@ -53,7 +53,8 @@ commit is rewritten. A planned new atom has `changeId: null` until JJ creates it
 `Revision` records JJ change, commit, tree, operation, and parent commit IDs.
 The product Change's `id` is a grouping label, not another identity for an atom.
 
-Every Change has at least one required fast and slow check. Fast receipts gate
+A Change carries every required check the repository has, which may be one or
+none. Fast receipts gate
 the next implementation. Slow checks run alongside subsequent Changes. Required
 delivery checks are deferred to the later vibing/landing workflow. Implementation
 evidence must form a single parent chain from the exact supplied parent, retain

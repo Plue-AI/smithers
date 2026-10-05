@@ -135,8 +135,11 @@ atom. An append uses the current head as base. An amendment chooses a visible
 earlier base and retains every existing descendant after it in native
 order; new atoms may sit anywhere after the base. Missing context, omitted/reordered descendants, duplicate
 ownership, unknown checks, and paths escaping the repository or entering native
-metadata are refused. Each Change receives all configured required checks and
-needs a required fast and required slow check. New atoms may be inserted between
+metadata are refused. Each Change receives all configured required checks, however
+many the repository has: one check gates its own tier and the final assessment,
+and a repository with none plans a Change with no checks, which its evidence
+reports as no checks found. A gathered context that breaks its own schema fails
+`execution` with the schema reason, not `stale_revision`. New atoms may be inserted between
 existing ones: the native adapter creates them with `jj new --insert-after` and JJ
 restacks what follows. Existing atoms are never reordered or dropped. When the
 request is not actionable (already done, only a question, a duplicate, an open

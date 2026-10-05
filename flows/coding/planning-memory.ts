@@ -40,6 +40,17 @@ export interface MemoryOptions {
   readonly maxMemoryBytes?: number
 }
 const failure = (message: string) => new CodingError({ code: "stale_revision", message })
+/**
+ * The refusal of a gathered context that breaks its own schema, with the
+ * schema's reason. Coded `execution`, a host fault no replan fixes, not
+ * `stale_revision`: the 2026-10-05 walk's one-check repository failed here
+ * three times as "stale" and its card said only Failed.
+ */
+export const contractFailure = (reason: string) =>
+  new CodingError({
+    code: "execution",
+    message: `Gathered planning context violates its contract: ${reason.replace(/\s+/g, " ").trim().slice(0, 1_000)}`
+  })
 const bytes = (value: unknown) => new TextEncoder().encode(JSON.stringify(value)).length
 
 type WikiPage = {
@@ -332,8 +343,10 @@ export const gather = (
     if (bytes({ ...context, sources: [] }) > 128 * 1024) {
       return yield* failure("Planning context exceeds 128 KiB; narrow the native history or wiki budget")
     }
+    // A context this host gathered that its own contract refuses is a host
+    // fault, not a source that moved: name the field that broke the contract.
     return yield* Schema.decodeUnknownEffect(PlanningContext)(context).pipe(
-      Effect.mapError(() => failure("Gathered planning context violates its native or catalog contract"))
+      Effect.mapError((error) => contractFailure(error.message))
     )
   }).pipe(Effect.mapError((error) =>
     error instanceof CodingError ? error : failure(

@@ -18,7 +18,8 @@ import {
 } from "./schema.ts"
 export const VerifyInput = Schema.Struct({
   source: StackBase,
-  checks: Schema.Array(Check).check(Schema.isMinLength(1), Schema.isMaxLength(64)),
+  // Any number up to 64, including none, as planning allows (validatePlan).
+  checks: Schema.Array(Check).check(Schema.isMaxLength(64)),
   // Every path the candidate changed against the tip it was rebased onto, so
   // an affected check selects the targets those paths reach.
   writes: Schema.Array(Schema.NonEmptyString)
@@ -54,22 +55,16 @@ export const verifyImplementation = (
   writes: [...writes]
 })
 
-/** Why a check set cannot verify anything (repeated ids, no required fast and slow check), or undefined. */
+/**
+ * Why a check set cannot verify anything (repeated ids), or undefined. Like a
+ * plan, a verification may run one check or none: none passes with no
+ * receipts, which the evidence reports as no checks found.
+ */
 export const verifyChecksRefusal = (checks: ReadonlyArray<typeof Check.Type>): CodingError | undefined => {
   const ids = checks.map((check) => check.id)
-  if (new Set(ids).size !== ids.length) {
-    return new CodingError({ code: "invalid_request", message: "Verification checks repeat an id" })
-  }
-  if (
-    !checks.some((check) => check.required && check.tier === "fast") ||
-    !checks.some((check) => check.required && check.tier === "slow")
-  ) {
-    return new CodingError({
-      code: "invalid_request",
-      message: "Verification needs a required fast check and a required slow check"
-    })
-  }
-  return undefined
+  return new Set(ids).size === ids.length
+    ? undefined
+    : new CodingError({ code: "invalid_request", message: "Verification checks repeat an id" })
 }
 
 /**

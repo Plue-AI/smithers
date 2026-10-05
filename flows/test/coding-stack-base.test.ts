@@ -237,7 +237,7 @@ test(
     )
     assert.equal(realRed.status, "failed")
     assert.deepEqual(realRed.failed, ["slow"])
-    // Repeated ids, or no required slow check, are refused before any check runs.
+    // Repeated ids are refused before any check runs.
     const before = ran.length
     const repeated = await host.runPromise(
       Effect.flip(
@@ -247,10 +247,17 @@ test(
       )
     )
     assert.match(JSON.stringify(repeated), /repeat an id/)
-    const fastOnly = await host.runPromise(
-      Effect.flip(Verify.execute({ source: base, checks: [checks[0]!], writes }, { executionId: "verify-4" }))
-    )
-    assert.match(JSON.stringify(fastOnly), /required slow check/)
     assert.equal(ran.length, before)
+    // Like a plan, a verification runs the one check a repository has, or none.
+    failing = []
+    const one = await host.runPromise(
+      Verify.execute({ source: base, checks: [checks[1]!], writes }, { executionId: "verify-4" })
+    )
+    assert.deepEqual([one.status, one.receipts.map((receipt) => receipt.checkId)], ["passed", [checks[1]!.id]])
+    const none = await host.runPromise(
+      Verify.execute({ source: base, checks: [], writes }, { executionId: "verify-5" })
+    )
+    assert.deepEqual([none.status, none.failed, none.receipts], ["passed", [], []])
+    assert.equal(ran.length, before + 1)
   }
 )

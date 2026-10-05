@@ -1,25 +1,30 @@
-import { NodeCrypto } from "@effect/platform-node"
+import { NodeCrypto, NodeServices } from "@effect/platform-node"
 import * as Budget from "@smthrs/agent/Budget"
 import * as RunawayGuard from "@smthrs/agent/RunawayGuard"
 import { FlowEngine } from "@smthrs/engine"
 import { Action, FlowRuntime, HumanTask, Interpreter } from "@smthrs/flow"
-import { Effect, Exit, Layer, ManagedRuntime, Option } from "effect"
+import { Effect, Exit, Layer, ManagedRuntime, Option, Schema } from "effect"
 import assert from "node:assert/strict"
+import { mkdtemp, rm, writeFile } from "node:fs/promises"
+import { tmpdir } from "node:os"
+import { join } from "node:path"
 import { test } from "node:test"
+import { contractFailure } from "../coding/planning-memory.ts"
 import {
   declineLayer,
-  type Draft,
+  Draft,
   DraftPlan,
   finalize,
   GatherContext,
-  type PlanningContext,
+  PlanningContext,
   planningPolicy,
   PreparePlan,
   preparePlanLayer,
   ReviewRequest,
   VerifyContext
 } from "../coding/planning.ts"
-import { type Check, CodingError, type Revision } from "../coding/schema.ts"
+import { detectChecks } from "../coding/project-config.ts"
+import { type Check, CodingError, type Revision, validatePlan } from "../coding/schema.ts"
 
 /*
  * Plans place work anywhere in the mythical stack: a new change may be
@@ -93,6 +98,40 @@ test("an amendment of the oldest visible change keeps every descendant", () => {
   // Appending is still the head-based plan.
   const append = finalize(input, context, draft(c.changeId, [atom(null, "✨ feat: d")]))
   assert.equal(append.base.changeId, c.changeId)
+})
+
+test("a repository with one detected check, or none, plans (mvp.md J1.4)", async () => {
+  // The 2026-10-05 walk: a package.json with only `test` detects one slow
+  // check, and planning refused it three times as stale_revision.
+  const root = await mkdtemp(join(tmpdir(), "coding-planning-checks-"))
+  try {
+    await writeFile(join(root, "package.json"), JSON.stringify({ scripts: { test: "node --test" } }))
+    const detected = await Effect.runPromise(detectChecks(root).pipe(Effect.provide(NodeServices.layer)))
+    const one = detected.checks.map((check) => ({ ...check, flowDigest: "t".repeat(64) }))
+    assert.deepEqual(one.map((check) => `${check.id}:${check.tier}`), ["test:slow"])
+    for (const repository of [one, []]) {
+      const gathered = Schema.decodeUnknownSync(PlanningContext)({ ...context, checks: repository })
+      // The model may select nothing: the host attaches every required check.
+      const appended = draft(c.changeId, [atom(null, "✅ test: cover d")])
+      const drafted = Schema.decodeUnknownSync(Draft)({
+        ...appended,
+        changes: [{ ...appended.changes[0]!, checks: [] }]
+      })
+      const plan = finalize(input, gathered, drafted)
+      assert.deepEqual(plan.changes[0]!.checks, repository)
+      // A plan with one check, or none, is a valid plan everywhere it is read.
+      assert.doesNotThrow(() => validatePlan(plan))
+    }
+  } finally {
+    await rm(root, { recursive: true, force: true })
+  }
+})
+
+test("a gathered context that breaks its contract names why, as a host fault, not a stale source", () => {
+  const error = Effect.runSync(Effect.flip(Schema.decodeUnknownEffect(PlanningContext)({ ...context, history: [] })))
+  const refusal = contractFailure(error.message)
+  assert.equal(refusal.code, "execution")
+  assert.match(refusal.message, /^Gathered planning context violates its contract: .*history/)
 })
 
 test("reordering or dropping an existing descendant is refused", () => {

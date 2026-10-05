@@ -43,7 +43,9 @@ export const PlanningContext = Schema.Struct({
   memoryRevision: Text,
   implementation: Text,
   implementationDigest: Text,
-  checks: Schema.Array(Check).check(Schema.isMinLength(2)),
+  // Any number, including none: a repository with only a test script, or with
+  // no detected command at all, still plans (mvp.md J1.4).
+  checks: Schema.Array(Check),
   // The current text of the files the request names, read by the host. Optional
   // only so a run parked before this field existed still replays its captured
   // context; every gathered context carries both arrays.
@@ -61,7 +63,7 @@ export const Draft = Schema.Struct({
     title: Text,
     intent: Text,
     atoms: Schema.Array(AtomicPlan).check(Schema.isMinLength(1), Schema.isMaxLength(100)),
-    checks: Schema.Array(Text).check(Schema.isMinLength(2))
+    checks: Schema.Array(Text)
   })).check(Schema.isMinLength(1), Schema.isMaxLength(50))
 })
 export type Draft = typeof Draft.Type
@@ -120,7 +122,7 @@ export const DraftPlan = AgentAction.make("coding/draft-plan", {
     "Place work where it belongs in the history. To append, choose the current head as baseChangeId and list only new atoms. To amend an older change or insert a new change after it, choose the visible native change before the first one you touch as base, then list every existing atom after that base through the current head in native order, with new atoms placed between them exactly where they belong. Do not omit, duplicate or reorder existing descendants.",
     "Appending is the cheapest to reconcile with other work in flight; amend or insert only when the change genuinely belongs inside existing history (a fix to the change that introduced a bug, a missing piece of an existing feature).",
     "Use small contained intents and predict files read and written for every atom. Put fundamental stable work before volatile details when creating new atoms. Preserve existing descendants with explicit keep/revalidate intents if they require no edits.",
-    "Select check IDs only from context.checks. The host always includes every operator-required check on each Change; you may select additional optional checks. Each Change needs a required fast check and a required slow check. Delivery checks retain their later delivery tier. Model assertions do not replace checks.",
+    "Select check IDs only from context.checks. The host always includes every operator-required check on each Change; you may select additional optional checks. When context.checks is empty, select none and say No checks found in the rationale. Delivery checks retain their later delivery tier. Model assertions do not replace checks.",
     "context.sources holds the current text of the files the request names; do not ask the human for file contents that are present there; ask only when a file is listed under missing and the request depends on it.",
     "Cited wiki decision pages are binding constraints. If the plan departs from one, name its slug and revision and explain why in the plan text.",
     "The memory block holds accepted lessons from earlier failed checks and reviews in this repository; plan so they do not recur.",

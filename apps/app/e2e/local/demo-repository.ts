@@ -3,10 +3,9 @@ export const README = "# demo\n\nThe local walk's repository.\n"
 
 /**
  * The C-J1-06 Node canary on main: no `.smithers/`, so setup step 6 detects Node 22
- * and pnpm 9 and builds a real machine image with one locked dependency. Planning
- * needs a required fast check and a required slow check (flows/coding/schema.ts
- * validatePlan): the detector reads `lint` as fast and `test` as slow, and both
- * pass on main and after the TODO's edit to JOURNEY.md.
+ * and pnpm 9 and builds a real machine image with one locked dependency. The
+ * detector reads `lint` as a fast check and `test` as a slow one, so the walk
+ * runs both tiers; both pass on main and after the TODO's edit to JOURNEY.md.
  */
 export const NODE_CANARY: Readonly<Record<string, string>> = {
   ".node-version": "22\n",

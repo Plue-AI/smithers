@@ -234,7 +234,14 @@ export const receiptOutage = (receipt: Receipt): CodingError | undefined =>
     ? new CodingError({ code: "check_infra", message: `${receipt.target}: check infrastructure unavailable` })
     : undefined
 
-/** Validate invariants before any implementation or check is scheduled. */
+/**
+ * Validate invariants before any implementation or check is scheduled.
+ *
+ * A Change may carry any number of checks, including none: planning attaches
+ * every required check the repository has (`finalize`), and a repository may
+ * have one check or none (mvp.md J1.4). A lone check gates its own tier and
+ * the final assessment, which reads every non-delivery receipt (`Assess`).
+ */
 export const validatePlan = (plan: Plan): void => {
   const groups = new Set<string>(), nativeChanges = new Set<string>()
   for (const change of plan.changes) {
@@ -246,15 +253,6 @@ export const validatePlan = (plan: Plan): void => {
         throw new CodingError({ code: "invalid_plan", message: `Duplicate check ${check.id} in ${change.id}` })
       }
       checks.add(check.id)
-    }
-    if (
-      !change.checks.some((check) => check.required && check.tier === "fast") ||
-      !change.checks.some((check) => check.required && check.tier === "slow")
-    ) {
-      throw new CodingError({
-        code: "invalid_plan",
-        message: `${change.id} needs a required fast check and a required slow check`
-      })
     }
     for (const atom of change.atoms) {
       if (atom.changeId === null) continue

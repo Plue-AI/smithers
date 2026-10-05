@@ -310,7 +310,7 @@ test("invalid plan policy is refused before implementation starts", { timeout: 6
     ...plan,
     changes: plan.changes.map((change) => ({
       ...change,
-      checks: change.checks.filter((check) => check.tier !== "slow")
+      checks: [...change.checks, change.checks[0]!]
     }))
   }
   const runtime = wiring(repo, ({ change }) =>
@@ -320,7 +320,7 @@ test("invalid plan policy is refused before implementation starts", { timeout: 6
     }), ({ implementation: impl, check }) => Effect.succeed(receipt(impl, check)))
   await assert.rejects(
     Effect.runPromise(Effect.scoped(ImplementPlan.execute({ plan: invalid }).pipe(Effect.provide(runtime)))),
-    /required slow check/
+    /Duplicate check/
   )
   assert.deepEqual(called, [])
 })
