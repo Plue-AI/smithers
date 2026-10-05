@@ -11,7 +11,9 @@
  * text unscrubbed is caught; `reads`, on Chat Completions, is the app agent asked
  * about a file: offered the `commands` tool and a question naming a path, it
  * calls files.read on that path, and handed a tool result it answers by quoting
- * it), a credential that is not byte-equal
+ * it; the install's role models INSTALL_MODEL answer as `reads` (fast) and
+ * `answers` (Decisions), so an install sent here by SMITHERS_MODEL_PROVIDER_ORIGIN
+ * passes Model access and its app agent reads files), a credential that is not byte-equal
  * to SMITHERS_MODEL_PROVIDER_KEY is 401, and "down" is a SIGTERM of this
  * process. GET /__journal is append-only evidence that holds a credential's
  * sha256 and never its value. Any session may launch its own copy through
@@ -22,7 +24,7 @@
  */
 import { createHash, timingSafeEqual } from "node:crypto"
 import {
-  PROVIDER_CONFIDENCE, PROVIDER_ECHO_LEAD, PROVIDER_MODEL, PROVIDER_PATHS, PROVIDER_READ_LEAD, PROVIDER_REPLY, PROVIDER_RETRY_AFTER_SECONDS,
+  INSTALL_MODEL, PROVIDER_CONFIDENCE, PROVIDER_ECHO_LEAD, PROVIDER_MODEL, PROVIDER_PATHS, PROVIDER_READ_LEAD, PROVIDER_REPLY, PROVIDER_RETRY_AFTER_SECONDS,
   type ProviderJournalEntry, type ProviderProtocol
 } from "./model-provider-behaviors"
 
@@ -40,7 +42,8 @@ const sha = (value: string): string => createHash("sha256").update(value).digest
 // Both sides are hashed first, so the comparison is constant-time and length-blind.
 const same = (left: string, right: string): boolean =>
   timingSafeEqual(createHash("sha256").update(left).digest(), createHash("sha256").update(right).digest())
-const known = new Set<string>(Object.values(PROVIDER_MODEL))
+const known = new Set<string>([...Object.values(PROVIDER_MODEL), ...Object.values(INSTALL_MODEL)])
+const reads = new Set<string>([PROVIDER_MODEL.reads, INSTALL_MODEL.fast])
 const isRecord = (value: unknown): value is Record<string, unknown> => typeof value === "object" && value !== null && !Array.isArray(value)
 
 const json = (status: number, body: unknown, headers: Record<string, string> = {}): Response =>
@@ -187,7 +190,7 @@ const serve = async (protocol: ProviderProtocol, request: Request): Promise<Resp
   const cut = Math.ceil(presented.length / 2)
   const reply = modelId === PROVIDER_MODEL.echoes
     ? [`${PROVIDER_ECHO_LEAD}${presented.slice(0, cut).repeat(2)}`, presented.slice(cut), presented.slice(cut)] : PROVIDER_REPLY
-  const read = protocol === "openai-chat" && modelId === PROVIDER_MODEL.reads ? readsAnswer(modelId, body) : undefined
+  const read = protocol === "openai-chat" && reads.has(modelId) ? readsAnswer(modelId, body) : undefined
   if (read !== undefined) return record(read)
   const answer = record(
     protocol === "evaluation" ? evaluate(questions ?? {})

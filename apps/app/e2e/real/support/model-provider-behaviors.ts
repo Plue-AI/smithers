@@ -9,6 +9,13 @@ export const PROVIDER_MODEL = {
 } as const
 export type ProviderModelId = typeof PROVIDER_MODEL[keyof typeof PROVIDER_MODEL]
 
+/**
+ * The install's own role models (packages/backend install_setup.go InstallFastModel and the Decisions role), which an
+ * install pointed here by SMITHERS_MODEL_PROVIDER_ORIGIN asks for: the fast model behaves as `reads`, so the app agent
+ * on Cerebras reads files, and Decisions as `answers`.
+ */
+export const INSTALL_MODEL = { fast: "gpt-oss-120b", decisions: "typesafe-ai/jev" } as const
+
 /** The assistant text every successful generation streams, in two deltas. */
 export const PROVIDER_REPLY = ["loopback ", "pong"] as const
 /** What a `reads` generation says before the tool result it was handed. */

@@ -489,10 +489,13 @@ under `/tmp`. Ctrl-C stops all three processes and deletes that directory;
 `--keep` keeps it. `--no-browser` starts just the two servers.
 
 Address, Create GitHub App, sign-in, repository selection and model access work
-through the Setup card. The unattended walk needs no provider key: it saves the
-key of the loopback model stand-in (`e2e/real/support/model-provider.ts`) and
-makes the stand-in's `e2e-reads` model the coding model. After Source ready it
-asks the app agent about `README.md`; the host reads the file from the mirrored
+through the Setup card. The walk needs no provider key and sends no model call
+off the Mac: the launcher points every built-in model provider at the loopback
+model stand-in (`e2e/real/support/model-provider.ts`), and the walk saves the
+stand-in's key as the Cerebras key, the Anthropic coding key (model
+`e2e-answers`) and the AI Gateway key. Model access tests each key at the
+stand-in. After Source ready it asks the app agent, which runs on the fast
+model, about `README.md`; the host reads the file from the mirrored
 `main` as the signed-in owner and the answer shows its File card. `local-owner/demo`
 is a Node canary (`.node-version`, `packageManager`, `pnpm-lock.yaml`), so
 Machine ready loads the bundle's base image and builds main's toolchain and
@@ -515,9 +518,13 @@ removed. Later rows remain blocked by the first unfinished step.
 
 Only the browser's manifest form POST to GitHub is carried to the stand-in;
 other GitHub browser requests are aborted and fail the walk. The test launcher
-injects the three existing GitHub base variables through its spawn hook and
-uses a refusing HTTPS proxy for backend HTTP calls. The installed backend keeps
-those three base URLs, like the proxy variables, because they name no file
-(`apps/backend/installed.go`). The production launcher's passthrough list is
-unchanged. Existing configuration-file overrides for auth
+injects the three existing GitHub base variables and
+`SMITHERS_MODEL_PROVIDER_ORIGIN` through its spawn hook and uses a refusing
+HTTPS proxy for backend HTTP calls. The installed backend keeps those values,
+like the proxy variables, because they name no file
+(`apps/backend/installed.go`). The model origin must be an `http` loopback
+origin with a port, or the backend refuses to start; the backend sends a
+built-in key there under a stand-in credential name pinned to that origin
+alone. Unset, every key goes to its provider. The production launcher's
+passthrough list is unchanged. Existing configuration-file overrides for auth
 bases remain outside this environment-filter guarantee.

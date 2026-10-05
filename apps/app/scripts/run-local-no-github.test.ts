@@ -3,14 +3,15 @@ import { createServer } from "node:net"
 import { lstatSync, mkdirSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { dirname, join } from "node:path"
-import { freePort, githubBases, layerSnapshots, proxyGuard, setupLine, walkHome } from "./run-local-no-github"
+import { freePort, githubBases, layerSnapshots, modelBase, proxyGuard, setupLine, walkHome } from "./run-local-no-github"
 import { githubRoute, isManifest } from "../e2e/local/github-route"
 import type { BrowserContext, Route } from "@playwright/test"
 
 describe("local no-GitHub orchestration", () => {
-  test("only the three existing bases and refusing proxy pair are injected", () => {
-    expect({ ...githubBases("http://127.0.0.1:9"), ...proxyGuard }).toEqual({
+  test("only the three GitHub bases, the model origin and the refusing proxy pair are injected", () => {
+    expect({ ...githubBases("http://127.0.0.1:9"), ...modelBase("http://127.0.0.1:8"), ...proxyGuard }).toEqual({
       SMITHERS_GITHUB_APP_API_BASE_URL: "http://127.0.0.1:9", SMITHERS_AUTH_GITHUB_API_BASE_URL: "http://127.0.0.1:9", SMITHERS_AUTH_GITHUB_OAUTH_BASE_URL: "http://127.0.0.1:9",
+      SMITHERS_MODEL_PROVIDER_ORIGIN: "http://127.0.0.1:8",
       HTTP_PROXY: "http://127.0.0.1:9", ALL_PROXY: "http://127.0.0.1:9", HTTPS_PROXY: "http://127.0.0.1:9", NO_PROXY: "127.0.0.1,localhost,::1"
     })
   })

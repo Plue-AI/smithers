@@ -15,7 +15,9 @@ export const githubBases = (url: string) => ({
   SMITHERS_AUTH_GITHUB_API_BASE_URL: url,
   SMITHERS_AUTH_GITHUB_OAUTH_BASE_URL: url
 })
-export const proxyGuard = { HTTP_PROXY: "http://127.0.0.1:9", ALL_PROXY: "http://127.0.0.1:9", HTTPS_PROXY: "http://127.0.0.1:9", NO_PROXY: "127.0.0.1,localhost,::1" }
+/** Every built-in model provider's origin: the install sends Model access tests and chat turns to the stand-in. */
+export const modelBase = (origin: string) => ({ SMITHERS_MODEL_PROVIDER_ORIGIN: origin })
+export const proxyGuard ={ HTTP_PROXY: "http://127.0.0.1:9", ALL_PROXY: "http://127.0.0.1:9", HTTPS_PROXY: "http://127.0.0.1:9", NO_PROXY: "127.0.0.1,localhost,::1" }
 export const setupLine = (line: string): string | undefined => {
   if (!line.startsWith('{"setup_urls"')) return undefined
   if (/[\r\n]/.test(line)) throw new Error("Invalid setup handoff")
@@ -134,7 +136,7 @@ export async function main() {
       stateDir: join(home, "state"), executablePath: join(bundle, "bin/smithers-server"),
       env: { HOME: home, USER: process.env.USER, LOGNAME: process.env.LOGNAME, LANG: "en_US.UTF-8", ...proxyGuard },
       spawn: (argv, options) => {
-        const child = backendChild = Bun.spawn([...argv], { env: { ...options.env, ...githubBases(fakeURL) }, stdout: "pipe", stderr: "inherit" })
+        const child = backendChild = Bun.spawn([...argv], { env: { ...options.env, ...githubBases(fakeURL), ...modelBase(modelProvider!.origin) }, stdout: "pipe", stderr: "inherit" })
         void (async () => {
           let rest = ""
           const stream = child.stdout.getReader()

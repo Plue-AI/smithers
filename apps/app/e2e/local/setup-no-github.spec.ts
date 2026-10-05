@@ -1,7 +1,7 @@
 import { test, expect, type BrowserContext, type Page } from "@playwright/test"
 import { appendFileSync, readdirSync, readFileSync, writeFileSync } from "node:fs"
 import { join } from "node:path"
-import { PROVIDER_MODEL } from "../real/support/model-provider-behaviors"
+import { INSTALL_MODEL, PROVIDER_MODEL } from "../real/support/model-provider-behaviors"
 import { githubRoute } from "./github-route"
 import { README } from "./demo-repository"
 
@@ -79,38 +79,32 @@ test("4 repository", async ({}, info) => {
 })
 test("5 models", async ({}, info) => {
   info.annotations.push({ type: "owner", description: "crit3-setup-steps (T-INS-06; now passing)" });
+  // The install sends every built-in key to the walk's model stand-in (SMITHERS_MODEL_PROVIDER_ORIGIN), so each role is
+  // the owner's Setup card alone, on the stand-in's key: no paid key, no network.
   const models = card().locator('[data-step="models"]')
-  const coding = models.locator(".setup-model").filter({ has: page.getByText("Coding model", { exact: true }) })
-  const decisions = models.locator(".setup-model").filter({ has: page.getByText("Decisions", { exact: true }) })
-  await coding.getByLabel("Provider", { exact: true }).selectOption({ label: "OpenAI" })
-  await coding.getByLabel("Model", { exact: true }).fill("gpt-4.1-mini")
-  await expect(coding.getByLabel("API key", { exact: true })).toBeVisible()
+  const role = (label: string) => models.locator(".setup-model").filter({ has: page.getByText(label, { exact: true }) })
+  const fast = role("Fast model"), coding = role("Coding model"), decisions = role("Decisions")
+  await fast.getByLabel("Cerebras key", { exact: true }).fill(run.modelKey)
+  await fast.getByRole("button", { name: "Save", exact: true }).click()
+  await expect(fast).toHaveAttribute("data-state", "saved")
+  await coding.getByLabel("Provider", { exact: true }).selectOption({ label: "Anthropic" })
+  await coding.getByLabel("Model", { exact: true }).fill(PROVIDER_MODEL.answers)
   await coding.getByLabel("API key", { exact: true }).fill(run.modelKey)
   await coding.getByRole("button", { name: "Save", exact: true }).click()
   await expect(coding).toHaveAttribute("data-state", "saved")
-  await expect(decisions.getByLabel("AI Gateway key", { exact: true })).toBeVisible()
   await decisions.getByLabel("AI Gateway key", { exact: true }).fill(run.modelKey)
   await decisions.getByRole("button", { name: "Save", exact: true }).click()
   await expect(decisions).toHaveAttribute("data-state", "saved")
-  // Reuse the owner-model API's existing user-supplied endpoint, like the
-  // real-journey harness; setup has no provider-base field of its own.
-  const headers = { Origin: "http://localhost:4000", "X-CSRF-Token": (await context.cookies()).find(cookie => cookie.name === "__csrf")!.value }
-  const enrolled = await context.request.post("http://localhost:4000/api/model/credential", { headers, data: { action: "enroll", requestId: "local-model-enroll", name: "LOCAL_MODEL_API_KEY", value: run.modelKey, origin: run.modelOrigin } })
-  expect(enrolled.status(), await enrolled.text()).toBe(200)
-  expect(await enrolled.json()).toMatchObject({ ok: true })
-  // The stand-in model that reads: asked about a file, it calls files.read and quotes the result.
-  const binding = { protocol: "openai-chat", modelId: PROVIDER_MODEL.reads, credential: "LOCAL_MODEL_API_KEY", baseUrl: run.modelOrigin }
-  const model = { id: "local-coding", ...binding }
-  const configured = await context.request.put("http://localhost:4000/api/model/default", { headers, data: { model: binding } })
-  expect(configured.status()).toBe(200)
-  const probe = await context.request.post("http://localhost:4000/api/model/test", { headers, data: { model } })
-  expect(probe.status(), await probe.text()).toBe(200)
-  expect(await probe.json()).toMatchObject({ ok: true })
-  const journal = await (await context.request.get(`${run.modelOrigin}/__journal`)).json()
-  expect(journal).toEqual(expect.arrayContaining([expect.objectContaining({ authorized: true, status: 200, modelId: PROVIDER_MODEL.reads })]))
-  writeFileSync(`${output}/model-requests.json`, JSON.stringify(journal, null, 2), { mode: 0o600 })
   await click("Model access")
   await done("models")
+  // Model access tested each role's key with one call at the stand-in.
+  const journal = await (await context.request.get(`${run.modelOrigin}/__journal`)).json()
+  writeFileSync(`${output}/model-requests.json`, JSON.stringify(journal, null, 2), { mode: 0o600 })
+  expect(journal).toEqual(expect.arrayContaining([
+    expect.objectContaining({ protocol: "openai-chat", modelId: INSTALL_MODEL.fast, status: 200, authorized: true }),
+    expect.objectContaining({ protocol: "anthropic-messages", modelId: PROVIDER_MODEL.answers, status: 200, authorized: true }),
+    expect.objectContaining({ protocol: "evaluation", modelId: INSTALL_MODEL.decisions, status: 200, authorized: true })
+  ]))
 })
 test("6 source", async ({}, info) => {
   info.annotations.push({ type: "owner", description: "crit4-local-source-model (T-INS-06)" })

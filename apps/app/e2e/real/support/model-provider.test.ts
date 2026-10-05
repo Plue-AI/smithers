@@ -16,7 +16,7 @@ import * as OpenAIChatCompletions from "@smthrs/model/OpenAIChatCompletions"
 import * as RequestExecutor from "@smthrs/model/RequestExecutor"
 import * as Route from "@smthrs/model/Route"
 import {
-  PROVIDER_CONFIDENCE, PROVIDER_ECHO_LEAD, PROVIDER_MODEL, PROVIDER_PATHS, PROVIDER_READ_LEAD, PROVIDER_REPLY, PROVIDER_RETRY_AFTER_SECONDS,
+  INSTALL_MODEL, PROVIDER_CONFIDENCE, PROVIDER_ECHO_LEAD, PROVIDER_MODEL, PROVIDER_PATHS, PROVIDER_READ_LEAD, PROVIDER_REPLY, PROVIDER_RETRY_AFTER_SECONDS,
   type ProviderProtocol
 } from "./model-provider-behaviors"
 import { launchModelProvider, type ModelProvider } from "./model-provider-process"
@@ -260,6 +260,29 @@ describe("reads: the app agent asked about a file", () => {
 
   test("on Anthropic Messages it is the ordinary reply", async () => {
     expect(texts(await Effect.runPromise(stream("anthropic-messages", PROVIDER_MODEL.reads)))).toEqual([...PROVIDER_REPLY])
+  })
+})
+
+describe("the install's role models", () => {
+  test("the fast model is the app agent that reads", async () => {
+    const commands = ModelRequest.ToolDefinition.make({ name: "commands", description: "The app agent's one tool.", parameters: { type: "object" } })
+    const settled = ModelEvent.settledMessage(await Effect.runPromise(Effect.gen(function*() {
+      const model = yield* Route.toModel(yield* Effect.fromResult(chatRoute(KEY)))
+      return yield* Stream.runCollect(model.stream(ModelRequest.ModelRequest.make({
+        modelId: INSTALL_MODEL.fast, system: [], messages: [ModelRequest.Message.user("What is in README.md?")], tools: [commands],
+        params: ModelRequest.GenerationParams.make({ maxTokens: 16 })
+      })))
+    }).pipe(Effect.provide(executor))))
+    expect(settled.message.content).toEqual([{
+      type: "tool-call", id: "call_loopback_read", name: "commands", arguments: JSON.stringify({ action: "execute", name: "files.read", args: "README.md" })
+    }])
+    expect(await last()).toMatchObject({ protocol: "openai-chat", modelId: INSTALL_MODEL.fast, status: 200, authorized: true })
+  })
+
+  test("Decisions evaluates", async () => {
+    const response = await Effect.runPromise(evaluate(INSTALL_MODEL.decisions))
+    expect(response.answers.yes).toEqual({ type: "boolean", probability: PROVIDER_CONFIDENCE })
+    expect(await last()).toMatchObject({ protocol: "evaluation", modelId: INSTALL_MODEL.decisions, status: 200, authorized: true })
   })
 })
 
