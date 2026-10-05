@@ -1584,7 +1584,7 @@ func runWithOptions(ctx context.Context, args []string, stdout, stderr io.Writer
 		gitHubAppSetup = &routes.GitHubAppSetupHandler{
 			Setup:   installSetup,
 			Service: services.NewGitHubAppManifestService(pool, gitHubAppStore, os.Getenv("SMITHERS_GITHUB_APP_API_BASE_URL"), installAddress.Origins),
-			Store:   gitHubAppStore, Owners: queries,
+			Store:   gitHubAppStore, Owners: queries, Roster: queries,
 			Origins:  installAddress.Origins,
 			Sessions: authService.InstallSetup,
 			// GitHub returns the owner here after an install or a repository

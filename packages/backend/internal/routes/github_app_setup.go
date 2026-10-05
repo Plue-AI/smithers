@@ -54,6 +54,9 @@ type GitHubAppSetupHandler struct {
 	// Origins are the install's known origins: the configured ones and the
 	// Address the owner saved, read on every request (M-28).
 	Origins func() []string
+	// Roster lets a member read the install's state (install.read,
+	// services.Authorize); without it only the owner reads it.
+	Roster *db.Queries
 }
 
 func (h *GitHubAppSetupHandler) knownOrigins() []string {
@@ -113,6 +116,31 @@ func (h *GitHubAppSetupHandler) authorize(w http.ResponseWriter, r *http.Request
 	}
 	return true
 }
+
+// authorizeRead admits what authorize admits and, once the install is
+// claimed, a roster member's browser session for install.read: members read
+// the install's state (the Setup card's steps, the repository, health); only
+// the owner changes it.
+func (h *GitHubAppSetupHandler) authorizeRead(w http.ResponseWriter, r *http.Request) bool {
+	info := middleware.AuthInfoFromContext(r.Context())
+	if h != nil && h.Roster != nil && info != nil && info.User != nil {
+		owner, err := h.Roster.GetSelfHostOwner(r.Context())
+		if err == nil && owner.ID != info.User.ID {
+			if _, err := services.Authorize(r.Context(), h.Roster, "install.read"); err != nil {
+				var access *services.AccessError
+				if !errors.As(err, &access) {
+					WriteInstallSetupError(w, r, pkgerrors.Internal("failed to authorize member").WithCause(err))
+					return false
+				}
+				pkgerrors.WriteJSON(w, access.Status, access)
+				return false
+			}
+			return true
+		}
+	}
+	return h.authorize(w, r)
+}
+
 func (h *GitHubAppSetupHandler) requestOrigin(r *http.Request) (string, bool) {
 	origin, ok := middleware.ResolveEffectiveOrigin(r, h.knownOrigins())
 	if ok && r.Header.Get("Origin") != "" && !middleware.SameOrigin(r.Header.Get("Origin"), origin) {
@@ -164,7 +192,7 @@ func (h *GitHubAppSetupHandler) Status(w http.ResponseWriter, r *http.Request) {
 		writeGitHubAppOriginError(w, origin)
 		return
 	}
-	if !h.authorize(w, r) {
+	if !h.authorizeRead(w, r) {
 		return
 	}
 	if h.Setup != nil {
