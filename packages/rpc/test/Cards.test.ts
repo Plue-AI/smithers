@@ -2603,6 +2603,10 @@ const FIXTURES: Record<
     minimal: { message: "too many turns from this address", retryAt: null },
     full: { message: "too many turns from this address", retryAt: "2026-09-05T10:00:00Z" }
   },
+  docs: {
+    minimal: { page: "quickstart", markdown: "" },
+    full: { page: "quickstart", markdown: "## Open a flow\n\nRead [Flows](flows.md).\n", summary: "Read", toc: [{ slug: "quickstart", title: "Quickstart" }], anchor: "open-a-flow", not_found: "missing" }
+  },
   "commit-list": {
     minimal: { repo: "smithersai/smithers", branch: null, commits: [] },
     full: {

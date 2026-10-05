@@ -26,6 +26,7 @@ import type { CardActions, CardFamily, CardFamilyEntry, CardProjectionAuthority 
 import { changeCardFamily } from "./ChangeCards"
 import { commitCardFamily } from "./CommitCards"
 import { conversationCardFamily } from "./ConversationCards"
+import { docsCardFamily } from "./DocsCard"
 import { envCardFamily } from "./EnvCard"
 import { fileCardFamily } from "./FileCards"
 import { flowFormCardFamily } from "./FlowFormCards"
@@ -107,7 +108,8 @@ export const CARD_FAMILIES: ReadonlyArray<CardFamily<never>> = [
   branchCardFamily,
   terminalCardFamily,
   runCardFamily,
-  flowCardFamily
+  flowCardFamily,
+  docsCardFamily
 ]
 
 /** One entry per card kind. Written as a literal so a missing kind fails to compile. */
@@ -148,7 +150,8 @@ export const CARD_RENDERERS: CardFamily<RenderedCardKind> = {
   ...branchCardFamily,
   ...terminalCardFamily,
   ...runCardFamily,
-  ...flowCardFamily
+  ...flowCardFamily,
+  ...docsCardFamily
 }
 
 /** The entry for one kind, typed to that kind's card. */

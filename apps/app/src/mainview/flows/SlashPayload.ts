@@ -633,6 +633,9 @@ const GRAMMAR: Readonly<Record<string, Grammar>> = {
   "wiki.open": (args) => required("path", args, "wiki.open needs a note path or title"),
   "wiki.backlinks": (args) => required("path", args, "wiki.backlinks needs a note path or title"),
   "wiki.graph": (args) => optional("path", args),
+  // M-35: a docs page by slug; bare /docs is the toc's first page.
+  "docs": (args) => optional("page", args),
+  "docs.read": (args) => required("page", args, "docs.read needs a page"),
   "wiki.heading": (args) => {
     const [line, cardId] = (args ?? "").trim().split(/\s+/)
     return line ? ok({ line, ...(cardId ? { cardId } : {}) }) : no("wiki.heading needs the heading's source line")

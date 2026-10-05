@@ -4191,5 +4191,6 @@ export const legacyCards = [
     "expectedKind": "commands",
     "expectedTitle": "Saved commands",
     "expectedWas": null
-  }
+  },
+  { row: { id: "saved-docs", title: "Saved docs", status: "active", createdAt: 0, ordinal: 0, kind: "docs", payload: { page: "quickstart", markdown: "## Saved" } }, expectedKind: "docs", expectedTitle: "Saved docs", expectedWas: null }
 ] as const

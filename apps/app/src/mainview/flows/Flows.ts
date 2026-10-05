@@ -41,6 +41,7 @@ import { changeFlows } from "./entries/change"
 import { chatCopyFlows, chatFlows, chatReloadFlows } from "./entries/chat"
 import { cloudFlows } from "./entries/cloud"
 import { debugFlows, debugVerboseFlows } from "./entries/debug"
+import { docsFlows } from "./entries/docs"
 import { egressFlows } from "./entries/egress"
 export { guideFlows } from "./entries/guide"
 import { envFlows } from "./entries/env"
@@ -114,6 +115,7 @@ export const USER_ONLY_VISIBLE: ReadonlyArray<{ readonly name: string; readonly 
 export const baseFlows = (actions: CommandActions): ReadonlyArray<FlowEntry> => [
   ...wikiSurfaceFlows(actions),
   ...themeFlows(actions),
+  ...docsFlows(actions),
   ...debugVerboseFlows(actions),
   ...chatFlows(actions),
   ...browserFlows(actions),

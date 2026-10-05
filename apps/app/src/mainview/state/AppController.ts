@@ -90,6 +90,9 @@ import type { WikiEditorHandle } from "./controller/world"
 import { createWorldController } from "./controller/world"
 import type { BillingSeam } from "./seams/HostedBilling"
 import { createBillingSeam, showHostedBalance } from "./seams/HostedBilling"
+import { createDocsController } from "./controller/docs"
+import type { Docs } from "../../docs/Docs"
+import { bundledDocs } from "../../docs/bundled"
 import type { BookmarksSeam } from "./seams/BookmarksSeam"
 import { createBookmarksSeam } from "./seams/BookmarksSeam"
 import type { ChangeSeam } from "./seams/ChangeSeam"
@@ -238,6 +241,11 @@ export interface AppController extends IssueFlowsController {
   readonly attachWikiEditor: (editor: WikiEditorHandle | null) => void
   /** `wiki.heading <line>`: bring the open note's heading at that source line into view. */
   readonly jumpToHeading: (line: string, cardId?: string) => Promise<string | void>
+  /** `docs [page]` embeds an in-app docs page (M-35) as a read-only card for either actor. */
+  readonly docsAvailable: () => boolean
+  readonly openDocsPage: (page?: string) => string | { readonly value: string }
+  /** `docs.read <page>`: the page's title, summary and Markdown as JSON, for the agent. */
+  readonly readDocsPage: (page: string) => string | { readonly value: string }
   readonly decideApproval: (id: string, decision: "approved" | "denied") => void
   /**
    * Answer a gate that asked a question rather than for a grant.
@@ -696,6 +704,14 @@ export interface AppServices {
    * turning the flag on later works without a schema change.
    */
   readonly features?: AppFeatures
+  /**
+   * The in-app docs pages (M-35); default the ones this build inlined
+   * (src/docs/bundled.ts). Bun has no import.meta.glob, so tests bind the same
+   * files read from disk (src/docs/DiskPages.ts).
+   */
+  readonly docs?: () => Docs
+  /** T-CAT-01 composition gate. No production provider exists yet. */
+  readonly docsCatalogAvailable?: () => boolean
 }
 
 export interface AppFeatures {
@@ -1157,6 +1173,8 @@ export const createAppController = (
     selectWikiCardDocument,
     setWikiCardView
   } = actors.pair(ctx, (context, select) => createWorldController(context, { nextOrdinal: store.nextOrdinal, cloudWiki: select(cloudWiki) }))
+  const { docsAvailable, openDocsPage, readDocsPage } = actors.pair(ctx, (context) =>
+    createDocsController(context, { nextOrdinal: store.nextOrdinal, docs: services.docs ?? bundledDocs, available: services.docsCatalogAvailable ?? (() => false) }))
 
   const { askWorldDelete } = actors.pair(ctx, (_context, select) => ({
     askWorldDelete: (id: string): string | void => {
@@ -1620,6 +1638,9 @@ export const createAppController = (
     showWorldGraph,
     attachWikiEditor,
     jumpToHeading,
+    docsAvailable,
+    openDocsPage,
+    readDocsPage,
     listCloudWiki,
     openCloudWiki,
     retryCloudWiki,

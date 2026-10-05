@@ -2,6 +2,8 @@ import { fileArgs } from "@smthrs/rpc/FileRead"
 
 /** The typed input of every flow a card raises with structured values. */
 export interface FlowInput {
+  readonly "docs": { readonly page?: string }
+  readonly "docs.read": { readonly page: string }
   readonly "box.open": { readonly bookmark?: string; readonly repo: string; readonly kind?: "container" | "vm"; readonly snapshot?: string; readonly recoveryOf?: string }
   readonly "flow.create": { readonly description: string; readonly repo: string }
   readonly "files.read": { readonly path: string; readonly repo?: string; readonly line?: number; readonly column?: number; readonly ref?: string }
@@ -224,6 +226,8 @@ const ENCODERS: { readonly [N in FlowWithInput]: (payload: Payload) => string } 
   "approvals.open": (payload) => line(keyed(payload, "sourceCard"), token(payload, "runId")),
   "tutorial.live.inspect": (payload) => line(token(payload, "cardId"), token(payload, "eventId")),
   "files.open-diff": (payload) => JSON.stringify(payload),
+  "docs": payload => token(payload, "page") ?? "",
+  "docs.read": payload => token(payload, "page") ?? "",
   "files.read": (payload) => fileArgs(
     [payload.path, payload.line, payload.column].filter((value) => value !== undefined).join(":"),
     payload.repo as string | undefined,

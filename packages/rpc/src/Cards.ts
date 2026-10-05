@@ -2665,6 +2665,23 @@ const CurrentCardSchema = z.discriminatedUnion("kind", [
       message: z.string(),
       retryAt: z.string().nullable()
     })
+  }),
+  /*
+   * An in-app docs page (M-35), read only: the page's slug and the Markdown
+   * the build shipped for it. The card's title is the page's title. Embedded
+   * for the agent and the slash alike; a link to another page runs `docs`.
+   */
+  z.object({
+    ...cardBaseShape,
+    kind: z.literal("docs"),
+    payload: z.object({
+      page: z.string(),
+      markdown: z.string(),
+      summary: z.string().optional(),
+      toc: z.array(z.object({ slug: z.string(), title: z.string() })).optional(),
+      anchor: z.string().optional(),
+      not_found: z.string().optional()
+    })
   })
 ])
 /** Removed stored kinds consumed by CardSchema and renderer registration coverage.
