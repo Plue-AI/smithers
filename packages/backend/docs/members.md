@@ -50,6 +50,15 @@ delegated credentials land.
 | `merge` | Maintainer | `POST /api/todos/{n}/merge` |
 | `members.list` | Member | `GET /api/members` |
 | `members.write` | Maintainer | `POST /api/members`, `PATCH`, `DELETE /api/members/{login}` |
+| `secrets.write` (person-only) | Maintainer | `POST /api/repos/{o}/{r}/secrets`, `PATCH`, `DELETE /api/repos/{o}/{r}/secrets/{name}` |
+
+A person-only command checks the role first, then the credential, and it
+applies to the owner too. Only the person's own browser session acts. A
+delegated credential, including a personal access token (spec §5.3.0), gets
+`403 never` ("Only a person can do this"), with no confirmation path. A run,
+machine or agent-account credential gets `403 permission`. An ineligible role
+gets `403 permission` whatever the credential. Org secrets are not served on
+an install.
 
 The HTTP boundary admits a non-owner only on the routes in
 `middleware.InstallMemberCommand`'s table; every other route stays the owner's,

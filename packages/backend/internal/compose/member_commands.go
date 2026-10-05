@@ -15,8 +15,9 @@ import (
 // route runs (middleware.InstallMemberCommand) through the install's one
 // authorizer, services.Authorize: the member boundary admitted the person to
 // the route, and this checks their role now and that a browser session, not
-// a token, made the request. The owner's requests pass unchanged; handlers
-// that need the decision authorize their command again.
+// a token, made the request. The owner's requests pass unchanged except on
+// a person-only command, which refuses the owner's delegated credentials
+// too; handlers that need the decision authorize their command again.
 func memberCommands(queries *db.Queries) func(http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -27,7 +28,7 @@ func memberCommands(queries *db.Queries) func(http.Handler) http.Handler {
 				return
 			}
 			role, err := services.InstallRoleOf(r.Context(), queries, info.User.ID)
-			if err == nil && role == services.InstallOwner {
+			if err == nil && role == services.InstallOwner && !services.PersonOnlyCommand(command) {
 				next.ServeHTTP(w, r)
 				return
 			}

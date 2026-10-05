@@ -8,8 +8,8 @@ import (
 )
 
 // The member route table, by literal request: the app's install reads, the
-// app agent, and every TODO and Members route map to their command; anything
-// else is the owner's alone.
+// app agent, every TODO and Members route, and a repository's secret writes
+// map to their command; anything else is the owner's alone.
 func TestInstallMemberCommandRoutes(t *testing.T) {
 	for _, tc := range []struct{ method, path, command string }{
 		{http.MethodGet, "/api/user", "self"},
@@ -52,7 +52,19 @@ func TestInstallMemberCommandRoutes(t *testing.T) {
 		{http.MethodPost, "/api/model/credential", ""},
 		{http.MethodPost, "/api/user/tokens", ""},
 		{http.MethodGet, "/api/members/alice", ""},
-		{http.MethodPost, "/api/repos/acme/app/secrets", ""},
+		{http.MethodPost, "/api/repos/acme/app/secrets", "secrets.write"},
+		{http.MethodPatch, "/api/repos/acme/app/secrets/API_KEY", "secrets.write"},
+		{http.MethodDelete, "/api/repos/acme/app/secrets/API_KEY", "secrets.write"},
+		{http.MethodGet, "/api/repos/acme/app/secrets", ""},
+		{http.MethodPut, "/api/repos/acme/app/secrets/API_KEY", ""},
+		{http.MethodPost, "/api/repos/acme/app/secrets/API_KEY", ""},
+		{http.MethodDelete, "/api/repos/acme/app/secrets", ""},
+		{http.MethodPatch, "/api/repos/acme/app/secrets/API_KEY/x", ""},
+		{http.MethodPut, "/api/repos/acme/app/agent-environment/secrets/API_KEY", ""},
+		{http.MethodDelete, "/api/repos/acme/app/agent-environment/secrets/API_KEY", ""},
+		{http.MethodPost, "/api/orgs/acme/secrets", ""},
+		{http.MethodDelete, "/api/orgs/acme/secrets/API_KEY", ""},
+		{http.MethodPost, "/api/repos/acme/app/variables", ""},
 		{http.MethodPost, "/api/user/repos", ""},
 		{http.MethodPost, "/api/repos/local-owner/demo/mythical/bootstrap", ""},
 		{http.MethodPost, "/api/repos/local-owner/demo/mythical/items/x/merge", ""},

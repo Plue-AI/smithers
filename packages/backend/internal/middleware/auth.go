@@ -353,6 +353,13 @@ var installMemberRoutes = []struct {
 	{http.MethodPost, "members.write", regexp.MustCompile(`^/api/members$`)},
 	{http.MethodPatch, "members.write", regexp.MustCompile(`^/api/members/[^/]+$`)},
 	{http.MethodDelete, "members.write", regexp.MustCompile(`^/api/members/[^/]+$`)},
+	// Maintainers add, replace and delete the repository's secrets
+	// (mvp.md §6.15, M-05; spec §5.2): a person-only command, so the
+	// owner's delegated credentials are refused here too. Org secrets stay
+	// the owner's.
+	{http.MethodPost, "secrets.write", regexp.MustCompile(`^/api/repos/[^/]+/[^/]+/secrets$`)},
+	{http.MethodPatch, "secrets.write", regexp.MustCompile(`^/api/repos/[^/]+/[^/]+/secrets/[^/]+$`)},
+	{http.MethodDelete, "secrets.write", regexp.MustCompile(`^/api/repos/[^/]+/[^/]+/secrets/[^/]+$`)},
 }
 
 // InstallMemberCommand is the command a roster member's request to method

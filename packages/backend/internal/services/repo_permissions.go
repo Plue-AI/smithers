@@ -283,35 +283,50 @@ func (r InstallRole) rank() int {
 	return 0
 }
 
-// installCommandRoles is the least role each person command the install
-// serves needs (mvp.md §6.15, M-05): members read the install and its
-// repository, ask the app agent and work TODOs; maintainers merge and
-// manage people. A command absent here is refused.
-var installCommandRoles = map[string]InstallRole{
-	"install.read":     InstallMember,
-	"self.read":        InstallMember,
-	"telemetry.report": InstallMember,
-	"repo.read":        InstallMember,
-	"wiki.read":        InstallMember,
-	"sync.read":        InstallMember,
-	"sync.retry":       InstallMember,
-	"live":             InstallMember,
-	"agent.turn":       InstallMember,
-	"todo.read":        InstallMember,
-	"todo.new":         InstallMember,
-	"todo.answer":      InstallMember,
+// installCommand is one person command's policy: the least role it needs,
+// and whether it is person-only (§5.2's delegated `never`).
+type installCommand struct {
+	role InstallRole
+	// personOnly refuses every credential but the person's own browser
+	// session once the role check passes: a delegated credential is
+	// refused with never (no confirmation path), any other with
+	// permission (spec §5.2.1).
+	personOnly bool
+}
+
+// installCommands is the policy of each person command the install serves
+// (mvp.md §6.15, M-05): members read the install and its repository, ask
+// the app agent and work TODOs; maintainers merge, manage people and write
+// the repository's secrets. A command absent here is refused.
+var installCommands = map[string]installCommand{
+	"install.read":     {role: InstallMember},
+	"self.read":        {role: InstallMember},
+	"telemetry.report": {role: InstallMember},
+	"repo.read":        {role: InstallMember},
+	"wiki.read":        {role: InstallMember},
+	"sync.read":        {role: InstallMember},
+	"sync.retry":       {role: InstallMember},
+	"live":             {role: InstallMember},
+	"agent.turn":       {role: InstallMember},
+	"todo.read":        {role: InstallMember},
+	"todo.new":         {role: InstallMember},
+	"todo.answer":      {role: InstallMember},
 	// todo.control is POST /api/todos/{n}; its handler authorizes the
 	// control itself: steer, stop, resume, retry or drop.
-	"todo.control":  InstallMember,
-	"todo.steer":    InstallMember,
-	"todo.stop":     InstallMember,
-	"todo.resume":   InstallMember,
-	"todo.retry":    InstallMember,
-	"todo.drop":     InstallMember,
-	"merge":         InstallMaintainer,
-	"flows.read":    InstallMember,
-	"members.list":  InstallMember,
-	"members.write": InstallMaintainer,
+	"todo.control":  {role: InstallMember},
+	"todo.steer":    {role: InstallMember},
+	"todo.stop":     {role: InstallMember},
+	"todo.resume":   {role: InstallMember},
+	"todo.retry":    {role: InstallMember},
+	"todo.drop":     {role: InstallMember},
+	"merge":         {role: InstallMaintainer},
+	"flows.read":    {role: InstallMember},
+	"members.list":  {role: InstallMember},
+	"members.write": {role: InstallMaintainer},
+	// secrets.write is POST /secrets and PATCH and DELETE /secrets/{name}
+	// on a repository: add, replace and delete (§5.2 "Members, roles,
+	// secrets write"). Secret values never pass through an agent.
+	"secrets.write": {role: InstallMaintainer, personOnly: true},
 }
 
 // terminalReadCommands are the commands a stage-1 terminal credential runs
@@ -342,15 +357,20 @@ type InstallAuthorization struct {
 // request's credential, the command and the person's role, read from
 // committed roster state on every call, so a removal or suspension refuses
 // the very next request. Until delegated credentials land (T-ACC-04), only a
-// person's own browser session carries person authority.
+// person's own browser session carries person authority. A person-only
+// command checks the role first, so an eligible delegated caller is told
+// never and an ineligible one permission (§5.2.1).
 func Authorize(ctx context.Context, q *db.Queries, command string) (InstallAuthorization, error) {
-	need, ok := installCommandRoles[command]
+	need, ok := installCommands[command]
 	if !ok {
 		return InstallAuthorization{}, &AccessError{Status: http.StatusForbidden, Class: "permission", Code: "permission", Message: "Not available"}
 	}
 	info := middleware.AuthInfoFromContext(ctx)
 	if info == nil || info.User == nil {
 		return InstallAuthorization{}, &AccessError{Status: http.StatusUnauthorized, Class: "permission", Code: "unauthenticated", Message: "Sign in"}
+	}
+	if need.personOnly {
+		return authorizePersonOnly(ctx, q, info, need.role)
 	}
 	if delegation, ok := info.Delegation(); ok && delegation.Profile == middleware.TerminalProfileS1 {
 		// A member's terminal credential reads as that member (spec §8.11.1);
@@ -368,10 +388,42 @@ func Authorize(ctx context.Context, q *db.Queries, command string) (InstallAutho
 	if role == "" {
 		return InstallAuthorization{}, &AccessError{Status: http.StatusForbidden, Class: "permission", Code: "permission", Message: "Not a member"}
 	}
-	if role.rank() < need.rank() {
+	if role.rank() < need.role.rank() {
 		return InstallAuthorization{}, &AccessError{Status: http.StatusForbidden, Class: "permission", Code: "permission", Message: "Only a maintainer can do this"}
 	}
 	return InstallAuthorization{UserID: info.User.ID, Role: role}, nil
+}
+
+// authorizePersonOnly decides a person-only command: the person's role
+// first, then the credential. Only the person's own browser session acts; a
+// delegated credential (a system-issued token with a stored via, or a
+// personal access token, which install mode classifies as delegated,
+// spec §5.3.0) is refused with never, and a run's, a machine's or an agent
+// account's with permission.
+func authorizePersonOnly(ctx context.Context, q *db.Queries, info *middleware.AuthInfo, need InstallRole) (InstallAuthorization, error) {
+	role, err := InstallRoleOf(ctx, q, info.User.ID)
+	if err != nil {
+		return InstallAuthorization{}, err
+	}
+	if role == "" {
+		return InstallAuthorization{}, &AccessError{Status: http.StatusForbidden, Class: "permission", Code: "permission", Message: "Not a member"}
+	}
+	if role.rank() < need.rank() {
+		return InstallAuthorization{}, &AccessError{Status: http.StatusForbidden, Class: "permission", Code: "permission", Message: "Only a maintainer can do this"}
+	}
+	switch kind := info.CredentialKind(); {
+	case !info.IsTokenAuth && info.SessionHash != "" && kind == middleware.CredentialPerson:
+		return InstallAuthorization{UserID: info.User.ID, Role: role}, nil
+	case info.IsTokenAuth && (kind == middleware.CredentialDelegated || kind == middleware.CredentialPerson):
+		return InstallAuthorization{}, &AccessError{Status: http.StatusForbidden, Class: "never", Code: "never", Message: "Only a person can do this"}
+	}
+	return InstallAuthorization{}, &AccessError{Status: http.StatusForbidden, Class: "permission", Code: "permission", Message: "Sign in with a browser session"}
+}
+
+// PersonOnlyCommand reports whether command refuses every credential but a
+// person's own browser session, the install owner's included.
+func PersonOnlyCommand(command string) bool {
+	return installCommands[command].personOnly
 }
 
 // InstallRoleOf is userID's current role, or "" for a person who is not an
