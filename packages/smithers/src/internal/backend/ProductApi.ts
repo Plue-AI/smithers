@@ -5316,6 +5316,28 @@ export interface PostApiTodosNInput {
 export const postApiTodosN = (transport: Transport, input: PostApiTodosNInput): Promise<PostApiTodosNResponse> =>
   transport.request("POST", `/api/todos/${segment(input.path.n)}`, input.body, { headers: { "Idempotency-Key": input.headers["Idempotency-Key"] } }) as Promise<PostApiTodosNResponse>
 
+export type PatchApiTodosNBody = {
+  prompt: string
+  acceptance?: Array<string>
+}
+
+export type PatchApiTodosNResponse = {
+  state: "accepted"
+  n: number
+  rev: number
+  attempt?: number
+}
+
+export interface PatchApiTodosNInput {
+  readonly path: { readonly n: number }
+  readonly headers: { readonly "Idempotency-Key": string }
+  readonly body: PatchApiTodosNBody
+}
+
+/** PATCH /api/todos/{n}: Amend a TODO prompt and acceptance criteria */
+export const patchApiTodosN = (transport: Transport, input: PatchApiTodosNInput): Promise<PatchApiTodosNResponse> =>
+  transport.request("PATCH", `/api/todos/${segment(input.path.n)}`, input.body, { headers: { "Idempotency-Key": input.headers["Idempotency-Key"] } }) as Promise<PatchApiTodosNResponse>
+
 export type PostApiTodosNMergeBody = {
   reviewed_head_sha: string
 }

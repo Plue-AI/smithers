@@ -116,6 +116,7 @@ func TestTerminalProfileRoutes(t *testing.T) {
 		{"POST", "/api/todos"},
 		{"POST", "/api/todos/3"},
 		{"POST", "/api/todos/3/answer"},
+		{"PATCH", "/api/todos/3"},
 	} {
 		assert.Equal(t, http.StatusNoContent, serve(terminal, allowed[0], allowed[1]).Code, "%v", allowed)
 	}
@@ -123,7 +124,8 @@ func TestTerminalProfileRoutes(t *testing.T) {
 		{"POST", "/api/todos/3/merge"},
 		{"POST", "/api/todos/3/answers"},
 		{"POST", "/api/todos/x/answer"},
-		{"PATCH", "/api/todos/3"},
+		{"PATCH", "/api/todos/3/answer"},
+		{"PATCH", "/api/todos"},
 		{"DELETE", "/api/todos/3"},
 		{"GET", "/api/install"},
 		{"GET", "/api/members"},

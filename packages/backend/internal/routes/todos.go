@@ -19,6 +19,7 @@ type TodoRouteService interface {
 	MergeTodo(context.Context, int64, int64, int64, services.MythicalMergeInput) (services.MythicalItemView, error)
 	AnswerTodo(context.Context, int64, int64, int64, services.TodoAnswerInput) error
 	ControlTodo(context.Context, int64, services.TodoControlInput) (services.TodoControlReceipt, error)
+	AmendTodo(context.Context, int64, services.TodoAmendInput) (services.TodoControlReceipt, error)
 }
 
 // TodoHandler resolves the install's persisted GitHub repository, never a
@@ -295,6 +296,46 @@ func (h *TodoHandler) Control(w http.ResponseWriter, r *http.Request) {
 	}
 	input.Repository, input.Actor, input.Request = repo, user, r.Header.Get("Idempotency-Key")
 	receipt, err := h.Service.ControlTodo(r.Context(), n, input)
+	if err != nil {
+		todoRouteError(w, err)
+		return
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusAccepted)
+	_ = json.NewEncoder(w).Encode(receipt)
+}
+
+// Amend appends a prompt revision to the same TODO. Authorize refuses a
+// delegated request before subject reads until shared confirmation is wired.
+// The service commits the revision and its steer in one transaction.
+func (h *TodoHandler) Amend(w http.ResponseWriter, r *http.Request) {
+	repo, user, ok := h.authorize(w, r, "todo.amend")
+	if !ok {
+		return
+	}
+	n, err := strconv.ParseInt(chi.URLParam(r, "n"), 10, 64)
+	if err != nil || n <= 0 {
+		todoRouteError(w, &services.TodoControlError{Status: 400, Code: "invalid_todo", Class: "user", Message: "Invalid TODO number"})
+		return
+	}
+	key := r.Header.Get("Idempotency-Key")
+	if key == "" || len(key) > 256 {
+		todoRouteError(w, &services.TodoControlError{Status: 400, Code: "invalid_idempotency_key", Class: "user", Message: "Idempotency-Key must contain 1 to 256 bytes"})
+		return
+	}
+	if err := services.AuthorizeTodoBranch(r.Context(), h.Queries, repo, n); err != nil {
+		todoRouteError(w, err)
+		return
+	}
+	var input services.TodoAmendInput
+	decoder := json.NewDecoder(http.MaxBytesReader(w, r.Body, 256<<10))
+	decoder.DisallowUnknownFields()
+	if err := decodeSingleJSONDocument(decoder, &input); err != nil {
+		todoRouteError(w, &services.TodoControlError{Status: 400, Code: "invalid_amendment", Class: "user", Message: "Invalid amendment"})
+		return
+	}
+	input.Repository, input.Actor, input.Request = repo, user, key
+	receipt, err := h.Service.AmendTodo(r.Context(), n, input)
 	if err != nil {
 		todoRouteError(w, err)
 		return

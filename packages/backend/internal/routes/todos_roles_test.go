@@ -74,6 +74,7 @@ func TestTodoRoutesAuthorizeByRole(t *testing.T) {
 	router.Get("/api/todos/{n}", handler.Get)
 	router.Post("/api/todos", handler.Create)
 	router.Post("/api/todos/{n}", handler.Control)
+	router.Patch("/api/todos/{n}", handler.Amend)
 	router.Post("/api/todos/{n}/answer", handler.Answer)
 	router.Post("/api/todos/{n}/merge", handler.Merge)
 	// Each person holds a live browser session; Merge reads it back.
@@ -132,6 +133,14 @@ func TestTodoRoutesAuthorizeByRole(t *testing.T) {
 			status, envelope = call(http.MethodPost, "/api/todos/99/merge", `{"reviewed_head_sha":"`+head+`"}`, "merge-"+tc.who, info)
 			require.Equal(t, tc.merge, status, envelope)
 			require.Equal(t, tc.mergeCode, envelope["code"])
+			status, envelope = call(http.MethodPatch, "/api/todos/3", `{"prompt":"Revised prompt","acceptance":["One check"]}`, "amend-"+tc.who, info)
+			if tc.read == http.StatusOK {
+				require.Equal(t, http.StatusServiceUnavailable, status)
+				require.Equal(t, "todo_control_unavailable", envelope["code"], "unqualified execution remains disabled")
+			} else {
+				require.Equal(t, http.StatusForbidden, status)
+				require.Equal(t, "permission", envelope["code"])
+			}
 			// Every control, as the app sends it: a person on the roster gets
 			// past authorization to the service, which refuses Retry of a
 			// working TODO, answers Drop of an unknown TODO 404, refuses Move up
@@ -189,6 +198,26 @@ func TestTodoRoutesAuthorizeByRole(t *testing.T) {
 		require.Equal(t, http.StatusBadRequest, status, tc.body[:min(len(tc.body), 100)])
 		require.Equal(t, tc.code, envelope["code"], tc.body[:min(len(tc.body), 100)])
 	}
+	for _, tc := range []struct{ path, body, key, code string }{
+		{"0", `{"prompt":"Revised"}`, "key", "invalid_todo"},
+		{"3", `{"prompt":"Revised"}`, "", "invalid_idempotency_key"},
+		{"3", `{"prompt":"Revised"}`, strings.Repeat("k", 257), "invalid_idempotency_key"},
+		{"3", `{`, "key", "invalid_amendment"},
+		{"3", `{"prompt":"Revised","acceptance":"check"}`, "key", "invalid_amendment"},
+		{"3", `{"prompt":"Revised","actor":1}`, "key", "invalid_amendment"},
+		{"3", `{"prompt":"Revised","repository":1}`, "key", "invalid_amendment"},
+		{"3", `{"prompt":"Revised","via":"browser"}`, "key", "invalid_amendment"},
+		{"3", `{"prompt":"Revised"} {}`, "key", "invalid_amendment"},
+		{"3", `{"prompt":" "}`, "key", "invalid_amendment"},
+		{"3", strings.Repeat(" ", 256<<10) + `{}`, "key", "invalid_amendment"},
+	} {
+		status, envelope := call(http.MethodPatch, "/api/todos/"+tc.path, tc.body, tc.key, sessions["member"])
+		require.Equal(t, http.StatusBadRequest, status)
+		require.Equal(t, tc.code, envelope["code"])
+	}
+	var amended int
+	require.NoError(t, pool.QueryRow(ctx, `SELECT count(*) FROM product_job_requests WHERE operation='todo.amended'`).Scan(&amended))
+	require.Zero(t, amended, "disabled and refused requests cannot commit amendments")
 	// Created TODOs carry their person: the first revision is by Alice.
 	var by string
 	require.NoError(t, pool.QueryRow(ctx, `SELECT revisions->0->'by'->>'login' FROM mythical_items WHERE title='By member'`).Scan(&by))

@@ -119,6 +119,64 @@ paths:
           description: TODO not found
         '503':
           description: Install repository unavailable
+    patch:
+      x-composition: install
+      summary: Amend a TODO prompt and acceptance criteria
+      description: Appends a revision of the same TODO and admits its text through the shared steering transaction. The request preserves the TODO number, branch and PR. A repeated Idempotency-Key returns the original revision; a different payload under that key conflicts. New amendments refuse while the TODO is merging or closed. Admission remains unavailable until its runtime dependencies are qualified. Delegated requests return confirmation_unavailable without mutation until shared person confirmation is wired.
+      operationId: patch_api_todos_n
+      tags:
+        - Todos
+      security:
+        - sessionCookie: []
+        - tokenAuth: []
+      parameters:
+        - name: n
+          in: path
+          required: true
+          schema: {type: integer, minimum: 1}
+        - name: Idempotency-Key
+          in: header
+          required: true
+          schema: {type: string, minLength: 1, maxLength: 256}
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [prompt]
+              description: Prompt and formatted acceptance criteria together must fit 24576 UTF-8 bytes.
+              properties:
+                prompt: {type: string, minLength: 1, maxLength: 24576}
+                acceptance:
+                  type: array
+                  items: {type: string}
+      responses:
+        '202':
+          description: Revision and steering intent committed; runtime completion is asynchronous
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [state, n, rev]
+                properties:
+                  state: {type: string, enum: [accepted]}
+                  n: {type: integer, minimum: 1}
+                  rev: {type: integer, minimum: 2}
+                  attempt: {type: integer, minimum: 1}
+        '400':
+          description: invalid_todo, invalid_amendment or invalid_idempotency_key
+        '401':
+          description: Authentication required
+        '403':
+          description: Not an active member or a permitted credential
+        '404':
+          description: todo_not_found
+        '409':
+          description: merging, todo_closed, or conflicting reuse of the Idempotency-Key
+        '503':
+          description: todo_control_unavailable or confirmation_unavailable; no revision or steer is committed
     post:
       x-composition: install
       summary: Steer the coding agent, or stop, resume, retry, drop or move a TODO
