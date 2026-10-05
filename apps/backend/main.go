@@ -149,7 +149,7 @@ func serve(ctx context.Context, args []string, executable func() (string, error)
 	if err != nil {
 		return err
 	}
-	chatHost, err := modelhost.New(resolver, launcher)
+	chatHost, err := modelhost.New(resolver, launcher, modelhost.WithProviderStandIn(os.Getenv(modelhost.ProviderStandInVariable)))
 	if err != nil {
 		return err
 	}

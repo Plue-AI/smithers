@@ -153,6 +153,9 @@ func (host *Host) RunModelTest(ctx context.Context, ownerID int64, request json.
 	if binding.Managed {
 		return nil, ports.ErrModelCredentialMissing
 	}
+	if binding, request, err = host.standIn.route(binding, request); err != nil {
+		return nil, err
+	}
 	grant := ports.ChatTurnGrant{OwnerID: ownerID, TurnID: "model-test", ProducerBaseURL: "http://127.0.0.1"}
 	lease, err := host.launcher.LaunchChatHost(ctx, grant, binding)
 	if err != nil {

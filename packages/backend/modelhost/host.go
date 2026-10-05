@@ -74,17 +74,36 @@ type Launcher interface {
 type Host struct {
 	resolver Resolver
 	launcher Launcher
+	standIn  providerStandIn
+}
+
+// HostOption configures a Host.
+type HostOption func(*Host) error
+
+// WithProviderStandIn sends every built-in credential's calls to a loopback
+// stand-in (ProviderStandInVariable). An empty origin changes nothing.
+func WithProviderStandIn(origin string) HostOption {
+	return func(host *Host) (err error) {
+		host.standIn, err = parseProviderStandIn(origin)
+		return err
+	}
 }
 
 const cleanupTimeout = 15 * time.Second
 
 const maxModelStreamBytes = 16 << 20
 
-func New(resolver Resolver, launcher Launcher) (*Host, error) {
+func New(resolver Resolver, launcher Launcher, options ...HostOption) (*Host, error) {
 	if resolver == nil || launcher == nil {
 		return nil, errors.New("model host requires an owner-scoped resolver and private launcher")
 	}
-	return &Host{resolver: resolver, launcher: launcher}, nil
+	host := &Host{resolver: resolver, launcher: launcher}
+	for _, option := range options {
+		if err := option(host); err != nil {
+			return nil, err
+		}
+	}
+	return host, nil
 }
 
 func (host *Host) RunChatTurn(ctx context.Context, grant ports.ChatTurnGrant) (runErr error) {
@@ -93,6 +112,11 @@ func (host *Host) RunChatTurn(ctx context.Context, grant ports.ChatTurnGrant) (r
 	}
 	binding, err := host.resolver.ResolveChatModel(ctx, grant.OwnerID, grant.RepositoryID, grant.Request)
 	if err != nil {
+		return fmt.Errorf("resolve owner model: %w", err)
+	}
+	// The binding names the key, so a provider's refusal names its provider.
+	provider := services.ModelProviderNames[binding.CredentialName]
+	if binding, grant.Request, err = host.standIn.route(binding, grant.Request); err != nil {
 		return fmt.Errorf("resolve owner model: %w", err)
 	}
 	if binding.Managed {
@@ -117,10 +141,9 @@ func (host *Host) RunChatTurn(ctx context.Context, grant ports.ChatTurnGrant) (r
 		return err
 	}
 	err = transport.RunChatTurn(ctx, grant)
-	// The binding names the key, so a provider's refusal names its provider.
 	var refusal *chat.ProviderRefusal
 	if errors.As(err, &refusal) {
-		refusal.Provider = services.ModelProviderNames[binding.CredentialName]
+		refusal.Provider = provider
 	}
 	return err
 }
@@ -151,6 +174,9 @@ func (host *Host) RunModelStream(ctx context.Context, grant ports.ModelStreamGra
 	// has none, so it runs only on the owner's own credential.
 	if binding.Managed {
 		return nil, fmt.Errorf("model stream has no chat turn to meter managed credit: %w", ports.ErrModelCredentialMissing)
+	}
+	if binding, requestBody, err = host.standIn.route(binding, requestBody); err != nil {
+		return nil, fmt.Errorf("resolve owner model: %w", err)
 	}
 	chatGrant := ports.ChatTurnGrant{
 		TurnID: "model-stream-" + runID, OwnerID: grant.OwnerID, RepositoryID: grant.RepositoryID,

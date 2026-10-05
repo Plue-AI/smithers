@@ -47,13 +47,15 @@ var hostStateDirectories = []string{"SMITHERS_REPO_STORAGE_PATH", "SMITHERS_BLOB
 var postgresPrograms = []string{"postgres", "initdb", "pg_isready", "psql", "pg_dump", "pg_restore"}
 
 // passedValues are the launcher's variables whose values name no file: the
-// backend keeps them as given. The GitHub base URLs, like the proxy
-// variables, choose where GitHub requests go; the no-GitHub walk points them
-// at its GitHub fake (apps/app/scripts/run-local-no-github.ts).
+// backend keeps them as given. The GitHub base URLs and the model provider
+// origin, like the proxy variables, choose where GitHub and model requests
+// go; the no-GitHub walk points them at its GitHub and model fakes
+// (apps/app/scripts/run-local-no-github.ts).
 var passedValues = []string{
 	"USER", "LOGNAME", "TZ", "LANG", "LC_ALL", "LC_CTYPE",
 	"HTTP_PROXY", "HTTPS_PROXY", "NO_PROXY", "ALL_PROXY", "http_proxy", "https_proxy", "no_proxy", "all_proxy",
 	"SMITHERS_GITHUB_APP_API_BASE_URL", "SMITHERS_AUTH_GITHUB_API_BASE_URL", "SMITHERS_AUTH_GITHUB_OAUTH_BASE_URL",
+	"SMITHERS_MODEL_PROVIDER_ORIGIN",
 	"SMITHERS_WORKSPACE_ISOLATION", "SMITHERS_AUTH_MODE", "SMITHERS_NATIVE_POSTGRES_MAJOR",
 	"SMITHERS_SERVER_ADDR", "SMITHERS_EGRESS_RELAY_PORT", "SMITHERS_SSH_ADDR",
 }

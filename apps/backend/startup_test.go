@@ -137,14 +137,16 @@ func TestStartupRefusesLoaderAndGitInjection(t *testing.T) {
 	}
 }
 
-// Lead ruling 2026-10-04 (#3455): the GitHub base URLs name no file, so the
-// backend keeps them as it keeps the proxy variables; no program it starts
-// gets them, and a loader variable beside them is still refused.
+// Lead ruling 2026-10-04 (#3455): the GitHub base URLs and the model provider
+// origin name no file, so the backend keeps them as it keeps the proxy
+// variables; no program it starts gets them, and a loader variable beside
+// them is still refused.
 func TestInstalledEnvironmentKeepsGitHubBaseURLs(t *testing.T) {
 	bundle := installedBundleFixture(t)
 	env := bundle.installedEnvironment(t)
 	bases := map[string]string{"SMITHERS_GITHUB_APP_API_BASE_URL": "http://127.0.0.1:47401",
-		"SMITHERS_AUTH_GITHUB_API_BASE_URL": "http://127.0.0.1:47402", "SMITHERS_AUTH_GITHUB_OAUTH_BASE_URL": "http://127.0.0.1:47403"}
+		"SMITHERS_AUTH_GITHUB_API_BASE_URL": "http://127.0.0.1:47402", "SMITHERS_AUTH_GITHUB_OAUTH_BASE_URL": "http://127.0.0.1:47403",
+		"SMITHERS_MODEL_PROVIDER_ORIGIN": "http://127.0.0.1:47404"}
 	for name, value := range bases {
 		env[name] = value
 	}
