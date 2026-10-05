@@ -1,7 +1,7 @@
 import { NodeCrypto } from "@effect/platform-node"
 import { FlowEngine } from "@smthrs/engine"
 import { Action, Interpreter } from "@smthrs/flow"
-import { Effect, Layer, ManagedRuntime } from "effect"
+import { Effect, Exit, Layer, ManagedRuntime } from "effect"
 import assert from "node:assert/strict"
 import { test } from "node:test"
 import * as Jj from "../../packages/smithers/flows/jj/src/Jj.ts"
@@ -9,9 +9,19 @@ import { type BackendLanding, Landing, type LocalLanding } from "../coding/landi
 import { NativeCoding, NativeCodingError } from "../coding/native.ts"
 import { checkInputDigest, type Implementation, type Plan, type Revision } from "../coding/schema.ts"
 import { AdmitVibe, FenceVibeSource, fenceVibeSource, VerifyVibe } from "../coding/vibe-admission.ts"
+import {
+  messageRefusal,
+  type Proposal,
+  proposalRefusal,
+  ProposeHistory,
+  RepairHistory,
+  ReviewHistory,
+  validateProposalLayer
+} from "../coding/vibe-cleanup.ts"
 import { ReadVibeRequest, VibeEvidence } from "../coding/vibe-evidence.ts"
 import { landerLayer } from "../coding/vibe-lander.ts"
 import { publicationLayers, PublishVibeSource } from "../coding/vibe-publication.ts"
+import type { VibeAdmission } from "../coding/vibe-schema.ts"
 import { policyLayers } from "../coding/workflow.ts"
 
 /** Admission reads only the lander's kind; every landing method refuses. */
@@ -350,3 +360,82 @@ for (
     }
   })
 }
+
+const cleanupAdmission: VibeAdmission = { ...evidence, validatedHead: implementations[1]!.head }
+const recorded = implementations.flatMap((implementation) => implementation.atoms)
+const proposal = (descriptions: ReadonlyArray<string>, summary = "✨ feat: first and last"): Proposal => ({
+  summary,
+  atoms: descriptions.map((description, index) => ({ changeId: recorded[index]!.changeId, description }))
+})
+
+test("a final description is any clear one-line summary; the emoji conventional form is preferred, not required", () => {
+  // claude-sonnet-4.5's subject on 2026-10-05, refused three attempts running.
+  for (
+    const message of ["✅ Add test for greet function", "✨ feat(greet): add a greet function", "Add greet\n\nWhy."]
+  ) {
+    assert.equal(messageRefusal(message), undefined, message)
+  }
+  assert.equal(messageRefusal(""), "its first line is empty")
+  assert.equal(messageRefusal("\nAdd greet"), "its first line is empty")
+  assert.equal(messageRefusal("✅ :"), "its first line has no words")
+  assert.match(messageRefusal(`fix: ${"x".repeat(160)}`)!, /165 characters; the most is 160/)
+  assert.equal(proposalRefusal(recorded, proposal(["✅ Add first", "Add last"])), undefined)
+})
+
+test("a refused proposal says what to fix: the recorded atoms, their order and each bad message", () => {
+  const swapped = proposal(["✅ Add first", "Add last"])
+  const reordered = { ...swapped, atoms: [...swapped.atoms].reverse() }
+  assert.equal(
+    proposalRefusal(recorded, reordered),
+    "Final history refused: atom 1 is jj-last, but the recorded atom 1 is jj-first; " +
+      "atom 2 is jj-first, but the recorded atom 2 is jj-last."
+  )
+  assert.equal(
+    proposalRefusal(recorded, proposal(["✅", "Add last"], "")),
+    "Final history refused: atom 1's description \"✅\": its first line has no words; " +
+      "the summary \"\": its first line is empty."
+  )
+  assert.match(
+    proposalRefusal(recorded, proposal(["✅ Add first"]))!,
+    /it describes 1 atoms, but the request recorded 2: jj-first, jj-last/
+  )
+})
+
+test("final history gets one repair turn that quotes the refusal, then fails", { timeout: 60_000 }, async (t) => {
+  const reviewed: Array<Proposal> = [], repaired: Array<{ refusal: string; proposal: Proposal }> = []
+  let answers: Array<Proposal> = []
+  const layer = Layer.mergeAll(
+    Interpreter.layer(ProposeHistory),
+    validateProposalLayer,
+    ReviewHistory.toLayer(() => Effect.sync(() => (reviewed.push(answers[0]!), answers[0]!))),
+    RepairHistory.toLayer(({ refusal, proposal }) =>
+      Effect.sync(() => (repaired.push({ refusal, proposal }), answers[1]!))
+    )
+  ).pipe(
+    Layer.provideMerge(Action.layerImplementations),
+    Layer.provideMerge(FlowEngine.layerMemory),
+    Layer.provideMerge(NodeCrypto.layer)
+  )
+  const host = ManagedRuntime.make(layer)
+  t.after(() => host.dispose())
+  const good = proposal(["✨ feat: first", "✨ feat: last"]), bad = proposal(["✅", "✨ feat: last"])
+  const run = (executionId: string) => host.runPromiseExit(ProposeHistory.execute(cleanupAdmission, { executionId }))
+
+  const value = (exit: Exit.Exit<Proposal, unknown>) => Exit.isSuccess(exit) ? exit.value : exit
+  answers = [good, good]
+  assert.deepEqual(value(await run("clean")), good)
+  assert.equal(repaired.length, 0, "an accepted proposal is not repaired")
+
+  answers = [bad, good]
+  assert.deepEqual(value(await run("repaired")), good)
+  assert.deepEqual(repaired, [{
+    refusal: "Final history refused: atom 1's description \"✅\": its first line has no words.",
+    proposal: bad
+  }])
+
+  answers = [bad, bad]
+  const failed = await run("refused-twice")
+  assert.ok(Exit.isFailure(failed))
+  assert.match(JSON.stringify(failed.cause), /invalid_plan.*its first line has no words/)
+  assert.equal(repaired.length, 2, "one repair turn per refused review, never a second")
+})

@@ -13,6 +13,7 @@ const restricted = new Set([
   "coding/draft-poc",
   "coding/review-poc",
   "coding/review-final-history",
+  "coding/repair-final-history",
   "coding/review-lens",
   "wiki/review-page"
 ])

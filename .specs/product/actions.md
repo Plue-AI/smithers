@@ -111,16 +111,18 @@ The TODO flow: route, plan, implement, verify, review, correct, land, and refres
 | `coding/fence-vibe-source` | action | flows/coding/vibe-admission.ts:19 | Pin the exact source being landed | Install | Keep | Pinned the change |
 | `coding/VerifyVibe` | flow | flows/coding/vibe-admission.ts:25 | Verify the request before landing | Install | Keep | Verified before landing |
 | `coding/AdmitVibe` | flow | flows/coding/vibe-admission.ts:58 | Admit the request's source for landing | Install | Keep | Opened the change for landing |
-| `coding/review-final-history` | agent action (coding/implement) | flows/coding/vibe-cleanup.ts:26 | Agent reviews the final history | Machine | Keep | Reviewed the history |
-| `coding/validate-final-history` | action | flows/coding/vibe-cleanup.ts:39 | Validate the final history | Machine | Keep | Checked the history |
-| `coding/prepare-final-description` | action | flows/coding/vibe-cleanup.ts:45 | Prepare the final description | Machine | Keep | Drafted the commit message |
-| `coding/confirm-final-description` | action | flows/coding/vibe-cleanup.ts:51 | Confirm the final description | Machine | Keep | Confirmed the commit message |
-| `coding/DescribeFinalAtom` | flow | flows/coding/vibe-cleanup.ts:57 | Describe the final commit | Install | Keep | Wrote the commit message |
-| `coding/refresh-final-history` | action | flows/coding/vibe-cleanup.ts:67 | Refresh history after rewrite | Machine | Keep | Refreshed the history |
-| `coding/RecheckFinalHistory` | flow | flows/coding/vibe-cleanup.ts:74 | Recheck the rewritten history | Machine | Keep | Re-checked the history |
-| `coding/finish-final-history` | action | flows/coding/vibe-cleanup.ts:118 | Finish the history rewrite | Machine | Keep | Finished the history |
-| `coding/RewriteFinalHistory` | flow | flows/coding/vibe-cleanup.ts:124 | Rewrite final commit history | Install | Keep | Tidied the history |
-| `coding/CleanVibeHistory` | flow | flows/coding/vibe-cleanup.ts:150 | Tidy the change's final history | Install | Keep | Tidied the history |
+| `coding/review-final-history` | agent action (coding/implement) | flows/coding/vibe-cleanup.ts:35 | Agent reviews the final history | Machine | Keep | Reviewed the history |
+| `coding/repair-final-history` | agent action (coding/implement) | flows/coding/vibe-cleanup.ts:47 | Agent corrects a refused final history once | Machine | Keep | Corrected the history |
+| `coding/validate-final-history` | action | flows/coding/vibe-cleanup.ts:56 | Validate the final history | Machine | Keep | Checked the history |
+| `coding/prepare-final-description` | action | flows/coding/vibe-cleanup.ts:62 | Prepare the final description | Machine | Keep | Drafted the commit message |
+| `coding/confirm-final-description` | action | flows/coding/vibe-cleanup.ts:68 | Confirm the final description | Machine | Keep | Confirmed the commit message |
+| `coding/DescribeFinalAtom` | flow | flows/coding/vibe-cleanup.ts:74 | Describe the final commit | Install | Keep | Wrote the commit message |
+| `coding/refresh-final-history` | action | flows/coding/vibe-cleanup.ts:84 | Refresh history after rewrite | Machine | Keep | Refreshed the history |
+| `coding/RecheckFinalHistory` | flow | flows/coding/vibe-cleanup.ts:91 | Recheck the rewritten history | Machine | Keep | Re-checked the history |
+| `coding/finish-final-history` | action | flows/coding/vibe-cleanup.ts:135 | Finish the history rewrite | Machine | Keep | Finished the history |
+| `coding/RewriteFinalHistory` | flow | flows/coding/vibe-cleanup.ts:141 | Rewrite final commit history | Install | Keep | Tidied the history |
+| `coding/ProposeFinalHistory` | flow | flows/coding/vibe-cleanup.ts:168 | Review the final history, repairing a refusal once | Machine | Keep | Reviewed the history |
+| `coding/CleanVibeHistory` | flow | flows/coding/vibe-cleanup.ts:187 | Tidy the change's final history | Install | Keep | Tidied the history |
 | `coding/read-vibe-request` | action | flows/coding/vibe-evidence.ts:18 | Read the request being landed | Install | Keep | Read the request |
 | `coding/read-vibe-lander` | action | flows/coding/vibe-lander.ts:9 | Read the lander's state | Install | Keep | Read landing state |
 | `coding/read-vibe-stack` | action | flows/coding/vibe-landing.ts:47 | Read the stack | Install | Keep | Read the stack |

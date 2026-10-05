@@ -76,8 +76,13 @@ RunStore receipts; no separate provenance ledger or POC prerequisite is needed.
 `CleanVibeHistory` uses an evidence-only ReviewHistory action through the existing
 `coding/implement` model role. Its private proposal contains one final summary
 and `{ changeId, description }` for each of the request's validated atoms, in
-order, up to 128. Every description and the summary require an emoji conventional
-commit subject. The model cannot insert, remove or reorder atoms or edit source.
+order, up to 128. Every description and the summary need a clear one-line first
+line of at most 160 characters; the instruction prefers an emoji conventional
+subject such as `✨ feat(greet): add a greet function` but does not require it.
+A refused proposal gets one repair turn, `coding/repair-final-history`, which
+quotes the refusal back with the refused proposal; a second refusal fails the
+cleanup `invalid_plan` with the reason (`coding/ProposeFinalHistory`). The model
+cannot insert, remove or reorder atoms or edit source.
 
 For each atom, PrepareDescription captures the exact native operation fence and
 the existing flow-derived request ID. ApplyNative executes that recorded payload;
