@@ -2,7 +2,7 @@
 //! Transport uses only the root-owned workspace binding, never repo Git config.
 use std::collections::{BTreeMap, HashSet};
 use std::path::{Path, PathBuf};
-use std::process::Command;
+use std::process::{Command, Stdio};
 
 use jj_lib::object_id::ObjectId;
 use serde::Deserialize;
@@ -504,6 +504,9 @@ fn run_with_binding(repo: &Path, input: &Value, config: &Binding) -> Result<Valu
         .env("GIT_CONFIG_GLOBAL", "/dev/null")
         .args(["init", "--bare", "--template="])
         .arg(&scratch_git)
+        // Git reports the new repository on stdout, where the caller reads
+        // only this helper's JSON receipt.
+        .stdout(Stdio::null())
         .status()
         .map_err(|_| {
             Failure::new(
