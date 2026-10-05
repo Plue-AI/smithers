@@ -40,6 +40,16 @@ func (q *boxHostTestQuerier) GetUserByID(_ context.Context, id int64) (db.User, 
 func (q *boxHostTestQuerier) HasWritableWorkspaceShares(context.Context, string) (bool, error) {
 	return q.shared, nil
 }
+
+// WorkspaceSoleWriter mirrors the query for a user-owned box: the owner's
+// alone while it has no write share.
+func (q *boxHostTestQuerier) WorkspaceSoleWriter(ctx context.Context, arg db.WorkspaceSoleWriterParams) (bool, error) {
+	workspace, err := q.GetWorkspaceByRepo(ctx, db.GetWorkspaceByRepoParams{ID: arg.WorkspaceID})
+	if err != nil {
+		return false, err
+	}
+	return workspace.UserID == arg.UserID && !q.shared, nil
+}
 func (q *boxHostTestQuerier) ListAccessTokensByUserID(context.Context, int64) ([]db.AccessToken, error) {
 	return q.tokens, nil
 }

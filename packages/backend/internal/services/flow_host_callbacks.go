@@ -14,7 +14,7 @@ import (
 
 type flowHostCallbackQuerier interface {
 	GetWorkspace(context.Context, string) (db.Workspace, error)
-	HasWritableWorkspaceShares(context.Context, string) (bool, error)
+	WorkspaceSoleWriter(context.Context, db.WorkspaceSoleWriterParams) (bool, error)
 	TouchWorkspaceActivity(context.Context, string) error
 }
 
@@ -53,20 +53,25 @@ func (callbacks *FlowHostCallbacks) AuthorizeHostCallback(ctx context.Context, h
 		return BoxHostTarget{}, pkgerrors.Internal("load flow host binding").WithCause(err)
 	}
 	workspace, err := callbacks.queries.GetWorkspace(ctx, binding.WorkspaceID)
-	if errors.Is(err, pgx.ErrNoRows) || (err == nil && (workspace.DeletedAt.Valid || workspace.UserID != binding.UserID || workspace.RepositoryID != binding.RepositoryID)) {
+	if errors.Is(err, pgx.ErrNoRows) || (err == nil && (workspace.DeletedAt.Valid || workspace.RepositoryID != binding.RepositoryID)) {
 		return BoxHostTarget{}, pkgerrors.Unauthorized("invalid coding host credentials")
 	}
 	if err != nil {
 		return BoxHostTarget{}, pkgerrors.Internal("load flow host workspace").WithCause(err)
 	}
-	if workspace.Status != "running" {
-		return BoxHostTarget{}, pkgerrors.Conflict("the coding host's box is not running")
-	}
-	shared, err := callbacks.queries.HasWritableWorkspaceShares(ctx, workspace.ID)
+	// The box is the binding user's alone: their own with no write share, or a
+	// branch machine shared with them only (WorkspaceSoleWriter).
+	alone, err := callbacks.queries.WorkspaceSoleWriter(ctx, db.WorkspaceSoleWriterParams{WorkspaceID: workspace.ID, UserID: binding.UserID})
 	if err != nil {
 		return BoxHostTarget{}, pkgerrors.Internal("check workspace sharing").WithCause(err)
 	}
-	if shared {
+	if !alone && workspace.UserID != binding.UserID {
+		return BoxHostTarget{}, pkgerrors.Unauthorized("invalid coding host credentials")
+	}
+	if workspace.Status != "running" {
+		return BoxHostTarget{}, pkgerrors.Conflict("the coding host's box is not running")
+	}
+	if !alone {
 		return BoxHostTarget{}, pkgerrors.Forbidden("a coding host calls back only from a box without write shares until shared execution has actor-bound credentials")
 	}
 	_ = callbacks.queries.TouchWorkspaceActivity(ctx, workspace.ID)

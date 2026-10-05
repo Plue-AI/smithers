@@ -118,12 +118,18 @@ func (value *lease) loadOrCreate(ctx context.Context, authority Authority, catal
 		_ = tx.Rollback(cleanupCtx)
 	}()
 	// A target resolver authorizes the product request; this lock independently
-	// verifies that its workspace still belongs to that repository/user. Keep
-	// deletion and insertion ordered, including repository/user cascades.
+	// verifies that its workspace still belongs to that repository/user: the
+	// user's own, or a branch machine the install's machine service owns whose
+	// only write share is the user's (WorkspaceSoleWriter). Keep deletion and
+	// insertion ordered, including repository/user cascades.
 	var workspaceID string
-	if err := tx.QueryRow(ctx, `SELECT id::text FROM workspaces
-		WHERE id=$1 AND repository_id=$2 AND user_id=$3 AND deleted_at IS NULL
-		FOR SHARE`, authority.WorkspaceID, authority.RepositoryID, authority.UserID).Scan(&workspaceID); err != nil {
+	if err := tx.QueryRow(ctx, `SELECT w.id::text FROM workspaces w
+		WHERE w.id=$1 AND w.repository_id=$2 AND w.deleted_at IS NULL
+		  AND (w.user_id=$3 OR (w.user_id IN (SELECT u.id FROM users u WHERE u.lower_username='smithers-machines'
+		        AND u.user_type='service' AND u.prohibit_login AND u.deleted_at IS NULL)
+		    AND EXISTS (SELECT 1 FROM workspace_shares s WHERE s.workspace_id=w.id AND s.level='write' AND s.grantee_user_id=$3)
+		    AND NOT EXISTS (SELECT 1 FROM workspace_shares s WHERE s.workspace_id=w.id AND s.level='write' AND s.grantee_user_id<>$3)))
+		FOR SHARE OF w`, authority.WorkspaceID, authority.RepositoryID, authority.UserID).Scan(&workspaceID); err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			return failure{code: "runtime_target_forbidden"}
 		}

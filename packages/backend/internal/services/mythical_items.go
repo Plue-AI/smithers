@@ -2882,7 +2882,21 @@ func (l *workspaceMythicalLanes) Owned(ctx context.Context, repositoryID, userID
 	if err != nil {
 		return false, err
 	}
-	return !workspace.DeletedAt.Valid && workspace.RepositoryID == repositoryID && workspace.UserID == userID, nil
+	if workspace.DeletedAt.Valid || workspace.RepositoryID != repositoryID {
+		return false, nil
+	}
+	if workspace.UserID == userID {
+		return true, nil
+	}
+	// A lane is a branch machine the machine service owns, shared with its
+	// TODO's person only.
+	store, ok := l.workspaces.q.(interface {
+		WorkspaceSoleWriter(context.Context, db.WorkspaceSoleWriterParams) (bool, error)
+	})
+	if !ok {
+		return false, nil
+	}
+	return store.WorkspaceSoleWriter(ctx, db.WorkspaceSoleWriterParams{WorkspaceID: workspace.ID, UserID: userID})
 }
 
 func (l *workspaceMythicalLanes) Delete(ctx context.Context, repositoryID, actorUserID int64, workspaceID string) error {

@@ -24,3 +24,39 @@ func (q *Queries) HasWritableWorkspaceShares(ctx context.Context, workspaceID st
 	err := row.Scan(&exists)
 	return exists, err
 }
+
+const workspaceSoleWriter = `-- name: WorkspaceSoleWriter :one
+SELECT EXISTS (
+    SELECT 1 FROM workspaces w
+    WHERE w.id = $1::uuid AND w.deleted_at IS NULL
+      AND (
+        (w.user_id = $2::bigint AND NOT EXISTS (
+            SELECT 1 FROM workspace_shares s WHERE s.workspace_id = w.id AND s.level = 'write'))
+        OR (w.user_id IN (
+              SELECT u.id FROM users u WHERE u.lower_username = 'smithers-machines'
+                AND u.user_type = 'service' AND u.prohibit_login AND u.deleted_at IS NULL)
+            AND EXISTS (
+              SELECT 1 FROM workspace_shares s WHERE s.workspace_id = w.id AND s.level = 'write'
+                AND s.grantee_user_id = $2::bigint)
+            AND NOT EXISTS (
+              SELECT 1 FROM workspace_shares s WHERE s.workspace_id = w.id AND s.level = 'write'
+                AND s.grantee_user_id <> $2::bigint))
+      )
+)
+`
+
+type WorkspaceSoleWriterParams struct {
+	WorkspaceID string `json:"workspace_id"`
+	UserID      int64  `json:"user_id"`
+}
+
+// WorkspaceSoleWriter answers whether a workspace is one person's alone: their
+// own with no write share, or a branch machine the install's machine service
+// owns whose only write share is theirs. A box's coding host holds that
+// person's repository credential only then (no other writer could read it).
+func (q *Queries) WorkspaceSoleWriter(ctx context.Context, arg WorkspaceSoleWriterParams) (bool, error) {
+	row := q.db.QueryRow(ctx, workspaceSoleWriter, arg.WorkspaceID, arg.UserID)
+	var exists bool
+	err := row.Scan(&exists)
+	return exists, err
+}

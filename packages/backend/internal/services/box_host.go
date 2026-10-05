@@ -70,7 +70,7 @@ func boxHostTokenName(name string) bool {
 type boxHostQuerier interface {
 	accessTokenStore
 	providerPoolTokenLister
-	HasWritableWorkspaceShares(context.Context, string) (bool, error)
+	WorkspaceSoleWriter(context.Context, db.WorkspaceSoleWriterParams) (bool, error)
 	GetRepoByID(context.Context, int64) (db.Repository, error)
 	GetUserByID(context.Context, int64) (db.User, error)
 	GetOrgByID(context.Context, int64) (db.Organization, error)
@@ -113,11 +113,10 @@ func (s *WorkspaceService) PrepareBoxHost(ctx context.Context, hostID, workspace
 	if err != nil {
 		return nil, err
 	}
-	if workspace.UserID != userID {
-		return environment, nil
-	}
-	shared, err := q.HasWritableWorkspaceShares(ctx, workspace.ID)
-	if err != nil || shared {
+	// Only a box that is the user's alone gets the user's credential: their
+	// own with no write share, or a branch machine shared with them only.
+	alone, err := q.WorkspaceSoleWriter(ctx, db.WorkspaceSoleWriterParams{WorkspaceID: workspace.ID, UserID: userID})
+	if err != nil || !alone {
 		return environment, err
 	}
 	if guest && s.sandbox == nil {

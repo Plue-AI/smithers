@@ -54,8 +54,19 @@ func (l *admittedFlowLauncher) StartFlowHost(ctx context.Context, launch flowhos
 	if err != nil {
 		return flowhost.Connection{}, err
 	}
-	if workspace.UserID != launch.Authority.UserID || workspace.RepositoryID != launch.Authority.RepositoryID || workspace.DeletedAt.Valid {
+	if workspace.RepositoryID != launch.Authority.RepositoryID || workspace.DeletedAt.Valid {
 		return flowhost.Connection{}, errors.New("Flow workspace authority changed before launch")
+	}
+	if workspace.UserID != launch.Authority.UserID {
+		// A branch machine is the machine service's; it runs for the one
+		// person whose write share is its only one.
+		alone, err := l.queries.WorkspaceSoleWriter(ctx, db.WorkspaceSoleWriterParams{WorkspaceID: workspace.ID, UserID: launch.Authority.UserID})
+		if err != nil {
+			return flowhost.Connection{}, err
+		}
+		if !alone {
+			return flowhost.Connection{}, errors.New("Flow workspace authority changed before launch")
+		}
 	}
 	if err := l.policy.AuthorizeCountedSandboxResume(ctx, workspace.UserID, workspace.ID, workspace.VmID); err != nil {
 		return flowhost.Connection{}, err
