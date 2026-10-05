@@ -5,10 +5,25 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"html"
+	"net"
 	"net/http"
 	"net/url"
 	"strings"
 )
+
+// publicHookURL mirrors GitHub's manifest check that a hook is reachable over
+// the public Internet: loopback, private, link-local and .local hosts refuse.
+func publicHookURL(raw string) bool {
+	u, err := url.Parse(raw)
+	if err != nil || (u.Scheme != "http" && u.Scheme != "https") {
+		return false
+	}
+	host := strings.ToLower(u.Hostname())
+	if ip := net.ParseIP(host); ip != nil {
+		return ip.IsGlobalUnicast() && !ip.IsPrivate()
+	}
+	return strings.Contains(host, ".") && !strings.HasSuffix(host, ".localhost") && !strings.HasSuffix(host, ".local")
+}
 
 func freshCode() string {
 	var bytes [24]byte
@@ -50,10 +65,14 @@ func (s *Server) web(w http.ResponseWriter, r *http.Request) bool {
 		_, _ = w.Write([]byte(`<a href="` + html.EscapeString(u.String()) + `">` + label + `</a>`))
 	}
 	if manifest && r.Method == "POST" {
-		status := 200
+		status, refusal := 200, "invalid manifest"
 		var m struct {
-			RedirectURL  string   `json:"redirect_url"`
-			CallbackURLs []string `json:"callback_urls"`
+			RedirectURL    string   `json:"redirect_url"`
+			CallbackURLs   []string `json:"callback_urls"`
+			HookAttributes *struct {
+				URL string `json:"url"`
+			} `json:"hook_attributes"`
+			DefaultEvents []string `json:"default_events"`
 		}
 		r.Body = http.MaxBytesReader(w, r.Body, 1<<20)
 		err := r.ParseForm()
@@ -62,14 +81,25 @@ func (s *Server) web(w http.ResponseWriter, r *http.Request) bool {
 			err = json.Unmarshal([]byte(r.Form.Get("manifest")), &m)
 			u, parseErr = url.Parse(m.RedirectURL)
 		}
+		hook := ""
+		if m.HookAttributes != nil {
+			hook = m.HookAttributes.URL
+		}
 		if err != nil || parseErr != nil || u == nil || (u.Scheme != "http" && u.Scheme != "https") || u.Host == "" || u.User != nil {
 			status = 422
+		} else if hook != "" && !publicHookURL(hook) {
+			// GitHub's own refusal for a hook it cannot deliver to.
+			status, refusal = 422, "Hook url is not supported because it isn't reachable over the public Internet (localhost)"
+		} else if hook == "" && (m.HookAttributes != nil || len(m.DefaultEvents) > 0) {
+			status, refusal = 422, "Hook url cannot be blank"
 		}
 		s.writes = append(s.writes, Write{Sequence: uint64(len(s.writes) + 1), Method: r.Method, Path: r.URL.Path, Status: status})
 		if status != 200 {
-			http.Error(w, "invalid manifest", status)
+			http.Error(w, refusal, status)
 			return true
 		}
+		// GitHub generates a webhook secret only for an App created with a hook.
+		s.hookless = hook == ""
 		s.callbacks = append([]string(nil), m.CallbackURLs...)
 		link("Create GitHub App", m.RedirectURL, s.config.ConversionCode, r.Form.Get("state"))
 		return true

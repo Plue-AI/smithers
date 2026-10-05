@@ -10,6 +10,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"net"
 	"net/http"
 	"net/url"
 	"regexp"
@@ -29,15 +30,15 @@ var gitHubAppComponent = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9_.-]{0,99}$`)
 
 // GitHubAppManifest is the browser POST contract defined by GitHub.
 type GitHubAppManifest struct {
-	Name               string                  `json:"name"`
-	URL                string                  `json:"url"`
-	RedirectURL        string                  `json:"redirect_url"`
-	SetupURL           string                  `json:"setup_url"`
-	CallbackURLs       []string                `json:"callback_urls"`
-	Public             bool                    `json:"public"`
-	HookAttributes     GitHubAppHookAttributes `json:"hook_attributes"`
-	DefaultPermissions map[string]string       `json:"default_permissions"`
-	DefaultEvents      []string                `json:"default_events"`
+	Name               string                   `json:"name"`
+	URL                string                   `json:"url"`
+	RedirectURL        string                   `json:"redirect_url"`
+	SetupURL           string                   `json:"setup_url"`
+	CallbackURLs       []string                 `json:"callback_urls"`
+	Public             bool                     `json:"public"`
+	HookAttributes     *GitHubAppHookAttributes `json:"hook_attributes,omitempty"`
+	DefaultPermissions map[string]string        `json:"default_permissions"`
+	DefaultEvents      []string                 `json:"default_events,omitempty"`
 }
 type GitHubAppHookAttributes struct {
 	URL    string `json:"url"`
@@ -59,6 +60,36 @@ type GitHubAppManifestStart struct {
 
 func gitHubAppPermissions() map[string]string {
 	return map[string]string{"contents": "write", "workflows": "write", "pull_requests": "write", "issues": "write", "checks": "read", "statuses": "read", "administration": "read", "metadata": "read", "members": "read"}
+}
+
+func gitHubAppWebhookEvents() []string {
+	return []string{"issues", "issue_comment", "pull_request", "pull_request_review", "pull_request_review_comment", "push", "check_run", "check_suite", "status"}
+}
+
+// cgnat is RFC 6598 shared address space (Tailscale among others): never public.
+var cgnat = &net.IPNet{IP: net.IPv4(100, 64, 0, 0), Mask: net.CIDRMask(10, 32)}
+
+// publicHTTPSOrigin reports whether GitHub can deliver webhooks to origin.
+// GitHub refuses a manifest whose hook is not reachable over the public
+// Internet, so loopback, private, .local and single-label hosts never qualify.
+func publicHTTPSOrigin(origin string) bool {
+	u, err := url.Parse(origin)
+	if err != nil || u.Scheme != "https" {
+		return false
+	}
+	host := strings.TrimSuffix(strings.ToLower(u.Hostname()), ".")
+	if ip := net.ParseIP(host); ip != nil {
+		return ip.IsGlobalUnicast() && !ip.IsPrivate() && !cgnat.Contains(ip)
+	}
+	if !strings.Contains(host, ".") {
+		return false
+	}
+	for _, suffix := range []string{".localhost", ".local", ".internal", ".lan", ".home.arpa"} {
+		if strings.HasSuffix(host, suffix) {
+			return false
+		}
+	}
+	return true
 }
 
 func normalizedGitHubAppOrigins(origins []string) ([]string, error) {
@@ -89,13 +120,25 @@ func BuildGitHubAppManifest(ownerLogin, ownerKind string, origins []string, stat
 	if err != nil {
 		return GitHubAppManifest{}, "", err
 	}
+	// The first configured public https origin receives webhooks. Without one
+	// the App has no hook and no events: GitHub refuses a hook it cannot reach.
+	var hook *GitHubAppHookAttributes
+	for _, origin := range callbacks {
+		if publicHTTPSOrigin(origin) {
+			hook = &GitHubAppHookAttributes{URL: origin + "/webhooks/github", Active: true}
+			break
+		}
+	}
 	for i := range callbacks {
 		callbacks[i] += "/api/auth/github/callback"
 	}
 	suffix := make([]byte, 4)
 	// crypto/rand.Read fills the buffer or terminates the process (Go 1.26).
 	rand.Read(suffix)
-	manifest := GitHubAppManifest{Name: "Smithers " + hex.EncodeToString(suffix), URL: gitHubAppLocalOrigin, RedirectURL: gitHubAppLocalOrigin + "/setup/github/callback", SetupURL: gitHubAppLocalOrigin + "/setup/github/installed", CallbackURLs: callbacks, HookAttributes: GitHubAppHookAttributes{URL: gitHubAppLocalOrigin + "/webhooks/github", Active: false}, DefaultPermissions: gitHubAppPermissions(), DefaultEvents: []string{"issues", "issue_comment", "pull_request", "pull_request_review", "pull_request_review_comment", "push", "check_run", "check_suite", "status"}}
+	manifest := GitHubAppManifest{Name: "Smithers " + hex.EncodeToString(suffix), URL: gitHubAppLocalOrigin, RedirectURL: gitHubAppLocalOrigin + "/setup/github/callback", SetupURL: gitHubAppLocalOrigin + "/setup/github/installed", CallbackURLs: callbacks, HookAttributes: hook, DefaultPermissions: gitHubAppPermissions()}
+	if hook != nil {
+		manifest.DefaultEvents = gitHubAppWebhookEvents()
+	}
 	action := "https://github.com/settings/apps/new"
 	if ownerKind == "org" {
 		action = "https://github.com/organizations/" + url.PathEscape(ownerLogin) + "/settings/apps/new"
@@ -409,6 +452,13 @@ func (s *GitHubAppManifestService) Convert(ctx context.Context, code, state, bro
 	}
 	if !strings.EqualFold(attempt.OwnerLogin, converted.Owner.Login) || attempt.OwnerKind != kind {
 		return "", pkgerrors.Forbidden("GitHub App belongs to another repository owner")
+	}
+	// GitHub returns no webhook secret for an App created without a hook. The
+	// install seals its own, so a later hook configuration can verify deliveries.
+	if converted.WebhookSecret == "" {
+		secret := make([]byte, 32)
+		rand.Read(secret)
+		converted.WebhookSecret = hex.EncodeToString(secret)
 	}
 	tx, err := conn.Begin(ctx)
 	if err != nil {

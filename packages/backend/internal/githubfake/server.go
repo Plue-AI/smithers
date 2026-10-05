@@ -79,6 +79,9 @@ type Server struct {
 	config    Config
 	key       *rsa.PublicKey
 	converted bool
+	// hookless is set when the posted manifest carried no hook: GitHub's
+	// conversion then returns no webhook secret.
+	hookless  bool
 	oauthUsed bool
 	callbacks []string
 	codes     map[string]string
@@ -534,6 +537,9 @@ func (s *Server) respond(r *http.Request, body []byte) (int, any) {
 		s.converted = true
 		app := s.app()
 		app["pem"], app["client_id"], app["client_secret"], app["webhook_secret"] = s.config.PrivateKeyPEM, s.config.ClientID, s.config.ClientSecret, s.config.WebhookSecret
+		if s.hookless {
+			app["webhook_secret"] = nil
+		}
 		return http.StatusCreated, app
 	}
 	if r.Method == http.MethodGet && r.URL.Path == "/users/"+s.config.OwnerLogin {

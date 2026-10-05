@@ -1149,15 +1149,15 @@ type GitHubAppManifestStart struct {
 
 // GitHubAppManifest is generated from docs/api/openapi.yaml.
 type GitHubAppManifest struct {
-	Name               string                          `json:"name"`
-	URL                string                          `json:"url"`
-	RedirectURL        string                          `json:"redirect_url"`
-	SetupURL           string                          `json:"setup_url"`
-	CallbackURLs       []string                        `json:"callback_urls"`
-	Public             bool                            `json:"public"`
-	HookAttributes     GitHubAppManifestHookAttributes `json:"hook_attributes"`
-	DefaultPermissions map[string]string               `json:"default_permissions"`
-	DefaultEvents      []string                        `json:"default_events"`
+	Name               string                           `json:"name"`
+	URL                string                           `json:"url"`
+	RedirectURL        string                           `json:"redirect_url"`
+	SetupURL           string                           `json:"setup_url"`
+	CallbackURLs       []string                         `json:"callback_urls"`
+	Public             bool                             `json:"public"`
+	HookAttributes     *GitHubAppManifestHookAttributes `json:"hook_attributes,omitempty"`
+	DefaultPermissions map[string]string                `json:"default_permissions"`
+	DefaultEvents      []string                         `json:"default_events,omitempty"`
 }
 
 // GitHubAppManifestHookAttributes is generated from docs/api/openapi.yaml.

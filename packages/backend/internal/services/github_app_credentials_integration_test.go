@@ -539,6 +539,39 @@ func TestGitHubAppManifestUnknownOwnerTypeIsRefusedPostgres(t *testing.T) {
 	require.ErrorIs(t, err, ErrGitHubAppNotConfigured)
 }
 
+// GitHub returns no webhook secret for an App created without a hook (an
+// install whose origin is not public https). The install seals its own.
+func TestGitHubAppManifestHooklessConversionSealsGeneratedWebhookSecretPostgres(t *testing.T) {
+	t.Parallel()
+	pool := newGitHubAppTestPool(t)
+	ctx := WithGitHubAppSetupSession(context.Background(), strings.Repeat("s", 64), "http://localhost:4000")
+	_, credentials := manifestFixture(t)
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusCreated)
+		_ = json.NewEncoder(w).Encode(map[string]any{"id": credentials.ID, "slug": credentials.Slug, "pem": credentials.PEM, "client_id": credentials.ClientID, "client_secret": credentials.ClientSecret, "webhook_secret": nil, "owner": map[string]string{"login": "acme", "type": "Organization"}})
+	}))
+	defer server.Close()
+	codec, err := webhook.NewSecretCodec("hookless-key")
+	require.NoError(t, err)
+	store := NewGitHubAppCredentialStore(pool, codec)
+	service := NewGitHubAppManifestService(pool, store, server.URL, nil)
+	start, err := service.Begin(ctx, GitHubAppManifestRequest{OwnerLogin: "acme", OwnerKind: "org"})
+	require.NoError(t, err)
+	require.Nil(t, start.Manifest.HookAttributes)
+	_, err = service.Convert(ctx, "code", start.State, start.State)
+	require.NoError(t, err)
+	saved, err := store.Load(ctx)
+	require.NoError(t, err)
+	require.Regexp(t, `^[0-9a-f]{64}$`, saved.WebhookSecret)
+	var sealed string
+	require.NoError(t, pool.QueryRow(ctx, `SELECT webhook_secret_sealed FROM github_app`).Scan(&sealed))
+	require.NotContains(t, sealed, saved.WebhookSecret)
+	var step string
+	require.NoError(t, pool.QueryRow(ctx, `SELECT value->>'status' FROM install_settings WHERE key='setup.step.app_manifest'`).Scan(&step))
+	require.Equal(t, "done", step)
+}
+
 func TestGitHubAppManifestMalformedAPIURLDoesNotLeakConversionCode(t *testing.T) {
 	service := NewGitHubAppManifestService(nil, nil, "%malformed-url", nil)
 	var output any

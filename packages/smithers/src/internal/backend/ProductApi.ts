@@ -648,12 +648,12 @@ export type GitHubAppManifest = {
   setup_url: string
   callback_urls: Array<string>
   public: false
-  hook_attributes: {
+  hook_attributes?: {
     url: string
-    active: false
+    active: true
   }
   default_permissions: Record<string, "read" | "write">
-  default_events: Array<string>
+  default_events?: Array<string>
 }
 
 export type GitHubAppSetupRequest = {

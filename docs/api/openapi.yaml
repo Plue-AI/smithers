@@ -23347,9 +23347,7 @@ components:
         - setup_url
         - callback_urls
         - public
-        - hook_attributes
         - default_permissions
-        - default_events
       properties:
         name:
           type: string
@@ -23373,6 +23371,7 @@ components:
           type: boolean
           const: false
         hook_attributes:
+          description: Present only when the install has a public https origin; GitHub refuses a hook it cannot reach.
           type: object
           required:
             - url
@@ -23383,7 +23382,7 @@ components:
               format: uri
             active:
               type: boolean
-              const: false
+              const: true
         default_permissions:
           type: object
           additionalProperties:
@@ -23392,6 +23391,7 @@ components:
               - read
               - write
         default_events:
+          description: Present only with hook_attributes.
           type: array
           items:
             type: string

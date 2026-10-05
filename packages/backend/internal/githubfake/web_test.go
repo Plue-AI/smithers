@@ -76,6 +76,15 @@ func TestBrowserPages(t *testing.T) {
 		for _, manifest := range []string{"{", `{"redirect_url":"file:///tmp/x"}`, `{"redirect_url":"https:"}`, `{"redirect_url":"//localhost/callback"}`} {
 			post(path, url.Values{"manifest": {manifest}}, 422)
 		}
+		// GitHub refuses a hook it cannot reach and default events without a hook.
+		for _, hook := range []string{`"hook_attributes":{"url":"http://localhost:4000/webhooks/github","active":false}`, `"hook_attributes":{"url":"https://mini.local/webhooks/github"}`,
+			`"hook_attributes":{"url":"https://192.168.1.2/webhooks/github"}`, `"hook_attributes":{"url":""},"default_events":["push"]`, `"default_events":["push"]`} {
+			body := post(path, url.Values{"manifest": {`{"redirect_url":"http://localhost:4000/setup/github/callback",` + hook + `}`}}, 422)
+			if !strings.Contains(body, "Hook url") {
+				t.Fatal(body)
+			}
+		}
+		post(path, url.Values{"manifest": {`{"redirect_url":"http://localhost:4000/setup/github/callback","hook_attributes":{"url":"https://factory.example/webhooks/github","active":true},"default_events":["push"]}`}}, 200)
 		u := target(post(path, url.Values{"manifest": {`{"redirect_url":"http://localhost:4000/setup/github/callback?keep=yes","callback_urls":["http://localhost:4000/api/auth/github/callback"]}`}, "state": {"state&one"}}, 200))
 		if u.Query().Get("state") != "state&one" || u.Query().Get("code") != cfg.ConversionCode || u.Query().Get("keep") != "yes" {
 			t.Fatal(u)
@@ -87,7 +96,13 @@ func TestBrowserPages(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	var converted map[string]any
+	err = json.NewDecoder(response.Body).Decode(&converted)
 	response.Body.Close()
+	// The last manifest carried no hook, so GitHub generates no webhook secret.
+	if secret, present := converted["webhook_secret"]; err != nil || !present || secret != nil || converted["client_secret"] != cfg.ClientSecret {
+		t.Fatalf("hookless conversion: %v %v", err, converted["webhook_secret"])
+	}
 	var previous string
 	for range 2 {
 		query := url.Values{"client_id": {cfg.ClientID}, "redirect_uri": {"http://localhost:4000/api/auth/github/callback"}, "state": {"state&two"}}

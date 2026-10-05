@@ -26,10 +26,15 @@ func TestGitHubAppManifestExactPermissionsAndLocalhostCallbacks(t *testing.T) {
 	require.NoError(t, err)
 	require.JSONEq(t, string(golden), string(actual["default_permissions"]))
 	var hook struct {
-		Active bool `json:"active"`
+		URL    string `json:"url"`
+		Active bool   `json:"active"`
 	}
 	require.NoError(t, json.Unmarshal(actual["hook_attributes"], &hook))
-	require.False(t, hook.Active)
+	require.Equal(t, "https://smithers.example/webhooks/github", hook.URL, "the hook uses the configured public https origin")
+	require.True(t, hook.Active)
+	var events []string
+	require.NoError(t, json.Unmarshal(actual["default_events"], &events))
+	require.ElementsMatch(t, []string{"issues", "issue_comment", "pull_request", "pull_request_review", "pull_request_review_comment", "push", "check_run", "check_suite", "status"}, events)
 	var callbacks []string
 	require.NoError(t, json.Unmarshal(actual["callback_urls"], &callbacks))
 	require.ElementsMatch(t, []string{"http://mini.local:4000/api/auth/github/callback", "https://smithers.example/api/auth/github/callback", "http://localhost:4000/api/auth/github/callback"}, callbacks)
@@ -41,6 +46,47 @@ func TestGitHubAppManifestExactPermissionsAndLocalhostCallbacks(t *testing.T) {
 	require.NoError(t, json.Unmarshal(actual["name"], &name))
 	require.NotEmpty(t, name)
 	require.LessOrEqual(t, len(name), 34)
+}
+
+// GitHub refuses a manifest whose hook URL it cannot reach ("Hook url is not
+// supported because it isn't reachable over the public Internet (localhost)")
+// and refuses default events without a hook ("Hook url cannot be blank").
+func TestGitHubAppManifestCarriesNoHookWithoutPublicHTTPSOrigin(t *testing.T) {
+	for _, origins := range [][]string{
+		nil,
+		{"http://localhost:4000"},
+		{"http://mini.local:4000", "http://192.168.1.20:4000"},
+		{"https://localhost:4000", "https://mini.local", "https://127.0.0.1", "https://10.0.0.5", "https://100.100.1.2"},
+		{"https://[::1]", "https://[fd00::1]", "https://mini", "https://box.internal", "https://app.localhost", "https://169.254.1.1"},
+		{"http://smithers.example"},
+	} {
+		manifest, _, err := BuildGitHubAppManifest("acme", "org", origins, "state")
+		require.NoError(t, err, origins)
+		encoded, err := json.Marshal(manifest)
+		require.NoError(t, err)
+		var actual map[string]json.RawMessage
+		require.NoError(t, json.Unmarshal(encoded, &actual))
+		require.NotContains(t, actual, "hook_attributes", origins)
+		require.NotContains(t, actual, "default_events", origins)
+	}
+}
+
+func TestGitHubAppManifestHookUsesFirstPublicHTTPSOrigin(t *testing.T) {
+	for _, tc := range []struct {
+		origins []string
+		hook    string
+	}{
+		{[]string{"https://factory.example"}, "https://factory.example/webhooks/github"},
+		{[]string{"http://mini.local:4000", "https://factory.example:8443", "https://second.example"}, "https://factory.example:8443/webhooks/github"},
+		{[]string{"https://203.0.113.9"}, "https://203.0.113.9/webhooks/github"},
+		{[]string{"https://Factory.Example/"}, "https://Factory.Example/webhooks/github"},
+	} {
+		manifest, _, err := BuildGitHubAppManifest("acme", "user", tc.origins, "state")
+		require.NoError(t, err)
+		require.NotNil(t, manifest.HookAttributes, tc.origins)
+		require.Equal(t, GitHubAppHookAttributes{URL: tc.hook, Active: true}, *manifest.HookAttributes)
+		require.NotEmpty(t, manifest.DefaultEvents)
+	}
 }
 
 func TestGitHubAppManifestBrowserStateBinding(t *testing.T) {
