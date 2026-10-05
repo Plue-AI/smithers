@@ -209,6 +209,8 @@ in its caching concept doc.
 
 Docker services, OCI builds, bake targets, and pushes: `Docker.Serve`, `Docker.Service`, `Docker.Build`, `Docker.Bake`, and `Docker.Push`. Every one of the five runs under the package executor, so a bare Flow runtime fails them with `NotImplemented` rather than doing nothing. `Docker.Build` and `Docker.Bake` are cacheable and declare an output tree; the other three are not.
 
+Docker.Build accepts `cache: false` when its context lacks complete content identities. The stamped distribution image always rebuilds.
+
 ### `Smithers.Agent`
 
 - **Type:** the `AgentTarget` module

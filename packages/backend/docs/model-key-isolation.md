@@ -20,7 +20,9 @@ model keeps its own credential and fails when that credential is missing.
 
 Every repository uses microVM isolation. The owned backend launcher sets
 `SMITHERS_WORKSPACE_ISOLATION=microvm` explicitly and ignores shell overrides.
-For a direct backend launch, set that value explicitly. The process workspace
+For a direct backend launch, set that value explicitly. Builds tagged
+`smithers_preview` also accept `SMITHERS_WORKSPACE_ISOLATION=off`; machines
+and chat are unavailable in that preview. Install builds reject `off`. The process workspace
 runtime is for tests only; binding an overridable flow requires the explicit
 `flowhost.Config.AllowTrustedProcessForTests` option. No install environment
 variable bypasses that refusal. A process shares the backend owner's permissions
@@ -65,3 +67,19 @@ from a unit-test pass or a skipped microVM test. Track outstanding evidence
 in [#2187](https://github.com/smithersai/smithers/issues/2187); distribution
 publication and its acceptance belong to
 [#2481](https://github.com/smithersai/smithers/issues/2481).
+
+## Install operator settings
+
+`SMITHERS_MODEL_PROXY_UPSTREAMS` is a JSON object mapping provider names to
+HTTP(S) origins, for example `{"openai":"https://gateway.internal"}`.
+The proxy sends the platform provider key to that origin; use trusted origins.
+
+`SMITHERS_MODEL_DAILY_SPEND_CAP_USD` sets a positive USD cap per UTC day.
+Blank means no cap; invalid values refuse startup. Settled charges and open
+call bounds count. Calls over the cap refuse with HTTP 429
+`insufficient_quota` and `Retry-After: 3600`. Concurrent admissions are not
+atomic and may exceed the cap together.
+
+`SMITHERS_FEATURE_FLAGS_SUBSCRIPTION_CONNECTIONS=true` enables subscription
+connections on the install. The preview image has no model credentials or
+subscription connections.

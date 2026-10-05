@@ -2,10 +2,10 @@ import { BuildAndCheckTypeScriptPackage } from "@smthrs/repo-targets"
 import { ReviewDocsAgainstCode, ReviewJsdocAgainstCode } from "@smthrs/repo-targets"
 import { Smithers } from "@smthrs/targets"
 import project from "./apps/site/src/data/project.json" with { type: "json" }
-import { Package as modelHostPackage } from "./packages/smithers/agent/model-host/PACKAGE.ts"
-import { Package as integrationsPackage } from "./packages/smithers/agent/integrations/PACKAGE.ts"
-import { Package as flowsPackage } from "./packages/smithers/flows/PACKAGE.ts"
 import { Package as codingFlowsPackage } from "./flows/PACKAGE.ts"
+import { Package as integrationsPackage } from "./packages/smithers/agent/integrations/PACKAGE.ts"
+import { Package as modelHostPackage } from "./packages/smithers/agent/model-host/PACKAGE.ts"
+import { Package as flowsPackage } from "./packages/smithers/flows/PACKAGE.ts"
 
 export const cacheToken = Smithers.Secret("SMITHERS_CACHE_READ_TOKEN")
 export const cacheWriteToken = Smithers.Secret("SMITHERS_CACHE_WRITE_TOKEN")
@@ -58,7 +58,7 @@ const tsconfig = Smithers.Tsconfig({
     // names one parent at a time.
     Smithers.glob("packages/*/PACKAGE.ts"),
     Smithers.glob("packages/*/*/PACKAGE.ts"),
-    Smithers.glob("packages/*/*/*/PACKAGE.ts"),
+    Smithers.glob("packages/*/*/*/PACKAGE.ts")
   ],
   exclude: [
     Smithers.glob("**/dist/**"),
@@ -135,7 +135,8 @@ const environmentToolchain = Smithers.Environment.Toolchain({
     },
     rg: {
       version: "14.1.1",
-      url: "https://github.com/BurntSushi/ripgrep/releases/download/14.1.1/ripgrep-14.1.1-aarch64-unknown-linux-gnu.tar.gz",
+      url:
+        "https://github.com/BurntSushi/ripgrep/releases/download/14.1.1/ripgrep-14.1.1-aarch64-unknown-linux-gnu.tar.gz",
       sha256: "c827481c4ff4ea10c9dc7a4022c8de5db34a5737cb74484d62eb94a95841ab2f"
     },
     fd: {
@@ -201,7 +202,12 @@ const projectCopy = Smithers.Generate({
     Smithers.file("//apps/site/public/images/build-graph.gif"),
     Smithers.file("//apps/site/public/images/build-graph-light.gif")
   ],
-  changes: ["README.md", "package.json", "apps/site/src/content/docs/docs/index.mdx", "apps/site/src/content/docs/docs/developers.mdx"]
+  changes: [
+    "README.md",
+    "package.json",
+    "apps/site/src/content/docs/docs/index.mdx",
+    "apps/site/src/content/docs/docs/developers.mdx"
+  ]
 })
 
 /**
@@ -317,7 +323,8 @@ const backendPostgres = Smithers.Docker.Service({
 // Native FFI builds with the toolchain rust-toolchain.toml pins, installed
 // into a private rustup home so the declared output carries it.
 const nativeFfi = Smithers.Shell.Build({
-  shell: "mkdir -p .native-ffi; export RUSTUP_HOME=\"$PWD/.native-ffi/rustup\" CARGO_TARGET_DIR=\"$PWD/.native-ffi/target\"; rustup toolchain install && cargo clippy -p smithers-ffi --all-targets --locked -- -D warnings && cargo test -p smithers-ffi --locked && cargo build -p smithers-ffi --lib --locked && touch .native-ffi/qualified",
+  shell:
+    "mkdir -p .native-ffi; export RUSTUP_HOME=\"$PWD/.native-ffi/rustup\" CARGO_TARGET_DIR=\"$PWD/.native-ffi/target\"; rustup toolchain install && cargo clippy -p smithers-ffi --all-targets --locked -- -D warnings && cargo test -p smithers-ffi --locked && cargo build -p smithers-ffi --lib --locked && touch .native-ffi/qualified",
   outDirs: ["//.native-ffi"],
   data: [
     Smithers.file("//Cargo.toml"),
@@ -356,7 +363,8 @@ const backendSQLC = Smithers.Shell.Build({
 // on PATH (`postgres` in the go-backend job, pkgs.postgresql_18 on the Cloud
 // machine); without them the suite fails instead of skipping them.
 const backendGo = Smithers.Shell.Test({
-  shell: "export PATH=\"$PWD/.backend-sqlc:$PATH\"; if [ -z \"${SMITHERS_POSTGRES_TEST_BIN:-}\" ]; then pg_ctl_path=$(command -v pg_ctl) || { echo 'PostgreSQL 18 programs (pg_ctl, initdb, pg_dump, psql) must be on PATH for the backend backup and restore tests' >&2; exit 1; }; export SMITHERS_POSTGRES_TEST_BIN=\"${pg_ctl_path%/*}\"; fi; export SMITHERS_FFI_LIBRARY_PATH=\"$PWD/.native-ffi/target/debug/libsmithers_ffi.so\"; export SMITHERS_WIKI_TEST_FFI=\"$SMITHERS_FFI_LIBRARY_PATH\"; export GOMODCACHE=\"$PWD/.backend-go-modcache\"; bash scripts/check-sqlc-drift.sh || exit $?; go test -run '^$' ./packages/backend/db/product || exit $?; python3 -B -m unittest scripts/test_check_go_boundaries.py packages/backend/db/product/test_adopt_unit.py || exit $?; bash scripts/check-public-backend-boundary.sh || exit $?; sh scripts/test-backend-consumer.sh || exit $?; unformatted=$(gofmt -l packages/backend apps/backend distribution docs/api) || exit $?; test -z \"$unformatted\" || { printf 'gofmt -w needed:\\n%s\\n' \"$unformatted\"; exit 1; }; go build ./packages/backend/... ./apps/backend/... ./distribution/... ./docs/api/... || exit $?; go vet ./packages/backend/... ./apps/backend/... ./distribution/... ./docs/api/... || exit $?; log=$(mktemp) || exit $?; go test -count=1 -tags smithers_preview -run '^TestPreview' ./apps/backend/... ./packages/backend/internal/compose/... ./packages/backend/internal/services/... >\"$log\" 2>&1; preview_status=$?; go test -count=1 ./packages/backend/... ./apps/backend/... ./distribution/... ./docs/api/... >>\"$log\" 2>&1; status=$?; if [ $status -eq 0 ]; then status=$preview_status; fi; cat \"$log\"; if [ $status -ne 0 ]; then printf 'go test failures:\\n' >&2; grep -E -A30 '^[[:space:]]*--- FAIL|^panic:|^FAIL' \"$log\" | head -n 400 >&2; fi; rm -f \"$log\"; exit $status",
+  shell:
+    "export PATH=\"$PWD/.backend-sqlc:$PATH\"; if [ -z \"${SMITHERS_POSTGRES_TEST_BIN:-}\" ]; then pg_ctl_path=$(command -v pg_ctl) || { echo 'PostgreSQL 18 programs (pg_ctl, initdb, pg_dump, psql) must be on PATH for the backend backup and restore tests' >&2; exit 1; }; export SMITHERS_POSTGRES_TEST_BIN=\"${pg_ctl_path%/*}\"; fi; export SMITHERS_FFI_LIBRARY_PATH=\"$PWD/.native-ffi/target/debug/libsmithers_ffi.so\"; export SMITHERS_WIKI_TEST_FFI=\"$SMITHERS_FFI_LIBRARY_PATH\"; export GOMODCACHE=\"$PWD/.backend-go-modcache\"; bash scripts/check-sqlc-drift.sh || exit $?; go test -run '^$' ./packages/backend/db/product || exit $?; python3 -B -m unittest scripts/test_check_go_boundaries.py packages/backend/db/product/test_adopt_unit.py || exit $?; bash scripts/check-public-backend-boundary.sh || exit $?; sh scripts/test-backend-consumer.sh || exit $?; unformatted=$(gofmt -l packages/backend apps/backend docs/api) || exit $?; test -z \"$unformatted\" || { printf 'gofmt -w needed:\\n%s\\n' \"$unformatted\"; exit 1; }; go build ./packages/backend/... ./apps/backend/... ./docs/api/... || exit $?; go vet ./packages/backend/... ./apps/backend/... ./docs/api/... || exit $?; log=$(mktemp) || exit $?; go test -count=1 -tags smithers_preview -run '^TestPreview' ./apps/backend/... ./packages/backend/internal/compose/... ./packages/backend/internal/services/... >\"$log\" 2>&1; preview_status=$?; go test -count=1 ./packages/backend/... ./apps/backend/... ./docs/api/... >>\"$log\" 2>&1; status=$?; if [ $status -eq 0 ]; then status=$preview_status; fi; cat \"$log\"; if [ $status -ne 0 ]; then printf 'go test failures:\\n' >&2; grep -E -A30 '^[[:space:]]*--- FAIL|^panic:|^FAIL' \"$log\" | head -n 400 >&2; fi; rm -f \"$log\"; exit $status",
   env: {
     GOFLAGS: "-buildvcs=false -mod=readonly",
     GOMAXPROCS: "2",
@@ -389,7 +397,6 @@ const backendGo = Smithers.Shell.Test({
     Smithers.file("//packages/rpc/contracts/app-bootstrap-v1.schema.json"),
     Smithers.glob("//packages/backend/**/*"),
     Smithers.glob("//apps/backend/**/*"),
-    Smithers.glob("//distribution/**/*"),
     Smithers.glob("//docs/api/**/*")
   ],
   services: [backendPostgres],
@@ -596,7 +603,12 @@ const ci = Smithers.GithubCiGen({
         { name: "Authoring eval typecheck", verb: Smithers.Verb.Build, pattern: "//evals/authoring:check" },
         // Offline fixtures need only the workspace install. Docker and funded
         // benchmark runs remain operator commands.
-        { name: "SWE-bench offline fixtures", verb: Smithers.Verb.Test, pattern: "//evals/swebench:offline", parallelism: 1 },
+        {
+          name: "SWE-bench offline fixtures",
+          verb: Smithers.Verb.Test,
+          pattern: "//evals/swebench:offline",
+          parallelism: 1
+        },
         { name: "SWE-bench rig typecheck", verb: Smithers.Verb.Build, pattern: "//evals/swebench:check" },
         { name: "SWE-bench rig lint", verb: Smithers.Verb.Lint, pattern: "//evals/swebench/..." },
         // Apps and repository flows have separate source roots from packages.
@@ -819,7 +831,12 @@ const ci = Smithers.GithubCiGen({
         runtimes: [node],
         jj
       }),
-      steps: [{ name: "Exclusive fault matrix", verb: Smithers.Verb.Test, pattern: "//packages/...:faults", parallelism: 1 }]
+      steps: [{
+        name: "Exclusive fault matrix",
+        verb: Smithers.Verb.Test,
+        pattern: "//packages/...:faults",
+        parallelism: 1
+      }]
     },
     {
       id: "browser",
@@ -829,7 +846,11 @@ const ci = Smithers.GithubCiGen({
       runsOn: ubuntu,
       timeoutMinutes: 10,
       toolchain: Smithers.CiToolchain.Needs({ runtimes: [node] }),
-      steps: [{ name: "Web bundle compilation guard", verb: Smithers.Verb.Test, pattern: "//scripts:webBundleContract" }]
+      steps: [{
+        name: "Web bundle compilation guard",
+        verb: Smithers.Verb.Test,
+        pattern: "//scripts:webBundleContract"
+      }]
     },
     {
       // One matrix over the three platforms, replacing the two copy-pasted
@@ -1203,7 +1224,14 @@ const securityReview = Smithers.SecurityReview({
         "pnpm-workspace.yaml allowBuilds admitting a package that has no documented need for an install script, or .npmrc adding a registry or auth line.",
         "flake.nix or the Dockerfile fetching a source without a pinned hash."
       ],
-      paths: [".pnpmfile.mjs", ".npmrc", "pnpm-workspace.yaml", "patches/*.patch", "flake.nix", "distribution/Dockerfile"]
+      paths: [
+        ".pnpmfile.mjs",
+        ".npmrc",
+        "pnpm-workspace.yaml",
+        "patches/*.patch",
+        "flake.nix",
+        "distribution/Dockerfile"
+      ]
     },
     {
       id: "root-tool-targets",

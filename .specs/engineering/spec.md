@@ -62,6 +62,8 @@ Conventions. **MUST** and **MUST NOT** are requirements that a check in [checks/
 
 1.3 Execution boundary (M-29, M-30). Repository code MUST execute only inside a branch machine. Repository code means overridable flows, the coding agent, checks, terminals, SSH sessions and services. The host executes only code shipped in the install package. The install MUST refuse to start without working microVM isolation and MUST NOT fall back to host processes. A machine may run on a registered remote host under the same microVM isolation, behind the `remoteSandboxes` flag (§8.13).
 
+One exception (M-41): the preview image, built with the `smithers_preview` tag, runs on Cloud Run with machines off, executes no machine work: the disabled runtime refuses machine operations and service admission fails closed with `machines_disabled`; early refusal before effects is asserted only for the doors named by the tests, and runs no workspace, flow, terminal or check. Install builds cannot select machines-off.
+
 1.4 Network [S1]. The install is origin-agnostic:
 - By default every listener binds loopback: HTTP on `127.0.0.1:4000`, SSH on `127.0.0.1:2222`, PostgreSQL.
 - The owner may set a bind address (for example `0.0.0.0` or one interface) and the install's public origins (http or https, any host name) in Settings (§16.3), or at install time with `smthrs host start --bind <addr> --origin <url>`. HTTP and SSH listen on loopback always, plus the bind address when one is set; PostgreSQL stays on loopback.
@@ -939,6 +941,8 @@ route → plan (cites wiki revisions) → implement → candidate → check → 
 
 10.4.3 Evidence recorded per attempt, each entry tagged with the candidate generation it describes (§10.4.4): the diff stat, checks run on the machine (name, outcome, duration, log blob), the agent's review summary, GitHub checks, the token and time totals, and the flow version. The PR body and the TODO card show the accepted generation's entries. A review summary from an earlier generation is shown only when that generation's own diff has the same `git patch-id --stable` as the accepted one, as after a clean rebase. Evidence writes atomically validate run-to-attempt and generation-to-persisted-candidate ownership and versions. Superseded producers cannot update the current attempt. Late GitHub checks use persisted attempt/generation/pushed-head publication ownership; identical heads across attempts require that ownership, and ambiguity writes nothing. Log authorization verifies the attempt’s digest reference before blob retrieval; denied/unrelated requests invoke no retrieval. Check: C-J2-04.
 
+Preview: revision, expiry and the proxy line (dark until T-FLW-11 mounts the TODO flow; M-41).
+
 10.4.4 **Candidate and verified head.** The existing engine keeps the candidate on `mythical_items` (`generation`, `candidate_base`, `candidate_head`, `candidate_verified`, `pr_head`, `pending_op`). Verify runs on an immutable rebased commit, a new candidate clears `candidate_verified` (`mythical_items.go:1901`), and the PR tree is the verified candidate (`mythical_items.go:1838-1905,2029`). An item's **verified head** is its latest verified candidate. `stack.candidate` and `stack.propose` are system operations with Appendix C rows and no slash, CLI or agent door; they admit only the run and machine credentials bound to the current attempt (§6.1.2d). Review uses a fresh reviewer context, reads the candidate's own diff (`base..C`) and an immutable candidate export as untrusted data, never the working copy, and has read-only tools; only the exact first-line tokens `approve` and `request-changes` are verdicts. A steer, amendment or answer after verification needs a new verified candidate before merge (§10.6.2a row 7). The ticket touching ancestry collapses the three commit-ancestor implementations to one in the same change. Checks: C-STK-06, C-SEC-02.
 
 ### 10.5 Rebase
@@ -1375,7 +1379,7 @@ The Smithers skill is generated from `catalog.mvp.json` (§6.1.2). An agent that
 
 ### 16.1 Package
 
-16.1.0 The bundle includes the pinned guest base image as an OCI archive, so the first machine needs no registry pull. The Docker self-host image is deleted: no install path, Plue, CI consumer or published release uses it (#2481), and it can't host microVMs.
+16.1.0 The bundle includes the pinned guest base image as an OCI archive, so the first machine needs no registry pull. The Docker image is never an install path; it survives only as the preview image (M-41).
 
 16.1.0a Release bottles for macOS arm64 are built by a macOS job added to the existing `.github/workflows/release.yml`, which already builds per-platform artifacts. No Smithers host can build macOS binaries, since machines are Linux. This is a release build, not a factory.
 

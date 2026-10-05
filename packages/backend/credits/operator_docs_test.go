@@ -10,13 +10,11 @@ import (
 )
 
 // Every shipped `credits grant` invocation must parse, so an operator who
-// copies it (and the image acceptance test that runs it) funds the ledger.
+// copies it funds the ledger.
 func TestShippedCreditGrantCommandsParse(t *testing.T) {
 	grant := regexp.MustCompile(`credits grant ([^\n|>&]*)`)
 	found := 0
 	for _, path := range []string{
-		"../../../distribution/README.md",
-		"../../../distribution/test-image.sh",
 		"README.md",
 	} {
 		data, err := os.ReadFile(path)
@@ -32,8 +30,8 @@ func TestShippedCreditGrantCommandsParse(t *testing.T) {
 			}
 		}
 	}
-	if found < 3 {
-		t.Fatalf("found %d credits grant commands, want at least 3", found)
+	if found < 1 {
+		t.Fatalf("found %d credits grant commands, want at least 1", found)
 	}
 }
 

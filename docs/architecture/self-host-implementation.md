@@ -12,7 +12,7 @@ This ledger tracks implementation and required proof, not completion. [ADR 0002]
 - Repository code runs only in microVMs, with one shared machine per awake branch and no branch locks. The host runs packaged code only. Startup refuses missing microVM isolation and never falls back to `trusted_process`. Members and agents have no `sudo` ([ADR 0002](0002-mac-install.md), M-17, M-29, M-30).
 - The browser connects to any owner-configured HTTP or HTTPS origin. HTTP and SSH always bind loopback and can also bind the address set by the owner; PostgreSQL stays on loopback. The install has no secure-context dependency, Tailscale requirement or certificate authority. A one-time setup token plus GitHub sign-in claims the install ([ADR 0002](0002-mac-install.md), M-28).
 - Only a person's browser session can approve or merge, subject to role. Delegated agent credentials request person confirmations. Product state, durable admission and replay semantics remain shared with Plue ([ADR 0002](0002-mac-install.md), E-09).
-- The container topology is superseded for the Mac install. T-INS-05 owns deletion of the Docker self-host image; this ledger does not claim that deletion is complete.
+- The container topology is superseded for the Mac install. T-INS-05 removes Docker as an install path; T-INS-05b retains the preview-only image; this ledger does not claim that deletion is complete.
 
 ## Mode acceptance matrix
 
@@ -42,7 +42,7 @@ One dedicated Sol owner per issue, scheduled in dependency waves due to bounded 
 | 09 | smithers#1664 | Optional integrations and billing composition |
 | 10 | smithers#1665 | Execution contract; Mac microVM-only execution follows [ADR 0002](0002-mac-install.md) |
 | 11 | smithers#1666 | Shared frontend/CLI/backend selection |
-| 12 | smithers#1667 | Mac Homebrew and launchd distribution, DB lifecycle and backup follow [ADR 0002](0002-mac-install.md); T-INS-05 deletes the Docker image |
+| 12 | smithers#1667 | Mac Homebrew and launchd distribution, DB lifecycle and backup follow [ADR 0002](0002-mac-install.md); T-INS-05 removes the Docker install path; T-INS-05b retains the preview image |
 | 13 | plue#508 | Shared-library Kubernetes composition |
 | 14 | plue#509 | Cluster storage adapters |
 | 15 | plue#510 | Isolated cluster execution adapter |

@@ -74,11 +74,6 @@
       },
       {
         "kind": "glob",
-        "pattern": "distribution/**/*",
-        "exclude": []
-      },
-      {
-        "kind": "glob",
         "pattern": "docs/api/**/*",
         "exclude": []
       }
@@ -17490,6 +17485,149 @@
     "dependencies": [],
     "source": {
       "file": "crates/flows-jj/PACKAGE.ts"
+    }
+  },
+  {
+    "label": "//distribution:fakeProvider",
+    "package": "distribution",
+    "name": "fakeProvider",
+    "rule": "NodeTest",
+    "kinds": [
+      "test"
+    ],
+    "cacheable": false,
+    "inputs": [
+      {
+        "kind": "file",
+        "path": "distribution/fake-coding-provider.test.mjs"
+      },
+      {
+        "kind": "file",
+        "path": "distribution/fake-coding-provider.mjs"
+      },
+      {
+        "kind": "file",
+        "path": "distribution/fake-coding-provider.test.mjs"
+      }
+    ],
+    "outputs": [],
+    "dependencies": [],
+    "source": {
+      "file": "distribution/PACKAGE.ts"
+    }
+  },
+  {
+    "label": "//distribution:go",
+    "package": "distribution",
+    "name": "go",
+    "rule": "Shell.Test",
+    "kinds": [
+      "test"
+    ],
+    "cacheable": false,
+    "inputs": [
+      {
+        "kind": "glob",
+        "pattern": "distribution/**/*",
+        "exclude": []
+      },
+      {
+        "kind": "file",
+        "path": "go.mod"
+      },
+      {
+        "kind": "file",
+        "path": "go.sum"
+      },
+      {
+        "kind": "file",
+        "path": "scripts/build-backend.sh"
+      },
+      {
+        "kind": "file",
+        "path": "packages/backend/postgres/lock_other.go"
+      },
+      {
+        "kind": "file",
+        "path": "packages/backend/postgres/lock_unix.go"
+      },
+      {
+        "kind": "file",
+        "path": "packages/backend/postgres/postgres.go"
+      },
+      {
+        "kind": "file",
+        "path": "packages/backend/postgres/postgres_test.go"
+      },
+      {
+        "kind": "file",
+        "path": "packages/backend/postgres/process_darwin.go"
+      },
+      {
+        "kind": "file",
+        "path": "packages/backend/postgres/process_linux.go"
+      },
+      {
+        "kind": "file",
+        "path": "packages/backend/postgres/process_other.go"
+      },
+      {
+        "kind": "file",
+        "path": "packages/backend/postgres/process_unix.go"
+      },
+      {
+        "kind": "file",
+        "path": "packages/backend/testkit/testdb/testdb.go"
+      },
+      {
+        "kind": "file",
+        "path": "packages/backend/testkit/testdb/testdb_test.go"
+      },
+      {
+        "kind": "file",
+        "path": "packages/backend/testkit/testdb/tools.go"
+      },
+      {
+        "kind": "file",
+        "path": "packages/backend/testkit/testdb/tools_test.go"
+      }
+    ],
+    "outputs": [],
+    "dependencies": [],
+    "source": {
+      "file": "distribution/PACKAGE.ts"
+    }
+  },
+  {
+    "label": "//distribution:image",
+    "package": "distribution",
+    "name": "image",
+    "rule": "Docker.Build",
+    "kinds": [
+      "build"
+    ],
+    "cacheable": false,
+    "inputs": [
+      {
+        "kind": "file",
+        "path": "distribution/Dockerfile"
+      },
+      {
+        "kind": "glob",
+        "pattern": "distribution/**/*",
+        "exclude": []
+      },
+      {
+        "kind": "file",
+        "path": ".dockerignore"
+      }
+    ],
+    "outputs": [
+      "docker-image-fa6f77733039"
+    ],
+    "dependencies": [],
+    "source": {
+      "file": "distribution/PACKAGE.ts"
     }
   },
   {
@@ -45796,52 +45934,6 @@
     }
   },
   {
-    "label": "//scripts/repo-contract:distributionImageTag",
-    "package": "scripts/repo-contract",
-    "name": "distributionImageTag",
-    "rule": "NodeTest",
-    "kinds": [
-      "test"
-    ],
-    "cacheable": false,
-    "inputs": [
-      {
-        "kind": "file",
-        "path": "scripts/repo-contract/distribution-image-tag.test.mjs"
-      },
-      {
-        "kind": "glob",
-        "pattern": "scripts/repo-contract/**/*.mjs",
-        "exclude": []
-      },
-      {
-        "kind": "file",
-        "path": "scripts/set-release-version.mjs"
-      },
-      {
-        "kind": "file",
-        "path": "scripts/workspace-packages.mjs"
-      },
-      {
-        "kind": "file",
-        "path": "packages/smithers/package.json"
-      },
-      {
-        "kind": "file",
-        "path": "distribution/README.md"
-      },
-      {
-        "kind": "file",
-        "path": "distribution/Dockerfile"
-      }
-    ],
-    "outputs": [],
-    "dependencies": [],
-    "source": {
-      "file": "scripts/repo-contract/PACKAGE.ts"
-    }
-  },
-  {
     "label": "//scripts/repo-contract:egressHttpClient",
     "package": "scripts/repo-contract",
     "name": "egressHttpClient",
@@ -45941,6 +46033,52 @@
         "kind": "glob",
         "pattern": "scripts/repo-contract/**/*.mjs",
         "exclude": []
+      }
+    ],
+    "outputs": [],
+    "dependencies": [],
+    "source": {
+      "file": "scripts/repo-contract/PACKAGE.ts"
+    }
+  },
+  {
+    "label": "//scripts/repo-contract:previewTarget",
+    "package": "scripts/repo-contract",
+    "name": "previewTarget",
+    "rule": "NodeTest",
+    "kinds": [
+      "test"
+    ],
+    "cacheable": false,
+    "inputs": [
+      {
+        "kind": "file",
+        "path": "scripts/repo-contract/preview-target.test.mjs"
+      },
+      {
+        "kind": "glob",
+        "pattern": "scripts/repo-contract/**/*.mjs",
+        "exclude": []
+      },
+      {
+        "kind": "file",
+        "path": "PACKAGE.ts"
+      },
+      {
+        "kind": "file",
+        "path": "distribution/test-preview.sh"
+      },
+      {
+        "kind": "file",
+        "path": "distribution/Dockerfile"
+      },
+      {
+        "kind": "file",
+        "path": ".dockerignore"
+      },
+      {
+        "kind": "file",
+        "path": ".github/workflows/release.yml"
       }
     ],
     "outputs": [],

@@ -157,6 +157,7 @@
 - [smthrs git-hooks](https://smithers.sh/docs/reference/cli/git-hooks/): Check the WORKSPACE.ts gitHooks scripts against .git/hooks, or install them with --write
 - [smthrs graph](https://smithers.sh/docs/reference/cli/graph/): Print the target graph without executing it
 - [smthrs history](https://smithers.sh/docs/reference/cli/history/): Follow each issue's lane, checks and pull request
+- [smthrs host](https://smithers.sh/docs/reference/cli/host/): Operate this installation’s host
 - [smthrs index](https://smithers.sh/docs/reference/cli/index-command/): List every target a pattern selects as its declaration states it: rule, kinds, inputs, outputs, dependencies, and the declaring file
 - [smthrs info](https://smithers.sh/docs/reference/cli/info/): Report workspace and host configuration for diagnosis
 - [smthrs init](https://smithers.sh/docs/reference/cli/init/): Initialize target declarations and a starter durable flow while preserving existing files.

@@ -122,25 +122,10 @@ const uiCiTier = Smithers.NodeTest({
  */
 const reliabilityWorkflow = Smithers.NodeTest({
   runner: Smithers.testRunner([Smithers.file("//scripts/repo-contract/reliability-workflow.test.mjs")]),
-  srcs: [sources, Smithers.file("//scripts/release-rehearsal.mjs"), Smithers.file("//.github/workflows/reliability.yml")],
-  deps: []
-})
-
-/**
- * A release version bump retags every distribution image declaration.
- *
- * @since 1.0.0
- * @category test
- */
-const distributionImageTag = Smithers.NodeTest({
-  runner: Smithers.testRunner([Smithers.file("//scripts/repo-contract/distribution-image-tag.test.mjs")]),
   srcs: [
     sources,
-    Smithers.file("//scripts/set-release-version.mjs"),
-    Smithers.file("//scripts/workspace-packages.mjs"),
-    Smithers.file("//packages/smithers/package.json"),
-    Smithers.file("//distribution/README.md"),
-    Smithers.file("//distribution/Dockerfile")
+    Smithers.file("//scripts/release-rehearsal.mjs"),
+    Smithers.file("//.github/workflows/reliability.yml")
   ],
   deps: []
 })
@@ -276,7 +261,8 @@ const securityReview = Smithers.SecurityReview({
     {
       id: "egress-gate-coverage",
       title: "The egress gate reads every shipped source that could install a proxy-blind HTTP client",
-      threat: "A contributor ships a Node host that dials origins directly past the sandbox egress proxy, letting a sandboxed run exfiltrate data, while the gate stays green.",
+      threat:
+        "A contributor ships a Node host that dials origins directly past the sandbox egress proxy, letting a sandboxed run exfiltrate data, while the gate stays green.",
       lookFor: [
         "A shipped source extension (.js, .cjs, .mts, .cts, .jsx) that isSource drops, so layerUndici or makeDispatcher in it is never scanned.",
         "A skippedDirectories or skippedPaths entry that prunes a directory holding shipped, non-test source.",
@@ -289,7 +275,8 @@ const securityReview = Smithers.SecurityReview({
     {
       id: "home-path-leak-gate",
       title: "The machine-path gate catches every tracked home-directory path under evals, scripts and fault suites",
-      threat: "A contributor commits an operator's username and home layout, leaking a maintainer's local identity and paths in the public repository, while the gate stays green.",
+      threat:
+        "A contributor commits an operator's username and home layout, leaking a maintainer's local identity and paths in the public repository, while the gate stays green.",
       lookFor: [
         "A homePath regex that misses a username-bearing path: the superuser's home (also under macOS's /var), a shell ~<name> home, Windows C:\\Users\\<name> at any escaping depth, or /Users/<name> followed by punctuation or the end of the line.",
         "An isRecorded exemption broader than the reports, archive and SFT-corpus directories it documents.",
@@ -301,7 +288,8 @@ const securityReview = Smithers.SecurityReview({
     {
       id: "child-process-containment",
       title: "Gate child processes run fixed code with bounded time and no inherited secrets they do not need",
-      threat: "A repository file or environment value controls code a gate evaluates, or a hung child survives the gate, running attacker-chosen code or holding CI runner resources.",
+      threat:
+        "A repository file or environment value controls code a gate evaluates, or a hung child survives the gate, running attacker-chosen code or holding CI runner resources.",
       lookFor: [
         "A spawn or spawnSync `--eval`/`-e` string built by interpolating file contents, package names or environment values instead of passing data on stdin or IPC.",
         "A shell: true spawn or an exec() of a string assembled from repository data.",
@@ -309,12 +297,19 @@ const securityReview = Smithers.SecurityReview({
         "A child env built from `...process.env` that forwards cache tokens or credentials (SMITHERS_CACHE_TOKEN, NPM_TOKEN) to a stub it does not need them for.",
         "A PATH prefix pointing at a directory that is not a fresh mkdtemp owned by the test."
       ],
-      paths: ["ci-inventory.test.mjs", "public-export-maps.test.mjs", "ui-ci-tier.test.mjs", "machine-paths.test.mjs", "scratch-artifacts.test.mjs"]
+      paths: [
+        "ci-inventory.test.mjs",
+        "public-export-maps.test.mjs",
+        "ui-ci-tier.test.mjs",
+        "machine-paths.test.mjs",
+        "scratch-artifacts.test.mjs"
+      ]
     },
     {
       id: "temp-file-safety",
       title: "Gates write only inside fresh temporary directories they create and remove",
-      threat: "Another local user on a shared CI runner pre-plants a symlink at a predictable temp path so a gate overwrites or reads a file it should not.",
+      threat:
+        "Another local user on a shared CI runner pre-plants a symlink at a predictable temp path so a gate overwrites or reads a file it should not.",
       lookFor: [
         "A writeFileSync to a predictable tmpdir() path (fixed name or pid) instead of a mkdtemp directory, such as the default smithers-ci-inventory-<pid>.json artifact.",
         "An environment-supplied output path (SMITHERS_CI_INVENTORY) written without checking it stays inside the workspace or a temp directory.",
@@ -326,7 +321,8 @@ const securityReview = Smithers.SecurityReview({
     {
       id: "publish-surface-gate",
       title: "The package contract keeps the published npm surface explicit and free of private code",
-      threat: "A release publishes a private workspace package, an undeclared file (a .env or credentials fixture), or an unreviewed subpath to every npm user.",
+      threat:
+        "A release publishes a private workspace package, an undeclared file (a .env or credentials fixture), or an unreviewed subpath to every npm user.",
       lookFor: [
         "A publishable manifest accepted without a nonempty `files` allowlist or with publishConfig.access other than public.",
         "The private-dependency check skipping dependency kinds (optionalDependencies, peerDependencies) a consumer installs.",
@@ -338,18 +334,55 @@ const securityReview = Smithers.SecurityReview({
     {
       id: "ci-workflow-gates",
       title: "Workflow gates keep required CI jobs failing on real failures",
-      threat: "A contributor edits ci.yml or reliability.yml so a required security or test job passes on failure, letting vulnerable code merge to main.",
+      threat:
+        "A contributor edits ci.yml or reliability.yml so a required security or test job passes on failure, letting vulnerable code merge to main.",
       lookFor: [
         "An assertion that tolerates continue-on-error: true, `|| true`, or an allow-failure known-red list on a required job.",
         "A regex match on a workflow run string loose enough to accept an extra command that skips or neuters the suite.",
         "A test file excluded from every target in test-script-wiring without a stated reason.",
         "A skip or todo in the fault matrix accepted without a declared reason row in fault-gaps.md."
       ],
-      paths: ["ui-ci-tier.test.mjs", "reliability-workflow.test.mjs", "test-script-wiring.test.mjs", "ci-inventory.test.mjs", "fault-skips.test.mjs", "fault-gaps.md"]
+      paths: [
+        "ui-ci-tier.test.mjs",
+        "reliability-workflow.test.mjs",
+        "test-script-wiring.test.mjs",
+        "ci-inventory.test.mjs",
+        "fault-skips.test.mjs",
+        "fault-gaps.md"
+      ]
     }
   ]
 })
 
+const previewTarget = Smithers.NodeTest({
+  runner: Smithers.testRunner([Smithers.file("//scripts/repo-contract/preview-target.test.mjs")]),
+  srcs: [
+    sources,
+    Smithers.file("//PACKAGE.ts"),
+    Smithers.file("//distribution/test-preview.sh"),
+    Smithers.file("//distribution/Dockerfile"),
+    Smithers.file("//.dockerignore"),
+    Smithers.file("//.github/workflows/release.yml")
+  ],
+  deps: []
+})
+
 export const Package = Smithers.Package({
-  targets: { barrels, cliVerbs, distributionImageTag, egressHttpClient, faultSkips, machinePaths, packageContract, scratchArtifacts, smithersLinks, testScriptWiring, uiCiTier, reliabilityWorkflow, ciInventory, publicExportMaps, ...securityReview }
+  targets: {
+    previewTarget,
+    barrels,
+    cliVerbs,
+    egressHttpClient,
+    faultSkips,
+    machinePaths,
+    packageContract,
+    scratchArtifacts,
+    smithersLinks,
+    testScriptWiring,
+    uiCiTier,
+    reliabilityWorkflow,
+    ciInventory,
+    publicExportMaps,
+    ...securityReview
+  }
 })

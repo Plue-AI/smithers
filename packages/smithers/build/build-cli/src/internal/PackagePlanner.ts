@@ -2875,6 +2875,7 @@ const visit = async (
   // file alone. A planned write is therefore never cacheable.
   const plannedWrite = mode === "write" && plannedModeRules.has(rule)
   const cacheable = refusal === undefined && !movingService && !plannedWrite &&
+    !(rule === "Docker.Build" && attrMember(attrs, "cache") === false) &&
     (view.cacheable || RulePolicy.cacheable(rule, mode, repositoryState?.dirty))
 
   const spawnEnvironment = Exec.toolEnvironment(

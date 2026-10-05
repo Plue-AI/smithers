@@ -491,6 +491,7 @@ These are the GitHub-style basics without which most teams can't do useful work.
 | M-37 (Fable for Will, revised by product after a first-principles review, 2026-10-02) | After stage 1, all of Smithers' own work runs as TODOs on the install by default. An exception is named per ticket, with an owner, the reason it can't run through Smithers yet, and an expiry. Every merge made outside the install, and the effort it took, is reported daily against the §10 kill signal. Remote machines for the install stay deferred (M-06, M-09). | Ticket size doesn't prove work can't run through Smithers. Exempting the hardest work would let the dogfood count flatter the product. |
 | M-38 (Will, 2026-10-02, via his assistant) | When someone runs Claude Code or Codex in a terminal on a branch machine, the app shows that agent's conversation in the same chat components as our own agents, read-only, with the agent as a participant (M-34). One adapter per agent turns its transcript into our chat and event model. Stage 2, beside terminals and presence. Our own internal `/ceo` flow, Will's brief page composed from the app's shared components, is built on the install after stage 1 as dogfood of custom flow UI. It's a repository flow, not a product surface. | Will: the adapters are "work we need done anyway". External agents are first-class (§6.13), and a person should see what any agent on the branch is doing in one place. |
 | M-39 (Will, 2026-10-02) | Pull requests are human-gated by default. A maintainer may **Pre-approve** a TODO; its PR then merges by itself when it's ready: next in stack order, required checks passing on its current revision, and nothing in Needs you. A pre-approval is attributed and can be removed until the merge, and an agent can never grant one. The owner can make new TODOs start pre-approved for the repository. Smithers' own repository runs that way, so our own work lands on `main` without waiting for a person, and those merges count toward the dogfood target (§10). | Will: "in the product all prs are by default human gated but they are allowed to be preapproved so they automerge when ready", and "for our product we only merge straight to main". |
+| M-41 (Will, 2026-10-04) | A repository that declares `CloudRun.Preview` previews a branch's app on Google Cloud Run privately: Cloud Run IAM only, machines off, no repository credentials or model keys, and an expiry. The preview image is built off the install host, runs no workspace, flow, terminal or check, and is never an install path. Whether a private preview deploys without a per-run approval is open (Will). The flow, the Preview card, the TODO button and public previews follow later (#3425). The stop rule is at least 5 distinct preview revisions serve `GET /` in the 72 hours after the first accepted preview. | Will asked for previews of the self-hosted product; the first cut measures use before the card and public access are built. |
 
 ## 8. What we cut
 
@@ -637,7 +638,7 @@ Will asked for the GitHub features a team would miss. Test: does lacking it bloc
 | Line comments in PR review | Deferred; GitHub review comments arrive as steers | §16, §6.3 |
 | Notifications | MVP: browser. Deferred: email and phone | §6.4, §16, [#3423](https://github.com/smithersai/smithers/issues/3423) |
 | File history and blame | Deferred | [#3424](https://github.com/smithersai/smithers/issues/3424) |
-| Deploy previews (via Actions or integrations) | Deferred; SSH port forwarding covers it for now | [#3425](https://github.com/smithersai/smithers/issues/3425) |
+| Deploy previews | Private previews through `smthrs run` on a preview target (M-41). The flow, the Preview card, the TODO button and public previews follow later; the stop rule is at least 5 distinct preview revisions serve `GET /` in the 72 hours after the first accepted preview | [#3425](https://github.com/smithersai/smithers/issues/3425) |
 | Mobile web | Deferred | [#3426](https://github.com/smithersai/smithers/issues/3426) |
 | Code search, file browsing, branches, issues, PRs, checks | MVP | §6.3, Appendix A |
 | Branch protection | Respected, and managed on GitHub | §6.3 |
@@ -649,6 +650,7 @@ These are deferred from the MVP after the Codex Astra and Opus full reviews, and
 
 | Deferred | Area |
 | --- | --- |
+| Public previews, the Preview card and the TODO card's Preview button (#3425) | M-41 |
 | In-app line comments on diffs; agent replies inside GitHub review threads | §6.10, §6.3 |
 | Stacked PR bases and retargeting (PRs stay based on `main`) | §4.2, §6.3 |
 | Bringing a laptop push into the live working copy automatically, without a person's Bring in (M-33's Bring in ships in the MVP); **Open on a machine** for teammates' branches | §6.3 |

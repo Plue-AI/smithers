@@ -46,3 +46,9 @@ apps/app/.native
 apps/app/build
 apps/app/artifacts
 apps/app/dist
+
+.env
+.env.*
+**/.env
+**/.env.*
+**/.dev.vars

@@ -467,7 +467,7 @@ Each row: requirement, reference, suggested check and layer, and one-line pass c
 | G67 | Wiki backlinks and outline | L400 | e2e | Both render for a linked page |
 | G68 | jj operations are never free-form model output | M-32 L486 | unit | Stack-service ops are a closed enum; no model text reaches jj argv |
 | G69 | "PR ready" toast | L331 | e2e | Toast on in_review for owner |
-| G70 | Docker image deleted | L272 | unit | No Dockerfile or image target remains |
+| G70 | Docker removed as an install path | L272 | unit | No install image or release publisher remains; M-41 retains the credential-free preview image |
 | G71 | Amend updates acceptance criteria | L151 | integration | Revision n+1 holds new acceptance |
 | G72 | Open cards refresh after a rebase | L153 | e2e | File and Diff cards show the rebased text without reload |
 | G73 | Missing required input opens a form card for every command | L343; spec §6.1.4 | unit over catalog | Every command with required fields returns a form card |

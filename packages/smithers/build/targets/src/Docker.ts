@@ -50,6 +50,8 @@ export const ServeAttrs = Schema.Struct({
  */
 export const BuildAttrs = Schema.Struct({
   dockerfile: Input.File,
+  /** Disable caching when the Docker context has no complete input identity. */
+  cache: Schema.optional(Schema.Boolean),
   context: Schema.NonEmptyString,
   platforms: Schema.optional(Schema.Array(Schema.NonEmptyString)),
   buildArgs: Schema.optional(Schema.Record(Schema.String, Schema.Unknown)),
@@ -151,7 +153,7 @@ const orderedBuildArgs = (
 const buildDefinition = Target.make("Docker.Build", {
   attrs: BuildAttrs,
   kinds: ["build"],
-  cache: true,
+  cache: (attrs) => attrs.cache !== false,
   // Everything a Dockerfile build reads that is plain declaration data is in
   // the label. Two builds over one dockerfile and one context that differ
   // only in their platforms or their build args are two images and must not

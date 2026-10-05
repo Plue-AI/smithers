@@ -384,3 +384,5 @@ Research and pepper reports are observations, not qualification. Review paths an
 - Lead engineer (22), with Ops: supply dated commitments for the 32 GB reference mini, second LAN Mac, verified accounts and durable evidence store/ACL/retention.
 - Product (98) and lead engineer (22): confirm Will's M-31 cutover owner/time, M-37 L-spine exception ledger and person-minutes/laptop-fallback definitions before telemetry starts.
 - Tech lead (8a) and lead engineer (22): file an issue per Fable action (TSV + decideGitHubFact, targetIndex input existence, DB-free migration gate, close-on-receipts) and confirm shared heavy-worker leases and reserved harness capacity.
+
+G70 verifies deletion of the Docker install and release publishing paths. M-41 and T-INS-05b retain a preview-only image; its amd64 acceptance is separate and pending.

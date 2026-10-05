@@ -292,3 +292,8 @@ Shell execution accepts `timeout` as an integer followed by `ms`, `s`, `m`, or
 `h`. `Target.plan(Shell.Test({ shell: "true", timeout: "30s" }))` records
 `timeoutMs: 30000` in the exec payload. Omitting `timeout` uses
 `Shell.packageExecTimeoutMs` (30 minutes), matching the package executor.
+
+## Docker build cache
+
+Docker.Build accepts `cache: false` when its context has no complete content identity. The distribution preview image uses this setting.
+
