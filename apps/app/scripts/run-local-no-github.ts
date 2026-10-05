@@ -52,21 +52,59 @@ export const freePort = (port: number): Promise<void> => new Promise((ok, fail) 
   server.listen(port, () => server.close(err => err ? fail(err) : ok()))
 })
 
+export interface LocalOptions {
+  readonly browser: boolean
+  readonly keep: boolean
+  /** Where run.json and steps.tsv go; relative to apps/app. */
+  readonly out: string
+  /** A built server bundle (an apps/app/.native directory) at any revision; absent: this checkout's, at HEAD. */
+  readonly bundle?: string
+  /** `standin`: every model call goes to the loopback stand-in. `real`: the providers the owner's keys name. */
+  readonly models: "standin" | "real"
+  /** The GitHub fake's owner account; the walk's repository is <owner>/demo. */
+  readonly owner: string
+}
+export const USAGE = "Usage: local:no-github [--no-browser] [--keep] [--out=<dir>] [--bundle=<.native dir>] [--models=standin|real] [--owner=<login>]"
+/** A GitHub login: alphanumerics and single inner hyphens, at most 39 characters. */
+const LOGIN = /^[a-z\d](?:[a-z\d]|-(?=[a-z\d])){0,38}$/i
+export const parseArgs = (argv: readonly string[]): LocalOptions => {
+  let browser = true, keep = false, out = "test-results/local-no-github", bundle: string | undefined
+  let models: LocalOptions["models"] = "standin", owner = "local-owner"
+  for (const arg of argv) {
+    const [flag, value] = arg.includes("=") ? [arg.slice(0, arg.indexOf("=")), arg.slice(arg.indexOf("=") + 1)] : [arg, undefined]
+    if (flag === "--no-browser" && value === undefined) browser = false
+    else if (flag === "--keep" && value === undefined) keep = true
+    else if (flag === "--out" && value) out = value
+    else if (flag === "--bundle" && value) bundle = value
+    else if (flag === "--models" && (value === "standin" || value === "real")) models = value
+    else if (flag === "--owner" && value && LOGIN.test(value)) owner = value
+    else throw new Error(USAGE)
+  }
+  return { browser, keep, out, ...(bundle === undefined ? {} : { bundle }), models, owner }
+}
+
 export async function main() {
   if (process.getuid?.() === 0) throw new Error("Run as your logged-in user, never root")
-  if (process.argv.slice(2).some(arg => arg !== "--no-browser" && arg !== "--keep")) throw new Error("Usage: local:no-github [--no-browser] [--keep]")
-  const keep = process.argv.includes("--keep")
+  const options = parseArgs(process.argv.slice(2))
+  const { keep, owner } = options
+  const repo = `${owner}/demo`
   const app = resolve(import.meta.dir, ".."), root = resolve(app, "../..")
-  const revision = execFileSync("git", ["rev-parse", "HEAD"], { cwd: root, encoding: "utf8" }).trim()
-  let bundle: string
+  let bundle: string, revision: string
   try {
-    const verified = verifyBundle(join(app, ".native"))
-    if (verified.version !== revision) throw new Error("revision differs from HEAD")
-    bundle = verified.bundle
+    if (options.bundle !== undefined) {
+      // A shared bundle (the proof bundle at main) serves any checkout's specs: its own revision is the receipt.
+      const verified = verifyBundle(resolve(app, options.bundle))
+      bundle = verified.bundle; revision = verified.version
+    } else {
+      revision = execFileSync("git", ["rev-parse", "HEAD"], { cwd: root, encoding: "utf8" }).trim()
+      const verified = verifyBundle(join(app, ".native"))
+      if (verified.version !== revision) throw new Error("revision differs from HEAD")
+      bundle = verified.bundle
+    }
   } catch (error) { throw new Error(`${error}\nBuild: pnpm exec smthrs build //apps/app:serverBundle`) }
   await Promise.all([4000, 4001, 2222].map(freePort))
   const home = walkHome()
-  const out = join(app, "test-results/local-no-github")
+  const out = resolve(app, options.out)
   mkdirSync(out, { recursive: true })
   writeFileSync(join(out, "steps.tsv"), "step\tactual\texpected\towner\n", { mode: 0o600 })
   const receipt = join(out, "run.json")
@@ -93,15 +131,16 @@ export async function main() {
   const signal = () => { void stop().then(() => process.exit(0)) }
   process.on("SIGINT", signal); process.on("SIGTERM", signal)
   try {
-    const modelKey = randomBytes(24).toString("hex")
-    modelProvider = await launchModelProvider({ key: modelKey })
+    // Real models: the owner types real keys on the Model access card, and the install calls those providers.
+    const modelKey = options.models === "standin" ? randomBytes(24).toString("hex") : undefined
+    if (modelKey !== undefined) modelProvider = await launchModelProvider({ key: modelKey })
     const executable = join(home, "githubfake")
     const build = buildChild = Bun.spawn(["go", "build", "-o", executable, "./packages/backend/cmd/githubfake"], { cwd: root, stdout: "inherit", stderr: "inherit" })
     if (await build.exited !== 0) throw new Error("githubfake build failed")
     // Seed real Git objects for the fake's existing smart-HTTP transport.
     // These are provider fixture data, never product setup state.
     const gitRoot = join(home, "git"), seed = join(gitRoot, "seed")
-    mkdirSync(join(gitRoot, "local-owner"), { recursive: true })
+    mkdirSync(join(gitRoot, owner), { recursive: true })
     const git = (args: string[]) => execFileSync(join(bundle, "bin/git"), args, { env: { ...process.env, GIT_CONFIG_NOSYSTEM: "1", GIT_CONFIG_GLOBAL: "/dev/null", GIT_EXEC_PATH: join(bundle, "libexec/git-core"), GIT_TEMPLATE_DIR: join(bundle, "share/git-core/templates") }, stdio: "pipe" })
     git(["init", "-b", "main", seed])
     writeFileSync(join(seed, "JOURNEY.md"), "Add a greeting to JOURNEY.md\n", { mode: 0o600 })
@@ -109,8 +148,8 @@ export async function main() {
     for (const [name, content] of Object.entries(NODE_CANARY)) writeFileSync(join(seed, name), content, { mode: 0o600 })
     git(["-C", seed, "add", "JOURNEY.md", "README.md", ...Object.keys(NODE_CANARY)])
     git(["-C", seed, "-c", "user.name=Rehearsal", "-c", "user.email=owner@example.test", "commit", "-m", "Canary"])
-    git(["clone", "--bare", seed, join(gitRoot, "local-owner/demo.git")])
-    fake = Bun.spawn([executable, "--addr", "127.0.0.1:0", "--git-root", gitRoot], { stdout: "pipe", stderr: "inherit" })
+    git(["clone", "--bare", seed, join(gitRoot, `${repo}.git`)])
+    fake = Bun.spawn([executable, "--addr", "127.0.0.1:0", "--git-root", gitRoot, "--owner", owner], { stdout: "pipe", stderr: "inherit" })
     let ready!: (url: string) => void
     const fakeReady = new Promise<string>(resolve => { ready = resolve })
     void (async () => {
@@ -134,9 +173,10 @@ export async function main() {
     const setup = new Promise<string>(resolve => { handoff = resolve })
     backend = await startNativeBackend({
       stateDir: join(home, "state"), executablePath: join(bundle, "bin/smithers-server"),
-      env: { HOME: home, USER: process.env.USER, LOGNAME: process.env.LOGNAME, LANG: "en_US.UTF-8", ...proxyGuard },
-      spawn: (argv, options) => {
-        const child = backendChild = Bun.spawn([...argv], { env: { ...options.env, ...githubBases(fakeURL), ...modelBase(modelProvider!.origin) }, stdout: "pipe", stderr: "inherit" })
+      // The refusing proxy keeps a stand-in walk off the network; real models need the providers' own hosts.
+      env: { HOME: home, USER: process.env.USER, LOGNAME: process.env.LOGNAME, LANG: "en_US.UTF-8", ...(modelProvider ? proxyGuard : {}) },
+      spawn: (argv, spawnOptions) => {
+        const child = backendChild = Bun.spawn([...argv], { env: { ...spawnOptions.env, ...githubBases(fakeURL), ...(modelProvider ? modelBase(modelProvider.origin) : {}) }, stdout: "pipe", stderr: "inherit" })
         void (async () => {
           let rest = ""
           const stream = child.stdout.getReader()
@@ -156,12 +196,12 @@ export async function main() {
       }
     })
     const setupURL = await Promise.race([setup, Bun.sleep(30_000).then(() => { throw new Error("No setup_urls handoff") })])
-    const run = { setupURL, fakeURL, revision, home, modelOrigin: modelProvider.origin, modelKey }
+    const run = { setupURL, fakeURL, revision, home, owner, repo, models: options.models, ...(modelProvider && modelKey ? { modelOrigin: modelProvider.origin, modelKey } : {}) }
     writeFileSync(join(home, "run.json"), JSON.stringify(run), { mode: 0o600 })
     writeFileSync(receipt, JSON.stringify(run), { mode: 0o600 })
     chmodSync(receipt, 0o600)
-    console.log(`SETUP_URL=${setupURL}\nType owner: local-owner. Ctrl-C stops everything${keep ? ` and keeps ${home}` : " and deletes this run's data"}.`)
-    if (!process.argv.includes("--no-browser")) {
+    console.log(`SETUP_URL=${setupURL}\nType owner: ${owner}. Ctrl-C stops everything${keep ? ` and keeps ${home}` : " and deletes this run's data"}.`)
+    if (options.browser) {
       browser = Bun.spawn(["node", "--experimental-strip-types", join(app, "e2e/local/open.ts"), receipt], { cwd: app, stdout: "inherit", stderr: "inherit" })
       void browser.exited.then(() => signal())
     }
