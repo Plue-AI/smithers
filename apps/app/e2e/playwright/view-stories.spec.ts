@@ -522,7 +522,7 @@ test("T-UI-17 watched and frozen terminals never take input focus", async ({ pag
 // T-UI-16 / R6: bind the light syntax override to the rendered adapter, not its CSS text.
 test("File light syntax resolves to Paper ink", async ({ page }) => {
   await page.goto("/view-stories.html?story=CodeSurface/deleted_readonly&theme=light")
-  const keyword = page.locator('diffs-container [data-line] span').filter({ hasText: /^make$/ }).first()
+  const keyword = page.locator('.cm-content span').filter({ hasText: /^make$/ }).first()
   await expect(keyword).toBeVisible()
   await expect.poll(async () => keyword.evaluate(element => {
     const probe = document.createElement("span")
@@ -532,6 +532,25 @@ test("File light syntax resolves to Paper ink", async ({ page }) => {
     probe.remove()
     return matches
   })).toBe(true)
+  const tokens = await page.locator(".cm-content span").evaluateAll(spans => {
+    const luminance = (color: string) => {
+      const channels = color.match(/[\d.]+/g)!.slice(0, 3).map(value => {
+        const channel = Number(value) / 255
+        return channel <= 0.04045 ? channel / 12.92 : ((channel + 0.055) / 1.055) ** 2.4
+      })
+      return 0.2126 * channels[0]! + 0.7152 * channels[1]! + 0.0722 * channels[2]!
+    }
+    return spans.filter(span => {
+      const bounds = span.getBoundingClientRect()
+      return bounds.width > 0 && bounds.height > 0 && bounds.bottom > 0 && bounds.top < innerHeight && bounds.right > 0 && bounds.left < innerWidth && getComputedStyle(span).visibility === "visible"
+    }).map(span => {
+      const ink = luminance(getComputedStyle(span).color)
+      const paper = luminance(getComputedStyle(span.closest(".cm-editor")!).backgroundColor)
+      return { token: span.textContent, ratio: (Math.max(ink, paper) + 0.05) / (Math.min(ink, paper) + 0.05) }
+    })
+  })
+  expect(tokens.length).toBeGreaterThan(0)
+  for (const { token, ratio } of tokens) expect(ratio, `Token ${JSON.stringify(token)} contrast`).toBeGreaterThanOrEqual(4.5)
 })
 
 test("Secrets Add, Cancel and absent actions use real controls", async ({ page }) => {

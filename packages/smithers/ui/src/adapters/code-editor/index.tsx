@@ -70,8 +70,8 @@ const paper = EditorView.theme({
   ".cm-diagnostic-warning": { borderLeftColor: "var(--attention)" },
 })
 const highlight = HighlightStyle.define([
-  { tag: [tags.keyword, tags.modifier], color: "var(--brand)" },
-  { tag: [tags.string, tags.regexp], color: "var(--success)" },
+  { tag: [tags.keyword, tags.modifier, tags.propertyName], color: "var(--lane-1)" },
+  { tag: [tags.string, tags.regexp, tags.invalid], color: "var(--danger)" },
   { tag: [tags.number, tags.bool, tags.atom], color: "var(--attention)" },
   { tag: [tags.comment, tags.meta], color: "var(--text-muted)" },
   { tag: [tags.typeName, tags.className], color: "var(--text)" },
