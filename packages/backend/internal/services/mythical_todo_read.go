@@ -109,27 +109,30 @@ func (s *MythicalService) todoCard(ctx context.Context, item db.MythicalItem, it
 	if card["merge"], err = s.todoMerge(ctx, item); err != nil {
 		return nil, err
 	}
-	if item.WorkspaceID != "" {
-		workspace, err := s.queries().GetWorkspace(ctx, item.WorkspaceID)
-		if err != nil && !errors.Is(err, pgx.ErrNoRows) {
-			return nil, err
+	workspace, hasBranch, err := s.todoBranchWorkspace(ctx, item)
+	if err != nil {
+		return nil, err
+	}
+	if hasBranch {
+		state := branchMachineState(workspace)
+		if state == "provisioning" {
+			state = "waking"
 		}
-		if err == nil && workspace.RepositoryID == item.RepositoryID {
-			state := branchMachineState(workspace)
-			if state == "provisioning" {
-				state = "waking"
-			}
-			machine := map[string]any{"state": state}
-			// A lane the full host queued waits in line: "Waiting for a
-			// machine · #2" (spec §4.2), never a failure.
-			if place, waiting := s.machinePlace(workspace); waiting {
-				machine = map[string]any{"state": "waiting", "position": place}
-			}
-			if state == "failed" {
-				machine["error"] = map[string]any{"class": "infra", "message": workspace.FailureMessage.String}
-			}
-			card["branch"] = map[string]any{"id": workspace.ID, "name": workspace.Name, "machine": machine}
+		machine := map[string]any{"state": state}
+		// A lane the full host queued waits in line: "Waiting for a
+		// machine · #2" (spec §4.2), never a failure.
+		if place, waiting := s.machinePlace(workspace); waiting {
+			machine = map[string]any{"state": "waiting", "position": place}
 		}
+		if state == "failed" {
+			machine["error"] = map[string]any{"class": "infra", "message": workspace.FailureMessage.String}
+		}
+		// Once published, the branch is the pull request's head branch.
+		name := workspace.Name
+		if published := mythicalChecksOf(item).Branch; published != "" {
+			name = published
+		}
+		card["branch"] = map[string]any{"id": workspace.ID, "name": name, "machine": machine}
 	}
 	if item.Attempt > 0 && item.RequestRunID != "" {
 		card["run"] = map[string]any{"id": item.RequestRunID, "attempt": item.Attempt, "indicators": []any{}}
@@ -159,8 +162,8 @@ func (s *MythicalService) todoCard(ctx context.Context, item db.MythicalItem, it
 			"included_items": append(append([]int64{}, checks.PRIncludes...), item.Number.Int64)}
 	}
 	evidence := todoEvidence(item)
-	if item.Attempt > 0 && item.WorkspaceID != "" {
-		access, err := s.queries().MythicalWorkspaceModelAccess(ctx, item.RepositoryID, item.WorkspaceID)
+	if item.Attempt > 0 && hasBranch {
+		access, err := s.queries().MythicalWorkspaceModelAccess(ctx, item.RepositoryID, workspace.ID)
 		if err != nil {
 			return nil, err
 		}
@@ -175,6 +178,33 @@ func (s *MythicalService) todoCard(ctx context.Context, item db.MythicalItem, it
 	}
 	card["evidence"] = evidence
 	return card, nil
+}
+
+// todoBranchWorkspace is the lane machine a TODO's card names as its branch:
+// the lane it holds, else, once that lane was released (in review after the
+// verdict, merged), its latest coding lane, retired or not, so the card keeps
+// naming its branch. A TODO that never had a lane has none.
+func (s *MythicalService) todoBranchWorkspace(ctx context.Context, item db.MythicalItem) (db.Workspace, bool, error) {
+	id := item.WorkspaceID
+	if id == "" {
+		err := s.store.QueryRow(ctx, `SELECT workspace_id FROM mythical_lanes
+ WHERE item_id = $1 AND repository_id = $2 AND name NOT LIKE '% review g%'
+ ORDER BY created_at DESC LIMIT 1`, item.ID, item.RepositoryID).Scan(&id)
+		if errors.Is(err, pgx.ErrNoRows) {
+			return db.Workspace{}, false, nil
+		}
+		if err != nil {
+			return db.Workspace{}, false, err
+		}
+	}
+	workspace, err := s.queries().GetWorkspace(ctx, id)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return db.Workspace{}, false, nil
+	}
+	if err != nil {
+		return db.Workspace{}, false, err
+	}
+	return workspace, workspace.RepositoryID == item.RepositoryID, nil
 }
 
 // modelAccessLabel names the model access a run used, one group per provider
