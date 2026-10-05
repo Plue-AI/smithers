@@ -1035,46 +1035,44 @@ func TestAuthService_Logout_WhitespaceSessionKey_NoOp(t *testing.T) {
 	require.NoError(t, err)
 }
 
-func TestAuthService_Logout_InvalidUUIDFormat_NoOp(t *testing.T) {
+// Logout revokes every cookie shape auth accepts (#3559): it deletes the
+// digest-keyed row for any non-empty cookie and the legacy raw-keyed row
+// for every cookie auth would also look up raw, which excludes a 64-hex
+// string so a stored digest cannot sign out the session it names.
+func TestAuthService_Logout_DeletesEveryAcceptedShape(t *testing.T) {
 	t.Parallel()
 
-	svc := NewAuthService(&mockAuthQuerier{
-		deleteAuthSessionFn: func(ctx context.Context, sessionKey string) error {
-			t.Fatal("DB should not be called for non-UUID session key")
-			return nil
-		},
-	}, defaultAuthConfig(), mockKeyAuthVerifier{}, mockGitHubClient{})
-
-	// Previously this would cause a PostgreSQL type cast error (BUG)
-	err := svc.Logout(context.Background(), "not-a-valid-uuid-at-all")
-	require.NoError(t, err)
-}
-
-func TestAuthService_Logout_InvalidUUIDFormats_TableDriven(t *testing.T) {
-	t.Parallel()
-
+	hex64 := sha256HexOf("seeded")
 	tests := []struct {
 		name       string
 		sessionKey string
+		raw        bool
 	}{
-		{"too short", "550e8400-e29b"},
-		{"no dashes", "550e8400e29b41d4a716446655440000"},
-		{"wrong dash positions", "550e-8400-e29b-41d4-a716446655440"},
-		{"non-hex characters", "gggggggg-gggg-gggg-gggg-gggggggggggg"},
-		{"plain string", "fake-session-key-12345"},
+		{"uuid", "550e8400-e29b-41d4-a716-446655440000", true},
+		{"64-hex", hex64, false},
+		{"64-hex upper case", strings.ToUpper(hex64), false},
+		{"too short uuid", "550e8400-e29b", true},
+		{"no dashes", "550e8400e29b41d4a716446655440000", true},
+		{"non-hex characters", "gggggggg-gggg-gggg-gggg-gggggggggggg", true},
+		{"plain string", "fake-session-key-12345", true},
 	}
 
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
+			var deleted []string
 			svc := NewAuthService(&mockAuthQuerier{
 				deleteAuthSessionFn: func(ctx context.Context, sessionKey string) error {
-					t.Fatalf("DB should not be called for invalid UUID: %q", sessionKey)
+					deleted = append(deleted, sessionKey)
 					return nil
 				},
 			}, defaultAuthConfig(), mockKeyAuthVerifier{}, mockGitHubClient{})
 
-			err := svc.Logout(context.Background(), tc.sessionKey)
-			require.NoError(t, err)
+			require.NoError(t, svc.Logout(context.Background(), tc.sessionKey))
+			want := []string{sha256HexOf(tc.sessionKey)}
+			if tc.raw {
+				want = append(want, tc.sessionKey)
+			}
+			assert.Equal(t, want, deleted)
 		})
 	}
 }

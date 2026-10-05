@@ -36,9 +36,20 @@ It returns HTTP 401 with this body on every route that refuses it:
   there.
 - On a route that requires sign-in, a dead session cookie gets the same 401.
   A request with no credential keeps `code: "unauthorized"`.
+- A route that writes its own 401 `unauthenticated` (the install command
+  authorizer behind `/api/members` and `/api/todos`, branch reads, TODO
+  merge) says "Sign in again" for a dead session cookie and "Sign in" (or
+  "Sign in to merge") for no credential.
 - On a public route (health, sign-in, OAuth callbacks, logout, setup) a dead
   session cookie is ignored, so a stale cookie never blocks signing in again.
 - A request carrying an SSE `ticket` is decided by the ticket gate.
+
+Logout revokes every session cookie auth accepts. Auth looks a cookie up
+by its SHA-256 digest, then as a legacy raw key unless the cookie is a
+64-hex string, which is never a raw key. `POST /api/auth/logout` deletes by
+the same rule, so a UUID, a 64-hex or any other opaque cookie that signed in
+is dead afterward, and a stored digest presented as a cookie can neither
+sign in nor sign out the session it names.
 
 The 401 does not clear the cookie. A late 401 for an earlier request would
 otherwise delete the fresh cookie a concurrent sign-in had just set.

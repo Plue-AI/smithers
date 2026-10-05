@@ -894,21 +894,21 @@ func (s *AuthService) Logout(ctx context.Context, sessionKey string) error {
 	if strings.TrimSpace(sessionKey) == "" {
 		return nil
 	}
-	if !isValidUUID(sessionKey) {
-		return nil // Invalid session key format — treat as "session not found" (no-op)
-	}
-	// The browser has already dropped its cookie and cannot retry, so the
-	// session is deleted even when recording the revocation fails; that
-	// failure is still reported.
+	// Logout revokes whatever auth accepts (middleware loadSessionAuth): any
+	// non-empty cookie by its digest, and by its raw key where auth would
+	// also accept a legacy raw-keyed row. The browser has already dropped
+	// its cookie and cannot retry, so the session is deleted even when
+	// recording the revocation fails; that failure is still reported.
 	publishErr := s.publishSessionRevoked(ctx, sessionRevokedEvent(sessionStorageKey(sessionKey), 0, "logout"))
-	// Sessions minted after keys were hashed at rest are keyed by their
-	// digest; rows minted before stay raw-keyed until they expire. Delete
-	// both forms so logout is immediate for either generation.
 	if err := s.queries.DeleteAuthSession(ctx, sessionStorageKey(sessionKey)); err != nil {
 		return err
 	}
-	if err := s.queries.DeleteAuthSession(ctx, sessionKey); err != nil {
-		return err
+	// Never delete by a 64-hex cookie as a raw key: it would let a stored
+	// digest (a database dump) sign out the session it names.
+	if middleware.LegacyRawSessionKey(sessionKey) {
+		if err := s.queries.DeleteAuthSession(ctx, sessionKey); err != nil {
+			return err
+		}
 	}
 	return publishErr
 }

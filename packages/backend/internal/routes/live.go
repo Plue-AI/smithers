@@ -50,7 +50,7 @@ func (h *LiveHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	info := middleware.AuthInfoFromContext(r.Context())
 	// Existing tokens are not live session credentials until T-ACC-04.
 	if info == nil || info.User == nil || info.IsTokenAuth || info.IsAgent() {
-		liveRefusal(w, http.StatusUnauthorized, "permission", "unauthenticated", "Sign in")
+		liveRefusal(w, http.StatusUnauthorized, "permission", "unauthenticated", middleware.UnauthenticatedMessage(r.Context()))
 		return
 	}
 	// A cookie upgrade comes from the install's own page.
@@ -86,7 +86,7 @@ func (h *LiveHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	if source := currentRevocationSource(); source != nil {
 		principal := requestPrincipal(r, revocation.Principal{RepositoryID: repository})
 		if checker, ok := source.(revocation.Checker); ok && (checker.IsUserDisabled(principal.UserID) || (principal.TokenHash != "" && checker.IsTokenRevoked(principal.TokenHash))) {
-			liveRefusal(w, http.StatusUnauthorized, "permission", "unauthenticated", "Sign in")
+			liveRefusal(w, http.StatusUnauthorized, "permission", "unauthenticated", "Sign in again") // a revoked credential is dead (§5.2.1a)
 			return
 		}
 		events := source.Watch(ctx, principal)

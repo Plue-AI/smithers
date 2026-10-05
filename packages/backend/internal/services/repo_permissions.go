@@ -381,7 +381,7 @@ func Authorize(ctx context.Context, q *db.Queries, command string) (InstallAutho
 	}
 	info := middleware.AuthInfoFromContext(ctx)
 	if info == nil || info.User == nil {
-		return InstallAuthorization{}, &AccessError{Status: http.StatusUnauthorized, Class: "permission", Code: "unauthenticated", Message: "Sign in"}
+		return InstallAuthorization{}, &AccessError{Status: http.StatusUnauthorized, Class: "permission", Code: "unauthenticated", Message: middleware.UnauthenticatedMessage(ctx)}
 	}
 	if need.personOnly {
 		return authorizePersonOnly(ctx, q, info, need.role)

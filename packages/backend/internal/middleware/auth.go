@@ -156,12 +156,30 @@ func carriedDeadSession(ctx context.Context) bool {
 	return dead
 }
 
+// CarriedDeadCredential reports whether the request presented a session
+// cookie AuthLoader found dead and let continue anonymously.
+func CarriedDeadCredential(ctx context.Context) bool { return carriedDeadSession(ctx) }
+
+// UnauthenticatedMessage is the message of a 401 unauthenticated refusal
+// for the request: "Sign in again" when it presented a session cookie
+// AuthLoader found dead (spec §5.2.1a), so every refusal of a dead
+// credential reads the same wherever it is written; "Sign in" when it
+// presented no credential.
+func UnauthenticatedMessage(ctx context.Context) string {
+	if carriedDeadSession(ctx) {
+		return deadCredentialMessage
+	}
+	return "Sign in"
+}
+
+const deadCredentialMessage = "Sign in again"
+
 // writeDeadCredential answers a request that carried a session cookie or
 // bearer token the server no longer honours: unknown, expired, revoked, or
 // held by a suspended or removed member (spec §5.2.1). It depends on the
 // credential alone, so it reads the same for every resource.
 func writeDeadCredential(w http.ResponseWriter) {
-	errors.WriteError(w, errors.New(errors.CodeUnauthenticated, "Sign in again"))
+	errors.WriteError(w, errors.New(errors.CodeUnauthenticated, deadCredentialMessage))
 }
 
 // repositoryRoutePath matches every route that resolves a repository from
@@ -463,13 +481,8 @@ func loadSessionAuth(
 		if !stdErrors.Is(err, pgx.ErrNoRows) {
 			return nil, nil, err
 		}
-		// Never interpret a stored SHA-256 digest as a legacy bearer key.
-		// Legacy keys are UUIDs; allowing the digest here makes hashing at
-		// rest ineffective because a database dump can be used as cookies.
-		if len(sessionKey) == sha256.Size*2 {
-			if _, err := hex.DecodeString(sessionKey); err == nil {
-				return nil, nil, nil
-			}
+		if !LegacyRawSessionKey(sessionKey) {
+			return nil, nil, nil
 		}
 		session, err = queries.GetAuthSessionBySessionKey(ctx, sessionKey)
 		if err != nil {
@@ -484,6 +497,20 @@ func loadSessionAuth(
 		return nil, nil, err
 	}
 	return info, &session, nil
+}
+
+// LegacyRawSessionKey reports whether a presented session cookie may name a
+// legacy row filed under the raw key. Every cookie may except a 64-hex
+// string: a stored SHA-256 digest is never a raw key, or a database dump
+// would work as cookies and hashing at rest would protect nothing. Logout
+// (services.AuthService.Logout) revokes by the same rule, so anything auth
+// accepts, logout revokes.
+func LegacyRawSessionKey(sessionKey string) bool {
+	if len(sessionKey) != sha256.Size*2 {
+		return true
+	}
+	_, err := hex.DecodeString(sessionKey)
+	return err != nil
 }
 
 // sessionAuthInfo is a found session's authentication: nil when it has

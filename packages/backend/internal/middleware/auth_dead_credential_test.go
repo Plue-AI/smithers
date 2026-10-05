@@ -4,6 +4,7 @@ import (
 	"context"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 
 	"github.com/jackc/pgx/v5"
@@ -87,4 +88,44 @@ func TestAuthLoader_DeadSessionCookie(t *testing.T) {
 	}))
 	require.Equal(t, http.StatusNoContent, rec.Code)
 	assert.True(t, reached)
+}
+
+// A handler that writes its own 401 unauthenticated reads the message from
+// the request: a dead cookie says "Sign in again", the same as RequireAuth,
+// and no credential says "Sign in".
+func TestUnauthenticatedMessage_SplitsDeadFromNone(t *testing.T) {
+	t.Parallel()
+
+	var got []string
+	next := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		got = append(got, UnauthenticatedMessage(r.Context()))
+	})
+	loader := AuthLoader(&mockAuthLoaderQuerier{
+		getAuthSessionBySessionKeyFn: func(context.Context, string) (db.AuthSession, error) {
+			return db.AuthSession{}, pgx.ErrNoRows
+		},
+	}, config.AuthConfig{SessionCookieName: "session"})(next)
+
+	dead := httptest.NewRequest(http.MethodGet, "/api/todos", nil)
+	dead.AddCookie(&http.Cookie{Name: "session", Value: "signed-out"})
+	loader.ServeHTTP(httptest.NewRecorder(), dead)
+	loader.ServeHTTP(httptest.NewRecorder(), httptest.NewRequest(http.MethodGet, "/api/todos", nil))
+	assert.Equal(t, []string{"Sign in again", "Sign in"}, got)
+}
+
+// Auth looks a cookie up as a legacy raw key unless it is a 64-hex string,
+// which is never a raw key; logout deletes raw keys by the same rule.
+func TestLegacyRawSessionKey(t *testing.T) {
+	t.Parallel()
+	hex64 := sessionStorageKey("seed")
+	for key, want := range map[string]bool{
+		"550e8400-e29b-41d4-a716-446655440000": true,
+		"opaque-cookie":                        true,
+		hex64:                                  false,
+		strings.ToUpper(hex64):                 false,
+		hex64[:63] + "g":                       true,
+		hex64[:62]:                             true,
+	} {
+		assert.Equal(t, want, LegacyRawSessionKey(key), key)
+	}
 }

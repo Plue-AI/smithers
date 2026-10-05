@@ -160,7 +160,11 @@ func MergeCredential(ctx context.Context, via string) error {
 	info := middleware.AuthInfoFromContext(ctx)
 	switch {
 	case info == nil || info.User == nil && !info.IsTokenAuth && info.SessionHash == "":
-		return &TodoControlError{Status: http.StatusUnauthorized, Code: "unauthenticated", Class: "permission", Message: "Sign in to merge"}
+		message := "Sign in to merge"
+		if middleware.CarriedDeadCredential(ctx) {
+			message = middleware.UnauthenticatedMessage(ctx)
+		}
+		return &TodoControlError{Status: http.StatusUnauthorized, Code: "unauthenticated", Class: "permission", Message: message}
 	case strings.TrimSpace(via) != "":
 		return &TodoControlError{Status: http.StatusForbidden, Code: "never", Class: "never", Message: "Only a person can do this"}
 	case !mergeSession(info):

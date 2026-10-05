@@ -263,13 +263,17 @@ func TestAuthService_LogoutDeletesSessionAndReportsFailedRecord(t *testing.T) {
 	require.Equal(t, []string{sessionStorageKey(raw), raw}, deleted, "the session still ends for fresh requests")
 }
 
-func TestAuthService_LogoutIgnoresMalformedKeys(t *testing.T) {
+func TestAuthService_LogoutPublishesEveryPresentedCookieAndIgnoresBlank(t *testing.T) {
 	t.Parallel()
 	publisher := &recordingPublisher{}
-	svc := NewAuthService(&mockAuthQuerier{}, config.AuthConfig{}, nil, nil, WithAuthRevocationPublisher(publisher))
-	require.NoError(t, svc.Logout(context.Background(), "not-a-session"))
+	q := &mockAuthQuerier{deleteAuthSessionFn: func(context.Context, string) error { return nil }}
+	svc := NewAuthService(q, config.AuthConfig{}, nil, nil, WithAuthRevocationPublisher(publisher))
 	require.NoError(t, svc.Logout(context.Background(), " "))
-	require.Empty(t, publisher.all())
+	require.Empty(t, publisher.all(), "a blank cookie names no session")
+	require.NoError(t, svc.Logout(context.Background(), "not-a-uuid"))
+	events := publisher.all()
+	require.Len(t, events, 1, "auth accepts a non-UUID cookie, so logout revokes it")
+	require.Equal(t, sessionStorageKey("not-a-uuid"), events[0].TokenHash)
 }
 
 func TestAuthService_RevokeUserSessionPublishesItsDigest(t *testing.T) {

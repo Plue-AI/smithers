@@ -9,6 +9,7 @@ import (
 
 	"github.com/go-chi/chi/v5"
 	"github.com/smithersai/smithers/packages/backend/internal/db"
+	"github.com/smithersai/smithers/packages/backend/internal/middleware"
 	pkgerrors "github.com/smithersai/smithers/packages/backend/internal/pkg/errors"
 	"github.com/smithersai/smithers/packages/backend/internal/services"
 )
@@ -76,18 +77,18 @@ func InstallBranchAuthorizer(queries *db.Queries) func(*http.Request, string) (i
 func (h *BranchHandler) ListBranches(w http.ResponseWriter, r *http.Request) {
 	repository, user, err := h.authorize(r, "branches.read", h.Reads != nil)
 	if err != nil {
-		writeBranchError(w, err)
+		writeBranchError(w, r, err)
 		return
 	}
 	cursor, limit, err := parseOffsetPagination(r)
 	if err != nil {
-		writeBranchError(w, err)
+		writeBranchError(w, r, err)
 		return
 	}
 	page := cursorToPage(cursor, limit)
 	rows, total, err := h.Reads.ListBranches(r.Context(), repository, user, page, limit)
 	if err != nil {
-		writeBranchError(w, err)
+		writeBranchError(w, r, err)
 		return
 	}
 	setOffsetCursorPaginationHeaders(w, r, page, limit, len(rows), total)
@@ -97,17 +98,17 @@ func (h *BranchHandler) ListBranches(w http.ResponseWriter, r *http.Request) {
 func (h *BranchHandler) GetBranch(w http.ResponseWriter, r *http.Request) {
 	repository, user, err := h.authorize(r, "branches.read", h.Reads != nil)
 	if err != nil {
-		writeBranchError(w, err)
+		writeBranchError(w, r, err)
 		return
 	}
 	branch, err := url.PathUnescape(chi.URLParam(r, "b"))
 	if err != nil {
-		writeBranchError(w, pkgerrors.BadRequest("invalid branch name"))
+		writeBranchError(w, r, pkgerrors.BadRequest("invalid branch name"))
 		return
 	}
 	row, err := h.Reads.GetBranch(r.Context(), branch, repository, user)
 	if err != nil {
-		writeBranchError(w, err)
+		writeBranchError(w, r, err)
 		return
 	}
 	pkgerrors.WriteJSON(w, http.StatusOK, row)
@@ -118,19 +119,19 @@ func (h *BranchHandler) GetBranch(w http.ResponseWriter, r *http.Request) {
 func (h *BranchHandler) Fork(w http.ResponseWriter, r *http.Request) {
 	repository, user, err := h.authorize(r, "branch.fork", h.Forks != nil)
 	if err != nil {
-		writeBranchError(w, err)
+		writeBranchError(w, r, err)
 		return
 	}
 	var input services.BranchForkInput
 	decoder := json.NewDecoder(r.Body)
 	decoder.DisallowUnknownFields()
 	if err := decoder.Decode(&input); err != nil {
-		writeBranchError(w, pkgerrors.BadRequest("invalid fork request"))
+		writeBranchError(w, r, pkgerrors.BadRequest("invalid fork request"))
 		return
 	}
 	branch, err := h.Forks.ForkBranch(r.Context(), repository, user, input)
 	if err != nil {
-		writeBranchError(w, err)
+		writeBranchError(w, r, err)
 		return
 	}
 	pkgerrors.WriteJSON(w, http.StatusCreated, branch)
@@ -138,7 +139,7 @@ func (h *BranchHandler) Fork(w http.ResponseWriter, r *http.Request) {
 
 // writeBranchError keeps the resource's errors on the §6.2.3 wire contract
 // while the legacy workspace endpoints retain their existing error decoder.
-func writeBranchError(w http.ResponseWriter, err error) {
+func writeBranchError(w http.ResponseWriter, r *http.Request, err error) {
 	var refused *services.BranchError
 	if errors.As(err, &refused) {
 		pkgerrors.WriteJSON(w, refused.Status, refused)
@@ -154,7 +155,7 @@ func writeBranchError(w http.ResponseWriter, err error) {
 	if errors.As(err, &e) {
 		switch e.Status {
 		case 401:
-			status, code, class, message = 401, "unauthenticated", "permission", "Sign in"
+			status, code, class, message = 401, "unauthenticated", "permission", middleware.UnauthenticatedMessage(r.Context())
 		case 403:
 			status, code, class, message = 403, "permission", "permission", "Access denied"
 		case 400, 404:
