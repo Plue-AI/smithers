@@ -5,6 +5,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"fmt"
 	"net/http/httptest"
 	"os"
 	"os/exec"
@@ -374,8 +375,9 @@ func TestAgentSourceReadCarriesTheAdmittingCredentialsAuthority(t *testing.T) {
 }
 
 // The installation's member boundary, the one AuthLoader applies, also
-// bounds every read: an owner whose GitHub access is unverified, or anyone
-// but the owner, reads nothing.
+// bounds every read: an owner whose GitHub access is unverified, a person
+// off the roster or a suspended member reads nothing; an active member reads
+// as themselves.
 func TestAgentSourceReadIsBoundedByTheInstallationMembers(t *testing.T) {
 	f := newMirrorReadFixture(t)
 	f.ready()
@@ -391,7 +393,21 @@ func TestAgentSourceReadIsBoundedByTheInstallationMembers(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, mirrorReadJourney, file.Content)
 	_, err = f.reader.ReadSource(ctx, member, f.member.ID, 0, "JOURNEY.md")
-	require.ErrorIs(t, err, ErrSourceForbidden, "a collaborator who is not the installation's owner")
+	require.ErrorIs(t, err, ErrSourceForbidden, "a person off the install's roster")
+	// A member on the roster of the install's repository asks as themselves;
+	// suspended, they read nothing.
+	roster := fmt.Sprintf(`{"owner_login":"acme","repository_name":"app","repository_id":%d}`, f.mirror)
+	f.setting("github.repository", roster)
+	f.setting("owner.access", strings.TrimSuffix(roster, "}")+`,"last_access_check_at":"`+time.Now().UTC().Format(time.RFC3339Nano)+`"}`)
+	_, err = f.pool.Exec(ctx, `UPDATE collaborators SET permission='write' WHERE repository_id=$1 AND user_id=$2`, f.mirror, f.member.ID)
+	require.NoError(t, err)
+	file, err = f.reader.ReadSource(ctx, member, f.member.ID, 0, "JOURNEY.md")
+	require.NoError(t, err)
+	require.Equal(t, mirrorReadJourney, file.Content)
+	_, err = f.pool.Exec(ctx, `UPDATE collaborators SET suspended_at=now() WHERE repository_id=$1 AND user_id=$2`, f.mirror, f.member.ID)
+	require.NoError(t, err)
+	_, err = f.reader.ReadSource(ctx, member, f.member.ID, 0, "JOURNEY.md")
+	require.ErrorIs(t, err, ErrSourceForbidden, "a suspended member")
 	// Without a boundary nothing is read.
 	f.reader.Members = nil
 	_, err = f.reader.ReadSource(ctx, owner, f.owner.ID, 0, "JOURNEY.md")
