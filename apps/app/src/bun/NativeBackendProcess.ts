@@ -52,6 +52,15 @@ const LAUNCHER_PASSTHROUGH = [
   "SSL_CERT_FILE", "SSL_CERT_DIR"
 ] as const
 
+/**
+ * How long a stop waits for the backend after SIGTERM before it kills it.
+ * The backend stops its owned PostgreSQL within 10 s of the signal
+ * (native.databaseStopGrace), and PostgreSQL runs in its own process group,
+ * so a kill before then leaves it running. launchd kills this launcher 30 s
+ * after its own SIGTERM (ExitTimeOut, HostService.ts).
+ */
+const BACKEND_STOP_GRACE_MS = 25_000
+
 /** A Dock launch can arrive without PATH; the backend still needs the system tools. */
 const SYSTEM_PATH = ["/usr/bin", "/bin", "/usr/sbin", "/sbin"].join(delimiter)
 
@@ -339,7 +348,7 @@ export const startNativeBackend = async (
     child.kill("SIGTERM")
     const graceful = await Promise.race([
       child.exited.then(() => true),
-      sleep(10_000).then(() => false)
+      sleep(BACKEND_STOP_GRACE_MS).then(() => false)
     ])
     if (!graceful) {
       child.kill("SIGKILL")

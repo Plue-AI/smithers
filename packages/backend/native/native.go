@@ -105,8 +105,7 @@ func Run(ctx context.Context, cfg Config) error {
 		return errors.Join(pgErr, appErr)
 	case <-ctx.Done():
 		cancel()
-		appErr := <-appDone
-		stopErr := stop(database)
+		appErr, stopErr := stopAfterApp(appDone, func() error { return stop(database) }, databaseStopGrace)
 		if appErr != nil && !errors.Is(appErr, context.Canceled) {
 			return errors.Join(appErr, stopErr)
 		}
@@ -114,6 +113,29 @@ func Run(ctx context.Context, cfg Config) error {
 			return stopErr
 		}
 		return ctx.Err()
+	}
+}
+
+// databaseStopGrace bounds how long a stopping backend waits for the app
+// before it stops the owned PostgreSQL anyway. The launcher kills a backend
+// that has not exited 25 s after its SIGTERM (NativeBackendProcess.ts), and
+// launchd the launcher at 30 s; PostgreSQL runs in its own process group, so
+// a kill before this stop left it running (the real-GitHub walk's install,
+// whose app teardown with lane machines outlasted the launcher's grace).
+const databaseStopGrace = 10 * time.Second
+
+// stopAfterApp stops the database once the app returns or grace passes,
+// whichever is first, and then waits for the app: a slow app teardown, such
+// as stopping lane machines, never outlives the database it used.
+func stopAfterApp(appDone <-chan error, stopDatabase func() error, grace time.Duration) (appErr, stopErr error) {
+	timer := time.NewTimer(grace)
+	defer timer.Stop()
+	select {
+	case appErr = <-appDone:
+		return appErr, stopDatabase()
+	case <-timer.C:
+		stopErr = stopDatabase()
+		return <-appDone, stopErr
 	}
 }
 

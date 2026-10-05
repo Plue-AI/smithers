@@ -182,6 +182,36 @@ describe("native backend ownership", () => {
     await instance.stop()
   })
 
+  test("a stop gives the backend 25 s to stop its PostgreSQL before it kills it", async () => {
+    const runtime = packagedRuntime()
+    let resolveExit!: (code: number) => void
+    const exited = new Promise<number>((resolve) => { resolveExit = resolve })
+    const signals: Array<string> = []
+    const slept: Array<number> = []
+    const instance = await startNativeBackend({
+      executablePath: join(runtime.root, "smithers-server"),
+      stateDir: runtime.state,
+      webRoot,
+      // SIGTERM starts a teardown that never finishes; only SIGKILL ends it.
+      spawn: () => ({
+        exited,
+        kill: (signal) => {
+          signals.push(signal)
+          if (signal === "SIGKILL") resolveExit(137)
+        }
+      }),
+      fetch: async () => new Response(null, { status: 200 }),
+      sleep: (milliseconds) => {
+        slept.push(milliseconds)
+        return milliseconds === 25_000 ? Promise.resolve() : new Promise<void>(() => {})
+      }
+    })
+    await instance.stop()
+    expect(signals).toEqual(["SIGTERM", "SIGKILL"])
+    expect(slept).toContain(25_000)
+    expect(slept).not.toContain(10_000)
+  })
+
   test("hung readiness is bounded by the startup deadline", async () => {
     const runtime = packagedRuntime()
     let resolveExit!: (code: number) => void
