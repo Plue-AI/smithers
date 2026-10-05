@@ -1746,8 +1746,17 @@ func (s *WorkspaceService) provisionWorkspaceAsync(ctx context.Context, workspac
 		defer s.recoverAsyncProvision(ctx, workspace, "async")
 		provisionCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), workspaceProvisionTimeout)
 		defer cancel()
-		if _, err := s.ensureWorkspaceRunning(provisionCtx, workspace, input); err != nil {
-			if errors.Is(err, errWorkspaceProvisionInProgress) {
+		_, err := s.ensureWorkspaceRunning(provisionCtx, workspace, input)
+		if isNoCapacityError(err) {
+			// A full host queues a workspace with no machine yet in the
+			// runtime's admission queue instead of failing it.
+			err = s.waitForMachine(provisionCtx, workspace, err, func(ctx context.Context, current db.Workspace) error {
+				_, err := s.ensureWorkspaceRunning(ctx, current, input)
+				return err
+			})
+		}
+		if err != nil {
+			if errors.Is(err, errWorkspaceProvisionInProgress) || errors.Is(err, errWorkspaceMachineWaitEnded) {
 				return
 			}
 			slog.Error("async workspace provisioning failed", "workspace_id", workspace.ID, "error", err)

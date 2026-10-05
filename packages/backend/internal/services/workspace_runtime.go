@@ -284,6 +284,11 @@ func runtimeOperationError(operation string, err error) error {
 	if lost := lostWorkerError(err); lost != nil {
 		return lost
 	}
+	// A full host refused before it touched a machine: the honest answer is
+	// no_capacity, as on the sandbox path (workspaceProvisioningError).
+	if isMachineCapacityError(err) {
+		return pkgerrors.NoCapacity(workspaceNoCapacityMessage).WithCause(err)
+	}
 	return pkgerrors.Internal(operation + ": " + err.Error())
 }
 

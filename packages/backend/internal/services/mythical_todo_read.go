@@ -117,6 +117,11 @@ func (s *MythicalService) todoCard(ctx context.Context, item db.MythicalItem, it
 				state = "waking"
 			}
 			machine := map[string]any{"state": state}
+			// A lane the full host queued waits in line: "Waiting for a
+			// machine · #2" (spec §4.2), never a failure.
+			if place, waiting := s.machinePlace(workspace); waiting {
+				machine = map[string]any{"state": "waiting", "position": place}
+			}
 			if state == "failed" {
 				machine["error"] = map[string]any{"class": "infra", "message": workspace.FailureMessage.String}
 			}
