@@ -5,7 +5,7 @@ import { join } from "node:path"
 import { EXTERNAL_CODEX_PATH } from "@smthrs/rpc/AgentApiRoutes"
 import { LOCAL_SESSION_HEADER } from "@smthrs/rpc/LocalSession"
 import { clip, externalSessions, findRollout, sessionRoots } from "./ExternalSessions"
-import { startLocalServer, type LocalServer } from "./server"
+import { localPreviewLoopback, startLocalServer, type LocalServer } from "./server"
 
 const ID = "0199aaaa-1111-7222-8333-444455556666"
 const OTHER = "0199bbbb-1111-7222-8333-444455556666"
@@ -135,6 +135,32 @@ describe(`GET ${EXTERNAL_CODEX_PATH}`, () => {
   afterAll(async () => { await server.stop(); await rm(dist, { recursive: true, force: true }) })
   const get = (query: string, session = true) =>
     fetch(`${server.origin}${EXTERNAL_CODEX_PATH}${query}`, { headers: session ? { [LOCAL_SESSION_HEADER]: server.sessionToken } : {} })
+
+  test("refuses non-loopback targets and peers", async () => {
+    expect(localPreviewLoopback("127.0.0.1", "192.168.1.2")).toBe(false)
+    expect(localPreviewLoopback("192.168.1.2", "127.0.0.1")).toBe(false)
+    expect(localPreviewLoopback("127.0.0.1", undefined)).toBe(false)
+    expect(localPreviewLoopback("127.0.0.1", "127.0.0.1")).toBe(true)
+    const response = await fetch(`${server.origin}${EXTERNAL_CODEX_PATH}?session=${ID}`, {
+      headers: { host: "192.168.1.2", [LOCAL_SESSION_HEADER]: server.sessionToken }
+    })
+    expect(response.status).toBe(421)
+  })
+
+  test("install-connected and hybrid routers never mount the preview", async () => {
+    for (const mode of [{ backendApi: "http://127.0.0.1:1" }, { cloudMode: "hybrid" as const }]) {
+      let reads = 0
+      const host = await startLocalServer({ port: 0, distDir: dist, log: () => {}, ...mode,
+        externalSessions: async () => { reads++; throw new Error("must not read a home") } })
+      try {
+        const response = await fetch(`${host.origin}${EXTERNAL_CODEX_PATH}?session=${ID}`, {
+          headers: { [LOCAL_SESSION_HEADER]: host.sessionToken }
+        })
+        expect(response.status).toBe(404)
+        expect(reads).toBe(0)
+      } finally { await host.stop() }
+    }
+  })
 
   test("answers the session with its owner", async () => {
     const response = await get(`?session=0199bbbb`)

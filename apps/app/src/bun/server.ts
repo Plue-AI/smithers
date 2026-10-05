@@ -670,6 +670,10 @@ const machineOwner = (): { readonly login: string; readonly name: string } => {
   return { login, name: login }
 }
 
+/** Both the request target and its actual peer must be loopback. */
+export const localPreviewLoopback = (hostname: string, address: string | undefined): boolean =>
+  hostname === "127.0.0.1" && (address === "127.0.0.1" || address === "::1" || address === "::ffff:127.0.0.1")
+
 export const startLocalServer = async (options: LocalServerOptions): Promise<LocalServer> => {
   const log = options.log ?? ((line: string) => console.log(line))
   const distDir = resolve(options.distDir)
@@ -758,14 +762,15 @@ export const startLocalServer = async (options: LocalServerOptions): Promise<Loc
       home
     }))
 
-  /*
-   * M-38: a Codex session run on this machine, read-only, for the
-   * conversation. `since` is the `next` of the previous read, so a running
-   * session is polled for what it appended.
+  /**
+   * Local-mode preview only: the OS owner's local-session capability reads
+   * their own Codex home on the loopback listener. Never mount on an install
+   * listener; T-AGT-02 replaces this preview with session-owned ingestion.
    */
+  const localPreview = !remoteEnabled && !(options.backendApi === undefined ? Bun.env.SMITHERS_BACKEND_API : options.backendApi)
   const readSession = options.externalSessions ?? externalSessions()
   const owner = machineOwner()
-  router.add("GET", EXTERNAL_CODEX_PATH, async ({ url }) => {
+  if (localPreview) router.add("GET", EXTERNAL_CODEX_PATH, async ({ url }) => {
     const id = url.searchParams.get("session") ?? ""
     if (!/^[0-9a-f-]{4,36}$/.test(id)) return jsonError("invalid_request", "A Codex session id or a prefix of at least four characters is required.")
     const read = await readSession(id, Number(url.searchParams.get("since") ?? 0) || 0)
@@ -1084,6 +1089,10 @@ export const startLocalServer = async (options: LocalServerOptions): Promise<Loc
     const { pathname } = url
     if (request.headers.get("host") !== expectedHost) {
       return jsonError("invalid_host", "This local server accepts only its loopback origin.")
+    }
+    if (pathname === EXTERNAL_CODEX_PATH) {
+      if (!localPreview) return jsonError("not_found", "Not found.")
+      if (!localPreviewLoopback(url.hostname, bunServer.requestIP(request)?.address)) return jsonError("invalid_host", "This local server accepts only its loopback origin.")
     }
     if (pathname === "/api/live") {
       if (request.headers.get("origin") !== origin) return jsonError("invalid_origin", "WebSocket origin does not match the local app.")

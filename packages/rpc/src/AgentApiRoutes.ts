@@ -372,7 +372,10 @@ export const CHAT_CANCEL_PATH = "/api/chat/cancel"
 export const HEALTH_PATH = "/api/health"
 
 /**
- * A Codex session run on this machine, read-only for the conversation (mvp.md M-38): `?session=<id or prefix>&since=<next>`.
+ * Owner-only local-mode Codex preview on loopback, guarded by the local-session
+ * capability. Never served by an install's network router. Reads only the OS
+ * user's own CODEX_HOME (else ~/.codex): `?session=<id or prefix>&since=<next>`.
+ * T-AGT-02 deletes this preview when session-owned ingestion lands (M-38).
  *
  * @since 1.0.0
  * @category constants

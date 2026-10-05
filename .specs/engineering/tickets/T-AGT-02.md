@@ -4,6 +4,8 @@ Stage S2 · Size L · Depends on T-AGT-01, T-TRM-07, T-TRM-01, T-COL-02, T-COL-0
 Spec: spec.md §7.2, §7.3, §8.7.2, §9.1.2, §9.6.6, §14.5.5 · Delta: delta.md §9 · Product: mvp.md M-38, M-34
 Ready: 2026-10-03 smithers-8a sha256:0435c9e09b24
 
+T-AGT-02's ingestion path deletes the local-mode /api/external/codex preview (34eb33b71) in the same change (smithers-8a ruling 2026-10-05, #3731).
+
 ## Goal
 
 Tail the terminal owner's identified external-agent transcript and publish its parsed conversation live.
