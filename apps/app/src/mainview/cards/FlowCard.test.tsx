@@ -41,10 +41,10 @@ import type { CatalogTag } from "@smthrs/rpc/CardAction"
 import { fixtures } from "@smthrs/rpc/fixtures/Flow"
 import { FlowCard } from "./FlowCard"
 
-const mount = (model: FlowViewProps["model"] | undefined, system = false, allowed = new Set<CatalogTag>(["flow.source", "flow.plan", "flow.run", "flow.edit"])) => {
+const mount = (model: FlowViewProps["model"] | undefined, allowed = new Set<CatalogTag>(["flow.source", "flow.plan", "flow.run", "flow.edit"])) => {
   let props!: FlowViewProps
   const calls: unknown[] = []
-  renderToStaticMarkup(<FlowCard model={model} system={system} allowed={allowed} dispatch={(tag, input) => { calls.push({ tag, input }) }}
+  renderToStaticMarkup(<FlowCard model={model} allowed={allowed} dispatch={(tag, input) => { calls.push({ tag, input }) }}
     View={value => { props = value; return null }} view={{ maximized: false }} onView={() => {}} />)
   return { props, calls }
 }
@@ -60,17 +60,24 @@ test("Flow schema fixtures project and every control dispatches a catalog tag wi
 })
 test("system flows and members lacking command admission get no mutation control", () => {
   const model = Object.values(fixtures)[0]!.model
-  const system = mount(model, true)
+  const system = mount({ ...model, name: "merge", system: true })
   expect(system.props.actions.map(action => action.tag)).toEqual(["flow.plan"])
   system.props.onAction("flow.edit")
   expect(system.calls).toEqual([])
-  const member = mount(model, false, new Set(["flow.plan"]))
+  const member = mount(model, new Set(["flow.plan"]))
   expect(member.props.actions.map(action => action.tag)).toEqual(["flow.plan"])
   member.props.onAction("flow.run")
   expect(member.calls).toEqual([])
 })
+test("a built-in flow that is not a system flow keeps Edit (the install's TODO flow)", () => {
+  const builtin = mount({ name: "todo", source: { builtin: true }, system: false, versions: [] }, new Set(["flow.edit"]))
+  expect(builtin.props.actions.map(action => [action.tag, action.label])).toEqual([["flow.edit", "Edit"]])
+  builtin.props.onAction("flow.edit")
+  expect(builtin.calls).toEqual([{ tag: "flow.edit", input: { name: "todo" } }])
+})
+
 test("added steps compare to Active and missing projections do not render", () => {
-  const h = mount({ name: "todo", source: { builtin: true }, versions: [
+  const h = mount({ name: "todo", source: { builtin: true }, system: false, versions: [
     { id: "a", state: "active", steps: [{ id: "check", label: "Check", added: true }] },
     { id: "b", state: "proposed", steps: [{ id: "check", label: "Check" }, { id: "review", label: "Review" }] }
   ] })
@@ -80,9 +87,9 @@ test("added steps compare to Active and missing projections do not render", () =
 
 
 test("without Active there is no added-step comparison, and failed loads preserve their error", () => {
-  const h = mount({ name: "todo", source: { builtin: true }, versions: [
+  const h = mount({ name: "todo", source: { builtin: true }, system: false, versions: [
     { id: "bad", state: "merged-failed", error: "Cannot load review", steps: [{ id: "check", label: "Check" }] }
-  ] }, false, new Set())
+  ] }, new Set())
   expect(h.props.model.versions).toEqual([
     { id: "bad", state: "merged-failed", error: "Cannot load review", steps: [{ id: "check", label: "Check", added: false }] }
   ])
@@ -91,13 +98,13 @@ test("without Active there is no added-step comparison, and failed loads preserv
 })
 
 test("the card forwards each member's view and callback without sharing selection state", () => {
-  const model: FlowViewProps["model"] = { name: "todo", source: { builtin: true }, versions: [] }
+  const model: FlowViewProps["model"] = { name: "todo", source: { builtin: true }, system: false, versions: [] }
   const left = { maximized: false, tab: "active" }
   const right = { maximized: true, tab: "proposed" }
   const patches: unknown[] = []
   const onView = (patch: unknown) => { patches.push(patch) }
   let props!: FlowViewProps
-  const render = (view: FlowViewProps["view"]) => renderToStaticMarkup(<FlowCard model={model} system={false}
+  const render = (view: FlowViewProps["view"]) => renderToStaticMarkup(<FlowCard model={model}
     allowed={new Set()} dispatch={() => {}} view={view} onView={onView} View={value => { props = value; return null }} />)
   render(left)
   expect(props.view).toBe(left)

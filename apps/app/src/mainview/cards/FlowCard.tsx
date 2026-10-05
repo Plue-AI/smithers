@@ -2,7 +2,7 @@ import { ViewSkeleton } from "../ViewSkeleton"
 import { flowAction, flowProps } from "../flows/FlowAction"
 import { runSourceCommand } from "@smthrs/ui/run-command"
 import { Button, Markdown } from "@smthrs/ui"
-import { useId, useState, type KeyboardEvent } from "react"
+import { useId, useState, useSyncExternalStore, type KeyboardEvent } from "react"
 import type { Card } from "../state/AppState"
 import { rovingKeyDown } from "../RovingKeyDown"
 import type { CardFamily, CardOf, RunCommand } from "./CardFamily"
@@ -16,18 +16,19 @@ import { FlowView } from "./views/FlowView"
 import { useController } from "../ControllerContext"
 import { useDesignWorld } from "../state/seams/DesignWorld/hooks"
 import { flowCardOf } from "../state/seams/DesignWorld/run"
+import type { FlowsSnapshot, FlowsSnapshots } from "../state/seams/FlowsSeam"
 
 export interface FlowCardProps {
-  /** Versioned flows projection supplied by the topic adapter when T-FLW-03 lands. */
+  /** The flow's model: GET /api/flows on an install, the seeded flows elsewhere. */
   readonly model: FlowModel | null | undefined
-  readonly system: boolean
   readonly allowed: ReadonlySet<CatalogTag>
   readonly dispatch: CardCommandDispatch
   readonly View?: ComponentType<FlowViewProps>
   readonly view: FlowViewProps["view"]
   readonly onView: FlowViewProps["onView"]
 }
-export const FlowCard = ({ model: source, system, allowed, dispatch, View = FlowView, view, onView }: FlowCardProps) => {
+/** Only a system flow (spec §11.1.1) is read-only; a built-in flow like TODO keeps Edit. */
+export const FlowCard = ({ model: source, allowed, dispatch, View = FlowView, view, onView }: FlowCardProps) => {
   if (source === undefined || source === null) return null
   const activeVersion = source.versions.find(version => version.state === "active")
   const active = new Set(activeVersion?.steps.map(step => step.id))
@@ -35,7 +36,7 @@ export const FlowCard = ({ model: source, system, allowed, dispatch, View = Flow
     steps: version.steps.map(step => "wait" in step ? step : { ...step, added: activeVersion !== undefined && version.state !== "active" && !active.has(step.id) }) })) }
   const definitions: CardActionDefinition[] = []
   for (const [tag, label] of [["flow.source", "Source"], ["flow.plan", "Plan"], ["flow.run", "Run"], ["flow.edit", "Edit"]] as const) {
-    if (allowed.has(tag) && (!system || tag === "flow.plan")) definitions.push({ tag, label, command_input: { name: model.name } })
+    if (allowed.has(tag) && (!model.system || tag === "flow.plan")) definitions.push({ tag, label, command_input: { name: model.name } })
   }
   const bindings = cardActions(dispatch, definitions)
   return <View model={model} actions={bindings.actions} gestures={bindings.gestures} onAction={bindings.onAction} view={view} onView={onView} />
@@ -162,18 +163,24 @@ export const workflowCardFamily: CardFamily<"workflow-repo" | "workflow-list"> =
 
 /*
  * The `flow` kind (card-kinds.md L5, T-APP-05): the card names its flow; this
- * reads the model. MOCK: from the seeded design world (state/seams/DesignWorld/
- * run.ts) until topic `flows` lands. Source and Edit are the design seam's
- * presses; Plan and Run arrive with the cloud flow catalog.
+ * reads the model. On an install it is GET /api/flows (controller.flowCatalog),
+ * where Edit is the one press: Source, Plan and Run wait on their providers.
+ * MOCK SEAM elsewhere: the seeded design world (state/seams/DesignWorld/run.ts),
+ * whose Source and Edit are the design seam's presses.
  */
 const DESIGN_FLOW_ACTIONS: ReadonlySet<CatalogTag> = new Set<CatalogTag>(["flow.source", "flow.edit"])
+const INSTALL_FLOW_ACTIONS: ReadonlySet<CatalogTag> = new Set<CatalogTag>(["flow.edit"])
+const NO_FLOWS: FlowsSnapshot = {}
+const noCatalog: FlowsSnapshots = { subscribe: () => () => {}, get: () => NO_FLOWS }
 const FlowBody = ({ card, maximized }: { readonly card: CardOf<"flow">; readonly maximized: boolean }) => {
   const controller = useController()
   const world = useDesignWorld()
-  const model = flowCardOf(world, card.payload.name)
+  const catalog = controller.flowCatalog ?? noCatalog
+  const served = useSyncExternalStore(catalog.subscribe, catalog.get, catalog.get)
+  const model = controller.flowCatalog === undefined ? flowCardOf(world, card.payload.name) : served.flows?.find(flow => flow.name === card.payload.name)
   const dispatch: CardCommandDispatch = (tag, input) =>
     controller.commands.submit({ name: tag, payload: (input ?? {}) as Record<string, unknown>, actor: "user", originCardId: card.id })
-  return <FlowCard model={model} system={model !== undefined && "builtin" in model.source} allowed={DESIGN_FLOW_ACTIONS} dispatch={dispatch}
+  return <FlowCard model={model} allowed={controller.flowCatalog === undefined ? DESIGN_FLOW_ACTIONS : INSTALL_FLOW_ACTIONS} dispatch={dispatch}
     view={{ maximized }} onView={() => {}} />
 }
 export const flowCardFamily: CardFamily<"flow"> = {

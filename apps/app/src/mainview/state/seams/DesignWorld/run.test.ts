@@ -80,6 +80,7 @@ describe("DesignWorld run and flow seam", () => {
     const todo = flowCardOf(world, "todo")!
     expect(FlowCardSchema.parse(todo)).toEqual(todo)
     expect(todo.source).toEqual({ path: "flows/todo/flow.ts" })
+    expect(todo.system).toBe(false)
     expect(todo.versions.map(version => `${version.id}:${version.state}`)).toEqual(["v1:active", "v2:proposed"])
     expect(todo.versions[1]!.steps.map(step => step.id)).toContain("changelog")
     expect(todo.versions[0]!.steps.at(-1)).toMatchObject({ id: "merge", wait: true })
@@ -87,6 +88,7 @@ describe("DesignWorld run and flow seam", () => {
     const merge = flowCardOf(world, "merge")!
     expect(FlowCardSchema.parse(merge)).toEqual(merge)
     expect(merge.source).toEqual({ builtin: true })
+    expect(merge.system).toBe(true)
     expect(merge.versions[0]!.steps.some(step => "wait" in step)).toBe(false)
     expect(flowCardOf(world, "nope")).toBeUndefined()
     expect([flowTitle("todo"), flowTitle("merge"), flowTitle("release")]).toEqual(["TODO flow", "Merge flow", "release flow"])

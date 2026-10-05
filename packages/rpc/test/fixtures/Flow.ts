@@ -8,7 +8,12 @@ const steps: FlowCard["versions"][number]["steps"] = [
   { id: "check", label: "Check", agent: "reviewer" },
   { id: "merge", wait: true, signals: [{ on: "rebase", to: "check" }, { on: "steer", to: "implement" }] }
 ]
-const base: FlowCard = { name: "todo", source: { builtin: true }, versions: [{ id: "v3", state: "active", steps }] }
+const base: FlowCard = {
+  name: "todo",
+  source: { builtin: true },
+  system: false,
+  versions: [{ id: "v3", state: "active", steps }]
+}
 const buttons = (name: string): Action[] => [
   { tag: "flow.source", label: "Source", args: { name } },
   { tag: "flow.plan", label: "Plan", args: { name } },
@@ -22,6 +27,7 @@ export const fixtures = {
     {
       name: "checks",
       source: { path: "flows/checks/flow.ts" },
+      system: false,
       versions: [{ id: "v1", state: "active", steps: [{ id: "run", label: "Run checks" }] }]
     },
     { actions: buttons("checks"), expect: ["flows/checks/flow.ts", "Run checks"] }

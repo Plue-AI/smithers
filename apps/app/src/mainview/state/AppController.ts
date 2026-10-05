@@ -133,12 +133,14 @@ import type { StackSeam } from "./seams/StackSeam"
 import { createInstallSeam, type InstallSeam, type InstallTopic } from "./seams/InstallSeam"
 import { createGitHubSyncSeam, type GitHubSyncSeam } from "./seams/GitHubSyncSeam"
 import { createMembersSeam, type MembersSnapshots } from "./seams/MembersSeam"
+import { createFlowsSeam, type FlowsSnapshots } from "./seams/FlowsSeam"
 import { createTodoSeam, type TodoSeam, type TodoTopics } from "./seams/TodoSeam"
 import { createDesignWorld, type DesignWorld } from "./seams/DesignWorld"
 import { actCard, confirmSubject, designPlainTurn, designTurn, mergeCard, type DesignTurn } from "./seams/DesignWorld/chat"
 import { designMembers, designMembersRoster, designSettings, designViewerRole } from "./seams/DesignWorld/settings"
 import { shellViewsOf } from "./seams/DesignWorld/shell"
 import { DESIGN_CARD, newWikiPage, wikiCard } from "./seams/DesignWorld/subjects"
+import { flowCardOf, flowNames } from "./seams/DesignWorld/run"
 import { todoSourceProbe, withDesignTodos, type TodoRoute } from "./seams/DesignWorld/todo"
 import { createStackSeam } from "./seams/StackSeam"
 import type { TriggersSeam } from "./seams/TriggersSeam"
@@ -507,6 +509,10 @@ export interface AppController extends IssueFlowsController {
   readonly membersRole: () => "owner" | "maintainer" | "member"
   /** Reads the roster for the Members card (an install rereads GET /api/members). */
   readonly showMembers: () => void
+  /** The flow catalog the Flow card reads on an install (GET /api/flows); undefined elsewhere, where the seeded flows answer. */
+  readonly flowCatalog: FlowsSnapshots | undefined
+  /** The flows /flow, /flows and /flow.edit read: GET /api/flows on an install (undefined when it is not served); elsewhere the seeded flows (MOCK SEAM, DesignWorld/run.ts). */
+  readonly flowCards: () => Promise<ReadonlyArray<import("@smthrs/rpc/FlowCard").FlowCard> | undefined>
   /** members.add, members.role and members.remove: the install's routes, or the seeded roster off an install. A string is the refusal. */
   readonly changeMembers: (tag: "members.add" | "members.role" | "members.remove", input: { readonly login: string; readonly role?: "maintainer" | "member" }) => Promise<string | { readonly value: string }>
   /** GET /api/todos, read while Home is open on a host with no `home` topic (T-APP-01). */
@@ -868,6 +874,11 @@ export const createAppController = (
     return membersSeam.snapshots.get().model?.members.find(member => member.login.toLowerCase() === login)?.role ?? "member"
   }
   const showMembers = () => { if (installHost) { membersSeam.start(); void membersSeam.read() } }
+  /* Flows (T-APP-05): an install reads its catalog from GET /api/flows; the seeded flows stand in only off an install. */
+  const flowsSeam = createFlowsSeam({ http: (path, init) => seamCtx.http(`${baseUrl.replace(/\/$/, "")}${path}`, init), live: services.live })
+  ctx.onDispose(flowsSeam.dispose)
+  const flowCards: AppController["flowCards"] = async () => installHost ? flowsSeam.read()
+    : flowNames(design.world()).flatMap(name => flowCardOf(design.world(), name) ?? [])
   const changeMembers: AppController["changeMembers"] = async (tag, { login, role }) => {
     if (!installHost) {
       if (designViewerRole(design) === "member") return "A maintainer manages members"
@@ -1675,6 +1686,7 @@ export const createAppController = (
     saveInstallModelKey: installSeam.saveInstallModelKey,
     showMembers,
     changeMembers,
+    flowCards,
     promptStorageRecovery,
     exportStorageRecovery,
     resetStorageRecovery,
@@ -2147,6 +2159,7 @@ export const createAppController = (
     installSnapshots: installSeam.snapshots,
     membersRoster,
     membersRole,
+    flowCatalog: installHost ? flowsSeam.snapshots : undefined,
     todoList: todoSeam.list,
     githubSyncSnapshots: gitHubSyncSeam.snapshots,
     design,

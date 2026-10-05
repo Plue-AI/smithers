@@ -1,4 +1,10 @@
 import { expect, test } from "bun:test"
+import { createElement } from "react"
+import { renderToStaticMarkup } from "react-dom/server"
+import { flowCardFamily } from "../../cards/FlowCard"
+import type { CardActions } from "../../cards/CardFamily"
+import { ControllerContext } from "../../ControllerContext"
+import type { FlowCard } from "@smthrs/rpc/FlowCard"
 import type { AgentPort } from "../../runtime/AgentPort"
 import { createAppController } from "../../state/AppController"
 import { createAppStore } from "../../state/AppStore"
@@ -58,11 +64,68 @@ test("flows and flow open Flow cards; flow.source opens the flow's file; flow.ed
     expect(await h.controller.runCommandForResult("flow", "nope")).toMatchObject({ status: "failed", error: expect.stringContaining("No flow nope") })
     expect(await h.controller.runCommandForResult("flow.source", "todo")).toMatchObject({ status: "executed" })
     expect(cards(h).find(row => row.kind === "file")).toMatchObject({ id: "design:file:main:flows/todo/flow.ts" })
-    expect(await h.controller.runCommandForResult("flow.source", "merge")).toMatchObject({ status: "failed", error: expect.stringContaining("built in") })
-    expect(await h.controller.runCommandForResult("flow.edit", "merge Add a step")).toMatchObject({ status: "failed", error: expect.stringContaining("built in") })
+    expect(await h.controller.runCommandForResult("flow.source", "merge")).toMatchObject({ status: "failed", error: expect.stringContaining("Merge flow is built in") })
+    expect(await h.controller.runCommandForResult("flow.edit", "merge Add a step")).toMatchObject({ status: "failed", error: expect.stringContaining("Merge flow is built in") })
     expect(await h.controller.runCommandForResult("flow.edit", "todo Add review")).toMatchObject({ status: "executed" })
     const draft = cards(h).find(row => row.kind === "draft")
     expect(draft?.payload).toMatchObject({ prompt: flowEditPrompt("todo", "Add review"), title: "Change the TODO flow: Add review" })
     expect(flowEditPrompt("todo", "Add review")).toBe("Change flows/todo/flow.ts: Add review; start from the built-in composition when no override exists")
+  } finally { h.controller.dispose() }
+})
+
+/*
+ * On an install the flow doors and the Flow card read GET /api/flows: the
+ * built-in TODO flow is overridable (system false), so /flow.edit drafts its
+ * TODO and the card shows Edit; the seed is not consulted.
+ */
+const SERVED_TODO = { name: "todo", source: { builtin: true }, system: false, versions: [{ id: "d".repeat(64), state: "active", steps: [
+  { id: "plan", label: "Plan" }, { id: "implement", label: "Implement" }, { id: "verify", label: "Verify" },
+  { id: "review", label: "Review" }, { id: "propose", label: "Propose" },
+  { id: "merge", wait: true, signals: [{ on: "rebase", to: "Verify" }, { on: "steer", to: "Implement" }] }] }] } satisfies FlowCard
+const bootInstall = async (flows: () => Response) => {
+  const store = await createAppStore({ kind: "localStorage", storage: memoryStorage() })
+  const reads: string[] = []
+  const controller = createAppController(store, unavailable, {
+    bootstrap: { apiVersion: 1, host: "local", version: "test", buildSha: "test", capabilities: ["install"], authFlow: "none", sandbox: null },
+    fetchImpl: async (input) => {
+      const path = new URL(typeof input === "string" ? input : input instanceof URL ? input.toString() : input.url, "https://install.test").pathname
+      reads.push(path)
+      if (path === "/api/flows") return flows()
+      if (path === "/api/todos") return Response.json([])
+      return Response.json({ code: "unknown", class: "infra", message: "Not available" }, { status: 404 })
+    }
+  })
+  await store.dispatch({ type: "identity.session.loaded", actor: "system", state: "signed-in", login: "ben", admin: false, scopesPlain: null }).isPersisted.promise
+  return { store, controller, reads }
+}
+
+test("on an install, flow doors read GET /api/flows: the built-in TODO flow is edited, never refused", async () => {
+  const h = await bootInstall(() => Response.json([SERVED_TODO]))
+  try {
+    expect(await h.controller.runCommandForResult("flow", "todo")).toMatchObject({ status: "executed", value: "Opened TODO flow" })
+    expect(h.reads.filter(path => path === "/api/flows").length).toBeGreaterThan(0)
+    expect(h.controller.flowCatalog?.get().flows).toEqual([SERVED_TODO])
+    // The card renders the served model: built in, its five steps and the wait, and Edit as its one press.
+    const card = cards(h).find(row => row.kind === "flow")!
+    const html = renderToStaticMarkup(createElement(ControllerContext.Provider, { value: h.controller },
+      flowCardFamily.flow.render(card as Parameters<typeof flowCardFamily.flow.render>[0], { presentation: "embedded" } as CardActions)))
+    expect(html).toContain("Built-in")
+    for (const label of ["Plan", "Implement", "Verify", "Review", "Propose", "Wait for merge"]) expect(html).toContain(label)
+    expect([...html.matchAll(/data-flow="([^"]+)"/g)].map(match => match[1])).toEqual(["flow.edit"])
+    expect(await h.controller.runCommandForResult("flows")).toMatchObject({ status: "executed", value: "1 flows" })
+    expect(await h.controller.runCommandForResult("flow", "merge")).toMatchObject({ status: "failed", error: expect.stringContaining("No flow merge") })
+    expect(await h.controller.runCommandForResult("flow.edit", "todo Add review")).toMatchObject({ status: "executed" })
+    expect(cards(h).find(row => row.kind === "draft")?.payload).toMatchObject({ prompt: flowEditPrompt("todo", "Add review"), title: "Change the TODO flow: Add review" })
+  } finally { h.controller.dispose() }
+})
+
+test("on an install, a catalog the install does not serve refuses the flow doors instead of reading the seed", async () => {
+  const h = await bootInstall(() => Response.json({ code: "unknown", class: "infra", message: "Not available" }, { status: 404 }))
+  try {
+    for (const [name, args] of [["flow", "todo"], ["flow.edit", "todo Add review"], ["flows", undefined]] as const) {
+      expect(await h.controller.runCommandForResult(name, args)).toMatchObject({ status: "failed", error: expect.stringContaining("Flows unavailable") })
+    }
+    expect(cards(h).filter(row => row.kind === "flow" || row.kind === "draft")).toEqual([])
+    expect(h.controller.flowCatalog?.get()).toEqual({ error: "Flows unavailable" })
   } finally { h.controller.dispose() }
 })

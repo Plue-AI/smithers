@@ -161,6 +161,7 @@ export const flowCardOf = (world: DesignWorldRows, name: string): FlowCard | und
   return {
     name,
     source: system ? { builtin: true } : { path: `flows/${name}/flow.ts` },
+    system,
     versions: versions.map(version => {
       const todo = version.todo === undefined ? undefined : refNumber(todoOf(world, version.todo)?.ref)
       return {

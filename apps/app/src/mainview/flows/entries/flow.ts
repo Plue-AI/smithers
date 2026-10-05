@@ -11,7 +11,8 @@ import { line, text } from "@smthrs/ui/flow-form"
 import type { RepositoryFlow } from "../../state/AppState"
 import type { CommandActions } from "./Declare"
 import { todoOf } from "../../state/seams/DesignWorld"
-import { flowCardOf, flowNames, flowTitle } from "../../state/seams/DesignWorld/run"
+import { flowTitle } from "../../state/seams/DesignWorld/run"
+import { flowsUnavailable } from "../../state/seams/FlowsSeam"
 import { fileCard, findFile } from "../../state/seams/DesignWorld/subjects"
 
 /** The `flow` namespace row: the slash tree lists it in registry.ts NAMESPACES order. */
@@ -30,44 +31,54 @@ export const flowEditPrompt = (name: string, request: string): string =>
  * The versioned flow doors (T-APP-05, J5): the Flow card, a proposed edit as
  * a Draft through the TODO lane's newTodo (the `todo.new` handler), the source
  * on the branch of the TODO that proposes a change (spec §11.5b), and the list.
- * MOCK: they read the seeded design world (state/seams/DesignWorld/run.ts)
- * until topic `flows` and /api/flows land; the handlers then read those.
+ * They read the install's GET /api/flows (actions.flowCards); off an install
+ * the seeded design world answers (MOCK SEAM, state/seams/DesignWorld/run.ts).
+ * Only a system flow refuses an edit: the built-in TODO flow is overridable.
  */
 export const flowVersionFlows = (actions: CommandActions): ReadonlyArray<FlowEntry> => {
-  const named = (name: string) => flowCardOf(actions.design.world(), name)
+  /** The named flow's card, or the refusal: an unserved catalog, or no such flow. */
+  const named = async (name: string) => {
+    const cards = await actions.flowCards()
+    return cards === undefined ? flowsUnavailable : cards.find(card => card.name === name) ?? `No flow ${name}`
+  }
   return [
     flow({ name: "flow", summary: "Show a flow's steps and versions", args: "<name>",
       input: Schema.Struct({ name: Schema.NonEmptyString }), grammar: flowNameGrammar,
-      handler: async ({ name }) => named(name) === undefined ? `No flow ${name}` : { value: await actions.presentFlow(name, flowTitle(name)) } }),
+      handler: async ({ name }) => {
+        const model = await named(name)
+        return typeof model === "string" ? model : { value: await actions.presentFlow(name, flowTitle(name)) }
+      } }),
     flow({ name: "flow.edit", summary: "Propose a change to a flow", args: "<name> <request>",
       input: Schema.Struct({ name: Schema.NonEmptyString, request: Schema.NonEmptyString }),
       grammar: flowNameGrammar, confirm: "change this flow",
       form: { fields: { name: { label: "Flow" }, request: { label: "Request" } },
         args: payload => line(text(payload, "name"), text(payload, "request")) },
-      handler: ({ name, request }) => {
-        const model = named(name)
-        if (model === undefined) return `No flow ${name}`
-        if ("builtin" in model.source) return `${flowTitle(name)} is built in`
+      handler: async ({ name, request }) => {
+        const model = await named(name)
+        if (typeof model === "string") return model
+        if (model.system) return `${flowTitle(name)} is built in`
         return actions.newTodo({ text: flowEditPrompt(name, request), title: `Change the ${flowTitle(name)}: ${request}` })
       } }),
     flow({ name: "flow.source", summary: "Co-edit a flow's source", args: "<name>",
       input: Schema.Struct({ name: Schema.NonEmptyString }), grammar: flowNameGrammar,
       handler: async ({ name }) => {
         const world = actions.design.world()
-        const model = named(name)
-        if (model === undefined) return `No flow ${name}`
-        if ("builtin" in model.source) return `${flowTitle(name)} is built in`
+        const model = await named(name)
+        if (typeof model === "string") return model
+        if (model.system) return `${flowTitle(name)} is built in`
+        const path = "path" in model.source ? model.source.path : `flows/${name}/flow.ts`
         const proposing = world.flowVersions.find(each => each.flow === name && each.state === "proposed" && each.todo !== undefined)
         const branch = proposing?.todo === undefined ? undefined : todoOf(world, proposing.todo)?.branch
-        const file = findFile(world, model.source.path, branch) ?? findFile(world, model.source.path, "main")
+        const file = findFile(world, path, branch) ?? findFile(world, path, "main")
         if (file === undefined) return `No source for ${flowTitle(name)}`
         return { value: await actions.presentSubject(fileCard(world.repo.repo, file.branch, file.path)) }
       } }),
     flow({ name: "flows", summary: "List the repository's flows", input: Schema.Struct({}),
       handler: async () => {
-        const names = flowNames(actions.design.world())
-        for (const name of names) await actions.presentFlow(name, flowTitle(name))
-        return { value: `${names.length} flows` }
+        const cards = await actions.flowCards()
+        if (cards === undefined) return flowsUnavailable
+        for (const card of cards) await actions.presentFlow(card.name, flowTitle(card.name))
+        return { value: `${cards.length} flows` }
       } })
   ]
 }

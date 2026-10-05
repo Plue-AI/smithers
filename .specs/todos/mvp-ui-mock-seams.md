@@ -71,8 +71,8 @@ timer scheduler advances TODOs in place of the factory. Rows are mock-shaped
 | Issue/File/Diff/Wiki/Review/PR bodies | cards/SubjectCards.tsx `DesignSubjectBody` behind `design:` intercept | each kind's real card family | T-APP-11, T-COL-09, T-GH-03, T-MNT-02 |
 | Run model (monitor, traces) | DesignWorld/run.ts `monitorOf`, `traceNamed`, `activeTraces`; cards/RunContainer.tsx | topic `run:<id>`, `/api/runs/<id>` | T-FLW-07 |
 | `run`, `run.inspect`, `runs` | flows/entries/runs.ts | same topics; `presentRun` stays | T-FLW-07 |
-| Flow model and versions | DesignWorld/run.ts `flowCardOf`, `flowNames`; cards/FlowCard.tsx | topic `flows`, `/api/flows` | T-APP-05, T-FLW-03 |
-| `flow`, `flow.source`, `flows` | flows/entries/flow.ts | `/api/flows` | T-APP-05 |
+| Flow model and versions | DesignWorld/run.ts `flowCardOf`, `flowNames`; cards/FlowCard.tsx | createFlowsSeam, `/api/flows` (served on installs), topic `flows` | T-APP-05, T-FLW-03 |
+| `flow`, `flow.source`, `flows` | flows/entries/flow.ts (`actions.flowCards`; `flow.source` still finds the file in the seed) | `/api/flows`; Source on the proposing TODO's branch | T-APP-05 |
 | `flow.edit` (via `newTodo`) | flows/entries/flow.ts | templated TODO request | T-FLW-05 |
 | Agents rows | DesignWorld/index.ts `agents` | topic `agents` | T-FLW-08 |
 | Proposals | DesignWorld/index.ts `proposals` | learning runs | T-FLW-06 |

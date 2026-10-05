@@ -57,6 +57,8 @@ export type CommandActions =
     // The roster and the person's role are what the Members card reads, never an act.
     | "membersRoster"
     | "membersRole"
+    // The flow catalog is what the Flow card reads, never an act.
+    | "flowCatalog"
     | "stackSnapshots"
     // The TODO list Home reads where no `home` topic is served, never an act.
     | "todoList"

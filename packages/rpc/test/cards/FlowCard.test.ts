@@ -42,6 +42,20 @@ describe("Flow versions", () => {
   })
 })
 
+describe("Flow system flag", () => {
+  test("a built-in flow is not a system flow by its source", () => {
+    const base = FlowCardSchema.parse(fixtures.active.model)
+    expect(base.source).toEqual({ builtin: true })
+    expect(base.system).toBe(false)
+    expect(FlowCardSchema.parse({ ...base, name: "merge", system: true }).system).toBe(true)
+  })
+  test("the flag is required and boolean", () => {
+    const { system: _system, ...base } = FlowCardSchema.parse(fixtures.active.model)
+    expect(FlowCardSchema.safeParse(base).success).toBe(false)
+    expect(FlowCardSchema.safeParse({ ...base, system: "false" }).success).toBe(false)
+  })
+})
+
 describe("Flow merge wait", () => {
   test("reserves merge for the wait with rebase and steer signals", () => {
     const base = FlowCardSchema.parse(fixtures.active.model)

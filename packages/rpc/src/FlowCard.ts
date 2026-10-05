@@ -8,13 +8,15 @@ import type { CardCallbacks, CardProps } from "./CardAction.ts"
 
 /**
  * Flow projection fields from spec §14.3 and ui-components.md T-UI-10. The TODO flow's trailing merge wait carries
- * its signals: rebase → check, steer → implement (spec §10.4.1).
+ * its signals: rebase → check, steer → implement (spec §10.4.1). `system` is separate from `source`: the install's
+ * built-in TODO flow is overridable, and only a system flow (spec §11.1.1) refuses Edit and Source.
  * @since 1.0.0
  * @category schemas
  */
 export const FlowCardSchema = z.object({
   name: z.string(),
   source: z.union([z.object({ builtin: z.literal(true) }), z.object({ path: z.string() })]),
+  system: z.boolean(),
   versions: z.array(z.object({
     id: z.string(),
     state: z.enum(["active", "proposed", "merged-syncing", "merged-failed", "previous"]),
