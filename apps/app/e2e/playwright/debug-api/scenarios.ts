@@ -85,8 +85,22 @@ export function debugApiScenarios(prefix: string) {
         rmSync(output, { recursive: true, force: true })
       }
     })
-    pending("Ben signs out in another tab; Send renders literal 401 permission/unauthenticated without a crash",
-      "Spec §5.2.1a (45da2e24a8): a dead presented credential gets 401 unauthenticated before any repo lookup; awaits smithers-3f's router fix (removed members still get 404 on repo routes). Session seeding exists (bf2d18590).")
+    test("Ben signs out in another tab; Send renders literal 401 permission/unauthenticated without a crash", async () => {
+      test.setTimeout(900_000)
+      const output = mkdtempSync(resolve(tmpdir(), "c-ui-10-signout-"))
+      try {
+        const result = await promisify(execFile)("bun", ["e2e/playwright/debug-api/local-own-read.ts", output, "signout"], {
+          env: { ...process.env, TMPDIR: output }, timeout: 840_000, maxBuffer: 8 * 1024 * 1024
+        })
+        expect(result.stdout).toContain("C-UI-10 REAL SIGNOUT PASS")
+      } finally {
+        for (const name of ["local-own.execution.json", "signout.role-receipt.json"]) {
+          const path = resolve(output, name)
+          if (existsSync(path)) await test.info().attach(name, { path, contentType: "application/json" })
+        }
+        rmSync(output, { recursive: true, force: true })
+      }
+    })
     pending("eligible delegated app-agent and smthrs dispatch refuse debug.api as never with zero effects; scope/role refusals retain precedence",
       "No catalog-backed debug.api app-agent/CLI dispatcher or delegated install fixture.")
     pending("displayed operations and form fields equal committed install fixture; Plue-only and undocumented operations absent",

@@ -44,7 +44,8 @@ try {
     UPDATE install_settings SET value=(SELECT value FROM install_settings WHERE key='github.repository')||jsonb_build_object('last_access_check_at',to_char(now() AT TIME ZONE 'UTC','YYYY-MM-DD"T"HH24:MI:SS"Z"')) WHERE key='owner.access';
     INSERT INTO users(username,lower_username,display_name) VALUES ('ben','ben','Ben'),('mia','mia','Mia');
     INSERT INTO collaborators(repository_id,user_id,permission,github_login) SELECT ${repo.id},id,CASE username WHEN 'ben' THEN 'write' ELSE 'admin' END,username FROM users WHERE username IN ('ben','mia');`)
-  const cookie = "c-ui-10-ben-session"
+  // Real logout accepts UUID credentials, as minted by the auth service.
+  const cookie = selectedCase === "signout" ? "a3559000-0000-4000-8000-000000000010" : "c-ui-10-ben-session"
   const hash = createHash("sha256").update(cookie).digest("hex")
   sql(`INSERT INTO auth_sessions(session_key,user_id,username,expires_at) SELECT '${hash}',id,username,now()+interval '1 hour' FROM users WHERE username='ben'`)
   // A fresh, explicitly asserted empty repository is the literal read fixture.
@@ -57,9 +58,10 @@ try {
   const csrf = createHash("sha256").update("c-ui-10-csrf").digest("hex")
   const origin = session.modeConfig.origin
   let requests = 0
+  const sentCookies: string[] = []
   const seam = createDebugApiSeam({ origin, document: async () => parse(readFileSync(resolve("../../docs/api/openapi.yaml"), "utf8")) as OpenApiDocument,
     gates: () => ({ view: true, catalog: true, authorizer: true }),
-    fetch: (url, init) => { requests++; const headers = new Headers(init.headers); headers.set("cookie", `smithers_session=${activeCookie}; __csrf=${csrf}`); headers.set("X-CSRF-Token", csrf); return fetch(url, { ...init, headers }) } })
+    fetch: (url, init) => { requests++; const headers = new Headers(init.headers); headers.set("cookie", `${activeCookie ? `smithers_session=${activeCookie}; ` : ""}__csrf=${csrf}`); headers.set("X-CSRF-Token", csrf); sentCookies.push(headers.get("cookie")!); return fetch(url, { ...init, headers }) } })
   try {
     if (selectedCase === "read") {
       await seam.open(fixtures.read.operationId)
@@ -73,6 +75,37 @@ try {
       const curl = command(["curl", "--silent", "--show-error", "--fail", "--cookie", `smithers_session=${cookie}`, `${origin}/api/todos`])
       assert.deepEqual(JSON.parse(curl), fixtures.read.body)
       console.log("C-UI-10 REAL READ PASS: Member GET /api/todos; literal []; independent curl session comparison")
+    } else if (selectedCase === "signout") {
+      await seam.open(fixtures.signout.operationId)
+      assert.equal(requests, 0, "Opening and selecting sends nothing")
+      const logout = await fetch(`${origin}/api/auth/logout`, { method: "POST", headers: {
+        cookie: `smithers_session=${cookie}; __csrf=${csrf}`, "X-CSRF-Token": csrf
+      } })
+      assert.equal(logout.status, 204)
+      assert.ok(logout.headers.get("set-cookie")?.includes("smithers_session="))
+      assert.equal(sql(`SELECT count(*) FROM auth_sessions WHERE session_key='${hash}'`), "0")
+      await seam.send({ intent: "send", operationId: fixtures.signout.operationId })
+      const exchange = structuredClone(seam.get().model.exchange!)
+      assert.equal(requests, 1)
+      assert.equal(exchange.response?.status, fixtures.signout.status)
+      assert.deepEqual(JSON.parse(exchange.response!.body), fixtures.signout.body)
+      assert.deepEqual(exchange.failure, { class: "permission", message: fixtures.signout.body.message, status: 401 })
+      assert.equal(seam.get().busy, false, "Typed failure settles Send without a crash")
+      // Apply the cleared browser credential and the existing account lifecycle.
+      activeCookie = ""
+      seam.endAccount()
+      assert.equal(seam.get().model.exchange, undefined)
+      // The same seam's transport reads activeCookie on every request.
+      await seam.open(fixtures.signout.operationId)
+      await seam.send({ intent: "send", operationId: fixtures.signout.operationId })
+      assert.equal(requests, 2)
+      assert.equal(sentCookies[1], `__csrf=${csrf}`)
+      assert.ok(!sentCookies[1]!.includes(cookie))
+      assert.equal(seam.get().model.exchange?.response?.status, 401)
+      writeFileSync(join(outputDir, "signout.role-receipt.json"), `${JSON.stringify({ revision,
+        layer: "real backend and PostgreSQL through DebugApiSeam", logoutStatus: logout.status,
+        remainingSessionRows: 0, exchange, laterRequestUsesDeadSession: false }, null, 2)}\n`)
+      console.log("C-UI-10 REAL SIGNOUT PASS: logout revokes Ben; 401 permission/unauthenticated; later Send has no dead session")
     } else {
       assert.equal(selectedCase, "write")
       const count = () => sql(`SELECT count(*) FROM repository_secrets WHERE repository_id=${repo.id}`)
