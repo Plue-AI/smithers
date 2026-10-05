@@ -52,13 +52,19 @@ func (s *InstallSetupService) BindRepositoryProviders(access *GitHubUserReposSer
 			return err
 		}
 		var repository struct {
-			Squash *bool `json:"allow_squash_merge"`
+			Squash        *bool  `json:"allow_squash_merge"`
+			DefaultBranch string `json:"default_branch"`
 		}
-		if json.Unmarshal(metadata.Body, &repository) != nil || repository.Squash == nil {
-			return pkgerrors.New(pkgerrors.CodeGitHubUnavailable, "GitHub squash setting unavailable")
+		if json.Unmarshal(metadata.Body, &repository) != nil || repository.Squash == nil || repository.DefaultBranch == "" {
+			return pkgerrors.New(pkgerrors.CodeGitHubUnavailable, "GitHub repository settings unavailable")
 		}
 		if !*repository.Squash {
 			return &InstallReadinessError{Code: "squash_disabled", Class: "github", Message: "Enable squash merging on GitHub ↗", Fix: "https://github.com/" + input.Repository + "/settings"}
+		}
+		// The install's import, readiness and machine layer builder key on
+		// main (spec §16.2); another default name is a later ticket.
+		if repository.DefaultBranch != "main" {
+			return &InstallReadinessError{Code: "default_branch_not_main", Class: "github", Message: "Rename the default branch to main on GitHub ↗", Fix: "https://github.com/" + input.Repository + "/settings"}
 		}
 		if err = app.SetInstallation(ctx, diagnosis.InstallationID); err != nil {
 			return err

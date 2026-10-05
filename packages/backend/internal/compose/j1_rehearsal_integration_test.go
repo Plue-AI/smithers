@@ -31,13 +31,12 @@ import (
 	"github.com/google/uuid"
 	"github.com/smithersai/smithers/packages/backend/internal/chat"
 	"github.com/smithersai/smithers/packages/backend/internal/githubfake"
-	"github.com/smithersai/smithers/packages/backend/internal/repohost"
-	"github.com/smithersai/smithers/packages/backend/internal/repohostserver"
 	"github.com/smithersai/smithers/packages/backend/internal/services"
 	"github.com/smithersai/smithers/packages/backend/internal/webhook"
 	"github.com/smithersai/smithers/packages/backend/microsandbox"
 	"github.com/smithersai/smithers/packages/backend/modelhost"
 	"github.com/smithersai/smithers/packages/backend/process"
+	"github.com/smithersai/smithers/packages/backend/repository"
 	"github.com/smithersai/smithers/packages/backend/sandbox/sandboxfake"
 	"github.com/smithersai/smithers/packages/backend/testkit/postgresfixture"
 	workspaceapi "github.com/smithersai/smithers/packages/backend/workspace"
@@ -83,7 +82,8 @@ func TestJ1Rehearsal(t *testing.T) {
 	git("clone", "--bare", seed, filepath.Join(gitRoot, "rehearsal-owner/app.git"))
 	key, err := rsa.GenerateKey(rand.Reader, 2048)
 	require.NoError(t, err)
-	fake, err := githubfake.New(githubfake.Config{OAuthCode: "owner-code", GitRoot: gitRoot, AppID: 42, Slug: "j1-rehearsal", OwnerLogin: "rehearsal-owner", OwnerKind: "user", ClientID: "client", ClientSecret: "secret", WebhookSecret: "webhook", PrivateKeyPEM: string(pem.EncodeToMemory(&pem.Block{Type: "RSA PRIVATE KEY", Bytes: x509.MarshalPKCS1PrivateKey(key)})), ConversionCode: "manifest-code", Installations: []githubfake.Installation{{ID: 91, Repositories: []githubfake.Repository{{ID: 100, FullName: "rehearsal-owner/app", Private: true}}}}})
+	// trunk-app's default branch is not main: the repository step refuses it.
+	fake, err := githubfake.New(githubfake.Config{OAuthCode: "owner-code", GitRoot: gitRoot, AppID: 42, Slug: "j1-rehearsal", OwnerLogin: "rehearsal-owner", OwnerKind: "user", ClientID: "client", ClientSecret: "secret", WebhookSecret: "webhook", PrivateKeyPEM: string(pem.EncodeToMemory(&pem.Block{Type: "RSA PRIVATE KEY", Bytes: x509.MarshalPKCS1PrivateKey(key)})), ConversionCode: "manifest-code", Installations: []githubfake.Installation{{ID: 91, Repositories: []githubfake.Repository{{ID: 100, FullName: "rehearsal-owner/app", Private: true}, {ID: 101, FullName: "rehearsal-owner/trunk-app", Private: true, DefaultBranch: "trunk"}}}}})
 	require.NoError(t, err)
 	t.Cleanup(fake.Close)
 	server := httptest.NewUnstartedServer(nil)
@@ -96,12 +96,14 @@ func TestJ1Rehearsal(t *testing.T) {
 			library = filepath.Join(root, "target/release/libsmithers_ffi.so")
 		}
 	}
-	// The install's engine reserves main for the GitHub sync: Source ready
-	// must import main through it (localbootstrap.Prepare sets the same).
-	repository, err := repohostserver.New(repohostserver.Config{StoragePath: t.TempDir(), AuthToken: "rehearsal-repo", FFILibraryPath: library, InstallMainMirror: true})
+	// The install's engine, composed as localbootstrap.Prepare composes it:
+	// it reserves main for the GitHub sync, and every door reads that fact
+	// from its in-process client. Source ready must import main through it.
+	engine, err := repository.OpenLocal(repository.Config{StoragePath: t.TempDir(), AuthToken: "rehearsal-repo", FFILibraryPath: library, InstallMainMirror: true})
 	require.NoError(t, err, "build the repository's smithers-ffi library first")
-	t.Cleanup(func() { require.NoError(t, repository.Shutdown(context.Background())) })
-	repositoryServer := httptest.NewServer(repository.Handler())
+	t.Cleanup(func() { require.NoError(t, engine.Shutdown(context.Background())) })
+	require.True(t, engine.Client().InstallMainMirror(), "the install engine's client must carry the install fact")
+	repositoryServer := httptest.NewServer(engine.Handler())
 	t.Cleanup(repositoryServer.Close)
 	for name, value := range map[string]string{
 		"SMITHERS_REPO_HOST_URL": repositoryServer.URL, "SMITHERS_AUTH_MODE": "selfhost", "SMITHERS_DATABASE_URL": databaseURL,
@@ -145,7 +147,7 @@ func TestJ1Rehearsal(t *testing.T) {
 	logs := &lockedBuffer{}
 	stdout := &lockedBuffer{}
 	go func() {
-		done <- StartWithOptions(ctx, nil, stdout, logs, Options{Repository: repohost.NewClient(&repohost.StaticStorageSetResolver{URL: repositoryServer.URL}, "rehearsal-repo"), Workspace: workspace, MachineImages: trustedProcessImages{sources: repositorySourceFiles{client: repohost.NewClient(&repohost.StaticStorageSetResolver{URL: repositoryServer.URL}, "rehearsal-repo")}}, ComputeProvider: compute, ChatHost: host, FlowHostProductAPIURL: origin}, func(h http.Handler) { ready <- h })
+		done <- StartWithOptions(ctx, nil, stdout, logs, Options{Repository: engine.Client(), Workspace: workspace, MachineImages: trustedProcessImages{sources: repositorySourceFiles{client: engine.Client()}}, ComputeProvider: compute, ChatHost: host, FlowHostProductAPIURL: origin}, func(h http.Handler) { ready <- h })
 	}()
 	select {
 	case h := <-ready:
@@ -379,7 +381,22 @@ func TestJ1Rehearsal(t *testing.T) {
 	}) {
 		return
 	}
-	if !step("4 Repository", "POST /api/install/setup/repository → GET /api/install", "202 → repository done; owner verified; squash enabled", "T-INS-06, T-ACC-01", func() error {
+	if !step("4 Repository", "POST /api/install/setup/repository → GET /api/install", "202 → repository done; owner verified; squash enabled; a default other than main blocked", "T-INS-06, T-ACC-01", func() error {
+		// A repository whose GitHub default branch is not main is blocked
+		// with its fix before anything is imported (spec §16.2).
+		if _, err := expect("POST", "/api/install/setup/repository?attempt=trunk", `{"repository":"rehearsal-owner/trunk-app"}`, 202); err != nil {
+			return err
+		}
+		if err := waitStep("repository"); err == nil || !strings.Contains(err.Error(), "blocked") {
+			return fmt.Errorf("a trunk default was not blocked: %v", err)
+		}
+		data, err := expect("GET", "/api/install", "", 200)
+		if err != nil {
+			return err
+		}
+		if !strings.Contains(string(data), "Rename the default branch to main on GitHub") || !strings.Contains(string(data), "https://github.com/rehearsal-owner/trunk-app/settings") {
+			return fmt.Errorf("blocked step names no fix: %s", data)
+		}
 		if _, err := expect("POST", "/api/install/setup/repository", `{"repository":"rehearsal-owner/app"}`, 202); err != nil {
 			return err
 		}
@@ -409,13 +426,61 @@ func TestJ1Rehearsal(t *testing.T) {
 	}) {
 		return
 	}
+	// refuseMainAtDoors checks that the composed doors read the engine's
+	// install fact: the owner's bookmark write and Git push of main are
+	// refused, so only the GitHub sync moves the mirror's main.
+	refuseMainAtDoors := func() error {
+		data, err := expect("POST", "/api/repos/rehearsal-owner/app/bookmarks", `{"name":"main","target_change_id":"main"}`, 403)
+		if err != nil {
+			return err
+		}
+		if !strings.Contains(string(data), `"permission"`) {
+			return fmt.Errorf("bookmark door answered no permission refusal: %s", data)
+		}
+		data, err = expect("POST", "/api/user/tokens", `{"name":"j1-main-door","scopes":["write:repository"]}`, 201)
+		if err != nil {
+			return err
+		}
+		var created struct {
+			Token string `json:"token"`
+		}
+		if err = json.Unmarshal(data, &created); err != nil || created.Token == "" {
+			return fmt.Errorf("token create answered no token: %v", err)
+		}
+		work := filepath.Join(t.TempDir(), "door")
+		run := func(args ...string) (string, error) {
+			cmd := exec.Command("/usr/bin/git", append([]string{"-c", "http.extraHeader=Authorization: Bearer " + created.Token, "-c", "user.name=Owner", "-c", "user.email=owner@example.test"}, args...)...)
+			cmd.Env = append(os.Environ(), "GIT_TERMINAL_PROMPT=0")
+			out, err := cmd.CombinedOutput()
+			return string(out), err
+		}
+		if out, err := run("clone", "-q", origin+"/rehearsal-owner/app.git", work); err != nil {
+			return fmt.Errorf("clone through the Git door: %v: %s", err, out)
+		}
+		if err = os.WriteFile(filepath.Join(work, "door.txt"), []byte("owner push\n"), 0600); err != nil {
+			return err
+		}
+		if out, err := run("-C", work, "add", "door.txt"); err != nil {
+			return fmt.Errorf("%v: %s", err, out)
+		}
+		if out, err := run("-C", work, "commit", "-q", "-m", "owner push"); err != nil {
+			return fmt.Errorf("%v: %s", err, out)
+		}
+		if out, err := run("-C", work, "push", "-q", "origin", "HEAD:refs/heads/main"); err == nil || !strings.Contains(out, "403") {
+			return fmt.Errorf("the Git door let the owner push main: %v: %s", err, out)
+		}
+		return nil
+	}
 	if !step("6 source ready", "POST /api/install/setup/source → GET /api/install", "202 → source done (separate readiness)", "T-INS-06, T-MCH-10", func() error {
 		if _, err := expect("POST", "/api/install/setup/source", `{}`, 202); err != nil {
 			return err
 		}
 		err := waitStep("source")
 		sourceReady = err == nil
-		return err
+		if err != nil {
+			return err
+		}
+		return refuseMainAtDoors()
 	}) {
 		return
 	}

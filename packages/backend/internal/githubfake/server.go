@@ -32,6 +32,8 @@ type Repository struct {
 	ID       int64  `json:"id"`
 	FullName string `json:"full_name"`
 	Private  bool   `json:"private"`
+	// DefaultBranch is GitHub's default branch; empty is main.
+	DefaultBranch string `json:"default_branch,omitempty"`
 	// Issues are the repository's open issue numbers. Pull requests number
 	// after them: GitHub numbers both in one sequence.
 	Issues []int64 `json:"-"`
@@ -1214,7 +1216,11 @@ func (s *Server) pullMutation(installationID int64, body []byte) (int, any) {
 // Repository metadata is shared by OAuth selection and installation verification.
 func (s *Server) repository(repo Repository) map[string]any {
 	owner, name, _ := strings.Cut(repo.FullName, "/")
-	return map[string]any{"id": repo.ID, "name": name, "full_name": repo.FullName, "private": repo.Private, "default_branch": "main", "allow_squash_merge": true, "owner": map[string]string{"login": owner}, "permissions": map[string]bool{"admin": true, "push": true, "pull": true}, "clone_url": s.URL + "/" + repo.FullName + ".git", "html_url": "https://github.com/" + repo.FullName}
+	defaultBranch := repo.DefaultBranch
+	if defaultBranch == "" {
+		defaultBranch = "main"
+	}
+	return map[string]any{"id": repo.ID, "name": name, "full_name": repo.FullName, "private": repo.Private, "default_branch": defaultBranch, "allow_squash_merge": true, "owner": map[string]string{"login": owner}, "permissions": map[string]bool{"admin": true, "push": true, "pull": true}, "clone_url": s.URL + "/" + repo.FullName + ".git", "html_url": "https://github.com/" + repo.FullName}
 }
 
 // serveGit uses OS Git's real smart HTTP transport; the JSON fake cannot

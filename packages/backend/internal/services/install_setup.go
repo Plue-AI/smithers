@@ -381,7 +381,8 @@ func (s *InstallSetupService) Handle(ctx context.Context, lease *jobs.Lease) err
 	step.Status = state
 	step.Attempt = claim.Attempt
 	step.Error = failure
-	if failure != nil && failure.Code == "squash_disabled" {
+	// GitHub settings the owner fixes on GitHub block the step with the fix.
+	if failure != nil && (failure.Code == "squash_disabled" || failure.Code == "default_branch_not_main") {
 		step.Status = "blocked"
 		step.Blocked = &InstallSetupBlock{Line: failure.Message, FixURL: failure.Fix}
 		step.Error = nil
