@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"testing"
+	"time"
 
 	"github.com/smithersai/smithers/packages/backend/flowruntime"
 	"github.com/stretchr/testify/require"
@@ -67,4 +68,59 @@ func TestReadRPCRefusesResolverWithoutReadContract(t *testing.T) {
 	_, err := service.CallRPC(context.Background(), flowruntime.Target{}, "List", nil)
 	require.ErrorContains(t, err, "read-only resolver")
 	require.False(t, called)
+}
+
+// observedRuntime answers Observe with the flow each run belongs to.
+type observedRuntime struct {
+	readRPCRuntime
+	flows map[string]string
+}
+
+func (r *observedRuntime) Observe(_ context.Context, runID, _ string, _ int) (flowruntime.Observation, error) {
+	flow, ok := r.flows[runID]
+	if !ok {
+		return flowruntime.Observation{}, errors.New("run not found")
+	}
+	return flowruntime.Observation{Run: flowruntime.Run{RunID: runID, FlowID: flow, Status: "paused"}}, nil
+}
+
+// Fable round 2, N1: the browser workflow relay never plans, runs, resumes
+// or forks the todo composition; only the stack's pinned launch does. A Plan
+// naming it is refused before any host is resolved, and a run, resume or
+// fork of one of its runs before the host is asked to mutate it. Other flows
+// and runs relay as before.
+func TestCallRPCRefusesTheTodoComposition(t *testing.T) {
+	runtime := &observedRuntime{flows: map[string]string{"todo-run": "todo", "other-run": "coding/dispatch"}}
+	resolver := &readRPCResolver{}
+	service := &Service{resolver: flowruntime.ResolverFunc(func(ctx context.Context, target flowruntime.Target) (flowruntime.Runtime, error) {
+		resolver.starts++
+		return runtime, nil
+	}), runtimeCallTimeout: time.Second}
+	for _, flowID := range []string{"todo", "flows/todo/flow.ts"} {
+		_, err := service.CallRPC(context.Background(), flowruntime.Target{}, "Plan", json.RawMessage(`{"flowId":"`+flowID+`","input":{}}`))
+		require.ErrorIs(t, err, ErrTodoOutsideStack, flowID)
+	}
+	require.Zero(t, resolver.starts, "no host is resolved for a refused plan")
+	for _, call := range []struct{ procedure, payload string }{
+		{"Run", `{"_tag":"Resume","runId":"todo-run","idempotencyKey":"k"}`},
+		{"Resume", `{"runId":"todo-run","reason":"again"}`},
+		{"Run.Fork", `{"runId":"todo-run","at":3}`},
+	} {
+		_, err := service.CallRPC(context.Background(), flowruntime.Target{}, call.procedure, json.RawMessage(call.payload))
+		require.ErrorIs(t, err, ErrTodoOutsideStack, call.procedure)
+	}
+	_, err := service.CallRPC(context.Background(), flowruntime.Target{}, "Resume", json.RawMessage(`{"runId":"missing-run"}`))
+	require.ErrorContains(t, err, "run not found", "a run the host cannot answer for is refused")
+	require.Empty(t, runtime.calls, "nothing reached the host's RPC")
+	for _, call := range []struct{ procedure, payload string }{
+		{"Plan", `{"flowId":"todos","input":{}}`},
+		{"Run", `{"_tag":"Resume","runId":"other-run","idempotencyKey":"k"}`},
+		{"Resume", `{"runId":"other-run"}`},
+		{"Run.Fork", `{"runId":"other-run","at":1}`},
+		{"Run", `{"_tag":"Plan","planId":"p","digest":"d","envelope":{},"idempotencyKey":"k"}`},
+	} {
+		_, err := service.CallRPC(context.Background(), flowruntime.Target{}, call.procedure, json.RawMessage(call.payload))
+		require.NoError(t, err, call.procedure)
+	}
+	require.Equal(t, []string{"Plan", "Run", "Resume", "Run.Fork", "Run"}, runtime.calls)
 }

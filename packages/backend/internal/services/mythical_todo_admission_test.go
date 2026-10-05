@@ -386,9 +386,10 @@ type todoRuntimeHost struct {
 	cancelled        map[string]bool
 	// digest and review are the execution digests the host reports for a
 	// todo and a review launch: the flows it planned. parked parks a todo
-	// plan for approval instead of running it.
-	digest, review string
-	parked         bool
+	// plan for approval instead of running it. source is the source commit
+	// the host serves.
+	digest, review, source string
+	parked                 bool
 }
 
 func (h *todoRuntimeHost) serve(t *testing.T) *httptest.Server {
@@ -399,7 +400,11 @@ func (h *todoRuntimeHost) serve(t *testing.T) *httptest.Server {
 			return
 		}
 		w.Header().Set("Content-Type", "application/json")
-		identity := flowruntime.Identity{Protocol: flowruntime.Protocol, RuntimeArtifactDigest: strings.Repeat("a", 64), SourceRevision: strings.Repeat("b", 40), OwnerGeneration: 1}
+		source := h.source
+		if source == "" {
+			source = strings.Repeat("b", 40)
+		}
+		identity := flowruntime.Identity{Protocol: flowruntime.Protocol, RuntimeArtifactDigest: strings.Repeat("a", 64), SourceRevision: source, OwnerGeneration: 1}
 		if r.URL.Path == "/health" {
 			_ = json.NewEncoder(w).Encode(map[string]any{"runtimeBridge": identity})
 			return
@@ -520,7 +525,7 @@ func TestTodoPinnedEngineLaunches(t *testing.T) {
 func todoPinnedEngineLaunches(t *testing.T, review string) {
 	o, session := newTodoAdmission(t)
 	ctx := context.Background()
-	peer := &todoRuntimeHost{digest: todoPinOne, review: review}
+	peer := &todoRuntimeHost{digest: todoPinOne, review: review, source: o.landedMain()}
 	pool, startWorker := o.runDispatcher(t, peer.resolver(t))
 	o.service.SetTodoFlow(func(context.Context, int64, string) (string, error) { return todoPinOne, nil })
 
@@ -639,14 +644,23 @@ func TestTodoRunOfAnotherFlowIsNeverTheAttempts(t *testing.T) {
 	for _, test := range []struct {
 		name, digest string
 		parked       bool
+		otherSource  bool
+		outage       string
 	}{
 		{name: "another flow", digest: todoPinTwo},
 		{name: "no digest", digest: ""},
 		{name: "parked plan of another flow", digest: todoPinTwo, parked: true},
+		{name: "host serving another source", digest: todoPinOne, otherSource: true, outage: "pin_source_mismatch"},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			o, session := newTodoAdmission(t)
-			peer := &todoRuntimeHost{digest: test.digest, parked: test.parked}
+			peer := &todoRuntimeHost{digest: test.digest, parked: test.parked, source: o.landedMain()}
+			if test.otherSource {
+				peer.source = strings.Repeat("b", 40)
+			}
+			if test.outage == "" {
+				test.outage = mythicalPinMismatch
+			}
 			_, startWorker := o.runDispatcher(t, peer.resolver(t))
 			o.service.SetTodoFlow(func(context.Context, int64, string) (string, error) { return todoPinOne, nil })
 			id := uuidString(o.fileTodo(session, "pinned").ID)
@@ -655,26 +669,33 @@ func TestTodoRunOfAnotherFlowIsNeverTheAttempts(t *testing.T) {
 			startWorker()
 			require.Eventually(t, func() bool { return o.byID(id).RequestOutcome != "" }, 10*time.Second, 10*time.Millisecond)
 			cancels, denials := peer.stopped()
-			if test.parked {
+			switch {
+			case test.otherSource:
+				require.Empty(t, peer.flows(), "a host serving another source is never asked to plan")
+				require.Empty(t, cancels)
+				require.Empty(t, denials)
+			case test.parked:
 				require.Equal(t, []string{"todo-plan"}, denials, "the parked plan was denied, never approved")
 				require.Empty(t, cancels)
-			} else {
+			default:
 				require.Equal(t, []string{"todo-run"}, cancels, "the run was cancelled before the attempt settled")
 				require.Empty(t, denials)
 			}
 			item := o.byID(id)
-			require.Equal(t, mythicalOutage+"infra: "+mythicalPinMismatch, item.RequestOutcome)
+			require.Equal(t, mythicalOutage+"infra: "+test.outage, item.RequestOutcome)
 			require.Empty(t, item.RequestRunID, "the run was never bound")
 			require.False(t, mythicalChecksOf(item).RunAttached)
 			require.Equal(t, "starting", todoState(item), "never Working")
-			require.Equal(t, []string{"todo"}, peer.flows())
+			if !test.otherSource {
+				require.Equal(t, []string{"todo"}, peer.flows())
+			}
 
 			o.wake()
 			item = o.byID(id)
 			require.Equal(t, "retrying", item.State, item.Reason)
 			require.Zero(t, item.Attempt, "an outage spends no attempt")
 			require.Equal(t, todoPinOne, item.FlowDigest.String, "the retry keeps the pin")
-			require.Equal(t, &mythicalFault{Class: "infra", Tag: mythicalPinMismatch, Kind: mythicalFailRuntime}, mythicalChecksOf(item).Fault)
+			require.Equal(t, &mythicalFault{Class: "infra", Tag: test.outage, Kind: mythicalFailRuntime}, mythicalChecksOf(item).Fault)
 		})
 	}
 }

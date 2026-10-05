@@ -216,25 +216,38 @@ describe("RuntimeBridge", () => {
       }
     }))
 
-  it.effect("runs a pinned launch only when its plan is the pinned code", () =>
+  it.effect("runs a pinned launch only from its pinned source and only when its plan is the pinned code", () =>
     Effect.gen(function*() {
+      let plans = 0
       let runs = 0
       const control = (planned: PlanCard) =>
         service({
-          plan: () => Effect.succeed(planned),
+          plan: () => {
+            plans++
+            return Effect.succeed(planned)
+          },
           run: () => {
             runs++
             return Effect.succeed(accepted)
           }
         })
-      const pin = { flow: "fixture/small", sourceCommit: "d".repeat(40), executionDigest: "c".repeat(64) }
+      const pin = { flow: "fixture/small", sourceCommit: revision, executionDigest: "c".repeat(64) }
       const pinned = { ...launch, pin }
       expect(() => Schema.decodeUnknownSync(RuntimeBridge.LaunchCommand)(pinned)).not.toThrow()
       expect(() => Schema.decodeUnknownSync(RuntimeBridge.LaunchCommand)({ ...pinned, pin: { ...pin, executionDigest: "C".repeat(64) } }))
         .toThrow()
       const result = yield* RuntimeBridge.execute(config, control(plan), principal, pinned)
       expect(result).toMatchObject({ operation: "launch", receipt: accepted, executionDigest: "c".repeat(64) })
-      expect(runs).toBe(1)
+      expect([plans, runs]).toEqual([1, 1])
+      // Astra round 2, N3: a host serving another source than the pin's is
+      // refused before planning, for the composition and its engine launches.
+      for (const flow of ["fixture/small", "todo"]) {
+        const otherSource = yield* Effect.flip(
+          RuntimeBridge.execute(config, control(plan), principal, { ...pinned, pin: { ...pin, flow, sourceCommit: "d".repeat(40) } })
+        )
+        expect(otherSource).toMatchObject({ code: "source_mismatch", retryable: false })
+      }
+      expect([plans, runs]).toEqual([1, 1])
       const other = yield* Effect.flip(
         RuntimeBridge.execute(config, control({ ...plan, executionDigest: "e".repeat(64) } as PlanCard), principal, pinned)
       )
@@ -244,8 +257,9 @@ describe("RuntimeBridge", () => {
         RuntimeBridge.execute(config, control(withoutDigest as PlanCard), principal, pinned)
       )
       expect(unnamed).toMatchObject({ code: "source_mismatch", retryable: false })
-      // An engine launch of the pinned attempt runs its own flow, which must
-      // still name an execution identity.
+      expect(runs).toBe(1)
+      // An engine launch of the pinned attempt runs its own flow from the
+      // pinned source, which must still name an execution identity.
       const engine = { ...pinned, pin: { ...pin, flow: "todo" } }
       yield* RuntimeBridge.execute(config, control({ ...plan, executionDigest: "e".repeat(64) } as PlanCard), principal, engine)
       expect(runs).toBe(2)

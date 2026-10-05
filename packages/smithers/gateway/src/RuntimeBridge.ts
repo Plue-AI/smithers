@@ -272,6 +272,18 @@ export const execute = (
             })
           )
         }
+        // Every launch of a pinned attempt (its composition and the engine's
+        // launches) runs from the pinned source commit: a host serving any
+        // other source refuses before planning imports anything.
+        if (input.pin !== undefined && input.pin.sourceCommit !== config.sourceRevision) {
+          return yield* Effect.fail(
+            new BridgeError({
+              code: "source_mismatch",
+              message: "Flow source revision does not match the pinned launch",
+              retryable: false
+            })
+          )
+        }
         const plan = yield* control.plan({
           flowId: input.flowId,
           input: input.payload,

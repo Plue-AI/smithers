@@ -270,6 +270,9 @@ func (service *Service) Get(ctx context.Context, scope jobs.Scope, operationID s
 // CallRPC resolves the same fenced Flow host as durable dispatch, then relays
 // a browser catalog, plan, run, or projection call to its canonical RPC.
 func (service *Service) CallRPC(ctx context.Context, target flowruntime.Target, procedure string, payload json.RawMessage) (json.RawMessage, error) {
+	if RelayNamesTodo(procedure, payload) {
+		return nil, ErrTodoOutsideStack
+	}
 	var runtime flowruntime.Runtime
 	var err error
 	if procedure == "List" || procedure == "Projection.Snapshot" {
@@ -290,7 +293,50 @@ func (service *Service) CallRPC(ctx context.Context, target flowruntime.Target, 
 	if !ok {
 		return nil, errors.New("flow dispatch: runtime has no gateway RPC")
 	}
+	if err := service.refuseTodoRun(ctx, runtime, procedure, payload); err != nil {
+		return nil, err
+	}
 	return caller.CallRPC(ctx, procedure, payload)
+}
+
+// RelayNamesTodo reports whether a browser relay call plans the todo
+// composition. Only the stack's pinned launch runs it (T-FLW-11), so the
+// relay refuses it before a box wakes.
+func RelayNamesTodo(procedure string, payload json.RawMessage) bool {
+	if procedure != "Plan" {
+		return false
+	}
+	var plan struct {
+		FlowID string `json:"flowId"`
+	}
+	return json.Unmarshal(payload, &plan) == nil && IsTodoFlow(plan.FlowID)
+}
+
+// refuseTodoRun refuses a relayed run, resume or fork of a run of the todo
+// composition: those runs belong to the stack's pinned launch alone. The run
+// is read from the same host before anything is mutated; a run the host
+// cannot answer for is refused.
+func (service *Service) refuseTodoRun(ctx context.Context, runtime flowruntime.Runtime, procedure string, payload json.RawMessage) error {
+	if procedure != "Run" && procedure != "Resume" && procedure != "Run.Fork" {
+		return nil
+	}
+	var reference struct {
+		Tag   string `json:"_tag"`
+		RunID string `json:"runId"`
+	}
+	if json.Unmarshal(payload, &reference) != nil || reference.RunID == "" {
+		return nil
+	}
+	callContext, cancel := context.WithTimeout(ctx, service.runtimeCallTimeout)
+	defer cancel()
+	observation, err := runtime.Observe(callContext, reference.RunID, "", 1)
+	if err != nil {
+		return err
+	}
+	if IsTodoFlow(observation.Run.FlowID) {
+		return ErrTodoOutsideStack
+	}
+	return nil
 }
 
 // StartHost answers whether the target's host is live. When it is not, it

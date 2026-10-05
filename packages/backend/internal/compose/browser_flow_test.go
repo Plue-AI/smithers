@@ -71,3 +71,26 @@ func TestRunCredentialCannotSteerOrCancelRuns(t *testing.T) {
 		})
 	}
 }
+
+// Fable round 2, N1: the browser relay refuses planning the todo composition
+// before the box wakes or the host is reached; it runs only from a filed
+// TODO's pinned stack launch.
+func TestBrowserFlowRelayRefusesTheTodoComposition(t *testing.T) {
+	for _, flowID := range []string{"todo", "flows/todo/flow.ts"} {
+		t.Run(flowID, func(t *testing.T) {
+			deps := &browserReadDependencies{canWrite: true, workspace: db.Workspace{ID: browserBoxID, Status: "suspended", RepositoryID: 23, UserID: 17}}
+			boxes := &resumingBoxes{resumed: make(chan string, 1)}
+			dispatcher := &browserFlowRecordingDispatcher{}
+			api := &browserFlowAPI{repos: deps, queries: deps, dispatcher: dispatcher, boxes: boxes}
+			body := `{"repo":"owner/repo","workspaceId":"` + browserBoxID + `","procedure":"Plan","payload":{"flowId":"` + flowID + `","input":{}}}`
+			request := httptest.NewRequest(http.MethodPost, "/api/workflow/rpc", strings.NewReader(body))
+			request = request.WithContext(middleware.ContextWithAuthInfo(request.Context(), &middleware.AuthInfo{User: &db.User{ID: 17, UserType: "user"}}))
+			writer := httptest.NewRecorder()
+			api.rpc(writer, request)
+			require.Equal(t, http.StatusForbidden, writer.Code, writer.Body.String())
+			require.Contains(t, writer.Body.String(), "todo_requires_stack_admission")
+			require.Empty(t, dispatcher.calls, "the host was never reached")
+			require.Empty(t, boxes.resumed, "the box was never woken")
+		})
+	}
+}

@@ -99,6 +99,11 @@ func (service *Service) handleLaunch(ctx context.Context, lease *jobs.Lease) err
 		return service.observe(ctx, runtime, lease, checkpoint)
 	}
 
+	// A pinned attempt runs only on a host serving its pinned source commit:
+	// any other is refused before the host is asked to plan anything.
+	if payload.Pin != nil && payload.Pin.SourceCommit != identity.SourceRevision {
+		return service.fail(lease, pinSourceMismatch, checkpoint)
+	}
 	result, err := service.launch(ctx, runtime, identity, claim.OperationID, int64(lease.DeliveryAttempt()), payload)
 	if err != nil {
 		if claim.CancellationRequested && runtimeCode(err) == "plan_denied" {
@@ -214,6 +219,15 @@ func (service *Service) launch(
 // A parked plan is denied; a run is cancelled and observed until it ends,
 // without credit, so the attempt retries only after it settled. The launch
 // fails pin_mismatch either way.
+//
+// Cancelling does not undo or prevent a mismatched run's effects. Until its
+// host acknowledges the cancel and the run ends, the run keeps its lane token
+// and model credential: it can push to its own branch, spend model tokens
+// and run commands in its machine. The cancel needs that host's cooperation;
+// nothing here revokes a credential or stops the machine. Opening or merging
+// a pull request is gated separately. A host that reports serving another
+// source is refused before launch (pin_source_mismatch), and the bridge
+// refuses it before import, but the reported source is the host's own claim.
 func (service *Service) refusePin(
 	ctx context.Context,
 	runtime flowruntime.FlowRuntime,

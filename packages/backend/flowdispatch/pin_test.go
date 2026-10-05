@@ -15,7 +15,8 @@ import (
 )
 
 var (
-	todoPin       = flowruntime.Pin{Flow: TodoFlow, SourceCommit: strings.Repeat("c", 40), ExecutionDigest: strings.Repeat("d", 64)}
+	// The recording runtime serves source "b"*40: the pin's own source.
+	todoPin       = flowruntime.Pin{Flow: TodoFlow, SourceCommit: strings.Repeat("b", 40), ExecutionDigest: strings.Repeat("d", 64)}
 	otherDigest   = strings.Repeat("e", 64)
 	stackScope    = jobs.Scope{TenantID: "repository:5", PrincipalID: "user:9"}
 	stackTarget   = flowruntime.Target{WorkspaceID: "lane-1", BindingKind: StackBindingKind, BindingID: "item-1"}
@@ -94,6 +95,36 @@ func TestTodoLaunchOutsideTheStackFailsBeforeResolution(t *testing.T) {
 			require.Equal(t, jobs.StateFailed, operation.State)
 			require.Contains(t, string(operation.TerminalReceipt), "todo_requires_stack_admission")
 			require.Zero(t, resolved.Load(), "refused before the runtime was resolved")
+		})
+	}
+}
+
+// Astra round 2, N3: every launch of a pinned attempt (its composition and
+// the engine's launches) runs only on a host serving the pinned source
+// commit; any other host is refused before it is asked to plan anything.
+func TestPinnedLaunchRunsOnlyOnItsPinnedSource(t *testing.T) {
+	for _, flowID := range []string{"todo", "review/change"} {
+		t.Run(flowID, func(t *testing.T) {
+			store, _ := newFlowDispatchStore(t)
+			runtime := newRecordingRuntime()
+			runtime.executionDigest = todoPin.ExecutionDigest
+			projector := &recordingProjector{}
+			service, err := New(Config{Store: store, Projector: projector, ObservationDelay: 2 * time.Millisecond,
+				Resolver: flowruntime.ResolverFunc(func(context.Context, flowruntime.Target) (flowruntime.Runtime, error) { return runtime, nil })})
+			require.NoError(t, err)
+			pin := todoPin
+			pin.SourceCommit = strings.Repeat("c", 40)
+			receipt, err := service.Admit(context.Background(), stackLaunch("other-source", flowID, &pin))
+			require.NoError(t, err)
+			startTestWorker(t, service, "source-worker")
+			operation := waitOperation(t, store, stackScope, receipt.OperationID, func(operation jobs.Operation) bool { return operation.State.Terminal() })
+			require.Equal(t, jobs.StateFailed, operation.State)
+			var settled terminalReceipt
+			require.NoError(t, json.Unmarshal(operation.TerminalReceipt, &settled))
+			require.Equal(t, "pin_source_mismatch", settled.ErrorCode)
+			runtime.mu.Lock()
+			defer runtime.mu.Unlock()
+			require.Empty(t, runtime.launches, "the host was never asked to plan")
 		})
 	}
 }

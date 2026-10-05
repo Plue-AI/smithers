@@ -20,6 +20,17 @@ import (
 // T-FLW-03/04) must change this test, so wiring it is never a silent
 // convention. The scan covers every non-test Go file of the module; the
 // composition's own stack wiring is its positive control.
+//
+// Two preconditions hold before that change, and neither exists yet, so no
+// composition check can test for them (Fable round 2, N3; Astra round 2, N3
+// and N4):
+//   - the Flow host loads the attempt from the pinned commit before import;
+//     today it only refuses a pin naming a source other than the one it
+//     reports serving;
+//   - the service stops a machine whose host does not acknowledge a cancel;
+//     today a mismatched run keeps its lane token and model credential, and
+//     can push to its branch and spend tokens, until it ends
+//     (flowdispatch refusePin).
 func TestProductionCompositionLeavesTodoAdmissionDark(t *testing.T) {
 	root, err := filepath.Abs(filepath.Join("..", "..", "..", ".."))
 	require.NoError(t, err)

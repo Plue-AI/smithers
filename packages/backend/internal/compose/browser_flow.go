@@ -88,6 +88,12 @@ func browserFlowRefusal(w http.ResponseWriter, status int, message string) {
 
 // browserFlowTyped is a refusal a client acts on by its code, which the
 // Worker's platform proxy keeps only at the top level.
+// browserFlowTodoRefused answers a relay call that would plan, run, resume
+// or fork the todo composition outside the stack's pinned launch.
+func browserFlowTodoRefused(w http.ResponseWriter) {
+	browserFlowTyped(w, http.StatusForbidden, "todo_requires_stack_admission", "File a TODO to run the todo flow.")
+}
+
 func browserFlowTyped(w http.ResponseWriter, status int, code, message string) {
 	browserFlowJSON(w, status, map[string]any{"ok": false, "code": code, "error": map[string]string{"code": code, "message": message}})
 }
@@ -245,6 +251,10 @@ func browserFlowUnavailable(w http.ResponseWriter, err error, procedure string) 
 		pkgerrors.WriteError(w, refusal)
 		return
 	}
+	if errors.Is(err, flowdispatch.ErrTodoOutsideStack) {
+		browserFlowTodoRefused(w)
+		return
+	}
 	slog.Error("browser Flow RPC unavailable", "error", err, "procedure", procedure)
 	var failure flowruntime.Failure
 	if errors.As(err, &failure) {
@@ -269,6 +279,12 @@ func (api *browserFlowAPI) rpc(w http.ResponseWriter, r *http.Request) {
 	r.Body = io.NopCloser(strings.NewReader(string(body)))
 	request, target, workspace, ok := api.prepare(w, r, false)
 	if !ok {
+		return
+	}
+	// The todo composition runs only from a filed TODO's pinned stack launch:
+	// refuse planning it here before the box wakes.
+	if flowdispatch.RelayNamesTodo(request.Procedure, request.Payload) {
+		browserFlowTodoRefused(w)
 		return
 	}
 	serve := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
