@@ -214,10 +214,16 @@ var mythicalMergePath = regexp.MustCompile(`^/api/repos/[^/]+/[^/]+/mythical/ite
 // MergeCredentialFirst refuses a repository-door merge from every
 // credential but a person's own browser session before the repository is
 // resolved, as the numbered door refuses one before the TODO is read: both
-// doors answer every credential alike (services.MergeCredential).
+// doors answer every credential alike (services.MergeCredential). It
+// matches the path the router routes: the escaped path when the request
+// has one, so an encoded slash stays inside its segment, as chi keeps it.
 func MergeCredentialFirst(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.Method == http.MethodPost && mythicalMergePath.MatchString(r.URL.Path) {
+		routed := r.URL.RawPath
+		if routed == "" {
+			routed = r.URL.Path
+		}
+		if r.Method == http.MethodPost && mythicalMergePath.MatchString(routed) {
 			if err := services.MergeCredential(r.Context(), r.Header.Get("Smithers-Via")); err != nil {
 				refusal := err.(*services.TodoControlError)
 				pkgerrors.WriteJSON(w, refusal.Status, refusal)

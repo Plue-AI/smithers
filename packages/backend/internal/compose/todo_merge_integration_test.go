@@ -195,12 +195,13 @@ func TestTodoMergeComposedRouteBoundaryPostgres(t *testing.T) {
 	doors := []struct {
 		name string
 		path func(string) string
-		// valid, unknown and malformed name the TODO, none and nothing.
-		valid, unknown, malformed string
+		// valid, unknown and malformed name the TODO, none and nothing;
+		// encoded holds an encoded slash, routed as one segment.
+		valid, unknown, malformed, encoded string
 	}{
-		{"numbered", numbered, strconv.FormatInt(filed.Number, 10), "999", "abc"},
-		{"repository", repository, itemID, uuid.NewString(), "not-a-uuid"},
-		{"unknown repository", elsewhere, itemID, uuid.NewString(), "not-a-uuid"},
+		{"numbered", numbered, strconv.FormatInt(filed.Number, 10), "999", "abc", "1%2F2"},
+		{"repository", repository, itemID, uuid.NewString(), "not-a-uuid", "a%2Fb"},
+		{"unknown repository", elsewhere, itemID, uuid.NewString(), "not-a-uuid", "a%2Fb"},
 	}
 	post := func(path string, set func(*http.Request)) (int, map[string]any) {
 		t.Helper()
@@ -262,7 +263,7 @@ func TestTodoMergeComposedRouteBoundaryPostgres(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			var first map[string]any
 			for _, door := range doors {
-				for _, target := range []string{door.valid, door.unknown, door.malformed} {
+				for _, target := range []string{door.valid, door.unknown, door.malformed, door.encoded} {
 					status, envelope := post(door.path(target), tc.set)
 					require.Equal(t, tc.status, status, "%s %s: %v", door.name, target, envelope)
 					if tc.envelope != nil {
