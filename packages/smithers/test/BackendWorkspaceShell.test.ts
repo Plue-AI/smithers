@@ -119,16 +119,19 @@ describe("workspace shell execution (#1865)", () => {
     expect(await readFile(logout, "utf8")).toBe("logout")
     await rm(logout)
 
-    for (const test of [
-      { body: "printf done", code: 0, stdout: "done" },
-      { body: "exit 0", code: 0, stdout: "" },
-      { body: trap + "true", code: 0, stdout: "EXIT=0\n" },
-      { body: "exit 23", code: 23, stdout: "" },
-      { body: trap + "exit 7", code: 7, stdout: "EXIT=7\n" }
-    ]) {
+    for (
+      const test of [
+        { body: "printf done", code: 0, stdout: "done" },
+        { body: "exit 0", code: 0, stdout: "" },
+        { body: trap + "true", code: 0, stdout: "EXIT=0\n" },
+        { body: "exit 23", code: 23, stdout: "" },
+        { body: trap + "exit 7", code: 7, stdout: "EXIT=7\n" }
+      ]
+    ) {
       exit.mockClear()
       const response = await workspaces["workspace exec"]!(c, { id: "box" }, {
-        repo: "owner/repo", command: prelude + test.body
+        repo: "owner/repo",
+        command: prelude + test.body
       })
       expect(response).toMatchObject({ exit_code: test.code, stdout: test.stdout, stderr: "" })
       expect(exit).toHaveBeenCalledExactlyOnceWith(test.code)

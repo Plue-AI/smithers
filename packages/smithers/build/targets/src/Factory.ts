@@ -451,7 +451,12 @@ export const IssueView = Schema.Struct({
  */
 export type IssueView = typeof IssueView.Type
 
-/** The most views a factory may declare. */
+/**
+ * The most views a factory may declare.
+ *
+ * @category constants
+ * @since 1.0.0
+ */
 export const maximumIssueViews = 32
 /** The most labels one view may require. */
 const maximumIssueViewLabels = 16

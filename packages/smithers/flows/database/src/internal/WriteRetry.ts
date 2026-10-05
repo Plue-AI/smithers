@@ -232,8 +232,10 @@ export const findFailureCode = (error: unknown): DurableWriter.DatabaseErrorCode
     // remains insufficient provenance for replaying application failures.
     if (readProperty(current, "_tag") === "@smthrs/database/DatabaseError") {
       const code = readProperty(current, "code")
-      if (code === "busy" || code === "io" || code === "constraint" || code === "schema" || code === "unsupported" ||
-        code === "unknown") {
+      if (
+        code === "busy" || code === "io" || code === "constraint" || code === "schema" || code === "unsupported" ||
+        code === "unknown"
+      ) {
         return code
       }
     }

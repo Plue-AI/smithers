@@ -273,8 +273,11 @@ export const make = (
           },
           "clock",
           undefined,
-          Effect.flatMap(state.completeClock(row, completedAtMs), (completed) =>
-            completed._tag === "Completed" ? emitClockCompleted(completed.row, completedAtMs) : Effect.void)
+          Effect.flatMap(
+            state.completeClock(row, completedAtMs),
+            (completed) =>
+              completed._tag === "Completed" ? emitClockCompleted(completed.row, completedAtMs) : Effect.void
+          )
         )
       })
 

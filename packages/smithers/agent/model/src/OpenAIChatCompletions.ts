@@ -224,9 +224,7 @@ const buildBody = (
 const fromRequest = (structuredOutput: StructuredOutput | undefined) =>
   Effect.fn("OpenAIChatCompletions.fromRequest")((
     request: ModelRequest
-  ): Effect.Effect<Body, ModelError> =>
-    Effect.succeed(buildBody(request, structuredOutput))
-  )
+  ): Effect.Effect<Body, ModelError> => Effect.succeed(buildBody(request, structuredOutput)))
 
 const ChunkToolCall = Schema.Struct({
   index: Schema.optional(Schema.Number),

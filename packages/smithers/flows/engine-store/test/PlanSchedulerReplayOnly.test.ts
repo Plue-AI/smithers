@@ -65,10 +65,11 @@ describe("PlanScheduler under ReplayOnly", () => {
         StepBoundary.layerTest(),
         jj,
         PlanScheduler.layerExecutor({
-          execute: ({ node }) => Effect.sync(() => {
-            executed.push(node.id)
-            return `${node.id}-result`
-          })
+          execute: ({ node }) =>
+            Effect.sync(() => {
+              executed.push(node.id)
+              return `${node.id}-result`
+            })
         })
       )
       const scheduler = PlanScheduler.make({ runId, owner, sourceId: "replay-only-plan" })
@@ -94,7 +95,8 @@ describe("PlanScheduler under ReplayOnly", () => {
       const driftedRun = "plan-verify-drifted"
       yield* activate(driftedRun)
       const drifted = yield* Plan.compile({ planId: "drifted", flow: "replay-only/plan", nodes: [draft("b", "two")] })
-      const exit = yield* PlanScheduler.make({ runId: driftedRun, owner, sourceId: "replay-only-plan" }).run(drifted).pipe(Effect.provide(Layer.merge(services, replayOnly)), Effect.exit)
+      const exit = yield* PlanScheduler.make({ runId: driftedRun, owner, sourceId: "replay-only-plan" }).run(drifted)
+        .pipe(Effect.provide(Layer.merge(services, replayOnly)), Effect.exit)
       // The scheduler settles the refused node failed instead of running it.
       expect(Exit.isSuccess(exit)).toBe(true)
       if (Exit.isSuccess(exit)) {

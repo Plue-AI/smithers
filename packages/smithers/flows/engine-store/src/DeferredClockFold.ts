@@ -32,8 +32,8 @@
  * @since 1.0.0
  */
 
-import { Journal, JournalEvent, Projection } from "@smthrs/journal"
 import { DurableWriter } from "@smthrs/database/DurableWriter"
+import { Journal, JournalEvent, Projection } from "@smthrs/journal"
 import * as Effect from "effect/Effect"
 import * as Option from "effect/Option"
 import * as Schema from "effect/Schema"
@@ -142,8 +142,9 @@ export const initial: State = { clocks: new Map(), deferreds: new Map() }
  * @category models
  * @since 1.0.0
  */
-export const clockKey = (address: { readonly flowName: string; readonly executionId: string; readonly clockName: string }) =>
-  JSON.stringify([address.flowName, address.executionId, address.clockName])
+export const clockKey = (
+  address: { readonly flowName: string; readonly executionId: string; readonly clockName: string }
+) => JSON.stringify([address.flowName, address.executionId, address.clockName])
 
 /**
  * The key of a completion row.
@@ -398,11 +399,13 @@ const foldRun = (runId: string, upTo?: number | undefined) =>
     if (floor === undefined) return yield* foldEntries(journal, runId, initial, undefined, upTo)
     const kept = fromCheckpoint(JSON.parse(floor.state_json) as unknown)
     if (Option.isNone(kept)) {
-      return yield* Effect.fail(new FoldIncomplete({
-        code: "fold_incomplete",
-        message: `run ${runId} was compacted below a checkpoint that keeps no deferred/clock fold`,
-        unjoined: [{ reason: "checkpoint_missing", executionId: runId }]
-      }))
+      return yield* Effect.fail(
+        new FoldIncomplete({
+          code: "fold_incomplete",
+          message: `run ${runId} was compacted below a checkpoint that keeps no deferred/clock fold`,
+          unjoined: [{ reason: "checkpoint_missing", executionId: runId }]
+        })
+      )
     }
     return yield* foldEntries(journal, runId, kept.value, Number(floor.seq) as JournalEvent.Seq, upTo)
   })
@@ -543,11 +546,13 @@ export const rebuild = Effect.fn("DeferredClockFold.rebuild")(function*() {
     }
   }
   if (unjoined.length > 0) {
-    return yield* Effect.fail(new FoldIncomplete({
-      code: "fold_incomplete",
-      message: `the journal references ${unjoined.length} deferred/clock rows the store cannot join`,
-      unjoined
-    }))
+    return yield* Effect.fail(
+      new FoldIncomplete({
+        code: "fold_incomplete",
+        message: `the journal references ${unjoined.length} deferred/clock rows the store cannot join`,
+        unjoined
+      })
+    )
   }
   yield* writer.write(Effect.gen(function*() {
     yield* sql`DELETE FROM flows_clock_deadlines`

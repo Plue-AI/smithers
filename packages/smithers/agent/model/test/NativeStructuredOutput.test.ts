@@ -79,9 +79,14 @@ describe("OpenAIChatCompletions native structured output", () => {
     expect(Result.isSuccess(prepared)).toBe(true)
     const parsed = JSON.parse(Result.getOrThrow(prepared).bodyText)
     expect(parsed.response_format.json_schema.schema).toEqual(capital.schema)
-    expect(parsed.tools).toEqual([{ type: "function", function: {
-      name: weather.name, description: weather.description, parameters: weather.parameters
-    } }])
+    expect(parsed.tools).toEqual([{
+      type: "function",
+      function: {
+        name: weather.name,
+        description: weather.description,
+        parameters: weather.parameters
+      }
+    }])
   })
 
   it("allows declared tools when toolChoice none keeps them off the wire", async () => {

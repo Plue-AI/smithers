@@ -198,7 +198,7 @@ export const AgentRuntimeContextSchema = z.object({
       repo: runtimeLineSchema,
       kind: runtimeLineSchema,
       status: runtimeLineSchema,
-      facet: runtimeLineSchema,
+      facet: runtimeLineSchema
     }).optional(),
     /** Optional, like every field a boundary may predate. */
     setup: AgentRuntimeSetupDraftSchema.optional()

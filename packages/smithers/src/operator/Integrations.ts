@@ -62,7 +62,7 @@ const authority = {
     tokenEnv: ["SMITHERS_GITHUB_TOKEN", "GITHUB_TOKEN"],
     apiBaseUrl: GitHub.Config.DEFAULT_API_BASE_URL,
     apiBaseUrlEnv: "SMITHERS_GITHUB_API_BASE_URL"
-  },
+  }
 } as const
 
 const defaultTokenEnv = (kind: Integration["provider"]) => authority[kind].tokenEnv[0]
@@ -208,7 +208,10 @@ const secret = async (options: LocalOptions, entry: Integration): Promise<string
  */
 export const probe = async (entry: Integration, token: string, timeoutMs = 10_000) => {
   authorize(entry, Environment.ambientEnvironment())
-  const operation = GitHub.GitHubClient.make({ token, apiBaseUrl: entry.apiBaseUrl, maxRetries: 0 }, {}).request("GET", "/rate_limit")
+  const operation = GitHub.GitHubClient.make({ token, apiBaseUrl: entry.apiBaseUrl, maxRetries: 0 }, {}).request(
+    "GET",
+    "/rate_limit"
+  )
   await Effect.runPromise(operation.pipe(Effect.timeout(timeoutMs)))
   return { id: entry.id, provider: entry.provider, healthy: true }
 }

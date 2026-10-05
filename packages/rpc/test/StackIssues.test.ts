@@ -162,7 +162,10 @@ describe("stack metrics", () => {
   })
 
   test("a typed failure is the word and reason line, even on an open pull request or over old conflict paths", () => {
-    const review = item("held", "proposed", { reason: "The review did not finish", failure: { kind: "review", fault: "user" } })
+    const review = item("held", "proposed", {
+      reason: "The review did not finish",
+      failure: { kind: "review", fault: "user" }
+    })
     expect(issueWord(review)).toBe("The review did not finish")
     expect(issueWord(item("open", "proposed", { reason: "waiting for CI on the approved head" }))).toBe("PR open")
     const model = item("model", "retrying", {

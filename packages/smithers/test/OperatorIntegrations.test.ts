@@ -328,8 +328,13 @@ describe("integration CLI", () => {
 for (const provider of ["linear", "telegram", "slack", "gmail", "googlecalendar", "x"]) {
   it(`refuses stored ${provider} configuration without sending a diagnostic request`, async () => {
     const directory = await root()
-    await Fs.writeFile(Path.join(directory, ".smithers/integrations.json"), JSON.stringify({ version: 1, integrations: [{ id: "retired", provider }] }))
-    const fetch = vi.fn(() => { throw new Error("retired adapter reached network") })
+    await Fs.writeFile(
+      Path.join(directory, ".smithers/integrations.json"),
+      JSON.stringify({ version: 1, integrations: [{ id: "retired", provider }] })
+    )
+    const fetch = vi.fn(() => {
+      throw new Error("retired adapter reached network")
+    })
     vi.stubGlobal("fetch", fetch)
     expect((await serve(directory, ["doctor"])).code).toBe(1)
     expect(fetch).not.toHaveBeenCalled()

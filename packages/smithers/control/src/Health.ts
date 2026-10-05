@@ -560,7 +560,8 @@ export const rollup = (input: RollupInput): StatusRollup => {
     else if (reason === "no-progress" && health === "healthy") health = "stalled"
   }
   if (waiting !== undefined) activity = "unknown"
-  const attention: typeof Attention.Type = approval ? "awaiting-approval" : released ? "needs-resume" :
+  const attention: typeof Attention.Type = approval ? "awaiting-approval" : released ?
+    "needs-resume" :
     activity === "needs-input" ?
     "needs-input" :
     ["stalled", "wedged-node", "runaway-loop", "failing"].includes(health)

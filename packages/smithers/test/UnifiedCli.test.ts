@@ -74,9 +74,19 @@ describe("unified CLI", { timeout: 240_000 }, () => {
 
   it("keeps help, schema and invalid invocations file-free through the executable", async () => {
     const root = await fixture()
-    for (const args of [["--help"], ["flow", "start", "--schema"], ["runs", "inspect", "--help"], ["runs", "unknown"], ["runs", "fork", "run-1", "--at", "0"], ["runs", "rewind", "run-1", "--at", "0", "--yes"]]) {
+    for (
+      const args of [["--help"], ["flow", "start", "--schema"], ["runs", "inspect", "--help"], ["runs", "unknown"], [
+        "runs",
+        "fork",
+        "run-1",
+        "--at",
+        "0"
+      ], ["runs", "rewind", "run-1", "--at", "0", "--yes"]]
+    ) {
       const result = await run(root, args)
-      expect(result.code, result.stderr + result.stdout).toBe(args.at(-1) === "unknown" || args[1] === "fork" || args[1] === "rewind" ? 1 : 0)
+      expect(result.code, result.stderr + result.stdout).toBe(
+        args.at(-1) === "unknown" || args[1] === "fork" || args[1] === "rewind" ? 1 : 0
+      )
       expect(await readdir(root)).toEqual([])
     }
   })

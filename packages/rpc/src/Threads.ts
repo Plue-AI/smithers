@@ -70,4 +70,3 @@ export const TaskMetaSchema = z.object({
  * @category models
  */
 export type TaskMeta = z.infer<typeof TaskMetaSchema>
-
