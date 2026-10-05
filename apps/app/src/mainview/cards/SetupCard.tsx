@@ -84,6 +84,8 @@ export const SetupCard = ({ View, install, dispatch, allowed, view, onView }: Se
       resolve_input: input => ({ step: step.id, ...(input.owner ? { owner: input.owner } : {}),
         ...(input.repository ? { repository: input.repository } : {}) }) })
     if (step.id === "models" && model.github.signed_in && key) definitions.push(...roleKeyActions(key.definition, model, { step: "models" }, !snapshot.seed))
+    // Address can change until setup finishes (the install runs the step again); Settings changes it afterwards.
+    if (step.id !== "address" && model.steps.find(step => step.id === "address")?.state === "done") definitions.push(...setupAddressActions(model.address, false))
   }
   const bindings = cardActions(key?.dispatch ?? dispatch, definitions)
   if (!model || !allowed) return null

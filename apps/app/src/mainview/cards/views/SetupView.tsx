@@ -33,7 +33,10 @@ const titles = { address: "Address", app_manifest: "GitHub App", sign_in: "Sign 
 
 export function SetupView({ model, actions, onAction }: SetupViewProps) {
   const rows = []
-  for (const [index, step] of model.steps.entries()) rows.push(<li key={step.id} data-step={step.id} data-state={step.state}>
+  for (const [index, step] of model.steps.entries()) {
+    const own = actions.filter(action => action.args?.step === step.id && !(step.id === "models" && roleKeyAction(actions, action.args?.role ?? "") === action))
+    const controls = <SetupActions actions={own} onAction={onAction} />
+    rows.push(<li key={step.id} data-step={step.id} data-state={step.state}>
       <span className="setup-mark" data-tone={step.state === "running" ? "live" : step.state === "blocked" ? "attention" : step.state === "failed" ? "failed" : step.state === "done" ? "done" : "quiet"} aria-label={step.state}>{step.state === "done" ? "✓" : step.state === "failed" ? "×" : index + 1}</span>
       <div className="setup-body"><strong>{titles[step.id]}</strong>
         {step.id === "address" && <><span className="setup-muted">{model.address.listen === "mac" ? "This Mac only" : "Network"} · {model.address.bind}</span>{model.address.origins.map(origin => <code key={origin}>{origin}</code>)}</>}
@@ -44,9 +47,10 @@ export function SetupView({ model, actions, onAction }: SetupViewProps) {
         {(step.id === "source" || step.id === "machine") && <><span className="setup-muted">{step.state === "done" ? `${titles[step.id]} ready` : step.state === "pending" ? "Waiting" : step.state === "running" ? `${step.pct ?? 0}%` : null}</span>{step.pct !== undefined && <progress max={100} value={step.pct} aria-label={titles[step.id]} />}</>}
         {step.blocked && <a className="setup-blocked" data-tone="attention" href={step.blocked.fix_url} target="_blank" rel="noreferrer">{step.blocked.line}</a>}
         {step.error && <span className="setup-error" role="alert">{step.error.message}</span>}
-        <SetupActions actions={actions.filter(action => action.args?.step === step.id && !(step.id === "models" && roleKeyAction(actions, action.args?.role ?? "") === action))} onAction={onAction} />
+        {step.state === "done" && own.length > 0 ? <details className="setup-change"><summary>Change</summary>{controls}</details> : controls}
       </div>
     </li>)
+  }
   return <section className="setup-view" data-kind="setup" data-keyboard-pane="Setup" aria-label="Set up Smithers">
     <h2>Set up Smithers</h2><ThisMac model={model} onAction={onAction} />
     <ol className="setup-steps">{rows}</ol>

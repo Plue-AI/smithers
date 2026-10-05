@@ -311,7 +311,9 @@ export const createInstallSeam = (ctx: SeamContext, withToast: FailureController
       return { value: "Requested" }
     }
     // Any other press on the running App step starts again; write joins one already in flight and the host refuses a live lease.
-    if ((step.state === "running" && input.step !== "app_manifest") || step.state === "done") return { value: "Requested" }
+    // A done Address runs again while setup is unfinished (the install allows it); once setup is done Settings changes it.
+    const reopen = input.step === "address" && step.state === "done" && model.steps.some(step => step.state !== "done")
+    if ((step.state === "running" && input.step !== "app_manifest") || (step.state === "done" && !reopen)) return { value: "Requested" }
     const id = input.step
     const body = id === "address" ? { bind: input.bind, origins: input.origins }
       : id === "app_manifest" ? { owner: input.owner }

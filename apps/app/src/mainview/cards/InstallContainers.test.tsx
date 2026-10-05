@@ -185,6 +185,28 @@ describe("T-APP-03 Containers with recording Views", () => {
     expect(h.keys).toEqual(["private-key", "private-key"])
     expect(JSON.stringify(h.setup())).not.toContain("private-key"); expect(JSON.stringify(h.settings())).not.toContain("private-key")
   })
+  test("a done Address offers Change while setup is unfinished: its two choices again, behind one disclosure", () => {
+    const model = installFixture(); for (const step of model.steps.slice(1)) step.state = "pending"
+    const h = harness({ model }); h.renderSetup()
+    expect(h.setup()!.actions.map(action => [action.label, action.args])).toEqual([
+      ["Create GitHub App", { step: "app_manifest" }],
+      ["This Mac only", { step: "address", listen: "mac" }], ["Network", { step: "address", listen: "network" }]
+    ])
+    expect(h.setup()!.actions.find(action => action.args?.listen === "network")!.input?.map(field => field.value))
+      .toEqual(["0.0.0.0:4000", "http://mini.local:4000\nhttps://smithers.example.test"])
+    h.setup()!.onAction("settings.setup", { step: "address", listen: "network", bind: "0.0.0.0:4000", origins: "http://williams-mac-mini.local:4000" })
+    expect(h.commands).toEqual([{ tag: "settings.setup", input: { step: "address", bind: "0.0.0.0:4000", origins: ["http://williams-mac-mini.local:4000"] } }])
+    const html = renderToStaticMarkup(renderSetupCard({ install: h.install, dispatch: h.dispatch, allowed: true, view: h.view, onView: h.onView }))
+    const address = html.slice(html.indexOf('data-step="address"'), html.indexOf('data-step="app_manifest"'))
+    expect(address).toContain('<details class="setup-change"><summary>Change</summary>')
+    expect(address).toContain(">Network</button>")
+    expect(html.match(/<summary>/g)).toHaveLength(1)
+  })
+  test("finished setup offers no Change: Settings changes the address", () => {
+    const h = harness()
+    const html = renderToStaticMarkup(renderSetupCard({ install: h.install, dispatch: h.dispatch, allowed: true, view: h.view, onView: h.onView }))
+    expect(html).not.toContain("<summary>"); h.renderSetup(); expect(h.setup()!.actions).toEqual([])
+  })
   test("completed setup has no step control and callbacks preserve member view state", () => {
     const h = harness(); h.renderSetup(); expect(h.setup()!.actions).toEqual([])
     expect(h.setup()!.view).toBe(h.view); h.setup()!.onView({ maximized: true }); expect(h.patches).toEqual([{ maximized: true }])
@@ -196,7 +218,7 @@ describe("T-APP-03 Containers with recording Views", () => {
 test("after App conversion Setup offers the existing browser sign-in flow", () => {
   const model = installFixture(); model.steps[2] = { id: "sign_in", state: "pending" }
   const h = harness({ model }); h.renderSetup()
-  expect(h.setup()!.actions).toEqual([expect.objectContaining({ tag: "sign-in", label: "Sign in", args: { step: "sign_in" } })])
+  expect(h.setup()!.actions.filter(action => action.args?.step !== "address")).toEqual([expect.objectContaining({ tag: "sign-in", label: "Sign in", args: { step: "sign_in" } })])
   h.setup()!.onAction("sign-in", { step: "sign_in" })
   expect(h.commands).toEqual([{ tag: "sign-in", input: undefined }])
 })
@@ -206,7 +228,7 @@ test("a refused GitHub sign-in shows its reason on the card and offers Sign in a
   const model = installFixture()
   model.steps[2] = { id: "sign_in", state: "failed", error: { code: "unauthenticated", class: "permission", message: "GitHub App needs Email addresses read access" } }
   const h = harness({ model }); h.renderSetup()
-  expect(h.setup()!.actions).toEqual([expect.objectContaining({ tag: "sign-in", label: "Sign in", args: { step: "sign_in" } })])
+  expect(h.setup()!.actions.filter(action => action.args?.step !== "address")).toEqual([expect.objectContaining({ tag: "sign-in", label: "Sign in", args: { step: "sign_in" } })])
   const markup = renderToStaticMarkup(<SetupView {...h.setup()!} />)
   expect(markup).toContain("GitHub App needs Email addresses read access")
   expect(markup).toContain("role=\"alert\"")
@@ -226,7 +248,7 @@ test("a running App step keeps its own control, prefilled, so the person's press
   const model = installFixture(); model.github = { owner: "acme", signed_in: false, app_installed: false }
   model.steps[1] = { id: "app_manifest", state: "running" }; model.steps[2] = { id: "sign_in", state: "pending" }
   const h = harness({ model }); h.renderSetup(); const props = h.setup()!
-  expect(props.actions.map(({ tag, label, args, input, disabled }) => ({ tag, label, args, input, disabled }))).toEqual([{ tag: "settings.setup", label: "Create GitHub App",
+  expect(props.actions.filter(action => action.args?.step !== "address").map(({ tag, label, args, input, disabled }) => ({ tag, label, args, input, disabled }))).toEqual([{ tag: "settings.setup", label: "Create GitHub App",
     args: { step: "app_manifest" }, input: [{ name: "owner", label: "Owner", kind: "text", required: true, value: "acme" }], disabled: undefined }])
   props.onAction("settings.setup", { step: "app_manifest", owner: "acme" })
   expect(h.commands).toEqual([{ tag: "settings.setup", input: { step: "app_manifest", owner: "acme" } }])

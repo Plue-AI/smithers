@@ -2537,7 +2537,7 @@
 :where(.mvp-debug-api .setup-action) button:hover:not(:disabled), .setup-view button:hover:not(:disabled) { background: var(--hover); }
 :where(.mvp-debug-api .setup-action) button:disabled, .setup-view button:disabled { opacity: .6; cursor: default; }
 :where(.mvp-debug-api .setup-action) button[data-primary], .setup-view button[data-primary] { color: var(--on-action-primary); background: var(--action-primary); border-color: var(--action-primary); }
-.setup-view :is(input, select, button, a):focus-visible { outline: 2px solid var(--ring-border); outline-offset: 1px; }
+.setup-view :is(input, select, button, a, summary):focus-visible { outline: 2px solid var(--ring-border); outline-offset: 1px; }
 .setup-copy { display: flex; width: 100%; min-width: 0; align-items: center; gap: 10px; padding: 4px 6px 4px 10px; border: 1px solid var(--border); border-radius: var(--r-1); background: var(--code-bg); }
 .setup-copy code { flex: 1; min-width: 0; }
 .setup-stepper { display: inline-flex; align-items: center; gap: 12px; }
@@ -2550,6 +2550,9 @@
 .setup-model > .setup-action { flex-wrap: nowrap; }
 .setup-model > .setup-muted { white-space: nowrap; }
 .setup-body > .setup-actions { margin-top: 0; width: 100%; }
+.setup-change { width: 100%; }
+.setup-change > summary { width: fit-content; color: var(--text-muted); cursor: pointer; }
+.setup-change[open] > summary { margin-bottom: 8px; }
 .setup-address-failed { display: flex; flex-direction: column; gap: 8px; width: 100%; }
 .setup-address-failed .setup-actions { margin-top: 0; }
 .setup-settings .setup-actions { margin-top: 0; }

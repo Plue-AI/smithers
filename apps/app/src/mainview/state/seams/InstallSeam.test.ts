@@ -179,6 +179,22 @@ describe("T-APP-03 install seam", () => {
     h.seam.setInstallParallel(8); await h.idle()
     expect(JSON.parse(String(h.requests[2]?.init?.body))).toEqual({ parallel: 8 })
   })
+  test("a done Address is sent again while setup is unfinished, and never once setup is done", async () => {
+    const input = { step: "address" as const, bind: "0.0.0.0:4000", origins: ["http://williams-mac-mini.local:4000"] }
+    const model = installFixture(); for (const step of model.steps.slice(1)) step.state = "pending"
+    const h = await harness((_path, init) => Response.json(init?.method === "POST" ? { operationId: "op-1", requestId: "r-1", kind: "install.setup.address", state: "accepted" } : model))
+    await h.seam.readInstall()
+    expect(h.seam.setupStep(input)).toEqual({ value: "Requested" })
+    expect(h.seam.snapshots.get().model?.steps[0]?.state).toBe("running")
+    await tick(); await tick()
+    const posts = h.requests.filter(row => row.init?.method === "POST")
+    expect(posts.map(row => [row.path, JSON.parse(String(row.init!.body))])).toEqual([["/api/install/setup/address", { bind: input.bind, origins: input.origins }]])
+    h.seam.dispose()
+    const finished = await harness(() => Response.json(installFixture()))
+    await finished.seam.readInstall()
+    expect(finished.seam.setupStep(input)).toEqual({ value: "Requested" }); await finished.idle()
+    expect(finished.requests.filter(row => row.init?.method === "POST")).toEqual([])
+  })
   test("refused origins stay inactive and writes remain retryable", async () => {
     const h = await harness((_path, init) => init?.method === "PUT" ? Response.json(failure(), { status: 422 }) : Response.json(installFixture()))
     await h.seam.readInstall(); const address = { listen: "network" as const, bind: "0.0.0.0:4000", origins: ["http://refused.test"] }
