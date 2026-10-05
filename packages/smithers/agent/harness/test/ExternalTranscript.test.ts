@@ -126,8 +126,11 @@ describe("ExternalTranscript", () => {
         "ExternalTranscriptError",
         "ExternalTranscriptErrorCode",
         "Part",
+        "claudeReleases",
+        "claudeStart",
         "codexReleases",
         "codexStart",
+        "decodeClaude",
         "decodeCodex"
       ])
       const source = readFileSync(new URL("../src/ExternalTranscript.ts", import.meta.url), "utf8")

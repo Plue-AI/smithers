@@ -13,6 +13,10 @@
  * the CLI release in `session_meta`. Items come from `event_msg` `item_completed` rows; `response_item` rows
  * repeat them for the model and are skipped, as are usage, rate-limit, settings and context rows.
  *
+ * Claude Code: `<session>.jsonl` files under `~/.claude/projects/<project>`, profile `claude-code/<major.minor>`
+ * from the `version` every conversation record carries. A tool call becomes one entry when its result arrives;
+ * rows outside the conversation chain (no `uuid`) are session metadata and are skipped.
+ *
  * @since 1.0.0-rc.1
  */
 
@@ -108,7 +112,10 @@ export const Entry = Schema.Struct({
   agent_kind: AgentKind,
   format_version: Schema.String,
   session_id: Schema.String,
-  /** The record this entry came from: `<session>:<line>`. */
+  /**
+   * The record this entry came from: `<session>:<line>`. A Claude Code record that yields several entries numbers
+   * the later ones `<session>:<line>#<n>`.
+   */
   source_id: Schema.String,
   read_only: Schema.Literal(true),
   seq: Schema.Number,
@@ -210,8 +217,8 @@ export const codexStart: CodexState = { pending: "", line: 0, seq: 0 }
  * @category models
  * @since 1.0.0-rc.1
  */
-export interface Decoded {
-  readonly state: CodexState
+export interface Decoded<State = CodexState> {
+  readonly state: State
   readonly entries: ReadonlyArray<Entry>
 }
 
@@ -221,6 +228,15 @@ const record = (value: unknown): Json =>
 const text = (value: unknown): string => typeof value === "string" ? value : ""
 const list = (value: unknown): ReadonlyArray<unknown> => Array.isArray(value) ? value : []
 const basename = (path: string): string => path.split("/").filter(Boolean).at(-1) ?? path
+/** One complete line as a JSON record, or `undefined` when it is not one. */
+const parseRow = (raw: string): Json | undefined => {
+  try {
+    const parsed: unknown = JSON.parse(raw)
+    return typeof parsed === "object" && parsed !== null && !Array.isArray(parsed) ? parsed as Json : undefined
+  } catch {
+    return undefined
+  }
+}
 const helperName = (path: unknown): string => basename(text(path)) || "helper"
 
 const reads = (parsed: unknown): ReadonlyArray<string> => {
@@ -237,10 +253,13 @@ const reads = (parsed: unknown): ReadonlyArray<string> => {
   )
 }
 
+/** Lines of an edit string, without the newline that ends the last one. */
+const linesOf = (value: string): ReadonlyArray<string> => value === "" ? [] : value.replace(/\n$/, "").split("\n")
+
 /** An added or deleted file reports its content, not a diff: one hunk of the whole file, all `+` or all `-`. */
 const wholeFile = (content: string, op: "+" | "-"): string => {
-  if (content === "") return ""
-  const lines = content.replace(/\n$/, "").split("\n")
+  const lines = linesOf(content)
+  if (lines.length === 0) return ""
   return `@@ ${op === "+" ? `-0,0 +1,${lines.length}` : `-1,${lines.length} +0,0`} @@\n${
     lines.map((line) => `${op}${line}`).join("\n")
   }\n`
@@ -360,9 +379,10 @@ const itemPart = (item: Json, took: number): { readonly role: Entry["role"]; rea
   }
 }
 
-const versionOf = (release: string): string | undefined => {
+/** The adapter profile `<profile>/<major.minor>` for a supported release, or `undefined`. */
+const profileOf = (profile: string, releases: ReadonlyArray<string>, release: string): string | undefined => {
   const minor = /^(\d+\.\d+)\./.exec(release)?.[1]
-  return minor !== undefined && codexReleases.includes(minor) ? `codex-rollout/${minor}` : undefined
+  return minor !== undefined && releases.includes(minor) ? `${profile}/${minor}` : undefined
 }
 
 /**
@@ -380,12 +400,8 @@ export const decodeCodex = (state: CodexState, chunk: string): Result.Result<Dec
   for (const raw of lines) {
     line++
     if (raw.trim() === "") continue
-    let row: Json
-    try {
-      const parsed: unknown = JSON.parse(raw)
-      if (typeof parsed !== "object" || parsed === null || Array.isArray(parsed)) throw new TypeError("not a record")
-      row = parsed as Json
-    } catch {
+    const row = parseRow(raw)
+    if (row === undefined) {
       return Result.fail(
         new ExternalTranscriptError({
           code: "malformed_record",
@@ -397,7 +413,7 @@ export const decodeCodex = (state: CodexState, chunk: string): Result.Result<Dec
     const payload = record(row["payload"])
     if (row["type"] === "session_meta") {
       const release = text(payload["cli_version"])
-      const format_version = versionOf(release)
+      const format_version = profileOf("codex-rollout", codexReleases, release)
       if (format_version === undefined) {
         return Result.fail(
           new ExternalTranscriptError({
@@ -454,4 +470,342 @@ export const decodeCodex = (state: CodexState, chunk: string): Result.Result<Dec
     })
   }
   return Result.succeed({ state: { pending, line, seq, session, goal }, entries })
+}
+
+/**
+ * The Claude Code release lines whose transcript shape this module reads, by `major.minor`.
+ *
+ * @category constants
+ * @since 1.0.0-rc.1
+ */
+export const claudeReleases: ReadonlyArray<string> = ["2.1"]
+
+/**
+ * A Claude Code tool call waiting for its result: the tool's name, its input and when the agent asked.
+ *
+ * @category models
+ * @since 1.0.0-rc.1
+ */
+export interface ClaudeCall {
+  readonly name: string
+  readonly input: unknown
+  /** Milliseconds since the epoch, from the `tool_use` record. */
+  readonly at: number
+}
+
+/**
+ * What a Claude Code decode remembers between chunks.
+ *
+ * @category models
+ * @since 1.0.0-rc.1
+ */
+export interface ClaudeState {
+  /** Bytes after the last newline: a line the agent is still writing. */
+  readonly pending: string
+  /** Complete lines read so far. */
+  readonly line: number
+  /** Entries emitted so far. */
+  readonly seq: number
+  /** The session the first conversation record named. */
+  readonly session?: string | undefined
+  /** The `promptId` of the latest user record: the turn later entries belong to. */
+  readonly turn?: string | undefined
+  /** Tool calls whose result has not arrived, by `tool_use` id. */
+  readonly calls: Readonly<Record<string, ClaudeCall>>
+}
+
+/**
+ * The state before the first byte.
+ *
+ * @category constructors
+ * @since 1.0.0-rc.1
+ */
+export const claudeStart: ClaudeState = { pending: "", line: 0, seq: 0, calls: {} }
+
+/** Content as blocks: Claude Code writes a plain prompt as a string and everything else as a block list. */
+const blocksOf = (content: unknown): ReadonlyArray<Json> =>
+  typeof content === "string" ? [{ type: "text", text: content }] : list(content).map(record)
+
+const textOf = (blocks: ReadonlyArray<Json>): string =>
+  blocks.filter((block) => block["type"] === "text").map((block) => text(block["text"])).join("\n")
+
+/** A user turn is the owner's when Claude Code classified it human or did not classify it. */
+const byOwner = (origin: unknown): boolean =>
+  origin === undefined || origin === null || record(origin)["kind"] === "human"
+
+/**
+ * A requested replacement as one hunk. Claude Code reports no position for a replacement it did not apply, so the
+ * hunk starts at line 1.
+ */
+const replacement = (before: string, after: string): string => {
+  const removed = linesOf(before), added = linesOf(after)
+  if (removed.length + added.length === 0) return ""
+  return `@@ -1,${removed.length} +1,${added.length} @@\n${
+    [...removed.map((line) => `-${line}`), ...added.map((line) => `+${line}`)].join("\n")
+  }\n`
+}
+
+const count = (value: unknown): number => typeof value === "number" ? value : 0
+
+/** The hunks Claude Code reported for an applied edit (`toolUseResult.structuredPatch`). */
+const reportedPatch = (patch: unknown): string =>
+  list(patch).map(record).map((hunk) =>
+    `@@ -${count(hunk["oldStart"])},${count(hunk["oldLines"])} +${count(hunk["newStart"])},${
+      count(hunk["newLines"])
+    } @@\n${list(hunk["lines"]).map(text).join("\n")}\n`
+  ).join("")
+
+/** The edit the agent asked for, from the tool input, when Claude Code reported no hunks. */
+const requestedPatch = (name: string, input: Json): string => {
+  switch (name) {
+    case "Write":
+      return wholeFile(text(input["content"]), "+")
+    case "NotebookEdit":
+      return wholeFile(text(input["new_source"]), "+")
+    case "MultiEdit":
+      return list(input["edits"]).map(record).map((edit) =>
+        replacement(text(edit["old_string"]), text(edit["new_string"]))
+      ).join("")
+    default:
+      return replacement(text(input["old_string"]), text(input["new_string"]))
+  }
+}
+
+/** The reads label of a tool that only reads, searches or lists, or none. */
+const claudeReads = (name: string, input: Json): ReadonlyArray<string> => {
+  const path = text(input["path"])
+  switch (name) {
+    case "Read":
+      return [`Read ${basename(text(input["file_path"]))}`]
+    case "Grep":
+    case "Glob":
+      return [`Searched ${JSON.stringify(text(input["pattern"]))}${path ? ` in ${basename(path)}` : ""}`]
+    case "LS":
+      return [`Listed ${basename(path) || "files"}`]
+    default:
+      return []
+  }
+}
+
+/** One finished tool call: its `tool_use` (when this transcript holds it) and the `tool_result` that ended it. */
+const claudeToolPart = (
+  id: string,
+  call: ClaudeCall | undefined,
+  result: { readonly failed: boolean; readonly output: string; readonly report: Json; readonly took: number }
+): Part => {
+  const name = call?.name ?? ""
+  const input = record(call?.input)
+  switch (name) {
+    case "Edit":
+    case "Write":
+    case "MultiEdit":
+    case "NotebookEdit":
+      return {
+        type: "edit",
+        call_id: id,
+        files: [{
+          path: text(input["file_path"]) || text(input["notebook_path"]),
+          change: name === "Write" && result.report["type"] === "create" ? "added" : "modified",
+          diff: reportedPatch(result.report["structuredPatch"]) || requestedPatch(name, input)
+        }],
+        outcome: result.failed ? "failed" : "applied"
+      }
+    case "WebSearch":
+      return { type: "search", call_id: id, query: text(input["query"]) }
+    case "WebFetch":
+      return { type: "search", call_id: id, query: text(input["url"]) }
+    case "Task":
+    case "Agent":
+      return {
+        type: "helper",
+        call_id: id,
+        agent: text(input["subagent_type"]) || "general-purpose",
+        activity: text(input["description"])
+      }
+  }
+  const exit = result.failed ? /^Exit code (\d+)/.exec(result.output)?.[1] : undefined
+  return {
+    type: "tool",
+    call_id: id,
+    command: name === "Bash"
+      ? text(input["command"])
+      : Object.keys(input).length === 0
+      ? name
+      : `${name} ${JSON.stringify(input)}`,
+    reads: claudeReads(name, input),
+    status: result.failed ? "error" : "ok",
+    ...(exit === undefined ? {} : { exit_code: Number(exit) }),
+    output: result.output,
+    duration_ms: result.took
+  }
+}
+
+/** An `error` part for a record or block kind this release does not read, named so a person can report it. */
+const unread = (kind: "record" | "content block", type: unknown): Part => ({
+  type: "error",
+  message: `Claude Code wrote a ${kind} this release does not read: ${text(type) || "unnamed"}`
+})
+
+/** The owner's words in a user record, or `undefined` for Claude Code's own output of a local command. */
+const ownerText = (said: string): Part | undefined => {
+  if (/^\[Request interrupted by user[^\]]*\]$/.test(said)) return { type: "error", message: said }
+  if (/^<(?:local-command-std(?:out|err)|bash-std(?:out|err))>/.test(said)) return undefined
+  // Claude Code writes a slash command as tags that open the record; a prompt that mentions them stays as typed.
+  const command = /^<command-(?:name|message)>/.test(said)
+    ? /<command-name>([^<]*)<\/command-name>/.exec(said)?.[1]
+    : undefined
+  if (command !== undefined) {
+    const args = /<command-args>([\s\S]*?)<\/command-args>/.exec(said)?.[1]?.trim()
+    return { type: "prompt", text: args ? `${command} ${args}` : command }
+  }
+  const shell = /^<bash-input>([\s\S]*)<\/bash-input>$/.exec(said)?.[1]
+  return { type: "prompt", text: shell === undefined ? said : `!${shell.trim()}` }
+}
+
+/**
+ * Decode the next chunk of a Claude Code session transcript. Pass `claudeStart` with the first chunk and the
+ * returned state with each following one; any partition of the same bytes yields the same entries.
+ *
+ * Entries follow the order of the records that complete them. A tool call is held in `state.calls` from its
+ * `tool_use` record until the `tool_result` with the same id arrives, and becomes one entry at the result's line;
+ * a call whose result never arrives emits nothing.
+ *
+ * @category decoding
+ * @since 1.0.0-rc.1
+ */
+export const decodeClaude = (
+  state: ClaudeState,
+  chunk: string
+): Result.Result<Decoded<ClaudeState>, ExternalTranscriptError> => {
+  const lines = (state.pending + chunk).split("\n")
+  const pending = lines.pop()!
+  let { line, seq, session, turn } = state
+  const calls = new Map(Object.entries(state.calls))
+  const entries: Array<Entry> = []
+  const fail = (code: ExternalTranscriptErrorCode, message: string) =>
+    Result.fail(new ExternalTranscriptError({ code, message, line }))
+  for (const raw of lines) {
+    line++
+    if (raw.trim() === "") continue
+    const row = parseRow(raw)
+    if (row === undefined) return fail("malformed_record", `Claude Code transcript line ${line} is not a JSON record.`)
+    // Conversation records chain by uuid; queue, mode, title, cost and file-history rows do not.
+    if (typeof row["uuid"] !== "string") continue
+    const release = text(row["version"])
+    if (release === "") return fail("missing_version", `Claude Code transcript line ${line} names no release.`)
+    const format_version = profileOf("claude-code", claudeReleases, release)
+    if (format_version === undefined) {
+      return fail(
+        "unsupported_version",
+        `Claude Code ${release} wrote this transcript; supported: ${claudeReleases.join(", ")}.`
+      )
+    }
+    session ??= text(row["sessionId"]) || undefined
+    if (session === undefined) {
+      return fail("malformed_record", `Claude Code transcript line ${line} names no session.`)
+    }
+    const sessionId = session
+    // A subagent's records belong to its own transcript; the main one shows the call as a helper.
+    if (row["isSidechain"] === true) continue
+    const at = Date.parse(text(row["timestamp"])) || 0
+    if (row["type"] === "user" && typeof row["promptId"] === "string" && row["promptId"] !== "") {
+      turn = row["promptId"]
+    }
+    const found: Array<{ readonly role: Entry["role"]; readonly part: Part }> = []
+    const said = (part: Part) => found.push({ role: "assistant", part })
+    const message = record(row["message"])
+    switch (row["type"]) {
+      case "user": {
+        const blocks = blocksOf(message["content"])
+        for (const block of blocks) {
+          if (block["type"] === "tool_result") {
+            const callId = text(block["tool_use_id"])
+            const call = calls.get(callId)
+            calls.delete(callId)
+            const content = block["content"]
+            said(claudeToolPart(callId, call, {
+              failed: block["is_error"] === true,
+              output: typeof content === "string" ? content : textOf(list(content).map(record)),
+              report: record(row["toolUseResult"]),
+              took: call !== undefined && call.at > 0 && at > call.at ? at - call.at : 0
+            }))
+          } else if (block["type"] !== "text" && block["type"] !== "image") {
+            said(unread("content block", block["type"]))
+          }
+        }
+        const words = textOf(blocks)
+        // Skill bodies, caveats and summaries Claude Code injects are not the owner's; nor are task notifications
+        // or messages from other sessions.
+        if (words === "" || row["isMeta"] === true || row["isCompactSummary"] === true || !byOwner(row["origin"])) break
+        const part = ownerText(words)
+        if (part !== undefined) found.push({ role: part.type === "prompt" ? "user" : "assistant", part })
+        break
+      }
+      case "assistant": {
+        const blocks = blocksOf(message["content"])
+        if (row["isApiErrorMessage"] === true) {
+          said({ type: "error", message: textOf(blocks) || text(row["error"]) })
+          break
+        }
+        for (const block of blocks) {
+          switch (block["type"]) {
+            case "text":
+              if (text(block["text"]) !== "") {
+                said({ type: "text", text: text(block["text"]), final: message["stop_reason"] === "end_turn" })
+              }
+              break
+            case "thinking":
+              // Claude Code keeps only the signature of most thinking; an empty body has nothing to show.
+              if (text(block["thinking"]) !== "") said({ type: "reasoning", text: text(block["thinking"]) })
+              break
+            case "redacted_thinking":
+              break
+            case "tool_use":
+              calls.set(text(block["id"]), { name: text(block["name"]), input: block["input"] ?? {}, at })
+              break
+            default:
+              said(unread("content block", block["type"]))
+          }
+        }
+        break
+      }
+      case "system":
+        // Every other subtype is a status line: turn timing, hook summaries, retries, usage-limit notices.
+        if (row["subtype"] === "compact_boundary") said({ type: "compaction" })
+        break
+      case "attachment": {
+        // Context Claude Code attaches for the model, except a prompt the owner queued while the agent worked.
+        const attachment = record(row["attachment"])
+        if (
+          attachment["type"] === "queued_command" && attachment["commandMode"] === "prompt" &&
+          attachment["isMeta"] !== true && byOwner(attachment["origin"])
+        ) {
+          const words = textOf(blocksOf(attachment["prompt"]))
+          if (words !== "") found.push({ role: "user", part: { type: "prompt", text: words } })
+        }
+        break
+      }
+      default:
+        said(unread("record", row["type"]))
+    }
+    found.forEach(({ part, role }, index) => {
+      entries.push({
+        origin: "external",
+        agent_kind: "claude-code",
+        format_version,
+        session_id: sessionId,
+        source_id: index === 0 ? `${sessionId}:${line}` : `${sessionId}:${line}#${index}`,
+        read_only: true,
+        seq: seq++,
+        at,
+        ...(turn === undefined ? {} : { turn_id: turn }),
+        role,
+        part
+      })
+    })
+  }
+  return Result.succeed({
+    state: { pending, line, seq, session, turn, calls: Object.fromEntries(calls) },
+    entries
+  })
 }

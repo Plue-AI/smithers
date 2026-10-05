@@ -72,7 +72,7 @@ behavior and signatures.
 | `Tokens`                     | `Count`, `Segment`, `Accounting`, `Estimator`, `estimate`, `count`, `combine`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                             | Deterministic token accounting for context windows.                                                      |
 | `ContextWindow`              | `TypeId`, `SegmentKind`, `SegmentZone`, `Content`, `Mark`, `ContextWindowErrorCode`, `ContextWindowError`, `Segment`, `ContextWindow`, `SegmentInput`, `MakeOptions`, `makeSegment`, `make`, `empty`, `appendTurn`, `prefixDigest`, `compactMarked`, `compactPrefix`, `compact`, `render`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                 | The immutable, provider-neutral context assembled for one model request.                                 |
 | `Transcript`                 | `journalVersion`, `validateJournal`, `TranscriptErrorCode`, `TranscriptError`, `ProjectedMessage`, `ProjectedState`, `CellEvidence`, `projectStateResult`, `projectResult`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                | Transcript projection from durable journal entries.                                                      |
-| `ExternalTranscript`         | `AgentKind`, `EditedFile`, `Part`, `Entry`, `ExternalTranscriptErrorCode`, `ExternalTranscriptError`, `codexReleases`, `CodexState`, `codexStart`, `Decoded`, `decodeCodex`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                               | Read-only conversation entries decoded from another agent's transcript file.                             |
+| `ExternalTranscript`         | `AgentKind`, `EditedFile`, `Part`, `Entry`, `ExternalTranscriptErrorCode`, `ExternalTranscriptError`, `codexReleases`, `CodexState`, `codexStart`, `Decoded`, `decodeCodex`, `claudeReleases`, `ClaudeCall`, `ClaudeState`, `claudeStart`, `decodeClaude`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                 | Read-only conversation entries decoded from another agent's transcript file.                             |
 | `Compaction`                 | `summaryInstruction`, `InvalidStep`, `Summarizer`, `CompactionStep`, `TokenAccounting`, `shouldCompact`, `selectPrefix`, `declare`, `summaryRequest`, `apply`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                             | Declarations for sealed transcript-summary steps.                                                        |
 | `Steering`                   | `Delivery`, `SteerInsert`, `QueueInsert`, `Insert`, `SeatChange`, `ThinkingChange`, `Item`, `Queue`, `Drain`, `BoundaryInput`, `DrainRecord`, `drainRecord`, `empty`, `enqueue`, `drainAtClose`, `Source`, `SourceInput`, `make`, `makeNoop`, `layer`, `layerNoop`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                        | Turn-boundary steering values and their source contract.                                                 |
 | `Notifications`              | `Options`, `make`, `layer`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                | Adapter from the durable notification queue to harness turn boundaries.                                  |
@@ -1194,47 +1194,96 @@ all messages preceding the event.
 `import * as ExternalTranscript from "@smthrs/harness/ExternalTranscript"`
 
 Read-only conversation entries decoded from the transcript file of an agent a
-person runs beside Smithers. Codex CLI is the one format today:
-`decodeCodex` reads the `rollout-*.jsonl` file Codex writes under
-`$CODEX_HOME/sessions`. Decoding is pure. It performs no I/O, reads no clock,
-needs no provider and registers no importer; the host reads the file and keeps
-the state.
+person runs beside Smithers. Two formats decode: `decodeCodex` reads the
+`rollout-*.jsonl` file Codex CLI writes under `$CODEX_HOME/sessions`, and
+`decodeClaude` reads the `<session>.jsonl` file Claude Code writes under
+`~/.claude/projects/<project>`. Decoding is pure. It performs no I/O, reads no
+clock, needs no provider and registers no importer; the host reads the file and
+keeps the state.
 
-Every `Entry` carries `origin: "external"`, `agent_kind`, `format_version`,
-`session_id`, `source_id` (`<session>:<line>`), `read_only: true`, `seq` (entry
-order from 0), `at` (the record's time in epoch milliseconds, 0 when it has
-none), an optional `turn_id`, `role` and one `Part`. A rollout has no schema
-version of its own, so `format_version` is the adapter profile
-`codex-rollout/<major.minor>` named by the CLI release in `session_meta`.
-`role` is `user` for the owner's prompts and goals and `assistant` for
-everything else, by record kind; transcript text never sets it, and who the
-owner and the agent participant are is the caller's to supply.
+Every `Entry` carries `origin: "external"`, `agent_kind` (`codex` or
+`claude-code`), `format_version`, `session_id`, `source_id`
+(`<session>:<line>`), `read_only: true`, `seq` (entry order from 0), `at` (the
+record's time in epoch milliseconds, 0 when it has none), an optional
+`turn_id`, `role` and one `Part`. Neither format has a schema version of its
+own, so `format_version` is an adapter profile named by the CLI release:
+`codex-rollout/<major.minor>` from `session_meta`, or `claude-code/<major.minor>`
+from the `version` on each Claude Code record. `role` is `user` for the owner's
+prompts and goals and `assistant` for everything else, by record kind;
+transcript text never sets it, and who the owner and the agent participant are
+is the caller's to supply.
 
 A `Part` is a `prompt`, a `goal`, `text` (`final` on the turn's answer),
-`reasoning` (only a summary Codex chose to write), `encrypted` (a placeholder
-for a body Codex encrypted, never dropped), `tool` (call id, command, `reads`
-labels such as `Read mvp.md` when every part of the command only reads,
-searches or lists, status, exit code, output and duration), `edit` (call id,
-each `EditedFile` with its unified diff, and `applied` or `failed`), `search`,
-`helper`, `compaction`, or `error` for an item kind this release does not read.
-Entries come from `event_msg` `item_completed` rows and from
-`thread_goal_updated` rows whose objective or status changed. `response_item`
-copies and usage, settings and context rows are skipped.
+`reasoning`, `encrypted` (a placeholder for a body Codex encrypted, never
+dropped), `tool` (call id, command, `reads` labels such as `Read mvp.md` when
+the call only reads, searches or lists, status, exit code, output and
+duration), `edit` (call id, each `EditedFile` with its unified diff, and
+`applied` or `failed`), `search`, `helper`, `compaction`, or `error` for a
+failure the agent reported or a record kind this release does not read.
 
-`decodeCodex(state, chunk)` returns `Result<Decoded, ExternalTranscriptError>`:
-the entries the chunk completed and the `CodexState` to pass with the next
-chunk. Start from `codexStart`. Any partition of the same text yields the same
-entries, and a last line without its newline waits in `state.pending` until it
-completes. The state is plain JSON, so a host can persist it and resume
-tailing. Chunks are strings; a host reading bytes decodes them with a
-streaming `TextDecoder` first.
+### Codex
+
+Entries come from `event_msg` `item_completed` rows and from
+`thread_goal_updated` rows whose objective or status changed. `reasoning` is
+only a summary Codex chose to write. `response_item` copies and usage,
+settings and context rows are skipped.
+
+### Claude Code
+
+Claude Code chains its conversation records by `uuid`. Rows without one
+(`mode`, `permission-mode`, `queue-operation`, `last-prompt`, `ai-title`,
+`file-history-snapshot`, `cost-state` and the like) are session metadata and
+are skipped, as are `isSidechain` rows, which belong to a subagent's own
+transcript. The session is the `sessionId` of the first conversation record,
+and `turn_id` is the `promptId` of the latest user record.
+
+| Record                                                                   | Part                                                                                                              |
+| ------------------------------------------------------------------------ | ----------------------------------------------------------------------------------------------------------------- |
+| `user` text the owner wrote (`origin` `human` or none)                   | `prompt`; a slash command reads as `/<name> <args>` and a shell command as `!<command>`                           |
+| `user` `[Request interrupted by user…]`                                  | `error` with that text                                                                                            |
+| `user` `isMeta`, `isCompactSummary`, other origins, local command output | Skipped: skill bodies, caveats, summaries, task notifications, peer messages, `<local-command-stdout>`            |
+| `assistant` `text`                                                       | `text`, `final` when the message's `stop_reason` is `end_turn`                                                    |
+| `assistant` `thinking`                                                   | `reasoning` when it has a body; empty and `redacted_thinking` blocks are skipped                                  |
+| `assistant` with `isApiErrorMessage`                                     | `error` with Claude Code's message                                                                                |
+| `tool_use` `Bash`, then its `tool_result`                                | `tool` with the command, `ok` or `error`, the exit code Claude Code reports as `Exit code N`, output and duration |
+| `Read`, `Grep`, `Glob`, `LS`                                             | `tool` with a `reads` label: `Read a.ts`, `Searched "q" in src`, `Listed apps`                                    |
+| `Edit`, `Write`, `MultiEdit`, `NotebookEdit`                             | `edit`: Claude Code's reported hunks, or the requested change when none; `failed` when the result is an error     |
+| `WebSearch`, `WebFetch`                                                  | `search` for the query or address                                                                                 |
+| `Agent`, `Task`                                                          | `helper` named by `subagent_type`, with the call's description                                                    |
+| any other tool                                                           | `tool` whose command is the tool's name and its input as JSON                                                     |
+| `system` `compact_boundary`                                              | `compaction`; every other `system` subtype is a status line and is skipped                                        |
+| `attachment` `queued_command` the owner typed while the agent worked     | `prompt`; every other attachment is context for the model and is skipped                                          |
+| a record or content block of a kind this release does not read           | `error` naming it                                                                                                 |
+
+A tool call waits in `state.calls` from its `tool_use` record until the
+`tool_result` with the same id arrives, and becomes one entry at the result's
+line, so two calls issued together appear in the order their results arrive.
+A call whose result never arrives emits nothing. A `Write` is `added` when
+Claude Code reports it created the file; a requested replacement Claude Code
+did not apply has no known position, so its hunk starts at line 1. Entries
+follow file order: when the owner edits and resends a prompt, Claude Code
+writes the new branch after the old one and both appear. A record that yields
+several entries numbers the later ones `<session>:<line>#<n>`.
+
+### Decoding
+
+`decodeCodex(state, chunk)` and `decodeClaude(state, chunk)` return
+`Result<Decoded<State>, ExternalTranscriptError>`: the entries the chunk
+completed and the `CodexState` or `ClaudeState` to pass with the next chunk.
+Start from `codexStart` or `claudeStart`. Any partition of the same text
+yields the same entries, and a last line without its newline waits in
+`state.pending` until it completes. The state is plain JSON, held calls
+included, so a host can persist it and resume tailing. Chunks are strings; a
+host reading bytes decodes them with a streaming `TextDecoder` first.
 
 `ExternalTranscriptError.code` is one of:
 
-- `missing_version`: a row comes before the `session_meta` row.
-- `unsupported_version`: `session_meta` names no release, or a release outside
-  `codexReleases` (`0.159`, `0.160`).
-- `malformed_record`: a complete line is not JSON.
+- `missing_version`: a Codex row comes before the `session_meta` row, or a
+  Claude Code conversation record carries no `version`.
+- `unsupported_version`: the release is missing (Codex) or outside
+  `codexReleases` (`0.159`, `0.160`) or `claudeReleases` (`2.1`).
+- `malformed_record`: a complete line is not a JSON record, or the first
+  Claude Code conversation record names no session.
 
 Each error carries the 1-based `line` the decode stopped at. `Fault` classifies
 all three as `dependency`: the agent wrote a transcript this release cannot
