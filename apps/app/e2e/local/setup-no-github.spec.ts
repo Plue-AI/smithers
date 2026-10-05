@@ -227,6 +227,30 @@ test("9 PR", async ({}, info) => {
   await expect(todoCard().getByRole("region", { name: /^Attempt \d+ evidence$/ }).last()).toBeVisible()
   expect(await writes()).toEqual(expect.arrayContaining([expect.objectContaining({ method: "POST", path: "/repos/local-owner/demo/pulls", status: 201 })]))
 })
+test("9 review", async ({}, info) => {
+  info.annotations.push({ type: "owner", description: "f6-lane-release (T-MCH-06 #3567): the review runs on a lane of its own once the coding lane's machine stops" })
+  test.setTimeout(6 * 60_000)
+  // The review lane needs a machine: the retired coding lane's machine stopped, so even a host with room for one
+  // machine starts it. A lane that failed to start is a failure, never a wait.
+  type Evidence = { items: { kind: string; summary?: string }[] }
+  const reviewOf = (todo: { evidence: Evidence[] }) => todo.evidence.flatMap(attempt => attempt.items).find(item => item.kind === "review")
+  const began = Date.now()
+  let todo = await served()
+  for (; !reviewOf(todo); todo = await served()) {
+    if (todo.branch?.machine?.state === "failed" || Date.now() - began > 5 * 60_000) {
+      throw new Error(`no review on the card after ${Math.round((Date.now() - began) / 1000)} s: ${JSON.stringify({ state: todo.state, branch: todo.branch, evidence: todo.evidence })}`)
+    }
+    await page.waitForTimeout(1_000)
+  }
+  expect(reviewOf(todo)?.summary).toBe("approve")
+  expect(new Set((await modelRequests()).map((entry: { step?: string }) => entry.step))).toContain("review/change")
+  // The review lane is released once it answers; the card keeps naming the TODO's branch, the pull request's
+  // head branch, on its own lane machine, asleep while a person decides.
+  await expect.poll(async () => {
+    const branch = (await served()).branch
+    return branch && /^smithers\//.test(branch.name) ? branch.machine.state : JSON.stringify(branch ?? null)
+  }, { timeout: 60_000 }).toBe("asleep")
+})
 test("10 merge", async ({}, info) => {
   info.annotations.push({ type: "owner", description: "J1 rehearsal rows 'Merge in Smithers' and 'Merged' (T-STK-04 merge readiness and dispatch; now passing)" })
   const input = page.getByTestId("composer-input")
@@ -241,5 +265,7 @@ test("10 merge", async ({}, info) => {
   await review.getByRole("button", { name: "Merge", exact: true }).click()
   expect((await merge).postDataJSON()).toEqual({ reviewed_head_sha: head })
   await showsServedState("merged")
+  // A merged TODO has left the stack: its card names no place.
+  await expect(todoCard().locator("header")).not.toContainText("Next to merge")
   expect(await writes()).toEqual(expect.arrayContaining([expect.objectContaining({ method: "PUT", path: "/repos/local-owner/demo/pulls/1/merge", status: 200 })]))
 })
