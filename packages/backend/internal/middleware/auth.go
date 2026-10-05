@@ -320,29 +320,38 @@ func loadSessionAuth(
 			return nil, nil, err
 		}
 	}
-	if !session.ExpiresAt.After(now) {
-		return nil, nil, nil
+	info, err := sessionAuthInfo(ctx, queries, session, sessionStorageKey(sessionKey), now)
+	if info == nil || err != nil {
+		return nil, nil, err
 	}
+	return info, &session, nil
+}
 
+// sessionAuthInfo is a found session's authentication: nil when it has
+// expired or its account is not enabled, an error only when the store could
+// not answer.
+func sessionAuthInfo(ctx context.Context, queries AuthLoaderQuerier, session db.AuthSession, storageKey string, now time.Time) (*AuthInfo, error) {
+	if !session.ExpiresAt.After(now) {
+		return nil, nil
+	}
 	user, err := queries.GetUserByID(ctx, session.UserID)
 	if err != nil {
 		if stdErrors.Is(err, pgx.ErrNoRows) {
-			return nil, nil, nil
+			return nil, nil
 		}
-		return nil, nil, err
+		return nil, err
 	}
 	// Same "enabled" predicate as token auth and the
 	// publish_user_access_change trigger.
 	if !user.IsActive || user.ProhibitLogin || user.DeletedAt.Valid {
-		return nil, nil, nil
+		return nil, nil
 	}
-
 	return &AuthInfo{
 		User:        &user,
 		IsTokenAuth: false,
-		SessionHash: sessionStorageKey(sessionKey),
+		SessionHash: storageKey,
 		Scopes:      ScopeSet{},
-	}, &session, nil
+	}, nil
 }
 
 func refreshLoadedSession(

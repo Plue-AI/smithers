@@ -33,6 +33,7 @@ import (
 	"github.com/smithersai/smithers/packages/backend/internal/database"
 	"github.com/smithersai/smithers/packages/backend/internal/db"
 	"github.com/smithersai/smithers/packages/backend/internal/email"
+	"github.com/smithersai/smithers/packages/backend/internal/identity"
 	"github.com/smithersai/smithers/packages/backend/internal/lfsauth"
 	"github.com/smithersai/smithers/packages/backend/internal/middleware"
 	"github.com/smithersai/smithers/packages/backend/internal/observability"
@@ -1245,8 +1246,9 @@ func runWithOptions(ctx context.Context, args []string, stdout, stderr io.Writer
 		return fmt.Errorf("initialize chat runtime: %w", err)
 	}
 	if config.IsSingleOwner(cfg.Auth) {
-		// Questions read the install's mirrored main once Source is ready.
-		chatSizing.Sources = services.InstallSource{Pool: pool, Repos: repoService}
+		// Questions read the install's mirrored main once Source is ready, as
+		// the credential that asked, behind the same member boundary.
+		chatSizing.Sources = services.InstallSource{Pool: pool, Repos: repoService, Members: identity.NewMemberBoundary(queries)}
 	}
 	chatService, err := newChatComposition(options, pool, chatSizing)
 	if err != nil {

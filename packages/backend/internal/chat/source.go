@@ -5,23 +5,109 @@ import (
 	"errors"
 	"log/slog"
 	"net/http"
+	"sync"
+	"time"
 
+	"github.com/smithersai/smithers/packages/backend/internal/middleware"
 	"github.com/smithersai/smithers/packages/backend/ports"
 )
 
 // SourceReadPath is the producer callback a turn's model host reads its
-// repository through. The producer capability authorizes it, and the read
-// runs as the turn's author.
+// repository through. The producer capability names the turn, and the read
+// runs as the credential that admitted it.
 const SourceReadPath = "/internal/chat/source/read"
 
-// SourceReader serves app-agent reads of a repository's mirrored main for one
-// member. The single-owner install composes it; a deployment without one
-// offers the model no source tool and refuses the callback.
+// SourceReader serves app-agent reads of a repository's mirrored main for the
+// credential that admitted a turn, resolved again at each call. The
+// single-owner install composes it; a deployment without one offers the
+// model no source and refuses the callback.
 type SourceReader interface {
-	// Source names the repository the member may read, or refuses with
+	// Source names the repository the turn may read, or refuses with
 	// ports.ErrSourceNotReady or ports.ErrSourceForbidden.
-	Source(ctx context.Context, userID, repositoryID int64) (string, error)
-	ReadSource(ctx context.Context, userID, repositoryID int64, path string) (ports.SourceFile, error)
+	Source(ctx context.Context, credential middleware.Credential, userID, repositoryID int64) (string, error)
+	ReadSource(ctx context.Context, credential middleware.Credential, userID, repositoryID int64, path string) (ports.SourceFile, error)
+}
+
+// turnCredentialLifetime bounds how long a turn reads as the credential that
+// admitted it: a turn credential's lifetime (spec §5.3, T-ACC-04).
+const turnCredentialLifetime = time.Hour
+
+// turnKey is a turn's public identity, known before admission assigns its id.
+type turnKey struct {
+	userID       int64
+	runID, legID string
+}
+
+type admittedCredential struct {
+	credential middleware.Credential
+	at         time.Time
+}
+
+// turnCredentials keeps, for each turn this process admitted, the credential
+// that admitted it. A host-owned turn reads source only as that credential,
+// so its reads carry the admitting request's authority, and end when the
+// credential is revoked, expires or loses a scope. A turn this process did not
+// admit, such as one recovered after a restart, reads nothing.
+type turnCredentials struct {
+	mu       sync.Mutex
+	now      func() time.Time
+	admitted map[turnKey]admittedCredential
+}
+
+func newTurnCredentials() *turnCredentials {
+	return &turnCredentials{now: time.Now, admitted: map[turnKey]admittedCredential{}}
+}
+
+// admit records the credential admitting a turn unless one is recorded.
+// release undoes this call's record, for an admission that did not accept.
+func (c *turnCredentials) admit(key turnKey, credential middleware.Credential) (release func()) {
+	if c == nil || credential == (middleware.Credential{}) {
+		return func() {}
+	}
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	now := c.now()
+	for admittedKey, admitted := range c.admitted {
+		if now.Sub(admitted.at) >= turnCredentialLifetime {
+			delete(c.admitted, admittedKey)
+		}
+	}
+	if _, exists := c.admitted[key]; exists {
+		return func() {}
+	}
+	recorded := admittedCredential{credential: credential, at: now}
+	c.admitted[key] = recorded
+	return func() {
+		c.mu.Lock()
+		defer c.mu.Unlock()
+		if current, ok := c.admitted[key]; ok && current == recorded {
+			delete(c.admitted, key)
+		}
+	}
+}
+
+// credential is the credential that admitted a turn, while it may still act.
+func (c *turnCredentials) credential(key turnKey) (middleware.Credential, bool) {
+	if c == nil {
+		return middleware.Credential{}, false
+	}
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	admitted, ok := c.admitted[key]
+	if !ok || c.now().Sub(admitted.at) >= turnCredentialLifetime {
+		return middleware.Credential{}, false
+	}
+	return admitted.credential, true
+}
+
+// end forgets a finished turn's credential.
+func (c *turnCredentials) end(key turnKey) {
+	if c == nil {
+		return
+	}
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	delete(c.admitted, key)
 }
 
 type sourceReadRequest struct {
@@ -30,8 +116,9 @@ type sourceReadRequest struct {
 	Path       string `json:"path"`
 }
 
-// SourceRead serves one file to a live producer. The read is the turn
-// author's: a fenced, cancelled, expired or finished turn reads nothing.
+// SourceRead serves one file to a live producer, read as the credential that
+// admitted its turn: a fenced, cancelled, expired or finished turn, or one
+// whose admitting credential is unknown here, reads nothing.
 func (h *Handler) SourceRead(w http.ResponseWriter, r *http.Request) {
 	if h.Store == nil {
 		writeProblem(w, http.StatusServiceUnavailable, "storage_failed")
@@ -46,7 +133,7 @@ func (h *Handler) SourceRead(w http.ResponseWriter, r *http.Request) {
 		writeProblem(w, http.StatusUnauthorized, "producer_fenced")
 		return
 	}
-	scope, err := h.Store.Producer(r.Context(), request.TurnID, request.Generation, token)
+	turn, err := h.Store.Producer(r.Context(), request.TurnID, request.Generation, token)
 	if err != nil {
 		producerError(w, err)
 		return
@@ -55,7 +142,12 @@ func (h *Handler) SourceRead(w http.ResponseWriter, r *http.Request) {
 		writeProblem(w, http.StatusServiceUnavailable, "source_unavailable")
 		return
 	}
-	file, err := h.Sources.ReadSource(r.Context(), scope.UserID, scope.RepositoryID, request.Path)
+	credential, admitted := h.credentials.credential(turnKey{userID: turn.UserID, runID: turn.RunID, legID: turn.LegID})
+	if !admitted {
+		writeProblem(w, http.StatusForbidden, "forbidden")
+		return
+	}
+	file, err := h.Sources.ReadSource(r.Context(), credential, turn.UserID, turn.RepositoryID, request.Path)
 	switch {
 	case err == nil:
 		writeJSON(w, http.StatusOK, file)

@@ -251,7 +251,7 @@ func TestOptionalServicesDisabledRepositoryAndChatReplay(t *testing.T) {
 	}
 	require.NoError(t, json.Unmarshal(request("GET", "/api/user", auth.Token, nil, http.StatusOK), &owner))
 	require.Positive(t, owner.ID)
-	for _, path := range []string{chat.CommitPath, chat.ProviderStartedPath, chat.SourceReadPath} {
+	for _, path := range []string{chat.CommitPath, chat.ProviderStartedPath} {
 		request("POST", path, auth.Token, map[string]any{}, http.StatusNotFound)
 	}
 	var repo struct {

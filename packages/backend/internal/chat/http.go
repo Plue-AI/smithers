@@ -51,8 +51,10 @@ type Handler struct {
 	Dispatcher  *Dispatcher
 	// Sources serves the source read callback; nil refuses it.
 	Sources SourceReader
-	logger  *slog.Logger
-	metrics *metrics
+	// credentials keeps the credential that admitted each turn here.
+	credentials *turnCredentials
+	logger      *slog.Logger
+	metrics     *metrics
 }
 
 // streamAborted records why a renderer stream stopped before its turn ended.
@@ -263,7 +265,8 @@ func (h *Handler) Turn(w http.ResponseWriter, r *http.Request) {
 	watchCtx, stopRevocations := context.WithCancel(r.Context())
 	defer stopRevocations()
 	principal := revocation.Principal{UserID: scope.UserID, RepositoryID: scope.RepositoryID}
-	if auth := middleware.AuthInfoFromContext(r.Context()); auth != nil {
+	auth := middleware.AuthInfoFromContext(r.Context())
+	if auth != nil {
 		if auth.IsTokenAuth {
 			principal.TokenHash = auth.TokenHash
 		}
@@ -296,7 +299,13 @@ func (h *Handler) Turn(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
+	// The credential is recorded before the turn exists, so no dispatcher can
+	// claim the turn without it; an admission that accepts nothing new forgets it.
+	release := h.credentials.admit(turnKey{userID: scope.UserID, runID: runID, legID: journal.LegID}, middleware.CredentialOf(auth))
 	accepted, err := h.Store.Admit(r.Context(), AdmitInput{Scope: scope, RunID: runID, Journal: journal, Request: request})
+	if err != nil || accepted.Status != "accepted" {
+		release()
+	}
 	if err != nil {
 		publicError(w, err)
 		return

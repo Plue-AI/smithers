@@ -576,22 +576,29 @@ func (s *Store) ReleaseProducer(ctx context.Context, grant ProducerGrant) error 
 	return nil
 }
 
-// Producer resolves a producer capability to the scope of its turn. Only the
-// current generation of a running turn with a live lease and no pending
-// cancel passes, so a host tool call ends with its turn.
-func (s *Store) Producer(ctx context.Context, turnID string, generation int64, token string) (Scope, error) {
+// ProducerTurn is the turn a live producer capability names.
+type ProducerTurn struct {
+	Scope
+	RunID string
+	LegID string
+}
+
+// Producer resolves a producer capability to its turn. Only the current
+// generation of a running turn with a live lease and no pending cancel
+// passes, so a host tool call ends with its turn.
+func (s *Store) Producer(ctx context.Context, turnID string, generation int64, token string) (ProducerTurn, error) {
 	if _, err := uuid.Parse(turnID); err != nil || generation <= 0 || token == "" {
-		return Scope{}, ErrProducerFenced
+		return ProducerTurn{}, ErrProducerFenced
 	}
-	var scope Scope
-	err := s.pool.QueryRow(ctx, `SELECT user_id,repository_id FROM chat_turns
+	var turn ProducerTurn
+	err := s.pool.QueryRow(ctx, `SELECT user_id,repository_id,run_id,leg_id FROM chat_turns
 		WHERE id=$1 AND producer_generation=$2 AND producer_token_hash=$3 AND state='running' AND NOT terminal
 		AND cancel_requested_at IS NULL AND producer_lease_expires_at>$4`,
-		turnID, generation, hashToken(token), s.now().UTC()).Scan(&scope.UserID, &scope.RepositoryID)
+		turnID, generation, hashToken(token), s.now().UTC()).Scan(&turn.UserID, &turn.RepositoryID, &turn.RunID, &turn.LegID)
 	if errors.Is(err, pgx.ErrNoRows) {
-		return Scope{}, ErrProducerFenced
+		return ProducerTurn{}, ErrProducerFenced
 	}
-	return scope, err
+	return turn, err
 }
 
 type frameMeta struct {

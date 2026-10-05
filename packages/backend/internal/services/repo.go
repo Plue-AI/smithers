@@ -1459,6 +1459,41 @@ func (s *RepoService) ListRepoContents(ctx context.Context, viewer *db.User, own
 	return entries, nil
 }
 
+// MaxRepositoryPathBytes bounds a repository content path. Linux PATH_MAX is 4096.
+const MaxRepositoryPathBytes = 4096
+
+// ValidateContentPathText checks a content path's text before it reaches the
+// repository host: at most MaxRepositoryPathBytes of valid UTF-8 without a
+// control character. The empty path, a repository's root, passes.
+func ValidateContentPathText(value string) *errors.APIError {
+	if len(value) > MaxRepositoryPathBytes {
+		return errors.BadRequest("path is too long")
+	}
+	if !utf8.ValidString(value) || strings.ContainsFunc(value, func(r rune) bool { return r < 0x20 || r == 0x7f }) {
+		return errors.BadRequest("path contains invalid characters")
+	}
+	return nil
+}
+
+// ValidateRepositoryPath checks that a path names one entry inside a
+// repository tree, relative to its root: valid text, and no leading or
+// trailing slash and no empty, "." or ".." segment, so it cannot leave the
+// tree. Names keep their exact bytes, whitespace included.
+func ValidateRepositoryPath(value string) *errors.APIError {
+	if value == "" {
+		return errors.BadRequest("path is required")
+	}
+	if apiErr := ValidateContentPathText(value); apiErr != nil {
+		return apiErr
+	}
+	for _, segment := range strings.Split(value, "/") {
+		if segment == "" || segment == "." || segment == ".." {
+			return errors.BadRequest("path must name an entry inside the repository")
+		}
+	}
+	return nil
+}
+
 // fileAt reads one file at a change or commit on the repository host. An
 // absent path, or one that names no regular file, is not found.
 func (s *RepoService) fileAt(ctx context.Context, owner, repo, revision, filePath string) (repohost.FileContent, error) {
@@ -1493,8 +1528,8 @@ func (s *RepoService) GetRepoContents(ctx context.Context, viewer *db.User, owne
 		return RepoContent{}, err
 	}
 
-	if filePath == "" {
-		return RepoContent{}, errors.BadRequest("path is required")
+	if apiErr := ValidateRepositoryPath(filePath); apiErr != nil {
+		return RepoContent{}, apiErr
 	}
 
 	changeRef := strings.TrimSpace(ref)

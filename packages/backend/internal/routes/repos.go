@@ -410,7 +410,7 @@ func (h *RepoHandler) listContentsPage(w http.ResponseWriter, r *http.Request, o
 		limit = parsed
 	}
 	after := r.URL.Query().Get("after")
-	if verr := validateContentPath(after); verr != nil {
+	if verr := services.ValidateContentPathText(after); verr != nil {
 		return nil, verr
 	}
 	if pager, ok := h.Service.(interface {
@@ -450,7 +450,7 @@ func (h *RepoHandler) GetRepoContents(w http.ResponseWriter, r *http.Request) {
 		errors.WriteError(w, verr)
 		return
 	}
-	if verr := validateContentPath(repoPath); verr != nil {
+	if verr := services.ValidateContentPathText(repoPath); verr != nil {
 		errors.WriteError(w, verr)
 		return
 	}

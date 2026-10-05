@@ -25,9 +25,6 @@ const (
 	// maxRefLen bounds the length of a git/jj ref (branch name, change id, commit
 	// sha). Legitimate refs are short; this generous cap only rejects absurd input.
 	maxRefLen = 512
-
-	// maxContentPathLen bounds a repository content path. Linux PATH_MAX is 4096.
-	maxContentPathLen = 4096
 )
 
 // containsControlChars reports whether s contains any ASCII control character
@@ -56,22 +53,6 @@ func validateRef(ref string) *errors.APIError {
 	}
 	if containsControlChars(ref) || !utf8.ValidString(ref) {
 		return errors.BadRequest("ref contains invalid characters")
-	}
-	return nil
-}
-
-// validateContentPath validates a repository content path. An empty path is
-// allowed (root listing). Non-empty paths must be within length bounds and free
-// of ASCII control characters. Paths with slashes (nested files) pass.
-func validateContentPath(p string) *errors.APIError {
-	if p == "" {
-		return nil
-	}
-	if len(p) > maxContentPathLen {
-		return errors.BadRequest("path is too long")
-	}
-	if containsControlChars(p) || !utf8.ValidString(p) {
-		return errors.BadRequest("path contains invalid characters")
 	}
 	return nil
 }
