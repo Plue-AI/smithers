@@ -108,9 +108,12 @@ type Server struct {
 	labels   map[string][]string
 	comments int64
 	// main holds the squash commits GitHub's main contains; held are merged
-	// commits main has not reached yet (HoldMain).
+	// commits main has not reached yet (HoldMain). In a repository the Git
+	// fixture hosts, heldTip is the newest held squash commit: the next one
+	// is made on top of it, and ReleaseMain moves main there.
 	main     map[string]bool
 	held     []string
+	heldTip  map[string]string
 	holdMain bool
 	refusals map[string]Refusal
 	// delayed are the pull requests whose next merge times out; pending are
@@ -217,6 +220,14 @@ func (s *Server) ReleaseMain() {
 		s.main[commit] = true
 	}
 	s.held = nil
+	for repo, tip := range s.heldTip {
+		if dir, hosted := s.gitDir(repo); hosted {
+			if _, err := s.git(dir, "update-ref", "refs/heads/main", tip); err != nil {
+				panic(fmt.Sprintf("githubfake: release held merges of %s: %v", repo, err))
+			}
+		}
+	}
+	s.heldTip = make(map[string]string)
 }
 
 // RefuseNextMerge makes the next merge of repo#number answer refusal, as
@@ -331,13 +342,30 @@ func (s *Server) view(p Pull) Pull {
 
 // merge squash-merges an open pull request as GitHub does: into its base,
 // whatever it is, main containing the commit unless HoldMain holds it.
-func (s *Server) merge(key string, p Pull) Pull {
+// Into main of a repository the Git fixture hosts, the squash commit is a
+// real one, written to the bare repository: the pull request's changes on
+// main's tree, with title and message as the merge request named them
+// (GitHub's default title when empty). It answers false and merges
+// nothing when the changes do not apply to main, as GitHub refuses a
+// conflicted pull request.
+func (s *Server) merge(key string, p Pull, title, message string) (Pull, bool) {
+	digest := sha256.Sum256([]byte("squash/" + key + "/" + p.Head.SHA))
+	commit := fmt.Sprintf("%x", digest)[:40]
+	dir, hosted := s.gitDir(p.Repository)
+	if hosted && p.Base.Ref == "main" {
+		if strings.TrimSpace(title) == "" {
+			title = fmt.Sprintf("%s (#%d)", p.Title, p.Number)
+		}
+		var err error
+		if commit, err = s.squash(dir, p.Repository, p.Head.SHA, title, message); err != nil {
+			return p, false
+		}
+	}
 	now := time.Now().UTC()
 	p.Merged = true
 	p.MergedAt = &now
 	p.State = "closed"
-	digest := sha256.Sum256([]byte("squash/" + key + "/" + p.Head.SHA))
-	p.MergeCommitSHA = fmt.Sprintf("%x", digest)[:40]
+	p.MergeCommitSHA = commit
 	s.pulls[key] = p
 	switch {
 	case p.Base.Ref != "main":
@@ -346,12 +374,117 @@ func (s *Server) merge(key string, p Pull) Pull {
 	default:
 		s.main[p.MergeCommitSHA] = true
 	}
-	return p
+	return p, true
+}
+
+// gitDir is repo's bare repository in the Git fixture; hosted is false
+// without one, where merge commits stay synthetic.
+func (s *Server) gitDir(repo string) (string, bool) {
+	if s.config.GitRoot == "" {
+		return "", false
+	}
+	dir := filepath.Join(s.config.GitRoot, filepath.FromSlash(repo)+".git")
+	if info, err := os.Stat(dir); err != nil || !info.IsDir() {
+		return "", false
+	}
+	return dir, true
+}
+
+// git runs the fixture's OS Git on a bare repository, with no user or
+// system configuration and GitHub's identity on every commit it makes.
+func (s *Server) git(dir string, args ...string) (string, error) {
+	cmd := exec.Command("/usr/bin/git", append([]string{"--git-dir", dir}, args...)...)
+	cmd.Env = append(os.Environ(), "GIT_CONFIG_NOSYSTEM=1", "GIT_CONFIG_GLOBAL="+os.DevNull,
+		"GIT_AUTHOR_NAME=GitHub", "GIT_AUTHOR_EMAIL=noreply@github.com", "GIT_COMMITTER_NAME=GitHub", "GIT_COMMITTER_EMAIL=noreply@github.com")
+	var stderr strings.Builder
+	cmd.Stderr = &stderr
+	out, err := cmd.Output()
+	if err != nil {
+		return "", fmt.Errorf("git %s: %w: %s", args[0], err, strings.TrimSpace(stderr.String()))
+	}
+	return strings.TrimSpace(string(out)), nil
+}
+
+// squash writes head's changes onto main as one commit and moves main to
+// it, or, while HoldMain holds main, onto the newest held merge without
+// moving main. head's tree is taken whole when main is its ancestor;
+// otherwise Git merges the two, and a conflict is an error.
+func (s *Server) squash(dir, repo, head, title, message string) (string, error) {
+	parent, err := s.git(dir, "rev-parse", "--verify", "--quiet", "refs/heads/main^{commit}")
+	if err != nil {
+		return "", err
+	}
+	if tip := s.heldTip[repo]; s.holdMain && tip != "" {
+		parent = tip
+	}
+	if _, err = s.git(dir, "rev-parse", "--verify", "--quiet", head+"^{commit}"); err != nil {
+		return "", err
+	}
+	tree, err := s.git(dir, "rev-parse", head+"^{tree}")
+	if err != nil {
+		return "", err
+	}
+	if _, ancestor := s.git(dir, "merge-base", "--is-ancestor", parent, head); ancestor != nil {
+		merged, err := s.git(dir, "merge-tree", "--write-tree", parent, head)
+		if err != nil {
+			return "", err
+		}
+		tree = strings.Fields(merged)[0]
+	}
+	args := []string{"commit-tree", tree, "-p", parent, "-m", title}
+	if strings.TrimSpace(message) != "" {
+		args = append(args, "-m", message)
+	}
+	commit, err := s.git(dir, args...)
+	if err != nil {
+		return "", err
+	}
+	if s.holdMain {
+		s.heldTip[repo] = commit
+		return commit, nil
+	}
+	if _, err = s.git(dir, "update-ref", "refs/heads/main", commit, parent); err != nil {
+		return "", err
+	}
+	return commit, nil
+}
+
+// compareGit answers GitHub's compare of main with head from the bare
+// repository: how far head is ahead of main and behind it.
+func (s *Server) compareGit(dir, head string) (int, any) {
+	if _, err := s.git(dir, "rev-parse", "--verify", "--quiet", head+"^{commit}"); err != nil {
+		return failure(404, "No common ancestor between main and "+head)
+	}
+	count := func(spec string) (int, error) {
+		out, err := s.git(dir, "rev-list", "--count", spec)
+		if err != nil {
+			return 0, err
+		}
+		return strconv.Atoi(out)
+	}
+	ahead, err := count("refs/heads/main.." + head)
+	if err != nil {
+		return failure(404, "No common ancestor between main and "+head)
+	}
+	behind, err := count(head + "..refs/heads/main")
+	if err != nil {
+		return failure(404, "No common ancestor between main and "+head)
+	}
+	status := "diverged"
+	switch {
+	case ahead == 0 && behind == 0:
+		status = "identical"
+	case ahead == 0:
+		status = "behind"
+	case behind == 0:
+		status = "ahead"
+	}
+	return 200, map[string]any{"status": status, "ahead_by": ahead, "behind_by": behind}
 }
 
 // pendingMerge is a merge request GitHub accepted for a pull request at the
 // head sha it named, its effect not yet applied.
-type pendingMerge struct{ key, sha string }
+type pendingMerge struct{ key, sha, title, message string }
 
 // DelayNextMerge makes the next merge of repo#number GitHub accepts answer
 // 502 and take no effect until CompleteDelayedMerges: a request that times
@@ -370,7 +503,7 @@ func (s *Server) CompleteDelayedMerges() {
 	defer s.mu.Unlock()
 	for _, pending := range s.pending {
 		if p := s.current(pending.key); p.State == "open" && !p.Merged && p.Head.SHA == pending.sha {
-			s.merge(pending.key, p)
+			s.merge(pending.key, p, pending.title, pending.message)
 		}
 	}
 	s.pending = nil
@@ -383,7 +516,7 @@ func (s *Server) MergeAsPerson(repo string, number int64) {
 	defer s.mu.Unlock()
 	key := repo + "/" + strconv.FormatInt(number, 10)
 	if p := s.current(key); p.State == "open" {
-		s.merge(key, p)
+		s.merge(key, p, "", "")
 	}
 }
 
@@ -451,7 +584,7 @@ func Handler(config Config) (*Server, error) {
 	config.Installations = installations
 	s := &Server{config: config, key: &key.PublicKey, tokens: make(map[string]int64), pulls: make(map[string]Pull),
 		grants: make(map[string]map[string]string), lost: make(map[string]int), failures: make(map[string]int), unread: make(map[string]int), hooks: make(map[string]func()),
-		labels: make(map[string][]string), main: make(map[string]bool), refusals: make(map[string]Refusal), delayed: make(map[string]bool), checks: make(map[string][]CheckRun),
+		labels: make(map[string][]string), main: make(map[string]bool), heldTip: make(map[string]string), refusals: make(map[string]Refusal), delayed: make(map[string]bool), checks: make(map[string][]CheckRun),
 		accounts: make(map[int64]string), access: make(map[string]string), reviews: make(map[string]map[string]string)}
 	s.codes = make(map[string]string)
 	if config.OAuthCode != "" {
@@ -921,9 +1054,12 @@ func (s *Server) pullRequest(r *http.Request, repo string, path []string, body [
 	if r.Method == http.MethodGet && len(path) == 2 && path[0] == "compare" {
 		// main contains a commit it is not behind; a held merge is ahead of it.
 		base, head, ok := strings.Cut(path[1], "...")
+		dir, hosted := s.gitDir(repo)
 		switch {
 		case !ok || base != "main":
 			return failure(404, "Not Found")
+		case hosted:
+			return s.compareGit(dir, head)
 		case s.main[head]:
 			return 200, map[string]any{"status": "behind", "ahead_by": 0, "behind_by": 1}
 		case slices.Contains(s.held, head):
@@ -1005,8 +1141,10 @@ func (s *Server) pullRequest(r *http.Request, repo string, path []string, body [
 				return status, response
 			}
 			var input struct {
-				SHA    string `json:"sha"`
-				Method string `json:"merge_method"`
+				SHA     string `json:"sha"`
+				Method  string `json:"merge_method"`
+				Title   string `json:"commit_title"`
+				Message string `json:"commit_message"`
 			}
 			if json.Unmarshal(body, &input) != nil || input.Method != "squash" {
 				return failure(422, "squash merge required")
@@ -1035,11 +1173,14 @@ func (s *Server) pullRequest(r *http.Request, repo string, path []string, body [
 				// The request was validated as it arrived and times out;
 				// GitHub completes it later (CompleteDelayedMerges).
 				delete(s.delayed, key)
-				s.pending = append(s.pending, pendingMerge{key: key, sha: input.SHA})
+				s.pending = append(s.pending, pendingMerge{key: key, sha: input.SHA, title: input.Title, message: input.Message})
 				return failure(http.StatusBadGateway, "Bad Gateway")
 			}
-			p = s.merge(key, p)
-			return 200, map[string]any{"merged": true, "sha": p.MergeCommitSHA, "message": "Pull Request successfully merged"}
+			merged, ok := s.merge(key, p, input.Title, input.Message)
+			if !ok {
+				return failure(405, "Pull Request is not mergeable")
+			}
+			return 200, map[string]any{"merged": true, "sha": merged.MergeCommitSHA, "message": "Pull Request successfully merged"}
 		}
 	}
 	if len(path) == 2 {
@@ -1130,18 +1271,15 @@ func labelsOf(names []string) []Label {
 // branchHead reads a branch of a repository the Git fixture hosts. hosted
 // is false without a fixture repository, where pull heads stay synthetic.
 func (s *Server) branchHead(repo, branch string) (head string, hosted, exists bool) {
-	if s.config.GitRoot == "" {
+	dir, hosted := s.gitDir(repo)
+	if !hosted {
 		return "", false, false
 	}
-	dir := filepath.Join(s.config.GitRoot, filepath.FromSlash(repo)+".git")
-	if info, err := os.Stat(dir); err != nil || !info.IsDir() {
-		return "", false, false
-	}
-	out, err := exec.Command("/usr/bin/git", "--git-dir", dir, "rev-parse", "--verify", "--quiet", "refs/heads/"+branch).Output()
+	out, err := s.git(dir, "rev-parse", "--verify", "--quiet", "refs/heads/"+branch)
 	if err != nil {
 		return "", true, false
 	}
-	return strings.TrimSpace(string(out)), true, true
+	return out, true, true
 }
 
 // current is an open pull request as GitHub serves it: its head follows the

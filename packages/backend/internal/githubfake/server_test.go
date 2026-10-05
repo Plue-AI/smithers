@@ -407,6 +407,156 @@ func TestGitSmartHTTPUsesRealObjectsAndInstallationAuthority(t *testing.T) {
 	}(), "real pack transfer must leave a write receipt")
 }
 
+// In a repository the Git fixture hosts, a squash merge is a real commit
+// on main: the pull request's changes on main's tree, one parent (main),
+// the merge request's title and message. A held merge chains off main
+// until ReleaseMain; a conflicted pull request is refused and merges
+// nothing; compare answers from the repository's history.
+func TestSquashMergeWritesARealCommitToAHostedMain(t *testing.T) {
+	server, cfg, key := fixture(t)
+	root := t.TempDir()
+	seed := filepath.Join(root, "seed")
+	bare := filepath.Join(root, "acme/app.git")
+	git := func(args ...string) string {
+		t.Helper()
+		cmd := exec.Command("/usr/bin/git", args...)
+		cmd.Env = append(os.Environ(), "GIT_CONFIG_NOSYSTEM=1", "GIT_CONFIG_GLOBAL="+os.DevNull)
+		out, err := cmd.CombinedOutput()
+		require.NoError(t, err, string(out))
+		return strings.TrimSpace(string(out))
+	}
+	commit := func(path, content, message string) string {
+		t.Helper()
+		require.NoError(t, os.WriteFile(filepath.Join(seed, path), []byte(content), 0600))
+		git("-C", seed, "add", path)
+		git("-C", seed, "-c", "user.name=Fixture", "-c", "user.email=fixture@example.test", "commit", "-q", "-m", message)
+		return git("-C", seed, "rev-parse", "HEAD")
+	}
+	git("init", "-q", "-b", "main", seed)
+	base := commit("JOURNEY.md", "canary\n", "Seed")
+	require.NoError(t, os.MkdirAll(filepath.Join(root, "acme"), 0700))
+	git("clone", "-q", "--bare", seed, bare)
+	branch := func(name, path, content string) {
+		t.Helper()
+		git("-C", seed, "checkout", "-q", "-B", name, base)
+		commit(path, content, name)
+		git("-C", seed, "push", "-q", bare, name+":refs/heads/"+name)
+	}
+	branch("smithers/first", "JOURNEY.md", "hello\n")
+	branch("smithers/second", "SECOND.md", "second\n")
+	branch("smithers/conflict", "JOURNEY.md", "goodbye\n")
+	server.config.GitRoot = root
+	status, body := request(t, server, "POST", "/app/installations/91/access_tokens", jwt(t, key, cfg.AppID, time.Now().Add(time.Minute)), nil)
+	require.Equal(t, 201, status)
+	var access struct {
+		Token string `json:"token"`
+	}
+	require.NoError(t, json.Unmarshal(body, &access))
+	open := func(head string) Pull {
+		t.Helper()
+		status, body := request(t, server, "POST", "/repos/acme/app/pulls", access.Token, []byte(`{"title":"T","head":"`+head+`","base":"main"}`))
+		require.Equal(t, 201, status, string(body))
+		var pull Pull
+		require.NoError(t, json.Unmarshal(body, &pull))
+		return pull
+	}
+	merge := func(pull Pull, title, message string) (int, string) {
+		t.Helper()
+		body, _ := json.Marshal(map[string]string{"sha": pull.Head.SHA, "merge_method": "squash", "commit_title": title, "commit_message": message})
+		status, raw := request(t, server, "PUT", fmt.Sprintf("/repos/acme/app/pulls/%d/merge", pull.Number), access.Token, body)
+		var answer struct {
+			SHA     string `json:"sha"`
+			Message string `json:"message"`
+		}
+		require.NoError(t, json.Unmarshal(raw, &answer))
+		if status == 200 {
+			return status, answer.SHA
+		}
+		return status, answer.Message
+	}
+	type comparison struct {
+		Status   string `json:"status"`
+		AheadBy  int    `json:"ahead_by"`
+		BehindBy int    `json:"behind_by"`
+	}
+	compare := func(head string) (int, comparison) {
+		t.Helper()
+		var answer comparison
+		status, raw := request(t, server, "GET", "/repos/acme/app/compare/main..."+head, access.Token, nil)
+		if status == 200 {
+			require.NoError(t, json.Unmarshal(raw, &answer))
+		}
+		return status, answer
+	}
+	main := func() string { return git("--git-dir", bare, "rev-parse", "refs/heads/main") }
+
+	first := open("smithers/first")
+	status, squash := merge(first, "Add a greeting (#1)", "TODO T1, reviewed at "+first.Head.SHA+".")
+	require.Equal(t, 200, status, squash)
+	require.Equal(t, squash, main(), "GitHub's main is the squash commit")
+	require.Equal(t, base, git("--git-dir", bare, "rev-parse", squash+"^"), "one parent: the old main")
+	require.Equal(t, "", git("--git-dir", bare, "rev-list", "--no-walk", "--merges", squash), "a squash is not a merge commit")
+	require.Equal(t, git("--git-dir", bare, "rev-parse", first.Head.SHA+"^{tree}"), git("--git-dir", bare, "rev-parse", squash+"^{tree}"))
+	require.Equal(t, "Add a greeting (#1)\n\nTODO T1, reviewed at "+first.Head.SHA+".", git("--git-dir", bare, "log", "-1", "--format=%B", squash))
+	require.Equal(t, "GitHub <noreply@github.com>", git("--git-dir", bare, "log", "-1", "--format=%cn <%ce>", squash))
+	var read Pull
+	status, raw := request(t, server, "GET", "/repos/acme/app/pulls/1", access.Token, nil)
+	require.Equal(t, 200, status)
+	require.NoError(t, json.Unmarshal(raw, &read))
+	require.True(t, read.Merged)
+	require.Equal(t, squash, read.MergeCommitSHA)
+	status, on := compare(squash)
+	require.Equal(t, 200, status)
+	require.Equal(t, comparison{Status: "identical"}, on)
+	status, on = compare(first.Head.SHA)
+	require.Equal(t, 200, status)
+	require.Equal(t, comparison{Status: "diverged", AheadBy: 1, BehindBy: 1}, on, "a squash never puts the branch's own commit on main")
+	status, _ = compare(strings.Repeat("0", 40))
+	require.Equal(t, 404, status)
+
+	// A held merge is GitHub reporting the merge before main contains it.
+	server.HoldMain()
+	second := open("smithers/second")
+	status, held := merge(second, "", "")
+	require.Equal(t, 200, status, held)
+	require.Equal(t, squash, main(), "main does not contain a held merge")
+	require.Equal(t, "T (#2)", git("--git-dir", bare, "log", "-1", "--format=%B", held), "GitHub's default title")
+	status, on = compare(held)
+	require.Equal(t, 200, status)
+	require.Equal(t, comparison{Status: "ahead", AheadBy: 1}, on)
+	server.ReleaseMain()
+	require.Equal(t, held, main())
+	require.Equal(t, squash, git("--git-dir", bare, "rev-parse", held+"^"))
+	// second branched from the seed: its file joins main's merged tree.
+	require.Equal(t, "hello\n", git("--git-dir", bare, "show", held+":JOURNEY.md")+"\n")
+	require.Equal(t, "second\n", git("--git-dir", bare, "show", held+":SECOND.md")+"\n")
+	status, on = compare(squash)
+	require.Equal(t, 200, status)
+	require.Equal(t, comparison{Status: "behind", BehindBy: 1}, on)
+
+	// A pull request whose changes conflict with main is not mergeable.
+	conflict := open("smithers/conflict")
+	status, message := merge(conflict, "", "")
+	require.Equal(t, 405, status)
+	require.Equal(t, "Pull Request is not mergeable", message)
+	require.Equal(t, held, main())
+	status, raw = request(t, server, "GET", fmt.Sprintf("/repos/acme/app/pulls/%d", conflict.Number), access.Token, nil)
+	require.Equal(t, 200, status)
+	require.NoError(t, json.Unmarshal(raw, &read))
+	require.False(t, read.Merged)
+	require.Equal(t, "open", read.State)
+
+	// A person's merge on github.com writes main too.
+	git("-C", seed, "fetch", "-q", bare, "refs/heads/main")
+	git("-C", seed, "checkout", "-q", "-B", "smithers/person", held)
+	commit("PERSON.md", "person\n", "person")
+	git("-C", seed, "push", "-q", bare, "smithers/person:refs/heads/smithers/person")
+	person := open("smithers/person")
+	server.MergeAsPerson("acme/app", person.Number)
+	require.Equal(t, held, git("--git-dir", bare, "rev-parse", "refs/heads/main^"))
+	require.Equal(t, "person\n", git("--git-dir", bare, "show", "refs/heads/main:PERSON.md")+"\n")
+}
+
 func TestSquashMergeIsHeadBoundAndProjectsOnlyAfterTheWrite(t *testing.T) {
 	server, cfg, key := fixture(t)
 	status, body := request(t, server, "POST", "/app/installations/91/access_tokens", jwt(t, key, cfg.AppID, time.Now().Add(time.Minute)), nil)
