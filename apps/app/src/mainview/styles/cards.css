@@ -1097,46 +1097,6 @@
 	float: right;
 	margin-left: 0.75rem;
 }
-.code-surface {
-	min-width: 0;
-}
-.code-surface [data-slot="code-view"][data-interactive] [data-char] {
-	cursor: default;
-}
-.code-diagnostic {
-	display: flex;
-	gap: 0.375rem;
-	margin: 0;
-	padding: 0.125rem 0.75rem 0.25rem 0;
-	font-family: var(--font-mono);
-	font-size: var(--fs-small);
-	line-height: 1.4;
-	white-space: normal;
-}
-.code-diagnostic[data-severity="error"] {
-	color: var(--danger);
-}
-.code-diagnostic[data-severity="warning"] {
-	color: var(--warning);
-}
-.code-hover {
-	margin: 0.25rem 0.75rem 0.375rem 0;
-	padding: 0.375rem 0.625rem;
-	border: 1px solid var(--border);
-	border-radius: 0.375rem;
-	background: var(--surface);
-	color: var(--text, inherit);
-	font-size: var(--fs-small);
-	white-space: normal;
-}
-.code-hover pre,
-.code-hover .sui-md-inline-code {
-	font-size: var(--fs-small);
-	white-space: pre-wrap;
-	overflow-wrap: anywhere;
-}
-
-
 /* The secrets card (Secrets L1): the scope line and the metadata table; values never exist on the wire. */
 .secrets-scope {
 	margin: 0;
@@ -2861,7 +2821,7 @@
 
 .code-file-view { min-width: 0; box-sizing: border-box; }
 .code-file-view .smithers-card-title { font-family: var(--font-mono); overflow-wrap: anywhere; min-width: 0; }
-.code-file-view .code-file-editor, .code-file-view .code-surface { min-width: 0; max-width: 100%; }
+.code-file-view .code-file-editor { min-width: 0; max-width: 100%; }
 /* CodeSurface (T-UI-16): live file notices, snapshots and outside comparison. */
 .code-file-view .code-file-state { display: inline-flex; align-items: center; gap: 5px; color: var(--attention-text); font-size: var(--fs-caption); font-weight: 600; white-space: nowrap; }
 .code-file-view .code-file-notice { display: flex; align-items: center; gap: var(--sp-2); margin-bottom: var(--sp-2); padding: 6px 6px 6px 10px; border: 1px solid color-mix(in srgb, var(--attention) 40%, transparent); border-radius: var(--r-1); background: var(--attention-wash); color: var(--attention-text); font-size: var(--fs-small); font-weight: 500; }

@@ -108,19 +108,4 @@ textarea {
 .session-shell { padding-top: var(--session-strip); min-height: 100dvh; box-sizing: border-box; }
 /* Navigation follows the app theme. */
 .session-navigation { position: absolute; inset: 0 0 auto; height: var(--session-strip); z-index: 60; background: inherit; }
-.local-auth-dialog {
-	position: fixed;
-	top: calc(var(--session-strip) + var(--sp-2));
-	right: var(--sp-3);
-	z-index: 80;
-	width: min(24rem, calc(100vw - 2 * var(--sp-3)));
-	box-sizing: border-box;
-	padding: var(--sp-3);
-	border: 1px solid var(--border-strong);
-	border-radius: var(--r-3);
-	background: var(--surface);
-	box-shadow: var(--shadow-2);
-}
-.local-auth-loading,
-.local-auth-error { color: var(--muted-foreground); font-size: var(--fs-small); }
-.local-auth-error { color: var(--danger); }
+
