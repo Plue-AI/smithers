@@ -408,6 +408,8 @@ func newMythicalOrchestration(t *testing.T) *mythicalOrchestration {
 	f.git(f.work, "push", "-q", github.dir, "main:refs/heads/main")
 	o := &mythicalOrchestration{mythicalServiceFixture: f, github: github, launcher: &fakeMythicalLauncher{}, lanes: &fakeMythicalLanes{}}
 	f.service.SetOrchestration(github, o.launcher, o.lanes)
+	// The install's composition admits TODOs; the fixture composes it so.
+	f.service.EnableTodoAdmission()
 	// Accepted publication fixtures stand in for the not-yet-installed provider.
 	f.service.prFacts = func(_ context.Context, item db.MythicalItem) (mythicalPRShape, error) {
 		return mythicalPRShape{Branch: fmt.Sprintf("smithers/todo-%d", item.IssueNumber.Int64), Title: item.IssueTitle, Prompt: item.IssueBody, Acceptance: "Fixture acceptance", Evidence: "Fixture evidence", DiffStat: "Fixture diff stat", Review: "Fixture review", URL: "http://localhost/todos/fixture", Owner: "ben", First: true, FixesIssue: true, DraftsAvailable: true}, nil
@@ -555,7 +557,7 @@ func TestMythicalItemsFlowFromIssueToLandedAndAdopted(t *testing.T) {
 	assert.Contains(t, o.item(8).Reason, "todo label")
 	assert.Equal(t, "skipped", o.item(9).State)
 
-	// A lane starts: a fresh workspace, the tip retained into its source ref,
+	// A lane starts: a fresh workspace, main retained into its source ref,
 	// and coding/request launched on the stack.
 	stack := o.wake()
 	item := o.item(7)
@@ -577,9 +579,9 @@ func TestMythicalItemsFlowFromIssueToLandedAndAdopted(t *testing.T) {
 		} `json:"base"`
 	}
 	require.NoError(t, json.Unmarshal(request.Payload, &payload))
-	assert.Equal(t, stack.TipCommit, payload.Base.CommitID)
-	assert.Equal(t, repohost.WorkspaceSourceRef(workspace, stack.TipCommit), payload.Base.Ref)
-	assert.Equal(t, stack.TipCommit, o.hostRef(payload.Base.Ref), "the tip is retained where the lane's import reads it")
+	assert.Equal(t, stack.LandedMain, payload.Base.CommitID)
+	assert.Equal(t, repohost.WorkspaceSourceRef(workspace, stack.LandedMain), payload.Base.Ref)
+	assert.Equal(t, stack.LandedMain, o.hostRef(payload.Base.Ref), "the tip is retained where the lane's import reads it")
 	assert.Contains(t, payload.Prompt, "#7: Add docs")
 	assert.NotContains(t, payload.Prompt, "#8 Drive-by", "an unapproved title never reaches a lane")
 	assert.NotContains(t, payload.Prompt, "https://github.com/", "the lane works from the approved text, not a link to the live issue")
@@ -605,12 +607,12 @@ func TestMythicalItemsFlowFromIssueToLandedAndAdopted(t *testing.T) {
 	assert.JSONEq(t, `{"requestExecutionId":"run-request"}`, string(vibe.Payload))
 
 	// The lane hands its cleaned result to the stack.
-	candidate := o.laneResult(workspace, stack.TipCommit, map[string]string{"docs.md": "docs\n"}, "📝 docs: add docs")
-	receipt, err := o.service.SubmitLane(ctx, o.repoID, o.userID, MythicalLaneSubmission{WorkspaceID: workspace, Base: stack.TipCommit,
+	candidate := o.laneResult(workspace, stack.LandedMain, map[string]string{"docs.md": "docs\n"}, "📝 docs: add docs")
+	receipt, err := o.service.SubmitLane(ctx, o.repoID, o.userID, MythicalLaneSubmission{WorkspaceID: workspace, Base: stack.LandedMain,
 		Source: candidate, RequestRunID: "run-request", Summary: "📝 docs: add docs\n\nAdds the docs page."})
 	require.NoError(t, err)
 	assert.Equal(t, "integrating", receipt.State)
-	again, err := o.service.SubmitLane(ctx, o.repoID, o.userID, MythicalLaneSubmission{WorkspaceID: workspace, Base: stack.TipCommit,
+	again, err := o.service.SubmitLane(ctx, o.repoID, o.userID, MythicalLaneSubmission{WorkspaceID: workspace, Base: stack.LandedMain,
 		Source: candidate, RequestRunID: "run-request", Summary: "📝 docs: add docs"})
 	require.NoError(t, err)
 	assert.Equal(t, receipt.ItemID, again.ItemID, "a replayed submission is idempotent")

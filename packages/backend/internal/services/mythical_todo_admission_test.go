@@ -299,7 +299,7 @@ func TestTodoDarkAdmissionOwnerProviders(t *testing.T) {
 		reason string
 		bind   func(o *mythicalOrchestration)
 	}{
-		{name: "no provider", reason: "TODO admission unavailable", bind: func(o *mythicalOrchestration) {}},
+		{name: "hosted composition", reason: "TODO admission unavailable", bind: func(o *mythicalOrchestration) { o.service.todoAdmission = false }},
 		{name: "isolated dispatch", reason: "TODO admission unavailable", bind: func(o *mythicalOrchestration) {
 			o.service.SetTodoFlow(func(context.Context, int64, string) (string, error) { return todoPinOne, nil })
 			o.service.launcher = nil
@@ -752,4 +752,57 @@ func TestTodoLaunchRefusedBeforeItsRunLeavesStarting(t *testing.T) {
 	require.Equal(t, &mythicalFault{Class: "policy", Tag: "outages", Kind: mythicalFailRuntime}, checks.Fault)
 	require.EqualValues(t, mythicalOutageBound+1, checks.Launches)
 	require.EqualValues(t, mythicalOutageBound+1, resolved.Load(), "one refused launch per relaunch")
+}
+
+// The install's composition admits an owner's TODO into the existing coding
+// path (EnableTodoAdmission): a fresh attempt places a lane, retains main's
+// tip into it and launches coding/request with the TODO's own prompt, in the
+// transaction that records the attempt: Starting. The host binding the run
+// is Working; the first bound run wins.
+func TestTodoAdmissionLaunchesTheCodingRequest(t *testing.T) {
+	o, session := newTodoAdmission(t)
+	item := o.fileTodo(session, "install")
+	id := uuidString(item.ID)
+
+	o.wake()
+	tip := o.hostRef("refs/heads/main")
+	item = o.byID(id)
+	require.Equal(t, "running", item.State, item.Reason)
+	require.Equal(t, "starting", todoState(item))
+	require.EqualValues(t, 1, item.Attempt)
+	require.EqualValues(t, 1, item.Generation)
+	require.False(t, item.FlowDigest.Valid, "the coding path pins no todo composition")
+	require.Equal(t, tip, item.BaseCommit)
+	checks := mythicalChecksOf(item)
+	require.True(t, checks.RunLaunched)
+	require.False(t, checks.RunAttached)
+	require.Contains(t, o.lanes.created, item.WorkspaceID)
+	require.Empty(t, o.launcher.byFlow("todo"))
+	launches := o.launcher.byFlow("coding/request")
+	require.Len(t, launches, 1)
+	launch := launches[0]
+	require.Equal(t, item.WorkspaceID, launch.Target.WorkspaceID)
+	require.Equal(t, flowdispatch.ApprovalAuto, launch.ApprovalPolicy)
+	payload := decodeJSON(t, launch.Payload)
+	require.Equal(t, "Add a greeting\n\nAdd a greeting to JOURNEY.md\n\nAcceptance:\n- JOURNEY.md greets the reader\n", payload["prompt"])
+	require.EqualValues(t, 3, payload["maxRounds"])
+	ref := repohost.WorkspaceSourceRef(item.WorkspaceID, tip)
+	require.Equal(t, map[string]any{"commitId": tip, "ref": ref}, payload["base"])
+	require.Equal(t, tip, o.hostRef(ref), "the tip reached the lane before the launch")
+
+	// Duplicate wakes launch nothing more while the run is in flight.
+	o.wake()
+	o.wake()
+	require.Len(t, o.launcher.byFlow("coding/request"), 1)
+
+	// A run that names no ID binds nothing; the host's accepted run is Working.
+	o.project(launch, jobs.StateWaiting, "", "")
+	require.Equal(t, "starting", todoState(o.byID(id)))
+	o.project(launch, jobs.StateWaiting, "request-run-1", "")
+	item = o.byID(id)
+	require.Equal(t, "working", todoState(item))
+	require.Equal(t, "request-run-1", item.RequestRunID)
+	require.True(t, mythicalChecksOf(item).RunAttached)
+	o.project(launch, jobs.StateWaiting, "replacement-run", "")
+	require.Equal(t, "request-run-1", o.byID(id).RequestRunID, "the first bound run wins")
 }

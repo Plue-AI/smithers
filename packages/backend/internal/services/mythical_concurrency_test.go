@@ -45,6 +45,7 @@ func (o *mythicalOrchestration) mythicalWorker(launcher mythicalLauncher) *Mythi
 	worker := NewMythicalService(o.pool, o.host)
 	worker.scratchRoot = filepath.Join(o.t.TempDir(), "scratch")
 	worker.SetOrchestration(o.github, launcher, o.lanes)
+	worker.EnableTodoAdmission()
 	worker.SetPolicyReader(policyHost{mythicalPolicy("")})
 	return worker
 }

@@ -122,6 +122,13 @@ func (s *MythicalService) SetOrchestration(github mythicalGitHub, launcher mythi
 // SetLauncher completes the construction cycle with the Flow dispatcher.
 func (s *MythicalService) SetLauncher(launcher mythicalLauncher) { s.launcher = launcher }
 
+// EnableTodoAdmission admits TODOs into the existing coding path: a fresh
+// attempt, of an owner's TODO or of an approved issue, launches
+// coding/request on a new lane, then the engine's delivery, verification
+// and proposal carry it to a pull request. The install's composition calls
+// it; hosted composition does not, so no fresh attempt starts there.
+func (s *MythicalService) EnableTodoAdmission() { s.todoAdmission = true }
+
 // SetTodoFlow supplies the Active todo flow's execution digest at a main
 // source commit, which a fresh TODO attempt pins with that commit (T-FLW-11,
 // spec §11.4.1), and so opens owner TODO admission. Production composition
@@ -469,7 +476,7 @@ func (s *MythicalService) ProjectFlowRuntime(ctx context.Context, update flowdis
 			runID := strings.TrimSpace(update.Checkpoint.RunID)
 			// A TODO's runs are bound by run ID. Only its composition's launch
 			// may end without one: refused before any run existed.
-			unstarted := projection.Phase == "todo" && runID == "" && update.State.Terminal()
+			unstarted := (projection.Phase == "todo" || projection.Phase == "request") && runID == "" && update.State.Terminal()
 			if item.Source == "todo" && ((runID == "" && !unstarted) || (update.Checkpoint.Run != nil && update.Checkpoint.Run.RunID != runID)) {
 				return nil
 			}
@@ -590,8 +597,14 @@ func mythicalProjectRun(next *db.MythicalItem, item db.MythicalItem, projection 
 		}
 		next.Checks = checks.encode()
 	case "request":
+		checks := mythicalChecksOf(item)
 		if runID != "" {
 			next.RequestRunID = runID
+			// The host accepted the run: the TODO is working, no longer starting.
+			if checks.RunLaunched && !checks.RunAttached {
+				checks.RunAttached = true
+				next.Checks = checks.encode()
+			}
 		}
 		if outcome != "" && item.RequestOutcome == "" {
 			next.RequestOutcome = outcome
@@ -599,7 +612,6 @@ func mythicalProjectRun(next *db.MythicalItem, item db.MythicalItem, projection 
 				next.Plan = plan
 			}
 			// A request that failed before Jev routed it carries none.
-			checks := mythicalChecksOf(item)
 			checks.Route = mythicalRoute(update)
 			checks.Receipts = mythicalKeepReceipts(item.CandidateHead, checks.Receipts, mythicalRunReceipts(projection.Phase, next.RequestRunID, update))
 			next.Checks = checks.encode()
@@ -1334,7 +1346,7 @@ func (st *mythicalItemStep) advance(ctx context.Context, item db.MythicalItem) (
 	case "queued", "retrying":
 		return st.start(ctx, item)
 	case "running":
-		if mythicalChecksOf(item).RunLaunched {
+		if item.FlowDigest.Valid {
 			return mythicalComposedOutcome(item, st.now), false, nil
 		}
 		switch outcome := item.RequestOutcome; {
@@ -1653,12 +1665,15 @@ func todoAdmissionUnavailable(item db.MythicalItem, missing string, now time.Tim
 	return &next
 }
 
-// start opens a lane for a fresh attempt of an owner's TODO and launches the
-// todo composition on it, pinned to one Active todo flow digest: the TODO is
-// starting until its host accepts the run (ProjectFlowRuntime). The first
-// attempt pins the Active digest; Retry and Resume keep that pin. Admission
-// refuses before placement, capture or launch while any provider is missing,
-// and GitHub-issue TODOs stay hidden until the maintainer release.
+// start opens a lane for a new attempt: a fresh workspace on the stack, the
+// tip retained into its source ref, and coding/request launched on it. An
+// outage retry runs the same attempt again on the lane it already holds
+// (reusesLane): the request starts a fresh working change on the tip
+// there, so nothing the failed run left is its base. A fresh attempt is
+// admitted only where the composition enabled it (EnableTodoAdmission); an
+// attempt pinned to the todo composition (SetTodoFlow) keeps that path.
+// The TODO is starting from this launch until its host accepts the run
+// (RunLaunched, then RunAttached in ProjectFlowRuntime).
 func (st *mythicalItemStep) start(ctx context.Context, item db.MythicalItem) (*db.MythicalItem, bool, error) {
 	s, r := st.s, st.r
 	if item.Source != "issue" && item.Source != "todo" {
@@ -1666,6 +1681,123 @@ func (st *mythicalItemStep) start(ctx context.Context, item db.MythicalItem) (*d
 		next.State, next.Reason = "blocked", "a chat result that no longer applies to the tip must be requested again"
 		return &next, false, nil
 	}
+	if item.Source == "todo" && s != nil && (s.todoFlow != nil || item.FlowDigest.Valid) {
+		return st.startPinned(ctx, item)
+	}
+	if s == nil || r == nil || s.launcher == nil || s.lanes == nil || !r.row.ActorUserID.Valid || !s.todoAdmission {
+		return todoAdmissionUnavailable(item, "", st.now), false, nil
+	}
+	if hold := st.launchable(ctx, item); hold != nil {
+		return hold, false, nil
+	}
+	reuse, err := s.reusesLane(ctx, r, item)
+	if err != nil {
+		return mythicalInfraOutage(item, "launch", "the lane could not be read: "+err.Error(), st.now), false, nil
+	}
+	// A reused lane keeps the machine it was placed on; a new one is placed
+	// before the previous lane is retired, so a refusal changes nothing else.
+	var placement MythicalPlacement
+	if !reuse {
+		var refused *db.MythicalItem
+		if placement, refused = st.place(ctx, item); refused != nil {
+			return refused, false, nil
+		}
+	}
+	if item.WorkspaceID != "" && !reuse {
+		// The previous attempt's lane is retired before a new one opens.
+		if err := s.retireLane(ctx, r, item.WorkspaceID); err != nil {
+			return mythicalInfraOutage(item, "launch", "the previous lane could not be retired: "+err.Error(), st.now), false, nil
+		}
+	}
+	next := item
+	next.Attempt, next.Generation = item.Attempt+1, item.Generation+1
+	next.RequestOutcome, next.VibeOutcome, next.VerifyOutcome = "", "", ""
+	next.RequestRunID, next.VibeRunID, next.VerifyRunID = "", "", ""
+	next.CandidateBase, next.CandidateHead, next.CandidateVerified = "", "", false
+	workspaceID := item.WorkspaceID
+	if !reuse {
+		name := fmt.Sprintf("mythical #%d attempt %d g%d", item.IssueNumber.Int64, next.Attempt, next.Generation)
+		if item.Source == "todo" {
+			name = fmt.Sprintf("TODO %d attempt %d g%d", item.Number.Int64, next.Attempt, next.Generation)
+		}
+		workspaceID, err = st.lane(ctx, item, name, placement)
+		if err != nil {
+			return mythicalInfraOutage(item, "launch", "no lane workspace: "+err.Error(), st.now), false, nil
+		}
+		placed := mythicalChecksOf(next)
+		placed.Placement = &placement
+		next.Checks = placed.encode()
+	}
+	// Starting until the host accepts the run; ProjectFlowRuntime attaches it.
+	launched := mythicalChecksOf(next)
+	launched.RunLaunched, launched.RunAttached = true, false
+	next.Checks = launched.encode()
+	base := st.prefix(item)
+	next.WorkspaceID, next.BaseCommit = workspaceID, base
+	next.Lane = pgtype.Int4{Int32: st.freeLane(item.ID), Valid: true}
+	// The launch below records the lane's start with the item, atomically.
+	next.LaneStartedAt = pgtype.Timestamptz{Time: st.now, Valid: true}
+	ref, err := s.retainFor(ctx, r, workspaceID, base)
+	if err != nil {
+		return mythicalInfraOutage(item, "launch", "the stack tip could not reach the lane: "+err.Error(), st.now), false, nil
+	}
+	prompt := st.prompt(item, next.Attempt)
+	if item.Source == "todo" {
+		prompt = todoPrompt(item)
+	}
+	request := map[string]any{"prompt": prompt, "maxRounds": 3,
+		"base": map[string]string{"commitId": base, "ref": ref}}
+	// The lane plans with the published wiki; it never reviews the pages again.
+	if wiki, ok := s.suppliedWiki(ctx, r.row.RepositoryID); ok {
+		request["wiki"] = wiki
+	}
+	payload, _ := json.Marshal(request)
+	next.State, next.Reason, next.NextAttemptAt = "running", "", pgtype.Timestamptz{}
+	saved, err := st.commit(ctx, next, "request", "coding/request", payload)
+	if owner, owned := factoryIssueOwned(err); owned {
+		deferred := item
+		deferred.Reason = owner.reason()
+		deferred.NextAttemptAt = pgtype.Timestamptz{Time: st.now.Add(10 * time.Second), Valid: true}
+		return &deferred, false, nil
+	}
+	if err != nil {
+		// The lane stays bound; the sweep retires it once the item provably
+		// does not reference it, so a lost COMMIT acknowledgment never
+		// deletes an admitted lane.
+		return mythicalInfraOutage(item, "launch", "the request could not be launched: "+err.Error(), st.now), false, nil
+	}
+	st.held[saved.Lane.Int32] = saved.ID
+	return &saved, true, nil
+}
+
+// reusesLane reports whether an item retrying after an outage runs
+// its attempt again on the lane it holds instead of provisioning a new one:
+// the lane must still be bound to it, and the outage must not be the
+// infrastructure's (class infra), which may be the lane's own box. A retry
+// after a plan's failure, a stop or a resume always opens a fresh lane.
+func (s *MythicalService) reusesLane(ctx context.Context, r *mythicalRun, item db.MythicalItem) (bool, error) {
+	checks := mythicalChecksOf(item)
+	if item.State != "retrying" || item.WorkspaceID == "" || checks.Outages == 0 || checks.Fault == nil || checks.Fault.Class == "infra" {
+		return false, nil
+	}
+	bound, err := s.queries().GetMythicalLane(ctx, item.WorkspaceID)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return false, nil
+	}
+	if err != nil {
+		return false, err
+	}
+	return !bound.RetiredAt.Valid && bound.RepositoryID == r.row.RepositoryID && bound.ItemID == item.ID, nil
+}
+
+// startPinned opens a lane for a fresh attempt of an owner's TODO and launches the
+// todo composition on it, pinned to one Active todo flow digest: the TODO is
+// starting until its host accepts the run (ProjectFlowRuntime). The first
+// attempt pins the Active digest; Retry and Resume keep that pin. Admission
+// refuses before placement, capture or launch while any provider is missing,
+// and GitHub-issue TODOs stay hidden until the maintainer release.
+func (st *mythicalItemStep) startPinned(ctx context.Context, item db.MythicalItem) (*db.MythicalItem, bool, error) {
+	s, r := st.s, st.r
 	if item.Source != "todo" || s == nil || r == nil || s.todoFlow == nil || s.launcher == nil || s.lanes == nil || !r.row.ActorUserID.Valid {
 		return todoAdmissionUnavailable(item, "", st.now), false, nil
 	}

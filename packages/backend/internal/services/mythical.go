@@ -87,6 +87,10 @@ type MythicalService struct {
 	// source commit, which a fresh TODO attempt pins (SetTodoFlow). Unset,
 	// owner TODO admission refuses before placement, capture or launch.
 	todoFlow func(ctx context.Context, repositoryID int64, sourceCommit string) (string, error)
+	// todoAdmission opens TODO admission on the existing coding path
+	// (EnableTodoAdmission): a fresh attempt launches coding/request on a new
+	// lane. Only the install's composition sets it; hosted leaves it off.
+	todoAdmission bool
 }
 
 func NewMythicalService(store MythicalStore, host mythicalRepoHost) *MythicalService {
