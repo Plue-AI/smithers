@@ -45,15 +45,18 @@ export const subjectFlows = (actions: CommandActions): ReadonlyArray<FlowEntry> 
   const design = actions.design
   const repo = () => design.world().repo.repo
   const open = async (card: Parameters<CommandActions["presentSubject"]>[0]): Promise<CommandResult> => ({ value: await actions.presentSubject(card) })
+  /* An install's issues are its repository's GitHub issues, through IssuesSeam (GET /api/issues). */
+  const install = () => actions.bootstrap?.capabilities.includes("install") === true
   return [
     flow({ name: "issue", summary: "Open an issue's card", args: "#n", discloseToAgent: true,
       grammar: numbered(), input: Schema.Struct({ number: Schema.Number }),
       handler: ({ number }) => {
+        if (install()) return actions.viewIssue(number, undefined, "github")
         const issue = design.world().issues.find(each => each.number === number)
         return issue === undefined ? `No issue #${number}` : open(issueCard(repo(), number, issue.title))
       } }),
     flow({ name: "issues", summary: "List the repository's issues", input: Schema.Struct({}),
-      handler: () => open(issueListCard(repo())) }),
+      handler: () => install() ? actions.listIssues("open") : open(issueListCard(repo())) }),
     flow({ name: "issue.new", summary: "Open a GitHub issue", args: "<title>", discloseToAgent: true,
       grammar: positional("title"), input: Schema.Struct({ title: Schema.NonEmptyString, body: Schema.String }),
       form: { submitLabel: "Open on GitHub", fields: { title: { label: "Title" }, body: { label: "Body" } }, args: json },

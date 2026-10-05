@@ -340,7 +340,26 @@ export const fetchIssuePayload = async (
   return payload ?? `The backend answered issue #${number} in ${repo} with an unreadable payload`
 }
 
-export const createIssuesSeam = (ctx: SeamContext, renderRepositoryForm?: RepositoryForm, launchConversationTurn?: (text: string, turnId: string, owner: string) => Promise<boolean> | void): IssuesSeam => {
+/** One GitHub comment off GitHub's shape (`user.login`, `body`, `created_at`). */
+const githubCommentOf = (row: unknown): IssueCommentRow[] => isRecord(row) ? [{
+  author: authorLogin(row.user),
+  ...(isRecord(row.user) && typeof row.user.avatar_url === "string" ? { authorAvatar: row.user.avatar_url } : {}),
+  commentBody: typeof row.body === "string" ? row.body : "",
+  createdAt: typeof row.created_at === "string" ? row.created_at : null
+}] : []
+
+/** Where this seam reads issues: Smithers Cloud's routes, or an install's own (GET /api/issues). */
+export interface IssuesSeamOptions {
+  /**
+   * An install serves its repository's GitHub issues through its App at
+   * GET /api/issues and /api/issues/{n}; it has no Smithers tracker, so
+   * every issue is a GitHub issue.
+   */
+  readonly install?: boolean
+}
+
+export const createIssuesSeam = (ctx: SeamContext, renderRepositoryForm?: RepositoryForm, launchConversationTurn?: (text: string, turnId: string, owner: string) => Promise<boolean> | void, options: IssuesSeamOptions = {}): IssuesSeam => {
+  const install = options.install === true
   const signedInOwner = () => {
     const identity = ctx.store.collections.identitySessions.get("identity")
     const cloud = ctx.store.collections.cloudSessions.get("cloud")
@@ -462,15 +481,15 @@ export const createIssuesSeam = (ctx: SeamContext, renderRepositoryForm?: Reposi
       if (!response.ok) return readErrorMessage(response, `Loading GitHub issue comments failed (${response.status})`)
       const rows: unknown = await response.json().catch(() => null)
       if (!Array.isArray(rows)) return `GitHub answered comments for #${number} with an unreadable payload`
-      comments.push(...rows.flatMap(row => isRecord(row) ? [{
-        author: authorLogin(row.user),
-        ...(isRecord(row.user) && typeof row.user.avatar_url === "string" ? { authorAvatar: row.user.avatar_url } : {}),
-        commentBody: typeof row.body === "string" ? row.body : "",
-        createdAt: typeof row.created_at === "string" ? row.created_at : null
-      }] : []))
+      comments.push(...rows.flatMap(githubCommentOf))
       if (!/rel="?next"?/.test(response.headers.get("link") ?? "")) break
       if (page === 50) return `GitHub issue #${number} has more comments than could be loaded. Open it on GitHub to read the full conversation.`
     }
+    return githubIssueCard(repo, number, issue, comments)
+  }
+
+  /** The GitHub issue card and its model value, from GitHub's issue shape and its comments. */
+  const githubIssueCard = (repo: string, number: number, issue: Record<string, unknown>, comments: ReadonlyArray<IssueCommentRow>): ViewResult => {
     const payload = parseDetail({ ...issue, author: issue.user }, repo, number, comments)!
     payload.source = "github"
     payload.htmlUrl = `https://github.com/${repo}/issues/${number}`
@@ -484,6 +503,44 @@ export const createIssuesSeam = (ctx: SeamContext, renderRepositoryForm?: Reposi
       `Labels: ${payload.labels.join(", ") || "none"}`, payload.issueBody,
       ...comments.map(comment => `Comment by ${comment.persona?.username ?? comment.author ?? "unknown"}:\n${comment.commentBody}`)
     ].join("\n")) }
+  }
+
+  /** An install's issues (GET /api/issues): its repository's GitHub issues, read through the install's App. */
+  const listFromInstall = async (repo: string, filter: "open" | "closed" | "all"): Promise<ViewResult> => {
+    let response: Response
+    try {
+      response = await ctx.http(`${ctx.baseUrl}/api/issues?state=${filter}`)
+    } catch (error) {
+      return unreachable(`list issues for ${repo}`, error)
+    }
+    if (!response.ok) return readRepositoryListError(response, `Listing issues for ${repo} failed (${response.status})`)
+    const body: unknown = await response.json().catch(() => null)
+    if (!Array.isArray(body)) return `The backend answered issues for ${repo} with an unreadable payload`
+    const issues = body.flatMap((entry) => {
+      const parsed = parseGithubListRow(entry)
+      return parsed === null ? [] : [parsed]
+    })
+    const card: Card = {
+      id: `issues-${repo}`, kind: "issue-list", title: `Issues · ${repo}`, status: "active",
+      createdAt: Date.now(), ordinal: ctx.nextOrdinal(), payload: { repo, filter, issues }
+    }
+    return { card, ...readResult(issues.length === 0
+      ? `No ${filter === "all" ? "" : `${filter} `}issues in ${repo}.`
+      : issues.map((issue) => issueRowValue(issue, "github")).join("\n")) }
+  }
+
+  /** One of an install's issues with its comments (GET /api/issues/{n}). */
+  const readInstallIssue = async (repo: string, number: number): Promise<ViewResult> => {
+    let response: Response
+    try {
+      response = await ctx.http(`${ctx.baseUrl}/api/issues/${number}`)
+    } catch (error) {
+      return unreachable(`load issue #${number} in ${repo}`, error)
+    }
+    if (!response.ok) return readErrorMessage(response, `Loading issue #${number} in ${repo} failed (${response.status})`)
+    const body: unknown = await response.json().catch(() => null)
+    if (!isRecord(body) || !isRecord(body.issue) || !Array.isArray(body.comments)) return `The backend answered issue #${number} in ${repo} with an unreadable payload`
+    return githubIssueCard(repo, number, body.issue, body.comments.flatMap(githubCommentOf))
   }
 
   /** Fetches the issue AND its comments, then upserts the detail card. */
@@ -586,6 +643,8 @@ export const createIssuesSeam = (ctx: SeamContext, renderRepositoryForm?: Reposi
     // A saved view carries its own state and addresses Smithers' own tracker (the API refuses view with state).
     const named = view === undefined || view === "" ? undefined : view
     return { id: `issues-${repo}`, title: `Issues · ${repo}`, key: JSON.stringify(["issues", repo, filter, kind, named ?? null]), pane: repo, read: async (): Promise<ViewResult> => {
+      // An install has no Smithers tracker, conversations or saved views: its issues are GitHub's.
+      if (install) return listFromInstall(repo, filter)
       // Plue 422s unknown states ("all" included) — omit the param to list every state.
       const search = new URLSearchParams()
       if (named !== undefined) search.set("view", named)
@@ -649,7 +708,9 @@ export const createIssuesSeam = (ctx: SeamContext, renderRepositoryForm?: Reposi
         : issues.map((issue) => issueRowValue(issue)).join("\n")) }
     } }
   })
-  const issueView = preparedView(ctx, (number: number, repoArg?: string, source?: "smithers-cloud" | "github") => {
+  const issueView = preparedView(ctx, (number: number, repoArg?: string, asked?: "smithers-cloud" | "github") => {
+    // Every issue on an install is a GitHub issue.
+    const source = install ? "github" : asked
     const target = resolveTargetRepo(ctx.store, repoArg)
     if ("error" in target) return target.error
     const repo = target.repo
@@ -660,7 +721,7 @@ export const createIssuesSeam = (ctx: SeamContext, renderRepositoryForm?: Reposi
         const previous = [...ctx.store.collections.cards.values()].find(row => row.kind === "issue" && row.payload.source !== "github" && row.payload.repo === repo && row.payload.number === number)
         return previous?.kind === "issue" && source !== "github" ? { ...card, payload: { ...card.payload, conversation: previous.payload.conversation, commentDraft: previous.payload.commentDraft, pendingComments: previous.payload.pendingComments } } : card
       },
-      read: () => source === "github" ? readGithubIssue(repo, number) : readIssue(repo, number) }
+      read: () => install ? readInstallIssue(repo, number) : source === "github" ? readGithubIssue(repo, number) : readIssue(repo, number) }
   })
   const showIssue = (repo: string, number: number) => issueView(number, repo)
 
@@ -917,7 +978,7 @@ export const createIssuesSeam = (ctx: SeamContext, renderRepositoryForm?: Reposi
     viewIssue: Object.assign(async (number: number, explicitRepo?: string, source?: "smithers-cloud" | "github") => {
       const target = resolveTargetRepo(ctx.store, explicitRepo)
       if ("error" in target) return target.error
-      if (source === "github") return readRepositoryDetail(ctx, target.repo, "issue", number,
+      if (source === "github" || install) return readRepositoryDetail(ctx, target.repo, "issue", number,
         () => issueView(number, target.repo, "github"), "github")
       const shown = await readRepositoryDetail(ctx, target.repo, "issue", number, () => showIssue(target.repo, number))
       return shown

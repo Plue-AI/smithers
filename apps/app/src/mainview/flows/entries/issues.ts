@@ -21,7 +21,8 @@ export const issuesFlows = (actions: CommandActions): ReadonlyArray<FlowEntry> =
     name: "issues.list",
     summary: "List a repository's issues and conversations, only one kind, or a saved view",
     form: { args: payload => line(text(payload, "filter"), payload.kind === undefined || payload.kind === "all" ? undefined : flag(payload, "kind"), flag(payload, "view"), text(payload, "repo")) },
-    runtimeAny: ["cloud"],
+    // An install lists its repository's GitHub issues (GET /api/issues).
+    runtimeAny: ["cloud", "install"],
     args: "[open|closed|all] [--kind conversation|issue] [--view <id>] [owner/repo]",
     requires: ["first-run-target", "repo-source"],
     input: Schema.Struct({
@@ -37,7 +38,8 @@ export const issuesFlows = (actions: CommandActions): ReadonlyArray<FlowEntry> =
     name: "issues.view",
     summary: "Open an issue with its comments; use source github for GitHub rows",
     form: { partial: issueViewParts, args: payload => line(text(payload, "number"), text(payload, "repo"), flag(payload, "source")) },
-    runtimeAny: ["cloud"],
+    // An install opens its repository's GitHub issues (GET /api/issues/{n}).
+    runtimeAny: ["cloud", "install"],
     args: "<number> [owner/repo] [--source github|smithers-cloud]",
     requires: ["repo-read"],
     input: Schema.Struct({

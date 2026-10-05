@@ -953,7 +953,8 @@ export const createAppController = (
     const row = store.collections.repositoryFlows.get(target.repo)
     return row === undefined ? undefined : { repo: row.id, flows: row.flows, home: row.home, loadedAt: row.loadedAt }
   }
-  const issuesSeam = actors.pair(seamCtx, (context, select) => createIssuesSeam(context, request => select(renderFlowForm)(request)))
+  /* An install reads its repository's GitHub issues at /api/issues (T-STK-09, J2 1 and 2). */
+  const issuesSeam = actors.pair(seamCtx, (context, select) => createIssuesSeam(context, request => select(renderFlowForm)(request), undefined, { install: installHost }))
   /* The services that sync with conversations, issues and the wiki (smithers-ui-DESIGN.md §3.6). */
   const landingsSeam = actors.pair(seamCtx, (context, select) => createLandingsSeam(context, request => select(renderFlowForm)(request)))
   const repositoriesSeam = actors.pair(seamCtx, (context) => createRepositoriesSeam(context))
