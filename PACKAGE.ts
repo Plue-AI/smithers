@@ -315,9 +315,11 @@ const backendPostgres = Smithers.Docker.Service({
 })
 
 // Native FFI builds with the toolchain rust-toolchain.toml pins, installed
-// into a private rustup home so the declared output carries it.
+// into a private rustup home so the declared output carries it. Only a
+// trusted-process-binding build can import a source outside a guest, so its
+// source import CLI test runs as a second pass.
 const nativeFfi = Smithers.Shell.Build({
-  shell: "mkdir -p .native-ffi; export RUSTUP_HOME=\"$PWD/.native-ffi/rustup\" CARGO_TARGET_DIR=\"$PWD/.native-ffi/target\"; rustup toolchain install && cargo clippy -p smithers-ffi --all-targets --locked -- -D warnings && cargo test -p smithers-ffi --locked && cargo build -p smithers-ffi --lib --locked && touch .native-ffi/qualified",
+  shell: "mkdir -p .native-ffi; export RUSTUP_HOME=\"$PWD/.native-ffi/rustup\" CARGO_TARGET_DIR=\"$PWD/.native-ffi/target\"; rustup toolchain install && cargo clippy -p smithers-ffi --all-targets --locked -- -D warnings && cargo test -p smithers-ffi --locked && cargo test -p smithers-ffi --locked --features trusted-process-binding --test source_import_cli && cargo build -p smithers-ffi --lib --locked && touch .native-ffi/qualified",
   outDirs: ["//.native-ffi"],
   data: [
     Smithers.file("//Cargo.toml"),
