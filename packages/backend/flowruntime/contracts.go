@@ -55,6 +55,50 @@ type Launch struct {
 	SourceRevision        string
 	FlowID                string
 	Payload               json.RawMessage
+	// Pin, when set, is the version the launch must run; the host refuses
+	// before running anything else.
+	Pin *Pin
+}
+
+// Pin is the version a TODO attempt pinned when it was admitted: the flow,
+// the main source commit it was chosen from and that flow's execution
+// digest. Every launch of the attempt carries it.
+type Pin struct {
+	Flow            string `json:"flow"`
+	SourceCommit    string `json:"sourceCommit"`
+	ExecutionDigest string `json:"executionDigest"`
+}
+
+// Valid reports a complete pin: a flow name, a 40-hex source commit and a
+// 64-hex execution digest.
+func (p Pin) Valid() bool {
+	return p.Flow != "" && lowerHex(p.SourceCommit, 40) && lowerHex(p.ExecutionDigest, 64)
+}
+
+// Admits reports whether a launch of flowID whose host planned
+// executionDigest may run under the pin: it must name an execution identity,
+// and the pinned flow's must be exactly the pin's. A nil pin admits any
+// launch; a pinned launch without an identity never runs.
+func (p *Pin) Admits(flowID, executionDigest string) bool {
+	if p == nil {
+		return true
+	}
+	if !lowerHex(executionDigest, 64) {
+		return false
+	}
+	return flowID != p.Flow || executionDigest == p.ExecutionDigest
+}
+
+func lowerHex(value string, length int) bool {
+	if len(value) != length {
+		return false
+	}
+	for _, c := range value {
+		if (c < '0' || c > '9') && (c < 'a' || c > 'f') {
+			return false
+		}
+	}
+	return true
 }
 
 type Receipt struct {

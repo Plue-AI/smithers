@@ -12,6 +12,7 @@ import (
 
 	"github.com/jackc/pgx/v5"
 
+	"github.com/smithersai/smithers/packages/backend/flowdispatch"
 	"github.com/smithersai/smithers/packages/backend/internal/db"
 )
 
@@ -97,6 +98,12 @@ func planFactory(projection FactoryProjection, revision string) ([]factoryRegist
 			return nil, nil, errors.New("factory rule has invalid flow names")
 		}
 		for _, name := range names {
+			// The todo composition starts only from a filed TODO's stack
+			// admission (T-FLW-11): a factory rule never registers it.
+			if flowdispatch.IsTodoFlow(name) {
+				warnings = append(warnings, FactoryWarning{rule.Event, name, "the todo flow runs only for a filed TODO"})
+				continue
+			}
 			declared := false
 			for _, flow := range projection.Flows {
 				if flow.ID != name {

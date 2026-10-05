@@ -218,6 +218,11 @@ func validateRepositoryJob(job string, input RegisterRepositoryJobInput, now tim
 	if !isRepositoryJobName(job) || !repositoryJobFlowName.MatchString(input.FlowID) || strings.Contains(input.FlowID, "..") {
 		return bad("invalid repository job or registered flow")
 	}
+	// The todo composition runs only from stack admission of a filed TODO,
+	// pinned to its attempt (T-FLW-11): never as a job or trigger.
+	if flowdispatch.IsTodoFlow(input.FlowID) {
+		return pgtype.Timestamptz{}, pkgerrors.Forbidden("File a TODO to run the todo flow.")
+	}
 	flowTrigger := repositoryFlowJobKey.MatchString(job)
 	if input.FactoryRevision != "" && (!flowTrigger || input.FactoryRevision != input.SourceRevision || input.Mode != "enabled" || (input.Schedule != "") == (len(input.Events) != 0)) {
 		return bad("factory registration requires one trigger and the exact owner main revision")

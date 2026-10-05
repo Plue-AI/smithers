@@ -7,6 +7,8 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"path"
+	"strings"
 	"time"
 
 	"github.com/smithersai/smithers/packages/backend/flowruntime"
@@ -22,7 +24,41 @@ const (
 var (
 	ErrApprovalUnavailable = errors.New("flow dispatch: approval is not available")
 	ErrNotLaunchOperation  = errors.New("flow dispatch: operation is not a Flow launch")
+	// ErrTodoOutsideStack refuses the todo composition on any route other
+	// than the stack's pinned launch of an owner's TODO attempt.
+	ErrTodoOutsideStack = errors.New("flow dispatch: the todo flow runs only from stack admission of a filed TODO")
 )
+
+// TodoFlow is the todo composition (flows/todo/flow.ts). StackBindingKind is
+// the binding kind of the stack's item launches: the only launches that may
+// run it, and only with the attempt's pin.
+const (
+	TodoFlow         = "todo"
+	StackBindingKind = "mythical-item"
+)
+
+// pinMismatch is the failure of a launch whose host planned, or ran, other
+// code than its pin.
+const pinMismatch = "pin_mismatch"
+
+// IsTodoFlow reports whether flowID names the todo composition, by name or by
+// its flows/todo/flow.ts path.
+func IsTodoFlow(flowID string) bool {
+	name := strings.TrimSpace(flowID)
+	if inner, ok := strings.CutPrefix(name, "flows/"); ok {
+		name = strings.TrimSuffix(inner, "/flow.ts")
+	}
+	return path.Clean(name) == TodoFlow
+}
+
+// todoLaunchAllowed is the one route to the todo composition: a stack item
+// launch carrying a complete pin of the todo flow.
+func todoLaunchAllowed(flowID string, target flowruntime.FlowRuntimeTarget, pin *flowruntime.Pin) bool {
+	if !IsTodoFlow(flowID) {
+		return true
+	}
+	return target.BindingKind == StackBindingKind && pin != nil && pin.Valid() && pin.Flow == TodoFlow && flowID == TodoFlow
+}
 
 type ApprovalPolicy string
 
@@ -43,6 +79,9 @@ type LaunchRequest struct {
 	AuthorizationContext json.RawMessage
 	Projection           json.RawMessage
 	ApprovalPolicy       ApprovalPolicy
+	// Pin, when set, is the attempt's pinned version: the host must run
+	// exactly it, and a run of anything else is cancelled and never counts.
+	Pin *flowruntime.Pin
 }
 
 // SignalRequest durably delivers one named signal to a run owned by the same
@@ -134,6 +173,7 @@ type launchPayload struct {
 	Payload        json.RawMessage               `json:"payload"`
 	Projection     json.RawMessage               `json:"projection"`
 	ApprovalPolicy ApprovalPolicy                `json:"approvalPolicy"`
+	Pin            *flowruntime.Pin              `json:"pin,omitempty"`
 }
 
 type approvalPayload struct {

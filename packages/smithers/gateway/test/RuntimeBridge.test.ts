@@ -216,6 +216,46 @@ describe("RuntimeBridge", () => {
       }
     }))
 
+  it.effect("runs a pinned launch only when its plan is the pinned code", () =>
+    Effect.gen(function*() {
+      let runs = 0
+      const control = (planned: PlanCard) =>
+        service({
+          plan: () => Effect.succeed(planned),
+          run: () => {
+            runs++
+            return Effect.succeed(accepted)
+          }
+        })
+      const pin = { flow: "fixture/small", sourceCommit: "d".repeat(40), executionDigest: "c".repeat(64) }
+      const pinned = { ...launch, pin }
+      expect(() => Schema.decodeUnknownSync(RuntimeBridge.LaunchCommand)(pinned)).not.toThrow()
+      expect(() => Schema.decodeUnknownSync(RuntimeBridge.LaunchCommand)({ ...pinned, pin: { ...pin, executionDigest: "C".repeat(64) } }))
+        .toThrow()
+      const result = yield* RuntimeBridge.execute(config, control(plan), principal, pinned)
+      expect(result).toMatchObject({ operation: "launch", receipt: accepted, executionDigest: "c".repeat(64) })
+      expect(runs).toBe(1)
+      const other = yield* Effect.flip(
+        RuntimeBridge.execute(config, control({ ...plan, executionDigest: "e".repeat(64) } as PlanCard), principal, pinned)
+      )
+      expect(other).toMatchObject({ code: "source_mismatch", retryable: false })
+      const { executionDigest: _executionDigest, ...withoutDigest } = plan
+      const unnamed = yield* Effect.flip(
+        RuntimeBridge.execute(config, control(withoutDigest as PlanCard), principal, pinned)
+      )
+      expect(unnamed).toMatchObject({ code: "source_mismatch", retryable: false })
+      // An engine launch of the pinned attempt runs its own flow, which must
+      // still name an execution identity.
+      const engine = { ...pinned, pin: { ...pin, flow: "todo" } }
+      yield* RuntimeBridge.execute(config, control({ ...plan, executionDigest: "e".repeat(64) } as PlanCard), principal, engine)
+      expect(runs).toBe(2)
+      const engineUnnamed = yield* Effect.flip(
+        RuntimeBridge.execute(config, control(withoutDigest as PlanCard), principal, engine)
+      )
+      expect(engineUnnamed).toMatchObject({ code: "source_mismatch" })
+      expect(runs).toBe(2)
+    }))
+
   it.effect("uses verified catalog provenance when an admitted flow has no static graph", () =>
     Effect.gen(function*() {
       let runs = 0

@@ -117,11 +117,18 @@ func TestTodoInstallHTTPRealPostgres(t *testing.T) {
 		require.NoError(t, err)
 		// Literal persisted attempt/candidate fixtures replace
 		// a machine here. No guest or GitHub action is executed by this HTTP proof.
-		_, err = pool.Exec(ctx, `UPDATE mythical_items SET attempt=1,generation=1,state='verifying',candidate_head=$1,flow_digest='flow-one' WHERE id=$2`, strings.Repeat("a", 40), item.ID)
+		// Each attempt pins (todo, source commit, digest); a launch of the
+		// attempt carries that pin and its run names an execution identity.
+		pinOne, pinTwo, source := strings.Repeat("f1", 32), strings.Repeat("f2", 32), strings.Repeat("c", 40)
+		_, err = pool.Exec(ctx, `UPDATE mythical_items SET attempt=1,generation=1,state='verifying',candidate_head=$1,flow_digest=$3,checks=jsonb_set(checks,'{flowSource}',to_jsonb($4::text)) WHERE id=$2`,
+			strings.Repeat("a", 40), item.ID, pinOne, source)
 		require.NoError(t, err)
+		current := pinOne
 		project := func(attempt int, generation int, run string, state jobs.State, output *string) error {
-			projection, _ := json.Marshal(map[string]any{"kind": "mythical-item", "itemId": item.ID, "attempt": attempt, "generation": generation, "phase": "verify"})
+			projection, _ := json.Marshal(map[string]any{"kind": "mythical-item", "itemId": item.ID, "attempt": attempt, "generation": generation, "phase": "verify",
+				"flowDigest": current, "flowSource": source})
 			return service.ProjectFlowRuntime(ctx, flowdispatch.ProjectionUpdate{State: state, Checkpoint: flowdispatch.RuntimeCheckpoint{
+				FlowID: "coding/verify", ExecutionDigest: strings.Repeat("e", 64),
 				Projection: projection, RunID: run, Run: &flowruntime.Run{RunID: run, FinalOutput: output}}})
 		}
 		readCard := func() map[string]any {
@@ -156,7 +163,7 @@ func TestTodoInstallHTTPRealPostgres(t *testing.T) {
 		first, _ := json.Marshal(evidence[0])
 		checks := evidence[0].(map[string]any)["items"].([]any)
 		require.Equal(t, map[string]any{"kind": "check", "name": "unit", "state": "passed", "took_s": 2.5}, checks[0])
-		require.Equal(t, map[string]any{"kind": "flow", "name": "todo", "version": "flow-one"}, checks[1])
+		require.Equal(t, map[string]any{"kind": "flow", "name": "todo", "version": pinOne}, checks[1])
 		var count int
 		require.NoError(t, pool.QueryRow(ctx, `SELECT count(*) FROM product_job_events WHERE event_type='todo.run_updated'`).Scan(&count))
 		require.Equal(t, 2, count, "running and completed, once each")
@@ -192,8 +199,9 @@ func TestTodoInstallHTTPRealPostgres(t *testing.T) {
 		require.NoError(t, err)
 		require.Equal(t, before, after)
 		// Start attempt 2 at the fixture's launch boundary, preserving checks.
-		_, err = pool.Exec(ctx, `UPDATE mythical_items SET attempt=2,generation=2,verify_run_id='',verify_outcome='',candidate_head=$1,flow_digest='flow-two',checks=checks-'receipts' WHERE id=$2`, strings.Repeat("b", 40), item.ID)
+		_, err = pool.Exec(ctx, `UPDATE mythical_items SET attempt=2,generation=2,verify_run_id='',verify_outcome='',candidate_head=$1,flow_digest=$3,checks=checks-'receipts' WHERE id=$2`, strings.Repeat("b", 40), item.ID, pinTwo)
 		require.NoError(t, err)
+		current = pinTwo
 		// Inject failure after the item/evidence save, before event insertion.
 		_, err = pool.Exec(ctx, `CREATE FUNCTION reject_runtime_event() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN RAISE EXCEPTION 'injected event failure'; END $$; CREATE TRIGGER reject_runtime_event BEFORE INSERT ON product_job_events FOR EACH ROW EXECUTE FUNCTION reject_runtime_event();`)
 		require.NoError(t, err)

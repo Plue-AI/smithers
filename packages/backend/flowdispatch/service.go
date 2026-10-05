@@ -153,12 +153,18 @@ func launchAdmission(request LaunchRequest) (jobs.Admission, error) {
 	if request.ApprovalPolicy != ApprovalManual && request.ApprovalPolicy != ApprovalAuto {
 		return jobs.Admission{}, errors.New("flow dispatch: invalid approval policy")
 	}
+	if request.Pin != nil && !request.Pin.Valid() {
+		return jobs.Admission{}, errors.New("flow dispatch: the launch pin is incomplete")
+	}
+	if !todoLaunchAllowed(request.FlowID, request.Target, request.Pin) {
+		return jobs.Admission{}, ErrTodoOutsideStack
+	}
 	if len(request.Projection) == 0 {
 		request.Projection = json.RawMessage(`{}`)
 	}
 	payload, err := json.Marshal(launchPayload{
 		Target: request.Target, FlowID: request.FlowID, Payload: request.Payload,
-		Projection: request.Projection, ApprovalPolicy: request.ApprovalPolicy,
+		Projection: request.Projection, ApprovalPolicy: request.ApprovalPolicy, Pin: request.Pin,
 	})
 	if err != nil {
 		return jobs.Admission{}, fmt.Errorf("flow dispatch: encode launch: %w", err)

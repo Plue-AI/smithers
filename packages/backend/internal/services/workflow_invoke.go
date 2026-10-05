@@ -8,6 +8,7 @@ import (
 
 	"github.com/jackc/pgx/v5"
 
+	"github.com/smithersai/smithers/packages/backend/flowdispatch"
 	"github.com/smithersai/smithers/packages/backend/internal/db"
 	pkgerrors "github.com/smithersai/smithers/packages/backend/internal/pkg/errors"
 )
@@ -89,7 +90,7 @@ func (s *workflowAPIService) InvokeWorkflow(ctx context.Context, input InvokeWor
 	// The todo composition starts only from stack admission of a filed TODO,
 	// pinned to its attempt and lane (T-FLW-11). Invoked by name it would run
 	// with neither; refuse before source reads, billing admission or dispatch.
-	if flowID == "todo" {
+	if flowdispatch.IsTodoFlow(flowID) {
 		return nil, pkgerrors.Forbidden("File a TODO to run the todo flow.")
 	}
 	if s.invoker == nil {

@@ -83,10 +83,10 @@ type MythicalService struct {
 	// pointed at its run (SetPublicURL); absent, the comment names no link.
 	publicURL string
 
-	// todoFlow answers the Active todo flow digest a fresh TODO attempt pins
-	// (SetTodoFlow). Unset, owner TODO admission refuses before placement,
-	// capture or launch.
-	todoFlow func(ctx context.Context, repositoryID int64) (string, error)
+	// todoFlow answers the Active todo flow's execution digest at a main
+	// source commit, which a fresh TODO attempt pins (SetTodoFlow). Unset,
+	// owner TODO admission refuses before placement, capture or launch.
+	todoFlow func(ctx context.Context, repositoryID int64, sourceCommit string) (string, error)
 }
 
 func NewMythicalService(store MythicalStore, host mythicalRepoHost) *MythicalService {

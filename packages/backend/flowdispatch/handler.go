@@ -55,6 +55,11 @@ func (service *Service) handleLaunch(ctx context.Context, lease *jobs.Lease) err
 	if checkpoint.FlowID != payload.FlowID || checkpoint.Target != payload.Target {
 		return service.fail(lease, "checkpoint_request_mismatch", checkpoint)
 	}
+	// The todo composition runs only from a pinned stack launch. Refuse any
+	// other before a machine wakes, a host starts or a token is minted.
+	if (payload.Pin != nil && !payload.Pin.Valid()) || !todoLaunchAllowed(payload.FlowID, payload.Target, payload.Pin) {
+		return service.fail(lease, "todo_requires_stack_admission", checkpoint)
+	}
 	// No external checkpoint means Control has never seen this launch. A
 	// cancellation already present on the claim can therefore settle locally;
 	// it must not wait for (or accidentally start) an unavailable host.
@@ -83,6 +88,9 @@ func (service *Service) handleLaunch(ctx context.Context, lease *jobs.Lease) err
 	// A durable run id means launch acceptance already happened. Reconnect only
 	// through Observe; never infer progress from product rows or host readiness.
 	if checkpoint.RunID != "" {
+		if !payload.Pin.Admits(payload.FlowID, checkpoint.ExecutionDigest) {
+			return service.refusePin(ctx, runtime, lease, checkpoint)
+		}
 		if claim.CancellationRequested {
 			if err := service.cancelRun(ctx, runtime, lease, &checkpoint); err != nil {
 				return err
@@ -108,6 +116,11 @@ func (service *Service) handleLaunch(ctx context.Context, lease *jobs.Lease) err
 	checkpoint.Approval = result.Approval
 	checkpoint.Receipt = &result.Receipt
 	checkpoint.RunID = result.Receipt.RunID
+	// A host that planned other code than the pin, or named none, never
+	// runs for the attempt: its plan is denied or its run cancelled.
+	if !payload.Pin.Admits(payload.FlowID, result.ExecutionDigest) {
+		return service.refusePin(ctx, runtime, lease, checkpoint)
+	}
 
 	switch result.Receipt.Tag {
 	case "Parked":
@@ -193,8 +206,49 @@ func (service *Service) launch(
 	return runtime.Launch(callContext, flowruntime.FlowRuntimeLaunch{
 		ApplicationRequestID: operationID, Attempt: attempt, OwnerGeneration: identity.OwnerGeneration,
 		RuntimeArtifactDigest: identity.RuntimeArtifactDigest, SourceRevision: identity.SourceRevision,
-		FlowID: payload.FlowID, Payload: payload.Payload,
+		FlowID: payload.FlowID, Payload: payload.Payload, Pin: payload.Pin,
 	})
+}
+
+// refusePin stops a launch whose host planned or ran other code than its pin.
+// A parked plan is denied; a run is cancelled and observed until it ends,
+// without credit, so the attempt retries only after it settled. The launch
+// fails pin_mismatch either way.
+func (service *Service) refusePin(
+	ctx context.Context,
+	runtime flowruntime.FlowRuntime,
+	lease *jobs.Lease,
+	checkpoint RuntimeCheckpoint,
+) error {
+	checkpoint.FailureCode = pinMismatch
+	switch {
+	case checkpoint.RunID != "":
+		if err := service.checkpoint(ctx, lease, checkpoint, jobs.StateWaiting); err != nil {
+			return err
+		}
+		if checkpoint.MutationReceipt == nil {
+			if err := service.cancelRun(ctx, runtime, lease, &checkpoint); err != nil {
+				return err
+			}
+		}
+		return service.observe(ctx, runtime, lease, checkpoint)
+	case len(checkpoint.Approval) > 0:
+		callContext, cancel := context.WithTimeout(context.WithoutCancel(ctx), service.runtimeCallTimeout)
+		result, err := runtime.Deny(callContext, flowruntime.FlowRuntimeDecision{
+			ApplicationRequestID: lease.Claim().OperationID + ":deny",
+			OwnerGeneration:      checkpoint.Identity.OwnerGeneration,
+			Approval:             checkpoint.Approval,
+		})
+		cancel()
+		if err != nil {
+			return service.runtimeError(lease, err, checkpoint)
+		}
+		if !validMutationResult(result, "deny", lease.Claim().OperationID+":deny") {
+			return service.fail(lease, "invalid_denial_receipt", checkpoint)
+		}
+		checkpoint.MutationReceipt = &result.Receipt
+	}
+	return service.fail(lease, pinMismatch, checkpoint)
 }
 
 func (service *Service) handleApproval(ctx context.Context, lease *jobs.Lease) error {
@@ -568,6 +622,11 @@ func (service *Service) settleDenied(
 func (service *Service) settle(ctx context.Context, lease *jobs.Lease, checkpoint RuntimeCheckpoint) error {
 	if checkpoint.Run == nil || !terminalStatus(checkpoint.Run.Status) {
 		return service.fail(lease, "runtime_not_terminal", checkpoint)
+	}
+	// A cancelled run of other code than the pin settles as the refusal it
+	// is, never as the run's own outcome.
+	if checkpoint.FailureCode == pinMismatch {
+		return service.fail(lease, pinMismatch, checkpoint)
 	}
 	state := jobs.StateFailed
 	switch checkpoint.Run.Status {

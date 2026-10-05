@@ -80,6 +80,13 @@ type recordingRuntime struct {
 	launchEntered   chan struct{}
 	launchRelease   chan struct{}
 	launchOnce      sync.Once
+	// executionDigest is the identity the host reports for what it planned.
+	executionDigest string
+	// flowID is the flow last launched; observation reports it.
+	flowID    string
+	cancels   int
+	approvals int
+	denials   int
 }
 
 func newRecordingRuntime() *recordingRuntime {
@@ -98,6 +105,7 @@ func (runtime *recordingRuntime) Identity(context.Context) (flowruntime.Identity
 func (runtime *recordingRuntime) Launch(ctx context.Context, input flowruntime.Launch) (flowruntime.LaunchResult, error) {
 	runtime.mu.Lock()
 	runtime.launches = append(runtime.launches, input)
+	runtime.flowID = input.FlowID
 	entered, release := runtime.launchEntered, runtime.launchRelease
 	runtime.mu.Unlock()
 	if entered != nil {
@@ -124,7 +132,7 @@ func (runtime *recordingRuntime) Launch(ctx context.Context, input flowruntime.L
 		return flowruntime.LaunchResult{
 			ApplicationRequestID: input.ApplicationRequestID, OwnerGeneration: input.OwnerGeneration,
 			RuntimeArtifactDigest: input.RuntimeArtifactDigest, SourceRevision: input.SourceRevision,
-			PlanID: "plan-1", Approval: json.RawMessage(`{"target":{"_tag":"Plan","planId":"plan-1"}}`),
+			PlanID: "plan-1", ExecutionDigest: runtime.executionDigest, Approval: json.RawMessage(`{"target":{"_tag":"Plan","planId":"plan-1"}}`),
 			Receipt: flowruntime.Receipt{Tag: "Parked", ReceiptID: "parked", PlanID: "plan-1", Status: "waiting-approval"},
 		}, nil
 	}
@@ -137,7 +145,7 @@ func (runtime *recordingRuntime) Launch(ctx context.Context, input flowruntime.L
 	return flowruntime.LaunchResult{
 		ApplicationRequestID: input.ApplicationRequestID, OwnerGeneration: input.OwnerGeneration,
 		RuntimeArtifactDigest: input.RuntimeArtifactDigest, SourceRevision: input.SourceRevision,
-		PlanID: "plan-1", Receipt: flowruntime.Receipt{Tag: tag, ReceiptID: "accepted", RunID: "run-1"},
+		PlanID: "plan-1", ExecutionDigest: runtime.executionDigest, Receipt: flowruntime.Receipt{Tag: tag, ReceiptID: "accepted", RunID: "run-1"},
 	}, nil
 }
 
@@ -145,6 +153,7 @@ func (runtime *recordingRuntime) Approve(_ context.Context, input flowruntime.De
 	runtime.mu.Lock()
 	defer runtime.mu.Unlock()
 	runtime.approved = true
+	runtime.approvals++
 	return flowruntime.MutationResult{Operation: "approve", ApplicationRequestID: input.ApplicationRequestID,
 		Receipt: flowruntime.Receipt{Tag: "Accepted", ReceiptID: input.ApplicationRequestID}}, nil
 }
@@ -153,6 +162,7 @@ func (runtime *recordingRuntime) Deny(_ context.Context, input flowruntime.Decis
 	runtime.mu.Lock()
 	defer runtime.mu.Unlock()
 	runtime.denied = true
+	runtime.denials++
 	return flowruntime.MutationResult{Operation: "deny", ApplicationRequestID: input.ApplicationRequestID,
 		Receipt: flowruntime.Receipt{Tag: "Terminal", ReceiptID: input.ApplicationRequestID, Status: "cancelled"}}, nil
 }
@@ -161,6 +171,7 @@ func (runtime *recordingRuntime) Cancel(_ context.Context, input flowruntime.Lif
 	runtime.mu.Lock()
 	defer runtime.mu.Unlock()
 	runtime.status = "cancelled"
+	runtime.cancels++
 	return flowruntime.MutationResult{Operation: "cancel", ApplicationRequestID: input.ApplicationRequestID,
 		Receipt: flowruntime.Receipt{Tag: "Terminal", ReceiptID: input.ApplicationRequestID, RunID: input.RunID, Status: "cancelled"}}, nil
 }
@@ -173,8 +184,12 @@ func (runtime *recordingRuntime) Observe(_ context.Context, runID, cursor string
 		runtime.status = "completed"
 	}
 	next := fmt.Sprintf("%d", runtime.observeCount)
+	flowID := runtime.flowID
+	if flowID == "" {
+		flowID = "coding/dispatch"
+	}
 	return flowruntime.Observation{
-		Run: flowruntime.Run{RunID: runID, FlowID: "coding/dispatch", Status: runtime.status, PlanID: "plan-1"},
+		Run: flowruntime.Run{RunID: runID, FlowID: flowID, Status: runtime.status, PlanID: "plan-1"},
 		Events: []flowruntime.Event{{Sequence: int64(runtime.observeCount), Kind: "control.run." + runtime.status,
 			RunID: runID, Payload: json.RawMessage(`{}`)}},
 		NextCursor: next, Terminal: terminalStatus(runtime.status),

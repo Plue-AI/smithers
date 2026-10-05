@@ -27,11 +27,23 @@ import (
 	"github.com/smithersai/smithers/packages/backend/runtimebridge"
 )
 
-// Literal Active todo flow digests; the second becomes Active mid-test.
+// Literal Active todo flow digests; the second becomes Active mid-test. The
+// review flow names its own execution identity.
 var (
-	todoPinOne = strings.Repeat("d1", 32)
-	todoPinTwo = strings.Repeat("d2", 32)
+	todoPinOne   = strings.Repeat("d1", 32)
+	todoPinTwo   = strings.Repeat("d2", 32)
+	reviewDigest = strings.Repeat("e1", 32)
 )
+
+// landedMain is the main commit the stack folded from the mirror: the
+// source a fresh attempt pins its todo flow at.
+func (o *mythicalOrchestration) landedMain() string {
+	o.t.Helper()
+	var landed string
+	require.NoError(o.t, o.pool.QueryRow(context.Background(), `SELECT landed_main FROM mythical_stacks WHERE repository_id=$1`, o.repoID).Scan(&landed))
+	require.Regexp(o.t, `^[0-9a-f]{40}$`, landed)
+	return landed
+}
 
 // newTodoAdmission is the stack orchestration with its account as the
 // install owner, and that owner's browser session for filing TODOs.
@@ -67,7 +79,7 @@ func (o *mythicalOrchestration) byID(id string) db.MythicalItem {
 // ID and the execution digest of the flow the runtime planned.
 func (o *mythicalOrchestration) projectTodo(request flowdispatch.LaunchRequest, state jobs.State, runID, digest, output string) {
 	o.t.Helper()
-	update := flowdispatch.ProjectionUpdate{State: state, Checkpoint: flowdispatch.RuntimeCheckpoint{Projection: request.Projection, RunID: runID,
+	update := flowdispatch.ProjectionUpdate{State: state, Checkpoint: flowdispatch.RuntimeCheckpoint{FlowID: request.FlowID, Projection: request.Projection, RunID: runID,
 		ExecutionDigest: digest, Run: &flowruntime.FlowRuntimeRun{RunID: runID, FinalOutput: &output}}}
 	require.NoError(o.t, o.service.ProjectFlowRuntime(context.Background(), update))
 }
@@ -109,16 +121,20 @@ func decodeJSON(t *testing.T, raw []byte) map[string]any {
 }
 
 // A fresh attempt of an owner's TODO places a lane, retains the stack tip
-// into it and launches the todo composition, pinned to the Active digest, in
-// the transaction that records the attempt: Starting. The host accepting the
-// run is Working. Retry keeps the pin even after another digest is Active.
+// into it and launches the todo composition, pinned at admission to
+// (todo, main's mirrored commit, its Active digest), in the transaction that
+// records the attempt: Starting. The host accepting the run is Working.
+// Retry keeps the whole pin even after main moves and another digest is
+// Active.
 func TestTodoOwnerAdmissionLaunchesThePinnedComposition(t *testing.T) {
 	o, session := newTodoAdmission(t)
 	var asked atomic.Int32
 	active := todoPinOne
-	o.service.SetTodoFlow(func(_ context.Context, repositoryID int64) (string, error) {
+	var sources []string
+	o.service.SetTodoFlow(func(_ context.Context, repositoryID int64, source string) (string, error) {
 		require.Equal(t, o.repoID, repositoryID)
 		asked.Add(1)
+		sources = append(sources, source)
 		return active, nil
 	})
 	item := o.fileTodo(session, "first")
@@ -135,7 +151,10 @@ func TestTodoOwnerAdmissionLaunchesThePinnedComposition(t *testing.T) {
 	require.EqualValues(t, 1, item.Generation)
 	require.Equal(t, pgtype.Text{String: todoPinOne, Valid: true}, item.FlowDigest)
 	require.Equal(t, tip, item.BaseCommit)
+	landed := o.landedMain()
+	require.Equal(t, []string{landed}, sources, "the pin is chosen at main's mirrored commit")
 	checks := mythicalChecksOf(item)
+	require.Equal(t, landed, checks.FlowSource, "the pin's source commit is persisted")
 	require.True(t, checks.RunLaunched)
 	require.False(t, checks.RunAttached)
 	require.EqualValues(t, 1, checks.Launches)
@@ -149,6 +168,7 @@ func TestTodoOwnerAdmissionLaunchesThePinnedComposition(t *testing.T) {
 	require.Equal(t, "mythical:"+id+":1:todo:1", launch.RequestID)
 	require.Equal(t, item.WorkspaceID, launch.Target.WorkspaceID)
 	require.Equal(t, flowdispatch.ApprovalAuto, launch.ApprovalPolicy)
+	require.Equal(t, &flowruntime.Pin{Flow: "todo", SourceCommit: landed, ExecutionDigest: todoPinOne}, launch.Pin, "the launch carries the whole pin")
 	payload := decodeJSON(t, launch.Payload)
 	require.Equal(t, "Add a greeting\n\nAdd a greeting to JOURNEY.md\n\nAcceptance:\n- JOURNEY.md greets the reader\n", payload["prompt"])
 	require.EqualValues(t, 3, payload["maxRounds"])
@@ -156,23 +176,35 @@ func TestTodoOwnerAdmissionLaunchesThePinnedComposition(t *testing.T) {
 	require.Equal(t, map[string]any{"commitId": tip, "ref": ref}, payload["base"])
 	require.Equal(t, tip, o.hostRef(ref), "the tip reached the lane before the launch")
 	require.Equal(t, map[string]any{"repositoryId": float64(o.repoID), "userId": float64(o.userID), "workspaceId": item.WorkspaceID,
-		"itemId": id, "generation": float64(1), "attempt": float64(1), "flowDigest": todoPinOne}, decodeJSON(t, launch.AuthorizationContext))
+		"itemId": id, "generation": float64(1), "attempt": float64(1), "flow": "todo", "flowSource": landed, "flowDigest": todoPinOne}, decodeJSON(t, launch.AuthorizationContext))
 	require.Equal(t, map[string]any{"kind": mythicalBindingKind, "itemId": id, "generation": float64(1), "attempt": float64(1),
-		"phase": "todo", "flowDigest": todoPinOne}, decodeJSON(t, launch.Projection))
+		"phase": "todo", "flowDigest": todoPinOne, "flowSource": landed}, decodeJSON(t, launch.Projection))
 
 	// Duplicate wakes launch nothing more while the run is in flight.
 	o.wake()
 	o.wake()
 	require.Len(t, o.launcher.byFlow("todo"), 1)
 
-	// Stale observations change nothing: another pin, another attempt.
+	// Stale observations change nothing: another pin (digest or source),
+	// no pin, another attempt, or a run naming another digest or none.
 	other := launch
 	other.Projection = []byte(strings.Replace(string(launch.Projection), todoPinOne, todoPinTwo, 1))
 	o.projectTodo(other, jobs.StateWaiting, "foreign-run", todoPinTwo, "")
+	moved := launch
+	moved.Projection = []byte(strings.Replace(string(launch.Projection), landed, strings.Repeat("f", 40), 1))
+	o.projectTodo(moved, jobs.StateWaiting, "moved-run", todoPinOne, "")
+	unpinned := launch
+	unpinned.Projection = []byte(strings.Replace(strings.Replace(string(launch.Projection), `,"flowDigest":"`+todoPinOne+`"`, "", 1), `,"flowSource":"`+landed+`"`, "", 1))
+	o.projectTodo(unpinned, jobs.StateWaiting, "unpinned-run", todoPinOne, "")
 	earlier := launch
 	earlier.Projection = []byte(strings.Replace(string(launch.Projection), `"attempt":1`, `"attempt":2`, 1))
 	o.projectTodo(earlier, jobs.StateWaiting, "future-run", todoPinOne, "")
-	require.Equal(t, "starting", todoState(o.byID(id)))
+	o.projectTodo(launch, jobs.StateWaiting, "wrong-digest-run", todoPinTwo, "")
+	o.projectTodo(launch, jobs.StateWaiting, "no-digest-run", "", "")
+	item = o.byID(id)
+	require.Equal(t, "starting", todoState(item))
+	require.Empty(t, item.RequestRunID)
+	require.Empty(t, item.RequestOutcome, "a running mismatch settles nothing until it ends")
 
 	// The host accepted the run: Working, bound to that run only.
 	o.projectTodo(launch, jobs.StateWaiting, "todo-run-1", todoPinOne, "")
@@ -191,8 +223,13 @@ func TestTodoOwnerAdmissionLaunchesThePinnedComposition(t *testing.T) {
 	require.Equal(t, &mythicalFault{Class: "factory", Tag: "no_proposal", Kind: mythicalFailPlan}, mythicalChecksOf(item).Fault)
 	first := item.WorkspaceID
 
-	// Another digest is Active now; the retry keeps the attempt's pin.
+	// Another digest is Active and main moved; the retry keeps the
+	// attempt's whole pin.
 	active = todoPinTwo
+	o.commit("✨ feat: three", "c.txt", "c\n")
+	o.publish()
+	o.wake()
+	require.NotEqual(t, landed, o.landedMain(), "the stack folded the new main")
 	o.wake()
 	item = o.byID(id)
 	require.Equal(t, "running", item.State, item.Reason)
@@ -205,7 +242,52 @@ func TestTodoOwnerAdmissionLaunchesThePinnedComposition(t *testing.T) {
 	require.Len(t, launches, 2)
 	require.Equal(t, "mythical:"+id+":2:todo:2", launches[1].RequestID)
 	require.Equal(t, todoPinOne, decodeJSON(t, launches[1].AuthorizationContext)["flowDigest"])
+	require.Equal(t, landed, decodeJSON(t, launches[1].AuthorizationContext)["flowSource"])
 	require.EqualValues(t, 2, decodeJSON(t, launches[1].AuthorizationContext)["attempt"])
+	require.Equal(t, &flowruntime.Pin{Flow: "todo", SourceCommit: landed, ExecutionDigest: todoPinOne}, launches[1].Pin)
+}
+
+// Fable round 1, F5: an item's pin admits a launch, or binds a run, only
+// when it is exactly a 64-hex digest with its 40-hex source commit. A
+// malformed or half pin refuses the attempt before any effect and binds no
+// run, even one reporting the same malformed digest.
+func TestTodoItemPinMustBeExact(t *testing.T) {
+	for name, set := range map[string]string{
+		"empty digest":      `flow_digest=left($2, 0)`,
+		"uppercase digest":  `flow_digest=upper($2)`,
+		"short digest":      `flow_digest=left($2, 63)`,
+		"no source commit":  `flow_digest=$2`,
+		"bad source commit": `flow_digest=$2, checks=jsonb_set(checks, '{flowSource}', '"main"')`,
+	} {
+		t.Run(name, func(t *testing.T) {
+			o, session := newTodoAdmission(t)
+			var asked atomic.Int32
+			o.service.SetTodoFlow(func(context.Context, int64, string) (string, error) {
+				asked.Add(1)
+				return todoPinOne, nil
+			})
+			item := o.fileTodo(session, "malformed")
+			_, err := o.pool.Exec(context.Background(), `UPDATE mythical_items SET `+set+` WHERE id=$1`, item.ID, todoPinOne)
+			require.NoError(t, err)
+			o.wake()
+			refused := o.byID(uuidString(item.ID))
+			require.Equal(t, "queued", refused.State)
+			require.Equal(t, "TODO admission unavailable: the pinned todo flow is invalid", refused.Reason)
+			require.Zero(t, refused.Attempt)
+			require.Empty(t, o.launcher.requests, "no run was admitted")
+			require.Empty(t, o.lanes.created, "no lane was placed")
+			require.Zero(t, asked.Load(), "a pinned attempt never asks for another pin")
+
+			// A run reporting the item's own malformed values is never bound.
+			_, err = o.pool.Exec(context.Background(), `UPDATE mythical_items SET attempt=1, generation=1, state='running', checks=jsonb_set(checks, '{run_launched}', 'true') WHERE id=$1`, item.ID)
+			require.NoError(t, err)
+			current := o.byID(uuidString(item.ID))
+			projection, _ := json.Marshal(mythicalProjection{Kind: mythicalBindingKind, ItemID: uuidString(item.ID), Generation: 1, Attempt: 1, Phase: "todo",
+				FlowDigest: current.FlowDigest.String, FlowSource: mythicalChecksOf(current).FlowSource})
+			o.projectTodo(flowdispatch.LaunchRequest{FlowID: "todo", Projection: projection}, jobs.StateWaiting, "malformed-run", current.FlowDigest.String, "")
+			require.Empty(t, o.byID(uuidString(item.ID)).RequestRunID)
+		})
+	}
 }
 
 // T-FLW-11 dark admission for owner TODOs: each missing provider refuses
@@ -219,15 +301,15 @@ func TestTodoDarkAdmissionOwnerProviders(t *testing.T) {
 	}{
 		{name: "no provider", reason: "TODO admission unavailable", bind: func(o *mythicalOrchestration) {}},
 		{name: "isolated dispatch", reason: "TODO admission unavailable", bind: func(o *mythicalOrchestration) {
-			o.service.SetTodoFlow(func(context.Context, int64) (string, error) { return todoPinOne, nil })
+			o.service.SetTodoFlow(func(context.Context, int64, string) (string, error) { return todoPinOne, nil })
 			o.service.launcher = nil
 		}},
 		{name: "lane machines", reason: "TODO admission unavailable", bind: func(o *mythicalOrchestration) {
-			o.service.SetTodoFlow(func(context.Context, int64) (string, error) { return todoPinOne, nil })
+			o.service.SetTodoFlow(func(context.Context, int64, string) (string, error) { return todoPinOne, nil })
 			o.service.lanes = nil
 		}},
 		{name: "invalid digest", reason: "TODO admission unavailable: the pinned todo flow is invalid", bind: func(o *mythicalOrchestration) {
-			o.service.SetTodoFlow(func(context.Context, int64) (string, error) { return "flow-one", nil })
+			o.service.SetTodoFlow(func(context.Context, int64, string) (string, error) { return "flow-one", nil })
 		}},
 	}
 	for _, provider := range []string{"isolated guest dispatch (T-FLW-01)", "retained wake (T-MCH-14)", "candidate authorization (T-STK-12)",
@@ -237,7 +319,7 @@ func TestTodoDarkAdmissionOwnerProviders(t *testing.T) {
 			reason string
 			bind   func(o *mythicalOrchestration)
 		}{name: provider, reason: "TODO admission unavailable: " + provider + " is not integrated", bind: func(o *mythicalOrchestration) {
-			o.service.SetTodoFlow(func(context.Context, int64) (string, error) {
+			o.service.SetTodoFlow(func(context.Context, int64, string) (string, error) {
 				return "", errors.New(provider + " is not integrated")
 			})
 		}})
@@ -270,7 +352,7 @@ func TestTodoDarkAdmissionOwnerProviders(t *testing.T) {
 	}
 	t.Run("positive control", func(t *testing.T) {
 		o, session := newTodoAdmission(t)
-		o.service.SetTodoFlow(func(context.Context, int64) (string, error) { return todoPinOne, nil })
+		o.service.SetTodoFlow(func(context.Context, int64, string) (string, error) { return todoPinOne, nil })
 		item := o.fileTodo(session, "control")
 		o.wake()
 		require.Equal(t, "starting", todoState(o.byID(uuidString(item.ID))))
@@ -278,7 +360,7 @@ func TestTodoDarkAdmissionOwnerProviders(t *testing.T) {
 	})
 	t.Run("a lost launch leaves the attempt unadmitted", func(t *testing.T) {
 		o, session := newTodoAdmission(t)
-		o.service.SetTodoFlow(func(context.Context, int64) (string, error) { return todoPinOne, nil })
+		o.service.SetTodoFlow(func(context.Context, int64, string) (string, error) { return todoPinOne, nil })
 		o.launcher.fail = 1
 		item := o.fileTodo(session, "lost")
 		o.wake()
@@ -299,9 +381,14 @@ func TestTodoDarkAdmissionOwnerProviders(t *testing.T) {
 type todoRuntimeHost struct {
 	mu       sync.Mutex
 	launches []map[string]any
-	// digest is the execution digest the host reports for a todo launch:
-	// the flow it planned.
-	digest string
+	// cancels and denials are the runs and plans the dispatcher stopped.
+	cancels, denials []string
+	cancelled        map[string]bool
+	// digest and review are the execution digests the host reports for a
+	// todo and a review launch: the flows it planned. parked parks a todo
+	// plan for approval instead of running it.
+	digest, review string
+	parked         bool
 }
 
 func (h *todoRuntimeHost) serve(t *testing.T) *httptest.Server {
@@ -323,29 +410,56 @@ func (h *todoRuntimeHost) serve(t *testing.T) *httptest.Server {
 			return
 		}
 		var value map[string]any
+		h.mu.Lock()
+		defer h.mu.Unlock()
 		if r.URL.Path == "/runtime/v1/observe" {
 			runID, _ := input["runId"].(string)
 			flowID := "todo"
 			if strings.HasPrefix(runID, "review-") {
 				flowID = mythicalReviewFlow
 			}
-			value = map[string]any{"run": flowruntime.Run{RunID: runID, FlowID: flowID, Status: "running"}, "events": []any{}, "nextCursor": "", "hasMore": false, "terminal": false}
+			status := "running"
+			if h.cancelled[runID] {
+				status = "cancelled"
+			}
+			value = map[string]any{"run": flowruntime.Run{RunID: runID, FlowID: flowID, Status: status}, "events": []any{}, "nextCursor": "", "hasMore": false, "terminal": status == "cancelled"}
 		} else {
 			operation, _ := input["operation"].(string)
 			runID := "todo-run"
-			if operation == "launch" {
-				h.mu.Lock()
+			receipt := flowruntime.Receipt{Tag: "Accepted", RunID: runID}
+			switch operation {
+			case "launch":
 				h.launches = append(h.launches, input)
-				h.mu.Unlock()
 				if input["flowId"] == mythicalReviewFlow {
-					runID = "review-run"
+					receipt.RunID = "review-run"
+				} else if h.parked {
+					receipt = flowruntime.Receipt{Tag: "Parked", PlanID: "todo-plan", Status: "waiting-approval"}
 				}
+			case "cancel":
+				run, _ := input["runId"].(string)
+				h.cancels = append(h.cancels, run)
+				if h.cancelled == nil {
+					h.cancelled = map[string]bool{}
+				}
+				h.cancelled[run] = true
+				receipt = flowruntime.Receipt{Tag: "Terminal", RunID: run, Status: "cancelled"}
+			case "deny":
+				h.denials = append(h.denials, "todo-plan")
+				receipt = flowruntime.Receipt{Tag: "Terminal", Status: "cancelled"}
 			}
 			value = map[string]any{"operation": operation, "applicationRequestId": input["applicationRequestId"], "ownerGeneration": 1,
-				"runtimeArtifactDigest": identity.RuntimeArtifactDigest, "sourceRevision": identity.SourceRevision,
-				"receipt": flowruntime.Receipt{Tag: "Accepted", RunID: runID}}
-			if operation == "launch" && input["flowId"] == "todo" && h.digest != "" {
-				value["executionDigest"] = h.digest
+				"runtimeArtifactDigest": identity.RuntimeArtifactDigest, "sourceRevision": identity.SourceRevision, "receipt": receipt}
+			if operation == "launch" {
+				digest := h.digest
+				if input["flowId"] == mythicalReviewFlow {
+					digest = h.review
+				}
+				if digest != "" {
+					value["executionDigest"] = digest
+				}
+				if receipt.Tag == "Parked" {
+					value["planId"], value["approval"] = "todo-plan", map[string]any{"target": map[string]any{"_tag": "Plan", "planId": "todo-plan"}}
+				}
 			}
 		}
 		_ = json.NewEncoder(w).Encode(map[string]any{"protocol": flowruntime.Protocol, "ok": true, "value": value})
@@ -373,22 +487,49 @@ func (h *todoRuntimeHost) flows() []string {
 	return out
 }
 
+// pins are the pins the host received, launch by launch.
+func (h *todoRuntimeHost) pins() []any {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	var out []any
+	for _, launch := range h.launches {
+		out = append(out, launch["pin"])
+	}
+	return out
+}
+
+func (h *todoRuntimeHost) stopped() (cancels, denials []string) {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	return append([]string(nil), h.cancels...), append([]string(nil), h.denials...)
+}
+
 // TestTodoPinnedEngineLaunches (C-STK-06) enters production stack admission
 // and the real flowdispatch AdmitInTx and Handle: the attempt launches the
 // todo composition, the TODO goes Starting then Working only from the host's
-// acceptance, and the engine's review launch of that attempt carries the
-// same pin. No coding/request or coding/vibe run is admitted.
+// acceptance, and the engine's review launch of that attempt carries and
+// enforces the same pin: the host receives it, and a review run that names
+// no execution identity is cancelled and never becomes the TODO's review.
+// No coding/request or coding/vibe run is admitted.
 func TestTodoPinnedEngineLaunches(t *testing.T) {
+	for name, review := range map[string]string{"review names its identity": reviewDigest, "review names none": ""} {
+		t.Run(name, func(t *testing.T) { todoPinnedEngineLaunches(t, review) })
+	}
+}
+
+func todoPinnedEngineLaunches(t *testing.T, review string) {
 	o, session := newTodoAdmission(t)
 	ctx := context.Background()
-	peer := &todoRuntimeHost{digest: todoPinOne}
+	peer := &todoRuntimeHost{digest: todoPinOne, review: review}
 	pool, startWorker := o.runDispatcher(t, peer.resolver(t))
-	o.service.SetTodoFlow(func(context.Context, int64) (string, error) { return todoPinOne, nil })
+	o.service.SetTodoFlow(func(context.Context, int64, string) (string, error) { return todoPinOne, nil })
 
 	item := o.fileTodo(session, "pinned")
 	id := uuidString(item.ID)
 	o.wake()
 	tip := o.hostRef("refs/heads/main")
+	landed := o.landedMain()
+	pin := map[string]any{"flow": "todo", "sourceCommit": landed, "executionDigest": todoPinOne}
 	item = o.byID(id)
 	require.Equal(t, "starting", todoState(item), item.Reason)
 	admitted := func(flowID string) []map[string]any {
@@ -412,6 +553,7 @@ func TestTodoPinnedEngineLaunches(t *testing.T) {
 	todo := admitted("todo")
 	require.Len(t, todo, 1, "one durable admission, committed with the attempt")
 	require.Equal(t, todoPinOne, todo[0]["authorization"].(map[string]any)["flowDigest"])
+	require.Equal(t, pin, todo[0]["launch"].(map[string]any)["pin"], "the durable launch holds the whole pin")
 	require.Empty(t, admitted("coding/request"))
 	require.Empty(t, admitted("coding/vibe"))
 
@@ -419,6 +561,7 @@ func TestTodoPinnedEngineLaunches(t *testing.T) {
 	require.Eventually(t, func() bool { return todoState(o.byID(id)) == "working" }, 10*time.Second, 10*time.Millisecond)
 	require.Equal(t, "todo-run", o.byID(id).RequestRunID)
 	require.Equal(t, []string{"todo"}, peer.flows(), "the host launched the composition once")
+	require.Equal(t, []any{pin}, peer.pins(), "the host received the pin with the launch")
 
 	// Stands in for T-STK-12's stack.candidate, which records exactly these
 	// candidate fields: the engine pins the candidate on the prefix.
@@ -445,35 +588,80 @@ func TestTodoPinnedEngineLaunches(t *testing.T) {
 	o.wake()
 	item = o.byID(id)
 	require.Equal(t, "proposed", item.State, item.Reason)
-	review := admitted(mythicalReviewFlow)
-	require.Len(t, review, 1)
-	require.Equal(t, todoPinOne, review[0]["authorization"].(map[string]any)["flowDigest"], "the engine review carries the attempt's pin")
-	require.EqualValues(t, 1, review[0]["authorization"].(map[string]any)["attempt"])
-	projection := review[0]["launch"].(map[string]any)["projection"].(map[string]any)
+	reviews := admitted(mythicalReviewFlow)
+	require.Len(t, reviews, 1)
+	authorization := reviews[0]["authorization"].(map[string]any)
+	require.Equal(t, todoPinOne, authorization["flowDigest"], "the engine review carries the attempt's pin")
+	require.Equal(t, landed, authorization["flowSource"])
+	require.EqualValues(t, 1, authorization["attempt"])
+	launch := reviews[0]["launch"].(map[string]any)
+	require.Equal(t, pin, launch["pin"])
+	projection := launch["projection"].(map[string]any)
 	require.Equal(t, "review", projection["phase"])
 	require.Equal(t, todoPinOne, projection["flowDigest"])
+	require.Equal(t, landed, projection["flowSource"])
 	require.Eventually(t, func() bool { return len(peer.flows()) == 2 }, 10*time.Second, 10*time.Millisecond)
 	require.Equal(t, []string{"todo", mythicalReviewFlow}, peer.flows())
+	require.Equal(t, []any{pin, pin}, peer.pins(), "the review launch carried the same pin to the host")
+	if review != "" {
+		require.Eventually(t, func() bool {
+			current := mythicalChecksOf(o.byID(id)).Review
+			return current != nil && current.RunID == "review-run"
+		}, 10*time.Second, 10*time.Millisecond)
+		cancels, _ := peer.stopped()
+		require.Empty(t, cancels)
+	} else {
+		require.Eventually(t, func() bool {
+			cancels, _ := peer.stopped()
+			return len(cancels) == 1
+		}, 10*time.Second, 10*time.Millisecond)
+		cancels, _ := peer.stopped()
+		require.Equal(t, []string{"review-run"}, cancels, "a review run without an execution identity is cancelled")
+		require.Eventually(t, func() bool {
+			current := mythicalChecksOf(o.byID(id)).Review
+			return current != nil && current.Verdict != ""
+		}, 10*time.Second, 10*time.Millisecond)
+		current := mythicalChecksOf(o.byID(id)).Review
+		require.Empty(t, current.RunID, "it never becomes the TODO's review")
+		require.Equal(t, mythicalOutage+"infra: "+mythicalPinMismatch, current.Verdict, "once it ended, the review settles as an outage and runs again")
+	}
 	require.Empty(t, admitted("coding/request"))
 	require.Empty(t, admitted("coding/vibe"))
 }
 
 // A run whose execution digest is not its attempt's pin, or names none, is
-// never the attempt's run: the TODO never shows Working for it, and the
-// attempt settles as an outage that spends no attempt. Production stack
-// admission, the real dispatcher and the HTTP bridge run for real.
+// never the attempt's run and does not keep running with its credentials:
+// the dispatcher cancels it (or denies a parked plan of it), and only once it
+// ended does the attempt settle, as an outage that spends no attempt. The
+// TODO never shows Working for it. Production stack admission, the real
+// dispatcher and the HTTP bridge run for real.
 func TestTodoRunOfAnotherFlowIsNeverTheAttempts(t *testing.T) {
-	for name, digest := range map[string]string{"another flow": todoPinTwo, "no digest": ""} {
-		t.Run(name, func(t *testing.T) {
+	for _, test := range []struct {
+		name, digest string
+		parked       bool
+	}{
+		{name: "another flow", digest: todoPinTwo},
+		{name: "no digest", digest: ""},
+		{name: "parked plan of another flow", digest: todoPinTwo, parked: true},
+	} {
+		t.Run(test.name, func(t *testing.T) {
 			o, session := newTodoAdmission(t)
-			peer := &todoRuntimeHost{digest: digest}
+			peer := &todoRuntimeHost{digest: test.digest, parked: test.parked}
 			_, startWorker := o.runDispatcher(t, peer.resolver(t))
-			o.service.SetTodoFlow(func(context.Context, int64) (string, error) { return todoPinOne, nil })
+			o.service.SetTodoFlow(func(context.Context, int64, string) (string, error) { return todoPinOne, nil })
 			id := uuidString(o.fileTodo(session, "pinned").ID)
 			o.wake()
 			require.Equal(t, "starting", todoState(o.byID(id)))
 			startWorker()
 			require.Eventually(t, func() bool { return o.byID(id).RequestOutcome != "" }, 10*time.Second, 10*time.Millisecond)
+			cancels, denials := peer.stopped()
+			if test.parked {
+				require.Equal(t, []string{"todo-plan"}, denials, "the parked plan was denied, never approved")
+				require.Empty(t, cancels)
+			} else {
+				require.Equal(t, []string{"todo-run"}, cancels, "the run was cancelled before the attempt settled")
+				require.Empty(t, denials)
+			}
 			item := o.byID(id)
 			require.Equal(t, mythicalOutage+"infra: "+mythicalPinMismatch, item.RequestOutcome)
 			require.Empty(t, item.RequestRunID, "the run was never bound")
@@ -503,7 +691,7 @@ func TestTodoLaunchRefusedBeforeItsRunLeavesStarting(t *testing.T) {
 		resolved.Add(1)
 		return nil, mythicalFlowFailure{code: "runtime_target_forbidden"}
 	}))
-	o.service.SetTodoFlow(func(context.Context, int64) (string, error) { return todoPinOne, nil })
+	o.service.SetTodoFlow(func(context.Context, int64, string) (string, error) { return todoPinOne, nil })
 	id := uuidString(o.fileTodo(session, "refused").ID)
 	o.wake()
 	require.Equal(t, "starting", todoState(o.byID(id)))
@@ -515,7 +703,7 @@ func TestTodoLaunchRefusedBeforeItsRunLeavesStarting(t *testing.T) {
 	require.Empty(t, item.RequestRunID)
 	// A second report of the same launch changes nothing.
 	again := flowdispatch.ProjectionUpdate{State: jobs.StateFailed, Checkpoint: flowdispatch.RuntimeCheckpoint{FailureCode: "runtime_conflict",
-		Projection: []byte(`{"kind":"` + mythicalBindingKind + `","itemId":"` + id + `","generation":1,"attempt":1,"phase":"todo","flowDigest":"` + todoPinOne + `"}`)}}
+		Projection: []byte(`{"kind":"` + mythicalBindingKind + `","itemId":"` + id + `","generation":1,"attempt":1,"phase":"todo","flowDigest":"` + todoPinOne + `","flowSource":"` + o.landedMain() + `"}`)}}
 	require.NoError(t, o.service.ProjectFlowRuntime(context.Background(), again))
 	require.Equal(t, refusal, o.byID(id).RequestOutcome, "the first report settles the launch")
 

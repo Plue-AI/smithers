@@ -374,17 +374,18 @@ func (c *Client) command(ctx context.Context, input any) (commandEnvelope, error
 
 func (c *Client) Launch(ctx context.Context, request flowruntime.FlowRuntimeLaunch) (flowruntime.FlowRuntimeLaunchResult, error) {
 	input := struct {
-		Protocol              string          `json:"protocol"`
-		Operation             string          `json:"operation"`
-		ApplicationRequestID  string          `json:"applicationRequestId"`
-		Attempt               int64           `json:"attempt"`
-		OwnerGeneration       int64           `json:"ownerGeneration"`
-		RuntimeArtifactDigest string          `json:"runtimeArtifactDigest"`
-		SourceRevision        string          `json:"sourceRevision"`
-		FlowID                string          `json:"flowId"`
-		Payload               json.RawMessage `json:"payload"`
+		Protocol              string           `json:"protocol"`
+		Operation             string           `json:"operation"`
+		ApplicationRequestID  string           `json:"applicationRequestId"`
+		Attempt               int64            `json:"attempt"`
+		OwnerGeneration       int64            `json:"ownerGeneration"`
+		RuntimeArtifactDigest string           `json:"runtimeArtifactDigest"`
+		SourceRevision        string           `json:"sourceRevision"`
+		FlowID                string           `json:"flowId"`
+		Payload               json.RawMessage  `json:"payload"`
+		Pin                   *flowruntime.Pin `json:"pin,omitempty"`
 	}{flowruntime.FlowRuntimeProtocol, "launch", request.ApplicationRequestID, request.Attempt, request.OwnerGeneration,
-		request.RuntimeArtifactDigest, request.SourceRevision, request.FlowID, request.Payload}
+		request.RuntimeArtifactDigest, request.SourceRevision, request.FlowID, request.Payload, request.Pin}
 	envelope, err := c.command(ctx, input)
 	if err != nil {
 		return flowruntime.FlowRuntimeLaunchResult{}, err

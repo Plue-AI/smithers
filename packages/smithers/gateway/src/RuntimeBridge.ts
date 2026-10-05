@@ -60,6 +60,15 @@ const common = {
   ownerGeneration: PositiveSafeInteger
 }
 
+// The version a launch must run: a flow, the source commit it was chosen
+// from and that flow's execution digest. A pinned launch runs only a plan
+// with that exact identity.
+const LaunchPin = Schema.Struct({
+  flow: Schema.NonEmptyString,
+  sourceCommit: SourceRevision,
+  executionDigest: Sha256
+})
+
 /**
  * Launches one immutable named flow. Planning and running stay in Control.
  * @since 1.0.0
@@ -72,7 +81,8 @@ export const LaunchCommand = Schema.Struct({
   runtimeArtifactDigest: Sha256,
   sourceRevision: SourceRevision,
   flowId: Schema.NonEmptyString,
-  payload: Schema.Json
+  payload: Schema.Json,
+  pin: Schema.optional(LaunchPin)
 })
 
 /**
@@ -276,6 +286,21 @@ export const execute = (
             new BridgeError({
               code: "source_mismatch",
               message: "Flow source revision does not match the immutable request",
+              retryable: false
+            })
+          )
+        }
+        // A pinned launch runs nothing but its pin: a plan with no execution
+        // identity, or the pinned flow planned as other code, never starts.
+        if (
+          input.pin !== undefined &&
+          (plan.executionDigest === undefined ||
+            (input.pin.flow === input.flowId && plan.executionDigest !== input.pin.executionDigest))
+        ) {
+          return yield* Effect.fail(
+            new BridgeError({
+              code: "source_mismatch",
+              message: "Flow execution digest does not match the pinned launch",
               retryable: false
             })
           )
