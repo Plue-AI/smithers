@@ -56,7 +56,12 @@ func TestTodoInstallHTTPRealPostgres(t *testing.T) {
 		return w
 	}
 	owner := &middleware.AuthInfo{User: &db.User{ID: 9001}, SessionHash: "owner-session"}
-	for _, info := range []*middleware.AuthInfo{nil, {User: &db.User{ID: 9002}, SessionHash: "other-session"}, {User: &db.User{ID: 9001}, IsTokenAuth: true}, {User: &db.User{ID: 9001}, IsTokenAuth: true, TokenSystemIssued: true}} {
+	// No credential is unauthenticated (spec §5.2.1); a credential that may
+	// not file a TODO is permission.
+	w := request("POST", "/api/todos", `{"title":"One","prompt":"Change README"}`, "key", nil)
+	require.Equal(t, http.StatusUnauthorized, w.Code, w.Body.String())
+	require.JSONEq(t, `{"class":"permission","code":"unauthenticated","message":"Sign in"}`, w.Body.String())
+	for _, info := range []*middleware.AuthInfo{{User: &db.User{ID: 9002}, SessionHash: "other-session"}, {User: &db.User{ID: 9001}, IsTokenAuth: true}, {User: &db.User{ID: 9001}, IsTokenAuth: true, TokenSystemIssued: true}} {
 		w := request("POST", "/api/todos", `{"title":"One","prompt":"Change README"}`, "key", info)
 		require.Equal(t, http.StatusForbidden, w.Code, w.Body.String())
 		require.Contains(t, w.Body.String(), `"class":"permission"`)
@@ -67,7 +72,7 @@ func TestTodoInstallHTTPRealPostgres(t *testing.T) {
 	}
 	// The app's Draft sends place as {mode, n?} (packages/rpc/src/DraftCard.ts).
 	body := `{"title":"One","prompt":"Change README","acceptance":[],"place":{"mode":"append"}}`
-	w := request("POST", "/api/todos", body, "", owner)
+	w = request("POST", "/api/todos", body, "", owner)
 	require.Equal(t, 400, w.Code)
 	for place, message := range map[string]string{
 		`{"mode":"before","n":1}`: "T-STK-02", `{"mode":"amend","n":1}`: "T-STK-02",

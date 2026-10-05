@@ -59,11 +59,18 @@ var productStoreCapabilities = map[string]func(any) bool{
 	"workspaceRecoveryQueries":             storeImplements[workspaceRecoveryQueries],
 	"workspaceReprovisionResetter":         storeImplements[workspaceReprovisionResetter],
 	"workspaceRepositoryIdentityStore":     storeImplements[workspaceRepositoryIdentityStore],
+	"workspaceStopStore":                   storeImplements[workspaceStopStore],
 	"workspaceUnchangedFailureQuerier":     storeImplements[workspaceUnchangedFailureQuerier],
 	"workspaceVMRegistrar":                 storeImplements[workspaceVMRegistrar],
 	"workspaceVisibilityQuerier":           storeImplements[workspaceVisibilityQuerier],
 	"interface{GetRepoByID}": storeImplements[interface {
 		GetRepoByID(context.Context, int64) (db.Repository, error)
+	}],
+	"interface{DeleteSystemAccessTokensByName}": storeImplements[interface {
+		DeleteSystemAccessTokensByName(context.Context, db.DeleteSystemAccessTokensByNameParams) error
+	}],
+	"interface{GetAccessTokenByID}": storeImplements[interface {
+		GetAccessTokenByID(context.Context, int64) (db.AccessToken, error)
 	}],
 	"interface{GetMythicalLane}": storeImplements[interface {
 		GetMythicalLane(context.Context, string) (db.MythicalLane, error)
@@ -77,8 +84,8 @@ var productStoreCapabilities = map[string]func(any) bool{
 	"interface{SetWorkspaceIdleTimeout}": storeImplements[interface {
 		SetWorkspaceIdleTimeout(context.Context, db.SetWorkspaceIdleTimeoutParams) (db.Workspace, error)
 	}],
-	"interface{StopWorkspaceRetainingRow}": storeImplements[interface {
-		StopWorkspaceRetainingRow(context.Context, string) (db.StopWorkspaceRetainingRowRow, error)
+	"interface{WorkspaceSoleWriter}": storeImplements[interface {
+		WorkspaceSoleWriter(context.Context, db.WorkspaceSoleWriterParams) (bool, error)
 	}],
 }
 

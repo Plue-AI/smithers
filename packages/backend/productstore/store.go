@@ -79,6 +79,7 @@ type Product interface {
 	FailWorkspaceIfUnchanged(ctx context.Context, arg db.FailWorkspaceIfUnchangedParams) (db.Workspace, error)
 	FinalizeWorkflowCache(ctx context.Context, arg db.FinalizeWorkflowCacheParams) (db.WorkflowCach, error)
 	FindWorkflowCacheForRestore(ctx context.Context, arg db.FindWorkflowCacheForRestoreParams) (db.WorkflowCach, error)
+	GetAccessTokenByID(ctx context.Context, id int64) (db.AccessToken, error)
 	GetActiveWorkspaceForUserRepo(ctx context.Context, arg db.GetActiveWorkspaceForUserRepoParams) (db.Workspace, error)
 	GetActiveWorkspaceForUserRepoKind(ctx context.Context, arg db.GetActiveWorkspaceForUserRepoKindParams) (db.Workspace, error)
 	GetActiveWorkspaceForIdentity(ctx context.Context, arg db.GetActiveWorkspaceForIdentityParams) (db.Workspace, error)
@@ -210,6 +211,7 @@ type Product interface {
 	UpsertLFSUploadReservation(ctx context.Context, arg db.UpsertLFSUploadReservationParams) (db.LfsUploadReservation, error)
 	UpsertPendingWorkflowCache(ctx context.Context, arg db.UpsertPendingWorkflowCacheParams) (db.WorkflowCach, error)
 	WorkspaceServicePublic(ctx context.Context, arg db.WorkspaceServicePublicParams) (bool, error)
+	WorkspaceSoleWriter(ctx context.Context, arg db.WorkspaceSoleWriterParams) (bool, error)
 }
 
 // New binds the product queries to the caller's exact connection or transaction.

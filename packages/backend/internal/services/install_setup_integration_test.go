@@ -159,7 +159,7 @@ func TestInstallStatusRepositoriesPostgres(t *testing.T) {
 			if installed {
 				installations = append(installations, githubfake.Installation{ID: 91, Repositories: []githubfake.Repository{{ID: 100, FullName: "acme/app"}}})
 			}
-			fake, err := githubfake.New(githubfake.Config{AppID: credentials.ID, Slug: credentials.Slug, OwnerLogin: credentials.OwnerLogin, OwnerKind: credentials.OwnerKind, PrivateKeyPEM: credentials.PEM, ClientID: credentials.ClientID, ClientSecret: credentials.ClientSecret, ConversionCode: "manifest-code", Installations: installations})
+			fake, err := githubfake.New(githubfake.Config{OAuthCode: "owner-code", AppID: credentials.ID, Slug: credentials.Slug, OwnerLogin: credentials.OwnerLogin, OwnerKind: credentials.OwnerKind, PrivateKeyPEM: credentials.PEM, ClientID: credentials.ClientID, ClientSecret: credentials.ClientSecret, ConversionCode: "manifest-code", Installations: installations})
 			require.NoError(t, err)
 			defer fake.Close()
 			t.Setenv("SMITHERS_GITHUB_APP_API_BASE_URL", fake.URL)
