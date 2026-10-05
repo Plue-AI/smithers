@@ -34,6 +34,11 @@ Non-rate-limit GitHub failures use HTTP 502 with class `github`, keeping local 4
 
 The install polling integration remains incomplete. Required cadences are refs every 30 seconds; pulls, PR checks and comment streams every 45 seconds; issues and repository issue events every 120 seconds; permissions every hour. Stream ETags and health belong in memory. Repository issue events use an `install_settings` cursor and an atomic cache/cursor/pending-delivery commit, followed by consumer receipt/effect commit and acknowledgement. Full production stream and freshness contracts remain unqualified.
 
+Main-ref reads and transfers run from the system root directory, outside the
+backend's checkout. Transfers name their scratch repository explicitly. The
+packaged Git command and controlled environment remain shared with the existing
+mirror transport; the backend's current checkout supplies no local Git config.
+
 ## Fetched-state delivery
 
 On installs, issue, pull-request and comment webhooks wake the existing metadata

@@ -767,7 +767,12 @@ func (s *GitHubMainPullService) bookmarkCommit(ctx context.Context, owner, repo,
 // gitHubMainPullCommand bounds a git command by the run: after cancellation
 // its pipes are closed within WaitDelay even if a transport helper lingers.
 func gitHubMainPullCommand(ctx context.Context, args ...string) *exec.Cmd {
-	return mirrorCommand(ctx, args...)
+	cmd := mirrorCommand(ctx, args...)
+	// These reads and transfers use absolute remotes and explicit scratch
+	// --git-dir paths. Never discover a repository from the backend's working
+	// directory: its local configuration is not part of the installed toolchain.
+	cmd.Dir = string(os.PathSeparator)
+	return cmd
 }
 
 func defaultLsRemoteRef(ctx context.Context, remote, ref string) (string, error) {

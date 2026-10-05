@@ -3,9 +3,9 @@
   "producer": null,
   "output": {
     "path": "packages/backend/docs/github-app.md",
-    "digest": "39dd4d5a86fde2ed86a94f513b8d3565f0a1146e55d2ca3c296a2366cfda2e5a"
+    "digest": "c06400b3867ba11213c3d197695ed0170a620ec6f72407742b4fca4302e3fb3a"
   },
-  "closure": "52188019b0d1c942ce0a91b703c176b1159fb1cd9317ce2e029d00cebcd152c3",
+  "closure": "0baa8b255aba1ecbc6a3c574b58a701a6108e1b2049b4563f23815c29b427eed",
   "inputs": [
     {
       "path": "docs/api/openapi/install.yaml",
@@ -109,7 +109,7 @@
     },
     {
       "path": "packages/backend/internal/services/github_main_pull.go",
-      "digest": "b7b9409e87f95d2cc43dd04cbd6d4fa7366a076e34ca2b9e1e976532ba5b5a4f"
+      "digest": "16c56279ba0f2ed89ef2e2e66da0687dc2a5c6353269caf1106fc68bdec1e508"
     },
     {
       "path": "packages/backend/internal/services/github_pull_diff.go",
