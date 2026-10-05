@@ -20,9 +20,10 @@ const install = async () => {
   expect(response.status()).toBe(200)
   return response.json()
 }
-const done = async (id: string) => {
-  await expect.poll(async () => (await install()).steps.find((s: { id: string }) => s.id === id)?.state).toBe("done")
-  await expect(card().locator(`[data-step="${id}"]`)).toHaveAttribute("data-state", "done")
+/** A step's work runs in the background, so a step that clones or builds may take longer than the default 5 s. */
+const done = async (id: string, timeout = 5_000) => {
+  await expect.poll(async () => (await install()).steps.find((s: { id: string }) => s.id === id)?.state, { timeout }).toBe("done")
+  await expect(card().locator(`[data-step="${id}"]`)).toHaveAttribute("data-state", "done", { timeout })
   expect(await writes()).toEqual(expect.any(Array))
 }
 const click = (name: string) => card().getByRole("button", { name, exact: true }).first().click()
@@ -45,6 +46,8 @@ test.beforeAll(async ({ browser }) => {
 test.afterEach(async ({}, info) => {
   const owner = info.annotations.find(a => a.type === "owner")?.description ?? ""
   appendFileSync(`${output}/steps.tsv`, `${info.title}\t${info.status}\t${info.expectedStatus}\t${owner}\n`)
+  // Each row's screen is the walk's receipt beside its row.
+  if (page) await page.screenshot({ path: `${output}/screens/${info.title}.png`, fullPage: true })
   writeFileSync(`${output}/writes.json`, JSON.stringify(await writes(), null, 2), { mode: 0o600 })
   writeFileSync(`${output}/model-requests.json`, JSON.stringify(await modelRequests(), null, 2), { mode: 0o600 })
   writeFileSync(`${output}/github-requests.json`, JSON.stringify(traffic, null, 2), { mode: 0o600 })
@@ -110,8 +113,10 @@ test("5 models", async ({}, info) => {
 })
 test("6 source", async ({}, info) => {
   info.annotations.push({ type: "owner", description: "crit4-local-source-model (T-INS-06)" })
+  // Mirroring clones the repository: 7 s on a mini at load 30 (walk at 37c391fafd), so it waits up to 2 min.
+  test.setTimeout(3 * 60_000)
   await click("Mirror")
-  await done("source")
+  await done("source", 2 * 60_000)
   expect(await writes()).toEqual(expect.arrayContaining([expect.objectContaining({ method: "POST", path: "/local-owner/demo.git/git-upload-pack", status: 200 })]))
 })
 test("7 machine", async ({}, info) => {
@@ -204,21 +209,26 @@ test("8 TODO created", async ({}, info) => {
   }, { timeout: 10_000 }).toMatch(/^(queued|starting|working|needs_you|in_review)$/)
 })
 for (const [state, owner] of [
-  ["starting", "J1 rehearsal row 'TODO starting' (T-STK-01: the TODO stays queued)"],
-  ["working", "J1 rehearsal row 'TODO working' (T-STK-01)"]
+  ["starting", "J1 rehearsal row 'TODO starting' (T-STK-01, T-MCH-04; now passing)"],
+  ["working", "J1 rehearsal row 'TODO working' (T-STK-01; now passing on a real lane microVM)"]
 ] as const) test(`8 TODO ${state}`, async ({}, info) => {
-  info.annotations.push({ type: "owner", description: owner }); test.fail()
+  info.annotations.push({ type: "owner", description: owner })
   await showsServedState(state)
 })
 test("9 PR", async ({}, info) => {
-  info.annotations.push({ type: "owner", description: "J1 rehearsal rows 'TODO in_review' and 'PR' (T-STK-01, T-GH-06)" }); test.fail()
+  info.annotations.push({ type: "owner", description: "J1 rehearsal rows 'TODO in_review' and 'PR' (T-STK-01, T-GH-06; now passing)" })
   await showsServedState("in_review")
+  // The lane's coding run asked the stand-in for each scripted step: a real run, not a projected state.
+  const steps = new Set((await modelRequests()).map((entry: { step?: string }) => entry.step))
+  for (const step of ["coding/review-request", "coding/draft-plan", "coding/edit-atom", "coding/review-final-history", "todo/judge"]) {
+    expect(steps, step).toContain(step)
+  }
   await expect(todoCard().locator('a[href^="https://github.com/local-owner/demo/pull/"]').first()).toBeVisible()
   await expect(todoCard().getByRole("region", { name: /^Attempt \d+ evidence$/ }).last()).toBeVisible()
   expect(await writes()).toEqual(expect.arrayContaining([expect.objectContaining({ method: "POST", path: "/repos/local-owner/demo/pulls", status: 201 })]))
 })
 test("10 merge", async ({}, info) => {
-  info.annotations.push({ type: "owner", description: "J1 rehearsal rows 'Merge in Smithers' and 'Merged' (T-STK-04 merge readiness and dispatch)" }); test.fail()
+  info.annotations.push({ type: "owner", description: "J1 rehearsal rows 'Merge in Smithers' and 'Merged' (T-STK-04 merge readiness and dispatch; now passing)" })
   const input = page.getByTestId("composer-input")
   if (!await input.isVisible()) await page.keyboard.press("Control+k")
   await input.fill("/merge T1")
