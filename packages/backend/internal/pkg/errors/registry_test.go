@@ -287,16 +287,21 @@ func TestWriteErrorRetryAfterGuard(t *testing.T) {
 		WriteError(rec, New(CodeGuestNotReady, "still starting"))
 		assert.Equal(t, "47", rec.Header().Get("Retry-After"),
 			"middleware that computed its own window keeps it")
+		var body APIError
+		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &body))
+		assert.Equal(t, 3, body.RetryAfter, "the override does not change the registered body pacing")
 	})
 
 	t.Run("a registered wait writes its own pacing", func(t *testing.T) {
 		rec := httptest.NewRecorder()
 		WriteError(rec, New(CodeGuestNotReady, "still starting"))
-		assert.Equal(t, "2", rec.Header().Get("Retry-After"))
+		// docs/api/failure-codes.json and the guest activation contract specify
+		// three seconds; keep the wire assertions independent of Lookup.
+		assert.Equal(t, "3", rec.Header().Get("Retry-After"))
 
 		var body APIError
 		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &body))
-		assert.Equal(t, 2, body.RetryAfter,
+		assert.Equal(t, 3, body.RetryAfter,
 			"the header does not survive every hop in front of plue, so the body carries it too")
 	})
 
