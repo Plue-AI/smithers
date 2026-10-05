@@ -853,10 +853,11 @@ func TestMythicalDailyBudgetFailsClosed(t *testing.T) {
 	o.wake()
 	assert.Equal(t, "queued", o.item(702).State, "an unreadable policy lifts nothing")
 	assert.Equal(t, "outage: infra: the repository policy could not be read; this is not the TODO's fault, Smithers retries it", o.item(702).Reason)
-	o.service.SetPolicyReader(policyHost{`{"on":[],"github":{"mirror":"pull","issues":"two-way","changes":"send-upstream","maintainers":["roninjin10"]}}`})
+	// A declared 0 is the owner's budget, not a missing one: nothing launches.
+	o.service.SetPolicyReader(policyHost{`{"on":[],"github":{"mirror":"pull","issues":"two-way","changes":"send-upstream","maintainers":["roninjin10"],"dailyTokens":0}}`})
 	o.wake()
 	assert.Equal(t, "queued", o.item(702).State)
-	assert.Equal(t, "the repository declares no daily token budget for its TODOs (S.Github.Policy dailyTokens)", o.item(702).Reason)
+	assert.Equal(t, "the repository sets its daily token budget for TODOs to 0 (S.Github.Policy dailyTokens)", o.item(702).Reason)
 	assert.Empty(t, o.launcher.requests)
 }
 

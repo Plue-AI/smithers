@@ -852,7 +852,9 @@ type mythicalItemStep struct {
 
 // launchable answers what happens instead of a launch the item may not make
 // now, or nil: past its launch bound it stops for a person; while the
-// factory's daily token budget is spent it waits for the next UTC day. The
+// factory's daily token budget (the repository's dailyTokens, or
+// defaultDailyTokens when it declares none) is spent it waits for the next
+// UTC day. The
 // budget sums every token the repository's work recorded today, a workspace
 // named or not; a call whose usage the provider never reported counts the
 // token bound its credit reservation was priced at.
@@ -875,9 +877,9 @@ func (st *mythicalItemStep) launchable(ctx context.Context, item db.MythicalItem
 		st.policy = &policy
 	}
 	if st.policy.DailyTokens <= 0 {
-		// No budget declared is no launch: the factory never spends unbounded.
+		// A declared budget of 0 is no launch: the factory never spends unbounded.
 		next := item
-		next.Reason = "the repository declares no daily token budget for its TODOs (S.Github.Policy dailyTokens)"
+		next.Reason = "the repository sets its daily token budget for TODOs to 0 (S.Github.Policy dailyTokens)"
 		next.NextAttemptAt = pgtype.Timestamptz{Time: st.now.Add(mythicalPullPollEvery), Valid: true}
 		return &next
 	}

@@ -33,13 +33,22 @@ type factoryGitHubPolicy struct {
 	// TodoSince is when that rule took effect (RFC 3339); an issue created
 	// before it never becomes a TODO on its own.
 	TodoSince string `json:"todoSince"`
-	// DailyTokens bounds the tokens the factory's lanes spend per UTC day;
-	// 0 (none declared) launches nothing: the factory never spends unbounded.
+	// DailyTokens bounds the tokens the factory's lanes spend per UTC day.
+	// A repository that declares none gets defaultDailyTokens; a declared 0
+	// launches nothing: the factory never spends unbounded.
 	// Each run in flight holds mythicalRunTokenReserve of it until it
 	// settles (launchable): a day ends over only by the last admitted run's
 	// spend plus what runs spend past their reserves.
 	DailyTokens int64 `json:"dailyTokens"`
 }
+
+// defaultDailyTokens is the daily budget of a repository whose committed
+// policy declares none, so a repository with no Smithers declarations still
+// runs TODOs (mvp.md J1.4, M-11). It is ten runs at mythicalRunTokenReserve,
+// the TUI's default rule of ten runs at the per-run cap (apps/tui/src/budget.ts)
+// applied to the factory's per-run reserve: a tripwire for runaway loops, not
+// cost control. A declared value, 0 included, always wins.
+const defaultDailyTokens = 10 * mythicalRunTokenReserve
 
 // namesMaintainers reports whether the owner committed a maintainers list.
 // Without one, every person with write access keeps counting (the ingress
@@ -66,21 +75,30 @@ func (p factoryGitHubPolicy) maintains(login string) bool {
 var agentIssueSources = []string{"run", "linear", "trial"}
 
 // parseFactoryGitHubPolicy reads a factory projection's github block. A
-// missing projection is the empty policy; an unreadable one is an error,
-// never an empty policy.
+// missing projection is the default policy; an unreadable one is an error,
+// never a default. Each field the block omits keeps its default.
 func parseFactoryGitHubPolicy(projection []byte) (factoryGitHubPolicy, error) {
-	var policy factoryGitHubPolicy
+	policy := factoryGitHubPolicy{DailyTokens: defaultDailyTokens}
 	if len(projection) == 0 {
 		return policy, nil
 	}
 	var factory struct {
-		Github *factoryGitHubPolicy `json:"github"`
+		Github *struct {
+			factoryGitHubPolicy
+			// Shadows the embedded field, so an omitted budget is told
+			// apart from a declared 0.
+			DailyTokens *int64 `json:"dailyTokens"`
+		} `json:"github"`
 	}
 	if err := json.Unmarshal(projection, &factory); err != nil {
-		return policy, errors.New(factoryProjectionPath + " is not valid JSON")
+		return factoryGitHubPolicy{}, errors.New(factoryProjectionPath + " is not valid JSON")
 	}
 	if factory.Github != nil {
-		policy = *factory.Github
+		policy = factory.Github.factoryGitHubPolicy
+		policy.DailyTokens = defaultDailyTokens
+		if factory.Github.DailyTokens != nil {
+			policy.DailyTokens = *factory.Github.DailyTokens
+		}
 	}
 	for _, source := range policy.AgentIssueSources {
 		if !slices.Contains(agentIssueSources, source) {
@@ -116,7 +134,7 @@ type repositoryPolicyHost interface {
 }
 
 // readRepositoryPolicy is the policy the owner committed to the repository's
-// default bookmark. No bookmark or no projection is the empty policy; a
+// default bookmark. No bookmark or no projection is the default policy; a
 // failed or unreadable read is an error, so callers fail closed.
 func readRepositoryPolicy(ctx context.Context, host repositoryPolicyHost, owner, repo, bookmark string) (factoryGitHubPolicy, error) {
 	if host == nil {
@@ -129,11 +147,11 @@ func readRepositoryPolicy(ctx context.Context, host repositoryPolicyHost, owner,
 		return factoryGitHubPolicy{}, err
 	}
 	if !found {
-		return factoryGitHubPolicy{}, nil
+		return parseFactoryGitHubPolicy(nil)
 	}
 	file, err := host.GetFileAtCommit(ctx, owner, repo, commit, factoryProjectionPath)
 	if repohost.IsFileNotFound(err) {
-		return factoryGitHubPolicy{}, nil
+		return parseFactoryGitHubPolicy(nil)
 	}
 	if err != nil {
 		return factoryGitHubPolicy{}, fmt.Errorf("read %s: %w", factoryProjectionPath, err)
