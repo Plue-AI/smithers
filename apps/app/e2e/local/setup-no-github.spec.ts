@@ -13,6 +13,8 @@ let traffic: Awaited<ReturnType<typeof githubRoute>>
 const output = "test-results/local-no-github"
 const card = () => page.locator('[aria-label="Set up Smithers"]').first()
 const writes = async () => (await context.request.get(`${run.fakeURL}/_fake/writes`)).json()
+/** The model stand-in's journal: every call the install made, with the TODO coding step a scripted answer served. */
+const modelRequests = async () => (await context.request.get(`${run.modelOrigin}/__journal`)).json()
 const install = async () => {
   const response = await context.request.get("http://localhost:4000/api/install")
   expect(response.status()).toBe(200)
@@ -44,6 +46,7 @@ test.afterEach(async ({}, info) => {
   const owner = info.annotations.find(a => a.type === "owner")?.description ?? ""
   appendFileSync(`${output}/steps.tsv`, `${info.title}\t${info.status}\t${info.expectedStatus}\t${owner}\n`)
   writeFileSync(`${output}/writes.json`, JSON.stringify(await writes(), null, 2), { mode: 0o600 })
+  writeFileSync(`${output}/model-requests.json`, JSON.stringify(await modelRequests(), null, 2), { mode: 0o600 })
   writeFileSync(`${output}/github-requests.json`, JSON.stringify(traffic, null, 2), { mode: 0o600 })
   expect(traffic.aborted).toEqual([])
 })
@@ -99,9 +102,7 @@ test("5 models", async ({}, info) => {
   await click("Model access")
   await done("models")
   // Model access tested each role's key with one call at the stand-in.
-  const journal = await (await context.request.get(`${run.modelOrigin}/__journal`)).json()
-  writeFileSync(`${output}/model-requests.json`, JSON.stringify(journal, null, 2), { mode: 0o600 })
-  expect(journal).toEqual(expect.arrayContaining([
+  expect(await modelRequests()).toEqual(expect.arrayContaining([
     expect.objectContaining({ protocol: "openai-chat", modelId: INSTALL_MODEL.fast, status: 200, authorized: true }),
     expect.objectContaining({ protocol: "openai-chat", modelId: PROVIDER_MODEL.answers, status: 200, authorized: true }),
     expect.objectContaining({ protocol: "evaluation", modelId: INSTALL_MODEL.decisions, status: 200, authorized: true })
@@ -161,9 +162,27 @@ const served = async () => {
   expect(response.status()).toBe(200)
   return response.json()
 }
+/**
+ * How long each state may take to arrive on a real install, as the J1 rehearsal waits for its own: Starting until the
+ * lane's microVM boots from Machine ready's layers, Working until its coding host accepts the run, In review once the
+ * coding run delivered and the PR opened, Merged after GitHub's merge receipt.
+ */
+const WAITS = { starting: 3 * 60_000, working: 5 * 60_000, in_review: 15 * 60_000, merged: 2 * 60_000 } as const
+/** The served state when the last row gave up. A TODO still queued after Starting's wait will not start: later rows wait 15 s. */
+let gaveUpAt: string | undefined
 /** The card's state word is the server's state, read through GET /api/todos/1 (never a client guess). */
-const showsServedState = async (state: string) => {
-  await expect.poll(async () => (await served()).state, { timeout: 15_000 }).toBe(state)
+const showsServedState = async (state: keyof typeof WAITS) => {
+  const wait = gaveUpAt === "queued" ? 15_000 : WAITS[state]
+  test.setTimeout(wait + 60_000)
+  const began = Date.now()
+  for (let todo = await served(); todo.state !== state; todo = await served()) {
+    if (todo.state === "failed" || todo.state === "dropped" || Date.now() - began > wait) {
+      gaveUpAt = todo.state
+      throw new Error(`TODO ${JSON.stringify({ state: todo.state, queue: todo.queue, failure: todo.failure })} after ${Math.round((Date.now() - began) / 1000)} s; expected ${state}`)
+    }
+    // Fast while a short state may pass, then gently for a wait that lasts minutes.
+    await page.waitForTimeout(Date.now() - began < 5_000 ? 100 : 1_000)
+  }
   await expect(todoCard().locator("header .mvp-state")).toHaveAttribute("data-state", state)
 }
 test("8 TODO created", async ({}, info) => {
@@ -174,11 +193,11 @@ test("8 TODO created", async ({}, info) => {
   await input.press("Enter")
   const draft = page.getByRole("region", { name: "Draft", exact: true }).last()
   await draft.getByLabel("Title", { exact: true }).fill("First local TODO")
-  await draft.getByLabel("Prompt", { exact: true }).fill("Add a greeting to README.md")
+  await draft.getByLabel("Prompt", { exact: true }).fill("Add a greeting to JOURNEY.md")
   await draft.getByRole("combobox", { name: "Place", exact: true }).selectOption({ label: "Append" })
   await draft.getByRole("button", { name: "Commit", exact: true }).click()
   await expect(todoCard()).toContainText("First local TODO", { timeout: 10_000 })
-  expect(await served()).toMatchObject({ n: 1, title: "First local TODO", prompt_revisions: [expect.objectContaining({ text: "Add a greeting to README.md" })] })
+  expect(await served()).toMatchObject({ n: 1, title: "First local TODO", prompt_revisions: [expect.objectContaining({ text: "Add a greeting to JOURNEY.md" })] })
   await expect.poll(async () => {
     const state = (await served()).state
     return await todoCard().locator("header .mvp-state").getAttribute("data-state") === state ? state : `card differs from ${state}`
@@ -187,7 +206,7 @@ test("8 TODO created", async ({}, info) => {
 for (const [state, owner] of [
   ["starting", "J1 rehearsal row 'TODO starting' (T-STK-01: the TODO stays queued)"],
   ["working", "J1 rehearsal row 'TODO working' (T-STK-01)"]
-]) test(`8 TODO ${state}`, async ({}, info) => {
+] as const) test(`8 TODO ${state}`, async ({}, info) => {
   info.annotations.push({ type: "owner", description: owner }); test.fail()
   await showsServedState(state)
 })
