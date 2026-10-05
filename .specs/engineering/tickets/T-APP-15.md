@@ -2,20 +2,20 @@
 
 Stage S1 · Size S · Depends on T-INS-02, T-CAT-01, T-INS-06, T-SEC-01 · Unblocks T-APP-02, T-APP-05, T-APP-11, T-APP-14a, T-APP-17, T-FLW-05, T-REL-02, T-UI-16 · Issue: [#3461](https://github.com/smithersai/smithers/issues/3461)
 Spec: spec.md §7.6, §14.3 (File) · Delta: delta.md §4, §9 · Product: mvp.md §8 (code intelligence in file cards: Keep), §1.4, J1.5, J9
-Ready: 2026-10-03 smithers-8a sha256:3a3b25e177fd
+Ready: 2026-10-05 smithers-8a sha256:0ccc4157ae11
 
 ## Goal
-The S1 File card keeps today's renderer and code intelligence, and answers before Machine ready. CodeMirror 6 leaves S1: the swap moves to T-APP-14 (S3), its first real user, which restores the CodeMirror adapter from 4a36b0cfb then.
+The S1 File card keeps today's renderer and code intelligence, and answers before Machine ready. Today's renderer is the read-only CodeMirror `CodeEditorView` that T-APP-14a restored in 6451c97b2 (#3628), with its live-document client dark; this ticket keeps it as landed (8a re-ruling, 2026-10-05, option A).
 
 ## Scope
 In:
-- The card file stays `apps/app/src/mainview/cards/FileCards.tsx` with `cards/CodeSurface.tsx`, rendering `@smthrs/ui` `adapters/code-view/CodeFileView.tsx` (Shiki). The code-view adapter stays.
-- Code intelligence as landed: hover runs `code.hover` and ⌘/Ctrl-click runs `code.definition` with `{path, line, col}` (`CodeSurface.tsx:95-97`); another file's definition dispatches `files.read` through `cardActions` → `flowAction`; a same-file definition reveals the line; `code.diagnostics` dispatches the path and repository without a position.
+- The card file stays `apps/app/src/mainview/cards/FileCards.tsx`, rendering `cards/views/CodeEditorView.tsx` read-only as landed in 6451c97b2. Port `CodeSurface.test.tsx` to `CodeEditorView` (it is the gesture test), then delete any CSS or adapter left with no importer.
+- Code intelligence as landed: hover runs `code.hover` and ⌘/Ctrl-click runs `code.definition` with `{path, line, col}` (6451c97b2 deleted `CodeSurface.tsx`, which carried these gestures, and on main only tests still name them; wire them on `CodeEditorView`); another file's definition dispatches `files.read` through `cardActions` → `flowAction`; a same-file definition reveals the line; `code.diagnostics` dispatches the path and repository without a position.
 - Landing dark: build against the specified T-INS-02 launcher, T-CAT-01 catalog, T-INS-06 Source-ready mirror and T-SEC-01 guest-boundary contracts. Until each unavailable dependency passes its checks, expose no dependent action: refuse reads without authenticated repository authority or a ready mirror, and bind no LSP gestures without isolated execution and validated guest boundaries. Never wake a machine or use a host fallback to satisfy a read. Prove these cases in the route and file-intelligence tests below.
 - The read-only `GET /api/branches/{b}/files/{path}` content route (§6.3), including `main:.smithers/machine.json`, served from mirrored data without waking a machine or executing repository code. The existing `/workspaces/{id}/files/content` (`router.go:1441`) needs a live workspace, so it cannot serve before Machine ready. Declare it in `docs/api/openapi/branches.yaml` (new) and regenerate the existing client.
 
 Out:
-- CodeMirror 6, `EditorBinding` and editing (T-APP-14, S3). T-APP-15 reverts the CodeMirror adapter, `CodeEditorView` and the `@codemirror/*` and `y-codemirror.next` pins, and folds `DiffView` into `DiffSurface`.
+- Editing, `EditorBinding` activation and live documents (T-APP-14, S3). T-APP-15 does not revert T-APP-14a's CodeMirror restore or its pins; the live-document client stays dark. It folds `DiffView` into `DiffSurface` if that fold isn't already on main.
 - New diff behavior, which stays on `@pierre/diffs` (`DiffSurface.tsx`); only the existing DiffView fold is included. Also exclude project-wide refactoring, browser extensions and debugging, new language servers, S2 daemon migration and live file states (T-APP-11), and S3 document protocols (T-APP-14).
 - Host or browser language-server processes, repository plugin execution outside a machine, automatic machine wake from a read. The existing S1 workspace LSP tunnel stays; T-APP-11 moves it to the daemon in S2.
 
