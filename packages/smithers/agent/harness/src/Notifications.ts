@@ -40,9 +40,12 @@ const render = (notification: Notification): ModelRequest.Message => {
   const body = typeof record?.["body"] === "string"
     ? record["body"]
     : JSON.stringify(payload)
+  const attribution = notification.provenance.attribution === undefined
+    ? ""
+    : ` attribution ${JSON.stringify(notification.provenance.attribution)}`
   return ModelRequest.Message.user(
     `[notification ${notification.id} from ${notification.provenance.sourceActor} ` +
-      `at ${notification.provenance.sourceLineageId} turn ${notification.provenance.sourceTurn}]\n${body}`
+      `at ${notification.provenance.sourceLineageId} turn ${notification.provenance.sourceTurn}${attribution}]\n${body}`
   )
 }
 

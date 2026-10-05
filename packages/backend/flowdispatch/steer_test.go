@@ -38,6 +38,7 @@ func TestTodoSteerReauthorizesBeforeWakeAndDelivery(t *testing.T) {
 					require.Equal(t, request.Body, received.Body)
 					require.Equal(t, request.MessageID, received.MessageID)
 					require.Equal(t, request.Scope, received.Scope)
+					require.Equal(t, request.Attribution, received.Attribution)
 					require.JSONEq(t, string(request.AuthorizationContext), string(received.AuthorizationContext))
 					if checks.Add(1) == revokeAt {
 						return &testRuntimeFailure{code: "steer_author_revoked"}
@@ -109,6 +110,7 @@ func testSteerRequest() SteerRequest {
 		Scope: launch.Scope, RequestID: launch.RequestID, Target: launch.Target,
 		FlowID: launch.FlowID, RunID: "run-1", MessageID: "message-1",
 		CreatedAt: 1791228000000, Body: "Keep the question open; also cover cancellation.",
+		Attribution:          map[string]string{"person": "ben", "via": "codex", "session": "terminal-1"},
 		AuthorizationContext: launch.AuthorizationContext,
 	}
 }

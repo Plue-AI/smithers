@@ -392,6 +392,7 @@ describe("the identity an authenticated control mutation is journaled under", ()
         const { runId } = yield* start(rpc, "steer")
         const message: SteerMessage = {
           messageId: "steer-spoof",
+          attribution: { person: "someone-else", via: "owner" },
           runId,
           principal: spoofed,
           createdAt: 1,
@@ -406,6 +407,7 @@ describe("the identity an authenticated control mutation is journaled under", ()
     // Provenance is what a notification's reader and the run transcript show,
     // so a client that could name it could attribute its own message to anyone.
     expect(observed[0]?.provenance.sourceActor).toBe("bearer:remote-operator")
+    expect(observed[0]?.provenance.attribution).toBeUndefined()
   })
 
   it("keeps a repeated cancel idempotent even though the principal is stamped per request", async () => {

@@ -82,6 +82,28 @@ const park = (runId: string, reason?: string) =>
   })
 
 describe("live steering", () => {
+  it("retains producer attribution separately from the authenticated source", async () => {
+    const observed = await run(Effect.gen(function*() {
+      const queue = yield* NotificationQueue.NotificationQueue
+      const runId = yield* start("attributed")
+      const message = {
+        messageId: "member-feedback",
+        body: "Keep the question open.\nCheck cancellation.",
+        attribution: { person: "ben", via: "codex", session: "terminal-1" }
+      }
+      expect((yield* steer(runId, message))._tag).toBe("Accepted")
+      expect((yield* steer(runId, message))._tag).toBe("AlreadyApplied")
+      expect((yield* steer(runId, { ...message, attribution: { person: "someone-else" } }))._tag).toBe("Conflict")
+      return yield* queue.pending(runId)
+    }))
+    expect(observed).toHaveLength(1)
+    expect(observed[0]?.provenance).toMatchObject({
+      sourceActor: "test:operator",
+      attribution: { person: "ben", via: "codex", session: "[REDACTED]" }
+    })
+    expect(observed[0]?.payload).toEqual({ kind: "Message", body: "Keep the question open.\nCheck cancellation." })
+  })
+
   it("stores a typed steer as the item the harness reads back", async () => {
     const observed = await run(Effect.gen(function*() {
       const queue = yield* NotificationQueue.NotificationQueue

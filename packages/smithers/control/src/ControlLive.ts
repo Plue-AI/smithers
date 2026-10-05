@@ -1832,7 +1832,8 @@ export const layer: Layer.Layer<
                     sourceRunId: input.runId,
                     sourceLineageId: input.runId,
                     sourceTurn: 0,
-                    sourceActor: `${input.message.principal.kind}:${input.message.principal.id}`
+                    sourceActor: `${input.message.principal.kind}:${input.message.principal.id}`,
+                    ...(input.message.attribution === undefined ? {} : { attribution: input.message.attribution })
                   },
                   payload: SteerPayload.encode(item)
                 }).pipe(

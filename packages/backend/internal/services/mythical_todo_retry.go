@@ -22,10 +22,11 @@ import (
 // that attempt and every later one as the run's first input (todoFeedback);
 // the card lists every steer in order (steers[]).
 type todoSteer struct {
-	Text    string          `json:"text"`
-	By      json.RawMessage `json:"by"`
-	At      time.Time       `json:"at"`
-	Attempt int32           `json:"attempt"`
+	Attribution map[string]string `json:"attribution,omitempty"`
+	Text        string            `json:"text"`
+	By          json.RawMessage   `json:"by"`
+	At          time.Time         `json:"at"`
+	Attempt     int32             `json:"attempt"`
 	// These fields are absent on historical Retry feedback. Request is scoped
 	// to Author; ID is the stable event/message identity for live or held input.
 	ID      string `json:"id,omitempty"`

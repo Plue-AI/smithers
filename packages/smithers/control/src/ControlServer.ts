@@ -84,7 +84,8 @@ export const layer = ControlRpcs.toLayer(
           // the authenticated identity replaces whatever arrived. It reaches
           // the notification's `sourceActor` and the run transcript, which is
           // exactly where a spoofed name would be read as truth.
-          return yield* control.steer({ ...input, message: { ...input.message, principal }, ...yield* reader })
+          const { attribution: _attribution, ...message } = input.message
+          return yield* control.steer({ ...input, message: { ...message, principal }, ...yield* reader })
         }), logged),
       Signal: Effect.fn("Control.signal")((input) =>
         Effect.gen(function*() {

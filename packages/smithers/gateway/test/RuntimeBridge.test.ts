@@ -234,7 +234,12 @@ describe("RuntimeBridge", () => {
       const pin = { flow: "fixture/small", sourceCommit: revision, executionDigest: "c".repeat(64) }
       const pinned = { ...launch, pin }
       expect(() => Schema.decodeUnknownSync(RuntimeBridge.LaunchCommand)(pinned)).not.toThrow()
-      expect(() => Schema.decodeUnknownSync(RuntimeBridge.LaunchCommand)({ ...pinned, pin: { ...pin, executionDigest: "C".repeat(64) } }))
+      expect(() =>
+        Schema.decodeUnknownSync(RuntimeBridge.LaunchCommand)({
+          ...pinned,
+          pin: { ...pin, executionDigest: "C".repeat(64) }
+        })
+      )
         .toThrow()
       const result = yield* RuntimeBridge.execute(config, control(plan), principal, pinned)
       expect(result).toMatchObject({ operation: "launch", receipt: accepted, executionDigest: "c".repeat(64) })
@@ -243,13 +248,21 @@ describe("RuntimeBridge", () => {
       // refused before planning, for the composition and its engine launches.
       for (const flow of ["fixture/small", "todo"]) {
         const otherSource = yield* Effect.flip(
-          RuntimeBridge.execute(config, control(plan), principal, { ...pinned, pin: { ...pin, flow, sourceCommit: "d".repeat(40) } })
+          RuntimeBridge.execute(config, control(plan), principal, {
+            ...pinned,
+            pin: { ...pin, flow, sourceCommit: "d".repeat(40) }
+          })
         )
         expect(otherSource).toMatchObject({ code: "source_mismatch", retryable: false })
       }
       expect([plans, runs]).toEqual([1, 1])
       const other = yield* Effect.flip(
-        RuntimeBridge.execute(config, control({ ...plan, executionDigest: "e".repeat(64) } as PlanCard), principal, pinned)
+        RuntimeBridge.execute(
+          config,
+          control({ ...plan, executionDigest: "e".repeat(64) } as PlanCard),
+          principal,
+          pinned
+        )
       )
       expect(other).toMatchObject({ code: "source_mismatch", retryable: false })
       const { executionDigest: _executionDigest, ...withoutDigest } = plan
@@ -261,7 +274,12 @@ describe("RuntimeBridge", () => {
       // An engine launch of the pinned attempt runs its own flow from the
       // pinned source, which must still name an execution identity.
       const engine = { ...pinned, pin: { ...pin, flow: "todo" } }
-      yield* RuntimeBridge.execute(config, control({ ...plan, executionDigest: "e".repeat(64) } as PlanCard), principal, engine)
+      yield* RuntimeBridge.execute(
+        config,
+        control({ ...plan, executionDigest: "e".repeat(64) } as PlanCard),
+        principal,
+        engine
+      )
       expect(runs).toBe(2)
       const engineUnnamed = yield* Effect.flip(
         RuntimeBridge.execute(config, control(withoutDigest as PlanCard), principal, engine)
@@ -351,6 +369,7 @@ describe("RuntimeBridge", () => {
         runId: "run-1",
         messageId: "message-1",
         createdAt: 2,
+        attribution: { person: "ben", via: "codex", session: "terminal-1" },
         steer: { kind: "Message", body: "continue" }
       })
       yield* RuntimeBridge.execute(config, control, principal, {
@@ -362,9 +381,27 @@ describe("RuntimeBridge", () => {
       yield* RuntimeBridge.execute(config, control, principal, { ...common, operation: "resume", runId: "run-1" })
       expect(calls.map((call) => call.operation)).toEqual(["approve", "deny", "signal", "steer", "cancel", "resume"])
       expect(calls[0]!.input).toMatchObject({ idempotencyKey: "bridge:v1:mutation-1:approve", principal })
-      expect(calls[3]!.input).toMatchObject({ runId: "run-1", message: { messageId: "message-1", principal } })
+      expect(calls[3]!.input).toMatchObject({
+        runId: "run-1",
+        message: {
+          messageId: "message-1",
+          principal,
+          attribution: { person: "ben", via: "codex", session: "terminal-1" }
+        }
+      })
       expect(calls[4]!.input).toMatchObject({ reason: "operator" })
       expect(calls[5]!.input).not.toHaveProperty("reason")
+      yield* RuntimeBridge.execute(config, control, principal, {
+        ...common,
+        applicationRequestId: "legacy-steer",
+        operation: "steer",
+        runId: "run-1",
+        messageId: "message-2",
+        createdAt: 3,
+        steer: { kind: "Message", body: "continue" }
+      })
+      expect(calls[6]!.input).toMatchObject({ message: { messageId: "message-2", principal } })
+      expect(calls[6]!.input).not.toHaveProperty("message.attribution")
     }))
 
   it.effect("returns bounded reconnect pages and terminal truth from Control", () =>

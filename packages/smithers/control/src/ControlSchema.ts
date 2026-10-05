@@ -5,6 +5,7 @@
  */
 
 import { EngineEvent, ExecutionFact } from "@smthrs/journal"
+import { Attribution } from "@smthrs/notifications/Notification"
 import * as SteerPayload from "@smthrs/notifications/SteerPayload"
 import * as PersistedPlan from "@smthrs/plan/Plan"
 import { BudgetOnExceeded, DiscoveryWarning } from "@smthrs/registry/Descriptor"
@@ -686,6 +687,9 @@ const steerEnvelope = {
    */
   runId: RunId,
   principal: Principal,
+  // Producer labels are data, distinct from principal. Public RPC strips
+  // these; a trusted product bridge may relay its already-authorized sender.
+  attribution: Schema.optional(Attribution),
   /**
    * When the caller says it wrote the message. It is the caller's own
    * statement, recorded on `control.steer.enqueued` and never used to decide

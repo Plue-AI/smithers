@@ -119,6 +119,7 @@ type SteerRequest struct {
 	MessageID            string
 	CreatedAt            float64
 	Body                 string
+	Attribution          map[string]string
 	AuthorizationContext json.RawMessage
 	Projection           json.RawMessage
 }
@@ -237,9 +238,10 @@ type runMutationPayload struct {
 
 type steerPayload struct {
 	runMutationPayload
-	MessageID string  `json:"messageId"`
-	CreatedAt float64 `json:"createdAt"`
-	Body      string  `json:"body"`
+	MessageID   string            `json:"messageId"`
+	CreatedAt   float64           `json:"createdAt"`
+	Body        string            `json:"body"`
+	Attribution map[string]string `json:"attribution,omitempty"`
 }
 
 type terminalReceipt struct {

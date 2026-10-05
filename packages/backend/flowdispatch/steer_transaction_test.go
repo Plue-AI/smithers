@@ -32,6 +32,7 @@ func TestSteerInTxCommitRollbackAndReplay(t *testing.T) {
 		Scope: jobs.Scope{TenantID: "repository:5", PrincipalID: "user:9"}, RequestID: "amend-1",
 		Target: flowruntime.Target{BindingKind: "repository-job-dispatch", BindingID: "dispatch-1"},
 		FlowID: "coding/dispatch", RunID: "run-1", MessageID: "feedback-1", CreatedAt: 1791228000000, Body: "Keep the wait open",
+		Attribution:          map[string]string{"person": "ben", "via": "terminal"},
 		AuthorizationContext: json.RawMessage(`{"role":"member"}`),
 	}
 	for _, commit := range []bool{false, true} {
@@ -75,6 +76,10 @@ func TestSteerInTxCommitRollbackAndReplay(t *testing.T) {
 		changed.Body = "A different instruction"
 		_, err = service.Steer(ctx, changed)
 		require.Error(t, err, "a committed identity cannot silently replace its feedback")
+		changed = request
+		changed.Attribution = map[string]string{"person": "someone-else"}
+		_, err = service.Steer(ctx, changed)
+		require.Error(t, err, "a committed identity cannot silently replace its author")
 		startTestWorker(t, service, "transactional-steer")
 		waitOperation(t, store, request.Scope, receipt.OperationID, func(operation jobs.Operation) bool { return operation.State == jobs.StateCompleted })
 		runtime.mu.Lock()
@@ -83,6 +88,7 @@ func TestSteerInTxCommitRollbackAndReplay(t *testing.T) {
 		require.Equal(t, request.Body, runtime.steers[0].Body)
 		require.Equal(t, request.MessageID, runtime.steers[0].MessageID)
 		require.Equal(t, request.CreatedAt, runtime.steers[0].CreatedAt)
+		require.Equal(t, request.Attribution, runtime.steers[0].Attribution)
 		require.Equal(t, "Message", runtime.steers[0].Kind)
 		require.Equal(t, receipt.OperationID, runtime.steers[0].ApplicationRequestID)
 		require.Equal(t, int64(1), runtime.steers[0].OwnerGeneration)

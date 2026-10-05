@@ -344,6 +344,7 @@ func (service *Service) handleSteer(ctx context.Context, lease *jobs.Lease) erro
 		Scope: claim.Scope, RequestID: claim.RequestID, Target: payload.Target,
 		FlowID: payload.FlowID, RunID: payload.RunID, MessageID: payload.MessageID,
 		CreatedAt: payload.CreatedAt, Body: payload.Body,
+		Attribution:          payload.Attribution,
 		AuthorizationContext: claim.AuthorizationContext, Projection: payload.Projection,
 	}
 	authorize := func(ctx context.Context) error {
@@ -376,6 +377,7 @@ func (service *Service) handleSteer(ctx context.Context, lease *jobs.Lease) erro
 				ApplicationRequestID: claim.OperationID, OwnerGeneration: generation,
 				RunID: payload.RunID, MessageID: payload.MessageID, CreatedAt: payload.CreatedAt,
 				Kind: "Message", Body: payload.Body,
+				Attribution: payload.Attribution,
 			})
 		})
 }

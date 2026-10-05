@@ -187,6 +187,7 @@ func steerAdmission(request SteerRequest) (jobs.Admission, error) {
 	payload, err := json.Marshal(steerPayload{
 		runMutationPayload: runMutationPayload{Target: request.Target, FlowID: request.FlowID, RunID: request.RunID, Projection: request.Projection},
 		MessageID:          request.MessageID, CreatedAt: request.CreatedAt, Body: request.Body,
+		Attribution: request.Attribution,
 	})
 	if err != nil {
 		return jobs.Admission{}, fmt.Errorf("flow dispatch: encode steer: %w", err)

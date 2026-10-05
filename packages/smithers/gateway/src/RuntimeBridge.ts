@@ -11,7 +11,14 @@
 import { Control } from "@smthrs/control/Control"
 import * as ControlError from "@smthrs/control/ControlError"
 import type { Principal, WatchCursor } from "@smthrs/control/ControlSchema"
-import { ApprovalPayload, ControlEvent, Receipt, RunSummary, SignalPayload } from "@smthrs/control/ControlSchema"
+import {
+  ApprovalPayload,
+  ControlEvent,
+  MessageSteer,
+  Receipt,
+  RunSummary,
+  SignalPayload
+} from "@smthrs/control/ControlSchema"
 import * as Fault from "@smthrs/flow/Fault"
 import { Effect, Layer, Schema, Stream } from "effect"
 import { HttpRouter, HttpServerRequest, HttpServerResponse } from "effect/unstable/http"
@@ -129,6 +136,7 @@ export const SteerCommand = Schema.Struct({
   runId: Schema.NonEmptyString,
   messageId: Schema.NonEmptyString,
   createdAt: Schema.Number,
+  attribution: MessageSteer.fields.attribution,
   steer: Steer
 })
 
@@ -367,6 +375,7 @@ export const execute = (
             runId: input.runId,
             messageId: input.messageId,
             createdAt: input.createdAt,
+            ...(input.attribution === undefined ? {} : { attribution: input.attribution }),
             principal
           }
         })

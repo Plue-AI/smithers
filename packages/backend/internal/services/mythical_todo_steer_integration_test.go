@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"strings"
 	"testing"
 	"time"
 
@@ -16,6 +17,15 @@ import (
 )
 
 func TestTodoSteerDeliveryAuthorizer(t *testing.T) {
+	for _, delegated := range []bool{false, true} {
+		t.Run(fmt.Sprintf("delegated=%t", delegated), func(t *testing.T) {
+			testTodoSteerDeliveryAuthorizer(t, delegated)
+		})
+	}
+}
+
+func testTodoSteerDeliveryAuthorizer(t *testing.T, delegated bool) {
+	t.Helper()
 	o, ownerSession := newTodoAdmission(t)
 	ctx := context.Background()
 	q := db.New(o.pool)
@@ -39,6 +49,15 @@ func TestTodoSteerDeliveryAuthorizer(t *testing.T) {
 	item, err = q.SaveMythicalItem(ctx, item)
 	require.NoError(t, err)
 	input.Repository, input.Actor = o.repoID, member.ID
+	wantAttribution := map[string]string{"person": "steer-member"}
+	if delegated {
+		scopes := fmt.Sprintf("read:repository,read:user,repo:%d,", o.repoID) + strings.Join(middleware.DelegationScopes(middleware.Delegation{
+			Via: "terminal", Branch: item.WorkspaceID, Profile: middleware.TerminalProfileS1, Session: "terminal-1",
+		}), ",")
+		memberSession = middleware.ContextWithAuthInfo(ctx, &middleware.AuthInfo{User: &member, IsTokenAuth: true, TokenSystemIssued: true,
+			RawScopes: scopes, Scopes: middleware.ParseTokenScopes(scopes), ViaHint: "codex"})
+		wantAttribution = map[string]string{"person": "steer-member", "via": "codex", "session": "terminal-1"}
+	}
 	_, err = o.service.ControlTodo(memberSession, item.Number.Int64, input)
 	require.NoError(t, err)
 	var payload, authority json.RawMessage
@@ -48,6 +67,7 @@ func TestTodoSteerDeliveryAuthorizer(t *testing.T) {
 	require.NoError(t, json.Unmarshal(payload, &request))
 	request.Scope = jobs.Scope{TenantID: request.Target.TenantID, PrincipalID: request.Target.PrincipalID}
 	request.RequestID, request.AuthorizationContext = requestID, authority
+	require.Equal(t, wantAttribution, request.Attribution)
 	require.NoError(t, o.service.AuthorizeFlowSteer(ctx, request))
 
 	for _, tc := range []struct {
@@ -67,12 +87,13 @@ func TestTodoSteerDeliveryAuthorizer(t *testing.T) {
 		})
 	}
 	for name, change := range map[string]func(*flowdispatch.SteerRequest){
-		"body":      func(r *flowdispatch.SteerRequest) { r.Body = "changed" },
-		"run":       func(r *flowdispatch.SteerRequest) { r.RunID = "other" },
-		"workspace": func(r *flowdispatch.SteerRequest) { r.Target.WorkspaceID = "other" },
-		"message":   func(r *flowdispatch.SteerRequest) { r.MessageID = "other" },
-		"timestamp": func(r *flowdispatch.SteerRequest) { r.CreatedAt++ },
-		"scope":     func(r *flowdispatch.SteerRequest) { r.Scope.PrincipalID = "user:999" },
+		"body":        func(r *flowdispatch.SteerRequest) { r.Body = "changed" },
+		"attribution": func(r *flowdispatch.SteerRequest) { r.Attribution = map[string]string{"person": "other"} },
+		"run":         func(r *flowdispatch.SteerRequest) { r.RunID = "other" },
+		"workspace":   func(r *flowdispatch.SteerRequest) { r.Target.WorkspaceID = "other" },
+		"message":     func(r *flowdispatch.SteerRequest) { r.MessageID = "other" },
+		"timestamp":   func(r *flowdispatch.SteerRequest) { r.CreatedAt++ },
+		"scope":       func(r *flowdispatch.SteerRequest) { r.Scope.PrincipalID = "user:999" },
 		"author": func(r *flowdispatch.SteerRequest) {
 			r.AuthorizationContext = []byte(fmt.Sprintf(`{"repositoryId":%d,"userId":%d,"itemId":%q,"input":%q}`, o.repoID, o.userID, r.Target.BindingID, r.MessageID))
 		},

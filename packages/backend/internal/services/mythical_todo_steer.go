@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"maps"
 	"net/http"
 	"strconv"
 	"time"
@@ -64,7 +65,7 @@ func (s *MythicalService) AuthorizeFlowSteer(ctx context.Context, request flowdi
 	matched := false
 	for _, feedback := range mythicalChecksOf(item).Steers {
 		if feedback.ID == request.MessageID && feedback.Author == authority.UserID && feedback.Attempt == item.Attempt &&
-			feedback.Text == request.Body && float64(feedback.At.UnixMilli()) == request.CreatedAt {
+			feedback.Text == request.Body && float64(feedback.At.UnixMilli()) == request.CreatedAt && maps.Equal(feedback.Attribution, request.Attribution) {
 			matched = true
 			break
 		}
@@ -153,7 +154,7 @@ func (s *MythicalService) steerTodo(ctx context.Context, number int64, input Tod
 				return todoControlUnavailable()
 			}
 			now := s.now().UTC()
-			next, feedback, deliver, replay, err := prepareTodoSteer(ctx, item, input, todoActor(ctx, person), now)
+			next, feedback, deliver, replay, err := prepareTodoSteer(ctx, item, input, todoActor(ctx, person), todoActorRef(ctx, person), now)
 			if err != nil {
 				return err
 			}
@@ -193,6 +194,7 @@ func (s *MythicalService) steerTodo(ctx context.Context, number int64, input Tod
 					Scope: scope, RequestID: "todo-steer:" + feedback.ID,
 					Target: flowruntime.Target{TenantID: scope.TenantID, PrincipalID: scope.PrincipalID, WorkspaceID: saved.WorkspaceID, BindingKind: mythicalBindingKind, BindingID: id},
 					FlowID: "todo", RunID: saved.RequestRunID, MessageID: feedback.ID, CreatedAt: float64(now.UnixMilli()), Body: feedback.Text,
+					Attribution:          feedback.Attribution,
 					AuthorizationContext: authority, Projection: projection,
 				})
 				if err != nil {
@@ -211,7 +213,7 @@ func (s *MythicalService) steerTodo(ctx context.Context, number int64, input Tod
 // Appending the input never marks it consumed; consumption belongs to the
 // pinned flow's ordered input boundary. A merge fence holds it without changing
 // the candidate or the approval protected by that fence.
-func prepareTodoSteer(ctx context.Context, item db.MythicalItem, input TodoControlInput, by json.RawMessage, now time.Time) (db.MythicalItem, todoSteer, bool, bool, error) {
+func prepareTodoSteer(ctx context.Context, item db.MythicalItem, input TodoControlInput, by json.RawMessage, attribution map[string]string, now time.Time) (db.MythicalItem, todoSteer, bool, bool, error) {
 	if err := input.validate(); err != nil {
 		return item, todoSteer{}, false, false, err
 	}
@@ -262,7 +264,7 @@ func prepareTodoSteer(ctx context.Context, item db.MythicalItem, input TodoContr
 			next.State, next.NextAttemptAt = "running", pgtype.Timestamptz{}
 		}
 	}
-	feedback := todoSteer{ID: uuid.NewString(), Request: input.Request, Author: input.Actor, Text: *input.Steer, By: by, At: now, Attempt: attempt}
+	feedback := todoSteer{ID: uuid.NewString(), Request: input.Request, Author: input.Actor, Text: *input.Steer, By: by, Attribution: maps.Clone(attribution), At: now, Attempt: attempt}
 	checks.Steers = append(checks.Steers, feedback)
 	next.Checks = checks.encode()
 	return next, feedback, deliver, false, nil
