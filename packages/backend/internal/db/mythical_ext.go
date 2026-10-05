@@ -80,6 +80,29 @@ func (q *Queries) RequestMythicalStack(ctx context.Context, repositoryID int64) 
 	return tag.RowsAffected(), nil
 }
 
+const scheduleMythicalStack = `
+UPDATE mythical_stacks
+SET requested_generation = requested_generation + 1,
+    next_attempt_at = NOW() + make_interval(secs => $2),
+    updated_at = NOW()
+WHERE repository_id = $1
+  AND state = 'active'
+  AND requested_generation = processed_generation
+  AND NOT running
+`
+
+// ScheduleMythicalStack asks an idle active stack's worker to run again after
+// delaySeconds, when an item it waits on is due. A stack already requested
+// is left as it is: that run schedules again. It returns 0 when nothing was
+// scheduled.
+func (q *Queries) ScheduleMythicalStack(ctx context.Context, repositoryID int64, delaySeconds float64) (int64, error) {
+	tag, err := q.db.Exec(ctx, scheduleMythicalStack, repositoryID, delaySeconds)
+	if err != nil {
+		return 0, err
+	}
+	return tag.RowsAffected(), nil
+}
+
 const requestStaleMythicalStacks = `
 UPDATE mythical_stacks
 SET requested_generation = requested_generation + 1,

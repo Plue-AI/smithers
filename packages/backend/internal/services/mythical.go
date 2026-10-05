@@ -95,6 +95,9 @@ type MythicalService struct {
 	// (SetMainFollower): a merge the stack sent moved it. Unset, the sync's
 	// own poll finds the move.
 	followMain func(ctx context.Context, repositoryID int64)
+	// sweepEvery is how often the worker re-requests stacks no signal
+	// reached (mythicalSweepInterval); it is only the safety net.
+	sweepEvery time.Duration
 }
 
 // SetMainFollower registers the GitHub sync's request for an immediate read
@@ -105,7 +108,7 @@ func (s *MythicalService) SetMainFollower(follow func(ctx context.Context, repos
 
 func NewMythicalService(store MythicalStore, host mythicalRepoHost) *MythicalService {
 	return &MythicalService{store: store, host: host, scratchRoot: filepath.Join(os.TempDir(), "smithers-mythical"),
-		logger: slog.Default(), now: time.Now}
+		logger: slog.Default(), now: time.Now, sweepEvery: mythicalSweepInterval}
 }
 
 // SetPolicyReader wires the repo host the stack reads the owner's
@@ -161,10 +164,14 @@ func (s *MythicalService) notify(ctx context.Context, q *db.Queries, repositoryI
 
 // Start runs the worker until ctx ends.
 func (s *MythicalService) Start(ctx context.Context) {
+	sweepEvery := s.sweepEvery
+	if sweepEvery <= 0 {
+		sweepEvery = mythicalSweepInterval
+	}
 	lastSweep := time.Time{}
 	for {
-		if s.now().Sub(lastSweep) >= mythicalSweepInterval {
-			if _, err := s.queries().RequestStaleMythicalStacks(ctx, mythicalSweepInterval.Seconds()); err != nil && ctx.Err() == nil {
+		if s.now().Sub(lastSweep) >= sweepEvery {
+			if _, err := s.queries().RequestStaleMythicalStacks(ctx, sweepEvery.Seconds()); err != nil && ctx.Err() == nil {
 				s.logger.Error("mythical.sweep_failed", "error", err)
 			}
 			lastSweep = s.now()
@@ -240,6 +247,10 @@ type mythicalOutcome struct {
 	heldFor                    time.Duration // the repository was held: try again then
 	clearPending               bool          // the prepared write is settled or discarded
 	op                         *mythicalOp   // a confirmed write to finalize
+	// due is when an item this pass advanced or passed over can take its
+	// next step with no outside event (zero: none can): the stack runs
+	// again then, not at the stale sweep.
+	due time.Time
 }
 
 func (s *MythicalService) runClaimed(parent context.Context, row db.MythicalStack) {
@@ -272,6 +283,8 @@ func (s *MythicalService) runClaimed(parent context.Context, row db.MythicalStac
 	} else if outcome.op != nil {
 		// Items advance on the next claim, against the new tip.
 		s.MainMoved(finishCtx, row.RepositoryID)
+	} else if !outcome.due.IsZero() {
+		s.runAgainAt(finishCtx, row.RepositoryID, outcome.due)
 	}
 	attrs := []any{"repository_id", row.RepositoryID, "state", outcome.state}
 	if outcome.op != nil {
@@ -283,6 +296,21 @@ func (s *MythicalService) runClaimed(parent context.Context, row db.MythicalStac
 		s.logger.Warn("mythical.failed", append(attrs, "attempts", row.Attempts, "error", outcome.err)...)
 	} else {
 		s.logger.Info("mythical.run", attrs...)
+	}
+}
+
+// runAgainAt asks the worker to run the stack again at due: at once when an
+// item's next step needs no outside event, or when the earliest item that
+// waits (a retry, a back-off, the pull request poll) is due. A stack that
+// something already asked to run is left as it is; that run looks again.
+func (s *MythicalService) runAgainAt(ctx context.Context, repositoryID int64, due time.Time) {
+	delay := due.Sub(s.now())
+	if delay <= 0 {
+		s.MainMoved(ctx, repositoryID)
+		return
+	}
+	if _, err := s.queries().ScheduleMythicalStack(ctx, repositoryID, delay.Seconds()); err != nil && ctx.Err() == nil {
+		s.logger.Warn("mythical.schedule_failed", "repository_id", repositoryID, "error", err)
 	}
 }
 
@@ -350,6 +378,15 @@ type mythicalRun struct {
 	bridge                 *mythicalBridge
 	owner, repo, branch    string
 	mainTip, tip, notesRef string
+	// due is the earliest moment an item can step again (mythicalOutcome.due).
+	due time.Time
+}
+
+// dueAt records that an item can take its next step at t.
+func (r *mythicalRun) dueAt(t time.Time) {
+	if !t.IsZero() && (r.due.IsZero() || t.Before(r.due)) {
+		r.due = t
+	}
 }
 
 // run decides and performs at most one stack write.
@@ -429,6 +466,7 @@ func (s *MythicalService) run(ctx context.Context, row db.MythicalStack) mythica
 		// This claim moves the items and the wiki.
 		s.advanceItems(ctx, r)
 		s.advanceWiki(ctx, r)
+		outcome.due = r.due
 		return outcome
 	}
 	return s.fold(ctx, r)

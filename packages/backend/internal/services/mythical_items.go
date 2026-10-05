@@ -1098,6 +1098,13 @@ func (s *MythicalService) advanceItems(ctx context.Context, r *mythicalRun) {
 	})
 	step.items = items
 	defer s.sweepLanes(ctx, r)
+	// An item that waits for a lane may get one when another item moves.
+	waitsForLane, moved := false, false
+	defer func() {
+		if waitsForLane && moved {
+			r.dueAt(step.now)
+		}
+	}()
 	for _, item := range items {
 		if ctx.Err() != nil {
 			return
@@ -1120,9 +1127,11 @@ func (s *MythicalService) advanceItems(ctx context.Context, r *mythicalRun) {
 			}
 		}
 		if item.NextAttemptAt.Valid && item.NextAttemptAt.Time.After(step.now) {
+			r.dueAt(item.NextAttemptAt.Time)
 			continue
 		}
 		if (item.State == "queued" || item.State == "retrying") && !step.slot(item) {
+			waitsForLane = true
 			continue
 		}
 		next, saved, err := step.advance(ctx, item)
@@ -1153,7 +1162,27 @@ func (s *MythicalService) advanceItems(ctx context.Context, r *mythicalRun) {
 		if result.WorkspaceID != "" && (mythicalSettledStates[result.State] || result.State == "proposed" && !mythicalChecksOf(result).reviewing(result)) {
 			s.releaseLane(ctx, r, result)
 		}
+		moved = moved || result.State != item.State
+		r.dueAt(mythicalNextDue(item, result, step.now))
 	}
+}
+
+// mythicalNextDue answers when after, the item a step just saved from
+// before, can take its next step with no outside event: when its wait ends
+// (a retry, a back-off, the pull request poll), or at once when the step
+// moved it to a state the worker itself advances (integrating to proposing
+// to proposed). A run in flight wakes the stack when it settles
+// (ProjectFlowRuntime), and a settled item takes no step: both answer zero.
+func mythicalNextDue(before, after db.MythicalItem, now time.Time) time.Time {
+	switch {
+	case mythicalSettledStates[after.State]:
+		return time.Time{}
+	case after.NextAttemptAt.Valid && after.NextAttemptAt.Time.After(now):
+		return after.NextAttemptAt.Time
+	case mythicalRunInFlight(after), after.State == before.State:
+		return time.Time{}
+	}
+	return now
 }
 
 // releaseLane retires a finished item's lane workspace; the candidate is
