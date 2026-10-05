@@ -1,6 +1,7 @@
 import { strict as assert } from "node:assert"
 import { spawn } from "node:child_process"
 import { readFileSync } from "node:fs"
+import { createServer as createHttpServer } from "node:http"
 import { createServer } from "node:net"
 import { test } from "node:test"
 import { CHANGELOG_STEP, GREETING, markersOf, QUESTION, REVIEW_ANSWER, todoTurn } from "./fake-todo-turns.mjs"
@@ -188,6 +189,66 @@ test("the provider holds a [HOLD key] edit turn until POST /release/<key>", { ti
   // A released key holds nothing later.
   const again = await (await fetch(`${origin}/v1/chat/completions`, { method: "POST", body: JSON.stringify({ model: "m", messages: turn(EDIT, { atom }) }) })).text()
   assert.match(again, /\[DONE\]/)
+})
+
+test("with TODO_RELAY_URL the provider relays every call to a real model and scripts nothing", { timeout: 15_000 }, async (t) => {
+  // The upstream stands in for the AI Gateway: it records what it was sent.
+  const seen = []
+  const upstream = createHttpServer(async (request, response) => {
+    const chunks = []
+    for await (const chunk of request) chunks.push(chunk)
+    seen.push({ url: request.url, headers: request.headers, body: JSON.parse(Buffer.concat(chunks).toString("utf8")) })
+    if (request.url === "/v4/ai/evaluation-model" && seen.length > 2) return void response.writeHead(400).end("bad question")
+    response.writeHead(200, { "content-type": request.url === "/v1/chat/completions" ? "text/event-stream" : "application/json" })
+    response.end(request.url === "/v1/chat/completions" ? "data: {\"real\":true}\n\ndata: [DONE]\n\n" : "{\"answers\":{}}")
+  })
+  await new Promise((resolve) => upstream.listen(0, "127.0.0.1", resolve))
+  t.after(() => upstream.close())
+  const port = await freePort()
+  const origin = `http://127.0.0.1:${port}`
+  const provider = spawn(process.execPath, [new URL("./fake-todo-provider.mjs", import.meta.url).pathname], {
+    env: {
+      ...process.env,
+      HOST: "127.0.0.1",
+      PORT: String(port),
+      TODO_RELAY_URL: `http://127.0.0.1:${upstream.address().port}`,
+      TODO_RELAY_MODEL: "anthropic/claude-sonnet-4.5",
+      TODO_RELAY_KEY: "relay-key"
+    },
+    stdio: ["ignore", "pipe", "pipe"]
+  })
+  const exited = new Promise((resolve) => provider.once("exit", resolve))
+  t.after(async () => {
+    provider.kill()
+    await exited
+  })
+  for (const deadline = Date.now() + 5000; ;) {
+    try {
+      if ((await fetch(`${origin}/health`, { signal: AbortSignal.timeout(250) })).ok) break
+    } catch { /* still starting */ }
+    assert.ok(Date.now() < deadline, "provider did not start")
+    await new Promise((resolve) => setTimeout(resolve, 25))
+  }
+  const chat = await fetch(`${origin}/v1/chat/completions`, {
+    method: "POST",
+    headers: { authorization: "Bearer proxy-key" },
+    body: JSON.stringify({ model: "gpt-oss-120b", stream: true, messages: turn(EDIT, { atom: { intent: "Append a greeting line to JOURNEY.md." } }) })
+  })
+  assert.equal(await chat.text(), "data: {\"real\":true}\n\ndata: [DONE]\n\n", "the real answer, not a scripted cell")
+  const evaluator = { method: "POST", headers: { "ai-model-id": "typesafe-ai/jev", "ai-gateway-protocol-version": "0.0.1", authorization: "Bearer proxy-key" }, body: JSON.stringify({ questions: { route: {} } }) }
+  assert.equal(await (await fetch(`${origin}/v4/ai/evaluation-model`, evaluator)).text(), "{\"answers\":{}}")
+  const refused = await fetch(`${origin}/v4/ai/evaluation-model`, evaluator)
+  assert.deepEqual([refused.status, await refused.text()], [400, "bad question"])
+  assert.deepEqual(seen.map(({ url, body }) => [url, body.model]), [
+    ["/v1/chat/completions", "anthropic/claude-sonnet-4.5"],
+    ["/v4/ai/evaluation-model", undefined],
+    ["/v4/ai/evaluation-model", undefined]
+  ])
+  // The relay's own key replaces the proxy's; the Gateway's protocol headers pass.
+  assert.ok(seen.every(({ headers }) => headers.authorization === "Bearer relay-key"))
+  assert.deepEqual([seen[1].headers["ai-model-id"], seen[1].headers["ai-gateway-protocol-version"]], ["typesafe-ai/jev", "0.0.1"])
+  const turns = await (await fetch(`${origin}/turns`)).json()
+  assert.deepEqual([turns.chat, turns.evaluator, turns.refused, turns.steps["coding/edit-atom"]], [1, 2, 1, 1])
 })
 
 test("the stack's review of the pull request approves on its first line", async () => {

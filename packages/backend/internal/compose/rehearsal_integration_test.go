@@ -169,8 +169,15 @@ func newRehearsal(t *testing.T, enable, check, keyPrefix string) *rehearsal {
 	git("init", "-b", "main", seed)
 	require.NoError(t, os.WriteFile(filepath.Join(seed, "JOURNEY.md"), []byte("Add a greeting to JOURNEY.md\n"), 0600))
 	// A repository with no Smithers files gets one check per command the
-	// detector finds; planning needs a fast and a slow one (make build, make test).
-	require.NoError(t, os.WriteFile(filepath.Join(seed, "Makefile"), []byte("build:\n\ttest -s JOURNEY.md\n\ntest:\n\tgrep -q . JOURNEY.md\n"), 0600))
+	// detector finds: make build is a fast check and make test a slow one.
+	// REHEARSAL_TEST_ONLY_REPOSITORY=1 seeds only make test, the one slow check
+	// of a typical repository (mvp.md J1.4); with TODO_RELAY_URL
+	// (distribution/fake-todo-provider.mjs) a real model then codes the TODO.
+	makefile := "build:\n\ttest -s JOURNEY.md\n\ntest:\n\tgrep -q . JOURNEY.md\n"
+	if os.Getenv("REHEARSAL_TEST_ONLY_REPOSITORY") == "1" {
+		makefile = "test:\n\tgrep -q . JOURNEY.md\n"
+	}
+	require.NoError(t, os.WriteFile(filepath.Join(seed, "Makefile"), []byte(makefile), 0600))
 	git("-C", seed, "add", "JOURNEY.md", "Makefile")
 	git("-C", seed, "-c", "user.name=Rehearsal", "-c", "user.email=owner@example.test", "commit", "-m", "Canary")
 	seedHead, err := exec.Command("/usr/bin/git", "-C", seed, "rev-parse", "HEAD").Output()
@@ -823,7 +830,12 @@ type rehearsalTodo struct {
 
 // waitTodo polls TODO n until it is in state, within rehearsalTodoWaits.
 func (r *rehearsal) waitTodo(number int64, state string) (rehearsalTodo, error) {
-	return r.waitTodoWithin(number, rehearsalTodoWaits[state], state)
+	within := rehearsalTodoWaits[state]
+	if os.Getenv("TODO_RELAY_URL") != "" {
+		// A real model behind the scripted provider's relay takes minutes a step.
+		within *= 10
+	}
+	return r.waitTodoWithin(number, within, state)
 }
 
 // waitTodoWithin polls TODO n until it is in one of states. The stack's own

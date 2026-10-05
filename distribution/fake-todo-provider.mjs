@@ -15,13 +15,19 @@
 //   POST /release/<key>  answers every turn held on key, and every later one at once
 // distribution/fake-coding-provider.mjs scripts the single dispatch turn the
 // image acceptance runs.
+//
+// With TODO_RELAY_URL set (for example https://ai-gateway.vercel.sh), it
+// scripts nothing: every chat turn goes to that OpenAI-compatible origin as
+// TODO_RELAY_MODEL, and every evaluator call to its evaluation model, with
+// TODO_RELAY_KEY as the bearer key. A rehearsal then runs the TODO on a real
+// model; the trace still records each turn's step, never the key.
 import { appendFileSync } from "node:fs"
 import { createServer } from "node:http"
 import { done, GREETING, systemOf, text, todoAnswer, todoTurn } from "./fake-todo-turns.mjs"
 
 const greeting = process.env.TODO_GREETING ?? GREETING
 const trace = process.env.TRACE_FILE
-const turns = { total: 0, chat: 0, evaluator: 0, steps: {}, held: [] }
+const turns = { total: 0, chat: 0, evaluator: 0, refused: 0, steps: {}, held: [] }
 const record = (kind, step, detail) => {
   turns.total++
   turns[kind]++
@@ -75,6 +81,55 @@ const stream = async (response, { content, hold: key }) => {
   response.end("data: [DONE]\n\n")
 }
 
+const relay = process.env.TODO_RELAY_URL
+/** The Gateway's protocol headers a relayed call keeps; never a credential. */
+const protocolHeaders = [
+  "anthropic-version",
+  "ai-gateway-protocol-version",
+  "ai-gateway-auth-method",
+  "ai-evaluation-model-specification-version",
+  "ai-model-id"
+]
+/** Forwards one call to the relay origin and streams its answer back unchanged. */
+const forward = async (request, response, path, body) => {
+  const headers = Object.fromEntries(
+    protocolHeaders.flatMap((name) => typeof request.headers[name] === "string" ? [[name, request.headers[name]]] : [])
+  )
+  let upstream
+  try {
+    upstream = await fetch(new URL(path, relay), {
+      method: "POST",
+      headers: { ...headers, "content-type": "application/json", authorization: `Bearer ${process.env.TODO_RELAY_KEY ?? ""}` },
+      body: JSON.stringify(body)
+    })
+  } catch (error) {
+    response.writeHead(502, { "content-type": "application/json" }).end(JSON.stringify({ error: String(error) }))
+    return
+  }
+  response.writeHead(upstream.status, { "content-type": upstream.headers.get("content-type") ?? "application/json" })
+  if (!upstream.ok) {
+    // The refusal's text, for the trace: what the relayed call got wrong.
+    const refusal = await upstream.text()
+    record("refused", path, { status: upstream.status, body: refusal.slice(0, 2000) })
+    return void response.end(refusal)
+  }
+  if (upstream.body === null) return void response.end()
+  for await (const chunk of upstream.body) response.write(chunk)
+  response.end()
+}
+const relayed = async (request, response, input) => {
+  if (request.url === "/v1/chat/completions") {
+    record("chat", todoTurn(input.messages ?? [], greeting)?.step ?? "relayed", { model: process.env.TODO_RELAY_MODEL })
+    await forward(request, response, "/v1/chat/completions", { ...input, model: process.env.TODO_RELAY_MODEL ?? input.model })
+  } else if (request.url === "/v4/ai/evaluation-model") {
+    record("evaluator", Object.keys(input.questions ?? {}).join(",") || "empty", {})
+    await forward(request, response, "/v4/ai/evaluation-model", input)
+  } else {
+    record("chat", "unrouted", { method: request.method, url: request.url })
+    response.writeHead(404).end("unknown provider route")
+  }
+}
+
 const server = createServer(async (request, response) => {
   if (request.method === "GET" && request.url === "/health") {
     response.writeHead(200).end("ok")
@@ -102,6 +157,10 @@ const server = createServer(async (request, response) => {
     input = JSON.parse(Buffer.concat(chunks).toString("utf8"))
   } catch {
     input = {}
+  }
+  if (relay !== undefined && request.method === "POST") {
+    await relayed(request, response, input)
+    return
   }
   if (request.method === "POST" && request.url === "/v1/chat/completions") {
     await stream(response, chat(input))
