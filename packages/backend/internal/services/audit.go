@@ -4,6 +4,8 @@ import (
 	"context"
 	"encoding/json"
 	"log/slog"
+	"net"
+	"net/netip"
 
 	"github.com/jackc/pgx/v5/pgtype"
 
@@ -31,6 +33,22 @@ type AuditEvent struct {
 	Action     string
 	Metadata   map[string]any
 	IPAddress  string
+}
+
+// AuditIP is the form audit_log.ip_address stores (VARCHAR(45)): the client
+// IP of a socket address such as r.RemoteAddr, without its port or zone, and
+// an IPv4-mapped address as plain IPv4. Anything that is not an IP is "".
+// An IPv6 peer with its port, "[2601:646:...:afd6]:52345", is 46 characters
+// and failed the insert before.
+func AuditIP(address string) string {
+	if host, _, err := net.SplitHostPort(address); err == nil {
+		address = host
+	}
+	ip, err := netip.ParseAddr(address)
+	if err != nil {
+		return ""
+	}
+	return ip.WithZone("").Unmap().String()
 }
 
 // NewAuditService returns a new AuditService.
@@ -65,7 +83,7 @@ func (s *AuditService) Log(ctx context.Context, event AuditEvent) {
 		TargetName: event.TargetName,
 		Action:     event.Action,
 		Metadata:   json.RawMessage(metadataJSON),
-		IpAddress:  event.IPAddress,
+		IpAddress:  AuditIP(event.IPAddress),
 	}); err != nil {
 		slog.Warn("audit: failed to insert audit log",
 			"event_type", event.EventType,

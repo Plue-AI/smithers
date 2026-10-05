@@ -133,6 +133,42 @@ func TestAuditLog_Success(t *testing.T) {
 	assert.JSONEq(t, `{"source":"web"}`, string(q.lastInsertAuditLogArg.Metadata))
 }
 
+// The walk's IPv6 laptop signed in with RemoteAddr
+// "[2601:646:8f01:c7e0:9cca:85bb:3c8c:afd6]:52345" and the auth.login insert
+// failed VARCHAR(45). Every audit row stores the bare client IP.
+func TestAuditIPStoresTheClientAddressOnly(t *testing.T) {
+	t.Parallel()
+	for input, want := range map[string]string{
+		"[2601:646:8f01:c7e0:9cca:85bb:3c8c:afd6]:52345":  "2601:646:8f01:c7e0:9cca:85bb:3c8c:afd6",
+		"[fe80::1%en0]:4000":                              "fe80::1",
+		"fe80::1%en0":                                     "fe80::1",
+		"[::ffff:10.0.0.5]:4000":                          "10.0.0.5",
+		"[ffff:ffff:ffff:ffff:ffff:ffff:ffff:ffff]:65535": "ffff:ffff:ffff:ffff:ffff:ffff:ffff:ffff",
+		"203.0.113.10:5555":                               "203.0.113.10",
+		"203.0.113.10":                                    "203.0.113.10",
+		"2001:db8::1":                                     "2001:db8::1",
+		"":                                                "",
+		"unknown":                                         "",
+		"mini.local:4000":                                 "",
+	} {
+		got := AuditIP(input)
+		assert.Equal(t, want, got, input)
+		assert.LessOrEqual(t, len(got), 45, input)
+	}
+
+	q := &mockAuditQuerier{}
+	NewAuditService(q).Log(context.Background(), auditTestEvent(func(event *AuditEvent) {
+		event.IPAddress = "[2601:646:8f01:c7e0:9cca:85bb:3c8c:afd6]:52345"
+	}))
+	require.Equal(t, 1, q.insertAuditLogCalls)
+	assert.Equal(t, "2601:646:8f01:c7e0:9cca:85bb:3c8c:afd6", q.lastInsertAuditLogArg.IpAddress)
+
+	ctx := ContextWithAdminAuditActor(context.Background(), AdminAuditActor{UserID: 1, Username: "will", IPAddress: "[::1]:61000"})
+	actor, ok := AdminAuditActorFromContext(ctx)
+	require.True(t, ok)
+	assert.Equal(t, "::1", actor.IPAddress)
+}
+
 func TestAuditLog_Format(t *testing.T) {
 	t.Parallel()
 

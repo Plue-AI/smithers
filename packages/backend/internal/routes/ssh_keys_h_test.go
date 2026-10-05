@@ -46,7 +46,7 @@ func TestSSHKeys_H_AuditBranches(t *testing.T) {
 		require.Equal(t, 1, audit.calls)
 		assert.Equal(t, "ssh_key.create", audit.last.EventType)
 		assert.Equal(t, "laptop", audit.last.TargetName)
-		assert.Equal(t, "127.0.0.1:1111", audit.last.IpAddress)
+		assert.Equal(t, "127.0.0.1", audit.last.IpAddress, "audit_log stores the client IP without its port")
 	})
 
 	t.Run("delete logs audit event", func(t *testing.T) {
@@ -67,6 +67,6 @@ func TestSSHKeys_H_AuditBranches(t *testing.T) {
 		require.Equal(t, 1, audit.calls)
 		assert.Equal(t, "ssh_key.delete", audit.last.EventType)
 		assert.Equal(t, "key_44", audit.last.TargetName)
-		assert.Equal(t, "127.0.0.1:2222", audit.last.IpAddress)
+		assert.Equal(t, "127.0.0.1", audit.last.IpAddress, "audit_log stores the client IP without its port")
 	})
 }

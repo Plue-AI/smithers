@@ -55,8 +55,10 @@ type AdminAuditActor struct {
 	IPAddress string
 }
 
-// ContextWithAdminAuditActor attaches the acting admin to service-layer audit events.
+// ContextWithAdminAuditActor attaches the acting admin to service-layer audit
+// events, with the IP in the form audit_log stores (AuditIP).
 func ContextWithAdminAuditActor(ctx context.Context, actor AdminAuditActor) context.Context {
+	actor.IPAddress = AuditIP(actor.IPAddress)
 	return context.WithValue(ctx, adminAuditActorContextKey{}, actor)
 }
 

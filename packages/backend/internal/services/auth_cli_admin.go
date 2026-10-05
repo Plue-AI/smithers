@@ -5,8 +5,6 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
-	"net"
-	"net/netip"
 	"strings"
 	"time"
 
@@ -169,15 +167,7 @@ func (s *AuthService) ApproveAdminCLILogin(ctx context.Context, state, verifier,
 	rawToken := "smithers_" + randomHex(20)
 	hash := sha256.Sum256([]byte(rawToken))
 	tokenHash := hex.EncodeToString(hash[:])
-	// audit_log.ip_address is an IP, not a socket address (VARCHAR(45)).
-	if host, _, err := net.SplitHostPort(ip); err == nil {
-		ip = host
-	}
-	if address, err := netip.ParseAddr(ip); err == nil {
-		ip = address.WithZone("").String()
-	} else {
-		ip = ""
-	}
+	ip = AuditIP(ip)
 	metadata, _ := json.Marshal(map[string]any{"ttl": grant.Request.TTL.String(), "callback_port": grant.Request.CallbackPort, "ip": ip})
 	created, err := tokens.CreateAdminCLIAccessToken(ctx, db.CreateAdminCLIAccessTokenParams{
 		UserID: user.ID, TokenHash: tokenHash, TokenLastEight: tokenHash[len(tokenHash)-8:],

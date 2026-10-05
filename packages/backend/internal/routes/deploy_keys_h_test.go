@@ -60,7 +60,7 @@ func TestDeployKeys_H_CreateAndDeleteRemainingBranches(t *testing.T) {
 		require.Equal(t, 1, audit.calls)
 		assert.Equal(t, "deploy_key.create", audit.last.EventType)
 		assert.Equal(t, "deploy", audit.last.TargetName)
-		assert.Equal(t, "127.0.0.1:1234", audit.last.IpAddress)
+		assert.Equal(t, "127.0.0.1", audit.last.IpAddress, "audit_log stores the client IP without its port")
 	})
 
 	t.Run("delete missing repo param", func(t *testing.T) {
@@ -95,6 +95,6 @@ func TestDeployKeys_H_CreateAndDeleteRemainingBranches(t *testing.T) {
 		require.Equal(t, 1, audit.calls)
 		assert.Equal(t, "deploy_key.delete", audit.last.EventType)
 		assert.Equal(t, "deploy_key_55", audit.last.TargetName)
-		assert.Equal(t, "127.0.0.1:5678", audit.last.IpAddress)
+		assert.Equal(t, "127.0.0.1", audit.last.IpAddress, "audit_log stores the client IP without its port")
 	})
 }

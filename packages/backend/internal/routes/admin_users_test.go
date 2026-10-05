@@ -383,7 +383,7 @@ func TestAdminUserHandler_MutationsAttachAuditActorContext(t *testing.T) {
 		require.True(t, ok)
 		assert.Equal(t, int64(99), actor.UserID)
 		assert.Equal(t, "admin-user", actor.Username)
-		assert.Equal(t, "203.0.113.44:5555", actor.IPAddress)
+		assert.Equal(t, "203.0.113.44", actor.IPAddress, "audit_log stores the client IP without its port")
 	}
 
 	t.Run("create user", func(t *testing.T) {
