@@ -2,6 +2,7 @@ import { fileArgs } from "@smthrs/rpc/FileRead"
 
 /** The typed input of every flow a card raises with structured values. */
 export interface FlowInput {
+  readonly "debug.api": import("../state/seams/DebugApiSeam").DebugApiInput
   readonly "docs": { readonly page?: string }
   readonly "docs.read": { readonly page: string }
   readonly "box.open": { readonly bookmark?: string; readonly repo: string; readonly kind?: "container" | "vm"; readonly snapshot?: string; readonly recoveryOf?: string }
@@ -226,6 +227,7 @@ const ENCODERS: { readonly [N in FlowWithInput]: (payload: Payload) => string } 
   "approvals.open": (payload) => line(keyed(payload, "sourceCard"), token(payload, "runId")),
   "tutorial.live.inspect": (payload) => line(token(payload, "cardId"), token(payload, "eventId")),
   "files.open-diff": (payload) => JSON.stringify(payload),
+  "debug.api": payload => JSON.stringify(payload),
   "docs": payload => token(payload, "page") ?? "",
   "docs.read": payload => token(payload, "page") ?? "",
   "files.read": (payload) => fileArgs(

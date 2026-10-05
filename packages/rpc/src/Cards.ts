@@ -2666,6 +2666,7 @@ const CurrentCardSchema = z.discriminatedUnion("kind", [
       retryAt: z.string().nullable()
     })
   }),
+  z.object({ ...cardBaseShape, kind: z.literal("debug-api"), payload: z.object({}) }),
   /*
    * An in-app docs page (M-35), read only: the page's slug and the Markdown
    * the build shipped for it. The card's title is the page's title. Embedded

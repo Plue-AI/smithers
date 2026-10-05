@@ -81,3 +81,16 @@ export const debugFlows = (actions: CommandActions): ReadonlyArray<FlowEntry> =>
     handler: () => actions.debugSeams()
   })
 ]
+
+/** T-APP-21: one playground flow, with the product's slash spelling as a hidden alias. */
+export const debugApiFlows = (actions: CommandActions): ReadonlyArray<FlowEntry> => {
+  const input = Schema.Struct({ operationId: Schema.optional(Schema.String),
+    intent: Schema.optional(Schema.Literals(["open", "send", "confirm"])),
+    values: Schema.optional(Schema.Record(Schema.String, Schema.String)), confirmation: Schema.optional(Schema.String) })
+  return ["debug.api", "debug-api"].map(name => flow({ name,
+    summary: "Call the documented API", args: "[operationId]", input,
+    hidden: name === "debug.api" || !actions.debugApi.available(),
+    userOnly: true, userOnlyReason: "raw API bypasses flow typing and approvals; agents use flows",
+    handler: payload => actions.debugApiCommand(payload)
+  }))
+}

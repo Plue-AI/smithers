@@ -235,6 +235,7 @@ export interface CardCommandInput {
   readonly "theme": undefined
   readonly "docs": { readonly page?: string }
   readonly "debug-api": undefined
+  readonly "debug.api": { readonly operationId?: string; readonly intent?: "open" | "send" | "confirm"; readonly values?: Record<string, string>; readonly confirmation?: string }
   readonly "todo.return-to-item": { readonly n: number }
   readonly "todo.keep-moved": { readonly n: number }
   readonly "branch.bring-in": z.infer<typeof BranchForeignAnswerInputSchema>

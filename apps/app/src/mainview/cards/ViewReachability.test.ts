@@ -7,7 +7,6 @@ import { fileURLToPath } from "node:url"
 // Views built dark await their owning wiring tickets. Wiring removes its row.
 const PENDING_WIRING: Record<string, string> = {
   "FilePresenceView.tsx": "T-APP-14",
-  "DebugApiView.tsx": "T-APP-21",
   "SecretsView.tsx": "T-APP-13",
 }
 

@@ -1,3 +1,4 @@
+import { openApiChunk } from "./scripts/openapi-chunk"
 import react from "@vitejs/plugin-react"
 import { dirname, resolve } from "node:path"
 import { fileURLToPath } from "node:url"
@@ -50,7 +51,7 @@ export default defineConfig({
       "/readyz": process.env.SMITHERS_DEV_BACKEND_ORIGIN
     }
   } : undefined,
-  plugins: [react(), buildStamp(), entryChunkGuard(), {
+  plugins: [openApiChunk(), react(), buildStamp(), entryChunkGuard(), {
     name: "smithers-sqlite-worker",
     enforce: "pre",
     // The package's prebuilt worker embeds WASM as a 1.5 MB base64 string.

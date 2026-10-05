@@ -1,3 +1,4 @@
+import { createDebugApiSeam } from "../state/seams/DebugApiSeam"
 /*
  * Commands.ts at the host boundary (docs/web-mode/PLAN.md §1, §3).
  *
@@ -271,6 +272,8 @@ describe("trace argument redaction", () => {
         const records: Parameters<CommandActions["traceFlow"]>[0][] = []
         const received: unknown[][] = []
         const actions = {
+          docsAvailable: () => false,
+          debugApi: createDebugApiSeam({ document: async () => ({ paths: {} }), gates: () => ({ view: false, catalog: false, authorizer: false }), origin: "http://localhost", fetch: async () => { throw Error("dark") } }),
           repositoryFlows: () => undefined,
           knownRepositories: () => new Set(["owner/repo"]),
           snapshot: () => ({ surface: "chat", typing: false, hasConnectors: true, admin: false, signedOut: false }),
@@ -303,6 +306,8 @@ describe("fulfill-less requirement", () => {
     const deferred: Array<[string, string | null, string]> = []
     const forms: unknown[] = []
     const actions = {
+      docsAvailable: () => false,
+      debugApi: createDebugApiSeam({ document: async () => ({ paths: {} }), gates: () => ({ view: false, catalog: false, authorizer: false }), origin: "http://localhost", fetch: async () => { throw Error("dark") } }),
       repositoryFlows: () => undefined,
       knownRepositories: () => new Set<string>(),
       snapshot: () => ({

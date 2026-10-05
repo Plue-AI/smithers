@@ -68,7 +68,8 @@ export const APPENDIX_A_TAGS = [
   "sign-out",
   "theme",
   "docs",
-  "debug-api"
+  "debug-api",
+  "debug.api"
 ] as const
 
 /**

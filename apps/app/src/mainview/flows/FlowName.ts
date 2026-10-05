@@ -136,6 +136,8 @@ export const FLOW_NAMES = [
   "debug.seams",
   "debug.snapshot",
   "debug.verbose",
+  "debug.api",
+  "debug-api",
   "docs",
   "docs.read",
   "egress.allow",

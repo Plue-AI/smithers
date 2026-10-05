@@ -65,7 +65,8 @@ const CommandsBody = ({ presentation }: { readonly presentation: CardActions["pr
     const agent: "run" | "confirm" | "never" = entry === undefined || !modelInvocable(entry) ? "never" : entry.metadata.confirm === undefined ? "run" : "confirm"
     return { tag, synopsis, description, agent }
   }) })) }
-  const allowed = new Set(CATALOG.flatMap(([, , rows]) => rows.map(([tag]) => tag)).filter(tag => controller.commands.find(tag) !== undefined))
+  const allowed = new Set(CATALOG.flatMap(([, , rows]) => rows.map(([tag]) => tag)).filter(tag => { const entry = controller.commands.find(tag); return entry !== undefined && entry.metadata.hidden !== true &&
+    (tag !== "docs" || controller.docsAvailable()) && (tag !== "debug-api" || controller.debugApi.available()) }))
   return <CommandsContainer model={model} allowed={allowed} view={{ maximized: presentation === "maximized" }} onView={() => {}}
     dispatch={(tag, input) => controller.commands.submit({ name: tag, payload: (input ?? {}) as Record<string, unknown>, actor: "user" })} />
 }

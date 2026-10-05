@@ -34,6 +34,8 @@ import { WIKI_ATTACH_USER_ONLY_REASON, WIKI_HEADING_USER_ONLY_REASON } from "@sm
  */
 const USER_ONLY_ALLOWLIST: Readonly<Record<string, string>> = {
   "notifications.allow": "browser permission requires the person’s in-card gesture",
+  "debug.api": "raw API bypasses flow typing and approvals; agents use flows",
+  "debug-api": "raw API bypasses flow typing and approvals; agents use flows",
   "storage.recovery.export": STORAGE_RECOVERY_USER_ONLY_REASON,
   "storage.recovery.reset": STORAGE_RESET_USER_ONLY_REASON,
   "chat.queue": "the prompt queue is the human's composer",

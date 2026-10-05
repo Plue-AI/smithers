@@ -40,7 +40,7 @@ import { cardFlows } from "./entries/card"
 import { changeFlows } from "./entries/change"
 import { chatCopyFlows, chatFlows, chatReloadFlows } from "./entries/chat"
 import { cloudFlows } from "./entries/cloud"
-import { debugFlows, debugVerboseFlows } from "./entries/debug"
+import { debugApiFlows, debugFlows, debugVerboseFlows } from "./entries/debug"
 import { docsFlows } from "./entries/docs"
 import { egressFlows } from "./entries/egress"
 export { guideFlows } from "./entries/guide"
@@ -117,6 +117,7 @@ export const baseFlows = (actions: CommandActions): ReadonlyArray<FlowEntry> => 
   ...themeFlows(actions),
   ...docsFlows(actions),
   ...debugVerboseFlows(actions),
+  ...debugApiFlows(actions),
   ...chatFlows(actions),
   ...browserFlows(actions),
   ...flowFlows(actions),

@@ -36,8 +36,8 @@ export interface CardActionBindings<Gesture extends string = string> {
   readonly forScope: (scope: string) => CardActionBindings<Gesture>
 }
 
-/** Catalog commands whose input carries a secret value (`CardCommandInput["secrets.set"].value`). */
-const SECRET_INPUT_TAGS: ReadonlySet<CatalogTag> = new Set<CatalogTag>(["secrets.set"])
+/** Commands whose input may contain secret values; speculative loading uses their tag only. */
+const SECRET_INPUT_TAGS: ReadonlySet<CatalogTag> = new Set<CatalogTag>(["secrets.set", "debug.api"])
 
 /**
  * The speculative-load line: the command's canonical `flowArgs` encoding, which `payloadFor` decodes back.

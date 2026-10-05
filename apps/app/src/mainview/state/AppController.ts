@@ -1,4 +1,6 @@
 import type { TerminalCardSource } from "./seams/TerminalSeam"
+import { bundledOpenApi } from "../../debugApi/bundled"
+import { createDebugApiSeam, type DebugApiSeam, type DebugApiInput, type DebugApiGates, type OpenApiDocument } from "./seams/DebugApiSeam"
 import { confirmCancelRefusal } from "@smthrs/rpc/ConfirmCard"
 import type { Refusal } from "@smthrs/rpc/Refusal"
 import { openRequestedRepo } from "../RepoLink"
@@ -243,6 +245,8 @@ export interface AppController extends IssueFlowsController {
   /** `wiki.heading <line>`: bring the open note's heading at that source line into view. */
   readonly jumpToHeading: (line: string, cardId?: string) => Promise<string | void>
   /** `docs [page]` embeds an in-app docs page (M-35) as a read-only card for either actor. */
+  readonly debugApi: DebugApiSeam
+  readonly debugApiCommand: (input: DebugApiInput) => string | { readonly value: string }
   readonly docsTargetAvailable: (target: string) => boolean
   readonly docsAvailable: () => boolean
   readonly openDocsPage: (page?: string) => string | { readonly value: string }
@@ -718,6 +722,9 @@ export interface AppServices {
   readonly docs?: () => Docs
   /** T-CAT-01 composition gate. No production provider exists yet. */
   readonly docsCatalogAvailable?: () => boolean
+  readonly debugApiGates?: () => DebugApiGates
+  readonly openApi?: () => Promise<OpenApiDocument>
+  readonly debugApiOrigin?: string
 }
 
 export interface AppFeatures {
@@ -1181,6 +1188,31 @@ export const createAppController = (
     selectWikiCardDocument,
     setWikiCardView
   } = actors.pair(ctx, (context, select) => createWorldController(context, { nextOrdinal: store.nextOrdinal, cloudWiki: select(cloudWiki) }))
+  const debugApi = createDebugApiSeam({
+    document: services.openApi ?? bundledOpenApi, fetch: (url, init) => ctx.boundedFetch(url, init),
+    origin: services.debugApiOrigin ?? (typeof window === "undefined" ? "http://localhost" : window.location.origin),
+    gates: services.debugApiGates ?? (() => ({ view: true, catalog: false, authorizer: false }))
+  })
+  ctx.onDispose(debugApi.dispose)
+  const debugApiCommand = (input: DebugApiInput): string | { readonly value: string } => {
+    if (!debugApi.available()) return "Debug API is unavailable"
+    if (input.intent === "send" || input.intent === "confirm") {
+      if (debugApi.get().busy) return { value: "Requested" }
+      void withToast("debug.api.send", "Sending", "Response", async () => {
+        try { await debugApi.send(input); return debugApi.get().model.exchange?.failure?.message }
+        catch (cause) { return cause instanceof Error ? cause.message : "API request failed" }
+      })
+      return { value: "Requested" }
+    }
+    void withToast("debug.api.open", "Opening API", "API", async () => {
+      await debugApi.open(input.operationId)
+      if (ctx.disposed) return
+      const existing = store.collections.cards.get("debug-api")
+      store.dispatch({ type: "card.upsert", actor: "user", card: { id: "debug-api", kind: "debug-api", title: "Debug API", status: "active",
+        createdAt: existing?.createdAt ?? Date.now(), ordinal: store.nextOrdinal(), payload: {} } })
+    })
+    return { value: "Requested" }
+  }
   const { docsTargetAvailable, docsAvailable, openDocsPage, readDocsPage } = actors.pair(ctx, (context) =>
     createDocsController(context, { nextOrdinal: store.nextOrdinal, docs: services.docs ?? bundledDocs, available: services.docsCatalogAvailable ?? (() => false) }))
 
@@ -1646,6 +1678,8 @@ export const createAppController = (
     showWorldGraph,
     attachWikiEditor,
     jumpToHeading,
+    debugApi,
+    debugApiCommand,
     docsTargetAvailable,
     docsAvailable,
     openDocsPage,
