@@ -2,6 +2,7 @@
  * The Home card's flows through the production command dispatcher: `/stack`,
  * Move up/down, Merge, a background run's Retry and Dismiss, and main's sync
  * Retry act on the seeded design world. Expected values are the seed's literals.
+ * On an install, Move and Merge reach the served TODO instead.
  */
 import { expect, test } from "bun:test"
 import { createAppController } from "../../state/AppController"
@@ -173,6 +174,32 @@ test("/stack returns the member to main, where the Home card stands first", asyn
     expect(at()).toBe("b-retry")
     expect(await slash(h, "stack")).toEqual({ status: "executed", value: "Opened the stack" })
     expect(at()).toBe("main")
+  } finally { h.controller.dispose() }
+})
+
+test("on an install, Move posts its direction to the served TODO and settles once the card shows the place it took", async () => {
+  const bootstrap: AppBootstrap = { apiVersion: 1, host: "local", version: "test", buildSha: "test", capabilities: ["install"], authFlow: "redirect", sandbox: null }
+  const posts: unknown[] = []
+  let place = 4
+  const h = await boot({ bootstrap, fetch: (url, init) => {
+    const path = new URL(url, "http://local.test").pathname
+    if (path === "/api/todos/12" && init?.method === undefined) return Response.json({ ...fixtures.in_review.model, place })
+    if (path === "/api/todos/12" && init?.method === "POST") {
+      posts.push(JSON.parse(String(init.body)))
+      place = 3
+      return Response.json({ state: "accepted", place: 3 }, { status: 202 })
+    }
+    return undefined
+  } })
+  try {
+    const seeded = stack(h)
+    expect(await slash(h, "stack.move", "T12 up")).toEqual({ status: "executed", value: "Requested" })
+    await waitFor(() => posts.length === 1)
+    expect(posts).toEqual([{ op: "move", direction: "up" }])
+    const settled = () => [...h.store.collections.toasts.values()].filter(toast => toast.key.startsWith("todo.request."))
+    await waitFor(() => settled().some(toast => toast.status === "ok"), 5_000)
+    expect(settled()).toHaveLength(1)
+    expect(stack(h)).toEqual(seeded)
   } finally { h.controller.dispose() }
 })
 

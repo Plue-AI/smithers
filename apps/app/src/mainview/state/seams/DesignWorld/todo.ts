@@ -386,6 +386,8 @@ export const withDesignTodos = (real: TodoSeam, ctx: SeamContext, design: Design
       onTodo(n, ["answer", answer, wait], todo => result(design.answer(todo.id, answer, by())), () => real.answerTodo(n, answer, wait)),
     steerTodo: (n: number, text: string) => onTodo(n, ["steer", text], todo => result(design.steer(todo.id, text, by())), () => real.steerTodo(n, text)),
     controlTodo: (n: number, operation: "stop" | "resume" | "retry" | "retry-current-flow" | "drop", text?: string) =>
-      onTodo(n, [operation, text], todo => result(control(todo, operation, text)), () => real.controlTodo(n, operation, text))
+      onTodo(n, [operation, text], todo => result(control(todo, operation, text)), () => real.controlTodo(n, operation, text)),
+    moveTodo: (n: number, direction: "up" | "down") =>
+      onTodo(n, ["move", direction], todo => result(design.move(todo.id, direction, me())), () => real.moveTodo(n, direction))
   }
 }

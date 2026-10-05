@@ -501,6 +501,8 @@ export interface AppController extends IssueFlowsController {
   readonly steerTodo: TodoSeam["steerTodo"]
   readonly amendTodo: TodoSeam["amendTodo"]
   readonly controlTodo: TodoSeam["controlTodo"]
+  /** Move up or Move down on Tn: the seed's, or this host's POST /api/todos/{n} {op: move}. */
+  readonly moveTodo: TodoSeam["moveTodo"]
   readonly refreshWiki: StackSeam["refreshWiki"]
   readonly installSnapshots: InstallSeam["snapshots"]
   /** The roster the Members card reads: GET /api/members on an install; elsewhere the seeded roster (MOCK SEAM, DesignWorld/settings.ts). */
@@ -1892,6 +1894,7 @@ export const createAppController = (
     steerTodo: todoSeam.steerTodo,
     amendTodo: todoSeam.amendTodo,
     controlTodo: todoSeam.controlTodo,
+    moveTodo: todoSeam.moveTodo,
     refreshWiki: stackSeam.refreshWiki,
     registerTrigger,
     importRepository: repoImportSeam.importRepository,

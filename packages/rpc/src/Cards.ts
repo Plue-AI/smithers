@@ -709,13 +709,15 @@ const IssueLastCommentSchema = z.object({
 const TodoRequestSchema = z.object({
   key: z.string(),
   owner: z.string(),
-  operation: z.enum(["create", "amend", "answer", "steer", "stop", "resume", "retry", "retry-current-flow", "drop", "merge"]),
+  operation: z.enum(["create", "amend", "answer", "steer", "stop", "resume", "retry", "retry-current-flow", "drop", "merge", "move"]),
   body: z.record(z.string(), z.unknown()),
   n: z.number().int().positive().optional(),
   state: z.enum(["requested", "accepted", "failed"]),
   error: z.string().optional(),
   /* The attempt an accepted retry starts, from its receipt: the retry settles once that attempt runs. */
-  attempt: z.number().int().positive().optional()
+  attempt: z.number().int().positive().optional(),
+  /* The place an accepted move took, from its receipt: the move settles once the card shows it. */
+  place: z.number().int().positive().optional()
 })
 type TodoRequest = z.infer<typeof TodoRequestSchema>
 // Named types keep declaration emit from inlining the whole TODO and Draft

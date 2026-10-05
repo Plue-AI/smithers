@@ -380,6 +380,34 @@ test("a retry posts its steer once and settles when the attempt its receipt name
   } finally { h.close() }
 })
 
+// J4.2c / J4.3a: Move posts {op: move, direction} to POST /api/todos/{n} once per press; its toast settles only when
+// the card shows the place the receipt names, never on the 202.
+test("a move posts its direction once and settles when the card shows the place its receipt names", async () => {
+  const calls: { url: string; init?: RequestInit }[] = []
+  const h = await harness(async (url, init) => { calls.push({ url, init }); return json({ state: "accepted", place: 3 }) })
+  try {
+    const before = { ...fixtures.working.model, place: 4 }
+    await h.seam.applyTodoProjection(12, before)
+    expect(await h.seam.moveTodo(12, "up")).toEqual({ value: "Requested" })
+    expect(await h.seam.moveTodo(12, "up")).toEqual({ value: "Requested" })
+    await waitFor(() => h.todo().payload.requests[0]?.state === "accepted")
+    expect(calls).toHaveLength(1)
+    expect(calls[0]!.url).toBe("https://install.test/api/todos/12")
+    expect(calls[0]!.init?.method).toBe("POST")
+    expect(JSON.parse(String(calls[0]!.init?.body))).toEqual({ op: "move", direction: "up" })
+    const key = h.todo().payload.requests[0]!.key
+    expect(new Headers(calls[0]!.init?.headers).get("Idempotency-Key")).toBe(key)
+    expect(h.todo().payload.requests[0]!.place).toBe(3)
+    expect(CardSchema.parse(h.todo()).payload).toEqual(h.todo().payload)
+    // The card before the move settles nothing; the moved card settles it.
+    await h.seam.applyTodoProjection(12, before)
+    expect(h.outcomes).toEqual([])
+    await h.seam.applyTodoProjection(12, { ...before, place: 3 })
+    expect(h.outcomes).toEqual([{ key: `todo.request.${key}`, status: "ok", detail: "Moved" }])
+    expect(h.todo().payload.requests).toEqual([])
+  } finally { h.close() }
+})
+
 test("Needs you toasts anyone on the branch, but not a member who neither owns the TODO nor is on its branch (M-14)", async () => {
   const h = await harness(async () => json({ state: "accepted" }))
   try {

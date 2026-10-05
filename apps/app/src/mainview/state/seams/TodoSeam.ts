@@ -159,6 +159,9 @@ export const createTodoSeam = (ctx: SeamContext, options: TodoSeamOptions = {}) 
         return [{ key: request.key, outcome: model.state === "failed"
           ? { status: "failed" as const, detail: model.failure?.message ?? "Failed" } : { status: "ok" as const, detail: "Working" } }]
       }
+      // A move settles once the card shows the place its receipt named, or the TODO has left the stack.
+      if (request.operation === "move") return model.place === undefined || model.place === request.place
+        ? [{ key: request.key, outcome: { status: "ok" as const, detail: "Moved" } }] : []
       if (request.operation !== "create" || model.title !== request.body.title || model.prompt_revisions[0]?.text !== request.body.prompt) return []
       const terminal = ["in_review", "merged", "failed", "dropped"].includes(model.state)
       return [{ key: request.key, committed: { n, rev: 1 }, ...(terminal ? {
@@ -216,7 +219,7 @@ export const createTodoSeam = (ctx: SeamContext, options: TodoSeamOptions = {}) 
     const title = row?.title ?? "TODO"
     showNotice(request, title)
     // An answer has its own route (POST /api/todos/{n}/answer); the other controls share the TODO's.
-    const control = ["steer", "stop", "resume", "retry", "retry-current-flow", "drop"].includes(request.operation)
+    const control = ["steer", "stop", "resume", "retry", "retry-current-flow", "drop", "move"].includes(request.operation)
     const route = request.operation === "create" ? TODOS_PATH
       : `${todoPath(request.n!)}${request.operation === "amend" || control ? "" : `/${request.operation}`}`
     void (async () => {
@@ -255,7 +258,8 @@ export const createTodoSeam = (ctx: SeamContext, options: TodoSeamOptions = {}) 
         : latest?.kind === "draft" ? latest.payload.request : undefined
       if (held?.key !== request.key || latest?.kind === "draft" && latest.payload.committed) return
       const attempt = typeof result.attempt === "number" && Number.isInteger(result.attempt) && result.attempt > 0 ? result.attempt : undefined
-      const accepted: Request = { ...request, n, state: result.state, ...(attempt === undefined ? {} : { attempt }) }
+      const place = typeof result.place === "number" && Number.isInteger(result.place) && result.place > 0 ? result.place : undefined
+      const accepted: Request = { ...request, n, state: result.state, ...(attempt === undefined ? {} : { attempt }), ...(place === undefined ? {} : { place }) }
       await updateRequest(cardId, accepted)
       if (n) {
         if (cardId !== `todo:${n}`) {
@@ -492,6 +496,8 @@ export const createTodoSeam = (ctx: SeamContext, options: TodoSeamOptions = {}) 
     },
     steerTodo: (n: number, text: string) => request(n, "steer", { text }),
     controlTodo: (n: number, operation: "stop" | "resume" | "retry" | "retry-current-flow" | "drop", text?: string) => request(n, operation, text ? { steer: text } : {}),
+    /** Move up or Move down (POST /api/todos/{n} {op: move, direction}); a press while the last is pending is that press. */
+    moveTodo: (n: number, direction: "up" | "down") => request(n, "move", { direction }),
     disposeTodos: stop }
 }
 export type TodoSeam = ReturnType<typeof createTodoSeam>

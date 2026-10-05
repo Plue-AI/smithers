@@ -1,10 +1,10 @@
 /*
  * The Home card's own flows (T-APP-01): `/stack` (the card), reorder, merge,
- * background runs and main's sync retry. MOCK SEAM: each handler acts on the seeded design world
- * (state/seams/DesignWorld/home.ts); the real handlers POST
- * /api/todos/{n}/move, /api/todos/{n}/merge, /api/runs/{id} and
- * /api/github/sync (spec §6.3). Sync Retry calls the real door where this host serves one: the install's
- * POST /api/github/sync (GitHubSyncSeam), or the Cloud's `github.reconcile` (GitHubSeam).
+ * background runs and main's sync retry. Reorder and merge go through the TODO seam: the seeded design
+ * world where this host has no TODO provider, else POST /api/todos/{n} {op: move} and
+ * /api/todos/{n}/merge (spec §6.3). MOCK SEAM: the background run handlers act on the seeded design world
+ * (state/seams/DesignWorld/home.ts); their real door is /api/runs/{id}. Sync Retry calls the real door where
+ * this host serves one: the install's POST /api/github/sync (GitHubSyncSeam), or the Cloud's `github.reconcile` (GitHubSeam).
  */
 import { Schema } from "effect"
 import { hasCapability } from "@smthrs/rpc/AppBootstrap"
@@ -14,7 +14,7 @@ import { flow, NoPayload, type CommandActions } from "./Declare"
 import type { FlowEntry } from "../registry"
 import type { Grammar } from "../SlashPayload"
 import { designTodoByNumber, openDesignHome } from "../../state/seams/DesignWorld/home"
-import { canMerge, mergeReadiness, type DesignResult, type DesignWorld } from "../../state/seams/DesignWorld"
+import { canMerge, mergeReadiness, type DesignResult } from "../../state/seams/DesignWorld"
 import { mergeCard } from "../../state/seams/DesignWorld/chat"
 
 /**
@@ -26,10 +26,6 @@ export const MERGE_CONFIRM_LABEL = "Review & merge"
 
 /** A seed result as the flow layer reads it: an ack value, or the refusal sentence. */
 const result = (outcome: DesignResult): { readonly value: string } | string => outcome.ok ? { value: outcome.ack } : outcome.refusal
-const onTodo = (design: DesignWorld, n: number, act: (id: string) => DesignResult) => {
-  const todo = designTodoByNumber(design.world(), n)
-  return todo === undefined ? `No TODO T${n}` : result(act(todo.id))
-}
 
 const N = Schema.Int.check(Schema.isGreaterThanOrEqualTo(1))
 const Id = Schema.String.check(Schema.isMinLength(1))
@@ -58,7 +54,7 @@ export const homeFlows = (actions: CommandActions): ReadonlyArray<FlowEntry> => 
     handler: () => result(openDesignHome(actions.design, actions.design.viewer())) }),
   flow({ name: "stack.move", summary: "Reorder an item", args: "<Tn> <up|down>", hidden: true, grammar: todoGrammar("direction"),
     input: Schema.Struct({ n: N, direction: Schema.Literals(["up", "down"]) }),
-    handler: ({ n, direction }) => onTodo(actions.design, n, id => actions.design.move(id, direction, actions.design.viewer())) }),
+    handler: ({ n, direction }) => actions.moveTodo(n, direction) }),
   flow({ name: "merge", summary: "Merge the next item", args: "<Tn>", hidden: true, grammar: todoGrammar(),
     input: Schema.Struct({ n: N, reviewed_head_sha: Schema.optional(Schema.String) }),
     /* The agent's door: a bare Merge runs (it only opens Review & merge); a head-bound one asks the person, whose press opens it. */

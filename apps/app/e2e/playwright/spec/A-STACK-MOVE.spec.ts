@@ -1,10 +1,9 @@
 import { expect, test } from "../browserTest"
 import { owner, say } from "./j1-fixtures"
 
-// Production journey mutation and durable completion projections remain pending.
-// Written before implementation: mvp.md Appendix A, J4.2, §4.2; lands with T-STK-02
+// mvp.md Appendix A, J4.2, §4.2 (T-STK-02): /stack.move runs through the TODO seam, the seed here; the install's
+// POST /api/todos/{n} {op: move} is proven by the J4 rehearsal's row 12.
 test("A-STACK-MOVE: moves a stable ref up and down", async ({ page }) => {
-  test.fixme(true, "Written before implementation: mvp.md Appendix A, J4.2, §4.2; lands with T-STK-02")
   await owner(page)
   await page.goto("/")
   await say(page, "/stack")
@@ -19,7 +18,7 @@ test("A-STACK-MOVE: moves a stable ref up and down", async ({ page }) => {
   await expect(page.getByTestId("composer-input")).toBeEditable()
 })
 
-// Mounted control projection; production receipts remain pending above.
+// Mounted control projection.
 test("A-STACK-MOVE: mounted command projection", async ({ page }) => {
   await owner(page)
   await page.goto("/")
