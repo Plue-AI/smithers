@@ -15,14 +15,15 @@ import { Client, list, object, type Values } from "./Client.ts"
 import { copy } from "./Copy.ts"
 import { definitions } from "./Definitions.ts"
 import { egress } from "./Egress.ts"
-import * as HostService from "./HostService.ts"
 import { history, humans } from "./History.ts"
+import * as HostService from "./HostService.ts"
 import { local } from "./Local.ts"
 import { misc } from "./Misc.ts"
 import { repositories } from "./Repositories.ts"
 import { type Handler, resources } from "./Resources.ts"
 import { runs } from "./Runs.ts"
 import { stacks } from "./Stack.ts"
+import { humans as todoHumans, todos } from "./Todos.ts"
 import { workspaceChildren } from "./WorkspaceChildren.ts"
 import { workspaces } from "./Workspaces.ts"
 
@@ -45,6 +46,7 @@ export const handlers: Record<string, Handler> = {
   ...stacks,
   ...egress,
   ...history,
+  ...todos,
   "agent ask": ask,
   "workspace cp": copy,
   completion: async (_c, a) => Completions.register(a.shell as "bash" | "zsh" | "fish", "smithers")
@@ -95,6 +97,7 @@ export const groups: Record<string, string> = {
   "secret": "Manage repository secrets",
   "ssh-key": "Manage your SSH keys",
   "stack": "Submit, sync and land stacked GitHub pull requests",
+  "todo": "Answer the install's TODOs",
   "variable": "Manage repository variables",
   "webhook": "Manage repository webhooks",
   "wiki": "Read and edit wiki pages",
@@ -174,7 +177,9 @@ export const mount = (cli: Cli.Cli<any, any, any, any>, runtime: Runtime) => {
         const row = object(value)
         return `launchd ${row.launchd}\nreadyz ${row.readiness}\ndoctor ${row.doctor}\nbundle ${row.bundle} (${row.version})`
       }
-      : name === "repo home" ? repoHome : humans[name]
+      : name === "repo home"
+      ? repoHome
+      : humans[name] ?? todoHumans[name]
     const command = {
       ...previous,
       mcp: interactive ? false as const : previous?.mcp ?? {

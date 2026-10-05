@@ -1089,6 +1089,16 @@ export const definitions = {
     })
   },
   "status": { description: "Show working copy status", args: z.object({}), options: z.object({}) },
+  "todo answer": {
+    description: "Answer the question a TODO's agent asked",
+    args: z.object({
+      "todo": z.string().describe("TODO number (3 or T3)"),
+      "answer": z.string().describe("Your answer")
+    }),
+    options: z.object({
+      "wait": z.string().describe("The question's id, when the TODO asks more than one").optional()
+    })
+  },
   "variable delete": {
     description: "Delete a variable",
     args: z.object({ "name": z.string().describe("Variable name") }),

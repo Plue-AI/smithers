@@ -11033,6 +11033,48 @@
       }
     },
     {
+      "name": "todo answer",
+      "description": "Answer the question a TODO's agent asked",
+      "schema": {
+        "args": {
+          "type": "object",
+          "properties": {
+            "todo": {
+              "type": "string",
+              "description": "TODO number (3 or T3)"
+            },
+            "answer": {
+              "type": "string",
+              "description": "Your answer"
+            }
+          },
+          "required": [
+            "todo",
+            "answer"
+          ],
+          "additionalProperties": false
+        },
+        "options": {
+          "type": "object",
+          "properties": {
+            "wait": {
+              "type": "string",
+              "description": "The question's id, when the TODO asks more than one"
+            },
+            "verbose": {
+              "default": false,
+              "description": "Show redacted diagnostic details",
+              "type": "boolean"
+            }
+          },
+          "required": [
+            "verbose"
+          ],
+          "additionalProperties": false
+        }
+      }
+    },
+    {
       "name": "token mint",
       "description": "Mint a token limited to the named scopes, an optional run or flow, and a lifetime",
       "schema": {

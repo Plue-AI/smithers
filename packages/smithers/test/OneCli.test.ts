@@ -251,8 +251,8 @@ describe("migrated command dispatch", () => {
   it("accounts for every Go command without replacing target cache operations", async () => {
     expect(Object.keys(handlers).sort()).toEqual(Object.keys(definitions).sort())
     // Independent count rejects a command dropped from both handlers and definitions.
-    // 212 original commands plus host start/stop, less the eight retired
-    // forge-only and registration commands below.
+    // 212 original commands plus host start/stop and todo answer, less the
+    // retired forge-only and registration commands below.
     const retired = [
       "changeset create",
       "changeset get",
@@ -262,12 +262,13 @@ describe("migrated command dispatch", () => {
       "repo transfer",
       "history backfill",
       "history land",
+      "history retry",
       "repo report",
       "auth local bootstrap",
       "auth local login",
       "auth local status"
     ]
-    expect(Object.keys(definitions)).toHaveLength(214 - retired.length)
+    expect(Object.keys(definitions)).toHaveLength(215 - retired.length)
     for (const name of retired) {
       expect(Object.hasOwn(definitions, name)).toBe(false)
       expect(Object.hasOwn(handlers, name)).toBe(false)
