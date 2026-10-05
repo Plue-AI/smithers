@@ -183,6 +183,26 @@ func (s *Server) web(w http.ResponseWriter, r *http.Request) bool {
 		_ = json.NewEncoder(w).Encode(map[string]int64{"id": id})
 		return true
 	}
+	// A person labels an issue on GitHub (J2.2's second door), as LabelIssue
+	// does: the labeled event names the person, never an App.
+	if r.Method == "POST" && r.URL.Path == "/_fake/labels" {
+		var body struct {
+			Repo, Login, Label string
+			Number             int64
+		}
+		if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 1<<16)).Decode(&body); err != nil || body.Repo == "" || body.Login == "" || body.Label == "" {
+			http.Error(w, "repo, number, login and label are required", 400)
+			return true
+		}
+		id := s.personLabel(body.Repo, body.Number, body.Login, body.Label)
+		if id == 0 {
+			http.Error(w, "issue not found", 404)
+			return true
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(map[string]int64{"id": id})
+		return true
+	}
 	if r.Method == "GET" && r.URL.Path == "/login/oauth/authorize" {
 		q := r.URL.Query()
 		known := false

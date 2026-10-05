@@ -79,6 +79,10 @@ func (s *Server) OpenIssue(repo, login, title, body string) int64 {
 func (s *Server) LabelIssue(repo string, number int64, login, label string) int64 {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	return s.personLabel(repo, number, login, label)
+}
+
+func (s *Server) personLabel(repo string, number int64, login, label string) int64 {
 	key := issueKey(repo, number)
 	if s.opened[key] == nil {
 		return 0
