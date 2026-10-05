@@ -141,6 +141,7 @@ export const TestAttrs = Schema.Struct({
  */
 export const RunAttrs = Schema.Struct({
   ...sharedFields,
+  manual: Schema.optional(Schema.Boolean),
   approval: Schema.optional(Attr.Approval),
   services: Schema.optional(Attr.Services),
   gates: Schema.optional(Attr.Gates)
@@ -386,6 +387,7 @@ const testDefinition = Target.make("Shell.Test", {
 
 const runDefinition = Target.make("Shell.Run", {
   attrs: RunAttrs,
+  manual: (attrs) => attrs.manual === true,
   hosts: (attrs) => attrs.hosts,
   success: Exec.Result,
   error: Exec.ExecError,
