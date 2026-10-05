@@ -6,6 +6,7 @@ import (
 	"errors"
 	"maps"
 	"net/http"
+	"slices"
 	"strconv"
 	"time"
 
@@ -159,6 +160,12 @@ func todoSteerReady(item db.MythicalItem) bool {
 // held-input delivery and ordered model-turn consumption have acceptance proof.
 // In particular, merely binding a launcher or a pinned flow cannot enable it.
 func (s *MythicalService) steerTodo(ctx context.Context, number int64, input TodoControlInput) (TodoControlReceipt, error) {
+	return s.admitTodoFeedback(ctx, number, input, nil)
+}
+
+// admitTodoFeedback shares authority, storage and delivery for Steer and Amend.
+// An amendment adds its revision inside this same transaction.
+func (s *MythicalService) admitTodoFeedback(ctx context.Context, number int64, input TodoControlInput, amendment *TodoAmendInput) (TodoControlReceipt, error) {
 	if s == nil || !s.todoSteering || s.todoFlow == nil || s.store == nil {
 		return TodoControlReceipt{}, todoControlUnavailable()
 	}
@@ -169,11 +176,15 @@ func (s *MythicalService) steerTodo(ctx context.Context, number int64, input Tod
 	if input.Request == "" {
 		input.Request = uuid.NewString()
 	}
+	command := "todo.steer"
+	if amendment != nil {
+		command = "todo.amend"
+	}
 	var receipt TodoControlReceipt
 	err := pgx.BeginFunc(ctx, s.store, func(tx pgx.Tx) error {
 		q := db.New(tx)
 		// Repeat the route's authority check before subject reads or replay.
-		auth, err := Authorize(ctx, q, "todo.steer")
+		auth, err := Authorize(ctx, q, command)
 		if err != nil {
 			return err
 		}
@@ -189,7 +200,7 @@ func (s *MythicalService) steerTodo(ctx context.Context, number int64, input Tod
 		}
 		// The stack lock may have waited behind another mutation. Revocation
 		// during that wait must also refuse replay and admission.
-		if _, err := Authorize(ctx, q, "todo.steer"); err != nil {
+		if _, err := Authorize(ctx, q, command); err != nil {
 			return err
 		}
 		person, err := q.GetUserByID(ctx, auth.UserID)
@@ -211,13 +222,30 @@ func (s *MythicalService) steerTodo(ctx context.Context, number int64, input Tod
 				return todoControlUnavailable()
 			}
 			now := s.now().UTC()
-			next, feedback, _, replay, err := prepareTodoSteer(ctx, item, input, todoActor(ctx, person), todoActorRef(ctx, person), now)
+			var next db.MythicalItem
+			var feedback todoSteer
+			var replay bool
+			if amendment == nil {
+				next, feedback, _, replay, err = prepareTodoSteer(ctx, item, input, todoActor(ctx, person), todoActorRef(ctx, person), now)
+			} else {
+				next, feedback, replay, err = prepareTodoAmend(ctx, item, input, *amendment, todoActor(ctx, person), todoActorRef(ctx, person), now)
+			}
 			if err != nil {
 				return err
 			}
 			receipt = TodoControlReceipt{State: "accepted", Attempt: feedback.Attempt}
+			if amendment != nil {
+				receipt.Number, receipt.Revision = number, feedback.Revision
+			}
 			if replay {
 				return nil
+			}
+			var order []db.MythicalItem
+			if amendment != nil {
+				order, err = q.LockMythicalStackOrder(ctx, repository)
+				if err != nil {
+					return err
+				}
 			}
 			saved, err := q.SaveMythicalItem(ctx, next)
 			if errors.Is(err, pgx.ErrNoRows) {
@@ -239,6 +267,29 @@ func (s *MythicalService) steerTodo(ctx context.Context, number int64, input Tod
 			stack, err := q.GetMythicalStack(ctx, repository)
 			if err != nil {
 				return err
+			}
+			if amendment != nil {
+				amended, err := json.Marshal(map[string]any{"item": id, "n": number, "rev": feedback.Revision, "input": feedback.ID,
+					"by": feedback.Attribution, "from": todoState(item), "to": todoState(saved)})
+				if err != nil {
+					return err
+				}
+				if _, err := jobs.RecordFactInTx(ctx, tx, todoOperationScope(saved), uuid.NewString(), "todo.amended", todoState(saved), amended); err != nil {
+					return err
+				}
+				after := slices.Clone(order)
+				for index := range after {
+					if after[index].ID == saved.ID {
+						after[index] = saved
+					}
+				}
+				rebased, err := reorderPrefixes(ctx, q, stack, order, after, now)
+				if err != nil {
+					return err
+				}
+				for _, changed := range rebased {
+					s.itemChanged(ctx, q, stack, changed.ID)
+				}
 			}
 			// A paused/fenced/attaching run already has a stable destination.
 			// Its worker holds this same intent until release is permitted.
@@ -285,7 +336,7 @@ func prepareTodoSteer(ctx context.Context, item db.MythicalItem, input TodoContr
 	checks := mythicalChecksOf(item)
 	for _, feedback := range checks.Steers {
 		if feedback.Request == input.Request && feedback.Author == input.Actor {
-			if feedback.Text != *input.Steer {
+			if feedback.Revision != 0 || feedback.Text != *input.Steer {
 				return item, todoSteer{}, false, false, todoControlConflict("Request already used for another steer")
 			}
 			return item, feedback, false, true, nil

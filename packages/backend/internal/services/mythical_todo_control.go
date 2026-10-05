@@ -27,9 +27,11 @@ type TodoControlInput struct {
 // for a retry the attempt it starts and for a move the place it took, so the
 // app settles its toast once the TODO card shows that attempt or place.
 type TodoControlReceipt struct {
-	State   string `json:"state"`
-	Attempt int32  `json:"attempt,omitempty"`
-	Place   int64  `json:"place,omitempty"`
+	State    string `json:"state"`
+	Attempt  int32  `json:"attempt,omitempty"`
+	Place    int64  `json:"place,omitempty"`
+	Number   int64  `json:"n,omitempty"`
+	Revision int    `json:"rev,omitempty"`
 }
 
 // todoControls dispatches each TODO control to its service, one file per op
@@ -147,25 +149,5 @@ func (s *MythicalService) ControlTodo(ctx context.Context, number int64, input T
 }
 
 func todoControlUnavailable() error {
-	return &TodoControlError{http.StatusServiceUnavailable, "todo_control_unavailable", "infra", "TODO controls are unavailable"}
-}
-
-// TodoAmendInput is the revised prompt and acceptance of the same TODO.
-// It carries no actor/via: only the bound install authorization supplies them.
-type TodoAmendInput struct {
-	Prompt     string `json:"prompt"`
-	Acceptance string `json:"acceptance"`
-}
-
-// AmendTodo stays disabled before subject reads, revision allocation, events or
-// signals. Confirmation creation belongs to the shared dispatcher, never this
-// direct service boundary; no caller-provided attribution can enable it.
-func (s *MythicalService) AmendTodo(_ context.Context, number int64, input TodoAmendInput) error {
-	if number <= 0 {
-		return &TodoControlError{http.StatusBadRequest, "invalid_todo", "user", "Invalid TODO number"}
-	}
-	if strings.TrimSpace(input.Prompt) == "" || !utf8.ValidString(input.Prompt) || !utf8.ValidString(input.Acceptance) || len(input.Prompt)+len(input.Acceptance) > mythicalPromptBytes {
-		return &TodoControlError{http.StatusBadRequest, "invalid_amendment", "user", "Invalid amendment"}
-	}
 	return &TodoControlError{http.StatusServiceUnavailable, "todo_control_unavailable", "infra", "TODO controls are unavailable"}
 }

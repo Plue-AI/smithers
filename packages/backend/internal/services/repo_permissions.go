@@ -317,6 +317,7 @@ var installCommands = map[string]installCommand{
 	// control itself: steer, stop, resume, retry, drop or move.
 	"todo.control": {role: InstallMember},
 	"todo.steer":   {role: InstallMember},
+	"todo.amend":   {role: InstallMember},
 	"todo.stop":    {role: InstallMember},
 	"todo.resume":  {role: InstallMember},
 	"todo.retry":   {role: InstallMember},
@@ -342,7 +343,7 @@ var installCommands = map[string]installCommand{
 // todo.control, the steer door, whose handler authorizes the op again; and
 // todo.new, which a delegated credential confirms in the app.
 var terminalCommands = map[string]bool{"self.read": true, "repo.read": true, "todo.read": true, "wiki.read": true,
-	"todo.answer": true, "todo.steer": true, "todo.control": true, "todo.new": true}
+	"todo.answer": true, "todo.steer": true, "todo.control": true, "todo.new": true, "todo.amend": true}
 
 // AccessError is Authorize's refusal (spec §6.2.3 error envelope).
 type AccessError struct {
@@ -405,6 +406,9 @@ func Authorize(ctx context.Context, q *db.Queries, command string) (InstallAutho
 	}
 	if role.rank() < need.role.rank() {
 		return InstallAuthorization{}, &AccessError{Status: http.StatusForbidden, Class: "permission", Code: "permission", Message: "Only a maintainer can do this"}
+	}
+	if terminal && command == "todo.amend" {
+		return InstallAuthorization{}, &AccessError{Status: http.StatusServiceUnavailable, Class: "infra", Code: "confirmation_unavailable", Message: "Amendment confirmation is unavailable"}
 	}
 	if terminal && command == "todo.new" {
 		// A delegated TODO waits for its person's Confirm in the app, which
