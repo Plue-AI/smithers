@@ -3,7 +3,7 @@ import { createServer } from "node:net"
 import { lstatSync, mkdirSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { dirname, join } from "node:path"
-import { freePort, githubBases, layerSnapshots, modelBase, proxyGuard, setupLine, walkHome } from "./run-local-no-github"
+import { freePort, githubBases, layerSnapshots, modelBase, proxyGuard, setupLine, walkHome, walkOptions } from "./run-local-no-github"
 import { githubRoute, isManifest } from "../e2e/local/github-route"
 import type { BrowserContext, Route } from "@playwright/test"
 
@@ -14,6 +14,24 @@ describe("local no-GitHub orchestration", () => {
       SMITHERS_MODEL_PROVIDER_ORIGIN: "http://127.0.0.1:8",
       HTTP_PROXY: "http://127.0.0.1:9", ALL_PROXY: "http://127.0.0.1:9", HTTPS_PROXY: "http://127.0.0.1:9", NO_PROXY: "127.0.0.1,localhost,::1"
     })
+  })
+  test("flags: real models and a pinned bundle are opt-in; anything else is refused", () => {
+    expect(walkOptions([], {})).toEqual({ browser: true, keep: false, realModels: false, bundle: undefined })
+    expect(walkOptions(["--no-browser", "--real-models", "--keep", "--real-models"], { SMITHERS_PROOF_BUNDLE: " /b/.native " }))
+      .toEqual({ browser: false, keep: true, realModels: true, bundle: "/b/.native" })
+    expect(walkOptions(["--no-browser"], { SMITHERS_PROOF_BUNDLE: "  " }).bundle).toBeUndefined()
+    for (const argv of [["--real"], ["--keep", "x"], ["--REAL-MODELS"], [""]]) expect(() => walkOptions(argv, {})).toThrow("Usage")
+    expect(() => walkOptions([], { SMITHERS_PROOF_BUNDLE: "relative/.native" })).toThrow("absolute")
+  })
+  test("flags: any order and repetition of known flags parses the same (property)", () => {
+    const known = ["--no-browser", "--keep", "--real-models"]
+    for (let seed = 1; seed <= 500; seed++) {
+      let x = seed
+      const next = () => (x = (x * 1103515245 + 12345) % 2147483648)
+      const argv = Array.from({ length: next() % 7 }, () => known[next() % known.length]!)
+      expect(walkOptions(argv, {})).toEqual({ browser: !argv.includes("--no-browser"), keep: argv.includes("--keep"), realModels: argv.includes("--real-models"), bundle: undefined })
+      expect(() => walkOptions([...argv, `--x${seed}`], {})).toThrow("Usage")
+    }
   })
   test("handoff parser refuses malformed or broadened receipts", () => {
     expect(setupLine('ordinary log')).toBeUndefined()

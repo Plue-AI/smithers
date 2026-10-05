@@ -46,6 +46,19 @@ export const layerSnapshots = (records: string): string[] => {
     } catch { return [] }
   })
 }
+/**
+ * The walk's flags. `--real-models` (the proof recordings) sends no model
+ * provider to the stand-in and refuses no egress: the owner types real keys on
+ * the Model access card. SMITHERS_PROOF_BUNDLE names a built bundle to run
+ * instead of this worktree's, which then need not match HEAD.
+ */
+export const walkOptions = (argv: readonly string[], env: Readonly<Record<string, string | undefined>>) => {
+  const known = ["--no-browser", "--keep", "--real-models"]
+  if (argv.some(arg => !known.includes(arg))) throw new Error("Usage: local:no-github [--no-browser] [--keep] [--real-models]")
+  const bundle = env.SMITHERS_PROOF_BUNDLE?.trim() || undefined
+  if (bundle !== undefined && !bundle.startsWith("/")) throw new Error("SMITHERS_PROOF_BUNDLE must be an absolute path")
+  return { browser: !argv.includes("--no-browser"), keep: argv.includes("--keep"), realModels: argv.includes("--real-models"), bundle }
+}
 export const freePort = (port: number): Promise<void> => new Promise((ok, fail) => {
   const server = createServer()
   server.once("error", () => fail(new Error(`Port ${port} must be free`)))
@@ -54,14 +67,14 @@ export const freePort = (port: number): Promise<void> => new Promise((ok, fail) 
 
 export async function main() {
   if (process.getuid?.() === 0) throw new Error("Run as your logged-in user, never root")
-  if (process.argv.slice(2).some(arg => arg !== "--no-browser" && arg !== "--keep")) throw new Error("Usage: local:no-github [--no-browser] [--keep]")
-  const keep = process.argv.includes("--keep")
+  const options = walkOptions(process.argv.slice(2), process.env)
+  const keep = options.keep
   const app = resolve(import.meta.dir, ".."), root = resolve(app, "../..")
   const revision = execFileSync("git", ["rev-parse", "HEAD"], { cwd: root, encoding: "utf8" }).trim()
   let bundle: string
   try {
-    const verified = verifyBundle(join(app, ".native"))
-    if (verified.version !== revision) throw new Error("revision differs from HEAD")
+    const verified = verifyBundle(options.bundle ?? join(app, ".native"))
+    if (options.bundle === undefined && verified.version !== revision) throw new Error("revision differs from HEAD")
     bundle = verified.bundle
   } catch (error) { throw new Error(`${error}\nBuild: pnpm exec smthrs build //apps/app:serverBundle`) }
   await Promise.all([4000, 4001, 2222].map(freePort))
@@ -93,8 +106,8 @@ export async function main() {
   const signal = () => { void stop().then(() => process.exit(0)) }
   process.on("SIGINT", signal); process.on("SIGTERM", signal)
   try {
-    const modelKey = randomBytes(24).toString("hex")
-    modelProvider = await launchModelProvider({ key: modelKey })
+    const modelKey = options.realModels ? "" : randomBytes(24).toString("hex")
+    if (!options.realModels) modelProvider = await launchModelProvider({ key: modelKey })
     const executable = join(home, "githubfake")
     const build = buildChild = Bun.spawn(["go", "build", "-o", executable, "./packages/backend/cmd/githubfake"], { cwd: root, stdout: "inherit", stderr: "inherit" })
     if (await build.exited !== 0) throw new Error("githubfake build failed")
@@ -134,9 +147,9 @@ export async function main() {
     const setup = new Promise<string>(resolve => { handoff = resolve })
     backend = await startNativeBackend({
       stateDir: join(home, "state"), executablePath: join(bundle, "bin/smithers-server"),
-      env: { HOME: home, USER: process.env.USER, LOGNAME: process.env.LOGNAME, LANG: "en_US.UTF-8", ...proxyGuard },
+      env: { HOME: home, USER: process.env.USER, LOGNAME: process.env.LOGNAME, LANG: "en_US.UTF-8", ...(options.realModels ? {} : proxyGuard) },
       spawn: (argv, options) => {
-        const child = backendChild = Bun.spawn([...argv], { env: { ...options.env, ...githubBases(fakeURL), ...modelBase(modelProvider!.origin) }, stdout: "pipe", stderr: "inherit" })
+        const child = backendChild = Bun.spawn([...argv], { env: { ...options.env, ...githubBases(fakeURL), ...(modelProvider ? modelBase(modelProvider.origin) : {}) }, stdout: "pipe", stderr: "inherit" })
         void (async () => {
           let rest = ""
           const stream = child.stdout.getReader()
@@ -156,12 +169,12 @@ export async function main() {
       }
     })
     const setupURL = await Promise.race([setup, Bun.sleep(30_000).then(() => { throw new Error("No setup_urls handoff") })])
-    const run = { setupURL, fakeURL, revision, home, modelOrigin: modelProvider.origin, modelKey }
+    const run = { setupURL, fakeURL, revision, home, modelOrigin: modelProvider?.origin ?? "", modelKey }
     writeFileSync(join(home, "run.json"), JSON.stringify(run), { mode: 0o600 })
     writeFileSync(receipt, JSON.stringify(run), { mode: 0o600 })
     chmodSync(receipt, 0o600)
     console.log(`SETUP_URL=${setupURL}\nType owner: local-owner. Ctrl-C stops everything${keep ? ` and keeps ${home}` : " and deletes this run's data"}.`)
-    if (!process.argv.includes("--no-browser")) {
+    if (options.browser) {
       browser = Bun.spawn(["node", "--experimental-strip-types", join(app, "e2e/local/open.ts"), receipt], { cwd: app, stdout: "inherit", stderr: "inherit" })
       void browser.exited.then(() => signal())
     }
