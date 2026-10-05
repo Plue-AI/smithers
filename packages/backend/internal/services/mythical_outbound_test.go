@@ -47,7 +47,13 @@ func TestMythicalOutboundAbsentProvidersPreserveSlots(t *testing.T) {
 			guards[missing] = nil
 			s := &MythicalService{outbound: MythicalOutboundProviders{CanonicalApp: guards[0], StackLease: guards[1], Budget: guards[2], Membership: guards[3], Authorization: guards[4], AcceptedGeneration: guards[5]}}
 			for _, kind := range []string{"push", "open", "body", "merge", "close"} {
-				slot := []byte(`{"kind":"` + kind + `","target":"x","desired":"new","precondition":"old","state":"unknown"}`)
+				state := "unknown"
+				if kind == "merge" {
+					// A sent merge meets no guard: lookup alone settles it
+					// (TestMythicalOutboundMergeDecisionRequired).
+					state = "intended"
+				}
+				slot := []byte(`{"kind":"` + kind + `","target":"x","desired":"new","precondition":"old","state":"` + state + `"}`)
 				item := db.MythicalItem{PendingOp: slot}
 				sends, reads := 0, 0
 				s.outbound.Lookup = func(*mythicalItemStep, context.Context, db.MythicalItem, MythicalOutboundOp) (string, bool, error) {
@@ -78,30 +84,40 @@ func TestMythicalOutboundAbsentProvidersPreserveSlots(t *testing.T) {
 func TestMythicalOutboundMergeDecisionRequired(t *testing.T) {
 	allow := func(context.Context, db.MythicalItem, string) error { return nil }
 	s := &MythicalService{outbound: MythicalOutboundProviders{CanonicalApp: allow, StackLease: allow, Budget: allow, Membership: allow, Authorization: allow, AcceptedGeneration: allow}}
-	sends := 0
+	sends, decisions := 0, 0
+	observed := "old"
 	s.outbound.Lookup = func(*mythicalItemStep, context.Context, db.MythicalItem, MythicalOutboundOp) (string, bool, error) {
-		return "old", false, nil
+		return observed, false, nil
 	}
 	s.outbound.Send = func(*mythicalItemStep, context.Context, db.MythicalItem, MythicalOutboundOp) error {
 		sends++
 		return nil
 	}
 	st := mythicalItemStep{s: s}
-	item := db.MythicalItem{PendingOp: []byte(`{"kind":"merge","target":"1","desired":"head","precondition":"old","state":"unknown"}`)}
-	_, err := st.recoverOutbound(context.Background(), item)
+	// A merge never sent needs a fresh decision before any send.
+	intended := db.MythicalItem{PendingOp: []byte(`{"kind":"merge","target":"1","desired":"head","precondition":"old","state":"intended"}`)}
+	_, err := st.recoverOutbound(context.Background(), intended)
 	require.ErrorContains(t, err, "merge readiness")
 	require.Zero(t, sends)
 	s.outbound.MergeDecision = func(context.Context, db.MythicalItem, MythicalOutboundOp) error {
+		decisions++
 		return errors.New("approver revoked")
 	}
-	_, err = st.recoverOutbound(context.Background(), item)
+	_, err = st.recoverOutbound(context.Background(), intended)
 	require.ErrorContains(t, err, "approver revoked")
 	require.Zero(t, sends)
-	s.outbound.Lookup = func(*mythicalItemStep, context.Context, db.MythicalItem, MythicalOutboundOp) (string, bool, error) {
-		return "head", false, nil
-	}
-	_, err = st.recoverOutbound(context.Background(), item)
-	require.ErrorContains(t, err, "settlement integration", "applied merge needs projection, never a second send or old approval")
+	// A sent merge GitHub still shows open is neither decided nor sent again.
+	sent := db.MythicalItem{PendingOp: []byte(`{"kind":"merge","target":"1","desired":"head","precondition":"old","state":"unknown"}`)}
+	decisions = 0
+	next, err := st.recoverOutbound(context.Background(), sent)
+	require.NoError(t, err)
+	require.Equal(t, sent.PendingOp, next.PendingOp)
+	require.Zero(t, decisions)
+	require.Zero(t, sends)
+	// GitHub shows it merged: settlement, never a second send or an old approval.
+	observed = "head"
+	_, err = st.recoverOutbound(context.Background(), sent)
+	require.ErrorContains(t, err, "settlement integration")
 	require.Zero(t, sends)
 }
 
@@ -162,7 +178,13 @@ func TestMythicalOutboundSettlementRequiredBeforeRepeat(t *testing.T) {
 				},
 			}}
 			st := mythicalItemStep{s: s}
-			slot := []byte(`{"kind":"` + kind + `","target":"1","desired":"new","precondition":"old","state":"unknown"}`)
+			state := "unknown"
+			if kind == "merge" {
+				// A sent merge is never repeated; a never-sent one is the
+				// case that would send.
+				state = "intended"
+			}
+			slot := []byte(`{"kind":"` + kind + `","target":"1","desired":"new","precondition":"old","state":"` + state + `"}`)
 			item := db.MythicalItem{PendingOp: slot}
 			_, err := st.recoverOutbound(context.Background(), item)
 			require.ErrorContains(t, err, "settlement integration")

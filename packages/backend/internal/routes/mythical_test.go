@@ -267,14 +267,19 @@ func TestMythicalMergeRejectsTokensBeforeRepositoryReads(t *testing.T) {
 		info   *middleware.AuthInfo
 		status int
 		body   string
+		via    string
 	}{
-		{nil, http.StatusUnauthorized, `{"code":"unauthenticated","class":"permission","message":"Sign in to merge"}`},
-		{&middleware.AuthInfo{User: &db.User{ID: 7}, IsTokenAuth: true}, http.StatusForbidden, permission},
-		{&middleware.AuthInfo{User: &db.User{ID: 7}, IsTokenAuth: true, TokenSystemIssued: true}, http.StatusForbidden, permission},
-		{&middleware.AuthInfo{User: &db.User{ID: 7, UserType: "bot"}, SessionHash: "session"}, http.StatusForbidden, permission},
+		{nil, http.StatusUnauthorized, `{"code":"unauthenticated","class":"permission","message":"Sign in to merge"}`, ""},
+		{&middleware.AuthInfo{User: &db.User{ID: 7}, SessionHash: "session"}, http.StatusForbidden, `{"code":"never","class":"never","message":"Only a person can do this"}`, "smithers"},
+		{&middleware.AuthInfo{User: &db.User{ID: 7}, IsTokenAuth: true}, http.StatusForbidden, permission, ""},
+		{&middleware.AuthInfo{User: &db.User{ID: 7}, IsTokenAuth: true, TokenSystemIssued: true}, http.StatusForbidden, permission, ""},
+		{&middleware.AuthInfo{User: &db.User{ID: 7, UserType: "bot"}, SessionHash: "session"}, http.StatusForbidden, permission, ""},
 	} {
 		service := &fakeMythicalRoute{}
 		request := httptest.NewRequest(http.MethodPost, "/", strings.NewReader(`{}`))
+		if tc.via != "" {
+			request.Header.Set("Smithers-Via", tc.via)
+		}
 		ctx := context.WithValue(request.Context(), middleware.UserContextKey, &db.User{ID: 7})
 		ctx = middleware.ContextWithAuthInfo(ctx, tc.info)
 		rec := httptest.NewRecorder()

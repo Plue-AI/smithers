@@ -105,6 +105,7 @@ func outboundResult(op MythicalOutboundOp, observed string, appliedClose bool) s
 // recoverOutbound runs within the existing claimed stack worker. Every repeat
 // is preceded by lookup, then current authority, then a committed unknown slot.
 // An uncertain slot survives errors, cancellation, Drop and missing providers.
+// A merge is decided after its lookup by recoverMerge, which never repeats one.
 func (st *mythicalItemStep) recoverOutbound(ctx context.Context, item db.MythicalItem) (*db.MythicalItem, error) {
 	op, err := decodeMythicalOutbound(item.PendingOp)
 	if err != nil {
@@ -126,11 +127,10 @@ func (st *mythicalItemStep) recoverOutbound(ctx context.Context, item db.Mythica
 		return nil, errors.New("Waiting for GitHub reconciliation integration")
 	}
 	observed, appliedClose, err := p.Lookup(st, ctx, item, op)
+	if op.Kind == "merge" {
+		return st.recoverMerge(ctx, item, op, observed, err)
+	}
 	if err != nil {
-		if op.Kind == "merge" && op.State == "intended" && mythicalMergeExpired(item, st.now) {
-			// Never sent: GitHub cannot have it, so the bound ends the fence.
-			return st.refuseMerge(ctx, item, op, mythicalMergeUnfinished(), true)
-		}
 		return nil, err
 	}
 	op.State = outboundResult(op, observed, appliedClose)
@@ -147,24 +147,8 @@ func (st *mythicalItemStep) recoverOutbound(ctx context.Context, item db.Mythica
 		if (item.State == "cancelled" || item.State == "dropped") && (op.Kind == "push" || op.Kind == "open" || op.Kind == "body") {
 			return nil, errors.New("dropped proposal cannot be repeated")
 		}
-		if op.Kind == "merge" && mythicalMergeExpired(item, st.now) {
-			// Lookup proved GitHub has not merged it; an expired approval
-			// is never sent (mythicalMergeExpiry).
-			return st.refuseMerge(ctx, item, op, mythicalMergeUnfinished(), true)
-		}
 		if err := st.s.outboundReady(ctx, item, op.Kind); err != nil {
-			if op.Kind == "merge" {
-				return st.refuseMerge(ctx, item, op, err, true)
-			}
 			return nil, err
-		}
-		if op.Kind == "merge" {
-			if p.MergeDecision == nil {
-				return nil, errors.New("Waiting for merge readiness integration")
-			}
-			if err := p.MergeDecision(ctx, item, op); err != nil {
-				return st.refuseMerge(ctx, item, op, err, true)
-			}
 		}
 		if p.Send == nil {
 			return nil, errors.New("Waiting for GitHub dispatch integration")
@@ -179,22 +163,10 @@ func (st *mythicalItemStep) recoverOutbound(ctx context.Context, item db.Mythica
 			return nil, err
 		}
 		if err := p.Send(st, ctx, item, op); err != nil {
-			if op.Kind == "merge" {
-				// Sent: only GitHub's definitive refusal ends the fence;
-				// anything else is settled by lookup.
-				return st.refuseMerge(ctx, item, op, err, false)
-			}
 			return nil, err
 		}
 		// A successful response still needs lookup before settlement. This retains
-		// the obligation if the process dies after the remote effect. A merge
-		// is looked up once right away and settles if GitHub confirms it; it
-		// is never sent twice in one pass.
-		if op.Kind == "merge" {
-			if observed, _, err := p.Lookup(st, ctx, item, op); err == nil && outboundResult(op, observed, false) == "done" {
-				return st.settleOutbound(ctx, item, op)
-			}
-		}
+		// the obligation if the process dies after the remote effect.
 		return &item, nil
 	}
 	if op.State == "done" {
