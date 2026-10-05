@@ -75,9 +75,7 @@ func (s *WorkspaceService) DeleteWorkspace(ctx context.Context, workspaceID stri
 // persistent files.
 func (s *WorkspaceService) StopWorkspace(ctx context.Context, workspaceID string, repositoryID, userID int64) (_ WorkspaceResponse, retErr error) {
 	defer func() { s.observeWorkspaceLifecycle("stop", retErr) }()
-	store, ok := s.q.(interface {
-		StopWorkspaceRetainingRow(context.Context, string) (db.StopWorkspaceRetainingRowRow, error)
-	})
+	store, ok := s.q.(workspaceStopStore)
 	if !ok {
 		return WorkspaceResponse{}, pkgerrors.Internal("workspace stop store unavailable")
 	}
@@ -85,43 +83,101 @@ func (s *WorkspaceService) StopWorkspace(ctx context.Context, workspaceID string
 	if err != nil {
 		return WorkspaceResponse{}, err
 	}
+	workspace, err = s.stopWorkspaceRetaining(ctx, store, workspace, userID)
+	if err != nil {
+		return WorkspaceResponse{}, err
+	}
+	return s.toWorkspaceResponse(workspace), nil
+}
+
+type workspaceStopStore interface {
+	StopWorkspaceRetainingRow(context.Context, string) (db.StopWorkspaceRetainingRowRow, error)
+}
+
+// stopWorkspaceRetaining stops workspace's execution for requesterID and keeps
+// its row and persistent files. A workspace already stopped is a conflict.
+func (s *WorkspaceService) stopWorkspaceRetaining(ctx context.Context, store workspaceStopStore, workspace db.Workspace, requesterID int64) (db.Workspace, error) {
 	if workspace.Status == "stopped" {
-		return WorkspaceResponse{}, pkgerrors.Conflict("workspace is already stopped")
+		return workspace, pkgerrors.Conflict("workspace is already stopped")
 	}
 	if s.runtime == nil && workspace.VmID != "" && s.sandbox == nil {
-		return WorkspaceResponse{}, pkgerrors.Internal("workspace sandbox unavailable")
+		return workspace, pkgerrors.Internal("workspace sandbox unavailable")
 	}
 	// Unlike best-effort cleanup, an explicit stop must report a failed token
 	// revocation so it can be retried before marking the workspace stopped.
 	if workspace.HeadPushTokenID.Valid {
 		if err := s.q.DeleteAccessToken(ctx, db.DeleteAccessTokenParams{ID: workspace.HeadPushTokenID.Int64, UserID: workspace.UserID}); err != nil {
-			return WorkspaceResponse{}, pkgerrors.Internal("revoke workspace credentials: " + err.Error())
+			return workspace, pkgerrors.Internal("revoke workspace credentials: " + err.Error())
 		}
 	}
 	if s.runtime != nil {
 		unlock := s.lockRuntimeWorkspace(workspace.ID)
 		defer unlock()
-		workspace, err = s.currentRuntimeWorkspaceLocked(ctx, workspace)
+		current, err := s.currentRuntimeWorkspaceLocked(ctx, workspace)
 		if err != nil {
-			return WorkspaceResponse{}, err
+			return workspace, err
 		}
+		workspace = current
 		if workspace.Status == "stopped" {
-			return WorkspaceResponse{}, pkgerrors.Conflict("workspace is already stopped")
+			return workspace, pkgerrors.Conflict("workspace is already stopped")
 		}
-		if err := s.stopRuntimeWorkspaceLocked(ctx, workspace, userID, "stop"); err != nil {
-			return WorkspaceResponse{}, err
+		if err := s.stopRuntimeWorkspaceLocked(ctx, workspace, requesterID, "stop"); err != nil {
+			return workspace, err
 		}
 	} else if err := s.teardownWorkspaceVM(ctx, workspace); err != nil {
-		return WorkspaceResponse{}, err
+		return workspace, err
 	}
 	stopped, err := store.StopWorkspaceRetainingRow(ctx, workspace.ID)
 	if err != nil {
-		return WorkspaceResponse{}, pkgerrors.Internal("stop workspace: " + err.Error())
+		return workspace, pkgerrors.Internal("stop workspace: " + err.Error())
 	}
 	workspace = db.Workspace(stopped)
 	s.meterWorkspaceUsage(ctx, workspace, workspace.Status)
 	s.notifyWorkspace(ctx, workspace.ID, workspace.Status)
-	return s.toWorkspaceResponse(workspace), nil
+	return workspace, nil
+}
+
+// errLaneMachineStarting refuses to stop a lane machine its provisioning
+// still owns; the stack retries the retirement on its next pass.
+var errLaneMachineStarting = errors.New("the lane's machine is still starting; it is stopped once it settles")
+
+// StopLaneMachine stops the machine of a lane the stack retired (T-MCH-06,
+// T-MCH-07): its execution ends, so it holds no capacity slot, and its disk
+// and row stay, so nothing written on it is lost and a person can still wake
+// it. A machine already stopped, asleep, failed, deleted or of another
+// repository is left as it is. Only a workspace runtime stops a machine and
+// keeps its disk; without one the lane is retained untouched.
+func (s *WorkspaceService) StopLaneMachine(ctx context.Context, repositoryID int64, workspaceID string) (retErr error) {
+	if s == nil || s.q == nil || s.runtime == nil {
+		return nil
+	}
+	workspace, err := s.q.GetWorkspace(ctx, workspaceID)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return nil
+	}
+	if err != nil {
+		return err
+	}
+	if workspace.RepositoryID != repositoryID || workspace.DeletedAt.Valid {
+		return nil
+	}
+	switch workspace.Status {
+	case "running":
+	case "pending", "starting":
+		return errLaneMachineStarting
+	default:
+		return nil
+	}
+	defer func() { s.observeWorkspaceLifecycle("stop", retErr) }()
+	store, ok := s.q.(workspaceStopStore)
+	if !ok {
+		return pkgerrors.Internal("workspace stop store unavailable")
+	}
+	stopped, err := s.stopWorkspaceRetaining(ctx, store, workspace, workspace.UserID)
+	if err == nil || stopped.Status == "stopped" {
+		return nil
+	}
+	return err
 }
 
 // UpdateWorkspacePodStatus handles optional workspace runtime status reports.

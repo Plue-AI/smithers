@@ -49,7 +49,7 @@ func TestTodoLongWaitRetainsDiskAndBinding(t *testing.T) {
 			require.Equal(t, tc.reclaimed, len(runtime.reclaimed) == 1)
 			if !tc.reclaimed {
 				lanes := &workspaceMythicalLanes{workspaces: svc}
-				// Retirement succeeds and touches nothing: the disk stays.
+				// Retiring an asleep lane succeeds and touches nothing: the disk stays.
 				require.NoError(t, lanes.Delete(context.Background(), 0, 0, row.ID))
 				require.Empty(t, runtime.reclaimed)
 				require.Equal(t, row.ID, q.lane.WorkspaceID)
@@ -76,13 +76,13 @@ func TestTodoLongWaitStaleSweepReReadsAfterResume(t *testing.T) {
 	q := &todoRetentionStore{mockWorkspaceQuerier: &mockWorkspaceQuerier{getWorkspaceFn: func(context.Context, string) (db.Workspace, error) { return row, nil }}, lookup: func() { t.Fatal("resumed row must not reach binding lookup") }}
 	runtime := &diskReclaimRuntime{}
 	svc := newWorkspaceServiceForTests(q, WithWorkspaceRuntime(runtime))
-	// Dark cleanup needs no lifecycle authority and cannot race a resume.
+	// Dark cleanup needs no lifecycle authority and cannot race a resume. A
+	// retirement stops a running lane by design (StopLaneMachine); the sweep
+	// re-reads the item first, so a lane its item took back is never retired.
 	row.Status = "running"
 	require.NoError(t, svc.CleanupStoppedAgentWorkspaceDisks(context.Background()))
 	require.Empty(t, runtime.reclaimed)
-	require.NoError(t, (&workspaceMythicalLanes{workspaces: svc}).Delete(context.Background(), 0, 0, row.ID))
-	require.Empty(t, runtime.reclaimed)
-	require.Equal(t, "running", row.Status, "a stale retirement must not suspend resumed work")
+	require.Equal(t, "running", row.Status, "dark cleanup must not suspend resumed work")
 }
 
 func TestTodoLongWaitComposedReclaimKeepsBoundDisk(t *testing.T) {

@@ -1225,7 +1225,9 @@ func (s *MythicalService) releaseLane(ctx context.Context, r *mythicalRun, item 
 	if s.lanes == nil || item.WorkspaceID == "" || !r.row.ActorUserID.Valid {
 		return item
 	}
-	if item.Source != "issue" {
+	// The stack bound an issue item's or a TODO's lane; a chat item's
+	// workspace is its author's own and is never released here.
+	if item.Source != "issue" && item.Source != "todo" {
 		return item
 	}
 	if err := s.retireLane(ctx, r, item.WorkspaceID); err != nil {
@@ -2861,7 +2863,11 @@ func (st *mythicalItemStep) review(ctx context.Context, item db.MythicalItem) (*
 		}
 		next.WorkspaceID, next.Lane, next.LaneStartedAt = "", pgtype.Int4{}, pgtype.Timestamptz{}
 	}
-	workspaceID, err := st.lane(ctx, next, fmt.Sprintf("mythical #%d review g%d", item.IssueNumber.Int64, item.Generation+1), placement)
+	name := fmt.Sprintf("mythical #%d review g%d", item.IssueNumber.Int64, item.Generation+1)
+	if mythicalTodo(item) {
+		name = fmt.Sprintf("TODO %d review g%d", item.Number.Int64, item.Generation+1)
+	}
+	workspaceID, err := st.lane(ctx, next, name, placement)
 	if err != nil {
 		return mythicalInfraOutage(item, "launch", "no lane workspace to review on: "+err.Error(), st.now), false, nil
 	}
@@ -3019,7 +3025,7 @@ func (failure mythicalFlowFailure) FlowRuntimeRetryable() bool { return failure.
 // workspaceMythicalLanes provisions each lane its own branch machine from the
 // stack's bookmark, named for its item and attempt, so two TODOs never share
 // one. A TODO keeps its lane for every attempt (keepsLane); a retired lane's
-// machine is retained, never deleted.
+// machine is stopped and its disk retained, never deleted.
 type workspaceMythicalLanes struct{ workspaces *WorkspaceService }
 
 // NewWorkspaceMythicalLanes backs lanes with the repository's workspaces.
@@ -3098,15 +3104,20 @@ func (l *workspaceMythicalLanes) bound(ctx context.Context, workspaceID string) 
 	return err == nil && !lane.RetiredAt.Valid
 }
 
-// Delete retires a lane's machine without touching it (T-MCH-14): every
-// retirement caller comes here, and none may delete, stop or suspend a TODO's
-// machine before verified final capture, quiet service and release
-// (T-MCH-06, T-MCH-07). The machine, its disk and its row stay as they are; a
-// stale sweep therefore cannot stop a lane resumed since its list. Retirement
-// then records the binding retired, so the item's next lane is a machine of
-// its own and a retry never collides with this one.
-func (l *workspaceMythicalLanes) Delete(context.Context, int64, int64, string) error {
-	return nil
+// Delete retires a lane's machine (T-MCH-06, T-MCH-07): every retirement
+// caller comes here. The machine stops, so it holds no capacity slot and the
+// next lane (a review, a fresh attempt) can start on a full host; its disk and
+// row stay, so nothing written on it is lost, and it is never deleted before
+// verified final capture (T-MCH-14). A machine still starting refuses and the
+// retirement is retried on the next pass. Callers re-read the item before
+// retiring (sweepLanes), so a lane its item took back is never stopped.
+// Retirement then records the binding retired, so the item's next lane is a
+// machine of its own and a retry never collides with this one.
+func (l *workspaceMythicalLanes) Delete(ctx context.Context, repositoryID, _ int64, workspaceID string) error {
+	if l == nil || l.workspaces == nil {
+		return nil
+	}
+	return l.workspaces.StopLaneMachine(ctx, repositoryID, workspaceID)
 }
 
 // errTodoWorkspaceRetained refuses deleting a TODO's workspace before its
