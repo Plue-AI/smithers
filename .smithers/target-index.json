@@ -1342,6 +1342,14 @@
         "exclude": []
       },
       {
+        "kind": "file",
+        "path": "distribution/fake-todo-turns.mjs"
+      },
+      {
+        "kind": "file",
+        "path": "distribution/fake-todo-turns.d.mts"
+      },
+      {
         "kind": "glob",
         "pattern": "apps/app/lint/**/*",
         "exclude": []
@@ -1871,6 +1879,14 @@
         "kind": "glob",
         "pattern": "apps/app/e2e/**/*",
         "exclude": []
+      },
+      {
+        "kind": "file",
+        "path": "distribution/fake-todo-turns.mjs"
+      },
+      {
+        "kind": "file",
+        "path": "distribution/fake-todo-turns.d.mts"
       },
       {
         "kind": "file",

@@ -13,7 +13,11 @@
  * calls files.read on that path, and handed a tool result it answers by quoting
  * it; the install's role models INSTALL_MODEL answer as `reads` (fast) and
  * `answers` (Decisions), so an install sent here by SMITHERS_MODEL_PROVIDER_ORIGIN
- * passes Model access and its app agent reads files), a credential that is not byte-equal
+ * passes Model access and its app agent reads files). A TODO's coding run is
+ * answered on any model it serves: a Chat Completions turn that
+ * carries a coding step's system teaching gets that step's scripted cell, and an
+ * evaluation that asks the coding run's questions gets Jev's TODO answers, both
+ * from distribution/fake-todo-turns.mjs, the J1 rehearsal's script. A credential that is not byte-equal
  * to SMITHERS_MODEL_PROVIDER_KEY is 401, and "down" is a SIGTERM of this
  * process. GET /__journal is append-only evidence that holds a credential's
  * sha256 and never its value. Any session may launch its own copy through
@@ -23,6 +27,7 @@
  *   [SMITHERS_MODEL_PROVIDER_SLOW_MS=8000] bun e2e/real/support/model-provider.ts
  */
 import { createHash, timingSafeEqual } from "node:crypto"
+import { isTodoJudgement, todoAnswer, todoTurn } from "../../../../../distribution/fake-todo-turns.mjs"
 import {
   INSTALL_MODEL, PROVIDER_CONFIDENCE, PROVIDER_ECHO_LEAD, PROVIDER_MODEL, PROVIDER_PATHS, PROVIDER_READ_LEAD, PROVIDER_REPLY, PROVIDER_RETRY_AFTER_SECONDS,
   type ProviderJournalEntry, type ProviderProtocol
@@ -140,6 +145,21 @@ const evaluate = (questions: Record<string, unknown>): Response => {
   return json(200, { answers, usage: { inputTokens: 7, outputTokens: 1 }, providerMetadata: { typesafe: { confidence } } })
 }
 
+/** The coding run's judgement, as the J1 rehearsal's Jev answers it; a question it cannot route is a 400. */
+const judgeTodo = (questions: Record<string, unknown>): Response => {
+  const answers: Record<string, unknown> = {}
+  const confidence: Record<string, number> = {}
+  try {
+    for (const [id, question] of Object.entries(questions)) {
+      answers[id] = todoAnswer(id, isRecord(question) ? question : {})
+      confidence[id] = PROVIDER_CONFIDENCE
+    }
+  } catch (error) {
+    return failure("evaluation", 400, "invalid_request_error", error instanceof Error ? error.message : String(error))
+  }
+  return json(200, { answers, usage: { inputTokens: 7, outputTokens: 1 }, providerMetadata: { typesafe: { confidence } } })
+}
+
 /** Answers the client cannot decode: a frame that is not JSON, or an answer missing its number. */
 const garbled = (protocol: ProviderProtocol, questions: Record<string, unknown>): Response =>
   protocol === "evaluation"
@@ -168,9 +188,9 @@ const serve = async (protocol: ProviderProtocol, request: Request): Promise<Resp
   const modelId = protocol === "evaluation" ? request.headers.get("ai-model-id") ?? "" : typeof body?.model === "string" ? body.model : ""
   const authorized = presented !== null && same(presented, accepted)
   // Journaled when the answer is decided, so a slow answer is evidence before it waits.
-  const record = (response: Response): Response => {
+  const record = (response: Response, step?: string): Response => {
     journal.push({
-      at: new Date().toISOString(), protocol, modelId, status: response.status, authorized,
+      at: new Date().toISOString(), protocol, modelId, status: response.status, authorized, ...(step === undefined ? {} : { step }),
       credentialSha256: presented === null ? null : sha(presented),
       headers: Object.fromEntries(PUBLIC_HEADERS.flatMap((name) => { const value = request.headers.get(name); return value === null ? [] : [[name, value]] })),
       ...composed(protocol, body)
@@ -190,12 +210,16 @@ const serve = async (protocol: ProviderProtocol, request: Request): Promise<Resp
   const cut = Math.ceil(presented.length / 2)
   const reply = modelId === PROVIDER_MODEL.echoes
     ? [`${PROVIDER_ECHO_LEAD}${presented.slice(0, cut).repeat(2)}`, presented.slice(cut), presented.slice(cut)] : PROVIDER_REPLY
+  const includeUsage = isRecord(body.stream_options) && body.stream_options.include_usage === true
+  const coding = protocol === "openai-chat" && Array.isArray(body.messages) ? todoTurn(body.messages.filter(isRecord)) : undefined
+  if (coding !== undefined) return record(openaiStream(modelId, includeUsage, [coding.content]), coding.step)
+  if (protocol === "evaluation" && isTodoJudgement(questions)) return record(judgeTodo(questions ?? {}), "todo/judge")
   const read = protocol === "openai-chat" && reads.has(modelId) ? readsAnswer(modelId, body) : undefined
   if (read !== undefined) return record(read)
   const answer = record(
     protocol === "evaluation" ? evaluate(questions ?? {})
       : protocol === "anthropic-messages" ? anthropicStream(modelId, reply)
-      : openaiStream(modelId, isRecord(body.stream_options) && body.stream_options.include_usage === true, reply)
+      : openaiStream(modelId, includeUsage, reply)
   )
   if (modelId === PROVIDER_MODEL.slow) await Bun.sleep(slowMs)
   return answer

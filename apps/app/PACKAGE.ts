@@ -59,6 +59,9 @@ const suiteSources = Smithers.glob("//apps/app/e2e/**/*")
 /** The assertion contracts the e2e tiers share; pure, so the unit suite gates them. */
 const contractSources = Smithers.glob("//apps/app/e2e/contracts/**/*.ts")
 
+/** The TODO coding run's scripted answers the model stand-in serves, shared with the J1 rehearsal's fake, and their types. */
+const todoTurns = [Smithers.file("//distribution/fake-todo-turns.mjs"), Smithers.file("//distribution/fake-todo-turns.d.mts")]
+
 /**
  * Checks the application against its own tsconfig.
  *
@@ -77,6 +80,7 @@ const check = Smithers.Typecheck({
     componentSources,
     harnessSources,
     suiteSources,
+    ...todoTurns,
     lintSources,
     ...buildConfigs,
     Smithers.file("playwright.config.ts"),
@@ -115,6 +119,7 @@ const unitTests = Smithers.NodeTest({
     contractSources,
     harnessSources,
     suiteSources,
+    ...todoTurns,
     ...buildConfigs,
     Smithers.glob("//apps/app/*.ts"),
     Smithers.file("tsconfig.json"),

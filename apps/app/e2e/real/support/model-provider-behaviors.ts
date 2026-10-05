@@ -44,6 +44,8 @@ export interface ProviderJournalEntry {
   readonly modelId: string
   readonly status: number
   readonly authorized: boolean
+  /** The TODO coding step a scripted answer served (`coding/draft-plan`, …), or `todo/judge` for the run's evaluation. */
+  readonly step?: string
   /** sha256 hex of the presented credential, or null when none was sent. Never the value. */
   readonly credentialSha256: string | null
   /** Non-credential protocol headers only: anthropic-version, ai-gateway-*, ai-evaluation-*, ai-model-id. */

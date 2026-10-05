@@ -286,6 +286,120 @@ describe("the install's role models", () => {
   })
 })
 
+describe("a TODO's coding run, scripted by distribution/fake-todo-turns.mjs", () => {
+  // Each step's system teaching opens as the coding flow writes it (flows/coding planning.ts, atoms.ts, vibe-cleanup.ts);
+  // an agent action appends its task. The answer is a cell: run here against a recording ctx, as the coding host runs it.
+  const task = (payload: unknown) => `\n\nThe task for this run: ${JSON.stringify(payload)}`
+  const AsyncFunction = Object.getPrototypeOf(async () => {}).constructor as new (...args: string[]) => (ctx: unknown) => Promise<void>
+  const step = async (system: string) => {
+    const events = await Effect.runPromise(Effect.gen(function*() {
+      const model = yield* Route.toModel(yield* Effect.fromResult(chatRoute(KEY)))
+      return yield* Stream.runCollect(model.stream(ModelRequest.ModelRequest.make({
+        modelId: PROVIDER_MODEL.answers, system: [ModelRequest.SystemPart.make({ text: system })],
+        messages: [ModelRequest.Message.user("Begin.")], tools: [], params: ModelRequest.GenerationParams.make({ maxTokens: 4096 })
+      })))
+    }).pipe(Effect.provide(executor)))
+    const settled = ModelEvent.settledMessage(events)
+    const [part] = settled.message.content
+    const source = /^```cell\n([\s\S]*)\n```$/.exec(part?.type === "text" ? part.text : "")?.[1]
+    if (source === undefined) throw new Error(`not one cell: ${JSON.stringify(settled.message.content)}`)
+    const files = new Map([["JOURNEY.md", "Add a greeting to JOURNEY.md\n"]])
+    const calls: Array<[string, unknown]> = []
+    let result: unknown
+    await new AsyncFunction("ctx", source)({
+      call: async (name: string, args: { readonly path: string; readonly content?: string }) => {
+        calls.push([name, args])
+        if (name === "write") files.set(args.path, args.content ?? "")
+        return name === "read" ? { ok: true, content: files.get(args.path) } : { ok: true }
+      },
+      done: (value: unknown) => { result = value }
+    })
+    return { result, calls, files, stopReason: settled.message.stopReason }
+  }
+
+  test("review-request finds the request sufficient", async () => {
+    const answered = await step("Review a coding request against supplied repository memory and native history before planning changes.")
+    expect(answered.result).toEqual({ explanation: "The request names one file and one edit; the evidence is sufficient.", clarification: "" })
+    expect(answered.stopReason).toBe("stop")
+    expect(await last()).toMatchObject({ protocol: "openai-chat", modelId: PROVIDER_MODEL.answers, status: 200, step: "coding/review-request" })
+  })
+
+  test("draft-plan plans one change on the task's head that runs every required check", async () => {
+    const context = { head: { changeId: "kqzvtmnp" }, checks: [{ id: "test", required: true }, { id: "lint", required: true }, { id: "docs", required: false }] }
+    const answered = await step(`Plan one linear mythical coding progression as small understandable product Changes containing atomic emoji conventional commits.${task({ context })}`)
+    expect(answered.result).toEqual({
+      rationale: "Append one documentation change on the current head.",
+      baseChangeId: "kqzvtmnp",
+      changes: [{
+        id: "greeting", title: "Add a greeting", intent: "JOURNEY.md carries a greeting.",
+        atoms: [{ changeId: null, message: "📝 docs: add a greeting to JOURNEY.md", intent: "Append a greeting line to JOURNEY.md.", reads: ["JOURNEY.md"], writes: ["JOURNEY.md"] }],
+        checks: ["test", "lint"]
+      }]
+    })
+    expect((await last()).step).toBe("coding/draft-plan")
+  })
+
+  test("edit-atom appends the greeting to JOURNEY.md through the host's read and write", async () => {
+    const answered = await step("Implement the single atomic change in the owning workspace using the provided filesystem tools.")
+    expect(answered.calls.map(([name]) => name)).toEqual(["read", "write"])
+    expect(answered.files.get("JOURNEY.md")).toBe("Add a greeting to JOURNEY.md\nHello from Smithers!\n")
+    expect(answered.result).toEqual({ summary: "Appended a greeting to JOURNEY.md.", reads: ["JOURNEY.md"], writes: ["JOURNEY.md"] })
+    expect((await last()).step).toBe("coding/edit-atom")
+  })
+
+  test("review-final-history describes every atom the request recorded with the one subject", async () => {
+    const request = { outcome: { result: { changes: [{ implementation: { atoms: [{ changeId: "a1" }, { changeId: "a2" }] } }] } } }
+    const answered = await step(`Clean the descriptions of the validated request's native JJ atoms. Return each existing changeId exactly once, in the recorded order.${task({ request })}`)
+    expect(answered.result).toEqual({
+      summary: "📝 docs: add a greeting to JOURNEY.md",
+      atoms: [{ changeId: "a1", description: "📝 docs: add a greeting to JOURNEY.md" }, { changeId: "a2", description: "📝 docs: add a greeting to JOURNEY.md" }]
+    })
+    expect((await last()).step).toBe("coding/review-final-history")
+  })
+
+  test("Jev routes the TODO to implement and judges the result complete, not overclaimed, invented or unnecessary", async () => {
+    const response = await Effect.runPromise(Effect.gen(function*() {
+      return yield* (yield* Evaluator.Evaluator).evaluate({ state: { text: "Add a greeting" }, questions: {
+        route: Evaluator.ChoiceQuestion.make({ instructions: "Which route?", criteria: { answer: "answer in chat", implement: "change the code" } }),
+        needed_0: Evaluator.BooleanQuestion.make({ instructions: "Is a clarification needed?" }),
+        complete: Evaluator.BooleanQuestion.make({ instructions: "Is it complete?" }),
+        overclaims: Evaluator.BooleanQuestion.make({ instructions: "Does it overclaim?" }),
+        unnecessary_0: Evaluator.BooleanQuestion.make({ instructions: "Is this file unnecessary?" }),
+        confident: Evaluator.ScoreQuestion.make({ instructions: "How sure?", criteria: ["low", "medium", "high"] })
+      } })
+    }).pipe(Effect.provide(Layer.provide(Evaluator.layerVercelGateway({
+      apiKey: Redacted.make(KEY), baseUrl: provider.evaluationUrl, model: INSTALL_MODEL.decisions, timeoutMs: 10_000
+    }), FetchHttpClient.layer))))
+    expect(response.answers).toEqual({
+      route: { type: "choice", choice: "implement" },
+      needed_0: { type: "boolean", probability: 0.01 },
+      complete: { type: "boolean", probability: 0.99 },
+      overclaims: { type: "boolean", probability: 0.01 },
+      unnecessary_0: { type: "boolean", probability: 0.01 },
+      confident: { type: "score", score: 2 }
+    })
+    expect(await last()).toMatchObject({ protocol: "evaluation", modelId: INSTALL_MODEL.decisions, status: 200, step: "todo/judge" })
+  })
+
+  test("a route it cannot take is 400; a turn or evaluation outside the run keeps the ordinary answer", async () => {
+    const headers = { "content-type": "application/json", authorization: `Bearer ${KEY}`, "ai-gateway-protocol-version": Evaluator.protocolVersion,
+      "ai-evaluation-model-specification-version": Evaluator.specificationVersion, "ai-model-id": INSTALL_MODEL.decisions }
+    const refused = await fetch(provider.evaluationUrl, { method: "POST", headers, body: JSON.stringify({ state: {}, questions: { route: { type: "choice", criteria: { left: "l", right: "r" } } } }) })
+    expect(refused.status).toBe(400)
+    expect(await last()).toMatchObject({ protocol: "evaluation", status: 400, step: "todo/judge" })
+    const settled = ModelEvent.settledMessage(await Effect.runPromise(Effect.gen(function*() {
+      const model = yield* Route.toModel(yield* Effect.fromResult(chatRoute(KEY)))
+      return yield* Stream.runCollect(model.stream(ModelRequest.ModelRequest.make({
+        modelId: PROVIDER_MODEL.answers, system: [ModelRequest.SystemPart.make({ text: "Answer the member's question about the repository." })],
+        messages: [ModelRequest.Message.user("ping")], tools: [], params: ModelRequest.GenerationParams.make({ maxTokens: 16 })
+      })))
+    }).pipe(Effect.provide(executor))))
+    expect(settled.message.content).toEqual([{ type: "text", text: PROVIDER_REPLY.join("") }])
+    expect((await last()).step).toBeUndefined()
+    expect((await Effect.runPromise(evaluate(INSTALL_MODEL.decisions))).answers.yes).toEqual({ type: "boolean", probability: PROVIDER_CONFIDENCE })
+  })
+})
+
 describe("requests outside the protocols are refused", () => {
   test("an evaluation without its protocol headers is 400", async () => {
     for (const name of ["ai-gateway-protocol-version", "ai-evaluation-model-specification-version"]) {
