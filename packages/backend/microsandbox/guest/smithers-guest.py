@@ -52,6 +52,10 @@ ENV_FILE = "/opt/smithers/env.json"
 SECRET_ENV_DIR = "/run/smithers"
 SECRET_ENV_LIMIT = 1 << 20
 REQUEST_DIR = "/run/smithers/requests"
+# A signed-in terminal's delegated credential: SESSION_TOKEN_DIR/<session>/token
+# (T-TRM-02, spec section 5.3.2), owned by the guest's single user, mode 0600.
+SESSION_TOKEN_DIR = "/run/smithers/sessions"
+SESSION_TOKEN_LIMIT = 512
 TOOL_HOME = "/var/cache/smithers/home"
 ROOT_UID = 0
 # Root plants files only below this base ("/" in a guest), through directories
@@ -178,6 +182,84 @@ def put_secret_environment(body):
     finally:
         if created:
             os.unlink(temporary, dir_fd=parent)
+        os.close(parent)
+
+
+def session_token_body(body):
+    if not 0 < len(body) <= SESSION_TOKEN_LIMIT or any(c <= 0x20 or c > 0x7e for c in body):
+        fail(3, "invalid session token")
+    return body
+
+
+def put_session_token(session, body):
+    """Writes one terminal session's credential for the guest's single user.
+
+    Root opens each directory by descriptor without following links. The
+    session directory is root's, so the user can read its own token but
+    cannot swap the file or its directory; the token is replaced by rename.
+    """
+    if os.geteuid() != 0:
+        fail(3, "session token writer requires root")
+    if not valid_id(session):
+        fail(125, "invalid session id")
+    body = session_token_body(body)
+    entry = assigned_identity("agent")
+    parent = safe_directory(SESSION_TOKEN_DIR, trusted=True)
+    try:
+        try:
+            os.mkdir(session, 0o755, dir_fd=parent)
+        except FileExistsError:
+            pass
+        directory = os.open(session, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW, dir_fd=parent)
+    finally:
+        os.close(parent)
+    temporary = ".token-" + secrets.token_hex(16)
+    created = False
+    try:
+        info = os.fstat(directory)
+        if info.st_uid != 0 or info.st_mode & 0o022:
+            fail(3, "untrusted session token directory")
+        fd = os.open(temporary, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, 0o600, dir_fd=directory)
+        created = True
+        with os.fdopen(fd, "wb") as handle:
+            os.fchmod(handle.fileno(), 0o600)
+            os.fchown(handle.fileno(), entry.pw_uid, entry.pw_gid)
+            handle.write(body + b"\n")
+            handle.flush()
+            os.fsync(handle.fileno())
+        os.replace(temporary, "token", src_dir_fd=directory, dst_dir_fd=directory)
+        created = False
+    finally:
+        if created:
+            os.unlink(temporary, dir_fd=directory)
+        os.close(directory)
+
+
+def delete_session_token(session):
+    """Removes one terminal session's credential and its directory."""
+    if os.geteuid() != 0:
+        fail(3, "session token writer requires root")
+    if not valid_id(session):
+        fail(125, "invalid session id")
+    try:
+        parent = safe_directory(SESSION_TOKEN_DIR, trusted=True, create=False)
+    except FileNotFoundError:
+        return
+    try:
+        try:
+            directory = os.open(session, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW, dir_fd=parent)
+        except FileNotFoundError:
+            return
+        try:
+            info = os.fstat(directory)
+            if info.st_uid != 0 or info.st_mode & 0o022:
+                fail(3, "untrusted session token directory")
+            for name in os.listdir(directory):
+                os.unlink(name, dir_fd=directory)
+        finally:
+            os.close(directory)
+        os.rmdir(session, dir_fd=parent)
+    finally:
         os.close(parent)
 
 
@@ -1140,6 +1222,12 @@ def main(args):
     command = args[0]
     if command == "put-env" and len(args) == 1:
         put_secret_environment(sys.stdin.buffer.read(SECRET_ENV_LIMIT + 1))
+        return
+    if command == "put-token" and len(args) == 2:
+        put_session_token(args[1], sys.stdin.buffer.read(SESSION_TOKEN_LIMIT + 1))
+        return
+    if command == "delete-token" and len(args) == 2:
+        delete_session_token(args[1])
         return
     if command == "coding-helper-check" and len(args) in (2, 3):
         print("current" if coding_helper_current(*args[1:]) else "replace")
