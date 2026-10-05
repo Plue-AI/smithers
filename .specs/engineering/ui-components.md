@@ -409,9 +409,23 @@ type ToastStackProps = { toasts: Toast[]; more: number; onAction: CardProps<unkn
                          onView: (patch: ShellView) => void }   // Hide: onView({ toast_hidden: id })
 type EdgeMapProps = { above: Toast[]; below: Toast[]; narrow: boolean   // two rows max plus a count
                       onAction: CardProps<unknown>["onAction"]; onView: (patch: ShellView) => void }
-type TimelineProps = { lines: { entry_id: string; kind: EntryRowProps["kind"]; title: string; summary?: string; tone: Tone }[]
+type TimelineLine = {
+  entry_id: string; kind: EntryRowProps["kind"] | "event"   // events live only in the timeline (mock Rail.tsx)
+  title: string; summary?: string                           // summary: the fast model's one line on what happened there
+  tone: Tone
+  glyph: { state: TodoState }                               // TODO, branch, run, terminal, file: the state glyph
+       | { actor: Actor }                                   // a prompt or answer: the author's avatar
+       | { event: "running" | "ok" | "attention" | "failed" }   // an event: spinner, check, alert or cross
+  action?: Action                                           // the one act while it applies: Answer, Retry, Review & merge
+  fresh?: boolean                                           // arrived since this viewer last looked; highlights once
+}
+type TimelineProps = { lines: TimelineLine[]
                        on_screen: [first: string, last: string]
-                       onView: (patch: ShellView) => void }  // a click: onView({ jump_to: entry_id })
+                       onAction: CardProps<unknown>["onAction"]
+                       onView: (patch: ShellView) => void }
+// A line click: onView({ jump_to: entry_id }). The inline action is its own button with data-flow={action.tag};
+// it calls onAction(action.tag, action.args) and never jumps. A line has at most one action; the container drops
+// it once the act no longer applies (answered, retried, merged). Glyph actors use ActorChip's avatar (T-UI-01).
 ```
 
 ### T-UI-09 Members (`members` topic)
