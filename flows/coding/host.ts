@@ -291,16 +291,33 @@ export const roleResolver = (
 ): SeatResolver.Service => {
   const roles = effectiveRoles(implementationModel, models)
   const routed = (id: string) => Object.hasOwn(roles, id) && roles[id] === Seat.auto
+  // An unpinned review tries its default seats in order (reviewSeats).
+  const reviewPinned = models.reviewModel !== undefined || Object.hasOwn(models.seats ?? {}, reviewRole)
+  const candidates = (id: string): ReadonlyArray<string> =>
+    id === reviewRole && !reviewPinned
+      ? reviewSeats(models.seats?.["coding/implement"] ?? implementationModel)
+      : [Object.hasOwn(roles, id) ? roles[id]! : id]
   return SeatResolver.make({
     resolve: (id) =>
       routed(id)
         ? Effect.fail(new Seat.SeatUnresolved({ seat: id, message: `${id} routes by the routing graph` }))
-        : base.resolve(Object.hasOwn(roles, id) ? roles[id]! : id).pipe(
+        : firstResolved(base, candidates(id)).pipe(
           Effect.map((seat) => Object.hasOwn(roles, id) ? Seat.make({ ...seat, id }) : seat)
         ),
     routedAs: (id) => routed(id) ? { phase: Object.hasOwn(rolePhases, id) ? rolePhases[id] : undefined } : undefined
   })
 }
+
+/** The first of `seats` that resolves, or the first one's refusal when none does. */
+const firstResolved = (
+  base: SeatResolver.Service,
+  [first, ...rest]: ReadonlyArray<string>
+): Effect.Effect<Seat.Seat, Seat.SeatUnresolved> =>
+  rest.length === 0
+    ? base.resolve(first!)
+    : base.resolve(first!).pipe(
+      Effect.catch((refusal) => firstResolved(base, rest).pipe(Effect.mapError(() => refusal)))
+    )
 
 /**
  * The phase each built-in role routes as when its seat is `auto`. A
@@ -327,9 +344,19 @@ type RoleModels = Pick<Options, "planningModel" | "pocModel" | "wikiModel" | "re
 const harnessVendors: Readonly<Record<string, string>> = { codex: "openai" }
 
 /**
+ * Routers: one key serves every vendor's model by its `vendor/model` id
+ * (`vercel:` is the AI Gateway).
+ */
+const routers: ReadonlyArray<string> = ["vercel", "openrouter"]
+
+/** The model a router reviews on, by `vendor/model`: the first whose vendor is not the implementer's. */
+const routedReviewModels: ReadonlyArray<string> = ["anthropic/claude-sonnet-4.5", "openai/gpt-5.1"]
+
+/**
  * The vendor whose model a seat alias or `provider:model` runs: the prefix,
  * a harness's vendor (`codex:` is OpenAI), or a router's model owner
- * (`openrouter:openai/...` is OpenAI). A bare model id has none.
+ * (`openrouter:openai/...` and `vercel:openai/...` are OpenAI). A bare model
+ * id has none.
  */
 export const seatProvider = (seat: string): string => {
   const expanded = expandSeat(seat)
@@ -337,21 +364,41 @@ export const seatProvider = (seat: string): string => {
   if (separator < 0) return ""
   const prefix = expanded.slice(0, separator).toLowerCase()
   const model = expanded.slice(separator + 1)
-  if (prefix === "openrouter" && model.includes("/")) return model.slice(0, model.indexOf("/")).toLowerCase()
+  if (routers.includes(prefix) && model.includes("/")) return model.slice(0, model.indexOf("/")).toLowerCase()
   return harnessVendors[prefix] ?? prefix
 }
 
 /**
- * The seat `coding/review` runs on when nothing names one: the first alias on
- * a provider other than the implementer's, so a change is never reviewed
- * only by the model that wrote it. The implementer is the effective one,
- * after the repository's and the operator's `seats`. An implementer the graph
- * routes (`auto`) leaves the review to the graph too.
+ * The seats `coding/review` tries, in order, when nothing names one, so a
+ * change is reviewed by a vendor other than the one whose model wrote it:
+ *
+ * 1. the implementer's router on a second vendor, so the key that pays for
+ *    the code pays for its review (an install with only the AI Gateway key
+ *    codes on `vercel:openai/...` and reviews on `vercel:anthropic/...`);
+ * 2. each alias on another vendor, as its direct key allows;
+ * 3. another router on a second vendor;
+ * 4. the implementer's own seat, so a host with one vendor's key reviews
+ *    rather than refusing every review.
+ *
+ * The first that resolves on the host's credentials wins (roleResolver). The
+ * implementer is the effective one, after the repository's and the operator's
+ * `seats`. An implementer the graph routes (`auto`) leaves the review to the
+ * graph too.
  */
-export const reviewDefault = (implementationSeat: string): string => {
-  if (implementationSeat === Seat.auto) return Seat.auto
-  const provider = seatProvider(implementationSeat)
-  return Object.entries(seatAliases).find(([, seat]) => seatProvider(seat) !== provider)?.[0] ?? implementationSeat
+export const reviewSeats = (implementationSeat: string): ReadonlyArray<string> => {
+  if (implementationSeat === Seat.auto) return [Seat.auto]
+  const vendor = seatProvider(implementationSeat)
+  const expanded = expandSeat(implementationSeat)
+  const route = expanded.slice(0, Math.max(0, expanded.indexOf(":"))).toLowerCase()
+  const secondVendor = routedReviewModels.find((model) => model.slice(0, model.indexOf("/")) !== vendor)!
+  return [
+    ...new Set([
+      ...(routers.includes(route) ? [`${route}:${secondVendor}`] : []),
+      ...Object.entries(seatAliases).filter(([, seat]) => seatProvider(seat) !== vendor).map(([alias]) => alias),
+      ...routers.filter((router) => router !== route).map((router) => `${router}:${secondVendor}`),
+      implementationSeat
+    ])
+  ]
 }
 
 /** Every role this host resolves: its defaults with the repository's and the operator's seats over them. */
@@ -390,8 +437,10 @@ const defaultRoles = (implementationModel: string, models: RoleModels): Readonly
   "coding/plan": models.planningModel ?? implementationModel,
   "coding/poc": models.pocModel ?? implementationModel,
   "wiki/reviewer": models.wikiModel ?? implementationModel,
-  // The review check's lenses: a second provider unless the operator pins one.
-  [reviewRole]: models.reviewModel ?? reviewDefault(models.seats?.["coding/implement"] ?? implementationModel),
+  // The review check's lenses: a second vendor unless the operator pins one.
+  // roleResolver tries every reviewSeats entry; this first one names the
+  // role's seat for routing (`auto`).
+  [reviewRole]: models.reviewModel ?? reviewSeats(models.seats?.["coding/implement"] ?? implementationModel)[0]!,
   "repository/research": models.planningModel ?? implementationModel,
   // The seat the built-in authoring bodies declare. They write a flow and
   // run its checks, so they run on the seat this host writes code with; the

@@ -153,10 +153,13 @@ no other model answers in its place. See `flows/checks/lint/flow.mdx`.
 up to eight lenses, `{"lenses":[{"id","focus"}]}`; `flows/checks/review/flow.mdx`
 declares this repository's. The check reads the same immutable parent..head
 diff as the Jev check, drops private repository-job paths, and asks one
-evidence-only completion per lens on the `coding/review` role, which the host
-defaults to a seat on a provider other than the effective implementer's
-(`reviewDefault` in `host.ts`; `SMITHERS_CODING_REVIEW_MODEL` or the project's
-`seats` pin one). Every lens's findings land on the owning Change and its
+evidence-only completion per lens on the `coding/review` role. Unpinned, the
+host runs that role on the first seat its keys resolve from `reviewSeats` in
+`host.ts`: the implementer's router (AI Gateway or OpenRouter) on a second
+vendor, an alias on another vendor, another router, and last the implementer's
+own seat. An install with only the AI Gateway key codes on `vercel:openai/...`
+and reviews on `vercel:anthropic/claude-sonnet-4.5`.
+`SMITHERS_CODING_REVIEW_MODEL` or the project's `seats` pin one. Every lens's findings land on the owning Change and its
 commit, so a lens that requests changes fails the receipt; the evidence records
 the role, each lens's verdict and its finding count. A diff over 200 KB or one
 the check cannot read unambiguously fails without asking any lens. The lenses

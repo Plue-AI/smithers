@@ -11,7 +11,7 @@ import { test } from "node:test"
 import { fileURLToPath } from "node:url"
 import { platform } from "../../packages/smithers/src/internal/NodeControlHost.ts"
 import { expandSeat } from "../../packages/smithers/src/Providers.ts"
-import { configuredCodingRoutes, layer, reviewDefault, roleResolver, roleSeats, seatProvider } from "../coding/host.ts"
+import { configuredCodingRoutes, layer, reviewSeats, roleResolver, roleSeats, seatProvider } from "../coding/host.ts"
 import * as CodingHost from "../coding/host.ts"
 import { Landing } from "../coding/landing.ts"
 import { loadProject } from "../coding/project-config.ts"
@@ -329,7 +329,7 @@ test("a role whose seat is auto routes by the graph as its phase, and never reso
   assert.equal((await Effect.runPromise(roles.resolve("coding/plan"))).modelId, "sol")
   assert.deepEqual(resolved, ["sol"])
   // An implementer the graph routes leaves the review to the graph as well.
-  assert.equal(reviewDefault(Seat.auto), Seat.auto)
+  assert.deepEqual(reviewSeats(Seat.auto), [Seat.auto])
   assert.deepEqual(roleResolver(base, "sol", { seats: { "coding/implement": "auto" } }).routedAs?.("coding/review"), {
     phase: "review"
   })
@@ -391,17 +391,40 @@ test("coding/review defaults to a provider different from the effective implemen
     assert.notEqual(review.modelId, "coding/review", "the role resolves to a model seat")
     assert.notEqual(provider(review.modelId), provider(implement.modelId), `review beside ${implementationModel}`)
   }
-  assert.equal(reviewDefault("luna"), "opus")
-  assert.equal(reviewDefault("anthropic:claude-opus-5-5"), "sol")
+  assert.equal(reviewSeats("luna")[0], "opus")
+  assert.equal(reviewSeats("anthropic:claude-opus-5-5")[0], "sol")
   // A harness or a router runs its model's vendor: never reviewed by that vendor again.
   assert.equal(seatProvider("codex:sol"), "openai")
   assert.equal(seatProvider("openrouter:openai/gpt-6-sol"), "openai")
   assert.equal(seatProvider("openrouter:anthropic/claude-opus-5-5"), "anthropic")
+  assert.equal(seatProvider("vercel:openai/gpt-5.1"), "openai")
+  assert.equal(seatProvider("vercel:anthropic/claude-sonnet-4.5"), "anthropic")
+  assert.equal(seatProvider("vercel:gpt-5.1"), "vercel")
   assert.equal(seatProvider("gpt-6-sol"), "")
-  assert.equal(reviewDefault("codex:sol"), "opus")
-  assert.equal(reviewDefault("codex:gpt-6.1-sol"), "opus")
-  assert.equal(reviewDefault("openrouter:openai/gpt-6-sol"), "opus")
-  assert.equal(reviewDefault("openrouter:anthropic/claude-opus-5-5"), "sol")
+  assert.equal(reviewSeats("codex:sol")[0], "opus")
+  assert.equal(reviewSeats("codex:gpt-6.1-sol")[0], "opus")
+  // A router's implementer reviews through the same router first: one key pays for both.
+  assert.deepEqual(reviewSeats("openrouter:openai/gpt-6-sol"), [
+    "openrouter:anthropic/claude-sonnet-4.5",
+    "opus",
+    "sonnet",
+    "fable",
+    "kimi",
+    "qwen",
+    "vercel:anthropic/claude-sonnet-4.5",
+    "openrouter:openai/gpt-6-sol"
+  ])
+  assert.equal(reviewSeats("openrouter:anthropic/claude-opus-5-5")[0], "openrouter:openai/gpt-5.1")
+  assert.deepEqual(reviewSeats("sol"), [
+    "opus",
+    "sonnet",
+    "fable",
+    "kimi",
+    "qwen",
+    "vercel:anthropic/claude-sonnet-4.5",
+    "openrouter:anthropic/claude-sonnet-4.5",
+    "sol"
+  ])
   // The repository's implementer override moves the default with it.
   const overridden = await resolve("luna", { seats: { "coding/implement": "opus" } })
   assert.equal(overridden.implement.modelId, "anthropic:claude-opus-5-5")
@@ -411,6 +434,76 @@ test("coding/review defaults to a provider different from the effective implemen
   assert.equal(pinned.review.modelId, "openai:gpt-6.1-sol")
   const declared = await resolve("luna", { reviewModel: "sol", seats: { "coding/review": "fable" } })
   assert.equal(declared.review.modelId, "anthropic:claude-fable-5-1")
+})
+
+test("coding/review runs on a second vendor the host's keys reach", async () => {
+  // The host's real credential rules; no PATH, so no Claude Code login is found.
+  const review = (implementationModel: string, environment: Readonly<Record<string, string>>) =>
+    Effect.runPromise(
+      Effect.gen(function*() {
+        const seats = yield* SeatResolver.SeatResolver
+        const implement = yield* seats.resolve("coding/implement")
+        const review = yield* seats.resolve("coding/review")
+        return { implement: implement.modelId, review: review.modelId, id: review.id }
+      }).pipe(
+        Effect.provide(
+          roleSeats({
+            repositoryPath: "/unused",
+            systemFlows,
+            gatewayId: "11111111-1111-4111-8111-111111111111",
+            implementationModel
+          })(environment).pipe(Layer.provide(platform.requestExecutor))
+        )
+      )
+    )
+  const gateway = { AI_GATEWAY_API_KEY: "proxy-credential" }
+  // Only the AI Gateway key (an install's owner-paid proxy seat): OpenAI codes, Anthropic reviews.
+  assert.deepEqual(await review("vercel:openai/gpt-5.1", gateway), {
+    implement: "openai/gpt-5.1",
+    review: "anthropic/claude-sonnet-4.5",
+    id: "coding/review"
+  })
+  // Only the AI Gateway key: Anthropic codes, OpenAI reviews.
+  assert.deepEqual(await review("vercel:anthropic/claude-sonnet-4.5", gateway), {
+    implement: "anthropic/claude-sonnet-4.5",
+    review: "openai/gpt-5.1",
+    id: "coding/review"
+  })
+  // Two direct keys: the review takes the other vendor's key.
+  const direct = { OPENAI_API_KEY: "openai-key", ANTHROPIC_API_KEY: "anthropic-key" }
+  assert.equal((await review("sol", direct)).review, "claude-opus-5-5")
+  assert.equal((await review("opus", direct)).review, "gpt-6.1-sol")
+  // A direct key beside the Gateway: an implementer on a direct key prefers the other direct vendor.
+  assert.equal((await review("sol", { ...direct, ...gateway })).review, "claude-opus-5-5")
+  // One direct key, another vendor through the Gateway: the Gateway reviews.
+  assert.equal(
+    (await review("sol", { OPENAI_API_KEY: "openai-key", ...gateway })).review,
+    "anthropic/claude-sonnet-4.5"
+  )
+  // One direct key and nothing else: the implementer's own seat reviews rather than refusing.
+  assert.deepEqual(await review("sol", { OPENAI_API_KEY: "openai-key" }), {
+    implement: "gpt-6.1-sol",
+    review: "gpt-6.1-sol",
+    id: "coding/review"
+  })
+  // No key at all: the refusal names the first second-vendor seat, not the last fallback.
+  const refusal = await Effect.runPromise(
+    Effect.flip(
+      Effect.gen(function*() {
+        return yield* (yield* SeatResolver.SeatResolver).resolve("coding/review")
+      }).pipe(
+        Effect.provide(
+          roleSeats({
+            repositoryPath: "/unused",
+            systemFlows,
+            gatewayId: "11111111-1111-4111-8111-111111111111",
+            implementationModel: "vercel:openai/gpt-5.1"
+          })({}).pipe(Layer.provide(platform.requestExecutor))
+        )
+      )
+    )
+  )
+  assert.match(refusal.message, /AI_GATEWAY_API_KEY/)
 })
 
 test("host launch system names require a non-empty JSON string array and preserve exact names", () => {
