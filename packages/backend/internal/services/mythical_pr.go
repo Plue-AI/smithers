@@ -144,6 +144,7 @@ func (p mythicalPRShape) render() (string, string, error) {
 // containment receipts, attention and keyed intents in one transaction.
 type mythicalGitHubFact struct {
 	Kind, Head, MergeCommit string
+	Review                  *gitHubReviewFact
 	OnMain                  bool
 	Number                  int64
 	PRNumber                int64
@@ -156,12 +157,18 @@ type mythicalGitHubFactItem struct {
 }
 type mythicalGitHubFactDecision struct {
 	Event, Noop, Attention string
-	Contained              []mythicalManifestItem
-	Notes                  []string
-	AttentionText          string
+	// Review describes the activity/PR projection and ordered input effects.
+	// The consumer must commit them with its receipt in one transaction.
+	Review        *gitHubReviewEffect
+	Contained     []mythicalManifestItem
+	Notes         []string
+	AttentionText string
 }
 
 func decideGitHubFact(f mythicalGitHubFact, item mythicalGitHubFactItem, now time.Time) mythicalGitHubFactDecision {
+	if f.Kind == "review" || f.Kind == "review_comment" || f.Kind == "conversation_comment" {
+		return decideGitHubReview(f, item)
+	}
 	switch {
 	case f.Kind == "merged":
 		if item.State == "merged" || item.State == "landed" {

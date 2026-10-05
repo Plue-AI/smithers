@@ -31,6 +31,99 @@ type gitHubReviewLine struct {
 	User             gitHubActor `json:"user"`
 }
 
+// gitHubReviewFact is supplied from fetched GitHub data and the locked input
+// receipt. ActiveMember and OwnApp are resolved by the install, never from a
+// webhook's author_association or login. Membership must be checked again when
+// a held input is delivered. This is not a persisted or public actor model.
+type gitHubReviewFact struct {
+	State        string // submitted review state; unused for standalone comments
+	Change       string // created, edited, deleted, or deliver-held
+	ActiveMember bool
+	OwnApp       bool
+	Duplicate    bool
+	Stale        bool
+	Held         bool
+	Consumed     bool
+}
+
+type gitHubReviewEffect struct {
+	Activity string // upsert or hide; empty when delivering an existing held input
+	Input    string // steer, hold, withdraw, or empty for record-only activity
+	PRReview bool   // project the GitHub review; never a Smithers approval
+}
+
+// decideGitHubReview extends the same decision seam used by PR lifecycle
+// consumers. It decides no authority from GitHub text and performs no I/O.
+// An input effect alone does not authorize dispatch: ordered admission, current
+// member resolution, and the production runtime remain consumer preconditions.
+func decideGitHubReview(f mythicalGitHubFact, item mythicalGitHubFactItem) mythicalGitHubFactDecision {
+	r := f.Review
+	if r == nil {
+		return mythicalGitHubFactDecision{Noop: "review_facts_missing"}
+	}
+	if r.OwnApp {
+		return mythicalGitHubFactDecision{Noop: "own_app"}
+	}
+	if r.Duplicate {
+		return mythicalGitHubFactDecision{Noop: "duplicate"}
+	}
+	if r.Stale {
+		return mythicalGitHubFactDecision{Noop: "stale"}
+	}
+	if r.Change != "created" && r.Change != "edited" && r.Change != "deleted" && r.Change != "deliver-held" {
+		return mythicalGitHubFactDecision{Noop: "unknown_review_change"}
+	}
+	effect := &gitHubReviewEffect{Activity: "upsert", PRReview: f.Kind == "review"}
+	decision := mythicalGitHubFactDecision{Review: effect}
+	if r.Change == "deleted" {
+		effect.Activity = "hide"
+		if r.Held && !r.Consumed {
+			effect.Input = "withdraw"
+		}
+		return decision
+	}
+	if r.Change == "deliver-held" {
+		effect.Activity, effect.PRReview = "", false
+		if !r.Held || r.Consumed {
+			return mythicalGitHubFactDecision{Noop: "input_not_held"}
+		}
+	}
+	if f.Kind == "review" && r.State != "CHANGES_REQUESTED" && r.State != "COMMENTED" {
+		// Approval, dismissal and pending review state are PR facts only.
+		// They must neither create a steer nor grant checks.Land authority.
+		return decision
+	}
+	if !r.ActiveMember {
+		// Revocation also withdraws an input that was held while its author
+		// was a member. Already consumed input remains historical evidence.
+		if r.Held && !r.Consumed {
+			effect.Input = "withdraw"
+		}
+		return decision
+	}
+	if r.Consumed {
+		return decision
+	}
+	switch item.State {
+	case "queued", "starting", "failed", "paused":
+		effect.Input = "hold"
+	case "working", "needs_you":
+		effect.Input = "steer"
+	case "in_review":
+		effect.Input, decision.Event = "steer", "working"
+	case "merged", "dropped":
+		// A review cannot reopen a settled TODO or revive its closed run.
+		if r.Held {
+			effect.Input = "withdraw"
+		}
+	default:
+		// Review consumers supply todoState's canonical product state. An
+		// unknown state records the fact without admitting executable input.
+		decision.Noop = "unknown_todo_state"
+	}
+	return decision
+}
+
 // normalizeGitHubReviewText only formats data. Authorization, TODO state,
 // lifecycle versions and delivery identity belong to the shared decision and
 // steer providers; neither a login nor an author association grants authority.
