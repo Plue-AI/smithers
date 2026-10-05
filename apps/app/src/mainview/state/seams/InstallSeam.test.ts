@@ -317,6 +317,13 @@ describe("T-APP-03 install seam", () => {
     await h.seam.readInstall(); broken = true
     expect((await h.seam.readInstall())?.class).toBe("infra"); expect(h.seam.snapshots.get().model).toEqual(installFixture())
   })
+  test("Settings marks each plain-HTTP non-loopback origin unencrypted, in the model and not the View (#3716)", () => {
+    const model = installFixture()
+    model.address.origins = ["https://mini.example", "http://mini.local:4000", "http://localhost:4000", "http://127.0.0.1:4000", "http://[::1]:4000"]
+    expect(settingsCardModel(model, "https://mini.example").address.origins_unencrypted).toEqual(["http://mini.local:4000"])
+    model.address.origins = ["https://mini.example"]
+    expect(settingsCardModel(model, "https://mini.example").address.origins_unencrypted).toEqual([])
+  })
   test("mapping retains every origin and derives HTTP notification restrictions", () => {
     const model = installFixture(); expect(setupCardModel(model).address.origins).toEqual(model.address.origins)
     expect(settingsCardModel(model, "http://mini.local:4000").notifications_need_https).toBe(true)

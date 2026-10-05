@@ -17,7 +17,9 @@ import { SetupCardSchema } from "./SetupCard.ts"
  */
 export const SettingsCardSchema = SetupCardSchema.extend({
   address: SetupCardSchema.shape.address.extend({
-    failed: z.object({ from: z.string(), to: z.string(), reason: CardErrorSchema }).optional()
+    failed: z.object({ from: z.string(), to: z.string(), reason: CardErrorSchema }).optional(),
+    /** Origins served over plain HTTP at a non-loopback host, which the View marks "unencrypted" (spec §17.6). @since 1.0.0 */
+    origins_unencrypted: z.array(z.string()).optional()
   }),
   capacity: z.number().int().nonnegative(),
   parallel: z.number().int().nonnegative().optional(),

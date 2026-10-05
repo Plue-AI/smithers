@@ -53,16 +53,20 @@ export const setupCardModel = (model: InstallModel): SetupCard => SetupCardSchem
     ...(model.this_mac.limit ? { limit: { term: model.this_mac.limit.term, fix: limitFix(model.this_mac.limit.fix) } } : {}) },
   models: ["fast", "coding", "jev"].map(role => model.models.find(model => model.role === role)!)
 })
-export const settingsCardModel = (model: InstallModel, origin: string): SettingsCard => {
+/** Plain HTTP at a host other than loopback: notifications need HTTPS there and Settings marks the origin unencrypted. */
+const plainHttpOffLoopback = (origin: string) => {
   const url = new URL(origin)
+  return url.protocol === "http:" && !["localhost", "127.0.0.1", "[::1]"].includes(url.hostname)
+}
+export const settingsCardModel = (model: InstallModel, origin: string): SettingsCard => {
   const setup = setupCardModel(model)
   const refused = model.address.change_failed
   return SettingsCardSchema.parse({ ...setup,
-    address: { ...setup.address, ...(refused ? { failed: { from: refused.from, to: refused.to,
+    address: { ...setup.address, origins_unencrypted: model.address.origins.filter(plainHttpOffLoopback), ...(refused ? { failed: { from: refused.from, to: refused.to,
       reason: { class: "user", message: refused.reason } } } : {}) },
     capacity: model.capacity, parallel: model.parallel, health: model.health, obsidian: model.wiki_sync?.obsidian,
     laptop_lines: model.address.origins.map(origin => `smthrs login ${origin}`),
-    notifications_need_https: url.protocol === "http:" && !["localhost", "127.0.0.1", "[::1]"].includes(url.hostname)
+    notifications_need_https: plainHttpOffLoopback(origin)
   })
 }
 

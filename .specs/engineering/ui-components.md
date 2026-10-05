@@ -205,6 +205,8 @@ type SettingsModel = SetupModel & {
   capacity: number; parallel?: number              // parallel is absent in S1; S2 T-STK-03 guards the TODOs at once stepper (C-J4-01)
   laptop_lines: string[]                           // `smthrs login <origin>`, one per origin
   notifications_need_https: boolean                // the viewer's origin is plain HTTP and not localhost (§14.6)
+  // Settings address adds origins_unencrypted?: string[] (plain-HTTP, non-loopback origins the View marks "unencrypted", §17.6),
+  // computed in the model; Machines and At once steppers carry args.min/args.max for the View only (never in the command payload).
   health: { process: "ok" | "degraded"; postgres_bytes: number; disk_free_gb: number
             github: { health: SyncHealth; cause?: string; retry_at?: string
                       rate_remaining: number; rate_limit: number } }   // §20.2, T-APP-03
