@@ -415,7 +415,7 @@ func buildRateLimitRejectObserver(metrics *routes.SmithersMetrics) middleware.Ra
 	}
 }
 
-func buildAuthProviders(cfg config.AuthConfig, credentials auth.GitHubOAuthCredentialSource) (services.KeyAuthVerifier, services.GitHubAuthClient, error) {
+func buildAuthProviders(cfg config.AuthConfig, credentials auth.GitHubOAuthCredentialSource, budget *services.BudgetTracker) (services.KeyAuthVerifier, services.GitHubAuthClient, error) {
 	keyAuthVerifier := auth.NewKeyAuthVerifier()
 	var githubClient services.GitHubAuthClient
 	if credentials != nil {
@@ -424,6 +424,7 @@ func buildAuthProviders(cfg config.AuthConfig, credentials auth.GitHubOAuthCrede
 			cfg.GitHubRedirectURL,
 			cfg.GitHubOAuthBaseURL,
 			cfg.GitHubAPIBaseURL,
+			auth.WithGitHubBudget(budget),
 		)
 	}
 

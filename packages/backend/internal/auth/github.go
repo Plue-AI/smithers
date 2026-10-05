@@ -34,7 +34,14 @@ const (
 	githubAPIVersion          = "2022-11-28"
 )
 
-func NewGitHubClient(credentials GitHubOAuthCredentialSource, redirectURL, oauthBaseURL, apiBaseURL string) *GitHubClient {
+type GitHubClientOption func(*GitHubClient)
+
+// WithGitHubBudget shares admission with the install's other GitHub callers.
+func WithGitHubBudget(budget *services.BudgetTracker) GitHubClientOption {
+	return func(c *GitHubClient) { c.httpClient = budget.WrapClient(c.httpClient) }
+}
+
+func NewGitHubClient(credentials GitHubOAuthCredentialSource, redirectURL, oauthBaseURL, apiBaseURL string, options ...GitHubClientOption) *GitHubClient {
 	oauthBaseURL = strings.TrimSpace(oauthBaseURL)
 	if oauthBaseURL == "" {
 		oauthBaseURL = defaultGitHubOAuthBaseURL
@@ -44,13 +51,17 @@ func NewGitHubClient(credentials GitHubOAuthCredentialSource, redirectURL, oauth
 		apiBaseURL = defaultGitHubAPIBaseURL
 	}
 
-	return &GitHubClient{
+	c := &GitHubClient{
 		credentials:  credentials,
 		httpClient:   observability.NewHTTPClient(10 * time.Second),
 		oauthBaseURL: oauthBaseURL,
 		apiBaseURL:   apiBaseURL,
 		redirectURL:  strings.TrimSpace(redirectURL),
 	}
+	for _, option := range options {
+		option(c)
+	}
+	return c
 }
 
 func (c *GitHubClient) oauthClient(ctx context.Context) (string, string, error) {

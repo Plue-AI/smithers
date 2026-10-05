@@ -24,6 +24,8 @@ The install's production service assembly selects shared response-header budget 
 
 A 403 or 429 with `Retry-After` pauses only its stream. Exhausted primary capacity pauses the resource until its reset. Below 20 percent remaining, the cadence helper doubles issues, issue events and permission reads until reset. Conditional 304 responses consume no local debit. The existing request API also exposes `If-None-Match`, 304 status and response headers without replacing a cached fact.
 
+Startup creates this budget before auth and setup. Manifest owner discovery, conversion and installation discovery, OAuth exchange and refresh, and profile/email reads use it too. Profile, email and repository reads with the same user token share headroom; a temporary OAuth pause does not invalidate a stored refresh token. Setup retains its refusal to follow redirects.
+
 The install polling integration remains incomplete. Required cadences are refs every 30 seconds; pulls, PR checks and comment streams every 45 seconds; issues and repository issue events every 120 seconds; permissions every hour. Stream ETags and health belong in memory. Repository issue events use an `install_settings` cursor and an atomic cache/cursor/pending-delivery commit, followed by consumer receipt/effect commit and acknowledgement. Full production stream and freshness contracts remain unqualified.
 
 ## Fetched-state delivery

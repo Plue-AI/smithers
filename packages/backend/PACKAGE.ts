@@ -24,6 +24,8 @@ const docs = Smithers.Docs.Check({
     Smithers.file("internal/services/github_budget.go"),
     Smithers.file("internal/compose/main.go"),
     Smithers.file("internal/compose/github_sync.go"),
+    Smithers.file("internal/compose/runtime_helpers.go"),
+    Smithers.file("internal/auth/github.go"),
     Smithers.file("internal/services/install_setup_session.go"),
     Smithers.file("internal/routes/github_app_setup.go"),
     Smithers.file("internal/middleware/effective_origin.go"),

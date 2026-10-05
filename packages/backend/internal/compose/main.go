@@ -521,7 +521,8 @@ func runWithOptions(ctx context.Context, args []string, stdout, stderr io.Writer
 	if err != nil {
 		return err
 	}
-	keyAuthVerifier, githubClient, err := buildAuthProviders(cfg.Auth, gitHubAppCredentials)
+	gitHubBudgetTracker := newGitHubBudget(options.topology)
+	keyAuthVerifier, githubClient, err := buildAuthProviders(cfg.Auth, gitHubAppCredentials, gitHubBudgetTracker)
 	if err != nil {
 		slog.Error("invalid auth provider configuration", "error", err)
 		return err
@@ -617,11 +618,10 @@ func runWithOptions(ctx context.Context, args []string, stdout, stderr io.Writer
 
 	mentionService := services.NewMentionService(queries, notificationService, services.WithMentionEmailSender(emailService))
 	commitStatusService := services.NewCommitStatusService(queries, services.WithCommitStatusWebhookDispatcher(webhookDispatcher))
-	githubServices, err := composeGitHubSync(pool, gitHubAppCredentials, authService, options.topology)
+	githubServices, err := composeGitHubSync(pool, gitHubAppCredentials, authService, options.topology, gitHubBudgetTracker)
 	if err != nil {
 		return err
 	}
-	gitHubBudgetTracker := githubServices.budget
 	repoConnectionService := githubServices.connections
 	gitHubRepoListService := githubServices.repositories
 	gitHubSyncedRepoService := githubServices.synced
@@ -1567,7 +1567,7 @@ func runWithOptions(ctx context.Context, args []string, stdout, stderr io.Writer
 		}
 		gitHubAppSetup = &routes.GitHubAppSetupHandler{
 			Setup:   installSetup,
-			Service: services.NewGitHubAppManifestService(pool, gitHubAppStore, os.Getenv("SMITHERS_GITHUB_APP_API_BASE_URL"), installAddress.Origins),
+			Service: services.NewGitHubAppManifestService(pool, gitHubAppStore, os.Getenv("SMITHERS_GITHUB_APP_API_BASE_URL"), installAddress.Origins, services.WithGitHubAppManifestBudget(gitHubBudgetTracker)),
 			Store:   gitHubAppStore, Owners: queries, Roster: queries,
 			Origins:  installAddress.Origins,
 			Sessions: authService.InstallSetup,

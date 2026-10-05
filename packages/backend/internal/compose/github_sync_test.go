@@ -94,7 +94,7 @@ func TestGitHubSharedBudgetComposition(t *testing.T) {
 			store := services.NewGitHubAppCredentialStore(pool, codec)
 			require.NoError(t, store.Save(ctx, credentials))
 			auth := services.NewAuthService(q, config.AuthConfig{SessionSecret: "session-key"}, nil, nil)
-			assembled, err := composeGitHubSync(pool, store, auth, topology{multitenant: hosted})
+			assembled, err := composeGitHubSync(pool, store, auth, topology{multitenant: hosted}, newGitHubBudget(topology{multitenant: hosted}))
 			require.NoError(t, err)
 			user, err := q.CreateUser(ctx, db.CreateUserParams{Username: "budget-user", LowerUsername: "budget-user"})
 			require.NoError(t, err)
@@ -191,14 +191,26 @@ func TestGitHubSharedBudgetComposition(t *testing.T) {
 			require.NoError(t, err)
 			_, err = assembled.userRepositories.VerifyUserCanPushToGitHubRepo(ctx, user.ID, "acme", "app")
 			require.NoError(t, err)
-			mode.Store(2)
-			_, err = assembled.userRepositories.ListAuthenticatedUserGitHubRepos(ctx, user.ID, url.Values{"visibility": {"private"}})
+			_, oauth, err := buildAuthProviders(config.AuthConfig{GitHubAPIBaseURL: server.URL}, store, assembled.budget)
 			require.NoError(t, err)
+			mode.Store(2)
+			profile, err := oauth.FetchUser(ctx, token.AccessToken)
+			require.NoError(t, err)
+			require.EqualValues(t, 7, profile.ID)
 			n = count()
 			_, err = assembled.userRepositories.VerifyUserCanPushToGitHubRepo(ctx, user.ID, "acme", "app")
 			if !hosted {
 				require.Error(t, err)
 				require.Equal(t, n, count())
+			} else {
+				require.NoError(t, err)
+				require.Equal(t, n+1, count())
+			}
+			n = count()
+			_, err = oauth.FetchEmails(ctx, token.AccessToken)
+			if !hosted {
+				require.Error(t, err)
+				require.Equal(t, n, count(), "profile, email and repository reads share the user's budget")
 			} else {
 				require.NoError(t, err)
 				require.Equal(t, n+1, count())

@@ -316,7 +316,7 @@ func TestGitHubAppLegacyEnvironmentIgnoredByCompositionPostgres(t *testing.T) {
 		t.Setenv(name, value)
 	}
 	store := services.NewGitHubAppCredentialStore(pool, codec)
-	_, oauthClient, err := buildAuthProviders(config.AuthConfig{GitHubRedirectURL: "http://localhost:4000/api/auth/github/callback"}, store)
+	_, oauthClient, err := buildAuthProviders(config.AuthConfig{GitHubRedirectURL: "http://localhost:4000/api/auth/github/callback"}, store, nil)
 	require.NoError(t, err)
 	require.NotNil(t, oauthClient)
 	_, err = oauthClient.AuthorizationURL(ctx, "before-setup")

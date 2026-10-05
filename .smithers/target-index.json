@@ -24162,6 +24162,14 @@
       },
       {
         "kind": "file",
+        "path": "packages/backend/internal/compose/runtime_helpers.go"
+      },
+      {
+        "kind": "file",
+        "path": "packages/backend/internal/auth/github.go"
+      },
+      {
+        "kind": "file",
         "path": "packages/backend/internal/services/install_setup_session.go"
       },
       {

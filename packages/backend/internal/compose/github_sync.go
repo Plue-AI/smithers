@@ -17,14 +17,18 @@ type githubSyncServices struct {
 	synced           *services.GitHubSyncedRepoService
 }
 
-// composeGitHubSync assembles the shared credential and budget boundary used by
-// both HTTP services and workers. Install admission follows GitHub's response
-// headers; hosted deployments retain their existing token-bucket policy.
-func composeGitHubSync(pool *pgxpool.Pool, credentials services.GitHubAppCredentialSource, auth *services.AuthService, topology topology) (*githubSyncServices, error) {
-	budget := services.NewBudgetTracker()
+// Create the budget before auth/setup and reuse it for repository clients.
+// Install admission follows response headers; hosted retains its old policy.
+func newGitHubBudget(topology topology) *services.BudgetTracker {
 	if !topology.hosted() {
-		budget = services.NewGitHubResponseBudgetTracker()
+		return services.NewGitHubResponseBudgetTracker()
 	}
+	return services.NewBudgetTracker()
+}
+
+// composeGitHubSync assembles the shared credential and budget boundary used
+// by repository HTTP services and workers.
+func composeGitHubSync(pool *pgxpool.Pool, credentials services.GitHubAppCredentialSource, auth *services.AuthService, topology topology, budget *services.BudgetTracker) (*githubSyncServices, error) {
 	connections := services.NewRepoConnectionService(pool, credentials)
 	connections.SetGitHubBudgetTracker(budget)
 	repositories := services.NewGitHubRepoListService(pool, connections,
