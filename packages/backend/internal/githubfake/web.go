@@ -72,7 +72,8 @@ func (s *Server) web(w http.ResponseWriter, r *http.Request) bool {
 			HookAttributes *struct {
 				URL string `json:"url"`
 			} `json:"hook_attributes"`
-			DefaultEvents []string `json:"default_events"`
+			DefaultEvents      []string          `json:"default_events"`
+			DefaultPermissions map[string]string `json:"default_permissions"`
 		}
 		r.Body = http.MaxBytesReader(w, r.Body, 1<<20)
 		err := r.ParseForm()
@@ -100,6 +101,8 @@ func (s *Server) web(w http.ResponseWriter, r *http.Request) bool {
 		}
 		// GitHub generates a webhook secret only for an App created with a hook.
 		s.hookless = hook == ""
+		// A manifest that names permissions limits what the owner token reads.
+		s.permissions = m.DefaultPermissions
 		s.callbacks = append([]string(nil), m.CallbackURLs...)
 		link("Create GitHub App", m.RedirectURL, s.config.ConversionCode, r.Form.Get("state"))
 		return true

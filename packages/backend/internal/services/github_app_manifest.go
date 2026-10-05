@@ -59,7 +59,8 @@ type GitHubAppManifestStart struct {
 }
 
 func gitHubAppPermissions() map[string]string {
-	return map[string]string{"contents": "write", "workflows": "write", "pull_requests": "write", "issues": "write", "checks": "read", "statuses": "read", "administration": "read", "metadata": "read", "members": "read"}
+	// email_addresses: GitHub answers the owner's /user/emails read 403 without it.
+	return map[string]string{"contents": "write", "email_addresses": "read", "workflows": "write", "pull_requests": "write", "issues": "write", "checks": "read", "statuses": "read", "administration": "read", "metadata": "read", "members": "read"}
 }
 
 func gitHubAppWebhookEvents() []string {

@@ -261,6 +261,19 @@ func (s *InstallSetupSessions) ClaimOwner(ctx context.Context, user db.User, raw
 	return session, nil
 }
 
+// FailSignIn records a refused pre-claim sign-in on the Setup card's sign_in
+// step. Only the live setup session writes it; a claimed install refuses.
+func (s *InstallSetupSessions) FailSignIn(ctx context.Context, setup string, failure *InstallReadinessError) error {
+	if err := s.Validate(ctx, setup); err != nil {
+		return err
+	}
+	value, err := json.Marshal(InstallStep{ID: "sign_in", Status: InstallFailed, Error: failure})
+	if err != nil {
+		return err
+	}
+	return db.New(s.Pool).UpsertInstallSetting(ctx, db.UpsertInstallSettingParams{Key: "setup.step.sign_in", Value: value})
+}
+
 // AdmitOAuth refuses pre-claim sign-in before GitHub or identity writes.
 func (s *InstallSetupSessions) AdmitOAuth(ctx context.Context, setup string) error {
 	_, err := db.New(s.Pool).GetSelfHostOwner(ctx)

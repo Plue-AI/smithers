@@ -1283,6 +1283,10 @@ func containsPrivilegedScope(scopes []string) bool {
 // keeps the cause for the server log.
 func oauthFetchError(what string, err error) error {
 	if stdErrors.Is(err, ErrGitHubTokenRejected) {
+		if what == "emails" {
+			// The profile read just accepted this token: the App lacks the permission.
+			return pkgerrors.Unauthorized("GitHub App needs Email addresses read access")
+		}
 		return pkgerrors.Unauthorized("github access token was rejected")
 	}
 	return pkgerrors.Internal("failed to fetch oauth " + what + ": " + err.Error())

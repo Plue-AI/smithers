@@ -200,6 +200,17 @@ test("after App conversion Setup offers the existing browser sign-in flow", () =
   expect(h.commands).toEqual([{ tag: "sign-in", input: undefined }])
 })
 
+test("a refused GitHub sign-in shows its reason on the card and offers Sign in again", async () => {
+  const { SetupView } = await import("./views/SetupView")
+  const model = installFixture()
+  model.steps[2] = { id: "sign_in", state: "failed", error: { code: "unauthenticated", class: "permission", message: "GitHub App needs Email addresses read access" } }
+  const h = harness({ model }); h.renderSetup()
+  expect(h.setup()!.actions).toEqual([expect.objectContaining({ tag: "sign-in", label: "Sign in", args: { step: "sign_in" } })])
+  const markup = renderToStaticMarkup(<SetupView {...h.setup()!} />)
+  expect(markup).toContain("GitHub App needs Email addresses read access")
+  expect(markup).toContain("role=\"alert\"")
+})
+
 test("Setup prints whole free GB and the owner's typed refusal beside the owner field", async () => {
   const { SetupView } = await import("./views/SetupView")
   const model = installFixture(); model.this_mac.disk_free_gb = 74.1594467163086

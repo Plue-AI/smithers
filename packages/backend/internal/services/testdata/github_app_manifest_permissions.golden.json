@@ -2,6 +2,7 @@
   "administration": "read",
   "checks": "read",
   "contents": "write",
+  "email_addresses": "read",
   "issues": "write",
   "members": "read",
   "metadata": "read",

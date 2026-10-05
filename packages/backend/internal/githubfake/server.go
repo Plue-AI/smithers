@@ -81,13 +81,16 @@ type Server struct {
 	converted bool
 	// hookless is set when the posted manifest carried no hook: GitHub's
 	// conversion then returns no webhook secret.
-	hookless  bool
-	oauthUsed bool
-	callbacks []string
-	codes     map[string]string
-	writes    []Write
-	tokens    map[string]int64
-	pulls     map[string]Pull
+	hookless bool
+	// permissions are the posted manifest's default_permissions, when it
+	// named any: GitHub refuses a user token what the App was not granted.
+	permissions map[string]string
+	oauthUsed   bool
+	callbacks   []string
+	codes       map[string]string
+	writes      []Write
+	tokens      map[string]int64
+	pulls       map[string]Pull
 	// grants are each installation token's permissions: those requested
 	// when it was minted, or the installation's when none were.
 	grants map[string]map[string]string
@@ -571,6 +574,9 @@ func (s *Server) respond(r *http.Request, body []byte) (int, any) {
 		case "/user":
 			return 200, map[string]any{"id": 7, "login": s.config.OwnerLogin, "name": "Rehearsal owner"}
 		case "/user/emails":
+			if s.permissions != nil && s.permissions["email_addresses"] == "" {
+				return failure(http.StatusForbidden, "Resource not accessible by integration")
+			}
 			return 200, []any{map[string]any{"email": "owner@example.test", "primary": true, "verified": true}}
 		case "/user/repos":
 			repos := []any{}

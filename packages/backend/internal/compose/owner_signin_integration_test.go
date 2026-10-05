@@ -12,6 +12,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/jackc/pgx/v5"
 	"github.com/smithersai/smithers/packages/backend/internal/auth"
 	"github.com/smithersai/smithers/packages/backend/internal/config"
 	"github.com/smithersai/smithers/packages/backend/internal/db"
@@ -119,4 +120,109 @@ func TestOwnerSignInHTTPPostgres(t *testing.T) {
 			}
 		})
 	}
+}
+
+// GitHub answers /user/emails 403 when the App lacks the Email addresses
+// permission. The browser returns from GitHub to the Setup card, whose sign-in
+// step names the refusal, never to a JSON page; a later sign-in clears it.
+func TestOwnerSignInRefusalLandsOnSetupCardPostgres(t *testing.T) {
+	const origin = "http://localhost:4000"
+	pool, _ := postgresfixture.NewProductDatabase(t)
+	q := db.New(pool)
+	ctx := t.Context()
+	seed, err := githubfake.LocalSeed()
+	require.NoError(t, err)
+	provider, err := githubfake.New(seed)
+	require.NoError(t, err)
+	defer provider.Close()
+	post := func(permissions string) {
+		manifest := url.Values{"manifest": {`{"redirect_url":"` + origin + `/setup/github/callback","callback_urls":["` + origin + `/api/auth/github/callback"],"default_permissions":` + permissions + `}`}}
+		response, err := http.PostForm(provider.URL+"/settings/apps/new", manifest)
+		require.NoError(t, err)
+		require.Equal(t, 200, response.StatusCode)
+		response.Body.Close()
+	}
+	post(`{"contents":"write","metadata":"read"}`)
+	response, err := http.Post(provider.URL+"/app-manifests/"+seed.ConversionCode+"/conversions", "application/json", nil)
+	require.NoError(t, err)
+	response.Body.Close()
+	setup := &services.InstallSetupSessions{Pool: pool}
+	var output bytes.Buffer
+	require.NoError(t, setup.Mint(ctx, []string{origin}, &output))
+	var mint struct {
+		URLs []string `json:"setup_urls"`
+	}
+	require.NoError(t, json.Unmarshal(output.Bytes(), &mint))
+	u, err := url.Parse(mint.URLs[0])
+	require.NoError(t, err)
+	credential, err := setup.Exchange(ctx, u.Query().Get("token"))
+	require.NoError(t, err)
+	cfg := config.AuthConfig{Mode: "selfhost", SessionSecret: "test-secret", SessionCookieName: "session", SessionDuration: "24h"}
+	svc := services.NewAuthService(q, cfg, nil, auth.NewGitHubClient(ownerOAuthCredentials{seed.ClientID, seed.ClientSecret}, "", provider.URL, provider.URL))
+	svc.InstallSetup = setup
+	handler := &routes.AuthHandler{Service: svc, AuthConfig: cfg, Origins: middleware.FixedOrigins(origin), InstallSetup: setup}
+	steps := &services.InstallSetupService{Pool: pool}
+	signIn := func(callbackQuery func(url.Values)) *httptest.ResponseRecorder {
+		t.Helper()
+		session := &http.Cookie{Name: routes.GitHubAppSetupSessionCookie, Value: credential}
+		start := httptest.NewRecorder()
+		startRequest := httptest.NewRequest("GET", origin+"/api/auth/github", nil)
+		startRequest.RemoteAddr = "127.0.0.1:1234"
+		startRequest.AddCookie(session)
+		handler.GetGitHubOAuthStart(start, startRequest)
+		require.Equal(t, 302, start.Code, start.Body.String())
+		redirect, err := url.Parse(start.Header().Get("Location"))
+		require.NoError(t, err)
+		response, err := http.Get(redirect.String())
+		require.NoError(t, err)
+		page, err := io.ReadAll(response.Body)
+		response.Body.Close()
+		require.NoError(t, err)
+		target, err := url.Parse(html.UnescapeString(strings.Split(strings.Split(string(page), `href="`)[1], `"`)[0]))
+		require.NoError(t, err)
+		query := target.Query()
+		callbackQuery(query)
+		callback := httptest.NewRequest("GET", origin+"/api/auth/github/callback?"+query.Encode(), nil)
+		callback.RemoteAddr = "127.0.0.1:1234"
+		for _, cookie := range append(start.Result().Cookies(), session) {
+			callback.AddCookie(cookie)
+		}
+		result := httptest.NewRecorder()
+		handler.GetGitHubOAuthCallback(result, callback)
+		return result
+	}
+	signInStep := func() services.InstallStep {
+		t.Helper()
+		all, err := steps.Steps(ctx)
+		require.NoError(t, err)
+		return all[2]
+	}
+
+	refused := signIn(func(url.Values) {})
+	require.Equal(t, http.StatusSeeOther, refused.Code, refused.Body.String())
+	require.Equal(t, "/", refused.Header().Get("Location"))
+	step := signInStep()
+	require.Equal(t, services.InstallFailed, step.Status)
+	require.NotNil(t, step.Error)
+	require.Equal(t, "GitHub App needs Email addresses read access", step.Error.Message)
+	_, err = q.GetSelfHostOwner(ctx)
+	require.ErrorIs(t, err, pgx.ErrNoRows, "a refused sign-in claims nothing")
+
+	// The person cancels on GitHub: GitHub returns an error and no code.
+	cancelled := signIn(func(query url.Values) { query.Del("code"); query.Set("error", "access_denied") })
+	require.Equal(t, http.StatusSeeOther, cancelled.Code, cancelled.Body.String())
+	require.Equal(t, "GitHub sign-in did not complete", signInStep().Error.Message)
+
+	// The owner grants Email addresses on the App and signs in again.
+	post(`{"contents":"write","metadata":"read","email_addresses":"read"}`)
+	accepted := signIn(func(url.Values) {})
+	require.Equal(t, http.StatusFound, accepted.Code, accepted.Body.String())
+	step = signInStep()
+	require.Equal(t, services.InstallReady, step.Status)
+	require.Nil(t, step.Error)
+
+	// After the claim a refusal is not the Setup card's to show.
+	_, err = pool.Exec(ctx, `UPDATE install_settings SET value='{"status":"failed","error":{"code":"x","class":"user","message":"stale"}}' WHERE key='setup.step.sign_in'`)
+	require.NoError(t, err)
+	require.Equal(t, services.InstallReady, signInStep().Status, "an owner is signed in whatever an earlier attempt recorded")
 }

@@ -448,8 +448,22 @@ func WriteInstallSetupError(w http.ResponseWriter, r *http.Request, err error) {
 	writeInstallAPIError(w, pkgerrors.Internal("install setup unavailable"))
 }
 func writeInstallAPIError(w http.ResponseWriter, err *pkgerrors.APIError) {
-	code, class, message := string(err.Code), "user", err.Message
-	switch err.Status {
+	pkgerrors.WriteJSON(w, err.Status, installSetupFailure(err))
+}
+
+// installSetupFailure is the §6.2.3 envelope for err, as a response body or as
+// a failed step's error.
+func installSetupFailure(err error) *services.InstallReadinessError {
+	var readiness *services.InstallReadinessError
+	if errors.As(err, &readiness) {
+		return readiness
+	}
+	var api *pkgerrors.APIError
+	if !errors.As(err, &api) {
+		api = pkgerrors.Internal("install setup unavailable")
+	}
+	code, class, message := string(api.Code), "user", api.Message
+	switch api.Status {
 	case http.StatusUnauthorized:
 		class = "permission"
 		if code != "setup_closed" {
@@ -460,10 +474,10 @@ func writeInstallAPIError(w http.ResponseWriter, err *pkgerrors.APIError) {
 	case http.StatusConflict:
 		class = "conflict"
 	default:
-		if err.Status >= 500 {
+		if api.Status >= 500 {
 			class = "infra"
 			message = "Install setup unavailable"
 		}
 	}
-	pkgerrors.WriteJSON(w, err.Status, &services.InstallReadinessError{Code: code, Class: class, Message: message})
+	return &services.InstallReadinessError{Code: code, Class: class, Message: message}
 }

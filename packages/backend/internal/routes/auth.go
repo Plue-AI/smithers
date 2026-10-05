@@ -334,6 +334,21 @@ func (h *AuthHandler) GetGitHubOAuthCLIStart(w http.ResponseWriter, r *http.Requ
 	http.Redirect(w, r, redirectURL, http.StatusFound)
 }
 
+// setupSignInFailed returns a refused pre-claim sign-in to the Setup card,
+// whose sign-in step shows the reason. The browser arrived from GitHub, so a
+// JSON body would be the whole page.
+func (h *AuthHandler) setupSignInFailed(w http.ResponseWriter, r *http.Request, err error) bool {
+	if h.InstallSetup == nil {
+		return false
+	}
+	cookie, cookieErr := r.Cookie(GitHubAppSetupSessionCookie)
+	if cookieErr != nil || h.InstallSetup.FailSignIn(r.Context(), cookie.Value, installSetupFailure(err)) != nil {
+		return false
+	}
+	http.Redirect(w, r, "/", http.StatusSeeOther)
+	return true
+}
+
 func (h *AuthHandler) GetGitHubOAuthCallback(w http.ResponseWriter, r *http.Request) {
 	if h.InstallSetup != nil {
 		origin, ok := middleware.ResolveEffectiveOrigin(r, h.knownOrigins())
@@ -366,7 +381,14 @@ func (h *AuthHandler) GetGitHubOAuthCallback(w http.ResponseWriter, r *http.Requ
 	code := r.URL.Query().Get("code")
 	state := r.URL.Query().Get("state")
 	if strings.TrimSpace(code) == "" || strings.TrimSpace(state) == "" {
-		errors.WriteError(w, errors.BadRequest("code and state are required"))
+		refusal := errors.BadRequest("code and state are required")
+		if r.URL.Query().Get("error") != "" {
+			refusal = errors.BadRequest("GitHub sign-in did not complete")
+		}
+		if h.setupSignInFailed(w, r, refusal) {
+			return
+		}
+		errors.WriteError(w, refusal)
 		return
 	}
 
@@ -378,6 +400,9 @@ func (h *AuthHandler) GetGitHubOAuthCallback(w http.ResponseWriter, r *http.Requ
 	result, err := h.Service.CompleteGitHubOAuth(ctx, code, state, stateVerifier)
 	if err != nil {
 		clearOAuthStateCookie(w, h.AuthConfig.CookieSecure)
+		if h.setupSignInFailed(w, r, err) {
+			return
+		}
 		writeRouteError(w, r, err)
 		return
 	}

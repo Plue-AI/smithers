@@ -221,9 +221,10 @@ func (s *InstallSetupService) readStep(ctx context.Context, q *db.Queries, id st
 		return step, err
 	}
 	step.ID = id
-	if id == "sign_in" && step.Status == InstallPending {
+	// A claimed owner is signed in, whatever an earlier refused attempt recorded.
+	if id == "sign_in" && step.Status != InstallReady {
 		if _, ownerErr := q.GetSelfHostOwner(ctx); ownerErr == nil {
-			step.Status = InstallReady
+			step = InstallStep{ID: id, Status: InstallReady}
 		} else if !errors.Is(ownerErr, pgx.ErrNoRows) {
 			return step, ownerErr
 		}
