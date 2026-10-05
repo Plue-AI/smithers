@@ -1723,7 +1723,7 @@ func runWithOptions(ctx context.Context, args []string, stdout, stderr io.Writer
 	// An in-process repository has no network health endpoint; a remote
 	// client, whatever the identity mode, is probed at repo_host.url by the router.
 	if options.Repository != nil && options.Repository.InProcess() {
-		r = withLocalReadiness(r, pool, options.Repository)
+		r = withLocalReadiness(r, pool, options.Repository, blobStore)
 	}
 	r = mountBlobTransferHandler(r, transferStore, cfg)
 	r = withCriticalWorkerReadiness(r, workspaceCommandWorker)
