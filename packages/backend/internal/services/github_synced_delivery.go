@@ -48,7 +48,7 @@ type gitHubInstallSync struct {
 	mu        sync.Mutex
 	requested map[gitHubStreamKey]bool
 	streams   map[gitHubStreamKey]gitHubPollState
-	etags     map[gitHubPageKey]string
+	etags     map[gitHubPageKey]gitHubPageValidator
 	wake      chan struct{}
 }
 

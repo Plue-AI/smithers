@@ -1149,6 +1149,10 @@ func (s *GitHubSyncedRepoService) backfill(ctx context.Context, row db.GithubSyn
 
 func (s *GitHubSyncedRepoService) backfillResource(ctx context.Context, row db.GithubSyncedRepo, resource string, fetch gitHubSyncedRepoPageFetcher) error {
 	var fetched []json.RawMessage
+	newest := s.fetchedUpdatedCursor(row, resource)
+	boundary := githubUpdatedBoundary(newest)
+	var previous time.Time
+	observed := make(map[int64]time.Time)
 	if s.install != nil {
 		if err := s.authorizeFetched(ctx, row); err != nil {
 			return err
@@ -1173,9 +1177,16 @@ func (s *GitHubSyncedRepoService) backfillResource(ctx context.Context, row db.G
 		query.Set("direction", "desc")
 		query.Set("per_page", strconv.Itoa(pageSize))
 		query.Set("page", strconv.Itoa(page))
+		if s.install != nil && resource == GitHubRepoMetadataIssues && !boundary.IsZero() {
+			query.Set("since", boundary.Format(time.RFC3339))
+		}
 
 		body, err := fetch(ctx, resource, query)
 		if s.install != nil && stdErrors.Is(err, errGitHubPageUnchanged) {
+			var unchanged *gitHubUnchangedPage
+			if stdErrors.As(err, &unchanged) && unchanged.rows >= pageSize && unchanged.oldest.After(boundary) {
+				continue // A tied timestamp on a later page may still have changed.
+			}
 			break
 		}
 		if err != nil {
@@ -1188,8 +1199,33 @@ func (s *GitHubSyncedRepoService) backfillResource(ctx context.Context, row db.G
 		if s.install != nil && objects == nil {
 			return fmt.Errorf("invalid github %s page", resource)
 		}
+		reachedBoundary := false
 		for _, object := range objects {
 			if s.install != nil {
+				var header gitHubIssueHeader
+				if json.Unmarshal(object, &header) != nil || header.ID <= 0 || header.Number <= 0 {
+					return fmt.Errorf("invalid fetched GitHub %s object", resource)
+				}
+				updated := parseGitHubTimestamp(header.UpdatedAt)
+				if !updated.Valid {
+					return fmt.Errorf("invalid fetched GitHub %s timestamp", resource)
+				}
+				// Page shifts can repeat an already-read object. Only an exact
+				// timestamp repeat is exempt from the newest-first order check.
+				if first, ok := observed[header.ID]; !ok || !first.Equal(updated.Time) {
+					if !previous.IsZero() && updated.Time.After(previous) {
+						return fmt.Errorf("GitHub %s are not newest first", resource)
+					}
+					previous = updated.Time
+					observed[header.ID] = updated.Time
+				}
+				if updated.Time.After(newest) {
+					newest = updated.Time
+				}
+				if !boundary.IsZero() && !updated.Time.After(boundary) {
+					reachedBoundary = true
+					continue
+				}
 				fetched = append(fetched, object)
 				continue
 			}
@@ -1201,7 +1237,7 @@ func (s *GitHubSyncedRepoService) backfillResource(ctx context.Context, row db.G
 				seen = append(seen, number)
 			}
 		}
-		if len(objects) < pageSize {
+		if reachedBoundary || len(objects) < pageSize {
 			singlePage = page == 1
 			break
 		}
@@ -1212,6 +1248,7 @@ func (s *GitHubSyncedRepoService) backfillResource(ctx context.Context, row db.G
 			return err
 		}
 		committed()
+		s.advanceUpdatedCursor(row, resource, newest)
 		return nil
 	}
 

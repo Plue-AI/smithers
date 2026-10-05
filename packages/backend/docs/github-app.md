@@ -74,7 +74,21 @@ an unsolicited 304 is an error. Response bodies are never a second object cache.
 Restart drops ETags and rereads GitHub; durable event and object identities
 prevent duplicate deliveries. Install issue and pull walks no longer stop at
 ten pages, and incomplete HTTP bodies cannot be accepted as valid snapshots.
-Timestamp cursors remain pending.
+Issue and pull cursors retain the newest committed `updated_at` in poller
+memory. Issue reads use a stable `since` URL with a one-second overlap because
+[GitHub excludes the boundary timestamp](https://docs.github.com/en/rest/issues/issues#list-repository-issues).
+Pull reads use the same overlap when stopping their newest-first page walk.
+Objects in that second are compared through their existing canonical versions,
+so a later same-second edit is retained without replaying identical effects.
+Unordered or invalid timestamps, failed reads and failed commits cannot advance
+the cursor. Old issue-query validators are discarded when its cursor advances.
+
+A page validator also retains its row count and oldest timestamp, not its
+objects. An unchanged full page inside the overlap window still leads to the
+next page: a page-two edit can share the cursor timestamp without changing
+page one. Short pages or pages reaching older timestamps end the walk. Restart
+loses cursors and validators together and repeats a full read; durable delivery
+identities preserve deduplication.
 
 The existing install metadata reconciler runs pulls every 45 seconds and issues
 and repository events every 120 seconds, using separate in-memory schedules.

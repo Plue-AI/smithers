@@ -14,6 +14,7 @@ import (
 var installMetadataResources = []string{GitHubRepoMetadataIssues, GitHubRepoMetadataPulls, gitHubIssueEvents}
 
 type gitHubPollState struct {
+	updated     time.Time
 	cadenceAt   time.Time
 	lastSuccess time.Time
 	retryAt     time.Time

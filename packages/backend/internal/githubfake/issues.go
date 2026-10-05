@@ -148,6 +148,9 @@ func (s *Server) event(key, kind, actor string, viaApp bool, label string) int64
 	s.events[key] = append(s.events[key], IssueEvent{ID: s.eventIDs, Event: kind, Actor: actor, ViaApp: viaApp, Label: label, CreatedAt: time.Now().UTC()})
 	if opened := s.opened[key]; opened != nil {
 		opened.UpdatedAt = time.Now().UTC()
+	} else if pull, ok := s.pulls[key]; ok {
+		pull.UpdatedAt = time.Now().UTC()
+		s.pulls[key] = pull
 	}
 	return s.eventIDs
 }
@@ -191,30 +194,56 @@ func (s *Server) issueList(r *http.Request, repo string) []any {
 	if state == "" {
 		state = "open"
 	}
+	since, _ := time.Parse(time.RFC3339, r.URL.Query().Get("since"))
 	type row struct {
-		number int64
-		value  map[string]any
+		number  int64
+		updated time.Time
+		value   map[string]any
 	}
 	var rows []row
 	for _, opened := range s.opened {
-		if s.opened[issueKey(repo, opened.Number)] == opened && (state == "all" || state == opened.State) {
-			rows = append(rows, row{opened.Number, s.issueJSON(repo, opened)})
+		if s.opened[issueKey(repo, opened.Number)] == opened && (state == "all" || state == opened.State) && (since.IsZero() || opened.UpdatedAt.After(since)) {
+			rows = append(rows, row{opened.Number, opened.UpdatedAt, s.issueJSON(repo, opened)})
 		}
 	}
 	for _, p := range s.pulls {
-		if p.Repository == repo && (state == "all" || state == p.State) {
-			rows = append(rows, row{p.Number, map[string]any{"number": p.Number, "title": p.Title, "body": p.Body, "state": p.State,
-				"html_url": p.HTMLURL, "user": s.actor(s.appLogin(), true), "labels": labelsOf(s.labels[issueKey(repo, p.Number)]),
-				"pull_request": map[string]string{"html_url": p.HTMLURL}}})
+		if p.Repository == repo && (state == "all" || state == p.State) && (since.IsZero() || p.UpdatedAt.After(since)) {
+			rows = append(rows, row{p.Number, p.UpdatedAt, s.pullIssueJSON(p)})
 		}
 	}
-	sort.Slice(rows, func(i, j int) bool { return rows[i].number > rows[j].number })
+	sort.Slice(rows, func(i, j int) bool {
+		if r.URL.Query().Get("sort") == "updated" && !rows[i].updated.Equal(rows[j].updated) {
+			if r.URL.Query().Get("direction") == "asc" {
+				return rows[i].updated.Before(rows[j].updated)
+			}
+			return rows[i].updated.After(rows[j].updated)
+		}
+		if r.URL.Query().Get("direction") == "asc" {
+			return rows[i].number < rows[j].number
+		}
+		return rows[i].number > rows[j].number
+	})
 	start, end := pageBounds(r, len(rows))
 	out := []any{}
 	for _, entry := range rows[start:end] {
 		out = append(out, entry.value)
 	}
 	return out
+}
+
+func (s *Server) pullIssueJSON(p Pull) map[string]any {
+	return map[string]any{"id": p.ID, "number": p.Number, "title": p.Title, "body": p.Body, "state": p.State,
+		"created_at": p.CreatedAt, "updated_at": p.UpdatedAt, "html_url": p.HTMLURL, "user": s.actor(s.appLogin(), true),
+		"labels": labelsOf(s.labels[issueKey(p.Repository, p.Number)]), "pull_request": map[string]string{"html_url": p.HTMLURL}}
+}
+
+// SetIssueUpdatedAt fixes the source timestamp for deterministic cursor fixtures.
+func (s *Server) SetIssueUpdatedAt(repo string, number int64, at time.Time) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if opened := s.opened[issueKey(repo, number)]; opened != nil {
+		opened.UpdatedAt = at.UTC()
+	}
 }
 
 // issueRequest serves the issue reads and writes beyond labels and new
@@ -351,6 +380,8 @@ func (s *Server) repositoryIssueEvents(r *http.Request, repo string) []any {
 		issue := map[string]any{"number": at.number, "pull_request": map[string]any{}}
 		if opened := s.opened[issueKey(repo, at.number)]; opened != nil {
 			issue = s.issueJSON(repo, opened)
+		} else if p, ok := s.pulls[issueKey(repo, at.number)]; ok {
+			issue = s.pullIssueJSON(p)
 		}
 		entry := map[string]any{"id": at.event.ID, "event": at.event.Event, "actor": s.actor(at.event.Actor, at.event.ViaApp),
 			"performed_via_github_app": s.viaApp(at.event.ViaApp), "created_at": at.event.CreatedAt, "issue": issue}

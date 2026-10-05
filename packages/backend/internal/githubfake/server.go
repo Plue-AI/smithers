@@ -267,6 +267,7 @@ func (s *Server) UpdatePull(repo string, number int64, change func(*Pull)) {
 	defer s.mu.Unlock()
 	key := repo + "/" + strconv.FormatInt(number, 10)
 	p := s.pulls[key]
+	p.UpdatedAt = time.Now().UTC()
 	change(&p)
 	s.pulls[key] = p
 }
@@ -395,6 +396,7 @@ func (s *Server) merge(key string, p Pull, title, message string) (Pull, bool) {
 	now := time.Now().UTC()
 	p.Merged = true
 	p.MergedAt = &now
+	p.UpdatedAt = now
 	p.State = "closed"
 	p.MergeCommitSHA = commit
 	s.pulls[key] = p
@@ -1053,6 +1055,9 @@ func (s *Server) validJWT(token string) bool {
 // Pull is a fixture PR receipt; all writes still pass through the App token
 // boundary and permanent write log. The fake previously served no PR API.
 type Pull struct {
+	ID             int64      `json:"id"`
+	CreatedAt      time.Time  `json:"created_at"`
+	UpdatedAt      time.Time  `json:"updated_at"`
 	Repository     string     `json:"-"`
 	Number         int64      `json:"number"`
 	NodeID         string     `json:"node_id"`
@@ -1182,7 +1187,9 @@ func (s *Server) pullRequest(r *http.Request, repo string, path []string, body [
 			}
 		}
 		number := s.nextNumber(repo)
-		p := Pull{Repository: repo, Number: number, NodeID: fmt.Sprintf("PR_%s_%d", repo, number), Title: input.Title, Body: input.Body, State: "open", Draft: input.Draft, HTMLURL: fmt.Sprintf("https://github.com/%s/pull/%d", repo, number)}
+		s.issueIDs++
+		now := time.Now().UTC()
+		p := Pull{ID: s.issueIDs, CreatedAt: now, UpdatedAt: now, Repository: repo, Number: number, NodeID: fmt.Sprintf("PR_%s_%d", repo, number), Title: input.Title, Body: input.Body, State: "open", Draft: input.Draft, HTMLURL: fmt.Sprintf("https://github.com/%s/pull/%d", repo, number)}
 		p.Head.Ref = input.Head
 		digest := sha256.Sum256([]byte(repo + "/" + input.Head))
 		p.Head.SHA = fmt.Sprintf("%x", digest)[:40]
@@ -1207,7 +1214,15 @@ func (s *Server) pullRequest(r *http.Request, repo string, path []string, body [
 				result = append(result, s.view(s.current(key)))
 			}
 		}
-		sort.Slice(result, func(i, j int) bool { return result[i].Number < result[j].Number })
+		sort.Slice(result, func(i, j int) bool {
+			if r.URL.Query().Get("sort") == "updated" && !result[i].UpdatedAt.Equal(result[j].UpdatedAt) {
+				if r.URL.Query().Get("direction") == "asc" {
+					return result[i].UpdatedAt.Before(result[j].UpdatedAt)
+				}
+				return result[i].UpdatedAt.After(result[j].UpdatedAt)
+			}
+			return result[i].Number < result[j].Number
+		})
 		start, end := pageBounds(r, len(result))
 		return 200, result[start:end]
 	}
@@ -1300,6 +1315,7 @@ func (s *Server) pullRequest(r *http.Request, repo string, path []string, body [
 				}
 				p.State = *input.State
 			}
+			p.UpdatedAt = time.Now().UTC()
 			s.pulls[key] = p
 			return 200, s.view(p)
 		}
@@ -1386,6 +1402,7 @@ func (s *Server) current(key string) Pull {
 	if p.State == "open" {
 		if head, hosted, exists := s.branchHead(p.Repository, p.Head.Ref); hosted && exists && head != p.Head.SHA {
 			p.Head.SHA = head
+			p.UpdatedAt = time.Now().UTC()
 			s.pulls[key] = p
 		}
 	}
@@ -1453,6 +1470,7 @@ func (s *Server) pullMutation(installationID int64, body []byte) (int, any) {
 			return 200, map[string]any{"errors": []map[string]string{{"message": "Pull request is closed"}}}
 		}
 		p.Draft = mutation == "convertPullRequestToDraft"
+		p.UpdatedAt = time.Now().UTC()
 		s.pulls[key] = p
 		return 200, map[string]any{"data": map[string]any{mutation: map[string]any{"pullRequest": map[string]any{"id": p.NodeID, "isDraft": p.Draft}}}}
 	}

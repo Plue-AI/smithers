@@ -6,6 +6,7 @@ import (
 	"errors"
 	"net/http"
 	"net/url"
+	"time"
 
 	"github.com/smithersai/smithers/packages/backend/internal/db"
 )
@@ -34,6 +35,17 @@ func syncedStreamKey(row db.GithubSyncedRepo, resource string) gitHubStreamKey {
 	return gitHubStreamKey{row.ID, row.InstallationID.Int64, row.GithubRepositoryID.Int64, row.OwnerLogin, row.RepoName, resource}
 }
 
+type gitHubPageValidator struct {
+	etag   string
+	rows   int
+	oldest time.Time
+}
+
+type gitHubUnchangedPage struct{ gitHubPageValidator }
+
+func (e *gitHubUnchangedPage) Error() string { return errGitHubPageUnchanged.Error() }
+func (e *gitHubUnchangedPage) Unwrap() error { return errGitHubPageUnchanged }
+
 var errGitHubPageUnchanged = errors.New("GitHub page already committed")
 
 // SetConditionalFetcherFactory configures install transport before workers start.
@@ -55,14 +67,14 @@ func (s *GitHubSyncedRepoService) conditionalPages(row db.GithubSyncedRepo, fall
 	}
 	transport := s.conditionalFetcherFactory(row)
 	s.install.mu.Lock()
-	known := make(map[gitHubPageKey]string)
+	known := make(map[gitHubPageKey]gitHubPageValidator)
 	for key, etag := range s.install.etags {
 		if key.registry == row.ID && key.installation == row.InstallationID.Int64 && key.repository == row.GithubRepositoryID.Int64 && key.owner == row.OwnerLogin && key.repo == row.RepoName {
 			known[key] = etag
 		}
 	}
 	s.install.mu.Unlock()
-	pending := make(map[gitHubPageKey]string)
+	pending := make(map[gitHubPageKey]gitHubPageValidator)
 	fetch := func(ctx context.Context, resource string, query url.Values) (json.RawMessage, error) {
 		if transport == nil {
 			return nil, gitHubFetchUnavailable()
@@ -71,27 +83,40 @@ func (s *GitHubSyncedRepoService) conditionalPages(row db.GithubSyncedRepo, fall
 			return nil, err
 		}
 		key := gitHubPageKey{syncedStreamKey(row, resource), query.Encode()}
-		page, err := transport(ctx, resource, query, known[key])
+		page, err := transport(ctx, resource, query, known[key].etag)
 		if err != nil {
 			return nil, err
 		}
 		if page.NotModified {
-			if known[key] == "" {
+			if known[key].etag == "" {
 				return nil, errors.New("GitHub returned 304 without a committed validator")
 			}
-			return nil, errGitHubPageUnchanged
+			return nil, &gitHubUnchangedPage{known[key]}
 		}
-		pending[key] = page.ETag
+		validator := gitHubPageValidator{etag: page.ETag}
+		if resource == GitHubRepoMetadataIssues || resource == GitHubRepoMetadataPulls {
+			var headers []gitHubIssueHeader
+			if json.Unmarshal(page.Body, &headers) == nil {
+				validator.rows = len(headers)
+				for _, header := range headers {
+					at := parseGitHubTimestamp(header.UpdatedAt)
+					if at.Valid && (validator.oldest.IsZero() || at.Time.Before(validator.oldest)) {
+						validator.oldest = at.Time
+					}
+				}
+			}
+		}
+		pending[key] = validator
 		return page.Body, nil
 	}
 	return fetch, func() {
 		s.install.mu.Lock()
 		defer s.install.mu.Unlock()
 		if s.install.etags == nil {
-			s.install.etags = make(map[gitHubPageKey]string)
+			s.install.etags = make(map[gitHubPageKey]gitHubPageValidator)
 		}
 		for key, etag := range pending {
-			if etag == "" {
+			if etag.etag == "" {
 				delete(s.install.etags, key)
 			} else {
 				s.install.etags[key] = etag

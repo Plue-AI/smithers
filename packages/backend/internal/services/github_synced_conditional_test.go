@@ -40,9 +40,14 @@ func TestGitHubConditionalCommitRetryAndRestart(t *testing.T) {
 	for i := range 3 {
 		require.Equal(t, 200, reads[i].Status)
 		require.Empty(t, reads[i].IfNoneMatch)
-		require.Equal(t, reads[i].Path, reads[i+3].Path, "idle polls keep their URL")
-		require.Equal(t, 304, reads[i+3].Status)
-		require.NotEmpty(t, reads[i+3].IfNoneMatch)
+		if i == 0 {
+			require.Contains(t, reads[i+3].Path, "since=", "first issue cursor changes the URL once")
+			require.Equal(t, 200, reads[i+3].Status)
+		} else {
+			require.Equal(t, reads[i].Path, reads[i+3].Path, "idle polls keep their URL")
+			require.Equal(t, 304, reads[i+3].Status)
+			require.NotEmpty(t, reads[i+3].IfNoneMatch)
+		}
 	}
 	require.Len(t, upstream.Writes(), 1, "all streams reuse the scoped token")
 	upstream.LabelIssue("acme/app", number, "acme", "ready")
@@ -135,15 +140,19 @@ func TestGitHubConditionalPullPagingFailureAndUnchangedTail(t *testing.T) {
 	require.Equal(t, 1101, fetchedCount(t, pool, `SELECT count(*) FROM github_synced_issues`))
 	require.NoError(t, s.backfillResource(ctx, row, "pulls", nil))
 	mu.Lock()
-	require.Len(t, paths, 1)
-	require.Equal(t, []string{`"page-1"`}, validators)
+	require.Len(t, paths, 23, "equal timestamps keep later pages inside the overlap window")
+	for page, validator := range validators {
+		require.Equal(t, fmt.Sprintf(`"page-%d"`, page+1), validator)
+	}
 	changed = true
 	paths, validators = nil, nil
 	mu.Unlock()
 	require.NoError(t, s.backfillResource(ctx, row, "pulls", nil))
 	mu.Lock()
-	require.Len(t, paths, 2, "a committed unchanged tail ends the walk")
-	require.Equal(t, []string{`"page-1"`, `"page-2"`}, validators)
+	require.Len(t, paths, 23, "unchanged full pages must not hide equal-timestamp edits later")
+	for page, validator := range validators {
+		require.Equal(t, fmt.Sprintf(`"page-%d"`, page+1), validator)
+	}
 	mu.Unlock()
 	var title string
 	require.NoError(t, pool.QueryRow(ctx, `SELECT title FROM github_synced_issues WHERE number=1`).Scan(&title))
