@@ -318,6 +318,7 @@ func (s *WorkspaceService) DestroySession(ctx context.Context, sessionID string,
 	}
 
 	s.notifyWorkspaceSession(ctx, sessionID, "stopped")
+	s.revokeWorkspaceTerminalCredential(ctx, session, userID)
 
 	// The session stop is durable above. VM suspension can take longer than
 	// the HTTP proxy deadline and must not turn that successful stop into 504.

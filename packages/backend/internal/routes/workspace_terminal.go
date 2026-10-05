@@ -326,10 +326,23 @@ func (h *WorkspaceTerminalHandler) TerminalWebSocket(w http.ResponseWriter, r *h
 		_ = wsConn.Close(websocket.StatusInternalError, "failed to attach terminal")
 		return
 	}
+	defer termSession.removeSink(sink)
+	// A signed-in terminal's credential lives while a WebSocket is attached:
+	// this attach renews a revoked one, and the last close revokes it.
+	if credential := termSession.credential(); credential != nil {
+		if err := credential.AcquireCredential(ctx); err != nil {
+			slog.Error("terminal credential renewal failed", "error", err, "session_id", sessionID)
+			if h.Metrics != nil {
+				h.Metrics.ObserveWorkspaceTerminalAttach("attach_error")
+			}
+			_ = wsConn.Close(websocket.StatusInternalError, "failed to sign in terminal")
+			return
+		}
+		defer credential.ReleaseCredential()
+	}
 	if h.Metrics != nil {
 		h.Metrics.ObserveWorkspaceTerminalAttach("success")
 	}
-	defer termSession.removeSink(sink)
 	var wg sync.WaitGroup
 
 	// Goroutine 1: WebSocket -> durable SSH stdin (binary = keystrokes, text = control).

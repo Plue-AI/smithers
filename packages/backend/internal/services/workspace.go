@@ -612,6 +612,9 @@ type WorkspaceService struct {
 	boxHostActivity *sync.Map
 	// headReporterRetryAt spaces failed runtime publisher installs per workspace.
 	headReporterRetryAt *sync.Map
+	// terminalCredentials are the signed-in terminals' delegated credentials
+	// by workspace session id (T-TRM-02).
+	terminalCredentials *sync.Map
 	providerConnections ProviderPoolOffer
 	providerBootstrap   bool
 	platformSeats       []modelproxy.Seat
@@ -811,6 +814,7 @@ func NewWorkspaceService(q WorkspaceQuerier, opts ...WorkspaceServiceOption) *Wo
 		provisionTasks:               newWorkspaceProvisionTasks(),
 		boxHostActivity:              &sync.Map{},
 		headReporterRetryAt:          &sync.Map{},
+		terminalCredentials:          &sync.Map{},
 		launchSessionCleanup:         SafeGo,
 		sessionProvisionGrace:        workspaceSessionProvisionGrace,
 		q:                            q,

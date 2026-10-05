@@ -35,6 +35,24 @@ func newRuntimeTerminalBackend(terminal workspaceapi.Terminal, cancel context.Ca
 	return backend, backend, nil
 }
 
+// terminalCredentialHolder is a runtime terminal signed in to Smithers
+// (T-TRM-02): its delegated credential is renewed on attach and revoked when
+// the last WebSocket detaches.
+type terminalCredentialHolder interface {
+	AcquireCredential(context.Context) error
+	ReleaseCredential()
+}
+
+// credential is the session's signed-in terminal, or nil.
+func (s *terminalSession) credential() terminalCredentialHolder {
+	backend, ok := s.sshSess.(*runtimeTerminalBackend)
+	if !ok {
+		return nil
+	}
+	holder, _ := backend.terminal.(terminalCredentialHolder)
+	return holder
+}
+
 func (b *runtimeTerminalBackend) NewSession() (*gossh.Session, error) {
 	return nil, errors.New("runtime terminal does not create SSH sessions")
 }

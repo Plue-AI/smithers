@@ -943,6 +943,7 @@ func (s *WorkspaceService) OpenWorkspaceTerminal(ctx context.Context, sessionID 
 		return nil, pkgerrors.Conflict("workspace session is not running")
 	}
 	var terminal workspaceapi.Terminal
+	var credential *terminalCredential
 	err = s.withWorkspaceMutation(ctx, session.WorkspaceID, repositoryID, userID, func(ctx context.Context, row db.Workspace) error {
 		row, err := s.ensureRuntimeWorkspaceRunning(ctx, row, userID)
 		if err != nil {
@@ -953,14 +954,29 @@ func (s *WorkspaceService) OpenWorkspaceTerminal(ctx context.Context, sessionID 
 		if err != nil {
 			return err
 		}
-		terminal, err = s.runtime.OpenWorkspaceTerminal(operationCtx, row.ID, workspaceapi.Command{Args: []string{"/bin/sh"}})
+		command := workspaceapi.Command{Args: []string{"/bin/sh"}}
+		// The shell starts signed in: its delegated credential is in its file
+		// before the shell can read SMITHERS_TOKEN_FILE.
+		if credential, err = s.signInWorkspaceTerminal(operationCtx, row, session.ID, userID); err != nil {
+			return runtimeOperationError("sign in workspace terminal", err)
+		}
+		if credential != nil {
+			command.Environment = credential.environment()
+		}
+		terminal, err = s.runtime.OpenWorkspaceTerminal(operationCtx, row.ID, command)
 		if err != nil {
+			if credential != nil {
+				credential.Close()
+			}
 			return runtimeOperationError("open workspace terminal", err)
 		}
 		return nil
 	})
 	if err != nil {
 		return nil, err
+	}
+	if credential != nil {
+		terminal = &signedInTerminal{Terminal: terminal, terminalCredential: credential}
 	}
 	if columns == 0 {
 		columns = 80
