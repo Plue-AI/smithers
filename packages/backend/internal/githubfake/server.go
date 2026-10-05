@@ -105,8 +105,13 @@ type Server struct {
 	// and path.
 	hooks map[string]func()
 	// labels are each issue's or pull request's labels, by repo/number.
-	labels   map[string][]string
-	comments int64
+	labels map[string][]string
+	// opened are the issues people opened (OpenIssue), with each issue's
+	// or pull request's timeline events and comments, by repo/number.
+	opened               map[string]*issue
+	events               map[string][]IssueEvent
+	comments             map[string][]IssueComment
+	eventIDs, commentIDs int64
 	// main holds the squash commits GitHub's main contains; held are merged
 	// commits main has not reached yet (HoldMain). In a repository the Git
 	// fixture hosts, heldTip is the newest held squash commit: the next one
@@ -585,7 +590,8 @@ func Handler(config Config) (*Server, error) {
 	s := &Server{config: config, key: &key.PublicKey, tokens: make(map[string]int64), pulls: make(map[string]Pull),
 		grants: make(map[string]map[string]string), lost: make(map[string]int), failures: make(map[string]int), unread: make(map[string]int), hooks: make(map[string]func()),
 		labels: make(map[string][]string), main: make(map[string]bool), heldTip: make(map[string]string), refusals: make(map[string]Refusal), delayed: make(map[string]bool), checks: make(map[string][]CheckRun),
-		accounts: make(map[int64]string), access: make(map[string]string), reviews: make(map[string]map[string]string)}
+		accounts: make(map[int64]string), access: make(map[string]string), reviews: make(map[string]map[string]string),
+		opened: make(map[string]*issue), events: make(map[string][]IssueEvent), comments: make(map[string][]IssueComment), eventIDs: 1000}
 	s.codes = make(map[string]string)
 	if config.OAuthCode != "" {
 		s.codes[config.OAuthCode] = ""
@@ -761,6 +767,9 @@ func (s *Server) respond(r *http.Request, body []byte) (int, any) {
 			return failure(404, "Not Found")
 		}
 		if r.URL.Path == "/graphql" {
+			if isIssueTextQuery(body) {
+				return s.issueText(installationID, body)
+			}
 			if strings.Contains(string(body), "reviewDecision") {
 				return s.pullReviewDecision(installationID, body)
 			}
@@ -1041,6 +1050,9 @@ func (s *Server) pullRequest(r *http.Request, repo string, path []string, body [
 	if len(path) == 3 && path[0] == "issues" && r.Method == http.MethodPost && (path[2] == "labels" || path[2] == "comments") {
 		return s.issueWrite(repo, path[1], path[2], body)
 	}
+	if status, response, ok := s.issueRequest(r, repo, path, body); ok {
+		return status, response
+	}
 	if r.Method == http.MethodGet && len(path) == 3 && path[0] == "commits" && path[2] == "check-runs" {
 		runs := append([]CheckRun{}, s.checks[repo+"@"+path[1]]...)
 		if page, _ := strconv.Atoi(r.URL.Query().Get("page")); page > 1 {
@@ -1078,23 +1090,12 @@ func (s *Server) pullRequest(r *http.Request, repo string, path []string, body [
 		if json.Unmarshal(body, &input) != nil || input.Head == "" || input.Base == "" {
 			return failure(422, "head and base required")
 		}
-		number := int64(1)
-		for _, issue := range s.issues(repo) {
-			if issue >= number {
-				number = issue + 1
-			}
-		}
 		for _, p := range s.pulls {
-			if p.Repository != repo {
-				continue
-			}
-			if p.Head.Ref == input.Head && p.State == "open" {
+			if p.Repository == repo && p.Head.Ref == input.Head && p.State == "open" {
 				return failure(422, "A pull request already exists")
 			}
-			if p.Number >= number {
-				number = p.Number + 1
-			}
 		}
+		number := s.nextNumber(repo)
 		p := Pull{Repository: repo, Number: number, NodeID: fmt.Sprintf("PR_%s_%d", repo, number), Title: input.Title, Body: input.Body, State: "open", Draft: input.Draft, HTMLURL: fmt.Sprintf("https://github.com/%s/pull/%d", repo, number)}
 		p.Head.Ref = input.Head
 		digest := sha256.Sum256([]byte(repo + "/" + input.Head))
@@ -1220,16 +1221,23 @@ func (s *Server) pullRequest(r *http.Request, repo string, path []string, body [
 	return failure(404, "endpoint not found")
 }
 
-// issues are a repository's configured issue numbers.
+// issues are a repository's issue numbers: those configured and those
+// people opened (OpenIssue).
 func (s *Server) issues(repo string) []int64 {
+	var numbers []int64
 	for _, installation := range s.config.Installations {
 		for _, candidate := range installation.Repositories {
 			if candidate.FullName == repo {
-				return candidate.Issues
+				numbers = append(numbers, candidate.Issues...)
 			}
 		}
 	}
-	return nil
+	for _, opened := range s.opened {
+		if s.opened[issueKey(repo, opened.Number)] == opened {
+			numbers = append(numbers, opened.Number)
+		}
+	}
+	return numbers
 }
 
 // issueWrite labels or comments on an issue or pull request of repo.
@@ -1245,8 +1253,9 @@ func (s *Server) issueWrite(repo, rawNumber, kind string, body []byte) (int, any
 		if json.Unmarshal(body, &input) != nil || input.Body == "" {
 			return failure(422, "body required")
 		}
-		s.comments++
-		return 201, map[string]any{"id": s.comments, "body": input.Body, "user": map[string]string{"type": "Bot"}, "performed_via_github_app": map[string]int64{"id": s.config.AppID}}
+		s.commentIDs++
+		s.comments[key] = append(s.comments[key], IssueComment{ID: s.commentIDs, Body: input.Body, ViaApp: true, Author: s.appLogin()})
+		return 201, map[string]any{"id": s.commentIDs, "body": input.Body, "user": map[string]string{"type": "Bot"}, "performed_via_github_app": map[string]int64{"id": s.config.AppID}}
 	}
 	var input struct{ Labels []string }
 	if json.Unmarshal(body, &input) != nil || len(input.Labels) == 0 {
@@ -1255,6 +1264,7 @@ func (s *Server) issueWrite(repo, rawNumber, kind string, body []byte) (int, any
 	for _, label := range input.Labels {
 		if !slices.Contains(s.labels[key], label) {
 			s.labels[key] = append(s.labels[key], label)
+			s.event(key, "labeled", "", true, label)
 		}
 	}
 	return 200, labelsOf(s.labels[key])
