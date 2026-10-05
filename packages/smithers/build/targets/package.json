@@ -49,6 +49,7 @@
     "./Changesets": "./src/Changesets.ts",
     "./ChangesetsTarget": "./src/ChangesetsTarget.ts",
     "./CiToolchain": "./src/CiToolchain.ts",
+    "./CloudRun": "./src/CloudRun.ts",
     "./Compose": "./src/Compose.ts",
     "./Config": "./src/Config.ts",
     "./CronTarget": "./src/CronTarget.ts",
@@ -263,6 +264,16 @@
         "require": {
           "types": "./dist/cjs/CiToolchain.d.ts",
           "default": "./dist/cjs/CiToolchain.js"
+        }
+      },
+      "./CloudRun": {
+        "import": {
+          "types": "./dist/esm/CloudRun.d.ts",
+          "default": "./dist/esm/CloudRun.js"
+        },
+        "require": {
+          "types": "./dist/cjs/CloudRun.d.ts",
+          "default": "./dist/cjs/CloudRun.js"
         }
       },
       "./Compose": {

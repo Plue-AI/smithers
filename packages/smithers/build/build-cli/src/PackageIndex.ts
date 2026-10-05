@@ -83,7 +83,8 @@ const illegalDataRules: ReadonlySet<string> = new Set([
   "Anvil.Fork",
   "Docker.Serve",
   "Docker.Service",
-  "Docker.Push"
+  "Docker.Push",
+  "CloudRun.Preview"
 ])
 
 /**

@@ -37,6 +37,7 @@ import * as NodePath from "node:path"
 import * as AgentSession from "../AgentSession.ts"
 import * as AnvilExec from "../AnvilExec.ts"
 import { type CacheStore, openCache } from "../Cache.ts"
+import * as CloudRunExec from "../CloudRunExec.ts"
 import * as Diagnostic from "../Diagnostic.ts"
 import * as DockerExec from "../DockerExec.ts"
 import { targetToolchain } from "../engine.ts"
@@ -1348,6 +1349,8 @@ const visit = async (
     context.signal
   )
 
+  if (rule === "CloudRun.Preview") CloudRunExec.tools(attrs as CloudRunExec.Attrs, context.environment)
+
   // Dependencies: always visited for key material; the execution edges are a
   // per-rule subset decided below.
   const depKeys = new Map<Target.AnyTarget, string>()
@@ -2009,6 +2012,21 @@ const visit = async (
     }
     if (sandbox === undefined) sandbox = "none"
     if (planned.refusal !== undefined) noteRefusal(planned.refusal)
+  }
+
+  if (rule === "CloudRun.Preview") {
+    selection = {
+      family: "outward",
+      rule,
+      lane: {
+        kind: "cloud-run-preview",
+        commit: (await PackageTree.runGit(context.root, ["rev-parse", "HEAD"])).trim(),
+        attrs: attrs as CloudRunExec.Attrs,
+        packagePath,
+        name: context.index.targets().find((row) => row.label === label)?.key ?? label.split(":").at(-1)!
+      }
+    }
+    sandbox = "none"
   }
 
   if (rule === "Anvil.Fork") {

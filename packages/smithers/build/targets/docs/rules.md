@@ -46,6 +46,7 @@ or pull-request operations. Use an implemented publication tool or CI job.
 | `Cargo.Test`             | Cargo             | test               | no        | no               | package executor |
 | `Changesets.Publish`     | ChangesetsTarget  | run                | no        | no               | unsupported      |
 | `Changesets.Version`     | ChangesetsTarget  | run, lint          | by attrs  | no               | package executor |
+| `CloudRun.Preview`       | CloudRun          | run                | no        | no               | package executor |
 | `Clean`                  | Compose           | run                | no        | no               | package executor |
 | `Copy`                   | NodeArtifact      | build              | yes       | no               | package executor |
 | `Cron`                   | CronTarget        | run                | no        | no               | package executor |
@@ -137,3 +138,10 @@ or pull-request operations. Use an implemented publication tool or CI job.
 `PnpmWorkspace` declares `packages`, `allowBuilds`, and `linkWorkspacePackages`
 directly. Its `settings` field refuses those names so the generated YAML has
 one value for each key.
+
+## Cloud Run previews
+
+`CloudRun.Preview` is outward, uncached, and always manual: only an explicit
+label runs it. See [the preview API](./api.md#cloud-run-previews) for attributes,
+bootstrap, refusal codes, and the versioned receipt. It uses the runner's
+`gcloud` login with service-account impersonation, rather than `HttpSecret`.
