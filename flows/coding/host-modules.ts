@@ -12,9 +12,11 @@
  * `build.mjs` replaces this map in the packaged host with every public entry
  * point of `effect` and of the workspace `@smthrs` packages that the bundle
  * already contains (host-modules-build.mjs), and {@link share} makes a bare
- * import of one of them resolve there. Run from source, the host and a flow
- * already resolve one installation, so the map is empty and nothing is
- * registered.
+ * import of one of them resolve there. That includes the coding package's own
+ * step flows, `@smthrs/coding` (`steps.ts`): a repository's copy of the `todo`
+ * composition imports its steps from there and runs the host's. Run from
+ * source, the host and a flow already resolve one installation, so the map is
+ * empty and nothing is registered.
  */
 import { readFileSync } from "node:fs"
 import * as NodeModule from "node:module"

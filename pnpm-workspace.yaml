@@ -22,6 +22,7 @@ packages:
   - "packages/smithers/ui/*"
   - "examples"
   - "flows"
+  - "flows/coding"
   - "apps/*"
   - "apps/docs/*"
   - "evals/*"

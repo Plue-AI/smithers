@@ -1086,6 +1086,7 @@
         "@smthrs/build-cli": "workspace:*",
         "@smthrs/capability": "workspace:*",
         "@smthrs/cli": "workspace:*",
+        "@smthrs/coding": "workspace:*",
         "@smthrs/control": "workspace:*",
         "@smthrs/core": "workspace:*",
         "@smthrs/engine": "workspace:*",
@@ -1124,6 +1125,9 @@
         "typescript": "5.9.3",
         "typescript-eslint": "8.69.0",
       },
+    },
+    "flows/coding": {
+      "name": "@smthrs/coding",
     },
     "packages/errors": {
       "name": "@smthrs/errors",
@@ -4517,6 +4521,8 @@
     "@smthrs/chain": ["@smthrs/chain@workspace:packages/smithers/agent/chain"],
 
     "@smthrs/cli": ["@smthrs/cli@workspace:packages/smithers"],
+
+    "@smthrs/coding": ["@smthrs/coding@workspace:flows/coding"],
 
     "@smthrs/control": ["@smthrs/control@workspace:packages/smithers/control"],
 

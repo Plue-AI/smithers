@@ -1,4 +1,5 @@
 /** Bundled declarations are available before a repository has written any flows. */
+import { Request, Vibe } from "@smthrs/coding"
 import * as Digest from "@smthrs/core/Digest"
 import type * as RuntimeFlow from "@smthrs/flow/Flow"
 import type * as FlowBinding from "@smthrs/harness/FlowBinding"
@@ -18,9 +19,7 @@ import {
 import Dispatch from "../coding/dispatch/flow.ts"
 import ImplementPlan from "../coding/flow.ts"
 import ImplementAtoms from "../coding/implementation/flow.ts"
-import Request from "../coding/request/flow.ts"
 import Verify from "../coding/verify/flow.ts"
-import Vibe from "../coding/vibe/flow.ts"
 import CodingWiki from "../coding/wiki/flow.ts"
 import Register from "../register-repository/flow.ts"
 import { deploymentMinutes, deploymentTokens } from "./inspection.ts"
@@ -53,6 +52,8 @@ const policySources = [
   "../coding/request/flow.ts",
   "../coding/todo.ts",
   "../coding/todo-route.ts",
+  "../coding/steps.ts",
+  "../coding/package.json",
   "../todo/flow.ts",
   "../coding/verify/flow.ts",
   "../coding/vibe/flow.ts",

@@ -12,17 +12,20 @@
 import { NodeServices } from "@effect/platform-node"
 import { Flow, Graph } from "@smthrs/flow"
 import { Node } from "@smthrs/plan"
+import * as Descriptor from "@smthrs/registry/Descriptor"
 import * as Discovery from "@smthrs/registry/Discovery"
 import * as Executable from "@smthrs/registry/Executable"
 import * as Registry from "@smthrs/registry/Registry"
 import { Effect, Layer, Schema } from "effect"
 import assert from "node:assert/strict"
-import { access, mkdir, mkdtemp, rm, symlink, writeFile } from "node:fs/promises"
+import { execFileSync } from "node:child_process"
+import { access, copyFile, mkdir, mkdtemp, rm, symlink, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { test, type TestContext } from "node:test"
 import { fileURLToPath } from "node:url"
 import { factory } from "../../.smithers/FACTORY.ts"
+import { bundle } from "../coding/build.mjs"
 import { missingCodingExecutables, provisionHostBuiltins } from "../coding/host.ts"
 import { Landing } from "../coding/landing.ts"
 import { loadProject } from "../coding/project-config.ts"
@@ -310,3 +313,81 @@ for (const packaged of [false, true]) {
     await assert.rejects(access(marker), { code: "ENOENT" })
   })
 }
+
+/** The `todo` descriptor discovery measures under a flows root, without importing it. */
+const todoDescriptor = (flowsRoot: string) =>
+  Registry.make({ sources: [{ root: flowsRoot, source: "project", naming: "path" }] }).pipe(
+    Effect.flatMap((registry) => registry.get("todo")),
+    Effect.provide(Discovery.layer),
+    Effect.provide(platform),
+    Effect.runPromise
+  )
+const closure = (descriptor: Descriptor.FlowDescriptor) =>
+  descriptor.body._tag === "Module" ? descriptor.body.imports ?? [] : undefined
+
+// A repository overrides `todo` by copying only flows/todo/flow.ts (spec
+// §10.4.1a); the steps it imports come from the coding host the install ships
+// (§11.3.0). The copy needs no flows/coding tree and no installed packages:
+// the packaged host loads it with the host's own step flows.
+test("a repository copy of the TODO composition loads on the packaged host with the host's steps", {
+  timeout: 300_000
+}, async (t) => {
+  const temporary = await mkdtemp(join(tmpdir(), "coding-todo-copy-"))
+  t.after(() => rm(temporary, { recursive: true, force: true }))
+  const repository = join(temporary, "repository"), flows = join(repository, "flows")
+  await mkdir(join(flows, "todo"), { recursive: true })
+  await copyFile(fileURLToPath(new URL("../todo/flow.ts", import.meta.url)), join(flows, "todo", "flow.ts"))
+  const probe = join(repository, "steps.mjs")
+  await writeFile(probe, "export * from \"@smthrs/coding\"\n")
+  const output = join(temporary, "host.mjs")
+  await bundle(fileURLToPath(new URL("./fixtures/coding-host-todo-entry.ts", import.meta.url)), output)
+  const payload = {
+    prompt: "Add a regression test.",
+    base: {
+      commitId: "1111111111111111111111111111111111111111",
+      ref:
+        "refs/smithers/workspaces/11111111-2222-3333-4444-555555555555/sources/1111111111111111111111111111111111111111"
+    }
+  }
+  const flags = process.versions.bun ? [] : ["--experimental-strip-types"]
+  const host = JSON.parse(
+    execFileSync(process.execPath, [...flags, output, flows, probe, JSON.stringify(payload)], {
+      encoding: "utf8",
+      timeout: 120_000,
+      stdio: ["ignore", "pipe", "pipe"]
+    })
+  )
+  assert.deepEqual(host.refused, [])
+  assert.equal(host.loaded, "todo")
+  assert.deepEqual(host.exports, [
+    "Request",
+    "RequestInput",
+    "StackBase",
+    "TodoDelivery",
+    "Vibe",
+    "VibeDelivered",
+    "VibeError"
+  ])
+  assert.equal(host.hostSteps, true, "the copy runs the host's own step flows, not a second copy")
+  // The copy plans exactly the built-in's steps.
+  const builtin = Graph.build(Todo, payload).nodes.map(({ ast }) =>
+    ast._tag === "FlowCall" ? ast.flow : ast._tag === "ActionCall" ? ast.action : ast._tag
+  )
+  assert.deepEqual(host.calls, builtin)
+  assert.deepEqual(builtin.filter((call) => call.includes("/")), [
+    "coding/Request",
+    "coding/todo-delivery",
+    "coding/Vibe"
+  ])
+  // Source discovery and the packaged host measure one version, and it is the
+  // composition alone: the steps are the host's, so no coding module is in its
+  // closure. The built-in here measures the same bytes, so a byte-identical
+  // copy differs from it only by where it lives.
+  const copy = await todoDescriptor(flows)
+  assert.equal(host.digest, Descriptor.executionDigest(copy))
+  assert.deepEqual(host.imports, [])
+  assert.deepEqual(closure(copy), [])
+  const own = await todoDescriptor(fileURLToPath(new URL("../", import.meta.url)))
+  assert.deepEqual(closure(own), [])
+  assert.equal(own.body.contentDigest, copy.body.contentDigest)
+})

@@ -14,6 +14,7 @@
     "@smthrs/agent": "workspace:*",
     "@smthrs/build-cli": "workspace:*",
     "@smthrs/capability": "workspace:*",
+    "@smthrs/coding": "workspace:*",
     "@smthrs/cli": "workspace:*",
     "@smthrs/control": "workspace:*",
     "@smthrs/core": "workspace:*",

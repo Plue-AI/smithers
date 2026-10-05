@@ -2059,6 +2059,9 @@ importers:
       '@smthrs/cli':
         specifier: workspace:*
         version: link:../packages/smithers
+      '@smthrs/coding':
+        specifier: workspace:*
+        version: link:coding
       '@smthrs/control':
         specifier: workspace:*
         version: link:../packages/smithers/control
@@ -2165,6 +2168,8 @@ importers:
       typescript-eslint:
         specifier: 8.69.0
         version: 8.69.0(eslint@9.39.5(jiti@2.7.0)(supports-color@10.2.2))(supports-color@10.2.2)
+
+  flows/coding: {}
 
   packages/errors:
     devDependencies:

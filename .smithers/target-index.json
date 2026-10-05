@@ -14006,6 +14006,10 @@
       },
       {
         "kind": "file",
+        "path": "flows/coding/package.json"
+      },
+      {
+        "kind": "file",
         "path": "packages/errors/package.json"
       },
       {
@@ -14613,6 +14617,10 @@
       {
         "kind": "file",
         "path": "flows/package.json"
+      },
+      {
+        "kind": "file",
+        "path": "flows/coding/package.json"
       },
       {
         "kind": "file",
@@ -16528,6 +16536,10 @@
       {
         "kind": "file",
         "path": "flows/package.json"
+      },
+      {
+        "kind": "file",
+        "path": "flows/coding/package.json"
       },
       {
         "kind": "file",
@@ -20738,6 +20750,10 @@
         "exclude": []
       },
       {
+        "kind": "file",
+        "path": "flows/coding/package.json"
+      },
+      {
         "kind": "glob",
         "pattern": "flows/create-flow/**/flow.mdx",
         "exclude": []
@@ -20799,6 +20815,10 @@
         "exclude": []
       },
       {
+        "kind": "file",
+        "path": "flows/coding/package.json"
+      },
+      {
         "kind": "glob",
         "pattern": "flows/create-flow/**/flow.mdx",
         "exclude": []
@@ -20858,6 +20878,10 @@
         "kind": "glob",
         "pattern": "flows/coding/**/*.md",
         "exclude": []
+      },
+      {
+        "kind": "file",
+        "path": "flows/coding/package.json"
       },
       {
         "kind": "glob",
@@ -20959,6 +20983,10 @@
         "kind": "glob",
         "pattern": "flows/coding/**/*.md",
         "exclude": []
+      },
+      {
+        "kind": "file",
+        "path": "flows/coding/package.json"
       },
       {
         "kind": "glob",
@@ -21377,6 +21405,10 @@
         "exclude": []
       },
       {
+        "kind": "file",
+        "path": "flows/coding/package.json"
+      },
+      {
         "kind": "glob",
         "pattern": "flows/create-flow/**/flow.mdx",
         "exclude": []
@@ -21428,6 +21460,10 @@
         "kind": "glob",
         "pattern": "flows/coding/**/*.md",
         "exclude": []
+      },
+      {
+        "kind": "file",
+        "path": "flows/coding/package.json"
       },
       {
         "kind": "glob",
@@ -21489,6 +21525,10 @@
         "kind": "glob",
         "pattern": "flows/coding/**/*.md",
         "exclude": []
+      },
+      {
+        "kind": "file",
+        "path": "flows/coding/package.json"
       },
       {
         "kind": "glob",
@@ -21574,6 +21614,10 @@
         "kind": "glob",
         "pattern": "flows/coding/**/*.md",
         "exclude": []
+      },
+      {
+        "kind": "file",
+        "path": "flows/coding/package.json"
       },
       {
         "kind": "glob",
@@ -22110,6 +22154,10 @@
         "exclude": []
       },
       {
+        "kind": "file",
+        "path": "flows/coding/package.json"
+      },
+      {
         "kind": "glob",
         "pattern": "flows/create-flow/**/flow.mdx",
         "exclude": []
@@ -22536,6 +22584,10 @@
         "exclude": []
       },
       {
+        "kind": "file",
+        "path": "flows/coding/package.json"
+      },
+      {
         "kind": "glob",
         "pattern": "flows/create-flow/**/flow.mdx",
         "exclude": []
@@ -22631,6 +22683,10 @@
         "kind": "glob",
         "pattern": "flows/coding/**/*.md",
         "exclude": []
+      },
+      {
+        "kind": "file",
+        "path": "flows/coding/package.json"
       },
       {
         "kind": "glob",
@@ -22920,6 +22976,10 @@
         "kind": "glob",
         "pattern": "flows/coding/**/*.md",
         "exclude": []
+      },
+      {
+        "kind": "file",
+        "path": "flows/coding/package.json"
       },
       {
         "kind": "glob",
@@ -23581,6 +23641,10 @@
         "kind": "glob",
         "pattern": "flows/coding/**/*.md",
         "exclude": []
+      },
+      {
+        "kind": "file",
+        "path": "flows/coding/package.json"
       },
       {
         "kind": "glob",

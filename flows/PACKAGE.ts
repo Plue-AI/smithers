@@ -200,6 +200,8 @@ const codingFiles = [
   sources,
   Smithers.glob("//flows/**/*.mjs"),
   Smithers.glob("//flows/coding/**/*.md"),
+  // `@smthrs/coding`'s export map: what `flows/todo/flow.ts` resolves its steps to.
+  Smithers.file("//flows/coding/package.json"),
   Smithers.glob("//flows/create-flow/**/flow.mdx"),
   Smithers.file("//flows/issue/repro/flow.mdx"),
   Smithers.file("//flows/issue/poc/flow.mdx"),

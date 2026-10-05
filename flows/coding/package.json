@@ -1,0 +1,9 @@
+{
+  "name": "@smthrs/coding",
+  "private": true,
+  "type": "module",
+  "description": "The coding package: the TODO step flows a repository todo flow imports, served by the packaged coding host",
+  "exports": {
+    ".": "./steps.ts"
+  }
+}
