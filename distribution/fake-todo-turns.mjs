@@ -162,8 +162,22 @@ const firstAtom = (value) => {
   return undefined
 }
 
+/**
+ * The plan's atom intent. The coding host hands edit-atom a JSON intent whose
+ * `atom` is the plan's, beside the request and the change; an `[ANSWER "…"]`
+ * inside it is JSON-escaped there.
+ */
+const atomIntent = (intent) => {
+  try {
+    const parsed = JSON.parse(intent)
+    if (typeof parsed?.atom === "string") return parsed.atom
+  } catch {}
+  return intent
+}
+
 /** One edit cell: append the greeting (or the answer) to each file, or empty JOURNEY.md for `[FAIL]`. */
-const editCell = (intent, greeting) => {
+const editCell = (hosted, greeting) => {
+  const intent = atomIntent(hosted)
   const markers = markersOf(intent)
   const answer = /\[ANSWER ("(?:[^"\\]|\\.)*")\]/.exec(intent)
   const line = answer === null ? greeting : `${greeting} ${JSON.parse(answer[1])}`

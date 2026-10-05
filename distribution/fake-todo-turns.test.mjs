@@ -67,6 +67,13 @@ test("[ASK] asks one question, and the edit writes the answer", async () => {
   assert.equal(tree["JOURNEY.md"], `x\n${GREETING} Say hi\n`)
 })
 
+test("[ASK]'s answer reaches the edit as the coding host hands it the atom: JSON beside the request", async () => {
+  const atom = await plan("[ASK] Add a greeting", { answer: "Say \"hi\"" })
+  const hosted = { ...atom, intent: JSON.stringify({ request: "[ASK] Add a greeting", feedback: "", change: "JOURNEY.md carries a greeting.", atom: atom.intent }) }
+  const { tree } = await run(todoTurn(turn(EDIT, { atom: hosted })).content, { "JOURNEY.md": "x\n" })
+  assert.equal(tree["JOURNEY.md"], `x\n${GREETING} Say "hi"\n`)
+})
+
 test("[FILE path] and [HOLD key] reach the edit through the plan", async () => {
   const atom = await plan("[PR] [FILE notes/t2.md] [HOLD t2] Add a greeting")
   assert.deepEqual(atom.writes, ["notes/t2.md"])
