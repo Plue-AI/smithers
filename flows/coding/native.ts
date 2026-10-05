@@ -78,12 +78,16 @@ const capture = <E>(stream: Stream.Stream<Uint8Array, E>, limit: number) =>
   }).pipe(Effect.map((state) => state.text + state.decoder.decode()))
 
 /**
- * The host's own spawner for the two operations that carry the workspace's
- * provisioned credential to its bound backend: importing a retained source
- * and publishing one. Like the engine's storage they are host machinery, not
- * a flow body's tool, so they run outside the run's process confinement,
- * which closes the network and the credential socket. Every other helper
- * operation stays on the run's guarded spawner. Absent, all use that one.
+ * The host's own spawner for the operations that read the workspace's
+ * protected binding: importing a retained source and publishing one, which
+ * carry its provisioned credential to the bound backend; creating a source,
+ * which takes its owner from the binding; and reading, which reports
+ * import-source/v1 only when the binding is readable. Like the engine's
+ * storage they are host machinery, not a flow body's tool. The run's process
+ * confinement closes the network and the credential socket, and in a guest
+ * its user namespace shows the root-owned binding as uid 65534, so the
+ * helper's owner check refuses it there. Every other helper operation stays
+ * on the run's guarded spawner. Absent, all use that one.
  */
 export class NativeTransport extends Context.Service<
   NativeTransport,
@@ -96,7 +100,7 @@ export class NativeTransport extends Context.Service<
     })).pipe(Layer.provide(host))
 }
 
-const transportOperations: ReadonlySet<unknown> = new Set(["import_source", "publish_source"])
+const transportOperations: ReadonlySet<unknown> = new Set(["read", "create_source", "import_source", "publish_source"])
 
 /** Effect's injected spawner owns acquisition, cancellation and process cleanup
  * on both Node and Bun. The native helper owns JJ and identity.

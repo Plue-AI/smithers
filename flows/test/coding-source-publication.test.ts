@@ -200,7 +200,7 @@ const recordingSpawner = (name: string, calls: Array<string>) =>
     })
   )
 
-test("import and publication run on the host's NativeTransport spawner; every other operation stays guarded", async () => {
+test("read, source creation, import and publication run on the host's NativeTransport spawner; edits stay guarded", async () => {
   const imported = "e".repeat(40)
   const operations = (native: NativeCoding["Service"]): ReadonlyArray<Effect.Effect<unknown, NativeCodingError>> => [
     native.read(),
@@ -252,10 +252,10 @@ test("import and publication run on the host's NativeTransport spawner; every ot
     return calls
   }
   assert.deepEqual(await run(true), [
-    "guarded:read",
+    "raw:read",
     "guarded:create",
     "guarded:apply_files",
-    "guarded:create_source",
+    "raw:create_source",
     "raw:import_source",
     "raw:publish_source"
   ])
