@@ -12,10 +12,9 @@ test("C-J1-02: Setup persists progress and separates source from machine readine
   await page.goto("/setup")
   const card = setup(page)
   await expect(card).toBeVisible()
-  await card.getByRole("button", { name: "Address", exact: true }).press("Enter")
-  await page.getByLabel("Bind", { exact: true }).fill("0.0.0.0")
+  await page.getByLabel("Bind", { exact: true }).fill("0.0.0.0:4000")
   await page.getByLabel("Origins", { exact: true }).fill("http://canary-mini.local:4000")
-  await page.getByRole("button", { name: "Submit", exact: true }).press("Enter")
+  await card.getByRole("button", { name: "Network", exact: true }).press("Enter")
   await card.getByRole("button", { name: "Create GitHub App", exact: true }).press("Enter")
   // The seeded setup world must model GitHub's manifest return and owner claim.
   await page.getByRole("button", { name: /sign in.*GitHub/i }).first().press("Enter")

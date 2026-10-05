@@ -11,7 +11,7 @@ import { cardActions, type CardActionDefinition } from "../flows/cardActions"
 import { installKeyAction, type InstallCardDispatch } from "./installKeyAction"
 import { settingsCardModel } from "../state/seams/InstallModel"
 import type { InstallAddress, InstallSnapshots } from "../state/seams/InstallSeam"
-import { roleKeyActions } from "./SetupCard"
+import { addressPort as port, parseOrigins as origins, roleKeyActions } from "./SetupCard"
 
 export interface SettingsContainerProps {
   readonly View: ComponentType<CardProps<SettingsCard>>
@@ -22,8 +22,6 @@ export interface SettingsContainerProps {
   readonly view: CardProps<SettingsCard>["view"]
   readonly onView: CardProps<SettingsCard>["onView"]
 }
-const port = (bind: string) => /:(\d+)$/.exec(bind)?.[1] ?? "4000"
-const origins = (text: string) => text.split(/[\s,]+/).filter(Boolean)
 /**
  * mvp.md J1 2.1 / §6.15 Address: "This Mac only" binds loopback at this Mac's own address; "Network" shows Bind (prefilled
  * with every interface when the install is loopback-bound now) and Origins, the addresses teammates use.
@@ -36,7 +34,7 @@ export const addressActions = (address: InstallAddress): CardActionDefinition<"s
     { tag: "settings.address", label: "Save", args: { field: "address", listen: "network" }, command_input: network,
       input: [
         { name: "bind", label: "Bind", kind: "text", required: true, value: network.bind },
-        { name: "origins", label: "Origins", kind: "text", required: true, value: network.origins.join(", ") }
+        { name: "origins", label: "Origins", kind: "text", multiline: true, required: true, value: network.origins.join("\n") }
       ],
       resolve_input: input => ({ listen: "network", bind: input.bind?.trim() || network.bind,
         origins: input.origins === undefined ? network.origins : origins(input.origins) }) }

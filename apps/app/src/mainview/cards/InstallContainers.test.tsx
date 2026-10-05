@@ -71,7 +71,7 @@ describe("T-APP-03 Containers with recording Views", () => {
     const network = props.actions.find(action => action.args?.listen === "network")!
     expect(network.input).toEqual([
       { name: "bind", label: "Bind", kind: "text", required: true, value: "0.0.0.0:4100" },
-      { name: "origins", label: "Origins", kind: "text", required: true, value: "http://localhost:4100" }
+      { name: "origins", label: "Origins", kind: "text", multiline: true, required: true, value: "http://localhost:4100" }
     ])
     expect(props.actions.find(action => action.args?.listen === "mac")!.input).toBeUndefined()
     props.onAction("settings.address", { field: "address", listen: "network", bind: "0.0.0.0:4100", origins: "https://maya-mini.tail1234.ts.net" })
@@ -85,7 +85,7 @@ describe("T-APP-03 Containers with recording Views", () => {
   })
   test("a network-bound install keeps its bind in the Network form", () => {
     const h = harness(); h.renderSettings()
-    expect(h.settings()!.actions.find(action => action.args?.listen === "network")!.input?.map(field => field.value)).toEqual(["0.0.0.0:4000", "http://localhost:4000, http://mini.local:4000, https://smithers.example.test"])
+    expect(h.settings()!.actions.find(action => action.args?.listen === "network")!.input?.map(field => field.value)).toEqual(["0.0.0.0:4000", "http://localhost:4000\nhttp://mini.local:4000\nhttps://smithers.example.test"])
   })
   test("Setup's model access offers one key control per named role, with no raw role choice", () => {
     const model = installFixture(); model.steps[4]!.state = "pending"
@@ -128,16 +128,36 @@ describe("T-APP-03 Containers with recording Views", () => {
     expect(h.settings()).toBeUndefined()
     h.renderSetup(); expect(h.setup()!.model.steps).toEqual(model.steps)
   })
-  test.each(["pending", "running", "blocked", "failed"] as const)("Setup exposes only the first incomplete %s control", state => {
+  test.each(["pending", "running", "blocked", "failed"] as const)("Setup exposes only the first incomplete %s step's Address choices", state => {
     const model = installFixture(); model.steps[0]!.state = state; model.steps[1]!.state = "pending"
     const h = harness({ model }); h.renderSetup(); const props = h.setup()!
     expect(SetupCardSchema.safeParse(props.model).success).toBe(true)
-    expect(props.actions[0]!.args).toEqual({ step: "address" })
-    expect(props.actions[0]!.input?.map(field => field.name)).toEqual(["bind", "origins"])
-    expect(props.actions).toHaveLength(1); expect(props.actions[0]!.disabled !== undefined).toBe(state === "running")
+    expect(props.actions.map(action => [action.label, action.args])).toEqual([["This Mac only", { step: "address", listen: "mac" }], ["Network", { step: "address", listen: "network" }]])
+    expect(props.actions.map(action => action.disabled !== undefined)).toEqual([state === "running", state === "running"])
     props.onAction("settings.setup", { step: "app_manifest", bind: "127.0.0.1:4000" })
-    expect(h.commands).toEqual(state === "running" ? [] : [{ tag: "settings.setup", input: { step: "address", bind: "127.0.0.1:4000" } }])
-    if (state === "failed" || state === "blocked") expect(props.actions[0]!.label).toBe("Retry")
+    props.onAction("settings.setup", { step: "address", listen: "mac" })
+    expect(h.commands).toEqual(state === "running" ? [] : [{ tag: "settings.setup", input: { step: "address", bind: "127.0.0.1:4000", origins: ["http://localhost:4000"] } }])
+  })
+  test("Setup's Network binds the chosen address with the teammates' origins, one per line in a multi-line field", () => {
+    const model = installFixture(); model.steps[0]!.state = "pending"; model.address = { listen: "mac", bind: "127.0.0.1:4000", origins: ["http://localhost:4000"] }
+    const h = harness({ model }); h.renderSetup(); const props = h.setup()!
+    expect(props.actions[0]!.input).toBeUndefined()
+    expect(props.actions[1]!.input).toEqual([
+      { name: "bind", label: "Bind", kind: "text", required: true, value: "0.0.0.0:4000" },
+      { name: "origins", label: "Origins", kind: "text", multiline: true, required: true, value: "" }
+    ])
+    props.onAction("settings.setup", { step: "address", listen: "network", bind: "0.0.0.0:4000", origins: "http://mini.local:4000\nhttps://box.example\n" })
+    props.onAction("settings.setup", { step: "address", listen: "network", bind: " 10.0.0.5:4000 ", origins: "http://mini.local:4000, http://10.0.0.5:4000" })
+    expect(h.commands).toEqual([
+      { tag: "settings.setup", input: { step: "address", bind: "0.0.0.0:4000", origins: ["http://mini.local:4000", "https://box.example"] } },
+      { tag: "settings.setup", input: { step: "address", bind: "10.0.0.5:4000", origins: ["http://mini.local:4000", "http://10.0.0.5:4000"] } }
+    ])
+  })
+  test("an Address step that failed on a network install prefills Network with its bind and teammates' origins", () => {
+    const model = installFixture(); model.steps[0] = { id: "address", state: "failed", error: { code: "address_unavailable", class: "user", message: "Can't listen on 10.9.9.9:4000" } }
+    model.address = { listen: "network", bind: "10.9.9.9:4000", origins: ["http://localhost:4000", "http://mini.local:4000"] }
+    const h = harness({ model }); h.renderSetup()
+    expect(h.setup()!.actions[1]!.input?.map(field => field.value)).toEqual(["10.9.9.9:4000", "http://mini.local:4000"])
   })
   test.each(["pending", "running", "failed", "done"] as const)("Source %s never announces ready before its receipt", state => {
     const model = installFixture(); model.steps[5] = { id: "source", state, pct: state === "done" ? 100 : 40 }

@@ -4,7 +4,7 @@ import type { SetupCard as SetupModel } from "@smthrs/rpc/SetupCard"
 import { cardActions, type CardActionDefinition } from "../flows/cardActions"
 import { installKeyAction, type InstallCardDispatch } from "./installKeyAction"
 import { setupCardModel, type InstallModel } from "../state/seams/InstallModel"
-import type { InstallSnapshots } from "../state/seams/InstallSeam"
+import type { InstallAddress, InstallSnapshots } from "../state/seams/InstallSeam"
 
 export interface SetupCardProps {
   readonly View: ComponentType<CardProps<SetupModel>>
@@ -34,6 +34,34 @@ export const roleKeyActions = (definition: CardActionDefinition<"settings.model-
   ]
 }))
 
+/** The port of a bind address; the install serves 4000. */
+export const addressPort = (bind: string) => /:(\d+)$/.exec(bind)?.[1] ?? "4000"
+/** Origins as typed in their multi-line field: one per line, commas and spaces also separate. */
+export const parseOrigins = (text: string) => text.split(/[\s,]+/).filter(Boolean)
+const LOOPBACK_ORIGIN = /^https?:\/\/(localhost|127\.\d+\.\d+\.\d+|\[::1\])(:\d+)?$/i
+
+/**
+ * Setup step 0 (mvp.md J1 2.1, M-28): "This Mac only" binds loopback; "Network" binds the address the owner chose and
+ * saves the origins teammates open, so the GitHub App's callback URLs follow them.
+ */
+export const setupAddressActions = (address: InstallAddress, running: boolean): CardActionDefinition<"settings.setup">[] => {
+  const port = addressPort(address.bind)
+  const disabled = running ? { reason: "Running" } : undefined
+  const bind = address.listen === "network" ? address.bind : `0.0.0.0:${port}`
+  const origins = address.origins.filter(origin => !LOOPBACK_ORIGIN.test(origin))
+  return [
+    { tag: "settings.setup", label: "This Mac only", disabled, args: { step: "address", listen: "mac" },
+      command_input: { step: "address", bind: `127.0.0.1:${port}`, origins: [`http://localhost:${port}`] } },
+    { tag: "settings.setup", label: "Network", disabled, args: { step: "address", listen: "network" },
+      command_input: { step: "address", bind, origins },
+      input: [
+        { name: "bind", label: "Bind", kind: "text", required: true, value: bind },
+        { name: "origins", label: "Origins", kind: "text", multiline: true, required: true, value: origins.join("\n") }
+      ],
+      resolve_input: input => ({ step: "address", bind: input.bind?.trim() || bind, origins: input.origins === undefined ? origins : parseOrigins(input.origins) }) }
+  ]
+}
+
 export const SetupCard = ({ View, install, dispatch, allowed, view, onView }: SetupCardProps) => {
   const snapshot = useSyncExternalStore(install.subscribe, install.get, install.get)
   const model = snapshot.model
@@ -42,19 +70,16 @@ export const SetupCard = ({ View, install, dispatch, allowed, view, onView }: Se
   const step = model?.steps.find(step => step.state !== "done")
   if (allowed && model && step) {
     if (step.id === "sign_in") definitions.push({ tag: "sign-in", label: "Sign in", args: { step: step.id }, command_input: undefined })
+    else if (step.id === "address") definitions.push(...setupAddressActions(model.address, step.state === "running"))
     else if (step.id !== "repository" || model.repositories?.length) definitions.push({ tag: "settings.setup", label: step.state === "failed" || step.state === "blocked" ? "Retry" : labels[step.id],
       // The running App step keeps its control: a press continues to GitHub or starts again (InstallSeam.setupStep).
       disabled: step.state === "running" && step.id !== "app_manifest" ? { reason: "Running" } : undefined,
       args: { step: step.id },
-      input: step.id === "address" ? [
-        { name: "bind", label: "Bind", kind: "text", required: true, value: model.address.bind },
-        { name: "origins", label: "Origins", kind: "text", required: true, value: model.address.origins.join("\n") }
-      ] : step.id === "app_manifest" ? [{ name: "owner", label: "Owner", kind: "text", required: true, value: model.github.owner }]
+      input: step.id === "app_manifest" ? [{ name: "owner", label: "Owner", kind: "text", required: true, value: model.github.owner }]
         : step.id === "repository" ? [{ name: "repository", label: "Repository", kind: "choice", required: true, choices: model.repositories ?? [] }] : undefined,
       command_input: { step: step.id },
       resolve_input: input => ({ step: step.id, ...(input.owner ? { owner: input.owner } : {}),
-        ...(input.repository ? { repository: input.repository } : {}), ...(input.bind ? { bind: input.bind } : {}),
-        ...(input.origins ? { origins: input.origins.split("\n").filter(Boolean) } : {}) }) })
+        ...(input.repository ? { repository: input.repository } : {}) }) })
     if (step.id === "models" && model.github.signed_in && key) definitions.push(...roleKeyActions(key.definition, model, { step: "models" }, !snapshot.seed))
   }
   const bindings = cardActions(key?.dispatch ?? dispatch, definitions)
