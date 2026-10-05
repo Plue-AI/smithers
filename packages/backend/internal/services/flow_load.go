@@ -505,7 +505,7 @@ func (runtime *FlowLoadRuntime) ResolveFlowHostTarget(ctx context.Context, targe
 	// admitted: a host bound before its checkout exists would pin a source
 	// revision the finished checkout no longer has.
 	if workspace, err := q.GetWorkspace(ctx, row.WorkspaceID); err != nil || workspace.Status != "running" {
-		return flowhost.Authority{}, mythicalFlowFailure{code: "runtime_workspace_pending", retryable: err == nil || !errors.Is(err, pgx.ErrNoRows)}
+		return flowhost.Authority{}, mythicalLaneNotRunning(workspace, err)
 	}
 	return flowhost.Authority{Target: target, RepositoryID: repositoryID, UserID: userID, WorkspaceID: row.WorkspaceID,
 		CatalogKey: flowhost.CatalogCoding}, nil

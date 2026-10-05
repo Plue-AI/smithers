@@ -45,6 +45,15 @@ type MythicalFailureView struct {
 	Fault string `json:"fault"`
 }
 
+// mythicalLaneFailedCode is the flow runtime's refusal of a launch on a lane
+// whose provisioning failed for good (mythicalLaneNotRunning), and
+// mythicalLaneFailed the tag of the TODO's fault: an infra stop at
+// provisioning, which a person's Retry lifts on a new lane.
+const (
+	mythicalLaneFailedCode = "runtime_workspace_failed"
+	mythicalLaneFailed     = "lane_failed"
+)
+
 // mythicalOutcomeFault types a failed run's outcome (mythicalFailedOutcome)
 // at a step whose own failure is failed (plan or checks).
 func mythicalOutcomeFault(failed, outcome string) mythicalFault {
@@ -53,6 +62,9 @@ func mythicalOutcomeFault(failed, outcome string) mythicalFault {
 		return mythicalFault{Class: "user", Tag: "cancelled", Kind: mythicalFailStopped}
 	case strings.HasPrefix(outcome, mythicalStopped):
 		class, tag, _ := strings.Cut(strings.TrimPrefix(outcome, mythicalStopped), ": ")
+		if tag == mythicalLaneFailed {
+			return mythicalFault{Class: class, Tag: tag, Kind: mythicalFailProvisioning}
+		}
 		return mythicalFault{Class: class, Tag: tag, Kind: mythicalFailStopped}
 	case strings.HasPrefix(outcome, mythicalOutage):
 		class, tag, _ := strings.Cut(strings.TrimPrefix(outcome, mythicalOutage), ": ")

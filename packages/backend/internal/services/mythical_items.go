@@ -775,6 +775,10 @@ func mythicalFailedOutcome(update flowdispatch.ProjectionUpdate) string {
 		// The lane's box lacks a tool the repository declares: no machine
 		// here matches it until the owner fixes the environment.
 		return mythicalStopped + "policy: placement"
+	} else if code == mythicalLaneFailedCode {
+		// The lane failed for good: no run on it can start. The TODO fails
+		// until a person retries it on a new lane.
+		return mythicalStopped + "infra: " + mythicalLaneFailed
 	} else if code != "" {
 		return mythicalOutage + "infra: " + code
 	}
@@ -3253,10 +3257,22 @@ func (resolver *MythicalFlowHostTargetResolver) ResolveFlowHostTarget(ctx contex
 	// a host bound before its checkout exists would pin a source revision the
 	// finished checkout no longer has.
 	if lane, err := q.GetWorkspace(ctx, item.WorkspaceID); err != nil || lane.Status != "running" {
-		return flowhost.Authority{}, mythicalFlowFailure{code: "runtime_workspace_pending", retryable: err == nil || !errors.Is(err, pgx.ErrNoRows)}
+		return flowhost.Authority{}, mythicalLaneNotRunning(lane, err)
 	}
 	return flowhost.Authority{Target: target, RepositoryID: repositoryID, UserID: userID, WorkspaceID: item.WorkspaceID,
 		CatalogKey: flowhost.CatalogCoding}, nil
+}
+
+// mythicalLaneNotRunning is why a lane cannot host a launch: a lane whose
+// provisioning failed never will, so the launch fails for good
+// (mythicalLaneFailedCode) and its TODO fails at provisioning; a lane still
+// provisioning or waiting for a machine is pending and retried; a lane with
+// no row is pending for good.
+func mythicalLaneNotRunning(lane db.Workspace, err error) error {
+	if err == nil && lane.Status == "failed" {
+		return mythicalFlowFailure{code: mythicalLaneFailedCode}
+	}
+	return mythicalFlowFailure{code: "runtime_workspace_pending", retryable: err == nil || !errors.Is(err, pgx.ErrNoRows)}
 }
 
 type mythicalFlowFailure struct {
