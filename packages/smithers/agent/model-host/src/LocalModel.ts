@@ -177,6 +177,18 @@ const isStatus = (status: number | undefined): status is number =>
   status !== undefined && Number.isInteger(status) && status >= 300 && status <= 599
 
 /**
+ * A stream that fails after HTTP 200 (OpenAI Responses' `response.failed`
+ * with credit_balance_exhausted) carries the provider's code and no status:
+ * a refusal is the status the provider answers it with outside a stream.
+ */
+const refusalStatus: Partial<Record<ModelError["code"], number>> = {
+  authentication: 401,
+  out_of_credit: 402,
+  quota_exceeded: 429,
+  rate_limited: 429
+}
+
+/**
  * The ONLY mapping from a provider failure to the contract's union. It reads
  * codes and numbers and never a message: a provider's words, and a transport
  * error's URL, stop here.
@@ -189,6 +201,8 @@ export const modelFailureOf = (error: unknown, deadlineMs?: number): ModelTestFa
   const timeout: ModelTestFailure = deadlineMs === undefined ? { code: "unreachable" } : { code: "timeout", deadlineMs }
   if (error instanceof ModelError) {
     if (isStatus(error.httpStatus)) return { code: "refused", status: error.httpStatus }
+    const refused = refusalStatus[error.code]
+    if (refused !== undefined) return { code: "refused", status: refused }
     if (error.code === "transport") return { code: "unreachable" }
     if (error.code === "call_timeout") return timeout
     return { code: "invalid", field: "protocol" }

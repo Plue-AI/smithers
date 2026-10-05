@@ -141,6 +141,13 @@ describe("modelFailureOf", () => {
       [model("call_timeout"), 10, { code: "timeout", deadlineMs: 10 }],
       [model("call_timeout"), undefined, { code: "unreachable" }],
       [model("invalid_provider_output"), 10, { code: "invalid", field: "protocol" }],
+      // OpenAI Responses streams HTTP 200, then response.failed credit_balance_exhausted.
+      [model("quota_exceeded"), 10, { code: "refused", status: 429 }],
+      [model("rate_limited"), 10, { code: "refused", status: 429 }],
+      [model("out_of_credit"), 10, { code: "refused", status: 402 }],
+      [model("authentication"), 10, { code: "refused", status: 401 }],
+      [model("quota_exceeded", 402), 10, { code: "refused", status: 402 }],
+      [model("provider_internal"), 10, { code: "invalid", field: "protocol" }],
       [evaluator("unreachable", 500), 10, { code: "unreachable" }],
       [evaluator("timeout"), 10, { code: "timeout", deadlineMs: 10 }],
       [evaluator("timeout"), undefined, { code: "unreachable" }],
