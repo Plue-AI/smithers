@@ -1,6 +1,7 @@
 package microsandbox
 
 import (
+	"bytes"
 	"context"
 	"crypto/rand"
 	"encoding/binary"
@@ -394,19 +395,35 @@ func (r *Runtime) freeGuestPort(ctx context.Context, machine string) (uint16, er
 	return 0, errors.New("no free guest port for the managed host")
 }
 
+// guestNode is the L0 image's Node (DefaultImage, node:26.5.0), root-owned
+// at /usr/local/bin. A bundle host that is a Node script runs on it by path.
+// env.json puts the repository's toolchain Node first on PATH, which the
+// checks the host spawns need, so `#!/usr/bin/env node` would run the host on
+// the repository's Node: Node 22.14 for the walk's canary, which lacks the
+// node:sqlite backup export the host imports.
+const guestNode = "/usr/local/bin/node"
+
+// nodeScript is the first line of a bundle program that is a Node script.
+var nodeScript = []byte("#!/usr/bin/env node\n")
+
 // managedHostCommand plants the host's program from the approved bundle and
-// returns the command with its guest path. Only the program is planted:
-// environment values reach the host as the guest values they are, so a
-// repository's agent variable never selects what guest root installs.
+// returns the command with its guest path, run by guestNode when the program
+// is a Node script. Only the program is planted: environment values reach the
+// host as the guest values they are, so a repository's agent variable never
+// selects what guest root installs.
 func (r *Runtime) managedHostCommand(ctx context.Context, machine string, command workspaceapi.Command) (workspaceapi.Command, error) {
 	if len(command.Args) == 0 {
 		return command, errors.New("managed host command is required")
 	}
-	program, err := r.plantArtifact(ctx, machine, command.Args[0])
+	program, data, err := r.plant(ctx, machine, command.Args[0])
 	if err != nil {
 		return command, err
 	}
-	command.Args = append([]string{program}, command.Args[1:]...)
+	args := []string{program}
+	if bytes.HasPrefix(data, nodeScript) {
+		args = []string{guestNode, program}
+	}
+	command.Args = append(args, command.Args[1:]...)
 	return command, nil
 }
 
@@ -416,28 +433,35 @@ func (r *Runtime) managedHostCommand(ctx context.Context, machine string, comman
 // under guestBundleRoot through protected, never-followed directories. Any
 // other value is returned unchanged: it must already be a guest program.
 func (r *Runtime) plantArtifact(ctx context.Context, machine, program string) (string, error) {
+	planted, _, err := r.plant(ctx, machine, program)
+	return planted, err
+}
+
+// plant is plantArtifact that also returns the planted bundle bytes, nil for
+// a value returned unchanged.
+func (r *Runtime) plant(ctx context.Context, machine, program string) (string, []byte, error) {
 	relative, ok := r.bundleArtifact(program)
 	if !ok {
-		return program, nil
+		return program, nil, nil
 	}
 	data, sum, err := plantable(r.config.Bundle, relative)
 	if err != nil {
-		return "", err
+		return "", nil, err
 	}
 	state, err := r.guest(ctx, machine, nil, "managed-artifact-check", relative, sum)
 	if err != nil {
-		return "", err
+		return "", nil, err
 	}
 	switch strings.TrimSpace(string(state)) {
 	case "current":
 	case "replace":
 		if _, err := r.guest(ctx, machine, data, "managed-artifact", relative, sum); err != nil {
-			return "", err
+			return "", nil, err
 		}
 	default:
-		return "", errors.New("guest managed artifact check returned an invalid result")
+		return "", nil, errors.New("guest managed artifact check returned an invalid result")
 	}
-	return path.Join(guestBundleRoot, relative), nil
+	return path.Join(guestBundleRoot, relative), data, nil
 }
 
 func shellQuote(value string) string {

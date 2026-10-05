@@ -395,7 +395,7 @@ func TestManagedHostPlantsOnlyItsProgram(t *testing.T) {
 		Environment: maps.Clone(environment),
 	})
 	require.NoError(t, err)
-	require.Equal(t, []string{"/opt/smithers/bundle/bin/smithers-coding-host", "--listen", "127.0.0.1:20000"}, command.Args)
+	require.Equal(t, []string{"/usr/local/bin/node", "/opt/smithers/bundle/bin/smithers-coding-host", "--listen", "127.0.0.1:20000"}, command.Args)
 	require.Equal(t, environment, command.Environment, "every variable reaches the host unchanged")
 	require.Equal(t, 1, guestCalls(t, argv, "managed-artifact-check"), "only the program is checked")
 	require.Equal(t, 1, guestCalls(t, argv, "managed-artifact"), "only the program is planted")
@@ -405,6 +405,28 @@ func TestManagedHostPlantsOnlyItsProgram(t *testing.T) {
 	require.NotContains(t, string(log), "flow-hosts.json")
 	_, err = os.Stat(filepath.Join(guestRoot, "opt", "smithers", "bundle", "bin", "linux-arm64"))
 	require.ErrorIs(t, err, os.ErrNotExist)
+}
+
+// A bundle host that is a Node script runs on the image's Node by path, never
+// on the repository's toolchain Node that env.json puts first on PATH; any
+// other bundle program runs as itself, and a guest program is unchanged.
+func TestManagedHostRunsANodeScriptOnTheImageNode(t *testing.T) {
+	bundle, _ := approvedBundleFixture(t)
+	runtime, _, _ := guestArtifactMSB(t, bundle)
+	for _, test := range []struct {
+		name, program string
+		want          []string
+	}{
+		{"node script", filepath.Join(bundle, "bin", "smithers-coding-host"), []string{"/usr/local/bin/node", "/opt/smithers/bundle/bin/smithers-coding-host", "serve"}},
+		{"other bundle program", filepath.Join(bundle, "bin", "smithers-backend"), []string{"/opt/smithers/bundle/bin/smithers-backend", "serve"}},
+		{"guest program", "/usr/bin/env", []string{"/usr/bin/env", "serve"}},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			command, err := runtime.managedHostCommand(context.Background(), "fresh", workspaceapi.Command{Args: []string{test.program, "serve"}})
+			require.NoError(t, err)
+			require.Equal(t, test.want, command.Args)
+		})
+	}
 }
 
 // New verifies, against the bundle the backend pinned and before it runs
