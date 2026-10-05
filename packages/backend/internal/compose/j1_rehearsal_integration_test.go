@@ -1092,48 +1092,98 @@ func TestJ1Rehearsal(t *testing.T) {
 	}) {
 		return
 	}
-	step("Merged", "GET "+todoPath, "merged only after GitHub merge receipt", "T-STK-04", func() error {
+	step("Merged", "GET "+todoPath+"; GET /api/repos/{o}/{r}/mythical; GET /api/github/sync", "merged only after GitHub merge receipt; the install's main follows GitHub's squash commit; sync fresh", "T-STK-04, T-GH-02", func() error {
 		if number <= 0 {
 			return fmt.Errorf("blocked by First TODO: no TODO number from public creation receipt")
 		}
-		// The merge worker polls every 3 s; 30 s spans several of its passes.
-		deadline := time.Now().Add(30 * time.Second)
+		// The merge worker polls every 3 s, and GitHub's main is the fake's
+		// real squash commit, which only the GitHub sync brings into the
+		// install's main (the merge asks it to read at once; its poll is
+		// 30 s) for the stack to fold. 60 s spans both.
+		deadline := time.Now().Add(60 * time.Second)
+		merged, squash := false, ""
 		for {
-			data, err := expect("GET", todoPath, "", 200)
-			if err != nil {
-				return err
-			}
-			var v struct {
-				State string `json:"state"`
-			}
-			if err = json.Unmarshal(data, &v); err != nil {
-				return err
-			}
-			if v.State == "merged" {
-				p, err := readFakePull()
+			if !merged {
+				data, err := expect("GET", todoPath, "", 200)
 				if err != nil {
 					return err
 				}
-				if !p.Merged || p.MergedAt == nil || len(p.MergeCommitSHA) != 40 {
-					return fmt.Errorf("TODO merged before GitHub reported a merge")
+				var v struct {
+					State string `json:"state"`
 				}
-				for _, write := range fake.Writes() {
-					if write.Method == "PUT" && strings.HasSuffix(write.Path, "/merge") && write.Status == 200 {
-						var input struct {
-							SHA    string `json:"sha"`
-							Method string `json:"merge_method"`
-						}
-						if json.Unmarshal(write.Body, &input) == nil && input.Method == "squash" && input.SHA == head {
-							return nil
+				if err = json.Unmarshal(data, &v); err != nil {
+					return err
+				}
+				if v.State == "merged" {
+					p, err := readFakePull()
+					if err != nil {
+						return err
+					}
+					if !p.Merged || p.MergedAt == nil || len(p.MergeCommitSHA) != 40 {
+						return fmt.Errorf("TODO merged before GitHub reported a merge")
+					}
+					receipt := false
+					for _, write := range fake.Writes() {
+						if write.Method == "PUT" && strings.HasSuffix(write.Path, "/merge") && write.Status == 200 {
+							var input struct {
+								SHA    string `json:"sha"`
+								Method string `json:"merge_method"`
+							}
+							if json.Unmarshal(write.Body, &input) == nil && input.Method == "squash" && input.SHA == head {
+								receipt = true
+							}
 						}
 					}
+					if !receipt {
+						return fmt.Errorf("no successful head-bound squash GitHub receipt")
+					}
+					githubMain, err := exec.Command("/usr/bin/git", "--git-dir", filepath.Join(gitRoot, "rehearsal-owner/app.git"), "rev-parse", "refs/heads/main").Output()
+					if err != nil {
+						return err
+					}
+					if strings.TrimSpace(string(githubMain)) != p.MergeCommitSHA {
+						return fmt.Errorf("GitHub's main %s is not the squash commit %s", strings.TrimSpace(string(githubMain)), p.MergeCommitSHA)
+					}
+					squash, merged = p.MergeCommitSHA, true
+				} else if time.Now().After(deadline) {
+					return fmt.Errorf("TODO state %q, expected merged", v.State)
 				}
-				return fmt.Errorf("no successful head-bound squash GitHub receipt")
 			}
-			if time.Now().After(deadline) {
-				return fmt.Errorf("TODO state %q, expected merged", v.State)
+			if merged {
+				data, err := expect("GET", "/api/repos/rehearsal-owner/app/mythical", "", 200)
+				if err != nil {
+					return err
+				}
+				var stack struct {
+					LandedMain string `json:"landedMain"`
+					MainBehind bool   `json:"mainBehind"`
+				}
+				if err = json.Unmarshal(data, &stack); err != nil {
+					return err
+				}
+				if stack.LandedMain == squash && !stack.MainBehind {
+					data, err = expect("GET", "/api/github/sync", "", 200)
+					if err != nil {
+						return err
+					}
+					var health struct {
+						State         string     `json:"state"`
+						LastSuccessAt *time.Time `json:"last_success_at"`
+					}
+					if err = json.Unmarshal(data, &health); err != nil {
+						return err
+					}
+					if health.State != "fresh" || health.LastSuccessAt == nil {
+						return fmt.Errorf("GitHub sync %q after the follow", health.State)
+					}
+					actual = fmt.Sprintf("200 merged; install main %s = GitHub's squash commit; sync fresh", squash)
+					return nil
+				}
+				if time.Now().After(deadline) {
+					return fmt.Errorf("the install's main did not follow GitHub's squash commit %s: stack folded %s (behind=%t)", squash, stack.LandedMain, stack.MainBehind)
+				}
 			}
-			time.Sleep(40 * time.Millisecond)
+			time.Sleep(200 * time.Millisecond)
 		}
 	})
 }
