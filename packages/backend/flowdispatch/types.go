@@ -128,6 +128,8 @@ type SteerRequest struct {
 // worker wakes its host and again immediately before runtime delivery.
 // Admission authorization alone cannot authorize an input held across removal
 // of its author from the repository. TODO delivery requires this provider.
+// A product implementation may also commit a held input's one-time release;
+// it must keep that transition atomic and must not claim runtime consumption.
 type SteerAuthorizer interface {
 	AuthorizeFlowSteer(context.Context, SteerRequest) error
 }

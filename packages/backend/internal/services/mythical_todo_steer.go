@@ -23,7 +23,8 @@ type mythicalSteerer interface {
 }
 
 // AuthorizeFlowSteer binds a delivery to the stored input and its author's
-// current membership. The stack's runtime owner is not the feedback author.
+// current membership, and commits a held input's release before delivery.
+// The stack's runtime owner is not the feedback author.
 // No browser credential is synthesized from the durable authorization data.
 func (s *MythicalService) AuthorizeFlowSteer(ctx context.Context, request flowdispatch.SteerRequest) error {
 	if request.FlowID != flowdispatch.TodoFlow && request.Target.BindingKind != mythicalBindingKind {
@@ -50,64 +51,88 @@ func (s *MythicalService) AuthorizeFlowSteer(ctx context.Context, request flowdi
 	if err != nil {
 		return refused
 	}
-	q := s.queries()
-	item, err := q.GetMythicalItem(ctx, pgtype.UUID{Bytes: id, Valid: true})
-	if errors.Is(err, pgx.ErrNoRows) {
-		return refused
-	}
-	if err != nil {
-		return mythicalFlowFailure{code: "steer_authorization_unavailable", retryable: true}
-	}
-	if item.RepositoryID != authority.RepositoryID || !mythicalTodo(item) || request.RunID == "" ||
-		item.RequestRunID != request.RunID || item.WorkspaceID == "" || item.WorkspaceID != request.Target.WorkspaceID {
-		return refused
-	}
-	matched := false
-	for _, feedback := range mythicalChecksOf(item).Steers {
-		if feedback.ID == request.MessageID && feedback.Author == authority.UserID && feedback.Attempt == item.Attempt &&
-			feedback.Text == request.Body && float64(feedback.At.UnixMilli()) == request.CreatedAt && maps.Equal(feedback.Attribution, request.Attribution) {
-			matched = true
-			break
+	err = pgx.BeginFunc(ctx, s.store, func(tx pgx.Tx) error {
+		if _, err := tx.Exec(ctx, `SELECT 1 FROM mythical_stacks WHERE repository_id=$1 FOR UPDATE`, authority.RepositoryID); err != nil {
+			return err
 		}
-	}
-	if !matched {
-		return refused
-	}
-	stack, err := q.GetMythicalStack(ctx, item.RepositoryID)
-	if err != nil {
+		q := db.New(tx)
+		item, err := q.GetMythicalItem(ctx, pgtype.UUID{Bytes: id, Valid: true})
+		if errors.Is(err, pgx.ErrNoRows) {
+			return refused
+		}
+		if err != nil {
+			return mythicalFlowFailure{code: "steer_authorization_unavailable", retryable: true}
+		}
+		if item.RepositoryID != authority.RepositoryID || !mythicalTodo(item) || request.RunID == "" ||
+			item.RequestRunID != request.RunID || item.WorkspaceID == "" || item.WorkspaceID != request.Target.WorkspaceID {
+			return refused
+		}
+		checks := mythicalChecksOf(item)
+		matched := -1
+		for index, feedback := range checks.Steers {
+			if feedback.ID == request.MessageID && feedback.Author == authority.UserID && feedback.Attempt == item.Attempt &&
+				feedback.Text == request.Body && float64(feedback.At.UnixMilli()) == request.CreatedAt && maps.Equal(feedback.Attribution, request.Attribution) {
+				matched = index
+				break
+			}
+		}
+		if matched < 0 {
+			return refused
+		}
+		stack, err := q.GetMythicalStack(ctx, item.RepositoryID)
+		if err != nil {
+			return mythicalFlowFailure{code: "steer_authorization_unavailable", retryable: true}
+		}
+		if !stack.ActorUserID.Valid || request.Scope.PrincipalID != "user:"+strconv.FormatInt(stack.ActorUserID.Int64, 10) {
+			return refused
+		}
+		repository, err := InstallRepositoryID(ctx, q)
+		if err != nil {
+			return mythicalFlowFailure{code: "steer_authorization_unavailable", retryable: true}
+		}
+		if repository != authority.RepositoryID {
+			return refused
+		}
+		role, err := InstallRoleOf(ctx, q, authority.UserID)
+		if err != nil {
+			return mythicalFlowFailure{code: "steer_authorization_unavailable", retryable: true}
+		}
+		if role == "" {
+			return mythicalFlowFailure{code: "steer_author_revoked"}
+		}
+		// Admission may have committed before Stop, a merge claim, or settlement.
+		// Re-read those facts at both delivery boundaries. A hold keeps the same
+		// durable input retryable; it is never consent to resume the run.
+		switch item.State {
+		case "landed", "cancelled", "rejected", "declined":
+			return mythicalFlowFailure{code: "steer_todo_closed"}
+		}
+		if !todoSteerReady(item) {
+			return mythicalFlowFailure{code: "steer_held", retryable: true}
+		}
+		if _, pinned := mythicalPinOf(item); !pinned {
+			return mythicalFlowFailure{code: "steer_authorizer_unavailable", retryable: true}
+		}
+		if checks.Steers[matched].ReleasePending {
+			checks.Steers[matched].ReleasePending = false
+			checks.Land = nil
+			item.CandidateVerified = false
+			if item.State == "proposed" {
+				item.State, item.NextAttemptAt = "running", pgtype.Timestamptz{}
+			}
+			item.Checks = checks.encode()
+			if _, err := q.SaveMythicalItem(ctx, item); err != nil {
+				return err
+			}
+			s.itemChanged(ctx, q, stack, item.ID)
+		}
+		return nil
+	})
+	var failure flowruntime.FlowRuntimeFailure
+	if err != nil && !errors.As(err, &failure) {
 		return mythicalFlowFailure{code: "steer_authorization_unavailable", retryable: true}
 	}
-	if !stack.ActorUserID.Valid || request.Scope.PrincipalID != "user:"+strconv.FormatInt(stack.ActorUserID.Int64, 10) {
-		return refused
-	}
-	repository, err := InstallRepositoryID(ctx, q)
-	if err != nil {
-		return mythicalFlowFailure{code: "steer_authorization_unavailable", retryable: true}
-	}
-	if repository != authority.RepositoryID {
-		return refused
-	}
-	role, err := InstallRoleOf(ctx, q, authority.UserID)
-	if err != nil {
-		return mythicalFlowFailure{code: "steer_authorization_unavailable", retryable: true}
-	}
-	if role == "" {
-		return mythicalFlowFailure{code: "steer_author_revoked"}
-	}
-	// Admission may have committed before Stop, a merge claim, or settlement.
-	// Re-read those facts at both delivery boundaries. A hold keeps the same
-	// durable input retryable; it is never consent to resume the run.
-	switch item.State {
-	case "landed", "cancelled", "rejected", "declined":
-		return mythicalFlowFailure{code: "steer_todo_closed"}
-	}
-	if !todoSteerReady(item) {
-		return mythicalFlowFailure{code: "steer_held", retryable: true}
-	}
-	if _, pinned := mythicalPinOf(item); !pinned {
-		return mythicalFlowFailure{code: "steer_authorizer_unavailable", retryable: true}
-	}
-	return nil
+	return err
 }
 
 // todoSteerReady reads lifecycle facts, not the card's state: an open question
@@ -129,7 +154,7 @@ func todoSteerReady(item db.MythicalItem) bool {
 	}
 }
 
-// steerTodo joins feedback, activity and an immediately deliverable Message in
+// steerTodo joins feedback, activity and a bound run's Message intent in
 // the existing product transaction. Production leaves todoSteering false until
 // held-input delivery and ordered model-turn consumption have acceptance proof.
 // In particular, merely binding a launcher or a pinned flow cannot enable it.
@@ -186,7 +211,7 @@ func (s *MythicalService) steerTodo(ctx context.Context, number int64, input Tod
 				return todoControlUnavailable()
 			}
 			now := s.now().UTC()
-			next, feedback, deliver, replay, err := prepareTodoSteer(ctx, item, input, todoActor(ctx, person), todoActorRef(ctx, person), now)
+			next, feedback, _, replay, err := prepareTodoSteer(ctx, item, input, todoActor(ctx, person), todoActorRef(ctx, person), now)
 			if err != nil {
 				return err
 			}
@@ -215,7 +240,12 @@ func (s *MythicalService) steerTodo(ctx context.Context, number int64, input Tod
 			if err != nil {
 				return err
 			}
-			if deliver {
+			// A paused/fenced/attaching run already has a stable destination.
+			// Its worker holds this same intent until release is permitted.
+			// A queued next attempt has no destination yet; its first-input
+			// handoff belongs to the composition's ordered admission boundary.
+			_, pinned := mythicalPinOf(saved)
+			if pinned && feedback.Attempt == saved.Attempt && saved.RequestRunID != "" && saved.WorkspaceID != "" && mythicalChecksOf(saved).RunLaunched {
 				if !stack.ActorUserID.Valid {
 					return todoControlUnavailable()
 				}
@@ -292,7 +322,8 @@ func prepareTodoSteer(ctx context.Context, item db.MythicalItem, input TodoContr
 			next.State, next.NextAttemptAt = "running", pgtype.Timestamptz{}
 		}
 	}
-	feedback := todoSteer{ID: uuid.NewString(), Request: input.Request, Author: input.Actor, Text: *input.Steer, By: by, Attribution: maps.Clone(attribution), At: now, Attempt: attempt}
+	feedback := todoSteer{ID: uuid.NewString(), Request: input.Request, Author: input.Actor, Text: *input.Steer, By: by, Attribution: maps.Clone(attribution), At: now, Attempt: attempt,
+		ReleasePending: !deliver}
 	checks.Steers = append(checks.Steers, feedback)
 	next.Checks = checks.encode()
 	return next, feedback, deliver, false, nil

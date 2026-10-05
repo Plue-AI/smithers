@@ -265,6 +265,151 @@ func TestTodoSteerWorkerHoldsAcrossLifecycleChanges(t *testing.T) {
 	}
 }
 
+// A steer received while its existing run is held already has a durable
+// destination. Releasing it changes candidate state once, in a transaction;
+// neither a failed release write nor a retry can lose or repeat that change.
+func TestTodoSteerInitiallyHeldRelease(t *testing.T) {
+	for _, hold := range []string{"paused review", "merge fence", "attaching", "merged while fenced"} {
+		t.Run(hold, func(t *testing.T) {
+			o, session := newTodoAdmission(t)
+			ctx := context.Background()
+			q := db.New(o.pool)
+			binding := fmt.Sprintf(`{"owner_login":"smithers-canary","repository_name":"smithers","repository_id":%d}`, o.repoID)
+			require.NoError(t, q.UpsertInstallSetting(ctx, db.UpsertInstallSettingParams{Key: "github.repository", Value: []byte(binding)}))
+			o.service.SetTodoFlow(func(context.Context, int64, string) (string, error) { return todoPinOne, nil })
+			o.service.todoSteering = true
+			item := o.fileTodo(session, "initially-held")
+			ready, input, _ := steerFixture()
+			item.State, item.Attempt, item.RequestRunID = "proposed", ready.Attempt, ready.RequestRunID
+			item.WorkspaceID, item.FlowDigest, item.Checks = ready.WorkspaceID, ready.FlowDigest, ready.Checks
+			item.CandidateVerified, item.CandidateHead = true, strings.Repeat("c", 40)
+			checks := mythicalChecksOf(item)
+			checks.Waits = []TodoWait{{ID: "question-1", Kind: "question", Prompt: "Which behavior?", Signal: &TodoWaitSignal{Run: "same-run", Name: "answer"}}}
+			switch hold {
+			case "paused review":
+				item.PausedAt = pgtype.Timestamptz{Time: time.Now(), Valid: true}
+			case "merge fence", "merged while fenced":
+				item.PendingOp = []byte(`{"kind":"merge","target":"3","desired":"` + strings.Repeat("c", 40) + `","state":"intended"}`)
+			case "attaching":
+				item.State, checks.RunAttached = "running", false
+			}
+			item.Checks = checks.encode()
+			item, err := q.SaveMythicalItem(ctx, item)
+			require.NoError(t, err)
+			peer := &todoRuntimeHost{}
+			resolver := peer.resolver(t)
+			var resolves atomic.Int32
+			pool, start := o.runDispatcher(t, flowruntime.ResolverFunc(func(ctx context.Context, target flowruntime.Target) (flowruntime.Runtime, error) {
+				resolves.Add(1)
+				return resolver.ResolveFlowRuntime(ctx, target)
+			}))
+			input.Actor, input.Repository = o.userID, o.repoID
+			receipt, err := o.service.ControlTodo(session, item.Number.Int64, input)
+			require.NoError(t, err)
+			replay, err := o.service.ControlTodo(session, item.Number.Int64, input)
+			require.NoError(t, err)
+			require.Equal(t, receipt, replay)
+			var operationID, requestID string
+			var payload, authority json.RawMessage
+			require.NoError(t, pool.QueryRow(ctx, `SELECT id::text,request_id,payload,authorization_context FROM product_job_requests WHERE operation='flow.runtime.steer'`).Scan(&operationID, &requestID, &payload, &authority))
+			var request flowdispatch.SteerRequest
+			require.NoError(t, json.Unmarshal(payload, &request))
+			request.Scope = jobs.Scope{TenantID: request.Target.TenantID, PrincipalID: request.Target.PrincipalID}
+			request.RequestID, request.AuthorizationContext = requestID, authority
+			store, err := jobs.NewStore(pool)
+			require.NoError(t, err)
+			start()
+			var operation jobs.Operation
+			awaitAttempts := func(attempt int) {
+				t.Helper()
+				require.Eventually(t, func() bool {
+					operation, err = store.Get(ctx, request.Scope, operationID)
+					return err == nil && operation.Attempt >= attempt
+				}, 5*time.Second, 5*time.Millisecond)
+				require.False(t, operation.State.Terminal())
+			}
+			awaitAttempts(2)
+			require.Zero(t, resolves.Load())
+			held := o.byID(uuidString(item.ID))
+			require.True(t, mythicalChecksOf(held).Steers[0].ReleasePending)
+			require.Equal(t, checks.Waits, mythicalChecksOf(held).Waits)
+			if hold == "merge fence" || hold == "merged while fenced" {
+				require.True(t, held.CandidateVerified)
+				require.Equal(t, checks.Land, mythicalChecksOf(held).Land)
+			}
+			if hold == "merged while fenced" {
+				held.State = "landed"
+				_, err = q.SaveMythicalItem(ctx, held)
+				require.NoError(t, err)
+				require.Eventually(t, func() bool {
+					operation, err = store.Get(ctx, request.Scope, operationID)
+					return err == nil && operation.State.Terminal()
+				}, 5*time.Second, 5*time.Millisecond)
+				require.Equal(t, jobs.StateFailed, operation.State)
+				require.Contains(t, string(operation.TerminalReceipt), "steer_todo_closed")
+				require.Zero(t, resolves.Load())
+				retained := o.byID(uuidString(item.ID))
+				require.True(t, mythicalChecksOf(retained).Steers[0].ReleasePending)
+				require.True(t, retained.CandidateVerified)
+				require.Equal(t, checks.Land, mythicalChecksOf(retained).Land)
+				return
+			}
+			// The failure occurs inside the release transaction, before any
+			// host resolution. Restoring the store must resume the same input.
+			_, err = pool.Exec(ctx, `CREATE FUNCTION reject_steer_release() RETURNS trigger LANGUAGE plpgsql AS $$
+ BEGIN IF OLD.checks @> '{"steers":[{"release_pending":true}]}'::jsonb
+ AND NOT NEW.checks @> '{"steers":[{"release_pending":true}]}'::jsonb
+ THEN RAISE EXCEPTION 'test release unavailable'; END IF; RETURN NEW; END $$;
+ CREATE TRIGGER reject_steer_release BEFORE UPDATE ON mythical_items FOR EACH ROW EXECUTE FUNCTION reject_steer_release()`)
+			require.NoError(t, err)
+			held.PausedAt, held.PendingOp = pgtype.Timestamptz{}, nil
+			resumedChecks := mythicalChecksOf(held)
+			resumedChecks.RunAttached = true
+			held.Checks = resumedChecks.encode()
+			_, err = q.SaveMythicalItem(ctx, held)
+			require.NoError(t, err)
+			awaitAttempts(operation.Attempt + 2)
+			require.Zero(t, resolves.Load())
+			retained := o.byID(uuidString(item.ID))
+			require.True(t, mythicalChecksOf(retained).Steers[0].ReleasePending)
+			require.Equal(t, held.CandidateVerified, retained.CandidateVerified)
+			_, err = pool.Exec(ctx, `DROP TRIGGER reject_steer_release ON mythical_items; DROP FUNCTION reject_steer_release()`)
+			require.NoError(t, err)
+			require.Eventually(t, func() bool {
+				operation, err = store.Get(ctx, request.Scope, operationID)
+				return err == nil && operation.State == jobs.StateCompleted
+			}, 5*time.Second, 5*time.Millisecond)
+			released := o.byID(uuidString(item.ID))
+			releasedChecks := mythicalChecksOf(released)
+			require.False(t, releasedChecks.Steers[0].ReleasePending)
+			require.False(t, released.CandidateVerified)
+			require.Nil(t, releasedChecks.Land)
+			require.Equal(t, "running", released.State)
+			require.Equal(t, checks.Waits, releasedChecks.Waits, "release must not settle the open question")
+			peer.mu.Lock()
+			sent := append([]map[string]any(nil), peer.steers...)
+			peer.mu.Unlock()
+			require.Len(t, sent, 1)
+			require.Equal(t, "same-run", sent[0]["runId"])
+			require.Equal(t, request.MessageID, sent[0]["messageId"])
+			require.Equal(t, map[string]any{"kind": "Message", "body": *input.Steer}, sent[0]["steer"])
+			// A later candidate must survive replay of the released input.
+			released.CandidateVerified = true
+			releasedChecks.Land = &mythicalLand{Head: strings.Repeat("d", 40)}
+			released.Checks = releasedChecks.encode()
+			released, err = q.SaveMythicalItem(ctx, released)
+			require.NoError(t, err)
+			require.NoError(t, o.service.AuthorizeFlowSteer(ctx, request))
+			require.Equal(t, released, o.byID(uuidString(item.ID)))
+			var events, intents int
+			require.NoError(t, pool.QueryRow(ctx, `SELECT count(*) FROM product_job_requests WHERE operation='todo.steer_received'`).Scan(&events))
+			require.NoError(t, pool.QueryRow(ctx, `SELECT count(*) FROM product_job_requests WHERE operation='flow.runtime.steer'`).Scan(&intents))
+			require.Equal(t, 1, events)
+			require.Equal(t, 1, intents)
+		})
+	}
+}
+
 // Real product storage and flowdispatch admission; runtime delivery is not
 // started. This verifies the transaction boundary, not guest consumption.
 func TestTodoSteerAdmissionTransaction(t *testing.T) {

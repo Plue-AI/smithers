@@ -32,6 +32,10 @@ type todoSteer struct {
 	ID      string `json:"id,omitempty"`
 	Request string `json:"request,omitempty"`
 	Author  int64  `json:"author,omitempty"`
+	// ReleasePending records that a held input still needs its working-state
+	// release, including invalidating a fenced candidate. Clearing it does not mean
+	// the runtime accepted the message or the model consumed it.
+	ReleasePending bool `json:"release_pending,omitempty"`
 }
 
 // todoRetry is one Retry a person pressed: its Idempotency-Key, who and when,
