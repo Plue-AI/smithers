@@ -9,6 +9,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"testing"
 
 	"github.com/jackc/pgx/v5/pgtype"
@@ -92,6 +93,75 @@ func answer(status int, body any) func(http.ResponseWriter) {
 }
 
 var stackRepo = mythicalGitHubRepo{Owner: "o", Name: "r", Token: "read-token", userID: 1}
+
+func TestMythicalGitHubPushBranchAbsenceNeedsCompleteScopedRead(t *testing.T) {
+	for _, tc := range []struct {
+		name, body, link string
+		status           int
+		present, failed  bool
+	}{
+		{name: "empty", body: `[]`, status: 200},
+		{name: "existing PR", body: `[{"number":7,"head":{"ref":"smithers/retry","repo":{"full_name":"acme/app"}}}]`, status: 200, present: true},
+		{name: "null is not absence", body: `null`, status: 200, failed: true},
+		{name: "unbound row", body: `[{}]`, status: 200, failed: true},
+		{name: "another branch", body: `[{"number":7,"head":{"ref":"smithers/other","repo":{"full_name":"acme/app"}}}]`, status: 200, failed: true},
+		{name: "another repository", body: `[{"number":7,"head":{"ref":"smithers/retry","repo":{"full_name":"other/app"}}}]`, status: 200, failed: true},
+		{name: "incomplete page", body: `[]`, link: `<https://api.github.com/repos/acme/app/pulls?page=2>; rel="next"`, status: 200, failed: true},
+		{name: "not modified without a representation", status: 304, failed: true},
+		{name: "unavailable", body: `{"message":"secret-upstream"}`, status: 503, failed: true},
+		{name: "rate limited", body: `{"message":"secret-upstream"}`, status: 429, failed: true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			minter, upstream := newScopedTokenMinter(t)
+			var reads atomic.Int32
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				if strings.HasSuffix(r.URL.Path, "/access_tokens") {
+					upstream.Handler().ServeHTTP(w, r)
+					return
+				}
+				reads.Add(1)
+				assert.Equal(t, "GET", r.Method)
+				assert.Equal(t, "/repos/acme/app/pulls", r.URL.Path)
+				assert.Equal(t, "acme:smithers/retry", r.URL.Query().Get("head"))
+				assert.Equal(t, "all", r.URL.Query().Get("state"))
+				assert.Equal(t, "1", r.URL.Query().Get("per_page"))
+				if tc.link != "" {
+					w.Header().Set("Link", tc.link)
+				}
+				if tc.status == 429 {
+					w.Header().Set("Retry-After", "60")
+				}
+				w.WriteHeader(tc.status)
+				_, _ = io.WriteString(w, tc.body)
+			}))
+			defer server.Close()
+			t.Setenv(envGitHubAppAPIBaseURL, server.URL)
+			api := &mythicalGitHubAPI{tokens: minter, api: &landingGitHubAPI{client: server.Client(), baseURL: func() string { return server.URL }}}
+			source := db.GithubSyncedRepo{OwnerLogin: "acme", RepoName: "app", InstallationID: pgtype.Int8{Int64: 91, Valid: true}, GithubRepositoryID: pgtype.Int8{Int64: 100, Valid: true}}
+			present, err := api.PushBranchHasPull(t.Context(), source, "smithers/retry")
+			if tc.failed {
+				require.Error(t, err)
+				require.False(t, present)
+			} else {
+				require.NoError(t, err)
+				require.Equal(t, tc.present, present)
+			}
+			if tc.status == 429 {
+				failure := requireGitHubFailure(t, err, pkgerrors.CodeGitHubRateLimited)
+				require.NotNil(t, failure.RetryAt)
+			}
+			require.EqualValues(t, 1, reads.Load())
+			writes := upstream.Writes()
+			require.Len(t, writes, 1)
+			require.Equal(t, "/app/installations/91/access_tokens", writes[0].Path)
+			require.JSONEq(t, `{"repository_ids":[100],"permissions":{"pull_requests":"read"}}`, string(writes[0].Body))
+			_, err = api.PushBranchHasPull(t.Context(), source, "main")
+			require.Error(t, err)
+			require.EqualValues(t, 1, reads.Load())
+			require.Len(t, upstream.Writes(), 1)
+		})
+	}
+}
 
 func TestMythicalGitHubReadPushSourceUsesNarrowInstallation(t *testing.T) {
 	minter, upstream := newScopedTokenMinter(t)

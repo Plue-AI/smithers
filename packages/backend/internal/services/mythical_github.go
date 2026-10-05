@@ -151,31 +151,79 @@ type mythicalGitHubAPI struct {
 // never asks for push permission or uses a member credential for observation.
 type mythicalPushReader interface {
 	ReadPushSource(context.Context, db.GithubSyncedRepo) (mythicalGitHubRepo, error)
+	PushBranchHasPull(context.Context, db.GithubSyncedRepo, string) (bool, error)
 	PushActor(context.Context, mythicalGitHubRepo, string, string) (gitHubActor, error)
 }
 
-func (g *mythicalGitHubAPI) ReadPushSource(ctx context.Context, source db.GithubSyncedRepo) (mythicalGitHubRepo, error) {
-	if g == nil || g.gitBase == nil || !source.InstallationID.Valid || source.InstallationID.Int64 <= 0 || !source.GithubRepositoryID.Valid || source.GithubRepositoryID.Int64 <= 0 {
-		return mythicalGitHubRepo{}, gitHubFetchUnavailable()
+func (g *mythicalGitHubAPI) pushReadToken(ctx context.Context, source db.GithubSyncedRepo, permission string) (string, error) {
+	if g == nil || !source.InstallationID.Valid || source.InstallationID.Int64 <= 0 || !source.GithubRepositoryID.Valid || source.GithubRepositoryID.Int64 <= 0 {
+		return "", gitHubFetchUnavailable()
 	}
 	minter, ok := g.tokens.(GitHubInstallationTokenMinter)
 	if !ok {
-		return mythicalGitHubRepo{}, gitHubFetchUnavailable()
+		return "", gitHubFetchUnavailable()
 	}
-	token, err := minter.CreateGitHubInstallationToken(ctx, source.InstallationID.Int64, GitHubTokenScope{
-		RepositoryIDs: []int64{source.GithubRepositoryID.Int64}, Permissions: map[string]string{"contents": "read"},
-	})
+	token, err := minter.CreateGitHubInstallationToken(ctx, source.InstallationID.Int64, GitHubTokenScope{RepositoryIDs: []int64{source.GithubRepositoryID.Int64}, Permissions: map[string]string{permission: "read"}})
 	if err != nil {
-		return mythicalGitHubRepo{}, err
+		return "", err
 	}
 	if token.InstallationID != source.InstallationID.Int64 || strings.TrimSpace(token.Token) == "" {
+		return "", gitHubFetchUnavailable()
+	}
+	return token.Token, nil
+}
+
+func (g *mythicalGitHubAPI) ReadPushSource(ctx context.Context, source db.GithubSyncedRepo) (mythicalGitHubRepo, error) {
+	if g == nil || g.gitBase == nil {
 		return mythicalGitHubRepo{}, gitHubFetchUnavailable()
 	}
-	remote, err := gitMirrorURL(g.gitBase(), token.Token, source.OwnerLogin, source.RepoName)
+	token, err := g.pushReadToken(ctx, source, "contents")
 	if err != nil {
 		return mythicalGitHubRepo{}, err
 	}
-	return mythicalGitHubRepo{Owner: source.OwnerLogin, Name: source.RepoName, Token: token.Token, GitURL: remote}, nil
+	remote, err := gitMirrorURL(g.gitBase(), token, source.OwnerLogin, source.RepoName)
+	if err != nil {
+		return mythicalGitHubRepo{}, err
+	}
+	return mythicalGitHubRepo{Owner: source.OwnerLogin, Name: source.RepoName, Token: token, GitURL: remote}, nil
+}
+
+// A missing local PR number is not proof of remote absence. One matching PR
+// suffices to refuse a pre-PR lease; only a complete empty filtered response
+// proves absence. This consumes the existing transport, never another poller.
+func (g *mythicalGitHubAPI) PushBranchHasPull(ctx context.Context, source db.GithubSyncedRepo, branch string) (bool, error) {
+	if g == nil || g.api == nil || !mythicalTodoBranchValid(branch) {
+		return false, gitHubFetchUnavailable()
+	}
+	token, err := g.pushReadToken(ctx, source, "pull_requests")
+	if err != nil {
+		return false, err
+	}
+	query := url.Values{"head": {source.OwnerLogin + ":" + branch}, "state": {"all"}, "per_page": {"1"}}
+	var raw json.RawMessage
+	status, headers, err := g.api.requestHeaders(ctx, token, http.MethodGet, landingGitHubRepoPath(source.OwnerLogin, source.RepoName)+"/pulls?"+query.Encode(), "", nil, &raw)
+	if err != nil {
+		return false, err
+	}
+	if status != http.StatusOK {
+		return false, landingGitHubStatusError(status, source.OwnerLogin, source.RepoName, "read pull requests")
+	}
+	var pulls []landingGitHubPullRequest
+	if !strings.HasPrefix(strings.TrimSpace(string(raw)), "[") || json.Unmarshal(raw, &pulls) != nil {
+		return false, GitHubRequestFailure(ctx, "GitHub returned an unreadable pull request listing")
+	}
+	if len(pulls) == 0 {
+		if headers.Get("Link") != "" {
+			return false, GitHubRequestFailure(ctx, "GitHub returned an incomplete pull request listing")
+		}
+		return false, nil
+	}
+	for _, pull := range pulls {
+		if pull.Number <= 0 || pull.Head.Ref != branch || pull.Head.Repo == nil || !strings.EqualFold(pull.Head.Repo.FullName, source.OwnerLogin+"/"+source.RepoName) {
+			return false, GitHubRequestFailure(ctx, "GitHub returned an unbound pull request listing")
+		}
+	}
+	return true, nil
 }
 
 // NewMythicalGitHub resolves the repository owner's App installation token at

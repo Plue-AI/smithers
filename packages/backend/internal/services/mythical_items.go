@@ -2657,17 +2657,27 @@ func (s *MythicalService) consumeGitHubRefTodos(ctx context.Context, tx pgx.Tx, 
 		if !mythicalTodoBranchValid(checks.Branch) {
 			return nil, gitHubFetchUnavailable()
 		}
-		input := mythicalGitHubFactItem{State: item.State, Head: item.PRHead}
+		input := mythicalGitHubFactItem{State: item.State, Head: item.PRHead, NoPR: !item.PRNumber.Valid && item.PRState == "", Starting: checks.RunLaunched && !checks.RunAttached}
 		push := mythicalGitHubFact{Kind: "push", Head: head}
 		decision := decideGitHubFact(push, input, s.now())
-		if decision.Attention != "foreign_push" {
+		if decision.Attention != "foreign_push" && decision.Event != "push_recorded" {
 			continue
 		}
 		input.PendingHead, err = pendingGitHubPushHead(item, checks.Branch)
 		if err != nil {
 			return nil, err
 		}
-		if decideGitHubFact(push, input, s.now()).Attention != "foreign_push" {
+		if input.NoPR && len(item.PendingOp) > 0 {
+			pending, err := decodeMythicalOutbound(item.PendingOp)
+			if err != nil {
+				return nil, err
+			}
+			// An outstanding PR-open request can already have succeeded. Only
+			// a push intent proves that recovery cannot discover a new PR.
+			input.NoPR = pending.Kind == "push"
+		}
+		decision = decideGitHubFact(push, input, s.now())
+		if decision.Attention != "foreign_push" && decision.Event != "push_recorded" {
 			continue
 		}
 		waitIndex := -1
@@ -2682,9 +2692,15 @@ func (s *MythicalService) consumeGitHubRefTodos(ctx context.Context, tx pgx.Tx, 
 		if waitIndex >= 0 && checks.ForeignHead == head && checks.Waits[waitIndex].SHA == head && len(checks.Waits[waitIndex].By) > 0 {
 			continue
 		}
-		// No-PR leasing needs coordinated outbound reconciliation; never turn
-		// that observation into an open-PR wait or acknowledge it as handled.
-		if !item.PRNumber.Valid || item.PRNumber.Int64 <= 0 || item.PRState != "open" {
+		// Before a PR exists, queued/starting observations establish the lease
+		// for the next proposal. They never answer an existing foreign wait or
+		// replace a potentially-sent outbound intent.
+		noPR := decision.Event == "push_recorded"
+		if noPR {
+			if waitIndex >= 0 {
+				return nil, gitHubFetchUnavailable()
+			}
+		} else if !item.PRNumber.Valid || item.PRNumber.Int64 <= 0 || item.PRState != "open" {
 			return nil, gitHubFetchUnavailable()
 		}
 		gh, err := reader.ReadPushSource(ctx, source)
@@ -2705,6 +2721,15 @@ func (s *MythicalService) consumeGitHubRefTodos(ctx context.Context, tx pgx.Tx, 
 		if err := s.retainFetchedPush(ctx, q, repo, owner, gh, head); err != nil {
 			return nil, err
 		}
+		if noPR {
+			hasPull, err := reader.PushBranchHasPull(ctx, source, checks.Branch)
+			if err != nil {
+				return nil, err
+			}
+			if hasPull {
+				return nil, gitHubFetchUnavailable()
+			}
+		}
 		actor, err := reader.PushActor(ctx, gh, checks.Branch, head)
 		if err != nil {
 			return nil, err
@@ -2716,21 +2741,28 @@ func (s *MythicalService) consumeGitHubRefTodos(ctx context.Context, tx pgx.Tx, 
 			return nil, err
 		}
 		by, _ := json.Marshal(map[string]any{"kind": "github", "login": actor.Login, "color_index": 7})
-		if waitIndex < 0 {
-			waitIndex = len(checks.Waits)
-			checks.Waits = append(checks.Waits, TodoWait{ID: uuid.NewString(), Kind: "foreign_push", Since: s.now().UTC()})
-		}
-		wait := &checks.Waits[waitIndex]
-		wait.SHA, wait.By = head, by
-		wait.Prompt = actor.Login + " pushed to `" + checks.Branch + "` on GitHub"
-		checks.ForeignHead = head
 		next := item
+		waitID := ""
+		if noPR {
+			// PRHead is the recorded remote head and next proposal precondition.
+			// The old intent retains its own precondition until reconciliation.
+			next.PRHead, checks.ForeignHead = head, ""
+		} else {
+			if waitIndex < 0 {
+				waitIndex = len(checks.Waits)
+				checks.Waits = append(checks.Waits, TodoWait{ID: uuid.NewString(), Kind: "foreign_push", Since: s.now().UTC()})
+			}
+			wait := &checks.Waits[waitIndex]
+			wait.SHA, wait.By = head, by
+			wait.Prompt = actor.Login + " pushed to `" + checks.Branch + "` on GitHub"
+			checks.ForeignHead, waitID = head, wait.ID
+		}
 		next.Checks = checks.encode()
 		saved, err := q.SaveMythicalItem(ctx, next)
 		if err != nil {
 			return nil, err
 		}
-		activity, _ := json.Marshal(map[string]any{"item": uuidString(item.ID), "n": item.Number.Int64, "wait": wait.ID,
+		activity, _ := json.Marshal(map[string]any{"item": uuidString(item.ID), "n": item.Number.Int64, "wait": waitID, "lease": noPR,
 			"sha": head, "by": by, "url": "https://github.com/" + source.OwnerLogin + "/" + source.RepoName + "/commit/" + head,
 			"from": todoState(item), "to": todoState(saved), "ref_claim": fact.RefClaim})
 		if _, err := jobs.RecordFactInTx(ctx, tx, todoOperationScope(saved), uuid.NewString(), "todo.foreign_push", todoState(saved), activity); err != nil {

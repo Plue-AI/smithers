@@ -153,7 +153,10 @@ type mythicalGitHubFact struct {
 }
 type mythicalGitHubFactItem struct {
 	State, Head string
-	ClosedAt    time.Time
+	// NoPR is confirmed absence, not an unavailable PR read. Starting comes
+	// from the persisted launched/attached facts, independent of other waits.
+	NoPR, Starting bool
+	ClosedAt       time.Time
 	// PendingHead comes from the item's branch-bound outbound push intent,
 	// never from the fetched PR's author or a webhook attribution.
 	PendingHead string
@@ -205,6 +208,9 @@ func decideGitHubFact(f mythicalGitHubFact, item mythicalGitHubFactItem, now tim
 		}
 		if f.Head == item.PendingHead {
 			return mythicalGitHubFactDecision{Noop: "own_push"}
+		}
+		if item.NoPR && (item.State == "queued" || item.State == "skipped" || item.Starting && item.State != "blocked" && item.State != "proposed") {
+			return mythicalGitHubFactDecision{Event: "push_recorded"}
 		}
 		return mythicalGitHubFactDecision{Attention: "foreign_push"}
 	default:

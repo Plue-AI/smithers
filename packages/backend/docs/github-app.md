@@ -14,7 +14,7 @@ One App belongs to each install. Its PEM, webhook secret, and OAuth client secre
 
 ## Pushes from outside
 
-TODO branch publication is held while the current GitHub facts, own-push reconciliation and independent wait providers are unavailable. A previously observed foreign head remains held even if a later poll reports the recorded Smithers head or a PR behind main. Polling does not answer a person's wait. Both proposal preparation and the
+TODO branch publication is held while the current GitHub facts, own-push reconciliation and independent wait providers are unavailable. With an open PR, a previously observed foreign head remains held even if a later poll reports the recorded Smithers head or a PR behind main. Polling does not answer a person's wait. Both proposal preparation and the
 direct push boundary enforce this hold, including replayed outbound pushes.
 
 The shared inbound decision recognizes the intended head of a recoverable push
@@ -50,9 +50,22 @@ and candidate facts remain intact. Selection includes failed TODOs without a
 display limit; the shared decision skips recorded heads, recoverable own pushes
 and terminal items before reading GitHub or the host.
 
-This consumer remains unregistered in production. Queued TODOs without a PR
-refuse delivery until outbound lease coordination is implemented. Main-ref
-effects and the complete refs consumer still require qualification.
+Before a PR exists, a queued or starting TODO records the retained outside
+head as the next proposal's lease, without adding a foreign-push wait. The
+consumer retains the commit before further reads, then requires a complete empty GitHub PR listing filtered to that
+exact branch, using a separate repository-scoped `pull_requests: read` token.
+An existing PR, unreadable or incomplete listing, or failed read leaves the
+observation pending. Other waits remain intact. An unreconciled PR-open request
+cannot establish that no PR exists, so that observation waits for recovery. An uncertain push intent keeps its original desired
+head and precondition. Recovery looks up that branch again: only a match with
+the recorded outside head releases the old push as a conflict, with a durable
+receipt and slot release in one transaction under the live stack lease. It
+never repeats that conflicted intent. A changed branch waits for a fresh refs
+observation, even if it moved back to the old precondition. The next verified
+proposal uses the newly recorded head as its force-with-lease precondition.
+
+This consumer remains unregistered in production. Main-ref effects and the
+complete refs consumer still require qualification.
 
 Bring in and Discard remain unavailable until the shared authorization, confirmation, catalog and checkpoint contracts pass their production boundary tests. No repository code runs on the host to bring in a commit. The eventual branch answer input is `{id, revision}`: the foreign wait id and its displayed `sha`, with an `Idempotency-Key`; a newer head requires a new decision.
 

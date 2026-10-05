@@ -25,6 +25,7 @@ const docs = Smithers.Docs.Check({
     Smithers.file("internal/services/mythical_github_poll.go"),
     Smithers.file("internal/db/mythical_ext.go"),
     Smithers.file("internal/services/mythical_items.go"),
+    Smithers.file("internal/services/mythical_outbound.go"),
     Smithers.file("internal/services/mythical_pr.go"),
     Smithers.file("internal/services/mythical_todo_state.go"),
     Smithers.file("internal/services/mythical_todo_read.go"),
