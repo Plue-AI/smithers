@@ -413,7 +413,7 @@ describe("host-owned turns run their tool calls on the host", () => {
     expect(journal.frames.at(-1)).toMatchObject({ type: "done", reason: "stop" })
     // A turn that can list is told to list, never to guess a path.
     expect(systemText(provider.requests[0])).toContain(
-      "Asked about the repository's code without a file named, list the root with files.list, then list or read the paths it shows; never guess a path."
+      "Asked about the repository's code without a file named, run files.list with no argument to list the root, then list or read the paths it shows; never guess a path."
     )
   })
 
@@ -449,6 +449,51 @@ describe("host-owned turns run their tool calls on the host", () => {
     expect(toolOutputs(provider)[3]).toBe(
       "Meeting Notes in acme/app:\na.md\n(The directory has more entries than one listing shows.)"
     )
+  })
+
+  test("a path may name the turn's repository, start with ./ or be ., as a model writes them", async () => {
+    // Each call a real model made on an install, refused before: `.`, and the repository as the path.
+    const listings = producer((path) => file(path, JOURNEY), routes({}), (path) => directory(path, [["a.md", "file"]]))
+    await run(
+      grant,
+      model([
+        listCall("."),
+        listCall("acme/app"),
+        listCall("/acme/app/docs/"),
+        listCall("./docs"),
+        listCall("docs app"),
+        listCall("acme/application")
+      ]),
+      listings
+    )
+    expect(listings.lists.map((call) => (call.body as { path: string }).path)).toEqual([
+      "",
+      "",
+      "docs",
+      "docs",
+      "docs",
+      "acme/application"
+    ])
+    const reads = producer((path) => file(path, JOURNEY))
+    await run(
+      grant,
+      model([
+        readCall("acme/app/JOURNEY.md"),
+        readCall("./docs/guide.md:2"),
+        readCall("JOURNEY.md app"),
+        readCall("acme/app"),
+        readCall("./")
+      ]),
+      reads
+    )
+    expect(reads.reads.map((call) => (call.body as { path: string }).path)).toEqual([
+      "JOURNEY.md",
+      "docs/guide.md",
+      "JOURNEY.md"
+    ])
+    // A path that names no file once the repository is taken off it is refused before any read.
+    const refused = reads.frames.flatMap((frame) => frame.type === "gate.rejected" ? [frame.message] : [])
+    expect(refused).toEqual(["files.read needs a file path", "files.read needs a file path"])
   })
 
   test("each listing refusal is stated to the model and the conversation, and the turn answers", async () => {

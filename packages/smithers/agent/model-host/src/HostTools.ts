@@ -291,6 +291,26 @@ type BoundRun = (args: string | undefined, ordinal: number) => Effect.Effect<Out
  */
 type Bind = (grant: DurableChatGrant, transport: HostTransport) => BoundRun | undefined
 
+/**
+ * A path as the turn's repository names it. The turn reads one repository, so a path that starts with that
+ * repository's own name (`owner/repo/src`, `/owner/repo`) or with `./`, and the root written as `.` or `/`, name the
+ * same entry as the path without them; slashes around it are dropped. `""` is the root. A model writes each of
+ * these, and refusing them only spends its tool calls.
+ */
+const repositoryPath = (repository: string, path: string): string => {
+  const bare = path.replace(/^\/+/u, "")
+  const relative = bare === repository
+    ? ""
+    : bare.startsWith(`${repository}/`)
+    ? bare.slice(repository.length + 1)
+    : bare
+  return relative.replace(/^(?:\.\/|\/)+/u, "").replace(/^\.$/u, "").replace(/\/+$/u, "")
+}
+
+/** Whether a repository token names the turn's repository, as owner/repo or by its name alone. */
+const namesRepository = (repository: string, repo: string): boolean =>
+  repo === repository || repo === repository.slice(repository.indexOf("/") + 1)
+
 /** `files.read` on the turn's mirrored main. */
 const filesRead: Bind = (grant, { read }) => {
   const repository = grant.source?.repository
@@ -299,10 +319,12 @@ const filesRead: Bind = (grant, { read }) => {
     Effect.gen(function*() {
       const input = parseFileReadArgs(args)
       if ("error" in input) return { refusal: input.error }
-      const { path, repo, ref, line, column } = input.payload
-      if (repo !== undefined && repo !== repository) {
+      const { repo, ref, line, column } = input.payload
+      if (repo !== undefined && !namesRepository(repository, repo)) {
         return { refusal: `This question reads ${repository} only; name a file in it.` }
       }
+      const path = repositoryPath(repository, input.payload.path)
+      if (path === "") return { refusal: "files.read needs a file path" }
       if (ref !== undefined) return { refusal: "This question reads main only; ask without --ref." }
       const answer = yield* read(path)
       if (!("file" in answer)) return { refusal: refusalText(path, answer.code) }
@@ -338,9 +360,6 @@ const listRefusalText = (path: string, code: string): string => {
   }
 }
 
-/** A listing's path as the repository names it, without the slashes around it: `/` names the root, as no path does. */
-const directoryPath = (path: string): string => path.replace(/^\/+/u, "").replace(/\/+$/u, "")
-
 /** `files.list` on the turn's mirrored main. */
 const filesList: Bind = (grant, { list }) => {
   const repository = grant.source?.repository
@@ -350,10 +369,10 @@ const filesList: Bind = (grant, { list }) => {
       const input = parseFileListArgs(args)
       if ("error" in input) return { refusal: input.error }
       const { repo } = input.payload
-      if (repo !== undefined && repo !== repository) {
+      if (repo !== undefined && !namesRepository(repository, repo)) {
         return { refusal: `This question reads ${repository} only; name a directory in it.` }
       }
-      const path = directoryPath(input.payload.path)
+      const path = repositoryPath(repository, input.payload.path)
       const answer = yield* list(path)
       if (!("directory" in answer)) return { refusal: listRefusalText(path, answer.code) }
       const { directory } = answer
@@ -507,7 +526,7 @@ const offeredCommands = (grant: DurableChatGrant, transport: HostTransport): Rea
 
 /** How a turn that can list finds a file it was not named: it lists, never guesses. */
 const LIST_BEFORE_READ_LINE =
-  "Asked about the repository's code without a file named, list the root with files.list, then list or read the paths it shows; never guess a path."
+  "Asked about the repository's code without a file named, run files.list with no argument to list the root, then list or read the paths it shows; never guess a path."
 
 /**
  * The instructions of a turn this host runs commands for. They replace the
