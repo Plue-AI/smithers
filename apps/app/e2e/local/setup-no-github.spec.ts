@@ -160,8 +160,19 @@ test("agent question with file cards", async ({}, info) => {
     expect(contents).toEqual([])
   } finally { page.off("request", watch) }
 })
-test("8 TODO start", async ({}, info) => {
-  info.annotations.push({ type: "owner", description: "TODO start lane (T-FLW-11)" }); test.fail()
+const todoCard = () => page.getByRole("article", { name: "TODO T1", exact: true }).last()
+const served = async () => {
+  const response = await context.request.get("http://localhost:4000/api/todos/1")
+  expect(response.status()).toBe(200)
+  return response.json()
+}
+/** The card's state word is the server's state, read through GET /api/todos/1 (never a client guess). */
+const showsServedState = async (state: string) => {
+  await expect.poll(async () => (await served()).state, { timeout: 15_000 }).toBe(state)
+  await expect(todoCard().locator("header .mvp-state")).toHaveAttribute("data-state", state)
+}
+test("8 TODO created", async ({}, info) => {
+  info.annotations.push({ type: "owner", description: "f6-app-install (T-APP-02 #3466; now passing)" })
   const input = page.getByTestId("composer-input")
   if (!await input.isVisible()) await page.keyboard.press("Control+k")
   await input.fill("/todo.new")
@@ -169,25 +180,42 @@ test("8 TODO start", async ({}, info) => {
   const draft = page.getByRole("region", { name: "Draft", exact: true }).last()
   await draft.getByLabel("Title", { exact: true }).fill("First local TODO")
   await draft.getByLabel("Prompt", { exact: true }).fill("Add a greeting to README.md")
-  await draft.getByLabel("Place", { exact: true }).selectOption({ label: "Append" })
+  await draft.getByRole("combobox", { name: "Place", exact: true }).selectOption({ label: "Append" })
   await draft.getByRole("button", { name: "Commit", exact: true }).click()
-  await expect(page.getByRole("article", { name: "TODO T1", exact: true }).getByText("Working", { exact: true })).toBeVisible()
-  expect((await install()).steps.every((s: { state: string }) => s.state === "done")).toBe(true)
-  expect(await writes()).toEqual(expect.any(Array))
+  await expect(todoCard()).toContainText("First local TODO")
+  expect(await served()).toMatchObject({ n: 1, title: "First local TODO", prompt_revisions: [expect.objectContaining({ text: "Add a greeting to README.md" })] })
+  await expect.poll(async () => {
+    const state = (await served()).state
+    return await todoCard().locator("header .mvp-state").getAttribute("data-state") === state ? state : `card differs from ${state}`
+  }, { timeout: 10_000 }).toMatch(/^(queued|starting|working|needs_you|in_review)$/)
+})
+for (const [state, owner] of [
+  ["starting", "J1 rehearsal row 'TODO starting' (T-STK-01: the TODO stays queued)"],
+  ["working", "J1 rehearsal row 'TODO working' (T-STK-01)"]
+]) test(`8 TODO ${state}`, async ({}, info) => {
+  info.annotations.push({ type: "owner", description: owner }); test.fail()
+  await showsServedState(state)
 })
 test("9 PR", async ({}, info) => {
-  info.annotations.push({ type: "owner", description: "PR lane (T-GH-06)" }); test.fail()
-  const todo = page.getByRole("article", { name: "TODO T1", exact: true })
-  await expect(todo.getByText("In review", { exact: true })).toBeVisible()
-  await todo.getByText("Evidence", { exact: true }).click()
-  await expect(todo.locator('a[href^="https://github.com/local-owner/demo/pull/"]')).toBeVisible()
+  info.annotations.push({ type: "owner", description: "J1 rehearsal rows 'TODO in_review' and 'PR' (T-STK-01, T-GH-06)" }); test.fail()
+  await showsServedState("in_review")
+  await expect(todoCard().locator('a[href^="https://github.com/local-owner/demo/pull/"]').first()).toBeVisible()
+  await expect(todoCard().getByRole("region", { name: /^Attempt \d+ evidence$/ }).last()).toBeVisible()
   expect(await writes()).toEqual(expect.arrayContaining([expect.objectContaining({ method: "POST", path: "/repos/local-owner/demo/pulls", status: 201 })]))
-  expect((await install()).steps.every((s: { state: string }) => s.state === "done")).toBe(true)
 })
 test("10 merge", async ({}, info) => {
-  info.annotations.push({ type: "owner", description: "merge lane (T-STK-04)" }); test.fail()
-  await page.getByRole("button", { name: "Merge", exact: true }).click()
-  await expect(page.getByText("Merged", { exact: true })).toBeVisible()
+  info.annotations.push({ type: "owner", description: "J1 rehearsal rows 'Merge in Smithers' and 'Merged' (T-STK-04 merge readiness and dispatch)" }); test.fail()
+  const input = page.getByTestId("composer-input")
+  if (!await input.isVisible()) await page.keyboard.press("Control+k")
+  await input.fill("/merge T1")
+  await input.press("Enter")
+  // Review & merge is bound to the head the person reviews; its press is the browser session's POST /api/todos/1/merge.
+  const review = page.getByRole("region", { name: "Merge T1 into main?", exact: true }).last()
+  const head = (await served()).pr.head
+  await expect(review).toContainText(`#${(await served()).pr.number}`)
+  const merge = page.waitForRequest(request => request.method() === "POST" && new URL(request.url()).pathname === "/api/todos/1/merge")
+  await review.getByRole("button", { name: "Merge", exact: true }).click()
+  expect((await merge).postDataJSON()).toEqual({ reviewed_head_sha: head })
+  await showsServedState("merged")
   expect(await writes()).toEqual(expect.arrayContaining([expect.objectContaining({ method: "PUT", path: "/repos/local-owner/demo/pulls/1/merge", status: 200 })]))
-  expect((await install()).steps.every((s: { state: string }) => s.state === "done")).toBe(true)
 })
