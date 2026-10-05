@@ -297,3 +297,91 @@ Shell execution accepts `timeout` as an integer followed by `ms`, `s`, `m`, or
 
 Docker.Build accepts `cache: false` when its context has no complete content identity. The distribution preview image uses this setting.
 
+## Cloud Run previews
+
+`S.CloudRun.Preview` (also `@smthrs/targets/CloudRun`) requires `image`, a
+`Docker.Build` target; `project`; `region`; `service`; `repository`, exactly
+`<region>-docker.pkg.dev/<project>/<repo>`; `deployer`; and `serviceAccount`.
+The last two are IAM service-account emails. Cloud Run requires a single
+amd64 image labeled `org.opencontainers.image.revision` with the run's full
+40-hex Git commit. The target key names the repository image and receipt file and must contain
+1–128 lowercase letters, digits, underscores, dots or hyphens, starting with
+a letter or digit.
+
+Optional attributes are `env` (`Attr.Env`: string values, valid environment
+names, no newlines or NULs, at most 100 entries and 32768 serialized UTF-8
+bytes); `access` (default `"private"`); `expires` (default `"72h"`, whole hours
+from `"1h"` through `"168h"`, or whole minutes from `"1m"` through `"59m"` for expiry qualification); and `approval` (`"required"` when explicitly
+requested). Public access is reserved for the sign-in-link release and refuses
+before tool calls, even with approval. Approval remains opt-in for private
+previews. Bare wildcards never run this target, and no preview is cached.
+
+Bootstrap outside Smithers: create the Artifact Registry repository, deployer
+and runtime service accounts, and an existing private Cloud Run service with
+its initial revision. Give the runner's authenticated principal permission to
+impersonate `deployer`, and give that account permission to push images,
+deploy/delete revisions, change tags, and act as `serviceAccount`. Keep the
+service IAM policy private. Smithers refuses a missing service because its
+first deploy cannot use `--no-traffic`. Cloud Run sends SIGKILL ten seconds
+after SIGTERM; the image must shut down within that window.
+
+The transport obtains an impersonated token, logs Docker in through stdin
+using a disposable configuration, loads and pushes the archive, verifies its
+config digest at the registry, and deploys by digest. The revision is tagged
+`r-<sha7>` with no traffic and `--no-allow-unauthenticated`. A matching tagged
+digest with no traffic is reused until it expires. An anonymous GET must answer 401 or 403;
+otherwise Smithers removes the tag and deletes that revision. Cleanup removes
+tags before deleting expired revisions carrying `smthrs-expires`, `smthrs-commit`
+and a matching `smthrs-owner`. The owner is the first 40 hex characters of
+SHA-256 over the JSON array `[normalized host/owner/repo, target label, image namespace]`.
+Reuse and cleanup refuse foreign or legacy ownership. Each deploy also stamps
+a UUID `smthrs-deployment`; uncertain deploy results reconcile that UUID and
+owner before removing the owned tag/revision with an independent 30-second
+cleanup signal. Cleanup failures preserve the original error. Revisions
+carrying traffic remain untouched.
+
+| Refusal code          | Meaning                                                                       |
+| --------------------- | ----------------------------------------------------------------------------- |
+| `public_access_off`   | Public access needs the sign-in link; use private.                            |
+| `credentials_missing` | Google login or deployer impersonation is unavailable.                        |
+| `dirty_worktree`      | Commit or remove tracked and untracked changes before deploying.              |
+| `tool_missing`        | Docker or gcloud is absent from PATH.                                         |
+| `stale_image`         | Archive revision differs from the run commit, or is not a single amd64 image. |
+| `service_missing`     | The existing service could not be described.                                  |
+| `public_surface`      | Anonymous access was not refused; the preview is removed.                     |
+| `invalid_target`      | Target key, repository origin or preview ownership is invalid.                |
+| `tool_failed`         | A transport command or response failed.                                       |
+
+On success, `<package dir>/cloud-run-preview/<target>.json` contains the
+following versioned receipt. `revision` is the commit's seven-character prefix;
+`swept` contains deleted Cloud Run revision names. Measurements are archive
+bytes, the image dependency's elapsed run seconds, and deploy-to-ready
+seconds; they are not registry billing or application latency measurements.
+
+```json
+{
+  "version": 1,
+  "label": "//distribution:preview",
+  "commit": "0123456789abcdef0123456789abcdef01234567",
+  "revision": "0123456",
+  "tag": "r-0123456",
+  "project": "example-project",
+  "region": "us-central1",
+  "service": "preview",
+  "imageDigest": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+  "access": "private",
+  "expiresAt": "2026-10-07T14:40:00Z",
+  "open": {
+    "command": "gcloud run services proxy preview --tag r-0123456 --region us-central1 --project example-project --port 4100",
+    "localUrl": "http://preview.localhost:4100"
+  },
+  "measured": { "imageBytes": 0, "buildSeconds": 0, "readySeconds": 0 },
+  "swept": []
+}
+```
+
+The terminal prints readiness and expiry in UTC, the proxy command, the local
+URL, and image size/readiness/cleanup counts. Proxying uses the reader's own
+`gcloud` login. The receipt carries no access token or remote tag URL.
+
+A restored image whose revision differs from its preview consumer is rebuilt. Preview readiness timing starts at deploy and ends when the deployed revision is observed ready; it excludes push, privacy probing and expiry cleanup.

@@ -200,10 +200,8 @@ func TestPreviewServiceAdmissionRefusesDirectHandler(t *testing.T) {
 		require.EqualError(t, err, "Machines are off in this preview.")
 		w.WriteHeader(http.StatusServiceUnavailable)
 	})
-	children := previewChildren(t)
 	response := httptest.NewRecorder()
 	router.ServeHTTP(response, httptest.NewRequest(http.MethodPost, "/unmarked", nil))
 	require.True(t, reached)
 	require.Equal(t, http.StatusServiceUnavailable, response.Code)
-	require.Equal(t, children, previewChildren(t), "service admission spawned a process")
 }

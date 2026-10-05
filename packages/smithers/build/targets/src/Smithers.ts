@@ -428,6 +428,12 @@ export * as Anvil from "./Anvil.ts"
  */
 export * as Docker from "./Docker.ts"
 
+/** Cloud Run preview targets.
+ * @category targets
+ * @since 1.0.0
+ */
+export * as CloudRun from "./CloudRun.ts"
+
 /**
  * Cross-repository target edges into opaque local workspaces.
  *

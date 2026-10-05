@@ -18,10 +18,6 @@
  *   host with no approval store refuses, and the invocation has no side
  *   effect to undo.
  *
- * No rule has an outward transport yet. The package planner refuses each
- * one as not implemented, before this gate or any rule gate runs, so a
- * plannable outward target never spends a gate run on a certain failure.
- *
  * @since 0.1.0
  */
 

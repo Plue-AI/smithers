@@ -11,6 +11,37 @@ allowed to touch, and puts the tree back when it oversteps.
 The [rule contract architecture](./rule-contracts.md) maps the shared services
 and the family planners and executors that use them.
 
+## Cloud Run previews
+
+`CloudRun.Preview` is an explicit-label, uncached outward transport. Attribute
+validation and public-access/tool refusal precede image planning. Once its
+`Docker.Build` completes, preflight reads the archive's commit label and amd64
+architecture and describes the existing private service. Login eligibility is checked before service lookup. No push or deploy starts before preflight passes.
+
+Every gcloud child impersonates the declared deployer. Its access token is
+captured privately and sent only to Docker login stdin. Docker uses a mode-0700
+temporary configuration, removed on success, failure and cancellation. The
+shared `pushArchive` transport loads the built image, tags and pushes it, and
+verifies the pushed config. Deployment references the registry digest, never a
+mutable tag, and uses a tagged no-traffic revision with unauthenticated access
+disabled. A current tagged digest without traffic is reused until expiry.
+
+The anonymous HTTP probe follows no redirects and must receive 401 or 403.
+Failure removes the tag and deletes the preview revision. Expiry cleanup
+removes tags before deleting only expired revisions with `smthrs-expires`,
+`smthrs-commit`, matching `smthrs-owner`, and no traffic. The owner is the first
+40 hex characters of SHA-256 over `[normalized host/owner/repo, target label, image
+namespace]` serialized as JSON. Reuse also requires that owner; foreign and
+legacy revisions remain untouched. A UUID `smthrs-deployment` identifies each
+mutation. Failed or cancelled deploy/discovery results reconcile the owner and
+UUID and clean up with an independent 30-second signal, preserving the original
+error if cleanup fails. Successful runs write a
+version-1 receipt in the package's `cloud-run-preview/<target>.json` and print
+the proxy command and local URL. Subprocess output stays private; failures
+report command/status without echoing credentials. See the
+[preview API](../../../targets/docs/api.md#cloud-run-previews) for attributes,
+bootstrap, refusal codes, and receipt fields.
+
 ## Docker pushes
 
 `Docker.Push` requires at least one tag. Literal tags are checked when planning;
@@ -327,3 +358,5 @@ query, and fragment before it appears anywhere; the full value stays in the
 failure's cause. An agent prompt's data files are read through a descriptor
 proven to resolve inside the workspace, so an in-workspace symlink cannot pull
 a host file into a model prompt.
+
+Planning a preview refuses a dirty working copy, including untracked files. Preview ownership normalizes the repository origin to `host/owner/repo`. Positive traffic allocations survive tag moves; empty declared environments use `--clear-env-vars`. Missing Google login or impersonation returns `credentials_missing`.

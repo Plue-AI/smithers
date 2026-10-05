@@ -34,6 +34,7 @@ import * as AgentFake from "../AgentFake.ts"
 import * as AgentSession from "../AgentSession.ts"
 import * as AnvilExec from "../AnvilExec.ts"
 import { openCache } from "../Cache.ts"
+import * as CloudRunExec from "../CloudRunExec.ts"
 import * as Diagnostic from "../Diagnostic.ts"
 import * as DockerExec from "../DockerExec.ts"
 import { declaredToolchain, runInstall } from "../engine.ts"
@@ -2041,7 +2042,19 @@ export const executeEffect = (
     ): Effect.Effect<Outcome, unknown> =>
       Effect.gen(function*() {
         const cached = yield* cacheGet(node, key)
-        if (cached !== undefined && (yield* restoreBuild(node, cached.output))) return green("hit")
+        if (cached !== undefined && (yield* restoreBuild(node, cached.output))) {
+          const consumer = [...planned.nodes.values()].find((candidate) =>
+            candidate.lane?.kind === "cloud-run-preview" && candidate.dependencies.includes(node.label)
+          )
+          let matches = true
+          if (node.rule === "Docker.Build" && consumer?.lane?.kind === "cloud-run-preview") {
+            const image = yield* joined(() =>
+              DockerExec.readImageArchive(NodePath.join(root, DockerExec.imageArchive(node.outDirs[0]!)))
+            )
+            matches = !("error" in image) && image.revision === consumer.lane.commit
+          }
+          if (matches) return green("hit")
+        }
         const outcome = yield* run
         if (outcome.status === "ran") yield* captureBuild(node, key)
         return outcome
@@ -2648,68 +2661,63 @@ export const executeEffect = (
                 })
               )
             }
+            case "CloudRun.Preview": {
+              if (node.lane?.kind !== "cloud-run-preview") return fail("CloudRun.Preview planned no transport")
+              const lane = node.lane
+              const build = node.dependencies.map((label) => planned.nodes.get(label)).find((dependency) =>
+                dependency?.rule === "Docker.Build"
+              )
+              const outDir = build?.outDirs[0]
+              if (outDir === undefined) return fail("CloudRun.Preview: stale_image: no built archive")
+              const receipt = yield* joined((signal) =>
+                CloudRunExec.preview({
+                  attrs: lane.attrs,
+                  packagePath: lane.packagePath,
+                  name: lane.name,
+                  root,
+                  label: node.label,
+                  archive: NodePath.join(root, DockerExec.imageArchive(outDir)),
+                  commit: lane.commit,
+                  buildSeconds: (reports.get(build!.label)?.durationMs ?? 0) / 1000,
+                  environment: Workspace.withheldEnvironment(environment, options.remoteCache?.credentials),
+                  signal
+                })
+              )
+              for (const line of Reporter.previewLines(receipt)) log(line)
+              return green("ran")
+            }
             case "Docker.Push": {
               if (node.lane?.kind !== "docker-push") return fail("docker push planned no commands")
-              // Push exactly the image the dependency built: load its archive,
-              // tag the loaded image, and check the registry holds that image.
               const build = node.dependencies.map((label) => planned.nodes.get(label)).find((dependency) =>
                 dependency?.rule === "Docker.Build" || dependency?.rule === "Docker.Bake"
               )
               const outDir = build?.outDirs[0]
               if (outDir === undefined) return fail("Docker.Push image is not a planned Docker.Build or Docker.Bake")
-              // Every command is `<docker> push <reference>`.
-              const docker = node.lane.commands[0]?.slice(0, -2)
-              if (docker === undefined) return fail("docker push planned no commands")
-              const archive = NodePath.join(root, ...DockerExec.imageArchive(outDir).split("/"))
-              const image = yield* joined(() => DockerExec.readImageArchive(archive))
-              if ("error" in image) return fail(`${DockerExec.imageArchive(outDir)}: ${image.error}`)
-              // buildx's OCI exporter writes no manifest.json, which `docker load` needs.
-              const temporary = NodePath.join(root, ...cacheDirectory.split("/"), "tmp")
-              const loadable = image.loadable
-                ? archive
-                : NodePath.join(temporary, `docker-load-${randomUUID()}.tar`)
-              const loaded = yield* Effect.ensuring(
-                Effect.gen(function*() {
-                  if (!image.loadable) {
-                    yield* joined(() => Fs.mkdir(temporary, { recursive: true }))
-                    yield* joined(() => DockerExec.writeLoadableArchive(archive, loadable, image))
-                  }
-                  return yield* spawnNode(node, root, [...docker, "load", "--input", loadable], [], true)
-                }),
-                image.loadable ? Effect.void : Effect.promise(() => Fs.rm(loadable, { force: true }))
-              )
-              if (!loaded.ok) return fail(loaded.error ?? "docker load failed")
-              // The classic image store names an image by its config digest,
-              // the containerd store by its manifest digest.
-              const id = DockerExec.loadedImageIds(loaded.result?.stdout ?? "").find((loadedId) =>
-                loadedId === image.config || loadedId === image.manifest
-              )
-              if (id === undefined) return fail(`docker load did not load ${image.config} from ${outDir}/image.tar`)
               const attrs = Target.metadata(node.declaration).attrs as (typeof Docker.PushAttrs)["Type"]
-              const repository = `${attrs.registry}/${attrs.name}`
-              for (const command of node.lane.commands) {
+              const lane = node.lane
+              const commands = yield* joined(() =>
+                Promise.all(lane.commands.map((command) => StampExec.resolveArgv(root, command)))
+              )
+              for (const command of commands) {
                 const reference = command.at(-1)!
-                const tagged = yield* spawnNode(node, root, [...docker, "tag", id, reference])
-                if (!tagged.ok) return fail(tagged.error ?? "docker tag failed")
-                const spawned = yield* spawnNode(node, root, command)
-                if (!spawned.ok) return fail(spawned.error ?? "docker push failed")
-                const digest = DockerExec.pushedDigest(spawned.result?.stdout ?? "")
-                if (digest === undefined) return fail(`docker push reported no digest for ${reference}`)
-                const inspected = yield* spawnNode(
-                  node,
-                  root,
-                  [...docker, "buildx", "imagetools", "inspect", "--raw", `${repository}@${digest}`],
-                  [],
-                  true
-                )
-                if (!inspected.ok) return fail(inspected.error ?? "docker buildx imagetools inspect failed")
-                const pushedConfig = DockerExec.manifestConfig(inspected.result?.stdout ?? "")
-                if (pushedConfig !== image.config) {
-                  return fail(
-                    `${repository}@${digest} holds config ${pushedConfig ?? "(none)"}, not the built ${image.config}`
-                  )
+                const prefix = `${attrs.registry}/${attrs.name}:`
+                if (!reference.startsWith(prefix)) {
+                  return fail("Docker.Push image must match its declared registry and name")
                 }
+                const refusal = DockerExec.pushTagRefusal(reference.slice(prefix.length))
+                if (refusal !== undefined) return fail(refusal)
               }
+              const outcome = yield* joined((signal) =>
+                DockerExec.pushArchive({
+                  archive: NodePath.join(root, ...DockerExec.imageArchive(outDir).split("/")),
+                  docker: commands[0]!.slice(0, -2),
+                  repository: `${attrs.registry}/${attrs.name}`,
+                  temporaryDirectory: NodePath.join(root, ...cacheDirectory.split("/"), "tmp"),
+                  references: commands.map((command) => command.at(-1)!),
+                  run: (command) => Effect.runPromise(spawnNode(node, root, command, [], true), { signal })
+                })
+              )
+              if ("error" in outcome) return fail(outcome.error)
               return green("ran")
             }
             case "ImportClosure": {

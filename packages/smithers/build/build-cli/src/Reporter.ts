@@ -583,3 +583,34 @@ export const of = (options: {
   const sink = options.log ?? ((line: string) => process.stderr.write(`${line}\n`))
   return plain(sink)
 }
+
+/** The preview receipt's actionable terminal lines.
+ * @category rendering
+ * @since 1.0.0
+ */
+export const previewLines = (receipt: {
+  readonly revision: string
+  readonly expiresAt: string
+  readonly open: { readonly command: string; readonly localUrl: string }
+  readonly measured: { readonly imageBytes: number; readonly readySeconds: number }
+  readonly swept: ReadonlyArray<string>
+}): ReadonlyArray<string> => {
+  const date = new Date(receipt.expiresAt)
+  const expires = date.toLocaleString("en-US", {
+    timeZone: "UTC",
+    weekday: "short",
+    month: "short",
+    day: "numeric",
+    hour: "2-digit",
+    minute: "2-digit",
+    hour12: false
+  }).replaceAll(",", "")
+  return [
+    `Preview ${receipt.revision} ready · private · expires ${expires}`,
+    receipt.open.command,
+    receipt.open.localUrl,
+    `image ${(receipt.measured.imageBytes / 1_000_000).toFixed(1)} MB · ready in ${
+      receipt.measured.readySeconds.toFixed(1)
+    }s · ${receipt.swept.length} expired previews removed`
+  ]
+}

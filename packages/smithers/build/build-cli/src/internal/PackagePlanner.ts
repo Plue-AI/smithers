@@ -37,6 +37,7 @@ import * as NodePath from "node:path"
 import * as AgentSession from "../AgentSession.ts"
 import * as AnvilExec from "../AnvilExec.ts"
 import { type CacheStore, openCache } from "../Cache.ts"
+import * as CloudRunExec from "../CloudRunExec.ts"
 import * as Diagnostic from "../Diagnostic.ts"
 import * as DockerExec from "../DockerExec.ts"
 import { targetToolchain } from "../engine.ts"
@@ -1348,6 +1349,11 @@ const visit = async (
     context.signal
   )
 
+  if (rule === "CloudRun.Preview") {
+    await CloudRunExec.requireCleanWorktree(context.root)
+    CloudRunExec.tools(attrs as CloudRunExec.Attrs, context.environment)
+  }
+
   // Dependencies: always visited for key material; the execution edges are a
   // per-rule subset decided below.
   const depKeys = new Map<Target.AnyTarget, string>()
@@ -1407,6 +1413,24 @@ const visit = async (
   }
 
   const declaredInputs = await expandInputs(context, inputPackage(metadata, packagePath), view.inputs)
+  // A root Docker context can read sources across package boundaries. Give
+  // uncached builds source identity without pretending a Git census covers
+  // ignored context files, daemon/base images or every build environment.
+  let dockerContextSources: unknown = null
+  if (rule === "Docker.Build" && attrMember(attrs, "cache") === false) {
+    const directory = Input.resolvePath(packagePath, String(attrMember(attrs, "context"))) || "."
+    const census = await PackageTree.runGit(context.root, [
+      "ls-files",
+      "-z",
+      "--cached",
+      "--others",
+      "--exclude-standard",
+      "--",
+      directory
+    ]).catch(() => "")
+    const files = [...new Set(census.split("\0").filter(Boolean))].sort()
+    dockerContextSources = await Input.digestFiles(context.root, files, { signal: context.signal })
+  }
   const inputDigests = new Map<Input.Declared, string>()
   for (const expanded of declaredInputs) inputDigests.set(expanded.declaration, expanded.digest)
 
@@ -2009,6 +2033,21 @@ const visit = async (
     }
     if (sandbox === undefined) sandbox = "none"
     if (planned.refusal !== undefined) noteRefusal(planned.refusal)
+  }
+
+  if (rule === "CloudRun.Preview") {
+    selection = {
+      family: "outward",
+      rule,
+      lane: {
+        kind: "cloud-run-preview",
+        commit: (await PackageTree.runGit(context.root, ["rev-parse", "HEAD"])).trim(),
+        attrs: attrs as CloudRunExec.Attrs,
+        packagePath,
+        name: context.index.targets().find((row) => row.label === label)?.key ?? label.split(":").at(-1)!
+      }
+    }
+    sandbox = "none"
   }
 
   if (rule === "Anvil.Fork") {
@@ -2976,6 +3015,7 @@ const visit = async (
       ambient: context.ambient,
       attrs: Planner.attrsValue(attrs, depKeys, inputDigests),
       declared: declaredInputs,
+      ...(dockerContextSources === null ? {} : { dockerContextSources }),
       dependencies: dependencyRows,
       toolchain,
       execution: argv === undefined && !catalogToolBody ? null : { environmentDigest, executable },

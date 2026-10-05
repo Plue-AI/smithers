@@ -17,7 +17,7 @@ import * as Input from "@smthrs/targets/Input"
 import * as Stamp from "@smthrs/targets/Stamp"
 import * as Data from "effect/Data"
 import * as Schema from "effect/Schema"
-import { createHash } from "node:crypto"
+import { createHash, randomUUID } from "node:crypto"
 import * as Fs from "node:fs/promises"
 import * as NodePath from "node:path"
 import * as HostProbes from "./internal/HostProbes.ts"
@@ -142,6 +142,8 @@ const digestPattern = /^sha256:[0-9a-f]{64}$/
 export interface ArchiveImage {
   readonly manifest: string
   readonly config: string
+  readonly revision: string | undefined
+  readonly architecture: string | undefined
   readonly layers: ReadonlyArray<string>
   /** Whether the archive already carries the `manifest.json` `docker load` reads. */
   readonly loadable: boolean
@@ -292,7 +294,13 @@ export const readImageArchive = async (path: string): Promise<ArchiveImage | { r
     }
     const missing = digests.find((digest) => !files.has(blob(digest)))
     if (missing !== undefined) return { error: `the image archive has no blob ${missing}` }
+    const document = await json(blob(config as string)) as {
+      readonly architecture?: string
+      readonly config?: { readonly Labels?: Readonly<Record<string, string>> }
+    }
     return {
+      revision: document.config?.Labels?.["org.opencontainers.image.revision"],
+      architecture: document.architecture,
       manifest: images[0]!,
       config: config as string,
       layers: layers as ReadonlyArray<string>,
@@ -564,5 +572,74 @@ export const serviceSpec = async (options: {
     health: attrs.health,
     stop: attrs.stop,
     init: (attrs.init ?? []).map((command) => [...command] as [string, ...Array<string>])
+  }
+}
+
+/** The captured outcome of one archive transport command.
+ * @category models
+ * @since 1.0.0
+ */
+export interface PushCommandResult {
+  readonly ok: boolean
+  readonly error?: string | undefined
+  readonly result?: { readonly stdout: string } | undefined
+}
+
+/** Loads, tags, pushes and verifies the built archive through one shared transport.
+ * The caller owns credentials and reporting; temporary loadable copies always settle.
+ * @category execution
+ * @since 1.0.0
+ */
+export const pushArchive = async (options: {
+  readonly archive: string
+  readonly docker: ReadonlyArray<string>
+  readonly repository: string
+  readonly references: ReadonlyArray<string>
+  readonly temporaryDirectory: string
+  readonly run: (argv: ReadonlyArray<string>) => Promise<PushCommandResult>
+}): Promise<{ readonly digest: string } | { readonly error: string }> => {
+  if (options.references.length === 0) return { error: "docker push planned no commands" }
+  const image = await readImageArchive(options.archive)
+  if ("error" in image) return image
+  const loadable = image.loadable
+    ? options.archive
+    : NodePath.join(options.temporaryDirectory, `docker-load-${randomUUID()}.tar`)
+  try {
+    if (!image.loadable) {
+      await Fs.mkdir(options.temporaryDirectory, { recursive: true })
+      await writeLoadableArchive(options.archive, loadable, image)
+    }
+    const loaded = await options.run([...options.docker, "load", "--input", loadable])
+    if (!loaded.ok) return { error: loaded.error ?? "docker load failed" }
+    const id = loadedImageIds(loaded.result?.stdout ?? "").find((id) => id === image.config || id === image.manifest)
+    if (id === undefined) return { error: `docker load did not load ${image.config} from ${options.archive}` }
+    let digest = image.manifest
+    for (const reference of options.references) {
+      const tagged = await options.run([...options.docker, "tag", id, reference])
+      if (!tagged.ok) return { error: tagged.error ?? "docker tag failed" }
+      const pushed = await options.run([...options.docker, "push", reference])
+      if (!pushed.ok) return { error: pushed.error ?? "docker push failed" }
+      const pushedImage = pushedDigest(pushed.result?.stdout ?? "")
+      if (pushedImage === undefined) return { error: `docker push reported no digest for ${reference}` }
+      digest = pushedImage
+      const inspected = await options.run([
+        ...options.docker,
+        "buildx",
+        "imagetools",
+        "inspect",
+        "--raw",
+        `${options.repository}@${digest}`
+      ])
+      if (!inspected.ok) return { error: inspected.error ?? "docker buildx imagetools inspect failed" }
+      const config = manifestConfig(inspected.result?.stdout ?? "")
+      if (config !== image.config) {
+        return {
+          error: `${options.repository}@${digest} holds config ${config ?? "(none)"}, not the built ${image.config}`
+        }
+      }
+    }
+    return { digest }
+  } finally {
+    if (!image.loadable) await Fs.rm(loadable, { force: true })
   }
 }
