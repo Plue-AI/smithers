@@ -14,11 +14,11 @@ func loopback(addr string) bool {
 	host, _, err := net.SplitHostPort(addr)
 	return err == nil && net.ParseIP(host) != nil && net.ParseIP(host).IsLoopback()
 }
-func run(addr, gitRoot string) error {
+func run(addr, gitRoot, owner string) error {
 	if !loopback(addr) {
 		return fmt.Errorf("--addr must be a literal loopback address")
 	}
-	cfg, err := githubfake.LocalSeed()
+	cfg, err := githubfake.LocalSeedFor(owner)
 	if err != nil {
 		return err
 	}
@@ -34,14 +34,15 @@ func run(addr, gitRoot string) error {
 	defer listener.Close()
 	fake.URL = "http://" + listener.Addr().String()
 	fmt.Println("ready", fake.URL)
-	fmt.Println("seed owner=local-owner app=smithers-local repo=local-owner/demo")
+	fmt.Printf("seed owner=%s app=smithers-local repo=%s/demo\n", owner, owner)
 	return http.Serve(listener, fake.Handler())
 }
 func main() {
 	addr := flag.String("addr", "127.0.0.1:0", "loopback listener")
 	gitRoot := flag.String("git-root", "", "directory containing fixture bare repositories")
+	owner := flag.String("owner", "local-owner", "owner account; the installed repository is <owner>/demo")
 	flag.Parse()
-	if err := run(*addr, *gitRoot); err != nil {
+	if err := run(*addr, *gitRoot, *owner); err != nil {
 		fmt.Fprintln(os.Stderr, err)
 		os.Exit(1)
 	}
