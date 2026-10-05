@@ -283,7 +283,9 @@ func newRehearsal(t *testing.T, enable, check, keyPrefix string) *rehearsal {
 	go func() {
 		done <- StartWithOptions(ctx, nil, r.stdout, io.MultiWriter(r.logs, live), Options{Repository: engine.Client(), Workspace: workspace, MachineImages: trustedProcessImages{sources: repositorySourceFiles{client: engine.Client()}}, ComputeProvider: r.compute, ChatHost: offlineGatewayHost{host}, FlowHostProductAPIURL: r.origin,
 			FlowHostRegistry: registry, FlowHostConfig: flowhost.WorkspaceLauncherConfig{AllowTrustedProcessForTests: true},
-			PlatformModelKeys: platformKeys, ModelProxyUpstreams: upstreams, BranchMachines: rehearsalBranchMachines(pool)}, func(h http.Handler) { ready <- h })
+			PlatformModelKeys: platformKeys, ModelProxyUpstreams: upstreams, BranchMachines: rehearsalBranchMachines(pool),
+			// A label on GitHub is read within seconds, not the product's 120 s.
+			GitHubIssueEventsEvery: 2 * time.Second}, func(h http.Handler) { ready <- h })
 	}()
 	select {
 	case h := <-ready:

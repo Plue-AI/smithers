@@ -326,7 +326,7 @@ func TestJ2Rehearsal(t *testing.T) {
 	})
 	// Last: a TODO the label makes starts on its own, and the rehearsal
 	// rehearses one TODO on one machine at a time.
-	r.step("2 todo label", "GitHub fake: Ben labels the issue todo → GET /api/todos", "one TODO from the issue's title and body; a redelivery adds none", "T-STK-09, T-GH-02", func() error {
+	r.step("2 todo label", "GitHub fake: Ben labels the issue todo → the sync reads GitHub's issue events → GET /api/todos; GET /api/todos/{n}", "one TODO whose revision 1 is the issue's title and body; later reads add none", "T-STK-09, T-GH-02", func() error {
 		event := r.fake.LabelIssue(repo, labeled, "ben", "todo")
 		if event == 0 {
 			return fmt.Errorf("issue #%d is not on GitHub", labeled)
@@ -338,12 +338,48 @@ func TestJ2Rehearsal(t *testing.T) {
 				return err
 			}
 			if count == 1 {
-				return nil
+				break
 			}
 			if count > 1 || time.Now().After(deadline) {
-				return fmt.Errorf("issue #%d has %d TODOs 20 s after Ben's label event %d: no install door reads GitHub's issue events (T-GH-02)", labeled, count, event)
+				return fmt.Errorf("issue #%d has %d TODOs 20 s after Ben's label event %d", labeled, count, event)
 			}
 			time.Sleep(250 * time.Millisecond)
 		}
+		list, err := todos()
+		if err != nil {
+			return err
+		}
+		var made int64
+		for _, todo := range list {
+			if todo.Issue != nil && todo.Issue.Number == labeled {
+				made = todo.N
+			}
+		}
+		data, err := r.expect("GET", fmt.Sprintf("/api/todos/%d", made), "", 200)
+		if err != nil {
+			return err
+		}
+		var card struct {
+			Revisions []struct {
+				Text string `json:"text"`
+				By   struct {
+					Login string `json:"login"`
+				} `json:"by"`
+			} `json:"prompt_revisions"`
+		}
+		if err = json.Unmarshal(data, &card); err != nil {
+			return err
+		}
+		want := "Say goodbye\n\nJOURNEY.md should end with a farewell."
+		if len(card.Revisions) != 1 || card.Revisions[0].Text != want || card.Revisions[0].By.Login != "ben" {
+			return fmt.Errorf("T%d's revision 1 is not the issue's text as Ben labeled it: %+v", made, card.Revisions)
+		}
+		// Later reads of the issue events hand the label over no more.
+		time.Sleep(6 * time.Second)
+		if count, err := fromIssue(labeled); err != nil || count != 1 {
+			return fmt.Errorf("issue #%d has %d TODOs after later reads: %v", labeled, count, err)
+		}
+		r.actual = fmt.Sprintf("label event %d → T%d from issue #%d by ben; revision 1 %q; later reads add none", event, made, labeled, want)
+		return nil
 	})
 }
