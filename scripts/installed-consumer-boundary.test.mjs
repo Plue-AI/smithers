@@ -64,6 +64,9 @@ test("the boundary gate checks a standalone consumer manifest without exempting 
       }
       write(join(root, "scripts", file), source)
     }
+    // The gate validates private Effect adapters with the build's own module.
+    const adapters = "packages/repo-targets/scripts/private-effect-adapters.mjs"
+    write(join(root, adapters), readFileSync(join(repoRoot, adapters), "utf8"))
     symlinkSync(join(repoRoot, "node_modules"), join(root, "node_modules"), "dir")
     write(join(root, "scripts/consumer/package.json"), JSON.stringify({ name: "consumer-fixture", private: true,
       dependencies: { "@smthrs/example": "*" } }))
