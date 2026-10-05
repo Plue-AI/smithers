@@ -814,7 +814,7 @@ test("shell text is inert; private, empty and disabled boundaries", async () => 
   try {
     expect(row.host.querySelector(".mvp-entry-title")?.textContent).toBe(hostile)
     expect(row.host.querySelector(".mvp-entry-summary")?.textContent).toBe(hostile)
-    expect(row.host.querySelector(".mvp-avatar")?.getAttribute("aria-label")).toBe("Install event")
+    expect(row.host.querySelector(".mvp-avatar")?.getAttribute("aria-label")).toBe("Smithers")
     expect(row.host.querySelector("script")).toBeNull()
     expect(row.host.querySelector("button")).toBeNull()
   } finally { await row.close() }

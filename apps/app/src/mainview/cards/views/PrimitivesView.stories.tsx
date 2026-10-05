@@ -23,7 +23,7 @@ for (let color_index = 0; color_index < 6; color_index++) actors.push([`member-c
 actors.push(["person-avatar", { kind: "person", ...ben }])
 const actorLabels: Record<string, string> = {
   person: "Ben", "person-ssh": "Maya via SSH", "person-terminal": "Maya's terminal", "person-cli": "Maya via CLI",
-  system: "Install event", github: "@octocat", outside: "Changed outside Smithers", smithers: "Smithers", "smithers-for-ben": "Smithers for Ben",
+  system: "Smithers", github: "@octocat", outside: "Changed outside Smithers", smithers: "Smithers", "smithers-for-ben": "Smithers for Ben",
   coding: "Coding agent", "coding-for-ben": "Coding agent for Ben", reviewer: "Reviewer", "reviewer-for-ben": "Reviewer for Ben",
   "claude-code": "Claude Code", "claude-code-for-ben": "Claude Code for Ben", codex: "Codex", "codex-for-ben": "Codex for Ben",
   external: "External agent", "external-for-ben": "External agent for Ben", "person-avatar": "Ben",

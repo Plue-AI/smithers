@@ -248,6 +248,10 @@ test("TODO HTTP and live projections normalize historical delegated authors", as
     h.observed.get("todo:12")!({ ...projection, steers: [{ text: "Cookie", by: { person: "member-ben", session: "cookie" }, at: "later" }] })
     await waitFor(() => h.todo().payload.model!.steers[0]!.text === "Cookie")
     expect(actorName(h.todo().payload.model!.steers[0]!.by)).toBe("Ben")
+    h.observed.get("todo:12")!({ ...projection, steers: [{ text: "System", by: { system: "smithers", requester: "member-ben" }, at: "later" }] })
+    await waitFor(() => h.todo().payload.model!.steers[0]!.text === "System")
+    expect(h.todo().payload.model!.steers[0]!.by).toEqual({ kind: "system", color_index: 7 })
+    expect(actorName(h.todo().payload.model!.steers[0]!.by)).toBe("Smithers")
   } finally { h.close() }
 })
 

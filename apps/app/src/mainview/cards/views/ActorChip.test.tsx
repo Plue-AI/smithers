@@ -52,7 +52,7 @@ test("shared labels retain first names and non-agent identities", () => {
   expect(actorName({ kind: "person", ...ben, via: "terminal" })).toBe("Ben's terminal")
   expect(actorName({ kind: "github", login: "ben", color_index: 7 })).toBe("@ben")
   expect(actorName({ kind: "outside", color_index: 7 })).toBe("Changed outside Smithers")
-  expect(actorName({ kind: "system", color_index: 7 })).toBe("Install event")
+  expect(actorName({ kind: "system", color_index: 7 })).toBe("Smithers")
 })
 for (const via of ["ssh", "terminal", "cli"] as const) test(`${via} retains person identity and badge`, async () => {
   await withActor({ kind: "person", ...ben, via }, node => {
@@ -90,3 +90,15 @@ for (const [name, { model }] of Object.entries(fixtures)) {
     })
   })
 }
+
+test("system Smithers retains neutral identity without agent decoration", async () => {
+  await withActor({ kind: "system", color_index: 7 }, node => {
+    expect(node.getAttribute("aria-label")).toBe("Smithers")
+    expect(node.getAttribute("title")).toBe("Smithers")
+    expect(node.dataset.kind).toBe("system")
+    expect(node.dataset.agent).toBeUndefined()
+    expect(node.dataset.for).toBeUndefined()
+    expect(node.dataset.live).toBeUndefined()
+    expect(node.style.getPropertyValue("--who")).toBe("var(--lane-7)")
+  })
+})

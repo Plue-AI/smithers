@@ -8,6 +8,6 @@ export function actorName(actor: Actor): string {
     case "agent": return `${actor.agent === "external" && actor.name ? actor.name : agentNames[actor.agent]}${actor.for_member ? ` for ${first(actor.for_member.name)}` : ""}`
     case "github": return `@${actor.login}`
     case "outside": return "Changed outside Smithers"
-    case "system": return "Install event"
+    case "system": return "Smithers"
   }
 }
