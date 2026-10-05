@@ -13,7 +13,7 @@ import {
 import type { AgentTurnCursor, AgentTurnJournalReply } from "@smthrs/rpc/AgentTurnJournal"
 import type { AgentTurnFrame, FetchLike, StartAgentTurnRequest } from "@smthrs/rpc/NativeAgent"
 import { Effect } from "effect"
-import { hostOwned, runHostTurn, sourceReader } from "./HostTools.ts"
+import { apiReader, hostOwned, runHostTurn, sourceReader } from "./HostTools.ts"
 import { CommitRefused, ProducerUnreachable, ProviderStartRefused, ReceiptMismatch } from "./ModelHostError.ts"
 import type { ProducerError } from "./ModelHostError.ts"
 import { runModelTurn } from "./ModelTurnHost.ts"
@@ -39,6 +39,12 @@ export interface DurableChatGrant {
   readonly producerBaseUrl: string
   /** The mirrored repository the turn's author may read; absent until Source is ready for them. */
   readonly source?: { readonly repository: string }
+  /**
+   * The install API the turn's commands may read as its author, whose login
+   * their private cards are addressed to; absent unless the credential that
+   * admitted the turn is its author's browser session.
+   */
+  readonly api?: { readonly author: string }
 }
 
 type CommitReply = Extract<AgentTurnJournalReply, { readonly status: "committed" | "duplicate" }>
@@ -185,7 +191,10 @@ export const runDurableChatTurn = (
   return Effect.gen(function*() {
     yield* producer.providerStarted()
     if (hostOwned(grant.request)) {
-      yield* runHostTurn(model, grant, options, write, sourceReader(callbackBaseUrl, grant, fetchImpl))
+      yield* runHostTurn(model, grant, options, write, {
+        read: sourceReader(callbackBaseUrl, grant, fetchImpl),
+        api: apiReader(callbackBaseUrl, grant, fetchImpl)
+      })
       return
     }
     yield* runModelTurn(model, grant.request, options, write)

@@ -56,7 +56,8 @@ const WireGrantSchema = z.object({
   expiresAt: z.string().min(1).max(64),
   request: z.unknown(),
   producerBaseUrl: z.string().url(),
-  source: z.object({ repository: z.string().regex(/^[^/\s]+\/[^/\s]+$/).max(201) }).strict().optional()
+  source: z.object({ repository: z.string().regex(/^[^/\s]+\/[^/\s]+$/).max(201) }).strict().optional(),
+  api: z.object({ author: Identity }).strict().optional()
 }).strict()
 
 /**
@@ -141,7 +142,8 @@ const decodeGrant = (value: unknown, callbackBaseUrl: string): DurableChatGrant 
     expiresAt: wire.expiresAt,
     request,
     producerBaseUrl: callbackBaseUrl,
-    ...(wire.source === undefined ? {} : { source: wire.source })
+    ...(wire.source === undefined ? {} : { source: wire.source }),
+    ...(wire.api === undefined ? {} : { api: wire.api })
   }
 }
 

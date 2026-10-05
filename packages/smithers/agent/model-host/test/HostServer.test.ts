@@ -246,7 +246,11 @@ test.each([
   { ...grant, source: "acme/app" },
   { ...grant, source: { repository: "acme" } },
   { ...grant, source: { repository: "acme/app/extra" } },
-  { ...grant, source: { repository: "acme/app", path: "/" } }
+  { ...grant, source: { repository: "acme/app", path: "/" } },
+  { ...grant, api: "ben" },
+  { ...grant, api: { author: "" } },
+  { ...grant, api: { author: "b".repeat(161) } },
+  { ...grant, api: { author: "ben", token: "session" } }
 ])("rejects malformed or mismatched grants before resolving a model %#", async (value) => {
   let resolved = false
   const handler = createModelTurnHandler({
@@ -280,13 +284,14 @@ test("refuses an unreadable request body", async () => {
   expect((await createModelTurnHandler(options)(request)).status).toBe(400)
 })
 
-test("preserves the repository and source grant and hides provider failures", async () => {
+test("preserves the repository, source and API grants and hides provider failures", async () => {
   const handler = createModelTurnHandler({
     ...options,
     callbackBaseUrl: "https://callback.test/nested",
     resolve: (accepted) => {
       expect(accepted.repositoryId).toBe(17)
       expect(accepted.source).toEqual({ repository: "acme/app" })
+      expect(accepted.api).toEqual({ author: "ben" })
       expect(accepted.producerBaseUrl).toBe("https://callback.test/")
       expect(accepted.request.tools).toEqual([])
       return options.resolve()
@@ -296,6 +301,7 @@ test("preserves the repository and source grant and hides provider failures", as
     ...grant,
     repositoryId: 17,
     source: { repository: "acme/app" },
+    api: { author: "ben" },
     request: { ...grant.request, tools: [] },
     producerBaseUrl: "https://callback.test/other"
   })))
