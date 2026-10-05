@@ -31,6 +31,7 @@
   {"id":"head_api_build_cache_healthz","method":"HEAD","path":"/api/build-cache/healthz"},
   {"id":"post_api_commands_select","method":"POST","path":"/api/commands/select"},
   {"id":"get_api_feature_flags","method":"GET","path":"/api/feature-flags"},
+  {"id":"get_api_flows","method":"GET","path":"/api/flows"},
   {"id":"put_api_gateways_host_repository_jobs_job_comments_step","method":"PUT","path":"/api/gateways/{hostID}/repository-jobs/{job}/comments/{step}"},
   {"id":"get_api_github_sync","method":"GET","path":"/api/github/sync"},
   {"id":"post_api_github_sync","method":"POST","path":"/api/github/sync"},

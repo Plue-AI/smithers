@@ -9,7 +9,8 @@ const document = parse(readFileSync(new URL("../../../../docs/api/openapi.yaml",
 
 test("release OpenAPI install composition matches the committed literal operation inventory", () => {
   const actual: { id: string; method: string; path: string }[] = installOperations(document).map(({ id, method, path }) => ({ id, method, path }))
-  expect(actual).toEqual(expected)
+  // A route change updates this reviewed literal: run `bun scripts/debug-api-inventory.ts` in apps/app and review the diff.
+  expect(actual, "install operations changed: run `bun scripts/debug-api-inventory.ts` in apps/app and review the fixture diff").toEqual(expected)
   expect(installOperations(document).map(operation => operation.id)).not.toContain("post_api_admin_grant")
   expect(actual.filter(operation => /^\/api\/admin(?:\/|$)/.test(operation.path))).toEqual([])
 })
