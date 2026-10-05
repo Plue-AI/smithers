@@ -120,8 +120,11 @@ type rehearsal struct {
 	continuing       bool
 	sourceReady      bool
 	// quiet rows run without a table row; quietFailed names those that failed.
-	quiet       bool
-	quietFailed []string
+	quiet          bool
+	quietFailed    []string
+	contractMu     sync.Mutex
+	contractInput  io.WriteCloser
+	contractOutput *bufio.Reader
 }
 
 var rehearsalTokenField = regexp.MustCompile(`"token":"[^"]*"`)
@@ -351,6 +354,58 @@ func newRehearsal(t *testing.T, enable, check, keyPrefix string) *rehearsal {
 	return r
 }
 
+// One decoder per rehearsal checks every served TODO without spawning a
+// language runtime for every poll. A decode failure remains on that HTTP row.
+func (r *rehearsal) checkTodoContract(data []byte) error {
+	r.contractMu.Lock()
+	defer r.contractMu.Unlock()
+	if r.contractInput == nil {
+		ctx, cancel := context.WithCancel(r.ctx)
+		command := exec.CommandContext(ctx, "bun", filepath.Join(r.root, "apps/app/scripts/check-todo-contract.ts"), "--stream")
+		input, err := command.StdinPipe()
+		if err != nil {
+			cancel()
+			return err
+		}
+		output, err := command.StdoutPipe()
+		if err != nil {
+			cancel()
+			_ = input.Close()
+			return err
+		}
+		command.Stderr = r.logs
+		if err := command.Start(); err != nil {
+			cancel()
+			_ = input.Close()
+			return err
+		}
+		r.contractInput, r.contractOutput = input, bufio.NewReader(output)
+		r.t.Cleanup(func() { _ = input.Close(); cancel(); _ = command.Wait() })
+	}
+	var compact bytes.Buffer
+	if err := json.Compact(&compact, data); err != nil {
+		return fmt.Errorf("app TODO contract JSON: %w", err)
+	}
+	if _, err := r.contractInput.Write(append(compact.Bytes(), '\n')); err != nil {
+		return fmt.Errorf("app TODO contract write: %w", err)
+	}
+	line, err := r.contractOutput.ReadBytes('\n')
+	if err != nil {
+		return fmt.Errorf("app TODO contract read: %w", err)
+	}
+	var result struct {
+		OK    bool   `json:"ok"`
+		Error string `json:"error"`
+	}
+	if err := json.Unmarshal(line, &result); err != nil {
+		return fmt.Errorf("app TODO contract result: %w", err)
+	}
+	if !result.OK {
+		return fmt.Errorf("app TODO contract: %s", result.Error)
+	}
+	return nil
+}
+
 // request sends one request as the owner's browser, with an Idempotency-Key
 // derived from the path.
 func (r *rehearsal) request(method, path, body string) (int, []byte, error) {
@@ -385,10 +440,8 @@ func (r *rehearsal) keyedAs(jar http.CookieJar, method, path, body, key string) 
 	defer resp.Body.Close()
 	data, err := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
 	if err == nil && method == "GET" && resp.StatusCode == 200 && (path == "/api/todos" || regexp.MustCompile(`^/api/todos/[0-9]+$`).MatchString(path)) {
-		command := exec.Command("bun", "../../../../apps/app/scripts/check-todo-contract.ts")
-		command.Stdin = bytes.NewReader(data)
-		if output, decodeErr := command.CombinedOutput(); decodeErr != nil {
-			return resp.StatusCode, data, fmt.Errorf("app TODO contract: %w: %s", decodeErr, output)
+		if decodeErr := r.checkTodoContract(data); decodeErr != nil {
+			return resp.StatusCode, data, decodeErr
 		}
 	}
 	r.location = resp.Header.Get("Location")
