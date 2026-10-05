@@ -3,9 +3,9 @@
   "producer": null,
   "output": {
     "path": "packages/backend/docs/github-app.md",
-    "digest": "2cb9e640a6137b4922763a0364065ce20025842b7bfec52fb1940a741ad4e247"
+    "digest": "4bea88e89933f59e3ed1e164c785e5d8fe704ce5e1fefe077b0f0af08ee4b43a"
   },
-  "closure": "8b1ee3fd3d5b4fccce32383276f59f0efaaf7433d2ad4258047cb9a4131a2b8a",
+  "closure": "35ba3e50472cac53f28a89cef6d42ecd34d93dd714ea1a35ef44805ae0118031",
   "inputs": [
     {
       "path": "docs/api/openapi/install.yaml",
@@ -78,6 +78,14 @@
     {
       "path": "packages/backend/internal/services/auth.go",
       "digest": "1e94e65dc75baf6e1ed24a3a1b0dcda6db49b19f11018510a6926211e16e5cf6"
+    },
+    {
+      "path": "packages/backend/internal/services/flow_catalog.go",
+      "digest": "f29f7b9f9c2b1f069b36fb325262ad343796105b78990fa2768b6ac631276b1b"
+    },
+    {
+      "path": "packages/backend/internal/services/flow_versions.go",
+      "digest": "abf8e067690a5f393175a6b4a30c77c3ff2ea86d28e104d05c0c386b2f8a97b7"
     },
     {
       "path": "packages/backend/internal/services/github_access_diagnosis.go",

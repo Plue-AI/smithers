@@ -297,3 +297,63 @@ func TestFlowEntryNameIsTheFlowsDirectory(t *testing.T) {
 		assert.Equal(t, want != "", ok, path)
 	}
 }
+
+// Repository code cannot provide an answer command, including an Active row
+// accepted by an older install. Refresh retires it without deleting history;
+// unrelated similarly named repository flows still load normally.
+func TestFlowLoadKeepsForeignAnswersInstallOwned(t *testing.T) {
+	ctx := t.Context()
+	pool := getAgentTestPool(t)
+	q := db.New(pool)
+	repoID := createWorkflowRunIntegrationRepo(t, pool)
+	commit := strings.Repeat("a", 40)
+	oldDigest, newDigest := strings.Repeat("b", 64), strings.Repeat("c", 64)
+	names := []string{"branch.bring-in", "branch.discard-foreign"}
+	versions := []FlowLoadVersion{}
+	for _, name := range names {
+		path := "flows/" + name + "/flow.ts"
+		_, err := q.InsertFlowVersion(ctx, repoID, name, path, commit, oldDigest, "loaded", "", json.RawMessage(`{}`))
+		require.NoError(t, err)
+		activated, err := q.ActivateFlowVersion(ctx, repoID, name, oldDigest)
+		require.NoError(t, err)
+		require.True(t, activated)
+		digest, err := ActiveFlowDigest(ctx, q, repoID, name)
+		require.ErrorContains(t, err, "install-owned")
+		require.Empty(t, digest)
+		versions = append(versions, FlowLoadVersion{Name: name, Path: path, Digest: newDigest, Status: "loaded"})
+		for _, near := range []string{name + "/custom", name + ".custom", strings.ToUpper(name)} {
+			versions = append(versions, FlowLoadVersion{Name: near, Path: "flows/" + near + "/flow.ts", Digest: newDigest, Status: "loaded"})
+		}
+	}
+	cards, err := RepositoryFlowCatalog(ctx, q, repoID)
+	require.NoError(t, err)
+	for _, card := range cards {
+		require.NotContains(t, names, card.Name, "historical system overrides are never editable catalog entries")
+	}
+	moved, err := persistFlowVersions(ctx, q, repoID, commit, versions)
+	require.NoError(t, err)
+	require.Len(t, moved, 8, "six custom flows activated and two historical system overrides retired")
+	rows, err := q.ListFlowVersions(ctx, repoID)
+	require.NoError(t, err)
+	require.Len(t, rows, 8, "no replacement system version was persisted")
+	for _, row := range rows {
+		if row.Name == "branch.bring-in" || row.Name == "branch.discard-foreign" {
+			require.False(t, row.IsActive)
+			require.Equal(t, oldDigest, row.Digest.String, "historical version remains readable")
+		} else {
+			require.True(t, row.IsActive)
+			digest, err := ActiveFlowDigest(ctx, q, repoID, row.Name)
+			require.NoError(t, err)
+			require.Equal(t, newDigest, digest)
+		}
+	}
+	moved, err = persistFlowVersions(ctx, q, repoID, commit, versions)
+	require.NoError(t, err)
+	require.Empty(t, moved, "refresh replay cannot reactivate a repository answer command")
+	cards, err = RepositoryFlowCatalog(ctx, q, repoID)
+	require.NoError(t, err)
+	require.Len(t, cards, 7, "the built-in TODO and six custom flows remain visible")
+	for _, card := range cards {
+		require.NotContains(t, names, card.Name)
+	}
+}

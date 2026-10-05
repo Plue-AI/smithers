@@ -67,7 +67,7 @@ proposal uses the newly recorded head as its force-with-lease precondition.
 This consumer remains unregistered in production. Main-ref effects and the
 complete refs consumer still require qualification.
 
-Bring in and Discard remain unavailable until the shared authorization, confirmation, catalog and checkpoint contracts pass their production boundary tests. No repository code runs on the host to bring in a commit. The eventual branch answer input is `{id, revision}`: the foreign wait id and its displayed `sha`, with an `Idempotency-Key`; a newer head requires a new decision.
+Bring in and Discard remain unavailable until the shared authorization, confirmation, catalog and checkpoint contracts pass their production boundary tests. Their exact command names, `branch.bring-in` and `branch.discard-foreign`, are reserved to the install. Repository versions cannot activate or resolve under those names, including historical Active rows; flow-load retires those rows while retaining their history. No repository code runs on the host to bring in a commit. The eventual branch answer input is `{id, revision}`: the foreign wait id and its displayed `sha`, with an `Idempotency-Key`; a newer head requires a new decision.
 
 ## Polling transport
 

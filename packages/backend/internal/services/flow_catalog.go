@@ -18,6 +18,9 @@ var SystemFlows = []string{
 	"todo.preapprove", "todo.unapprove",
 	"history.todo", "issue.implement", "runs.steer", "history.retry",
 	"branch.fork", "branch.add-to-stack", "branch.rebase",
+	// B.4: foreign-push answers stay install-owned even before their
+	// confirmation and checkpoint providers become available.
+	"branch.bring-in", "branch.discard-foreign",
 	// B.2: merge, members, settings/model access, and repository secrets.
 	"merge", "history.land", "prs.land", "change.land",
 	"members", "members.add", "members.role", "members.remove",
