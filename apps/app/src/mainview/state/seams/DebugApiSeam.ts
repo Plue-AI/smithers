@@ -269,9 +269,11 @@ export const createDebugApiSeam = (options: {
       exchange.response = { status: response.status, headers: safeHeaders(response.headers),
         body: credential && body !== "" ? WITHHELD : shownBody(body, contentType), duration_ms: Math.max(0, now() - started) }
       if (!response.ok) {
-        let error: { class?: unknown; message?: unknown } = {}
+        let error: { class?: unknown; code?: unknown; message?: unknown } = {}
         try { const decoded: unknown = JSON.parse(body); if (decoded && typeof decoded === "object") error = decoded } catch {}
         exchange.failure = { class: error.class === undefined ? "infra" : failureClass(error.class),
+          // §6.2.3 codes are snake_case identifiers; anything else stays out of the View's label.
+          ...(typeof error.code === "string" && /^[a-z][a-z0-9_]{0,63}$/.test(error.code) ? { code: error.code } : {}),
           message: typeof error.message === "string" && !credential ? error.message : `HTTP ${response.status}`, status: response.status }
       }
     } catch (cause) { exchange.failure = { class: "infra", message: cause instanceof Error && cause.message === "API redirect refused" ? cause.message : "API request failed" } }

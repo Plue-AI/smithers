@@ -86,7 +86,7 @@ test("agent door refuses raw API; a running fetch never blocks Chat or duplicate
   finish(new Response('{"code":"signed_out","class":"permission","message":"Sign in"}', { status: 401 }))
   await settle(() => !controller.debugApi.get().busy)
   await settle(() => store.collections.toasts.get("toast-debug.api.send")?.status === "failed")
-  expect(controller.debugApi.get().model.exchange?.failure).toEqual({ class: "permission", message: "Sign in", status: 401 })
+  expect(controller.debugApi.get().model.exchange?.failure).toEqual({ class: "permission", code: "signed_out", message: "Sign in", status: 401 })
 })
 
 test("the production help projection keeps unavailable docs and Debug API dark", async () => {

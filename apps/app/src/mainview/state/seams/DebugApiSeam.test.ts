@@ -54,7 +54,7 @@ test("typed 401 and sensitive headers, redirects, malformed JSON and unknown inp
     headers: { "Set-Cookie": "private", Authorization: "private", "Content-Type": "application/json" } }))
   await seam.open("getStack")
   await seam.send({ operationId: "getStack" })
-  expect(seam.get().model.exchange?.failure).toEqual({ class: "permission", message: "Sign in", status: 401 })
+  expect(seam.get().model.exchange?.failure).toEqual({ class: "permission", code: "signed_out", message: "Sign in", status: 401 })
   expect(seam.get().model.exchange?.response?.headers).toEqual([["content-type", "application/json"]])
   await expect(seam.send({ operationId: "offOrigin" })).rejects.toThrow("Unknown")
   await expect(seam.send({ operationId: "getStack", values: { url: "https://elsewhere.test" } })).rejects.toThrow("Unknown")
@@ -240,4 +240,12 @@ test("the confirmation shows a random id the pending request holds; the same req
   await seam.send(input)
   await seam.send({ ...input, intent: "confirm", confirmation: seam.get().confirmation })
   expect(calls).toHaveLength(1)
+})
+test("a refusal carries the envelope's snake_case code for the View; anything else is dropped", async () => {
+  for (const [code, expected] of [["unauthenticated", "unauthenticated"], ["Sign in <b>", undefined], ["x".repeat(65), undefined], [42, undefined]] as const) {
+    const { seam } = setup(async () => Response.json({ code, class: "permission", message: "Sign in again" }, { status: 401 }))
+    await seam.open("getStack")
+    await seam.send({ operationId: "getStack" })
+    expect(seam.get().model.exchange!.failure).toEqual({ class: "permission", ...(expected ? { code: expected } : {}), message: "Sign in again", status: 401 })
+  }
 })
