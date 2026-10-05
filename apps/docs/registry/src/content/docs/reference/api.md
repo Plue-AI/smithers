@@ -119,6 +119,13 @@ include this identity in the approved plan. It returns `undefined` when the
 descriptor has no `body.contentDigest`: the descriptor may be displayed, but
 `AgentSession` refuses to execute a prompt without a measured, approved identity.
 
+Locations count relative to `provenance.root`. Each path under the root is
+hashed relative to it, and the root itself is not hashed, so the same bytes
+discovered under two roots (two checkouts, or two hosts' state directories)
+have one identity. A plan prepared on one host can therefore run its checks on
+another. Changed bytes, a file moved within the root, or any changed metadata
+give a new identity. A path outside the root is hashed as recorded.
+
 The repository host also binds its own policy identity to reserved job
 descriptors. In source mode it measures every TypeScript file in
 `flows/repository`, including the semantic judge and its helpers, together with

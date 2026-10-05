@@ -1050,7 +1050,7 @@ Sent merges. Everything but the request happens before the dispatch claim: the d
 
 ### 11.3 Loading and activation
 
-11.3.0 A flow version is `(flow_name, source_commit, digest)`. The digest is the existing `Executable.catalog` execution digest, which covers the repository modules the flow imports (so a `todo` digest also pins the `review` flow it calls, J5.4) and the lockfile digest (`ExecutionSnapshot.ts:59-65`). `@smthrs/*` packages come from the coding host the install ships. The MVP stores no closure blobs and packs no dependency environment (E-12).
+11.3.0 A flow version is `(flow_name, source_commit, digest)`. The digest is the existing `Executable.catalog` execution digest, which covers the repository modules the flow imports (so a `todo` digest also pins the `review` flow it calls, J5.4) and the lockfile digest (`ExecutionSnapshot.ts:59-65`). `@smthrs/*` packages come from the coding host the install ships. The MVP stores no closure blobs and packs no dependency environment (E-12). The execution digest measures every path relative to the flow's discovery root, never an absolute host path, so the same bytes and layout are one identity on every lane: a plan's checks verify on whichever lane is free (J7.4a), and a changed byte is still a new identity.
 
 11.3.1 Every `main` move admits a background `flow-load` run in an ephemeral machine at `main`'s new commit. Loads coalesce: at most one runs at a time, and when it ends the next starts at the newest `main` commit not yet loaded. The run loads every overridable flow, typechecks it and computes its digest, and writes one `workflow_definitions` row with status `loaded` or `failed{error}`. A digest that already has a row writes nothing. Check: C-J5-02.
 

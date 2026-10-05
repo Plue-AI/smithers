@@ -48,9 +48,11 @@ export const LoadFlows = Action.make("coding/load-flows", {
  * A version's digest: the entry's content digest, which is the built-in's
  * identity (services/builtin_flows.json) when the entry imports nothing from
  * the repository, and otherwise that digest bound to every repository module
- * the entry imports, so a changed helper is a new version (§11.3.0). Unlike
- * the execution digest it names no absolute path, so the same bytes measure
- * the same version on every machine.
+ * the entry imports, so a changed helper is a new version (§11.3.0). It is
+ * not the execution digest, which also covers the descriptor's metadata: a
+ * version measures only bytes, which services/builtin_flows.json can name
+ * before any host lists the flow. Neither names an absolute path, so the same
+ * bytes measure the same version on every machine.
  */
 export const versionDigest = (descriptor: Descriptor.FlowDescriptor): string | undefined => {
   const content = descriptor.body.contentDigest

@@ -748,12 +748,41 @@ export class FlowDescriptor extends Schema.Class<FlowDescriptor>("flows/registry
 const executionDigests = new WeakMap<FlowDescriptor, string>()
 
 /**
+ * `value` relative to `root` when it is `root` or lies under it, otherwise
+ * `value` as recorded. Discovery joins every path it records onto the source
+ * root with `/`, so a prefix test on that separator is the whole relation.
+ */
+const underRoot = (root: string, value: string): string => {
+  if (root === "") return value
+  const base = root.endsWith("/") ? root.slice(0, -1) : root
+  return value === base ? "." : value.startsWith(`${base}/`) ? value.slice(base.length + 1) : value
+}
+
+/** A body or schema reference with its recorded locations made root-relative. */
+const relocated = <A>(reference: A, local: (value: string) => string): A => {
+  const fields = reference as Readonly<Record<string, unknown>>
+  return {
+    ...fields,
+    ...(typeof fields.path === "string" ? { path: local(fields.path) } : {}),
+    ...(typeof fields.baseDirectory === "string" ? { baseDirectory: local(fields.baseDirectory) } : {})
+  } as A
+}
+
+/**
  * The executable identity a host binds into a reviewed plan.
  *
  * Includes the complete source digest and all executable metadata, so changing
  * the model, parameters, body location, or authority cannot reuse an approval.
  * A descriptor without measured source bytes has no executable identity; it
  * may still be displayed, but a prompt executor must refuse to run it.
+ *
+ * Locations are measured from the descriptor's own `provenance.root`: every
+ * path it records under that root is hashed relative to it, and the root is
+ * not hashed. The same bytes discovered under two roots (two checkouts, two
+ * lanes, two hosts' state directories) are one identity, so a plan prepared on
+ * one host runs its checks on another; a changed byte, a file moved within the
+ * root, or any changed metadata is another identity. A path outside the root
+ * is hashed as recorded.
  *
  * The answer is memoized on descriptor identity. A host maps this over every
  * descriptor it lists, and one call encodes the descriptor, canonicalizes the
@@ -772,7 +801,15 @@ export const executionDigest = (descriptor: FlowDescriptor): string | undefined 
   const { activity: _activity, presentation: _presentation, ...executable } = Schema.encodeSync(FlowDescriptor)(
     descriptor
   )
-  const digest = Digest.digest(Digest.canonical(executable))
+  const local = (value: string) => underRoot(executable.provenance.root, value)
+  const digest = Digest.digest(Digest.canonical({
+    ...executable,
+    path: local(executable.path),
+    body: relocated(executable.body, local),
+    input: relocated(executable.input, local),
+    output: relocated(executable.output, local),
+    provenance: { ...executable.provenance, root: "." }
+  }))
   executionDigests.set(descriptor, digest)
   return digest
 }

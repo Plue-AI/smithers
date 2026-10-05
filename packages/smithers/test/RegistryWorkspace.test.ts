@@ -71,15 +71,22 @@ describe("retained workspace registry identity", () => {
         expect(Option.getOrUndefined(yield* projected.getOption("steps"))).toEqual(selected)
         expect(yield* projected.getOption("missing")).toEqual(Option.none())
         const digest = Descriptor.executionDigest(selected)
-        expect(digest).not.toBe(Descriptor.executionDigest(entry))
+        // Execution identity is measured from each descriptor's own root, so the
+        // retained bytes and their projection are one approved identity.
+        expect(digest).toBe(Descriptor.executionDigest(entry))
         expect(yield* projected.loadBody("steps", digest)).toMatchObject({ path: entry.body.path })
         yield* projected.loadBody("steps")
         expect(reads).toEqual(
           Array.from({ length: 2 }, () => ({ name: "steps", digest: Descriptor.executionDigest(entry) }))
         )
-        // A physical-workspace digest is never interchangeable with the approved
-        // identity digest, even though the underlying loader would accept it.
-        for (const wrong of [Descriptor.executionDigest(entry), "0".repeat(64)]) {
+        // Different retained bytes are a different identity, refused before the physical loader runs.
+        const changed = new Descriptor.FlowDescriptor({
+          ...selected,
+          body: selected.body._tag === "Markdown"
+            ? new Descriptor.BodyRefMarkdown({ ...selected.body, contentDigest: "c".repeat(64) })
+            : new Descriptor.BodyRefModule({ ...selected.body, contentDigest: "c".repeat(64) })
+        })
+        for (const wrong of [Descriptor.executionDigest(changed), "0".repeat(64)]) {
           expect((yield* Effect.flip(projected.loadBody("steps", wrong))).code).toBe("execution_changed")
         }
         expect(reads).toHaveLength(2)

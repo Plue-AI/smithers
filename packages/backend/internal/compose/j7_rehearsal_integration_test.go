@@ -291,13 +291,7 @@ func TestJ7Rehearsal(t *testing.T) {
 					break
 				}
 				if card.State != "in_review" || time.Now().After(deadline) {
-					err := fmt.Errorf("T%d %s (base %s, verified=%t, PR head %s; main %s; item %s %q)", t1, card.State, short7(c1.Base), c1.Verified, short7(card.PR.Head), short7(main), c1.State, c1.Reason)
-					if c1.Base == main && strings.Contains(c1.Reason, "stale_revision") {
-						// The rebase itself is done; its checks cannot run off the
-						// lane that planned them (follow-up: portable check identity).
-						err = fmt.Errorf("%w; coding/verify refuses the plan's checks on any lane but the planning one: a built-in check's execution digest includes its host's state directory (managed-hosts/<binding>), and T1's planning lane was released at review", err)
-					}
-					return err
+					return fmt.Errorf("T%d %s (base %s, verified=%t, PR head %s; main %s; item %s %q)", t1, card.State, short7(c1.Base), c1.Verified, short7(card.PR.Head), short7(main), c1.State, c1.Reason)
 				}
 			}
 			if runs := c1.Verifies - before; runs != 1 {

@@ -323,6 +323,131 @@ describe("FlowDescriptor", () => {
   })
 })
 
+describe("executionDigest", () => {
+  // A built-in check as a coding host provisions it: one prompt body under
+  // <host state>/builtin-flows/<policy>, a directory no two hosts share.
+  // `root` may name its directory with a trailing separator; discovery's joins never double it.
+  const check = (root: string, contentDigest = "c".repeat(64), name = "checks/test") =>
+    new Descriptor.FlowDescriptor({
+      name,
+      description: "Run the detected command npm test.",
+      body: new Descriptor.BodyRefMarkdown({
+        path: `${root.replace(/\/$/, "")}/${name}/flow.mdx`,
+        baseDirectory: `${root.replace(/\/$/, "")}/${name}`,
+        contentDigest
+      }),
+      input: new Descriptor.SchemaRefMarkdownArgs({}),
+      output: new Descriptor.SchemaRefNone(),
+      model: Option.none(),
+      flows: ["coding/CommandCheck"],
+      capabilities: ["fs:read:**", "proc:spawn:npm test"],
+      effects: { reads: [], writes: [], mode: "hermetic", onConflict: "serialize", tier: "sealed" },
+      placement: Option.none(),
+      modelInvocable: true,
+      path: `${root.replace(/\/$/, "")}/${name}/flow.mdx`,
+      frontmatter: {},
+      provenance: new Descriptor.Provenance({ source: "repository-host", root })
+    })
+  const lane1 = "/var/lib/smithers/state/managed-hosts/1f0a/builtin-flows/9d2e"
+  const lane2 = "/Users/owner/.smithers/workspaces/7b41/state/managed-hosts/c3d8/builtin-flows/5a60"
+
+  it("is one identity for the same check content under two roots", () => {
+    // A plan's checks are verified on whichever lane is free when main moves,
+    // not only on the lane that planned them.
+    expect(Descriptor.executionDigest(check(lane1))).toBe(Descriptor.executionDigest(check(lane2)))
+    expect(Descriptor.executionDigest(check(`${lane1}/`))).toBe(Descriptor.executionDigest(check(lane1)))
+  })
+
+  it("is another identity when the check's content or location within its root changes", () => {
+    const planned = Descriptor.executionDigest(check(lane1))
+    expect(Descriptor.executionDigest(check(lane2, "d".repeat(64)))).not.toBe(planned)
+    expect(Descriptor.executionDigest(check(lane2, "c".repeat(64), "checks/lint"))).not.toBe(planned)
+    const moved = check(lane2)
+    expect(Descriptor.executionDigest(
+      new Descriptor.FlowDescriptor({
+        ...moved,
+        body: new Descriptor.BodyRefMarkdown({
+          path: `${lane2}/checks/test/other.mdx`,
+          baseDirectory: `${lane2}/checks/test`,
+          contentDigest: "c".repeat(64)
+        })
+      })
+    )).not.toBe(planned)
+    expect(Descriptor.executionDigest(new Descriptor.FlowDescriptor({ ...moved, capabilities: ["*"] })))
+      .not.toBe(planned)
+    expect(Descriptor.executionDigest(
+      new Descriptor.FlowDescriptor({
+        ...moved,
+        provenance: new Descriptor.Provenance({ source: "repository", root: lane2 })
+      })
+    )).not.toBe(planned)
+  })
+
+  it("hashes a location outside the root as recorded", () => {
+    const outside = (root: string) =>
+      new Descriptor.FlowDescriptor({ ...check(root), path: "/elsewhere/checks/test/flow.mdx" })
+    expect(Descriptor.executionDigest(outside(lane1))).toBe(Descriptor.executionDigest(outside(lane2)))
+    expect(Descriptor.executionDigest(outside(lane1))).not.toBe(Descriptor.executionDigest(check(lane1)))
+    // A sibling whose name extends the root's last segment is outside it.
+    expect(Descriptor.executionDigest(
+      new Descriptor.FlowDescriptor({ ...check(lane1), path: `${lane1}-evil/checks/test/flow.mdx` })
+    )).not.toBe(Descriptor.executionDigest(check(lane1)))
+  })
+
+  it("relates the root itself, and relates nothing to an empty root", () => {
+    const atRoot = (root: string) =>
+      new Descriptor.FlowDescriptor({
+        ...check(root),
+        body: new Descriptor.BodyRefMarkdown({
+          path: `${root}/flow.mdx`,
+          baseDirectory: root,
+          contentDigest: "c".repeat(64)
+        })
+      })
+    expect(Descriptor.executionDigest(atRoot(lane1))).toBe(Descriptor.executionDigest(atRoot(lane2)))
+    expect(Descriptor.executionDigest(atRoot(lane1))).not.toBe(Descriptor.executionDigest(check(lane1)))
+    // With no root every path is already as relative as it gets: an absolute
+    // path stays absolute rather than reading as the relative one.
+    expect(Descriptor.executionDigest(check(""))).toMatch(/^[0-9a-f]{64}$/)
+    expect(Descriptor.executionDigest(check(""))).not.toBe(Descriptor.executionDigest(check(lane1)))
+  })
+
+  it("relates a module's body and schema locators to its root", () => {
+    const module = (root: string) =>
+      new Descriptor.FlowDescriptor({
+        ...check(root, "e".repeat(64), "inspect"),
+        body: new Descriptor.BodyRefModule({
+          path: `${root}/inspect/flow.ts`,
+          contentDigest: "e".repeat(64),
+          imports: [new Descriptor.ModuleImport({ path: "./helper.ts", contentDigest: "f".repeat(64) })]
+        }),
+        input: new Descriptor.SchemaRefModule({ path: `${root}/inspect/flow.ts`, field: "input" }),
+        output: new Descriptor.SchemaRefModule({ path: `${root}/inspect/flow.ts`, field: "output" }),
+        path: `${root}/inspect/flow.ts`
+      })
+    expect(Descriptor.executionDigest(module("/repo-a/flows"))).toBe(
+      Descriptor.executionDigest(module("/repo-b/flows"))
+    )
+    const changedHelper = module("/repo-b/flows")
+    expect(Descriptor.executionDigest(
+      new Descriptor.FlowDescriptor({
+        ...changedHelper,
+        body: new Descriptor.BodyRefModule({
+          path: "/repo-b/flows/inspect/flow.ts",
+          contentDigest: "e".repeat(64),
+          imports: [new Descriptor.ModuleImport({ path: "./helper.ts", contentDigest: "0".repeat(64) })]
+        })
+      })
+    )).not.toBe(Descriptor.executionDigest(module("/repo-a/flows")))
+    expect(Descriptor.executionDigest(
+      new Descriptor.FlowDescriptor({
+        ...changedHelper,
+        input: new Descriptor.SchemaRefModule({ path: "/repo-b/flows/inspect/schema.ts", field: "input" })
+      })
+    )).not.toBe(Descriptor.executionDigest(module("/repo-a/flows")))
+  })
+})
+
 describe("declarationDigest", () => {
   const base = new Descriptor.FlowDescriptor({
     name: "inspect",

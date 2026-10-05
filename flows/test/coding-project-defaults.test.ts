@@ -167,14 +167,14 @@ test("a partial project keeps every declared field and fills only the omitted on
 })
 
 /** The host's own startup composition over a repository with no `flows/` tree. */
-const startup = (root: string, stateRoot: string) =>
+const startup = (root: string, stateRoot: string, hostPolicy = policy) =>
   Effect.gen(function*() {
     const planning = yield* loadProject(root, undefined)
-    const builtins = yield* provisionHostBuiltins(stateRoot, policy, { planning })
+    const builtins = yield* provisionHostBuiltins(stateRoot, hostPolicy, { planning })
     const project = yield* Registry.make({
       sources: [{ root: join(root, "flows"), source: "project", naming: "path" }]
     }).pipe(Effect.provide(Discovery.layer))
-    const registry = bindRepositoryRegistry(project, builtins.registry, policy, systemFlows)
+    const registry = bindRepositoryRegistry(project, builtins.registry, hostPolicy, systemFlows)
     const built = yield* repositoryCatalog(
       { delegates: [RunSetup, RunJob, RunTrigger, checkDelegate] },
       builtins.load
@@ -213,4 +213,39 @@ test("a repository with no Smithers files serves coding/request with its detecte
   const declared = await startup(root, stateRoot)
   assert.equal(declared.built.executables.some((entry) => entry.descriptor.name.startsWith("checks/")), false)
   await assert.rejects(access(join(stateRoot, "builtin-flows", policy, "checks", "test")), { code: "ENOENT" })
+})
+
+test("a plan's detected checks keep one identity on every lane's host, and a changed command is refused", async (t) => {
+  // coding/verify compares each plan check's flowDigest with the executing
+  // host's own descriptor (flows/coding/catalog.ts). Lanes never share a
+  // built-in root: it sits under the binding's state directory and a policy
+  // that names the binding, so only content may decide the identity.
+  const { root } = await repository(t, {
+    "package.json": JSON.stringify({ name: "fixture", scripts: { test: "vitest run", lint: "eslint ." } }),
+    "pnpm-lock.yaml": "lockfileVersion: '9.0'\n"
+  })
+  await mkdir(join(root, "flows"))
+  const lanes = dirname(root)
+  const identities = async (lane: string, hostPolicy: string) => {
+    const { built } = await startup(root, join(lanes, lane, "managed-hosts", hostPolicy.slice(0, 8)), hostPolicy)
+    return new Map(
+      built.executables.filter((entry) =>
+        entry.descriptor.name.startsWith("checks/") || entry.descriptor.name === "coding"
+      )
+        .map((entry) => [entry.descriptor.name, Descriptor.executionDigest(entry.descriptor)])
+    )
+  }
+  const planned = await identities("lane-1", "1".repeat(64))
+  const fresh = await identities("lane-2", "2".repeat(64))
+  assert.deepEqual([...planned.keys()].sort(), ["checks/lint", "checks/test", "coding"])
+  assert.match(planned.get("checks/test") ?? "", /^[0-9a-f]{64}$/)
+  assert.equal(fresh.get("checks/test"), planned.get("checks/test"))
+  assert.equal(fresh.get("checks/lint"), planned.get("checks/lint"))
+  // A module built-in carries its host policy in its bytes, so its identity still follows the policy.
+  assert.notEqual(fresh.get("coding"), planned.get("coding"))
+  // Without pnpm's lockfile the detected command is `npm run test`: a changed check the old plan cannot run.
+  await rm(join(root, "pnpm-lock.yaml"))
+  const changed = await identities("lane-3", "1".repeat(64))
+  assert.notEqual(changed.get("checks/test"), planned.get("checks/test"))
+  assert.notEqual(changed.get("checks/lint"), planned.get("checks/lint"))
 })
