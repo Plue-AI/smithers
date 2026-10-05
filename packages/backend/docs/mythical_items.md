@@ -177,12 +177,14 @@ mergeability. While GitHub is still computing mergeability it reads the PR
 once more after 2 s and evaluates every live row again. Then, after those
 reads, it applies the authority rule again, so a demotion on GitHub or a
 sign-out while GitHub was read sends nothing, and reads the pull request's
-base and head once more. The claim follows in one transaction: it takes the
-TODO's row, checks the approval's age against the time then, reads the
+base and head once more. The claim follows in one transaction. It first takes
+every lock it needs, in one order: the stack's row, the TODO's row, then the
 approver's session, person and the install owner `FOR SHARE` (the rows a
-sign-out, a suspension and an owner change write, so one committed before the
-claim is seen and sends nothing), and records the slot `unknown`: a send is
-recorded before the request leaves. The App's send sends the one squash merge
+sign-out, a suspension and an owner change write; each of those writes one row
+and takes no other, so nothing waits in a cycle). Only then does it check the
+approval's age and the session's expiry against the time, and record the slot
+`unknown`: a send is recorded before the request leaves. A revocation or an
+expiry that comes before the claim sends nothing. The App's send sends the one squash merge
 with `sha` = the reviewed head, a token holding only `contents:write`, and a
 commit title and message rendered from the TODO Smithers holds
 (`<title> (#<PR>)`, `TODO T<n>, reviewed at <head>.`), never the pull
@@ -191,11 +193,13 @@ directives (`[skip ci]`, `[ci skip]`, `[no ci]`, `[skip actions]`,
 `[actions skip]`, `skip-checks: true`) in the title are made plain. GitHub
 answering 405 because the pull request is already merged is no refusal.
 
-A sent merge is never sent again. Lookup alone settles it: merged into
-`main`, it lands once `main` contains the merge commit; closed, or at another
-head the sha-bound request can no longer merge, its fence clears with that
-refusal; still open at the reviewed head, it stays `merging`, whatever the
-approval's age or its approver's standing, until GitHub shows one of those.
+A sent merge is never sent again, nor is one whose claim committed before the
+worker stopped. Lookup alone settles it: merged into `main`, it lands once
+`main` contains the merge commit; closed, or at another head the sha-bound
+request can no longer merge, its fence clears with that refusal; still open at
+the reviewed head, it stays `merging`, whatever the approval's age or its
+approver's standing, until GitHub shows one of those. Closing the pull request
+or pushing to it on GitHub is how a person ends one that never completes.
 
 A definitive refusal clears the fence and stays on `checks.Land.refused`: a
 recheck's, or GitHub refusing the merge (`401`, `403`, `404`, `405`, `409`,
