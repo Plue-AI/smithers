@@ -1,3 +1,4 @@
+import { headingLine } from "../../cards/MarkdownLinks"
 import type { Docs } from "../../../docs/Docs"
 import { docsPage, unknownDocsPage } from "../../../docs/Docs"
 import type { Card } from "../AppState"
@@ -11,6 +12,7 @@ import type { ControllerContext } from "./context"
  */
 export interface DocsController {
   /** `docs [page]`: embed the page (the toc's first when none is named) and tell the agent what was embedded. */
+  readonly docsTargetAvailable: (target: string) => boolean
   readonly docsAvailable: () => boolean
   readonly openDocsPage: (page?: string) => string | { readonly value: string }
   /** `docs.read <page>`: the page's title, summary and Markdown as JSON. */
@@ -54,5 +56,11 @@ export const createDocsController = (
     return { value: JSON.stringify({ title: found.title, summary: found.summary, markdown: found.markdown }) }
   }
 
-  return { docsAvailable: deps.available, openDocsPage, readDocsPage }
+  const docsTargetAvailable = (target: string) => {
+    if (!deps.available()) return false
+    const [slug, anchor] = target.split("#", 2)
+    const found = docsPage(deps.docs(), slug!)
+    return found !== undefined && (!anchor || headingLine(found.markdown, anchor) !== undefined)
+  }
+  return { docsTargetAvailable, docsAvailable: deps.available, openDocsPage, readDocsPage }
 }

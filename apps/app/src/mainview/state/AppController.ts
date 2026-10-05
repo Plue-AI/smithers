@@ -242,6 +242,7 @@ export interface AppController extends IssueFlowsController {
   /** `wiki.heading <line>`: bring the open note's heading at that source line into view. */
   readonly jumpToHeading: (line: string, cardId?: string) => Promise<string | void>
   /** `docs [page]` embeds an in-app docs page (M-35) as a read-only card for either actor. */
+  readonly docsTargetAvailable: (target: string) => boolean
   readonly docsAvailable: () => boolean
   readonly openDocsPage: (page?: string) => string | { readonly value: string }
   /** `docs.read <page>`: the page's title, summary and Markdown as JSON, for the agent. */
@@ -1173,7 +1174,7 @@ export const createAppController = (
     selectWikiCardDocument,
     setWikiCardView
   } = actors.pair(ctx, (context, select) => createWorldController(context, { nextOrdinal: store.nextOrdinal, cloudWiki: select(cloudWiki) }))
-  const { docsAvailable, openDocsPage, readDocsPage } = actors.pair(ctx, (context) =>
+  const { docsTargetAvailable, docsAvailable, openDocsPage, readDocsPage } = actors.pair(ctx, (context) =>
     createDocsController(context, { nextOrdinal: store.nextOrdinal, docs: services.docs ?? bundledDocs, available: services.docsCatalogAvailable ?? (() => false) }))
 
   const { askWorldDelete } = actors.pair(ctx, (_context, select) => ({
@@ -1638,6 +1639,7 @@ export const createAppController = (
     showWorldGraph,
     attachWikiEditor,
     jumpToHeading,
+    docsTargetAvailable,
     docsAvailable,
     openDocsPage,
     readDocsPage,

@@ -124,3 +124,10 @@ describe("the docs doors", () => {
     expect(controller.slashItems("docs")[0]?.flow.name).toBe("docs")
   })
 })
+
+test("HTTPS docs target refuses missing content and anchor", async () => {
+  const { controller } = await setup()
+  expect(controller.docsTargetAvailable("quickstart#put-https-in-front")).toBe(false)
+  expect(controller.docsTargetAvailable("quickstart#open-the-command-list")).toBe(true)
+  expect(controller.docsTargetAvailable("missing")).toBe(false)
+})

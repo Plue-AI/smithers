@@ -17,6 +17,7 @@ export interface SettingsContainerProps {
   readonly View: ComponentType<CardProps<SettingsCard>>
   readonly install: InstallSnapshots
   readonly dispatch: InstallCardDispatch
+  readonly docsAvailable?: () => boolean
   readonly owner: boolean
   readonly origin: string
   readonly view: CardProps<SettingsCard>["view"]
@@ -41,13 +42,20 @@ export const addressActions = (address: InstallAddress): CardActionDefinition<"s
   ]
 }
 
-export const SettingsContainer = ({ View, install, dispatch, owner, origin, view, onView }: SettingsContainerProps) => {
+export const SettingsContainer = ({ View, install, dispatch, owner, origin, view, onView, docsAvailable = () => false }: SettingsContainerProps) => {
   const snapshot = useSyncExternalStore(install.subscribe, install.get, install.get)
   const model = snapshot.model
-  const key = model ? installKeyAction(dispatch, model) : undefined
+  const needsHttps = model ? settingsCardModel(model, origin).notifications_need_https : false
+  const dispatchAvailable: InstallCardDispatch = (tag, input, gesture) => {
+    if (tag === "docs" && (!owner || !needsHttps || !docsAvailable())) return
+    return dispatch(tag, input, gesture)
+  }
+  const key = model ? installKeyAction(dispatchAvailable, model) : undefined
   const definitions: CardActionDefinition[] = owner && model ? [
     /* Each control sits on its row (SettingsView rowFor reads args.field) with its own input, so a press changes the value. */
     ...addressActions(model.address),
+    ...(needsHttps && docsAvailable() ? [{ tag: "docs" as const, label: "Notifications need HTTPS ↗",
+      args: { page: "quickstart#put-https-in-front" }, command_input: { page: "quickstart#put-https-in-front" } }] : []),
     { tag: "settings.capacity", label: "Machines", args: { field: "capacity", min: "0", max: String(model.this_mac.capacity) }, command_input: { capacity: model.capacity },
       input: [{ name: "value", label: "Machines", kind: "text", required: true, value: String(model.capacity) }],
       resolve_input: input => ({ capacity: Number(input.value ?? input.capacity ?? model.capacity) }) },
@@ -62,8 +70,8 @@ export const SettingsContainer = ({ View, install, dispatch, owner, origin, view
   ] : []
   /* This Mac's fix renders inside its row (model.this_mac.limit): it binds for onAction but stays out of the listed actions. */
   const fix: CardActionDefinition[] = owner && model?.this_mac.limit ? [{ ...limitFix(model.this_mac.limit.fix), command_input: undefined }] : []
-  const listed = cardActions(key?.dispatch ?? dispatch, definitions)
-  const bindings = cardActions(key?.dispatch ?? dispatch, [...definitions, ...fix])
+  const listed = cardActions(key?.dispatch ?? dispatchAvailable, definitions)
+  const bindings = cardActions(key?.dispatch ?? dispatchAvailable, [...definitions, ...fix])
   if (!owner || !model?.health) return null
   return <View model={settingsCardModel(model, origin)} actions={listed.actions} gestures={bindings.gestures} onAction={bindings.onAction} view={view} onView={onView} />
 }
@@ -78,7 +86,7 @@ const SettingsBody = ({ presentation }: { readonly presentation: CardActions["pr
   // MOCK SEAM: the seed's per-member view state holds the Address choice until the `view:<member>` topic lands.
   const viewer = controller.design.viewer()
   const listen = useLiveQuery(settingsViewsOf(controller.design)).data.find(row => row.id === viewer)?.listen
-  return <SettingsContainer View={SettingsView} install={install} owner={owner}
+  return <SettingsContainer View={SettingsView} install={install} owner={owner} docsAvailable={() => controller.docsTargetAvailable("quickstart#put-https-in-front")}
     origin={typeof window === "undefined" ? "http://localhost" : window.location.origin}
     view={{ maximized: presentation === "maximized", ...(listen === undefined ? {} : { tab: listen }) }} onView={patch => setSettingsView(controller.design, viewer, patch)}
     dispatch={(name, payload, gesture) => controller.commands.submit({ name, payload: (payload ?? {}) as Record<string, unknown>, actor: "user", gesture })} />
