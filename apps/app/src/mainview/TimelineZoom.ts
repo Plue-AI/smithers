@@ -17,7 +17,9 @@
  *
  * A folded line is deterministic: its title is the group's first prompt, else
  * its first answer, else its first line; its summary counts what it holds;
- * its tone and pending act are its most urgent child's.
+ * its tone and pending act are its most urgent child's. The fast model may
+ * retitle it (#3732): `withTitles` takes a title written for exactly that
+ * run's key, and the deterministic one stands otherwise.
  */
 import type { TimelineLine } from "@smthrs/rpc/TimelineCard"
 
@@ -133,3 +135,28 @@ export function zoomTimeline(lines: ReadonlyArray<TimelineLine>, band: readonly 
   levels.at(-1)!.forEach(show)
   return shown
 }
+
+/**
+ * The key of a folded line's model title: its first and last entries and how many it holds, so a run that grows or
+ * moves asks again. Undefined for a line that is not folded.
+ */
+export const foldKey = (line: Pick<TimelineLine, "entry_id" | "zoom">): string | undefined =>
+  line.zoom === undefined ? undefined : JSON.stringify([line.entry_id, line.zoom.last_entry_id, line.zoom.count])
+
+/** Each folded line among `shown` with its key and the lines it stands for, in order. */
+export const foldedRuns = (lines: ReadonlyArray<TimelineLine>, shown: ReadonlyArray<TimelineLine>): Array<{ readonly key: string; readonly lines: TimelineLine[] }> => {
+  const position = new Map(lines.map((line, index) => [line.entry_id, index]))
+  return shown.flatMap(line => {
+    const key = foldKey(line)
+    const first = position.get(line.entry_id)
+    const last = line.zoom === undefined ? undefined : position.get(line.zoom.last_entry_id)
+    return key === undefined || first === undefined || last === undefined ? [] : [{ key, lines: lines.slice(first, last + 1) }]
+  })
+}
+
+/** A folded line whose key has a model-written title takes it, marked `written`; every other line is unchanged. */
+export const withTitles = (shown: ReadonlyArray<TimelineLine>, titles: ReadonlyMap<string, string>): TimelineLine[] => shown.map(line => {
+  const key = foldKey(line)
+  const title = key === undefined ? undefined : titles.get(key)
+  return title === undefined || line.zoom === undefined ? line : { ...line, title, zoom: { ...line.zoom, written: true } }
+})

@@ -170,6 +170,7 @@ describe("the controller's command surface", () => {
       "todoList",
       "githubSyncSnapshots",
       "externalSession",
+      "timelineTitles",
       "wikiIndexes",
       "wikiAttachments",
       "controlFocus",

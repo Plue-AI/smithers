@@ -1,7 +1,7 @@
 import { describe, expect, test } from "bun:test"
 import type { TimelineLine } from "@smthrs/rpc/TimelineCard"
 import { TimelineLineSchema } from "@smthrs/rpc/TimelineCard"
-import { foldedLine, zoomLevels, zoomTimeline, ZOOM_DEFAULTS } from "./TimelineZoom"
+import { foldedLine, foldedRuns, foldKey, withTitles, zoomLevels, zoomTimeline, ZOOM_DEFAULTS } from "./TimelineZoom"
 
 const line = (id: number, kind: TimelineLine["kind"], tone: TimelineLine["tone"] = "quiet", extra: Partial<TimelineLine> = {}): TimelineLine =>
   ({ entry_id: `e${id}`, kind, title: `${kind} ${id}`, tone, glyph: { event: "ok" }, ...extra })
@@ -194,5 +194,58 @@ describe("properties over random conversations", () => {
       expect(shown.length, `${length} lines`).toBeLessThan(90)
       expect(covered(lines, shown)).toEqual(ids(lines))
     }
+  })
+})
+
+describe("model titles (#3732)", () => {
+  const lines = session(300)
+  const shown = zoomTimeline(lines, ["e290", "e295"])
+  const folds = shown.filter(each => each.zoom !== undefined)
+
+  test("a folded line's key is its first and last entries and its count; an unfolded line has none", () => {
+    expect(folds.length).toBeGreaterThan(2)
+    const fold = folds[0]!
+    expect(foldKey(fold)).toBe(JSON.stringify([fold.entry_id, fold.zoom!.last_entry_id, fold.zoom!.count]))
+    expect(foldKey({ entry_id: "e1", zoom: { level: 1, count: 3, last_entry_id: "e3" } })).toBe('["e1","e3",3]')
+    // The same run grown by one entry is a new key, so its title is asked for again.
+    expect(foldKey({ entry_id: "e1", zoom: { level: 1, count: 4, last_entry_id: "e4" } })).toBe('["e1","e4",4]')
+    expect(foldKey(lines[0]!)).toBeUndefined()
+  })
+
+  test("each folded line's run is the entries from its first to its last, in order", () => {
+    const runs = foldedRuns(lines, shown)
+    expect(runs.map(run => run.key)).toEqual(folds.map(each => foldKey(each)!))
+    for (const [index, run] of runs.entries()) {
+      const fold = folds[index]!
+      expect(run.lines.length).toBe(fold.zoom!.count)
+      expect(run.lines[0]!.entry_id).toBe(fold.entry_id)
+      expect(run.lines.at(-1)!.entry_id).toBe(fold.zoom!.last_entry_id)
+    }
+    expect(foldedRuns(lines, lines)).toEqual([])
+    // A folded line naming an entry the conversation no longer has asks for nothing.
+    expect(foldedRuns(lines.slice(0, 5), [{ ...folds[0]!, entry_id: "gone" }])).toEqual([])
+  })
+
+  test("a title written for exactly a line's key replaces its title, marked written; nothing else changes", () => {
+    const [first, second] = folds
+    const titles = new Map([[foldKey(first!)!, "Hardened webhook retries"]])
+    const titled = withTitles(shown, titles)
+    expect(titled).toHaveLength(shown.length)
+    expect(titled[shown.indexOf(first!)]).toEqual({ ...first!, title: "Hardened webhook retries", zoom: { ...first!.zoom!, written: true } })
+    expect(TimelineLineSchema.parse(titled[shown.indexOf(first!)])).toEqual(titled[shown.indexOf(first!)]!)
+    expect(titled[shown.indexOf(second!)]).toBe(second!)
+    for (const [index, each] of shown.entries()) if (each !== first) expect(titled[index]).toBe(each)
+  })
+
+  test("a stale key (the run has since grown or moved) and an unfolded line's id are ignored", () => {
+    const fold = folds[0]!
+    const stale = new Map([
+      [JSON.stringify([fold.entry_id, fold.zoom!.last_entry_id, fold.zoom!.count - 1]), "Old title"],
+      [JSON.stringify([fold.entry_id, "e0", fold.zoom!.count]), "Moved title"],
+      [lines[295]!.entry_id, "Not a fold"],
+      [JSON.stringify([lines[295]!.entry_id, lines[295]!.entry_id, 1]), "Not a fold either"]
+    ])
+    expect(withTitles(shown, stale)).toEqual(shown)
+    expect(withTitles(shown, new Map())).toEqual(shown)
   })
 })

@@ -1,12 +1,15 @@
 import type { StartAgentTurnRequest } from "@smthrs/rpc/NativeAgent"
 import type { AgentTurnFrame } from "@smthrs/rpc/NativeAgent"
 import type { CloudAgent } from "../../src/bun/CloudAgent"
+import { TITLE_INSTRUCTIONS } from "../../src/mainview/state/seams/TimelineTitleSeam"
 
 /*
  * SMITHERS_CHAT_STUB=1: a deterministic CloudAgent so the Playwright suite and
  * CI run offline. It streams one reasoning delta, then the text
  * `stub: <last user message>`, then done; `stub-tool <flow> [args]` instead
- * calls that flow through the app's `commands` tool.
+ * calls that flow through the app's `commands` tool. A timeline title request
+ * (#3732) is answered `Fast title for <N> entries.`, N being the count the
+ * request states.
  *
  * Test scaffolding, so it lives in the test tree: every host that wants it
  * INJECTS it as `startLocalServer({ agent: createChatStub })`. The one host
@@ -25,6 +28,7 @@ const lastUserMessage = (request: StartAgentTurnRequest): string => {
 }
 
 export const stubReply = (request: StartAgentTurnRequest): string => {
+  if (request.instructions === TITLE_INSTRUCTIONS) return `Fast title for ${/holds (\d+) entries/.exec(lastUserMessage(request))?.[1] ?? "?"} entries.`
   return `stub: ${lastUserMessage(request)}`
 }
 

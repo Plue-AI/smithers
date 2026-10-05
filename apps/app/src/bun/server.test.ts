@@ -12,6 +12,7 @@ import { PROVIDER_ECHO_LEAD, PROVIDER_MODEL, PROVIDER_REPLY } from "../../e2e/re
 import { launchModelProvider } from "../../e2e/real/support/model-provider-process"
 import type { ModelProvider } from "../../e2e/real/support/model-provider-process"
 import { createChatStub } from "../../e2e/support/ChatStub"
+import { TITLE_INSTRUCTIONS } from "../mainview/state/seams/TimelineTitleSeam"
 import { defaultDistDir, describeCookie, rescopeCookie, startLocalServer } from "./server"
 import type { LocalServer } from "./server"
 import type { CloudAuth } from "./CloudAuth"
@@ -583,6 +584,46 @@ describe("the Smithers Cloud seam", () => {
   })
 })
 
+
+describe("POST /api/model/stream", () => {
+  const post = (body: unknown, origin = server.origin, token = server.sessionToken) => fetch(`${origin}/api/model/stream`, {
+    method: "POST",
+    headers: { [LOCAL_SESSION_HEADER]: token, "content-type": "application/json" },
+    body: JSON.stringify(body)
+  })
+
+  test("answers one unrecorded model answer as a turn's NDJSON frames; the stub titles a fold (#3732)", async () => {
+    const response = await post({ runId: "title-1", instructions: TITLE_INSTRUCTIONS, messages: [{ role: "user", content: "This stretch holds 42 entries. Its lines, in order:\nprompt: “Fix it”" }] })
+    expect(response.status).toBe(200)
+    expect(response.headers.get("content-type")).toBe("application/x-ndjson")
+    expect(await readFrames(response)).toEqual([
+      { runId: "title-1", type: "delta", kind: "reasoning", text: "stub: thinking" },
+      { runId: "title-1", type: "delta", kind: "text", text: "Fast title for 42 entries." },
+      { runId: "title-1", type: "done", reason: "stop" }
+    ])
+  })
+
+  test("refuses a recorded turn, tools and a malformed body", async () => {
+    const turn = { runId: "title-2", instructions: TITLE_INSTRUCTIONS, messages: [{ role: "user", content: "x" }] }
+    const recorded = await post({ ...turn, journal: { version: 1, legId: "leg", token: "private_capability_1234567890abcdef" } })
+    expect(recorded.status).toBe(400)
+    expect(((await recorded.json()) as { error: { code: string } }).error.code).toBe("invalid_request")
+    const tools = await post({ ...turn, tools: [{ type: "function", name: "commands", description: "", parameters: {} }] })
+    expect(((await tools.json()) as { code: string }).code).toBe("tools_not_supported")
+    const malformed = await post({ runId: "", messages: "no" })
+    expect(malformed.status).toBe(400)
+  })
+
+  test("a host with no agent and no named model refuses, and nothing answers in its place", async () => {
+    const bare = await startLocalServer({ port: 0, distDir: dist, cloudMode: "offline", cloudApi: null, identityUpstream: null, home: "/fake/home", log: () => {} })
+    try {
+      const refused = await post({ runId: "title-3", instructions: TITLE_INSTRUCTIONS, messages: [{ role: "user", content: "x" }] }, bare.origin, bare.sessionToken)
+      expect(((await refused.json()) as { error: { code: string } }).error.code).toBe("agent_unavailable")
+    } finally {
+      await bare.stop()
+    }
+  })
+})
 
 describe("POST /api/chat/turn", () => {
   test("streams the stub's frames as NDJSON and ends on done", async () => {

@@ -94,6 +94,17 @@ describe("a zoomed timeline line", () => {
     expect(body.querySelector('li[data-entry="entry-404"] button')!.getAttribute("aria-label")).toBe(`289 entries: ${timeless.title}`)
   })
 
+  test("a title the fast model wrote wears the written mark before it; the run's own title wears none (#3732)", () => {
+    const written: TimelineLine = { ...byId("entry-1"), title: "Hardened webhook retries", zoom: { ...byId("entry-1").zoom!, written: true } }
+    const body = render([written, byId("entry-404"), ...fixtures.timeline.model.lines])
+    const title = body.querySelector('li[data-entry="entry-1"] .mvp-tl-text b')!
+    expect(title.textContent).toBe("Hardened webhook retries")
+    expect(title.firstElementChild!.matches("svg.mvp-written[aria-hidden=true]")).toBe(true)
+    expect(body.querySelector('li[data-entry="entry-1"] button')!.getAttribute("aria-label")).toBe(`237 entries, ${clock(written.zoom!.from!)} to ${clock(written.zoom!.to!)}: Hardened webhook retries`)
+    expect(body.querySelectorAll(".mvp-written")).toHaveLength(1)
+    expect(body.querySelector('li[data-entry="entry-404"] .mvp-tl-text b')!.textContent).toBe(byId("entry-404").title)
+  })
+
   test("a run's act is its own control beside the line, never inside it", () => {
     const body = render(zoomed, fixtures.zoomed.model.on_screen)
     const asking = body.querySelector('li[data-entry="entry-733"]')!

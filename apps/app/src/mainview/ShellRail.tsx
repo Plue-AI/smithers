@@ -13,7 +13,7 @@ import type { ShellView, ToastCard } from "@smthrs/rpc/ToastCard"
 import type { TimelineLine } from "@smthrs/rpc/TimelineCard"
 import { useMessageBand, useMessageScroller } from "@smthrs/ui"
 import { useLiveQuery } from "@tanstack/react-db"
-import { useState } from "react"
+import { useState, useSyncExternalStore } from "react"
 import { useController } from "./ControllerContext"
 import { EdgeMap } from "./EdgeMap"
 import type { InitMessage } from "./HostOpening"
@@ -22,7 +22,7 @@ import { useHome, type HomeAnswer } from "./cards/HomeContainer"
 import { Timeline } from "./Timeline"
 import { ToastStack } from "./ToastStackView"
 import { actsLine, type ExternalConversation, type ExternalItem } from "./ExternalEntries"
-import { zoomTimeline } from "./TimelineZoom"
+import { foldedRuns, withTitles, zoomTimeline } from "./TimelineZoom"
 
 export type RailEntry =
   | { readonly kind: "entry"; readonly id: string; readonly entry: EntryRowCard; readonly facts?: Omit<Parameters<typeof actionFor>[0], "state"> }
@@ -178,7 +178,11 @@ export function ShellRail({ entries, home }: { readonly entries: ReadonlyArray<R
   const onEdgeAction = (tag: CatalogTag, args?: Record<string, string>): void => { controller.commands.submit({ name: tag, payload: args ?? {}, actor: "user" }) }
   const last = lines.at(-1)?.entry_id ?? ""
   // A long conversation zooms out with distance from the band; the band and the edges still read every entry (#3728).
-  const shown = zoomTimeline(lines, band, railTimes(entries))
+  const folded = zoomTimeline(lines, band, railTimes(entries))
+  // While the timeline shows, the fast model retitles folded lines once they hold still; until then, or if it cannot,
+  // their own titles stand (#3732).
+  const asked = controller.timelineTitles(wide ? foldedRuns(lines, folded) : [])
+  const shown = withTitles(folded, useSyncExternalStore(asked.subscribe, asked.get, asked.get))
   return <aside className="mvp-rail" aria-label="Activity" data-keyboard-pane="Timeline" data-wide={wide || undefined}>
     <EdgeMap above={edges.above} below={edges.below} narrow={!wide} onAction={onEdgeAction} onView={onView} />
     <Timeline lines={shown} on_screen={band === undefined ? [last, last] : [band[0], band[1]]} onView={onView} onAction={timeline.onAction} />

@@ -166,6 +166,8 @@
 .mvp-timeline li[data-zoom] .mvp-tl-text b { color: var(--text-muted); font-size: 11px; font-weight: 400; line-height: 15px; }
 .mvp-timeline li[data-zoom="2"] .mvp-tl-text b { color: var(--text); font-size: 12px; line-height: 16px; }
 .mvp-timeline li[data-zoom="1"] .mvp-tl-text b { color: var(--text); font-size: 12.5px; font-weight: 500; line-height: 18px; }
+/* A title the fast model wrote (#3732) leads with the written sparkle, inline with the words. */
+.mvp-tl-text b .mvp-written { display: inline; margin-right: 3px; }
 .mvp-timeline li[data-zoom] .mvp-tl-zoom { color: var(--text-faint); font-size: 10.5px; line-height: 13px; font-variant-numeric: tabular-nums; }
 .mvp-timeline li[data-zoom="2"] .mvp-tl-zoom { color: var(--text-muted); font-size: 11px; line-height: 14px; }
 .mvp-timeline li[data-zoom="1"] .mvp-tl-zoom { color: var(--text-muted); font-size: 11px; line-height: 15px; }

@@ -3,7 +3,7 @@ import type { TimelineLine, TimelineProps, TimelineZoom } from "@smthrs/rpc/Time
 
 import { Button } from "@smthrs/ui/button"
 import { Spinner } from "@smthrs/ui"
-import { Check, CircleAlert, X } from "lucide-react"
+import { Check, CircleAlert, Sparkles, X } from "lucide-react"
 import { ActorChip } from "./cards/views/ActorChip"
 import { StateGlyph } from "./cards/views/StateWord"
 
@@ -53,7 +53,7 @@ function Line({ line, inView, onView, onAction }: { line: TimelineLine; inView: 
         : glyph.event === "attention" ? <CircleAlert size={13} className="mvp-toast-attention" aria-hidden="true" />
         : <X size={13} className="mvp-tl-failed" aria-hidden="true" />}
     </span>
-      <span className="mvp-tl-text"><b>{line.title}</b>
+      <span className="mvp-tl-text"><b>{zoom?.written ? <Sparkles size={11} className="mvp-written" aria-hidden="true" /> : null}{line.title}</b>
         {zoom ? <span className="mvp-tl-zoom">{zoom.count} entries{span ? <> · <time>{span.text}</time></> : null}</span>
           : line.summary === undefined ? null : <span>{line.summary}</span>}</span>
     </button>

@@ -418,9 +418,10 @@ type TimelineLine = {
        | { event: "running" | "ok" | "attention" | "failed" }   // an event: spinner, check, alert or cross
   action?: Action                                           // the one act while it applies: Answer, Retry, Review & merge
   fresh?: boolean                                           // arrived since this viewer last looked; highlights once
-  zoom?: { level: number; count: number; last_entry_id: string; from?: number; to?: number }
+  zoom?: { level: number; count: number; last_entry_id: string; from?: number; to?: number; written?: boolean }
                                                             // a folded line far from the band (#3728): it stands for
-                                                            // `count` entries from entry_id to last_entry_id
+                                                            // `count` entries from entry_id to last_entry_id; written:
+                                                            // the fast model wrote its title (#3732)
 }
 type TimelineProps = { lines: TimelineLine[]
                        on_screen: [first: string, last: string]
@@ -432,6 +433,10 @@ type TimelineProps = { lines: TimelineLine[]
 // and 1 of the band's own group at levels 1–3 open, and so does any group holding an open one. A folded line is
 // titled by its first prompt, else its first answer; its summary counts what it holds; its tone and act are its most
 // urgent child's. The band and the edge rows still read every entry.
+// Model titles (#3732): once the folded set holds still (debounced), the fast model titles each folded line once per
+// key (first and last entry ids and count, so a growing run asks again) over POST /api/model/stream, only on hosts with
+// `model.turn`; a written title wears the Written sparkle. Pending, failed, timed out or unavailable: the deterministic
+// title stands, with no error state.
 // A line click: onView({ jump_to: entry_id }). The inline action is its own button with data-flow={action.tag};
 // it calls onAction(action.tag, action.args) and never jumps. A line has at most one action; the container drops
 // it once the act no longer applies (answered, retried, merged). Glyph actors use ActorChip's avatar (T-UI-01).

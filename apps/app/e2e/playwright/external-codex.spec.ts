@@ -90,3 +90,33 @@ test("a long session's timeline zooms out with distance from the band, and a far
   await expect(opening).not.toHaveAttribute("data-zoom", /.*/)
   expect(await opening.evaluate(item => [...item.parentElement!.children].indexOf(item))).toBeLessThan(3)
 })
+
+test("the fast model titles a long session's folded lines, marked as written, and short lines keep their own (#3732)", async ({ page }) => {
+  await page.setViewportSize({ width: 1280, height: 1000 })
+  await page.goto(`/?codex=${LONG}`)
+  await expect(page.getByTestId("transcript").getByText("Turn 59 done: retries now cover store.ts.")).toBeVisible()
+  const folded = page.locator(".mvp-timeline > ol > li[data-zoom]")
+  await expect.poll(async () => folded.count()).toBeGreaterThan(3)
+  // The T1 host's stub model answers "Fast title for <N> entries." for a run of N; every folded line takes its own.
+  await expect.poll(async () => folded.locator(".mvp-written").count(), { timeout: 15_000 }).toBe(await folded.count())
+  for (const item of await folded.all()) {
+    const count = /^(\d+) entries/.exec(await item.locator(".mvp-tl-zoom").innerText())![1]
+    await expect(item.locator(".mvp-tl-text b")).toHaveText(`Fast title for ${count} entries`)
+  }
+  // Lines near the band are not folded: they keep their own titles and no mark.
+  await expect(page.locator(".mvp-timeline > ol > li:not([data-zoom]) .mvp-written")).toHaveCount(0)
+  await expect(page.locator(".mvp-timeline > ol > li:not([data-zoom])", { hasText: "Turn 59 done: retries now cover store.ts." })).toBeVisible()
+})
+
+test("below 1,180 px, where the timeline is hidden, no title is asked of the model (#3732)", async ({ page }) => {
+  const asked: string[] = []
+  page.on("request", request => { if (new URL(request.url()).pathname === "/api/model/stream") asked.push(request.url()) })
+  await page.setViewportSize({ width: 1000, height: 1000 })
+  await page.goto(`/?codex=${LONG}`)
+  await expect(page.getByTestId("transcript").getByText("Turn 59 done: retries now cover store.ts.")).toBeVisible()
+  // Past the 1.5 s debounce a visible timeline would have asked by now.
+  await page.waitForTimeout(3_000)
+  expect(asked).toEqual([])
+  await page.setViewportSize({ width: 1280, height: 1000 })
+  await expect.poll(() => asked.length, { timeout: 15_000 }).toBeGreaterThan(0)
+})

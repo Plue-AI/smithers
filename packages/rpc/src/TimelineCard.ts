@@ -14,7 +14,7 @@ import type { ShellView } from "./ToastCard.ts"
  * Level 1 is one message and what followed it, level 2 a run of those, level 3 a run of level 2s, and so on while
  * the coarsest level still holds more than a screenful. `entry_id` is the
  * run's first entry (a click jumps there); `last_entry_id` its last; `from`/`to` its span in epoch milliseconds when
- * the entries carry times.
+ * the entries carry times; `written` marks a title the fast model wrote.
  * @since 1.0.0
  * @category schemas
  */
@@ -24,7 +24,9 @@ export const TimelineZoomSchema = z.object({
   count: z.number().int().min(2),
   last_entry_id: z.string(),
   from: z.number().optional(),
-  to: z.number().optional()
+  to: z.number().optional(),
+  /** The title was written by the install's fast model (#3732), not taken from the run's first prompt or answer. */
+  written: z.boolean().optional()
 })
 
 /**

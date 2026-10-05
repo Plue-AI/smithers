@@ -56,6 +56,8 @@ export type CommandActions =
     | "githubSyncSnapshots"
     // A Codex session the conversation shows read-only (M-38), never an act.
     | "externalSession"
+    // The fast model's titles are what the timeline reads, never an act.
+    | "timelineTitles"
     // The roster and the person's role are what the Members card reads, never an act.
     | "membersRoster"
     | "membersRole"

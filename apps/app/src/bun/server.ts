@@ -23,6 +23,7 @@ import {
   HEALTH_PATH,
   IDENTITY_ROUTE_PREFIX,
   MODEL_CATALOG_PATH,
+  MODEL_STREAM_PATH,
   TURN_PATH,
   TURN_REPLAY_PATH,
   TURN_RETIRE_PATH,
@@ -937,6 +938,22 @@ export const startLocalServer = async (options: LocalServerOptions): Promise<Loc
   }
   router.add("POST", TURN_PATH, handleChatTurn)
   router.add("POST", CHAT_TURN_PATH, handleChatTurn)
+  /*
+   * The shared backend's one-off model answer (`model.turn`), such as the fast model's timeline titles (#3732): a
+   * turn's request and frames, with no tools and no turn record. A named model answers through its Route; otherwise
+   * this host's agent does, and with neither it is refused, as a turn is.
+   */
+  router.add("POST", MODEL_STREAM_PATH, async ({ request }) => {
+    const parsed = await readJson(request, MAX_BODY_BYTES)
+    if ("error" in parsed) return parsed.error
+    if (!isStartTurnRequest(parsed.body) || parsed.body.journal !== undefined) {
+      return jsonError("invalid_request", "Body must be { runId, messages, instructions } with optional context and no journal.")
+    }
+    const body = parsed.body
+    if (body.tools !== undefined && body.tools.length > 0) return refuse("tools_not_supported", "A model answer runs no tools; send it without tools.")
+    if ("model" in body) await modelCredentials.refresh()
+    return startChatTurn(body)
+  })
   for (const path of [TURN_REPLAY_PATH, TURN_RETIRE_PATH, TURN_ERASE_PATH]) {
     router.add("POST", path, async ({ request }) => {
       if (options.fixtureJournal !== undefined) return options.fixtureJournal.access(request)
