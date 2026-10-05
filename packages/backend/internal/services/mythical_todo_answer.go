@@ -248,7 +248,10 @@ func (s *MythicalService) AnswerTodo(ctx context.Context, repositoryID, userID, 
 	if err != nil {
 		return err
 	}
-	by := todoActor(ctx, person)
+	by, err := s.todoActor(ctx, repositoryID, person)
+	if err != nil {
+		return err
+	}
 	return pgx.BeginFunc(ctx, s.store, func(tx pgx.Tx) error {
 		if _, err := tx.Exec(ctx, `SELECT 1 FROM mythical_stacks WHERE repository_id = $1 FOR UPDATE`, repositoryID); err != nil {
 			return err

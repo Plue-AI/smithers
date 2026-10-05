@@ -736,6 +736,8 @@ describe("TodoSeam — the TODO list Home reads where no `home` topic is served 
       await waitFor(() => h.seam.list.get().error === "invalid")
       leave()
       expect(h.seam.list.get().todos?.map(todo => todo.n)).toEqual([fixtures.queued.model.n])
+      expect(h.seam.list.get().detail).toContain("Could not decode TODOs")
+      expect(h.seam.list.get().detail).toContain("0.n")
     } finally { h.close() }
     const out = await listHarness([() => json([], 200)], null)
     try {

@@ -10,7 +10,7 @@ test("actor decoder property: missing required fields reject, extra fields remai
   delete model.prompt_revisions[0].by[field]
   expect(TodoCardSchema.safeParse(todoActors(model)).success).toBe(false)
  }
- for (const by of [null, 1, "ben", {kind:"unknown"}, {kind:"person",login:"ben",color_index:99}]) {
+ for (const by of [null, 1, "ben", {}, {kind:"unknown"}, {kind:"person",login:"ben",color_index:99}]) {
   const model = structuredClone(fixtures.in_review.model) as any; model.prompt_revisions[0].by=by
   let passed=false;try{passed=TodoCardSchema.safeParse(todoActors(model)).success}catch{}
   expect(passed).toBe(false)

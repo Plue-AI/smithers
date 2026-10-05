@@ -226,7 +226,15 @@ func (s *MythicalService) ObserveIssue(ctx context.Context, repositoryID int64, 
 			return err
 		}
 		checks = mythicalChecksOf(item)
-		notice := mythicalCommittedNotice(item.Number.Int64, s.origin())
+		link := s.origin()
+		if link != "" {
+			repository, owner, err := s.repository(ctx, repositoryID)
+			if err != nil {
+				return err
+			}
+			link += "/" + owner + "/" + repository.Name
+		}
+		notice := mythicalCommittedNotice(item.Number.Int64, link)
 		checks.Notice = &notice
 		item.Checks = checks.encode()
 		if item, err = q.SaveMythicalItem(ctx, item); err != nil {

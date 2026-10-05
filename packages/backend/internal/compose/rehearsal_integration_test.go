@@ -385,7 +385,7 @@ func (r *rehearsal) keyedAs(jar http.CookieJar, method, path, body, key string) 
 	defer resp.Body.Close()
 	data, err := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
 	if err == nil && method == "GET" && resp.StatusCode == 200 && (path == "/api/todos" || regexp.MustCompile(`^/api/todos/[0-9]+$`).MatchString(path)) {
-		command := exec.Command("bun", "../../../apps/app/scripts/check-todo-contract.ts")
+		command := exec.Command("bun", "../../../../apps/app/scripts/check-todo-contract.ts")
 		command.Stdin = bytes.NewReader(data)
 		if output, decodeErr := command.CombinedOutput(); decodeErr != nil {
 			return resp.StatusCode, data, fmt.Errorf("app TODO contract: %w: %s", decodeErr, output)

@@ -96,7 +96,11 @@ func (s *MythicalService) retryTodo(ctx context.Context, number int64, input Tod
 			now, attempt := s.now().UTC(), item.Attempt+1
 			retried := mythicalChecksOf(next)
 			if input.Steer != nil {
-				retried.Steers = append(retried.Steers, todoSteer{Text: *input.Steer, By: todoActor(ctx, person), At: now, Attempt: attempt})
+				by, err := s.todoActor(ctx, item.RepositoryID, person)
+				if err != nil {
+					return err
+				}
+				retried.Steers = append(retried.Steers, todoSteer{Text: *input.Steer, By: by, At: now, Attempt: attempt})
 			}
 			retried.Retries = append(retried.Retries, todoRetry{Request: input.Request, By: person.Username, At: now, Attempt: attempt})
 			next.Checks = retried.encode()

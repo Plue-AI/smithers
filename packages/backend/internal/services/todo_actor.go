@@ -15,16 +15,16 @@ import (
 // in that terminal acts with it (spec §5.3, M-34). The credential's stored
 // kind and via decide it; the Smithers-Via hint only names which agent
 // (middleware.AuthInfo.ActingVia).
-func todoActor(ctx context.Context, person db.User) json.RawMessage {
-	name := person.DisplayName
-	if name == "" {
-		name = person.Username
+func (s *MythicalService) todoActor(ctx context.Context, repositoryID int64, person db.User) (json.RawMessage, error) {
+	profile, err := s.personProfile(ctx, repositoryID, person.Username)
+	if err != nil {
+		return nil, err
 	}
-	ref := memberProfile(person.Username, name, 0)
-	delete(ref, "color_index")
+	color := profile["color_index"]
+	ref := map[string]any{"login": profile["login"], "name": profile["name"], "avatar_url": profile["avatar_url"]}
 	info := middleware.AuthInfoFromContext(ctx)
 	delegation, delegated := info.Delegation()
-	actor := map[string]any{"kind": "person", "color_index": 0}
+	actor := map[string]any{"kind": "person", "color_index": color}
 	for key, value := range ref {
 		actor[key] = value
 	}
@@ -42,7 +42,7 @@ func todoActor(ctx context.Context, person db.User) json.RawMessage {
 		if delegation.Session != "" {
 			id = "agent-session-" + delegation.Session
 		}
-		actor = map[string]any{"kind": "agent", "id": id, "agent": agent, "avatar_url": todoAvatar(db.User{}), "for_member": ref, "color_index": 0}
+		actor = map[string]any{"kind": "agent", "id": id, "agent": agent, "avatar_url": todoAvatar(db.User{}), "for_member": ref, "color_index": color}
 		if agent == "external" {
 			actor["name"] = via
 		}
@@ -51,7 +51,7 @@ func todoActor(ctx context.Context, person db.User) json.RawMessage {
 		}
 	}
 	encoded, _ := json.Marshal(actor)
-	return encoded
+	return encoded, nil
 }
 
 // todoActorRef is the same actor as a TODO's facts record it: the person,

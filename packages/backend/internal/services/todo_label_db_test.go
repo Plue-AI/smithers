@@ -91,7 +91,7 @@ func TestJourneyTodoLabelFrozenSnapshot(t *testing.T) {
 	// FileTodo's revision shape (text, acceptance, by, at) plus the issue door's
 	// reason and issue_digest: one revision model, never a second prompt/actor one.
 	require.Equal(t, "from-issue", revisions[0]["reason"])
-	require.Equal(t, map[string]any{"kind": "person", "login": "Ben"}, revisions[0]["by"])
+	require.Equal(t, map[string]any{"kind": "person", "login": "Ben", "name": "Ben", "avatar_url": "https://github.com/Ben.png", "color_index": float64(0)}, revisions[0]["by"])
 	require.Equal(t, first.IssueDigest, revisions[0]["issue_digest"])
 	require.Equal(t, "Retry webhooks\n\nB1", revisions[0]["text"])
 	require.Equal(t, []any{}, revisions[0]["acceptance"])
