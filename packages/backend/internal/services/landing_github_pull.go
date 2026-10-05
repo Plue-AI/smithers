@@ -449,7 +449,7 @@ func (a *landingGitHubAPI) requestHeaders(ctx context.Context, token, method, pa
 	}
 	resp, err := a.client.Do(req)
 	if err != nil {
-		return 0, nil, pkgerrors.New(pkgerrors.CodeBadGateway, "GitHub did not answer")
+		return 0, nil, gitHubRequestFailure(ctx, "GitHub did not answer")
 	}
 	defer func() { _ = resp.Body.Close() }()
 	if limited := gitHubRateLimitError(resp.StatusCode, resp.Header, time.Now()); limited != nil {
@@ -458,7 +458,7 @@ func (a *landingGitHubAPI) requestHeaders(ctx context.Context, token, method, pa
 
 	raw, readErr := io.ReadAll(io.LimitReader(resp.Body, githubRepoMetadataMaxResponseBytes+1))
 	if readErr != nil || int64(len(raw)) > githubRepoMetadataMaxResponseBytes {
-		return resp.StatusCode, resp.Header.Clone(), pkgerrors.New(pkgerrors.CodeBadGateway, "GitHub returned an incomplete response")
+		return resp.StatusCode, resp.Header.Clone(), gitHubRequestFailure(ctx, "GitHub returned an incomplete response")
 	}
 	if resp.StatusCode >= 400 && len(refusal) > 0 && refusal[0] != nil {
 		_ = json.Unmarshal(raw, refusal[0])
@@ -467,21 +467,17 @@ func (a *landingGitHubAPI) requestHeaders(ctx context.Context, token, method, pa
 	}
 	if resp.StatusCode >= 200 && resp.StatusCode < 300 && out != nil {
 		if err := json.Unmarshal(raw, out); err != nil {
-			return resp.StatusCode, resp.Header.Clone(), pkgerrors.New(pkgerrors.CodeBadGateway, "GitHub returned an unreadable pull request receipt")
+			return resp.StatusCode, resp.Header.Clone(), gitHubRequestFailure(ctx, "GitHub returned an unreadable response")
 		}
 	}
 	return resp.StatusCode, resp.Header.Clone(), nil
 }
 
 func landingGitHubStatusError(status int, owner, repo, action string) error {
-	switch status {
-	case http.StatusUnauthorized, http.StatusForbidden:
-		return pkgerrors.Forbidden("The Smithers GitHub App cannot " + action + " on " + owner + "/" + repo + "; grant it contents and pull requests write access")
-	case http.StatusNotFound:
-		return pkgerrors.NotFound("GitHub repository " + owner + "/" + repo + " is not visible to the Smithers GitHub App")
-	default:
-		return pkgerrors.New(pkgerrors.CodeBadGateway, fmt.Sprintf("GitHub refused to %s (HTTP %d)", action, status))
+	if err := gitHubResponseFailure(status, nil, time.Now()); err != nil {
+		return err.WithCause(fmt.Errorf("GitHub %s on %s/%s returned HTTP %d", action, owner, repo, status))
 	}
+	return pkgerrors.New(pkgerrors.CodeGitHubUnavailable, "GitHub returned an unexpected response")
 }
 
 func landingGitHubRepoPath(owner, repo string) string {

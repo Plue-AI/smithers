@@ -193,7 +193,7 @@ func TestLandingGitHubPullRefusals(t *testing.T) {
 			code: pkgerrors.CodeConflict, text: "no longer carries", remotes: 1},
 		{name: "GitHub permission", arrange: func(f *landingPullFixture) {
 			f.pulls.findErr = landingGitHubStatusError(http.StatusForbidden, "acme", "app", "read pull requests")
-		}, code: pkgerrors.CodeForbidden, text: "contents and pull requests write", remotes: 1},
+		}, code: pkgerrors.CodeGitHubPermission, text: "GitHub access denied", remotes: 1},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			f := newLandingPullFixture(t)
@@ -334,7 +334,7 @@ func TestLandingGitHubAPIMapsGitHubAnswers(t *testing.T) {
 	_, err = api.Find(ctx, "ghs_installation", "acme", "denied", "smithers/landing-12")
 	var apiErr *pkgerrors.APIError
 	require.ErrorAs(t, err, &apiErr)
-	assert.Equal(t, pkgerrors.CodeForbidden, apiErr.Code)
+	assert.Equal(t, pkgerrors.CodeGitHubPermission, apiErr.Code)
 }
 
 // The mythical stack pushes agent-written commits like a landing: its push

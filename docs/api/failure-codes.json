@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "digest": "sha256:a63fa02541eab875fe78d6b536b831578cdf530951ed674c4c967145a5748372",
+  "digest": "sha256:b978a0cd1957dd377e193fd5a90fd038a8ada0629715a6b8a32a83d1fc62be58",
   "faults": [
     "user",
     "wait",
@@ -269,6 +269,20 @@
       "status": 413,
       "retry_after": 0,
       "doc": "The GitHub repository is larger than plue's import limit. It is refused before the clone, so nothing was written."
+    },
+    {
+      "code": "github_not_installed",
+      "fault": "dependency",
+      "status": 502,
+      "retry_after": 0,
+      "doc": "GitHub did not find the requested App installation."
+    },
+    {
+      "code": "github_permission",
+      "fault": "dependency",
+      "status": 502,
+      "retry_after": 0,
+      "doc": "GitHub did not grant access to a required resource."
     },
     {
       "code": "github_pull_diff_too_large",

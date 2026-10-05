@@ -24154,6 +24154,14 @@
       },
       {
         "kind": "file",
+        "path": "packages/backend/internal/services/github_response.go"
+      },
+      {
+        "kind": "file",
+        "path": "packages/backend/internal/pkg/errors/registry.go"
+      },
+      {
+        "kind": "file",
         "path": "packages/backend/internal/services/github_access_diagnosis.go"
       },
       {

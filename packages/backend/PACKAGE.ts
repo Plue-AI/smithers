@@ -22,6 +22,8 @@ const docs = Smithers.Docs.Check({
     Smithers.file("internal/services/mythical_issue_events.go"),
     Smithers.file("internal/services/mythical_github.go"),
     Smithers.file("internal/services/github_budget.go"),
+    Smithers.file("internal/services/github_response.go"),
+    Smithers.file("internal/pkg/errors/registry.go"),
     Smithers.file("internal/services/github_access_diagnosis.go"),
     Smithers.file("internal/services/github_repo_metadata.go"),
     Smithers.file("internal/services/github_repo_list.go"),

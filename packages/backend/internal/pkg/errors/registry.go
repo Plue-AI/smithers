@@ -235,6 +235,8 @@ const (
 	CodeGitHubImportTooLarge      Code = "github_import_too_large"
 	CodeGitHubPullDiffTooLarge    Code = "github_pull_diff_too_large"
 	CodeGitHubUnavailable         Code = "github_unavailable"
+	CodeGitHubPermission          Code = "github_permission"
+	CodeGitHubNotInstalled        Code = "github_not_installed"
 	CodeListingSecretDetected     Code = "listing_secret_detected"
 	CodeWikiUnavailable           Code = "wiki_unavailable"
 	CodeWikiSpaceUnreadable       Code = "wiki_space_unreadable"
@@ -542,7 +544,9 @@ var registry = map[Code]Entry{
 	// behalf: the request failed, or GitHub answered with something plue
 	// could not read. Distinct from github_rate_limited, which is GitHub
 	// deliberately refusing, and from bad_gateway, which names no upstream.
-	CodeGitHubUnavailable: {Status: http.StatusBadGateway, Fault: FaultDependency, Class: ClassGitHub, RetryAfter: 0, Doc: "plue could not complete a call it made to GitHub on the caller's behalf: the request failed, or GitHub answered with something plue could not read."},
+	CodeGitHubPermission:   {Status: http.StatusBadGateway, Fault: FaultDependency, Class: ClassGitHub, Doc: "GitHub did not grant access to a required resource."},
+	CodeGitHubNotInstalled: {Status: http.StatusBadGateway, Fault: FaultDependency, Class: ClassGitHub, Doc: "GitHub did not find the requested App installation."},
+	CodeGitHubUnavailable:  {Status: http.StatusBadGateway, Fault: FaultDependency, Class: ClassGitHub, RetryAfter: 0, Doc: "plue could not complete a call it made to GitHub on the caller's behalf: the request failed, or GitHub answered with something plue could not read."},
 	// The share listing contains something that scans as a credential; it
 	// was not published.
 	CodeListingSecretDetected: {Status: http.StatusBadRequest, Fault: FaultUser, Class: ClassUser, RetryAfter: 0, Doc: "The share listing contains something that scans as a credential; it was not published."},

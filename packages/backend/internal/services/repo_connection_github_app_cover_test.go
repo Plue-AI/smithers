@@ -80,8 +80,9 @@ func TestRepoConnectionGitHubApp_Cov_CreateTokenHTTPErrorBranches(t *testing.T) 
 	require.Error(t, err)
 	var apiErr *pkgerrors.APIError
 	require.ErrorAs(t, err, &apiErr)
-	assert.Equal(t, http.StatusForbidden, apiErr.Status)
-	assert.Equal(t, "github refused the installation token request", apiErr.Message, "upstream text never reaches a caller")
+	assert.Equal(t, http.StatusBadGateway, apiErr.Status)
+	assert.Equal(t, pkgerrors.CodeGitHubPermission, apiErr.Code)
+	assert.Equal(t, "GitHub access denied", apiErr.Message, "upstream text never reaches a caller")
 
 	storeCachedInstallationToken(testTokenKey(installationID), installationID, "cached", time.Now().Add(installationTokenEarlyExpiry-time.Second))
 	_, ok := getCachedInstallationToken(testTokenKey(installationID))

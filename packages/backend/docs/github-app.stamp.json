@@ -3,9 +3,9 @@
   "producer": null,
   "output": {
     "path": "packages/backend/docs/github-app.md",
-    "digest": "4656a94910366766af8855f0826d97b87d35687ccb1437c357b25decbbb29315"
+    "digest": "de0ef553c24f473fd9968533e1a6c7b7da9fe8e08bdb56df6f55029cdb0d27f2"
   },
-  "closure": "21d387c8d2bdacc5c1e1fe06f1a405ed85a55e553ee0e4a2b29908fea0a5fc3c",
+  "closure": "7f3012f29e0285063dfd1bcc6490dea98a6a0c1ad81e2ff0eaaff56b87a9998d",
   "inputs": [
     {
       "path": "docs/api/openapi/install.yaml",
@@ -44,6 +44,10 @@
       "digest": "e86f4b8249d16dddebd27281d0a71b7c249eff24a727804ec8b805a710429f8d"
     },
     {
+      "path": "packages/backend/internal/pkg/errors/registry.go",
+      "digest": "6334beca8fb81b0018d85ce01f595ccaf3b57f1f06f13b39b2337b56df5810eb"
+    },
+    {
       "path": "packages/backend/internal/routes/github_app_setup.go",
       "digest": "b8d78dff0a05b538dd79e6f97d145d47b65f0fecc255399d1dbad928b4c52a71"
     },
@@ -53,7 +57,7 @@
     },
     {
       "path": "packages/backend/internal/services/github_access_diagnosis.go",
-      "digest": "79e12741a13a0dd2ee1dcd2c8386bb9a6bca7450f31ffd66ddf7dd582b45abdd"
+      "digest": "144f4f95dd2c4f91bd5981a5f9fe7f2f7a99c8c74a522d4f48bfa0ccccd4ff20"
     },
     {
       "path": "packages/backend/internal/services/github_app_credentials.go",
@@ -82,6 +86,10 @@
     {
       "path": "packages/backend/internal/services/github_repo_metadata.go",
       "digest": "86a0f31b6caa8d58f1b9e7c4173879650a7432af31cb48e2249f1d97e328720e"
+    },
+    {
+      "path": "packages/backend/internal/services/github_response.go",
+      "digest": "2dbda4751bb3420f461156d05a44dd98289f356076bff513cbe0f94275847bf5"
     },
     {
       "path": "packages/backend/internal/services/github_synced_conditional.go",
@@ -125,7 +133,7 @@
     },
     {
       "path": "packages/backend/internal/services/landing_github_pull.go",
-      "digest": "f88a4596b81ad81bd571fd04205be2a1612593b616cdf982c532014cfa360297"
+      "digest": "c119ddc4a242ab559a72f1803e6d0bcd42a04ee989ba3ceabb4ec0da6f434549"
     },
     {
       "path": "packages/backend/internal/services/member_roster.go",
@@ -141,7 +149,7 @@
     },
     {
       "path": "packages/backend/internal/services/repo_connection_github_app.go",
-      "digest": "1a00041414af5a14291ca5f272e2fd0f0336fe06cfe0677453c57855802c49c4"
+      "digest": "68ef722abdb1e96321cce32daeaaea4f573f31129e983848b2e728c74d0a29bc"
     }
   ]
 }

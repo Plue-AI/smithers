@@ -281,34 +281,24 @@ func fetchRepoInstallation(ctx context.Context, client *http.Client, baseURL, jw
 
 	resp, err := client.Do(req)
 	if err != nil {
-		return githubRepoInstallation{}, false, badGateway("github installation lookup failed")
+		return githubRepoInstallation{}, false, gitHubRequestFailure(ctx, "GitHub installation lookup failed")
 	}
 	defer func() { _ = resp.Body.Close() }()
 
-	if limited := gitHubRateLimitError(resp.StatusCode, resp.Header, time.Now()); limited != nil {
-		return githubRepoInstallation{}, false, limited
-	}
-
-	body, readErr := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
-	if readErr != nil {
-		return githubRepoInstallation{}, false, badGateway("failed to read github installation lookup response")
-	}
-
-	switch {
-	case resp.StatusCode == http.StatusNotFound:
+	if resp.StatusCode == http.StatusNotFound {
 		return githubRepoInstallation{}, false, nil
-	case resp.StatusCode == http.StatusUnauthorized:
-		// The App JWT itself was rejected: the configured credentials are wrong.
-		return githubRepoInstallation{}, false, pkgerrors.Internal("github rejected the app credentials")
-	case resp.StatusCode < http.StatusOK || resp.StatusCode >= http.StatusMultipleChoices:
-		return githubRepoInstallation{}, false, badGateway(
-			fmt.Sprintf("github installation lookup returned status %d", resp.StatusCode),
-		)
+	}
+	if err := gitHubResponseFailure(resp.StatusCode, resp.Header, time.Now()); err != nil {
+		return githubRepoInstallation{}, false, err
+	}
+	body, readErr := io.ReadAll(io.LimitReader(resp.Body, (1<<20)+1))
+	if readErr != nil || len(body) > 1<<20 {
+		return githubRepoInstallation{}, false, gitHubRequestFailure(ctx, "GitHub returned an incomplete installation response")
 	}
 
 	var installation githubRepoInstallation
 	if err := json.Unmarshal(body, &installation); err != nil || installation.ID <= 0 {
-		return githubRepoInstallation{}, false, badGateway("failed to decode github installation lookup response")
+		return githubRepoInstallation{}, false, gitHubRequestFailure(ctx, "GitHub returned an unreadable installation response")
 	}
 	return installation, true, nil
 }

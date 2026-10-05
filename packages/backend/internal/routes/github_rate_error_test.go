@@ -36,3 +36,19 @@ func TestGitHubRateLimitPreservesInstallEnvelope(t *testing.T) {
 		})
 	}
 }
+
+func TestGitHubResponseFailurePreservesInstallEnvelope(t *testing.T) {
+	for _, code := range []pkgerrors.Code{pkgerrors.CodeGitHubPermission, pkgerrors.CodeGitHubNotInstalled, pkgerrors.CodeGitHubUnavailable} {
+		t.Run(string(code), func(t *testing.T) {
+			for _, write := range []func(http.ResponseWriter, *http.Request, error){WriteInstallSetupError, writeRouteError} {
+				err := pkgerrors.New(code, "GitHub request failed")
+				rec := httptest.NewRecorder()
+				write(rec, httptest.NewRequest("GET", "/", nil), err)
+				require.Equal(t, http.StatusBadGateway, rec.Code)
+				require.Contains(t, rec.Body.String(), `"class":"github"`)
+				require.Contains(t, rec.Body.String(), `"code":"`+string(code)+`"`)
+				require.NotContains(t, rec.Body.String(), "retry_at")
+			}
+		})
+	}
+}
