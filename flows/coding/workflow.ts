@@ -99,7 +99,7 @@ export const receiptFindings = (
   const outage = receiptOutage(receipt)
   if (outage) throw outage
   return check.required && receipt.status !== "passed" && receipt.findings.length === 0
-    ? [{ owner: group.id, sourceCommitId: implementation.head.commitId, message: `${check.target}: ${receipt.status}` }]
+    ? [{ owner: group.id, sourceCommitId: implementation.head.commitId, message: `${check.id}: ${receipt.status}` }]
     : receipt.findings
 }
 

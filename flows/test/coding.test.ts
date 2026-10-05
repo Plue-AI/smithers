@@ -255,12 +255,24 @@ test("slow infrastructure receipts refuse correction findings after exact valida
       ...failed,
       fault: "factory"
     }),
-    [{ owner: "database", sourceCommitId: impl.head.commitId, message: "//:review: failed" }]
+    [{ owner: "database", sourceCommitId: impl.head.commitId, message: `${check.id}: failed` }]
   )
+  for (const target of [".", "//:review", "same-target"]) {
+    const named = { ...check, target }
+    const namedPlan = { ...plan, changes: [{ ...plan.changes[0]!, checks: [named] }, ...plan.changes.slice(1)] }
+    assert.deepEqual(
+      receiptFindings(namedPlan, 0, impl, named, {
+        ...receipt(impl, named),
+        status: "failed",
+        findings: []
+      }),
+      [{ owner: "database", sourceCommitId: impl.head.commitId, message: `${check.id}: failed` }]
+    )
+  }
   const legacy = { ...failed }
   delete legacy.fault
   assert.deepEqual(receiptFindings(plan, 0, impl, check, legacy), [
-    { owner: "database", sourceCommitId: impl.head.commitId, message: "//:review: failed" }
+    { owner: "database", sourceCommitId: impl.head.commitId, message: `${check.id}: failed` }
   ])
 })
 
