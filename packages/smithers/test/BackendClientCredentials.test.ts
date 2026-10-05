@@ -697,16 +697,30 @@ describe("terminal credential files (#3537)", () => {
     expect(spawn).not.toHaveBeenCalled()
   })
 
-  it("keeps managed sign-in dark even with an environment identity override", async () => {
+  it("resolves a managed terminal only from its session file, whatever the environment says", async () => {
     const f = await fixture()
     const session = new Session({
       ...f.environment,
-      SMITHERS_TOKEN_FILE: "/run/smithers/sessions/A/token",
+      SMITHERS_TOKEN_FILE: "/run/smithers/sessions/a/token",
       SMITHERS_TOKEN: "synthetic-env-value"
     })
-    await expect(session.require()).rejects.toMatchObject({ code: "terminal_auth_unavailable" })
-    expect(() => session.credentialIdentity(f.origin)).toThrow(Refused)
+    await expect(session.require()).rejects.toMatchObject({ code: "token_file_unavailable" })
+    expect(session.credentialIdentity(f.origin)).toBe(
+      new Session({ ...f.environment, SMITHERS_TOKEN_FILE: "/run/smithers/sessions/a/token" }).credentialIdentity(f.origin)
+    )
     expect(spawn).not.toHaveBeenCalled()
+  })
+
+  it("reads the backend from SMITHERS_URL, the variable a signed-in terminal sets", async () => {
+    const f = await fixture()
+    const environment = { ...f.environment, SMITHERS_API_ORIGIN: undefined }
+    expect(new Session({ ...environment, SMITHERS_URL: "http://127.0.0.1:4000" }).target().api_url).toBe(
+      "http://127.0.0.1:4000"
+    )
+    expect(
+      new Session({ ...environment, SMITHERS_URL: "http://127.0.0.1:4000", SMITHERS_API_ORIGIN: "http://127.0.0.1:4001" })
+        .target().api_url
+    ).toBe("http://127.0.0.1:4001")
   })
 
   it("evicts only A on 401, rereads its bound file on an explicit request and never replays a mutation", async () => {

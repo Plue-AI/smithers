@@ -150,8 +150,7 @@ export class Session {
   /** Private cache identity; never a credential or a persisted token cache. */
   credentialIdentity(origin: string): string {
     const target = this.target(origin)
-    this.assertUnmanagedTokenFile()
-    const token = this.env.SMITHERS_TOKEN?.trim()
+    const token = this.managedTokenFile() ? undefined : this.env.SMITHERS_TOKEN?.trim()
     if (token) return identity([target.api_url, "env", token])
     if (this.tokenFile) {
       return identity([target.api_url, "token_file", this.tokenFile, this.fileEpoch(this.tokenFile).revision])
@@ -177,15 +176,10 @@ export class Session {
       fileIdentity(this.authPath)
     ])
   }
-  // Managed terminal files remain dark until the issuer and root validation land.
-  private assertUnmanagedTokenFile(): void {
-    if (this.tokenFile?.startsWith("/run/smithers/")) {
-      throw new Refused({
-        fault: "dependency",
-        code: "terminal_auth_unavailable",
-        message: "Terminal sign-in is unavailable"
-      })
-    }
+  // A managed terminal's session file (/run/smithers/...) is its only
+  // credential: an environment token cannot switch its identity (#3537).
+  private managedTokenFile(): boolean {
+    return !!this.tokenFile?.startsWith("/run/smithers/")
   }
   invalidateCredential(origin: string, expected: string): void {
     if (this.tokenFile && this.credentialIdentity(origin) === expected) this.fileEpoch(this.tokenFile).revision++
@@ -227,7 +221,9 @@ export class Session {
       observe_url: "",
       git_protocol: "ssh",
       ...config,
-      ...(effective && this.env.SMITHERS_API_ORIGIN ? { api_origin: this.env.SMITHERS_API_ORIGIN } : {})
+      ...(effective && (this.env.SMITHERS_API_ORIGIN || this.env.SMITHERS_URL)
+        ? { api_origin: this.env.SMITHERS_API_ORIGIN || this.env.SMITHERS_URL }
+        : {})
     }
   }
   saveConfig(update: RecordValue) {
@@ -377,8 +373,7 @@ export class Session {
   async resolve(origin?: string, signal?: AbortSignal) {
     checkLookup(signal)
     const target = this.target(origin)
-    this.assertUnmanagedTokenFile()
-    const env = this.env.SMITHERS_TOKEN?.trim()
+    const env = this.managedTokenFile() ? undefined : this.env.SMITHERS_TOKEN?.trim()
     if (env) return { ...target, token: env, source: "env" }
     if (this.tokenFile) return { ...target, token: this.readTokenFile(), source: "token_file" }
     // Go stored by hostname. A record binds that existing keychain item to its exact origin.

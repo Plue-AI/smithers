@@ -692,6 +692,15 @@ describe("one-login authentication", () => {
     const { c } = await fixture()
     await expect(auth["auth login"]!(c, {}, o)).rejects.toThrow()
   })
+  it("reports the effective credential's stored kind and via, never the token (#3537)", async () => {
+    const { c, request } = await fixture()
+    request.mockResolvedValue({ login: "ben", credential_kind: "delegated", via: "terminal" })
+    const status = await auth["auth status"]!(c, {}, {})
+    expect(status).toMatchObject({ logged_in: true, username: "ben", credential_kind: "delegated", via: "terminal" })
+    expect(JSON.stringify(status)).not.toContain("token\":\"")
+    request.mockResolvedValue({ login: "ben" })
+    expect(await auth["auth status"]!(c, {}, {})).not.toHaveProperty("credential_kind")
+  })
   it.each([401, 403, 503])("keeps status honest on HTTP %s", async (code) => {
     const { c, request, exit } = await fixture()
     request.mockRejectedValue(apiError(code))

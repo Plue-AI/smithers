@@ -217,6 +217,10 @@ auth["auth status"] = async (c, _a, o) => {
     const user = object(await c.request("GET", "/api/user", undefined, { origin: target.api_url }))
     result.username = user.login || user.username
     result.email = user.email
+    // The stored kind and via of the effective credential: a terminal's
+    // reads "delegated" via "terminal" (#3537).
+    if (user.credential_kind) result.credential_kind = user.credential_kind
+    if (user.via) result.via = user.via
   } catch (error) {
     if (error instanceof APIError && [401, 403].includes(error.status)) {
       result.logged_in = false
