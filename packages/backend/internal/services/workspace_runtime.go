@@ -511,6 +511,9 @@ func (s *WorkspaceService) restoreRuntimeWorkspaceSnapshot(ctx context.Context, 
 // before creating a workspace, waking the source, or invoking the runtime.
 func (s *WorkspaceService) forkRuntimeWorkspace(ctx context.Context, input ForkWorkspaceInput) (WorkspaceResponse, error) {
 	err := s.withWorkspaceMutation(ctx, input.WorkspaceID, input.RepositoryID, input.UserID, func(ctx context.Context, source db.Workspace) error {
+		if err := s.requireBranchMachineProviders(); err != nil {
+			return err
+		}
 		if err := s.enforceWorkspaceQuota(ctx, source.UserID); err != nil {
 			return err
 		}

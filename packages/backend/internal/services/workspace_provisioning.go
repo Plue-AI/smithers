@@ -879,10 +879,11 @@ func (s *WorkspaceService) CreateWorkspaceAsync(ctx context.Context, input Creat
 }
 
 // ForkWorkspace forks a workspace into a new derived workspace.
+//
+// Write authority is decided before branch machine providers: a read-only or
+// revoked grantee gets 403 whether or not the install has composed them, and
+// only an authorized requester learns that forking is dark (503).
 func (s *WorkspaceService) ForkWorkspace(ctx context.Context, input ForkWorkspaceInput) (WorkspaceResponse, error) {
-	if err := s.requireBranchMachineProviders(); err != nil {
-		return WorkspaceResponse{}, err
-	}
 	if s.q == nil {
 		return WorkspaceResponse{}, pkgerrors.Internal("workspace store unavailable")
 	}
@@ -895,6 +896,9 @@ func (s *WorkspaceService) ForkWorkspace(ctx context.Context, input ForkWorkspac
 
 	var response WorkspaceResponse
 	err := s.withWorkspaceMutation(ctx, input.WorkspaceID, input.RepositoryID, input.UserID, func(ctx context.Context, source db.Workspace) error {
+		if err := s.requireBranchMachineProviders(); err != nil {
+			return err
+		}
 		var err error
 		response, err = s.forkSandboxWorkspace(ctx, input, source)
 		return err

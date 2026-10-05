@@ -690,7 +690,8 @@ func TestTerminalWebSocket_GuestNotReadyReturnsRetryable503(t *testing.T) {
 	require.NoError(t, json.NewDecoder(resp.Body).Decode(&body))
 	assert.Equal(t, "guest_not_ready", body["code"])
 	assert.Equal(t, "wait", body["fault"], "a boot window is not a failure")
-	assert.Equal(t, "service unavailable", body["message"])
+	// guest_not_ready is in the safe 5xx message set (ace2a681ef, #3071).
+	assert.Equal(t, "workspace guest is still starting; retry shortly", body["message"])
 	assert.Equal(t, 2, dials, "exit 127 is retried exactly once")
 }
 
@@ -866,5 +867,8 @@ func TestTerminalWebSocket_AcceptFailureReleasesCreatedSession(t *testing.T) {
 	remaining := len(manager.sessions)
 	manager.mu.Unlock()
 	assert.Zero(t, remaining, "accept failure must remove the created session from the manager")
-	assert.True(t, fake.session.closed.Load(), "accept failure must close the freshly dialed SSH session")
+	// Transport closes run off the revocation path (2c7f3c77bc), so the SSH
+	// session closes shortly after the manager drops it.
+	assert.Eventually(t, fake.session.closed.Load, time.Second, 5*time.Millisecond,
+		"accept failure must close the freshly dialed SSH session")
 }

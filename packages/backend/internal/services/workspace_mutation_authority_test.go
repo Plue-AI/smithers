@@ -69,6 +69,14 @@ func (r *authorityRuntime) Capabilities() workspaceapi.WorkspaceCapabilities {
 		LoopbackPreview: r.loopback, FileOperations: true, ColdSnapshots: true}
 }
 
+// Isolation answers for the microVM runtime this fixture stands in for
+// (its rows carry vm_id). The embedded WorkspaceRuntime is nil, so a method a
+// mutation reaches and this fixture omits would dereference nil and abort the
+// whole package.
+func (*authorityRuntime) Isolation() workspaceapi.IsolationLevel {
+	return workspaceapi.IsolationSandboxed
+}
+
 func (r *authorityRuntime) InspectWorkspace(_ context.Context, id string) (workspaceapi.Workspace, error) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
