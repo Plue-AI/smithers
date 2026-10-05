@@ -640,7 +640,10 @@ def sanitize_system_image():
                     if name in ("sudo", "su", "sshd"):
                         os.unlink(name, dir_fd=parent)
                     else:
-                        os.fchmod(fd, stat.S_IMODE(current.st_mode) & ~0o6000)
+                        # Any chmod of an overlay lower file copies the whole file
+                        # up and fsyncs it; change only files with set-id bits.
+                        if current.st_mode & 0o6000:
+                            os.fchmod(fd, stat.S_IMODE(current.st_mode) & ~0o6000)
                         if "security.capability" in os.listxattr(fd):
                             os.removexattr(fd, "security.capability")
                 finally:
