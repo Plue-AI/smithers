@@ -80,6 +80,9 @@ const request = async (origin: string, path: string, init?: RequestInit): Promis
   return JSON.parse(body) as Record<string, unknown>
 }
 
+/** Runs only the test binary's serving entry, with no test deadline. */
+const testBackendArgs = ["-test.run=^TestServeTrustedProcessBackend$", "-test.count=1", "-test.timeout=0"] as const
+
 const stop = async (child: ReturnType<typeof Bun.spawn> | undefined): Promise<void> => {
   if (child === undefined || child.exitCode !== null) return
   child.kill("SIGTERM")
@@ -93,7 +96,7 @@ export const startLocalOwn = async (rootDir: string, revision: string, outputDir
   const nodeBinary = node26Binary()
   const root = mkdtempSync(join(tmpdir(), "smithers-local-own-"))
   const appDir = resolve(rootDir, "apps/app")
-  const backendBinary = join(root, "smithers-backend")
+  const backendBinary = join(root, "smithers-test-backend")
   const hostDir = join(root, "hosts")
   const manifest = join(hostDir, "flow-hosts.json")
   const dataRoot = join(root, "state")
@@ -121,7 +124,11 @@ export const startLocalOwn = async (rootDir: string, revision: string, outputDir
       if (await child.exited !== 0) throw new Error("build local smithers-ffi failed")
       ffiLibrary = join(cargoTarget, "release", process.platform === "darwin" ? "libsmithers_ffi.dylib" : "libsmithers_ffi.so")
     }
-    await run("build local backend", ["go", "build", "-trimpath", "-ldflags", `-X github.com/smithersai/smithers/packages/backend/internal/compose.BuildSHA=${revision}`, "-o", backendBinary, "./apps/backend"])
+    // The shipped backend refuses trusted-process workspaces and local-own has
+    // no approved microVM bundle, so it runs the test backend: the
+    // production composition with trusted-process workspaces, compiled only
+    // into the apps/backend test binary (apps/backend/test_backend_test.go).
+    await run("build local test backend", ["go", "test", "-c", "-trimpath", "-ldflags", `-X github.com/smithersai/smithers/packages/backend/internal/compose.BuildSHA=${revision}`, "-o", backendBinary, "./apps/backend"])
     await run("build coding host", ["node", "flows/coding/build.mjs", join(hostDir, "smithers-coding-host")])
     await run("build model host", ["node", "apps/model-host/build.mjs", join(hostDir, "smithers-model-host")])
     await run("write Flow host manifest", ["node", "distribution/flow-host-manifest.mjs", manifest, join(hostDir, "smithers-coding-host")])
@@ -145,10 +152,11 @@ export const startLocalOwn = async (rootDir: string, revision: string, outputDir
       SMITHERS_FFI_LIBRARY_PATH: ffiLibrary,
       SMITHERS_WORKSPACE_JJ_EXPORT_BINARY: join(dirname(ffiLibrary), "smithers-jj-export"),
       SMITHERS_AUTH_BOOTSTRAP_TOKEN: bootstrapToken,
-      SMITHERS_PUBLIC_URL: origin
+      SMITHERS_PUBLIC_URL: origin,
+      SMITHERS_TEST_BACKEND_SERVE: "1"
     }
     const startBackend = async (): Promise<void> => {
-      backend = Bun.spawn([backendBinary], { cwd: rootDir, env: backendEnv, stdin: "ignore", stdout: "inherit", stderr: "inherit" })
+      backend = Bun.spawn([backendBinary, ...testBackendArgs], { cwd: rootDir, env: backendEnv, stdin: "ignore", stdout: "inherit", stderr: "inherit" })
       await waitFor(`${backendOrigin}/readyz`, backend)
     }
     await startBackend()

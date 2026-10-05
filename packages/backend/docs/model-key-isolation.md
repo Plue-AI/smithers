@@ -23,7 +23,10 @@ Every repository uses microVM isolation. The owned backend launcher sets
 For a direct backend launch, set that value explicitly. The process workspace
 runtime is for tests only; binding an overridable flow requires the explicit
 `flowhost.Config.AllowTrustedProcessForTests` option. No install environment
-variable bypasses that refusal. A process shares the backend owner's permissions
+variable bypasses that refusal. Real-backend end-to-end runs use the
+trusted-process test backend, `TestServeTrustedProcessBackend` in
+`apps/backend/test_backend_test.go`. Only `go test -c ./apps/backend` compiles
+it; `go build ./apps/backend`, the release build, compiles no test file. A process shares the backend owner's permissions
 and is not an isolation boundary: repository commands can read files that owner
 can read.
 
