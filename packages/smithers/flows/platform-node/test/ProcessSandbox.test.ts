@@ -589,6 +589,19 @@ describe("native host read confinement", () => {
     expect(profile.endsWith(`(allow file-read* (subpath "${key}"))`)).toBe(true)
   })
 
+  it("binds a Smithers machine's toolchain layer read-only, never the rest of /opt/smithers", () => {
+    // A check spawned as `pnpm run lint` execs pnpm by PATH inside the empty root (the walk at
+    // 2dd209686e: "exec: pnpm: not found", exit 127), so the layer the machine puts on PATH is runtime.
+    const facts = host("linux", { bwrap: "/usr/bin/bwrap" }, [], ["/usr", "/opt/smithers/toolchain", "/opt/smithers/rust"])
+    const argv = ProcessSandbox.bubblewrap(planned(facts), ["pnpm", "run", "lint"], facts).join(" ")
+    expect(argv).toContain("--ro-bind /opt/smithers/toolchain /opt/smithers/toolchain")
+    expect(argv).toContain("--ro-bind /opt/smithers/rust /opt/smithers/rust")
+    expect(argv).not.toContain("--ro-bind /opt/smithers /opt/smithers")
+    expect(argv).not.toContain("--bind /opt/smithers/toolchain")
+    const elsewhere = ProcessSandbox.bubblewrap(planned(linux), ["true"], linux).join(" ")
+    expect(elsewhere).not.toContain("/opt/smithers")
+  })
+
   it("resolves runtime aliases without admitting their parent or unrelated install files", () => {
     const facts: ProcessSandbox.Host = {
       ...host("linux", { bwrap: "/usr/bin/bwrap", node: "/tools/node", bun: "/tools/bun" }, [
