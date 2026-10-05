@@ -589,7 +589,8 @@ const dependencyBoundaries = Smithers.NodeTest({
  * The gate sweeps each source for dynamic imports with string and template
  * literals blanked out. This pins that the single-pass blanking matches the
  * reduce it replaced byte for byte, and that its cost stays linear in the
- * file size rather than literals times size.
+ * file size rather than literals times size. It also pins that a manifest's
+ * declared private Effect adapters, and only those, count as runtime imports.
  *
  * @since 0.1.0
  * @category test
@@ -703,6 +704,8 @@ const issueClaim = Smithers.NodeTest({
     Smithers.file("//scripts/fixtures/check-receipts.mjs"),
     Smithers.file("//scripts/github-proxy.mjs"),
     Smithers.file("//scripts/github-app-auth.mjs"),
+    // The proxy imports `@smthrs/integrations` through this export map.
+    Smithers.file("//packages/smithers/agent/integrations/package.json"),
     Smithers.glob("//packages/smithers/agent/integrations/src/**/*.ts")
   ],
   deps: []

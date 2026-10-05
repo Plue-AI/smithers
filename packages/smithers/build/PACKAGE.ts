@@ -101,7 +101,8 @@ const test = Smithers.Vitest({
     Smithers.file("//packages/smithers/build/build-cli/src/TargetExecution.ts"),
     Smithers.file("//packages/smithers/build/targets/src/ChangesetsTarget.ts"),
     Smithers.file("//packages/smithers/build/targets/src/ExecSandbox.ts"),
-    Smithers.file("//packages/smithers/build/targets/src/Target.ts")
+    Smithers.file("//packages/smithers/build/targets/src/Target.ts"),
+    Smithers.file("//packages/smithers/flows/platform-node/src/ProcessSandbox.ts")
   ],
   deps: [lib],
   config: Smithers.file("vitest.config.ts"),

@@ -32100,6 +32100,10 @@
       },
       {
         "kind": "file",
+        "path": "packages/smithers/flows/platform-node/src/ProcessSandbox.ts"
+      },
+      {
+        "kind": "file",
         "path": "packages/smithers/build/vitest.config.ts"
       }
     ],
@@ -47330,6 +47334,10 @@
       {
         "kind": "file",
         "path": "scripts/github-app-auth.mjs"
+      },
+      {
+        "kind": "file",
+        "path": "packages/smithers/agent/integrations/package.json"
       },
       {
         "kind": "glob",

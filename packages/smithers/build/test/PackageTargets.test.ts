@@ -24,14 +24,18 @@ import { describe, expect, it, vi } from "vitest"
 import { Package } from "../PACKAGE.ts"
 
 const packageRoot = NodePath.join(import.meta.dirname, "..")
-const packagePrefix = "//packages/smithers/build/"
+const packageDirectory = "packages/smithers/build"
 
 const attrsOf = <A>(target: Target.AnyTarget): A => Target.metadata(target).attrs as A
 
-/** One declared input as the package-relative text a declaration writes. */
+/**
+ * One declared input as package-relative text. A workspace-absolute `//` path
+ * is resolved against this package, so a sibling package's file reads as the
+ * `../` path a suite passes to `read`.
+ */
 const declaredText = (input: Input.Declared): string | undefined => {
   const text = input._tag === "File" ? input.path : input._tag === "Glob" ? input.pattern : undefined
-  return text?.startsWith(packagePrefix) ? text.slice(packagePrefix.length) : text
+  return text?.startsWith("//") ? NodePath.posix.relative(packageDirectory, text.slice(2)) : text
 }
 
 /** Whether a package-relative path is named by one of the declared inputs. */
