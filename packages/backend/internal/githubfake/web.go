@@ -54,6 +54,9 @@ func freshCode() string {
 // web supplies only the two browser provider pages absent from the HTTP fake.
 // Called under the server lock; the public receipt intentionally has no bodies.
 func (s *Server) web(w http.ResponseWriter, r *http.Request) bool {
+	if s.people(w, r) {
+		return true
+	}
 	if r.Method == "GET" && r.URL.Path == "/_fake/writes" {
 		rows := []struct {
 			Method string `json:"method"`

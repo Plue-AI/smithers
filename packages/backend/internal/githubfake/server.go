@@ -142,6 +142,12 @@ type Server struct {
 	// (0: none); reviews are each PR's latest review state per reviewer.
 	reviewRule int
 	reviews    map[string]map[string]string
+	// pullReviews are the reviews people submitted (people.go), by
+	// repo/number; down makes GitHub answer 502 to everything but the
+	// fake's controls, as an outage would.
+	pullReviews map[string][]PullReview
+	reviewIDs   int64
+	down        bool
 }
 
 // FailNextWrites makes the next n writes to path answer 502 and apply
@@ -602,7 +608,7 @@ func Handler(config Config) (*Server, error) {
 	s := &Server{config: config, key: &key.PublicKey, tokens: make(map[string]int64), pulls: make(map[string]Pull),
 		grants: make(map[string]map[string]string), lost: make(map[string]int), failures: make(map[string]int), unread: make(map[string]int), hooks: make(map[string]func()),
 		labels: make(map[string][]string), main: make(map[string]bool), heldTip: make(map[string]string), refusals: make(map[string]Refusal), delayed: make(map[string]bool), checks: make(map[string][]CheckRun),
-		accounts: make(map[int64]string), access: make(map[string]string), reviews: make(map[string]map[string]string),
+		accounts: make(map[int64]string), access: make(map[string]string), reviews: make(map[string]map[string]string), pullReviews: make(map[string][]PullReview),
 		opened: make(map[string]*issue), events: make(map[string][]IssueEvent), comments: make(map[string][]IssueComment), eventIDs: 1000}
 	s.codes = make(map[string]string)
 	s.signIns = make(map[string]int64)
@@ -1433,6 +1439,11 @@ func (s *Server) serveGit(w http.ResponseWriter, r *http.Request) {
 				}
 			}
 		}
+	}
+	if s.down {
+		s.mu.Unlock()
+		http.Error(w, "Bad Gateway", http.StatusBadGateway)
+		return
 	}
 	fullName, suffix, valid := strings.Cut(strings.TrimPrefix(r.URL.Path, "/"), ".git/")
 	// Pushes need the App's installation token; a person's OAuth token reads.
