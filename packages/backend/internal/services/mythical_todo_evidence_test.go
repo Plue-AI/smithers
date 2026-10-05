@@ -116,6 +116,22 @@ func TestTodoEvidenceHoldsTheReviewOfThePublishedHead(t *testing.T) {
 	require.Empty(t, currentTodoEvidence(running).Items, "a review still running has no summary")
 }
 
+func TestTodoEvidenceSaysNoChecksFoundForAPlanWithNone(t *testing.T) {
+	pinned := pgtype.Text{String: "pin", Valid: true}
+	none := db.MythicalItem{Source: "todo", Attempt: 1, CandidateHead: "candidate", FlowDigest: pinned, Plan: json.RawMessage(`{"title":"Add greet","checks":null}`)}
+	evidence, _ := mythicalTodoEvidenceText(none)
+	require.Equal(t, "Checks:\n- No checks found\n- flow todo pin", evidence)
+	// A plan that names a check, or no plan yet, never claims there are none.
+	named := none
+	named.Plan = json.RawMessage(`{"title":"Add greet","checks":[{"id":"test"}]}`)
+	evidence, _ = mythicalTodoEvidenceText(named)
+	require.Equal(t, "Checks:\n- flow todo pin", evidence)
+	unplanned := none
+	unplanned.Plan = nil
+	evidence, _ = mythicalTodoEvidenceText(unplanned)
+	require.Equal(t, "Checks:\n- flow todo pin", evidence)
+}
+
 func TestTodoEvidenceKeepsOnlyMatchingCandidateAndAttempt(t *testing.T) {
 	duration := int64(0)
 	item := db.MythicalItem{Source: "todo", Attempt: 1, CandidateHead: "candidate", FlowDigest: pgtype.Text{String: "pin", Valid: true}, Checks: mythicalChecks{

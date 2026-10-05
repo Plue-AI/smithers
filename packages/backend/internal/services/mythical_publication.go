@@ -301,9 +301,14 @@ func mythicalTodoPrompt(item db.MythicalItem) (string, string) {
 }
 
 // mythicalTodoEvidenceText renders the candidate's check receipts and flow
-// version, and its review verdict, as the card's evidence shows them.
+// version, and its review verdict, as the card's evidence shows them. A plan
+// that names no check (a repository with none, mvp.md J1.4) says so rather
+// than leaving the evidence silent.
 func mythicalTodoEvidenceText(item db.MythicalItem) (string, string) {
 	var lines []string
+	if mythicalPlanNamesNoChecks(item) {
+		lines = append(lines, "- No checks found")
+	}
 	review := ""
 	for _, entry := range currentTodoEvidence(item).Items {
 		switch entry["kind"] {
@@ -323,6 +328,15 @@ func mythicalTodoEvidenceText(item db.MythicalItem) (string, string) {
 		return "", review
 	}
 	return "Checks:\n" + strings.Join(lines, "\n"), review
+}
+
+// mythicalPlanNamesNoChecks reports whether the item's recorded plan
+// (mythicalPlanSummary) names no check; false while it has no plan.
+func mythicalPlanNamesNoChecks(item db.MythicalItem) bool {
+	var plan struct {
+		Checks []json.RawMessage `json:"checks"`
+	}
+	return len(item.Plan) > 0 && json.Unmarshal(item.Plan, &plan) == nil && len(plan.Checks) == 0
 }
 
 // mythicalTodoSlugMax bounds a TODO branch slug (§8.1.1).
