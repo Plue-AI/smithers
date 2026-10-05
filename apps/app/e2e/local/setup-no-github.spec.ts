@@ -1,5 +1,6 @@
 import { test, expect, type BrowserContext, type Page } from "@playwright/test"
-import { appendFileSync, readFileSync, writeFileSync } from "node:fs"
+import { appendFileSync, readdirSync, readFileSync, writeFileSync } from "node:fs"
+import { join } from "node:path"
 import { PROVIDER_MODEL } from "../real/support/model-provider-behaviors"
 import { githubRoute } from "./github-route"
 import { README } from "./demo-repository"
@@ -7,7 +8,7 @@ import { README } from "./demo-repository"
 // Shared browser history, never seeded product state: later rows expose the
 // first real missing control or predecessor receipt instead of faking progress.
 let context: BrowserContext, page: Page
-let run: { setupURL: string; fakeURL: string; modelOrigin: string; modelKey: string }
+let run: { setupURL: string; fakeURL: string; home: string; modelOrigin: string; modelKey: string }
 let traffic: Awaited<ReturnType<typeof githubRoute>>
 const output = "test-results/local-no-github"
 const card = () => page.locator('[aria-label="Set up Smithers"]').first()
@@ -111,20 +112,39 @@ test("5 models", async ({}, info) => {
   await click("Model access")
   await done("models")
 })
-for (const [id, label, owner] of [
-  ["source", "Mirror", "crit4-local-source-model (T-INS-06)"],
-  ["machine", "Build image", "w-source-machine (T-MCH-10)"]
-]) test(`${id === "source" ? 6 : 7} ${id}`, async ({}, info) => {
-  info.annotations.push({ type: "owner", description: owner }); if (id === "machine") test.fail()
-  await click(label)
-  await done(id)
-  if (id === "source") {
-    expect(await writes()).toEqual(expect.arrayContaining([expect.objectContaining({ method: "POST", path: "/local-owner/demo.git/git-upload-pack", status: 200 })]))
+test("6 source", async ({}, info) => {
+  info.annotations.push({ type: "owner", description: "crit4-local-source-model (T-INS-06)" })
+  await click("Mirror")
+  await done("source")
+  expect(await writes()).toEqual(expect.arrayContaining([expect.objectContaining({ method: "POST", path: "/local-owner/demo.git/git-upload-pack", status: 200 })]))
+})
+test("7 machine", async ({}, info) => {
+  info.annotations.push({ type: "owner", description: "w-machine (T-MCH-10; now passing)" })
+  // A cold store loads the bundled base image, then builds and verifies the
+  // toolchain and dependency layers in real microVMs.
+  test.setTimeout(15 * 60_000)
+  await click("Build image")
+  const started = Date.now()
+  for (;;) {
+    const step = (await install()).steps.find((s: { id: string }) => s.id === "machine")
+    if (step?.state === "done") break
+    if (step?.state === "failed") throw new Error(`machine failed: ${JSON.stringify(step.error)}`)
+    if (Date.now() - started > 14 * 60_000) throw new Error(`machine still ${step?.state}`)
+    await page.waitForTimeout(2000)
   }
+  // Machine ready is the last step: the card shows it done or has already given way to Home.
+  await expect(card().locator('[data-step="machine"][data-state="done"]').or(page.getByRole("button", { name: "New TODO", exact: true }))).toBeVisible()
+  // Machine ready names real layers this install built for main.
+  const dir = join(run.home, "state/microvm/layers")
+  const layers = readdirSync(dir).filter(name => name.endsWith(".json")).map(name => JSON.parse(readFileSync(join(dir, name), "utf8")))
+  expect(layers.map(layer => [layer.kind, layer.main])).toEqual(expect.arrayContaining([["toolchain", true], ["dependencies", true]]))
+  writeFileSync(`${output}/machine.json`, JSON.stringify({ seconds: Math.round((Date.now() - started) / 1000),
+    layers: layers.map(({ kind, key, name, buildSeconds }) => ({ kind, key, name, buildSeconds })) }, null, 2), { mode: 0o600 })
 })
 test("agent question with file cards", async ({}, info) => {
   info.annotations.push({ type: "owner", description: "crit4-agent-file-cards (T-APP-03 #3497; T-APP-16 host tools; now passing)" })
-  await done("source")
+  // Setup has closed after Machine ready, so Source ready is read from the install, not the card.
+  expect((await install()).steps.find((s: { id: string }) => s.id === "source")?.state).toBe("done")
   // The host reads main's mirror as the asking member; the browser runs no files.read of its own.
   const contents: string[] = []
   const watch = (request: { url: () => string }) => { if (new URL(request.url()).pathname.includes("/contents")) contents.push(request.url()) }

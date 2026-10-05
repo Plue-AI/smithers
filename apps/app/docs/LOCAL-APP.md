@@ -493,8 +493,10 @@ through the Setup card. The unattended walk needs no provider key: it saves the
 key of the loopback model stand-in (`e2e/real/support/model-provider.ts`) and
 makes the stand-in's `e2e-reads` model the coding model. After Source ready it
 asks the app agent about `README.md`; the host reads the file from the mirrored
-`main` as the signed-in owner and the answer shows its File card. Machine ready
-remains with `w-source-machine`; TODO start, PR and merge remain with their
+`main` as the signed-in owner and the answer shows its File card. `local-owner/demo`
+is a Node canary (`.node-version`, `packageManager`, `pnpm-lock.yaml`), so
+Machine ready loads the bundle's base image and builds main's toolchain and
+dependency layers in real microVMs. TODO start, PR and merge remain with their
 owning lanes. Source import and
 retention still hard-code `https://github.com/<repo>.git`, and their Git process
 drops the refusing proxy, so Source ready can reach real GitHub. This rehearsal

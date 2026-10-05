@@ -175,8 +175,8 @@ func installRepositorySlug(ctx context.Context, q *db.Queries, key string) (stri
 // BindMachineProvider runs setup step 6 through the retained readiness
 // service: main's first machine image (spec §8.6.3). images builds it inside
 // the machine runtime's isolation and sources reads main from the mirror; the
-// host runs no repository code. The install bundle binds no builder until
-// T-INS-06 R4 passes, so its step 6 answers 503.
+// host runs no repository code. The install bundle binds its microVM
+// runtime's layer builder (compose installMachineImages).
 func (s *InstallSetupService) BindMachineProvider(sources workspaceapi.SourceFiles, images InstallMachineLayerBuilder) {
 	if s.Providers == nil {
 		s.Providers = map[string]func(context.Context, *jobs.Lease, InstallSetupInput) error{}

@@ -103,18 +103,22 @@ func StartWithOptions(ctx context.Context, args []string, stdout, stderr io.Writ
 	return runWithOptions(ctx, args, stdout, stderr, runOptions{Options: adapters, externalHTTP: true, ready: ready})
 }
 
-// installMachineImages returns setup step 6's image builder: only an adapter a
-// composition injects for a workspace runtime without one. The bundled microVM
-// runtime's own layer builder is never bound: it feeds root preparation from
-// main (T-INS-06 R4), which stays dark until TestRootLayerInputsValidatedBeforeUse
-// passes (T-MCH-10), so the install bundle answers 503 for step 6. An adapter
-// beside a runtime that builds images is refused, because it would report
-// Machine ready for an image that runtime never built.
+// installMachineImages returns setup step 6's image builder: the workspace
+// runtime's own layer builder (the bundled microVM runtime), else an adapter a
+// composition injects for a runtime without one (the trusted-process runtime
+// that only tests compose). An adapter beside a runtime that builds images is
+// refused, because it would report Machine ready for an image that runtime
+// never built. Root preparation reads only main's validated data
+// (TestRootLayerInputsValidatedBeforeUse).
 func installMachineImages(options Options) (services.InstallMachineLayerBuilder, error) {
+	runtime, builds := options.Workspace.(services.InstallMachineLayerBuilder)
 	if options.MachineImages == nil {
+		if builds {
+			return runtime, nil
+		}
 		return nil, nil
 	}
-	if _, builds := options.Workspace.(services.InstallMachineLayerBuilder); builds {
+	if builds {
 		return nil, errors.New("machine images belong to the workspace runtime")
 	}
 	return options.MachineImages, nil
@@ -127,8 +131,8 @@ type Options struct {
 	GitHubImportGitRunner func(context.Context, []string, ...string) (string, error)
 	// MachineImages builds main's first machine image (setup step 6) for a
 	// workspace runtime that has no layer builder of its own: the trusted-process
-	// runtime that only tests compose. app.Config cannot set it, so the install
-	// bundle leaves step 6 unbound (installMachineImages).
+	// runtime that only tests compose. app.Config cannot set it; the install
+	// bundle binds its microVM runtime's builder (installMachineImages).
 	MachineImages services.InstallMachineLayerBuilder
 	// EnvGitHubAppCredentials is an explicit Plue adapter; self-hosting leaves it false.
 	EnvGitHubAppCredentials bool

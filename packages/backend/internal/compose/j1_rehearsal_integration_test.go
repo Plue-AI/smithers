@@ -1036,8 +1036,8 @@ func mustRehearsalURL(raw string) *url.URL { u, _ := url.Parse(raw); return u }
 // can provide only the base image: it reads main's recipe through the mirror
 // and refuses one that needs a layer (a target index, image additions or a
 // detected toolchain). "6 machine ready" therefore proves setup admission,
-// persistence and fencing, not an image build; the install bundle leaves step
-// 6 unbound until R4 passes (installMachineImages).
+// persistence and fencing, not an image build. The install bundle binds its
+// microVM runtime's builder instead (installMachineImages).
 type trustedProcessImages struct{ sources workspaceapi.SourceFiles }
 
 func (images trustedProcessImages) ResolveWorkspaceLayer(ctx context.Context, spec workspaceapi.WorkspaceSpec) (microsandbox.Layer, error) {

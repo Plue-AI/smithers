@@ -100,11 +100,10 @@ stale completion after a retry. Readiness persists in `setup.step.source` and
 `setup.step.machine` in one transaction, written only by the operation that
 holds the machine step. Step completion serializes as `done` (§14.3).
 
-The install bundle leaves step 6 unbound, and `POST /api/install/setup/machine`
-answers 503. The microVM runtime's layer builder runs the root toolchain setup
-above with `packages` from `.smithers/machine.json` and the PostgreSQL pin from
-`.smithers/target-index.json` at `main`. T-INS-06 R4 keeps that path dark until
-`TestRootLayerInputsValidatedBeforeUse` passes through production setup-machine
-dispatch (T-MCH-10). Only a composition that injects `Options.MachineImages`
-for a runtime without its own builder binds the step; the install bundle
-cannot set it.
+The install bundle binds step 6 to its microVM runtime's layer builder. It runs
+the root toolchain setup above with only `packages` from `.smithers/machine.json`
+and the PostgreSQL major from `.smithers/target-index.json` at `main`, both
+validated before any VM boots (`TestRootLayerInputsValidatedBeforeUse`, T-INS-06
+R4). A path that is not a regular file at `main`, such as a symlink, fails the
+step naming the path. A composition whose runtime has no builder of its own may
+inject `Options.MachineImages`; one beside an image-building runtime is refused.

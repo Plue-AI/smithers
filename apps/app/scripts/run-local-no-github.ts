@@ -1,6 +1,6 @@
 // Test orchestration only: reuse the bundle launcher instead of a second env builder.
 import { randomBytes } from "node:crypto"
-import { README } from "../e2e/local/demo-repository"
+import { NODE_CANARY, README } from "../e2e/local/demo-repository"
 import { launchModelProvider, type ModelProvider } from "../e2e/real/support/model-provider-process"
 import { execFileSync } from "node:child_process"
 import { chmodSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs"
@@ -88,7 +88,8 @@ export async function main() {
     git(["init", "-b", "main", seed])
     writeFileSync(join(seed, "JOURNEY.md"), "Add a greeting to JOURNEY.md\n", { mode: 0o600 })
     writeFileSync(join(seed, "README.md"), README, { mode: 0o600 })
-    git(["-C", seed, "add", "JOURNEY.md", "README.md"])
+    for (const [name, content] of Object.entries(NODE_CANARY)) writeFileSync(join(seed, name), content, { mode: 0o600 })
+    git(["-C", seed, "add", "JOURNEY.md", "README.md", ...Object.keys(NODE_CANARY)])
     git(["-C", seed, "-c", "user.name=Rehearsal", "-c", "user.email=owner@example.test", "commit", "-m", "Canary"])
     git(["clone", "--bare", seed, join(gitRoot, "local-owner/demo.git")])
     fake = Bun.spawn([executable, "--addr", "127.0.0.1:0", "--git-root", gitRoot], { stdout: "pipe", stderr: "inherit" })

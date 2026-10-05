@@ -20,7 +20,7 @@ type processRuntime struct{ workspaceapi.WorkspaceRuntime }
 type imageRuntime struct{ workspaceapi.WorkspaceRuntime }
 
 func (imageRuntime) ResolveWorkspaceLayer(context.Context, workspaceapi.WorkspaceSpec) (microsandbox.Layer, error) {
-	return microsandbox.Layer{}, errors.New("the bundled layer builder is never bound to setup")
+	return microsandbox.Layer{}, errors.New("not called: binding only")
 }
 
 type injectedImages struct{}
@@ -29,20 +29,20 @@ func (injectedImages) ResolveWorkspaceLayer(context.Context, workspaceapi.Worksp
 	return microsandbox.Layer{}, nil
 }
 
-// T-INS-06 R4: setup step 6 binds only an injected adapter. A runtime that
-// builds images never reaches setup on its own (the install bundle answers
-// 503), and an adapter beside it is refused.
-func TestInstallMachineImagesBindOnlyAnInjectedAdapter(t *testing.T) {
+// T-INS-06 R4: setup step 6 binds the workspace runtime's own image builder
+// (the install bundle's microVM runtime), else an injected adapter for a
+// runtime without one. An adapter beside an image runtime is refused.
+func TestInstallMachineImagesBindTheRuntimeBuilderOrAnInjectedAdapter(t *testing.T) {
 	for name, test := range map[string]struct {
 		options Options
 		want    services.InstallMachineLayerBuilder
 		wantErr string
 	}{
-		"bundle runtime alone stays dark": {options: Options{Workspace: imageRuntime{}}},
-		"no runtime":                      {options: Options{}},
-		"process runtime alone":           {options: Options{Workspace: processRuntime{}}},
-		"adapter for a process runtime":   {options: Options{Workspace: processRuntime{}, MachineImages: injectedImages{}}, want: injectedImages{}},
-		"adapter beside an image runtime": {options: Options{Workspace: imageRuntime{}, MachineImages: injectedImages{}}, wantErr: "machine images belong to the workspace runtime"},
+		"bundle runtime binds its builder": {options: Options{Workspace: imageRuntime{}}, want: imageRuntime{}},
+		"no runtime":                       {options: Options{}},
+		"process runtime alone":            {options: Options{Workspace: processRuntime{}}},
+		"adapter for a process runtime":    {options: Options{Workspace: processRuntime{}, MachineImages: injectedImages{}}, want: injectedImages{}},
+		"adapter beside an image runtime":  {options: Options{Workspace: imageRuntime{}, MachineImages: injectedImages{}}, wantErr: "machine images belong to the workspace runtime"},
 	} {
 		t.Run(name, func(t *testing.T) {
 			images, err := installMachineImages(test.options)
