@@ -317,6 +317,7 @@ var installCommands = map[string]installCommand{
 	// control itself: steer, stop, resume, retry, drop or move.
 	"todo.control": {role: InstallMember},
 	"todo.steer":   {role: InstallMember},
+	"todo.amend":   {role: InstallMember},
 	"todo.stop":    {role: InstallMember},
 	"todo.resume":  {role: InstallMember},
 	"todo.retry":   {role: InstallMember},

@@ -26,11 +26,10 @@ queue admission. The pinned `todo` composition and its closure, notification
 lineage and guest-host delivery contracts must pass their production checks
 before replacing this refusal. Existing `coding/request` delivery is retained.
 
-`PATCH /api/todos/{n}` and its catalog command are not enabled. Their
-activation requires T-STK-01/02/05/12, T-FLW-11, T-MCH-14, T-INS-02, T-FLW-01,
-T-SEC-01, T-CAT-01 and T-ACC-03; delegated Amend also requires T-APP-04. No
-branch-built artifact or repository code executes as root or on the host
-through this admission seam.
+The `todo.amend` catalog command is not enabled; `PATCH /api/todos/{n}`
+serves a person's browser session (see Amend below). Delegated Amend requires
+T-APP-04. No branch-built artifact or repository code executes as root or on
+the host through this admission seam.
 
 ## Stop, Resume, Retry and Drop
 
@@ -103,7 +102,7 @@ changed loses its verification in the move's transaction and waits in
 stack rebases it onto the new prefix. A new TODO filed Before has no
 verified candidate, so it changes no prefix until it is verified.
 
-## Steer, and the Amend refusal boundary
+## Steer and Amend
 
 A steer (`{"op":"steer","text":...}` or `{"steer":...}`) is kept on the card
 (`steers[]`) and delivered by the TODO's state. A working TODO's attached
@@ -122,16 +121,30 @@ steer to one answers `503 todo_control_unavailable`. A stage-1 terminal's
 credential steers only its own branch's TODO. Neither the body nor headers
 supply the actor or `via`; attribution comes from the bound authorization.
 
-The unmounted Amend handler accepts `PATCH /api/todos/{n}` with
-`{prompt, acceptance}` and answers `503 infra/todo_control_unavailable` before
-subject reads or effects.
+`PATCH /api/todos/{n}` with an `Idempotency-Key` and
+`{prompt, acceptance?}` is Amend Tn (`mythical_todo_amend.go`). Any member's
+browser session amends. Under the stack's row lock it appends revision n+1
+`{n, reason: "amend", text, acceptance, by, at}` to `mythical_items.revisions`
+and answers `202 {state: "accepted", n, rev}`; the card's `prompt_revisions`
+shows it and Home counts it as "+1". No TODO, number, branch or pull request
+is made. The run's prompt stays revision 1 (`todoPrompt`, spec §10.4.2): the
+revision reaches the coding agent as a steer, `Amendment (revision n):`
+followed by its text and acceptance lines, delivered by the TODO's state
+exactly as a steer is (`placeTodoSteer`), in the same transaction as the
+revision and a `todo.amended` fact. A failed TODO is retried with it. The
+amendment is not listed in `steers[]`.
 
-Amend cannot allocate a revision, create a confirmation or send a signal here.
-Once the shared authority exists, delegated Amend must refuse
-`503 infra/confirmation_unavailable` if its confirmation consumer is absent.
-There is no local credential or confirmation substitute. Future activation
-requires the served install router, catalog dispatcher and pinned guest-host
-checks; these direct-handler refusal tests are supplemental evidence only.
+The same key with the same amendment answers the same receipt and sends
+nothing again; with another amendment it is `409 idempotency_mismatch`. The
+prompt and acceptance lines need text and valid UTF-8 and fit 24 KiB as the
+steer renders them (`400 invalid_amendment`). A merging TODO is
+`409 merging`; a merged or dropped one `409 todo_closed`; a pinned todo
+composition's run `503 todo_control_unavailable`; each before any revision,
+fact or signal. Only a person's browser session amends: the route refuses
+every token, a terminal's included, with `403 permission`, and the service
+refuses a delegated caller with `503 infra/confirmation_unavailable` until
+the app serves its person's Confirm (T-APP-04). There is no local credential
+or confirmation substitute.
 
 ## Questions and answers
 

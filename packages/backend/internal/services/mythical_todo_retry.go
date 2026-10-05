@@ -33,6 +33,9 @@ type todoSteer struct {
 	// steer that reached a starting attempt, waits for its run to attach.
 	Run     string `json:"run,omitempty"`
 	Pending bool   `json:"pending,omitempty"`
+	// Revision is the prompt revision an amendment delivers as this steer
+	// (AmendTodo); the card lists it under prompt_revisions, not steers[].
+	Revision int32 `json:"revision,omitempty"`
 }
 
 // todoRetry is one Retry a person pressed: its Idempotency-Key, who and when,
@@ -151,10 +154,14 @@ func todoFeedback(item db.MythicalItem, attempt int32) string {
 	return feedback
 }
 
-// todoSteers is the card's steers[] {text, by, at}, in the order given.
+// todoSteers is the card's steers[] {text, by, at}, in the order given. An
+// amendment's steer is its revision on the card (prompt_revisions).
 func todoSteers(item db.MythicalItem) []any {
 	steers := []any{}
 	for _, steer := range mythicalChecksOf(item).Steers {
+		if steer.Revision > 0 {
+			continue
+		}
 		steers = append(steers, map[string]any{"text": steer.Text, "by": steer.By, "at": steer.At.UTC().Format(time.RFC3339Nano)})
 	}
 	return steers

@@ -19529,7 +19529,7 @@ paths:
                   type: array
                   items: {type: string}
                 place:
-                  description: Where the TODO goes; absent appends. Before n takes TODO n's place, and n and every later TODO move one place later. Amend is refused with invalid_place until T-STK-06.
+                  description: Where the TODO goes; absent appends. Before n takes TODO n's place, and n and every later TODO move one place later. Amend makes no TODO, so it is PATCH /api/todos/{n}; mode amend here is refused with invalid_place.
                   type: object
                   additionalProperties: false
                   required: [mode]
@@ -19653,6 +19653,62 @@ paths:
           description: The TODO or the TODO a move passes is merging, the TODO is settled or closed (todo_closed for a steer), the control does not apply to its state (Stop with no executing run or with a question open, Resume of a TODO that is not paused, Retry of a TODO that has not failed, Move up of the first TODO or down of the last), the Idempotency-Key was used for a different move, or a GitHub write on it is settling
         '503':
           description: todo_control_unavailable (Retry with the current flow; a steer to a TODO running the pinned todo composition)
+    patch:
+      x-composition: install
+      summary: Amend a TODO's prompt and acceptance
+      description: Amend Tn appends revision n+1 {n, reason amend, text, acceptance, by, at} to the TODO's prompt_revisions and delivers it to the coding agent as a steer, by the TODO's state, as a steer is delivered; a failed TODO is retried with it. The run's prompt stays revision 1. No TODO, number, branch or pull request is made. Members amend TODOs with their browser session. The same Idempotency-Key with the same amendment answers the same receipt and sends nothing again.
+      operationId: patch_api_todos_n
+      tags:
+        - Todos
+      security:
+        - sessionCookie: []
+      parameters:
+        - name: n
+          in: path
+          required: true
+          schema: {type: integer, minimum: 1}
+        - name: Idempotency-Key
+          in: header
+          required: true
+          schema: {type: string, minLength: 1, maxLength: 256}
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [prompt]
+              properties:
+                prompt:
+                  description: The amendment's text. With the acceptance lines it fits 24 KiB as the steer renders them.
+                  type: string
+                  minLength: 1
+                acceptance:
+                  type: array
+                  items: {type: string, minLength: 1}
+      responses:
+        '202':
+          description: The revision is recorded and its steer delivered or held; rev names it (revision 1 is the TODO as filed)
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [state, n, rev]
+                properties:
+                  state: {type: string, enum: [accepted]}
+                  n: {type: integer, minimum: 1}
+                  rev: {type: integer, minimum: 2}
+        '400':
+          description: Invalid TODO number, invalid_amendment, or a missing Idempotency-Key
+        '403':
+          description: Not a member, or not a person's browser session; a terminal's or another delegated credential amends nothing
+        '404':
+          description: todo_not_found
+        '409':
+          description: The TODO is merging (merging) or merged or dropped (todo_closed), the Idempotency-Key was used for a different amendment (idempotency_mismatch), a GitHub write on it is settling, or it has no prompt of its own
+        '503':
+          description: todo_control_unavailable (no stack or signal admission; a TODO running the pinned todo composition), or confirmation_unavailable for a delegated caller
   /api/todos/{n}/merge:
     post:
       x-composition: install
@@ -24492,8 +24548,12 @@ components:
                 items: {type: string}
               by: {type: object, additionalProperties: true}
               at: {type: string}
+              n:
+                description: The revision's number; set on amendments (2 and later).
+                type: integer
+                minimum: 2
               reason:
-                description: from-issue on revision 1 of a TODO made from an issue (Make TODO or the todo label).
+                description: from-issue on revision 1 of a TODO made from an issue (Make TODO or the todo label); amend on an amendment.
                 type: string
               issue_digest: {type: string}
         issue:

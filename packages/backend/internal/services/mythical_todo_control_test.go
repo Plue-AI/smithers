@@ -102,7 +102,7 @@ func TestTodoControlInputBoundaries(t *testing.T) {
 	require.Equal(t, "invalid_control", err.(*TodoControlError).Code)
 }
 
-func TestTodoSteerAndAmendDarkInputs(t *testing.T) {
+func TestTodoSteerDarkInputs(t *testing.T) {
 	var service *MythicalService
 	text := func(s string) *string { return &s }
 	for _, value := range []string{" Keep\nverbatim ", strings.Repeat("x", mythicalPromptBytes)} {
@@ -113,21 +113,4 @@ func TestTodoSteerAndAmendDarkInputs(t *testing.T) {
 		_, err := service.ControlTodo(context.Background(), 12, TodoControlInput{Steer: text(value)})
 		require.Equal(t, "invalid_steer", err.(*TodoControlError).Code)
 	}
-	for _, input := range []TodoAmendInput{
-		{Prompt: "Keep\nverbatim", Acceptance: ""},
-		{Prompt: strings.Repeat("x", mythicalPromptBytes)},
-		{Prompt: "x", Acceptance: strings.Repeat("y", mythicalPromptBytes-1)},
-	} {
-		err := service.AmendTodo(context.Background(), 12, input)
-		require.Equal(t, "todo_control_unavailable", err.(*TodoControlError).Code)
-	}
-	for _, input := range []TodoAmendInput{
-		{}, {Prompt: " "}, {Prompt: string([]byte{0xff})},
-		{Prompt: "x", Acceptance: string([]byte{0xff})},
-		{Prompt: "x", Acceptance: strings.Repeat("y", mythicalPromptBytes)},
-	} {
-		err := service.AmendTodo(context.Background(), 12, input)
-		require.Equal(t, "invalid_amendment", err.(*TodoControlError).Code)
-	}
-	require.Equal(t, "invalid_todo", service.AmendTodo(context.Background(), 0, TodoAmendInput{Prompt: "x"}).(*TodoControlError).Code)
 }

@@ -19,6 +19,7 @@ type TodoRouteService interface {
 	MergeTodo(context.Context, int64, int64, int64, services.MythicalMergeInput) (services.MythicalItemView, error)
 	AnswerTodo(context.Context, int64, int64, int64, services.TodoAnswerInput) error
 	ControlTodo(context.Context, int64, services.TodoControlInput) (services.TodoControlReceipt, error)
+	AmendTodo(context.Context, int64, services.TodoAmendInput) (services.TodoAmendReceipt, error)
 }
 
 // TodoHandler resolves the install's persisted GitHub repository, never a
@@ -295,6 +296,44 @@ func (h *TodoHandler) Control(w http.ResponseWriter, r *http.Request) {
 	}
 	input.Repository, input.Actor, input.Request = repo, user, r.Header.Get("Idempotency-Key")
 	receipt, err := h.Service.ControlTodo(r.Context(), n, input)
+	if err != nil {
+		todoRouteError(w, err)
+		return
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusAccepted)
+	_ = json.NewEncoder(w).Encode(receipt)
+}
+
+// Amend is PATCH /api/todos/{n} {prompt, acceptance?}, Amend Tn (spec
+// §10.2.2): revision n+1 of the same TODO, which its coding agent receives
+// as a steer. todo.amend authorizes the person's browser session, then the
+// service amends the install repository's TODO n as that person under the
+// request's Idempotency-Key. 202 {state: accepted, n, rev} names the
+// revision; the same key and amendment again answers it again.
+func (h *TodoHandler) Amend(w http.ResponseWriter, r *http.Request) {
+	n, err := strconv.ParseInt(chi.URLParam(r, "n"), 10, 64)
+	if err != nil || n <= 0 {
+		todoRouteError(w, &services.TodoControlError{Status: 400, Code: "invalid_todo", Class: "user", Message: "Invalid TODO number"})
+		return
+	}
+	var input services.TodoAmendInput
+	decoder := json.NewDecoder(http.MaxBytesReader(w, r.Body, 128<<10))
+	decoder.DisallowUnknownFields()
+	if err := decodeSingleJSONDocument(decoder, &input); err != nil {
+		todoRouteError(w, &services.TodoControlError{Status: 400, Code: "invalid_amendment", Class: "user", Message: "An amendment is {prompt, acceptance?}"})
+		return
+	}
+	if r.Header.Get("Idempotency-Key") == "" {
+		todoRouteError(w, &services.TodoControlError{Status: 400, Code: "idempotency_key_required", Class: "user", Message: "Idempotency-Key is required"})
+		return
+	}
+	repo, user, ok := h.authorize(w, r, "todo.amend")
+	if !ok {
+		return
+	}
+	input.Repository, input.Actor, input.Request = repo, user, r.Header.Get("Idempotency-Key")
+	receipt, err := h.Service.AmendTodo(r.Context(), n, input)
 	if err != nil {
 		todoRouteError(w, err)
 		return

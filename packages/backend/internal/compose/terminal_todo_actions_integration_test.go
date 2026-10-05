@@ -64,6 +64,10 @@ func (c *todoCalls) ControlTodo(_ context.Context, n int64, input services.TodoC
 	c.record("control %d T%d %q", input.Actor, n, input.Op)
 	return services.TodoControlReceipt{State: "requested"}, nil
 }
+func (c *todoCalls) AmendTodo(_ context.Context, n int64, input services.TodoAmendInput) (services.TodoAmendReceipt, error) {
+	c.record("amend %d T%d %s", input.Actor, n, input.Prompt)
+	return services.TodoAmendReceipt{State: "accepted", N: n, Rev: 2}, nil
+}
 
 // J6 3b and the scope refusals (T-ACC-04, spec §5.3.2a and §8.11.1) through
 // the production auth loader, member boundary, memberCommands and TODO
@@ -135,6 +139,7 @@ func TestTerminalCredentialTodoActionsPostgres(t *testing.T) {
 	router.Post("/api/todos", todos.Create)
 	router.Get("/api/todos/{n}", todos.Get)
 	router.Post("/api/todos/{n}", todos.Control)
+	router.Patch("/api/todos/{n}", todos.Amend)
 	router.Post("/api/todos/{n}/answer", todos.Answer)
 	router.Post("/api/todos/{n}/merge", todos.Merge)
 	served := func(w http.ResponseWriter, _ *http.Request) { w.WriteHeader(http.StatusOK) }
@@ -193,6 +198,8 @@ func TestTerminalCredentialTodoActionsPostgres(t *testing.T) {
 				{"POST", "/api/todos/2", `{"op":"stop"}`, permission},
 				{"POST", "/api/todos/2", `{"op":"retry","steer":"again"}`, permission},
 				{"POST", "/api/todos/2/merge", `{"reviewed_head_sha":"` + strings.Repeat("a", 40) + `"}`, permission},
+				// Amend is the person's, confirmed in the app for a delegated caller.
+				{"PATCH", "/api/todos/2", `{"prompt":"Also log each retry."}`, permission},
 				// A delegated TODO is confirmed in the app, which S1 does not serve.
 				{"POST", "/api/todos", `{"title":"Follow-up","prompt":"Add a farewell","place":{"mode":"append"}}`, confirm},
 				// Routes outside the profile.
@@ -228,6 +235,12 @@ func TestTerminalCredentialTodoActionsPostgres(t *testing.T) {
 		http.Header{"Cookie": {"session=" + session(ben)}, "Idempotency-Key": {"ben-browser"}})
 	require.Equal(t, http.StatusAccepted, status, "%v", envelope)
 	require.Equal(t, []string{fmt.Sprintf("file %d Follow-up", ben.ID)}, calls.take())
+	// and amends one as themselves.
+	status, envelope = call("PATCH", "/api/todos/2", `{"prompt":"Also log each retry.","acceptance":["retries are logged"]}`,
+		http.Header{"Cookie": {"session=" + session(ben)}, "Idempotency-Key": {"ben-amend"}})
+	require.Equal(t, http.StatusAccepted, status, "%v", envelope)
+	require.Equal(t, map[string]any{"state": "accepted", "n": float64(2), "rev": float64(2)}, envelope)
+	require.Equal(t, []string{fmt.Sprintf("amend %d T2 Also log each retry.", ben.ID)}, calls.take())
 	// A suspended member's terminal is refused like their browser.
 	_, err = pool.Exec(ctx, `UPDATE collaborators SET suspended_at=now() WHERE user_id=$1`, alice.ID)
 	require.NoError(t, err)

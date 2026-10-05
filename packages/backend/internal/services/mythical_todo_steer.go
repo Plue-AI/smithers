@@ -100,44 +100,11 @@ func (s *MythicalService) steerTodo(ctx context.Context, number int64, input Tod
 			if item.State == "blocked" {
 				return todoControlConflict("TODO failed; steer it again to retry it")
 			}
-			now := s.now().UTC()
-			steer := todoSteer{Text: *input.Steer, By: by, At: now, Request: input.Request}
-			next, delivery := item, "held"
-			checks := mythicalChecksOf(item)
-			switch {
-			case item.PausedAt.Valid:
-				// Resume runs this attempt again with every steer held for it.
-				steer.Attempt = item.Attempt
-			case item.State == "queued" || item.State == "retrying" || item.State == "skipped":
-				// The next launch is attempt n+1; the steer is its first input.
-				steer.Attempt = item.Attempt + 1
-			case item.State == "running" && item.RequestOutcome == "":
-				if item.FlowDigest.Valid {
-					// The todo composition's host refuses messages until its
-					// boundaries are composed (T-FLW-11, flows/coding/steering.ts).
-					return todoControlUnavailable()
-				}
-				steer.Attempt = item.Attempt
-				if checks.RunAttached && item.RequestRunID != "" && stack.ActorUserID.Valid {
-					steer.Run, delivery = item.RequestRunID, "sent"
-				} else {
-					steer.Pending = true
-				}
-			default:
-				// The attempt's coding run has ended: the steer re-enters
-				// implement as the next attempt's first input.
-				if len(item.PendingOp) > 0 {
-					return todoControlConflict("A GitHub write on this TODO is settling; steer it again in a moment")
-				}
-				if err := s.cancelAttempt(ctx, tx, stack, item); err != nil {
-					return err
-				}
-				next, delivery = mythicalSteered(item), "next_attempt"
-				checks = mythicalChecksOf(next)
-				steer.Attempt = item.Attempt + 1
+			steer := todoSteer{Text: *input.Steer, By: by, At: s.now().UTC(), Request: input.Request}
+			next, steer, delivery, err := s.placeTodoSteer(ctx, tx, stack, item, steer, "steer it again")
+			if err != nil {
+				return err
 			}
-			checks.Steers = append(checks.Steers, steer)
-			next.Checks = checks.encode()
 			saved, err := q.SaveMythicalItem(ctx, next)
 			if errors.Is(err, pgx.ErrNoRows) {
 				continue
@@ -165,6 +132,60 @@ func (s *MythicalService) steerTodo(ctx context.Context, number int64, input Tod
 		return &TodoControlError{http.StatusConflict, "conflict", "conflict", "TODO is busy; steer it again"}
 	})
 	return receipt, err
+}
+
+// placeTodoSteer files steer on item by the TODO's state (spec §10.7.3),
+// inside the transaction that holds the stack's row lock, and answers the
+// item to save, the steer as filed and its delivery:
+//
+//   - "held": for the attempt that receives it as its first input (queued:
+//     attempt n+1; paused: the attempt Resume runs again), or, while the
+//     attempt is starting, for its run to attach (Pending, todoAttachSteers);
+//   - "sent": to the working attempt's live coding run (steer.Run), which the
+//     caller signals once the item is saved (todoSteerSignal);
+//   - "next_attempt": the attempt's coding run has ended, so its runs are
+//     cancelled and the TODO queues for attempt n+1 with the steer first.
+//
+// A failed TODO is not placed here: Retry carries its steer. again names the
+// press in the refusal that asks for it once a GitHub write settles.
+func (s *MythicalService) placeTodoSteer(ctx context.Context, tx pgx.Tx, stack db.MythicalStack, item db.MythicalItem, steer todoSteer, again string) (db.MythicalItem, todoSteer, string, error) {
+	next, delivery := item, "held"
+	checks := mythicalChecksOf(item)
+	switch {
+	case item.PausedAt.Valid:
+		// Resume runs this attempt again with every steer held for it.
+		steer.Attempt = item.Attempt
+	case item.State == "queued" || item.State == "retrying" || item.State == "skipped":
+		// The next launch is attempt n+1; the steer is its first input.
+		steer.Attempt = item.Attempt + 1
+	case item.State == "running" && item.RequestOutcome == "":
+		if item.FlowDigest.Valid {
+			// The todo composition's host refuses messages until its
+			// boundaries are composed (T-FLW-11, flows/coding/steering.ts).
+			return item, steer, "", todoControlUnavailable()
+		}
+		steer.Attempt = item.Attempt
+		if checks.RunAttached && item.RequestRunID != "" && stack.ActorUserID.Valid {
+			steer.Run, delivery = item.RequestRunID, "sent"
+		} else {
+			steer.Pending = true
+		}
+	default:
+		// The attempt's coding run has ended: the steer re-enters
+		// implement as the next attempt's first input.
+		if len(item.PendingOp) > 0 {
+			return item, steer, "", todoControlConflict("A GitHub write on this TODO is settling; " + again + " in a moment")
+		}
+		if err := s.cancelAttempt(ctx, tx, stack, item); err != nil {
+			return item, steer, "", err
+		}
+		next, delivery = mythicalSteered(item), "next_attempt"
+		checks = mythicalChecksOf(next)
+		steer.Attempt = item.Attempt + 1
+	}
+	checks.Steers = append(checks.Steers, steer)
+	next.Checks = checks.encode()
+	return next, steer, delivery, nil
 }
 
 // mythicalSteered is an item past its coding run queued for its next
