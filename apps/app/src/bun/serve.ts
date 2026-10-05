@@ -6,11 +6,7 @@ const backend = await startNativeBackend({
   stateDir,
   ...(process.argv.includes("--setup-handoff=socket") ? { setupHandoff: "socket" as const } : {})
 })
-const origin = backend.mode === "own" ? backend.origin : Bun.env.SMITHERS_API_ORIGIN?.trim()
-if (origin === undefined || origin === "") {
-  await backend.stop()
-  throw new Error("SMITHERS_API_ORIGIN is required in Plue mode.")
-}
+const origin = backend.origin
 
 await new Promise<void>((resolveShutdown) => {
   let stopping = false

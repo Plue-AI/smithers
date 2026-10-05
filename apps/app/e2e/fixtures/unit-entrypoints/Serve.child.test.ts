@@ -22,7 +22,7 @@ mock.module('../../../src/bun/NativeBackendProcess', () => ({
   startNativeBackend: async (options: { stateDir: string; webRoot?: string }) => {
     calls.push(options)
     return {
-      mode: scenario === 'missing-origin' || scenario === 'plue-origin' ? 'plue' : 'own',
+      mode: 'own',
       origin: 'http://127.0.0.1:4185',
       failure: failure.promise,
       stop: () => {
@@ -52,17 +52,8 @@ const within = async <T>(promise: Promise<T>): Promise<T> => {
 test('headless serve entrypoint handles its lifecycle', async () => {
   try {
     const entry = import('../../../src/bun/serve')
-    if (scenario === 'missing-origin') {
-      await expect(within(entry)).rejects.toThrow('SMITHERS_API_ORIGIN is required in Plue mode.')
-      expect(logs).toEqual([])
-      expect(stopCalls).toBe(1)
-      return
-    }
-
     const line = await within(started.promise)
-    expect(line).toBe(scenario === 'plue-origin'
-      ? 'SMITHERS_LOCAL_ORIGIN=https://plue.example'
-      : 'SMITHERS_LOCAL_ORIGIN=http://127.0.0.1:4185')
+    expect(line).toBe('SMITHERS_LOCAL_ORIGIN=http://127.0.0.1:4185')
     expect(calls).toEqual([{ stateDir: '/state' }])
     expect(stopCalls).toBe(0)
 
@@ -95,7 +86,7 @@ test('headless serve entrypoint handles its lifecycle', async () => {
       expect(stopCalls).toBe(1)
       expect(errors).toEqual(['Error: stop failed'])
       expect(process.exitCode).toBe(1)
-    } else if (scenario === 'plue-origin') {
+    } else if (scenario === 'hostile-origin') {
       process.emit('SIGTERM')
       await within(entry)
       expect(stopCalls).toBe(1)

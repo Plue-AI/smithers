@@ -4,7 +4,7 @@ import { expect, test } from 'bun:test'
 // Erased by Bun, but keeps the isolated fixture inside the app's typecheck.
 import type {} from '../../e2e/fixtures/unit-entrypoints/Serve.child.test'
 
-const cases = [['signal'], ['backend-failure'], ['stop-error'], ['missing-origin'], ['plue-origin']] as const
+const cases = [['signal'], ['backend-failure'], ['stop-error'], ['hostile-origin']] as const
 const child = fileURLToPath(new URL('../../e2e/fixtures/unit-entrypoints/Serve.child.test.ts', import.meta.url))
 
 test.each(cases)('serve entrypoint %s lifecycle runs in an isolated process', (scenario) => {
@@ -13,8 +13,8 @@ test.each(cases)('serve entrypoint %s lifecycle runs in an isolated process', (s
     env: {
       ...process.env,
       SMITHERS_SERVE_SCENARIO: scenario,
-      SMITHERS_API_ORIGIN: scenario === 'plue-origin' ? 'https://plue.example' : '',
-      SMITHERS_LOCAL_STATE_DIR: scenario === 'plue-origin' ? '/configured' : ''
+      SMITHERS_API_ORIGIN: scenario === 'hostile-origin' ? 'https://plue.example' : '',
+      SMITHERS_LOCAL_STATE_DIR: scenario === 'hostile-origin' ? '/configured' : ''
     },
     encoding: 'utf8',
     timeout: 10_000
