@@ -7,6 +7,7 @@ import { act } from "react"
 import type { DebugApiViewProps } from "@smthrs/rpc/DebugApiCard"
 import { createRoot } from "./views/testDom"
 import { DebugApiCard } from "./DebugApiCard"
+import { DebugApiView } from "./views/DebugApiView"
 import { scopedControllers } from "../state/ControllerTestScope"
 import { createAppStore } from "../state/AppStore"
 import { memoryStorage, silentAgent } from "../state/TestFixtures"
@@ -81,7 +82,7 @@ test("agent door refuses raw API; a running fetch never blocks Chat or duplicate
   finish(new Response('{"code":"signed_out","class":"permission","message":"Sign in"}', { status: 401 }))
   await settle(() => !controller.debugApi.get().busy)
   await settle(() => store.collections.toasts.get("toast-debug.api.send")?.status === "failed")
-  expect(controller.debugApi.get().model.exchange?.failure).toEqual({ class: "permission", message: "Sign in", status: 401 })
+  expect(controller.debugApi.get().model.exchange?.failure).toEqual({ class: "permission", message: "HTTP 401", status: 401 })
 })
 
 test("the production help projection keeps unavailable docs and Debug API dark", async () => {
@@ -110,7 +111,7 @@ test("a debug-api failure journals only generic status copy; response text stays
   await settle(() => store.collections.cards.has("debug-api"))
   expect((await controller.runCommandForResult("debug.api", '{"operationId":"getStack","intent":"send"}')).status).toBe("executed")
   await settle(() => store.collections.toasts.get("toast-debug.api.send")?.status === "failed")
-  expect(controller.debugApi.get().model.exchange?.failure?.message).toBe("leaked response words")
+  expect(controller.debugApi.get().model.exchange?.failure?.message).toBe("HTTP 500")
   expect(store.collections.toasts.get("toast-debug.api.send")?.detail).toBe("The API answered HTTP 500 (infra).")
   expect(JSON.stringify([...store.collections.transitions.values()])).not.toContain("leaked response words")
   expect(JSON.stringify([...store.collections.toasts.values()])).not.toContain("leaked response words")
@@ -144,4 +145,28 @@ test("automatic (system) and agent calls of either debug API flow refuse before 
   expect(calls).toEqual([])
   expect(store.collections.cards.has("debug-api")).toBe(false)
   expect((await controller.commands.run("debug-api", '{"operationId":"getStack","intent":"open"}')).status).toBe("executed")
+})
+
+test("an account change remounts the real form: the previous account's draft never shows or re-submits", async () => {
+  const { controller, store, calls } = await setup()
+  await controller.runCommandForResult("debug-api", "putSecrets")
+  await settle(() => store.collections.cards.has("debug-api"))
+  const host = document.createElement("div"); document.body.append(host)
+  const root = createRoot(host)
+  await act(async () => root.render(<DebugApiCard View={DebugApiView} seam={controller.debugApi}
+    dispatch={(tag, input) => controller.commands.submit({ name: tag, payload: input ?? {}, actor: "user" })} />))
+  const textarea = host.querySelector("textarea")!
+  await act(async () => {
+    Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, "value")!.set!.call(textarea, '{"name":"alice-draft"}')
+    textarea.dispatchEvent(new Event("input", { bubbles: true }))
+  })
+  expect(host.querySelector("textarea")!.value).toBe('{"name":"alice-draft"}')
+  await act(async () => { await store.dispatch({ type: "identity.session.loaded", actor: "system", state: "signed-in", login: "bob", admin: false, scopesPlain: null }).isPersisted.promise })
+  expect(controller.debugApi.get().model.selected).toBeUndefined()
+  await act(async () => controller.debugApi.select("putSecrets"))
+  expect(host.querySelector("textarea")!.value).toBe("")
+  expect(host.innerHTML).not.toContain("alice-draft")
+  await act(async () => { host.querySelector("form")?.dispatchEvent(new Event("submit", { bubbles: true, cancelable: true })) })
+  expect(JSON.stringify(controller.debugApi.get())).not.toContain("alice-draft")
+  expect(calls).toEqual([])
 })

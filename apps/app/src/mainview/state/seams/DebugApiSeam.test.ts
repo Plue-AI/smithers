@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test"
-import { createDebugApiSeam } from "./DebugApiSeam"
+import { createDebugApiSeam, debugApiFailureCopy } from "./DebugApiSeam"
 import { apiFixture, expectedOperations } from "./DebugApiFixtures.test-support"
 const setup = (fetchImpl: (url: string, init: RequestInit) => Promise<Response> = async () => new Response('{"items":[]}')) => {
   let n = 0
@@ -54,7 +54,7 @@ test("typed 401 and sensitive headers, redirects, malformed JSON and unknown inp
     headers: { "Set-Cookie": "private", Authorization: "private", "Content-Type": "application/json" } }))
   await seam.open("getStack")
   await seam.send({ operationId: "getStack" })
-  expect(seam.get().model.exchange?.failure).toEqual({ class: "permission", message: "Sign in", status: 401 })
+  expect(seam.get().model.exchange?.failure).toEqual({ class: "permission", message: "HTTP 401", status: 401 })
   expect(seam.get().model.exchange?.response?.headers).toEqual([["content-type", "application/json"]])
   await expect(seam.send({ operationId: "offOrigin" })).rejects.toThrow("Unknown")
   await expect(seam.send({ operationId: "getStack", values: { url: "https://elsewhere.test" } })).rejects.toThrow("Unknown")
@@ -153,4 +153,66 @@ test("a failed confirmed Send needs a fresh confirmation and keeps its retry ide
   await seam.send({ ...input, intent: "confirm", confirmation: seam.get().confirmation })
   expect(calls).toHaveLength(2)
   expect(new Headers(calls[1]!.init.headers).get("Idempotency-Key")).toBe(new Headers(calls[0]!.init.headers).get("Idempotency-Key"))
+})
+test("header values, non-JSON bodies, error bodies and a bare value field never render", async () => {
+  const token = "ghp_abcdefghijklmnopqrstuvwxyz0123456789"
+  const plain = setup(async () => new Response("password=small-secret", { headers: { "X-Debug": token, "Content-Type": "text/plain" } }))
+  await plain.seam.open("getStack"); await plain.seam.send({ operationId: "getStack" })
+  const shown = JSON.stringify(plain.seam.get())
+  expect(shown).not.toContain("small-secret"); expect(shown).not.toContain(token)
+  expect(plain.seam.get().model.exchange?.response?.body).toBe("[withheld: 21 bytes, text/plain]")
+  const failed = setup(async () => Response.json({ class: "infra", message: "password=small-secret" }, { status: 500 }))
+  await failed.seam.open("getStack"); await failed.seam.send({ operationId: "getStack" })
+  expect(JSON.stringify(failed.seam.get())).not.toContain("small-secret")
+  expect(failed.seam.get().model.exchange?.failure).toEqual({ class: "infra", message: "HTTP 500", status: 500 })
+  const value = setup(async () => Response.json({ name: "CI", value: "small-secret" }))
+  await value.seam.open("getStack"); await value.seam.send({ operationId: "getStack" })
+  expect(JSON.stringify(value.seam.get())).not.toContain("small-secret")
+})
+test("the request echo withholds credential-operation bodies and sanitizes URL values apart from the sent request", async () => {
+  const { seam, calls } = setup(async () => Response.json({}))
+  await seam.open("post_api_oauth2_token")
+  const input = { operationId: "post_api_oauth2_token", values: { body: '{"code":"short-private-code"}', "query:state": "private-state" } }
+  await seam.send(input)
+  expect(JSON.stringify(seam.get())).not.toContain("short-private-code")
+  await seam.send({ ...input, intent: "confirm", confirmation: seam.get().confirmation })
+  expect(calls[0]!.url).toBe("http://mini.local/api/oauth2/token?state=private-state")
+  expect(calls[0]!.init.body).toBe('{"code":"short-private-code"}')
+  const shown = JSON.stringify(seam.get())
+  expect(shown).not.toContain("short-private-code"); expect(shown).not.toContain("private-state")
+  const token = "ghp_abcdefghijklmnopqrstuvwxyz0123456789"
+  await seam.send({ operationId: "readFile", values: { "path:path": token, "query:line": token } })
+  expect(calls[1]!.url).toBe(`http://mini.local/api/files/${token}?line=${token}`)
+  expect(JSON.stringify(seam.get())).not.toContain(token)
+})
+test("an unenumerated failure class never reaches the exchange or durable copy", async () => {
+  const { seam } = setup(async () => Response.json({ class: "private_password", message: "x" }, { status: 500 }))
+  await seam.open("getStack"); await seam.send({ operationId: "getStack" })
+  const failure = seam.get().model.exchange!.failure!
+  expect(JSON.stringify(failure)).not.toContain("private_password")
+  expect(debugApiFailureCopy({ class: "private_password", status: 500 })).toBe("The API answered HTTP 500 (unclassified).")
+  expect(debugApiFailureCopy({ class: "permission", status: 403 })).toBe("The API answered HTTP 403 (permission).")
+})
+test("a subscriber that ends the account as the Send starts stops the confirmed mutation before fetch", async () => {
+  const { seam, calls } = setup(async () => Response.json({}))
+  await seam.open("putSecrets")
+  const input = { operationId: "putSecrets", values: { body: '{"name":"CI"}' } }
+  await seam.send(input)
+  const confirmation = seam.get().confirmation
+  let ended = false
+  seam.subscribe(() => { if (seam.get().busy && !ended) { ended = true; seam.endAccount() } })
+  await seam.send({ ...input, intent: "confirm", confirmation })
+  expect(ended).toBe(true)
+  expect(calls).toHaveLength(0)
+  expect(seam.get().busy).toBeFalsy()
+  expect(seam.get().model.exchange).toBeUndefined()
+})
+test("an account change clears the selection", async () => {
+  const { seam } = setup()
+  await seam.open("putSecrets")
+  const before = seam.get().epoch
+  seam.endAccount()
+  expect(seam.get().model.selected).toBeUndefined()
+  expect(seam.get().fields).toEqual([])
+  expect(seam.get().epoch).not.toBe(before)
 })

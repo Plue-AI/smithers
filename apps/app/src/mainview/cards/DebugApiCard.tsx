@@ -19,7 +19,9 @@ export const DebugApiCard = ({ seam, View, dispatch, maximized = false }: {
   }] : []
   const bindings = cardActions(dispatch, definitions)
   if (!seam.available()) return null
-  return <View model={snapshot.model} {...bindings} view={{ maximized, selected: snapshot.model.selected }}
+  // Keyed by account epoch and selection: a new account remounts the form, so
+  // no draft typed for the previous account can show or re-submit.
+  return <View key={`${snapshot.epoch ?? 0}:${snapshot.model.selected ?? ""}`} model={snapshot.model} {...bindings} view={{ maximized, selected: snapshot.model.selected }}
     onView={patch => { if (patch.selected) seam.select(patch.selected) }} />
 }
 const DebugApiBody = ({ maximized }: { maximized: boolean }) => {
