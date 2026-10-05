@@ -1593,3 +1593,17 @@ describe("Endpoint.providerOrigin", () => {
     )
   })
 })
+
+
+describe("native step correlation", () => {
+ it("scopes headers to the action and leaves the wire body unchanged", async () => {
+  const route = Route.make({id:"proxy",protocol,endpoint:endpoint({url:"https://example.test"}),auth:Auth.bearer(Redacted.make("secret")),framing:Framing.sse})
+  const plain = await Effect.runPromise(Route.prepare(route,request))
+  const coordinates={executionId:"native-run",stepId:"a".repeat(64)}
+  const scoped=await Effect.runPromise(Route.prepare(route,request).pipe(Effect.provideService(Route.StepCorrelation,coordinates)))
+  expect(scoped.publicHeaders["X-Smithers-Execution-Id"] ?? scoped.publicHeaders["x-smithers-execution-id"]).toBe("native-run")
+  expect(scoped.publicHeaders["X-Smithers-Step-Id"] ?? scoped.publicHeaders["x-smithers-step-id"]).toBe(coordinates.stepId)
+  expect(scoped.bodyText).toBe(plain.bodyText)
+  expect(await Effect.runPromise(Route.prepare(route,request))).toEqual(plain)
+ })
+})

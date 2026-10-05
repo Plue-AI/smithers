@@ -85,7 +85,7 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	resolveCaller := func() (Caller, bool) {
 		caller, err := h.Callers.ResolveModelCaller(r)
 		if err == nil {
-			return caller, true
+			return correlateCaller(caller, r.Header), true
 		}
 		if errors.Is(err, ErrUnauthenticated) {
 			WriteError(w, provider, http.StatusUnauthorized, "authentication_error", "Authentication required.")

@@ -15,6 +15,7 @@ import (
 
 	"github.com/smithersai/smithers/packages/backend/credits"
 	"github.com/smithersai/smithers/packages/backend/internal/db"
+	"github.com/smithersai/smithers/packages/backend/modelprice"
 )
 
 // ErrDailyTokenBudget refuses an owner-paid call whose token bound does not
@@ -85,11 +86,11 @@ func (m OwnerMeter) Execute(ctx context.Context, caller Caller, call Call, spend
 			}
 		}
 		_, err := tx.Exec(ctx, `INSERT INTO model_usage (request_key, paid_by, owner_type, owner_id, source,
-				user_id, repository_id, workspace_id, workflow_run_id, reference, provider, model, stream, bound_tokens)
-			VALUES ($1, 'owner', $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)`,
+				user_id, repository_id, workspace_id, workflow_run_id, reference, provider, model, stream, bound_tokens, execution_id, step_id)
+			VALUES ($1, 'owner', $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15)`,
 			key, caller.OwnerType, caller.OwnerID, caller.Source,
 			positive(caller.UserID), positive(caller.RepositoryID), nonEmpty(caller.WorkspaceID), positive(caller.WorkflowRunID),
-			caller.Reference, call.Provider, strings.TrimSpace(call.Model), call.Stream, bound)
+			caller.Reference, call.Provider, strings.TrimSpace(call.Model), call.Stream, bound, nonEmpty(caller.ExecutionID), nonEmpty(caller.StepID))
 		return err
 	})
 	if err != nil {
@@ -104,7 +105,15 @@ func (m OwnerMeter) Execute(ctx context.Context, caller Caller, call Call, spend
 	}
 	finishCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 10*time.Second)
 	defer cancel()
-	if err := finishUsage(finishCtx, m.DB, key, result.Outcome, result, nil); err != nil {
+	var cost *int64
+	if result.Outcome == credits.ModelSucceeded {
+		if _, price, ok := Price(call.Provider, call.Model); ok {
+			if nanos, err := modelprice.CostNanos(price, result.Usage); err == nil {
+				cost = &nanos
+			}
+		}
+	}
+	if err := finishUsage(finishCtx, m.DB, key, result.Outcome, result, cost); err != nil {
 		slog.Error("owner model usage record not finished", "request_key", key, "error", err)
 	}
 	return spendErr

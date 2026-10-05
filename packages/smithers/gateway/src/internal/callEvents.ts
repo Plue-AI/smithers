@@ -146,7 +146,14 @@ export const callEventKey = (event: CallObservation): string | undefined => {
   }
   // An older checkpoint may not have a call ID. Its durable source identity
   // still deduplicates replay, including after the event body is evicted.
-  if (stepEvent === undefined) return undefined
+  if (stepEvent === undefined) {
+    // A persisted model settlement has a journal sequence even when older
+    // telemetry has no native checkpoint identity. Re-delivery is one call.
+    if (event.kind === "control.agent.model-settled" && typeof event.sequence === "number" && Number.isSafeInteger(event.sequence)) {
+      return JSON.stringify(["model-settled", event.runId, event.sequence, callScope(event)])
+    }
+    return undefined
+  }
   const envelope = original.payload as Record<string, unknown>
   return JSON.stringify(["step-fact", original.runId, callScope(stepEvent), envelope.sourceSequence])
 }

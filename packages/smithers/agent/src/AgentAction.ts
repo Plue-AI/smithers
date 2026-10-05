@@ -63,6 +63,7 @@ import type * as MemorySnapshot from "@smthrs/memory/SnapshotRecorder"
 import * as MemorySource from "@smthrs/memory/Source"
 import type * as Evaluator from "@smthrs/model/Evaluator"
 import type * as Model from "@smthrs/model/Model"
+import { StepCorrelation } from "@smthrs/model/Route"
 import type * as ModelRequest from "@smthrs/model/ModelRequest"
 import * as ObservabilityMetric from "@smthrs/observability/Metric"
 import type { FlowsHooks, PluginInput } from "@smthrs/plugin"
@@ -926,6 +927,7 @@ export const implement = <
                   supervisor: host.supervisor,
                   approvalChannel: host.approvalChannel
                 }).pipe(
+                  Stream.provideService(StepCorrelation, step),
                   Stream.provideService(AgentEvent.Observer, atSource ? observe : () => Effect.void),
                   (stream) => agentOutcome(stream, atSource ? () => Effect.void : observe)
                 )

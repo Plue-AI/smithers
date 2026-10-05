@@ -7,7 +7,7 @@
  * @since 0.1.0
  */
 
-import { Effect, Layer, Redacted, Result, Schema, Stream } from "effect"
+import { Context, Effect, Layer, Redacted, Result, Schema, Stream } from "effect"
 import type * as SchemaIssue from "effect/SchemaIssue"
 import * as HttpClientRequest from "effect/unstable/http/HttpClientRequest"
 import * as AnthropicMessages from "./AnthropicMessages.ts"
@@ -173,6 +173,14 @@ interface Compiled {
   readonly request: ModelRequest
 }
 
+/** Native dispatch coordinates, scoped to a single agent action. Correlation only.
+ * @category context
+ * @since 1.0.0
+ */
+export const StepCorrelation = Context.Reference<{ readonly executionId: string; readonly stepId: string } | undefined>(
+  "@smthrs/model/Route/StepCorrelation", { defaultValue: () => undefined }
+)
+
 const compile = <Body, Frame, Event, State>(
   route: Route<Body, Frame, Event, State>,
   request: ModelRequest
@@ -194,8 +202,9 @@ const compile = <Body, Frame, Event, State>(
         )
       )
     )
+    const step = yield* StepCorrelation
     const headers = yield* Effect.fromResult(
-      publicHeaders({ ...route.headers, ...route.protocol.headers?.(validatedRequest) })
+      publicHeaders({ ...route.headers, ...route.protocol.headers?.(validatedRequest), ...(step === undefined ? {} : { "X-Smithers-Execution-Id": step.executionId, "X-Smithers-Step-Id": step.stepId }) })
     )
     const bytes = yield* Effect.try({
       try: () => CanonicalJson.bytes(body),

@@ -4,6 +4,9 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
+	"os"
+	"os/exec"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -180,6 +183,51 @@ func TestJ11Rehearsal(t *testing.T) {
 	}) {
 		return
 	}
+	r.step("16 Per-step cost", "POST /api/workflow/rpc run-events; model proxy usage", "each step's cost sums to the run's metered total", "T-FLW-07", func() error {
+		code, data, err := r.relay(rehearsalRepository, branch, "Projection.Snapshot", fmt.Sprintf(`{"selector":{"_tag":"run-events","runId":%q}}`, run))
+		if err != nil || code != 200 {
+			return fmt.Errorf("cost journal: HTTP %d %s %v", code, data, err)
+		}
+		input := filepath.Join(r.evidence, "step-cost-journal.json")
+		if err = os.WriteFile(input, data, 0600); err != nil {
+			return err
+		}
+		command := exec.Command("node", filepath.Join(r.evidence, "step-cost-proof.mjs"), input, run)
+		build := exec.Command("node", filepath.Join(r.root, "scripts/build-step-cost-proof.mjs"), filepath.Join(r.evidence, "step-cost-proof.mjs"))
+		build.Dir = r.root
+		if out, e := build.CombinedOutput(); e != nil {
+			return fmt.Errorf("build trace proof: %w: %s", e, out)
+		}
+		output, err := command.CombinedOutput()
+		if err != nil {
+			return fmt.Errorf("fold journal costs: %w: %s", err, output)
+		}
+		var proof struct {
+			ExecutionIDs []string `json:"executionIds"`
+			Nanos        int64    `json:"nanos"`
+			Steps        int      `json:"steps"`
+			Calls        int      `json:"calls"`
+		}
+		if err = json.Unmarshal(output, &proof); err != nil {
+			return fmt.Errorf("cost fold: %s: %w", output, err)
+		}
+		var nanos, calls, steps int64
+		if err = r.pool.QueryRow(r.ctx, `SELECT COALESCE(sum(cost_nanos),0)::bigint,count(*),count(DISTINCT (execution_id, step_id)) FROM model_usage WHERE workspace_id=$1 AND execution_id=ANY($2::text[]) AND step_id IS NOT NULL AND outcome='succeeded'`, branch, proof.ExecutionIDs).Scan(&nanos, &calls, &steps); err != nil {
+			return err
+		}
+		// This rehearsal's dedicated TODO lane has one run. Check every priced
+		// call on it too, so missing correlation cannot hide spend.
+		var runTotal int64
+		if err = r.pool.QueryRow(r.ctx, `SELECT COALESCE(sum(cost_nanos),0)::bigint FROM model_usage WHERE workspace_id=$1 AND outcome='succeeded'`, branch).Scan(&runTotal); err != nil {
+			return err
+		}
+		if proof.Nanos <= 0 || proof.Steps < 2 || nanos != proof.Nanos || runTotal != proof.Nanos || calls != int64(proof.Calls) || steps != int64(proof.Steps) {
+			return fmt.Errorf("journal %d nanos/%d steps/%d calls, meter %d/%d/%d, run total %d", proof.Nanos, proof.Steps, proof.Calls, nanos, steps, calls, runTotal)
+		}
+		r.actual = fmt.Sprintf("HTTP 200; %d steps, %d calls; journal = meter = %d nanos", steps, calls, nanos)
+		return nil
+	})
+
 	if !r.step("3 T5 merged", "POST /api/todos/{T5}/merge; GET /api/todos/{T5}", "202; merged only after GitHub's head-bound squash", "T-STK-04", func() error {
 		if err := r.merge(t5, head); err != nil {
 			return err
@@ -258,6 +306,6 @@ func TestJ11Rehearsal(t *testing.T) {
 	r.pending("13 Tokens and time", "Inspect → steps", "tokens and time per step", "T-FLW-07", "inspect-run-trace")
 	r.pending("14 Wait for the answer", "Inspect → waits", "the question with since, answered_by and its settle time", "T-FLW-07", "monitor-waits")
 	r.pending("15 Titles and /monitor", "Inspect; /monitor", "Appendix C step titles, one Engine row; /monitor lists the TODO run with Inspect", "T-FLW-07", "monitor-labels")
-	r.pending("16 Per-step cost", "Inspect → steps; model proxy usage", "each step's cost sums to the run's metered total", "T-FLW-07", "step-cost")
+
 	r.pending("17 Live step states", "GET /api/live run:<id>", "a step state change arrives within 1 s", "T-FLW-07", "live-slice")
 }

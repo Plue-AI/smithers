@@ -86,7 +86,7 @@ export interface SpanDetail {
   readonly childRunId?: string | undefined
   /** A failure's message. */
   readonly message?: string | undefined
-  readonly usage?: { readonly inputTokens?: number | undefined; readonly outputTokens?: number | undefined } | undefined
+  readonly usage?: { readonly inputTokens?: number | undefined; readonly outputTokens?: number | undefined; readonly costUsd?: number | undefined } | undefined
   /** Every other payload field the opening record carried, as the journal bound it. */
   readonly fields?: Readonly<Record<string, unknown>> | undefined
 }
@@ -1362,7 +1362,7 @@ const foldStep = (state: FoldState, record: JournalRecord): void => {
             ...opened,
             ...(seat === undefined ? {} : { seat }),
             output: textOf(payload.text),
-            usage: { inputTokens: asNumber(usage.inputTokens), outputTokens: asNumber(usage.outputTokens) },
+            usage: { inputTokens: asNumber(usage.inputTokens), outputTokens: asNumber(usage.outputTokens), ...pricedUsage(payload.costUsd) },
             fields: restOf(payload, ["text", "usage", "durationMillis"])
           }
         )
@@ -1672,7 +1672,7 @@ const route = (state: FoldTop, record: JournalRecord): void => {
   // A run verdict stamped with another run's id (a child's, riding in this
   // journal) must not settle this run's trace or pin its milestone.
   if (
-    record.kind?.startsWith("control.run.") === true && record.runId !== undefined && record.runId !== state.run.runId
+    (record.kind?.startsWith("control.run.") === true || record.kind === "control.agent.model-settled") && record.runId !== undefined && record.runId !== state.run.runId
   ) {
     return
   }
@@ -2263,4 +2263,37 @@ export const runMemoryOf = (records: ReadonlyArray<JournalRecord>): RunMemory | 
     kept: [...kept.values()].sort(byRelevance),
     withheld: [...withheld.values()].filter((item) => !kept.has(item.id)).sort(byRelevance)
   }
+}
+
+
+const pricedUsage = (value: unknown): { readonly costUsd?: number } =>
+  typeof value === "number" && Number.isFinite(value) && value >= 0 && value <= Number.MAX_SAFE_INTEGER / 1_000_000_000 ? { costUsd: value } : {}
+
+/** Recorded model costs by native step, retaining unknown prices.
+ * @category projections
+ * @since 1.0.0
+ */
+export const stepCosts = (model: TraceModel): ReadonlyArray<{ readonly executionId: string; readonly stepId: string; readonly costUsd?: number; readonly calls: number }> => {
+  const steps = new Map<string, { nanos: number; calls: number; unknown: boolean }>()
+  for (const row of model.rows) {
+    if (row.kind !== "model") continue
+    const step = asRecord(row.detail.fields?.step)
+    const stepId = asString(step.stepId)
+    const executionId = asString(step.executionId)
+    if (stepId === undefined || executionId === undefined) continue
+    const key = JSON.stringify([executionId, stepId])
+    const total = steps.get(key) ?? { nanos: 0, calls: 0, unknown: false }
+    total.calls += 1
+    const cost = row.detail.usage?.costUsd
+    if (cost === undefined) total.unknown = true
+    else {
+      total.nanos += Math.round(cost * 1_000_000_000)
+      if (!Number.isSafeInteger(total.nanos)) total.unknown = true
+    }
+    steps.set(key, total)
+  }
+  return [...steps].sort(([a], [b]) => a.localeCompare(b)).map(([key, value]) => {
+    const [executionId, stepId] = JSON.parse(key) as [string, string]
+    return { executionId, stepId, calls: value.calls, ...(value.unknown ? {} : { costUsd: value.nanos / 1_000_000_000 }) }
+  })
 }
