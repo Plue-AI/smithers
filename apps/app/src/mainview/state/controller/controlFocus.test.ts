@@ -378,6 +378,141 @@ test("a press inside the controlled surface is interaction, not dismissal", () =
   expect(clicks).toBe(1)
 })
 
+const anotherEditor = (doc: Document) => {
+  const card = doc.createElement("section")
+  card.className = "smithers-card"
+  card.setAttribute("data-testid", "card-world-2")
+  card.innerHTML = '<div data-slot="markdown-editor"><div class="ProseMirror" contenteditable="true" tabindex="0"><p>Second note</p><a href="#heading">Heading</a><button>Toolbar</button><span contenteditable="false"><span data-noneditable>Widget</span></span><textarea disabled>Disabled</textarea></div></div>'
+  doc.querySelector(".sui-scroll-fade")!.append(card)
+  return { card, editable: card.querySelector<HTMLElement>(".ProseMirror")!, text: card.querySelector<HTMLElement>("p")! }
+}
+
+for (const gesture of ["pointer", "mouse-only", "touch"] as const) {
+  test(`switching editable notes preserves the complete ${gesture} gesture for native focus`, () => {
+    const { win, doc, control, editor, editorCard } = setup()
+    const first = editor.querySelector<HTMLElement>(".ProseMirror")!
+    const second = anotherEditor(doc)
+    first.focus()
+    const received: Array<{ type: string; defaultPrevented: boolean }> = []
+    for (const type of ["pointerdown", "mousedown", "pointerup", "mouseup", "click"]) {
+      second.text.addEventListener(type, event => {
+        received.push({ type, defaultPrevented: event.defaultPrevented })
+      })
+    }
+    if (gesture === "pointer") mouseClick(win, second.text)
+    else if (gesture === "touch") tap(win, second.text)
+    else for (const type of ["mousedown", "mouseup", "click"]) fire(second.text, mouse(win, type))
+    const expectedTypes = gesture === "mouse-only"
+      ? ["mousedown", "mouseup", "click"]
+      : gesture === "touch" ? ["pointerdown", "pointerup", "mousedown", "mouseup", "click"]
+      : ["pointerdown", "mousedown", "pointerup", "mouseup", "click"]
+    expect(received).toEqual(expectedTypes.map(type => ({ type, defaultPrevented: false })))
+    // Happy DOM has no native mouse default focus. Before that browser step,
+    // the controller must neither focus a SECTION nor claim the next editor.
+    expect(doc.activeElement).toBe(first)
+    expect(control.snapshot()?.surfaceId).toBe("editor:card-world-1")
+    second.editable.focus()
+    expect(control.snapshot()?.surfaceId).toBe("editor:card-world-2")
+    expect(editorCard.hasAttribute("data-control-focus")).toBe(false)
+    expect(second.card.getAttribute("data-control-focus")).toBe("human")
+  })
+}
+
+test("a touch pan toward another editor preserves the old focus until native focus moves", () => {
+  const { win, doc, control, editor } = setup()
+  const first = editor.querySelector<HTMLElement>(".ProseMirror")!
+  const second = anotherEditor(doc)
+  first.focus()
+  fire(second.text, pointer(win, "pointerdown", { button: 0, pointerId: 2, pointerType: "touch", clientX: 20, clientY: 20 }))
+  fire(second.text, pointer(win, "pointerup", { button: 0, pointerId: 2, pointerType: "touch", clientX: 20, clientY: 80 }))
+  expect(control.snapshot()?.surfaceId).toBe("editor:card-world-1")
+  expect(doc.activeElement).toBe(first)
+  fire(second.text, pointer(win, "pointerdown", { button: 0, pointerId: 3, pointerType: "touch" }))
+  fire(second.text, pointer(win, "pointercancel", { pointerId: 3, pointerType: "touch" }))
+  expect(control.snapshot()?.surfaceId).toBe("editor:card-world-1")
+  expect(doc.activeElement).toBe(first)
+})
+
+test("a touch handoff that focuses the next editor before pointerup preserves that new focus", () => {
+  const { win, doc, control, editor } = setup()
+  const second = anotherEditor(doc)
+  editor.querySelector<HTMLElement>(".ProseMirror")!.focus()
+  fire(second.text, pointer(win, "pointerdown", { button: 0, pointerId: 2, pointerType: "touch" }))
+  second.editable.focus()
+  fire(second.text, pointer(win, "pointerup", { button: 0, pointerId: 2, pointerType: "touch" }))
+  for (const type of ["mousedown", "mouseup", "click"]) fire(second.text, mouse(win, type))
+  expect(control.snapshot()?.surfaceId).toBe("editor:card-world-2")
+  expect(doc.activeElement).toBe(second.editable)
+})
+
+test("keyboard focus moves between editors without borrowing a card tab stop", () => {
+  const { doc, control, editor, editorCard } = setup()
+  const second = anotherEditor(doc)
+  const first = editor.querySelector<HTMLElement>(".ProseMirror")!
+  first.focus()
+  second.editable.focus()
+  expect(control.snapshot()?.surfaceId).toBe("editor:card-world-2")
+  first.focus()
+  expect(control.snapshot()?.surfaceId).toBe("editor:card-world-1")
+  expect(editorCard.hasAttribute("tabindex")).toBe(false)
+  expect(second.card.hasAttribute("tabindex")).toBe(false)
+})
+
+for (const readOnly of [false, true]) {
+  test(`a fallback textarea ${readOnly ? "keeps readonly dismissal" : "accepts native editor handoff"}`, () => {
+    const { win, doc, control, editor, editorCard } = setup()
+    const second = anotherEditor(doc)
+    const fallback = doc.createElement("textarea")
+    fallback.setAttribute("data-slot", "markdown-editor")
+    fallback.readOnly = readOnly
+    second.card.replaceChildren(fallback)
+    const first = editor.querySelector<HTMLElement>(".ProseMirror")!
+    first.focus()
+    let clicks = 0
+    fallback.addEventListener("click", () => clicks++)
+    mouseClick(win, fallback)
+    expect(clicks).toBe(readOnly ? 0 : 1)
+    expect(doc.activeElement).toBe(readOnly ? editorCard : first)
+    if (!readOnly) {
+      fallback.focus()
+      expect(control.snapshot()?.surfaceId).toBe("editor:card-world-2")
+    } else expect(control.snapshot()).toBeNull()
+  })
+}
+
+for (const target of ["readonly", "link", "toolbar", "terminal", "noneditable", "disabled"] as const) {
+  test(`another editor's ${target} target retains ordinary outside dismissal`, () => {
+    const { win, doc, control, editor, editorCard, textarea } = setup()
+    const second = anotherEditor(doc)
+    if (target === "readonly") second.editable.setAttribute("contenteditable", "false")
+    const destination = target === "link" ? second.editable.querySelector("a")!
+      : target === "toolbar" ? second.editable.querySelector("button")!
+      : target === "noneditable" ? second.editable.querySelector("[data-noneditable]")!
+      : target === "disabled" ? second.editable.querySelector("textarea")!
+      : target === "terminal" ? textarea : second.text
+    editor.querySelector<HTMLElement>(".ProseMirror")!.focus()
+    let clicks = 0
+    destination.addEventListener("click", () => clicks++)
+    mouseClick(win, destination)
+    expect(clicks).toBe(0)
+    expect(control.snapshot()).toBeNull()
+    expect(doc.activeElement).toBe(editorCard)
+  })
+}
+
+for (const button of [1, 2]) {
+  test(`button ${button} over another editor releases without arming a swallowed gesture`, () => {
+    const { win, doc, control, editor, editorCard, outside, outsideClicks } = setup()
+    const second = anotherEditor(doc)
+    editor.querySelector<HTMLElement>(".ProseMirror")!.focus()
+    mouseClick(win, second.text, button)
+    expect(control.snapshot()).toBeNull()
+    expect(doc.activeElement).toBe(editorCard)
+    mouseClick(win, outside)
+    expect(outsideClicks).toEqual(["pointerup", "click"])
+  })
+}
+
 test("a drag that starts inside the surface and ends outside does not dismiss", () => {
   const { win, control, textarea, outside } = setup()
   focusIn(win, textarea)

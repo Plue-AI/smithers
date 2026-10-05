@@ -222,6 +222,16 @@ export const createControlFocus = (doc: Document | undefined): ControlFocusContr
     return current.anchor.contains(target) || target.closest(PORTAL_ROOTS) !== null
   }
 
+  /** Moving between editable documents is native focus, never a backdrop dismissal. */
+  const isEditorHandoff = (target: Element | null): boolean => {
+    if (current?.state.kind !== "editor" || target === null) return false
+    const boundary = target.closest<HTMLElement>("[contenteditable], textarea")
+    if (boundary === null || (boundary instanceof HTMLTextAreaElement ? boundary.readOnly || boundary.disabled : !boundary.isContentEditable)) return false
+    if (target.closest('a[href], button, input, select, summary, [role="button"]') !== null) return false
+    const next = detect(target)
+    return next?.kind === "editor" && next.surfaceId !== current.state.surfaceId
+  }
+
   /** A resolved overflow is never empty; only a test DOM reports one, and it clips nothing. */
   const clipsAxis = (value: string): boolean => value !== "" && value !== "visible"
 
@@ -511,7 +521,7 @@ export const createControlFocus = (doc: Document | undefined): ControlFocusContr
     /* Only a real gesture dismisses; the press arbiter's own synthetic events are not the user's hand. */
     if (!event.isTrusted || current === null) return
     const target = asElement(event.target)
-    const inside = isInside(target)
+    const inside = isInside(target) || (event.button === 0 && isEditorHandoff(target))
 
     gesture = { pointerId: event.pointerId, inside, touch: event.pointerType === "touch", x: event.clientX, y: event.clientY, sawMouseDown: false }
     if (inside) return
@@ -582,7 +592,7 @@ export const createControlFocus = (doc: Document | undefined): ControlFocusContr
     }
     if (!event.isTrusted || current === null || compatTail()) return
     const target = asElement(event.target)
-    const inside = isInside(target)
+    const inside = isInside(target) || (event.button === 0 && isEditorHandoff(target))
 
     let held = gesture
     if (event.type === "mousedown") {
