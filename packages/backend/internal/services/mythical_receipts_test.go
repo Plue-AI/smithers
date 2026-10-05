@@ -193,7 +193,8 @@ func TestMythicalVerifyChecksTheRebasedPathsAndRecordsItsReceipts(t *testing.T) 
 	_, err := o.pool.Exec(ctx, `UPDATE mythical_stacks SET max_parallel = 3 WHERE repository_id = $1`, o.repoID)
 	require.NoError(t, err)
 	stack := o.wake()
-	oldTip := stack.TipCommit
+	// Each lane starts from its prefix: main's tip (§10.3.2).
+	oldTip := stack.LandedMain
 	launched := func(flowID string, number int64) flowdispatch.LaunchRequest {
 		t.Helper()
 		for _, request := range o.launcher.byFlow(flowID) {
@@ -258,7 +259,7 @@ func TestMythicalVerifyChecksTheRebasedPathsAndRecordsItsReceipts(t *testing.T) 
 	o.commit("🔧 chore: outside", "outside.txt", "outside\n")
 	o.publish()
 	stack = o.wake()
-	require.NotEqual(t, oldTip, stack.TipCommit)
+	require.NotEqual(t, oldTip, stack.LandedMain)
 	item := o.item(21)
 	require.Equal(t, "verifying", item.State, item.Reason)
 	verify := o.launcher.last("coding/verify")

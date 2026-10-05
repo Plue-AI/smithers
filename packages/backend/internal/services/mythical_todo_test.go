@@ -1386,12 +1386,13 @@ func TestMythicalRetainedWorkspaceHoldsItsLane(t *testing.T) {
 		Labels: []string{"todo"}}, maintainerTodo))
 	stack := o.wake()
 	item := o.item(412)
+	require.Equal(t, stack.LandedMain, item.BaseCommit, "the lane starts from its prefix, main's tip")
 	require.Equal(t, "running", item.State)
 	o.project(o.launcher.last("coding/request"), jobs.StateCompleted, "run-412", validatedRequest)
 	o.wake()
 	require.Equal(t, "delivering", o.item(412).State)
-	candidate := o.laneResult(item.WorkspaceID, stack.TipCommit, map[string]string{"four-twelve.md": "x\n"}, "📝 docs: add four-twelve")
-	_, err = o.service.SubmitLane(ctx, o.repoID, o.userID, MythicalLaneSubmission{WorkspaceID: item.WorkspaceID, Base: stack.TipCommit,
+	candidate := o.laneResult(item.WorkspaceID, stack.LandedMain, map[string]string{"four-twelve.md": "x\n"}, "📝 docs: add four-twelve")
+	_, err = o.service.SubmitLane(ctx, o.repoID, o.userID, MythicalLaneSubmission{WorkspaceID: item.WorkspaceID, Base: stack.LandedMain,
 		Source: candidate, RequestRunID: "run-412", Summary: "📝 docs: add four-twelve"})
 	require.NoError(t, err)
 	require.Equal(t, "integrating", o.item(412).State)
@@ -1479,8 +1480,8 @@ func TestMythicalRetainedVerificationObeysALoweredCap(t *testing.T) {
 	o.project(request, jobs.StateCompleted, "run-512", validatedRequest)
 	o.wake()
 	require.Equal(t, "delivering", o.item(512).State)
-	candidate := o.laneResult(item.WorkspaceID, stack.TipCommit, map[string]string{"five-twelve.md": "x\n"}, "📝 docs: add five-twelve")
-	_, err := o.service.SubmitLane(ctx, o.repoID, o.userID, MythicalLaneSubmission{WorkspaceID: item.WorkspaceID, Base: stack.TipCommit,
+	candidate := o.laneResult(item.WorkspaceID, stack.LandedMain, map[string]string{"five-twelve.md": "x\n"}, "📝 docs: add five-twelve")
+	_, err := o.service.SubmitLane(ctx, o.repoID, o.userID, MythicalLaneSubmission{WorkspaceID: item.WorkspaceID, Base: stack.LandedMain,
 		Source: candidate, RequestRunID: "run-512", Summary: "📝 docs: add five-twelve"})
 	require.NoError(t, err)
 	o.commit("✨ feat: three", "c.txt", "c\n")

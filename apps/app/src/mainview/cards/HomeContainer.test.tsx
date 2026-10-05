@@ -7,6 +7,7 @@ import { GlobalRegistrator } from "@happy-dom/global-registrator"
 import { act } from "react"
 import { createRoot } from "react-dom/client"
 import { HOME_TAGS, HomeCard, HomeContainer, homeFailureModel, homeSource } from "./HomeContainer"
+import { HomeView } from "./views/HomeView"
 import { homeFromTodos } from "../state/seams/HomeFromTodos"
 import { fixtures as todoFixtures } from "@smthrs/rpc/fixtures/Todo"
 import type { TodoCard } from "@smthrs/rpc/TodoCard"
@@ -445,6 +446,28 @@ test("Home from GET /api/todos: one row per unmerged TODO in served order, every
   expect(home.machines.slots.map(slot => [slot.branch, slot.awake, slot.actor.kind === "agent" && slot.actor.todo])).toEqual([["todo-2", true, 2], ["todo/12", true, 3]])
   expect(home.main).toMatchObject({ title: "main", health: "limited" })
   expect(home.main.cause).toBeUndefined()
+})
+
+test("Home from GET /api/todos: a TODO in review whose PR rebuilds keeps its row, says Rebase pending onto T1 or approval cleared, and offers no Merge", () => {
+  const pr = { ...todoFixtures.in_review.model.pr!, draft: false }
+  // T1 rebuilt on the moved main: its checks run, and the rebase voided the owner's approval.
+  const first = { ...todoFixtures.in_review.model, n: 1, title: "First", place: 1, pr, approval_cleared: true,
+    merge: { state: "waiting" as const, reason: "rechecking" as const, on_github: true } }
+  // T2 waits for T1's rebase, so it rebases once, onto T1's next verified head.
+  const { approval_cleared: _cleared, ...reviewed } = todoFixtures.in_review.model
+  const second = { ...reviewed, n: 2, title: "Second", place: 2, pr: { ...pr, number: 13 }, rebase_pending: { onto: "T1" },
+    merge: { state: "waiting" as const, reason: "order" as const, detail: "T1", on_github: true } }
+  for (const todo of [first, second]) expect(TodoCardSchema.parse(todo)).toEqual(todo)
+  const home = homeFromTodos("local-owner/demo", [first, second])
+  expect(HomeCardSchema.parse(home)).toEqual(home)
+  expect(home.items.map(item => [item.n, item.state, item.rebase_pending?.onto, item.approval_cleared])).toEqual([[1, "in_review", undefined, true], [2, "in_review", "T1", undefined]])
+  for (const item of home.items) expect(item.actions.map(action => action.tag)).toEqual(["todo", "todo"])
+  const { props } = mount(home)
+  const markup = renderToStaticMarkup(<HomeView {...props} />)
+  expect(markup).toContain("Rebase pending onto T1")
+  expect(markup).toContain("approval cleared by rebase")
+  expect(markup).toContain("Checks running")
+  expect(markup).not.toContain('data-flow="merge"')
 })
 
 test("an install's Home reads its rows from GET /api/todos: nothing until the list answers, then the rows, never the seed", () => {

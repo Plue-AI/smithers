@@ -145,6 +145,16 @@ func (s *MythicalService) todoCard(ctx context.Context, item db.MythicalItem, it
 	if state := card["state"]; item.StackPosition.Valid && state != "merged" && state != "dropped" {
 		card["place"] = item.StackPosition.Int64
 	}
+	// "Rebase pending onto T2" until the candidate is rebased; a rebase that
+	// voided the approval says so until someone presses Merge again.
+	if checks := mythicalChecksOf(item); !mythicalSettledStates[item.State] {
+		if rebase := checks.Rebase; rebase != nil && !rebase.Rebased {
+			card["rebase_pending"] = map[string]any{"onto": rebase.Name}
+		}
+		if checks.ApprovalCleared != "" && checks.Land == nil {
+			card["approval_cleared"] = true
+		}
+	}
 	// A queued TODO waits for a lane machine; the card says so and where it is
 	// in line (mvp.md §4.1), never the stack's internal outage text.
 	if card["state"] == "queued" {

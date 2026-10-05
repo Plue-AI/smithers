@@ -59,6 +59,11 @@ func todoState(item db.MythicalItem) string {
 		if checks.RunLaunched && !checks.RunAttached {
 			return "starting"
 		}
+		if mythicalRebuilding(item) {
+			// in_review → in_review: the pull request stays open while it
+			// rebuilds on the moved prefix (§4.1).
+			return "in_review"
+		}
 		return "working"
 	}
 }

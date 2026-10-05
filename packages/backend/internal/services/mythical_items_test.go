@@ -338,6 +338,19 @@ func (l *fakeMythicalLauncher) last(flowID string) flowdispatch.LaunchRequest {
 	return flowdispatch.LaunchRequest{}
 }
 
+// all are the launches of flowID, in order.
+func (l *fakeMythicalLauncher) all(flowID string) []flowdispatch.LaunchRequest {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	var out []flowdispatch.LaunchRequest
+	for _, request := range l.requests {
+		if request.FlowID == flowID {
+			out = append(out, request)
+		}
+	}
+	return out
+}
+
 type fakeMythicalLanes struct {
 	mu      sync.Mutex
 	created []string
@@ -747,11 +760,14 @@ func TestMythicalItemsRebaseVerifyRetryAndDecline(t *testing.T) {
 	_, err := o.pool.Exec(ctx, `UPDATE mythical_stacks SET max_parallel = 4 WHERE repository_id = $1`, o.repoID)
 	require.NoError(t, err)
 	stack := o.wake()
-	oldTip := stack.TipCommit
+	// Each lane starts from its prefix (§10.3.2): main's tip, as no earlier
+	// item has a verified head yet.
+	oldTip := stack.LandedMain
 	lanes := map[int32]int64{}
 	for _, number := range []int64{11, 12, 13} {
 		item := o.item(number)
 		require.Equal(t, "running", item.State)
+		require.Equal(t, oldTip, item.BaseCommit)
 		require.True(t, item.Lane.Valid)
 		assert.True(t, item.LaneStartedAt.Valid, "the launch records when the lane started")
 		lanes[item.Lane.Int32] = number
@@ -794,36 +810,41 @@ func TestMythicalItemsRebaseVerifyRetryAndDecline(t *testing.T) {
 	o.publish()
 	// One poll folds main, then advances the items against the new tip.
 	stack = o.wake()
-	require.NotEqual(t, oldTip, stack.TipCommit)
+	require.NotEqual(t, oldTip, stack.LandedMain)
 
-	// #11 only appended: rebased onto the new tip and sent to coding/verify.
+	// #11 only appended: rebased onto main's new tip and sent to coding/verify.
 	item := o.item(11)
 	require.Equal(t, "verifying", item.State, item.Reason)
 	assert.Contains(t, string(item.Integration), "rebased")
-	assert.Equal(t, stack.TipCommit, item.CandidateBase)
+	assert.Equal(t, stack.LandedMain, item.CandidateBase)
 	assert.NotEqual(t, appended, item.CandidateHead)
 	verify := o.launcher.last("coding/verify")
 	assert.Contains(t, string(verify.Payload), item.CandidateHead)
 	assert.Contains(t, string(verify.Payload), `"checks/fast"`)
 	assert.Equal(t, item.CandidateHead, o.hostRef(repohost.WorkspaceSourceRef(ws11, item.CandidateHead)))
 
-	// #12 conflicts with main: back to a lane with the paths, attempt 2.
+	// #12 conflicts with main: it holds its lane, so it rebases at once
+	// (never idling against the cap) and goes back to a lane with the paths,
+	// attempt 2.
 	twelve := o.item(12)
 	require.Equal(t, "retrying", twelve.State)
 	assert.Contains(t, twelve.Reason, "b.txt")
 	assert.Contains(t, string(twelve.Integration), "b.txt")
+	assert.Contains(t, string(twelve.Integration), stack.LandedMain, "it rebased onto main's new tip")
+	assert.Len(t, o.launcher.all("coding/verify"), 1, "a conflict launches no verification")
 
 	// A stale verify projection (an older generation) changes nothing.
 	o.project(requests[11], jobs.StateCompleted, "stale", `{"status":"failed","failed":["fast"]}`)
 	assert.Equal(t, "", o.item(11).VerifyOutcome)
 	o.project(verify, jobs.StateCompleted, "run-verify", `{"status":"passed","failed":[],"receipts":[]}`)
 	o.wake()
-	o.wake()
+	// Verified on main's new tip, #11 is ready to publish. This fixture
+	// composes no App publication, so it holds there; publication of a
+	// rebased TODO is proven over the GitHub fake (todo_rebase_db_test.go).
 	item = o.item(11)
-	require.Equal(t, "proposed", item.State, item.Reason)
-	branchHead := o.git(o.github.dir, "rev-parse", "refs/heads/smithers/todo-11")
-	assert.Equal(t, o.hostTree(item.CandidateHead), o.git(o.github.dir, "rev-parse", branchHead+"^{tree}"),
-		"the proposal is exactly the verified rebased tree")
+	require.Equal(t, "proposing", item.State, item.Reason)
+	assert.True(t, item.CandidateVerified)
+	assert.Equal(t, stack.LandedMain, item.CandidateBase)
 
 	// #12's retries run out: one very hard continuation on the last
 	// attempt, then blocked, visibly, and a retry re-queues it.
@@ -853,29 +874,7 @@ func TestMythicalItemsRebaseVerifyRetryAndDecline(t *testing.T) {
 	requireRunCredentialRefused(t, err)
 	assert.Equal(t, "blocked", o.item(13).State)
 
-	// Main moves again while #11's PR is open; GitHub reports it behind, so
-	// the proposal is rebuilt on the new tip and verified on a fresh lane.
-	o.answerReviews(`"request-changes"`)
-	eleven := o.item(11)
-	require.Empty(t, eleven.WorkspaceID, "the proposed item's lane was retired")
-	pullNumber := eleven.PRNumber.Int64
-	o.commit("🔧 chore: more outside", "c.txt", "c\n")
-	o.publish()
-	stack = o.wake()
-	o.github.mu.Lock()
-	o.github.pulls[eleven.PRNumber.Int64].MergeableState = "behind"
-	o.github.mu.Unlock()
-	_, err = o.pool.Exec(ctx, `UPDATE mythical_items SET next_attempt_at = NOW() WHERE repository_id = $1`, o.repoID)
-	require.NoError(t, err)
-	o.wake() // follow: behind on a moved tip -> integrating
-	require.Equal(t, "integrating", o.item(11).State)
-	o.wake() // integrate: rebase, fresh lane, verify
-	eleven = o.item(11)
-	require.Equal(t, "verifying", eleven.State, eleven.Reason)
-	assert.Equal(t, stack.TipCommit, eleven.CandidateBase)
-	assert.NotEmpty(t, eleven.WorkspaceID, "a fresh lane verifies the refreshed proposal")
-	assert.Equal(t, pullNumber, eleven.PRNumber.Int64, "the same pull request is updated")
-
+	o.wake()
 	// The snapshot shows the items and their lanes.
 	snapshot, err := o.service.Snapshot(ctx, o.repoID, "smithers-canary/smithers", "", MythicalViewer{UserID: o.userID})
 	require.NoError(t, err)
@@ -883,14 +882,14 @@ func TestMythicalItemsRebaseVerifyRetryAndDecline(t *testing.T) {
 	for _, row := range snapshot.Items {
 		states[row.Issue.Title] = row.State
 	}
-	assert.Equal(t, map[string]string{"Issue 11": "verifying", "Issue 12": "running", "Issue 13": "blocked"}, states)
+	assert.Equal(t, map[string]string{"Issue 11": "proposing", "Issue 12": "running", "Issue 13": "blocked"}, states)
 	busy := map[string]string{}
 	for _, lane := range snapshot.Lanes {
 		if lane.State == "busy" {
 			busy[lane.WorkspaceID] = lane.StartedAt
 		}
 	}
-	require.Len(t, busy, 2, "the verifying proposal's fresh lane and #12's lane both show")
+	require.Len(t, busy, 2, "#11's lane, retained until it is proposed, and #12's lane both show")
 	for workspace, started := range busy {
 		assert.NotEmpty(t, started, "lane %s shows when it started", workspace)
 	}

@@ -423,12 +423,15 @@ func mythicalMergeReady(item db.MythicalItem, before int64, head string, fenced 
 		return mythicalMergeConflict("state", "only a TODO can merge")
 	case item.PRState == "closed":
 		return mythicalMergeConflict("state", "PR is closed on GitHub")
-	case item.State != "proposed" || !item.PRNumber.Valid || item.PRState != "open" && item.PRState != "" || todoState(item) != "in_review" || mythicalChecksOf(item).ForeignHead != "":
+	case item.State != "proposed" && !mythicalRebuilding(item) || !item.PRNumber.Valid || item.PRState != "open" && item.PRState != "" || todoState(item) != "in_review" || mythicalChecksOf(item).ForeignHead != "":
 		return mythicalMergeConflict("state", "only a TODO in review can merge")
 	case before > 0:
 		return mythicalMergeConflict("order", fmt.Sprintf("Merges after T%d", before))
 	case mythicalMergeFenced(item) && !fenced:
 		return mythicalMergeConflict("merging", "A merge is in flight")
+	case mythicalRebuilding(item):
+		// Row 6: a rebase is pending or its new generation is not verified yet.
+		return mythicalMergeConflict("rechecking", "Waiting for the rebased change's checks")
 	case len(item.PendingOp) > 0 && !mythicalMergeFenced(item):
 		return mythicalMergeConflict("rechecking", "Waiting for the TODO's pull request push to settle")
 	case !item.CandidateVerified || item.PRHead == "":

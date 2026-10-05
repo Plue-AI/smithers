@@ -1487,6 +1487,12 @@ func mythicalComposedOutcome(item db.MythicalItem, now time.Time) *db.MythicalIt
 // are recorded or neither, so a crash never leaves a launch the item does not
 // know about, and a projection never meets an older generation.
 func (st *mythicalItemStep) commit(ctx context.Context, item db.MythicalItem, phase, flowID string, payload json.RawMessage) (db.MythicalItem, error) {
+	return st.commitWith(ctx, item, phase, flowID, payload, nil)
+}
+
+// commitWith is commit with also, when set, written in the same transaction
+// after the item is saved: an activity entry the launch records.
+func (st *mythicalItemStep) commitWith(ctx context.Context, item db.MythicalItem, phase, flowID string, payload json.RawMessage, also func(pgx.Tx, db.MythicalItem) error) (db.MythicalItem, error) {
 	s, r := st.s, st.r
 	tx, err := s.store.Begin(ctx)
 	if err != nil {
@@ -1505,6 +1511,11 @@ func (st *mythicalItemStep) commit(ctx context.Context, item db.MythicalItem, ph
 	saved, err := db.New(tx).SaveMythicalItem(ctx, item)
 	if err != nil {
 		return db.MythicalItem{}, err
+	}
+	if also != nil {
+		if err := also(tx, saved); err != nil {
+			return db.MythicalItem{}, err
+		}
 	}
 	id := uuidString(saved.ID)
 	tenant, principal := "repository:"+strconv.FormatInt(r.row.RepositoryID, 10), "user:"+strconv.FormatInt(r.row.ActorUserID.Int64, 10)
@@ -1700,12 +1711,85 @@ func (st *mythicalItemStep) prefix(item db.MythicalItem) string {
 }
 
 // invalidatePrefix preserves captured bytes and the last PR while refusing a
-// fresh publication. Guest rebase must produce and check the next generation.
+// fresh publication: the item is rebase_pending onto its moved prefix, and
+// integrate rebases it and checks the next generation. That generation
+// voids a Review & merge approval of the old head (§10.5.3a); the card
+// says the rebase cleared it.
 func (st *mythicalItemStep) invalidatePrefix(item db.MythicalItem) *db.MythicalItem {
-	next := item
+	onto := st.prefix(item)
+	name := st.ontoName(onto)
+	if earlier := st.rebaseWaits(item); earlier != nil {
+		// It rebases once its earlier item's own rebase publishes a head.
+		name = fmt.Sprintf("T%d", mythicalItemNumber(*earlier))
+	}
+	next := st.awaitRebase(item, onto, name)
+	if next == nil {
+		copied := item
+		next = &copied
+	}
 	next.CandidateVerified = false
-	next.State, next.Reason = "integrating", "rebase_pending"
+	next.State, next.NextAttemptAt = "integrating", pgtype.Timestamptz{}
+	if checks := mythicalChecksOf(*next); checks.Land != nil {
+		checks.ApprovalCleared, checks.Land = checks.Land.Head, nil
+		next.Checks = checks.encode()
+	}
+	return next
+}
+
+// awaitRebase marks item rebase_pending onto name (main, or an earlier TODO
+// T<k>), the card's "Rebase pending onto T<k>", or answers nil when it
+// already waits so. The candidate is untouched until integrate rebases it.
+func (st *mythicalItemStep) awaitRebase(item db.MythicalItem, onto, name string) *db.MythicalItem {
+	checks := mythicalChecksOf(item)
+	if pending := checks.Rebase; pending != nil && !pending.Rebased && pending.Onto == onto && pending.Name == name && item.Reason == "rebase_pending" {
+		return nil
+	}
+	since := st.now
+	if checks.Rebase != nil && !checks.Rebase.Rebased && !checks.Rebase.Since.IsZero() {
+		since = checks.Rebase.Since
+	}
+	checks.Rebase = &mythicalRebase{Onto: onto, Name: name, Since: since}
+	next := item
+	next.Reason, next.Checks = "rebase_pending", checks.encode()
 	return &next
+}
+
+// rebaseWaits answers the nearest earlier unsettled item whose own rebase is
+// pending or running, or nil. A later item waits for it, so it rebases once,
+// onto that item's next verified head, never onto a prefix about to move.
+// An item that holds a lane never waits: it rebases at once, so a machine is
+// never kept idle against the lane cap the earlier rebase may need.
+func (st *mythicalItemStep) rebaseWaits(item db.MythicalItem) *db.MythicalItem {
+	if item.WorkspaceID != "" {
+		return nil
+	}
+	var waits *db.MythicalItem
+	for i := range st.items {
+		earlier := st.items[i]
+		if earlier.ID == item.ID {
+			break
+		}
+		// Only a rebase in progress publishes a head soon: a failed or
+		// retrying item never holds the items after it.
+		if earlier.State != "integrating" && earlier.State != "verifying" || earlier.CandidateHead == "" || earlier.CandidateVerified {
+			continue
+		}
+		if mythicalChecksOf(earlier).Rebase != nil {
+			waits = &st.items[i]
+		}
+	}
+	return waits
+}
+
+// ontoName is what a TODO card calls a prefix commit: the earlier TODO whose
+// verified head it is, else main.
+func (st *mythicalItemStep) ontoName(onto string) string {
+	for _, earlier := range st.items {
+		if !mythicalSettledStates[earlier.State] && earlier.CandidateVerified && earlier.CandidateHead == onto {
+			return fmt.Sprintf("T%d", mythicalItemNumber(earlier))
+		}
+	}
+	return "main"
 }
 
 // mythicalPinOf is item's persisted pin: the todo flow, the main commit it
@@ -1805,8 +1889,9 @@ func (st *mythicalItemStep) start(ctx context.Context, item db.MythicalItem) (*d
 		next.Checks = placed.encode()
 	}
 	// Starting until the host accepts the run; ProjectFlowRuntime attaches it.
+	// A fresh attempt starts on the current prefix: no rebase is pending.
 	launched := mythicalChecksOf(next)
-	launched.RunLaunched, launched.RunAttached = true, false
+	launched.RunLaunched, launched.RunAttached, launched.Rebase = true, false, nil
 	next.Checks = launched.encode()
 	base := st.prefix(item)
 	next.WorkspaceID, next.BaseCommit = workspaceID, base
@@ -1945,7 +2030,7 @@ func (st *mythicalItemStep) startPinned(ctx context.Context, item db.MythicalIte
 	}
 	checks := mythicalChecksOf(next)
 	checks.Placement = &placement
-	checks.RunLaunched, checks.RunAttached = true, false
+	checks.RunLaunched, checks.RunAttached, checks.Rebase = true, false, nil
 	checks.FlowSource = pin.SourceCommit
 	next.Checks = checks.encode()
 	base := st.prefix(item)
@@ -2114,18 +2199,22 @@ func (st *mythicalItemStep) protectedChanges(ctx context.Context, item db.Mythic
 	return protectedPathsTouched(changed, entries), nil
 }
 
-// integrate puts a submitted candidate onto the current tip: as is when it
-// was built on the current tip. Moved-base candidates remain pending until
-// validated branch execution is composed (T-STK-08).
+// integrate puts a submitted candidate onto its prefix (st.prefix, §10.3.2):
+// as is when it was built there, else rebased onto it (appended candidates
+// only) and sent to coding/verify on the immutable rebased commit (§10.5).
+// The candidate is pinned so it outlives its lane. A later item whose
+// earlier item is itself rebasing waits, so it rebases once, onto that
+// item's next verified head.
 func (st *mythicalItemStep) integrate(ctx context.Context, item db.MythicalItem) (*db.MythicalItem, bool, error) {
 	s, r := st.s, st.r
 	if item.CandidateHead == "" {
 		return nil, false, nil
 	}
-	// T-STK-08: the legacy host path cannot validate the guest or freeze
-	// writers. Keep the candidate pending before fetching, pinning or rewriting.
-	if item.CandidateBase != st.prefix(item) {
-		return nil, false, branchRebaseUnavailable()
+	onto := st.prefix(item)
+	if item.CandidateBase != onto {
+		if earlier := st.rebaseWaits(item); earlier != nil {
+			return st.awaitRebase(item, onto, fmt.Sprintf("T%d", mythicalItemNumber(*earlier))), false, nil
+		}
 	}
 	if err := st.fetchCandidate(ctx, item); err != nil {
 		return mythicalInfraOutage(item, "launch", err.Error(), st.now), false, nil
@@ -2140,12 +2229,150 @@ func (st *mythicalItemStep) integrate(ctx context.Context, item db.MythicalItem)
 		return mythicalInfraOutage(item, "launch", err.Error(), st.now), false, nil
 	}
 	next := item
-	if !item.CandidateVerified {
-		return mythicalRetry(item, "the candidate on the tip was never verified", nil, st.now), false, nil
+	if item.CandidateBase == onto {
+		if !item.CandidateVerified {
+			return mythicalRetry(item, "the candidate on the tip was never verified", nil, st.now), false, nil
+		}
+		integration, _ := json.Marshal(map[string]any{"kind": "fast-forward"})
+		next.Integration, next.State, next.Reason = integration, "proposing", ""
+		return &next, false, nil
 	}
-	integration, _ := json.Marshal(map[string]any{"kind": "fast-forward"})
-	next.Integration, next.State, next.Reason = integration, "proposing", ""
-	return &next, false, nil
+	if err := st.fetchOnto(ctx, onto); err != nil {
+		return mythicalInfraOutage(item, "launch", err.Error(), st.now), false, nil
+	}
+	rebased, err := r.g.rebaseCandidate(ctx, onto, mythicalCandidate{ItemID: uuidString(item.ID), Issue: item.IssueNumber.Int64,
+		Base: item.CandidateBase, Head: item.CandidateHead}, mythicalChainLimit)
+	var conflict *errMythicalConflict
+	switch {
+	case errors.Is(err, errMythicalRewrite):
+		return mythicalRetry(item, "the stack moved while this attempt amended or inserted changes; re-planning on the new tip", nil, st.now), false, nil
+	case errors.As(err, &conflict):
+		integration, _ := json.Marshal(map[string]any{"conflict": map[string]any{"paths": conflict.Paths, "onto": onto}})
+		retried := mythicalRetry(item, "rebasing onto the new tip conflicted in "+strings.Join(conflict.Paths, ", "), nil, st.now)
+		retried.Integration = integration
+		return retried, false, nil
+	case err != nil:
+		return mythicalInfraOutage(item, "launch", "the candidate could not be rebased: "+err.Error(), st.now), false, nil
+	}
+	var plan struct {
+		Checks []json.RawMessage `json:"checks"`
+	}
+	if len(item.Plan) == 0 || json.Unmarshal(item.Plan, &plan) != nil {
+		// coding/verify reruns the plan's checks; with no plan the work is
+		// planned again on the new prefix.
+		return mythicalRetry(item, "the rebased result has no plan to check; re-planning on the new tip", nil, st.now), false, nil
+	}
+	if plan.Checks == nil {
+		// A plan that found no checks verifies with none (6f552be470).
+		plan.Checks = []json.RawMessage{}
+	}
+	// Every path the rebased candidate changes on its prefix, so an affected
+	// check (checks/affected-*) selects the targets those paths reach.
+	writes, err := r.g.changedPaths(ctx, onto, rebased)
+	if err != nil {
+		return mythicalInfraOutage(item, "launch", "the rebased candidate's paths could not be read: "+err.Error(), st.now), false, nil
+	}
+	if err := s.pin(ctx, r, rebased); err != nil {
+		return mythicalInfraOutage(item, "launch", err.Error(), st.now), false, nil
+	}
+	if hold := st.launchable(ctx, item); hold != nil {
+		return hold, false, nil
+	}
+	workspaceID := item.WorkspaceID
+	if !st.slot(item) {
+		// A verification waits for a lane under the cap, a kept workspace
+		// traded in for its own (the cap may have been lowered meanwhile).
+		return st.awaitRebase(item, onto, st.ontoName(onto)), false, nil
+	}
+	if review := mythicalChecksOf(item).Review; review != nil && review.Lane != "" && review.Lane == workspaceID {
+		// The review lane runs the reviewer's host on landed code only: the
+		// rebased candidate's checks run on a coding lane, as its plan's did.
+		if err := s.retireLane(ctx, r, workspaceID); err != nil {
+			return mythicalInfraOutage(item, "launch", "the review lane could not be retired before the checks: "+err.Error(), st.now), false, nil
+		}
+		workspaceID = ""
+	}
+	if workspaceID == "" {
+		// A proposal refreshed after its lane was retired verifies on a fresh one.
+		placement, refused := st.place(ctx, item)
+		if refused != nil {
+			return refused, false, nil
+		}
+		name := fmt.Sprintf("mythical #%d verify %d", item.IssueNumber.Int64, item.Generation+1)
+		if mythicalTodo(item) {
+			name = fmt.Sprintf("TODO %d verify %d", item.Number.Int64, item.Generation+1)
+		}
+		if workspaceID, err = st.lane(ctx, item, name, placement); err != nil {
+			return mythicalInfraOutage(item, "launch", "no lane workspace to verify on: "+err.Error(), st.now), false, nil
+		}
+		placed := mythicalChecksOf(next)
+		placed.Placement = &placement
+		next.Checks = placed.encode()
+		next.Lane = pgtype.Int4{Int32: st.freeLane(item.ID), Valid: true}
+		next.LaneStartedAt = pgtype.Timestamptz{Time: st.now, Valid: true}
+	}
+	ref, err := s.retainFor(ctx, r, workspaceID, rebased)
+	if err != nil {
+		return mythicalInfraOutage(item, "launch", err.Error(), st.now), false, nil
+	}
+	from := item.CandidateBase
+	next.Generation++
+	next.WorkspaceID = workspaceID
+	next.CandidateBase, next.CandidateHead, next.CandidateVerified, next.VerifyOutcome, next.VerifyRunID = onto, rebased, false, "", ""
+	integration, _ := json.Marshal(map[string]any{"kind": "rebased", "onto": onto})
+	next.Integration, next.State, next.Reason = integration, "verifying", ""
+	// The rebase is done; its checks run (rechecking) until the new
+	// generation is verified and proposed (§10.5.3).
+	rebase := mythicalChecksOf(next)
+	name := st.ontoName(onto)
+	rebase.Rebase = &mythicalRebase{Onto: onto, Name: name, Since: st.now, Rebased: true}
+	if pending := mythicalChecksOf(item).Rebase; pending != nil && !pending.Since.IsZero() {
+		rebase.Rebase.Since = pending.Since
+	}
+	next.Checks = rebase.encode()
+	payload, _ := json.Marshal(map[string]any{"source": map[string]string{"commitId": rebased, "ref": ref}, "checks": plan.Checks, "writes": writes})
+	saved, err := st.commitWith(ctx, next, "verify", "coding/verify", payload, func(tx pgx.Tx, saved db.MythicalItem) error {
+		return recordTodoRebased(ctx, tx, saved, from, name)
+	})
+	if err != nil {
+		return mythicalInfraOutage(item, "launch", "verification could not be launched: "+err.Error(), st.now), false, nil
+	}
+	if saved.Lane.Valid {
+		st.held[saved.Lane.Int32] = saved.ID
+	}
+	return &saved, true, nil
+}
+
+// recordTodoRebased writes a TODO's activity entry for a done rebase, in the
+// transaction that launches its checks: "Rebased onto main" or "Rebased
+// onto T<k>" (§10.5.3). A legacy issue item has no TODO activity.
+func recordTodoRebased(ctx context.Context, tx pgx.Tx, saved db.MythicalItem, from, onto string) error {
+	if !mythicalTodo(saved) || !saved.Number.Valid {
+		return nil
+	}
+	fact, _ := json.Marshal(map[string]any{"item": uuidString(saved.ID), "n": saved.Number.Int64, "attempt": saved.Attempt,
+		"generation": saved.Generation, "from": from, "onto": saved.CandidateBase, "onto_name": onto, "head": saved.CandidateHead,
+		"text": "Rebased onto " + onto, "actor": map[string]string{"kind": "system", "id": "stack"}})
+	_, err := jobs.RecordFactInTx(ctx, tx, todoOperationScope(saved), uuid.NewString(), "todo.rebased", todoState(saved), fact)
+	return err
+}
+
+// fetchOnto makes a prefix commit readable for a rebase: main's tip is
+// already here (the fold fetched it); an earlier item's verified head is
+// fetched from its pin.
+func (st *mythicalItemStep) fetchOnto(ctx context.Context, onto string) error {
+	r := st.r
+	if r.g.has(ctx, onto) {
+		return nil
+	}
+	keep := repohost.MythicalReservedRefNS + "keep/" + onto
+	if err := r.g.fetch(ctx, r.bridge.URL(), 0, 0, keep); err != nil {
+		return fmt.Errorf("fetch the prefix: %s", sanitizeMirrorError(err, r.bridge.URL()))
+	}
+	if !r.g.has(ctx, onto) {
+		return errors.New("the prefix is not retained in the repository")
+	}
+	return nil
 }
 
 func (st *mythicalItemStep) fetchCandidate(ctx context.Context, item db.MythicalItem) error {
@@ -2534,8 +2761,9 @@ func (st *mythicalItemStep) proposedFrom(item db.MythicalItem, pull mythicalPull
 	}
 	if item.State != "cancelled" && item.State != "dropped" {
 		next.State, next.Reason = "proposed", ""
-		// The change is proposed: the outages on the way here are behind it.
-		proposed.Outages, proposed.GitHubOutages, proposed.Fault = 0, 0, nil
+		// The change is proposed: the outages on the way here are behind it,
+		// and so is the rebase that rebuilt it.
+		proposed.Outages, proposed.GitHubOutages, proposed.Fault, proposed.Rebase = 0, 0, nil, nil
 	}
 	next.Checks = proposed.encode()
 	next.NextAttemptAt = pgtype.Timestamptz{Time: st.now.Add(mythicalPullPollEvery), Valid: true}
@@ -2555,7 +2783,8 @@ func mythicalNoClosingKeywords(text string) string {
 
 // follow reads the item's pull request: merged lands it (the fold adopts its
 // changes), closed unmerged rejects it; the stack itself is untouched. An
-// open PR GitHub cannot merge or reports behind main is rebuilt on the tip.
+// open PR whose prefix moved (main, or an earlier item's verified head) is
+// rebuilt on the new prefix (integrate).
 func (st *mythicalItemStep) follow(ctx context.Context, item db.MythicalItem) (*db.MythicalItem, error) {
 	s, r := st.s, st.r
 	if s.github == nil || !item.PRNumber.Valid || !r.row.ActorUserID.Valid {
@@ -2620,9 +2849,12 @@ func (st *mythicalItemStep) follow(ctx context.Context, item db.MythicalItem) (*
 		checks.ForeignHead = pull.HeadSHA
 		checks.notice("foreign_push:"+pull.HeadSHA, "Smithers is holding this TODO: "+next.Reason+".")
 		next.Checks = checks.encode()
-	case (pull.MergeableState == "dirty" || pull.MergeableState == "behind") && mythicalChecksOf(item).ForeignHead == "" && item.CandidateBase != r.row.TipCommit:
-		next.PRState, next.State, next.Reason = pull.State, "integrating", "refreshing the pull request on the current tip"
-		next.NextAttemptAt = pgtype.Timestamptz{}
+	case mythicalChecksOf(item).ForeignHead == "" && item.CandidateBase != st.prefix(item):
+		// main or an earlier item published a new revision under this one
+		// (§10.5.1): its pull request rebuilds on the new prefix, whatever
+		// GitHub computes for the old head.
+		next = *st.invalidatePrefix(next)
+		next.PRState = pull.State
 	default:
 		next.PRState, next.Reason = pull.State, ""
 		checks := mythicalChecksOf(next)
@@ -2884,6 +3116,7 @@ func (st *mythicalItemStep) review(ctx context.Context, item db.MythicalItem) (*
 	next.Lane = pgtype.Int4{Int32: st.freeLane(item.ID), Valid: true}
 	next.LaneStartedAt = pgtype.Timestamptz{Time: st.now, Valid: true}
 	next.Generation++
+	checks.Review.Lane = workspaceID
 	next.Checks = checks.encode()
 	args := fmt.Sprintf("Pull request #%d.\n\n<untrusted-title>\n%s\n</untrusted-title>\n\n<untrusted-diff>\n%s\n</untrusted-diff>\n",
 		item.PRNumber.Int64, mythicalUntrusted(item.IssueTitle), mythicalUntrusted(diff))
@@ -3620,7 +3853,13 @@ type mythicalChecks struct {
 	// so a repeated request answers its receipt (§6.2.1).
 	Land          *mythicalLand          `json:"land,omitempty"`
 	MergeRequests []mythicalMergeRequest `json:"mergeRequests,omitempty"`
-	Review        *mythicalReview        `json:"review,omitempty"`
+	// ApprovalCleared is the head whose approval a rebase voided (§10.5.3a),
+	// shown until another press records one.
+	ApprovalCleared string `json:"approvalCleared,omitempty"`
+	// Rebase is the item's rebase onto its moved prefix, from the move until
+	// the new generation is proposed (§10.5).
+	Rebase *mythicalRebase `json:"rebase,omitempty"`
+	Review *mythicalReview `json:"review,omitempty"`
 	// ForeignHead is the pull request head someone other than Smithers
 	// pushed; the stack neither reviews nor merges it.
 	ForeignHead string `json:"foreignHead,omitempty"`
@@ -3694,6 +3933,27 @@ type mythicalChecks struct {
 	Receipts *mythicalReceipts `json:"receipts,omitempty"`
 	// Completion is the landed item's evidence on its issue (complete).
 	Completion *mythicalCompletion `json:"completion,omitempty"`
+}
+
+// mythicalRebase is a later item's rebase onto its moved prefix (§10.5):
+// Onto is the prefix commit, Name what the card calls it (main, or the
+// earlier TODO T<k>) and Since when the prefix moved under the item. It is
+// pending until Rebased: the candidate was rebased and its checks launched.
+type mythicalRebase struct {
+	Onto    string    `json:"onto"`
+	Name    string    `json:"name"`
+	Since   time.Time `json:"since"`
+	Rebased bool      `json:"rebased,omitempty"`
+}
+
+// rebuilding reports an item in review whose pull request rebuilds after a
+// rebase: it stays in review, and its merge waits for the new generation.
+func mythicalRebuilding(item db.MythicalItem) bool {
+	switch item.State {
+	case "integrating", "verifying", "proposing", "waiting":
+		return mythicalChecksOf(item).Rebase != nil && item.PRNumber.Valid && item.PRState == "open"
+	}
+	return false
 }
 
 // mythicalCompletion is how a landed item's issue hears of it: the merge
@@ -3779,6 +4039,9 @@ type mythicalReview struct {
 	// (reviewBody), or that it will not: a person's body stands, or the body
 	// could not be written.
 	Posted bool `json:"posted,omitempty"`
+	// Lane is the review's own lane workspace: a rebase's checks never run
+	// there (integrate).
+	Lane string `json:"lane,omitempty"`
 }
 
 func mythicalChecksOf(item db.MythicalItem) mythicalChecks {
