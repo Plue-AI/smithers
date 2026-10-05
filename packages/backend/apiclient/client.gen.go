@@ -1646,6 +1646,17 @@ type PostAPITodosNMergeBody struct {
 	ReviewedHeadSHA string `json:"reviewed_head_sha"`
 }
 
+// PostAPITodosNAnswerBody is generated from docs/api/openapi.yaml.
+type PostAPITodosNAnswerBody struct {
+	Wait   string `json:"wait"`
+	Answer string `json:"answer"`
+}
+
+// PostAPITodosNAnswerResponse is generated from docs/api/openapi.yaml.
+type PostAPITodosNAnswerResponse struct {
+	State string `json:"state"`
+}
+
 // GetAPIUserGithubAppInstallationsResponse is generated from docs/api/openapi.yaml.
 type GetAPIUserGithubAppInstallationsResponse struct {
 	InstallURL string                                              `json:"install_url"`
@@ -4860,6 +4871,13 @@ func (c *Client) GetAPITodosN(ctx context.Context, n int64) (TodoCard, error) {
 // PostAPITodosNMerge calls POST /api/todos/{n}/merge.
 func (c *Client) PostAPITodosNMerge(ctx context.Context, n int64, idempotencyKey string, body PostAPITodosNMergeBody) error {
 	return c.withHeader("Idempotency-Key", idempotencyKey).do(ctx, "POST", "/api/todos/"+url.PathEscape(strconv.FormatInt(n, 10))+"/merge", nil, body, nil)
+}
+
+// PostAPITodosNAnswer calls POST /api/todos/{n}/answer.
+func (c *Client) PostAPITodosNAnswer(ctx context.Context, n int64, body PostAPITodosNAnswerBody) (PostAPITodosNAnswerResponse, error) {
+	var out PostAPITodosNAnswerResponse
+	err := c.do(ctx, "POST", "/api/todos/"+url.PathEscape(strconv.FormatInt(n, 10))+"/answer", nil, body, &out)
+	return out, err
 }
 
 // DeleteAPIUserConnectionsID calls DELETE /api/user/connections/{id}.

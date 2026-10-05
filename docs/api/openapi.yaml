@@ -19179,6 +19179,65 @@ paths:
           description: A MergeReady row refuses (stale_head carries GitHub's current head), GitHub's facts are not fresh, the Idempotency-Key was used for a different request, or the same request's approval was refused or expired (its retained refusal); no merge sent
         '503':
           description: Install repository unavailable
+  /api/todos/{n}/answer:
+    post:
+      x-composition: install
+      summary: Answer the coding agent's open question; the first answer settles it and resumes the run
+      operationId: post_api_todos_n_answer
+      tags:
+        - Todos
+      security:
+        - sessionCookie: []
+      parameters:
+        - name: n
+          in: path
+          required: true
+          schema: {type: integer, minimum: 1}
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [wait, answer]
+              properties:
+                wait:
+                  description: The open question's id, as the TODO card's waits list it.
+                  type: string
+                  minLength: 1
+                  maxLength: 128
+                answer: {type: string, minLength: 1, maxLength: 131072}
+      responses:
+        '202':
+          description: The answer settled the question and its signal to the parked run is admitted, or the same person's same answer was sent again
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [state]
+                properties:
+                  state: {type: string, enum: [accepted]}
+        '400':
+          description: Invalid TODO number, question or answer
+        '403':
+          description: Install owner session required
+        '404':
+          description: TODO or question not found
+        '409':
+          description: Someone already answered (answered_by names them), the agent no longer asks the question, or the TODO is settled
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [code, class, message]
+                properties:
+                  code: {type: string}
+                  class: {type: string}
+                  message: {type: string}
+                  answered_by: {type: string}
+        '503':
+          description: Install repository or run signalling unavailable
   /api/user/connections/{id}:
     delete:
       summary: DELETE /api/user/connections/{id}

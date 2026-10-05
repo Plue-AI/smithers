@@ -18,6 +18,7 @@ type TodoRouteService interface {
 	Todo(context.Context, int64, int64) (map[string]any, error)
 	Todos(context.Context, int64) ([]map[string]any, error)
 	MergeTodo(context.Context, int64, int64, int64, services.MythicalMergeInput) (services.MythicalItemView, error)
+	AnswerTodo(context.Context, int64, int64, int64, services.TodoAnswerInput) error
 }
 
 // TodoHandler resolves the install's persisted GitHub repository, never a
@@ -34,6 +35,13 @@ func todoRouteError(w http.ResponseWriter, err error) {
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(stale.Status)
 		_ = json.NewEncoder(w).Encode(stale)
+		return
+	}
+	var answered *services.TodoAnsweredError
+	if errors.As(err, &answered) {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusConflict)
+		_ = json.NewEncoder(w).Encode(answered)
 		return
 	}
 	var typed *services.TodoControlError
@@ -137,6 +145,36 @@ func (h *TodoHandler) List(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 	w.Header().Set("Cache-Control", "no-store")
 	_ = json.NewEncoder(w).Encode(views)
+}
+
+// Answer settles one open question of TODO n with the person's answer and
+// resumes the run that asked. 202 records the first answer, or answers the
+// same person's same answer again; a question someone else already
+// answered is 409 {answered_by}.
+func (h *TodoHandler) Answer(w http.ResponseWriter, r *http.Request) {
+	repo, user, ok := h.authorize(w, r)
+	if !ok {
+		return
+	}
+	n, err := strconv.ParseInt(chi.URLParam(r, "n"), 10, 64)
+	if err != nil || n <= 0 {
+		todoRouteError(w, &services.TodoControlError{Status: 400, Code: "invalid_todo", Class: "user", Message: "Invalid TODO number"})
+		return
+	}
+	var input services.TodoAnswerInput
+	decoder := json.NewDecoder(http.MaxBytesReader(w, r.Body, 256<<10))
+	decoder.DisallowUnknownFields()
+	if err := decodeSingleJSONDocument(decoder, &input); err != nil {
+		todoRouteError(w, &services.TodoControlError{Status: 400, Code: "invalid_answer", Class: "user", Message: "An answer and its question are required"})
+		return
+	}
+	if err := h.Service.AnswerTodo(r.Context(), repo, user, n, input); err != nil {
+		todoRouteError(w, err)
+		return
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusAccepted)
+	_ = json.NewEncoder(w).Encode(map[string]string{"state": "accepted"})
 }
 
 // Merge resolves the repository number through the same persisted install

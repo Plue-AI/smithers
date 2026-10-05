@@ -1,6 +1,7 @@
 package services
 
 import (
+	"encoding/json"
 	"sort"
 	"time"
 
@@ -16,6 +17,12 @@ type TodoWait struct {
 	Since      time.Time  `json:"since"`
 	AnsweredBy string     `json:"answered_by,omitempty"`
 	SettledAt  *time.Time `json:"settled_at,omitempty"`
+	// Answer and By are the settling answer and its person, as a TodoCard
+	// actor. A settled question without them was withdrawn by its run.
+	Answer string          `json:"answer,omitempty"`
+	By     json.RawMessage `json:"by,omitempty"`
+	// Signal is where an answer goes: the parked run's wait point.
+	Signal *TodoWaitSignal `json:"signal,omitempty"`
 }
 
 // todoState is the single product-state projection of the stored engine facts.

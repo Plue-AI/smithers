@@ -5065,6 +5065,24 @@ export interface PostApiTodosNMergeInput {
 export const postApiTodosNMerge = (transport: Transport, input: PostApiTodosNMergeInput): Promise<void> =>
   transport.request("POST", `/api/todos/${segment(input.path.n)}/merge`, input.body, { headers: { "Idempotency-Key": input.headers["Idempotency-Key"] } }).then(() => undefined)
 
+export type PostApiTodosNAnswerBody = {
+  wait: string
+  answer: string
+}
+
+export type PostApiTodosNAnswerResponse = {
+  state: "accepted"
+}
+
+export interface PostApiTodosNAnswerInput {
+  readonly path: { readonly n: number }
+  readonly body: PostApiTodosNAnswerBody
+}
+
+/** POST /api/todos/{n}/answer: Answer the coding agent's open question; the first answer settles it and resumes the run */
+export const postApiTodosNAnswer = (transport: Transport, input: PostApiTodosNAnswerInput): Promise<PostApiTodosNAnswerResponse> =>
+  transport.request("POST", `/api/todos/${segment(input.path.n)}/answer`, input.body) as Promise<PostApiTodosNAnswerResponse>
+
 export interface DeleteApiUserConnectionsIdInput {
   readonly path: { readonly id: string }
 }

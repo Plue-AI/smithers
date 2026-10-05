@@ -195,6 +195,25 @@ type Run struct {
 	// empty unless the run failed with a registered error.
 	FailureFault string `json:"failureFault,omitempty"`
 	FailureTag   string `json:"failureTag,omitempty"`
+	// PendingWaits are the open human waits anywhere in the run's tree,
+	// nearest execution first; absent when nobody owes the run an answer.
+	PendingWaits []PendingWait `json:"pendingWaits,omitempty"`
+}
+
+// PendingWait is one open human wait as the control run summary reports it
+// (control/src/ControlSchema.ts PendingWait). RunID is the execution parked
+// on it; Name is the wait point a signal of that name completes; Request is
+// what the wait declared, for a HumanTask {task, name, kind, prompt, attempt,
+// maxAttempts}.
+type PendingWait struct {
+	RunID     string          `json:"runId"`
+	FlowID    string          `json:"flowId,omitempty"`
+	Reason    string          `json:"reason"`
+	Token     string          `json:"token"`
+	Name      string          `json:"name,omitempty"`
+	Attempt   float64         `json:"attempt,omitempty"`
+	Request   json.RawMessage `json:"request,omitempty"`
+	CreatedAt float64         `json:"createdAt"`
 }
 
 type Observation struct {

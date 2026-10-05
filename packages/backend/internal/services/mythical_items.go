@@ -497,6 +497,8 @@ func (s *MythicalService) ProjectFlowRuntime(ctx context.Context, update flowdis
 			} else if !mythicalProjectRun(&next, item, projection, update, runID, pinned) {
 				return nil
 			}
+			// Only the attempt's bound run opens or withdraws its questions.
+			mythicalProjectWaits(&next, projection, update, runID, s.now().UTC())
 			next = retainTodoAttemptEvidence(next)
 			if next.RequestRunID == item.RequestRunID && next.VibeRunID == item.VibeRunID && next.VerifyRunID == item.VerifyRunID &&
 				next.RequestOutcome == item.RequestOutcome && next.VibeOutcome == item.VibeOutcome && next.VerifyOutcome == item.VerifyOutcome &&

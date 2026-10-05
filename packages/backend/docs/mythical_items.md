@@ -81,6 +81,26 @@ There is no local credential or confirmation substitute. Future activation
 requires the served install router, catalog dispatcher and pinned guest-host
 checks; these direct-handler refusal tests are supplemental evidence only.
 
+## Questions and answers
+
+A TODO's bound run asks a person through a HumanTask `ask` (for example
+planning's `coding-clarification`). The control run summary reports the park in
+`pendingWaits`; `ProjectFlowRuntime` opens one `question` wait per park in the
+item's `checks.waits`, keyed by the parked execution and its durable token, and
+the TODO shows Needs you. A question the run stops reporting, and every question
+of a run that ended, is withdrawn unanswered. An in-run approval of the agent's
+own `ask` has no wait point to signal and is not projected.
+
+`POST /api/todos/{n}/answer` with `{wait, answer}` settles the question. Under
+the stack row lock the first answer wins: it records the person, the answer and
+a `todo.answered` fact, and admits `flowdispatch.SignalInTx` naming the wait
+point with the answer as its payload, all in one transaction. The dispatcher
+delivers it to the same run, which continues on the same working copy. The
+same person's same answer again answers `202`; any other answer to a settled
+question is `409` with `answered_by`. A steer never settles a question. The card
+lists an open question with its `todo.answer` action and the latest answer as
+`first_answer`.
+
 ## Pull requests
 
 An install publishes a TODO's verified candidate through its own GitHub App.

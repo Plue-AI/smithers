@@ -86,7 +86,13 @@ func (s *MythicalService) todoCard(ctx context.Context, item db.MythicalItem, it
 	}
 	waits := []map[string]any{}
 	for _, wait := range todoOpenWaits(item) {
-		waits = append(waits, map[string]any{"id": wait.ID, "kind": wait.Kind, "prompt": wait.Prompt, "since": wait.Since, "actions": []any{}})
+		actions := []any{}
+		if wait.Kind == "question" && wait.Signal != nil {
+			// The seeded card's Answer: one text field, sent as todo.answer.
+			actions = append(actions, map[string]any{"tag": "todo.answer", "label": "Answer",
+				"input": []any{map[string]any{"name": "answer", "label": "Answer", "kind": "text", "required": true}}})
+		}
+		waits = append(waits, map[string]any{"id": wait.ID, "kind": wait.Kind, "prompt": wait.Prompt, "since": wait.Since, "actions": actions})
 	}
 	// There is no branch or machine before admission. Never invent an ID or
 	// machine state for a queued item; TodoCard permits that absence.
@@ -94,6 +100,9 @@ func (s *MythicalService) todoCard(ctx context.Context, item db.MythicalItem, it
 		"owner":            map[string]any{"login": owner.Username, "name": owner.DisplayName, "avatar_url": todoAvatar(owner)},
 		"prompt_revisions": revisions, "steps": todoSteps(item), "waits": waits, "steers": []any{}, "evidence": []any{},
 		"present": []any{}}
+	if answer := todoFirstAnswer(item); answer != nil {
+		card["first_answer"] = answer
+	}
 	if card["merge"], err = s.todoMerge(ctx, item); err != nil {
 		return nil, err
 	}
