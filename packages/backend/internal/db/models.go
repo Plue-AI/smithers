@@ -1485,14 +1485,6 @@ type MythicalChange struct {
 }
 
 type MythicalItem struct {
-	Number            pgtype.Int8        `json:"number"`
-	Title             pgtype.Text        `json:"title"`
-	StackPosition     pgtype.Int8        `json:"stack_position"`
-	PausedAt          pgtype.Timestamptz `json:"paused_at"`
-	CreatedBy         pgtype.Int8        `json:"created_by"`
-	OwnerID           pgtype.Int8        `json:"owner_id"`
-	FlowDigest        pgtype.Text        `json:"flow_digest"`
-	Revisions         json.RawMessage    `json:"revisions"`
 	ID                pgtype.UUID        `json:"id"`
 	RepositoryID      int64              `json:"repository_id"`
 	IssueNumber       pgtype.Int8        `json:"issue_number"`
@@ -1535,6 +1527,14 @@ type MythicalItem struct {
 	UpdatedAt         pgtype.Timestamptz `json:"updated_at"`
 	LaneStartedAt     pgtype.Timestamptz `json:"lane_started_at"`
 	Outsider          bool               `json:"outsider"`
+	Number            pgtype.Int8        `json:"number"`
+	Title             pgtype.Text        `json:"title"`
+	StackPosition     pgtype.Int8        `json:"stack_position"`
+	PausedAt          pgtype.Timestamptz `json:"paused_at"`
+	CreatedBy         pgtype.Int8        `json:"created_by"`
+	OwnerID           pgtype.Int8        `json:"owner_id"`
+	FlowDigest        pgtype.Text        `json:"flow_digest"`
+	Revisions         json.RawMessage    `json:"revisions"`
 }
 
 type MythicalLane struct {

@@ -11,6 +11,10 @@
     "inputs": [
       {
         "kind": "file",
+        "path": "scripts/check-sqlc-drift.sh"
+      },
+      {
+        "kind": "file",
         "path": "scripts/check-go-boundaries.py"
       },
       {

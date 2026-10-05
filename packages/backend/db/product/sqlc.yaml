@@ -114,6 +114,10 @@ sql:
             go_type:
               import: "encoding/json"
               type: "RawMessage"
+          - column: "mythical_items.revisions"
+            go_type:
+              import: "encoding/json"
+              type: "RawMessage"
           - column: "mythical_items.pending_op"
             go_type:
               import: "encoding/json"
