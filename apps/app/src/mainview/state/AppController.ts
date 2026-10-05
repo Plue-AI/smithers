@@ -104,7 +104,7 @@ import type { EgressSeam } from "./seams/EgressSeam"
 import { createEgressSeam } from "./seams/EgressSeam"
 import type { EnvironmentSeam } from "./seams/EnvironmentSeam"
 import { createEnvironmentSeam } from "./seams/EnvironmentSeam"
-import type { FilesSeam } from "./seams/FilesSeam"
+import type { BranchFileOptions, FilesSeam } from "./seams/FilesSeam"
 import { createFilesSeam, resolveFileTarget } from "./seams/FilesSeam"
 import type { GitHubSeam } from "./seams/GitHubSeam"
 import { createGitHubSeam } from "./seams/GitHubSeam"
@@ -515,6 +515,7 @@ export interface AppController extends IssueFlowsController {
   /** A branch's commits and one commit (seams/CommitsSeam.ts). */
   readonly listCommits: CommitsSeam["listCommits"]
   readonly readCommit: CommitsSeam["readCommit"]
+  readonly branchFiles: FilesSeam["branchFiles"]
   readonly listFiles: FilesSeam["listFiles"]
   readonly openDiffFile: ReturnType<typeof createDiffFilesSeam>["openDiffFile"]
   readonly readFile: FilesSeam["readFile"]
@@ -603,6 +604,8 @@ export interface AppController extends IssueFlowsController {
  * bind honest doubles instead of a network; production uses same-origin fetch.
  */
 export interface AppServices {
+  /** Host-owned branch authority and provider receipts; absent keeps S2 files dark. */
+  readonly branchOptions?: BranchFileOptions
   /** The page's `/api/live` channel; production supplies the tab's one channel, and a controller without it subscribes to no topic. */
   readonly live?: LiveTopics
   readonly installTopic?: InstallTopic
@@ -912,7 +915,7 @@ export const createAppController = (
   const bookmarksSeam = actors.pair(seamCtx, (context) => createBookmarksSeam(context))
   const commitsSeam = actors.pair(seamCtx, (context) => createCommitsSeam(context))
   const diffFilesSeam = actors.pair(seamCtx, createDiffFilesSeam)
-  const filesSeam = actors.pair(seamCtx, (context) => createFilesSeam(context))
+  const filesSeam = actors.pair(seamCtx, (context) => createFilesSeam(context, services.branchOptions))
   const repoTreeSeam = actors.pair(seamCtx, (context) => createRepoTreeSeam(context))
 
   const gitHubSeam = actors.pair(seamCtx, (context) => createGitHubSeam(context, {
@@ -1776,6 +1779,7 @@ export const createAppController = (
     listBookmarks: bookmarksSeam.listBookmarks,
     listCommits: commitsSeam.listCommits,
     readCommit: commitsSeam.readCommit,
+    branchFiles: filesSeam.branchFiles,
     listFiles: filesSeam.listFiles,
     ...diffFilesSeam,
     readFile: filesSeam.readFile,
