@@ -1154,6 +1154,11 @@ func (s *MythicalService) advanceItems(ctx context.Context, r *mythicalRun) {
 				continue
 			}
 		}
+		if item.PausedAt.Valid && item.State != "proposed" {
+			// A paused TODO takes no step until Resume (stopTodo); one in
+			// review still follows its pull request (advance).
+			continue
+		}
 		if item.NextAttemptAt.Valid && item.NextAttemptAt.Time.After(step.now) {
 			r.dueAt(item.NextAttemptAt.Time)
 			continue
@@ -1486,7 +1491,9 @@ func (st *mythicalItemStep) advance(ctx context.Context, item db.MythicalItem) (
 			// and nothing gates on what GitHub did not say.
 			return next, false, nil
 		}
-		if err != nil || next == nil || next.State != "proposed" {
+		if err != nil || next == nil || next.State != "proposed" || next.PausedAt.Valid {
+			// A paused TODO's pull request is followed (a merge on GitHub
+			// settles it) but not reviewed or merged until Resume.
 			return next, false, err
 		}
 		return st.gate(ctx, *next)
@@ -3945,6 +3952,10 @@ type mythicalChecks struct {
 	AttemptBase int32 `json:"attemptBase,omitempty"`
 	// Dropped is the person's Drop (dropTodo): its key, who and when.
 	Dropped *todoDrop `json:"dropped,omitempty"`
+	// Stops and Resumes are the people's Stop and Resume presses (stopTodo,
+	// resumeTodo), in order.
+	Stops   []todoPress `json:"stops,omitempty"`
+	Resumes []todoPress `json:"resumes,omitempty"`
 	// TodoEvent is the GitHub event id of the last maintainer application
 	// of todo the stack acted on.
 	TodoEvent int64 `json:"todoEvent,omitempty"`
