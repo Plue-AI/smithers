@@ -51,6 +51,7 @@ delegated credentials land.
 | `merge` | Maintainer | `POST /api/todos/{n}/merge` |
 | `members.list` | Member | `GET /api/members` |
 | `members.write` | Maintainer | `POST /api/members`, `PATCH`, `DELETE /api/members/{login}` |
+| `external.read` | Owner | `GET /api/external/sessions`, live topic `external:<agent>:<session>` |
 | `secrets.write` (person-only) | Maintainer | `POST /api/repos/{o}/{r}/secrets`, `PATCH`, `DELETE /api/repos/{o}/{r}/secrets/{name}` |
 
 A person-only command checks the role first, then the credential, and it

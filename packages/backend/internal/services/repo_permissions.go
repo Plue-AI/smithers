@@ -330,6 +330,10 @@ var installCommands = map[string]installCommand{
 	"branch.fork":   {role: InstallMember},
 	"members.list":  {role: InstallMember},
 	"members.write": {role: InstallMaintainer},
+	// external.read is GET /api/external/sessions and the external:<agent>:<session>
+	// live topic: the Codex and Claude Code sessions of the account the
+	// install runs as, which are its owner's alone (mvp.md M-38).
+	"external.read": {role: InstallOwner},
 	// secrets.write is POST /secrets and PATCH and DELETE /secrets/{name}
 	// on a repository: add, replace and delete (§5.2 "Members, roles,
 	// secrets write"). Secret values never pass through an agent.

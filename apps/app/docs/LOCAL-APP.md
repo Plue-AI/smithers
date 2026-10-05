@@ -191,11 +191,18 @@ close reason reaches the card verbatim. A cloud repository without a running
 workspace is told which act opens or resumes one; a file no relayed language
 handles is told the DTO's `lsp.languages`.
 
-## Codex sessions (M-38)
+## Codex and Claude Code sessions (M-38)
 
-`/?codex=<session id or prefix>` shows a Codex session run on this machine after the conversation, read-only: the owner's prompts, "Codex for <owner>" answers, one act line per run of commands (it opens to each command and its output), and a diff card per edited file. The local host serves it at `GET /api/external/codex?session=<id>&since=<next>` behind the local session capability. It reads `rollout-*.jsonl` under `$CODEX_HOME/sessions`, `~/.codex/sessions` and every `~/.smithers/accounts/codex*/sessions`, decodes it with `@smthrs/harness/ExternalTranscript`, and tails it, so the app's five-second poll gets only what Codex appended. An unknown id, an ambiguous prefix, an unsupported Codex release or a malformed line shows as one failed line in the conversation. Nothing imported offers an act.
+`/?codex=<session id or prefix>` or `/?claude=<session id or prefix>` shows a Codex or Claude Code session run on the host's machine after the conversation, read-only: the owner's prompts, "Codex for <owner>" or "Claude Code for <owner>" answers, one act line per run of commands (it opens to each command and its output), and a diff card per edited file. A Claude Code tool call shows once its result arrives; a subagent's sidechain stays out. Nothing imported offers an act.
 
-To look at one locally: `SMITHERS_LOCAL_PORT=47313 SMITHERS_CHAT_STUB=1 bun e2e/playwright/webserver.ts`, then open `http://127.0.0.1:47313/?codex=<id>`.
+Every host serves the same raw contract, `GET /api/external/sessions?agent=codex|claude-code&session=<id>&offset=<n>`, answering `{ agent, session_id, owner, offset, next, text, eof }`: the session file's complete JSONL lines from byte `offset`, at most 4 MiB of them (one longer line alone, up to 64 MiB). The browser keeps the decoder state per session, decodes each chunk with `@smthrs/harness/ExternalTranscript` (`decodeCodex`, `decodeClaude`), asks again from `next` until `eof`, and clips long command output and diffs for display. A host only finds the file, by id or unique prefix, never by path: Codex `rollout-*.jsonl` under a `sessions` directory, Claude Code `<session>.jsonl` in a project directory under `projects`. An ambiguous prefix is refused.
+
+- On an install, the Go backend (`packages/backend/internal/externalsessions`) serves the install owner's browser session only, from the account the backend runs as: `$CODEX_HOME`, `~/.codex` and every `~/.smithers/accounts/codex*`; `$CLAUDE_CONFIG_DIR`, `~/.claude` and every `~/.smithers/accounts/claude*`. The newest copy of a session wins, and no link under those directories is followed. The owner is the person the read names. The live topic `external:<agent>:<session>` carries the file's size, checked every second, so the conversation reads appended lines at once; the five-second poll runs only while that topic serves nothing.
+- The local preview (`src/bun/ExternalSessions.ts`, the T1 test host) serves only in local mode, on loopback, behind the local session capability, from the OS user's own `$CODEX_HOME` (else `~/.codex`) or `$CLAUDE_CONFIG_DIR` (else `~/.claude`), refusing a link in any path component; the OS user is the owner. It has no live channel, so the conversation polls every five seconds.
+
+An unknown id, an ambiguous prefix, a read missing its metadata, an unsupported release or a malformed line shows as one failed line in the conversation, keeping what decoded before it.
+
+To look at one locally: `SMITHERS_LOCAL_PORT=47313 SMITHERS_CHAT_STUB=1 bun e2e/playwright/webserver.ts`, then open `http://127.0.0.1:47313/?codex=<id>` or `?claude=<id>`.
 
 ## Model-authored cards
 

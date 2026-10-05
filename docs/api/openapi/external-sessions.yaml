@@ -1,0 +1,112 @@
+paths:
+  /api/external/sessions:
+    get:
+      x-composition: install
+      summary: Read the owner's Codex or Claude Code session as raw JSONL
+      description: >-
+        A session the agent ran on the install's machine, found by id or
+        unique prefix under the agent's own session directories of the
+        account the install runs as (mvp.md M-38): for Codex, CODEX_HOME,
+        ~/.codex and each ~/.smithers/accounts/codex*; for Claude Code,
+        CLAUDE_CONFIG_DIR, ~/.claude and each ~/.smithers/accounts/claude*.
+        A session copied into several homes reads the copy written last.
+        The answer is the file's complete lines from offset, at most 4 MiB
+        of them (one longer line alone, up to 64 MiB); the app decodes them
+        with @smthrs/harness/ExternalTranscript and asks again from next
+        until eof. The live topic external:<agent>:<session> carries the
+        file's size, so the app reads appended lines at once. Only the
+        install owner's browser session reads it; the owner is the person
+        the answer names.
+      operationId: get_api_external_sessions
+      tags:
+        - External Sessions
+      security:
+        - sessionCookie: []
+      parameters:
+        - name: agent
+          in: query
+          required: true
+          schema: {type: string, enum: [codex, claude-code]}
+        - name: session
+          in: query
+          required: true
+          description: A session id or a prefix of at least four characters
+          schema: {type: string, pattern: '^[0-9a-f-]{4,36}$'}
+        - name: offset
+          in: query
+          required: false
+          description: The next of the previous read; 0 reads from the start
+          schema: {type: integer, minimum: 0}
+      responses:
+        '200':
+          description: Complete lines of the session from offset
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ExternalSessionRead'
+        '400':
+          description: An unknown agent, a malformed session id or offset
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AccessError'
+        '401':
+          description: Not signed in
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AccessError'
+        '403':
+          description: Not the install owner, or not a person's browser session
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AccessError'
+        '404':
+          description: No session of that agent matches on this machine
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AccessError'
+        '409':
+          description: The prefix matches several sessions, or the file is shorter than offset
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AccessError'
+        '422':
+          description: A line longer than 64 MiB
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AccessError'
+        '503':
+          description: Agent sessions are unavailable
+components:
+  schemas:
+    ExternalSessionRead:
+      type: object
+      required: [agent, session_id, owner, offset, next, text, eof]
+      properties:
+        agent: {type: string, enum: [codex, claude-code]}
+        session_id:
+          description: The full id of the session the prefix found
+          type: string
+        owner:
+          description: The install owner, whose session it is
+          type: object
+          required: [login, name]
+          properties:
+            login: {type: string}
+            name: {type: string}
+        offset: {type: integer, minimum: 0}
+        next:
+          description: The byte offset after text; the next read's offset
+          type: integer
+          minimum: 0
+        text:
+          description: Complete JSONL lines, each ending in a newline; empty when none is complete yet
+          type: string
+        eof:
+          description: The read reached the end of the file; a line the agent is still writing waits for its newline
+          type: boolean

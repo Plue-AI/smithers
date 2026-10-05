@@ -68,6 +68,9 @@ type routerExtras struct {
 	GitHubSync routes.GitHubSyncRouteService
 	// Live is the install's live channel (GET /api/live); nil serves none.
 	Live *routes.LiveHandler
+	// ExternalSessions serves the owner's Codex and Claude Code sessions
+	// (GET /api/external/sessions); nil serves none.
+	ExternalSessions *routes.ExternalSessionsHandler
 }
 
 func buildRouter(
@@ -940,6 +943,10 @@ func buildRouter(
 		}
 		if config.IsSingleOwner(cfg.Auth) {
 			mountFlowReads(r, &routes.FlowsHandler{Queries: queries})
+		}
+		// Outside the member table: the install owner's sessions are the owner's alone.
+		if config.IsSingleOwner(cfg.Auth) && extras.ExternalSessions != nil {
+			r.Get("/external/sessions", extras.ExternalSessions.Read)
 		}
 		// Unmounted until T-ACC-03 supplies the qualified owner-person authorizer.
 		if extras.InstallScorecard.Available() {

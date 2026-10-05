@@ -41,7 +41,8 @@ export default defineConfig({
       SMITHERS_VIEW_STORIES: process.env.SMITHERS_VIEW_STORIES ?? "0",
       SMITHERS_LOCAL_PORT: String(PORT),
       SMITHERS_CHAT_STUB: CHAT_STUB,
-      SMITHERS_E2E_CODEX_HOME: resolve(__dirname, "e2e/fixtures/codex-home")
+      SMITHERS_E2E_CODEX_HOME: resolve(__dirname, "e2e/fixtures/codex-home"),
+      SMITHERS_E2E_CLAUDE_HOME: resolve(__dirname, "e2e/fixtures/claude-home")
     }
   }
 })

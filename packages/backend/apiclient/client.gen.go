@@ -1159,6 +1159,23 @@ type TODOBranchDiffModelHunksItemLinesItem struct {
 	Text string `json:"text"`
 }
 
+// ExternalSessionRead is generated from docs/api/openapi.yaml.
+type ExternalSessionRead struct {
+	Agent     string                   `json:"agent"`
+	SessionID string                   `json:"session_id"`
+	Owner     ExternalSessionReadOwner `json:"owner"`
+	Offset    int64                    `json:"offset"`
+	Next      int64                    `json:"next"`
+	Text      string                   `json:"text"`
+	Eof       bool                     `json:"eof"`
+}
+
+// ExternalSessionReadOwner is generated from docs/api/openapi.yaml.
+type ExternalSessionReadOwner struct {
+	Login string `json:"login"`
+	Name  string `json:"name"`
+}
+
 // FlowCard is generated from docs/api/openapi.yaml.
 type FlowCard struct {
 	Name     string                 `json:"name"`
@@ -1565,6 +1582,13 @@ type PostAPIBillingCheckoutBody struct {
 type PostAPIBranchesBody struct {
 	From string  `json:"from"`
 	Name *string `json:"name,omitempty"`
+}
+
+// GetAPIExternalSessionsParams is the query of GET /api/external/sessions.
+type GetAPIExternalSessionsParams struct {
+	Agent   string
+	Session string
+	Offset  *int64
 }
 
 // GetAPIGithubSyncResponse is generated from docs/api/openapi.yaml.
@@ -2506,6 +2530,19 @@ func (c *Client) HeadAPIBuildCacheHealthz(ctx context.Context) error {
 func (c *Client) PostAPICommandsSelect(ctx context.Context, body any) (AnyJSON, error) {
 	var out AnyJSON
 	err := c.do(ctx, "POST", "/api/commands/select", nil, body, &out)
+	return out, err
+}
+
+// GetAPIExternalSessions calls GET /api/external/sessions.
+func (c *Client) GetAPIExternalSessions(ctx context.Context, params GetAPIExternalSessionsParams) (ExternalSessionRead, error) {
+	query := url.Values{}
+	query.Set("agent", params.Agent)
+	query.Set("session", params.Session)
+	if params.Offset != nil {
+		query.Set("offset", strconv.FormatInt(*params.Offset, 10))
+	}
+	var out ExternalSessionRead
+	err := c.do(ctx, "GET", "/api/external/sessions", query, nil, &out)
 	return out, err
 }
 

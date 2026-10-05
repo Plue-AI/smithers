@@ -9,7 +9,9 @@ paths:
       description: >-
         WebSocket upgrade with subprotocol smithers.live.v1 (spec §7.1). A
         member's browser session from the install's own origin subscribes to
-        shared topics (home, todo:<n>, flows) with text
+        shared topics (home, todo:<n>, flows; the install owner also
+        external:<agent>:<session>, the size of a Codex or Claude Code
+        session file) with text
         frames {"t":"sub","id","topic"} and {"t":"unsub","id"}; each topic
         answers {"t":"snap","id","cursor","data"} whenever its committed
         facts change, every subscriber at the same cursor with the same

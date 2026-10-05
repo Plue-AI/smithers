@@ -144,10 +144,11 @@ func hostStatusProductionRouter(cfg *config.Config, queries *db.Queries, host *s
 			UserRefs: &routes.UserRefHandler{}, AdminSystemStatus: &routes.AdminSystemStatusHandler{}, AdminSystemHealth: &routes.AdminSystemHealthHandler{}, AdminGrant: &routes.AdminGrantHandler{},
 			AdminAnalytics: &routes.AdminAnalyticsHandler{}, AdminAgentSessions: &routes.AdminAgentSessionHandler{},
 			AdminWorkspaces: &routes.AdminWorkspaceHandler{}, AdminTokens: &routes.AdminTokenHandler{}, ModelProxy: http.NotFoundHandler(),
-			EgressPolicy:   &routes.RepositoryEgressPolicyHandler{},
-			GitHubAppSetup: &routes.GitHubAppSetupHandler{Owners: queries, Setup: &services.InstallSetupService{Capacity: host}},
-			Members:        &routes.MembersHandler{},
-			Live:           &routes.LiveHandler{},
+			EgressPolicy:     &routes.RepositoryEgressPolicyHandler{},
+			GitHubAppSetup:   &routes.GitHubAppSetupHandler{Owners: queries, Setup: &services.InstallSetupService{Capacity: host}},
+			Members:          &routes.MembersHandler{},
+			Live:             &routes.LiveHandler{},
+			ExternalSessions: &routes.ExternalSessionsHandler{},
 		},
 	)
 	// The routes run() mounts beside buildRouter.

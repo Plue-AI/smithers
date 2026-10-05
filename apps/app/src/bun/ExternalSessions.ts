@@ -1,24 +1,40 @@
 /*
- * Codex sessions on this machine, read for the conversation (mvp.md M-38).
- * A session is found by id or unique prefix under the running user’s Codex home, decoded
- * with @smthrs/harness/ExternalTranscript, and tailed: each read decodes only
- * the bytes appended since the last one. Command output and diffs are
- * clipped here, so a poll never ships a whole log.
- * If CODEX_HOME or ~/.codex is a symlink, the local preview shows no sessions: it reads only real directories.
+ * The local preview's Codex and Claude Code sessions, served as raw JSONL for
+ * the conversation (mvp.md M-38): this host's side of GET
+ * /api/external/sessions, the contract packages/backend/internal/externalsessions
+ * serves on an install. A session is found by id or unique prefix under the
+ * running user's own agent home only (CODEX_HOME else ~/.codex, CLAUDE_CONFIG_DIR
+ * else ~/.claude), never by path; other seats' homes stay private, and a link in
+ * any component of a path is refused, so a linked home shows no sessions. A read
+ * answers the file's complete lines from a byte offset. The app decodes them,
+ * so nothing here parses a record. Every failed check answers no-session.
  */
 import { constants } from "node:fs"
-import { open, readdir, lstat, realpath } from "node:fs/promises"
+import { lstat, open, readdir, realpath } from "node:fs/promises"
 import { homedir } from "node:os"
-import { join, resolve, relative, sep } from "node:path"
-import { Result } from "effect"
-import { codexStart, decodeCodex, type CodexState, type Entry } from "@smthrs/harness/ExternalTranscript"
+import { join, relative, resolve, sep } from "node:path"
 
-/** Only the running user's configured home, or ~/.codex when unset. */
-export async function sessionRoots(home = homedir(), env: Readonly<Record<string, string | undefined>> = process.env): Promise<string[]> {
-  return [join(env.CODEX_HOME || join(home, ".codex"), "sessions")]
+export type ExternalAgent = "codex" | "claude-code"
+export const agentName = (agent: ExternalAgent): string => agent === "codex" ? "Codex" : "Claude Code"
+
+/** A session id or a prefix of at least four characters. */
+export const SESSION_ID = /^[0-9a-f-]{4,36}$/
+/** One read: whole lines up to 4 MiB. */
+export const CHUNK_LIMIT = 4 << 20
+/** The one line a read returns when that line alone is longer than a chunk. */
+export const LINE_LIMIT = 64 << 20
+
+/** Why a session was not found or read, with the status the host answers. */
+export interface Refusal { readonly status: number; readonly code: string; readonly message: string }
+const refusal = (status: number, code: string, message: string): { readonly refusal: Refusal } => ({ refusal: { status, code, message } })
+const unknown = (agent: ExternalAgent, prefix: string) => refusal(404, "source_not_found", `No ${agentName(agent)} session ${prefix} on this machine.`)
+
+/** The running user's own sessions directory for `agent`: its configured home, else the default one. */
+export async function sessionRoots(agent: ExternalAgent, home = homedir(), env: Readonly<Record<string, string | undefined>> = process.env): Promise<string[]> {
+  return agent === "codex" ? [join(env.CODEX_HOME || join(home, ".codex"), "sessions")] : [join(env.CLAUDE_CONFIG_DIR || join(home, ".claude"), "projects")]
 }
 
-/** Reject links in every component below the filesystem root. */
+/** `path`'s metadata, refusing a link in any of its components and a path outside `root`. */
 async function regularPath(path: string, root: string) {
   const absolute = resolve(path)
   let component: string = sep
@@ -26,152 +42,144 @@ async function regularPath(path: string, root: string) {
     component = join(component, name)
     if ((await lstat(component)).isSymbolicLink()) throw new Error("Symlink transcript path")
   }
-  const canonicalRoot = await realpath(root)
-  const canonical = await realpath(absolute)
-  const below = relative(canonicalRoot, canonical)
-  if (below === ".." || below.startsWith(`..${sep}`) || resolve(canonicalRoot, below) !== canonical) throw new Error("Outside transcript root")
+  const below = relative(await realpath(root), await realpath(absolute))
+  if (below === ".." || below.startsWith(`..${sep}`)) throw new Error("Outside transcript root")
   return lstat(absolute)
 }
 
-async function* rollouts(directory: string, root = directory): AsyncGenerator<string> {
+const ROLLOUT = /^rollout-\d{4}-\d{2}-\d{2}T\d{2}-\d{2}-\d{2}-([0-9a-f-]+)\.jsonl$/
+
+/** Codex keeps rollouts in dated directories at any depth; Claude Code keeps one file per session in each project's directory. */
+async function* sessionFiles(agent: ExternalAgent, directory: string, root: string, depth = 0): AsyncGenerator<{ readonly id: string; readonly path: string }> {
   try {
     if (!(await regularPath(directory, root)).isDirectory()) return
     for (const entry of await readdir(directory, { withFileTypes: true })) {
       const path = join(directory, entry.name)
       const info = await regularPath(path, root).catch(() => undefined)
-      if (info?.isDirectory()) yield* rollouts(path, root)
-      else if (info?.isFile() && entry.name.startsWith("rollout-") && entry.name.endsWith(".jsonl")) yield path
+      if (info?.isDirectory() && (agent === "codex" || depth === 0)) yield* sessionFiles(agent, path, root, depth + 1)
+      else if (info?.isFile()) {
+        const id = agent === "codex" ? ROLLOUT.exec(entry.name)?.[1] : depth === 1 && entry.name.endsWith(".jsonl") ? entry.name.slice(0, -".jsonl".length) : undefined
+        if (id !== undefined && SESSION_ID.test(id)) yield { id, path }
+      }
     }
   } catch { /* Missing or unsafe roots expose no sessions. */ }
 }
 
-export type Lookup = { readonly path: string } | { readonly error: "unknown" | "ambiguous"; readonly message: string }
+export type Found = { readonly id: string; readonly path: string; readonly root: string } | { readonly refusal: Refusal }
 
-/** The newest rollout whose session id starts with `id`; only regular files beneath the supplied root are eligible. */
-export async function findRollout(id: string, roots: readonly string[]): Promise<Lookup> {
-  const matches: Array<{ path: string; session: string; modified: number }> = []
-  for (const root of roots) for await (const path of rollouts(root)) {
-    const session = /rollout-\d{4}-\d{2}-\d{2}T\d{2}-\d{2}-\d{2}-(.+)\.jsonl$/.exec(path)?.[1]
-    if (session?.startsWith(id)) matches.push({ path, session, modified: (await lstat(path)).mtimeMs })
+/** The session whose id starts with `prefix`, the copy written last when there are several. */
+export async function findSession(agent: ExternalAgent, prefix: string, roots: readonly string[]): Promise<Found> {
+  if (!SESSION_ID.test(prefix)) return refusal(400, "invalid_request", `A ${agentName(agent)} session id or a prefix of at least four characters is required.`)
+  const matches: Array<{ id: string; path: string; root: string; modified: number }> = []
+  for (const root of roots) for await (const file of sessionFiles(agent, root, root)) {
+    if (file.id.startsWith(prefix)) matches.push({ ...file, root, modified: (await lstat(file.path)).mtimeMs })
   }
-  const sessions = [...new Set(matches.map(match => match.session))]
-  if (sessions.length === 0) return { error: "unknown", message: `No Codex session ${id} on this machine.` }
-  if (sessions.length > 1) return { error: "ambiguous", message: `${id} matches ${sessions.length} Codex sessions: ${sessions.join(", ")}.` }
-  return { path: matches.sort((left, right) => right.modified - left.modified)[0]!.path }
+  const ids = [...new Set(matches.map(match => match.id))].sort()
+  if (ids.length === 0) return unknown(agent, prefix)
+  if (ids.length > 1) return refusal(409, "ambiguous_session", `${prefix} matches ${ids.length} ${agentName(agent)} sessions: ${ids.join(", ")}.`)
+  const { modified: _, ...newest } = matches.reduce((best, each) => each.modified > best.modified ? each : best)
+  return newest
 }
 
-const OUTPUT_HEAD = 1_500
-const OUTPUT_TAIL = 2_500
-const DIFF_LIMIT = 24_000
+/** Complete lines from `offset`: `text` ends at a line boundary, `next` is the offset after it, `eof` says the read reached the file's end. */
+export interface Chunk { readonly offset: number; readonly next: number; readonly text: string; readonly eof: boolean }
 
-/** Long output keeps its start and its end; the middle says how many lines it left out. */
-export function clip(text: string, head = OUTPUT_HEAD, tail = OUTPUT_TAIL): string {
-  if (text.length <= head + tail) return text
-  const omitted = text.slice(head, text.length - tail).split("\n").length
-  return `${text.slice(0, head)}\n… ${omitted} lines omitted …\n${text.slice(text.length - tail)}`
+const NEWLINE = 0x0a
+
+/** A file's identity: the one found must be the one read. */
+export interface Identity { readonly dev: number; readonly ino: number }
+
+/**
+ * The file's complete lines from `offset`, at most CHUNK_LIMIT bytes of them; a longer first line alone, up to
+ * LINE_LIMIT. The file is opened without following a link and must be the one `root` holds at `path` now and, when
+ * `found` is given, the one found there.
+ */
+export async function readChunk(path: string, root: string, offset: number, found?: Identity): Promise<Chunk | { readonly refusal: Refusal }> {
+  const gone = refusal(404, "source_not_found", "The session file is gone.")
+  const file = await open(path, constants.O_RDONLY | constants.O_NOFOLLOW).catch(() => undefined)
+  if (file === undefined) return gone
+  try {
+    const opened = await file.stat()
+    const current = await regularPath(path, root).catch(() => undefined)
+    const same = (other: Identity | undefined) => other !== undefined && opened.dev === other.dev && opened.ino === other.ino
+    if (!opened.isFile() || !same(current) || (found !== undefined && !same(found))) return gone
+    const size = opened.size
+    if (offset > size) return refusal(409, "offset_out_of_range", `The session file is ${size} bytes, shorter than offset ${offset}: it was replaced.`)
+    const read = async (at: number, length: number): Promise<Uint8Array> => {
+      const bytes = new Uint8Array(length)
+      const { bytesRead } = await file.read(bytes, 0, length, at)
+      return bytes.subarray(0, bytesRead)
+    }
+    const decode = (bytes: Uint8Array) => new TextDecoder().decode(bytes)
+    const first = await read(offset, Math.min(CHUNK_LIMIT, size - offset))
+    const end = offset + first.length
+    const last = first.lastIndexOf(NEWLINE)
+    if (last >= 0) return { offset, next: offset + last + 1, text: decode(first.subarray(0, last + 1)), eof: end >= size }
+    // One line longer than a chunk: read on to its newline.
+    const parts = [first]
+    let length = first.length
+    for (let at = end; at < size && length < LINE_LIMIT;) {
+      const more = await read(at, Math.min(CHUNK_LIMIT, size - at, LINE_LIMIT - length))
+      if (more.length === 0) break
+      const newline = more.indexOf(NEWLINE)
+      if (newline >= 0) {
+        parts.push(more.subarray(0, newline + 1))
+        const next = offset + length + newline + 1
+        return { offset, next, text: decode(Buffer.concat(parts)), eof: next >= size }
+      }
+      parts.push(more)
+      length += more.length
+      at += more.length
+    }
+    if (offset + length >= size) return { offset, next: offset, text: "", eof: true }
+    return refusal(422, "line_too_long", `The line at byte ${offset} is longer than ${LINE_LIMIT >> 20} MiB.`)
+  } finally { await file.close() }
 }
 
-/** A diff past the limit ends at its last whole line before it. */
-const clipDiff = (diff: string): string => diff.length <= DIFF_LIMIT ? diff : diff.slice(0, diff.lastIndexOf("\n", DIFF_LIMIT) + 1)
-
-export const clipped = (entry: Entry): Entry => entry.part.type === "tool" ? { ...entry, part: { ...entry.part, output: clip(entry.part.output) } }
-  : entry.part.type === "edit" ? { ...entry, part: { ...entry.part, files: entry.part.files.map(file => ({ ...file, diff: clipDiff(file.diff) })) } }
-  : entry
-
-export interface SessionRead {
+export interface SessionRead extends Chunk {
+  readonly agent: ExternalAgent
   readonly session_id: string
-  readonly format_version: string
-  readonly cwd: string
-  readonly entries: ReadonlyArray<Entry>
-  /** The next `since`: entries with a lower `seq` were already sent. */
-  readonly next: number
-  readonly error?: { readonly code: string; readonly message: string }
 }
 
-interface Tail { lastRead: number; dev: number; ino: number; offset: number; state: CodexState; readonly decoder: TextDecoder; readonly entries: Entry[]; error?: SessionRead["error"] }
-
-/** Cache discovery per id; retain decoded tails only while actively read. */
+/**
+ * Reads a session by agent, id and offset under the directories `roots` names. A found session is reused until its
+ * file is gone or replaced (another inode), so a session read every few seconds is not looked for every time. A file
+ * that is gone, replaced or turned into a link between finding and reading answers no-session, and is forgotten.
+ */
 export function externalSessions(
-  roots: () => Promise<readonly string[]> = () => sessionRoots(),
-  options: { readonly now?: () => number; readonly lookup?: typeof findRollout } = {}
+  roots: (agent: ExternalAgent) => Promise<readonly string[]> = agent => sessionRoots(agent),
+  options: { readonly find?: typeof findSession } = {}
 ) {
-  const now = options.now ?? Date.now
-  const lookup = options.lookup ?? findRollout
-  const paths = new Map<string, { path: string; root: string; dev: number; ino: number }>()
-  const tails = new Map<string, Tail>()
-  const read = async (id: string, since = 0): Promise<SessionRead | Exclude<Lookup, { path: string }>> => {
-    const time = now()
-    for (const [path, tail] of tails) if (time - tail.lastRead >= 10 * 60_000) {
-      tails.delete(path)
-      for (const [session, cached] of paths) if (cached.path === path) paths.delete(session)
+  const find = options.find ?? findSession
+  const found = new Map<string, { readonly id: string; readonly path: string; readonly root: string } & Identity>()
+  const read = async (agent: ExternalAgent, prefix: string, offset: number): Promise<SessionRead | { readonly refusal: Refusal }> => {
+    const key = `${agent}:${prefix}`
+    let session = found.get(key)
+    const info = session === undefined ? undefined : await regularPath(session.path, session.root).catch(() => undefined)
+    if (session !== undefined && (info?.isFile() !== true || info.dev !== session.dev || info.ino !== session.ino)) {
+      found.delete(key)
+      session = undefined
     }
-    let found = paths.get(id)
-    let info = found ? await regularPath(found.path, found.root).catch(error => {
-      if (error?.code === "ENOENT") return undefined
-      throw error
-    }) : undefined
-    if (found && (!info || info.dev !== found.dev || info.ino !== found.ino)) {
-      tails.delete(found.path)
-      paths.delete(id)
-      found = undefined
+    if (session === undefined) {
+      const looked = await find(agent, prefix, await roots(agent))
+      if ("refusal" in looked) return looked
+      const identity = await regularPath(looked.path, looked.root)
+      if (!identity.isFile()) return unknown(agent, prefix)
+      session = { ...looked, dev: identity.dev, ino: identity.ino }
+      found.set(key, session)
     }
-    if (!found) {
-      const directories = await roots()
-      const discovered = await lookup(id, directories)
-      if (!("path" in discovered)) return discovered
-      const path = resolve(discovered.path)
-      const root = directories.find(root => path.startsWith(resolve(root) + sep))
-      if (!root) return { error: "unknown", message: `No Codex session ${id} on this machine.` }
-      info = await regularPath(path, root)
-      found = { path, root, dev: info.dev, ino: info.ino }
-      paths.set(id, found)
+    const chunk = await readChunk(session.path, session.root, offset, session)
+    if ("refusal" in chunk && chunk.refusal.status === 404) {
+      found.delete(key)
+      return unknown(agent, prefix)
     }
-    if (!info?.isFile()) return { error: "unknown", message: `No Codex session ${id} on this machine.` }
-    const root = found.root
-    const previous = tails.get(found.path)
-    const tail: Tail = previous && previous.dev === info.dev && previous.ino === info.ino && info.size >= previous.offset
-      ? previous : { lastRead: time, dev: info.dev, ino: info.ino, offset: 0, state: codexStart, decoder: new TextDecoder(), entries: [] }
-    tail.lastRead = time
-    tails.set(found.path, tail)
-    const size = info.size
-    if (tail.error === undefined && size > tail.offset) {
-      const file = await open(found.path, constants.O_RDONLY | constants.O_NOFOLLOW)
-      try {
-        const opened = await file.stat()
-        const current = await regularPath(found.path, root)
-        if (!opened.isFile() || opened.dev !== info.dev || opened.ino !== info.ino || opened.dev !== current.dev || opened.ino !== current.ino) return { error: "unknown", message: `No Codex session ${id} on this machine.` }
-        const bytes = new Uint8Array(size - tail.offset)
-        const { bytesRead } = await file.read(bytes, 0, bytes.length, tail.offset)
-        tail.offset += bytesRead
-        const text = tail.decoder.decode(bytes.subarray(0, bytesRead), { stream: true })
-        const decoded = decodeCodex(tail.state, text)
-        if (Result.isSuccess(decoded)) {
-          tail.state = decoded.success.state
-          tail.entries.push(...decoded.success.entries.map(clipped))
-        } else {
-          // Keep every entry before the line that stopped the import; the error says where it stopped.
-          const good = (tail.state.pending + text).split("\n").slice(0, decoded.failure.line - tail.state.line - 1)
-          const before = decodeCodex({ ...tail.state, pending: "" }, good.map(line => `${line}\n`).join(""))
-          if (Result.isSuccess(before)) tail.entries.push(...before.success.entries.map(clipped))
-          tail.error = { code: decoded.failure.code, message: decoded.failure.message }
-        }
-      } finally { await file.close() }
-    }
-    const session = tail.state.session
-    return {
-      session_id: session?.id ?? id, format_version: session?.format_version ?? "", cwd: session?.cwd ?? "",
-      entries: tail.entries.slice(Math.max(0, since)), next: tail.entries.length,
-      ...(tail.error === undefined ? {} : { error: tail.error })
-    }
+    return "refusal" in chunk ? chunk : { agent, session_id: session.id, ...chunk }
   }
-  return async (id: string, since = 0): Promise<SessionRead | Exclude<Lookup, { path: string }>> => {
-    try { return await read(id, since) }
-    catch {
+  return async (agent: ExternalAgent, prefix: string, offset: number): Promise<SessionRead | { readonly refusal: Refusal }> => {
+    try { return await read(agent, prefix, offset) } catch {
       // Discovery and every read-time path check fail closed with the same refusal.
-      const cached = paths.get(id)
-      if (cached) tails.delete(cached.path)
-      paths.delete(id)
-      return { error: "unknown", message: `No Codex session ${id} on this machine.` }
+      found.delete(`${agent}:${prefix}`)
+      return unknown(agent, prefix)
     }
   }
 }

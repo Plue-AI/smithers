@@ -525,7 +525,7 @@ export interface AppController extends IssueFlowsController {
   readonly todoList: TodoSeam["list"]
   /** The install's GitHub sync health, which Home's `main` row shows (GET /api/github/sync); none on other hosts. */
   readonly githubSyncSnapshots: GitHubSyncSeam["snapshots"]
-  /** A Codex session run on this machine, read-only for the conversation (M-38): GET /api/external/codex, polled while shown. */
+  /** A Codex or Claude Code session run on the host's machine, read-only for the conversation (M-38): GET /api/external/sessions, decoded here, read while shown. */
   readonly externalSession: ExternalSessionSeam["session"]
   /** The fast model's titles for the timeline's folded lines (#3732): POST /api/model/stream, asked while the rail shows them. */
   readonly timelineTitles: TimelineTitleSeam["ask"]
@@ -873,7 +873,7 @@ export const createAppController = (
   ctx.onDispose(design.dispose)
   const gitHubSyncSeam = createGitHubSyncSeam({ http: installHost ? (path, init) => seamCtx.http(`${baseUrl.replace(/\/$/, "")}${path}`, init) : undefined })
   ctx.onDispose(gitHubSyncSeam.dispose)
-  const externalSessionSeam = createExternalSessionSeam({ http: (path, init) => seamCtx.http(`${baseUrl.replace(/\/$/, "")}${path}`, init) })
+  const externalSessionSeam = createExternalSessionSeam({ http: (path, init) => seamCtx.http(`${baseUrl.replace(/\/$/, "")}${path}`, init), live: services.live })
   ctx.onDispose(externalSessionSeam.dispose)
   /* The fast model titles the timeline's folded lines (#3732), only on a host that serves POST /api/model/stream. */
   const timelineTitleSeam = createTimelineTitleSeam({ ...(services.bootstrap !== undefined && hasCapability(services.bootstrap, "model.turn")

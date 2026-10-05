@@ -33,6 +33,7 @@ import (
 	"github.com/smithersai/smithers/packages/backend/internal/database"
 	"github.com/smithersai/smithers/packages/backend/internal/db"
 	"github.com/smithersai/smithers/packages/backend/internal/email"
+	"github.com/smithersai/smithers/packages/backend/internal/externalsessions"
 	"github.com/smithersai/smithers/packages/backend/internal/identity"
 	"github.com/smithersai/smithers/packages/backend/internal/lfsauth"
 	"github.com/smithersai/smithers/packages/backend/internal/live"
@@ -1599,8 +1600,14 @@ func runWithOptions(ctx context.Context, args []string, stdout, stderr io.Writer
 		}
 	}
 	var liveHandler *routes.LiveHandler
+	var externalSessionsHandler *routes.ExternalSessionsHandler
 	if config.IsSingleOwner(cfg.Auth) {
-		topics := &liveTopics{queries: queries, todos: mythicalService, sync: gitHubSyncRoute}
+		// M-38: the Codex and Claude Code sessions of the account the install
+		// runs as, from its HOME, CODEX_HOME and CLAUDE_CONFIG_DIR.
+		home, _ := os.UserHomeDir()
+		sessions := &externalsessions.Finder{Home: home, Getenv: os.Getenv, Remember: 10 * time.Second}
+		externalSessionsHandler = &routes.ExternalSessionsHandler{Queries: queries, Sessions: sessions}
+		topics := &liveTopics{queries: queries, todos: mythicalService, sync: gitHubSyncRoute, external: sessions}
 		liveHandler = &routes.LiveHandler{Hub: live.NewHub(ctx, live.BrokerHints{Broker: sseBroker}), Queries: queries, Origins: installAddress.Origins, Topics: topics.resolver}
 	}
 	router := buildRouter(
@@ -1672,7 +1679,7 @@ func runWithOptions(ctx context.Context, args []string, stdout, stderr io.Writer
 			AdminTokens:        &routes.AdminTokenHandler{Service: adminManageService},
 			DeploymentAdmin:    deploymentAdminRoutes,
 			EgressPolicy:       &routes.RepositoryEgressPolicyHandler{Service: egressPolicyService},
-			GitHubSync:         gitHubSyncRoute, Live: liveHandler},
+			GitHubSync:         gitHubSyncRoute, Live: liveHandler, ExternalSessions: externalSessionsHandler},
 	)
 	if flow != nil && options.topology.servesHTTP() {
 		browser := &browserFlowAPI{repos: repoService, queries: queries, dispatcher: flow.dispatcher, boxes: workspaceService,

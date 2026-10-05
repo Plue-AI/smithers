@@ -5,7 +5,7 @@ import { MODEL_CREDENTIAL_ENV_PREFIX } from "@smthrs/rpc/ConfiguredModel"
 import { createChatJournalFixture } from "../e2e/support/ChatJournalFixture"
 import { createChatStub } from "../e2e/support/ChatStub"
 import { DEFAULT_CLOUD_API, startLocalServer } from "../src/bun/server"
-import { externalSessions, sessionRoots } from "../src/bun/ExternalSessions"
+import { externalSessions } from "../src/bun/ExternalSessions"
 import type { LocalServerOptions } from "../src/bun/server"
 
 /** Test-only composition. A stubbed model is not permission to inspect host credentials. */
@@ -45,9 +45,13 @@ export const browserTestOptions = (
     },
     home: root,
     stateDir: join(root, "state"),
-    // M-38: Codex sessions from SMITHERS_E2E_CODEX_HOME only, as a fixed owner; this machine's own sessions stay out.
-    ...(env.SMITHERS_E2E_CODEX_HOME === undefined ? {} : {
-      externalSessions: externalSessions(async () => (await sessionRoots(root, { CODEX_HOME: env.SMITHERS_E2E_CODEX_HOME })).slice(0, 1)),
+    // M-38: Codex and Claude Code sessions from SMITHERS_E2E_CODEX_HOME and SMITHERS_E2E_CLAUDE_HOME only, as a
+    // fixed owner; this machine's own sessions stay out.
+    ...(env.SMITHERS_E2E_CODEX_HOME === undefined && env.SMITHERS_E2E_CLAUDE_HOME === undefined ? {} : {
+      externalSessions: externalSessions(async agent => {
+        const home = agent === "codex" ? env.SMITHERS_E2E_CODEX_HOME : env.SMITHERS_E2E_CLAUDE_HOME
+        return home === undefined ? [] : [join(home, agent === "codex" ? "sessions" : "projects")]
+      }),
       externalOwner: { login: "ben", name: "Ben Ito" }
     })
   }

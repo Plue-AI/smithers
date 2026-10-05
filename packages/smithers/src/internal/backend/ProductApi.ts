@@ -657,6 +657,19 @@ export type TODOBranchDiffModel = {
   }>
 }
 
+export type ExternalSessionRead = {
+  agent: "codex" | "claude-code"
+  session_id: string
+  owner: {
+    login: string
+    name: string
+  }
+  offset: number
+  next: number
+  text: string
+  eof: boolean
+}
+
 export type FlowCard = {
   name: string
   source: {
@@ -1492,6 +1505,16 @@ export interface PostApiCommandsSelectInput {
 /** POST /api/commands/select */
 export const postApiCommandsSelect = (transport: Transport, input?: PostApiCommandsSelectInput): Promise<PostApiCommandsSelectResponse> =>
   transport.request("POST", `/api/commands/select`, input?.body) as Promise<PostApiCommandsSelectResponse>
+
+export type GetApiExternalSessionsResponse = ExternalSessionRead
+
+export interface GetApiExternalSessionsInput {
+  readonly query: { readonly agent: "codex" | "claude-code"; readonly session: string; readonly offset?: number }
+}
+
+/** GET /api/external/sessions: Read the owner's Codex or Claude Code session as raw JSONL */
+export const getApiExternalSessions = (transport: Transport, input: GetApiExternalSessionsInput): Promise<GetApiExternalSessionsResponse> =>
+  transport.request("GET", `/api/external/sessions${search({ agent: input.query.agent, session: input.query.session, offset: input.query.offset })}`) as Promise<GetApiExternalSessionsResponse>
 
 export type GetApiFeatureFlagsResponse = AnyJSON
 

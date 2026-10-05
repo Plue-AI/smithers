@@ -36,6 +36,7 @@ import { HOME_ENTRY_ID, ShellRail } from "./ShellRail"
 import { WikiDeleteDialog } from "./WikiDeleteDialog"
 import { WorldSurface } from "./WorldSurface"
 import { ExternalEntry, useExternalConversation, type ExternalConversation, type ExternalItem } from "./ExternalEntries"
+import type { ExternalAgent } from "./state/seams/ExternalSessionSeam"
 
 type TranscriptEntry =
   | { readonly kind: "message"; readonly message: Message }
@@ -53,10 +54,16 @@ const entryCreatedAt = (entry: TranscriptEntry): number =>
 const entryId = (entry: TranscriptEntry): string => entry.kind === "card" ? entry.card.id : entry.kind === "external" ? entry.item.id : entry.message.id
 
 /**
- * `?codex=<session id or prefix>` shows that Codex session after the conversation (M-38). Read when this
- * module loads, as boot reads its entry search: the frame history rewrites the address before App renders.
+ * `?codex=<session id or prefix>` or `?claude=<session id or prefix>` shows that Codex or Claude Code session after
+ * the conversation (M-38). Read when this module loads, as boot reads its entry search: the frame history rewrites
+ * the address before App renders.
  */
-const CODEX_SESSION = typeof window === "undefined" ? undefined : new URLSearchParams(window.location.search).get("codex") || undefined
+const EXTERNAL_SESSION = ((): { readonly agent: ExternalAgent; readonly id: string } | undefined => {
+  if (typeof window === "undefined") return undefined
+  const search = new URLSearchParams(window.location.search)
+  const codex = search.get("codex"), claude = search.get("claude")
+  return codex ? { agent: "codex", id: codex } : claude ? { agent: "claude-code", id: claude } : undefined
+})()
 
 function AppContent() {
   const controller = useController()
@@ -327,8 +334,8 @@ function AppContent() {
   // Batches before the newest ten fold into one row; opening it is transient chrome for this conversation only.
   const transcriptKey = `${conversationTabId ?? "main"}:${session.activeRepoKey ?? ""}`
 
-  /* M-38: a Codex session run on this machine, read-only, after the conversation's own entries. */
-  const external = useExternalConversation(CODEX_SESSION === undefined ? undefined : controller.externalSession(CODEX_SESSION))
+  /* M-38: a Codex or Claude Code session run on the host's machine, read-only, after the conversation's own entries. */
+  const external = useExternalConversation(EXTERNAL_SESSION === undefined ? undefined : controller.externalSession(EXTERNAL_SESSION.agent, EXTERNAL_SESSION.id))
   const externalEntries: ReadonlyArray<TranscriptEntry> = [
     ...(external.conversation?.items ?? []).map((item): TranscriptEntry => ({ kind: "external", item, conversation: external.conversation! })),
     ...(external.error === undefined ? [] : [{ kind: "external", item: { id: "external-error", at: 0, kind: "error", text: external.error } } as const])

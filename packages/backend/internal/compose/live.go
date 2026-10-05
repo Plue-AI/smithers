@@ -5,11 +5,13 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"os"
 	"strconv"
 	"strings"
 	"time"
 
 	"github.com/smithersai/smithers/packages/backend/internal/db"
+	"github.com/smithersai/smithers/packages/backend/internal/externalsessions"
 	"github.com/smithersai/smithers/packages/backend/internal/live"
 	"github.com/smithersai/smithers/packages/backend/internal/middleware"
 	"github.com/smithersai/smithers/packages/backend/internal/services"
@@ -28,12 +30,16 @@ type liveSync interface {
 }
 
 // liveTopics resolves the install's shared topics (spec §7.2) for one
-// person: home, todo:<n> and flows. Every topic serves shared facts only,
-// so one stream serves every member byte for byte.
+// person: home, todo:<n> and flows, which serve shared facts only, so one
+// stream serves every member byte for byte; and the owner's
+// external:<agent>:<session>.
 type liveTopics struct {
 	queries *db.Queries
 	todos   liveTodos
 	sync    liveSync
+	// external finds the owner's Codex and Claude Code sessions; nil serves
+	// no external topic.
+	external *externalsessions.Finder
 }
 
 // liveRefreshEvery bounds how stale a topic is when its facts change without
@@ -90,6 +96,8 @@ func (t *liveTopics) resolve(ctx context.Context, topic string, repository int64
 		return live.Source{}, live.Unsupported
 	case "branch", "conversation", "doc", "members", "secrets", "proposals", "agents", "install", "run":
 		return live.Source{}, live.Unsupported
+	case "external":
+		return t.externalSession(ctx, topic, rest, member)
 	}
 	if repository == 0 {
 		return live.Source{}, live.Unsupported
@@ -124,6 +132,38 @@ func (t *liveTopics) resolve(ctx context.Context, topic string, repository int64
 		}}, ""
 	}
 	return live.Source{}, live.UnknownTopic
+}
+
+// externalSession is external:<agent>:<session> (mvp.md M-38): the size of
+// the owner's session file, read every liveRefreshEvery, so the app reads
+// what the agent appended at once instead of at its next poll. Like GET
+// /api/external/sessions, it is the install owner's alone.
+func (t *liveTopics) externalSession(ctx context.Context, topic, rest string, member int64) (live.Source, string) {
+	if t.external == nil {
+		return live.Source{}, live.Unsupported
+	}
+	name, prefix, _ := strings.Cut(rest, ":")
+	agent, ok := externalsessions.ParseAgent(name)
+	if !ok || !externalsessions.IDPattern.MatchString(prefix) {
+		return live.Source{}, live.UnknownTopic
+	}
+	if role, err := services.InstallRoleOf(ctx, t.queries, member); err != nil || role != services.InstallOwner {
+		return live.Source{}, live.Forbidden
+	}
+	if _, err := t.external.Find(agent, prefix); err != nil {
+		return live.Source{}, live.UnknownTopic
+	}
+	return live.Source{Key: topic, Every: liveRefreshEvery, Build: func(context.Context) (json.RawMessage, error) {
+		session, err := t.external.Find(agent, prefix)
+		if err != nil {
+			return nil, err
+		}
+		info, err := os.Stat(session.Path)
+		if err != nil {
+			return nil, err
+		}
+		return json.Marshal(map[string]any{"session_id": session.ID, "size": info.Size()})
+	}}, ""
 }
 
 // home is the Home card's shared model (HomeCardSchema, spec §14.3): a row

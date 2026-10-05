@@ -1,10 +1,12 @@
 /*
- * A Codex session in the conversation (mvp.md M-38, T-AGT-03): a binding, not
- * a View. It maps the session's read-only entries to the shell's own
- * presentation: ChatMessage for prompts and answers, the tool-act Marker for a
- * run of commands, and DiffCardSurface for each edited file. Prompts are the
- * owner's; everything else is "Codex for <owner>". No entry carries an act:
- * copy, disclosure and navigation are all it offers.
+ * A Codex or Claude Code session in the conversation (mvp.md M-38, T-AGT-03):
+ * a binding, not a View. It maps the session's read-only entries to the
+ * shell's own presentation: ChatMessage for prompts and answers, the tool-act
+ * Marker for a run of commands, and DiffCardSurface for each edited file.
+ * Prompts are the owner's; everything else is "Codex for <owner>" or "Claude
+ * Code for <owner>". Command output and diffs are clipped here, for display;
+ * the seam keeps what the agent wrote. No entry carries an act: copy,
+ * disclosure and navigation are all it offers.
  */
 import { ChatMessage, Markdown, Marker } from "@smthrs/ui"
 import type { Entry } from "@smthrs/harness/ExternalTranscript"
@@ -14,7 +16,7 @@ import type { DiffCard } from "@smthrs/rpc/DiffCard"
 import { useMemo, useSyncExternalStore } from "react"
 import { DiffCardSurface } from "./cards/DiffSurface"
 import { actorName } from "./cards/views/ActorChip"
-import type { ExternalSessionSnapshot, ExternalSessionSource } from "./state/seams/ExternalSessionSeam"
+import { externalAgentName, type ExternalAgent, type ExternalSessionSnapshot, type ExternalSessionSource } from "./state/seams/ExternalSessionSeam"
 import { timeLabel } from "./Timestamps"
 
 type ToolPart = Extract<Entry["part"], { type: "tool" | "search" | "helper" | "compaction" }>
@@ -33,11 +35,25 @@ export interface ExternalConversation {
 const basename = (path: string): string => path.split("/").filter(Boolean).at(-1) ?? path
 
 /** Where an edited file sits: relative to the session's directory, or under the checkout it names (`/tmp/<lane>/…`, `~/<repo>/…`). */
-export const placeOf = (path: string, cwd: string | undefined): { readonly branch: string; readonly path: string } => {
+export const placeOf = (path: string, cwd: string | undefined, agent: ExternalAgent): { readonly branch: string; readonly path: string } => {
   if (cwd && path.startsWith(`${cwd}/`)) return { branch: basename(cwd), path: path.slice(cwd.length + 1) }
   const checkout = /^(?:\/private)?\/tmp\/([^/]+)\/(.+)$/.exec(path) ?? /^\/(?:Users|home)\/[^/]+\/([^/]+)\/(.+)$/.exec(path)
-  return checkout ? { branch: checkout[1]!, path: checkout[2]! } : { branch: basename(cwd ?? "") || "codex", path }
+  return checkout ? { branch: checkout[1]!, path: checkout[2]! } : { branch: basename(cwd ?? "") || agent, path }
 }
+
+const OUTPUT_HEAD = 1_500
+const OUTPUT_TAIL = 2_500
+const DIFF_LIMIT = 24_000
+
+/** Long output keeps its start and its end; the middle says how many lines it left out. */
+export function clip(text: string, head = OUTPUT_HEAD, tail = OUTPUT_TAIL): string {
+  if (text.length <= head + tail) return text
+  const omitted = text.slice(head, text.length - tail).split("\n").length
+  return `${text.slice(0, head)}\n… ${omitted} lines omitted …\n${text.slice(text.length - tail)}`
+}
+
+/** A diff past the limit ends at its last whole line before it. */
+export const clipDiff = (diff: string): string => diff.length <= DIFF_LIMIT ? diff : diff.slice(0, diff.lastIndexOf("\n", DIFF_LIMIT) + 1)
 
 /** A unified diff's hunks; header lines and "\ No newline" markers are not lines of the file. */
 export const hunksOf = (diff: string): DiffCard["hunks"] => {
@@ -55,7 +71,7 @@ export const hunksOf = (diff: string): DiffCard["hunks"] => {
 export function externalConversation(snapshot: ExternalSessionSnapshot): ExternalConversation | undefined {
   if (snapshot.owner === undefined) return undefined
   const owner = { kind: "person" as const, login: snapshot.owner.login, name: snapshot.owner.name, avatar_url: PlaceholderAvatarUrl, color_index: 0 }
-  const agent = { kind: "agent" as const, id: `codex:${snapshot.session}`, agent: "codex" as const, avatar_url: PlaceholderAvatarUrl,
+  const agent = { kind: "agent" as const, id: `${snapshot.agent}:${snapshot.session}`, agent: snapshot.agent, avatar_url: PlaceholderAvatarUrl,
     session_id: snapshot.session, for_member: { login: owner.login, name: owner.name, avatar_url: PlaceholderAvatarUrl }, color_index: 0 }
   const items: ExternalItem[] = []
   for (const entry of snapshot.entries) {
@@ -66,23 +82,24 @@ export function externalConversation(snapshot: ExternalSessionSnapshot): Externa
       case "goal": items.push({ id, at, kind: "message", role: "user", text: part.status === "active" ? `Goal: ${part.objective}` : `Goal ${part.status}: ${part.objective}` }); break
       case "text": items.push({ id, at, kind: "message", role: "assistant", text: part.text }); break
       case "reasoning": items.push({ id, at, kind: "message", role: "assistant", text: "", reasoning: part.text }); break
-      case "encrypted": items.push({ id, at, kind: "message", role: "assistant", text: "Encrypted by Codex" }); break
+      case "encrypted": items.push({ id, at, kind: "message", role: "assistant", text: `Encrypted by ${externalAgentName(snapshot.agent)}` }); break
       case "error": items.push({ id, at, kind: "error", text: part.message }); break
       case "edit":
         part.files.forEach((file, index) => {
-          const place = placeOf(file.path, snapshot.cwd)
+          const place = placeOf(file.path, snapshot.cwd, snapshot.agent)
           items.push({ id: `${id}:${index}`, at, kind: "diff", card: {
             path: place.path, branch: place.branch, change: file.change,
-            ...(file.renamed_to === undefined ? {} : { renamed_to: placeOf(file.renamed_to, snapshot.cwd).path }),
-            against: { kind: "burst", burst: entry.turn_id ?? id, actor: agent, at: timeLabel(at) }, hunks: hunksOf(file.diff)
+            ...(file.renamed_to === undefined ? {} : { renamed_to: placeOf(file.renamed_to, snapshot.cwd, snapshot.agent).path }),
+            against: { kind: "burst", burst: entry.turn_id ?? id, actor: agent, at: timeLabel(at) }, hunks: hunksOf(clipDiff(file.diff))
           } })
         })
         if (part.outcome === "failed") items.push({ id: `${id}:failed`, at, kind: "error", text: `The edit to ${part.files.map(file => basename(file.path)).join(", ")} did not apply.` })
         break
       default: {
         const failed = part.type === "tool" && part.status === "error" ? 1 : 0
-        if (last?.kind === "acts") items[items.length - 1] = { ...last, acts: [...last.acts, part], failed: last.failed + failed }
-        else items.push({ id, at, kind: "acts", acts: [part], failed })
+        const act = part.type === "tool" ? { ...part, output: clip(part.output) } : part
+        if (last?.kind === "acts") items[items.length - 1] = { ...last, acts: [...last.acts, act], failed: last.failed + failed }
+        else items.push({ id, at, kind: "acts", acts: [act], failed })
       }
     }
   }
@@ -134,7 +151,7 @@ export function ExternalEntry({ item, conversation }: { readonly item: ExternalI
   }
 }
 
-/** The `?codex=<session>` conversation, read while the transcript shows it. */
+/** The `?codex=<session>` or `?claude=<session>` conversation, read while the transcript shows it. */
 export function useExternalConversation(source: ExternalSessionSource | undefined): { readonly conversation?: ExternalConversation; readonly error?: string } {
   const subscribe = source?.subscribe ?? noSubscribe
   const snapshot = useSyncExternalStore(subscribe, source?.get ?? noSnapshot, source?.get ?? noSnapshot)

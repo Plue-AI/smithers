@@ -322,6 +322,8 @@ describe("native backend ownership", () => {
       HOME: "/Users/owner",
       PATH: "/usr/bin:/bin",
       TMPDIR: "/tmp/owner",
+      CODEX_HOME: "/Users/owner/.codex-work",
+      CLAUDE_CONFIG_DIR: "/Users/owner/.claude-work",
       HTTPS_PROXY: "http://proxy.internal:3128",
       no_proxy: "localhost",
       ANTHROPIC_API_KEY: "canary",
@@ -354,6 +356,8 @@ describe("native backend ownership", () => {
     }
     const env = await ownedEnvironment(runtime, launcher)
     expect(Object.keys(env).sort()).toEqual([
+      "CLAUDE_CONFIG_DIR",
+      "CODEX_HOME",
       "GIT_CONFIG_GLOBAL",
       "GIT_CONFIG_NOSYSTEM",
       "GIT_EXEC_PATH",
@@ -380,6 +384,7 @@ describe("native backend ownership", () => {
     ])
     expect(Object.values(env)).not.toContain("canary")
     expect(env.HOME).toBe("/Users/owner")
+    expect([env.CODEX_HOME, env.CLAUDE_CONFIG_DIR]).toEqual(["/Users/owner/.codex-work", "/Users/owner/.claude-work"])
     expect(env.HTTPS_PROXY).toBe("http://proxy.internal:3128")
     expect(env.PATH).toBe([runtime.root, "/usr/bin", "/bin", "/usr/sbin", "/sbin"].join(delimiter))
     expect(env.SMITHERS_WEB_ROOT).toBe(webRoot)

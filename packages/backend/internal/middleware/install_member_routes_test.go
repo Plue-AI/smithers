@@ -56,6 +56,7 @@ func TestInstallMemberCommandRoutes(t *testing.T) {
 		{http.MethodPost, "/api/model/credential", ""},
 		{http.MethodPost, "/api/user/tokens", ""},
 		{http.MethodGet, "/api/members/alice", ""},
+		{http.MethodGet, "/api/external/sessions", ""},
 		{http.MethodPost, "/api/repos/acme/app/secrets", "secrets.write"},
 		{http.MethodPatch, "/api/repos/acme/app/secrets/API_KEY", "secrets.write"},
 		{http.MethodDelete, "/api/repos/acme/app/secrets/API_KEY", "secrets.write"},

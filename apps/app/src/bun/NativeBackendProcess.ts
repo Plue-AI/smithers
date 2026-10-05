@@ -42,12 +42,14 @@ export interface NativeBackendOptions {
 
 /**
  * The only launcher variables the owned backend inherits: this machine's
- * session and network policy. Everything else it runs on is set below, so a
+ * session and network policy, and where Codex and Claude Code keep the
+ * owner's sessions (M-38). Everything else it runs on is set below, so a
  * shell's provider keys, cloud tokens and SMITHERS_* overrides never reach it.
  */
 const LAUNCHER_PASSTHROUGH = [
   "HOME", "USER", "LOGNAME", "TMPDIR", "TZ", "LANG", "LC_ALL", "LC_CTYPE",
   "XDG_CONFIG_HOME", "XDG_DATA_HOME", "XDG_CACHE_HOME", "XDG_STATE_HOME",
+  "CODEX_HOME", "CLAUDE_CONFIG_DIR",
   "HTTP_PROXY", "HTTPS_PROXY", "NO_PROXY", "ALL_PROXY",
   "http_proxy", "https_proxy", "no_proxy", "all_proxy",
   "SSL_CERT_FILE", "SSL_CERT_DIR"

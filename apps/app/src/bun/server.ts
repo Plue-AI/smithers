@@ -19,7 +19,7 @@ import {
   CANCEL_PATH,
   CHAT_CANCEL_PATH,
   CHAT_TURN_PATH,
-  EXTERNAL_CODEX_PATH,
+  EXTERNAL_SESSIONS_PATH,
   HEALTH_PATH,
   IDENTITY_ROUTE_PREFIX,
   MODEL_CATALOG_PATH,
@@ -68,7 +68,7 @@ import { modelFailureLine, sealedMessages, sealedTurn } from "./ConfiguredModelH
 import { planOnLocal } from "@smthrs/model-host/LocalModel"
 import { createModelProbe } from "@smthrs/model-host/ModelProbe"
 import { machineReadableRefusal, upstreamRefusalMessage } from "@smthrs/rpc/UpstreamProse"
-import { decodePath, invalidPath, json, jsonError, readJson, refuse, Router } from "./routes"
+import { decodePath, invalidPath, json, jsonError, jsonErrorWithStatus, readJson, refuse, Router } from "./routes"
 import type { RouteHandler } from "./routes"
 import { externalSessions } from "./ExternalSessions"
 
@@ -150,8 +150,10 @@ export interface LocalServerOptions {
   readonly identityUpstream?: string | null
   /** Self-hosted product backend for the live channel; independent of cloud mode. */
   readonly backendApi?: string | null
-  /** Codex sessions on this machine (M-38); tests pass their own Codex homes. */
+  /** Codex and Claude Code sessions on this machine (M-38); tests pass their own agent homes. */
   readonly externalSessions?: ReturnType<typeof externalSessions>
+  /** Test compositions only: the person their fixture sessions name. The preview otherwise names the OS user. */
+  readonly externalOwner?: { readonly login: string; readonly name: string }
   /**
    * Where `/api/cloud/*` forwards (the Smithers Cloud API) and where the
    * `/api/cloud-auth/*` login points. `undefined` reads SMITHERS_CLOUD_API,
@@ -664,7 +666,7 @@ const proxyCloud = async (
   return new Response(response.body, { status: response.status, headers: out })
 }
 
-/** The OS user whose own Codex home the local preview reads. */
+/** The OS user whose own Codex and Claude Code homes the local preview reads. */
 const machineOwner = (): { readonly login: string; readonly name: string } => {
   const login = userInfo().username
   return { login, name: login }
@@ -763,18 +765,24 @@ export const startLocalServer = async (options: LocalServerOptions): Promise<Loc
     }))
 
   /**
-   * Local-mode preview only: the OS owner's local-session capability reads
-   * their own Codex home on the loopback listener. Never mount on an install
-   * listener; T-AGT-02 replaces this preview with session-owned ingestion.
+   * Local-mode preview only (M-38): the OS owner's local-session capability
+   * reads their own Codex or Claude Code home on the loopback listener, as
+   * raw JSONL from a byte offset, the contract the install's backend serves;
+   * the app decodes it. Never mount on an install listener.
    */
   const localPreview = !remoteEnabled && !(options.backendApi === undefined ? Bun.env.SMITHERS_BACKEND_API : options.backendApi)
   const readSession = options.externalSessions ?? externalSessions()
-  const owner = machineOwner()
-  if (localPreview) router.add("GET", EXTERNAL_CODEX_PATH, async ({ url }) => {
-    const id = url.searchParams.get("session") ?? ""
-    if (!/^[0-9a-f-]{4,36}$/.test(id)) return jsonError("invalid_request", "A Codex session id or a prefix of at least four characters is required.")
-    const read = await readSession(id, Number(url.searchParams.get("since") ?? 0) || 0)
-    if ("error" in read && !("entries" in read)) return jsonError(read.error === "unknown" ? "source_not_found" : "invalid_request", read.message)
+  const owner = options.externalOwner ?? machineOwner()
+  if (localPreview) router.add("GET", EXTERNAL_SESSIONS_PATH, async ({ url }) => {
+    const agent = url.searchParams.get("agent")
+    if (agent !== "codex" && agent !== "claude-code") return jsonError("invalid_request", "agent must be codex or claude-code.")
+    const offset = url.searchParams.get("offset") ?? "0"
+    if (!/^(0|[1-9]\d{0,15})$/.test(offset)) return jsonError("invalid_request", "offset must be a byte offset the previous read answered as next.")
+    const read = await readSession(agent, url.searchParams.get("session") ?? "", Number(offset))
+    if ("refusal" in read) {
+      const { status, message } = read.refusal
+      return jsonErrorWithStatus(status, status === 404 ? "source_not_found" : "invalid_request", message)
+    }
     return json({ ...read, owner })
   })
 
@@ -1090,7 +1098,7 @@ export const startLocalServer = async (options: LocalServerOptions): Promise<Loc
     if (request.headers.get("host") !== expectedHost) {
       return jsonError("invalid_host", "This local server accepts only its loopback origin.")
     }
-    if (pathname === EXTERNAL_CODEX_PATH) {
+    if (pathname === EXTERNAL_SESSIONS_PATH) {
       if (!localPreview) return jsonError("not_found", "Not found.")
       if (!localPreviewLoopback(url.hostname, bunServer.requestIP(request)?.address)) return jsonError("invalid_host", "This local server accepts only its loopback origin.")
     }

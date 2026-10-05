@@ -2,7 +2,7 @@ import { describe, expect, test } from "bun:test"
 import type { Entry } from "@smthrs/harness/ExternalTranscript"
 import { DiffCardSchema } from "@smthrs/rpc/DiffCard"
 import { TimelineLineSchema } from "@smthrs/rpc/TimelineCard"
-import { actsLine, externalConversation, hunksOf, placeOf, type ExternalItem } from "./ExternalEntries"
+import { actsLine, clip, clipDiff, externalConversation, hunksOf, placeOf, type ExternalItem } from "./ExternalEntries"
 import { railLines, railTimes } from "./ShellRail"
 import { actorName } from "./cards/views/ActorChip"
 
@@ -34,11 +34,11 @@ const entries: Entry[] = [
   entry("assistant", { type: "text", text: "**Fixed** the retry bug.", final: true }),
   entry("assistant", { type: "error", message: "Codex reported an item this release does not read: Foo" })
 ]
-const conversation = externalConversation({ session: SESSION, owner: { login: "will", name: "William Cory" }, cwd: "/repo", entries })!
+const conversation = externalConversation({ agent: "codex", session: SESSION, owner: { login: "will", name: "William Cory" }, cwd: "/repo", entries })!
 
 describe("externalConversation", () => {
   test("nothing shows before the host names the owner", () => {
-    expect(externalConversation({ session: SESSION, entries })).toBeUndefined()
+    expect(externalConversation({ agent: "codex", session: SESSION, entries })).toBeUndefined()
   })
 
   test("prompts are the owner's and everything else is Codex for the owner", () => {
@@ -61,6 +61,26 @@ describe("externalConversation", () => {
     expect(conversation.items.map(item => item.id)).toEqual([...new Set(conversation.items.map(item => item.id))])
   })
 
+  test("a Claude Code session is Claude Code for the owner, with its own participant", () => {
+    const claude = externalConversation({ agent: "claude-code", session: "5b2c9e10", owner: { login: "ben", name: "Ben Ito" },
+      entries: [entry("assistant", { type: "encrypted" }), entry("assistant", { type: "edit", call_id: "e9", outcome: "applied", files: [{ path: "/etc/x", change: "modified", diff: "" }] })] })!
+    expect(actorName(claude.agent)).toBe("Claude Code for Ben")
+    expect(claude.agent).toMatchObject({ id: "claude-code:5b2c9e10", agent: "claude-code", session_id: "5b2c9e10" })
+    expect(claude.agent.id).not.toBe(conversation.agent.id)
+    expect(claude.items.map(item => item.kind === "message" ? item.text : item.kind === "diff" ? item.card.branch : "")).toEqual(["Encrypted by Claude Code", "claude-code"])
+  })
+
+  test("long command output and long diffs are clipped for display", () => {
+    const long = externalConversation({ agent: "codex", session: SESSION, owner: { login: "will", name: "William Cory" }, cwd: "/repo", entries: [
+      entry("assistant", { type: "tool", call_id: "c", command: "make", reads: [], status: "ok", output: `${"x".repeat(9_000)}END`, duration_ms: 1 }),
+      entry("assistant", { type: "edit", call_id: "e", outcome: "applied", files: [{ path: "/repo/a.ts", change: "modified",
+        diff: `@@ -1,1 +1,4000 @@\n${Array.from({ length: 4_000 }, (_, index) => `+line ${index}`).join("\n")}` }] })] })!
+    const [acts, diff] = long.items
+    const output = acts?.kind === "acts" && acts.acts[0]?.type === "tool" ? acts.acts[0].output : ""
+    expect(output.endsWith("END") && output.includes("lines omitted")).toBe(true)
+    expect(diff?.kind === "diff" ? diff.card.hunks[0]!.lines.length : 0).toBeLessThan(4_000)
+  })
+
   test("the goal, reasoning and an encrypted body read as words, never dropped", () => {
     const texts = conversation.items.flatMap(item => item.kind === "message" ? [item.text || item.reasoning] : [])
     expect(texts).toEqual(["Fix the retry bug\nin retry.ts", "Goal: finish the spec", "I'll read the code.", "Thinking about retries.", "Encrypted by Codex", "**Fixed** the retry bug."])
@@ -81,12 +101,23 @@ describe("externalConversation", () => {
 
 describe("placeOf and hunksOf", () => {
   test("paths read relative to the session directory or the checkout they sit in", () => {
-    expect(placeOf("/repo/a/b.ts", "/repo")).toEqual({ branch: "repo", path: "a/b.ts" })
-    expect(placeOf("/tmp/smithers-gh04/packages/x.go", "/Users/w/smithers")).toEqual({ branch: "smithers-gh04", path: "packages/x.go" })
-    expect(placeOf("/private/tmp/lane/x.go", undefined)).toEqual({ branch: "lane", path: "x.go" })
-    expect(placeOf("/Users/w/smithers-ui/apps/a.ts", "/elsewhere")).toEqual({ branch: "smithers-ui", path: "apps/a.ts" })
-    expect(placeOf("/etc/hosts", "/repo")).toEqual({ branch: "repo", path: "/etc/hosts" })
-    expect(placeOf("/etc/hosts", undefined)).toEqual({ branch: "codex", path: "/etc/hosts" })
+    expect(placeOf("/repo/a/b.ts", "/repo", "codex")).toEqual({ branch: "repo", path: "a/b.ts" })
+    expect(placeOf("/tmp/smithers-gh04/packages/x.go", "/Users/w/smithers", "codex")).toEqual({ branch: "smithers-gh04", path: "packages/x.go" })
+    expect(placeOf("/private/tmp/lane/x.go", undefined, "codex")).toEqual({ branch: "lane", path: "x.go" })
+    expect(placeOf("/Users/w/smithers-ui/apps/a.ts", "/elsewhere", "codex")).toEqual({ branch: "smithers-ui", path: "apps/a.ts" })
+    expect(placeOf("/etc/hosts", "/repo", "codex")).toEqual({ branch: "repo", path: "/etc/hosts" })
+    expect(placeOf("/etc/hosts", undefined, "codex")).toEqual({ branch: "codex", path: "/etc/hosts" })
+    expect(placeOf("/etc/hosts", undefined, "claude-code")).toEqual({ branch: "claude-code", path: "/etc/hosts" })
+  })
+
+  test("clip keeps output's start and end; clipDiff ends a long diff at a whole line", () => {
+    expect(clip("short")).toBe("short")
+    expect(clip("a\nb\nc\nd\ne", 2, 2)).toBe("a\n\n… 3 lines omitted …\n\ne")
+    const diff = Array.from({ length: 4_000 }, (_, index) => `+line ${index}`).join("\n")
+    const shown = clipDiff(diff)
+    expect(shown.length).toBeLessThanOrEqual(24_000)
+    expect(shown.endsWith("\n")).toBe(true)
+    expect(clipDiff("+a\n")).toBe("+a\n")
   })
 
   test("hunks start at their headers; lines before the first header and markers are not file lines", () => {
