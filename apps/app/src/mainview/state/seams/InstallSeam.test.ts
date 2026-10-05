@@ -187,6 +187,32 @@ describe("T-APP-03 install seam", () => {
     expect(h.seam.snapshots.get().error).toEqual(failure())
     h.seam.setInstallAddress(address); await h.idle(); expect(h.toasts).toHaveLength(2)
   })
+  test("a refused setup write fails its own step and keeps the Setup card (gh-setup-walk-2)", async () => {
+    // The walk's laptop: POST /install/setup/app answered 403 and the whole card vanished.
+    const refusal: InstallError = { code: "origin", class: "permission", message: "request origin differs from install origin" }
+    const model = installFixture(); for (const step of model.steps.slice(1)) step.state = "pending"
+    const h = await harness((_path, init) => init?.method === "POST" ? Response.json(refusal, { status: 403 }) : Response.json(model))
+    await h.seam.readInstall(); h.seam.setupStep({ step: "app_manifest", owner: "smithersai" }); await h.idle()
+    const kept = h.seam.snapshots.get().model
+    expect(kept?.steps.find(step => step.id === "app_manifest")).toEqual({ id: "app_manifest", state: "failed", error: refusal })
+    expect(kept?.steps.find(step => step.id === "address")?.state).toBe("done")
+    expect(h.toasts.at(-1)?.outcome).toBe("request origin differs from install origin")
+    expect(h.stopped()).toBe(0)
+  })
+  test("a permission refusal of a key fails that role and keeps the card", async () => {
+    const refusal: InstallError = { code: "owner_required", class: "permission", message: "Owner access required" }
+    const h = await harness(path => path === "/api/model/credential" ? Response.json(refusal, { status: 403 }) : Response.json(installFixture()))
+    await h.seam.readInstall()
+    h.seam.saveInstallModelKey({ role: "jev", provider: "AI Gateway" }, writeOnlyGesture("settings.model-key", { value: "private-key" })); await h.idle()
+    expect(h.seam.snapshots.get().model?.models[2]).toEqual({ role: "jev", provider: "AI Gateway", key: "failed", error: "Owner access required" })
+    expect(h.seam.snapshots.get().model?.models[0]).toEqual({ role: "fast", provider: "Cerebras", key: "saved" })
+    expect(h.toasts[0]?.outcome).toBe("Owner access required")
+  })
+  test("a refused settings write still takes the card away", async () => {
+    const h = await harness((_path, init) => init?.method === "PUT" ? Response.json(failure("permission"), { status: 403 }) : Response.json(installFixture()))
+    await h.seam.readInstall(); h.seam.setInstallParallel(2); await h.idle()
+    expect(h.seam.snapshots.get()).toEqual({ error: failure("permission") })
+  })
   test("keys are consumed once, never stored; a refusal keeps the provider reason", async () => {
     const secret = "test-private-key"
     const h = await harness(path => path === "/api/model/credential" ? Response.json({ ...failure(), message: "Provider refused key" }, { status: 422 }) : Response.json(installFixture()))

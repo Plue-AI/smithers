@@ -236,7 +236,8 @@ export const createInstallSeam = (ctx: SeamContext, withToast: FailureController
         if ("class" in result) {
           if (generation !== shared.generation) return setup ? await waitStep(stepId) : TOAST_SUPERSEDED
           if (row) await saveRequest({ ...row, state: "failed" })
-          if (result.class === "permission") revoke(result)
+          // A refused setup write fails its own step and keeps the card; a refused read or settings write takes it away.
+          if (result.class === "permission" && !setup) revoke(result)
           else {
             const model = shared.snapshot.model
             const address = path === "/install" && typeof body === "object" && body !== null && "address" in body
@@ -378,8 +379,8 @@ export const createInstallSeam = (ctx: SeamContext, withToast: FailureController
           const failure = parsed.success ? parsed.data : receipt.success && !receipt.data.ok
             ? error(receipt.data.failure.code, refusal ?? "Key refused", receipt.data.fault === "infra" ? "infra" : "user")
             : error("key_refused", "Key refused")
-          if (failure.class === "permission") revoke(failure)
-          else { mark("failed", failure.message); publish({ ...shared.snapshot, error: failure }) }
+          // A refused key fails its own role, permission included: the rest of the card stays.
+          mark("failed", failure.message); publish({ ...shared.snapshot, error: failure })
           return failure.message
         }
         if (input.role === "coding" && input.model) {
