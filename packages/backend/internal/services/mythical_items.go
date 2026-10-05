@@ -2824,6 +2824,12 @@ func (resolver *MythicalFlowHostTargetResolver) ResolveFlowHostTarget(ctx contex
 		(target.WorkspaceID != "" && target.WorkspaceID != item.WorkspaceID) {
 		return flowhost.Authority{}, mythicalFlowFailure{code: "runtime_target_forbidden"}
 	}
+	// The lane is provisioned in the background after its launch is admitted:
+	// a host bound before its checkout exists would pin a source revision the
+	// finished checkout no longer has.
+	if lane, err := q.GetWorkspace(ctx, item.WorkspaceID); err != nil || lane.Status != "running" {
+		return flowhost.Authority{}, mythicalFlowFailure{code: "runtime_workspace_pending", retryable: err == nil || !errors.Is(err, pgx.ErrNoRows)}
+	}
 	return flowhost.Authority{Target: target, RepositoryID: repositoryID, UserID: userID, WorkspaceID: item.WorkspaceID,
 		CatalogKey: flowhost.CatalogCoding}, nil
 }
