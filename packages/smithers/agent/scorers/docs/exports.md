@@ -114,7 +114,7 @@ order. Signatures, bounds, and the reasoning behind each rule are on the
 | `Rubric.agreement`                   | const     | calibration  | Counts judge agreement with human labels.                                                     |
 | `Scorers.exact`                      | const     | scorers      | Normalized text equality: trims edges and collapses whitespace.                               |
 | `Scorers.contains`                   | const     | scorers      | Case-sensitive containment of ground-truth text.                                              |
-| `Scorers.rubric`                     | const     | scorers      | The existing model-agnostic 1 to 5 rubric scorer.                                                |
+| `Scorers.rubric`                     | const     | scorers      | The existing model-agnostic 1 to 5 rubric scorer.                                             |
 | `Scorers.TestsPassOptions`           | interface | models       | A declared command and already acquired sandbox session.                                      |
 | `Scorers.testsPass`                  | const     | scorers      | Grades sandbox command exit; launch and transport failure stay inconclusive.                  |
 | `Scorers.DiffOptions`                | interface | models       | An inclusive nonnegative diff budget.                                                         |
