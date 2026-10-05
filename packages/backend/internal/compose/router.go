@@ -905,6 +905,9 @@ func buildRouter(
 		if config.IsSingleOwner(cfg.Auth) {
 			r.Use(memberCommands(queries))
 		}
+		if queries != nil {
+			r.Use(delegatedAttribution(services.NewAuditService(queries)))
+		}
 		if config.IsSingleOwner(cfg.Auth) && extras.Mythical != nil {
 			service, _ := extras.Mythical.Service.(routes.TodoRouteService)
 			todos := &routes.TodoHandler{Queries: queries, Service: service}

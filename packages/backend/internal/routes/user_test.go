@@ -663,6 +663,10 @@ func TestUserHandler_GetAuthenticatedUser_TokenMetadata(t *testing.T) {
 		authInfo   middleware.AuthInfo
 		wantScopes string
 		wantSource string
+		// wantKind and wantVia are the stored credential kind and via that
+		// smthrs auth status reports (#3537).
+		wantKind string
+		wantVia  string
 	}{
 		{
 			name: "personal access token with normalized scopes",
@@ -673,6 +677,7 @@ func TestUserHandler_GetAuthenticatedUser_TokenMetadata(t *testing.T) {
 			},
 			wantScopes: `["read:admin","read:user","write:admin"]`,
 			wantSource: "personal_access_token",
+			wantKind:   "person",
 		},
 		{
 			name: "legacy scopes preserved exactly as held",
@@ -685,6 +690,7 @@ func TestUserHandler_GetAuthenticatedUser_TokenMetadata(t *testing.T) {
 			},
 			wantScopes: `["admin","all"]`,
 			wantSource: "personal_access_token",
+			wantKind:   "person",
 		},
 		{
 			name: "oauth2 access token",
@@ -695,6 +701,21 @@ func TestUserHandler_GetAuthenticatedUser_TokenMetadata(t *testing.T) {
 			},
 			wantScopes: `["read:user"]`,
 			wantSource: "oauth2_access_token",
+			wantKind:   "person",
+		},
+		{
+			name: "terminal's delegated credential",
+			authInfo: middleware.AuthInfo{
+				IsTokenAuth:       true,
+				TokenSystemIssued: true,
+				TokenSource:       middleware.TokenSourcePersonalAccessToken,
+				RawScopes:         "read:user,repo:7,via:terminal,branch:b,profile:terminal_s1,terminal-session:s",
+				Scopes:            middleware.ParseTokenScopes("read:user,repo:7,via:terminal,branch:b,profile:terminal_s1,terminal-session:s"),
+			},
+			wantScopes: `["read:user"]`,
+			wantSource: "personal_access_token",
+			wantKind:   "delegated",
+			wantVia:    "terminal",
 		},
 		{
 			name: "token without scopes",
@@ -704,6 +725,7 @@ func TestUserHandler_GetAuthenticatedUser_TokenMetadata(t *testing.T) {
 			},
 			wantScopes: `[]`,
 			wantSource: "personal_access_token",
+			wantKind:   "person",
 		},
 		{
 			name: "session omits token metadata",
@@ -735,12 +757,21 @@ func TestUserHandler_GetAuthenticatedUser_TokenMetadata(t *testing.T) {
 			if tc.authInfo.IsTokenAuth {
 				assert.JSONEq(t, tc.wantScopes, string(body["token_scopes"]))
 				assert.JSONEq(t, `"`+tc.wantSource+`"`, string(body["token_source"]))
+				assert.JSONEq(t, `"`+tc.wantKind+`"`, string(body["credential_kind"]))
+				if tc.wantVia == "" {
+					assert.NotContains(t, body, "via")
+				} else {
+					assert.JSONEq(t, `"`+tc.wantVia+`"`, string(body["via"]))
+				}
 			} else {
 				assert.NotContains(t, body, "token_scopes")
 				assert.NotContains(t, body, "token_source")
+				assert.NotContains(t, body, "credential_kind")
 			}
 			delete(body, "token_scopes")
 			delete(body, "token_source")
+			delete(body, "credential_kind")
+			delete(body, "via")
 			gotProfile, err := json.Marshal(body)
 			require.NoError(t, err)
 			wantProfile, err := json.Marshal(profile)

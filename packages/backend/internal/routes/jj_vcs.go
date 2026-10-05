@@ -306,7 +306,7 @@ func (h *JJVCSHandler) requireInstallMainOff(r *http.Request, bookmark string) e
 // repository.
 func requireAgentRunOffDefaultBookmark(r *http.Request, bookmark string) error {
 	kind := middleware.AuthInfoFromContext(r.Context()).CredentialKind()
-	if kind != middleware.CredentialAgentRun {
+	if !kind.Agent() {
 		return nil
 	}
 	repository := middleware.RepoFromContext(r.Context())

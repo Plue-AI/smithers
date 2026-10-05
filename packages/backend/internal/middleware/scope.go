@@ -307,7 +307,14 @@ func repositoryRestrictionForbids(authInfo *AuthInfo, r *http.Request) bool {
 	if authInfo.RepositoryRestriction() == 0 {
 		return false
 	}
-	return chi.URLParam(r, "owner") == "" || chi.URLParam(r, "repo") == ""
+	if chi.URLParam(r, "owner") != "" && chi.URLParam(r, "repo") != "" {
+		return false
+	}
+	// A terminal's credential also reaches the few routes outside its
+	// repository that its profile names (allowTerminalProfileToken): its
+	// person's identity and the install's TODOs.
+	delegation, ok := authInfo.Delegation()
+	return !ok || delegation.Profile != TerminalProfileS1
 }
 
 func writeRepositoryRestrictionForbidden(w http.ResponseWriter) {

@@ -28,7 +28,95 @@ const (
 	// write of the default bookmark, the GitHub main pull's fast-forward to
 	// GitHub's reviewed tip.
 	CredentialPlatform CredentialKind = "platform"
+	// CredentialDelegated is a system-issued token that acts for its person
+	// through an agent or a tool (spec §5.3): its issuer stored a via:<name>
+	// entry. It has every restriction of CredentialAgentRun (Agent) and only
+	// the routes its stored profile names.
+	CredentialDelegated CredentialKind = "delegated"
 )
+
+// Delegation entries are issuer-bound: only the host's own minting writes
+// them (a person cannot request them; they are not TokenScopes), and like the
+// other binding entries they grant nothing (ParseTokenScopes drops them).
+const (
+	delegationViaScopePrefix     = "via:"
+	delegationBranchScopePrefix  = "branch:"
+	delegationProfileScopePrefix = "profile:"
+	delegationSessionScopePrefix = "terminal-session:"
+)
+
+// TerminalProfileS1 is the stage-1 terminal credential's scope profile
+// (spec §8.11.1): reads, wiki reads, and the TODO actions T-TRM-02 lists.
+const TerminalProfileS1 = "terminal_s1"
+
+// Delegation is what the issuer stored on a delegated credential: the tool
+// it was minted for (via), and for a terminal's, its branch, profile and
+// terminal session.
+type Delegation struct {
+	Via     string
+	Branch  string
+	Profile string
+	Session string
+}
+
+// DelegationScopes are the scopes-list entries that bind a delegated
+// credential to its via, branch, profile and terminal session. Empty fields
+// are left out; via is required.
+func DelegationScopes(d Delegation) []string {
+	entries := []string{delegationViaScopePrefix + strings.ToLower(strings.TrimSpace(d.Via))}
+	for _, entry := range [][2]string{{delegationBranchScopePrefix, d.Branch}, {delegationProfileScopePrefix, d.Profile}, {delegationSessionScopePrefix, d.Session}} {
+		if value := strings.TrimSpace(entry[1]); value != "" {
+			entries = append(entries, entry[0]+strings.ToLower(value))
+		}
+	}
+	return entries
+}
+
+// ParseTokenDelegation reads the delegation entries of a system-issued
+// token's scopes. A token with no via entry is not delegated.
+func ParseTokenDelegation(systemIssued bool, raw string) (Delegation, bool) {
+	if !systemIssued {
+		return Delegation{}, false
+	}
+	var d Delegation
+	for _, part := range tokenScopeEntries(raw) {
+		part = strings.ToLower(strings.TrimSpace(part))
+		for prefix, field := range map[string]*string{delegationViaScopePrefix: &d.Via, delegationBranchScopePrefix: &d.Branch, delegationProfileScopePrefix: &d.Profile, delegationSessionScopePrefix: &d.Session} {
+			if strings.HasPrefix(part, prefix) && *field == "" {
+				*field = strings.TrimPrefix(part, prefix)
+			}
+		}
+	}
+	return d, d.Via != ""
+}
+
+// Delegation is the request credential's stored delegation, if it is a
+// delegated token.
+func (a *AuthInfo) Delegation() (Delegation, bool) {
+	if a == nil || !a.IsTokenAuth {
+		return Delegation{}, false
+	}
+	return ParseTokenDelegation(a.TokenSystemIssued, a.RawScopes)
+}
+
+// EffectiveVia is the via a delegated request is attributed to (spec §6.4):
+// a terminal's or the CLI's credential takes the Smithers-Via hint of the
+// agent working in it (claude-code or codex); every other stored via stands,
+// so a forged hint never changes a claude-code credential's attribution. The
+// hint is attribution only: it selects no person, branch, role or scope.
+func EffectiveVia(stored, hint string) string {
+	hint = strings.ToLower(strings.TrimSpace(hint))
+	if (stored == "terminal" || stored == "cli") && (hint == "claude-code" || hint == "codex") {
+		return hint
+	}
+	return stored
+}
+
+// Agent reports whether a credential of this kind is an agent's: an agent
+// run's or a delegated one. Neither writes the default bookmark directly.
+func (k CredentialKind) Agent() bool {
+	return k == CredentialAgentRun || k == CredentialDelegated
+}
 
 // syncCredentialScope marks a system-issued token as CredentialSync. Like the
 // other binding entries it grants no permission (ParseTokenScopes drops it),
@@ -76,6 +164,9 @@ func TokenCredentialKind(systemIssued bool, rawScopes, userType string) Credenti
 			return CredentialSync
 		}
 	}
+	if _, ok := ParseTokenDelegation(systemIssued, rawScopes); ok {
+		return CredentialDelegated
+	}
 	return CredentialAgentRun
 }
 
@@ -84,7 +175,7 @@ func TokenCredentialKind(systemIssued bool, rawScopes, userType string) Credenti
 // restricted kind.
 func ParseCredentialKind(raw string) CredentialKind {
 	switch kind := CredentialKind(strings.TrimSpace(raw)); kind {
-	case "", CredentialPerson, CredentialAgentRun, CredentialSync, CredentialPlatform:
+	case "", CredentialPerson, CredentialAgentRun, CredentialSync, CredentialPlatform, CredentialDelegated:
 		return kind
 	default:
 		return CredentialAgentRun

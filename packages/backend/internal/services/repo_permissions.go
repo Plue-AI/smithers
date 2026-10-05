@@ -292,6 +292,7 @@ var installCommandRoles = map[string]InstallRole{
 	"self.read":        InstallMember,
 	"telemetry.report": InstallMember,
 	"repo.read":        InstallMember,
+	"wiki.read":        InstallMember,
 	"sync.read":        InstallMember,
 	"sync.retry":       InstallMember,
 	"live":             InstallMember,
@@ -312,6 +313,10 @@ var installCommandRoles = map[string]InstallRole{
 	"members.list":  InstallMember,
 	"members.write": InstallMaintainer,
 }
+
+// terminalReadCommands are the commands a stage-1 terminal credential runs
+// for its member: the eligible reads and wiki reads (spec §8.11.1).
+var terminalReadCommands = map[string]bool{"self.read": true, "repo.read": true, "todo.read": true, "wiki.read": true}
 
 // AccessError is Authorize's refusal (spec §6.2.3 error envelope).
 type AccessError struct {
@@ -347,7 +352,13 @@ func Authorize(ctx context.Context, q *db.Queries, command string) (InstallAutho
 	if info == nil || info.User == nil {
 		return InstallAuthorization{}, &AccessError{Status: http.StatusUnauthorized, Class: "permission", Code: "unauthenticated", Message: "Sign in"}
 	}
-	if info.IsTokenAuth || info.IsAgent() || info.SessionHash == "" {
+	if delegation, ok := info.Delegation(); ok && delegation.Profile == middleware.TerminalProfileS1 {
+		// A member's terminal credential reads as that member (spec §8.11.1);
+		// the auth loader already confined it to its profile's routes.
+		if !terminalReadCommands[command] {
+			return InstallAuthorization{}, &AccessError{Status: http.StatusForbidden, Class: "permission", Code: "permission", Message: "A terminal's credential cannot do this"}
+		}
+	} else if info.IsTokenAuth || info.IsAgent() || info.SessionHash == "" {
 		return InstallAuthorization{}, &AccessError{Status: http.StatusForbidden, Class: "permission", Code: "permission", Message: "Sign in with a browser session"}
 	}
 	role, err := InstallRoleOf(ctx, q, info.User.ID)

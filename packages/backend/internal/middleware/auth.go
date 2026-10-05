@@ -90,6 +90,46 @@ func allowWorkspaceRestrictedToken(w http.ResponseWriter, r *http.Request, info 
 	return false
 }
 
+// terminalProfileRoutes are the routes a stage-1 terminal credential
+// (TerminalProfileS1, spec §8.11.1) may call: its person's identity, the
+// eligible reads, and wiki reads. Every other route refuses it with
+// 403 permission before any handler runs; T-TRM-02's own-branch answer and
+// steer and the delegated todo.new open here when their lanes land.
+var terminalProfileRoutes = []struct {
+	method string
+	path   *regexp.Regexp
+}{
+	{http.MethodGet, regexp.MustCompile(`^/api/user$`)},
+	{http.MethodGet, regexp.MustCompile(`^/api/user/repos$`)},
+	{http.MethodGet, regexp.MustCompile(`^/api/todos(/[0-9]+)?$`)},
+	{http.MethodGet, regexp.MustCompile(`^/api/repos/[^/]+/[^/]+$`)},
+	{http.MethodGet, regexp.MustCompile(`^/api/repos/[^/]+/[^/]+/mythical(/events|/items/[^/]+)?$`)},
+	{http.MethodGet, wikiReadPath},
+}
+
+// wikiReadPath is every wiki read: the page list, search, navigation, a
+// page, its document, updates, revisions, history and stream.
+var wikiReadPath = regexp.MustCompile(`^/api/repos/[^/]+/[^/]+/wiki(/[^/]+)*$`)
+
+// allowTerminalProfileToken confines a stage-1 terminal credential to
+// terminalProfileRoutes. It writes the 403 itself and returns false when
+// refused.
+func allowTerminalProfileToken(w http.ResponseWriter, r *http.Request, info *AuthInfo) bool {
+	delegation, ok := info.Delegation()
+	if !ok || delegation.Profile != TerminalProfileS1 {
+		return true
+	}
+	for _, route := range terminalProfileRoutes {
+		if route.method == r.Method && route.path.MatchString(r.URL.Path) {
+			return true
+		}
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusForbidden)
+	_, _ = w.Write([]byte(`{"class":"permission","code":"permission","message":"A terminal's credential cannot do this"}` + "\n"))
+	return false
+}
+
 // RequireAuth ensures a previous auth middleware attached a user to context.
 func RequireAuth(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -169,6 +209,9 @@ func AuthLoader(queries AuthLoaderQuerier, cfg config.AuthConfig, boundaries ...
 					return
 				}
 				if !allowWorkspaceRestrictedToken(w, r, authInfo) {
+					return
+				}
+				if !allowTerminalProfileToken(w, r, authInfo) {
 					return
 				}
 				if authInfo.TokenSource == TokenSourcePersonalAccessToken {
@@ -289,6 +332,7 @@ var installMemberRoutes = []struct {
 	{http.MethodGet, "self.read", regexp.MustCompile(`^/api/user/(orgs|workspaces)$`)},
 	{http.MethodGet, "repo.read", regexp.MustCompile(`^/api/user/repos$`)},
 	{http.MethodGet, "repo.read", regexp.MustCompile(`^/api/repos/[^/]+/[^/]+/mythical(/events|/items/[^/]+)?$`)},
+	{http.MethodGet, "wiki.read", wikiReadPath},
 	{http.MethodGet, "sync.read", regexp.MustCompile(`^/api/github/sync$`)},
 	{http.MethodPost, "sync.retry", regexp.MustCompile(`^/api/github/sync$`)},
 	{http.MethodGet, "live", regexp.MustCompile(`^/api/live$`)},

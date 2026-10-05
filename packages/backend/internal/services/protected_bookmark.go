@@ -61,7 +61,7 @@ func isMythicalBookmark(bookmark string) bool {
 // the platform's sync credential are not affected; the mythical bookmark is
 // refused to everyone by RequireBookmarkNotProtected.
 func RequireAgentRunOffDefaultBookmark(kind middleware.CredentialKind, defaultBookmark, bookmark string) error {
-	if kind == middleware.CredentialAgentRun && repohost.SameRef(bookmark, defaultBookmark) {
+	if kind.Agent() && repohost.SameRef(bookmark, defaultBookmark) {
 		return pkgerrors.Forbidden(fmt.Sprintf("an agent run cannot write the default bookmark %q; land its changes instead", bookmark))
 	}
 	return nil

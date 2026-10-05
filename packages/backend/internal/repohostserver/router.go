@@ -990,7 +990,7 @@ func (s *Server) receivePack(w http.ResponseWriter, r *http.Request) (retErr err
 	if err := refuseCaseVariantRefs(beforeRefs, writtenRefNames(commands)...); err != nil {
 		return err
 	}
-	if sender.PusherCredential == jjmiddleware.CredentialAgentRun {
+	if sender.PusherCredential.Agent() {
 		if err := refuseAgentRunDefaultBookmark(r.Context(), gitDir, commands); err != nil {
 			return err
 		}

@@ -241,11 +241,17 @@ func (h *UserHandler) GetAuthenticatedUser(w http.ResponseWriter, r *http.Reques
 			scopes = append(scopes, string(scope))
 		}
 		sort.Strings(scopes)
+		// The credential's stored kind and via (spec §5.3, C-J6-01): what
+		// `smthrs auth status` reports for the effective credential. A
+		// Smithers-Via hint is attribution, never identity, so it is not read.
+		delegation, _ := authInfo.Delegation()
 		errors.WriteJSON(w, http.StatusOK, struct {
 			services.UserProfile
-			TokenScopes []string `json:"token_scopes"`
-			TokenSource string   `json:"token_source"`
-		}{profile, scopes, string(authInfo.TokenSource)})
+			TokenScopes    []string `json:"token_scopes"`
+			TokenSource    string   `json:"token_source"`
+			CredentialKind string   `json:"credential_kind"`
+			Via            string   `json:"via,omitempty"`
+		}{profile, scopes, string(authInfo.TokenSource), string(authInfo.CredentialKind()), delegation.Via})
 		return
 	}
 
