@@ -1192,9 +1192,13 @@ func mythicalNextDue(before, after db.MythicalItem, now time.Time) time.Time {
 
 // mythicalDue answers when item can take its next step with no outside
 // event; moved says the step that saved it changed what the worker does
-// next (a new state, or a GitHub operation sent or settled).
+// next (a new state, or a GitHub operation sent or settled). A settled item
+// steps on only to settle a GitHub operation it still owes (Drop's close)
+// and then to release its lane.
 func mythicalDue(item db.MythicalItem, moved bool, now time.Time) time.Time {
 	switch {
+	case mythicalSettledStates[item.State] && moved && (len(item.PendingOp) > 0 || item.WorkspaceID != ""):
+		return now
 	case mythicalSettledStates[item.State]:
 		return time.Time{}
 	case item.NextAttemptAt.Valid && item.NextAttemptAt.Time.After(now):
@@ -1537,7 +1541,7 @@ func (st *mythicalItemStep) commitWith(ctx context.Context, item db.MythicalItem
 	authorization, _ := json.Marshal(binding)
 	if _, err := s.launcher.AdmitInTx(ctx, tx, flowdispatch.LaunchRequest{
 		Scope:     jobs.Scope{TenantID: tenant, PrincipalID: principal},
-		RequestID: fmt.Sprintf("mythical:%s:%d:%s:%d", id, saved.Attempt, phase, saved.Generation),
+		RequestID: mythicalLaunchRequestID(id, saved.Attempt, phase, saved.Generation),
 		Target: flowruntime.FlowRuntimeTarget{TenantID: tenant, PrincipalID: principal, WorkspaceID: saved.WorkspaceID,
 			BindingKind: mythicalBindingKind, BindingID: id},
 		FlowID: flowID, Payload: payload, AuthorizationContext: authorization, Projection: projection,
@@ -3898,6 +3902,8 @@ type mythicalChecks struct {
 	// AttemptBase is the attempt a Retry left the item at: its attempt bound
 	// counts from there while the attempt number keeps counting.
 	AttemptBase int32 `json:"attemptBase,omitempty"`
+	// Dropped is the person's Drop (dropTodo): its key, who and when.
+	Dropped *todoDrop `json:"dropped,omitempty"`
 	// TodoEvent is the GitHub event id of the last maintainer application
 	// of todo the stack acted on.
 	TodoEvent int64 `json:"todoEvent,omitempty"`

@@ -258,6 +258,18 @@ func (g *fakeMythicalGitHub) Pull(_ context.Context, _ mythicalGitHubRepo, numbe
 	return answer, nil
 }
 
+// ClosePull closes the pull request unmerged, as Drop does.
+func (g *fakeMythicalGitHub) ClosePull(_ context.Context, _ mythicalGitHubRepo, number int64) error {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	pull, ok := g.pulls[number]
+	if !ok {
+		return fmt.Errorf("no pull %d", number)
+	}
+	pull.State = "closed"
+	return nil
+}
+
 func (g *fakeMythicalGitHub) FindPull(_ context.Context, _ mythicalGitHubRepo, branch string) (*mythicalPull, error) {
 	g.mu.Lock()
 	defer g.mu.Unlock()
@@ -307,6 +319,8 @@ type fakeMythicalLauncher struct {
 	mu       sync.Mutex
 	requests []flowdispatch.LaunchRequest
 	fail     int
+	// cancelled are the request ids CancelRequestInTx cancelled.
+	cancelled []string
 }
 
 // AdmitInTx records the launch only when the item's transaction commits, as
@@ -325,6 +339,21 @@ func (l *fakeMythicalLauncher) AdmitInTx(ctx context.Context, tx pgx.Tx, request
 	}
 	l.requests = append(l.requests, request)
 	return jobs.RequestReceipt{}, nil
+}
+
+// CancelRequestInTx records the cancellation of an admitted launch, as
+// flowdispatch does in the caller's transaction; an unknown request is
+// jobs.ErrNotFound.
+func (l *fakeMythicalLauncher) CancelRequestInTx(_ context.Context, _ pgx.Tx, _ jobs.Scope, requestID string) (jobs.Operation, error) {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	for _, seen := range l.requests {
+		if seen.RequestID == requestID {
+			l.cancelled = append(l.cancelled, requestID)
+			return jobs.Operation{}, nil
+		}
+	}
+	return jobs.Operation{}, jobs.ErrNotFound
 }
 
 func (l *fakeMythicalLauncher) last(flowID string) flowdispatch.LaunchRequest {

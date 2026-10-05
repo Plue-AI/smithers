@@ -343,6 +343,10 @@ func TestMythicalDueAfterARecoveredOperation(t *testing.T) {
 		{"a sent push is looked up at once", db.MythicalItem{State: "proposing", PendingOp: json.RawMessage(`{"state":"unknown"}`)}, true, now},
 		{"a person's push is held until the poll", db.MythicalItem{State: "proposing", NextAttemptAt: later}, true, later.Time},
 		{"a landed merge takes no step", db.MythicalItem{State: "landed"}, true, time.Time{}},
+		{"a dropped TODO's sent close is looked up at once", db.MythicalItem{State: "cancelled", PendingOp: json.RawMessage(`{"kind":"close","state":"unknown"}`), WorkspaceID: "w"}, true, now},
+		{"a dropped TODO's settled close releases its lane at once", db.MythicalItem{State: "cancelled", PRState: "closed", WorkspaceID: "w"}, true, now},
+		{"a dropped TODO with no lane takes no step", db.MythicalItem{State: "cancelled", PRState: "closed"}, true, time.Time{}},
+		{"an unchanged close waits for an event", db.MythicalItem{State: "cancelled", PendingOp: json.RawMessage(`{"kind":"close","state":"unknown"}`)}, false, time.Time{}},
 		{"a merge still open on GitHub waits for an event", db.MythicalItem{State: "proposed"}, false, time.Time{}},
 	} {
 		t.Run(tc.name, func(t *testing.T) {

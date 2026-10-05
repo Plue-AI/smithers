@@ -134,14 +134,22 @@ func TestTodoRoutesAuthorizeByRole(t *testing.T) {
 			require.Equal(t, tc.mergeCode, envelope["code"])
 			// Every control, as the app sends it: a person on the roster gets
 			// past authorization to the service, which refuses Retry of a
-			// working TODO and keeps the controls it has no service for dark;
-			// nobody else gets past authorization.
+			// working TODO, answers Drop of an unknown TODO 404 and keeps the
+			// controls it has no service for dark; nobody else gets past
+			// authorization.
 			for _, body := range []string{`{"op":"steer","text":"Keep the max at 5"}`, `{"steer":"Keep the max at 5"}`, `{"op":"stop"}`, `{"op":"resume"}`,
 				`{"op":"retry"}`, `{"op":"retry","steer":"Use the retry helper"}`, `{"op":"retry-current-flow"}`, `{"op":"drop"}`} {
-				status, envelope = call(http.MethodPost, "/api/todos/3", body, "control-"+tc.who, info)
+				path := "/api/todos/3"
+				if body == `{"op":"drop"}` {
+					path = "/api/todos/99"
+				}
+				status, envelope = call(http.MethodPost, path, body, "control-"+tc.who, info)
 				if tc.list == 200 && strings.HasPrefix(body, `{"op":"retry"`) {
 					require.Equal(t, http.StatusConflict, status, body)
 					require.Equal(t, map[string]any{"code": "conflict", "class": "conflict", "message": "TODO has not failed"}, envelope, body)
+				} else if tc.list == 200 && body == `{"op":"drop"}` {
+					require.Equal(t, http.StatusNotFound, status, body)
+					require.Equal(t, "todo_not_found", envelope["code"], body)
 				} else if tc.list == 200 {
 					require.Equal(t, http.StatusServiceUnavailable, status, body)
 					require.Equal(t, map[string]any{"code": "todo_control_unavailable", "class": "infra", "message": "TODO controls are unavailable"}, envelope, body)
@@ -196,6 +204,20 @@ func TestTodoRoutesAuthorizeByRole(t *testing.T) {
 	require.Equal(t, http.StatusConflict, status, envelope)
 	require.Equal(t, "alice", envelope["answered_by"])
 	require.Len(t, signals.sent(), 1)
+
+	// Any member drops a TODO (§6.15); the same press again is the same drop,
+	// and another press on the dropped TODO is 409.
+	status, envelope = call(http.MethodPost, "/api/todos/3", `{"op":"drop"}`, "drop-alice", sessions["member"])
+	require.Equal(t, http.StatusAccepted, status, envelope)
+	require.Equal(t, map[string]any{"state": "accepted"}, envelope)
+	status, envelope = call(http.MethodPost, "/api/todos/3", `{"op":"drop"}`, "drop-alice", sessions["member"])
+	require.Equal(t, http.StatusAccepted, status, envelope)
+	status, envelope = call(http.MethodPost, "/api/todos/3", `{"op":"drop"}`, "drop-ben", sessions["maintainer"])
+	require.Equal(t, http.StatusConflict, status, envelope)
+	require.Equal(t, "TODO is settled", envelope["message"])
+	status, envelope = call(http.MethodGet, "/api/todos/3", "", "", sessions["owner"])
+	require.Equal(t, http.StatusOK, status, envelope)
+	require.Equal(t, "dropped", envelope["state"])
 
 	// A member removed now is refused on the very next request.
 	_, err = pool.Exec(ctx, `UPDATE collaborators SET suspended_at=now() WHERE user_id=$1`, alice)

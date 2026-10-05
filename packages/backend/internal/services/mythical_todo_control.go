@@ -33,6 +33,7 @@ type TodoControlReceipt struct {
 // (mythical_todo_<op>.go). An op without an entry is unavailable.
 var todoControls = map[string]func(*MythicalService, context.Context, int64, TodoControlInput) (TodoControlReceipt, error){
 	"retry": (*MythicalService).retryTodo,
+	"drop":  (*MythicalService).dropTodo,
 }
 
 // TodoControlError uses the install command error envelope (§6.2.3).

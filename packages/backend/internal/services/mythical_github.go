@@ -80,6 +80,8 @@ type mythicalGitHub interface {
 	MaintainerNow(ctx context.Context, gh mythicalGitHubRepo, account gitHubActor) (bool, error)
 	Pull(ctx context.Context, gh mythicalGitHubRepo, number int64) (mythicalPull, error)
 	FindPull(ctx context.Context, gh mythicalGitHubRepo, branch string) (*mythicalPull, error)
+	// ClosePull closes a pull request without merging it (Drop).
+	ClosePull(ctx context.Context, gh mythicalGitHubRepo, number int64) error
 	CreatePull(ctx context.Context, gh mythicalGitHubRepo, title, head, base, body string, draft bool) (mythicalPull, error)
 	// UpdatePullBody replaces a pull request's description.
 	UpdatePullBody(ctx context.Context, gh mythicalGitHubRepo, number int64, body string) error
@@ -317,8 +319,10 @@ func (g *mythicalGitHubAPI) Pull(ctx context.Context, gh mythicalGitHubRepo, num
 }
 
 // ClosePull is the Drop write primitive. Its caller must first persist the
-// outbound intent and reconcile uncertain results through Pull (T-GH-09).
-// Never invoke it before the merge fence and retained final capture settle.
+// outbound intent and reconcile uncertain results through Pull (T-GH-09):
+// appSend sends it only for a dropped TODO's close pending_op, which Drop
+// records outside the merge fence; the stack releases the TODO's lane only
+// after the close settles.
 func (g *mythicalGitHubAPI) ClosePull(ctx context.Context, gh mythicalGitHubRepo, number int64) error {
 	token, err := g.installationToken(ctx, gh, map[string]string{"pull_requests": "write"})
 	if err != nil {

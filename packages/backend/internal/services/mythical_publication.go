@@ -489,7 +489,8 @@ func (st *mythicalItemStep) publicationGitHub(ctx context.Context) (mythicalGitH
 
 // appLookup observes an operation's target on GitHub: the branch head for a
 // push, the open pull request's head for an open, the merge for a merge, the
-// open pull request's body digest for a body.
+// open pull request's body digest for a body, the pull request's state for a
+// close.
 func (st *mythicalItemStep) appLookup(ctx context.Context, item db.MythicalItem, op MythicalOutboundOp) (string, bool, error) {
 	gh, err := st.publicationGitHub(ctx)
 	if err != nil {
@@ -527,6 +528,17 @@ func (st *mythicalItemStep) appLookup(ctx context.Context, item db.MythicalItem,
 			return "", false, nil
 		}
 		return mythicalBodyDigest(pull.Body), false, nil
+	case "close":
+		number, err := strconv.ParseInt(op.Target, 10, 64)
+		if err != nil {
+			return "", false, fmt.Errorf("invalid pull request number %q", op.Target)
+		}
+		pull, err := st.s.github.Pull(ctx, gh, number)
+		if err != nil {
+			return "", false, err
+		}
+		// GitHub answers a merged pull request closed too.
+		return pull.State, false, nil
 	}
 	return "", false, fmt.Errorf("GitHub %s reconciliation is not composed", op.Kind)
 }
@@ -543,8 +555,9 @@ func mythicalBodyDigest(body string) string {
 // it again.
 var errMythicalBodyStale = errors.New("the pull request body changed since its update was prepared")
 
-// appSend repeats an operation whose lookup proved it never took effect. A
-// merge is sent through prepareMerge instead.
+// appSend repeats an operation whose lookup proved it never took effect: a
+// close says Drop's comment, then closes the pull request. A merge is sent
+// through prepareMerge instead.
 func (st *mythicalItemStep) appSend(ctx context.Context, item db.MythicalItem, op MythicalOutboundOp) error {
 	gh, err := st.publicationGitHub(ctx)
 	if err != nil {
@@ -571,6 +584,22 @@ func (st *mythicalItemStep) appSend(ctx context.Context, item db.MythicalItem, o
 			return errMythicalBodyStale
 		}
 		return st.s.github.UpdatePullBody(ctx, gh, number, body)
+	case "close":
+		number, err := strconv.ParseInt(op.Target, 10, 64)
+		if err != nil {
+			return fmt.Errorf("invalid pull request number %q", op.Target)
+		}
+		// Drop's comment comes first, keyed by the drop, so a close repeated
+		// after a lost answer edits it rather than saying it twice.
+		dropped := mythicalChecksOf(item).Dropped
+		key := "drop:" + uuidString(item.ID)
+		if dropped != nil {
+			key += ":" + dropped.Request
+		}
+		if err := st.s.github.Comment(ctx, gh, number, key, mythicalDropComment(dropped)); err != nil {
+			return err
+		}
+		return st.s.github.ClosePull(ctx, gh, number)
 	}
 	return fmt.Errorf("GitHub %s dispatch is not composed", op.Kind)
 }
@@ -606,8 +635,8 @@ func (st *mythicalItemStep) prepareMerge(ctx context.Context, item db.MythicalIt
 }
 
 // appSettle binds an opened pull request from GitHub's own answer at the
-// proposed head, records a written body, and lands a merge once main
-// contains it; a push settles from lookup alone.
+// proposed head, records a written body or a closed pull request, and lands
+// a merge once main contains it; a push settles from lookup alone.
 func (st *mythicalItemStep) appSettle(ctx context.Context, item db.MythicalItem, op MythicalOutboundOp) (db.MythicalItem, error) {
 	if op.Kind == "body" {
 		// Lookup found the body written: it is the one Smithers last wrote,
@@ -619,6 +648,12 @@ func (st *mythicalItemStep) appSettle(ctx context.Context, item db.MythicalItem,
 			checks.Review.Posted = true
 		}
 		next.Checks = checks.encode()
+		return next, nil
+	}
+	if op.Kind == "close" {
+		// Lookup found the dropped TODO's pull request closed.
+		next := item
+		next.PRState = "closed"
 		return next, nil
 	}
 	if op.Kind != "open" && op.Kind != "merge" {
