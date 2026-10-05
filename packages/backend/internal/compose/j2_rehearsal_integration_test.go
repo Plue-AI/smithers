@@ -266,9 +266,9 @@ func TestJ2Rehearsal(t *testing.T) {
 	}) {
 		return
 	}
-	// The review runs on the open PR; its summary is the TODO's evidence,
-	// where the PR is reviewed.
-	r.step("5 review summary", "GET "+todoPath, "the TODO's evidence holds the agent's review of the PR head", "T-STK-01, lane review-seat", func() error {
+	// The review runs on the open PR; its verdict is the TODO's evidence and
+	// the PR body's review line, and nothing holds the merge after it.
+	r.step("5 review summary", "GET "+todoPath+"; GET GitHub fake /repos/rehearsal-owner/app/pulls/{n}", "the TODO's evidence holds the agent's review of the PR head; the PR body carries the same review line; merge ready", "T-STK-01, T-GH-09", func() error {
 		deadline := time.Now().Add(time.Minute)
 		for {
 			todo, err := r.waitTodo(number, "in_review")
@@ -283,13 +283,41 @@ func TestJ2Rehearsal(t *testing.T) {
 					}
 				}
 			}
-			if review != "" {
+			pull, err := r.readFakePull(prNumber)
+			if err != nil {
+				return err
+			}
+			var card struct {
+				Merge struct {
+					State string `json:"state"`
+				} `json:"merge"`
+			}
+			if _, raw, err := r.request("GET", todoPath, ""); err == nil {
+				_ = json.Unmarshal(raw, &card)
+			}
+			line := "Review: " + review
+			r.actual = fmt.Sprintf("review=%q merge=%s body has %q: %t", review, card.Merge.State, line, review != "" && strings.Contains(pull.Body, line))
+			if review == "approve" && strings.Contains(pull.Body, "\n\n"+line+"\n\n") && card.Merge.State == "ready" {
 				return nil
 			}
 			if time.Now().After(deadline) {
-				var reason string
-				_ = r.pool.QueryRow(r.ctx, `SELECT reason FROM mythical_items WHERE number=$1`, number).Scan(&reason)
-				return fmt.Errorf("no review verdict on the PR head after a minute (item reason %q): the review/change run never reached a model (lane review-seat)", reason)
+				// Where the review stopped: the item's review and its jobs.
+				var reason, checked string
+				_ = r.pool.QueryRow(r.ctx, `SELECT reason, coalesce(checks->>'review', '') FROM mythical_items WHERE number=$1`, number).Scan(&reason, &checked)
+				jobs := []string{}
+				rows, err := r.pool.Query(r.ctx, `SELECT r.request_id, r.state, coalesce(d.status, ''), coalesce(d.attempt, 0), coalesce(d.last_error, ''), coalesce(r.terminal_receipt::text, '')
+ FROM product_job_requests r LEFT JOIN product_job_dispatches d ON d.operation_id = r.id WHERE r.request_id LIKE 'mythical:%:review:%' ORDER BY r.request_id`)
+				if err == nil {
+					for rows.Next() {
+						var request, state, status, lastError, receipt string
+						var attempt int64
+						if rows.Scan(&request, &state, &status, &attempt, &lastError, &receipt) == nil {
+							jobs = append(jobs, fmt.Sprintf("%s %s %s attempt=%d error=%q receipt=%.300s", request, state, status, attempt, lastError, receipt))
+						}
+					}
+					rows.Close()
+				}
+				return fmt.Errorf("no approved review on the PR head and its body after a minute: %s (item reason %q, review %s, jobs %v)", r.actual, reason, checked, jobs)
 			}
 			time.Sleep(500 * time.Millisecond)
 		}

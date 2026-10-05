@@ -220,6 +220,10 @@ func newRehearsal(t *testing.T, enable, check, keyPrefix string) *rehearsal {
 		// The coding host binds its lane's checkout through the native helper
 		// and implements on the platform seat the scripted model answers.
 		"SMITHERS_WORKSPACE_CODING_DEFAULT_MODEL": "cerebras:gpt-oss-120b",
+		// The platform's AI Gateway key below serves only Jev, so the
+		// review's default second-vendor seat (vercel:...) would be refused;
+		// the operator pins the review to the seat the scripted model answers.
+		"SMITHERS_WORKSPACE_CODING_REVIEW_MODEL": "cerebras:gpt-oss-120b",
 	} {
 		t.Setenv(name, value)
 	}
