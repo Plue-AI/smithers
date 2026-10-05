@@ -152,8 +152,10 @@ func TestVerifyOwnerLivePermissionPostgres(t *testing.T) {
 			w.Write([]byte(`{"id":91}`))
 		case "/app/installations/91/access_tokens":
 			require.Equal(t, "Bearer app-jwt", r.Header.Get("Authorization"))
+			body, _ := io.ReadAll(r.Body)
+			require.JSONEq(t, `{"permissions":{"metadata":"read"}}`, string(body), "the owner check asks for metadata:read and nothing else")
 			w.WriteHeader(201)
-			w.Write([]byte(`{"token":"installation-token"}`))
+			w.Write([]byte(`{"token":"installation-token","expires_at":"2099-01-01T00:00:00Z"}`))
 		case "/repos/acme/app/collaborators/owner/permission":
 			require.Equal(t, "Bearer installation-token", r.Header.Get("Authorization"))
 			json.NewEncoder(w).Encode(map[string]string{"permission": permission, "role_name": role})
@@ -164,7 +166,9 @@ func TestVerifyOwnerLivePermissionPostgres(t *testing.T) {
 	}))
 	defer provider.Close()
 	t.Setenv(envGitHubAppAPIBaseURL, provider.URL)
-	m := &Members{Pool: pool, Credentials: memberCredentials{}}
+	invalidateCachedInstallationToken(91)
+	t.Cleanup(func() { invalidateCachedInstallationToken(91) })
+	m := &Members{Pool: pool, Credentials: memberCredentials{}, Minter: NewRepoConnectionService(nil, memberCredentials{})}
 	// A read-only owner stays provisional; permission is checked live.
 	require.ErrorContains(t, m.BindRepository(ctx, user, "acme", "app", repo.ID), "needs access on GitHub")
 	_, err = q.GetInstallSetting(ctx, "owner.access")
@@ -176,7 +180,8 @@ func TestVerifyOwnerLivePermissionPostgres(t *testing.T) {
 	require.Contains(t, string(setting.Value), `"installation_id": 91`)
 	permission = "write"
 	require.NoError(t, m.BindRepository(ctx, user, "acme", "app", repo.ID))
-	require.Len(t, calls, 9)
+	// The one minter caches the token, so only the first check mints.
+	require.Len(t, calls, 7)
 	require.Equal(t, []string{"GET /repos/acme/app/installation", "POST /app/installations/91/access_tokens", "GET /repos/acme/app/collaborators/owner/permission"}, calls[:3])
 	var count int
 	require.NoError(t, pool.QueryRow(ctx, `SELECT count(*) FROM collaborators WHERE repository_id=$1 AND user_id=$2 AND permission='admin'`, repo.ID, user.ID).Scan(&count))

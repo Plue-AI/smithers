@@ -65,7 +65,7 @@ func TestDeadCredentialRepoRoutesComposedInstallPostgres(t *testing.T) {
 	provider := httptest.NewServer(http.HandlerFunc(github.serve))
 	defer provider.Close()
 	t.Setenv("SMITHERS_GITHUB_APP_API_BASE_URL", provider.URL)
-	members := &services.Members{Pool: pool, Credentials: rosterAppCredentials{}}
+	members := &services.Members{Pool: pool, Credentials: rosterAppCredentials{}, Minter: services.NewRepoConnectionService(nil, rosterAppCredentials{})}
 
 	cfg := testConfigAllFlagsOn()
 	cfg.Auth.Mode = "selfhost"

@@ -4,9 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
-	"fmt"
 	"net/http"
-	"os"
 	"time"
 
 	"github.com/jackc/pgx/v5"
@@ -16,9 +14,33 @@ import (
 )
 
 // Members retains the singleton owner; the roster extension uses this seam.
+// Credentials sign the installation lookup, Minter is the one installation
+// token minter (§12.1.3), and Budget accounts every GitHub request the roster
+// makes against the install's shared rate budget.
 type Members struct {
 	Pool        *pgxpool.Pool
 	Credentials GitHubAppCredentialReader
+	Minter      GitHubInstallationTokenMinter
+	Budget      *BudgetTracker
+}
+
+// gitHubMemberPermissions is everything a roster check needs: GitHub lists
+// GET /repos/{o}/{r}/collaborators/{login}/permission under Metadata (read),
+// and GET /users/{login} needs no permission.
+var gitHubMemberPermissions = map[string]string{"metadata": "read"}
+
+// memberToken mints the roster's installation token. The install records the
+// repository by name and Smithers id only, never GitHub's id, so the token
+// spans the installation's repositories at metadata:read.
+func (m *Members) memberToken(ctx context.Context, installationID int64) (string, error) {
+	if m.Minter == nil {
+		return "", ErrGitHubAppNotConfigured
+	}
+	token, err := m.Minter.CreateGitHubInstallationToken(ctx, installationID, GitHubTokenScope{AllRepositories: true, Permissions: gitHubMemberPermissions})
+	if err != nil {
+		return "", err
+	}
+	return token.Token, nil
 }
 
 // VerifyOwner discovers the installation using the App JWT, then checks push
@@ -50,19 +72,14 @@ func (m *Members) VerifyOwner(ctx context.Context, user db.User) error {
 	if !gitHubAppComponent.MatchString(repo.Owner) || !gitHubAppComponent.MatchString(repo.Name) {
 		return pkgerrors.BadRequest("invalid GitHub repository")
 	}
-	if m.Credentials == nil {
+	if m.Credentials == nil || m.Minter == nil {
 		return ErrGitHubAppNotConfigured
 	}
 	jwt, err := m.Credentials.AppJWT(ctx)
 	if err != nil {
 		return err
 	}
-	api := &landingGitHubAPI{client: &http.Client{Timeout: 30 * time.Second}, baseURL: func() string {
-		if base := os.Getenv(envGitHubAppAPIBaseURL); base != "" {
-			return base
-		}
-		return defaultGitHubAPIBaseURL
-	}}
+	api := m.api(30 * time.Second)
 	var installation struct {
 		ID int64 `json:"id"`
 	}
@@ -73,17 +90,11 @@ func (m *Members) VerifyOwner(ctx context.Context, user db.User) error {
 	if status != 200 || installation.ID <= 0 {
 		return pkgerrors.Forbidden("GitHub App is not installed on the repository")
 	}
-	var access struct {
-		Token string `json:"token"`
-	}
-	status, err = api.request(ctx, jwt, http.MethodPost, fmt.Sprintf("/app/installations/%d/access_tokens", installation.ID), nil, &access)
+	token, err := m.memberToken(ctx, installation.ID)
 	if err != nil {
-		return err
-	}
-	if status != 201 || access.Token == "" {
 		return pkgerrors.Forbidden("GitHub installation token unavailable")
 	}
-	permission, role, err := api.repositoryPermission(ctx, access.Token, repo.Owner, repo.Name, user.Username)
+	permission, role, err := api.repositoryPermission(ctx, token, repo.Owner, repo.Name, user.Username)
 	if err != nil {
 		return err
 	}

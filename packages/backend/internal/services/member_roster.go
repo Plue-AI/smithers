@@ -4,7 +4,6 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
-	"fmt"
 	"net/http"
 	"os"
 	"regexp"
@@ -49,8 +48,9 @@ func (m *Members) repository(ctx context.Context) (memberRepository, error) {
 	return repo, nil
 }
 
-func memberAPI() *landingGitHubAPI {
-	return &landingGitHubAPI{client: &http.Client{Timeout: 15 * time.Second}, baseURL: func() string {
+// api is a GitHub client whose requests count against the shared budget.
+func (m *Members) api(timeout time.Duration) *landingGitHubAPI {
+	return &landingGitHubAPI{client: m.Budget.WrapClient(&http.Client{Timeout: timeout}), baseURL: func() string {
 		if base := os.Getenv(envGitHubAppAPIBaseURL); base != "" {
 			return base
 		}
@@ -58,17 +58,18 @@ func memberAPI() *landingGitHubAPI {
 	}}
 }
 
-// installationAccess is an installation token for the install's repository,
-// found through the App JWT; a caller never names the installation.
+// installationAccess is the roster's installation token from the one minter,
+// for the installation the App JWT finds on the install's repository; a
+// caller never names the installation.
 func (m *Members) installationAccess(ctx context.Context, repo memberRepository) (string, error) {
-	if m.Credentials == nil {
+	if m.Credentials == nil || m.Minter == nil {
 		return "", ErrGitHubAppNotConfigured
 	}
 	jwt, err := m.Credentials.AppJWT(ctx)
 	if err != nil {
 		return "", err
 	}
-	api := memberAPI()
+	api := m.api(15 * time.Second)
 	var installation struct {
 		ID int64 `json:"id"`
 	}
@@ -76,14 +77,11 @@ func (m *Members) installationAccess(ctx context.Context, repo memberRepository)
 	if err != nil || status != http.StatusOK || installation.ID <= 0 {
 		return "", memberError(http.StatusServiceUnavailable, "infra", "github_unavailable", "GitHub unavailable")
 	}
-	var access struct {
-		Token string `json:"token"`
-	}
-	status, err = api.request(ctx, jwt, http.MethodPost, fmt.Sprintf("/app/installations/%d/access_tokens", installation.ID), nil, &access)
-	if err != nil || status != http.StatusCreated || access.Token == "" {
+	token, err := m.memberToken(ctx, installation.ID)
+	if err != nil {
 		return "", memberError(http.StatusServiceUnavailable, "infra", "github_unavailable", "GitHub unavailable")
 	}
-	return access.Token, nil
+	return token, nil
 }
 
 // githubMemberRole seeds a role from GitHub's answer. GitHub's legacy
@@ -104,7 +102,7 @@ func (m *Members) permission(ctx context.Context, token string, repo memberRepos
 		Permission string `json:"permission"`
 		Role       string `json:"role_name"`
 	}
-	status, err := memberAPI().request(ctx, token, http.MethodGet, landingGitHubRepoPath(repo.Owner, repo.Name)+"/collaborators/"+login+"/permission", nil, &out)
+	status, err := m.api(15*time.Second).request(ctx, token, http.MethodGet, landingGitHubRepoPath(repo.Owner, repo.Name)+"/collaborators/"+login+"/permission", nil, &out)
 	if err != nil || (status != http.StatusOK && status != http.StatusNotFound) {
 		return "", memberError(http.StatusServiceUnavailable, "infra", "github_unavailable", "GitHub unavailable")
 	}
@@ -191,7 +189,7 @@ func (m *Members) Add(ctx context.Context, login string) error {
 		ID    int64  `json:"id"`
 		Login string `json:"login"`
 	}
-	status, err := memberAPI().request(ctx, token, http.MethodGet, "/users/"+login, nil, &user)
+	status, err := m.api(15*time.Second).request(ctx, token, http.MethodGet, "/users/"+login, nil, &user)
 	if err != nil || (status != http.StatusOK && status != http.StatusNotFound) {
 		return memberError(http.StatusServiceUnavailable, "infra", "github_unavailable", "GitHub unavailable")
 	}

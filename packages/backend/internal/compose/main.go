@@ -1551,7 +1551,7 @@ func runWithOptions(ctx context.Context, args []string, stdout, stderr io.Writer
 		// teammates open, read at each use so a saved change applies.
 		mythicalService.SetPublicOrigin(installAddress.Public)
 		authService.InstallSetup = &services.InstallSetupSessions{Pool: pool}
-		authService.Members = &services.Members{Pool: pool, Credentials: gitHubAppCredentials}
+		authService.Members = &services.Members{Pool: pool, Credentials: gitHubAppCredentials, Minter: repoConnectionService, Budget: gitHubBudgetTracker}
 		authHandler.InstallSetup = authService.InstallSetup
 		setupOutput := stdout
 		if *setupHandoff == "socket" {

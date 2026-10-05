@@ -53,7 +53,7 @@ func (g *rosterGitHub) serve(w http.ResponseWriter, r *http.Request) {
 		fmt.Fprint(w, `{"id":91}`)
 	case r.URL.Path == "/app/installations/91/access_tokens":
 		w.WriteHeader(201)
-		fmt.Fprint(w, `{"token":"installation-token"}`)
+		fmt.Fprint(w, `{"token":"installation-token","expires_at":"2099-01-01T00:00:00Z"}`)
 	case strings.HasPrefix(r.URL.Path, "/repos/acme/app/collaborators/"):
 		login := strings.Split(r.URL.Path, "/")[5]
 		role, ok := g.roles[login]
@@ -121,7 +121,7 @@ func TestMembersComposedInstallPostgres(t *testing.T) {
 	provider := httptest.NewServer(http.HandlerFunc(github.serve))
 	defer provider.Close()
 	t.Setenv("SMITHERS_GITHUB_APP_API_BASE_URL", provider.URL)
-	members := &services.Members{Pool: pool, Credentials: rosterAppCredentials{}}
+	members := &services.Members{Pool: pool, Credentials: rosterAppCredentials{}, Minter: services.NewRepoConnectionService(nil, rosterAppCredentials{})}
 	cfg := testConfigAllFlagsOn()
 	cfg.Auth.Mode = "selfhost"
 	cfg.Auth.SessionSecret = "fixture-secret"

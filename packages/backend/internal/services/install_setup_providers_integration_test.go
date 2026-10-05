@@ -175,7 +175,7 @@ func newProviderFixture(t *testing.T, stepID string, imports *sourceImports, rep
 	connections := NewRepoConnectionService(f.pool, app)
 	connections.SetGitHubRepoAccessVerifier(access)
 	f.app, f.connections = app, connections
-	f.svc.BindRepositoryProviders(access, app, connections, imports, &Members{Pool: f.pool, Credentials: app}, NewMythicalService(f.pool, nil))
+	f.svc.BindRepositoryProviders(access, app, connections, imports, &Members{Pool: f.pool, Credentials: app, Minter: connections}, NewMythicalService(f.pool, nil))
 	return f, fake
 }
 
