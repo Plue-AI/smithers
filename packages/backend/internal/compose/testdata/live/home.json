@@ -1,0 +1,266 @@
+{
+ "attention": [],
+ "background_runs": [],
+ "counts": {
+  "dropped": 1,
+  "failed": 1,
+  "in_review": 1,
+  "merged": 1,
+  "needs_you": 1,
+  "paused": 1,
+  "queued": 1,
+  "starting": 0,
+  "working": 0
+ },
+ "items": [
+  {
+   "actions": [
+    {
+     "args": {
+      "door": "title",
+      "n": "1"
+     },
+     "label": "T1 ready",
+     "tag": "todo"
+    },
+    {
+     "args": {
+      "n": "1"
+     },
+     "label": "Merge",
+     "primary": true,
+     "tag": "merge"
+    }
+   ],
+   "amendments": 0,
+   "branch": {
+    "id": "ee7d441e-8581-4c81-98d5-01d360b99d1d",
+    "name": "smithers/t1-ready"
+   },
+   "merge": {
+    "on_github": true,
+    "state": "ready"
+   },
+   "n": 1,
+   "owner": {
+    "avatar_url": "data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHdpZHRoPSI0OCIgaGVpZ2h0PSI0OCIgdmlld0JveD0iMCAwIDQ4IDQ4Ij48cmVjdCB3aWR0aD0iNDgiIGhlaWdodD0iNDgiIHJ4PSIyNCIgZmlsbD0iI2RkZCIvPjxjaXJjbGUgY3g9IjI0IiBjeT0iMTgiIHI9IjgiIGZpbGw9IiM4ODgiLz48cGF0aCBkPSJNOCA0NGExNiAxNiAwIDAgMSAzMiAwIiBmaWxsPSIjODg4Ii8+PC9zdmc+",
+    "login": "rehearsal-owner",
+    "name": "Rehearsal owner"
+   },
+   "place": 1,
+   "pr": {
+    "draft": false,
+    "number": 1
+   },
+   "present": [],
+   "state": "in_review",
+   "title": "T1 ready"
+  },
+  {
+   "actions": [
+    {
+     "args": {
+      "door": "title",
+      "n": "2"
+     },
+     "label": "T2 asks",
+     "tag": "todo"
+    },
+    {
+     "args": {
+      "n": "2"
+     },
+     "label": "Answer",
+     "primary": true,
+     "tag": "todo.answer"
+    }
+   ],
+   "amendments": 0,
+   "branch": {
+    "id": "9945b900-6559-4562-bed0-07033b97168a",
+    "name": "TODO 2 attempt 1 g1"
+   },
+   "merge": {
+    "on_github": false,
+    "reason": "state",
+    "state": "waiting"
+   },
+   "n": 2,
+   "needs_you": {
+    "kind": "question",
+    "prompt": "Which greeting should the file carry?"
+   },
+   "owner": {
+    "avatar_url": "data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHdpZHRoPSI0OCIgaGVpZ2h0PSI0OCIgdmlld0JveD0iMCAwIDQ4IDQ4Ij48cmVjdCB3aWR0aD0iNDgiIGhlaWdodD0iNDgiIHJ4PSIyNCIgZmlsbD0iI2RkZCIvPjxjaXJjbGUgY3g9IjI0IiBjeT0iMTgiIHI9IjgiIGZpbGw9IiM4ODgiLz48cGF0aCBkPSJNOCA0NGExNiAxNiAwIDAgMSAzMiAwIiBmaWxsPSIjODg4Ii8+PC9zdmc+",
+    "login": "rehearsal-owner",
+    "name": "Rehearsal owner"
+   },
+   "place": 2,
+   "present": [],
+   "state": "needs_you",
+   "title": "T2 asks"
+  },
+  {
+   "actions": [
+    {
+     "args": {
+      "door": "title",
+      "n": "3"
+     },
+     "label": "T3 fails",
+     "tag": "todo"
+    }
+   ],
+   "amendments": 0,
+   "branch": {
+    "id": "",
+    "name": ""
+   },
+   "merge": {
+    "on_github": false,
+    "reason": "state",
+    "state": "waiting"
+   },
+   "n": 3,
+   "owner": {
+    "avatar_url": "data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHdpZHRoPSI0OCIgaGVpZ2h0PSI0OCIgdmlld0JveD0iMCAwIDQ4IDQ4Ij48cmVjdCB3aWR0aD0iNDgiIGhlaWdodD0iNDgiIHJ4PSIyNCIgZmlsbD0iI2RkZCIvPjxjaXJjbGUgY3g9IjI0IiBjeT0iMTgiIHI9IjgiIGZpbGw9IiM4ODgiLz48cGF0aCBkPSJNOCA0NGExNiAxNiAwIDAgMSAzMiAwIiBmaWxsPSIjODg4Ii8+PC9zdmc+",
+    "login": "rehearsal-owner",
+    "name": "Rehearsal owner"
+   },
+   "place": 3,
+   "present": [],
+   "queue": {
+    "position": 1,
+    "reason": "machine"
+   },
+   "state": "queued",
+   "title": "T3 fails"
+  },
+  {
+   "actions": [
+    {
+     "args": {
+      "door": "title",
+      "n": "4"
+     },
+     "label": "T4 fails",
+     "tag": "todo"
+    },
+    {
+     "args": {
+      "n": "4"
+     },
+     "label": "Retry",
+     "tag": "todo.retry"
+    }
+   ],
+   "amendments": 0,
+   "branch": {
+    "id": "11111111-2222-4333-8444-555555555555",
+    "name": "TODO 4 attempt 1 g1"
+   },
+   "merge": {
+    "on_github": false,
+    "reason": "state",
+    "state": "waiting"
+   },
+   "n": 4,
+   "owner": {
+    "avatar_url": "data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHdpZHRoPSI0OCIgaGVpZ2h0PSI0OCIgdmlld0JveD0iMCAwIDQ4IDQ4Ij48cmVjdCB3aWR0aD0iNDgiIGhlaWdodD0iNDgiIHJ4PSIyNCIgZmlsbD0iI2RkZCIvPjxjaXJjbGUgY3g9IjI0IiBjeT0iMTgiIHI9IjgiIGZpbGw9IiM4ODgiLz48cGF0aCBkPSJNOCA0NGExNiAxNiAwIDAgMSAzMiAwIiBmaWxsPSIjODg4Ii8+PC9zdmc+",
+    "login": "rehearsal-owner",
+    "name": "Rehearsal owner"
+   },
+   "place": 4,
+   "present": [],
+   "state": "failed",
+   "title": "T4 fails"
+  },
+  {
+   "actions": [
+    {
+     "args": {
+      "door": "title",
+      "n": "6"
+     },
+     "label": "T6 paused",
+     "tag": "todo"
+    },
+    {
+     "args": {
+      "n": "6"
+     },
+     "label": "Resume",
+     "tag": "todo.resume"
+    }
+   ],
+   "amendments": 1,
+   "branch": {
+    "id": "66666666-2222-4333-8444-555555555555",
+    "name": "TODO 6 attempt 1 g1"
+   },
+   "merge": {
+    "on_github": false,
+    "reason": "state",
+    "state": "waiting"
+   },
+   "n": 6,
+   "owner": {
+    "avatar_url": "data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHdpZHRoPSI0OCIgaGVpZ2h0PSI0OCIgdmlld0JveD0iMCAwIDQ4IDQ4Ij48cmVjdCB3aWR0aD0iNDgiIGhlaWdodD0iNDgiIHJ4PSIyNCIgZmlsbD0iI2RkZCIvPjxjaXJjbGUgY3g9IjI0IiBjeT0iMTgiIHI9IjgiIGZpbGw9IiM4ODgiLz48cGF0aCBkPSJNOCA0NGExNiAxNiAwIDAgMSAzMiAwIiBmaWxsPSIjODg4Ii8+PC9zdmc+",
+    "login": "rehearsal-owner",
+    "name": "Rehearsal owner"
+   },
+   "place": 5,
+   "present": [],
+   "state": "paused",
+   "title": "T6 paused"
+  }
+ ],
+ "machines": {
+  "capacity": 0,
+  "in_use": 2,
+  "slots": [
+   {
+    "actor": {
+     "agent": "coding",
+     "avatar_url": "data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHdpZHRoPSI0OCIgaGVpZ2h0PSI0OCIgdmlld0JveD0iMCAwIDQ4IDQ4Ij48cmVjdCB3aWR0aD0iNDgiIGhlaWdodD0iNDgiIHJ4PSIyNCIgZmlsbD0iI2RkZCIvPjxjaXJjbGUgY3g9IjI0IiBjeT0iMTgiIHI9IjgiIGZpbGw9IiM4ODgiLz48cGF0aCBkPSJNOCA0NGExNiAxNiAwIDAgMSAzMiAwIiBmaWxsPSIjODg4Ii8+PC9zdmc+",
+     "color_index": 6,
+     "for_member": {
+      "avatar_url": "data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHdpZHRoPSI0OCIgaGVpZ2h0PSI0OCIgdmlld0JveD0iMCAwIDQ4IDQ4Ij48cmVjdCB3aWR0aD0iNDgiIGhlaWdodD0iNDgiIHJ4PSIyNCIgZmlsbD0iI2RkZCIvPjxjaXJjbGUgY3g9IjI0IiBjeT0iMTgiIHI9IjgiIGZpbGw9IiM4ODgiLz48cGF0aCBkPSJNOCA0NGExNiAxNiAwIDAgMSAzMiAwIiBmaWxsPSIjODg4Ii8+PC9zdmc+",
+      "login": "rehearsal-owner",
+      "name": "Rehearsal owner"
+     },
+     "id": "agent:9945b900-6559-4562-bed0-07033b97168a",
+     "kind": "agent",
+     "todo": 2
+    },
+    "awake": true,
+    "branch": "TODO 2 attempt 1 g1"
+   },
+   {
+    "actor": {
+     "agent": "coding",
+     "avatar_url": "data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHdpZHRoPSI0OCIgaGVpZ2h0PSI0OCIgdmlld0JveD0iMCAwIDQ4IDQ4Ij48cmVjdCB3aWR0aD0iNDgiIGhlaWdodD0iNDgiIHJ4PSIyNCIgZmlsbD0iI2RkZCIvPjxjaXJjbGUgY3g9IjI0IiBjeT0iMTgiIHI9IjgiIGZpbGw9IiM4ODgiLz48cGF0aCBkPSJNOCA0NGExNiAxNiAwIDAgMSAzMiAwIiBmaWxsPSIjODg4Ii8+PC9zdmc+",
+     "color_index": 6,
+     "for_member": {
+      "avatar_url": "data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHdpZHRoPSI0OCIgaGVpZ2h0PSI0OCIgdmlld0JveD0iMCAwIDQ4IDQ4Ij48cmVjdCB3aWR0aD0iNDgiIGhlaWdodD0iNDgiIHJ4PSIyNCIgZmlsbD0iI2RkZCIvPjxjaXJjbGUgY3g9IjI0IiBjeT0iMTgiIHI9IjgiIGZpbGw9IiM4ODgiLz48cGF0aCBkPSJNOCA0NGExNiAxNiAwIDAgMSAzMiAwIiBmaWxsPSIjODg4Ii8+PC9zdmc+",
+      "login": "rehearsal-owner",
+      "name": "Rehearsal owner"
+     },
+     "id": "agent:66666666-2222-4333-8444-555555555555",
+     "kind": "agent",
+     "todo": 6
+    },
+    "awake": false,
+    "branch": "TODO 6 attempt 1 g1"
+   }
+  ]
+ },
+ "main": {
+  "health": "limited",
+  "last_success_at": "1970-01-01T00:00:00.000Z",
+  "sha": "",
+  "title": "main"
+ },
+ "merged_since_last_look": [],
+ "repository": "rehearsal-owner/app"
+}

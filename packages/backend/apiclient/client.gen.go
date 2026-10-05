@@ -2741,6 +2741,11 @@ func (c *Client) GetAPIIssuesN(ctx context.Context, n int64) (InstallIssueThread
 	return out, err
 }
 
+// GetAPILive calls GET /api/live.
+func (c *Client) GetAPILive(ctx context.Context) error {
+	return c.do(ctx, "GET", "/api/live", nil, nil, nil)
+}
+
 // GetAPIMembers calls GET /api/members.
 func (c *Client) GetAPIMembers(ctx context.Context) (MembersCard, error) {
 	var out MembersCard

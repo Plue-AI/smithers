@@ -311,6 +311,7 @@ func liveStreamGet(pattern string) func(liveStreamFixture) liveStreamRequest {
 }
 
 var liveStreamRecipes = map[string]liveStreamRecipe{
+	"get /api/live":                                                  {ownView: true, request: liveStreamGet("/api/live")},
 	"get /api/notifications":                                         {ownView: true, request: liveStreamGet("/api/notifications")},
 	"get /api/notifications/events/stream":                           {ownView: true, ownerSees: true, request: liveStreamGet("/api/notifications/events/stream")},
 	"get /api/github/import/{id}":                                    {request: liveStreamGet("/api/github/import/{id}")},

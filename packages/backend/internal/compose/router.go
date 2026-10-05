@@ -66,6 +66,8 @@ type routerExtras struct {
 	// GitHubSync is the install's GitHub sync (GET/POST /api/github/sync);
 	// nil answers unavailable.
 	GitHubSync routes.GitHubSyncRouteService
+	// Live is the install's live channel (GET /api/live); nil serves none.
+	Live *routes.LiveHandler
 }
 
 func buildRouter(
@@ -820,6 +822,13 @@ func buildRouter(
 			r.With(readWorkspaceSSE...).Get("/api/repos/{owner}/{repo}/workspaces/{id}/stream", workspaceHandler.StreamWorkspace)
 			r.With(readWorkspaceSSE...).Get("/api/repos/{owner}/{repo}/workspace/sessions/{id}/stream", workspaceHandler.StreamSession)
 		})
+	}
+
+	// The live channel (spec §7.1) is a WebSocket too: outside the JSON
+	// group's timeout, body and CSRF rules; the auth loader and the member
+	// boundary still admit the person.
+	if config.IsSingleOwner(cfg.Auth) && extras.Live != nil {
+		r.With(authLoader(queries, cfg.Auth), memberCommands(queries)).Get("/api/live", extras.Live.ServeHTTP)
 	}
 
 	// WebSocket terminal — mounted outside /api's JSONTimeout group so the

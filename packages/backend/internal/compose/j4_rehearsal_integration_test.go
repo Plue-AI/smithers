@@ -144,6 +144,16 @@ func TestJ4Rehearsal(t *testing.T) {
 	}) {
 		return
 	}
+	// The owner's browser follows Home and the three TODOs over /api/live
+	// from here on; rows 5, 5b and 15 read what it received.
+	owner, liveErr := r.openLive(r.jar)
+	if liveErr == nil {
+		for _, topic := range []string{"home", fmt.Sprintf("todo:%d", t1), fmt.Sprintf("todo:%d", t2), fmt.Sprintf("todo:%d", t3)} {
+			if _, liveErr = owner.subscribe(topic); liveErr != nil {
+				break
+			}
+		}
+	}
 	if !r.step("2 T1 in review", "GET /api/todos/{T1}; GitHub fake PR", "in_review; PR smithers/<slug> at the card's head, base main, not a draft", "T-STK-01", func() error {
 		v, err := r.waitTodoWithin(t1, 8*time.Minute, "in_review")
 		if err != nil {
@@ -202,27 +212,9 @@ func TestJ4Rehearsal(t *testing.T) {
 	}
 	// Rows 5 and 6 are the served half of the Home card (lane home-role, which
 	// landed its app half in eee936060f).
-	r.step("5 Home rows and counts", "GET /api/todos; SQL mythical_items", "each unmerged TODO once, in place order; their count equals the stack's unmerged items", "T-APP-01", func() error {
-		list, err := r.todoList()
-		if err != nil {
-			return err
-		}
-		var listed []int64
-		counts := map[string]int{}
-		place := int64(0)
-		for _, todo := range list {
-			if todo.State == "merged" || todo.State == "dropped" {
-				continue
-			}
-			if slices.Contains(listed, todo.N) {
-				return fmt.Errorf("T%d is listed twice", todo.N)
-			}
-			if todo.Place <= place {
-				return fmt.Errorf("T%d has place %d after place %d", todo.N, todo.Place, place)
-			}
-			place = todo.Place
-			listed = append(listed, todo.N)
-			counts[todo.State]++
+	r.step("5 Home rows and counts", "GET /api/live (home); SQL mythical_items", "each unmerged TODO once, in place order; their count equals the stack's unmerged items", "T-APP-01", func() error {
+		if liveErr != nil {
+			return liveErr
 		}
 		// mythical_items has no merged_at or dropped_at (C-J4-01's SQL): an
 		// item is unmerged until its state is landed or dropped.
@@ -240,11 +232,90 @@ func TestJ4Rehearsal(t *testing.T) {
 			stored = append(stored, n)
 		}
 		rows.Close()
-		if !slices.Equal(listed, stored) {
-			return fmt.Errorf("GET /api/todos lists %v, the stack holds %v", listed, stored)
+		// The live Home follows the stack within a second of a change.
+		var listed []int64
+		var problem error
+		frame, err := owner.latest("home", 5*time.Second, func(frame liveFrame) bool {
+			listed, problem = nil, nil
+			place := int64(0)
+			for _, item := range decodeHome(frame).Items {
+				if item.State == "merged" || item.State == "dropped" {
+					continue
+				}
+				if slices.Contains(listed, item.N) {
+					problem = fmt.Errorf("T%d is listed twice", item.N)
+				}
+				if item.Place <= place {
+					problem = fmt.Errorf("T%d has place %d after place %d", item.N, item.Place, place)
+				}
+				place = item.Place
+				listed = append(listed, item.N)
+			}
+			return problem == nil && slices.Equal(listed, stored)
+		})
+		if err != nil {
+			if problem != nil {
+				return problem
+			}
+			return fmt.Errorf("%w: live Home lists %v, the stack holds %v", err, listed, stored)
 		}
-		r.actual = fmt.Sprintf("200 %v by place; states %v", listed, counts)
+		r.actual = fmt.Sprintf("snap cursor %d: %v by place; counts %v", *frame.Cursor, listed, decodeHome(frame).Counts)
 		return nil
+	})
+	// C-J4-01 step 9: Home is a shared topic, so every member's browser
+	// receives the same bytes at one cursor; role, filter and last look stay
+	// in each browser.
+	r.step("5b One Home for three members", "GET /api/live (home) as the owner, maintainer Ben and member Alice", "the three home snapshots at one cursor are byte-identical", "T-APP-01, T-COL-02", func() error {
+		if liveErr != nil {
+			return liveErr
+		}
+		sockets := []*liveSocket{owner}
+		for _, person := range []struct {
+			login      string
+			id         int64
+			permission string
+		}{{"ben", 201, "maintain"}, {"alice", 202, "write"}} {
+			jar, err := r.member(person.login, person.id, person.permission)
+			if err != nil {
+				return err
+			}
+			socket, err := r.openLive(jar)
+			if err != nil {
+				return fmt.Errorf("%s: %w", person.login, err)
+			}
+			if _, err = socket.subscribe("home"); err != nil {
+				return err
+			}
+			sockets = append(sockets, socket)
+		}
+		// Find a cursor all three received and compare its bytes.
+		deadline := time.Now().Add(10 * time.Second)
+		for {
+			seen := map[int64][]string{}
+			for _, socket := range sockets {
+				for _, frame := range socket.received("home") {
+					if frame.T == "snap" {
+						seen[*frame.Cursor] = append(seen[*frame.Cursor], string(frame.Data))
+					}
+				}
+			}
+			for cursor, payloads := range seen {
+				if len(payloads) != len(sockets) {
+					continue
+				}
+				for _, payload := range payloads[1:] {
+					if payload != payloads[0] {
+						return fmt.Errorf("home at cursor %d differs between members", cursor)
+					}
+				}
+				r.actual = fmt.Sprintf("cursor %d: 3 identical snapshots of %d bytes", cursor, len(payloads[0]))
+				return nil
+			}
+			if time.Now().After(deadline) {
+				return fmt.Errorf("no home cursor reached all three members within 10 s")
+			}
+			time.Sleep(200 * time.Millisecond)
+		}
 	})
 	r.step("6 One Merge, on T1", "GET /api/todos", "exactly one in_review item at place 1 with merge ready and no draft PR, and it is T1; every later in_review item waits on order", "T-APP-01, T-STK-04", func() error {
 		list, err := r.todoList()
@@ -267,6 +338,11 @@ func TestJ4Rehearsal(t *testing.T) {
 		}
 		return nil
 	})
+	// The 202s rows 7, 9 and 13 answered, which row 15 compares with the
+	// facts /api/live served after them.
+	var answered, merged j4Receipt
+	var retriedAt time.Time
+	var retriedTo int
 	var chats []<-chan error
 	if !r.step("7 Answer T2 while chatting", "POST /api/todos/{T2}/answer beside POST "+chat.TurnPath, "202 within 1 s; the same answer again 202; T2 leaves needs_you", "T-STK-01, T-APP-03", func() error {
 		chats = append(chats, r.besideChat())
@@ -279,6 +355,7 @@ func TestJ4Rehearsal(t *testing.T) {
 		if code != 202 || took > time.Second {
 			return fmt.Errorf("answer: HTTP %d after %s: %s", code, took, data)
 		}
+		answered = j4Receipt{at: time.Now(), body: string(data)}
 		if code, data, err = r.answer(t2, wait2, answer2); err != nil || code != 202 {
 			return fmt.Errorf("the same answer again: HTTP %d %s %v", code, data, err)
 		}
@@ -297,6 +374,7 @@ func TestJ4Rehearsal(t *testing.T) {
 		if err := r.merge(t1, head1); err != nil {
 			return err
 		}
+		merged = j4Receipt{at: time.Now(), body: r.actual}
 		if took := time.Since(began); took > time.Second {
 			return fmt.Errorf("merge took %s", took)
 		}
@@ -494,6 +572,7 @@ func TestJ4Rehearsal(t *testing.T) {
 		if code != 202 || took > time.Second || json.Unmarshal(data, &receipt) != nil || receipt.State != "accepted" || receipt.Attempt != want {
 			return fmt.Errorf("retry: HTTP %d after %s: %s (want attempt %d)", code, took, data, want)
 		}
+		retriedAt, retriedTo = time.Now(), int(want)
 		// A double press sends the same request again: it is that retry.
 		if code, data, err = r.keyed("POST", path, body, key); err != nil || code != 202 || !strings.Contains(string(data), fmt.Sprintf(`"attempt":%d`, want)) {
 			return fmt.Errorf("the same press again: HTTP %d %s %v", code, data, err)
@@ -582,10 +661,61 @@ func TestJ4Rehearsal(t *testing.T) {
 		r.actual = fmt.Sprintf("200 T%d in_review on attempt %d; steers[0] by %s; %d earlier attempts' evidence kept; turn %d (%v) carries the steer; 1 retry", t3, want, card.Steers[0].By.Login, kept, first+1, turns[first]["step"])
 		return nil
 	})
-	r.pending("15 Receipts settle late", "GET /api/live (home)", "each toast settles from the served fact, not the 202", "T-APP-01", "live-slice")
+	r.step("15 Receipts settle late", "GET /api/live (home, todo:<n>) after the 202s of rows 7, 9 and 13", "each toast settles from the served fact, not the 202", "T-APP-01, T-COL-02", func() error {
+		if liveErr != nil {
+			return liveErr
+		}
+		var settled []string
+		// A 202 is admission: it names no outcome a toast could settle on.
+		for _, accepted := range []j4Receipt{answered, merged} {
+			if accepted.at.IsZero() {
+				return fmt.Errorf("an earlier row sent no 202 to compare")
+			}
+			if strings.Contains(accepted.body, `"outcome"`) {
+				return fmt.Errorf("a 202 carries its outcome: %s", accepted.body)
+			}
+		}
+		check := func(name, topic string, after time.Time, fact func(liveFrame) bool) error {
+			frame, err := owner.wait(topic, 2*time.Minute, func(frame liveFrame) bool { return frame.At.After(after) && fact(frame) })
+			if err != nil {
+				return fmt.Errorf("%s: %w", name, err)
+			}
+			settled = append(settled, fmt.Sprintf("%s on %s %s after its 202", name, topic, frame.At.Sub(after).Round(time.Millisecond)))
+			return nil
+		}
+		if err := check("answer", fmt.Sprintf("todo:%d", t2), answered.at, func(frame liveFrame) bool {
+			return !slices.ContainsFunc(decodeTodo(frame).Waits, func(wait liveWait) bool { return wait.ID == wait2 })
+		}); err != nil {
+			return err
+		}
+		if err := check("merge", fmt.Sprintf("todo:%d", t1), merged.at, func(frame liveFrame) bool { return decodeTodo(frame).State == "merged" }); err != nil {
+			return err
+		}
+		if err := check("home", "home", merged.at, func(frame liveFrame) bool {
+			return !slices.ContainsFunc(decodeHome(frame).Items, func(item liveHomeItem) bool { return item.N == t1 })
+		}); err != nil {
+			return err
+		}
+		if !retriedAt.IsZero() {
+			if err := check("retry", fmt.Sprintf("todo:%d", t3), retriedAt, func(frame liveFrame) bool {
+				todo := decodeTodo(frame)
+				return todo.Run != nil && todo.Run.Attempt == retriedTo && todo.State != "queued" && todo.State != "starting"
+			}); err != nil {
+				return err
+			}
+		}
+		r.actual = strings.Join(settled, "; ")
+		return nil
+	})
 	r.pending("16 Merged since last look", "PUT view state; GET /api/todos", "the browser derives [T1] after the merge and [] after a new look", "T-APP-01", "last-look")
 	r.pending("17 T2 ready after T1 merges", "GitHub fake PR; GET /api/todos", "T2 rebases onto the merged main; one ready-for-review change on T2's PR; merge.state ready on T2 only", "T-STK-04, T-STK-08", "second-merge")
 	r.pending("18 main row synced", "GET /api/github/sync; Home card", "last_success_at within one poll; 'synced N s ago'; machines in use of capacity", "T-GH-02", "sync-row")
 	r.pending("19 Retry and dismiss failed background runs", "POST /api/runs/{id}", "Retry starts exactly one run; Dismiss removes the row for everyone; 403 without the role", "T-APP-01", "background-runs")
 	r.pending("20 Ben merges, Alice answers", "POST /api/todos/{n}/merge and /answer as Ben and Alice", "maintainer Ben merges; member Alice answers and her merge is 403", "T-ACC-02", "members")
+}
+
+// j4Receipt is a 202 a row received: when, and its body.
+type j4Receipt struct {
+	at   time.Time
+	body string
 }

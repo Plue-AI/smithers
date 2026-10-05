@@ -35,6 +35,7 @@ import (
 	"github.com/smithersai/smithers/packages/backend/internal/email"
 	"github.com/smithersai/smithers/packages/backend/internal/identity"
 	"github.com/smithersai/smithers/packages/backend/internal/lfsauth"
+	"github.com/smithersai/smithers/packages/backend/internal/live"
 	"github.com/smithersai/smithers/packages/backend/internal/middleware"
 	"github.com/smithersai/smithers/packages/backend/internal/observability"
 	"github.com/smithersai/smithers/packages/backend/internal/pkg/background"
@@ -1597,6 +1598,11 @@ func runWithOptions(ctx context.Context, args []string, stdout, stderr io.Writer
 			Installations: repoConnectionService,
 		}
 	}
+	var liveHandler *routes.LiveHandler
+	if config.IsSingleOwner(cfg.Auth) {
+		topics := &liveTopics{queries: queries, todos: mythicalService, sync: gitHubSyncRoute}
+		liveHandler = &routes.LiveHandler{Hub: live.NewHub(ctx, live.BrokerHints{Broker: sseBroker}), Queries: queries, Origins: installAddress.Origins, Topics: topics.resolver}
+	}
 	router := buildRouter(
 		cfg,
 		queries,
@@ -1666,7 +1672,7 @@ func runWithOptions(ctx context.Context, args []string, stdout, stderr io.Writer
 			AdminTokens:        &routes.AdminTokenHandler{Service: adminManageService},
 			DeploymentAdmin:    deploymentAdminRoutes,
 			EgressPolicy:       &routes.RepositoryEgressPolicyHandler{Service: egressPolicyService},
-			GitHubSync:         gitHubSyncRoute},
+			GitHubSync:         gitHubSyncRoute, Live: liveHandler},
 	)
 	if flow != nil && options.topology.servesHTTP() {
 		browser := &browserFlowAPI{repos: repoService, queries: queries, dispatcher: flow.dispatcher, boxes: workspaceService,

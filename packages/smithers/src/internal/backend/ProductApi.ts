@@ -1833,6 +1833,10 @@ export interface GetApiIssuesNInput {
 export const getApiIssuesN = (transport: Transport, input: GetApiIssuesNInput): Promise<GetApiIssuesNResponse> =>
   transport.request("GET", `/api/issues/${segment(input.path.n)}`) as Promise<GetApiIssuesNResponse>
 
+/** GET /api/live: Follow the install's shared topics over one WebSocket */
+export const getApiLive = (transport: Transport): Promise<void> =>
+  transport.request("GET", `/api/live`).then(() => undefined)
+
 export type GetApiMembersResponse = MembersCard
 
 /** GET /api/members: Read the install's roster */

@@ -1,0 +1,34 @@
+paths:
+  /api/live:
+    get:
+      x-composition: install
+      summary: Follow the install's shared topics over one WebSocket
+      operationId: get_api_live
+      tags:
+        - Live
+      description: >-
+        WebSocket upgrade with subprotocol smithers.live.v1 (spec §7.1). A
+        member's browser session from the install's own origin subscribes to
+        shared topics (home, todo:<n>, flows) with text
+        frames {"t":"sub","id","topic"} and {"t":"unsub","id"}; each topic
+        answers {"t":"snap","id","cursor","data"} whenever its committed
+        facts change, every subscriber at the same cursor with the same
+        bytes. A refused topic answers {"t":"err","id","code"} with
+        unknown_topic, forbidden or unsupported, and the socket stays open.
+        Over the 2 MiB send budget a subscription gets {"t":"gap","id"} and
+        resubscribes. Revocation closes the socket.
+      security:
+        - sessionCookie: []
+      responses:
+        '101':
+          description: WebSocket upgrade
+        '400':
+          description: The smithers.live.v1 subprotocol is missing
+        '401':
+          description: No browser session, or a token
+        '403':
+          description: Another origin, or not a member
+        '421':
+          description: Unknown host
+        '503':
+          description: Live updates are unavailable

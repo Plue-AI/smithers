@@ -1,0 +1,481 @@
+[
+ {
+  "branch": {
+   "id": "ee7d441e-8581-4c81-98d5-01d360b99d1d",
+   "machine": {
+    "state": "asleep"
+   },
+   "name": "smithers/t1-ready"
+  },
+  "evidence": [
+   {
+    "attempt": 1,
+    "revision": "e9f39727cf22fca86d7ad79058ddb22ca6394a01",
+    "items": [
+     {
+      "kind": "check",
+      "name": "build",
+      "state": "passed",
+      "took_s": 1.379
+     },
+     {
+      "kind": "check",
+      "name": "test",
+      "state": "passed",
+      "took_s": 1.363
+     },
+     {
+      "kind": "model_access",
+      "label": "AI Gateway \u00b7 Smithers credit: typesafe-ai/jev; Cerebras \u00b7 Smithers credit: gpt-oss-120b"
+     }
+    ]
+   }
+  ],
+  "merge": {
+   "on_github": true,
+   "state": "ready"
+  },
+  "n": 1,
+  "owner": {
+   "avatar_url": "data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHdpZHRoPSI0OCIgaGVpZ2h0PSI0OCIgdmlld0JveD0iMCAwIDQ4IDQ4Ij48cmVjdCB3aWR0aD0iNDgiIGhlaWdodD0iNDgiIHJ4PSIyNCIgZmlsbD0iI2RkZCIvPjxjaXJjbGUgY3g9IjI0IiBjeT0iMTgiIHI9IjgiIGZpbGw9IiM4ODgiLz48cGF0aCBkPSJNOCA0NGExNiAxNiAwIDAgMSAzMiAwIiBmaWxsPSIjODg4Ii8+PC9zdmc+",
+   "login": "rehearsal-owner",
+   "name": "Rehearsal owner"
+  },
+  "place": 1,
+  "pr": {
+   "draft": false,
+   "head": "91fd4240c15f1edc65d42855239c52ab36a6857e",
+   "included_items": [
+    1
+   ],
+   "number": 1,
+   "url": "https://github.com/rehearsal-owner/app/pull/1"
+  },
+  "present": [],
+  "prompt_revisions": [
+   {
+    "at": "2026-10-05T15:35:40.44055Z",
+    "by": {
+     "kind": "person",
+     "name": "Rehearsal owner",
+     "login": "rehearsal-owner",
+     "avatar_url": "data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHdpZHRoPSI0OCIgaGVpZ2h0PSI0OCIgdmlld0JveD0iMCAwIDQ4IDQ4Ij48cmVjdCB3aWR0aD0iNDgiIGhlaWdodD0iNDgiIHJ4PSIyNCIgZmlsbD0iI2RkZCIvPjxjaXJjbGUgY3g9IjI0IiBjeT0iMTgiIHI9IjgiIGZpbGw9IiM4ODgiLz48cGF0aCBkPSJNOCA0NGExNiAxNiAwIDAgMSAzMiAwIiBmaWxsPSIjODg4Ii8+PC9zdmc+",
+     "color_index": 0
+    },
+    "text": "[PR] [FILE t1.md] Add a greeting to t1.md",
+    "acceptance": []
+   }
+  ],
+  "run": {
+   "attempt": 1,
+   "id": "run-1",
+   "indicators": []
+  },
+  "state": "in_review",
+  "steers": [],
+  "steps": [
+   {
+    "id": "request",
+    "label": "Plan",
+    "state": "done"
+   },
+   {
+    "id": "vibe",
+    "label": "Code",
+    "state": "done"
+   }
+  ],
+  "title": "T1 ready",
+  "waits": []
+ },
+ {
+  "branch": {
+   "id": "9945b900-6559-4562-bed0-07033b97168a",
+   "machine": {
+    "state": "awake"
+   },
+   "name": "TODO 2 attempt 1 g1"
+  },
+  "evidence": [
+   {
+    "attempt": 1,
+    "revision": "",
+    "items": [
+     {
+      "kind": "model_access",
+      "label": "AI Gateway \u00b7 Smithers credit: typesafe-ai/jev; Cerebras \u00b7 Smithers credit: gpt-oss-120b"
+     }
+    ]
+   }
+  ],
+  "merge": {
+   "on_github": false,
+   "reason": "state",
+   "state": "waiting"
+  },
+  "n": 2,
+  "owner": {
+   "avatar_url": "data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHdpZHRoPSI0OCIgaGVpZ2h0PSI0OCIgdmlld0JveD0iMCAwIDQ4IDQ4Ij48cmVjdCB3aWR0aD0iNDgiIGhlaWdodD0iNDgiIHJ4PSIyNCIgZmlsbD0iI2RkZCIvPjxjaXJjbGUgY3g9IjI0IiBjeT0iMTgiIHI9IjgiIGZpbGw9IiM4ODgiLz48cGF0aCBkPSJNOCA0NGExNiAxNiAwIDAgMSAzMiAwIiBmaWxsPSIjODg4Ii8+PC9zdmc+",
+   "login": "rehearsal-owner",
+   "name": "Rehearsal owner"
+  },
+  "place": 2,
+  "present": [],
+  "prompt_revisions": [
+   {
+    "at": "2026-10-05T15:35:40.446663Z",
+    "by": {
+     "kind": "person",
+     "name": "Rehearsal owner",
+     "login": "rehearsal-owner",
+     "avatar_url": "data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHdpZHRoPSI0OCIgaGVpZ2h0PSI0OCIgdmlld0JveD0iMCAwIDQ4IDQ4Ij48cmVjdCB3aWR0aD0iNDgiIGhlaWdodD0iNDgiIHJ4PSIyNCIgZmlsbD0iI2RkZCIvPjxjaXJjbGUgY3g9IjI0IiBjeT0iMTgiIHI9IjgiIGZpbGw9IiM4ODgiLz48cGF0aCBkPSJNOCA0NGExNiAxNiAwIDAgMSAzMiAwIiBmaWxsPSIjODg4Ii8+PC9zdmc+",
+     "color_index": 0
+    },
+    "text": "[ASK] [FILE t2.md] Add a greeting to t2.md",
+    "acceptance": []
+   }
+  ],
+  "run": {
+   "attempt": 1,
+   "id": "run-1",
+   "indicators": []
+  },
+  "state": "needs_you",
+  "steers": [],
+  "steps": [
+   {
+    "id": "request",
+    "label": "Plan",
+    "state": "waiting"
+   }
+  ],
+  "title": "T2 asks",
+  "waits": [
+   {
+    "actions": [
+     {
+      "input": [
+       {
+        "kind": "text",
+        "label": "Answer",
+        "name": "answer",
+        "required": true
+       }
+      ],
+      "label": "Answer",
+      "tag": "todo.answer"
+     }
+    ],
+    "id": "q-fd01a8fda4d7ad46",
+    "kind": "question",
+    "prompt": "Which greeting should the file carry?",
+    "since": "2026-10-05T15:35:51.34425Z"
+   }
+  ]
+ },
+ {
+  "evidence": [],
+  "merge": {
+   "on_github": false,
+   "reason": "state",
+   "state": "waiting"
+  },
+  "n": 3,
+  "owner": {
+   "avatar_url": "data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHdpZHRoPSI0OCIgaGVpZ2h0PSI0OCIgdmlld0JveD0iMCAwIDQ4IDQ4Ij48cmVjdCB3aWR0aD0iNDgiIGhlaWdodD0iNDgiIHJ4PSIyNCIgZmlsbD0iI2RkZCIvPjxjaXJjbGUgY3g9IjI0IiBjeT0iMTgiIHI9IjgiIGZpbGw9IiM4ODgiLz48cGF0aCBkPSJNOCA0NGExNiAxNiAwIDAgMSAzMiAwIiBmaWxsPSIjODg4Ii8+PC9zdmc+",
+   "login": "rehearsal-owner",
+   "name": "Rehearsal owner"
+  },
+  "place": 3,
+  "present": [],
+  "prompt_revisions": [
+   {
+    "at": "2026-10-05T15:35:40.452076Z",
+    "by": {
+     "kind": "person",
+     "name": "Rehearsal owner",
+     "login": "rehearsal-owner",
+     "avatar_url": "data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHdpZHRoPSI0OCIgaGVpZ2h0PSI0OCIgdmlld0JveD0iMCAwIDQ4IDQ4Ij48cmVjdCB3aWR0aD0iNDgiIGhlaWdodD0iNDgiIHJ4PSIyNCIgZmlsbD0iI2RkZCIvPjxjaXJjbGUgY3g9IjI0IiBjeT0iMTgiIHI9IjgiIGZpbGw9IiM4ODgiLz48cGF0aCBkPSJNOCA0NGExNiAxNiAwIDAgMSAzMiAwIiBmaWxsPSIjODg4Ii8+PC9zdmc+",
+     "color_index": 0
+    },
+    "text": "[FAIL] [FILE t3.md] Add a greeting to t3.md",
+    "acceptance": []
+   }
+  ],
+  "queue": {
+   "position": 1,
+   "reason": "machine"
+  },
+  "state": "queued",
+  "steers": [],
+  "steps": [],
+  "title": "T3 fails",
+  "waits": []
+ },
+ {
+  "branch": {
+   "id": "11111111-2222-4333-8444-555555555555",
+   "machine": {
+    "state": "asleep"
+   },
+   "name": "TODO 4 attempt 1 g1"
+  },
+  "evidence": [
+   {
+    "attempt": 1,
+    "revision": "",
+    "items": [
+     {
+      "kind": "model_access",
+      "label": "AI Gateway \u00b7 Smithers credit: typesafe-ai/jev; Cerebras \u00b7 Smithers credit: gpt-oss-120b"
+     }
+    ]
+   }
+  ],
+  "merge": {
+   "on_github": false,
+   "reason": "state",
+   "state": "waiting"
+  },
+  "n": 4,
+  "owner": {
+   "avatar_url": "data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHdpZHRoPSI0OCIgaGVpZ2h0PSI0OCIgdmlld0JveD0iMCAwIDQ4IDQ4Ij48cmVjdCB3aWR0aD0iNDgiIGhlaWdodD0iNDgiIHJ4PSIyNCIgZmlsbD0iI2RkZCIvPjxjaXJjbGUgY3g9IjI0IiBjeT0iMTgiIHI9IjgiIGZpbGw9IiM4ODgiLz48cGF0aCBkPSJNOCA0NGExNiAxNiAwIDAgMSAzMiAwIiBmaWxsPSIjODg4Ii8+PC9zdmc+",
+   "login": "rehearsal-owner",
+   "name": "Rehearsal owner"
+  },
+  "place": 4,
+  "present": [],
+  "prompt_revisions": [
+   {
+    "at": "2026-10-05T15:35:40.446663Z",
+    "by": {
+     "kind": "person",
+     "name": "Rehearsal owner",
+     "login": "rehearsal-owner",
+     "avatar_url": "data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHdpZHRoPSI0OCIgaGVpZ2h0PSI0OCIgdmlld0JveD0iMCAwIDQ4IDQ4Ij48cmVjdCB3aWR0aD0iNDgiIGhlaWdodD0iNDgiIHJ4PSIyNCIgZmlsbD0iI2RkZCIvPjxjaXJjbGUgY3g9IjI0IiBjeT0iMTgiIHI9IjgiIGZpbGw9IiM4ODgiLz48cGF0aCBkPSJNOCA0NGExNiAxNiAwIDAgMSAzMiAwIiBmaWxsPSIjODg4Ii8+PC9zdmc+",
+     "color_index": 0
+    },
+    "text": "[ASK] [FILE t2.md] Add a greeting to t2.md",
+    "acceptance": []
+   }
+  ],
+  "run": {
+   "attempt": 1,
+   "id": "run-1",
+   "indicators": []
+  },
+  "state": "failed",
+  "steers": [],
+  "steps": [
+   {
+    "id": "request",
+    "label": "Plan",
+    "state": "waiting"
+   }
+  ],
+  "title": "T4 fails",
+  "waits": []
+ },
+ {
+  "branch": {
+   "id": "ee7d441e-8581-4c81-98d5-01d360b99d1d",
+   "machine": {
+    "state": "asleep"
+   },
+   "name": "smithers/t1-ready"
+  },
+  "evidence": [
+   {
+    "attempt": 1,
+    "revision": "e9f39727cf22fca86d7ad79058ddb22ca6394a01",
+    "items": [
+     {
+      "kind": "check",
+      "name": "build",
+      "state": "passed",
+      "took_s": 1.379
+     },
+     {
+      "kind": "check",
+      "name": "test",
+      "state": "passed",
+      "took_s": 1.363
+     },
+     {
+      "kind": "model_access",
+      "label": "AI Gateway \u00b7 Smithers credit: typesafe-ai/jev; Cerebras \u00b7 Smithers credit: gpt-oss-120b"
+     }
+    ]
+   }
+  ],
+  "merge": {
+   "on_github": true,
+   "state": "ready"
+  },
+  "n": 5,
+  "owner": {
+   "avatar_url": "data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHdpZHRoPSI0OCIgaGVpZ2h0PSI0OCIgdmlld0JveD0iMCAwIDQ4IDQ4Ij48cmVjdCB3aWR0aD0iNDgiIGhlaWdodD0iNDgiIHJ4PSIyNCIgZmlsbD0iI2RkZCIvPjxjaXJjbGUgY3g9IjI0IiBjeT0iMTgiIHI9IjgiIGZpbGw9IiM4ODgiLz48cGF0aCBkPSJNOCA0NGExNiAxNiAwIDAgMSAzMiAwIiBmaWxsPSIjODg4Ii8+PC9zdmc+",
+   "login": "rehearsal-owner",
+   "name": "Rehearsal owner"
+  },
+  "pr": {
+   "draft": false,
+   "head": "91fd4240c15f1edc65d42855239c52ab36a6857e",
+   "included_items": [
+    1
+   ],
+   "number": 1,
+   "url": "https://github.com/rehearsal-owner/app/pull/1"
+  },
+  "present": [],
+  "prompt_revisions": [
+   {
+    "at": "2026-10-05T15:35:40.44055Z",
+    "by": {
+     "kind": "person",
+     "name": "Rehearsal owner",
+     "login": "rehearsal-owner",
+     "avatar_url": "data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHdpZHRoPSI0OCIgaGVpZ2h0PSI0OCIgdmlld0JveD0iMCAwIDQ4IDQ4Ij48cmVjdCB3aWR0aD0iNDgiIGhlaWdodD0iNDgiIHJ4PSIyNCIgZmlsbD0iI2RkZCIvPjxjaXJjbGUgY3g9IjI0IiBjeT0iMTgiIHI9IjgiIGZpbGw9IiM4ODgiLz48cGF0aCBkPSJNOCA0NGExNiAxNiAwIDAgMSAzMiAwIiBmaWxsPSIjODg4Ii8+PC9zdmc+",
+     "color_index": 0
+    },
+    "text": "[PR] [FILE t1.md] Add a greeting to t1.md",
+    "acceptance": []
+   }
+  ],
+  "run": {
+   "attempt": 1,
+   "id": "run-1",
+   "indicators": []
+  },
+  "state": "merged",
+  "steers": [],
+  "steps": [
+   {
+    "id": "request",
+    "label": "Plan",
+    "state": "done"
+   },
+   {
+    "id": "vibe",
+    "label": "Code",
+    "state": "done"
+   }
+  ],
+  "title": "T5 merged",
+  "waits": []
+ },
+ {
+  "branch": {
+   "id": "66666666-2222-4333-8444-555555555555",
+   "machine": {
+    "state": "waking"
+   },
+   "name": "TODO 6 attempt 1 g1"
+  },
+  "evidence": [
+   {
+    "attempt": 1,
+    "revision": "",
+    "items": [
+     {
+      "kind": "model_access",
+      "label": "AI Gateway \u00b7 Smithers credit: typesafe-ai/jev; Cerebras \u00b7 Smithers credit: gpt-oss-120b"
+     }
+    ]
+   }
+  ],
+  "merge": {
+   "on_github": false,
+   "reason": "state",
+   "state": "waiting"
+  },
+  "n": 6,
+  "owner": {
+   "avatar_url": "data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHdpZHRoPSI0OCIgaGVpZ2h0PSI0OCIgdmlld0JveD0iMCAwIDQ4IDQ4Ij48cmVjdCB3aWR0aD0iNDgiIGhlaWdodD0iNDgiIHJ4PSIyNCIgZmlsbD0iI2RkZCIvPjxjaXJjbGUgY3g9IjI0IiBjeT0iMTgiIHI9IjgiIGZpbGw9IiM4ODgiLz48cGF0aCBkPSJNOCA0NGExNiAxNiAwIDAgMSAzMiAwIiBmaWxsPSIjODg4Ii8+PC9zdmc+",
+   "login": "rehearsal-owner",
+   "name": "Rehearsal owner"
+  },
+  "place": 5,
+  "present": [],
+  "prompt_revisions": [
+   {
+    "at": "2026-10-05T15:35:40.446663Z",
+    "by": {
+     "kind": "person",
+     "name": "Rehearsal owner",
+     "login": "rehearsal-owner",
+     "avatar_url": "data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHdpZHRoPSI0OCIgaGVpZ2h0PSI0OCIgdmlld0JveD0iMCAwIDQ4IDQ4Ij48cmVjdCB3aWR0aD0iNDgiIGhlaWdodD0iNDgiIHJ4PSIyNCIgZmlsbD0iI2RkZCIvPjxjaXJjbGUgY3g9IjI0IiBjeT0iMTgiIHI9IjgiIGZpbGw9IiM4ODgiLz48cGF0aCBkPSJNOCA0NGExNiAxNiAwIDAgMSAzMiAwIiBmaWxsPSIjODg4Ii8+PC9zdmc+",
+     "color_index": 0
+    },
+    "text": "[ASK] [FILE t2.md] Add a greeting to t2.md",
+    "acceptance": []
+   },
+   {
+    "at": "2026-10-05T15:35:40.446663Z",
+    "by": {
+     "kind": "person",
+     "name": "Rehearsal owner",
+     "login": "rehearsal-owner",
+     "avatar_url": "data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHdpZHRoPSI0OCIgaGVpZ2h0PSI0OCIgdmlld0JveD0iMCAwIDQ4IDQ4Ij48cmVjdCB3aWR0aD0iNDgiIGhlaWdodD0iNDgiIHJ4PSIyNCIgZmlsbD0iI2RkZCIvPjxjaXJjbGUgY3g9IjI0IiBjeT0iMTgiIHI9IjgiIGZpbGw9IiM4ODgiLz48cGF0aCBkPSJNOCA0NGExNiAxNiAwIDAgMSAzMiAwIiBmaWxsPSIjODg4Ii8+PC9zdmc+",
+     "color_index": 0
+    },
+    "text": "[ASK] [FILE t6.md] Add a greeting to t6.md, in Spanish",
+    "acceptance": []
+   }
+  ],
+  "run": {
+   "attempt": 1,
+   "id": "run-1",
+   "indicators": []
+  },
+  "state": "paused",
+  "steers": [],
+  "steps": [
+   {
+    "id": "request",
+    "label": "Plan",
+    "state": "waiting"
+   }
+  ],
+  "title": "T6 paused",
+  "waits": []
+ },
+ {
+  "evidence": [],
+  "merge": {
+   "on_github": false,
+   "reason": "state",
+   "state": "waiting"
+  },
+  "n": 7,
+  "owner": {
+   "avatar_url": "data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHdpZHRoPSI0OCIgaGVpZ2h0PSI0OCIgdmlld0JveD0iMCAwIDQ4IDQ4Ij48cmVjdCB3aWR0aD0iNDgiIGhlaWdodD0iNDgiIHJ4PSIyNCIgZmlsbD0iI2RkZCIvPjxjaXJjbGUgY3g9IjI0IiBjeT0iMTgiIHI9IjgiIGZpbGw9IiM4ODgiLz48cGF0aCBkPSJNOCA0NGExNiAxNiAwIDAgMSAzMiAwIiBmaWxsPSIjODg4Ii8+PC9zdmc+",
+   "login": "rehearsal-owner",
+   "name": "Rehearsal owner"
+  },
+  "present": [],
+  "prompt_revisions": [
+   {
+    "at": "2026-10-05T15:35:40.452076Z",
+    "by": {
+     "kind": "person",
+     "name": "Rehearsal owner",
+     "login": "rehearsal-owner",
+     "avatar_url": "data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHdpZHRoPSI0OCIgaGVpZ2h0PSI0OCIgdmlld0JveD0iMCAwIDQ4IDQ4Ij48cmVjdCB3aWR0aD0iNDgiIGhlaWdodD0iNDgiIHJ4PSIyNCIgZmlsbD0iI2RkZCIvPjxjaXJjbGUgY3g9IjI0IiBjeT0iMTgiIHI9IjgiIGZpbGw9IiM4ODgiLz48cGF0aCBkPSJNOCA0NGExNiAxNiAwIDAgMSAzMiAwIiBmaWxsPSIjODg4Ii8+PC9zdmc+",
+     "color_index": 0
+    },
+    "text": "[FAIL] [FILE t3.md] Add a greeting to t3.md",
+    "acceptance": []
+   }
+  ],
+  "queue": {
+   "position": 1,
+   "reason": "machine"
+  },
+  "state": "dropped",
+  "steers": [],
+  "steps": [],
+  "title": "T7 dropped",
+  "waits": []
+ }
+]
