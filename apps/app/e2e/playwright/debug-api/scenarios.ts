@@ -86,7 +86,7 @@ export function debugApiScenarios(prefix: string) {
       }
     })
     pending("Ben signs out in another tab; Send renders literal 401 permission/unauthenticated without a crash",
-      "Real install Ben session seed and revocation composition unavailable.")
+      "Spec §5.2.1a (45da2e24a8): a dead presented credential gets 401 unauthenticated before any repo lookup; awaits smithers-3f's router fix (removed members still get 404 on repo routes). Session seeding exists (bf2d18590).")
     pending("eligible delegated app-agent and smthrs dispatch refuse debug.api as never with zero effects; scope/role refusals retain precedence",
       "No catalog-backed debug.api app-agent/CLI dispatcher or delegated install fixture.")
     pending("displayed operations and form fields equal committed install fixture; Plue-only and undocumented operations absent",
