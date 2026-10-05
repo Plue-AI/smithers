@@ -1120,7 +1120,7 @@
         "PackageExec.d.ts": "f9075c3acaee4705ab07387b80d069e8d2e4a77fc48d8437dc8f8e75e2621081",
         "PackageIndex.d.ts": "a79a07d6d9e0b95600486152d3a2fe9e43500328f6169180d9710c2df0876e5a",
         "PackageLoader.d.ts": "2af2d1ed02df73b6c0e4df9228078dc93344f8f75c2f5459b9723f7ecb426a1f",
-        "PackageTree.d.ts": "4022455313ee09a39404be17cb021a3dbf3365b4a2a55df275382141d71b3e20",
+        "PackageTree.d.ts": "56174c044cb423284419fb78072cce633d1d3e0c52f3dc8c0445a423f018b5c7",
         "Planner.d.ts": "71fe01ca51b0ea2fed2940536bc792536aa7720eb4bf43cbb07c79b27b548fb2",
         "Positionals.d.ts": "dc71f71297b7c4218d7e7ed76bb9e59b4ab1a4527d763763123852019b2827b8",
         "Query.d.ts": "765968dcc223078d6b279c99c643fd56746f9082da7c61d9ebc7329d75a6c77c",
@@ -3493,7 +3493,7 @@
         "ArtifactGc.d.ts": "f0aa11d3ef89d2115bdfebf4d1b9e74211f62c8fc12798be2805f9019edcb6f4",
         "ArtifactSync.d.ts": "830dae3789e13cbf5071a07629aa711e5a56e33f65f4c88eb5cf1f3c178bffa5",
         "CacheSync.d.ts": "18cb77f3084f0279f7450a7dac9756e3cd5336b8aa884d0c7229d4adedd9dc80",
-        "DeferredClockFold.d.ts": "cd99bca72964a6a64eec9469dccc1d2adfb61d0065d818d4ac283f06fa6222b2",
+        "DeferredClockFold.d.ts": "677193a87633c81fedebf978d1e467dce734a9a97457bf03ed1eb47822b137d9",
         "DisasterRecovery.d.ts": "b38ccc589181848a067fa1c825303fc321dcdfa61c0ad46b6f3f02a55a23f60b",
         "DurableEngineState.d.ts": "e5c6a7d331482bc1aad315cccd04f1201bf32fab5eaa5946b5c5797a29b8edca",
         "EngineStore.d.ts": "01ed4d93a48c5de94881842455a1c6af0cd3978569443301f1f36ba852dfa97e",
@@ -3572,7 +3572,7 @@
         "migrations/0007_run_parent_sequence.d.ts": "89a12e1015beb9d0bcc92b298fbfe8995d13de84b3b01ae5082609c5ba0f727a",
         "migrations/0008_deferred_consumption.d.ts": "1192fd5c27b235a30b861f057aca95a29b962a66f5c9b034294568e1fa2b2b56",
         "migrations/0009_deferred_clock_facts.d.ts": "bd527f8da85df80c5367569a10a6e781c176638aac9a2e6a276287f5f6b9e858",
-        "migrations/0010_pending_cancellation.d.ts": "b2566433863449a3985cd5081aebc5cfbe4a05ed3cfca20c82ab4719fa26bba4",
+        "migrations/0010_pending_cancellation.d.ts": "a72991baded8751b72d78329dc510946182a54f71e61b6e235f60c6eef3b9cfa",
         "test/TestStores.d.ts": "505b56a7d499a85a5d6a09732ecbd13c97a32ccb40ae1854acaa1060443ac9df"
       }
     },
@@ -4419,7 +4419,7 @@
         "RunDevTools.d.ts": "557823711644d26506934b16493dfc074cf74058a8a4edda99aaab6d55a03663",
         "RunHistory.d.ts": "467d128979fc8c0c910689896f3e405983a9a6683eb14b4b8e671e53b3519a61",
         "RunTrace.d.ts": "cd4a11c7d5f643b1bcef724a42149c51216d7667c7632942bbdbdc5108608710",
-        "RuntimeBridge.d.ts": "008182b8c1b66299ae1b7cc333b32f40a56c9664ab0c56c08fe2cc5dc282b4f4",
+        "RuntimeBridge.d.ts": "9559111c3ec7a2b35c91790c299930591df6bd617989ede5ded86d61d51db486",
         "bun/BunGateway.d.ts": "318c1380f650f659324a9e57353b9b5b1f4a6863b497dff92611d6b7cac2e6fe",
         "index.d.ts": "03ef1a7240039bd94bc6e8945bfd970f9422a8d8675699407fcf28ef18f8f612",
         "internal/NativeGateway.d.ts": "14c72260521cb9a2f9d305b01ee39ae735c4c5fc592dbb88d5242ae2faf2bca3",
@@ -4692,6 +4692,16 @@
             "default": "./dist/cjs/EngineLike.js"
           }
         },
+        "./ExternalTranscript": {
+          "import": {
+            "types": "./dist/esm/ExternalTranscript.d.ts",
+            "default": "./dist/esm/ExternalTranscript.js"
+          },
+          "require": {
+            "types": "./dist/cjs/ExternalTranscript.d.ts",
+            "default": "./dist/cjs/ExternalTranscript.js"
+          }
+        },
         "./FlowBinding": {
           "import": {
             "types": "./dist/esm/FlowBinding.d.ts",
@@ -4935,6 +4945,7 @@
         "CompletionClaim.d.ts": "14bdb552c4a5308760495113575f2b465018252f1b1e3818a9259ae81cc8f371",
         "ContextWindow.d.ts": "e164c32b0671b3c8914d96da226ee84bdb46b3c3a8ae89ab04c0c1a85e7f7a8d",
         "EngineLike.d.ts": "4e01844fc72d2ed8fc12c48eea97e3e98c2237d48f3a5cee207269ee170c02eb",
+        "ExternalTranscript.d.ts": "b271fab5ac51d0d317b071144b6604b589c8fe13fb969989f26edca348d04fd7",
         "FailedCall.d.ts": "706c4e6c7bf8e33afeb30e28392a8f46ef7278689c455bd5b303bdcfacb11b29",
         "FlowBinding.d.ts": "d87be84066fe42b870e341f2415dff3d96201d69d457403d60452155f4ef4d31",
         "HarnessError.d.ts": "7b589521353d9b3e2f0685df187303c8f19e80a864cbcc2cfd412411801deacb",
@@ -4957,7 +4968,7 @@
         "UnresolvedFailure.d.ts": "071798231113258f48494ecaf6707babaab72d41e4f015bbdd3b7c68946ed75d",
         "VacuousVerification.d.ts": "6599ccb49d6089e8bc9b48d7314b30a206fa552c7f1d09e89da58f1dcc9257ed",
         "VariablesPanel.d.ts": "2566cbfeeb5d8eb424a9a532efbc44841bbc66fbb7e67a6027b351b868d865ee",
-        "index.d.ts": "dbb21ffc7501788154d415e6b02af3985ae14c6a50c47c8b6607bf5564d5f5b0",
+        "index.d.ts": "d479dcfd8062c2d4ea910e86f82a5c3687e674438e4c60a0dea1845d65aaaecd",
         "internal/bytes.d.ts": "c8bc2e02dcff1d5782f3260313dba216a733085b2d705db52efc5dfa327ecc0a",
         "internal/cellPrompt.d.ts": "ee1e1e4f7e6cdaf6383e31dc3f43544a0312442eda9aa57a53e52343cd2571bc",
         "internal/compactable.d.ts": "5cd6a239000459f6a6feff83d86323f019681ee462ac38fecf45fc8f9ef35ca6",
@@ -8607,10 +8618,10 @@
         }
       },
       "declarations": {
-        "Descriptor.d.ts": "affc8833c06553c921431b39e27961c9ef89e20502b56c8d5c6ac99984c6c992",
+        "Descriptor.d.ts": "dc114e6f66ddd3a0cb389d4dde8a84224a8231a58d3e768104cf174770b0883f",
         "Disclosure.d.ts": "d98dd149b6c0109635f3c0b6859c7f3bfd0874163e760a809ae8fea7463f8a2c",
         "Discovery.d.ts": "dbb1d251831b7ed50cd65ee45c7749229c10b0ceea556cb23b6f144b133e769b",
-        "Executable.d.ts": "3de2e09d1e0ff79d8daa83bcd3f56b81f6600b002a24063bcfbecddf93d56a45",
+        "Executable.d.ts": "602e428fa4712a53c41605208abcfe78979ee67d2e7499e8ffc9a2ccf9e55eb5",
         "ExecutionSnapshot.d.ts": "416c9ebc326158667d67f45d62ee2d7af9dc94d5ac1db97cb6292db6b9ff36f7",
         "MarkdownFlow.d.ts": "8528795b71675a61c84ba392cfdc18155e614f0342b3d43dc5c4e2616cfcc319",
         "Pack.d.ts": "4c34430737c9942dfc2d786450e1b289e4803f5644bb434fd6c4944cc49d35cc",
@@ -9070,7 +9081,7 @@
         "internal/linuxSignals.d.ts": "a19eb9343d2e3f57e678b3328c0572a51a8283aa4dbff42f758a3baab4699531",
         "internal/localProcess.d.ts": "d5a105beee42f9f43292e1140d4bc766d28ea4915a0245dfeb3812f31b6a641c",
         "internal/machineName.d.ts": "dfa9c9805ca0db73c6c5ebf9f53de383289246e38f2b9f158a08ecb7d42a4327",
-        "internal/microsandboxNetwork.d.ts": "9939294a1d70cc37b0186aeffcedc9db27b0373474a34830fc5f5530c3dbbb99",
+        "internal/microsandboxNetwork.d.ts": "24b058d7fbc86fb697ba12a1b1dabf87bb453b9c09349dc4b793e1242032b00b",
         "internal/microsandboxProcess.d.ts": "e9c0e406b1d52cbcf6be6d77b5721bf829a4451a7d03fb2e9eca9edc99747618",
         "internal/microsandboxRemove.d.ts": "1afd27c2b3148978ec06c373f9aad0e9fe9b2179522c43e5605ab287d55ba0ed",
         "internal/pidDirectory.d.ts": "0c0fd05282890a6d020b6557868c0ec0a4623ba89f90ee4451513c2c565e2550",
@@ -9240,7 +9251,7 @@
         "ScoreStore.d.ts": "cf48a9c4dd2c67c185384628eb9eeeb69c31e28c61d506e834ad42eb60979a35",
         "Scorer.d.ts": "8940452a099fe3774f0164fca570aec40c722b5d212ba26428fd3925ca3e7f05",
         "ScorerError.d.ts": "7008c7b1307343ab8b72e6ae0373a770724eab4ad7f106bb71c8709e20761c2c",
-        "Scorers.d.ts": "337c658c5e48b28f4d3c8e840b790d9191aef2cb4df9a419d9a1fb366a05af5d",
+        "Scorers.d.ts": "fccb4ab365d55a16e3fe996439a1e3880492c9c312d3a4dbdf6556194c82106d",
         "SqlScoreStore.d.ts": "db7d79934a583140f4a1b2c400f0b523c5dfed95b13ce8160b40e92f0b6e465e",
         "index.d.ts": "266fcb1b523bbc45a88aada3b67ca85ecd809663c46f619594241f44ba8af67a",
         "internal/json.d.ts": "d88a21e55de75afc6926e111072f2a9f8a89455bd656c20f53c8ebcec5f26043",
@@ -10984,7 +10995,7 @@
         "EsLint.d.ts": "f03276ee8af1e9070f73da11e239bf1a754658b174d757740083cb5b2050ea6e",
         "Exec.d.ts": "0e03d256ec2d9e73aed8481d48d70eaa9a3479900db6383df649237b83e2bfb4",
         "ExecSandbox.d.ts": "d25472c36a4abe919390f3a77f8f66a76c891f0ec811fec3bae4ad853e598357",
-        "Factory.d.ts": "868b6b3477976e1946b99044bbe3d415c1d8b0e6453fc1e5bca508807fd6789c",
+        "Factory.d.ts": "2c68cbdfef2924ba261e9ee4afafd4b81374628440af45c0a52b20ed843b0d58",
         "FaultSuite.d.ts": "2df8807aa326d42b1e01e8469065d1d46fadbbaca98027bf70d08c4ac6ab2a25",
         "Fetch.d.ts": "661ff3d4dd6d1948c20a35541530c66fa1177472307579cf3c095af1301891d5",
         "Filegroup.d.ts": "d454992a09cafc694f098826605051c0cd636541fac55f509af493641f693006",
