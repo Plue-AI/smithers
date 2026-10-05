@@ -1855,8 +1855,9 @@ export interface Refresh {
    * on disk, registers its body with the runtime, and swaps it into the
    * catalog. Serialized: two refreshes of the same host never interleave.
    *
-   * `Removed` and `Refused` take the entry out of the catalog and close the
-   * scope of a body THIS seam registered. An exported implementation layer's
+   * `Refused` records the error while retaining the previous executable and
+   * its scope. `Removed` retires the entry and closes the scope of a body
+   * THIS seam registered. An exported implementation layer's
    * lifetime also owns its original registrations, so retiring that entry
    * unregisters them and closes its resources. Other startup registrations
    * remain owned by their original provider scope until the host closes.
@@ -2045,8 +2046,8 @@ const makeRefresh = (
               fromDescriptor(descriptor, options).pipe(Effect.provideService(Scope.Scope, scope))
             ))
             if (result._tag === "Failure") {
-              put(name, undefined, result.failure)
-              yield* release(name)
+              const previous = read().executables.find((entry) => entry.descriptor.name === name)
+              put(name, previous, result.failure)
               if (!isUnregisteredAgent(result.failure, options)) {
                 yield* Effect.logWarning("refreshed flow is not runnable on this host", {
                   flow: result.failure.flow,

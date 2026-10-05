@@ -196,6 +196,7 @@ describe("a load reserves its own module file", () => {
       Effect.gen(function*() {
         const catalog = yield* Executable.Catalog
         const refresh = yield* Executable.Refresh
+        const previous = catalog.executables[0]!
         const first = sites.at(-1)!
         const taken = Array.from({ length: 8 }, (_, index) => sibling(first, index + 1))
         yield* Effect.forEach(taken, (path) => Effect.promise(() => writeFile(path, "held by somebody else")))
@@ -205,7 +206,8 @@ describe("a load reserves its own module file", () => {
         if (outcome._tag !== "Refused") return
         expect(outcome.error.code).toBe("body_unavailable")
         expect(sites.at(-1)).toBe(first)
-        expect(catalog.executables).toEqual([])
+        expect(catalog.executables).toEqual([previous])
+        expect(catalog.refused.map((entry) => entry.flow)).toEqual(["early"])
         for (const path of taken) {
           expect(yield* Effect.promise(() => readFile(path, "utf8"))).toBe("held by somebody else")
         }
@@ -245,6 +247,41 @@ describe("a rebuild swaps a body without dropping the one it replaces", () => {
         // And the previous body was still registered at the moment the new
         // one arrived: an execution dispatched across the swap reaches one.
         expect([...registrations.liveOnRegister]).toEqual([0, 0, 1, 1, 2, 2])
+      }))
+  }, 60_000)
+
+  it.effect("holds the previous refresh scope through refusal, then retires it on removal", () => {
+    const registrations = runtime()
+    return withProject(registrations, (root) =>
+      Effect.gen(function*() {
+        const fs = yield* FileSystem.FileSystem
+        const catalog = yield* Executable.Catalog
+        const refresh = yield* Executable.Refresh
+        expect((yield* refresh.flow("early"))._tag).toBe("Registered")
+        const previous = catalog.executables[0]!
+        const registered = [...registrations.events]
+        yield* fs.writeFileString(
+          `${root}/flows/early/flow.ts`,
+          declaration.replace(
+            "import { Schema } from \"effect\"",
+            "import { Schema } from \"effect\"\nimport \"./missing.ts\""
+          )
+        )
+        expect((yield* refresh.flow("early"))._tag).toBe("Refused")
+        expect(catalog.executables[0]).toBe(previous)
+        expect(yield* catalog.load!("early")).toBe(previous)
+        expect(catalog.refused.map((entry) => entry.flow)).toEqual(["early"])
+        expect(registrations.events).toEqual(registered)
+        expect((yield* refresh.flow("early"))._tag).toBe("Refused")
+        expect(registrations.events).toEqual(registered)
+        yield* fs.remove(`${root}/flows/early`, { recursive: true })
+        expect((yield* refresh.flow("early"))._tag).toBe("Removed")
+        expect(catalog.executables).toEqual([])
+        expect(catalog.refused).toEqual([])
+        expect(registrations.events.slice(registered.length)).toEqual([
+          "release:safety/early#4",
+          "release:early#3"
+        ])
       }))
   }, 60_000)
 

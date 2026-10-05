@@ -31,6 +31,7 @@ import * as FileSystem from "effect/FileSystem"
 import * as Layer from "effect/Layer"
 import * as Schema from "effect/Schema"
 import { fileURLToPath } from "node:url"
+import * as Descriptor from "../src/Descriptor.ts"
 import * as Executable from "../src/Executable.ts"
 import * as Registry from "../src/Registry.ts"
 
@@ -304,13 +305,25 @@ describe("rebuilding one catalog entry without restarting the host", () => {
           expect((yield* refresh.flow("other"))._tag).toBe("Registered")
           const other = catalog.executables.find((entry) => entry.descriptor.name === "other")!
 
-          // A refusal takes the entry out and records why.
+          const previous = catalog.executables.find((entry) => entry.descriptor.name === "early")!
+          const digest = Descriptor.executionDigest(previous.descriptor)
+          expect(digest).toMatch(/^[a-f0-9]{64}$/)
+
+          // A refusal records why while preserving the executable people can run.
           yield* fs.writeFileString(`${root}/flows/early/flow.ts`, halfWritten("early"))
           const refusal = yield* refresh.flow("early")
           expect(refusal._tag).toBe("Refused")
           if (refusal._tag !== "Refused") return
           expect(refusal.error.code).toBe("body_unavailable")
-          expect(catalog.executables.map((entry) => entry.descriptor.name)).toEqual(["other"])
+          expect(catalog.executables.map((entry) => entry.descriptor.name).sort()).toEqual(["early", "other"])
+          expect(catalog.executables.find((entry) => entry.descriptor.name === "early")).toBe(previous)
+          expect(
+            Descriptor.executionDigest(
+              catalog.executables.find((entry) => entry.descriptor.name === "early")!.descriptor
+            )
+          ).toBe(digest)
+          expect(yield* catalog.load!("early")).toBe(previous)
+          expect(drafts(previous.flow)).toContain("root.flow.flow.andThen")
           expect(catalog.refused.map((failure) => failure.flow)).toEqual(["early"])
 
           // Repairing the file puts it back and drops the refusal with it.
