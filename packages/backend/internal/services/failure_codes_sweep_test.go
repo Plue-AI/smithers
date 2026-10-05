@@ -51,12 +51,11 @@ func TestGitHubUpstreamFailuresBlameGitHub(t *testing.T) {
 		})
 	}
 
-	// The verdicts that already had an honest code keep it: github_unavailable
-	// must not swallow the cases where GitHub answered clearly.
+	// An invisible required resource is a GitHub permission failure.
 	notFound := apiErrorOf(t, gitHubRepoMetadataUpstreamError(
 		&http.Response{StatusCode: http.StatusNotFound, Header: http.Header{}}, now))
-	assert.Equal(t, pkgerrors.CodeNotFound, notFound.Code)
-	assert.Equal(t, pkgerrors.FaultUser, notFound.Fault)
+	assert.Equal(t, pkgerrors.CodeGitHubPermission, notFound.Code)
+	assert.Equal(t, pkgerrors.FaultDependency, notFound.Fault)
 
 	// A diagnosis that could not reach GitHub is the same verdict.
 	assert.Equal(t, pkgerrors.CodeGitHubUnavailable, badGateway("github is unreachable").Code)

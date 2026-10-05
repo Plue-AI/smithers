@@ -453,8 +453,7 @@ func (s *GitHubUserReposService) requestGitHubRepoRaw(ctx context.Context, acces
 
 	resp, err := s.httpClient.Do(req)
 	if err != nil {
-		return GitHubRepoMetadataResult{}, pkgerrors.New(pkgerrors.CodeGitHubUnavailable,
-			"github repository metadata request failed")
+		return GitHubRepoMetadataResult{}, GitHubRequestFailure(ctx, "github repository metadata request failed")
 	}
 	defer func() { _ = resp.Body.Close() }()
 
@@ -464,8 +463,7 @@ func (s *GitHubUserReposService) requestGitHubRepoRaw(ctx context.Context, acces
 
 	body, readErr := io.ReadAll(io.LimitReader(resp.Body, githubRepoMetadataMaxResponseBytes+1))
 	if readErr != nil {
-		return GitHubRepoMetadataResult{}, pkgerrors.New(pkgerrors.CodeGitHubUnavailable,
-			"failed to read github repository metadata response")
+		return GitHubRepoMetadataResult{}, GitHubRequestFailure(ctx, "failed to read github repository metadata response")
 	}
 	if int64(len(body)) > githubRepoMetadataMaxResponseBytes {
 		return GitHubRepoMetadataResult{}, pkgerrors.New(pkgerrors.CodeGitHubUnavailable,
@@ -485,25 +483,14 @@ func (s *GitHubUserReposService) requestGitHubRepoRaw(ctx context.Context, acces
 }
 
 func gitHubRepoMetadataUpstreamError(resp *http.Response, now time.Time) error {
-	if limited := GitHubRateLimitError(resp.StatusCode, resp.Header, now); limited != nil {
-		return limited
-	}
-	if resp.StatusCode >= http.StatusOK && resp.StatusCode < http.StatusMultipleChoices {
-		return nil
-	}
-	switch resp.StatusCode {
-	case http.StatusUnauthorized:
+	if resp.StatusCode == http.StatusUnauthorized {
 		return pkgerrors.Unauthorized("github oauth token was rejected")
-	case http.StatusForbidden:
-		return pkgerrors.Forbidden("github denied the repository metadata request")
-	case http.StatusNotFound:
-		return pkgerrors.NotFound("github repository was not found")
-	case http.StatusUnprocessableEntity:
-		return pkgerrors.UnprocessableEntity("github rejected the repository metadata query")
 	}
-	if resp.StatusCode >= http.StatusBadRequest && resp.StatusCode < http.StatusInternalServerError {
-		return pkgerrors.BadRequest("github rejected the repository metadata request")
+	if failure := GitHubResponseFailure(resp.StatusCode, resp.Header, now); failure != nil {
+		return failure
 	}
-	return pkgerrors.New(pkgerrors.CodeGitHubUnavailable,
-		fmt.Sprintf("github repository metadata upstream returned status %d", resp.StatusCode))
+	if resp.StatusCode == http.StatusNotModified {
+		return pkgerrors.New(pkgerrors.CodeGitHubUnavailable, "GitHub returned an unsolicited conditional response")
+	}
+	return nil
 }

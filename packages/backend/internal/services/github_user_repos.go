@@ -662,7 +662,7 @@ func (s *GitHubUserReposService) requestGitHubRepoPushPermission(ctx context.Con
 
 	resp, err := s.httpClient.Do(req)
 	if err != nil {
-		return false, 0, gitHubRequestFailure(ctx, "GitHub repository request failed")
+		return false, 0, GitHubRequestFailure(ctx, "GitHub repository request failed")
 	}
 	defer func() { _ = resp.Body.Close() }()
 
@@ -672,12 +672,12 @@ func (s *GitHubUserReposService) requestGitHubRepoPushPermission(ctx context.Con
 	if resp.StatusCode == http.StatusNotFound {
 		return false, 0, nil
 	}
-	if failure := gitHubResponseFailure(resp.StatusCode, resp.Header, s.now()); failure != nil {
+	if failure := GitHubResponseFailure(resp.StatusCode, resp.Header, s.now()); failure != nil {
 		return false, 0, failure
 	}
 	body, readErr := io.ReadAll(io.LimitReader(resp.Body, (1<<20)+1))
 	if readErr != nil || len(body) > 1<<20 {
-		return false, 0, gitHubRequestFailure(ctx, "GitHub returned an incomplete repository response")
+		return false, 0, GitHubRequestFailure(ctx, "GitHub returned an incomplete repository response")
 	}
 
 	var payload struct {
@@ -689,7 +689,7 @@ func (s *GitHubUserReposService) requestGitHubRepoPushPermission(ctx context.Con
 		} `json:"permissions"`
 	}
 	if err := json.Unmarshal(body, &payload); err != nil {
-		return false, 0, gitHubRequestFailure(ctx, "GitHub returned an unreadable repository response")
+		return false, 0, GitHubRequestFailure(ctx, "GitHub returned an unreadable repository response")
 	}
 	return payload.Permissions.Push || payload.Permissions.Maintain || payload.Permissions.Admin, payload.ID, nil
 }
@@ -713,7 +713,7 @@ func (s *GitHubUserReposService) requestGitHubUserRepos(ctx context.Context, acc
 
 	resp, err := s.httpClient.Do(req)
 	if err != nil {
-		return nil, "", gitHubRequestFailure(ctx, "GitHub user repositories request failed")
+		return nil, "", GitHubRequestFailure(ctx, "GitHub user repositories request failed")
 	}
 	defer func() { _ = resp.Body.Close() }()
 
@@ -722,17 +722,17 @@ func (s *GitHubUserReposService) requestGitHubUserRepos(ctx context.Context, acc
 	if resp.StatusCode == http.StatusUnauthorized {
 		return nil, "", pkgerrors.Unauthorized("github oauth token was rejected")
 	}
-	if failure := gitHubResponseFailure(resp.StatusCode, resp.Header, s.now()); failure != nil {
+	if failure := GitHubResponseFailure(resp.StatusCode, resp.Header, s.now()); failure != nil {
 		return nil, "", failure
 	}
 	body, readErr := io.ReadAll(io.LimitReader(resp.Body, (4<<20)+1))
 	if readErr != nil || len(body) > 4<<20 {
-		return nil, "", gitHubRequestFailure(ctx, "GitHub returned an incomplete repository listing")
+		return nil, "", GitHubRequestFailure(ctx, "GitHub returned an incomplete repository listing")
 	}
 
 	var repos []GitHubRepoListItem
 	if err := json.Unmarshal(body, &repos); err != nil {
-		return nil, "", gitHubRequestFailure(ctx, "GitHub returned an unreadable repository listing")
+		return nil, "", GitHubRequestFailure(ctx, "GitHub returned an unreadable repository listing")
 	}
 
 	return repos, resp.Header.Get("Link"), nil

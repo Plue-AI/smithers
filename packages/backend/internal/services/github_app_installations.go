@@ -164,6 +164,7 @@ func gitHubInstallationUnverified(err error) *pkgerrors.APIError {
 			Class:      apiErr.Class,
 			Fault:      apiErr.Fault,
 			RetryAfter: apiErr.RetryAfter,
+			RetryAt:    apiErr.RetryAt,
 			Message:    gitHubInstallationUnverifiedMessage,
 		}).WithCause(err)
 	}

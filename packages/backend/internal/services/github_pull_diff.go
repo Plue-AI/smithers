@@ -100,15 +100,17 @@ func (s *GitHubUserReposService) requestGitHubPullDiff(
 
 	resp, err := s.httpClient.Do(req)
 	if err != nil {
-		return GitHubPullDiffResult{}, pkgerrors.New(pkgerrors.CodeGitHubUnavailable,
-			"github pull diff request failed")
+		return GitHubPullDiffResult{}, GitHubRequestFailure(ctx, "github pull diff request failed")
 	}
 	defer func() { _ = resp.Body.Close() }()
 
+	if err := gitHubRepoMetadataUpstreamError(resp, s.now()); err != nil {
+		return GitHubPullDiffResult{}, err
+	}
+
 	body, readErr := io.ReadAll(io.LimitReader(resp.Body, githubPullDiffMaxResponseBytes+1))
 	if readErr != nil {
-		return GitHubPullDiffResult{}, pkgerrors.New(pkgerrors.CodeGitHubUnavailable,
-			"failed to read github pull diff response")
+		return GitHubPullDiffResult{}, GitHubRequestFailure(ctx, "failed to read github pull diff response")
 	}
 	if int64(len(body)) > githubPullDiffMaxResponseBytes {
 		return GitHubPullDiffResult{}, &pkgerrors.APIError{
@@ -118,8 +120,5 @@ func (s *GitHubUserReposService) requestGitHubPullDiff(
 		}
 	}
 
-	if err := gitHubRepoMetadataUpstreamError(resp, s.now()); err != nil {
-		return GitHubPullDiffResult{}, err
-	}
 	return GitHubPullDiffResult{Body: body}, nil
 }

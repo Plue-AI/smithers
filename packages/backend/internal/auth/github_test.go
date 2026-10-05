@@ -11,6 +11,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	pkgerrors "github.com/smithersai/smithers/packages/backend/internal/pkg/errors"
 	"github.com/smithersai/smithers/packages/backend/internal/services"
 )
 
@@ -381,7 +382,10 @@ func TestGitHubClient_FetchEmails(t *testing.T) {
 		client.apiBaseURL = srv.URL
 
 		_, err := client.FetchEmails(context.Background(), "access-token")
-		require.ErrorIs(t, err, services.ErrGitHubTokenRejected)
+		require.NotErrorIs(t, err, services.ErrGitHubTokenRejected)
+		var failure *pkgerrors.APIError
+		require.ErrorAs(t, err, &failure)
+		require.Equal(t, pkgerrors.CodeGitHubPermission, failure.Code)
 	})
 
 	t.Run("malformed non-json response returns error", func(t *testing.T) {

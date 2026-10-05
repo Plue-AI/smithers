@@ -180,3 +180,56 @@ func TestGitHubRepositoryResponseRefreshPauseSurvivesCallers(t *testing.T) {
 		})
 	}
 }
+
+func TestGitHubRepositoryResponseMetadataClassification(t *testing.T) {
+	for _, boundary := range []string{"repository", "pull", "issues", "comments", "diff"} {
+		t.Run(boundary, func(t *testing.T) {
+			for _, status := range []int{403, 404, 422, 503, 304} {
+				t.Run(strconv.Itoa(status), func(t *testing.T) {
+					server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+						w.WriteHeader(status)
+						_, _ = io.WriteString(w, `{"message":"secret-upstream"}`)
+					}))
+					defer server.Close()
+					t.Setenv(envGitHubAppAPIBaseURL, server.URL)
+					refresh := &fakeGitHubTokenRefresher{newToken: "unexpected"}
+					service := NewGitHubUserReposService(newFakeGitHubUserReposDB(), fakeOAuthTokenDecrypter{token: "user"}, WithGitHubUserReposTokenRefresher(refresh))
+					var err error
+					switch boundary {
+					case "repository":
+						_, err = service.GetAuthenticatedUserGitHubRepo(t.Context(), 42, "acme", "app")
+					case "pull":
+						_, err = service.GetAuthenticatedUserGitHubPull(t.Context(), 42, "acme", "app", 1)
+					case "issues":
+						_, err = service.ListAuthenticatedUserGitHubRepoMetadata(t.Context(), 42, "acme", "app", "issues", nil)
+					case "comments":
+						_, err = service.ListAuthenticatedUserGitHubIssueComments(t.Context(), 42, "acme", "app", 1, nil)
+					case "diff":
+						_, err = service.GetAuthenticatedUserGitHubPullDiff(t.Context(), 42, "acme", "app", 1)
+					}
+					want := pkgerrors.CodeGitHubUnavailable
+					if status == 403 || status == 404 {
+						want = pkgerrors.CodeGitHubPermission
+					}
+					requireGitHubFailure(t, err, want)
+					require.Zero(t, refresh.callCount())
+				})
+			}
+		})
+	}
+}
+
+func TestGitHubRepositoryResponseDiffRateLimitPrecedesBody(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Retry-After", "45")
+		w.Header().Set("Content-Length", "100")
+		w.WriteHeader(403)
+		_, _ = io.WriteString(w, "incomplete")
+	}))
+	defer server.Close()
+	t.Setenv(envGitHubAppAPIBaseURL, server.URL)
+	service := NewGitHubUserReposService(newFakeGitHubUserReposDB(), fakeOAuthTokenDecrypter{token: "user"})
+	_, err := service.GetAuthenticatedUserGitHubPullDiff(t.Context(), 42, "acme", "app", 1)
+	failure := requireGitHubFailure(t, err, pkgerrors.CodeGitHubRateLimited)
+	require.Equal(t, 45, failure.RetryAfter)
+}

@@ -82,3 +82,57 @@ func TestGitHubClientTokenResponsesMustBeComplete(t *testing.T) {
 		})
 	}
 }
+
+func TestGitHubClientIdentityResponsesMustBeAuthoritative(t *testing.T) {
+	for _, action := range []string{"profile", "emails"} {
+		t.Run(action, func(t *testing.T) {
+			for _, failure := range []string{"forbidden", "absent", "outage", "truncated", "oversized", "trailing JSON"} {
+				t.Run(failure, func(t *testing.T) {
+					server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+						body := `{"id":71,"login":"member"}`
+						if action == "emails" {
+							body = `[{"email":"member@example.test","verified":true,"primary":true}]`
+						}
+						switch failure {
+						case "forbidden":
+							w.WriteHeader(403)
+						case "absent":
+							w.WriteHeader(404)
+						case "outage":
+							w.WriteHeader(503)
+						case "truncated":
+							w.Header().Set("Content-Length", strconv.Itoa(len(body)+10))
+						case "oversized":
+							body += strings.Repeat(" ", 1<<20)
+						case "trailing JSON":
+							body += `{}`
+						}
+						_, _ = io.WriteString(w, body)
+					}))
+					defer server.Close()
+					client := githubCoverClient(server.URL)
+					client.apiBaseURL = server.URL
+					var err error
+					if action == "profile" {
+						var profile services.GitHubUserProfile
+						profile, err = client.FetchUser(t.Context(), "access")
+						require.Zero(t, profile.ID)
+					} else {
+						var emails []services.GitHubEmail
+						emails, err = client.FetchEmails(t.Context(), "access")
+						require.Empty(t, emails)
+					}
+					var apiErr *pkgerrors.APIError
+					require.ErrorAs(t, err, &apiErr)
+					want := pkgerrors.CodeGitHubUnavailable
+					if failure == "forbidden" || failure == "absent" {
+						want = pkgerrors.CodeGitHubPermission
+					}
+					require.Equal(t, want, apiErr.Code)
+					require.Equal(t, pkgerrors.ClassGitHub, apiErr.Class)
+					require.NotErrorIs(t, err, services.ErrGitHubTokenRejected)
+				})
+			}
+		})
+	}
+}

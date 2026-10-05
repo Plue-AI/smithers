@@ -225,12 +225,12 @@ func (s *GitHubUserReposService) DiagnoseGitHubAccess(
 		}
 	}
 	if err != nil {
-		switch statusOfAPIError(err) {
-		case http.StatusUnauthorized:
+		switch {
+		case statusOfAPIError(err) == http.StatusUnauthorized:
 			diagnosis.Verdict = GitHubAccessVerdictTokenBroken
 			diagnosis.Detail = "GitHub rejected the linked credential and it could not be refreshed. Re-link GitHub on jjhub."
 			return diagnosis, nil
-		case http.StatusNotFound, http.StatusForbidden:
+		case isGitHubPermissionFailure(err), statusOfAPIError(err) == http.StatusNotFound, statusOfAPIError(err) == http.StatusForbidden:
 			diagnosis.Verdict = GitHubAccessVerdictNoOrgGrant
 			diagnosis.Detail = fmt.Sprintf(
 				"The GitHub App is installed with %s granted, but your own GitHub credential cannot see %s/%s. Authorize your account on the installation's settings page.",
@@ -283,24 +283,24 @@ func fetchRepoInstallation(ctx context.Context, client *http.Client, baseURL, jw
 
 	resp, err := client.Do(req)
 	if err != nil {
-		return githubRepoInstallation{}, false, gitHubRequestFailure(ctx, "GitHub installation lookup failed")
+		return githubRepoInstallation{}, false, GitHubRequestFailure(ctx, "GitHub installation lookup failed")
 	}
 	defer func() { _ = resp.Body.Close() }()
 
 	if resp.StatusCode == http.StatusNotFound {
 		return githubRepoInstallation{}, false, nil
 	}
-	if err := gitHubResponseFailure(resp.StatusCode, resp.Header, time.Now()); err != nil {
+	if err := GitHubResponseFailure(resp.StatusCode, resp.Header, time.Now()); err != nil {
 		return githubRepoInstallation{}, false, err
 	}
 	body, readErr := io.ReadAll(io.LimitReader(resp.Body, (1<<20)+1))
 	if readErr != nil || len(body) > 1<<20 {
-		return githubRepoInstallation{}, false, gitHubRequestFailure(ctx, "GitHub returned an incomplete installation response")
+		return githubRepoInstallation{}, false, GitHubRequestFailure(ctx, "GitHub returned an incomplete installation response")
 	}
 
 	var installation githubRepoInstallation
 	if err := json.Unmarshal(body, &installation); err != nil || installation.ID <= 0 {
-		return githubRepoInstallation{}, false, gitHubRequestFailure(ctx, "GitHub returned an unreadable installation response")
+		return githubRepoInstallation{}, false, GitHubRequestFailure(ctx, "GitHub returned an unreadable installation response")
 	}
 	return installation, true, nil
 }

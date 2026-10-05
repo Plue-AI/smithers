@@ -230,7 +230,7 @@ var (
 var ErrGitHubRefreshTokenInvalid = stdErrors.New("github refresh token is invalid")
 
 // ErrGitHubTokenRejected is wrapped by a GitHubClient's FetchUser and
-// FetchEmails when GitHub answers 401 or 403: the caller's access token is
+// FetchEmails when GitHub answers 401: the caller's access token is
 // expired, revoked, or lacks scope. resolveOAuthUser maps it to 401 so a bad
 // client credential is not reported as a server bug.
 var ErrGitHubTokenRejected = stdErrors.New("github access token was rejected")
@@ -1297,8 +1297,8 @@ func containsPrivilegedScope(scopes []string) bool {
 }
 
 // oauthFetchError maps a GitHub profile or emails fetch failure to an API
-// error: a rejected token is the caller's 401, anything else is a 500 that
-// keeps the cause for the server log.
+// error. Rejected credentials are 401; typed dependency failures retain their
+// class and pacing, while untyped failures keep a private cause.
 func oauthFetchError(what string, err error) error {
 	if stdErrors.Is(err, ErrGitHubTokenRejected) {
 		if what == "emails" {
@@ -1307,7 +1307,14 @@ func oauthFetchError(what string, err error) error {
 		}
 		return pkgerrors.Unauthorized("github access token was rejected")
 	}
-	return pkgerrors.Internal("failed to fetch oauth " + what + ": " + err.Error())
+	var failure *pkgerrors.APIError
+	if stdErrors.As(err, &failure) {
+		return err
+	}
+	if stdErrors.Is(err, context.Canceled) || stdErrors.Is(err, context.DeadlineExceeded) {
+		return err
+	}
+	return pkgerrors.Internal("failed to fetch oauth " + what).WithCause(err)
 }
 
 // pickVerifiedEmail returns a GitHub-verified email (primary first) or "" when

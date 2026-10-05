@@ -530,20 +530,20 @@ func (s *RepoConnectionService) CreateGitHubInstallationToken(
 	httpClient := s.gitHubBudgetTracker.WrapClient(observability.NewHTTPClient(10 * time.Second))
 	resp, err := httpClient.Do(req)
 	if err != nil {
-		return GitHubInstallationToken{}, gitHubRequestFailure(ctx, "GitHub installation token request failed")
+		return GitHubInstallationToken{}, GitHubRequestFailure(ctx, "GitHub installation token request failed")
 	}
 	defer func() { _ = resp.Body.Close() }()
 
 	if resp.StatusCode == http.StatusNotFound {
 		return GitHubInstallationToken{}, pkgerrors.New(pkgerrors.CodeGitHubNotInstalled, "GitHub App installation not found")
 	}
-	if err := gitHubResponseFailure(resp.StatusCode, resp.Header, time.Now()); err != nil {
+	if err := GitHubResponseFailure(resp.StatusCode, resp.Header, time.Now()); err != nil {
 		return GitHubInstallationToken{}, err
 	}
 
 	bodyBytes, readErr := io.ReadAll(io.LimitReader(resp.Body, (1<<20)+1))
 	if readErr != nil || len(bodyBytes) > 1<<20 {
-		return GitHubInstallationToken{}, gitHubRequestFailure(ctx, "GitHub returned an incomplete token response")
+		return GitHubInstallationToken{}, GitHubRequestFailure(ctx, "GitHub returned an incomplete token response")
 	}
 
 	var payload struct {
@@ -551,13 +551,13 @@ func (s *RepoConnectionService) CreateGitHubInstallationToken(
 		ExpiresAt string `json:"expires_at"`
 	}
 	if err := json.Unmarshal(bodyBytes, &payload); err != nil {
-		return GitHubInstallationToken{}, gitHubRequestFailure(ctx, "GitHub installation token response was invalid")
+		return GitHubInstallationToken{}, GitHubRequestFailure(ctx, "GitHub installation token response was invalid")
 	}
 
 	token := strings.TrimSpace(payload.Token)
 	expiresAt, err := time.Parse(time.RFC3339, strings.TrimSpace(payload.ExpiresAt))
 	if token == "" || err != nil || time.Until(expiresAt) < installationTokenEarlyExpiry {
-		return GitHubInstallationToken{}, gitHubRequestFailure(ctx, "GitHub installation token response was invalid")
+		return GitHubInstallationToken{}, GitHubRequestFailure(ctx, "GitHub installation token response was invalid")
 	}
 
 	storeCachedInstallationToken(key, installationID, token, expiresAt)
@@ -898,9 +898,9 @@ func (s *RepoConnectionService) listGitHubAppInstallations(ctx context.Context, 
 
 		resp, err := httpClient.Do(req)
 		if err != nil {
-			return nil, gitHubRequestFailure(ctx, "GitHub installations request failed")
+			return nil, GitHubRequestFailure(ctx, "GitHub installations request failed")
 		}
-		if failure := gitHubResponseFailure(resp.StatusCode, resp.Header, time.Now()); failure != nil {
+		if failure := GitHubResponseFailure(resp.StatusCode, resp.Header, time.Now()); failure != nil {
 			_ = resp.Body.Close()
 			return nil, failure
 		}
@@ -908,12 +908,12 @@ func (s *RepoConnectionService) listGitHubAppInstallations(ctx context.Context, 
 		nextURL := parseGitHubNextLink(resp.Header.Get("Link"))
 		_ = resp.Body.Close()
 		if readErr != nil || len(bodyBytes) > 8<<20 {
-			return nil, gitHubRequestFailure(ctx, "GitHub returned an incomplete installation listing")
+			return nil, GitHubRequestFailure(ctx, "GitHub returned an incomplete installation listing")
 		}
 
 		var page []reconcileInstallation
 		if err := json.Unmarshal(bodyBytes, &page); err != nil {
-			return nil, gitHubRequestFailure(ctx, "GitHub installations response was invalid")
+			return nil, GitHubRequestFailure(ctx, "GitHub installations response was invalid")
 		}
 		all = append(all, page...)
 		endpoint = nextURL
@@ -939,9 +939,9 @@ func (s *RepoConnectionService) listGitHubInstallationRepositories(ctx context.C
 
 		resp, err := httpClient.Do(req)
 		if err != nil {
-			return nil, gitHubRequestFailure(ctx, "GitHub repositories request failed")
+			return nil, GitHubRequestFailure(ctx, "GitHub repositories request failed")
 		}
-		if failure := gitHubResponseFailure(resp.StatusCode, resp.Header, time.Now()); failure != nil {
+		if failure := GitHubResponseFailure(resp.StatusCode, resp.Header, time.Now()); failure != nil {
 			_ = resp.Body.Close()
 			return nil, failure
 		}
@@ -949,14 +949,14 @@ func (s *RepoConnectionService) listGitHubInstallationRepositories(ctx context.C
 		nextURL := parseGitHubNextLink(resp.Header.Get("Link"))
 		_ = resp.Body.Close()
 		if readErr != nil || len(bodyBytes) > 8<<20 {
-			return nil, gitHubRequestFailure(ctx, "GitHub returned an incomplete installation listing")
+			return nil, GitHubRequestFailure(ctx, "GitHub returned an incomplete installation listing")
 		}
 
 		var page struct {
 			Repositories []reconcileRepository `json:"repositories"`
 		}
 		if err := json.Unmarshal(bodyBytes, &page); err != nil {
-			return nil, gitHubRequestFailure(ctx, "GitHub repositories response was invalid")
+			return nil, GitHubRequestFailure(ctx, "GitHub repositories response was invalid")
 		}
 		all = append(all, page.Repositories...)
 		endpoint = nextURL

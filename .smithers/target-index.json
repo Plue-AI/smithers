@@ -24166,6 +24166,10 @@
       },
       {
         "kind": "file",
+        "path": "packages/backend/internal/services/github_app_installations.go"
+      },
+      {
+        "kind": "file",
         "path": "packages/backend/internal/services/github_repo_metadata.go"
       },
       {
@@ -24239,6 +24243,10 @@
       {
         "kind": "file",
         "path": "packages/backend/internal/auth/github.go"
+      },
+      {
+        "kind": "file",
+        "path": "packages/backend/internal/auth/github_oauth_error.go"
       },
       {
         "kind": "file",

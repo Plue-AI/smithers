@@ -109,7 +109,8 @@ func TestGitHubRepoMetadata_TypedPullDoesNotFallbackAfterNotFound(t *testing.T) 
 	require.Error(t, err)
 	apiErr, ok := err.(*pkgerrors.APIError)
 	require.True(t, ok)
-	assert.Equal(t, http.StatusNotFound, apiErr.Status)
+	assert.Equal(t, http.StatusBadGateway, apiErr.Status)
+	assert.Equal(t, pkgerrors.CodeGitHubPermission, apiErr.Code)
 	_, err = service.GetAuthenticatedUserGitHubPull(context.Background(), 42, "upstream", "project", 0)
 	require.Error(t, err)
 	apiErr, ok = err.(*pkgerrors.APIError)
@@ -297,11 +298,11 @@ func TestGitHubRepoMetadata_MapsUpstreamStatusesWithoutRefreshingForbidden(t *te
 		wantStatus int
 		wantRetry  int
 	}{
-		{name: "forbidden", status: http.StatusForbidden, wantStatus: http.StatusForbidden},
+		{name: "forbidden", status: http.StatusForbidden, wantStatus: http.StatusBadGateway},
 		{name: "forbidden rate limit", status: http.StatusForbidden, headers: map[string]string{"X-RateLimit-Remaining": "0", "Retry-After": "12"}, wantStatus: http.StatusTooManyRequests, wantRetry: 12},
 		{name: "primary rate limit reset", status: http.StatusForbidden, headers: map[string]string{"X-RateLimit-Remaining": "0", "X-RateLimit-Reset": "1120"}, wantStatus: http.StatusTooManyRequests, wantRetry: 120},
-		{name: "not found", status: http.StatusNotFound, wantStatus: http.StatusNotFound},
-		{name: "unprocessable", status: http.StatusUnprocessableEntity, wantStatus: http.StatusUnprocessableEntity},
+		{name: "not found", status: http.StatusNotFound, wantStatus: http.StatusBadGateway},
+		{name: "unprocessable", status: http.StatusUnprocessableEntity, wantStatus: http.StatusBadGateway},
 		{name: "upstream failure", status: http.StatusInternalServerError, wantStatus: http.StatusBadGateway},
 	}
 	for _, tc := range tests {

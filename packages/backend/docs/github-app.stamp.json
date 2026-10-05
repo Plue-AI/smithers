@@ -3,9 +3,9 @@
   "producer": null,
   "output": {
     "path": "packages/backend/docs/github-app.md",
-    "digest": "c2521ae31d26d71f15c86f8858dc2c9d7c0666eb7f17e2dc3ebfe1a9aac1b599"
+    "digest": "97f65ad64972f84badbb761502aa84a9d956af1468dbf93809587481b2c5b706"
   },
-  "closure": "e31a33fbd748d02535f7b729b650d74fcc8852b6e48117df2b6c9b50e8bc593b",
+  "closure": "ef27200fc565de2285337162b39dc9c36f43267ad0e57c7f998b6486bd99746b",
   "inputs": [
     {
       "path": "docs/api/openapi/install.yaml",
@@ -21,7 +21,11 @@
     },
     {
       "path": "packages/backend/internal/auth/github.go",
-      "digest": "863f15b924e51d828d4854e14235ca9446cc219596ab76abe6e7853bcc1d8ea4"
+      "digest": "84863ab5c8345132f881a47734680ac7ba89e50aa98eef2f4dd02dfc1f9f52e4"
+    },
+    {
+      "path": "packages/backend/internal/auth/github_oauth_error.go",
+      "digest": "d54a39d158d3d9d39fc994a97195cb61a0287a6d9326ff1148c1712f9059ca4a"
     },
     {
       "path": "packages/backend/internal/compose/github_sync.go",
@@ -57,15 +61,19 @@
     },
     {
       "path": "packages/backend/internal/services/auth.go",
-      "digest": "19d6316e5b8151168e1439706c0a4e9febd01723644a08a826a9dc9ea2c128d4"
+      "digest": "cf43600981878ece0e643d73a1dcda1be5761ba2f1dda2fbb8e463ff759e99df"
     },
     {
       "path": "packages/backend/internal/services/github_access_diagnosis.go",
-      "digest": "58da4aebf0f7dfe370111156803cee046419575f790d03289d00deae9488c15c"
+      "digest": "feef8d8ab7043356795f8cc604799dc7d48e689a0d1e8d37e2e0685e75ef94b8"
     },
     {
       "path": "packages/backend/internal/services/github_app_credentials.go",
       "digest": "5b7432c62ca38955160f67325a33fa447075be808d5cfa8348d862e5bfd02675"
+    },
+    {
+      "path": "packages/backend/internal/services/github_app_installations.go",
+      "digest": "0bc9a338e9f027ffe81d7ce5f13689d247b485c2d4fc20aea937adc78aedf05a"
     },
     {
       "path": "packages/backend/internal/services/github_app_manifest.go",
@@ -89,15 +97,15 @@
     },
     {
       "path": "packages/backend/internal/services/github_pull_diff.go",
-      "digest": "34ec4a583dfddb75671e8622cb137aca98b6264c2b7d6116f7a5815c8cf774fd"
+      "digest": "a65b3a36734c46b0276da053484e3b1498449be3411a2ae2b811f88fddde837a"
     },
     {
       "path": "packages/backend/internal/services/github_repo_list.go",
-      "digest": "c60d40cc29d645ed4d73e8e1bd7a76054e78866d5a30a70af06e43cf1d40d9f3"
+      "digest": "7afbd58f5c43c5244f1f233072d2a08f052865714a68132a51a9e6912438d9d4"
     },
     {
       "path": "packages/backend/internal/services/github_repo_metadata.go",
-      "digest": "a598cc72ba203abea9cc007862e6c12b9d5c883952605a37cdd4c18fd481b7b0"
+      "digest": "189db90ac7ddcf872f0395293e6f20aa88c5b9116da5f0ab5c94a983e3634b3d"
     },
     {
       "path": "packages/backend/internal/services/github_repo_push_access.go",
@@ -109,7 +117,7 @@
     },
     {
       "path": "packages/backend/internal/services/github_response.go",
-      "digest": "3f19e84c53178922b00d4a5e169b611a9e5fbb28bad96f204bba59cd0d91e781"
+      "digest": "e7795bc5f2167949ac074b426ae189d6c3af6d3475480fcdd7ab588855a2a587"
     },
     {
       "path": "packages/backend/internal/services/github_synced_conditional.go",
@@ -137,7 +145,7 @@
     },
     {
       "path": "packages/backend/internal/services/github_user_repos.go",
-      "digest": "3f8c75068ba554beeeb6782f0da071f0b28af2c55913b7230b3f56d6fd918750"
+      "digest": "27a37db2538469605041ff86f8865c25787028881ed082078f7d7156331748a9"
     },
     {
       "path": "packages/backend/internal/services/install_machine_ready.go",
@@ -153,7 +161,7 @@
     },
     {
       "path": "packages/backend/internal/services/landing_github_pull.go",
-      "digest": "b4d7014d1261bf9ed584c7acca0c90fa2a79ca3803840bf5aab94a18cec1c625"
+      "digest": "eba6d67dd92145b7a67a7e71076c5115f1a4397511b65692c60358150bbc966a"
     },
     {
       "path": "packages/backend/internal/services/member_roster.go",
@@ -169,7 +177,7 @@
     },
     {
       "path": "packages/backend/internal/services/repo_connection_github_app.go",
-      "digest": "68ef722abdb1e96321cce32daeaaea4f573f31129e983848b2e728c74d0a29bc"
+      "digest": "e62b5fc098fc040eccf1f5df48340c3b5aa97c1b83d52d9ff1121e4c46b46600"
     }
   ]
 }

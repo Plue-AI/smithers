@@ -146,26 +146,26 @@ func (s *GitHubRepoListService) ListInstallationRepositories(ctx context.Context
 
 	resp, err := s.httpClient.Do(req)
 	if err != nil {
-		return GitHubRepoListResult{}, gitHubRequestFailure(ctx, "GitHub repositories request failed")
+		return GitHubRepoListResult{}, GitHubRequestFailure(ctx, "GitHub repositories request failed")
 	}
 	defer func() { _ = resp.Body.Close() }()
 
 	if resp.StatusCode == http.StatusUnauthorized {
 		invalidateCachedInstallationToken(token.InstallationID)
 	}
-	if failure := gitHubResponseFailure(resp.StatusCode, resp.Header, time.Now()); failure != nil {
+	if failure := GitHubResponseFailure(resp.StatusCode, resp.Header, time.Now()); failure != nil {
 		return GitHubRepoListResult{}, failure
 	}
 	body, readErr := io.ReadAll(io.LimitReader(resp.Body, (4<<20)+1))
 	if readErr != nil || len(body) > 4<<20 {
-		return GitHubRepoListResult{}, gitHubRequestFailure(ctx, "GitHub returned an incomplete repository listing")
+		return GitHubRepoListResult{}, GitHubRequestFailure(ctx, "GitHub returned an incomplete repository listing")
 	}
 
 	var payload struct {
 		Repositories []GitHubRepoListItem `json:"repositories"`
 	}
 	if err := json.Unmarshal(body, &payload); err != nil {
-		return GitHubRepoListResult{}, gitHubRequestFailure(ctx, "GitHub returned an unreadable repository listing")
+		return GitHubRepoListResult{}, GitHubRequestFailure(ctx, "GitHub returned an unreadable repository listing")
 	}
 
 	// The installation token grants visibility over EVERY repository in the

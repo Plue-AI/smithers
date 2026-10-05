@@ -9,6 +9,7 @@ import (
 	"sync"
 	"sync/atomic"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -148,6 +149,34 @@ func TestVerifyGitHubAppInstallationsSkipsInvisibleAndUninstalled(t *testing.T) 
 	repos, err := VerifyGitHubAppInstallations(context.Background(), source, 7, "")
 	require.Nil(t, err)
 	assert.Equal(t, []GitHubAppInstallationRepo{{FullName: "ada/hello", InstallationID: 42}}, repos)
+}
+
+func TestVerifyGitHubAppInstallationsKeepsDependencyFailures(t *testing.T) {
+	for _, code := range []pkgerrors.Code{pkgerrors.CodeGitHubPermission, pkgerrors.CodeGitHubUnavailable, pkgerrors.CodeGitHubRateLimited} {
+		t.Run(string(code), func(t *testing.T) {
+			failure := pkgerrors.New(code, "GitHub dependency failed")
+			deadline := time.Date(2030, 1, 1, 0, 0, 0, 0, time.UTC)
+			if code == pkgerrors.CodeGitHubRateLimited {
+				failure.RetryAt, failure.RetryAfter = &deadline, 120
+			}
+			source := &fakeInstallationSource{
+				inventory: onePage(GitHubRepoListItem{FullName: "acme/app"}),
+				diagnose: func(string, string) (GitHubAccessDiagnosis, error) {
+					return GitHubAccessDiagnosis{}, failure
+				},
+			}
+			repos, err := VerifyGitHubAppInstallations(t.Context(), source, 7, "")
+			require.Empty(t, repos)
+			require.NotNil(t, err, "an App dependency failure is not an empty verified inventory")
+			require.Equal(t, code, err.Code)
+			require.Equal(t, pkgerrors.ClassGitHub, err.Class)
+			if code == pkgerrors.CodeGitHubRateLimited {
+				require.NotNil(t, err.RetryAt)
+				require.Equal(t, deadline, *err.RetryAt)
+				require.Equal(t, 120, err.RetryAfter)
+			}
+		})
+	}
 }
 
 func TestVerifyGitHubAppInstallationsBlockerIsAConflictOnlyWithoutRepos(t *testing.T) {

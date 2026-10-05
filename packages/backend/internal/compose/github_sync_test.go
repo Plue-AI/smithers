@@ -95,6 +95,64 @@ func TestGitHubRepositoryResponseRefreshPauseThroughComposition(t *testing.T) {
 	require.EqualValues(t, 1, refreshes.Load(), "shared budget blocks the second refresh before HTTP")
 }
 
+func TestGitHubIdentityFailuresThroughComposition(t *testing.T) {
+	for _, endpoint := range []string{"profile", "emails"} {
+		t.Run(endpoint, func(t *testing.T) {
+			for _, failure := range []string{"permission", "unavailable", "limited", "incomplete"} {
+				t.Run(failure, func(t *testing.T) {
+					pool, _ := postgresfixture.NewProductDatabase(t)
+					q := db.New(pool)
+					var beforeUsers, beforeAccounts, beforeTokens int
+					require.NoError(t, pool.QueryRow(t.Context(), `SELECT (SELECT count(*) FROM users), (SELECT count(*) FROM oauth_accounts), (SELECT count(*) FROM access_tokens)`).Scan(&beforeUsers, &beforeAccounts, &beforeTokens))
+					server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+						body := `{"id":71,"login":"member"}`
+						if r.URL.Path == "/user/emails" {
+							body = `[{"email":"member@example.test","verified":true,"primary":true}]`
+						}
+						if endpoint == "profile" || r.URL.Path == "/user/emails" {
+							switch failure {
+							case "permission":
+								w.WriteHeader(403)
+							case "unavailable":
+								w.WriteHeader(503)
+							case "limited":
+								w.Header().Set("Retry-After", "60")
+								w.WriteHeader(429)
+							case "incomplete":
+								w.Header().Set("Content-Length", strconv.Itoa(len(body)+10))
+							}
+						}
+						_, _ = w.Write([]byte(body))
+					}))
+					defer server.Close()
+					cfg := config.AuthConfig{SessionSecret: "identity-fixture", GitHubAPIBaseURL: server.URL}
+					_, client, err := buildAuthProviders(cfg, &githubAppOAuthProviderFixture{id: "client", secret: "secret"}, newGitHubBudget(topology{}))
+					require.NoError(t, err)
+					auth := services.NewAuthService(q, cfg, nil, client)
+					_, err = auth.ExchangeGitHubToken(t.Context(), "access", "", "", 0, nil)
+					var apiErr *pkgerrors.APIError
+					require.ErrorAs(t, err, &apiErr)
+					want := pkgerrors.CodeGitHubUnavailable
+					if failure == "permission" {
+						want = pkgerrors.CodeGitHubPermission
+					} else if failure == "limited" {
+						want = pkgerrors.CodeGitHubRateLimited
+						require.NotNil(t, apiErr.RetryAt)
+						require.Equal(t, 60, apiErr.RetryAfter)
+					}
+					require.Equal(t, want, apiErr.Code)
+					require.Equal(t, pkgerrors.ClassGitHub, apiErr.Class)
+					var users, accounts, tokens int
+					require.NoError(t, pool.QueryRow(t.Context(), `SELECT (SELECT count(*) FROM users), (SELECT count(*) FROM oauth_accounts), (SELECT count(*) FROM access_tokens)`).Scan(&users, &accounts, &tokens))
+					require.Equal(t, beforeUsers, users)
+					require.Equal(t, beforeAccounts, accounts)
+					require.Equal(t, beforeTokens, tokens)
+				})
+			}
+		})
+	}
+}
+
 // Use the same assembly as server startup, real sealed credentials/PostgreSQL,
 // and independent HTTP logs. No budget internals or substitute clients are set.
 func TestGitHubSharedBudgetComposition(t *testing.T) {
