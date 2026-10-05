@@ -80,14 +80,15 @@ test("4 repository", async ({}, info) => {
 test("5 models", async ({}, info) => {
   info.annotations.push({ type: "owner", description: "crit3-setup-steps (T-INS-06; now passing)" });
   // The install sends every built-in key to the walk's model stand-in (SMITHERS_MODEL_PROVIDER_ORIGIN), so each role is
-  // the owner's Setup card alone, on the stand-in's key: no paid key, no network.
+  // the owner's Setup card alone, on the stand-in's key: no paid key, no network. Coding runs on the AI Gateway key
+  // Decisions shares, as the coding host does through the model proxy.
   const models = card().locator('[data-step="models"]')
   const role = (label: string) => models.locator(".setup-model").filter({ has: page.getByText(label, { exact: true }) })
   const fast = role("Fast model"), coding = role("Coding model"), decisions = role("Decisions")
   await fast.getByLabel("Cerebras key", { exact: true }).fill(run.modelKey)
   await fast.getByRole("button", { name: "Save", exact: true }).click()
   await expect(fast).toHaveAttribute("data-state", "saved")
-  await coding.getByLabel("Provider", { exact: true }).selectOption({ label: "Anthropic" })
+  await coding.getByLabel("Provider", { exact: true }).selectOption({ label: "AI Gateway" })
   await coding.getByLabel("Model", { exact: true }).fill(PROVIDER_MODEL.answers)
   await coding.getByLabel("API key", { exact: true }).fill(run.modelKey)
   await coding.getByRole("button", { name: "Save", exact: true }).click()
@@ -102,7 +103,7 @@ test("5 models", async ({}, info) => {
   writeFileSync(`${output}/model-requests.json`, JSON.stringify(journal, null, 2), { mode: 0o600 })
   expect(journal).toEqual(expect.arrayContaining([
     expect.objectContaining({ protocol: "openai-chat", modelId: INSTALL_MODEL.fast, status: 200, authorized: true }),
-    expect.objectContaining({ protocol: "anthropic-messages", modelId: PROVIDER_MODEL.answers, status: 200, authorized: true }),
+    expect.objectContaining({ protocol: "openai-chat", modelId: PROVIDER_MODEL.answers, status: 200, authorized: true }),
     expect.objectContaining({ protocol: "evaluation", modelId: INSTALL_MODEL.decisions, status: 200, authorized: true })
   ]))
 })

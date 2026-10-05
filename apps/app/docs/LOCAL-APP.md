@@ -492,9 +492,10 @@ Address, Create GitHub App, sign-in, repository selection and model access work
 through the Setup card. The walk needs no provider key and sends no model call
 off the Mac: the launcher points every built-in model provider at the loopback
 model stand-in (`e2e/real/support/model-provider.ts`), and the walk saves the
-stand-in's key as the Cerebras key, the Anthropic coding key (model
-`e2e-answers`) and the AI Gateway key. Model access tests each key at the
-stand-in. After Source ready it asks the app agent, which runs on the fast
+stand-in's key as the Cerebras key and as the AI Gateway key, which the coding
+model (`e2e-answers`) and Decisions share. Model access tests each role at the
+stand-in, and the model proxy, which a coding host's model calls go through,
+forwards to it too. After Source ready it asks the app agent, which runs on the fast
 model, about `README.md`; the host reads the file from the mirrored
 `main` as the signed-in owner and the answer shows its File card. `local-owner/demo`
 is a Node canary (`.node-version`, `packageManager`, `pnpm-lock.yaml`), so
