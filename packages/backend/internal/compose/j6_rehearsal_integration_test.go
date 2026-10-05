@@ -42,8 +42,9 @@ func TestJ6Rehearsal(t *testing.T) {
 	}) {
 		return
 	}
+	sessionID := ""
 	r.step("2 Branch session", "POST /api/repos/{o}/{r}/workspace/sessions {workspace_id: T1's branch, kind: terminal}", "201; a terminal session on T1's branch machine for the owner", "T-APP-10, T-TRM-01", func() error {
-		body, _ := json.Marshal(map[string]any{"workspace_id": branch, "kind": "terminal", "cols": 80, "rows": 24})
+		body, _ := json.Marshal(map[string]any{"workspace_id": branch, "kind": "terminal", "cols": 200, "rows": 40})
 		data, err := r.expect("POST", "/api/repos/rehearsal-owner/app/workspace/sessions", string(body), 201)
 		if err != nil {
 			return err
@@ -58,15 +59,12 @@ func TestJ6Rehearsal(t *testing.T) {
 		if session.ID == "" || session.WorkspaceID != branch {
 			return fmt.Errorf("session %q on workspace %q, want T%d's branch %s", session.ID, session.WorkspaceID, t1, branch)
 		}
+		sessionID = session.ID
 		return nil
 	})
 	r.pending("3 App terminal door", "TodoCard → Open terminal → TerminalCard", "the app opens T1's terminal and echo ok prints ok (e2e terminal-signin.spec.ts)", "T-APP-12", "terminal-door")
 	r.pending("4 claude and codex signed in", "real microVM guest", "vendor and npm hosts reachable, others refused; claude and codex run (not provable on trusted-process)", "T-MCH-12", "vendor-egress")
-	r.pending("5 Terminal opens with a delegated token", "terminal open; /run/smithers/sessions/<id>/token", "no SMITHERS_TOKEN; the token file has mode 600", "T-TRM-02, T-ACC-04", "terminal-credential")
-	r.pending("6 auth status", "smthrs auth status in the terminal", "delegated, via terminal, as the member", "T-TRM-02, T-ACC-04", "terminal-credential")
-	r.pending("7 Edit lands on the branch", "edit in the terminal", "the branch head advances", "T-TRM-02", "terminal-credential")
-	r.pending("8 Wiki read", "wiki read through the skill", "recorded as delegated via claude-code", "T-TRM-02, T-ACC-04", "terminal-credential")
-	r.pending("9 Close revokes", "close the terminal; reuse its token", "401 within 5 s", "T-TRM-02, T-ACC-04", "terminal-credential")
+	r.terminalRows(branch, sessionID)
 	r.pending("10 Skill discoverable", "guest smthrs --version; SKILL.md files", "the CLI runs and the skill is installed", "T-TRM-02", "guest-cli-skill")
 	r.pending("11 Answer Needs you as Claude Code for Ben", "POST /api/todos/{n}/answer with a delegated token", "first_answer.by is Claude Code for the member", "T-ACC-04, T-APP-09", "delegated-actions")
 	r.pending("12 Scope refusals", "out-of-scope delegated calls", "403 permission with no effects", "T-ACC-04", "delegated-actions")
