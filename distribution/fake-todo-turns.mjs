@@ -2,7 +2,7 @@
 // the journey rehearsals and the local no-GitHub walk). Each chat turn is
 // recognized by the coding step's own system teaching and answered with one
 // cell that settles the step's declared output; the edit turn appends a
-// greeting to JOURNEY.md. Jev routes the TODO to implement and judges every
+// greeting to JOURNEY.md, and the stack's review of the pull request approves. Jev routes the TODO to implement and judges every
 // step's result sound. A TODO's prompt steers its run with the markers below
 // (markersOf). distribution/fake-todo-provider.mjs serves these over HTTP for
 // the rehearsals; apps/app/e2e/real/support/model-provider.ts serves them on
@@ -305,8 +305,18 @@ const steps = [
     step: "coding/review-lens",
     teaching: "Review one implementation diff through exactly one lens",
     answer: () => done({ verdict: "approve", findings: [] })
+  },
+  {
+    // The stack's review of a TODO's open pull request (flows/review/change):
+    // its answer's first line is the verdict the stack reads.
+    step: "review/change",
+    teaching: "Your answer's first line is exactly `approve` or `request-changes`",
+    answer: () => done(REVIEW_ANSWER)
   }
 ]
+
+/** The scripted review of a TODO's pull request: `approve` on its first line. */
+export const REVIEW_ANSWER = "approve\n\nThe change does what the TODO asks and nothing else."
 
 /** The greeting the edit turn appends when the caller names none. */
 export const GREETING = "Hello from Smithers!"

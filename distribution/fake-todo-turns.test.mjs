@@ -1,8 +1,9 @@
 import { strict as assert } from "node:assert"
 import { spawn } from "node:child_process"
+import { readFileSync } from "node:fs"
 import { createServer } from "node:net"
 import { test } from "node:test"
-import { CHANGELOG_STEP, GREETING, markersOf, QUESTION, todoTurn } from "./fake-todo-turns.mjs"
+import { CHANGELOG_STEP, GREETING, markersOf, QUESTION, REVIEW_ANSWER, todoTurn } from "./fake-todo-turns.mjs"
 
 // A turn as the coding host sends it: the step's teaching, then its task.
 const turn = (teaching, payload, ...user) => [
@@ -187,4 +188,19 @@ test("the provider holds a [HOLD key] edit turn until POST /release/<key>", { ti
   // A released key holds nothing later.
   const again = await (await fetch(`${origin}/v1/chat/completions`, { method: "POST", body: JSON.stringify({ model: "m", messages: turn(EDIT, { atom }) }) })).text()
   assert.match(again, /\[DONE\]/)
+})
+
+test("the stack's review of the pull request approves on its first line", async () => {
+  // review/change is a prompt flow: its body is the system teaching and its
+  // arguments a "# Arguments" section (flows/review/change/flow.mdx).
+  const body = readFileSync(new URL("../flows/review/change/flow.mdx", import.meta.url), "utf8").replace(/^---\n[\s\S]*?\n---\n/, "")
+  const args = "Pull request #3.\n\n<untrusted-title>\nGreet visitors\n</untrusted-title>\n\n<untrusted-diff>\n+Hello\n</untrusted-diff>\n"
+  const answered = todoTurn([{ role: "system", content: `${body}\n# Arguments\n\n## args\n\n${args}` }, { role: "user", content: "Begin." }])
+  assert.equal(answered?.step, "review/change")
+  const { settled } = await run(answered.content)
+  assert.equal(settled, REVIEW_ANSWER)
+  // The stack reads only the first line (mythicalReviewVerdict).
+  assert.equal(settled.split("\n")[0], "approve")
+  // No coding step's turn reads as the review.
+  assert.notEqual(todoTurn(turn(REVIEW, { input: { prompt: "Add a greeting", feedback: [] }, context: {} }))?.step, "review/change")
 })
