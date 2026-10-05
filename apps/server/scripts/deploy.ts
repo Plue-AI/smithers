@@ -47,9 +47,19 @@ import { readWranglerConfig } from "../src/wranglerConfig"
 import { checkBootstrapCompatibility, type BootstrapCompatibilityReceipt } from "./bootstrapCompatibility"
 import { artifactDigest, classifyLocal, DeployGuardRefusal, liveFactsFromCloudflare, preflightDeploy, sha256, verifyActivated, type GuardDecision } from "./deployGuard"
 
+import { restoreRolloutReceipt } from "./rollout-receipt"
+
 const dryRun = process.argv.includes("--dry-run")
 const serverDir = fileURLToPath(new URL("..", import.meta.url))
 const recoveryPath = join(serverDir, "deploy-receipts", "rollout", "last-rollback.json")
+if (!dryRun && !existsSync(recoveryPath) && process.env.GITHUB_API_URL) {
+  try {
+    await restoreRolloutReceipt(process.env.GITHUB_REPOSITORY ?? "smithersai/smithers", join(serverDir, "deploy-receipts", "rollout"))
+  } catch {
+    console.error("[deploy] rollback receipt restore failed")
+    process.exit(1)
+  }
+}
 // This store is owned by the deploying host; CI restores it from main-push artifacts.
 const rollbackEvidence: unknown = !dryRun && existsSync(recoveryPath) ? JSON.parse(readFileSync(recoveryPath, "utf8")) : undefined
 const readLive = (worker: string) => liveFactsFromCloudflare(worker, rollbackEvidence)

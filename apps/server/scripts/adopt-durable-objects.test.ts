@@ -208,3 +208,22 @@ describe("Workers Logs", () => {
     expect(compareObservability({ enabled: true, head_sampling_rate: 1 }).level).toBe("PASS")
   })
 })
+
+
+test("the preflight reads only the configured full Cloudflare API base", async () => {
+  const paths: string[] = []
+  const fake = Bun.serve({ hostname: "127.0.0.1", port: 0, fetch(request) {
+    paths.push(new URL(request.url).pathname)
+    return Response.json({ success: false })
+  } })
+  try {
+    const proc = Bun.spawn([process.execPath, new URL("./adopt-durable-objects.ts", import.meta.url).pathname], {
+      env: { PATH: process.env.PATH, CLOUDFLARE_API_TOKEN: "fixture-placeholder",
+        CLOUDFLARE_API_BASE_URL: `http://127.0.0.1:${fake.port}/client/v4` }, stdout: "pipe", stderr: "pipe"
+    })
+    await Promise.all([new Response(proc.stdout).text(), new Response(proc.stderr).text(), proc.exited])
+    expect(paths.length).toBeGreaterThan(0)
+    expect(paths.every(path => path.startsWith("/client/v4/"))).toBe(true)
+    expect(paths).toContain(`/client/v4/accounts/${WORKER_IDENTITY.accountId}/workers/scripts/${WORKER_IDENTITY.name}/settings`)
+  } finally { fake.stop(true) }
+})

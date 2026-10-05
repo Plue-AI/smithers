@@ -1,7 +1,8 @@
+import { cloudflareApiBase } from "../cloudflareApi"
 import { WORKER_IDENTITY } from "../../src/workerIdentity"
 import { target } from "./targets"
 
-export const accountURL = `https://api.cloudflare.com/client/v4/accounts/${WORKER_IDENTITY.accountId}`
+export const accountURL = `${cloudflareApiBase}/accounts/${WORKER_IDENTITY.accountId}`
 export const scriptPath = `/workers/scripts/${target.name}`
 export interface Binding { type: string; name: string; namespace_id?: string; class_name?: string; script_name?: string; [key: string]: unknown }
 export interface Settings { bindings: Binding[]; compatibility_date: string; compatibility_flags: string[]; [key: string]: unknown }

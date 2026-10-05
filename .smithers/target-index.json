@@ -12747,6 +12747,22 @@
     }
   },
   {
+    "label": "//apps/server:deploy",
+    "package": "apps/server",
+    "name": "deploy",
+    "rule": "Shell.Run",
+    "kinds": [
+      "run"
+    ],
+    "cacheable": false,
+    "inputs": [],
+    "outputs": [],
+    "dependencies": [],
+    "source": {
+      "file": "apps/server/PACKAGE.ts"
+    }
+  },
+  {
     "label": "//apps/server:security",
     "package": "apps/server",
     "name": "security",

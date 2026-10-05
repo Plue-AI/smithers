@@ -1,3 +1,4 @@
+import { cloudflareApiBase } from "./cloudflareApi"
 /** Worker ports for the shared deterministic rollout. All commands and reads are bounded. */
 import { join } from "node:path"
 import { mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs"
@@ -26,7 +27,7 @@ export const workerRolloutHost = (options: WorkerRolloutOptions): RolloutHost =>
   const origin = "https://canary.smithers.sh"
   const base = `/accounts/${options.accountId}/workers/scripts/${options.worker}`
   const get = options.get ?? (async (path: string) => {
-    const response = await fetch(`https://api.cloudflare.com/client/v4${path}`, {
+    const response = await fetch(`${cloudflareApiBase}${path}`, {
       headers: { authorization: `Bearer ${options.token}` }, signal: AbortSignal.timeout(30_000), redirect: "error"
     })
     if (!response.ok) throw new Error("Cloudflare read failed")

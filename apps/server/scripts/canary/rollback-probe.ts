@@ -1,3 +1,4 @@
+import { cloudflareApiBase } from "../cloudflareApi"
 /*
  * CN-24 — rollback readiness, probed against the real Cloudflare account.
  *
@@ -38,7 +39,6 @@ import {
 } from "./rollback-verdict.ts"
 
 const DEFAULT_ACCOUNT_ID = "dd3525a4132493566aeb38de533c8827"
-const DEFAULT_API_BASE = "https://api.cloudflare.com/client/v4"
 
 const argv = process.argv.slice(2)
 /*
@@ -54,7 +54,7 @@ const receiptPath = argOf("--receipt") ?? process.env.CANARY_RECEIPT_PATH ??
   new URL("../../deploy-receipts/latest.json", import.meta.url).pathname
 const worker = argOf("--worker") ?? "smithers-mvp-web"
 const accountId = argOf("--account") ?? process.env.CLOUDFLARE_ACCOUNT_ID ?? DEFAULT_ACCOUNT_ID
-const apiBase = argOf("--api-base") ?? process.env.CLOUDFLARE_API_BASE ?? DEFAULT_API_BASE
+const apiBase = argOf("--api-base") ?? cloudflareApiBase
 const apiToken = process.env.CLOUDFLARE_API_TOKEN?.trim() ?? ""
 
 let failures = 0
