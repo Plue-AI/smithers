@@ -1057,6 +1057,22 @@ func TestDelayedMergesAndMergesByAPerson(t *testing.T) {
 	server.CompleteDelayedMerges()
 	require.Equal(t, merged.MergeCommitSHA, read(delayed.Number).MergeCommitSHA, "completed once")
 
+	// A delayed request is bound to the sha it named: the head moving before
+	// it takes effect fails it; the head restored before then lets it merge.
+	moving := open("smithers/moving")
+	server.DelayNextMerge("acme/app", moving.Number)
+	require.Equal(t, 502, merge(moving))
+	server.UpdatePull("acme/app", moving.Number, func(p *Pull) { p.Head.SHA = strings.Repeat("b", 40) })
+	server.CompleteDelayedMerges()
+	require.False(t, read(moving.Number).Merged, "another head: the request merges nothing")
+	restored := open("smithers/restored")
+	server.DelayNextMerge("acme/app", restored.Number)
+	require.Equal(t, 502, merge(restored))
+	server.UpdatePull("acme/app", restored.Number, func(p *Pull) { p.Head.SHA = strings.Repeat("b", 40) })
+	server.UpdatePull("acme/app", restored.Number, func(p *Pull) { p.Head.SHA = restored.Head.SHA })
+	server.CompleteDelayedMerges()
+	require.True(t, read(restored.Number).Merged, "the head it named again: the request merges")
+
 	person := open("smithers/person")
 	server.MergeAsPerson("acme/app", person.Number)
 	require.True(t, read(person.Number).Merged)
@@ -1067,5 +1083,5 @@ func TestDelayedMergesAndMergesByAPerson(t *testing.T) {
 			puts++
 		}
 	}
-	require.Equal(t, 3, puts, "a person's merge is not an App write")
+	require.Equal(t, 5, puts, "a person's merge is not an App write")
 }
