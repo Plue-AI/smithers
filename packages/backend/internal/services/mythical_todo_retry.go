@@ -26,6 +26,11 @@ type todoSteer struct {
 	By      json.RawMessage `json:"by"`
 	At      time.Time       `json:"at"`
 	Attempt int32           `json:"attempt"`
+	// These fields are absent on historical Retry feedback. Request is scoped
+	// to Author; ID is the stable event/message identity for live or held input.
+	ID      string `json:"id,omitempty"`
+	Request string `json:"request,omitempty"`
+	Author  int64  `json:"author,omitempty"`
 }
 
 // todoRetry is one Retry a person pressed: its Idempotency-Key, who and when,
