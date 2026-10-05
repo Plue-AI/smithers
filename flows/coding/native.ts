@@ -3,7 +3,7 @@
  */
 import * as Digest from "@smthrs/core/Digest"
 import { Action } from "@smthrs/flow"
-import { Cause, Context, Effect, Layer, Schema, Stream } from "effect"
+import { Cause, Context, Effect, Layer, Option, Schema, Stream } from "effect"
 import { ChildProcess, ChildProcessSpawner } from "effect/unstable/process"
 
 import { helperPath } from "./helper.ts"
@@ -77,12 +77,34 @@ const capture = <E>(stream: Stream.Stream<Uint8Array, E>, limit: number) =>
     return Effect.succeed({ ...state, bytes, text: state.text + state.decoder.decode(chunk, { stream: true }) })
   }).pipe(Effect.map((state) => state.text + state.decoder.decode()))
 
+/**
+ * The host's own spawner for the two operations that carry the workspace's
+ * provisioned credential to its bound backend: importing a retained source
+ * and publishing one. Like the engine's storage they are host machinery, not
+ * a flow body's tool, so they run outside the run's process confinement,
+ * which closes the network and the credential socket. Every other helper
+ * operation stays on the run's guarded spawner. Absent, all use that one.
+ */
+export class NativeTransport extends Context.Service<
+  NativeTransport,
+  ChildProcessSpawner.ChildProcessSpawner["Service"]
+>()("coding/NativeTransport") {
+  /** The raw spawner of the host platform bundle `host` provides. */
+  static readonly layerFrom = <E, R>(host: Layer.Layer<ChildProcessSpawner.ChildProcessSpawner, E, R>) =>
+    Layer.effect(NativeTransport)(Effect.gen(function*() {
+      return yield* ChildProcessSpawner.ChildProcessSpawner
+    })).pipe(Layer.provide(host))
+}
+
+const transportOperations: ReadonlySet<unknown> = new Set(["import_source", "publish_source"])
+
 /** Effect's injected spawner owns acquisition, cancellation and process cleanup
  * on both Node and Bun. The native helper owns JJ and identity.
  */
 export const nativeLayer = (options: NativeOptions) =>
   Layer.effect(NativeCoding)(Effect.gen(function*() {
-    const spawner = yield* ChildProcessSpawner.ChildProcessSpawner
+    const guarded = yield* ChildProcessSpawner.ChildProcessSpawner
+    const transport = yield* Effect.serviceOption(NativeTransport)
     const invoke = (request: object) =>
       Effect.gen(function*() {
         const input = JSON.stringify({ ...request, repositoryPath: options.repositoryPath })
@@ -93,6 +115,9 @@ export const nativeLayer = (options: NativeOptions) =>
         if (new TextEncoder().encode(input).length > bound) {
           return yield* failure("invalid_request", "Native coding request exceeds its bounded payload size")
         }
+        const spawner = "operation" in request && transportOperations.has(request.operation)
+          ? Option.getOrElse(transport, () => guarded)
+          : guarded
         const process = yield* spawner.spawn(
           ChildProcess.make(helperPath(options), ["--local"], {
             stdin: Stream.make(new TextEncoder().encode(input)),

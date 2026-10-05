@@ -47,7 +47,7 @@ import { atomFlows } from "./implementation/flow.ts"
 import { jevCheckDelegate, jevCheckLayers } from "./jev-check.ts"
 import type { Landing } from "./landing.ts"
 import * as LocalLanding from "./local-landing.ts"
-import { nativeActions, NativeCoding, nativeLayer, type NativeOptions } from "./native.ts"
+import { nativeActions, NativeCoding, nativeLayer, type NativeOptions, NativeTransport } from "./native.ts"
 import { evidenceOnly } from "./planning-authority.ts"
 import { memoryLayer, type MemoryOptions } from "./planning-memory.ts"
 import { planningWikiLayers } from "./planning-wiki.ts"
@@ -633,7 +633,9 @@ export const layer = (platform: NativeControl.Platform, options: Options, suppli
           .pipe(
             // A local lander reads through the native helper, so it is provided first.
             (layers) => landing === undefined ? layers : layers.pipe(Layer.provideMerge(landing)),
-            Layer.provideMerge(nativeLayer(options)),
+            // Import and publication carry the workspace's own credential to
+            // its backend on the host's raw spawner (NativeTransport).
+            Layer.provideMerge(nativeLayer(options).pipe(Layer.provide(NativeTransport.layerFrom(platform.host)))),
             (layers) =>
               options.repositoryRemote === undefined
                 ? layers
