@@ -452,7 +452,7 @@ func (a *landingGitHubAPI) requestHeaders(ctx context.Context, token, method, pa
 		return 0, nil, gitHubRequestFailure(ctx, "GitHub did not answer")
 	}
 	defer func() { _ = resp.Body.Close() }()
-	if limited := gitHubRateLimitError(resp.StatusCode, resp.Header, time.Now()); limited != nil {
+	if limited := GitHubRateLimitError(resp.StatusCode, resp.Header, time.Now()); limited != nil {
 		return resp.StatusCode, resp.Header.Clone(), limited
 	}
 

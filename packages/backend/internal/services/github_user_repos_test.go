@@ -437,14 +437,14 @@ func TestGitHubUserReposService_BackgroundFailurePreservesLastGood(t *testing.T)
 
 	assert.Equal(t, 0, queries.upsertCount(), "a failed refresh must not touch the payload")
 	require.Equal(t, 1, queries.syncErrCount())
-	assert.Equal(t, "github user repositories request was rejected", queries.syncErrs[0].SyncError)
+	assert.Equal(t, "GitHub request failed", queries.syncErrs[0].SyncError)
 
 	// The last-good payload keeps being served, now with the error surfaced.
 	result, err = service.ListAuthenticatedUserGitHubRepos(context.Background(), 42, mustParseQuery(t, "per_page=100&page=1&sort=pushed"))
 	require.NoError(t, err)
 	require.Len(t, result.Repos, 1)
 	assert.Equal(t, "octo/old-repo", result.Repos[0].FullName)
-	assert.Equal(t, "github user repositories request was rejected", result.CacheSyncError)
+	assert.Equal(t, "GitHub request failed", result.CacheSyncError)
 }
 
 func TestGitHubUserReposService_CacheInfraFailureServesLive(t *testing.T) {
@@ -658,7 +658,7 @@ func TestGitHubUserReposService_RefreshFailureSurfacesCredentialGone(t *testing.
 	t.Setenv(envGitHubAppAPIBaseURL, srv.URL)
 
 	queries := newFakeGitHubUserReposDB()
-	refresher := &fakeGitHubTokenRefresher{err: fmt.Errorf("no refresh token stored")}
+	refresher := &fakeGitHubTokenRefresher{err: pkgerrors.GitHubReconnectRequired("no refresh token stored")}
 	service := NewGitHubUserReposService(
 		queries,
 		fakeOAuthTokenDecrypter{token: "gho_old"},
@@ -667,7 +667,10 @@ func TestGitHubUserReposService_RefreshFailureSurfacesCredentialGone(t *testing.
 
 	_, err := service.ListAuthenticatedUserGitHubRepos(context.Background(), 42, url.Values{})
 	require.Error(t, err)
-	assert.Contains(t, err.Error(), "github oauth token was rejected")
+	var apiErr *pkgerrors.APIError
+	require.ErrorAs(t, err, &apiErr)
+	assert.Equal(t, pkgerrors.CodeGitHubReconnectRequired, apiErr.Code)
+	assert.Equal(t, http.StatusUnauthorized, apiErr.Status)
 	assert.Equal(t, 1, refresher.callCount(), "exactly one refresh is attempted, then the 401 surfaces")
 	assert.Equal(t, 0, queries.upsertCount(), "a failed refresh stores nothing")
 }

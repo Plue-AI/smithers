@@ -2,11 +2,31 @@ package services
 
 import (
 	"context"
+	"errors"
 	"net/http"
 	"time"
 
 	pkgerrors "github.com/smithersai/smithers/packages/backend/internal/pkg/errors"
 )
+
+// A temporary refresh failure does not prove that the person's grant is gone.
+// Preserve a typed retry/reconnect response and keep raw transport details private.
+func gitHubRefreshFailure(ctx context.Context, err error) error {
+	if ctx.Err() != nil {
+		return ctx.Err()
+	}
+	if errors.Is(err, context.Canceled) {
+		return context.Canceled
+	}
+	if errors.Is(err, context.DeadlineExceeded) {
+		return context.DeadlineExceeded
+	}
+	var failure *pkgerrors.APIError
+	if errors.As(err, &failure) {
+		return err
+	}
+	return pkgerrors.New(pkgerrors.CodeGitHubUnavailable, "GitHub token refresh failed")
+}
 
 // gitHubRequestFailure separates cancellation of our work from an upstream
 // failure. Error bodies and credential-bearing transport errors stay private.
@@ -24,7 +44,7 @@ func gitHubResponseFailure(status int, headers http.Header, now time.Time) *pkge
 	if status >= 200 && status < 300 || status == http.StatusNotModified {
 		return nil
 	}
-	if limited := gitHubRateLimitError(status, headers, now); limited != nil {
+	if limited := GitHubRateLimitError(status, headers, now); limited != nil {
 		return limited
 	}
 	switch status {

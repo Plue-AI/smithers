@@ -68,6 +68,8 @@ func (s *GitHubUserReposService) GetAuthenticatedUserGitHubPullDiff(
 	if err != nil && isGitHubTokenExpired(err) {
 		if newToken, refreshErr := s.refreshUserGitHubToken(ctx, account); refreshErr == nil {
 			result, err = s.requestGitHubPullDiff(ctx, newToken, normalizedOwner, normalizedRepo, number)
+		} else {
+			err = refreshErr
 		}
 	}
 	if err != nil {

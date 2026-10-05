@@ -2428,7 +2428,7 @@ func (s *GitHubImportService) githubCloneInfoForRepo(ctx context.Context, userID
 	if status == http.StatusNotFound {
 		return "", false, "", pkgerrors.NotFound("github repository not found")
 	}
-	if limited := gitHubRateLimitError(status, responseHeader, time.Now()); limited != nil {
+	if limited := GitHubRateLimitError(status, responseHeader, time.Now()); limited != nil {
 		return "", false, "", limited
 	}
 	if status == http.StatusUnauthorized {

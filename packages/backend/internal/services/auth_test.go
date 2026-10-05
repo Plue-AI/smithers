@@ -2597,7 +2597,7 @@ func TestAuthService_RefreshUserGitHubToken(t *testing.T) {
 			},
 		}, cfg, mockKeyAuthVerifier{}, mockGitHubClient{
 			refreshTokenFn: func(ctx context.Context, refreshToken string) (GitHubTokenResult, error) {
-				return GitHubTokenResult{}, fmt.Errorf("github oauth refresh failed: bad_refresh_token")
+				return GitHubTokenResult{}, fmt.Errorf("github oauth refresh failed: %w", ErrGitHubRefreshTokenInvalid)
 			},
 		})
 

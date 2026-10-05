@@ -283,7 +283,7 @@ func TestGitHubRepoMetadata_RetryAfterRetainsUpstreamDeadline(t *testing.T) {
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			assert.Equal(t, tc.want, gitHubRateLimitError(http.StatusTooManyRequests, tc.header, now).RetryAfter)
+			assert.Equal(t, tc.want, GitHubRateLimitError(http.StatusTooManyRequests, tc.header, now).RetryAfter)
 		})
 	}
 }

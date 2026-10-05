@@ -111,7 +111,7 @@ func (s *GitHubRepoListService) ListInstallationRepositories(ctx context.Context
 	err := s.db.QueryRow(ctx, firstGitHubInstalledRepoForUserSQL, userID).Scan(&installationID)
 	if err != nil {
 		if err == pgx.ErrNoRows {
-			return GitHubRepoListResult{}, pkgerrors.Unauthorized("github app is not installed for this user")
+			return GitHubRepoListResult{}, pkgerrors.New(pkgerrors.CodeGitHubNotInstalled, "GitHub App is not installed for this user")
 		}
 		return GitHubRepoListResult{}, pkgerrors.Internal("failed to resolve github installation").WithCause(err)
 	}
@@ -146,31 +146,26 @@ func (s *GitHubRepoListService) ListInstallationRepositories(ctx context.Context
 
 	resp, err := s.httpClient.Do(req)
 	if err != nil {
-		return GitHubRepoListResult{}, pkgerrors.Internal("github repositories request failed").WithCause(err)
+		return GitHubRepoListResult{}, gitHubRequestFailure(ctx, "GitHub repositories request failed")
 	}
 	defer func() { _ = resp.Body.Close() }()
 
-	if limited := gitHubRateLimitError(resp.StatusCode, resp.Header, time.Now()); limited != nil {
-		return GitHubRepoListResult{}, limited
-	}
-
-	body, _ := io.ReadAll(io.LimitReader(resp.Body, 4<<20))
 	if resp.StatusCode == http.StatusUnauthorized {
 		invalidateCachedInstallationToken(token.InstallationID)
-		return GitHubRepoListResult{}, pkgerrors.Unauthorized("github installation token was rejected")
 	}
-	if resp.StatusCode == http.StatusForbidden {
-		return GitHubRepoListResult{}, pkgerrors.Forbidden(githubRepoListUpstreamErrorMessage(body, "github repositories request was forbidden"))
+	if failure := gitHubResponseFailure(resp.StatusCode, resp.Header, time.Now()); failure != nil {
+		return GitHubRepoListResult{}, failure
 	}
-	if resp.StatusCode < http.StatusOK || resp.StatusCode >= http.StatusMultipleChoices {
-		return GitHubRepoListResult{}, pkgerrors.Internal("github repositories request was rejected")
+	body, readErr := io.ReadAll(io.LimitReader(resp.Body, (4<<20)+1))
+	if readErr != nil || len(body) > 4<<20 {
+		return GitHubRepoListResult{}, gitHubRequestFailure(ctx, "GitHub returned an incomplete repository listing")
 	}
 
 	var payload struct {
 		Repositories []GitHubRepoListItem `json:"repositories"`
 	}
 	if err := json.Unmarshal(body, &payload); err != nil {
-		return GitHubRepoListResult{}, pkgerrors.Internal("failed to decode github repositories response").WithCause(err)
+		return GitHubRepoListResult{}, gitHubRequestFailure(ctx, "GitHub returned an unreadable repository listing")
 	}
 
 	// The installation token grants visibility over EVERY repository in the
@@ -190,15 +185,4 @@ func (s *GitHubRepoListService) ListInstallationRepositories(ctx context.Context
 	}
 
 	return GitHubRepoListResult{Repos: repos, Link: resp.Header.Get("Link")}, nil
-}
-
-func githubRepoListUpstreamErrorMessage(body []byte, fallback string) string {
-	var payload struct {
-		Message string `json:"message"`
-	}
-	_ = json.Unmarshal(body, &payload)
-	if message := strings.TrimSpace(payload.Message); message != "" {
-		return message
-	}
-	return fallback
 }

@@ -3,9 +3,9 @@
   "producer": null,
   "output": {
     "path": "packages/backend/docs/github-app.md",
-    "digest": "de0ef553c24f473fd9968533e1a6c7b7da9fe8e08bdb56df6f55029cdb0d27f2"
+    "digest": "c2521ae31d26d71f15c86f8858dc2c9d7c0666eb7f17e2dc3ebfe1a9aac1b599"
   },
-  "closure": "7f3012f29e0285063dfd1bcc6490dea98a6a0c1ad81e2ff0eaaff56b87a9998d",
+  "closure": "e31a33fbd748d02535f7b729b650d74fcc8852b6e48117df2b6c9b50e8bc593b",
   "inputs": [
     {
       "path": "docs/api/openapi/install.yaml",
@@ -21,7 +21,7 @@
     },
     {
       "path": "packages/backend/internal/auth/github.go",
-      "digest": "1cfcc1549463b489a6e2a675cce35ba371dde97ed380c732b20df0989acd3325"
+      "digest": "863f15b924e51d828d4854e14235ca9446cc219596ab76abe6e7853bcc1d8ea4"
     },
     {
       "path": "packages/backend/internal/compose/github_sync.go",
@@ -56,8 +56,12 @@
       "digest": "213b9261e09ee87b9ff30ce6c0127eb91b714b4dc10a05b330daa8844f3dcfc3"
     },
     {
+      "path": "packages/backend/internal/services/auth.go",
+      "digest": "19d6316e5b8151168e1439706c0a4e9febd01723644a08a826a9dc9ea2c128d4"
+    },
+    {
       "path": "packages/backend/internal/services/github_access_diagnosis.go",
-      "digest": "144f4f95dd2c4f91bd5981a5f9fe7f2f7a99c8c74a522d4f48bfa0ccccd4ff20"
+      "digest": "58da4aebf0f7dfe370111156803cee046419575f790d03289d00deae9488c15c"
     },
     {
       "path": "packages/backend/internal/services/github_app_credentials.go",
@@ -65,31 +69,47 @@
     },
     {
       "path": "packages/backend/internal/services/github_app_manifest.go",
-      "digest": "66b0166a38b3eb73e0760f4bd2212e887f3cffe2b19936a1bb170e4d22e51a04"
+      "digest": "368689d61849e9ea7e1f9affd18f0589272bde28e95faa69e4c719a2820561d3"
     },
     {
       "path": "packages/backend/internal/services/github_budget.go",
-      "digest": "d3df8e8877e7dc698cb05a10fe36aec3a7c39865b7afe0802cb55fca808f52df"
+      "digest": "5c2f7ff5e0b76148aceb841b451b5c13ba0115575480649d3a65b8554abac37d"
     },
     {
       "path": "packages/backend/internal/services/github_import.go",
-      "digest": "4e49f26b8f0b841b017a72f4c4563cab0360ac497754e7ce21698354fe3ac555"
+      "digest": "990780cdf710cb2c401f356cc51082e226e41524a42e40f133d8c8e4058279b6"
+    },
+    {
+      "path": "packages/backend/internal/services/github_issue_comments.go",
+      "digest": "2de63073b5258d5dab0cec92428a570d9aa3a0a8a23d1119ce1c709371158ec5"
     },
     {
       "path": "packages/backend/internal/services/github_issue_text_writer.go",
       "digest": "c06ab5e6a96d30032e4c40784fb724affa1c965a7274ca3c6e5b14730cb0cdb4"
     },
     {
+      "path": "packages/backend/internal/services/github_pull_diff.go",
+      "digest": "34ec4a583dfddb75671e8622cb137aca98b6264c2b7d6116f7a5815c8cf774fd"
+    },
+    {
       "path": "packages/backend/internal/services/github_repo_list.go",
-      "digest": "1d1a53b2f4560c18e1cd4c1970b6a891cf29aa9449f7451393239db15ae949ca"
+      "digest": "c60d40cc29d645ed4d73e8e1bd7a76054e78866d5a30a70af06e43cf1d40d9f3"
     },
     {
       "path": "packages/backend/internal/services/github_repo_metadata.go",
-      "digest": "86a0f31b6caa8d58f1b9e7c4173879650a7432af31cb48e2249f1d97e328720e"
+      "digest": "a598cc72ba203abea9cc007862e6c12b9d5c883952605a37cdd4c18fd481b7b0"
+    },
+    {
+      "path": "packages/backend/internal/services/github_repo_push_access.go",
+      "digest": "7bfd308f88f4464b11563f1d91f224820c69fa6367ffd9cabe316c37f539efde"
+    },
+    {
+      "path": "packages/backend/internal/services/github_repo_read_access.go",
+      "digest": "5261596b33fdbe467b74dcffd81c6708d1d7364dd67eeaa9a5e4c682dcb4b2b3"
     },
     {
       "path": "packages/backend/internal/services/github_response.go",
-      "digest": "2dbda4751bb3420f461156d05a44dd98289f356076bff513cbe0f94275847bf5"
+      "digest": "3f19e84c53178922b00d4a5e169b611a9e5fbb28bad96f204bba59cd0d91e781"
     },
     {
       "path": "packages/backend/internal/services/github_synced_conditional.go",
@@ -117,7 +137,7 @@
     },
     {
       "path": "packages/backend/internal/services/github_user_repos.go",
-      "digest": "0e3b0c05a0be74fb9e39837a929568cd80cab2905322a3954c61e7e72b3d9ee4"
+      "digest": "3f8c75068ba554beeeb6782f0da071f0b28af2c55913b7230b3f56d6fd918750"
     },
     {
       "path": "packages/backend/internal/services/install_machine_ready.go",
@@ -133,7 +153,7 @@
     },
     {
       "path": "packages/backend/internal/services/landing_github_pull.go",
-      "digest": "c119ddc4a242ab559a72f1803e6d0bcd42a04ee989ba3ceabb4ec0da6f434549"
+      "digest": "b4d7014d1261bf9ed584c7acca0c90fa2a79ca3803840bf5aab94a18cec1c625"
     },
     {
       "path": "packages/backend/internal/services/member_roster.go",

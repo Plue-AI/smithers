@@ -215,11 +215,11 @@ func GitHubRetryAt(header http.Header, now time.Time) time.Time {
 	return now.Add(time.Second)
 }
 
-// gitHubRateLimitError classifies both primary and secondary refusals. It
+// GitHubRateLimitError classifies both primary and secondary refusals. It
 // consumes only response status/headers, never GitHub's untrusted error body.
 // Non-rate-limit statuses remain available to callers (for example a missing
 // optional object is still a 404, rather than a failed request).
-func gitHubRateLimitError(status int, header http.Header, now time.Time) *pkgerrors.APIError {
+func GitHubRateLimitError(status int, header http.Header, now time.Time) *pkgerrors.APIError {
 	if status != http.StatusTooManyRequests && (status != http.StatusForbidden ||
 		(strings.TrimSpace(header.Get("Retry-After")) == "" && strings.TrimSpace(header.Get("X-RateLimit-Remaining")) != "0")) {
 		return nil

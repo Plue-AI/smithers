@@ -220,6 +220,8 @@ func (s *GitHubUserReposService) DiagnoseGitHubAccess(
 	if err != nil && isGitHubTokenExpired(err) {
 		if newToken, refreshErr := s.refreshUserGitHubToken(ctx, account); refreshErr == nil {
 			_, err = s.requestGitHubRepoObject(ctx, newToken, normalizedOwner, normalizedRepo)
+		} else {
+			err = refreshErr
 		}
 	}
 	if err != nil {

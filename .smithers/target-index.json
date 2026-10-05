@@ -24178,6 +24178,26 @@
       },
       {
         "kind": "file",
+        "path": "packages/backend/internal/services/auth.go"
+      },
+      {
+        "kind": "file",
+        "path": "packages/backend/internal/services/github_pull_diff.go"
+      },
+      {
+        "kind": "file",
+        "path": "packages/backend/internal/services/github_issue_comments.go"
+      },
+      {
+        "kind": "file",
+        "path": "packages/backend/internal/services/github_repo_read_access.go"
+      },
+      {
+        "kind": "file",
+        "path": "packages/backend/internal/services/github_repo_push_access.go"
+      },
+      {
+        "kind": "file",
         "path": "packages/backend/internal/services/github_import.go"
       },
       {

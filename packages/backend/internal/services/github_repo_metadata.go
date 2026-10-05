@@ -91,6 +91,8 @@ func (s *GitHubUserReposService) GetAuthenticatedUserGitHubRepo(
 	if err != nil && isGitHubTokenExpired(err) {
 		if newToken, refreshErr := s.refreshUserGitHubToken(ctx, account); refreshErr == nil {
 			result, err = s.requestGitHubRepoObject(ctx, newToken, normalizedOwner, normalizedRepo)
+		} else {
+			err = refreshErr
 		}
 	}
 	if err != nil {
@@ -131,6 +133,8 @@ func (s *GitHubUserReposService) GetAuthenticatedUserGitHubPull(ctx context.Cont
 	if err != nil && isGitHubTokenExpired(err) {
 		if refreshed, refreshErr := s.refreshUserGitHubToken(ctx, account); refreshErr == nil {
 			result, err = read(refreshed)
+		} else {
+			err = refreshErr
 		}
 	}
 	return result, err
@@ -206,6 +210,8 @@ func (s *GitHubUserReposService) ListAuthenticatedUserGitHubRepoMetadata(
 		// a single-use refresh token.
 		if newToken, refreshErr := s.refreshUserGitHubToken(ctx, account); refreshErr == nil {
 			result, err = s.requestGitHubRepoMetadata(ctx, newToken, normalizedOwner, normalizedRepo, normalizedResource, query)
+		} else {
+			err = refreshErr
 		}
 	}
 	if err != nil {
@@ -276,6 +282,8 @@ func (s *GitHubUserReposService) syncedRepoBackfillFetcher(userID int64, owner, 
 		if err != nil && isGitHubTokenExpired(err) {
 			if newToken, refreshErr := s.refreshUserGitHubToken(ctx, account); refreshErr == nil {
 				result, err = s.requestGitHubRepoMetadata(ctx, newToken, owner, repo, resource, query)
+			} else {
+				err = refreshErr
 			}
 		}
 		if err != nil {
@@ -477,7 +485,7 @@ func (s *GitHubUserReposService) requestGitHubRepoRaw(ctx context.Context, acces
 }
 
 func gitHubRepoMetadataUpstreamError(resp *http.Response, now time.Time) error {
-	if limited := gitHubRateLimitError(resp.StatusCode, resp.Header, now); limited != nil {
+	if limited := GitHubRateLimitError(resp.StatusCode, resp.Header, now); limited != nil {
 		return limited
 	}
 	if resp.StatusCode >= http.StatusOK && resp.StatusCode < http.StatusMultipleChoices {

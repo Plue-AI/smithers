@@ -125,8 +125,11 @@ func (c *GitHubClient) ExchangeCode(ctx context.Context, code string) (services.
 		return services.GitHubTokenResult{}, fmt.Errorf("github oauth exchange request failed: %w", err)
 	}
 	defer func() { _ = resp.Body.Close() }()
+	if limited := services.GitHubRateLimitError(resp.StatusCode, resp.Header, time.Now()); limited != nil {
+		return services.GitHubTokenResult{}, limited
+	}
 
-	body, err := io.ReadAll(io.LimitReader(resp.Body, githubOAuthResponseLimit))
+	body, err := readGitHubOAuthBody(resp.Body)
 	if err != nil {
 		return services.GitHubTokenResult{}, fmt.Errorf("read github oauth exchange response: %w", err)
 	}
@@ -196,6 +199,9 @@ func (c *GitHubClient) RefreshToken(ctx context.Context, refreshToken string) (s
 		return services.GitHubTokenResult{}, fmt.Errorf("github oauth refresh request failed: %w", err)
 	}
 	defer func() { _ = resp.Body.Close() }()
+	if limited := services.GitHubRateLimitError(resp.StatusCode, resp.Header, time.Now()); limited != nil {
+		return services.GitHubTokenResult{}, limited
+	}
 
 	var payload struct {
 		AccessToken           string `json:"access_token"`
@@ -205,7 +211,11 @@ func (c *GitHubClient) RefreshToken(ctx context.Context, refreshToken string) (s
 		Error                 string `json:"error"`
 		ErrorDescription      string `json:"error_description"`
 	}
-	if err := json.NewDecoder(resp.Body).Decode(&payload); err != nil {
+	body, err := readGitHubOAuthBody(resp.Body)
+	if err != nil {
+		return services.GitHubTokenResult{}, fmt.Errorf("read github oauth refresh response: %w", err)
+	}
+	if err := json.Unmarshal(body, &payload); err != nil {
 		return services.GitHubTokenResult{}, fmt.Errorf("decode github oauth refresh response: %w", err)
 	}
 
@@ -261,6 +271,9 @@ func (c *GitHubClient) FetchUser(ctx context.Context, accessToken string) (servi
 		return services.GitHubUserProfile{}, fmt.Errorf("github user request failed: %w", err)
 	}
 	defer func() { _ = resp.Body.Close() }()
+	if limited := services.GitHubRateLimitError(resp.StatusCode, resp.Header, time.Now()); limited != nil {
+		return services.GitHubUserProfile{}, limited
+	}
 
 	if resp.StatusCode < http.StatusOK || resp.StatusCode >= http.StatusMultipleChoices {
 		return services.GitHubUserProfile{}, githubStatusError("github user request", resp.StatusCode)
@@ -289,6 +302,9 @@ func (c *GitHubClient) FetchEmails(ctx context.Context, accessToken string) ([]s
 		return nil, fmt.Errorf("github emails request failed: %w", err)
 	}
 	defer func() { _ = resp.Body.Close() }()
+	if limited := services.GitHubRateLimitError(resp.StatusCode, resp.Header, time.Now()); limited != nil {
+		return nil, limited
+	}
 
 	if resp.StatusCode < http.StatusOK || resp.StatusCode >= http.StatusMultipleChoices {
 		return nil, githubStatusError("github emails request", resp.StatusCode)
@@ -316,4 +332,17 @@ func setGitHubAPIHeaders(req *http.Request, accessToken string) {
 	req.Header.Set("Authorization", "Bearer "+strings.TrimSpace(accessToken))
 	req.Header.Set("User-Agent", githubUserAgent)
 	req.Header.Set("X-GitHub-Api-Version", githubAPIVersion)
+}
+
+// Read to EOF within the limit before trusting token fields. A valid JSON prefix
+// on a truncated connection must never rotate or clear the stored credentials.
+func readGitHubOAuthBody(body io.Reader) ([]byte, error) {
+	data, err := io.ReadAll(io.LimitReader(body, githubOAuthResponseLimit+1))
+	if err != nil {
+		return nil, err
+	}
+	if len(data) > githubOAuthResponseLimit {
+		return nil, fmt.Errorf("github oauth response exceeds size limit")
+	}
+	return data, nil
 }

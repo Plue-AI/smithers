@@ -78,8 +78,8 @@ func TestGithubRepoList_Cov_UpstreamDecodeAndStatusErrors(t *testing.T) {
 		body   string
 		want   string
 	}{
-		{name: "server rejected", status: http.StatusTeapot, body: `{}`, want: "request was rejected"},
-		{name: "bad json", status: http.StatusOK, body: `{`, want: "decode"},
+		{name: "server rejected", status: http.StatusTeapot, body: `{}`, want: "GitHub request failed"},
+		{name: "bad json", status: http.StatusOK, body: `{`, want: "unreadable"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {

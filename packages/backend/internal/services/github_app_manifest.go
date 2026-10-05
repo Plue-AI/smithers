@@ -538,7 +538,7 @@ func (s *GitHubAppManifestService) request(ctx context.Context, method, path, to
 		return pkgerrors.New(pkgerrors.CodeGitHubUnavailable, "GitHub App request failed")
 	}
 	defer resp.Body.Close()
-	if limited := gitHubRateLimitError(resp.StatusCode, resp.Header, setupNow(s.Now)); limited != nil {
+	if limited := GitHubRateLimitError(resp.StatusCode, resp.Header, setupNow(s.Now)); limited != nil {
 		return limited
 	}
 

@@ -21,11 +21,79 @@ import (
 	"github.com/smithersai/smithers/packages/backend/internal/db"
 	"github.com/smithersai/smithers/packages/backend/internal/githubfake"
 	smitherscrypto "github.com/smithersai/smithers/packages/backend/internal/pkg/crypto"
+	pkgerrors "github.com/smithersai/smithers/packages/backend/internal/pkg/errors"
 	"github.com/smithersai/smithers/packages/backend/internal/services"
 	"github.com/smithersai/smithers/packages/backend/internal/webhook"
 	"github.com/smithersai/smithers/packages/backend/testkit/postgresfixture"
 	"github.com/stretchr/testify/require"
 )
+
+func TestGitHubRepositoryResponseRefreshPauseThroughComposition(t *testing.T) {
+	ctx := t.Context()
+	pool, _ := postgresfixture.NewProductDatabase(t)
+	q := db.New(pool)
+	var reads, refreshes atomic.Int32
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/user/repos":
+			reads.Add(1)
+			w.WriteHeader(401)
+		case "/login/oauth/access_token":
+			refreshes.Add(1)
+			require.NoError(t, r.ParseForm())
+			require.Equal(t, "refresh", r.Form.Get("refresh_token"))
+			w.Header().Set("Retry-After", "120")
+			w.WriteHeader(429)
+			_, _ = w.Write([]byte(`{"error":"slow_down"}`))
+		default:
+			t.Errorf("unexpected request %s", r.URL.Path)
+			w.WriteHeader(500)
+		}
+	}))
+	defer upstream.Close()
+	t.Setenv("SMITHERS_GITHUB_APP_API_BASE_URL", upstream.URL)
+	budget := newGitHubBudget(topology{})
+	codec, err := webhook.NewSecretCodec("refresh-test-key")
+	require.NoError(t, err)
+	store := services.NewGitHubAppCredentialStore(pool, codec, services.WithGitHubAppCredentialBudget(budget))
+	key, err := rsa.GenerateKey(rand.Reader, 2048)
+	require.NoError(t, err)
+	require.NoError(t, store.Save(ctx, services.GitHubAppCredentials{ID: 711, Slug: "refresh-test", OwnerLogin: "acme", OwnerKind: "org", ClientID: "client", ClientSecret: "secret", WebhookSecret: "webhook", PEM: string(pem.EncodeToMemory(&pem.Block{Type: "RSA PRIVATE KEY", Bytes: x509.MarshalPKCS1PrivateKey(key)}))}))
+	cfg := config.AuthConfig{SessionSecret: "refresh-session", GitHubOAuthBaseURL: upstream.URL}
+	_, oauth, err := buildAuthProviders(cfg, store, budget)
+	require.NoError(t, err)
+	auth := services.NewAuthService(q, cfg, nil, oauth)
+	assembled, err := composeGitHubSync(pool, store, auth, topology{}, budget)
+	require.NoError(t, err)
+	user, err := q.CreateUser(ctx, db.CreateUserParams{Username: "refresh-user", LowerUsername: "refresh-user"})
+	require.NoError(t, err)
+	access, err := smitherscrypto.Encrypt(smitherscrypto.DeriveKey(cfg.SessionSecret), []byte("expired"))
+	require.NoError(t, err)
+	refresh, err := smitherscrypto.Encrypt(smitherscrypto.DeriveKey(cfg.SessionSecret), []byte("refresh"))
+	require.NoError(t, err)
+	_, err = pool.Exec(ctx, `INSERT INTO oauth_accounts(user_id,provider,provider_user_id,access_token_encrypted,refresh_token_encrypted) VALUES($1,'github','71',$2,$3)`, user.ID, access, refresh)
+	require.NoError(t, err)
+	var retryAt time.Time
+	for attempt := range 2 {
+		_, err = assembled.userRepositories.ListAuthenticatedUserGitHubRepos(ctx, user.ID, nil)
+		var failure *pkgerrors.APIError
+		require.ErrorAs(t, err, &failure)
+		require.Equal(t, pkgerrors.CodeGitHubRateLimited, failure.Code)
+		require.Equal(t, pkgerrors.ClassGitHub, failure.Class)
+		require.NotNil(t, failure.RetryAt)
+		if attempt == 0 {
+			retryAt = *failure.RetryAt
+		} else {
+			require.WithinDuration(t, retryAt, *failure.RetryAt, time.Second, "local Retry-After is rounded to whole seconds")
+		}
+	}
+	account, err := q.GetOAuthAccountByProviderUserID(ctx, db.GetOAuthAccountByProviderUserIDParams{Provider: "github", ProviderUserID: "71"})
+	require.NoError(t, err)
+	require.Equal(t, access, account.AccessTokenEncrypted)
+	require.Equal(t, refresh, account.RefreshTokenEncrypted)
+	require.EqualValues(t, 2, reads.Load())
+	require.EqualValues(t, 1, refreshes.Load(), "shared budget blocks the second refresh before HTTP")
+}
 
 // Use the same assembly as server startup, real sealed credentials/PostgreSQL,
 // and independent HTTP logs. No budget internals or substitute clients are set.

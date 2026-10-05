@@ -1538,7 +1538,7 @@ func (s *AuthService) refreshUserGitHubTokenLocked(
 			// only a human re-authorizing the GitHub App does.
 			return "", pkgerrors.GitHubReconnectRequired("github oauth token was rejected")
 		}
-		return "", pkgerrors.Unauthorized("github oauth token was rejected")
+		return "", gitHubRefreshFailure(ctx, err)
 	}
 	newAccess := strings.TrimSpace(result.AccessToken)
 	if newAccess == "" {

@@ -94,11 +94,13 @@ func (s *GitHubUserReposService) GitHubRepoPushAuthorized(ctx context.Context, u
 	if err != nil && isGitHubTokenExpired(err) {
 		if newToken, refreshErr := s.refreshUserGitHubToken(ctx, account); refreshErr == nil {
 			canPush, _, err = s.requestGitHubRepoPushPermission(ctx, newToken, owner, repo)
+		} else {
+			err = refreshErr
 		}
 	}
 	if err != nil {
 		var apiErr *pkgerrors.APIError
-		if stdErrors.As(err, &apiErr) && (apiErr.Status == http.StatusForbidden || apiErr.Status == http.StatusUnauthorized) {
+		if stdErrors.As(err, &apiErr) && (apiErr.Code == pkgerrors.CodeGitHubPermission || apiErr.Status == http.StatusForbidden || apiErr.Status == http.StatusUnauthorized) {
 			return fail(GitHubPushProofDenied)
 		}
 		return fail(GitHubPushProofUnavailable)

@@ -451,12 +451,14 @@ func (s *GitHubUserReposService) fetchFullGitHubRepoListing(ctx context.Context,
 		repos, _, err := s.requestGitHubUserRepos(ctx, accessToken, q)
 		if err != nil && !refreshed && isGitHubTokenExpired(err) {
 			// The stored token expired (~8h after connect). Refresh once and
-			// retry this page with the rotated token; refresh failures fall
-			// through to the honest 401 below.
+			// retry this page with the rotated token; refresh failures retain
+			// their own retry or reconnect meaning.
 			if newToken, refreshErr := s.refreshUserGitHubToken(ctx, account); refreshErr == nil {
 				accessToken = newToken
 				refreshed = true
 				repos, _, err = s.requestGitHubUserRepos(ctx, accessToken, q)
+			} else {
+				err = refreshErr
 			}
 		}
 		if err != nil {
@@ -493,6 +495,8 @@ func (s *GitHubUserReposService) listLiveGitHubRepos(ctx context.Context, userID
 		// Reactive refresh-on-401: renew the expired token once and retry.
 		if newToken, refreshErr := s.refreshUserGitHubToken(ctx, account); refreshErr == nil {
 			repos, link, err = s.requestGitHubUserRepos(ctx, newToken, q)
+		} else {
+			err = refreshErr
 		}
 	}
 	if err != nil {
@@ -574,16 +578,16 @@ func (s *GitHubUserReposService) proactivelyRefreshGitHubToken(ctx context.Conte
 }
 
 // refreshUserGitHubToken performs a single reactive refresh of the user's GitHub
-// token after a credential-gone (401/403) response and returns the rotated
-// access token. It returns an error — leaving the caller on today's fallback —
-// when no refresher is wired or no refresh token is stored for the account.
+// token after a credential-gone (401) response and returns the rotated
+// access token. Refresh failures retain their classification and retry deadline;
+// a temporary upstream failure must not become a reconnect or cache invalidation.
 func (s *GitHubUserReposService) refreshUserGitHubToken(ctx context.Context, account db.OauthAccount) (string, error) {
 	if s.refresher == nil {
 		return "", pkgerrors.Unauthorized("github oauth token was rejected")
 	}
 	token, err := s.refresher.RefreshUserGitHubToken(ctx, account)
 	if err != nil {
-		return "", err
+		return "", gitHubRefreshFailure(ctx, err)
 	}
 	if strings.TrimSpace(token) == "" {
 		return "", pkgerrors.Unauthorized("github oauth token was rejected")
@@ -627,6 +631,8 @@ func (s *GitHubUserReposService) verifyGitHubPush(ctx context.Context, userID in
 		if newToken, refreshErr := s.refreshUserGitHubToken(ctx, account); refreshErr == nil {
 			accessToken = newToken
 			canPush, repositoryID, err = s.requestGitHubRepoPushPermission(ctx, accessToken, trimmedOwner, trimmedRepo)
+		} else {
+			err = refreshErr
 		}
 	}
 	if err != nil {
@@ -656,26 +662,22 @@ func (s *GitHubUserReposService) requestGitHubRepoPushPermission(ctx context.Con
 
 	resp, err := s.httpClient.Do(req)
 	if err != nil {
-		return false, 0, pkgerrors.Internal("github repository request failed").WithCause(err)
+		return false, 0, gitHubRequestFailure(ctx, "GitHub repository request failed")
 	}
 	defer func() { _ = resp.Body.Close() }()
 
-	if limited := gitHubRateLimitError(resp.StatusCode, resp.Header, s.now()); limited != nil {
-		return false, 0, limited
-	}
-
-	body, _ := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
-	switch {
-	case resp.StatusCode == http.StatusUnauthorized:
+	if resp.StatusCode == http.StatusUnauthorized {
 		return false, 0, pkgerrors.Unauthorized("github oauth token was rejected")
-	case resp.StatusCode == http.StatusNotFound:
+	}
+	if resp.StatusCode == http.StatusNotFound {
 		return false, 0, nil
-	case resp.StatusCode == http.StatusForbidden:
-		// Rate limit / SAML-SSO / access denial — fail closed without
-		// consuming a single-use refresh token (see requestGitHubUserRepos).
-		return false, 0, pkgerrors.Forbidden("github denied the repository access check")
-	case resp.StatusCode < http.StatusOK || resp.StatusCode >= http.StatusMultipleChoices:
-		return false, 0, pkgerrors.Internal("github repository request was rejected")
+	}
+	if failure := gitHubResponseFailure(resp.StatusCode, resp.Header, s.now()); failure != nil {
+		return false, 0, failure
+	}
+	body, readErr := io.ReadAll(io.LimitReader(resp.Body, (1<<20)+1))
+	if readErr != nil || len(body) > 1<<20 {
+		return false, 0, gitHubRequestFailure(ctx, "GitHub returned an incomplete repository response")
 	}
 
 	var payload struct {
@@ -687,7 +689,7 @@ func (s *GitHubUserReposService) requestGitHubRepoPushPermission(ctx context.Con
 		} `json:"permissions"`
 	}
 	if err := json.Unmarshal(body, &payload); err != nil {
-		return false, 0, pkgerrors.Internal("failed to decode github repository response").WithCause(err)
+		return false, 0, gitHubRequestFailure(ctx, "GitHub returned an unreadable repository response")
 	}
 	return payload.Permissions.Push || payload.Permissions.Maintain || payload.Permissions.Admin, payload.ID, nil
 }
@@ -711,33 +713,26 @@ func (s *GitHubUserReposService) requestGitHubUserRepos(ctx context.Context, acc
 
 	resp, err := s.httpClient.Do(req)
 	if err != nil {
-		return nil, "", pkgerrors.Internal("github user repositories request failed").WithCause(err)
+		return nil, "", gitHubRequestFailure(ctx, "GitHub user repositories request failed")
 	}
 	defer func() { _ = resp.Body.Close() }()
 
-	if limited := gitHubRateLimitError(resp.StatusCode, resp.Header, s.now()); limited != nil {
-		return nil, "", limited
-	}
-
-	body, _ := io.ReadAll(io.LimitReader(resp.Body, 4<<20))
+	// A rejected user credential enters the existing refresh/reconnect path.
+	// Other refusals must not consume the single-use refresh credential.
 	if resp.StatusCode == http.StatusUnauthorized {
 		return nil, "", pkgerrors.Unauthorized("github oauth token was rejected")
 	}
-	if resp.StatusCode == http.StatusForbidden {
-		// 403 is a rate limit / SAML-SSO / access denial — NOT an expired token.
-		// It stays in the credential-gone bucket (serve last-good) but must map to
-		// a DISTINCT status so it does not trigger a token refresh: GitHub App
-		// refresh tokens are single-use, and rotating them under a rate-limit storm
-		// is what caused the 2026-07-04 reconnect cascade.
-		return nil, "", pkgerrors.Forbidden("github denied the user repositories request")
+	if failure := gitHubResponseFailure(resp.StatusCode, resp.Header, s.now()); failure != nil {
+		return nil, "", failure
 	}
-	if resp.StatusCode < http.StatusOK || resp.StatusCode >= http.StatusMultipleChoices {
-		return nil, "", pkgerrors.Internal("github user repositories request was rejected")
+	body, readErr := io.ReadAll(io.LimitReader(resp.Body, (4<<20)+1))
+	if readErr != nil || len(body) > 4<<20 {
+		return nil, "", gitHubRequestFailure(ctx, "GitHub returned an incomplete repository listing")
 	}
 
 	var repos []GitHubRepoListItem
 	if err := json.Unmarshal(body, &repos); err != nil {
-		return nil, "", pkgerrors.Internal("failed to decode github user repositories response").WithCause(err)
+		return nil, "", gitHubRequestFailure(ctx, "GitHub returned an unreadable repository listing")
 	}
 
 	return repos, resp.Header.Get("Link"), nil
