@@ -18,7 +18,7 @@ type TodoRouteService interface {
 	Todos(context.Context, int64) ([]map[string]any, error)
 	MergeTodo(context.Context, int64, int64, int64, services.MythicalMergeInput) (services.MythicalItemView, error)
 	AnswerTodo(context.Context, int64, int64, int64, services.TodoAnswerInput) error
-	ControlTodo(context.Context, int64, services.TodoControlInput) error
+	ControlTodo(context.Context, int64, services.TodoControlInput) (services.TodoControlReceipt, error)
 }
 
 // TodoHandler resolves the install's persisted GitHub repository, never a
@@ -228,9 +228,9 @@ var todoControlCommands = map[string]string{"": "todo.steer", "stop": "todo.stop
 // Control is POST /api/todos/{n}: steer the coding agent, or stop, resume,
 // retry (with an optional steer) or drop the TODO. The app sends a steer as
 // {"op":"steer","text":...}; the service's input is {"steer":...} with no
-// op. The control's command authorizes the person before the service
-// answers, and the service still refuses every control as unavailable until
-// a steer can reach a running attempt (T-FLW-11, T-STK-01).
+// op. The control's command authorizes the person, then the service runs the
+// op for the install's repository as that person under the request's
+// Idempotency-Key; an op it has no service for is 503 unavailable.
 func (h *TodoHandler) Control(w http.ResponseWriter, r *http.Request) {
 	n, err := strconv.ParseInt(chi.URLParam(r, "n"), 10, 64)
 	if err != nil || n <= 0 {
@@ -266,14 +266,17 @@ func (h *TodoHandler) Control(w http.ResponseWriter, r *http.Request) {
 		todoRouteError(w, &services.TodoControlError{Status: 400, Code: "idempotency_key_required", Class: "user", Message: "Idempotency-Key is required"})
 		return
 	}
-	if _, _, ok := h.authorize(w, r, command); !ok {
+	repo, user, ok := h.authorize(w, r, command)
+	if !ok {
 		return
 	}
-	if err := h.Service.ControlTodo(r.Context(), n, input); err != nil {
+	input.Repository, input.Actor, input.Request = repo, user, r.Header.Get("Idempotency-Key")
+	receipt, err := h.Service.ControlTodo(r.Context(), n, input)
+	if err != nil {
 		todoRouteError(w, err)
 		return
 	}
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusAccepted)
-	_ = json.NewEncoder(w).Encode(map[string]string{"state": "requested"})
+	_ = json.NewEncoder(w).Encode(receipt)
 }

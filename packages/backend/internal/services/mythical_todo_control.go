@@ -9,12 +9,28 @@ import (
 	"github.com/smithersai/smithers/packages/backend/internal/db"
 )
 
-// TodoControlInput is the POST /api/todos/{n} control payload. The install
-// catalog owns authorization, confirmation and durable request deduplication.
+// TodoControlInput is the POST /api/todos/{n} control: its op and optional
+// steer, and, set only by the route from the request it authorized, the
+// install's repository, the person and the request's Idempotency-Key.
 type TodoControlInput struct {
 	Op    string  `json:"op"`
 	Steer *string `json:"steer,omitempty"`
+	// Repository, Actor and Request are never read from the body.
+	Repository int64  `json:"-"`
+	Actor      int64  `json:"-"`
+	Request    string `json:"-"`
 }
+
+// TodoControlReceipt is a recorded control: "requested", and for a retry the
+// attempt it starts, so the app settles its toast from that attempt.
+type TodoControlReceipt struct {
+	State   string `json:"state"`
+	Attempt int32  `json:"attempt,omitempty"`
+}
+
+// todoControls dispatches each TODO control to its service, one file per op
+// (mythical_todo_<op>.go). An op without an entry is unavailable.
+var todoControls = map[string]func(*MythicalService, context.Context, int64, TodoControlInput) (TodoControlReceipt, error){}
 
 // TodoControlError uses the install command error envelope (§6.2.3).
 // Legacy repository API errors retain their existing wire format.
@@ -94,18 +110,24 @@ func todoControlGuard(item db.MythicalItem, input TodoControlInput, facts todoCo
 	return nil
 }
 
-// ControlTodo replaces the served legacy retryItem door. It remains dark:
-// this checkout has no shared install Authorize/Dispatch, durable attempt/pause
-// source or validated retained-machine execution composition. Refuse BEFORE
-// reading a subject or sending signals, allocating attempts, closing a PR or
-// removing a branch. Wiring a launcher alone must never enable this method.
-func (s *MythicalService) ControlTodo(_ context.Context, number int64, input TodoControlInput) error {
+// ControlTodo runs TODO n's control through todoControls once the route has
+// authorized it. An op with no service is refused before any read, signal,
+// attempt, GitHub write or removal.
+func (s *MythicalService) ControlTodo(ctx context.Context, number int64, input TodoControlInput) (TodoControlReceipt, error) {
 	if number <= 0 {
-		return &TodoControlError{http.StatusBadRequest, "invalid_todo", "user", "Invalid TODO number"}
+		return TodoControlReceipt{}, &TodoControlError{http.StatusBadRequest, "invalid_todo", "user", "Invalid TODO number"}
 	}
 	if err := input.validate(); err != nil {
-		return err
+		return TodoControlReceipt{}, err
 	}
+	control := todoControls[input.Op]
+	if control == nil {
+		return TodoControlReceipt{}, todoControlUnavailable()
+	}
+	return control(s, ctx, number, input)
+}
+
+func todoControlUnavailable() error {
 	return &TodoControlError{http.StatusServiceUnavailable, "todo_control_unavailable", "infra", "TODO controls are unavailable"}
 }
 

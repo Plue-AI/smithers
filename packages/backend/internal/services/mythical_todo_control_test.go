@@ -70,7 +70,7 @@ func TestTodoControlsRefuseBeforeDependencies(t *testing.T) {
 	// panic. No optional orchestration field can accidentally enable execution.
 	service := NewMythicalService(nil, nil)
 	for _, op := range []string{"stop", "resume", "retry", "retry-current-flow", "drop"} {
-		err := service.ControlTodo(context.Background(), 12, TodoControlInput{Op: op})
+		_, err := service.ControlTodo(context.Background(), 12, TodoControlInput{Op: op})
 		refusal := err.(*TodoControlError)
 		require.Equal(t, http.StatusServiceUnavailable, refusal.Status)
 		require.Equal(t, "infra", refusal.Class)
@@ -92,19 +92,21 @@ func TestTodoControlInputBoundaries(t *testing.T) {
 		require.NoError(t, (TodoControlInput{Op: op, Steer: text(" Keep\nverbatim ")}).validate())
 	}
 	var service *MythicalService
-	require.Equal(t, "invalid_todo", service.ControlTodo(context.Background(), 0, TodoControlInput{Op: "drop"}).(*TodoControlError).Code)
-	require.Equal(t, "invalid_control", service.ControlTodo(context.Background(), 12, TodoControlInput{Op: "cancel"}).(*TodoControlError).Code)
+	_, err := service.ControlTodo(context.Background(), 0, TodoControlInput{Op: "drop"})
+	require.Equal(t, "invalid_todo", err.(*TodoControlError).Code)
+	_, err = service.ControlTodo(context.Background(), 12, TodoControlInput{Op: "cancel"})
+	require.Equal(t, "invalid_control", err.(*TodoControlError).Code)
 }
 
 func TestTodoSteerAndAmendDarkInputs(t *testing.T) {
 	var service *MythicalService
 	text := func(s string) *string { return &s }
 	for _, value := range []string{" Keep\nverbatim ", strings.Repeat("x", mythicalPromptBytes)} {
-		err := service.ControlTodo(context.Background(), 12, TodoControlInput{Steer: text(value)})
+		_, err := service.ControlTodo(context.Background(), 12, TodoControlInput{Steer: text(value)})
 		require.Equal(t, "todo_control_unavailable", err.(*TodoControlError).Code)
 	}
 	for _, value := range []string{"", " ", string([]byte{0xff}), strings.Repeat("x", mythicalPromptBytes+1)} {
-		err := service.ControlTodo(context.Background(), 12, TodoControlInput{Steer: text(value)})
+		_, err := service.ControlTodo(context.Background(), 12, TodoControlInput{Steer: text(value)})
 		require.Equal(t, "invalid_steer", err.(*TodoControlError).Code)
 	}
 	for _, input := range []TodoAmendInput{

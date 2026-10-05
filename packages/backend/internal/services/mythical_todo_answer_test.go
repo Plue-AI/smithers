@@ -160,7 +160,8 @@ func TestTodoQuestionNeedsYouAndTheFirstAnswerWins(t *testing.T) {
 
 	// A steer never settles a question by itself.
 	steer := "use the existing retry helper"
-	require.Error(t, o.service.ControlTodo(session, n, TodoControlInput{Steer: &steer}))
+	_, err := o.service.ControlTodo(session, n, TodoControlInput{Steer: &steer})
+	require.Error(t, err)
 	require.Equal(t, "needs_you", todoState(o.byID(uuidString(item.ID))))
 	require.Empty(t, launcher.sent())
 
