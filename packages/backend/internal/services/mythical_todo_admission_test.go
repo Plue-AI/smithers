@@ -238,7 +238,10 @@ func TestTodoOwnerAdmissionLaunchesThePinnedComposition(t *testing.T) {
 	require.EqualValues(t, 2, item.Attempt)
 	require.Equal(t, todoPinOne, item.FlowDigest.String)
 	require.EqualValues(t, 1, asked.Load(), "a pinned attempt never asks for the Active digest again")
-	require.Contains(t, o.lanes.deleted, first, "the failed attempt's lane is retired before the next opens")
+	// A TODO keeps its own lane, its branch machine, for every attempt
+	// (T-MCH-04), pinned or not.
+	require.Equal(t, first, item.WorkspaceID, "the retry runs on the TODO's own lane")
+	require.NotContains(t, o.lanes.deleted, first)
 	launches = o.launcher.byFlow("todo")
 	require.Len(t, launches, 2)
 	require.Equal(t, "mythical:"+id+":2:todo:2", launches[1].RequestID)
@@ -246,6 +249,10 @@ func TestTodoOwnerAdmissionLaunchesThePinnedComposition(t *testing.T) {
 	require.Equal(t, landed, decodeJSON(t, launches[1].AuthorizationContext)["flowSource"])
 	require.EqualValues(t, 2, decodeJSON(t, launches[1].AuthorizationContext)["attempt"])
 	require.Equal(t, &flowruntime.Pin{Flow: "todo", SourceCommit: landed, ExecutionDigest: todoPinOne}, launches[1].Pin)
+	// The retry's lane starts from the new tip; the stack retains the pinned
+	// commit for it too, so its host can read the pinned flow there.
+	require.NotEqual(t, landed, item.BaseCommit)
+	require.Equal(t, landed, o.hostRef(repohost.WorkspaceSourceRef(item.WorkspaceID, landed)))
 }
 
 // Fable round 1, F5: an item's pin admits a launch, or binds a run, only
@@ -591,6 +598,10 @@ func todoPinnedEngineLaunches(t *testing.T, review string) {
 	receipt, err := o.service.SubmitLane(ctx, o.repoID, o.userID, submission)
 	require.NoError(t, err)
 	require.Equal(t, "integrating", receipt.State)
+	// The same submission again is the same receipt.
+	again, err := o.service.SubmitLane(ctx, o.repoID, o.userID, submission)
+	require.NoError(t, err)
+	require.Equal(t, receipt, again)
 	item = o.byID(id)
 	require.Equal(t, tip, item.CandidateBase)
 	require.Equal(t, candidate, item.CandidateHead)

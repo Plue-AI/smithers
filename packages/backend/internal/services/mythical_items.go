@@ -1831,14 +1831,17 @@ func todoAdmissionUnavailable(item db.MythicalItem, missing string, now time.Tim
 }
 
 // start opens a lane for a new attempt: a fresh workspace on the stack, the
-// tip retained into its source ref, and coding/request launched on it. An
-// outage retry runs the same attempt again on the lane it already holds
-// (reusesLane): the request starts a fresh working change on the tip
-// there, so nothing the failed run left is its base. A fresh attempt is
-// admitted only where the composition enabled it (EnableTodoAdmission); an
-// attempt pinned to the todo composition (SetTodoFlow) keeps that path.
-// The TODO is starting from this launch until its host accepts the run
-// (RunLaunched, then RunAttached in ProjectFlowRuntime).
+// tip retained into its source ref, and the attempt's run launched on it. An
+// owner's TODO runs the todo composition pinned to one Active todo flow
+// version (SetTodoFlow, spec §11.4.1): the first attempt pins the Active
+// version at main's mirrored commit, and Retry and Resume keep that pin.
+// Any other item runs coding/request, admitted only where the composition
+// enabled it (EnableTodoAdmission). An outage retry runs the same attempt
+// again on the lane it already holds (reusesLane), and a TODO keeps its own
+// lane for every attempt (keepsLane): the run starts a fresh working change
+// on the tip there, so nothing the failed run left is its base. The TODO is
+// starting from this launch until its host accepts the run (RunLaunched,
+// then RunAttached in ProjectFlowRuntime).
 func (st *mythicalItemStep) start(ctx context.Context, item db.MythicalItem) (*db.MythicalItem, bool, error) {
 	s, r := st.s, st.r
 	if item.Source != "issue" && item.Source != "todo" {
@@ -1846,11 +1849,31 @@ func (st *mythicalItemStep) start(ctx context.Context, item db.MythicalItem) (*d
 		next.State, next.Reason = "blocked", "a chat result that no longer applies to the tip must be requested again"
 		return &next, false, nil
 	}
-	if item.Source == "todo" && s != nil && (s.todoFlow != nil || item.FlowDigest.Valid) {
-		return st.startPinned(ctx, item)
-	}
-	if s == nil || r == nil || s.launcher == nil || s.lanes == nil || !r.row.ActorUserID.Valid || !s.todoAdmission {
+	composed := item.Source == "todo" && s != nil && (s.todoFlow != nil || item.FlowDigest.Valid)
+	if s == nil || r == nil || s.launcher == nil || s.lanes == nil || !r.row.ActorUserID.Valid ||
+		(composed && s.todoFlow == nil) || (!composed && !s.todoAdmission) {
 		return todoAdmissionUnavailable(item, "", st.now), false, nil
+	}
+	var pin flowruntime.Pin
+	if composed {
+		// Admission refuses before placement, capture or launch when the pin
+		// is invalid or no Active version answers.
+		var pinned bool
+		pin, pinned = mythicalPinOf(item)
+		if item.FlowDigest.Valid && !pinned {
+			return todoAdmissionUnavailable(item, "the pinned todo flow is invalid", st.now), false, nil
+		}
+		if !pinned {
+			source := r.row.LandedMain
+			active, err := s.todoFlow(ctx, r.row.RepositoryID, source)
+			if err != nil {
+				return todoAdmissionUnavailable(item, err.Error(), st.now), false, nil
+			}
+			pin = flowruntime.Pin{Flow: flowdispatch.TodoFlow, SourceCommit: source, ExecutionDigest: active}
+			if !pin.Valid() {
+				return todoAdmissionUnavailable(item, "the pinned todo flow is invalid", st.now), false, nil
+			}
+		}
 	}
 	if hold := st.launchable(ctx, item); hold != nil {
 		return hold, false, nil
@@ -1902,6 +1925,9 @@ func (st *mythicalItemStep) start(ctx context.Context, item db.MythicalItem) (*d
 	// A fresh attempt starts on the current prefix: no rebase is pending.
 	launched := mythicalChecksOf(next)
 	launched.RunLaunched, launched.RunAttached, launched.Rebase = true, false, nil
+	if composed {
+		launched.FlowSource = pin.SourceCommit
+	}
 	next.Checks = launched.encode()
 	base := st.prefix(item)
 	next.WorkspaceID, next.BaseCommit = workspaceID, base
@@ -1912,6 +1938,13 @@ func (st *mythicalItemStep) start(ctx context.Context, item db.MythicalItem) (*d
 	if err != nil {
 		return mythicalInfraOutage(item, "launch", "the stack tip could not reach the lane: "+err.Error(), st.now), false, nil
 	}
+	// The lane's host reads the pinned todo flow from the pin's main commit,
+	// which its clone of the stack need not hold (spec §11.4.1).
+	if composed && pin.SourceCommit != base {
+		if _, err := s.retainFor(ctx, r, workspaceID, pin.SourceCommit); err != nil {
+			return mythicalInfraOutage(item, "launch", "the pinned flow's commit could not reach the lane: "+err.Error(), st.now), false, nil
+		}
+	}
 	// The attempt's number among those since the last Retry: a Retry starts
 	// them again while the attempt number keeps counting.
 	prompt := st.prompt(item, next.Attempt-mythicalChecksOf(item).AttemptBase)
@@ -1920,6 +1953,7 @@ func (st *mythicalItemStep) start(ctx context.Context, item db.MythicalItem) (*d
 	}
 	request := map[string]any{"prompt": prompt, "maxRounds": 3,
 		"base": map[string]string{"commitId": base, "ref": ref}}
+	// The steers held for this attempt are its first input (spec §10.7.3).
 	if feedback := todoFeedback(item, next.Attempt); feedback != "" {
 		request["feedback"] = feedback
 	}
@@ -1933,7 +1967,12 @@ func (st *mythicalItemStep) start(ctx context.Context, item db.MythicalItem) (*d
 	}
 	payload, _ := json.Marshal(request)
 	next.State, next.Reason, next.NextAttemptAt = "running", "", pgtype.Timestamptz{}
-	saved, err := st.commit(ctx, next, "request", "coding/request", payload)
+	phase, flowID, what := "request", "coding/request", "the request"
+	if composed {
+		next.FlowDigest = pgtype.Text{String: pin.ExecutionDigest, Valid: true}
+		phase, flowID, what = "todo", flowdispatch.TodoFlow, "the TODO"
+	}
+	saved, err := st.commit(ctx, next, phase, flowID, payload)
 	if owner, owned := factoryIssueOwned(err); owned {
 		deferred := item
 		deferred.Reason = owner.reason()
@@ -1944,7 +1983,7 @@ func (st *mythicalItemStep) start(ctx context.Context, item db.MythicalItem) (*d
 		// The lane stays bound; the sweep retires it once the item provably
 		// does not reference it, so a lost COMMIT acknowledgment never
 		// deletes an admitted lane.
-		return mythicalInfraOutage(item, "launch", "the request could not be launched: "+err.Error(), st.now), false, nil
+		return mythicalInfraOutage(item, "launch", what+" could not be launched: "+err.Error(), st.now), false, nil
 	}
 	st.held[saved.Lane.Int32] = saved.ID
 	return &saved, true, nil
@@ -1989,106 +2028,6 @@ func (s *MythicalService) keepsLane(ctx context.Context, r *mythicalRun, item db
 		return false, nil
 	}
 	return s.lanes.Placed(ctx, item.WorkspaceID, placement)
-}
-
-// startPinned opens a lane for a fresh attempt of an owner's TODO and launches the
-// todo composition on it, pinned to one Active todo flow digest: the TODO is
-// starting until its host accepts the run (ProjectFlowRuntime). The first
-// attempt pins the Active digest; Retry and Resume keep that pin. Admission
-// refuses before placement, capture or launch while any provider is missing,
-// and GitHub-issue TODOs stay hidden until the maintainer release.
-func (st *mythicalItemStep) startPinned(ctx context.Context, item db.MythicalItem) (*db.MythicalItem, bool, error) {
-	s, r := st.s, st.r
-	if item.Source != "todo" || s == nil || r == nil || s.todoFlow == nil || s.launcher == nil || s.lanes == nil || !r.row.ActorUserID.Valid {
-		return todoAdmissionUnavailable(item, "", st.now), false, nil
-	}
-	// The first attempt pins the Active todo flow at main's mirrored commit,
-	// the one this stack folded; Retry and Resume keep that pin unchanged.
-	pin, pinned := mythicalPinOf(item)
-	if item.FlowDigest.Valid && !pinned {
-		return todoAdmissionUnavailable(item, "the pinned todo flow is invalid", st.now), false, nil
-	}
-	if !pinned {
-		source := r.row.LandedMain
-		active, err := s.todoFlow(ctx, r.row.RepositoryID, source)
-		if err != nil {
-			return todoAdmissionUnavailable(item, err.Error(), st.now), false, nil
-		}
-		pin = flowruntime.Pin{Flow: flowdispatch.TodoFlow, SourceCommit: source, ExecutionDigest: active}
-		if !pin.Valid() {
-			return todoAdmissionUnavailable(item, "the pinned todo flow is invalid", st.now), false, nil
-		}
-	}
-	if hold := st.launchable(ctx, item); hold != nil {
-		return hold, false, nil
-	}
-	// A new lane is placed before the previous one is retired, so a
-	// placement refusal changes nothing else.
-	placement, refused := st.place(ctx, item)
-	if refused != nil {
-		return refused, false, nil
-	}
-	if item.WorkspaceID != "" {
-		if err := s.retireLane(ctx, r, item.WorkspaceID); err != nil {
-			return mythicalInfraOutage(item, "launch", "the previous lane could not be retired: "+err.Error(), st.now), false, nil
-		}
-	}
-	next := item
-	next.Attempt, next.Generation = item.Attempt+1, item.Generation+1
-	next.RequestOutcome, next.VibeOutcome, next.VerifyOutcome = "", "", ""
-	next.RequestRunID, next.VibeRunID, next.VerifyRunID = "", "", ""
-	next.CandidateBase, next.CandidateHead, next.CandidateVerified = "", "", false
-	workspaceID, err := st.lane(ctx, item, fmt.Sprintf("TODO %d attempt %d g%d", item.Number.Int64, next.Attempt, next.Generation), placement)
-	if err != nil {
-		return mythicalInfraOutage(item, "launch", "no lane workspace: "+err.Error(), st.now), false, nil
-	}
-	checks := mythicalChecksOf(next)
-	checks.Placement = &placement
-	checks.RunLaunched, checks.RunAttached, checks.Rebase = true, false, nil
-	checks.FlowSource = pin.SourceCommit
-	next.Checks = checks.encode()
-	base := st.prefix(item)
-	next.WorkspaceID, next.BaseCommit = workspaceID, base
-	next.Lane = pgtype.Int4{Int32: st.freeLane(item.ID), Valid: true}
-	// The launch below records the lane's start with the item, atomically.
-	next.LaneStartedAt = pgtype.Timestamptz{Time: st.now, Valid: true}
-	ref, err := s.retainFor(ctx, r, workspaceID, base)
-	if err != nil {
-		return mythicalInfraOutage(item, "launch", "the stack tip could not reach the lane: "+err.Error(), st.now), false, nil
-	}
-	// The lane's host reads the pinned todo flow from the pin's main commit,
-	// which its clone of the stack need not hold (spec §11.4.1).
-	if pin.SourceCommit != base {
-		if _, err := s.retainFor(ctx, r, workspaceID, pin.SourceCommit); err != nil {
-			return mythicalInfraOutage(item, "launch", "the pinned flow's commit could not reach the lane: "+err.Error(), st.now), false, nil
-		}
-	}
-	request := map[string]any{"prompt": todoPrompt(item), "maxRounds": 3,
-		"base": map[string]string{"commitId": base, "ref": ref}}
-	// The steers held for this attempt are its first input (spec §10.7.3).
-	if feedback := todoFeedback(item, next.Attempt); feedback != "" {
-		request["feedback"] = feedback
-	}
-	// Every question a person answered rides next to the steers.
-	if answers := todoAnswers(item); len(answers) > 0 {
-		request["answers"] = answers
-	}
-	// The lane plans with the published wiki; it never reviews the pages again.
-	if wiki, ok := s.suppliedWiki(ctx, r.row.RepositoryID); ok {
-		request["wiki"] = wiki
-	}
-	payload, _ := json.Marshal(request)
-	next.FlowDigest = pgtype.Text{String: pin.ExecutionDigest, Valid: true}
-	next.State, next.Reason, next.NextAttemptAt = "running", "", pgtype.Timestamptz{}
-	saved, err := st.commit(ctx, next, "todo", flowdispatch.TodoFlow, payload)
-	if err != nil {
-		// The lane stays bound; the sweep retires it once the item provably
-		// does not reference it, so a lost COMMIT acknowledgment never
-		// deletes an admitted lane.
-		return mythicalInfraOutage(item, "launch", "the TODO could not be launched: "+err.Error(), st.now), false, nil
-	}
-	st.held[saved.Lane.Int32] = saved.ID
-	return &saved, true, nil
 }
 
 // mythicalTodo reports an item that is a TODO with its own prompt: an
