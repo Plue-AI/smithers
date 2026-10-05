@@ -116,6 +116,11 @@ if (parsed.values.version) {
     credential: bind.credential,
     gatewayId: process.env.SMITHERS_GATEWAY_ID ?? "",
     sourcePublication: process.env.SMITHERS_CODING_LOCAL_OWNER === "1" ? "local-only" as const : "cloud" as const,
+    // Checks export immutable trees with the same packaged helper; the
+    // guest's fixed /usr/local/bin path is only its default.
+    ...(process.env.SMITHERS_WORKSPACE_JJ_EXPORT_BINARY === undefined
+      ? {}
+      : { exporterPath: process.env.SMITHERS_WORKSPACE_JJ_EXPORT_BINARY }),
     ...runtimeBridge,
     ...(process.env.SMITHERS_CODING_PLAN_MODEL === undefined
       ? {}

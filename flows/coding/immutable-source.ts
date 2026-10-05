@@ -137,16 +137,13 @@ const exportTree = <A, E, R>(
 ) =>
   Effect.gen(function*() {
     const fs = options.fs, path = yield* Path.Path
-    // Keep dependency hardlinks on the workspace filesystem. Cloud /tmp is a
-    // small tmpfs and copying the monorepo dependencies there exhausts it.
-    const checkCache = options.environment?.HOME
-      ? path.join(options.environment.HOME, ".cache", "smithers-checks") :
-      undefined
-    if (checkCache) yield* fs.makeDirectory(checkCache, { recursive: true })
-    const temporary = yield* fs.makeTempDirectoryScoped({
-      prefix: "smithers-check-",
-      ...(checkCache ? { directory: checkCache } : {})
-    })
+    // Keep dependency hardlinks on the workspace filesystem: Cloud /tmp is a
+    // small tmpfs and copying the monorepo dependencies there exhausts it. A
+    // confined check reads and writes only inside the workspace root, so the
+    // tree is exported under the root's .jj directory, which jj never snapshots.
+    const checkCache = path.join(options.repositoryPath, ".jj", "smithers-checks")
+    yield* fs.makeDirectory(checkCache, { recursive: true })
+    const temporary = yield* fs.makeTempDirectoryScoped({ prefix: "smithers-check-", directory: checkCache })
     const temporaryRoot = yield* fs.realPath(temporary)
     const exported = yield* runSourceProcess(
       options,
