@@ -112,16 +112,7 @@ The process workspace runtime is for tests only. An overridable Flow host refuse
 
 An agent workspace stopped for 24 hours gives back its microVM disk. Resuming it boots a fresh microVM and checks the repository out again; work on its bookmark is kept, anything else in the old disk is not. `microvm doctor` reports the unique bytes stopped microVMs still hold.
 
-The coding Flow host runs in the workspace's microVM with its shell, file, test and build tools. The backend plants into the guest only files of the installed bundle it runs from (`<bundle>/bin/smithers-backend`): the coding host its `bin/flow-hosts.json` names and the Linux workspace helper `bin/linux-arm64/smithers-jj-export`, each with the digest and mode `manifest.json` declares. A backend outside an installed bundle, a Flow host manifest other than the bundle's own, or a bundle whose manifest does not declare the backend, `msb`, its guest kernel and these files with exactly their bytes, refuses to start. The startup log records the manifest's revision and sha256. To build the bundle on a Mac, cross-build the helper with [Zig](https://ziglang.org) as the linker and place it where `smthrs build //apps/app:serverBundle` reads it:
-
-```sh
-rustup target add aarch64-unknown-linux-gnu --toolchain 1.98.0
-printf '#!/bin/sh\nfor a; do shift; [ "$a" = -Wl,--fix-cortex-a53-843419 ] || set -- "$@" "$a"; done\nexec zig cc -target aarch64-linux-gnu.2.36 "$@"\n' > zigcc; chmod +x zigcc
-CC_aarch64_unknown_linux_gnu=$PWD/zigcc CARGO_TARGET_AARCH64_UNKNOWN_LINUX_GNU_LINKER=$PWD/zigcc \
-  cargo +1.98.0 build --locked --release -p smithers-ffi --bin smithers-jj-export --target aarch64-unknown-linux-gnu
-mkdir -p apps/app/.native-inputs/linux-arm64
-install -m 0755 target/aarch64-unknown-linux-gnu/release/smithers-jj-export apps/app/.native-inputs/linux-arm64/smithers-jj-export
-```
+The coding Flow host runs in the workspace's microVM with its shell, file, test and build tools. The backend plants into the guest only files of the installed bundle it runs from (`<bundle>/bin/smithers-backend`): the coding host its `bin/flow-hosts.json` names and the Linux workspace helper `bin/linux-arm64/smithers-jj-export`, each with the digest and mode `manifest.json` declares. A backend outside an installed bundle, a Flow host manifest other than the bundle's own, or a bundle whose manifest does not declare the backend, `msb`, its guest kernel and these files with exactly their bytes, refuses to start. The startup log records the manifest's revision and sha256. The bundle assembler (`apps/app/scripts/build-native.ts`) cross-builds that helper from the commit it bundles, for `aarch64-unknown-linux-gnu` with [Zig](https://ziglang.org) as the C compiler and linker, so `brew install zig` before `smthrs build //apps/app:serverBundle`.
 
 Model calls from the guest go through the backend's model proxy or account pool on the bridged port with the binding's credential; no provider key enters a VM.
 

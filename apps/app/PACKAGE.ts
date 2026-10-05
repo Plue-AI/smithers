@@ -16,14 +16,11 @@ import { Package as componentPackage } from "../../packages/smithers/ui/PACKAGE.
 const cwd = "apps/app"
 
 /**
- * Uncached release assembly: external toolchains and registry inputs are validated by the assembler.
- * Targets inherit no host variables, so the release job's Linux arm64 helper is read from a fixed,
- * git-ignored input path instead of SMITHERS_LINUX_ARM64_JJ_EXPORT_BINARY.
+ * Uncached release assembly: external toolchains and registry inputs are validated by the assembler,
+ * which cross-builds the Linux arm64 guest helper from the same commit.
  */
 const serverBundle = Smithers.Shell.Build({
-  shell: 'SMITHERS_BUILD_SHA="$(git rev-parse HEAD)" ' +
-    'SMITHERS_LINUX_ARM64_JJ_EXPORT_BINARY="$PWD/apps/app/.native-inputs/linux-arm64/smithers-jj-export" ' +
-    'bun apps/app/scripts/build-native.ts',
+  shell: 'SMITHERS_BUILD_SHA="$(git rev-parse HEAD)" bun apps/app/scripts/build-native.ts',
   data: [Smithers.glob("//apps/app/scripts/**/*"), Smithers.glob("//apps/app/src/**/*"),
     Smithers.file("//packages/smithers/src/internal/backend/HostService.ts"), Smithers.glob("//distribution/**/*"), Smithers.glob("//crates/**/*"),
     Smithers.glob("//packages/backend/microsandbox/**/*"), Smithers.file("//scripts/build-backend.sh"),

@@ -6,8 +6,8 @@ import { tmpdir } from "node:os"
 import { join, resolve } from "node:path"
 
 // This is a real release assembly, not a fixture that mocks compilers or tools.
-// Opt in on the reference builder with its Linux arm64 release helper at
-// apps/app/.native-inputs/linux-arm64/smithers-jj-export (scripts/README.md).
+// Opt in on the reference builder with Zig installed: the assembler
+// cross-builds the Linux arm64 guest helper (scripts/README.md).
 test.skipIf(process.env.SMITHERS_SERVER_BUNDLE_INTEGRATION !== "1")("production target assembles a digest-matched relocatable server bundle", async () => {
   const root = resolve(import.meta.dir, "../../..")
   let firstDigest = ""

@@ -71,3 +71,16 @@ test.skipIf(process.platform !== "darwin")("signs the backend with the hardened 
   expect(codeSignatureFlags(backend)).toBe("adhoc")
   expect(() => verifyBundleManifest(root)).toThrow("Bundle manifest mismatch: bin/smithers-backend")
 })
+
+test("records the cross-built Linux guest helper and its digest sidecar as the guest-helper stage", () => {
+  const root = fixture()
+  mkdirSync(join(root, "bin/linux-arm64"))
+  writeFileSync(join(root, "bin/linux-arm64/smithers-jj-export"), "linux helper bytes", { mode: 0o755 })
+  writeFileSync(join(root, "bin/linux-arm64/smithers-jj-export.sha256"), "digest  smithers-jj-export\n", { mode: 0o644 })
+  writeFileSync(join(root, "bin/smithers-jj-export"), "darwin helper bytes", { mode: 0o755 })
+  writeBundleManifest(root, "f".repeat(40))
+  const stages = Object.fromEntries(JSON.parse(readFileSync(join(root, "manifest.json"), "utf8")).files.map((entry: { path: string; stage: string }) => [entry.path, entry.stage]))
+  expect(stages["bin/linux-arm64/smithers-jj-export"]).toBe("guest-helper")
+  expect(stages["bin/linux-arm64/smithers-jj-export.sha256"]).toBe("guest-helper")
+  expect(stages["bin/smithers-jj-export"]).toBe("jj")
+})

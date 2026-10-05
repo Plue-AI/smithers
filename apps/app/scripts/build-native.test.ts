@@ -42,7 +42,7 @@ const build = (node: string, extraEnv: Record<string, string> = {}): { exitCode:
   for (const [name, value] of Object.entries(process.env)) {
     if (value !== undefined && !name.startsWith("SMITHERS_")) env[name] = value
   }
-  const result = Bun.spawnSync(["bun", script], {
+  const result = Bun.spawnSync([process.execPath, script], {
     env: { ...env, SMITHERS_BUILD_SHA: "0".repeat(40), SMITHERS_NODE_BINARY: node, ...extraEnv },
     stdout: "pipe",
     stderr: "pipe"
@@ -106,9 +106,11 @@ for (const release of ["17.6", "18.4"]) {
     const postgres = join(root, `postgres-${release}`)
     mkdirSync(join(postgres, "bin"), { recursive: true })
     for (const name of ["postgres", "initdb", "pg_isready", "psql", "pg_dump", "pg_restore"]) writeFileSync(join(postgres, "bin", name), `#!/bin/sh\necho postgres PostgreSQL ${release}\n`, { mode: 0o755 })
-    const result = build(node, { SMITHERS_POSTGRES_BUNDLE_DIR: postgres })
+    // Without zig on PATH, PostgreSQL 18 stops at the guest helper's cross-build check,
+    // before the assembler clears or builds anything.
+    const result = build(node, { SMITHERS_POSTGRES_BUNDLE_DIR: postgres, PATH: "/usr/bin:/bin" })
     expect(result.exitCode).not.toBe(0)
-    expect(result.stderr).toContain(release.startsWith("18") ? "SMITHERS_LINUX_ARM64_JJ_EXPORT_BINARY" : "must contain PostgreSQL 18")
+    expect(result.stderr).toContain(release.startsWith("18") ? "cross-builds the Linux arm64 guest helper with zig" : "must contain PostgreSQL 18")
   })
 }
 

@@ -46,17 +46,12 @@ concurrency:
 jobs:
   server-bundle:
     name: darwin-arm64 server bundle
-    needs: native-helper
     runs-on: macos-15
     timeout-minutes: 120
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
         with:
           ref: ${{ inputs.sourceRef != '' && inputs.sourceRef || inputs.releaseTag != '' && inputs.releaseTag || github.ref }}
-      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
-        with:
-          name: native-helper-linux-arm64
-          path: ${{ runner.temp }}/linux-arm64-helper
       - uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff
         with:
           go-version: 1.26.8
@@ -69,10 +64,8 @@ jobs:
           bun-version: 1.4.1
       - run: pnpm install --frozen-lockfile
       - run: rustup toolchain install
-      - run: brew install postgresql@18 skopeo
+      - run: brew install postgresql@18 skopeo zig
       - name: Assemble server bundle
-        env:
-          SMITHERS_LINUX_ARM64_JJ_EXPORT_BINARY: ${{ runner.temp }}/linux-arm64-helper/smithers-jj-export
         run: |
           SMITHERS_NODE_BINARY="$(command -v node)" SMITHERS_BUILD_SHA="$(git rev-parse HEAD)" SMITHERS_POSTGRES_BUNDLE_DIR="$(brew --prefix postgresql@18)" bun apps/app/scripts/build-native.ts
       - name: Verify relocated bundle

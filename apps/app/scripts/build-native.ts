@@ -10,6 +10,7 @@ import {
   statSync,
   writeFileSync
 } from "node:fs"
+import { tmpdir } from "node:os"
 import { basename, delimiter, dirname, isAbsolute, join, resolve } from "node:path"
 import { bundlePostgres } from "./bundle-postgres"
 import { foreignLibraries } from "./system-linkage"
@@ -156,14 +157,11 @@ if (!existsSync(join(root, "crates", "smithers-ffi", "Cargo.toml"))) {
   throw new Error("crates/smithers-ffi is required for the native distribution.")
 }
 
-const linuxHelper = process.env.SMITHERS_LINUX_ARM64_JJ_EXPORT_BINARY?.trim()
-if (!linuxHelper || !isAbsolute(linuxHelper) || !existsSync(linuxHelper) || statSync(linuxHelper).size === 0) {
-  throw new Error("Native builds require SMITHERS_LINUX_ARM64_JJ_EXPORT_BINARY from the Linux arm64 release helper.")
-}
-const helperHeader = readFileSync(linuxHelper).subarray(0, 20)
-if (helperHeader.length < 20 || helperHeader.subarray(0, 6).toString("hex") !== "7f454c460201" || helperHeader.readUInt16LE(18) !== 183) {
-  throw new Error("SMITHERS_LINUX_ARM64_JJ_EXPORT_BINARY must be a Linux arm64 ELF executable.")
-}
+// The guest helper is cross-built below from the commit being bundled, so a
+// bundle never plants a helper built from other sources.
+const zig = Bun.which("zig")
+if (!zig) throw new Error("Server assembly cross-builds the Linux arm64 guest helper with zig (brew install zig).")
+const zigVersion = output([zig, "version"])
 if (!Bun.which("skopeo")) throw new Error("Server assembly requires skopeo (brew install skopeo).")
 rmSync(nativeDir, { recursive: true, force: true })
 mkdirSync(join(nativeDir, "bin"), { recursive: true })
@@ -175,6 +173,33 @@ if (!existsSync(wasm) || statSync(wasm).size === 0) {
 await run("pinned Rust toolchain", ["rustup", "toolchain", "install"])
 console.log("[build-native] canonical jj WebAssembly: using committed linux/amd64 artifact")
 await run("native FFI", ["cargo", "build", "--locked", "--release", "--package", "smithers-ffi", "--bin", "smithers-jj-export", "--lib"])
+const linuxTarget = "aarch64-unknown-linux-gnu"
+await run("Linux arm64 guest helper target", ["rustup", "target", "add", linuxTarget])
+// Zig compiles and links against glibc 2.36, below the base image's 2.41. It
+// has no switch for the Cortex-A53 erratum flag rustc passes, so drop it.
+const zigWrapper = mkdtempSync(join(tmpdir(), "smithers-zigcc-"))
+const zigcc = join(zigWrapper, "zigcc")
+writeFileSync(
+  zigcc,
+  `#!/bin/sh\nfor a; do shift; [ "$a" = -Wl,--fix-cortex-a53-843419 ] || set -- "$@" "$a"; done\n` +
+    `exec '${zig.replaceAll("'", "'\\''")}' cc -target aarch64-linux-gnu.2.36 "$@"\n`,
+  { mode: 0o755 }
+)
+try {
+  await run(
+    "Linux arm64 guest helper",
+    ["cargo", "build", "--locked", "--release", "--package", "smithers-ffi", "--bin", "smithers-jj-export", "--target", linuxTarget],
+    root,
+    { CC_aarch64_unknown_linux_gnu: zigcc, CARGO_TARGET_AARCH64_UNKNOWN_LINUX_GNU_LINKER: zigcc }
+  )
+} finally {
+  rmSync(zigWrapper, { recursive: true, force: true })
+}
+const linuxHelper = join(cargoTargetDir, linuxTarget, "release", "smithers-jj-export")
+const helperHeader = readFileSync(linuxHelper).subarray(0, 20)
+if (helperHeader.length < 20 || helperHeader.subarray(0, 6).toString("hex") !== "7f454c460201" || helperHeader.readUInt16LE(18) !== 183) {
+  throw new Error(`The guest helper build did not produce a Linux arm64 ELF executable: ${linuxHelper}`)
+}
 const jjInstallRoot = join(nativeDir, ".jj-install")
 await run(
   "pinned jj CLI",
@@ -252,7 +277,7 @@ cpSync(gitShareSource, join(nativeDir, "share", "git-core"), {
   recursive: true,
   verbatimSymlinks: true
 })
-writeFileSync(join(nativeDir, "share", "build-tools.json"), JSON.stringify({ revision, git: gitVersion, jj: jjVersion }, null, 2) + "\n")
+writeFileSync(join(nativeDir, "share", "build-tools.json"), JSON.stringify({ revision, git: gitVersion, jj: jjVersion, zig: zigVersion }, null, 2) + "\n")
 validateGitBundle(nativeDir, [
   join(nativeDir, "bin", "git"),
   join(nativeDir, "libexec", "git-core"),

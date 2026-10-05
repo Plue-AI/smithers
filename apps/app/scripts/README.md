@@ -160,31 +160,24 @@ Install the browser with `pnpm exec playwright install chromium`.
 On darwin-arm64, install the toolchain the assembler checks: Node 26.4+
 from nodejs.org first on `PATH` (the assembler refuses a Node that links
 Homebrew libraries), the root's pinned pnpm, Bun, the pinned Rust and Go, Xcode
-Git, PostgreSQL 18 and skopeo. From the repository root:
+Git, PostgreSQL 18, skopeo and Zig. From the repository root:
 
 ```sh
-brew install postgresql@18 skopeo
+brew install postgresql@18 skopeo zig
 pnpm install --frozen-lockfile
 ```
 
-The assembler also needs the Linux arm64 guest helper, `smithers-jj-export`.
-Download the `native-helper-linux-arm64` artifact of a Release run built from
-the same commit (`gh run download <run-id> -R smithersai/smithers -n
-native-helper-linux-arm64`), or cross-build it as
-[MicroVM isolation](../../../distribution/README.md#microvm-isolation) shows.
-Then assemble and verify:
+The assembler cross-builds the Linux arm64 guest helper, `smithers-jj-export`,
+from the commit it bundles, with Zig as the C compiler and linker, and records
+it in `manifest.json` as stage `guest-helper` and the Zig release in
+`share/build-tools.json`. Then assemble and verify:
 
 ```sh
-mkdir -p apps/app/.native-inputs/linux-arm64
-install -m 0755 /path/to/smithers-jj-export apps/app/.native-inputs/linux-arm64/smithers-jj-export
 smthrs build //apps/app:serverBundle
 bun apps/app/scripts/server-bundle-manifest.ts apps/app/.native
 ```
 
-The helper is the release job's `native-helper-linux-arm64` artifact. Targets
-inherit no host variables, so the target reads it from that git-ignored path.
-`build-native.ts` run directly, as `release.yml` does, takes the path from
-`SMITHERS_LINUX_ARM64_JJ_EXPORT_BINARY`. Assembly runs as
+Assembly runs as
 the build user and takes about 5 minutes once Rust and Go caches are warm. It
 downloads the pinned jj source, the msb 0.6.16 package and the 430 MB base
 image, and writes about 1 GiB. Python 3 writes deterministic archives.

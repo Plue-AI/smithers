@@ -58,6 +58,7 @@ const inventory = (root: string): Inventory => {
       const stage = key.startsWith("postgres/") ? "postgresql18"
         : key.startsWith("views/mainview/") ? "web"
         : key.startsWith("share/microsandbox/") || key === "bin/msb" || key.startsWith("lib/") ? "microsandbox"
+        : key.startsWith("bin/linux-arm64/") ? "guest-helper"
         : key.includes("git") ? "git" : key.includes("jj") ? "jj"
         : key.includes("smithers_ffi") ? "native-ffi"
         : key.includes("smithers-coding-host") ? "coding-host"
