@@ -1,80 +1,19 @@
-import { test, expect, type Browser, type BrowserContext, type Locator, type Page } from "@playwright/test"
-import { readFileSync } from "node:fs"
-import { githubRoute } from "../local/github-route"
+import { APP, expect, say, setUp, test } from "./fixtures"
+import type { Locator, Page } from "@playwright/test"
 
 /*
  * J8 Memory (mvp.md J8; mock steps j8#1 to j8#12) on the real bundle, the GitHub fake and real models.
- * Maya is the install owner (the fake's local-owner), Alice a Member. Setup, the members and T1 reaching
- * review are the journey's starting state (mock: "T9 is green and next to merge"); each is done through the
- * UI before the first feature step. Every feature is one proofStep in mock-step order. A failed step is
- * recorded with its screenshot and the test goes on; a step that needs a failed one records "blocked by".
- * The person, proofStep and boot helpers are local until apps/app/e2e/proof/fixtures.ts lands.
+ * Maya owns the install; Alice writes to the repository on GitHub and Maya adds her as a Member. Setup,
+ * Alice's membership and T1 reaching review are the journey's starting state (mock: "T9 is green and next
+ * to merge"), done through the UI in the "start" step. Then one proofStep per feature in mock-step order:
+ * j8-learning-after-merge (j8#1, #4, #5), j8-wiki-pages (j8#5), j8-wiki-co-edit (j8#6-#8) and
+ * j8-plan-cites-wiki-revision (j8#11-#13). The machine queue (j8#2, #3, #9) and opening a branch (j8#10) are
+ * J1, J3 and J4 features; here they are only the way to T2's plan.
  */
-const app = "http://localhost:4000"
-const output = "test-results/proof"
-type Who = "maya" | "alice"
-type Run = { setupURL: string; fakeURL: string; home: string; revision: string; keys: Record<string, string> }
-let run: Run
-const pages = new Map<Who, Page>()
-const failed = new Map<string, string>()
-
-/** One feature's proof: a step named by the feature id, with each person's screen attached under that id. */
-async function proofStep(featureId: string, fn: () => Promise<void>, after: ReadonlyArray<string> = []): Promise<boolean> {
-  try {
-    await test.step(featureId, async () => {
-      try {
-        const blocker = after.find(id => failed.has(id))
-        if (blocker) throw new Error(`blocked by ${blocker}`)
-        await fn()
-      } finally {
-        for (const [who, page] of pages) {
-          const body = await page.screenshot().catch(() => undefined)
-          if (body) await test.info().attach(who === "maya" ? featureId : `${featureId}-${who}`, { body, contentType: "image/png" })
-        }
-      }
-    })
-    return true
-  } catch (error) {
-    failed.set(featureId, String(error).split("\n")[0]!)
-    return false
-  }
-}
-
-const browse = async (browser: Browser): Promise<BrowserContext> => {
-  const context = await browser.newContext({ viewport: { width: 1440, height: 900 } })
-  await githubRoute(context, run.fakeURL)
-  await context.route(/^https?:\/\//, async route => {
-    const url = route.request().url()
-    if ([app, "http://127.0.0.1:4000", run.fakeURL].includes(new URL(url).origin)) return route.continue()
-    if (/^https:\/\/github\.com\/[a-z\d-]+\.png$/i.test(url)) return route.fulfill({ status: 404 })
-    return route.fallback()
-  })
-  return context
-}
-/** Alice opens the install's address and signs in with GitHub (the fake) as alice. */
-const signIn = async (browser: Browser, who: Who) => {
-  const page = await (await browse(browser)).newPage()
-  await page.goto(`${app}/api/auth/github`)
-  await page.getByRole("link", { name: who === "maya" ? "Authorize" : `Authorize as ${who}`, exact: true }).click()
-  await page.waitForURL(url => url.origin === app && !url.pathname.startsWith("/api/"))
-  await expect(page.getByTestId("composer-input")).toBeAttached({ timeout: 15_000 })
-  pages.set(who, page)
-  return page
-}
-const say = async (page: Page, text: string) => {
-  const input = page.getByTestId("composer-input")
-  if (!await input.isVisible()) await page.keyboard.press("Control+k")
-  await input.fill(text)
-  await input.press("Enter")
-}
-const fake = async (path: string, body: unknown) => {
-  const response = await fetch(`${run.fakeURL}${path}`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) })
-  expect(response.status, path).toBeLessThan(300)
-}
-type Served = { n: number; state: string; title: string; lessons?: number; pr?: { number: number; head: string }; failure?: unknown }
-/** The server's TODO, read as the person reads it (never written through the API). */
+type Served = { n: number; state: string; title: string; failure?: unknown }
+/** The server's TODO, read as the person's browser reads it (never written through the API). */
 const served = async (page: Page, n: number): Promise<Served> => {
-  const response = await page.request.get(`${app}/api/todos/${n}`)
+  const response = await page.request.get(`${APP}/api/todos/${n}`)
   expect(response.status()).toBe(200)
   return response.json()
 }
@@ -96,195 +35,131 @@ const commitTodo = async (page: Page, title: string, prompt: string) => {
   await draft.getByRole("button", { name: "Commit", exact: true }).click()
   let n = 0
   await expect.poll(async () => {
-    const body = await (await page.request.get(`${app}/api/todos`)).json() as Served[] | { todos: Served[] }
+    const body = await (await page.request.get(`${APP}/api/todos`)).json() as Served[] | { todos: Served[] }
     n = (Array.isArray(body) ? body : body.todos).find(todo => todo.title === title)?.n ?? 0
     return n
   }, { timeout: 15_000 }).toBeGreaterThan(0)
   return n
 }
-/** The wiki page card on a person's screen: the card that holds the page's revision line. */
+/** A wiki page card on a person's screen: the card whose source line names the page revision. */
 const wikiCard = (page: Page) => page.locator(".world-card-doc").filter({ hasText: /Page revision \d+/ }).last()
 const revisionOf = async (card: Locator) => Number(/Page revision (\d+)/.exec(await card.innerText())?.[1] ?? 0)
+const editor = (page: Page) => page.getByLabel(/^Edit /).last()
 
 /* What T1 decides and what the co-edit changes: the decision's cap and its reason (mock j8.ts). */
 const T1 = {
   title: "Retry failed webhook deliveries",
-  prompt: "In webhook.mjs, retry a failed delivery: call send again with exponential backoff between attempts, " +
-    "backoff(attempt) = 100 ms * 2 ** attempt, and give up after at most 5 attempts in total. Add a node:test test for it."
+  prompt: "Add webhook.mjs exporting deliver(send, event): call send(event); when it throws, retry with exponential backoff " +
+    "between attempts, backoff(attempt) = 100 ms * 2 ** attempt, and give up after at most 5 attempts in total. Add a node:test test."
 }
-const T2 = { title: "Retry failed Slack notifications", prompt: "Slack notifications in slack.mjs are lost when Slack is down. Retry them the way we retry webhooks." }
+const T2 = { title: "Retry failed Slack notifications", prompt: "Add slack.mjs exporting notify(post, message). Slack notifications are lost when Slack is down: retry them the way we retry webhooks." }
 const CAP = "At most 8 attempts."
 const REASON = "Why: endpoints go down for hours; Stripe retries for 3 days."
+const DECISION = "Retry failed deliveries with backoff(attempt), at most 5 attempts.\nWhy: a fixed 30 s wait timed out the retry test.\n"
 
-test("J8 Memory", async ({ browser }) => {
-  test.setTimeout(120 * 60_000)
-  await expect.poll(() => { try { run = JSON.parse(readFileSync(`${output}/j8-run.json`, "utf8")); return true } catch { return false } }, { timeout: 60_000 }).toBe(true)
-  test.info().annotations.push({ type: "bundle", description: run.revision })
-  let maya!: Page, alice!: Page, todo2 = 0
+test("J8 Memory", async ({ install, person, proofStep }) => {
+  test.setTimeout(150 * 60_000)
+  const maya = await person("maya")
+  let alice!: Page, todo2 = 0, revision = 0
 
-  // The starting state, through the UI: setup on real models, Alice a Member, and T1 in review (mock: T9 next to merge).
   const ready = await proofStep("start", async () => {
-    const context = await browse(browser)
-    maya = await context.newPage()
-    await maya.goto(run.setupURL)
-    const card = () => maya.locator('[aria-label="Set up Smithers"]').first()
-    const click = (name: string) => card().getByRole("button", { name, exact: true }).first().click()
-    // A step's work runs in the background; the install's own answer says when it is done.
-    const done = async (id: string, timeout: number) => {
-      await expect.poll(async () => {
-        const steps = (await (await maya.request.get(`${app}/api/install`)).json()).steps as { id: string; state: string; error?: unknown }[]
-        const step = steps.find(each => each.id === id)
-        if (step?.state === "failed") throw new Error(`setup ${id} failed: ${JSON.stringify(step.error)}`)
-        return step?.state
-      }, { timeout, intervals: [1_000, 2_000] }).toBe("done")
-    }
-    await click("This Mac only"); await done("address", 10_000)
-    await card().getByLabel("Owner", { exact: true }).last().fill("local-owner")
-    await click("Create GitHub App")
-    await maya.getByRole("link", { name: "Create GitHub App", exact: true }).click(); await done("app_manifest", 15_000)
-    await click("Sign in")
-    await maya.getByRole("link", { name: "Authorize", exact: true }).click(); await done("sign_in", 15_000)
-    pages.set("maya", maya)
-    await card().getByLabel("Repository", { exact: true }).last().selectOption({ label: "local-owner/demo" })
-    await click("Repository"); await done("repository", 15_000)
-    const models = card().locator('[data-step="models"]')
-    const role = (label: string) => models.locator(".setup-model").filter({ has: maya.getByText(label, { exact: true }) })
-    const fast = role("Fast model"), coding = role("Coding model"), decisions = role("Decisions")
-    await fast.getByLabel("Cerebras key", { exact: true }).fill(run.keys.CEREBRAS_API_KEY!)
-    await fast.getByRole("button", { name: "Save", exact: true }).click()
-    await expect(fast).toHaveAttribute("data-state", "saved", { timeout: 30_000 })
-    await coding.getByLabel("Provider", { exact: true }).selectOption({ label: "AI Gateway" })
-    await coding.getByLabel("Model", { exact: true }).fill("anthropic/claude-sonnet-4.5")
-    await coding.getByLabel("API key", { exact: true }).fill(run.keys.AI_GATEWAY_API_KEY!)
-    await coding.getByRole("button", { name: "Save", exact: true }).click()
-    await expect(coding).toHaveAttribute("data-state", "saved", { timeout: 30_000 })
-    await decisions.getByLabel("AI Gateway key", { exact: true }).fill(run.keys.AI_GATEWAY_API_KEY!)
-    await decisions.getByRole("button", { name: "Save", exact: true }).click()
-    await expect(decisions).toHaveAttribute("data-state", "saved", { timeout: 30_000 })
-    await click("Model access"); await done("models", 60_000)
-    await click("Mirror"); await done("source", 3 * 60_000)
-    await click("Build image"); await done("machine", 20 * 60_000)
-    // GitHub (the fake, an outside actor): Alice can write to the repository. Maya adds her on the Members card.
-    await fake("/_fake/collaborators", { id: 202, login: "alice", permission: "write" })
+    await setUp(maya, install)
     await say(maya, "/members")
     const members = maya.getByRole("region", { name: "Members", exact: true }).last()
     await members.getByLabel("GitHub username", { exact: true }).fill("alice")
     await members.getByRole("button", { name: "Add", exact: true }).click()
     await expect(members.locator('li[data-login="alice"]')).toContainText("Member")
-    alice = await signIn(browser, "alice")
+    alice = await person("alice")
     expect(await commitTodo(maya, T1.title, T1.prompt)).toBe(1)
     await waitState(maya, 1, /^in_review$/, 30 * 60_000)
     await say(maya, "/todo T1")
     await expect(todoCard(maya, 1)).toBeVisible()
-  })
+  }, { page: maya })
   const start = ready ? [] : ["start"]
 
-  await proofStep("j8-merge-starts-learning", async () => {
+  // j8#1, #4, #5: Maya merges; a learning run starts, writes a page with the decision, why and a link to the PR, and
+  // T1's card counts 1 lesson.
+  const learned = await proofStep("j8-learning-after-merge", async () => {
     await say(maya, "/merge T1")
-    const review = maya.getByRole("region", { name: "Merge T1 into main?", exact: true }).last()
-    await review.getByRole("button", { name: "Merge", exact: true }).click()
+    await maya.getByRole("region", { name: "Merge T1 into main?", exact: true }).last().getByRole("button", { name: "Merge", exact: true }).click()
     await waitState(maya, 1, /^merged$/, 3 * 60_000)
-    // A learning run starts in the background: Maya sees it without opening anything.
-    await expect(maya.getByText(/Learning from (#\d+|T1)/).first()).toBeVisible({ timeout: 60_000 })
-  }, start)
-
-  await proofStep("j8-learning-writes-lesson", async () => {
+    await expect(maya.getByText(/Learning from (#\d+|T1)/).first(), "a learning run shows after the merge").toBeVisible({ timeout: 60_000 })
     await say(maya, "/todo T1")
     await expect(todoCard(maya, 1).getByText(/^1 lesson$/)).toBeVisible({ timeout: 10 * 60_000 })
-    await say(maya, "/wiki.cloud")
-    await expect(maya.getByText(/Page revision 1\b/).last()).toBeVisible({ timeout: 30_000 })
-  }, ["j8-merge-starts-learning"])
-
-  await proofStep("j8-lesson-opens-page", async () => {
     await todoCard(maya, 1).getByText(/^1 lesson$/).click()
-    await expect(wikiCard(maya)).toBeVisible({ timeout: 15_000 })
-    // main's conversation is shared: Alice sees the same page card arrive.
-    await expect(wikiCard(alice)).toBeVisible({ timeout: 15_000 })
-  }, ["j8-learning-writes-lesson"])
-
-  await proofStep("j8-learned-decision-links-change", async () => {
     const card = wikiCard(maya)
-    await expect(card).toContainText(/at most 5 attempts/i)
+    await expect(card).toContainText(/at most 5 attempts/i, { timeout: 15_000 })
     await expect(card).toContainText(/Why/)
     await expect(card.locator('a[href*="/pull/1"]').first()).toBeVisible()
-  }, ["j8-lesson-opens-page"])
+  }, { page: maya, needs: start })
 
-  // Co-editing needs a page both people have open. Without the learned page, Maya writes the decision herself
-  // through the UI, so presence, live typing and the saved revision are still proven (recorded on the step).
-  let r0 = 0
-  const pageOpen = async () => {
-    if (!failed.has("j8-lesson-opens-page")) return
-    test.info().annotations.push({ type: "substitute", description: "No learned page: Maya created Webhook retries with /wiki.cloud.new" })
-    await say(maya, "/wiki.cloud.new Webhook retries")
-    await expect(wikiCard(maya)).toBeVisible({ timeout: 30_000 })
-    await wikiCard(maya).locator("..").getByRole("button", { name: "Edit", exact: true }).click()
-    const editor = maya.getByLabel(/^Edit /).last()
-    await editor.click()
-    await maya.keyboard.type("Retry failed deliveries with backoff(attempt), at most 5 attempts.\nWhy: a fixed 30 s wait timed out the retry test.\n")
-    await expect.poll(() => revisionOf(wikiCard(maya)), { timeout: 60_000 }).toBeGreaterThan(0)
-    await say(alice, "/wiki.cloud")
-    await alice.getByText("Webhook retries").last().click()
-  }
+  // j8#5: the page opens in main's conversation for both people. Without a learned page, Maya opens it by name with
+  // /wiki.page (mvp.md Appendix A: open or create) and writes the decision herself.
+  const opened = await proofStep("j8-wiki-pages", async () => {
+    if (!learned) {
+      await say(maya, "/wiki.page Webhook retries")
+      await expect(wikiCard(maya), "/wiki.page opens a page of the repository's wiki").toBeVisible({ timeout: 30_000 })
+      await maya.getByRole("button", { name: "Edit", exact: true }).last().click()
+      await editor(maya).click()
+      await maya.keyboard.type(DECISION)
+      await expect.poll(() => revisionOf(wikiCard(maya)), { timeout: 60_000 }).toBeGreaterThan(0)
+    }
+    // main's conversation is shared: Alice sees the same page card.
+    await expect(wikiCard(alice)).toBeVisible({ timeout: 15_000 })
+  }, { page: alice, needs: start })
 
-  await proofStep("j8-wiki-presence", async () => {
-    await pageOpen()
-    r0 = await revisionOf(wikiCard(maya))
-    await wikiCard(alice).locator("..").getByRole("button", { name: "Edit", exact: true }).click()
-    await alice.getByLabel(/^Edit /).last().click()
-    // Alice's name flag appears on Maya's screen, on the page she is in.
-    await expect(wikiCard(maya).locator("..").getByText(/alice/i).first()).toBeVisible({ timeout: 15_000 })
-  }, start)
-
-  await proofStep("j8-wiki-live-coedit", async () => {
+  // j8#6-#8: Alice's name flag on Maya's screen; both type and see each other's characters; the page saves a new
+  // revision by both with no Save press.
+  await proofStep("j8-wiki-co-edit", async () => {
+    if (!opened) {
+      // Neither the lesson nor /wiki.page opened a page: Maya creates one in the repository's wiki so co-editing
+      // is still proven on a real page.
+      test.info().annotations.push({ type: "substitute", description: "j8-wiki-co-edit ran on a page Maya created with /wiki.cloud.new" })
+      await say(maya, "/wiki.cloud.new Webhook retries")
+      await expect(wikiCard(maya)).toBeVisible({ timeout: 30_000 })
+      await maya.getByRole("button", { name: "Edit", exact: true }).last().click()
+      await editor(maya).click()
+      await maya.keyboard.type(DECISION)
+      await expect.poll(() => revisionOf(wikiCard(maya)), { timeout: 60_000 }).toBeGreaterThan(0)
+      await say(alice, "/wiki.cloud")
+      await alice.getByText("Webhook retries").last().click()
+      await expect(wikiCard(alice)).toBeVisible({ timeout: 15_000 })
+    }
+    const before = await revisionOf(wikiCard(maya))
+    await alice.getByRole("button", { name: "Edit", exact: true }).last().click()
+    await editor(alice).click()
+    await expect(wikiCard(maya).locator("..").getByText(/alice/i).first(), "Alice's name flag on Maya's screen").toBeVisible({ timeout: 15_000 })
     await maya.getByRole("button", { name: "Edit", exact: true }).last().click()
-    await maya.getByLabel(/^Edit /).last().click()
-    await alice.keyboard.press("Control+End")
-    await maya.keyboard.press("Control+End")
+    await editor(maya).click()
+    await alice.keyboard.press("ControlOrMeta+End")
+    await maya.keyboard.press("ControlOrMeta+End")
     await Promise.all([alice.keyboard.type(`\n${CAP}`, { delay: 40 }), maya.keyboard.type(`\n${REASON}`, { delay: 40 })])
-    // Each sees the other's characters arrive, without a reload.
-    await expect(maya.getByLabel(/^Edit /).last()).toContainText(CAP, { timeout: 15_000 })
-    await expect(alice.getByLabel(/^Edit /).last()).toContainText(REASON, { timeout: 15_000 })
-  }, ["j8-wiki-presence"])
-
-  let revision = 0
-  await proofStep("j8-wiki-autosave-revision", async () => {
-    // Nobody presses Save: the page saves a new revision once typing stops, carrying both edits by both people.
-    await expect.poll(() => revisionOf(wikiCard(maya)), { timeout: 60_000 }).toBeGreaterThan(r0)
+    await expect(editor(maya), "Alice's characters arrive on Maya's screen").toContainText(CAP, { timeout: 15_000 })
+    await expect(editor(alice), "Maya's characters arrive on Alice's screen").toContainText(REASON, { timeout: 15_000 })
+    // Nobody presses Save.
+    await expect.poll(() => revisionOf(wikiCard(maya)), { timeout: 60_000 }).toBeGreaterThan(before)
     revision = await revisionOf(wikiCard(maya))
-    await wikiCard(maya).locator("..").getByTestId("wiki-card-history").click()
+    await maya.getByTestId("wiki-card-history").last().click()
     const history = maya.getByTestId("wiki-history").last()
     await expect(history.getByTestId(`wiki-revision-${revision}`)).toBeVisible({ timeout: 15_000 })
     const authors = (await history.locator('[data-testid^="wiki-revision-"]').allInnerTexts()).join("\n")
-    expect(authors).toMatch(/alice/)
-    expect(authors).toMatch(/local-owner/)
-  }, ["j8-wiki-live-coedit"])
+    expect(authors, "the saved revisions name both editors").toMatch(/alice/)
+    expect(authors).toMatch(new RegExp(install.owner))
+  }, { page: maya, needs: start })
 
-  await proofStep("j8-queued-todo-takes-machine", async () => {
-    // T1 merged and released its machine; Alice's TODO takes it and starts.
+  // j8#11-#13: Alice's TODO starts after the edit; its preflight Context lists the page at the saved revision, the
+  // plan cites it and follows the new cap, and Maya's page records the citation.
+  await proofStep("j8-plan-cites-wiki-revision", async () => {
+    expect(revision, "a saved co-edited revision to cite").toBeGreaterThan(0)
     todo2 = await commitTodo(alice, T2.title, T2.prompt)
-    await waitState(alice, todo2, /^(starting|working)$/, 10 * 60_000)
-  }, start)
-
-  await proofStep("j8-branch-at-plan", async () => {
+    await waitState(alice, todo2, /^(starting|working|needs_you|in_review)$/, 10 * 60_000)
     await say(alice, `/todo T${todo2}`)
     const card = todoCard(alice, todo2)
     await card.getByRole("button", { name: /^smithers\// }).or(card.getByRole("link", { name: /^smithers\// })).first().click()
-    await expect(alice.getByText(/\bPlan\b/).last()).toBeVisible({ timeout: 5 * 60_000 })
-  }, ["j8-queued-todo-takes-machine"])
-
-  await proofStep("j8-preflight-context-cites-revision", async () => {
     await alice.getByRole("button", { name: /Context/ }).last().click()
-    await expect(alice.getByText(new RegExp(`Webhook retries.*r${revision}\\b`)).last()).toBeVisible({ timeout: 5 * 60_000 })
-  }, ["j8-branch-at-plan", "j8-wiki-autosave-revision"])
-
-  await proofStep("j8-plan-follows-revision", async () => {
-    await expect(alice.getByText(new RegExp(`Planned:.*r${revision}\\b`)).last()).toBeVisible({ timeout: 10 * 60_000 })
-    await expect(alice.getByText(/at most 8 attempts/i).last()).toBeVisible()
-  }, ["j8-preflight-context-cites-revision"])
-
-  await proofStep("j8-wiki-records-citation", async () => {
-    await expect(wikiCard(maya).locator("..").getByText(new RegExp(`T${todo2}.*r${revision}\\b`)).first()).toBeVisible({ timeout: 60_000 })
-  }, ["j8-plan-follows-revision"])
-
-  expect([...failed].map(([id, why]) => `${id}: ${why}`)).toEqual([])
+    await expect(alice.getByText(new RegExp(`Webhook retries.*r${revision}\\b`)).last(), "Context lists the saved revision").toBeVisible({ timeout: 5 * 60_000 })
+    await expect(alice.getByText(new RegExp(`Planned:.*r${revision}\\b`)).last(), "the plan cites the revision").toBeVisible({ timeout: 10 * 60_000 })
+    await expect(alice.getByText(/at most 8 attempts/i).last(), "the plan follows the edited cap").toBeVisible()
+    await expect(wikiCard(maya).locator("..").getByText(new RegExp(`T${todo2}.*r${revision}\\b`)).first(), "the page records the citation").toBeVisible({ timeout: 60_000 })
+  }, { page: alice, needs: start })
 })
