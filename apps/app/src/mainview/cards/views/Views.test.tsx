@@ -1898,6 +1898,25 @@ describe("DocsView", () => {
 import { stories as debugStories } from "./DebugApiView.stories"
 import { DebugApiView } from "./DebugApiView"
 describe("DebugApiView", () => {
+  test("failure without a code renders its class", async () => {
+    const rendered = await mounted(debugStories.find(story => story.name === "forbidden")!)
+    try {
+      expect(rendered.host.querySelector(".debug-failure code")!.textContent).toBe("forbidden · 403")
+    } finally { await rendered.close() }
+  })
+
+  test("failure without a status renders no separator or number", async () => {
+    const rendered = await mounted(debugStories.find(story => story.name === "network_failure")!)
+    try {
+      const label = rendered.host.querySelector(".debug-failure code")!.textContent!
+      expect(label).toBe("infra")
+      expect(label).not.toContain(" · ")
+      expect(label).not.toMatch(/[0-9]/)
+      expect(rendered.host.querySelector(".debug-failure p")!.textContent).toBe("API request failed")
+      expect(rendered.host.textContent).not.toContain("Connection refused")
+    } finally { await rendered.close() }
+  })
+
   test("selection projects persisted view state and action removal on the same mount", async () => {
     const host = document.createElement("div")
     document.body.append(host)
@@ -1940,7 +1959,7 @@ describe("DebugApiView", () => {
       expect(onAction).toHaveBeenCalledTimes(0)
       await act(async () => root.render(story.render({ onAction, onView })))
       expect(onAction).toHaveBeenCalledTimes(0)
-      if (story.name === "unauthorized") expect(host.textContent).toContain("unauthorized · 401")
+      if (story.name === "unauthorized") expect(host.textContent).toContain("unauthenticated · 401")
       if (story.name === "forbidden") {
         expect(host.textContent).toContain("forbidden · 403")
         expect(host.textContent).toContain("Access denied")

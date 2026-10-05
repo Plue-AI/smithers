@@ -19,7 +19,7 @@ export type DebugApiCard = {
   exchange?: {
     request: { method: string; url: string; headers: [string, string][]; body?: string }
     response?: { status: number; headers: [string, string][]; body: string; duration_ms: number }
-    failure?: { class: string; message: string; status?: number }
+    failure?: { class: string; code?: string; message: string; status?: number }
   }
 }
 

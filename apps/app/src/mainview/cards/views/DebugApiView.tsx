@@ -22,7 +22,7 @@ export function DebugApiView({ model, view, actions, onAction, onView }: DebugAp
           {model.exchange.request.body !== undefined && <pre>{model.exchange.request.body}</pre>}
           {model.exchange.response && <><h3>Response <span>{model.exchange.response.status} · {model.exchange.response.duration_ms} ms</span></h3>
             <HeaderRows headers={model.exchange.response.headers} />{model.exchange.response.body !== "" && <pre>{model.exchange.response.body}</pre>}</>}
-          {model.exchange.failure && <div className="debug-failure" data-tone="failed" role="status"><code>{model.exchange.failure.class}{model.exchange.failure.status !== undefined && ` · ${model.exchange.failure.status}`}</code><p>{model.exchange.failure.message}</p></div>}
+          {model.exchange.failure && <div className="debug-failure" data-tone="failed" role="status"><code>{model.exchange.failure.code ?? model.exchange.failure.class}{model.exchange.failure.status !== undefined && ` · ${model.exchange.failure.status}`}</code><p>{model.exchange.failure.message}</p></div>}
         </section>}
       </div>
     </div>
