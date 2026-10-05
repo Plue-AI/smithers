@@ -147,7 +147,7 @@ components:
       type: object
       required: [class, code, message]
       properties:
-        class: {type: string, enum: [permission, never, user, infra]}
+        class: {type: string, enum: [user, permission, capacity, github, infra, conflict, never]}
         code: {type: string}
         message: {type: string}
         fix:

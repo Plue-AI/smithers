@@ -795,7 +795,7 @@ export type InstallSetupStatus = {
 
 /** An authorization or roster refusal (spec §6.2.3). */
 export type AccessError = {
-  class: "permission" | "never" | "user" | "infra"
+  class: "user" | "permission" | "capacity" | "github" | "infra" | "conflict" | "never"
   code: string
   message: string
   fix?: string
