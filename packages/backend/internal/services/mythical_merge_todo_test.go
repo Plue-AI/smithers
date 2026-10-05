@@ -22,9 +22,12 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/smithersai/smithers/packages/backend/flowdispatch"
 	"github.com/smithersai/smithers/packages/backend/internal/db"
 	"github.com/smithersai/smithers/packages/backend/internal/githubfake"
 	"github.com/smithersai/smithers/packages/backend/internal/middleware"
+	"github.com/smithersai/smithers/packages/backend/internal/repohost"
+	"github.com/smithersai/smithers/packages/backend/jobs"
 )
 
 // HeadCheckFacts answers ci[sha] as one required check, none when green.
@@ -806,7 +809,7 @@ func TestMythicalMergeDecisionRefusesAMismatchedApproval(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			// No store, GitHub or session exists: a guard that let this
 			// through would fail on a read instead of refusing.
-			err := (&MythicalService{}).MergeDecision(context.Background(), tc.item, tc.op)
+			_, err := (&MythicalService{}).MergeDecision(context.Background(), tc.item, tc.op)
 			assert.Equal(t, TodoControlError{Status: 409, Code: "rechecking", Class: "conflict", Message: "The merge approval no longer matches this TODO; review it again"}, *refusalOf(t, err))
 		})
 	}
@@ -1312,9 +1315,10 @@ func TestMythicalMergeTodoRevocationBeforeTheClaimSendsNothing(t *testing.T) {
 	}
 }
 
-// A revocation in flight when the claim reads the approver's standing is
-// serialized with it: the claim's locked read waits for the revocation, and
-// sees it once committed.
+// A write in flight when the claim takes its locks is serialized with it:
+// the claim waits for the write, and reads what it committed. A revocation
+// is refused; a change of where the merge goes or through what leaves the
+// fence for the next pass.
 func TestMythicalMergeTodoRevocationInFlightAtTheClaimSendsNothing(t *testing.T) {
 	for _, tc := range []struct {
 		name, revoke, code string
@@ -1322,6 +1326,10 @@ func TestMythicalMergeTodoRevocationInFlightAtTheClaimSendsNothing(t *testing.T)
 		{"signing out", `DELETE FROM auth_sessions WHERE user_id = $1`, "unauthenticated"},
 		{"suspending", `UPDATE users SET prohibit_login = true WHERE id = $1`, "unauthenticated"},
 		{"changing the owner", `UPDATE self_host_owners SET user_id = (SELECT id FROM users WHERE username = 'next') WHERE user_id = $1`, "permission"},
+		{"unlinking the GitHub account", `DELETE FROM oauth_accounts WHERE user_id = $1`, "permission"},
+		{"removing the connection", `DELETE FROM repo_connections WHERE user_id = $1`, ""},
+		{"uninstalling the App from the repository", `DELETE FROM github_app_installation_repositories WHERE owner_login_lower = 'rehearsal-owner' AND repo_name_lower = 'app' AND $1::bigint > 0`, ""},
+		{"replacing the App", `UPDATE github_app SET id = id + 1 WHERE singleton AND $1::bigint > 0`, ""},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			h := newMergeHarness(t)
@@ -1339,6 +1347,11 @@ func TestMythicalMergeTodoRevocationInFlightAtTheClaimSendsNothing(t *testing.T)
 			require.NoError(t, <-done)
 			assert.Empty(t, h.merges())
 			refused := h.land(n).Refused
+			if tc.code == "" {
+				assert.Nil(t, refused)
+				assert.Equal(t, "intended", h.operation(n).State, "the fence stays for the next pass")
+				return
+			}
 			require.NotNil(t, refused)
 			assert.Equal(t, tc.code, refused.Code)
 		})
@@ -1598,12 +1611,16 @@ func TestMythicalMergeTodoStopBetweenTheClaimAndTheRequest(t *testing.T) {
 	n, head, pr := h.first("Stopped")
 	second, _, _ := h.todoInReview("Behind", h.item(n).CandidateHead)
 	require.NoError(t, h.press(h.ctx, n, head))
-	send := h.service.outbound.Send
-	h.service.outbound.Send = func(*mythicalItemStep, context.Context, db.MythicalItem, MythicalOutboundOp) error {
-		return errors.New("the worker stopped before the request left")
+	prepare := h.service.outbound.PrepareMerge
+	h.service.outbound.PrepareMerge = func(st *mythicalItemStep, ctx context.Context, item db.MythicalItem, op MythicalOutboundOp) (mythicalMergeDispatch, error) {
+		dispatch, err := prepare(st, ctx, item, op)
+		dispatch.send = func(context.Context, db.MythicalItem) error {
+			return errors.New("the worker stopped before the request left")
+		}
+		return dispatch, err
 	}
 	h.pass()
-	h.service.outbound.Send = send
+	h.service.outbound.PrepareMerge = prepare
 	assert.Empty(t, h.merges())
 	assert.Equal(t, "unknown", h.operation(n).State, "the claim committed")
 
@@ -1664,4 +1681,235 @@ func TestMythicalMergeTodoDelayedRequestIsHeadBound(t *testing.T) {
 		assert.Equal(t, "merged", state)
 		assert.Len(t, h.merges(), 1)
 	})
+}
+
+// movingPolicy is the owner's committed policy while main moves under it:
+// set commits another projection.
+type movingPolicy struct {
+	mu      sync.Mutex
+	current policyHost
+}
+
+func (m *movingPolicy) set(p policyHost) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.current = p
+}
+
+func (m *movingPolicy) now() policyHost {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	return m.current
+}
+
+func (m *movingPolicy) ListBookmarks(ctx context.Context, owner, repo, cursor string, limit int) ([]repohost.Bookmark, string, error) {
+	return m.now().ListBookmarks(ctx, owner, repo, cursor, limit)
+}
+
+func (m *movingPolicy) GetFileAtChange(ctx context.Context, owner, repo, change, path string) (repohost.FileContent, error) {
+	return m.now().GetFileAtChange(ctx, owner, repo, change, path)
+}
+
+func (m *movingPolicy) GetBookmark(ctx context.Context, owner, repo, name string) (repohost.Bookmark, error) {
+	return m.now().GetBookmark(ctx, owner, repo, name)
+}
+
+func (m *movingPolicy) GetFileAtCommit(ctx context.Context, owner, repo, commit, path string) (repohost.FileContent, error) {
+	return m.now().GetFileAtCommit(ctx, owner, repo, commit, path)
+}
+
+// mythicalClaimFirstLock is the claim's first lock: the repository's row.
+const mythicalClaimFirstLock = `FROM repositories WHERE id = $1 FOR SHARE`
+
+// heldAtTheClaim holds the repository's row, the claim's first lock, from
+// the moment GitHub is next asked for pull request pr (dispatch's first
+// read), so the claim waits before it takes any lock. commit runs change in
+// that transaction and commits it: a change committed while the claim
+// waits.
+func (h *mergeHarness) heldAtTheClaim(pr int64) (commit func(change func(pgx.Tx))) {
+	held := make(chan pgx.Tx, 1)
+	h.fake.OnNextRequest(http.MethodGet, fmt.Sprintf("/repos/rehearsal-owner/app/pulls/%d", pr), func() {
+		tx, err := h.pool.(*pgxpool.Pool).Begin(context.Background())
+		if err == nil {
+			_, err = tx.Exec(context.Background(), `SELECT 1 FROM repositories WHERE id = $1 FOR NO KEY UPDATE`, h.repoID)
+		}
+		if err != nil {
+			panic(err)
+		}
+		held <- tx
+	})
+	var once sync.Once
+	finish := func(change func(pgx.Tx)) {
+		once.Do(func() {
+			select {
+			case tx := <-held:
+				defer func() { _ = tx.Rollback(context.Background()) }()
+				if change != nil {
+					change(tx)
+					require.NoError(h.t, tx.Commit(context.Background()))
+				}
+			default:
+			}
+		})
+	}
+	// A failed test still frees the lock, so its database can close.
+	h.t.Cleanup(func() { finish(nil) })
+	return finish
+}
+
+// waitForTheStatement waits until a statement containing text waits on a
+// lock in this test's database.
+func (h *mergeHarness) waitForTheStatement(text string) {
+	h.t.Helper()
+	h.waitForLocks(1, text)
+}
+
+// waitForLocks waits until at least n statements containing text wait on a
+// lock in this test's database.
+func (h *mergeHarness) waitForLocks(n int, text string) {
+	h.t.Helper()
+	for deadline := time.Now().Add(30 * time.Second); ; {
+		var waiting int
+		require.NoError(h.t, h.pool.QueryRow(context.Background(),
+			`SELECT count(*) FROM pg_stat_activity WHERE datname = current_database() AND wait_event_type = 'Lock' AND strpos(query, $1) > 0`, text).Scan(&waiting))
+		if waiting >= n {
+			return
+		}
+		require.False(h.t, time.Now().After(deadline), "%d statements never waited on %q", n, text)
+		time.Sleep(20 * time.Millisecond)
+	}
+}
+
+// Every local fact the merge rests on is read again under the claim's
+// locks (§10.6.2b): a change committed while the claim waits on its first
+// lock sends nothing. A revocation is its refusal; a change of where the
+// merge goes or through what is none: the fence stays and the next pass
+// decides again.
+func TestMythicalMergeTodoEveryLocalFactIsReadUnderTheClaimsLocks(t *testing.T) {
+	const ended = "The approving browser session has ended; sign in again to merge"
+	const notOwner = "Merge requires an owner or maintainer browser session"
+	const moved = "The GitHub account that approved this merge is no longer this person's"
+	sql := func(statement string, args func(h *mergeHarness) []any) func(*mergeHarness, pgx.Tx) {
+		return func(h *mergeHarness, tx pgx.Tx) {
+			_, err := tx.Exec(context.Background(), statement, args(h)...)
+			require.NoError(h.t, err, statement)
+		}
+	}
+	person := func(h *mergeHarness) []any { return []any{h.userID} }
+	repository := func(h *mergeHarness) []any { return []any{h.repoID} }
+	for _, tc := range []struct {
+		name   string
+		change func(*mergeHarness, pgx.Tx)
+		// code and message are the refusal; none leaves the fence.
+		code, message string
+	}{
+		{"TODO changed", sql(`UPDATE mythical_items SET generation = generation + 1, version = version + 1 WHERE repository_id = $1`, repository), "", ""},
+		{"signed out", sql(`DELETE FROM auth_sessions WHERE user_id = $1`, person), "unauthenticated", ended},
+		{"suspended", sql(`UPDATE users SET prohibit_login = true WHERE id = $1`, person), "unauthenticated", ended},
+		{"owner changed", sql(`WITH next AS (INSERT INTO users(username,lower_username) VALUES ('next','next') RETURNING id)
+			UPDATE self_host_owners SET user_id = (SELECT id FROM next) WHERE user_id = $1`, person), "permission", notOwner},
+		{"GitHub account unlinked", sql(`DELETE FROM oauth_accounts WHERE user_id = $1`, person), "permission", moved},
+		{"GitHub account linked to another person", sql(`WITH next AS (INSERT INTO users(username,lower_username) VALUES ('next','next') RETURNING id)
+			UPDATE oauth_accounts SET user_id = (SELECT id FROM next) WHERE user_id = $1`, person), "permission", moved},
+		{"another GitHub account linked", sql(`UPDATE oauth_accounts SET provider_user_id = '8' WHERE user_id = $1`, person), "permission", moved},
+		{"policy no longer names them", func(h *mergeHarness, _ pgx.Tx) {
+			h.service.policy.(*movingPolicy).set(mergePolicy("someone-else"))
+		}, "permission", "only a maintainer the factory's policy names may merge a TODO"},
+		{"stack account changed", sql(`WITH next AS (INSERT INTO users(username,lower_username) VALUES ('next','next') RETURNING id)
+			UPDATE mythical_stacks SET actor_user_id = (SELECT id FROM next) WHERE repository_id = $1`, repository), "", ""},
+		{"destination changed", sql(`UPDATE repositories SET mirror_destination = 'rehearsal-owner/elsewhere' WHERE id = $1`, repository), "", ""},
+		{"connection removed", sql(`DELETE FROM repo_connections WHERE user_id = $1`, person), "", ""},
+		{"App uninstalled from the repository", sql(`DELETE FROM github_app_installation_repositories WHERE owner_login_lower = 'rehearsal-owner' AND repo_name_lower = 'app' AND $1::bigint > 0`, person), "", ""},
+		{"App replaced", sql(`UPDATE github_app SET id = id + 1 WHERE singleton AND $1::bigint > 0`, person), "", ""},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			h := newMergeHarness(t)
+			h.service.SetPolicyReader(&movingPolicy{current: mergePolicy()})
+			n, head, pr := h.first("Reread")
+			require.NoError(t, h.press(h.ctx, n, head))
+			commit := h.heldAtTheClaim(pr)
+			done := h.passAsync()
+			h.waitForTheStatement(mythicalClaimFirstLock)
+			commit(func(tx pgx.Tx) { tc.change(h, tx) })
+			require.NoError(t, <-done)
+			if tc.code != "" {
+				h.refused(n, tc.code, tc.message)
+				return
+			}
+			assert.Empty(t, h.merges())
+			assert.Equal(t, "intended", h.operation(n).State, "the fence stays for the next pass")
+			assert.Nil(t, h.land(n).Refused)
+		})
+	}
+}
+
+// GitHub's facts cannot be locked: a claim more than
+// mythicalMergeFactsBound after the decision's last read of GitHub sends
+// nothing, and the next pass reads GitHub again. Here the approver is
+// demoted on GitHub while the claim waits longer than the bound.
+func TestMythicalMergeTodoGitHubsFactsAreBoundedAtTheClaim(t *testing.T) {
+	h := newMergeHarness(t)
+	n, head, pr := h.first("Bounded")
+	require.NoError(t, h.press(h.ctx, n, head))
+	release := h.holdTodo(n, pr)
+	done := h.passAsync()
+	h.waitForTheClaim()
+	h.fake.SetCollaborator(7, "rehearsal-owner", "read")
+	time.Sleep(mythicalMergeFactsBound + time.Second)
+	release()
+	require.NoError(t, <-done)
+	assert.Empty(t, h.merges(), "GitHub's facts were older than the bound: nothing is sent")
+	assert.Equal(t, "intended", h.operation(n).State)
+	assert.Nil(t, h.land(n).Refused, "no refusal: the next pass reads GitHub again")
+	h.pass()
+	h.refused(n, "permission", "only a maintainer of rehearsal-owner/app on GitHub may merge a TODO")
+}
+
+// The merge's destination is resolved and its token minted before the
+// claim records the send (§10.6.2b): a mint that fails records nothing as
+// sent and refuses nothing, and the next pass sends the one merge.
+func TestMythicalMergeTodoFailedMintRecordsNothingSent(t *testing.T) {
+	h := newMergeHarness(t)
+	n, head, _ := h.first("Minted")
+	require.NoError(t, h.press(h.ctx, n, head))
+	h.fake.OnNextRequest(http.MethodGet, "/repos/rehearsal-owner/app/collaborators/rehearsal-owner/permission", func() {
+		// GitHub's last authority read: the merge's token is minted next,
+		// and GitHub fails the mint.
+		invalidateCachedInstallationToken(h.installation)
+		h.fake.FailNextWrites(fmt.Sprintf("/app/installations/%d/access_tokens", h.installation), 1)
+	})
+	h.pass()
+	assert.Empty(t, h.merges())
+	assert.Equal(t, "intended", h.operation(n).State, "nothing is recorded as sent")
+	assert.Nil(t, h.land(n).Refused, "a failed mint refuses nothing")
+	h.pass()
+	require.Len(t, h.merges(), 1)
+	assert.Equal(t, http.StatusOK, h.merges()[0].Status)
+}
+
+// A run's projection and the merge claim take the stack's row before the
+// TODO's: a projection that arrives while the claim waits for the stack
+// completes after the claim, and PostgreSQL ends neither as a deadlock.
+func TestMythicalMergeTodoProjectionDuringTheClaimDoesNotDeadlock(t *testing.T) {
+	h := newMergeHarness(t)
+	n, head, pr := h.first("Projected")
+	require.NoError(t, h.press(h.ctx, n, head))
+	const stackLock = `FROM mythical_stacks WHERE repository_id = $1 FOR UPDATE`
+	release := h.holdRow(pr, `SELECT 1 `+stackLock, h.repoID)
+	done := h.passAsync()
+	h.waitForTheStatement(stackLock)
+	item := h.item(n)
+	projection, err := json.Marshal(mythicalProjection{Kind: mythicalBindingKind, ItemID: uuidString(item.ID), Generation: item.Generation, Attempt: item.Attempt, Phase: "request"})
+	require.NoError(t, err)
+	projected := make(chan error, 1)
+	go func() {
+		projected <- h.service.ProjectFlowRuntime(context.Background(), flowdispatch.ProjectionUpdate{State: jobs.StateRunning,
+			Checkpoint: flowdispatch.RuntimeCheckpoint{RunID: "run-projected", Projection: projection}})
+	}()
+	h.waitForLocks(2, "")
+	release()
+	require.NoError(t, <-projected, "the projection is not ended as a deadlock")
+	require.NoError(t, <-done)
+	require.Len(t, h.merges(), 1, "the claim is not ended as a deadlock: one merge")
+	assert.Equal(t, "run-projected", h.item(n).RequestRunID, "the projection's write is kept")
 }

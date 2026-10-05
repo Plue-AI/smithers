@@ -177,14 +177,38 @@ mergeability. While GitHub is still computing mergeability it reads the PR
 once more after 2 s and evaluates every live row again. Then, after those
 reads, it applies the authority rule again, so a demotion on GitHub or a
 sign-out while GitHub was read sends nothing, and reads the pull request's
-base and head once more. The claim follows in one transaction. It first takes
-every lock it needs, in one order: the stack's row, the TODO's row, then the
-approver's session, person and the install owner `FOR SHARE` (the rows a
-sign-out, a suspension and an owner change write; each of those writes one row
-and takes no other, so nothing waits in a cycle). Only then does it check the
-approval's age and the session's expiry against the time, and record the slot
-`unknown`: a send is recorded before the request leaves. A revocation or an
-expiry that comes before the claim sends nothing. The App's send sends the one squash merge
+base and head once more. The App's send then resolves the merge's GitHub
+destination and mints its token, so a failed lookup or mint records nothing as
+sent.
+
+The claim follows in one transaction. It first takes every lock it needs, in
+the install's one lock order: the repository's row; the stack's row, then the
+TODO's (every stack writer takes them in this order, the run projection
+included); the `users` rows of the approver and of the repository's owner;
+then each other row it reads in table-name order, the order account erasure
+deletes in: the approver's session, the App's row, the repository's App
+installation rows, its GitHub sources, the approver's linked GitHub accounts,
+the owning organization and its members, the repository's GitHub connections,
+and last the install owner. A repository's deletion takes its row first,
+erasure takes the `users` row first, and every other writer of these rows
+writes one of them. PostgreSQL ends any cycle a writer outside this order
+makes by aborting one transaction: an aborted claim records nothing and sends
+nothing, and the next pass decides again. Under those locks the claim reads
+every local fact again: the TODO row (its save is a version check), the
+session, the person, the install owner, the linked GitHub account against the
+approval's account, and the repository's GitHub binding (destination,
+installation, App, stack account) against the one the merge was prepared for.
+It reads the factory's policy again from the repository host, which
+PostgreSQL cannot lock. Only then does it read the time, for the approval's
+age, the session's expiry and the age of GitHub's facts: GitHub's permission,
+head, base, checks and reviews cannot be locked, so a claim more than 5 s
+after the decision's last read of GitHub sends nothing, and the next pass
+reads GitHub again. Then it records the slot `unknown`: a send is recorded
+before the request leaves. A revocation, an expiry or a binding change that
+comes before the claim sends nothing; a writer of a locked row after it waits
+for the claim, and a row inserted after it orders after the claim.
+
+Only the request follows the claim. It sends the one squash merge
 with `sha` = the reviewed head, a token holding only `contents:write`, and a
 commit title and message rendered from the TODO Smithers holds
 (`<title> (#<PR>)`, `TODO T<n>, reviewed at <head>.`), never the pull
@@ -235,8 +259,8 @@ on the PostgreSQL rows; a red required check or an unmet review shows only
 after dispatch refuses it.
 
 The install composition (`EnableTodoPublication`) installs the outbound
-guards, `MergeDecision` and the merge kind of the App's lookup, send and
-settlement together. A composition without them, such as Plue's, refuses the
+guards, `MergeDecision`, the merge's preparation (`PrepareMerge`) and the
+merge kind of the App's lookup and settlement together. A composition without them, such as Plue's, refuses the
 route `409 rechecking` before any approval. C-J1-04 remains incomplete.
 
 ## Parallel setting (dark)

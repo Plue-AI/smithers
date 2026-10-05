@@ -30,9 +30,12 @@ type MythicalOutboundOp struct {
 // binding (EnableTodoPublication composes them for push, open and merge).
 // MergeDecision is T-STK-04's fresh DecideMerge under the matching TODO fence,
 // composed with them; the merge route's gate opens only when all are.
+// PrepareMerge is a merge's Send in two parts: everything but the request,
+// before the claim records the merge as sent, and the request alone after.
 type MythicalOutboundProviders struct {
 	CanonicalApp, StackLease, Budget, Membership, Authorization, AcceptedGeneration func(context.Context, db.MythicalItem, string) error
-	MergeDecision                                                                   func(context.Context, db.MythicalItem, MythicalOutboundOp) error
+	MergeDecision                                                                   func(context.Context, db.MythicalItem, MythicalOutboundOp) (mythicalMergeDecided, error)
+	PrepareMerge                                                                    func(*mythicalItemStep, context.Context, db.MythicalItem, MythicalOutboundOp) (mythicalMergeDispatch, error)
 	Lookup                                                                          func(*mythicalItemStep, context.Context, db.MythicalItem, MythicalOutboundOp) (observed string, appliedClose bool, err error)
 	Send                                                                            func(*mythicalItemStep, context.Context, db.MythicalItem, MythicalOutboundOp) error
 	// Settle projects a confirmed operation and retains Drop's PR-close obligation.

@@ -87,10 +87,13 @@ type mythicalGitHub interface {
 	// pull request: APPROVED, REVIEW_REQUIRED or CHANGES_REQUESTED, and ""
 	// when main requires no review.
 	ReviewDecision(ctx context.Context, gh mythicalGitHubRepo, number int64) (string, error)
-	// Merge squash-merges a pull request only while its head is head, with
-	// commit as the squash commit's title and message, and answers the merge
-	// commit.
-	Merge(ctx context.Context, gh mythicalGitHubRepo, number int64, head string, commit mythicalMergeCommitText) (string, error)
+	// MergeToken mints the token Merge sends with, before the merge is
+	// recorded as sent, and names the installation that minted it.
+	MergeToken(ctx context.Context, gh mythicalGitHubRepo) (GitHubInstallationToken, error)
+	// Merge squash-merges a pull request with token only while its head is
+	// head, with commit as the squash commit's title and message, and
+	// answers the merge commit.
+	Merge(ctx context.Context, gh mythicalGitHubRepo, token string, number int64, head string, commit mythicalMergeCommitText) (string, error)
 	// LabelApplier answers who last applied label to an issue, or removed
 	// it (Removed), as the issue's labels stand now: nil when none ever
 	// applied it. It errs while GitHub's history trails the labels.
@@ -352,17 +355,26 @@ func (g *mythicalGitHubAPI) installationToken(ctx context.Context, gh mythicalGi
 // mythicalMergeCommitText is a squash merge's commit title and message.
 type mythicalMergeCommitText struct{ Title, Message string }
 
-// Merge is the stack's one write to GitHub main, with a token holding only
-// contents:write, the one permission GitHub's merge endpoint needs. The sha
-// pins the merge to the reviewed head: GitHub refuses it (409) once the
-// branch moved. The squash commit's title and message are the caller's, so
-// none comes from the pull request as edited on GitHub. GitHub refusing it
-// (401, 403, 404, 405, 409, 422) is a *GitHubRefusal with GitHub's words.
-func (g *mythicalGitHubAPI) Merge(ctx context.Context, gh mythicalGitHubRepo, number int64, head string, commit mythicalMergeCommitText) (string, error) {
-	token, err := g.installationToken(ctx, gh, map[string]string{"contents": "write"})
+// MergeToken mints Merge's token: contents:write only, the one permission
+// GitHub's merge endpoint needs, for the installation serving gh.
+func (g *mythicalGitHubAPI) MergeToken(ctx context.Context, gh mythicalGitHubRepo) (GitHubInstallationToken, error) {
+	installation, err := g.tokens.CreateGitHubInstallationTokenForRepositoryOwner(ctx, gh.userID, gh.orgID, gh.Owner, gh.Name, map[string]string{"contents": "write"})
 	if err != nil {
-		return "", err
+		return GitHubInstallationToken{}, err
 	}
+	if strings.TrimSpace(installation.Token) == "" {
+		return GitHubInstallationToken{}, pkgerrors.BadRequest("github app is not installed for this repository")
+	}
+	return installation, nil
+}
+
+// Merge is the stack's one write to GitHub main, sent with MergeToken's
+// token. The sha pins the merge to the reviewed head: GitHub refuses it
+// (409) once the branch moved. The squash commit's title and message are
+// the caller's, so none comes from the pull request as edited on GitHub.
+// GitHub refusing it (401, 403, 404, 405, 409, 422) is a *GitHubRefusal
+// with GitHub's words.
+func (g *mythicalGitHubAPI) Merge(ctx context.Context, gh mythicalGitHubRepo, token string, number int64, head string, commit mythicalMergeCommitText) (string, error) {
 	var merged struct {
 		SHA    string `json:"sha"`
 		Merged bool   `json:"merged"`

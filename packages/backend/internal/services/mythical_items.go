@@ -436,6 +436,11 @@ func (s *MythicalService) ProjectFlowRuntime(ctx context.Context, update flowdis
 				sameMythicalChecks(next, item) {
 				return nil
 			}
+			// The stack's row before the TODO's, as every stack writer and
+			// the merge claim take them (§10.6.2b); itemChanged writes it.
+			if _, err := tx.Exec(ctx, `SELECT 1 FROM mythical_stacks WHERE repository_id = $1 FOR UPDATE`, item.RepositoryID); err != nil {
+				return err
+			}
 			saved, err := q.SaveMythicalItem(ctx, next)
 			if errors.Is(err, pgx.ErrNoRows) {
 				continue

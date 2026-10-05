@@ -89,19 +89,19 @@ func TestMythicalOutboundMergeDecisionRequired(t *testing.T) {
 	s.outbound.Lookup = func(*mythicalItemStep, context.Context, db.MythicalItem, MythicalOutboundOp) (string, bool, error) {
 		return observed, false, nil
 	}
-	s.outbound.Send = func(*mythicalItemStep, context.Context, db.MythicalItem, MythicalOutboundOp) error {
+	s.outbound.PrepareMerge = func(*mythicalItemStep, context.Context, db.MythicalItem, MythicalOutboundOp) (mythicalMergeDispatch, error) {
 		sends++
-		return nil
+		return mythicalMergeDispatch{}, nil
 	}
 	st := mythicalItemStep{s: s}
-	// A merge never sent needs a fresh decision before any send.
+	// A merge never sent needs a fresh decision before it is prepared.
 	intended := db.MythicalItem{PendingOp: []byte(`{"kind":"merge","target":"1","desired":"head","precondition":"old","state":"intended"}`)}
 	_, err := st.recoverOutbound(context.Background(), intended)
 	require.ErrorContains(t, err, "merge readiness")
 	require.Zero(t, sends)
-	s.outbound.MergeDecision = func(context.Context, db.MythicalItem, MythicalOutboundOp) error {
+	s.outbound.MergeDecision = func(context.Context, db.MythicalItem, MythicalOutboundOp) (mythicalMergeDecided, error) {
 		decisions++
-		return errors.New("approver revoked")
+		return mythicalMergeDecided{}, errors.New("approver revoked")
 	}
 	_, err = st.recoverOutbound(context.Background(), intended)
 	require.ErrorContains(t, err, "approver revoked")
@@ -168,7 +168,13 @@ func TestMythicalOutboundSettlementRequiredBeforeRepeat(t *testing.T) {
 			sends := 0
 			s := &MythicalService{outbound: MythicalOutboundProviders{
 				CanonicalApp: allow, StackLease: allow, Budget: allow, Membership: allow, Authorization: allow, AcceptedGeneration: allow,
-				MergeDecision: func(context.Context, db.MythicalItem, MythicalOutboundOp) error { return nil },
+				MergeDecision: func(context.Context, db.MythicalItem, MythicalOutboundOp) (mythicalMergeDecided, error) {
+					return mythicalMergeDecided{}, nil
+				},
+				PrepareMerge: func(*mythicalItemStep, context.Context, db.MythicalItem, MythicalOutboundOp) (mythicalMergeDispatch, error) {
+					sends++
+					return mythicalMergeDispatch{}, nil
+				},
 				Lookup: func(*mythicalItemStep, context.Context, db.MythicalItem, MythicalOutboundOp) (string, bool, error) {
 					return "old", false, nil
 				},

@@ -160,7 +160,8 @@ func TestEnableTodoPublicationComposesTheMerge(t *testing.T) {
 	for name, bound := range map[string]bool{
 		"canonical App": s.outbound.CanonicalApp != nil, "stack lease": s.outbound.StackLease != nil, "budget": s.outbound.Budget != nil,
 		"membership": s.outbound.Membership != nil, "authorization": s.outbound.Authorization != nil, "accepted generation": s.outbound.AcceptedGeneration != nil,
-		"merge decision": s.outbound.MergeDecision != nil, "lookup": s.outbound.Lookup != nil, "send": s.outbound.Send != nil, "settle": s.outbound.Settle != nil,
+		"merge decision": s.outbound.MergeDecision != nil, "merge preparation": s.outbound.PrepareMerge != nil,
+		"lookup": s.outbound.Lookup != nil, "send": s.outbound.Send != nil, "settle": s.outbound.Settle != nil,
 	} {
 		assert.True(t, bound, name)
 	}

@@ -140,12 +140,14 @@ func TestMythicalGitHubMergePinsTheHeadWithANarrowToken(t *testing.T) {
 	}}
 	api := github.api(t)
 	text := mythicalMergeCommitText{Title: "Wave (#7)", Message: "TODO T3, reviewed at head-sha."}
-	commit, err := api.Merge(context.Background(), stackRepo, 7, "head-sha", text)
+	token, err := api.MergeToken(context.Background(), stackRepo)
+	require.NoError(t, err)
+	commit, err := api.Merge(context.Background(), stackRepo, token.Token, 7, "head-sha", text)
 	require.NoError(t, err)
 	assert.Equal(t, "merged-sha", commit)
 	assert.Equal(t, `PUT /repos/o/r/pulls/7/merge contents=write {"commit_message":"TODO T3, reviewed at head-sha.","commit_title":"Wave (#7)","merge_method":"squash","sha":"head-sha"}`, github.calls[0],
 		"contents:write is all GitHub's merge needs")
-	_, err = api.Merge(context.Background(), stackRepo, 8, "old-head", text)
+	_, err = api.Merge(context.Background(), stackRepo, token.Token, 8, "old-head", text)
 	require.Error(t, err, "a moved head is refused, never merged")
 }
 
