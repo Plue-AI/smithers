@@ -253,6 +253,27 @@ describe("the three-door law", () => {
     expect(userOnly.some((entry) => nameOf(entry) === "admin.reset")).toBe(true)
   })
 
+  test("an automatic (system) call of any user-only flow refuses before its handler runs (#3717)", async () => {
+    for (const bootstrap of [EVERYTHING, WEB]) {
+      const { controller } = await boot(bootstrap)
+      const userOnly = controller.commands.entries().filter((entry) => !modelInvocable(entry)).map((entry) => nameOf(entry))
+      expect(userOnly.length).toBeGreaterThan(20)
+      for (const name of userOnly) {
+        const outcome = await controller.commands.run(name, undefined, "automatic")
+        expect(`${name}: ${outcome.status}`).toBe(`${name}: failed`)
+      }
+      controller.dispose()
+    }
+  })
+  test("the two automatic callers' flows stay invocable automatically", async () => {
+    const { controller } = await boot()
+    for (const name of ["flow.plan", "triggers.list"]) {
+      const entry = controller.commands.entries().find((candidate) => nameOf(candidate) === name)
+      expect(entry && modelInvocable(entry)).toBe(true)
+    }
+    controller.dispose()
+  })
+
   test("every agent row of the policy table is invocable through the tool; a confirm row yields the confirm card, never a refusal", async () => {
     const { store, controller } = await boot()
     for (const row of AGENT_ROWS) {
