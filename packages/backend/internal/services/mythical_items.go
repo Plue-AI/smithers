@@ -2597,6 +2597,62 @@ type mythicalForeignHead struct {
 	Branch, Head string
 }
 
+// retainGitHubPush copies an observed commit as data into the host repository's
+// immutable kept ref. The caller supplies a repository-bound bridge and trusted
+// scratch directory. An existing pin is read from the host, so retry can finish
+// even after the source branch has moved or the original commit disappeared.
+// A database rollback cannot remove this retention ref; repeating is harmless.
+func (g mythicalGit) retainGitHubPush(ctx context.Context, bridge *mythicalBridge, repositoryID int64, source, head string) error {
+	if bridge == nil || bridge.verify == nil || repositoryID <= 0 || !mythicalSHA.MatchString(head) || strings.Trim(head, "0") == "" {
+		return errors.New("GitHub commit retention is unavailable")
+	}
+	if err := bridge.verify(ctx); err != nil {
+		return err
+	}
+	ref := repohost.KeptCommitRefPrefix + head
+	remote := bridge.URL()
+	clean := func(err error) error { return errors.New(sanitizeMirrorError(err, source, remote)) }
+	refs, err := g.lsRemote(ctx, remote)
+	if err != nil {
+		return clean(err)
+	}
+	if refs[ref] != "" && refs[ref] != head {
+		return errors.New("kept GitHub commit ref has a different head")
+	}
+	if err := g.init(ctx); err != nil {
+		return err
+	}
+	fetchSource, fetchRef := source, head
+	if refs[ref] == head {
+		fetchSource, fetchRef = remote, ref
+	}
+	if fetchSource == "" {
+		return errors.New("GitHub commit retention source is unavailable")
+	}
+	if _, err := g.git(ctx, "fetch", "--quiet", "--no-tags", "--no-write-fetch-head", "--no-auto-maintenance", "--", fetchSource, fetchRef); err != nil {
+		return clean(err)
+	}
+	if _, err := g.readCommit(ctx, head); err != nil {
+		return clean(err)
+	}
+	if refs[ref] == head {
+		return bridge.verify(ctx)
+	}
+	bridge.permit([]mythicalRefUpdate{{Ref: ref, Old: strings.Repeat("0", 40), New: head}},
+		repohost.ReceivePackMetadata{RepositoryID: repositoryID, ControlPlane: true, PusherLogin: "smithers"})
+	if _, err := g.git(ctx, "push", "--porcelain", "--no-verify", "--force-with-lease="+ref+":"+strings.Repeat("0", 40), remote, head+":"+ref); err != nil {
+		return clean(err)
+	}
+	refs, err = g.lsRemote(ctx, remote)
+	if err != nil {
+		return clean(err)
+	}
+	if refs[ref] != head {
+		return errors.New("GitHub commit retention was not confirmed")
+	}
+	return bridge.verify(ctx)
+}
+
 func (e *mythicalForeignHead) Error() string {
 	return "the pull request branch " + e.Branch + " moved outside Smithers"
 }

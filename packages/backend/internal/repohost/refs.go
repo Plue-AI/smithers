@@ -194,6 +194,9 @@ const (
 	MythicalBookmarkRef   = "refs/heads/mythical"
 	MythicalNotesRef      = "refs/notes/mythical"
 	MythicalReservedRefNS = ReservedRefPrefix + "mythical/"
+	// KeptCommitRefPrefix retains observed outside commits (M-33). Each ref
+	// names its immutable commit, independently of the TODO branch's lifetime.
+	KeptCommitRefPrefix = ReservedRefPrefix + "kept/"
 )
 
 // UserRefPrefix holds work a user pushes from a local checkout (#1964):
@@ -239,7 +242,7 @@ func UserIDFromRef(ref string) (int64, bool) {
 // IsMythicalRef reports whether ref belongs to the mythical stack service.
 func IsMythicalRef(ref string) bool {
 	key := RefKey(ref)
-	return key == MythicalBookmarkRef || key == MythicalNotesRef || strings.HasPrefix(key, MythicalReservedRefNS)
+	return key == MythicalBookmarkRef || key == MythicalNotesRef || strings.HasPrefix(key, MythicalReservedRefNS) || strings.HasPrefix(key, KeptCommitRefPrefix)
 }
 
 // ReservedRefViolation applies the reserved-namespace push policy to a
@@ -270,6 +273,15 @@ func ControlPlaneRefViolation(commands []ReceivePackCommand, workspaceID string,
 		key := RefKey(ref)
 		if strings.HasPrefix(key, JJRefPrefix) {
 			return "refs/jj/ is managed by jj and cannot be pushed"
+		}
+		if strings.HasPrefix(key, KeptCommitRefPrefix) {
+			sha := strings.TrimPrefix(ref, KeptCommitRefPrefix)
+			if !controlPlane || workspaceID != "" || len(sha) != 40 || strings.Trim(sha, "0123456789abcdef") != "" ||
+				strings.Trim(sha, "0") == "" || command.NewOID != sha ||
+				(command.OldOID != strings.Repeat("0", 40) && command.OldOID != sha) {
+				return "kept commits permit only control-plane creation or identical replay of their named commit"
+			}
+			continue
 		}
 		if IsMythicalRef(ref) {
 			if !controlPlane || workspaceID != "" {

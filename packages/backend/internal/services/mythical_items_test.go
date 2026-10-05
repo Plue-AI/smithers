@@ -12,6 +12,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -28,6 +29,7 @@ import (
 	pkgerrors "github.com/smithersai/smithers/packages/backend/internal/pkg/errors"
 	"github.com/smithersai/smithers/packages/backend/internal/repohost"
 	"github.com/smithersai/smithers/packages/backend/jobs"
+	"github.com/smithersai/smithers/packages/backend/repository"
 )
 
 // fakeMythicalGitHub is GitHub for the stack: a real bare repository the
@@ -1206,6 +1208,111 @@ func TestForeignPushPollCannotSettleHold(t *testing.T) {
 			assert.Equal(t, "proposed", next.State)
 		})
 	}
+}
+
+func TestForeignPushRetainsCommitThroughNativeRepository(t *testing.T) {
+	ffi := os.Getenv("SMITHERS_FFI_LIBRARY_PATH")
+	if ffi == "" {
+		t.Skip("SMITHERS_FFI_LIBRARY_PATH is required for the native repository engine")
+	}
+	ctx, cancel := context.WithTimeout(t.Context(), time.Minute)
+	defer cancel()
+	source := filepath.Join(t.TempDir(), "source")
+	jj := func(args ...string) string {
+		t.Helper()
+		cmd := exec.CommandContext(ctx, "jj", args...)
+		out, err := cmd.CombinedOutput()
+		require.NoError(t, err, "%s", out)
+		return strings.TrimSpace(string(out))
+	}
+	jj("git", "init", "--colocate", source)
+	require.NoError(t, os.WriteFile(filepath.Join(source, "outside.txt"), []byte("Alice's change\n"), 0600))
+	jj("-R", source, "describe", "-m", "outside commit")
+	jj("-R", source, "bookmark", "create", "smithers/retry", "-r", "@")
+	head := jj("-R", source, "log", "-r", "@", "--no-graph", "-T", "commit_id")
+	local, err := repository.OpenLocal(repository.Config{StoragePath: t.TempDir(), AuthToken: "retention-test", FFILibraryPath: ffi, InstallMainMirror: true})
+	require.NoError(t, err)
+	t.Cleanup(func() { require.NoError(t, local.Shutdown(context.Background())) })
+	client := local.Client()
+	require.NoError(t, client.InitRepo(ctx, "owner", "repo", "main", false))
+	var verified atomic.Int32
+	var replaced atomic.Bool
+	bridge, err := startMythicalBridge(ctx, client, "owner", "repo", func(context.Context) error {
+		verified.Add(1)
+		if replaced.Load() {
+			return repohost.ErrRepositoryReplaced
+		}
+		return nil
+	})
+	require.NoError(t, err)
+	defer bridge.Close()
+	g := mythicalGit{dir: filepath.Join(t.TempDir(), "scratch.git")}
+	ref := "refs/smithers/kept/" + head
+	require.NoError(t, g.retainGitHubPush(ctx, bridge, 19, filepath.Join(source, ".git"), head))
+	require.GreaterOrEqual(t, verified.Load(), int32(3), "binding checked before transport, under the host write lock and after confirmation")
+	refs, err := g.lsRemote(ctx, bridge.URL())
+	require.NoError(t, err)
+	require.Equal(t, head, refs[ref])
+	require.Empty(t, refs["refs/heads/main"])
+	require.Empty(t, refs["refs/heads/mythical"])
+	require.Empty(t, refs["refs/heads/smithers/retry"])
+	// A fresh scratch directory can recover from the durable pin when GitHub
+	// no longer serves the original commit. No source fetch is needed.
+	fresh := mythicalGit{dir: filepath.Join(t.TempDir(), "restart.git")}
+	require.NoError(t, fresh.retainGitHubPush(ctx, bridge, 19, filepath.Join(t.TempDir(), "gone.git"), head))
+	contents, err := fresh.git(ctx, "show", head+":outside.txt")
+	require.NoError(t, err)
+	require.Equal(t, "Alice's change", contents)
+
+	// Even an exactly prepared control-plane command cannot delete the pin.
+	bridge.permit([]mythicalRefUpdate{{Ref: ref, Old: head, New: strings.Repeat("0", 40)}}, repohost.ReceivePackMetadata{ControlPlane: true, RepositoryID: 19})
+	_, err = fresh.git(ctx, "push", "--porcelain", bridge.URL(), ":"+ref)
+	require.Error(t, err)
+	refs, err = fresh.lsRemote(ctx, bridge.URL())
+	require.NoError(t, err)
+	require.Equal(t, head, refs[ref])
+
+	// A newer outside commit is retained separately. If the destination is
+	// replaced after preparation, its verification under the write lock refuses
+	// the pack; a later attempt must resolve and verify the repository again.
+	jj("-R", source, "new", "-m", "second outside commit")
+	require.NoError(t, os.WriteFile(filepath.Join(source, "outside.txt"), []byte("Alice's newer change\n"), 0600))
+	jj("-R", source, "describe", "-m", "second outside commit")
+	second := jj("-R", source, "log", "-r", "@", "--no-graph", "-T", "commit_id")
+	var checks atomic.Int32
+	changedBridge, err := startMythicalBridge(ctx, client, "owner", "repo", func(context.Context) error {
+		if checks.Add(1) > 1 {
+			return repohost.ErrRepositoryReplaced
+		}
+		return nil
+	})
+	require.NoError(t, err)
+	require.Error(t, fresh.retainGitHubPush(ctx, changedBridge, 19, filepath.Join(source, ".git"), second))
+	changedBridge.Close()
+	require.EqualValues(t, 2, checks.Load())
+	refs, err = fresh.lsRemote(ctx, bridge.URL())
+	require.NoError(t, err)
+	require.Empty(t, refs["refs/smithers/kept/"+second])
+	require.NoError(t, fresh.retainGitHubPush(ctx, bridge, 19, filepath.Join(source, ".git"), second))
+	bridge.permit([]mythicalRefUpdate{{Ref: ref, Old: head, New: second}}, repohost.ReceivePackMetadata{ControlPlane: true, RepositoryID: 19})
+	_, err = fresh.git(ctx, "push", "--porcelain", "--force", bridge.URL(), second+":"+ref)
+	require.Error(t, err)
+	refs, err = fresh.lsRemote(ctx, bridge.URL())
+	require.NoError(t, err)
+	require.Equal(t, head, refs[ref])
+	require.Equal(t, second, refs["refs/smithers/kept/"+second])
+	// Fetchable objects that are not commits cannot become retention pins.
+	tree, err := fresh.git(ctx, "rev-parse", second+"^{tree}")
+	require.NoError(t, err)
+	require.Error(t, fresh.retainGitHubPush(ctx, bridge, 19, filepath.Join(source, ".git"), tree))
+	refs, err = fresh.lsRemote(ctx, bridge.URL())
+	require.NoError(t, err)
+	require.Empty(t, refs["refs/smithers/kept/"+tree])
+
+	replaced.Store(true)
+	require.ErrorIs(t, fresh.retainGitHubPush(ctx, bridge, 19, "", head), repohost.ErrRepositoryReplaced)
+	require.Error(t, fresh.retainGitHubPush(ctx, nil, 19, "", head))
+	require.Error(t, fresh.retainGitHubPush(ctx, bridge, 19, "", "main"))
 }
 
 func TestForeignPushWaitCardSurvivesIndependentQuestionSettlement(t *testing.T) {

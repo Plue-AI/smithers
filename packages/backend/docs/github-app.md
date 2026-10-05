@@ -34,6 +34,13 @@ When no matching pusher is available, it reads the exact commit's GitHub author.
 Failed reads, changed pagination sources and unlinked authors leave attribution
 unavailable. This reader is not yet mounted by the install's ref consumer.
 
+Outside-commit retention uses the existing restricted smart-HTTP bridge to
+create `refs/smithers/kept/<sha>` in the host store. Only a control-plane write
+may create or identically replay the named SHA; deletion and replacement are
+refused. The transport verifies the commit object and the stored ref, and a
+retry can recover from the host pin after the source commit disappears. This
+primitive is not yet connected to the transaction that raises a foreign wait.
+
 Bring in and Discard remain unavailable until the shared authorization, confirmation, catalog and checkpoint contracts pass their production boundary tests. No repository code runs on the host to bring in a commit. The eventual branch answer input is `{id, revision}`: the foreign wait id and its displayed `sha`, with an `Idempotency-Key`; a newer head requires a new decision.
 
 ## Polling transport
