@@ -119,10 +119,15 @@ func TestFCov_Repos_RoundTrip(t *testing.T) {
 
 	// Collaborators.
 	collabUser := mustCreateUser(t, pool, uniqueTestUsername(t))
-	mustExec(t, pool, `INSERT INTO collaborators (repository_id, user_id, permission) VALUES ($1, $2, 'write')`, repoID, collabUser)
+	mustExec(t, pool, `INSERT INTO collaborators (repository_id, user_id, permission, github_id, github_login) VALUES ($1, $2, 'write', 4242, 'octo-member')`, repoID, collabUser)
 	collabs, err := q.ListCollaboratorsByRepo(ctx, repoID)
 	require.NoError(t, err)
 	require.Len(t, collabs, 1)
+	// The listed row carries the roster columns from migration 0116.
+	assert.Equal(t, pgtype.Int8{Int64: 4242, Valid: true}, collabs[0].GithubID)
+	assert.Equal(t, pgtype.Text{String: "octo-member", Valid: true}, collabs[0].GithubLogin)
+	assert.GreaterOrEqual(t, collabs[0].UnixUid, int32(20000))
+	assert.False(t, collabs[0].SuspendedAt.Valid)
 	require.NoError(t, q.DeleteCollaboratorsByRepo(ctx, repoID))
 	collabs, err = q.ListCollaboratorsByRepo(ctx, repoID)
 	require.NoError(t, err)

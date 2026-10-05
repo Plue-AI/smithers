@@ -280,7 +280,7 @@ WHERE repository_id = $1;
 -- name: ListCollaboratorsByRepo :many
 -- Excludes tombstone rows (user_id IS NULL from ON DELETE SET NULL) since
 -- there is no live user record to display or authorize.
-SELECT id, repository_id, user_id, permission, created_at
+SELECT *
 FROM collaborators
 WHERE repository_id = $1
   AND user_id IS NOT NULL

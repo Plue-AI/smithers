@@ -15,7 +15,7 @@ import (
 const addCollaborator = `-- name: AddCollaborator :one
 INSERT INTO collaborators (repository_id, user_id, permission)
 VALUES ($1, $2, $3)
-RETURNING id, repository_id, user_id, permission, created_at
+RETURNING id, repository_id, user_id, permission, created_at, github_id, github_login, unix_uid, suspended_at
 `
 
 type AddCollaboratorParams struct {
@@ -33,6 +33,10 @@ func (q *Queries) AddCollaborator(ctx context.Context, arg AddCollaboratorParams
 		&i.UserID,
 		&i.Permission,
 		&i.CreatedAt,
+		&i.GithubID,
+		&i.GithubLogin,
+		&i.UnixUid,
+		&i.SuspendedAt,
 	)
 	return i, err
 }
@@ -833,7 +837,7 @@ func (q *Queries) ListAllRepos(ctx context.Context, arg ListAllReposParams) ([]R
 }
 
 const listCollaboratorsByRepo = `-- name: ListCollaboratorsByRepo :many
-SELECT id, repository_id, user_id, permission, created_at
+SELECT id, repository_id, user_id, permission, created_at, github_id, github_login, unix_uid, suspended_at
 FROM collaborators
 WHERE repository_id = $1
   AND user_id IS NOT NULL
@@ -857,6 +861,10 @@ func (q *Queries) ListCollaboratorsByRepo(ctx context.Context, repositoryID int6
 			&i.UserID,
 			&i.Permission,
 			&i.CreatedAt,
+			&i.GithubID,
+			&i.GithubLogin,
+			&i.UnixUid,
+			&i.SuspendedAt,
 		); err != nil {
 			return nil, err
 		}

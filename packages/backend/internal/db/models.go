@@ -494,11 +494,15 @@ type CodeSearchIndexState struct {
 }
 
 type Collaborator struct {
-	ID           int64       `json:"id"`
-	RepositoryID int64       `json:"repository_id"`
-	UserID       pgtype.Int8 `json:"user_id"`
-	Permission   string      `json:"permission"`
-	CreatedAt    time.Time   `json:"created_at"`
+	ID           int64              `json:"id"`
+	RepositoryID int64              `json:"repository_id"`
+	UserID       pgtype.Int8        `json:"user_id"`
+	Permission   string             `json:"permission"`
+	CreatedAt    time.Time          `json:"created_at"`
+	GithubID     pgtype.Int8        `json:"github_id"`
+	GithubLogin  pgtype.Text        `json:"github_login"`
+	UnixUid      int32              `json:"unix_uid"`
+	SuspendedAt  pgtype.Timestamptz `json:"suspended_at"`
 }
 
 type CommitStatus struct {
