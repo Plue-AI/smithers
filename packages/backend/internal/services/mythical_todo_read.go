@@ -19,7 +19,7 @@ func (s *MythicalService) Todo(ctx context.Context, repositoryID, number int64) 
 	if err != nil {
 		return nil, err
 	}
-	return s.todoCard(ctx, item)
+	return s.todoCard(ctx, item, nil)
 }
 func (s *MythicalService) Todos(ctx context.Context, repositoryID int64) ([]map[string]any, error) {
 	items, err := s.queries().ListMythicalItems(ctx, repositoryID, 500)
@@ -28,7 +28,7 @@ func (s *MythicalService) Todos(ctx context.Context, repositoryID int64) ([]map[
 	}
 	views := []map[string]any{}
 	for _, item := range items {
-		view, err := s.todoCard(ctx, item)
+		view, err := s.todoCard(ctx, item, items)
 		if err != nil {
 			return nil, err
 		}
@@ -42,7 +42,34 @@ func todoAvatar(user db.User) string {
 	}
 	return "data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHdpZHRoPSI0OCIgaGVpZ2h0PSI0OCIgdmlld0JveD0iMCAwIDQ4IDQ4Ij48cmVjdCB3aWR0aD0iNDgiIGhlaWdodD0iNDgiIHJ4PSIyNCIgZmlsbD0iI2RkZCIvPjxjaXJjbGUgY3g9IjI0IiBjeT0iMTgiIHI9IjgiIGZpbGw9IiM4ODgiLz48cGF0aCBkPSJNOCA0NGExNiAxNiAwIDAgMSAzMiAwIiBmaWxsPSIjODg4Ii8+PC9zdmc+"
 }
-func (s *MythicalService) todoCard(ctx context.Context, item db.MythicalItem) (map[string]any, error) {
+
+// todoQueuePosition is a queued item's 1-based place among the repository's
+// queued TODOs, in stack order: the "#2" of mvp.md §4.1's "waiting for a
+// machine #2". items is the repository's ListMythicalItems page, or nil to
+// read it; an item past that page queues after every listed one.
+func (s *MythicalService) todoQueuePosition(ctx context.Context, item db.MythicalItem, items []db.MythicalItem) (int64, error) {
+	if items == nil {
+		var err error
+		if items, err = s.queries().ListMythicalItems(ctx, item.RepositoryID, 500); err != nil {
+			return 0, err
+		}
+	}
+	position := int64(0)
+	for _, other := range items {
+		if todoState(other) != "queued" {
+			continue
+		}
+		position++
+		if other.ID == item.ID {
+			return position, nil
+		}
+	}
+	return position + 1, nil
+}
+
+// todoCard is the TodoCard projection of item. items is the repository's
+// ListMythicalItems page when the caller already holds it, else nil.
+func (s *MythicalService) todoCard(ctx context.Context, item db.MythicalItem, items []db.MythicalItem) (map[string]any, error) {
 	var owner db.User
 	var err error
 	if item.OwnerID.Valid {
@@ -92,6 +119,15 @@ func (s *MythicalService) todoCard(ctx context.Context, item db.MythicalItem) (m
 	}
 	if item.StackPosition.Valid {
 		card["place"] = item.StackPosition.Int64
+	}
+	// A queued TODO waits for a lane machine; the card says so and where it is
+	// in line (mvp.md §4.1), never the stack's internal outage text.
+	if card["state"] == "queued" {
+		position, err := s.todoQueuePosition(ctx, item, items)
+		if err != nil {
+			return nil, err
+		}
+		card["queue"] = map[string]any{"reason": "machine", "position": position}
 	}
 	if item.IssueNumber.Valid && item.IssueURL != "" {
 		card["issue"] = map[string]any{"number": item.IssueNumber.Int64, "url": item.IssueURL, "fixes": item.FixesIssue}
