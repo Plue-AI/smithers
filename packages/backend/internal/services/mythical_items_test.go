@@ -1208,6 +1208,58 @@ func TestForeignPushPollCannotSettleHold(t *testing.T) {
 	}
 }
 
+func TestForeignPushWaitCardSurvivesIndependentQuestionSettlement(t *testing.T) {
+	o, session, launcher, item, launch := newAskingTodo(t)
+	ctx := context.Background()
+	o.projectAsking(launch, jobs.StateWaiting, "todo-run-1", humanAsk("question-token", "clarify", "Keep the log?"))
+	item = o.byID(uuidString(item.ID))
+	question := todoOpenWaits(item)[0]
+	// Seed the persisted wire representation independently. Reading the card
+	// and answering a different wait must retain its source actor and SHA.
+	checks := decodeJSON(t, item.Checks)
+	foreign := decodeJSON(t, []byte(`{"id":"foreign-1","kind":"foreign_push","prompt":"Alice pushed to smithers/retry-webhooks on GitHub","since":"2026-10-05T12:00:00Z","sha":"1111111111111111111111111111111111111111","by":{"kind":"github","login":"alice","color_index":7}}`))
+	checks["waits"] = append(checks["waits"].([]any), foreign)
+	raw, err := json.Marshal(checks)
+	require.NoError(t, err)
+	_, err = o.pool.Exec(ctx, `UPDATE mythical_items SET checks=$2 WHERE id=$1`, item.ID, raw)
+	require.NoError(t, err)
+	want := map[string]any{"id": "foreign-1", "kind": "foreign_push", "prompt": "Alice pushed to smithers/retry-webhooks on GitHub",
+		"since": "2026-10-05T12:00:00Z", "sha": "1111111111111111111111111111111111111111",
+		"by": map[string]any{"kind": "github", "login": "alice", "color_index": float64(7)}, "actions": []any{}}
+	card := o.todoCard(item.Number.Int64)
+	waits := card["waits"].([]any)
+	require.Len(t, waits, 2)
+	require.Equal(t, want, waits[0])
+	require.NotContains(t, waits[1], "sha", "historical questions have no commit binding")
+	require.NotContains(t, waits[1], "by")
+	require.NotContains(t, card, "first_answer")
+
+	// The question door cannot be used to answer the foreign wait.
+	var refusal *TodoControlError
+	require.ErrorAs(t, o.service.AnswerTodo(session, o.repoID, o.userID, item.Number.Int64,
+		TodoAnswerInput{Wait: "foreign-1", Answer: "discard"}), &refusal)
+	require.Equal(t, "wait_not_found", refusal.Code)
+	require.Empty(t, launcher.sent())
+	require.NoError(t, o.service.AnswerTodo(session, o.repoID, o.userID, item.Number.Int64,
+		TodoAnswerInput{Wait: question.ID, Answer: "Keep it"}))
+	card = o.todoCard(item.Number.Int64)
+	require.Equal(t, "needs_you", card["state"])
+	require.Equal(t, []any{want}, card["waits"])
+	require.Equal(t, "Keep it", card["first_answer"].(map[string]any)["text"])
+	require.Len(t, launcher.sent(), 1)
+	stored := o.byID(uuidString(item.ID))
+	storedWaits := decodeJSON(t, stored.Checks)["waits"].([]any)
+	require.Equal(t, foreign, storedWaits[1], "an unrelated answer cannot erase the displayed revision or change attribution")
+
+	// Both collection and detail reads use the same persisted wait contract.
+	cards, err := o.service.Todos(ctx, o.repoID)
+	require.NoError(t, err)
+	require.Len(t, cards, 1)
+	encoded, err := json.Marshal(cards[0])
+	require.NoError(t, err)
+	require.Equal(t, card["waits"], decodeJSON(t, encoded)["waits"])
+}
+
 func TestForeignPushPollRetainsTerminalCandidateWhenPrefixMoves(t *testing.T) {
 	for _, state := range []string{"dropped", "rejected", "cancelled", "declined", "landed", "merged"} {
 		t.Run(state, func(t *testing.T) {

@@ -24,6 +24,10 @@ pull follower honors both this decision and terminal no-ops, preserving earlier
 holds, independent waits, pause and failure facts. The install's transactional
 ref consumer and bound foreign-push answers remain unqualified.
 
+Persisted foreign-push waits retain their `sha` and `by` in both TODO card
+reads and unrelated question settlement. Historical waits without these fields
+remain readable. Foreign-push actions stay absent until their providers qualify.
+
 Bring in and Discard remain unavailable until the shared authorization, confirmation, catalog and checkpoint contracts pass their production boundary tests. No repository code runs on the host to bring in a commit. The eventual branch answer input is `{id, revision}`: the foreign wait id and its displayed `sha`, with an `Idempotency-Key`; a newer head requires a new decision.
 
 ## Polling transport

@@ -3,9 +3,9 @@
   "producer": null,
   "output": {
     "path": "packages/backend/docs/github-app.md",
-    "digest": "78bad596fbb22510bee4c2a4938a94d8f604a1a53530aabc67f0cd3734efd20c"
+    "digest": "4dce4233add817c3b38f840c4cc5debb1ea0fb2f165c5e48d075831ccfcd6609"
   },
-  "closure": "6b1a66f747ed193bb1d54d419650079fecdd8b63d9f19862d0c7a6d3c0d3c3c4",
+  "closure": "270bb395da002c0ed060c5719349c9cbc68285a949c5e58e6c9546b33f96371e",
   "inputs": [
     {
       "path": "docs/api/openapi/install.yaml",
@@ -234,6 +234,14 @@
     {
       "path": "packages/backend/internal/services/mythical_pr.go",
       "digest": "a6c30d53ec164f6adac99ecd08277284193575ebb83b30d6c2de1653f36d8f5a"
+    },
+    {
+      "path": "packages/backend/internal/services/mythical_todo_read.go",
+      "digest": "560cf3a8e8eca9adf023f150aa52c6172afddc153b27b121b1152729c0a41318"
+    },
+    {
+      "path": "packages/backend/internal/services/mythical_todo_state.go",
+      "digest": "f162b44c93b13ab4b6784787c417201525cf38199682973123df46c83b9309ac"
     },
     {
       "path": "packages/backend/internal/services/repo_connection_github_app.go",

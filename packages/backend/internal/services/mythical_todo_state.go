@@ -17,8 +17,11 @@ type TodoWait struct {
 	Since      time.Time  `json:"since"`
 	AnsweredBy string     `json:"answered_by,omitempty"`
 	SettledAt  *time.Time `json:"settled_at,omitempty"`
-	// Answer and By are the settling answer and its person, as a TodoCard
-	// actor. A settled question without them was withdrawn by its run.
+	// SHA binds a foreign-push wait to the observed commit shown on its card.
+	SHA string `json:"sha,omitempty"`
+	// By is the wait's TodoCard actor: the pusher for a foreign push, or the
+	// answering person for a settled question. Answer is the question's answer;
+	// a settled question without these fields was withdrawn by its run.
 	Answer string          `json:"answer,omitempty"`
 	By     json.RawMessage `json:"by,omitempty"`
 	// Signal is where an answer goes: the parked run's wait point.
