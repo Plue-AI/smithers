@@ -1,9 +1,13 @@
 import { NodeServices } from "@effect/platform-node"
 import { Effect, FileSystem } from "effect"
 import assert from "node:assert/strict"
+import { existsSync } from "node:fs"
+import { chmod, mkdir, mkdtemp, readdir, readFile, realpath, rm, writeFile } from "node:fs/promises"
+import { tmpdir } from "node:os"
+import { basename, dirname, join } from "node:path"
 import { test } from "node:test"
 import { consume, repositoryCheckEnvironment } from "../coding/check-environment.ts"
-import { environmentSecrets, redactOutput, runSourceProcess } from "../coding/immutable-source.ts"
+import { environmentSecrets, redactOutput, runSourceProcess, withImmutableSource } from "../coding/immutable-source.ts"
 
 const cacheUrl = "https://api.example.test/api/repos/o/r/build-cache"
 
@@ -100,6 +104,60 @@ test("a check's retained output never carries its cache credential", async () =>
   assert.equal(measured.exitCode, 0)
   assert.equal(measured.stdout.text, `token=[redacted]\n${environment.PATH}\n`, "the PATH is not a credential")
   assert.equal(measured.stderr.text, "[redacted]\n")
+})
+
+test("a check's tree is exported inside the workspace root's .jj by the configured exporter, never under HOME", async (t) => {
+  const temporary = await realpath(await mkdtemp(join(tmpdir(), "coding-check-export-")))
+  t.after(() => rm(temporary, { recursive: true, force: true }))
+  const root = join(temporary, "workspace"), home = join(temporary, "home")
+  const exporter = join(temporary, "exporter.sh"), recorded = join(temporary, "argv")
+  await mkdir(root)
+  await mkdir(home)
+  const revision = {
+    changeId: "k".repeat(32),
+    commitId: "a".repeat(40),
+    treeId: "b".repeat(40),
+    operationId: "c".repeat(128),
+    parentCommitIds: []
+  }
+  // `<exporter> <repository> <commit> <output>`: record the call, write one file, answer the identity.
+  await writeFile(
+    exporter,
+    `#!/bin/sh
+printf '%s\\n' "$0" "$@" > '${recorded}'
+mkdir "$3/tree" && printf 'export {}\\n' > "$3/tree/index.ts"
+printf '{"commitId":"%s","changeId":"${revision.changeId}","treeId":"${revision.treeId}","path":"%s/tree","fileCount":1}' "$2" "$3"
+`
+  )
+  await chmod(exporter, 0o755)
+  const seen = await Effect.runPromise(
+    Effect.gen(function*() {
+      const fs = yield* FileSystem.FileSystem
+      return yield* withImmutableSource(
+        {
+          repositoryPath: root,
+          fs,
+          exporterPath: exporter,
+          environment: { PATH: process.env.PATH ?? "/usr/bin:/bin", HOME: home }
+        },
+        revision,
+        (tree, exported) =>
+          Effect.promise(async () => ({ tree, exported, source: await readFile(join(exported, "index.ts"), "utf8") }))
+      )
+    }).pipe(Effect.provide(NodeServices.layer))
+  )
+  const [program, repository, commit, output] = (await readFile(recorded, "utf8")).trimEnd().split("\n")
+  assert.equal(program, exporter, "the host-configured exporter runs, not the guest's fixed path")
+  assert.deepEqual([repository, commit], [root, revision.commitId])
+  // A confined check reads and writes only inside the root; jj never snapshots .jj.
+  const checks = join(root, ".jj", "smithers-checks")
+  assert.equal(dirname(output!), checks)
+  assert.match(basename(output!), /^smithers-check-/)
+  assert.equal(seen.exported, join(output!, "tree"))
+  assert.equal(seen.tree.commitId, revision.commitId)
+  assert.equal(seen.source, "export {}\n")
+  assert.deepEqual(await readdir(checks), [], "the scoped export is removed once the check returns")
+  assert.equal(existsSync(join(home, ".cache")), false, "nothing is exported under HOME")
 })
 
 test("redaction covers every credential name, overlapping values and a truncated tail", () => {
