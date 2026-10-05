@@ -797,6 +797,25 @@ components:
             capacity:
               type: integer
               minimum: 0
+            perf_cores:
+              type: integer
+              minimum: 0
+              description: Performance cores in the detected host profile (spec §8.2.1).
+            limit:
+              type: object
+              description: Present only when the host fits no machine; names the limiting term and its fix (spec §8.2.1a).
+              required:
+                - term
+                - fix
+              properties:
+                term:
+                  type: string
+                  enum:
+                    - memory
+                    - cores
+                    - disk
+                fix:
+                  type: string
         github:
           type: object
           required:

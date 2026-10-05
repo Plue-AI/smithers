@@ -4,6 +4,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -29,6 +30,10 @@ func TestInstallStatusOwnerHTTPModelPostgres(t *testing.T) {
 	require.NoError(t, err)
 	_, err = pool.Exec(ctx, `INSERT INTO self_host_owners(user_id) VALUES($1)`, owner.ID)
 	require.NoError(t, err)
+	// The member boundary (#3443) admits only a verified owner outside setup scope, so the retired /api/host reaches the router's 404.
+	verified := fmt.Sprintf(`{"owner_login":"hostowner","repository_name":"fixture","repository_id":0,"last_access_check_at":%q}`, time.Now().UTC().Format(time.RFC3339Nano))
+	require.NoError(t, q.UpsertInstallSetting(ctx, db.UpsertInstallSettingParams{Key: "github.repository", Value: []byte(`{"owner_login":"hostowner","repository_name":"fixture","repository_id":0}`)}))
+	require.NoError(t, q.UpsertInstallSetting(ctx, db.UpsertInstallSettingParams{Key: "owner.access", Value: []byte(verified)}))
 	session := func(user db.User, value string) string {
 		hash := sha256.Sum256([]byte(value))
 		_, err := q.CreateAuthSession(ctx, db.CreateAuthSessionParams{SessionKey: hex.EncodeToString(hash[:]), UserID: user.ID, Username: user.Username, ExpiresAt: time.Now().Add(time.Hour)})
@@ -69,8 +74,13 @@ func TestInstallStatusOwnerHTTPModelPostgres(t *testing.T) {
 	var status struct {
 		Capacity int `json:"capacity"`
 		Mac      struct {
-			Memory   float64 `json:"memory_gb"`
-			Capacity int     `json:"capacity"`
+			Memory    float64 `json:"memory_gb"`
+			PerfCores int     `json:"perf_cores"`
+			Capacity  int     `json:"capacity"`
+			Limit     *struct {
+				Term string `json:"term"`
+				Fix  string `json:"fix"`
+			} `json:"limit"`
 		} `json:"this_mac"`
 		Steps []struct {
 			ID string `json:"id"`
@@ -80,6 +90,8 @@ func TestInstallStatusOwnerHTTPModelPostgres(t *testing.T) {
 	require.Equal(t, 32.0, status.Mac.Memory)
 	require.Equal(t, 2, status.Capacity)
 	require.Equal(t, 3, status.Mac.Capacity)
+	require.Equal(t, 10, status.Mac.PerfCores)
+	require.Nil(t, status.Mac.Limit, "a host that fits a machine names no limiting term")
 	require.Len(t, status.Steps, 7)
 	require.Equal(t, "app_manifest", status.Steps[1].ID)
 	for _, test := range []struct {
@@ -94,4 +106,9 @@ func TestInstallStatusOwnerHTTPModelPostgres(t *testing.T) {
 	require.Equal(t, 200, response.Code)
 	require.NoError(t, json.Unmarshal(response.Body.Bytes(), &status))
 	require.Zero(t, status.Capacity)
+	require.Zero(t, status.Mac.Capacity)
+	// §8.2.1a: at capacity 0 Settings shows the limiting term and its fix, from the one Go host profile.
+	require.NotNil(t, status.Mac.Limit, response.Body.String())
+	require.Equal(t, "disk", status.Mac.Limit.Term)
+	require.Equal(t, "free 12 GiB on the state volume", status.Mac.Limit.Fix)
 }

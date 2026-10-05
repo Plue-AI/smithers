@@ -1,4 +1,4 @@
-import { useMemo, type ComponentType } from "react"
+import { useMemo, useSyncExternalStore, type ComponentType } from "react"
 import { HomeCardSchema, type HomeCard as HomeModel, type HomeViewProps } from "@smthrs/rpc/HomeCard"
 import type { CatalogTag } from "@smthrs/rpc/CardAction"
 import { cardActions, type CardActionDefinition, type CardCommandDispatch } from "../flows/cardActions"
@@ -8,6 +8,8 @@ import { HomeView } from "./views/HomeView"
 import { useClock } from "@smthrs/ui/clock"
 import { useTopic } from "../state/useTopic"
 import { useDesignHome, useDesignHomeView } from "../state/seams/DesignWorld/home"
+import type { InstallModel } from "../state/seams/InstallModel"
+import type { InstallSnapshots } from "../state/seams/InstallSeam"
 
 export interface HomeContainerProps {
   /** Injectable Home projection, like TodoContainer's seam-populated model. */
@@ -121,6 +123,15 @@ export const homeSource = (snapshot: { readonly data?: unknown; readonly error?:
 }
 
 /**
+ * Home's machines line counts the install's capacity (spec §8.2.1; design placement.md: "the same number Home shows"), which
+ * GET /api/install serves from the one Go host profile. Slots and in-use stay the `home` topic's.
+ */
+export const withInstallCapacity = (model: HomeModel, install: InstallModel | undefined): HomeModel =>
+  install === undefined ? model : { ...model, machines: { ...model.machines, capacity: install.capacity } }
+const NO_INSTALL: InstallSnapshots = { get: () => NO_INSTALL_SNAPSHOT, subscribe: () => () => {} }
+const NO_INSTALL_SNAPSHOT = {}
+
+/**
  * The card's one dispatch: every press runs as the person through the command registry. Answer pressed
  * without an answer is the question's door (design Home.tsx): it opens the TODO card, where the answer is typed.
  */
@@ -146,7 +157,10 @@ export const HomeCard = ({ production }: {
   const dispatch = useMemo(() => homeDispatch(controller), [controller])
   const answer = homeSource(useTopic(controller.live ? "home" : undefined, controller.live))
   const source = answer.kind === "seed" && controller.design.enabled === false ? { kind: "failed" as const, code: "unsupported" } : answer
-  const model = source.kind === "served" ? source.model : source.kind === "failed" ? homeFailureModel(seeded.model.repository, source.code) : seeded.model
+  const installs = controller.installSnapshots ?? NO_INSTALL
+  const install = useSyncExternalStore(installs.subscribe, installs.get, installs.get).model
+  const home = source.kind === "served" ? source.model : source.kind === "failed" ? homeFailureModel(seeded.model.repository, source.code) : seeded.model
+  const model = withInstallCapacity(home, install)
   return <HomeContainer model={model} role={production?.role ?? seeded.role}
     allowed={source.kind === "failed" ? FAILED_TAGS : production?.allowed ?? HOME_TAGS} dispatch={production?.dispatch ?? dispatch}
     view={production?.view ?? member.view} onView={production?.onView ?? member.onView} />

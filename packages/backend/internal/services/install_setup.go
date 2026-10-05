@@ -694,6 +694,7 @@ func (s *InstallSetupService) Status(ctx context.Context) (map[string]any, error
 	}
 	capacity, hostCapacity := 0, 0
 	memory, disk := float64(0), float64(0)
+	thisMac := map[string]any{}
 	if s.Capacity != nil {
 		host, err := s.Capacity.Read(ctx)
 		if err != nil {
@@ -703,7 +704,13 @@ func (s *InstallSetupService) Status(ctx context.Context) (map[string]any, error
 		hostCapacity = host.Limits.Capacity
 		memory = float64(host.Profile.MemoryBytes) / (1 << 30)
 		disk = float64(host.Profile.DiskFreeBytes) / (1 << 30)
+		thisMac["perf_cores"] = host.Profile.PerfCores
+		// §8.2.1a: a host that fits no machine names its limiting term and the fix, as `smthrs host status` does.
+		if host.Limits.Capacity == 0 {
+			thisMac["limit"] = map[string]string{"term": host.Limits.LimitingTerm, "fix": host.Limits.Fix}
+		}
 	}
+	thisMac["memory_gb"], thisMac["disk_free_gb"], thisMac["capacity"] = memory, disk, hostCapacity
 	q := db.New(s.Pool)
 	bind := "127.0.0.1:4000"
 	origins := []string{"http://localhost:4000"}
@@ -792,7 +799,7 @@ func (s *InstallSetupService) Status(ctx context.Context) (map[string]any, error
 		}
 		models = append(models, value)
 	}
-	result := map[string]any{"address": map[string]any{"listen": listen, "bind": bind, "origins": origins}, "steps": projected, "this_mac": map[string]any{"memory_gb": memory, "disk_free_gb": disk, "capacity": hostCapacity}, "github": github, "models": models, "chatgpt": false, "capacity": capacity}
+	result := map[string]any{"address": map[string]any{"listen": listen, "bind": bind, "origins": origins}, "steps": projected, "this_mac": thisMac, "github": github, "models": models, "chatgpt": false, "capacity": capacity}
 	repository, err := q.GetInstallSetting(ctx, "repository")
 	if err == nil {
 		var slug string

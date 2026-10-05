@@ -2,7 +2,6 @@ import { z } from "zod"
 import { SetupCardSchema, SetupStepIdSchema, SETUP_STEP_IDS, type SetupStepId, type SetupCard } from "@smthrs/rpc/SetupCard"
 import { SettingsCardSchema, type SettingsCard } from "@smthrs/rpc/SettingsCard"
 import { HttpUrlSchema } from "@smthrs/rpc/WebUrl"
-import { ActionSchema } from "@smthrs/rpc/CardAction"
 
 // T-APP-03: T-INS-06 wire states are mapped only at the View boundary.
 export const InstallErrorSchema = z.object({
@@ -20,8 +19,10 @@ export const InstallModelSchema = z.object({
   steps: z.array(z.object({ id: SetupStepIdSchema, state, pct: z.number().min(0).max(100).optional(),
     blocked: z.object({ line: z.string(), fix_url: z.string().url() }).optional(),
     error: InstallErrorSchema.omit({ code: true }).extend({ code: z.string().optional() }).optional() })),
+  /* The one Go host profile (spec §8.2.1); at capacity 0 the host names its limiting term and fix as text (§8.2.1a). */
   this_mac: z.object({ memory_gb: z.number().nonnegative(), disk_free_gb: z.number().nonnegative(),
-    capacity: z.number().int().nonnegative(), limit: z.object({ term: z.string(), fix: ActionSchema }).optional() }),
+    capacity: z.number().int().nonnegative(), perf_cores: z.number().int().nonnegative().optional(),
+    limit: z.object({ term: z.enum(["memory", "cores", "disk"]), fix: z.string() }).optional() }),
   github: z.object({ owner: z.string().optional(), signed_in: z.boolean(), app_installed: z.boolean(),
     squash_allowed: z.boolean().optional(), app_error: z.string().optional() }),
   repository: z.object({ owner: z.string(), name: z.string() }).optional(),
@@ -41,8 +42,15 @@ export const InstallModelSchema = z.object({
     ctx.addIssue({ code: "custom", message: "Install limits exceeded" })
 })
 export type InstallModel = z.infer<typeof InstallModelSchema>
+/**
+ * This Mac's limit as the row shows it: the term, and the host's fix as the row's one control. The fix is done outside
+ * Smithers (free disk, a bigger host), so pressing it re-reads the install (`settings`).
+ */
+export const limitFix = (fix: string) => ({ tag: "settings" as const, label: fix })
 export const setupCardModel = (model: InstallModel): SetupCard => SetupCardSchema.parse({
   ...model,
+  this_mac: { memory_gb: model.this_mac.memory_gb, disk_free_gb: model.this_mac.disk_free_gb, capacity: model.this_mac.capacity,
+    ...(model.this_mac.limit ? { limit: { term: model.this_mac.limit.term, fix: limitFix(model.this_mac.limit.fix) } } : {}) },
   models: ["fast", "coding", "jev"].map(role => model.models.find(model => model.role === role)!)
 })
 export const settingsCardModel = (model: InstallModel, origin: string): SettingsCard => {

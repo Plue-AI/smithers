@@ -9,7 +9,7 @@ import type { CardProps } from "@smthrs/rpc/CardAction"
 import type { SettingsCard } from "@smthrs/rpc/SettingsCard"
 import { cardActions, type CardActionDefinition } from "../flows/cardActions"
 import { installKeyAction, type InstallCardDispatch } from "./installKeyAction"
-import { settingsCardModel } from "../state/seams/InstallModel"
+import { limitFix, settingsCardModel } from "../state/seams/InstallModel"
 import type { InstallAddress, InstallSnapshots } from "../state/seams/InstallSeam"
 import { addressPort as port, parseOrigins as origins, roleKeyActions } from "./SetupCard"
 
@@ -60,9 +60,12 @@ export const SettingsContainer = ({ View, install, dispatch, owner, origin, view
       resolve_input: (input: Record<string, string>) => ({ path: input.path ?? model.wiki_sync?.obsidian?.path ?? "" }) }]),
     ...roleKeyActions(key!.definition, model, { field: "key" }, !snapshot.seed)
   ] : []
-  const bindings = cardActions(key?.dispatch ?? dispatch, definitions)
+  /* This Mac's fix renders inside its row (model.this_mac.limit): it binds for onAction but stays out of the listed actions. */
+  const fix: CardActionDefinition[] = owner && model?.this_mac.limit ? [{ ...limitFix(model.this_mac.limit.fix), command_input: undefined }] : []
+  const listed = cardActions(key?.dispatch ?? dispatch, definitions)
+  const bindings = cardActions(key?.dispatch ?? dispatch, [...definitions, ...fix])
   if (!owner || !model?.health) return null
-  return <View model={settingsCardModel(model, origin)} actions={bindings.actions} gestures={bindings.gestures} onAction={bindings.onAction} view={view} onView={onView} />
+  return <View model={settingsCardModel(model, origin)} actions={listed.actions} gestures={bindings.gestures} onAction={bindings.onAction} view={view} onView={onView} />
 }
 
 /* The settings card (card-kinds.md L5): subject only; the body reads the install and binds through cardActions. */

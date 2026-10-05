@@ -335,10 +335,21 @@ describe("T-APP-03 install seam", () => {
     expect(setup.steps[0]!.error).toEqual({ class: "never", message: "Unsupported address" })
     expect(setup.models.map(model => model.role)).toEqual(["fast", "coding", "jev"])
     expect(setup.chatgpt).toBe(false)
-    expect(setup.this_mac).toEqual(model.this_mac)
+    expect(setup.this_mac).toEqual({ memory_gb: 48, disk_free_gb: 100, capacity: 3 })
     const settings = settingsCardModel(parsed, "http://mini.local:4000")
     expect(settings.health).toEqual(model.health!)
     expect(settings.laptop_lines).toEqual(model.address.origins.map(origin => `smthrs login ${origin}`))
+  })
+  test("GET /api/install's host profile and limiting term reach Setup and Settings as This Mac (#3658)", () => {
+    const wire = { ...installFixture(), capacity: 0, parallel: undefined,
+      this_mac: { memory_gb: 32, disk_free_gb: 60, capacity: 0, perf_cores: 10, limit: { term: "disk", fix: "free 12 GiB on the state volume" } } }
+    const parsed = InstallModelSchema.parse(wire)
+    expect(parsed.this_mac.perf_cores).toBe(10)
+    const mac = { memory_gb: 32, disk_free_gb: 60, capacity: 0, limit: { term: "disk", fix: { tag: "settings" as const, label: "free 12 GiB on the state volume" } } }
+    expect(setupCardModel(parsed).this_mac).toEqual(mac)
+    expect(settingsCardModel(parsed, "http://localhost:4000").this_mac).toEqual(mac)
+    // Only the Go host names a term; an unknown one is refused rather than shown.
+    expect(InstallModelSchema.safeParse({ ...wire, this_mac: { ...wire.this_mac, limit: { term: "model", fix: "x" } } }).success).toBe(false)
   })
   test("install projections refuse missing, duplicate and reordered setup steps", () => {
     const model = installFixture()

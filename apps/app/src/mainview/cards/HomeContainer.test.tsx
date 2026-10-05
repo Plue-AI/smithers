@@ -13,6 +13,7 @@ import { createDesignWorld } from "../state/seams/DesignWorld"
 import { BEN, MAYA } from "../state/seams/DesignWorld/world"
 import { designHomeView } from "../state/seams/DesignWorld/home"
 import { liveChannel } from "../runtime/LiveChannel"
+import { installFixture } from "../state/seams/InstallFixtures.test-support"
 const allowed = new Set<CatalogTag>(["todo.new", "github.retry", "todo", "todo.answer", "todo.retry", "todo.drop", "branch", "merge", "stack.move", "order.ok", "main.reset-to-github", "background.retry", "background.dismiss"])
 const mount = (model: unknown, role: "owner" | "maintainer" | "member" = "owner", admission = allowed) => {
   let props!: HomeViewProps
@@ -359,4 +360,17 @@ test("an install without a home provider shows unavailable and never demo rows",
   expect(markup).not.toContain("Stripe")
   expect(markup).not.toContain("T9")
   controller.design.dispose()
+})
+
+test("Home's machines line reads the install's capacity from GET /api/install, over a served or unavailable stack (#3658)", () => {
+  const model = installFixture(); model.capacity = 2; model.parallel = undefined
+  const installSnapshots = { get: () => ({ model }), subscribe: () => () => {} }
+  const disabled = { ...seeded(MAYA).controller, design: createDesignWorld({ enabled: false }), installSnapshots } as unknown as AppController
+  const markup = renderToStaticMarkup(<ControllerTestProvider controller={disabled}><HomeCard /></ControllerTestProvider>)
+  expect(markup).toContain("Stack unavailable")
+  expect(markup).toContain("0/2 machines")
+  expect(markup.match(/title="Free"/g)).toHaveLength(2)
+  model.capacity = 0
+  expect(renderToStaticMarkup(<ControllerTestProvider controller={disabled}><HomeCard /></ControllerTestProvider>)).toContain("0/0 machines")
+  disabled.design.dispose()
 })

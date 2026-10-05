@@ -699,6 +699,11 @@ export type InstallSetupStatus = {
     memory_gb: number
     disk_free_gb: number
     capacity: number
+    perf_cores?: number
+    limit?: {
+      term: "memory" | "cores" | "disk"
+      fix: string
+    }
   }
   github: {
     owner?: string

@@ -28,13 +28,15 @@ Runtime configuration requires explicit sizes.
 The owner may lower capacity. A write above the formula is refused; every
 read clamps the saved value, including after restore onto a smaller host.
 Lowering prevents another boot and leaves held machines running.
-The authenticated owner can PATCH `/api/host` with `{ "capacity": 1 }`;
+The authenticated owner can PUT `/api/install` with `{ "capacity": 1 }`;
 tokens require `write:user`. Invalid values are refused before persistence.
 
-`smthrs host status` reads the authenticated `/api/host` data:
-`profile`, `limits`, and `machines {in_use, capacity}`. At capacity
-zero, `limits` names the limiting resource, the amount missing (bytes for
-memory/disk, cores for cores), and its fix. A fresh install refuses to start;
+`GET /api/install` (owner only) serves the host in `this_mac`: `memory_gb`,
+`disk_free_gb`, `perf_cores` and the formula `capacity`, beside the owner's
+`capacity`. At formula capacity zero, `this_mac.limit` names the limiting
+term (`memory`, `cores` or `disk`) and its fix, such as
+`free 12 GiB on the state volume`; Settings shows both on its This Mac row,
+and Home's machines line shows the owner's capacity. A fresh install refuses to start;
 an install with an owner keeps serving actions that need no machine.
 
 From a fixed checkout, run the memory calibration with prepared layers and

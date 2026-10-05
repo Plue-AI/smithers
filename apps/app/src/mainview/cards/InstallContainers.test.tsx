@@ -9,6 +9,7 @@ import { SettingsCardSchema } from "@smthrs/rpc/SettingsCard"
 import { SetupCard } from "./SetupCard"
 import { SettingsContainer } from "./SettingsContainer"
 import { installFixture } from "../state/seams/InstallFixtures.test-support"
+import { InstallModelSchema } from "../state/seams/InstallModel"
 import type { InstallSnapshot, InstallSnapshots } from "../state/seams/InstallSeam"
 import type { InstallCardDispatch } from "./installKeyAction"
 
@@ -254,3 +255,30 @@ test("a running App step keeps its own control, prefilled, so the person's press
    const seed = harness({ model, seed: true }); seed.renderSetup(); seed.renderSettings()
    for (const props of [seed.setup()!, seed.settings()!]) expect(props.actions.filter(action => action.tag === "settings.model-key").flatMap(action => action.input ?? []).some(input => input.name === "model")).toBe(false)
  })
+
+/** GET /api/install as the Go host serves a host that fits no machine (host_status_integration_test: 32 GiB, 10 cores, 60 GiB free). */
+const noMachineFits = () => {
+  const model = installFixture()
+  model.capacity = 0; model.parallel = undefined
+  model.this_mac = InstallModelSchema.shape.this_mac.parse({ memory_gb: 32, disk_free_gb: 60, capacity: 0, perf_cores: 10, limit: { term: "disk", fix: "free 12 GiB on the state volume" } })
+  return model
+}
+test("Settings' This Mac row names the host's limiting term and fix, and the fix re-reads the install (#3658)", async () => {
+  const { SettingsView } = await import("./views/SettingsView")
+  const h = harness({ model: noMachineFits() }); h.renderSettings(); const props = h.settings()!
+  expect(props.model.this_mac).toEqual({ memory_gb: 32, disk_free_gb: 60, capacity: 0,
+    limit: { term: "disk", fix: { tag: "settings", label: "free 12 GiB on the state volume" } } })
+  // The fix is the row's own control, never a second loose action under the list.
+  expect(props.actions.map(action => action.tag)).not.toContain("settings")
+  props.onAction("settings", {})
+  expect(h.commands).toEqual([{ tag: "settings", input: undefined }])
+  const markup = renderToStaticMarkup(<SettingsView {...props} />)
+  expect(markup).toContain("No machine fits · disk · ")
+  expect(markup.match(/free 12 GiB on the state volume/g)).toHaveLength(1)
+})
+test("a host that fits a machine shows no limit on Settings (#3658)", () => {
+  const h = harness(); h.renderSettings()
+  expect(h.settings()!.model.this_mac.limit).toBeUndefined()
+  expect(() => h.settings()!.onAction("settings", {})).not.toThrow()
+  expect(h.commands).toEqual([])
+})

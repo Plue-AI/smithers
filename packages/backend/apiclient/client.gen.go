@@ -1232,9 +1232,17 @@ type InstallSetupStatusStepsItemBlocked struct {
 
 // InstallSetupStatusThisMac is generated from docs/api/openapi.yaml.
 type InstallSetupStatusThisMac struct {
-	MemoryGb   float64 `json:"memory_gb"`
-	DiskFreeGb float64 `json:"disk_free_gb"`
-	Capacity   int64   `json:"capacity"`
+	MemoryGb   float64                         `json:"memory_gb"`
+	DiskFreeGb float64                         `json:"disk_free_gb"`
+	Capacity   int64                           `json:"capacity"`
+	PerfCores  *int64                          `json:"perf_cores,omitempty"`
+	Limit      *InstallSetupStatusThisMacLimit `json:"limit,omitempty"`
+}
+
+// InstallSetupStatusThisMacLimit is generated from docs/api/openapi.yaml.
+type InstallSetupStatusThisMacLimit struct {
+	Term string `json:"term"`
+	Fix  string `json:"fix"`
 }
 
 // InstallSetupStatusGithub is generated from docs/api/openapi.yaml.
