@@ -3,7 +3,7 @@ import { afterAll, afterEach, expect, test } from "bun:test"
 import { flushSync } from "react-dom"
 import { createRoot, type Root } from "react-dom/client"
 import type { FileCard } from "@smthrs/rpc/FileCard"
-import { CodeEditorSurface as CodeSurface } from "./CodeEditorSurface"
+import { CodeEditorSurface } from "./CodeEditorSurface"
 import { cardActions } from "../flows/cardActions"
 
 GlobalRegistrator.register()
@@ -20,7 +20,7 @@ const render = (file: FileCard, gestures = false) => {
   ] : [])
   const host = document.createElement("div"); document.body.append(host)
   const root = createRoot(host); roots.push(root)
-  const update = (next: FileCard) => flushSync(() => root.render(<CodeSurface model={next} view={{ maximized: false }} {...bindings} onView={() => {}} />))
+  const update = (next: FileCard) => flushSync(() => root.render(<CodeEditorSurface model={next} view={{ maximized: false }} {...bindings} onView={() => {}} />))
   update(file)
   return { host, calls, update }
 }

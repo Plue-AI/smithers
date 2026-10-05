@@ -236,25 +236,43 @@ export const fileModel = (payload: Extract<Card, { kind: "file" }>["payload"]): 
   }
 }
 
-export const FileCardBody = ({ card, live }: { readonly card: Extract<Card, { kind: "file" }>; readonly live?: { readonly provider: LiveDocProvider; readonly binding: EditorBinding } } & FileCardActions) => {
+export const FileCardBody = ({ card, live, onRunCommand }: { readonly card: Extract<Card, { kind: "file" }>; readonly live?: { readonly provider: LiveDocProvider; readonly binding: EditorBinding } } & FileCardActions) => {
   const payload = card.payload
   const documents = useContext(LiveFileContext)
   const document = live ?? documents?.resolve(payload.ref ?? payload.repo, payload.path)
   // Old binary cards carry no byte count. Do not invent one.
   if (payload.binary) return <p className="code-file-size">Binary file</p>
-  if (document) return <LiveFileBody card={card} document={document} />
-  return <FileContent card={card} model={fileModel(payload)} />
+  if (document) return <LiveFileBody card={card} document={document} onRunCommand={onRunCommand} />
+  return <FileContent card={card} model={fileModel(payload)} onRunCommand={onRunCommand} />
 }
 
-const LiveFileBody = ({ card, document }: { card: Extract<Card, { kind: "file" }>; document: FileDocumentBinding }) => {
+const LiveFileBody = ({ card, document, onRunCommand }: { card: Extract<Card, { kind: "file" }>; document: FileDocumentBinding } & FileCardActions) => {
   const { data: status } = useLiveQuery(q => q.from({ document: document.provider.collection }))
   const model = liveFileModel(fileModel(card.payload), document.provider, document.provider.awareness.getStates())
-  return <FileContent card={card} model={model} binding={status[0]?.editable && model.mode === "live" ? document.binding : undefined} />
+  return <FileContent card={card} model={model} onRunCommand={onRunCommand} binding={status[0]?.editable && model.mode === "live" ? document.binding : undefined} />
 }
 
-const FileContent = ({ card, model, binding }: { card: Extract<Card, { kind: "file" }>; model: FileCard; binding?: EditorBinding | undefined }) => {
+/** Catalog absence keeps execution dark; persisted answers never grant a gesture. */
+export const fileIntelligenceActions = (
+  payload: Extract<Card, { kind: "file" }>["payload"],
+  onRunCommand: RunCommand,
+  available: (tag: "code.hover" | "code.definition") => boolean
+) => cardActions<"hover" | "definition">((tag, input) => {
+  if (tag !== "code.hover" && tag !== "code.definition") return
+  const position = input as { path: string; line: number; col: number }
+  flowAction(onRunCommand, tag, fileArgs(`${position.path}:${position.line}:${position.col + 1}`, payload.localRepoId ?? payload.repo)).onClick()
+}, (["hover", "definition"] as const).flatMap(gesture => {
+  const tag = gesture === "hover" ? "code.hover" as const : "code.definition" as const
+  return available(tag) ? [{ tag, label: "", gesture,
+    command_input: { path: payload.path, line: payload.line ?? 1, col: (payload.column ?? 1) - 1 },
+    resolve_input: (input: Record<string, string>) => ({ path: payload.path, line: Number(input.line), col: Number(input.col) })
+  }] : []
+}))
+
+const FileContent = ({ card, model, binding, onRunCommand }: { card: Extract<Card, { kind: "file" }>; model: FileCard; binding?: EditorBinding | undefined } & FileCardActions) => {
   const payload = card.payload
-  const bindings = cardActions<"hover" | "definition">(() => {}, [])
+  const controller = useContext(ControllerContext)
+  const bindings = fileIntelligenceActions(payload, onRunCommand, tag => controller?.commands.find(tag) !== undefined)
   return <div className="world-card-panel" data-line={payload.line}>
     <LazyViewerBoundary fallback={<pre className="world-card-path">{payload.content}</pre>}>
       <Suspense fallback={<pre className="world-card-path">{payload.content}</pre>}>
