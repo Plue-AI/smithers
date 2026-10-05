@@ -444,7 +444,7 @@ func TestSquashMergeIsHeadBoundAndProjectsOnlyAfterTheWrite(t *testing.T) {
 	require.Len(t, pull.MergeCommitSHA, 40)
 	require.Equal(t, "closed", pull.State)
 	firstSHA, firstTime := pull.MergeCommitSHA, *pull.MergedAt
-	require.Equal(t, 200, merge(pull.Head.SHA, "squash"))
+	require.Equal(t, 405, merge(pull.Head.SHA, "squash"), "GitHub refuses to merge a merged pull request")
 	_, body = request(t, server, "GET", "/repos/acme/app/pulls/1", access.Token, nil)
 	require.NoError(t, json.Unmarshal(body, &pull))
 	require.Equal(t, firstSHA, pull.MergeCommitSHA)
@@ -977,8 +977,8 @@ func TestProtectionPermissionsAndMergeTimeEnforcement(t *testing.T) {
 	require.True(t, read.Merged, "GitHub took the merge its answer lost")
 	status, _ = answer("GET", "/repos/acme/app/compare/main..."+read.MergeCommitSHA, admin, nil)
 	require.Equal(t, 200, status)
-	status, _ = merge(first, contents)
-	require.Equal(t, 200, status)
+	status, text = merge(first, contents)
+	require.Equal(t, []any{405, "Pull Request is not mergeable"}, []any{status, text}, "the merge it took is not taken again")
 	require.Equal(t, 1, hooked, "a hook runs once")
 
 	release := open("smithers/release", "release")
@@ -1009,4 +1009,63 @@ func TestProtectionPermissionsAndMergeTimeEnforcement(t *testing.T) {
 	server.SetInstallationPermission("administration", "read")
 	status, _ = mint(map[string]string{"administration": "read"})
 	require.Equal(t, 201, status)
+}
+
+// A merge request that times out while GitHub completes it later, and a
+// merge a person makes on github.com: neither is answered by the request
+// that asked, and each is one merge.
+func TestDelayedMergesAndMergesByAPerson(t *testing.T) {
+	server, cfg, key := fixture(t)
+	status, body := request(t, server, "POST", "/app/installations/91/access_tokens", jwt(t, key, cfg.AppID, time.Now().Add(time.Minute)), nil)
+	require.Equal(t, 201, status)
+	var access struct {
+		Token string `json:"token"`
+	}
+	require.NoError(t, json.Unmarshal(body, &access))
+	open := func(head string) Pull {
+		t.Helper()
+		status, body := request(t, server, "POST", "/repos/acme/app/pulls", access.Token, []byte(`{"title":"T","head":"`+head+`","base":"main"}`))
+		require.Equal(t, 201, status)
+		var pull Pull
+		require.NoError(t, json.Unmarshal(body, &pull))
+		return pull
+	}
+	read := func(number int64) Pull {
+		t.Helper()
+		_, body := request(t, server, "GET", fmt.Sprintf("/repos/acme/app/pulls/%d", number), access.Token, nil)
+		var pull Pull
+		require.NoError(t, json.Unmarshal(body, &pull))
+		return pull
+	}
+	merge := func(pull Pull) int {
+		t.Helper()
+		body, _ := json.Marshal(map[string]string{"sha": pull.Head.SHA, "merge_method": "squash"})
+		status, _ := request(t, server, "PUT", fmt.Sprintf("/repos/acme/app/pulls/%d/merge", pull.Number), access.Token, body)
+		return status
+	}
+
+	delayed := open("smithers/delayed")
+	server.DelayNextMerge("acme/app", delayed.Number)
+	require.Equal(t, 502, merge(delayed))
+	require.False(t, read(delayed.Number).Merged, "not yet: GitHub is still completing it")
+	server.CompleteDelayedMerges()
+	merged := read(delayed.Number)
+	require.True(t, merged.Merged, "GitHub completed the merge the request asked for")
+	status, _ = request(t, server, "GET", "/repos/acme/app/compare/main..."+merged.MergeCommitSHA, access.Token, nil)
+	require.Equal(t, 200, status)
+	require.Equal(t, 405, merge(merged))
+	server.CompleteDelayedMerges()
+	require.Equal(t, merged.MergeCommitSHA, read(delayed.Number).MergeCommitSHA, "completed once")
+
+	person := open("smithers/person")
+	server.MergeAsPerson("acme/app", person.Number)
+	require.True(t, read(person.Number).Merged)
+	require.Equal(t, 405, merge(person), "the App's merge after a person's is refused")
+	puts := 0
+	for _, write := range server.Writes() {
+		if write.Method == "PUT" {
+			puts++
+		}
+	}
+	require.Equal(t, 3, puts, "a person's merge is not an App write")
 }

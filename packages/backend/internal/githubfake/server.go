@@ -105,6 +105,10 @@ type Server struct {
 	held     []string
 	holdMain bool
 	refusals map[string]Refusal
+	// delayed are the pull requests whose next merge times out; pending are
+	// the merges GitHub has yet to complete.
+	delayed  map[string]bool
+	pending  []string
 	checks   map[string][]CheckRun
 	required []string
 	// protected is whether main has classic branch protection; GitHub
@@ -317,6 +321,59 @@ func (s *Server) view(p Pull) Pull {
 	return p
 }
 
+// merge squash-merges an open pull request as GitHub does: into its base,
+// whatever it is, main containing the commit unless HoldMain holds it.
+func (s *Server) merge(key string, p Pull) Pull {
+	now := time.Now().UTC()
+	p.Merged = true
+	p.MergedAt = &now
+	p.State = "closed"
+	digest := sha256.Sum256([]byte("squash/" + key + "/" + p.Head.SHA))
+	p.MergeCommitSHA = fmt.Sprintf("%x", digest)[:40]
+	s.pulls[key] = p
+	switch {
+	case p.Base.Ref != "main":
+	case s.holdMain:
+		s.held = append(s.held, p.MergeCommitSHA)
+	default:
+		s.main[p.MergeCommitSHA] = true
+	}
+	return p
+}
+
+// DelayNextMerge makes the next merge of repo#number GitHub accepts answer
+// 502 and take no effect until CompleteDelayedMerges: a request that times
+// out while GitHub is still completing it.
+func (s *Server) DelayNextMerge(repo string, number int64) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.delayed[repo+"/"+strconv.FormatInt(number, 10)] = true
+}
+
+// CompleteDelayedMerges completes every delayed merge whose pull request is
+// still open.
+func (s *Server) CompleteDelayedMerges() {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	for _, key := range s.pending {
+		if p := s.current(key); p.State == "open" {
+			s.merge(key, p)
+		}
+	}
+	s.pending = nil
+}
+
+// MergeAsPerson merges repo#number at its head outside the App, as a person
+// on github.com would; it is not an App write.
+func (s *Server) MergeAsPerson(repo string, number int64) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	key := repo + "/" + strconv.FormatInt(number, 10)
+	if p := s.current(key); p.State == "open" {
+		s.merge(key, p)
+	}
+}
+
 // protectionRefusal is GitHub's refusal of a merge main's protection does
 // not allow when it is asked: a required check missing or not green on the
 // head, then the review rule; empty when protection allows it.
@@ -381,7 +438,7 @@ func Handler(config Config) (*Server, error) {
 	config.Installations = installations
 	s := &Server{config: config, key: &key.PublicKey, tokens: make(map[string]int64), pulls: make(map[string]Pull),
 		grants: make(map[string]map[string]string), lost: make(map[string]int), failures: make(map[string]int), unread: make(map[string]int), hooks: make(map[string]func()),
-		labels: make(map[string][]string), main: make(map[string]bool), refusals: make(map[string]Refusal), checks: make(map[string][]CheckRun),
+		labels: make(map[string][]string), main: make(map[string]bool), refusals: make(map[string]Refusal), delayed: make(map[string]bool), checks: make(map[string][]CheckRun),
 		accounts: make(map[int64]string), access: make(map[string]string), reviews: make(map[string]map[string]string)}
 	s.codes = make(map[string]string)
 	if config.OAuthCode != "" {
@@ -939,35 +996,29 @@ func (s *Server) pullRequest(r *http.Request, repo string, path []string, body [
 				delete(s.refusals, key)
 				return failure(refusal.Status, refusal.Message)
 			}
+			if p.Merged {
+				// GitHub refuses a merge of a merged pull request.
+				return failure(405, "Pull Request is not mergeable")
+			}
 			if input.SHA != p.Head.SHA {
 				return failure(409, "Head branch was modified")
 			}
-			if p.Draft || (p.State != "open" && !p.Merged) {
+			if p.Draft || p.State != "open" {
 				return failure(405, "Pull request is not mergeable")
 			}
-			if refusal := s.protectionRefusal(repo, p); !p.Merged && refusal != "" {
+			if refusal := s.protectionRefusal(repo, p); refusal != "" {
 				return failure(405, refusal)
 			}
-			if !p.Merged && p.MergeableState == "dirty" {
+			if p.MergeableState == "dirty" {
 				return failure(405, "Pull Request is not mergeable")
 			}
-			if !p.Merged {
-				now := time.Now().UTC()
-				p.Merged = true
-				p.MergedAt = &now
-				p.State = "closed"
-				digest := sha256.Sum256([]byte("squash/" + key + "/" + p.Head.SHA))
-				p.MergeCommitSHA = fmt.Sprintf("%x", digest)[:40]
-				s.pulls[key] = p
-				// GitHub merges into the pull request's base, whatever it is.
-				switch {
-				case p.Base.Ref != "main":
-				case s.holdMain:
-					s.held = append(s.held, p.MergeCommitSHA)
-				default:
-					s.main[p.MergeCommitSHA] = true
-				}
+			if s.delayed[key] {
+				// The request times out; GitHub completes the merge later.
+				delete(s.delayed, key)
+				s.pending = append(s.pending, key)
+				return failure(http.StatusBadGateway, "Bad Gateway")
 			}
+			p = s.merge(key, p)
 			return 200, map[string]any{"merged": true, "sha": p.MergeCommitSHA, "message": "Pull Request successfully merged"}
 		}
 	}
