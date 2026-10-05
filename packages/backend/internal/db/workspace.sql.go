@@ -1071,6 +1071,9 @@ SELECT id, repository_id, user_id, name, is_fork, parent_workspace_id, target_bo
 WHERE repository_id = $1
   AND target_bookmark = $2::text
   AND deleted_at IS NULL
+  AND NOT EXISTS (SELECT 1 FROM workspace_children c WHERE c.workspace_id = workspaces.id)
+ORDER BY (status IN ('pending', 'starting', 'running', 'suspended')) DESC, created_at DESC
+LIMIT 1
 FOR UPDATE
 `
 
@@ -1079,7 +1082,9 @@ type GetBranchWorkspaceParams struct {
 	TargetBookmark string `json:"target_bookmark"`
 }
 
-// Includes excluded-index sources and retained failures; none permit replacement.
+// The branch's one machine (uq_workspaces_active), or a retained failure that
+// no replacement may bypass. A child (workspace_children) is a copy of its
+// parent's machine on the same branch, never the branch's machine.
 func (q *Queries) GetBranchWorkspace(ctx context.Context, arg GetBranchWorkspaceParams) (Workspace, error) {
 	row := q.db.QueryRow(ctx, getBranchWorkspace, arg.RepositoryID, arg.TargetBookmark)
 	var i Workspace

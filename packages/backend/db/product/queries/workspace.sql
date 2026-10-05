@@ -990,11 +990,16 @@ ORDER BY client_lease_expires_at ASC
 LIMIT sqlc.arg(max_rows)::integer;
 
 -- name: GetBranchWorkspace :one
--- Includes excluded-index sources and retained failures; none permit replacement.
+-- The branch's one machine (uq_workspaces_active), or a retained failure that
+-- no replacement may bypass. A child (workspace_children) is a copy of its
+-- parent's machine on the same branch, never the branch's machine.
 SELECT * FROM workspaces
 WHERE repository_id = sqlc.arg(repository_id)
   AND target_bookmark = sqlc.arg(target_bookmark)::text
   AND deleted_at IS NULL
+  AND NOT EXISTS (SELECT 1 FROM workspace_children c WHERE c.workspace_id = workspaces.id)
+ORDER BY (status IN ('pending', 'starting', 'running', 'suspended')) DESC, created_at DESC
+LIMIT 1
 FOR UPDATE;
 
 -- name: GetBranchMachineOwner :one
