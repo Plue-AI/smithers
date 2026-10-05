@@ -9,7 +9,9 @@ const directory = mkdtempSync(join(tmpdir(), "flows-examples-"))
 
 afterAll(() => rmSync(directory, { recursive: true, force: true }))
 
-it.effect("resumes a suspended run without re-dispatching completed work", () =>
+// `it.live` rather than `it.effect`: `main` polls for the durable park on a
+// schedule, and a test clock nobody advances would leave that poll asleep forever.
+it.live("resumes a suspended run without re-dispatching completed work", () =>
   Effect.gen(function*() {
     const summary = yield* (main(join(directory, "review.sqlite")))
     expect(summary.result).toBe("rfc:draft body:approved")

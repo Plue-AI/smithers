@@ -9,7 +9,9 @@ const directory = mkdtempSync(join(tmpdir(), "flows-examples-"))
 
 afterAll(() => rmSync(directory, { recursive: true, force: true }))
 
-it.effect("gates a launch on a plan approval and ends a durable wait with a signal", () =>
+// `it.live` rather than `it.effect`: `main` polls the run list for each park on
+// a schedule, and a test clock nobody advances would leave that poll asleep forever.
+it.live("gates a launch on a plan approval and ends a durable wait with a signal", () =>
   Effect.gen(function*() {
     const summary = yield* main(join(directory, "ship.sqlite"))
 

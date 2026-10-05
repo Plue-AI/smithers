@@ -9,7 +9,9 @@ const directory = mkdtempSync(join(tmpdir(), "flows-examples-"))
 
 afterAll(() => rmSync(directory, { recursive: true, force: true }))
 
-it.effect("re-asks on a new wait point and resumes the question across restarts", () =>
+// `it.live` rather than `it.effect`: `main` polls for each new wait point on a
+// schedule, and a test clock nobody advances would leave that poll asleep forever.
+it.live("re-asks on a new wait point and resumes the question across restarts", () =>
   Effect.gen(function*() {
     const summary = yield* main(join(directory, "release.sqlite"))
 

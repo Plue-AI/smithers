@@ -44,7 +44,7 @@ import type * as ControlSchema from "@smthrs/control/ControlSchema"
 import * as ControlServer from "@smthrs/control/ControlServer"
 import * as DurableWriter from "@smthrs/database/DurableWriter"
 import * as NodeDatabase from "@smthrs/database/node/NodeDatabase"
-import { Action, Flow, type FlowRuntime, Interpreter, WaitFor } from "@smthrs/flow"
+import { Action, Flow, FlowRuntime, Interpreter, WaitFor } from "@smthrs/flow"
 import { NotificationQueue } from "@smthrs/notifications"
 import { Executable, Registry } from "@smthrs/registry"
 import { Migrations as RunStoreMigrations, RunStore } from "@smthrs/run-store"
@@ -111,6 +111,11 @@ const bridge: Executable.Options = { delegates: [Ship] }
  * says `any`. The host does know, because it registered the delegate, so the
  * launch is narrowed here instead of letting `any` widen every effect
  * downstream of it.
+ *
+ * `discard` answers once the engine durably admits the run and drives it in
+ * the background, so the launch then joins that drive with a background-poll
+ * resume. The row the executor mirrors afterwards is the park, not the
+ * `running` admission left behind, and no resume request is recorded.
  */
 const launch = (
   executable: Executable.Executable,
@@ -121,7 +126,15 @@ const launch = (
     string,
     unknown,
     FlowRuntime.FlowRuntime | Crypto.Crypto
-  >).pipe(Effect.orDie)
+  >).pipe(
+    Effect.orDie,
+    Effect.tap(() =>
+      Effect.gen(function*() {
+        const runtime = yield* FlowRuntime.FlowRuntime
+        yield* runtime.resume(executable.flow, executionId, { poll: true })
+      })
+    )
+  )
 
 /** The base URL of a listening TCP server. */
 const addressOf = (server: HttpServer.HttpServer["Service"]): string => {
