@@ -96,7 +96,7 @@ export const seedIssueSeven = async (f: Reference): Promise<void> => {
   }
 }
 export const todoCard = (page: Page, n: number) => page.locator('.smithers-card[data-kind="todo"]').filter({ hasText: new RegExp(`\\bT${n}\\b`) }).last()
-export const home = (page: Page) => page.locator('.smithers-card[data-kind="home"]').last()
+export const home = (page: Page) => page.locator('.smithers-card.mvp-home').last()
 export const openTodo = async (page: Page, n: number): Promise<void> => { await runSlash(page, `/todo ${n}`); await expect(todoCard(page, n)).toBeVisible() }
 export const createTodo = async (page: Page, prompt: string): Promise<void> => {
   await command(page, `/todo.new ${prompt}`)

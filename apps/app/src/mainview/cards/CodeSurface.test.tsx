@@ -3,7 +3,7 @@ import { afterAll, afterEach, expect, test } from "bun:test"
 import { flushSync } from "react-dom"
 import { createRoot, type Root } from "react-dom/client"
 import type { FileCard } from "@smthrs/rpc/FileCard"
-import { CodeEditorView as CodeSurface } from "./views/CodeEditorView"
+import { CodeEditorSurface as CodeSurface } from "./CodeEditorSurface"
 import { cardActions } from "../flows/cardActions"
 
 GlobalRegistrator.register()

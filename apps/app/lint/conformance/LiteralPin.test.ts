@@ -34,6 +34,8 @@ import {
   assertsAgainstTheApp,
   cardIdPrefixes,
   cardKinds,
+  renderedCardKinds,
+  cardActionNames,
   cardObjectFields,
   composedDottedHeads,
   declaredFlowNames,
@@ -76,6 +78,14 @@ interface Excuse {
  * list cannot outlive what it excuses.
  */
 const RESOLVES_ELSEWHERE: ReadonlyArray<Excuse> = [
+  {
+    literal: "fixture-", file: "e2e/real/portable/owned-repository.ts",
+    reason: "A random text marker written into fixture.txt by pushLocalFixture; it is file content, never a card ID."
+  },
+  {
+    literal: "local-draft-", file: "e2e/real/wiki-collaboration.spec.ts",
+    reason: "The local note's human-authored title passed to createNote; the note API supplies its own card ID."
+  },
   {
     literal: "owner-session",
     file: "scripts/run-mode-matrix.ts",
@@ -183,6 +193,8 @@ const manifest = await manifestFlowNames()
 const vocabularies: Vocabularies = {
   flowNames: declaredFlowNames(),
   cardKinds: cardKinds(),
+  renderedCardKinds: renderedCardKinds(),
+  cardActionNames: cardActionNames(),
   cardIdPrefixes: cardIdPrefixes(),
   dataAttributes: new Set([...emittedDataAttributes(), ...stampedDataAttributes(TREES)]),
   dottedIdentifiers: productDottedIdentifiers(),
@@ -866,4 +878,84 @@ describe("the suggestion is a lead, not noise", () => {
     expect(nearest("data-command", vocabularies.dataAttributes)).toBeUndefined()
     expect(nearest("zzzzzzzzzzzzzzzzzzzz", vocabularies.cardKinds)).toBeUndefined()
   })
+})
+
+
+test("explicit absence assertions distinguish removed affordances from positive checks", () => {
+  for (const source of [
+    `await expect(page.locator('[data-flow="flow.retired"]')).toHaveCount(0)`,
+    `await expect(page.getByText("model.retired", { exact: true }).last()).toHaveCount(0)`
+  ]) expect(extractLiterals("example.spec.ts", source).flatMap(literal => violationsOf(literal, vocabularies))).toEqual([])
+  for (const source of [
+    `await expect(page.locator('[data-flow="flow.retired"]')).toHaveCount(1)`,
+    `await expect(page.locator('[data-flow="flow.retired"]')).not.toHaveCount(0)`,
+    `await expect(page.locator('[data-flow="flow.retired"]')).toBeVisible()`,
+    `runFlow("flow.retired")`
+  ]) expect(extractLiterals("example.spec.ts", source).flatMap(literal => violationsOf(literal, vocabularies)).length).toBeGreaterThan(0)
+})
+
+
+test("rendered kinds and typed actions cannot widen wire cards or invocable flows", () => {
+  const surfaceVocabulary = { ...vocabularies, renderedCardKinds: new Set(["design-surface"]), cardActionNames: new Set(["surface.confirm"]) }
+  expect(extractLiterals("example.spec.ts", `page.locator('[data-kind="design-surface"][data-flow="surface.confirm"]')`).flatMap(literal => violationsOf(literal, surfaceVocabulary))).toEqual([])
+  expect(extractLiterals("example.spec.ts", `card.kind === "design-surface"; runFlow("surface.confirm")`).flatMap(literal => violationsOf(literal, surfaceVocabulary)).map(row => row.rule)).toEqual(expect.arrayContaining(["card-kind", "flow"]))
+})
+
+describe("non-card discriminator provenance", () => {
+  const reference = (source: string) => `import { withReference } from "./todo/reference"; withReference(browser, info, async fixture => { ${source} });`
+  const claims = (source: string) => extractLiterals("/fixture/domains.ts", source)
+    .filter(literal => literal.kindClaim).map(literal => literal.value)
+  test("TODO evidence, run events and SQL activity trace through aliases and callback parameters", () => {
+    expect(claims(reference(`
+      let todo: any;
+      todo = await fixture.read("Will", "/api/todos/1");
+      const attempt = todo.evidence.find(e => e.attempt === 1);
+      const evidence = attempt.items as any[];
+      evidence.find(e => e.kind === "diff_stat");
+      todo.evidence.find(e => e.items.some(i => i.kind === "review_summary"));
+      const run = await fixture.read("Will", \`/api/runs/\${todo.run_id}\`);
+      run.events.filter(event => event.kind === "answer");
+      const events = fixture.sql("SELECT * FROM product_job_events WHERE todo_id = 1");
+      events.find(event => event.kind === "wait_opened");
+      const activity = fixture.sql("SELECT * FROM branch_activity");
+      activity[0].kind === "steer";
+    `))).toEqual([])
+  })
+  test("the imported ActorChip fixture establishes the actor domain without a value allowlist", () => {
+    expect(claims(`import { fixtures as actors } from "@smthrs/rpc/fixtures/ActorChip";
+      const actor = key ? actors[key]?.model.actor : undefined;
+      actor?.kind === "agent";
+    `)).toEqual([])
+  })
+  test("unproven receivers, card APIs, shadowed bindings and mixed assignments retain card claims", () => {
+    for (const source of [
+      'evidence.find(e => e.kind === "diff_stat")',
+      'const fixture = { read: () => card }; const todo = await fixture.read("Will", "/api/todos/1"); todo.evidence.find(e => e.kind === "diff_stat")',
+      'const todo = await fixture.read("Will", "/api/cards/1"); todo.evidence.find(e => e.kind === "diff_stat")',
+      'const events = fixture.sql("SELECT * FROM cards"); events.find(e => e.kind === "wait_opened")',
+      'const todo = await fixture.read("Will", "/api/todos/1"); { const todo = other; todo.evidence.find(e => e.kind === "diff_stat") }',
+      'let todo = await fixture.read("Will", "/api/todos/1"); todo = other; todo.evidence.find(e => e.kind === "diff_stat")',
+      'import { fixtures as actors } from "./lookalike"; actors[key].model.actor.kind === "agent"',
+      'const card = { id: "one", title: "Bad", payload: {}, kind: "diff_stat" }; card.kind === "diff_stat"'
+    ]) expect(claims(reference(source)).length).toBeGreaterThan(0)
+  })
+})
+
+
+test("external input and artifacts retain checks when reused as product lookups", () => {
+  expect(extractLiterals("example.spec.ts", `const text = "model.external"; input.fill(text)`).flatMap(literal => violationsOf(literal, vocabularies))).toEqual([])
+  expect(extractLiterals("example.spec.ts", `const text = "model.external"; input.fill(text); runFlow(text)`).flatMap(literal => violationsOf(literal, vocabularies)).map(row => row.rule)).toContain("dotted-identifier")
+  expect(extractLiterals("example.spec.ts", `const text = \`draft-private-\${Date.now()}\`; input.fill(text); page.getByTestId(text)`).flatMap(literal => violationsOf(literal, vocabularies)).map(row => row.rule)).toContain("card-id-prefix")
+  expect(extractLiterals("example.spec.ts", `expect(basename(owner.home).startsWith("smithers-browser-test-")).toBe(true)`).flatMap(literal => violationsOf(literal, vocabularies))).toEqual([])
+  expect(extractLiterals("example.spec.ts", `expect(card.id.startsWith("smithers-browser-test-")).toBe(true)`).flatMap(literal => violationsOf(literal, vocabularies)).map(row => row.rule)).toContain("card-id-prefix")
+})
+
+
+test("external spy evidence requires an executable recording call", () => {
+  expect(extractLiterals("example.spec.ts", `const calls = []; const action = name => () => { calls.push(name) }; const keyboard = { press: action("key.press") }`).flatMap(literal => violationsOf(literal, vocabularies))).toEqual([])
+  for (const source of [
+    `const action = name => { /* calls.push(name) */ return () => {} }; action("key.press")`,
+    `const calls = []; const action = name => () => { calls.push("unrelated") }; action("key.press")`,
+    `const calls = []; const action = name => () => { calls.push(name) }; runFlow("key.press")`
+  ]) expect(extractLiterals("example.spec.ts", source).flatMap(literal => violationsOf(literal, vocabularies)).length).toBeGreaterThan(0)
 })

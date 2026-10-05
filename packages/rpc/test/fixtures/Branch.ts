@@ -26,11 +26,12 @@ const base: BranchCard = {
   changed_files: [],
   ssh_line: "ssh -p 2222 todo-12@mac-mini.local"
 }
+const { item: baseItem, ...branchWithoutItem } = base
+const { step: _step, ...itemWithoutStep } = baseItem!
 const scratch: BranchCard = {
-  ...base,
+  ...branchWithoutItem,
   id: "scratch-repro",
   name: "scratch/repro",
-  item: undefined,
   scratch: { forked_from: { kind: "main" } },
   ssh_line: "ssh -p 2222 scratch-repro@mac-mini.local"
 }
@@ -65,7 +66,7 @@ const states = {
   }),
   closed: story(
     "Machine closed",
-    { ...base, item: { ...base.item!, state: "merged", step: undefined }, machine: { state: "closed" } },
+    { ...base, item: { ...itemWithoutStep, state: "merged" }, machine: { state: "closed" } },
     { expect: ["Card model contracts"] }
   ),
   failed: story(
@@ -104,7 +105,7 @@ const states = {
   ),
   moved_off: story(
     "Moved off to T15",
-    { ...base, item: { ...base.item!, state: "needs_you", step: undefined }, moved_off: { by: person, item: 15 } },
+    { ...base, item: { ...itemWithoutStep, state: "needs_you" }, moved_off: { by: person, item: 15 } },
     {
       actions: [
         { tag: "todo.return-to-item", label: "Return to T15", args: { n: "15" }, primary: true },
@@ -113,13 +114,13 @@ const states = {
       expect: ["Ben"]
     }
   ),
-  queued_item: story("Queued item", { ...base, item: { ...base.item!, state: "queued", step: undefined } }, { expect: ["Card model contracts"] }),
-  starting_item: story("Starting item", { ...base, item: { ...base.item!, state: "starting", step: undefined } }, { expect: ["Card model contracts"] }),
-  needs_you_item: story("Item needs you", { ...base, item: { ...base.item!, state: "needs_you", step: undefined } }, { expect: ["Card model contracts"] }),
-  paused_item: story("Paused item", { ...base, item: { ...base.item!, state: "paused", step: undefined } }, { expect: ["Card model contracts"] }),
-  failed_item: story("Failed item", { ...base, item: { ...base.item!, state: "failed", step: undefined } }, { expect: ["Card model contracts"] }),
-  review_item: story("Item in review", { ...base, item: { ...base.item!, state: "in_review", step: undefined } }, { expect: ["Card model contracts"] }),
-  dropped_item: story("Dropped item", { ...base, item: { ...base.item!, state: "dropped", step: undefined } }, { expect: ["Card model contracts"] }),
+  queued_item: story("Queued item", { ...base, item: { ...itemWithoutStep, state: "queued" } }, { expect: ["Card model contracts"] }),
+  starting_item: story("Starting item", { ...base, item: { ...itemWithoutStep, state: "starting" } }, { expect: ["Card model contracts"] }),
+  needs_you_item: story("Item needs you", { ...base, item: { ...itemWithoutStep, state: "needs_you" } }, { expect: ["Card model contracts"] }),
+  paused_item: story("Paused item", { ...base, item: { ...itemWithoutStep, state: "paused" } }, { expect: ["Card model contracts"] }),
+  failed_item: story("Failed item", { ...base, item: { ...itemWithoutStep, state: "failed" } }, { expect: ["Card model contracts"] }),
+  review_item: story("Item in review", { ...base, item: { ...itemWithoutStep, state: "in_review" } }, { expect: ["Card model contracts"] }),
+  dropped_item: story("Dropped item", { ...base, item: { ...itemWithoutStep, state: "dropped" } }, { expect: ["Card model contracts"] }),
   scratch_ready: story("Scratch conflict ready to finish", { ...scratch, rebase: { state: "conflict", onto: "main", paths: ["packages/rpc/src/HomeCard.ts"] } }, {
     actions: [{ tag: "branch.rebase", label: "Done", args: { branch: "scratch/repro", conflict_change: "conflict-1", onto_revision: "main-revision" } }], expect: ["packages/rpc/src/HomeCard.ts"]
   }),

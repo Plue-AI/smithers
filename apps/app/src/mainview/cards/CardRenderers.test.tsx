@@ -328,12 +328,14 @@ test("legacy File and Diff render with live controls dark", async () => {
     for (const card of cards) {
       await act(async () => root.render(renderCardBody(card, { ...handlers, onRunCommand: (...args) => { calls.push(args) } })))
       if (card.kind === "file") {
-        for (let tick = 0; tick < 300 && !host.querySelector(".code-surface"); tick++) await act(async () => { await new Promise(resolve => setTimeout(resolve, 10)) })
-        expect(host.querySelector(".code-surface")).not.toBeNull()
+        // #3628 (6451c97b21) restored CodeMirror for the same read-only card.
+        for (let tick = 0; tick < 300 && !host.querySelector(".cm-content"); tick++) await act(async () => { await new Promise(resolve => setTimeout(resolve, 10)) })
+        expect(host.querySelector(".cm-content")).not.toBeNull()
+        expect(host.querySelector(".cm-content")?.getAttribute("aria-readonly")).toBe("true")
       }
       expect(host.querySelector(".code-file-notice")).toBeNull()
       expect(host.querySelector('button[data-flow^="file."]')).toBeNull()
-      const region = host.querySelector(".code-surface") ?? host
+      const region = host.querySelector(".cm-content") ?? host
       await act(async () => {
         region.dispatchEvent(new MouseEvent("pointermove", { bubbles: true }))
         region.dispatchEvent(new MouseEvent("click", { ctrlKey: true, bubbles: true }))

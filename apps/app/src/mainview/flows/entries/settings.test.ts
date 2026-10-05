@@ -101,7 +101,7 @@ describe("T-APP-03 settings command doors", () => {
     } finally { await h.controller.dispose() }
   })
   test.each([["settings.capacity", "1", "capacity"], ["settings.parallel", "1", "parallel"]] as const)("%s writes the live install, not the seed, once the card shows it", async (name, args, field) => {
-    const h = await harness({ apiVersion: 1, host: "local", version: "1.0.0", buildSha: "abcdef1234567890", capabilities: ["agent"], authFlow: "none", sandbox: { platform: "darwin", mode: "enforced" } })
+    const h = await harness({ apiVersion: 1, host: "local", version: "1.0.0", buildSha: "abcdef1234567890", capabilities: ["agent", "install"], authFlow: "none", sandbox: { platform: "darwin", mode: "enforced" } })
     try {
       await tick()
       expect(h.controller.installSnapshots.get().model).toBeDefined()
@@ -126,7 +126,7 @@ describe("T-APP-03 settings command doors", () => {
     } finally { await h.controller.dispose() }
   })
   test("settings.address writes the live install, not the seed, once the card shows it", async () => {
-    const h = await harness({ apiVersion: 1, host: "local", version: "1.0.0", buildSha: "abcdef1234567890", capabilities: ["agent"], authFlow: "none", sandbox: { platform: "darwin", mode: "enforced" } })
+    const h = await harness({ apiVersion: 1, host: "local", version: "1.0.0", buildSha: "abcdef1234567890", capabilities: ["agent", "install"], authFlow: "none", sandbox: { platform: "darwin", mode: "enforced" } })
     try {
       await tick()
       expect(h.controller.installSnapshots.get().model).toBeDefined()
@@ -137,8 +137,8 @@ describe("T-APP-03 settings command doors", () => {
       expect(h.controller.design.world().repo.setup.addresses).toEqual(seeded)
     } finally { await h.controller.dispose() }
   })
-  test("a local host with no install route opens quietly on the seed; an unreachable install shows its failure", async () => {
-    const local: AppBootstrap = { apiVersion: 1, host: "local", version: "1.0.0", buildSha: "abcdef1234567890", capabilities: ["agent"], authFlow: "none", sandbox: { platform: "darwin", mode: "enforced" } }
+  test("an advertised install with no route opens quietly; an unreachable install shows its failure", async () => {
+    const local: AppBootstrap = { apiVersion: 1, host: "local", version: "1.0.0", buildSha: "abcdef1234567890", capabilities: ["agent", "install"], authFlow: "none", sandbox: { platform: "darwin", mode: "enforced" } }
     const missing = await harness(local, () => new Response("Not found", { status: 404 }))
     try {
       await tick()
@@ -185,8 +185,8 @@ describe("T-APP-03 settings command doors", () => {
     } finally { await h.controller.dispose() }
   })
   test("a card key field reaches the same command once without entering durable card state", async () => {
-    // The local host reads the install at start, so the key write has a model to check against.
-    const h = await harness({ apiVersion: 1, host: "local", version: "1.0.0", buildSha: "abcdef1234567890", capabilities: ["agent"], authFlow: "none", sandbox: { platform: "darwin", mode: "enforced" } })
+    // The install capability reads the install at start, so the key write has a model to check against.
+    const h = await harness({ apiVersion: 1, host: "local", version: "1.0.0", buildSha: "abcdef1234567890", capabilities: ["agent", "install"], authFlow: "none", sandbox: { platform: "darwin", mode: "enforced" } })
     try {
       await h.controller.commands.run("settings"); await tick()
       const dispatch: InstallCardDispatch = (tag, input, gesture) =>

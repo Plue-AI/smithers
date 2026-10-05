@@ -349,7 +349,8 @@ test("versioned flow doors register on the design seam; a person's flow.edit dra
   expect(edit.metadata.grammar?.("todo")).toEqual({ payload: { name: "todo" } })
   expect(edit.metadata.grammar?.("todo Add review")).toEqual({ payload: { name: "todo", request: "Add review" } })
   expect(edit.metadata.form?.args?.({ name: "todo", request: "Add review" })).toBe("todo Add review")
-  const { store, controller } = await boot()
+  // Install hosts use repository flows; this case exercises the retained design seed.
+  const { store, controller } = await boot({ ...EVERYTHING, capabilities: EVERYTHING.capabilities.filter(capability => capability !== "install") })
   for (const name of ["flow", "flow.source", "flow.edit", "flows"]) expect(controller.commands.find(name)).toBeDefined()
   expect((await controller.commands.run("flow", "todo")).status).toBe("executed")
   expect([...store.collections.cards.values()].some(card => card.kind === "flow" && card.payload.name === "todo")).toBe(true)

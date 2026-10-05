@@ -43,6 +43,8 @@ export interface Violation {
 export interface Vocabularies {
   readonly flowNames: ReadonlySet<string>
   readonly cardKinds: ReadonlySet<string>
+  readonly renderedCardKinds?: ReadonlySet<string>
+  readonly cardActionNames?: ReadonlySet<string>
   readonly cardIdPrefixes: ReadonlySet<string>
   readonly dataAttributes: ReadonlySet<string>
   readonly dottedIdentifiers: ReadonlySet<string>
@@ -153,6 +155,7 @@ const isCardFrameKind = (literal: ExtractedLiteral, fields: ReadonlySet<string>)
  * how a suite half-recovers and stays silent.
  */
 export const violationsOf = (literal: ExtractedLiteral, vocabularies: Vocabularies): ReadonlyArray<Violation> => {
+  if (literal.absentAssertion) return []
   const found: Array<Violation> = []
   const at = { value: literal.value, file: literal.file, line: literal.line }
   // Suffix provenance is conditional on every enclosing ID head still being
@@ -176,7 +179,7 @@ export const violationsOf = (literal: ExtractedLiteral, vocabularies: Vocabulari
   }
 
   for (const kind of attributeSelectorValues(literal.value, "data-kind")) {
-    if (!vocabularies.cardKinds.has(kind)) {
+    if (!(vocabularies.renderedCardKinds ?? vocabularies.cardKinds).has(kind)) {
       found.push({
         ...at,
         value: kind,
@@ -189,7 +192,7 @@ export const violationsOf = (literal: ExtractedLiteral, vocabularies: Vocabulari
   }
 
   for (const flow of attributeSelectorValues(literal.value, "data-flow")) {
-    if (!vocabularies.flowNames.has(flow)) {
+    if (!vocabularies.flowNames.has(flow) && !vocabularies.cardActionNames?.has(flow)) {
       found.push({
         ...at,
         value: flow,
@@ -243,7 +246,7 @@ export const violationsOf = (literal: ExtractedLiteral, vocabularies: Vocabulari
       && !testOwned
       && segmentsOf(literal.value).some((segment) => vocabularies.idVocabularySegments.has(segment)))
   if (
-    affix && ID_PREFIX.test(literal.value) && !vocabularies.cardIdPrefixes.has(literal.value)
+    affix && !testOwned && ID_PREFIX.test(literal.value) && !vocabularies.cardIdPrefixes.has(literal.value)
     && !composedPrefix(literal.value, vocabularies.cardIdPrefixes)
   ) {
     found.push({
@@ -261,6 +264,10 @@ export const violationsOf = (literal: ExtractedLiteral, vocabularies: Vocabulari
     // This does not exempt the same literal in a runCommand or data-flow.
     && literal.propertyName !== "checkerId"
     && !testOwned
+    // A semantic version is toolchain evidence; SVG Lucide class selectors
+    // name the icon library's rendered CSS rather than an application key.
+    && !/^v?\d+\.\d+\.\d+(?:-[\w.-]+)?$/.test(literal.value)
+    && !(literal.argumentOf?.callee === "locator" && /^svg\.lucide-[a-z-]+$/.test(literal.value))
     && !vocabularies.dottedIdentifiers.has(literal.value)
     && !composedDotted(literal.value, vocabularies.composedDottedHeads, vocabularies.productStringLiterals)
     && !composedFlowTestId(literal, vocabularies)
@@ -287,10 +294,34 @@ export const actorLabelViolations = (literal: ExtractedLiteral): ReadonlyArray<V
 
 /** Inspect actor formatting expressions, so ordinary copy such as "Stop for now" remains valid. */
 export const actorSourceViolations = (file: string, source: string): ReadonlyArray<Violation> => {
+  // The formatter owns these spellings; consumers must call it.
+  if (file.replaceAll("\\", "/").endsWith("/cards/views/actorName.ts")) return []
   const tree = ts.createSourceFile(file, source, ts.ScriptTarget.Latest, true, file.endsWith(".tsx") ? ts.ScriptKind.TSX : ts.ScriptKind.TS)
   const found: Violation[] = []
   const visit = (node: ts.Node): void => {
-    if (ts.isStringLiteralLike(node) && /^(?:[A-Z][\w -]* for [A-Z]|.+ via (?:SSH|CLI)$)|'s terminal/.test(node.text)) {
+    // Story expectation tables are independent output oracles, never renderers.
+    let expectation = false
+    for (let parent: ts.Node | undefined = node; parent; parent = parent.parent) {
+      if (ts.isVariableDeclaration(parent) && ts.isIdentifier(parent.name) && file.endsWith(".stories.tsx")) {
+        const declaration = parent
+        const name = parent.name.text
+        const references: ts.Identifier[] = []
+        const collectReferences = (candidate: ts.Node): void => {
+          if (ts.isIdentifier(candidate) && candidate.text === name && candidate !== declaration.name) references.push(candidate)
+          ts.forEachChild(candidate, collectReferences)
+        }
+        collectReferences(tree)
+        expectation = references.length > 0 && references.every(reference => {
+          for (let ancestor: ts.Node | undefined = reference.parent; ancestor; ancestor = ancestor.parent) {
+            if (ts.isPropertyAssignment(ancestor)) return ancestor.name.getText(tree) === "expect"
+            if (ts.isJsxElement(ancestor) || ts.isJsxExpression(ancestor) || ts.isVariableDeclaration(ancestor)) return false
+          }
+          return false
+        })
+      }
+    }
+    if (expectation) return
+    if (ts.isStringLiteralLike(node) && /^(?:(?!Waiting for )[A-Z][\w -]* for [A-Z]|.+ via (?:SSH|CLI)$)|^.+'s terminal$/.test(node.text)) {
       found.push({ rule: "actor-label", file, value: node.text,
         line: tree.getLineAndCharacterOfPosition(node.getStart(tree)).line + 1,
         message: "Use actorName for participant labels." })
@@ -300,6 +331,7 @@ export const actorSourceViolations = (file: string, source: string): ReadonlyArr
       if (ts.isBinaryExpression(node.parent) && node.parent.operatorToken.kind === ts.SyntaxKind.PlusToken) return
       const identifiers: string[] = [], strings: string[] = []
       const collect = (child: ts.Node): void => {
+        if (ts.isCallExpression(child) && ts.isIdentifier(child.expression) && child.expression.text === "actorName") return
         if (ts.isIdentifier(child)) identifiers.push(child.text)
         if (ts.isStringLiteralLike(child) || ts.isTemplateHead(child) || ts.isTemplateMiddle(child) || ts.isTemplateTail(child)) strings.push(child.text)
         ts.forEachChild(child, collect)

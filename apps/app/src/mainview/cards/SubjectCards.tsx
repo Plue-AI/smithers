@@ -22,7 +22,7 @@ import { actorOf, refNumber } from "../state/seams/DesignWorld/todo"
 import { branchOf, todoOf, type ActorId, type DesignBranch, type DesignWorldRows } from "../state/seams/DesignWorld"
 import { designDefinition, designDiffs, designFileCard, designHover, subjectOf } from "../state/seams/DesignWorld/subjects"
 import { ActorChip, actorName } from "./views/ActorChip"
-import { CodeEditorView as CodeSurface } from "./views/CodeEditorView"
+import { CodeEditorSurface as CodeSurface } from "./CodeEditorSurface"
 
 const DiffCardSurface = lazy(() => import("./DiffSurface").then(module => ({ default: module.DiffCardSurface })))
 

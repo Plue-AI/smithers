@@ -16,7 +16,7 @@ test("C-J2-03 implement ask opens Needs you; first answer wins @production", asy
         const samples: any[] = []
         ;(window as any).__j2Samples = samples
         const record = () => samples.push({ at: Date.now(),
-          needs: !!document.querySelector('.smithers-card[data-kind="home"]')?.textContent?.includes("Needs you 1"),
+          needs: !!document.querySelector('.smithers-card.mvp-home')?.textContent?.includes("Needs you 1"),
           toast: [...document.querySelectorAll('[role="status"]')].some(node => !!node.textContent?.includes("Answer")) })
         new MutationObserver(record).observe(document.body, { subtree: true, childList: true, attributes: true, characterData: true })
         record()

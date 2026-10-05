@@ -33,7 +33,8 @@ test("C-J2-05 squash merge, fixes-only closure and stage-3 learning @production"
     for (const [number, fixes] of [[7, true], [8, false]] as const) {
       await runSlash(page, `/issue ${number}`)
       await page.getByRole("button", { name: "Make TODO", exact: true }).click()
-      const draft = page.locator('.smithers-card[data-kind="todo-draft"]').last()
+      // DraftView uses the mounted draft kind (06efaa113d); preserve all field assertions.
+      const draft = page.locator('.smithers-card[data-kind="draft"]').last()
       await draft.getByLabel("Fixes", { exact: true }).setChecked(fixes)
       await draft.getByRole("button", { name: "Commit", exact: true }).click()
     }
@@ -200,7 +201,7 @@ test("C-J2-05 squash merge, fixes-only closure and stage-3 learning @production"
       expect(after.lessons).toBeGreaterThanOrEqual(1)
       const receipt = todoCard(page, 1).getByRole("button", { name: `${after.lessons} lessons`, exact: true })
       await receipt.click()
-      await expect(page.locator('.smithers-card[data-kind="wiki"], .smithers-card[data-kind="proposal"]').last()).toBeVisible()
+      await expect(page.locator('[data-subject="wiki"], .smithers-card[data-kind="proposal"]').last()).toBeVisible()
       expect(events(before.id).filter(e => e.run_id === learning.id && (e.state || e.revision))).toEqual([])
       await attachJson(info, "learning-run-and-events", { learning, events: events(before.id), todo: after })
       await info.attach("learning-receipt", { body: await page.screenshot(), contentType: "image/png" })

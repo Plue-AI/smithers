@@ -33,3 +33,20 @@ test("source lint rejects complete participant labels", () => {
     expect(actorSourceViolations("cards/Example.tsx", `const label = ${JSON.stringify(label)}`)).toHaveLength(1)
   }
 })
+
+
+test("status text, shared formatter calls and independent story oracles remain valid", () => {
+  expect(actorSourceViolations("cards/Confirm.tsx", 'const label = "Waiting for GitHub"')).toEqual([])
+  expect(actorSourceViolations("cards/Terminal.tsx", "const title = `${actorName(model.owner)}'s terminal`")).toEqual([])
+  expect(actorSourceViolations("cards/Example.stories.tsx", 'const actorLabels = { delegated: "Smithers for Ben" }; const stories = [{ expect: [actorLabels.delegated] }]')).toEqual([])
+  expect(actorSourceViolations("cards/Example.stories.tsx", 'const label = "Smithers for Ben"')).toHaveLength(1)
+  expect(actorSourceViolations("cards/Terminal.tsx", "const title = `${actorName(other)} ${owner.name}'s terminal`")).toHaveLength(1)
+  expect(actorSourceViolations("cards/Example.tsx", 'const actorLabels = { delegated: "Smithers for Ben" }')).toHaveLength(1)
+  expect(actorSourceViolations("/app/cards/views/actorName.ts", "const label = `${actor.name} for ${member.name}`")).toEqual([])
+})
+
+
+test("story renderers cannot hide participant formatting in an expectation-like variable", () => {
+  expect(actorSourceViolations("cards/Example.stories.tsx", 'const actorLabels = ["Codex for Ben"]; const stories = [{ render: () => <div>{actorLabels[0]}</div> }]')).toHaveLength(1)
+  expect(actorSourceViolations("cards/Example.stories.tsx", 'const labels = ["Codex for Ben"]; const stories = [{ expect: labels, render: () => <div>{labels[0]}</div> }]')).toHaveLength(1)
+})

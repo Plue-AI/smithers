@@ -372,8 +372,9 @@ describe("host parity — the web and native catalogs against the servers' own c
     const root = createRoot(host)
     flushSync(() => root.render(createElement(ControllerTestProvider, { controller, children: createElement(App) })))
     try {
-      for (let tick = 0; tick < 600 && host.querySelector(".code-surface") === null; tick += 1) await new Promise((resolve) => setTimeout(resolve, 10))
-      expect(host.querySelector(".code-surface")).not.toBeNull()
+      for (let tick = 0; tick < 600 && host.querySelector(".cm-editor") === null; tick += 1) await new Promise((resolve) => setTimeout(resolve, 10))
+      expect(host.querySelector(".cm-editor")).not.toBeNull()
+      expect(host.querySelector(".cm-content")?.textContent).toContain("export const answer: number = 42")
       // This checks command bindings, not highlighting. The page's pool is
       // explicitly disposed in afterAll, including unfinished initialization.
       const webNames = new Set(controller.commands.all().map((command) => command.name))

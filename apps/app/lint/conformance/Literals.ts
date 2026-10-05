@@ -43,7 +43,10 @@
  *    from the real harness's imported constructors, at declarations or the
  *    known attachment sink. Constructors are transparent in product positions;
  *  - a positive same-receiver `type === "delta"` conjunction, which proves
- *    that its `kind` belongs to a stream frame rather than a card.
+ *    that its `kind` belongs to a stream frame rather than a card;
+ *  - imported Reference and ActorChip fixture provenance: backend evidence,
+ *    activity and actors own distinct discriminators. Unknown sources, shadowed
+ *    declarations and mixed assignments remain card claims.
  *
  * WHAT IT CANNOT SEE, and therefore never reports
  *  - a name assembled at runtime (`command.failed.${name}`): only the static
@@ -106,6 +109,8 @@ export interface ExtractedLiteral {
    * reads; `kindComparison` stays the narrow syntactic fact it always was.
    */
   readonly kindClaim: boolean
+  /** A direct locator assertion explicitly proving no matching element exists. */
+  readonly absentAssertion?: boolean
   /** Only import-bound real-runner metadata declarations, never product uses. */
   readonly testOwnedContext?: "scenario-id" | "repository-name" | "comment-body" | "attachment-name" | "input-text" | "protocol-id"
   /** Product template heads under which this fixture value is only an opaque suffix. */
@@ -149,9 +154,106 @@ const calleeName = (expression: ts.Expression): string | undefined => {
   return undefined
 }
 
-/** A `.kind` read unless a positive same-receiver delta guard proves another union. */
+/** Follow source contracts rather than treating every `.kind` union as a card. */
+type KindDomain = "reference" | "todo" | "run" | "attempts" | "attempt" | "evidence" | "evidence-item" | "events" | "event" | "actor-fixtures" | "actor-story" | "actor-model" | "actor"
+const kindCheckers = new WeakMap<ts.SourceFile, ts.TypeChecker>()
+const checkerForKinds = (source: ts.SourceFile): ts.TypeChecker => {
+  const cached = kindCheckers.get(source)
+  if (cached) return cached
+  const host: ts.CompilerHost = {
+    getSourceFile: name => name === source.fileName ? source : undefined,
+    getDefaultLibFileName: () => "", writeFile: () => {}, getCurrentDirectory: () => "",
+    getDirectories: () => [], fileExists: name => name === source.fileName,
+    readFile: () => undefined, getCanonicalFileName: name => name,
+    useCaseSensitiveFileNames: () => true, getNewLine: () => "\n"
+  }
+  const checker = ts.createProgram([source.fileName], { noLib: true, noResolve: true }, host).getTypeChecker()
+  kindCheckers.set(source, checker)
+  return checker
+}
+const kindDomain = (expression: ts.Expression, seen = new Set<ts.Node>()): KindDomain | undefined => {
+  expression = unwrap(expression)
+  if (seen.has(expression)) return undefined
+  const next = new Set([...seen, expression])
+  if (ts.isAwaitExpression(expression)) return kindDomain(expression.expression, next)
+  if (ts.isConditionalExpression(expression)) {
+    const left = kindDomain(expression.whenTrue, next), right = kindDomain(expression.whenFalse, next)
+    if (left === right) return left
+    if (expression.whenFalse.kind === ts.SyntaxKind.UndefinedKeyword || ts.isIdentifier(expression.whenFalse) && expression.whenFalse.text === "undefined") return left
+    return undefined
+  }
+  if (ts.isIdentifier(expression)) {
+    const source = expression.getSourceFile()
+    const symbol = checkerForKinds(source).getSymbolAtLocation(expression)
+    if (!symbol) return undefined
+    const declaration = symbol.valueDeclaration ?? symbol.declarations?.[0]
+    if (declaration && ts.isImportSpecifier(declaration)) {
+      const imported = declaration.parent.parent.parent
+      if (ts.isImportDeclaration(imported) && ts.isStringLiteral(imported.moduleSpecifier) && imported.moduleSpecifier.text === "@smthrs/rpc/fixtures/ActorChip" && (declaration.propertyName?.text ?? declaration.name.text) === "fixtures") return "actor-fixtures"
+    }
+    if (declaration && ts.isParameter(declaration)) {
+      const callback = declaration.parent
+      const call = callback.parent
+      if ((ts.isArrowFunction(callback) || ts.isFunctionExpression(callback)) && ts.isCallExpression(call) && ts.isIdentifier(call.expression) && callback.parameters[0] === declaration && call.arguments[2] === callback) {
+        const provider = checkerForKinds(source).getSymbolAtLocation(call.expression)?.declarations?.[0]
+        if (provider && ts.isImportSpecifier(provider)) {
+          const imported = provider.parent.parent.parent
+          if (ts.isImportDeclaration(imported) && ts.isStringLiteral(imported.moduleSpecifier) && /(?:^|\/)todo\/reference(?:\.ts)?$/.test(imported.moduleSpecifier.text) && (provider.propertyName?.text ?? provider.name.text) === "withReference") return "reference"
+        }
+      }
+      if ((ts.isArrowFunction(callback) || ts.isFunctionExpression(callback)) && ts.isCallExpression(call) && ts.isPropertyAccessExpression(call.expression) && /^(?:find|filter|some|every|map|forEach)$/.test(call.expression.name.text) && callback.parameters[0] === declaration) {
+        const domain = kindDomain(call.expression.expression, next)
+        return domain === "attempts" ? "attempt" : domain === "evidence" ? "evidence-item" : domain === "events" ? "event" : undefined
+      }
+    }
+    const values: ts.Expression[] = []
+    if (declaration && ts.isVariableDeclaration(declaration) && declaration.initializer) values.push(declaration.initializer)
+    const collect = (node: ts.Node): void => {
+      if (ts.isBinaryExpression(node) && node.operatorToken.kind === ts.SyntaxKind.EqualsToken && ts.isIdentifier(node.left) && checkerForKinds(source).getSymbolAtLocation(node.left) === symbol) values.push(node.right)
+      ts.forEachChild(node, collect)
+    }
+    collect(source)
+    const domains = values.map(value => kindDomain(value, next))
+    return domains.length > 0 && domains.every(domain => domain === domains[0]) ? domains[0] : undefined
+  }
+  if (ts.isElementAccessExpression(expression)) {
+    const domain = kindDomain(expression.expression, next)
+    return domain === "actor-fixtures" ? "actor-story" : domain === "events" ? "event" : domain === "evidence" ? "evidence-item" : undefined
+  }
+  if (ts.isPropertyAccessExpression(expression)) {
+    const domain = kindDomain(expression.expression, next)
+    const field = expression.name.text
+    if (domain === "todo" && field === "evidence") return "attempts"
+    if (domain === "attempt" && field === "items") return "evidence"
+    if (domain === "run" && field === "events") return "events"
+    if (domain === "actor-story" && field === "model") return "actor-model"
+    if (domain === "actor-model" && field === "actor") return "actor"
+    return undefined
+  }
+  if (ts.isCallExpression(expression) && ts.isPropertyAccessExpression(expression.expression)) {
+    const method = expression.expression.name.text
+    const receiverDomain = kindDomain(expression.expression.expression, next)
+    if (method === "read" && receiverDomain === "reference") {
+      const path = expression.arguments[1]
+      const prefix = path && (ts.isStringLiteral(path) || ts.isNoSubstitutionTemplateLiteral(path)) ? path.text : path && ts.isTemplateExpression(path) ? path.head.text : ""
+      if (/^\/api\/todos\//.test(prefix)) return "todo"
+      if (/^\/api\/runs\//.test(prefix)) return "run"
+    }
+    if (method === "sql" && receiverDomain === "reference") {
+      const query = expression.arguments[0]
+      if (query && ts.isStringLiteral(query) && /\bFROM\s+(?:product_job_events|branch_activity)\b/i.test(query.text)) return "events"
+    }
+    const domain = receiverDomain
+    if (method === "filter") return domain
+    if (method === "find") return domain === "attempts" ? "attempt" : domain === "evidence" ? "evidence-item" : domain === "events" ? "event" : undefined
+  }
+  return undefined
+}
+
+/** A `.kind` read unless source provenance or a same-receiver delta guard proves another union. */
 const isKindRead = (node: ts.Node): boolean => {
   if (!ts.isPropertyAccessExpression(node) || node.name.text !== "kind") return false
+  if (["evidence-item", "event", "actor"].includes(kindDomain(node.expression) ?? "")) return false
   let condition: ts.Node = node.parent
   for (;;) {
     const parent = condition.parent
@@ -440,6 +542,22 @@ const kindClaimNodes = (parsed: ts.SourceFile): ReadonlySet<ts.Node> => {
   return claimed
 }
 
+const isAbsentAssertion = (node: ts.Node): boolean => {
+  const locator = node.parent
+  if (!ts.isCallExpression(locator) || !ts.isPropertyAccessExpression(locator.expression) ||
+    !["locator", "getByText", "getByTestId", "getByRole"].includes(locator.expression.name.text) || locator.arguments[0] !== node) return false
+  let expression: ts.Node = locator
+  while (ts.isPropertyAccessExpression(expression.parent) && ["first", "last"].includes(expression.parent.name.text) &&
+    ts.isCallExpression(expression.parent.parent)) expression = expression.parent.parent
+  const assertion = expression.parent
+  if (!ts.isCallExpression(assertion) || !ts.isIdentifier(assertion.expression) || assertion.expression.text !== "expect" || assertion.arguments[0] !== expression) return false
+  const matcher = assertion.parent
+  const call = matcher.parent
+  return ts.isPropertyAccessExpression(matcher) && matcher.name.text === "toHaveCount" &&
+    ts.isCallExpression(call) && call.expression === matcher && call.arguments.length === 1 &&
+    ts.isNumericLiteral(call.arguments[0]!) && call.arguments[0]!.text === "0"
+}
+
 /** Every literal in one source file, with the position context each rule needs. */
 export const extractLiterals = (file: string, source: string): ReadonlyArray<ExtractedLiteral> => {
   const parsed = ts.createSourceFile(file, source, ts.ScriptTarget.ESNext, true, file.endsWith(".tsx") ? ts.ScriptKind.TSX : ts.ScriptKind.TS)
@@ -495,7 +613,7 @@ export const extractLiterals = (file: string, source: string): ReadonlyArray<Ext
   // callback bodies (Array.find's predicate is not a flow-name argument).
   const productValues = new Set<ts.Node>()
   const productIdPrefixUses = new Map<ts.Node, Set<string>>()
-  if (fixtureComments.size + fixtureRepositories.size + fixtureAttachments.size + fixtureInputs.size + fixtureProtocols.size > 0) {
+  {
     const consumers = new Set(["runCommand", "runFlow", "find", "getByTestId", "locator", "querySelector", "querySelectorAll", "startsWith", "endsWith"])
     const callSites = new Map<string, Array<ts.CallExpression>>()
     const collectCalls = (node: ts.Node): void => {
@@ -602,6 +720,83 @@ export const extractLiterals = (file: string, source: string): ReadonlyArray<Ext
       for (const argument of call.arguments) mark(argument, undefined, name === "getByTestId")
     }
   }
+  // Input text and artifact names are test-owned values. Follow local aliases,
+  // but a selector/flow consumer revokes this provenance for the same value.
+  const externalValues = new Set<ts.Node>()
+  const markExternal = (node: ts.Node): void => {
+    if (externalValues.has(node) || ts.isFunctionLike(node)) return
+    externalValues.add(node)
+    if (ts.isIdentifier(node)) for (const binding of bindingsOf(node.text, node)) {
+      if (binding.form === "value") markExternal(binding.expression)
+    }
+    else ts.forEachChild(node, markExternal)
+  }
+  const visitExternal = (node: ts.Node): void => {
+    if (ts.isCallExpression(node)) {
+      const name = calleeName(node.expression)
+      if (name && ["fill", "type", "outputPath", "mkdtemp", "mkdtempSync"].includes(name) && node.arguments[0]) markExternal(node.arguments[0])
+    }
+    ts.forEachChild(node, visitExternal)
+  }
+  visitExternal(parsed)
+  const recordsParameter = (call: ts.CallExpression, objectField?: string): boolean => {
+    if (!ts.isIdentifier(call.expression)) return false
+    return bindingsOf(call.expression.text, call).some(binding => {
+      if (binding.form !== "value") return false
+      const fn = unwrap(binding.expression)
+      if (!ts.isArrowFunction(fn) && !ts.isFunctionExpression(fn)) return false
+      const parameter = fn.parameters[0]?.name
+      if (!parameter || !ts.isIdentifier(parameter)) return false
+      let recorded = false
+      const visit = (candidate: ts.Node): void => {
+        if (ts.isCallExpression(candidate) && ts.isPropertyAccessExpression(candidate.expression) &&
+          candidate.expression.name.text === "push" && ts.isIdentifier(candidate.expression.expression)) {
+          const receiver = candidate.expression.expression
+          const array = bindingsOf(receiver.text, receiver).some(value => value.form === "value" && ts.isArrayLiteralExpression(unwrap(value.expression)))
+          let argument: ts.Expression | undefined = candidate.arguments[0]
+          if (objectField && argument && ts.isObjectLiteralExpression(argument)) {
+            const field = argument.properties.find(field => (ts.isPropertyAssignment(field) || ts.isShorthandPropertyAssignment(field)) && nameTextOf(field.name)[0] === objectField)
+            argument = field && ts.isPropertyAssignment(field) ? field.initializer : field && ts.isShorthandPropertyAssignment(field) ? field.name : undefined
+          }
+          if (array && argument && ts.isIdentifier(argument) && argument.text === parameter.text) recorded = true
+        }
+        ts.forEachChild(candidate, visit)
+      }
+      visit(fn.body)
+      return recorded
+    })
+  }
+  const externalContext = (node: ts.Node): ExtractedLiteral["testOwnedContext"] => {
+    if (externalValues.has(node) && !productValues.has(node)) return "input-text"
+    const parent = node.parent
+    // A local spy callback records external keyboard/mouse method names.
+    // Verify the binding's implementation, not the helper's spelling alone.
+    if (ts.isCallExpression(parent) && parent.arguments[0] === node && ts.isIdentifier(parent.expression) && !productValues.has(node) && recordsParameter(parent)) return "protocol-id"
+    // A basename comparison is a temporary artifact directory prefix.
+    if (ts.isCallExpression(parent) && ts.isPropertyAccessExpression(parent.expression) && parent.expression.name.text === "startsWith" &&
+      ts.isCallExpression(parent.expression.expression) && calleeName(parent.expression.expression.expression) === "basename") return "attachment-name"
+    // Git config argv owns its dotted configuration keys.
+    if (ts.isArrayLiteralExpression(parent) && parent.elements.some(element => ts.isStringLiteral(element) && element.text === "config") &&
+      ts.isCallExpression(parent.parent) && calleeName(parent.parent.expression) === "run") return "protocol-id"
+    // CodeMirror's dispatch annotation is an editor event, not a flow.
+    if (ts.isPropertyAssignment(parent) && nameTextOf(parent.name)[0] === "userEvent" &&
+      ts.isObjectLiteralExpression(parent.parent) && ts.isCallExpression(parent.parent.parent) && calleeName(parent.parent.parent.expression) === "dispatch") return "protocol-id"
+    // Receipt labels are the record callback's event parameter. Verify its
+    // local implementation writes that event into the timestamp receipt.
+    if (ts.isCallExpression(parent) && calleeName(parent.expression) === "record" && parent.arguments[0] === node &&
+      !productValues.has(node) && recordsParameter(parent, "event")) return "attachment-name"
+    // Coverage registries intentionally retain owed/deferred historical names.
+    // These precise declarations are consumed by registry parity, never flows.
+    if (productValues.has(node)) return
+    const normalized = file.replaceAll("\\", "/")
+    for (let ancestor: ts.Node | undefined = node; ancestor; ancestor = ancestor.parent) {
+      if (!ts.isVariableDeclaration(ancestor) || !ts.isIdentifier(ancestor.name)) continue
+      const name = ancestor.name.text
+      if (normalized.endsWith("/scripts/check-real-e2e.ts") && name === "baseline" ||
+        normalized.endsWith("/e2e/real/coverage/deferrals.ts") && name === "UNSCENARIOED_ACTIONS" ||
+        normalized.endsWith("/e2e/real/coverage/deferrals/history.ts") && name === "history") return "scenario-id"
+    }
+  }
   // A metadata constructor cannot hide an explicit enclosing flow, affix or
   // card-object claim. Keep the outer consumer as the literal's rule context.
   const transparentFixture = (node: ts.Node): ts.Node => {
@@ -634,7 +829,8 @@ export const extractLiterals = (file: string, source: string): ReadonlyArray<Ext
       form,
       ...call,
       ...objectContextOf(consumer),
-      testOwnedContext: testOwnedContext(context),
+      testOwnedContext: testOwnedContext(context) ?? externalContext(context),
+      absentAssertion: isAbsentAssertion(context),
       productIdPrefixUses: productIdPrefixUses.has(context) ? [...productIdPrefixUses.get(context)!] : undefined,
       kindClaim: call.kindComparison || claimed.has(node) || claimed.has(context)
     })
@@ -688,7 +884,7 @@ export const segmentsOf = (value: string): ReadonlyArray<string> =>
  * the packaged staging test plants a `debug.log` it must not copy.
  */
 export const FILE_NAME =
-  /\.(ts|tsx|js|jsx|mjs|cjs|json|jsonc|html|css|md|map|txt|log|lock|toml|ya?ml|png|svg|ico|woff2?|wasm|tar|t?gz|zip|dmg|db|sqlite|bin|c|h)$/
+  /\.(ts|tsx|js|jsx|mjs|cjs|json|jsonc|html|css|md|map|txt|log|lock|toml|ya?ml|png|svg|ico|woff2?|wasm|tar|t?gz|zip|dmg|db|sqlite|bin|c|h|py|tsv|mp4)$/
 
 /**
  * The name of a file that asserts against the app instead of building it:

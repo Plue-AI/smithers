@@ -42,5 +42,5 @@ export const LiveProposalContainer = ({ id, fallback, channel, ...props }: Omit<
   const snapshot = useTopic<ReadonlyArray<unknown>>("proposals", channel)
   const rows = Array.isArray(snapshot?.data) ? snapshot.data : []
   const model = rows.find(row => ProposalCardSchema.safeParse(row).success && (row as { id: string }).id === id)
-  return model === undefined ? fallback : <ProposalContainer {...props} model={model} />
+  return model === undefined ? fallback : <ProposalContainer allowed={props.allowed} dispatch={props.dispatch} View={props.View} view={props.view} onView={props.onView} model={model} />
 }

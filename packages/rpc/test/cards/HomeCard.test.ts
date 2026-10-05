@@ -104,6 +104,8 @@ describe("Home rows share the TODO shape", () => {
       ...active(),
       items: [{ ...active().items[0]!, branch: todo.branch, present: todo.present }]
     }).items[0]!
+    expect(todo.branch).toBeDefined()
+    if (todo.branch === undefined) throw new Error("Working TODO fixture must have a branch")
     expect(row.branch).toEqual({ id: todo.branch.id, name: todo.branch.name })
     expect(row.present.some((actor) => actor.kind === "agent")).toBe(true)
   })

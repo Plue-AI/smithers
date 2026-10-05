@@ -11,6 +11,7 @@ import { join } from "node:path"
 import { fileURLToPath } from "node:url"
 import type { Card } from "@smthrs/rpc/Cards"
 import { CardSchema } from "@smthrs/rpc/Cards"
+import { IN_CARD_TAGS } from "../../../../packages/rpc/src/catalog/index"
 import ts from "typescript"
 import { adminFlows, baseFlows, guideFlows, type CommandActions } from "../../src/mainview/flows/Flows"
 import { nameOf } from "../../src/mainview/flows/registry"
@@ -120,6 +121,23 @@ void _derivedKindsAreExactlyCardKinds
 /** Every card kind the wire model declares. */
 export const cardKinds = (): ReadonlySet<Card["kind"]> =>
   new Set(CardSchema.options.map((option) => option.shape.kind.value))
+
+/** Rendered design surfaces have DOM kinds independent of the wire Card union. */
+export const renderedCardKinds = (): ReadonlySet<string> => {
+  const kinds = new Set<string>(cardKinds())
+  for (const file of sourceFiles(UI_SRC).filter(file => !assertsAgainstTheApp(file))) {
+    const parsed = ts.createSourceFile(file, readFileSync(file, "utf8"), ts.ScriptTarget.Latest, true, file.endsWith(".tsx") ? ts.ScriptKind.TSX : ts.ScriptKind.TS)
+    const visit = (node: ts.Node): void => {
+      if (ts.isJsxAttribute(node) && node.name.getText(parsed) === "data-kind" && node.initializer && ts.isStringLiteral(node.initializer)) kinds.add(node.initializer.text)
+      ts.forEachChild(node, visit)
+    }
+    visit(parsed)
+  }
+  return kinds
+}
+
+/** Typed card actions share data-flow attributes with frontend registry flows. */
+export const cardActionNames = (): ReadonlySet<string> => new Set(IN_CARD_TAGS)
 
 /**
  * The property names every card in the wire model carries besides `kind`.
@@ -238,6 +256,18 @@ export const emittedDataAttributes = (): ReadonlySet<string> => {
     visit(parsed)
   }
   for (const match of readFileSync(REACT_FLOW_BUNDLE, "utf8").matchAll(/"(data-[a-z][a-z-]*)":/g)) emitted.add(match[1]!)
+  // The shipped diff renderer emits HAST properties into its shadow DOM.
+  // Inspect assignments/property keys in its own emitters, never selectors.
+  for (const name of ["processLine.js", "hast_utils.js"]) {
+    const file = join(COMPONENT_LIBRARY, "../node_modules/@pierre/diffs/dist/utils", name)
+    const parsed = ts.createSourceFile(file, readFileSync(file, "utf8"), ts.ScriptTarget.Latest, true, ts.ScriptKind.JS)
+    const visit = (node: ts.Node): void => {
+      if (ts.isPropertyAssignment(node) && ts.isStringLiteral(node.name) && node.name.text.startsWith("data-")) emitted.add(node.name.text)
+      if (ts.isBinaryExpression(node) && node.operatorToken.kind === ts.SyntaxKind.EqualsToken && ts.isElementAccessExpression(node.left) && ts.isStringLiteral(node.left.argumentExpression) && node.left.argumentExpression.text.startsWith("data-")) emitted.add(node.left.argumentExpression.text)
+      ts.forEachChild(node, visit)
+    }
+    visit(parsed)
+  }
   return emitted
 }
 

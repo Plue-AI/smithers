@@ -16,10 +16,11 @@ test("C-J2-01 Make TODO freezes the private draft and commits once @production",
     const commentsBefore = await f.github("Ben", "GET", "/issues/7/comments")
     await runSlash(ben, "/issue 7")
     await ben.getByRole("button", { name: "Make TODO", exact: true }).click()
-    const draft = ben.locator('.smithers-card[data-kind="todo-draft"]').last()
+    // DraftView uses the mounted draft kind (06efaa113d); preserve all field assertions.
+    const draft = ben.locator('.smithers-card[data-kind="draft"]').last()
     await expect(draft).toBeVisible()
     for (const label of ["Title", "Prompt", "Acceptance", "Fixes", "Place"]) await expect(draft.getByLabel(label, { exact: true })).toBeVisible()
-    await expect(will.locator('.smithers-card[data-kind="todo-draft"]')).toHaveCount(0)
+    await expect(will.locator('.smithers-card[data-kind="draft"]')).toHaveCount(0)
     const prompt = await draft.getByLabel("Prompt", { exact: true }).inputValue()
     const acceptance = await draft.getByLabel("Acceptance", { exact: true }).inputValue()
     expect(prompt + acceptance).toContain("retry at most 5 times with jittered backoff")

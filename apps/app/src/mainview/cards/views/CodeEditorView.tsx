@@ -1,5 +1,5 @@
 import type { EditorBinding } from "@smthrs/ui/adapters/code-editor"
-import { CodeEditorView as CodeEditor } from "@smthrs/ui/adapters/code-editor"
+import type { ReactNode } from "react"
 import type { CodeEditorViewProps as FileEditorProps } from "@smthrs/rpc/FileCard"
 import { ActorChip, actorName } from "./ActorChip"
 import { DiffAction } from "./DiffAction"
@@ -7,7 +7,7 @@ import { FileX, FileSymlink, FolderSync, History, TriangleAlert } from "lucide-r
 import { formatBytes } from "./formatBytes"
 
 /** S1 File presentation. The card supplies authority; content changes keep the same CodeMirror instance. */
-export const CodeEditorView = ({ model, view, actions, gestures, onAction, onView, binding }: FileEditorProps & { readonly binding?: EditorBinding }) => {
+export const CodeEditorView = ({ model, actions, onAction, binding, editor }: FileEditorProps & { readonly binding?: EditorBinding; readonly editor: ReactNode }) => {
   const controls = actions.length ? <div className="code-actions">{actions.map((action, index) => <DiffAction key={index} action={action} onAction={onAction} />)}</div> : null
   return <section className="smithers-card code-file-view" data-kind="file" data-keyboard-pane="File" data-digest={model.digest || undefined} data-mode={binding && model.mode === "live" && model.content.kind === "text" && !model.gone ? "live" : "read_only"} aria-label={model.path}>
     <header className="smithers-card-header"><h2 className="smithers-card-title">{model.path}</h2><span className="mvp-branch-chip">{model.branch}</span>
@@ -22,9 +22,7 @@ export const CodeEditorView = ({ model, view, actions, gestures, onAction, onVie
       {!model.gone && !model.outside ? controls : null}
       <div className="code-file-editor" data-snapshot={model.gone ? "" : undefined}>
       {model.content.kind !== "text" ? <p className="code-file-size">{model.content.kind === "binary" ? "Binary file" : "Too large to co-edit"} · {formatBytes(model.content.bytes, "decimal")} {model.github_url ? <a href={model.github_url} target="_blank" rel="noreferrer">on GitHub ↗</a> : null}</p> :
-        <CodeEditor binding={model.mode === "live" && !model.gone ? binding : undefined} path={model.path} text={model.content.text} language={model.language}
-          diagnostics={model.diagnostics} hover={model.hover} reveal={model.reveal ?? (view.line ? { line: view.line } : undefined)}
-          gestures={gestures} onAction={onAction} onView={onView} />}
+        editor}
 
       </div>
     </div>

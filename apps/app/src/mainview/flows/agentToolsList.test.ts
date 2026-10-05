@@ -141,8 +141,8 @@ describe("the commands list action", () => {
     expect(expected.length).toBeGreaterThan(100)
     expect(names).toEqual(expected)
     expect(new Set(names).size).toBe(names.length)
-    for (const name of ["auth.prompt", "search", "repo.overview", "repo.update", "runs.list"]) expect(names).toContain(name)
-    for (const name of ["sign-in", "palette.open", "chat.send", "repo.select"]) {
+    for (const name of ["auth.prompt", "search", "flow.source", "flow.edit", "runs.list"]) expect(names).toContain(name)
+    for (const name of ["sign-in", "palette.open", "chat.send", "repo.select", "repo.overview", "repo.update"]) {
       expect(controller.commands.find(name)).toBeDefined()
       expect(names).not.toContain(name)
     }
@@ -160,16 +160,22 @@ describe("the commands list action", () => {
       expect(parsed.note).toContain("list one namespace")
     }
     // One namespace always carries its summaries and its args (the full list may have shed them to fit).
-    const scoped = await list("/repo")
+    // 3acc0f8eff hides deferred repo doors; use the retained runs namespace.
+    const scoped = await list("/runs")
     expect(scoped.note).toBeUndefined()
     expect(scoped.commands.length).toBeGreaterThan(0)
-    expect(scoped.commands.every((command) => command.name.startsWith("repo."))).toBe(true)
-    expect(scoped.commands.map((command) => command.name)).toEqual(expected.filter((name) => name.startsWith("repo.")))
+    expect(scoped.commands.every((command) => command.name === "runs" || command.name.startsWith("runs."))).toBe(true)
+    expect(scoped.commands.map((command) => command.name)).toEqual(expected.filter((name) => name === "runs" || name.startsWith("runs.")))
     expect(scoped.commands.some((command) => command.args !== undefined)).toBe(true)
     for (const command of scoped.commands) expect(typeof command.summary).toBe("string")
   })
 
   test.each([
+    { namespace: "flow", prefix: "flow." },
+    { namespace: "/flow", prefix: "flow." },
+    { namespace: "flow.", prefix: "flow." },
+    { namespace: "/flow.", prefix: "flow." },
+    { namespace: "flow.source", exact: "flow.source" },
     { namespace: "repo", prefix: "repo." },
     { namespace: "/repo", prefix: "repo." },
     { namespace: "repo.", prefix: "repo." },
@@ -180,14 +186,20 @@ describe("the commands list action", () => {
     const { controller, list } = await harness()
     const catalog = agentVisibleCatalog(controller.commands.callable())
     const scoped = await list(namespace)
-    const expected = catalog.filter(command => prefix === undefined ? command.name === exact : command.name.startsWith(prefix))
+    const expected = catalog.filter(command => prefix === undefined ? command.name === exact : command.name === prefix.slice(0, -1) || command.name.startsWith(prefix))
     expect(scoped).toEqual({ state: controller.commands.state(), commands: expected })
-    if (prefix !== undefined) {
-      expect(catalog.some(command => command.name.startsWith("repos.") || command.name.startsWith("repository."))).toBe(true)
-      expect(scoped.commands.map(command => command.name)).toContain("repo.overview")
-      expect(scoped.commands.some(command => command.name.startsWith("repos.") || command.name.startsWith("repository."))).toBe(false)
-    } else {
-      expect(scoped.commands.length).toBe(exact === "repo.overview" ? 1 : 0)
+    // 3acc0f8eff (#3447): deferred repository doors remain callable for
+    // stored cards, but neither namespace nor exact-name discovery exposes them.
+    if (namespace.includes("flow")) {
+      expect(scoped.commands.map(command => command.name)).toContain("flow.source")
+      if (prefix !== undefined) {
+        expect(catalog.some(command => command.name === "flows")).toBe(true)
+        expect(scoped.commands.some(command => command.name === "flows")).toBe(false)
+      } else expect(scoped.commands).toHaveLength(1)
+    } else expect(scoped.commands).toEqual([])
+    for (const name of ["repo.overview", "repo.update", "repo.tree"]) {
+      expect(controller.commands.find(name)).toBeDefined()
+      expect(catalog.map(command => command.name)).not.toContain(name)
     }
   })
 

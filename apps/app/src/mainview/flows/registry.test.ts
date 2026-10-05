@@ -216,9 +216,10 @@ describe("command registry pure model", () => {
   test("every visible flow lives in a namespace, except the surface switches and a repository leaf the app types", async () => {
     const { controller } = await freshController()
     // A typed entry that stands in for a repository's flow leaf keeps the leaf's bare name (`issue-sweep`).
+    // 06efaa113d adds the bare GitHub connection card door.
     const orphans = visibleItems(controller.commands)
       .map((command) => command.name)
-      .filter((name) => namespaceOf(name) === undefined && !SURFACE_FLOWS.includes(name) && name !== "tut" && name !== "review" &&
+      .filter((name) => namespaceOf(name) === undefined && !SURFACE_FLOWS.includes(name) && name !== "tut" && name !== "review" && name !== "github" &&
         controller.commands.find(name)?.metadata.workflow !== name)
     expect(orphans).toEqual([])
   })

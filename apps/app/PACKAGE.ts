@@ -199,11 +199,25 @@ const browserE2e = Smithers.NodeTest({
   cwd
 })
 
+/** Explicit View acceptance tier; ordinary browser selections keep it disabled. */
+const viewStories = Smithers.NodeTest({
+  runtime: Smithers.Runtime.Bun({ version: ">=1.4.0" }),
+  runner: Smithers.entrypoint(Smithers.file("scripts/run-view-stories.ts")),
+  timeout: "30m",
+  srcs: [sources, componentSources, styleSources, harnessSources, suiteSources, ...buildConfigs,
+    Smithers.file("playwright.config.ts"), Smithers.file("package.json"), Smithers.file("//pnpm-lock.yaml")],
+  deps: [],
+  env: { SMITHERS_VIEW_STORIES: "1", SMITHERS_CHAT_STUB: "1", SMITHERS_E2E_BROWSER: "chromium", SMITHERS_VIEW_STORY_FILTER: "" },
+  exclusive: true, cache: false, cwd
+})
+
 /** Reference-install activation; omitted from wildcard test/ci selections. */
 const journeyJ1Activation = Smithers.NodeTest({
   runtime: Smithers.Runtime.Bun({ version: ">=1.4.0" }),
   runner: Smithers.entrypoint(Smithers.file("scripts/run-real-e2e.ts"), ["j1-activation.spec.ts"]),
   timeout: "60m",
+  env: { SMITHERS_JOURNEY: "j1-activation.spec.ts", SMITHERS_CHAT_STUB: "0" },
+  cache: false,
   srcs: [harnessSources, suiteSources, Smithers.file("playwright.real.config.ts"),
     Smithers.file("package.json"), Smithers.file("//pnpm-lock.yaml")],
   deps: [],
@@ -394,5 +408,5 @@ const securityReview = Smithers.SecurityReview({
 })
 
 export const Package = Smithers.Package({
-  targets: { serverBundle, solidCodegenInputs, check, unitTests, conformance, browserE2e, journeyTodoFromIssue, journeyTodoNeedsYou, journeyTodoEvidence, journeyTodoMerge, webSources, ...securityReview }
+  targets: { serverBundle, solidCodegenInputs, check, unitTests, conformance, browserE2e, viewStories, journeyJ1Activation, journeyTodoFromIssue, journeyTodoNeedsYou, journeyTodoEvidence, journeyTodoMerge, webSources, ...securityReview }
 })

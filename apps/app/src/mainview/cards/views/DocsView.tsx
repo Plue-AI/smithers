@@ -1,6 +1,6 @@
 import type { DocsViewProps } from "@smthrs/rpc/DocsCard"
-import { Markdown } from "@smthrs/ui"
-import { useCallback } from "react"
+import { Markdown, markdownBlockParser } from "@smthrs/ui/markdown"
+import { Children, isValidElement, useCallback, type ReactNode } from "react"
 import { headingLine, resolveMarkdownLink } from "../MarkdownLinks"
 import { DiffAction } from "./DiffAction"
 
@@ -8,11 +8,19 @@ export function DocsView({ model, actions, gestures, onAction }: DocsViewProps) 
   const open = gestures.open
   const body = model.page.markdown.replace(new RegExp(`^#\\s+${model.page.title.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}\\s*\\n`), "")
   const go = (page: string) => { if (open && !open.disabled) onAction(open.tag, { ...open.args, page }) }
-  const follow = (href: string) => {
-    const link = resolveMarkdownLink(`${model.page.slug}.md`, href)
-    if (link.kind === "fragment") go(`${model.page.slug}#${link.fragment}`)
-    else if (link.kind === "file" && link.path.endsWith(".md")) go(`${link.path.slice(0, -3)}${link.fragment ? `#${link.fragment}` : ""}`)
-  }
+  // Derive targets from the shared renderer's actual links, keeping callbacks to one flow.
+  const pages: Record<string, string> = Object.create(null)
+  const collectLinks = (nodes: ReactNode) => Children.forEach(nodes, node => {
+    if (!isValidElement<{ href?: string; children?: ReactNode }>(node)) return
+    if (typeof node.props.href === "string") {
+      const link = resolveMarkdownLink(`${model.page.slug}.md`, node.props.href)
+      if (link.kind === "fragment") pages[node.props.href] = `${model.page.slug}#${link.fragment}`
+      else if (link.kind === "file" && link.path.endsWith(".md")) pages[node.props.href] = `${link.path.slice(0, -3)}${link.fragment ? `#${link.fragment}` : ""}`
+    }
+    collectLinks(node.props.children)
+  })
+  collectLinks(markdownBlockParser.render(body))
+  const follow = (href: string) => { if (pages[href] !== undefined) go(pages[href]) }
   // The shared renderer owns parsing. A commit ref decorates its headings and
   // reveals the supplied anchor when the page or anchor changes, without effects.
   const reveal = useCallback((node: HTMLDivElement | null) => {

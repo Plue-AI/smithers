@@ -169,6 +169,78 @@ const isolatedUnitOwns = (child: string, wrapper: string, source: string): boole
   selected(wrapper, unitPaths) && isolatedTestPaths(source).some(path =>
     relative(app, resolve(app, dirname(wrapper), path)).replaceAll("\\", "/") === child)
 
+interface ExclusiveRunner {
+  readonly exclusive: boolean
+  readonly env: Record<string, string>
+  readonly runner: { readonly name: string; readonly entry: { readonly path: string }; readonly args: readonly string[] }
+}
+const exclusiveRunners: ExclusiveRunner[] = inspectTarget(`console.log(JSON.stringify([
+  Package.viewStories, Package.journeyJ1Activation, Package.journeyTodoFromIssue,
+  Package.journeyTodoNeedsYou, Package.journeyTodoEvidence, Package.journeyTodoMerge
+].map(target => metadata(target).attrs)))`)
+
+// Read only the actual Bun.spawn argv. The J2 wrapper interpolates its one
+// validated positional argument; no mention in comments or unused arrays counts.
+const spawnArgv = (source: string, argument: string | undefined): string[][] => {
+  const tree = ts.createSourceFile("runner.ts", source, ts.ScriptTarget.Latest, true)
+  const result: string[][] = []
+  const visit = (node: ts.Node): void => {
+    if (ts.isCallExpression(node) && node.expression.getText(tree) === "Bun.spawn" &&
+      node.arguments[0] && ts.isArrayLiteralExpression(node.arguments[0])) {
+      const values = node.arguments[0].elements.map(element => {
+        if (ts.isStringLiteral(element)) return element.text
+        if (argument !== undefined && ts.isTemplateExpression(element) && element.templateSpans.length === 1 &&
+          element.templateSpans[0]!.expression.getText(tree) === "spec")
+          return element.head.text + argument + element.templateSpans[0]!.literal.text
+        return undefined
+      })
+      if (values.every((value): value is string => value !== undefined)) result.push(values)
+    }
+    ts.forEachChild(node, visit)
+  }
+  visit(tree)
+  return result
+}
+const runnerEvidence = (source: string): { forwarding: boolean; journeyEnv: boolean } => {
+  const tree = ts.createSourceFile("runner.ts", source, ts.ScriptTarget.Latest, true)
+  let forwarding = false, journeyEnv = false
+  const visit = (node: ts.Node): void => {
+    if (ts.isCallExpression(node) && node.expression.getText(tree) === "Bun.spawn" &&
+      node.arguments[0] && ts.isArrayLiteralExpression(node.arguments[0])) {
+      const args = node.arguments[0].elements
+      forwarding ||= args.length === 2 && args[0]?.getText(tree) === "command" &&
+        ts.isSpreadElement(args[1]!) && args[1]!.expression.getText(tree) === "commandArgs"
+      const options = node.arguments[1]
+      if (options && ts.isObjectLiteralExpression(options)) {
+        const env = options.properties.find(property => ts.isPropertyAssignment(property) && property.name.getText(tree) === "env")
+        if (env && ts.isPropertyAssignment(env) && ts.isObjectLiteralExpression(env.initializer))
+          journeyEnv ||= env.initializer.properties.some(property => ts.isPropertyAssignment(property) &&
+            property.name.getText(tree) === "SMITHERS_JOURNEY" && property.initializer.getText(tree) === "`${spec}.spec.ts`")
+      }
+    }
+    ts.forEachChild(node, visit)
+  }
+  visit(tree)
+  return { forwarding, journeyEnv }
+}
+const exclusiveOwns = (path: string, target: ExclusiveRunner, source: string): boolean => {
+  if (!target.exclusive || target.runner.name !== "entrypoint") return false
+  const entry = target.runner.entry.path
+  if (entry === "scripts/run-view-stories.ts") return target.env.SMITHERS_VIEW_STORIES === "1" &&
+    target.env.SMITHERS_E2E_BROWSER === "chromium" && target.env.SMITHERS_VIEW_STORY_FILTER === "" &&
+    target.runner.args.length === 0 && path === "e2e/playwright/view-stories.spec.ts" &&
+    runsStep(spawnArgv(source, undefined), ["pnpm", "exec", "playwright", "test", "--config", "playwright.config.ts", path])
+  if (entry === "scripts/run-real-e2e.ts") return target.runner.args.length === 1 &&
+    target.runner.args[0] === "j1-activation.spec.ts" && target.env.SMITHERS_JOURNEY === target.runner.args[0] &&
+    path === `e2e/real/${target.runner.args[0]}` && invokesRealPlaywright(source) &&
+    runnerEvidence(source).forwarding
+  if (entry === "scripts/run-journey-j2.ts") return target.runner.args.length === 1 &&
+    path === `e2e/real/${target.runner.args[0]}.spec.ts` &&
+    runsStep(spawnArgv(source, target.runner.args[0]), ["pnpm", "exec", "playwright", "test", "--config", "playwright.real.config.ts", path]) &&
+    runnerEvidence(source).journeyEnv
+  return false
+}
+
 const owners = (path: string): string[] => {
   const result: string[] = []
   if (selected(path, unitPaths)) result.push("unit")
@@ -184,8 +256,32 @@ const owners = (path: string): string[] => {
   if (scripts["test:e2e:local"] === "playwright test --config playwright.local.config.ts" && playwrightOwns(path, playwrightLocal)) result.push("Playwright local")
   if (runsStep(prSteps, graphStep) && playwrightOwns(path, playwrightGraph)) result.push("Playwright graph")
   if (runsStep(prSteps, showcaseStep) && playwrightOwns(path, playwrightShowcase)) result.push("Playwright showcase")
+  if (exclusiveRunners.some(target => exclusiveOwns(path, target, read(target.runner.entry.path)))) result.push("exclusive Playwright")
   return result
 }
+
+test("exclusive browser ownership requires the exported target and executable selection", () => {
+  const paths = ["e2e/playwright/view-stories.spec.ts", "e2e/real/j1-activation.spec.ts",
+    "e2e/real/todo-from-issue.spec.ts", "e2e/real/todo-needs-you.spec.ts",
+    "e2e/real/todo-evidence.spec.ts", "e2e/real/todo-merge.spec.ts"]
+  expect(exclusiveRunners).toHaveLength(paths.length)
+  for (const target of exclusiveRunners) {
+    const source = read(target.runner.entry.path)
+    const owned = paths.filter(path => exclusiveOwns(path, target, source))
+    expect(owned).toHaveLength(1)
+    const path = owned[0]!
+    expect(owners(path)).toEqual(["exclusive Playwright"])
+    expect(exclusiveOwns(path, { ...target, exclusive: false }, source)).toBe(false)
+    expect(exclusiveOwns(path, target, `// ${source.replaceAll("\n", "\n// ")}`)).toBe(false)
+    expect(exclusiveOwns(path, target, source.replaceAll('"playwright"', '"unused"'))).toBe(false)
+    expect(exclusiveOwns(path, target, source.replaceAll('Bun.spawn(', 'unused('))).toBe(false)
+    expect(exclusiveOwns("e2e/real/Unassigned.spec.ts", target, source)).toBe(false)
+    if (target.runner.entry.path === "scripts/run-view-stories.ts")
+      expect(exclusiveOwns(path, { ...target, env: {} }, source)).toBe(false)
+    else
+      expect(exclusiveOwns(path, { ...target, runner: { ...target.runner, args: ["Unassigned"] } }, source)).toBe(false)
+  }
+})
 
 test("every app test belongs to an executable runner", () => {
   expect(files.length).toBeGreaterThan(100)

@@ -151,12 +151,14 @@ describe("subject card presses", () => {
     const row = fileCard("acme/api", "b-retry", "src/webhooks/retry.ts", 4)
     const h = await mount(make(), row)
     try {
-      const surface = document.body.querySelector<HTMLElement>(".code-surface")!
+      // #3628 (6451c97b21) restored the CodeMirror presentation and its keys.
+      const surface = document.body.querySelector<HTMLElement>(".code-editor")!
       expect(surface.dataset.flow).toBe("code.hover")
-      expect(surface.dataset.flowActivate).toBe("code.definition")
-      expect(surface.tabIndex).toBe(0)
-      await act(async () => { surface.dispatchEvent(new KeyboardEvent("keydown", { key: "F10", shiftKey: true, bubbles: true })) })
-      expect(document.body.querySelector(".code-hover")?.textContent).toContain("export")
+      expect(surface.dataset.definitionFlow).toBe("code.definition")
+      const input = surface.querySelector<HTMLElement>(".cm-content")!
+      expect(input.tabIndex).toBe(0)
+      await act(async () => { input.dispatchEvent(new KeyboardEvent("keydown", { key: " ", code: "Space", ctrlKey: true, bubbles: true })) })
+      expect(document.body.querySelector('[role="tooltip"]')?.textContent).toContain("export")
       expect(h.submitted).toEqual([])
     } finally { await h.close() }
   })

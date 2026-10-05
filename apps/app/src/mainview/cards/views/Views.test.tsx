@@ -1550,7 +1550,7 @@ test("Branch place, plain branch presence and unknown terminal use product copy"
 })
 
 // T-UI-16: live updates retain the surface; gone states retain their snapshot.
-import { CodeEditorView as CodeSurface } from "./CodeEditorView"
+import { CodeEditorSurface as CodeSurface } from "../CodeEditorSurface"
 import { fixtures as liveFileFixtures } from "@smthrs/rpc/fixtures/File"
 test("File live notices, snapshot and Compare use supplied data", async () => {
   const host = document.createElement("div"); document.body.append(host)
@@ -1611,7 +1611,7 @@ test("File disabled and unavailable controls cannot dispatch", async () => {
 })
 // T-APP-14a: the restored editor stays read-only without live authority.
 for (const saved of ["saving", "saved"] as const) test(`File production ignores unwired co-editing fields (${saved})`, async () => {
-  const { CodeEditorView: CodeSurface } = await import("./CodeEditorView")
+  const { CodeEditorSurface: CodeSurface } = await import("../CodeEditorSurface")
   const { fixtures } = await import("@smthrs/rpc/fixtures/File")
   const host = document.createElement("div"); document.body.append(host)
   const root = createRoot(host)
@@ -1805,6 +1805,24 @@ describe("DocsView", () => {
         for (const link of links) { const event = new MouseEvent("click", { bubbles: true, cancelable: true }); link.dispatchEvent(event); expect(event.defaultPrevented).toBe(true) }
       })
       expect(rendered.onAction.mock.calls).toEqual([["docs", { source: "docs-card", page: "todos" }], ["docs", { source: "docs-card", page: "todos#review" }], ["docs", { source: "docs-card", page: "guide/start#install-1" }]])
+    } finally { await rendered.close() }
+  })
+  test("encoded paths and fragments resolve while external, escaping and non-doc links stay inert", async () => {
+    const model = { ...props.model, page: { ...props.model.page, markdown: "[Encoded](../space%20page.md#section%20one) [Fragment](#section%20one) [Root](/guide/start.md) [Web](https://example.com) [Escape](../../outside.md) [Other](constructor)" } }
+    const rendered = await mounted({ name: "resolved-links", expect: [], render: callbacks => <DocsView {...props} model={model} {...callbacks} /> })
+    try {
+      const links = [...rendered.host.querySelectorAll<HTMLAnchorElement>(".sui-md a")]
+      expect(links).toHaveLength(6)
+      for (const link of links) {
+        const event = new MouseEvent("click", { bubbles: true, cancelable: true })
+        await act(async () => link.dispatchEvent(event))
+        expect(event.defaultPrevented).toBe(true)
+      }
+      expect(rendered.onAction.mock.calls).toEqual([
+        ["docs", { source: "docs-card", page: "space page#section%20one" }],
+        ["docs", { source: "docs-card", page: "guide/start#section%20one" }],
+        ["docs", { source: "docs-card", page: "guide/start" }]
+      ])
     } finally { await rendered.close() }
   })
   test("absent or disabled gestures block every link including browser navigation", async () => {

@@ -196,10 +196,11 @@ describe("repo tree seam — one directory per request, the route's answer verba
     expect(storage.getItem("smithers-mvp.app-repo-tree")).toBeNull()
   })
 
-  test("repo.tree is one flow with three doors: the caret, the slash, and the agent (the three-door law); the agent reads contents with files.list", async () => {
+  test("repo.tree retains its callable flow while the deferred surface stays hidden; the agent reads contents with files.list", async () => {
     const { controller } = await treeController()
     const catalog = controller.commands.all().find((command) => command.name === "repo.tree")
-    expect(catalog?.hidden).toBeUndefined()
+    expect(catalog?.hidden).toBe(true)
+    expect(controller.slashItems("repo.tree").some(row => row.flow.name === "repo.tree")).toBe(false)
     expect(catalog?.confirm).toBeUndefined()
     expect(controller.commands.find("repo.tree")?.binding.descriptor.modelInvocable).toBe(true)
   })

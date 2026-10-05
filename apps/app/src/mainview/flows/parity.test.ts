@@ -583,7 +583,7 @@ const viewSeamViolations = (source: string, sourceUrl = new URL("../cards/views/
         ts.isJsxAttribute(attribute) && attribute.name.getText(tree) === "data-flow"
       )
       // Adapters can forward events while their host wrapper carries data-flow.
-      if (!binding && node.tagName.getText(tree) === "MarkdownEditor") {
+      if (!binding && ["MarkdownEditor", "Markdown"].includes(node.tagName.getText(tree))) {
         let parent: ts.Node | undefined = node.parent
         while (parent && (ts.isJsxElement(parent) || ts.isJsxExpression(parent))) {
           if (ts.isJsxElement(parent) && parent.openingElement !== node) {
@@ -913,6 +913,9 @@ describe("View and Container catalog seam (C-UI-08)", () => {
   test("guarded link callbacks retain exactly one catalog effect", () => {
     const helper = 'const go = page => { if (open && !open.disabled) onAction(open.tag, { ...open.args, page }) }; const follow = href => { if (links[href]) go(links[href]); return true }; '
     expect(viewSeamViolations(helper + 'const view = <div data-flow={open?.tag}><MarkdownEditor onLinkClick={follow} /></div>')).toEqual([])
+    expect(viewSeamViolations(helper + 'const view = <div data-flow={open?.tag}><Markdown onLinkClick={follow} /></div>')).toEqual([])
+    expect(viewSeamViolations(helper + 'const view = <div data-flow={other?.tag}><Markdown onLinkClick={follow} /></div>').length).toBeGreaterThan(0)
+    expect(viewSeamViolations(helper + 'const view = <Markdown onLinkClick={follow} />').length).toBeGreaterThan(0)
     for (const source of [
       helper + 'const view = <div data-flow={other?.tag}><MarkdownEditor onLinkClick={follow} /></div>',
       helper + 'const view = <MarkdownEditor onLinkClick={follow} />',
