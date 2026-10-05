@@ -19,10 +19,13 @@ import (
 // to 6 on the install J1 sets up: an issue on GitHub becomes a TODO through
 // Make TODO and through the todo label, the TODO queues, starts and works,
 // its PR opens with evidence, the owner merges it in Smithers, it turns
-// Merged and the issue closes because the TODO fixes it. Setup runs as J1's
-// rows and shows as one row. The state rows follow Make TODO at once, since
-// the TODO starts on the stack's next pass; the label row runs last. The
-// composed install and the shared rows are rehearsal_integration_test.go's.
+// Merged and the issue closes because the TODO fixes it. On the way the run
+// asks which greeting to use (Needs you: the Draft's [ASK] marker makes the
+// scripted model of distribution/fake-todo-turns.mjs ask its QUESTION) and
+// the owner's answer is written into the line the PR adds. Setup runs as J1's rows and shows as one row. The
+// state rows follow Make TODO at once, since the TODO starts on the stack's
+// next pass; the label row runs last. The composed install and the shared
+// rows are rehearsal_integration_test.go's.
 func TestJ2Rehearsal(t *testing.T) {
 	r := newRehearsal(t, "SMITHERS_J2_REHEARSAL", "C-J2", "j2-")
 	const repo = "rehearsal-owner/app"
@@ -70,6 +73,13 @@ func TestJ2Rehearsal(t *testing.T) {
 		}
 		return count, err
 	}
+	// The Draft carries fake-todo-turns.mjs's [ASK] marker, so planning's
+	// review asks its QUESTION, and the edit writes the answer.
+	const (
+		ask      = "[ASK]"
+		question = "Which greeting should the file carry?"
+		greeting = "Welcome, visitors!"
+	)
 	var number int64
 	todoPath := "/api/todos/{n}"
 	if !r.step("2 Make TODO", "POST /api/todos {issue, issue_digest, fixes}; GET /api/todos/{n}", "202 accepted; the TODO is the issue's and fixes it; the same press answers the same TODO", "T-STK-09", func() error {
@@ -79,7 +89,7 @@ func TestJ2Rehearsal(t *testing.T) {
 		}
 		// The Draft carries the digest of the title and body its author read.
 		digest := sha256.Sum256([]byte(view.Title + "\x00" + view.Body))
-		body, _ := json.Marshal(map[string]any{"title": "Greet visitors", "prompt": "Add a greeting to JOURNEY.md, as the issue asks.",
+		body, _ := json.Marshal(map[string]any{"title": "Greet visitors", "prompt": "Add a greeting to JOURNEY.md, as the issue asks. " + ask,
 			"acceptance": []string{"JOURNEY.md ends with a greeting"}, "place": map[string]string{"mode": "append"},
 			"issue": made, "issue_digest": hex.EncodeToString(digest[:]), "fixes": true})
 		var first int64
@@ -165,10 +175,80 @@ func TestJ2Rehearsal(t *testing.T) {
 	}) {
 		return
 	}
-	r.step("4 Needs you", "coding host ask → GET "+todoPath+"; POST "+todoPath+"/answer", "state=needs_you; a member's answer settles it; the run continues", "lane needs-you", func() error {
-		return fmt.Errorf("expected failure (lane needs-you): the coding host has no ask signal and no answer route exists, so a TODO never shows Needs you")
-	})
-	if !r.step("5 PR with evidence", "GET "+todoPath+"; GET GitHub fake /repos/"+repo+"/pulls/{n}; git diff main..head", "state=in_review; PR head smithers/<slug> at the TODO's head, base main; the head changes JOURNEY.md; the body lists the checks run on the machine", "T-STK-01, T-STK-09", func() error {
+	if !r.step("4 Needs you", "GET "+todoPath+"; POST "+todoPath+"/answer {wait, answer}", "state=needs_you with planning's question; the owner's answer settles it, the same answer again is 202, another is 409 answered; the run continues to its plan", "T-STK-09, #3433", func() error {
+		if _, err := r.waitTodo(number, "needs_you"); err != nil {
+			return err
+		}
+		type card struct {
+			State string `json:"state"`
+			Waits []struct {
+				ID     string `json:"id"`
+				Kind   string `json:"kind"`
+				Prompt string `json:"prompt"`
+			} `json:"waits"`
+			FirstAnswer *struct {
+				Text string `json:"text"`
+			} `json:"first_answer"`
+		}
+		read := func() (card, error) {
+			var v card
+			data, err := r.expect("GET", todoPath, "", 200)
+			if err == nil {
+				err = json.Unmarshal(data, &v)
+			}
+			return v, err
+		}
+		asked, err := read()
+		if err != nil {
+			return err
+		}
+		wait := ""
+		for _, w := range asked.Waits {
+			if w.Kind == "question" && w.Prompt == question {
+				wait = w.ID
+			}
+		}
+		if wait == "" || len(asked.Waits) != 1 {
+			return fmt.Errorf("Needs you shows no one question %q: %s", question, r.actual)
+		}
+		if strings.Contains(r.coder.turns(), "coding/draft-plan") {
+			return fmt.Errorf("the run planned before the answer: %s", r.coder.turns())
+		}
+		body := func(answer string) string {
+			data, _ := json.Marshal(map[string]string{"wait": wait, "answer": answer})
+			return string(data)
+		}
+		for press, want := range []struct {
+			answer string
+			status int
+		}{{greeting, 202}, {greeting, 202}, {"Goodbye.", 409}} {
+			code, data, err := r.keyed("POST", todoPath+"/answer", body(want.answer), fmt.Sprintf("j2-answer-%d", press))
+			if err != nil {
+				return err
+			}
+			if code != want.status || want.status == 409 && !strings.Contains(string(data), `"answered_by":"rehearsal-owner"`) {
+				return fmt.Errorf("answer %d %q: expected HTTP %d: %s", press+1, want.answer, want.status, r.actual)
+			}
+		}
+		answered, err := read()
+		if err != nil {
+			return err
+		}
+		if answered.State == "needs_you" || len(answered.Waits) != 0 || answered.FirstAnswer == nil || answered.FirstAnswer.Text != greeting {
+			return fmt.Errorf("the answer did not settle the question: %s", r.actual)
+		}
+		// The answer resumes the run that asked: its plan follows.
+		for deadline := time.Now().Add(time.Minute); !strings.Contains(r.coder.turns(), "coding/draft-plan"); time.Sleep(250 * time.Millisecond) {
+			if time.Now().After(deadline) {
+				return fmt.Errorf("no plan a minute after the answer: model turns %s", r.coder.turns())
+			}
+		}
+		r.actual = fmt.Sprintf("needs_you %s → answered %q by the owner → state=%s; plan drafted", wait, greeting, answered.State)
+		return nil
+	}) {
+		return
+	}
+	if !r.step("5 PR with evidence", "GET "+todoPath+"; GET GitHub fake /repos/"+repo+"/pulls/{n}; git diff main..head", "state=in_review; PR head smithers/<slug> at the TODO's head, base main; the head's JOURNEY.md ends with the answer; the body lists the checks run on the machine", "T-STK-01, T-STK-09", func() error {
 		todo, err := r.waitTodo(number, "in_review")
 		if err != nil {
 			return err
@@ -181,6 +261,11 @@ func TestJ2Rehearsal(t *testing.T) {
 		diff, err := exec.Command("/usr/bin/git", "--git-dir", filepath.Join(r.gitRoot, repo+".git"), "diff", "--stat", r.mainCommit, head).CombinedOutput()
 		if err != nil || !strings.Contains(string(diff), "JOURNEY.md") {
 			return fmt.Errorf("the PR head changes nothing on main: %v: %s", err, diff)
+		}
+		// The owner's answer is in the line the PR adds.
+		journey, err := exec.Command("/usr/bin/git", "--git-dir", filepath.Join(r.gitRoot, repo+".git"), "show", head+":JOURNEY.md").CombinedOutput()
+		if err != nil || !strings.HasSuffix(string(journey), greeting+"\n") {
+			return fmt.Errorf("the PR head's JOURNEY.md does not end with the answer: %v: %q", err, journey)
 		}
 		r.actual = fmt.Sprintf("head=%s base=%s body=%q", pull.Head.Ref, pull.Base.Ref, pull.Body)
 		if !strings.Contains(pull.Body, "Checks:\n- ") {
