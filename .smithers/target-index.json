@@ -22168,6 +22168,10 @@
       },
       {
         "kind": "file",
+        "path": "flows/test/coding-check-output.test.ts"
+      },
+      {
+        "kind": "file",
         "path": "flows/test/coding-vibe-landing.test.ts"
       },
       {

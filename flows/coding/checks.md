@@ -83,6 +83,10 @@ that need HOME, a package cache or other build settings receive those explicitly
 
 Actual process exit zero produces a passing receipt. A nonzero exit produces a
 failed receipt with `fault: "factory"` and a finding for its current owning Change.
+The finding's message names the check, its command and exit code, for example
+``Check test failed: `npm test` exited with code 1``. Its `output` carries the
+last 4 KiB of the run's stderr and stdout, redacted like the evidence, so the
+repair reads the actual error without running the check again.
 Commands that distinguish unavailable dependencies from a real red declare their
 infrastructure exit codes in the pinned command body, for example
 `"infraExitCodes":[75]`. These must be integers from 1 through 255; an omitted

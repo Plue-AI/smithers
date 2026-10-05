@@ -138,7 +138,11 @@ export const RequestInput = Schema.Struct({
 export const Finding = Schema.Struct({
   owner: Id,
   message: Text,
-  sourceCommitId: Text
+  sourceCommitId: Text,
+  // A failing command check's redacted output end (checks.ts); the repair
+  // reads it. Not in the message, so a repeated failure still stalls and a
+  // learning note stays short. Older findings omit it.
+  output: Schema.optionalKey(Text)
 })
 export type Finding = typeof Finding.Type
 export const Implementation = Schema.Struct({

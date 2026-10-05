@@ -24,7 +24,9 @@ There is no process-local retry loop or parallel correction writer.
 
 Every unvalidated pass before the last is folded into `@smthrs/flow`'s
 `Stall` with three signals: every atom's JJ tree id, each failing check receipt
-with its findings, and the findings the next repair would receive. The optional
+with its findings' messages, and the findings the next repair would receive. A
+message excludes the check's output, so the same failure with a different
+timing line still stalls. The optional
 `stall` input defaults to `{ rounds: 2, on: "park" }`: two passes in a row with
 the same signal end the correction before its bound. A cursor recorded before
 this option decodes with that default, and the pass execution id ignores the
@@ -99,7 +101,9 @@ not claim one atomic snapshot across concurrent check completions.
 ## Native owner repair
 
 An ordinary `AgentAction` selects one existing atom in that Change and a focused
-repair intent. It uses the existing `coding/implement` seat and asks for no tool
+repair intent. Its input holds the Change's findings, and a failing check's
+finding carries the end of that check's output. The edit step's intent repeats
+each finding with its output. It uses the existing `coding/implement` seat and asks for no tool
 calls. The deployment owns the model's actual capability envelope; the prompt
 is not an authorization boundary. The configured native host wraps this action
 with the existing `evidenceOnly` authority helper, which removes tool capabilities

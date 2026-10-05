@@ -22,17 +22,59 @@ export interface ImmutableSourceOptions {
 
 const invalid = (message: string) => new CodingError({ code: "invalid_receipt", message })
 const outputLimit = 128 * 1024
-/** Drain every byte, retaining only a bounded prefix for the existing receipt. */
+/** How much of each stream's end a failing check's finding carries to its repair. */
+export const outputTailBytes = 4 * 1024
+/** A stream's last `outputTailBytes`, in a buffer twice that size so each byte is copied a bounded number of times. */
+const tailBuffer = () => {
+  const buffer = new Uint8Array(2 * outputTailBytes)
+  let length = 0
+  return {
+    push: (chunk: Uint8Array) => {
+      if (chunk.length >= outputTailBytes) {
+        buffer.set(chunk.subarray(chunk.length - outputTailBytes))
+        length = outputTailBytes
+        return
+      }
+      if (length + chunk.length > buffer.length) {
+        buffer.copyWithin(0, length - outputTailBytes, length)
+        length = outputTailBytes
+      }
+      buffer.set(chunk, length)
+      length += chunk.length
+    },
+    bytes: () => buffer.subarray(Math.max(0, length - outputTailBytes), length)
+  }
+}
+/** A cut end starts at the next whole UTF-8 character. */
+const decodeTail = (bytes: Uint8Array, cut: boolean) => {
+  let start = 0
+  while (cut && start < Math.min(3, bytes.length) && (bytes[start]! & 0xc0) === 0x80) start++
+  return new TextDecoder().decode(bytes.subarray(start))
+}
+/** Drain every byte, retaining a bounded prefix for the existing receipt and the stream's bounded end. */
 const capture = <E>(stream: Stream.Stream<Uint8Array, E>) =>
-  Stream.runFold(stream, () => ({ text: "", bytes: 0, kept: 0, decoder: new TextDecoder() }), (state, chunk) => {
-    const selected = chunk.subarray(0, Math.max(0, outputLimit - state.kept))
-    return {
-      text: state.text + state.decoder.decode(selected, { stream: true }),
-      bytes: state.bytes + chunk.length,
-      kept: state.kept + selected.length,
-      decoder: state.decoder
+  Stream.runFold(
+    stream,
+    () => ({ text: "", bytes: 0, kept: 0, decoder: new TextDecoder(), tail: tailBuffer() }),
+    (state, chunk) => {
+      const selected = chunk.subarray(0, Math.max(0, outputLimit - state.kept))
+      state.tail.push(chunk)
+      return {
+        text: state.text + state.decoder.decode(selected, { stream: true }),
+        bytes: state.bytes + chunk.length,
+        kept: state.kept + selected.length,
+        decoder: state.decoder,
+        tail: state.tail
+      }
     }
-  }).pipe(Effect.map((state) => ({ text: state.text + state.decoder.decode(), truncated: state.bytes > outputLimit })))
+  ).pipe(Effect.map((state) => {
+    const cut = state.bytes > outputTailBytes
+    return {
+      text: state.text + state.decoder.decode(),
+      truncated: state.bytes > outputLimit,
+      tail: { text: decodeTail(state.tail.bytes(), cut), cut }
+    }
+  }))
 
 const credentialName = /TOKEN|SECRET|PASSWORD|CREDENTIAL|_KEY$/i
 const redaction = "[redacted]"
@@ -49,26 +91,45 @@ export const environmentSecrets = (environment: Readonly<Record<string, string>>
   ]
     .sort((a, b) => b.length - a.length)
 
+/** Replaces every secret in `text`, and a partial secret of four or more
+ * characters at a cut edge: a prefix's end or a tail's start. */
+const redact = (
+  input: string,
+  secrets: ReadonlyArray<string>,
+  cut: { readonly start: boolean; readonly end: boolean }
+) => {
+  let text = input
+  for (const secret of secrets) text = text.split(secret).join(redaction)
+  for (const secret of secrets) {
+    for (let length = Math.min(secret.length - 1, text.length); cut.end && length >= 4; length--) {
+      if (text.endsWith(secret.slice(0, length))) {
+        text = text.slice(0, text.length - length) + redaction
+        break
+      }
+    }
+    for (let length = Math.min(secret.length - 1, text.length); cut.start && length >= 4; length--) {
+      if (text.startsWith(secret.slice(secret.length - length))) {
+        text = redaction + text.slice(length)
+        break
+      }
+    }
+  }
+  return text
+}
+
 /** Replaces every secret in retained output. A truncated prefix can end inside
  * one, so a trailing partial secret is removed too. */
 export const redactOutput = (
   output: { readonly text: string; readonly truncated: boolean },
   secrets: ReadonlyArray<string>
-) => {
-  let text = output.text
-  for (const secret of secrets) text = text.split(secret).join(redaction)
-  if (output.truncated) {
-    for (const secret of secrets) {
-      for (let length = Math.min(secret.length - 1, text.length); length >= 4; length--) {
-        if (text.endsWith(secret.slice(0, length))) {
-          text = text.slice(0, text.length - length) + redaction
-          break
-        }
-      }
-    }
-  }
-  return { text, truncated: output.truncated }
-}
+) => ({ text: redact(output.text, secrets, { start: false, end: output.truncated }), truncated: output.truncated })
+
+/** The same redaction for a stream's end. A cut end can start inside a secret,
+ * so a leading partial secret is removed too. */
+export const redactTail = (
+  tail: { readonly text: string; readonly cut: boolean },
+  secrets: ReadonlyArray<string>
+) => ({ text: redact(tail.text, secrets, { start: tail.cut, end: false }), cut: tail.cut })
 
 export const contained = (root: string, candidate: string, path: Path.Path) => {
   const relative = path.relative(root, candidate)
@@ -94,7 +155,11 @@ export const runSourceProcess = (
       process.exitCode
     ], { concurrency: "unbounded" })
     const secrets = environmentSecrets(options.environment)
-    return { stdout: redactOutput(stdout, secrets), stderr: redactOutput(stderr, secrets), exitCode }
+    const redacted = (output: typeof stdout) => ({
+      ...redactOutput(output, secrets),
+      tail: redactTail(output.tail, secrets)
+    })
+    return { stdout: redacted(stdout), stderr: redacted(stderr), exitCode }
   }).pipe(
     Effect.scoped,
     Effect.timeoutOrElse({

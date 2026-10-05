@@ -229,6 +229,18 @@ process.exit(mode==='fail'?7:value==='old source'?0:9);
     "relative executable resolves only through the explicitly supplied PATH"
   )
   assert.equal(failed.findings[0]?.sourceCommitId, revision.commitId)
+  assert.equal(
+    failed.findings[0]?.message,
+    `Check verify on //:schema failed: \`${
+      basename(process.execPath)
+    } verify.mjs ${started} ${release} fail\` exited with code 7`,
+    "the finding names the check and its command, not its target alone"
+  )
+  assert.equal(
+    failed.findings[0]?.output,
+    "stdout:\nold source|value.txt",
+    "the repair reads the end of the output the evidence holds"
+  )
   assert.equal(await readFile(started, "utf8"), "started\nstarted\n")
   await host.dispose()
   await declare("fail", [7])

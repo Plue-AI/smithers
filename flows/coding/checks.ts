@@ -2,8 +2,49 @@
 import { Action, Flow, Interpreter } from "@smthrs/flow"
 import * as Executable from "@smthrs/registry/Executable"
 import { Clock, Effect, Layer, Path, Schema, Semaphore } from "effect"
-import { contained, type ImmutableSourceOptions, runSourceProcess, withImmutableSource } from "./immutable-source.ts"
-import { Check, checkInputDigest, CodingError, Implementation, Receipt } from "./schema.ts"
+import {
+  contained,
+  type ImmutableSourceOptions,
+  outputTailBytes,
+  runSourceProcess,
+  withImmutableSource
+} from "./immutable-source.ts"
+import { Check, checkInputDigest, CodingError, type Finding, Implementation, Receipt } from "./schema.ts"
+
+/** A command as a person types it; an argument with spaces or quotes is quoted. */
+const commandLine = (argv: ReadonlyArray<string>) =>
+  argv.map((arg) => /^[\w@%+=:,./-]+$/.test(arg) ? arg : JSON.stringify(arg)).join(" ")
+type Tail = { readonly text: string; readonly cut: boolean }
+
+/**
+ * What a failing command check hands its repair: the check's id and command
+ * in the message, and the redacted end of each stream it wrote in `output`.
+ * The message stays free of output so the same failure twice still stalls.
+ */
+export const failedCheckFinding = (input: {
+  readonly check: Pick<Check, "id" | "target">
+  readonly argv: ReadonlyArray<string>
+  readonly exitCode: number
+  readonly stdout: Tail
+  readonly stderr: Tail
+  readonly owner: string
+  readonly sourceCommitId: string
+}): Finding => {
+  const where = input.check.target === "." ? "" : ` on ${input.check.target}`
+  const streams = ([["stderr", input.stderr], ["stdout", input.stdout]] as const)
+    .filter(([, tail]) => tail.text.trim() !== "")
+    .map(([name, tail]) =>
+      `${name}${tail.cut ? ` (last ${outputTailBytes / 1024} KiB)` : ""}:\n${tail.text.replace(/\s+$/, "")}`
+    )
+  return {
+    owner: input.owner,
+    sourceCommitId: input.sourceCommitId,
+    message: `Check ${input.check.id}${where} failed: \`${
+      commandLine(input.argv)
+    }\` exited with code ${input.exitCode}`,
+    ...(streams.length === 0 ? {} : { output: streams.join("\n\n") })
+  }
+}
 
 /** The registered Markdown flow's verified body, never an agent's check result. */
 const Command = Schema.Struct({
@@ -109,13 +150,18 @@ export const checkLayers = (options: CheckHostOptions) => {
                 truncated: result.stdout.truncated || result.stderr.truncated,
                 fileCount: tree.fileCount
               }),
+              // The finding reuses this run's captured output; the check never runs twice.
               findings: passed || fault === "infra" ?
                 [] :
-                [{
+                [failedCheckFinding({
+                  check,
+                  argv: command.argv,
+                  exitCode: result.exitCode,
+                  stdout: result.stdout.tail,
+                  stderr: result.stderr.tail,
                   owner: implementation.change,
-                  sourceCommitId: tree.commitId,
-                  message: `${check.target} exited with code ${result.exitCode}`
-                }]
+                  sourceCommitId: tree.commitId
+                })]
             }
           }))
       }).pipe(
