@@ -70,11 +70,6 @@ export function debugApiScenarios(prefix: string) {
       }
     })
     test("Ben POST secrets awaits Confirm then 403 permission with zero SQL rows; Mia Maintainer gets 201 and one SQL row", async () => {
-      // Ran against the real install 2026-10-05 (receipts in the lane report): Ben AND Mia got 403 `forbidden`
-      // ("credential does not belong to the installation owner") with no `permission` class. The install-member
-      // command table (middleware/auth.go InstallMemberCommand) excludes this route and the generic Forbidden lacks
-      // §6.2.3's class. Pending the backend owner's fix; the assertions below stay strict.
-      test.fixme(true, "Backend: install-member boundary refuses Maintainer repo-secret writes and omits class permission (smithers-3f)")
       test.setTimeout(900_000)
       const output = mkdtempSync(resolve(tmpdir(), "c-ui-10-write-"))
       try {
