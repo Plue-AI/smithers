@@ -20,10 +20,10 @@ import (
 
 // routeVisit is what one install route saw of a host-run command's read.
 type routeVisit struct {
-	method, path, via string
-	userID            int64
-	token             bool
-	scopes            string
+	method, path string
+	userID       int64
+	token        bool
+	scopes       string
 }
 
 // recordingRoutes is the install routes seam: the TODO routes' own
@@ -37,7 +37,7 @@ type recordingRoutes struct {
 
 func (r *recordingRoutes) ServeHTTP(w http.ResponseWriter, request *http.Request) {
 	info := middleware.AuthInfoFromContext(request.Context())
-	visit := routeVisit{method: request.Method, path: request.URL.Path, via: request.Header.Get("Smithers-Via")}
+	visit := routeVisit{method: request.Method, path: request.URL.Path}
 	if info != nil && info.User != nil {
 		visit.userID, visit.token, visit.scopes = info.User.ID, info.IsTokenAuth, info.RawScopes
 	}
@@ -163,7 +163,7 @@ func TestInstallAPIReadsARouteAsTheAdmittingCredential(t *testing.T) {
 		require.Equal(t, APIAnswer{Status: status, Body: []byte("null")}, answer, path)
 	}
 	// A token reaches the route with its own authority and no more: the
-	// route sees the token, its scopes, and that Smithers asked for it.
+	// route sees the token and its scopes.
 	reader, _ := turnToken(t, f.pool, f.owner, "read:repository,write:user", false, pgtype.Timestamptz{})
 	_, err = f.api.Call(ctx, reader, f.owner.ID, http.MethodGet, "/api/todos")
 	require.NoError(t, err)
@@ -171,11 +171,10 @@ func TestInstallAPIReadsARouteAsTheAdmittingCredential(t *testing.T) {
 	require.Len(t, visits, 6)
 	for _, visit := range visits[:5] {
 		require.Equal(t, http.MethodGet, visit.method)
-		require.Equal(t, "smithers", visit.via)
 		require.Equal(t, f.owner.ID, visit.userID)
 		require.False(t, visit.token)
 	}
-	require.Equal(t, routeVisit{method: http.MethodGet, path: "/api/todos", via: "smithers", userID: f.owner.ID, token: true, scopes: "read:repository,write:user"}, visits[5])
+	require.Equal(t, routeVisit{method: http.MethodGet, path: "/api/todos", userID: f.owner.ID, token: true, scopes: "read:repository,write:user"}, visits[5])
 	// The read ends with its caller: a turn that ends stops its command's read.
 	caller, cancel := context.WithCancel(ctx)
 	time.AfterFunc(50*time.Millisecond, cancel)

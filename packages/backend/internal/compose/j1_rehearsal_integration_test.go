@@ -699,7 +699,7 @@ func TestJ1Rehearsal(t *testing.T) {
 			files,
 			"- /stack — Show the stack and background runs",
 			"- /todo <Tn> — Open a TODO",
-			"- /todo.new [text] — Write and place a TODO (asks the person: it shows them what to confirm and files nothing)",
+			"- /todo.new [text] — Write and place a TODO (asks the person: it only shows them what to confirm, and their press acts)",
 		}, "\n")
 		// The instructions list exactly the commands the host runs for the owner's session.
 		answer, _, terminal, err := ask("", "What can you run? (instructions)")
@@ -834,9 +834,11 @@ func TestJ1Rehearsal(t *testing.T) {
 		}) {
 			return
 		}
-		if state == "queued" && !step("App agent lists TODOs", "POST "+chat.TurnPath, "200; /stack and /todo answer TODO cards; /todo.new a private Draft and no TODO; other commands and tokens refused", "T-APP-16, T-CAT-01", appAgentTodos) {
-			return
-		}
+	}
+	// After the state polls: in_review holds until the merge, so the agent's
+	// turns sit inside no transient state's poll window.
+	if !step("App agent lists TODOs", "POST "+chat.TurnPath, "200; /stack and /todo answer TODO cards; /todo.new a private Draft and no TODO; other commands and tokens refused", "T-APP-16, T-CAT-01", appAgentTodos) {
+		return
 	}
 	readFakePull := func() (githubfake.Pull, error) {
 		codec, err := webhook.NewSecretCodec("rehearsal-encryption-key")

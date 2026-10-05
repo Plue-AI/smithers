@@ -35,9 +35,6 @@ type APIAnswer struct {
 // longer answer is no answer.
 const maxAPIAnswerBytes = 4 << 20
 
-// smithersVia attributes a request Smithers makes for a person (spec §5.4).
-const smithersVia = "Smithers-Via"
-
 // InstallAPI serves the install API reads an app-agent turn's host-run
 // commands make (spec §15.1.4), with the authority of the credential that
 // admitted the turn, resolved again at each call: it must still authenticate
@@ -46,8 +43,14 @@ const smithersVia = "Smithers-Via"
 // own route, whose authorization applies to that credential as it does to a
 // request from the person's browser; no route is reached any other way.
 //
+// A read here is not attributed to Smithers and passes no API rate limit:
+// the producer callback is an internal route, outside the public /api
+// group's GlobalAPIRateLimit. ReloadCredential still reads the credential
+// from the database on every call, so revoking it stops the next read.
+//
 // T-ACC-04's delegated(via=smithers) turn credential replaces this: the host
-// will call the public API with it directly, and this callback goes.
+// will call the public API with it directly, attributed and rate limited as
+// the person, and this callback goes.
 type InstallAPI struct {
 	Pool *pgxpool.Pool
 	// Members is the installation's member boundary, the one AuthLoader
@@ -99,7 +102,6 @@ func (a InstallAPI) Call(ctx context.Context, credential middleware.Credential, 
 	if err != nil {
 		return APIAnswer{}, ErrAPICallRefused
 	}
-	request.Header.Set(smithersVia, "smithers")
 	answer := &routeAnswer{header: http.Header{}, status: http.StatusOK}
 	a.Routes.ServeHTTP(answer, request)
 	body := answer.body.Bytes()
