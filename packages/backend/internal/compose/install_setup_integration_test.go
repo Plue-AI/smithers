@@ -15,6 +15,7 @@ import (
 
 	"github.com/smithersai/smithers/packages/backend/apiclient"
 	"github.com/smithersai/smithers/packages/backend/internal/db"
+	"github.com/smithersai/smithers/packages/backend/internal/middleware"
 	"github.com/smithersai/smithers/packages/backend/internal/routes"
 	"github.com/smithersai/smithers/packages/backend/internal/services"
 	"github.com/smithersai/smithers/packages/backend/jobs"
@@ -35,7 +36,7 @@ func TestInstallSetupCookieBoundaryPostgres(t *testing.T) {
 	require.NoError(t, q.UpsertInstallSetting(ctx, db.UpsertInstallSettingParams{Key: "setup.token", Value: value}))
 	authority := &services.InstallSetupSessions{Pool: pool}
 	setup := &services.InstallSetupService{Pool: pool, Jobs: store}
-	handler := &routes.GitHubAppSetupHandler{Sessions: authority, Owners: q, AllowedOrigins: []string{origin}, Setup: setup}
+	handler := &routes.GitHubAppSetupHandler{Sessions: authority, Owners: q, Origins: middleware.FixedOrigins(origin), Setup: setup}
 	cfg := testConfigAllFlagsOn()
 	cfg.Auth.Mode = "selfhost"
 	cfg.Server.PublicURL = origin

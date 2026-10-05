@@ -1457,7 +1457,15 @@ func runWithOptions(ctx context.Context, args []string, stdout, stderr io.Writer
 		modelStreamHandler = routes.NewModelStreamHandler(modelStreamHost)
 	}
 	var installSetup *services.InstallSetupService
+	var installAddress *services.InstallAddress
 	if config.IsSingleOwner(cfg.Auth) {
+		// The install's known origins: configuration's, then the Address the
+		// owner saved in setup step 0 (M-28), which the setup URLs, the App's
+		// callback URLs and every effective-origin check read.
+		installAddress = &services.InstallAddress{Configured: apiAllowedOrigins(cfg)}
+		if err := installAddress.Load(ctx, queries); err != nil {
+			return fmt.Errorf("load install address: %w", err)
+		}
 		authService.InstallSetup = &services.InstallSetupSessions{Pool: pool}
 		authService.Members = &services.Members{Pool: pool, Credentials: gitHubAppCredentials}
 		authHandler.InstallSetup = authService.InstallSetup
@@ -1465,7 +1473,7 @@ func runWithOptions(ctx context.Context, args []string, stdout, stderr io.Writer
 		if *setupHandoff == "socket" {
 			setupOutput = io.Discard
 		}
-		if err := authService.InstallSetup.Mint(ctx, apiAllowedOrigins(cfg), setupOutput); err != nil {
+		if err := authService.InstallSetup.Mint(ctx, installAddress.Origins(), setupOutput); err != nil {
 			return fmt.Errorf("mint setup authority: %w", err)
 		}
 		if stateDir := strings.TrimSpace(os.Getenv("SMITHERS_NATIVE_STATE_DIR")); *setupHandoff == "socket" {
@@ -1489,15 +1497,16 @@ func runWithOptions(ctx context.Context, args []string, stdout, stderr io.Writer
 		if tester, ok := options.ChatHost.(services.InstallModelTester); ok {
 			installSetup.Models = tester
 		}
+		installSetup.Address = installAddress
 		if err := installSetup.Initialize(ctx); err != nil {
 			return fmt.Errorf("initialize install setup: %w", err)
 		}
 		gitHubAppSetup = &routes.GitHubAppSetupHandler{
 			Setup:   installSetup,
-			Service: services.NewGitHubAppManifestService(pool, gitHubAppStore, os.Getenv("SMITHERS_GITHUB_APP_API_BASE_URL"), apiAllowedOrigins(cfg)),
+			Service: services.NewGitHubAppManifestService(pool, gitHubAppStore, os.Getenv("SMITHERS_GITHUB_APP_API_BASE_URL"), installAddress.Origins),
 			Store:   gitHubAppStore, Owners: queries,
-			AllowedOrigins: apiAllowedOrigins(cfg),
-			Sessions:       authService.InstallSetup,
+			Origins:  installAddress.Origins,
+			Sessions: authService.InstallSetup,
 		}
 	}
 	router := buildRouter(
@@ -1631,6 +1640,11 @@ func runWithOptions(ctx context.Context, args []string, stdout, stderr io.Writer
 	requestTracker := newInFlightRequestTracker()
 	handler := requestTracker.Wrap(r)
 	srv := buildHTTPServer(cfg, handler)
+	if installAddress != nil && !options.externalHTTP && options.topology.servesHTTP() {
+		// This process owns its listener, so the Address step serves its bind
+		// here beside loopback; a host that owns the listener keeps it.
+		installAddress.Listen = (&networkListener{serve: srv.Serve, listen: netListen}).Listen
+	}
 
 	if options.ReadyBindings != nil {
 		options.ReadyBindings(operations.Bindings{
@@ -2015,6 +2029,7 @@ func runWithOptions(ctx context.Context, args []string, stdout, stderr io.Writer
 		return err
 	}
 	onListen(ln)
+	installAddress.Serve()
 	if err := srv.Serve(ln); err != http.ErrServerClosed {
 		slog.Error("server error", "error", err)
 		close(abortShutdown)

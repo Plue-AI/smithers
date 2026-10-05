@@ -17,6 +17,7 @@ import (
 	"github.com/smithersai/smithers/packages/backend/internal/db"
 	"github.com/smithersai/smithers/packages/backend/internal/githubfake"
 	"github.com/smithersai/smithers/packages/backend/internal/identity"
+	"github.com/smithersai/smithers/packages/backend/internal/middleware"
 	"github.com/smithersai/smithers/packages/backend/internal/routes"
 	"github.com/smithersai/smithers/packages/backend/internal/services"
 	"github.com/smithersai/smithers/packages/backend/testkit/postgresfixture"
@@ -62,7 +63,7 @@ func TestOwnerSignInHTTPPostgres(t *testing.T) {
 			cfg := config.AuthConfig{Mode: "selfhost", SessionSecret: "test-secret", SessionCookieName: "session", SessionDuration: "24h"}
 			svc := services.NewAuthService(q, cfg, nil, auth.NewGitHubClient(ownerOAuthCredentials{seed.ClientID, seed.ClientSecret}, "", provider.URL, provider.URL))
 			svc.InstallSetup = setup
-			handler := &routes.AuthHandler{Service: svc, AuthConfig: cfg, AllowedOrigins: []string{origin}, InstallSetup: setup}
+			handler := &routes.AuthHandler{Service: svc, AuthConfig: cfg, Origins: middleware.FixedOrigins(origin), InstallSetup: setup}
 			request := func(path string, cookies ...*http.Cookie) *http.Request {
 				r := httptest.NewRequest("GET", origin+path, nil)
 				r.RemoteAddr = "127.0.0.1:1234"

@@ -105,10 +105,13 @@ func TestGitHubAppManifestRefusesInvalidOwnerAndOrigin(t *testing.T) {
 
 func TestGitHubAppManifestDefaultConfigurationAndUnavailableService(t *testing.T) {
 	origins := []string{"http://mini.local:4000"}
-	service := NewGitHubAppManifestService(nil, nil, "", origins)
-	origins[0] = "https://changed.example"
+	service := NewGitHubAppManifestService(nil, nil, "", func() []string { return origins })
 	require.Equal(t, "https://api.github.com", service.apiBaseURL)
-	require.Equal(t, []string{"http://mini.local:4000"}, service.origins)
+	require.Equal(t, []string{"http://mini.local:4000"}, service.knownOrigins())
+	// The callback list follows the saved Address: a changed origin is read on the next App creation.
+	origins = []string{"https://changed.example"}
+	require.Equal(t, []string{"https://changed.example"}, service.knownOrigins())
+	require.Nil(t, NewGitHubAppManifestService(nil, nil, "", nil).knownOrigins())
 	require.Equal(t, 30*time.Second, service.client.Timeout)
 	state := strings.Repeat("a", 64)
 	for _, s := range []*GitHubAppManifestService{nil, service} {

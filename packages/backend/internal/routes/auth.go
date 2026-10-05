@@ -40,12 +40,14 @@ type GitHubRepoListingWarmer interface {
 }
 
 type AuthHandler struct {
-	InstallSetup   *services.InstallSetupSessions
-	Service        AuthService
-	AuthConfig     config.AuthConfig
-	PublicOrigin   string
-	AllowedOrigins []string
-	AuditService   *services.AuditService
+	InstallSetup *services.InstallSetupSessions
+	Service      AuthService
+	AuthConfig   config.AuthConfig
+	PublicOrigin string
+	// Origins are the known origins an install request resolves against
+	// (spec §16.3.3); the install's saved Address joins them without a restart.
+	Origins      func() []string
+	AuditService *services.AuditService
 	// RepoListingWarmer, when set, is invoked after a successful GitHub token
 	// exchange to warm the user's repo-listing cache in the background.
 	RepoListingWarmer GitHubRepoListingWarmer
@@ -202,12 +204,19 @@ func consumeOAuth2PendingAuthorizeCookie(w http.ResponseWriter, r *http.Request,
 	return parsed.RequestURI()
 }
 
+func (h *AuthHandler) knownOrigins() []string {
+	if h.Origins == nil {
+		return nil
+	}
+	return h.Origins()
+}
+
 // GetGitHubOAuthStart begins the browser GitHub App OAuth flow (the direct
 // GitHub sign-in path). It generates an oauth state verifier, stashes it in a
 // cookie, and redirects to GitHub's authorize endpoint.
 func (h *AuthHandler) GetGitHubOAuthStart(w http.ResponseWriter, r *http.Request) {
 	if h.InstallSetup != nil {
-		origin, ok := middleware.ResolveEffectiveOrigin(r, h.AllowedOrigins)
+		origin, ok := middleware.ResolveEffectiveOrigin(r, h.knownOrigins())
 		if !ok {
 			errors.WriteError(w, errors.New(errors.CodeUnknownOrigin, "unknown_origin"))
 			return
@@ -327,7 +336,7 @@ func (h *AuthHandler) GetGitHubOAuthCLIStart(w http.ResponseWriter, r *http.Requ
 
 func (h *AuthHandler) GetGitHubOAuthCallback(w http.ResponseWriter, r *http.Request) {
 	if h.InstallSetup != nil {
-		origin, ok := middleware.ResolveEffectiveOrigin(r, h.AllowedOrigins)
+		origin, ok := middleware.ResolveEffectiveOrigin(r, h.knownOrigins())
 		if !ok {
 			errors.WriteError(w, errors.New(errors.CodeUnknownOrigin, "unknown_origin"))
 			return

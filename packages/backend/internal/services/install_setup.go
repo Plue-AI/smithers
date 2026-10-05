@@ -83,12 +83,19 @@ func ValidateInstallSetupBody(step string, raw []byte) (InstallSetupInput, error
 			return input, pkgerrors.BadRequest("origins required")
 		}
 		seen := map[string]bool{}
+		teammates := false
 		for _, origin := range input.Origins {
 			u, err := url.Parse(origin)
 			if err != nil || (u.Scheme != "http" && u.Scheme != "https") || u.Host == "" || u.User != nil || u.Path != "" || u.RawQuery != "" || u.Fragment != "" || seen[u.Host] {
 				return input, pkgerrors.BadRequest("invalid public origin")
 			}
 			seen[u.Host] = true
+			teammates = teammates || !loopbackOrigin(origin)
+		}
+		// A network bind serves teammates only at an origin they can open;
+		// loopback origins alone would answer them 421 unknown_origin.
+		if NetworkBind(input.Bind) != "" && !teammates {
+			return input, pkgerrors.BadRequest("network needs the address teammates use")
 		}
 	case "app_manifest":
 		if !gitHubAppComponent.MatchString(input.Owner) {
@@ -126,6 +133,8 @@ type InstallSetupService struct {
 	Jobs             *jobs.Store
 	Capacity         *InstallCapacityService
 	RepositoryAccess *GitHubUserReposService
+	// Address serves step 0's bind and origins; nil saves them only.
+	Address *InstallAddress
 	// Providers are host-side orchestration only. No repository flow is loaded.
 	Providers map[string]func(context.Context, *jobs.Lease, InstallSetupInput) error
 	// Models runs POST /api/model/test's call for each key before Model
@@ -349,7 +358,10 @@ func (s *InstallSetupService) Handle(ctx context.Context, lease *jobs.Lease) err
 	}
 	var models *installModelCheck
 	switch id {
-	case "address": // Local settings commit with completion below.
+	case "address":
+		// The new listener opens before the settings commit; the step stays
+		// running until both are done, and a bind that cannot listen fails it.
+		err = s.Address.apply(input.Bind)
 	case "models":
 		// Provider calls run before the settings transaction opens.
 		models, err = s.checkModels(ctx)
@@ -364,12 +376,20 @@ func (s *InstallSetupService) Handle(ctx context.Context, lease *jobs.Lease) err
 	if errors.Is(err, jobs.ErrDeferred) {
 		return err
 	}
+	committed := false
+	if id == "address" {
+		defer func() {
+			if !committed {
+				s.Address.revert()
+			}
+		}()
+	}
 	tx, writeErr := s.Pool.Begin(ctx)
 	if writeErr != nil {
 		return writeErr
 	}
 	defer tx.Rollback(ctx)
-	if id == "address" {
+	if id == "address" && err == nil {
 		err = s.writeAddress(ctx, tx, input)
 	}
 	if id == "models" && models != nil {
@@ -411,7 +431,14 @@ func (s *InstallSetupService) Handle(ctx context.Context, lease *jobs.Lease) err
 	if writeErr = saveInstallStep(ctx, tx, step); writeErr != nil {
 		return writeErr
 	}
-	return tx.Commit(ctx)
+	if writeErr = tx.Commit(ctx); writeErr != nil {
+		return writeErr
+	}
+	if id == "address" && err == nil {
+		committed = true
+		s.Address.commit(input.Bind, input.Origins)
+	}
+	return nil
 }
 func (s *InstallSetupService) writeAddress(ctx context.Context, tx pgx.Tx, input InstallSetupInput) error {
 	for key, value := range map[string]any{"bind": input.Bind, "public_origins": input.Origins} {
@@ -665,8 +692,7 @@ func (s *InstallSetupService) Status(ctx context.Context) (map[string]any, error
 		return nil, err
 	}
 	listen := "mac"
-	host, _, _ := net.SplitHostPort(bind)
-	if ip := net.ParseIP(host); host != "localhost" && (ip == nil || !ip.IsLoopback()) {
+	if NetworkBind(bind) != "" {
 		listen = "network"
 	}
 	owner, ownerErr := q.GetSelfHostOwner(ctx)

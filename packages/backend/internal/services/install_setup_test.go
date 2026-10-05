@@ -15,6 +15,12 @@ func TestInstallSetupLiteralBodyContracts(t *testing.T) {
 	}{
 		{"address", `{"bind":"127.0.0.1:4000","origins":["http://localhost:4000"]}`, true},
 		{"address", `{"bind":"0.0.0.0:4000","origins":["http://factory:4000"]}`, true},
+		{"address", `{"bind":"10.0.0.5:4000","origins":["http://localhost:4000","http://mini.local:4000"]}`, true},
+		{"address", `{"bind":"0.0.0.0:4000","origins":["http://mini.local:4000","https://box.example"]}`, true},
+		{"address", `{"bind":"localhost:4000","origins":["https://box.example"]}`, true},
+		{"address", `{"bind":"0.0.0.0:4000","origins":["http://localhost:4000"]}`, false},
+		{"address", `{"bind":"0.0.0.0:4000","origins":["http://127.0.0.1:4000","http://[::1]:4000"]}`, false},
+		{"address", `{"bind":"0.0.0.0:4001","origins":["http://mini.local:4000"]}`, false},
 		{"address", `{"bind":"bad","origins":["http://factory"]}`, false},
 		{"address", `{"bind":"127.0.0.1:4000","origins":["http://factory","https://factory"]}`, false},
 		{"address", `{"bind":"127.0.0.1:4000","origins":["http://user:pass@factory"]}`, false},

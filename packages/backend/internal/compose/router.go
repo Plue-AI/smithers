@@ -153,8 +153,12 @@ func buildRouter(
 	}
 	allowedOrigins := apiAllowedOrigins(cfg)
 	if authHandler != nil {
-		// Credential endpoints and CORS consume the same exact allowlist.
-		authHandler.AllowedOrigins = append([]string(nil), allowedOrigins...)
+		// Credential endpoints and CORS consume the same exact allowlist; an
+		// install's sign-in also accepts the Address its owner saved (M-28).
+		authHandler.Origins = middleware.FixedOrigins(allowedOrigins...)
+		if extras.GitHubAppSetup != nil && extras.GitHubAppSetup.Origins != nil {
+			authHandler.Origins = extras.GitHubAppSetup.Origins
+		}
 	}
 
 	// Ticket 12: feature-flag gates for non-MVP route families. Each gate is a

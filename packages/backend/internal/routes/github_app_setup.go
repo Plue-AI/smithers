@@ -41,12 +41,21 @@ type InstallSetupSessionAuthority interface {
 }
 
 type GitHubAppSetupHandler struct {
-	Setup          *services.InstallSetupService
-	Sessions       InstallSetupSessionAuthority
-	Service        GitHubAppSetupService
-	Store          GitHubAppSetupCredentials
-	Owners         GitHubAppSetupOwners
-	AllowedOrigins []string
+	Setup    *services.InstallSetupService
+	Sessions InstallSetupSessionAuthority
+	Service  GitHubAppSetupService
+	Store    GitHubAppSetupCredentials
+	Owners   GitHubAppSetupOwners
+	// Origins are the install's known origins: the configured ones and the
+	// Address the owner saved, read on every request (M-28).
+	Origins func() []string
+}
+
+func (h *GitHubAppSetupHandler) knownOrigins() []string {
+	if h.Origins == nil {
+		return nil
+	}
+	return h.Origins()
 }
 
 // authorize requires the live durable setup session before claim and the
@@ -100,7 +109,7 @@ func (h *GitHubAppSetupHandler) authorize(w http.ResponseWriter, r *http.Request
 	return true
 }
 func (h *GitHubAppSetupHandler) requestOrigin(r *http.Request) (string, bool) {
-	origin, ok := middleware.ResolveEffectiveOrigin(r, h.AllowedOrigins)
+	origin, ok := middleware.ResolveEffectiveOrigin(r, h.knownOrigins())
 	if ok && r.Header.Get("Origin") != "" && r.Header.Get("Origin") != origin {
 		return origin, false
 	}
@@ -185,7 +194,7 @@ func (h *GitHubAppSetupHandler) Status(w http.ResponseWriter, r *http.Request) {
 		WriteInstallSetupError(w, r, err)
 		return
 	}
-	callbackFixes, err := h.Store.CallbackFixes(r.Context(), h.AllowedOrigins)
+	callbackFixes, err := h.Store.CallbackFixes(r.Context(), h.knownOrigins())
 	if err != nil {
 		WriteInstallSetupError(w, r, err)
 		return

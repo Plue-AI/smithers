@@ -74,7 +74,7 @@ func (s *githubAppSetupTestService) Convert(_ context.Context, code, state, brow
 
 func githubAppSetupTestHandler() (*GitHubAppSetupHandler, *githubAppSetupTestService) {
 	s := &githubAppSetupTestService{}
-	return &GitHubAppSetupHandler{Service: s, Owners: githubAppSetupTestOwner{err: pgx.ErrNoRows}, Sessions: setupSessionStub{}, AllowedOrigins: []string{"http://localhost:4000", "https://factory.example"}}, s
+	return &GitHubAppSetupHandler{Service: s, Owners: githubAppSetupTestOwner{err: pgx.ErrNoRows}, Sessions: setupSessionStub{}, Origins: middleware.FixedOrigins("http://localhost:4000", "https://factory.example")}, s
 }
 
 func githubAppSetupBeginRequest(origin string) *http.Request {
@@ -626,7 +626,7 @@ func TestGitHubAppSetupStatusShowsExactCallbackRegistrationFix(t *testing.T) {
 	require.Equal(t, http.StatusOK, w.Code)
 	require.Contains(t, w.Body.String(), `"callback_urls":["http://localhost:4000/api/auth/github/callback"]`)
 	require.Contains(t, w.Body.String(), `"callback_fixes":[{"settings_url":"https://github.com/organizations/smithersai/settings/apps/smithers-test","add_url":"https://factory.example/api/auth/github/callback"}]`)
-	require.Equal(t, h.AllowedOrigins, reader.fixOrigins, "all configured origins need reconciliation, not just the current listener")
+	require.Equal(t, h.Origins(), reader.fixOrigins, "all configured origins need reconciliation, not just the current listener")
 	for _, fixFailure := range []bool{false, true} {
 		if fixFailure {
 			reader.callbackError = nil

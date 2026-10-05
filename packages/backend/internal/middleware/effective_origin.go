@@ -7,6 +7,13 @@ import (
 	"strings"
 )
 
+// FixedOrigins is a known-origin source that never changes: configuration's
+// list, or a test's.
+func FixedOrigins(origins ...string) func() []string {
+	fixed := append([]string(nil), origins...)
+	return func() []string { return fixed }
+}
+
 // ResolveEffectiveOrigin implements spec §16.3.3 using the socket peer and
 // known origins. Forwarded scheme and forwarded client addresses are ignored.
 func ResolveEffectiveOrigin(r *http.Request, publicOrigins []string) (string, bool) {

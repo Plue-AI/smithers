@@ -37,7 +37,7 @@ func TestInstallSetupAdmissionRecoveryPostgres(t *testing.T) {
 	replay, err := service.Admit(ctx, "address", "address-1", body)
 	require.NoError(t, err)
 	require.Equal(t, receipt.OperationID, replay.OperationID)
-	_, err = service.Admit(ctx, "address", "address-1", json.RawMessage(`{"bind":"0.0.0.0:4000","origins":["http://localhost:4000"]}`))
+	_, err = service.Admit(ctx, "address", "address-1", json.RawMessage(`{"bind":"0.0.0.0:4000","origins":["http://mini.local:4000"]}`))
 	require.Error(t, err)
 	_, err = service.Admit(ctx, "address", "address-2", body)
 	require.Error(t, err)

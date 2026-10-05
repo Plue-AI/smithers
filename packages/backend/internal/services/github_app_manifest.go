@@ -108,15 +108,24 @@ type GitHubAppManifestService struct {
 	pool       *pgxpool.Pool
 	store      *GitHubAppCredentialStore
 	apiBaseURL string
-	origins    []string
-	client     *http.Client
+	// origins are the install's known origins, read when an App is created
+	// so its callback URLs follow the saved Address (M-28).
+	origins func() []string
+	client  *http.Client
 }
 
-func NewGitHubAppManifestService(pool *pgxpool.Pool, store *GitHubAppCredentialStore, apiBaseURL string, origins []string) *GitHubAppManifestService {
+func NewGitHubAppManifestService(pool *pgxpool.Pool, store *GitHubAppCredentialStore, apiBaseURL string, origins func() []string) *GitHubAppManifestService {
 	if apiBaseURL == "" {
 		apiBaseURL = "https://api.github.com"
 	}
-	return &GitHubAppManifestService{pool: pool, store: store, apiBaseURL: strings.TrimRight(apiBaseURL, "/"), origins: append([]string(nil), origins...), client: &http.Client{Timeout: 30 * time.Second, CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}}
+	return &GitHubAppManifestService{pool: pool, store: store, apiBaseURL: strings.TrimRight(apiBaseURL, "/"), origins: origins, client: &http.Client{Timeout: 30 * time.Second, CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}}
+}
+
+func (s *GitHubAppManifestService) knownOrigins() []string {
+	if s.origins == nil {
+		return nil
+	}
+	return s.origins()
 }
 
 // Setup session values are transient request context; only their digest is persisted.
@@ -164,7 +173,8 @@ func (s *GitHubAppManifestService) Begin(ctx context.Context, req GitHubAppManif
 	if origin == "" {
 		origin = gitHubAppLocalOrigin
 	}
-	origins, err := normalizedGitHubAppOrigins(s.origins)
+	known := s.knownOrigins()
+	origins, err := normalizedGitHubAppOrigins(known)
 	if err != nil {
 		return GitHubAppManifestStart{}, err
 	}
@@ -199,7 +209,7 @@ func (s *GitHubAppManifestService) Begin(ctx context.Context, req GitHubAppManif
 			return GitHubAppManifestStart{}, pkgerrors.BadRequest("unsupported GitHub owner")
 		}
 	}
-	manifest, action, err := BuildGitHubAppManifest(req.OwnerLogin, req.OwnerKind, s.origins, state)
+	manifest, action, err := BuildGitHubAppManifest(req.OwnerLogin, req.OwnerKind, known, state)
 	if err != nil {
 		return GitHubAppManifestStart{}, err
 	}

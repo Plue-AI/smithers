@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/smithersai/smithers/packages/backend/internal/db"
+	"github.com/smithersai/smithers/packages/backend/internal/middleware"
 	"github.com/smithersai/smithers/packages/backend/internal/routes"
 	"github.com/smithersai/smithers/packages/backend/internal/services"
 	"github.com/smithersai/smithers/packages/backend/microsandbox"
@@ -42,7 +43,7 @@ func TestInstallStatusOwnerHTTPModelPostgres(t *testing.T) {
 	cfg.Auth.Mode = "selfhost"
 	cfg.Server.PublicURL = "http://localhost:4000"
 	cfg.Server.AllowedOrigins = []string{"http://localhost:4000"}
-	handler := &routes.GitHubAppSetupHandler{Owners: q, AllowedOrigins: []string{"http://localhost:4000"}, Setup: &services.InstallSetupService{Pool: pool, Capacity: capacity}}
+	handler := &routes.GitHubAppSetupHandler{Owners: q, Origins: middleware.FixedOrigins("http://localhost:4000"), Setup: &services.InstallSetupService{Pool: pool, Capacity: capacity}}
 	router := githubAppSetupComposeRouter(cfg, pool, handler)
 	request := func(method, path, credential, body string) *httptest.ResponseRecorder {
 		r := httptest.NewRequest(method, "http://localhost:4000"+path, strings.NewReader(body))

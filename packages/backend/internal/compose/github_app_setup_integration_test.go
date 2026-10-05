@@ -78,7 +78,7 @@ func TestGitHubAppSetupAuthorityOnEveryListenerPostgres(t *testing.T) {
 	tokenDigest := sha256.Sum256([]byte("setup-token"))
 	tokenValue, _ := json.Marshal(hex.EncodeToString(tokenDigest[:]))
 	require.NoError(t, q.UpsertInstallSetting(t.Context(), db.UpsertInstallSettingParams{Key: "setup.token", Value: tokenValue}))
-	h := &routes.GitHubAppSetupHandler{Service: services.NewGitHubAppManifestService(pool, store, fake.URL, origins), Store: store, Owners: q, Sessions: sessions, AllowedOrigins: origins}
+	h := &routes.GitHubAppSetupHandler{Service: services.NewGitHubAppManifestService(pool, store, fake.URL, middleware.FixedOrigins(origins...)), Store: store, Owners: q, Sessions: sessions, Origins: middleware.FixedOrigins(origins...)}
 	cfg := testConfigAllFlagsOn()
 	cfg.Auth.Mode = "selfhost"
 	cfg.Server.PublicURL = origins[0]
@@ -341,7 +341,7 @@ func TestGitHubAppLegacyEnvironmentIgnoredByCompositionPostgres(t *testing.T) {
 	require.NoError(t, store.SaveCallbackURLs(ctx, []string{origin + "/api/auth/github/callback", "http://localhost:4000/api/auth/github/callback"}))
 	cfg := testConfigAllFlagsOn()
 	cfg.Auth.Mode, cfg.Server.PublicURL, cfg.Server.AllowedOrigins = "selfhost", origin, []string{origin}
-	h := &routes.GitHubAppSetupHandler{Store: store, Owners: q, AllowedOrigins: []string{origin}}
+	h := &routes.GitHubAppSetupHandler{Store: store, Owners: q, Origins: middleware.FixedOrigins(origin)}
 	server.Config.Handler = githubAppSetupComposeRouter(cfg, pool, h, &routes.GitHubWebhookHandler{Service: services.NewGitHubWebhookService(pool, store)})
 	server.Start()
 	t.Cleanup(server.Close)
@@ -363,7 +363,7 @@ func TestGitHubAppLegacyEnvironmentIgnoredByCompositionPostgres(t *testing.T) {
 	require.NotContains(t, string(body), "legacy")
 	// Changing configured access origins reports the exact manual registration
 	// without silently claiming GitHub was updated or rewriting the snapshot.
-	h.AllowedOrigins = append(h.AllowedOrigins, "https://added.example:8443")
+	h.Origins = middleware.FixedOrigins(origin, "https://added.example:8443")
 	body = statusRequest()
 	require.Contains(t, string(body), `"callback_fixes":[{"settings_url":"https://github.com/organizations/acme/settings/apps/stored-team","add_url":"https://added.example:8443/api/auth/github/callback"}]`)
 	recorded, err := store.CallbackURLs(ctx)
@@ -410,7 +410,7 @@ func TestGitHubAppSetupOriginUsesSocketPeerThroughRouterPostgres(t *testing.T) {
 	cfg.Server.TrustedProxyHops = 1
 	cfg.Server.AllowedOrigins = []string{"https://box.example"}
 	pool, _ := postgresfixture.NewProductDatabase(t)
-	router := githubAppSetupComposeRouter(cfg, pool, &routes.GitHubAppSetupHandler{AllowedOrigins: cfg.Server.AllowedOrigins})
+	router := githubAppSetupComposeRouter(cfg, pool, &routes.GitHubAppSetupHandler{Origins: middleware.FixedOrigins(cfg.Server.AllowedOrigins...)})
 	r := httptest.NewRequest(http.MethodGet, "http://backend.internal/api/install", nil)
 	r.RemoteAddr = "192.0.2.1:1234"
 	r.Header.Set("X-Forwarded-For", "127.0.0.1, 192.0.2.9")

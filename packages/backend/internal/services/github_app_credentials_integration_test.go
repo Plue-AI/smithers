@@ -50,7 +50,7 @@ func TestGitHubAppCredentialsConversionSealedDumpRestartAndReplayPostgres(t *tes
 	codec, err := webhook.NewSecretCodec("durable-install-sealing-key")
 	require.NoError(t, err)
 	store := NewGitHubAppCredentialStore(pool, codec)
-	service := NewGitHubAppManifestService(pool, store, server.URL, []string{"http://mini.local:4000"})
+	service := NewGitHubAppManifestService(pool, store, server.URL, func() []string { return []string{"http://mini.local:4000"} })
 	start, err := service.Begin(ctx, GitHubAppManifestRequest{OwnerLogin: "acme", OwnerKind: "org", Repository: "app"})
 	require.NoError(t, err)
 	require.NotEmpty(t, start.State)
@@ -596,11 +596,11 @@ func TestGitHubAppManifestSetupBoundaryFailuresPostgres(t *testing.T) {
 		require.Error(t, err)
 	}
 	originalOrigins := f.service.origins
-	f.service.origins = []string{"javascript:bad"}
+	f.service.origins = func() []string { return []string{"javascript:bad"} }
 	_, err := f.service.Begin(ctx, GitHubAppManifestRequest{OwnerLogin: "acme", OwnerKind: "org", Repository: "app"})
 	require.Error(t, err)
 	f.service.origins = originalOrigins
-	f.service.origins = []string{"http://mini.local:4000"}
+	f.service.origins = func() []string { return []string{"http://mini.local:4000"} }
 	_, resetErr := f.pool.Exec(ctx, `DELETE FROM install_settings WHERE key='setup.step.app_manifest'`)
 	require.NoError(t, resetErr)
 	lan, err := f.service.Begin(ctx, GitHubAppManifestRequest{OwnerLogin: "acme", OwnerKind: "org", Repository: "app", Origin: "http://mini.local:4000"})
@@ -751,12 +751,12 @@ func TestGitHubAppManifestCallbackSnapshotIsCreationTimeAndAtomicPostgres(t *tes
 	t.Parallel()
 	f := newAppManifestFixture(t)
 	ctx := WithGitHubAppSetupSession(context.Background(), strings.Repeat("s", 64), "http://localhost:4000")
-	f.service.origins = []string{"http://mini.local:4000"}
+	f.service.origins = func() []string { return []string{"http://mini.local:4000"} }
 	_, resetErr := f.pool.Exec(context.Background(), `DELETE FROM install_settings WHERE key='setup.step.app_manifest'`)
 	require.NoError(t, resetErr)
 	start, err := f.service.Begin(ctx, GitHubAppManifestRequest{OwnerLogin: "acme", OwnerKind: "org", Repository: "app"})
 	require.NoError(t, err)
-	f.service.origins = []string{"https://added-later.example"}
+	f.service.origins = func() []string { return []string{"https://added-later.example"} }
 	_, err = f.service.Convert(ctx, "manifest-code", start.State, start.State)
 	require.NoError(t, err)
 	callbacks, err := f.store.CallbackURLs(ctx)
