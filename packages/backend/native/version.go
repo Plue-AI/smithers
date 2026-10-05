@@ -151,39 +151,96 @@ func matchVersion(state, release Version) error {
 		return &GuardError{Reason: fmt.Sprintf("state schema %s is newer than binary schema %s", state.Schema, release.Schema), Backup: "<backup>"}
 	}
 	if state.Version != "dev" && release.Version != "dev" {
-		oldVersion, err := releaseNumbers(state.Version)
+		order, err := compareRelease(state.Version, release.Version)
 		if err != nil {
 			return err
 		}
-		newVersion, err := releaseNumbers(release.Version)
-		if err != nil {
-			return err
-		}
-		for i := range oldVersion {
-			if oldVersion[i] < newVersion[i] {
-				break
-			}
-			if oldVersion[i] > newVersion[i] {
-				return &GuardError{Reason: fmt.Sprintf("state version %s is newer than binary version %s", state.Version, release.Version), Backup: "<backup>"}
-			}
+		if order > 0 {
+			return &GuardError{Reason: fmt.Sprintf("state version %s is newer than binary version %s", state.Version, release.Version), Backup: "<backup>"}
 		}
 	}
 	return nil
 }
-func releaseNumbers(version string) ([3]uint64, error) {
+
+// compareRelease orders two release versions by SemVer precedence: X.Y.Z
+// numerically, then a prerelease (1.0.0-rc.1) before its release, prerelease
+// identifiers numerically when both are numbers and in ASCII order otherwise.
+func compareRelease(a, b string) (int, error) {
+	coreA, preA, err := releaseParts(a)
+	if err != nil {
+		return 0, err
+	}
+	coreB, preB, err := releaseParts(b)
+	if err != nil {
+		return 0, err
+	}
+	for i := range coreA {
+		if coreA[i] != coreB[i] {
+			return cmpUint(coreA[i], coreB[i]), nil
+		}
+	}
+	// A release follows its own prereleases.
+	if len(preA) == 0 || len(preB) == 0 {
+		return cmpUint(uint64(len(preB)), uint64(len(preA))), nil
+	}
+	for i := 0; i < len(preA) && i < len(preB); i++ {
+		numA, errA := strconv.ParseUint(preA[i], 10, 64)
+		numB, errB := strconv.ParseUint(preB[i], 10, 64)
+		switch {
+		case errA == nil && errB == nil && numA != numB:
+			return cmpUint(numA, numB), nil
+		case (errA == nil) != (errB == nil):
+			// A numeric identifier precedes an alphanumeric one.
+			if errA == nil {
+				return -1, nil
+			}
+			return 1, nil
+		case errA != nil && preA[i] != preB[i]:
+			return strings.Compare(preA[i], preB[i]), nil
+		}
+	}
+	return cmpUint(uint64(len(preA)), uint64(len(preB))), nil
+}
+
+func cmpUint(a, b uint64) int {
+	switch {
+	case a < b:
+		return -1
+	case a > b:
+		return 1
+	}
+	return 0
+}
+
+var prereleaseIdentifier = regexp.MustCompile(`^[0-9A-Za-z-]+$`)
+
+func releaseParts(version string) ([3]uint64, []string, error) {
 	var numbers [3]uint64
-	parts := strings.Split(version, ".")
+	invalid := func(cause error) ([3]uint64, []string, error) {
+		return numbers, nil, &GuardError{Reason: "release versions must be X.Y.Z, X.Y.Z-prerelease or dev", Cause: cause}
+	}
+	core, prerelease, hasPrerelease := strings.Cut(version, "-")
+	parts := strings.Split(core, ".")
 	if len(parts) != len(numbers) {
-		return numbers, &GuardError{Reason: "release versions must be numeric X.Y.Z or dev"}
+		return invalid(nil)
 	}
 	for i, part := range parts {
 		n, err := strconv.ParseUint(part, 10, 64)
 		if err != nil {
-			return numbers, &GuardError{Reason: "release versions must be numeric X.Y.Z or dev", Cause: err}
+			return invalid(err)
 		}
 		numbers[i] = n
 	}
-	return numbers, nil
+	if !hasPrerelease {
+		return numbers, nil, nil
+	}
+	identifiers := strings.Split(prerelease, ".")
+	for _, identifier := range identifiers {
+		if !prereleaseIdentifier.MatchString(identifier) {
+			return invalid(nil)
+		}
+	}
+	return numbers, identifiers, nil
 }
 
 func VerifyVersion(root string, release Version) error {

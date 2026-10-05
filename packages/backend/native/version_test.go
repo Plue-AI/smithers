@@ -209,6 +209,16 @@ func TestStartVersionOrdering(t *testing.T) {
 		{"dev", "1.0.0", false}, {"1.0.0", "dev", false},
 		{"invalid", "1.0.0", true}, {"1.0.0", "1.x.0", true},
 		{"18446744073709551616.0.0", "1.0.0", true},
+		// An install restarted at the version it was set up with (1.0.0-rc.1).
+		{"1.0.0-rc.1", "1.0.0-rc.1", false},
+		{"1.0.0-rc.1", "1.0.0-rc.2", false}, {"1.0.0-rc.2", "1.0.0-rc.1", true},
+		{"1.0.0-rc.9", "1.0.0-rc.10", false}, {"1.0.0-rc.10", "1.0.0-rc.9", true},
+		{"1.0.0-rc.1", "1.0.0", false}, {"1.0.0", "1.0.0-rc.1", true},
+		{"1.0.0-rc.1", "1.0.1-rc.1", false}, {"1.0.1-alpha", "1.0.0", true},
+		{"1.0.0-beta.1", "1.0.0-rc.1", false}, {"1.0.0-rc.1", "1.0.0-beta.1", true},
+		{"1.0.0-rc", "1.0.0-rc.1", false}, {"1.0.0-rc.1", "1.0.0-rc", true},
+		{"1.0.0-1", "1.0.0-rc", false}, {"1.0.0-rc", "1.0.0-1", true},
+		{"1.0.0-", "1.0.0", true}, {"1.0.0-rc..1", "1.0.0", true}, {"1.0.0-rc.1", "1.0.0-rc_1", true},
 	} {
 		t.Run(tc.state+"/"+tc.binary, func(t *testing.T) {
 			err := matchVersion(Version{tc.state, "1", "18"}, Version{tc.binary, "2", "18"})
@@ -234,5 +244,18 @@ func TestDevStartRetainsStorageGuards(t *testing.T) {
 		if err := matchVersion(tc.state, tc.binary); err == nil {
 			t.Fatalf("unsafe dev start: %+v -> %+v", tc.state, tc.binary)
 		}
+	}
+}
+
+// A restarted install finds the version.env its first start wrote, at a
+// prerelease version such as 1.0.0-rc.1, and starts.
+func TestEnsureVersionRestartsAtTheSamePrerelease(t *testing.T) {
+	root := t.TempDir()
+	release := Version{"1.0.0-rc.1", "113", "18"}
+	if err := os.WriteFile(filepath.Join(root, "version.env"), []byte(versionText(release)), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := EnsureVersion(root, release); err != nil {
+		t.Fatalf("restart refused: %v", err)
 	}
 }
