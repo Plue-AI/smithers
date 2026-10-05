@@ -199,10 +199,18 @@ func (s *GitHubMainPullService) RequestForGitHub(ctx context.Context, owner, rep
 	if err != nil {
 		return fmt.Errorf("resolve repositories for github %s/%s: %w", owner, repo, err)
 	}
+	requested := false
+	defer func() {
+		// Wake committed requests even if a later repository cannot be queued.
+		if requested && s.install {
+			s.wakePull()
+		}
+	}()
 	for _, id := range ids {
 		if _, err := s.store.RequestGithubMainPull(ctx, id); err != nil {
 			return fmt.Errorf("request main pull for repository %d: %w", id, err)
 		}
+		requested = true
 	}
 	return nil
 }
@@ -215,6 +223,9 @@ func (s *GitHubMainPullService) Request(ctx context.Context, repositoryID int64)
 	row, err := s.store.RequestGithubMainPull(ctx, repositoryID)
 	if err != nil {
 		return GitHubMainPullStatus{}, pkgerrors.Internal("failed to request github main pull").WithCause(err)
+	}
+	if s.install {
+		s.wakePull()
 	}
 	return gitHubMainPullStatus(row), nil
 }

@@ -163,6 +163,11 @@ HTTP, preserves cadence and shared budget state, and propagates scheduling
 failures instead of claiming completion. Repository health includes missing
 per-TODO observations rather than inferring them from the pull list.
 
+Successful install main-pull requests wake the same worker immediately instead
+of waiting for its five-second drain timer. Requests committed before a later
+repository fails still wake it; failed or unmatched requests do not. Repeated
+hints coalesce while an active read finishes. Hosted scheduling is unchanged.
+
 The main reader checks shared admission before token minting or ref reads.
 Install token refusals and empty credentials stop the read instead of falling
 back to anonymous GitHub access. Rate-limit failures retain their absolute retry
