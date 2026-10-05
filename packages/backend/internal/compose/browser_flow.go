@@ -21,6 +21,7 @@ import (
 	"github.com/smithersai/smithers/packages/backend/flowruntime"
 	"github.com/smithersai/smithers/packages/backend/internal/config"
 	"github.com/smithersai/smithers/packages/backend/internal/db"
+	"github.com/smithersai/smithers/packages/backend/internal/live"
 	"github.com/smithersai/smithers/packages/backend/internal/middleware"
 	"github.com/smithersai/smithers/packages/backend/internal/pkg/background"
 	pkgerrors "github.com/smithersai/smithers/packages/backend/internal/pkg/errors"
@@ -57,6 +58,9 @@ type browserFlowAPI struct {
 	// limit is the account-wide API budget. Reads a run's progress polls
 	// (Projection.Snapshot, List) stay out of it, as the box relay always did.
 	limit func(http.Handler) http.Handler
+	// journals keeps the run projections a box's host answers, and answers
+	// them once the box is stopped (a merged TODO's lane).
+	journals *runJournals
 }
 
 // browserFlowDispatcher is the box's flow seam (flowdispatch.Service).
@@ -331,6 +335,14 @@ func (api *browserFlowAPI) relay(w http.ResponseWriter, r *http.Request, request
 	switch {
 	case running:
 	case workspace.Status == "stopped":
+		// A stopped box's run reads as the install kept it; nothing wakes it.
+		if tag, run, ok := live.RunProjection(request.Payload); ok && snapshot {
+			if answer, ok := api.journals.retained(r.Context(), workspace.ID, run, tag); ok {
+				w.Header().Set("Content-Type", "application/json")
+				_, _ = w.Write(answer)
+				return
+			}
+		}
 		browserFlowTyped(w, http.StatusConflict, "workspace_stopped", "This box is stopped.")
 		return
 	case snapshot:
@@ -351,6 +363,9 @@ func (api *browserFlowAPI) relay(w http.ResponseWriter, r *http.Request, request
 	if err != nil {
 		browserFlowUnavailable(w, err, request.Procedure)
 		return
+	}
+	if tag, run, ok := live.RunProjection(request.Payload); ok && snapshot {
+		api.journals.keep(r.Context(), workspace.RepositoryID, workspace.ID, run, tag, answer)
 	}
 	w.Header().Set("Content-Type", "application/json")
 	_, _ = w.Write(answer)

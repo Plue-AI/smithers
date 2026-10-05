@@ -1598,9 +1598,16 @@ func runWithOptions(ctx context.Context, args []string, stdout, stderr io.Writer
 			Installations: repoConnectionService,
 		}
 	}
+	// A run's projections are kept on the install while its lane runs, so
+	// a merged TODO's run reads after its lane stops (run:<lane>:<run>).
+	var journals *runJournals
+	if flow != nil {
+		journals = newRunJournals(pool, queries, flow.dispatcher)
+		workspaceService.OnLaneStopping(journals.capture)
+	}
 	var liveHandler *routes.LiveHandler
 	if config.IsSingleOwner(cfg.Auth) {
-		topics := &liveTopics{queries: queries, todos: mythicalService, sync: gitHubSyncRoute}
+		topics := &liveTopics{queries: queries, todos: mythicalService, sync: gitHubSyncRoute, runs: journals}
 		liveHandler = &routes.LiveHandler{Hub: live.NewHub(ctx, live.BrokerHints{Broker: sseBroker}), Queries: queries, Origins: installAddress.Origins, Topics: topics.resolver}
 	}
 	router := buildRouter(
@@ -1677,7 +1684,7 @@ func runWithOptions(ctx context.Context, args []string, stdout, stderr io.Writer
 	if flow != nil && options.topology.servesHTTP() {
 		browser := &browserFlowAPI{repos: repoService, queries: queries, dispatcher: flow.dispatcher, boxes: workspaceService,
 			resumes: background.Jobs[string]{Timeout: 6 * time.Minute, FailureTTL: time.Minute},
-			limit:   middleware.GlobalAPIRateLimit(queries)}
+			limit:   middleware.GlobalAPIRateLimit(queries), journals: journals}
 		mountBrowserFlow(router, cfg, queries, browser)
 	}
 	if chatService != nil && options.topology.servesHTTP() {

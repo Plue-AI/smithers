@@ -9,6 +9,8 @@ import (
 	"strings"
 	"time"
 
+	"github.com/google/uuid"
+
 	"github.com/smithersai/smithers/packages/backend/internal/db"
 	"github.com/smithersai/smithers/packages/backend/internal/live"
 	"github.com/smithersai/smithers/packages/backend/internal/middleware"
@@ -28,12 +30,13 @@ type liveSync interface {
 }
 
 // liveTopics resolves the install's shared topics (spec §7.2) for one
-// person: home, todo:<n> and flows. Every topic serves shared facts only,
-// so one stream serves every member byte for byte.
+// person: home, todo:<n>, flows and run:<lane>:<run>. Every topic serves
+// shared facts only, so one stream serves every member byte for byte.
 type liveTopics struct {
 	queries *db.Queries
 	todos   liveTodos
 	sync    liveSync
+	runs    *runJournals
 }
 
 // liveRefreshEvery bounds how stale a topic is when its facts change without
@@ -88,7 +91,7 @@ func (t *liveTopics) resolve(ctx context.Context, topic string, repository int64
 			return live.Source{}, live.Forbidden
 		}
 		return live.Source{}, live.Unsupported
-	case "branch", "conversation", "doc", "members", "secrets", "proposals", "agents", "install", "run":
+	case "branch", "conversation", "doc", "members", "secrets", "proposals", "agents", "install":
 		return live.Source{}, live.Unsupported
 	}
 	if repository == 0 {
@@ -121,6 +124,21 @@ func (t *liveTopics) resolve(ctx context.Context, topic string, repository int64
 				return nil, err
 			}
 			return json.Marshal(card)
+		}}, ""
+	case kind == "run":
+		lane, run, ok := strings.Cut(rest, ":")
+		if !ok || run == "" || len(run) > 128 || uuid.Validate(lane) != nil {
+			return live.Source{}, live.UnknownTopic
+		}
+		if t.runs == nil {
+			return live.Source{}, live.Unsupported
+		}
+		bound, err := t.queries.GetMythicalLane(ctx, lane)
+		if err != nil || bound.RepositoryID != repository {
+			return live.Source{}, live.UnknownTopic
+		}
+		return live.Source{Key: topic, Every: runRefreshEvery, Build: func(ctx context.Context) (json.RawMessage, error) {
+			return t.runs.snapshot(ctx, slug, lane, run)
 		}}, ""
 	}
 	return live.Source{}, live.UnknownTopic

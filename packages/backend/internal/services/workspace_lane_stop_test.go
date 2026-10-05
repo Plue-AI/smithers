@@ -141,3 +141,23 @@ func TestRetiredLaneWithoutARuntimeIsRetained(t *testing.T) {
 	require.NoError(t, newWorkspaceServiceForTests(q).StopLaneMachine(context.Background(), 101, "lane"))
 	require.NoError(t, (&workspaceMythicalLanes{workspaces: newWorkspaceServiceForTests(q)}).Delete(context.Background(), 101, 1, "lane"))
 }
+
+// The install keeps a retired lane's run before its machine stops: the hook
+// sees the lane running, before any stop, once; a lane already stopped is
+// not read.
+func TestRetiredLaneIsReadBeforeItsMachineStops(t *testing.T) {
+	row := sampleDBWorkspace("lane")
+	row.Status = "running"
+	svc, runtime, _ := laneStopService(t, &row, nil)
+	var seen []string
+	svc.OnLaneStopping(func(_ context.Context, workspace db.Workspace) {
+		require.Empty(t, runtime.stops, "the hook runs before the machine stops")
+		seen = append(seen, workspace.ID+" "+workspace.Status)
+	})
+	require.NoError(t, svc.StopLaneMachine(context.Background(), row.RepositoryID, row.ID))
+	require.Equal(t, []string{row.ID + " running"}, seen)
+	require.Equal(t, []string{row.ID}, runtime.stops)
+
+	require.NoError(t, svc.StopLaneMachine(context.Background(), row.RepositoryID, row.ID))
+	require.Len(t, seen, 1, "a stopped lane is not read again")
+}

@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -58,10 +59,10 @@ func (r *rehearsal) runSummary(repo, box, run string) (string, error) {
 
 // runJournal reads run's journal on box through the relay: its events, of
 // that run alone, in sequence order.
-func (r *rehearsal) runJournal(repo, box, run string) (string, error) {
+func (r *rehearsal) runJournal(repo, box, run string) (string, int64, error) {
 	code, data, err := r.relay(repo, box, "Projection.Snapshot", fmt.Sprintf(`{"selector":{"_tag":"run-events","runId":%q}}`, run))
 	if err != nil {
-		return "", err
+		return "", 0, err
 	}
 	var answer struct {
 		OK      bool `json:"ok"`
@@ -74,18 +75,39 @@ func (r *rehearsal) runJournal(repo, box, run string) (string, error) {
 		} `json:"payload"`
 	}
 	if code != 200 || json.Unmarshal(data, &answer) != nil || !answer.OK || len(answer.Payload.Rows) == 0 {
-		return "", fmt.Errorf("journal of run %q on box %s: want its events", run, box)
+		return "", 0, fmt.Errorf("journal of run %q on box %s: want its events", run, box)
 	}
 	rows := answer.Payload.Rows
 	for n, row := range rows {
 		if row.RunID != "" && row.RunID != run {
-			return "", fmt.Errorf("journal of run %s holds run %s's event %d", run, row.RunID, row.Sequence)
+			return "", 0, fmt.Errorf("journal of run %s holds run %s's event %d", run, row.RunID, row.Sequence)
 		}
 		if n > 0 && row.Sequence <= rows[n-1].Sequence {
-			return "", fmt.Errorf("journal of run %s out of order: %d after %d", run, row.Sequence, rows[n-1].Sequence)
+			return "", 0, fmt.Errorf("journal of run %s out of order: %d after %d", run, row.Sequence, rows[n-1].Sequence)
 		}
 	}
-	return fmt.Sprintf("200 %d events, %d %s .. %d %s", len(rows), rows[0].Sequence, rows[0].Kind, rows[len(rows)-1].Sequence, rows[len(rows)-1].Kind), nil
+	last := rows[len(rows)-1]
+	return fmt.Sprintf("200 %d events, %d %s .. %d %s", len(rows), rows[0].Sequence, rows[0].Kind, last.Sequence, last.Kind), last.Sequence, nil
+}
+
+// laneStatus is a lane's machine state as the install records it.
+func (r *rehearsal) laneStatus(box string) (string, error) {
+	var status string
+	err := r.pool.QueryRow(r.ctx, `SELECT status FROM workspaces WHERE id=$1`, box).Scan(&status)
+	return status, err
+}
+
+// liveRun is what row 17 reads of a run:<lane>:<run> snapshot.
+type liveRun struct {
+	Run struct {
+		Status string `json:"status"`
+	} `json:"run"`
+	Steps []struct {
+		NodeID    string   `json:"nodeId"`
+		Status    string   `json:"status"`
+		StartedAt float64  `json:"startedAt"`
+		EndedAt   *float64 `json:"endedAt"`
+	} `json:"steps"`
 }
 
 // refusedOnRun sends one write through the relay on box and wants it refused
@@ -138,6 +160,18 @@ func TestJ11Rehearsal(t *testing.T) {
 	}) {
 		return
 	}
+	// The owner's browser follows T5's run over /api/live from here on;
+	// row 17 reads what it received while the answer resumed the run.
+	runTopic := fmt.Sprintf("run:%s:%s", branch, run)
+	owner, liveErr := r.openLive(r.jar)
+	if liveErr == nil {
+		_, liveErr = owner.subscribe(runTopic)
+	}
+	// The source: the lane's host, read through the relay as the app reads
+	// it, every 100 ms until the merge.
+	stopWatching := r.watchSteps(rehearsalRepository, branch, run)
+	var source map[string]time.Time
+	var journal1b int64
 	// T5's run lives on its lane: a branch machine the machine service owns,
 	// shared with the owner alone. While the lane is awake (here, while T5
 	// waits on its question) the app reads the run through the browser flow
@@ -149,10 +183,11 @@ func TestJ11Rehearsal(t *testing.T) {
 			if err != nil {
 				return err
 			}
-			journal, err := r.runJournal(rehearsalRepository, branch, run)
+			journal, through, err := r.runJournal(rehearsalRepository, branch, run)
 			if err != nil {
 				return err
 			}
+			journal1b = through
 			refused, err := r.refusedOnRun(rehearsalRepository, branch, "Run", fmt.Sprintf(`{"_tag":"Resume","runId":%q,"idempotencyKey":"j11-resume"}`, run))
 			if err != nil {
 				return err
@@ -180,6 +215,7 @@ func TestJ11Rehearsal(t *testing.T) {
 	}) {
 		return
 	}
+	source = stopWatching()
 	if !r.step("3 T5 merged", "POST /api/todos/{T5}/merge; GET /api/todos/{T5}", "202; merged only after GitHub's head-bound squash", "T-STK-04", func() error {
 		if err := r.merge(t5, head); err != nil {
 			return err
@@ -228,8 +264,49 @@ func TestJ11Rehearsal(t *testing.T) {
 	// read never wakes a sleeping branch (mvp.md §6 Sleep): reading the run
 	// after the merge needs a source other than the lane's host. A todo plan
 	// is refused before any box wakes.
-	r.pending("6 Run summary", "browser flow relay: run summary of T5's lane, stopped at the merge", "200 summary of the TODO run", "T-FLW-07", "live-slice")
-	r.pending("7 Run journal", "browser flow relay: journal of T5's lane, stopped at the merge", "the run's events in order, read-only", "T-FLW-07", "live-slice")
+	// The install kept the run's projections while its lane ran (and as the
+	// stack stopped it), so the stopped lane's run reads without waking it.
+	// The merged card names the lane its run ran on (row 1's, not the
+	// review's machine row 2 saw), as Inspect reads it.
+	lane := ""
+	r.step("6 Run summary", "browser flow relay: run summary of T5's lane, stopped at the merge", "200 summary of the TODO run", "T-FLW-07", func() error {
+		v, err := r.todo(t5)
+		if err != nil {
+			return err
+		}
+		if v.Branch == nil || v.Branch.ID == "" {
+			return fmt.Errorf("merged T%d names no branch", t5)
+		}
+		lane = v.Branch.ID
+		status, err := r.laneStatus(lane)
+		if err != nil {
+			return err
+		}
+		if status == "running" {
+			return fmt.Errorf("T%d's lane %s still runs after the merge", t5, lane)
+		}
+		summary, err := r.runSummary(rehearsalRepository, lane, run)
+		if err != nil {
+			return err
+		}
+		r.actual = fmt.Sprintf("lane %s %s; %s", lane, status, summary)
+		return nil
+	})
+	r.step("7 Run journal", "browser flow relay: journal of T5's lane, stopped at the merge", "the run's events in order, read-only", "T-FLW-07", func() error {
+		if lane == "" {
+			return fmt.Errorf("blocked by row 6: no lane")
+		}
+		journal, through, err := r.runJournal(rehearsalRepository, lane, run)
+		if err != nil {
+			return err
+		}
+		// Kept at the lane's stop, after the answer: later than row 1b's read.
+		if through <= journal1b {
+			return fmt.Errorf("journal ends at %d, no later than the read while T%d needed you (%d)", through, t5, journal1b)
+		}
+		r.actual = journal
+		return nil
+	})
 	r.step("8 Read-only", "POST /api/workflow/rpc Plan todo on T5's lane after the merge", "403 todo_requires_stack_admission", "T-FLW-07", func() error {
 		refused, err := r.refusedOnRun(rehearsalRepository, branch, "Plan", `{"flowId":"todo","input":{}}`)
 		r.actual = refused
@@ -259,5 +336,62 @@ func TestJ11Rehearsal(t *testing.T) {
 	r.pending("14 Wait for the answer", "Inspect → waits", "the question with since, answered_by and its settle time", "T-FLW-07", "monitor-waits")
 	r.pending("15 Titles and /monitor", "Inspect; /monitor", "Appendix C step titles, one Engine row; /monitor lists the TODO run with Inspect", "T-FLW-07", "monitor-labels")
 	r.pending("16 Per-step cost", "Inspect → steps; model proxy usage", "each step's cost sums to the run's metered total", "T-FLW-07", "step-cost")
-	r.pending("17 Live step states", "GET /api/live run:<id>", "a step state change arrives within 1 s", "T-FLW-07", "live-slice")
+	r.step("17 Live step states", "GET /api/live run:<lane>:<run> while the answer resumes T5's run; the lane's run-tree through the relay every 100 ms", "a step state change arrives within 1 s of its source", "T-FLW-07, T-COL-02", func() error {
+		if liveErr != nil {
+			return liveErr
+		}
+		// A step state change is a step that starts or ends after the first
+		// snapshot. Its lag is its arrival on run:<lane>:<run> minus when the
+		// lane's host first answered it (C-PERF-02: from the committed fact
+		// to the subscriber); the host's own time is reported beside it.
+		seen := map[string]bool{}
+		var lags, hostLags []time.Duration
+		snaps, changes := 0, 0
+		for _, frame := range owner.received(runTopic) {
+			if frame.T == "err" {
+				return fmt.Errorf("%s refused: %s", runTopic, frame.Code)
+			}
+			if frame.T != "snap" {
+				continue
+			}
+			var model liveRun
+			if err := json.Unmarshal(frame.Data, &model); err != nil {
+				return err
+			}
+			for _, row := range model.Steps {
+				key := stepKey(row.NodeID, row.Status, row.EndedAt != nil)
+				if seen[key] {
+					continue
+				}
+				seen[key] = true
+				if snaps == 0 {
+					continue
+				}
+				changes++
+				at := row.StartedAt
+				if row.EndedAt != nil {
+					at = *row.EndedAt
+				}
+				hostLags = append(hostLags, frame.At.Sub(time.UnixMilli(int64(at))))
+				if first, ok := source[key]; ok {
+					lags = append(lags, frame.At.Sub(first))
+				}
+			}
+			snaps++
+		}
+		if len(lags) == 0 {
+			return fmt.Errorf("%d snapshots of %s, %d step changes, none the source poll saw", snaps, runTopic, changes)
+		}
+		pct := func(values []time.Duration, p int) time.Duration {
+			sorted := slices.Clone(values)
+			slices.Sort(sorted)
+			return sorted[(len(sorted)*p+99)/100-1].Round(time.Millisecond)
+		}
+		r.actual = fmt.Sprintf("%d snapshots, %d step changes; after the source: p50 %s p95 %s max %s; after the step's own time: p50 %s p95 %s",
+			snaps, len(lags), pct(lags, 50), pct(lags, 95), pct(lags, 100), pct(hostLags, 50), pct(hostLags, 95))
+		if p95 := pct(lags, 95); p95 > time.Second {
+			return fmt.Errorf("step changes reach %s at p95 %s after the source, want within 1 s", runTopic, p95)
+		}
+		return nil
+	})
 }
