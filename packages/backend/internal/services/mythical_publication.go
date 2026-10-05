@@ -183,7 +183,7 @@ func (s *MythicalService) currentMembership(ctx context.Context, item db.Mythica
 // person's browser session, or a Land that session recorded (M-05, M-39).
 func mythicalCommandAuthorization(ctx context.Context, item db.MythicalItem, kind string) error {
 	switch kind {
-	case "push", "open", "body":
+	case "push", "open", "body", "ready":
 		if item.Source != "todo" && item.Source != "issue" {
 			return errors.New("only a TODO's own change is published to GitHub")
 		}
@@ -215,12 +215,19 @@ func (s *MythicalService) acceptedGeneration(ctx context.Context, item db.Mythic
 		return errors.New("the TODO changed while its GitHub operation was prepared")
 	}
 	switch kind {
-	case "push", "open", "body":
+	case "push", "open", "body", "ready":
 		if persisted.State == "cancelled" || persisted.State == "dropped" || mythicalSettledStates[persisted.State] {
 			return errors.New("the TODO is " + persisted.State)
 		}
 		if !persisted.CandidateVerified || persisted.CandidateHead == "" {
 			return errors.New("the TODO has no verified candidate to publish")
+		}
+	}
+	if kind == "ready" {
+		if after, err := mythicalMergeAfter(ctx, s.store, persisted); err != nil {
+			return err
+		} else if after != 0 {
+			return errMythicalReadyStale
 		}
 	}
 	return nil
@@ -512,6 +519,18 @@ func (st *mythicalItemStep) appLookup(ctx context.Context, item db.MythicalItem,
 			return "", false, nil
 		}
 		return pull.HeadSHA, false, nil
+	case "ready":
+		pull, err := st.readyPull(ctx, gh, item, op)
+		if err != nil {
+			if errors.Is(err, errMythicalReadyStale) {
+				return "changed", false, nil
+			}
+			return "", false, err
+		}
+		if !pull.Draft {
+			return op.Desired, false, nil
+		}
+		return op.Precondition, false, nil
 	case "merge":
 		return st.s.mergeLookup(ctx, gh, item, op)
 	case "body":
@@ -584,6 +603,26 @@ func (st *mythicalItemStep) appSend(ctx context.Context, item db.MythicalItem, o
 			return errMythicalBodyStale
 		}
 		return st.s.github.UpdatePullBody(ctx, gh, number, body)
+	case "ready":
+		pull, err := st.readyPull(ctx, gh, item, op)
+		if err != nil {
+			return err
+		}
+		if !pull.Draft {
+			return nil
+		}
+		if after, err := mythicalMergeAfter(ctx, st.s.store, item); err != nil {
+			return err
+		} else if after != 0 {
+			return errMythicalReadyStale
+		}
+		writer, ok := st.s.github.(interface {
+			MarkReadyForReview(context.Context, mythicalGitHubRepo, string) error
+		})
+		if !ok {
+			return errors.New("Waiting for ready-for-review integration")
+		}
+		return writer.MarkReadyForReview(ctx, gh, pull.NodeID)
 	case "close":
 		number, err := strconv.ParseInt(op.Target, 10, 64)
 		if err != nil {
@@ -638,6 +677,23 @@ func (st *mythicalItemStep) prepareMerge(ctx context.Context, item db.MythicalIt
 // proposed head, records a written body or a closed pull request, and lands
 // a merge once main contains it; a push settles from lookup alone.
 func (st *mythicalItemStep) appSettle(ctx context.Context, item db.MythicalItem, op MythicalOutboundOp) (db.MythicalItem, error) {
+	if op.Kind == "ready" {
+		gh, err := st.publicationGitHub(ctx)
+		if err != nil {
+			return item, err
+		}
+		pull, err := st.readyPull(ctx, gh, item, op)
+		if err != nil {
+			return item, err
+		}
+		if pull.Draft {
+			return item, errors.New("waiting for GitHub ready-for-review confirmation")
+		}
+		checks := mythicalChecksOf(item)
+		checks.PRDraft, checks.PRReady = false, true
+		item.Checks = checks.encode()
+		return item, nil
+	}
 	if op.Kind == "body" {
 		// Lookup found the body written: it is the one Smithers last wrote,
 		// and it carries the current head's verdict.
@@ -678,4 +734,52 @@ func (st *mythicalItemStep) appSettle(ctx context.Context, item db.MythicalItem,
 		return item, err
 	}
 	return *bound, nil
+}
+
+// Ready promotion uses the existing outbound slot: a response alone never
+// clears the draft flag. Head-bound observations keep stale intents from
+// promoting another publication of the same PR.
+var errMythicalReadyStale = errors.New("the pull request ready intent is stale")
+
+func (st *mythicalItemStep) readyPull(ctx context.Context, gh mythicalGitHubRepo, item db.MythicalItem, op MythicalOutboundOp) (mythicalPull, error) {
+	number, err := strconv.ParseInt(op.Target, 10, 64)
+	if err != nil || number <= 0 || !item.PRNumber.Valid || number != item.PRNumber.Int64 || op.Precondition != "draft:"+item.PRHead || op.Desired != "ready:"+item.PRHead {
+		return mythicalPull{}, errMythicalReadyStale
+	}
+	pull, err := st.s.github.Pull(ctx, gh, number)
+	if err != nil {
+		return pull, err
+	}
+	if pull.State != "open" || pull.Merged || pull.HeadSHA != item.PRHead || pull.BaseRef != "main" || pull.NodeID == "" {
+		return pull, errMythicalReadyStale
+	}
+	return pull, nil
+}
+
+func (st *mythicalItemStep) readyForReview(ctx context.Context, item db.MythicalItem) (*db.MythicalItem, bool, error) {
+	checks := mythicalChecksOf(item)
+	if !item.StackPosition.Valid || item.StackPosition.Int64 <= 0 || !checks.PRDraft || checks.PRReady || checks.ForeignHead != "" || !item.PRNumber.Valid || item.PRHead == "" || mythicalSettledStates[item.State] {
+		return nil, false, nil
+	}
+	after, err := mythicalMergeAfter(ctx, st.s.store, item)
+	if err != nil {
+		return nil, false, err
+	}
+	if after != 0 {
+		return nil, false, nil
+	}
+	if err := st.s.outboundReady(ctx, item, "ready"); err != nil {
+		return nil, false, err
+	}
+	op := MythicalOutboundOp{Kind: "ready", Target: strconv.FormatInt(item.PRNumber.Int64, 10), Precondition: "draft:" + item.PRHead, Desired: "ready:" + item.PRHead, State: "intended"}
+	item.PendingOp, _ = json.Marshal(op)
+	next, err := st.q.SaveMythicalItemUnderLease(ctx, item, st.r.row.Claim)
+	if err != nil {
+		return nil, false, err
+	}
+	sent, err := st.recoverOutbound(ctx, next)
+	if err == nil && len(sent.PendingOp) > 0 {
+		sent, err = st.recoverOutbound(ctx, *sent)
+	}
+	return sent, true, err
 }

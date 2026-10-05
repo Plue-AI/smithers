@@ -41,8 +41,8 @@ func (g *mythicalGitHubAPI) UpdatePullBody(ctx context.Context, gh mythicalGitHu
 	return nil
 }
 
-// These adapter writes are intentionally not mounted: T-GH-09 must journal
-// their intent and reconcile ambiguous success before any production caller.
+// Draft lifecycle writes are journaled and reconciled by the outbound worker.
+// ConvertToDraft remains available for future stack-order lifecycle handling.
 func (g *mythicalGitHubAPI) MarkReadyForReview(ctx context.Context, gh mythicalGitHubRepo, nodeID string) error {
 	return g.pullDraftMutation(ctx, gh, nodeID, "markPullRequestReadyForReview")
 }

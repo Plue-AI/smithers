@@ -2768,6 +2768,7 @@ func (st *mythicalItemStep) proposedFrom(item db.MythicalItem, pull mythicalPull
 	next.PRURL, next.PRState = pull.URL, pull.State
 	proposed := mythicalChecksOf(next)
 	proposed.PRDraft = pull.Draft
+	proposed.PRReady = proposed.PRReady || !pull.Draft
 	if proposed.PRBody == "" || !item.PRNumber.Valid || item.PRNumber.Int64 != pull.Number {
 		// The body this pull request opened with: createPull renders the
 		// same accepted shape. Later binds of the same pull request keep it.
@@ -2827,6 +2828,7 @@ func (st *mythicalItemStep) follow(ctx context.Context, item db.MythicalItem) (*
 	// A person may mark a later PR ready or draft on GitHub: the card shows
 	// GitHub's flag as read, with no corrective write (§12.5.1).
 	answered.PRDraft = pull.Draft
+	answered.PRReady = answered.PRReady || !pull.Draft
 	if answered.GitHubOutages > 0 {
 		answered.GitHubOutages = 0
 		if answered.Fault != nil && answered.Fault.kind() == mythicalFailLanding {
@@ -2911,6 +2913,9 @@ func mythicalHold(item db.MythicalItem, key, reason string, fault *mythicalFault
 // the approved head of an automerge TODO is merged. Anything else waits for
 // a person.
 func (st *mythicalItemStep) gate(ctx context.Context, item db.MythicalItem) (*db.MythicalItem, bool, error) {
+	if next, saved, err := st.readyForReview(ctx, item); next != nil || err != nil {
+		return next, saved, err
+	}
 	checks := mythicalChecksOf(item)
 	switch review := checks.Review; {
 	case checks.ForeignHead != "":
@@ -3901,6 +3906,8 @@ type mythicalChecks struct {
 	Branch string `json:"branch,omitempty"`
 	// PRDraft is GitHub's draft flag on the item's pull request, as last read.
 	PRDraft bool `json:"prDraft,omitempty"`
+	// PRReady remembers a ready PR; a person's later redraft is left alone.
+	PRReady bool `json:"prReady,omitempty"`
 	// PRIncludes are the earlier items the pull request body includes until
 	// they merge, as it was opened.
 	PRIncludes []int64 `json:"prIncludes,omitempty"`

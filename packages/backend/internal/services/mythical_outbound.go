@@ -74,7 +74,7 @@ func decodeMythicalOutbound(raw json.RawMessage) (MythicalOutboundOp, error) {
 		}
 	}
 	switch op.Kind {
-	case "push", "open", "body", "merge", "close":
+	case "push", "open", "body", "ready", "merge", "close":
 	default:
 		return op, errors.New("invalid pending GitHub operation kind")
 	}
@@ -137,6 +137,12 @@ func (st *mythicalItemStep) recoverOutbound(ctx context.Context, item db.Mythica
 		return nil, err
 	}
 	op.State = outboundResult(op, observed, appliedClose)
+	if op.Kind == "ready" && op.State == "conflict" {
+		// A changed head or closed PR ends this intent; polling decides afresh.
+		item.PendingOp = nil
+		saved, err := st.q.SaveMythicalItemUnderLease(ctx, item, st.r.row.Claim)
+		return &saved, err
+	}
 	if op.Kind == "body" && op.State == "conflict" {
 		// A person edited the body or the pull request closed: nothing is
 		// written, and the verdict stays on the card.
@@ -152,10 +158,15 @@ func (st *mythicalItemStep) recoverOutbound(ctx context.Context, item db.Mythica
 	if op.State == "intended" {
 		// Drop retains uncertain effects for lookup, but never authorizes another
 		// proposal. Its owner must settle the terminal close obligation first.
-		if (item.State == "cancelled" || item.State == "dropped") && (op.Kind == "push" || op.Kind == "open" || op.Kind == "body") {
+		if (item.State == "cancelled" || item.State == "dropped") && (op.Kind == "push" || op.Kind == "open" || op.Kind == "body" || op.Kind == "ready") {
 			return nil, errors.New("dropped proposal cannot be repeated")
 		}
 		if err := st.s.outboundReady(ctx, item, op.Kind); err != nil {
+			if op.Kind == "ready" && errors.Is(err, errMythicalReadyStale) {
+				item.PendingOp = nil
+				saved, saveErr := st.q.SaveMythicalItemUnderLease(ctx, item, st.r.row.Claim)
+				return &saved, saveErr
+			}
 			return nil, err
 		}
 		if p.Send == nil {
@@ -171,7 +182,7 @@ func (st *mythicalItemStep) recoverOutbound(ctx context.Context, item db.Mythica
 			return nil, err
 		}
 		if err := p.Send(st, ctx, item, op); err != nil {
-			if errors.Is(err, errMythicalBodyStale) {
+			if errors.Is(err, errMythicalBodyStale) || errors.Is(err, errMythicalReadyStale) {
 				// Nothing was sent: the gate prepares the body again.
 				item.PendingOp = nil
 				saved, saveErr := st.q.SaveMythicalItemUnderLease(ctx, item, st.r.row.Claim)
