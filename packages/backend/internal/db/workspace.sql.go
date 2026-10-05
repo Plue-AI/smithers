@@ -3933,13 +3933,13 @@ const upsertWorkspaceWorkflowDefinition = `-- name: UpsertWorkspaceWorkflowDefin
 
 INSERT INTO workflow_definitions (repository_id, name, path, config)
 VALUES ($1, 'Workspace', '.smithers/workspace', '{"workspace": true}'::jsonb)
-ON CONFLICT (repository_id, path) DO UPDATE SET updated_at = NOW()
-RETURNING id, repository_id, name, path, config, is_active, created_at, updated_at
+ON CONFLICT (repository_id, path) WHERE digest IS NULL DO UPDATE SET updated_at = NOW()
+RETURNING id, repository_id, name, path, config, is_active, created_at, updated_at, source_commit, digest, status, load_error
 `
 
 // ---- Workflow Integration ----
 // Creates or returns the per-repo workspace workflow definition.
-// Uses the UNIQUE(repository_id, path) constraint for idempotent upserts.
+// Uses the legacy UNIQUE(repository_id, path) index for idempotent upserts.
 func (q *Queries) UpsertWorkspaceWorkflowDefinition(ctx context.Context, repositoryID int64) (WorkflowDefinition, error) {
 	row := q.db.QueryRow(ctx, upsertWorkspaceWorkflowDefinition, repositoryID)
 	var i WorkflowDefinition
@@ -3952,6 +3952,10 @@ func (q *Queries) UpsertWorkspaceWorkflowDefinition(ctx context.Context, reposit
 		&i.IsActive,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.SourceCommit,
+		&i.Digest,
+		&i.Status,
+		&i.LoadError,
 	)
 	return i, err
 }

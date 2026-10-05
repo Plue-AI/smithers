@@ -126,8 +126,10 @@ func newFlowComposition(options runOptions, cfg *config.Config, pool *pgxpool.Po
 	if mythical != nil {
 		// Mythical stack lanes: every item launch is authorized against its
 		// persisted item and stack.
-		targets = withMythicalTargets(targets, services.NewMythicalFlowHostTargetResolver(mythical))
-		projectors = append(projectors, mythical)
+		// flow-load runs on its own short-lived workspace after every main move.
+		flowLoad := services.NewFlowLoadRuntime(mythical)
+		targets = withMythicalTargets(targets, services.NewMythicalFlowHostTargetResolver(mythical), flowLoad)
+		projectors = append(projectors, mythical, flowLoad)
 	}
 	workspaceHosts, ok := launcher.(boxHostBase)
 	if !ok {
@@ -289,10 +291,13 @@ func flowHostProductAPIURL(options runOptions, listenAddress string) (string, er
 	return "http://" + net.JoinHostPort("127.0.0.1", port), nil
 }
 
-func withMythicalTargets(base, mythical flowhost.TargetResolver) flowhost.TargetResolver {
+func withMythicalTargets(base, mythical, flowLoad flowhost.TargetResolver) flowhost.TargetResolver {
 	return flowhost.TargetResolverFunc(func(ctx context.Context, target flowruntime.Target) (flowhost.Authority, error) {
-		if target.BindingKind == "mythical-item" || target.BindingKind == "mythical-wiki" {
+		switch target.BindingKind {
+		case "mythical-item", "mythical-wiki":
 			return mythical.ResolveFlowHostTarget(ctx, target)
+		case "flow-load":
+			return flowLoad.ResolveFlowHostTarget(ctx, target)
 		}
 		return base.ResolveFlowHostTarget(ctx, target)
 	})

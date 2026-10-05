@@ -98,6 +98,8 @@ type MythicalService struct {
 	// sweepEvery is how often the worker re-requests stacks no signal
 	// reached (mythicalSweepInterval); it is only the safety net.
 	sweepEvery time.Duration
+	// flowLoad runs flow-load after every main move (SetFlowLoad, flow_load.go).
+	flowLoad bool
 }
 
 // SetMainFollower registers the GitHub sync's request for an immediate read
@@ -472,9 +474,10 @@ func (s *MythicalService) run(ctx context.Context, row db.MythicalStack) mythica
 		if s.reconcileFactory != nil {
 			outcome.factoryState, outcome.factoryError = s.localFactoryOutcome(ctx, r)
 		}
-		// This claim moves the items and the wiki.
+		// This claim moves the items, the wiki and the flow-load.
 		s.advanceItems(ctx, r)
 		s.advanceWiki(ctx, r)
+		s.advanceFlowLoad(ctx, r)
 		outcome.due = r.due
 		return outcome
 	}

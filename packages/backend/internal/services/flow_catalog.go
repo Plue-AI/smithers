@@ -2,8 +2,6 @@ package services
 
 import (
 	_ "embed"
-	"encoding/json"
-	"fmt"
 	"maps"
 	"slices"
 )
@@ -119,24 +117,20 @@ var builtinFlowSteps = map[string][]FlowStep{
 	},
 }
 
-// FlowCatalog is the install's flow catalog (GET /api/flows): each
-// overridable flow the install ships, with its built-in version Active. No
-// system flow is listed. The repository's versions (proposed, merged-syncing,
-// merged-failed, previous) join it once flow-load records them (T-FLW-03).
+// FlowCatalog is the install's flow catalog before a repository is bound
+// (GET /api/flows): each overridable flow the install ships, with its
+// built-in version Active. No system flow is listed. A repository's catalog,
+// with the versions flow-load recorded, is RepositoryFlowCatalog.
 func FlowCatalog() ([]FlowCard, error) {
-	var digests map[string]string
-	if err := json.Unmarshal(builtinFlowsJSON, &digests); err != nil {
-		return nil, fmt.Errorf("built-in flow digests: %w", err)
+	digests, err := builtinFlowDigests()
+	if err != nil {
+		return nil, err
 	}
 	names := slices.Sorted(maps.Keys(builtinFlowSteps))
 	cards := make([]FlowCard, 0, len(names))
 	for _, name := range names {
-		digest := digests[name]
-		if !Overridable(name) || !repositoryJobDigest.MatchString(digest) {
-			return nil, fmt.Errorf("built-in flow %q has no valid digest", name)
-		}
 		cards = append(cards, FlowCard{Name: name, Source: FlowSource{Builtin: true},
-			Versions: []FlowVersion{{ID: digest, State: "active", Steps: builtinFlowSteps[name]}}})
+			Versions: []FlowVersion{{ID: digests[name], State: "active", Steps: builtinFlowSteps[name]}}})
 	}
 	return cards, nil
 }

@@ -705,6 +705,28 @@ type FindingFeedback struct {
 	CreatedAt time.Time   `json:"created_at"`
 }
 
+type FlowLoad struct {
+	RepositoryID  int64              `json:"repository_id"`
+	Version       int64              `json:"version"`
+	Generation    int64              `json:"generation"`
+	State         string             `json:"state"`
+	CommitID      string             `json:"commit_id"`
+	LoadedCommit  string             `json:"loaded_commit"`
+	Versions      json.RawMessage    `json:"versions"`
+	Tree          json.RawMessage    `json:"tree"`
+	CommitTree    json.RawMessage    `json:"commit_tree"`
+	Syncing       json.RawMessage    `json:"syncing"`
+	WorkspaceID   string             `json:"workspace_id"`
+	RunID         string             `json:"run_id"`
+	Outcome       string             `json:"outcome"`
+	Result        []byte             `json:"result"`
+	Attempt       int32              `json:"attempt"`
+	StartedAt     pgtype.Timestamptz `json:"started_at"`
+	NextAttemptAt time.Time          `json:"next_attempt_at"`
+	Error         string             `json:"error"`
+	UpdatedAt     time.Time          `json:"updated_at"`
+}
+
 type FlowRelayPlan struct {
 	TenantID    string             `json:"tenant_id"`
 	PrincipalID string             `json:"principal_id"`
@@ -2778,6 +2800,10 @@ type WorkflowDefinition struct {
 	IsActive     bool            `json:"is_active"`
 	CreatedAt    time.Time       `json:"created_at"`
 	UpdatedAt    time.Time       `json:"updated_at"`
+	SourceCommit pgtype.Text     `json:"source_commit"`
+	Digest       pgtype.Text     `json:"digest"`
+	Status       pgtype.Text     `json:"status"`
+	LoadError    string          `json:"load_error"`
 }
 
 type WorkflowLog struct {

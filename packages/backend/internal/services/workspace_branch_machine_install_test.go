@@ -179,6 +179,15 @@ func TestInstallLaneBinding(t *testing.T) {
 		require.NoError(t, err)
 	}
 	require.NoError(t, q.RetireMythicalLane(ctx, retired))
+	// The flow-load's machine is bound by its load, not by a lane.
+	loading := machine("flow-load")
+	_, err = q.RequestMythicalBootstrap(ctx, repo, user, 100, false)
+	require.NoError(t, err)
+	_, err = q.EnsureFlowLoad(ctx, repo)
+	require.NoError(t, err)
+	bindLoad, err := q.BindFlowLoadWorkspace(ctx, repo, 0, loading)
+	require.NoError(t, err)
+	require.True(t, bindLoad)
 	laneBinding := InstallBranchMachineProviders(ownerAuthorizer{}, nil).LaneBinding
 	creating := withStackLaneCreation(ctx)
 	for _, tc := range []struct {
@@ -202,6 +211,9 @@ func TestInstallLaneBinding(t *testing.T) {
 		{name: "item branch by name, as the stack", ctx: creating, repo: repo, branch: "smithers/add-a-greeting", forbidden: true},
 		{name: "item branch through its lane", ctx: ctx, repo: repo, branch: "smithers/add-a-greeting", id: bound},
 		{name: "item branch through a retired lane", ctx: ctx, repo: repo, branch: "smithers/add-a-greeting", id: retired, forbidden: true},
+		{name: "the flow-load's machine", ctx: ctx, repo: repo, branch: MythicalBookmark, id: loading},
+		{name: "the flow-load's machine in another repository", ctx: ctx, repo: otherRepo, branch: MythicalBookmark, id: loading, forbidden: true},
+		{name: "the flow-load's machine on an item branch", ctx: ctx, repo: repo, branch: "smithers/add-a-greeting", id: loading, forbidden: true},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			tx, err := pool.Begin(ctx)

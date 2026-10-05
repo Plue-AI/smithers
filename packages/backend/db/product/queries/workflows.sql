@@ -34,7 +34,7 @@ WHERE id = $1
 -- name: UpsertWorkflowDefinition :one
 INSERT INTO workflow_definitions (repository_id, name, path, config, is_active)
 VALUES ($1, $2, $3, $4, TRUE)
-ON CONFLICT (repository_id, path)
+ON CONFLICT (repository_id, path) WHERE digest IS NULL
 DO UPDATE SET
   name = EXCLUDED.name,
   config = EXCLUDED.config,
@@ -48,13 +48,14 @@ UPDATE workflow_definitions
 SET is_active = FALSE,
     updated_at = NOW()
 WHERE repository_id = $1
-  AND path = $2;
+  AND path = $2
+  AND digest IS NULL;
 
 
 -- name: EnsureWorkflowDefinitionReference :one
 INSERT INTO workflow_definitions (repository_id, name, path, config, is_active)
 VALUES ($1, $2, $3, $4, FALSE)
-ON CONFLICT (repository_id, path)
+ON CONFLICT (repository_id, path) WHERE digest IS NULL
 DO UPDATE SET
   updated_at = NOW()
 RETURNING *;
@@ -62,11 +63,11 @@ RETURNING *;
 
 -- name: UpsertAgentWorkflowDefinition :one
 -- Creates or returns the per-repo agent workflow definition.
--- Uses the UNIQUE(repository_id, path) constraint for idempotent upserts.
+-- Uses the legacy UNIQUE(repository_id, path) index for idempotent upserts.
 -- The sentinel path '.smithers/agent' identifies agent workflow definitions.
 INSERT INTO workflow_definitions (repository_id, name, path, config)
 VALUES (sqlc.arg(repository_id), 'Agent', '.smithers/agent', '{"agent": true}'::jsonb)
-ON CONFLICT (repository_id, path) DO UPDATE SET updated_at = NOW()
+ON CONFLICT (repository_id, path) WHERE digest IS NULL DO UPDATE SET updated_at = NOW()
 RETURNING *;
 
 
@@ -81,7 +82,8 @@ WHERE id = $1
 SELECT *
 FROM workflow_definitions
 WHERE repository_id = $1
-  AND path = $2;
+  AND path = $2
+  AND digest IS NULL;
 
 
 -- name: GetWorkflowRun :one
@@ -117,9 +119,11 @@ OFFSET sqlc.arg(page_offset);
 
 
 -- name: ListWorkflowDefinitionsByRepo :many
+-- The legacy definitions; flow versions (digest set) are read by flow_versions.go.
 SELECT *
 FROM workflow_definitions
 WHERE repository_id = $1
+  AND digest IS NULL
 ORDER BY id DESC
 LIMIT sqlc.arg(page_size)
 OFFSET sqlc.arg(page_offset);

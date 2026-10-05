@@ -193,6 +193,10 @@ type FeatureFlagsConfig struct {
 	Notifications bool `mapstructure:"notifications"`
 	// Wiki gates the wiki routes. Default false.
 	Wiki bool `mapstructure:"wiki"`
+	// FlowLoad runs flow-load on an install's stack after every main move
+	// (engineering spec §11.3.1): a merged flow edit becomes Active once it
+	// loads. Default false until the bundle's microVM run proves it.
+	FlowLoad bool `mapstructure:"flow_load"`
 	// Labels gates label CRUD (repo + issue labels). Default false.
 	Labels bool `mapstructure:"labels"`
 	// Releases gates the releases / release-asset routes. Default false.
@@ -636,6 +640,7 @@ func Load(configFile string) (*Config, error) {
 	v.SetDefault("feature_flags.protected_bookmarks", false)
 	v.SetDefault("feature_flags.notifications", false)
 	v.SetDefault("feature_flags.wiki", false)
+	v.SetDefault("feature_flags.flow_load", false)
 	v.SetDefault("feature_flags.labels", false)
 	v.SetDefault("feature_flags.releases", false)
 	v.SetDefault("feature_flags.secrets", true)
@@ -774,6 +779,7 @@ func Load(configFile string) (*Config, error) {
 		{"feature_flags.protected_bookmarks", "SMITHERS_FEATURE_FLAGS_PROTECTED_BOOKMARKS"},
 		{"feature_flags.notifications", "SMITHERS_FEATURE_FLAGS_NOTIFICATIONS"},
 		{"feature_flags.wiki", "SMITHERS_FEATURE_FLAGS_WIKI"},
+		{"feature_flags.flow_load", "SMITHERS_FEATURE_FLAGS_FLOW_LOAD"},
 		{"feature_flags.labels", "SMITHERS_FEATURE_FLAGS_LABELS"},
 		{"feature_flags.releases", "SMITHERS_FEATURE_FLAGS_RELEASES"},
 		{"feature_flags.secrets", "SMITHERS_FEATURE_FLAGS_SECRETS"},

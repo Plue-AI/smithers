@@ -486,10 +486,10 @@ SELECT pg_notify(
 
 -- name: UpsertWorkspaceWorkflowDefinition :one
 -- Creates or returns the per-repo workspace workflow definition.
--- Uses the UNIQUE(repository_id, path) constraint for idempotent upserts.
+-- Uses the legacy UNIQUE(repository_id, path) index for idempotent upserts.
 INSERT INTO workflow_definitions (repository_id, name, path, config)
 VALUES (sqlc.arg(repository_id), 'Workspace', '.smithers/workspace', '{"workspace": true}'::jsonb)
-ON CONFLICT (repository_id, path) DO UPDATE SET updated_at = NOW()
+ON CONFLICT (repository_id, path) WHERE digest IS NULL DO UPDATE SET updated_at = NOW()
 RETURNING *;
 
 -- ---- Session (PTY) lifecycle ----
