@@ -5229,7 +5229,7 @@ export interface PostApiTodosInput {
   readonly body: PostApiTodosBody
 }
 
-/** POST /api/todos: Append a TODO to the install repository stack */
+/** POST /api/todos: Put a TODO on the install repository stack */
 export const postApiTodos = (transport: Transport, input: PostApiTodosInput): Promise<PostApiTodosResponse> =>
   transport.request("POST", `/api/todos`, input.body, { headers: { "Idempotency-Key": input.headers["Idempotency-Key"] } }) as Promise<PostApiTodosResponse>
 
@@ -5244,14 +5244,16 @@ export const getApiTodosN = (transport: Transport, input: GetApiTodosNInput): Pr
   transport.request("GET", `/api/todos/${segment(input.path.n)}`) as Promise<GetApiTodosNResponse>
 
 export type PostApiTodosNBody = {
-  op?: "steer" | "stop" | "resume" | "retry" | "retry-current-flow" | "drop"
+  op?: "steer" | "stop" | "resume" | "retry" | "retry-current-flow" | "drop" | "move"
   steer?: string
   text?: string
+  direction?: "up" | "down"
 }
 
 export type PostApiTodosNResponse = {
   state: "accepted"
   attempt?: number
+  place?: number
 }
 
 export interface PostApiTodosNInput {
@@ -5260,7 +5262,7 @@ export interface PostApiTodosNInput {
   readonly body: PostApiTodosNBody
 }
 
-/** POST /api/todos/{n}: Steer the coding agent, or stop, resume, retry or drop a TODO */
+/** POST /api/todos/{n}: Steer the coding agent, or stop, resume, retry, drop or move a TODO */
 export const postApiTodosN = (transport: Transport, input: PostApiTodosNInput): Promise<PostApiTodosNResponse> =>
   transport.request("POST", `/api/todos/${segment(input.path.n)}`, input.body, { headers: { "Idempotency-Key": input.headers["Idempotency-Key"] } }) as Promise<PostApiTodosNResponse>
 

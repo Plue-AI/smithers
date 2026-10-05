@@ -1805,15 +1805,17 @@ type PostAPITodosResponse struct {
 
 // PostAPITodosNBody is generated from docs/api/openapi.yaml.
 type PostAPITodosNBody struct {
-	Op    *string `json:"op,omitempty"`
-	Steer *string `json:"steer,omitempty"`
-	Text  *string `json:"text,omitempty"`
+	Op        *string `json:"op,omitempty"`
+	Steer     *string `json:"steer,omitempty"`
+	Text      *string `json:"text,omitempty"`
+	Direction *string `json:"direction,omitempty"`
 }
 
 // PostAPITodosNResponse is generated from docs/api/openapi.yaml.
 type PostAPITodosNResponse struct {
 	State   string `json:"state"`
 	Attempt *int64 `json:"attempt,omitempty"`
+	Place   *int64 `json:"place,omitempty"`
 }
 
 // PostAPITodosNMergeBody is generated from docs/api/openapi.yaml.

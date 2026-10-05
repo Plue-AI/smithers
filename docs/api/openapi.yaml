@@ -19358,7 +19358,7 @@ paths:
           description: Install repository unavailable
     post:
       x-composition: install
-      summary: Append a TODO to the install repository stack
+      summary: Put a TODO on the install repository stack
       operationId: post_api_todos
       tags:
         - Todos
@@ -19385,7 +19385,7 @@ paths:
                   type: array
                   items: {type: string}
                 place:
-                  description: Where the TODO goes; absent appends. Before and amend are refused with invalid_place until T-STK-02.
+                  description: Where the TODO goes; absent appends. Before n takes TODO n's place, and n and every later TODO move one place later. Amend is refused with invalid_place until T-STK-06.
                   type: object
                   additionalProperties: false
                   required: [mode]
@@ -19416,11 +19416,11 @@ paths:
                   n: {type: integer, minimum: 1}
                   rev: {type: integer, minimum: 1}
         '400':
-          description: Invalid TODO, missing Idempotency-Key, invalid_place, or an issue reference that is incomplete or names a pull request
+          description: Invalid TODO, missing Idempotency-Key, invalid_place (amend, or Before a TODO that is not on the stack), or an issue reference that is incomplete or names a pull request
         '403':
           description: Not a member, or not a person's browser session. A terminal's delegated credential gets confirm_in_app ("Confirm in the app") and files nothing; its TODO waits for its person's Confirm in the app, which stage 1 does not serve.
         '409':
-          description: Idempotency-Key reused for a different request; issue_changed, issue_closed, or issue_has_todo for Make TODO
+          description: Idempotency-Key reused for a different request; merging when Before names a merging TODO; issue_changed, issue_closed, or issue_has_todo for Make TODO
         '503':
           description: Repository stack unavailable, or github_unavailable when Make TODO cannot read the issue
   /api/todos/{n}:
@@ -19455,8 +19455,8 @@ paths:
           description: Install repository unavailable
     post:
       x-composition: install
-      summary: Steer the coding agent, or stop, resume, retry or drop a TODO
-      description: A steer is {"op":"steer","text":...} or {"steer":...}; a retry may carry a steer. Members steer, stop, resume, retry and drop TODOs. Retry of a failed TODO starts attempt n+1 of its pinned flow with the steer as its first input and answers that attempt. Drop of an unmerged TODO cancels its run, stops every later TODO waiting on it to merge, and closes its pull request with the comment "Dropped in Smithers by @login". The same Idempotency-Key answers a Retry or a Drop again. Every other control answers todo_control_unavailable until its service is composed (T-STK-05, T-STK-06).
+      summary: Steer the coding agent, or stop, resume, retry, drop or move a TODO
+      description: A steer is {"op":"steer","text":...} or {"steer":...}; a retry may carry a steer; a move carries its direction. Members steer, stop, resume, retry, drop and move TODOs. Retry of a failed TODO starts attempt n+1 of its pinned flow with the steer as its first input and answers that attempt. Drop of an unmerged TODO cancels its run, stops every later TODO waiting on it to merge, and closes its pull request with the comment "Dropped in Smithers by @login". Move swaps the TODO with the nearest TODO still on the stack above (up) or below (down) it and answers the place it took; the stack admits and merges in that order. The same Idempotency-Key answers a Retry, a Drop or a Move again. Every other control answers todo_control_unavailable until its service is composed (T-STK-05, T-STK-06).
       operationId: post_api_todos_n
       tags:
         - Todos
@@ -19480,12 +19480,16 @@ paths:
               type: object
               additionalProperties: false
               properties:
-                op: {type: string, enum: [steer, stop, resume, retry, retry-current-flow, drop]}
+                op: {type: string, enum: [steer, stop, resume, retry, retry-current-flow, drop, move]}
                 steer: {type: string, minLength: 1, maxLength: 65536}
                 text: {type: string, minLength: 1, maxLength: 65536}
+                direction:
+                  description: A move's direction; required for move and refused with any other op.
+                  type: string
+                  enum: [up, down]
       responses:
         '202':
-          description: The control was recorded; a retry names the attempt it starts
+          description: The control was recorded; a retry names the attempt it starts and a move the place it took
           content:
             application/json:
               schema:
@@ -19494,6 +19498,7 @@ paths:
                 properties:
                   state: {type: string, enum: [accepted]}
                   attempt: {type: integer, minimum: 1}
+                  place: {type: integer, minimum: 1}
         '400':
           description: Invalid TODO number, invalid_control, invalid_steer, or a missing Idempotency-Key
         '403':
@@ -19501,7 +19506,7 @@ paths:
         '404':
           description: todo_not_found
         '409':
-          description: The TODO is merging or settled, the control does not apply to its state (Retry of a TODO that has not failed), or a GitHub write on it is settling
+          description: The TODO or the TODO a move passes is merging, the TODO is settled, the control does not apply to its state (Retry of a TODO that has not failed, Move up of the first TODO or down of the last), the Idempotency-Key was used for a different move, or a GitHub write on it is settling
         '503':
           description: todo_control_unavailable
   /api/todos/{n}/merge:
