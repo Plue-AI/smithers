@@ -482,8 +482,11 @@ The command starts the existing GitHub stand-in and the real server bundle as
 your logged-in user, prints the setup URL, and opens Chromium. Enter
 `local-owner` as Owner. The stand-in has one private repository,
 `local-owner/demo`, and fresh credentials on each start. Ports 4000, 4001 and
-2222 must be free. Ctrl-C stops all three processes and deletes the install's
-state, including PostgreSQL. `--no-browser` starts just the two servers.
+2222 must be free. Each run keeps its state, including PostgreSQL and the
+machine image records, in a fresh private directory
+`~/Library/Caches/smithers-local-*`; the installed backend refuses a data root
+under `/tmp`. Ctrl-C stops all three processes and deletes that directory;
+`--keep` keeps it. `--no-browser` starts just the two servers.
 
 Address, Create GitHub App, sign-in, repository selection and model access work
 through the Setup card. The unattended walk needs no provider key: it saves the
@@ -511,6 +514,8 @@ removed. Later rows remain blocked by the first unfinished step.
 Only the browser's manifest form POST to GitHub is carried to the stand-in;
 other GitHub browser requests are aborted and fail the walk. The test launcher
 injects the three existing GitHub base variables through its spawn hook and
-uses a refusing HTTPS proxy for backend HTTP calls. The production launcher's
-passthrough list is unchanged. Existing configuration-file overrides for auth
+uses a refusing HTTPS proxy for backend HTTP calls. The installed backend keeps
+those three base URLs, like the proxy variables, because they name no file
+(`apps/backend/installed.go`). The production launcher's passthrough list is
+unchanged. Existing configuration-file overrides for auth
 bases remain outside this environment-filter guarantee.

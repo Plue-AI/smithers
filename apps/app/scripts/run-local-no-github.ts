@@ -5,6 +5,7 @@ import { launchModelProvider, type ModelProvider } from "../e2e/real/support/mod
 import { execFileSync } from "node:child_process"
 import { chmodSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs"
 import { createServer } from "node:net"
+import { homedir } from "node:os"
 import { resolve, join } from "node:path"
 import { verifyBundle } from "../../../packages/smithers/src/internal/backend/HostService"
 import { startNativeBackend, type NativeBackend } from "../src/bun/NativeBackendProcess"
@@ -23,6 +24,14 @@ export const setupLine = (line: string): string | undefined => {
     value.setup_urls.some((u: unknown) => typeof u !== "string" || !/^https?:\/\//.test(u))) throw new Error("Invalid setup handoff")
   return value.setup_urls[0]
 }
+// The installed backend refuses a data root below a group- or world-writable
+// directory such as /tmp (spec 17.3), so each run gets a fresh private
+// directory in the account's caches.
+export const walkHome = (account = homedir()): string => {
+  const caches = join(account, "Library/Caches")
+  mkdirSync(caches, { recursive: true, mode: 0o700 })
+  return mkdtempSync(join(caches, "smithers-local-"))
+}
 export const freePort = (port: number): Promise<void> => new Promise((ok, fail) => {
   const server = createServer()
   server.once("error", () => fail(new Error(`Port ${port} must be free`)))
@@ -31,7 +40,8 @@ export const freePort = (port: number): Promise<void> => new Promise((ok, fail) 
 
 export async function main() {
   if (process.getuid?.() === 0) throw new Error("Run as your logged-in user, never root")
-  if (process.argv.slice(2).some(arg => arg !== "--no-browser")) throw new Error("Usage: local:no-github [--no-browser]")
+  if (process.argv.slice(2).some(arg => arg !== "--no-browser" && arg !== "--keep")) throw new Error("Usage: local:no-github [--no-browser] [--keep]")
+  const keep = process.argv.includes("--keep")
   const app = resolve(import.meta.dir, ".."), root = resolve(app, "../..")
   const revision = execFileSync("git", ["rev-parse", "HEAD"], { cwd: root, encoding: "utf8" }).trim()
   let bundle: string
@@ -41,8 +51,7 @@ export async function main() {
     bundle = verified.bundle
   } catch (error) { throw new Error(`${error}\nBuild: pnpm exec smthrs build //apps/app:serverBundle`) }
   await Promise.all([4000, 4001, 2222].map(freePort))
-  // /tmp stays below the machine runtime's 39-byte HOME/socket limit on macOS.
-  const home = mkdtempSync("/tmp/sng-")
+  const home = walkHome()
   const out = join(app, "test-results/local-no-github")
   mkdirSync(out, { recursive: true })
   writeFileSync(join(out, "steps.tsv"), "step\tactual\texpected\towner\n", { mode: 0o600 })
@@ -60,7 +69,8 @@ export async function main() {
     }
     try { await backend?.stop() } finally { await modelProvider?.close() }
     rmSync(receipt, { force: true })
-    rmSync(home, { recursive: true, force: true })
+    if (keep) console.log(`Kept ${home}`)
+    else rmSync(home, { recursive: true, force: true })
   })()
   const signal = () => { void stop().then(() => process.exit(0)) }
   process.on("SIGINT", signal); process.on("SIGTERM", signal)
@@ -131,7 +141,7 @@ export async function main() {
     writeFileSync(join(home, "run.json"), JSON.stringify(run), { mode: 0o600 })
     writeFileSync(receipt, JSON.stringify(run), { mode: 0o600 })
     chmodSync(receipt, 0o600)
-    console.log(`SETUP_URL=${setupURL}\nType owner: local-owner. Ctrl-C stops everything and deletes this run's data.`)
+    console.log(`SETUP_URL=${setupURL}\nType owner: local-owner. Ctrl-C stops everything${keep ? ` and keeps ${home}` : " and deletes this run's data"}.`)
     if (!process.argv.includes("--no-browser")) {
       browser = Bun.spawn(["node", "--experimental-strip-types", join(app, "e2e/local/open.ts"), receipt], { cwd: app, stdout: "inherit", stderr: "inherit" })
       void browser.exited.then(() => signal())

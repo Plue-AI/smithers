@@ -1,6 +1,9 @@
 import { describe, expect, test } from "bun:test"
 import { createServer } from "node:net"
-import { freePort, githubBases, proxyGuard, setupLine } from "./run-local-no-github"
+import { lstatSync, mkdtempSync, realpathSync, rmSync } from "node:fs"
+import { tmpdir } from "node:os"
+import { dirname, join } from "node:path"
+import { freePort, githubBases, proxyGuard, setupLine, walkHome } from "./run-local-no-github"
 import { githubRoute, isManifest } from "../e2e/local/github-route"
 import type { BrowserContext, Route } from "@playwright/test"
 
@@ -15,6 +18,28 @@ describe("local no-GitHub orchestration", () => {
     expect(setupLine('ordinary log')).toBeUndefined()
     expect(setupLine('{"setup_urls":["http://localhost:4000/setup?token=one"]}')).toBe("http://localhost:4000/setup?token=one")
     for (const line of ['{"setup_urls":[]}', '{"setup_urls":[1]}', '{"setup_urls":["file:///etc/passwd"]}', '{"setup_urls":["http://localhost"],"extra":true}', '{"setup_urls":["http://localhost"]}\n', '{"setup_urls":']) expect(() => setupLine(line)).toThrow()
+  })
+  test("each run's home is a fresh 0700 directory in the account's caches", () => {
+    const account = mkdtempSync(join(tmpdir(), "walk-account-"))
+    try {
+      const [first, second] = [walkHome(account), walkHome(account)]
+      expect(first).not.toBe(second)
+      for (const home of [first, second]) {
+        expect(dirname(home)).toBe(join(account, "Library/Caches"))
+        expect(lstatSync(home).mode & 0o777).toBe(0o700)
+      }
+    } finally { rmSync(account, { recursive: true, force: true }) }
+  })
+  // The bundle is macOS-only: there the backend approves this data root.
+  test.skipIf(process.platform !== "darwin")("the real home has no group- or world-writable ancestor", () => {
+    const home = walkHome()
+    try {
+      for (let at = realpathSync(home); ; at = dirname(at)) {
+        const info = lstatSync(at)
+        expect({ at, owner: info.uid === 0 || info.uid === process.getuid!(), writable: (info.mode & 0o022) !== 0 }).toEqual({ at, owner: true, writable: false })
+        if (at === "/") break
+      }
+    } finally { rmSync(home, { recursive: true, force: true }) }
   })
   test("port preflight refuses an occupied listener", async () => {
     const server = createServer()

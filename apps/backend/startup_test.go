@@ -137,6 +137,51 @@ func TestStartupRefusesLoaderAndGitInjection(t *testing.T) {
 	}
 }
 
+// Lead ruling 2026-10-04 (#3455): the GitHub base URLs name no file, so the
+// backend keeps them as it keeps the proxy variables; no program it starts
+// gets them, and a loader variable beside them is still refused.
+func TestInstalledEnvironmentKeepsGitHubBaseURLs(t *testing.T) {
+	bundle := installedBundleFixture(t)
+	env := bundle.installedEnvironment(t)
+	bases := map[string]string{"SMITHERS_GITHUB_APP_API_BASE_URL": "http://127.0.0.1:47401",
+		"SMITHERS_AUTH_GITHUB_API_BASE_URL": "http://127.0.0.1:47402", "SMITHERS_AUTH_GITHUB_OAUTH_BASE_URL": "http://127.0.0.1:47403"}
+	for name, value := range bases {
+		env[name] = value
+	}
+	env["SMITHERS_GITHUB_APP_PRIVATE_KEY"] = "canary"
+	environ := func() []string {
+		var entries []string
+		for name, value := range env {
+			entries = append(entries, name+"="+value)
+		}
+		return entries
+	}
+	if err := refuseInjected(environ()); err != nil {
+		t.Fatalf("GitHub base URLs were refused: %v", err)
+	}
+	inputs, err := installedInputs(bundle.backend, func(name string) string { return env[name] })
+	if err != nil {
+		t.Fatal(err)
+	}
+	for name, want := range bases {
+		if got := inputs.environment[name]; got != want {
+			t.Errorf("%s = %q; want %q", name, got, want)
+		}
+	}
+	if got, kept := inputs.environment["SMITHERS_GITHUB_APP_PRIVATE_KEY"]; kept {
+		t.Errorf("SMITHERS_GITHUB_APP_PRIVATE_KEY = %q; only allowlisted variables are kept", got)
+	}
+	for _, entry := range inputs.host.Environment {
+		if strings.HasPrefix(entry, "SMITHERS_") {
+			t.Errorf("a host program gets %q", entry)
+		}
+	}
+	env["DYLD_INSERT_LIBRARIES"] = "/hostile/DYLD_INSERT_LIBRARIES"
+	if err := refuseInjected(environ()); err == nil || !strings.Contains(err.Error(), "DYLD_INSERT_LIBRARIES is set") {
+		t.Fatalf("refuseInjected = %v; want a refusal naming DYLD_INSERT_LIBRARIES", err)
+	}
+}
+
 // Ruling §17.3 (a), Astra round 3 X3: production startup refuses a backend
 // running without the hardened runtime before anything is loaded.
 func TestStartupRefusesABackendWithoutTheHardenedRuntime(t *testing.T) {
