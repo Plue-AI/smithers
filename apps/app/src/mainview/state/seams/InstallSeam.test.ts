@@ -226,6 +226,20 @@ describe("T-APP-03 install seam", () => {
       expect(h.toasts[0]?.outcome).toBe(ok ? true : "Could not save model")
     }
   })
+  test("coding Save names each provider's address: chat protocols carry a base URL without /v1", async () => {
+    for (const [provider, credential, model] of [
+      ["OpenRouter", "OPENROUTER_API_KEY", { protocol: "openai-chat", modelId: "openai/gpt-5", credential: "OPENROUTER_API_KEY", baseUrl: "https://openrouter.ai/api" }],
+      ["Anthropic", "ANTHROPIC_API_KEY", { protocol: "anthropic-messages", modelId: "openai/gpt-5", credential: "ANTHROPIC_API_KEY" }]
+    ] as const) {
+      const h = await harness(path => path === "/api/model/credential" ? Response.json(credentialReceipt(credential))
+        : path === "/api/model/default" ? Response.json({ ok: true }) : Response.json(installFixture()))
+      await h.seam.readInstall()
+      h.seam.saveInstallModelKey({ role: "coding", provider, model: "openai/gpt-5" }, writeOnlyGesture("settings.model-key", { value: "private-key" }))
+      await h.idle()
+      const request = h.requests.find(request => request.path === "/api/model/default")!
+      expect(JSON.parse(String(request.init?.body))).toEqual({ model })
+    }
+  })
   test("saved keys refresh from GET; repeated submissions send one write", async () => {
     const gate = deferred<Response>()
     const h = await harness(path => path === "/api/model/credential" ? gate.promise : Response.json(installFixture()))

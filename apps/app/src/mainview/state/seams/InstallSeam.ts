@@ -40,6 +40,11 @@ export const NO_INSTALL = "no_install"
  * stamped before the POST leaves, never later than the host's. Delete it once the host serves a lapsed lease as failed.
  */
 const APP_LEASE_MS = 10 * 60_000
+/**
+ * openai-chat has no default address (@smthrs/rpc MODEL_PROTOCOL_DEFAULTS), and the model host appends
+ * /v1/chat/completions to the base URL, so each chat provider's base URL omits /v1.
+ */
+const CHAT_BASE_URLS: Readonly<Record<string, string>> = { OPENROUTER_API_KEY: "https://openrouter.ai/api", CEREBRAS_API_KEY: "https://api.cerebras.ai" }
 
 export const createInstallSeam = (ctx: SeamContext, withToast: FailureController["withToast"], options: InstallSeamOptions = {}) => {
   const shared = actorSharedState(ctx, "install", () => ({
@@ -359,10 +364,12 @@ export const createInstallSeam = (ctx: SeamContext, withToast: FailureController
           return failure.message
         }
         if (input.role === "coding" && input.model) {
+          const protocol = input.provider.toLowerCase() === "anthropic" ? "anthropic-messages"
+            : input.provider.toLowerCase() === "openai" ? "openai-responses" : "openai-chat"
+          const baseUrl = protocol === "openai-chat" ? CHAT_BASE_URLS[credential.name] : undefined
           const response = await ctx.http(`${ctx.baseUrl.replace(/\/$/, "")}/api/model/default`, {
             method: "PUT", credentials: "same-origin", headers: { "Content-Type": "application/json", "Idempotency-Key": installRequestId() },
-            body: JSON.stringify({ model: { protocol: input.provider.toLowerCase() === "anthropic" ? "anthropic-messages"
-              : input.provider.toLowerCase() === "openai" ? "openai-responses" : "openai-chat", modelId: input.model, credential: credential.name } })
+            body: JSON.stringify({ model: { protocol, modelId: input.model, credential: credential.name, ...(baseUrl ? { baseUrl } : {}) } })
           })
           if (!current()) return false
           const payload: unknown = await response.json().catch(() => undefined)
