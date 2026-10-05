@@ -61,10 +61,18 @@ product jobs store. An amendment also appends one entry to `revisions`, records
 existing prefix calculation. It allocates no TODO number, branch or PR.
 
 The feedback entry links to the amendment's revision. Repeating an admitted
-request for the same member and TODO returns that revision without another
-event or delivery. A changed prompt or acceptance array, or reuse across
-Steer and Amend, conflicts. Credential-scoped replay behavior still needs
-joint validation with the shared authorization and confirmation providers.
+request with the same authenticated credential returns that revision without
+another event or delivery. Reuse for another TODO, prompt, acceptance array or
+operation returns `409 conflict/idempotency_mismatch`. Creation, Merge, Steer
+and Amend share the existing request lookup and repository request lock.
+
+A replacement browser session or terminal credential starts a separate
+authorized request even for the same member and key. The server derives the
+identity from the stored session or token and its binding; attribution headers
+cannot change it. Historical feedback without a credential identity stays
+readable, but replay of its key refuses rather than inferring authority from
+its author. Confirmation creation and approval still need joint validation
+with the shared confirmation provider.
 
 For an already-launched, bound attempt, the same transaction calls
 `flowdispatch.SteerInTx`. Its stable input ID becomes the runtime Message ID.

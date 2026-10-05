@@ -57,12 +57,22 @@ func (s *MythicalService) AmendTodo(ctx context.Context, number int64, input Tod
 }
 
 func prepareTodoAmend(ctx context.Context, item db.MythicalItem, input TodoControlInput, amendment TodoAmendInput, by json.RawMessage, attribution map[string]string, now time.Time) (db.MythicalItem, todoSteer, bool, error) {
+	credential, err := todoFeedbackCredential(ctx, input.Actor)
+	if err != nil {
+		return item, todoSteer{}, false, err
+	}
 	var revisions []json.RawMessage
 	if json.Unmarshal(item.Revisions, &revisions) != nil || len(revisions) == 0 {
 		return item, todoSteer{}, false, todoControlUnavailable()
 	}
 	for _, feedback := range mythicalChecksOf(item).Steers {
 		if feedback.Request != input.Request || feedback.Author != input.Actor {
+			continue
+		}
+		if feedback.Credential == "" {
+			return item, todoSteer{}, false, todoControlUnavailable()
+		}
+		if feedback.Credential != credential {
 			continue
 		}
 		var revision struct {
@@ -72,7 +82,7 @@ func prepareTodoAmend(ctx context.Context, item db.MythicalItem, input TodoContr
 		if feedback.Revision <= 1 || feedback.Revision > len(revisions) ||
 			json.Unmarshal(revisions[feedback.Revision-1], &revision) != nil ||
 			revision.Text != amendment.Prompt || !slices.Equal(revision.Acceptance, amendment.Acceptance) {
-			return item, todoSteer{}, false, todoControlConflict("Request already used for another amendment")
+			return item, todoSteer{}, false, todoFeedbackMismatch()
 		}
 		return item, feedback, true, nil
 	}

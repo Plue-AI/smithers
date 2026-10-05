@@ -28,11 +28,15 @@ type todoSteer struct {
 	At          time.Time         `json:"at"`
 	Attempt     int32             `json:"attempt"`
 	// These fields are absent on historical Retry feedback. Request is scoped
-	// to Author; ID is the stable event/message identity for live or held input.
+	// to Credential; ID is the stable event/message identity for live or held input.
 	ID       string `json:"id,omitempty"`
 	Request  string `json:"request,omitempty"`
 	Author   int64  `json:"author,omitempty"`
 	Revision int    `json:"revision,omitempty"`
+	// Credential scopes replay to the authenticated session or bound token.
+	// Historical feedback without this identity remains readable, but cannot
+	// authorize a replay using only its author's member id.
+	Credential string `json:"credential,omitempty"`
 	// ReleasePending records that a held input still needs its working-state
 	// release, including invalidating a fenced candidate. Clearing it does not mean
 	// the runtime accepted the message or the model consumed it.

@@ -5,11 +5,13 @@ import (
 	"encoding/json"
 	"fmt"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
 
 	"github.com/jackc/pgx/v5/pgtype"
+	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/smithersai/smithers/packages/backend/flowdispatch"
 	"github.com/smithersai/smithers/packages/backend/flowruntime"
 	"github.com/smithersai/smithers/packages/backend/internal/db"
@@ -56,7 +58,7 @@ func testTodoSteerDeliveryAuthorizer(t *testing.T, delegated bool) {
 		scopes := fmt.Sprintf("read:repository,read:user,repo:%d,", o.repoID) + strings.Join(middleware.DelegationScopes(middleware.Delegation{
 			Via: "terminal", Branch: item.WorkspaceID, Profile: middleware.TerminalProfileS1, Session: "terminal-1",
 		}), ",")
-		memberSession = middleware.ContextWithAuthInfo(ctx, &middleware.AuthInfo{User: &member, IsTokenAuth: true, TokenSystemIssued: true,
+		memberSession = middleware.ContextWithAuthInfo(ctx, &middleware.AuthInfo{User: &member, IsTokenAuth: true, TokenSystemIssued: true, TokenID: 123,
 			RawScopes: scopes, Scopes: middleware.ParseTokenScopes(scopes), ViaHint: "codex"})
 		wantAttribution = map[string]string{"person": "steer-member", "via": "codex", "session": "terminal-1"}
 	}
@@ -472,4 +474,171 @@ func TestTodoSteerAdmissionTransaction(t *testing.T) {
 	input.Actor++
 	_, err = o.service.ControlTodo(session, item.Number.Int64, input)
 	require.Error(t, err)
+}
+
+func TestTodoFeedbackCredentialIdempotencyPostgres(t *testing.T) {
+	o, session := newTodoAdmission(t)
+	ctx := context.Background()
+	q := db.New(o.pool)
+	binding := fmt.Sprintf(`{"owner_login":"smithers-canary","repository_name":"smithers","repository_id":%d}`, o.repoID)
+	require.NoError(t, q.UpsertInstallSetting(ctx, db.UpsertInstallSettingParams{Key: "github.repository", Value: []byte(binding)}))
+	o.service.SetTodoFlow(func(context.Context, int64, string) (string, error) { return todoPinOne, nil })
+	o.service.todoSteering = true
+	o.runDispatcher(t, flowruntime.ResolverFunc(func(context.Context, flowruntime.Target) (flowruntime.Runtime, error) {
+		t.Error("admission must not resolve the runtime")
+		return nil, fmt.Errorf("unexpected runtime resolution")
+	}))
+	item := o.fileTodo(session, "created-first")
+	other := o.fileTodo(session, "created-second")
+	ready, _, _ := steerFixture()
+	item.State, item.Attempt, item.RequestRunID = ready.State, ready.Attempt, ready.RequestRunID
+	item.WorkspaceID, item.FlowDigest, item.Checks = ready.WorkspaceID, ready.FlowDigest, ready.Checks
+	var err error
+	item, err = q.SaveMythicalItem(ctx, item)
+	require.NoError(t, err)
+	input := TodoAmendInput{Repository: o.repoID, Actor: o.userID, Request: "shared-key", Prompt: "Keep cancellation"}
+	first, err := o.service.AmendTodo(session, item.Number.Int64, input)
+	require.NoError(t, err)
+	require.Equal(t, 2, first.Revision)
+	// Nil and empty acceptance arrays are the same validated request.
+	input.Acceptance = []string{}
+	again, err := o.service.AmendTodo(session, item.Number.Int64, input)
+	require.NoError(t, err)
+	require.Equal(t, first, again)
+	replacement := middleware.ContextWithAuthInfo(ctx, &middleware.AuthInfo{User: &db.User{ID: o.userID}, SessionHash: "replacement-session"})
+	second, err := o.service.AmendTodo(replacement, item.Number.Int64, input)
+	require.NoError(t, err)
+	require.Equal(t, 3, second.Revision, "a replacement session starts a distinct authorized request")
+	again, err = o.service.AmendTodo(session, item.Number.Int64, input)
+	require.NoError(t, err)
+	require.Equal(t, first, again, "the original session keeps its original receipt")
+	before := o.byID(uuidString(item.ID))
+	mismatch := func(err error) {
+		t.Helper()
+		var refusal *TodoControlError
+		require.ErrorAs(t, err, &refusal)
+		require.Equal(t, TodoControlError{409, "idempotency_mismatch", "conflict", "Idempotency-Key was already used for a different request"}, *refusal)
+	}
+	changed := input
+	changed.Acceptance = []string{"Different acceptance"}
+	_, err = o.service.AmendTodo(session, item.Number.Int64, changed)
+	mismatch(err)
+	_, err = o.service.AmendTodo(session, other.Number.Int64, input)
+	mismatch(err)
+	text := input.Prompt
+	_, err = o.service.ControlTodo(session, item.Number.Int64, TodoControlInput{Repository: o.repoID, Actor: o.userID, Request: input.Request, Steer: &text})
+	mismatch(err)
+	_, err = o.service.FileTodo(session, o.repoID, o.userID, MythicalTodoInput{Title: "Another", Prompt: "Must not be created", Request: input.Request})
+	mismatch(err)
+	changed.Request = "created-second"
+	_, err = o.service.AmendTodo(session, item.Number.Int64, changed)
+	mismatch(err)
+	for _, key := range []string{"", strings.Repeat("x", 257)} {
+		changed.Request = key
+		_, err = o.service.AmendTodo(session, item.Number.Int64, changed)
+		var invalid *TodoControlError
+		require.ErrorAs(t, err, &invalid)
+		require.Equal(t, "invalid_idempotency_key", invalid.Code)
+		require.Equal(t, 400, invalid.Status)
+	}
+	require.Equal(t, before, o.byID(uuidString(item.ID)), "refusals write no revision, candidate or feedback")
+	require.Equal(t, other, o.byID(uuidString(other.ID)))
+	var count int
+	for _, operation := range []string{"todo.amended", "todo.steer_received", "flow.runtime.steer"} {
+		require.NoError(t, o.pool.QueryRow(ctx, `SELECT count(*) FROM product_job_requests WHERE operation=$1`, operation).Scan(&count))
+		require.Equal(t, 2, count, operation)
+	}
+
+	// Concurrent duplicates share one revision and intent. A competing
+	// creation under the same session/key can never claim that key as well.
+	input.Request = "concurrent"
+	const callers = 8
+	results := make(chan error, callers)
+	start := make(chan struct{})
+	var workers sync.WaitGroup
+	for range callers {
+		workers.Add(1)
+		go func() {
+			defer workers.Done()
+			<-start
+			receipt, err := o.service.AmendTodo(session, item.Number.Int64, input)
+			if err == nil && receipt.Revision != 4 {
+				err = fmt.Errorf("revision = %d, want 4", receipt.Revision)
+			}
+			results <- err
+		}()
+	}
+	close(start)
+	workers.Wait()
+	close(results)
+	for err := range results {
+		require.NoError(t, err)
+	}
+	for _, operation := range []string{"todo.amended", "todo.steer_received", "flow.runtime.steer"} {
+		require.NoError(t, o.pool.QueryRow(ctx, `SELECT count(*) FROM product_job_requests WHERE operation=$1`, operation).Scan(&count))
+		require.Equal(t, 3, count, operation)
+	}
+	input.Request = "creation-race"
+	race := make(chan struct{})
+	outcomes := make(chan error, 2)
+	go func() {
+		<-race
+		_, err := o.service.AmendTodo(session, item.Number.Int64, input)
+		outcomes <- err
+	}()
+	go func() {
+		<-race
+		_, err := o.service.FileTodo(session, o.repoID, o.userID, MythicalTodoInput{Title: "Race", Prompt: "Only one operation", Request: input.Request})
+		outcomes <- err
+	}()
+	close(race)
+	accepted := 0
+	for range 2 {
+		if err := <-outcomes; err == nil {
+			accepted++
+		} else {
+			mismatch(err)
+		}
+	}
+	require.Equal(t, 1, accepted, "creation and amendment serialize the same credential's key")
+	// A removed member is refused before any replay is disclosed.
+	_, err = o.pool.Exec(ctx, `UPDATE users SET is_active=false WHERE id=$1`, o.userID)
+	require.NoError(t, err)
+	_, err = o.service.AmendTodo(session, item.Number.Int64, input)
+	var denied *AccessError
+	require.ErrorAs(t, err, &denied)
+	require.Equal(t, "permission", denied.Code)
+}
+
+func TestTodoFeedbackAndMergeShareRequestIdentity(t *testing.T) {
+	h := newMergeHarness(t)
+	n, head, _ := h.first("Shared identity")
+	store, err := jobs.NewStore(h.pool.(*pgxpool.Pool))
+	require.NoError(t, err)
+	dispatcher, err := flowdispatch.New(flowdispatch.Config{Store: store, Resolver: flowruntime.ResolverFunc(func(context.Context, flowruntime.Target) (flowruntime.Runtime, error) {
+		t.Error("admission must not resolve the runtime")
+		return nil, fmt.Errorf("unexpected runtime resolution")
+	})})
+	require.NoError(t, err)
+	h.service.SetLauncher(dispatcher)
+	h.service.SetTodoFlow(func(context.Context, int64, string) (string, error) { return todoPinOne, nil })
+	h.service.todoSteering = true
+	binding := fmt.Sprintf(`{"owner_login":"smithers-canary","repository_name":"smithers","repository_id":%d}`, h.repoID)
+	require.NoError(t, h.q.UpsertInstallSetting(h.ctx, db.UpsertInstallSettingParams{Key: "github.repository", Value: []byte(binding)}))
+	require.NoError(t, h.pressAs(h.ctx, "merge-key", n, head))
+	fenced := h.item(n)
+	input := TodoAmendInput{Repository: h.repoID, Actor: h.userID, Request: "merge-key", Prompt: "Another operation"}
+	_, err = h.service.AmendTodo(h.ctx, n, input)
+	require.Equal(t, "idempotency_mismatch", refusalOf(t, err).Code)
+	require.Equal(t, fenced, h.item(n), "a reused merge key cannot add a revision")
+	queued, err := h.service.FileTodo(h.ctx, h.repoID, h.userID, MythicalTodoInput{Title: "Later", Prompt: "A queued TODO", Request: "queued"})
+	require.NoError(t, err)
+	input.Request = "amend-key"
+	_, err = h.service.AmendTodo(h.ctx, queued.Number, input)
+	require.NoError(t, err)
+	amended := h.item(queued.Number)
+	err = h.pressAs(h.ctx, input.Request, queued.Number, head)
+	require.Equal(t, "idempotency_mismatch", refusalOf(t, err).Code)
+	require.Equal(t, amended, h.item(queued.Number), "a reused amendment key cannot record merge approval")
+	require.Empty(t, h.merges(), "neither key reuse dispatches a merge")
 }

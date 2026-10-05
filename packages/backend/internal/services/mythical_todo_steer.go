@@ -16,11 +16,35 @@ import (
 	"github.com/smithersai/smithers/packages/backend/flowdispatch"
 	"github.com/smithersai/smithers/packages/backend/flowruntime"
 	"github.com/smithersai/smithers/packages/backend/internal/db"
+	"github.com/smithersai/smithers/packages/backend/internal/middleware"
 	"github.com/smithersai/smithers/packages/backend/jobs"
 )
 
 type mythicalSteerer interface {
 	SteerInTx(context.Context, pgx.Tx, flowdispatch.SteerRequest) (jobs.RequestReceipt, error)
+}
+
+// todoFeedbackCredential uses only authenticated, server-bound identity.
+// The repository scopes the database lookup. A session already binds one
+// member, and shares its identity with creation and merge request records.
+// A delegated token additionally binds its member and terminal scope; via
+// attribution and caller-provided request fields never select this identity.
+func todoFeedbackCredential(ctx context.Context, actor int64) (string, error) {
+	info := middleware.AuthInfoFromContext(ctx)
+	if info != nil && info.User != nil && info.User.ID == actor && actor > 0 && !middleware.IsAgentAccount(info.User.UserType) {
+		if !info.IsTokenAuth && info.SessionHash != "" {
+			return info.SessionHash, nil
+		}
+		if binding, ok := info.TerminalDelegation(); ok && info.CredentialKind() == middleware.CredentialDelegated && info.TokenID > 0 && binding.Branch != "" {
+			identity, _ := json.Marshal([]any{"delegated", info.TokenID, actor, binding.Branch, binding.Profile, binding.Session})
+			return string(identity), nil
+		}
+	}
+	return "", &TodoControlError{http.StatusForbidden, "permission", "permission", "Invalid TODO authority"}
+}
+
+func todoFeedbackMismatch() error {
+	return &TodoControlError{http.StatusConflict, "idempotency_mismatch", "conflict", "Idempotency-Key was already used for a different request"}
 }
 
 // AuthorizeFlowSteer binds a delivery to the stored input and its author's
@@ -173,8 +197,8 @@ func (s *MythicalService) admitTodoFeedback(ctx context.Context, number int64, i
 	if !ok {
 		return TodoControlReceipt{}, todoControlUnavailable()
 	}
-	if input.Request == "" {
-		input.Request = uuid.NewString()
+	if input.Request == "" || len(input.Request) > 256 {
+		return TodoControlReceipt{}, &TodoControlError{http.StatusBadRequest, "invalid_idempotency_key", "user", "Idempotency-Key must contain 1 to 256 bytes"}
 	}
 	command := "todo.steer"
 	if amendment != nil {
@@ -194,6 +218,15 @@ func (s *MythicalService) admitTodoFeedback(ctx context.Context, number int64, i
 		}
 		if auth.UserID != input.Actor || repository != input.Repository {
 			return &TodoControlError{http.StatusForbidden, "permission", "permission", "Invalid TODO authority"}
+		}
+		credential, err := todoFeedbackCredential(ctx, auth.UserID)
+		if err != nil {
+			return err
+		}
+		// Share creation and merge's request lock before taking the stack
+		// lock, so concurrent operations cannot claim the same key twice.
+		if _, err := tx.Exec(ctx, `SELECT pg_advisory_xact_lock($1)`, repository); err != nil {
+			return err
 		}
 		if _, err := tx.Exec(ctx, `SELECT 1 FROM mythical_stacks WHERE repository_id=$1 FOR UPDATE`, repository); err != nil {
 			return err
@@ -220,6 +253,15 @@ func (s *MythicalService) admitTodoFeedback(ctx context.Context, number int64, i
 			}
 			if !mythicalTodo(item) {
 				return todoControlUnavailable()
+			}
+			if prior, err := q.GetMythicalRequest(ctx, repository, credential, input.Request); err == nil {
+				if prior.ID != item.ID || !slices.ContainsFunc(mythicalChecksOf(prior).Steers, func(feedback todoSteer) bool {
+					return feedback.Credential == credential && feedback.Request == input.Request && feedback.Author == auth.UserID
+				}) {
+					return todoFeedbackMismatch()
+				}
+			} else if !errors.Is(err, pgx.ErrNoRows) {
+				return err
 			}
 			now := s.now().UTC()
 			var next db.MythicalItem
@@ -333,11 +375,21 @@ func prepareTodoSteer(ctx context.Context, item db.MythicalItem, input TodoContr
 	if input.Op != "" || input.Steer == nil || input.Actor <= 0 || input.Request == "" {
 		return item, todoSteer{}, false, false, &TodoControlError{http.StatusBadRequest, "invalid_steer", "user", "Invalid steer"}
 	}
+	credential, err := todoFeedbackCredential(ctx, input.Actor)
+	if err != nil {
+		return item, todoSteer{}, false, false, err
+	}
 	checks := mythicalChecksOf(item)
 	for _, feedback := range checks.Steers {
 		if feedback.Request == input.Request && feedback.Author == input.Actor {
+			if feedback.Credential == "" {
+				return item, todoSteer{}, false, false, todoControlUnavailable()
+			}
+			if feedback.Credential != credential {
+				continue
+			}
 			if feedback.Revision != 0 || feedback.Text != *input.Steer {
-				return item, todoSteer{}, false, false, todoControlConflict("Request already used for another steer")
+				return item, todoSteer{}, false, false, todoFeedbackMismatch()
 			}
 			return item, feedback, false, true, nil
 		}
@@ -373,7 +425,7 @@ func prepareTodoSteer(ctx context.Context, item db.MythicalItem, input TodoContr
 			next.State, next.NextAttemptAt = "running", pgtype.Timestamptz{}
 		}
 	}
-	feedback := todoSteer{ID: uuid.NewString(), Request: input.Request, Author: input.Actor, Text: *input.Steer, By: by, Attribution: maps.Clone(attribution), At: now, Attempt: attempt,
+	feedback := todoSteer{ID: uuid.NewString(), Request: input.Request, Credential: credential, Author: input.Actor, Text: *input.Steer, By: by, Attribution: maps.Clone(attribution), At: now, Attempt: attempt,
 		ReleasePending: !deliver}
 	checks.Steers = append(checks.Steers, feedback)
 	next.Checks = checks.encode()

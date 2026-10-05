@@ -136,10 +136,11 @@ func TestTodoSteerReplayAndHistoricalFeedback(t *testing.T) {
 	_, _, _, _, err = prepareTodoSteer(ctx, next, input, json.RawMessage(`{}`), map[string]string{"person": "member"}, time.Now())
 	require.Error(t, err)
 	input.Actor = 10
+	ctx = middleware.ContextWithAuthInfo(context.Background(), &middleware.AuthInfo{User: &db.User{ID: 10}, SessionHash: "other-person"})
 	next.State = "running"
 	other, feedback, _, replay, err := prepareTodoSteer(ctx, next, input, json.RawMessage(`{}`), map[string]string{"person": "member"}, time.Now())
 	require.NoError(t, err)
-	require.False(t, replay, "request keys are scoped to the authenticated author")
+	require.False(t, replay, "request keys are scoped to the authenticated credential")
 	require.NotEqual(t, first.ID, feedback.ID)
 	require.Len(t, mythicalChecksOf(other).Steers, 3)
 }
@@ -165,4 +166,62 @@ func TestTodoSteerRefusesClosedOrUnboundRun(t *testing.T) {
 		require.ErrorAs(t, err, &refusal)
 		require.Equal(t, "todo_control_unavailable", refusal.Code)
 	}
+}
+
+func TestTodoSteerCredentialReplay(t *testing.T) {
+	item, input, session := steerFixture()
+	now := time.Unix(1234, 0).UTC()
+	by := json.RawMessage(`{"kind":"person","login":"member"}`)
+	next, first, _, _, err := prepareTodoSteer(session, item, input, by, nil, now)
+	require.NoError(t, err)
+	require.Equal(t, "person", first.Credential)
+	for _, info := range []*middleware.AuthInfo{
+		{User: &db.User{ID: 9}, SessionHash: "replacement"},
+		{User: &db.User{ID: 9}, IsTokenAuth: true, TokenSystemIssued: true, TokenID: 41,
+			RawScopes: "via:terminal,branch:same-workspace,profile:terminal_s1,terminal-session:terminal-one"},
+		{User: &db.User{ID: 9}, IsTokenAuth: true, TokenSystemIssued: true, TokenID: 42,
+			RawScopes: "via:terminal,branch:same-workspace,profile:terminal_s1,terminal-session:terminal-one"},
+	} {
+		ctx := middleware.ContextWithAuthInfo(context.Background(), info)
+		var added todoSteer
+		var replay bool
+		next, added, _, replay, err = prepareTodoSteer(ctx, next, input, by, nil, now)
+		require.NoError(t, err)
+		require.False(t, replay, "a replacement credential does not inherit another receipt")
+		require.NotEqual(t, first.ID, added.ID)
+		// The attribution hint cannot change the credential's replay scope.
+		info.ViaHint = "codex"
+		again, repeated, _, replay, err := prepareTodoSteer(ctx, next, input, by, nil, now)
+		require.NoError(t, err)
+		require.True(t, replay)
+		require.Equal(t, added, repeated)
+		require.Equal(t, next, again)
+	}
+	require.Len(t, mythicalChecksOf(next).Steers, 4)
+	_, repeated, _, replay, err := prepareTodoSteer(session, next, input, by, nil, now)
+	require.NoError(t, err)
+	require.True(t, replay)
+	require.Equal(t, first, repeated)
+
+	for _, info := range []*middleware.AuthInfo{
+		nil, {}, {User: &db.User{ID: 9}}, {User: &db.User{ID: 10}, SessionHash: "person"},
+		{User: &db.User{ID: 9, UserType: "bot"}, SessionHash: "person"},
+		{User: &db.User{ID: 9}, IsTokenAuth: true, TokenSystemIssued: true,
+			RawScopes: "via:terminal,branch:same-workspace,profile:terminal_s1"},
+		{User: &db.User{ID: 9}, IsTokenAuth: true, TokenID: 41},
+	} {
+		ctx := middleware.ContextWithAuthInfo(context.Background(), info)
+		unchanged, _, _, _, err := prepareTodoSteer(ctx, next, input, by, nil, now)
+		var refusal *TodoControlError
+		require.ErrorAs(t, err, &refusal)
+		require.Equal(t, "permission", refusal.Code)
+		require.Equal(t, next, unchanged)
+	}
+	// Old feedback still decodes, but a member id alone cannot authorize replay.
+	checks := mythicalChecksOf(item)
+	checks.Steers = []todoSteer{{ID: "historical", Request: input.Request, Author: input.Actor, Text: *input.Steer}}
+	item.Checks = checks.encode()
+	unchanged, _, _, _, err := prepareTodoSteer(session, item, input, by, nil, now)
+	require.Equal(t, "todo_control_unavailable", err.(*TodoControlError).Code)
+	require.Equal(t, item, unchanged)
 }
