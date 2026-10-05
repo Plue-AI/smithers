@@ -237,9 +237,16 @@ func TestJ7Rehearsal(t *testing.T) {
 				next, short7(cn.Base), t2, pull.Number, pull.Title, card.PR.IncludedItems, file)
 			return nil
 		})
-	r.pending("10 Fork T2", "POST /api/branches {from: T2}", "201; forked_from {T2, H2, C1}; T2's run and workspace unchanged", "T-MCH-08", "fork")
-	r.pending("11 Scratch stays off GitHub", "GitHub fake refs", "no smithers/ branch or PR for the scratch branch", "T-MCH-08", "fork")
-	r.pending("12 Edit on scratch", "Git push to the scratch branch", "the head moves to S, a descendant of H2", "T-MCH-08", "fork")
+	var scratch j7Scratch
+	r.step("10 Fork T2", "POST /api/branches {from: T2}; GET /api/branches/{b}; SQL mythical_items, workspaces", "201; forked_from {T2, H2, C1}; T2's run and workspace unchanged", "T-MCH-08", func() error {
+		return r.forkT2(t1, t2, &scratch)
+	})
+	r.step("11 Scratch stays off GitHub", "Git door ls-remote; GitHub fake refs", "no smithers/ branch or PR for the scratch branch", "T-MCH-08", func() error {
+		return r.scratchOffGitHub(&scratch)
+	})
+	r.step("12 Edit on scratch", "Git push to the scratch branch; GET /api/branches/{b}", "the head moves to S, a descendant of H2", "T-MCH-08", func() error {
+		return r.editScratch(&scratch)
+	})
 	r.pending("13 Add to stack after T2", "POST /api/todos from the scratch branch", "a new TODO after T2 holding the scratch branch's change", "T-MCH-08", "add-to-stack")
 	r.pending("14 The new TODO keeps T2's work", "GitHub fake PR diff", "dropping T2 leaves its tree unchanged; the PR has T2's file and the scratch edit", "T-MCH-08", "add-to-stack")
 	r.step("15 Drop T2", "POST /api/todos/{T2} {op: drop}", "dropped; the PR closed with the comment; the run cancelled", "T-STK-02, T-STK-05", func() error {
