@@ -63,6 +63,9 @@ MANAGED_ARTIFACT_LIMIT = 64 * 1024 * 1024
 # The packaged Linux arm64 source-publication helper's fixed place.
 CODING_HELPER_DIRECTORY = ("usr", "local", "bin")
 CODING_HELPER_NAME = "smithers-jj-export"
+# The bundle programs root plants in /usr/local/bin: the helper and the jj
+# revision its jj-lib pins. No other name is ever written there.
+CODING_PROGRAM_NAMES = (CODING_HELPER_NAME, "jj")
 
 
 def fail(code, message):
@@ -834,23 +837,30 @@ def valid_digest(digest):
     return isinstance(digest, str) and len(digest) == 64 and all(c in "0123456789abcdef" for c in digest)
 
 
-def coding_helper_current(digest):
+def coding_program_name(name):
+    if name not in CODING_PROGRAM_NAMES:
+        fail(3, "coding program name is not approved")
+    return name
+
+
+def coding_helper_current(digest, name=CODING_HELPER_NAME):
     if os.geteuid() != ROOT_UID:
         fail(3, "coding helper check requires root")
     if not valid_digest(digest):
         fail(3, "coding helper digest is invalid")
-    return protected_file_current(CODING_HELPER_DIRECTORY, CODING_HELPER_NAME, digest, MANAGED_ARTIFACT_LIMIT)
+    return protected_file_current(CODING_HELPER_DIRECTORY, coding_program_name(name), digest, MANAGED_ARTIFACT_LIMIT)
 
 
-def install_coding_helper(digest, body):
+def install_coding_helper(digest, body, name=CODING_HELPER_NAME):
     if os.geteuid() != ROOT_UID:
         fail(3, "coding helper requires root")
     if not valid_digest(digest):
         fail(3, "coding helper digest is invalid")
+    target = coding_program_name(name)
     if (len(body) < 64 or len(body) > MANAGED_ARTIFACT_LIMIT or body[:4] != b"\x7fELF"
             or body[4:6] != b"\x02\x01" or int.from_bytes(body[18:20], "little") != 183):
         fail(3, "coding helper is not Linux arm64")
-    install_protected_file(CODING_HELPER_DIRECTORY, CODING_HELPER_NAME, digest, body, MANAGED_ARTIFACT_LIMIT)
+    install_protected_file(CODING_HELPER_DIRECTORY, target, digest, body, MANAGED_ARTIFACT_LIMIT)
 
 
 def managed_artifact_request(relative, digest):
@@ -1131,11 +1141,11 @@ def main(args):
     if command == "put-env" and len(args) == 1:
         put_secret_environment(sys.stdin.buffer.read(SECRET_ENV_LIMIT + 1))
         return
-    if command == "coding-helper-check" and len(args) == 2:
-        print("current" if coding_helper_current(args[1]) else "replace")
+    if command == "coding-helper-check" and len(args) in (2, 3):
+        print("current" if coding_helper_current(*args[1:]) else "replace")
         return
-    if command == "coding-helper" and len(args) == 2:
-        install_coding_helper(args[1], sys.stdin.buffer.read(MANAGED_ARTIFACT_LIMIT + 1))
+    if command == "coding-helper" and len(args) in (2, 3):
+        install_coding_helper(args[1], sys.stdin.buffer.read(MANAGED_ARTIFACT_LIMIT + 1), *args[2:])
         return
     if command == "managed-artifact-check" and len(args) == 3:
         print("current" if managed_artifact_current(args[1], args[2]) else "replace")

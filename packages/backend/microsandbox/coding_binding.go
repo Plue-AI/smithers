@@ -92,14 +92,58 @@ func (r *Runtime) readCodingHelper() ([]byte, string, error) {
 // codingHelperFrom reads the helper from bundle with the digest and mode its
 // pinned manifest declares, and only when it is a Linux arm64 executable.
 func codingHelperFrom(bundle *installbundle.Bundle) ([]byte, string, error) {
-	data, digest, err := plantable(bundle, codingHelperBundlePath)
+	return linuxArm64From(bundle, codingHelperBundlePath, "packaged workspace coding helper")
+}
+
+// guestJJBundlePath is the bundle's Linux arm64 jj, built from the jj
+// revision the helper's jj-lib pins. Repository setup and the helper run
+// `jj` in the guest, and a repository's detected toolchain carries none.
+const guestJJBundlePath = "bin/linux-arm64/jj"
+
+// guestJJName is where the guest helper plants it: /usr/local/bin/jj.
+const guestJJName = "jj"
+
+func guestJJFrom(bundle *installbundle.Bundle) ([]byte, string, error) {
+	return linuxArm64From(bundle, guestJJBundlePath, "packaged guest jj")
+}
+
+func linuxArm64From(bundle *installbundle.Bundle, relative, label string) ([]byte, string, error) {
+	data, digest, err := plantable(bundle, relative)
 	if err != nil {
 		return nil, "", err
 	}
 	if len(data) < 64 || string(data[:4]) != "\x7fELF" || data[4] != 2 || data[5] != 1 || binary.LittleEndian.Uint16(data[18:20]) != 183 {
-		return nil, "", errors.New("packaged workspace coding helper is not Linux arm64")
+		return nil, "", errors.New(label + " is not Linux arm64")
 	}
 	return data, digest, nil
+}
+
+// installGuestJJ plants the bundle's jj as root-owned /usr/local/bin/jj on a
+// fresh or woken machine, replacing drifted bytes; a runtime without a bundle
+// plants nothing.
+func (r *Runtime) installGuestJJ(ctx context.Context, machine string) error {
+	if r.config.Bundle == nil {
+		return nil
+	}
+	r.guestJJ.once.Do(func() {
+		r.guestJJ.data, r.guestJJ.digest, r.guestJJ.err = guestJJFrom(r.config.Bundle)
+	})
+	if r.guestJJ.err != nil {
+		return r.guestJJ.err
+	}
+	current, err := r.guest(ctx, machine, nil, "coding-helper-check", r.guestJJ.digest, guestJJName)
+	if err != nil {
+		return err
+	}
+	switch strings.TrimSpace(string(current)) {
+	case "current":
+		return nil
+	case "replace":
+		_, err := r.guest(ctx, machine, r.guestJJ.data, "coding-helper", r.guestJJ.digest, guestJJName)
+		return err
+	default:
+		return errors.New("guest jj check returned an invalid result")
+	}
 }
 
 var _ workspaceapi.WorkspaceCodingBindingInstaller = (*Runtime)(nil)

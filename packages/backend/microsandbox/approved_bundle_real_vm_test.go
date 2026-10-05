@@ -133,8 +133,10 @@ func TestRealMicroVMApprovedBundleRootPaths(t *testing.T) {
 
 	ctx := operation("bundle-root")
 	const workspaceID = "bundle-root"
+	created := time.Now()
 	_, err = runtime.CreateWorkspace(ctx, workspaceapi.WorkspaceSpec{ID: workspaceID})
 	require.NoError(t, err)
+	t.Logf("fresh machine with jj: %s", time.Since(created).Round(time.Millisecond))
 	machine := runtime.machineName(workspaceID)
 
 	// Fable round 2, N2: setup's sanitizer end state in a real guest: no
@@ -258,6 +260,26 @@ print(json.dumps({"regularFiles":files,"setid":setid,"capabilities":caps,"sudoSu
 	require.Equal(t, guestFileFact{UID: 0, Mode: 0o755, SHA256: sum(filepath.Join(bundle, filepath.FromSlash(codingHelperBundlePath))), Inode: helperFact.Inode}, helperFact)
 	fresh, _ := guestFile(t, runtime, machine, "/opt/smithers/bundle/bin/fixture-host")
 	record("fresh-plant", map[string]any{"fixtureHost": fresh, "codingHelper": helperFact})
+
+	// Every machine start plants the bundle's jj, which repository setup and
+	// the helper run, and replaces drifted bytes on the next wake.
+	guestJJ := sum(filepath.Join(bundle, filepath.FromSlash(guestJJBundlePath)))
+	jjFact, present := guestFile(t, runtime, machine, "/usr/local/bin/jj")
+	require.True(t, present, "a fresh machine has the bundle's jj")
+	require.Equal(t, guestFileFact{UID: 0, Mode: 0o755, SHA256: guestJJ, Inode: jjFact.Inode}, jjFact)
+	version, err := runtime.ExecuteCommand(ctx, workspaceID, workspaceapi.Command{Args: []string{"jj", "--version"}})
+	require.NoError(t, err)
+	require.Zero(t, version.ExitCode, version.Stderr)
+	require.True(t, strings.HasPrefix(version.Stdout, "jj "), version.Stdout)
+	rootExec(t, runtime, machine, "printf drifted > /usr/local/bin/jj")
+	require.NoError(t, runtime.StopWorkspace(ctx, workspaceID))
+	started := time.Now()
+	_, err = runtime.StartWorkspace(ctx, workspaceID)
+	require.NoError(t, err)
+	t.Logf("wake replanting jj: %s", time.Since(started).Round(time.Millisecond))
+	woken, _ := guestFile(t, runtime, machine, "/usr/local/bin/jj")
+	require.Equal(t, guestJJ, woken.SHA256, "the wake replaced drifted jj bytes")
+	record("guest-jj", map[string]any{"fresh": jjFact, "version": strings.TrimSpace(version.Stdout), "afterDriftWake": woken})
 
 	// The planted host runs as the unprivileged agent; an agent variable that
 	// names a bundle file reaches it unchanged and is never planted.

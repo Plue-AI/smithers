@@ -64,7 +64,8 @@ bundle means:
   against the pinned manifest at startup and again before every msb run: a
   changed identity (device, inode, size, mode, owner, modification or change
   time) hashes the file again, and a mismatch starts nothing.
-- The coding helper and every `Config.BundlePrograms` entry must be declared,
+- The coding helper, the guest jj (`bin/linux-arm64/jj`) and every
+  `Config.BundlePrograms` entry must be declared,
   non-symlink files with exactly their bytes and mode, read through the same
   protected descriptor walk. Planted files are mode 0755 and at most 8 path
   segments deep.
@@ -82,7 +83,9 @@ from `/` (`protected_directory`): every ancestor root-owned, not group or
 world writable, never followed. A retained machine gets drifted bytes or mode
 replaced and refuses a link or writable directory. A file outside the bundle
 is never planted, even with an approved digest. Planted files are root-owned
-and run as the unprivileged guest user.
+and run as the unprivileged guest user. `coding-helper` writes only the fixed
+names `smithers-jj-export` (with the coding binding) and `jj` (on every
+machine start, before repository setup runs it), both in `/usr/local/bin`.
 
 Every non-PTY `msb exec` uses `--stream`: without it stdin of a few MiB never
 arrives. Guests keep no credentials but task-scoped ones: the product's

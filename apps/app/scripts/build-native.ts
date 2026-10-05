@@ -174,42 +174,58 @@ await run("pinned Rust toolchain", ["rustup", "toolchain", "install"])
 console.log("[build-native] canonical jj WebAssembly: using committed linux/amd64 artifact")
 await run("native FFI", ["cargo", "build", "--locked", "--release", "--package", "smithers-ffi", "--bin", "smithers-jj-export", "--lib"])
 const linuxTarget = "aarch64-unknown-linux-gnu"
-await run("Linux arm64 guest helper target", ["rustup", "target", "add", linuxTarget])
-// Zig compiles and links against glibc 2.36, below the base image's 2.41. It
-// has no switch for the Cortex-A53 erratum flag rustc passes, so drop it.
+await run("Linux arm64 guest target", ["rustup", "target", "add", linuxTarget])
+// Guest programs are cross-built with zig against glibc 2.36, below the base
+// image's 2.41. The wrapper drops the Cortex-A53 erratum flag rustc passes and
+// cc-rs's --target spelling, which zig does not accept, and raises the
+// descriptor limit zig's linker exhausts on jj at macOS's default.
 const zigWrapper = mkdtempSync(join(tmpdir(), "smithers-zigcc-"))
 const zigcc = join(zigWrapper, "zigcc")
 writeFileSync(
   zigcc,
-  `#!/bin/sh\nfor a; do shift; [ "$a" = -Wl,--fix-cortex-a53-843419 ] || set -- "$@" "$a"; done\n` +
+  `#!/bin/sh\nulimit -n 10240 2>/dev/null || ulimit -n 4096 2>/dev/null\n` +
+    `for a; do shift; case "$a" in -Wl,--fix-cortex-a53-843419|--target=*) ;; *) set -- "$@" "$a";; esac; done\n` +
     `exec '${zig.replaceAll("'", "'\\''")}' cc -target aarch64-linux-gnu.2.36 "$@"\n`,
   { mode: 0o755 }
 )
+const linuxEnvironment = { CC_aarch64_unknown_linux_gnu: zigcc, CARGO_TARGET_AARCH64_UNKNOWN_LINUX_GNU_LINKER: zigcc }
+const requireLinuxArm64 = (path: string, label: string): void => {
+  const header = readFileSync(path).subarray(0, 20)
+  if (header.length < 20 || header.subarray(0, 6).toString("hex") !== "7f454c460201" || header.readUInt16LE(18) !== 183) {
+    throw new Error(`The ${label} build did not produce a Linux arm64 ELF executable: ${path}`)
+  }
+}
+const jjInstallRoot = join(nativeDir, ".jj-install")
+const guestJjInstallRoot = join(nativeDir, ".jj-linux-arm64-install")
+const jjSource = ["--git", "https://github.com/smithersai/jj.git", "--rev", jjRevision]
+const jjTargetDir = join(cargoTargetDir, `jj-${jjRevision}`)
 try {
   await run(
     "Linux arm64 guest helper",
     ["cargo", "build", "--locked", "--release", "--package", "smithers-ffi", "--bin", "smithers-jj-export", "--target", linuxTarget],
     root,
-    { CC_aarch64_unknown_linux_gnu: zigcc, CARGO_TARGET_AARCH64_UNKNOWN_LINUX_GNU_LINKER: zigcc }
+    linuxEnvironment
+  )
+  // Repository setup and the helper run `jj` in the guest, so the guest gets
+  // the jj revision the helper's jj-lib pins, as the Mac does.
+  await run(
+    "Linux arm64 guest jj CLI",
+    ["cargo", "install", "--locked", ...jjSource, "--root", guestJjInstallRoot, "--target", linuxTarget, "jj-cli"],
+    root,
+    { ...linuxEnvironment, NIX_JJ_GIT_HASH: jjRevision, CARGO_TARGET_DIR: jjTargetDir }
   )
 } finally {
   rmSync(zigWrapper, { recursive: true, force: true })
 }
 const linuxHelper = join(cargoTargetDir, linuxTarget, "release", "smithers-jj-export")
-const helperHeader = readFileSync(linuxHelper).subarray(0, 20)
-if (helperHeader.length < 20 || helperHeader.subarray(0, 6).toString("hex") !== "7f454c460201" || helperHeader.readUInt16LE(18) !== 183) {
-  throw new Error(`The guest helper build did not produce a Linux arm64 ELF executable: ${linuxHelper}`)
-}
-const jjInstallRoot = join(nativeDir, ".jj-install")
+requireLinuxArm64(linuxHelper, "guest helper")
+const guestJj = join(guestJjInstallRoot, "bin", "jj")
+requireLinuxArm64(guestJj, "guest jj")
 await run(
   "pinned jj CLI",
-  [
-    "cargo", "install", "--locked",
-    "--git", "https://github.com/smithersai/jj.git", "--rev", jjRevision,
-    "--root", jjInstallRoot, "jj-cli"
-  ],
+  ["cargo", "install", "--locked", ...jjSource, "--root", jjInstallRoot, "jj-cli"],
   root,
-  { NIX_JJ_GIT_HASH: jjRevision, CARGO_TARGET_DIR: join(cargoTargetDir, `jj-${jjRevision}`) }
+  { NIX_JJ_GIT_HASH: jjRevision, CARGO_TARGET_DIR: jjTargetDir }
 )
 const installedJj = join(jjInstallRoot, "bin", "jj")
 if (output([installedJj, "--version"]) !== jjVersion) throw new Error(`Native releases require ${jjVersion}.`)
@@ -239,6 +255,8 @@ verifyChecksumSidecar(modelHost)
 const packagedLinuxHelper = join(nativeDir, "bin", "linux-arm64", "smithers-jj-export")
 mkdirSync(dirname(packagedLinuxHelper), { recursive: true })
 cpSync(linuxHelper, packagedLinuxHelper)
+cpSync(guestJj, join(nativeDir, "bin", "linux-arm64", "jj"))
+rmSync(guestJjInstallRoot, { recursive: true, force: true })
 await run(
   "Flow host manifest",
   [

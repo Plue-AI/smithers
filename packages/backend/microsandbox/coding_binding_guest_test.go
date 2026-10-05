@@ -329,3 +329,43 @@ with tempfile.TemporaryDirectory() as directory:
  assert os.listdir(outside+'/bin')==[], os.listdir(outside+'/bin')
 `, hex.EncodeToString(sum[:]), hex.EncodeToString(body)))
 }
+
+// The bundle's jj is planted beside the helper under its fixed name; any other
+// name, including a path, is refused before anything is written or read.
+func TestGuestCodingProgramsAreAFixedAllowlist(t *testing.T) {
+	python, err := exec.LookPath("python3")
+	require.NoError(t, err)
+	for _, name := range []string{"jj", "smithers-jj-export", "git", "../jj", "bin/jj", ""} {
+		t.Run(name, func(t *testing.T) {
+			base := protectedGuestBase(t)
+			directory := filepath.Join(base, "usr", "local", "bin")
+			body := make([]byte, 64)
+			copy(body, []byte("\x7fELF"))
+			body[4], body[5], body[18] = 2, 1, 183
+			sum := sha256.Sum256(body)
+			digest := hex.EncodeToString(sum[:])
+			script := `import base64,importlib.util,os,sys
+spec=importlib.util.spec_from_file_location("guest",sys.argv[1]); guest=importlib.util.module_from_spec(spec); spec.loader.exec_module(guest)
+guest.ROOT_UID=os.geteuid()
+guest.PROTECTED_BASE=sys.argv[2]
+before=guest.coding_helper_current(sys.argv[4],sys.argv[5])
+guest.install_coding_helper(sys.argv[4],base64.b64decode(sys.argv[3]),sys.argv[5])
+print(before, guest.coding_helper_current(sys.argv[4],sys.argv[5]))
+`
+			output, err := exec.Command(python, "-B", "-c", script, filepath.Join("guest", "smithers-guest.py"), base, base64.StdEncoding.EncodeToString(body), digest, name).CombinedOutput()
+			if name == "jj" || name == "smithers-jj-export" {
+				require.NoError(t, err, string(output))
+				require.Equal(t, "False True\n", string(output))
+				installed, err := os.ReadFile(filepath.Join(directory, name))
+				require.NoError(t, err)
+				require.Equal(t, body, installed)
+				return
+			}
+			require.Error(t, err, string(output))
+			require.Contains(t, string(output), "coding program name is not approved")
+			entries, err := os.ReadDir(directory)
+			require.NoError(t, err)
+			require.Empty(t, entries, "nothing was written")
+		})
+	}
+}

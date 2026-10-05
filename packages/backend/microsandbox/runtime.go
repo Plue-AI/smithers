@@ -159,6 +159,7 @@ type Runtime struct {
 
 	environments *environments
 	codingHelper codingHelperCache
+	guestJJ      codingHelperCache
 
 	mu                sync.Mutex
 	closed            bool
@@ -681,6 +682,9 @@ func (r *Runtime) prepareGuest(ctx context.Context, ws *workspace) error {
 	}
 	if _, err := r.guest(ctx, ws.Machine, nil, "setup", guestUser, strconv.Itoa(guestUID), guestRoot, guestHome, guestStateDir, guestTempDir); err != nil {
 		return fmt.Errorf("prepare workspace guest: %w", err)
+	}
+	if err := r.installGuestJJ(ctx, ws.Machine); err != nil {
+		return fmt.Errorf("prepare workspace guest jj: %w", err)
 	}
 	if err := r.startBridges(ctx, ws); err != nil {
 		return err

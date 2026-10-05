@@ -33,6 +33,7 @@ func approvedBundleFixture(t *testing.T) (string, map[string][]byte) {
 	files := map[string][]byte{
 		"bin/smithers-coding-host":           []byte("#!/usr/bin/env node\nconsole.log('approved coding host')\n"),
 		"bin/linux-arm64/smithers-jj-export": helper,
+		"bin/linux-arm64/jj":                 append(append([]byte(nil), helper...), "jj"...),
 		"bin/flow-hosts.json":                []byte("{}\n"),
 		"bin/smithers-backend":               []byte("approved backend"),
 		// The fixture msb records each run beside the bundle and reports a

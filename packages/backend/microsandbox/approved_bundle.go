@@ -90,6 +90,9 @@ func startupChecks(config Config) (string, func() error, error) {
 	if _, _, err := codingHelperFrom(bundle); err != nil {
 		return "", nil, err
 	}
+	if _, _, err := guestJJFrom(bundle); err != nil {
+		return "", nil, err
+	}
 	for _, program := range config.BundlePrograms {
 		relative, ok := bundle.Member(program)
 		if !ok {

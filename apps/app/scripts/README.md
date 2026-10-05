@@ -168,9 +168,10 @@ pnpm install --frozen-lockfile
 ```
 
 The assembler cross-builds the Linux arm64 guest helper, `smithers-jj-export`,
-from the commit it bundles, with Zig as the C compiler and linker, and records
-it in `manifest.json` as stage `guest-helper` and the Zig release in
-`share/build-tools.json`. Then assemble and verify:
+from the commit it bundles, and the pinned jj revision for guests, with Zig as
+the C compiler and linker. `manifest.json` records both under
+`bin/linux-arm64/` as stage `guest-helper`, and `share/build-tools.json`
+records the Zig release. Then assemble and verify:
 
 ```sh
 smthrs build //apps/app:serverBundle
