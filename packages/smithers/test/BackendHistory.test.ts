@@ -367,7 +367,8 @@ const serve = async (handler: Handler) => {
       const signals = new EventEmitter()
       started?.(signals)
       await main({
-        argv: [...args, "--repo", "owner/repo", "--audience", "human"],
+        // `history todo` acts on the install's own repository: it takes no --repo.
+        argv: [...args, ...(args[1] === "todo" ? [] : ["--repo", "owner/repo"]), "--audience", "human"],
         env: { ...env },
         stdout: { isTTY: true, columns: 100, write: (text) => void (output += text) },
         stderr: { isTTY: false, columns: 100, write: (text) => void (error += text) },
@@ -602,34 +603,38 @@ describe("the factory from the terminal, over a local HTTP server", () => {
     }
   })
 
-  it("files a TODO under a request id, and resends the given id so a retry files it once", async () => {
+  it("puts a TODO on the install's stack under an Idempotency-Key, and resends the given key so a retry files it once", async () => {
+    const keys: Array<string | undefined> = []
     const f = await serve((req, res) => {
-      if (req.method === "POST" && req.url === "/api/repos/owner/repo/mythical/todos") {
+      if (req.method === "POST" && req.url === "/api/todos") {
+        keys.push(req.headers["idempotency-key"] as string | undefined)
         return json(
           res,
-          item("queued", { issue: { number: 40, title: "Add dark mode", url: "https://x.test/40" } }),
-          201
+          keys.length === 3 ? { confirmation: "c-1", state: "pending" } : { state: "accepted", n: 40, rev: 1 },
+          202
         )
       }
-      json(res, { message: "only a maintainer the factory's policy names files a TODO" }, 403)
+      json(res, { message: "not found" }, 404)
     })
     try {
       const filed = await f.run(["history", "todo", "Add dark mode", "--body", "Follow the system theme"])
-      expect(filed.code, filed.error).toBe(0)
-      expect(filed.output).toContain("#40 Add dark mode · queued")
+      expect(filed.code, filed.output + filed.error).toBe(0)
+      expect(filed.output).toContain("Committed T40")
       expect((await f.run(["history", "todo", "Add dark mode", "--request", "abc-1"])).code).toBe(0)
-      expect((await f.run(["history", "todo", "Add dark mode", "--request", "abc-1"])).code).toBe(0)
+      const asked = await f.run(["history", "todo", "Add dark mode", "--request", "abc-1"])
+      expect(asked.code, asked.error).toBe(0)
+      expect(asked.output).toContain("Waiting for Confirm in the app")
       expect((await f.run(["history", "todo", "  "])).code).toBe(2)
       expect((await f.run(["history", "todo", "x", "--request", "bad id!"])).code).toBe(2)
-      const sent = f.requests.map((r) => JSON.parse(r.body ?? "{}") as { title: string; body: string; request: string })
-      expect(f.requests.every((r) => r.method === "POST" && r.url === "/api/repos/owner/repo/mythical/todos")).toBe(
-        true
-      )
-      expect(sent).toHaveLength(3)
-      expect(sent[0]).toMatchObject({ title: "Add dark mode", body: "Follow the system theme" })
-      expect(sent[0]!.request).toMatch(/^[0-9a-f-]{36}$/)
-      expect(sent[1]!.request).toBe("abc-1")
-      expect(sent[2]!.request).toBe("abc-1")
+      const sent = f.requests.map((r) => JSON.parse(r.body ?? "{}") as Record<string, unknown>)
+      expect(f.requests.every((r) => r.method === "POST" && r.url === "/api/todos")).toBe(true)
+      expect(sent).toEqual([
+        { title: "Add dark mode", prompt: "Follow the system theme" },
+        { title: "Add dark mode", prompt: "Add dark mode" },
+        { title: "Add dark mode", prompt: "Add dark mode" }
+      ])
+      expect(keys[0]).toMatch(/^[0-9a-f-]{36}$/)
+      expect(keys.slice(1)).toEqual(["abc-1", "abc-1"])
     } finally {
       await f.close()
     }

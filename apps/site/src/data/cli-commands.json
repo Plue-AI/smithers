@@ -5372,7 +5372,7 @@
     },
     {
       "name": "history todo",
-      "description": "File a TODO for the factory",
+      "description": "Put a TODO at the end of the stack",
       "schema": {
         "args": {
           "type": "object",
@@ -5393,15 +5393,11 @@
             "body": {
               "default": "",
               "type": "string",
-              "description": "TODO body"
+              "description": "TODO prompt; the title when empty"
             },
             "request": {
               "type": "string",
               "description": "Request id: sending it again returns the TODO already filed"
-            },
-            "repo": {
-              "type": "string",
-              "description": "Repository (OWNER/REPO)"
             },
             "verbose": {
               "default": false,

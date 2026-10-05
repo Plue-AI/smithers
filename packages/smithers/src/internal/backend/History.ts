@@ -1,8 +1,8 @@
 /**
  * The repository history from the terminal: the coding factory's stack as the
  * app's History card reads it (`GET …/mythical`, D-20), its writes, a TODO
- * filed for the factory, and a watch that follows one issue through the
- * lanes. The watch reads the one item (`GET …/mythical/items/{id|issue}`,
+ * put on the install's stack (`POST /api/todos`), and a watch that follows one
+ * issue through the lanes. The watch reads the one item (`GET …/mythical/items/{id|issue}`,
  * which finds it however many items the snapshot's bound leaves out) on
  * every hint from `…/mythical/events`, or on a poll without one. Writes are
  * acknowledged at once; the stack does the work.
@@ -17,6 +17,7 @@ import { randomUUID } from "node:crypto"
 import { clean } from "../../cli/Presentation.ts"
 import { Refused, UsageError } from "../../CliError.ts"
 import { APIError, chunksOf, type Client, esc, list, object, str, type Values } from "./Client.ts"
+import * as ProductApi from "./ProductApi.ts"
 import type { Handler } from "./Resources.ts"
 
 /** Nothing more happens without a person or a new issue event (`isSettledItemState`). */
@@ -384,13 +385,21 @@ export const history: Record<string, Handler> = {
       stream.close()
     }
   },
+  /**
+   * Appends a TODO to the install's stack; its prompt is the body, or the
+   * title alone. A person's own CLI commits it; in a branch terminal, the
+   * terminal's credential only asks, and its person confirms it in the app.
+   */
   "history todo": (c, a, o) => {
     const title = str(a.title).trim()
     if (!title) throw new UsageError({ message: "A TODO needs a title" })
     // One id names the filing: sending it again (`--request`) after an unknown answer returns the TODO already filed.
     const request = str(o.request) || randomUUID()
     if (!REQUEST.test(request)) throw new UsageError({ message: "A request id is 1 to 64 letters, digits or hyphens" })
-    return c.request("POST", stackPath(c, o, "/todos"), { title, body: str(o.body), request })
+    return ProductApi.postApiTodos(c, {
+      headers: { "Idempotency-Key": request },
+      body: { title, prompt: str(o.body).trim() || title }
+    })
   },
   "history bootstrap": (c, _a, o) => c.request("POST", stackPath(c, o, "/bootstrap"), {}),
   "history parallel": (c, a, o) => {
@@ -408,7 +417,10 @@ export const history: Record<string, Handler> = {
 export const humans: Record<string, (value: unknown) => string> = {
   "history show": (value) => render(value),
   "history watch": (value) => itemLine(object(value)),
-  "history todo": (value) => itemLine(object(value)),
+  "history todo": (value) => {
+    const receipt = object(value)
+    return receipt.state === "pending" ? "Waiting for Confirm in the app" : `Committed T${str(receipt.n)}`
+  },
   "history bootstrap": (value) => render(value),
   "history parallel": (value) => render(value)
 }

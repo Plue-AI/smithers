@@ -6,7 +6,7 @@ Commands:
   bootstrap  Create the history from main's commits
   parallel   Set how many lanes work at once
   show       Show the history: each issue's lane, checks and pull request
-  todo       File a TODO for the factory
+  todo       Put a TODO at the end of the stack
   watch      Follow one issue until its pull request is open or it stops
 
 Custom Global Options:

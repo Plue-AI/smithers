@@ -65,8 +65,9 @@ the repository, its TODOs and its wiki as the terminal's person, answers and
 steers only the TODO on the terminal's branch, and stops working within seconds
 of the terminal's close. Its answers show as the terminal's, or as Claude Code's
 or Codex's when the agent runs the CLI ("Claude Code for Ben"). A TODO it drafts
-is refused with `confirm_in_app` ("Confirm in the app"); every other command
-answers 403. `auth status` reports its `credential_kind` (`delegated`)
+(`history todo`) files nothing: it waits as a private confirmation that only
+the terminal's person can Confirm in the app, and the CLI prints only its id
+and state. Every other command answers 403. `auth status` reports its `credential_kind` (`delegated`)
 and `via` (`terminal`). Login reads the existing OS keyring, `~/.config/smithers/auth.json`,
 and legacy config token; a new login removes the legacy token. Login and token
 status never print credentials. Self-hosted installs print a one-use setup URL. Open it and sign in with GitHub; `auth connect claude --api-key` connects an Anthropic
@@ -77,7 +78,7 @@ transfer.
 | Commands | Backend behavior |
 | --- | --- |
 | `issue create/list/view/edit/close/reopen/comment` | Issues, cursor pagination (`--all`), additive labels and assignees. |
-| `history show/watch/retry/todo/backfill/bootstrap/parallel` | The repository history: each issue's checks, lane (running time, account, seat, box), spend and pull request. `todo <title>` files a TODO for the factory; `watch <issue>` follows one issue until its pull request is open or it stops. |
+| `history show/watch/retry/todo/backfill/bootstrap/parallel` | The repository history: each issue's checks, lane (running time, account, seat, box), spend and pull request. `todo <title>` puts a TODO at the end of the install's stack (`POST /api/todos`); `watch <issue>` follows one issue until its pull request is open or it stops. |
 | `todo answer <todo> <answer>` | Answers the question a TODO's agent asked (Needs you); `--wait <id>` names one when it asks several. The first answer resumes the run. |
 | `wiki list/search/view/create/edit/delete/revisions/index/history` | Wiki pages, public/private selection and revision checks. |
 | `repo create/list/view/clone/edit/archive/unarchive/delete` | Repository administration and cloning. |

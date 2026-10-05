@@ -530,12 +530,11 @@ export const definitions = {
     options: z.object({ "repo": z.string().describe("Repository (OWNER/REPO)").optional() })
   },
   "history todo": {
-    description: "File a TODO for the factory",
+    description: "Put a TODO at the end of the stack",
     args: z.object({ "title": z.string().describe("TODO title") }),
     options: z.object({
-      "body": z.string().describe("TODO body").default(""),
-      "request": z.string().describe("Request id: sending it again returns the TODO already filed").optional(),
-      "repo": z.string().describe("Repository (OWNER/REPO)").optional()
+      "body": z.string().describe("TODO prompt; the title when empty").default(""),
+      "request": z.string().describe("Request id: sending it again returns the TODO already filed").optional()
     })
   },
   "history watch": {
