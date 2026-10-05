@@ -127,3 +127,30 @@ test("live dispatcher refuses absent Branch and Terminal providers before seed o
     expect(h.controller.design.world()).toEqual(before)
   } finally { h.controller.dispose() }
 })
+
+test("On an install Fork is POST /api/branches {from, name}: the value is the new scratch branch, a refusal is the server message", async () => {
+  const store = await createAppStore({ kind: "localStorage", storage: memoryStorage() })
+  const posts: Array<{ body: unknown; key: string | null }> = []
+  const profile = signupProfileFetch(async (input, init) => {
+    const path = new URL(typeof input === "string" ? input : input instanceof URL ? input.toString() : input.url, "https://install.test").pathname
+    if (path === "/api/branches" && init?.method === "POST") {
+      const body = JSON.parse(String(init.body)) as { from: string; name?: string }
+      posts.push({ body, key: new Headers(init.headers).get("Idempotency-Key") })
+      if (body.from === "T9") return Response.json({ code: "no_verified_head", class: "conflict", message: "T9 has no verified head to fork yet" }, { status: 409 })
+      return Response.json({ name: `scratch/ben/${body.name ?? `fork-${body.from.toLowerCase()}`}`, kind: "scratch" }, { status: 201 })
+    }
+    return new Response("{}", { status: 404 })
+  })
+  const controller = createAppController(store, unavailableAgent, { fetchImpl: profile.fetchImpl,
+    bootstrap: { apiVersion: 1, host: "local", version: "test", buildSha: "test", capabilities: ["install"], authFlow: "redirect", sandbox: null } })
+  await store.dispatch({ type: "identity.session.loaded", actor: "system", state: "signed-in", login: "ben", admin: false, scopesPlain: null }).isPersisted.promise
+  try {
+    expect(await controller.submitCommand({ name: "branch.fork", payload: { from: "T2", name: "try-retry" }, actor: "user" })).toEqual({ status: "executed", value: "scratch/ben/try-retry" })
+    expect(await controller.runCommandForResult("branch.fork", "T2")).toMatchObject({ status: "executed", value: "scratch/ben/fork-t2" })
+    expect((await controller.submitCommand({ name: "branch.fork", payload: { from: "T9" }, actor: "user" })).status).toBe("failed")
+    expect(posts.map(post => post.body)).toEqual([{ from: "T2", name: "try-retry" }, { from: "T2" }, { from: "T9" }])
+    expect(posts.every(post => post.key !== null && post.key.length > 0)).toBe(true)
+    // The seeded world is off on an install: nothing forked there.
+    expect(controller.design.world().branches.some(each => each.name.startsWith("scratch/ben/"))).toBe(false)
+  } finally { await controller.dispose() }
+})

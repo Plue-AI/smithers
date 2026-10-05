@@ -36,12 +36,18 @@ export const branchFlows = (actions: CommandActions): ReadonlyArray<FlowEntry> =
   }
   return [
     flow({ name: "branch.fork", summary: "Fork a scratch branch", args: "<branch>", hidden: true, discloseToAgent: true,
-      grammar: field("name"), input: Schema.Struct({ name: Schema.optional(Schema.String), branch: Schema.optional(Schema.String) }),
-      handler: async ({ name, branch }) => {
+      grammar: field("name"), input: Schema.Struct({ from: Schema.optional(Schema.String), name: Schema.optional(Schema.String), branch: Schema.optional(Schema.String) }),
+      handler: async ({ from, name, branch }) => {
+        // An install forks through the stack service: {from: "main" | "T2", name?}; a bare `/branch.fork T2` names the source.
+        if (actions.forkBranch) {
+          const source = (from ?? branch ?? name ?? "").trim()
+          if (source === "") return "Fork main or a TODO such as T2"
+          return actions.forkBranch(from === undefined ? { from: source } : { from: source, ...(name ? { name } : {}) })
+        }
         if (actions.bootstrap || actions.live) return "Branch unavailable"
-        const from = branchOf(branch ?? name ?? "")
-        if (from === undefined) return `No branch ${branch ?? name ?? ""}`
-        const result = design.fork(from.id, design.viewer())
+        const forked = branchOf(branch ?? name ?? "")
+        if (forked === undefined) return `No branch ${branch ?? name ?? ""}`
+        const result = design.fork(forked.id, design.viewer())
         if (!result.ok) return result.refusal
         return result.id === undefined ? undefined : openBranch(result.id)
       } }),
