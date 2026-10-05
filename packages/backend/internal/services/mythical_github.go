@@ -461,8 +461,8 @@ type mythicalLabelApplier struct {
 func (a *mythicalLabelApplier) present() bool { return a != nil && !a.Removed }
 
 // LabelApplier reads who last applied or removed label (nil: never), from
-// the issue's whole event history (at most 10 pages of
-// 100); a longer history is refused rather than read in part.
+// the repository's complete event history. An interrupted history read is
+// refused rather than used as partial evidence.
 func (g *mythicalGitHubAPI) LabelApplier(ctx context.Context, gh mythicalGitHubRepo, number int64, label string) (*mythicalLabelApplier, error) {
 	// The issue's labels as they are now decide; the history only names who
 	// applied or removed one. When the two disagree the history trails the
@@ -494,43 +494,23 @@ func (g *mythicalGitHubAPI) LabelApplier(ctx context.Context, gh mythicalGitHubR
 // labelHistory answers the last application or removal of label in the
 // issue's event history, nil when there is none.
 func (g *mythicalGitHubAPI) labelHistory(ctx context.Context, gh mythicalGitHubRepo, number int64, label string) (*mythicalLabelApplier, error) {
+	events, _, err := g.IssueEvents(ctx, gh, 0)
+	if err != nil {
+		return nil, err
+	}
 	var applier *mythicalLabelApplier
-	for page := 1; ; page++ {
-		if page > 10 {
-			return nil, errors.New("the issue's label history is too long to read whole")
+	for _, event := range events {
+		if event.Issue != number || !strings.EqualFold(event.Label, label) {
+			continue
 		}
-		var events []struct {
-			ID     int64            `json:"id"`
-			Event  string           `json:"event"`
-			Actor  gitHubActor      `json:"actor"`
-			ViaApp *json.RawMessage `json:"performed_via_github_app"`
-			Label  struct {
-				Name string `json:"name"`
-			} `json:"label"`
-		}
-		path := landingGitHubRepoPath(gh.Owner, gh.Name) + "/issues/" + strconv.FormatInt(number, 10) + "/events?per_page=100&page=" + strconv.Itoa(page)
-		status, err := g.api.request(ctx, gh.Token, http.MethodGet, path, nil, &events)
-		if err != nil {
-			return nil, err
-		}
-		if status != http.StatusOK {
-			return nil, landingGitHubStatusError(status, gh.Owner, gh.Name, "read issue events")
-		}
-		for _, event := range events {
-			if !strings.EqualFold(event.Label.Name, label) {
-				continue
-			}
-			switch event.Event {
-			case "labeled":
-				applier = &mythicalLabelApplier{Actor: event.Actor, ViaApp: event.ViaApp != nil && string(*event.ViaApp) != "null", EventID: event.ID}
-			case "unlabeled":
-				applier = &mythicalLabelApplier{Actor: event.Actor, EventID: event.ID, Removed: true}
-			}
-		}
-		if len(events) < 100 {
-			return applier, nil
+		switch event.Event {
+		case "labeled":
+			applier = &mythicalLabelApplier{Actor: event.Actor, ViaApp: event.ViaApp, EventID: event.ID}
+		case "unlabeled":
+			applier = &mythicalLabelApplier{Actor: event.Actor, EventID: event.ID, Removed: true}
 		}
 	}
+	return applier, nil
 }
 
 // mythicalCommentMarker is the hidden mark a keyed comment carries, so a

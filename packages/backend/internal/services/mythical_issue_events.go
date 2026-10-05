@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"errors"
 	"math"
-	"net/http"
 	"sort"
 	"strconv"
 	"strings"
@@ -20,8 +19,6 @@ import (
 // door that makes "label the issue todo on GitHub" commit a TODO (J2 step 2).
 
 const (
-	// mythicalIssueEventsPages bounds one read to 10 pages of 100 events.
-	mythicalIssueEventsPages = 10
 	// mythicalIssueEventsCursor prefixes a repository's cursor key in
 	// install_settings (spec §12.2.1: the issue-events cursor is an
 	// install_settings key).
@@ -48,47 +45,26 @@ type mythicalIssueEventsReader interface {
 
 // IssueEvents reads the repository's issue events newer than after, oldest
 // first, and the newest event id it saw. GitHub lists them newest first, so
-// the read pages back until it reaches after, at most
-// mythicalIssueEventsPages pages.
+// the shared reader pages back until it reaches after. Cancellation refuses a
+// partial interval; no fixed page limit can silently discard older events.
 func (g *mythicalGitHubAPI) IssueEvents(ctx context.Context, gh mythicalGitHubRepo, after int64) ([]mythicalIssueEvent, int64, error) {
+	objects, newest, err := readGitHubIssueEvents(ctx, after, g.api.issueEventPages(gh.Token, gh.Owner, gh.Name))
+	if err != nil {
+		return nil, 0, err
+	}
 	var out []mythicalIssueEvent
-	newest := int64(0)
-	for page := 1; page <= mythicalIssueEventsPages; page++ {
-		var events []struct {
-			ID     int64            `json:"id"`
-			Event  string           `json:"event"`
-			Actor  gitHubActor      `json:"actor"`
-			ViaApp *json.RawMessage `json:"performed_via_github_app"`
-			Label  struct {
-				Name string `json:"name"`
-			} `json:"label"`
-			Issue struct {
-				Number      int64            `json:"number"`
-				PullRequest *json.RawMessage `json:"pull_request"`
-			} `json:"issue"`
-		}
-		path := landingGitHubRepoPath(gh.Owner, gh.Name) + "/issues/events?per_page=100&page=" + strconv.Itoa(page)
-		status, err := g.api.request(ctx, gh.Token, http.MethodGet, path, nil, &events)
-		if err != nil {
+	for _, object := range objects {
+		var event gitHubFetchedEvent
+		if err := json.Unmarshal(object, &event); err != nil {
 			return nil, 0, err
 		}
-		if status != http.StatusOK {
-			return nil, 0, landingGitHubStatusError(status, gh.Owner, gh.Name, "read issue events")
+		var issue gitHubIssueHeader
+		if err := json.Unmarshal(event.Issue, &issue); err != nil || issue.Number <= 0 {
+			return nil, 0, errors.New("invalid GitHub event issue")
 		}
-		reached := false
-		for _, event := range events {
-			newest = max(newest, event.ID)
-			if event.ID <= after {
-				reached = true
-				continue
-			}
-			out = append(out, mythicalIssueEvent{ID: event.ID, Event: event.Event, Actor: event.Actor,
-				ViaApp: event.ViaApp != nil && string(*event.ViaApp) != "null", Label: event.Label.Name, Issue: event.Issue.Number,
-				Pull: event.Issue.PullRequest != nil && string(*event.Issue.PullRequest) != "null"})
-		}
-		if reached || len(events) < 100 {
-			break
-		}
+		newest = max(newest, event.ID)
+		out = append(out, mythicalIssueEvent{ID: event.ID, Event: event.Event, Actor: event.Actor,
+			ViaApp: event.ViaApp != nil && string(*event.ViaApp) != "null", Label: event.Label.Name, Issue: issue.Number, Pull: issue.PullRequest != nil})
 	}
 	sort.Slice(out, func(i, j int) bool { return out[i].ID < out[j].ID })
 	return out, newest, nil

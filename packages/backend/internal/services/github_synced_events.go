@@ -5,9 +5,11 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"net/http"
 	"net/url"
 	"sort"
 	"strconv"
+	"time"
 
 	"github.com/jackc/pgx/v5"
 	"github.com/smithersai/smithers/packages/backend/internal/db"
@@ -20,6 +22,12 @@ type gitHubFetchedEvent struct {
 	ID    int64           `json:"id"`
 	Event string          `json:"event"`
 	Issue json.RawMessage `json:"issue"`
+	Actor gitHubActor     `json:"actor"`
+	Label struct {
+		Name string `json:"name"`
+	} `json:"label"`
+	CreatedAt time.Time        `json:"created_at"`
+	ViaApp    *json.RawMessage `json:"performed_via_github_app"`
 }
 
 func issueEventCursorKey(row db.GithubSyncedRepo) string {
@@ -52,33 +60,61 @@ func (s *GitHubSyncedRepoService) backfillIssueEvents(ctx context.Context, row d
 	if err != nil {
 		return err
 	}
+	objects, _, err := readGitHubIssueEvents(ctx, cursor, fetch)
+	if err != nil {
+		return err
+	}
+	return s.commitIssueEvents(ctx, row, objects)
+}
+
+// issueEventPages adapts the existing authenticated HTTP client to the one
+// repository event reader. It never requests a per-issue event endpoint.
+func (g *landingGitHubAPI) issueEventPages(token, owner, repo string) gitHubSyncedRepoPageFetcher {
+	return func(ctx context.Context, _ string, query url.Values) (json.RawMessage, error) {
+		var body json.RawMessage
+		path := landingGitHubRepoPath(owner, repo) + "/issues/events?per_page=100&page=" + query.Get("page")
+		status, err := g.request(ctx, token, http.MethodGet, path, nil, &body)
+		if err != nil {
+			return nil, err
+		}
+		if status != http.StatusOK {
+			return nil, landingGitHubStatusError(status, owner, repo, "read issue events")
+		}
+		return body, nil
+	}
+}
+
+// readGitHubIssueEvents returns a complete interval, newest first. The caller
+// either commits that interval atomically or uses it for a provenance read.
+func readGitHubIssueEvents(ctx context.Context, cursor int64, fetch gitHubSyncedRepoPageFetcher) ([]json.RawMessage, int64, error) {
 	var objects []json.RawMessage
 	seen := make(map[int64]bool)
-	var previous int64
+	var previous, newest int64
 	for page := 1; ; page++ {
 		if err := ctx.Err(); err != nil {
-			return err
+			return nil, 0, err
 		}
 		body, err := fetch(ctx, gitHubIssueEvents, url.Values{"per_page": {"100"}, "page": {strconv.Itoa(page)}})
 		if err != nil {
-			return err
+			return nil, 0, err
 		}
 		var batch []json.RawMessage
 		if err := json.Unmarshal(body, &batch); err != nil || batch == nil {
-			return errors.New("invalid GitHub issue-event page")
+			return nil, 0, errors.New("invalid GitHub issue-event page")
 		}
 		boundary := false
 		for _, object := range batch {
 			var event gitHubFetchedEvent
 			if json.Unmarshal(object, &event) != nil || event.ID <= 0 || event.Event == "" {
-				return errors.New("invalid GitHub issue event")
+				return nil, 0, errors.New("invalid GitHub issue event")
 			}
 			if seen[event.ID] {
 				continue // New arrivals can shift an already-read event to the next page.
 			}
 			if previous != 0 && event.ID > previous {
-				return errors.New("GitHub issue events are not newest first")
+				return nil, 0, errors.New("GitHub issue events are not newest first")
 			}
+			newest = max(newest, event.ID)
 			seen[event.ID] = true
 			previous = event.ID
 			if event.ID <= cursor {
@@ -88,7 +124,7 @@ func (s *GitHubSyncedRepoService) backfillIssueEvents(ctx context.Context, row d
 			objects = append(objects, object)
 		}
 		if boundary || len(batch) < 100 {
-			return s.commitIssueEvents(ctx, row, objects)
+			return objects, newest, nil
 		}
 	}
 }

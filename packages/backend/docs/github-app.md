@@ -59,6 +59,13 @@ and provider authority. No separate delivery table or scheduler is introduced.
 Production provider qualification and downstream handlers are not registered
 yet. Install metadata fetching and per-issue comment baselines remain disabled;
 last-good cached data stays visibly stale. Main-ref polling is separate and
-continues through its existing service. Migration of the remaining per-issue
-provenance readers, review and comment streams, ETags, cadence integration and
-the full production recovery/freshness checks remain required before activation.
+continues through its existing service. Transactional TODO consumer integration, review and comment streams, ETags,
+cadence integration and the full production recovery/freshness checks remain
+required before activation.
+
+Label provenance readers use the same repository event pager. They isolate the
+requested issue, read complete history, and retain the check against its current
+labels. Failed pages cannot supply partial approval evidence. A matching GitHub
+App action within the attribution window prevents attribution to a person.
+The former main-ref-loop registration that directly admitted TODOs is removed;
+TODO admission must join the shared fetched-event transaction before activation.

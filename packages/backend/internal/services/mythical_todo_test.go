@@ -1123,40 +1123,44 @@ func TestMythicalPersonsRetryLiftsTheBound(t *testing.T) {
 	assert.Equal(t, "running", o.item(361).State, "the retry is not re-stopped at the bound")
 }
 
-// liveGitHubLabels answers label appliers through the real HTTP reader.
-type liveGitHubLabels struct {
-	*fakeMythicalGitHub
-	api *mythicalGitHubAPI
-}
-
-func (g *liveGitHubLabels) LabelApplier(ctx context.Context, repo mythicalGitHubRepo, number int64, label string) (*mythicalLabelApplier, error) {
-	return g.api.LabelApplier(ctx, repo, number, label)
-}
-
-// The merge reads the issue's labels as they are now, through the real
-// reader: with both labels gone from the issue and GitHub's history still
-// naming the maintainer's applications, nothing merges (Astra r3 4).
-func TestMythicalMergeReadsTheIssuesLabelsNotOnlyTheirHistory(t *testing.T) {
-	o := newMythicalOrchestration(t)
-	ctx := context.Background()
-	issue := mythicalIssue{Number: 371, Title: "Lag", State: "open", TextByMaintainer: true, Labels: []string{"todo", "automerge"}}
-	require.NoError(t, seedMythicalIssue(o.service, ctx, o.repoID, issue, maintainerTodo))
-	require.NoError(t, seedMythicalIssue(o.service, ctx, o.repoID, issue, gitHubLabelApplication{Label: automergeLabel, ByMaintainer: true}))
-	o.propose(371, "three-seventy-one.md")
-	applied := func(label string) map[string]any {
-		return map[string]any{"id": 1, "event": "labeled", "actor": map[string]any{"login": "roninjin10"}, "label": map[string]any{"name": label}}
+// Label history is provenance, never a person's merge approval (M-39).
+// Exercise both current and removed labels through the real HTTP reader and
+// retain the no-automatic-merge regression through today's publisher.
+func TestMythicalLabelHistoryDoesNotAuthorizeMerge(t *testing.T) {
+	for _, removed := range []bool{false, true} {
+		t.Run(fmt.Sprintf("removed=%t", removed), func(t *testing.T) {
+			f := newPublicationFixture(t, false)
+			ctx := context.Background()
+			issue := f.fake.OpenIssue("rehearsal-owner/app", "rehearsal-owner", "Label provenance", "Current text")
+			f.fake.LabelIssue("rehearsal-owner/app", issue, "rehearsal-owner", "todo")
+			f.fake.LabelIssue("rehearsal-owner/app", issue, "rehearsal-owner", "automerge")
+			todo := f.todo("Label provenance", "Current text", f.main, "JOURNEY.md", "Hello\n")
+			// The fixture supplies the issue association owned by T-STK-09.
+			_, err := f.pool.Exec(ctx, `UPDATE mythical_items SET issue_number=$2 WHERE id=$1`, todo.ID, issue)
+			require.NoError(t, err)
+			f.wake()
+			item := f.item(todo.Number.Int64)
+			require.Equal(t, "proposed", item.State, item.Reason)
+			gh, err := f.service.stackGitHub(ctx, f.repoID)
+			require.NoError(t, err)
+			if removed {
+				require.NoError(t, f.service.github.RemoveLabel(ctx, gh, issue, "todo"))
+				require.NoError(t, f.service.github.RemoveLabel(ctx, gh, issue, "automerge"))
+			}
+			applier, err := f.service.github.LabelApplier(ctx, gh, issue, "automerge")
+			require.NoError(t, err)
+			require.Equal(t, !removed, applier.present())
+			f.fake.SetCheck("rehearsal-owner/app", item.PRHead, "CI", "completed", "success")
+			f.reviewed(todo.Number.Int64, "approve")
+			f.wake()
+			f.wake()
+			require.Equal(t, "proposed", f.item(todo.Number.Int64).State)
+			require.Equal(t, f.main, f.githubRef("main"), "review and labels cannot move main")
+			for _, write := range f.writes() {
+				require.NotContains(t, write, "/merge")
+			}
+		})
 	}
-	github := &recordedGitHub{routes: map[string]func(http.ResponseWriter){
-		"GET /repos/smithersai/smithers/issues/371": answer(http.StatusOK, map[string]any{"labels": []map[string]any{}}),
-		"GET /repos/smithersai/smithers/issues/371/events?per_page=100&page=1": answer(http.StatusOK, []map[string]any{
-			applied("todo"), applied("automerge")}),
-	}}
-	o.service.SetOrchestration(&liveGitHubLabels{fakeMythicalGitHub: o.github, api: github.api(t)}, o.launcher, o.lanes)
-	o.answerReviews(`"approve"`)
-	item := o.item(371)
-	assert.Equal(t, "proposed", item.State)
-	assert.Equal(t, "the issue's labels could not be read as they stand; retrying", item.Reason)
-	assert.Empty(t, o.github.merges, "a label gone from the issue never merges on its history")
 }
 
 // The read wire carries a TODO's progress, never the stack's bookkeeping:

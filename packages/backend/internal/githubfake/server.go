@@ -1091,6 +1091,20 @@ func (s *Server) pullRequest(r *http.Request, repo string, path []string, body [
 	if len(path) == 3 && path[0] == "issues" && r.Method == http.MethodPost && (path[2] == "labels" || path[2] == "comments") {
 		return s.issueWrite(repo, path[1], path[2], body)
 	}
+	if len(path) == 4 && path[0] == "issues" && path[2] == "labels" && r.Method == http.MethodDelete {
+		if status, response, ok := s.accessible(r, "issues", "write"); !ok {
+			return status, response
+		}
+		key := repo + "/" + path[1]
+		for i, label := range s.labels[key] {
+			if strings.EqualFold(label, path[3]) {
+				s.labels[key] = append(s.labels[key][:i], s.labels[key][i+1:]...)
+				s.event(key, "unlabeled", "", true, label)
+				return http.StatusOK, labelsOf(s.labels[key])
+			}
+		}
+		return failure(http.StatusNotFound, "label not found")
+	}
 	if status, response, ok := s.issueRequest(r, repo, path, body); ok {
 		return status, response
 	}

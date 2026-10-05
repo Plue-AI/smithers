@@ -164,14 +164,13 @@ func TestMythicalGitHubIssueWritesUseAnIssuesToken(t *testing.T) {
 		"PATCH /repos/o/r/issues/4":                            answer(http.StatusForbidden, map[string]any{}),
 		"GET /repos/o/r/issues/3/comments?per_page=100&page=1": answer(http.StatusOK, []map[string]any{}),
 		"GET /repos/o/r/issues/4/comments?per_page=100&page=1": answer(http.StatusOK, []map[string]any{}),
-		"GET /repos/o/r/issues/3/events?per_page=100&page=1": answer(http.StatusOK, []map[string]any{
-			{"event": "labeled", "actor": map[string]any{"login": "first"}, "label": map[string]any{"name": "todo"}},
-			{"event": "labeled", "actor": map[string]any{"login": "other"}, "label": map[string]any{"name": "bug"}},
-			{"event": "labeled", "actor": map[string]any{"login": "last"}, "label": map[string]any{"name": "TODO"}},
+		"GET /repos/o/r/issues/events?per_page=100&page=1": answer(http.StatusOK, []map[string]any{
+			{"id": 3, "issue": map[string]int{"number": 3}, "event": "labeled", "actor": map[string]string{"login": "last"}, "label": map[string]string{"name": "TODO"}},
+			{"id": 2, "issue": map[string]int{"number": 3}, "event": "labeled", "actor": map[string]string{"login": "other"}, "label": map[string]string{"name": "bug"}},
+			{"id": 1, "issue": map[string]int{"number": 3}, "event": "labeled", "actor": map[string]string{"login": "first"}, "label": map[string]string{"name": "todo"}},
 		}),
-		"GET /repos/o/r/issues/4/events?per_page=100&page=1": answer(http.StatusOK, []map[string]any{}),
-		"GET /repos/o/r/issues/3":                            answer(http.StatusOK, map[string]any{"labels": []map[string]any{{"name": "todo"}, {"name": "bug"}}}),
-		"GET /repos/o/r/issues/4":                            answer(http.StatusOK, map[string]any{"labels": []map[string]any{}}),
+		"GET /repos/o/r/issues/3": answer(http.StatusOK, map[string]any{"labels": []map[string]any{{"name": "todo"}, {"name": "bug"}}}),
+		"GET /repos/o/r/issues/4": answer(http.StatusOK, map[string]any{"labels": []map[string]any{}}),
 	}}
 	api := github.api(t)
 	ctx := context.Background()
@@ -206,36 +205,21 @@ func TestMythicalGitHubIssueWritesUseAnIssuesToken(t *testing.T) {
 
 func TestMythicalGitHubLabelApplierReadsTheLabelAsItStandsNow(t *testing.T) {
 	t.Parallel()
-	event := func(kind, login string, viaApp bool) map[string]any {
-		out := map[string]any{"event": kind, "actor": map[string]any{"login": login}, "label": map[string]any{"name": "automerge"}}
+	event := func(id, issue int64, kind string, viaApp bool) map[string]any {
+		out := map[string]any{"id": id, "issue": map[string]int64{"number": issue}, "event": kind, "actor": map[string]string{"login": "roninjin10"}, "label": map[string]string{"name": "automerge"}}
 		if viaApp {
-			out["performed_via_github_app"] = map[string]any{"slug": "other-app"}
+			out["performed_via_github_app"] = map[string]string{"slug": "other-app"}
 		}
 		return out
 	}
-	withID := func(event map[string]any, id int64) map[string]any {
-		event["id"] = id
-		return event
-	}
-	full := make([]map[string]any, 100)
-	for i := range full {
-		full[i] = event("labeled", "roninjin10", false)
-	}
 	github := &recordedGitHub{routes: map[string]func(http.ResponseWriter){
-		"GET /repos/o/r/issues/1/events?per_page=100&page=1": answer(http.StatusOK, []map[string]any{
-			event("labeled", "roninjin10", false), withID(event("unlabeled", "roninjin10", false), 12)}),
-		"GET /repos/o/r/issues/2/events?per_page=100&page=1": answer(http.StatusOK, []map[string]any{event("labeled", "roninjin10", true)}),
-		"GET /repos/o/r/issues/1":                            answer(http.StatusOK, map[string]any{"labels": []map[string]any{}}),
-		"GET /repos/o/r/issues/2":                            answer(http.StatusOK, map[string]any{"labels": []map[string]any{{"name": "automerge"}}}),
-		"GET /repos/o/r/issues/3":                            answer(http.StatusOK, map[string]any{"labels": []map[string]any{{"name": "automerge"}}}),
-		// The labels moved on and the history has not caught up yet: the
-		// label is gone although its last event applied it.
-		"GET /repos/o/r/issues/4":                            answer(http.StatusOK, map[string]any{"labels": []map[string]any{}}),
-		"GET /repos/o/r/issues/4/events?per_page=100&page=1": answer(http.StatusOK, []map[string]any{event("labeled", "roninjin10", false)}),
+		"GET /repos/o/r/issues/events?per_page=100&page=1": answer(http.StatusOK, []map[string]any{
+			event(14, 4, "labeled", false), event(13, 2, "labeled", true), event(12, 1, "unlabeled", false), event(11, 1, "labeled", false)}),
+		"GET /repos/o/r/issues/1": answer(http.StatusOK, map[string]any{"labels": []any{}}),
+		"GET /repos/o/r/issues/2": answer(http.StatusOK, map[string]any{"labels": []map[string]string{{"name": "automerge"}}}),
+		"GET /repos/o/r/issues/3": answer(http.StatusOK, map[string]any{"labels": []map[string]string{{"name": "automerge"}}}),
+		"GET /repos/o/r/issues/4": answer(http.StatusOK, map[string]any{"labels": []any{}}),
 	}}
-	for page := 1; page <= 10; page++ {
-		github.routes["GET /repos/o/r/issues/3/events?per_page=100&page="+strconv.Itoa(page)] = answer(http.StatusOK, full)
-	}
 	api := github.api(t)
 	ctx := context.Background()
 	applier, err := api.LabelApplier(ctx, stackRepo, 1, "automerge")
@@ -246,7 +230,7 @@ func TestMythicalGitHubLabelApplierReadsTheLabelAsItStandsNow(t *testing.T) {
 	require.NoError(t, err)
 	assert.True(t, applier.ViaApp, "an App's application is marked")
 	_, err = api.LabelApplier(ctx, stackRepo, 3, "automerge")
-	require.ErrorContains(t, err, "too long to read whole", "a history read in part is refused")
+	require.ErrorContains(t, err, "trails the issue's labels", "a label without a matching event is refused")
 	_, err = api.LabelApplier(ctx, stackRepo, 4, "automerge")
 	require.ErrorContains(t, err, "trails the issue's labels", "a label gone from the issue never answers its former applier")
 }

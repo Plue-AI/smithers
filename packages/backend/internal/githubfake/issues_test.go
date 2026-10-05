@@ -274,3 +274,41 @@ func TestRepositoryIssueEventsListNewestFirstWithTheirIssues(t *testing.T) {
 	status, _ = request(t, server, "GET", "/repos/acme/app/issues/events", "", nil)
 	require.Equal(t, 401, status, "the list is read with a token")
 }
+
+func TestRemoveIssueLabelRetainsItsEventAndChecksPermission(t *testing.T) {
+	server, cfg, key := fixture(t)
+	number := server.OpenIssue("acme/app", "ben", "One", "Body")
+	server.LabelIssue("acme/app", number, "ben", "todo")
+	mint := func(body []byte) string {
+		status, raw := request(t, server, "POST", "/app/installations/91/access_tokens", jwt(t, key, cfg.AppID, time.Now().Add(time.Minute)), body)
+		require.Equal(t, 201, status)
+		var access struct{ Token string }
+		require.NoError(t, json.Unmarshal(raw, &access))
+		return access.Token
+	}
+	read := mint([]byte(`{"permissions":{"issues":"read"}}`))
+	write := mint([]byte(`{"permissions":{"issues":"write"}}`))
+	path := "/repos/acme/app/issues/" + itoa(number) + "/labels/todo"
+	status, _ := request(t, server, "DELETE", path, read, nil)
+	require.Equal(t, 403, status)
+	server.FailNextWrites(path, 1)
+	status, _ = request(t, server, "DELETE", path, write, nil)
+	require.Equal(t, 502, status)
+	before, ok := server.Issue("acme/app", number)
+	require.True(t, ok)
+	require.Equal(t, []string{"todo"}, before.Labels)
+	require.Len(t, before.Events, 1)
+	status, body := request(t, server, "DELETE", path, write, nil)
+	require.Equal(t, 200, status)
+	require.JSONEq(t, `[]`, string(body))
+	status, _ = request(t, server, "DELETE", path, write, nil)
+	require.Equal(t, 404, status)
+	server.LabelIssue("acme/app", number, "ben", "todo")
+	after, ok := server.Issue("acme/app", number)
+	require.True(t, ok)
+	require.Len(t, after.Events, 3)
+	require.Equal(t, "labeled", after.Events[0].Event)
+	require.Equal(t, "unlabeled", after.Events[1].Event)
+	require.True(t, after.Events[1].ViaApp)
+	require.Equal(t, "labeled", after.Events[2].Event)
+}

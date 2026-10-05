@@ -24122,6 +24122,18 @@
       },
       {
         "kind": "file",
+        "path": "packages/backend/internal/services/github_issue_text_writer.go"
+      },
+      {
+        "kind": "file",
+        "path": "packages/backend/internal/services/mythical_issue_events.go"
+      },
+      {
+        "kind": "file",
+        "path": "packages/backend/internal/services/mythical_github.go"
+      },
+      {
+        "kind": "file",
         "path": "packages/backend/internal/services/github_budget.go"
       },
       {
