@@ -172,6 +172,11 @@ export const createTodoSeam = (ctx: SeamContext, options: TodoSeamOptions = {}) 
       // A move settles once the card shows the place its receipt named, or the TODO has left the stack.
       if (request.operation === "move") return model.place === undefined || model.place === request.place
         ? [{ key: request.key, outcome: { status: "ok" as const, detail: "Moved" } }] : []
+      // An amendment settles once the card lists it as a later revision of the prompt (revision 1 is the TODO as filed).
+      if (request.operation === "amend") {
+        const rev = model.prompt_revisions.map(revision => revision.text).lastIndexOf(String(request.body.prompt)) + 1
+        return rev > 1 ? [{ key: request.key, committed: { n, rev }, outcome: { status: "ok" as const, detail: "Amended" } }] : []
+      }
       if (request.operation !== "create" || model.title !== request.body.title || model.prompt_revisions[0]?.text !== request.body.prompt) return []
       const terminal = ["in_review", "merged", "failed", "dropped"].includes(model.state)
       return [{ key: request.key, committed: { n, rev: 1 }, ...(terminal ? {
@@ -416,12 +421,14 @@ export const createTodoSeam = (ctx: SeamContext, options: TodoSeamOptions = {}) 
     if (!parsed.success) return "Invalid draft value."
     const model = { ...row.payload, ...parsed.data }
     const place = model.place
-    if (!model.title.trim() || !model.prompt.trim()) return "A TODO needs a title and prompt."
+    // Amend keeps the TODO's title: an amendment needs only its prompt.
+    if (!model.prompt.trim() || place.mode !== "amend" && !model.title.trim()) return "A TODO needs a title and prompt."
     if (place.mode !== "append" && !place.options.some(option => option.n === place.n && !["merged", "dropped"].includes(option.state))) return "Choose an unmerged TODO."
     const pending = model.request ?? { key: model.idempotencyKey, owner: owner()!, operation: place.mode === "amend" ? "amend" as const : "create" as const,
       n: place.mode === "amend" ? place.n : undefined, state: "requested" as const,
-      body: { title: model.title, prompt: model.prompt, acceptance: model.acceptance,
-        ...(place.mode === "amend" ? {} : { place: { mode: place.mode, ...(place.mode !== "append" ? { n: place.n } : {}) } }),
+      // Amend Tn (PATCH /api/todos/{n}) keeps the TODO's title and issue: only the prompt and acceptance change.
+      body: place.mode === "amend" ? { prompt: model.prompt, acceptance: model.acceptance } : { title: model.title, prompt: model.prompt, acceptance: model.acceptance,
+        place: { mode: place.mode, ...(place.mode !== "append" ? { n: place.n } : {}) },
         ...(model.issue ? { issue: model.issue.number, fixes: model.issue.fixes, ...(model.issueDigest ? { issue_digest: model.issueDigest } : {}) } : {}) } }
     const retry: Request = { ...pending, state: "requested", error: undefined }
     await updateRequest(cardId, retry)

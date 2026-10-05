@@ -205,7 +205,7 @@ describe("TodoSeam — admission and live completion", () => {
       expect(await h.seam.amendTodo({ n: 12, text: "An amendment", cardId: id })).toEqual({ value: "Requested" })
       await waitFor(() => calls.length === 1)
       expect(calls[0]!.method).toBe("PATCH")
-      expect(JSON.parse(String(calls[0]!.body))).toEqual({ title: "An amendment", prompt: "An amendment", acceptance: [] })
+      expect(JSON.parse(String(calls[0]!.body))).toEqual({ prompt: "An amendment", acceptance: [] })
     } finally { h.close() }
   })
   test("sign-out fences HTTP and topic replies and disposes subscriptions", async () => {
@@ -503,6 +503,64 @@ test("stop, resume and steer settle from the served card", async () => {
     expect(h.outcomes[2]).toEqual({ key: `todo.request.${steer}`, status: "ok", detail: "Sent" })
     expect(h.todo().payload.requests).toEqual([])
     expect(calls).toHaveLength(3)
+  } finally { h.close() }
+})
+
+// J7.1 (spec §10.2.2): Amend PATCHes the TODO's own route once per press with the prompt and acceptance only, and
+// settles from the served card, never the 202: once prompt_revisions lists it as revision 2 or later. A Draft placed
+// Amend Tn records the committed revision; a refusal fails the toast and keeps the Draft retryable.
+test("an amendment patches once and settles when the card lists its revision", async () => {
+  const calls: { url: string; init?: RequestInit }[] = []
+  let refuse = false
+  const h = await harness(async (url, init) => {
+    calls.push({ url, init })
+    return refuse ? json({ code: "todo_closed", class: "conflict", message: "TODO is closed" }, 409) : json({ state: "accepted", n: 12, rev: 2 })
+  })
+  try {
+    const working = { ...fixtures.working.model, n: 12 }
+    const first = working.prompt_revisions[0]!
+    await h.seam.applyTodoProjection(12, working)
+    expect(await h.seam.amendTodo({ n: 12, text: "Also log each retry." })).toEqual({ value: "Requested" })
+    expect(await h.seam.amendTodo({ n: 12, text: "Also log each retry." })).toEqual({ value: "Requested" })
+    await waitFor(() => h.todo().payload.requests[0]?.state === "accepted")
+    expect(calls).toHaveLength(1)
+    expect(calls[0]!.url).toBe("https://install.test/api/todos/12")
+    expect(calls[0]!.init?.method).toBe("PATCH")
+    expect(new Headers(calls[0]!.init?.headers).get("Idempotency-Key")).toBe(h.todo().payload.requests[0]!.key)
+    expect(JSON.parse(String(calls[0]!.init?.body))).toEqual({ prompt: "Also log each retry." })
+    const key = h.todo().payload.requests[0]!.key
+    await h.seam.applyTodoProjection(12, working)
+    expect(h.outcomes).toEqual([])
+    // Revision 1 with the same words is the TODO as filed, not the amendment.
+    await h.seam.applyTodoProjection(12, { ...working, prompt_revisions: [{ ...first, text: "Also log each retry." }] })
+    expect(h.outcomes).toEqual([])
+    const amended = { ...working, prompt_revisions: [first, { ...first, text: "Also log each retry.", acceptance: [] }] }
+    await h.seam.applyTodoProjection(12, amended)
+    expect(h.outcomes).toEqual([{ key: `todo.request.${key}`, status: "ok", detail: "Amended" }])
+    expect(h.todo().payload.requests).toEqual([])
+
+    // The Draft placed Amend T12 needs no title; it sends its prompt and acceptance and keeps the revision it committed.
+    await h.seam.newTodo({})
+    const id = h.draft().id
+    expect(h.draft().payload.title).toBe("")
+    expect(await h.seam.setTodoFormField(id, "prompt", "Keep the max at five")).toBeUndefined()
+    expect(await h.seam.setTodoFormField(id, "acceptance", "at most five retries")).toBeUndefined()
+    expect(await h.seam.setTodoFormField(id, "place", '{"mode":"amend","n":12}')).toBeUndefined()
+    expect(await h.seam.amendTodo({ n: 12, text: "", cardId: id })).toEqual({ value: "Requested" })
+    await waitFor(() => calls.length === 2)
+    expect(JSON.parse(String(calls[1]!.init?.body))).toEqual({ prompt: "Keep the max at five", acceptance: ["at most five retries"] })
+    await waitFor(() => h.draft().payload.request?.state === "accepted")
+    await h.seam.applyTodoProjection(12, { ...amended, prompt_revisions: [...amended.prompt_revisions, { ...first, text: "Keep the max at five", acceptance: ["at most five retries"] }] })
+    await waitFor(() => h.draft().payload.committed !== undefined)
+    expect(h.draft().payload.committed).toEqual({ n: 12, rev: 3 })
+    expect(h.draft().audience_member_id).toBeNull()
+
+    // A refused amendment fails its toast with the install's words.
+    refuse = true
+    expect(await h.seam.amendTodo({ n: 12, text: "Too late" })).toEqual({ value: "Requested" })
+    await waitFor(() => h.todo().payload.requests.some(request => request.state === "failed"))
+    expect(h.todo().payload.requests.find(request => request.state === "failed")?.error).toBe("TODO is closed")
+    expect(h.outcomes.at(-1)).toMatchObject({ status: "failed", detail: "TODO is closed" })
   } finally { h.close() }
 })
 
