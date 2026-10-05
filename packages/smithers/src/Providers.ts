@@ -136,7 +136,10 @@ export const compatible: Readonly<Record<string, Compatible>> = {
     path: "/chat/completions",
     variables: ["GEMINI_API_KEY", "GOOGLE_API_KEY"]
   },
-  cerebras: { baseUrl: Endpoint.providerOrigins.cerebras, variables: ["CEREBRAS_API_KEY"] }
+  cerebras: { baseUrl: Endpoint.providerOrigins.cerebras, variables: ["CEREBRAS_API_KEY"] },
+  // The Vercel AI Gateway serves every vendor's model by its `vendor/model`
+  // id; an install's coding host reaches it through the model proxy.
+  vercel: { baseUrl: Endpoint.providerOrigins.vercel, variables: ["AI_GATEWAY_API_KEY"] }
 }
 
 /**

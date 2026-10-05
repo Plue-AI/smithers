@@ -285,7 +285,8 @@ describe("NodeControl.seatResolver OpenAI-compatible providers", () => {
         "GOOGLE_API_KEY",
         "https://generativelanguage.googleapis.com/v1beta/openai/chat/completions"
       ],
-      ["cerebras", "cerebras:qwen-3.8-27b", "CEREBRAS_API_KEY", "https://api.cerebras.ai/v1/chat/completions"]
+      ["cerebras", "cerebras:qwen-3.8-27b", "CEREBRAS_API_KEY", "https://api.cerebras.ai/v1/chat/completions"],
+      ["vercel", "vercel:anthropic/claude-sonnet-4.5", "AI_GATEWAY_API_KEY", "https://ai-gateway.vercel.sh/v1/chat/completions"]
     ] as const
   )("routes a keyed %s seat through Chat Completions at its own endpoint", async (_provider, seat, variable, url) => {
     const resolved = await Effect.runPromise(resolve({ [variable]: "key" }, seat))
@@ -758,6 +759,19 @@ describe("NodeControl.seatResolver behind SMITHERS_MODEL_PROXY_URL", () => {
       )
     )
     expect(chatgpt.message).toContain("codex login")
+  })
+
+  it("sends an AI Gateway seat to the proxy's Gateway route with the host's proxy credential", async () => {
+    const gateway = { SMITHERS_MODEL_PROXY_URL: proxy, SMITHERS_MODEL_PROXY_PROVIDERS: "vercel" }
+    const resolved = await Effect.runPromise(
+      resolve({ ...gateway, AI_GATEWAY_API_KEY: "smithers_flowhost_seat" }, "vercel:openai/gpt-5.1")
+    )
+    const request = await prepared(resolved, resolved.modelId)
+    expect(resolved.modelId).toBe("openai/gpt-5.1")
+    expect(request.url).toBe("https://cloud.example.test/api/model/vercel/v1/chat/completions")
+    expect(JSON.stringify(request.publicHeaders)).not.toContain("smithers_flowhost_seat")
+    const keyless = await Effect.runPromise(Effect.flip(resolve(gateway, "vercel:openai/gpt-5.1")))
+    expect(keyless.message).toBe("Set AI_GATEWAY_API_KEY to run the vercel:openai/gpt-5.1 seat")
   })
 
   it("treats an empty proxy variable as unset", async () => {
