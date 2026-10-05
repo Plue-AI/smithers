@@ -135,25 +135,34 @@ func todoOperationScope(item db.MythicalItem) jobs.Scope {
 }
 
 // personGitHubID is the numeric id of the GitHub account the person signed
-// in with: a "github" account, else the GitHub sign-in's historical
-// "workos" row (resolveUserGitHubAccessToken's order). A login is never
-// trusted from the profile: it can be renamed.
+// in with (mythicalLinkedGitHub). A login is never trusted from the
+// profile: it can be renamed.
 func (s *MythicalService) personGitHubID(ctx context.Context, userID int64, act string) (int64, error) {
 	accounts, err := s.queries().ListUserOAuthAccounts(ctx, userID)
 	if err != nil {
 		return 0, err
 	}
+	if id, ok := mythicalLinkedGitHub(accounts); ok {
+		return id, nil
+	}
+	return 0, pkgerrors.Forbidden("connect your GitHub account to " + act)
+}
+
+// mythicalLinkedGitHub is the GitHub account id among a person's linked
+// accounts: a "github" account, else the GitHub sign-in's historical
+// "workos" row (resolveUserGitHubAccessToken's order).
+func mythicalLinkedGitHub(accounts []db.OauthAccount) (int64, bool) {
 	for _, provider := range []string{"github", "workos"} {
 		for _, account := range accounts {
 			if !strings.EqualFold(strings.TrimSpace(account.Provider), provider) {
 				continue
 			}
 			if id, err := strconv.ParseInt(strings.TrimSpace(account.ProviderUserID), 10, 64); err == nil && id > 0 {
-				return id, nil
+				return id, true
 			}
 		}
 	}
-	return 0, pkgerrors.Forbidden("connect your GitHub account to " + act)
+	return 0, false
 }
 
 func (g *mythicalGitHubAPI) Account(ctx context.Context, gh mythicalGitHubRepo, id int64) (gitHubActor, error) {

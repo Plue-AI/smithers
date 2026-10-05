@@ -47,7 +47,7 @@ func (s *MythicalService) EnableTodoPublication(app GitHubAppCredentialReader, c
 	o := &s.outbound
 	o.CanonicalApp, o.StackLease, o.Budget, o.Membership = s.canonicalApp, s.stackLease, s.githubBudget, s.currentMembership
 	o.Authorization, o.AcceptedGeneration = mythicalCommandAuthorization, s.acceptedGeneration
-	o.MergeDecision = s.MergeDecision
+	o.MergeDecision, o.PrepareMerge = s.MergeDecision, (*mythicalItemStep).prepareMerge
 	o.Lookup, o.Send, o.Settle = (*mythicalItemStep).appLookup, (*mythicalItemStep).appSend, (*mythicalItemStep).appSettle
 }
 
@@ -487,7 +487,8 @@ func (st *mythicalItemStep) appLookup(ctx context.Context, item db.MythicalItem,
 	return "", false, fmt.Errorf("GitHub %s reconciliation is not composed", op.Kind)
 }
 
-// appSend repeats an operation whose lookup proved it never took effect.
+// appSend repeats an operation whose lookup proved it never took effect. A
+// merge is sent through prepareMerge instead.
 func (st *mythicalItemStep) appSend(ctx context.Context, item db.MythicalItem, op MythicalOutboundOp) error {
 	gh, err := st.publicationGitHub(ctx)
 	if err != nil {
@@ -498,10 +499,38 @@ func (st *mythicalItemStep) appSend(ctx context.Context, item db.MythicalItem, o
 		return st.pushProposal(ctx, item, gh, mythicalProposalOp{Branch: op.Target, Expected: op.Precondition, Head: op.Desired})
 	case "open":
 		return st.createPull(ctx, item, gh, op.Target)
-	case "merge":
-		return st.s.mergeSend(ctx, gh, item, op)
 	}
 	return fmt.Errorf("GitHub %s dispatch is not composed", op.Kind)
+}
+
+// prepareMerge is the App's merge up to its request (§10.6.2b): the claimed
+// pass's GitHub destination, a token minted for the merge, and the binding
+// they came from, which must be the repository's binding now. A failed
+// lookup or mint records nothing; the claim resolves the binding again
+// under its locks, and only the request follows the claim.
+func (st *mythicalItemStep) prepareMerge(ctx context.Context, item db.MythicalItem, op MythicalOutboundOp) (mythicalMergeDispatch, error) {
+	gh, err := st.publicationGitHub(ctx)
+	if err != nil {
+		return mythicalMergeDispatch{}, err
+	}
+	if _, err := mythicalMergeNumber(item, op); err != nil {
+		return mythicalMergeDispatch{}, err
+	}
+	token, err := st.s.github.MergeToken(ctx, gh)
+	if err != nil {
+		return mythicalMergeDispatch{}, err
+	}
+	binding, err := st.s.mergeBinding(ctx, item.RepositoryID)
+	if err != nil {
+		return mythicalMergeDispatch{}, err
+	}
+	if binding.actor != st.r.row.ActorUserID.Int64 || binding.githubOwner != gh.Owner || binding.githubRepo != gh.Name ||
+		binding.repoUser != gh.userID || binding.repoOrg != gh.orgID || binding.installation != token.InstallationID {
+		return mythicalMergeDispatch{}, errMythicalMergeBindingMoved
+	}
+	return mythicalMergeDispatch{binding: binding, send: func(ctx context.Context, claimed db.MythicalItem) error {
+		return st.s.mergeSend(ctx, gh, token.Token, claimed, op)
+	}}, nil
 }
 
 // appSettle binds an opened pull request from GitHub's own answer at the

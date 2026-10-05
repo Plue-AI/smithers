@@ -78,9 +78,50 @@ const mythicalMergeabilityReread = 2 * time.Second
 // press.
 const mythicalMergeExpiry = 10 * time.Minute
 
+// mythicalMergeFactsBound bounds GitHub's facts at the claim. They cannot
+// be locked, so a claim whose locks are all held more than this long after
+// the decision's last read of GitHub sends nothing; the next pass reads
+// GitHub again (§10.6.2b).
+const mythicalMergeFactsBound = 5 * time.Second
+
 // errMythicalMergedOnGitHub is GitHub reporting the pull request merged
 // while a merge is decided: lookup settles it, never a second merge.
 var errMythicalMergedOnGitHub = errors.New("GitHub reports the pull request merged; settling it")
+
+// errMythicalMergeFactsAged is a claim past mythicalMergeFactsBound, and
+// errMythicalMergeBindingMoved one whose repository changed its GitHub
+// destination or App since the merge was prepared. Neither refuses: the
+// fence stays and the next pass decides again.
+var (
+	errMythicalMergeFactsAged    = errors.New("GitHub's merge facts are older than the claim allows; deciding the merge again")
+	errMythicalMergeBindingMoved = errors.New("the repository's GitHub destination or App changed; deciding the merge again")
+)
+
+// mythicalMergeDecided is what a merge decision read on GitHub that its
+// claim checks again: the approver's account as GitHub names it (the
+// policy names logins), and when GitHub was last read.
+type mythicalMergeDecided struct {
+	account gitHubActor
+	read    time.Time
+}
+
+// mythicalMergeBinding is where a merge goes and through what: the stack's
+// account, the repository and its owner, its GitHub destination, the App
+// installation serving it and the App. The merge's token is minted for it
+// before the claim, which resolves it again under its locks.
+type mythicalMergeBinding struct {
+	actor, repoUser, repoOrg int64
+	owner, name              string
+	githubOwner, githubRepo  string
+	installation, app        int64
+}
+
+// mythicalMergeDispatch is a merge made ready before its claim: the binding
+// it was prepared for, and send, its request alone.
+type mythicalMergeDispatch struct {
+	binding mythicalMergeBinding
+	send    func(context.Context, db.MythicalItem) error
+}
 
 // mythicalTerminalStates are the items that are merged or dropped: no later
 // TODO waits on them (MergeReady row 2).
@@ -318,7 +359,7 @@ func (s *MythicalService) mergeDispatchReady(ctx context.Context, item db.Mythic
 	if err := s.outboundReady(ctx, item, "merge"); err != nil {
 		return mythicalMergeConflict("rechecking", err.Error())
 	}
-	if s.outbound.MergeDecision == nil || s.outbound.Lookup == nil || s.outbound.Send == nil || s.outbound.Settle == nil {
+	if s.outbound.MergeDecision == nil || s.outbound.Lookup == nil || s.outbound.PrepareMerge == nil || s.outbound.Settle == nil {
 		return mythicalMergeConflict("rechecking", "Waiting for merge dispatch and reconciliation integration")
 	}
 	return nil
@@ -326,6 +367,18 @@ func (s *MythicalService) mergeDispatchReady(ctx context.Context, item db.Mythic
 
 func mythicalMergeForbidden() *TodoControlError {
 	return &TodoControlError{Status: http.StatusForbidden, Code: "permission", Class: "permission", Message: "Merge requires an owner or maintainer browser session"}
+}
+
+// mythicalMergeAccountMoved refuses an approval whose GitHub account is no
+// longer the one the person has linked.
+func mythicalMergeAccountMoved() *TodoControlError {
+	return &TodoControlError{Status: http.StatusForbidden, Code: "permission", Class: "permission", Message: "The GitHub account that approved this merge is no longer this person's"}
+}
+
+// mythicalPolicyRefusal refuses an account the factory's policy does not
+// name.
+func mythicalPolicyRefusal(act string) error {
+	return pkgerrors.Forbidden("only a maintainer the factory's policy names may " + act)
 }
 
 // mythicalAuthorityRefusal types maintainerPerson's refusals in the §6.2.3
@@ -481,53 +534,76 @@ func (s *MythicalService) mergeGitHub(ctx context.Context, item db.MythicalItem,
 // carries, MergeReady's PostgreSQL rows under the item's own fence, GitHub's
 // live head, base, checks, reviews and mergeability, then, after those
 // reads, its person's current authority with GitHub's permission read now,
-// then the pull request's base and head once more. The claim (claimMerge)
-// reads the person's standing again under lock. A *TodoControlError is
-// definitive: the worker clears the fence and keeps it on the approval. Any
-// other error keeps the fence for the next pass.
-func (s *MythicalService) MergeDecision(ctx context.Context, item db.MythicalItem, op MythicalOutboundOp) error {
+// then the pull request's base and head once more. It answers what the
+// claim (claimMerge) checks again: the account GitHub named and when GitHub
+// was last read. A *TodoControlError is definitive: the worker clears the
+// fence and keeps it on the approval. Any other error keeps the fence for
+// the next pass.
+func (s *MythicalService) MergeDecision(ctx context.Context, item db.MythicalItem, op MythicalOutboundOp) (mythicalMergeDecided, error) {
 	land := mythicalChecksOf(item).Land
 	if op.Kind != "merge" || land == nil || land.Session == "" || land.Refused != nil || land.Head != op.Desired || land.Generation != item.Generation {
-		return mythicalMergeConflict("rechecking", "The merge approval no longer matches this TODO; review it again")
+		return mythicalMergeDecided{}, mythicalMergeConflict("rechecking", "The merge approval no longer matches this TODO; review it again")
 	}
 	before, err := mythicalMergeAfter(ctx, s.store, item)
 	if err != nil {
-		return err
+		return mythicalMergeDecided{}, err
 	}
 	if err := mythicalMergeReady(item, before, op.Desired, true); err != nil {
-		return err
+		return mythicalMergeDecided{}, err
 	}
 	gh, number, err := s.mergeGitHub(ctx, item, op)
 	if err != nil {
-		return err
+		return mythicalMergeDecided{}, err
 	}
 	if err := s.mergeLive(ctx, gh, number, op.Desired); err != nil {
-		return err
+		return mythicalMergeDecided{}, err
 	}
-	if err := s.mergeAuthority(ctx, item, *land); err != nil {
-		return err
+	account, err := s.mergeAuthority(ctx, item, *land)
+	if err != nil {
+		return mythicalMergeDecided{}, err
 	}
 	// GitHub's merge takes no base: read the pull request once more, the
 	// last read before the claim (§10.6.2b, the retarget ruling).
 	pull, err := s.github.Pull(ctx, gh, number)
 	if err != nil {
-		return err
+		return mythicalMergeDecided{}, err
 	}
-	return mythicalMergeOnGitHub(pull, op.Desired)
+	read := s.now()
+	if err := mythicalMergeOnGitHub(pull, op.Desired); err != nil {
+		return mythicalMergeDecided{}, err
+	}
+	return mythicalMergeDecided{account: account, read: read}, nil
 }
 
 // mergeAuthority rechecks the approving person now (§10.6.2b) with the rule
 // the press applied, and that their GitHub account is still the one that
-// approved. A stored approval is never current authorization by itself.
-func (s *MythicalService) mergeAuthority(ctx context.Context, item db.MythicalItem, land mythicalLand) error {
+// approved, and answers that account as GitHub names it. A stored approval
+// is never current authorization by itself.
+func (s *MythicalService) mergeAuthority(ctx context.Context, item db.MythicalItem, land mythicalLand) (gitHubActor, error) {
 	_, account, _, err := s.mergeApprover(ctx, item.RepositoryID, land.Session)
 	if err != nil {
-		return err
+		return gitHubActor{}, err
 	}
 	if account.ID != land.Account {
-		return &TodoControlError{Status: http.StatusForbidden, Code: "permission", Class: "permission", Message: "The GitHub account that approved this merge is no longer this person's"}
+		return gitHubActor{}, mythicalMergeAccountMoved()
 	}
-	return nil
+	return account, nil
+}
+
+// mergeBinding is the repository's merge binding as the install holds it
+// now.
+func (s *MythicalService) mergeBinding(ctx context.Context, repositoryID int64) (mythicalMergeBinding, error) {
+	target, err := s.publicationTarget(ctx, repositoryID)
+	if err != nil {
+		return mythicalMergeBinding{}, err
+	}
+	credentials, err := loadGitHubAppCredentials(ctx, s.publication.app)
+	if err != nil {
+		return mythicalMergeBinding{}, fmt.Errorf("the install's GitHub App is unavailable: %w", err)
+	}
+	return mythicalMergeBinding{actor: target.actor, repoUser: target.repository.UserID.Int64, repoOrg: target.repository.OrgID.Int64,
+		owner: target.owner, name: target.repository.Name, githubOwner: target.githubOwner, githubRepo: target.githubRepo,
+		installation: target.installation, app: credentials.ID}, nil
 }
 
 // mergeApprover is the one authority rule for a merge, applied at the press
@@ -558,7 +634,7 @@ func (s *MythicalService) mergeApprover(ctx context.Context, repositoryID int64,
 // A session filed before keys were hashed at rest is not found under its
 // digest, at the press as at dispatch: it signs in again.
 func (s *MythicalService) mergePerson(ctx context.Context, sessionKey string) (int64, error) {
-	standing, err := readMergeStanding(ctx, s.store, sessionKey, false)
+	standing, err := readMergeStanding(ctx, s.store, sessionKey)
 	if err != nil {
 		return 0, err
 	}
@@ -574,20 +650,15 @@ type mergeStanding struct {
 	enabled       bool
 }
 
-// readMergeStanding reads the approver's rows through conn; locked reads
-// them FOR SHARE, so a sign-out, suspension or owner change (each writes one
-// of them) waits for conn's transaction, and one committed before is seen
-// (claimMerge). It decides nothing: person does, at a time.
-func readMergeStanding(ctx context.Context, conn db.DBTX, sessionKey string, locked bool) (mergeStanding, error) {
-	lock := ""
-	if locked {
-		lock = " FOR SHARE"
-	}
+// readMergeStanding reads the approver's rows through conn, the claim's
+// transaction once it holds their locks (claimMerge). It decides nothing:
+// person does, at a time.
+func readMergeStanding(ctx context.Context, conn db.DBTX, sessionKey string) (mergeStanding, error) {
 	var standing mergeStanding
 	if sessionKey == "" {
 		return standing, nil
 	}
-	err := conn.QueryRow(ctx, `SELECT user_id, expires_at FROM auth_sessions WHERE session_key = $1`+lock, sessionKey).Scan(&standing.userID, &standing.expires)
+	err := conn.QueryRow(ctx, `SELECT user_id, expires_at FROM auth_sessions WHERE session_key = $1`, sessionKey).Scan(&standing.userID, &standing.expires)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return standing, nil
 	}
@@ -597,7 +668,7 @@ func readMergeStanding(ctx context.Context, conn db.DBTX, sessionKey string, loc
 	standing.session = true
 	var active, prohibited bool
 	var deleted pgtype.Timestamptz
-	err = conn.QueryRow(ctx, `SELECT is_active, prohibit_login, deleted_at FROM users WHERE id = $1`+lock, standing.userID).Scan(&active, &prohibited, &deleted)
+	err = conn.QueryRow(ctx, `SELECT is_active, prohibit_login, deleted_at FROM users WHERE id = $1`, standing.userID).Scan(&active, &prohibited, &deleted)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return standing, nil
 	}
@@ -605,7 +676,7 @@ func readMergeStanding(ctx context.Context, conn db.DBTX, sessionKey string, loc
 		return standing, err
 	}
 	standing.user, standing.enabled = true, active && !prohibited && !deleted.Valid
-	err = conn.QueryRow(ctx, `SELECT user_id FROM self_host_owners WHERE singleton`+lock).Scan(&standing.owner)
+	err = conn.QueryRow(ctx, `SELECT user_id FROM self_host_owners WHERE singleton`).Scan(&standing.owner)
 	if err != nil && !errors.Is(err, pgx.ErrNoRows) {
 		return standing, err
 	}
@@ -751,18 +822,18 @@ const (
 	mythicalMergeMoved  = "head "
 )
 
-// mergeSend is appSend's merge kind: GitHub's squash merge with sha = the
-// reviewed head through the install's App, its commit title and message
-// rendered by mythicalMergeCommit. A refusal GitHub states (401, 403, 404,
-// 405, 409, 422) is definitive with GitHub's text verbatim, unless the PR
-// turns out to be merged already; any other failure is unknown, and lookup
-// decides on the next pass.
-func (s *MythicalService) mergeSend(ctx context.Context, gh mythicalGitHubRepo, item db.MythicalItem, op MythicalOutboundOp) error {
+// mergeSend is the merge's request, after its claim (prepareMerge): GitHub's
+// squash merge with sha = the reviewed head, sent with the App token minted
+// for it, its commit title and message rendered by mythicalMergeCommit. A
+// refusal GitHub states (401, 403, 404, 405, 409, 422) is definitive with
+// GitHub's text verbatim, unless the PR turns out to be merged already; any
+// other failure is unknown, and lookup decides on the next pass.
+func (s *MythicalService) mergeSend(ctx context.Context, gh mythicalGitHubRepo, token string, item db.MythicalItem, op MythicalOutboundOp) error {
 	number, err := mythicalMergeNumber(item, op)
 	if err != nil {
 		return err
 	}
-	_, err = s.github.Merge(ctx, gh, number, op.Desired, mythicalMergeCommit(item, number, op.Desired))
+	_, err = s.github.Merge(ctx, gh, token, number, op.Desired, mythicalMergeCommit(item, number, op.Desired))
 	var refusal *GitHubRefusal
 	if errors.As(err, &refusal) {
 		pull, lookup := s.github.Pull(ctx, gh, number)
@@ -855,8 +926,8 @@ func mythicalMergeUnfinished() *TodoControlError {
 // by mythicalMergeExpiry or by a refusal of its approver: only what GitHub
 // shows settles it (merged; closed; another head, which the sha-bound
 // request can no longer merge). A merge never sent is decided afresh,
-// bounded by mythicalMergeExpiry against the time now, and claimed
-// atomically with its approver's standing.
+// bounded by mythicalMergeExpiry against the time now, prepared up to its
+// request, and claimed atomically with every fact it rests on.
 func (st *mythicalItemStep) recoverMerge(ctx context.Context, item db.MythicalItem, op MythicalOutboundOp, observed string, lookup error) (*db.MythicalItem, error) {
 	p := st.s.outbound
 	sent := op.State == "unknown"
@@ -891,21 +962,28 @@ func (st *mythicalItemStep) recoverMerge(ctx context.Context, item db.MythicalIt
 	if p.MergeDecision == nil {
 		return nil, errors.New("Waiting for merge readiness integration")
 	}
-	if err := p.MergeDecision(ctx, item, op); err != nil {
+	decided, err := p.MergeDecision(ctx, item, op)
+	if err != nil {
 		return st.refuseMerge(ctx, item, op, err, true)
 	}
-	if p.Send == nil {
+	if p.PrepareMerge == nil {
 		return nil, errors.New("Waiting for GitHub dispatch integration")
 	}
 	if p.Settle == nil {
 		return nil, errors.New("Waiting for GitHub settlement integration")
 	}
-	claimed, err := st.claimMerge(ctx, item, op)
+	// Everything but the request happens before the claim records the
+	// send, so a failed lookup or mint leaves it never sent.
+	dispatch, err := p.PrepareMerge(st, ctx, item, op)
+	if err != nil {
+		return st.refuseMerge(ctx, item, op, err, true)
+	}
+	claimed, err := st.claimMerge(ctx, item, op, decided, dispatch.binding)
 	if err != nil {
 		return st.refuseMerge(ctx, item, op, err, true)
 	}
 	op.State = "unknown"
-	if err := p.Send(st, ctx, claimed, op); err != nil {
+	if err := dispatch.send(ctx, claimed); err != nil {
 		// Sent: only GitHub's definitive refusal ends the fence now;
 		// anything else is settled by lookup.
 		return st.refuseMerge(ctx, claimed, op, err, false)
@@ -918,45 +996,112 @@ func (st *mythicalItemStep) recoverMerge(ctx context.Context, item db.MythicalIt
 }
 
 // claimMerge records, in one transaction, that the merge is being sent (the
-// slot becomes unknown) only while it may be. It takes every lock it needs
-// first, in one order: the stack row (every stack writer takes it before an
-// item's), the TODO's row, then the approver's session, person and the
-// install's owner FOR SHARE (each revocation writes one of those rows and
-// takes no other, so nothing waits in a cycle). Only then does it read the
-// time, for the approval's age and the session's expiry, immediately before
-// recording the claim. A sign-out, suspension, owner change or expiry that
-// comes before the claim sends nothing; a revocation after it waits for the
-// claim and cannot recall the request.
-func (st *mythicalItemStep) claimMerge(ctx context.Context, item db.MythicalItem, op MythicalOutboundOp) (db.MythicalItem, error) {
+// slot becomes unknown) only while every fact its decision rested on still
+// holds (§10.6.2b). It first takes every lock it needs, in the install's
+// one lock order (lockMergeFacts), then reads each local fact again: the
+// TODO's row by the save's version check, the approver's session, person
+// and linked GitHub account, the install's owner, and the repository's
+// GitHub binding, against the binding the merge was prepared for. The
+// policy lives on the repository host, outside PostgreSQL, and is read
+// again after the locks. Only then does it read the time, for the
+// approval's age, the session's expiry and the age of GitHub's facts,
+// which cannot be locked and are refused past mythicalMergeFactsBound. A
+// change committed before the claim sends nothing; a writer of a locked
+// row after it waits for the claim, and a row inserted after it orders
+// after it: neither recalls the request.
+func (st *mythicalItemStep) claimMerge(ctx context.Context, item db.MythicalItem, op MythicalOutboundOp, decided mythicalMergeDecided, binding mythicalMergeBinding) (db.MythicalItem, error) {
+	land := mythicalChecksOf(item).Land
+	if land == nil {
+		return db.MythicalItem{}, mythicalMergeConflict("rechecking", "The merge approval no longer matches this TODO; review it again")
+	}
 	var claimed db.MythicalItem
 	err := pgx.BeginFunc(ctx, st.s.store, func(tx pgx.Tx) error {
-		if _, err := tx.Exec(ctx, `SELECT 1 FROM mythical_stacks WHERE repository_id = $1 FOR UPDATE`, item.RepositoryID); err != nil {
+		if err := lockMergeFacts(ctx, tx, item, land.Session, binding); err != nil {
 			return err
 		}
-		if _, err := tx.Exec(ctx, `SELECT 1 FROM mythical_items WHERE id = $1 FOR UPDATE`, item.ID); err != nil {
-			return err
-		}
-		land := mythicalChecksOf(item).Land
-		if land == nil {
-			return mythicalMergeConflict("rechecking", "The merge approval no longer matches this TODO; review it again")
-		}
-		standing, err := readMergeStanding(ctx, tx, land.Session, true)
+		q := db.New(tx)
+		standing, err := readMergeStanding(ctx, tx, land.Session)
 		if err != nil {
 			return err
 		}
-		if mythicalMergeExpired(item, st.s.now) {
+		accounts, err := q.ListUserOAuthAccounts(ctx, standing.userID)
+		if err != nil {
+			return err
+		}
+		linked, _ := mythicalLinkedGitHub(accounts)
+		// The rows the binding is read from are locked, so this read
+		// through the pool sees what the claim holds.
+		current, bindingErr := st.s.mergeBinding(ctx, item.RepositoryID)
+		policyCtx, cancel := context.WithTimeout(ctx, mythicalMergeFactsBound)
+		policy, policyErr := st.s.stackPolicy(policyCtx, item.RepositoryID)
+		cancel()
+		now := st.s.now()
+		if mythicalMergeExpired(item, func() time.Time { return now }) {
 			return mythicalMergeUnfinished()
 		}
-		if _, err := standing.person(st.s.now()); err != nil {
+		if _, err := standing.person(now); err != nil {
 			return err
+		}
+		switch {
+		case linked != land.Account:
+			return mythicalMergeAccountMoved()
+		case policyErr != nil:
+			return policyErr
+		case !policy.maintains(decided.account.Login):
+			return mythicalAuthorityRefusal(mythicalPolicyRefusal("merge a TODO"))
+		case bindingErr != nil:
+			return bindingErr
+		case current != binding:
+			return errMythicalMergeBindingMoved
+		case now.Sub(decided.read) > mythicalMergeFactsBound:
+			return errMythicalMergeFactsAged
 		}
 		op.State = "unknown"
 		next := item
 		next.PendingOp, _ = json.Marshal(op)
-		claimed, err = db.New(tx).SaveMythicalItemUnderLease(ctx, next, st.r.row.Claim)
+		claimed, err = q.SaveMythicalItemUnderLease(ctx, next, st.r.row.Claim)
 		return err
 	})
 	return claimed, err
+}
+
+// lockMergeFacts takes the claim's locks in the install's one lock order
+// (§10.6.2b): the repository's row; the stack's, then the TODO's (every
+// stack writer takes the stack's row before a TODO's); the users rows, the
+// approver's and the repository owner's; then every other row the claim
+// reads, by table name, the order account erasure deletes in, which ends
+// with the install's owner. A repository's deletion takes its row before
+// the rows it cascades to; erasure takes the users row first; every other
+// writer of these rows takes one of them. PostgreSQL ends any cycle a
+// writer outside this order makes by aborting one transaction: an aborted
+// claim records nothing and sends nothing, and the next pass decides
+// again.
+func lockMergeFacts(ctx context.Context, tx pgx.Tx, item db.MythicalItem, session string, b mythicalMergeBinding) error {
+	destinations := []any{strings.ToLower(b.githubOwner), strings.ToLower(b.githubRepo), strings.ToLower(b.owner), strings.ToLower(b.name)}
+	for _, lock := range []struct {
+		sql  string
+		args []any
+	}{
+		{`SELECT 1 FROM repositories WHERE id = $1 FOR SHARE`, []any{item.RepositoryID}},
+		{`SELECT 1 FROM mythical_stacks WHERE repository_id = $1 FOR UPDATE`, []any{item.RepositoryID}},
+		{`SELECT 1 FROM mythical_items WHERE id = $1 FOR UPDATE`, []any{item.ID}},
+		{`SELECT 1 FROM users WHERE id IN ((SELECT user_id FROM auth_sessions WHERE session_key = $1), $2) ORDER BY id FOR SHARE`, []any{session, b.repoUser}},
+		{`SELECT 1 FROM auth_sessions WHERE session_key = $1 FOR SHARE`, []any{session}},
+		{`SELECT 1 FROM github_app WHERE singleton FOR SHARE`, nil},
+		{`SELECT 1 FROM github_app_installation_repositories WHERE (owner_login_lower, repo_name_lower) IN (($1, $2), ($3, $4)) FOR SHARE`, destinations},
+		{`SELECT 1 FROM github_synced_repos WHERE LOWER(mirror_owner) = $1 AND LOWER(mirror_repo) = $2 FOR SHARE`, destinations[2:]},
+		{`SELECT 1 FROM import_jobs WHERE repository_id = $1 AND status = 'ready' FOR SHARE`, []any{item.RepositoryID}},
+		{`SELECT 1 FROM oauth_accounts WHERE user_id = (SELECT user_id FROM auth_sessions WHERE session_key = $1) FOR SHARE`, []any{session}},
+		{`SELECT 1 FROM org_members WHERE organization_id = $1 FOR SHARE`, []any{b.repoOrg}},
+		{`SELECT 1 FROM organizations WHERE id = $1 FOR SHARE`, []any{b.repoOrg}},
+		{`SELECT 1 FROM repo_connections WHERE (repo_owner_lower, repo_name_lower) IN (($1, $2), ($3, $4)) FOR SHARE`, destinations},
+		{`SELECT 1 FROM self_host_owners WHERE singleton FOR SHARE`, nil},
+	} {
+		if _, err := tx.Exec(ctx, lock.sql, lock.args...); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 // mergedOffMain settles a merge GitHub made into base, not main: possible
@@ -1042,7 +1187,7 @@ func (s *MythicalService) maintainerPerson(ctx context.Context, repositoryID, us
 		return mythicalGitHubRepo{}, gitHubActor{}, err
 	}
 	if account.ID != accountID || !policy.maintains(account.Login) {
-		return mythicalGitHubRepo{}, gitHubActor{}, pkgerrors.Forbidden("only a maintainer the factory's policy names may " + act)
+		return mythicalGitHubRepo{}, gitHubActor{}, mythicalPolicyRefusal(act)
 	}
 	if maintainer, err := s.github.MaintainerNow(ctx, gh, account); err != nil {
 		return mythicalGitHubRepo{}, gitHubActor{}, err

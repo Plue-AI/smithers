@@ -73,9 +73,14 @@ type fakeMythicalGitHub struct {
 	closeErr error
 }
 
+// MergeToken answers a token the fake does not check.
+func (g *fakeMythicalGitHub) MergeToken(context.Context, mythicalGitHubRepo) (GitHubInstallationToken, error) {
+	return GitHubInstallationToken{InstallationID: 1, Token: "merge-token"}, nil
+}
+
 // Merge squash-merges like GitHub: only while the pull request is open and
 // its branch head is still head.
-func (g *fakeMythicalGitHub) Merge(_ context.Context, _ mythicalGitHubRepo, number int64, head string, _ mythicalMergeCommitText) (string, error) {
+func (g *fakeMythicalGitHub) Merge(_ context.Context, _ mythicalGitHubRepo, _ string, number int64, head string, _ mythicalMergeCommitText) (string, error) {
 	g.mu.Lock()
 	defer g.mu.Unlock()
 	pull, ok := g.pulls[number]

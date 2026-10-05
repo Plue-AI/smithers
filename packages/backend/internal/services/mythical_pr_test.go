@@ -106,11 +106,13 @@ func TestTODOPrAdapterDraftBodyAndRefusal(t *testing.T) {
 	require.Error(t, api.ConvertToDraft(ctx, stackRepo, ""))
 	require.Len(t, gh.calls, before)
 	commit := mythicalMergeCommitText{Title: "Wave (#7)", Message: "TODO T3, reviewed at head."}
+	token, err := api.MergeToken(ctx, stackRepo)
+	require.NoError(t, err)
 	for _, status := range []int{401, 403, 404, 405, 409, 422} {
 		gh.mu.Lock()
 		gh.routes["PUT /repos/o/r/pulls/7/merge"] = answer(status, map[string]any{"message": "1 approving review required on GitHub", "errors": []map[string]string{{"message": "protected branch"}, {"message": "head changed"}}})
 		gh.mu.Unlock()
-		_, err = api.Merge(ctx, stackRepo, 7, "head", commit)
+		_, err = api.Merge(ctx, stackRepo, token.Token, 7, "head", commit)
 		var refusal *GitHubRefusal
 		require.ErrorAs(t, err, &refusal, "HTTP %d is GitHub refusing the merge", status)
 		require.Equal(t, status, refusal.Status)
@@ -121,7 +123,7 @@ func TestTODOPrAdapterDraftBodyAndRefusal(t *testing.T) {
 	gh.mu.Lock()
 	gh.routes["PUT /repos/o/r/pulls/7/merge"] = answer(403, map[string]any{})
 	gh.mu.Unlock()
-	_, err = api.Merge(ctx, stackRepo, 7, "head", commit)
+	_, err = api.Merge(ctx, stackRepo, token.Token, 7, "head", commit)
 	var bare *GitHubRefusal
 	require.ErrorAs(t, err, &bare)
 	require.Equal(t, "GitHub refused the merge (HTTP 403)", bare.Message, "a refusal without words still says what happened")
@@ -129,7 +131,7 @@ func TestTODOPrAdapterDraftBodyAndRefusal(t *testing.T) {
 		gh.mu.Lock()
 		gh.routes["PUT /repos/o/r/pulls/7/merge"] = answer(status, map[string]any{"message": "Server Error"})
 		gh.mu.Unlock()
-		_, err = api.Merge(ctx, stackRepo, 7, "head", commit)
+		_, err = api.Merge(ctx, stackRepo, token.Token, 7, "head", commit)
 		require.Error(t, err)
 		require.False(t, errors.As(err, &bare), "HTTP %d leaves the merge unknown", status)
 	}
