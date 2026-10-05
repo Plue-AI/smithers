@@ -441,6 +441,26 @@ test("a drop posts once and settles when the TODO is dropped", async () => {
   } finally { h.close() }
 })
 
+// The install serves each author as a full Actor (services.todoActor), so the
+// card names a terminal's answer with no roster in the seam (T-ACC-04, M-34).
+test("TODO projections name an install's served delegated authors without a roster", async () => {
+  const { actorName } = await import("../ProductActor")
+  const { PlaceholderAvatarUrl } = await import("@smthrs/rpc/CardPrimitives")
+  const ben = { login: "ben", name: "Ben Ito", avatar_url: PlaceholderAvatarUrl }
+  const agent = { kind: "agent", id: "agent-session-5e55", agent: "claude-code", avatar_url: PlaceholderAvatarUrl, session_id: "5e55", for_member: ben, color_index: 0 }
+  const terminal = { kind: "person", ...ben, via: "terminal", color_index: 0 }
+  const projection = { ...fixtures.working.model, first_answer: { text: "Use backoff", by: agent, at: "now" },
+    prompt_revisions: [{ text: "Add retries", acceptance: [], by: terminal, at: "now" }] }
+  const h = await harness(async () => json(projection, 200))
+  try {
+    await h.seam.showTodo(12)
+    const model = h.todo().payload.model!
+    expect(actorName(model.first_answer!.by)).toBe("Claude Code for Ben")
+    expect(model.first_answer!.by).toEqual(agent)
+    expect(actorName(model.prompt_revisions[0]!.by)).toBe("Ben's terminal")
+  } finally { h.close() }
+})
+
 for (const operation of ["stop", "resume", "retry", "retry-current-flow", "drop"] as const) {
   test(`${operation} uses the numbered control route and acknowledges an unresolved request once`, async () => {
     const admission = deferred<Response>()
