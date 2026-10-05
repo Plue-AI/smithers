@@ -164,6 +164,25 @@ func (s *Server) web(w http.ResponseWriter, r *http.Request) bool {
 		_ = json.NewEncoder(w).Encode(map[string]int64{"number": number})
 		return true
 	}
+	// A person comments on an issue on GitHub (J2.1), as CommentIssue does.
+	if r.Method == "POST" && r.URL.Path == "/_fake/comments" {
+		var body struct {
+			Repo, Login, Body string
+			Number            int64
+		}
+		if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 1<<16)).Decode(&body); err != nil || body.Repo == "" || body.Login == "" || body.Body == "" {
+			http.Error(w, "repo, number, login and body are required", 400)
+			return true
+		}
+		id := s.personComment(body.Repo, body.Number, body.Login, body.Body)
+		if id == 0 {
+			http.Error(w, "issue not found", 404)
+			return true
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(map[string]int64{"id": id})
+		return true
+	}
 	if r.Method == "GET" && r.URL.Path == "/login/oauth/authorize" {
 		q := r.URL.Query()
 		known := false

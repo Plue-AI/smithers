@@ -39,10 +39,11 @@ type IssueEvent struct {
 
 // IssueComment is one comment on an issue or pull request.
 type IssueComment struct {
-	ID     int64  `json:"id"`
-	Body   string `json:"body"`
-	ViaApp bool   `json:"via_app"`
-	Author string `json:"author"`
+	ID        int64     `json:"id"`
+	Body      string    `json:"body"`
+	ViaApp    bool      `json:"via_app"`
+	Author    string    `json:"author"`
+	CreatedAt time.Time `json:"created_at"`
 }
 
 // IssueView is an issue as GitHub holds it now.
@@ -86,6 +87,27 @@ func (s *Server) LabelIssue(repo string, number int64, login, label string) int6
 		s.labels[key] = append(s.labels[key], label)
 	}
 	return s.event(key, "labeled", login, false, label)
+}
+
+// CommentIssue posts body on repo#number as the person login, as on
+// github.com, and answers the comment's id; 0 when no such issue is open.
+func (s *Server) CommentIssue(repo string, number int64, login, body string) int64 {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.personComment(repo, number, login, body)
+}
+
+func (s *Server) personComment(repo string, number int64, login, body string) int64 {
+	key := issueKey(repo, number)
+	opened := s.opened[key]
+	if opened == nil {
+		return 0
+	}
+	s.commentIDs++
+	now := time.Now().UTC()
+	s.comments[key] = append(s.comments[key], IssueComment{ID: s.commentIDs, Body: body, Author: login, CreatedAt: now})
+	opened.UpdatedAt = now
+	return s.commentIDs
 }
 
 // Issue answers repo#number as GitHub holds it now, and whether it exists.
@@ -151,16 +173,56 @@ func (s *Server) issueJSON(repo string, i *issue) map[string]any {
 	if i.StateReason != "" {
 		reason = i.StateReason
 	}
+	key := issueKey(repo, i.Number)
 	return map[string]any{"number": i.Number, "title": i.Title, "body": i.Body, "state": i.State, "state_reason": reason,
 		"html_url": fmt.Sprintf("https://github.com/%s/issues/%d", repo, i.Number), "user": s.actor(i.Author, false),
-		"labels": labelsOf(s.labels[issueKey(repo, i.Number)]), "performed_via_github_app": nil,
+		"labels": labelsOf(s.labels[key]), "comments": len(s.comments[key]), "performed_via_github_app": nil,
 		"created_at": i.CreatedAt, "updated_at": i.UpdatedAt}
 }
 
+// issueList is GET /repos/{owner}/{repo}/issues: the issues people opened
+// and the pull requests (each with its pull_request link, as GitHub lists
+// them), in state (open by default, closed or all), newest first,
+// per_page (30 by default, at most 100) from page.
+func (s *Server) issueList(r *http.Request, repo string) []any {
+	state := r.URL.Query().Get("state")
+	if state == "" {
+		state = "open"
+	}
+	type row struct {
+		number int64
+		value  map[string]any
+	}
+	var rows []row
+	for _, opened := range s.opened {
+		if s.opened[issueKey(repo, opened.Number)] == opened && (state == "all" || state == opened.State) {
+			rows = append(rows, row{opened.Number, s.issueJSON(repo, opened)})
+		}
+	}
+	for _, p := range s.pulls {
+		if p.Repository == repo && (state == "all" || state == p.State) {
+			rows = append(rows, row{p.Number, map[string]any{"number": p.Number, "title": p.Title, "body": p.Body, "state": p.State,
+				"html_url": p.HTMLURL, "user": s.actor(s.appLogin(), true), "labels": labelsOf(s.labels[issueKey(repo, p.Number)]),
+				"pull_request": map[string]string{"html_url": p.HTMLURL}}})
+		}
+	}
+	sort.Slice(rows, func(i, j int) bool { return rows[i].number > rows[j].number })
+	start, end := pageBounds(r, len(rows))
+	out := []any{}
+	for _, entry := range rows[start:end] {
+		out = append(out, entry.value)
+	}
+	return out
+}
+
 // issueRequest serves the issue reads and writes beyond labels and new
-// comments (issueWrite): an issue, its edit or close, its events and its
-// comments, and an edit of a comment. handled is false for any other path.
+// comments (issueWrite): the issue list, an issue, its edit or close, its
+// events and its comments, and an edit of a comment. handled is false for
+// any other path.
 func (s *Server) issueRequest(r *http.Request, repo string, path []string, body []byte) (int, any, bool) {
+	if len(path) == 1 && path[0] == "issues" && r.Method == http.MethodGet {
+		return 200, s.issueList(r, repo), true
+	}
 	if len(path) < 2 || path[0] != "issues" {
 		return 0, nil, false
 	}
@@ -246,7 +308,7 @@ func (s *Server) issueRequest(r *http.Request, repo string, path []string, body 
 		if page, _ := strconv.Atoi(r.URL.Query().Get("page")); page <= 1 {
 			for _, comment := range s.comments[key] {
 				comments = append(comments, map[string]any{"id": comment.ID, "body": comment.Body, "user": s.actor(comment.Author, comment.ViaApp),
-					"performed_via_github_app": s.viaApp(comment.ViaApp)})
+					"performed_via_github_app": s.viaApp(comment.ViaApp), "created_at": comment.CreatedAt})
 			}
 		}
 		return 200, comments, true

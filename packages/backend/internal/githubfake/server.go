@@ -1289,7 +1289,7 @@ func (s *Server) issueWrite(repo, rawNumber, kind string, body []byte) (int, any
 			return failure(422, "body required")
 		}
 		s.commentIDs++
-		s.comments[key] = append(s.comments[key], IssueComment{ID: s.commentIDs, Body: input.Body, ViaApp: true, Author: s.appLogin()})
+		s.comments[key] = append(s.comments[key], IssueComment{ID: s.commentIDs, Body: input.Body, ViaApp: true, Author: s.appLogin(), CreatedAt: time.Now().UTC()})
 		return 201, map[string]any{"id": s.commentIDs, "body": input.Body, "user": map[string]string{"type": "Bot"}, "performed_via_github_app": map[string]int64{"id": s.config.AppID}}
 	}
 	var input struct{ Labels []string }

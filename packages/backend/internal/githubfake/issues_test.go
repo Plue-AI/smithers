@@ -95,7 +95,13 @@ func TestOpenedIssuesAnswerTextEventsCommentsAndClose(t *testing.T) {
 	require.Equal(t, 404, status)
 	status, body = request(t, server, "GET", "/repos/acme/app/issues/1/comments?per_page=100&page=1", access.Token, nil)
 	require.Equal(t, 200, status)
-	require.JSONEq(t, `[{"id":`+itoa(comment.ID)+`,"body":"Committed as T1 again","user":{"login":"smithers-test[bot]","type":"Bot"},"performed_via_github_app":{"id":42}}]`, string(body))
+	var listed []map[string]any
+	require.NoError(t, json.Unmarshal(body, &listed))
+	require.Len(t, listed, 1)
+	require.NotEmpty(t, listed[0]["created_at"])
+	delete(listed[0], "created_at")
+	require.Equal(t, map[string]any{"id": float64(comment.ID), "body": "Committed as T1 again", "user": map[string]any{"login": "smithers-test[bot]", "type": "Bot"},
+		"performed_via_github_app": map[string]any{"id": float64(42)}}, listed[0])
 
 	// Closing is an App write: it needs issues write, records a closed event
 	// and keeps the reason; closing again changes nothing.
@@ -140,6 +146,75 @@ func TestOpenedIssuesAnswerTextEventsCommentsAndClose(t *testing.T) {
 }
 
 func itoa(n int64) string { b, _ := json.Marshal(n); return string(b) }
+
+// The repository's issue list, which an install's issue list card reads,
+// holds the issues people opened and the pull requests (marked), newest
+// first, by state; a person's comment lists as theirs with its time.
+func TestRepositoryIssuesListByStateWithPeoplesComments(t *testing.T) {
+	server, cfg, key := fixture(t)
+	first := server.OpenIssue("acme/app", "ben", "Retry webhooks", "Webhooks fail on 502")
+	second := server.OpenIssue("acme/app", "carol", "Crash on start", "It crashes.")
+	require.Positive(t, server.CommentIssue("acme/app", first, "carol", "Seen it too."))
+	require.Zero(t, server.CommentIssue("acme/app", 99, "carol", "No such issue."))
+	status, body := request(t, server, "POST", "/app/installations/91/access_tokens", jwt(t, key, cfg.AppID, time.Now().Add(time.Minute)), nil)
+	require.Equal(t, 201, status)
+	var access struct {
+		Token string `json:"token"`
+	}
+	require.NoError(t, json.Unmarshal(body, &access))
+	status, body = request(t, server, "POST", "/repos/acme/app/pulls", access.Token, []byte(`{"title":"Fix","head":"smithers/fix","base":"main"}`))
+	require.Equal(t, 201, status, string(body))
+	status, _ = request(t, server, "PATCH", "/repos/acme/app/issues/"+itoa(second), access.Token, []byte(`{"state":"closed"}`))
+	require.Equal(t, 200, status)
+	type listed struct {
+		Number      int64  `json:"number"`
+		Title       string `json:"title"`
+		State       string `json:"state"`
+		Comments    int    `json:"comments"`
+		User        struct{ Login string }
+		PullRequest *json.RawMessage `json:"pull_request"`
+	}
+	list := func(query string) []listed {
+		t.Helper()
+		status, body := request(t, server, "GET", "/repos/acme/app/issues"+query, access.Token, nil)
+		require.Equal(t, 200, status, string(body))
+		var rows []listed
+		require.NoError(t, json.Unmarshal(body, &rows))
+		return rows
+	}
+	open := list("")
+	require.Len(t, open, 2, "open by default: the open issue and the pull request")
+	require.Equal(t, int64(3), open[0].Number, "newest first")
+	require.NotNil(t, open[0].PullRequest)
+	require.Equal(t, first, open[1].Number)
+	require.Equal(t, "ben", open[1].User.Login)
+	require.Equal(t, 1, open[1].Comments)
+	require.Nil(t, open[1].PullRequest)
+	closed := list("?state=closed")
+	require.Len(t, closed, 1)
+	require.Equal(t, second, closed[0].Number)
+	require.Equal(t, "closed", closed[0].State)
+	require.Len(t, list("?state=all"), 3)
+	require.Len(t, list("?state=all&per_page=2&page=2"), 1)
+	status, _ = request(t, server, "GET", "/repos/acme/app/issues", "", nil)
+	require.Equal(t, 401, status, "the list is read with a token")
+
+	status, body = request(t, server, "GET", "/repos/acme/app/issues/"+itoa(first)+"/comments", access.Token, nil)
+	require.Equal(t, 200, status)
+	var comments []struct {
+		Body      string `json:"body"`
+		User      struct{ Login, Type string }
+		ViaApp    *json.RawMessage `json:"performed_via_github_app"`
+		CreatedAt time.Time        `json:"created_at"`
+	}
+	require.NoError(t, json.Unmarshal(body, &comments))
+	require.Len(t, comments, 1)
+	require.Equal(t, "Seen it too.", comments[0].Body)
+	require.Equal(t, "carol", comments[0].User.Login)
+	require.Equal(t, "User", comments[0].User.Type)
+	require.Nil(t, comments[0].ViaApp)
+	require.False(t, comments[0].CreatedAt.IsZero())
+}
 
 // The repository's issue-events list, which an install's label door reads,
 // holds every issue's events newest first, each with its issue, in pages.
