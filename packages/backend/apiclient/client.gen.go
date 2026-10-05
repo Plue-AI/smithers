@@ -1764,7 +1764,8 @@ type PostAPITodosNBody struct {
 
 // PostAPITodosNResponse is generated from docs/api/openapi.yaml.
 type PostAPITodosNResponse struct {
-	State string `json:"state"`
+	State   string `json:"state"`
+	Attempt *int64 `json:"attempt,omitempty"`
 }
 
 // PostAPITodosNMergeBody is generated from docs/api/openapi.yaml.

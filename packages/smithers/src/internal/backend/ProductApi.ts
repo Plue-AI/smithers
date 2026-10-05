@@ -5195,7 +5195,8 @@ export type PostApiTodosNBody = {
 }
 
 export type PostApiTodosNResponse = {
-  state: "requested"
+  state: "accepted"
+  attempt?: number
 }
 
 export interface PostApiTodosNInput {

@@ -19361,7 +19361,7 @@ paths:
     post:
       x-composition: install
       summary: Steer the coding agent, or stop, resume, retry or drop a TODO
-      description: A steer is {"op":"steer","text":...} or {"steer":...}; a retry may carry a steer. Members steer, stop, resume, retry and drop TODOs. The service answers todo_control_unavailable until a steer can reach a running attempt (T-FLW-11, T-STK-01).
+      description: A steer is {"op":"steer","text":...} or {"steer":...}; a retry may carry a steer. Members steer, stop, resume, retry and drop TODOs. Retry of a failed TODO starts attempt n+1 of its pinned flow with the steer as its first input and answers that attempt; the same Idempotency-Key answers it again. Every other control answers todo_control_unavailable until its service is composed (T-STK-05, T-STK-06).
       operationId: post_api_todos_n
       tags:
         - Todos
@@ -19389,20 +19389,23 @@ paths:
                 text: {type: string, minLength: 1, maxLength: 65536}
       responses:
         '202':
-          description: The control was requested
+          description: The control was recorded; a retry names the attempt it starts
           content:
             application/json:
               schema:
                 type: object
                 required: [state]
                 properties:
-                  state: {type: string, enum: [requested]}
+                  state: {type: string, enum: [accepted]}
+                  attempt: {type: integer, minimum: 1}
         '400':
           description: Invalid TODO number, invalid_control, invalid_steer, or a missing Idempotency-Key
         '403':
           description: Not a member, or not a person's browser session
+        '404':
+          description: todo_not_found
         '409':
-          description: The TODO is merging or settled, or the control does not apply to its state
+          description: The TODO is merging or settled, the control does not apply to its state (Retry of a TODO that has not failed), or a GitHub write on it is settling
         '503':
           description: todo_control_unavailable
   /api/todos/{n}/merge:
