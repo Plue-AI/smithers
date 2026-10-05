@@ -152,6 +152,14 @@ final history cleanup is a separate later lifecycle step.
 text does not assert that a POC ran, and this workflow does not produce a POC.
 The host owns the evidence source for that second pass.
 
+`answers` lists the questions a person already answered for this request, in
+the order asked, each with its answer and who gave it. The stack sends every
+answer a TODO received with each later attempt, beside its steers in
+`feedback`. Review, drafting and each atom's intent show `answers` as they
+show `feedback`, and file selection reads them too. Those answers stand: a
+clarification that repeats a carried question, ignoring case and spacing, is
+not asked again, and drafting receives the carried answer.
+
 `PlanningInput`, `RequestInput`, `CorrectionResult`, and `RequestResult` live in
 the private pure `schema.ts` module so declarations and UI projections can
 decode recorded evidence without importing backend action implementations.

@@ -219,10 +219,12 @@ export const gather = (
       )
     }
     const wikiDigest = wiki?.digest ?? null
+    // Carried answers are a person's input like the feedback: both choose files.
+    const carried = (input.answers ?? []).flatMap((answer) => [answer.question, answer.answer])
     // File selection retains the existing README-guided Jev walk. Wiki
     // selection is already captured by the shared preflight provider.
     const selection = yield* Memory.select(
-      { task: `${input.prompt}\n${input.feedback}`, sources: ["repo"], maxBytes: Memory.maxMaxBytes },
+      { task: [input.prompt, input.feedback, ...carried].join("\n"), sources: ["repo"], maxBytes: Memory.maxMaxBytes },
       {
         root: options.repositoryPath,
         pages: []
@@ -316,7 +318,7 @@ export const gather = (
     // order, under the per-file and total caps.
     const reader = yield* sourceReader(options.repositoryPath, hostFilesystem)
     const collected = yield* collectSources(reader, [
-      ...extractPaths(input.prompt, input.feedback),
+      ...extractPaths(input.prompt, input.feedback, ...carried),
       ...selection.needed.filter((item) => item.kind === "file").map((item) => item.id)
     ])
     const context = {

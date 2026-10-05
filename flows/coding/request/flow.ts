@@ -100,7 +100,8 @@ export const Coordinate: CoordinateFlow = Flow.make("coding/CoordinateRequest", 
       ? PrepareRequest.child({
         prompt: cursor.prompt,
         feedback: cursor.feedback,
-        ...(cursor.wiki === undefined ? {} : { wiki: cursor.wiki })
+        ...(cursor.wiki === undefined ? {} : { wiki: cursor.wiki }),
+        ...(cursor.answers === undefined ? {} : { answers: cursor.answers })
       })
       : Node.succeed(cursor.preparedPlan)).pipe(
         // bindPlanned exposes a reference and permits independent descendants.
@@ -165,14 +166,17 @@ export default Flow.make("coding/Request", {
   error: PrepareRequest.errorSchema,
   body: (input) => {
     const wiki = input.wiki === undefined ? {} : { wiki: input.wiki }
+    // Every answer a person gave an earlier attempt reaches each planning pass.
+    const answers = input.answers === undefined ? {} : { answers: input.answers }
     const implement = (feedback: string | Planned.Planned<string>) =>
-      PrepareRequest.child({ prompt: input.prompt, feedback, ...wiki }).pipe(
+      PrepareRequest.child({ prompt: input.prompt, feedback, ...wiki, ...answers }).pipe(
         Node.bindPlanned((plan) => AdmitSource.call({ plan })),
         Node.bindPlanned((preparedPlan) =>
           Coordinate.child({
             prompt: input.prompt,
             feedback,
             ...wiki,
+            ...answers,
             ...(input.planApproval === undefined ? {} : { planApproval: input.planApproval }),
             maxRounds: input.maxRounds ?? 3,
             revision: 0,

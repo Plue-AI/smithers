@@ -88,6 +88,17 @@ export const SuppliedWiki = Schema.Struct({
   })).check(Schema.isMaxLength(30))
 })
 export type SuppliedWiki = typeof SuppliedWiki.Type
+/**
+ * A question a person already answered for this request: the agent's
+ * question, the person's answer and who gave it. The stack carries every
+ * answer of a TODO into each later attempt, next to its steers (`feedback`).
+ */
+export const CarriedAnswer = Schema.Struct({
+  question: Text.check(Schema.isMaxLength(16_384)),
+  answer: Text.check(Schema.isMaxLength(32_768)),
+  by: Text.check(Schema.isMaxLength(256))
+})
+export type CarriedAnswer = typeof CarriedAnswer.Type
 export const PlanningInput = Schema.Struct({
   prompt: Text.check(Schema.isMaxLength(32_768)),
   // Feedback is not evidence that a disposable POC was actually executed.
@@ -96,7 +107,10 @@ export const PlanningInput = Schema.Struct({
   feedback: Schema.String.check(Schema.isMaxLength(65_538)),
   // Present (the pages, or null when none is published) only on a stack
   // request: the host then never generates the wiki for this request.
-  wiki: Schema.optionalKey(Schema.NullOr(SuppliedWiki))
+  wiki: Schema.optionalKey(Schema.NullOr(SuppliedWiki)),
+  // Questions a person already answered, in the order asked. They stand: the
+  // planner sees them beside the feedback and never asks them again.
+  answers: Schema.optionalKey(Schema.Array(CarriedAnswer).check(Schema.isMaxLength(16)))
 })
 /** The exact commit a request starts from, retained into this workspace's
  * source ref: the mythical stack tip, or the caller's pushed ref. */
@@ -113,6 +127,7 @@ export const RequestInput = Schema.Struct({
     Schema.String.check(Schema.isPattern(/^timeout:[1-9][0-9]*s$/))
   ])),
   feedback: Schema.optionalKey(Schema.String.check(Schema.isMaxLength(32_768))),
+  answers: PlanningInput.fields.answers,
   maxRounds: Schema.optionalKey(Schema.Int.check(Schema.isGreaterThan(0), Schema.isLessThanOrEqualTo(8))),
   // Start on the mythical stack: import this tip and plan on a fresh working
   // change on it (stack.ts). Absent, the request plans on the workspace as is.

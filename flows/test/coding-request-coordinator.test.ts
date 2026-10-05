@@ -42,7 +42,7 @@ const fixture = (
   pocMutates = false,
   approval?: { prompts: string[]; decision: Promise<boolean> }
 ) => {
-  const events: string[] = [], feedback: string[] = []
+  const events: string[] = [], feedback: string[] = [], answers: unknown[] = []
   let plans = 0, implementations = 0, prototypes = 0
   let head = revision("initial")
   const registration = Layer.effectDiscard(Effect.gen(function*() {
@@ -51,6 +51,7 @@ const fixture = (
       Effect.sync((): Plan => {
         events.push(`plan:${plans++}`)
         feedback.push(value.feedback)
+        answers.push(value.answers)
         return {
           prompt: value.prompt,
           memoryRevision: `memory-${plans}`,
@@ -170,6 +171,7 @@ const fixture = (
     host: ManagedRuntime.make(layer),
     events,
     feedback,
+    answers,
     counts: () => ({ plans, implementations, prototypes }),
     head: () => head
   }
@@ -230,6 +232,24 @@ test("feedback received while planning replans before mutation and feedback duri
   }
   assert.equal(result.plan.observedHead!.commitId, "commit-implemented-1")
   assert.equal(f.head().commitId, "commit-implemented-2")
+})
+
+test("a stack request carries a person's earlier answers into every planning pass", { timeout: 60_000 }, async (t) => {
+  // A steer before implementation replans: that pass still carries them.
+  const f = fixture((boundary, revision) =>
+    boundary === "before-implementation" && revision === 0 ? ["Keep keyboard navigation"] : []
+  )
+  t.after(() => f.host.dispose())
+  const tip = "b".repeat(40)
+  const base = { commitId: tip, ref: `refs/smithers/workspaces/11111111-1111-4111-a111-111111111111/sources/${tip}` }
+  const answers = [{ question: "Root or src/?", answer: "Put it in the repository root.", by: "ben" }]
+  const result = await f.host.runPromise(
+    Request.execute({ ...input, base, answers }, { executionId: "request-answers" })
+  )
+  assert.equal(result.outcome.status, "validated")
+  assert.equal(f.counts().plans, 2)
+  assert.deepEqual(f.answers, [answers, answers])
+  assert.equal(f.feedback[0], input.feedback, "the answers ride beside the steers, not inside them")
 })
 
 test("continually arriving feedback stops at a recorded bounded refusal without implementing a stale plan", {
