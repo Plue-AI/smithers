@@ -1,0 +1,12 @@
+[
+  { "file": "fx", "title": "FX Fixture journey", "intro": "Maya walks the fixture journey.", "steps": [
+    "She continues past setup.",
+    { "caption": "She writes a draft.", "spec": "FX.2" },
+    "She presses Commit.",
+    "The TODO merges."
+  ] },
+  { "file": "fy", "title": "FY Second reel", "intro": "A reel with an unrecorded feature.", "steps": [
+    "A step the run never reached.",
+    "A step no feature covers."
+  ] }
+]

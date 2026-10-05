@@ -56,6 +56,9 @@ const harnessSources = Smithers.glob("//apps/app/scripts/**/*")
 const lintSources = Smithers.glob("//apps/app/lint/**/*")
 const suiteSources = Smithers.glob("//apps/app/e2e/**/*")
 
+/** The proof page generator, its tests and the fixture run they read. */
+const proofSources = Smithers.glob("//apps/app/proof/**/*")
+
 /** The assertion contracts the e2e tiers share; pure, so the unit suite gates them. */
 const contractSources = Smithers.glob("//apps/app/e2e/contracts/**/*.ts")
 
@@ -80,6 +83,7 @@ const check = Smithers.Typecheck({
     componentSources,
     harnessSources,
     suiteSources,
+    proofSources,
     ...todoTurns,
     lintSources,
     ...buildConfigs,
@@ -107,7 +111,7 @@ const check = Smithers.Typecheck({
 const unitTests = Smithers.NodeTest({
   runtime: Smithers.Runtime.Bun({ version: ">=1.4.0" }),
   // Isolate files that mutate process globals until #3696 removes that pollution.
-  runner: Smithers.testSuite(["src", "e2e/contracts", "e2e/real/coverage", "e2e/real/support", "e2e/real/auth-permissions/profile.test.ts", "scripts"], { isolate: true }),
+  runner: Smithers.testSuite(["src", "proof", "e2e/contracts", "e2e/real/coverage", "e2e/real/support", "e2e/real/auth-permissions/profile.test.ts", "scripts"], { isolate: true }),
   // 6,740 tests across 520 files took 813s on a clean 2026-09-29 checkout;
   // the shared 600s default killed CI while Bun was still running tests.
   timeout: "20m",
@@ -119,6 +123,7 @@ const unitTests = Smithers.NodeTest({
     contractSources,
     harnessSources,
     suiteSources,
+    proofSources,
     ...todoTurns,
     ...buildConfigs,
     Smithers.glob("//apps/app/*.ts"),
@@ -252,6 +257,37 @@ const journeyTodoMerge = Smithers.NodeTest({
   runner: Smithers.entrypoint(Smithers.file("scripts/run-journey-j2.ts"), ["todo-merge"]),
   srcs: [suiteSources, harnessSources, Smithers.file("playwright.real.config.ts")],
   deps: [], exclusive: true, cache: false, timeout: "17m", cwd
+})
+
+/**
+ * The evidence flow (EVIDENCE-CONTRACT.md): proofRecord drives the real bundle
+ * through every journey's proof spec (e2e/proof) with real models and records
+ * screenshots, videos and Playwright JSON under test-results/proof; proofPage
+ * turns that run, .specs/product/features.json and the mock's captions into one
+ * self-contained page that plays like the design mock.
+ *
+ * proofRecord is never cached (Shell.Build replays nothing): it mutates an
+ * install, calls real models and the network, and binds ports. It succeeds
+ * when the run wrote its results; failing proof steps are the page's verdicts,
+ * not a broken recording.
+ */
+const proofRecord = Smithers.Shell.Build({
+  shell: "cd apps/app && rm -rf test-results/proof && bunx playwright test --config playwright.proof.config.ts; test -s test-results/proof/results.json || { echo 'proofRecord: the run wrote no test-results/proof/results.json' >&2; exit 1; }",
+  data: [serverBundle, harnessSources, suiteSources, Smithers.glob("//.specs/product/*.json"),
+    Smithers.file("package.json"), Smithers.file("//pnpm-lock.yaml")],
+  outDirs: ["//apps/app/test-results/proof"],
+  sandbox: "none",
+  timeout: "120m"
+})
+
+/** Regenerates the proof page from the newest recorded run; fails when features.json disagrees with it. */
+const proofPage = Smithers.Shell.Build({
+  shell: "bun apps/app/proof/page.ts --out apps/app/test-results/proof-page",
+  data: [proofSources, Smithers.glob("//.specs/product/*.json"),
+    Smithers.glob("//.specs/design/mock/src/**/*")],
+  outDirs: ["//apps/app/test-results/proof-page"],
+  sandbox: "none",
+  timeout: "10m"
 })
 
 /**
@@ -410,5 +446,5 @@ const securityReview = Smithers.SecurityReview({
 })
 
 export const Package = Smithers.Package({
-  targets: { serverBundle, solidCodegenInputs, check, unitTests, conformance, browserE2e, viewStories, journeyJ1Activation, journeyTodoFromIssue, journeyTodoNeedsYou, journeyTodoEvidence, journeyTodoMerge, webSources, ...securityReview }
+  targets: { serverBundle, solidCodegenInputs, check, unitTests, conformance, browserE2e, viewStories, journeyJ1Activation, journeyTodoFromIssue, journeyTodoNeedsYou, journeyTodoEvidence, journeyTodoMerge, proofRecord, proofPage, webSources, ...securityReview }
 })

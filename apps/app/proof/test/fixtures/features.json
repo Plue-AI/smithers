@@ -1,0 +1,42 @@
+[
+  {
+    "id": "fx-pass", "title": "Continue past setup", "journey": "FX", "spec": ".specs/product/mvp.md#j1",
+    "mockSteps": ["fx#1"], "status": "implemented",
+    "proof": [{ "file": "apps/app/proof/test/fx.pw.ts", "step": "fx-pass" }],
+    "docs": ["apps/app/docs/LOCAL-APP.md"], "code": ["apps/app/proof/page.ts#L1-L10"], "gap": ""
+  },
+  {
+    "id": "fx-fail", "title": "Commit a TODO draft", "journey": "FX",
+    "mockSteps": ["fx#2", "fx#3"], "status": "not-implemented",
+    "proof": [{ "file": "apps/app/proof/test/fx.pw.ts", "step": "fx-fail" }],
+    "docs": [], "code": [], "gap": "The Commit button is missing."
+  },
+  {
+    "id": "fx-blocked", "title": "Press Commit", "journey": "FX",
+    "mockSteps": ["fx#3"], "status": "not-implemented",
+    "proof": [{ "file": "apps/app/proof/test/fx.pw.ts", "step": "fx-blocked" }],
+    "docs": [], "code": [], "gap": "Waits on fx-fail."
+  },
+  {
+    "id": "fx-disagree", "title": "See the merge", "journey": "FX",
+    "mockSteps": ["fx#4"], "status": "not-implemented",
+    "proof": [{ "file": "apps/app/proof/test/fx.pw.ts", "step": "fx-disagree" }],
+    "docs": [], "code": [], "gap": "Marked not implemented although the run passes it."
+  },
+  {
+    "id": "fy-unrecorded", "title": "A step the run never reached", "journey": "FY",
+    "mockSteps": ["fy#1"], "status": "not-implemented",
+    "proof": [{ "file": "apps/app/proof/test/fy.pw.ts", "step": "fy-unrecorded" }],
+    "docs": [], "code": [], "gap": "No spec yet."
+  },
+  {
+    "id": "fy-none", "title": "No proof at all", "journey": "FY",
+    "mockSteps": [], "status": "not-implemented",
+    "proof": [], "docs": [], "code": [], "gap": "Not started."
+  },
+  {
+    "id": "fz-orphan", "title": "A journey with no reel", "journey": "FZ",
+    "mockSteps": ["fz#9"], "status": "not-implemented",
+    "proof": [], "docs": [], "code": [], "gap": "Outside the mock."
+  }
+]

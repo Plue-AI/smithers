@@ -1342,6 +1342,11 @@
         "exclude": []
       },
       {
+        "kind": "glob",
+        "pattern": "apps/app/proof/**/*",
+        "exclude": []
+      },
+      {
         "kind": "file",
         "path": "distribution/fake-todo-turns.mjs"
       },
@@ -1676,6 +1681,80 @@
     }
   },
   {
+    "label": "//apps/app:proofPage",
+    "package": "apps/app",
+    "name": "proofPage",
+    "rule": "Shell.Build",
+    "kinds": [
+      "build"
+    ],
+    "cacheable": false,
+    "inputs": [
+      {
+        "kind": "glob",
+        "pattern": "apps/app/proof/**/*",
+        "exclude": []
+      },
+      {
+        "kind": "glob",
+        "pattern": ".specs/product/*.json",
+        "exclude": []
+      },
+      {
+        "kind": "glob",
+        "pattern": ".specs/design/mock/src/**/*",
+        "exclude": []
+      }
+    ],
+    "outputs": [],
+    "dependencies": [],
+    "source": {
+      "file": "apps/app/PACKAGE.ts"
+    }
+  },
+  {
+    "label": "//apps/app:proofRecord",
+    "package": "apps/app",
+    "name": "proofRecord",
+    "rule": "Shell.Build",
+    "kinds": [
+      "build"
+    ],
+    "cacheable": false,
+    "inputs": [
+      {
+        "kind": "glob",
+        "pattern": "apps/app/scripts/**/*",
+        "exclude": []
+      },
+      {
+        "kind": "glob",
+        "pattern": "apps/app/e2e/**/*",
+        "exclude": []
+      },
+      {
+        "kind": "glob",
+        "pattern": ".specs/product/*.json",
+        "exclude": []
+      },
+      {
+        "kind": "file",
+        "path": "apps/app/package.json"
+      },
+      {
+        "kind": "file",
+        "path": "pnpm-lock.yaml"
+      }
+    ],
+    "outputs": [],
+    "dependencies": [
+      "//apps/app:serverBundle"
+    ],
+    "source": {
+      "file": "apps/app/PACKAGE.ts"
+    }
+  },
+  {
     "label": "//apps/app:security",
     "package": "apps/app",
     "name": "security",
@@ -1878,6 +1957,11 @@
       {
         "kind": "glob",
         "pattern": "apps/app/e2e/**/*",
+        "exclude": []
+      },
+      {
+        "kind": "glob",
+        "pattern": "apps/app/proof/**/*",
         "exclude": []
       },
       {

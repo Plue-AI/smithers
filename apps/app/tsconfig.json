@@ -25,6 +25,7 @@
     "lint",
     "scripts",
     "e2e",
+    "proof",
     "vite.config.ts",
     "playwright*.config.ts"
   ],
