@@ -1,4 +1,5 @@
-// A scripted model for one TODO's coding run (the J1 rehearsal, C-J1-04).
+// A scripted model for TODO coding runs (the J1 rehearsal, C-J1-04, and the
+// journey rehearsals).
 //
 // It answers the OpenAI-compatible chat completions and the gateway
 // evaluator that the packaged coding host reaches through the install's
@@ -6,7 +7,12 @@
 // with no live model or key. The answers are distribution/fake-todo-turns.mjs:
 // each chat turn is recognized by the step's own system teaching and answered
 // with one cell that settles the step's declared output; the edit turn writes
-// JOURNEY.md. GET /turns answers how many turns it served, by step.
+// JOURNEY.md, or what the TODO's markers ask (markersOf).
+//
+// Routes beside the model's own:
+//   GET  /turns          how many turns it served, by step, and the keys held now
+//   GET  /held           the [HOLD key] edit turns waiting now, as a JSON array
+//   POST /release/<key>  answers every turn held on key, and every later one at once
 // distribution/fake-coding-provider.mjs scripts the single dispatch turn the
 // image acceptance runs.
 import { appendFileSync } from "node:fs"
@@ -15,13 +21,28 @@ import { done, GREETING, systemOf, text, todoAnswer, todoTurn } from "./fake-tod
 
 const greeting = process.env.TODO_GREETING ?? GREETING
 const trace = process.env.TRACE_FILE
-const turns = { total: 0, chat: 0, evaluator: 0, steps: {} }
+const turns = { total: 0, chat: 0, evaluator: 0, steps: {}, held: [] }
 const record = (kind, step, detail) => {
   turns.total++
   turns[kind]++
   turns.steps[step] = (turns.steps[step] ?? 0) + 1
   console.log(`provider ${kind} ${step}`)
   if (trace) appendFileSync(trace, JSON.stringify({ n: turns.total, kind, step, ...detail }) + "\n")
+}
+
+// [HOLD key]: each held edit turn waits on its key until POST /release/<key>.
+const released = new Set()
+const waiting = new Map()
+const hold = (key) => {
+  if (released.has(key)) return Promise.resolve()
+  turns.held.push(key)
+  return new Promise((resolve) => waiting.set(key, [...(waiting.get(key) ?? []), resolve]))
+}
+const release = (key) => {
+  released.add(key)
+  turns.held = turns.held.filter((held) => held !== key)
+  for (const resolve of waiting.get(key) ?? []) resolve()
+  waiting.delete(key)
 }
 
 const chat = (input) => {
@@ -31,15 +52,22 @@ const chat = (input) => {
   record("chat", step, {
     model: input.model,
     messages: messages.length,
+    ...(matched?.hold === undefined ? {} : { hold: matched.hold }),
     // Unscripted turns keep their teaching, so the next step can be scripted.
     ...(matched === undefined ? { system: systemOf(messages).slice(0, 6000), last: text(messages.at(-1)?.content).slice(0, 6000) } : {}),
-    ...(process.env.TRACE_MESSAGES === "1" ? { all: messages.map((message) => ({ role: message.role, content: text(message.content).slice(0, 5000) })) } : {})
+    ...(process.env.TRACE_MESSAGES === "1" ? { all: messages.map((message) => ({ role: message.role, content: text(message.content).slice(-5000) })) } : {})
   })
-  return matched === undefined ? done({ messages: ["scripted"] }) : matched.content
+  return matched === undefined ? { content: done({ messages: ["scripted"] }) } : matched
 }
 
-const stream = (response, content) => {
+const stream = async (response, { content, hold: key }) => {
   response.writeHead(200, { "content-type": "text/event-stream", "cache-control": "no-cache" })
+  if (key !== undefined) {
+    // SSE comments keep the held response alive through the model proxy.
+    const alive = setInterval(() => response.write(": held\n\n"), 15_000)
+    await hold(key)
+    clearInterval(alive)
+  }
   response.write(`data: ${JSON.stringify({ id: "chatcmpl-todo", choices: [{ index: 0, delta: { role: "assistant", content }, finish_reason: null }] })}\n\n`)
   response.write(`data: ${JSON.stringify({ id: "chatcmpl-todo", choices: [{ index: 0, delta: {}, finish_reason: "stop" }] })}\n\n`)
   // The metered model proxy settles the call from this usage report.
@@ -56,6 +84,17 @@ const server = createServer(async (request, response) => {
     response.writeHead(200, { "content-type": "application/json" }).end(JSON.stringify(turns))
     return
   }
+  if (request.method === "GET" && request.url === "/held") {
+    response.writeHead(200, { "content-type": "application/json" }).end(JSON.stringify(turns.held))
+    return
+  }
+  const releasing = request.method === "POST" ? /^\/release\/([A-Za-z0-9._-]+)$/.exec(request.url ?? "") : null
+  if (releasing !== null) {
+    release(releasing[1])
+    console.log(`provider release ${releasing[1]}`)
+    response.writeHead(204).end()
+    return
+  }
   const chunks = []
   for await (const chunk of request) chunks.push(chunk)
   let input
@@ -65,7 +104,7 @@ const server = createServer(async (request, response) => {
     input = {}
   }
   if (request.method === "POST" && request.url === "/v1/chat/completions") {
-    stream(response, chat(input))
+    await stream(response, chat(input))
     return
   }
   if (request.method === "POST" && request.url === "/v4/ai/evaluation-model") {

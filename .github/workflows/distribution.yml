@@ -34,7 +34,7 @@ jobs:
         with:
           node-version: 26.4.0
       - name: Distribution release contracts
-        run: node --test scripts/repo-contract/distribution-image-tag.test.mjs distribution/fake-coding-provider.test.mjs distribution/publish-image.test.mjs
+        run: node --test scripts/repo-contract/distribution-image-tag.test.mjs distribution/fake-coding-provider.test.mjs distribution/fake-todo-turns.test.mjs distribution/publish-image.test.mjs
       - name: Build distribution image
         run: docker build --build-arg "BUILD_SHA=$GITHUB_SHA" -f distribution/Dockerfile -t smithers-distribution:ci .
       - name: Test distribution image
