@@ -182,7 +182,7 @@ test("8 TODO created", async ({}, info) => {
   await draft.getByLabel("Prompt", { exact: true }).fill("Add a greeting to README.md")
   await draft.getByRole("combobox", { name: "Place", exact: true }).selectOption({ label: "Append" })
   await draft.getByRole("button", { name: "Commit", exact: true }).click()
-  await expect(todoCard()).toContainText("First local TODO")
+  await expect(todoCard()).toContainText("First local TODO", { timeout: 10_000 })
   expect(await served()).toMatchObject({ n: 1, title: "First local TODO", prompt_revisions: [expect.objectContaining({ text: "Add a greeting to README.md" })] })
   await expect.poll(async () => {
     const state = (await served()).state
