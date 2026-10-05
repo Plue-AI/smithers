@@ -15,12 +15,12 @@ import (
 // standing again under that lock: a maintainer removed a moment ago changes
 // nothing.
 func (m *Members) memberMutation(ctx context.Context) (pgx.Tx, int64, error) {
-	tx, err := m.Pool.Begin(ctx)
+	tx, err := m.lockRoster(ctx)
 	if err != nil {
 		return nil, 0, err
 	}
 	var owner int64
-	err = tx.QueryRow(ctx, `SELECT user_id FROM self_host_owners FOR UPDATE`).Scan(&owner)
+	err = tx.QueryRow(ctx, `SELECT user_id FROM self_host_owners`).Scan(&owner)
 	if err == nil {
 		var role InstallRole
 		info := middleware.AuthInfoFromContext(ctx)
@@ -36,6 +36,20 @@ func (m *Members) memberMutation(ctx context.Context) (pgx.Tx, int64, error) {
 		return nil, 0, err
 	}
 	return tx, owner, nil
+}
+
+// lockRoster begins a transaction holding the owner row lock that orders
+// every roster change and every session a sign-in mints.
+func (m *Members) lockRoster(ctx context.Context) (pgx.Tx, error) {
+	tx, err := m.Pool.Begin(ctx)
+	if err != nil {
+		return nil, err
+	}
+	if _, err = tx.Exec(ctx, `SELECT user_id FROM self_host_owners FOR UPDATE`); err != nil {
+		_ = tx.Rollback(ctx)
+		return nil, err
+	}
+	return tx, nil
 }
 
 // revokeMemberCredentials ends every credential user holds in tx: sessions,

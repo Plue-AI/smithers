@@ -57,3 +57,12 @@ person's sessions, tokens, OAuth grants and workspace sessions are deleted,
 sign-in is barred, and one durable `collaborator_removed` revocation event is
 written. Live connections close on its fanout; the bus catches up within 1 s.
 Adding the person again lifts the sign-in bar; old credentials stay revoked.
+
+## Hourly recheck
+
+Every hour (`services.Members.Recheck` on the worker's periodic cleaner) the
+install asks GitHub for each member's permission. A member GitHub confirms
+below write is suspended with the same revocation as removal; the Members
+card shows them suspended. Write access again clears the suspension, and the
+person signs in again. An installation failure or a failed lookup changes
+nothing.

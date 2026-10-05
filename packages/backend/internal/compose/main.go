@@ -1141,6 +1141,8 @@ func runWithOptions(ctx context.Context, args []string, stdout, stderr io.Writer
 	buildCacheService.MaxRepositoryBytes = cfg.Blob.BuildCacheRepoQuotaBytes
 	buildCacheHandler := &routes.BuildCacheHandler{Service: buildCacheService}
 	buildCacheCleaner := cleanup.NewPeriodic("build_cache", time.Minute, time.Minute)
+	// The roster's hourly GitHub recheck (M-05): losing write access suspends a member.
+	memberRecheck := cleanup.NewPeriodic("members", services.MemberRecheckInterval, services.MemberRecheckInterval)
 	stackHandler := &routes.StackHandler{
 		Service: stackService,
 	}
@@ -1902,6 +1904,9 @@ func runWithOptions(ctx context.Context, args []string, stdout, stderr io.Writer
 		agentService.StartSessionReaper(workerCtx, time.Duration(cfg.Sandbox.AgentMaxRuntimeSecs)*time.Second)
 		authCleaner.Start(workerCtx)
 		buildCacheCleaner.Start(workerCtx, buildCacheService.Cleanup)
+		if authService.Members != nil {
+			memberRecheck.Start(workerCtx, authService.Members.Recheck)
+		}
 		workflowCacheCleaner.Start(workerCtx)
 		workflowArtifactCleaner.Start(workerCtx)
 		auditCleaner.Start(workerCtx)
@@ -2037,6 +2042,8 @@ func runWithOptions(ctx context.Context, args []string, stdout, stderr io.Writer
 			authCleaner.Stop()
 			buildCacheCleaner.Stop()
 			buildCacheCleaner.Wait()
+			memberRecheck.Stop()
+			memberRecheck.Wait()
 			workflowCacheCleaner.Stop()
 			workflowArtifactCleaner.Stop()
 			auditCleaner.Stop()

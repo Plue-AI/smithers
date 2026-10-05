@@ -242,4 +242,42 @@ func TestMembersComposedInstallPostgres(t *testing.T) {
 	require.Equal(t, 1, count)
 	status, body = request("DELETE", "/api/members/writer", "", "owner-cookie")
 	require.Equal(t, 204, status, body)
+
+	// Added again, the writer signs in again; the hourly recheck suspends
+	// them once GitHub confirms read, and restores them once it says write.
+	status, body = request("POST", "/api/members", `{"login":"writer"}`, "owner-cookie")
+	require.Equal(t, 204, status, body)
+	login("writer", 302)
+	createSession(writer, "writer-cookie-2")
+	status, body = request("GET", "/api/members", "", "writer-cookie-2")
+	require.Equal(t, 200, status, body)
+	github.mu.Lock()
+	github.installationStatus = 500
+	github.mu.Unlock()
+	require.Error(t, members.Recheck(ctx), "an installation failure is reported")
+	status, _ = request("GET", "/api/members", "", "writer-cookie-2")
+	require.Equal(t, 200, status, "an installation failure suspends nobody")
+	github.mu.Lock()
+	github.installationStatus = 0
+	github.roles["writer"] = "read"
+	github.mu.Unlock()
+	require.NoError(t, members.Recheck(ctx))
+	var suspended bool
+	require.NoError(t, pool.QueryRow(ctx, `SELECT suspended_at IS NOT NULL FROM collaborators WHERE github_id=102`).Scan(&suspended))
+	require.True(t, suspended)
+	status, _ = request("GET", "/api/members", "", "writer-cookie-2")
+	require.Equal(t, 401, status, "suspension ends the session")
+	login("writer", 403)
+	status, body = request("GET", "/api/members", "", "owner-cookie")
+	require.Equal(t, 200, status, body)
+	require.Contains(t, body, `"suspended":true`)
+	github.mu.Lock()
+	github.roles["writer"] = "write"
+	github.mu.Unlock()
+	require.NoError(t, members.Recheck(ctx))
+	require.NoError(t, pool.QueryRow(ctx, `SELECT suspended_at IS NOT NULL FROM collaborators WHERE github_id=102`).Scan(&suspended))
+	require.False(t, suspended)
+	status, _ = request("GET", "/api/members", "", "writer-cookie-2")
+	require.Equal(t, 401, status, "restoring never revives a revoked session")
+	login("writer", 302)
 }
