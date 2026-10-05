@@ -105,6 +105,23 @@ test.each(["call_1", "frontdoor-b0a1"])("a tool leg (call id %s) whose continuat
   expect(state.httpTurns[0]?.status).toBe("failed")
 })
 
+/* A self-hosted install runs the turn: its failures name Smithers, never a hosting. */
+test("a turn the host ends at its tool limit, or that answers nothing, fails in words that name no hosting", () => {
+  for (const [frames, said] of [
+    [[{ type: "done", runId: "turn", reason: "tool_limit" }], "Smithers stopped at its tool-call limit."],
+    [[{ type: "done", runId: "turn", reason: "stop" }], "Smithers returned an empty response."]
+  ] as const) {
+    const state = step(accepted("What does the test in this repository check?"), {
+      type: "http.turn.batch.received", actor: "system", attemptId: "attempt", legId: "leg",
+      batch: batchOf(initialCursor(), [...frames])
+    })
+    const answer = state.messages.find(row => row.id === "message-turn-smithers")
+    expect(answer?.statusDetail ?? answer?.text).toContain(said)
+    expect(answer?.statusDetail ?? answer?.text).not.toContain("Cloud")
+    expect(state.httpTurns[0]?.status).toBe("failed")
+  }
+})
+
 test("card updates within one batch read preceding card facts and use the shared validated patch contract", () => {
   const before = accepted()
   const card = { id: "file", kind: "file" as const, title: "File", status: "active" as const, ordinal: 1, createdAt: 1,

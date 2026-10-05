@@ -867,14 +867,14 @@ export const createTurnController = (
           type: "message.response.failed",
           actor: "system",
           turnId: turn.id,
-          message: "Smithers Cloud stopped this turn at its tool-call limit."
+          message: "Smithers stopped at its tool-call limit."
         })
       } else if (!turn.receivedText) {
         store.dispatch({
           type: "message.response.failed",
           actor: "system",
           turnId: turn.id,
-          message: "Smithers Cloud returned an empty response."
+          message: "Smithers returned an empty response."
         })
       } else {
         store.dispatch({

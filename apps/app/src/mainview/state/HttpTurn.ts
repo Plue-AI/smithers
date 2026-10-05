@@ -144,9 +144,9 @@ export function projectHttpFrame(prior: HttpTurn, priorLeg: HistoricalHttpLeg, f
         turn.status = "cancelled"; leg.status = "cancelled"
         transitions.push({ type: "message.response.cancelled", actor: "system", turnId: turn.turnId, detail: "That turn was stopped by the server." })
       } else {
-        const error = frame.error ?? (frame.reason === "tool_limit" ? "Smithers Cloud stopped this turn at its tool-call limit."
+        const error = frame.error ?? (frame.reason === "tool_limit" ? "Smithers stopped at its tool-call limit."
           : leg.call !== undefined ? `I hit the tool-call limit for this turn (${MAX_TOOL_LEGS}) — stopping here instead of looping.`
-          : !turn.receivedText ? "Smithers Cloud returned an empty response." : undefined)
+          : !turn.receivedText ? "Smithers returned an empty response." : undefined)
         turn.status = error === undefined ? "complete" : "failed"; leg.status = turn.status
         transitions.push(error === undefined ? { type: "message.response.completed", actor: "smithers", turnId: turn.turnId }
           : { type: "message.response.failed", actor: "system", turnId: turn.turnId, message: error })

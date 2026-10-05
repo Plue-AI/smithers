@@ -8,7 +8,7 @@ import { memoryStorage, settle, waitFor } from "../TestFixtures"
 const createAppController = scopedControllers()
 type WithoutRunId<T> = T extends unknown ? Omit<T, "runId"> : never
 type Frame = WithoutRunId<AgentTurnFrame>
-const capMessage = "Smithers Cloud stopped this turn at its tool-call limit."
+const capMessage = "Smithers stopped at its tool-call limit."
 const command = {
   type: "tool_call" as const,
   call_id: "note-1",

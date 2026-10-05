@@ -43,7 +43,7 @@ const fixture = async () => {
   return { store, starts, requests, emit, pendingCall, runId, answers }
 }
 
-const capMessage = "Smithers Cloud stopped this turn at its tool-call limit."
+const capMessage = "Smithers stopped at its tool-call limit."
 for (const partial of [false, true]) {
   test(`a terminal tool limit rejects a pending command without executing or continuing (${partial})`, async () => {
     const f = await fixture()
@@ -135,7 +135,7 @@ test("reasoning, empty text, and foreign prose do not substitute for an answer",
   f.emit({ runId: f.runId, type: "done", reason: "stop" })
   await waitFor(() => f.store.session().phase === "idle")
   expect(f.answers().map(row => ({ text: row.text, reasoning: row.reasoning, status: row.status, detail: row.statusDetail }))).toEqual([
-    { text: "", reasoning: "Private reasoning", status: "failed", detail: "Smithers Cloud returned an empty response." }
+    { text: "", reasoning: "Private reasoning", status: "failed", detail: "Smithers returned an empty response." }
   ])
 })
 
