@@ -935,6 +935,47 @@ type SSHKey struct {
 	CreatedAt   time.Time `json:"created_at"`
 }
 
+// SecretBindingHosts — Hosts the secret may be sent to. Goes with `match_headers`; both empty unbinds the secret.
+type SecretBindingHosts = []string
+
+// SecretBindingMatchHeaders — Request headers the secret may be sent in. Goes with `hosts`; both empty unbinds the secret.
+type SecretBindingMatchHeaders = []string
+
+// SetRepositorySecretRequest — Sets a repository secret. `hosts` and `match_headers` go together, both or neither. An omitted `main_only` or binding keeps a replaced secret's scope or binding.
+type SetRepositorySecretRequest struct {
+	Name         string                    `json:"name"`
+	Value        string                    `json:"value"`
+	MainOnly     *bool                     `json:"main_only,omitempty"`
+	Hosts        SecretBindingHosts        `json:"hosts,omitempty"`
+	MatchHeaders SecretBindingMatchHeaders `json:"match_headers,omitempty"`
+}
+
+// SetOrganizationSecretRequest — Sets an organization secret. `hosts` and `match_headers` go together, both or neither. An omitted binding keeps a replaced secret's binding.
+type SetOrganizationSecretRequest struct {
+	Name         string                    `json:"name"`
+	Value        string                    `json:"value"`
+	Hosts        SecretBindingHosts        `json:"hosts,omitempty"`
+	MatchHeaders SecretBindingMatchHeaders `json:"match_headers,omitempty"`
+}
+
+// UpdateRepositorySecretRequest — Changes a repository secret's scope and binding without its value. Names `main_only`, a binding, or both. `hosts` and `match_headers` go together, both or neither.
+type UpdateRepositorySecretRequest struct {
+	MainOnly     *bool                     `json:"main_only,omitempty"`
+	Hosts        SecretBindingHosts        `json:"hosts,omitempty"`
+	MatchHeaders SecretBindingMatchHeaders `json:"match_headers,omitempty"`
+}
+
+// SecretMetadata — A secret's metadata. It never carries the value.
+type SecretMetadata struct {
+	Name              string   `json:"name"`
+	CreatedAt         string   `json:"created_at"`
+	UpdatedAt         string   `json:"updated_at"`
+	ReconnectRequired *bool    `json:"reconnect_required,omitempty"`
+	MainOnly          bool     `json:"main_only"`
+	Hosts             []string `json:"hosts"`
+	MatchHeaders      []string `json:"match_headers"`
+}
+
 // AdminCreditGrantRequest is generated from docs/api/openapi.yaml.
 type AdminCreditGrantRequest struct {
 	Login        string  `json:"login"`
@@ -2878,9 +2919,9 @@ func (c *Client) GetAPIOrgsOrgSecrets(ctx context.Context, org string) (AnyJSON,
 }
 
 // PostAPIOrgsOrgSecrets calls POST /api/orgs/{org}/secrets.
-func (c *Client) PostAPIOrgsOrgSecrets(ctx context.Context, org string) (AnyJSON, error) {
-	var out AnyJSON
-	err := c.do(ctx, "POST", "/api/orgs/"+url.PathEscape(org)+"/secrets", nil, nil, &out)
+func (c *Client) PostAPIOrgsOrgSecrets(ctx context.Context, org string, body SetOrganizationSecretRequest) (SecretMetadata, error) {
+	var out SecretMetadata
+	err := c.do(ctx, "POST", "/api/orgs/"+url.PathEscape(org)+"/secrets", nil, body, &out)
 	return out, err
 }
 
@@ -3172,9 +3213,9 @@ func (c *Client) DeleteAPIReposOwnerRepoSecretsName(ctx context.Context, owner s
 }
 
 // PatchAPIReposOwnerRepoSecretsName calls PATCH /api/repos/{owner}/{repo}/secrets/{name}.
-func (c *Client) PatchAPIReposOwnerRepoSecretsName(ctx context.Context, owner string, repo string, name string) (AnyJSON, error) {
-	var out AnyJSON
-	err := c.do(ctx, "PATCH", "/api/repos/"+url.PathEscape(owner)+"/"+url.PathEscape(repo)+"/secrets/"+url.PathEscape(name), nil, nil, &out)
+func (c *Client) PatchAPIReposOwnerRepoSecretsName(ctx context.Context, owner string, repo string, name string, body UpdateRepositorySecretRequest) (SecretMetadata, error) {
+	var out SecretMetadata
+	err := c.do(ctx, "PATCH", "/api/repos/"+url.PathEscape(owner)+"/"+url.PathEscape(repo)+"/secrets/"+url.PathEscape(name), nil, body, &out)
 	return out, err
 }
 
@@ -3929,9 +3970,9 @@ func (c *Client) GetAPIReposOwnerRepoSecrets(ctx context.Context, owner string, 
 }
 
 // PostAPIReposOwnerRepoSecrets calls POST /api/repos/{owner}/{repo}/secrets.
-func (c *Client) PostAPIReposOwnerRepoSecrets(ctx context.Context, owner string, repo string) (AnyJSON, error) {
-	var out AnyJSON
-	err := c.do(ctx, "POST", "/api/repos/"+url.PathEscape(owner)+"/"+url.PathEscape(repo)+"/secrets", nil, nil, &out)
+func (c *Client) PostAPIReposOwnerRepoSecrets(ctx context.Context, owner string, repo string, body SetRepositorySecretRequest) (SecretMetadata, error) {
+	var out SecretMetadata
+	err := c.do(ctx, "POST", "/api/repos/"+url.PathEscape(owner)+"/"+url.PathEscape(repo)+"/secrets", nil, body, &out)
 	return out, err
 }
 
@@ -4709,18 +4750,14 @@ func (c *Client) GetAPIReposOwnerRepoWorkspacesIDCommandRunsOperation(ctx contex
 	return out, err
 }
 
-// GetAPIReposOwnerRepoWorkspacesIDPreviewPort calls GET /api/repos/{owner}/{repo}/workspaces/{id}/preview/{port}.
-func (c *Client) GetAPIReposOwnerRepoWorkspacesIDPreviewPort(ctx context.Context, owner string, repo string, id string, port string) (AnyJSON, error) {
-	var out AnyJSON
-	err := c.do(ctx, "GET", "/api/repos/"+url.PathEscape(owner)+"/"+url.PathEscape(repo)+"/workspaces/"+url.PathEscape(id)+"/preview/"+url.PathEscape(port), nil, nil, &out)
-	return out, err
+// GetAPIReposOwnerRepoWorkspacesIDPreviewPort calls GET /api/repos/{owner}/{repo}/workspaces/{id}/preview/{port}. The caller closes the response body.
+func (c *Client) GetAPIReposOwnerRepoWorkspacesIDPreviewPort(ctx context.Context, owner string, repo string, id string, port string) (*http.Response, error) {
+	return c.raw(ctx, "GET", "/api/repos/"+url.PathEscape(owner)+"/"+url.PathEscape(repo)+"/workspaces/"+url.PathEscape(id)+"/preview/"+url.PathEscape(port), nil, nil, "*/*")
 }
 
-// GetAPIReposOwnerRepoWorkspacesIDPreviewPortPath calls GET /api/repos/{owner}/{repo}/workspaces/{id}/preview/{port}/{path}.
-func (c *Client) GetAPIReposOwnerRepoWorkspacesIDPreviewPortPath(ctx context.Context, owner string, repo string, id string, port string, pathParam string) (AnyJSON, error) {
-	var out AnyJSON
-	err := c.do(ctx, "GET", "/api/repos/"+url.PathEscape(owner)+"/"+url.PathEscape(repo)+"/workspaces/"+url.PathEscape(id)+"/preview/"+url.PathEscape(port)+"/"+url.PathEscape(pathParam), nil, nil, &out)
-	return out, err
+// GetAPIReposOwnerRepoWorkspacesIDPreviewPortPath calls GET /api/repos/{owner}/{repo}/workspaces/{id}/preview/{port}/{path}. The caller closes the response body.
+func (c *Client) GetAPIReposOwnerRepoWorkspacesIDPreviewPortPath(ctx context.Context, owner string, repo string, id string, port string, pathParam string) (*http.Response, error) {
+	return c.raw(ctx, "GET", "/api/repos/"+url.PathEscape(owner)+"/"+url.PathEscape(repo)+"/workspaces/"+url.PathEscape(id)+"/preview/"+url.PathEscape(port)+"/"+url.PathEscape(pathParam), nil, nil, "*/*")
 }
 
 // GetAPIReposOwnerRepoWorkspacesIDServicesPortVisibility calls GET /api/repos/{owner}/{repo}/workspaces/{id}/services/{port}/visibility.

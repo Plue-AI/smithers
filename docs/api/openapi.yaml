@@ -5617,17 +5617,23 @@ paths:
           required: true
           schema:
             type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SetOrganizationSecretRequest'
       security:
         - tokenAuth: []
         - bearerAuth: []
         - sessionCookie: []
       responses:
-        '200':
-          description: Successful response
+        '201':
+          description: Secret stored. Metadata only, never the value.
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/AnyJSON'
+                $ref: '#/components/schemas/SecretMetadata'
         '400':
           $ref: '#/components/responses/BadRequest'
         '401':
@@ -7612,17 +7618,23 @@ paths:
           required: true
           schema:
             type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpdateRepositorySecretRequest'
       security:
         - tokenAuth: []
         - bearerAuth: []
         - sessionCookie: []
       responses:
         '200':
-          description: Successful response
+          description: Secret scope and binding updated. Metadata only, never the value.
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/AnyJSON'
+                $ref: '#/components/schemas/SecretMetadata'
         '400':
           $ref: '#/components/responses/BadRequest'
         '401':
@@ -12421,17 +12433,23 @@ paths:
           required: true
           schema:
             type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SetRepositorySecretRequest'
       security:
         - tokenAuth: []
         - bearerAuth: []
         - sessionCookie: []
       responses:
-        '200':
-          description: Successful response
+        '201':
+          description: Secret stored. Metadata only, never the value.
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/AnyJSON'
+                $ref: '#/components/schemas/SecretMetadata'
         '400':
           $ref: '#/components/responses/BadRequest'
         '401':
@@ -17628,11 +17646,19 @@ paths:
         - sessionCookie: []
       responses:
         '200':
-          description: Successful response
+          description: Local mode proxies the request to the workspace's loopback service; the status, headers and body are the guest service's.
           content:
-            application/json:
+            '*/*':
               schema:
-                $ref: '#/components/schemas/AnyJSON'
+                type: string
+                format: binary
+        '307':
+          description: 'Hosted mode redirects to the preview gateway with the requested path and query under the routed base. When the backend mints preview tickets, the Location carries a short-lived exchange ticket (`__smithers_preview_ticket`) and the response sets `Cache-Control: no-store` and `Referrer-Policy: no-referrer`.'
+          headers:
+            Location:
+              description: Hosted preview gateway URL, ticketed when the backend mints preview tickets. It is a credential; never log or cache it.
+              schema:
+                type: string
         '400':
           $ref: '#/components/responses/BadRequest'
         '401':
@@ -17685,11 +17711,19 @@ paths:
         - sessionCookie: []
       responses:
         '200':
-          description: Successful response
+          description: Local mode proxies the request to the workspace's loopback service; the status, headers and body are the guest service's.
           content:
-            application/json:
+            '*/*':
               schema:
-                $ref: '#/components/schemas/AnyJSON'
+                type: string
+                format: binary
+        '307':
+          description: 'Hosted mode redirects to the preview gateway with the requested path and query under the routed base. When the backend mints preview tickets, the Location carries a short-lived exchange ticket (`__smithers_preview_ticket`) and the response sets `Cache-Control: no-store` and `Referrer-Policy: no-referrer`.'
+          headers:
+            Location:
+              description: Hosted preview gateway URL, ticketed when the backend mints preview tickets. It is a credential; never log or cache it.
+              schema:
+                type: string
         '400':
           $ref: '#/components/responses/BadRequest'
         '401':
@@ -23132,6 +23166,81 @@ components:
         created_at:
           type: string
           format: date-time
+    SecretBindingHosts:
+      type: array
+      description: Hosts the secret may be sent to. Goes with `match_headers`; both empty unbinds the secret.
+      items:
+        type: string
+    SecretBindingMatchHeaders:
+      type: array
+      description: Request headers the secret may be sent in. Goes with `hosts`; both empty unbinds the secret.
+      items:
+        type: string
+    SetRepositorySecretRequest:
+      type: object
+      description: Sets a repository secret. `hosts` and `match_headers` go together, both or neither. An omitted `main_only` or binding keeps a replaced secret's scope or binding.
+      required: [name, value]
+      properties:
+        name:
+          type: string
+        value:
+          type: string
+        main_only:
+          type: boolean
+          description: Limits the secret to trusted runs on the default bookmark.
+        hosts:
+          $ref: '#/components/schemas/SecretBindingHosts'
+        match_headers:
+          $ref: '#/components/schemas/SecretBindingMatchHeaders'
+    SetOrganizationSecretRequest:
+      type: object
+      description: Sets an organization secret. `hosts` and `match_headers` go together, both or neither. An omitted binding keeps a replaced secret's binding.
+      required: [name, value]
+      properties:
+        name:
+          type: string
+        value:
+          type: string
+        hosts:
+          $ref: '#/components/schemas/SecretBindingHosts'
+        match_headers:
+          $ref: '#/components/schemas/SecretBindingMatchHeaders'
+    UpdateRepositorySecretRequest:
+      type: object
+      description: Changes a repository secret's scope and binding without its value. Names `main_only`, a binding, or both. `hosts` and `match_headers` go together, both or neither.
+      properties:
+        main_only:
+          type: boolean
+          description: Limits the secret to trusted runs on the default bookmark.
+        hosts:
+          $ref: '#/components/schemas/SecretBindingHosts'
+        match_headers:
+          $ref: '#/components/schemas/SecretBindingMatchHeaders'
+    SecretMetadata:
+      type: object
+      description: A secret's metadata. It never carries the value.
+      required: [name, created_at, updated_at, main_only, hosts, match_headers]
+      properties:
+        name:
+          type: string
+        created_at:
+          type: string
+        updated_at:
+          type: string
+        reconnect_required:
+          type: boolean
+          description: Present and true when the secret holds a subscription token this deployment refuses to use. Replacing or deleting the secret clears it.
+        main_only:
+          type: boolean
+          description: True when the secret reaches only trusted runs on the default bookmark. Always false for an organization secret.
+        hosts:
+          type: array
+          items:
+            type: string
+        match_headers:
+          type: array
+          items:
+            type: string
     AdminCreditGrantRequest:
       type: object
       additionalProperties: false

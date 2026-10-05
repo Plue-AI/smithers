@@ -393,6 +393,7 @@
   {"id":"get_api_todos","method":"GET","path":"/api/todos"},
   {"id":"post_api_todos","method":"POST","path":"/api/todos"},
   {"id":"get_api_todos_n","method":"GET","path":"/api/todos/{n}"},
+  {"id":"post_api_todos_n","method":"POST","path":"/api/todos/{n}"},
   {"id":"post_api_todos_n_merge","method":"POST","path":"/api/todos/{n}/merge"},
   {"id":"post_api_todos_n_answer","method":"POST","path":"/api/todos/{n}/answer"},
   {"id":"delete_api_user_connections_id","method":"DELETE","path":"/api/user/connections/{id}"},

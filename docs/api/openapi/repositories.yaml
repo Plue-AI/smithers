@@ -1497,17 +1497,23 @@ paths:
           required: true
           schema:
             type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpdateRepositorySecretRequest'
       security:
         - tokenAuth: []
         - bearerAuth: []
         - sessionCookie: []
       responses:
         '200':
-          description: Successful response
+          description: Secret scope and binding updated. Metadata only, never the value.
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/AnyJSON'
+                $ref: '#/components/schemas/SecretMetadata'
         '400':
           $ref: '#/components/responses/BadRequest'
         '401':
@@ -6306,17 +6312,23 @@ paths:
           required: true
           schema:
             type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SetRepositorySecretRequest'
       security:
         - tokenAuth: []
         - bearerAuth: []
         - sessionCookie: []
       responses:
-        '200':
-          description: Successful response
+        '201':
+          description: Secret stored. Metadata only, never the value.
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/AnyJSON'
+                $ref: '#/components/schemas/SecretMetadata'
         '400':
           $ref: '#/components/responses/BadRequest'
         '401':
@@ -11513,11 +11525,19 @@ paths:
         - sessionCookie: []
       responses:
         '200':
-          description: Successful response
+          description: Local mode proxies the request to the workspace's loopback service; the status, headers and body are the guest service's.
           content:
-            application/json:
+            '*/*':
               schema:
-                $ref: '#/components/schemas/AnyJSON'
+                type: string
+                format: binary
+        '307':
+          description: 'Hosted mode redirects to the preview gateway with the requested path and query under the routed base. When the backend mints preview tickets, the Location carries a short-lived exchange ticket (`__smithers_preview_ticket`) and the response sets `Cache-Control: no-store` and `Referrer-Policy: no-referrer`.'
+          headers:
+            Location:
+              description: Hosted preview gateway URL, ticketed when the backend mints preview tickets. It is a credential; never log or cache it.
+              schema:
+                type: string
         '400':
           $ref: '#/components/responses/BadRequest'
         '401':
@@ -11570,11 +11590,19 @@ paths:
         - sessionCookie: []
       responses:
         '200':
-          description: Successful response
+          description: Local mode proxies the request to the workspace's loopback service; the status, headers and body are the guest service's.
           content:
-            application/json:
+            '*/*':
               schema:
-                $ref: '#/components/schemas/AnyJSON'
+                type: string
+                format: binary
+        '307':
+          description: 'Hosted mode redirects to the preview gateway with the requested path and query under the routed base. When the backend mints preview tickets, the Location carries a short-lived exchange ticket (`__smithers_preview_ticket`) and the response sets `Cache-Control: no-store` and `Referrer-Policy: no-referrer`.'
+          headers:
+            Location:
+              description: Hosted preview gateway URL, ticketed when the backend mints preview tickets. It is a credential; never log or cache it.
+              schema:
+                type: string
         '400':
           $ref: '#/components/responses/BadRequest'
         '401':

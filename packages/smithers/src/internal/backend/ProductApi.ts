@@ -478,6 +478,47 @@ export type SSHKey = {
   created_at: string
 }
 
+/** Hosts the secret may be sent to. Goes with `match_headers`; both empty unbinds the secret. */
+export type SecretBindingHosts = Array<string>
+
+/** Request headers the secret may be sent in. Goes with `hosts`; both empty unbinds the secret. */
+export type SecretBindingMatchHeaders = Array<string>
+
+/** Sets a repository secret. `hosts` and `match_headers` go together, both or neither. An omitted `main_only` or binding keeps a replaced secret's scope or binding. */
+export type SetRepositorySecretRequest = {
+  name: string
+  value: string
+  main_only?: boolean
+  hosts?: SecretBindingHosts
+  match_headers?: SecretBindingMatchHeaders
+}
+
+/** Sets an organization secret. `hosts` and `match_headers` go together, both or neither. An omitted binding keeps a replaced secret's binding. */
+export type SetOrganizationSecretRequest = {
+  name: string
+  value: string
+  hosts?: SecretBindingHosts
+  match_headers?: SecretBindingMatchHeaders
+}
+
+/** Changes a repository secret's scope and binding without its value. Names `main_only`, a binding, or both. `hosts` and `match_headers` go together, both or neither. */
+export type UpdateRepositorySecretRequest = {
+  main_only?: boolean
+  hosts?: SecretBindingHosts
+  match_headers?: SecretBindingMatchHeaders
+}
+
+/** A secret's metadata. It never carries the value. */
+export type SecretMetadata = {
+  name: string
+  created_at: string
+  updated_at: string
+  reconnect_required?: boolean
+  main_only: boolean
+  hosts: Array<string>
+  match_headers: Array<string>
+}
+
 export type AdminCreditGrantRequest = {
   login: string
   amountUsd: number
@@ -2111,15 +2152,18 @@ export interface GetApiOrgsOrgSecretsInput {
 export const getApiOrgsOrgSecrets = (transport: Transport, input: GetApiOrgsOrgSecretsInput): Promise<GetApiOrgsOrgSecretsResponse> =>
   transport.request("GET", `/api/orgs/${segment(input.path.org)}/secrets`) as Promise<GetApiOrgsOrgSecretsResponse>
 
-export type PostApiOrgsOrgSecretsResponse = AnyJSON
+export type PostApiOrgsOrgSecretsBody = SetOrganizationSecretRequest
+
+export type PostApiOrgsOrgSecretsResponse = SecretMetadata
 
 export interface PostApiOrgsOrgSecretsInput {
   readonly path: { readonly org: string }
+  readonly body: PostApiOrgsOrgSecretsBody
 }
 
 /** POST /api/orgs/{org}/secrets */
 export const postApiOrgsOrgSecrets = (transport: Transport, input: PostApiOrgsOrgSecretsInput): Promise<PostApiOrgsOrgSecretsResponse> =>
-  transport.request("POST", `/api/orgs/${segment(input.path.org)}/secrets`) as Promise<PostApiOrgsOrgSecretsResponse>
+  transport.request("POST", `/api/orgs/${segment(input.path.org)}/secrets`, input.body) as Promise<PostApiOrgsOrgSecretsResponse>
 
 export type GetApiOrgsOrgTeamsResponse = AnyJSON
 
@@ -2545,15 +2589,18 @@ export interface DeleteApiReposOwnerRepoSecretsNameInput {
 export const deleteApiReposOwnerRepoSecretsName = (transport: Transport, input: DeleteApiReposOwnerRepoSecretsNameInput): Promise<void> =>
   transport.request("DELETE", `/api/repos/${segment(input.path.owner)}/${segment(input.path.repo)}/secrets/${segment(input.path.name)}`).then(() => undefined)
 
-export type PatchApiReposOwnerRepoSecretsNameResponse = AnyJSON
+export type PatchApiReposOwnerRepoSecretsNameBody = UpdateRepositorySecretRequest
+
+export type PatchApiReposOwnerRepoSecretsNameResponse = SecretMetadata
 
 export interface PatchApiReposOwnerRepoSecretsNameInput {
   readonly path: { readonly owner: string; readonly repo: string; readonly name: string }
+  readonly body: PatchApiReposOwnerRepoSecretsNameBody
 }
 
 /** PATCH /api/repos/{owner}/{repo}/secrets/{name} */
 export const patchApiReposOwnerRepoSecretsName = (transport: Transport, input: PatchApiReposOwnerRepoSecretsNameInput): Promise<PatchApiReposOwnerRepoSecretsNameResponse> =>
-  transport.request("PATCH", `/api/repos/${segment(input.path.owner)}/${segment(input.path.repo)}/secrets/${segment(input.path.name)}`) as Promise<PatchApiReposOwnerRepoSecretsNameResponse>
+  transport.request("PATCH", `/api/repos/${segment(input.path.owner)}/${segment(input.path.repo)}/secrets/${segment(input.path.name)}`, input.body) as Promise<PatchApiReposOwnerRepoSecretsNameResponse>
 
 export type GetApiReposOwnerRepoStacksActiveResponse = AnyJSON
 
@@ -3572,15 +3619,18 @@ export interface GetApiReposOwnerRepoSecretsInput {
 export const getApiReposOwnerRepoSecrets = (transport: Transport, input: GetApiReposOwnerRepoSecretsInput): Promise<GetApiReposOwnerRepoSecretsResponse> =>
   transport.request("GET", `/api/repos/${segment(input.path.owner)}/${segment(input.path.repo)}/secrets`) as Promise<GetApiReposOwnerRepoSecretsResponse>
 
-export type PostApiReposOwnerRepoSecretsResponse = AnyJSON
+export type PostApiReposOwnerRepoSecretsBody = SetRepositorySecretRequest
+
+export type PostApiReposOwnerRepoSecretsResponse = SecretMetadata
 
 export interface PostApiReposOwnerRepoSecretsInput {
   readonly path: { readonly owner: string; readonly repo: string }
+  readonly body: PostApiReposOwnerRepoSecretsBody
 }
 
 /** POST /api/repos/{owner}/{repo}/secrets */
 export const postApiReposOwnerRepoSecrets = (transport: Transport, input: PostApiReposOwnerRepoSecretsInput): Promise<PostApiReposOwnerRepoSecretsResponse> =>
-  transport.request("POST", `/api/repos/${segment(input.path.owner)}/${segment(input.path.repo)}/secrets`) as Promise<PostApiReposOwnerRepoSecretsResponse>
+  transport.request("POST", `/api/repos/${segment(input.path.owner)}/${segment(input.path.repo)}/secrets`, input.body) as Promise<PostApiReposOwnerRepoSecretsResponse>
 
 export type GetApiReposOwnerRepoStatusResponse = AnyJSON
 
@@ -4691,25 +4741,21 @@ export interface GetApiReposOwnerRepoWorkspacesIdCommandRunsOperationInput {
 export const getApiReposOwnerRepoWorkspacesIdCommandRunsOperation = (transport: Transport, input: GetApiReposOwnerRepoWorkspacesIdCommandRunsOperationInput): Promise<GetApiReposOwnerRepoWorkspacesIdCommandRunsOperationResponse> =>
   transport.request("GET", `/api/repos/${segment(input.path.owner)}/${segment(input.path.repo)}/workspaces/${segment(input.path.id)}/command-runs/${segment(input.path.operationID)}`) as Promise<GetApiReposOwnerRepoWorkspacesIdCommandRunsOperationResponse>
 
-export type GetApiReposOwnerRepoWorkspacesIdPreviewPortResponse = AnyJSON
-
 export interface GetApiReposOwnerRepoWorkspacesIdPreviewPortInput {
   readonly path: { readonly owner: string; readonly repo: string; readonly id: string; readonly port: string }
 }
 
 /** GET /api/repos/{owner}/{repo}/workspaces/{id}/preview/{port} */
-export const getApiReposOwnerRepoWorkspacesIdPreviewPort = (transport: Transport, input: GetApiReposOwnerRepoWorkspacesIdPreviewPortInput): Promise<GetApiReposOwnerRepoWorkspacesIdPreviewPortResponse> =>
-  transport.request("GET", `/api/repos/${segment(input.path.owner)}/${segment(input.path.repo)}/workspaces/${segment(input.path.id)}/preview/${segment(input.path.port)}`) as Promise<GetApiReposOwnerRepoWorkspacesIdPreviewPortResponse>
-
-export type GetApiReposOwnerRepoWorkspacesIdPreviewPortPathResponse = AnyJSON
+export const getApiReposOwnerRepoWorkspacesIdPreviewPort = (transport: Transport, input: GetApiReposOwnerRepoWorkspacesIdPreviewPortInput): Promise<Response> =>
+  transport.response("GET", `/api/repos/${segment(input.path.owner)}/${segment(input.path.repo)}/workspaces/${segment(input.path.id)}/preview/${segment(input.path.port)}`)
 
 export interface GetApiReposOwnerRepoWorkspacesIdPreviewPortPathInput {
   readonly path: { readonly owner: string; readonly repo: string; readonly id: string; readonly port: string; readonly path: string }
 }
 
 /** GET /api/repos/{owner}/{repo}/workspaces/{id}/preview/{port}/{path} */
-export const getApiReposOwnerRepoWorkspacesIdPreviewPortPath = (transport: Transport, input: GetApiReposOwnerRepoWorkspacesIdPreviewPortPathInput): Promise<GetApiReposOwnerRepoWorkspacesIdPreviewPortPathResponse> =>
-  transport.request("GET", `/api/repos/${segment(input.path.owner)}/${segment(input.path.repo)}/workspaces/${segment(input.path.id)}/preview/${segment(input.path.port)}/${segment(input.path.path)}`) as Promise<GetApiReposOwnerRepoWorkspacesIdPreviewPortPathResponse>
+export const getApiReposOwnerRepoWorkspacesIdPreviewPortPath = (transport: Transport, input: GetApiReposOwnerRepoWorkspacesIdPreviewPortPathInput): Promise<Response> =>
+  transport.response("GET", `/api/repos/${segment(input.path.owner)}/${segment(input.path.repo)}/workspaces/${segment(input.path.id)}/preview/${segment(input.path.port)}/${segment(input.path.path)}`)
 
 export type GetApiReposOwnerRepoWorkspacesIdServicesPortVisibilityResponse = AnyJSON
 
