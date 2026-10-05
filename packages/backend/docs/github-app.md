@@ -141,3 +141,27 @@ forgets ETags and retains pending delivery identities. Shared pull-stream pauses
 are checked before minting and retain their absolute retry deadline. Check and
 review reads, webhook wakeups for individual TODOs and complete freshness
 acceptance remain outstanding.
+
+Conversation comments use the repository-wide `issues/comments` stream every
+45 seconds. The existing pager requests `sort=updated&direction=desc` with
+100 comments per page and the same exclusive-since overlap as issues, following
+[GitHub's repository comment parameters](https://docs.github.com/en/rest/issues/comments#list-issue-comments-for-a-repository).
+It continues past unchanged full pages to retain equal-timestamp edits on later
+pages. The cursor and ETags advance only after the complete interval commits.
+
+Comment payloads and versioned delivery requests commit together in the existing
+comment cache and product jobs. The fetched issue URL must match the configured
+API origin and repository; it is parsed only as identity data. Initial batches
+are admitted oldest first, with a stable comment-id tie break. Older responses
+cannot replace newer cached comments, and a comment id cannot move to another
+issue. Edits retain their object identity for the eventual consumer to decide
+whether held input may still change.
+
+Signed issue-comment webhooks request an immediate comment fetch without
+postponing the regular cadence or applying their payload. Low remaining budget
+does not stretch this stream; its own rate-limit pause still applies. Restart
+rereads the stream and reuses durable delivery identities. Consumer effects and
+acknowledgements use the shared transaction boundary. Effective TODO steering
+remains disabled until its providers qualify. Incremental absence does not prove
+a deletion; authoritative comment tombstones and review-comment storage remain
+outstanding.

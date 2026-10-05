@@ -24138,6 +24138,10 @@
       },
       {
         "kind": "file",
+        "path": "packages/backend/internal/services/github_synced_comments.go"
+      },
+      {
+        "kind": "file",
         "path": "packages/backend/internal/services/mythical_github_poll.go"
       },
       {

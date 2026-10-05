@@ -38,7 +38,7 @@ func (s *GitHubSyncedRepoService) advanceUpdatedCursor(row db.GithubSyncedRepo, 
 		state.updated = newest
 		s.install.streams[key] = state
 	}
-	if resource != GitHubRepoMetadataIssues || state.updated.IsZero() {
+	if (resource != GitHubRepoMetadataIssues && resource != gitHubConversationComments) || state.updated.IsZero() {
 		return
 	}
 	since := githubUpdatedBoundary(state.updated).Format(time.RFC3339)

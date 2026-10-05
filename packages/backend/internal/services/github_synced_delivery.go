@@ -109,7 +109,7 @@ func (s *GitHubSyncedRepoService) commitFetched(ctx context.Context, row db.Gith
 	if err := s.authorizeFetched(ctx, row); err != nil {
 		return err
 	}
-	if resource != GitHubRepoMetadataIssues && resource != GitHubRepoMetadataPulls {
+	if resource != GitHubRepoMetadataIssues && resource != GitHubRepoMetadataPulls && resource != gitHubConversationComments {
 		return fmt.Errorf("unsupported fetched resource %q", resource)
 	}
 	return pgx.BeginFunc(ctx, s.install.pool, func(tx pgx.Tx) error {
@@ -126,6 +126,9 @@ func (s *GitHubSyncedRepoService) commitFetched(ctx context.Context, row db.Gith
 			return err
 		}
 
+		if resource == gitHubConversationComments {
+			return s.commitFetchedComments(ctx, tx, row, objects)
+		}
 		for _, object := range objects {
 			if err := s.commitFetchedIssue(ctx, tx, row, resource, object); err != nil {
 				return err
@@ -160,16 +163,20 @@ func (s *GitHubSyncedRepoService) commitFetchedIssue(ctx context.Context, tx pgx
 	if _, err := writer.storeSyncedIssue(ctx, row.ID, resource, canonical); err != nil {
 		return err
 	}
+	return s.admitFetchedObject(ctx, tx, row, resource, header.ID, header.Number, canonical)
+}
+
+func (s *GitHubSyncedRepoService) admitFetchedObject(ctx context.Context, tx pgx.Tx, row db.GithubSyncedRepo, resource string, id, number int64, canonical json.RawMessage) error {
 	hash := sha256.Sum256(canonical)
 	version := hex.EncodeToString(hash[:])
-	fact := gitHubFetchedObject{GitHubRepository: row.GithubRepositoryID.Int64, Installation: row.InstallationID.Int64, Repo: row.ID, Resource: resource, Number: header.Number, Version: version, Object: canonical}
+	fact := gitHubFetchedObject{GitHubRepository: row.GithubRepositoryID.Int64, Installation: row.InstallationID.Int64, Repo: row.ID, Resource: resource, Number: number, Version: version, Object: canonical}
 	payload, err := json.Marshal(fact)
 	if err != nil {
 		return err
 	}
 	_, err = s.install.jobs.AdmitInTx(ctx, tx, jobs.Admission{
 		Scope:     jobs.Scope{TenantID: "github:" + strconv.FormatInt(row.InstallationID.Int64, 10) + ":" + strconv.FormatInt(row.GithubRepositoryID.Int64, 10), PrincipalID: resource},
-		Operation: githubFetchedOperation, RequestID: strconv.FormatInt(header.ID, 10) + ":" + version,
+		Operation: githubFetchedOperation, RequestID: strconv.FormatInt(id, 10) + ":" + version,
 		Payload: payload, AuthorizationContext: json.RawMessage(`{}`), EffectPolicy: jobs.EffectIdempotent,
 	})
 	if err != nil {

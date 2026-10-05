@@ -1172,12 +1172,14 @@ func (s *GitHubSyncedRepoService) backfillResource(ctx context.Context, row db.G
 		query := url.Values{}
 		// state=all: the store holds both open and closed rows and filters on
 		// read, so one backfill serves every state the proxy can be asked for.
-		query.Set("state", "all")
+		if resource != gitHubConversationComments {
+			query.Set("state", "all")
+		}
 		query.Set("sort", "updated")
 		query.Set("direction", "desc")
 		query.Set("per_page", strconv.Itoa(pageSize))
 		query.Set("page", strconv.Itoa(page))
-		if s.install != nil && resource == GitHubRepoMetadataIssues && !boundary.IsZero() {
+		if s.install != nil && (resource == GitHubRepoMetadataIssues || resource == gitHubConversationComments) && !boundary.IsZero() {
 			query.Set("since", boundary.Format(time.RFC3339))
 		}
 
@@ -1194,27 +1196,30 @@ func (s *GitHubSyncedRepoService) backfillResource(ctx context.Context, row db.G
 		}
 		var objects []json.RawMessage
 		if err := json.Unmarshal(body, &objects); err != nil {
+			if s.install != nil {
+				return pkgerrors.New(pkgerrors.CodeGitHubUnavailable, "GitHub returned an invalid page").WithCause(err)
+			}
 			return fmt.Errorf("decode github %s page: %w", resource, err)
 		}
 		if s.install != nil && objects == nil {
-			return fmt.Errorf("invalid github %s page", resource)
+			return pkgerrors.New(pkgerrors.CodeGitHubUnavailable, fmt.Sprintf("invalid github %s page", resource))
 		}
 		reachedBoundary := false
 		for _, object := range objects {
 			if s.install != nil {
-				var header gitHubIssueHeader
-				if json.Unmarshal(object, &header) != nil || header.ID <= 0 || header.Number <= 0 {
-					return fmt.Errorf("invalid fetched GitHub %s object", resource)
+				header, err := fetchedObjectHeader(row, resource, object)
+				if err != nil {
+					return err
 				}
 				updated := parseGitHubTimestamp(header.UpdatedAt)
 				if !updated.Valid {
-					return fmt.Errorf("invalid fetched GitHub %s timestamp", resource)
+					return pkgerrors.New(pkgerrors.CodeGitHubUnavailable, fmt.Sprintf("invalid fetched GitHub %s timestamp", resource))
 				}
 				// Page shifts can repeat an already-read object. Only an exact
 				// timestamp repeat is exempt from the newest-first order check.
 				if first, ok := observed[header.ID]; !ok || !first.Equal(updated.Time) {
 					if !previous.IsZero() && updated.Time.After(previous) {
-						return fmt.Errorf("GitHub %s are not newest first", resource)
+						return pkgerrors.New(pkgerrors.CodeGitHubUnavailable, fmt.Sprintf("GitHub %s are not newest first", resource))
 					}
 					previous = updated.Time
 					observed[header.ID] = updated.Time
@@ -1508,9 +1513,11 @@ type gitHubIssueHeader struct {
 }
 
 type gitHubCommentHeader struct {
-	ID        int64  `json:"id"`
-	CreatedAt string `json:"created_at"`
-	UpdatedAt string `json:"updated_at"`
+	ID        int64   `json:"id"`
+	IssueURL  string  `json:"issue_url"`
+	Body      *string `json:"body"`
+	CreatedAt string  `json:"created_at"`
+	UpdatedAt string  `json:"updated_at"`
 }
 
 // ApplyIssueEvent applies an `issues` or `pull_request` webhook to the store and
@@ -1553,7 +1560,7 @@ func (s *GitHubSyncedRepoService) ApplyIssueEvent(ctx context.Context, owner, re
 // keeps the per-issue coverage check in ServeComments exact.
 func (s *GitHubSyncedRepoService) ApplyIssueCommentEvent(ctx context.Context, owner, repo string, githubRepoID int64, action string, issue, comment json.RawMessage) error {
 	if s.install != nil {
-		return s.requestInstallFetch(ctx, githubRepoID)
+		return s.requestInstallFetch(ctx, githubRepoID, gitHubConversationComments)
 	}
 	row, ok, err := s.lookupEnrolled(ctx, owner, repo, githubRepoID)
 	if err != nil || !ok {

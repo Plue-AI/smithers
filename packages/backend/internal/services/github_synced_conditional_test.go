@@ -36,17 +36,17 @@ func TestGitHubConditionalCommitRetryAndRestart(t *testing.T) {
 	require.NoError(t, s.backfill(ctx, row, nil))
 	require.NoError(t, s.backfill(ctx, row, nil))
 	reads := upstream.Reads()
-	require.Len(t, reads, 6)
-	for i := range 3 {
+	require.Len(t, reads, 8)
+	for i := range 4 {
 		require.Equal(t, 200, reads[i].Status)
 		require.Empty(t, reads[i].IfNoneMatch)
 		if i == 0 {
-			require.Contains(t, reads[i+3].Path, "since=", "first issue cursor changes the URL once")
-			require.Equal(t, 200, reads[i+3].Status)
+			require.Contains(t, reads[i+4].Path, "since=", "first issue cursor changes the URL once")
+			require.Equal(t, 200, reads[i+4].Status)
 		} else {
-			require.Equal(t, reads[i].Path, reads[i+3].Path, "idle polls keep their URL")
-			require.Equal(t, 304, reads[i+3].Status)
-			require.NotEmpty(t, reads[i+3].IfNoneMatch)
+			require.Equal(t, reads[i].Path, reads[i+4].Path, "idle polls keep their URL")
+			require.Equal(t, 304, reads[i+4].Status)
+			require.NotEmpty(t, reads[i+4].IfNoneMatch)
 		}
 	}
 	require.Len(t, upstream.Writes(), 1, "all streams reuse the scoped token")
@@ -60,10 +60,10 @@ func TestGitHubConditionalCommitRetryAndRestart(t *testing.T) {
 	require.NoError(t, s.backfillIssueEvents(ctx, row, nil))
 	require.NoError(t, s.backfillIssueEvents(ctx, row, nil))
 	reads = upstream.Reads()
-	require.Equal(t, 200, reads[6].Status)
-	require.Equal(t, 200, reads[7].Status, "failed commit must fetch the body again")
-	require.Equal(t, reads[6].IfNoneMatch, reads[7].IfNoneMatch)
-	require.Equal(t, 304, reads[8].Status)
+	require.Equal(t, 200, reads[8].Status)
+	require.Equal(t, 200, reads[9].Status, "failed commit must fetch the body again")
+	require.Equal(t, reads[8].IfNoneMatch, reads[9].IfNoneMatch)
+	require.Equal(t, 304, reads[10].Status)
 	require.Equal(t, 2, fetchedCount(t, pool, `SELECT count(*) FROM product_job_requests WHERE principal_id='issues/events'`))
 	fresh := NewGitHubSyncedRepoService(db.New(pool))
 	require.NoError(t, fresh.ConfigureInstallSync(pool))
@@ -71,8 +71,8 @@ func TestGitHubConditionalCommitRetryAndRestart(t *testing.T) {
 	fresh.SetConditionalFetcherFactory(client.SyncedRepoConditionalFetcherFactory(minter))
 	require.NoError(t, fresh.backfillIssueEvents(ctx, row, nil))
 	reads = upstream.Reads()
-	require.Empty(t, reads[9].IfNoneMatch)
-	require.Equal(t, 200, reads[9].Status)
+	require.Empty(t, reads[11].IfNoneMatch)
+	require.Equal(t, 200, reads[11].Status)
 	require.Equal(t, 2, fetchedCount(t, pool, `SELECT count(*) FROM product_job_requests WHERE principal_id='issues/events'`), "durable cursor prevents replay after ETags are lost")
 }
 

@@ -3,9 +3,9 @@
   "producer": null,
   "output": {
     "path": "packages/backend/docs/github-app.md",
-    "digest": "6914fccdd917661e40e7260b5d763e83b7b420aa896672f1f38e893f8aeb433b"
+    "digest": "1f75a466525c7ea20fee2665a81ad93e912727c7ea964f0987e1a4331976a4ab"
   },
-  "closure": "8060617a14fbe6631b397ebd253f3aa8abc16e80c83fd064e1b9b3d2b5ca79d5",
+  "closure": "fb894f71b499cf2fe2377a2dbe5136cb99bfce3e2aa945eaecc0a447611e085a",
   "inputs": [
     {
       "path": "docs/api/openapi/install.yaml",
@@ -120,16 +120,20 @@
       "digest": "e7795bc5f2167949ac074b426ae189d6c3af6d3475480fcdd7ab588855a2a587"
     },
     {
+      "path": "packages/backend/internal/services/github_synced_comments.go",
+      "digest": "4bbedc18651c6b6e8e46c67f606ec254935af4753ee7fb02cf29d39e7fcd93be"
+    },
+    {
       "path": "packages/backend/internal/services/github_synced_conditional.go",
-      "digest": "998109f662e6f7265dde9081f38d8d7dda7c647c7fedeb9a5cb415ea3a8e517b"
+      "digest": "00a81b1d1edee294678a33a990c00905cbadf8bdc4326a722983d97a1c9e9dbd"
     },
     {
       "path": "packages/backend/internal/services/github_synced_cursor.go",
-      "digest": "4becb6d8c37cc729099cf857ee6b10a8919c1dd7c6f119d619975dd740bd6424"
+      "digest": "aebbd42e479e76724960bc3214360eddcb37aa8b76c8d26990e4cfb3e6625a8c"
     },
     {
       "path": "packages/backend/internal/services/github_synced_delivery.go",
-      "digest": "8de2d9698d987b4bb1889cd9869209717112dfc2e9100162d65ea83ee3e4fd68"
+      "digest": "965adcd91cedd4d7881adb402acddcc24e6e87cf2beb6bdb3c01f54d1e8919fe"
     },
     {
       "path": "packages/backend/internal/services/github_synced_events.go",
@@ -137,7 +141,7 @@
     },
     {
       "path": "packages/backend/internal/services/github_synced_poll.go",
-      "digest": "0c11920eb6400242fbcfc71bfd32e719d31827c58593e73e789413cf65820049"
+      "digest": "daacdfd61dea14f6557aa314016c2aa37e427a89a3eff850d45fcd0f2ae75994"
     },
     {
       "path": "packages/backend/internal/services/github_synced_pull.go",
@@ -145,7 +149,7 @@
     },
     {
       "path": "packages/backend/internal/services/github_synced_repos.go",
-      "digest": "041819633a793210588018da773f1b898e07a80a1c73cdd7ef25547bf06b3c1e"
+      "digest": "318c83143ac6b909d2b30fd712b45746eac22643d4468affc672801914fd57db"
     },
     {
       "path": "packages/backend/internal/services/github_user_repos.go",

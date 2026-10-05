@@ -20,16 +20,17 @@ import (
 )
 
 type installPollFixture struct {
-	t           *testing.T
-	service     *GitHubSyncedRepoService
-	pool        *pgxpool.Pool
-	row         db.GithubSyncedRepo
-	upstream    *githubfake.Server
-	clock       atomic.Int64
-	low         atomic.Bool
-	refuseIssue atomic.Int64
-	mu          sync.Mutex
-	paths       []string
+	t              *testing.T
+	service        *GitHubSyncedRepoService
+	pool           *pgxpool.Pool
+	row            db.GithubSyncedRepo
+	upstream       *githubfake.Server
+	clock          atomic.Int64
+	low            atomic.Bool
+	refuseIssue    atomic.Int64
+	refuseComments atomic.Int64
+	mu             sync.Mutex
+	paths          []string
 }
 
 func newInstallPollFixture(t *testing.T) *installPollFixture {
@@ -63,7 +64,14 @@ func newInstallPollFixture(t *testing.T) *installPollFixture {
 		if f.clock.Load() >= 1300 {
 			w.Header().Set("X-RateLimit-Reset", "4600")
 		}
-		if code := f.refuseIssue.Load(); code != 0 && r.URL.Path == "/repos/acme/app/issues" {
+		code := int64(0)
+		if r.URL.Path == "/repos/acme/app/issues" {
+			code = f.refuseIssue.Load()
+		}
+		if r.URL.Path == "/repos/acme/app/issues/comments" {
+			code = f.refuseComments.Load()
+		}
+		if code != 0 {
 			w.Header().Set("Retry-After", "50")
 			w.WriteHeader(int(code))
 			_, _ = w.Write([]byte(`{"message":"secondary rate limit"}`))
@@ -109,10 +117,10 @@ func (f *installPollFixture) poll(at int64, want ...string) {
 func TestGitHubInstallMetadataCadencesAndWebhookHints(t *testing.T) {
 	f := newInstallPollFixture(t)
 	ctx := context.Background()
-	f.poll(0, "issues", "pulls", "issues/events")
+	f.poll(0, "issues", "pulls", "issues/events", "issues/comments")
 	f.poll(44)
-	f.poll(45, "pulls")
-	f.poll(90, "pulls")
+	f.poll(45, "pulls", "issues/comments")
+	f.poll(90, "pulls", "issues/comments")
 	f.poll(119)
 	f.poll(120, "issues", "issues/events")
 	f.clock.Store(1130)
@@ -121,16 +129,16 @@ func TestGitHubInstallMetadataCadencesAndWebhookHints(t *testing.T) {
 	}
 	f.poll(130, "pulls")
 	f.poll(134)
-	f.poll(135, "pulls") // The hint did not postpone the existing 45-second cadence.
+	f.poll(135, "pulls", "issues/comments") // The hint did not postpone the existing 45-second cadence.
 	f.clock.Store(1140)
 	require.NoError(t, f.service.ApplyIssueEvent(ctx, "acme", "app", 100, "issues", "labeled", json.RawMessage(`{"number":999}`)))
 	f.poll(140, "issues", "issues/events")
-	f.poll(180, "pulls")
-	f.poll(225, "pulls")
+	f.poll(180, "pulls", "issues/comments")
+	f.poll(225, "pulls", "issues/comments")
 	f.poll(240, "issues", "issues/events")
 	require.Zero(t, fetchedCount(t, f.pool, `SELECT count(*) FROM github_synced_issues`), "hint payloads never become objects")
 	reads := f.upstream.Reads()
-	for _, read := range reads[3:] {
+	for _, read := range reads[4:] {
 		require.Equal(t, 304, read.Status)
 		require.NotEmpty(t, read.IfNoneMatch)
 	}
@@ -140,14 +148,14 @@ func TestGitHubInstallMetadataCadencesAndWebhookHints(t *testing.T) {
 func TestGitHubInstallMetadataLowBudgetAndReset(t *testing.T) {
 	f := newInstallPollFixture(t)
 	f.low.Store(true)
-	f.poll(0, "issues", "pulls", "issues/events")
-	f.poll(45, "pulls")
-	f.poll(120, "pulls") // Only low-priority streams stretch to 240 seconds.
-	f.poll(239, "pulls")
+	f.poll(0, "issues", "pulls", "issues/events", "issues/comments")
+	f.poll(45, "pulls", "issues/comments")
+	f.poll(120, "pulls", "issues/comments") // Only low-priority streams stretch to 240 seconds.
+	f.poll(239, "pulls", "issues/comments")
 	f.poll(240, "issues", "issues/events")
 	f.low.Store(false)
-	f.poll(300, "pulls") // Resource reset restores 120-second issue cadence.
-	f.poll(359, "pulls")
+	f.poll(300, "pulls", "issues/comments") // Resource reset restores 120-second issue cadence.
+	f.poll(359, "pulls", "issues/comments")
 	f.poll(360, "issues", "issues/events")
 }
 
@@ -156,18 +164,18 @@ func TestGitHubInstallMetadataPauseIsStreamScoped(t *testing.T) {
 		t.Run(strconv.FormatInt(code, 10), func(t *testing.T) {
 			f := newInstallPollFixture(t)
 			f.refuseIssue.Store(code)
-			f.poll(0, "issues", "pulls", "issues/events")
+			f.poll(0, "issues", "pulls", "issues/events", "issues/comments")
 			ctx := context.Background()
 			f.clock.Store(1010)
 			require.NoError(t, f.service.requestInstallFetch(ctx, 100))
-			f.poll(10, "pulls", "issues/events")
+			f.poll(10, "pulls", "issues/events", "issues/comments")
 			row, err := db.New(f.pool).GetGitHubSyncedRepoByGitHubID(ctx, f.row.GithubRepositoryID)
 			require.NoError(t, err)
 			require.Equal(t, "error", row.SyncState, "successful streams cannot erase the issue refusal")
-			f.poll(49, "pulls")
+			f.poll(49, "pulls", "issues/comments")
 			f.refuseIssue.Store(0)
 			f.poll(50, "issues") // The pending hint and retry boundary survive the pause.
-			f.poll(119, "pulls")
+			f.poll(119, "pulls", "issues/comments")
 			f.poll(120, "issues", "issues/events")
 			row, err = db.New(f.pool).GetGitHubSyncedRepoByGitHubID(ctx, f.row.GithubRepositoryID)
 			require.NoError(t, err)
@@ -179,7 +187,7 @@ func TestGitHubInstallMetadataPauseIsStreamScoped(t *testing.T) {
 func TestGitHubInstallMetadataClaimRetainsHintsAndRestartForgetsCadences(t *testing.T) {
 	f := newInstallPollFixture(t)
 	ctx := context.Background()
-	f.poll(0, "issues", "pulls", "issues/events")
+	f.poll(0, "issues", "pulls", "issues/events", "issues/comments")
 	f.clock.Store(1010)
 	require.NoError(t, f.service.requestInstallFetch(ctx, 100, "pulls"))
 	_, err := f.pool.Exec(ctx, `UPDATE github_synced_repos SET syncing_since=NOW() WHERE id=$1`, f.row.ID)
@@ -194,9 +202,9 @@ func TestGitHubInstallMetadataClaimRetainsHintsAndRestartForgetsCadences(t *test
 	allowFetched(fresh)
 	fresh.SetConditionalFetcherFactory(factory)
 	f.service = fresh
-	f.poll(12, "issues", "pulls", "issues/events")
+	f.poll(12, "issues", "pulls", "issues/events", "issues/comments")
 	reads := f.upstream.Reads()
-	for _, read := range reads[len(reads)-3:] {
+	for _, read := range reads[len(reads)-4:] {
 		require.Empty(t, read.IfNoneMatch)
 		require.Equal(t, 200, read.Status)
 	}
@@ -232,9 +240,9 @@ func TestGitHubInstallMetadataWorkerWakesWithoutWaitingForCadence(t *testing.T) 
 		t.Fatal("hint did not wake the existing worker")
 	}
 	reads := f.upstream.Reads()
-	require.Len(t, reads, 4)
-	require.Contains(t, reads[3].Path, "/pulls?")
-	require.Equal(t, 304, reads[3].Status)
+	require.Len(t, reads, 5)
+	require.Contains(t, reads[4].Path, "/pulls?")
+	require.Equal(t, 304, reads[4].Status)
 }
 
 func TestGitHubInstallMetadataUnpolledStreamCannotLookReady(t *testing.T) {
@@ -245,12 +253,12 @@ func TestGitHubInstallMetadataUnpolledStreamCannotLookReady(t *testing.T) {
 	_, err := fetch(ctx, "issues", url.Values{"per_page": {"100"}}, "")
 	require.Error(t, err)
 	f.refuseIssue.Store(0)
-	f.poll(0, "pulls", "issues/events")
+	f.poll(0, "pulls", "issues/events", "issues/comments")
 	row, err := db.New(f.pool).GetGitHubSyncedRepoByGitHubID(ctx, f.row.GithubRepositoryID)
 	require.NoError(t, err)
 	require.Equal(t, "error", row.SyncState)
 	require.False(t, row.LastSyncedAt.Valid, "an initial paused stream has no success receipt")
-	f.poll(50, "issues", "pulls")
+	f.poll(50, "issues", "pulls", "issues/comments")
 	row, err = db.New(f.pool).GetGitHubSyncedRepoByGitHubID(ctx, f.row.GithubRepositoryID)
 	require.NoError(t, err)
 	require.Equal(t, "ready", row.SyncState)
@@ -270,7 +278,7 @@ func TestGitHubInstallMetadataFinishRechecksBindingAndDisable(t *testing.T) {
 			}
 			_, err := f.pool.Exec(ctx, `CREATE FUNCTION change_repo_at_cursor() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN UPDATE github_synced_repos SET `+mutation+`; RETURN NEW; END $$; CREATE TRIGGER change_repo_at_cursor AFTER INSERT ON install_settings FOR EACH ROW EXECUTE FUNCTION change_repo_at_cursor()`)
 			require.NoError(t, err)
-			f.poll(0, "issues", "pulls", "issues/events")
+			f.poll(0, "issues", "pulls", "issues/events", "issues/comments")
 			row, err := db.New(f.pool).GetGitHubSyncedRepoByGitHubID(ctx, f.row.GithubRepositoryID)
 			require.NoError(t, err)
 			require.False(t, row.LastSyncedAt.Valid, "the old binding cannot establish freshness")

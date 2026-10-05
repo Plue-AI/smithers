@@ -45,6 +45,7 @@ type IssueComment struct {
 	ViaApp    bool      `json:"via_app"`
 	Author    string    `json:"author"`
 	CreatedAt time.Time `json:"created_at"`
+	UpdatedAt time.Time `json:"updated_at"`
 }
 
 // IssueView is an issue as GitHub holds it now.
@@ -271,6 +272,7 @@ func (s *Server) issueRequest(r *http.Request, repo string, path []string, body 
 			for i := range comments {
 				if comments[i].ID == id && comments[i].ViaApp {
 					comments[i].Body = input.Body
+					comments[i].UpdatedAt = time.Now().UTC()
 					s.comments[key] = comments
 					return 200, map[string]any{"id": id, "body": input.Body}, true
 				}
@@ -278,6 +280,14 @@ func (s *Server) issueRequest(r *http.Request, repo string, path []string, body 
 		}
 		status, response := failure(404, "comment not found")
 		return status, response, true
+	}
+	if len(path) == 2 && path[1] == "comments" && r.Method == http.MethodGet {
+		if status, response, ok := s.accessible(r, "issues", "read"); !ok {
+			if _, _, canPull := s.accessible(r, "pull_requests", "read"); !canPull {
+				return status, response, true
+			}
+		}
+		return 200, s.repositoryIssueComments(r, repo), true
 	}
 	if len(path) == 2 && path[1] == "events" && r.Method == http.MethodGet {
 		return 200, s.repositoryIssueEvents(r, repo), true
@@ -424,3 +434,78 @@ func (s *Server) issueText(installationID int64, body []byte) (int, any) {
 
 // isIssueTextQuery reports a GraphQL body that reads an issue's text writers.
 func isIssueTextQuery(body []byte) bool { return strings.Contains(string(body), "issueOrPullRequest") }
+
+// UpdateComment changes a fixture comment as a person would, with an explicit
+// timestamp for equal-second edits and cursor boundaries.
+func (s *Server) UpdateComment(repo string, id int64, body string, at time.Time) bool {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	for key, comments := range s.comments {
+		if !strings.HasPrefix(key, repo+"/") {
+			continue
+		}
+		for i := range comments {
+			if comments[i].ID == id {
+				comments[i].Body, comments[i].UpdatedAt = body, at.UTC()
+				s.comments[key] = comments
+				return true
+			}
+		}
+	}
+	return false
+}
+
+// Repository comment reads share GitHub's updated/created sort, direction,
+// exclusive since boundary, paging and the server's conditional-read wrapper.
+func (s *Server) repositoryIssueComments(r *http.Request, repo string) []any {
+	type located struct {
+		number  int64
+		comment IssueComment
+		updated time.Time
+	}
+	var all []located
+	since, _ := time.Parse(time.RFC3339, r.URL.Query().Get("since"))
+	for key, comments := range s.comments {
+		if !strings.HasPrefix(key, repo+"/") {
+			continue
+		}
+		number, err := strconv.ParseInt(strings.TrimPrefix(key, repo+"/"), 10, 64)
+		if err != nil {
+			continue
+		}
+		for _, c := range comments {
+			updated := c.UpdatedAt
+			if updated.IsZero() {
+				updated = c.CreatedAt
+			}
+			if since.IsZero() || updated.After(since) {
+				all = append(all, located{number, c, updated})
+			}
+		}
+	}
+	sort.Slice(all, func(i, j int) bool {
+		a, b := all[i].comment.CreatedAt, all[j].comment.CreatedAt
+		if r.URL.Query().Get("sort") == "updated" {
+			a, b = all[i].updated, all[j].updated
+		}
+		less := a.Before(b)
+		if a.Equal(b) {
+			less = all[i].comment.ID < all[j].comment.ID
+		}
+		if r.URL.Query().Get("sort") != "" && r.URL.Query().Get("direction") == "desc" {
+			return b.Before(a) || a.Equal(b) && all[i].comment.ID > all[j].comment.ID
+		}
+		return less
+	})
+	start, end := pageBounds(r, len(all))
+	out := []any{}
+	scheme := "http"
+	if r.TLS != nil {
+		scheme = "https"
+	}
+	for _, e := range all[start:end] {
+		c := e.comment
+		out = append(out, map[string]any{"id": c.ID, "body": c.Body, "user": s.actor(c.Author, c.ViaApp), "performed_via_github_app": s.viaApp(c.ViaApp), "created_at": c.CreatedAt, "updated_at": e.updated, "issue_url": scheme + "://" + r.Host + "/repos/" + repo + "/issues/" + strconv.FormatInt(e.number, 10)})
+	}
+	return out
+}

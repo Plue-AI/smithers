@@ -11,7 +11,7 @@ import (
 
 // These are the streams with fetched-state storage and delivery contracts.
 // Other streams must join their existing owner loops before activation.
-var installMetadataResources = []string{GitHubRepoMetadataIssues, GitHubRepoMetadataPulls, gitHubIssueEvents}
+var installMetadataResources = []string{GitHubRepoMetadataIssues, GitHubRepoMetadataPulls, gitHubIssueEvents, gitHubConversationComments}
 
 type gitHubPollState struct {
 	updated     time.Time
@@ -27,7 +27,7 @@ type gitHubStreamPlan struct {
 }
 
 func metadataStreamCadence(resource string) time.Duration {
-	if resource == GitHubRepoMetadataPulls {
+	if resource == GitHubRepoMetadataPulls || resource == gitHubConversationComments {
 		return 45 * time.Second
 	}
 	return 120 * time.Second
@@ -36,6 +36,9 @@ func metadataStreamCadence(resource string) time.Duration {
 func metadataBudgetStream(resource string) string {
 	if resource == gitHubIssueEvents {
 		return "issue-events"
+	}
+	if resource == gitHubConversationComments {
+		return "conversation-comments"
 	}
 	return resource
 }
