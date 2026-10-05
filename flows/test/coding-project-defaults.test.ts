@@ -186,7 +186,11 @@ test("a repository with no Smithers files serves coding/request with its detecte
   const { root, stateRoot } = await repository(t, goModule)
   await mkdir(join(root, "flows"))
   const { planning, built } = await startup(root, stateRoot)
-  assert.deepEqual(configuredCodingRoutes({ planning }).map((route) => route.name), ["coding/request", "coding/verify"])
+  assert.deepEqual(configuredCodingRoutes({ planning }).map((route) => route.name), [
+    "coding/request",
+    "coding/verify",
+    "flow-load"
+  ])
   assert.deepEqual(missingCodingExecutables(built, { planning }), [])
   for (const flow of ["checks/test", "checks/lint", "checks/build"]) {
     const entry = built.executables.find((candidate) => candidate.descriptor.name === flow)
