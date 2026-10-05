@@ -3,7 +3,7 @@ import { createServer } from "node:net"
 import { lstatSync, mkdirSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { dirname, join } from "node:path"
-import { freePort, githubBases, layerSnapshots, modelBase, proxyGuard, setupLine, walkHome } from "./run-local-no-github"
+import { freePort, githubBases, layerSnapshots, modelBase, parseArgs, proxyGuard, setupLine, USAGE, walkHome } from "./run-local-no-github"
 import { githubRoute, isManifest } from "../e2e/local/github-route"
 import type { BrowserContext, Route } from "@playwright/test"
 
@@ -14,6 +14,29 @@ describe("local no-GitHub orchestration", () => {
       SMITHERS_MODEL_PROVIDER_ORIGIN: "http://127.0.0.1:8",
       HTTP_PROXY: "http://127.0.0.1:9", ALL_PROXY: "http://127.0.0.1:9", HTTPS_PROXY: "http://127.0.0.1:9", NO_PROXY: "127.0.0.1,localhost,::1"
     })
+  })
+  test("options: defaults keep the walk as it was; each flag sets one option", () => {
+    expect(parseArgs([])).toEqual({ browser: true, keep: false, out: "test-results/local-no-github", models: "standin", owner: "local-owner" })
+    expect(parseArgs(["--no-browser", "--keep", "--out=/tmp/proof/install", "--bundle=../b/.native", "--models=real", "--owner=maya"]))
+      .toEqual({ browser: false, keep: true, out: "/tmp/proof/install", bundle: "../b/.native", models: "real", owner: "maya" })
+    // A value may hold "=", and the last of a repeated flag wins.
+    expect(parseArgs(["--out=a=b", "--models=real", "--models=standin"])).toMatchObject({ out: "a=b", models: "standin" })
+  })
+  test("options: unknown flags, empty values, unknown model modes and non-GitHub owners are refused", () => {
+    for (const argv of [["--browser"], ["--keep=yes"], ["--out="], ["--out"], ["--bundle="], ["--models=fake"], ["--models"], ["--owner=-maya"], ["--owner=maya/demo"],
+      ["--owner=ma--ya"], ["--owner=../x"], [`--owner=${"a".repeat(40)}`], ["maya"], ["--no-browser=1"]]) expect(() => parseArgs(argv)).toThrow(USAGE)
+    for (const owner of ["maya", "Maya-2", "a", "a".repeat(39)]) expect(parseArgs([`--owner=${owner}`]).owner).toBe(owner)
+  })
+  test("property: an owner is accepted exactly when it is a GitHub login", () => {
+    const alphabet = "aZ9-./_ "
+    for (let i = 0; i < 3000; i++) {
+      let owner = ""
+      for (let n = i, k = 0; k < 1 + (i % 9); k++, n = Math.floor(n / alphabet.length) + k * 3) owner += alphabet[n % alphabet.length]
+      const login = /^[A-Za-z0-9]+(-[A-Za-z0-9]+)*$/.test(owner) && owner.length <= 39
+      let accepted = true
+      try { parseArgs([`--owner=${owner}`]) } catch { accepted = false }
+      expect([owner, accepted]).toEqual([owner, login])
+    }
   })
   test("handoff parser refuses malformed or broadened receipts", () => {
     expect(setupLine('ordinary log')).toBeUndefined()
