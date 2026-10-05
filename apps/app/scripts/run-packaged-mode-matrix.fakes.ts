@@ -17,6 +17,7 @@ import { writeFileSync } from "node:fs"
 const revision = "a".repeat(40)
 const acquisitions: string[] = []
 const closes: string[] = []
+let matrixEnvironment: Record<string, string> | undefined
 const failClose = process.env.MATRIX_FAKES_FAIL_CLOSE === "1"
 const modeConfig = (mode: string) => ({
   mode, origin: "http://127.0.0.1:3000", endpoint: "http://127.0.0.1:3000",
@@ -25,7 +26,7 @@ const modeConfig = (mode: string) => ({
 
 process.on("exit", () => {
   const log = process.env.MATRIX_FAKES_LOG
-  if (log !== undefined) writeFileSync(log, JSON.stringify({ acquisitions, closes }))
+  if (log !== undefined) writeFileSync(log, JSON.stringify({ acquisitions, closes, matrixEnvironment }))
 })
 
 mock.module("../e2e/real/coverage/matrix", () => ({
@@ -45,10 +46,20 @@ mock.module("./mode-matrix/docker-web-selfhost", () => ({
 mock.module("./mode-matrix/local-own", () => ({
   startLocalOwn: async () => {
     acquisitions.push("local")
-    return { modeConfig: modeConfig("local-own"), runtimeEnvironment: {}, close: async () => { closes.push("local") } }
+    return { modeConfig: modeConfig("local-own"), runtimeEnvironment: { MATRIX_TEST_AUTH: JSON.stringify({ username: "owner", password: "unused-fixture-password", bootstrapToken: "unused-fixture-bootstrap", sessionCookie: "b".repeat(64) }), SMITHERS_LOCAL_GIT_ORIGIN: "http://127.0.0.1:3001" }, close: async () => { closes.push("local") } }
   }
 }))
 mock.module("./mode-matrix/plue-target", () => ({
   startWebPlue: async () => { throw new Error("unexpected Plue launch") },
   startLocalPlue: async () => { throw new Error("unexpected Plue launch") }
 }))
+
+// Capture only the downstream runner boundary; launcher resource handling stays real.
+const spawn = Bun.spawn
+Bun.spawn = ((argv: string[], options: { env?: Record<string, string> }) => {
+  if (argv[0] === "bun" && argv[1] === "scripts/run-mode-matrix.ts") {
+    matrixEnvironment = { MATRIX_TEST_AUTH: options.env?.MATRIX_TEST_AUTH ?? "", SMITHERS_LOCAL_GIT_ORIGIN: options.env?.SMITHERS_LOCAL_GIT_ORIGIN ?? "" }
+    return { exited: Promise.resolve(0) }
+  }
+  return spawn(argv, options)
+}) as typeof Bun.spawn

@@ -32,8 +32,8 @@ const runCli = (dir: string, args: ReadonlyArray<string>, env: Readonly<Record<s
   if (result.error !== undefined || !existsSync(log)) {
     throw new Error(`matrix CLI child did not finish: ${result.error?.message ?? "no fakes log"}\n${result.stderr}`)
   }
-  const { acquisitions, closes } = JSON.parse(readFileSync(log, "utf8")) as { acquisitions: string[]; closes: string[] }
-  return { status: result.status, stderr: result.stderr, acquisitions, closes }
+  const { acquisitions, closes, matrixEnvironment } = JSON.parse(readFileSync(log, "utf8")) as { acquisitions: string[]; closes: string[]; matrixEnvironment?: Record<string, string> }
+  return { status: result.status, stderr: result.stderr, acquisitions, closes, matrixEnvironment }
 }
 
 afterEach(() => {
@@ -66,4 +66,18 @@ test("config write failure closes all acquired sessions once and retains the ori
   expect(run.stderr).toContain("EISDIR")
   expect(run.stderr).toContain("mode launcher teardown failed")
   expect(run.status).toBe(1)
+}, 60_000)
+
+test("local-own forwards its seeded owner session and Git origin to the matrix runner", () => {
+  const dir = mkdtempSync(join(tmpdir(), "matrix-seeded-owner-"))
+  dirs.push(dir)
+  const run = runCli(dir, ["audit", "--modes", "local-own", "--output-dir", join(dir, "output")])
+  expect(run.status).toBe(0)
+  expect(run.acquisitions).toEqual(["local"])
+  expect(run.closes).toEqual(["local"])
+  expect(JSON.parse(run.matrixEnvironment!.MATRIX_TEST_AUTH!)).toEqual({
+    username: "owner", password: "unused-fixture-password", bootstrapToken: "unused-fixture-bootstrap", sessionCookie: "b".repeat(64)
+  })
+  expect(run.matrixEnvironment!.SMITHERS_LOCAL_GIT_ORIGIN).toBe("http://127.0.0.1:3001")
+  expect(readFileSync(join(dir, "output", "config.json"), "utf8")).not.toContain("sessionCookie")
 }, 60_000)

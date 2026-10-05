@@ -23,7 +23,7 @@ type LockRecord = { readonly pid?: unknown; readonly nonce?: unknown }
 type AuthenticatedProfileOptions = { readonly profileEnvironment: string | undefined }
 type AuthenticatedProfileFixtures = { readonly _authenticatedReady: void }
 type RealAuthKind = "browser-profile" | "owner-session" | "application-token"
-type OwnerCredentials = { readonly username: string; readonly password: string; readonly bootstrapToken: string }
+type OwnerCredentials = { readonly username: string; readonly password: string; readonly bootstrapToken: string; readonly sessionCookie?: string }
 
 const realAuthKind = (): RealAuthKind => {
   const configured = process.env.SMITHERS_REAL_AUTH_KIND?.trim()
@@ -32,7 +32,7 @@ const realAuthKind = (): RealAuthKind => {
   return "browser-profile"
 }
 
-const ownerCredentialsFromEnvironment = (): OwnerCredentials => {
+export const ownerCredentialsFromEnvironment = (): OwnerCredentials => {
   const name = process.env.SMITHERS_REAL_AUTH_ENVIRONMENT?.trim()
   if (!name || !/^[A-Z][A-Z0-9_]+$/.test(name)) {
     throw new Error("SMITHERS_REAL_AUTH_ENVIRONMENT must name the owner credential environment variable.")
@@ -42,13 +42,17 @@ const ownerCredentialsFromEnvironment = (): OwnerCredentials => {
   let value: unknown
   try { value = JSON.parse(raw) } catch { throw new Error(`${name} must contain a JSON owner credential envelope.`) }
   if (typeof value !== "object" || value === null) throw new Error(`${name} must contain a JSON owner credential envelope.`)
-  const candidate = value as { readonly username?: unknown; readonly password?: unknown; readonly bootstrapToken?: unknown }
+  const candidate = value as { readonly username?: unknown; readonly password?: unknown; readonly bootstrapToken?: unknown; readonly sessionCookie?: unknown }
   if (typeof candidate.username !== "string" || candidate.username.trim() === "" ||
       typeof candidate.password !== "string" || candidate.password.length < 12 ||
       typeof candidate.bootstrapToken !== "string" || candidate.bootstrapToken.trim() === "") {
     throw new Error(`${name} must contain non-empty username, password, and bootstrapToken fields.`)
   }
-  return { username: candidate.username.trim(), password: candidate.password, bootstrapToken: candidate.bootstrapToken.trim() }
+  if (candidate.sessionCookie !== undefined && (typeof candidate.sessionCookie !== "string" || !/^[0-9a-f]{64}$/.test(candidate.sessionCookie))) {
+    throw new Error(`${name} has an invalid seeded session cookie.`)
+  }
+  return { username: candidate.username.trim(), password: candidate.password, bootstrapToken: candidate.bootstrapToken.trim(),
+    ...(typeof candidate.sessionCookie === "string" ? { sessionCookie: candidate.sessionCookie } : {}) }
 }
 
 const ownerSessions = new OwnerSessionCookies()
@@ -160,6 +164,9 @@ const establishOwnerSession = async (context: BrowserContext, page: Page, baseUR
   const origin = new URL(process.env.SMITHERS_REAL_API_ORIGIN ?? baseURL).origin
   const credentials = ownerCredentialsFromEnvironment()
   const scope = ownerSessionScope(baseURL)
+  if (credentials.sessionCookie) {
+    await context.addCookies([{ name: "smithers_session", value: credentials.sessionCookie, url: origin, httpOnly: true, sameSite: "Lax" }])
+  }
   const existing = await readSessionAtOrigin(context, baseURL)
   if (existing !== undefined) {
     if (existing.login !== credentials.username) throw new Error("The cached owner session belongs to a different user.")
@@ -168,6 +175,7 @@ const establishOwnerSession = async (context: BrowserContext, page: Page, baseUR
     await awaitBoot(page, "navigate", startedAt)
     return existing
   }
+  if (credentials.sessionCookie) throw new Error("Seeded owner session failed verification at /api/user.")
   // A revoked/expired session is never treated as an authenticated fixture.
   ownerSessions.forget(scope)
   const statusResponse = await context.request.get(new URL("/api/auth/local/status", origin).toString())

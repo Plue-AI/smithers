@@ -1,5 +1,5 @@
 import { fixtureProtocolId } from "../../e2e/real/support/values"
-import { createHash, randomUUID } from "node:crypto"
+import { createHash, randomBytes, randomUUID } from "node:crypto"
 import { existsSync, mkdtempSync, mkdirSync, readFileSync, readdirSync, realpathSync, rmSync, writeFileSync } from "node:fs"
 import { createServer } from "node:net"
 import { homedir, tmpdir } from "node:os"
@@ -151,7 +151,6 @@ export const startLocalOwn = async (rootDir: string, revision: string, outputDir
       AI_GATEWAY_API_KEY: gatewayApiKey,
       SMITHERS_FFI_LIBRARY_PATH: ffiLibrary,
       SMITHERS_WORKSPACE_JJ_EXPORT_BINARY: join(dirname(ffiLibrary), "smithers-jj-export"),
-      SMITHERS_AUTH_BOOTSTRAP_TOKEN: bootstrapToken,
       SMITHERS_PUBLIC_URL: origin,
       SMITHERS_TEST_BACKEND_SERVE: "1"
     }
@@ -160,16 +159,35 @@ export const startLocalOwn = async (rootDir: string, revision: string, outputDir
       await waitFor(`${backendOrigin}/readyz`, backend)
     }
     await startBackend()
-    await request(backendOrigin, "/api/auth/local/bootstrap", {
-      method: "POST", headers: { "content-type": "application/json", "x-smithers-bootstrap-token": bootstrapToken },
-      body: JSON.stringify({ username, email: `${username}@example.test`, password })
-    })
-    const token = (await request(backendOrigin, "/api/auth/local/token", {
-      method: "POST", headers: { "content-type": "application/json" },
-      body: JSON.stringify({ username, password, name: "local-matrix" })
-    })).token
-    if (typeof token !== "string" || !token) throw new Error("local-own did not issue an owner token")
+    // Test-only database fixtures mirror compose/members_integration_test.go.
+    // The native install owns this state directory and its PostgreSQL process.
+    const files = (path: string): string[] => readdirSync(path, { withFileTypes: true }).flatMap(entry =>
+      entry.isDirectory() ? files(join(path, entry.name)) : [join(path, entry.name)])
+    const pidFile = files(dataRoot).find(path => path.endsWith("/postmaster.pid"))
+    if (!pidFile) throw new Error("local-own PostgreSQL pid file unavailable")
+    const pgPort = readFileSync(pidFile, "utf8").split("\n")[3]!
+    const pgPassword = readFileSync(join(dirname(dirname(pidFile)), "password"), "utf8")
+    const token = `smithers_${randomBytes(20).toString("hex")}`
+    const sessionCookie = randomBytes(32).toString("hex")
     const repository = fixtureProtocolId(`matrix-${randomUUID().slice(0, 8)}`)
+    const hash = (value: string) => createHash("sha256").update(value).digest("hex")
+    const seed = Bun.spawnSync([join(postgresBin, "psql"), "-h", "127.0.0.1", "-p", pgPort,
+      "-U", "smithers", "-d", "postgres", "-v", "ON_ERROR_STOP=1"], {
+      env: { ...process.env, PGPASSWORD: pgPassword }, stdout: "pipe", stderr: "pipe",
+      stdin: new TextEncoder().encode(`BEGIN;
+        INSERT INTO users(username,lower_username,display_name) VALUES ('${username}','${username}','Owner');
+        INSERT INTO self_host_owners(user_id) SELECT id FROM users WHERE username='${username}';
+        INSERT INTO install_settings(key,value) VALUES
+          ('github.repository',jsonb_build_object('owner_login','${username}','repository_name','${repository}','repository_id',101)),
+          ('owner.access',jsonb_build_object('owner_login','${username}','repository_name','${repository}','repository_id',101,'last_access_check_at',to_char(now() AT TIME ZONE 'UTC','YYYY-MM-DD"T"HH24:MI:SS"Z"')));
+        INSERT INTO access_tokens(user_id,name,token_hash,token_last_eight,scopes,expires_at)
+          SELECT id,'local-matrix','${hash(token)}','${token.slice(-8)}','all',now()+interval '1 hour'
+          FROM users WHERE username='${username}';
+        INSERT INTO auth_sessions(session_key,user_id,username,expires_at)
+          SELECT '${hash(sessionCookie)}',id,username,now()+interval '1 hour' FROM users WHERE username='${username}';
+        COMMIT;`)
+    })
+    if (seed.exitCode !== 0) throw new Error(`local-own owner seed failed: ${new TextDecoder().decode(seed.stderr)}`)
     await request(backendOrigin, "/api/user/repos", {
       method: "POST", headers: { "content-type": "application/json", authorization: `token ${token}` },
       body: JSON.stringify({ name: repository, private: true, auto_init: true })
@@ -201,7 +219,7 @@ export const startLocalOwn = async (rootDir: string, revision: string, outputDir
     const authEnvironment = "SMITHERS_LOCAL_OWNER_SESSION"
     return {
       modeConfig: { mode: "local-own", origin, endpoint: origin, auth: { kind: "owner-session", environment: authEnvironment }, executionReceipt: receiptPath },
-      runtimeEnvironment: { [authEnvironment]: JSON.stringify({ username, password, bootstrapToken }), SMITHERS_LOCAL_GIT_ORIGIN: backendOrigin }, close
+      runtimeEnvironment: { [authEnvironment]: JSON.stringify({ username, password, bootstrapToken, sessionCookie }), SMITHERS_LOCAL_GIT_ORIGIN: backendOrigin }, close
     }
   } catch (error) {
     await close()

@@ -1,7 +1,7 @@
 import { describe, expect, test } from "bun:test"
 import type { Cookie } from "@playwright/test"
 import { OwnerSessionCookies, withOwnerAuthRetry, type OwnerSessionScope } from "./owner-session"
-import { parseAuthenticatedUser } from "./profile"
+import { parseAuthenticatedUser, ownerCredentialsFromEnvironment } from "./profile"
 
 describe("matrix authenticated-user probe", () => {
   test("reads the canonical GET /api/user shape", () => {
@@ -117,4 +117,27 @@ describe("owner authentication Retry-After", () => {
     await withOwnerAuthRetry(async () => ({ status: 429, retryAfter: "40" }), slow)
     expect(slow.waits).toEqual([40_000])
   })
+})
+
+test("owner credential envelopes retain legacy login fields and validate the optional seeded cookie", () => {
+  const previousName = process.env.SMITHERS_REAL_AUTH_ENVIRONMENT
+  const previousValue = process.env.MATRIX_SEEDED_COOKIE_TEST
+  process.env.SMITHERS_REAL_AUTH_ENVIRONMENT = "MATRIX_SEEDED_COOKIE_TEST"
+  const legacy = { username: "owner", password: "unused-fixture-password", bootstrapToken: "unused-fixture-bootstrap" }
+  try {
+    process.env.MATRIX_SEEDED_COOKIE_TEST = JSON.stringify(legacy)
+    expect(ownerCredentialsFromEnvironment()).toEqual(legacy)
+    const seeded = { ...legacy, sessionCookie: "a".repeat(64) }
+    process.env.MATRIX_SEEDED_COOKIE_TEST = JSON.stringify(seeded)
+    expect(ownerCredentialsFromEnvironment()).toEqual(seeded)
+    for (const sessionCookie of [null, 1, "", "a".repeat(63), "a".repeat(65), "g".repeat(64)]) {
+      process.env.MATRIX_SEEDED_COOKIE_TEST = JSON.stringify({ ...legacy, sessionCookie })
+      expect(() => ownerCredentialsFromEnvironment()).toThrow("invalid seeded session cookie")
+    }
+  } finally {
+    if (previousName === undefined) delete process.env.SMITHERS_REAL_AUTH_ENVIRONMENT
+    else process.env.SMITHERS_REAL_AUTH_ENVIRONMENT = previousName
+    if (previousValue === undefined) delete process.env.MATRIX_SEEDED_COOKIE_TEST
+    else process.env.MATRIX_SEEDED_COOKIE_TEST = previousValue
+  }
 })
