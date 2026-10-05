@@ -300,10 +300,8 @@ describe("subject card bodies", () => {
     expect(body("settings", MAYA)).toContain("Machines")
     expect(body("settings", BEN)).toBe("")
   })
-  test("members lists the seeded roster", () => {
-    const markup = body("members", MAYA)
-    expect(markup).toContain('data-login="mayachen"')
-    expect(markup).toContain('data-login="benortiz"')
+  test("members renders nothing while its production providers are unavailable (T-APP-06 lands dark)", () => {
+    expect(body("members", MAYA)).toBe("")
   })
   test("commands lists only the flows the registry holds", () => {
     const find = (name: string) => name === "help" || name === "members"

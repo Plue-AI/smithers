@@ -387,7 +387,8 @@ describe("host parity — the web and native catalogs against the servers' own c
       // Both cards are on the page: the session act and the file surface are in the sweep.
       expect(host.querySelector('[data-kind="workspace"]')).not.toBeNull()
       expect(host.querySelector('[data-kind="file"]')).not.toBeNull()
-      expect(rendered).toContain("box.session.destroy")
+      // T-APP-12 moved terminal sessions off the workspace card; box.suspend is its remaining session act.
+      expect(rendered).toContain("box.suspend")
       expect(rendered.filter((name) => !webNames.has(name))).toEqual([])
       // Code-intel flows stay out of the catalog until isolated execution lands (#3461); an open tunnel grants no
       // execution authority, and the file card still shows no developer copy about a missing host.
