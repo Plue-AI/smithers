@@ -140,6 +140,12 @@ func (s *MythicalService) todoCard(ctx context.Context, item db.MythicalItem, it
 	if item.Attempt > 0 && item.RequestRunID != "" {
 		card["run"] = map[string]any{"id": item.RequestRunID, "attempt": item.Attempt, "indicators": []any{}}
 	}
+	if learning := mythicalChecksOf(item).Learning; learning != nil {
+		card["learning"] = learning
+		if learning.RunID != "" {
+			card["run"] = map[string]any{"id": learning.RunID, "attempt": int32(1), "indicators": []any{}}
+		}
+	}
 	// A merged or dropped TODO has left the stack: it has no place, so its
 	// card never reads "Next to merge".
 	if state := card["state"]; item.StackPosition.Valid && state != "merged" && state != "dropped" {
@@ -359,6 +365,18 @@ func todoSteps(item db.MythicalItem) []map[string]any {
 	add("verify", "Verify", item.VerifyRunID, item.VerifyOutcome, "passed")
 	if review := mythicalChecksOf(item).Review; review != nil {
 		add("review", "Review", review.RunID, review.Verdict, "approve")
+	}
+	if learning := mythicalChecksOf(item).Learning; learning != nil {
+		state := "waiting"
+		switch learning.State {
+		case "running", "committing":
+			state = "current"
+		case "completed":
+			state = "done"
+		case "failed", "cancelled":
+			state = "failed"
+		}
+		steps = append(steps, map[string]any{"id": "learning", "label": "Learn", "state": state})
 	}
 	return steps
 }

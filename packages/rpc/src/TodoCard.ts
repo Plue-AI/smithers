@@ -88,6 +88,7 @@ export const TodoCardSchema = z.object({
       })
     ])
   ),
+  learning: z.object({ state: z.enum(["requested", "running", "committing", "completed", "failed", "cancelled"]), startedAt: z.number().int().optional(), runId: z.string().optional(), workspaceId: z.string() }).optional(),
   run: z.object({
     id: z.string(),
     attempt: z.number().int().positive(),

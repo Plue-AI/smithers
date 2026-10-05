@@ -9,6 +9,7 @@ import * as Serve from "../../packages/smithers/src/Serve.ts"
 import { packageVersion } from "../../packages/smithers/src/Version.ts"
 import { layer as checkReceiptLayer } from "../repository/check-receipt.ts"
 import { remoteLayer } from "../repository/remote.ts"
+import { remoteLayer as learningRemoteLayer } from "../learning/remote.ts"
 import { consume as consumeCheckEnvironment } from "./check-environment.ts"
 import { share } from "./host-modules.ts"
 import { layer, optionsFromEnv, systemFlowsFromEnv } from "./host.ts"
@@ -170,7 +171,8 @@ if (parsed.values.version) {
           planning,
           ...(landing === undefined ? {} : {
             landing: Landing.layer(landing).pipe(Layer.provide(http), Layer.orDie),
-            repositoryRemote: Layer.merge(
+            repositoryRemote: Layer.mergeAll(
+              learningRemoteLayer(landing),
               remoteLayer({ ...landing, gatewayId: options.gatewayId, credential: options.credential ?? "" }),
               checkReceiptLayer({ ...landing, gatewayId: options.gatewayId, credential: options.credential ?? "" })
             ).pipe(Layer.provide(http), Layer.orDie)

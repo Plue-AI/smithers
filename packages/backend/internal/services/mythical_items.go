@@ -439,6 +439,9 @@ func (s *MythicalService) ProjectFlowRuntime(ctx context.Context, update flowdis
 	if json.Unmarshal(update.Checkpoint.Projection, &projection) != nil {
 		return nil
 	}
+	if projection.Kind == mythicalLearningBindingKind {
+		return s.projectLearning(ctx, update, projection)
+	}
 	if projection.Kind == mythicalWikiBindingKind {
 		var wiki mythicalWikiProjection
 		if json.Unmarshal(update.Checkpoint.Projection, &wiki) != nil {
@@ -1139,6 +1142,10 @@ func (s *MythicalService) advanceItems(ctx context.Context, r *mythicalRun) {
 				item = s.releaseLane(ctx, r, item)
 			}
 			if mythicalSettledStates[item.State] {
+				if err := step.learn(ctx, item); err != nil {
+					s.logger.Warn("mythical.learning_failed", "item", uuidString(item.ID), "error", err)
+					r.dueAt(step.now.Add(mythicalLaterAfter))
+				}
 				continue
 			}
 		}
@@ -1696,8 +1703,13 @@ func (s *MythicalService) sweepLanes(ctx context.Context, r *mythicalRun) {
 	for _, lane := range lanes {
 		// The list is a snapshot: a lane its item took back since then is
 		// the item's lane again, never retired.
-		if item, err := s.queries().GetMythicalItem(ctx, lane.ItemID); err == nil && item.WorkspaceID == lane.WorkspaceID {
-			continue
+		if item, err := s.queries().GetMythicalItem(ctx, lane.ItemID); err == nil {
+			if item.WorkspaceID == lane.WorkspaceID {
+				continue
+			}
+			if learning := mythicalChecksOf(item).Learning; learning != nil && learning.WorkspaceID == lane.WorkspaceID && (learning.State == "requested" || learning.State == "running" || learning.State == "committing") {
+				continue
+			}
 		}
 		if err := s.retireLane(ctx, r, lane.WorkspaceID); err != nil && ctx.Err() == nil {
 			s.logger.Warn("mythical.lane_release_failed", "workspace_id", lane.WorkspaceID, "error", err)
@@ -3238,6 +3250,9 @@ func NewMythicalFlowHostTargetResolver(service *MythicalService) *MythicalFlowHo
 }
 
 func (resolver *MythicalFlowHostTargetResolver) ResolveFlowHostTarget(ctx context.Context, target flowruntime.FlowRuntimeTarget) (flowhost.Authority, error) {
+	if resolver != nil && resolver.service != nil && target.BindingKind == mythicalLearningBindingKind {
+		return resolver.resolveLearningTarget(ctx, target)
+	}
 	if resolver != nil && resolver.service != nil && target.BindingKind == mythicalWikiBindingKind {
 		return resolver.resolveWikiTarget(ctx, target)
 	}
@@ -3860,6 +3875,7 @@ func appliedByMaintainer(applied gitHubLabelApplication, label string) bool {
 // made its issue a TODO and asked for automerge, and the review of its pull
 // request's head.
 type mythicalChecks struct {
+	Learning *mythicalLearning     `json:"learning,omitempty"`
 	Attempts []todoAttemptEvidence `json:"attempts,omitempty"`
 	// Steers are the TODO's steers in order, each held for an attempt
 	// (todoFeedback); Retries are the Retry presses by Idempotency-Key, so a

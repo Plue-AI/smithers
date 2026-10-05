@@ -4,7 +4,7 @@ import { createAppStore } from "../AppStore"
 import { memoryStorage, settle, unavailableAgent, waitFor } from "../TestFixtures"
 import { createControllerContext } from "./context"
 import { createFailureController } from "./failures"
-import { observeBackgroundWork } from "./backgroundWork"
+import { claimWorkToast, observeBackgroundWork } from "./backgroundWork"
 import { createFlowAuthoringController } from "./flowAuthoring"
 import { createWorkflowLaunchController } from "./workflow-launch"
 import { runCause } from "../RunCause"
@@ -207,3 +207,27 @@ test("a refused authoring launch keeps one failure toast and retries the same re
   expect(keys[0]).toBe(keys[1])
   expect(store.collections.toasts.size).toBe(1)
 })
+
+for (const terminal of ["completed", "failed", "cancelled"] as const) test(`post-merge learning toast follows durable ${terminal} without changing Merged`, async () => {
+  const { store, ctx } = await fixture()
+  const card = { id: "todo:1", kind: "todo", title: "T1", status: "active", ordinal: 1, createdAt: Date.now() - 1000,
+    payload: { n: 1, requests: [], model: { n: 1, title: "T1", state: "merged", owner: { name: "Owner", login: "owner", avatar_url: "https://example.com/avatar.png" }, prompt_revisions: [], steps: [{ id: "learning", label: "Learn", state: "waiting" }], waits: [], steers: [], evidence: [], merge: { state: "done", on_github: true }, present: [], learning: { state: "requested", workspaceId: "learning-workspace" } } } } as unknown as Card
+  await store.dispatch({ type: "card.upsert", actor: "system", card }).isPersisted.promise
+  claimWorkToast(store, card.id, "todo.prior-request")
+  observeBackgroundWork(ctx)
+  const toast = () => store.collections.toasts.get("toast-worker.todo:1")
+  await waitFor(() => toast()?.status === "running")
+  expect(toast()?.title).toBe("Learning")
+  const update = (state: string) => ({ ...card, payload: { ...card.payload, model: { ...(card as Extract<Card, { kind: "todo" }>).payload.model!, learning: { state, runId: "learning-run", workspaceId: "learning-workspace" } } } }) as unknown as Card
+  for (const state of ["running", "committing"]) {
+    await store.dispatch({ type: "card.upsert", actor: "system", card: update(state) }).isPersisted.promise
+    await settle()
+    expect(toast()?.status).toBe("running")
+    expect(store.collections.toasts.size).toBe(1)
+  }
+  await store.dispatch({ type: "composer.changed", actor: "user", draft: "still usable" }).isPersisted.promise
+  expect(store.session().draft).toBe("still usable")
+  await store.dispatch({ type: "card.upsert", actor: "system", card: update(terminal) }).isPersisted.promise
+  await waitFor(() => toast()?.status === (terminal === "completed" ? "ok" : terminal))
+  expect((store.collections.cards.get(card.id) as Extract<Card, { kind: "todo" }>).payload.model?.state).toBe("merged")
+}, 60_000)

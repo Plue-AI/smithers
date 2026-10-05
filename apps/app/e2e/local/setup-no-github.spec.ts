@@ -269,3 +269,21 @@ test("10 merge", async ({}, info) => {
   await expect(todoCard().locator("header")).not.toContainText("Next to merge")
   expect(await writes()).toEqual(expect.arrayContaining([expect.objectContaining({ method: "PUT", path: "/repos/local-owner/demo/pulls/1/merge", status: 200 })]))
 })
+
+test("11 merged TODO starts learning", async ({}, info) => {
+  test.setTimeout(6 * 60_000)
+  await expect(page.getByRole("button", { name: "Hide Learning", exact: true })).toBeVisible({ timeout: 30_000 })
+  // A typed success staged on the host proves the real machine read and run;
+  // publishing its pages is owned by the learning-memory store.
+  await expect.poll(async () => (await served()).learning?.state, { timeout: 5 * 60_000 }).toMatch(/^(committing|completed)$/)
+  const learned = await served()
+  expect(learned.state).toBe("merged")
+  expect(learned.learning.runId).toBeTruthy()
+  expect(learned.run.id).toBe(learned.learning.runId)
+  await expect(todoCard()).toContainText("Learn")
+  const run = learned.learning.runId
+  await page.reload()
+  await expect(todoCard()).toContainText("Learn")
+  expect((await served()).learning.runId).toBe(run)
+  await page.screenshot({ path: info.outputPath("learning-after-merge.png"), fullPage: true })
+})
