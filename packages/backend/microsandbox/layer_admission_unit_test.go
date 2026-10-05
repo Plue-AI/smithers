@@ -36,9 +36,13 @@ func (s *microsandboxUnitSources) ReadSourceFile(_ context.Context, source works
 func TestMicrosandboxUnitLayerAdmissionNeedsBoundReaderAndSourceIdentity(t *testing.T) {
 	runtime := &Runtime{}
 	spec := workspaceapi.WorkspaceSpec{Source: &workspaceapi.WorkspaceSource{Repository: "repo", Revision: "main"}}
-	layer, err := runtime.ResolveWorkspaceLayer(t.Context(), spec)
+	layer, err := runtime.ResolveWorkspaceLayer(t.Context(), workspaceapi.WorkspaceSpec{})
 	require.NoError(t, err)
-	require.Equal(t, Layer{}, layer, "layer support is optional")
+	require.Equal(t, Layer{}, layer, "a source-free workspace needs no layers")
+	layer, err = runtime.ResolveWorkspaceLayer(t.Context(), spec)
+	require.ErrorIs(t, err, ErrUnavailable, "a runtime without environment layers cannot certify a machine")
+	require.EqualError(t, err, "microVM isolation is unavailable: this runtime builds no environment layers")
+	require.Equal(t, Layer{}, layer)
 	runtime.environments = &environments{runtime: runtime}
 	layer, err = runtime.ResolveWorkspaceLayer(t.Context(), workspaceapi.WorkspaceSpec{})
 	require.NoError(t, err)

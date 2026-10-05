@@ -157,7 +157,7 @@ func TestCachedLayerCapacityRefusalPreservesSnapshotAndRecovers(t *testing.T) {
 	require.NoError(t, os.WriteFile(binary, []byte(script), 0700))
 	r.cli = &cli{binary: binary, home: root}
 	require.NoError(t, r.reserveAuxVM(t.Context(), "busy"))
-	_, err = e.ensure(t.Context(), layerDependency, value, "", "fixture", nil)
+	_, err = e.ensure(t.Context(), layerDependency, value, "", "fixture", nil, false)
 	require.ErrorContains(t, err, "capacity reached")
 	require.FileExists(t, e.recordPath(name))
 	require.FileExists(t, filepath.Join(artifact, "disk"))
@@ -171,7 +171,7 @@ func TestCachedLayerCapacityRefusalPreservesSnapshotAndRecovers(t *testing.T) {
 	require.Error(t, r.finishAuxVM("busy"))
 	require.Equal(t, 1, r.InUse())
 	require.NoError(t, os.WriteFile(binary, []byte(script), 0700))
-	got, err := e.ensure(t.Context(), layerDependency, value, "", "fixture", nil)
+	got, err := e.ensure(t.Context(), layerDependency, value, "", "fixture", nil, false)
 	require.NoError(t, err)
 	require.Equal(t, name, got.Name)
 	require.Zero(t, r.InUse())
@@ -268,7 +268,7 @@ func TestCachedLayerVerificationCleanupFailurePreservesSnapshot(t *testing.T) {
 	// Verification succeeds, then a transport failure prevents confirmed removal.
 	script = strings.Replace(script, "request=\"\"\ncase \"$*\" in *run\\ exec*) request=$(cat); printf '\\000SMITHERS-EXIT 0\\000' >&2 ;; esac\ncase \"$* $request\" in", "request=\"\"\ncase \"$*\" in *run\\ exec*) request=$(cat); printf '\\000SMITHERS-EXIT 0\\000' >&2 ;; esac\ncase \"$* $request\" in\nremove\\ *) echo failure >&2; exit 2 ;;", 1)
 	require.NoError(t, os.WriteFile(binary, []byte(script), 0700))
-	_, err = e.ensure(t.Context(), layerDependency, value, "", "fixture", nil)
+	_, err = e.ensure(t.Context(), layerDependency, value, "", "fixture", nil, false)
 	require.Error(t, err)
 	require.FileExists(t, e.recordPath(name))
 	require.FileExists(t, filepath.Join(artifact, "disk"))
@@ -277,7 +277,7 @@ func TestCachedLayerVerificationCleanupFailurePreservesSnapshot(t *testing.T) {
 	require.NoError(t, err)
 	require.NotContains(t, string(requests), "snapshot remove")
 	// The snapshot remains verified and reusable while cleanup holds its slot.
-	got, err := e.ensure(t.Context(), layerDependency, value, "", "fixture", nil)
+	got, err := e.ensure(t.Context(), layerDependency, value, "", "fixture", nil, false)
 	require.NoError(t, err)
 	require.Equal(t, name, got.Name)
 }
@@ -331,7 +331,7 @@ func TestCachedLayerMarkerFailureClassification(t *testing.T) {
 			}
 			broken := strings.Replace(script, "*'cat '*) printf", failure+"\n*'cat '*) printf", 1)
 			require.NoError(t, os.WriteFile(binary, []byte(broken), 0700))
-			_, err = e.ensure(t.Context(), layerDependency, value, "", "fixture", nil)
+			_, err = e.ensure(t.Context(), layerDependency, value, "", "fixture", nil, false)
 			if class != "missing" {
 				require.ErrorContains(t, err, "read layer")
 				require.FileExists(t, e.recordPath(name))
@@ -340,7 +340,7 @@ func TestCachedLayerMarkerFailureClassification(t *testing.T) {
 				require.NotContains(t, string(requests), "snapshot remove")
 				require.FileExists(t, filepath.Join(artifact, "disk"))
 				require.NoError(t, os.WriteFile(binary, []byte(script), 0700))
-				got, retryErr := e.ensure(t.Context(), layerDependency, value, "", "fixture", nil)
+				got, retryErr := e.ensure(t.Context(), layerDependency, value, "", "fixture", nil, false)
 				require.NoError(t, retryErr)
 				require.Equal(t, name, got.Name)
 			} else {

@@ -462,7 +462,7 @@ esac
 `, shellQuote(removals), shellQuote(state), shellQuote(string(listing)), shellQuote(state), shellQuote(state), shellQuote(string(marker)))
 	require.NoError(t, os.WriteFile(binary, []byte(script), 0o755))
 	runtime.cli = &cli{binary: binary, home: root}
-	record, err := env.ensure(t.Context(), layerDependency, layer, "", "fixture", nil)
+	record, err := env.ensure(t.Context(), layerDependency, layer, "", "fixture", nil, false)
 	require.NoError(t, err)
 	require.Equal(t, name, record.Name)
 	removed, err := os.ReadFile(removals)
@@ -1342,12 +1342,12 @@ esac
 		}
 		return 1, nil
 	})
-	_, err = env.ensure(t.Context(), layerDependency, layer, "", "fixture", nil)
+	_, err = env.ensure(t.Context(), layerDependency, layer, "", "fixture", nil, false)
 	require.ErrorContains(t, err, "capacity reached")
 	require.FileExists(t, state)
 	require.FileExists(t, env.recordPath(name))
 	runtime.SetCapacityReader(nil)
-	record, err := env.ensure(t.Context(), layerDependency, layer, "", "fixture", nil)
+	record, err := env.ensure(t.Context(), layerDependency, layer, "", "fixture", nil, false)
 	require.NoError(t, err)
 	require.Equal(t, name, record.Name)
 	removed, err := os.ReadFile(removals)
@@ -1403,5 +1403,83 @@ func TestCanonicalRecipesKeepIndexPrecedence(t *testing.T) {
 	for _, invalid := range [][]indexTarget{{}} {
 		_, err := toolchainRecipe("image", invalid, poison)
 		require.ErrorContains(t, err, "exactly one")
+	}
+}
+
+// T-INS-06 R4 (C4): a dependency build warm-starts only from the toolchain
+// layer or a main-built dependency layer of the same repository, never from a
+// branch-built one, whose caches could carry one member's build outputs into
+// main's and other members' machines.
+func TestLayerWarmParentIsMainBuilt(t *testing.T) {
+	tcKey := strings.Repeat("c", 64)
+	branchKey, mainKey := strings.Repeat("d", 64), strings.Repeat("e", 64)
+	for _, test := range []struct {
+		name         string
+		mainL2, main bool
+		want         string
+	}{
+		{name: "main build beside a branch layer boots the toolchain", main: true, want: "toolchain"},
+		{name: "second branch boots main's layer", mainL2: true, want: "main"},
+		{name: "main build boots main's layer", mainL2: true, main: true, want: "main"},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			root := t.TempDir()
+			artifact := filepath.Join(root, ".microsandbox", "snapshot")
+			require.NoError(t, os.MkdirAll(artifact, 0o755))
+			runtime := &Runtime{config: Config{CPUs: 2, MemoryMiB: 2048, DiskMiB: 8192, MaxRunningVMs: 1}, root: root, owner: "smithers-backend-0123456789abcdef", workspaces: map[string]*workspace{}}
+			env := &environments{runtime: runtime, verified: map[string]bool{}, config: EnvironmentConfig{Image: DefaultImage, PrepareCPUs: 2, PrepareMemoryMiB: 2048, PrepareTimeout: time.Minute, KeepPerFamily: 8}}
+			names := map[string]string{"toolchain": env.layerName(layerToolchain, tcKey), "branch": env.layerName(layerDependency, branchKey), "main": env.layerName(layerDependency, mainKey)}
+			now := time.Now().UTC()
+			records := []layerRecord{
+				{Schema: layerSchema, Kind: layerToolchain, Key: tcKey, Name: names["toolchain"], Repository: "fixture", Main: true, CreatedAt: now.Add(-2 * time.Hour)},
+				// The branch layer is the newest sibling: only its Main bit keeps it out.
+				{Schema: layerSchema, Kind: layerDependency, Key: branchKey, ParentKey: tcKey, Name: names["branch"], Repository: "fixture", CreatedAt: now},
+			}
+			if test.mainL2 {
+				records = append(records, layerRecord{Schema: layerSchema, Kind: layerDependency, Key: mainKey, ParentKey: tcKey, Name: names["main"], Repository: "fixture", Main: true, CreatedAt: now.Add(-time.Hour)})
+			}
+			layer := dependencyLayer{DetectorVersion: DetectorVersion, Installs: []DetectedInstall{{Command: []string{"pnpm", "install", "--frozen-lockfile"}}}}
+			key, _, err := recipeKey(tcKey, layer)
+			require.NoError(t, err)
+			built := env.layerName(layerDependency, key)
+			require.NoError(t, os.MkdirAll(env.layerDir(), 0o700))
+			listing := []map[string]string{{"name": built, "artifact_path": artifact}}
+			for _, record := range records {
+				require.NoError(t, writeJSON(env.recordPath(record.Name), record))
+				env.verified[record.Name] = true
+				listing = append(listing, map[string]string{"name": record.Name, "artifact_path": artifact})
+			}
+			encoded, err := json.Marshal(listing)
+			require.NoError(t, err)
+			marker, err := json.Marshal(map[string]string{"kind": layerDependency, "key": key})
+			require.NoError(t, err)
+			calls := filepath.Join(root, "calls")
+			binary := filepath.Join(root, "msb")
+			require.NoError(t, os.WriteFile(binary, []byte(fmt.Sprintf(`#!/bin/sh
+printf '%%s\n' "$*" >> %s
+case "$*" in
+  "snapshot list --format json") printf '%%s' %s ;;
+  *smthrs-vfy-*run\ exec\ *) cat >/dev/null; printf '%%s' %s; printf '\000SMITHERS-EXIT 0\000' >&2 ;;
+  *run\ exec\ *|*run\ root-recipe*) cat >/dev/null; printf '\000SMITHERS-EXIT 0\000' >&2 ;;
+esac
+`, shellQuote(calls), shellQuote(string(encoded)), shellQuote(string(marker)))), 0o755))
+			runtime.cli = &cli{binary: binary, home: root}
+			record, err := env.ensure(t.Context(), layerDependency, layer, tcKey, "fixture", nil, test.main)
+			require.NoError(t, err)
+			require.Equal(t, test.main, record.Main)
+			saved, err := env.readRecord(built)
+			require.NoError(t, err)
+			require.Equal(t, test.main, saved.Main, "the durable record keeps who the layer was built for")
+			log, err := os.ReadFile(calls)
+			require.NoError(t, err)
+			var parents []string
+			for _, line := range strings.Split(string(log), "\n") {
+				if fields := strings.Fields(line); len(fields) > 2 && fields[0] == "run" && fields[1] == "--from-snapshot" && strings.Contains(line, "smthrs-prep-") {
+					parents = append(parents, fields[2])
+				}
+			}
+			require.Equal(t, []string{names[test.want]}, parents)
+			require.NotContains(t, string(log), "--from-snapshot "+names["branch"])
+		})
 	}
 }

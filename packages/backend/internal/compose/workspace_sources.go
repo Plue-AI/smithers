@@ -62,12 +62,13 @@ func (r repositorySourceFiles) readSourceFile(ctx context.Context, source worksp
 		return nil, err
 	}
 	file, err := r.client.GetFileAtChange(ctx, owner, name, source.Revision, filename)
-	var status *repohost.StatusError
-	if errors.As(err, &status) && status.StatusCode == http.StatusNotFound {
+	// Only a path absent from the revision is absent. Any other refusal, such
+	// as a symlink or a submodule at the path, fails the read naming it.
+	if repohost.IsFileNotFound(err) {
 		return nil, fmt.Errorf("%s: %w", filename, fs.ErrNotExist)
 	}
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("%s: %w", filename, err)
 	}
 	if file.TooLarge {
 		return nil, fmt.Errorf("%s is too large to key an environment", filename)
@@ -77,6 +78,10 @@ func (r repositorySourceFiles) readSourceFile(ctx context.Context, source worksp
 	}
 	return []byte(file.Content), nil
 }
+
+// sourceGlobMaxBytes bounds the bytes one glob returns in total; each file is
+// already bounded by the mirror's 16 MiB blob cap.
+const sourceGlobMaxBytes = 64 << 20
 
 // readSourceGlob enumerates metadata at the same immutable revision and reads
 // only matching files. This supplies requirements*.txt and dependency member
@@ -95,6 +100,7 @@ func (r repositorySourceFiles) readSourceGlob(ctx context.Context, source worksp
 	parts := strings.Split(pattern, "/")
 	prefixes := []string{""}
 	matches := map[string]string{}
+	total := 0
 	for index, part := range parts {
 		if part == ".." {
 			return nil, fmt.Errorf("invalid source glob %q", pattern)
@@ -129,6 +135,9 @@ func (r repositorySourceFiles) readSourceGlob(ctx context.Context, source worksp
 						data, err := r.readSourceFile(ctx, source, entry.Path)
 						if err != nil {
 							return nil, err
+						}
+						if total += len(data); total > sourceGlobMaxBytes {
+							return nil, fmt.Errorf("source glob %q matches more than %d MiB", pattern, sourceGlobMaxBytes>>20)
 						}
 						matches[entry.Path] = string(data)
 					}

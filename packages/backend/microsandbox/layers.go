@@ -41,7 +41,7 @@ import (
 // and verified in a fresh offline VM.
 
 const (
-	layerSchema     = "smithers.microvm.layer/v2-uid19999-team20000"
+	layerSchema     = "smithers.microvm.layer/v3-uid19999-team20000-main-warm-parents"
 	layerToolchain  = "toolchain"
 	layerDependency = "dependencies"
 	layerMarkerDir  = "/var/cache/smithers/layers"
@@ -91,18 +91,21 @@ func (c *EnvironmentConfig) defaults() {
 
 // layerRecord is the adapter's durable index entry for one layer snapshot.
 type layerRecord struct {
-	Schema     string            `json:"schema"`
-	Kind       string            `json:"kind"`
-	Key        string            `json:"key"`
-	Name       string            `json:"name"`
-	ParentKey  string            `json:"parentKey,omitempty"`
-	Repository string            `json:"repository,omitempty"`
-	Recipe     json.RawMessage   `json:"recipe"`
-	Link       []string          `json:"link,omitempty"`
-	Inventory  map[string]string `json:"inventory,omitempty"`
-	BuildSecs  float64           `json:"buildSeconds"`
-	CreatedAt  time.Time         `json:"createdAt"`
-	LastUsed   time.Time         `json:"lastUsed"`
+	Schema     string `json:"schema"`
+	Kind       string `json:"kind"`
+	Key        string `json:"key"`
+	Name       string `json:"name"`
+	ParentKey  string `json:"parentKey,omitempty"`
+	Repository string `json:"repository,omitempty"`
+	// Main is set when the layer was built for the repository's main commit.
+	// Only such a layer warm-starts another build (newestSibling).
+	Main      bool              `json:"main,omitempty"`
+	Recipe    json.RawMessage   `json:"recipe"`
+	Link      []string          `json:"link,omitempty"`
+	Inventory map[string]string `json:"inventory,omitempty"`
+	BuildSecs float64           `json:"buildSeconds"`
+	CreatedAt time.Time         `json:"createdAt"`
+	LastUsed  time.Time         `json:"lastUsed"`
 }
 
 type environments struct {
@@ -198,8 +201,12 @@ func (e *environments) records() ([]layerRecord, error) {
 // ResolveWorkspaceLayer returns the dependency layer for the workspace's
 // source, building its toolchain and dependency layers when missing.
 func (r *Runtime) ResolveWorkspaceLayer(ctx context.Context, spec workspaceapi.WorkspaceSpec) (Layer, error) {
-	if r.environments == nil || spec.Source == nil {
+	if spec.Source == nil {
 		return Layer{}, nil
+	}
+	// A runtime without environment layers cannot certify a machine image.
+	if r.environments == nil {
+		return Layer{}, fmt.Errorf("%w: this runtime builds no environment layers", ErrUnavailable)
 	}
 	return r.environments.resolve(ctx, *spec.Source, nil)
 }
@@ -263,6 +270,7 @@ func (e *environments) resolve(ctx context.Context, source workspaceapi.Workspac
 	}
 	mainSource := source
 	mainSource.Revision = mainCommit
+	builtForMain := commit == mainCommit
 	mainRead := func(name string) ([]byte, bool, error) {
 		contents, err := sources.ReadSourceFile(ctx, mainSource, name)
 		if errors.Is(err, fs.ErrNotExist) {
@@ -309,7 +317,7 @@ func (e *environments) resolve(ctx context.Context, source workspaceapi.Workspac
 	if retain != nil {
 		retain(e.layerName(layerToolchain, toolchainKey))
 	}
-	toolchainLayer, err := e.ensure(ctx, layerToolchain, toolchain, "", source.Repository, nil)
+	toolchainLayer, err := e.ensure(ctx, layerToolchain, toolchain, "", source.Repository, nil, builtForMain)
 	if err != nil {
 		return Layer{}, err
 	}
@@ -333,7 +341,7 @@ func (e *environments) resolve(ctx context.Context, source workspaceapi.Workspac
 		}
 		retain(e.layerName(layerDependency, key))
 	}
-	dependencyLayer, err := e.ensure(ctx, layerDependency, dependencies, toolchainLayer.Key, source.Repository, inputs)
+	dependencyLayer, err := e.ensure(ctx, layerDependency, dependencies, toolchainLayer.Key, source.Repository, inputs, builtForMain)
 	if err != nil {
 		if targets == nil && !errors.Is(err, ErrUnavailable) && !strings.HasPrefix(err.Error(), "disk budget:") {
 			return Layer{}, &RecipeError{Code: "dependency_install_failed", Class: "user", Message: "Dependency install failed; S1 supports public registries only: " + err.Error(), Fix: "Change the dependency manifest or add required packages to .smithers/machine.json"}
@@ -380,7 +388,8 @@ func recipePreparation(value recipe) (user, systemScript string) {
 }
 
 // ensure returns a verified layer, building it once when it does not exist.
-func (e *environments) ensure(ctx context.Context, kind string, value recipe, parentKey, repository string, inputs map[string][]byte) (layerRecord, error) {
+// main records that the build is for the repository's main commit.
+func (e *environments) ensure(ctx context.Context, kind string, value recipe, parentKey, repository string, inputs map[string][]byte, main bool) (layerRecord, error) {
 	key, encoded, err := recipeKey(parentKey, value)
 	if err != nil {
 		return layerRecord{}, err
@@ -409,15 +418,15 @@ func (e *environments) ensure(ctx context.Context, kind string, value recipe, pa
 	parent := ""
 	if parentKey != "" {
 		parent = e.layerName(layerToolchain, parentKey)
-		// A dependency layer starts from the newest dependency layer of the same
-		// repository and toolchain, so its stores are only topped up.
+		// A dependency layer starts from the newest main-built dependency layer
+		// of the same repository and toolchain, so its stores are only topped up.
 		if warm := e.newestSibling(kind, repository, parentKey); warm != "" {
 			parent = warm
 			defer e.pin(warm)()
 		}
 	}
 	record := layerRecord{Schema: layerSchema, Kind: kind, Key: key, Name: name, ParentKey: parentKey, Repository: repository,
-		Recipe: encoded, Link: value.link()}
+		Main: main, Recipe: encoded, Link: value.link()}
 	started := time.Now()
 	inventory, err := e.buildLayer(ctx, record, value, parent, inputs)
 	if err != nil {
@@ -496,6 +505,10 @@ func (e *environments) snapshot(ctx context.Context, name string) (snapshotRecor
 	return snapshotRecord{}, false, nil
 }
 
+// newestSibling returns the newest layer of one kind, repository and parent
+// that was built for main. A branch-built layer never warm-starts a build: its
+// caches (for example wheels in PIP_FIND_LINKS) would carry one member's build
+// outputs into main's and other members' machines.
 func (e *environments) newestSibling(kind, repository, parentKey string) string {
 	records, err := e.records()
 	if err != nil {
@@ -503,7 +516,7 @@ func (e *environments) newestSibling(kind, repository, parentKey string) string 
 	}
 	var best layerRecord
 	for _, record := range records {
-		if record.Kind == kind && record.Repository == repository && record.ParentKey == parentKey && record.CreatedAt.After(best.CreatedAt) {
+		if record.Main && record.Kind == kind && record.Repository == repository && record.ParentKey == parentKey && record.CreatedAt.After(best.CreatedAt) {
 			best = record
 		}
 	}
@@ -853,7 +866,7 @@ type toolchainLayer struct {
 var (
 	versionPattern  = regexp.MustCompile(`^[0-9A-Za-z][0-9A-Za-z.+-]*$`)
 	sha256Pattern   = regexp.MustCompile(`^[0-9a-f]{64}$`)
-	postgresPattern = regexp.MustCompile(`^[0-9]+$`)
+	postgresPattern = regexp.MustCompile(`^[0-9]{1,2}$`)
 )
 
 // toolchainRecipe normalizes detected evidence or the authoritative index row
@@ -920,8 +933,9 @@ func toolchainRecipe(image string, targets []indexTarget, evidence ...Recipe) (t
 		layer.RustTargs = sortedCopy(rust.Targets)
 		required = append(required, "rustup")
 	}
+	// The guest helper accepts one or two digits; refuse anything else here.
 	if layer.Postgres != "" && !postgresPattern.MatchString(layer.Postgres) {
-		return toolchainLayer{}, fmt.Errorf("%s declares PostgreSQL %q, not a major version", row.Label, layer.Postgres)
+		return toolchainLayer{}, recipeRefusal(targetIndexPath, fmt.Sprintf("%s declares PostgreSQL %q, not a major version", row.Label, layer.Postgres))
 	}
 	for _, pinned := range row.Toolchain.Downloads {
 		if pinned.Destination != "" && (filepath.IsAbs(pinned.Destination) || filepath.Clean(pinned.Destination) != pinned.Destination || pinned.Destination == "." || strings.Contains(pinned.Destination, "\\") || strings.ContainsRune(pinned.Destination, 0) || hasParentComponent(pinned.Destination)) {

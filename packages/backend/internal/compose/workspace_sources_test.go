@@ -222,6 +222,7 @@ func TestRepositorySourceGlobAbsenceAndReadFailures(t *testing.T) {
 	for _, fixture := range []struct {
 		name                   string
 		treeStatus, fileStatus int
+		fileCode               string
 		file                   repohost.FileContent
 		noMatches, notExist    bool
 	}{
@@ -229,7 +230,8 @@ func TestRepositorySourceGlobAbsenceAndReadFailures(t *testing.T) {
 		{name: "missing directory", treeStatus: 404, notExist: true},
 		{name: "listing unavailable", treeStatus: 502},
 		{name: "matching content unavailable", treeStatus: 200, fileStatus: 502},
-		{name: "matching content absent", treeStatus: 200, fileStatus: 404, notExist: true},
+		{name: "matching content absent", treeStatus: 200, fileStatus: 404, fileCode: "file_not_found", notExist: true},
+		{name: "matching content not a file", treeStatus: 200, fileStatus: 404, fileCode: "not_found"},
 		{name: "matching content too large", treeStatus: 200, fileStatus: 200, file: repohost.FileContent{TooLarge: true}},
 		{name: "matching content invalid base64", treeStatus: 200, fileStatus: 200, file: repohost.FileContent{Encoding: "base64", Content: "@@@"}},
 	} {
@@ -250,6 +252,9 @@ func TestRepositorySourceGlobAbsenceAndReadFailures(t *testing.T) {
 				if r.URL.Path == sourceFileEndpoint("requirements.txt") {
 					if fixture.fileStatus != 200 {
 						w.WriteHeader(fixture.fileStatus)
+						if fixture.fileCode != "" {
+							sourceWriteJSON(t, w, map[string]string{"code": fixture.fileCode, "message": "refused"})
+						}
 						return
 					}
 					sourceWriteJSON(t, w, fixture.file)
@@ -392,5 +397,89 @@ func TestRepositorySourceGlobInvalidRepositoryDoesNotReachNetwork(t *testing.T) 
 	source.Repository = "acme/demo/nested"
 	if _, err := reader.ReadSourceFile(t.Context(), source, "requirements*.txt"); err == nil {
 		t.Fatal("invalid repository slug accepted")
+	}
+}
+
+// T-INS-06 R4 (C2): only the mirror's file_not_found is absence. A symlink
+// (FFI "path is not a resolved file"), a bare 404 or a routing 404 fails the
+// read naming the path, so detection never treats a refused file as missing.
+func TestRepositorySourceFileAbsentOnlyWhenTheMirrorSaysSo(t *testing.T) {
+	for _, fixture := range []struct {
+		name     string
+		status   int
+		code     string
+		notExist bool
+	}{
+		{name: "absent", status: 404, code: "file_not_found", notExist: true},
+		{name: "symlink", status: 404, code: "not_found"},
+		{name: "bare 404", status: 404},
+		{name: "unavailable", status: 502, code: "internal"},
+	} {
+		t.Run(fixture.name, func(t *testing.T) {
+			reader := sourceHTTPFixture(t, func(w http.ResponseWriter, r *http.Request) {
+				if r.URL.Path != sourceFileEndpoint(".node-version") {
+					t.Errorf("unexpected request %s", r.URL.String())
+					w.WriteHeader(http.StatusBadRequest)
+					return
+				}
+				w.WriteHeader(fixture.status)
+				if fixture.code != "" {
+					sourceWriteJSON(t, w, map[string]string{"code": fixture.code, "message": "refused"})
+				}
+			})
+			_, err := reader.ReadSourceFile(t.Context(), sourceGlobFixture, ".node-version")
+			if err == nil {
+				t.Fatal("refused read returned contents")
+			}
+			if errors.Is(err, fs.ErrNotExist) != fixture.notExist {
+				t.Fatalf("absence classification = %v; want notExist=%v", err, fixture.notExist)
+			}
+			if !strings.Contains(err.Error(), ".node-version") {
+				t.Fatalf("error does not name the path: %v", err)
+			}
+		})
+	}
+}
+
+// T-INS-06 R4 (C3): a glob returns at most 64 MiB in total, so 4,096 matches
+// of 16 MiB each cannot reach the detector.
+func TestRepositorySourceGlobBoundsTotalBytes(t *testing.T) {
+	const files, size = 5, 13 << 20
+	body := strings.Repeat("x", size)
+	reads := 0
+	reader := sourceHTTPFixture(t, func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == sourceTreeEndpoint() {
+			var entries []repohost.TreeEntry
+			for i := range files {
+				entries = append(entries, repohost.TreeEntry{Path: fmt.Sprintf("requirements-%d.txt", i), Kind: "file"})
+			}
+			sourceWriteJSON(t, w, entries)
+			return
+		}
+		reads++
+		sourceWriteJSON(t, w, repohost.FileContent{Content: body, Encoding: "utf8"})
+	})
+	_, err := reader.ReadSourceFile(t.Context(), sourceGlobFixture, "requirements*.txt")
+	if err == nil || !strings.Contains(err.Error(), "more than 64 MiB") {
+		t.Fatalf("unbounded glob total accepted: %v", err)
+	}
+	if reads != files {
+		t.Fatalf("read %d files before refusing; the fifth crosses 64 MiB", reads)
+	}
+	// Control: four such files (52 MiB) stay under the bound.
+	reads = 0
+	under := sourceHTTPFixture(t, func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == sourceTreeEndpoint() {
+			var entries []repohost.TreeEntry
+			for i := range files - 1 {
+				entries = append(entries, repohost.TreeEntry{Path: fmt.Sprintf("requirements-%d.txt", i), Kind: "file"})
+			}
+			sourceWriteJSON(t, w, entries)
+			return
+		}
+		sourceWriteJSON(t, w, repohost.FileContent{Content: body, Encoding: "utf8"})
+	})
+	if _, err := under.ReadSourceFile(t.Context(), sourceGlobFixture, "requirements*.txt"); err != nil {
+		t.Fatalf("52 MiB glob refused: %v", err)
 	}
 }
