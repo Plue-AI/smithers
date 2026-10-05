@@ -7,6 +7,7 @@ import { join } from "node:path"
 import { afterAll, describe, expect, it } from "vitest"
 import { agentArguments, formattedLogArguments, legacyArguments } from "../src/cli/Compatibility.ts"
 import * as Presentation from "../src/cli/Presentation.ts"
+import * as CliError from "../src/CliError.ts"
 import { createEvalCli } from "../src/evaluation/EvalCli.ts"
 import { createCredentialsCli } from "../src/operator/Credentials.ts"
 import { createIntegrationsCli } from "../src/operator/Integrations.ts"
@@ -243,6 +244,12 @@ describe("shared command presentation", () => {
       ],
       [{ _tag: "/control/Unavailable", message: "down" }, {}, "Unavailable", 1],
       [new Error("Authorization: Bearer private-fixture"), { code: "history_failed" }, "history_failed", 1],
+      [
+        new CliError.Refused({ fault: "user", code: "eval_suite_missing", message: "No such suite." }),
+        { code: "eval_run_failed", exitCode: 5 },
+        "eval_suite_missing",
+        5
+      ],
       ["plain", { exitCode: 5 }, "command_failed", 5]
     ] as const
   )("reports %j through the one guard with a stable code and exit status", async (cause, refusal, code, exitCode) => {

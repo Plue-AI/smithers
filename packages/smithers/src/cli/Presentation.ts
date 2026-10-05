@@ -280,7 +280,7 @@ export interface Failing extends Context {
  * @since 1.0.0
  */
 export interface Refusal {
-  /** Stable code for failures without a database code; defaults to the error tag, then `command_failed`. */
+  /** Stable code for failures without a database or `Refused` code; defaults to the error tag, then `command_failed`. */
   readonly code?: string | undefined
   /** Exit status for failures other than a UsageError, which always exits 2. */
   readonly exitCode?: number | undefined
@@ -295,10 +295,9 @@ export interface Refusal {
 export const fail = (context: Failing, cause: unknown, refusal: Refusal = {}): never => {
   const tag = Failure.tagOf(cause)
   return context.error({
-    code: NodeDatabase.isUnsupportedDatabase(cause) ?
+    code: NodeDatabase.isUnsupportedDatabase(cause) || cause instanceof CliError.Refused ?
       cause.code :
-      refusal.code ?? (cause instanceof CliError.Refused ? cause.code : tag?.split("/").pop()) ??
-        "command_failed",
+      refusal.code ?? tag?.split("/").pop() ?? "command_failed",
     message: String(
       Redaction.redactDiagnostic(Failure.operatorReport(cause, context.options?.verbose === true))
     ),
