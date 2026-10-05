@@ -243,7 +243,8 @@ describe("rollback-probe.ts against a Cloudflare API double", () => {
 
   test("a real deploy receipt whose version is live and has a predecessor passes", async () => {
     live = cloudflareDouble()
-    const result = await runProbe(["--receipt", receiptFile(realReceipt(VERSION_B)), "--api-base", live.base], {
+    const result = await runProbe(["--receipt", receiptFile(realReceipt(VERSION_B))], {
+      CLOUDFLARE_API_BASE_URL: live.base,
       CLOUDFLARE_API_TOKEN: "cf-token-123"
     })
     expect(result.exitCode).toBe(0)

@@ -11,7 +11,8 @@ import { createHash, randomUUID } from "node:crypto"
 import { writeFileSync } from "node:fs"
 import { join } from "node:path"
 import { WORKER_IDENTITY } from "../src/workerIdentity"
-import { accountURL } from "./cutover/cloudflare"
+import { cloudflareApiBase } from "./cloudflareApi"
+const accountURL = `${cloudflareApiBase}/accounts/${WORKER_IDENTITY.accountId}`
 
 export interface FakeModule { name: string; type: string; bytes: Uint8Array }
 export interface FakeVersion { id: string; entry: string; modules: FakeModule[]; bindings: Array<Record<string, unknown>>; secrets: Record<string, string>; settings: Record<string, unknown>; message: string }

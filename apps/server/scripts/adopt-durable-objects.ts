@@ -1,3 +1,4 @@
+import { cloudflareApiBase } from "./cloudflareApi"
 /**
  * Deploy preflight for `smithers-mvp-web`: the live script must agree with
  * src/workerIdentity.ts and wrangler.jsonc before `wrangler deploy` runs.
@@ -35,7 +36,6 @@ import type { WranglerConfig } from "../src/wranglerConfig"
 import { WORKER_IDENTITY } from "../src/workerIdentity"
 import type { DurableObjectIdentity } from "../src/workerIdentity"
 
-const DEFAULT_API_BASE = "https://api.cloudflare.com/client/v4"
 
 export type Level = "PASS" | "FAIL" | "WARN" | "INFO" | "SKIP"
 export interface Finding {
@@ -190,7 +190,7 @@ const argOf = (flag: string): string | undefined => {
 }
 
 const cloudflareGet = async (apiToken: string, path: string): Promise<{ ok: true; value: unknown } | { ok: false; detail: string }> => {
-  const base = process.env.CLOUDFLARE_API_BASE ?? DEFAULT_API_BASE
+  const base = cloudflareApiBase
   try {
     const response = await fetch(`${base}${path}`, { headers: { authorization: `Bearer ${apiToken}` } })
     const text = await response.text()
