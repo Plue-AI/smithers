@@ -148,11 +148,17 @@ func (s *WorkspaceService) ensureRuntimeWorkspaceRepositoryWithReceipt(ctx conte
 		return pkgerrors.Conflict("workspace root is nonempty and has no repository metadata")
 	}
 
-	token, err := issueTemporaryRepoCloneToken(ctx, s.q, row.UserID, "workspace-runtime-clone")
+	// The clone reads as the person the machine works for: a branch machine's
+	// owner is the install's machine service, which reads no repository.
+	reader := row.UserID
+	if requesterID > 0 {
+		reader = requesterID
+	}
+	token, err := issueTemporaryRepoCloneToken(ctx, s.q, reader, "workspace-runtime-clone")
 	if err != nil {
 		return pkgerrors.Internal("create workspace repository token: " + err.Error())
 	}
-	defer revokeTemporaryRepoCloneToken(ctx, s.q, row.UserID, token.ID)
+	defer revokeTemporaryRepoCloneToken(ctx, s.q, reader, token.ID)
 	authEnvironment := map[string]string{
 		"GIT_CONFIG_COUNT":   "1",
 		"GIT_CONFIG_KEY_0":   "http.extraHeader",

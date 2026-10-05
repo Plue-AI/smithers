@@ -50,6 +50,12 @@ func (s *WorkspaceService) authorizeBranchMachine(ctx context.Context, tx pgx.Tx
 	if err := s.requireBranchMachineProviders(); err != nil {
 		return err
 	}
+	// The machine service owns every branch machine and is no member: it
+	// cannot sign in, so only the product's own steps (the box's head reporter
+	// and coding runtime) act as it.
+	if service, err := s.branchMachineOwned(ctx, actorID); err == nil && service {
+		return nil
+	}
 	p := s.branchMachineProviders
 	if err := p.Membership(ctx, tx, repositoryID, actorID); err != nil {
 		return err
@@ -215,6 +221,12 @@ func (s *WorkspaceService) withBranchMachineMutation(ctx context.Context, row db
 	}
 	authority := workspaceMutationAuthority{workspaceID: row.ID, userID: actorID}
 	if held, ok := ctx.Value(workspaceMutationAuthorityKey{}).(workspaceMutationAuthority); ok && held == authority {
+		return fn(ctx)
+	}
+	// The machine service mutates its own machine without a member's share.
+	if owned, err := s.branchMachineOwned(ctx, actorID); err != nil {
+		return fmt.Errorf("%w: %w", errBranchMachineAdmission, err)
+	} else if owned && actorID == row.UserID {
 		return fn(ctx)
 	}
 	tx, err := s.transactions.Begin(ctx)
