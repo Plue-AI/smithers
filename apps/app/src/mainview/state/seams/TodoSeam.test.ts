@@ -747,3 +747,23 @@ describe("TodoSeam — the TODO list Home reads where no `home` topic is served 
     } finally { out.close() }
   })
 })
+
+test("quoted proposal context stays literal through commit, duplicate press and failed retry", async () => {
+  const quoted = "--- a/flows/todo/flow.ts\n+++ b/flows/todo/flow.ts\n+make test"
+  const bodies: unknown[] = []
+  let calls = 0
+  const h = await harness(async (_url, init) => {
+    bodies.push(JSON.parse(String(init?.body))); calls++
+    return calls === 1 ? json({code:"unavailable",class:"infra",message:"Retry"},503) : json({state:"accepted",n:21,rev:1})
+  })
+  try {
+    await h.seam.newTodo({text:"Change flows/todo/flow.ts: make test",title:"Flow edit",context:quoted})
+    const id = h.draft().id
+    await h.seam.newTodo({cardId:id})
+    await waitFor(() => h.draft().payload.request?.state === "failed")
+    await h.seam.newTodo({cardId:id})
+    await h.seam.newTodo({cardId:id})
+    await waitFor(() => calls === 2)
+    expect(bodies).toEqual(Array(2).fill({title:"Flow edit",prompt:"Change flows/todo/flow.ts: make test",acceptance:[],context:quoted,place:{mode:"append"}}))
+  } finally { h.close() }
+})

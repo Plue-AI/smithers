@@ -34,6 +34,8 @@ export const DraftCardSchema = z.object({
   title: z.string(),
   prompt: z.string(),
   acceptance: z.array(z.string()),
+  /** Quoted proposal only; never a patch to apply (spec §11.5.1). */
+  context: z.string().refine(value => new TextEncoder().encode(value).length <= 32768).optional(),
   place: z.discriminatedUnion("mode", [
     z.object({ mode: z.literal("append"), options: PlaceOptionsSchema }),
     z.object({ mode: z.enum(["before", "amend"]), n: z.number().int().positive(), options: PlaceOptionsSchema })

@@ -140,3 +140,13 @@ describe("the TODO commands every host binds", () => {
     expect(draftCard({ ...seed, text: "" }, 0, 0).title).toBe("")
   })
 })
+
+test("quoted revision context survives a private Draft without changing its request", () => {
+  for (const context of ["", "--- a/flows/todo/flow.ts\n+++ b/flows/todo/flow.ts\n+test", "<script>bad()</script>", "\u0000\n```\n", "x".repeat(32768)]) {
+    const input = TodoNewInputSchema.parse({ text: "Change the flow", context })
+    const card = draftCard({ id: "draft:quoted", author: "maya", text: input.text!, context: input.context, options: [], idempotencyKey: "quoted" }, 0, 0)
+    expect(CardSchema.parse(card).payload).toMatchObject({ context, prompt: "Change the flow", private: true })
+  }
+  expect(TodoNewInputSchema.safeParse({ context: "x".repeat(32769) }).success).toBe(false)
+  expect(TodoNewInputSchema.safeParse({ context: {} }).success).toBe(false)
+})

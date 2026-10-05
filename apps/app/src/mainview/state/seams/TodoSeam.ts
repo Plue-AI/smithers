@@ -374,7 +374,7 @@ export const createTodoSeam = (ctx: SeamContext, options: TodoSeamOptions = {}) 
     const refusal = signedIn(); if (refusal) return refusal
     if (!input.cardId) {
       const id = `draft:${randomUuid()}`
-      await write(draftCard({ id, author: owner()!, text: input.text ?? "", title: input.title, acceptance: input.acceptance, before: input.before,
+      await write(draftCard({ id, author: owner()!, text: input.text ?? "", title: input.title, acceptance: input.acceptance, context: input.context, before: input.before,
         options: placeOptions(), idempotencyKey: randomUuid() }, ctx.nextOrdinal(), Date.now()))
       loadDraftPlaces(id)
       return { value: "Drafted" }
@@ -411,6 +411,7 @@ export const createTodoSeam = (ctx: SeamContext, options: TodoSeamOptions = {}) 
     const pending = model.request ?? { key: model.idempotencyKey, owner: owner()!, operation: place.mode === "amend" ? "amend" as const : "create" as const,
       n: place.mode === "amend" ? place.n : undefined, state: "requested" as const,
       body: { title: model.title, prompt: model.prompt, acceptance: model.acceptance,
+        ...(model.context === undefined ? {} : { context: model.context }),
         ...(place.mode === "amend" ? {} : { place: { mode: place.mode, ...(place.mode !== "append" ? { n: place.n } : {}) } }),
         ...(model.issue ? { issue: model.issue.number, fixes: model.issue.fixes, ...(model.issueDigest ? { issue_digest: model.issueDigest } : {}) } : {}) } }
     const retry: Request = { ...pending, state: "requested", error: undefined }

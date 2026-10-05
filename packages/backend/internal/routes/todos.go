@@ -112,7 +112,7 @@ func (h *TodoHandler) Create(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	var input services.MythicalTodoInput
-	decoder := json.NewDecoder(http.MaxBytesReader(w, r.Body, 64<<10))
+	decoder := json.NewDecoder(http.MaxBytesReader(w, r.Body, 128<<10))
 	decoder.DisallowUnknownFields()
 	if err := decodeSingleJSONDocument(decoder, &input); err != nil {
 		var refusal *services.TodoControlError

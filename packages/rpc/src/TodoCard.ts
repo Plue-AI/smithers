@@ -68,7 +68,7 @@ export const TodoCardSchema = z.object({
   rebase_pending: RebasePendingSchema.optional(),
   step: z.string().optional(),
   prompt_revisions: z.array(
-    z.object({ text: z.string(), acceptance: z.array(z.string()), by: ActorSchema, at: z.string() })
+    z.object({ text: z.string(), acceptance: z.array(z.string()), context: z.string().optional(), by: ActorSchema, at: z.string() })
   ),
   issue: z.object({ number: z.number().int().positive(), url: HttpUrlSchema, fixes: z.boolean() }).optional(),
   branch: z.object({ id: z.string(), name: z.string(), machine: MachineStateSchema }).optional(),

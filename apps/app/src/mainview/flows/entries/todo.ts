@@ -14,6 +14,7 @@ const Text = Schema.NonEmptyString
  */
 export const TodoNewInput = Schema.Struct({
   text: Schema.optional(Schema.String), title: Schema.optional(Text), acceptance: Schema.optional(Schema.Array(Schema.String)),
+  context: Schema.optional(Schema.String),
   before: Schema.optional(N), cardId: Schema.optional(Schema.String), idempotencyKey: Schema.optional(Text)
 })
 export const TodoAmendInput = Schema.Struct({

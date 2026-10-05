@@ -60,6 +60,7 @@ export const TodoNewInputSchema = z.object({
   text: z.string().optional(),
   title: z.string().min(1).optional(),
   acceptance: z.array(z.string()).optional(),
+  context: z.string().refine(value => new TextEncoder().encode(value).length <= 32768).optional(),
   before: z.number().int().positive().optional(),
   cardId: z.string().optional(),
   idempotencyKey: z.string().min(1).optional()
@@ -149,6 +150,7 @@ export interface DraftSeed {
   readonly id: string
   readonly author: string
   readonly text: string
+  readonly context?: string | undefined
   readonly title?: string | undefined
   readonly acceptance?: ReadonlyArray<string> | undefined
   readonly before?: number | undefined
@@ -188,6 +190,7 @@ export const draftCard = (seed: DraftSeed, ordinal: number, createdAt: number): 
       title,
       prompt: seed.text,
       acceptance: [...seed.acceptance ?? []],
+      ...(seed.context === undefined ? {} : { context: seed.context }),
       place: seed.before ? { mode: "before", n: seed.before, options } : { mode: "append", options },
       ...(seed.issue === undefined ? {} : { issue: seed.issue }),
       ...(seed.issueDigest === undefined ? {} : { issueDigest: seed.issueDigest }),

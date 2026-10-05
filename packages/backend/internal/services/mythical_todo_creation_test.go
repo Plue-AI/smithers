@@ -28,7 +28,7 @@ func TestTodoCreationRealPostgres(t *testing.T) {
 	require.NoError(t, err)
 	s := NewMythicalService(pool, nil) // nil GitHub/launcher: any outbound call fails.
 	ctx = middleware.ContextWithAuthInfo(ctx, &middleware.AuthInfo{User: &db.User{ID: userID}, SessionHash: "session-one"})
-	input := MythicalTodoInput{Title: "One", Prompt: "Change the README", Request: "same"}
+	input := MythicalTodoInput{Title: "One", Prompt: "Change the README", Context: "--- a/flows/todo/flow.ts\n+++ b/flows/todo/flow.ts\n@@ -1 +1 @@\n-old\n+new", Request: "same"}
 	first, err := s.FileTodo(ctx, repoID, userID, input)
 	require.NoError(t, err)
 	require.EqualValues(t, 1, first.Number)
@@ -37,6 +37,12 @@ func TestTodoCreationRealPostgres(t *testing.T) {
 	repeated, err := s.FileTodo(ctx, repoID, userID, input)
 	require.NoError(t, err)
 	require.Equal(t, first.ID, repeated.ID)
+	changedContext := input
+	changedContext.Context += "\n+another"
+	_, err = s.FileTodo(ctx, repoID, userID, changedContext)
+	var contextErr *TodoControlError
+	require.ErrorAs(t, err, &contextErr)
+	require.Equal(t, "idempotency_mismatch", contextErr.Code)
 	input.Prompt = "Different"
 	_, err = s.FileTodo(ctx, repoID, userID, input)
 	var typed *TodoControlError
@@ -82,6 +88,7 @@ func TestTodoCreationRealPostgres(t *testing.T) {
 	var revisions []map[string]any
 	require.NoError(t, json.Unmarshal(item.Revisions, &revisions))
 	require.Equal(t, "Change the README", revisions[0]["text"])
+	require.Equal(t, input.Context, revisions[0]["context"])
 	stale := item
 	item.Reason = "saved"
 	saved, err := q.SaveMythicalItem(ctx, item)

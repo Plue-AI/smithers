@@ -28,6 +28,7 @@ import (
 // made from, the digest of the title and body the member read, and whether
 // the TODO closes the issue when it merges (absent: it does).
 type MythicalTodoInput struct {
+	Context     string            `json:"context,omitempty"`
 	Prompt      string            `json:"prompt"`
 	Acceptance  []string          `json:"acceptance"`
 	Place       MythicalTodoPlace `json:"place"`
@@ -94,7 +95,7 @@ func (s *MythicalService) FileTodo(ctx context.Context, repositoryID, userID int
 		return MythicalItemView{}, err
 	}
 	input.Title = strings.TrimSpace(input.Title)
-	if input.Title == "" || strings.TrimSpace(input.Prompt) == "" || len(input.Title) > 256 || len(input.Prompt) > 64<<10 || input.Request == "" || len(input.Request) > 256 {
+	if input.Title == "" || strings.TrimSpace(input.Prompt) == "" || len(input.Title) > 256 || len(input.Prompt) > 64<<10 || len(input.Context) > 32<<10 || input.Request == "" || len(input.Request) > 256 {
 		return MythicalItemView{}, &TodoControlError{400, "invalid_todo", "user", "Title, prompt and Idempotency-Key are required"}
 	}
 	switch place := input.Place; {
@@ -181,6 +182,9 @@ func (s *MythicalService) FileTodo(ctx context.Context, repositoryID, userID int
 			}
 		}
 		first := map[string]any{"text": input.Prompt, "acceptance": input.Acceptance, "by": map[string]any{"kind": "person", "login": person.Username, "name": person.DisplayName, "avatar_url": todoAvatar(person), "color_index": 0}, "at": s.now().UTC().Format(time.RFC3339Nano)}
+		if input.Context != "" {
+			first["context"] = input.Context
+		}
 		if issue != nil {
 			first["reason"], first["issue_digest"] = "from-issue", issue.Digest
 		}
