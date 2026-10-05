@@ -22004,6 +22004,10 @@
       },
       {
         "kind": "file",
+        "path": "flows/test/coding-project-defaults.test.ts"
+      },
+      {
+        "kind": "file",
         "path": "flows/test/coding-steering.test.ts"
       },
       {
