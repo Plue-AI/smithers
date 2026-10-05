@@ -1798,7 +1798,7 @@ func (h *mergeHarness) waitForLocks(n int, text string) {
 // locks (§10.6.2b): a change committed while the claim waits on its first
 // lock sends nothing. A revocation is its refusal; a change of where the
 // merge goes or through what is none: the fence stays and the next pass
-// decides again.
+// decides again. A changed TODO is decided by the pass that follows at once.
 func TestMythicalMergeTodoEveryLocalFactIsReadUnderTheClaimsLocks(t *testing.T) {
 	const ended = "The approving browser session has ended; sign in again to merge"
 	const notOwner = "Merge requires an owner or maintainer browser session"
@@ -1817,7 +1817,10 @@ func TestMythicalMergeTodoEveryLocalFactIsReadUnderTheClaimsLocks(t *testing.T) 
 		// code and message are the refusal; none leaves the fence.
 		code, message string
 	}{
-		{"TODO changed", sql(`UPDATE mythical_items SET generation = generation + 1, version = version + 1 WHERE repository_id = $1`, repository), "", ""},
+		// The claim's save loses its race, so the next pass runs at once
+		// (#3433) and refuses an approval of the TODO's older generation.
+		{"TODO changed", sql(`UPDATE mythical_items SET generation = generation + 1, version = version + 1 WHERE repository_id = $1`, repository),
+			"rechecking", "The merge approval no longer matches this TODO; review it again"},
 		{"signed out", sql(`DELETE FROM auth_sessions WHERE user_id = $1`, person), "unauthenticated", ended},
 		{"suspended", sql(`UPDATE users SET prohibit_login = true WHERE id = $1`, person), "unauthenticated", ended},
 		{"owner changed", sql(`WITH next AS (INSERT INTO users(username,lower_username) VALUES ('next','next') RETURNING id)
