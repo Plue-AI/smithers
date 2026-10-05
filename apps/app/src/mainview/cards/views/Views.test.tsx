@@ -598,6 +598,24 @@ for (const [id, story] of Object.entries(settings)) test(`Settings ${id}`, () =>
   for (const text of story.expect) expect([host.textContent, ...[...host.querySelectorAll<HTMLInputElement>("input:not([type=password])")].map(input => input.value)].join("\n")).toContain(text)
   expect(host.textContent).toContain("700 MB")
 })
+test("Settings repository fix uses only the supplied blocker", () => {
+  const model = {
+    ...settings.squash_blocked.model,
+    repository: { owner: "different-owner", name: "different-repository" },
+    steps: settings.squash_blocked.model.steps.map(step => step.id === "repository" ? {
+      ...step, blocked: { line: "Repair repository access", fix_url: "https://fix.example.test/repository" }
+    } : step)
+  }
+  const host = render(<SettingsView {...settings.squash_blocked} model={model} onAction={() => {}} onView={() => {}} />)
+  const link = host.querySelector("a")!
+  expect(link.textContent).toBe("Repair repository access")
+  expect(link.getAttribute("href")).toBe("https://fix.example.test/repository")
+  expect(link.target).toBe("_blank")
+  expect(link.rel).toBe("noreferrer")
+  expect(host.querySelector('a[href^="https://github.com/"]')).toBeNull()
+  act(() => root!.render(<SettingsView {...settings.squash_blocked} model={{ ...model, steps: model.steps.map(step => ({ ...step, blocked: undefined })) }} onAction={() => {}} onView={() => {}} />))
+  expect(host.querySelector("a")).toBeNull()
+})
 test("Address submits literal bound step and edited fields once", () => {
   const calls: unknown[] = []
   const host = render(<SetupView {...setup.fresh} onAction={(...args) => calls.push(args)} onView={() => { throw new Error("Unexpected view patch") }} />)

@@ -61,6 +61,11 @@ export const fixtures = {
     actions: owner,
     expect: ["smthrs login http://mac-mini.local:8080", "Machines", "TODOs per day"]
   }),
+  squash_blocked: story(
+    "Repository blocked until squash merging is on",
+    { ...base, steps: setup.squash_blocked.model.steps, github: setup.squash_blocked.model.github },
+    { actions: owner, expect: ["Enable squash merging on GitHub ↗"] }
+  ),
   address_failed: story(
     "Address apply failed; the previous bind remains active",
     {
