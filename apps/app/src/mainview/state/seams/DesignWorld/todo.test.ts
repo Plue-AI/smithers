@@ -36,6 +36,18 @@ describe("withDesignTodos (mock seam): todo.* and draft.* land on the seed, sign
     expect(asking.waits.map(wait => wait.actions.map(action => action.tag))).toEqual([["todo.answer"]])
   })
 
+  test("a held TODO exposes its pinned flow independently of failed or newly active versions", async () => {
+    const { design } = await harness()
+    const world = design.world()
+    const todo = world.todos.find(each => each.ref === "T9")!
+    const changed = { ...world, flowVersions: world.flowVersions.map(version => ({ ...version,
+      state: version.id === "v2" ? "active" as const : version.id === "v1" ? "previous" as const : version.state })) }
+    const pin = { kind: "flow", name: "TODO flow", version: "v1" }
+    expect(designTodoCard(changed, todo).evidence[0]!.items).toContainEqual(pin)
+    const reviewed = { ...todo, evidence: world.todos.find(each => each.ref === "T8")!.evidence }
+    expect(designTodoCard(changed, reviewed).evidence[0]!.items).toContainEqual(pin)
+  })
+
   test("todo opens the Tn card without a session; an unknown number refuses by name", async () => {
     const h = await harness()
     expect(h.store.collections.identitySessions.get("identity")?.state).not.toBe("signed-in")

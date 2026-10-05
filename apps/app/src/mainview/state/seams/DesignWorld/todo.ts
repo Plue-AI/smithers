@@ -125,9 +125,12 @@ export const designTodoCard = (world: DesignWorldRows, todo: DesignTodo): TodoCa
     steers: (todo.steers ?? []).map(each => ({ text: each.text, by: actorOf(world, each.by), at: "" })),
     ...(todo.state === "failed" ? { failure: { step: steps.find(step => step.id === todo.step)?.title ?? "Run", class: "run",
       message: todo.failure ?? "The run failed", retryable: true } } : {}),
-    evidence: evidence === undefined ? [] : [{
+    evidence: evidence === undefined ? (todo.flowVersion === undefined ? [] : [{
+      attempt: todo.attempts ?? 1, revision: head, items: [{ kind: "flow", name: "TODO flow", version: todo.flowVersion }]
+    }]) : [{
       attempt: todo.attempts ?? 1, revision: head,
       items: [
+        ...(todo.flowVersion === undefined ? [] : [{ kind: "flow" as const, name: "TODO flow", version: todo.flowVersion }]),
         { kind: "diff", files: evidence.files, added: evidence.added, removed: evidence.removed },
         ...evidence.checks.map(check => ({ kind: "check" as const, name: check.name, state: check.state, ...(seconds(check.took) === undefined ? {} : { took_s: seconds(check.took)! }) })),
         ...github,

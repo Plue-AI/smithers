@@ -79,8 +79,9 @@ describe("DesignWorld run and flow seam", () => {
     expect(flowNames(world)).toEqual(["todo", "merge"])
     const todo = flowCardOf(world, "todo")!
     expect(FlowCardSchema.parse(todo)).toEqual(todo)
+    expect(todo.versions[2]).toMatchObject({ state: "merged-failed", error: "flows/todo/flow.ts:12: Type error in check step" })
     expect(todo.source).toEqual({ path: "flows/todo/flow.ts" })
-    expect(todo.versions.map(version => `${version.id}:${version.state}`)).toEqual(["v1:active", "v2:proposed"])
+    expect(todo.versions.map(version => `${version.id}:${version.state}`)).toEqual(["v1:active", "v2:proposed", "v-failed:merged-failed"])
     expect(todo.versions[1]!.steps.map(step => step.id)).toContain("changelog")
     expect(todo.versions[0]!.steps.at(-1)).toMatchObject({ id: "merge", wait: true })
     expect(todo.versions[0]!.steps.find(step => step.id === "plan")).toMatchObject({ agent: "Fable 5.1" })

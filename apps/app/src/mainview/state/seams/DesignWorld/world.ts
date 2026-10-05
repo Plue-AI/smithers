@@ -517,7 +517,7 @@ export const seedDesignWorld = (): DesignWorldRows => {
     { id: "t-stripe", ref: "T8", title: "Upgrade the Stripe SDK to v17", owner: MAYA, branch: "b-stripe", state: "in-review", pr: 88, attempts: 1,
       prompt: "Upgrade stripe to v17. Keep the webhook signature check working.", evidence: STRIPE_EVIDENCE },
     { id: "t-retry", ref: "T9", title: "Retry failed webhooks with backoff", owner: BEN, branch: "b-retry", state: "needs-you", needs: "question", issue: 212, fixes: true,
-      step: "verify", attempts: 2, elapsed: "12m",
+      step: "verify", attempts: 2, elapsed: "12m", flowVersion: "v1", steps: TODO_FLOW,
       prompt: "Failed webhook deliveries should retry up to 5 times with backoff, then mark the event failed. Fixes #212.",
       question: { text: RETRY_QUESTION } },
     { id: "t-checkout", ref: "T10", title: "Fix the flaky checkout test", owner: ALICE, branch: "b-checkout", state: "working", step: "implement", attempts: 1, elapsed: "6m",
@@ -596,6 +596,8 @@ export const seedDesignWorld = (): DesignWorldRows => {
         { id: "changelog", title: "Changelog", detail: "Add a line to CHANGELOG.md." },
         ...TODO_FLOW.slice(3)
       ] },
+      { id: "v-failed", flow: "todo", label: "flows/todo/flow.ts · failed", state: "merged-failed",
+        error: "flows/todo/flow.ts:12: Type error in check step", steps: TODO_FLOW },
       { id: "merge", flow: "merge", label: "Merge flow", state: "active", system: true, steps: [
         { id: "approval", title: "Check the approval", detail: "The person merging approved this revision." },
         { id: "github", title: "Merge on GitHub", detail: "Squash-merge the PR into main." },
