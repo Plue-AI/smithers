@@ -38,6 +38,24 @@ func (m *recordingMinter) CreateGitHubInstallationToken(_ context.Context, insta
 
 var wantMemberScope = GitHubTokenScope{AllRepositories: true, Permissions: map[string]string{"metadata": "read"}}
 
+type memberResultMinter struct{ result GitHubInstallationToken }
+
+func (m memberResultMinter) CreateGitHubInstallationToken(context.Context, int64, GitHubTokenScope) (GitHubInstallationToken, error) {
+	return m.result, nil
+}
+
+func TestRosterRejectsEmptyOrMismatchedMintedToken(t *testing.T) {
+	for _, token := range []GitHubInstallationToken{
+		{InstallationID: 12},
+		{InstallationID: 13, Token: "other-installation"},
+	} {
+		m := &Members{Minter: memberResultMinter{token}}
+		value, err := m.memberToken(t.Context(), 12)
+		require.Error(t, err)
+		require.Empty(t, value)
+	}
+}
+
 // memberGitHub answers the installation lookup and the collaborator
 // permission read, and fails the test on any token mint it sees.
 func memberGitHub(t *testing.T, role string) *[]string {

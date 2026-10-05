@@ -18,10 +18,11 @@ import (
 // token minter (§12.1.3), and Budget accounts every GitHub request the roster
 // makes against the install's shared rate budget.
 type Members struct {
-	Pool        *pgxpool.Pool
-	Credentials GitHubAppCredentialReader
-	Minter      GitHubInstallationTokenMinter
-	Budget      *BudgetTracker
+	Pool           *pgxpool.Pool
+	Credentials    GitHubAppCredentialReader
+	Minter         GitHubInstallationTokenMinter
+	Budget         *BudgetTracker
+	permissionPoll *memberPermissionPoll
 }
 
 // gitHubMemberPermissions is everything a roster check needs: GitHub lists
@@ -39,6 +40,9 @@ func (m *Members) memberToken(ctx context.Context, installationID int64) (string
 	token, err := m.Minter.CreateGitHubInstallationToken(ctx, installationID, GitHubTokenScope{AllRepositories: true, Permissions: gitHubMemberPermissions})
 	if err != nil {
 		return "", err
+	}
+	if token.Token == "" || token.InstallationID != installationID {
+		return "", GitHubRequestFailure(ctx, "GitHub installation token unavailable")
 	}
 	return token.Token, nil
 }

@@ -41,6 +41,7 @@ type periodicRunner struct {
 	ticker       ticker
 	newTicker    func(time.Duration) ticker
 	stopCh       chan struct{}
+	wakeCh       chan struct{}
 	wg           sync.WaitGroup
 	mu           sync.Mutex
 	running      bool
@@ -57,6 +58,7 @@ func (r *periodicRunner) init(name string, interval, fallback time.Duration) {
 	r.name = name
 	r.interval = interval
 	r.stopCh = make(chan struct{})
+	r.wakeCh = make(chan struct{}, 1)
 	r.newTicker = func(d time.Duration) ticker {
 		return &realTicker{t: time.NewTicker(d)}
 	}
@@ -89,6 +91,8 @@ func (r *periodicRunner) loop(ctx context.Context, t ticker, sweep func(context.
 		case <-r.stopCh:
 			return
 		case <-t.Chan():
+			r.runSweep(ctx, sweep)
+		case <-r.wakeCh:
 			r.runSweep(ctx, sweep)
 		}
 	}

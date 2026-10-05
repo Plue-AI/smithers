@@ -3,9 +3,9 @@
   "producer": null,
   "output": {
     "path": "packages/backend/docs/github-app.md",
-    "digest": "df6147b7e1307cdae68a73af1659a1a51bf45e29ddcbfe4c278c9e468dd218cc"
+    "digest": "e9723029dfd817b97e4cb06e9ee6ba6c60cf498a433678f7a374c86d06a1668a"
   },
-  "closure": "1013e46cc295817743e5c27a53bb5065e602135204b1a166834c8d7df4d3a59c",
+  "closure": "386b3a652321864e65eef9201b0e83e98b09ab0e24d425afd23bb4a2026139fc",
   "inputs": [
     {
       "path": "docs/api/openapi/install.yaml",
@@ -28,12 +28,20 @@
       "digest": "d54a39d158d3d9d39fc994a97195cb61a0287a6d9326ff1148c1712f9059ca4a"
     },
     {
+      "path": "packages/backend/internal/cleanup/export.go",
+      "digest": "5990524435496f89a8a38e2c8c56867e7cb180f7c67ef358abd2d2c6847b57fd"
+    },
+    {
+      "path": "packages/backend/internal/cleanup/periodic.go",
+      "digest": "17d13b88868843d53f21368cd977f82b1e76301945a0161326d17ee32d7b837a"
+    },
+    {
       "path": "packages/backend/internal/compose/github_sync.go",
-      "digest": "5133a3845c87549bd69b616a8985a6dd3b85bdd50389a9bd460f0f6db50f53f7"
+      "digest": "9d44c28a986285a1e06f6189dc9621fad5f596dfbe6aa1ff65ce10cc23b86cc7"
     },
     {
       "path": "packages/backend/internal/compose/main.go",
-      "digest": "5b2db56e7d15e9cac844ee5b6c07769e60b49ca0415012cb711b5df04b11e848"
+      "digest": "7a405d2126772824fa8b05ed40686c3198f3d89189ca4888ffddf5d9e94b6a60"
     },
     {
       "path": "packages/backend/internal/compose/runtime_helpers.go",
@@ -153,7 +161,7 @@
     },
     {
       "path": "packages/backend/internal/services/github_synced_poll.go",
-      "digest": "f01d1ceb2abe45e500a8f18377e0bb09f40b64e190f89b8b3e2f362946161318"
+      "digest": "67de5b12cc26e7966bf93d57cb1b10e44bb15c79eea32ba17f474f48dd4eb1d5"
     },
     {
       "path": "packages/backend/internal/services/github_synced_pull.go",
@@ -184,8 +192,20 @@
       "digest": "eba6d67dd92145b7a67a7e71076c5115f1a4397511b65692c60358150bbc966a"
     },
     {
+      "path": "packages/backend/internal/services/member_poll.go",
+      "digest": "3ea7317a9cc5e19bec352cf0961d1fc1071c3125b216f4536ce048cfae045c44"
+    },
+    {
+      "path": "packages/backend/internal/services/member_recheck.go",
+      "digest": "5822a9afc30686bde359f4510110bd76329fc4c7980ffd8d2dd4bee49186043d"
+    },
+    {
       "path": "packages/backend/internal/services/member_roster.go",
-      "digest": "4bbfae38be191fc63f36174f1012477761d4b059be1c3348796df81a956fe7fe"
+      "digest": "8e943a9f754210d658e570003634716b27da8cafb4ff02449348c07760b5f4d7"
+    },
+    {
+      "path": "packages/backend/internal/services/members.go",
+      "digest": "0a4d97738ff9f8179bd141705711626554a19fbfe7c0188103641c755232f1b0"
     },
     {
       "path": "packages/backend/internal/services/mythical.go",
@@ -209,7 +229,7 @@
     },
     {
       "path": "packages/backend/internal/services/repo_connection_github_app.go",
-      "digest": "e62b5fc098fc040eccf1f5df48340c3b5aa97c1b83d52d9ff1121e4c46b46600"
+      "digest": "a2e0fb1d6c7a5dbdbdab14b7949ebf6a41d39b3c0f2a541201bb4543c6437681"
     }
   ]
 }

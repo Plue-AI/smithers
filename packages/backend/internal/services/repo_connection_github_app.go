@@ -30,6 +30,11 @@ import (
 	pkgerrors "github.com/smithersai/smithers/packages/backend/internal/pkg/errors"
 )
 
+// The minter and shared admission use the same stream identity.
+func gitHubInstallationTokenPath(installationID int64) string {
+	return fmt.Sprintf("/app/installations/%d/access_tokens", installationID)
+}
+
 // connectedGitHubRepositorySQL reads the repository id a verified connect
 // persisted for owner/repo, by the connecting user ($1) or a member of the
 // owning org ($4), and the installation covering that id. Names only select
@@ -512,11 +517,7 @@ func (s *RepoConnectionService) CreateGitHubInstallationToken(
 		return GitHubInstallationToken{}, pkgerrors.Internal("failed to create github app jwt").WithCause(err)
 	}
 
-	endpoint := fmt.Sprintf(
-		"%s/app/installations/%d/access_tokens",
-		strings.TrimRight(githubAPIBaseURL(), "/"),
-		installationID,
-	)
+	endpoint := strings.TrimRight(githubAPIBaseURL(), "/") + gitHubInstallationTokenPath(installationID)
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, endpoint, bytes.NewReader(requestBody))
 	if err != nil {
 		return GitHubInstallationToken{}, pkgerrors.Internal("failed to build github token request").WithCause(err)

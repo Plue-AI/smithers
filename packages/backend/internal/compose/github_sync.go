@@ -62,3 +62,10 @@ func composeGitHubTodoPolling(stack *services.MythicalService, main *services.Gi
 		main.SetInstallSyncStreams(synced, nil, nil, nil)
 	}
 }
+
+// The existing roster worker supplies the permission stream. Check/review
+// owners remain absent, and install qualification still gates every read.
+func composeGitHubPermissionPolling(members *services.Members, synced *services.GitHubSyncedRepoService, main *services.GitHubMainPullService, wake func()) {
+	members.UseInstallPermissionPolling(synced, wake)
+	main.SetInstallSyncStreams(synced, nil, nil, members)
+}

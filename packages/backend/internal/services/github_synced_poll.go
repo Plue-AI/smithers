@@ -3,7 +3,6 @@ package services
 import (
 	"context"
 	"errors"
-	"fmt"
 	"net/http"
 	"time"
 
@@ -220,30 +219,55 @@ func (s *GitHubSyncedRepoService) syncStreamObservation(row db.GithubSyncedRepo,
 	s.install.mu.Lock()
 	state := s.install.streams[syncedStreamKey(row, resource)]
 	s.install.mu.Unlock()
+	return gitHubSyncObservation(state, s.budget.StreamRetryAt(row.InstallationID.Int64, budgetStream), s.now())
+}
+
+func gitHubSyncObservation(state gitHubPollState, retryAt, now time.Time) GitHubSyncStream {
 	stream := GitHubSyncStream{}
 	if !state.lastSuccess.IsZero() {
 		at := state.lastSuccess
 		stream.LastSuccessAt = &at
 	}
-	retryAt := s.budget.StreamRetryAt(row.InstallationID.Int64, budgetStream)
 	if state.retryAt.After(retryAt) {
 		retryAt = state.retryAt
 	}
-	if retryAt.After(s.now()) {
+	if retryAt.After(now) {
 		stream.RetryAt = &retryAt
 	}
-	var fault *pkgerrors.APIError
-	if errors.As(state.lastError, &fault) {
+	stream.Cause = gitHubSyncFaultCause(state.lastError)
+	return stream
+}
+
+// A batch can include transient and permission errors. Preserve the strongest
+// refusal regardless of member order or contextual wrapping.
+func gitHubSyncFaultCause(err error) string {
+	if fault, ok := err.(*pkgerrors.APIError); ok {
 		switch fault.Code {
 		case pkgerrors.CodeGitHubPermission:
-			stream.Cause = "permission"
+			return "permission"
 		case pkgerrors.CodeGitHubNotInstalled:
-			stream.Cause = "not_installed"
+			return "not_installed"
 		case pkgerrors.CodeGitHubUnavailable:
-			stream.Cause = "unreachable"
+			return "unreachable"
 		}
 	}
-	return stream
+	if batch, ok := err.(interface{ Unwrap() []error }); ok {
+		cause := ""
+		for _, child := range batch.Unwrap() {
+			next := gitHubSyncFaultCause(child)
+			if next == "not_installed" {
+				return next
+			}
+			if next == "permission" || cause == "" {
+				cause = next
+			}
+		}
+		return cause
+	}
+	if wrapped := errors.Unwrap(err); wrapped != nil {
+		return gitHubSyncFaultCause(wrapped)
+	}
+	return ""
 }
 
 // AuthorizeRefRead shares the install qualification and observed budget with
@@ -264,7 +288,7 @@ func (s *GitHubSyncedRepoService) AuthorizeRefRead(ctx context.Context, reposito
 		return err
 	}
 	pause := s.budget.StreamRetryAt(row.InstallationID.Int64, "refs")
-	mintPause := s.budget.StreamRetryAt(row.InstallationID.Int64, fmt.Sprintf("/app/installations/%d/access_tokens", row.InstallationID.Int64))
+	mintPause := s.budget.StreamRetryAt(row.InstallationID.Int64, gitHubInstallationTokenPath(row.InstallationID.Int64))
 	if mintPause.After(pause) {
 		pause = mintPause
 	}

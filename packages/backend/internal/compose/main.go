@@ -1131,7 +1131,7 @@ func runWithOptions(ctx context.Context, args []string, stdout, stderr io.Writer
 	buildCacheHandler := &routes.BuildCacheHandler{Service: buildCacheService}
 	buildCacheCleaner := cleanup.NewPeriodic("build_cache", time.Minute, time.Minute)
 	// The roster's hourly GitHub recheck (M-05): losing write access suspends a member.
-	memberRecheck := cleanup.NewPeriodic("members", services.MemberRecheckInterval, services.MemberRecheckInterval)
+	memberRecheck := cleanup.NewPeriodic("members", services.MemberRecheckTick, services.MemberRecheckTick)
 	stackHandler := &routes.StackHandler{
 		Service: stackService,
 	}
@@ -1533,6 +1533,7 @@ func runWithOptions(ctx context.Context, args []string, stdout, stderr io.Writer
 		mythicalService.SetPublicOrigin(installAddress.Public)
 		authService.InstallSetup = &services.InstallSetupSessions{Pool: pool}
 		authService.Members = &services.Members{Pool: pool, Credentials: gitHubAppCredentials, Minter: repoConnectionService, Budget: gitHubBudgetTracker}
+		composeGitHubPermissionPolling(authService.Members, gitHubSyncedRepoService, gitHubMainPullService, memberRecheck.Trigger)
 		authHandler.InstallSetup = authService.InstallSetup
 		setupOutput := stdout
 		if *setupHandoff == "socket" {
@@ -1902,7 +1903,7 @@ func runWithOptions(ctx context.Context, args []string, stdout, stderr io.Writer
 		authCleaner.Start(workerCtx)
 		buildCacheCleaner.Start(workerCtx, buildCacheService.Cleanup)
 		if authService.Members != nil {
-			memberRecheck.Start(workerCtx, authService.Members.Recheck)
+			memberRecheck.Start(workerCtx, authService.Members.PollPermissions)
 		}
 		workflowCacheCleaner.Start(workerCtx)
 		workflowArtifactCleaner.Start(workerCtx)

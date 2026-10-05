@@ -357,6 +357,12 @@ func TestInstallSyncCompositionDoesNotActivatePartialStreamOwners(t *testing.T) 
 	main.UseInstallPolicy()
 	stack := services.NewMythicalService(pool, nil)
 	composeGitHubTodoPolling(stack, main, synced, topology{})
+	members := &services.Members{Pool: pool}
+	wakes := 0
+	composeGitHubPermissionPolling(members, synced, main, func() { wakes++ })
+	require.NoError(t, members.PollPermissions(t.Context()), "unqualified permission worker stays disabled")
+	require.Error(t, members.RetryStreams(t.Context()))
+	require.Zero(t, wakes)
 	user, err := q.CreateUser(t.Context(), db.CreateUserParams{Username: "dark-sync", LowerUsername: "dark-sync"})
 	require.NoError(t, err)
 	repo, err := q.CreateRepo(t.Context(), db.CreateRepoParams{UserID: pgtype.Int8{Int64: user.ID, Valid: true}, Name: "app", LowerName: "app", DefaultBookmark: "main"})

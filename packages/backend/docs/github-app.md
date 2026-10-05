@@ -152,7 +152,7 @@ provider qualification leaves this path disabled.
 The install's existing sync service now requires every stream owner: refs,
 repository metadata and per-TODO reads, checks, reviews and permissions. A main
 receipt alone cannot qualify polling, aggregate health or Retry. The production
-assembly leaves the absent check, review and permission owners unregistered;
+assembly leaves the absent check and review owners unregistered;
 main polling and the sync actions report unavailable until the complete provider
 boundary is qualified.
 
@@ -169,6 +169,23 @@ back to anonymous GitHub access. Rate-limit failures retain their absolute retry
 deadline in the worker's existing backoff. Hosted anonymous public reads retain
 their previous behavior. Full stream, main-move/attention, live-health and
 production acceptance evidence remain outstanding.
+
+Permission polling uses the existing member-recheck worker. Its one-second
+driver checks an hourly read deadline; low shared budget doubles that deadline
+until reset. Retry wakes this same worker, preserves the regular deadline and
+coalesces requests during an active read. Shared permission and token-mint
+pauses apply before minting. The qualified registry supplies the installation,
+avoiding a second installation-discovery request.
+
+Permission ETags are held in memory and tied to the committed roster row
+version. A changed row or repository binding invalidates an in-flight response,
+including 304. Suspension, credential revocation and restoration commit before
+an ETag is retained; restart performs a fresh read. Confirmed read/none access
+suspends a member, while installation refusals, malformed responses and
+transient failures preserve access. Restoring write access never restores old
+credentials. This worker remains disabled without fetched-state qualification;
+its integration tests do not establish live transport or guest revocation
+acceptance.
 
 Conversation comments use the repository-wide `issues/comments` stream every
 45 seconds. The existing pager requests `sort=updated&direction=desc` with

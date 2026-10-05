@@ -24242,6 +24242,26 @@
       },
       {
         "kind": "file",
+        "path": "packages/backend/internal/services/members.go"
+      },
+      {
+        "kind": "file",
+        "path": "packages/backend/internal/services/member_recheck.go"
+      },
+      {
+        "kind": "file",
+        "path": "packages/backend/internal/services/member_poll.go"
+      },
+      {
+        "kind": "file",
+        "path": "packages/backend/internal/cleanup/periodic.go"
+      },
+      {
+        "kind": "file",
+        "path": "packages/backend/internal/cleanup/export.go"
+      },
+      {
+        "kind": "file",
         "path": "packages/backend/internal/services/install_machine_ready.go"
       },
       {
