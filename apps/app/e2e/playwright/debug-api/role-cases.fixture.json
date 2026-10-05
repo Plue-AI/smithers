@@ -1,0 +1,4 @@
+{
+  "read": { "operationId": "get_api_todos", "status": 200, "body": [] },
+  "write": { "operationId": "post_api_repos_owner_repo_secrets", "body": { "name": "C_UI_10_ROLE_SECRET", "value": "c-ui-10-literal-value", "main_only": false } }
+}

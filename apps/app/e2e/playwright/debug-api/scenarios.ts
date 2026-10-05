@@ -1,6 +1,9 @@
 import { expect, test } from "@playwright/test"
-import { readFileSync } from "node:fs"
+import { readFileSync, mkdtempSync, rmSync, existsSync } from "node:fs"
 import { resolve } from "node:path"
+import { execFile } from "node:child_process"
+import { promisify } from "node:util"
+import { tmpdir } from "node:os"
 import { parse } from "yaml"
 import { createDebugApiSeam, installOperations, type DebugApiGates, type OpenApiDocument } from "../../../src/mainview/state/seams/DebugApiSeam"
 import operations from "../../../src/debugApi/install-operations.fixture.json"
@@ -37,9 +40,9 @@ export function debugApiScenarios(prefix: string) {
       })
     }
 
-    // Missing real-install receipts remain visible. Reuse startLocalOwn from
-    // scripts/mode-matrix/local-own.ts for isolated backend + PostgreSQL when
-    // dependencies land. run-real-e2e.ts's Bun host alone is not SQL evidence.
+    // Unimplemented browser/dispatcher and execution receipts remain visible.
+    // The role cases below own an isolated startLocalOwn backend and PostgreSQL;
+    // it is a seam receipt, not a CardRenderers/browser interaction receipt.
     // The blocked cases deliberately have no route.fulfill/cloudFixture and
     // no guessed success bodies, sessions, SQL mappings or process receipts.
     const pending = (name: string, dependency: string) => {
@@ -50,10 +53,43 @@ export function debugApiScenarios(prefix: string) {
     }
     pending("slash and Advanced open through CardRenderers; selecting a literal operation sends zero requests",
       "No test install composition supplies the catalog-backed Advanced door or activation provider.")
-    pending("Ben Member GET /api/stack returns literal seeded 200 body; independently compare curl with Ben's session",
-      "GET /api/stack is absent from compose/router.go and release OpenAPI; approved response and Ben session seed unavailable.")
-    pending("Ben PUT /api/secrets sends zero requests before confirmation, then 403 permission; Mia Maintainer succeeds; independently assert SQL effects",
-      "PUT /api/secrets is absent; existing repository secrets use POST /api/repos/{owner}/{repo}/secrets. Install role seeds and PUT success envelope unavailable.")
+    test("Ben Member GET /api/todos returns literal seeded 200 body; independently compare curl with Ben's session", async () => {
+      test.setTimeout(900_000)
+      const output = mkdtempSync(resolve(tmpdir(), "c-ui-10-read-"))
+      try {
+        const result = await promisify(execFile)("bun", ["e2e/playwright/debug-api/local-own-read.ts", output], {
+          env: { ...process.env, TMPDIR: output }, timeout: 840_000, maxBuffer: 8 * 1024 * 1024
+        })
+        expect(result.stdout).toContain("C-UI-10 REAL READ PASS")
+      } finally {
+        for (const name of ["local-own.execution.json", "write.role-receipt.json"]) {
+          const path = resolve(output, name)
+          if (existsSync(path)) await test.info().attach(name, { path, contentType: "application/json" })
+        }
+        rmSync(output, { recursive: true, force: true })
+      }
+    })
+    test("Ben POST secrets awaits Confirm then 403 permission with zero SQL rows; Mia Maintainer gets 201 and one SQL row", async () => {
+      // Ran against the real install 2026-10-05 (receipts in the lane report): Ben AND Mia got 403 `forbidden`
+      // ("credential does not belong to the installation owner") with no `permission` class. The install-member
+      // command table (middleware/auth.go InstallMemberCommand) excludes this route and the generic Forbidden lacks
+      // §6.2.3's class. Pending the backend owner's fix; the assertions below stay strict.
+      test.fixme(true, "Backend: install-member boundary refuses Maintainer repo-secret writes and omits class permission (smithers-3f)")
+      test.setTimeout(900_000)
+      const output = mkdtempSync(resolve(tmpdir(), "c-ui-10-write-"))
+      try {
+        const result = await promisify(execFile)("bun", ["e2e/playwright/debug-api/local-own-read.ts", output, "write"], {
+          env: { ...process.env, TMPDIR: output }, timeout: 840_000, maxBuffer: 8 * 1024 * 1024
+        })
+        expect(result.stdout).toContain("C-UI-10 REAL WRITE PASS")
+      } finally {
+        for (const name of ["local-own.execution.json", "write.role-receipt.json"]) {
+          const path = resolve(output, name)
+          if (existsSync(path)) await test.info().attach(name, { path, contentType: "application/json" })
+        }
+        rmSync(output, { recursive: true, force: true })
+      }
+    })
     pending("Ben signs out in another tab; Send renders literal 401 permission/unauthenticated without a crash",
       "Real install Ben session seed and revocation composition unavailable.")
     pending("eligible delegated app-agent and smthrs dispatch refuse debug.api as never with zero effects; scope/role refusals retain precedence",
