@@ -1,4 +1,4 @@
-/** Model ids the loopback provider answers. Behaviour is keyed by id, so the provider needs no control channel. */
+/** Model ids the loopback provider answers. Behaviour is keyed by id; the one control is a `[HOLD key]` turn's release. */
 export const PROVIDER_MODEL = {
   answers: "e2e-answers",
   rateLimited: "e2e-rate-limited",
@@ -34,7 +34,11 @@ export const PROVIDER_PATHS = {
   anthropic: "/v1/messages",
   evaluation: "/v4/ai/evaluation-model",
   ready: "/__ready",
-  journal: "/__journal"
+  journal: "/__journal",
+  /** GET: the `[HOLD key]` coding turns waiting now, one key per turn. */
+  held: "/__held",
+  /** POST `/__release/<key>`: answers every turn held on key, and every later one at once. */
+  release: "/__release/"
 } as const
 
 export type ProviderProtocol = "openai-chat" | "anthropic-messages" | "evaluation"
@@ -48,6 +52,11 @@ export interface ProviderJournalEntry {
   readonly authorized: boolean
   /** The TODO coding step a scripted answer served (`coding/draft-plan`, …), or `todo/judge` for the run's evaluation. */
   readonly step?: string
+  /**
+   * The bracketed marker words a coding turn carried (`HOLD`, `FIXED`, a spec's own `STEER-E2E`), each once: evidence
+   * that a person's steer or answer reached that turn, never the turn's text.
+   */
+  readonly markers?: ReadonlyArray<string>
   /** sha256 hex of the presented credential, or null when none was sent. Never the value. */
   readonly credentialSha256: string | null
   /** Non-credential protocol headers only: anthropic-version, ai-gateway-*, ai-evaluation-*, ai-model-id. */

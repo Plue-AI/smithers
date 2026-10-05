@@ -5,7 +5,7 @@
  * Smithers API. It speaks OpenAI Chat Completions SSE, Anthropic Messages SSE
  * and the Vercel gateway evaluation-model JSON protocol (PROVIDER_PATHS).
  *
- * There is no control channel. Behaviour is keyed by the requested model id
+ * Behaviour is keyed by the requested model id
  * (PROVIDER_MODEL; any other id is 404; `echoes` streams the presented
  * credential back in nested fragments across three deltas, so a host that publishes provider
  * text unscrubbed is caught; `reads`, on Chat Completions, is the app agent asked
@@ -17,7 +17,10 @@
  * answered on any model it serves: a Chat Completions turn that
  * carries a coding step's system teaching gets that step's scripted cell, and an
  * evaluation that asks the coding run's questions gets Jev's TODO answers, both
- * from distribution/fake-todo-turns.mjs, the J1 rehearsal's script. A credential that is not byte-equal
+ * from distribution/fake-todo-turns.mjs, the J1 rehearsal's script. Its one control is that script's
+ * `[HOLD key]` marker: an edit turn whose atom carries it waits until POST /__release/<key> (GET /__held
+ * lists the keys waiting), as distribution/fake-todo-provider.mjs does for the rehearsals, so a spec can act
+ * on a TODO while it is Working. A coding turn's journal entry names the bracketed markers it carried. A credential that is not byte-equal
  * to SMITHERS_MODEL_PROVIDER_KEY is 401, and "down" is a SIGTERM of this
  * process. GET /__journal is append-only evidence that holds a credential's
  * sha256 and never its value. Any session may launch its own copy through
@@ -178,6 +181,32 @@ const composed = (protocol: ProviderProtocol, body: Record<string, unknown> | nu
   return { system, ...(maxTokens === undefined ? {} : { maxTokens }), ...(typeof body.temperature === "number" ? { temperature: body.temperature } : {}) }
 }
 
+/** The bracketed marker words a coding turn's messages carry ([HOLD k], [STEER-E2E] …), each once. */
+const markersOf = (messages: unknown): string[] =>
+  [...new Set([...JSON.stringify(messages ?? []).matchAll(/\[([A-Z][A-Z0-9-]*)(?=[\] ])/g)].map((match) => match[1]!))]
+
+// [HOLD key]: each held edit turn waits on its key until POST /__release/<key>; a turn its caller abandoned stops waiting.
+const released = new Set<string>()
+const waiting: Array<{ key: string; resume: () => void }> = []
+const hold = (key: string, signal: AbortSignal): Promise<void> => {
+  if (released.has(key)) return Promise.resolve()
+  return new Promise((resume) => {
+    const entry = { key, resume }
+    const leave = () => {
+      const index = waiting.indexOf(entry)
+      if (index >= 0) waiting.splice(index, 1)
+      resume()
+    }
+    entry.resume = leave
+    waiting.push(entry)
+    signal.addEventListener("abort", leave, { once: true })
+  })
+}
+const release = (key: string): void => {
+  released.add(key)
+  for (const entry of waiting.filter((held) => held.key === key)) entry.resume()
+}
+
 const bearer = (request: Request): string | null => /^Bearer (.+)$/.exec(request.headers.get("authorization") ?? "")?.[1] ?? null
 const PUBLIC_HEADERS = ["anthropic-version", "ai-gateway-protocol-version", "ai-gateway-auth-method", "ai-evaluation-model-specification-version", "ai-model-id"]
 
@@ -188,9 +217,10 @@ const serve = async (protocol: ProviderProtocol, request: Request): Promise<Resp
   const modelId = protocol === "evaluation" ? request.headers.get("ai-model-id") ?? "" : typeof body?.model === "string" ? body.model : ""
   const authorized = presented !== null && same(presented, accepted)
   // Journaled when the answer is decided, so a slow answer is evidence before it waits.
-  const record = (response: Response, step?: string): Response => {
+  const record = (response: Response, step?: string, markers?: string[]): Response => {
     journal.push({
       at: new Date().toISOString(), protocol, modelId, status: response.status, authorized, ...(step === undefined ? {} : { step }),
+      ...(markers === undefined ? {} : { markers }),
       credentialSha256: presented === null ? null : sha(presented),
       headers: Object.fromEntries(PUBLIC_HEADERS.flatMap((name) => { const value = request.headers.get(name); return value === null ? [] : [[name, value]] })),
       ...composed(protocol, body)
@@ -212,7 +242,11 @@ const serve = async (protocol: ProviderProtocol, request: Request): Promise<Resp
     ? [`${PROVIDER_ECHO_LEAD}${presented.slice(0, cut).repeat(2)}`, presented.slice(cut), presented.slice(cut)] : PROVIDER_REPLY
   const includeUsage = isRecord(body.stream_options) && body.stream_options.include_usage === true
   const coding = protocol === "openai-chat" && Array.isArray(body.messages) ? todoTurn(body.messages.filter(isRecord)) : undefined
-  if (coding !== undefined) return record(openaiStream(modelId, includeUsage, [coding.content]), coding.step)
+  if (coding !== undefined) {
+    const answer = record(openaiStream(modelId, includeUsage, [coding.content]), coding.step, markersOf(body?.messages))
+    if (typeof coding.hold === "string") await hold(coding.hold, request.signal)
+    return answer
+  }
   if (protocol === "evaluation" && isTodoJudgement(questions)) return record(judgeTodo(questions ?? {}), "todo/judge")
   const read = protocol === "openai-chat" && reads.has(modelId) ? readsAnswer(modelId, body) : undefined
   if (read !== undefined) return record(read)
@@ -233,7 +267,14 @@ const server = Bun.serve({
     const { pathname } = new URL(request.url)
     if (request.method === "GET" && pathname === PROVIDER_PATHS.ready) return new Response(null, { status: 204 })
     if (request.method === "GET" && pathname === PROVIDER_PATHS.journal) return json(200, journal)
+    if (request.method === "GET" && pathname === PROVIDER_PATHS.held) return json(200, waiting.map((held) => held.key))
     if (request.method !== "POST") return new Response("not found", { status: 404 })
+    const releasing = pathname.startsWith(PROVIDER_PATHS.release) ? pathname.slice(PROVIDER_PATHS.release.length) : undefined
+    if (releasing !== undefined) {
+      if (!/^[A-Za-z0-9._-]+$/.test(releasing)) return new Response("not found", { status: 404 })
+      release(releasing)
+      return new Response(null, { status: 204 })
+    }
     if (pathname === PROVIDER_PATHS.openaiChat) return serve("openai-chat", request)
     if (pathname === PROVIDER_PATHS.anthropic) return serve("anthropic-messages", request)
     if (pathname === PROVIDER_PATHS.evaluation) return serve("evaluation", request)

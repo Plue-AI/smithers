@@ -467,6 +467,52 @@ describe("the owned process", () => {
     }
   })
 
+  test("a [HOLD key] edit turn waits for its release, and its journal entry names the turn's markers", async () => {
+    const provider = await launchModelProvider({ key: KEY })
+    try {
+      const edit = (marker: string) => fetch(`${provider.origin}${PROVIDER_PATHS.openaiChat}`, {
+        method: "POST",
+        headers: { "content-type": "application/json", authorization: `Bearer ${KEY}` },
+        body: JSON.stringify({ model: PROVIDER_MODEL.answers, stream: true, messages: [
+          { role: "system", content: `Implement the single atomic change.\n\nThe task for this run: ${JSON.stringify({ atom: { changeId: "c1", intent: "Append a greeting line to JOURNEY.md. [HOLD k1]" } })}` },
+          { role: "user", content: `Begin. ${marker}` }
+        ] })
+      })
+      const held = () => fetch(`${provider.origin}${PROVIDER_PATHS.held}`).then((response) => response.json())
+      let answered = false
+      const first = edit("[STEER-E2E] say hello in French").then(async (response) => { answered = true; return [response.status, await response.text()] as const })
+      while ((await held()).length === 0) await Bun.sleep(10)
+      expect(await held()).toEqual(["k1"])
+      await Bun.sleep(100)
+      expect(answered).toBe(false)
+      // An abandoned turn stops waiting and leaves /__held.
+      const abandon = new AbortController()
+      const second = fetch(`${provider.origin}${PROVIDER_PATHS.openaiChat}`, { method: "POST", signal: abandon.signal,
+        headers: { "content-type": "application/json", authorization: `Bearer ${KEY}` },
+        body: JSON.stringify({ model: PROVIDER_MODEL.answers, stream: true, messages: [
+          { role: "system", content: `Implement the single atomic change.\n\nThe task for this run: ${JSON.stringify({ atom: { changeId: "c2", intent: "[HOLD k1]" } })}` }] })
+      }).catch(() => "abandoned")
+      while ((await held()).length < 2) await Bun.sleep(10)
+      abandon.abort()
+      expect(await second).toBe("abandoned")
+      while ((await held()).length > 1) await Bun.sleep(10)
+      expect((await fetch(`${provider.origin}${PROVIDER_PATHS.release}not/a key`, { method: "POST" })).status).toBe(404)
+      expect((await fetch(`${provider.origin}${PROVIDER_PATHS.release}k1`, { method: "POST" })).status).toBe(204)
+      const [status, text] = await first
+      expect(status).toBe(200)
+      expect(text).toContain("cell")
+      expect(await held()).toEqual([])
+      // Released keys stay released: a later turn on k1 answers at once.
+      expect((await edit("again")).status).toBe(200)
+      const entries = (await provider.journal()).filter((entry) => entry.step === "coding/edit-atom")
+      expect(entries).toHaveLength(3)
+      expect(entries[0]!.markers).toEqual(expect.arrayContaining(["HOLD", "STEER-E2E"]))
+      expect(entries[2]!.markers).not.toContain("STEER-E2E")
+    } finally {
+      await provider.close()
+    }
+  })
+
   test("a short key refuses to boot without echoing it", async () => {
     const short = "sk-short"
     const child = Bun.spawn(["bun", resolve(import.meta.dir, "model-provider.ts")], {
