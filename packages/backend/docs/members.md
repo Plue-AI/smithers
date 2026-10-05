@@ -48,6 +48,7 @@ delegated credentials land.
 | `issue.read` | Member | `GET /api/issues`, `GET /api/issues/{n}` |
 | `todo.read`, `todo.new`, `todo.answer` | Member | `GET /api/todos`, `GET /api/todos/{n}`, `POST /api/todos`, `POST /api/todos/{n}/answer` |
 | `todo.steer`, `todo.stop`, `todo.resume`, `todo.retry`, `todo.drop`, `stack.move` | Member | `POST /api/todos/{n}` (by `op`) |
+| `todo.amend` | Member | `PATCH /api/todos/{n}` |
 | `merge` | Maintainer | `POST /api/todos/{n}/merge` |
 | `members.list` | Member | `GET /api/members` |
 | `members.write` | Maintainer | `POST /api/members`, `PATCH`, `DELETE /api/members/{login}` |
@@ -81,9 +82,13 @@ issue whose author and last writers have write access on GitHub; an
 outsider's issue answers `403 permission` ("Only a maintainer can make a TODO
 from this issue"), and a maintainer's TODO from it is marked outsider.
 
-`POST /api/todos/{n}` is mounted and authorized by role, and the TODO service
-still answers every control `503 todo_control_unavailable` until a steer can
-reach a running attempt (T-FLW-11, T-STK-01).
+Steer (`POST /api/todos/{n}` with `steer`) and Amend
+(`PATCH /api/todos/{n}`) are mounted and authorized by role. Their execution
+remains disabled with `503 todo_control_unavailable` pending ordered input
+and pinned guest acceptance. A delegated terminal amendment returns
+`503 confirmation_unavailable` before mutation. See
+[TODO steering and amendments](./mythical_items.md) for the transaction and
+delivery contract. Other controls use their own service and lifecycle checks.
 
 ## Removal
 

@@ -1,42 +1,121 @@
 ---
 title: "TODO steering and amendments"
-description: "Transactional signal admission and the production activation boundary."
+description: "The install's TODO feedback routes, transaction boundaries, delivery receipts and activation requirements."
 ---
 
-## Transactional admission
+## Availability
 
-`flowdispatch.Service.SignalInTx` admits a signal through the existing jobs
-store in the caller's PostgreSQL transaction. It shares validation, scope
-binding, authorization context, reconciliation policy and request identity with
-`Signal`. The caller commits or rolls back the product event, revision and
-signal intent together. Admission performs no runtime resolution or delivery;
-the existing jobs worker delivers committed intents and reconciles lost replies.
+The install mounts both routes below. Steering and amendment execution remain
+disabled by `MythicalService.todoSteering` until ordered input consumption and
+pinned guest execution have passing acceptance evidence. A valid authorized
+request currently returns `503 infra/todo_control_unavailable` without a
+revision, activity event or delivery intent. Binding a launcher alone does not
+enable either operation.
 
-The dispatcher records intent; it does not authorize a TODO mutation, lock a
-merge fence, settle a wait, append a revision or start an attempt. Those operations
-must use the pinned TODO service and bound catalog authorization before admission.
+Activation requires T-STK-01/02/05/12, T-FLW-11, T-MCH-14, T-INS-02,
+T-FLW-01, T-SEC-01, T-CAT-01 and T-ACC-03. Delegation also requires T-ACC-04;
+delegated Amend requires T-APP-04. Repository code executes only in the
+qualified guest, never on the host or as root through this admission path.
 
-## Activation boundary
+The API source is [todos.yaml](../../../docs/api/openapi/todos.yaml). The
+generated Go and TypeScript clients expose `PatchAPITodosN` and
+`patchApiTodosN` respectively. The routes are install-only.
 
-TODO Message notifications currently refuse `notification_unavailable` before
-queue admission. The pinned `todo` composition and its closure, notification
-lineage and guest-host delivery contracts must pass their production checks
-before replacing this refusal. Existing `coding/request` delivery is retained.
+## Requests and authority
 
-The public `POST /api/todos/{n} {steer}`, `PATCH /api/todos/{n}` and corresponding
-catalog commands are not enabled by this dispatcher change. Their activation
-requires T-STK-01/02/05/12, T-FLW-11, T-MCH-14, T-INS-02, T-FLW-01, T-SEC-01,
-T-CAT-01 and T-ACC-03. Delegation also requires T-ACC-04; delegated Amend requires
-T-APP-04. No branch-built artifact or repository code executes as root or on the
-host through this admission seam.
+Both routes require `Idempotency-Key` containing 1 to 256 bytes. The route
+derives repository and member from authentication; JSON cannot select them.
+The service rechecks current membership inside the product transaction,
+including after acquiring the stack lock. A removed or suspended member
+cannot admit or replay feedback.
+
+| Operation              | Request body                                                                    | Successful admission                                  |
+| ---------------------- | ------------------------------------------------------------------------------- | ----------------------------------------------------- |
+| `POST /api/todos/{n}`  | `{"steer":"Keep the public method name"}`                                       | `202 {"state":"accepted","attempt":1}`                |
+| `PATCH /api/todos/{n}` | `{"prompt":"Add cancellation","acceptance":["Cancellation closes the worker"]}` | `202 {"state":"accepted","n":12,"rev":2,"attempt":1}` |
+
+Numbers in these receipts are examples. `attempt` is omitted when zero. A
+202 receipt establishes committed admission, not model consumption or run
+completion. The app keeps progress open until the corresponding live TODO
+receipt arrives.
+
+An amendment accepts only `prompt` and optional `acceptance`, an array of
+strings. The prompt must contain non-whitespace text. The prompt plus formatted
+acceptance criteria must fit 24,576 UTF-8 bytes. The handler bounds JSON to
+256 KiB and refuses unknown fields and multiple JSON documents. Draft-only
+metadata such as title, placement and issue linkage is not a PATCH payload.
+
+Active owners, maintainers and members may reach these operations with their
+browser session. A stage-1 terminal credential may steer only its own branch's
+TODO. Its amendment request returns `503 infra/confirmation_unavailable`
+before any subject read or mutation. Other token, run and machine credentials
+do not gain amendment authority. The shared confirmation provider must be
+integrated before delegated amendments can execute.
+
+## Committed feedback
+
+`admitTodoFeedback` is the shared service path. Under the stack lock it saves
+the input in `checks.Steers` and records `todo.steer_received` in the existing
+product jobs store. An amendment also appends one entry to `revisions`, records
+`todo.amended`, and invalidates affected later verification through the
+existing prefix calculation. It allocates no TODO number, branch or PR.
+
+The feedback entry links to the amendment's revision. Repeating an admitted
+request for the same member and TODO returns that revision without another
+event or delivery. A changed prompt or acceptance array, or reuse across
+Steer and Amend, conflicts. Credential-scoped replay behavior still needs
+joint validation with the shared authorization and confirmation providers.
+
+For an already-launched, bound attempt, the same transaction calls
+`flowdispatch.SteerInTx`. Its stable input ID becomes the runtime Message ID.
+The existing jobs worker retries delivery after interruption or a lost
+acknowledgment; it does not allocate a second input ID.
+
+| State at admission or delivery       | Behavior                                                                       |
+| ------------------------------------ | ------------------------------------------------------------------------------ |
+| Live, attached attempt               | Deliver to its existing run and working copy.                                  |
+| Open question                        | Keep the question open; feedback is a Message, not its answer.                 |
+| Paused or still attaching            | Retain the intent; delivery waits for the lifecycle hold to clear.             |
+| Merge fence                          | Hold Steer; refuse a new Amend with `409 merging`.                             |
+| Merged or dropped                    | Refuse new admission with `409 todo_closed`; do not deliver retained feedback. |
+| Queued or next attempt without a run | Persist feedback; ordered attachment handoff remains unqualified.              |
+
+Delivery rechecks the stored input, attempt, working copy, stack owner and
+author's current membership before wake and again before sending. Releasing a
+held input clears stale candidate verification and merge consent once, inside
+the product transaction. Replayed delivery cannot repeatedly clear a newer
+candidate. Person and delegated attribution travel separately from the
+runtime's authenticated principal.
+
+## Remaining acceptance work
+
+The production gate must remain closed until all of these are proved through
+the served routes and canonical command dispatcher:
+
+- The shared catalog and confirmation path preserve authority, exact payload,
+  request identity and the person's approval before a delegated amendment.
+- Inputs received before run attachment join live Answer and Steer in one
+  committed order, without duplicating initial launch feedback or losing text.
+  The current launch payload aggregates historical feedback into a bounded
+  string; that is not an ordered-consumption receipt.
+- A real pinned guest with a scripted model consumes every input committed
+  before dispatch at its next model call, including during a blocked step and
+  an open question, on the same run and working copy.
+- Missing providers, revocation, pause, merge fencing, restart and lost
+  acknowledgment preserve the required refusal, hold and exactly-once effects.
+
+Selected PostgreSQL, recording-host, route, app and generated-client tests
+cover the implemented boundaries. They do not satisfy the guest journeys in
+[T-STK-06](../../../.specs/engineering/tickets/T-STK-06.md) or establish that
+the complete specification is implemented.
 
 ## Stop, Resume, Retry and Drop
 
-T-STK-05 supplies the control boundary for `POST /api/todos/{n}`. It is
-unmounted until the shared install command dispatcher and its authorization,
-confirmation and execution dependencies pass their joint checks. Direct
-handler calls return `503` with `code: todo_control_unavailable`, `class: infra`;
-they never acknowledge admission or mutate a TODO.
+T-STK-05 supplies the control boundary for `POST /api/todos/{n}`. The install
+mounts and authorizes the route; each control dispatches to its own service.
+Retry, Drop and Move have handlers. Stop, Resume and Retry with the current
+flow return `503 infra/todo_control_unavailable` before effects because their
+handlers are not registered.
 
 The request carries `Idempotency-Key` and JSON `{op, steer?}`. `op` is `stop`,
 `resume`, `retry`, `retry-current-flow` or `drop`. Only the two retries accept a
@@ -60,9 +139,9 @@ The PR-close primitive uses a narrowly scoped installation
 token and must be called only through persisted outbound intent/recovery after
 cancellation, final capture and the merge fence settle.
 
-No root operation or host-process execution fallback is added. Full
-Stop/Resume, attempt creation, Drop/fold/removal and restored-input execution
-remain disabled pending their production PostgreSQL/microVM boundary receipts.
+No root operation or host-process execution fallback is added. Completing
+Stop/Resume and qualifying restored-input execution still requires their
+production PostgreSQL/microVM boundary receipts.
 
 ## Place and Move
 
@@ -93,23 +172,6 @@ changed loses its verification in the move's transaction and waits in
 `integrating` with reason `rebase_pending`; its candidate stays, and the
 stack rebases it onto the new prefix. A new TODO filed Before has no
 verified candidate, so it changes no prefix until it is verified.
-
-## Steer and Amend refusal boundary
-
-The same unmounted control handler recognizes `POST /api/todos/{n}` with
-`{steer}`; the unmounted Amend handler accepts `PATCH /api/todos/{n}` with
-`{prompt, acceptance}`. Both reuse the existing control decoder, request size
-limit, number validation, idempotency-key requirement and error envelope.
-Valid direct requests return `503 infra/todo_control_unavailable` before subject
-reads or effects, including repeated keys. Neither accepts actor or `via`
-from JSON. Attribution must come from the shared bound authorization decision.
-
-Amend cannot allocate a revision, create a confirmation or send a signal here.
-Once the shared authority exists, delegated Amend must refuse
-`503 infra/confirmation_unavailable` if its confirmation consumer is absent.
-There is no local credential or confirmation substitute. Future activation
-requires the served install router, catalog dispatcher and pinned guest-host
-checks; these direct-handler refusal tests are supplemental evidence only.
 
 ## Questions and answers
 
