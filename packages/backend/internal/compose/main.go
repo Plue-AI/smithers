@@ -1488,7 +1488,7 @@ func runWithOptions(ctx context.Context, args []string, stdout, stderr io.Writer
 	if config.IsSingleOwner(cfg.Auth) {
 		installSetup = &services.InstallSetupService{Pool: pool, Jobs: commandJobs}
 		installSetup.RepositoryAccess = gitHubUserReposService
-		installSetup.BindRepositoryProviders(gitHubUserReposService, gitHubAppStore, gitHubImportService, authService.Members, mythicalService)
+		installSetup.BindRepositoryProviders(gitHubUserReposService, gitHubAppStore, repoConnectionService, gitHubImportService, authService.Members, mythicalService)
 		if machineImages != nil {
 			installSetup.BindMachineProvider(repositorySourceFiles{client: repoHostClient}, machineImages)
 		}

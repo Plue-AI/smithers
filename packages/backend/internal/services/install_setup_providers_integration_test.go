@@ -47,6 +47,10 @@ type setupFixture struct {
 	svc   *InstallSetupService
 	owner db.User
 	repo  int64
+	// app and connections are the providers' App store and installation
+	// lookups (newProviderFixture).
+	app         *GitHubAppCredentialStore
+	connections *RepoConnectionService
 	// skew moves the service clock past a step's expires_at; the job store's
 	// leases keep PostgreSQL time.
 	skew atomic.Int64
@@ -146,8 +150,9 @@ func newSourceFixture(t *testing.T, imports *sourceImports, repositories ...gith
 }
 
 // newProviderFixture binds the repository and source steps to the real
-// access service, owner verifier and stack service against the GitHub fake,
-// whose owner signs in with the OAuth code setupOAuthCode (signInOwner).
+// access service, installation lookups, owner verifier and stack service
+// against the GitHub fake, whose owner signs in with the OAuth code
+// setupOAuthCode (signInOwner).
 func newProviderFixture(t *testing.T, stepID string, imports *sourceImports, repositories ...githubfake.Repository) (*setupFixture, *githubfake.Server) {
 	t.Helper()
 	f := newSetupFixture(t, stepID)
@@ -163,7 +168,14 @@ func newProviderFixture(t *testing.T, stepID string, imports *sourceImports, rep
 	app := NewGitHubAppCredentialStore(f.pool, codec)
 	require.NoError(t, app.Save(t.Context(), credentials))
 	access := NewGitHubUserReposService(db.New(f.pool), testGitHubImportDecrypter{token: setupOwnerToken}, WithGitHubUserReposCredentialStore(app))
-	f.svc.BindRepositoryProviders(access, app, imports, &Members{Pool: f.pool, Credentials: app}, NewMythicalService(f.pool, nil))
+	// Installation tokens are cached per process; another test's fake minted
+	// the cached one for installation 91.
+	invalidateCachedInstallationToken(91)
+	t.Cleanup(func() { invalidateCachedInstallationToken(91) })
+	connections := NewRepoConnectionService(f.pool, app)
+	connections.SetGitHubRepoAccessVerifier(access)
+	f.app, f.connections = app, connections
+	f.svc.BindRepositoryProviders(access, app, connections, imports, &Members{Pool: f.pool, Credentials: app}, NewMythicalService(f.pool, nil))
 	return f, fake
 }
 
