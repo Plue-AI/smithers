@@ -27,7 +27,7 @@ type permissionPollFixture struct {
 	memberID, userID int64
 }
 
-func newPermissionPollFixture(t *testing.T, handler http.HandlerFunc) *permissionPollFixture {
+func newPermissionPollFixture(t *testing.T, handler http.HandlerFunc, userHandler ...http.HandlerFunc) *permissionPollFixture {
 	t.Helper()
 	s, pool, _ := newFetchedFixture(t)
 	allowFetched(s)
@@ -57,6 +57,10 @@ func newPermissionPollFixture(t *testing.T, handler http.HandlerFunc) *permissio
 	_, err = q.CreateAuthSession(ctx, db.CreateAuthSessionParams{SessionKey: "before-poll", UserID: user.ID, Username: "writer", ExpiresAt: time.Now().Add(24 * time.Hour)})
 	require.NoError(t, err)
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/repos/factory/app/collaborators/writer/permission" && len(userHandler) == 1 {
+			userHandler[0](w, r)
+			return
+		}
 		if r.URL.Path != "/repos/factory/app/collaborators/writer/permission" || r.Header.Get("Authorization") != "Bearer minted-token" {
 			t.Errorf("unexpected request: %s %s", r.Method, r.URL.Path)
 			w.WriteHeader(http.StatusBadRequest)

@@ -3,9 +3,9 @@
   "producer": null,
   "output": {
     "path": "packages/backend/docs/github-app.md",
-    "digest": "558424d928d6490b386d10be1c824a7b71b7cbfc72af6de806ea59577a278a8c"
+    "digest": "dc7cd35e0ec59e6ad90e2e050790258d72aeba0cf8c578c55ac7fe0d22583bf4"
   },
-  "closure": "62c0733f74b6b5a65474967319cf67a49800d9a6d28c2e357d62250581b1fefd",
+  "closure": "d7fb4a0ab02c26475cadb2b7e3e081a21ee896787f8b28cce82c1d50fe57c894",
   "inputs": [
     {
       "path": "docs/api/openapi/install.yaml",
@@ -73,7 +73,7 @@
     },
     {
       "path": "packages/backend/internal/services/auth.go",
-      "digest": "cf43600981878ece0e643d73a1dcda1be5761ba2f1dda2fbb8e463ff759e99df"
+      "digest": "1e94e65dc75baf6e1ed24a3a1b0dcda6db49b19f11018510a6926211e16e5cf6"
     },
     {
       "path": "packages/backend/internal/services/github_access_diagnosis.go",
@@ -93,7 +93,7 @@
     },
     {
       "path": "packages/backend/internal/services/github_budget.go",
-      "digest": "5c2f7ff5e0b76148aceb841b451b5c13ba0115575480649d3a65b8554abac37d"
+      "digest": "5af3adeb301833f1cbf2bb9cfb957dda1a21889c53f53e9949831506cd315851"
     },
     {
       "path": "packages/backend/internal/services/github_import.go",
@@ -193,7 +193,7 @@
     },
     {
       "path": "packages/backend/internal/services/member_poll.go",
-      "digest": "3ea7317a9cc5e19bec352cf0961d1fc1071c3125b216f4536ce048cfae045c44"
+      "digest": "7be866149fcd1812682ea8f3bca90c012ec9cfc220b64b18227ed11248122e8f"
     },
     {
       "path": "packages/backend/internal/services/member_recheck.go",

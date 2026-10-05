@@ -66,6 +66,11 @@ func TestGitHubRepositoryResponseRefreshPauseThroughComposition(t *testing.T) {
 	auth := services.NewAuthService(q, cfg, nil, oauth)
 	assembled, err := composeGitHubSync(pool, store, auth, topology{}, budget)
 	require.NoError(t, err)
+	var rechecks atomic.Int32
+	auth.Members = &services.Members{Pool: pool, Credentials: store, Minter: assembled.connections}
+	main := services.NewGitHubMainPullService(q, nil, nil, nil)
+	main.UseInstallPolicy()
+	composeGitHubPermissionPolling(auth.Members, assembled.synced, main, func() { rechecks.Add(1) })
 	user, err := q.CreateUser(ctx, db.CreateUserParams{Username: "refresh-user", LowerUsername: "refresh-user"})
 	require.NoError(t, err)
 	access, err := smitherscrypto.Encrypt(smitherscrypto.DeriveKey(cfg.SessionSecret), []byte("expired"))
@@ -94,6 +99,8 @@ func TestGitHubRepositoryResponseRefreshPauseThroughComposition(t *testing.T) {
 	require.Equal(t, refresh, account.RefreshTokenEncrypted)
 	require.EqualValues(t, 2, reads.Load())
 	require.EqualValues(t, 1, refreshes.Load(), "shared budget blocks the second refresh before HTTP")
+	require.EqualValues(t, 2, rechecks.Load(), "each user-token refusal hints the existing permission worker")
+	require.NoError(t, auth.Members.PollPermissions(ctx), "missing install qualification keeps execution disabled")
 }
 
 func TestGitHubIdentityFailuresThroughComposition(t *testing.T) {

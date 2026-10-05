@@ -33,7 +33,25 @@ func (m *Members) UseInstallPermissionPolling(synced *GitHubSyncedRepoService, w
 	m.permissionPoll = &memberPermissionPoll{synced: synced, wake: wake}
 	if synced != nil {
 		m.Budget = synced.budget
+		if m.Budget != nil {
+			m.Budget.mu.Lock()
+			m.Budget.userRefused = m.requestPermissionRecheck
+			m.Budget.mu.Unlock()
+		}
 	}
+}
+
+// A user-token refusal requests authoritative permission reads without doing
+// database/network work in the failed caller or changing member state there.
+func (m *Members) requestPermissionRecheck() {
+	if m == nil || m.permissionPoll == nil || m.permissionPoll.wake == nil {
+		return
+	}
+	p := m.permissionPoll
+	p.mu.Lock()
+	p.requested = true
+	p.mu.Unlock()
+	p.wake()
 }
 
 func (m *Members) permissionPollReady(ctx context.Context) (memberRepository, db.GithubSyncedRepo, error) {

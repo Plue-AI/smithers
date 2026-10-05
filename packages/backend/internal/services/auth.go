@@ -1434,10 +1434,15 @@ func (s *AuthService) currentOAuthAccessToken(ctx context.Context, account db.Oa
 // minted before refresh tokens were persisted), or the configured client cannot
 // refresh, it returns the credential-gone error unchanged so callers fall back
 // to today's serve-last-good / honest-401 behavior — never a refresh loop.
-func (s *AuthService) RefreshUserGitHubToken(ctx context.Context, account db.OauthAccount) (string, error) {
+func (s *AuthService) RefreshUserGitHubToken(ctx context.Context, account db.OauthAccount) (result string, resultErr error) {
 	if s == nil || s.githubClient == nil {
 		return "", pkgerrors.Unauthorized("github oauth token was rejected")
 	}
+	defer func() {
+		if resultErr == nil {
+			s.registerGitHubUserCredential(account, result)
+		}
+	}()
 	// No stored refresh token at all: nothing can renew this credential, so say
 	// so in a way the client can act on instead of retrying a dead 401 forever.
 	if len(account.RefreshTokenEncrypted) == 0 {
@@ -1715,10 +1720,15 @@ func githubAccessTokenExpired(now time.Time, account db.OauthAccount) bool {
 // alone. A refresh that fails while the current token is still inside the skew
 // window (i.e. not actually expired yet) keeps the existing token, because that
 // token demonstrably still works and GitHub — not our clock — is the authority.
-func (s *AuthService) RefreshUserGitHubTokenIfExpiring(ctx context.Context, account db.OauthAccount, currentToken string) (string, error) {
+func (s *AuthService) RefreshUserGitHubTokenIfExpiring(ctx context.Context, account db.OauthAccount, currentToken string) (result string, resultErr error) {
 	if s == nil {
 		return currentToken, nil
 	}
+	defer func() {
+		if resultErr == nil {
+			s.registerGitHubUserCredential(account, result)
+		}
+	}()
 	now := s.now()
 	if !githubAccessTokenNeedsRefresh(now, account) {
 		return currentToken, nil
@@ -1731,6 +1741,16 @@ func (s *AuthService) RefreshUserGitHubTokenIfExpiring(ctx context.Context, acco
 		return "", err
 	}
 	return refreshed, nil
+}
+
+func (s *AuthService) registerGitHubUserCredential(account db.OauthAccount, token string) {
+	if s.Members == nil || account.UserID <= 0 {
+		return
+	}
+	switch strings.ToLower(strings.TrimSpace(account.Provider)) {
+	case "github", "workos": // Existing GitHub-account compatibility path.
+		s.Members.Budget.registerUserCredential(strings.TrimSpace(token))
+	}
 }
 
 func hashOAuthStateVerifier(verifier string) string {

@@ -192,6 +192,14 @@ credentials. This worker remains disabled without fetched-state qualification;
 its integration tests do not establish live transport or guest revocation
 acceptance.
 
+AuthService identifies stored and refreshed GitHub user credentials to the
+shared HTTP transport. A user-token 401 or non-rate-limit 403 requests an
+immediate permission recheck through the existing worker, without waiting for
+it or changing roster state in the failed request. App and installation-token
+failures, unknown credentials and rate limits do not trigger this hint. The
+worker still respects shared admission and requires a confirmed permission
+response before revoking access.
+
 Conversation comments use the repository-wide `issues/comments` stream every
 45 seconds. The existing pager requests `sort=updated&direction=desc` with
 100 comments per page and the same exclusive-since overlap as issues, following

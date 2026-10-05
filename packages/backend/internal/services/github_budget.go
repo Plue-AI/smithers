@@ -34,6 +34,7 @@ type BudgetTracker struct {
 	pauses          map[string]time.Time
 	streamResources map[string]string
 	tokenPrincipals map[[32]byte]gitHubTokenPrincipal
+	userRefused     func()
 }
 
 type budgetEntry struct {
@@ -263,6 +264,7 @@ func NewGitHubResponseBudgetTracker() *BudgetTracker {
 type gitHubTokenPrincipal struct {
 	key     string
 	expires time.Time
+	user    bool
 }
 
 func (t *BudgetTracker) registerToken(token string, installationID int64, expires time.Time) {
@@ -276,6 +278,21 @@ func (t *BudgetTracker) registerAppToken(token string, appID int64, expires time
 }
 
 func (t *BudgetTracker) registerCredential(token, principal string, expires time.Time) {
+	t.registerTypedCredential(token, principal, expires, false)
+}
+
+// User classification is supplied by AuthService after resolving a stored
+// GitHub account. It is only a recheck hint, never an authorization grant or a
+// permission cache. Retain the existing per-credential accounting identity.
+func (t *BudgetTracker) registerUserCredential(token string) {
+	if t == nil || !t.headers || token == "" {
+		return
+	}
+	digest := sha256.Sum256([]byte("Bearer " + token))
+	t.registerTypedCredential(token, fmt.Sprintf("credential:%x", digest), t.now().Add(time.Hour), true)
+}
+
+func (t *BudgetTracker) registerTypedCredential(token, principal string, expires time.Time, user bool) {
 	if t == nil || !t.headers {
 		return
 	}
@@ -288,7 +305,11 @@ func (t *BudgetTracker) registerCredential(token, principal string, expires time
 		}
 	}
 	if token != "" && expires.After(now) {
-		t.tokenPrincipals[sha256.Sum256([]byte("Bearer "+token))] = gitHubTokenPrincipal{principal, expires}
+		digest := sha256.Sum256([]byte("Bearer " + token))
+		if existing, ok := t.tokenPrincipals[digest]; user && ok && !existing.user {
+			return // A known App/installation credential is not a user token.
+		}
+		t.tokenPrincipals[digest] = gitHubTokenPrincipal{key: principal, expires: expires, user: user}
 	}
 }
 
@@ -363,9 +384,11 @@ func (b *gitHubBudgetTransport) RoundTrip(req *http.Request) (*http.Response, er
 	stream := gitHubBudgetStream(req.URL.Path)
 	t.mu.Lock()
 	principal := fmt.Sprintf("credential:%x", digest)
+	userCredential := false
 	if known, ok := t.tokenPrincipals[digest]; ok {
 		if known.expires.After(t.now()) {
 			principal = known.key
+			userCredential = known.user
 		} else {
 			delete(t.tokenPrincipals, digest)
 		}
@@ -416,7 +439,13 @@ func (b *gitHubBudgetTransport) RoundTrip(req *http.Request) (*http.Response, er
 	t.mu.Unlock()
 	resp, err := b.base.RoundTrip(req)
 	t.mu.Lock()
-	defer t.mu.Unlock()
+	var recheck func()
+	defer func() {
+		t.mu.Unlock()
+		if recheck != nil {
+			recheck() // Only queues work; runs outside the budget lock.
+		}
+	}()
 	if err != nil {
 		return nil, err
 	} // conservative reservation; no invented refund
@@ -456,6 +485,9 @@ func (b *gitHubBudgetTransport) RoundTrip(req *http.Request) (*http.Response, er
 		if at.After(t.pauses[streamKey]) {
 			t.pauses[streamKey] = at
 		}
+	}
+	if userCredential && (resp.StatusCode == http.StatusUnauthorized || resp.StatusCode == http.StatusForbidden) && GitHubRateLimitError(resp.StatusCode, resp.Header, t.now()) == nil {
+		recheck = t.userRefused
 	}
 	return resp, nil
 }
