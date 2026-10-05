@@ -25,8 +25,11 @@ import (
 	"path/filepath"
 	"regexp"
 	"runtime"
+	"slices"
+	"sort"
 	"strconv"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -52,13 +55,17 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// The journey rehearsals (J1 in j1_rehearsal_integration_test.go, J2 in
-// j2_rehearsal_integration_test.go) walk one composed install through its
+// The journey rehearsals (j1_, j2_, j4_, j5_, j6_, j7_ and
+// j11_rehearsal_integration_test.go) walk one composed install through its
 // public routes: the GitHub fake, the install's repository engine, the
 // composed backend with its packaged coding host on the trusted-process
-// runtime, and the owner's browser. Each prints one row per step (step,
-// route, expected, actual, result, ticket) and keeps its evidence under
-// .artifacts/checks/<check>/rehearsal/<UTC>/.
+// runtime, distribution/fake-todo-provider.mjs as the coding model (each
+// TODO's prompt steers its run with that script's markers), and the owner's
+// browser. Each prints one row per step (step, route, expected, actual,
+// result, ticket), then its pass, fail and pending counts, and keeps its
+// evidence under .artifacts/checks/<check>/rehearsal/<UTC>/. A row that waits
+// on a lane is listed as pending with that lane's name (rehearsal.pending);
+// the lane replaces it with a step when it lands.
 
 // offlineGatewayHost is the composed model host, except that Model access
 // does not send the rehearsal's placeholder AI Gateway key to the real
@@ -99,8 +106,15 @@ type rehearsal struct {
 	provider   *httptest.Server
 	// keyPrefix starts every request's Idempotency-Key and agent run id.
 	keyPrefix string
+	// check names the journey in the summary line.
+	check string
+	// mu guards exchanges: an agent turn may run beside a row's requests.
+	mu        sync.Mutex
 	exchanges strings.Builder
 	table     string
+	// counts are the table's rows by result; waiting the pending rows by lane.
+	counts  map[string]int
+	waiting map[string][]string
 	// actual is the last response a row read, location its redirect.
 	actual, location string
 	continuing       bool
@@ -120,9 +134,19 @@ func newRehearsal(t *testing.T, enable, check, keyPrefix string) *rehearsal {
 	}
 	require.NotEmpty(t, os.Getenv("SMITHERS_TEST_DATABASE_URL"), "rehearsal requires real PostgreSQL")
 	t.Setenv("SMITHERS_REQUIRE_DATABASE_TESTS", "1")
+	// Each run gets its own TMPDIR: the stack's scratch repositories live at
+	// $TMPDIR/smithers-mythical/repo-<id>.git and every install's first
+	// repository is 1, so two rehearsals on one host would share them. The
+	// directory is short, so socket paths under it stay within the OS limit.
+	tmp, err := os.MkdirTemp("/tmp", "smr")
+	require.NoError(t, err)
+	tmp, err = filepath.EvalSymlinks(tmp)
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = os.RemoveAll(tmp) })
+	t.Setenv("TMPDIR", tmp)
 	_, source, _, _ := runtime.Caller(0)
-	r := &rehearsal{t: t, keyPrefix: keyPrefix, continuing: os.Getenv("J1_REHEARSAL_CONTINUE") == "1",
-		table: "step\troute\texpected\tactual\tresult\tticket\n"}
+	r := &rehearsal{t: t, keyPrefix: keyPrefix, check: check, continuing: os.Getenv("J1_REHEARSAL_CONTINUE") == "1",
+		table: "step\troute\texpected\tactual\tresult\tticket\n", counts: map[string]int{}, waiting: map[string][]string{}}
 	r.root = filepath.Clean(filepath.Join(filepath.Dir(source), "../../../.."))
 	r.evidence = filepath.Join(r.root, ".artifacts/checks", check, "rehearsal", time.Now().UTC().Format("20060102T150405.000000000Z"))
 	require.NoError(t, os.MkdirAll(r.evidence, 0700))
@@ -130,14 +154,6 @@ func newRehearsal(t *testing.T, enable, check, keyPrefix string) *rehearsal {
 	// /private/var) and confinement compares it with the workspace root.
 	processRoot, err := filepath.EvalSymlinks(t.TempDir())
 	require.NoError(t, err)
-	t.Cleanup(func() {
-		require.NoError(t, os.WriteFile(filepath.Join(r.evidence, "steps.tsv"), []byte(r.table), 0600))
-		fmt.Print(r.table)
-		if r.coder.url != "" {
-			fmt.Println("scripted coding model turns:", r.coder.turns())
-		}
-		fmt.Println("rehearsal evidence:", r.evidence)
-	})
 	pool, databaseURL := postgresfixture.NewProductDatabase(t)
 	r.pool = pool
 	gitRoot := t.TempDir()
@@ -299,7 +315,25 @@ func newRehearsal(t *testing.T, enable, check, keyPrefix string) *rehearsal {
 	require.NoError(t, err)
 	r.client = &http.Client{Jar: r.jar, Timeout: 8 * time.Second, CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}
 	t.Cleanup(func() {
+		r.mu.Lock()
+		defer r.mu.Unlock()
 		require.NoError(t, os.WriteFile(filepath.Join(r.evidence, "http.log"), []byte(r.exchanges.String()), 0600))
+	})
+	// The table prints first, while the scripted model still answers its
+	// turn counts; cleanups run last-registered first.
+	t.Cleanup(func() {
+		require.NoError(t, os.WriteFile(filepath.Join(r.evidence, "steps.tsv"), []byte(r.table), 0600))
+		fmt.Print(r.table)
+		lanes := make([]string, 0, len(r.waiting))
+		for lane, rows := range r.waiting {
+			lanes = append(lanes, fmt.Sprintf("%s %d", lane, len(rows)))
+		}
+		sort.Strings(lanes)
+		fmt.Printf("%s rehearsal: %d pass, %d fail, %d pending (%s)\n", r.check, r.counts["pass"], r.counts["fail"], r.counts["pending"], strings.Join(lanes, ", "))
+		if r.coder.url != "" {
+			fmt.Println("scripted coding model turns:", r.coder.turns())
+		}
+		fmt.Println("rehearsal evidence:", r.evidence)
 	})
 	return r
 }
@@ -340,7 +374,7 @@ func (r *rehearsal) keyedAs(jar http.CookieJar, method, path, body, key string) 
 	r.location = resp.Header.Get("Location")
 	// Evidence never keeps a minted credential.
 	logged := rehearsalTokenField.ReplaceAll(data, []byte(`"token":"<redacted>"`))
-	fmt.Fprintf(&r.exchanges, "%s %s → %d %s\n", method, strings.Split(path, "?")[0], resp.StatusCode, logged)
+	r.log("%s %s → %d %s\n", method, strings.Split(path, "?")[0], resp.StatusCode, logged)
 	excerpt := string(logged)
 	if path == "/api/install" {
 		var projection struct {
@@ -352,6 +386,13 @@ func (r *rehearsal) keyedAs(jar http.CookieJar, method, path, body, key string) 
 	}
 	r.actual = fmt.Sprintf("%d %s", resp.StatusCode, excerpt)
 	return resp.StatusCode, data, err
+}
+
+// log appends one exchange to the evidence's HTTP log.
+func (r *rehearsal) log(format string, args ...any) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	fmt.Fprintf(&r.exchanges, format, args...)
 }
 
 // expect is request, failing unless the route answers status.
@@ -437,9 +478,36 @@ func (r *rehearsal) step(name, route, expected, ticket string, run func() error)
 			r.quietFailed = append(r.quietFailed, name+": "+excerpt)
 		}
 	} else {
+		r.counts[result]++
 		r.table += strings.Join([]string{name, route, expected, excerpt, result, ticket}, "\t") + "\n"
 	}
 	return ok || r.continuing
+}
+
+// pending lists a row that waits on lane: a subtest that names the lane and
+// a table row whose result is pending, counted in the summary. It is never
+// skipped silently; the lane replaces it with a step when it lands.
+func (r *rehearsal) pending(name, route, expected, ticket, lane string) {
+	r.t.Run(name, func(t *testing.T) {
+		t.Skipf("pending: waits on lane %s", lane)
+	})
+	r.counts["pending"]++
+	r.waiting[lane] = append(r.waiting[lane], name)
+	r.table += strings.Join([]string{name, route, expected, "pending: waits on lane " + lane, "pending", ticket}, "\t") + "\n"
+}
+
+// install walks J1's setup rows, from the printed link through Machine
+// ready, as one row: name, failing with each setup row that failed.
+func (r *rehearsal) install(name string) bool {
+	r.quiet = true
+	ready := r.setupSource() && r.setupMachine()
+	r.quiet = false
+	return r.step(name, "J1 setup rows: setup URL token … 6 machine ready", "every J1 setup row passes; stack active", "T-INS-06", func() error {
+		if len(r.quietFailed) > 0 {
+			return errors.New(strings.Join(r.quietFailed, "; "))
+		}
+		return r.waitStackActive()
+	}) && ready
 }
 
 // setupSource walks setup from the printed link through Source ready.
@@ -703,11 +771,38 @@ var rehearsalTodoWaits = map[string]time.Duration{"queued": 3 * time.Second, "st
 
 // rehearsalTodo is what the TODO rows read of GET /api/todos/{n}.
 type rehearsalTodo struct {
-	State string `json:"state"`
-	PR    struct {
+	N      int64  `json:"n"`
+	Title  string `json:"title"`
+	State  string `json:"state"`
+	Place  int64  `json:"place"`
+	Branch *struct {
+		ID      string `json:"id"`
+		Name    string `json:"name"`
+		Machine struct {
+			State string `json:"state"`
+		} `json:"machine"`
+	} `json:"branch"`
+	Run *struct {
+		ID      string `json:"id"`
+		Attempt int    `json:"attempt"`
+	} `json:"run"`
+	PR struct {
 		Number int64  `json:"number"`
 		Head   string `json:"head"`
+		Draft  bool   `json:"draft"`
 	} `json:"pr"`
+	Merge struct {
+		State  string `json:"state"`
+		Reason string `json:"reason"`
+	} `json:"merge"`
+	Waits []struct {
+		ID      string `json:"id"`
+		Kind    string `json:"kind"`
+		Prompt  string `json:"prompt"`
+		Actions []struct {
+			Tag string `json:"tag"`
+		} `json:"actions"`
+	} `json:"waits"`
 	Issue *struct {
 		Number int64  `json:"number"`
 		URL    string `json:"url"`
@@ -720,16 +815,22 @@ type rehearsalTodo struct {
 	} `json:"evidence"`
 }
 
-// waitTodo polls TODO n until it is in state. The stack's own record says
-// why it did not move: an attempt that failed or stopped does not reach the
-// state in this run.
+// waitTodo polls TODO n until it is in state, within rehearsalTodoWaits.
 func (r *rehearsal) waitTodo(number int64, state string) (rehearsalTodo, error) {
+	return r.waitTodoWithin(number, rehearsalTodoWaits[state], state)
+}
+
+// waitTodoWithin polls TODO n until it is in one of states. The stack's own
+// record says why it did not move: an attempt that failed or stopped does
+// not reach the state in this run, unless the state waited for is failed.
+func (r *rehearsal) waitTodoWithin(number int64, within time.Duration, states ...string) (rehearsalTodo, error) {
 	if number <= 0 {
 		return rehearsalTodo{}, fmt.Errorf("blocked by First TODO: no TODO number from public creation receipt")
 	}
 	path := fmt.Sprintf("/api/todos/%d", number)
+	state := strings.Join(states, " or ")
 	began := time.Now()
-	deadline := began.Add(rehearsalTodoWaits[state])
+	deadline := began.Add(within)
 	for {
 		data, err := r.expect("GET", path, "", 200)
 		if err != nil {
@@ -739,12 +840,12 @@ func (r *rehearsal) waitTodo(number int64, state string) (rehearsalTodo, error) 
 		if err = json.Unmarshal(data, &v); err != nil {
 			return v, err
 		}
-		if v.State == state {
+		if slices.Contains(states, v.State) {
 			return v, nil
 		}
 		var itemState, reason string
 		_ = r.pool.QueryRow(r.ctx, `SELECT state, reason FROM mythical_items WHERE number=$1`, number).Scan(&itemState, &reason)
-		settled := itemState == "retrying" || itemState == "failed" || itemState == "stopped" || itemState == "blocked"
+		settled := !slices.Contains(states, "failed") && (itemState == "retrying" || itemState == "failed" || itemState == "stopped" || itemState == "blocked")
 		if settled || time.Now().After(deadline) {
 			return v, fmt.Errorf("state %q, expected %q (item %s: %q)", v.State, state, itemState, reason)
 		}
@@ -986,7 +1087,7 @@ func (r *rehearsal) ask(bearer, question string) (string, []rehearsalTurnFrame, 
 		}
 		data, err = io.ReadAll(io.LimitReader(resp.Body, 1<<20))
 		resp.Body.Close()
-		fmt.Fprintf(&r.exchanges, "POST %s (bearer) → %d %s\n", chat.TurnPath, resp.StatusCode, data)
+		r.log("POST %s (bearer) → %d %s\n", chat.TurnPath, resp.StatusCode, data)
 		if err == nil && resp.StatusCode != 200 {
 			err = fmt.Errorf("bearer turn: HTTP %d %s", resp.StatusCode, data)
 		}
@@ -1038,6 +1139,177 @@ func (r *rehearsal) token(scopes ...string) (string, error) {
 		return "", fmt.Errorf("token create answered no token: %v", err)
 	}
 	return created.Token, nil
+}
+
+// file files one TODO appended to the stack as the owner's Draft commits it
+// and answers its number. Each TODO is its own request: its Idempotency-Key
+// names its title.
+func (r *rehearsal) file(title, prompt string) (int64, error) {
+	body, _ := json.Marshal(map[string]any{"title": title, "prompt": prompt, "place": map[string]string{"mode": "append"}})
+	code, data, err := r.keyed("POST", "/api/todos", string(body), r.keyPrefix+"todo-"+strings.ReplaceAll(strings.ToLower(title), " ", "-"))
+	if err != nil {
+		return 0, err
+	}
+	if code != 202 {
+		return 0, fmt.Errorf("expected HTTP 202: %s", r.actual)
+	}
+	var v struct {
+		N     int64  `json:"n"`
+		State string `json:"state"`
+	}
+	if err = json.Unmarshal(data, &v); err != nil {
+		return 0, err
+	}
+	if v.N <= 0 || v.State != "accepted" {
+		return 0, fmt.Errorf("invalid TODO receipt: %s", data)
+	}
+	return v.N, nil
+}
+
+// todoList reads GET /api/todos, the Home card's rows, in its order.
+func (r *rehearsal) todoList() ([]rehearsalTodo, error) {
+	data, err := r.expect("GET", "/api/todos", "", 200)
+	if err != nil {
+		return nil, err
+	}
+	var list []rehearsalTodo
+	return list, json.Unmarshal(data, &list)
+}
+
+// todo reads TODO n's card.
+func (r *rehearsal) todo(number int64) (rehearsalTodo, error) {
+	var v rehearsalTodo
+	data, err := r.expect("GET", fmt.Sprintf("/api/todos/%d", number), "", 200)
+	if err == nil {
+		err = json.Unmarshal(data, &v)
+	}
+	return v, err
+}
+
+// answer answers TODO n's open wait as the owner's browser session.
+func (r *rehearsal) answer(number int64, wait, text string) (int, []byte, error) {
+	body, _ := json.Marshal(map[string]string{"wait": wait, "answer": text})
+	return r.request("POST", fmt.Sprintf("/api/todos/%d/answer", number), string(body))
+}
+
+// release answers every coding turn held on the [HOLD key] marker.
+func (r *rehearsal) release(key string) error {
+	resp, err := http.Post(r.coder.url+"/release/"+key, "application/json", nil)
+	if err != nil {
+		return err
+	}
+	resp.Body.Close()
+	if resp.StatusCode != http.StatusNoContent {
+		return fmt.Errorf("release %s: HTTP %d", key, resp.StatusCode)
+	}
+	return nil
+}
+
+// waitHeld waits until a coding turn is held on the [HOLD key] marker: its
+// TODO is Working, at its edit.
+func (r *rehearsal) waitHeld(key string, within time.Duration) error {
+	for deadline := time.Now().Add(within); ; time.Sleep(250 * time.Millisecond) {
+		resp, err := http.Get(r.coder.url + "/held")
+		if err != nil {
+			return err
+		}
+		var keys []string
+		err = json.NewDecoder(resp.Body).Decode(&keys)
+		resp.Body.Close()
+		if err != nil || slices.Contains(keys, key) {
+			return err
+		}
+		if time.Now().After(deadline) {
+			return fmt.Errorf("no coding turn held on [HOLD %s] after %s (held: %v)", key, within, keys)
+		}
+	}
+}
+
+// githubGit runs git on the GitHub fake's copy of the repository.
+func (r *rehearsal) githubGit(args ...string) (string, error) {
+	out, err := exec.Command("/usr/bin/git", append([]string{"--git-dir", filepath.Join(r.gitRoot, "rehearsal-owner/app.git")}, args...)...).CombinedOutput()
+	if err != nil {
+		return "", fmt.Errorf("git %s: %v: %s", strings.Join(args, " "), err, out)
+	}
+	return strings.TrimSpace(string(out)), nil
+}
+
+// prFiles are the paths a pull request's head changes against its base on
+// GitHub.
+func (r *rehearsal) prFiles(p githubfake.Pull) ([]string, error) {
+	base, err := r.githubGit("merge-base", "refs/heads/"+p.Base.Ref, p.Head.SHA)
+	if err != nil {
+		return nil, err
+	}
+	out, err := r.githubGit("diff", "--name-only", base, p.Head.SHA)
+	return strings.Fields(out), err
+}
+
+// besideChat asks the app agent what JOURNEY.md holds, as the owner's
+// browser session, beside a row's own requests: it records its exchange but
+// never the row's actual. The channel answers the turn's outcome: the File
+// card with main's bytes, quoted in a finished answer.
+func (r *rehearsal) besideChat() <-chan error {
+	settled := make(chan error, 1)
+	body, _ := json.Marshal(map[string]any{"runId": r.keyPrefix + uuid.NewString(), "journal": map[string]any{"version": 1, "legId": uuid.NewString(), "token": strings.Repeat("a", 48)}, "instructions": "Answer briefly using file cards.", "messages": []any{map[string]string{"role": "user", "content": "What is in JOURNEY.md? Show the file."}}})
+	req, err := http.NewRequest("POST", r.origin+chat.TurnPath, bytes.NewReader(body))
+	if err != nil {
+		settled <- err
+		return settled
+	}
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Origin", r.origin)
+	req.Header.Set("Idempotency-Key", r.keyPrefix+"beside-"+uuid.NewString())
+	for _, cookie := range r.jar.Cookies(req.URL) {
+		if cookie.Name == "__csrf" {
+			req.Header.Set("X-CSRF-Token", cookie.Value)
+		}
+	}
+	go func() {
+		settled <- func() error {
+			resp, err := (&http.Client{Jar: r.jar, Timeout: time.Minute}).Do(req)
+			if err != nil {
+				return err
+			}
+			data, err := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
+			resp.Body.Close()
+			r.log("POST %s (beside) → %d %s\n", chat.TurnPath, resp.StatusCode, data)
+			if err != nil || resp.StatusCode != 200 {
+				return fmt.Errorf("turn: HTTP %d: %v", resp.StatusCode, err)
+			}
+			var answer strings.Builder
+			card, terminal := false, false
+			scanner := bufio.NewScanner(bytes.NewReader(data))
+			scanner.Buffer(make([]byte, 4096), 1<<20)
+			for scanner.Scan() {
+				var delivery chat.Delivery
+				if err = json.Unmarshal(scanner.Bytes(), &delivery); err != nil {
+					return err
+				}
+				if delivery.Terminal != nil {
+					terminal = *delivery.Terminal
+				}
+				if delivery.Batch == nil {
+					continue
+				}
+				for _, raw := range delivery.Batch.Frames {
+					var frame rehearsalTurnFrame
+					if err = json.Unmarshal(raw, &frame); err != nil {
+						return err
+					}
+					if frame.Type == "delta" && frame.Kind == "text" {
+						answer.WriteString(frame.Text)
+					}
+					card = card || frame.Type == "card" && frame.Card.Kind == "file" && frame.Card.Payload.Path == "JOURNEY.md" && strings.Contains(frame.Card.Payload.Content, "Add a greeting to JOURNEY.md")
+				}
+			}
+			if !terminal || !card || !strings.Contains(answer.String(), "Add a greeting to JOURNEY.md") {
+				return fmt.Errorf("no File card answer (terminal=%t card=%t): %q", terminal, card, answer.String())
+			}
+			return nil
+		}()
+	}()
+	return settled
 }
 
 func mustRehearsalURL(raw string) *url.URL { u, _ := url.Parse(raw); return u }

@@ -4,7 +4,6 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"os/exec"
 	"path/filepath"
@@ -33,15 +32,7 @@ func TestJ2Rehearsal(t *testing.T) {
 	r.fake.SetCollaborator(8, "ben", "write")
 	made := r.fake.OpenIssue(repo, "ben", "Greet visitors", "JOURNEY.md should greet visitors.")
 	labeled := r.fake.OpenIssue(repo, "ben", "Say goodbye", "JOURNEY.md should end with a farewell.")
-	r.quiet = true
-	ready := r.setupSource() && r.setupMachine()
-	r.quiet = false
-	if !r.step("Install ready", "J1 setup rows: setup URL token … 6 machine ready", "every J1 setup row passes; stack active", "T-INS-06", func() error {
-		if len(r.quietFailed) > 0 {
-			return errors.New(strings.Join(r.quietFailed, "; "))
-		}
-		return r.waitStackActive()
-	}) || !ready {
+	if !r.install("Install ready") {
 		return
 	}
 	todos := func() ([]struct {
