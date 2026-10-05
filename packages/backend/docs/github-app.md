@@ -16,6 +16,14 @@ One App belongs to each install. Its PEM, webhook secret, and OAuth client secre
 
 TODO branch publication is held while the current GitHub facts, own-push reconciliation and independent wait providers are unavailable. A previously observed foreign head remains held even if a later poll reports the recorded Smithers head or a PR behind main. Polling does not answer a person's wait.
 
+The shared inbound decision recognizes the intended head of a recoverable push
+bound to the TODO's recorded branch. Seeing that head does not open a foreign
+hold or acknowledge the outbound operation; reconciliation still owns settlement.
+Malformed or unbound pending push evidence refuses classification. The existing
+pull follower honors both this decision and terminal no-ops, preserving earlier
+holds, independent waits, pause and failure facts. The install's transactional
+ref consumer and bound foreign-push answers remain unqualified.
+
 Bring in and Discard remain unavailable until the shared authorization, confirmation, catalog and checkpoint contracts pass their production boundary tests. No repository code runs on the host to bring in a commit. The eventual branch answer input is `{id, revision}`: the foreign wait id and its displayed `sha`, with an `Idempotency-Key`; a newer head requires a new decision.
 
 ## Polling transport

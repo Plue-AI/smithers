@@ -3,9 +3,9 @@
   "producer": null,
   "output": {
     "path": "packages/backend/docs/github-app.md",
-    "digest": "19d6aa8eccd867c77e399e4891879d5c02154259734ad1b79bfe9ad32990f32a"
+    "digest": "78bad596fbb22510bee4c2a4938a94d8f604a1a53530aabc67f0cd3734efd20c"
   },
-  "closure": "5e2caeebe5606141186f2cc8f2e6a37a7df508d44e515040b37476dcf32254ef",
+  "closure": "6b1a66f747ed193bb1d54d419650079fecdd8b63d9f19862d0c7a6d3c0d3c3c4",
   "inputs": [
     {
       "path": "docs/api/openapi/install.yaml",
@@ -229,7 +229,11 @@
     },
     {
       "path": "packages/backend/internal/services/mythical_items.go",
-      "digest": "2e3c0b11cd8e29a891cbe51aaddd345726647f1f544bf822bab87f3af9e67025"
+      "digest": "ba01091dc5bf8fc911a115409194fcf46969bda09df5d179a8e822c747ee5b17"
+    },
+    {
+      "path": "packages/backend/internal/services/mythical_pr.go",
+      "digest": "a6c30d53ec164f6adac99ecd08277284193575ebb83b30d6c2de1653f36d8f5a"
     },
     {
       "path": "packages/backend/internal/services/repo_connection_github_app.go",

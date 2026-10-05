@@ -2601,6 +2601,29 @@ func (e *mythicalForeignHead) Error() string {
 	return "the pull request branch " + e.Branch + " moved outside Smithers"
 }
 
+// pendingGitHubPushHead supplies the shared fact decision with the head of
+// this branch's recoverable push. A malformed intent is unavailable evidence,
+// not proof that a fetched head belongs to someone else.
+func pendingGitHubPushHead(item db.MythicalItem, branch string) (string, error) {
+	if len(item.PendingOp) == 0 {
+		return "", nil
+	}
+	op, err := decodeMythicalOutbound(item.PendingOp)
+	if err != nil {
+		return "", fmt.Errorf("read pending GitHub push: %w", err)
+	}
+	if op.Kind != "push" || op.State == "conflict" {
+		return "", nil
+	}
+	if !mythicalTodoBranchValid(branch) || mythicalChecksOf(item).Branch != branch {
+		return "", errors.New("read pending GitHub push: branch binding is unavailable")
+	}
+	if op.Target != branch {
+		return "", nil
+	}
+	return op.Desired, nil
+}
+
 // pushProposal publishes the recorded head through the controlled bare-object
 // transport, only to item's own recorded smithers/<slug> branch: the App
 // token can write any branch, main included. It reads the branch on GitHub
@@ -2876,7 +2899,15 @@ func (st *mythicalItemStep) follow(ctx context.Context, item db.MythicalItem) (*
 			return mythicalInfraOutage(item, "github", "GitHub did not answer for the merge commit on main", st.now), nil
 		}
 	}
-	decision := decideGitHubFact(fact, mythicalGitHubFactItem{State: item.State, Head: item.PRHead}, st.now)
+	itemFact := mythicalGitHubFactItem{State: item.State, Head: item.PRHead}
+	decision := decideGitHubFact(fact, itemFact, st.now)
+	if decision.Attention == "foreign_push" {
+		itemFact.PendingHead, err = pendingGitHubPushHead(item, pull.HeadRef)
+		if err != nil {
+			return nil, err
+		}
+		decision = decideGitHubFact(fact, itemFact, st.now)
+	}
 	switch {
 	case decision.Event == "merged":
 		next = mythicalLanded(next, pull.MergeCommit, st.now)
@@ -2886,7 +2917,12 @@ func (st *mythicalItemStep) follow(ctx context.Context, item db.MythicalItem) (*
 		return &next, nil
 	case decision.Event == "dropped":
 		next.PRState, next.State, next.Reason = "closed", "rejected", "closed on GitHub"
-	case pull.HeadSHA != "" && pull.HeadSHA != item.PRHead:
+	case decision.Noop == "terminal" || decision.Noop == "own_push":
+		// Only outbound reconciliation records an acknowledged own push.
+		// A matching read cannot settle an existing foreign-push hold, and a
+		// terminal no-op cannot fall through to the foreign-head mutation.
+		next.PRState = pull.State
+	case decision.Attention == "foreign_push":
 		// Someone pushed to the pull request: its new head is theirs, so the
 		// stack neither reviews nor merges it.
 		next.PRState = pull.State

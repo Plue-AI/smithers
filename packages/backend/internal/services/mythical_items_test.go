@@ -1208,6 +1208,93 @@ func TestForeignPushPollCannotSettleHold(t *testing.T) {
 	}
 }
 
+func TestForeignPushPollRetainsTerminalCandidateWhenPrefixMoves(t *testing.T) {
+	for _, state := range []string{"dropped", "rejected", "cancelled", "declined", "landed", "merged"} {
+		t.Run(state, func(t *testing.T) {
+			gh := &fakeMythicalGitHub{dir: t.TempDir(), pulls: map[int64]*mythicalPull{4: {
+				State: "open", HeadSHA: "recorded", HeadRef: "smithers/retry-webhooks",
+			}}}
+			st := &mythicalItemStep{s: &MythicalService{github: gh}, r: &mythicalRun{row: db.MythicalStack{
+				ActorUserID: pgtype.Int8{Int64: 1, Valid: true}, TipCommit: "new-prefix"}}, gh: &mythicalGitHubRepo{}, now: time.Unix(100, 0)}
+			checks := mythicalChecks{Branch: "smithers/retry-webhooks", Fault: &mythicalFault{},
+				Waits: []TodoWait{{ID: "question", Kind: "question", Prompt: "Keep the question"}}}
+			item := db.MythicalItem{State: state, PRNumber: pgtype.Int8{Int64: 4, Valid: true}, PRState: "open", PRHead: "recorded",
+				CandidateBase: "old-prefix", CandidateHead: "candidate", CandidateVerified: true,
+				Checks: checks.encode(), Reason: "retained reason", PendingOp: json.RawMessage(`{`),
+				PausedAt: pgtype.Timestamptz{Time: time.Unix(10, 0), Valid: true}}
+			next, err := st.follow(context.Background(), item)
+			require.NoError(t, err)
+			require.NotNil(t, next)
+			want := item
+			want.NextAttemptAt = pgtype.Timestamptz{Time: time.Unix(100, 0).Add(st.s.pullPollEvery()), Valid: true}
+			require.Equal(t, want, *next, "terminal polls may schedule another read, but cannot rebuild the candidate or clear its facts")
+		})
+	}
+}
+
+func TestForeignPushPollUsesPendingIntentAndTerminalDecision(t *testing.T) {
+	const branch = "smithers/retry-webhooks"
+	for _, tc := range []struct {
+		name, state, pending, recordedBranch, fetchedBranch string
+		foreign, unavailable                                bool
+	}{
+		{"intended", "running", `{"kind":"push","target":"smithers/retry-webhooks","desired":"own","state":"intended"}`, branch, branch, false, false},
+		{"unknown", "proposed", `{"kind":"push","target":"smithers/retry-webhooks","desired":"own","state":"unknown"}`, branch, branch, false, false},
+		{"done awaiting settlement", "blocked", `{"kind":"push","target":"smithers/retry-webhooks","desired":"own","state":"done"}`, branch, branch, false, false},
+		{"legacy", "queued", `{"branch":"smithers/retry-webhooks","expected":"old","head":"own"}`, branch, branch, false, false},
+		{"conflicting intent", "proposed", `{"kind":"push","target":"smithers/retry-webhooks","desired":"own","state":"conflict"}`, branch, branch, true, false},
+		{"another operation", "proposed", `{"kind":"open","target":"smithers/retry-webhooks","desired":"own","state":"unknown"}`, branch, branch, true, false},
+		{"another intended branch", "proposed", `{"kind":"push","target":"smithers/other","desired":"own","state":"unknown"}`, branch, branch, true, false},
+		{"another fetched branch", "proposed", `{"kind":"push","target":"smithers/retry-webhooks","desired":"own","state":"unknown"}`, branch, "smithers/other", false, true},
+		{"unbound historical branch", "proposed", `{"kind":"push","target":"smithers/retry-webhooks","desired":"own","state":"unknown"}`, "", branch, false, true},
+		{"malformed intent", "proposed", `{`, branch, branch, false, true},
+		{"unknown intent state", "proposed", `{"kind":"push","target":"smithers/retry-webhooks","desired":"own","state":"unexpected"}`, branch, branch, false, true},
+		{"dropped", "dropped", `{`, branch, branch, false, false},
+		{"rejected", "rejected", `{`, branch, branch, false, false},
+		{"cancelled", "cancelled", `{`, branch, branch, false, false},
+		{"declined", "declined", `{`, branch, branch, false, false},
+		{"landed", "landed", `{`, branch, branch, false, false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			gh := &fakeMythicalGitHub{dir: t.TempDir(), pulls: map[int64]*mythicalPull{4: {
+				State: "open", HeadSHA: "own", HeadRef: tc.fetchedBranch,
+			}}}
+			st := &mythicalItemStep{s: &MythicalService{github: gh}, r: &mythicalRun{row: db.MythicalStack{
+				ActorUserID: pgtype.Int8{Int64: 1, Valid: true}, TipCommit: "prefix"}}, gh: &mythicalGitHubRepo{}, now: time.Unix(100, 0)}
+			checks := mythicalChecks{Branch: tc.recordedBranch, ForeignHead: "earlier-foreign", Fault: &mythicalFault{},
+				Waits: []TodoWait{{ID: "question", Kind: "question", Prompt: "Keep the question"}}}
+			item := db.MythicalItem{State: tc.state, PRNumber: pgtype.Int8{Int64: 4, Valid: true}, PRState: "open", PRHead: "old",
+				CandidateBase: "prefix", CandidateHead: "candidate", CandidateVerified: true,
+				PendingOp: json.RawMessage(tc.pending), Checks: checks.encode(), Reason: "earlier hold",
+				PausedAt: pgtype.Timestamptz{Time: time.Unix(10, 0), Valid: true}}
+			next, err := st.follow(context.Background(), item)
+			if tc.unavailable {
+				require.ErrorContains(t, err, "read pending GitHub push")
+				require.Nil(t, next)
+				return
+			}
+			require.NoError(t, err)
+			require.Equal(t, item.State, next.State)
+			require.Equal(t, item.PendingOp, next.PendingOp, "polling cannot acknowledge an outbound intent")
+			require.Equal(t, item.PRHead, next.PRHead)
+			require.Equal(t, item.CandidateHead, next.CandidateHead)
+			require.Equal(t, item.CandidateVerified, next.CandidateVerified)
+			require.Equal(t, item.PausedAt, next.PausedAt)
+			after := mythicalChecksOf(*next)
+			require.Equal(t, checks.Waits, after.Waits)
+			require.NotNil(t, after.Fault)
+			if tc.foreign {
+				require.Equal(t, "own", after.ForeignHead)
+				require.NotNil(t, after.Notice)
+			} else {
+				require.Equal(t, "earlier-foreign", after.ForeignHead, "matching own push and terminal facts cannot settle an earlier hold")
+				require.Nil(t, after.Notice)
+				require.Equal(t, item.Reason, next.Reason)
+			}
+		})
+	}
+}
+
 // Enters the production admission boundary with no store, host, launcher or
 // lane service: touching any of them before refusal would panic. This is dark
 // admission evidence only, not provider integration or the fresh-install gate.

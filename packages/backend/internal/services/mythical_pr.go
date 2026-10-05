@@ -154,6 +154,9 @@ type mythicalGitHubFact struct {
 type mythicalGitHubFactItem struct {
 	State, Head string
 	ClosedAt    time.Time
+	// PendingHead comes from the item's branch-bound outbound push intent,
+	// never from the fetched PR's author or a webhook attribution.
+	PendingHead string
 }
 type mythicalGitHubFactDecision struct {
 	Event, Noop, Attention string
@@ -193,9 +196,15 @@ func decideGitHubFact(f mythicalGitHubFact, item mythicalGitHubFactItem, now tim
 			return mythicalGitHubFactDecision{Noop: "reopen_window_expired"}
 		}
 		return mythicalGitHubFactDecision{Event: "in_review"}
-	case f.Kind == "push" && f.Head != "" && f.Head != item.Head:
-		if item.State == "dropped" || item.State == "rejected" {
+	case f.Kind == "push":
+		if item.State == "dropped" || item.State == "rejected" || item.State == "cancelled" || item.State == "declined" {
 			return mythicalGitHubFactDecision{Noop: "terminal"}
+		}
+		if f.Head == "" || f.Head == item.Head {
+			return mythicalGitHubFactDecision{Noop: "unchanged"}
+		}
+		if f.Head == item.PendingHead {
+			return mythicalGitHubFactDecision{Noop: "own_push"}
 		}
 		return mythicalGitHubFactDecision{Attention: "foreign_push"}
 	default:

@@ -76,6 +76,12 @@ func TestTODOPrLifecycleDecision(t *testing.T) {
 		{"foreign push", mythicalGitHubFact{Kind: "push", Head: "new"}, mythicalGitHubFactItem{State: "paused", Head: "old"}, mythicalGitHubFactDecision{Attention: "foreign_push"}},
 		{"terminal push", mythicalGitHubFact{Kind: "push", Head: "new"}, mythicalGitHubFactItem{State: "dropped", Head: "old"}, mythicalGitHubFactDecision{Noop: "terminal"}},
 		{"same head", mythicalGitHubFact{Kind: "push", Head: "old"}, mythicalGitHubFactItem{State: "working", Head: "old"}, mythicalGitHubFactDecision{Noop: "unchanged"}},
+		{"unacknowledged own push", mythicalGitHubFact{Kind: "push", Head: "new"}, mythicalGitHubFactItem{State: "working", Head: "old", PendingHead: "new"}, mythicalGitHubFactDecision{Noop: "own_push"}},
+		{"different pending head", mythicalGitHubFact{Kind: "push", Head: "foreign"}, mythicalGitHubFactItem{State: "working", Head: "old", PendingHead: "new"}, mythicalGitHubFactDecision{Attention: "foreign_push"}},
+		{"cancelled absorbs push", mythicalGitHubFact{Kind: "push", Head: "new"}, mythicalGitHubFactItem{State: "cancelled", Head: "old"}, mythicalGitHubFactDecision{Noop: "terminal"}},
+		{"declined absorbs push", mythicalGitHubFact{Kind: "push", Head: "new"}, mythicalGitHubFactItem{State: "declined", Head: "old"}, mythicalGitHubFactDecision{Noop: "terminal"}},
+		{"terminal same head", mythicalGitHubFact{Kind: "push", Head: "old"}, mythicalGitHubFactItem{State: "dropped", Head: "old"}, mythicalGitHubFactDecision{Noop: "terminal"}},
+		{"terminal absent head", mythicalGitHubFact{Kind: "push"}, mythicalGitHubFactItem{State: "cancelled", Head: "old"}, mythicalGitHubFactDecision{Noop: "terminal"}},
 	} {
 		t.Run(tc.name, func(t *testing.T) { require.Equal(t, tc.want, decideGitHubFact(tc.fact, tc.item, now)) })
 	}
