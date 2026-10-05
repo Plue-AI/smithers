@@ -10,6 +10,7 @@ import { z } from "zod"
 import type { AgentCommand } from "./AgentCommands.ts"
 import type { Card } from "./Cards.ts"
 import type { DraftCard } from "./DraftCard.ts"
+import { digestSync } from "./Sha256.ts"
 import type { TodoCard } from "./TodoCard.ts"
 
 /**
@@ -153,7 +154,18 @@ export interface DraftSeed {
   readonly before?: number | undefined
   readonly options: DraftCard["place"]["options"]
   readonly idempotencyKey: string
+  /** Make TODO: the GitHub issue the Draft is made from, and {@link issueDigest} of the text it was read with. */
+  readonly issue?: DraftCard["issue"] | undefined
+  readonly issueDigest?: string | undefined
 }
+
+/**
+ * The digest of a GitHub issue's text that Make TODO commits with (`issue_digest`): SHA-256 hex of the title, a NUL
+ * and the body, as the install computes it. The install refuses a commit whose issue no longer has this text.
+ * @since 1.0.0
+ * @category constructors
+ */
+export const issueDigest = (title: string, body: string): string => digestSync(`${title}\u0000${body}`)
 
 /**
  * The private Draft a written TODO starts as (spec §14.3): only its author sees it, and nothing is filed until they
@@ -177,6 +189,8 @@ export const draftCard = (seed: DraftSeed, ordinal: number, createdAt: number): 
       prompt: seed.text,
       acceptance: [...seed.acceptance ?? []],
       place: seed.before ? { mode: "before", n: seed.before, options } : { mode: "append", options },
+      ...(seed.issue === undefined ? {} : { issue: seed.issue }),
+      ...(seed.issueDigest === undefined ? {} : { issueDigest: seed.issueDigest }),
       private: true,
       idempotencyKey: seed.idempotencyKey
     }

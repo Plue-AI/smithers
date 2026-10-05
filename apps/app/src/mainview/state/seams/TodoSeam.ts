@@ -3,7 +3,7 @@ import { TodoCardSchema, type TodoCard } from "@smthrs/rpc/TodoCard"
 import { DraftCardSchema, type DraftCard } from "@smthrs/rpc/DraftCard"
 import type { Card } from "@smthrs/rpc/Cards"
 /* The routes and cards the model host's TODO commands share (@smthrs/rpc/TodoCommands). */
-import { draftCard, todoCard, todoPath, TODOS_PATH, type DraftEntry, type TodoEntry } from "@smthrs/rpc/TodoCommands"
+import { draftCard, issueDigest, todoCard, todoPath, TODOS_PATH, type DraftEntry, type TodoEntry } from "@smthrs/rpc/TodoCommands"
 import { Data, Schema } from "effect"
 import { TodoNewInput, TodoAmendInput } from "../../flows/entries/todo"
 import { actorSharedState } from "../ActorBindings"
@@ -20,6 +20,18 @@ export interface TodoReceipt {
   readonly committed?: { readonly n: number; readonly rev: number }
   readonly outcome?: { readonly status: "ok" | "failed"; readonly detail: string }
 }
+/** What Make TODO drafts from: one GitHub issue and its discussion, as its issue card read them. */
+export interface IssueDraftSource {
+  readonly number: number
+  readonly title: string
+  readonly body: string
+  readonly url: string
+  readonly comments: ReadonlyArray<{ readonly author: string | null; readonly body: string }>
+}
+/** The Draft's prompt: the issue's body, then each comment quoted under its author. */
+const issuePrompt = (source: IssueDraftSource): string => [source.body.trim(), ...source.comments.flatMap(comment => comment.body.trim()
+  ? [`@${comment.author ?? "someone"}:\n${comment.body.trim().split("\n").map(line => `> ${line}`).join("\n")}`] : [])]
+  .filter(Boolean).join("\n\n") || source.title
 /** T-APP-08 binds the shared live transport; the payload is the todo:<n> projection. */
 export interface TodoTopics {
   readonly subscribe: (topic: `todo:${number}`, receive: (model: unknown, receipts?: readonly TodoReceipt[]) => void) => () => void
@@ -271,19 +283,34 @@ export const createTodoSeam = (ctx: SeamContext, options: TodoSeamOptions = {}) 
         place: { ...latest.payload.place, options: options ?? latest.payload.place.options } } })
     })().catch(error => ctx.report?.("todo.placement", error))
   }
+  const placeOptions = (): DraftCard["place"]["options"] => [...ctx.store.collections.cards.values()]
+    .flatMap(row => row.kind === "todo" && row.payload.model && row.payload.model.state !== "merged" && row.payload.model.state !== "dropped"
+      ? [{ n: row.payload.n, title: row.title, state: row.payload.model.state }] : [])
   const newTodo = async (input: Schema.Schema.Type<typeof TodoNewInput>) => {
     const refusal = signedIn(); if (refusal) return refusal
     if (!input.cardId) {
       const id = `draft:${crypto.randomUUID()}`
       await write(draftCard({ id, author: owner()!, text: input.text ?? "", title: input.title, acceptance: input.acceptance, before: input.before,
-        options: [...ctx.store.collections.cards.values()]
-          .flatMap(row => row.kind === "todo" && row.payload.model && row.payload.model.state !== "merged" && row.payload.model.state !== "dropped"
-            ? [{ n: row.payload.n, title: row.title, state: row.payload.model.state }] : []),
-        idempotencyKey: crypto.randomUUID() }, ctx.nextOrdinal(), Date.now()))
+        options: placeOptions(), idempotencyKey: crypto.randomUUID() }, ctx.nextOrdinal(), Date.now()))
       loadDraftPlaces(id)
       return { value: "Drafted" }
     }
     return commitDraft(input.cardId)
+  }
+  /** Make TODO: the author's private Draft of the issue and its discussion, committed like any Draft (spec §14.5.1). */
+  const draftFromIssue = async (source: IssueDraftSource) => {
+    const refusal = signedIn(); if (refusal) return refusal
+    const open = [...ctx.store.collections.cards.values()].some(row => row.kind === "draft" && row.audience_member_id === owner()
+      && !row.payload.committed && row.payload.issue?.number === source.number)
+    if (open) return { value: "Drafted" }
+    let digest: string
+    try { digest = issueDigest(source.title, source.body) } catch { return "This issue's text cannot be read." }
+    const id = `draft:${crypto.randomUUID()}`
+    await write(draftCard({ id, author: owner()!, text: issuePrompt(source), title: source.title, options: placeOptions(),
+      issue: { number: source.number, title: source.title, url: source.url, fixes: true }, issueDigest: digest,
+      idempotencyKey: crypto.randomUUID() }, ctx.nextOrdinal(), Date.now()))
+    loadDraftPlaces(id)
+    return { value: "Drafted" }
   }
   const commitDraft = async (cardId: string) => {
     const refusal = signedIn(); if (refusal) return refusal
@@ -301,7 +328,7 @@ export const createTodoSeam = (ctx: SeamContext, options: TodoSeamOptions = {}) 
       n: place.mode === "amend" ? place.n : undefined, state: "requested" as const,
       body: { title: model.title, prompt: model.prompt, acceptance: model.acceptance,
         ...(place.mode === "amend" ? {} : { place: { mode: place.mode, ...(place.mode !== "append" ? { n: place.n } : {}) } }),
-        ...(model.issue ? { issue: model.issue.number, fixes: model.issue.fixes } : {}) } }
+        ...(model.issue ? { issue: model.issue.number, fixes: model.issue.fixes, ...(model.issueDigest ? { issue_digest: model.issueDigest } : {}) } : {}) } }
     const retry: Request = { ...pending, state: "requested", error: undefined }
     await updateRequest(cardId, retry)
     send(cardId, retry)
@@ -374,7 +401,7 @@ export const createTodoSeam = (ctx: SeamContext, options: TodoSeamOptions = {}) 
   }
   const subscription = ctx.store.collections.identitySessions.subscribeChanges(() => queueMicrotask(resumeTodos))
   options.onDispose?.(() => { subscription.unsubscribe(); stop() })
-  return { mergeTodo: (n: number, head: string) => request(n, "merge", { reviewed_head_sha: head }), reviewMerge, showTodo, newTodo, amendTodo, setTodoFormField, dismissTodoDraft, resumeTodos, applyTodoProjection: applyProjection,
+  return { mergeTodo: (n: number, head: string) => request(n, "merge", { reviewed_head_sha: head }), reviewMerge, showTodo, newTodo, draftFromIssue, amendTodo, setTodoFormField, dismissTodoDraft, resumeTodos, applyTodoProjection: applyProjection,
     answerTodo: (n: number, answer: string, wait?: string) => {
       const waits = entry(n)?.payload.model?.waits.filter(row => row.actions.some(action => action.tag === "todo.answer")) ?? []
       const id = wait ?? (waits.length === 1 ? waits[0]!.id : undefined)

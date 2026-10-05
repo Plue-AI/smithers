@@ -42,7 +42,7 @@ test("a Cloud issue launches its workspace flow without waiting for a background
     requireBox: () => undefined,
     listWorkspaceWorkflows: async () => { throw Error("Catalog read must not block the launch") },
     runWorkflow: async (...args) => { calls.push(args); return {value:"launched"} }
-  })
+  }, { draftFromIssue: async () => { throw Error("Issue flows never draft a TODO") } })
   expect(await flows.runIssueFlow("repro",9,issue.repo)).toContain("/box.open")
   expect(calls).toHaveLength(0)
   const workspaceId = "11111111-1111-4111-8111-111111111111"
@@ -56,19 +56,35 @@ test("a Cloud issue launches its workspace flow without waiting for a background
   await store.dispose?.()
 })
 
-test("Make TODO never reads a legacy tracker issue or launches from the home", async () => {
+test("Make TODO drafts from the open GitHub issue card and never launches a workspace flow", async () => {
   const { store, ctx } = await setup()
   const calls: unknown[] = []
+  const drafted: unknown[] = []
   const workspaceId = "11111111-1111-4111-8111-111111111111"
   await store.dispatch({ type: "workspaces.loaded", actor: "system", workspaces: [{ id: workspaceId, repoId: REPO, name: "Coding", targetBookmark: "main", status: "running", provisioningStage: null, suspendedAt: null, createdAt: null }] }).isPersisted.promise
   await store.dispatch({ type: "repo.selected", actor: "user", id: REPO + "#workspace:" + workspaceId }).isPersisted.promise
   const flows = createIssueFlowsController(ctx, {
     requireBox: () => undefined,
-    listWorkspaceWorkflows: async () => { throw Error("Catalog read must not block the launch") },
+    listWorkspaceWorkflows: async () => { throw Error("Make TODO reads no catalog") },
     runWorkflow: async (...args) => { calls.push(args); return { value: "launched" } }
-  })
-  expect(await flows.runIssueImplementation(3)).toContain("install admission")
-  expect(await flows.runIssueImplementation(99)).toContain("install admission")
+  }, { draftFromIssue: async (source) => { drafted.push(source); return { value: "Drafted" } } })
+  // No issue card open, or only the legacy tracker's: nothing to draft from.
+  expect(await flows.runIssueImplementation(7)).toBe("Open GitHub issue #7 before making a TODO.")
+  const legacy = { number: 7, repo: REPO, title: "Tracker issue", state: "open" as const, author: "ada", issueBody: "Legacy", labels: [], comments: [] }
+  await store.dispatch({ type: "card.upsert", actor: "user", card: { id: "issue-legacy", kind: "issue", title: legacy.title, status: "active", createdAt: 1, ordinal: 1, payload: legacy } }).isPersisted.promise
+  expect(await flows.runIssueImplementation(7)).toBe("Open GitHub issue #7 before making a TODO.")
+  const github = { ...legacy, title: "Webhooks fail on 502", author: "ben", issueBody: "Webhooks fail on 502", source: "github" as const,
+    htmlUrl: "https://github.com/owner/repo/issues/7",
+    comments: [{ author: "alice", commentBody: "retry at most 5 times", createdAt: null }] }
+  await store.dispatch({ type: "card.upsert", actor: "user", card: { id: "issue-github-owner/repo-7", kind: "issue", title: github.title, status: "active", createdAt: 2, ordinal: 2, payload: github } }).isPersisted.promise
+  expect(await flows.runIssueImplementation(7, REPO, true)).toEqual({ value: "Drafted" })
+  expect(drafted).toEqual([{ number: 7, title: "Webhooks fail on 502", body: "Webhooks fail on 502", url: "https://github.com/owner/repo/issues/7",
+    comments: [{ author: "alice", body: "retry at most 5 times" }] }])
+  // Another repository's issue and a closed issue draft nothing.
+  expect(await flows.runIssueImplementation(7, "other/repo")).toBe("Open GitHub issue #7 before making a TODO.")
+  await store.dispatch({ type: "card.upsert", actor: "user", card: { id: "issue-github-owner/repo-8", kind: "issue", title: "Closed", status: "active", createdAt: 3, ordinal: 3, payload: { ...github, number: 8, state: "closed" as const } } }).isPersisted.promise
+  expect(await flows.runIssueImplementation(8)).toBe("Issue #8 is closed.")
+  expect(drafted).toHaveLength(1)
   expect(calls).toEqual([])
   await store.dispose?.()
 })
@@ -78,7 +94,7 @@ test("review refuses every browser door without reads, selection or launch", asy
   let effects = 0
   const unexpected = async () => { effects++; throw Error("Review must not execute in the browser") }
   for (const actor of ["user", "smithers"] as const) {
-    const review = createIssueFlowsController({ ...ctx, actor: () => actor, http: unexpected }, { requireBox: () => { effects++; throw Error("No working copy") }, listWorkspaceWorkflows: unexpected, runWorkflow: unexpected })
+    const review = createIssueFlowsController({ ...ctx, actor: () => actor, http: unexpected }, { requireBox: () => { effects++; throw Error("No working copy") }, listWorkspaceWorkflows: unexpected, runWorkflow: unexpected }, { draftFromIssue: unexpected })
     for (const selected of [false, true]) {
       if (selected) await loadBox(store, REPO, TEST_BOX)
       for (const humanDoor of [false, true]) {

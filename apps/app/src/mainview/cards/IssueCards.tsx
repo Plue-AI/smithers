@@ -273,6 +273,7 @@ export const IssueCardBody = ({
         </div>
       </header>
       {github ? <nav className="ghc-actions" aria-label="Issue actions">
+        {state !== "closed" ? <Button size="sm" {...flowAction(onRunCommand, "todo.from-issue", flowArgs("todo.from-issue", { number, repo }))}>Make TODO</Button> : null}
         {githubHref ? <a href={githubHref} target="_blank" rel="noreferrer">Open on GitHub</a> : null}
       </nav> : <nav className="ghc-actions" aria-label="Issue actions">
         <Button size="sm" variant="outline"  {...flowAction(onRunCommand, "issue.flows", flowArgs("issue.flows", { number, repo }))}>Issue flows</Button>

@@ -97,6 +97,45 @@ describe("TodoSeam — admission and live completion", () => {
       })
     } finally { h.close() }
   })
+  test("Make TODO opens the author's private Draft of the issue and its discussion; Commit sends issue, issue_digest and fixes", async () => {
+    const calls: { url: string; init?: RequestInit }[] = []
+    const h = await harness(async (url, init) => { calls.push({ url, init }); return json({ state: "accepted", n: 12 }) })
+    try {
+      const issue = {
+        number: 7, title: "Webhooks fail on 502", body: "Webhooks fail on 502", url: "https://github.com/acme/app/issues/7",
+        comments: [{ author: "maya", body: "Seen on staging too." }, { author: "alice", body: "retry at most 5 times\nwith jittered backoff" }, { author: null, body: "  " }]
+      }
+      expect(await h.seam.draftFromIssue(issue)).toEqual({ value: "Drafted" })
+      // A second press while the Draft is open opens no second Draft.
+      expect(await h.seam.draftFromIssue(issue)).toEqual({ value: "Drafted" })
+      expect([...h.store.collections.cards.values()].filter(row => row.kind === "draft")).toHaveLength(1)
+      const id = h.draft().id
+      expect(h.draft().audience_member_id).toBe("ben")
+      expect(h.draft().payload).toMatchObject({
+        title: "Webhooks fail on 502",
+        prompt: "Webhooks fail on 502\n\n@maya:\n> Seen on staging too.\n\n@alice:\n> retry at most 5 times\n> with jittered backoff",
+        acceptance: [], private: true,
+        issue: { number: 7, title: "Webhooks fail on 502", url: "https://github.com/acme/app/issues/7", fixes: true },
+        // SHA-256 of "Webhooks fail on 502\0Webhooks fail on 502", the install's mythicalIssueDigest.
+        issueDigest: "4babb1e1dd0eee80b2bc65f0117d7ac639a2914627f7a0569119d42379ce3d37"
+      })
+      expect(CardSchema.parse(h.draft()).payload).toEqual(h.draft().payload)
+      // Nothing is written until the author commits.
+      expect(calls.filter(call => call.init?.method === "POST")).toEqual([])
+      expect(await h.seam.setTodoFormField(id, "prompt", `${h.draft().payload.prompt}\n\nLog each retry.`)).toBeUndefined()
+      expect(await h.seam.setTodoFormField(id, "fixes", "false")).toBeUndefined()
+      expect(await h.seam.newTodo({ cardId: id })).toEqual({ value: "Requested" })
+      await waitFor(() => calls.some(call => call.init?.method === "POST"))
+      const commit = calls.find(call => call.init?.method === "POST")!
+      expect(commit.url).toBe("https://install.test/api/todos")
+      expect(new Headers(commit.init?.headers).get("Idempotency-Key")).toBe(h.draft().payload.idempotencyKey)
+      expect(JSON.parse(String(commit.init?.body))).toEqual({
+        title: "Webhooks fail on 502",
+        prompt: "Webhooks fail on 502\n\n@maya:\n> Seen on staging too.\n\n@alice:\n> retry at most 5 times\n> with jittered backoff\n\nLog each retry.",
+        acceptance: [], place: { mode: "append" }, issue: 7, fixes: false, issue_digest: h.draft().payload.issueDigest
+      })
+    } finally { h.close() }
+  })
   test("late answer keeps the text and answered_by, then steers it", async () => {
     const requests: { url: string; body: unknown }[] = []
     const h = await harness(async (url, init) => {

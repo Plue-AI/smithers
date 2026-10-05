@@ -720,11 +720,18 @@ type TodoRequest = z.infer<typeof TodoRequestSchema>
 // models into every union that carries a card (TS7056 in AgentTurnFrame).
 const TodoModelSchema: z.ZodType<TodoCard> = TodoCardSchema
 const DraftPayloadSchema: z.ZodType<
-  DraftCard & { idempotencyKey: string; request?: TodoRequest | undefined; optionsFailure?: string | undefined }
+  DraftCard & {
+    idempotencyKey: string
+    request?: TodoRequest | undefined
+    optionsFailure?: string | undefined
+    issueDigest?: string | undefined
+  }
 > = DraftCardSchema.extend({
   idempotencyKey: z.string(),
   request: TodoRequestSchema.optional(),
-  optionsFailure: z.string().optional()
+  optionsFailure: z.string().optional(),
+  /* Make TODO: the digest of the issue text the Draft was made from, sent as `issue_digest` on Commit. */
+  issueDigest: z.string().regex(/^[0-9a-f]{64}$/).optional()
 })
 
 const CurrentCardSchema = z.discriminatedUnion("kind", [

@@ -826,6 +826,7 @@ const FIXTURES: Record<
     full: {
       ...draftFixtures.append.model,
       issue: draftFixtures.issue_fixes.model.issue,
+      issueDigest: "4babb1e1dd0eee80b2bc65f0117d7ac639a2914627f7a0569119d42379ce3d37",
       seed: draftFixtures.seed.model.seed,
       committed: { n: 12, rev: 1 },
       optionsFailure: "Could not load placement",

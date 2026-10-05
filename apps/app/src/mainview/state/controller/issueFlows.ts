@@ -5,6 +5,7 @@ import { gatewayBindingFor,resolveTargetRepo } from "../RepoContext"
 import type { SeamContext } from "../seams/SeamContext"
 import { readResult } from "../seams/SeamContext"
 import type { WorkflowController } from "./workflows"
+import type { TodoSeam } from "../seams/TodoSeam"
 import { flowArgs } from "../../flows/FlowArgs"
 
 export interface IssueFlowsController {
@@ -17,7 +18,8 @@ export interface IssueFlowsController {
 
 export const createIssueFlowsController = (
   ctx: SeamContext,
-  flows: Pick<WorkflowController, "listWorkspaceWorkflows" | "runWorkflow" | "requireBox">
+  flows: Pick<WorkflowController, "listWorkspaceWorkflows" | "runWorkflow" | "requireBox">,
+  todos: Pick<TodoSeam, "draftFromIssue">
 ): IssueFlowsController => {
   const cards = (): Array<Card> => [...ctx.store.collections.cards.values()]
   const requireBox = (repo: string, flow: string, args: string, title: string, humanDoor: boolean): string | { readonly value: string } | undefined => {
@@ -55,9 +57,19 @@ export const createIssueFlowsController = (
   }
   return {
     inspectIssueFlows,
-    // The install dispatcher owns GitHub snapshots, roster checks and browser
-    // Draft history. A workspace coding/request launch bypassed all three.
-    runIssueImplementation: async () => "Make TODO is unavailable until install admission is configured.",
+    // Make TODO: a private Draft of the GitHub issue the card shows, its text
+    // and discussion, committed through POST /api/todos like any Draft. It
+    // never launches a workspace flow.
+    runIssueImplementation: async (number, explicit) => {
+      const resolved = resolveTargetRepo(ctx.store, explicit)
+      if ("error" in resolved) return resolved.error
+      const issue = cards().find((card): card is Extract<Card, { kind: "issue" }> => card.kind === "issue" && card.payload.source === "github"
+        && card.payload.repo === resolved.repo && card.payload.number === number)?.payload
+      if (issue === undefined) return `Open GitHub issue #${number} before making a TODO.`
+      if (issue.state === "closed") return `Issue #${number} is closed.`
+      return todos.draftFromIssue({ number, title: issue.title, body: issue.issueBody, url: issue.htmlUrl ?? `https://github.com/${resolved.repo}/issues/${number}`,
+        comments: issue.comments.map(comment => ({ author: comment.author, body: comment.commentBody })) })
+    },
     // No browser launch can establish host-bound authorization, membership,
     // confirmation, Active closure, pinned loading, delivery or microVM safety.
     triagePullRequest: async () => "Review is unavailable on this host.",
