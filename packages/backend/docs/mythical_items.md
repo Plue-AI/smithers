@@ -275,7 +275,9 @@ single-repository install and are not arbitrarily selected by the migration.
 Settings retains the request even above capacity; Home can represent effective
 zero. The old repository config write and `history.parallel` door are removed.
 The install write remains unmounted, and the service refuses writes without the
-shared authorization/catalog provider. Fresh TODO admission remains refused;
-ordered runtime demands, holder release accounting and live queue positions
-require the ordering, scheduler and machine-execution providers and C-STK-02.
+shared authorization/catalog provider. On an install a fresh TODO attempt
+launches `coding/request` on its own lane (`EnableTodoAdmission`); hosted
+composition refuses it. Ordered runtime demands, holder release accounting and
+live queue positions require the ordering, scheduler and machine-execution
+providers and C-STK-02.
 No admission queue, root operation or host execution fallback is added.

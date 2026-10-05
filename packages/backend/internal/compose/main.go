@@ -993,6 +993,9 @@ func runWithOptions(ctx context.Context, args []string, stdout, stderr io.Writer
 		// The install's own GitHub App publishes TODO pull requests; Plue's
 		// composition publishes none.
 		mythicalService.EnableTodoPublication(gitHubAppCredentials, repoConnectionService, gitHubBudgetTracker)
+		// An owner's TODO runs the existing coding path on its own lane;
+		// Plue's composition admits none.
+		mythicalService.EnableTodoAdmission()
 	}
 	// A lane's coding host starts only on a box with its declared tools.
 	services.WithWorkspaceBoxTools(mythicalService.LaneTools)(workspaceService)
