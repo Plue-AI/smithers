@@ -2,8 +2,8 @@
 import { randomBytes } from "node:crypto"
 import { NODE_CANARY, README } from "../e2e/local/demo-repository"
 import { launchModelProvider, type ModelProvider } from "../e2e/real/support/model-provider-process"
-import { execFileSync } from "node:child_process"
-import { chmodSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs"
+import { execFileSync, spawnSync } from "node:child_process"
+import { chmodSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs"
 import { createServer } from "node:net"
 import { homedir } from "node:os"
 import { resolve, join } from "node:path"
@@ -31,6 +31,18 @@ export const walkHome = (account = homedir()): string => {
   const caches = join(account, "Library/Caches")
   mkdirSync(caches, { recursive: true, mode: 0o700 })
   return mkdtempSync(join(caches, "smithers-local-"))
+}
+// Layer snapshots live in the account's Microsandbox home, outside the run's
+// data root; the run's layer records name the ones this install built.
+export const layerSnapshots = (records: string): string[] => {
+  let files: string[]
+  try { files = readdirSync(records).filter(name => name.endsWith(".json")) } catch { return [] }
+  return files.flatMap(file => {
+    try {
+      const name: unknown = JSON.parse(readFileSync(join(records, file), "utf8")).name
+      return typeof name === "string" && /^smthrs-(tc|dp)-[0-9a-f]{8}-[0-9a-f]{20}$/.test(name) ? [name] : []
+    } catch { return [] }
+  })
 }
 export const freePort = (port: number): Promise<void> => new Promise((ok, fail) => {
   const server = createServer()
@@ -70,7 +82,11 @@ export async function main() {
     try { await backend?.stop() } finally { await modelProvider?.close() }
     rmSync(receipt, { force: true })
     if (keep) console.log(`Kept ${home}`)
-    else rmSync(home, { recursive: true, force: true })
+    else {
+      for (const name of layerSnapshots(join(home, "state/microvm/layers")))
+        spawnSync(join(bundle, "bin/msb"), ["snapshot", "remove", "-q", name], { env: { HOME: homedir(), PATH: "/usr/bin:/bin", MSB_BACKEND: "local", NO_COLOR: "1" }, stdio: "inherit" })
+      rmSync(home, { recursive: true, force: true })
+    }
   })()
   const signal = () => { void stop().then(() => process.exit(0)) }
   process.on("SIGINT", signal); process.on("SIGTERM", signal)

@@ -1,9 +1,9 @@
 import { describe, expect, test } from "bun:test"
 import { createServer } from "node:net"
-import { lstatSync, mkdtempSync, realpathSync, rmSync } from "node:fs"
+import { lstatSync, mkdirSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { dirname, join } from "node:path"
-import { freePort, githubBases, proxyGuard, setupLine, walkHome } from "./run-local-no-github"
+import { freePort, githubBases, layerSnapshots, proxyGuard, setupLine, walkHome } from "./run-local-no-github"
 import { githubRoute, isManifest } from "../e2e/local/github-route"
 import type { BrowserContext, Route } from "@playwright/test"
 
@@ -40,6 +40,22 @@ describe("local no-GitHub orchestration", () => {
         if (at === "/") break
       }
     } finally { rmSync(home, { recursive: true, force: true }) }
+  })
+  test("stop removes only the layer snapshots this install's records name", () => {
+    const records = mkdtempSync(join(tmpdir(), "walk-layers-"))
+    try {
+      expect(layerSnapshots(join(records, "missing"))).toEqual([])
+      mkdirSync(join(records, "nested.json"))
+      const record = (file: string, body: string) => writeFileSync(join(records, file), body)
+      record("tc.json", JSON.stringify({ kind: "toolchain", name: "smthrs-tc-3a2e5eb3-b537c2dcb99200913df8" }))
+      record("dp.json", JSON.stringify({ kind: "dependencies", name: "smthrs-dp-3a2e5eb3-9b4b330307eeaf5fb809" }))
+      record("option.json", JSON.stringify({ name: "--all" }))
+      record("other.json", JSON.stringify({ name: "smthrs-env-62079da5-9045cf9f7956-055b2dec5652acfe7e19" }))
+      record("number.json", JSON.stringify({ name: 7 }))
+      record("broken.json", "{")
+      record("notes.txt", JSON.stringify({ name: "smthrs-tc-3a2e5eb3-b537c2dcb99200913df9" }))
+      expect(layerSnapshots(records).sort()).toEqual(["smthrs-dp-3a2e5eb3-9b4b330307eeaf5fb809", "smthrs-tc-3a2e5eb3-b537c2dcb99200913df8"])
+    } finally { rmSync(records, { recursive: true, force: true }) }
   })
   test("port preflight refuses an occupied listener", async () => {
     const server = createServer()
