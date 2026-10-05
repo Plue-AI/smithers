@@ -235,6 +235,21 @@ func (s *InstallSetupService) readStep(ctx context.Context, q *db.Queries, id st
 	}
 	return step, nil
 }
+
+// setupUnfinished reports whether any setup step is not done yet.
+func (s *InstallSetupService) setupUnfinished(ctx context.Context, q *db.Queries) (bool, error) {
+	for _, id := range InstallStepIDs {
+		step, err := s.readStep(ctx, q, id)
+		if err != nil {
+			return false, err
+		}
+		if step.Status != InstallReady {
+			return true, nil
+		}
+	}
+	return false, nil
+}
+
 func saveInstallStep(ctx context.Context, tx pgx.Tx, step InstallStep) error {
 	raw, err := json.Marshal(step)
 	if err != nil {
@@ -305,7 +320,17 @@ func (s *InstallSetupService) Admit(ctx context.Context, id, key string, raw jso
 		return jobs.RequestReceipt{}, err
 	}
 	if !installStepCanStart(step, setupNow(s.Now)) {
-		return jobs.RequestReceipt{}, pkgerrors.Conflict("setup step is running or complete")
+		// A done Address can change until setup finishes: the step runs again
+		// and re-applies the bind and origins. Settings changes it afterwards.
+		reopen := false
+		if id == "address" && step.Status == InstallReady {
+			if reopen, err = s.setupUnfinished(ctx, q); err != nil {
+				return jobs.RequestReceipt{}, err
+			}
+		}
+		if !reopen {
+			return jobs.RequestReceipt{}, pkgerrors.Conflict("setup step is running or complete")
+		}
 	}
 	if step.Status == InstallRunning {
 		var live bool

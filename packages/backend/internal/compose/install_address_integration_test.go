@@ -98,18 +98,22 @@ func TestInstallAddressNetworkReachesTeammateOriginThroughRouterPostgres(t *test
 	require.NoError(t, err)
 	response.Body.Close()
 	require.Equal(t, http.StatusAccepted, response.StatusCode)
-	workerCtx, cancel := context.WithCancel(ctx)
-	defer cancel()
-	done := make(chan error, 1)
-	go func() {
-		done <- store.RunWorker(workerCtx, jobs.WorkerConfig{WorkerID: "address-worker", Capacity: 1, Lease: time.Second, PollInterval: time.Millisecond, Operations: []string{"install.setup.address"}}, setup.Handle)
-	}()
-	require.Eventually(t, func() bool {
-		w := teammate("mini.local:4000", "192.0.2.10:51000", "")
-		return w.Code == http.StatusOK && strings.Contains(w.Body.String(), `{"id":"address","state":"done"}`)
-	}, 5*time.Second, 20*time.Millisecond)
-	cancel()
-	require.NoError(t, <-done)
+	settle := func(host string) {
+		t.Helper()
+		workerCtx, cancel := context.WithCancel(ctx)
+		defer cancel()
+		done := make(chan error, 1)
+		go func() {
+			done <- store.RunWorker(workerCtx, jobs.WorkerConfig{WorkerID: "address-worker", Capacity: 1, Lease: time.Second, PollInterval: time.Millisecond, Operations: []string{"install.setup.address"}}, setup.Handle)
+		}()
+		require.Eventually(t, func() bool {
+			w := teammate(host, "192.0.2.10:51000", "")
+			return w.Code == http.StatusOK && strings.Contains(w.Body.String(), `{"id":"address","state":"done"}`)
+		}, 5*time.Second, 20*time.Millisecond)
+		cancel()
+		require.NoError(t, <-done)
+	}
+	settle("mini.local:4000")
 	mu.Lock()
 	require.Equal(t, []string{"0.0.0.0:4000"}, binds)
 	mu.Unlock()
@@ -131,6 +135,26 @@ func TestInstallAddressNetworkReachesTeammateOriginThroughRouterPostgres(t *test
 	require.Equal(t, http.StatusOK, teammate("mini.local:4000", "192.0.2.10:51000", "evil.example").Code)
 	// A proxy on this Mac may: its loopback peer names the saved host.
 	require.Equal(t, http.StatusOK, teammate("127.0.0.1:4000", "127.0.0.1:51000", "mini.local:4000").Code)
+
+	// Until setup finishes the Address can change, here from the teammate's
+	// laptop, whose lower-case Origin is the origin the owner typed.
+	change := httptest.NewRequest(http.MethodPost, "http://mini.local:4000/api/install/setup/address", strings.NewReader(`{"bind":"0.0.0.0:4000","origins":["http://mini.local:4000","http://10.0.0.59:4000"]}`))
+	change.RemoteAddr = "192.0.2.10:51000"
+	change.Header.Set("Content-Type", "application/json")
+	change.Header.Set("Origin", "http://mini.local:4000")
+	change.Header.Set("Idempotency-Key", "address-change")
+	for _, cookie := range cookies {
+		change.AddCookie(cookie)
+		if cookie.Name == "__csrf" {
+			change.Header.Set("X-CSRF-Token", cookie.Value)
+		}
+	}
+	changed := httptest.NewRecorder()
+	router.ServeHTTP(changed, change)
+	require.Equal(t, http.StatusAccepted, changed.Code, changed.Body.String())
+	settle("10.0.0.59:4000")
+	require.NoError(t, json.Unmarshal(teammate("10.0.0.59:4000", "192.0.2.10:51000", "").Body.Bytes(), &status))
+	require.Equal(t, []string{"http://mini.local:4000", "http://10.0.0.59:4000"}, status.Address.Origins)
 }
 
 // The install's sign-in resolves against the same live origins as setup.

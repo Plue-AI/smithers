@@ -4,12 +4,14 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"net/http"
 	"sync"
 	"testing"
 	"time"
 
 	"github.com/jackc/pgx/v5"
 	"github.com/smithersai/smithers/packages/backend/internal/db"
+	pkgerrors "github.com/smithersai/smithers/packages/backend/internal/pkg/errors"
 	"github.com/smithersai/smithers/packages/backend/jobs"
 	"github.com/smithersai/smithers/packages/backend/testkit/postgresfixture"
 	"github.com/stretchr/testify/require"
@@ -112,4 +114,27 @@ func TestInstallAddressStepServesItsBindAndOriginsPostgres(t *testing.T) {
 	require.NoError(t, lost.Load(ctx, q))
 	lost.Serve()
 	require.Equal(t, []string{"http://127.0.0.1:4000", "http://mini.local:4000"}, lost.Origins())
+
+	// Until setup finishes the owner can change a done Address: the step runs
+	// again and re-applies the bind and origins. An origin typed as macOS
+	// names the Mac is saved as the browser sends it.
+	changed := settle("mixed-case", `{"bind":"0.0.0.0:4000","origins":["http://Williams-Mac-mini.local:4000"]}`)
+	require.Equal(t, InstallReady, changed.Status)
+	require.Equal(t, []string{"http://127.0.0.1:4000", "http://williams-mac-mini.local:4000"}, address.Origins())
+	saved, err := q.GetInstallSetting(ctx, "public_origins")
+	require.NoError(t, err)
+	require.JSONEq(t, `["http://williams-mac-mini.local:4000"]`, string(saved.Value))
+	mac := settle("this-mac", `{"bind":"127.0.0.1:4000","origins":["http://localhost:4000"]}`)
+	require.Equal(t, InstallReady, mac.Status)
+	require.Equal(t, []string{"0.0.0.0:4000", ""}, listener.served(), "This Mac only closes the network listener")
+	require.Equal(t, []string{"http://127.0.0.1:4000", "http://localhost:4000"}, address.Origins())
+
+	// Once every step is done, Address changes in Settings, not in setup.
+	_, err = pool.Exec(ctx, `UPDATE install_settings SET value='{"status":"done"}' WHERE key LIKE 'setup.step.%'`)
+	require.NoError(t, err)
+	_, err = service.Admit(ctx, "address", "after-setup", json.RawMessage(`{"bind":"0.0.0.0:4000","origins":["http://mini.local:4000"]}`))
+	var conflict *pkgerrors.APIError
+	require.ErrorAs(t, err, &conflict)
+	require.Equal(t, http.StatusConflict, conflict.Status)
+	require.Equal(t, []string{"http://127.0.0.1:4000", "http://localhost:4000"}, address.Origins())
 }
