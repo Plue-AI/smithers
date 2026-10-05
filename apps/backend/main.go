@@ -107,7 +107,7 @@ func run(ctx context.Context, args []string, testFlowHostConfigs ...flowhost.Wor
 	if err != nil {
 		return fmt.Errorf("locate the backend executable: %w", err)
 	}
-	runtimes, err := openExecutionRuntimes(ctx, dataRoot, executable, registry.Coding.Executable, testFlowHostConfig.AllowTrustedProcessForTests)
+	runtimes, err := openExecutionRuntimes(ctx, dataRoot, executable, manifestPath, registry.Coding.Executable, testFlowHostConfig.AllowTrustedProcessForTests)
 	if err != nil {
 		return err
 	}

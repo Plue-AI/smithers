@@ -25,7 +25,15 @@ func Doctor(ctx context.Context, config Config) []DoctorLine {
 	add := func(name string, ok bool, format string, args ...any) {
 		lines = append(lines, DoctorLine{Name: name, OK: ok, Detail: fmt.Sprintf(format, args...)})
 	}
-	client, err := newCLI(config.Binary)
+	bundle, msb, err := startupBundle(config)
+	if err != nil {
+		add("bundle", false, "%v", err)
+		return lines
+	}
+	if bundle != nil {
+		add("bundle", true, "%s revision %s, manifest sha256 %s", bundle.root, bundle.revision, bundle.digest)
+	}
+	client, err := runtimeCLI(config, msb)
 	if err != nil {
 		add("msb", false, "%v", err)
 		return lines
@@ -36,7 +44,7 @@ func Doctor(ctx context.Context, config Config) []DoctorLine {
 		add("msb", false, "%v", err)
 		return lines
 	}
-	add("msb", true, "%s %s, host ready, local backend", config.Binary, RequiredVersion)
+	add("msb", true, "%s %s, host ready, local backend", client.binary, RequiredVersion)
 	image := config.Image
 	if image == "" {
 		image = DefaultImage

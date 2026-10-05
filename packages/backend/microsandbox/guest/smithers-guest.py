@@ -17,8 +17,11 @@ reaches it only through `msb exec`. It holds no credentials. Subcommands:
   setup USER UID  create the workspace user and adapter directories
   put-env         atomically replace the literal tmpfs team environment
   coding-binding  atomically install the fixed root-owned source binding
-  coding-helper   atomically install the packaged Linux arm64 helper
-  coding-helper-check verify the fixed helper's digest and root ownership
+  coding-helper DIGEST
+                  atomically install the packaged Linux arm64 helper; the
+                  bytes are stdin and must hash to DIGEST
+  coding-helper-check DIGEST
+                  report whether the fixed helper holds DIGEST
   managed-artifact PATH DIGEST
                   atomically plant one approved bundle file under
                   /opt/smithers/bundle; the bytes are stdin
@@ -51,10 +54,15 @@ SECRET_ENV_LIMIT = 1 << 20
 REQUEST_DIR = "/run/smithers/requests"
 TOOL_HOME = "/var/cache/smithers/home"
 ROOT_UID = 0
+# Root plants files only below this base ("/" in a guest), through directories
+# it opens one at a time by descriptor (protected_directory).
+PROTECTED_BASE = "/"
 # Approved bundle files live only under this fixed, root-owned tree.
-MANAGED_ARTIFACT_BASE = "/"
 MANAGED_ARTIFACT_ROOT = ("opt", "smithers", "bundle")
 MANAGED_ARTIFACT_LIMIT = 64 * 1024 * 1024
+# The packaged Linux arm64 source-publication helper's fixed place.
+CODING_HELPER_DIRECTORY = ("usr", "local", "bin")
+CODING_HELPER_NAME = "smithers-jj-export"
 
 
 def fail(code, message):
@@ -776,7 +784,7 @@ def setup(user, uid, directories):
             os.close(fd)
 
 
-def install_coding_binding(config, etc="/etc"):
+def install_coding_binding(config):
     # Only the adapter's privileged msb call can install this file. Ordinary
     # workspace commands cannot select a destination or impersonate root.
     if os.geteuid() != ROOT_UID:
@@ -795,25 +803,9 @@ def install_coding_binding(config, etc="/etc"):
                        for key in ("repositorySlug", "apiBaseUrl", "gitUrl"))):
         fail(3, "coding binding authority is invalid")
 
-    def directory(parent, name=None):
-        fd = os.open(parent if name is None else name,
-                     os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW,
-                     **({} if name is None else {"dir_fd": parent}))
-        info = os.fstat(fd)
-        if info.st_uid != ROOT_UID or info.st_mode & 0o022:
-            os.close(fd)
-            fail(3, "coding binding directory is not root-owned and private")
-        return fd
-
-    etc_fd = directory(etc)
-    parent_fd = None
+    parent_fd = protected_directory(("etc", "smithers"), create=True)
     temporary = None
     try:
-        try:
-            os.mkdir("smithers", 0o755, dir_fd=etc_fd)
-        except FileExistsError:
-            pass
-        parent_fd = directory(etc_fd, "smithers")
         target = "workspace-coding.json"
         try:
             current = os.stat(target, dir_fd=parent_fd, follow_symlinks=False)
@@ -835,81 +827,30 @@ def install_coding_binding(config, etc="/etc"):
     finally:
         if temporary is not None:
             os.unlink(temporary, dir_fd=parent_fd)
-        if parent_fd is not None:
-            os.close(parent_fd)
-        os.close(etc_fd)
+        os.close(parent_fd)
 
 
-def coding_helper_current(digest, directory="/usr/local/bin"):
+def valid_digest(digest):
+    return isinstance(digest, str) and len(digest) == 64 and all(c in "0123456789abcdef" for c in digest)
+
+
+def coding_helper_current(digest):
     if os.geteuid() != ROOT_UID:
         fail(3, "coding helper check requires root")
-    if len(digest) != 64 or any(c not in "0123456789abcdef" for c in digest):
+    if not valid_digest(digest):
         fail(3, "coding helper digest is invalid")
-    parent_fd = os.open(directory, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)
-    try:
-        info = os.fstat(parent_fd)
-        if info.st_uid != ROOT_UID or info.st_mode & 0o022:
-            fail(3, "coding helper directory is not root-owned and private")
-        try:
-            current = os.stat("smithers-jj-export", dir_fd=parent_fd, follow_symlinks=False)
-            if not stat.S_ISREG(current.st_mode) or current.st_uid != ROOT_UID:
-                fail(3, "coding helper target is not a root-owned file")
-            fd = os.open("smithers-jj-export", os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK, dir_fd=parent_fd)
-        except FileNotFoundError:
-            return False
-        with os.fdopen(fd, "rb") as handle:
-            info = os.fstat(handle.fileno())
-            if not stat.S_ISREG(info.st_mode) or info.st_uid != ROOT_UID:
-                fail(3, "coding helper target is not a root-owned file")
-            if stat.S_IMODE(info.st_mode) != 0o755 or not 64 <= info.st_size <= 64 * 1024 * 1024:
-                return False
-            checksum = hashlib.sha256()
-            remaining = 64 * 1024 * 1024 + 1
-            while remaining:
-                chunk = handle.read(min(65536, remaining))
-                if not chunk:
-                    return checksum.hexdigest() == digest
-                checksum.update(chunk)
-                remaining -= len(chunk)
-            return False
-    finally:
-        os.close(parent_fd)
+    return protected_file_current(CODING_HELPER_DIRECTORY, CODING_HELPER_NAME, digest, MANAGED_ARTIFACT_LIMIT)
 
 
-def install_coding_helper(body, directory="/usr/local/bin"):
+def install_coding_helper(digest, body):
     if os.geteuid() != ROOT_UID:
         fail(3, "coding helper requires root")
-    if (len(body) < 64 or len(body) > 64 * 1024 * 1024 or body[:4] != b"\x7fELF"
+    if not valid_digest(digest):
+        fail(3, "coding helper digest is invalid")
+    if (len(body) < 64 or len(body) > MANAGED_ARTIFACT_LIMIT or body[:4] != b"\x7fELF"
             or body[4:6] != b"\x02\x01" or int.from_bytes(body[18:20], "little") != 183):
         fail(3, "coding helper is not Linux arm64")
-    parent_fd = os.open(directory, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)
-    temporary = None
-    try:
-        info = os.fstat(parent_fd)
-        if info.st_uid != ROOT_UID or info.st_mode & 0o022:
-            fail(3, "coding helper directory is not root-owned and private")
-        target = "smithers-jj-export"
-        try:
-            current = os.stat(target, dir_fd=parent_fd, follow_symlinks=False)
-            if not stat.S_ISREG(current.st_mode) or current.st_uid != ROOT_UID:
-                fail(3, "coding helper target is not a root-owned file")
-        except FileNotFoundError:
-            pass
-        temporary = ".smithers-jj-export-" + secrets.token_hex(16)
-        fd = os.open(temporary, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW,
-                     0o600, dir_fd=parent_fd)
-        with os.fdopen(fd, "wb") as handle:
-            handle.write(body)
-            handle.flush()
-            os.fchmod(handle.fileno(), 0o755)
-            os.fsync(handle.fileno())
-        os.rename(temporary, target, src_dir_fd=parent_fd, dst_dir_fd=parent_fd)
-        temporary = None
-        os.fsync(parent_fd)
-    finally:
-        if temporary is not None:
-            os.unlink(temporary, dir_fd=parent_fd)
-        os.close(parent_fd)
+    install_protected_file(CODING_HELPER_DIRECTORY, CODING_HELPER_NAME, digest, body, MANAGED_ARTIFACT_LIMIT)
 
 
 def managed_artifact_request(relative, digest):
@@ -917,7 +858,7 @@ def managed_artifact_request(relative, digest):
     # Neither can name another directory or skip the byte check.
     if os.geteuid() != ROOT_UID:
         fail(3, "managed artifact requires root")
-    if not isinstance(digest, str) or len(digest) != 64 or any(c not in "0123456789abcdef" for c in digest):
+    if not valid_digest(digest):
         fail(3, "managed artifact digest is invalid")
     parts = relative.split("/") if isinstance(relative, str) else []
     if not 0 < len(parts) <= 8 or not all(valid_id(part) for part in parts):
@@ -925,16 +866,28 @@ def managed_artifact_request(relative, digest):
     return parts
 
 
-def managed_artifact_parent(parts, create):
-    # Walk by descriptor from the fixed base: the base and every directory
+def managed_artifact_current(relative, digest):
+    parts = managed_artifact_request(relative, digest)
+    return protected_file_current(MANAGED_ARTIFACT_ROOT + tuple(parts[:-1]), parts[-1], digest, MANAGED_ARTIFACT_LIMIT)
+
+
+def install_managed_artifact(relative, digest, body):
+    parts = managed_artifact_request(relative, digest)
+    install_protected_file(MANAGED_ARTIFACT_ROOT + tuple(parts[:-1]), parts[-1], digest, body, MANAGED_ARTIFACT_LIMIT)
+
+
+def protected_directory(names, create):
+    # Walk by descriptor from PROTECTED_BASE: the base and every directory
     # below it are root-owned, not group or world writable, and never a
-    # symlink, on a fresh machine and on a retained one alike.
-    fd = os.open(MANAGED_ARTIFACT_BASE, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)
+    # symlink, on a fresh machine and on a retained one alike. The returned
+    # descriptor is held through the caller's replacement, so a directory
+    # swapped after it was checked is never written.
+    fd = os.open(PROTECTED_BASE, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)
     try:
         info = os.fstat(fd)
         if info.st_uid != ROOT_UID or info.st_mode & 0o022:
-            fail(3, "managed artifact directory is not root-owned and protected")
-        for name in MANAGED_ARTIFACT_ROOT + tuple(parts[:-1]):
+            fail(3, "protected directory is not root-owned and protected")
+        for name in names:
             if create:
                 try:
                     os.mkdir(name, 0o755, dir_fd=fd)
@@ -945,43 +898,45 @@ def managed_artifact_parent(parts, create):
             except FileNotFoundError:
                 raise
             except OSError:
-                fail(3, "managed artifact directory is a link or not a directory")
+                fail(3, "protected directory is a link or not a directory")
             os.close(fd)
             fd = child
             info = os.fstat(fd)
             if info.st_uid != ROOT_UID or info.st_mode & 0o022:
-                fail(3, "managed artifact directory is not root-owned and protected")
+                fail(3, "protected directory is not root-owned and protected")
         return fd
     except BaseException:
         os.close(fd)
         raise
 
 
-def managed_artifact_current(relative, digest):
-    parts = managed_artifact_request(relative, digest)
+def protected_file_current(names, target, digest, limit):
+    # Whether the root-owned file target under names already holds exactly
+    # the approved bytes with mode 0755. Anything but a root-owned regular
+    # file there refuses: it is never followed, read or replaced.
     try:
-        parent = managed_artifact_parent(parts, create=False)
+        parent = protected_directory(names, create=False)
     except FileNotFoundError:
         return False
     try:
         try:
-            current = os.stat(parts[-1], dir_fd=parent, follow_symlinks=False)
+            current = os.stat(target, dir_fd=parent, follow_symlinks=False)
         except FileNotFoundError:
             return False
         if not stat.S_ISREG(current.st_mode) or current.st_uid != ROOT_UID:
-            fail(3, "managed artifact target is not a root-owned file")
+            fail(3, "protected file is not a root-owned file")
         try:
-            fd = os.open(parts[-1], os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK, dir_fd=parent)
+            fd = os.open(target, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK, dir_fd=parent)
         except OSError:
-            fail(3, "managed artifact target is not a root-owned file")
+            fail(3, "protected file is not a root-owned file")
         with os.fdopen(fd, "rb") as handle:
             info = os.fstat(handle.fileno())
             if not stat.S_ISREG(info.st_mode) or info.st_uid != ROOT_UID:
-                fail(3, "managed artifact target is not a root-owned file")
-            if stat.S_IMODE(info.st_mode) != 0o755 or info.st_size > MANAGED_ARTIFACT_LIMIT:
+                fail(3, "protected file is not a root-owned file")
+            if stat.S_IMODE(info.st_mode) != 0o755 or info.st_size > limit:
                 return False
             checksum = hashlib.sha256()
-            remaining = MANAGED_ARTIFACT_LIMIT + 1
+            remaining = limit + 1
             while remaining:
                 chunk = handle.read(min(65536, remaining))
                 if not chunk:
@@ -993,21 +948,23 @@ def managed_artifact_current(relative, digest):
         os.close(parent)
 
 
-def install_managed_artifact(relative, digest, body):
-    parts = managed_artifact_request(relative, digest)
-    if len(body) > MANAGED_ARTIFACT_LIMIT or hashlib.sha256(body).hexdigest() != digest:
-        fail(3, "managed artifact bytes differ from the approved digest")
-    parent = managed_artifact_parent(parts, create=True)
+def install_protected_file(names, target, digest, body, limit):
+    # Atomically replace target under names with body, mode 0755, only when
+    # body is exactly the approved digest: an exclusive no-follow temporary
+    # file in the held parent descriptor, then a rename over it.
+    if len(body) > limit or hashlib.sha256(body).hexdigest() != digest:
+        fail(3, "protected file bytes differ from the approved digest")
+    parent = protected_directory(names, create=True)
     temporary = None
     try:
         try:
-            current = os.stat(parts[-1], dir_fd=parent, follow_symlinks=False)
+            current = os.stat(target, dir_fd=parent, follow_symlinks=False)
             if not stat.S_ISREG(current.st_mode) or current.st_uid != ROOT_UID:
-                fail(3, "managed artifact target is not a root-owned file")
+                fail(3, "protected file is not a root-owned file")
         except FileNotFoundError:
             pass
-        # A leading dot is never a valid artifact name, so this cannot collide.
-        temporary = ".managed-artifact-" + secrets.token_hex(16)
+        # A leading dot is never a valid target name, so this cannot collide.
+        temporary = ".install-" + secrets.token_hex(16)
         fd = os.open(temporary, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW,
                      0o600, dir_fd=parent)
         with os.fdopen(fd, "wb") as handle:
@@ -1015,7 +972,7 @@ def install_managed_artifact(relative, digest, body):
             handle.flush()
             os.fchmod(handle.fileno(), 0o755)
             os.fsync(handle.fileno())
-        os.rename(temporary, parts[-1], src_dir_fd=parent, dst_dir_fd=parent)
+        os.rename(temporary, target, src_dir_fd=parent, dst_dir_fd=parent)
         temporary = None
         os.fsync(parent)
     finally:
@@ -1174,12 +1131,11 @@ def main(args):
     if command == "put-env" and len(args) == 1:
         put_secret_environment(sys.stdin.buffer.read(SECRET_ENV_LIMIT + 1))
         return
-    if command == "coding-helper-check" and len(args) == 1:
-        digest = sys.stdin.buffer.read(65).decode("ascii")
-        print("current" if coding_helper_current(digest) else "replace")
+    if command == "coding-helper-check" and len(args) == 2:
+        print("current" if coding_helper_current(args[1]) else "replace")
         return
-    if command == "coding-helper" and len(args) == 1:
-        install_coding_helper(sys.stdin.buffer.read(64 * 1024 * 1024 + 1))
+    if command == "coding-helper" and len(args) == 2:
+        install_coding_helper(args[1], sys.stdin.buffer.read(MANAGED_ARTIFACT_LIMIT + 1))
         return
     if command == "managed-artifact-check" and len(args) == 3:
         print("current" if managed_artifact_current(args[1], args[2]) else "replace")

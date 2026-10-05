@@ -64,7 +64,7 @@ func TestRealMicroVMCodingBindingInstallation(t *testing.T) {
 		require.NoError(t, err, "msb %v: %s", args, output)
 		return output
 	}
-	writeEvidence("binding-msb-create.txt", run("create", "node:26-bookworm", "--pull", "never", "--name", vm, "--memory", "1G", "--cpus", "1", "--root-disk", "2G", "--no-net", "--copy-file", guestFile+":"+guestHelperPath))
+	writeEvidence("binding-msb-create.txt", run("create", DefaultImage, "--pull", "never", "--name", vm, "--memory", "1G", "--cpus", "1", "--root-disk", "2G", "--no-net", "--copy-file", guestFile+":"+guestHelperPath))
 	runtime := &Runtime{cli: client, config: Config{Bundle: bundle}, workspaces: map[string]*workspace{
 		workspaceID: newWorkspace(metadata{Version: metadataVersion, ID: workspaceID, Machine: vm, State: "running"}, work),
 	}}

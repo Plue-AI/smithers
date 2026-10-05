@@ -61,7 +61,9 @@ const DefaultImage = "node@sha256:71fed097c6e5bae40e1aff698793dda483e2380cc2530d
 type Config struct {
 	// HostProfile distinguishes a computed zero capacity from missing sizing.
 	HostProfile *HostProfile
-	// Binary is the absolute path of the pinned msb executable.
+	// Binary is the absolute path of an msb executable for a runtime
+	// without a Bundle. With a Bundle it must be empty: msb is the bundle's
+	// bin/msb, verified against the pinned manifest before every run.
 	Binary string
 	// Root holds adapter metadata. It is host state, never a guest mount.
 	Root string
@@ -91,16 +93,25 @@ type Config struct {
 	// Environments enables graph-keyed environment layers. Nil boots Image.
 	Environments *EnvironmentConfig
 	// Bundle is the approved installed bundle this backend runs from: the
-	// directory whose manifest.json `smthrs host start` verified. A managed
-	// host command's program, or an environment value, naming one of its
-	// files is planted in the guest from the bytes that manifest declares;
-	// so is the coding binding's Linux arm64 helper. No other host file ever
-	// reaches a guest. Empty plants nothing.
+	// directory whose manifest.json `smthrs host start` verified. New pins
+	// that manifest and refuses to start unless the directory, the manifest
+	// and every ancestor up to / are owned by root or the running user and
+	// not writable by group or others. A managed host command's program
+	// naming one of its files is planted in the guest from the bytes that
+	// manifest declares; so is the coding binding's Linux arm64 helper. No
+	// other host file ever reaches a guest. Empty plants nothing.
 	Bundle string
+	// Executable is the running backend. With a Bundle, New refuses unless
+	// it is the bundle's bin/smithers-backend with the manifest's bytes.
+	Executable string
 	// BundlePrograms are the host programs managed hosts will run from
 	// Bundle. New refuses to start unless the pinned manifest declares each,
 	// and the coding helper, with exactly its bytes and mode.
 	BundlePrograms []string
+	// BundleFiles are the other files of Bundle the backend read at startup
+	// (its Flow host manifest). New refuses unless each has the manifest's
+	// bytes and mode.
+	BundleFiles []string
 	// EgressRelay, when set, is the egress secret channel
 	// (workspace.WorkspaceEgressSecrets). Its port joins HostPorts, so it
 	// must stay the same across restarts for existing machines to reach it.
@@ -179,14 +190,15 @@ func New(ctx context.Context, config Config) (*Runtime, error) {
 			return nil, err
 		}
 	}
-	// The bundle is pinned and every file it will plant is checked before
-	// Microsandbox is touched: a bad one refuses startup, not the first plant.
-	bundle, err := startupBundle(config)
+	// The bundle is pinned and the backend, msb and every file it will plant
+	// are checked before Microsandbox is touched: a bad one refuses startup,
+	// not the first plant.
+	bundle, msb, err := startupBundle(config)
 	if err != nil {
 		return nil, err
 	}
 
-	client, err := newCLI(config.Binary)
+	client, err := runtimeCLI(config, msb)
 	if err != nil {
 		return nil, err
 	}

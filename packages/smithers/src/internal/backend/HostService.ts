@@ -220,12 +220,11 @@ export const status = async () => {
   return { state: "ready", bundle, version: verified.version, launchd: "running", readiness: "ready", doctor: "ready" }
 }
 
-/** Read-only bundled diagnostics need the same state root as the running service. */
+/** Read-only bundled diagnostics need the same state root as the running service; the backend runs only its own bundle's msb. */
 export const doctor = (bundle: string, stateDir: string, run = spawnSync): void => {
   const result = run(join(bundle, "bin/smithers-backend"), ["microvm", "doctor"], {
     encoding: "utf8", timeout: 30_000,
-    env: { HOME: homedir(), PATH: `${bundle}/bin:/usr/bin:/bin`, SMITHERS_DATA_ROOT: stateDir,
-      SMITHERS_MICROSANDBOX_BIN: join(bundle, "bin/msb") }
+    env: { HOME: homedir(), PATH: `${bundle}/bin:/usr/bin:/bin`, SMITHERS_DATA_ROOT: stateDir }
   })
   if (result.status !== 0) throw new Error(`Bundled microVM doctor failed: ${bundle}`)
 }

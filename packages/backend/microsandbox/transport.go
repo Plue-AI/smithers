@@ -247,7 +247,7 @@ func (r *Runtime) InspectManagedHost(ctx context.Context, workspaceID string, sp
 }
 
 // StartManagedHost chooses a free guest loopback port, plants the approved
-// bundle artifact in the guest, builds the command with guest paths, and
+// bundle program in the guest, builds the command with its guest path, and
 // starts it as an ordinary service. The returned client reaches it only by
 // relay.
 func (r *Runtime) StartManagedHost(ctx context.Context, workspaceID string, spec workspaceapi.ManagedHostSpec) (workspaceapi.ManagedHostConnection, error) {
@@ -278,22 +278,8 @@ func (r *Runtime) StartManagedHost(ctx context.Context, workspaceID string, spec
 	if err != nil {
 		return workspaceapi.ManagedHostConnection{}, fmt.Errorf("build managed host command: %w", err)
 	}
-	if len(command.Args) == 0 {
-		return workspaceapi.ManagedHostConnection{}, errors.New("managed host command is required")
-	}
-	if command.Args[0], err = r.plantArtifact(ctx, ws.Machine, command.Args[0]); err != nil {
+	if command, err = r.managedHostCommand(ctx, ws.Machine, command); err != nil {
 		return workspaceapi.ManagedHostConnection{}, err
-	}
-	// A bundled helper the host is pointed at (the workspace helper) is
-	// planted the same way, so no host path reaches the guest.
-	if len(command.Environment) > 0 {
-		environment := make(map[string]string, len(command.Environment))
-		for name, value := range command.Environment {
-			if environment[name], err = r.plantArtifact(ctx, ws.Machine, value); err != nil {
-				return workspaceapi.ManagedHostConnection{}, err
-			}
-		}
-		command.Environment = environment
 	}
 	timeout := spec.ReadyTimeout
 	if timeout <= 0 {
@@ -406,6 +392,22 @@ func (r *Runtime) freeGuestPort(ctx context.Context, machine string) (uint16, er
 		}
 	}
 	return 0, errors.New("no free guest port for the managed host")
+}
+
+// managedHostCommand plants the host's program from the approved bundle and
+// returns the command with its guest path. Only the program is planted:
+// environment values reach the host as the guest values they are, so a
+// repository's agent variable never selects what guest root installs.
+func (r *Runtime) managedHostCommand(ctx context.Context, machine string, command workspaceapi.Command) (workspaceapi.Command, error) {
+	if len(command.Args) == 0 {
+		return command, errors.New("managed host command is required")
+	}
+	program, err := r.plantArtifact(ctx, machine, command.Args[0])
+	if err != nil {
+		return command, err
+	}
+	command.Args = append([]string{program}, command.Args[1:]...)
+	return command, nil
 }
 
 // plantArtifact plants a file of the approved installed bundle in the guest

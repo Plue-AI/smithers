@@ -37,14 +37,15 @@ func (r *Runtime) InstallWorkspaceCodingBinding(ctx context.Context, workspaceID
 	if err != nil {
 		return err
 	}
-	current, err := r.guest(ctx, ws.Machine, []byte(r.codingHelper.digest), "coding-helper-check")
+	// The guest re-hashes the bytes it receives against the same digest.
+	current, err := r.guest(ctx, ws.Machine, nil, "coding-helper-check", r.codingHelper.digest)
 	if err != nil {
 		return err
 	}
 	switch strings.TrimSpace(string(current)) {
 	case "current":
 	case "replace":
-		if _, err := r.guest(ctx, ws.Machine, helper, "coding-helper"); err != nil {
+		if _, err := r.guest(ctx, ws.Machine, helper, "coding-helper", r.codingHelper.digest); err != nil {
 			return err
 		}
 	default:

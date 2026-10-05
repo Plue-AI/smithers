@@ -39,21 +39,45 @@ the only thing `msb exec` runs:
   own port at guest `127.0.0.1`, the only destination the VM's network policy
   (`--no-net --net-rule allow@host:tcp:<port>`) allows.
 
-A managed host's program and every environment value naming a file of
-`Config.Bundle` are planted under `/opt/smithers/bundle` and rewritten to that
-guest path before the host starts. `Config.Bundle` is the installed bundle the
-backend runs from (`<bundle>/bin/smithers-backend`), whose `manifest.json`
-`smthrs host start` verified. Approval comes from that install, not from this
-code: whatever bundle is installed is the approved one, including one built
-from a branch. `New` pins the manifest and refuses to start unless the coding
-helper and every `Config.BundlePrograms` entry is a declared, non-symlink,
-mode 0755 file of at most 8 path segments with exactly its bytes, read by
-descriptor without following links. The guest helper's `managed-artifact`
-subcommand checks the digest again and writes as root, mode 0755, through
-root-owned, protected directories it never follows; a retained machine gets
-drifted bytes or mode replaced and refuses a link or writable directory. A
-file outside the bundle is never planted, even with an approved digest. Planted
-files are root-owned and run as the unprivileged guest user.
+A managed host's program naming a file of `Config.Bundle` is planted under
+`/opt/smithers/bundle` and rewritten to that guest path before the host
+starts. Environment values are never planted: they reach the host as the guest
+values they are, so a repository's agent variable cannot select what guest
+root installs.
+
+`Config.Bundle` is the installed bundle the backend runs from
+(`<bundle>/bin/smithers-backend`). For stage S1, approval of that bundle means:
+
+- `New` pins its `manifest.json` once and refuses to start unless the bundle
+  directory, the manifest and every ancestor up to `/` are owned by root or the
+  running user and not writable by group or others. A symlinked ancestor is
+  resolved once; the resolved chain is what is checked. The refusal names the
+  path.
+- The running backend (`Config.Executable`) must be the bundle's
+  `bin/smithers-backend` with the manifest's sha256. msb is only the bundle's
+  `bin/msb`; `Config.Binary` must be empty with a bundle, and no environment
+  variable selects msb. msb is re-verified against the pinned manifest before
+  every run: a changed identity (device, inode, size, mode, owner,
+  modification or change time) hashes it again, and a mismatch starts nothing.
+- The coding helper, every `Config.BundlePrograms` entry and every
+  `Config.BundleFiles` entry (the Flow host manifest) must be declared,
+  non-symlink files with exactly their bytes and mode, read through the same
+  protected descriptor walk. Planted files are mode 0755 and at most 8 path
+  segments deep.
+- msb's state home is the running account's home directory from the user
+  database, never `$HOME`.
+- The startup log records the manifest's revision and its own sha256, for
+  comparison with the manifest the release build produced. Verifying a
+  signature over the distribution manifest belongs to release distribution
+  (T-INS-05), not this package.
+
+The guest helper's `managed-artifact` and `coding-helper` subcommands check
+the digest again and write as root, mode 0755, through one descriptor walk
+from `/` (`protected_directory`): every ancestor root-owned, not group or
+world writable, never followed. A retained machine gets drifted bytes or mode
+replaced and refuses a link or writable directory. A file outside the bundle
+is never planted, even with an approved digest. Planted files are root-owned
+and run as the unprivileged guest user.
 
 Every non-PTY `msb exec` uses `--stream`: without it stdin of a few MiB never
 arrives. Guests keep no credentials but task-scoped ones: the product's

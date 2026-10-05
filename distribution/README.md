@@ -101,19 +101,18 @@ The macOS server assembler is restored without desktop distribution. Its output 
 The MVP Mac install runs every workspace, command, service, terminal, preview and coding Flow host in a local [Microsandbox](https://github.com/superradcompany/microsandbox) microVM. The owned backend launcher always selects `microvm` and ignores shell isolation overrides. For a direct backend launch, set it explicitly; it never falls back:
 
 ```sh
-BUNDLE=/path/to/installed/smithers    # includes msb 0.6.16
+BUNDLE=/path/to/installed/smithers    # includes msb 0.6.16 at bin/msb
 export SMITHERS_WORKSPACE_ISOLATION=microvm
-export SMITHERS_MICROSANDBOX_BIN="$BUNDLE/bin/msb"
-"$BUNDLE/bin/smithers-backend" microvm doctor # read-only: msb, image, owned microVMs and layers, stopped disks, free disk
+"$BUNDLE/bin/smithers-backend" microvm doctor # read-only: bundle, msb, image, owned microVMs and layers, stopped disks, free disk
 ```
 
-With `SMITHERS_WORKSPACE_ISOLATION=microvm` the backend refuses to start when `msb` is missing, is another release, or `msb doctor` is not ready. `SMITHERS_SERVER_ADDR` needs a fixed port: guests have no network except that port on the host, reached at their own `127.0.0.1`. They also reach the egress relay on `SMITHERS_EGRESS_RELAY_PORT` (default: the backend port + 1), which swaps bound credentials into requests so a guest never holds them; keep it fixed across restarts. The chat model host, which holds model credentials and runs no repository code, stays a trusted process under `<data>/control`.
+With `SMITHERS_WORKSPACE_ISOLATION=microvm` the backend runs only its own bundle's `bin/msb` and refuses to start when that `msb` is not the manifest's, is another release, or `msb doctor` is not ready. It also refuses when the bundle directory, its `manifest.json` or any ancestor up to `/` is writable by group or others or owned by another user; a Homebrew prefix whose directories are group-writable does not qualify. `SMITHERS_SERVER_ADDR` needs a fixed port: guests have no network except that port on the host, reached at their own `127.0.0.1`. They also reach the egress relay on `SMITHERS_EGRESS_RELAY_PORT` (default: the backend port + 1), which swaps bound credentials into requests so a guest never holds them; keep it fixed across restarts. The chat model host, which holds model credentials and runs no repository code, stays a trusted process under `<data>/control`.
 
 The process workspace runtime is for tests only. An overridable Flow host refuses it with `isolation_required`; tests must opt in through `flowhost.Config.AllowTrustedProcessForTests`, never through an install environment variable.
 
 An agent workspace stopped for 24 hours gives back its microVM disk. Resuming it boots a fresh microVM and checks the repository out again; work on its bookmark is kept, anything else in the old disk is not. `microvm doctor` reports the unique bytes stopped microVMs still hold.
 
-The coding Flow host runs in the workspace's microVM with its shell, file, test and build tools. The backend plants into the guest only files of the installed bundle it runs from (`<bundle>/bin/smithers-backend`): the coding host the `SMITHERS_FLOW_HOST_MANIFEST` names and the Linux workspace helper `bin/linux-arm64/smithers-jj-export`, each with the digest and mode `manifest.json` declares. A backend outside an installed bundle, or a bundle whose manifest does not declare both files with exactly their bytes, refuses to start. To build the bundle on a Mac, cross-build the helper with [Zig](https://ziglang.org) as the linker and place it where `smthrs build //apps/app:serverBundle` reads it:
+The coding Flow host runs in the workspace's microVM with its shell, file, test and build tools. The backend plants into the guest only files of the installed bundle it runs from (`<bundle>/bin/smithers-backend`): the coding host its `bin/flow-hosts.json` names and the Linux workspace helper `bin/linux-arm64/smithers-jj-export`, each with the digest and mode `manifest.json` declares. A backend outside an installed bundle, a Flow host manifest other than the bundle's own, or a bundle whose manifest does not declare the backend, `msb` and these files with exactly their bytes, refuses to start. To build the bundle on a Mac, cross-build the helper with [Zig](https://ziglang.org) as the linker and place it where `smthrs build //apps/app:serverBundle` reads it:
 
 ```sh
 rustup target add aarch64-unknown-linux-gnu --toolchain 1.98.0

@@ -14,7 +14,7 @@ Automation: `scripts/spikes/homebrew-hypervisor/run.sh` (new, disposable; delete
 1. Install variant A. Record `codesign -dvv`, `codesign -d --entitlements -` and `xattr -l` for the installed `msb` and `libkrunfw.5.dylib`.
 2. Run the installed `msb --version`.
 3. Boot a microVM with the installed `msb` from the pinned image (`packages/backend/microsandbox/runtime.go:57`) and run `echo ok`. Record the wall time and the VM process's full command line.
-4. Run `SMITHERS_DATA_ROOT=<tmp> SMITHERS_MICROSANDBOX_BIN=<installed msb> smithers-backend microvm doctor`. Record the data root and exact command. Doctor checks msb doctor and the version pin; step 3’s in-VM `echo ok` proves hypervisor execution.
+4. Run `SMITHERS_DATA_ROOT=<tmp> <installed bundle>/bin/smithers-backend microvm doctor`; it runs only that bundle's `bin/msb`. Record the data root and exact command. Doctor checks msb doctor and the version pin; step 3’s in-VM `echo ok` proves hypervisor execution.
 5. `brew uninstall smithers-spike`; pour variant B; repeat steps 1 to 4.
 6. Log out, log back in, repeat step 3 for B.
 7. Bootstrap the passing variant’s LaunchAgent in `gui/<uid>`. Record the literal plist and bootstrap/print commands. Repeat steps 3 and 4 in that service context after login.

@@ -8,7 +8,9 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"os/user"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"syscall"
 	"time"
@@ -28,23 +30,55 @@ var ErrUnavailable = errors.New("microVM isolation is unavailable")
 // leak into guest configuration.
 type cli struct {
 	binary string
-	home   string
+	// home is msb's state home: where it keeps images, machines and
+	// snapshots, the root filesystems guests boot.
+	home string
+	// verify, when set, checks binary against the installed bundle's pinned
+	// manifest before every run; a refusal starts nothing.
+	verify func() error
+}
+
+// runtimeCLI is the msb a runtime drives: the installed bundle's bin/msb,
+// verified before every run, or Config.Binary for a runtime without one.
+func runtimeCLI(config Config, msb *bundleProgram) (*cli, error) {
+	if msb == nil {
+		return newCLI(config.Binary)
+	}
+	client, err := newCLI(msb.path)
+	if err != nil {
+		return nil, err
+	}
+	client.verify = msb.check
+	return client, nil
 }
 
 func newCLI(binary string) (*cli, error) {
 	binary = strings.TrimSpace(binary)
 	if binary == "" || !filepath.IsAbs(binary) {
-		return nil, fmt.Errorf("%w: SMITHERS_MICROSANDBOX_BIN must be an absolute path to msb", ErrUnavailable)
+		return nil, fmt.Errorf("%w: msb must be an absolute path", ErrUnavailable)
 	}
 	info, err := os.Stat(binary)
 	if err != nil || !info.Mode().IsRegular() || info.Mode().Perm()&0o111 == 0 {
 		return nil, fmt.Errorf("%w: msb is not an executable file at %s", ErrUnavailable, binary)
 	}
-	home, err := os.UserHomeDir()
+	home, err := accountHome()
 	if err != nil {
-		return nil, fmt.Errorf("%w: resolve home directory: %v", ErrUnavailable, err)
+		return nil, fmt.Errorf("%w: resolve the account home directory: %v", ErrUnavailable, err)
 	}
 	return &cli{binary: binary, home: home}, nil
+}
+
+// accountHome is the running account's home directory from the user
+// database. The process environment's HOME never selects msb's state.
+func accountHome() (string, error) {
+	account, err := user.LookupId(strconv.Itoa(os.Getuid()))
+	if err != nil {
+		return "", err
+	}
+	if !filepath.IsAbs(account.HomeDir) {
+		return "", fmt.Errorf("home directory %q is not absolute", account.HomeDir)
+	}
+	return filepath.Clean(account.HomeDir), nil
 }
 
 func (c *cli) environment() []string {
@@ -61,6 +95,12 @@ func (c *cli) command(args ...string) *exec.Cmd {
 		args = append([]string{"exec", "--stream"}, args[1:]...)
 	}
 	cmd := exec.Command(c.binary, args...)
+	if c.verify != nil {
+		// Start returns Err without running anything, for every caller.
+		if err := c.verify(); err != nil {
+			cmd.Err = fmt.Errorf("%w: %w", ErrUnavailable, err)
+		}
+	}
 	cmd.Env = c.environment()
 	cmd.Stdin = bytes.NewReader(nil)
 	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}

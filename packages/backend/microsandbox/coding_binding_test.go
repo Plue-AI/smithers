@@ -2,6 +2,8 @@ package microsandbox
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"os"
@@ -19,29 +21,30 @@ func codingBindingFixture() workspaceapi.WorkspaceCodingBinding {
 
 // codingHelperFixture gives runtime an approved bundle holding the helper and
 // answers the fake msb's helper check with "replace"; it returns the
-// helper's bundle path.
-func codingHelperFixture(t *testing.T, runtime *Runtime) string {
+// helper's bundle path and digest, which the guest commands carry.
+func codingHelperFixture(t *testing.T, runtime *Runtime) (string, string) {
 	t.Helper()
-	bundle, _ := approvedBundleFixture(t)
+	bundle, files := approvedBundleFixture(t)
 	runtime.config.Bundle = bundle
 	script, err := os.ReadFile(runtime.cli.binary)
 	require.NoError(t, err)
-	script = []byte(strings.Replace(string(script), "exit 0", "case \"$*\" in *' coding-helper-check') echo replace;; esac\nexit 0", 1))
+	script = []byte(strings.Replace(string(script), "exit 0", "case \"$*\" in *' coding-helper-check '*) echo replace;; esac\nexit 0", 1))
 	require.NoError(t, os.WriteFile(runtime.cli.binary, script, 0700))
-	return filepath.Join(bundle, filepath.FromSlash(codingHelperBundlePath))
+	sum := sha256.Sum256(files[codingHelperBundlePath])
+	return filepath.Join(bundle, filepath.FromSlash(codingHelperBundlePath)), hex.EncodeToString(sum[:])
 }
 
 func TestMicroVMCodingBindingSkipsUnchangedHelperAndRepairsDrift(t *testing.T) {
 	runtime, argv, stdin := egressFakeMSB(t, nil)
-	helper := codingHelperFixture(t, runtime)
+	helper, digest := codingHelperFixture(t, runtime)
 	egressWorkspace(t, runtime, "coding-lane", "running", 0)
 	state := filepath.Join(t.TempDir(), "installed")
 	script := fmt.Sprintf(`#!/bin/sh
 printf '%%s\n' "$*" >> %q
 cat > %q
 case "$*" in
-  *' coding-helper-check') if [ -f %q ]; then echo current; else echo replace; fi;;
-  *' coding-helper') touch %q;;
+  *' coding-helper-check '*) if [ -f %q ]; then echo current; else echo replace; fi;;
+  *' coding-helper '*) touch %q;;
 esac
 `, argv, stdin, state, state)
 	require.NoError(t, os.WriteFile(runtime.cli.binary, []byte(script), 0700))
@@ -52,20 +55,20 @@ esac
 	require.NoError(t, runtime.InstallWorkspaceCodingBinding(context.Background(), "coding-lane", codingBindingFixture()))
 	args, err := os.ReadFile(argv)
 	require.NoError(t, err)
-	require.Equal(t, 1, strings.Count(string(args), " coding-helper\n"))
-	require.Equal(t, 2, strings.Count(string(args), " coding-helper-check\n"))
+	require.Equal(t, 1, strings.Count(string(args), " coding-helper "+digest+"\n"), "the guest re-hashes the bytes against this digest")
+	require.Equal(t, 2, strings.Count(string(args), " coding-helper-check "+digest+"\n"))
 	require.Equal(t, 2, strings.Count(string(args), " coding-binding\n"))
 	require.NoError(t, os.Remove(state))
 	require.NoError(t, runtime.InstallWorkspaceCodingBinding(context.Background(), "coding-lane", codingBindingFixture()))
 	args, err = os.ReadFile(argv)
 	require.NoError(t, err)
-	require.Equal(t, 2, strings.Count(string(args), " coding-helper\n"), "guest drift reinstalls cached bytes")
+	require.Equal(t, 2, strings.Count(string(args), " coding-helper "+digest+"\n"), "guest drift reinstalls cached bytes")
 	require.NotContains(t, string(args), "sh -c")
 }
 
 func TestMicroVMCodingBindingRefusesUnknownHelperCheck(t *testing.T) {
 	runtime, argv, _ := egressFakeMSB(t, nil)
-	codingHelperFixture(t, runtime)
+	_, digest := codingHelperFixture(t, runtime)
 	egressWorkspace(t, runtime, "coding-lane", "running", 0)
 	script, err := os.ReadFile(runtime.cli.binary)
 	require.NoError(t, err)
@@ -74,8 +77,8 @@ func TestMicroVMCodingBindingRefusesUnknownHelperCheck(t *testing.T) {
 	require.ErrorContains(t, err, "invalid result")
 	args, err := os.ReadFile(argv)
 	require.NoError(t, err)
-	require.Contains(t, string(args), " coding-helper-check\n")
-	require.NotContains(t, string(args), " coding-helper\n")
+	require.Contains(t, string(args), " coding-helper-check "+digest+"\n")
+	require.NotContains(t, string(args), " coding-helper "+digest)
 	require.NotContains(t, string(args), " coding-binding\n")
 }
 
@@ -155,7 +158,7 @@ func TestMicroVMCodingBindingRefusesInvalidPackagedHelper(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			runtime, argv, _ := egressFakeMSB(t, nil)
 			egressWorkspace(t, runtime, "coding-lane", "running", 0)
-			helper := codingHelperFixture(t, runtime)
+			helper, _ := codingHelperFixture(t, runtime)
 			bundle := runtime.config.Bundle
 			approved, err := os.ReadFile(helper)
 			require.NoError(t, err)

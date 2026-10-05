@@ -128,7 +128,7 @@ describe("restored launchd service", () => {
     Host.doctor("/bundle", "/state", run)
     expect(run).toHaveBeenCalledWith("/bundle/bin/smithers-backend", ["microvm", "doctor"], {
       encoding: "utf8", timeout: 30000,
-      env: { HOME: homedir(), PATH: "/bundle/bin:/usr/bin:/bin", SMITHERS_DATA_ROOT: "/state", SMITHERS_MICROSANDBOX_BIN: "/bundle/bin/msb" }
+      env: { HOME: homedir(), PATH: "/bundle/bin:/usr/bin:/bin", SMITHERS_DATA_ROOT: "/state" }
     })
     const failed = vi.fn(() => ({ status: 1, stdout: "", stderr: "private diagnostic" })) as unknown as typeof spawnSync
     expect(() => Host.doctor("/bundle", "/state", failed)).toThrow("Bundled microVM doctor failed: /bundle")
