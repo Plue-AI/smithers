@@ -1548,6 +1548,9 @@ func runWithOptions(ctx context.Context, args []string, stdout, stderr io.Writer
 		if err := installAddress.Load(ctx, queries); err != nil {
 			return fmt.Errorf("load install address: %w", err)
 		}
+		// A TODO's pull request and issue comments link to the Address
+		// teammates open, read at each use so a saved change applies.
+		mythicalService.SetPublicOrigin(installAddress.Public)
 		authService.InstallSetup = &services.InstallSetupSessions{Pool: pool}
 		authService.Members = &services.Members{Pool: pool, Credentials: gitHubAppCredentials}
 		authHandler.InstallSetup = authService.InstallSetup

@@ -123,8 +123,8 @@ func (s *MythicalService) FileTodo(ctx context.Context, repositoryID, userID int
 				return MythicalItemView{}, err
 			}
 			issue.Fixes = *input.Fixes
-			if repository, owner, err := s.repository(ctx, repositoryID); err == nil && s.publicURL != "" {
-				link = s.publicURL + "/" + owner + "/" + repository.Name
+			if repository, owner, err := s.repository(ctx, repositoryID); err == nil && s.origin() != "" {
+				link = s.origin() + "/" + owner + "/" + repository.Name
 			}
 		} else if err != nil {
 			return MythicalItemView{}, err

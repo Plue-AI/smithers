@@ -5,6 +5,8 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/require"
+
+	"github.com/smithersai/smithers/packages/backend/internal/db"
 )
 
 // M-28: "This Mac only" binds loopback; "Network" binds the address the owner chose.
@@ -42,6 +44,33 @@ func TestInstallAddressOriginsJoinConfiguredThenSaved(t *testing.T) {
 	// Saving replaces the saved origins; a removed origin is unknown on the next request.
 	address.commit("127.0.0.1:4000", []string{"http://localhost:4000"})
 	require.Equal(t, []string{"http://127.0.0.1:4000", "http://localhost:4000"}, address.Origins())
+}
+
+// The real-GitHub walk's PR body linked http://127.0.0.1:4000/<owner>/<repo>
+// although the owner saved http://williams-mac-mini.local:4000 in step 0.
+func TestInstallAddressPublicIsTheSavedOriginTeammatesOpen(t *testing.T) {
+	var missing *InstallAddress
+	require.Empty(t, missing.Public())
+	require.Empty(t, (&InstallAddress{}).Public())
+	address := &InstallAddress{Configured: []string{"http://127.0.0.1:4000"}}
+	require.Equal(t, "http://127.0.0.1:4000", address.Public(), "before step 0, the configured origin")
+	address.commit("0.0.0.0:4000", []string{"http://localhost:4000", "http://Williams-Mac-mini.local:4000/", "https://box.example"})
+	require.Equal(t, "http://williams-mac-mini.local:4000", address.Public(), "the first saved origin off loopback")
+	address.commit("127.0.0.1:4000", []string{"http://localhost:4000"})
+	require.Equal(t, "http://localhost:4000", address.Public(), "This Mac only: the saved origin")
+	configured := &InstallAddress{Configured: []string{"http://127.0.0.1:4000", "https://smithers.example"}}
+	configured.commit("127.0.0.1:4000", []string{"http://localhost:4000"})
+	require.Equal(t, "https://smithers.example", configured.Public(), "a configured public origin beats a saved loopback one")
+
+	// The stack reads it at each use, so a saved change applies to the next link.
+	s := &MythicalService{}
+	s.SetPublicURL("http://127.0.0.1:4000")
+	s.SetPublicOrigin(address.Public)
+	require.Equal(t, "Run: http://localhost:4000/will/r", s.runLine(db.MythicalItem{}, "will", "r"))
+	address.commit("0.0.0.0:4000", []string{"http://mini.local:4000"})
+	require.Equal(t, "Run: http://mini.local:4000/will/r", s.runLine(db.MythicalItem{}, "will", "r"))
+	s.SetPublicOrigin(func() string { return "" })
+	require.Equal(t, "Run: http://127.0.0.1:4000/will/r", s.runLine(db.MythicalItem{}, "will", "r"), "no Address: the configured origin")
 }
 
 func TestInstallAddressListensOnlyOnChangeAndRevertsUncommitted(t *testing.T) {

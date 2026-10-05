@@ -244,6 +244,11 @@ func TestTodoPublicationOpensReadyThenDraftPullRequests(t *testing.T) {
 	assert.Len(t, f.writes(), 2)
 	assert.Equal(t, "proposed", f.item(first.Number.Int64).State)
 
+	// The owner saves the Address teammates open (setup step 0): the next
+	// pull request links there, not to the configured loopback origin.
+	address := &InstallAddress{Configured: []string{"http://smithers.test"}}
+	address.commit("0.0.0.0:4000", []string{"http://localhost:4000", "http://williams-mac-mini.local:4000"})
+	f.service.SetPublicOrigin(address.Public)
 	second := f.todo("Wave goodbye", "Say goodbye too", first.CandidateHead, "GOODBYE.md", "Bye from T2\n")
 	f.wake()
 	const secondBranch = "smithers/wave-goodbye"
@@ -252,6 +257,7 @@ func TestTodoPublicationOpensReadyThenDraftPullRequests(t *testing.T) {
 	creates = f.pullCreates()
 	require.Len(t, creates, 2)
 	assert.Equal(t, secondBranch, creates[1]["head"])
+	assert.Contains(t, creates[1]["body"], "http://williams-mac-mini.local:4000/smithers-canary/smithers\n\nRequested by @smithers-canary")
 	assert.Equal(t, true, creates[1]["draft"], "a later item's pull request opens as a draft")
 	assert.Contains(t, creates[1]["body"], "Includes [T1](https://github.com/rehearsal-owner/app/pull/1) until they merge")
 	secondHead := f.githubRef(secondBranch)

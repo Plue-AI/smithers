@@ -79,9 +79,12 @@ type MythicalService struct {
 	// policy reads the default bookmark's committed factory policy
 	// (maintainers, todoSince, dailyTokens); stackPolicy.
 	policy repositoryPolicyHost
-	// publicURL is this Smithers's origin, where a landed item's issue is
-	// pointed at its run (SetPublicURL); absent, the comment names no link.
-	publicURL string
+	// publicURL is this Smithers's configured origin, where a landed item's
+	// issue is pointed at its run (SetPublicURL). publicOrigin, an install's
+	// Address read at each use (SetPublicOrigin), wins over it. Absent both,
+	// the comment names no link.
+	publicURL    string
+	publicOrigin func() string
 
 	// todoFlow answers the Active todo flow's execution digest at a main
 	// source commit, which a fresh TODO attempt pins (SetTodoFlow). Unset,
@@ -121,6 +124,22 @@ func (s *MythicalService) SetPolicyReader(host repositoryPolicyHost) { s.policy 
 // comments carry.
 func (s *MythicalService) SetPublicURL(origin string) {
 	s.publicURL = strings.TrimRight(strings.TrimSpace(origin), "/")
+}
+
+// SetPublicOrigin reads an install's Address at each use (InstallAddress.Public):
+// the origin the owner saved in setup step 0 (M-28) wins over the configured
+// one, so a pull request body links where people reach the install, not
+// http://127.0.0.1:4000.
+func (s *MythicalService) SetPublicOrigin(origin func() string) { s.publicOrigin = origin }
+
+// origin is the origin every link back to this Smithers carries.
+func (s *MythicalService) origin() string {
+	if s.publicOrigin != nil {
+		if origin := strings.TrimRight(strings.TrimSpace(s.publicOrigin()), "/"); origin != "" {
+			return origin
+		}
+	}
+	return s.publicURL
 }
 
 // SetFactoryReconciler uses the same owner-main registration boundary as mirror pulls.

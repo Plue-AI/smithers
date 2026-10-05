@@ -3545,8 +3545,8 @@ func (s *MythicalService) runLine(item db.MythicalItem, owner, name string) stri
 	if run == "" {
 		run = strings.TrimSpace(item.VibeRunID)
 	}
-	if s.publicURL != "" {
-		link := s.publicURL + "/" + owner + "/" + name
+	if origin := s.origin(); origin != "" {
+		link := origin + "/" + owner + "/" + name
 		if run != "" {
 			link += " (" + run + ")"
 		}

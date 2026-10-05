@@ -243,7 +243,8 @@ func (s *MythicalService) todoPRFacts(ctx context.Context, item db.MythicalItem)
 	if err != nil {
 		return mythicalPRShape{}, fmt.Errorf("read the TODO's person: %w", err)
 	}
-	if s.publicURL == "" {
+	origin := s.origin()
+	if origin == "" {
 		return mythicalPRShape{}, errors.New("the install's address is unset; the pull request cannot link back")
 	}
 	branch, err := s.todoBranch(ctx, item)
@@ -251,7 +252,7 @@ func (s *MythicalService) todoPRFacts(ctx context.Context, item db.MythicalItem)
 		return mythicalPRShape{}, err
 	}
 	shape := mythicalPRShape{Branch: branch, Title: mythicalTodoTitle(item), Owner: person.Username,
-		URL:        s.publicURL + "/" + target.owner + "/" + target.repository.Name,
+		URL:        origin + "/" + target.owner + "/" + target.repository.Name,
 		FixesIssue: item.FixesIssue && item.IssueNumber.Valid}
 	shape.Prompt, shape.Acceptance = mythicalTodoPrompt(item)
 	shape.Evidence, shape.Review = mythicalTodoEvidenceText(item)

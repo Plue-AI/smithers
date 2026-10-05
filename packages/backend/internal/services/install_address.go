@@ -83,6 +83,34 @@ func (a *InstallAddress) Origins() []string {
 	return result
 }
 
+// Public is the origin links back to the install name, such as a pull
+// request body's: the first saved origin off this Mac's loopback (where
+// teammates open the install), then the first configured one off loopback,
+// then the first saved, then the first configured. Canonical
+// (middleware.CanonicalOrigin); "" when none is known.
+func (a *InstallAddress) Public() string {
+	if a == nil {
+		return ""
+	}
+	a.mu.RLock()
+	defer a.mu.RUnlock()
+	var candidates []string
+	for _, origin := range append(append([]string(nil), a.saved...), a.Configured...) {
+		if origin = middleware.CanonicalOrigin(origin); origin != "" {
+			candidates = append(candidates, origin)
+		}
+	}
+	for _, origin := range candidates {
+		if !loopbackOrigin(origin) {
+			return origin
+		}
+	}
+	if len(candidates) == 0 {
+		return ""
+	}
+	return candidates[0]
+}
+
 // Load reads the saved Address into memory; Serve applies its bind once the
 // loopback listener is up.
 func (a *InstallAddress) Load(ctx context.Context, q *db.Queries) error {
