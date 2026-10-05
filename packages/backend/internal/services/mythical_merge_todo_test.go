@@ -1227,12 +1227,18 @@ func (h *mergeHarness) passAsync() <-chan error {
 // request pr, as a writer of the TODO would, so the dispatch claim that
 // follows waits for release.
 func (h *mergeHarness) holdTodo(n, pr int64) (release func()) {
-	id := h.item(n).ID
+	return h.holdRow(pr, `SELECT 1 FROM mythical_items WHERE id = $1 FOR UPDATE`, h.item(n).ID)
+}
+
+// holdRow runs lock, a statement locking one row, in a transaction of its
+// own when GitHub is next asked for pull request pr (dispatch's first read),
+// so the dispatch claim waits for release on that row.
+func (h *mergeHarness) holdRow(pr int64, lock string, args ...any) (release func()) {
 	held := make(chan pgx.Tx, 1)
 	h.fake.OnNextRequest(http.MethodGet, fmt.Sprintf("/repos/rehearsal-owner/app/pulls/%d", pr), func() {
 		tx, err := h.pool.(*pgxpool.Pool).Begin(context.Background())
 		if err == nil {
-			_, err = tx.Exec(context.Background(), `SELECT 1 FROM mythical_items WHERE id = $1 FOR UPDATE`, id)
+			_, err = tx.Exec(context.Background(), lock, args...)
 		}
 		if err != nil {
 			panic(err)
@@ -1536,4 +1542,126 @@ func TestMythicalMergeCommitNeutralizesDirectives(t *testing.T) {
 		assert.Equal(t, want, commit.Title, title)
 		assert.Equal(t, "TODO T3, reviewed at "+head+".", commit.Message)
 	}
+}
+
+// The claim takes every lock it needs (the stack, the TODO, the session,
+// the person, the owner) before it reads the time: an approval or a session
+// that expires while the claim waits on the owner's row or the stack's is
+// not sent.
+func TestMythicalMergeTodoClaimReadsTheTimeAfterItsLocks(t *testing.T) {
+	const ended = "The approving browser session has ended; sign in again to merge"
+	const unfinished = "The merge did not complete within 10 minutes; press Merge again"
+	for _, lock := range []struct {
+		name, sql string
+		repo      bool
+	}{
+		{"owner row", `SELECT 1 FROM self_host_owners WHERE singleton FOR UPDATE`, false},
+		{"stack row", `SELECT 1 FROM mythical_stacks WHERE repository_id = $1 FOR UPDATE`, true},
+	} {
+		for _, deadline := range []struct {
+			name, code, message string
+			expire              func(h *mergeHarness, n int64, at time.Time)
+		}{
+			{"approval", "github", unfinished, func(h *mergeHarness, n int64, at time.Time) { h.approvedAt(n, at.Add(-mythicalMergeExpiry)) }},
+			{"session", "unauthenticated", ended, func(h *mergeHarness, _ int64, at time.Time) {
+				h.exec(`UPDATE auth_sessions SET expires_at = $2 WHERE session_key = $1`, h.session, at)
+			}},
+		} {
+			t.Run(lock.name+" across the "+deadline.name+"'s expiry", func(t *testing.T) {
+				h := newMergeHarness(t)
+				n, head, pr := h.first("Locked")
+				require.NoError(t, h.press(h.ctx, n, head))
+				var args []any
+				if lock.repo {
+					args = append(args, h.repoID)
+				}
+				release := h.holdRow(pr, lock.sql, args...)
+				at := time.Now().Add(15 * time.Second)
+				deadline.expire(h, n, at)
+				done := h.passAsync()
+				h.waitForTheClaim()
+				time.Sleep(time.Until(at) + time.Second)
+				release()
+				require.NoError(t, <-done)
+				h.refused(n, deadline.code, deadline.message)
+			})
+		}
+	}
+}
+
+// A worker that stops after its claim committed and before the request
+// left: recovery never sends it, never ends it by the bound, and the stack
+// waits behind it; GitHub showing the pull request closed (or at another
+// head) ends it.
+func TestMythicalMergeTodoStopBetweenTheClaimAndTheRequest(t *testing.T) {
+	h := newMergeHarness(t)
+	n, head, pr := h.first("Stopped")
+	second, _, _ := h.todoInReview("Behind", h.item(n).CandidateHead)
+	require.NoError(t, h.press(h.ctx, n, head))
+	send := h.service.outbound.Send
+	h.service.outbound.Send = func(*mythicalItemStep, context.Context, db.MythicalItem, MythicalOutboundOp) error {
+		return errors.New("the worker stopped before the request left")
+	}
+	h.pass()
+	h.service.outbound.Send = send
+	assert.Empty(t, h.merges())
+	assert.Equal(t, "unknown", h.operation(n).State, "the claim committed")
+
+	h.approvedAt(n, time.Now().Add(-mythicalMergeExpiry-time.Minute))
+	h.pass()
+	h.pass()
+	assert.Empty(t, h.merges(), "a claimed merge is never sent by recovery")
+	assert.Equal(t, "unknown", h.operation(n).State, "nor ended by the bound")
+	_, merge := h.mergeCard(n)
+	assert.Equal(t, map[string]any{"state": "merging", "reason": "merging", "on_github": true}, merge)
+	_, merge = h.mergeCard(second)
+	assert.Equal(t, "order", merge["reason"], "the stack waits behind it")
+
+	h.fake.UpdatePull("rehearsal-owner/app", pr, func(p *githubfake.Pull) { p.State = "closed" })
+	h.pass()
+	h.refused(n, "state", "PR is closed on GitHub")
+}
+
+// A merge request GitHub accepted and has not completed is bound to the
+// head it named: a head that moves before Smithers looks ends the merge and
+// GitHub's later completion merges nothing; a head moved and restored
+// before Smithers looks keeps it, and GitHub's completion is the one merge.
+func TestMythicalMergeTodoDelayedRequestIsHeadBound(t *testing.T) {
+	t.Run("moved", func(t *testing.T) {
+		h := newMergeHarness(t)
+		n, head, pr := h.first("Moved")
+		h.fake.DelayNextMerge("rehearsal-owner/app", pr)
+		require.NoError(t, h.press(h.ctx, n, head))
+		h.pass()
+		moved := h.push(n, "moved\n")
+		h.pass()
+		item := h.item(n)
+		assert.Empty(t, item.PendingOp, "the head moved: the sent merge ends")
+		refused := mythicalChecksOf(item).Land.Refused
+		require.NotNil(t, refused)
+		assert.Equal(t, []string{"stale_head", "the pull request changed since you saw it"}, []string{refused.Code, refused.Message})
+		h.fake.CompleteDelayedMerges()
+		h.pass()
+		pull := h.pull(pr)
+		assert.False(t, pull.Merged, "the request named the reviewed head; GitHub merges nothing")
+		assert.Equal(t, moved, pull.Head.SHA)
+		assert.NotEqual(t, "landed", h.item(n).State)
+		assert.Len(t, h.merges(), 1)
+	})
+	t.Run("restored", func(t *testing.T) {
+		h := newMergeHarness(t)
+		n, head, pr := h.first("Restored")
+		h.fake.DelayNextMerge("rehearsal-owner/app", pr)
+		require.NoError(t, h.press(h.ctx, n, head))
+		h.pass()
+		h.push(n, "moved\n")
+		h.git(h.github, "update-ref", "refs/heads/"+mythicalChecksOf(h.item(n)).Branch, head)
+		h.pass()
+		assert.Equal(t, "unknown", h.operation(n).State, "open at the reviewed head: still the sent merge")
+		h.fake.CompleteDelayedMerges()
+		h.pass()
+		state, _ := h.mergeCard(n)
+		assert.Equal(t, "merged", state)
+		assert.Len(t, h.merges(), 1)
+	})
 }

@@ -558,49 +558,70 @@ func (s *MythicalService) mergeApprover(ctx context.Context, repositoryID int64,
 // A session filed before keys were hashed at rest is not found under its
 // digest, at the press as at dispatch: it signs in again.
 func (s *MythicalService) mergePerson(ctx context.Context, sessionKey string) (int64, error) {
-	return s.mergeStanding(ctx, s.store, sessionKey, false)
+	standing, err := readMergeStanding(ctx, s.store, sessionKey, false)
+	if err != nil {
+		return 0, err
+	}
+	return standing.person(s.now())
 }
 
-// mergeStanding is mergePerson read through conn; locked reads the session,
-// the person and the owner FOR SHARE, so a sign-out, suspension or owner
-// change (each writes one of those rows) waits for conn's transaction, and
-// one committed before it is seen (claimMerge).
-func (s *MythicalService) mergeStanding(ctx context.Context, conn db.DBTX, sessionKey string, locked bool) (int64, error) {
+// mergeStanding is the approver's rows as one read found them: the session
+// stored under its key, its person and the install's owner.
+type mergeStanding struct {
+	session, user bool
+	userID, owner int64
+	expires       time.Time
+	enabled       bool
+}
+
+// readMergeStanding reads the approver's rows through conn; locked reads
+// them FOR SHARE, so a sign-out, suspension or owner change (each writes one
+// of them) waits for conn's transaction, and one committed before is seen
+// (claimMerge). It decides nothing: person does, at a time.
+func readMergeStanding(ctx context.Context, conn db.DBTX, sessionKey string, locked bool) (mergeStanding, error) {
 	lock := ""
 	if locked {
 		lock = " FOR SHARE"
 	}
-	ended := &TodoControlError{Status: http.StatusUnauthorized, Code: "unauthenticated", Class: "permission", Message: "The approving browser session has ended; sign in again to merge"}
+	var standing mergeStanding
 	if sessionKey == "" {
-		return 0, ended
+		return standing, nil
 	}
-	var person int64
-	var expires time.Time
-	err := conn.QueryRow(ctx, `SELECT user_id, expires_at FROM auth_sessions WHERE session_key = $1`+lock, sessionKey).Scan(&person, &expires)
+	err := conn.QueryRow(ctx, `SELECT user_id, expires_at FROM auth_sessions WHERE session_key = $1`+lock, sessionKey).Scan(&standing.userID, &standing.expires)
 	if errors.Is(err, pgx.ErrNoRows) {
-		return 0, ended
+		return standing, nil
 	}
 	if err != nil {
-		return 0, err
+		return standing, err
 	}
+	standing.session = true
 	var active, prohibited bool
 	var deleted pgtype.Timestamptz
-	err = conn.QueryRow(ctx, `SELECT is_active, prohibit_login, deleted_at FROM users WHERE id = $1`+lock, person).Scan(&active, &prohibited, &deleted)
-	if errors.Is(err, pgx.ErrNoRows) || err == nil && (!expires.After(s.now()) || !active || prohibited || deleted.Valid) {
-		return 0, ended
+	err = conn.QueryRow(ctx, `SELECT is_active, prohibit_login, deleted_at FROM users WHERE id = $1`+lock, standing.userID).Scan(&active, &prohibited, &deleted)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return standing, nil
 	}
 	if err != nil {
-		return 0, err
+		return standing, err
 	}
-	var owner int64
-	err = conn.QueryRow(ctx, `SELECT user_id FROM self_host_owners WHERE singleton`+lock).Scan(&owner)
-	if errors.Is(err, pgx.ErrNoRows) || err == nil && owner != person {
+	standing.user, standing.enabled = true, active && !prohibited && !deleted.Valid
+	err = conn.QueryRow(ctx, `SELECT user_id FROM self_host_owners WHERE singleton`+lock).Scan(&standing.owner)
+	if err != nil && !errors.Is(err, pgx.ErrNoRows) {
+		return standing, err
+	}
+	return standing, nil
+}
+
+// person is the approver while, at now, the session is live, its person may
+// sign in and is the install's owner; otherwise the refusal.
+func (m mergeStanding) person(now time.Time) (int64, error) {
+	if !m.session || !m.user || !m.expires.After(now) || !m.enabled {
+		return 0, &TodoControlError{Status: http.StatusUnauthorized, Code: "unauthenticated", Class: "permission", Message: "The approving browser session has ended; sign in again to merge"}
+	}
+	if m.owner != m.userID {
 		return 0, mythicalMergeForbidden()
 	}
-	if err != nil {
-		return 0, err
-	}
-	return person, nil
+	return m.userID, nil
 }
 
 // mythicalMergeOnGitHub is row 8 on GitHub's own pull request: open, based
@@ -897,32 +918,41 @@ func (st *mythicalItemStep) recoverMerge(ctx context.Context, item db.MythicalIt
 }
 
 // claimMerge records, in one transaction, that the merge is being sent (the
-// slot becomes unknown) only while it may be: it takes the TODO's row first,
-// so the claim waits behind any writer of it, then checks
-// mythicalMergeExpiry against the time now and reads the approver's standing
-// FOR SHARE. A sign-out, suspension or owner change committed before the
-// claim is seen and sends nothing; one committed after it waits for the
+// slot becomes unknown) only while it may be. It takes every lock it needs
+// first, in one order: the stack row (every stack writer takes it before an
+// item's), the TODO's row, then the approver's session, person and the
+// install's owner FOR SHARE (each revocation writes one of those rows and
+// takes no other, so nothing waits in a cycle). Only then does it read the
+// time, for the approval's age and the session's expiry, immediately before
+// recording the claim. A sign-out, suspension, owner change or expiry that
+// comes before the claim sends nothing; a revocation after it waits for the
 // claim and cannot recall the request.
 func (st *mythicalItemStep) claimMerge(ctx context.Context, item db.MythicalItem, op MythicalOutboundOp) (db.MythicalItem, error) {
 	var claimed db.MythicalItem
 	err := pgx.BeginFunc(ctx, st.s.store, func(tx pgx.Tx) error {
-		if _, err := tx.Exec(ctx, `SELECT 1 FROM mythical_items WHERE id = $1 FOR UPDATE`, item.ID); err != nil {
+		if _, err := tx.Exec(ctx, `SELECT 1 FROM mythical_stacks WHERE repository_id = $1 FOR UPDATE`, item.RepositoryID); err != nil {
 			return err
 		}
-		if mythicalMergeExpired(item, st.s.now) {
-			return mythicalMergeUnfinished()
+		if _, err := tx.Exec(ctx, `SELECT 1 FROM mythical_items WHERE id = $1 FOR UPDATE`, item.ID); err != nil {
+			return err
 		}
 		land := mythicalChecksOf(item).Land
 		if land == nil {
 			return mythicalMergeConflict("rechecking", "The merge approval no longer matches this TODO; review it again")
 		}
-		if _, err := st.s.mergeStanding(ctx, tx, land.Session, true); err != nil {
+		standing, err := readMergeStanding(ctx, tx, land.Session, true)
+		if err != nil {
+			return err
+		}
+		if mythicalMergeExpired(item, st.s.now) {
+			return mythicalMergeUnfinished()
+		}
+		if _, err := standing.person(st.s.now()); err != nil {
 			return err
 		}
 		op.State = "unknown"
 		next := item
 		next.PendingOp, _ = json.Marshal(op)
-		var err error
 		claimed, err = db.New(tx).SaveMythicalItemUnderLease(ctx, next, st.r.row.Claim)
 		return err
 	})
