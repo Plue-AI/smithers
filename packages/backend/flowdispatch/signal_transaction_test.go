@@ -79,3 +79,46 @@ func TestSignalInTxCommitRollbackAndReplay(t *testing.T) {
 		runtime.mu.Unlock()
 	}
 }
+
+// A steer rides the signal path's durable admission and worker, and reaches
+// the runtime as its steer mutation (a Message), never as a named signal.
+func TestSignalInTxDeliversASteerMessage(t *testing.T) {
+	_, err := signalAdmission(SignalRequest{RequestID: "s", FlowID: "coding/request", RunID: "run-1", Steer: &SteerMessage{MessageID: "m"}})
+	require.ErrorContains(t, err, "message id and body are required")
+	_, err = signalAdmission(SignalRequest{RequestID: "s", FlowID: "coding/request", RunID: "run-1", Steer: &SteerMessage{Body: "Use the helper"}})
+	require.ErrorContains(t, err, "message id and body are required")
+
+	store, pool := newFlowDispatchStore(t)
+	ctx := context.Background()
+	runtime := newRecordingRuntime()
+	runtime.status, runtime.flowID = "waiting", "coding/request"
+	service, err := New(Config{Store: store, Resolver: flowruntime.ResolverFunc(func(context.Context, flowruntime.Target) (flowruntime.Runtime, error) { return runtime, nil })})
+	require.NoError(t, err)
+	request := SignalRequest{
+		Scope: jobs.Scope{TenantID: "repository:5", PrincipalID: "user:9"}, RequestID: "todo-steer:1",
+		Target: flowruntime.Target{BindingKind: "repository-job-dispatch", BindingID: "dispatch-1"},
+		FlowID: "coding/request", RunID: "run-1",
+		Steer:  &SteerMessage{MessageID: "steer-1", CreatedAt: 1700000000000, Body: "Use the helper in lib/retry.ts"},
+	}
+	tx, err := pool.Begin(ctx)
+	require.NoError(t, err)
+	receipt, err := service.SignalInTx(ctx, tx, request)
+	require.NoError(t, err)
+	require.NoError(t, tx.Commit(ctx))
+	replay, err := service.Signal(ctx, request)
+	require.NoError(t, err)
+	require.True(t, replay.Joined)
+	startTestWorker(t, service, "transactional-steer")
+	waitOperation(t, store, request.Scope, receipt.OperationID, func(operation jobs.Operation) bool { return operation.State == jobs.StateCompleted })
+	runtime.mu.Lock()
+	defer runtime.mu.Unlock()
+	require.Empty(t, runtime.signals)
+	require.Len(t, runtime.steers, 1)
+	steer := runtime.steers[0]
+	require.Equal(t, "run-1", steer.RunID)
+	require.Equal(t, "Message", steer.Kind)
+	require.Equal(t, "steer-1", steer.MessageID)
+	require.Equal(t, "Use the helper in lib/retry.ts", steer.Body)
+	require.Equal(t, float64(1700000000000), steer.CreatedAt)
+	require.Equal(t, receipt.OperationID, steer.ApplicationRequestID)
+}
