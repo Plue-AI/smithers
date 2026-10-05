@@ -104,7 +104,7 @@ func startIsolationProduct(t *testing.T) (*pgxpool.Pool, *httptest.Server, *isol
 		"SMITHERS_BILLING_MODE":                  "metered",
 		"SMITHERS_DATABASE_URL":                  databaseURL,
 		"SMITHERS_PUBLIC_URL":                    "http://127.0.0.1:4000",
-		"SMITHERS_AUTH_GITHUB_REDIRECT_URL":       "http://localhost:4000/api/auth/github/callback",
+		"SMITHERS_AUTH_GITHUB_REDIRECT_URL":      "http://localhost:4000/api/auth/github/callback",
 		"SMITHERS_SERVER_ADDR":                   "127.0.0.1:0",
 		"SMITHERS_SERVER_SHUTDOWN_TIMEOUT":       "10s",
 		"SMITHERS_REPO_HOST_URL":                 repoHostServer.URL,
