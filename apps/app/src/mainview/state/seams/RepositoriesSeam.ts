@@ -88,11 +88,10 @@ export const parseRepo = (value: unknown): RepoWire | null => {
     : value.owner_type === "User" || value.owner_type === "user"
     ? "user" as const
     : undefined
+  /* An empty id names no change or commit: it is unknown, so no card compares its read against it. */
+  const id = (field: unknown): string | null => typeof field === "string" && field !== "" ? field : null
   const wireHead = isRecord(value.default_bookmark_head)
-    ? {
-      changeId: typeof value.default_bookmark_head.change_id === "string" ? value.default_bookmark_head.change_id : null,
-      commitId: typeof value.default_bookmark_head.commit_id === "string" ? value.default_bookmark_head.commit_id : null
-    }
+    ? { changeId: id(value.default_bookmark_head.change_id), commitId: id(value.default_bookmark_head.commit_id) }
     : undefined
   return {
     id: fullName ?? `${org}/${name}`,

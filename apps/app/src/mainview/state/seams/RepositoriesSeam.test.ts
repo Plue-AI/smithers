@@ -448,6 +448,28 @@ describe("repositories seam", () => {
     expect(requests.filter((request) => request.includes("/bookmarks"))).toEqual([])
   })
 
+  test("an empty wire head is unknown, so a card read at main's commit never reads as moved", async () => {
+    // An install answers its mirror's head as empty ids until the head is known.
+    const emptyHead = (path: string): Response =>
+      path === "api/user/repos"
+        ? json(200, [{
+          owner: "will",
+          name: "smithers",
+          full_name: "will/smithers",
+          default_bookmark: "main",
+          owner_type: "User",
+          default_bookmark_head: { change_id: "", commit_id: "" }
+        }])
+        : path === "api/user/orgs"
+        ? json(200, [])
+        : json(404, {})
+    const { store, seam } = await harness(emptyHead, { workspaces: json(403, {}) })
+    expect(await seam.loadRepositories()).toBeUndefined()
+    expect(repos(store)).toEqual([
+      expect.objectContaining({ id: "will/smithers", head: { bookmark: "main", changeId: null, commitId: null } })
+    ])
+  })
+
   test("the bookmarks list reads plue's cursor envelope, not only a bare array", async () => {
     // plue answers `{ items, next_cursor }` here (routes/jj_vcs.go ListBookmarks
     // through routes/pagination.go cursorResponse), so a head read out of the
