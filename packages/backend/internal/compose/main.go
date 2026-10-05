@@ -617,49 +617,16 @@ func runWithOptions(ctx context.Context, args []string, stdout, stderr io.Writer
 
 	mentionService := services.NewMentionService(queries, notificationService, services.WithMentionEmailSender(emailService))
 	commitStatusService := services.NewCommitStatusService(queries, services.WithCommitStatusWebhookDispatcher(webhookDispatcher))
-	gitHubBudgetTracker := services.NewBudgetTracker()
-	repoConnectionService := services.NewRepoConnectionService(pool, gitHubAppCredentials)
-	repoConnectionService.SetGitHubBudgetTracker(gitHubBudgetTracker)
-	gitHubRepoListService := services.NewGitHubRepoListService(pool, repoConnectionService,
-		services.WithGitHubRepoListHTTPClient(gitHubBudgetTracker.WrapClient(observability.NewHTTPClient(15*time.Second))))
-	// The continuously-synced GitHub mirror: registry + issue/PR/comment store.
-	// The metadata proxy serves from it (live GitHub is the fallback), the App
-	// webhooks keep it fresh, and github-sync reads its registry feed instead of
-	// a static mapping. Its ref mirrorer is attached once the import service —
-	// which owns the clone → repo-host → ImportRefs path — has been built.
-	gitHubSyncedRepoService := services.NewGitHubSyncedRepoService(queries,
-		// R5: sync draws from the same per-installation budget as the proxy.
-		services.WithGitHubSyncedRepoBudget(gitHubBudgetTracker),
-	)
-	// Install webhooks are fetch hints. Cache/consumer commits use the shared
-	// jobs store and stay dark until the required providers are qualified.
-	if !options.topology.hosted() {
-		if err := gitHubSyncedRepoService.ConfigureInstallSync(pool); err != nil {
-			return err
-		}
+	githubServices, err := composeGitHubSync(pool, gitHubAppCredentials, authService, options.topology)
+	if err != nil {
+		return err
 	}
-	gitHubUserReposService := services.NewGitHubUserReposService(queries, authService,
-		services.WithGitHubUserReposTokenRefresher(authService),
-		services.WithGitHubUserReposHTTPClient(gitHubBudgetTracker.WrapClient(observability.NewHTTPClient(15*time.Second))),
-		services.WithGitHubUserReposCredentialStore(gitHubAppCredentials),
-		services.WithGitHubUserReposSyncedStore(gitHubSyncedRepoService),
-	)
-	repoConnectionService.SetGitHubRepoAccessVerifier(gitHubUserReposService)
-	// github-sync writes to GitHub with the platform token; a mirror is bound
-	// and advertised only while its binding user can push with their own
-	// GitHub credential.
-	gitHubSyncedRepoService.SetPushAccess(gitHubUserReposService)
+	gitHubBudgetTracker := githubServices.budget
+	repoConnectionService := githubServices.connections
+	gitHubRepoListService := githubServices.repositories
+	gitHubSyncedRepoService := githubServices.synced
+	gitHubUserReposService := githubServices.userRepositories
 	gitHubSyncedRepoService.SetMirrorFailureObserver(smithersMetrics)
-	// R2: backfills and the reconciliation sweep fetch with cached App
-	// installation tokens whenever the registry row has an installation;
-	// request-bound user tokens remain only the fallback for rows without one.
-	if options.topology.hosted() {
-		gitHubSyncedRepoService.SetFetcherFactory(
-			gitHubUserReposService.SyncedRepoInstallationFetcherFactory(repoConnectionService))
-	} else {
-		gitHubSyncedRepoService.SetConditionalFetcherFactory(
-			gitHubUserReposService.SyncedRepoConditionalFetcherFactory(repoConnectionService))
-	}
 	gitHubCheckRunService := services.NewGitHubCheckRunService(repoConnectionService)
 	agentEnvironmentService := services.NewAgentEnvironmentService(
 		queries,

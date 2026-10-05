@@ -24158,6 +24158,10 @@
       },
       {
         "kind": "file",
+        "path": "packages/backend/internal/compose/github_sync.go"
+      },
+      {
+        "kind": "file",
         "path": "packages/backend/internal/services/install_setup_session.go"
       },
       {

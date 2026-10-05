@@ -3,9 +3,9 @@
   "producer": null,
   "output": {
     "path": "packages/backend/docs/github-app.md",
-    "digest": "ef14a30514fcec7552cd1108e0cf42e18629b539a92e799de40c66e5cd75d082"
+    "digest": "80a1d7da798b21432b5068ee4b8662362af42febc77f63e1fa978c798f482b7e"
   },
-  "closure": "cc00203515bcb5b0a91236aae844a05da7647a6c69e3da2c73a366597ad3b37a",
+  "closure": "90b345cec11d73ccc096ffc06d3381795864578afa04cc8aeea07624810e2cff",
   "inputs": [
     {
       "path": "docs/api/openapi/install.yaml",
@@ -20,8 +20,12 @@
       "digest": "c7028c1f6b8954e391c26202ceeace5ffb8614d63dabfe34f41602de9848c85a"
     },
     {
+      "path": "packages/backend/internal/compose/github_sync.go",
+      "digest": "4c36a242b07751dc89bd91033fd1193c56f008cdfc1a75039138137f904af049"
+    },
+    {
       "path": "packages/backend/internal/compose/main.go",
-      "digest": "4faf2982513183fa02d2b33175805559cea146a75cf88bdb63a0238dc33b85cf"
+      "digest": "3a7c3481eadd3166408614f33dad88d1d3e8d1533c76676c641ab2d4cf5b1610"
     },
     {
       "path": "packages/backend/internal/middleware/effective_origin.go",
