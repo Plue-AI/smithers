@@ -36,6 +36,33 @@ test("Review & merge carries the TODO card's one Merge control, bound to the PR 
   expect(reviewMergeOf({ ...model, pr: undefined }, "owner", viewer)).toBeUndefined()
 })
 
+test("on an install, Review & merge of a served TODO whose evidence names the candidate, not the PR head: ready enables Merge and the press submits the PR head", async () => {
+  // The install serves evidence at the verified candidate; the PR head is its publication, another commit with the same tree.
+  const candidate = "0c1d2e3f405162738495a6b7c8d9e0f1a2b3c4d5", published = "f0e1d2c3b4a5968778695a4b3c2d1e0f9a8b7c6d"
+  const served: TodoCard = { ...model, pr:{ ...model.pr!, head: published, draft: false },
+    evidence: [{ attempt: 1, revision: candidate, items: [{ kind: "check", name: "test", state: "passed" }, { kind: "flow", name: "todo", version: "sha256:1" }] }],
+    merge: { state: "ready", on_github: true } }
+  const store = await createAppStore({ kind: "localStorage", storage: memoryStorage() })
+  await store.dispatch({ type: "identity.session.loaded", actor: "system", state: "signed-in", login: "maya", admin: false, scopesPlain: null }).isPersisted.promise
+  await store.dispatch({ type: "card.upsert", actor: "system", card: { id: "todo:12", kind: "todo", title: "T12", status: "active", createdAt: 1, ordinal: 1,
+    payload: { n: 12, requests: [], model: served } } }).isPersisted.promise
+  const submitted: unknown[] = []
+  const install = { model: { github: { signed_in: true, owner: "maya" } } }
+  const stub = { store, installSnapshots: { get: () => install, subscribe: () => () => {} },
+    commands: { submit: (submission: unknown) => { submitted.push(submission); return Promise.resolve({ status: "executed" }) } } }
+  const host = document.body.appendChild(document.createElement("div"))
+  const root = createRoot(host)
+  try {
+    await act(async () => root.render(<ControllerTestProvider controller={stub as unknown as AppController}>{confirmCardFamily.confirm.render({ id: "confirm:merge:todo:12",
+      kind: "confirm", title: "Merge T12 into main?", status: "active", createdAt: 2, ordinal: 2, audience_member_id: "maya", payload: { id: "merge:todo:12" } }, { presentation: "embedded" } as never)}</ControllerTestProvider>))
+    expect(host.textContent).toContain(`rev ${candidate}`)
+    const merge = host.querySelector<HTMLButtonElement>('button[data-flow="merge"]')!
+    expect(merge.disabled).toBe(false)
+    await act(async () => merge.click())
+    expect(submitted).toEqual([{ name: "merge", payload: { n: 12, reviewed_head_sha: published }, actor: "user", originCardId: "confirm:merge:todo:12" }])
+  } finally { await act(async () => root.unmount()); host.remove() }
+})
+
 test("on an install, only the person it was opened for sees Review & merge; Merge submits the reviewed head and Merged settles it", async () => {
   const store = await createAppStore({ kind: "localStorage", storage: memoryStorage() })
   await store.dispatch({ type: "identity.session.loaded", actor: "system", state: "signed-in", login: "maya", admin: false, scopesPlain: null }).isPersisted.promise

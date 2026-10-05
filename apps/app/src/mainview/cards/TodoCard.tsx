@@ -25,14 +25,9 @@ export interface TodoContainerProps {
   readonly view: CardProps<TodoCard>["view"]
   readonly onView: CardProps<TodoCard>["onView"]
 }
-const requiredChecks = (model: TodoCard) => {
-  const evidence = model.evidence.at(-1)
-  return evidence && model.pr && evidence.revision === model.pr.head
-    ? evidence.items.flatMap(item => item.kind === "github_check" && item.required ? [item] : []) : []
-}
 const mergeLabel = (model: TodoCard) => {
   if (model.merge.reason === "order") return `Merges after ${model.merge.detail ?? "the previous TODO"}`
-  const pending = requiredChecks(model).some(item => item.state === "pending")
+  const pending = (model.evidence.at(-1)?.items ?? []).some(item => item.kind === "github_check" && item.required && item.state === "pending")
   if (model.merge.reason === "checks" && pending) return "Checks running"
   return model.merge.detail ?? (pending ? "Checks running" : "Merge")
 }
@@ -72,10 +67,10 @@ export const todoActionDefinitions = (model: TodoCard, role: TodoContainerProps[
     resolve_input: input => ({ n, text: input.text }) })
   definitions.push({ tag: "todo.amend", label: "Amend", command_input: { n, text: "" } }, { tag: "todo.drop", label: "Drop", command_input: { n } })
   if (model.pr && model.state === "in_review") {
-    const checks = requiredChecks(model)
-    const ready = model.merge.state === "ready" && model.place === 1 && role !== "member"
-      && model.evidence.at(-1)?.revision === model.pr.head && checks.every(item => item.state === "passed") && !model.pr.draft
-    // The head is bound to the command, even though the provisional catalog types only name n.
+    // The served merge block is the one readiness rule; dispatch reads GitHub's head, checks, reviews and draft again.
+    // Evidence names the verified candidate, and the PR head is its publication: another commit with the same tree.
+    const ready = model.merge.state === "ready" && role !== "member"
+    // The press approves the PR head this card shows; the server refuses any other head as stale_head.
     const mergeInput = { n, reviewed_head_sha: model.pr.head }
     definitions.push({ tag: "merge", label: ready ? "Merge" : mergeLabel(model), command_input: mergeInput,
       ...(ready ? { primary: true } : { disabled: { reason: role === "member" ? "A maintainer merges" : mergeLabel(model) } }) })

@@ -41,20 +41,22 @@ describe("TODO Container", () => {
       expect(h.patches).toEqual([{ tab: "prompt", maximized: false }])
     }
   })
-  test("merge is one control across order, role, checks, merge block and approval clearing", () => {
+  test("merge is one control: the served merge block and the viewer's role decide it, whatever the card's other facts", () => {
     for (const place of [1, 2]) for (const role of ["owner", "maintainer", "member"] as const)
       for (const checks of ["pending", "passing", "failing"] as const)
         for (const state of ["ready", "waiting", "blocked", "merging", "done"] as const)
-          for (const approval_cleared of [true, false]) {
-            const model: TodoCard = { ...fixtures.in_review.model, place, approval_cleared,
-              evidence: [{ attempt: 1, revision: fixtures.in_review.model.pr!.head, items: [{ kind: "github_check", name: "required-ci", required: true, url: "https://github.com/smithersai/smithers/actions/runs/124", state: checks === "passing" ? "passed" : checks === "failing" ? "failed" : "pending" }] }], merge: { state, reason: state === "ready" ? undefined : "checks", detail: "Schema check", on_github: state !== "ready" } }
+          for (const approval_cleared of [true, false]) for (const revision of ["pr head", "candidate"] as const) for (const draft of [false, true]) {
+            const pr = { ...fixtures.in_review.model.pr!, draft }
+            const model: TodoCard = { ...fixtures.in_review.model, place, approval_cleared, pr,
+              evidence: [{ attempt: 1, revision: revision === "pr head" ? pr.head : "9f3c2e1", items: [{ kind: "github_check", name: "required-ci", required: true, url: "https://github.com/smithersai/smithers/actions/runs/124", state: checks === "passing" ? "passed" : checks === "failing" ? "failed" : "pending" }] }], merge: { state, reason: state === "ready" ? undefined : "checks", detail: "Schema check", on_github: state !== "ready" } }
             const h = mount(model, role)
             const controls = h.props.actions.filter(action => action.tag === "merge")
             expect(controls).toHaveLength(1)
-            const canMerge = place === 1 && role !== "member" && checks === "passing" && state === "ready"
+            const canMerge = role !== "member" && state === "ready"
             expect(controls[0]!.disabled === undefined).toBe(canMerge)
+            if (canMerge) expect([controls[0]!.label, controls[0]!.primary]).toEqual(["Merge", true])
             h.props.onAction("merge")
-            expect(h.dispatches).toEqual(canMerge ? [{ tag: "merge", input: { n: 12, reviewed_head_sha: model.pr!.head } }] : [])
+            expect(h.dispatches).toEqual(canMerge ? [{ tag: "merge", input: { n: 12, reviewed_head_sha: pr.head } }] : [])
           }
   })
   test("order and GitHub refusals reach the sole merge control verbatim", () => {
@@ -181,11 +183,22 @@ test("on a mounted TODO card, Steer and Amend open Chat on the flow's line inste
     expect(calls).toEqual(["draft /todo.steer T9 ", "run chat.open", "draft /todo.amend T9 ", "run chat.open", "submit todo.drop"])
   } finally { await act(async () => root.unmount()); host.remove() }
 })
-test("passing checks from an earlier head cannot enable Merge", () => {
-  const h = mount({ ...fixtures.in_review.model, pr: { ...fixtures.in_review.model.pr!, head: "new-head" } })
-  expect(h.props.actions.find(action => action.tag === "merge")?.disabled).toBeDefined()
+test("an install's TODO in review: the served ready enables Merge though evidence names the candidate, and the press sends the PR head", () => {
+  // The install serves evidence at the verified candidate; the PR head is its publication, another commit with the same tree.
+  const candidate = "0c1d2e3f405162738495a6b7c8d9e0f1a2b3c4d5", published = "f0e1d2c3b4a5968778695a4b3c2d1e0f9a8b7c6d"
+  const served: TodoCard = { ...fixtures.in_review.model, place: 1,
+    pr:{ ...fixtures.in_review.model.pr!, head: published, draft: false },
+    evidence: [{ attempt: 1, revision: candidate, items: [{ kind: "check", name: "test", state: "passed" }, { kind: "flow", name: "todo", version: "sha256:1" }] }],
+    merge: { state: "ready", on_github: true } }
+  const h = mount(served, "owner")
+  const merge = h.props.actions.find(action => action.tag === "merge")!
+  expect([merge.label, merge.disabled, merge.primary]).toEqual(["Merge", undefined, true])
   h.props.onAction("merge")
-  expect(h.dispatches).toEqual([])
+  expect(h.dispatches).toEqual([{ tag: "merge", input: { n: 12, reviewed_head_sha: published } }])
+  const waiting = mount({ ...served, merge: { state: "waiting", reason: "rechecking", on_github: true } }, "owner")
+  expect(waiting.props.actions.find(action => action.tag === "merge")?.disabled).toBeDefined()
+  waiting.props.onAction("merge")
+  expect(waiting.dispatches).toEqual([])
 })
 
 test("a real TODO projection takes precedence over the seeded TODO with the same number", async () => {
@@ -198,12 +211,6 @@ test("a real TODO projection takes precedence over the seeded TODO with the same
   const markup = renderToStaticMarkup(<ControllerTestProvider controller={controller}>{todoCardFamily.todo.render(card, { presentation: "embedded" } as never)}</ControllerTestProvider>)
   expect(markup).toContain("Actual source prompt")
   expect(markup).not.toContain(design.world().todos.find(todo => todo.ref === "T9")!.title)
-})
-
-test("no required checks and failed optional checks still permit a server-ready Merge at the evidenced head", () => {
-  const model = fixtures.in_review.model
-  const h = mount({ ...model, evidence: [{ ...model.evidence.at(-1)!, items: [{ kind: "github_check", name: "Optional", state: "failed", required: false, url: "https://github.com/smithersai/smithers/actions/runs/1" }] }] })
-  expect(h.props.actions.find(action => action.tag === "merge")?.disabled).toBeUndefined()
 })
 
 test("a row the seed opened (no projection, no request) renders the seeded TODO; a pending request never does", async () => {
