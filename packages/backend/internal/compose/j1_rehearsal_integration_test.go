@@ -417,98 +417,108 @@ func TestJ1Rehearsal(t *testing.T) {
 	}) {
 		return
 	}
-	if !step("App agent question", "POST "+chat.TurnPath, "200; answer with file cards after Source ready", "T-INS-06, T-APP-03, T-FLW-01", func() error {
-		type turnFrame struct {
-			Type    string `json:"type"`
-			Name    string `json:"name"`
-			Text    string `json:"text"`
-			Kind    string `json:"kind"`
-			Message string `json:"message"`
-			Card    struct {
-				Kind    string `json:"kind"`
-				Payload struct {
-					Path    string `json:"path"`
-					Content string `json:"content"`
-					ReadAt  struct {
-						CommitID string `json:"commitId"`
-					} `json:"readAt"`
-				} `json:"payload"`
-			} `json:"card"`
-		}
-		// ask posts one question from the composer's wire, with no tools of
-		// its own, so the host runs the turn's reads. A bearer token asks as
-		// that token instead of the owner's browser session.
-		ask := func(bearer, question string) (string, []turnFrame, bool, error) {
-			body, _ := json.Marshal(map[string]any{"runId": "j1-" + uuid.NewString(), "journal": map[string]any{"version": 1, "legId": uuid.NewString(), "token": strings.Repeat("a", 48)}, "instructions": "Answer briefly using file cards.", "messages": []any{map[string]string{"role": "user", "content": question}}})
-			var data []byte
-			var err error
-			if bearer == "" {
-				data, err = expect("POST", chat.TurnPath, string(body), 200)
-			} else {
-				req, reqErr := http.NewRequest("POST", origin+chat.TurnPath, bytes.NewReader(body))
-				if reqErr != nil {
-					return "", nil, false, reqErr
-				}
-				req.Header.Set("Content-Type", "application/json")
-				req.Header.Set("Authorization", "Bearer "+bearer)
-				resp, doErr := (&http.Client{Timeout: 30 * time.Second}).Do(req)
-				if doErr != nil {
-					return "", nil, false, doErr
-				}
-				data, err = io.ReadAll(io.LimitReader(resp.Body, 1<<20))
-				resp.Body.Close()
-				fmt.Fprintf(&exchanges, "POST %s (bearer) → %d %s\n", chat.TurnPath, resp.StatusCode, data)
-				if err == nil && resp.StatusCode != 200 {
-					err = fmt.Errorf("bearer turn: HTTP %d %s", resp.StatusCode, data)
-				}
+	// turnFrame is what the agent rows read of a turn's frames.
+	type turnFrame struct {
+		Type    string `json:"type"`
+		Name    string `json:"name"`
+		Text    string `json:"text"`
+		Kind    string `json:"kind"`
+		Message string `json:"message"`
+		Card    struct {
+			ID       string  `json:"id"`
+			Kind     string  `json:"kind"`
+			Audience *string `json:"audience_member_id"`
+			Payload  struct {
+				Path    string `json:"path"`
+				Content string `json:"content"`
+				ReadAt  struct {
+					CommitID string `json:"commitId"`
+				} `json:"readAt"`
+				N       int64  `json:"n"`
+				Prompt  string `json:"prompt"`
+				Private bool   `json:"private"`
+				Model   *struct {
+					Title string `json:"title"`
+					State string `json:"state"`
+				} `json:"model"`
+			} `json:"payload"`
+		} `json:"card"`
+	}
+	// ask posts one question from the composer's wire, with no tools of
+	// its own, so the host runs the turn's reads. A bearer token asks as
+	// that token instead of the owner's browser session.
+	ask := func(bearer, question string) (string, []turnFrame, bool, error) {
+		body, _ := json.Marshal(map[string]any{"runId": "j1-" + uuid.NewString(), "journal": map[string]any{"version": 1, "legId": uuid.NewString(), "token": strings.Repeat("a", 48)}, "instructions": "Answer briefly using file cards.", "messages": []any{map[string]string{"role": "user", "content": question}}})
+		var data []byte
+		var err error
+		if bearer == "" {
+			data, err = expect("POST", chat.TurnPath, string(body), 200)
+		} else {
+			req, reqErr := http.NewRequest("POST", origin+chat.TurnPath, bytes.NewReader(body))
+			if reqErr != nil {
+				return "", nil, false, reqErr
 			}
-			if err != nil {
+			req.Header.Set("Content-Type", "application/json")
+			req.Header.Set("Authorization", "Bearer "+bearer)
+			resp, doErr := (&http.Client{Timeout: 30 * time.Second}).Do(req)
+			if doErr != nil {
+				return "", nil, false, doErr
+			}
+			data, err = io.ReadAll(io.LimitReader(resp.Body, 1<<20))
+			resp.Body.Close()
+			fmt.Fprintf(&exchanges, "POST %s (bearer) → %d %s\n", chat.TurnPath, resp.StatusCode, data)
+			if err == nil && resp.StatusCode != 200 {
+				err = fmt.Errorf("bearer turn: HTTP %d %s", resp.StatusCode, data)
+			}
+		}
+		if err != nil {
+			return "", nil, false, err
+		}
+		var answer strings.Builder
+		var frames []turnFrame
+		terminal := false
+		scanner := bufio.NewScanner(strings.NewReader(string(data)))
+		scanner.Buffer(make([]byte, 4096), 1<<20)
+		for scanner.Scan() {
+			var delivery chat.Delivery
+			if err = json.Unmarshal(scanner.Bytes(), &delivery); err != nil {
 				return "", nil, false, err
 			}
-			var answer strings.Builder
-			var frames []turnFrame
-			terminal := false
-			scanner := bufio.NewScanner(strings.NewReader(string(data)))
-			scanner.Buffer(make([]byte, 4096), 1<<20)
-			for scanner.Scan() {
-				var delivery chat.Delivery
-				if err = json.Unmarshal(scanner.Bytes(), &delivery); err != nil {
+			if delivery.Terminal != nil {
+				terminal = *delivery.Terminal
+			}
+			if delivery.Batch == nil {
+				continue
+			}
+			for _, raw := range delivery.Batch.Frames {
+				var frame turnFrame
+				if err = json.Unmarshal(raw, &frame); err != nil {
 					return "", nil, false, err
 				}
-				if delivery.Terminal != nil {
-					terminal = *delivery.Terminal
+				if frame.Type == "delta" && frame.Kind == "text" {
+					answer.WriteString(frame.Text)
 				}
-				if delivery.Batch == nil {
-					continue
-				}
-				for _, raw := range delivery.Batch.Frames {
-					var frame turnFrame
-					if err = json.Unmarshal(raw, &frame); err != nil {
-						return "", nil, false, err
-					}
-					if frame.Type == "delta" && frame.Kind == "text" {
-						answer.WriteString(frame.Text)
-					}
-					frames = append(frames, frame)
-				}
+				frames = append(frames, frame)
 			}
-			return answer.String(), frames, terminal, scanner.Err()
 		}
-		// token mints a personal access token through the production route.
-		token := func(scopes ...string) (string, error) {
-			body, _ := json.Marshal(map[string]any{"name": "j1-" + strings.Join(scopes, "-"), "scopes": scopes})
-			data, err := expect("POST", "/api/user/tokens", string(body), 201)
-			if err != nil {
-				return "", err
-			}
-			var created struct {
-				Token string `json:"token"`
-			}
-			if err = json.Unmarshal(data, &created); err != nil || created.Token == "" {
-				return "", fmt.Errorf("token create answered no token: %v", err)
-			}
-			return created.Token, nil
+		return answer.String(), frames, terminal, scanner.Err()
+	}
+	// token mints a personal access token through the production route.
+	token := func(scopes ...string) (string, error) {
+		body, _ := json.Marshal(map[string]any{"name": "j1-" + strings.Join(scopes, "-") + "-" + uuid.NewString()[:8], "scopes": scopes})
+		data, err := expect("POST", "/api/user/tokens", string(body), 201)
+		if err != nil {
+			return "", err
 		}
+		var created struct {
+			Token string `json:"token"`
+		}
+		if err = json.Unmarshal(data, &created); err != nil || created.Token == "" {
+			return "", fmt.Errorf("token create answered no token: %v", err)
+		}
+		return created.Token, nil
+	}
+	if !step("App agent question", "POST "+chat.TurnPath, "200; answer with file cards after Source ready", "T-INS-06, T-APP-03, T-FLW-01", func() error {
 		// Tokens are minted first, so the row's evidence ends on a question.
 		chatOnly, err := token("write:user")
 		if err != nil {
@@ -653,6 +663,141 @@ func TestJ1Rehearsal(t *testing.T) {
 	if number > 0 {
 		todoPath = fmt.Sprintf("/api/todos/%d", number)
 	}
+	// The app agent reads the stack and one TODO with the TODO cards the
+	// person's /todo shows, and writes a TODO only as the person's private
+	// Draft, as the owner's browser session; every other command, and every
+	// token, runs none of them.
+	appAgentTodos := func() error {
+		if number <= 0 {
+			return fmt.Errorf("blocked by First TODO: no TODO number from public creation receipt")
+		}
+		count := func() (int, error) {
+			data, err := expect("GET", "/api/todos", "", 200)
+			if err != nil {
+				return 0, err
+			}
+			var todos []struct {
+				N int64 `json:"n"`
+			}
+			err = json.Unmarshal(data, &todos)
+			return len(todos), err
+		}
+		before, err := count()
+		if err != nil {
+			return err
+		}
+		ran := func(frames []turnFrame) bool {
+			for _, frame := range frames {
+				if frame.Type == "card" || frame.Type == "call.started" || frame.Type == "call.settled" || frame.Type == "gate.rejected" {
+					return true
+				}
+			}
+			return false
+		}
+		files := "- /files.read <path>[:<line>[:<col>]] [owner/repo] [--ref <revision>] — Read a file from a repository"
+		owned := strings.Join([]string{
+			files,
+			"- /stack — Show the stack and background runs",
+			"- /todo <Tn> — Open a TODO",
+			"- /todo.new [text] — Write and place a TODO (asks the person: it shows them what to confirm and files nothing)",
+		}, "\n")
+		// The instructions list exactly the commands the host runs for the owner's session.
+		answer, _, terminal, err := ask("", "What can you run? (instructions)")
+		if err != nil {
+			return err
+		}
+		if !terminal || answer != owned {
+			return fmt.Errorf("the owner's instructions list %q, want %q", answer, owned)
+		}
+		// /stack: each open TODO as its TODO card; the model reads the rows.
+		todoCard := func(frames []turnFrame, command string) bool {
+			card, settled := false, false
+			for _, frame := range frames {
+				card = card || (frame.Type == "card" && frame.Card.Kind == "todo" && frame.Card.ID == fmt.Sprintf("todo:%d", number) &&
+					frame.Card.Payload.N == number && frame.Card.Payload.Model != nil && frame.Card.Payload.Model.Title == "First TODO")
+				settled = settled || (frame.Type == "call.settled" && frame.Name == command)
+			}
+			return card && settled
+		}
+		answer, frames, terminal, err := ask("", "What is on the stack? Run /stack")
+		if err != nil {
+			return err
+		}
+		if !terminal || !todoCard(frames, "stack") || !strings.Contains(answer, fmt.Sprintf(`{"n":%d,"title":"First TODO"`, number)) {
+			return fmt.Errorf("/stack answered no TODO card for T%d: answer=%q", number, answer)
+		}
+		answer, frames, terminal, err = ask("", fmt.Sprintf("Open it. Run /todo T%d", number))
+		if err != nil {
+			return err
+		}
+		if !terminal || !todoCard(frames, "todo") || !strings.Contains(answer, `"title":"First TODO"`) {
+			return fmt.Errorf("/todo T%d answered no TODO card: answer=%q", number, answer)
+		}
+		// /todo.new asks the person: a private Draft for the owner, and no TODO.
+		answer, frames, terminal, err = ask("", "Run /todo.new Add a farewell to JOURNEY.md")
+		if err != nil {
+			return err
+		}
+		drafted := false
+		for _, frame := range frames {
+			drafted = drafted || (frame.Type == "card" && frame.Card.Kind == "draft" && frame.Card.Audience != nil && *frame.Card.Audience == "rehearsal-owner" &&
+				frame.Card.Payload.Private && frame.Card.Payload.Prompt == "Add a farewell to JOURNEY.md")
+		}
+		if !terminal || !drafted || !strings.Contains(answer, "Nothing is filed until they press Commit") {
+			return fmt.Errorf("/todo.new showed no private Draft: answer=%q", answer)
+		}
+		// Merge asks the person and is not the host's; secrets are never the
+		// agent's; an unknown command does not exist. None runs anything.
+		for _, name := range []string{"merge", "secrets.set", "todo.erase"} {
+			answer, frames, terminal, err = ask("", fmt.Sprintf("Run /%s T%d", name, number))
+			if err != nil {
+				return err
+			}
+			if !terminal || ran(frames) || !strings.Contains(answer, "unknown-command: "+name) {
+				return fmt.Errorf("/%s was not refused: answer=%q", name, answer)
+			}
+		}
+		// A token reads no TODO through the agent: the routes admit the owner's
+		// browser session only. A chat-only token is offered no tool; a
+		// repository reader is offered files.read alone.
+		chatOnly, err := token("write:user")
+		if err != nil {
+			return err
+		}
+		reader, err := token("write:user", "read:repository")
+		if err != nil {
+			return err
+		}
+		answer, frames, terminal, err = ask(chatOnly, "Run /stack (forced)")
+		if err != nil {
+			return err
+		}
+		if !terminal || ran(frames) || !strings.Contains(answer, "unknown-tool: commands") {
+			return fmt.Errorf("a write:user token's /stack was not refused: answer=%q", answer)
+		}
+		answer, _, terminal, err = ask(reader, "What can you run? (instructions)")
+		if err != nil {
+			return err
+		}
+		if !terminal || answer != files {
+			return fmt.Errorf("a read:repository token's instructions list %q, want %q", answer, files)
+		}
+		answer, frames, terminal, err = ask(reader, "Run /stack")
+		if err != nil {
+			return err
+		}
+		if !terminal || ran(frames) || !strings.Contains(answer, "unknown-command: stack") {
+			return fmt.Errorf("a read:repository token's /stack was not refused: answer=%q", answer)
+		}
+		after, err := count()
+		if err != nil {
+			return err
+		}
+		if after != before {
+			return fmt.Errorf("the agent filed a TODO: %d TODOs before, %d after", before, after)
+		}
+		return nil
+	}
 	head := ""
 	var prNumber int64
 	for _, state := range []string{"queued", "starting", "working", "in_review"} {
@@ -687,6 +832,9 @@ func TestJ1Rehearsal(t *testing.T) {
 				time.Sleep(40 * time.Millisecond)
 			}
 		}) {
+			return
+		}
+		if state == "queued" && !step("App agent lists TODOs", "POST "+chat.TurnPath, "200; /stack and /todo answer TODO cards; /todo.new a private Draft and no TODO; other commands and tokens refused", "T-APP-16, T-CAT-01", appAgentTodos) {
 			return
 		}
 	}
