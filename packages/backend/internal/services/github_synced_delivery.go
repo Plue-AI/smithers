@@ -43,13 +43,14 @@ type gitHubInstallSync struct {
 	jobs *jobs.Store
 	// Qualification includes the install credential, storage, permission and
 	// runtime providers. Nil leaves fetching and consumption disabled.
-	authorize func(context.Context, db.GithubSyncedRepo) error
-	consumers map[string]gitHubFetchedConsumer
-	mu        sync.Mutex
-	requested map[gitHubStreamKey]bool
-	streams   map[gitHubStreamKey]gitHubPollState
-	etags     map[gitHubPageKey]gitHubPageValidator
-	wake      chan struct{}
+	authorize    func(context.Context, db.GithubSyncedRepo) error
+	consumers    map[string]gitHubFetchedConsumer
+	mu           sync.Mutex
+	requested    map[gitHubStreamKey]bool
+	streams      map[gitHubStreamKey]gitHubPollState
+	etags        map[gitHubPageKey]gitHubPageValidator
+	wake         chan struct{}
+	requestPulls func(context.Context, db.GithubSyncedRepo) error
 }
 
 // ConfigureInstallSync replaces webhook cache writes with fetch hints on an
@@ -95,11 +96,18 @@ func (s *GitHubSyncedRepoService) requestInstallFetch(ctx context.Context, githu
 		s.install.requested[syncedStreamKey(row, resource)] = true
 	}
 	s.install.mu.Unlock()
+	var pullErr error
+	for _, resource := range resources {
+		if resource == GitHubRepoMetadataPulls && s.install.requestPulls != nil {
+			pullErr = s.install.requestPulls(ctx, row)
+			break
+		}
+	}
 	select {
 	case s.install.wake <- struct{}{}:
 	default:
 	}
-	return nil
+	return pullErr
 }
 
 // commitFetched atomically records a fetched batch and its durable deliveries.

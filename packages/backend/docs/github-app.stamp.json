@@ -3,9 +3,9 @@
   "producer": null,
   "output": {
     "path": "packages/backend/docs/github-app.md",
-    "digest": "1f75a466525c7ea20fee2665a81ad93e912727c7ea964f0987e1a4331976a4ab"
+    "digest": "59798d7a034da9c80ccfb38b71da9588c12db4afa020d4d7a779c42c27356be6"
   },
-  "closure": "fb894f71b499cf2fe2377a2dbe5136cb99bfce3e2aa945eaecc0a447611e085a",
+  "closure": "e37c2e448f3ece1ce3ceaf4b1094a6d63b5e02c35f44207376926dbae89cf53f",
   "inputs": [
     {
       "path": "docs/api/openapi/install.yaml",
@@ -38,6 +38,10 @@
     {
       "path": "packages/backend/internal/compose/runtime_helpers.go",
       "digest": "e22d2376aa333a97bd30d4c3d615fa32c929f2fc08064062c9c60e00ee1cd173"
+    },
+    {
+      "path": "packages/backend/internal/db/mythical_ext.go",
+      "digest": "69bb51d8637863f2d20a676ab7af4494a82ae008b68abaed3184abca2b20033d"
     },
     {
       "path": "packages/backend/internal/middleware/effective_origin.go",
@@ -133,7 +137,7 @@
     },
     {
       "path": "packages/backend/internal/services/github_synced_delivery.go",
-      "digest": "965adcd91cedd4d7881adb402acddcc24e6e87cf2beb6bdb3c01f54d1e8919fe"
+      "digest": "34ecfd6229c743d7fd76774b7eb90005e0d1fd3a6a66f463b19dacb96be53a8f"
     },
     {
       "path": "packages/backend/internal/services/github_synced_events.go",
@@ -177,7 +181,7 @@
     },
     {
       "path": "packages/backend/internal/services/mythical.go",
-      "digest": "56aa5d2a56691da28c2a655e890cfa0eaf296de92d1f32db76f5dc177cb593b2"
+      "digest": "1a2062cc12c5e0ccc23d10c237c1d292caeb5a5aa156b4ca46feb699ce7e2d4c"
     },
     {
       "path": "packages/backend/internal/services/mythical_github.go",
@@ -185,7 +189,7 @@
     },
     {
       "path": "packages/backend/internal/services/mythical_github_poll.go",
-      "digest": "6c3a9f438a66759e750f079a56165ae8a2aa8d104940a56610a791f70b6c1ce7"
+      "digest": "16990e01b6c32a893f1dc7e30702ba63e42723c65161633d0a9cf04ebb71d6ff"
     },
     {
       "path": "packages/backend/internal/services/mythical_issue_events.go",
@@ -193,7 +197,7 @@
     },
     {
       "path": "packages/backend/internal/services/mythical_items.go",
-      "digest": "a53d7d50b8f8105a4908770ec3e34aa04d484734ac9be9ed6447b7edac9fb487"
+      "digest": "2e3c0b11cd8e29a891cbe51aaddd345726647f1f544bf822bab87f3af9e67025"
     },
     {
       "path": "packages/backend/internal/services/repo_connection_github_app.go",

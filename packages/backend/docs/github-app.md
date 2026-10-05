@@ -139,8 +139,16 @@ read fetches a body again. An intervening cache change during a 304, a failed
 commit or revoked binding cannot validate a different representation. Restart
 forgets ETags and retains pending delivery identities. Shared pull-stream pauses
 are checked before minting and retain their absolute retry deadline. Check and
-review reads, webhook wakeups for individual TODOs and complete freshness
-acceptance remain outstanding.
+review reads and complete freshness acceptance remain outstanding.
+
+Pull webhook hints also wake the existing stack worker for every unsettled TODO
+with a PR, including items beyond the display limit. During a scheduled wait,
+the worker fetches the hinted PR without moving its regular deadline. Repeated
+hints coalesce; a hint arriving during a fetch survives for the next pass. Both
+shared budget pauses and failed-read backoff remain in force after another hint.
+The worker rechecks the effective repository destination before fetching. Missing
+provider qualification leaves this path disabled. The public Retry hook still
+needs to join these readers and the other required streams.
 
 Conversation comments use the repository-wide `issues/comments` stream every
 45 seconds. The existing pager requests `sort=updated&direction=desc` with

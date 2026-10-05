@@ -378,6 +378,15 @@ func (q *Queries) ListMythicalItemsInStates(ctx context.Context, repositoryID in
 	return scanMythicalItems(rows, err)
 }
 
+// ListMythicalOpenPullItems includes all unsettled items with a pull request,
+// including those beyond the display limit. The existing follow loop owns them.
+func (q *Queries) ListMythicalOpenPullItems(ctx context.Context, repositoryID int64) ([]MythicalItem, error) {
+	rows, err := q.db.Query(ctx, `SELECT `+mythicalItemColumns+` FROM mythical_items
+ WHERE repository_id = $1 AND pr_number > 0
+ AND state NOT IN ('skipped', 'declined', 'cancelled', 'landed', 'rejected', 'blocked')`, repositoryID)
+	return scanMythicalItems(rows, err)
+}
+
 // ListMythicalPendingOperations includes dropped and old items beyond the
 // display limit, so restart cannot lose an outbound reconciliation obligation.
 func (q *Queries) ListMythicalPendingOperations(ctx context.Context, repositoryID int64) ([]MythicalItem, error) {

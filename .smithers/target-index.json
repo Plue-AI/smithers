@@ -24146,6 +24146,10 @@
       },
       {
         "kind": "file",
+        "path": "packages/backend/internal/db/mythical_ext.go"
+      },
+      {
+        "kind": "file",
         "path": "packages/backend/internal/services/mythical_items.go"
       },
       {

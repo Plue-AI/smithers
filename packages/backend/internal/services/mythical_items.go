@@ -1060,6 +1060,18 @@ func (s *MythicalService) advanceItems(ctx context.Context, r *mythicalRun) {
 		s.logger.Warn("mythical.items_failed", "repository_id", r.row.RepositoryID, "error", err)
 		return
 	}
+	if s.installGitHubPolling {
+		pulls, err := q.ListMythicalOpenPullItems(ctx, r.row.RepositoryID)
+		if err != nil {
+			s.logger.Warn("mythical.pulls_failed", "repository_id", r.row.RepositoryID, "error", err)
+			return
+		}
+		for _, pull := range pulls {
+			if !slices.ContainsFunc(items, func(item db.MythicalItem) bool { return item.ID == pull.ID }) {
+				items = append(items, pull)
+			}
+		}
+	}
 	pending, err := q.ListMythicalPendingOperations(ctx, r.row.RepositoryID)
 	if err != nil {
 		s.logger.Warn("mythical.outbound_list_failed", "repository_id", r.row.RepositoryID, "error", err)
@@ -1143,6 +1155,12 @@ func (s *MythicalService) advanceItems(ctx context.Context, r *mythicalRun) {
 			}
 		}
 		if item.NextAttemptAt.Valid && item.NextAttemptAt.Time.After(step.now) {
+			if retryAt, err := s.fetchInstallPullHint(ctx, item); !retryAt.IsZero() {
+				r.dueAt(retryAt)
+				if err != nil {
+					s.logger.Warn("mythical.pull_hint_failed", "item", uuidString(item.ID), "error", err)
+				}
+			}
 			r.dueAt(item.NextAttemptAt.Time)
 			continue
 		}

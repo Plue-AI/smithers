@@ -254,3 +254,163 @@ func TestGitHubIndividualPullResourceBoundary(t *testing.T) {
 		require.False(t, gitHubIndividualPullResource(resource), resource)
 	}
 }
+
+// Real database bindings and scheduling; the recording transport makes the
+// independent provider log observable without running any product consumer.
+func TestGitHubPullHintsWakeExistingStackAndKeepCadence(t *testing.T) {
+	s, pool, row := newFetchedFixture(t)
+	q := db.New(pool)
+	ctx := t.Context()
+	user, err := q.CreateUser(ctx, db.CreateUserParams{Username: "hint-owner", LowerUsername: "hint-owner"})
+	require.NoError(t, err)
+	repo, err := q.CreateRepo(ctx, db.CreateRepoParams{UserID: pgtype.Int8{Int64: user.ID, Valid: true}, Name: "hint-app", LowerName: "hint-app", DefaultBookmark: "main"})
+	require.NoError(t, err)
+	_, err = pool.Exec(ctx, `UPDATE repositories SET mirror_destination='factory/app' WHERE id=$1`, repo.ID)
+	require.NoError(t, err)
+	_, err = q.RequestMythicalBootstrap(ctx, repo.ID, user.ID, 1, false)
+	require.NoError(t, err)
+	item, _, err := q.InsertMythicalItem(ctx, db.MythicalItem{RepositoryID: repo.ID, State: "proposed"})
+	require.NoError(t, err)
+	item.PRNumber = pgtype.Int8{Int64: 7, Valid: true}
+	item.PRHead = "original"
+	item.NextAttemptAt = pgtype.Timestamptz{Time: time.Now().UTC().Add(45 * time.Second).Truncate(time.Microsecond), Valid: true}
+	item, err = q.SaveMythicalItem(ctx, item)
+	require.NoError(t, err)
+	// Put the PR beyond the first thousand visible items. Polling must still
+	// reach it, and the extra queued items must keep their scheduling waits.
+	_, err = pool.Exec(ctx, `INSERT INTO mythical_items(repository_id,state,next_attempt_at)
+	 SELECT $1,'queued',$2 FROM generate_series(1,1001)`, repo.ID, item.NextAttemptAt.Time)
+	require.NoError(t, err)
+	_, err = pool.Exec(ctx, `UPDATE mythical_items SET stack_position=2000 WHERE id=$1`, item.ID)
+	require.NoError(t, err)
+	item, err = q.GetMythicalItem(ctx, item.ID)
+	require.NoError(t, err)
+	stack := NewMythicalService(pool, nil)
+	stack.UseInstallGitHubPolling(s)
+	now := item.NextAttemptAt.Time.Add(-35 * time.Second)
+	stack.now = func() time.Time { return now }
+	s.now = stack.now
+	s.budget = NewGitHubResponseBudgetTracker()
+	s.budget.now = stack.now
+	var calls []string
+	during := func() {}
+	failure := false
+	s.SetConditionalFetcherFactory(func(db.GithubSyncedRepo) GitHubSyncedRepoConditionalFetcher {
+		return func(ctx context.Context, resource string, _ url.Values, etag string) (GitHubSyncedRepoConditionalPage, error) {
+			calls = append(calls, resource)
+			during()
+			if failure {
+				return GitHubSyncedRepoConditionalPage{}, errors.New("temporary network failure")
+			}
+			return GitHubSyncedRepoConditionalPage{Body: json.RawMessage(fetchedPullDetail), ETag: `"hint"`}, nil
+		}
+	})
+	hint := func() {
+		require.NoError(t, s.ApplyIssueEvent(ctx, "factory", "app", row.GithubRepositoryID.Int64, "pulls", "synchronize", json.RawMessage(`{"number":7,"head":{"sha":"untrusted"}}`)))
+	}
+	// Missing qualification cannot request a stack pass or read the provider.
+	before, err := q.GetMythicalStack(ctx, repo.ID)
+	require.NoError(t, err)
+	hint()
+	require.Empty(t, stack.installPullHints.pending)
+	after, err := q.GetMythicalStack(ctx, repo.ID)
+	require.NoError(t, err)
+	require.Equal(t, before.RequestedGeneration, after.RequestedGeneration)
+	allowFetched(s)
+	hint()
+	hint()
+	require.Len(t, stack.installPullHints.pending, 1)
+	select {
+	case <-stack.installPullHints.wake:
+	default:
+		t.Fatal("existing worker was not woken")
+	}
+	after, err = q.GetMythicalStack(ctx, repo.ID)
+	require.NoError(t, err)
+	require.Greater(t, after.RequestedGeneration, before.RequestedGeneration)
+	require.False(t, after.NextAttemptAt.Time.After(time.Now()))
+	run := &mythicalRun{row: after}
+	stack.advanceItems(ctx, run)
+	require.Equal(t, item.NextAttemptAt.Time, run.due, "the normal poll is still due at its original time")
+	require.Equal(t, []string{"pulls/7"}, calls)
+	retry, err := stack.fetchInstallPullHint(ctx, item)
+	require.NoError(t, err)
+	require.True(t, retry.IsZero())
+	require.Len(t, calls, 1, "duplicates coalesce")
+	unchanged, err := q.GetMythicalItem(ctx, item.ID)
+	require.NoError(t, err)
+	require.Equal(t, item, unchanged, "an early read changes neither product state nor the regular deadline")
+	require.Equal(t, 1, fetchedCount(t, pool, `SELECT count(*) FROM product_job_requests WHERE state<>'completed'`))
+	// A newer delivery arriving during the read survives its completion.
+	hint()
+	during = func() { during = func() {}; hint() }
+	_, err = stack.fetchInstallPullHint(ctx, item)
+	require.NoError(t, err)
+	require.Len(t, stack.installPullHints.pending, 1)
+	_, err = stack.fetchInstallPullHint(ctx, item)
+	require.NoError(t, err)
+	require.Empty(t, stack.installPullHints.pending)
+	// Transient failures keep the hint and its backoff, including repeated input.
+	failure = true
+	hint()
+	retry, err = stack.fetchInstallPullHint(ctx, item)
+	require.ErrorContains(t, err, "temporary network failure")
+	require.True(t, retry.After(now))
+	count := len(calls)
+	hint()
+	again, err := stack.fetchInstallPullHint(ctx, item)
+	require.NoError(t, err)
+	require.Equal(t, retry, again)
+	require.Len(t, calls, count)
+	failure = false
+	now = retry
+	_, err = stack.fetchInstallPullHint(ctx, item)
+	require.NoError(t, err)
+	require.Len(t, calls, count+1)
+
+	// Both a stream pause and exhausted resource budget stop reads before minting.
+	for _, code := range []int{403, 429, 200} {
+		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			if code == 200 {
+				w.Header().Set("X-RateLimit-Resource", "core")
+				w.Header().Set("X-RateLimit-Limit", "100")
+				w.Header().Set("X-RateLimit-Remaining", "0")
+				w.Header().Set("X-RateLimit-Reset", strconv.FormatInt(now.Add(90*time.Second).Unix(), 10))
+			} else {
+				w.Header().Set("Retry-After", "90")
+			}
+			w.WriteHeader(code)
+		}))
+		client := s.budget.WrapClient(server.Client())
+		s.budget.registerToken("hint-token", row.InstallationID.Int64, now.Add(time.Hour))
+		request, err := http.NewRequestWithContext(ctx, "GET", server.URL+"/repos/factory/app/pulls/7", nil)
+		require.NoError(t, err)
+		request.Header.Set("Authorization", "Bearer hint-token")
+		response, err := client.Do(request)
+		require.NoError(t, err)
+		response.Body.Close()
+		server.Close()
+		count = len(calls)
+		for range 3 {
+			hint()
+			retry, err = stack.fetchInstallPullHint(ctx, item)
+			require.NoError(t, err)
+			require.WithinDuration(t, now.Add(90*time.Second), retry, time.Second)
+		}
+		require.Len(t, calls, count, "paused hints must not reach the fetcher")
+		now = retry
+		_, err = stack.fetchInstallPullHint(ctx, item)
+		require.NoError(t, err)
+		require.Len(t, calls, count+1)
+	}
+	// A destination change after admission cannot fetch the previous binding.
+	hint()
+	_, err = pool.Exec(ctx, `UPDATE repositories SET mirror_destination='other/repo' WHERE id=$1`, repo.ID)
+	require.NoError(t, err)
+	count = len(calls)
+	_, err = stack.fetchInstallPullHint(ctx, item)
+	require.NoError(t, err)
+	require.Len(t, calls, count)
+	hint()
+	require.Empty(t, stack.installPullHints.pending)
+}

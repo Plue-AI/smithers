@@ -74,6 +74,7 @@ type MythicalService struct {
 	github               mythicalGitHub
 	installGitHubPolling bool
 	installGitHubSync    *GitHubSyncedRepoService
+	installPullHints     *mythicalPullHints
 	launcher             mythicalLauncher
 	lanes                mythicalLanes
 	wikiStore            mythicalWikiStore
@@ -194,6 +195,10 @@ func (s *MythicalService) Start(ctx context.Context) {
 	if sweepEvery <= 0 {
 		sweepEvery = mythicalSweepInterval
 	}
+	var pullWake <-chan struct{}
+	if s.installPullHints != nil {
+		pullWake = s.installPullHints.wake
+	}
 	lastSweep := time.Time{}
 	for {
 		if s.now().Sub(lastSweep) >= sweepEvery {
@@ -208,6 +213,7 @@ func (s *MythicalService) Start(ctx context.Context) {
 		select {
 		case <-ctx.Done():
 			return
+		case <-pullWake:
 		case <-time.After(mythicalPollInterval):
 		}
 	}
