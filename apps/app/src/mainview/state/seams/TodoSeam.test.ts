@@ -437,3 +437,43 @@ test("a malformed topic publication leaves the REST refresh running; only a publ
     expect(h.todo().payload.model?.state).toBe("merged")
   } finally { h.close() }
 })
+
+test("Review & merge opens the person's private Confirm card only for a served TODO in review", async () => {
+  const served: Record<string, unknown> = {
+    "/api/todos/12": fixtures.in_review.model, "/api/todos/13": { ...fixtures.queued.model, n: 13 }, "/api/todos/14": { ...fixtures.merged.model, n: 14 }
+  }
+  const h = await harness(async url => {
+    const body = served[new URL(url).pathname]
+    return body === undefined ? json({ code: "todo_not_found", class: "user", message: "TODO not found" }, 404) : json(body, 200)
+  }, memoryStorage(), undefined, false)
+  try {
+    expect(await h.seam.reviewMerge(12)).toEqual({ value: "Opened Merge T12 into main?" })
+    expect(h.store.collections.cards.get("confirm:merge:todo:12")).toMatchObject({ kind: "confirm", title: "Merge T12 into main?", audience_member_id: "ben", payload: { id: "merge:todo:12" } })
+    expect(h.todo().payload.model?.pr?.head).toBe(fixtures.in_review.model.pr!.head)
+    const ordinal = h.store.collections.cards.get("confirm:merge:todo:12")!.ordinal
+    expect(await h.seam.reviewMerge(12)).toEqual({ value: "Opened Merge T12 into main?" })
+    expect(h.store.collections.cards.get("confirm:merge:todo:12")!.ordinal).toBe(ordinal)
+    expect(await h.seam.reviewMerge(13)).toBe("Not in review yet")
+    expect(await h.seam.reviewMerge(14)).toBe("T14 already merged")
+    expect(await h.seam.reviewMerge(15)).toBe("Could not open the TODO.")
+    expect([...h.store.collections.cards.keys()].filter(id => id.startsWith("confirm:"))).toEqual(["confirm:merge:todo:12"])
+  } finally { h.close() }
+})
+
+test("the install's queued TODO projection, as GET /api/todos/{n} serves it, renders without the seed", async () => {
+  // Verbatim GET /api/todos/1 body from the J1 rehearsal on main e6492f924a (C-J1-04 evidence http.log, 2026-10-05):
+  // a TODO filed through POST /api/todos before admission, with no branch, run, PR or steps.
+  const avatar = "data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHdpZHRoPSI0OCIgaGVpZ2h0PSI0OCIgdmlld0JveD0iMCAwIDQ4IDQ4Ij48cmVjdCB3aWR0aD0iNDgiIGhlaWdodD0iNDgiIHJ4PSIyNCIgZmlsbD0iI2RkZCIvPjxjaXJjbGUgY3g9IjI0IiBjeT0iMTgiIHI9IjgiIGZpbGw9IiM4ODgiLz48cGF0aCBkPSJNOCA0NGExNiAxNiAwIDAgMSAzMiAwIiBmaWxsPSIjODg4Ii8+PC9zdmc+"
+  const body = { evidence: [], merge: { on_github: false, reason: "state", state: "waiting" }, n: 1,
+    owner: { avatar_url: avatar, login: "rehearsal-owner", name: "Rehearsal owner" }, place: 1, present: [],
+    prompt_revisions: [{ at: "2026-10-05T06:16:42.354898Z", by: { kind: "person", name: "Rehearsal owner", login: "rehearsal-owner", avatar_url: avatar, color_index: 0 },
+      text: "Add a greeting to JOURNEY.md", acceptance: [] }],
+    state: "queued", steers: [], steps: [], title: "First TODO", waits: [] }
+  const h = await harness(async () => json(body, 200), memoryStorage(), undefined, false)
+  try {
+    expect(await h.seam.showTodo(1)).toBeDefined()
+    const card = h.store.collections.cards.get("todo:1") as TodoEntry
+    expect(card.payload.model).toMatchObject({ n: 1, state: "queued", title: "First TODO", place: 1, prompt_revisions: [{ text: "Add a greeting to JOURNEY.md" }] })
+    expect(await h.seam.reviewMerge(1)).toBe("Not in review yet")
+  } finally { h.close() }
+})

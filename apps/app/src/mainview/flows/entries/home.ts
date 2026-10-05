@@ -68,7 +68,7 @@ export const homeFlows = (actions: CommandActions): ReadonlyArray<FlowEntry> => 
     handler: ({ n, reviewed_head_sha }) => {
       /* The TODO seam picks the seed or this host's /api/todos/{n}/merge. */
       if (reviewed_head_sha !== undefined) return actions.mergeTodo(n, reviewed_head_sha)
-      /* No Review & merge source serves a provider's TODO yet (T-APP-04): there a bare Merge opens the TODO, whose Merge carries the reviewed head. */
+      /* A bare Merge opens the person's Review & merge: the seed's, or this host's TODO read from /api/todos/{n}. */
       return actions.todoRoute(n, ["merge"], async () => {
         const design = actions.design
         const viewer = design.viewer()
@@ -80,7 +80,7 @@ export const homeFlows = (actions: CommandActions): ReadonlyArray<FlowEntry> => 
         if (readiness.state === "done") return `${todo.ref} already merged`
         if (readiness.state !== "ready") return readiness.reason
         return { value: await actions.presentSubject(mergeCard(todo, viewer)) }
-      }, () => actions.showTodo(n))
+      }, () => actions.reviewTodoMerge(n))
     } }),
   flow({ name: "background.retry", summary: "Retry a background run", args: "<id>", hidden: true, grammar: idGrammar,
     input: Schema.Struct({ id: Id }),

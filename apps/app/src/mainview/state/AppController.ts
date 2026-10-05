@@ -470,6 +470,8 @@ export interface AppController extends IssueFlowsController {
   readonly retryStackItem: StackSeam["retryStackItem"]
   readonly newTodo: TodoSeam["newTodo"]
   readonly mergeTodo: TodoSeam["mergeTodo"]
+  /** Review & merge for this host's TODO Tn: the person's private Confirm card bound to the PR head (T-APP-04). */
+  readonly reviewTodoMerge: TodoSeam["reviewMerge"]
   /** MOCK SEAM: run a Tn flow on the seed or on this host's /api/todos, never waiting for the answer (DesignWorld/todo.ts). */
   readonly todoRoute: TodoRoute
   readonly showTodo: TodoSeam["showTodo"]
@@ -1305,7 +1307,9 @@ export const createAppController = (
       return
     }
     if (confirmSubject(confirmation)?.kind === "merge") {
-      await store.dispatch({ type: "card.removed", actor: "user", id: `${DESIGN_CARD}confirm:${confirmation}` }).isPersisted.promise
+      /* The seed's Review & merge, or this host's (`merge:todo:<n>`, TodoSeam.reviewMerge). */
+      const id = store.collections.cards.has(`confirm:${confirmation}`) ? `confirm:${confirmation}` : `${DESIGN_CARD}confirm:${confirmation}`
+      await store.dispatch({ type: "card.removed", actor: "user", id }).isPersisted.promise
       return
     }
     const message = store.collections.messages.get(confirmation)
@@ -1737,6 +1741,7 @@ export const createAppController = (
     newTodo: todoSeam.newTodo,
     showTodo: todoSeam.showTodo,
     mergeTodo: todoSeam.mergeTodo,
+    reviewTodoMerge: todoSeam.reviewMerge,
     todoRoute: todoSeam.todoRoute,
     dismissTodoDraft: todoSeam.dismissTodoDraft,
     answerTodo: todoSeam.answerTodo,

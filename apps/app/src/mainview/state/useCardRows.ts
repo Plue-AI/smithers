@@ -43,6 +43,15 @@ export const useTriggerListRows = (cards: AppCollections["cards"]): ReadonlyArra
   return data as ReadonlyArray<Extract<Card, { kind: "trigger-list" }>>
 }
 
+/** One TODO's card row, filtered at the collection: Review & merge reads the TODO it is bound to. */
+export const useTodoCardRow = (cards: AppCollections["cards"], n: number): Extract<Card, { kind: "todo" }> | undefined => {
+  const { data } = useLiveQuery(q => q.from({ card: cards as unknown as Collection<Card, string, Record<string, never>> })
+    .where(({ card }) => eq(card.id, `todo:${n}`)), [cards, n])
+  // The collection owns CardSchema; the id predicate above names one row.
+  const row = (data as ReadonlyArray<Card>)[0]
+  return row?.kind === "todo" ? row : undefined
+}
+
 /**
  * The files this conversation has read, filtered at the collection.
  *

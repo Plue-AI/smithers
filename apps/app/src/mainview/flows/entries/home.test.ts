@@ -6,10 +6,11 @@
 import { expect, test } from "bun:test"
 import { createAppController } from "../../state/AppController"
 import { createAppStore } from "../../state/AppStore"
-import { memoryStorage, signupProfileFetch, unavailableAgent } from "../../state/TestFixtures"
+import { memoryStorage, signupProfileFetch, unavailableAgent, waitFor } from "../../state/TestFixtures"
 import { shellViewsOf } from "../../state/seams/DesignWorld/shell"
 import { modelInvocable, nameOf } from "../registry"
 import type { AppBootstrap } from "@smthrs/rpc/AppBootstrap"
+import { fixtures } from "../../../../../../packages/rpc/test/fixtures/Todo"
 
 const boot = async (options: { readonly bootstrap?: AppBootstrap; readonly fetch?: (url: string, init?: RequestInit) => Response | undefined } = {}) => {
   const store = await createAppStore({ kind: "localStorage", storage: memoryStorage() })
@@ -152,5 +153,29 @@ test("/stack returns the member to main, where the Home card stands first", asyn
     expect(at()).toBe("b-retry")
     expect(await slash(h, "stack")).toEqual({ status: "executed", value: "Opened the stack" })
     expect(at()).toBe("main")
+  } finally { h.controller.dispose() }
+})
+
+test("on an install, a bare Merge opens the person's Review & merge for the served TODO, and its Merge posts the reviewed head", async () => {
+  const bootstrap: AppBootstrap = { apiVersion: 1, host: "local", version: "test", buildSha: "test", capabilities: ["install"], authFlow: "redirect", sandbox: null }
+  const model = fixtures.in_review.model, head = model.pr!.head
+  const posts: unknown[] = []
+  const h = await boot({ bootstrap, fetch: (url, init) => {
+    const path = new URL(url, "http://local.test").pathname
+    if (path === "/api/todos/12" && init?.method === undefined) return Response.json(model)
+    if (path === "/api/todos/13" && init?.method === undefined) return Response.json({ ...fixtures.queued.model, n: 13 })
+    if (path === "/api/todos/12/merge" && init?.method === "POST") { posts.push(JSON.parse(String(init.body))); return Response.json({ state: "accepted" }, { status: 202 }) }
+    return undefined
+  } })
+  try {
+    expect(await slash(h, "merge", "T13")).toMatchObject({ status: "failed", error: expect.stringContaining("Not in review yet") })
+    expect(await h.controller.commands.runForAgent("merge", "T12")).toEqual({ status: "executed", value: "Opened Merge T12 into main?" })
+    expect(h.store.collections.cards.get("confirm:merge:todo:12")).toMatchObject({ kind: "confirm", audience_member_id: "maya", payload: { id: "merge:todo:12" } })
+    expect(posts).toEqual([])
+    expect(await button(h, "merge", { n: 12, reviewed_head_sha: head })).toEqual({ status: "executed", value: "Requested" })
+    await waitFor(() => posts.length === 1)
+    expect(posts).toEqual([{ reviewed_head_sha: head }])
+    expect((await button(h, "confirm.cancel", { confirmation: "merge:todo:12", revision: head })).status).toBe("executed")
+    expect(h.store.collections.cards.get("confirm:merge:todo:12")).toBeUndefined()
   } finally { h.controller.dispose() }
 })

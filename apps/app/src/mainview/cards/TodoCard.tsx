@@ -3,6 +3,8 @@ import { MembersCardSchema } from "@smthrs/rpc/MembersCard"
 import { useTopic } from "../state/useTopic"
 import { useLiveQuery } from "@tanstack/react-db"
 import { TodoCardSchema, type TodoCard } from "@smthrs/rpc/TodoCard"
+import type { ConfirmCard } from "@smthrs/rpc/ConfirmCard"
+import type { PersonRef } from "@smthrs/rpc/CardPrimitives"
 import type { CardProps } from "@smthrs/rpc/CardAction"
 import { cardActions, type CardActionDefinition, type CardCommandDispatch } from "../flows/cardActions"
 import type { TodoEntry } from "../state/seams/TodoSeam"
@@ -80,7 +82,41 @@ export const todoActionDefinitions = (model: TodoCard, role: TodoContainerProps[
   }
   return definitions
 }
-export const TodoContainer = ({ card, role, dispatch, View, view, onView }: TodoContainerProps) => {
+/**
+ * Review & merge (T-APP-04 `review_merge`) for a TODO this host serves: the TODO card's own Merge control, so one
+ * merge rule gates both cards and the press sends the PR head the person reviews. Merged, the card is its receipt.
+ */
+export const reviewMergeOf = (model: TodoCard, role: TodoContainerProps["role"], viewer: PersonRef):
+  { readonly model: ConfirmCard; readonly actions: CardActionDefinition[] } | undefined => {
+  if (!model.pr) return undefined
+  const { head, number, url } = model.pr
+  const merged = model.state === "merged"
+  const confirm: ConfirmCard = {
+    kind: "review_merge", action: { tag: "merge", verb: "Merge" }, summary: `Merge T${model.n}`,
+    subject: { kind: "todo", ref: `T${model.n}`, revision: head },
+    asked_by: { kind: "person", ...viewer, color_index: ([...viewer.login].reduce((sum, char) => sum + char.charCodeAt(0), 0) % 6) as 0 | 1 | 2 | 3 | 4 | 5 },
+    review: { title: model.title, place: model.place ?? 1, pr: { number, url },
+      evidence: model.evidence.at(-1) ?? { attempt: model.run?.attempt ?? 1, revision: head, items: [] }, merge: model.merge },
+    ...(merged ? { receipt: { by: viewer, result: "done" as const, at: "", text: `Merged T${model.n}` } } : {})
+  }
+  if (merged) return { model: confirm, actions: [] }
+  const merge = todoActionDefinitions(model, role).find(definition => definition.tag === "merge")
+  return { model: confirm, actions: [
+    { tag: "confirm.cancel", label: "Cancel", command_input: { confirmation: `merge:todo:${model.n}`, revision: head } },
+    ...(merge ? [merge] : [])
+  ] }
+}
+/** The viewer's role on this host's TODOs: the members roster, else the install owner's own session. */
+export const useTodoRole = (): TodoContainerProps["role"] => {
+  const controller = useController()
+  const identity = useLiveQuery(controller.store.collections.identitySessions).data[0]
+  const members = useTopic(controller.bootstrap ? "members" : undefined)
+  const roster = MembersCardSchema.safeParse(members?.data)
+  const install = useSyncExternalStore(controller.installSnapshots.subscribe, controller.installSnapshots.get, controller.installSnapshots.get)
+  const role = roster.success ? roster.data.members.find(member => member.login === identity?.login)?.role : undefined
+  return role ?? (install.model?.github.signed_in && install.model.github.owner === identity?.login ? "owner" : "member")
+}
+export const TodoContainer =({ card, role, dispatch, View, view, onView }: TodoContainerProps) => {
   if (!card.payload.model) return null
   const model = TodoCardSchema.parse(card.payload.model)
   const lateWait = [...card.payload.requests].reverse().find(request => request.operation === "answer" && request.state === "failed")?.body.wait
@@ -95,11 +131,7 @@ const TodoBody = ({ card, maximized }: { readonly card: CardOf<"todo">; readonly
   const controller = useController()
   const seed = useDesignTodoCard(card.payload.n)
   const seeded = card.payload.model || card.payload.requests.length > 0 ? undefined : seed
-  const identity = useLiveQuery(controller.store.collections.identitySessions).data[0]
-  const members = useTopic(controller.bootstrap ? "members" : undefined)
-  const roster = MembersCardSchema.safeParse(members?.data)
-  const install = useSyncExternalStore(controller.installSnapshots.subscribe, controller.installSnapshots.get, controller.installSnapshots.get)
-  const role = roster.success ? roster.data.members.find(member => member.login === identity?.login)?.role : undefined
+  const role = useTodoRole()
   const dispatch: CardCommandDispatch = (tag, input) => {
     const payload = (input ?? {}) as Record<string, unknown>
     if ((tag === "todo.steer" || tag === "todo.amend") && !payload.text) {
@@ -109,7 +141,7 @@ const TodoBody = ({ card, maximized }: { readonly card: CardOf<"todo">; readonly
     return controller.commands.submit({ name: tag, payload, actor: "user", originCardId: card.id })
   }
   const entry: TodoEntry = seeded === undefined ? card : { ...card, payload: { ...card.payload, model: seeded.model } }
-  return <TodoContainer card={entry} role={seeded?.role ?? (role ?? (install.model?.github.signed_in && install.model.github.owner === identity?.login ? "owner" : "member"))} dispatch={dispatch} View={TodoView}
+  return <TodoContainer card={entry} role={seeded?.role ?? role} dispatch={dispatch} View={TodoView}
     view={{ maximized }} onView={() => {}} />
 }
 export const todoCardFamily: CardFamily<"todo"> = {

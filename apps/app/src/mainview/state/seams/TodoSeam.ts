@@ -242,6 +242,18 @@ export const createTodoSeam = (ctx: SeamContext, options: TodoSeamOptions = {}) 
       return readResult(JSON.stringify(model))
     } catch (error) { return unreachableSentence("TODOs", error) }
   }
+  /** Review & merge (T-APP-04): the person's private Confirm card for Tn in review, read live from the TODO card. */
+  const reviewMerge = async (n: number) => {
+    const shown = await showTodo(n)
+    const model = entry(n)?.payload.model
+    if (model === undefined) return typeof shown === "string" ? shown : `No TODO T${n}`
+    if (model.state === "merged") return `T${n} already merged`
+    if (model.state !== "in_review" || !model.pr) return "Not in review yet"
+    const id = `confirm:merge:todo:${n}`, existing = ctx.store.collections.cards.get(id), title = `Merge T${n} into main?`
+    await write({ id, kind: "confirm", audience_member_id: owner()!, title, status: "active", createdAt: existing?.createdAt ?? Date.now(),
+      ordinal: existing?.ordinal ?? ctx.nextOrdinal(), payload: { id: `merge:todo:${n}` } })
+    return { value: `Opened ${title}` }
+  }
   const loadDraftPlaces = (id: string) => {
     const login = owner(), revision = identity()?.ownerRevision ?? identity()?.revision
     void (async () => {
@@ -362,7 +374,7 @@ export const createTodoSeam = (ctx: SeamContext, options: TodoSeamOptions = {}) 
   }
   const subscription = ctx.store.collections.identitySessions.subscribeChanges(() => queueMicrotask(resumeTodos))
   options.onDispose?.(() => { subscription.unsubscribe(); stop() })
-  return { mergeTodo: (n: number, head: string) => request(n, "merge", { reviewed_head_sha: head }), showTodo, newTodo, amendTodo, setTodoFormField, dismissTodoDraft, resumeTodos, applyTodoProjection: applyProjection,
+  return { mergeTodo: (n: number, head: string) => request(n, "merge", { reviewed_head_sha: head }), reviewMerge, showTodo, newTodo, amendTodo, setTodoFormField, dismissTodoDraft, resumeTodos, applyTodoProjection: applyProjection,
     answerTodo: (n: number, answer: string, wait?: string) => {
       const waits = entry(n)?.payload.model?.waits.filter(row => row.actions.some(action => action.tag === "todo.answer")) ?? []
       const id = wait ?? (waits.length === 1 ? waits[0]!.id : undefined)
