@@ -74,14 +74,8 @@ describe("contributions", () => {
       .toThrow()
   })
 
-  test("factory Retry is an explicit issue action with a positive safe integer", () => {
-    const decode = Schema.decodeUnknownSync(Extension.Action)
-    for (const issue of [1, 3065, Number.MAX_SAFE_INTEGER]) {
-      expect(decode({ kind: "factory-retry", issue })).toEqual({ kind: "factory-retry", issue })
-    }
-    for (const issue of [0, -1, 1.5, Number.MAX_SAFE_INTEGER + 1, Infinity, NaN, "3065"]) {
-      expect(() => decode({ kind: "factory-retry", issue })).toThrow()
-    }
+  test("a panel action never retries a factory issue: that route is gone", () => {
+    expect(() => Schema.decodeUnknownSync(Extension.Action)({ kind: "factory-retry", issue: 3065 })).toThrow()
   })
 })
 

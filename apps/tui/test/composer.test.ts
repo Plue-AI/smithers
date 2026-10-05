@@ -46,12 +46,7 @@ describe("unknown commands", () => {
   it("knows the listed commands and the unlisted wrapped workers and alias, and nothing removed", () => {
     for (const command of Editor.commands) expect(Editor.known(command.name)).toBe(true)
     for (const name of ["claude", "codex", "exit"]) expect(Editor.known(name)).toBe(true)
-    for (const name of ["hotkeys", "tabs", "stop", "ui", "flwo", ""]) expect(Editor.known(name)).toBe(false)
-    expect(Editor.commands.find((command) => command.name === "retry")).toEqual({
-      name: "retry",
-      args: "#<issue>",
-      description: "Retry a factory issue"
-    })
+    for (const name of ["hotkeys", "tabs", "stop", "ui", "flwo", "retry", ""]) expect(Editor.known(name)).toBe(false)
   })
 
   it("no longer lists the removed commands", () => {

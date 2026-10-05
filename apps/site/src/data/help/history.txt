@@ -5,7 +5,6 @@ Usage: smthrs history <command>
 Commands:
   bootstrap  Create the history from main's commits
   parallel   Set how many lanes work at once
-  retry      Give a blocked, rejected or declined issue a fresh set of attempts
   show       Show the history: each issue's lane, checks and pull request
   todo       File a TODO for the factory
   watch      Follow one issue until its pull request is open or it stops

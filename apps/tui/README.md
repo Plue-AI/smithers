@@ -193,7 +193,7 @@ jump to its start/end.
 
 `/model [query]`, `/new`, `/resume`, `/conversation`, `/compact`,
 `/name <name>`, `/copy`, `/summary`, `/chat`, `/filter`,
-`/grep [text]`, `/smithers`, `/retry #<issue>`, `/flows`, `/flow <name> [json|key=value|prompt]`,
+`/grep [text]`, `/smithers`, `/flows`, `/flow <name> [json|key=value|prompt]`,
 `/quit`, `/exit`. After `/model` and `/flow`
 the menu completes the argument, and the `/` menu lists the directory's flows.
 An unknown command keeps its line in the composer and names the nearest
@@ -522,7 +522,6 @@ and Done, headed by the app's History card numbers: landed of decided, reverts
 and the median issue→landed time, then the apps the directory's
 `.smithers/home.json` declares. It reads the stack again every 30 s while
 shown.
-On a retryable issue row, **a** Retry requests another attempt; `/retry #<issue>` does the same.
 `/todo <title>` files a TODO for the factory (`POST …/mythical/todos`) and answers at once;
 the status line settles when Cloud answers. An unanswered filing keeps its request id, so
 the same `/todo` again returns the TODO already filed instead of filing twice.

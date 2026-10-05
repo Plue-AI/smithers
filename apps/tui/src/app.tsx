@@ -564,7 +564,6 @@ export function App(props: AppProps) {
   // `/todo` files through the session it resolves; the filer keeps a request id per unanswered TODO.
   const todoCloud = useRef<CloudSession.Cloud | undefined>(undefined)
   const todoFiler = useRef(Factory.filer((path, body, signal) => todoCloud.current!.post(path, body, signal)))
-  const factoryRetries = useRef(new Set<string>())
   const smithersShown = surface === `ui:${Smithers.id}`
   useEffect(() => {
     if (!smithersShown) return
@@ -1584,46 +1583,6 @@ export function App(props: AppProps) {
         })()
         return true
       }
-      case "retry": {
-        // Factory rows name issues; worker and flow controls stay in Ctrl+K.
-        const key = `${factoryRepo}:${Factory.issueOf(argument)}`
-        if (factoryRetries.current.has(key)) {
-          setStatus(`Retry #${Factory.issueOf(argument)} requested`)
-          return true
-        }
-        const requestedWriter = writer.current
-        const record = (line: Factory.Line, required = false) => {
-          const at = Date.now()
-          const note: Session.Record = { type: "note", at, text: line.text }
-          if (required) durableWriter.current.append(note)
-          else requestedWriter.append(note)
-          setTranscript((current) => Transcript.note(current, line.text, at))
-          setStatus(line.text, line.tone)
-        }
-        const request = Factory.retryCommand(
-          argument,
-          factoryRepo,
-          () => CloudSession.signedIn(process.env),
-          (line) => {
-            record(line, true)
-            factoryRetries.current.add(key)
-          },
-          (error) => {
-            Log.write("factory.retry", error)
-            return Failures.line("retry", error)
-          }
-        )
-        if (request.settled === undefined) setStatus(request.now.text, request.now.tone)
-        else {
-          void request.settled.then((line) => {
-            factoryRetries.current.delete(key)
-            // A response belongs to the conversation that persisted its request.
-            if (writer.current.file === requestedWriter.file) record(line)
-            else requestedWriter.append({ type: "note", at: Date.now(), text: line.text })
-          })
-        }
-        return true
-      }
       case "chat":
         setSurface("chat")
         setPanelFocus(false)
@@ -1817,12 +1776,9 @@ export function App(props: AppProps) {
     const target = live.current.workerTab
     const route = Composer.route(text, target !== undefined)
     const verb = route._tag === "command" ? Editor.parseCommand(text)?.name : undefined
-    if (
-      verb !== undefined && (!Editor.known(verb) ||
-        (verb === "retry" && !Editor.parseCommand(text)?.argument.trim().startsWith("#")))
-    ) {
+    if (verb !== undefined && !Editor.known(verb)) {
       // The typo stays in the composer to fix, without the menu over the suggestion.
-      setStatus(verb === "retry" ? "Unknown command /retry" : Editor.unknown(verb), "warning")
+      setStatus(Editor.unknown(verb), "warning")
       return dismissMenu()
     }
     clearFailure()
@@ -1881,9 +1837,6 @@ export function App(props: AppProps) {
         return startRun(action.flow, action.input ?? {})
       case "agent":
         return startAgent(action.agent, action.prompt?.trim() ?? "")
-      case "factory-retry":
-        command(`/retry #${action.issue}`)
-        return
       case "open": {
         const target = action.surface === "smithers" ? `ui:${Smithers.id}` : action.surface
         const card = target.startsWith("ui:") && cardIds.has(target.slice(3))

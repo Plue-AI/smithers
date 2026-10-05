@@ -384,14 +384,6 @@ export const history: Record<string, Handler> = {
       stream.close()
     }
   },
-  "history retry": async (c, a, o) => {
-    const ref = target(a.issue)
-    const item = UUID.test(ref) ? { id: ref } : await one(c, o, ref)
-    if (item === undefined) {
-      throw new Refused({ fault: "user", code: "not_found", message: `${named(ref)} is not in the history` })
-    }
-    return c.request("POST", stackPath(c, o, `/items/${esc(str(item.id))}/retry`), {})
-  },
   "history todo": (c, a, o) => {
     const title = str(a.title).trim()
     if (!title) throw new UsageError({ message: "A TODO needs a title" })
@@ -416,7 +408,6 @@ export const history: Record<string, Handler> = {
 export const humans: Record<string, (value: unknown) => string> = {
   "history show": (value) => render(value),
   "history watch": (value) => itemLine(object(value)),
-  "history retry": (value) => itemLine(object(value)),
   "history todo": (value) => itemLine(object(value)),
   "history bootstrap": (value) => render(value),
   "history parallel": (value) => render(value)

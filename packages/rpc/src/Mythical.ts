@@ -54,8 +54,6 @@ export const MYTHICAL_ROUTES = {
   config: "/api/repos/{owner}/{repo}/mythical/config",
   /** `GET`: one {@link MythicalItemSchema}, named by its id or its issue's number, however many the snapshot lists. */
   item: "/api/repos/{owner}/{repo}/mythical/items/{id}",
-  /** `POST`: retry one blocked or rejected item. */
-  retry: "/api/repos/{owner}/{repo}/mythical/items/{id}/retry",
   /** `POST`: a maintainer asks the stack to merge a proposed TODO's pull request at the head they saw (`{ reviewed_head_sha }`); answers the item. */
   merge: "/api/repos/{owner}/{repo}/mythical/items/{id}/merge",
   /** `POST`: a maintainer files a TODO (`{ title, body }`); answers its queued {@link MythicalItemSchema}. */
@@ -67,7 +65,7 @@ export const MYTHICAL_ROUTES = {
 } as const
 
 /**
- * One route of the family for a concrete repository (and item, for `retry`).
+ * One route of the family for a concrete repository (and item, for `item` and `merge`).
  *
  * @since 1.0.0
  * @category accessors

@@ -5342,43 +5342,6 @@
       }
     },
     {
-      "name": "history retry",
-      "description": "Give a blocked, rejected or declined issue a fresh set of attempts",
-      "schema": {
-        "args": {
-          "type": "object",
-          "properties": {
-            "issue": {
-              "type": "string",
-              "description": "Issue number (12 or #12) or item id"
-            }
-          },
-          "required": [
-            "issue"
-          ],
-          "additionalProperties": false
-        },
-        "options": {
-          "type": "object",
-          "properties": {
-            "repo": {
-              "type": "string",
-              "description": "Repository (OWNER/REPO)"
-            },
-            "verbose": {
-              "default": false,
-              "description": "Show redacted diagnostic details",
-              "type": "boolean"
-            }
-          },
-          "required": [
-            "verbose"
-          ],
-          "additionalProperties": false
-        }
-      }
-    },
-    {
       "name": "history show",
       "description": "Show the history: each issue's lane, checks and pull request",
       "schema": {

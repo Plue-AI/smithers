@@ -1,6 +1,6 @@
 import { describe, expect, test } from "vitest"
 import { type MythicalItem, MYTHICAL_ROUTES, mythicalRoute } from "../src/Mythical.ts"
-import { landable, retryable } from "../src/StackView.ts"
+import { landable } from "../src/StackView.ts"
 
 const head = "c".repeat(40)
 const proposed: MythicalItem = {
@@ -39,8 +39,7 @@ describe("landable", () => {
     }
   })
 
-  test("landing and retrying never offer on the same item", () => {
-    expect(retryable(proposed)).toBe(false)
+  test("a blocked item is never landable", () => {
     expect(landable({ ...proposed, state: "blocked" })).toBe(false)
   })
 

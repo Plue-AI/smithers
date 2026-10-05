@@ -89,7 +89,7 @@ it("uses the outcome word for Working and Done, with the reason in details", () 
   expect(rows.find((row) => row.label.includes("#2401"))?.label).toBe("#2401 Issue 2401 · declined")
   expect(rows.find((row) => row.label.includes("#2401"))?.details).toEqual([{
     kind: "text",
-    text: "Already done.\nhttps://github.com/o/r/issues/2401\n/retry #2401"
+    text: "Already done.\nhttps://github.com/o/r/issues/2401"
   }])
 })
 
@@ -184,7 +184,7 @@ it("shows the machine an issue's lane runs on in details: its kind and image", (
   }])
   expect(rows.find((row) => row.label.includes("#2405"))?.details).toEqual([{
     kind: "text",
-    text: "No machine matches what this repository declares\nhttps://github.com/o/r/issues/2405\n/retry #2405"
+    text: "No machine matches what this repository declares\nhttps://github.com/o/r/issues/2405"
   }])
 })
 
@@ -292,9 +292,6 @@ const signIn = (origin: string) => () =>
     SMITHERS_API_ORIGIN: origin,
     SMITHERS_TOKEN: "tok_retry"
   })
-const stackRoute = "/api/repos/o/r/mythical"
-/** The stack as Cloud serves it. */
-const served = { ...stack, changes: stack.changes.map((change) => ({ ...change, state: "landed" })) }
 
 it("keeps returned TODO refusals and uncertain failures diagnostic, private and retryable over HTTP", async () => {
   const previous = process.env.SMITHERS_TUI_SESSION_DIR
@@ -463,231 +460,18 @@ it("keeps a TODO's request id after an invalid HTTP 200 answer and recovers with
   }
 })
 
-it("keeps thrown retry causes in the redacted log and domain refusals actionable", async () => {
-  const previous = process.env.SMITHERS_TUI_SESSION_DIR
-  const root = mkdtempSync(join(tmpdir(), "tui-retry-diagnostic-"))
-  process.env.SMITHERS_TUI_SESSION_DIR = root
-  try {
-    const error = new Error("private keyring /secrets/operator", {
-      cause: new Error("Authorization: Bearer sk-private-token")
-    })
-    const answer = await Factory.retryCommand("#2431", "o/r", async () => {
-      throw error
-    }).settled
-    expect(answer).toEqual({
-      text: "#2431 not retried: That command could not run. Details: /conversation",
-      tone: "warning"
-    })
-    const saved = readFileSync(Log.path(), "utf8")
-    expect(saved).toContain("private keyring /secrets/operator")
-    expect(saved).toContain("Caused by:")
-    expect(saved).not.toContain("sk-private-token")
-    const origin = await cloudAt(() => ({ status: 200, body: served }))
-    expect(await Factory.retryCommand("#2412", "o/r", signIn(origin)).settled).toEqual({
-      text: "#2412 not retried: #2412 is implementing",
-      tone: "warning"
-    })
-    expect(readFileSync(Log.path(), "utf8")).toBe(saved)
-  } finally {
-    if (previous === undefined) delete process.env.SMITHERS_TUI_SESSION_DIR
-    else process.env.SMITHERS_TUI_SESSION_DIR = previous
-    rmSync(root, { recursive: true, force: true })
-  }
-})
-
-it("retries a blocked TODO as the signed-in person and settles on the item Cloud answers", async () => {
-  const received: Array<Received> = []
-  const origin = await cloudAt(
-    (method, path) =>
-      method === "GET" && path === stackRoute
-        ? { status: 200, body: served }
-        : method === "POST" && path === "/api/repos/o/r/mythical/items/2431/retry"
-        ? { status: 202, body: item("2431", "queued") }
-        : { status: 404, body: {} },
-    received
-  )
-  const command = Factory.retryCommand("#2431", "o/r", signIn(origin))
-  expect(command.now).toEqual({ text: "Retry #2431 requested" })
-  expect(await command.settled).toEqual({ text: "#2431 queued" })
-  expect(received.map(({ method, path, auth }) => [method, path, auth])).toEqual([
-    ["GET", stackRoute, "token tok_retry"],
-    ["POST", "/api/repos/o/r/mythical/items/2431/retry", "token tok_retry"]
-  ])
-  expect(JSON.parse(received[1]!.body)).toEqual({})
-})
-
-it("shows a refused retry as a typed failure, and never posts for an issue that is not retryable", async () => {
-  const received: Array<Received> = []
-  const origin = await cloudAt(
-    (method) => method === "GET" ? { status: 200, body: served } : { status: 409, body: { message: "busy" } },
-    received
-  )
-  const refused = await Factory.retryCommand("2431", "o/r", signIn(origin)).settled
-  expect(refused).toEqual({
-    text: "#2431 not retried: That command could not run. Details: /conversation",
-    tone: "warning"
-  })
-  const cloud = (await signIn(origin)())!
-  expect(await Factory.retry(cloud, "o/r", 2431)).toEqual({
-    ok: false,
-    detail: "That command could not run. Details: /conversation",
-    // Cloud classifies a 409 as infrastructure failure, so certainty cannot
-    // be inferred from its diagnostic text.
-    settled: false
-  })
-  // A running issue and an issue the stack does not hold are refused here, before any POST.
-  expect(await Factory.retryCommand("2412", "o/r", signIn(origin)).settled).toEqual({
-    text: "#2412 not retried: #2412 is implementing",
-    tone: "warning"
-  })
-  expect(await Factory.retryCommand("#9", "o/r", signIn(origin)).settled).toEqual({
-    text: "#9 not retried: #9 is not in the factory",
-    tone: "warning"
-  })
-  expect(received.filter((each) => each.method === "POST")).toHaveLength(2)
-})
-
-it("persists a retry request before authentication or lookup and refuses a failed durable write", async () => {
-  const ordering: string[] = []
-  const request = Factory.retryCommand("#2431", "o/r", async () => {
-    ordering.push("authenticate")
-    return undefined
-  }, (line) => {
-    expect(line).toEqual({ text: "Retry #2431 requested" })
-    ordering.push("persist")
-  })
-  expect(ordering).toEqual(["persist", "authenticate"])
-  expect(await request.settled).toEqual({ text: "Sign in to retry: smthrs auth login", tone: "warning" })
-  const refused = Factory.retryCommand("#2431", "o/r", async () => {
-    ordering.push("must not authenticate")
-    return undefined
-  }, () => {
-    throw new Error("disk full")
-  })
-  expect(refused.settled).toBeUndefined()
-  expect(refused.now).toEqual({
-    text: "Retry #2431 not requested: That command could not run. Details: /conversation",
-    tone: "warning"
-  })
-  expect(ordering).toEqual(["persist", "authenticate"])
-})
-
-it("the visible retry door presents lookup, POST, authentication and persistence failures without changing domain refusals", async () => {
-  const raw: unknown[] = []
-  const present = (error: unknown) => {
-    raw.push(error)
-    return "The command could not run."
-  }
-  const lookup = await cloudAt(() => ({ status: 503, body: {} }))
-  expect(await Factory.retryCommand("#2431", "o/r", signIn(lookup), undefined, present).settled).toEqual({
-    text: "#2431 not retried: The command could not run.",
-    tone: "warning"
-  })
-  const post = await cloudAt((method) => method === "GET" ? { status: 200, body: served } : { status: 403, body: {} })
-  expect(await Factory.retryCommand("#2431", "o/r", signIn(post), undefined, present).settled).toEqual({
-    text: "#2431 not retried: The command could not run.",
-    tone: "warning"
-  })
-  expect(raw.map((error) => (error as { fault: string }).fault)).toEqual(["infra", "user"])
-  expect(raw.map((error) => String(error))).toEqual([
-    expect.stringContaining("HTTP 503"),
-    expect.stringContaining("HTTP 403")
-  ])
-  const refused = await Factory.retryCommand("#2412", "o/r", signIn(post), undefined, present).settled
-  expect(refused).toEqual({ text: "#2412 not retried: #2412 is implementing", tone: "warning" })
-  expect(raw).toHaveLength(2)
-  const auth = new Error("private keyring path")
-  expect(
-    await Factory.retryCommand(
-      "#2431",
-      "o/r",
-      async () => {
-        throw auth
-      },
-      undefined,
-      present
-    ).settled
-  ).toEqual({
-    text: "#2431 not retried: The command could not run.",
-    tone: "warning"
-  })
-  const disk = new Error("private disk path")
-  expect(Factory.retryCommand("#2431", "o/r", signIn(post), () => {
-    throw disk
-  }, present)).toEqual({
-    now: { text: "Retry #2431 not requested: The command could not run.", tone: "warning" }
-  })
-  expect(raw.slice(2)).toEqual([auth, disk])
-})
-
-it("settles an unreachable Cloud as a failure that may not have been sent", async () => {
-  const origin = await cloudAt(() => ({ status: 200, body: served }))
-  servers.splice(0).forEach((close) => close())
-  const settled = await Factory.retryCommand("2431", "o/r", signIn(origin)).settled
-  expect(settled?.tone).toBe("warning")
-  expect(settled?.text.startsWith("#2431 not retried: ")).toBe(true)
-  const answer = await Factory.retry((await signIn(origin)())!, "o/r", 2431)
-  expect(answer).toMatchObject({ ok: false, settled: false })
-  // A 5xx is not a refusal either.
-  const failing = await cloudAt(() => ({ status: 503, body: {} }))
-  expect(await Factory.retry((await signIn(failing)())!, "o/r", 2431)).toEqual({
-    ok: false,
-    detail: "That command could not run. Details: /conversation",
-    settled: false
-  })
-})
-
-it("answers a /retry it cannot send at once: no issue, no repository, signed out, a failing sign-in", async () => {
-  for (const argument of ["", "abc", "#0", "12x", "-3"]) {
-    expect(Factory.retryCommand(argument, "o/r", signIn("http://127.0.0.1:1"))).toEqual({
-      now: { text: "Usage: /retry <issue>", tone: "warning" }
-    })
-  }
-  expect(Factory.retryCommand("12", undefined, signIn("http://127.0.0.1:1"))).toEqual({
-    now: { text: "No repository for this directory", tone: "warning" }
-  })
-  expect(await Factory.retryCommand(" #12 ", "o/r", () => Promise.resolve(undefined)).settled).toEqual({
-    text: "Sign in to retry: smthrs auth login",
-    tone: "warning"
-  })
-  expect(await Factory.retryCommand("12", "o/r", () => Promise.reject(new Error("keyring locked"))).settled).toEqual({
-    text: "#12 not retried: That command could not run. Details: /conversation",
-    tone: "warning"
-  })
-})
-
-it("names the retry command only on an issue a person may retry", () => {
-  const retried = (state: string, extra: Record<string, unknown> = {}) =>
-    Factory.rows({ ...stack, items: [item("2500", state, extra)] } as unknown as MythicalStack, now)
-      .find((row) => row.label.includes("#2500"))?.details.map((block) => block.kind === "text" ? block.text : "")
-      .join("")
-  for (const state of ["blocked", "rejected", "declined"]) expect(retried(state)).toContain("/retry #2500")
-  expect(retried("proposed", { reviewHeld: true })).toContain("/retry #2500")
-  for (const state of ["queued", "running", "landed", "proposed"]) expect(retried(state) ?? "").not.toContain("/retry")
-})
-
-it("offers an explicit Retry action only for retryable issue rows, without executing it on publication", () => {
-  const row = (state: string, extra: Record<string, unknown> = {}) =>
-    Factory.rows({ ...stack, items: [item("2500", state, extra)] } as unknown as MythicalStack, now)
-      .find((row) => row.label.includes("#2500"))
-  const retry = { label: "Retry", action: { kind: "factory-retry", issue: 2500 } } as const
-  for (const state of ["blocked", "rejected", "declined"]) expect(row(state)?.action).toEqual(retry)
-  expect(row("proposed", { reviewHeld: true })?.action).toEqual(retry)
-  for (const state of ["queued", "running", "retrying", "landed", "proposed"]) {
-    expect(row(state)?.action).toBeUndefined()
-  }
-  const withoutIssue = Factory.rows({
-    ...stack,
-    items: [{ ...item("2500", "blocked"), issue: undefined }]
-  } as unknown as MythicalStack, now)
-  expect(withoutIssue.every((row) => row.action === undefined)).toBe(true)
-  expect(Factory.rows(stack, now).filter((row) => row.id.startsWith("group:")).every((row) => row.action === undefined))
-    .toBe(true)
-})
-
 it("exposes no TODO land door", () => {
   expect("land" in Factory).toBe(false)
   expect("landCommand" in Factory).toBe(false)
+})
+
+// A TODO's Retry is POST /api/todos/{n} on the install; the stack's item retry route is gone, so the TUI offers none.
+it("exposes no retry door on the factory's issues", () => {
+  expect("retry" in Factory).toBe(false)
+  expect("retryCommand" in Factory).toBe(false)
+  const rows = Factory.rows({ ...stack, items: [item("2500", "blocked"), item("2501", "rejected")] } as unknown as MythicalStack, now)
+  expect(rows.every((row) => row.action === undefined)).toBe(true)
+  expect(rows.flatMap((row) => row.details).some((block) => block.kind === "text" && block.text.includes("/retry"))).toBe(false)
 })
 
 it("keeps raw Cloud failures out of filing results", async () => {

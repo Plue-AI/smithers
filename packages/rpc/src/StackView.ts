@@ -60,16 +60,6 @@ export const itemStateLabel = (item: MythicalItem): string => {
 }
 
 /**
- * A person decides these; the retry route accepts exactly them, for issue items.
- *
- * @category projections
- * @since 1.0.0
- */
-export const retryable = (item: MythicalItem): boolean =>
-  item.issue !== undefined &&
-  (item.state === "blocked" || item.state === "rejected" || item.state === "declined" || item.reviewHeld === true)
-
-/**
  * A proposed TODO a maintainer may land: its pull request is open at a known
  * head and nobody asked for its merge yet. The land route accepts exactly them.
  *

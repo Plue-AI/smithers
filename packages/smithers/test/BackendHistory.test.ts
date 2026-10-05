@@ -504,7 +504,7 @@ describe("the factory from the terminal, over a local HTTP server", () => {
     const f = await serve((_req, res) => json(res, { message: "repository not found" }, 404))
     try {
       const started = Date.now()
-      for (const args of [["history", "watch", "12"], ["history", "retry", "12"]]) {
+      for (const args of [["history", "watch", "12"]]) {
         const result = await f.run(args)
         expect(result.code, args.join(" ")).not.toBe(0)
         expect(result.output + result.error).toContain("repository not found")
@@ -570,32 +570,16 @@ describe("the factory from the terminal, over a local HTTP server", () => {
     }
   })
 
-  it("retries by issue number or item id through the retry route", async () => {
-    const f = await serve((req, res) => {
-      if (req.method === "POST") return json(res, item("queued"), 202)
-      items(req, res, [item("blocked")])
-    })
-    try {
-      const byIssue = await f.run(["history", "retry", "#12"])
-      expect(byIssue.code, byIssue.error).toBe(0)
-      expect(byIssue.output).toContain("#12 Fix login · queued")
-      const byId = await f.run(["history", "retry", ID.toUpperCase()])
-      expect(byId.code, byId.error).toBe(0)
-      expect(f.requests.map((r) => `${r.method} ${r.url} ${r.body}`)).toEqual([
-        "GET /api/repos/owner/repo/mythical/items/12 ",
-        `POST /api/repos/owner/repo/mythical/items/${ID}/retry {}`,
-        `POST /api/repos/owner/repo/mythical/items/${ID}/retry {}`
-      ])
-    } finally {
-      await f.close()
-    }
-  })
-
   it("exposes no TODO land handler", () => {
     expect("history land" in history).toBe(false)
   })
 
-  it("shows a failed TODO's typed reason as the server states it, and retries it", async () => {
+  // A TODO's Retry is POST /api/todos/{n} on the install; the stack's item retry route is gone.
+  it("exposes no retry handler", () => {
+    expect("history retry" in history).toBe(false)
+  })
+
+  it("shows a failed TODO's typed reason as the server states it", async () => {
     const failure = { kind: "provisioning", fault: "infra" }
     const reason = "Smithers could not set up a lane after repeated tries"
     const blocked = item("blocked", { reason, failure })
@@ -605,10 +589,7 @@ describe("the factory from the terminal, over a local HTTP server", () => {
       reason: "The model provider did not answer",
       failure: { kind: "model", fault: "dependency" }
     })
-    const f = await serve((req, res) => {
-      if (req.method === "POST") return json(res, item("queued"), 202)
-      items(req, res, [blocked, model])
-    })
+    const f = await serve((req, res) => items(req, res, [blocked, model]))
     try {
       const shown = await f.run(["history", "show"])
       expect(shown.code, shown.error).toBe(0)
@@ -616,42 +597,6 @@ describe("the factory from the terminal, over a local HTTP server", () => {
       expect(shown.output).toContain("#13 Flaky model · retrying · The model provider did not answer")
       const raw = await f.run(["history", "show", "--json"])
       expect(JSON.parse(raw.output).items[0]).toMatchObject({ reason, failure })
-      const retried = await f.run(["history", "retry", "12"])
-      expect(retried.code, retried.error).toBe(0)
-      expect(retried.output).toContain("#12 Fix login · queued")
-      expect(f.requests.filter((r) => r.method === "POST").map((r) => r.url)).toEqual([
-        `/api/repos/owner/repo/mythical/items/${ID}/retry`
-      ])
-    } finally {
-      await f.close()
-    }
-  })
-
-  it("refuses an issue that is not in the history, a malformed target and the server's refusal", async () => {
-    const f = await serve((req, res) => {
-      if (req.method === "POST") {
-        return json(res, {
-          message: "only a blocked, rejected or declined item, or a TODO held on its review, is retried"
-        }, 409)
-      }
-      if (req.url?.endsWith("/items/13")) return json(res, { message: "internal" }, 500)
-      items(req, res, [item("running")])
-    })
-    try {
-      const missing = await f.run(["history", "retry", "99"])
-      expect(missing.code).not.toBe(0)
-      expect(missing.output + missing.error).toContain("#99 is not in the history")
-      for (const bad of ["0", "12a", "#", "1.5"]) {
-        const refused = await f.run(["history", "retry", bad])
-        expect(refused.code, bad).toBe(2)
-      }
-      const conflict = await f.run(["history", "retry", "12"])
-      expect(conflict.code).not.toBe(0)
-      expect(conflict.output + conflict.error).toContain("only a blocked, rejected or declined item")
-      const failed = await f.run(["history", "retry", "13"])
-      expect(failed.code).not.toBe(0)
-      expect(failed.output + failed.error).not.toContain("is not in the history")
-      expect(f.requests.filter((r) => r.method === "POST")).toHaveLength(1)
     } finally {
       await f.close()
     }

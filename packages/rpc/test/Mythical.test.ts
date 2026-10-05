@@ -360,8 +360,10 @@ describe("the mythical stack contract", () => {
 
   test("routes fill owner, repository and item", () => {
     expect(mythicalRoute("stack", "smithers-canary", "smithers")).toBe("/api/repos/smithers-canary/smithers/mythical")
-    expect(mythicalRoute("retry", "o", "r", "item 1")).toBe("/api/repos/o/r/mythical/items/item%201/retry")
+    expect(mythicalRoute("merge", "o", "r", "item 1")).toBe("/api/repos/o/r/mythical/items/item%201/merge")
     expect(mythicalRoute("item", "o", "r", "12")).toBe("/api/repos/o/r/mythical/items/12")
+    // A TODO's Retry is POST /api/todos/{n} on the install; the stack's item retry route is gone.
+    expect("retry" in MYTHICAL_ROUTES).toBe(false)
     for (const route of Object.values(MYTHICAL_ROUTES)) {
       expect(route.startsWith("/api/repos/{owner}/{repo}/mythical")).toBe(true)
     }
