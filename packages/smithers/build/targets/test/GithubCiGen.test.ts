@@ -264,19 +264,21 @@ jobs:
     name: "workspace graph"
     runs-on: "ubuntu-latest"
     steps:
-      - uses: "${actions.checkout}"
+      - uses: "actions/checkout@11d5960a326750d5838078e36cf38b85af677262"
+        with:
+          "persist-credentials": "false"
       - name: "Validate GitHub Actions workflows"
-        uses: "${actionlintImages["1.7.11"]}"
+        uses: "docker://rhysd/actionlint@sha256:6f03470d0152251d7f07f7c4dc019dbe7024c72cd952f839544c7798843efa8f"
         with:
           "args": ".github/workflows/ci.yml"
-      - uses: "${actions.setupPnpm}"
-      - uses: "${actions.setupNode}"
+      - uses: "pnpm/action-setup@0977fd99725f1db4007ccb2928dbb4e90d06cc86"
+      - uses: "actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020"
         with:
           "node-version": "26.4.0"
           "cache": "pnpm"
       - run: "pnpm install --frozen-lockfile --ignore-scripts"
       - name: "Install jj"
-        uses: "${actions.installTool}"
+        uses: "taiki-e/install-action@e67fa11c4b9316fa714ddf0abed07a0c3143b95b"
         with:
           "tool": "jj-cli@0.39.0"
       - name: "Initialize colocated jj repository"
@@ -292,9 +294,11 @@ jobs:
     runs-on: "ubuntu-latest"
     timeout-minutes: 10
     steps:
-      - uses: "${actions.checkout}"
-      - uses: "${actions.setupPnpm}"
-      - uses: "${actions.setupNode}"
+      - uses: "actions/checkout@11d5960a326750d5838078e36cf38b85af677262"
+        with:
+          "persist-credentials": "false"
+      - uses: "pnpm/action-setup@0977fd99725f1db4007ccb2928dbb4e90d06cc86"
+      - uses: "actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020"
         with:
           "node-version": "26.4.0"
           "cache": "pnpm"
@@ -307,18 +311,19 @@ jobs:
     runs-on: "ubuntu-latest"
     continue-on-error: false
     steps:
-      - uses: "${actions.checkout}"
+      - uses: "actions/checkout@11d5960a326750d5838078e36cf38b85af677262"
         with:
+          "persist-credentials": "false"
           "submodules": "recursive"
-      - uses: "${actions.setupPnpm}"
-      - uses: "${actions.setupNode}"
+      - uses: "pnpm/action-setup@0977fd99725f1db4007ccb2928dbb4e90d06cc86"
+      - uses: "actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020"
         with:
           "node-version": "26.4.0"
       - run: "pnpm install --frozen-lockfile --ignore-scripts"
       - name: "Install pinned Rust toolchain"
         run: "rustup toolchain install"
       - id: setup
-        uses: "${actions.rustCache}"
+        uses: "Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6"
       - name: "Cargo gates"
         if: \${{ !cancelled() && steps.setup.conclusion == 'success' }}
         run: "pnpm exec smthrs lint '//crates/flows-jj' --verbose"
@@ -1042,7 +1047,7 @@ describe("render", () => {
     // `Smithers.gitDiff("origin/main")` then dies at plan time with
     // `bad revision`, taking every target in the same invocation with it. The
     // job that runs those targets declares the depth it needs; every other job
-    // keeps the bare checkout it had.
+    // keeps its default history depth and disabled credential persistence.
     const withDepth = render(attrsOf({
       ...goldenAttrs,
       gates: [],
@@ -1057,6 +1062,7 @@ describe("render", () => {
     expect(withDepth).toContain(
       `      - uses: "${actions.checkout}"
         with:
+          "persist-credentials": "false"
           "fetch-depth": "0"
 `
     )
@@ -1075,6 +1081,7 @@ describe("render", () => {
     expect(both).toContain(
       `      - uses: "${actions.checkout}"
         with:
+          "persist-credentials": "false"
           "submodules": "recursive"
           "fetch-depth": "50"
 `
@@ -1092,6 +1099,8 @@ describe("render", () => {
     }))
     expect(bare).not.toContain("fetch-depth")
     expect(bare).toContain(`      - uses: "${actions.checkout}"
+        with:
+          "persist-credentials": "false"
       - uses: "${actions.setupPnpm}"
 `)
   })
@@ -1865,7 +1874,16 @@ describe("affected gates", () => {
     expect(gate.run).toBe(
       "pnpm exec smthrs affected ci '//packages/...' --base-green --jobs 2 --known-red '.github/ci-known-red.json' --results-file \"$RUNNER_TEMP/smthrs-results/$GITHUB_ACTION.json\" --verbose"
     )
-    expect(gate.env.GITHUB_TOKEN).toBe("${{ github.token }}")
+    expect(gate.env.GITHUB_TOKEN).toBe("${{ github.event_name == 'push' && github.token || '' }}")
+    const stepToken = (event_name: string) =>
+      Function("github", `return ${gate.env.GITHUB_TOKEN.slice(3, -2)}`)({ event_name, token: "synthetic-job-token" })
+    expect(stepToken("pull_request")).toBe("")
+    expect(stepToken("push")).toBe("synthetic-job-token")
+    for (const job of Object.values(parsed.jobs) as any[]) {
+      expect(job.steps.find((step: any) => step.uses?.startsWith("actions/checkout")).with["persist-credentials"]).toBe(
+        "false"
+      )
+    }
     expect(parsed.jobs.test.steps[1].env?.GITHUB_TOKEN).toBeUndefined()
     expect(parsed.jobs.test.steps.find((step: any) => step.uses?.startsWith("actions/checkout")).with["fetch-depth"])
       .toBe("2")
@@ -1891,6 +1909,7 @@ describe("affected gates", () => {
 describe("deploy workflows", () => {
   const deploy = (overrides: Record<string, unknown> = {}, stepOverrides: Record<string, unknown> = {}) => ({
     ...goldenAttrs,
+    repository: "git+https://github.com/smithersai/smithers.git",
     pullRequest: false,
     gates: [],
     jobs: [
@@ -1925,10 +1944,42 @@ describe("deploy workflows", () => {
     expect(() => render(deploy(job, step) as unknown as typeof goldenAttrs)).toThrow(message)
   })
   it("refuses write permissions on the workflow and advisory gate dependencies", () => {
-    expect(() => render({ ...deploy(), permissions: { contents: "write" } } as unknown as typeof goldenAttrs)).toThrow("unsafe permission")
+    expect(() => render({ ...deploy(), permissions: { contents: "write" } } as unknown as typeof goldenAttrs)).toThrow(
+      "unsafe permission"
+    )
     const value = deploy()
-    expect(() => render({ ...value, jobs: [{ ...value.jobs[0]!, continueOnError: true }, value.jobs[1]!] } as unknown as typeof goldenAttrs)).toThrow("deploy needs successful required jobs")
-    expect(() => render({ ...value, pushBranches: ["main*"] } as unknown as typeof goldenAttrs)).toThrow("Run needs literal push branches")
+    expect(() =>
+      render(
+        {
+          ...value,
+          jobs: [{ ...value.jobs[0]!, continueOnError: true }, value.jobs[1]!]
+        } as unknown as typeof goldenAttrs
+      )
+    ).toThrow("deploy needs successful required jobs")
+    expect(() => render({ ...value, pushBranches: ["main*"] } as unknown as typeof goldenAttrs)).toThrow(
+      "Run needs literal push branches"
+    )
+  })
+  it.each([
+    undefined,
+    "git+https://gitlab.com/owner/repo.git",
+    "git+https://github.com/owner/repo.git?token=x",
+    "git+https://github.com/o/repo'quote.git"
+  ])("refuses unsafe deployment repository %s", (repository) => {
+    expect(() => render({ ...deploy(), repository } as unknown as typeof goldenAttrs)).toThrow(
+      "deployment needs the declared GitHub repository"
+    )
+  })
+  it("keeps the repository guard after declaration schema decoding", () => {
+    const workflow = Yaml.parse(render(attrsOf(deploy())))
+    expect(workflow.jobs.deploy.if).toContain("github.repository == 'smithersai/smithers'")
+  })
+  it("limits deployment admission to main even when another push branch is declared", () => {
+    const workflow = Yaml.parse(
+      render({ ...deploy(), pushBranches: ["main", "release"] } as unknown as typeof goldenAttrs)
+    )
+    expect(workflow.jobs.deploy.if).not.toContain("refs/heads/release")
+    expect(workflow.jobs.deploy.if).toContain("github.repository == 'smithersai/smithers'")
   })
   it("refuses deployment workflows triggered by pull requests", () => {
     expect(() => render({ ...deploy(), pullRequest: true } as unknown as typeof goldenAttrs)).toThrow(
@@ -1936,14 +1987,24 @@ describe("deploy workflows", () => {
     )
   })
   it("keeps deploys behind successful gates and scopes each secret to its Run step", () => {
-    const source = render(deploy({ steps: [
-      { verb: Verb.Run, pattern: "//apps/server:deploy", secrets: [Secret("CLOUDFLARE_API_TOKEN")] },
-      { verb: Verb.Run, pattern: "//apps/server:verify" }
-    ] }) as unknown as typeof goldenAttrs)
+    const source = render(
+      deploy({
+        steps: [
+          { verb: Verb.Run, pattern: "//apps/server:deploy", secrets: [Secret("CLOUDFLARE_API_TOKEN")] },
+          { verb: Verb.Run, pattern: "//apps/server:verify" }
+        ]
+      }) as unknown as typeof goldenAttrs
+    )
     const workflow = Yaml.parse(source)
     expect(workflow.jobs.deploy.needs).toEqual(["gate"])
     expect(workflow.jobs.deploy.environment).toBe("production")
-    expect(workflow.jobs.deploy.if).toBe("${{ github.event_name == 'push' && github.ref == 'refs/heads/main' }}")
+    expect(workflow.jobs.deploy.if).toBe(
+      "${{ github.event_name == 'push' && github.ref == 'refs/heads/main' && github.repository == 'smithersai/smithers' }}"
+    )
+    const allowed = (event: string, ref: string, repo: string) =>
+      Function("github", `return ${workflow.jobs.deploy.if.slice(3, -2)}`)({ event_name: event, ref, repository: repo })
+    expect(allowed("push", "refs/heads/main", "fork/smithers")).toBe(false)
+    expect(allowed("pull_request", "refs/heads/main", "smithersai/smithers")).toBe(false)
     expect(workflow.jobs.deploy.permissions).toEqual({ actions: "read" })
     const run = workflow.jobs.deploy.steps.find((step: any) => step.run?.includes("smthrs run"))
     expect(run.run).toBe("pnpm exec smthrs run '//apps/server:deploy' --outward-only --verbose")

@@ -4,7 +4,7 @@ The MVP installs on one Apple Silicon Mac as a launchd service that runs the bac
 
 ## Preview image
 
-This linux/amd64 image previews Home with machines off (M-41). It is never an install path and runs no workspace, flow, terminal or check. Native PostgreSQL and application data are ephemeral and reset when the container is replaced. No repository credentials or model keys enter the image.
+This linux/amd64 image previews Home with machines off (M-41). It is never an install path and runs no workspace, flow, terminal or check. Native PostgreSQL and application data are ephemeral and reset when the container is replaced. No repository credentials or model keys enter the image. The disabled `WorkspaceRuntime` and fail-closed service admission prevent machine work from executing. Early refusal before effects is tested for the marked route sweep and the independent replay inventory; an unmarked route still cannot dispatch through a service.
 
 ```sh
 BUILD_SHA=$(git rev-parse HEAD)

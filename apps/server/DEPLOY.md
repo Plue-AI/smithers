@@ -113,12 +113,14 @@ backend release contract; keep it independent of candidate schema generation.
 ## CI (every push to main)
 
 `.github/workflows/apps-deploy.yml` ("Deploy apps") is the one deploy path.
-Landing on `main` is the deploy. Every push to `main` runs two jobs:
+A push to `main` of `smithersai/smithers` runs two jobs; fork pushes cannot
+start the deploy job. Code on `main` is trusted with deploy credentials inside
+the protected `production` environment, as in the hand-written workflow.
 
 1. `gate` runs the apps targets CI's `apps-e2e` job runs, by the same labels
    (`//apps/app:check`, `:unitTests`, `:conformance`, `:browserE2e`), plus
    `smthrs ci` over `//apps/server/...` and `//apps/site/...`, on the exact
-   sha. It never sees a Cloudflare credential.
+   sha. No Cloudflare credential is supplied to this job.
    `scripts/canary/workflow-wiring.test.ts` fails if its targets fall behind
    `apps-e2e`'s.
 2. `deploy` needs `gate` and runs in the `production` environment, whose
@@ -350,3 +352,9 @@ Every real deploy first runs `scripts/deployGuard.ts`, before it reads the revis
 | edge | activation, by owner record | deploys | refuses (`DEPLOY_GUARD_LIVE_CUTOVER`) |
 
 Activation is the one direct switch from the live legacy Worker to the edge. It is admitted only when `cutover/activation.json` validates against the strict schema in `deployGuard.ts`: owner, decision `direct-switch`, source smithersai/plue#531, the no-user `importDisposition` naming exactly the retained Durable Object identities, and the retroactive backend bootstrap record. A missing record refuses with `DEPLOY_GUARD_EDGE_BEFORE_CUTOVER`; an invalid one, or one carrying any unknown field such as an import receipt digest, refuses with `DEPLOY_GUARD_ACTIVATION_UNAUTHORIZED`. The disposition states that nothing was imported; it is not a receipt and nothing accepts it as one. The deploy bundles the artifact first and, after publication, requires the live edge to serve exactly those code modules (`DEPLOY_GUARD_ARTIFACT_DRIFT` otherwise). Activation is admitted whenever the legacy Worker is live and the record validates. After a successful switch CI cannot make legacy live again (legacy over edge refuses, and a rollback targets the previous edge), so in practice the switch happens once; only an operator publishing or rolling back to a legacy version outside CI would make the next edge deploy switch again. It is not pinned to one legacy version because every main deploy before the switch publishes a new one. Once the edge is live, every deploy is normal and the record is never read. There is no override flag or environment switch. A split, unreadable, changing, unrecognized or contradictory live version refuses.
+
+The broker reduces exposure: children receive placeholders, and credentials are
+absent from argv, output, receipts, results and caches. Same-user processes on a
+hosted runner share a trust domain; the broker is not OS isolation. Checkout
+does not persist the job token. Affected steps receive the token only on push;
+pull requests use `HEAD^1` and make no GitHub API request.

@@ -12,6 +12,7 @@
 import * as Canonical from "@smthrs/canonical/Canonical"
 import { Control as ControlService, ControlSchema } from "@smthrs/control"
 import * as Sha256 from "@smthrs/crypto/Sha256"
+import * as Diagnosis from "@smthrs/gateway/Diagnosis"
 import * as MigrateCommand from "@smthrs/migrate/flow/Command"
 import { BudgetOnExceeded, deadlineMillis } from "@smthrs/registry/Descriptor"
 import { Clock, Console, Effect, Option, Schema, SchemaIssue, Stream } from "effect"
@@ -349,7 +350,7 @@ const announceAdmission = (receipt: ControlSchema.Receipt) =>
     process.stderr.write(`${Detached.admissionLine(nonce, receipt.runId)}\n`)
   })
 
-const runLaunch = (payload: ControlService.ApprovalInput, wait = false) =>
+const runLaunch = (payload: ControlService.ApprovalInput, wait = false, flowId?: string) =>
   Effect.gen(function*() {
     const target = payload.target
     if (target._tag !== "Plan") {
@@ -364,6 +365,9 @@ const runLaunch = (payload: ControlService.ApprovalInput, wait = false) =>
       idempotencyKey: payload.idempotencyKey
     })
     yield* announceAdmission(receipt)
+    if (flowId !== undefined && receipt._tag === "Accepted" && receipt.runId !== undefined && !(yield* quiet)) {
+      yield* Console.error(`${flowId} requested · run ${receipt.runId}`)
+    }
     const owned = yield* awaitOwnedRun(control, receipt, undefined)
     const settlement = wait && owned === undefined && receipt._tag === "Accepted" && receipt.runId !== undefined
       ? yield* Settlement.awaitRun(control, receipt.runId, undefined, yield* quiet)
@@ -371,7 +375,24 @@ const runLaunch = (payload: ControlService.ApprovalInput, wait = false) =>
     if (Settlement.wasDeclined(settlement) && receipt._tag === "Accepted" && receipt.runId !== undefined) {
       return yield* Effect.fail(yield* declinedLaunch(control, receipt.runId))
     }
-    yield* renderReceipt(receipt, settlement)
+    let document: unknown = Settlement.receiptDocument(receipt, settlement)
+    if (
+      flowId !== undefined && settlement?.kind === "control.run.completed" &&
+      receipt._tag === "Accepted" && receipt.runId !== undefined
+    ) {
+      const events = yield* RunReads.events(control, receipt.runId)
+      const result = Diagnosis.resolvedOutput(Diagnosis.digest(events, receipt.runId))
+      if (result !== undefined) {
+        let value: unknown = result
+        try {
+          value = JSON.parse(result)
+        } catch {
+          // Text-only flow results retain their recorded value.
+        }
+        document = { ...receipt, status: "completed", value }
+      }
+    }
+    yield* render(document)
     yield* Settlement.report(settlement)
   })
 
@@ -542,7 +563,7 @@ const up = Command.make("up", upFlags, (config) =>
     // Scope `run`: the approval authorizes this launch and its whole run, not
     // every future launch of the flow.
     yield* control.approve({ ...card.approval, scope: "run" })
-    if (!config.detached) return yield* runLaunch({ ...card.approval, scope: "run" }, config.wait)
+    if (!config.detached) return yield* runLaunch({ ...card.approval, scope: "run" }, config.wait, flowId)
 
     const projectRoot = yield* Project.ProjectRoot
     const timeoutMs = Environment.readInteger(process.env, "SMITHERS_DETACHED_ADMISSION_TIMEOUT_MS")

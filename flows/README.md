@@ -43,8 +43,14 @@ real command line matches.
 
 `/preview` and `smthrs flow start preview --wait` run the repository’s single
 `CloudRun.Preview` target and return its private preview opener and expiry.
-An optional revision must equal the checked-out commit. Without a target the
-flow refuses with `no_target`.
+An optional revision must equal the checked-out commit. Registration is discovery,
+not activation: this checkout declares no preview target. The registered flow
+refuses with typed `no_target` and starts no build or deployment. Activation
+stays withheld pending the skeleton/U1a and U4 acceptance receipts; registering
+the flow does not satisfy those gates.
+
+The CLI acknowledges `preview requested · run <id>` before waiting, then prints
+the settled success with its proxy command, local address and expiry.
 
 ## Shared notes
 

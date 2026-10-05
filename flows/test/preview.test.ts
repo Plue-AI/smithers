@@ -231,33 +231,54 @@ test("preview redacts a tool token from its first error line", async (t) => {
     assert.equal(JSON.stringify(result.failure).includes("fixture-token-value"), false)
   }
 })
-test("the CLI executes preview through the same deploy action", { timeout: 90_000 }, (t) => {
-  const f = fixture(t)
-  const source = fileURLToPath(new URL("../preview/flow.ts", import.meta.url))
-  const entry = fileURLToPath(new URL("../../packages/smithers/bin/smithers.mjs", import.meta.url))
-  const helperDirectory = join(f.root, "packages", "smithers", "build", "build-cli", "src", "internal")
-  mkdirSync(helperDirectory, { recursive: true })
-  copyFileSync(
-    fileURLToPath(new URL("../../packages/smithers/build/build-cli/src/internal/ContainedProcess.ts", import.meta.url)),
-    join(helperDirectory, "ContainedProcess.ts")
+for (const active of [true, false]) {
+  test(
+    active
+      ? "the CLI executes preview through the same deploy action"
+      : "registered preview without a target refuses honestly and starts nothing",
+    { timeout: 90_000 },
+    (t) => {
+      const f = fixture(t, { rows: active ? 1 : 0 })
+      const source = fileURLToPath(new URL("../preview/flow.ts", import.meta.url))
+      const entry = fileURLToPath(new URL("../../packages/smithers/bin/smithers.mjs", import.meta.url))
+      const helperDirectory = join(f.root, "packages", "smithers", "build", "build-cli", "src", "internal")
+      mkdirSync(helperDirectory, { recursive: true })
+      copyFileSync(
+        fileURLToPath(
+          new URL("../../packages/smithers/build/build-cli/src/internal/ContainedProcess.ts", import.meta.url)
+        ),
+        join(helperDirectory, "ContainedProcess.ts")
+      )
+      mkdirSync(join(f.root, ".flows"))
+      mkdirSync(join(f.root, "flows", "preview"), { recursive: true })
+      copyFileSync(source, join(f.root, "flows", "preview", "flow.ts"))
+      symlinkSync(fileURLToPath(new URL("../node_modules", import.meta.url)), join(f.root, "node_modules"), "dir")
+      writeFileSync(join(f.root, "package.json"), JSON.stringify({ type: "module" }))
+      const result = spawnSync(process.execPath, [entry, "flow", "start", "preview", "--wait", "--verbose"], {
+        encoding: "utf8",
+        timeout: 80_000
+      })
+      if (!active) {
+        assert.equal(result.status, 1, result.stderr + result.stdout)
+        assert.match(result.stdout + result.stderr, /no_target/)
+        assert.equal(f.calls().length, 0)
+        assert.equal(existsSync(join(f.root, "distribution", "cloud-run-preview", "preview.json")), false)
+        return
+      }
+      assert.equal(result.status, 0, result.stderr + result.stdout)
+      const runId = /runId: (\S+)/.exec(result.stdout)?.[1]
+      assert.ok(runId, result.stdout)
+      assert.match(result.stdout + result.stderr, new RegExp(`preview requested · run ${runId}`))
+      assert.ok(result.stdout.includes(f.success.open.command), result.stdout)
+      assert.ok(result.stdout.includes(f.success.open.localUrl), result.stdout)
+      assert.ok(result.stdout.includes(f.success.expiresAt), result.stdout)
+      assert.equal(f.calls().length, 1, result.stdout)
+      const saved = JSON.parse(readFileSync(join(f.root, "distribution", "cloud-run-preview", "preview.json"), "utf8"))
+      assert.equal(saved.open.localUrl, f.success.open.localUrl)
+      assert.equal(f.calls().length, 1)
+    }
   )
-  mkdirSync(join(f.root, ".flows"))
-  mkdirSync(join(f.root, "flows", "preview"), { recursive: true })
-  copyFileSync(source, join(f.root, "flows", "preview", "flow.ts"))
-  symlinkSync(fileURLToPath(new URL("../node_modules", import.meta.url)), join(f.root, "node_modules"), "dir")
-  writeFileSync(join(f.root, "package.json"), JSON.stringify({ type: "module" }))
-  const result = spawnSync(process.execPath, [entry, "flow", "start", "preview", "--wait", "--verbose"], {
-    encoding: "utf8",
-    timeout: 80_000
-  })
-  assert.equal(result.status, 0, result.stderr + result.stdout)
-  const runId = /runId: (\S+)/.exec(result.stdout)?.[1]
-  assert.ok(runId, result.stdout)
-  assert.equal(f.calls().length, 1, result.stdout)
-  const saved = JSON.parse(readFileSync(join(f.root, "distribution", "cloud-run-preview", "preview.json"), "utf8"))
-  assert.equal(saved.open.localUrl, f.success.open.localUrl)
-  assert.equal(f.calls().length, 1)
-})
+}
 
 test("preview refuses a different branch before launching", async (t) => {
   const f = fixture(t)

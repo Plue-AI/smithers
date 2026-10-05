@@ -674,7 +674,8 @@ const renderWorkflow = (
     if (workflow.environment !== undefined) lines.push(`    environment: ${scalar(workflow.environment)}`)
     lines.push("    steps:")
     lines.push(usesLine("      ", pinnedActions.checkout))
-    if (workflow.affected && workflow.on.pullRequest) lines.push("        with:", "          fetch-depth: 2")
+    lines.push("        with:", "          persist-credentials: false")
+    if (workflow.affected && workflow.on.pullRequest) lines.push("          fetch-depth: 2")
     if (setup !== undefined) {
       lines.push(`      - uses: ./${packageDir}/actions/setup`)
       const withEntries: Record<string, string> = {}
@@ -695,7 +696,7 @@ const renderWorkflow = (
     if (affected) {
       lines.push(
         "        env:",
-        "          GITHUB_TOKEN: ${{ github.token }}",
+        "          GITHUB_TOKEN: ${{ github.event_name == 'push' && github.token || '' }}",
         `          SMTHRS_CI_JOB: ${scalar(workflow.jobName ?? jobId)}`
       )
     }

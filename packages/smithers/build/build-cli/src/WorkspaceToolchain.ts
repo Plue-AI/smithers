@@ -40,6 +40,7 @@ import * as NodePath from "node:path"
  * @since 0.1.0
  */
 export interface WorkspaceToolchain {
+  readonly repository?: string | undefined
   readonly packageManager: PackageManager.PackageManager | undefined
   readonly runtime: Runtime.Runtime | undefined
 }
@@ -118,8 +119,8 @@ const runtimeOf = (declared: unknown): Runtime.Runtime | undefined => {
 export const of = (workspace: WorkspaceDeclaration.WorkspaceDeclaration): WorkspaceToolchain => {
   const runtime = runtimeOf(workspace.runtime)
   const packageManager = managerOf(workspace, runtime)
-  if (runtime === undefined && packageManager === undefined) return none
-  return Object.freeze({ packageManager, runtime })
+  if (runtime === undefined && packageManager === undefined) return { ...none, repository: workspace.repository }
+  return Object.freeze({ packageManager, runtime, repository: workspace.repository })
 }
 
 /**
@@ -206,7 +207,7 @@ export const resolve = async (
       Object.freeze({ path, digest: manifest.digest })
     )
   )
-  return Object.freeze({ runtime, packageManager, manifestDigests })
+  return Object.freeze({ runtime, packageManager, manifestDigests, repository: workspace.repository })
 }
 
 /**
@@ -226,13 +227,17 @@ export const fill = (
 ): unknown => {
   if (
     workspaceAttrs.length === 0 || typeof attrs !== "object" || attrs === null ||
-    (toolchain.packageManager === undefined && toolchain.runtime === undefined)
+    (toolchain.packageManager === undefined && toolchain.runtime === undefined && toolchain.repository === undefined)
   ) return attrs
   const declared = attrs as Record<string, unknown>
   let filled: Record<string, unknown> | undefined
   for (const name of workspaceAttrs) {
     if (declared[name] !== undefined) continue
-    const value = name === "packageManager" ? toolchain.packageManager : toolchain.runtime
+    const value = name === "repository"
+      ? toolchain.repository
+      : name === "packageManager"
+      ? toolchain.packageManager
+      : toolchain.runtime
     if (value === undefined) continue
     filled = filled ?? { ...declared }
     filled[name] = value

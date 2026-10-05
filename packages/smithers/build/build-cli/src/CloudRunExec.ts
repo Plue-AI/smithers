@@ -104,6 +104,8 @@ interface Traffic {
   readonly latestRevision?: boolean
 }
 interface Service {
+  readonly metadata?: { readonly resourceVersion?: string }
+  readonly spec?: { readonly traffic?: ReadonlyArray<Traffic>; readonly [key: string]: unknown }
   readonly status?: { readonly traffic?: ReadonlyArray<Traffic>; readonly latestReadyRevisionName?: string }
 }
 interface Revision {
@@ -299,15 +301,50 @@ export const preview = async (options: {
       else expiresAt = prior
     }
   }
-  const remove = async (
-    tags: ReadonlyArray<string>,
-    name: string,
+  // Replace preserves the observed resourceVersion: the API refuses a stale
+  // document rather than applying a tag decision made about another writer.
+  const mutateTags = async (
+    decide: (current: Service) => ReadonlyArray<Traffic> | undefined,
     signal: AbortSignal | null | undefined = options.signal
   ) => {
-    if (tags.length > 0) {
-      await cloud(["run", "services", "update-traffic", attrs.service, "--remove-tags", tags.join(",")], true, signal)
+    for (let attempt = 0; attempt < 3; attempt++) {
+      const current = serviceDocument(
+        (await cloud(["run", "services", "describe", attrs.service, "--format=json"], true, signal)).stdout
+      )
+      const traffic = decide(current)
+      if (traffic === undefined) return current
+      if (!current.metadata?.resourceVersion || current.spec === undefined) {
+        throw new PreviewError({ message: "CloudRun.Preview: tool_failed: service has no concurrency version" })
+      }
+      const directory = await Fs.mkdtemp(Path.join(Os.tmpdir(), "smthrs-cloud-run-service-"))
+      try {
+        const file = Path.join(directory, "service.json")
+        const { status: _status, ...document } = current
+        await Fs.writeFile(file, JSON.stringify({ ...document, spec: { ...current.spec, traffic } }), { mode: 0o600 })
+        const result = await cloud(["run", "services", "replace", file, "--format=json"], false, signal)
+        if (result.exitCode === 0) return current
+      } finally {
+        await Fs.rm(directory, { recursive: true, force: true })
+      }
     }
+    throw new PreviewError({ message: "CloudRun.Preview: tool_failed: concurrent service update" })
+  }
+  const remove = async (name: string, signal: AbortSignal | null | undefined = options.signal) => {
+    let safe = false
+    await mutateTags((current) => {
+      safe = !carriesTraffic(current, name)
+      if (!safe) return undefined
+      const entries = current.spec?.traffic ?? current.status?.traffic ?? []
+      if (!entries.some((entry) => entry.revisionName === name && entry.tag !== undefined)) return undefined
+      return entries.flatMap((entry) => {
+        if (entry.revisionName !== name || entry.tag === undefined) return [entry]
+        const { tag: _tag, url: _url, ...rest } = entry
+        return (rest.percent ?? 0) > 0 ? [rest] : []
+      })
+    }, signal)
+    if (!safe) return false
     await cloud(["run", "revisions", "delete", name], true, signal)
+    return true
   }
   let revision: string | undefined
   let mutationStarted = false
@@ -325,8 +362,6 @@ export const preview = async (options: {
         attrs.service,
         "--image",
         `${attrs.repository}/${options.name}@${pushed.digest}`,
-        "--tag",
-        tag,
         "--no-traffic",
         "--no-allow-unauthenticated",
         "--service-account",
@@ -349,10 +384,53 @@ export const preview = async (options: {
         "--set-env-vars",
         env.length === 0 ? "" : `^${delimiter}^${env.map(([key, value]) => `${key}=${value}`).join(delimiter)}`
       ])
+      const rows = json<ReadonlyArray<Revision>>(
+        (await cloud(["run", "revisions", "list", "--service", attrs.service, "--format=json"])).stdout
+      )
+      const owned = rows.filter((row) =>
+        row.metadata?.labels?.["smthrs-owner"] === owner && row.metadata?.labels?.["smthrs-deployment"] === deployment
+      )
+      if (owned.length !== 1 || owned[0]?.metadata?.name === undefined) {
+        throw new PreviewError({ message: "CloudRun.Preview: tool_failed: deployment identity missing" })
+      }
+      const ownedName = owned[0].metadata.name
+      revision = ownedName
+      await mutateTags((current) => {
+        const entries = current.spec?.traffic ?? current.status?.traffic ?? []
+        const existing = entries.find((entry) => entry.tag === tag)
+        // A tag that moved since preflight belongs to the concurrent writer.
+        if (
+          existing !== undefined && existing.revisionName !== traffic?.revisionName &&
+          existing.revisionName !== ownedName
+        ) {
+          throw new PreviewError({
+            message: "CloudRun.Preview: invalid_target: preview tag moved to another deployment"
+          })
+        }
+        return [...entries.filter((entry) => entry.tag !== tag), { tag, revisionName: ownedName, percent: 0 }]
+      })
       service = serviceDocument((await cloud(["run", "services", "describe", attrs.service, "--format=json"])).stdout)
       traffic = service.status?.traffic?.find((entry) => entry.tag === tag)
+    } else {
+      const expected = traffic?.revisionName
+      service = serviceDocument((await cloud(["run", "services", "describe", attrs.service, "--format=json"])).stdout)
+      traffic = service.status?.traffic?.find((entry) => entry.tag === tag)
+      if (traffic?.revisionName !== expected) {
+        throw new PreviewError({ message: "CloudRun.Preview: invalid_target: preview tag moved to another deployment" })
+      }
     }
     revision = traffic?.revisionName
+    if (revision === undefined) {
+      throw new PreviewError({ message: "CloudRun.Preview: tool_failed: preview revision missing" })
+    }
+    const actual = json<Revision>((await cloud(["run", "revisions", "describe", revision, "--format=json"])).stdout)
+    if (
+      actual.metadata?.labels?.["smthrs-owner"] !== owner ||
+      (!reused && actual.metadata?.labels?.["smthrs-deployment"] !== deployment) ||
+      !(actual.status?.imageDigest === pushed.digest || actual.status?.imageDigest?.endsWith(`@${pushed.digest}`))
+    ) {
+      throw new PreviewError({ message: "CloudRun.Preview: invalid_target: preview revision identity differs" })
+    }
     let privateSurface = false
     try {
       if (traffic?.url !== undefined) {
@@ -404,12 +482,7 @@ export const preview = async (options: {
           continue
         }
         try {
-          await cloud(["run", "services", "update-traffic", attrs.service, "--remove-tags", tag], true, cleanupSignal)
-        } catch {
-          cleanupFailed = true
-        }
-        try {
-          await cloud(["run", "revisions", "delete", name], true, cleanupSignal)
+          if (!await remove(name, cleanupSignal)) cleanupFailed = true
         } catch {
           cleanupFailed = true
         }
@@ -435,18 +508,20 @@ export const preview = async (options: {
     const name = row.metadata?.name
     const labels = row.metadata?.labels
     const expiration = Number(labels?.["smthrs-expires"])
-    const entries = service.status?.traffic ?? []
     if (
       name === undefined || name === revision || labels?.["smthrs-owner"] !== owner ||
       !/^[a-f0-9]{7}$/.test(labels?.["smthrs-commit"] ?? "") ||
       !/^\d+$/.test(labels?.["smthrs-expires"] ?? "") || !Number.isSafeInteger(expiration) ||
       expiration > Math.floor(Date.now() / 1000) || carriesTraffic(service, name)
     ) continue
-    await remove(
-      entries.filter((entry) => entry.revisionName === name && entry.tag !== undefined).map((entry) => entry.tag!),
-      name
-    )
+    if (!await remove(name)) continue
     swept.push(name)
+  }
+  const finalService = serviceDocument(
+    (await cloud(["run", "services", "describe", attrs.service, "--format=json"])).stdout
+  )
+  if (finalService.status?.traffic?.find((entry) => entry.tag === tag)?.revisionName !== revision) {
+    throw new PreviewError({ message: "CloudRun.Preview: invalid_target: preview tag moved to another deployment" })
   }
   const receipt: Receipt = {
     version: 1,

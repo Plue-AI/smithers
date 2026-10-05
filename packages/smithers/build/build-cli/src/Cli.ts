@@ -1352,9 +1352,9 @@ const makeCommands = (config: RuntimeConfig) =>
             })
           const partial = Affected.select(index, context.args.patterns, files, { explain: context.options.list })
           const vouched = environmentOf(config).GITHUB_EVENT_NAME === "push"
-          const full = context.options.baseGreen &&
+          let full = context.options.baseGreen &&
             Affected.needsFullGate(green, files, partial.targets.length, vouched)
-          const changed = full ?
+          let changed = full ?
             {
               pattern: context.args.patterns.join(" "),
               files,
@@ -1390,7 +1390,7 @@ const makeCommands = (config: RuntimeConfig) =>
             const row = index.resolve(target.label)[0]!
             return { target, kinds: await RepoResolution.effectiveKinds(resolver, row.target, config.signal) }
           }))
-          const eligible = eligibility.filter((entry) => kinds.some((kind) => entry.kinds.includes(kind)))
+          let eligible = eligibility.filter((entry) => kinds.some((kind) => entry.kinds.includes(kind)))
             .map((entry) => entry.target)
           const omits = (label: string) => {
             const selecting = context.args.patterns.filter((pattern) =>
@@ -1406,6 +1406,37 @@ const makeCommands = (config: RuntimeConfig) =>
                 includeExclusive: context.options.includeExclusive
               })
             )
+          }
+          if (context.options.baseGreen) {
+            // A green ancestor vouches only for unchanged runnable gates. Establish
+            // today's scope after both kind filtering and wildcard omission first.
+            const scope = [...new Map(
+              context.args.patterns.flatMap((pattern) => index.resolve(pattern))
+                .map((row) => [row.label, row])
+            ).values()]
+            const scopeKinds = await Promise.all(scope.map(async (row) => ({
+              row,
+              kinds: await RepoResolution.effectiveKinds(resolver, row.target, config.signal)
+            })))
+            const runnable = scopeKinds.filter((entry) =>
+              kinds.some((kind) => entry.kinds.includes(kind)) && !omits(entry.row.label)
+            ).map((entry) => ({ label: entry.row.label, reasons: [] as Array<string> }))
+            if (runnable.length === 0) {
+              return context.error({
+                code: "affected_failed",
+                message: `Affected ${context.args.verb} scope has no runnable gates`
+              })
+            }
+            if (
+              !full && eligible.every((target) => omits(target.label)) &&
+              (partial.targets.length > 0 || files.some((path) => /(?:^|\/)(?:PACKAGE|WORKSPACE)\.ts$/.test(path)))
+            ) {
+              // Filtering must not turn a changed/deleted gate into an unchanged
+              // success. Run the full current scope when such evidence is missing.
+              full = true
+              changed = { ...changed, conservative: true, targets: runnable }
+              eligible = runnable
+            }
           }
           const kept = changed.targets.filter((target) => !omits(target.label))
           for (const target of kept) {

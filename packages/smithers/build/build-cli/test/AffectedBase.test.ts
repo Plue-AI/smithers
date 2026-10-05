@@ -213,12 +213,14 @@ it("uses this job's last successful ancestor and reports the selection at the CL
     const unchanged = await execute(f.root, ["affected", "build", "//other/...", "--base-green"], { environment })
     expect(unchanged.exitCode, unchanged.output + unchanged.logs).toBe(0)
     expect(unchanged.logs).toContain(`0 of 198 targets · unchanged since ${f.base.slice(0, 7)}`)
+    expect(f.git("config", "--local", "--list")).not.toContain("extraheader")
     const ran = await execute(f.root, ["affected", "build", "//changed:t0", "--base-green"], { environment })
     expect(ran.exitCode, ran.output + ran.logs).toBe(0)
     expect(await Fs.readFile(join(f.root, "changed/out0.txt"), "utf8")).toBe("after")
     await Fs.rm(join(f.root, "changed/out0.txt"))
     const equal = await run(["--head", f.base])
     expect(equal.logs).toContain("212 of 212 targets")
+    const apiCallsBeforePr = requests.length
     const pr = await execute(f.root, ["affected", "build", "//...", "--base-green", "--list"], {
       environment: { ...environment, GITHUB_EVENT_NAME: "pull_request" }
     })
@@ -227,6 +229,7 @@ it("uses this job's last successful ancestor and reports the selection at the CL
       environment: { ...environment, GITHUB_EVENT_NAME: "pull_request" }
     })
     expect(prUnchanged.logs).toContain("198 of 198 targets")
+    expect(requests).toHaveLength(apiCallsBeforePr)
     equalTreeBase = f.git("rev-parse", "HEAD")
     f.git("commit", "--allow-empty", "-qm", "equal tree")
     mode = "equal-tree"
@@ -344,9 +347,19 @@ it("refuses token-bearing foreign HTTPS origins before the transport boundary", 
   }
 })
 
-it("isolates real CLI declaration reads and inherited children from credentials", async () => {
+it("generated checkout supplies no persisted credential to CLI declarations or build children", async () => {
   const f = await fixture()
   try {
+    // Simulate checkout's auth helper using a synthetic job credential and the
+    // actual generated input; persistence must be off before loading declarations.
+    const { toolchainSteps } = await import(new URL("../../targets/src/GithubCiGen.ts", import.meta.url).href)
+    const checkout = toolchainSteps({ affected: true, pullRequest: true, packageManager: { name: "pnpm" } } as never, {
+      toolchain: { runtimes: [] }
+    } as never)[0]!
+    f.git("config", "http.https://github.com/.extraheader", "AUTHORIZATION: basic synthetic-checkout-token")
+    if (checkout.with?.["persist-credentials"] === "false") {
+      f.git("config", "--unset-all", "http.https://github.com/.extraheader")
+    }
     await write(
       f.root,
       "changed/PACKAGE.ts",
@@ -355,9 +368,20 @@ import { execFileSync } from "node:child_process"
 import { writeFileSync } from "node:fs"
 const direct = process.env.GITHUB_TOKEN === "fixture-token" || process.env.CLOUDFLARE_API_TOKEN === "fixture-cloud-token" || process.env.GH_TOKEN === "fixture-alias-token"
 const child = execFileSync(process.execPath, ["-e", 'console.log(process.env.GITHUB_TOKEN === "fixture-token" || process.env.CLOUDFLARE_API_TOKEN === "fixture-cloud-token" || process.env.GH_TOKEN === "fixture-alias-token")'], { encoding: "utf8" }).trim() === "true"
-writeFileSync(${JSON.stringify(join(f.root, "credential-observation.json"))}, JSON.stringify({ direct, child }))
+writeFileSync(${
+        JSON.stringify(join(f.root, "credential-observation.json"))
+      }, JSON.stringify({ direct, child, git: execFileSync("git", ["config", "--local", "--list"], { encoding: "utf8" }).includes("synthetic-checkout-token") }))
 process.env.GITHUB_EVENT_NAME = "push"
-export const Package = S.Package({ targets: { env: S.Shell.Run({ shell: "echo SAFE_RUN" }) } })`
+export const Package = S.Package({ targets: {
+ env: S.Shell.Run({ shell: "git config --local --list | grep -q synthetic-checkout-token && exit 1; echo SAFE_RUN" }),
+ build: S.Shell.Build({ shell: ${
+        JSON.stringify(
+          `if git config --local --list | grep -q synthetic-checkout-token; then exit 1; fi; echo SAFE_BUILD > "${
+            join(f.root, "changed/build-out.txt")
+          }"`
+        )
+      }, outFiles: ["build-out.txt"] })
+} })`
     )
     const realGit = execFileSync("which", ["git"], { encoding: "utf8" }).trim()
     await Fs.mkdir(join(f.root, "bin"))
@@ -385,6 +409,7 @@ process.stdout.write(execFileSync(${JSON.stringify(realGit)}, process.argv.slice
       const args of [
         ["affected", "run", "//changed:env", "--base-green"],
         ["run", "//changed:env", "--outward-only"],
+        ["build", "//changed:build"],
         ["affected", "build", "//other/...", "--base-green", "--list", `--workspace=${f.root}`]
       ]
     ) {
@@ -407,7 +432,8 @@ process.stdout.write(execFileSync(${JSON.stringify(realGit)}, process.argv.slice
       expect(observations.every((row) => !row.github && !row.cloudflare && !row.alias)).toBe(true)
       expect(JSON.parse(await Fs.readFile(join(f.root, "credential-observation.json"), "utf8"))).toEqual({
         direct: false,
-        child: false
+        child: false,
+        git: false
       })
       expect(result.stdout + result.stderr).not.toContain("fixture-token")
       expect(result.stdout + result.stderr).not.toContain("fixture-cloud-token")
@@ -415,4 +441,115 @@ process.stdout.write(execFileSync(${JSON.stringify(realGit)}, process.argv.slice
   } finally {
     await Fs.rm(f.root, { recursive: true, force: true })
   }
-}, 30_000)
+}, 90_000)
+
+it.each(["build-only", "exclusive"])(
+  "refuses a green affected test when the last runnable gate becomes %s",
+  async (replacement) => {
+    const f = await fixture()
+    try {
+      const declaration = (target: string) =>
+        `import { Smithers as S } from "@smthrs/targets"
+export const Package = S.Package({ targets: { gate: ${target} } })`
+      await write(f.root, "changed/PACKAGE.ts", declaration("S.Shell.Test({ shell: \"true\" })"))
+      f.git("add", ".")
+      f.git("commit", "-qm", "test gate")
+      const base = f.git("rev-parse", "HEAD")
+      await write(
+        f.root,
+        "changed/PACKAGE.ts",
+        declaration(
+          replacement === "build-only"
+            ? "S.Copy({ from: S.file(\"input.txt\"), to: \"output.txt\" })"
+            : "S.Shell.Test({ shell: \"true\", exclusive: true })"
+        )
+      )
+      f.git("add", ".")
+      f.git("commit", "-qm", "remove runnable gate")
+      vi.spyOn(AffectedBase, "resolve").mockResolvedValue(base)
+      const result = await serve(f.root, ["affected", "test", "//changed/...", "--base-green"], {
+        environment: { ...process.env, GITHUB_EVENT_NAME: "push" }
+      })
+      expect(result.exitCode, result.output + result.logs).not.toBe(0)
+      expect(result.logs).not.toContain("unchanged since")
+      expect(result.output + result.logs).toContain("no runnable gates")
+    } finally {
+      vi.restoreAllMocks()
+      await Fs.rm(f.root, { recursive: true, force: true })
+    }
+  }
+)
+
+it.each(["build-only", "exclusive", "deleted"])(
+  "runs the remaining test scope when a selected gate becomes %s",
+  async (replacement) => {
+    const f = await fixture()
+    try {
+      await write(
+        f.root,
+        "changed/PACKAGE.ts",
+        `import { Smithers as S } from "@smthrs/targets"
+export const Package = S.Package({ targets: { gate: S.Shell.Test({ shell: "true" }) } })`
+      )
+      await write(
+        f.root,
+        "other/PACKAGE.ts",
+        `import { Smithers as S } from "@smthrs/targets"
+export const Package = S.Package({ targets: { remaining: S.Shell.Test({ shell: "true" }) } })`
+      )
+      f.git("add", ".")
+      f.git("commit", "-qm", "test gates")
+      const base = f.git("rev-parse", "HEAD")
+      await write(
+        f.root,
+        "changed/PACKAGE.ts",
+        `import { Smithers as S } from "@smthrs/targets"
+export const Package = S.Package({ targets: { ${
+          replacement === "deleted" ? "" : `gate: ${
+            replacement === "build-only"
+              ? "S.Copy({ from: S.file(\"input.txt\"), to: \"output.txt\" })"
+              : "S.Shell.Test({ shell: \"true\", exclusive: true })"
+          }`
+        } } })`
+      )
+      f.git("add", ".")
+      f.git("commit", "-qm", "remove selected gate")
+      vi.spyOn(AffectedBase, "resolve").mockResolvedValue(base)
+      const result = await serve(f.root, ["affected", "test", "//...", "--base-green"], {
+        environment: { ...process.env, GITHUB_EVENT_NAME: "push" }
+      })
+      expect(result.exitCode, result.output + result.logs).toBe(0)
+      expect(result.logs).not.toContain("unchanged since")
+      expect(result.output).toContain("//other:remaining")
+      expect(result.logs).toContain("1 targets: 0 hit, 1 ran, 0 failed, 0 skipped")
+    } finally {
+      vi.restoreAllMocks()
+      await Fs.rm(f.root, { recursive: true, force: true })
+    }
+  }
+)
+
+it("never calls the GitHub API for a pull-request merge checkout", async () => {
+  const f = await fixture()
+  const transport = vi.fn(() => {
+    throw new Error("PR API call")
+  })
+  try {
+    expect(
+      await AffectedBase.resolve(
+        f.root,
+        {
+          ...process.env,
+          GITHUB_EVENT_NAME: "pull_request",
+          GITHUB_TOKEN: "synthetic-job-token"
+        },
+        undefined,
+        transport
+      )
+    ).toBe(f.base)
+    expect(transport).not.toHaveBeenCalled()
+    expect(f.git("config", "--local", "--list")).not.toContain("extraheader")
+  } finally {
+    await Fs.rm(f.root, { recursive: true, force: true })
+  }
+})

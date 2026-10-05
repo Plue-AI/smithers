@@ -225,7 +225,7 @@ export interface KindView {
  * @category models
  * @since 0.1.0
  */
-export type WorkspaceAttr = "packageManager" | "runtime"
+export type WorkspaceAttr = "packageManager" | "runtime" | "repository"
 
 /**
  * How a declaration presents its target to a person: the one-line `summary`

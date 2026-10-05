@@ -289,6 +289,8 @@ export type Job = typeof Job.Type
 export const Attrs = Schema.Struct({
   /** Workflow token permissions; writes are confined to deployment jobs. */
   permissions: Schema.optional(Schema.Record(Schema.String, Permission)),
+  /** Workspace repository identity used to refuse fork deployments. */
+  repository: Schema.optional(Schema.NonEmptyString),
   /** @default "CI" */
   workflowName: Schema.NonEmptyString.pipe(
     Schema.withConstructorDefault(Effect.succeed("CI"))
@@ -864,9 +866,9 @@ export const toolchainSteps = (attrs: Attrs, job: Job): ReadonlyArray<RenderedSt
   const needs = job.toolchain
   // The checkout `with:` map is assembled from the declared requirements, in a
   // fixed key order, so two jobs asking for the same thing render the same
-  // bytes. A job that asks for neither renders a bare `uses:` step, exactly as
-  // before this map existed.
+  // bytes. Credential persistence is disabled even with default history settings.
   const checkoutWith: Record<string, string> = {
+    "persist-credentials": "false",
     ...(needs.submodules ? { submodules: "recursive" } : {}),
     ...(needs.fetchDepth === undefined && !(attrs.affected && attrs.pullRequest)
       ? {}
@@ -880,7 +882,7 @@ export const toolchainSteps = (attrs: Attrs, job: Job): ReadonlyArray<RenderedSt
   }
   const steps: Array<RenderedStep> = [{
     uses: actions.checkout,
-    ...(Object.keys(checkoutWith).length === 0 ? {} : { with: checkoutWith })
+    with: checkoutWith
   }]
   if (needs.workflowLint !== undefined) {
     steps.push({
@@ -1566,10 +1568,25 @@ const writeCacheEnvironment = (attrs: Attrs): Readonly<Record<string, string>> =
  * held to {@link publishBranchName} by `validatePublishing`, so nothing here
  * can open an expression or close a quote.
  */
-const publishGuard = (attrs: Attrs): string => {
-  const refs = attrs.pushBranches.map((branch) => `github.ref == 'refs/heads/${branch}'`)
+class DeploymentRepositoryInvalid
+  extends Data.TaggedError("smithers-build/DeploymentRepositoryInvalid")<{ readonly message: string }>
+{}
+
+const repositoryIdentity = (repository: string | undefined): string => {
+  const match = /^(?:git\+)?https:\/\/github\.com\/([\w.-]+\/[\w.-]+?)(?:\.git)?$/.exec(repository ?? "")
+  if (match === null) {
+    throw new DeploymentRepositoryInvalid({ message: "GithubCiGen: deployment needs the declared GitHub repository" })
+  }
+  return match[1]!
+}
+
+const publishGuard = (attrs: Attrs, deploy: boolean): string => {
+  const refs = (deploy ? ["main"] : attrs.pushBranches).map((branch) => `github.ref == 'refs/heads/${branch}'`)
   const condition = refs.length === 1 ? refs[0]! : `(${refs.join(" || ")})`
-  return `\${{ github.event_name == 'push' && ${condition} }}`
+  const identity = deploy ? repositoryIdentity(attrs.repository) : undefined
+  return `\${{ github.event_name == 'push' && ${condition}${
+    identity === undefined ? "" : ` && github.repository == '${identity}'`
+  } }}`
 }
 
 /**
@@ -1679,7 +1696,7 @@ export const render = (attrs: Attrs): string => {
     }
     if (publishes || job.environment !== undefined) {
       lines.push(
-        `    if: ${publishGuard(attrs)}`,
+        `    if: ${publishGuard(attrs, job.steps.some((step) => step.verb.name === "run"))}`,
         `    environment: ${scalar(job.environment ?? attrs.cacheWriteEnvironment!)}`
       )
     }
@@ -1713,7 +1730,12 @@ export const render = (attrs: Attrs): string => {
       const affected = attrs.affected === true && job.matrix === undefined && step.verb.name !== "run"
       const env = {
         ...jobEnv,
-        ...(affected ? { GITHUB_TOKEN: "${{ github.token }}", SMTHRS_CI_JOB: job.name ?? job.id } : {}),
+        ...(affected
+          ? {
+            GITHUB_TOKEN: "${{ github.event_name == 'push' && github.token || '' }}",
+            SMTHRS_CI_JOB: job.name ?? job.id
+          }
+          : {}),
         ...Object.fromEntries((step.secrets ?? []).map((secret) => [secret.env, `\${{ secrets.${secret.env} }}`]))
       }
       rendered.push({
@@ -1763,7 +1785,7 @@ export const render = (attrs: Attrs): string => {
  */
 export const GithubCiGen = Target.make("GithubCiGen", {
   attrs: Attrs,
-  workspaceAttrs: ["packageManager"],
+  workspaceAttrs: ["packageManager", "repository"],
   kinds: ["build", "lint"],
   error: Schema.Union([WriteFileError, DriftError]),
   cache: (attrs) => attrs.mode !== "write",

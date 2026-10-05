@@ -463,3 +463,10 @@ describe("filling a target's workspace attrs", () => {
     expect(filled.runtime).toBeUndefined()
   })
 })
+
+it("fills the generated deploy guard from the workspace repository declaration", async () => {
+  const repository = "git+https://github.com/owner/project.git"
+  const toolchain = WorkspaceToolchain.of(workspaceOf({ repository }))
+  expect(WorkspaceToolchain.fill(["repository"], {}, toolchain)).toEqual({ repository })
+  expect(WorkspaceToolchain.fill([], {}, toolchain)).toEqual({})
+})

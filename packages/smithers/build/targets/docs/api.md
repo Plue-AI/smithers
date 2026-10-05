@@ -377,3 +377,12 @@ seconds; they are not registry billing or application latency measurements.
 The terminal prints readiness and expiry in UTC, the proxy command, the local
 URL, and image size/readiness/cleanup counts. Proxying uses the reader's own
 `gcloud` login. The receipt carries no access token or remote tag URL.
+
+Generated checkout steps set `persist-credentials: false`. Affected steps receive
+the job token only for push events; pull requests use `HEAD^1` without GitHub API
+calls. Deploy jobs require a push to the declared repository's `main`, successful
+gates, and the protected environment. Code on `main` is trusted with deploy
+credentials, as in the hand-written workflow. The broker hands children
+placeholders and keeps credentials out of argv, output, receipts, results and
+caches; it provides exposure reduction within one same-user trust domain, not
+operating-system isolation.

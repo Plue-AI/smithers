@@ -143,7 +143,7 @@ func TestPreviewMountedMachineRouteSweep(t *testing.T) {
 		return nil
 	}))
 	require.GreaterOrEqual(t, count, 53)
-	t.Logf("refused %d mounted machine routes", count)
+	t.Logf("refused %d marked mounted machine routes", count)
 }
 
 func TestPreviewChatHasNoHost(t *testing.T) {
@@ -186,4 +186,24 @@ func TestPreviewLegacyWorkersFlagRejectedBeforeStartup(t *testing.T) {
 	err := StartWithOptions(context.Background(), nil, io.Discard, io.Discard, Options{Workspace: workspace.NewDisabled()}, func(http.Handler) { ready = true })
 	require.EqualError(t, err, "legacy workflow triggers are unavailable in single-owner mode; use canonical Flow hosts")
 	require.False(t, ready)
+}
+
+// Route markers provide early refusal for the inventoried doors. Service
+// admission remains closed even when a new route has no marker.
+func TestPreviewUnmarkedRouteCannotDispatch(t *testing.T) {
+	service := services.NewWorkflowRunService(nil, services.WithWorkflowRunMachineRuntime(workspace.NewDisabled()))
+	router := chi.NewRouter()
+	reached := false
+	router.Post("/unmarked", func(w http.ResponseWriter, r *http.Request) {
+		reached = true
+		_, err := service.DispatchForEvent(r.Context(), services.DispatchForEventInput{})
+		require.EqualError(t, err, "Machines are off in this preview.")
+		w.WriteHeader(http.StatusServiceUnavailable)
+	})
+	children := previewChildren(t)
+	response := httptest.NewRecorder()
+	router.ServeHTTP(response, httptest.NewRequest(http.MethodPost, "/unmarked", nil))
+	require.True(t, reached)
+	require.Equal(t, http.StatusServiceUnavailable, response.Code)
+	require.Equal(t, children, previewChildren(t), "service admission spawned a process")
 }

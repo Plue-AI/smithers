@@ -124,7 +124,8 @@ export const main = async (host: Host): Promise<void> => {
   }
 }
 
-/** Keeps real API credentials in a trusted process, outside declaration execution.
+/** Reduces credential exposure by handing children placeholders.
+ * Same-user processes share a trust domain; this is not OS credential isolation.
  * The explicit audience option is for hermetic transport tests; executable entries
  * always use the fixed production audiences.
  * @category execution

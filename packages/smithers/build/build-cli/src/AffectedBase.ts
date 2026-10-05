@@ -19,13 +19,23 @@ export const resolve = async (
   signal?: AbortSignal,
   transport: typeof fetch = fetch
 ): Promise<string | undefined> => {
-  const git = async (args: ReadonlyArray<string>): Promise<string> => {
+  const git = async (args: ReadonlyArray<string>, authentication?: string): Promise<string> => {
     let output = ""
     const code = await ContainedProcess.run({
       command: "git",
       args,
       cwd: root,
-      environment: withoutToken(environment),
+      environment: {
+        ...withoutToken(environment),
+        // One-command configuration, never persisted in repository Git config.
+        ...(authentication === undefined ? {} : {
+          GIT_CONFIG_COUNT: "1",
+          GIT_CONFIG_KEY_0: "http.https://github.com/.extraheader",
+          GIT_CONFIG_VALUE_0: `AUTHORIZATION: basic ${
+            Buffer.from(`x-access-token:${authentication}`).toString("base64")
+          }`
+        })
+      },
       signal,
       timeoutMs: 30_000,
       maxOutputBytes: 1024 * 1024,
@@ -107,7 +117,7 @@ export const resolve = async (
           merge_base_commit?: { sha: string }
         }
         if (comparison.status !== "ahead" || comparison.merge_base_commit?.sha !== run.head_sha) return undefined
-        await git(["fetch", "--depth=1", "--no-tags", "origin", run.head_sha])
+        await git(["fetch", "--depth=1", "--no-tags", "origin", run.head_sha], token)
         // Both the API and the local object must establish the ancestry and tree diff.
         // Shallow fetches need not connect the graph locally; compare supplies ancestry.
         await git(["rev-parse", "--verify", "--end-of-options", `${run.head_sha}^{commit}`])

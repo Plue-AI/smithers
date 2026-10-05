@@ -1040,7 +1040,8 @@ describe("toolchain variants", () => {
       packageDir: ".github"
     })
     expect(JSON.stringify(outputs)).toContain("affected ci '//:build' --base-green")
-    expect(JSON.stringify(outputs)).toContain("GITHUB_TOKEN: ${{ github.token }}")
+    expect(JSON.stringify(outputs)).toContain("persist-credentials: false")
+    expect(JSON.stringify(outputs)).toContain("GITHUB_TOKEN: ${{ github.event_name == 'push' && github.token || '' }}")
   })
 })
 

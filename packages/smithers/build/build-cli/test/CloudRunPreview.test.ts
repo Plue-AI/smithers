@@ -57,6 +57,12 @@ const fixture = async (options: {
   postDescribeFails?: boolean
   postDescribeMalformed?: boolean
   foreignLabeled?: boolean
+  wrongDeployment?: boolean
+  wrongImage?: boolean
+  movedBeforeAttach?: boolean
+  moveDuringSweep?: boolean
+  moveSweepTag?: boolean
+  moveTag?: boolean
   status?: number
 } = {}) => {
   const root = await Fs.realpath(await Fs.mkdtemp(Path.join(Os.tmpdir(), "cloud-run-preview-")))
@@ -184,6 +190,28 @@ if (tool === "docker") {
   console.log(${options.tokenOverflow ? "\"x\".repeat(17 * 1024 * 1024)" : JSON.stringify(token)});
   ${options.authFails ? "process.exit(23);" : ""}
  }
+ else if (argv[2] === "replace") {
+  const file = JSON.parse(fs.readFileSync(argv[3], "utf8"));
+  const versionFile = path.join(process.cwd(), "version");
+  let version = Number(fs.existsSync(versionFile) ? fs.readFileSync(versionFile, "utf8") : 1);
+  const ownerFile = path.join(process.cwd(), "tag-owner");
+  if (${options.moveTag === true} && file.spec.traffic.every(x => x.revisionName !== "fixture-current")) {
+    if (!fs.existsSync(ownerFile)) { fs.writeFileSync(ownerFile, "fixture-other"); version++; fs.writeFileSync(versionFile, String(version)); process.exit(23); }
+  }
+  if (${
+    options.moveSweepTag === true
+  } && !file.spec.traffic.some(x => x.tag === "old") && !fs.existsSync(path.join(process.cwd(), "old-owner"))) {
+    fs.writeFileSync(path.join(process.cwd(), "old-owner"), "fixture-other"); version++; fs.writeFileSync(versionFile,String(version)); process.exit(23);
+  }
+  if (file.metadata.resourceVersion !== String(version) || (${
+    options.removeFails === true
+  } && !file.spec.traffic.some(x => x.tag === "r-${commit.slice(0, 7)}"))) process.exit(23);
+  fs.writeFileSync(path.join(process.cwd(), "traffic"), JSON.stringify(file.spec.traffic));
+  fs.writeFileSync(versionFile, String(version + 1));
+  if (${options.moveDuringSweep === true} && !file.spec.traffic.some(x => x.tag === "old")) {
+    fs.writeFileSync(ownerFile, "fixture-other"); fs.writeFileSync(versionFile, String(version + 2));
+  }
+ }
  else if (argv[2] === "update-traffic" && ${options.removeFails === true}) process.exit(23);
  else if (argv[2] === "delete" && ${options.deleteFails === true}) process.exit(23);
  else if (argv[1] === "deploy") { fs.writeFileSync(${JSON.stringify(state)}, String(Number(fs.existsSync(${
@@ -194,11 +222,18 @@ if (tool === "docker") {
     options.pendingDeploy ? "setInterval(() => {}, 1000);" : ""
   } }
  else if (argv[1] === "services" && argv[2] === "describe") {
-  if (fs.existsSync(${JSON.stringify(state)})) { ${options.postDescribeFails ? "process.exit(23);" : ""} ${
-    options.postDescribeMalformed ? "console.log('malformed'); process.exit(0);" : ""
+  if (fs.existsSync(${JSON.stringify(state)})) { ${
+    options.postDescribeFails
+      ? "if (!fs.existsSync(path.join(process.cwd(), \"describe-failed\"))) {fs.writeFileSync(path.join(process.cwd(), \"describe-failed\"), \"1\"); process.exit(23);}"
+      : ""
+  } ${
+    options.postDescribeMalformed
+      ? "if (!fs.existsSync(path.join(process.cwd(), \"describe-failed\"))) {fs.writeFileSync(path.join(process.cwd(), \"describe-failed\"), \"1\"); console.log(\"malformed\"); process.exit(0);}"
+      : ""
   } }
   ${options.missingService ? "process.exit(1);" : ""}
   ${options.malformedService ? `console.log(${JSON.stringify(token)}); process.exit(0);` : ""}
+
   const kept = [{tag:"old",revisionName:"fixture-expired",percent:0},{tag:"foreign",revisionName:"fixture-foreign",percent:0},${
     JSON.stringify(
       options.unresolvedTraffic
@@ -211,24 +246,45 @@ if (tool === "docker") {
   if (fs.existsSync(${
     JSON.stringify(Path.join(root, "promoted"))
   })) kept.push({revisionName:"fixture-current",percent:100});
-  console.log(JSON.stringify({ status: { latestReadyRevisionName: ${
-    JSON.stringify(options.latestTraffic ? "fixture-serving" : null)
-  }, traffic: fs.existsSync(${JSON.stringify(state)}) ? [...kept,{tag:"r-${
-    commit.slice(0, 7)
-  }",revisionName:Number(fs.readFileSync(${
+  if (${options.movedBeforeAttach === true} && fs.existsSync(${
     JSON.stringify(state)
-  }, "utf8")) > 1 ? "fixture-current-2" : "fixture-current",url:${JSON.stringify(url)},percent:0}] : kept } }));
- } else if (argv[1] === "revisions" && argv[2] === "describe") console.log(JSON.stringify({metadata:{labels:{"smthrs-owner": fs.readFileSync(${
+  })) fs.writeFileSync(path.join(process.cwd(), "tag-owner"), "fixture-other");
+  const trafficFile = path.join(process.cwd(), "traffic");
+  const ownerFile = path.join(process.cwd(), "tag-owner");
+  let traffic = fs.existsSync(trafficFile) ? JSON.parse(fs.readFileSync(trafficFile, "utf8")) : kept;
+  if (fs.existsSync(ownerFile)) traffic = [...traffic.filter(x => x.tag !== "r-${commit.slice(0, 7)}"), {tag:"r-${
+    commit.slice(0, 7)
+  }",revisionName:"fixture-other",percent:0}];
+  if (fs.existsSync(path.join(process.cwd(), "old-owner"))) traffic = traffic.map(x => x.tag === "old" ? {...x,revisionName:"fixture-other"} : x);
+  traffic = traffic.map(x => x.tag ? {...x,url:${JSON.stringify(url)}} : x);
+  if (fs.existsSync(${
+    JSON.stringify(Path.join(root, "promoted"))
+  })) traffic.push({revisionName:"fixture-current",percent:100});
+  const versionFile = path.join(process.cwd(), "version");
+  console.log(JSON.stringify({metadata:{resourceVersion:fs.existsSync(versionFile) ? fs.readFileSync(versionFile,"utf8") : "1"}, spec:{traffic}, status:{latestReadyRevisionName:${
+    JSON.stringify(options.latestTraffic ? "fixture-serving" : null)
+  },traffic}}));
+ } else if (argv[1] === "revisions" && argv[2] === "describe") { const descriptionFile = path.join(process.cwd(), "description-count"); const descriptionCount = Number(fs.existsSync(descriptionFile) ? fs.readFileSync(descriptionFile,"utf8") : 0) + 1; fs.writeFileSync(descriptionFile,String(descriptionCount)); console.log(JSON.stringify({metadata:{labels:{...Object.fromEntries(fs.readFileSync(${
     JSON.stringify(Path.join(root, "labels"))
-  }, "utf8").split("smthrs-owner=")[1], "smthrs-expires":${
+  }, "utf8").split(",").map(x => x.split("="))),"smthrs-deployment":${
+    options.wrongDeployment === true
+  } ? "other-deployment" : Object.fromEntries(fs.readFileSync(${
+    JSON.stringify(Path.join(root, "labels"))
+  }, "utf8").split(",").map(x => x.split("=")))["smthrs-deployment"],"smthrs-expires":${
     JSON.stringify(options.reuseExpires ?? String(Math.floor(Date.now() / 1000) + 72 * 3600))
-  }}},status:{imageDigest:${JSON.stringify(options.reuseDigest ?? digest)}}}));
+  }}},status:{imageDigest:${
+    options.wrongImage === true
+  } ? "sha256:foreign" : descriptionCount > 1 && argv[3] === "fixture-current" && Number(fs.readFileSync(${
+    JSON.stringify(state)
+  }, "utf8")) === 1 ? ${JSON.stringify(options.reuseDigest ?? digest)} : ${JSON.stringify(digest)}}})); }
  else if (argv[1] === "revisions" && argv[2] === "list") { ${
     options.reconcileFails ? "process.exit(23);" : ""
   } const labels = Object.fromEntries(fs.readFileSync(${
     JSON.stringify(Path.join(root, "labels"))
   }, "utf8").split(",").map(x => x.split("="))); const owner = labels["smthrs-owner"]; console.log(JSON.stringify([
- {metadata:{name:"fixture-current",labels}},
+ {metadata:{name:Number(fs.readFileSync(${
+    JSON.stringify(state)
+  }, "utf8")) > 1 ? "fixture-current-2" : "fixture-current",labels},status:{imageDigest:${JSON.stringify(digest)}}},
  ...(${
     options.foreignLabeled === true
   } ? [{metadata:{name:"fixture-foreign",labels:{"smthrs-owner":"foreign","smthrs-expires":"1","smthrs-commit":"abcdef0"}}}] : []),
@@ -257,6 +313,51 @@ if (tool === "docker") {
 }
 
 describe("CloudRun.Preview through smthrs run", { timeout: 60_000 }, () => {
+  it("refuses a tag moved to another deployment before attach without writing it", async () => {
+    const f = await fixture({ movedBeforeAttach: true })
+    const result = await serve(f.root, ["run", "//:preview"], { environment: f.environment })
+    expect(result.exitCode).toBe(1)
+    expect(result.output + result.logs).toContain("preview tag moved to another deployment")
+    expect((await f.calls()).some((c) => c.argv[2] === "replace")).toBe(false)
+    expect(await Fs.readFile(Path.join(f.root, "tag-owner"), "utf8")).toBe("fixture-other")
+    expect(await Fs.stat(Path.join(f.root, "cloud-run-preview/preview.json")).catch(() => undefined)).toBeUndefined()
+  })
+  it("withholds a receipt when another deployment moves the tag during expiry sweep", async () => {
+    const f = await fixture({ moveDuringSweep: true })
+    const result = await serve(f.root, ["run", "//:preview"], { environment: f.environment })
+    expect(result.exitCode).toBe(1)
+    expect(result.output + result.logs).toContain("preview tag moved to another deployment")
+    expect(await Fs.readFile(Path.join(f.root, "tag-owner"), "utf8")).toBe("fixture-other")
+    expect((await f.calls()).filter((c) => c.argv[2] === "replace")).toHaveLength(2)
+    expect((await f.calls()).some((c) => c.argv[2] === "delete" && c.argv.includes("fixture-other"))).toBe(false)
+    expect(await Fs.stat(Path.join(f.root, "cloud-run-preview/preview.json")).catch(() => undefined)).toBeUndefined()
+  })
+  it("preserves an expiry tag moved by another deployment during conditional sweep", async () => {
+    const f = await fixture({ moveSweepTag: true })
+    const result = await serve(f.root, ["run", "//:preview"], { environment: f.environment })
+    expect(result.exitCode, result.output + result.logs).toBe(0)
+    expect(await Fs.readFile(Path.join(f.root, "old-owner"), "utf8")).toBe("fixture-other")
+    expect((await f.calls()).filter((c) => c.argv[2] === "replace")).toHaveLength(2)
+    expect((await f.calls()).some((c) => c.argv[2] === "delete" && c.argv.includes("fixture-other"))).toBe(false)
+  })
+  it.each([{ wrongDeployment: true }, { wrongImage: true }])(
+    "withholds receipts for a different deployed revision identity %j",
+    async (options) => {
+      const f = await fixture(options)
+      const result = await serve(f.root, ["run", "//:preview"], { environment: f.environment })
+      expect(result.exitCode).toBe(1)
+      expect(result.output + result.logs).toContain("preview revision identity differs")
+      expect(await Fs.stat(Path.join(f.root, "cloud-run-preview/preview.json")).catch(() => undefined)).toBeUndefined()
+    }
+  )
+  it("preserves another deployment's tag moved between cleanup observation and write", async () => {
+    const f = await fixture({ status: 200, moveTag: true })
+    const result = await serve(f.root, ["run", "//:preview"], { environment: f.environment })
+    expect(result.exitCode).toBe(1)
+    expect(await Fs.readFile(Path.join(f.root, "tag-owner"), "utf8")).toBe("fixture-other")
+    expect((await f.calls()).some((c) => c.argv[2] === "delete" && c.argv.includes("fixture-other"))).toBe(false)
+    expect(await Fs.stat(Path.join(f.root, "cloud-run-preview/preview.json")).catch(() => undefined)).toBeUndefined()
+  })
   it.each([{ deployFails: true }, { postDescribeFails: true }, { postDescribeMalformed: true }])(
     "reconciles and removes an uncertain deployment %j",
     async (options) => {
@@ -264,7 +365,7 @@ describe("CloudRun.Preview through smthrs run", { timeout: 60_000 }, () => {
       const result = await serve(f.root, ["run", "//:preview"], { environment: f.environment })
       expect(result.exitCode).toBe(1)
       expect((await f.calls()).some((c) => c.argv[2] === "delete" && c.argv.includes("fixture-current"))).toBe(true)
-      expect((await f.calls()).some((c) => c.argv.includes("--remove-tags"))).toBe(true)
+      expect((await f.calls()).some((c) => c.argv[2] === "replace")).toBe(false)
     }
   )
   it("preserves an expired fully labeled foreign revision", async () => {
@@ -403,21 +504,8 @@ describe("CloudRun.Preview through smthrs run", { timeout: 60_000 }, () => {
     expect(result.logs).toContain(`Preview ${f.commit.slice(0, 7)} ready · private · expires`)
     expect(result.logs).toContain(receipt.open.command)
     expect(result.logs).toContain("http://preview.localhost:4100")
-    expect(transport).toEqual([
-      "gcloud run services describe",
-      "gcloud auth",
-      "docker login",
-      "docker load",
-      "docker tag",
-      "docker push",
-      "docker buildx imagetools inspect",
-      "gcloud run deploy",
-      "gcloud run services describe",
-      "gcloud run revisions list",
-      "gcloud run services describe",
-      "gcloud run services update-traffic",
-      "gcloud run revisions delete"
-    ])
+    expect(transport).toContain("gcloud run services replace")
+    expect(deploy.argv).not.toContain("--tag")
     const second = await serve(f.root, ["run", "//:preview", "--results-file", "results-second.json"], {
       environment: f.environment
     })
@@ -466,7 +554,7 @@ describe("CloudRun.Preview through smthrs run", { timeout: 60_000 }, () => {
     expect(result.exitCode).toBe(1)
     expect(result.output + result.logs).toContain("public_surface")
     const calls = await f.calls()
-    expect(calls.some((c) => c.argv.includes("--remove-tags") && c.argv.includes(`r-${f.commit.slice(0, 7)}`))).toBe(
+    expect(calls.some((c) => c.argv[2] === "replace")).toBe(
       true
     )
     expect(calls.some((c) => c.argv[2] === "delete" && c.argv.includes("fixture-current"))).toBe(true)
@@ -555,7 +643,7 @@ describe("CloudRun.Preview through smthrs run", { timeout: 60_000 }, () => {
     )
   })
   it.each([{ removeFails: true }, { deleteFails: true }])(
-    "attempts both cleanup operations and reports a failed privacy cleanup %j",
+    "reports cleanup failure without deleting a revision whose tag removal failed %j",
     async (options) => {
       const f = await fixture({ ...options, status: 200 })
       const result = await serve(f.root, ["run", "//:preview"], { environment: f.environment })
@@ -563,8 +651,10 @@ describe("CloudRun.Preview through smthrs run", { timeout: 60_000 }, () => {
       expect(result.output + result.logs).toContain("public_surface")
       expect(result.output + result.logs).toContain("cleanup failed")
       const calls = await f.calls()
-      expect(calls.some((c) => c.argv[2] === "update-traffic")).toBe(true)
-      expect(calls.some((c) => c.argv[2] === "delete" && c.argv.includes("fixture-current"))).toBe(true)
+      expect(calls.some((c) => c.argv[2] === "replace")).toBe(true)
+      expect(calls.some((c) => c.argv[2] === "delete" && c.argv.includes("fixture-current"))).toBe(
+        !("removeFails" in options)
+      )
     }
   )
   it("waits for cancellation cleanup before returning from a running push", async () => {
