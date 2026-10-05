@@ -10,6 +10,7 @@
 import type * as AgentTarget from "@smthrs/targets/AgentTarget"
 import type * as Anvil from "@smthrs/targets/Anvil"
 import type * as BundlerTarget from "@smthrs/targets/BundlerTarget"
+import type * as CloudRun from "@smthrs/targets/CloudRun"
 import type * as Compose from "@smthrs/targets/Compose"
 import type * as Docker from "@smthrs/targets/Docker"
 import type * as Input from "@smthrs/targets/Input"
@@ -76,6 +77,13 @@ export type LaneData =
     readonly stop?: ServiceSupervisor.Stop | undefined
   }
   | { readonly kind: "docker-service"; readonly attrs: (typeof Docker.ServeAttrs)["Type"] }
+  | {
+    readonly kind: "cloud-run-preview"
+    readonly commit: string
+    readonly attrs: (typeof CloudRun.PreviewAttrs)["Type"]
+    readonly packagePath: string
+    readonly name: string
+  }
   | { readonly kind: "docker-push"; readonly commands: ReadonlyArray<ReadonlyArray<string>> }
   | { readonly kind: "anvil-fork"; readonly attrs: (typeof Anvil.ForkAttrs)["Type"] }
   | { readonly kind: "closure"; readonly entries: ReadonlyArray<Compose.AnchoredSource> }
@@ -309,6 +317,7 @@ export type Selection =
   )
   | (Variant<"container", "Docker.Build" | "Docker.Bake", undefined> & { readonly argv: Argv })
   | Variant<"container", "Docker.Push", Lane<"docker-push">>
+  | Variant<"outward", "CloudRun.Preview", Lane<"cloud-run-preview">>
   | Variant<"generated", "Generate" | "Owners.Codeowners" | "Owners.Tree", undefined>
   | Variant<
     "value",

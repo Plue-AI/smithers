@@ -13,6 +13,7 @@ const nativeLanes = {
   "Docker.Serve": true,
   "Docker.Service": true,
   "Docker.Push": true,
+  "CloudRun.Preview": true,
   "Anvil.Fork": true,
   "ImportClosure": true,
   "Test": true,

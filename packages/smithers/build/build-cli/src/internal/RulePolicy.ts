@@ -44,6 +44,7 @@ const policies: Readonly<Record<NativeRule, Policy>> & Readonly<Record<string, P
   "Cargo.Test": { writes: true, cache: "read" },
   "Changesets.Publish": { outward: true },
   "Changesets.Version": { check: true, exclusive: true, writes: true, cache: "check" },
+  "CloudRun.Preview": { outward: true },
   "Clean": { outward: true, keyOnly: true, writes: true },
   "Copy": { writes: true, cache: "always" },
   "Cron": { keyOnly: true },
