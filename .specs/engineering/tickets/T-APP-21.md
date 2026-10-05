@@ -40,12 +40,12 @@ C-UI-10 is folded into these tests. Commit literal fixtures for install operatio
 - unit: through the production Send action, no mutation fetch occurs before confirmation or after the request changes; retries retain the same idempotency key. Typed 401 rendering uses a literal error fixture. Reject an unknown operation, an absolute/cross-origin URL and a redirect before any off-origin fetch. Render response bodies as text; cookie and authorization headers never appear in the exchange. No token input or storage is created.
 - integration (`apps/app/e2e/playwright/debug-api.spec.ts`, new; real install backend and PostgreSQL; Ben is a Member, Mia a Maintainer):
   - Open `/debug-api` through the slash dispatcher and Advanced door, reaching the card through `CardRenderers`; selecting a literal operation sends no API request.
-  - Ben sends `GET /api/stack`: 200 and the literal seeded stack body; compare separately with `curl` using Ben's session.
-  - Ben sends a literal `PUT /api/secrets` fixture: zero requests before confirmation, then 403 `permission`; Mia's same request succeeds. Assert literal status/envelope and persisted effects independently of the `curl` comparison.
+  - (a) Ben (Member) sends `GET /api/todos`: 200 and the committed literal seeded body; compare separately with `curl` using Ben's session (smithers-8a ruling 2026-10-05 (C-UI-10 routes)).
+  - (b) Ben (Member) sends the literal release-OpenAPI `POST /api/repos/{owner}/{repo}/secrets` fixture: zero requests before Confirm, then 403 class `permission` and zero PostgreSQL rows written. Mia (Maintainer) succeeds; assert her persisted effect independently in PostgreSQL (smithers-8a ruling 2026-10-05 (C-UI-10 routes)). Move this case to §6.3's `/api/secrets` in the same change T-MCH-12 serves it.
   - Ben signs out in another tab, then sends: the literal 401 refusal renders without a crash.
   - Invoke `debug.api` through the production app-agent dispatcher and `smthrs` parser/dispatcher with an eligible delegated credential: person-only refusal `never`, with no API effects. Scope/role failures retain their earlier refusal (§5.2.1).
   - The displayed operations and form fields equal the committed literal install-composition fixture; Plue-only and undocumented operations are absent.
-  - Each dark-landing guard refuses with no effects. A literal repository-flow execution request goes through its production route: unavailable isolation refuses without a host process; available execution runs only in a branch machine.
+  - Each dark-landing guard refuses with no effects. (c) Repository-flow execution remains `test.fixme` pending T-INS-02/T-FLW-01: unavailable isolation must refuse without a host process; available execution must run only in a branch machine (smithers-8a ruling 2026-10-05 (C-UI-10 routes)).
 - C-UI-13: add `DebugApiView` with T-APP-21 and an empty legacy-file list to the existing literal reachability table when mounted; do not add a second inventory gate.
 ## Acceptance
 - [C-UI-10](../checks/C-UI-10.md): passes for this ticket’s phase at its stated layer.
