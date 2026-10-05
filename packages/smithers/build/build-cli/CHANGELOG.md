@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+- Check-mode targets leave declared `hostDirectories` out of the gitignored
+  census and link them into the scratch copy instead of copying them. A large
+  or read-only host cache, such as Go's module cache, no longer refuses a
+  check over its entry count or fails it when the scratch is removed.
+
 - `review --credential-receiver <absolute executable>` writes each review's
   credential discoveries (revision, file, line and name, never a value) to the
   receiver's stdin before inference. A nonzero exit fails the review; the

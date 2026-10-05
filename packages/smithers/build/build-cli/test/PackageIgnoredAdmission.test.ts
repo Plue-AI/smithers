@@ -48,6 +48,7 @@ export const Workspace = S.Workspace("fixture", {
     `import { Smithers as S } from "@smthrs/targets"
 export const Package = S.Package({ targets: {
   docs: S.Shell.Diff({ shell: "printf 'after\\n' > docs/output.md", changes: ["docs/**"], sandbox: "none" }),
+  docsCurrent: S.Shell.Diff({ shell: "printf 'before\\n' > docs/output.md", changes: ["docs/**"], sandbox: "none" }),
   generated: S.Generate({ command: "printf 'generated\\n'", stdout: "docs/generated.md" }),
   badDocs: S.Shell.Diff({ shell: "printf 'after\\n' > docs/output.md && printf leaked > docs/private.tmp", changes: ["docs/output.md"], sandbox: "none" }),
   badCacheTracked: S.Shell.Diff({ shell: "printf 'after\\n' > docs/output.md && printf leaked > go-cache/owned.txt", changes: ["docs/output.md"], sandbox: "none" }),
@@ -126,6 +127,10 @@ it.skipIf(process.platform === "win32")(
     const admitted = await serve(root, ["//:generated", "--write"])
     expect(admitted.exitCode, admitted.output + admitted.logs).toBe(0)
     expect(await Fs.readFile(NodePath.join(root, "docs/generated.md"), "utf8")).toBe("generated\n")
+    // Check mode runs in a scratch copy and measures portals itself; the
+    // declared cache stays outside that census too.
+    const checked = await serve(root, ["//:docsCurrent"])
+    expect(checked.exitCode, checked.output + checked.logs).toBe(0)
 
     await write(root, "docs/generated.md", "keep\n")
     const workspace = await Fs.readFile(NodePath.join(root, "WORKSPACE.ts"), "utf8")
@@ -137,8 +142,13 @@ it.skipIf(process.platform === "win32")(
       "the write-set guard cannot restore the gitignored tree: more than 50000 entries"
     )
     expect(await Fs.readFile(NodePath.join(root, "docs/generated.md"), "utf8")).toBe("keep\n")
+    const refusedCheck = await serve(root, ["//:docsCurrent"])
+    expect(refusedCheck.exitCode).toBe(1)
+    expect(refusedCheck.output + refusedCheck.logs).toContain(
+      "the write-set guard cannot restore the gitignored tree: more than 50000 entries"
+    )
   },
-  180_000
+  300_000
 )
 
 it.skipIf(process.platform === "win32")(

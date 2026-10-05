@@ -1359,7 +1359,8 @@ const listTrackedSymlinks = async (root: string): Promise<Array<string>> => {
  * The links under gitignored directories come from the gitignored census,
  * taken from `ignored` when the caller already holds that snapshot so the
  * tree is walked once per guarded body, and otherwise measured here under
- * {@link ignoredLimits}.
+ * {@link ignoredLimits} without descending into `hostTrees`, the same
+ * declared host caches {@link snapshotIgnored} skips.
  *
  * A portal the census cannot measure — over {@link portalEntryCap} entries, or
  * unreadable — raises {@link PortalCensusError} and refuses the target. The
@@ -1371,7 +1372,8 @@ const listTrackedSymlinks = async (root: string): Promise<Array<string>> => {
 export const snapshotPortals = async (
   root: string,
   cacheDirectory: string,
-  ignored?: IgnoredSnapshot
+  ignored?: IgnoredSnapshot,
+  hostTrees: ReadonlyArray<string> = []
 ): Promise<PortalSnapshot> => {
   const realRoot = await Fs.realpath(root)
   const candidates = new Set<string>(await listTrackedSymlinks(root))
@@ -1380,7 +1382,7 @@ export const snapshotPortals = async (
     const path = entry.path.endsWith("/") ? entry.path.slice(0, -1) : entry.path
     if (path !== "") candidates.add(path)
   }
-  const ignoredEntries = ignored?.entries ?? await listIgnored(root, cacheDirectory, ignoredLimits)
+  const ignoredEntries = ignored?.entries ?? await listIgnored(root, cacheDirectory, ignoredLimits, hostTrees)
   for (const [path, entry] of ignoredEntries) {
     if (entry.kind === "link") candidates.add(path)
   }
@@ -1519,7 +1521,10 @@ export const releasePortals = async (snapshot: PortalSnapshot): Promise<void> =>
  * the same installed tools without duplicating them. `skip` names further
  * workspace-relative roots the caller is going to clear anyway — an overlay
  * build's own `outDirs` — so a large previous output is not copied only to be
- * deleted.
+ * deleted. `hostTrees` names the declared host caches, which are linked like
+ * the root `node_modules`: a tool reads the same cache, and a read-only cache
+ * such as Go's module cache is neither copied nor left in a scratch tree its
+ * removal cannot unlink.
  *
  * @category scratch
  * @since 0.1.0
@@ -1527,12 +1532,14 @@ export const releasePortals = async (snapshot: PortalSnapshot): Promise<void> =>
 export const scratchCopy = async (
   root: string,
   cacheDirectory: string,
-  skip: ReadonlyArray<string> = []
+  skip: ReadonlyArray<string> = [],
+  hostTrees: ReadonlyArray<string> = []
 ): Promise<string> => {
   const destination = await Fs.mkdtemp(NodePath.join(Os.tmpdir(), "smthrs-scratch-"))
   const cacheAbsolute = NodePath.join(root, ...cacheDirectory.split("/"))
   const nodeModulesAbsolute = NodePath.join(root, "node_modules")
   const skipped = new Set(skip.map((path) => NodePath.join(root, ...path.split("/"))))
+  const linked = [nodeModulesAbsolute, ...hostTrees.map((path) => NodePath.join(root, ...path.split("/")))]
   const versionControl = new Set([".git", ".jj"])
   const nestedCheckout = (source: string): boolean =>
     source !== root && NodeFs.existsSync(NodePath.join(source, ".git"))
@@ -1541,11 +1548,14 @@ export const scratchCopy = async (
       recursive: true,
       verbatimSymlinks: true,
       filter: (source) =>
-        source !== cacheAbsolute && source !== nodeModulesAbsolute && !skipped.has(source) &&
+        source !== cacheAbsolute && !linked.includes(source) && !skipped.has(source) &&
         !versionControl.has(NodePath.basename(source)) && !nestedCheckout(source)
     })
-    if (await Fs.lstat(nodeModulesAbsolute).then(() => true, () => false)) {
-      await Fs.symlink(nodeModulesAbsolute, NodePath.join(destination, "node_modules"), "dir")
+    for (const source of linked) {
+      if (!(await Fs.lstat(source).then(() => true, () => false))) continue
+      const target = NodePath.join(destination, NodePath.relative(root, source))
+      await Fs.mkdir(NodePath.dirname(target), { recursive: true })
+      await Fs.symlink(source, target, "dir")
     }
     return destination
   } catch (error) {
