@@ -4,6 +4,7 @@ import { isGraphDrawerTab, unknownTabRefusal } from "../state/controller/graph"
 import type { KnownRepositories } from "../state/RepoContext"
 import { REPO_TOKEN,splitTrailingRepo } from "../state/RepoContext"
 import { parseFileArgs, parseFileReadArgs } from "@smthrs/rpc/FileRead"
+import { parseFileListArgs } from "@smthrs/rpc/FileList"
 import { splitRunSource,takesRunSource } from "@smthrs/ui/run-command"
 
 /** A parsed invocation, or the honest refusal that names what is missing. */
@@ -991,12 +992,8 @@ const GRAMMAR: Readonly<Record<string, Grammar>> = {
   "findings.please-fix": (args) => numberedChangeRef("findings.please-fix", "findingId", "a finding id", args),
   "findings.not-useful": (args) => numberedChangeRef("findings.not-useful", "findingId", "a finding id", args),
   "files.list": (args) => {
-    const parsed = parseFileArgs(args)
-    if ("error" in parsed) return parsed
-    const tokens = parsed.tokens
-    if (tokens.length > 2) return no("files.list takes a path and optionally an owner/repo")
-    const [path, repo] = tokens
-    return ok(repo === undefined ? { path: path ?? "" } : { path: path ?? "", repo })
+    const parsed = parseFileListArgs(args)
+    return "error" in parsed ? no(parsed.error) : ok({ ...parsed.payload })
   },
   /*
    * The line anchor (docs/code-intel/PLAN.md §1): `<path>[:<line>[:<col>]]`.

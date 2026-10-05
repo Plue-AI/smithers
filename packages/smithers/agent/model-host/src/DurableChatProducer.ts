@@ -13,7 +13,7 @@ import {
 import type { AgentTurnCursor, AgentTurnJournalReply } from "@smthrs/rpc/AgentTurnJournal"
 import type { AgentTurnFrame, FetchLike, StartAgentTurnRequest } from "@smthrs/rpc/NativeAgent"
 import { Effect } from "effect"
-import { apiReader, hostOwned, runHostTurn, sourceReader } from "./HostTools.ts"
+import { apiReader, hostOwned, runHostTurn, sourceLister, sourceReader } from "./HostTools.ts"
 import { CommitRefused, ProducerUnreachable, ProviderStartRefused, ReceiptMismatch } from "./ModelHostError.ts"
 import type { ProducerError } from "./ModelHostError.ts"
 import { runModelTurn } from "./ModelTurnHost.ts"
@@ -193,6 +193,7 @@ export const runDurableChatTurn = (
     if (hostOwned(grant.request)) {
       yield* runHostTurn(model, grant, options, write, {
         read: sourceReader(callbackBaseUrl, grant, fetchImpl),
+        list: sourceLister(callbackBaseUrl, grant, fetchImpl),
         api: apiReader(callbackBaseUrl, grant, fetchImpl)
       })
       return

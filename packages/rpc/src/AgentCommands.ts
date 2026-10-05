@@ -5,6 +5,7 @@
  * @since 1.0.0
  */
 
+import { FILES_LIST_COMMAND } from "./FileList.ts"
 import { FILES_READ_COMMAND } from "./FileRead.ts"
 import type { AgentToolSpec } from "./NativeAgent.ts"
 import { STACK_COMMAND, TODO_COMMAND, TODO_NEW_COMMAND } from "./TodoCommands.ts"
@@ -29,7 +30,13 @@ export interface AgentCommand {
  * @since 1.0.0
  * @category constants
  */
-export const INSTALL_HOST_COMMANDS = [FILES_READ_COMMAND, STACK_COMMAND, TODO_COMMAND, TODO_NEW_COMMAND] as const
+export const INSTALL_HOST_COMMANDS = [
+  FILES_LIST_COMMAND,
+  FILES_READ_COMMAND,
+  STACK_COMMAND,
+  TODO_COMMAND,
+  TODO_NEW_COMMAND
+] as const
 
 /**
  * The one tool the chat model gets.

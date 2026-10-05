@@ -24,6 +24,28 @@ type SourceFile struct {
 	Binary     bool   `json:"binary"`
 }
 
+// SourceDirectory is one directory an app-agent turn listed on its
+// repository's mirrored main: its immediate entries, in the repository
+// host's order. Truncated says it holds more than one listing shows.
+type SourceDirectory struct {
+	Repository string        `json:"repository"`
+	Path       string        `json:"path"`
+	Commit     string        `json:"commit"`
+	Entries    []SourceEntry `json:"entries"`
+	Truncated  bool          `json:"truncated"`
+}
+
+// SourceEntry is one entry of a listed directory. Only a tree is a
+// directory: a symlink and a submodule are listed as files, never descended.
+type SourceEntry struct {
+	Name string `json:"name"`
+	Kind string `json:"kind"`
+}
+
+// sourceListLimit bounds one listing: the repository host's largest
+// directory page.
+const sourceListLimit = 1000
+
 var (
 	// ErrSourceNotReady: setup has not mirrored main yet (spec §16.2 step 7).
 	ErrSourceNotReady = errors.New("repository source is not ready")
@@ -32,8 +54,9 @@ var (
 	// ErrSourceForbidden: the turn's credential no longer reads this
 	// repository as its member.
 	ErrSourceForbidden = errors.New("source is not readable by this member")
-	// ErrSourceNotFound: main has no regular file at the path.
-	ErrSourceNotFound = errors.New("source path is not a file on main")
+	// ErrSourceNotFound: main has no regular file at the path a read names,
+	// or no directory at the path a listing names.
+	ErrSourceNotFound = errors.New("source path is not on main")
 	// ErrSourceTooLarge: the file is over the repository host's blob cap.
 	ErrSourceTooLarge = errors.New("source file exceeds the read limit")
 )
@@ -58,7 +81,7 @@ type InstallSource struct {
 
 // Source names the mirror the turn's credential may read, as owner/name.
 func (s InstallSource) Source(ctx context.Context, credential middleware.Credential, userID, repositoryID int64) (string, error) {
-	owner, repository, err := s.readable(ctx, credential, userID, repositoryID)
+	owner, repository, _, err := s.readable(ctx, credential, userID, repositoryID)
 	if err != nil {
 		return "", err
 	}
@@ -72,7 +95,7 @@ func (s InstallSource) ReadSource(ctx context.Context, credential middleware.Cre
 	if ValidateRepositoryPath(filePath) != nil {
 		return SourceFile{}, ErrSourcePathRefused
 	}
-	owner, repository, err := s.readable(ctx, credential, userID, repositoryID)
+	owner, repository, _, err := s.readable(ctx, credential, userID, repositoryID)
 	if err != nil {
 		return SourceFile{}, err
 	}
@@ -97,45 +120,79 @@ func (s InstallSource) ReadSource(ctx context.Context, credential middleware.Cre
 	return read, nil
 }
 
+// ListSource lists one directory at main's current commit for the turn's
+// credential; the empty path is the repository's root. A path that names no
+// directory on main, a file among them, is not found: git keeps no empty
+// directory, so an empty answer below the root means none is there.
+func (s InstallSource) ListSource(ctx context.Context, credential middleware.Credential, userID, repositoryID int64, dirPath string) (SourceDirectory, error) {
+	if dirPath != "" && ValidateRepositoryPath(dirPath) != nil {
+		return SourceDirectory{}, ErrSourcePathRefused
+	}
+	owner, repository, member, err := s.readable(ctx, credential, userID, repositoryID)
+	if err != nil {
+		return SourceDirectory{}, err
+	}
+	contents, next, commit, err := s.Repos.ListRepoContentsPage(ctx, member, owner, repository.Name, "", dirPath, "", sourceListLimit)
+	var apiErr *pkgerrors.APIError
+	if errors.As(err, &apiErr) && apiErr.Code == pkgerrors.CodeNotFound {
+		return SourceDirectory{}, ErrSourceNotFound
+	}
+	if err != nil {
+		return SourceDirectory{}, err
+	}
+	if len(contents) == 0 && dirPath != "" {
+		return SourceDirectory{}, ErrSourceNotFound
+	}
+	entries := make([]SourceEntry, 0, len(contents))
+	for _, content := range contents {
+		kind := "file"
+		if content.Type == "dir" {
+			kind = "dir"
+		}
+		entries = append(entries, SourceEntry{Name: content.Name, Kind: kind})
+	}
+	return SourceDirectory{Repository: owner + "/" + repository.Name, Path: dirPath, Commit: commit, Entries: entries, Truncated: next != ""}, nil
+}
+
 // readable resolves the install's mirror for one turn: Source ready, the
 // mirrored repository, the turn's credential and member now, the member's
 // read permission now, and a turn scoped to no repository or to this one.
-func (s InstallSource) readable(ctx context.Context, credential middleware.Credential, userID, repositoryID int64) (string, db.Repository, error) {
+func (s InstallSource) readable(ctx context.Context, credential middleware.Credential, userID, repositoryID int64) (string, db.Repository, *db.User, error) {
 	q := db.New(s.Pool)
 	step, err := (&InstallSetupService{}).readStep(ctx, q, "source")
 	if err != nil {
-		return "", db.Repository{}, err
+		return "", db.Repository{}, nil, err
 	}
 	if step.Status != InstallReady {
-		return "", db.Repository{}, ErrSourceNotReady
+		return "", db.Repository{}, nil, ErrSourceNotReady
 	}
 	owner, name, err := installRepositorySlug(ctx, q, "setup.source.repository")
 	var readiness *InstallReadinessError
 	if errors.As(err, &readiness) {
-		return "", db.Repository{}, ErrSourceNotReady
+		return "", db.Repository{}, nil, ErrSourceNotReady
 	}
 	if err != nil {
-		return "", db.Repository{}, err
+		return "", db.Repository{}, nil, err
 	}
 	member, err := s.member(ctx, q, credential, userID)
 	if err != nil {
-		return "", db.Repository{}, err
+		return "", db.Repository{}, nil, err
 	}
 	repository, err := s.Repos.resolveReadableRepo(ctx, member, owner, name)
 	var apiErr *pkgerrors.APIError
 	if errors.As(err, &apiErr) && apiErr.Code == pkgerrors.CodeNotFound {
-		return "", db.Repository{}, ErrSourceNotReady
+		return "", db.Repository{}, nil, ErrSourceNotReady
 	}
 	if errors.As(err, &apiErr) && apiErr.Code == pkgerrors.CodeForbidden {
-		return "", db.Repository{}, ErrSourceForbidden
+		return "", db.Repository{}, nil, ErrSourceForbidden
 	}
 	if err != nil {
-		return "", db.Repository{}, err
+		return "", db.Repository{}, nil, err
 	}
 	if repositoryID != 0 && repositoryID != repository.ID {
-		return "", db.Repository{}, ErrSourceForbidden
+		return "", db.Repository{}, nil, ErrSourceForbidden
 	}
-	return owner, repository, nil
+	return owner, repository, member, nil
 }
 
 // member is the turn's author as the turn's credential authenticates them

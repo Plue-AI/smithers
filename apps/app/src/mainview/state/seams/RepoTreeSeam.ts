@@ -14,7 +14,7 @@
  * `loaded` with exactly the entries the route returned (no filtering,
  * nothing invented), or `failed` with the route's error text verbatim, shown
  * in place. Every row holds its directory in the one order a listing reads
- * in (`FilesSeam.sortEntries`: directories first, then by name), because the
+ * in (`@smthrs/rpc/FileList` `sortEntries`: directories first, then by name), because the
  * two routes do not agree on one — the mirror answers a git tree's byte
  * order — and the sidebar reads the same for a box and the shared copy. A
  * path that leaves the repository is refused before any route is asked
@@ -25,7 +25,8 @@ import { isRecord } from "@smthrs/canonical/Record"
 import type { RepoTreeEntry, WorkingCopy } from "../AppState"
 import { createCloudClient } from "./CloudClient"
 import { readContentsPages } from "./ContentsPages"
-import { encodeRepoPath, parseEntry, sortEntries, unsafePath } from "./FilesSeam"
+import { sortEntries } from "@smthrs/rpc/FileList"
+import { encodeRepoPath, parseEntry, unsafePath } from "./FilesSeam"
 import { readErrorMessage, unreachableSentence } from "./SeamContext"
 import type { SeamContext } from "./SeamContext"
 

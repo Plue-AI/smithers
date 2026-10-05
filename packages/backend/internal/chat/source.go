@@ -17,6 +17,11 @@ import (
 // runs as the credential that admitted it.
 const SourceReadPath = "/internal/chat/source/read"
 
+// SourceListPath is the producer callback a turn's model host lists its
+// repository's directories through, with the same capability and authority
+// as SourceReadPath.
+const SourceListPath = "/internal/chat/source/list"
+
 // SourceReader serves app-agent reads of a repository's mirrored main for the
 // credential that admitted a turn, resolved again at each call. The
 // single-owner install composes it; a deployment without one offers the
@@ -26,6 +31,8 @@ type SourceReader interface {
 	// ports.ErrSourceNotReady or ports.ErrSourceForbidden.
 	Source(ctx context.Context, credential middleware.Credential, userID, repositoryID int64) (string, error)
 	ReadSource(ctx context.Context, credential middleware.Credential, userID, repositoryID int64, path string) (ports.SourceFile, error)
+	// ListSource lists one directory; the empty path is the root.
+	ListSource(ctx context.Context, credential middleware.Credential, userID, repositoryID int64, path string) (ports.SourceDirectory, error)
 }
 
 // turnCredentialLifetime bounds how long a turn reads as the credential that
@@ -120,6 +127,22 @@ type sourceReadRequest struct {
 // admitted its turn: a fenced, cancelled, expired or finished turn, or one
 // whose admitting credential is unknown here, reads nothing.
 func (h *Handler) SourceRead(w http.ResponseWriter, r *http.Request) {
+	h.serveSource(w, r, "read", func(ctx context.Context, credential middleware.Credential, turn ProducerTurn, path string) (any, error) {
+		return h.Sources.ReadSource(ctx, credential, turn.UserID, turn.RepositoryID, path)
+	})
+}
+
+// SourceList serves one directory listing to a live producer, on the same
+// terms as SourceRead.
+func (h *Handler) SourceList(w http.ResponseWriter, r *http.Request) {
+	h.serveSource(w, r, "list", func(ctx context.Context, credential middleware.Credential, turn ProducerTurn, path string) (any, error) {
+		return h.Sources.ListSource(ctx, credential, turn.UserID, turn.RepositoryID, path)
+	})
+}
+
+// serveSource answers one source callback for a live producer as the
+// credential that admitted its turn, and states each refusal by its code.
+func (h *Handler) serveSource(w http.ResponseWriter, r *http.Request, act string, serve func(context.Context, middleware.Credential, ProducerTurn, string) (any, error)) {
 	if h.Store == nil {
 		writeProblem(w, http.StatusServiceUnavailable, "storage_failed")
 		return
@@ -140,10 +163,10 @@ func (h *Handler) SourceRead(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	file, err := h.Sources.ReadSource(r.Context(), credential, turn.UserID, turn.RepositoryID, request.Path)
+	answer, err := serve(r.Context(), credential, turn, request.Path)
 	switch {
 	case err == nil:
-		writeJSON(w, http.StatusOK, file)
+		writeJSON(w, http.StatusOK, answer)
 	case errors.Is(err, ports.ErrSourceNotReady):
 		writeProblem(w, http.StatusConflict, "source_not_ready")
 	case errors.Is(err, ports.ErrSourcePathRefused):
@@ -159,7 +182,7 @@ func (h *Handler) SourceRead(w http.ResponseWriter, r *http.Request) {
 		if logger == nil {
 			logger = slog.Default()
 		}
-		logger.Error("chat source read failed", "turn_id", request.TurnID, "error", err)
+		logger.Error("chat source "+act+" failed", "turn_id", request.TurnID, "error", err)
 		writeProblem(w, http.StatusServiceUnavailable, "source_failed")
 	}
 }

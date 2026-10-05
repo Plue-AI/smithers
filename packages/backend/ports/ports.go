@@ -299,6 +299,13 @@ var (
 // mirrored main.
 type SourceFile = services.SourceFile
 
+// SourceDirectory is one directory an app-agent turn listed on its
+// repository's mirrored main.
+type SourceDirectory = services.SourceDirectory
+
+// SourceEntry is one entry of a listed directory: a file or a directory.
+type SourceEntry = services.SourceEntry
+
 // Source read refusals. A turn's host states each one to the model and the
 // conversation; none is retried by the host.
 var (

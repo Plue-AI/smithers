@@ -205,6 +205,8 @@ func TestAgentSourceReadRefusesBeforeSourceReady(t *testing.T) {
 	require.ErrorIs(t, err, ErrSourceNotReady)
 	_, err = f.reader.ReadSource(ctx, owner, f.owner.ID, 0, "JOURNEY.md")
 	require.ErrorIs(t, err, ErrSourceNotReady)
+	_, err = f.reader.ListSource(ctx, owner, f.owner.ID, 0, "")
+	require.ErrorIs(t, err, ErrSourceNotReady)
 	// The mirror's slug without a finished step is still not Source ready.
 	f.setting("setup.source.repository", `"acme/app-mirror"`)
 	f.setting("setup.step.source", `{"status":"running"}`)
@@ -393,5 +395,90 @@ func TestAgentSourceReadIsBoundedByTheInstallationMembers(t *testing.T) {
 	// Without a boundary nothing is read.
 	f.reader.Members = nil
 	_, err = f.reader.ReadSource(ctx, owner, f.owner.ID, 0, "JOURNEY.md")
+	require.ErrorIs(t, err, ErrSourceForbidden)
+}
+
+// The root's immediate entries on main as the mirror holds them: only a tree
+// is a directory, so the symlinks are files and nothing is followed.
+var mirrorRootEntries = []SourceEntry{
+	{Name: "  spaced name ", Kind: "file"}, {Name: "JOURNEY.md", Kind: "file"}, {Name: "bad-utf8.txt", Kind: "file"},
+	{Name: "big.txt", Kind: "file"}, {Name: "bin", Kind: "dir"}, {Name: "docs", Kind: "dir"}, {Name: "escape", Kind: "file"},
+	{Name: "link", Kind: "file"}, {Name: "up", Kind: "file"}, {Name: "vendor", Kind: "dir"},
+}
+
+func TestAgentSourceListServesMainsDirectoriesToTheAskingMember(t *testing.T) {
+	f := newMirrorReadFixture(t)
+	f.ready()
+	ctx := context.Background()
+	readToken, _ := f.token(f.owner, "read:repository,write:user", false, pgtype.Timestamptz{})
+	for _, asker := range []struct {
+		user       db.User
+		credential middleware.Credential
+	}{{f.owner, f.browser(f.owner)}, {f.member, f.browser(f.member)}, {f.owner, readToken}} {
+		root, err := f.reader.ListSource(ctx, asker.credential, asker.user.ID, 0, "")
+		require.NoError(t, err)
+		require.Equal(t, "acme/app-mirror", root.Repository)
+		require.Equal(t, "", root.Path)
+		require.Equal(t, f.commit, root.Commit)
+		require.False(t, root.Truncated)
+		require.ElementsMatch(t, mirrorRootEntries, root.Entries)
+	}
+	owner, member := f.browser(f.owner), f.browser(f.member)
+	// A turn already scoped to the mirror lists it; a nested directory lists its own entries.
+	docs, err := f.reader.ListSource(ctx, member, f.member.ID, f.mirror, "docs")
+	require.NoError(t, err)
+	require.Equal(t, SourceDirectory{Repository: "acme/app-mirror", Path: "docs", Commit: f.commit, Entries: []SourceEntry{{Name: "guide.md", Kind: "file"}}}, docs)
+	// A submodule is listed as a file and never descended.
+	vendor, err := f.reader.ListSource(ctx, owner, f.owner.ID, 0, "vendor")
+	require.NoError(t, err)
+	require.Equal(t, []SourceEntry{{Name: "lib", Kind: "file"}}, vendor.Entries)
+}
+
+func TestAgentSourceListRefusesPathsOutsideTheRepository(t *testing.T) {
+	f := newMirrorReadFixture(t)
+	f.ready()
+	ctx := context.Background()
+	owner := f.browser(f.owner)
+	for _, path := range []string{
+		"/", "/docs", "/etc", "../other", "docs/..", "./docs", "docs/./", "docs//", "docs/", "..", ".",
+		"docs\x00", "\xffdocs", strings.Repeat("a/", 2048) + "b",
+	} {
+		listing, err := f.reader.ListSource(ctx, owner, f.owner.ID, 0, path)
+		require.ErrorIs(t, err, ErrSourcePathRefused, "path %q", path)
+		require.Equal(t, SourceDirectory{}, listing)
+	}
+	// Only a directory on main lists: a file, a symlink to a file or out of
+	// the tree, a submodule, a missing path and a directory of another
+	// repository name nothing to list.
+	for _, path := range []string{
+		"JOURNEY.md", "  spaced name ", "link", "escape", "up", "up/docs", "vendor/lib", "missing", "docs/missing", "SECRET.md",
+		"docs%2F", `docs\guide.md`, "docs?ref=x",
+	} {
+		listing, err := f.reader.ListSource(ctx, owner, f.owner.ID, 0, path)
+		require.ErrorIs(t, err, ErrSourceNotFound, "path %q", path)
+		require.Equal(t, SourceDirectory{}, listing)
+	}
+}
+
+func TestAgentSourceListIsAuthorizedAsTheAskingMember(t *testing.T) {
+	f := newMirrorReadFixture(t)
+	f.ready()
+	ctx := context.Background()
+	stranger, owner, member := f.browser(f.stranger), f.browser(f.owner), f.browser(f.member)
+	userOnly, _ := f.token(f.owner, "write:user", false, pgtype.Timestamptz{})
+	for _, refused := range []struct {
+		credential       middleware.Credential
+		user, repository int64
+	}{{stranger, f.stranger.ID, 0}, {owner, f.owner.ID, f.other}, {member, f.member.ID, f.other}, {userOnly, f.owner.ID, 0}, {owner, f.member.ID, 0}} {
+		listing, err := f.reader.ListSource(ctx, refused.credential, refused.user, refused.repository, "")
+		require.ErrorIs(t, err, ErrSourceForbidden)
+		require.Equal(t, SourceDirectory{}, listing)
+	}
+	// Losing access ends listings at once; the check runs per listing.
+	_, err := f.reader.ListSource(ctx, member, f.member.ID, 0, "docs")
+	require.NoError(t, err)
+	_, err = f.pool.Exec(ctx, `DELETE FROM collaborators WHERE repository_id=$1 AND user_id=$2`, f.mirror, f.member.ID)
+	require.NoError(t, err)
+	_, err = f.reader.ListSource(ctx, member, f.member.ID, 0, "docs")
 	require.ErrorIs(t, err, ErrSourceForbidden)
 }

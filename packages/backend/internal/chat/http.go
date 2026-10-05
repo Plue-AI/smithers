@@ -49,7 +49,7 @@ type Handler struct {
 	Revocations RevocationSource
 	Store       *Store
 	Dispatcher  *Dispatcher
-	// Sources serves the source read callback; nil refuses it.
+	// Sources serves the source read and list callbacks; nil refuses them.
 	Sources SourceReader
 	// API serves the API read callback; nil refuses it.
 	API CommandAPI
@@ -581,5 +581,6 @@ func (h *Handler) MountProducerCallbacks(router chi.Router) {
 	router.Post(CommitPath, h.Commit)
 	router.Post(ProviderStartedPath, h.ProviderStarted)
 	router.Post(SourceReadPath, h.SourceRead)
+	router.Post(SourceListPath, h.SourceList)
 	router.Post(APICallPath, h.APICall)
 }

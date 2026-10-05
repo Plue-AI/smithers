@@ -12,10 +12,10 @@ import { preparedView,type ViewAction,type ViewResult } from "../PreparedView"
  * payload out, malformed rows drop; failures are honest strings, never throws.
  */
 import { FileCardSchema, type FileCard } from "@smthrs/rpc/FileCard"
+import { fileListCard, type FileListEntry } from "@smthrs/rpc/FileList"
 import { fileReadCard } from "@smthrs/rpc/FileRead"
 import { refusalOf } from "@smthrs/rpc/Refusal"
 import { refusalLine } from "@smthrs/rpc/RefusalCopy"
-import type { Card } from "../AppState"
 import type { AppStore } from "../AppStore"
 import { resolveTargetRepo } from "../RepoContext"
 import type { SeamContext } from "./SeamContext"
@@ -59,19 +59,6 @@ export interface FileAnchor {
 const anchored = (anchor: FileAnchor | undefined): { readonly line?: number; readonly column?: number } =>
   anchor === undefined ? {} : { line: anchor.line, ...(anchor.column === undefined ? {} : { column: anchor.column }) }
 
-/** The model's copy of a listing stops here (a node_modules has thousands of entries); the card keeps them all. */
-export const LISTING_VALUE_CAP = 400
-
-/** The model's copy of a directory listing: one entry per line, directories marked, bounded. */
-export const listingValue = (repo: string, path: string, entries: ReadonlyArray<{ name: string; kind: "file" | "dir" }>): string => {
-  if (entries.length === 0) return `${path || "/"} in ${repo} is empty.`
-  const shown = entries.slice(0, LISTING_VALUE_CAP).map((entry) => (entry.kind === "dir" ? `${entry.name}/` : entry.name))
-  const rest = entries.length - shown.length
-  return `${path || "/"} in ${repo}:\n${shown.join("\n")}${rest > 0 ? `\n… and ${rest} more (the card lists them all)` : ""}`
-}
-
-type FileListPayload = Extract<Card, { kind: "file-list" }>["payload"]
-type FileListEntry = FileListPayload["entries"][number]
 
 const isRecord = (value: unknown): value is Record<string, unknown> =>
   value !== null && typeof value === "object" && !Array.isArray(value)
@@ -162,19 +149,6 @@ export const parseEntry = (value: unknown): FileListEntry | null => {
   return { name, kind: value.type }
 }
 
-/*
- * Directories first, then names in locale order — the multi sort
- * (filesClient.ts :94). The one order every listing of a directory reads in,
- * card and sidebar alike (RepoTreeSeam.ts sorts its rows with it): the routes
- * can answer a git tree's byte order, where `CHANGELOG.md` precedes
- * `Cargo.lock`.
- */
-export const sortEntries = (entries: ReadonlyArray<FileListEntry>): FileListEntry[] =>
-  [...entries].sort((a, b) => {
-    if (a.kind !== b.kind) return a.kind === "dir" ? -1 : 1
-    return a.name.localeCompare(b.name)
-  })
-
 /**
  * Base64 → UTF-8, honest about binary: NUL bytes or an undecodable byte
  * sequence answer `binary` instead of mojibake (multi decodeBase64 :101, made
@@ -259,22 +233,16 @@ export const createFilesSeam = (ctx: SeamContext, branchOptions?: BranchFileOpti
         }
         return `The backend answered ${label} in ${repo} with an unreadable payload`
       }
-      const entries = sortEntries(
-        body.flatMap((entry) => {
-          const parsed = parseEntry(entry)
-          return parsed === null ? [] : [parsed]
-        })
+      const entries = body.flatMap((entry) => {
+        const parsed = parseEntry(entry)
+        return parsed === null ? [] : [parsed]
+      })
+      const { readAt } = cloudAddressing(ctx.store, repo, normalized)
+      return fileListCard(
+        { repo, path: normalized, entries, ...(readAt === undefined ? {} : { readAt }) },
+        ctx.nextOrdinal(),
+        Date.now()
       )
-      const card: Card = {
-        id: `files-${repo}-${normalized === "" ? "/" : normalized}`,
-        kind: "file-list",
-        title: `Files · ${repo} · ${label}`,
-        status: "active",
-        createdAt: Date.now(),
-        ordinal: ctx.nextOrdinal(),
-        payload: { repo, path: normalized, entries, ...cloudAddressing(ctx.store, repo, normalized) }
-      }
-      return { card, value: listingValue(repo, normalized, entries) }
     },
 
     readFile: async (pathArg, explicitRepoArg, anchor, ref) => {

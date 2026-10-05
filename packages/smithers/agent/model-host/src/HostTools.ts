@@ -8,8 +8,8 @@
  * The host runs the catalog commands `@smthrs/rpc` declares for it
  * (`INSTALL_HOST_COMMANDS`: each one's name, copy and agent rule, mvp.md
  * Appendix B), binding each to this host's transport with the grammar, input
- * and card builder the GUI uses: `files.read` reads the turn's mirrored main
- * through the producer's source read callback; `stack` and `todo` read the
+ * and card builder the GUI uses: `files.list` and `files.read` list and read
+ * the turn's mirrored main through the producer's source callbacks; `stack` and `todo` read the
  * install's TODO routes through the producer's API callback; `todo.new`, a
  * confirm command, only shows its author a private Draft, which they commit
  * themselves. Go grants each transport only when the credential that admitted
@@ -47,6 +47,7 @@ import {
 } from "@smthrs/rpc/AgentInstructions"
 import { boundToolResult, MAX_TOOL_LEGS } from "@smthrs/rpc/AgentToolResult"
 import type { Card } from "@smthrs/rpc/Cards"
+import { fileListCard, FILES_LIST_COMMAND, parseFileListArgs } from "@smthrs/rpc/FileList"
 import { fileReadCard, FILES_READ_COMMAND, parseFileReadArgs } from "@smthrs/rpc/FileRead"
 import type { AgentChatMessage, AgentTurnUsage, FetchLike, StartAgentTurnRequest } from "@smthrs/rpc/NativeAgent"
 import { TodoCardSchema } from "@smthrs/rpc/TodoCard"
@@ -64,6 +65,14 @@ import type { FrameWriter, HeldToolCall, ModelTurnOptions } from "./ModelTurnHos
  * @since 1.0.0-rc.0
  */
 export const SOURCE_READ_PATH = "/internal/chat/source/read"
+
+/**
+ * The producer callback a host tool lists the turn's source directories through.
+ *
+ * @category protocol
+ * @since 1.0.0-rc.0
+ */
+export const SOURCE_LIST_PATH = "/internal/chat/source/list"
 
 /**
  * The producer callback a host command reads the install's API through.
@@ -113,6 +122,38 @@ export type SourceAnswer = { readonly file: SourceFile } | { readonly code: stri
  */
 export type SourceRead = (path: string) => Effect.Effect<SourceAnswer>
 
+const SourceDirectorySchema = z.object({
+  repository: z.string().min(1),
+  path: z.string(),
+  commit: z.string().min(1),
+  entries: z.array(z.object({ name: z.string().min(1), kind: z.enum(["file", "dir"]) }).strict()),
+  truncated: z.boolean()
+}).strict()
+
+/**
+ * One directory the producer listed on the turn's mirrored main.
+ *
+ * @category models
+ * @since 1.0.0-rc.0
+ */
+export type SourceDirectory = z.infer<typeof SourceDirectorySchema>
+
+/**
+ * A source listing's answer: the directory, or the refusal code the callback stated.
+ *
+ * @category models
+ * @since 1.0.0-rc.0
+ */
+export type SourceListing = { readonly directory: SourceDirectory } | { readonly code: string }
+
+/**
+ * Lists one directory of the turn's source; the empty path is its root.
+ *
+ * @category models
+ * @since 1.0.0-rc.0
+ */
+export type SourceList = (path: string) => Effect.Effect<SourceListing>
+
 /**
  * An API read's answer: the route's own status and body, or the refusal code
  * the callback stated before reaching the route.
@@ -138,6 +179,7 @@ export type ApiRead = (path: string) => Effect.Effect<ApiAnswer>
  */
 export interface HostTransport {
   readonly read: SourceRead
+  readonly list: SourceList
   readonly api: ApiRead
 }
 
@@ -182,6 +224,19 @@ export const sourceReader =
     callback(callbackBaseUrl, grant, fetchImpl, SOURCE_READ_PATH, { path }, (_response, body): SourceAnswer => {
       const parsed = SourceFileSchema.safeParse(body)
       return parsed.success ? { file: parsed.data } : { code: "invalid_answer" }
+    })
+
+/**
+ * The source list callback for one producer generation, on the read callback's terms.
+ *
+ * @category constructors
+ * @since 1.0.0-rc.0
+ */
+export const sourceLister =
+  (callbackBaseUrl: string, grant: DurableChatGrant, fetchImpl: FetchLike): SourceList => (path) =>
+    callback(callbackBaseUrl, grant, fetchImpl, SOURCE_LIST_PATH, { path }, (_response, body): SourceListing => {
+      const parsed = SourceDirectorySchema.safeParse(body)
+      return parsed.success ? { directory: parsed.data } : { code: "invalid_answer" }
     })
 
 const ApiAnswerSchema = z.object({ status: z.number().int(), body: z.unknown() }).strict()
@@ -261,6 +316,54 @@ const filesRead: Bind = (grant, { read }) => {
           readAt: { changeId: null, commitId: file.commit, source: "head" },
           ...(line === undefined ? {} : { line }),
           ...(column === undefined ? {} : { column })
+        },
+        ordinal,
+        Date.now()
+      )
+      return { cards: [card], value }
+    })
+}
+
+/** What the model and the conversation are told when a listing does not answer a directory. */
+const listRefusalText = (path: string, code: string): string => {
+  switch (code) {
+    case "path_refused":
+      return `${
+        shown(path)
+      } is not a path inside this repository. Name a directory by its path from the repository root, for example src, or list the root with no path.`
+    case "not_found":
+      return `${shown(path)} is not a directory on main.`
+    default:
+      return refusalText(path, code)
+  }
+}
+
+/** A listing's path as the repository names it, without the slashes around it: `/` names the root, as no path does. */
+const directoryPath = (path: string): string => path.replace(/^\/+/u, "").replace(/\/+$/u, "")
+
+/** `files.list` on the turn's mirrored main. */
+const filesList: Bind = (grant, { list }) => {
+  const repository = grant.source?.repository
+  if (repository === undefined) return undefined
+  return (args, ordinal) =>
+    Effect.gen(function*() {
+      const input = parseFileListArgs(args)
+      if ("error" in input) return { refusal: input.error }
+      const { repo } = input.payload
+      if (repo !== undefined && repo !== repository) {
+        return { refusal: `This question reads ${repository} only; name a directory in it.` }
+      }
+      const path = directoryPath(input.payload.path)
+      const answer = yield* list(path)
+      if (!("directory" in answer)) return { refusal: listRefusalText(path, answer.code) }
+      const { directory } = answer
+      const { card, value } = fileListCard(
+        {
+          repo: directory.repository,
+          path: directory.path,
+          entries: directory.entries,
+          truncated: directory.truncated,
+          readAt: { changeId: null, commitId: directory.commit, source: "head" }
         },
         ordinal,
         Date.now()
@@ -382,6 +485,7 @@ const todoNew: Bind = (grant) => {
 
 /** Each command this host runs, bound by name: a declared command without a binding, or the reverse, does not compile. */
 const binds: { readonly [Name in (typeof INSTALL_HOST_COMMANDS)[number]["name"]]: Bind } = {
+  "files.list": filesList,
   "files.read": filesRead,
   stack,
   todo,
@@ -401,6 +505,10 @@ const offeredCommands = (grant: DurableChatGrant, transport: HostTransport): Rea
     return run === undefined ? [] : [{ command, run }]
   })
 
+/** How a turn that can list finds a file it was not named: it lists, never guesses. */
+const LIST_BEFORE_READ_LINE =
+  "Asked about the repository's code without a file named, list the root with files.list, then list or read the paths it shows; never guess a path."
+
 /**
  * The instructions of a turn this host runs commands for. They replace the
  * request's own, which describe its client's commands: the model reads the
@@ -408,7 +516,9 @@ const offeredCommands = (grant: DurableChatGrant, transport: HostTransport): Rea
  * turn's author, and no other.
  */
 const hostInstructions = (offered: ReadonlyArray<Offered>): string => {
-  const reads = offered.flatMap(({ command }) => command.name === FILES_READ_COMMAND.name ? [command.name] : [])
+  const reads = offered.flatMap(({ command }) =>
+    command.name === FILES_LIST_COMMAND.name || command.name === FILES_READ_COMMAND.name ? [command.name] : []
+  )
   return [
     AGENT_NAME_LINE,
     "You have one tool, \"commands\": action \"list\" returns the commands below; action \"execute\" runs one by name with its argument text, as the person who asked.",
@@ -421,6 +531,7 @@ const hostInstructions = (offered: ReadonlyArray<Offered>): string => {
     "",
     "The commands you can run in this conversation, and no others (any other answers \"unknown-command\" and nothing runs):",
     ...offered.map(({ command }) => agentCommandLine(command)),
+    ...(reads.includes(FILES_LIST_COMMAND.name) ? [LIST_BEFORE_READ_LINE] : []),
     "",
     `Everything this list lacks is a can't-yet. ${cantYetsSentence(namedCantYets(reads))}`,
     ...WORKFLOW_LAUNDERING_RULE

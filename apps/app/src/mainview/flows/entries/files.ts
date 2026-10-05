@@ -5,6 +5,7 @@
  */
 import { Schema } from "effect"
 import { fileArgs, FILES_READ_COMMAND } from "@smthrs/rpc/FileRead"
+import { FILES_LIST_COMMAND } from "@smthrs/rpc/FileList"
 import { flowArgs } from "../FlowArgs"
 import { text } from "@smthrs/ui/flow-form"
 import { flow } from "./Declare"
@@ -26,9 +27,10 @@ export const filesFlows = (actions: CommandActions): ReadonlyArray<FlowEntry> =>
      */
     name: "files.list",
     form: { args: (payload) => fileArgs(text(payload, "path") ?? "/", text(payload, "repo")) },
-    summary: "List a repository directory",
+    /* The model host binds its listing of the mirrored main to the same catalog entry and grammar (@smthrs/rpc/FileList). */
+    summary: FILES_LIST_COMMAND.summary,
     runtimeAny: ["cloud"],
-    args: "[path] [owner/repo]",
+    args: FILES_LIST_COMMAND.args,
     requires: ["first-run-target", "repo-source"],
     input: Schema.Struct({ path: Schema.String, repo: Schema.optional(Schema.String) }),
     prepare: ({ path, repo }) => actions.listFiles.preload?.(path, repo),

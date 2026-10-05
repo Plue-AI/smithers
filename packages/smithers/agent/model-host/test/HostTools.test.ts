@@ -64,10 +64,18 @@ const routes = (todos: Record<string, readonly [number, unknown]>) => (path: str
   return Response.json({ status, body })
 }
 
-/** The producer's journal and its source read and API callbacks, recording what the host sent. */
-const producer = (answer: (path: string) => Response, api: (path: string) => Response = routes({})) => {
+/** No directory: what the list callback answers a test that lists nothing. */
+const noDirectory = (): Response => Response.json({ status: "error", code: "not_found" }, { status: 404 })
+
+/** The producer's journal and its source read, source list and API callbacks, recording what the host sent. */
+const producer = (
+  answer: (path: string) => Response,
+  api: (path: string) => Response = routes({}),
+  list: (path: string) => Response = noDirectory
+) => {
   const frames: Array<AgentTurnFrame> = []
   const reads: Array<SourceCall> = []
+  const lists: Array<SourceCall> = []
   const calls: Array<SourceCall> = []
   let expected = cursor
   const fetchImpl: FetchLike = async (input, init) => {
@@ -77,6 +85,10 @@ const producer = (answer: (path: string) => Response, api: (path: string) => Res
     if (url.pathname === "/internal/chat/source/read") {
       reads.push({ authorization: new Headers(init?.headers).get("authorization"), body })
       return answer(body.path)
+    }
+    if (url.pathname === "/internal/chat/source/list") {
+      lists.push({ authorization: new Headers(init?.headers).get("authorization"), body })
+      return list(body.path)
     }
     if (url.pathname === "/internal/chat/api") {
       calls.push({ authorization: new Headers(init?.headers).get("authorization"), body })
@@ -97,11 +109,34 @@ const producer = (answer: (path: string) => Response, api: (path: string) => Res
     expected = { version: 1, runId: "run", legId: "leg", batch: unsigned.batch, position: unsigned.from, hash }
     return Response.json({ status: "committed", batch: { ...unsigned, hash }, cursor: expected })
   }
-  return { frames, reads, calls, fetchImpl }
+  return { frames, reads, lists, calls, fetchImpl }
 }
 
 const file = (path: string, content: string, binary = false): Response =>
   Response.json({ repository: "acme/app", path, commit: COMMIT, content, binary })
+
+/** One directory as the list callback answers it, in the repository host's order. */
+const directory = (
+  path: string,
+  entries: ReadonlyArray<readonly [string, "file" | "dir"]>,
+  truncated = false
+): Response =>
+  Response.json({
+    repository: "acme/app",
+    path,
+    commit: COMMIT,
+    entries: entries.map(([name, kind]) => ({ name, kind })),
+    truncated
+  })
+
+/** The scratch repository the J1 question asks about: a package.json, a README and one test file. */
+const scratchTree = (path: string): Response =>
+  path === ""
+    ? directory("", [["README.md", "file"], ["package.json", "file"], ["test", "dir"]])
+    : path === "test"
+    ? directory("test", [["smoke.test.mjs", "file"]])
+    : noDirectory()
+const SMOKE = "import test from \"node:test\"\ntest(\"greets\", () => {})\n"
 
 interface LegUsage {
   readonly tool?: ModelEvent.UsageEvent | undefined
@@ -163,6 +198,7 @@ const execute = (name: string, args?: string) => ({
   arguments: JSON.stringify({ action: "execute", name, ...(args === undefined ? {} : { args }) })
 })
 const readCall = (args: string) => execute("files.read", args)
+const listCall = (args?: string) => execute("files.list", args)
 
 const answerText = (frames: ReadonlyArray<AgentTurnFrame>): string =>
   frames.flatMap((frame) => frame.type === "delta" && frame.kind === "text" ? [frame.text] : []).join("")
@@ -188,8 +224,10 @@ const stackRoutes = routes({
 })
 
 /** The instructions' command lines for each grant, literal. */
-const FILES_LINE =
+const FILES_LINES = [
+  "- /files.list [path] [owner/repo] — List a repository directory",
   "- /files.read <path>[:<line>[:<col>]] [owner/repo] [--ref <revision>] — Read a file from a repository"
+]
 const TODO_LINES = [
   "- /stack — Show the stack and background runs",
   "- /todo <Tn> — Open a TODO",
@@ -245,7 +283,6 @@ const BROWSER_ONLY = [
   "flow.create",
   "flow.list",
   "flow.run",
-  "files.list",
   "auth.prompt",
   "cloud.prompt",
   "onboarding.act",
@@ -313,9 +350,187 @@ describe("host-owned turns run their tool calls on the host", () => {
     expect(journal.frames.some((frame) => frame.type === "tool_call")).toBe(false)
   })
 
+  test("an open question lists the repository, then reads the file the listing shows", async () => {
+    const journal = producer((path) => file(path, SMOKE), routes({}), scratchTree)
+    const provider = model([listCall(), listCall("test"), readCall("test/smoke.test.mjs")])
+    await run(
+      {
+        ...grant,
+        request: { ...question, messages: [{ role: "user", content: "What does the test in this repository check?" }] }
+      },
+      provider,
+      journal
+    )
+
+    const capability = "Bearer producer_capability_producer_capability_1234"
+    expect(journal.lists).toEqual([
+      { authorization: capability, body: { turnId: grant.turnId, generation: 2, path: "" } },
+      { authorization: capability, body: { turnId: grant.turnId, generation: 2, path: "test" } }
+    ])
+    expect(journal.reads.map((call) => (call.body as { path: string }).path)).toEqual(["test/smoke.test.mjs"])
+    expect(journal.frames.map((frame) => frame.type)).toEqual([
+      ...["call.started", "card", "call.settled"],
+      ...["call.started", "card", "call.settled"],
+      ...["call.started", "card", "call.settled"],
+      "delta",
+      "done"
+    ])
+    for (const frame of journal.frames) expect(AgentTurnFrameSchema.safeParse(frame).success).toBe(true)
+    const cards = journal.frames.flatMap((frame) => frame.type === "card" ? [frame.card] : [])
+    expect(cards.map((card) => [card.id, card.kind, card.title, card.ordinal])).toEqual([
+      ["files-acme/app-/", "file-list", "Files · acme/app · /", 0],
+      ["files-acme/app-test", "file-list", "Files · acme/app · test", 1],
+      ["file-acme/app-test/smoke.test.mjs", "file", "File · acme/app · test/smoke.test.mjs", 2]
+    ])
+    // The card lists the directory in the one listing order, at main's commit.
+    expect(cards[0]?.payload).toEqual({
+      repo: "acme/app",
+      path: "",
+      entries: [{ name: "test", kind: "dir" }, { name: "package.json", kind: "file" }, {
+        name: "README.md",
+        kind: "file"
+      }],
+      address: "/acme/app/",
+      readAt: { changeId: null, commitId: COMMIT, source: "head" }
+    })
+    expect(journal.frames.filter((frame) => frame.type === "call.settled")).toEqual(
+      ["files.list", "files.list", "files.read"].map((name, ordinal) => ({
+        runId: "run",
+        type: "call.settled",
+        link: ordinal,
+        ordinal,
+        name,
+        verdict: "run"
+      }))
+    )
+    // Each continuation carries what the card shows, so the answer is grounded in the file.
+    expect(toolOutputs(provider)).toEqual([
+      "/ in acme/app:\ntest/\npackage.json\nREADME.md",
+      "test in acme/app:\nsmoke.test.mjs",
+      `test/smoke.test.mjs in acme/app:\n${SMOKE}`
+    ])
+    expect(answerText(journal.frames)).toBe(`From the source: test/smoke.test.mjs in acme/app:\n${SMOKE}`)
+    expect(journal.frames.at(-1)).toMatchObject({ type: "done", reason: "stop" })
+    // A turn that can list is told to list, never to guess a path.
+    expect(systemText(provider.requests[0])).toContain(
+      "Asked about the repository's code without a file named, list the root with files.list, then list or read the paths it shows; never guess a path."
+    )
+  })
+
+  test("a listing takes the flow's own arguments: the root as no path or a slash, a quoted directory, the turn's repository", async () => {
+    const journal = producer(
+      (path) => file(path, JOURNEY),
+      routes({}),
+      (path) => directory(path, [["a.md", "file"]], path === "Meeting Notes")
+    )
+    const provider = model([
+      listCall(),
+      listCall("/"),
+      execute("/files.list", "/docs/"),
+      listCall("\"Meeting Notes\" acme/app")
+    ])
+    await run(grant, provider, journal)
+    expect(journal.lists.map((call) => (call.body as { path: string }).path)).toEqual([
+      "",
+      "",
+      "docs",
+      "Meeting Notes"
+    ])
+    const cards = journal.frames.flatMap((frame) => frame.type === "card" ? [frame.card] : [])
+    expect(cards.map((card) => card.id)).toEqual([
+      "files-acme/app-/",
+      "files-acme/app-/",
+      "files-acme/app-docs",
+      "files-acme/app-Meeting Notes"
+    ])
+    // A directory the host cut short says so on its card and to the model.
+    expect(cards[3]?.payload).toMatchObject({ path: "Meeting Notes", truncated: true })
+    expect(cards[0]?.payload).not.toHaveProperty("truncated")
+    expect(toolOutputs(provider)[3]).toBe(
+      "Meeting Notes in acme/app:\na.md\n(The directory has more entries than one listing shows.)"
+    )
+  })
+
+  test("each listing refusal is stated to the model and the conversation, and the turn answers", async () => {
+    const codes: Record<string, [number, string]> = {
+      "../secret": [400, "path_refused"],
+      "JOURNEY.md": [404, "not_found"],
+      "private": [403, "forbidden"],
+      "src": [409, "source_not_ready"],
+      "down": [503, "source_failed"]
+    }
+    const said: Record<string, string> = {
+      "../secret":
+        "../secret is not a path inside this repository. Name a directory by its path from the repository root, for example src, or list the root with no path.",
+      "JOURNEY.md": "JOURNEY.md is not a directory on main.",
+      "private": "The person who asked can't read this repository.",
+      "src":
+        "The repository's source isn't ready yet: setup is still mirroring main. Ask again once Source ready shows in setup.",
+      "down": "The repository read did not answer. Ask again."
+    }
+    for (const [path, [status, code]] of Object.entries(codes)) {
+      const journal = producer(
+        (read) => file(read, JOURNEY),
+        routes({}),
+        () => Response.json({ status: "error", code }, { status })
+      )
+      await run(grant, model([listCall(path)]), journal)
+      expect(journal.lists).toHaveLength(1)
+      expect(journal.frames.map((frame) => frame.type)).toEqual(["call.started", "gate.rejected", "delta", "done"])
+      expect(journal.frames[1]).toEqual({
+        runId: "run",
+        type: "gate.rejected",
+        link: 0,
+        kind: "call_failed",
+        message: said[path]
+      })
+      expect(answerText(journal.frames)).toBe(`From the source: failed: ${said[path]}`)
+      expect(journal.frames.at(-1)).toMatchObject({ type: "done", reason: "stop" })
+    }
+    // A callback that does not answer a directory is stated the same way.
+    const unanswered: ReadonlyArray<() => Response> = [
+      () => {
+        throw new TypeError("fetch failed")
+      },
+      () => new Response("<html>bad gateway</html>", { status: 502 }),
+      () =>
+        Response.json({
+          repository: "acme/app",
+          path: "",
+          commit: COMMIT,
+          entries: [{ name: "x", kind: "link" }],
+          truncated: false
+        }),
+      () => file("JOURNEY.md", JOURNEY)
+    ]
+    for (const answer of unanswered) {
+      const journal = producer((read) => file(read, JOURNEY), routes({}), answer)
+      await run(grant, model([listCall()]), journal)
+      expect(journal.lists).toHaveLength(1)
+      expect(answerText(journal.frames)).toBe("From the source: failed: The repository read did not answer. Ask again.")
+    }
+    // Arguments the grammar or the turn refuses never reach the producer.
+    for (
+      const [args, message] of [
+        ["a b c", "files.list takes a path and optionally an owner/repo"],
+        ["\"unfinished", "Close the quoted file argument before the next argument."],
+        ["src other/repo", "This question reads acme/app only; name a directory in it."]
+      ] as const
+    ) {
+      const journal = producer((read) => file(read, JOURNEY), routes({}), scratchTree)
+      await run(grant, model([listCall(args)]), journal)
+      expect(journal.lists).toEqual([])
+      expect(journal.frames[1]).toMatchObject({ type: "gate.rejected", kind: "call_failed", message })
+    }
+  })
+
   test("the list action answers the commands this host runs", async () => {
     const listing = JSON.stringify({
       commands: [{
+        name: "files.list",
+        summary: "List a repository directory",
+        args: "[path] [owner/repo]"
+      }, {
         name: "files.read",
         summary: "Read a file from a repository",
         args: "<path>[:<line>[:<col>]] [owner/repo] [--ref <revision>]"
@@ -327,6 +542,7 @@ describe("host-owned turns run their tool calls on the host", () => {
         [{ action: "list", namespace: "files" }, listing],
         [{ action: "list", namespace: "/files." }, listing],
         [{ action: "list", query: "read a file" }, listing],
+        [{ action: "list", namespace: "files.read" }, JSON.stringify({ commands: [JSON.parse(listing).commands[1]] })],
         [{ action: "list", namespace: "repo" }, JSON.stringify({ commands: [] })]
       ] as const
     ) {
@@ -582,8 +798,8 @@ describe("host-owned turns run their tool calls on the host", () => {
 describe("an install's host runs the catalog commands its grant allows, as the turn's author", () => {
   test("the instructions and the list name exactly the commands the grant runs, never the request's own", async () => {
     const cases: ReadonlyArray<[DurableChatGrant, ReadonlyArray<string>]> = [
-      [install, [FILES_LINE, ...TODO_LINES]],
-      [grant, [FILES_LINE]],
+      [install, [...FILES_LINES, ...TODO_LINES]],
+      [grant, FILES_LINES],
       [{ ...sourceless, api: { author: "ben" } }, TODO_LINES]
     ]
     for (const [turn, lines] of cases) {
@@ -614,7 +830,7 @@ describe("an install's host runs the catalog commands its grant allows, as the t
 
   test("the instructions keep the app agent's standing rules beside the install's commands", async () => {
     const cases: ReadonlyArray<[DurableChatGrant, string]> = [
-      [install, "through files.read"],
+      [install, "through files.list and files.read"],
       [{ ...sourceless, api: { author: "ben" } }, "read arbitrary files off the user's machine; push"]
     ]
     for (const [turn, files] of cases) {
@@ -628,6 +844,10 @@ describe("an install's host runs the catalog commands its grant allows, as the t
       expect(system).toContain("Everything this list lacks is a can't-yet. You cannot send or draft email")
       expect(system).toContain(files)
     }
+    // A turn that cannot list is never told to.
+    const provider = model([])
+    await run({ ...sourceless, api: { author: "ben" } }, provider, producer((path) => file(path, JOURNEY), stackRoutes))
+    expect(systemText(provider.requests[0])).not.toContain("files.list")
   })
 
   test("an install turn's context states the host's capabilities and names no command the host does not run", async () => {

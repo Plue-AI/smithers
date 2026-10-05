@@ -30,9 +30,11 @@ import (
 type recordingSources struct {
 	mu      sync.Mutex
 	reads   []string
+	lists   []string
 	lookups []string
 	source  func(userID, repositoryID int64) (string, error)
 	read    func(path string) (ports.SourceFile, error)
+	list    func(path string) (ports.SourceDirectory, error)
 }
 
 func (s *recordingSources) Source(_ context.Context, credential middleware.Credential, userID, repositoryID int64) (string, error) {
@@ -47,6 +49,19 @@ func (s *recordingSources) ReadSource(_ context.Context, credential middleware.C
 	s.reads = append(s.reads, fmt.Sprintf("%s%s %d/%d:%s", credential.TokenHash, credential.SessionHash, userID, repositoryID, path))
 	s.mu.Unlock()
 	return s.read(path)
+}
+
+func (s *recordingSources) ListSource(_ context.Context, credential middleware.Credential, userID, repositoryID int64, path string) (ports.SourceDirectory, error) {
+	s.mu.Lock()
+	s.lists = append(s.lists, fmt.Sprintf("%s%s %d/%d:%s", credential.TokenHash, credential.SessionHash, userID, repositoryID, path))
+	s.mu.Unlock()
+	return s.list(path)
+}
+
+func (s *recordingSources) listed() []string {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return append([]string(nil), s.lists...)
 }
 
 func (s *recordingSources) calls() []string {
@@ -70,8 +85,13 @@ func sourceReadServer(t *testing.T, store *Store, sources SourceReader, credenti
 
 func postSourceRead(t *testing.T, server *httptest.Server, token, turnID string, generation int64, path string) (int, string) {
 	t.Helper()
+	return postSource(t, server, SourceReadPath, token, turnID, generation, path)
+}
+
+func postSource(t *testing.T, server *httptest.Server, route, token, turnID string, generation int64, path string) (int, string) {
+	t.Helper()
 	body, _ := json.Marshal(map[string]any{"turnId": turnID, "generation": generation, "path": path})
-	request, err := http.NewRequest(http.MethodPost, server.URL+SourceReadPath, strings.NewReader(string(body)))
+	request, err := http.NewRequest(http.MethodPost, server.URL+route, strings.NewReader(string(body)))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -222,6 +242,100 @@ func TestSourceReadStatesEachRefusal(t *testing.T) {
 	}
 	// Without a reader the callback refuses after the capability check.
 	status, body := postSourceRead(t, sourceReadServer(t, store, nil, credentials), grant.Token, grant.TurnID, grant.Generation, "JOURNEY.md")
+	if status != http.StatusServiceUnavailable || body != `{"code":"source_unavailable","status":"error"}` {
+		t.Fatalf("no reader = %d %s", status, body)
+	}
+}
+
+// A listing reaches the reader on exactly a read's terms: only a live
+// producer, only as its turn's admitting credential, each refusal by its code.
+func TestSourceListServesOnlyALiveProducerAndStatesEachRefusal(t *testing.T) {
+	store := needStore(t)
+	scope := testScope()
+	credentials := newTurnCredentials()
+	root := ports.SourceDirectory{
+		Repository: "acme/app", Path: "", Commit: strings.Repeat("c", 40),
+		Entries: []ports.SourceEntry{{Name: "test", Kind: "dir"}, {Name: "package.json", Kind: "file"}},
+	}
+	refusals := map[string]error{
+		"not-ready": ports.ErrSourceNotReady,
+		"../escape": ports.ErrSourcePathRefused,
+		"private":   ports.ErrSourceForbidden,
+		"missing":   ports.ErrSourceNotFound,
+		"broken":    errors.New("repository host unreachable"),
+	}
+	sources := &recordingSources{list: func(path string) (ports.SourceDirectory, error) {
+		if path == "" {
+			return root, nil
+		}
+		return ports.SourceDirectory{}, refusals[path]
+	}}
+	server := sourceReadServer(t, store, sources, credentials)
+	runID := "source-list-" + uuid.NewString()
+	grant := claimedTurn(t, store, credentials, scope, runID)
+
+	status, body := postSource(t, server, SourceListPath, grant.Token, grant.TurnID, grant.Generation, "")
+	if status != http.StatusOK || body != `{"repository":"acme/app","path":"","commit":"cccccccccccccccccccccccccccccccccccccccc","entries":[{"name":"test","kind":"dir"},{"name":"package.json","kind":"file"}],"truncated":false}` {
+		t.Fatalf("live producer listing = %d %s", status, body)
+	}
+	if want := []string{fmt.Sprintf("%s %d/%d:", session.SessionHash, scope.UserID, scope.RepositoryID)}; fmt.Sprint(sources.listed()) != fmt.Sprint(want) {
+		t.Fatalf("listings = %v, want %v", sources.listed(), want)
+	}
+	if len(sources.calls()) != 0 {
+		t.Fatalf("a listing read a file: %v", sources.calls())
+	}
+	for path, want := range map[string]string{
+		"not-ready": `409 {"code":"source_not_ready","status":"error"}`,
+		"../escape": `400 {"code":"path_refused","status":"error"}`,
+		"private":   `403 {"code":"forbidden","status":"error"}`,
+		"missing":   `404 {"code":"not_found","status":"error"}`,
+		"broken":    `503 {"code":"source_failed","status":"error"}`,
+	} {
+		status, body := postSource(t, server, SourceListPath, grant.Token, grant.TurnID, grant.Generation, path)
+		if got := fmt.Sprintf("%d %s", status, body); got != want {
+			t.Fatalf("%s = %s, want %s", path, got, want)
+		}
+	}
+	listed := len(sources.listed())
+
+	// No other capability reaches the reader, nor a turn this process did not admit.
+	for _, attempt := range []struct {
+		token, turnID string
+		generation    int64
+	}{
+		{"", grant.TurnID, grant.Generation},
+		{grant.Token + "x", grant.TurnID, grant.Generation},
+		{grant.Token, grant.TurnID, grant.Generation + 1},
+		{grant.Token, uuid.NewString(), grant.Generation},
+	} {
+		status, body = postSource(t, server, SourceListPath, attempt.token, attempt.turnID, attempt.generation, "")
+		if status != http.StatusUnauthorized || body != `{"code":"producer_fenced","status":"error"}` {
+			t.Fatalf("fenced listing %+v = %d %s", attempt, status, body)
+		}
+	}
+	unknown := testScope()
+	accepted := admit(t, store, unknown, "source-list-unadmitted-"+uuid.NewString(), testJournal())
+	orphan, err := store.Claim(context.Background(), unknown, accepted.TurnID, time.Minute)
+	if err != nil {
+		t.Fatal(err)
+	}
+	status, body = postSource(t, server, SourceListPath, orphan.Token, orphan.TurnID, orphan.Generation, "")
+	if status != http.StatusForbidden || body != `{"code":"forbidden","status":"error"}` {
+		t.Fatalf("unadmitted turn listing = %d %s", status, body)
+	}
+	if _, err := store.Cancel(context.Background(), scope, runID); err != nil {
+		t.Fatal(err)
+	}
+	status, body = postSource(t, server, SourceListPath, grant.Token, grant.TurnID, grant.Generation, "")
+	if status != http.StatusUnauthorized || body != `{"code":"producer_fenced","status":"error"}` {
+		t.Fatalf("cancelled turn listing = %d %s", status, body)
+	}
+	if len(sources.listed()) != listed {
+		t.Fatalf("refused capabilities reached the reader: %v", sources.listed())
+	}
+	// Without a reader the callback refuses after the capability check.
+	live := claimedTurn(t, store, credentials, scope, "source-list-noreader-"+uuid.NewString())
+	status, body = postSource(t, sourceReadServer(t, store, nil, credentials), SourceListPath, live.Token, live.TurnID, live.Generation, "")
 	if status != http.StatusServiceUnavailable || body != `{"code":"source_unavailable","status":"error"}` {
 		t.Fatalf("no reader = %d %s", status, body)
 	}

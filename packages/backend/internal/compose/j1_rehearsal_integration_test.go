@@ -167,7 +167,10 @@ func TestJ1Rehearsal(t *testing.T) {
 			}
 			return false
 		}
-		files := "- /files.read <path>[:<line>[:<col>]] [owner/repo] [--ref <revision>] — Read a file from a repository"
+		files := strings.Join([]string{
+			"- /files.list [path] [owner/repo] — List a repository directory",
+			"- /files.read <path>[:<line>[:<col>]] [owner/repo] [--ref <revision>] — Read a file from a repository",
+		}, "\n")
 		owned := strings.Join([]string{
 			files,
 			"- /stack — Show the stack and background runs",
@@ -232,7 +235,7 @@ func TestJ1Rehearsal(t *testing.T) {
 		}
 		// A token reads no TODO through the agent: the routes admit the owner's
 		// browser session only. A chat-only token is offered no tool; a
-		// repository reader is offered files.read alone.
+		// repository reader is offered files.list and files.read alone.
 		chatOnly, err := r.token("write:user")
 		if err != nil {
 			return err
