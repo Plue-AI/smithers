@@ -7,7 +7,9 @@ import type { StorageApi } from "@tanstack/db"
 import type { AgentPort } from "../../runtime/AgentPort"
 import { createAppController } from "../../state/AppController"
 import { createAppStore } from "../../state/AppStore"
-import { designBranchTree, designHomeSummary, shellViewsOf } from "../../state/seams/DesignWorld/shell"
+import { designBranchTree, shellViewsOf } from "../../state/seams/DesignWorld/shell"
+import { designHomeModel } from "../../state/seams/DesignWorld/home"
+import { homeLine } from "../../ShellRail"
 import { BEN, MAYA } from "../../state/seams/DesignWorld"
 
 const memoryStorage = (): StorageApi => {
@@ -96,7 +98,8 @@ describe("the shell's branch flow", () => {
       h.controller.design.patch("branches", "b-log", { machine: "closed" })
       expect(designBranchTree(h.controller.design.world(), "main")[0]!.children.map(node => node.id)).toEqual(["b-stripe", "b-retry", "b-checkout"])
       expect(designBranchTree(h.controller.design.world(), "b-log")[0]!.children.map(node => node.id)).toEqual(["b-stripe", "b-retry", "b-checkout", "b-log"])
-      expect(designHomeSummary(world)).toEqual({ summary: "1 need you · 1 working", tone: "attention" })
+      expect(homeLine({ kind: "seed", model: designHomeModel(world, MAYA, Date.now()) }))
+        .toMatchObject({ title: world.repo.repo, summary: "1 need you · 1 working", tone: "attention" })
     } finally { await h.controller.dispose() }
   })
 })

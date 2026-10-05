@@ -18,6 +18,12 @@ import { BEN, MAYA } from "../state/seams/DesignWorld/world"
 import { designHomeView } from "../state/seams/DesignWorld/home"
 import { liveChannel } from "../runtime/LiveChannel"
 import { installFixture } from "../state/seams/InstallFixtures.test-support"
+import { createCollection, localOnlyCollectionOptions } from "@tanstack/db"
+import { TodoCardSchema } from "@smthrs/rpc/TodoCard"
+import { InstallModelSchema } from "../state/seams/InstallModel"
+import type { IdentitySession } from "../state/AppState"
+import { homeLine } from "../ShellRail"
+import { useHome, type HomeAnswer } from "./HomeContainer"
 import type { GitHubSyncHealth } from "../state/seams/GitHubSyncSeam"
 const allowed = new Set<CatalogTag>(["todo.new", "github.retry", "todo", "todo.answer", "todo.retry", "todo.drop", "branch", "merge", "stack.move", "order.ok", "main.reset-to-github", "background.retry", "background.dismiss"])
 const mount = (model: unknown, role: "owner" | "maintainer" | "member" = "owner", admission = allowed) => {
@@ -133,10 +139,17 @@ test("Merge is absent for members and for blocked, later or draft rows", () => {
   }
 })
 
-/** `live` is the page's `/api/live` channel; without it the controller supplies none and Home subscribes to nothing. */
-const seeded = (viewer: string, live = false) => {
+const NO_INSTALL = {}
+/**
+ * `live` is the page's `/api/live` channel; without it the controller supplies none and Home subscribes to nothing.
+ * `login` is the session's (signed out when null); the seed has no install.
+ */
+const seeded = (viewer: string, live = false, login: string | null = null) => {
   const submitted: unknown[] = []
+  const identity: IdentitySession = { id: "identity", state: login === null ? "signed-out" : "signed-in", login, admin: false, scopesPlain: null, updatedAt: 0, revision: 0 }
+  const identitySessions = createCollection(localOnlyCollectionOptions<IdentitySession, string>({ getKey: row => row.id, initialData: [identity] }))
   const controller = { design: createDesignWorld({ viewer, timers: { set: () => 0, clear: () => {} } }), ...(live ? { live: liveChannel() } : {}),
+    store: { collections: { identitySessions } }, installSnapshots: { get: () => NO_INSTALL, subscribe: () => () => {} },
     commands: { submit: async (command: unknown) => { submitted.push(command); return { status: "executed" } } } } as unknown as AppController
   return { controller, submitted }
 }
@@ -485,4 +498,113 @@ test("over the rows GET /api/todos serves, main's row is the install's GitHub sy
     health = undefined
     expect(render()).not.toContain("synced")
   } finally { controller.design.dispose() }
+})
+
+// Verbatim GET /api/todos and GET /api/install bodies from the J1 rehearsal on main 3e5e2f63ee (walk guard evidence
+// .artifacts/checks/C-J1-04/rehearsal/20261005T102611.163715000Z/http.log, 2026-10-05), read at "App agent lists TODOs":
+// the owner's install of rehearsal-owner/app with T1 in review and its PR ready to merge.
+const rehearsalAvatar = "data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHdpZHRoPSI0OCIgaGVpZ2h0PSI0OCIgdmlld0JveD0iMCAwIDQ4IDQ4Ij48cmVjdCB3aWR0aD0iNDgiIGhlaWdodD0iNDgiIHJ4PSIyNCIgZmlsbD0iI2RkZCIvPjxjaXJjbGUgY3g9IjI0IiBjeT0iMTgiIHI9IjgiIGZpbGw9IiM4ODgiLz48cGF0aCBkPSJNOCA0NGExNiAxNiAwIDAgMSAzMiAwIiBmaWxsPSIjODg4Ii8+PC9zdmc+"
+const rehearsalTodos = [{ branch: { id: "246747bc-a568-4a43-816d-85b00faf2671", machine: { state: "awake" }, name: "TODO 1 attempt 1 g1" },
+  evidence: [{ attempt: 1, revision: "fd950a828594e5de5dc57368d01c5a310bb2117b", items: [
+    { kind: "check", name: "build", state: "passed", took_s: 1.66 }, { kind: "check", name: "test", state: "passed", took_s: 1.734 },
+    { kind: "model_access", label: "AI Gateway · Smithers credit: typesafe-ai/jev; Cerebras · Smithers credit: gpt-oss-120b" }] }],
+  merge: { on_github: true, state: "ready" }, n: 1, owner: { avatar_url: rehearsalAvatar, login: "rehearsal-owner", name: "Rehearsal owner" }, place: 1,
+  pr: { draft: false, head: "8c413d1e214d30116a198803fbd5d4e9d0d0b36d", included_items: [1], number: 1, url: "https://github.com/rehearsal-owner/app/pull/1" },
+  present: [], prompt_revisions: [{ at: "2026-10-05T10:26:27.528829Z",
+    by: { kind: "person", name: "Rehearsal owner", login: "rehearsal-owner", avatar_url: rehearsalAvatar, color_index: 0 }, text: "Add a greeting to JOURNEY.md", acceptance: [] }],
+  run: { attempt: 1, id: "run-1", indicators: [] }, state: "in_review", steers: [],
+  steps: [{ id: "request", label: "Plan", state: "done" }, { id: "vibe", label: "Code", state: "done" }], title: "First TODO", waits: [] }]
+const rehearsalInstall = { address: { bind: "127.0.0.1:4000", listen: "mac", origins: ["http://127.0.0.1:55380"] }, capacity: 0, chatgpt: false,
+  github: { app_installed: true, owner: "rehearsal-owner", signed_in: true, squash_allowed: true },
+  models: [{ key: "saved", provider: "openai-chat", role: "fast" }, { key: "saved", provider: "openai-chat", role: "coding" }, { key: "saved", provider: "AI Gateway", role: "jev" }],
+  repository: { name: "app", owner: "rehearsal-owner" },
+  steps: [{ id: "address", state: "done" }, { id: "app_manifest", state: "done" }, { id: "sign_in", state: "done" }, { id: "repository", state: "done" },
+    { id: "models", state: "done" }, { id: "source", pct: 100, state: "done" }, { id: "machine", pct: 100, state: "done" }],
+  this_mac: { capacity: 0, disk_free_gb: 0, memory_gb: 0 } }
+
+/** The rehearsal's install as `login` opens it: the seed off, GET /api/install and GET /api/todos served. */
+const rehearsalHost = (login: string, todos: unknown = rehearsalTodos) => {
+  const h = seeded(MAYA, false, login)
+  h.controller.design.dispose()
+  const install = { model: InstallModelSchema.parse(rehearsalInstall) }
+  const list = { todos: TodoCardSchema.array().parse(todos) }
+  const controller = { ...h.controller, design: createDesignWorld({ enabled: false }),
+    installSnapshots: { get: () => install, subscribe: () => () => {} }, todoList: { get: () => list, subscribe: () => () => {} } } as unknown as AppController
+  return { controller, submitted: h.submitted }
+}
+
+test("on an install the session decides the role: over the J1 rehearsal's GET /api/todos the owner sees exactly one Merge, on T1; a member sees none", async () => {
+  GlobalRegistrator.register()
+  Object.assign(globalThis, { IS_REACT_ACT_ENVIRONMENT: true })
+  try {
+    for (const [login, merges] of [["rehearsal-owner", [1]], ["ben", []]] as const) {
+      const h = rehearsalHost(login)
+      const host = document.createElement("div"); document.body.append(host)
+      const root = createRoot(host)
+      try {
+        await act(async () => root.render(<ControllerTestProvider controller={h.controller}><HomeCard /></ControllerTestProvider>))
+        const rows = [...host.querySelectorAll(".mvp-stack-row")]
+        expect(rows.map(row => row.querySelector(".mvp-ref")?.textContent)).toEqual(["T1"])
+        expect(host.textContent).toContain("First TODO")
+        expect(host.textContent).not.toContain("Stripe")
+        expect(rows.flatMap((row, index) => [...row.querySelectorAll('button[data-flow="merge"]')].map(() => index + 1))).toEqual([...merges])
+        expect(host.querySelectorAll('button[data-flow="merge"]')).toHaveLength(merges.length)
+        if (merges.length > 0) {
+          await click(host.querySelector('button[data-flow="merge"]'))
+          expect(h.submitted).toEqual([{ name: "merge", payload: { n: 1 }, actor: "user" }])
+        }
+      } finally { await act(async () => root.unmount()); host.remove(); h.controller.design.dispose() }
+    }
+  } finally { await GlobalRegistrator.unregister() }
+})
+
+test("the seed's role goes only with the seed's rows: a signed-in session never changes the seeded viewer's Merge", () => {
+  const maya = seeded(MAYA, false, "someone-else")
+  expect(renderToStaticMarkup(<ControllerTestProvider controller={maya.controller}><HomeCard /></ControllerTestProvider>)).toContain('data-flow="merge"')
+  maya.controller.design.dispose()
+})
+
+/** What useHome answers on `controller`'s host, rendered once. */
+const probeHome = (controller: AppController): HomeAnswer | undefined => {
+  const seen: Array<HomeAnswer | undefined> = []
+  const Probe = () => { seen.push(useHome()); return null }
+  renderToStaticMarkup(<ControllerTestProvider controller={controller}><Probe /></ControllerTestProvider>)
+  expect(seen).toHaveLength(1)
+  return seen[0]
+}
+const answered = (home: HomeAnswer | undefined): HomeAnswer => {
+  expect(home).toBeDefined()
+  return home!
+}
+
+test("the rail's home line on an install names the repository and counts GET /api/todos, never the seed", () => {
+  const owner = rehearsalHost("rehearsal-owner")
+  const home = answered(probeHome(owner.controller))
+  expect(home).toMatchObject({ kind: "served", role: "owner", model: { repository: "rehearsal-owner/app" } })
+  expect(homeLine(home)).toEqual({ entry_id: "home", kind: "card", title: "rehearsal-owner/app", summary: "0 need you · 0 working", tone: "quiet" })
+  owner.controller.design.dispose()
+  const [t1] = rehearsalTodos
+  const busy = rehearsalHost("rehearsal-owner", [
+    { ...t1, n: 2, state: "needs_you", place: 2, waits: [{ id: "w2", kind: "question", prompt: "Which greeting?", since: "2026-10-05T10:27:00Z", actions: [] }] },
+    { ...t1, n: 3, state: "starting", place: 3, pr: undefined }, { ...t1, n: 4, state: "working", place: 4, pr: undefined }])
+  const counted = answered(probeHome(busy.controller))
+  expect(homeLine(counted)).toEqual({ entry_id: "home", kind: "card", title: "rehearsal-owner/app", summary: "1 need you · 2 working", tone: "attention" })
+  expect(homeLine({ ...counted, model: { ...counted.model, counts: { ...counted.model.counts, needs_you: 0 } } }).tone).toBe("live")
+  busy.controller.design.dispose()
+  // Until the first list read answers there is no line; a failed read names the repository and claims no counts.
+  const unread = {}, forbidden = { error: "forbidden" }
+  const pending = { ...rehearsalHost("rehearsal-owner").controller, todoList: { get: () => unread, subscribe: () => () => {} } } as unknown as AppController
+  expect(probeHome(pending)).toBeUndefined()
+  const refused = { ...pending, todoList: { get: () => forbidden, subscribe: () => () => {} } } as unknown as AppController
+  const failed = answered(probeHome(refused))
+  expect(homeLine(failed)).toEqual({ entry_id: "home", kind: "card", title: "rehearsal-owner/app", tone: "quiet" })
+  pending.design.dispose()
+})
+
+test("on a host with the seed the rail's home line reads the seeded stack", () => {
+  const h = seeded(MAYA)
+  const home = answered(probeHome(h.controller))
+  expect(home.kind).toBe("seed")
+  expect(homeLine(home)).toEqual({ entry_id: "home", kind: "card", title: home.model.repository, summary: "1 need you · 1 working", tone: "attention" })
+  h.controller.design.dispose()
 })

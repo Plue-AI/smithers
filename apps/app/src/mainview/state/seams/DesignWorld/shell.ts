@@ -8,7 +8,7 @@ import { createCollection, localOnlyCollectionOptions } from "@tanstack/db"
 import type { Actor, TodoState } from "@smthrs/rpc/CardPrimitives"
 import { PlaceholderAvatarUrl } from "@smthrs/rpc/CardPrimitives"
 import type { BranchTreeNodeCard } from "@smthrs/rpc/BranchTreeNodeCard"
-import { homeCounts, memberOf, STACK, todoOf, type ActorId, type DesignBranch, type DesignWorld, type DesignWorldRows } from "./index"
+import { memberOf, STACK, todoOf, type ActorId, type DesignBranch, type DesignWorld, type DesignWorldRows } from "./index"
 import { randomUuid } from "../../../runtime/RandomUuid"
 
 /** Where a viewer is: `main` or a branch id. Per person, never shared. */
@@ -101,13 +101,4 @@ export const designBranchTree = (world: DesignWorldRows, at: string): BranchTree
     .sort((left, right) => order(left) - order(right))
     .map(node)
   return [{ id: "main", name: "main", kind: "main", present: [], action: { tag: "branch", label: "Open", args: { name: "main" } }, children: childrenOf("main") }]
-}
-
-/** The home line on the timeline: "N need you · M working". */
-export const designHomeSummary = (world: DesignWorldRows): { readonly summary: string; readonly tone: "attention" | "live" | "quiet" } => {
-  const counts = homeCounts(world)
-  return {
-    summary: `${counts.needsYou} need you · ${counts.working} working`,
-    tone: counts.needsYou > 0 ? "attention" : counts.working > 0 ? "live" : "quiet"
-  }
 }

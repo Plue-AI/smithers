@@ -15,8 +15,7 @@ import { useController } from "./ControllerContext"
 import { EdgeMap } from "./EdgeMap"
 import type { InitMessage } from "./HostOpening"
 import type { Card, Message, Toast } from "./state/AppState"
-import { useDesignWorld } from "./state/seams/DesignWorld/hooks"
-import { designHomeSummary } from "./state/seams/DesignWorld/shell"
+import { useHome, type HomeAnswer } from "./cards/HomeContainer"
 import { Timeline } from "./Timeline"
 import { ToastStack } from "./ToastStackView"
 
@@ -81,17 +80,26 @@ export const railNotices = (toasts: ReadonlyArray<Toast>): ToastCard[] => [...to
 /** The home line, pinned first in main's conversation. */
 export const HOME_ENTRY_ID = "home"
 
+/** The home line: the repository and "N need you · M working"; a failed read claims no counts. */
+export const homeLine = (home: Pick<HomeAnswer, "kind" | "model">): TimelineLine => {
+  if (home.kind === "failed") return { entry_id: HOME_ENTRY_ID, kind: "card", title: home.model.repository, tone: "quiet" }
+  const { needs_you: needsYou, working, starting } = home.model.counts
+  return {
+    entry_id: HOME_ENTRY_ID, kind: "card", title: home.model.repository, summary: `${needsYou} need you · ${working + starting} working`,
+    tone: needsYou > 0 ? "attention" : working + starting > 0 ? "live" : "quiet"
+  }
+}
+
 export function ShellRail({ entries, home }: { readonly entries: ReadonlyArray<RailEntry>; readonly home: boolean }) {
   const controller = useController()
   const scroller = useMessageScroller()
-  const world = useDesignWorld()
+  const homeAnswer = useHome(home)
   const { data: toasts } = useLiveQuery(controller.store.collections.toasts)
   const { data: privacyNotices } = useLiveQuery(controller.privacyNotices)
   // Transient chrome: whether the rail is wide enough for the timeline (the View reports it).
   const [wide, setWide] = useState(false)
-  const homeSummary = designHomeSummary(world)
   const lines = [
-    ...(home ? [{ entry_id: HOME_ENTRY_ID, kind: "card" as const, title: world.repo.repo, summary: homeSummary.summary, tone: homeSummary.tone }] : []),
+    ...(home && homeAnswer !== undefined ? [homeLine(homeAnswer)] : []),
     ...railLines(entries)
   ]
   const band = useMessageBand(lines.map(line => line.entry_id))

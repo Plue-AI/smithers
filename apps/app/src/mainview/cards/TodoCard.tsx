@@ -101,11 +101,14 @@ export const reviewMergeOf = (model: TodoCard, role: TodoContainerProps["role"],
     ...(merge ? [merge] : [])
   ] }
 }
-/** The viewer's role on this host's TODOs: the members roster, else the install owner's own session. */
+/**
+ * The viewer's role on this host's TODOs: the members roster, else the install owner's own session. The roster rides the
+ * controller's live channel; a controller with none opens no socket.
+ */
 export const useTodoRole = (): TodoContainerProps["role"] => {
   const controller = useController()
   const identity = useLiveQuery(controller.store.collections.identitySessions).data[0]
-  const members = useTopic(controller.bootstrap ? "members" : undefined)
+  const members = useTopic(controller.bootstrap && controller.live ? "members" : undefined, controller.live)
   const roster = MembersCardSchema.safeParse(members?.data)
   const install = useSyncExternalStore(controller.installSnapshots.subscribe, controller.installSnapshots.get, controller.installSnapshots.get)
   const role = roster.success ? roster.data.members.find(member => member.login === identity?.login)?.role : undefined

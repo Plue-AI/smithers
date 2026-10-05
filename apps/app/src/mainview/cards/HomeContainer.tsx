@@ -13,6 +13,7 @@ import type { InstallSnapshots } from "../state/seams/InstallSeam"
 import type { TodoListSnapshots } from "../state/seams/TodoSeam"
 import { homeFromTodos } from "../state/seams/HomeFromTodos"
 import type { GitHubSyncHealth, GitHubSyncSnapshots } from "../state/seams/GitHubSyncSeam"
+import { useTodoRole } from "./TodoCard"
 
 export interface HomeContainerProps {
   /** Injectable Home projection, like TodoContainer's seam-populated model. */
@@ -160,37 +161,58 @@ export const homeDispatch = (controller: Pick<AppController, "commands">): CardC
   return controller.commands.submit({ name: tag, payload, actor: "user" })
 }
 
+/** Home as this host serves it to the viewer: which source answered, the model, the viewer's role on it, and whether the install's GitHub sync answers main's row. */
+export interface HomeAnswer {
+  readonly kind: "seed" | "served" | "failed"
+  readonly model: HomeModel
+  readonly role: HomeContainerProps["role"]
+  readonly synced: boolean
+}
+
 /**
- * The Home card of `main`'s conversation and `/stack` (T-APP-01), composed from the controller: the viewer's
- * role, the Home admission, the registry dispatch and the member's view state. It subscribes to the `home`
- * topic through the controller's live channel. Served data replaces the seed; a provider that fails shows main's refused or limited row and
- * no rows; only a host with no `home` provider (or no answer yet) keeps the seeded design world (MOCK SEAM),
- * so the mounted card never goes dark. A host with no `home` provider and no seed (the install) reads its rows from
- * GET /api/todos instead, and shows nothing until the first read answers. `production` overrides any part of that composition.
+ * Home for the card and the rail's home line. The `home` topic, through the controller's live channel, replaces the seed;
+ * a provider that fails gives main's refused or limited row and no rows; only a host with no `home` provider (or no answer
+ * yet) keeps the seeded design world (MOCK SEAM), so the mounted card never goes dark. A host with no `home` provider and
+ * no seed (the install) reads its rows from GET /api/todos instead, and answers nothing until the first read answers;
+ * where no `home` topic serves main's row, the install's GitHub sync does. The seeded viewer's role goes only with the
+ * seed's rows; served rows take the session's role, as the TODO card does. `active` false subscribes to nothing that polls.
  */
-export const HomeCard = ({ production }: {
-  readonly production?: Partial<Omit<HomeContainerProps, "model" | "View">>
-} = {}) => {
+export const useHome = (active = true): HomeAnswer | undefined => {
   const controller = useController()
   const seeded = useDesignHome()
-  const member = useDesignHomeView()
-  const dispatch = useMemo(() => homeDispatch(controller), [controller])
-  const answer = homeSource(useTopic(controller.live ? "home" : undefined, controller.live))
+  const session = useTodoRole()
+  const answer = homeSource(useTopic(active && controller.live ? "home" : undefined, controller.live))
   const installs = controller.installSnapshots ?? NO_INSTALL
   const install = useSyncExternalStore(installs.subscribe, installs.get, installs.get).model
-  const listed = answer.kind === "seed" && controller.design.enabled === false ? controller.todoList ?? NO_TODO_LIST : NO_TODO_LIST
+  const listed = active && answer.kind === "seed" && controller.design.enabled === false ? controller.todoList ?? NO_TODO_LIST : NO_TODO_LIST
   const list = useSyncExternalStore(listed.subscribe, listed.get, listed.get)
-  const syncs = controller.githubSyncSnapshots ?? NO_SYNC
+  const syncs = active ? controller.githubSyncSnapshots ?? NO_SYNC : NO_SYNC
   const sync = useSyncExternalStore(syncs.subscribe, syncs.get, syncs.get)
   const repository = install?.repository ? `${install.repository.owner}/${install.repository.name}` : seeded.model.repository
   const source = answer.kind !== "seed" || controller.design.enabled !== false ? answer
     : list.todos !== undefined ? { kind: "served" as const, model: homeFromTodos(repository, list.todos) }
     : { kind: "failed" as const, code: list.error ?? (listed === NO_TODO_LIST ? "unsupported" : "loading") }
-  if (source.kind === "failed" && source.code === "loading") return null
+  if (source.kind === "failed" && source.code === "loading") return undefined
   const home = source.kind === "served" ? source.model : source.kind === "failed" ? homeFailureModel(repository, source.code) : seeded.model
   /* A home topic serves main's row itself; elsewhere the install's GitHub sync does. */
   const model = withInstallCapacity(answer.kind === "served" ? home : withGitHubSync(home, sync), install)
-  return <HomeContainer model={model} role={production?.role ?? seeded.role}
-    allowed={source.kind === "failed" ? sync === undefined ? FAILED_TAGS : FAILED_SYNC_TAGS : production?.allowed ?? HOME_TAGS} dispatch={production?.dispatch ?? dispatch}
+  return { kind: source.kind, model, role: source.kind === "seed" ? seeded.role : session, synced: sync !== undefined }
+}
+
+/**
+ * The Home card of `main`'s conversation and `/stack` (T-APP-01), composed from the controller: Home and the viewer's
+ * role (useHome), the Home admission, the registry dispatch and the member's view state. `production` overrides any part
+ * of that composition.
+ */
+export const HomeCard = ({ production }: {
+  readonly production?: Partial<Omit<HomeContainerProps, "model" | "View">>
+} = {}) => {
+  const controller = useController()
+  const member = useDesignHomeView()
+  const dispatch = useMemo(() => homeDispatch(controller), [controller])
+  const home = useHome()
+  if (home === undefined) return null
+  return <HomeContainer model={home.model} role={production?.role ?? home.role}
+    allowed={home.kind === "failed" ? home.synced ? FAILED_SYNC_TAGS : FAILED_TAGS : production?.allowed ?? HOME_TAGS} dispatch={production?.dispatch ?? dispatch}
     view={production?.view ?? member.view} onView={production?.onView ?? member.onView} />
 }
