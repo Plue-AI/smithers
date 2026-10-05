@@ -133,10 +133,11 @@ func TestTodoRoutesAuthorizeByRole(t *testing.T) {
 			require.Equal(t, tc.merge, status, envelope)
 			require.Equal(t, tc.mergeCode, envelope["code"])
 			// Every control, as the app sends it: a person on the roster gets
-			// past authorization to the service, which refuses Retry of a
-			// working TODO, answers Drop of an unknown TODO 404, refuses Move up
-			// of the first one and keeps the controls it has no service for
-			// dark; nobody else gets past authorization.
+			// past authorization to the service, which sends a steer to the
+			// working run (it never settles the open question), refuses Retry
+			// of a working TODO, answers Drop of an unknown TODO 404, refuses
+			// Move up of the first one and keeps the controls it has no
+			// service for dark; nobody else gets past authorization.
 			for _, body := range []string{`{"op":"steer","text":"Keep the max at 5"}`, `{"steer":"Keep the max at 5"}`, `{"op":"stop"}`, `{"op":"resume"}`,
 				`{"op":"retry"}`, `{"op":"retry","steer":"Use the retry helper"}`, `{"op":"retry-current-flow"}`, `{"op":"drop"}`, `{"op":"move","direction":"up"}`} {
 				path := "/api/todos/3"
@@ -153,9 +154,12 @@ func TestTodoRoutesAuthorizeByRole(t *testing.T) {
 				} else if tc.list == 200 && strings.HasPrefix(body, `{"op":"move"`) {
 					require.Equal(t, http.StatusConflict, status, body)
 					require.Equal(t, map[string]any{"code": "conflict", "class": "conflict", "message": "T3 is already first"}, envelope, body)
-				} else if tc.list == 200 {
+				} else if tc.list == 200 && (body == `{"op":"stop"}` || body == `{"op":"resume"}` || body == `{"op":"retry-current-flow"}`) {
 					require.Equal(t, http.StatusServiceUnavailable, status, body)
 					require.Equal(t, map[string]any{"code": "todo_control_unavailable", "class": "infra", "message": "TODO controls are unavailable"}, envelope, body)
+				} else if tc.list == 200 {
+					require.Equal(t, http.StatusAccepted, status, body)
+					require.Equal(t, map[string]any{"state": "accepted"}, envelope, body)
 				} else {
 					require.Equal(t, http.StatusForbidden, status, body)
 					require.Equal(t, "permission", envelope["code"], body)
@@ -204,13 +208,35 @@ func TestTodoRoutesAuthorizeByRole(t *testing.T) {
 		require.Equal(t, http.StatusForbidden, status, who)
 		require.Equal(t, "permission", envelope["code"], who)
 	}
-	require.Empty(t, signals.sent(), "no refusal signals the run")
-	status, envelope := call(http.MethodPost, "/api/todos/3/answer", answer, "", sessions["member"])
+	// The owner's, the maintainer's and the member's steers went to the run
+	// as messages, one each (the two spellings share one Idempotency-Key);
+	// no refusal signals it.
+	answers := func() (steers, answered int) {
+		for _, signal := range signals.sent() {
+			if signal.Steer != nil {
+				require.Equal(t, "run-1", signal.RunID)
+				require.Equal(t, "Keep the max at 5", signal.Steer.Body)
+				steers++
+			} else {
+				answered++
+			}
+		}
+		return steers, answered
+	}
+	steers, answered := answers()
+	require.Equal(t, 3, steers)
+	require.Zero(t, answered, "no refusal signals the run")
+	status, envelope := call(http.MethodGet, "/api/todos/3", "", "", sessions["owner"])
+	require.Equal(t, http.StatusOK, status, envelope)
+	require.Equal(t, "needs_you", envelope["state"], "a steer never settles the question")
+	require.Len(t, envelope["steers"], 3)
+	status, envelope = call(http.MethodPost, "/api/todos/3/answer", answer, "", sessions["member"])
 	require.Equal(t, http.StatusAccepted, status, envelope)
 	status, envelope = call(http.MethodPost, "/api/todos/3/answer", `{"wait":"q-0123456789abcdef","answer":"Use a fixed delay"}`, "", sessions["maintainer"])
 	require.Equal(t, http.StatusConflict, status, envelope)
 	require.Equal(t, "alice", envelope["answered_by"])
-	require.Len(t, signals.sent(), 1)
+	_, answered = answers()
+	require.Equal(t, 1, answered)
 
 	// Any member drops a TODO (§6.15); the same press again is the same drop,
 	// and another press on the dropped TODO is 409.

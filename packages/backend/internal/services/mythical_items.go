@@ -505,6 +505,13 @@ func (s *MythicalService) ProjectFlowRuntime(ctx context.Context, update flowdis
 			}
 			// Only the attempt's bound run opens or withdraws its questions.
 			mythicalProjectWaits(&next, projection, update, runID, s.now().UTC())
+			// Steers that reached the attempt while it was starting go to its
+			// run once attached, admitted with this projection.
+			signaler, _ := s.launcher.(mythicalSignaler)
+			var steers []flowdispatch.SignalRequest
+			if signaler != nil {
+				steers = todoAttachSteers(&next, projection, update, runID)
+			}
 			next = retainTodoAttemptEvidence(next)
 			if next.RequestRunID == item.RequestRunID && next.VibeRunID == item.VibeRunID && next.VerifyRunID == item.VerifyRunID &&
 				next.RequestOutcome == item.RequestOutcome && next.VibeOutcome == item.VibeOutcome && next.VerifyOutcome == item.VerifyOutcome &&
@@ -526,6 +533,11 @@ func (s *MythicalService) ProjectFlowRuntime(ctx context.Context, update flowdis
 			if mythicalTodo(saved) && saved.Number.Valid {
 				fact, _ := json.Marshal(map[string]any{"item": uuidString(saved.ID), "n": saved.Number.Int64, "attempt": saved.Attempt, "generation": saved.Generation, "phase": projection.Phase, "run": runID, "actor": map[string]string{"kind": "run", "id": runID}, "from": todoState(item), "to": todoState(saved)})
 				if _, err := jobs.RecordFactInTx(ctx, tx, todoOperationScope(saved), uuid.NewString(), "todo.run_updated", todoState(saved), fact); err != nil {
+					return err
+				}
+			}
+			for _, steer := range steers {
+				if _, err := signaler.SignalInTx(ctx, tx, steer); err != nil {
 					return err
 				}
 			}
