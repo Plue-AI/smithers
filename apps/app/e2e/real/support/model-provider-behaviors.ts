@@ -12,9 +12,11 @@ export type ProviderModelId = typeof PROVIDER_MODEL[keyof typeof PROVIDER_MODEL]
 /**
  * The install's own role models (packages/backend install_setup.go InstallFastModel and the Decisions role), which an
  * install pointed here by SMITHERS_MODEL_PROVIDER_ORIGIN asks for: the fast model behaves as `reads`, so the app agent
- * on Cerebras reads files, and Decisions as `answers`.
+ * on Cerebras reads files, and Decisions as `answers`. The review seat is the AI Gateway's second-vendor review model
+ * (flows/coding/host.ts routedReviewModels), which the stack's review of a TODO's PR runs on with only a Gateway key;
+ * it behaves as `answers`.
  */
-export const INSTALL_MODEL = { fast: "gpt-oss-120b", decisions: "typesafe-ai/jev" } as const
+export const INSTALL_MODEL = { fast: "gpt-oss-120b", decisions: "typesafe-ai/jev", review: "anthropic/claude-sonnet-4.5" } as const
 
 /** The assistant text every successful generation streams, in two deltas. */
 export const PROVIDER_REPLY = ["loopback ", "pong"] as const

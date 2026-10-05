@@ -279,6 +279,12 @@ describe("the install's role models", () => {
     expect(await last()).toMatchObject({ protocol: "openai-chat", modelId: INSTALL_MODEL.fast, status: 200, authorized: true })
   })
 
+  test("the review seat answers the stack's review", async () => {
+    const events = await Effect.runPromise(stream("openai-chat", INSTALL_MODEL.review))
+    expect(events.length).toBeGreaterThan(0)
+    expect(await last()).toMatchObject({ protocol: "openai-chat", modelId: INSTALL_MODEL.review, status: 200, authorized: true })
+  })
+
   test("Decisions evaluates", async () => {
     const response = await Effect.runPromise(evaluate(INSTALL_MODEL.decisions))
     expect(response.answers.yes).toEqual({ type: "boolean", probability: PROVIDER_CONFIDENCE })
