@@ -475,7 +475,7 @@ test("TODO projections name an install's served delegated authors without a rost
   const { actorName } = await import("../ProductActor")
   const { PlaceholderAvatarUrl } = await import("@smthrs/rpc/CardPrimitives")
   const ben = { login: "ben", name: "Ben Ito", avatar_url: PlaceholderAvatarUrl }
-  const agent = { kind: "agent", id: "agent-session-5e55", agent: "claude-code", avatar_url: PlaceholderAvatarUrl, session_id: "5e55", for_member: ben, color_index: 0 }
+  const agent = { kind: "agent" as const, id: "agent-session-5e55", agent: "claude-code" as const, avatar_url: PlaceholderAvatarUrl, session_id: "5e55", for_member: ben, color_index: 0 }
   const terminal = { kind: "person", ...ben, via: "terminal", color_index: 0 }
   const projection = { ...fixtures.working.model, first_answer: { text: "Use backoff", by: agent, at: "now" },
     prompt_revisions: [{ text: "Add retries", acceptance: [], by: terminal, at: "now" }] }
