@@ -2,7 +2,7 @@
 .input-mode-menu {
   position: absolute; z-index: 100; bottom: calc(100% + 8px); right: 0;
   min-width: 170px; padding: 5px; border: 1px solid var(--border, #ccd6d2); border-radius: 12px;
-  background: var(--surface); color: var(--text, #403f53); box-shadow: 0 6px 22px #001c2524;
+  background: var(--surface); color: var(--text, #211d18); box-shadow: 0 6px 22px #001c2524;
 }
 .input-mode-control[data-placement="below"] .input-mode-menu { top: calc(100% + 8px); bottom: auto; }
 .input-mode-menu [role="menuitemradio"] {

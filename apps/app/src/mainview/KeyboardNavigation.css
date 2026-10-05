@@ -1,16 +1,16 @@
 [data-keyboard-active] {
-  outline: 2px solid var(--g-accent, var(--brand, #9449bc));
+  outline: 2px solid var(--g-accent, var(--brand, #0f766e));
   outline-offset: -2px;
 }
 [data-vim-mode="normal"], [data-vim-mode="visual"] {
   caret-shape: block;
-  caret-color: var(--brand, #9449bc);
+  caret-color: var(--brand, #0f766e);
 }
 .keyboard-hints, .keyboard-pane-number {
   position: fixed;
   z-index: 10000;
-  color: var(--text, #403f53);
-  background: var(--surface, #fefefe);
+  color: var(--text, #211d18);
+  background: var(--surface, #fffefa);
   border: 1px solid var(--border, #d8d5df);
   border-radius: 6px;
   box-shadow: 0 3px 12px #0002;
@@ -31,7 +31,7 @@
 .keyboard-hints strong { font-weight: 600; }
 .keyboard-hints kbd, .keyboard-pane-number kbd { font: inherit; font-weight: 600; }
 .keyboard-pane-number { padding: 4px 8px; }
-.keyboard-pane-number kbd { font-size: 18px; margin-right: 4px; color: var(--g-accent, var(--brand, #9449bc)); }
+.keyboard-pane-number kbd { font-size: 18px; margin-right: 4px; color: var(--g-accent, var(--brand, #0f766e)); }
 .keyboard-pane-choice { display: inline-block; margin-right: 12px; }
 
 .vim-markdown-buffer { width: 100%; min-height: 300px; height: 100%; resize: vertical; padding: 12px; color: inherit; background: var(--surface); font: 13px/1.6 var(--font-mono, monospace); border: 1px solid var(--border); }
