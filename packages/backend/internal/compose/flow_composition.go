@@ -54,7 +54,9 @@ func newFlowComposition(options runOptions, cfg *config.Config, pool *pgxpool.Po
 	registry := options.FlowHostRegistry
 	// Managed hosts reach platform models through the metered proxy with a
 	// credential derived from their binding; the repository's owner pays.
-	modelSeats := modelproxy.OfferedSeats(options.PlatformModelKeys)
+	// On an install the proxy spends the install's own keys instead.
+	proxyKeys, _ := options.proxyKeys()
+	modelSeats := modelproxy.OfferedSeats(proxyKeys)
 	modelProxyURL := ""
 	if len(modelSeats) > 0 {
 		modelProxyURL = productAPIURL + modelproxy.Path
@@ -125,8 +127,14 @@ func newFlowComposition(options runOptions, cfg *config.Config, pool *pgxpool.Po
 	if !ok {
 		return nil, errors.New("Flow workspace launcher cannot resolve sources or stop hosts")
 	}
+	boxLauncher := newBoxHostLauncher(workspaceHosts, boxes, invoked)
+	if _, ownerPaid := options.proxyKeys(); ownerPaid {
+		// An install pins no coding model: its hosts run the coding role
+		// Model access wrote, on the owner's key through the proxy.
+		boxLauncher.codingModel = ownerCodingSeat(db.New(pool), modelSeats)
+	}
 	// Admission first: a refused start never touches the box.
-	admitted, err := newAdmittedFlowLauncher(newBoxHostLauncher(workspaceHosts, boxes, invoked), db.New(pool), policy)
+	admitted, err := newAdmittedFlowLauncher(boxLauncher, db.New(pool), policy)
 	if err != nil {
 		return nil, err
 	}

@@ -167,6 +167,9 @@ func serve(ctx context.Context, args []string, executable func() (string, error)
 		FlowHostConfig:   testFlowHostConfig,
 		ChatHost:         chatHost,
 		Recommender:      recommender,
+		// The coding host reaches the owner's Gateway key through the model
+		// proxy (engineering spec §15.2.1); the key never enters a machine.
+		OwnerModelKeys: modelhost.OwnerGatewayKeys{Resolver: resolver},
 	}
 
 	if inputs.postgresBin != "" {

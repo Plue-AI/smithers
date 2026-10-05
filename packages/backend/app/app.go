@@ -108,6 +108,10 @@ type Config struct {
 	// call on them goes through the metered model proxy. Nil offers none;
 	// guests then use repository keys and connected accounts only.
 	PlatformModelKeys ports.PlatformModelKeys
+	// OwnerModelKeys are an install's own provider keys. Without
+	// PlatformModelKeys the model proxy spends them, unmetered by Smithers
+	// credit: a coding host gets a proxy seat, never the key.
+	OwnerModelKeys ports.PlatformModelKeys
 	// ModelProxyUpstreams overrides provider origins for PlatformModelKeys
 	// (modelproxy.UpstreamsEnv on a self-hosted install).
 	ModelProxyUpstreams map[string]string
@@ -232,6 +236,7 @@ func (cfg Config) options() compose.Options {
 		ModelStreamHost:        cfg.ModelStreamHost,
 		MetricsCollectors:      append([]prometheus.Collector(nil), cfg.MetricsCollectors...),
 		PlatformModelKeys:      cfg.PlatformModelKeys,
+		OwnerModelKeys:         cfg.OwnerModelKeys,
 		ModelProxyUpstreams:    cfg.ModelProxyUpstreams,
 		AdminRoutes:            cfg.AdminRoutes,
 	}

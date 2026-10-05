@@ -24,8 +24,13 @@ var routes = map[string]route{
 	ProviderOpenAI:     {"https://api.openai.com", []string{"v1/responses", "v1/chat/completions"}},
 	ProviderCerebras:   {"https://api.cerebras.ai", []string{"v1/chat/completions"}},
 	ProviderOpenRouter: {"https://openrouter.ai/api", []string{"v1/responses", "v1/chat/completions"}},
-	ProviderVercel:     {"https://ai-gateway.vercel.sh", []string{"v4/ai/evaluation-model"}},
+	// Chat completions on the Gateway are priced by no platform row, so only
+	// an owner-paid proxy (Handler.OwnerPaid) forwards them.
+	ProviderVercel: {"https://ai-gateway.vercel.sh", []string{jevPath, "v1/chat/completions"}},
 }
+
+// jevPath is the Gateway's evaluation model path.
+const jevPath = "v4/ai/evaluation-model"
 
 // JevModel is the Vercel AI Gateway evaluation model, named by the
 // ai-model-id header rather than the body.
@@ -87,7 +92,7 @@ var refusedFields = []string{
 // the provider enforces, a usage report requested on streamed chat
 // completions, and on OpenRouter a price ceiling at the reserved rate.
 func parseRequest(provider, path string, header http.Header, body []byte) (parsedCall, error) {
-	if provider == ProviderVercel {
+	if provider == ProviderVercel && path == jevPath {
 		if strings.TrimSpace(header.Get("Ai-Model-Id")) != JevModel {
 			return parsedCall{}, refuse("ai-model-id must be " + JevModel)
 		}

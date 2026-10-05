@@ -46,6 +46,10 @@ type Handler struct {
 	Client    *http.Client
 	// MaxBodyBytes caps the request body; 0 means 16 MiB.
 	MaxBodyBytes int64
+	// OwnerPaid serves an install's own keys (engineering spec §15.2.1): the owner
+	// pays the provider, so no Smithers credit is reserved, any model the
+	// key serves is forwarded, and each call is logged instead of charged.
+	OwnerPaid bool
 }
 
 const (
@@ -119,6 +123,17 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		WriteError(w, provider, http.StatusBadRequest, "invalid_request_error", "Invalid request.")
+		return
+	}
+	if h.OwnerPaid {
+		caller, ok := resolveCaller()
+		if !ok {
+			return
+		}
+		result, err := h.forward(r.Context(), w, r, provider, rt, path, parsed)
+		slog.Info("owner model call", "provider", provider, "path", path, "model", parsed.model, "status", result.Status,
+			"outcome", string(result.Outcome), "input_tokens", result.Usage.InputTokens, "output_tokens", result.Usage.OutputTokens,
+			"source", caller.Source, "reference", caller.Reference, "workspace_id", caller.WorkspaceID, "error", err)
 		return
 	}
 	_, price, ok := Price(provider, parsed.model)

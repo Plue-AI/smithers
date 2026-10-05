@@ -201,9 +201,10 @@ func builtinCredential(name string) bool {
 	}
 }
 
-// OwnerGatewayKeys resolves the install's agent:jev binding for every call.
-// It implements Keys solely to reuse Jev's transport; it is never installed as
-// platform-paid proxy access and has no environment or file fallback.
+// OwnerGatewayKeys resolves the install's agent:jev binding for every call:
+// the Gateway key Model access tested. Jev's transport and the owner-paid
+// model proxy (compose Options.OwnerModelKeys) spend it; it is never
+// platform-paid access and has no environment or file fallback.
 type OwnerGatewayKeys struct{ Resolver *OwnerSecretResolver }
 
 func (keys OwnerGatewayKeys) PlatformModelProviders() []string { return []string{"vercel"} }

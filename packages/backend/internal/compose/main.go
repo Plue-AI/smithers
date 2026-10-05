@@ -176,6 +176,11 @@ type Options struct {
 	// offers no platform models: guests use repository keys and connected
 	// accounts only.
 	PlatformModelKeys modelproxy.Keys
+	// OwnerModelKeys are an install's own provider keys, resolved per call.
+	// Without PlatformModelKeys the model proxy spends them instead
+	// (modelproxy.Handler.OwnerPaid, engineering spec §15.2.1): a coding host
+	// gets a proxy seat, never a key, and the owner pays the provider.
+	OwnerModelKeys modelproxy.Keys
 	// ModelProxyUpstreams overrides provider origins for PlatformModelKeys.
 	ModelProxyUpstreams map[string]string
 	// AdminRoutes serves deployment operator endpoints under /api/admin.
@@ -211,6 +216,15 @@ type runOptions struct {
 	topology     topology
 	externalHTTP bool
 	ready        func(http.Handler)
+}
+
+// proxyKeys are the keys the model proxy spends: the platform's, or else the
+// install owner's, which the owner pays for.
+func (options runOptions) proxyKeys() (keys modelproxy.Keys, ownerPaid bool) {
+	if options.PlatformModelKeys != nil {
+		return options.PlatformModelKeys, false
+	}
+	return options.OwnerModelKeys, options.OwnerModelKeys != nil
 }
 
 func runWithOptions(ctx context.Context, args []string, stdout, stderr io.Writer, options runOptions) (runErr error) {
@@ -1420,12 +1434,12 @@ func runWithOptions(ctx context.Context, args []string, stdout, stderr io.Writer
 	adminGrantHandler := &routes.AdminGrantHandler{Service: services.NewAdminGrantService(pool, modelLedger)}
 	modelMeter := &modelproxy.Meter{Ledger: modelLedger, DailyCapNanos: modelDailyCap}
 	var modelProxyHandler http.Handler
-	if len(modelSeats) > 0 {
+	if proxyKeys, ownerPaid := options.proxyKeys(); len(modelproxy.OfferedSeats(proxyKeys)) > 0 {
 		callers := services.NewModelProxyCallers(queries, pool, webhookSecretCodec)
 		if options.Commerce != nil {
 			callers.PaidPlan = options.Commerce.OwnerHasPaidPlan
 		}
-		modelProxyHandler = &modelproxy.Handler{Meter: *modelMeter, Keys: options.PlatformModelKeys, Callers: callers, Upstreams: options.ModelProxyUpstreams}
+		modelProxyHandler = &modelproxy.Handler{Meter: *modelMeter, Keys: proxyKeys, OwnerPaid: ownerPaid, Callers: callers, Upstreams: options.ModelProxyUpstreams}
 	}
 	var recommendationHandler *routes.RecommendationHandler
 	recommender := options.Recommender

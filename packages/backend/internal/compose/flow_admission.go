@@ -2,11 +2,17 @@ package compose
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
+	"fmt"
+	"strings"
+
+	"github.com/jackc/pgx/v5"
 
 	"github.com/smithersai/smithers/packages/backend/admission"
 	"github.com/smithersai/smithers/packages/backend/flowhost"
 	"github.com/smithersai/smithers/packages/backend/internal/db"
+	"github.com/smithersai/smithers/packages/backend/modelproxy"
 	workspaceapi "github.com/smithersai/smithers/packages/backend/workspace"
 )
 
@@ -103,6 +109,52 @@ type boxHostLauncher struct {
 	// (services.InvokedFlowService: an invoked run's workflow variables and
 	// secrets).
 	targets flowHostEnvironment
+	// codingModel is the install's coding seat (ownerCodingSeat), used when
+	// the catalog pins no implementation model; nil keeps the catalog's.
+	codingModel func(context.Context) (string, error)
+}
+
+// withCodingModel gives a catalog that pins no implementation model the
+// install's own. Start and Inspect both apply it, so the host's service
+// identity follows the seat and a changed coding model starts a new host.
+func (l *boxHostLauncher) withCodingModel(ctx context.Context, launch flowhost.HostLaunch) (flowhost.HostLaunch, error) {
+	if l.codingModel == nil || launch.Catalog.ImplementationModel != "" {
+		return launch, nil
+	}
+	seat, err := l.codingModel(ctx)
+	if err != nil {
+		return launch, fmt.Errorf("read the install's coding model: %w", err)
+	}
+	launch.Catalog.ImplementationModel = seat
+	return launch, nil
+}
+
+// ownerCodingSeat reads the coding role Model access wrote (install setting
+// agent:coding) as a coding host seat, provider:model, when its key is one
+// the owner-paid model proxy serves; otherwise it names none.
+func ownerCodingSeat(queries *db.Queries, seats []modelproxy.Seat) func(context.Context) (string, error) {
+	return func(ctx context.Context) (string, error) {
+		setting, err := queries.GetInstallSetting(ctx, "agent:coding")
+		if errors.Is(err, pgx.ErrNoRows) {
+			return "", nil
+		}
+		if err != nil {
+			return "", err
+		}
+		var binding struct {
+			ModelID    string `json:"modelId"`
+			Credential string `json:"credential"`
+		}
+		if json.Unmarshal(setting.Value, &binding) != nil || strings.TrimSpace(binding.ModelID) == "" {
+			return "", nil
+		}
+		for _, seat := range seats {
+			if seat.KeyEnv == binding.Credential {
+				return seat.Provider + ":" + strings.TrimSpace(binding.ModelID), nil
+			}
+		}
+		return "", nil
+	}
 }
 
 type flowHostEnvironment interface {
@@ -130,6 +182,10 @@ func newBoxHostLauncher(launcher boxHostBase, boxes boxHostPreparer, targets flo
 // A box the runtime lost outright is replaced the same way when its journals
 // live outside it (#1868).
 func (l *boxHostLauncher) InspectFlowHost(ctx context.Context, launch flowhost.HostLaunch) (flowhost.Connection, error) {
+	launch, err := l.withCodingModel(ctx, launch)
+	if err != nil {
+		return flowhost.Connection{}, err
+	}
 	connection, err := l.Launcher.InspectFlowHost(ctx, launch)
 	if err == nil {
 		l.boxes.KeepBoxAwake(ctx, launch.Binding.WorkspaceID)
@@ -161,9 +217,12 @@ func (l *boxHostLauncher) StartFlowHost(ctx context.Context, launch flowhost.Hos
 			return flowhost.Connection{}, staleRoleSource{}
 		}
 	}
+	launch, err := l.withCodingModel(ctx, launch)
+	if err != nil {
+		return flowhost.Connection{}, err
+	}
 	var targetEnvironment map[string]string
 	if l.targets != nil {
-		var err error
 		if targetEnvironment, err = l.targets.FlowHostEnvironment(ctx, launch.Authority); err != nil {
 			return flowhost.Connection{}, err
 		}
