@@ -2774,7 +2774,7 @@ func (st *mythicalItemStep) review(ctx context.Context, item db.MythicalItem) (*
 	}
 	next := item
 	checks := mythicalChecksOf(item)
-	checks.Review = &mythicalReview{Head: item.PRHead}
+	checks.Review = &mythicalReview{Head: item.PRHead, Candidate: item.CandidateHead}
 	if len(diff) > mythicalReviewBytes {
 		checks.Review.Verdict = "failed: " + mythicalReviewTooLarge
 		next.Checks = checks.encode()
@@ -3673,9 +3673,13 @@ func (c *mythicalChecks) notice(key, body string) {
 // mythicalReview is the review of one pull request head. Verdict is empty
 // while the review runs, then approve, request-changes or failed: <reason>.
 type mythicalReview struct {
-	Head    string `json:"head"`
-	RunID   string `json:"runId,omitempty"`
-	Verdict string `json:"verdict,omitempty"`
+	Head string `json:"head"`
+	// Candidate is the verified candidate Head publishes: the pull request
+	// head is a fresh commit of the candidate's tree on main (propose), so
+	// the TODO's evidence finds its review by this, never by Head.
+	Candidate string `json:"candidate,omitempty"`
+	RunID     string `json:"runId,omitempty"`
+	Verdict   string `json:"verdict,omitempty"`
 }
 
 func mythicalChecksOf(item db.MythicalItem) mythicalChecks {

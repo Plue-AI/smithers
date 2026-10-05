@@ -100,6 +100,22 @@ func TestTodoStepsUseOnlyBoundPhaseFacts(t *testing.T) {
 
 }
 
+// The pull request head is a fresh commit of the candidate's tree on main,
+// so the review of that head is the candidate's evidence; it stays hidden
+// once the candidate moves.
+func TestTodoEvidenceHoldsTheReviewOfThePublishedHead(t *testing.T) {
+	item := db.MythicalItem{Source: "todo", Attempt: 1, CandidateHead: "candidate", PRHead: "published", Checks: mythicalChecks{
+		Review: &mythicalReview{Head: "published", Candidate: "candidate", Verdict: "approve"},
+	}.encode()}
+	require.Equal(t, []map[string]any{{"kind": "review", "summary": "approve"}}, currentTodoEvidence(item).Items)
+	moved := item
+	moved.CandidateHead = "next"
+	require.Empty(t, currentTodoEvidence(moved).Items, "a review never vouches for another candidate")
+	running := item
+	running.Checks = mythicalChecks{Review: &mythicalReview{Head: "published", Candidate: "candidate"}}.encode()
+	require.Empty(t, currentTodoEvidence(running).Items, "a review still running has no summary")
+}
+
 func TestTodoEvidenceKeepsOnlyMatchingCandidateAndAttempt(t *testing.T) {
 	duration := int64(0)
 	item := db.MythicalItem{Source: "todo", Attempt: 1, CandidateHead: "candidate", FlowDigest: pgtype.Text{String: "pin", Valid: true}, Checks: mythicalChecks{
