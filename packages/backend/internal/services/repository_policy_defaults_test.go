@@ -78,3 +78,15 @@ func TestMythicalLaunchableAcceptsARepositoryWithoutDeclarations(t *testing.T) {
 	require.NotNil(t, spent)
 	require.Equal(t, "the factory's daily token budget is spent; work resumes at 00:00 UTC", spent.Reason)
 }
+
+// The owner-paid model proxy holds each call to the budget launchable reads.
+func TestDailyTokenBudgetIsTheLaunchBudget(t *testing.T) {
+	o := newMythicalOrchestration(t)
+	ctx := context.Background()
+	o.service.SetPolicyReader(policyTestHost{})
+	budget, err := o.service.DailyTokenBudget(ctx, o.repoID)
+	require.NoError(t, err)
+	require.EqualValues(t, defaultDailyTokens, budget)
+	_, err = o.service.DailyTokenBudget(ctx, o.repoID+1_000_000)
+	require.Error(t, err, "an unknown repository has no budget, never a default")
+}

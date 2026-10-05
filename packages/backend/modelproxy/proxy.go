@@ -47,9 +47,11 @@ type Handler struct {
 	// MaxBodyBytes caps the request body; 0 means 16 MiB.
 	MaxBodyBytes int64
 	// OwnerPaid serves an install's own keys (engineering spec §15.2.1): the owner
-	// pays the provider, so no Smithers credit is reserved, any model the
-	// key serves is forwarded, and each call is logged instead of charged.
+	// pays the provider, so no Smithers credit is reserved and any model the
+	// key serves is forwarded. Owner records each call and holds it to its
+	// repository's daily token budget; without Owner every call is refused.
 	OwnerPaid bool
+	Owner     OwnerUsage
 }
 
 const (
@@ -130,10 +132,35 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		if !ok {
 			return
 		}
-		result, err := h.forward(r.Context(), w, r, provider, rt, path, parsed)
-		slog.Info("owner model call", "provider", provider, "path", path, "model", parsed.model, "status", result.Status,
-			"outcome", string(result.Outcome), "input_tokens", result.Usage.InputTokens, "output_tokens", result.Usage.OutputTokens,
-			"source", caller.Source, "reference", caller.Reference, "workspace_id", caller.WorkspaceID, "error", err)
+		if h.Owner == nil {
+			// Missing accounting fails closed (§15.2.2).
+			WriteError(w, provider, http.StatusServiceUnavailable, "api_error", "Model usage accounting is unavailable.")
+			return
+		}
+		// No price: the bound is the call's token ceiling alone.
+		call := Call{Provider: provider, Model: parsed.model, Stream: parsed.stream, Maximum: parsed.maximum(modelprice.Price{})}
+		var result Result
+		answered := false
+		err := h.Owner.Execute(r.Context(), caller, call, func(ctx context.Context) (Result, error) {
+			answered = true
+			var err error
+			result, err = h.forward(ctx, w, r, provider, rt, path, parsed)
+			return result, err
+		})
+		if answered {
+			slog.Info("owner model call", "provider", provider, "path", path, "model", parsed.model, "status", result.Status,
+				"outcome", string(result.Outcome), "input_tokens", result.Usage.InputTokens, "output_tokens", result.Usage.OutputTokens,
+				"source", caller.Source, "reference", caller.Reference, "workspace_id", caller.WorkspaceID, "error", err)
+			return
+		}
+		if errors.Is(err, ErrDailyTokenBudget) {
+			// The exhausted-quota shape parks the run until the next UTC day.
+			w.Header().Set("Retry-After", untilNextUTCDay(time.Now()))
+			WriteError(w, provider, http.StatusTooManyRequests, "insufficient_quota", "The repository's daily token budget is spent; work resumes at 00:00 UTC.")
+			return
+		}
+		slog.Error("owner model usage refused the call", "provider", provider, "model", parsed.model, "error", err)
+		WriteError(w, provider, http.StatusServiceUnavailable, "api_error", "Model usage accounting is unavailable.")
 		return
 	}
 	_, price, ok := Price(provider, parsed.model)

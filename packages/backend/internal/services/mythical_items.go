@@ -3096,6 +3096,18 @@ func (s *MythicalService) stackPolicy(ctx context.Context, repositoryID int64) (
 	return policy, nil
 }
 
+// DailyTokenBudget is the repository's daily token budget: its committed
+// dailyTokens, or defaultDailyTokens when it declares none. The owner-paid
+// model proxy holds every call to it (modelproxy.OwnerMeter), as launchable
+// holds TODO launches; an unreadable policy is an error, never a default.
+func (s *MythicalService) DailyTokenBudget(ctx context.Context, repositoryID int64) (int64, error) {
+	policy, err := s.stackPolicy(ctx, repositoryID)
+	if err != nil {
+		return 0, err
+	}
+	return policy.DailyTokens, nil
+}
+
 // deliverNotice posts the comment an item owes its issue and records it
 // posted. A failure leaves it owed, so a later pass, settled item or not,
 // posts it.

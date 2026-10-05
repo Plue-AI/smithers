@@ -1454,8 +1454,8 @@ type Milestone struct {
 type ModelUsage struct {
 	ID                 int64              `json:"id"`
 	RequestKey         string             `json:"request_key"`
-	CreditAccountID    int64              `json:"credit_account_id"`
-	ReservationID      int64              `json:"reservation_id"`
+	CreditAccountID    pgtype.Int8        `json:"credit_account_id"`
+	ReservationID      pgtype.Int8        `json:"reservation_id"`
 	OwnerType          string             `json:"owner_type"`
 	OwnerID            int64              `json:"owner_id"`
 	Source             string             `json:"source"`
@@ -1478,6 +1478,7 @@ type ModelUsage struct {
 	SettledAt          pgtype.Timestamptz `json:"settled_at"`
 	CacheWrite1hTokens int64              `json:"cache_write_1h_tokens"`
 	BoundTokens        int64              `json:"bound_tokens"`
+	PaidBy             string             `json:"paid_by"`
 }
 
 type MythicalChange struct {

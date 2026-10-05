@@ -10,6 +10,7 @@ import (
 	"os"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/go-chi/chi/v5"
 	"github.com/google/uuid"
@@ -110,10 +111,10 @@ func TestOwnerGatewayKeyServesTheCodingHostThroughTheProxyPostgres(t *testing.T)
 	require.NotContains(t, hostCredential, gatewayKey)
 
 	upstreams := map[string]string{}
-	var signed string
+	var signed []string
 	if !live {
 		upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			signed = r.Header.Get("Authorization")
+			signed = append(signed, r.Header.Get("Authorization"))
 			require.Equal(t, "/v1/chat/completions", r.URL.Path)
 			w.Header().Set("Content-Type", "application/json")
 			_, _ = w.Write([]byte(`{"choices":[{"message":{"role":"assistant","content":"ok"}}],"usage":{"prompt_tokens":9,"completion_tokens":1}}`))
@@ -121,38 +122,117 @@ func TestOwnerGatewayKeyServesTheCodingHostThroughTheProxyPostgres(t *testing.T)
 		defer upstream.Close()
 		upstreams[modelproxy.ProviderVercel] = upstream.URL
 	}
-	handler := &modelproxy.Handler{OwnerPaid: ownerPaid, Keys: proxyKeys, Callers: services.NewModelProxyCallers(q, pool, webhook.NoopSecretCodec{}), Upstreams: upstreams}
+	// The repository's daily token budget, as its committed policy would read.
+	budget := int64(600_000_000)
+	budgets := 0
+	ownerUsage := modelproxy.OwnerMeter{DB: pool, DailyTokens: func(_ context.Context, repositoryID int64) (int64, error) {
+		require.Equal(t, repository.ID, repositoryID)
+		budgets++
+		return budget, nil
+	}}
+	handler := &modelproxy.Handler{OwnerPaid: ownerPaid, Owner: ownerUsage, Keys: proxyKeys, Callers: services.NewModelProxyCallers(q, pool, webhook.NoopSecretCodec{}), Upstreams: upstreams}
 	router := chi.NewRouter()
 	mountModelProxy(router, q, testConfigAllFlagsOn(), handler)
-	call := func(credential string) *httptest.ResponseRecorder {
+	call := func(credential, model string) *httptest.ResponseRecorder {
 		request := httptest.NewRequest(http.MethodPost, modelproxy.Path+"/vercel/v1/chat/completions",
-			strings.NewReader(`{"model":"openai/gpt-5.1","max_tokens":64,"messages":[{"role":"user","content":"Reply with the single word ok."}]}`))
+			strings.NewReader(`{"model":"`+model+`","max_tokens":64,"messages":[{"role":"user","content":"Reply with the single word ok."}]}`))
 		request.Header.Set("Authorization", "Bearer "+credential)
 		recorder := httptest.NewRecorder()
 		router.ServeHTTP(recorder, request)
 		return recorder
 	}
-	answered := call(hostCredential)
-	require.Equal(t, http.StatusOK, answered.Code, answered.Body.String())
-	require.NotContains(t, answered.Body.String(), gatewayKey)
-	var completion struct {
-		Choices []struct {
-			Message struct{ Content string } `json:"message"`
-		} `json:"choices"`
+	// The coding model, then the review seat beside it: a second vendor on the same Gateway key.
+	for _, model := range []string{"openai/gpt-5.1", "anthropic/claude-sonnet-4.5"} {
+		answered := call(hostCredential, model)
+		require.Equal(t, http.StatusOK, answered.Code, answered.Body.String())
+		require.NotContains(t, answered.Body.String(), gatewayKey)
+		var completion struct {
+			Choices []struct {
+				Message struct{ Content string } `json:"message"`
+			} `json:"choices"`
+		}
+		raw, _ := io.ReadAll(answered.Body)
+		require.NoError(t, json.Unmarshal(raw, &completion))
+		require.NotEmpty(t, completion.Choices)
+		require.NotEmpty(t, strings.TrimSpace(completion.Choices[0].Message.Content))
+		if live {
+			t.Logf("live AI Gateway %s through the owner-paid proxy answered %q", model, completion.Choices[0].Message.Content)
+		}
 	}
-	raw, _ := io.ReadAll(answered.Body)
-	require.NoError(t, json.Unmarshal(raw, &completion))
-	require.NotEmpty(t, completion.Choices)
-	require.NotEmpty(t, strings.TrimSpace(completion.Choices[0].Message.Content))
-	if live {
-		t.Logf("live AI Gateway openai/gpt-5.1 through the owner-paid proxy answered %q", completion.Choices[0].Message.Content)
-	} else {
-		require.Equal(t, "Bearer "+gatewayKey, signed, "the proxy signs with the owner's sealed key")
+	if !live {
+		require.Equal(t, []string{"Bearer " + gatewayKey, "Bearer " + gatewayKey}, signed, "the proxy signs with the owner's sealed key")
 	}
-	// No Smithers credit moved: owner-paid calls are logged, never charged.
-	var usage int
-	require.NoError(t, pool.QueryRow(ctx, `SELECT count(*) FROM model_usage`).Scan(&usage))
-	require.Zero(t, usage)
+	require.Equal(t, 2, budgets, "every call reads the repository's budget")
+
+	// Each call is one model_usage row the owner paid: no Smithers credit
+	// moved, and the row names the run's host, machine and repository.
+	type usageRow struct {
+		paidBy, source, reference, workspace, provider, model, outcome string
+		repository, input, output, bound                               int64
+		credited                                                       bool
+	}
+	readUsage := func() []usageRow {
+		rows, err := pool.Query(ctx, `SELECT paid_by, source, reference, workspace_id::text, provider, model, outcome,
+				repository_id, input_tokens, output_tokens, bound_tokens, credit_account_id IS NOT NULL OR reservation_id IS NOT NULL
+			FROM model_usage ORDER BY id`)
+		require.NoError(t, err)
+		defer rows.Close()
+		var out []usageRow
+		for rows.Next() {
+			var row usageRow
+			require.NoError(t, rows.Scan(&row.paidBy, &row.source, &row.reference, &row.workspace, &row.provider, &row.model, &row.outcome,
+				&row.repository, &row.input, &row.output, &row.bound, &row.credited))
+			out = append(out, row)
+		}
+		require.NoError(t, rows.Err())
+		return out
+	}
+	recorded := readUsage()
+	require.Len(t, recorded, 2)
+	for i, model := range []string{"openai/gpt-5.1", "anthropic/claude-sonnet-4.5"} {
+		row := recorded[i]
+		require.Equal(t, "owner", row.paidBy)
+		require.False(t, row.credited)
+		require.Equal(t, modelproxy.SourceFlowHost, row.source)
+		require.Equal(t, bindingID, row.reference)
+		require.Equal(t, workspaceID, row.workspace)
+		require.Equal(t, repository.ID, row.repository)
+		require.Equal(t, "vercel", row.provider)
+		require.Equal(t, model, row.model)
+		require.Equal(t, "succeeded", row.outcome)
+		require.Greater(t, row.bound, int64(64), "the bound is the prompt allowance plus the 64-token output cap")
+		if !live {
+			require.EqualValues(t, 9, row.input)
+			require.EqualValues(t, 1, row.output)
+		} else {
+			require.Positive(t, row.input+row.output)
+		}
+	}
+	// The TODO launch budget reads the same rows.
+	spent, err := q.MythicalRepositoryTokensSince(ctx, repository.ID, time.Now().UTC().Truncate(24*time.Hour))
+	require.NoError(t, err)
+	require.Equal(t, recorded[0].input+recorded[0].output+recorded[1].input+recorded[1].output, spent)
+
+	// Past the budget the proxy refuses before the provider: the next call's
+	// bound does not fit what is left today, and a declared 0 admits nothing.
+	upstreamCalls := len(signed)
+	for _, refused := range []int64{spent + recorded[0].bound - 1, 0} {
+		budget = refused
+		over := call(hostCredential, "openai/gpt-5.1")
+		require.Equal(t, http.StatusTooManyRequests, over.Code, over.Body.String())
+		require.Contains(t, over.Body.String(), "insufficient_quota")
+		require.Contains(t, over.Body.String(), "daily token budget is spent")
+		require.NotEmpty(t, over.Header().Get("Retry-After"))
+	}
+	require.Len(t, signed, upstreamCalls, "a refused call never reaches the provider")
+	require.Len(t, readUsage(), 2, "a refused call records nothing")
+	// With room for its bound, the same call runs again.
+	budget = spent + recorded[0].bound + 1_000
+	if !live {
+		require.Equal(t, http.StatusOK, call(hostCredential, "openai/gpt-5.1").Code)
+		require.Len(t, readUsage(), 3)
+	}
+
 	// A credential the proxy does not know spends nothing.
-	require.Contains(t, []int{http.StatusUnauthorized, http.StatusForbidden}, call(flowhost.ModelCredential(bindingID, "rotated")).Code)
+	require.Contains(t, []int{http.StatusUnauthorized, http.StatusForbidden}, call(flowhost.ModelCredential(bindingID, "rotated"), "openai/gpt-5.1").Code)
 }

@@ -1439,7 +1439,13 @@ func runWithOptions(ctx context.Context, args []string, stdout, stderr io.Writer
 		if options.Commerce != nil {
 			callers.PaidPlan = options.Commerce.OwnerHasPaidPlan
 		}
-		modelProxyHandler = &modelproxy.Handler{Meter: *modelMeter, Keys: proxyKeys, OwnerPaid: ownerPaid, Callers: callers, Upstreams: options.ModelProxyUpstreams}
+		proxy := &modelproxy.Handler{Meter: *modelMeter, Keys: proxyKeys, OwnerPaid: ownerPaid, Callers: callers, Upstreams: options.ModelProxyUpstreams}
+		if ownerPaid {
+			// The owner's calls are recorded and held to each repository's
+			// daily token budget, as its TODO launches are.
+			proxy.Owner = modelproxy.OwnerMeter{DB: pool, DailyTokens: mythicalService.DailyTokenBudget}
+		}
+		modelProxyHandler = proxy
 	}
 	var recommendationHandler *routes.RecommendationHandler
 	recommender := options.Recommender
