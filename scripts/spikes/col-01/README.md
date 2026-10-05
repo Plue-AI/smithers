@@ -24,6 +24,8 @@ Default evidence is `<checkout>/.artifacts/checks/C-SPK-03/`
 and `C-SPK-07/`, in fresh UTC directories. `SPIKE_EVIDENCE_ROOT` overrides the
 checks root on another host. Each run contains environment receipts, raw CSV,
 nearest-rank percentiles, connection setup samples and real save receipts.
+The host revision receipt uses `git rev-parse HEAD`; host-side jj is not needed
+for RTT or browser measurements. Snapshot commands run inside the disposable VM.
 Browser runs also contain traces, text files and matching SHA-256 digests.
 `guest-kernel.json` records read-only guest kernel, uid, capabilities and
 BTF/config/cgroup/user-namespace path availability; it does not prove attribution support.
