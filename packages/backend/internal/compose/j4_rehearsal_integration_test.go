@@ -113,6 +113,7 @@ func TestJ4Rehearsal(t *testing.T) {
 	// The model trace keeps each turn's messages: row 14b reads the steer in
 	// the first turn of T3's retried attempt.
 	t.Setenv("TRACE_MESSAGES", "1")
+	t.Setenv("SMITHERS_FEATURE_FLAGS_FLOW_LOAD", "true")
 	r := newRehearsal(t, "SMITHERS_J4_REHEARSAL", "C-J4", "j4-")
 	if !r.install("0 Install through Machine ready") {
 		return
@@ -710,7 +711,7 @@ func TestJ4Rehearsal(t *testing.T) {
 	r.pending("16 Merged since last look", "PUT view state; GET /api/todos", "the browser derives [T1] after the merge and [] after a new look", "T-APP-01", "last-look")
 	r.pending("17 T2 ready after T1 merges", "GitHub fake PR; GET /api/todos", "T2 rebases onto the merged main; one ready-for-review change on T2's PR; merge.state ready on T2 only", "T-STK-04, T-STK-08", "second-merge")
 	r.pending("18 main row synced", "GET /api/github/sync; Home card", "last_success_at within one poll; 'synced N s ago'; machines in use of capacity", "T-GH-02", "sync-row")
-	r.pending("19 Retry and dismiss failed background runs", "POST /api/runs/{id}", "Retry starts exactly one run; Dismiss removes the row for everyone; 403 without the role", "T-APP-01", "background-runs")
+	r.step("19 Retry and dismiss failed background runs", "GitHub push; GET /api/runs; POST /api/runs/{id}", "Retry starts exactly one run; Dismiss removes the row for everyone; 403 without the role", "T-APP-01", r.backgroundRuns)
 	r.pending("20 Ben merges, Alice answers", "POST /api/todos/{n}/merge and /answer as Ben and Alice", "maintainer Ben merges; member Alice answers and her merge is 403", "T-ACC-02", "members")
 }
 

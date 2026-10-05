@@ -2,7 +2,7 @@
  * The Home card's own flows (T-APP-01): `/stack` (the card), reorder, merge,
  * background runs and main's sync retry. Reorder and merge go through the TODO seam: the seeded design
  * world where this host has no TODO provider, else POST /api/todos/{n} {op: move} and
- * /api/todos/{n}/merge (spec §6.3). MOCK SEAM: the background run handlers act on the seeded design world
+ * /api/todos/{n}/merge (spec §6.3). The background run handlers use /api/runs on installs and the seeded design world otherwise
  * (state/seams/DesignWorld/home.ts); their real door is /api/runs/{id}. Sync Retry calls the real door where
  * this host serves one: the install's POST /api/github/sync (GitHubSyncSeam), or the Cloud's `github.reconcile` (GitHubSeam).
  */
@@ -80,10 +80,10 @@ export const homeFlows = (actions: CommandActions): ReadonlyArray<FlowEntry> => 
     } }),
   flow({ name: "background.retry", summary: "Retry a background run", args: "<id>", hidden: true, grammar: idGrammar,
     input: Schema.Struct({ id: Id }),
-    handler: ({ id }) => result(actions.design.retryRun(id)) }),
+    handler: ({ id }) => actions.design.enabled === false ? actions.controlBackgroundRun(id, "retry") : result(actions.design.retryRun(id)) }),
   flow({ name: "background.dismiss", summary: "Dismiss a background run", args: "<id>", hidden: true, grammar: idGrammar,
     input: Schema.Struct({ id: Id }),
-    handler: ({ id }) => result(actions.design.dismissRun(id)) }),
+    handler: ({ id }) => actions.design.enabled === false ? actions.controlBackgroundRun(id, "dismiss") : result(actions.design.dismissRun(id)) }),
   flow({ name: "github", summary: "Show sync status", input: NoPayload,
     handler: () => result(openDesignHome(actions.design, actions.design.viewer())) }),
   flow({ name: "github.retry", summary: "Retry GitHub sync", hidden: true, input: NoPayload,

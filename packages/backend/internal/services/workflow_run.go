@@ -203,6 +203,7 @@ func RevokeWorkflowRunCredentials(ctx context.Context, queries any, runID, repos
 
 // RerunInput carries the parameters for rerunning a workflow run.
 type RerunInput struct {
+	Background   bool // Home retry: one durable child per failed source run
 	RepositoryID int64
 	RunID        int64
 	UserID       int64
@@ -243,6 +244,7 @@ func replayedEventType(recorded string) string {
 }
 
 type DispatchForEventInput struct {
+	BackgroundRetryOf    int64 // Trusted Home rerun only; never caller dispatch input
 	RepositoryID         int64
 	UserID               int64
 	Event                TriggerEvent
@@ -695,6 +697,28 @@ func (s *workflowRunService) createRunForDefinition(
 	insert := func(ctx context.Context, admission pgx.Tx) error {
 		var err error
 		result, run, err = s.insertWorkflowRun(ctx, admission, func(ctx context.Context, queries WorkflowRunQuerier) (WorkflowRunResult, db.WorkflowRun, error) {
+			if input.BackgroundRetryOf > 0 {
+				q, ok := queries.(*db.Queries)
+				if !ok {
+					return WorkflowRunResult{}, db.WorkflowRun{}, pkgerrors.Internal("background retry needs a transactional store")
+				}
+				retry, eligible, lockErr := q.LockBackgroundRetry(ctx, input.RepositoryID, input.BackgroundRetryOf)
+				if lockErr != nil {
+					return WorkflowRunResult{}, db.WorkflowRun{}, lockErr
+				}
+				if retry > 0 {
+					prior, err := q.GetWorkflowRun(ctx, db.GetWorkflowRunParams{RepositoryID: input.RepositoryID, ID: retry})
+					return WorkflowRunResult{WorkflowDefinitionID: prior.WorkflowDefinitionID, WorkflowRunID: prior.ID}, prior, err
+				}
+				if !eligible {
+					return WorkflowRunResult{}, db.WorkflowRun{}, pkgerrors.Conflict("run is not an undismissed failure")
+				}
+				result, run, err := createWorkflowRunRows(ctx, queries, def, input, repository, repoOwner, triggerRef, resolvedBookmark, dispatchInputs, preparedJobs, s.commitStatusWriter != nil)
+				if err == nil {
+					err = q.SaveBackgroundRetry(ctx, input.RepositoryID, input.BackgroundRetryOf, run.ID)
+				}
+				return result, run, err
+			}
 			return createWorkflowRunRows(ctx, queries, def, input, repository, repoOwner, triggerRef, resolvedBookmark, dispatchInputs, preparedJobs, s.commitStatusWriter != nil)
 		})
 		return err
@@ -1542,6 +1566,22 @@ func (s *workflowRunService) RerunRun(ctx context.Context, input RerunInput) (*W
 		}
 		return nil, pkgerrors.Internal("failed to fetch workflow run").WithCause(err)
 	}
+	if input.Background {
+		q, ok := s.queries.(*db.Queries)
+		if !ok {
+			return nil, pkgerrors.Internal("background retry store unavailable")
+		}
+		retry, eligible, err := q.LockBackgroundRetry(ctx, input.RepositoryID, originalRun.ID)
+		if err != nil {
+			return nil, err
+		}
+		if retry > 0 {
+			return &WorkflowRunResult{WorkflowDefinitionID: originalRun.WorkflowDefinitionID, WorkflowRunID: retry}, nil
+		}
+		if !eligible {
+			return nil, pkgerrors.Conflict("run is not an undismissed failure")
+		}
+	}
 	if err := rejectUnreplayableRun(originalRun); err != nil {
 		return nil, err
 	}
@@ -1578,10 +1618,15 @@ func (s *workflowRunService) RerunRun(ctx context.Context, input RerunInput) (*W
 		}
 	}
 
-	// Create a new run using the same trigger details as the original
+	// Create a new run using the same trigger details as the original.
+	retryOf := int64(0)
+	if input.Background {
+		retryOf = originalRun.ID
+	}
 	result, err := s.createRunForDefinition(ctx, def, config, DispatchForEventInput{
-		RepositoryID: input.RepositoryID,
-		UserID:       input.UserID,
+		BackgroundRetryOf: retryOf,
+		RepositoryID:      input.RepositoryID,
+		UserID:            input.UserID,
 		Event: TriggerEvent{
 			Type:      replayedEventType(originalRun.TriggerEvent),
 			Ref:       originalRun.TriggerRef,

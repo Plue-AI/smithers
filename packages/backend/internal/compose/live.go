@@ -151,7 +151,19 @@ func (t *liveTopics) home(ctx context.Context, repository int64, slug string) (j
 	if err = json.Unmarshal(raw, &cards); err != nil {
 		return nil, err
 	}
-	return json.Marshal(homeModel(slug, cards, sync))
+	model := homeModel(slug, cards, sync)
+	rows, err := t.queries.ListFailedBackgroundRuns(ctx, repository)
+	if err != nil {
+		return nil, err
+	}
+	background := []map[string]any{}
+	for _, row := range rows {
+		background = append(background, map[string]any{"id": row.ID, "title": row.Title, "state": row.State, "detail": row.Detail,
+			"actions": []map[string]any{{"tag": "background.retry", "label": "Retry", "args": map[string]string{"id": row.ID}},
+				{"tag": "background.dismiss", "label": "Dismiss", "args": map[string]string{"id": row.ID}}}})
+	}
+	model["background_runs"] = background
+	return json.Marshal(model)
 }
 
 // homeStates are the TODO states Home counts (TodoStateSchema).

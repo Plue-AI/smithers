@@ -416,6 +416,8 @@ var installMemberRoutes = []struct {
 	{http.MethodPost, "todo.answer", regexp.MustCompile(`^/api/todos/[0-9]+/answer$`)},
 	{http.MethodPost, "merge", regexp.MustCompile(`^/api/todos/[0-9]+/merge$`)},
 	{http.MethodGet, "flows.read", regexp.MustCompile(`^/api/flows$`)},
+	{http.MethodGet, "runs.read", regexp.MustCompile(`^/api/runs(/[^/]+)?$`)},
+	{http.MethodPost, "runs.control", regexp.MustCompile(`^/api/runs/[^/]+$`)},
 	{http.MethodGet, "branches.read", regexp.MustCompile(`^/api/branches(/[^/]+)?$`)},
 	{http.MethodPost, "branch.fork", regexp.MustCompile(`^/api/branches$`)},
 	{http.MethodGet, "members.list", regexp.MustCompile(`^/api/members$`)},

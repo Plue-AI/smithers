@@ -940,6 +940,18 @@ func buildRouter(
 		}
 		if config.IsSingleOwner(cfg.Auth) {
 			mountFlowReads(r, &routes.FlowsHandler{Queries: queries})
+			var runner routes.WorkflowRouteService
+			if workflowHandler != nil {
+				runner = workflowHandler.Service
+			}
+			var mythical *services.MythicalService
+			if extras.Mythical != nil {
+				mythical, _ = extras.Mythical.Service.(*services.MythicalService)
+			}
+			runs := &routes.RunsHandler{Queries: queries, Service: &services.BackgroundRunService{Queries: queries, Runner: runner, Mythical: mythical}}
+			r.Get("/runs", runs.List)
+			r.Get("/runs/{id}", runs.Get)
+			r.Post("/runs/{id}", runs.Control)
 		}
 		// Unmounted until T-ACC-03 supplies the qualified owner-person authorizer.
 		if extras.InstallScorecard.Available() {

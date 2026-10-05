@@ -360,6 +360,16 @@ func (s *MythicalService) persistFlowLoad(ctx context.Context, r *mythicalRun, r
 	next := row
 	next.State, next.LoadedCommit, next.Versions, next.Tree, next.Syncing = "idle", row.CommitID, versions, row.CommitTree, json.RawMessage("[]")
 	next.Outcome, next.Result, next.Error, next.Attempt = "", nil, "", 0
+	// A loader can finish while a repository flow fails to import. That is a
+	// failed background load for Home too; retain its version errors and the
+	// previous Active flow, and let a person retry rather than spin imports.
+	for _, version := range result.Flows {
+		if version.Status == "failed" {
+			next.Error = version.Error
+			next.Attempt = flowLoadAttempts
+			break
+		}
+	}
 	saved, err := q.SaveFlowLoad(ctx, next)
 	if errors.Is(err, pgx.ErrNoRows) {
 		s.MainMoved(ctx, r.row.RepositoryID)

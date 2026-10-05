@@ -315,15 +315,19 @@ var installCommands = map[string]installCommand{
 	"todo.answer":      {role: InstallMember},
 	// todo.control is POST /api/todos/{n}; its handler authorizes the
 	// control itself: steer, stop, resume, retry, drop or move.
-	"todo.control": {role: InstallMember},
-	"todo.steer":   {role: InstallMember},
-	"todo.stop":    {role: InstallMember},
-	"todo.resume":  {role: InstallMember},
-	"todo.retry":   {role: InstallMember},
-	"todo.drop":    {role: InstallMember},
-	"stack.move":   {role: InstallMember},
-	"merge":        {role: InstallMaintainer},
-	"flows.read":   {role: InstallMember},
+	"todo.control":       {role: InstallMember},
+	"todo.steer":         {role: InstallMember},
+	"todo.stop":          {role: InstallMember},
+	"todo.resume":        {role: InstallMember},
+	"todo.retry":         {role: InstallMember},
+	"todo.drop":          {role: InstallMember},
+	"stack.move":         {role: InstallMember},
+	"merge":              {role: InstallMaintainer},
+	"flows.read":         {role: InstallMember},
+	"runs.read":          {role: InstallMember},
+	"runs.control":       {role: InstallMember},
+	"background.retry":   {role: InstallMaintainer},
+	"background.dismiss": {role: InstallMaintainer},
 	// Branches (spec §6.3): any member reads them and forks a scratch
 	// branch (§15.1.5: fork is run).
 	"branches.read": {role: InstallMember},

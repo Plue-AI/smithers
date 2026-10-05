@@ -136,7 +136,7 @@ export async function main() {
       stateDir: join(home, "state"), executablePath: join(bundle, "bin/smithers-server"),
       env: { HOME: home, USER: process.env.USER, LOGNAME: process.env.LOGNAME, LANG: "en_US.UTF-8", ...proxyGuard },
       spawn: (argv, options) => {
-        const child = backendChild = Bun.spawn([...argv], { env: { ...options.env, ...githubBases(fakeURL), ...modelBase(modelProvider!.origin) }, stdout: "pipe", stderr: "inherit" })
+        const child = backendChild = Bun.spawn([...argv], { env: { ...options.env, ...githubBases(fakeURL), ...modelBase(modelProvider!.origin), SMITHERS_FEATURE_FLAGS_FLOW_LOAD: process.env.SMITHERS_FEATURE_FLAGS_FLOW_LOAD ?? "false" }, stdout: "pipe", stderr: "inherit" })
         void (async () => {
           let rest = ""
           const stream = child.stdout.getReader()

@@ -12,6 +12,7 @@ import type { InstallModel } from "../state/seams/InstallModel"
 import type { InstallSnapshots } from "../state/seams/InstallSeam"
 import type { TodoListSnapshots } from "../state/seams/TodoSeam"
 import { homeFromTodos } from "../state/seams/HomeFromTodos"
+import type { BackgroundRunSnapshots } from "../state/seams/BackgroundRunsSeam"
 import type { GitHubSyncHealth, GitHubSyncSnapshots } from "../state/seams/GitHubSyncSeam"
 import { useTodoRole } from "./TodoCard"
 
@@ -36,7 +37,7 @@ export const HomeContainer = ({ model: source, role, allowed, dispatch, View = H
   const definitions: CardActionDefinition[] = []
   const admitted = (definition: CardActionDefinition) => {
     if (!allowed.has(definition.tag) || definition.tag === "main.reset-to-github" && role !== "owner"
-      || (definition.tag === "merge" || definition.tag === "order.ok") && role === "member") return
+      || (definition.tag === "merge" || definition.tag === "order.ok" || definition.tag === "background.retry" || definition.tag === "background.dismiss") && role === "member") return
     definitions.push(definition)
   }
   admitted({ tag: "todo.new", label: "New TODO", command_input: { text: "" } })
@@ -106,6 +107,7 @@ const FAILED_TAGS: ReadonlySet<CatalogTag> = new Set<CatalogTag>(["todo.new"])
 const FAILED_SYNC_TAGS: ReadonlySet<CatalogTag> = new Set<CatalogTag>(["todo.new", "github.retry"])
 
 /** `/api/live` refusal codes meaning this host serves no `home` topic (the live channel's 404): the seed stands in. */
+const NO_BACKGROUND: BackgroundRunSnapshots = { get: () => undefined, subscribe: () => () => {} }
 const NO_PROVIDER = new Set(["unknown_topic", "unsupported"])
 
 /** The Home model a FAILED provider shows: main's row in its refused or limited state, and no rows at all. */
@@ -186,16 +188,19 @@ export const useHome = (active = true): HomeAnswer | undefined => {
   const install = useSyncExternalStore(installs.subscribe, installs.get, installs.get).model
   const listed = active && answer.kind === "seed" && controller.design.enabled === false ? controller.todoList ?? NO_TODO_LIST : NO_TODO_LIST
   const list = useSyncExternalStore(listed.subscribe, listed.get, listed.get)
+  const runs = active && controller.design.enabled === false ? controller.backgroundRunSnapshots ?? NO_BACKGROUND : NO_BACKGROUND
+  const background = useSyncExternalStore(runs.subscribe, runs.get, runs.get)
   const syncs = active ? controller.githubSyncSnapshots ?? NO_SYNC : NO_SYNC
   const sync = useSyncExternalStore(syncs.subscribe, syncs.get, syncs.get)
   const repository = install?.repository ? `${install.repository.owner}/${install.repository.name}` : seeded.model.repository
   const source = answer.kind !== "seed" || controller.design.enabled !== false ? answer
-    : list.todos !== undefined ? { kind: "served" as const, model: homeFromTodos(repository, list.todos) }
+    : list.todos !== undefined ? { kind: "served" as const, model: homeFromTodos(repository, list.todos, background) }
     : { kind: "failed" as const, code: list.error ?? (listed === NO_TODO_LIST ? "unsupported" : "loading") }
   if (source.kind === "failed" && source.code === "loading") return undefined
   const home = source.kind === "served" ? source.model : source.kind === "failed" ? homeFailureModel(repository, source.code) : seeded.model
   /* A home topic serves main's row itself; elsewhere the install's GitHub sync does. */
-  const model = withInstallCapacity(answer.kind === "served" ? home : withGitHubSync(home, sync), install)
+  const observed = controller.design.enabled === false && background !== undefined ? { ...home, background_runs: background } : home
+  const model = withInstallCapacity(answer.kind === "served" ? observed : withGitHubSync(observed, sync), install)
   return { kind: source.kind, model, role: source.kind === "seed" ? seeded.role : session, synced: sync !== undefined }
 }
 

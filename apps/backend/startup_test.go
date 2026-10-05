@@ -520,3 +520,22 @@ func TestMicroVMDoctorChecksTheStateChain(t *testing.T) {
 		})
 	}
 }
+
+// Native flow-load can be proven behind its flag without enabling the legacy
+// workflow route family. No child command inherits either platform flag.
+func TestInstalledFlowLoadFlagLeavesLegacyWorkflowsOff(t *testing.T) {
+	bundle := installedBundleFixture(t)
+	env := bundle.installedEnvironment(t)
+	env["SMITHERS_FEATURE_FLAGS_FLOW_LOAD"] = "true"
+	env["SMITHERS_FEATURE_FLAGS_WORKFLOWS"] = "true"
+	inputs, err := installedInputs(bundle.backend, func(name string) string { return env[name] })
+	if err != nil {
+		t.Fatal(err)
+	}
+	if inputs.environment["SMITHERS_FEATURE_FLAGS_FLOW_LOAD"] != "true" {
+		t.Fatal("native flow-load flag lost")
+	}
+	if inputs.environment["SMITHERS_FEATURE_FLAGS_WORKFLOWS"] != "" {
+		t.Fatal("legacy workflow flag admitted")
+	}
+}

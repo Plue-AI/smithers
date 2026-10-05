@@ -9,7 +9,7 @@ import type { TodoCard } from "@smthrs/rpc/TodoCard"
  * order with the controls its state offers, every state counted, a machine per TODO branch that is awake or waking,
  * and main's row without sync facts, which the list does not carry.
  */
-export const homeFromTodos = (repository: string, todos: ReadonlyArray<TodoCard>): HomeModel => {
+export const homeFromTodos = (repository: string, todos: ReadonlyArray<TodoCard>, backgroundRuns: HomeModel["background_runs"] = []): HomeModel => {
   const counts: Record<TodoState, number> = { queued: 0, starting: 0, working: 0, needs_you: 0, paused: 0, failed: 0, in_review: 0, merged: 0, dropped: 0 }
   for (const todo of todos) counts[todo.state] += 1
   const open = todos.filter(todo => todo.state !== "merged" && todo.state !== "dropped")
@@ -44,6 +44,6 @@ export const homeFromTodos = (repository: string, todos: ReadonlyArray<TodoCard>
     repository,
     main: { sha: "", title: "main", last_success_at: new Date(0).toISOString(), health: "limited" },
     attention: [], items, counts, merged_since_last_look: [],
-    machines: { in_use: slots.length, capacity: 0, slots }, background_runs: []
+    machines: { in_use: slots.length, capacity: 0, slots }, background_runs: backgroundRuns
   }
 }

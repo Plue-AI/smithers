@@ -631,3 +631,18 @@ test("on a host with the seed the rail's home line reads the seeded stack", () =
   expect(homeLine(home)).toEqual({ entry_id: "home", kind: "card", title: home.model.repository, summary: "1 need you · 1 working", tone: "attention", glyph: { state: "needs_you" } })
   h.controller.design.dispose()
 })
+
+
+test("members read failed background runs but only maintainers and the owner act", () => {
+ const base = Object.values(fixtures)[0]!.model
+ const model = { ...base, background_runs: [{ id: "flow-load:3", title: "flow-load", state: "failed", actions: [
+  { tag: "background.retry", label: "Retry" }, { tag: "background.dismiss", label: "Dismiss" }
+ ] }] }
+ for (const role of ["owner", "maintainer", "member"] as const) {
+  const h = mount(model, role)
+  expect(h.props.model.background_runs).toHaveLength(1)
+  expect(h.props.model.background_runs[0]!.actions.map(action => action.tag)).toEqual(role === "member" ? [] : ["background.retry", "background.dismiss"])
+  h.props.onAction("background.retry", { id: "flow-load:3" })
+  expect(h.calls).toHaveLength(role === "member" ? 0 : 1)
+ }
+})
