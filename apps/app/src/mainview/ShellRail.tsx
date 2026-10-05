@@ -6,7 +6,9 @@
  */
 import { PlaceholderAvatarUrl } from "@smthrs/rpc/CardPrimitives"
 import type { EntryRowCard } from "@smthrs/rpc/EntryRowCard"
-import type { CatalogTag } from "@smthrs/rpc/CardAction"
+import { actionFor, type CatalogTag } from "@smthrs/rpc/CardAction"
+import { cardActions, type CardActionDefinition, type CardCommandDispatch } from "./flows/cardActions"
+import { useTodoRole } from "./cards/TodoCard"
 import type { ShellView, ToastCard } from "@smthrs/rpc/ToastCard"
 import type { TimelineLine } from "@smthrs/rpc/TimelineCard"
 import { useMessageBand, useMessageScroller } from "@smthrs/ui"
@@ -21,7 +23,7 @@ import { Timeline } from "./Timeline"
 import { ToastStack } from "./ToastStackView"
 
 export type RailEntry =
-  | { readonly kind: "entry"; readonly id: string; readonly entry: EntryRowCard }
+  | { readonly kind: "entry"; readonly id: string; readonly entry: EntryRowCard; readonly facts?: Omit<Parameters<typeof actionFor>[0], "state"> }
   | { readonly kind: "message"; readonly message: Message }
   | { readonly kind: "init"; readonly message: InitMessage }
   | { readonly kind: "card"; readonly card: Card }
@@ -33,12 +35,14 @@ const toneGlyph = (tone: TimelineLine["tone"]): TimelineLine["glyph"] => ({ stat
 const cardTone = (card: Card): TimelineLine["tone"] => card.status === "error" ? "failed" : card.status === "acted" ? "done" : "quiet"
 
 /** One timeline line per transcript entry (spec §14.5.4). The opening read has none. */
-export const railLines = (entries: ReadonlyArray<RailEntry>): TimelineLine[] => entries.flatMap((entry): TimelineLine[] => {
+export const railLines = (entries: ReadonlyArray<RailEntry>, viewer: Parameters<typeof actionFor>[1] = { role: "member" }): TimelineLine[] => entries.flatMap((entry): TimelineLine[] => {
   // T-APP-07: shared facts are authoritative; never re-derive host tone or title.
   // T-APP-16 can supply this model when its shared-entry provider is mounted.
   if (entry.kind === "entry") {
     const row = entry.entry
+    const action = row.tombstone ? undefined : actionFor({ ...entry.facts, state: row.state }, viewer)
     return [{ entry_id: entry.id, kind: row.kind, title: row.title, tone: row.tone, glyph: row.state ? { state: row.state } : { actor: row.author },
+      ...(action === undefined ? {} : { action }),
       ...(row.summary === undefined || row.tombstone ? {} : { summary: row.summary }) }]
   }
   if (entry.kind === "init") return []
@@ -50,6 +54,27 @@ export const railLines = (entries: ReadonlyArray<RailEntry>): TimelineLine[] => 
     ? { entry_id: message.id, kind: "prompt", title: `“${text}”`, tone: "quiet", glyph: toneGlyph("quiet") }
     : { entry_id: message.id, kind: "answer", title: text, tone: message.status === "failed" ? "failed" : "quiet", glyph: { actor: { kind: "agent", id: "smithers", agent: "smithers", avatar_url: PlaceholderAvatarUrl, color_index: 6 } } }]
 })
+
+/** Bind only the current lines' acts; duplicate entries for one TODO share one command input. */
+export const timelineActions = (lines: readonly TimelineLine[], dispatch: CardCommandDispatch) => {
+  const definitions: CardActionDefinition[] = []
+  const seen = new Set<string>()
+  for (const { action } of lines) {
+    if (action === undefined) continue
+    const key = JSON.stringify([action.tag, action.args])
+    if (seen.has(key)) continue
+    seen.add(key)
+    const n = Number(action.args?.n)
+    switch (action.tag) {
+      case "todo.answer": definitions.push({ ...action, tag: "todo.answer", command_input: { n, answer: "" } }); break
+      case "todo.retry": definitions.push({ ...action, tag: "todo.retry", command_input: { n } }); break
+      case "todo": definitions.push({ ...action, tag: "todo", command_input: { n } }); break
+      case "merge": definitions.push({ ...action, tag: "merge", command_input: { n } }); break
+      case "branch": definitions.push({ ...action, tag: "branch", command_input: { name: action.args!.name! } }); break
+    }
+  }
+  return cardActions(dispatch, definitions)
+}
 
 const LIVE: ReadonlySet<TimelineLine["tone"]> = new Set(["live", "attention", "failed"])
 const RANK: Record<TimelineLine["tone"], number> = { attention: 0, failed: 1, live: 2, done: 3, quiet: 4 }
@@ -98,14 +123,16 @@ export function ShellRail({ entries, home }: { readonly entries: ReadonlyArray<R
   const controller = useController()
   const scroller = useMessageScroller()
   const homeAnswer = useHome(home)
+  const role = useTodoRole()
   const { data: toasts } = useLiveQuery(controller.store.collections.toasts)
   const { data: privacyNotices } = useLiveQuery(controller.privacyNotices)
   // Transient chrome: whether the rail is wide enough for the timeline (the View reports it).
   const [wide, setWide] = useState(false)
   const lines = [
     ...(home && homeAnswer !== undefined ? [homeLine(homeAnswer)] : []),
-    ...railLines(entries)
+    ...railLines(entries, { role })
   ]
+  const timeline = timelineActions(lines, (tag, input) => controller.commands.submit({ name: tag, payload: input ?? {}, actor: "user" }))
   const band = useMessageBand(lines.map(line => line.entry_id))
   const edges = railEdges(lines, band)
   const all = [...toasts, ...privacyNotices]
@@ -125,7 +152,7 @@ export function ShellRail({ entries, home }: { readonly entries: ReadonlyArray<R
   const last = lines.at(-1)?.entry_id ?? ""
   return <aside className="mvp-rail" aria-label="Activity" data-keyboard-pane="Timeline" data-wide={wide || undefined}>
     <EdgeMap above={edges.above} below={edges.below} narrow={!wide} onAction={onEdgeAction} onView={onView} />
-    <Timeline lines={lines} on_screen={band === undefined ? [last, last] : [band[0], band[1]]} onView={onView} onAction={onEdgeAction} />
+    <Timeline lines={lines} on_screen={band === undefined ? [last, last] : [band[0], band[1]]} onView={onView} onAction={timeline.onAction} />
     <ToastStack toasts={notices} more={Math.max(0, notices.length - 3)} onAction={onToastAction} onView={onView} />
   </aside>
 }

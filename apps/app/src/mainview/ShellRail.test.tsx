@@ -12,7 +12,7 @@ import { createRoot } from "react-dom/client"
 import type { ShellView, ToastCard } from "@smthrs/rpc/ToastCard"
 import type { TimelineLine } from "@smthrs/rpc/TimelineCard"
 import { EdgeMap } from "./EdgeMap"
-import { homeLine, railEdges, railLines, railNotices, type RailEntry } from "./ShellRail"
+import { homeLine, railEdges, railLines, railNotices, timelineActions, type RailEntry } from "./ShellRail"
 import type { Card, Message, Toast } from "./state/AppState"
 import { homeFailureModel } from "./cards/HomeContainer"
 import { Timeline } from "./Timeline"
@@ -161,5 +161,48 @@ describe("the rail's Views at their callback seam", () => {
     expect(views.filter(patch => "timeline_visible" in patch).length).toBe(1)
     click(host.querySelector('li[data-entry="d"] button'))
     expect(views.filter(patch => "jump_to" in patch)).toEqual([{ jump_to: "d" }])
+  })
+})
+
+
+describe("Timeline container actions", () => {
+  const entry = (id: string, state: NonNullable<import("@smthrs/rpc/EntryRowCard").EntryRowCard["state"]>, facts: Extract<RailEntry, { kind: "entry" }>["facts"] = { n: 12 }) : RailEntry => ({
+    kind: "entry", id, facts, entry: { kind: "card", title: id, author: { kind: "system", color_index: 7 }, tone: "quiet", state }
+  })
+  test("one action from facts and role, removed when answered, merged, dropped or tombstoned", () => {
+    const entries = [entry("ask", "needs_you", { n: 12, needs_you: { kind: "question" } }), entry("retry", "failed", { n: 13 }), entry("merge", "in_review", { n: 14, first_in_order: true }), entry("later", "in_review", { n: 15, first_in_order: false })]
+    expect(railLines(entries, { role: "maintainer" }).map(line => line.action?.tag)).toEqual(["todo.answer", "todo.retry", "merge", undefined])
+    expect(railLines(entries, { role: "member" }).map(line => line.action?.tag)).toEqual(["todo.answer", "todo.retry", undefined, undefined])
+    expect(railLines([entry("answered", "working"), entry("merged", "merged"), entry("dropped", "dropped"), entry("missing wait", "needs_you")], { role: "owner" }).every(line => line.action === undefined)).toBe(true)
+    const removed = entry("removed", "failed") as Extract<RailEntry, { kind: "entry" }>
+    expect(railLines([{ ...removed, entry: { ...removed.entry, tombstone: true } }], { role: "owner" })[0]?.action).toBeUndefined()
+  })
+  test("repair, review and merge retain their typed inputs; repeated TODO lines share one binding", () => {
+    const entries = [entry("conflict", "needs_you", { n: 16, needs_you: { kind: "conflict" } }), entry("foreign", "needs_you", { n: 17, needs_you: { kind: "foreign_push" } }), entry("merge", "in_review", { n: 18, first_in_order: true }), entry("again", "in_review", { n: 18, first_in_order: true })]
+    const calls: unknown[] = []
+    const lines = railLines(entries, { role: "maintainer" })
+    const bindings = timelineActions(lines, (tag, input) => calls.push([tag, input]))
+    expect(bindings.actions).toHaveLength(3)
+    for (const line of lines) bindings.onAction(line.action!.tag, line.action!.args)
+    expect(calls).toEqual([["branch", { name: "T16" }], ["todo", { n: 17 }], ["merge", { n: 18 }], ["merge", { n: 18 }]])
+    expect(railLines([entry("no facts", "failed", {})], { role: "owner" })[0]?.action).toBeUndefined()
+  })
+  test("production Timeline presses bound commands; line clicks only jump; stale actions are refused", () => {
+    const calls: unknown[] = []
+    const views: ShellView[] = []
+    const entries = [entry("retry", "failed"), entry("other", "failed", { n: 13 }), entry("ask", "needs_you", { n: 14, needs_you: { kind: "approval" } })]
+    const lines = railLines(entries, { role: "owner" })
+    const bindings = timelineActions(lines, (tag, input) => calls.push([tag, input]))
+    const host = mount(<Timeline lines={lines} on_screen={["retry", "ask"]} onAction={bindings.onAction} onView={patch => views.push(patch)} />)
+    click(host.querySelector('[data-entry="retry"] button'))
+    expect(calls).toEqual([])
+    expect(views.filter(patch => patch.jump_to)).toEqual([{ jump_to: "retry" }])
+    click(host.querySelector('[data-entry="retry"] [data-flow]'))
+    click(host.querySelector('[data-entry="other"] [data-flow]'))
+    click(host.querySelector('[data-entry="ask"] [data-flow]'))
+    expect(calls).toEqual([["todo.retry", { n: 12 }], ["todo.retry", { n: 13 }], ["todo.answer", { n: 14, answer: "" }]])
+    timelineActions(railLines([entry("retry", "merged")], { role: "owner" }), (tag, input) => calls.push([tag, input])).onAction("todo.retry", { n: "12" })
+    expect(calls).toHaveLength(3)
+    expect(lines.every(line => line.fresh === undefined)).toBe(true)
   })
 })
