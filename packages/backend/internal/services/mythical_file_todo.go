@@ -119,7 +119,7 @@ func (s *MythicalService) FileTodo(ctx context.Context, repositoryID, userID int
 	link := ""
 	if input.Issue != nil {
 		if _, err = s.queries().GetMythicalRequest(ctx, repositoryID, info.SessionHash, input.Request); errors.Is(err, pgx.ErrNoRows) {
-			if issue, err = s.readTodoIssue(ctx, repositoryID, userID, *input.Issue, input.IssueDigest); err != nil {
+			if issue, err = s.readTodoIssue(ctx, repositoryID, decision.Role, *input.Issue, input.IssueDigest); err != nil {
 				return MythicalItemView{}, err
 			}
 			issue.Fixes = *input.Fixes
@@ -218,19 +218,17 @@ func mythicalCommittedNotice(number int64, link string) mythicalNotice {
 // readTodoIssue is Make TODO's read of the issue a Draft names, as GitHub
 // answers it now. The Draft carries the digest of the title and body its
 // author read (mythicalIssueDigest); an issue changed since then is refused,
-// so the TODO never keeps issue text nobody read (spec §10.2.1b). Only the
-// install owner commits today, and the owner may make a TODO from an
-// outsider's text, which marks the TODO outsider like a maintainer's label.
-func (s *MythicalService) readTodoIssue(ctx context.Context, repositoryID, userID, number int64, digest string) (*db.MythicalTodoIssue, error) {
+// so the TODO never keeps issue text nobody read (spec §10.2.1b). The read
+// goes through the install's App as the stack's actor, as the issue card
+// reads it: the person's own GitHub credential plays no part. A maintainer
+// or the owner may make a TODO from an outsider's text, which marks the
+// TODO outsider like a maintainer's label; a Member may not (§10.2.1).
+func (s *MythicalService) readTodoIssue(ctx context.Context, repositoryID int64, role InstallRole, number int64, digest string) (*db.MythicalTodoIssue, error) {
 	unavailable := &TodoControlError{503, "github_unavailable", "infra", fmt.Sprintf("Could not read issue #%d from GitHub", number)}
 	if s.github == nil {
 		return nil, unavailable
 	}
-	repository, owner, err := s.repository(ctx, repositoryID)
-	if err != nil {
-		return nil, err
-	}
-	gh, err := s.github.Resolve(ctx, repository, owner, userID)
+	gh, err := s.stackGitHub(ctx, repositoryID)
 	if err != nil {
 		s.logger.Warn("mythical.todo_issue_unavailable", "repository_id", repositoryID, "issue", number, "error", err)
 		return nil, unavailable
@@ -252,6 +250,9 @@ func (s *MythicalService) readTodoIssue(ctx context.Context, repositoryID, userI
 	if err != nil {
 		s.logger.Warn("mythical.todo_issue_unavailable", "repository_id", repositoryID, "issue", number, "error", err)
 		return nil, unavailable
+	}
+	if !byMaintainer && role.rank() < InstallMaintainer.rank() {
+		return nil, &AccessError{Status: http.StatusForbidden, Class: "permission", Code: "permission", Message: "Only a maintainer can make a TODO from this issue"}
 	}
 	body := issue.Body
 	if len(body) > mythicalPromptBytes {
