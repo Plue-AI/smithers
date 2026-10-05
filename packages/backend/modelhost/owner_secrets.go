@@ -88,6 +88,22 @@ func (resolver *OwnerSecretResolver) ResolveChatModel(ctx context.Context, owner
 	if err != nil {
 		return Binding{}, fmt.Errorf("connect owner model secrets: %w", err)
 	}
+	// On an install, an active roster member's turn runs on the install's
+	// models, which the owner set in Model access and pays for (mvp.md §6.5,
+	// §6.15): the owner's fast role or default, never a model the member's
+	// request names.
+	var installOwner int64
+	err = pool.QueryRow(ctx, `SELECT o.user_id FROM self_host_owners o
+		JOIN install_settings s ON s.key='github.repository'
+		JOIN collaborators c ON c.repository_id=(s.value->>'repository_id')::bigint AND c.user_id=$1 AND c.suspended_at IS NULL AND c.permission IN ('write','admin')
+		JOIN users u ON u.id=c.user_id AND NOT u.prohibit_login
+		WHERE o.singleton AND o.user_id<>$1`, ownerID).Scan(&installOwner)
+	switch {
+	case err == nil:
+		ownerID, input.Model = installOwner, nil
+	case !errors.Is(err, pgx.ErrNoRows):
+		return Binding{}, fmt.Errorf("read install member: %w", err)
+	}
 	if len(input.Model) == 0 || string(input.Model) == "null" {
 		// A turn that names no model is the app agent's. On an install it runs
 		// on the fast role Model access wrote (mvp.md §6.5), which is the

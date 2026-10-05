@@ -57,7 +57,10 @@ so a new route ships closed to members. For a member's request the router then
 authorizes the route's command through `services.Authorize`, so a member's
 token is refused and a lower role gets `403 permission`. An app agent turn
 answers a member as that member: each read it makes goes through the same
-table. Git HTTP and SSE tickets stay owner-only for members.
+table, and the turn runs on the install's models (the owner's fast role or
+default, which the owner pays for), never on a model the member's request
+names. `GET /api/install` answers a member the install's state; only the
+owner changes it. Git HTTP and SSE tickets stay owner-only for members.
 
 `POST /api/todos/{n}` is mounted and authorized by role, and the TODO service
 still answers every control `503 todo_control_unavailable` until a steer can
