@@ -5,12 +5,13 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"strings"
 	"time"
 
 	pkgerrors "github.com/smithersai/smithers/packages/backend/internal/pkg/errors"
+
+	"github.com/smithersai/smithers/packages/backend/hostexec"
 )
 
 const defaultRepoSyncRoot = "./data/repo-sync"
@@ -61,7 +62,7 @@ func NewRepoSyncService(root string, connectionChecker RepoSyncConnectionChecker
 		now:               time.Now,
 		root:              trimmedRoot,
 		runGit: func(ctx context.Context, args ...string) error {
-			cmd := exec.CommandContext(ctx, "git", args...)
+			cmd := hostexec.Git(ctx, args...)
 			out, err := cmd.CombinedOutput()
 			if err != nil {
 				trimmed := strings.TrimSpace(string(out))

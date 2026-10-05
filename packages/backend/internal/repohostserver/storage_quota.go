@@ -9,13 +9,13 @@ import (
 	"io"
 	"net/http"
 	"os"
-	"os/exec"
 	"strconv"
 	"strings"
 	"time"
 
 	"github.com/go-chi/chi/v5"
 
+	"github.com/smithersai/smithers/packages/backend/hostexec"
 	"github.com/smithersai/smithers/packages/backend/internal/repohost"
 )
 
@@ -208,7 +208,7 @@ func (s *Server) gitSize(w http.ResponseWriter, r *http.Request) error {
 // occupies: loose objects, packs, and garbage, as git count-objects reports
 // them.
 func measureGitBytes(ctx context.Context, gitDir string) (int64, error) {
-	output, err := exec.CommandContext(ctx, "git", "--git-dir", gitDir, "count-objects", "-v").Output()
+	output, err := hostexec.Git(ctx, "--git-dir", gitDir, "count-objects", "-v").Output()
 	if err != nil {
 		return 0, fmt.Errorf("count git objects: %w", err)
 	}

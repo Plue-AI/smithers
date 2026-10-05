@@ -21,6 +21,7 @@ import (
 	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgtype"
 
+	"github.com/smithersai/smithers/packages/backend/hostexec"
 	"github.com/smithersai/smithers/packages/backend/internal/db"
 	"github.com/smithersai/smithers/packages/backend/internal/gitutil"
 	pkgerrors "github.com/smithersai/smithers/packages/backend/internal/pkg/errors"
@@ -682,7 +683,7 @@ func mirrorRefReached(change gitMirrorRefChange, refs map[string]string) bool {
 
 // Credentials stay out of argv and repository config files. Git uses URL-scoped
 // HTTP headers.
-func mirrorCommand(ctx context.Context, binary string, args ...string) *exec.Cmd {
+func mirrorCommand(ctx context.Context, args ...string) *exec.Cmd {
 	safeArgs := append([]string(nil), args...)
 	// Host transfers consume repository data without repository programs.
 	config := []string{
@@ -704,9 +705,17 @@ func mirrorCommand(ctx context.Context, binary string, args ...string) *exec.Cmd
 		config = append(config, "GIT_CONFIG_KEY_"+strconv.Itoa(count)+"=http."+remote.String()+".extraHeader", "GIT_CONFIG_VALUE_"+strconv.Itoa(count)+"=Authorization: Basic "+authorization)
 		count++
 	}
-	cmd := exec.CommandContext(ctx, binary, safeArgs...)
-	// Cancellation kills the whole process group, including transport
-	// helpers, and pipe waits are bounded.
+	cmd := mirrorProcess(hostexec.Git(ctx, safeArgs...))
+	cmd.Env = append(cmd.Env, config...)
+	cmd.Env = append(cmd.Env, "GIT_CONFIG_COUNT="+strconv.Itoa(count), "GIT_ASKPASS=false", "GIT_ATTR_NOSYSTEM=1",
+		// Empty-tree attributes suppress repository textconv and merge drivers.
+		"GIT_ATTR_SOURCE=4b825dc642cb6eb9a060e54bf8d69288fbee4904")
+	return cmd
+}
+
+// mirrorProcess makes cancellation kill cmd's whole process group,
+// including transport helpers, and bounds pipe waits.
+func mirrorProcess(cmd *exec.Cmd) *exec.Cmd {
 	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
 	cmd.Cancel = func() error {
 		if cmd.Process == nil {
@@ -719,22 +728,11 @@ func mirrorCommand(ctx context.Context, binary string, args ...string) *exec.Cmd
 		return err
 	}
 	cmd.WaitDelay = 5 * time.Second
-	for _, entry := range os.Environ() {
-		if strings.HasPrefix(entry, "GIT_") {
-			continue
-		}
-		cmd.Env = append(cmd.Env, entry)
-	}
-	cmd.Env = append(cmd.Env, config...)
-	cmd.Env = append(cmd.Env, "GIT_CONFIG_COUNT="+strconv.Itoa(count), "GIT_TERMINAL_PROMPT=0",
-		"GIT_CONFIG_NOSYSTEM=1", "GIT_CONFIG_GLOBAL="+os.DevNull, "GIT_ASKPASS=false", "GIT_ATTR_NOSYSTEM=1",
-		// Empty-tree attributes suppress repository textconv and merge drivers.
-		"GIT_ATTR_SOURCE=4b825dc642cb6eb9a060e54bf8d69288fbee4904")
 	return cmd
 }
 
 func defaultListRemoteRefs(ctx context.Context, remote string) (map[string]string, error) {
-	cmd := mirrorCommand(ctx, "git", "ls-remote", "--refs", remote)
+	cmd := mirrorCommand(ctx, "ls-remote", "--refs", remote)
 	out, err := cmd.CombinedOutput()
 	if err != nil {
 		detail := strings.TrimSpace(string(out))
@@ -846,7 +844,7 @@ func defaultRunGitMirrorPush(ctx context.Context, sourceURL, targetURL string, c
 }
 
 func runMirrorGitCommand(ctx context.Context, dir string, args ...string) error {
-	cmd := mirrorCommand(ctx, "git", args...)
+	cmd := mirrorCommand(ctx, args...)
 	if dir != "" {
 		cmd.Dir = dir
 	}

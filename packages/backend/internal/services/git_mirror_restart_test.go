@@ -503,7 +503,7 @@ func TestMirrorCommandCancellationStopsTransportDescendants(t *testing.T) {
 	heartbeat := filepath.Join(t.TempDir(), "transport-heartbeat")
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
-	cmd := mirrorCommand(ctx, "sh", "-c", `while :; do printf x >> "$1"; sleep 0.02; done & wait`, "mirror-transport", heartbeat)
+	cmd := mirrorProcess(exec.CommandContext(ctx, "/bin/sh", "-c", `while :; do printf x >> "$1"; sleep 0.02; done & wait`, "mirror-transport", heartbeat))
 	done := make(chan error, 1)
 	go func() {
 		_, err := cmd.CombinedOutput()
@@ -545,7 +545,7 @@ func TestMirrorCommandCancelLifecycleAndSanitizedGitEnvironment(t *testing.T) {
 	t.Setenv("GIT_CONFIG_VALUE_0", "Authorization: stale")
 	t.Setenv("GIT_TERMINAL_PROMPT", "1")
 	ctx, cancel := context.WithCancel(context.Background())
-	cmd := mirrorCommand(ctx, "sh", "-c", "exit 0")
+	cmd := mirrorCommand(ctx, "version")
 	require.True(t, slices.Contains(cmd.Env, "GIT_CONFIG_COUNT=4"))
 	require.True(t, slices.Contains(cmd.Env, "GIT_TERMINAL_PROMPT=0"))
 	require.False(t, slices.Contains(cmd.Env, "GIT_CONFIG_COUNT=99"))

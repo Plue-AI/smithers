@@ -32,6 +32,11 @@ func Doctor(ctx context.Context, config Config) []DoctorLine {
 	}
 	if bundle := config.Bundle; bundle != nil {
 		add("bundle", true, "%s revision %s, manifest sha256 %s", bundle.Root(), bundle.Revision(), bundle.ManifestSHA256())
+		// The state New would refuse, the doctor reports.
+		if err := protectedState(config.Root); err != nil {
+			add("state", false, "%v", err)
+			return lines
+		}
 	}
 	client, err := runtimeCLI(binary, verify)
 	if err != nil {

@@ -16,6 +16,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/smithersai/smithers/packages/backend/hostexec"
 	"github.com/smithersai/smithers/packages/backend/internal/repohost"
 	"github.com/smithersai/smithers/packages/backend/internal/repohostffi"
 )
@@ -1816,8 +1817,8 @@ func TestReceivePackFailsWhenImportRefsFails(t *testing.T) {
 }
 
 func TestReceivePackPushHooksUseAcceptedRefDiff(t *testing.T) {
-	t.Setenv("GIT_STUB_STATE_FILE", filepath.Join(t.TempDir(), "receive-pack-state"))
-	installGitStub(t, "#!/bin/sh\nset -eu\nif [ \"$#\" -ge 4 ] && [ \"$1\" = \"--git-dir\" ] && [ \"$3\" = \"for-each-ref\" ]; then\n  if [ -f \"$GIT_STUB_STATE_FILE\" ]; then\n    printf 'refs/heads/main\\000bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb\\n'\n    printf 'refs/heads/release\\000cccccccccccccccccccccccccccccccccccccccc\\n'\n  else\n    printf 'refs/heads/main\\000aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\\n'\n  fi\n  exit 0\nfi\nif [ \"$#\" -ge 3 ] && [ \"$3\" = \"merge-base\" ]; then\n  exit 0\nfi\nif [ \"$1\" = \"receive-pack\" ]; then\n  cat >/dev/null\n  : > \"$GIT_STUB_STATE_FILE\"\n  printf 'receive-pack-response'\n  exit 0\nfi\necho \"unexpected git invocation: $*\" >&2\nexit 1\n")
+	t.Setenv("STUB_GIT_STATE_FILE", filepath.Join(t.TempDir(), "receive-pack-state"))
+	installGitStub(t, "#!/bin/sh\nset -eu\nif [ \"$#\" -ge 4 ] && [ \"$1\" = \"--git-dir\" ] && [ \"$3\" = \"for-each-ref\" ]; then\n  if [ -f \"$STUB_GIT_STATE_FILE\" ]; then\n    printf 'refs/heads/main\\000bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb\\n'\n    printf 'refs/heads/release\\000cccccccccccccccccccccccccccccccccccccccc\\n'\n  else\n    printf 'refs/heads/main\\000aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\\n'\n  fi\n  exit 0\nfi\nif [ \"$#\" -ge 3 ] && [ \"$3\" = \"merge-base\" ]; then\n  exit 0\nfi\nif [ \"$1\" = \"receive-pack\" ]; then\n  cat >/dev/null\n  : > \"$STUB_GIT_STATE_FILE\"\n  printf 'receive-pack-response'\n  exit 0\nfi\necho \"unexpected git invocation: $*\" >&2\nexit 1\n")
 
 	type callbackRequest struct {
 		Auth    string
@@ -2046,8 +2047,23 @@ func installGitStub(t *testing.T, script string) {
 	t.Helper()
 	stubDir := t.TempDir()
 	stubPath := filepath.Join(stubDir, "git")
-	if err := os.WriteFile(stubPath, []byte(script), 0o755); err != nil {
+	// The stub sees the arguments a caller passed: the hooks pin every
+	// backend git run starts with (hostexec) is dropped first.
+	body := strings.TrimPrefix(script, "#!/bin/sh\n")
+	wrapped := "#!/bin/sh\nif [ \"$1\" = -c ] && [ \"$2\" = core.hooksPath=/dev/null ]; then shift 2; fi\n" + body
+	if err := os.WriteFile(stubPath, []byte(wrapped), 0o755); err != nil {
 		t.Fatalf("write git stub: %v", err)
 	}
-	t.Setenv("PATH", stubDir+string(os.PathListSeparator)+os.Getenv("PATH"))
+	useGitProgram(t, stubPath)
+}
+
+// useGitProgram makes program the git every backend git run starts, for the
+// test (hostexec's Go option; never PATH).
+func useGitProgram(t *testing.T, program string) {
+	t.Helper()
+	restore, err := hostexec.Configure(hostexec.Config{Git: program, Environment: hostexec.Environment()})
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(restore)
 }

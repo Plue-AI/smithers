@@ -522,8 +522,8 @@ func TestRouter_Cov_ReceivePackSnapshotAndCallbackErrors(t *testing.T) {
 	})
 
 	t.Run("after_ref_snapshot_failure_is_fatal", func(t *testing.T) {
-		t.Setenv("GIT_STUB_STATE_FILE", filepath.Join(t.TempDir(), "state"))
-		installGitStub(t, "#!/bin/sh\nif [ \"$1\" = \"--git-dir\" ]; then\n  if [ -f \"$GIT_STUB_STATE_FILE\" ]; then exit 7; fi\n  printf 'refs/heads/main\\000aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\\n'\n  exit 0\nfi\nif [ \"$1\" = \"receive-pack\" ]; then cat >/dev/null; : > \"$GIT_STUB_STATE_FILE\"; printf ok; exit 0; fi\nexit 1\n")
+		t.Setenv("STUB_GIT_STATE_FILE", filepath.Join(t.TempDir(), "state"))
+		installGitStub(t, "#!/bin/sh\nif [ \"$1\" = \"--git-dir\" ]; then\n  if [ -f \"$STUB_GIT_STATE_FILE\" ]; then exit 7; fi\n  printf 'refs/heads/main\\000aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\\n'\n  exit 0\nfi\nif [ \"$1\" = \"receive-pack\" ]; then cat >/dev/null; : > \"$STUB_GIT_STATE_FILE\"; printf ok; exit 0; fi\nexit 1\n")
 		srv := newTestServer(t)
 		srv.config.PushHookCallbackURL = "https://example.test/hook"
 		if err := os.MkdirAll(srv.config.GitBackendPath("alice", "demo"), 0o755); err != nil {
@@ -534,10 +534,10 @@ func TestRouter_Cov_ReceivePackSnapshotAndCallbackErrors(t *testing.T) {
 	})
 
 	t.Run("unpersistable_push_event_rolls_back_push", func(t *testing.T) {
-		t.Setenv("GIT_STUB_STATE_FILE", filepath.Join(t.TempDir(), "state"))
+		t.Setenv("STUB_GIT_STATE_FILE", filepath.Join(t.TempDir(), "state"))
 		updateLog := filepath.Join(t.TempDir(), "update-ref")
-		t.Setenv("GIT_STUB_UPDATE_LOG", updateLog)
-		installGitStub(t, "#!/bin/sh\nif [ \"$1\" = \"--git-dir\" ] && [ \"$3\" = \"update-ref\" ]; then { echo \"$@\"; tr '\\000' ' '; } >> \"$GIT_STUB_UPDATE_LOG\"; exit 0; fi\nif [ \"$1\" = \"--git-dir\" ]; then\n  if [ -f \"$GIT_STUB_STATE_FILE\" ]; then printf 'refs/heads/main\\000bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb\\n'; else printf 'refs/heads/main\\000aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\\n'; fi\n  exit 0\nfi\nif [ \"$1\" = \"receive-pack\" ]; then cat >/dev/null; : > \"$GIT_STUB_STATE_FILE\"; printf ok; exit 0; fi\nexit 1\n")
+		t.Setenv("STUB_GIT_UPDATE_LOG", updateLog)
+		installGitStub(t, "#!/bin/sh\nif [ \"$1\" = \"--git-dir\" ] && [ \"$3\" = \"update-ref\" ]; then { echo \"$@\"; tr '\\000' ' '; } >> \"$STUB_GIT_UPDATE_LOG\"; exit 0; fi\nif [ \"$1\" = \"--git-dir\" ]; then\n  if [ -f \"$STUB_GIT_STATE_FILE\" ]; then printf 'refs/heads/main\\000bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb\\n'; else printf 'refs/heads/main\\000aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\\n'; fi\n  exit 0\nfi\nif [ \"$1\" = \"receive-pack\" ]; then cat >/dev/null; : > \"$STUB_GIT_STATE_FILE\"; printf ok; exit 0; fi\nexit 1\n")
 		imported := false
 		srv := newTestServerWithMock(t, &mockFFI{importGitRefsFn: func(string) error { imported = true; return nil }})
 		srv.config.PushHookCallbackURL = "https://example.test/hook"
@@ -561,8 +561,8 @@ func TestRouter_Cov_ReceivePackSnapshotAndCallbackErrors(t *testing.T) {
 	})
 
 	t.Run("jj_import_failure_discards_persisted_push_events", func(t *testing.T) {
-		t.Setenv("GIT_STUB_STATE_FILE", filepath.Join(t.TempDir(), "state"))
-		installGitStub(t, "#!/bin/sh\nif [ \"$1\" = \"--git-dir\" ] && [ \"$3\" = \"update-ref\" ]; then exit 0; fi\nif [ \"$1\" = \"--git-dir\" ]; then\n  if [ -f \"$GIT_STUB_STATE_FILE\" ]; then printf 'refs/heads/main\\000bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb\\n'; else printf 'refs/heads/main\\000aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\\n'; fi\n  exit 0\nfi\nif [ \"$1\" = \"receive-pack\" ]; then cat >/dev/null; : > \"$GIT_STUB_STATE_FILE\"; printf ok; exit 0; fi\nexit 1\n")
+		t.Setenv("STUB_GIT_STATE_FILE", filepath.Join(t.TempDir(), "state"))
+		installGitStub(t, "#!/bin/sh\nif [ \"$1\" = \"--git-dir\" ] && [ \"$3\" = \"update-ref\" ]; then exit 0; fi\nif [ \"$1\" = \"--git-dir\" ]; then\n  if [ -f \"$STUB_GIT_STATE_FILE\" ]; then printf 'refs/heads/main\\000bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb\\n'; else printf 'refs/heads/main\\000aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\\n'; fi\n  exit 0\nfi\nif [ \"$1\" = \"receive-pack\" ]; then cat >/dev/null; : > \"$STUB_GIT_STATE_FILE\"; printf ok; exit 0; fi\nexit 1\n")
 		srv := newTestServerWithMock(t, &mockFFI{importGitRefsFn: func(string) error { return errors.New("import failed") }})
 		srv.config.PushHookCallbackURL = "https://example.test/hook"
 		if err := os.MkdirAll(srv.config.GitBackendPath("alice", "demo"), 0o755); err != nil {
@@ -576,8 +576,8 @@ func TestRouter_Cov_ReceivePackSnapshotAndCallbackErrors(t *testing.T) {
 	})
 
 	t.Run("push_hook_callback_failure_keeps_event_for_replay", func(t *testing.T) {
-		t.Setenv("GIT_STUB_STATE_FILE", filepath.Join(t.TempDir(), "state"))
-		installGitStub(t, "#!/bin/sh\nif [ \"$1\" = \"--git-dir\" ]; then\n  if [ -f \"$GIT_STUB_STATE_FILE\" ]; then printf 'refs/heads/main\\000bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb\\n'; else printf 'refs/heads/main\\000aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\\n'; fi\n  exit 0\nfi\nif [ \"$1\" = \"receive-pack\" ]; then cat >/dev/null; : > \"$GIT_STUB_STATE_FILE\"; printf ok; exit 0; fi\nexit 1\n")
+		t.Setenv("STUB_GIT_STATE_FILE", filepath.Join(t.TempDir(), "state"))
+		installGitStub(t, "#!/bin/sh\nif [ \"$1\" = \"--git-dir\" ]; then\n  if [ -f \"$STUB_GIT_STATE_FILE\" ]; then printf 'refs/heads/main\\000bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb\\n'; else printf 'refs/heads/main\\000aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\\n'; fi\n  exit 0\nfi\nif [ \"$1\" = \"receive-pack\" ]; then cat >/dev/null; : > \"$STUB_GIT_STATE_FILE\"; printf ok; exit 0; fi\nexit 1\n")
 		callbacks := make(chan PushHookPayload, 1)
 		callbackSrv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			var payload PushHookPayload

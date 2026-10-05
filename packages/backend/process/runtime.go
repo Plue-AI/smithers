@@ -21,6 +21,7 @@ import (
 	"time"
 
 	"github.com/smithersai/smithers/packages/backend/egressrelay"
+	"github.com/smithersai/smithers/packages/backend/hostexec"
 	workspaceapi "github.com/smithersai/smithers/packages/backend/workspace"
 )
 
@@ -127,7 +128,7 @@ func New(config Config) (*Runtime, error) {
 		environment[name] = value
 	}
 	if _, ok := environment["PATH"]; !ok {
-		environment["PATH"] = os.Getenv("PATH")
+		environment["PATH"], _ = hostexec.Lookup("PATH")
 		if environment["PATH"] == "" {
 			environment["PATH"] = "/usr/local/bin:/usr/bin:/bin"
 		}

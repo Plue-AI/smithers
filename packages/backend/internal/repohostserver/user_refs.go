@@ -8,7 +8,6 @@ import (
 	"io"
 	"net/http"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"slices"
 	"sort"
@@ -18,6 +17,7 @@ import (
 
 	"github.com/go-chi/chi/v5"
 
+	"github.com/smithersai/smithers/packages/backend/hostexec"
 	"github.com/smithersai/smithers/packages/backend/internal/repohost"
 )
 
@@ -149,7 +149,7 @@ func (s *Server) reconcileUserRefs(ctx context.Context, gitDir string, refs map[
 }
 
 func deleteGitRef(ctx context.Context, gitDir, ref, oid string) error {
-	output, err := exec.CommandContext(ctx, "git", "--git-dir", gitDir, "update-ref", "-d", ref, oid).CombinedOutput()
+	output, err := hostexec.Git(ctx, "--git-dir", gitDir, "update-ref", "-d", ref, oid).CombinedOutput()
 	if err != nil {
 		return fmt.Errorf("delete %s: %s", ref, strings.TrimSpace(string(output)))
 	}
@@ -334,14 +334,14 @@ func (s *Server) retainUserRef(w http.ResponseWriter, r *http.Request) error {
 		return userRefMissing(ref)
 	}
 	// git accepts any object under a ref; a workspace source is a commit.
-	peeled, err := exec.CommandContext(r.Context(), "git", "--git-dir", gitDir, "rev-parse", "--verify", "--quiet", "--end-of-options", ref+"^{commit}").Output()
+	peeled, err := hostexec.Git(r.Context(), "--git-dir", gitDir, "rev-parse", "--verify", "--quiet", "--end-of-options", ref+"^{commit}").Output()
 	oid := strings.TrimSpace(string(peeled))
 	if err != nil || !validGitObjectID(oid) {
 		return &appError{StatusCode: http.StatusConflict, Code: "user_ref_not_commit", Message: ref + " does not name a commit"}
 	}
 	sourceRef := repohost.WorkspaceSourceRef(req.WorkspaceID, oid)
 	if current, exists := refs[sourceRef]; !exists {
-		output, err := exec.CommandContext(r.Context(), "git", "--git-dir", gitDir, "update-ref", sourceRef, oid, strings.Repeat("0", 40)).CombinedOutput()
+		output, err := hostexec.Git(r.Context(), "--git-dir", gitDir, "update-ref", sourceRef, oid, strings.Repeat("0", 40)).CombinedOutput()
 		if err != nil {
 			return internalError("failed to retain the user ref", errors.New(strings.TrimSpace(string(output))))
 		}

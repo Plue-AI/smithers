@@ -20,6 +20,8 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/smithersai/smithers/packages/backend/hostexec"
 )
 
 const (
@@ -566,10 +568,13 @@ func removeStagingDirectories(stateDir string) error {
 	return nil
 }
 
+// childEnvironment is every PostgreSQL program's whole environment: the
+// C locale and HOME, PATH and TMPDIR from the base environment the backend
+// built (hostexec), never its inherited one.
 func childEnvironment() []string {
 	env := []string{"LANG=C", "LC_ALL=C"}
 	for _, name := range []string{"HOME", "PATH", "TMPDIR"} {
-		if value, ok := os.LookupEnv(name); ok {
+		if value, ok := hostexec.Lookup(name); ok {
 			env = append(env, name+"="+value)
 		}
 	}

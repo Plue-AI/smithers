@@ -5,13 +5,13 @@ import (
 	"context"
 	"errors"
 	"io"
-	"os"
 	"os/exec"
 	"regexp"
 	"strings"
 	"time"
 
 	"github.com/jackc/pgx/v5/pgtype"
+	"github.com/smithersai/smithers/packages/backend/hostexec"
 	"github.com/smithersai/smithers/packages/backend/internal/db"
 	api "github.com/smithersai/smithers/packages/backend/internal/pkg/errors"
 )
@@ -79,16 +79,11 @@ func wikiGitMissing(err error) (bool, error) {
 // git runs read-only plumbing in the folder. Inherited repository overrides
 // are dropped so discovery always starts at the configured folder.
 func (a *ObsidianSync) git(ctx context.Context, stdin io.Reader, args ...string) (string, error) {
-	cmd := exec.CommandContext(ctx, "git", append([]string{"--no-optional-locks", "--no-replace-objects", "-c", "core.fsmonitor=false"}, args...)...)
+	cmd := hostexec.Git(ctx, append([]string{"--no-optional-locks", "--no-replace-objects", "-c", "core.fsmonitor=false"}, args...)...)
 	cmd.Dir = a.folder
 	// Cancellation also stops waiting on a descendant that holds the pipes.
 	cmd.WaitDelay = time.Second
-	for _, variable := range os.Environ() {
-		if !strings.HasPrefix(variable, "GIT_") {
-			cmd.Env = append(cmd.Env, variable)
-		}
-	}
-	cmd.Env = append(cmd.Env, "GIT_TERMINAL_PROMPT=0", "LC_ALL=C")
+	cmd.Env = append(cmd.Env, "LC_ALL=C")
 	cmd.Stdin = stdin
 	out, err := cmd.Output()
 	if err != nil && ctx.Err() != nil {

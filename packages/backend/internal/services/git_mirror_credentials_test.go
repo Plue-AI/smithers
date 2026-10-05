@@ -149,8 +149,8 @@ func TestGitMirrorCredentialsRejectUnsafeDestination(t *testing.T) {
 	}
 }
 func TestMirrorCommandKeepsCredentialsOutOfArguments(t *testing.T) {
-	cmd := mirrorCommand(context.Background(), "git", "fetch", "https://x-access-token:source-secret@forge.example/a/b.git", "https://x-access-token:target-secret@github.com/c/d.git")
-	assert.Equal(t, []string{"git", "fetch", "https://forge.example/a/b.git", "https://github.com/c/d.git"}, cmd.Args)
+	cmd := mirrorCommand(context.Background(), "fetch", "https://x-access-token:source-secret@forge.example/a/b.git", "https://x-access-token:target-secret@github.com/c/d.git")
+	assert.Equal(t, []string{"-c", "core.hooksPath=/dev/null", "fetch", "https://forge.example/a/b.git", "https://github.com/c/d.git"}, cmd.Args[1:])
 	assert.True(t, slices.Contains(cmd.Env, "GIT_CONFIG_COUNT=6"))
 	assert.True(t, slices.Contains(cmd.Env, "GIT_CONFIG_VALUE_4=Authorization: Basic "+base64.StdEncoding.EncodeToString([]byte("x-access-token:source-secret"))))
 	assert.True(t, slices.Contains(cmd.Env, "GIT_CONFIG_VALUE_5=Authorization: Basic "+base64.StdEncoding.EncodeToString([]byte("x-access-token:target-secret"))))

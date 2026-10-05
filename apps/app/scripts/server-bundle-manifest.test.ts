@@ -3,7 +3,7 @@ import { chmodSync, cpSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlin
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { createHash } from "node:crypto"
-import { writeBundleManifest, verifyBundleManifest } from "./server-bundle-manifest"
+import { codeSignatureFlags, signHardenedBackend, writeBundleManifest, verifyBundleManifest } from "./server-bundle-manifest"
 const roots: string[] = []
 const fixture = (): string => {
   const root = mkdtempSync(join(tmpdir(), "smithers-manifest-")); roots.push(root)
@@ -44,4 +44,30 @@ test("manifest uses the landed host-start verifier contract", async () => {
   symlinkSync("server", join(root, "bin/alias"))
   writeBundleManifest(root, "d".repeat(40))
   expect(() => verifyBundle(root)).not.toThrow()
+})
+
+// Spec §17.3 (a): the assembler signs the backend ad hoc with the hardened
+// runtime, so the dynamic loader ignores DYLD_* variables, with the one
+// entitlement that lets it load the bundle's own engine library and not the
+// one that would let DYLD_* variables back in; the manifest records the
+// signature, and a backend re-signed without the runtime no longer matches.
+test.skipIf(process.platform !== "darwin")("signs the backend with the hardened runtime and records it", () => {
+  const root = fixture()
+  const source = join(root, "main.c")
+  writeFileSync(source, "int main(void) { return 0; }\n")
+  const backend = join(root, "bin", "smithers-backend")
+  expect(Bun.spawnSync(["/usr/bin/cc", "-o", backend, source]).exitCode).toBe(0)
+  rmSync(source)
+  signHardenedBackend(backend)
+  expect(codeSignatureFlags(backend)).toBe("adhoc,runtime")
+  const entitlements = new TextDecoder().decode(Bun.spawnSync(["/usr/bin/codesign", "-d", "--entitlements", ":-", backend]).stdout)
+  expect(entitlements).toContain("com.apple.security.cs.disable-library-validation")
+  expect(entitlements).not.toContain("allow-dyld-environment-variables")
+  writeBundleManifest(root, "e".repeat(40))
+  const manifest = JSON.parse(readFileSync(join(root, "manifest.json"), "utf8"))
+  expect(manifest.files.find((entry: { path: string }) => entry.path === "bin/smithers-backend").codeSignature).toBe("adhoc,runtime")
+  expect(() => verifyBundleManifest(root)).not.toThrow()
+  expect(Bun.spawnSync(["/usr/bin/codesign", "--force", "--sign", "-", backend]).exitCode).toBe(0)
+  expect(codeSignatureFlags(backend)).toBe("adhoc")
+  expect(() => verifyBundleManifest(root)).toThrow("Bundle manifest mismatch: bin/smithers-backend")
 })

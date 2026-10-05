@@ -677,9 +677,7 @@ func (s *GitHubMainPullService) bookmarkCommit(ctx context.Context, owner, repo,
 // gitHubMainPullCommand bounds a git command by the run: after cancellation
 // its pipes are closed within WaitDelay even if a transport helper lingers.
 func gitHubMainPullCommand(ctx context.Context, args ...string) *exec.Cmd {
-	cmd := mirrorCommand(ctx, "git", args...)
-	cmd.Env = append(cmd.Env, "GIT_CONFIG_NOSYSTEM=1", "GIT_CONFIG_GLOBAL="+os.DevNull)
-	return cmd
+	return mirrorCommand(ctx, args...)
 }
 
 func defaultLsRemoteRef(ctx context.Context, remote, ref string) (string, error) {

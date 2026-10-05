@@ -208,17 +208,24 @@ func runMicroVM(ctx context.Context, args []string, executable func() (string, e
 	if len(args) != 1 || args[0] != "doctor" {
 		return errors.New("usage: smithers-backend microvm doctor")
 	}
-	dataRoot := strings.TrimSpace(os.Getenv("SMITHERS_DATA_ROOT"))
-	if dataRoot == "" {
-		return errors.New("SMITHERS_DATA_ROOT is required")
+	// The doctor holds itself to a running backend's rules: no loader or git
+	// injection variable, the hardened runtime, only the msb of the bundle
+	// it runs from, and a data root on a protected chain.
+	if err := refuseInjected(os.Environ()); err != nil {
+		return err
 	}
-	// The doctor runs only the msb of the bundle this backend runs from,
-	// verified like a running backend's.
 	path, err := executable()
 	if err != nil {
 		return fmt.Errorf("locate the backend executable: %w", err)
 	}
 	bundle, err := installbundle.OpenRunning(path)
+	if err != nil {
+		return err
+	}
+	if err := requireHardenedRuntime(bundle); err != nil {
+		return err
+	}
+	dataRoot, err := protectedState("SMITHERS_DATA_ROOT", os.Getenv("SMITHERS_DATA_ROOT"), false)
 	if err != nil {
 		return err
 	}

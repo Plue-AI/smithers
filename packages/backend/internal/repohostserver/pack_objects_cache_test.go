@@ -67,6 +67,7 @@ func TestPackObjectsChildEnvDropsHookMarkers(t *testing.T) {
 		packObjectsCacheDirEnv + "=/c",
 		packObjectsCacheMaxBytesEnv + "=1",
 		packObjectsCacheTTLEnv + "=1s",
+		packObjectsGitEnv + "=/bin/git",
 		"GIT_CONFIG_COUNT=1",
 	})
 	require.Equal(t, []string{"PATH=/bin", "GIT_CONFIG_COUNT=1"}, env)
@@ -241,19 +242,22 @@ func TestPackObjectsCacheFromEnv(t *testing.T) {
 
 // TestUploadPackCloneSharesOnePack runs real git end to end: clients fetch
 // over smart HTTP from streamGitRPCCached, git runs this test binary as its
-// pack-objects hook (see init), and GIT_TRACE counts the real pack-objects
+// pack-objects hook (see init), and the backend's git counts the real pack-objects
 // runs.
 func TestUploadPackCloneSharesOnePack(t *testing.T) {
 	realGit, err := exec.LookPath("git")
 	require.NoError(t, err)
 	gitDir, commits := packCacheFixtureRepo(t, realGit)
 
-	// git traces each built-in it runs; the hook's real pack-objects is one.
-	trace := filepath.Join(t.TempDir(), "trace.log")
-	t.Setenv("GIT_TRACE", trace)
+	// The backend's git (hostexec) is a wrapper that records each real
+	// pack-objects the hook runs through it, then runs git.
+	trace := filepath.Join(t.TempDir(), "builds.log")
+	wrapper := filepath.Join(t.TempDir(), "git")
+	require.NoError(t, os.WriteFile(wrapper, []byte("#!/bin/sh\ncase \" $* \" in *\" pack-objects \"*) echo build >> '"+trace+"' ;; esac\nexec '"+realGit+"' \"$@\"\n"), 0o755))
+	useGitProgram(t, wrapper)
 	builds := func() int {
 		raw, _ := os.ReadFile(trace)
-		return strings.Count(string(raw), "built-in: git pack-objects")
+		return strings.Count(string(raw), "build")
 	}
 
 	cache, err := newPackObjectsCache(Config{PackObjectsCacheDir: filepath.Join(t.TempDir(), "cache")})
@@ -358,17 +362,24 @@ func runGit(t *testing.T, git, dir string, args ...string) string {
 	return string(out)
 }
 
-// runPackObjectsHook is the hook process body; a shell command stands in for
-// git pack-objects so each branch is observable.
+// runPackObjectsHook is the hook process body; a stand-in for git, named by
+// the absolute path upload-pack's environment carries, runs pack-objects so
+// each branch is observable.
 func TestRunPackObjectsHook(t *testing.T) {
 	dir := t.TempDir()
 	t.Chdir(t.TempDir())
 	t.Setenv(packObjectsCacheMaxBytesEnv, "1048576")
 	t.Setenv(packObjectsCacheTTLEnv, "1m")
 	counter := filepath.Join(t.TempDir(), "runs")
+	standIn := func(body string) string {
+		path := filepath.Join(t.TempDir(), "git")
+		require.NoError(t, os.WriteFile(path, []byte("#!/bin/sh\n"+body+"\n"), 0o755))
+		return path
+	}
 	// The stand-in echoes its revision list so the served bytes prove which
 	// input produced them.
-	args := []string{"sh", "-c", "echo run >> " + shellQuoteArg(counter) + "; cat"}
+	t.Setenv(packObjectsGitEnv, standIn("echo run >> "+shellQuoteArg(counter)+"; cat"))
+	args := []string{"git", "pack-objects", "--revs"}
 	runs := func() int {
 		raw, _ := os.ReadFile(counter)
 		return strings.Count(string(raw), "run")
@@ -390,9 +401,20 @@ func TestRunPackObjectsHook(t *testing.T) {
 	require.Equal(t, 3, runs(), "a fetch with haves always runs pack-objects")
 
 	var errOut bytes.Buffer
-	require.Equal(t, 3, runPackObjectsHook([]string{"sh", "-c", "exit 3"}, dir, strings.NewReader(fetch), io.Discard, &errOut))
-	require.Equal(t, 128, runPackObjectsHook([]string{filepath.Join(t.TempDir(), "missing")}, dir, strings.NewReader(fetch), io.Discard, &errOut))
+	t.Setenv(packObjectsGitEnv, standIn("exit 3"))
+	require.Equal(t, 3, runPackObjectsHook(args, dir, strings.NewReader(fetch), io.Discard, &errOut))
+	t.Setenv(packObjectsGitEnv, filepath.Join(t.TempDir(), "missing"))
+	require.Equal(t, 128, runPackObjectsHook(args, dir, strings.NewReader(fetch), io.Discard, &errOut))
 	require.Contains(t, errOut.String(), "run pack-objects")
+
+	// Ruling §17.3 (c): pack-objects runs only by the absolute path the
+	// backend named; never a relative one or a name looked up through PATH.
+	for _, git := range []string{"", "git", "bin/git"} {
+		errOut.Reset()
+		t.Setenv(packObjectsGitEnv, git)
+		require.Equal(t, 128, runPackObjectsHook(args, dir, strings.NewReader(fetch), io.Discard, &errOut), git)
+		require.Contains(t, errOut.String(), "no git named by an absolute path")
+	}
 }
 
 func TestRunPackObjectsHookRefusesAnOversizedRevisionList(t *testing.T) {

@@ -17,6 +17,7 @@ import (
 	"time"
 
 	"github.com/go-chi/chi/v5"
+	"github.com/smithersai/smithers/packages/backend/hostexec"
 	"github.com/smithersai/smithers/packages/backend/internal/gitutil"
 	"github.com/smithersai/smithers/packages/backend/internal/repohost"
 )
@@ -153,7 +154,7 @@ func gitServiceEnvWithCache(command string, maxInputSize, viewer int64, advertis
 	}
 	// v2 accepts existing objects without the v0 visible-ref reachability
 	// check. Do not let an inherited process environment opt out of it.
-	env := append(packObjectsChildEnv(os.Environ()), "GIT_PROTOCOL=version=0", "GIT_CONFIG_COUNT="+strconv.Itoa(len(config)/2))
+	env := append(packObjectsChildEnv(hostexec.GitEnvironment()), "GIT_PROTOCOL=version=0", "GIT_CONFIG_COUNT="+strconv.Itoa(len(config)/2))
 	if command == "upload-pack" && !advertise {
 		env = append(env, cache.hookEnv()...)
 	}
@@ -180,7 +181,7 @@ func streamGitRPCCapped(ctx context.Context, gitDir, command string, body io.Rea
 // served through cache when it is non-nil.
 func streamGitRPCCached(ctx context.Context, gitDir, command string, body io.Reader, dst io.Writer, maxInputSize, viewer int64, cache *packObjectsCache) error {
 	args := []string{command, "--stateless-rpc", gitDir}
-	cmd := streamGitCommandContext(ctx, "git", args...)
+	cmd := hostexec.GitWith(ctx, streamGitCommandContext, args...)
 	cmd.Env = gitServiceEnvWithCache(command, maxInputSize, viewer, false, cache)
 	// git builds a fetch's pack in a pack-objects child and indexes a push in
 	// an index-pack child. Ending the request ends its whole process group:
@@ -378,7 +379,7 @@ func listGitRefs(ctx context.Context, gitDir string, patterns ...string) (map[st
 	cmdCtx, cancelCmd := context.WithCancel(ctx)
 	defer cancelCmd()
 	args := append([]string{"--git-dir", gitDir, "for-each-ref", "--format=%(refname)%00%(objectname)"}, patterns...)
-	cmd := exec.CommandContext(cmdCtx, "git", args...)
+	cmd := hostexec.Git(cmdCtx, args...)
 	stdout, err := cmd.StdoutPipe()
 	if err != nil {
 		return nil, fmt.Errorf("list git refs: %w", err)
@@ -433,7 +434,7 @@ func gitDefaultBookmark(ctx context.Context, gitDir string) (string, error) {
 	} else if !errors.Is(err, os.ErrNotExist) {
 		return "", fmt.Errorf("read default Git bookmark: %w", err)
 	}
-	output, err := exec.CommandContext(ctx, "git", "--git-dir", gitDir, "symbolic-ref", "--quiet", "HEAD").Output()
+	output, err := hostexec.Git(ctx, "--git-dir", gitDir, "symbolic-ref", "--quiet", "HEAD").Output()
 	if err != nil {
 		return "", fmt.Errorf("read git HEAD: %w", err)
 	}
@@ -450,7 +451,7 @@ func gitDefaultBookmark(ctx context.Context, gitDir string) (string, error) {
 // commit dates do not follow ancestry is still counted completely: the window
 // boundary is exact at any history length (#3000).
 func countCommitsSince(ctx context.Context, gitDir, rev string, since time.Time) (int64, error) {
-	output, err := exec.CommandContext(ctx, "git", "--git-dir", gitDir,
+	output, err := hostexec.Git(ctx, "--git-dir", gitDir,
 		"rev-list", "--count", "--since-as-filter="+since.UTC().Format(time.RFC3339), rev).CombinedOutput()
 	if err != nil {
 		detail := strings.TrimSpace(string(output))
@@ -596,7 +597,7 @@ func setGitDefaultBookmark(ctx context.Context, gitDir, bookmark string) error {
 		return fmt.Errorf("persist default Git bookmark: %w", err)
 	}
 	ref := "refs/heads/" + bookmark
-	output, err := exec.CommandContext(ctx, "git", "--git-dir", gitDir, "symbolic-ref", "HEAD", ref).CombinedOutput()
+	output, err := hostexec.Git(ctx, "--git-dir", gitDir, "symbolic-ref", "HEAD", ref).CombinedOutput()
 	if err != nil {
 		detail := strings.TrimSpace(string(output))
 		if detail == "" {
@@ -701,5 +702,5 @@ func (s *Server) commitAncestry(w http.ResponseWriter, r *http.Request) error {
 
 // gitIsAncestor compares immutable commits and fails closed on Git errors.
 func gitIsAncestor(ctx context.Context, gitDir, ancestor, descendant string) (bool, error) {
-	return gitutil.IsAncestor(ctx, gitDir, ancestor, descendant, func(ctx context.Context, args ...string) *exec.Cmd { return exec.CommandContext(ctx, "git", args...) })
+	return gitutil.IsAncestor(ctx, gitDir, ancestor, descendant, hostexec.Git)
 }

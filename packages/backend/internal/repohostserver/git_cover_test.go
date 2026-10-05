@@ -24,7 +24,7 @@ func (gitCovErrWriter) Write([]byte) (int, error) {
 }
 
 func TestGit_Cov_StreamGitRPCReportsStartError(t *testing.T) {
-	t.Setenv("PATH", t.TempDir())
+	useGitProgram(t, filepath.Join(t.TempDir(), "missing-git"))
 
 	err := streamGitRPC(context.Background(), t.TempDir(), "upload-pack", nil, io.Discard)
 	if err == nil {

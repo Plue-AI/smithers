@@ -5,11 +5,11 @@ import (
 	"errors"
 	"io/fs"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"strings"
 	"time"
 
+	"github.com/smithersai/smithers/packages/backend/hostexec"
 	"github.com/smithersai/smithers/packages/backend/internal/repohost"
 )
 
@@ -71,7 +71,7 @@ func (s *Server) recordDefaultBookmarkBorn(gitDir string) {
 	if err != nil || defaultBookmarkBorn(gitDir, bookmark) {
 		return
 	}
-	if err := exec.CommandContext(ctx, "git", "--git-dir", gitDir, "rev-parse", "--verify", "--quiet",
+	if err := hostexec.Git(ctx, "--git-dir", gitDir, "rev-parse", "--verify", "--quiet",
 		"refs/heads/"+bookmark).Run(); err != nil {
 		return
 	}

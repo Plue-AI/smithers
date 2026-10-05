@@ -7,7 +7,6 @@ import (
 	"io/fs"
 	"net/http"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"sort"
 	"strings"
@@ -15,6 +14,7 @@ import (
 
 	"github.com/go-chi/chi/v5"
 
+	"github.com/smithersai/smithers/packages/backend/hostexec"
 	"github.com/smithersai/smithers/packages/backend/internal/repohost"
 )
 
@@ -142,7 +142,7 @@ type caseVariantRepair struct {
 // run reports whether it wrote a ref, so jj imports the result even when a
 // later step failed.
 func (c caseVariantRepair) run(ctx context.Context, gitDir string) (bool, error) {
-	storage, err := exec.CommandContext(ctx, "git", "--git-dir", gitDir, "config", "--get", "extensions.refStorage").Output()
+	storage, err := hostexec.Git(ctx, "--git-dir", gitDir, "config", "--get", "extensions.refStorage").Output()
 	if err == nil && strings.TrimSpace(string(storage)) != "files" {
 		return false, fmt.Errorf("ref storage %q is not supported", strings.TrimSpace(string(storage)))
 	}
@@ -380,7 +380,7 @@ func removePackedRef(gitDir, ref, oid string) error {
 
 func updateRefs(ctx context.Context, gitDir, commands string) error {
 	// --no-deref: a symbolic ref is written itself, never the branch it names.
-	cmd := exec.CommandContext(ctx, "git", "--git-dir", gitDir, "update-ref", "--no-deref", "--stdin", "-z")
+	cmd := hostexec.Git(ctx, "--git-dir", gitDir, "update-ref", "--no-deref", "--stdin", "-z")
 	cmd.Stdin = strings.NewReader(commands)
 	if out, err := cmd.CombinedOutput(); err != nil {
 		return errors.Join(err, errors.New(strings.TrimSpace(string(out))))

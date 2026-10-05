@@ -53,6 +53,9 @@ type Entry struct {
 	Stage   string  `json:"stage"`
 	Mode    int     `json:"mode"`
 	Symlink *string `json:"symlink,omitempty"`
+	// CodeSignature records the code-signing flags the assembler signed an
+	// executable with (codesign -dv), such as "adhoc,runtime".
+	CodeSignature string `json:"codeSignature,omitempty"`
 }
 
 // Bundle is an installed bundle's manifest, pinned once. A later change to
@@ -431,6 +434,27 @@ func ProtectedDirectory(name, value string) (string, error) {
 	return resolved, nil
 }
 
+// ProtectedFile verifies a file the backend was handed through name and
+// reads (a certificate bundle): absolute, with its symlinks resolved once, a
+// regular file, and it and every directory from / owned by root or the
+// running user and not writable by group or others. It answers the resolved
+// path.
+func ProtectedFile(name, value string) (string, error) {
+	if !filepath.IsAbs(value) || filepath.Clean(value) != value {
+		return "", fmt.Errorf("%w: %s=%s must be an absolute, clean path", ErrUnapproved, name, value)
+	}
+	resolved, err := filepath.EvalSymlinks(value)
+	if err != nil {
+		return "", fmt.Errorf("%w: %s=%s: %v", ErrUnapproved, name, value, err)
+	}
+	file, _, err := openProtected(filepath.Dir(resolved), filepath.Base(resolved))
+	if err != nil {
+		return "", fmt.Errorf("%w: %s=%s: %v", ErrUnapproved, name, value, err)
+	}
+	_ = file.Close()
+	return resolved, nil
+}
+
 // TrustedOwnership is the trust rule for one directory or file: owned by root
 // or the running user, and not writable by group or others.
 func TrustedOwnership(uid, mode uint32) bool {
@@ -493,6 +517,14 @@ func walkProtected(directory string) (int, error) {
 		if !protectedOwner(&info) {
 			_ = unix.Close(fd)
 			return -1, fmt.Errorf("%s is not owned by root or this user, or is writable by group or others", current)
+		}
+		flags, err := volumeFlags(fd)
+		if err == nil {
+			err = VolumeTrusted(flags, current)
+		}
+		if err != nil {
+			_ = unix.Close(fd)
+			return -1, err
 		}
 	}
 	return fd, nil

@@ -16,6 +16,8 @@ import (
 	"strings"
 	"syscall"
 	"time"
+
+	"github.com/smithersai/smithers/packages/backend/hostexec"
 )
 
 // Clone pack cache (smithersai/plue#780).
@@ -41,6 +43,9 @@ const (
 	packObjectsCacheDirEnv      = "SMITHERS_PACK_OBJECTS_CACHE_DIR"
 	packObjectsCacheMaxBytesEnv = "SMITHERS_PACK_OBJECTS_CACHE_MAX_BYTES"
 	packObjectsCacheTTLEnv      = "SMITHERS_PACK_OBJECTS_CACHE_TTL"
+	// packObjectsGitEnv names, to the hook, the git it runs pack-objects
+	// with: the one that started upload-pack, by its absolute path.
+	packObjectsGitEnv = "SMITHERS_PACK_OBJECTS_GIT"
 
 	packObjectsCacheDirName = ".pack-objects-cache@"
 
@@ -104,11 +109,15 @@ func (c *packObjectsCache) hookEnv() []string {
 	if c == nil {
 		return nil
 	}
-	return []string{
+	env := []string{
 		packObjectsCacheDirEnv + "=" + c.dir,
 		packObjectsCacheMaxBytesEnv + "=" + strconv.FormatInt(c.maxBytes, 10),
 		packObjectsCacheTTLEnv + "=" + c.ttl.String(),
 	}
+	if git, _, err := hostexec.GitArgv(); err == nil {
+		env = append(env, packObjectsGitEnv+"="+git)
+	}
+	return env
 }
 
 func shellQuoteArg(s string) string {
@@ -150,8 +159,15 @@ func runPackObjectsHook(args []string, dir string, stdin io.Reader, stdout, stde
 		fmt.Fprintln(stderr, "pack cache: revision list too large")
 		return 128
 	}
+	// git started this process with upload-pack's environment, which the
+	// backend built (hostexec); pack-objects gets it without the markers.
+	git := os.Getenv(packObjectsGitEnv)
+	if len(args) == 0 || args[0] != "git" || !filepath.IsAbs(git) {
+		fmt.Fprintln(stderr, "pack cache: no git named by an absolute path to run pack-objects with")
+		return 128
+	}
 	env := packObjectsChildEnv(os.Environ())
-	run := func(out io.Writer) int { return runPackObjects(args, env, input, out, stderr) }
+	run := func(out io.Writer) int { return runPackObjects(git, args[1:], env, input, out, stderr) }
 
 	cwd, err := os.Getwd()
 	if err != nil || !packObjectsCacheable(input) {
@@ -200,7 +216,8 @@ func packObjectsChildEnv(environ []string) []string {
 	for _, kv := range environ {
 		if strings.HasPrefix(kv, packObjectsCacheDirEnv+"=") ||
 			strings.HasPrefix(kv, packObjectsCacheMaxBytesEnv+"=") ||
-			strings.HasPrefix(kv, packObjectsCacheTTLEnv+"=") {
+			strings.HasPrefix(kv, packObjectsCacheTTLEnv+"=") ||
+			strings.HasPrefix(kv, packObjectsGitEnv+"=") {
 			continue
 		}
 		env = append(env, kv)
@@ -208,9 +225,10 @@ func packObjectsChildEnv(environ []string) []string {
 	return env
 }
 
-// runPackObjects runs the command git asked the hook to run.
-func runPackObjects(args, env []string, input []byte, stdout, stderr io.Writer) int {
-	cmd := exec.Command(args[0], args[1:]...)
+// runPackObjects runs the git command git asked the hook to run, by git's
+// absolute path.
+func runPackObjects(git string, args, env []string, input []byte, stdout, stderr io.Writer) int {
+	cmd := exec.Command(git, args...)
 	cmd.Env = env
 	cmd.Stdin = bytes.NewReader(input)
 	cmd.Stdout = stdout

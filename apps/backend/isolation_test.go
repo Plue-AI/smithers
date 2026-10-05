@@ -144,6 +144,7 @@ func installedBundleFixture(t *testing.T) testBundle {
 	files := map[string][]byte{bundle.backend: []byte("backend"), bundle.codingHost: codingHost, bundle.helper: header,
 		bundle.msb: []byte("#!/bin/sh\necho \"$0\" >> " + bundle.ran + "\necho 'msb 0.0.0'\n"),
 		bundle.ffi: []byte("ffi"), bundle.node: []byte("node"), bundle.modelHost: []byte("model host"), bundle.git: []byte("git"),
+		filepath.Join(root, "bin", "jj"):                  []byte("jj"),
 		filepath.Join(bundle.gitExec, "git-remote-http"):  []byte("git-remote-http"),
 		filepath.Join(bundle.gitTemplates, "description"): []byte("template"),
 		filepath.Join(bundle.webRoot, "index.html"):       []byte("<!doctype html>")}
@@ -200,8 +201,8 @@ func (b testBundle) installedEnvironment(t *testing.T) map[string]string {
 	return map[string]string{
 		"SMITHERS_DATA_ROOT": filepath.Join(parent, "data"), "SMITHERS_FLOW_HOST_MANIFEST": b.hostManifest,
 		"SMITHERS_FFI_LIBRARY_PATH": b.ffi, "SMITHERS_NODE_BINARY": b.node, "SMITHERS_MODEL_HOST_BUNDLE": b.modelHost,
-		"SMITHERS_NATIVE_POSTGRES_BIN": b.postgres, "PATH": filepath.Join(b.root, "bin") + string(filepath.ListSeparator) + "/usr/bin:/bin",
-		"GIT_EXEC_PATH": b.gitExec, "GIT_TEMPLATE_DIR": b.gitTemplates, "GIT_CONFIG_NOSYSTEM": "1", "GIT_CONFIG_GLOBAL": os.DevNull,
+		"SMITHERS_NATIVE_POSTGRES_BIN": b.postgres,
+		"GIT_EXEC_PATH":                b.gitExec, "GIT_TEMPLATE_DIR": b.gitTemplates, "GIT_CONFIG_NOSYSTEM": "1", "GIT_CONFIG_GLOBAL": os.DevNull,
 		"SMITHERS_WEB_ROOT": b.webRoot,
 	}
 }
@@ -245,7 +246,13 @@ func (b testBundle) writeManifest(t *testing.T) {
 		}
 		relative, _ := filepath.Rel(b.root, path)
 		sum := sha256.Sum256(body)
-		files = append(files, map[string]any{"path": filepath.ToSlash(relative), "sha256": hex.EncodeToString(sum[:]), "stage": "fixture", "mode": int(info.Mode().Perm())})
+		declared := map[string]any{"path": filepath.ToSlash(relative), "sha256": hex.EncodeToString(sum[:]), "stage": "fixture", "mode": int(info.Mode().Perm())}
+		// The assembler signs the backend with the hardened runtime and
+		// records it.
+		if filepath.ToSlash(relative) == "bin/smithers-backend" {
+			declared["codeSignature"] = "adhoc,runtime"
+		}
+		files = append(files, declared)
 		return nil
 	})
 	if err != nil {
@@ -438,8 +445,8 @@ func TestMicroVMIsolationRefusesOutsideTheInstalledBundle(t *testing.T) {
 		"install state relative": {"SMITHERS_INSTALL_STATE_DIR=state is not an absolute path", func(_ *testing.T, _ *testBundle, env map[string]string) {
 			env["SMITHERS_INSTALL_STATE_DIR"] = "state"
 		}},
-		"pack cache relative": {"SMITHERS_PACK_OBJECTS_CACHE_DIR=cache is not an absolute path", func(_ *testing.T, _ *testBundle, env map[string]string) {
-			env["SMITHERS_PACK_OBJECTS_CACHE_DIR"] = "cache"
+		"pack cache relative": {"SMITHERS_REPO_HOST_PACK_CACHE_DIR=cache is not an absolute path", func(_ *testing.T, _ *testBundle, env map[string]string) {
+			env["SMITHERS_REPO_HOST_PACK_CACHE_DIR"] = "cache"
 		}},
 		"repository host pack cache in a writable directory": {"SMITHERS_REPO_HOST_PACK_CACHE_DIR=", func(t *testing.T, _ *testBundle, env map[string]string) {
 			cache := filepath.Join(filepath.Dir(env["SMITHERS_DATA_ROOT"]), "packs")
@@ -460,15 +467,51 @@ func TestMicroVMIsolationRefusesOutsideTheInstalledBundle(t *testing.T) {
 				t.Fatal(err)
 			}
 		}},
-		"git found outside the bundle": {"is not the installed bundle's bin/git", func(t *testing.T, _ *testBundle, env map[string]string) {
-			env["PATH"] = filepath.Dir(outsideFile(t, "git", []byte("git"))) + string(filepath.ListSeparator) + env["PATH"]
+		"jj changed after the install": {"bin/jj differs", func(t *testing.T, b *testBundle, _ map[string]string) {
+			if err := os.WriteFile(filepath.Join(b.root, "bin", "jj"), []byte("branch jj"), 0o755); err != nil {
+				t.Fatal(err)
+			}
 		}},
-		"git relative to the working directory": {"PATH: git resolves to bin/git, relative to the working directory", func(t *testing.T, b *testBundle, env map[string]string) {
-			t.Chdir(b.root)
-			env["PATH"] = "bin" + string(filepath.ListSeparator) + env["PATH"]
+		"PostgreSQL unset": {"SMITHERS_NATIVE_POSTGRES_BIN is required", func(_ *testing.T, _ *testBundle, env map[string]string) {
+			delete(env, "SMITHERS_NATIVE_POSTGRES_BIN")
 		}},
-		"no git on PATH": {"PATH: git is not on it", func(t *testing.T, _ *testBundle, env map[string]string) {
-			env["PATH"] = t.TempDir()
+		"git reads a system configuration": {"GIT_CONFIG_NOSYSTEM=0", func(_ *testing.T, _ *testBundle, env map[string]string) {
+			env["GIT_CONFIG_NOSYSTEM"] = "0"
+		}},
+		"TMPDIR world-writable": {"TMPDIR=", func(t *testing.T, _ *testBundle, env map[string]string) {
+			shared := filepath.Join(bundletest.ProtectedTempDir(t), "tmp")
+			if err := os.MkdirAll(shared, 0o777); err != nil {
+				t.Fatal(err)
+			}
+			if err := os.Chmod(shared, 0o777); err != nil {
+				t.Fatal(err)
+			}
+			env["TMPDIR"] = shared
+		}},
+		"certificate bundle writable": {"SSL_CERT_FILE=", func(t *testing.T, _ *testBundle, env map[string]string) {
+			file := filepath.Join(bundletest.ProtectedTempDir(t), "roots.pem")
+			if err := os.WriteFile(file, []byte("roots"), 0o666); err != nil {
+				t.Fatal(err)
+			}
+			if err := os.Chmod(file, 0o666); err != nil {
+				t.Fatal(err)
+			}
+			env["SSL_CERT_FILE"] = file
+		}},
+		"data root created under an unprotected parent": {"is not owned by root or this user", func(t *testing.T, _ *testBundle, env map[string]string) {
+			shared := filepath.Join(bundletest.ProtectedTempDir(t), "shared")
+			if err := os.MkdirAll(shared, 0o777); err != nil {
+				t.Fatal(err)
+			}
+			if err := os.Chmod(shared, 0o777); err != nil {
+				t.Fatal(err)
+			}
+			env["SMITHERS_DATA_ROOT"] = filepath.Join(shared, "a", "data")
+			t.Cleanup(func() {
+				if _, err := os.Stat(filepath.Join(shared, "a")); !errors.Is(err, fs.ErrNotExist) {
+					t.Errorf("a refused data root was created: %v", err)
+				}
+			})
 		}},
 		"git changed after the install": {"bin/git differs", func(t *testing.T, b *testBundle, _ map[string]string) {
 			if err := os.WriteFile(b.git, []byte("branch git"), 0o755); err != nil {
@@ -556,7 +599,9 @@ func TestMicroVMIsolationRefusesOutsideTheInstalledBundle(t *testing.T) {
 }
 
 // Ruling item 3: every git the backend starts runs the bundle's own helpers
-// and templates, named or not, and reads no configuration file.
+// and templates, named or not, and reads no configuration file; the backend
+// and every program it starts run the bundle's git and jj, first on the PATH
+// the backend sets.
 func TestInstalledGitEnvironmentIsTheBundles(t *testing.T) {
 	bundle := installedBundleFixture(t)
 	env := bundle.installedEnvironment(t)
@@ -568,12 +613,18 @@ func TestInstalledGitEnvironmentIsTheBundles(t *testing.T) {
 		t.Fatal(err)
 	}
 	root := inputs.bundle.Root()
-	want := map[string]string{
+	for name, want := range map[string]string{
 		"GIT_EXEC_PATH": filepath.Join(root, "libexec", "git-core"), "GIT_TEMPLATE_DIR": filepath.Join(root, "share", "git-core", "templates"),
 		"GIT_CONFIG_NOSYSTEM": "1", "GIT_CONFIG_GLOBAL": os.DevNull, "GIT_CONFIG_SYSTEM": os.DevNull,
+		"PATH": filepath.Join(root, "bin") + ":/usr/bin:/bin:/usr/sbin:/sbin",
+	} {
+		if inputs.environment[name] != want {
+			t.Errorf("%s = %q; want %q", name, inputs.environment[name], want)
+		}
 	}
-	if fmt.Sprint(inputs.environment) != fmt.Sprint(want) {
-		t.Fatalf("git environment = %v; want %v", inputs.environment, want)
+	if inputs.host.Git != filepath.Join(root, "bin", "git") || inputs.host.GitExecPath != filepath.Join(root, "libexec", "git-core") ||
+		inputs.host.GitTemplateDir != filepath.Join(root, "share", "git-core", "templates") {
+		t.Fatalf("host git = %+v", inputs.host)
 	}
 }
 

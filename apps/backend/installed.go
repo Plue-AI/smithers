@@ -4,10 +4,14 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"os/user"
 	"path/filepath"
+	"sort"
+	"strconv"
 	"strings"
 
 	"github.com/smithersai/smithers/packages/backend/flowmanifest"
+	"github.com/smithersai/smithers/packages/backend/hostexec"
 	"github.com/smithersai/smithers/packages/backend/installbundle"
 )
 
@@ -18,9 +22,14 @@ const (
 	bundleNode       = "bin/node"
 	bundleModelHost  = "bin/smithers-model-host"
 	bundleGit        = "bin/git"
+	bundleJJ         = "bin/jj"
 	bundleWebApp     = "views/mainview"
 	flowHostsLimit   = 1 << 20
 )
+
+// systemPath follows the bundle's bin directory on every PATH the backend
+// sets: directories only the operating system writes.
+const systemPath = "/usr/bin:/bin:/usr/sbin:/sbin"
 
 // gitDirectories are the bundle directories git reads its helper programs
 // and repository templates from, by the variable that names each.
@@ -32,10 +41,30 @@ var gitDirectories = []struct{ name, directory string }{
 // hostStateDirectories are the host-state directories, besides the data
 // root and the PostgreSQL state, that a variable can name.
 var hostStateDirectories = []string{"SMITHERS_REPO_STORAGE_PATH", "SMITHERS_BLOB_DATA_DIR", "SMITHERS_INSTALL_STATE_DIR",
-	"SMITHERS_SSH_HOST_KEY_DIR", "SMITHERS_PACK_OBJECTS_CACHE_DIR", "SMITHERS_REPO_HOST_PACK_CACHE_DIR"}
+	"SMITHERS_SSH_HOST_KEY_DIR", "SMITHERS_REPO_HOST_PACK_CACHE_DIR"}
 
 // postgresPrograms are the PostgreSQL binaries the backend starts.
 var postgresPrograms = []string{"postgres", "initdb", "pg_isready", "psql", "pg_dump", "pg_restore"}
+
+// passedValues are the launcher's variables whose values name no file: the
+// backend keeps them as given.
+var passedValues = []string{
+	"USER", "LOGNAME", "TZ", "LANG", "LC_ALL", "LC_CTYPE",
+	"HTTP_PROXY", "HTTPS_PROXY", "NO_PROXY", "ALL_PROXY", "http_proxy", "https_proxy", "no_proxy", "all_proxy",
+	"SMITHERS_WORKSPACE_ISOLATION", "SMITHERS_AUTH_MODE", "SMITHERS_NATIVE_POSTGRES_MAJOR",
+	"SMITHERS_SERVER_ADDR", "SMITHERS_EGRESS_RELAY_PORT", "SMITHERS_SSH_ADDR",
+}
+
+// childValues are the variables, of the backend's own environment, that the
+// programs it starts get (hostexec); no SMITHERS_* setting reaches them.
+var childValues = []string{"PATH", "HOME", "TMPDIR", "USER", "LOGNAME", "TZ", "LANG", "LC_ALL", "LC_CTYPE",
+	"HTTP_PROXY", "HTTPS_PROXY", "NO_PROXY", "ALL_PROXY", "http_proxy", "https_proxy", "no_proxy", "all_proxy",
+	"SSL_CERT_FILE", "SSL_CERT_DIR"}
+
+// allowedGit are the git variables the launcher passes; each must hold the
+// value the backend would set.
+var allowedGit = map[string]bool{"GIT_EXEC_PATH": true, "GIT_TEMPLATE_DIR": true, "GIT_CONFIG_NOSYSTEM": true,
+	"GIT_CONFIG_GLOBAL": true, "GIT_CONFIG_SYSTEM": true}
 
 // hostInputs are the files and directories the backend loads, runs or keeps
 // host state in. Beside an installed bundle each was verified against it.
@@ -50,9 +79,31 @@ type hostInputs struct {
 	// the engine's own resolution (process mode).
 	ffi                          *installbundle.File
 	node, modelHost, postgresBin string
-	// environment is what the backend exports for the programs it starts
-	// (git), each value verified against the bundle.
+	// environment is the backend's whole environment beside a bundle, built
+	// from the allowlist with every path replaced by its verified,
+	// canonical target; host is what the programs it starts get.
 	environment map[string]string
+	host        hostexec.Config
+}
+
+// refuseInjected refuses, naming it, any variable of the environment that
+// can change what the backend or a program it starts loads or runs without
+// being named on a command line: a dynamic-loader variable (DYLD_*, LD_*)
+// or a git variable other than the five the launcher passes (spec §17.3,
+// ruling (a)). It runs before anything is loaded.
+func refuseInjected(environ []string) error {
+	var names []string
+	for _, entry := range environ {
+		name, _, _ := strings.Cut(entry, "=")
+		if hostexec.Injected(name) && !allowedGit[name] {
+			names = append(names, name)
+		}
+	}
+	if len(names) == 0 {
+		return nil
+	}
+	sort.Strings(names)
+	return fmt.Errorf("%w: %s is set: beside an installed bundle the backend refuses dynamic-loader and git injection variables", installbundle.ErrUnapproved, names[0])
 }
 
 // installedInputs pins the bundle the backend executable runs from, before
@@ -60,28 +111,63 @@ type hostInputs struct {
 // against it (spec §17.3): an executable or library must be the bundle's own
 // manifest member with the manifest's bytes, a host-state directory must be
 // absolute and reached through a protected chain. A missing path answers the
-// bundle's own member; nothing falls back to the working directory.
+// bundle's own member; nothing falls back to the working directory. It
+// builds the backend's environment from the launcher's allowlist, each path
+// replaced by the verified target a consumer must use.
 func installedInputs(executable string, getenv func(string) string) (hostInputs, error) {
 	bundle, err := installbundle.OpenRunning(executable)
 	if err != nil {
 		return hostInputs{}, err
 	}
-	inputs := hostInputs{bundle: bundle}
-	if inputs.dataRoot, err = protectedState("SMITHERS_DATA_ROOT", getenv("SMITHERS_DATA_ROOT")); err != nil {
-		return hostInputs{}, err
+	inputs := hostInputs{bundle: bundle, environment: map[string]string{}}
+	env := inputs.environment
+	for _, name := range passedValues {
+		if value := strings.TrimSpace(getenv(name)); value != "" {
+			env[name] = value
+		}
 	}
-	inputs.stateRoot = inputs.dataRoot
-	if state := strings.TrimSpace(getenv("SMITHERS_NATIVE_STATE_DIR")); state != "" {
-		if inputs.stateRoot, err = protectedState("SMITHERS_NATIVE_STATE_DIR", state); err != nil {
+	env["PATH"] = bundle.Path("bin") + string(filepath.ListSeparator) + systemPath
+	if env["HOME"], err = accountHome(); err != nil {
+		return hostInputs{}, fmt.Errorf("resolve the account home directory: %w", err)
+	}
+	if value := strings.TrimSpace(getenv("TMPDIR")); value != "" {
+		if env["TMPDIR"], err = protectedState("TMPDIR", value, false); err != nil {
 			return hostInputs{}, err
 		}
+	}
+	if value := strings.TrimSpace(getenv("SSL_CERT_DIR")); value != "" {
+		if env["SSL_CERT_DIR"], err = protectedState("SSL_CERT_DIR", value, false); err != nil {
+			return hostInputs{}, err
+		}
+	}
+	if value := strings.TrimSpace(getenv("SSL_CERT_FILE")); value != "" {
+		if env["SSL_CERT_FILE"], err = installbundle.ProtectedFile("SSL_CERT_FILE", value); err != nil {
+			return hostInputs{}, err
+		}
+	}
+
+	if inputs.dataRoot, err = protectedState("SMITHERS_DATA_ROOT", getenv("SMITHERS_DATA_ROOT"), true); err != nil {
+		return hostInputs{}, err
+	}
+	env["SMITHERS_DATA_ROOT"] = inputs.dataRoot
+	inputs.stateRoot = inputs.dataRoot
+	if state := strings.TrimSpace(getenv("SMITHERS_NATIVE_STATE_DIR")); state != "" {
+		if inputs.stateRoot, err = protectedState("SMITHERS_NATIVE_STATE_DIR", state, true); err != nil {
+			return hostInputs{}, err
+		}
+		env["SMITHERS_NATIVE_STATE_DIR"] = inputs.stateRoot
 	}
 	// Every other host-state directory defaults below the data root; one
 	// handed elsewhere is held to the same rule. The repository host's pack
 	// cache may be "off".
 	for _, name := range hostStateDirectories {
-		if value := strings.TrimSpace(getenv(name)); value != "" && !(name == "SMITHERS_REPO_HOST_PACK_CACHE_DIR" && value == "off") {
-			if _, err := protectedState(name, value); err != nil {
+		value := strings.TrimSpace(getenv(name))
+		switch {
+		case value == "":
+		case name == "SMITHERS_REPO_HOST_PACK_CACHE_DIR" && value == "off":
+			env[name] = value
+		default:
+			if env[name], err = protectedState(name, value, true); err != nil {
 				return hostInputs{}, err
 			}
 		}
@@ -100,51 +186,64 @@ func installedInputs(executable string, getenv func(string) string) (hostInputs,
 	if inputs.registry, err = flowmanifest.Parse(data, bundle.Path("bin")); err != nil {
 		return hostInputs{}, fmt.Errorf("load bundled Flow hosts: %w", err)
 	}
-	if _, err := bundle.Expect("SMITHERS_FFI_LIBRARY_PATH", strings.TrimSpace(getenv("SMITHERS_FFI_LIBRARY_PATH")), bundleFFILibrary, false); err != nil {
+	env["SMITHERS_FLOW_HOST_MANIFEST"] = bundle.Path(bundleFlowHosts)
+	if env["SMITHERS_FFI_LIBRARY_PATH"], err = bundle.Expect("SMITHERS_FFI_LIBRARY_PATH", strings.TrimSpace(getenv("SMITHERS_FFI_LIBRARY_PATH")), bundleFFILibrary, false); err != nil {
 		return hostInputs{}, err
 	}
 	inputs.ffi = bundle.Library(bundleFFILibrary)
 	if inputs.node, err = bundle.Expect("SMITHERS_NODE_BINARY", strings.TrimSpace(getenv("SMITHERS_NODE_BINARY")), bundleNode, true); err != nil {
 		return hostInputs{}, err
 	}
+	env["SMITHERS_NODE_BINARY"] = inputs.node
 	if inputs.modelHost, err = bundle.Expect("SMITHERS_MODEL_HOST_BUNDLE", strings.TrimSpace(getenv("SMITHERS_MODEL_HOST_BUNDLE")), bundleModelHost, true); err != nil {
 		return hostInputs{}, err
 	}
-	if value := strings.TrimSpace(getenv("SMITHERS_NATIVE_POSTGRES_BIN")); value != "" {
-		if inputs.postgresBin, err = bundle.ExpectPrograms("SMITHERS_NATIVE_POSTGRES_BIN", value, postgresPrograms...); err != nil {
-			return hostInputs{}, err
-		}
+	env["SMITHERS_MODEL_HOST_BUNDLE"] = inputs.modelHost
+	// The backend's PostgreSQL is the bundle's own: beside a bundle there is
+	// no external database.
+	postgresBin := strings.TrimSpace(getenv("SMITHERS_NATIVE_POSTGRES_BIN"))
+	if postgresBin == "" {
+		return hostInputs{}, fmt.Errorf("%w: SMITHERS_NATIVE_POSTGRES_BIN is required beside an installed bundle", installbundle.ErrUnapproved)
 	}
+	if inputs.postgresBin, err = bundle.ExpectPrograms("SMITHERS_NATIVE_POSTGRES_BIN", postgresBin, postgresPrograms...); err != nil {
+		return hostInputs{}, err
+	}
+	env["SMITHERS_NATIVE_POSTGRES_BIN"] = inputs.postgresBin
 	if value := strings.TrimSpace(getenv("SMITHERS_WEB_ROOT")); value != "" {
-		if _, err := bundle.ExpectDirectory("SMITHERS_WEB_ROOT", value, bundleWebApp); err != nil {
+		if env["SMITHERS_WEB_ROOT"], err = bundle.ExpectDirectory("SMITHERS_WEB_ROOT", value, bundleWebApp); err != nil {
 			return hostInputs{}, err
 		}
 	}
-	if inputs.environment, err = gitEnvironment(bundle, getenv); err != nil {
+	if err := gitEnvironment(bundle, getenv, &inputs); err != nil {
 		return hostInputs{}, err
 	}
 	return inputs, nil
 }
 
-// gitEnvironment verifies the git the backend runs by name, as PATH
-// resolves it, and the directories git reads its helpers and templates
-// from, and answers the variables that keep every git the backend starts on
-// them with no system or user configuration. An unset directory variable
-// answers the bundle's own.
-func gitEnvironment(bundle *installbundle.Bundle, getenv func(string) string) (map[string]string, error) {
-	git, err := lookPath("git", getenv("PATH"))
+// gitEnvironment verifies the git and jj the backend and its repository
+// engine run (the bundle's bin/git and bin/jj, first on the PATH the backend
+// sets) and the directories git reads its helpers and templates from, and
+// sets the variables that keep every git on them with no system or user
+// configuration. An unset directory variable answers the bundle's own.
+func gitEnvironment(bundle *installbundle.Bundle, getenv func(string) string, inputs *hostInputs) error {
+	git, err := bundle.Expect("git", "", bundleGit, true)
 	if err != nil {
-		return nil, fmt.Errorf("%w: PATH: %v", installbundle.ErrUnapproved, err)
+		return err
 	}
-	if _, err := bundle.Expect("PATH", git, bundleGit, true); err != nil {
-		return nil, err
+	if _, err := bundle.Expect("jj", "", bundleJJ, true); err != nil {
+		return err
 	}
-	environment := map[string]string{"GIT_CONFIG_NOSYSTEM": "1", "GIT_CONFIG_GLOBAL": os.DevNull, "GIT_CONFIG_SYSTEM": os.DevNull}
+	if value := strings.TrimSpace(getenv("GIT_CONFIG_NOSYSTEM")); value != "" && value != "1" {
+		return fmt.Errorf("%w: GIT_CONFIG_NOSYSTEM=%s: beside an installed bundle git reads no system configuration", installbundle.ErrUnapproved, value)
+	}
 	for _, name := range []string{"GIT_CONFIG_GLOBAL", "GIT_CONFIG_SYSTEM"} {
 		if value := strings.TrimSpace(getenv(name)); value != "" && value != os.DevNull {
-			return nil, fmt.Errorf("%w: %s=%s: beside an installed bundle git reads no configuration file", installbundle.ErrUnapproved, name, value)
+			return fmt.Errorf("%w: %s=%s: beside an installed bundle git reads no configuration file", installbundle.ErrUnapproved, name, value)
 		}
 	}
+	env := inputs.environment
+	env["GIT_CONFIG_NOSYSTEM"], env["GIT_CONFIG_GLOBAL"], env["GIT_CONFIG_SYSTEM"] = "1", os.DevNull, os.DevNull
+	directories := map[string]string{}
 	for _, variable := range gitDirectories {
 		value := strings.TrimSpace(getenv(variable.name))
 		if value == "" {
@@ -152,34 +251,52 @@ func gitEnvironment(bundle *installbundle.Bundle, getenv func(string) string) (m
 		}
 		directory, err := bundle.ExpectDirectory(variable.name, value, variable.directory)
 		if err != nil {
-			return nil, err
+			return err
 		}
-		environment[variable.name] = directory
+		env[variable.name], directories[variable.name] = directory, directory
 	}
-	return environment, nil
+	inputs.host = hostexec.Config{Git: git, GitExecPath: directories["GIT_EXEC_PATH"], GitTemplateDir: directories["GIT_TEMPLATE_DIR"]}
+	for _, name := range childValues {
+		if value, ok := env[name]; ok {
+			inputs.host.Environment = append(inputs.host.Environment, name+"="+value)
+		}
+	}
+	return nil
 }
 
-// lookPath resolves name through the search path list as os/exec does,
-// refusing a match relative to the working directory, which os/exec would
-// refuse to run.
-func lookPath(name, list string) (string, error) {
-	for _, directory := range filepath.SplitList(list) {
-		candidate := filepath.Join(directory, name)
-		info, err := os.Stat(candidate)
-		if err != nil || info.IsDir() || info.Mode()&0o111 == 0 {
-			continue
+// applyEnvironment replaces the backend's whole environment with the one it
+// built: from here every variable a consumer reads, and every program the
+// backend or its repository engine starts, sees only it.
+func applyEnvironment(inputs hostInputs) error {
+	os.Clearenv()
+	for name, value := range inputs.environment {
+		if err := os.Setenv(name, value); err != nil {
+			return err
 		}
-		if !filepath.IsAbs(candidate) {
-			return "", fmt.Errorf("%s resolves to %s, relative to the working directory", name, candidate)
-		}
-		return candidate, nil
 	}
-	return "", fmt.Errorf("%s is not on it", name)
+	_, err := hostexec.Configure(inputs.host)
+	return err
 }
 
-// protectedState verifies a host-state directory handed through name,
-// creating it private first when it is absent.
-func protectedState(name, value string) (string, error) {
+// accountHome is the running account's home directory from the user
+// database; the environment's HOME is never read.
+func accountHome() (string, error) {
+	account, err := user.LookupId(strconv.Itoa(os.Getuid()))
+	if err != nil {
+		return "", err
+	}
+	if !filepath.IsAbs(account.HomeDir) {
+		return "", fmt.Errorf("home directory %q is not absolute", account.HomeDir)
+	}
+	return filepath.Clean(account.HomeDir), nil
+}
+
+// protectedState verifies a host-state directory handed through name and
+// answers its canonical path, the one every consumer must use. The chain
+// from / to the directory, or to its nearest existing ancestor, is checked
+// before anything is created; create then makes the missing part private,
+// and without create a missing directory answers its clean path.
+func protectedState(name, value string, create bool) (string, error) {
 	value = strings.TrimSpace(value)
 	if value == "" {
 		return "", fmt.Errorf("%w: %s is required beside an installed bundle", installbundle.ErrUnapproved, name)
@@ -187,10 +304,29 @@ func protectedState(name, value string) (string, error) {
 	if !filepath.IsAbs(value) {
 		return "", fmt.Errorf("%w: %s=%s is not an absolute path", installbundle.ErrUnapproved, name, value)
 	}
+	value = filepath.Clean(value)
+	existing := value
+	for {
+		if _, err := os.Lstat(existing); err == nil {
+			break
+		} else if !errors.Is(err, os.ErrNotExist) {
+			return "", fmt.Errorf("%w: %s=%s: %v", installbundle.ErrUnapproved, name, value, err)
+		}
+		existing = filepath.Dir(existing)
+	}
+	if _, err := installbundle.ProtectedDirectory(name, existing); err != nil {
+		return "", err
+	}
+	if existing == value {
+		return installbundle.ProtectedDirectory(name, value)
+	}
+	if !create {
+		return value, nil
+	}
 	if err := os.MkdirAll(value, 0o700); err != nil {
 		return "", fmt.Errorf("create %s=%s: %w", name, value, err)
 	}
-	return installbundle.ProtectedDirectory(name, filepath.Clean(value))
+	return installbundle.ProtectedDirectory(name, value)
 }
 
 // processInputs reads the tests-only process mode's inputs as given.

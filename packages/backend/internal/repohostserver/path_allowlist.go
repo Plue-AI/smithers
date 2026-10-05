@@ -13,6 +13,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/smithersai/smithers/packages/backend/hostexec"
 	"github.com/smithersai/smithers/packages/backend/internal/ownership"
 	"github.com/smithersai/smithers/packages/backend/internal/repohost"
 )
@@ -196,7 +197,7 @@ func collectTouchedPaths(ctx context.Context, gitDir string, include, exclude []
 		revisions.WriteString(oid)
 		revisions.WriteByte('\n')
 	}
-	cmd := pathInspectCommandContext(ctx, "git", "--git-dir", gitDir, "log", "--stdin", "--format=", "--name-only", "--no-renames", "-c", "--no-color", "-z")
+	cmd := hostexec.GitWith(ctx, pathInspectCommandContext, "--git-dir", gitDir, "log", "--stdin", "--format=", "--name-only", "--no-renames", "-c", "--no-color", "-z")
 	cmd.Stdin = strings.NewReader(revisions.String())
 	out, err := cmd.Output()
 	if err != nil {
@@ -240,7 +241,7 @@ func restoreGitRefs(ctx context.Context, gitDir string, before, after map[string
 	if commands.Len() == 0 {
 		return nil
 	}
-	cmd := exec.CommandContext(ctx, "git", "--git-dir", gitDir, "update-ref", "--stdin", "-z")
+	cmd := hostexec.Git(ctx, "--git-dir", gitDir, "update-ref", "--stdin", "-z")
 	cmd.Stdin = &commands
 	if out, err := cmd.CombinedOutput(); err != nil {
 		return fmt.Errorf("restore refs: %w: %s", err, strings.TrimSpace(string(out)))
@@ -289,9 +290,9 @@ func rollBackUnlistablePush(ctx context.Context, gitDir string, listErr error, c
 		}
 		var cmd *exec.Cmd
 		if oldOID, existed := before[refName]; existed {
-			cmd = exec.CommandContext(restoreCtx, "git", "--git-dir", gitDir, "update-ref", refName, oldOID)
+			cmd = hostexec.Git(restoreCtx, "--git-dir", gitDir, "update-ref", refName, oldOID)
 		} else {
-			cmd = exec.CommandContext(restoreCtx, "git", "--git-dir", gitDir, "update-ref", "-d", refName)
+			cmd = hostexec.Git(restoreCtx, "--git-dir", gitDir, "update-ref", "-d", refName)
 		}
 		if out, err := cmd.CombinedOutput(); err != nil {
 			restoreErr = errors.Join(restoreErr, fmt.Errorf("restore %s: %w: %s", refName, err, strings.TrimSpace(string(out))))

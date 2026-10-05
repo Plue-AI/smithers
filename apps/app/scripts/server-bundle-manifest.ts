@@ -1,5 +1,6 @@
 import { createHash } from "node:crypto"
-import { lstatSync, readdirSync, readFileSync, readlinkSync, realpathSync, writeFileSync } from "node:fs"
+import { lstatSync, mkdtempSync, readdirSync, readFileSync, readlinkSync, realpathSync, rmSync, writeFileSync } from "node:fs"
+import { tmpdir } from "node:os"
 import { join, relative, resolve, sep } from "node:path"
 
 // Flow-host manifests cover hosts only; the install needs every shipped byte.
@@ -7,7 +8,41 @@ export interface BundleManifest {
   version: 1
   platform: "darwin-arm64"
   revision: string
-  files: Array<{ path: string; sha256: string; stage: string; mode: number; symlink?: string }>
+  files: Array<{ path: string; sha256: string; stage: string; mode: number; symlink?: string; codeSignature?: string }>
+}
+
+// The backend's one entitlement: load the bundle's own engine library, which
+// the backend verifies against the manifest before loading it. It has no
+// entitlement that lets DYLD_* variables back in.
+const backendEntitlements = `<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0"><dict><key>com.apple.security.cs.disable-library-validation</key><true/></dict></plist>
+`
+
+/** The code-signing flags codesign reports for path, such as "adhoc,runtime"; undefined when it is unsigned or off macOS. */
+export const codeSignatureFlags = (path: string): string | undefined => {
+  if (process.platform !== "darwin") return undefined
+  const shown = Bun.spawnSync(["/usr/bin/codesign", "-dv", path])
+  const flags = /^CodeDirectory v=\S+ size=\d+ flags=0x[0-9a-f]+\(([^)]*)\)/m.exec(new TextDecoder().decode(shown.stderr))
+  return shown.exitCode === 0 && flags ? flags[1] : undefined
+}
+
+/**
+ * Signs the backend ad hoc with the hardened runtime (spec §17.3): the dynamic
+ * loader then ignores DYLD_* variables, so nothing the environment names is
+ * loaded before the backend's own checks run.
+ */
+export const signHardenedBackend = (path: string): void => {
+  const directory = mkdtempSync(join(tmpdir(), "smithers-entitlements-"))
+  try {
+    const entitlements = join(directory, "backend.entitlements")
+    writeFileSync(entitlements, backendEntitlements)
+    const signed = Bun.spawnSync(["/usr/bin/codesign", "--force", "--sign", "-", "--options", "runtime", "--entitlements", entitlements, path])
+    if (signed.exitCode !== 0) throw new Error(`Signing the backend failed: ${new TextDecoder().decode(signed.stderr).trim()}`)
+  } finally {
+    rmSync(directory, { recursive: true, force: true })
+  }
+  if (!codeSignatureFlags(path)?.split(",").includes("runtime")) throw new Error("The signed backend lacks the hardened runtime.")
 }
 const digest = (bytes: Uint8Array | string): string => createHash("sha256").update(bytes).digest("hex")
 type Inventory = Record<string, Omit<BundleManifest["files"][number], "path">>
@@ -37,7 +72,9 @@ const inventory = (root: string): Inventory => {
         if (!resolved.startsWith(realpathSync(root) + sep) || target.startsWith("/")) throw new Error(`Bundle symlink escapes: ${key}`)
         files[key] = { sha256: digest(readFileSync(path)), stage, mode: stat.mode & 0o777, symlink: target }
       } else if (stat.isFile()) {
-        files[key] = { sha256: digest(readFileSync(path)), stage, mode: stat.mode & 0o777 }
+        // The backend's manifest entry records how it is signed.
+        const codeSignature = key === "bin/smithers-backend" ? codeSignatureFlags(path) : undefined
+        files[key] = { sha256: digest(readFileSync(path)), stage, mode: stat.mode & 0o777, ...(codeSignature ? { codeSignature } : {}) }
       } else throw new Error(`Unsupported bundle file: ${key}`)
     }
   }
@@ -58,7 +95,7 @@ export const verifyBundleManifest = (root: string): void => {
   if (JSON.stringify(Object.keys(actual).sort()) !== JSON.stringify(Object.keys(expectedFiles).sort())) throw new Error("Bundle manifest file inventory mismatch")
   for (const [path, entry] of Object.entries(actual)) {
     const expected = expectedFiles[path]
-    if (entry.sha256 !== expected.sha256 || entry.mode !== expected.mode || entry.symlink !== expected.symlink || entry.stage !== expected.stage) throw new Error(`Bundle manifest mismatch: ${path}`)
+    if (entry.sha256 !== expected.sha256 || entry.mode !== expected.mode || entry.symlink !== expected.symlink || entry.stage !== expected.stage || entry.codeSignature !== expected.codeSignature) throw new Error(`Bundle manifest mismatch: ${path}`)
   }
 }
 if (import.meta.main) verifyBundleManifest(resolve(process.argv[2] ?? "."))

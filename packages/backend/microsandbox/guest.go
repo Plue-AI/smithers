@@ -8,11 +8,12 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
-	"os/exec"
 	"strconv"
 	"strings"
 	"syscall"
 	"time"
+
+	"github.com/smithersai/smithers/packages/backend/hostexec"
 )
 
 //go:embed guest/smithers-guest.py
@@ -76,7 +77,7 @@ func (r *Runtime) cleanupGuest(ctx context.Context, machine string) error {
 // died without killing its children. macOS has no parent-death signal, and a
 // surviving client would keep its guest session alive.
 func killOrphanClients(binary, machinePrefix string) {
-	output, err := exec.Command("/bin/ps", "-axo", "pid=,ppid=,command=").Output()
+	output, err := hostexec.System(context.Background(), "/bin/ps", "-axo", "pid=,ppid=,command=").Output()
 	if err != nil {
 		return
 	}

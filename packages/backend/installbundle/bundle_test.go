@@ -301,6 +301,50 @@ func TestAbsent(t *testing.T) {
 	require.ErrorContains(t, bundle.Absent("bin/libkrunfw.5.dylib"), "bin is not owned", "the parent is walked")
 }
 
+// Ruling item 3: a handed file the backend trusts (a certificate bundle) is
+// absolute, reached through a protected chain, a regular file and not
+// writable by group or others; its canonical path is answered.
+func TestProtectedFile(t *testing.T) {
+	directory := filepath.Join(bundletest.ProtectedTempDir(t), "certs")
+	require.NoError(t, os.MkdirAll(directory, 0o700))
+	file := filepath.Join(directory, "roots.pem")
+	require.NoError(t, os.WriteFile(file, []byte("roots"), 0o644))
+	resolved, err := ProtectedFile("SSL_CERT_FILE", file)
+	require.NoError(t, err)
+	require.Equal(t, file, resolved)
+	_, err = ProtectedFile("SSL_CERT_FILE", "roots.pem")
+	require.ErrorContains(t, err, "must be an absolute, clean path")
+	require.NoError(t, os.Chmod(file, 0o666))
+	_, err = ProtectedFile("SSL_CERT_FILE", file)
+	require.ErrorContains(t, err, "roots.pem is not owned by root or this user")
+	require.NoError(t, os.Chmod(file, 0o644))
+	require.NoError(t, os.Chmod(directory, 0o777))
+	_, err = ProtectedFile("SSL_CERT_FILE", file)
+	require.ErrorContains(t, err, "certs is not owned by root or this user")
+	require.NoError(t, os.Chmod(directory, 0o700))
+	_, err = ProtectedFile("SSL_CERT_FILE", directory)
+	require.ErrorContains(t, err, "is not a regular file")
+}
+
+// Fable round 3, N3: ownership on a volume that ignores it, or on a volume
+// that is not local, proves nothing, so neither is trusted, by any protected
+// walk (the real volume flags: the hdiutil receipt).
+func TestVolumeTrust(t *testing.T) {
+	require.NoError(t, VolumeTrusted(VolumeLocal, "/state"))
+	require.ErrorContains(t, VolumeTrusted(0, "/state"), "/state is not on a local volume")
+	require.ErrorContains(t, VolumeTrusted(VolumeLocal|VolumeIgnoresOwnership, "/state"), "/state is on a volume that ignores ownership")
+	data := filepath.Join(bundletest.ProtectedTempDir(t), "data")
+	require.NoError(t, os.MkdirAll(data, 0o700))
+	_, err := ProtectedDirectory("SMITHERS_DATA_ROOT", data)
+	require.NoError(t, err)
+	for flags, refusal := range map[uint32]string{VolumeLocal | VolumeIgnoresOwnership: "on a volume that ignores ownership", 0: "is not on a local volume"} {
+		restore := SetVolumeFlags(flags)
+		_, err := ProtectedDirectory("SMITHERS_DATA_ROOT", data)
+		restore()
+		require.ErrorContains(t, err, refusal)
+	}
+}
+
 // A file is verified at each use: changed bytes or mode refuse, the approved
 // bytes written back pass, and a library needs no execute bit.
 func TestFileIsVerifiedAtEachUse(t *testing.T) {

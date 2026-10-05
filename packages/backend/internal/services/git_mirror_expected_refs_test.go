@@ -163,15 +163,15 @@ func TestMirrorSyncPushLeasesTargetAfterRemoteInspection(t *testing.T) {
 	// obtains the push advertisement. This remains a fast-forward, so only
 	// the explicit lease can reject the now-stale plan.
 	script := "#!/bin/sh\n" +
+		// Every backend git run starts with the hooks pin (hostexec).
+		"[ \"$1\" = -c ] && [ \"$2\" = core.hooksPath=/dev/null ] && shift 2\n" +
 		"if [ \"$1\" = push ] && [ \"$2\" = --atomic ]; then\n" +
 		"  " + shellQuote(gitBinary) + " --git-dir=" + shellQuote(targetDir) + " update-ref refs/heads/main " + shellQuote(intermediate) + " " + shellQuote(base) + " || exit 1\n" +
 		"  printf moved > " + shellQuote(marker) + "\n" +
 		"fi\n" +
 		"exec " + shellQuote(gitBinary) + " \"$@\"\n"
 	require.NoError(t, os.WriteFile(filepath.Join(wrapperDir, "git"), []byte(script), 0o755))
-	t.Setenv("PATH", wrapperDir+string(os.PathListSeparator)+os.Getenv("PATH"))
-	t.Setenv("GIT_CONFIG_GLOBAL", os.DevNull)
-	t.Setenv("GIT_CONFIG_NOSYSTEM", "1")
+	useGitProgram(t, filepath.Join(wrapperDir, "git"), "")
 
 	run := r.sync(r.service(newFakeGitMirrorSyncStore()))
 	moved, err := os.ReadFile(marker)

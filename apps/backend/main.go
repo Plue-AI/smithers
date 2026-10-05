@@ -79,15 +79,15 @@ func serve(ctx context.Context, args []string, executable func() (string, error)
 	if err != nil {
 		return err
 	}
-	// A microVM backend pins its installed bundle before it loads anything
-	// else, and verifies every path it was handed against it.
+	// A microVM backend does not inherit its environment (spec §17.3). It
+	// refuses loader and git injection variables and a process without the
+	// hardened runtime, pins its installed bundle before it loads anything
+	// else, verifies every path it was handed against it, and then replaces
+	// its whole environment with the one it built, before any child or
+	// library load.
 	var inputs hostInputs
 	if mode == isolationMicroVM {
-		path, err := executable()
-		if err != nil {
-			return fmt.Errorf("locate the backend executable: %w", err)
-		}
-		if inputs, err = installedInputs(path, os.Getenv); err != nil {
+		if inputs, err = installedStartup(executable); err != nil {
 			return fmt.Errorf("SMITHERS_WORKSPACE_ISOLATION=microvm refuses to start: %w", err)
 		}
 		// The startup receipt an operator or CI compares with the manifest
@@ -107,21 +107,12 @@ func serve(ctx context.Context, args []string, executable func() (string, error)
 		}
 	}
 
-	// Every git the backend starts runs the verified bundle's helpers and
-	// templates and reads no configuration file.
-	for name, value := range inputs.environment {
-		if err := os.Setenv(name, value); err != nil {
-			return err
-		}
-	}
-	// The repository engine dlopens exactly the verified bundle library,
-	// checked again immediately before it is loaded.
+	// The repository engine dlopens exactly the verified bundle library (the
+	// environment names its canonical path), checked again immediately
+	// before it is loaded.
 	if inputs.ffi != nil {
 		if err := inputs.ffi.Check(); err != nil {
 			return fmt.Errorf("SMITHERS_WORKSPACE_ISOLATION=microvm refuses to start: SMITHERS_FFI_LIBRARY_PATH: %w", err)
-		}
-		if err := os.Setenv("SMITHERS_FFI_LIBRARY_PATH", inputs.ffi.Path()); err != nil {
-			return err
 		}
 	}
 	local, err := localbootstrap.Prepare(inputs.dataRoot)
@@ -192,6 +183,30 @@ func serve(ctx context.Context, args []string, executable func() (string, error)
 		return fmt.Errorf("migrate product database: %w", err)
 	}
 	return app.Run(ctx, appConfig)
+}
+
+// installedStartup is a microVM backend's startup up to its first load:
+// ruling (a) refusals, the bundle pin and every handed path verified, then
+// the backend's own environment applied.
+func installedStartup(executable func() (string, error)) (hostInputs, error) {
+	if err := refuseInjected(os.Environ()); err != nil {
+		return hostInputs{}, err
+	}
+	path, err := executable()
+	if err != nil {
+		return hostInputs{}, fmt.Errorf("locate the backend executable: %w", err)
+	}
+	inputs, err := installedInputs(path, os.Getenv)
+	if err != nil {
+		return hostInputs{}, err
+	}
+	if err := requireHardenedRuntime(inputs.bundle); err != nil {
+		return hostInputs{}, err
+	}
+	if err := applyEnvironment(inputs); err != nil {
+		return hostInputs{}, err
+	}
+	return inputs, nil
 }
 
 // stopResult keeps cleanup failures apart from the serve error so the

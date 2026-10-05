@@ -237,7 +237,8 @@ func TestMaintenancePacksRefsAndObjects(t *testing.T) {
 // pack-objects grew until the pod ran out of memory (smithersai/smithers#3070).
 func TestMaintenancePacksWithTheImagesGit(t *testing.T) {
 	requireNativeLaneTools(t)
-	// The shim is PATH's first entry, and runs the next git on the rest.
+	// The shim is the git maintenance runs (hostexec) and PATH's first
+	// entry, and runs the next git on the rest of PATH.
 	shim := t.TempDir()
 	script := "#!/bin/sh\n" +
 		"subcommand=\n" +
@@ -250,6 +251,7 @@ func TestMaintenancePacksWithTheImagesGit(t *testing.T) {
 		"PATH=${PATH#*" + string(os.PathListSeparator) + "} exec git \"$@\"\n"
 	require.NoError(t, os.WriteFile(filepath.Join(shim, "git"), []byte(script), 0o755))
 	t.Setenv("PATH", shim+string(os.PathListSeparator)+os.Getenv("PATH"))
+	useGitProgram(t, filepath.Join(shim, "git"))
 
 	srv := newTestServer(t)
 	repoPath := srv.config.RepoPath("alice", "demo")

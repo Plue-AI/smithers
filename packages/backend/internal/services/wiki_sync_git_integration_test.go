@@ -10,6 +10,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/smithersai/smithers/packages/backend/hostexec"
 	"github.com/smithersai/smithers/packages/backend/internal/db"
 	"github.com/stretchr/testify/require"
 )
@@ -258,8 +259,9 @@ func TestWikiRevisionSourceRecordGuards(t *testing.T) {
 	require.Equal(t, map[int64]string{1: commit, 2: ""}, wikiSources(t, svc, actor, repo, page.ID))
 }
 
-// wrapGit puts a git on PATH that runs action when an argument equals
-// trigger and the real git otherwise, so plumbing failures are observable.
+// wrapGit makes the backend's git one that runs action when an argument
+// equals trigger and the real git otherwise, so plumbing failures are
+// observable.
 func wrapGit(t *testing.T, trigger, action string) {
 	t.Helper()
 	real, err := exec.LookPath("git")
@@ -267,7 +269,17 @@ func wrapGit(t *testing.T, trigger, action string) {
 	bin := t.TempDir()
 	script := "#!/bin/sh\nfor a in \"$@\"; do [ \"$a\" = " + trigger + " ] && { " + action + "; }; done\nexec " + real + " \"$@\"\n"
 	require.NoError(t, os.WriteFile(filepath.Join(bin, "git"), []byte(script), 0700))
-	t.Setenv("PATH", bin+string(os.PathListSeparator)+filepath.Dir(real))
+	useGitProgram(t, filepath.Join(bin, "git"), "")
+}
+
+// useGitProgram makes program the git every backend git run starts, with
+// helpers from execPath when it is set, for the test (hostexec's Go option;
+// never PATH).
+func useGitProgram(t *testing.T, program, execPath string) {
+	t.Helper()
+	restore, err := hostexec.Configure(hostexec.Config{Git: program, GitExecPath: execPath, Environment: hostexec.Environment()})
+	require.NoError(t, err)
+	t.Cleanup(restore)
 }
 
 func TestWikiSyncGitSourceCommitFailures(t *testing.T) {
@@ -281,7 +293,7 @@ func TestWikiSyncGitSourceCommitFailures(t *testing.T) {
 	require.NoError(t, err)
 	defer adapter.Close()
 	t.Run("no git on the host", func(t *testing.T) {
-		t.Setenv("PATH", t.TempDir())
+		useGitProgram(t, filepath.Join(t.TempDir(), "git"), "")
 		commit, err := adapter.SourceCommit(ctx, SyncDocument{Path: "Home.md"}, []byte("# Home\n"))
 		require.NoError(t, err)
 		require.Empty(t, commit)

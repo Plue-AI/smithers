@@ -2,15 +2,17 @@ package repohostserver
 
 import (
 	"bytes"
+	"context"
 	"encoding/binary"
 	"errors"
-	"os/exec"
 	"strconv"
 	"strings"
 	"syscall"
 	"time"
 
 	"golang.org/x/sys/unix"
+
+	"github.com/smithersai/smithers/packages/backend/hostexec"
 )
 
 // setMaintenanceParentDeathSignal does nothing: macOS has no parent-death
@@ -97,7 +99,7 @@ func procArgs(pid int) (args, env []string, err error) {
 
 // processCwd is the working directory of the process pid.
 func processCwd(pid int) (string, error) {
-	out, err := exec.Command("lsof", "-a", "-p", strconv.Itoa(pid), "-d", "cwd", "-Fn").Output()
+	out, err := hostexec.System(context.Background(), "/usr/sbin/lsof", "-a", "-p", strconv.Itoa(pid), "-d", "cwd", "-Fn").Output()
 	if err != nil {
 		return "", err
 	}

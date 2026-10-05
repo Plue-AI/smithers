@@ -49,6 +49,9 @@ func TestMigrationWithoutDatabaseDoesNotPrepareLocalState(t *testing.T) {
 // before local state is prepared; beside a bundle no variable can supply
 // another manifest.
 func TestServeRequiresPackagedFlowHostsBeforePreparingLocalState(t *testing.T) {
+	if !inChild(t) {
+		return
+	}
 	bundle := installedBundleFixture(t)
 	if err := os.Remove(bundle.hostManifest); err != nil {
 		t.Fatal(err)

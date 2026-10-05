@@ -245,7 +245,7 @@ func TestStreamGitRPCFailureReturnsError(t *testing.T) {
 	if err := os.WriteFile(stubPath, []byte("#!/bin/sh\nexit 42\n"), 0o755); err != nil {
 		t.Fatalf("write git stub: %v", err)
 	}
-	t.Setenv("PATH", stubDir+string(os.PathListSeparator)+os.Getenv("PATH"))
+	useGitProgram(t, stubPath)
 
 	err := streamGitRPC(context.Background(), t.TempDir(), "upload-pack", nil, io.Discard)
 	if err == nil {

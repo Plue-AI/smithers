@@ -23,6 +23,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 
+	"github.com/smithersai/smithers/packages/backend/hostexec"
 	"github.com/smithersai/smithers/packages/backend/internal/db"
 	pkgerrors "github.com/smithersai/smithers/packages/backend/internal/pkg/errors"
 	"github.com/smithersai/smithers/packages/backend/internal/repohost"
@@ -365,14 +366,10 @@ func verifyRetainedRefs(output string, result RepositorySourceRetentionResult) b
 }
 
 func sourceRetentionGitEnv(authURL, credential string) []string {
-	env := []string{"GIT_TERMINAL_PROMPT=0", "GIT_ASKPASS=false", "GIT_CONFIG_NOSYSTEM=1", "GIT_CONFIG_GLOBAL=/dev/null"}
-	// Reuse the launcher's bundled PATH and outbound proxy contract while
-	// excluding user Git configuration and trace/credential variables.
-	for _, name := range []string{"PATH", "GIT_EXEC_PATH", "GIT_TEMPLATE_DIR", "SSL_CERT_FILE", "SSL_CERT_DIR", "HTTPS_PROXY", "HTTP_PROXY", "ALL_PROXY", "NO_PROXY", "https_proxy", "http_proxy", "all_proxy", "no_proxy"} {
-		if value, ok := os.LookupEnv(name); ok {
-			env = append(env, name+"="+value)
-		}
-	}
+	// git's environment (hostexec) carries the bundle's helper directories
+	// and the outbound proxy and certificate settings, and no user Git
+	// configuration or trace and credential variable.
+	env := append(hostexec.GitEnvironment(), "GIT_ASKPASS=false")
 	var config [][2]string
 	if authURL != "" && credential != "" {
 		parsed, _ := url.Parse(authURL)
@@ -411,7 +408,7 @@ func sourceRetentionGitCommand(ctx context.Context, env []string, args ...string
 		"-c", "protocol.ext.allow=never", "-c", "protocol.ssh.allow=never",
 		"-c", "protocol.git.allow=never",
 	}
-	cmd := exec.CommandContext(ctx, "git", append(policy, args...)...)
+	cmd := hostexec.Git(ctx, append(policy, args...)...)
 	cmd.Env = env
 	return cmd
 }

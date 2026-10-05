@@ -12,6 +12,8 @@ import (
 	"strings"
 	"syscall"
 	"time"
+
+	"github.com/smithersai/smithers/packages/backend/hostexec"
 )
 
 // Repository maintenance runs under the repository lock, from repo-host only.
@@ -47,11 +49,11 @@ func disableAutoMaintenance(ctx context.Context, gitDir string) error {
 	if _, err := os.Stat(gitDir); errors.Is(err, fs.ErrNotExist) {
 		return nil
 	}
-	if out, err := exec.CommandContext(ctx, "git", "--git-dir", gitDir, "config", "--get", "receive.autogc").Output(); err == nil && strings.TrimSpace(string(out)) == "false" {
+	if out, err := hostexec.Git(ctx, "--git-dir", gitDir, "config", "--get", "receive.autogc").Output(); err == nil && strings.TrimSpace(string(out)) == "false" {
 		return nil
 	}
 	for _, setting := range autoMaintenanceOff {
-		if out, err := exec.CommandContext(ctx, "git", "--git-dir", gitDir, "config", setting[0], setting[1]).CombinedOutput(); err != nil {
+		if out, err := hostexec.Git(ctx, "--git-dir", gitDir, "config", setting[0], setting[1]).CombinedOutput(); err != nil {
 			return errors.New("git config " + setting[0] + ": " + strings.TrimSpace(string(out)))
 		}
 	}
@@ -84,9 +86,10 @@ var maintenanceWaitDelay = 10 * time.Second
 // itself, through that descriptor, before it becomes git.
 const maintenancePidFile = "smithers-maintenance.pid"
 
-// maintenanceExec is the shell program the maintenance process starts as: it
-// records its pid, its group's id, through the pidfile descriptor (fd 3) and
-// then becomes git with the given arguments.
+// maintenanceExec is the shell program the maintenance process starts as
+// (the system shell, by its absolute path): it records its pid, its group's
+// id, through the pidfile descriptor (fd 3) and then becomes git, by git's
+// absolute path, with the given arguments.
 const maintenanceExec = `echo $$ >&3 && exec "$0" "$@"`
 
 // runMaintenanceGit runs one maintenance git command in its own process group.
@@ -108,7 +111,12 @@ func runMaintenanceGit(ctx context.Context, gitDir string, args []string) error 
 	if err := pidFile.Truncate(0); err != nil {
 		return err
 	}
-	cmd := maintenanceCommandContext(ctx, "sh", append([]string{"-c", maintenanceExec, "git", "--git-dir", gitDir}, args...)...)
+	program, argv, err := hostexec.GitArgv(append([]string{"--git-dir", gitDir}, args...)...)
+	if err != nil {
+		return err
+	}
+	cmd := maintenanceCommandContext(ctx, hostexec.Shell, append([]string{"-c", maintenanceExec, program}, argv...)...)
+	cmd.Env = hostexec.GitEnvironment()
 	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
 	setMaintenanceParentDeathSignal(cmd.SysProcAttr)
 	cmd.ExtraFiles = []*os.File{pidFile}

@@ -13,7 +13,7 @@ import {
 import { basename, delimiter, dirname, isAbsolute, join, resolve } from "node:path"
 import { bundlePostgres } from "./bundle-postgres"
 import { foreignLibraries } from "./system-linkage"
-import { writeBundleManifest, verifyBundleManifest } from "./server-bundle-manifest"
+import { signHardenedBackend, writeBundleManifest, verifyBundleManifest } from "./server-bundle-manifest"
 import { bundleMicrosandbox } from "./bundle-microsandbox"
 import { archiveBundle, normalizeImageArchive } from "./server-bundle-archive"
 import { validateGitBundle } from "./validate-git-bundle"
@@ -194,6 +194,7 @@ await run(
   "Go backend",
   ["sh", "scripts/build-backend.sh", join(nativeDir, "bin", "smithers-backend"), revision]
 )
+signHardenedBackend(join(nativeDir, "bin", "smithers-backend"))
 await run("Node buildchain", [nodeBinary, "--version"], root, nodeEnvironment)
 await run("pinned pnpm buildchain", [pnpmBinary, "--version"], root, nodeEnvironment)
 const codingHost = join(nativeDir, "bin", "smithers-coding-host")

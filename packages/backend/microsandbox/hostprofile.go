@@ -1,14 +1,16 @@
 package microsandbox
 
 import (
+	"context"
 	"fmt"
 	"math"
-	"os/exec"
 	"runtime"
 	"strconv"
 	"strings"
 
 	"golang.org/x/sys/unix"
+
+	"github.com/smithersai/smithers/packages/backend/hostexec"
 )
 
 // ReserveBytes and machine memory are uncalibrated default (see #3659).
@@ -46,11 +48,9 @@ func (*HostProfileError) FlowRuntimeRetryable() bool { return false }
 // Detect measures the state volume, never the executable's or current directory's volume.
 func Detect(state string) (HostProfile, error) {
 	return detectProfile(state, runtime.GOOS, func(key string) (string, error) {
-		var command *exec.Cmd
+		command := hostexec.System(context.Background(), "/usr/sbin/sysctl", "-n", key)
 		if key == "macos" {
-			command = exec.Command("/usr/bin/sw_vers", "-productVersion")
-		} else {
-			command = exec.Command("/usr/sbin/sysctl", "-n", key)
+			command = hostexec.System(context.Background(), "/usr/bin/sw_vers", "-productVersion")
 		}
 		out, err := command.Output()
 		return strings.TrimSpace(string(out)), err

@@ -26,9 +26,8 @@ func TestGitCloneAuthenticationFailurePostgres(t *testing.T) {
 	// account, while exercising the real child-process env and durable worker.
 	directory := t.TempDir()
 	require.NoError(t, os.WriteFile(filepath.Join(directory, "git"), []byte("#!/bin/sh\n[ \"$HTTPS_PROXY\" = http://127.0.0.1:9 ] && [ \"$GIT_EXEC_PATH\" = \""+directory+"\" ] || exit 139\nprintf '%s\\n' 'fatal: Authentication failed' >&2\nexit 128\n"), 0700))
-	t.Setenv("PATH", directory+":/usr/bin:/bin")
 	t.Setenv("HTTPS_PROXY", "http://127.0.0.1:9")
-	t.Setenv("GIT_EXEC_PATH", directory)
+	useGitProgram(t, filepath.Join(directory, "git"), directory)
 	failure := s.cloneAndPushMirror(t.Context(), "acme", "app", "", "http://localhost/repo.git", "", id)
 	require.Error(t, failure)
 	require.NoError(t, s.handleDurableImportFailure(job, failure))
@@ -37,13 +36,14 @@ func TestGitCloneAuthenticationFailurePostgres(t *testing.T) {
 	require.Equal(t, "failed", status)
 }
 
-func TestSourceGitUsesLauncherPathAndProxy(t *testing.T) {
+// The import's git is the configured one, with its helper directory and the
+// launcher's outbound proxy.
+func TestSourceGitUsesTheConfiguredGitAndProxy(t *testing.T) {
 	directory := t.TempDir()
 	executable := filepath.Join(directory, "git")
 	require.NoError(t, os.WriteFile(executable, []byte("#!/bin/sh\nprintf '%s\\n' \"$HTTPS_PROXY\" \"$GIT_EXEC_PATH\"\n"), 0700))
-	t.Setenv("PATH", directory+":/usr/bin:/bin")
 	t.Setenv("HTTPS_PROXY", "http://127.0.0.1:9")
-	t.Setenv("GIT_EXEC_PATH", directory)
+	useGitProgram(t, executable, directory)
 	output, err := RunGitImportCommand(t.Context(), nonInteractiveGitEnv(), "--version")
 	require.NoError(t, err)
 	require.Equal(t, "http://127.0.0.1:9\n"+directory+"\n", output)

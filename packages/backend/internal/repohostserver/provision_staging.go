@@ -9,7 +9,6 @@ import (
 	"io"
 	"net/http"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"sort"
 	"strings"
@@ -17,6 +16,7 @@ import (
 
 	"github.com/go-chi/chi/v5"
 
+	"github.com/smithersai/smithers/packages/backend/hostexec"
 	"github.com/smithersai/smithers/packages/backend/internal/repohost"
 )
 
@@ -536,7 +536,7 @@ func (s *Server) stagedProvisionInfoRefs(w http.ResponseWriter, r *http.Request)
 	}
 	cmdCtx, cancel := context.WithCancel(r.Context())
 	defer cancel()
-	cmd := exec.CommandContext(cmdCtx, "git", "receive-pack", "--stateless-rpc", "--advertise-refs", gitDir)
+	cmd := hostexec.Git(cmdCtx, "receive-pack", "--stateless-rpc", "--advertise-refs", gitDir)
 	cmd.Env = gitServiceEnv("receive-pack", maxDecompressedGitRequestSize, 0, true)
 	var stderr bytes.Buffer
 	cmd.Stderr = &stderr
