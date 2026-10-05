@@ -8,6 +8,7 @@ import (
 	"time"
 	"unicode/utf8"
 
+	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/stretchr/testify/require"
 
 	"github.com/smithersai/smithers/packages/backend/internal/db"
@@ -206,4 +207,33 @@ func TestMythicalRetryBoundCountsFromTheLastRetry(t *testing.T) {
 	hard.Attempt = 6
 	stopped := mythicalRetry(*hard, "the plan failed", nil, now)
 	require.Equal(t, "blocked", stopped.State)
+}
+
+// Profile lookup must finish before Retry holds the only database connection.
+func TestTodoRetryProfileWithOneDatabaseConnection(t *testing.T) {
+	o, session := newTodoAdmission(t)
+	o.service.SetTodoFlow(func(context.Context, int64, string) (string, error) { return todoPinOne, nil })
+	item := o.fileTodo(session, "single-connection-retry")
+	o.wake()
+	o.projectTodo(o.launcher.byFlow("todo")[0], jobs.StateWaiting, "todo-run-1", todoPinOne, "")
+	failed := o.byID(uuidString(item.ID))
+	failed.State = "blocked"
+	_, err := o.service.queries().SaveMythicalItem(context.Background(), failed)
+	require.NoError(t, err)
+	config := o.pool.Config()
+	config.MaxConns, config.MinConns = 1, 0
+	pool, err := pgxpool.NewWithConfig(context.Background(), config)
+	require.NoError(t, err)
+	t.Cleanup(pool.Close)
+	o.service.store = pool
+	ctx, cancel := context.WithTimeout(session, time.Minute)
+	defer cancel()
+	steer := "Use the existing helper"
+	receipt, err := o.service.retryTodo(ctx, item.Number.Int64, TodoControlInput{Op: "retry", Repository: o.repoID, Actor: o.userID, Request: "single", Steer: &steer})
+	require.NoError(t, err)
+	require.EqualValues(t, 2, receipt.Attempt)
+	authors := mythicalChecksOf(o.byID(uuidString(item.ID))).Steers
+	require.Len(t, authors, 1)
+	require.Contains(t, string(authors[0].By), "avatar_url")
+	require.Contains(t, string(authors[0].By), "color_index")
 }

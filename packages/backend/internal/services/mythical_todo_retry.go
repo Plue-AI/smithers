@@ -62,6 +62,13 @@ func (s *MythicalService) retryTodo(ctx context.Context, number int64, input Tod
 	if err != nil {
 		return TodoControlReceipt{}, err
 	}
+	var by json.RawMessage
+	if input.Steer != nil {
+		by, err = s.todoActor(ctx, input.Repository, person)
+		if err != nil {
+			return TodoControlReceipt{}, err
+		}
+	}
 	var receipt TodoControlReceipt
 	err = pgx.BeginFunc(ctx, s.store, func(tx pgx.Tx) error {
 		if _, err := tx.Exec(ctx, `SELECT 1 FROM mythical_stacks WHERE repository_id = $1 FOR UPDATE`, input.Repository); err != nil {
@@ -96,10 +103,6 @@ func (s *MythicalService) retryTodo(ctx context.Context, number int64, input Tod
 			now, attempt := s.now().UTC(), item.Attempt+1
 			retried := mythicalChecksOf(next)
 			if input.Steer != nil {
-				by, err := s.todoActor(ctx, item.RepositoryID, person)
-				if err != nil {
-					return err
-				}
 				retried.Steers = append(retried.Steers, todoSteer{Text: *input.Steer, By: by, At: now, Attempt: attempt})
 			}
 			retried.Retries = append(retried.Retries, todoRetry{Request: input.Request, By: person.Username, At: now, Attempt: attempt})
