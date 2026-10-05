@@ -410,18 +410,33 @@ func (service *Service) handleSignal(ctx context.Context, lease *jobs.Lease) err
 	}
 
 	callContext, cancel = context.WithTimeout(ctx, service.runtimeCallTimeout)
-	result, err := runtime.Signal(callContext, flowruntime.FlowRuntimeSignal{
-		ApplicationRequestID: claim.OperationID,
-		OwnerGeneration:      identity.OwnerGeneration,
-		RunID:                checkpoint.RunID,
-		Name:                 payload.Name,
-		Payload:              payload.Payload,
-	})
+	var result flowruntime.FlowRuntimeMutationResult
+	operation := "signal"
+	if payload.Steer != nil {
+		operation = "steer"
+		result, err = runtime.Steer(callContext, flowruntime.FlowRuntimeSteer{
+			ApplicationRequestID: claim.OperationID,
+			OwnerGeneration:      identity.OwnerGeneration,
+			RunID:                checkpoint.RunID,
+			MessageID:            payload.Steer.MessageID,
+			CreatedAt:            payload.Steer.CreatedAt,
+			Kind:                 "Message",
+			Body:                 payload.Steer.Body,
+		})
+	} else {
+		result, err = runtime.Signal(callContext, flowruntime.FlowRuntimeSignal{
+			ApplicationRequestID: claim.OperationID,
+			OwnerGeneration:      identity.OwnerGeneration,
+			RunID:                checkpoint.RunID,
+			Name:                 payload.Name,
+			Payload:              payload.Payload,
+		})
+	}
 	cancel()
 	if err != nil {
 		return service.runtimeError(lease, err, checkpoint)
 	}
-	if !validMutationResult(result, "signal", claim.OperationID) {
+	if !validMutationResult(result, operation, claim.OperationID) {
 		return service.fail(lease, "invalid_signal_receipt", checkpoint)
 	}
 	checkpoint.MutationReceipt = &result.Receipt

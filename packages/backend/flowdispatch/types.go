@@ -91,9 +91,10 @@ type LaunchRequest struct {
 	Pin *flowruntime.Pin
 }
 
-// SignalRequest durably delivers one named signal to a run owned by the same
-// authorized target as its launch. The request id is the product idempotency
-// key; callers never address a runtime endpoint or supply an owner generation.
+// SignalRequest durably delivers one named signal, or one steer message, to a
+// run owned by the same authorized target as its launch. The request id is
+// the product idempotency key; callers never address a runtime endpoint or
+// supply an owner generation.
 type SignalRequest struct {
 	Scope                jobs.Scope
 	RequestID            string
@@ -104,6 +105,18 @@ type SignalRequest struct {
 	Payload              json.RawMessage
 	AuthorizationContext json.RawMessage
 	Projection           json.RawMessage
+	// Steer, when set, is delivered with the runtime's steer mutation
+	// (Control.steer) instead of a named signal: the run's notification queue
+	// keeps it until the run's next feedback boundary drains it. Name and
+	// Payload are then unused.
+	Steer *SteerMessage
+}
+
+// SteerMessage is a person's message to a run's agent.
+type SteerMessage struct {
+	MessageID string  `json:"messageId"`
+	CreatedAt float64 `json:"createdAt"`
+	Body      string  `json:"body"`
 }
 
 type RuntimeCheckpoint struct {
@@ -200,6 +213,7 @@ type signalPayload struct {
 	Name       string                        `json:"name"`
 	Payload    json.RawMessage               `json:"payload"`
 	Projection json.RawMessage               `json:"projection"`
+	Steer      *SteerMessage                 `json:"steer,omitempty"`
 }
 
 type terminalReceipt struct {
