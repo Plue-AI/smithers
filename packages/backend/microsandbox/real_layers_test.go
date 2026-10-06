@@ -3,12 +3,21 @@ package microsandbox
 import (
 	"bytes"
 	"context"
+	"crypto"
+	"crypto/rand"
+	"crypto/rsa"
+	"crypto/sha256"
+	"crypto/x509"
+	"encoding/base64"
 	"encoding/binary"
 	"encoding/json"
+	"encoding/pem"
 	"fmt"
 	"io/fs"
+	"net/http"
 	"os"
 	"os/exec"
+	"path"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -16,6 +25,7 @@ import (
 
 	"github.com/stretchr/testify/require"
 
+	"github.com/smithersai/smithers/packages/backend/internal/githubfake"
 	workspaceapi "github.com/smithersai/smithers/packages/backend/workspace"
 )
 
@@ -28,15 +38,34 @@ func (g gitSourceFiles) ResolveSourceRevision(ctx context.Context, _ string, rev
 	return strings.TrimSpace(string(output)), err
 }
 
-func (g gitSourceFiles) ReadSourceFile(ctx context.Context, source workspaceapi.WorkspaceSource, path string) ([]byte, error) {
+func (g gitSourceFiles) ReadSourceFile(ctx context.Context, source workspaceapi.WorkspaceSource, name string) ([]byte, error) {
+	if name == "requirements*.txt" {
+		listing, err := exec.CommandContext(ctx, "git", "-C", g.dir, "ls-tree", "-r", "--name-only", source.Revision).Output()
+		if err != nil {
+			return nil, err
+		}
+		matches := map[string]string{}
+		for _, file := range strings.Split(strings.TrimSpace(string(listing)), "\n") {
+			matched, _ := path.Match(name, file)
+			if !matched || path.Base(file) != file {
+				continue
+			}
+			contents, err := g.ReadSourceFile(ctx, source, file)
+			if err != nil {
+				return nil, err
+			}
+			matches[file] = string(contents)
+		}
+		return json.Marshal(matches)
+	}
 	var stdout, stderr bytes.Buffer
-	cmd := exec.CommandContext(ctx, "git", "-C", g.dir, "show", source.Revision+":"+path)
+	cmd := exec.CommandContext(ctx, "git", "-C", g.dir, "show", source.Revision+":"+name)
 	cmd.Stdout, cmd.Stderr = &stdout, &stderr
 	if err := cmd.Run(); err != nil {
 		if strings.Contains(stderr.String(), "does not exist") || strings.Contains(stderr.String(), "exists on disk, but not in") {
 			return nil, fs.ErrNotExist
 		}
-		return nil, fmt.Errorf("git show %s: %v: %s", path, err, stderr.String())
+		return nil, fmt.Errorf("git show %s: %v: %s", name, err, stderr.String())
 	}
 	return stdout.Bytes(), nil
 }
@@ -80,6 +109,118 @@ func TestRealMicroVMEnvironmentLayers(t *testing.T) {
 	for _, record := range records {
 		t.Logf("layer %s kind=%s build=%.0fs inventory=%v", record.Name, record.Kind, record.BuildSecs, record.Inventory)
 	}
+}
+
+// The retried check keeps its old source revision. Only main's reviewed
+// machine recipe may change the image it boots; branch recipe edits cannot.
+func TestRealMicroVMMainImagePackageRetry(t *testing.T) {
+	runtime := detectedFixtureRuntime(t)
+	repo := t.TempDir()
+	git := func(args ...string) string {
+		t.Helper()
+		output, err := exec.Command("git", append([]string{"-C", repo}, args...)...).CombinedOutput()
+		require.NoError(t, err, string(output))
+		return strings.TrimSpace(string(output))
+	}
+	git("init", "-b", "main")
+	git("config", "user.name", "Recipe fixture")
+	git("config", "user.email", "recipe@example.test")
+	require.NoError(t, os.MkdirAll(filepath.Join(repo, ".smithers"), 0700))
+	writeRecipe := func(contents string) {
+		t.Helper()
+		require.NoError(t, os.WriteFile(filepath.Join(repo, machineJSONPath), []byte(contents), 0600))
+		git("add", machineJSONPath)
+		git("commit", "-m", "Change machine recipe")
+	}
+	writeRecipe(`{"packages":["jq"]}`)
+	sourceRevision := git("rev-parse", "HEAD")
+	gitRoot := t.TempDir()
+	require.NoError(t, os.MkdirAll(filepath.Join(gitRoot, "fixtures"), 0700))
+	bare := filepath.Join(gitRoot, "fixtures/image-package.git")
+	git("clone", "--bare", repo, bare)
+	key, err := rsa.GenerateKey(rand.Reader, 2048)
+	require.NoError(t, err)
+	fake, err := githubfake.New(githubfake.Config{GitRoot: gitRoot, AppID: 42, OwnerLogin: "fixtures", OwnerKind: "user",
+		PrivateKeyPEM: string(pem.EncodeToMemory(&pem.Block{Type: "RSA PRIVATE KEY", Bytes: x509.MarshalPKCS1PrivateKey(key)})),
+		Installations: []githubfake.Installation{{ID: 91, Repositories: []githubfake.Repository{{ID: 1, FullName: "fixtures/image-package"}}}}})
+	require.NoError(t, err)
+	t.Cleanup(fake.Close)
+	post := func(path, token, body string, status int, into any) {
+		t.Helper()
+		request, err := http.NewRequest(http.MethodPost, fake.URL+path, strings.NewReader(body))
+		require.NoError(t, err)
+		request.Header.Set("Content-Type", "application/json")
+		if token != "" {
+			request.Header.Set("Authorization", "Bearer "+token)
+		}
+		response, err := fake.Client().Do(request)
+		require.NoError(t, err)
+		defer response.Body.Close()
+		require.Equal(t, status, response.StatusCode)
+		require.NoError(t, json.NewDecoder(response.Body).Decode(into))
+	}
+	claims, err := json.Marshal(map[string]any{"iss": "42", "iat": time.Now().Add(-time.Minute).Unix(), "exp": time.Now().Add(5 * time.Minute).Unix()})
+	require.NoError(t, err)
+	signing := base64.RawURLEncoding.EncodeToString([]byte(`{"alg":"RS256","typ":"JWT"}`)) + "." + base64.RawURLEncoding.EncodeToString(claims)
+	hash := sha256.Sum256([]byte(signing))
+	signature, err := rsa.SignPKCS1v15(rand.Reader, key, crypto.SHA256, hash[:])
+	require.NoError(t, err)
+	appToken := signing + "." + base64.RawURLEncoding.EncodeToString(signature)
+	var access struct{ Token string }
+	post("/app/installations/91/access_tokens", appToken, `{}`, 201, &access)
+	runtime.BindSourceFiles(gitSourceFiles{dir: bare})
+	ctx, cancel := context.WithTimeout(operation("image-package-retry"), 15*time.Minute)
+	defer cancel()
+	spec := workspaceapi.WorkspaceSpec{ID: "before-image-package", Source: &workspaceapi.WorkspaceSource{Repository: "fixtures/image-package", Revision: sourceRevision}}
+	before, err := runtime.ResolveWorkspaceLayer(ctx, spec)
+	require.NoError(t, err)
+	t.Logf("initial main recipe built: %s", before.Key)
+	_, err = runtime.CreateWorkspace(ctx, spec)
+	require.NoError(t, err)
+	command := workspaceapi.Command{Args: []string{"/bin/sh", "-c", "figlet ok"}}
+	result, err := runtime.ExecuteCommand(ctx, spec.ID, command)
+	var failure *RecipeError
+	require.ErrorAs(t, err, &failure)
+	require.Equal(t, "user", failure.Class)
+	require.Equal(t, &MissingTool{Name: "figlet", File: machineJSONPath}, failure.MissingTool)
+	require.Equal(t, 127, result.ExitCode)
+	t.Logf("guest failed with %s: %s", failure.Class, failure.Message)
+	require.NoError(t, runtime.DeleteWorkspace(ctx, spec.ID))
+
+	git("checkout", "-b", "smithers/add-figlet")
+	writeRecipe(`{"packages":["jq","figlet"]}`)
+	require.Equal(t, machineJSONPath, git("diff", "--name-only", sourceRevision, "HEAD"))
+	require.Equal(t, `{"packages":["jq","figlet"]}`, git("show", "HEAD:"+machineJSONPath))
+	git("push", bare, "HEAD:refs/heads/smithers/add-figlet")
+	var pull githubfake.Pull
+	post("/repos/fixtures/image-package/pulls", access.Token, `{"title":"Add figlet to the machine image","head":"smithers/add-figlet","base":"main"}`, 201, &pull)
+	var merged struct {
+		Merged bool
+		SHA    string
+	}
+	// This external-fixture door models the person's GitHub merge. The
+	// product runtime never holds or uses a credential to merge it.
+	post("/_fake/merge", "", fmt.Sprintf(`{"repo":"fixtures/image-package","number":%d}`, pull.Number), 200, &merged)
+	require.True(t, merged.Merged)
+	require.NotEqual(t, sourceRevision, merged.SHA)
+	t.Logf("person merged recipe-only PR %d at %s", pull.Number, merged.SHA)
+	// The install prepares main before it admits branches. Never ask a
+	// branch's old revision to perform privileged image preparation.
+	_, err = runtime.ResolveWorkspaceLayer(ctx, workspaceapi.WorkspaceSpec{ID: "main-image-package", Source: &workspaceapi.WorkspaceSource{Repository: spec.Source.Repository, Revision: "main"}})
+	require.NoError(t, err)
+	spec.ID = "after-image-package"
+	after, err := runtime.ResolveWorkspaceLayer(ctx, spec)
+	require.NoError(t, err)
+	require.NotEqual(t, before.Key, after.Key)
+	require.NotEqual(t, before.Snapshot, after.Snapshot)
+	_, err = runtime.CreateWorkspace(ctx, spec)
+	require.NoError(t, err)
+	result, err = runtime.ExecuteCommand(ctx, spec.ID, command)
+	require.NoError(t, err)
+	require.Equal(t, 0, result.ExitCode, result.Stderr)
+	require.NotEmpty(t, result.Stdout)
+	require.NoError(t, runtime.DeleteWorkspace(ctx, spec.ID))
+	t.Logf("old source %s; person-merged recipe %s (PR %d); image keys %s -> %s; retried figlet exit %d", sourceRevision, merged.SHA, pull.Number, before.Key, after.Key, result.ExitCode)
 }
 
 // A workspace boots from the dependency layer, receives the source, links
