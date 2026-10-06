@@ -3,6 +3,7 @@ package compose
 import (
 	"crypto/sha256"
 	"encoding/hex"
+	"encoding/json"
 	"fmt"
 	"io"
 	"net/http"
@@ -12,7 +13,11 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5/pgtype"
+	"github.com/smithersai/smithers/packages/backend/flowhost"
+	"github.com/smithersai/smithers/packages/backend/flowruntime"
+	"github.com/smithersai/smithers/packages/backend/internal/config"
 	"github.com/smithersai/smithers/packages/backend/internal/db"
+	"github.com/smithersai/smithers/packages/backend/internal/services"
 	"github.com/smithersai/smithers/packages/backend/process"
 	"github.com/stretchr/testify/require"
 )
@@ -84,5 +89,74 @@ func TestWorkspaceWritePreconditionsInstall(t *testing.T) {
 		require.Equal(t, item.status, response.StatusCode, string(body))
 	}
 	// No mutation request provisioned a process or machine as a fallback.
+	require.Empty(t, runtime.WorkspaceIDs())
+
+	// Exercise real private issuance, normal token authentication and the
+	// production workspace handler together. No qualified guest is present,
+	// so a valid grant reaches the provider gate and still cannot write.
+	codec, err := newSecretCodec(config.WebhookConfig{SecretEncryptionKey: "file-grant-fixture"})
+	require.NoError(t, err)
+	hosts, err := flowhost.NewStore(pool, codec)
+	require.NoError(t, err)
+	lease, err := hosts.Acquire(ctx, flowhost.Authority{
+		Target:       flowruntime.Target{TenantID: fmt.Sprintf("repository:%d", repo.ID), PrincipalID: fmt.Sprintf("user:%d", owner.ID), BindingKind: "browser-flow", BindingID: "digestowner/demo"},
+		RepositoryID: repo.ID, UserID: owner.ID, WorkspaceID: id, CatalogKey: flowhost.CatalogCoding, SourceRevision: strings.Repeat("a", 40),
+	}, flowhost.Catalog{Key: flowhost.CatalogCoding, Family: flowhost.CatalogCoding, Executable: "/opt/smithers/coding", ArtifactDigest: strings.Repeat("b", 64), ServiceName: "coding", SystemFlows: []string{"coding/plan"}})
+	require.NoError(t, err)
+	_, err = lease.PrepareStart(ctx, false)
+	require.NoError(t, err)
+	require.NoError(t, lease.MarkRunning(ctx, "file-grant-test"))
+	hostID, credential := lease.Binding().ID, lease.Credential()
+	require.NoError(t, lease.Close())
+	call := func(method, path, bearer, body string) (int, []byte) {
+		t.Helper()
+		req, err := http.NewRequest(method, server.URL+path, strings.NewReader(body))
+		require.NoError(t, err)
+		req.Header.Set("Content-Type", "application/json")
+		if bearer != "" {
+			req.Header.Set("Authorization", "Bearer "+bearer)
+		}
+		res, err := server.Client().Do(req)
+		require.NoError(t, err)
+		data, err := io.ReadAll(res.Body)
+		require.NoError(t, err)
+		require.NoError(t, res.Body.Close())
+		return res.StatusCode, data
+	}
+	const batch = `{"changes":[{"path":"a.txt","base_digest":"absent","content":"new"}]}`
+	digest := sha256.Sum256([]byte(batch))
+	subject := fmt.Sprintf(`{"run_id":"Run-A","batch_digest":"%x"}`, digest)
+	issuerPath := "/api/gateways/" + hostID + "/file-write-grants"
+	for _, bearer := range []string{"", "invalid"} {
+		status, data := call("POST", issuerPath, bearer, subject)
+		require.Equal(t, 401, status, string(data))
+	}
+	status, data := call("POST", issuerPath, credential, `{"run_id":"Run-A","batch_digest":"bad","extra":true}`)
+	require.Equal(t, 400, status, string(data))
+	status, data = call("POST", issuerPath, credential, subject)
+	require.Equal(t, 201, status, string(data))
+	var grant services.CodingFileGrant
+	require.NoError(t, json.Unmarshal(data, &grant))
+	writePath := "/api/repos/digestowner/demo/workspaces/" + id + "/files/content"
+	for _, attempt := range []struct {
+		method, path, body string
+		want               int
+	}{
+		{"PUT", writePath, batch, 503},
+		{"PUT", writePath, batch + " ", 403},
+		{"PUT", writePath + "?path=a.txt", batch, 403},
+		{"GET", "/api/user", "", 403},
+		{"POST", issuerPath, subject, 401},
+	} {
+		status, data = call(attempt.method, attempt.path, grant.Token, attempt.body)
+		require.Equal(t, attempt.want, status, string(data))
+		require.NotContains(t, string(data), grant.Token)
+	}
+	for range 2 {
+		status, data = call("DELETE", fmt.Sprintf("%s/%d", issuerPath, grant.TokenID), grant.Token, "")
+		require.Equal(t, 204, status, string(data))
+	}
+	status, data = call("PUT", writePath, grant.Token, batch)
+	require.Equal(t, 401, status, string(data))
 	require.Empty(t, runtime.WorkspaceIDs())
 }

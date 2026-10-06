@@ -47,6 +47,9 @@ var apiCSRFBypassPaths = []string{
 // design. The route coverage contract accepts them; they are not a runtime
 // bypass, because ExcludePaths matches literal paths only.
 var apiCSRFExemptRoutes = []string{
+	// Coding file grant callbacks require host or self-revocation bearers.
+	"/api/gateways/{hostID}/file-write-grants",
+	"/api/gateways/{hostID}/file-write-grants/{tokenID}",
 	// A box coding host's repository-job callbacks authenticate with its
 	// flowhost binding ID and control credential. They read no session
 	// cookie. Name them for the route coverage contract.

@@ -1752,6 +1752,7 @@ export const make = (
     ).pipe(
       Layer.provide([
         guarded,
+        grants,
         memory,
         quotaPolicy,
         sessionAgent,

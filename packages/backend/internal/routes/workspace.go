@@ -64,6 +64,7 @@ type workspacePreviewRouteService interface {
 
 // WorkspaceHandler handles workspace session API endpoints.
 type WorkspaceHandler struct {
+	CodingFiles CodingFileCredentialService
 	Service     WorkspaceRouteService
 	EgressAudit SandboxEgressAuditRouteService
 	// EnvironmentImages serves the NixOS environment image registry; nil

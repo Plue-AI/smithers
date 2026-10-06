@@ -640,6 +640,13 @@ func buildRouter(
 		})
 	}
 
+	if config.IsSingleOwner(cfg.Auth) && workspaceHandler != nil {
+		// Host-authenticated issuance and self-authenticated revocation never
+		// accept browser cookies or the generic file token as host authority.
+		r.Post("/api/gateways/{hostID}/file-write-grants", workspaceHandler.MintCodingFileGrant)
+		r.Delete("/api/gateways/{hostID}/file-write-grants/{tokenID}", workspaceHandler.RevokeCodingFileGrant)
+	}
+
 	// Inbound GitHub App webhook — signature-verified inside the handler, no auth middleware.
 	if gitHubWebhookHandler != nil {
 		r.Post("/webhooks/github", gitHubWebhookHandler.PostGitHubWebhook)

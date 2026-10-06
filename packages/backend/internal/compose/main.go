@@ -1316,6 +1316,7 @@ func runWithOptions(ctx context.Context, args []string, stdout, stderr io.Writer
 		Metrics: smithersMetrics,
 	}
 	workspaceHandler := &routes.WorkspaceHandler{
+		CodingFiles: services.NewCodingFileCredentials(authService, services.NewFlowHostCallbacks(pool, queries), workspaceService),
 		Service:     workspaceService,
 		EgressAudit: egressAuditService,
 		Broker:      sseBroker,

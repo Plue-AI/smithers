@@ -47,10 +47,12 @@ const (
 )
 
 type AuthInfo struct {
-	TokenSystemIssued bool
-	User              *db.User
-	TokenID           int64
-	TokenHash         string
+	// Set only after the credential gate hashes the actual bounded HTTP body.
+	verifiedCodingFileBatch string
+	TokenSystemIssued       bool
+	User                    *db.User
+	TokenID                 int64
+	TokenHash               string
 	// SessionHash is the SHA-256 of the browser session key for cookie auth.
 	SessionHash string
 	OAuth2AppID int64

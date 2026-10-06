@@ -4,6 +4,7 @@ import * as SeatResolver from "@smthrs/agent/SeatResolver"
 import type * as SeatRouter from "@smthrs/agent/SeatRouter"
 import * as Digest from "@smthrs/core/Digest"
 import { HumanTask, Interpreter } from "@smthrs/flow"
+import { GrantStore } from "@smthrs/kernel/GrantStore"
 import * as Executable from "@smthrs/registry/Executable"
 import * as Registry from "@smthrs/registry/Registry"
 import { Context, Effect, FileSystem, Layer } from "effect"
@@ -41,6 +42,7 @@ import { checkDelegate, checkLayers } from "./checks.ts"
 import { correctionLayers, SelectRepair } from "./correction.ts"
 import { dispatchModels } from "./dispatch.ts"
 import { dispatchRegistration } from "./dispatch/flow.ts"
+import * as FileGrants from "./file-grants.ts"
 import * as CodingFileSystem from "./filesystem.ts"
 import { loadFlowsLayer } from "./flow-load.ts"
 import FlowLoad from "./flow-load/flow.ts"
@@ -501,18 +503,19 @@ export const layer = (platform: NativeControl.Platform, options: Options, suppli
       evaluator,
       jj: (root) => Snapshots.layerAt({ ...options, repositoryPath: root }),
       filesystem: (root, fs, spawner) =>
-        fs.realPath(root).pipe(
-          Effect.map((canonicalRoot) =>
-            CodingFileSystem.make(
-              { ...options, repositoryPath: root },
-              fs,
-              spawner,
-              canonicalRoot,
-              options.mutationProvider
-            )
-          ),
-          Effect.orDie
-        )
+        Effect.gen(function*() {
+          const canonicalRoot = yield* fs.realPath(root)
+          const grants = yield* Effect.serviceOption(GrantStore)
+          return CodingFileSystem.make(
+            { ...options, repositoryPath: root },
+            fs,
+            spawner,
+            canonicalRoot,
+            options.mutationProvider === undefined
+              ? undefined
+              : FileGrants.protect(options.mutationProvider, canonicalRoot, grants)
+          )
+        }).pipe(Effect.orDie)
     },
     roleSeats(options, suppliedSeats),
     options.planning === undefined ? undefined : routeMessages

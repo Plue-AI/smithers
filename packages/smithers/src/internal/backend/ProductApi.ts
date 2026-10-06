@@ -1773,6 +1773,38 @@ export type GetApiFlowsResponse = Array<FlowCard>
 export const getApiFlows = (transport: Transport): Promise<GetApiFlowsResponse> =>
   transport.request("GET", `/api/flows`) as Promise<GetApiFlowsResponse>
 
+export type PostApiGatewaysHostFileWriteGrantsBody = {
+  run_id: string
+  batch_digest: string
+}
+
+export type PostApiGatewaysHostFileWriteGrantsResponse = {
+  token_id: number
+  token: string
+  run_id: string
+  workspace_id: string
+  repository_slug: string
+  expires_at: number
+  batch_digest: string
+}
+
+export interface PostApiGatewaysHostFileWriteGrantsInput {
+  readonly path: { readonly hostID: string }
+  readonly body: PostApiGatewaysHostFileWriteGrantsBody
+}
+
+/** POST /api/gateways/{hostID}/file-write-grants: Issue an exact-batch coding file credential */
+export const postApiGatewaysHostFileWriteGrants = (transport: Transport, input: PostApiGatewaysHostFileWriteGrantsInput): Promise<PostApiGatewaysHostFileWriteGrantsResponse> =>
+  transport.request("POST", `/api/gateways/${segment(input.path.hostID)}/file-write-grants`, input.body) as Promise<PostApiGatewaysHostFileWriteGrantsResponse>
+
+export interface DeleteApiGatewaysHostFileWriteGrantsTokenInput {
+  readonly path: { readonly hostID: string; readonly tokenID: number }
+}
+
+/** DELETE /api/gateways/{hostID}/file-write-grants/{tokenID}: Revoke a coding file credential */
+export const deleteApiGatewaysHostFileWriteGrantsToken = (transport: Transport, input: DeleteApiGatewaysHostFileWriteGrantsTokenInput): Promise<void> =>
+  transport.request("DELETE", `/api/gateways/${segment(input.path.hostID)}/file-write-grants/${segment(input.path.tokenID)}`).then(() => undefined)
+
 export type PutApiGatewaysHostRepositoryJobsCiCheckReceiptsRequestBody = AnyJSON
 
 export type PutApiGatewaysHostRepositoryJobsCiCheckReceiptsRequestResponse = AnyJSON

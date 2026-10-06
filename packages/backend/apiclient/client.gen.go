@@ -1799,6 +1799,23 @@ type GetAPIBranchesBFilesResponseItem struct {
 	Size *int64 `json:"size,omitempty"`
 }
 
+// PostAPIGatewaysHostFileWriteGrantsBody is generated from docs/api/openapi.yaml.
+type PostAPIGatewaysHostFileWriteGrantsBody struct {
+	RunID       string `json:"run_id"`
+	BatchDigest string `json:"batch_digest"`
+}
+
+// PostAPIGatewaysHostFileWriteGrantsResponse is generated from docs/api/openapi.yaml.
+type PostAPIGatewaysHostFileWriteGrantsResponse struct {
+	TokenID        int64  `json:"token_id"`
+	Token          string `json:"token"`
+	RunID          string `json:"run_id"`
+	WorkspaceID    string `json:"workspace_id"`
+	RepositorySlug string `json:"repository_slug"`
+	ExpiresAt      int64  `json:"expires_at"`
+	BatchDigest    string `json:"batch_digest"`
+}
+
 // GetAPIGithubSyncResponse is generated from docs/api/openapi.yaml.
 type GetAPIGithubSyncResponse struct {
 	State         string     `json:"state"`
@@ -2930,6 +2947,18 @@ func (c *Client) GetAPIFlows(ctx context.Context) ([]FlowCard, error) {
 	var out []FlowCard
 	err := c.do(ctx, "GET", "/api/flows", nil, nil, &out)
 	return out, err
+}
+
+// PostAPIGatewaysHostFileWriteGrants calls POST /api/gateways/{hostID}/file-write-grants.
+func (c *Client) PostAPIGatewaysHostFileWriteGrants(ctx context.Context, hostID string, body PostAPIGatewaysHostFileWriteGrantsBody) (PostAPIGatewaysHostFileWriteGrantsResponse, error) {
+	var out PostAPIGatewaysHostFileWriteGrantsResponse
+	err := c.do(ctx, "POST", "/api/gateways/"+url.PathEscape(hostID)+"/file-write-grants", nil, body, &out)
+	return out, err
+}
+
+// DeleteAPIGatewaysHostFileWriteGrantsToken calls DELETE /api/gateways/{hostID}/file-write-grants/{tokenID}.
+func (c *Client) DeleteAPIGatewaysHostFileWriteGrantsToken(ctx context.Context, hostID string, tokenID int64) error {
+	return c.do(ctx, "DELETE", "/api/gateways/"+url.PathEscape(hostID)+"/file-write-grants/"+url.PathEscape(strconv.FormatInt(tokenID, 10)), nil, nil, nil)
 }
 
 // PutAPIGatewaysHostRepositoryJobsCICheckReceiptsRequest calls PUT /api/gateways/{hostID}/repository-jobs/ci/check-receipts/{requestID}.

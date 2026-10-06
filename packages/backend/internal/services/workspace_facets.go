@@ -316,26 +316,28 @@ func (s *WorkspaceService) WriteWorkspaceFiles(ctx context.Context, workspaceID 
 		return nil, pkgerrors.Internal("cannot encode workspace file changes")
 	}
 	err = s.withWorkspaceMutation(ctx, workspaceID, repositoryID, userID, func(ctx context.Context, _ db.Workspace) error {
-		writer, ok := s.runtime.(workspaceapi.WorkspaceCompareWriter)
-		if !ok {
-			return pkgerrors.New(pkgerrors.CodeServiceUnavailable, "workspace compare-and-write unavailable")
-		}
-		row, runtimeCtx, targetErr := s.workspaceRuntimeFacetTarget(ctx, workspaceID, repositoryID, userID, WorkspaceAccessWrite, "workspace-files:"+sha256Hex(string(encoded)))
-		if targetErr != nil {
-			return targetErr
-		}
-		if writeErr := writer.CompareWriteFiles(runtimeCtx, row.ID, batch); writeErr != nil {
-			var stale *workspaceapi.StaleFileError
-			if errors.As(writeErr, &stale) {
-				if !paths[stale.Path] || (stale.CurrentDigest != "absent" && !workspaceFileBaseDigestPattern.MatchString(stale.CurrentDigest)) {
-					return pkgerrors.Internal("invalid workspace stale file response")
-				}
-				return stale
+		return s.withCodingFileMutationAuthority(ctx, workspaceID, repositoryID, userID, func(ctx context.Context) error {
+			writer, ok := s.runtime.(workspaceapi.WorkspaceCompareWriter)
+			if !ok {
+				return pkgerrors.New(pkgerrors.CodeServiceUnavailable, "workspace compare-and-write unavailable")
 			}
-			return mapRuntimeFileError(writeErr, "file")
-		}
-		s.touchWorkspaceEntryRecency(ctx, row.ID, "file-content-write")
-		return nil
+			row, runtimeCtx, targetErr := s.workspaceRuntimeFacetTarget(ctx, workspaceID, repositoryID, userID, WorkspaceAccessWrite, "workspace-files:"+sha256Hex(string(encoded)))
+			if targetErr != nil {
+				return targetErr
+			}
+			if writeErr := writer.CompareWriteFiles(runtimeCtx, row.ID, batch); writeErr != nil {
+				var stale *workspaceapi.StaleFileError
+				if errors.As(writeErr, &stale) {
+					if !paths[stale.Path] || (stale.CurrentDigest != "absent" && !workspaceFileBaseDigestPattern.MatchString(stale.CurrentDigest)) {
+						return pkgerrors.Internal("invalid workspace stale file response")
+					}
+					return stale
+				}
+				return mapRuntimeFileError(writeErr, "file")
+			}
+			s.touchWorkspaceEntryRecency(ctx, row.ID, "file-content-write")
+			return nil
+		})
 	})
 	if err != nil {
 		return nil, err

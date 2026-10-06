@@ -28,7 +28,8 @@ export interface Options {
    * success, failure or interruption. Never cached or journaled. */
   readonly authorize: (
     session: string,
-    paths: ReadonlyArray<string>
+    paths: ReadonlyArray<string>,
+    batchDigest: string
   ) => Effect.Effect<Grant, StdError, Scope.Scope>
 }
 
@@ -51,7 +52,7 @@ const object = (value: unknown): Record<string, unknown> | undefined =>
 const fields = (value: Record<string, unknown>, names: ReadonlyArray<string>) =>
   Object.keys(value).length === names.length && names.every((name) => Object.hasOwn(value, name))
 
-const readJson = (response: HttpClientResponse.HttpClientResponse) =>
+export const readJson = (response: HttpClientResponse.HttpClientResponse) =>
   Effect.gen(function*() {
     const captured = yield* Stream.runFoldEffect(
       response.stream,
@@ -75,9 +76,7 @@ const readJson = (response: HttpClientResponse.HttpClientResponse) =>
     })
   })
 
-/** Uses one authenticated PUT and never retries an ambiguous mutation. The
- * operator supplies a run-grant issuer; no production issuer is composed yet.
- */
+/** Uses one authenticated PUT and never retries an ambiguous mutation. */
 export const make = (options: Options): Effect.Effect<MutationProvider, StdError, HttpClient.HttpClient> =>
   Effect.gen(function*() {
     const client = yield* HttpClient.HttpClient
@@ -140,7 +139,7 @@ export const make = (options: Options): Effect.Effect<MutationProvider, StdError
           // The API bounds decoded content AND the JSON body independently.
           const body = JSON.stringify({ changes })
           if (Buffer.byteLength(body, "utf8") > 1024 * 1024) return yield* Effect.fail(invalid())
-          const grant = yield* authorize(session, [...expected.keys()])
+          const grant = yield* authorize(session, [...expected.keys()], hash(Buffer.from(body, "utf8")))
           const now = yield* Clock.currentTimeMillis
           if (
             grant.session !== session || grant.workspaceId !== workspaceId || grant.repositorySlug !== repositorySlug ||

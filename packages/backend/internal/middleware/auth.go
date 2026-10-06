@@ -304,6 +304,9 @@ func AuthLoader(queries AuthLoaderQuerier, cfg config.AuthConfig, boundaries ...
 				if !allowTerminalProfileToken(w, r, authInfo) {
 					return
 				}
+				if !allowCodingFileCredential(w, r, authInfo) {
+					return
+				}
 				if _, delegated := authInfo.Delegation(); delegated {
 					authInfo.ViaHint = r.Header.Get("Smithers-Via")
 				}
