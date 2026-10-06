@@ -113,8 +113,17 @@ func (r *Runtime) microsandboxHome() string { return filepath.Join(r.cli.home, "
 
 // freeBytes is the space available to this user on the Microsandbox volume.
 func (r *Runtime) freeBytes() (int64, error) {
+	volume := r.microsandboxHome()
+	// On a fresh install msb has not created its state directory yet. Its
+	// future directory is on the account-home volume. An existing broken
+	// entry (including a dangling symlink) is not an absent state directory.
+	if _, err := os.Lstat(volume); errors.Is(err, fs.ErrNotExist) {
+		volume = r.cli.home
+	} else if err != nil {
+		return 0, err
+	}
 	var stat syscall.Statfs_t
-	if err := syscall.Statfs(r.microsandboxHome(), &stat); err != nil {
+	if err := syscall.Statfs(volume, &stat); err != nil {
 		return 0, err
 	}
 	return int64(stat.Bavail) * int64(stat.Bsize), nil
