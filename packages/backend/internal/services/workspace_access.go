@@ -94,6 +94,13 @@ type workspaceMutationAuthority struct {
 // begun after it is refused. fn's own statements use the service store; the
 // transaction only holds the grant.
 func (s *WorkspaceService) withWorkspaceMutationAuthority(ctx context.Context, row db.Workspace, requesterID int64, fn func(context.Context) error) error {
+	// Nested lifecycle steps already hold this workspace/member's grant.
+	// Reuse it before any pool read, so a held transaction never needs a
+	// second connection just to discover that it is already authorized.
+	authority := workspaceMutationAuthority{workspaceID: row.ID, userID: requesterID}
+	if held, ok := ctx.Value(workspaceMutationAuthorityKey{}).(workspaceMutationAuthority); ok && held == authority {
+		return fn(ctx)
+	}
 	branchOwned, err := s.branchMachineOwned(ctx, row.UserID)
 	if err != nil {
 		return err
@@ -103,10 +110,6 @@ func (s *WorkspaceService) withWorkspaceMutationAuthority(ctx context.Context, r
 	}
 
 	if requesterID == row.UserID {
-		return fn(ctx)
-	}
-	authority := workspaceMutationAuthority{workspaceID: row.ID, userID: requesterID}
-	if held, ok := ctx.Value(workspaceMutationAuthorityKey{}).(workspaceMutationAuthority); ok && held == authority {
 		return fn(ctx)
 	}
 	held := context.WithValue(ctx, workspaceMutationAuthorityKey{}, authority)
