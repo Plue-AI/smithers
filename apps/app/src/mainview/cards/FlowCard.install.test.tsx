@@ -71,6 +71,7 @@ test("install /flow mounts the served versions through the production card rende
     await act(async () => host.querySelector<HTMLButtonElement>('.flow-version[data-state="proposed"]')!.click())
     expect(host.querySelector('[data-added="true"]')?.textContent).toContain("Write the changelog")
     expect(host.querySelectorAll('[data-added="true"]')).toHaveLength(1)
+    expect(host.querySelector('[data-flow="flow.edit"]')).toBeNull()
     expect(store.collections.cards.get(card.id)).toMatchObject({ payload: { memberVersions: { will: "proposed" } } })
     await act(async () => { await controller!.flowCards() })
     expect(host.querySelector('.flow-version[aria-pressed="true"]')?.textContent).toBe("ProposedT42")
@@ -78,8 +79,10 @@ test("install /flow mounts the served versions through the production card rende
     expect(store.collections.cards.get(card.id)).toMatchObject({ payload: { memberVersions: { will: "proposed" } } })
     await act(async () => host.querySelector<HTMLButtonElement>('.flow-version[data-state="merged-failed"]')!.click())
     expect(host.querySelector('.flow-failure pre')?.textContent).toBe("Unknown agent: reviewer")
+    expect(host.querySelector('[data-flow="flow.edit"]')).toBeNull()
     await act(async () => host.querySelector<HTMLButtonElement>('.flow-version[data-state="active"]')!.click())
     expect(host.querySelector('.flow-failure')).toBeNull()
+    expect(host.querySelector('[data-flow="flow.edit"]')?.textContent).toBe("Edit")
     const versions = catalog[0]!.versions
     catalog[0]!.versions = versions.filter(version => version.state !== "proposed")
     await act(async () => { await controller!.flowCards() })

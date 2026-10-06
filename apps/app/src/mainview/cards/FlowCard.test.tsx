@@ -134,3 +134,25 @@ test("agent chips bind a catalog gesture to the chosen agent", () => {
   h.props.onAction("agent", { name: "reviewer" })
   expect(h.calls).toEqual([{ tag: "agent", input: { name: "reviewer" } }])
 })
+
+
+test("Edit dispatch is bound only while the selected version is Active", () => {
+  const model: FlowViewProps["model"] = { name: "todo", source: { builtin: true }, system: false, versions: [
+    { id: "old", state: "previous", steps: [] },
+    { id: "live", state: "active", steps: [] },
+    { id: "draft", state: "proposed", todo: 42, steps: [] },
+    { id: "sync", state: "merged-syncing", steps: [] },
+    { id: "broken", state: "merged-failed", error: "Unknown reviewer", steps: [] }
+  ] }
+  for (const tab of [undefined, "missing", "live", "old", "draft", "sync", "broken"]) {
+    let props!: FlowViewProps
+    const calls: unknown[] = []
+    renderToStaticMarkup(<FlowCard model={model} allowed={new Set(["flow.edit", "flow.source"])}
+      dispatch={(tag, input) => { calls.push({ tag, input }) }} view={{ maximized: false, tab }} onView={() => {}}
+      View={value => { props = value; return null }} />)
+    const active = tab === undefined || tab === "missing" || tab === "live"
+    expect(props.actions.map(action => action.tag)).toEqual(active ? ["flow.source", "flow.edit"] : ["flow.source"])
+    props.onAction("flow.edit")
+    expect(calls).toEqual(active ? [{ tag: "flow.edit", input: { name: "todo" } }] : [])
+  }
+})

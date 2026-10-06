@@ -21,8 +21,10 @@ test("install flow versions retain selection across refresh and reload", async (
   const flow = page.locator('.flow-view').last()
   await expect(flow.getByRole("button", { name: "Active", exact: true })).toHaveAttribute("aria-pressed", "true")
   await expect(flow.getByRole("button", { name: "Previous", exact: true })).toHaveCount(0)
+  await expect(flow.getByRole("button", { name: "Edit", exact: true })).toBeVisible()
   await flow.locator('.flow-version[data-state="proposed"]').press("Enter")
   await expect(flow.locator('[data-added="true"]')).toHaveText(/Update changelog/)
+  await expect(flow.getByRole("button", { name: "Edit", exact: true })).toHaveCount(0)
   await page.reload()
   await expect(flow.locator('.flow-version[data-state="proposed"]')).toHaveAttribute("aria-pressed", "true")
   state = "merged-syncing"
@@ -31,8 +33,10 @@ test("install flow versions retain selection across refresh and reload", async (
   state = "merged-failed"
   await say(page, "/flow todo")
   await expect(flow.getByText("Load failed", { exact: true })).toBeVisible()
+  await expect(flow.getByRole("button", { name: "Edit", exact: true })).toHaveCount(0)
   await flow.getByRole("button", { name: "Active", exact: true }).press("Enter")
   await expect(flow.getByText("Load failed", { exact: true })).toHaveCount(0)
+  await expect(flow.getByRole("button", { name: "Edit", exact: true })).toBeVisible()
   await expect(flow.locator('[data-flow="agent"]')).toHaveText("implementer")
   await expect(flow.getByRole("button", { name: "Source", exact: true })).toBeVisible()
   await expect(flow.getByRole("button", { name: "Run", exact: true })).toHaveCount(0)

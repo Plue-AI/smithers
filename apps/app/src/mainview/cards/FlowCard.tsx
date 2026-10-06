@@ -35,9 +35,11 @@ export const FlowCard = ({ model: source, allowed, dispatch, View = FlowView, vi
   const active = new Set(activeVersion?.steps.map(step => step.id))
   const model = { ...source, versions: source.versions.map(version => ({ ...version,
     steps: version.steps.map(step => "wait" in step ? step : { ...step, added: activeVersion !== undefined && version.state !== "active" && !active.has(step.id) }) })) }
+  const selected = model.versions.find(version => version.id === view.tab) ?? activeVersion ?? model.versions[0]
+  const canEdit = !model.system && (selected === undefined || selected.state === "active")
   const definitions: CardActionDefinition<CatalogTag, "agent">[] = []
   for (const [tag, label] of [["flow.source", "Source"], ["flow.plan", "Plan"], ["flow.run", "Run"], ["flow.edit", "Edit"]] as const) {
-    if (allowed.has(tag) && (!model.system || tag === "flow.plan")) definitions.push({ tag, label, command_input: { name: model.name } })
+    if (allowed.has(tag) && (!model.system || tag === "flow.plan") && (tag !== "flow.edit" || canEdit)) definitions.push({ tag, label, command_input: { name: model.name } })
   }
   if (!model.system && allowed.has("flow.edit") && model.proposal !== undefined) definitions.push({ tag: "todo.new", label: "Make TODO", command_input: flowEditTodoInput(model.name, model.proposal.request, model.proposal.diff) })
   if (allowed.has("agent")) definitions.push({ tag: "agent", label: "Agent", gesture: "agent", command_input: { name: "" }, resolve_input: input => ({ name: input.name ?? "" }) })
