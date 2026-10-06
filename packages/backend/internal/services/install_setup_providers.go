@@ -158,7 +158,7 @@ func (s *InstallSetupService) prepareSource(ctx context.Context, lease *jobs.Lea
 		return err
 	}
 	if receipt.ImportID == "" {
-		job, err := imports.StartImport(ctx, ImportGitHubRepoInput{UserID: owner.ID, Owner: o, Repo: n, Branch: "main"})
+		job, err := imports.StartImport(ctx, ImportGitHubRepoInput{UserID: owner.ID, Owner: o, Repo: n, Branch: "main", setupOperationID: lease.Claim().OperationID})
 		if err != nil {
 			return err
 		}
