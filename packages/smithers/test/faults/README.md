@@ -2,7 +2,9 @@
 
 Run the existing serial matrix with `pnpm exec smthrs test
 '//packages/...:faults' --jobs 1`. `Smithers.FaultSuite` discovers TypeScript
-cases here; this command does not yet cover the planned Go cases below.
+cases here; `durability-required.test.ts` now selects the named Go cases below. Missing
+case files, unmatched Go selectors, skipped cases and missing kill markers
+fail the matrix. The current production cases remain unavailable.
 Existing engine/library crash tests are not C-DUR acceptance evidence.
 
 | Check | Required production harness | Host |
@@ -16,8 +18,11 @@ These are required paths, not claims of implemented coverage. The approved
 mapping in `scripts/check-commands.json` and authenticated CI results determine
 whether `node scripts/check-run.mjs C-DUR-0N --landed <full-sha>` can issue a
 receipt. Pending-owner mappings refuse; do not replace them with direct
-journal/service calls, skipped cases or a passing availability test. This
-matrix is not yet nightly-qualified or reference-host-qualified.
+journal/service calls, skipped cases or a passing availability test. The serial matrix runs in the scheduled reliability workflow rather than
+ordinary push/PR CI, without known-red allowances or cache credentials. The
+reference-host matrix entry refuses before building or executing branch code
+until main-bundle provenance, authenticated host selection and check mappings
+are approved. It is not reference-host-qualified.
 
 The shared Go child controller lives in backend services
 `durable_crash_restart_test.go`. Its vocabulary is `pre-commit`, `post-commit`,
@@ -57,3 +62,10 @@ No branch-built daemon or repository payload runs as root. Privileged cases
 remain blocked on C-SEC-02 validation, the rebase root-input tests, approved
 main-bundle artifacts and approved reference-host selection. Release binaries
 must contain no kill selectors. This lane adds no privileged execution.
+
+The Go JSON stream is retained in the existing FaultSuite output. Per-kill
+observations supplied by case owners are uploaded from the matching check
+evidence directories; this runner does not synthesize observations or receipts.
+The runner requires a passed named test, no skipped/failed subtests and a
+`CRASH-POINT` line attributed to that test. Controllers still own exact point
+validation before killing. A marker alone is never recovery proof.

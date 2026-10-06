@@ -232,3 +232,86 @@ jobs:
           path: reliability-artifacts/jj-abi/**
           if-no-files-found: error
           retention-days: 30
+  "e2e-faults":
+    name: "fault-injection matrix"
+    strategy:
+      fail-fast: false
+      matrix:
+        host: [linux, reference]
+    runs-on: ${{ matrix.host == 'reference' && fromJSON('["self-hosted","macOS","ARM64","smithers-reference"]') || fromJSON('["ubuntu-latest"]') }}
+    env:
+      SMITHERS_FAULT_HOST: ${{ matrix.host }}
+    timeout-minutes: 60
+    steps:
+      - uses: "actions/checkout@11d5960a326750d5838078e36cf38b85af677262"
+      - name: Refuse unapproved reference-host execution
+        if: matrix.host == 'reference'
+        run: |
+          node --input-type=module <<'JS'
+          import { readFileSync } from 'node:fs'
+          const mapping = JSON.parse(readFileSync('scripts/check-commands.json', 'utf8'))
+          for (const id of ['C-SEC-02', 'C-DUR-02', 'C-DUR-04']) {
+            if (mapping.checks[id]?.status || !mapping.checks[id]?.target) {
+              throw new Error(`Reference-host case refused: ${id} has no approved target`)
+            }
+          }
+          throw new Error('Reference-host case refused: approved main-bundle provenance and authenticated host selection are not yet composed')
+          JS
+        shell: bash
+      - name: Install Go
+        uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff
+        with:
+          go-version: '1.26.8'
+      - name: "Start smthrs results"
+        run: "mkdir -p \"$RUNNER_TEMP/smthrs-results\" && printf '%s\\n' '{\"version\":1,\"results\":[]}' > \"$RUNNER_TEMP/smthrs-results/attempt.json\""
+        shell: "bash"
+      - uses: "pnpm/action-setup@0977fd99725f1db4007ccb2928dbb4e90d06cc86"
+      - uses: "actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020"
+        with:
+          "node-version-file": ".node-version"
+          "cache": "pnpm"
+      - name: "Install certified npm"
+        run: |
+          npm install --global 'npm@11.16.0' --ignore-scripts --no-audit --no-fund
+          test "$(npm --version)" = '11.16.0'
+        shell: "bash"
+      - run: "pnpm install --frozen-lockfile --ignore-scripts"
+      - uses: "Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6"
+      - name: "Install native smithers-jj-export"
+        run: |
+          case "$(uname -s)" in Linux|Darwin|MINGW*|MSYS*)
+            native_suffix=''
+            case "$(uname -s)" in MINGW*|MSYS*) native_suffix='.exe';; esac
+            rustup toolchain install '1.98.0' --profile minimal
+            cargo +1.98.0 build --locked -p 'smithers-ffi' --bin 'smithers-jj-export'
+            mkdir -p "$RUNNER_TEMP/smithers-native"
+            native_path="$RUNNER_TEMP/smithers-native/smithers-jj-export$native_suffix"
+            install -m 755 "target/debug/smithers-jj-export$native_suffix" "$native_path"
+            if [ "$native_suffix" = '.exe' ]; then native_path="$(cygpath -w "$native_path")"; fi
+            printf '%s=%s\n' 'SMITHERS_WORKSPACE_JJ_EXPORT_BINARY' "$native_path" >> "$GITHUB_ENV"
+          esac
+        shell: "bash"
+      - name: "Install jj"
+        uses: "taiki-e/install-action@e67fa11c4b9316fa714ddf0abed07a0c3143b95b"
+        with:
+          "tool": "jj-cli@0.39.0"
+      - name: "Initialize colocated jj repository"
+        id: setup
+        run: "jj git init --colocate"
+      - name: "Exclusive fault matrix"
+        if: ${{ !cancelled() && steps.setup.conclusion == 'success' }}
+        run: "pnpm exec smthrs test '//packages/...:faults' --jobs 1 --results-file \"$RUNNER_TEMP/smthrs-results/$GITHUB_ACTION.json\" --verbose"
+      - name: "Upload smthrs results"
+        if: always()
+        uses: "actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02"
+        with:
+          "name": "smthrs-results-e2e-faults-${{ matrix.host }}-${{ github.run_attempt }}"
+          "path": "${{ runner.temp }}/smthrs-results"
+          "if-no-files-found": "error"
+      - name: Preserve durability observations
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: durability-observations-${{ matrix.host }}-${{ github.run_attempt }}
+          path: .artifacts/checks/C-DUR-*/**
+          if-no-files-found: warn
