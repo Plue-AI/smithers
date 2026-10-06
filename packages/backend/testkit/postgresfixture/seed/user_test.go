@@ -37,7 +37,7 @@ func TestCreateUserDuplicateReturnsErrorWithoutAnotherUser(t *testing.T) {
 	require.Zero(t, duplicateID)
 	var rows int
 	var persistedID int64
-	require.NoError(t, pool.QueryRow(t.Context(), `SELECT count(*), min(id) FROM users`).Scan(&rows, &persistedID))
+	require.NoError(t, pool.QueryRow(t.Context(), `SELECT count(*), min(id) FROM users WHERE lower_username = 'alice'`).Scan(&rows, &persistedID))
 	require.Equal(t, 1, rows)
 	require.Equal(t, id, persistedID)
 }

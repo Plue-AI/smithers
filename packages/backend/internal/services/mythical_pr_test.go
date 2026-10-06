@@ -4,7 +4,6 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
-	"github.com/smithersai/smithers/packages/backend/internal/db"
 	"net/http"
 	"os"
 	"os/exec"
@@ -14,6 +13,7 @@ import (
 	"time"
 	"unicode/utf8"
 
+	"github.com/smithersai/smithers/packages/backend/internal/db"
 	"github.com/stretchr/testify/require"
 )
 
@@ -331,4 +331,41 @@ func TestGitHubPushDecisionBeforePR(t *testing.T) {
 			require.Equal(t, tc.noop, got.Noop)
 		})
 	}
+}
+
+func TestTODOPrRetainedManifestCannotBeRewritten(t *testing.T) {
+	original := mythicalMergedManifest{Head: "published-old", Included: []mythicalManifestItem{{ID: "two", Number: 2, Head: "candidate-two", Change: "base..candidate-two"}}}
+	checks := mythicalChecks{}
+	checks.retainManifest(original)
+	original.Included[0].Head = "mutated"
+	checks.retainManifest(mythicalMergedManifest{Head: "published-old"})
+	checks.retainManifest(mythicalMergedManifest{Head: "published-new"})
+	require.Len(t, checks.PRManifests, 2)
+	require.Equal(t, "candidate-two", checks.PRManifests[0].Included[0].Head)
+	require.Empty(t, checks.PRManifests[1].Included)
+	decoded := mythicalChecksOf(db.MythicalItem{Checks: checks.encode()})
+	require.Equal(t, checks.PRManifests, decoded.PRManifests)
+	require.Nil(t, decoded.retainedManifest(""))
+	require.Nil(t, decoded.retainedManifest("foreign"))
+	retained := decoded.retainedManifest("published-old")
+	require.NotNil(t, retained)
+	require.Equal(t, "candidate-two", retained.Included[0].Head)
+	retained.Included[0].Head = "changed"
+	require.Equal(t, "candidate-two", decoded.retainedManifest("published-old").Included[0].Head)
+
+}
+
+func TestTODOPrCandidateIdentityRefusesUnverifiedChanges(t *testing.T) {
+	for _, item := range []db.MythicalItem{
+		{CandidateBase: "base", CandidateHead: "head"},
+		{CandidateVerified: true, CandidateHead: "head"},
+		{CandidateVerified: true, CandidateBase: "base"},
+	} {
+		identity := mythicalCandidateIdentity(item)
+		require.Empty(t, identity.Head)
+		require.Empty(t, identity.Change)
+	}
+	identity := mythicalCandidateIdentity(db.MythicalItem{CandidateVerified: true, CandidateBase: "base", CandidateHead: "head"})
+	require.Equal(t, "head", identity.Head)
+	require.Equal(t, "base..head", identity.Change)
 }

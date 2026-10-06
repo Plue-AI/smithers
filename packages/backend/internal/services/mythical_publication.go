@@ -445,6 +445,7 @@ func (st *mythicalItemStep) shape(ctx context.Context, item db.MythicalItem) (my
 		return mythicalPRShape{}, err
 	}
 	shape.First, shape.FirstNumber, shape.Included = true, mythicalItemNumber(item), nil
+	manifest := &mythicalMergedManifest{Included: []mythicalManifestItem{}}
 	base := ""
 	if st.r != nil {
 		base = st.r.mainTip
@@ -461,8 +462,15 @@ func (st *mythicalItemStep) shape(ctx context.Context, item db.MythicalItem) (my
 		}
 		if earlier.CandidateVerified && earlier.CandidateHead != "" && earlier.CandidateBase == base {
 			shape.Included = append(shape.Included, mythicalPRIncluded{Number: mythicalItemNumber(earlier), URL: earlier.PRURL})
+			manifest.Included = append(manifest.Included, mythicalCandidateIdentity(earlier))
 			base = earlier.CandidateHead
 		}
+	}
+	// Only a verified candidate rooted in this exact prefix can attest inclusion.
+	// Publication rewrites its parent onto main, so retain the candidate identity
+	// separately from the actual published head.
+	if item.CandidateVerified && item.CandidateHead != "" && item.CandidateBase == base {
+		shape.Manifest = manifest
 	}
 	if st.r != nil && item.CandidateHead != "" && st.fetchCandidate(ctx, item) == nil {
 		if stat, err := st.r.g.git(ctx, "diff", "--shortstat", "--no-ext-diff", "--no-textconv", st.prefix(item), item.CandidateHead); err == nil {

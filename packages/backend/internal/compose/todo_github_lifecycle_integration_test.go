@@ -2,6 +2,7 @@ package compose
 
 import (
 	"bytes"
+	"context"
 	"crypto/hmac"
 	"crypto/sha256"
 	"encoding/hex"
@@ -9,11 +10,14 @@ import (
 	"fmt"
 	"net/http"
 	"os"
+	"os/exec"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/smithersai/smithers/packages/backend/internal/repohost"
 	"github.com/smithersai/smithers/packages/backend/internal/services"
 	"github.com/smithersai/smithers/packages/backend/internal/webhook"
 	"github.com/stretchr/testify/require"
@@ -23,7 +27,7 @@ import (
 // polling, durable delivery and the person's TODO card use the composed install.
 func TestTODOGitHubCloseReopenComposedInstall(t *testing.T) {
 	t.Setenv("REHEARSAL_INSTALLATION_ID", "93")
-	r := newRehearsal(t, "SMITHERS_GH03_REHEARSAL", "C-J10-08", "gh03-life-")
+	r := newRehearsal(t, "SMITHERS_GH03_REHEARSAL", "C-J10-08", "gh03-life-", 25)
 	r.stepBudget = 2 * time.Minute
 	r.client.Timeout = 30 * time.Second
 	require.True(t, r.setupSource())
@@ -65,23 +69,63 @@ func TestTODOGitHubCloseReopenComposedInstall(t *testing.T) {
 		err := r.pool.QueryRow(r.ctx, `SELECT state FROM mythical_stacks`).Scan(&state)
 		return err == nil && state == "active"
 	}, 30*time.Second, 50*time.Millisecond)
-	data, err := r.expect("POST", "/api/todos", `{"title":"Lifecycle","prompt":"accepted change","acceptance":["passes"]}`, 202)
+	var filed struct{ N int64 }
+	var repository, owner int64
+	require.NoError(t, r.pool.QueryRow(r.ctx, `SELECT repository_id,actor_user_id FROM mythical_stacks`).Scan(&repository, &owner))
+	// Seed the retained-candidate artifact that a completed stack.candidate
+	// dispatch owns. This changes only the fixture's keep ref, never main.
+	packCommand := exec.Command("/usr/bin/git", "-C", work, "pack-objects", "--stdout")
+	packCommand.Stdin = strings.NewReader("")
+	emptyPack, err := packCommand.Output()
 	require.NoError(t, err)
-	var filed struct {
-		N int64 `json:"n"`
-	}
-	require.NoError(t, json.Unmarshal(data, &filed))
+	keep := repohost.MythicalReservedRefNS + "keep/" + head
+	update := strings.Repeat("0", 40) + " " + head + " " + keep + "\x00report-status\n"
+	body := bytes.NewBufferString(fmt.Sprintf("%04x%s0000", len(update)+4, update))
+	_, err = body.Write(emptyPack)
+	require.NoError(t, err)
+	var retained bytes.Buffer
+	require.NoError(t, r.repoClient.ProxyReceivePack(r.ctx, "rehearsal-owner", "app", body, &retained, repohost.ReceivePackMetadata{RepositoryID: repository, ControlPlane: true, PusherLogin: "fixture"}))
+	require.Contains(t, retained.String(), "ok "+keep)
+
+	// A completed machine-run fixture has no concurrent launch to overwrite its
+	// accepted generation. Publication and all lifecycle effects remain real.
+	require.NoError(t, r.pool.QueryRow(r.ctx, `INSERT INTO mythical_items(repository_id,source,state,issue_title,title,revisions,owner_id,candidate_base,candidate_head,candidate_verified,pr_head,pr_number,pr_state,pr_url,attempt,checks)
+ VALUES ($1,'todo','proposing','Lifecycle','Lifecycle','[{"rev":1,"text":"accepted change","acceptance":["passes"]}]',$2,$3,$4,true,$4,1,'open','https://github.com/rehearsal-owner/app/pull/1',1,'{"branch":"smithers/lifecycle-fixture"}') RETURNING number`, repository, owner, r.mainCommit, head).Scan(&filed.N))
 	require.Positive(t, filed.N)
-	// Hold the fixture during the real stack bootstrap; no repository run starts.
-	_, err = r.pool.Exec(r.ctx, `UPDATE mythical_items SET version=version+1,state='blocked',candidate_base=$2,candidate_head=$3,candidate_verified=true,pr_head=$3,pr_number=1,pr_state='open',pr_url='https://github.com/rehearsal-owner/app/pull/1',attempt=1,checks='{"branch":"smithers/lifecycle-fixture"}' WHERE number=$1`, filed.N, r.mainCommit, head)
+	t.Cleanup(func() {
+		if !t.Failed() {
+			return
+		}
+		diagnostic, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		var status string
+		if err := r.pool.QueryRow(diagnostic, `SELECT json_build_object('state',state,'reason',reason,'candidate_base',candidate_base,'candidate_head',candidate_head,'verified',candidate_verified,'pr_head',pr_head,'pending',pending_op,'manifests',checks->'prManifests')::text FROM mythical_items WHERE number=$1`, filed.N).Scan(&status); err == nil {
+			t.Log("publication fixture", status)
+		} else {
+			t.Log("publication fixture read", err)
+		}
+	})
+
+	_, err = r.pool.Exec(r.ctx, `UPDATE mythical_stacks SET requested_generation=requested_generation+1,next_attempt_at=clock_timestamp() WHERE repository_id=$1`, repository)
 	require.NoError(t, err)
+	// The composed stack worker binds the accepted head to an immutable manifest
+	// before the same PR is consumed through the install's inbound worker.
+	var publishedHead string
 	require.Eventually(t, func() bool {
-		var state string
-		err := r.pool.QueryRow(r.ctx, `SELECT state FROM mythical_stacks`).Scan(&state)
-		return err == nil && state == "active"
-	}, 20*time.Second, 50*time.Millisecond)
-	_, err = r.pool.Exec(r.ctx, `UPDATE mythical_items SET version=version+1,state='proposed' WHERE number=$1`, filed.N)
-	require.NoError(t, err)
+		var retained []byte
+		err := r.pool.QueryRow(r.ctx, `SELECT checks->'prManifests',pr_head FROM mythical_items WHERE number=$1 AND state='proposed'`, filed.N).Scan(&retained, &publishedHead)
+		if err != nil {
+			return false
+		}
+		var manifests []struct {
+			Head     string
+			Included []any
+		}
+		if json.Unmarshal(retained, &manifests) != nil {
+			return false
+		}
+		return len(manifests) == 1 && publishedHead != "" && manifests[0].Head == publishedHead && len(manifests[0].Included) == 0
+	}, 30*time.Second, 50*time.Millisecond)
 	hint := func(action string) {
 		payload := []byte(fmt.Sprintf(`{"action":%q,"number":1,"installation":{"id":93},"repository":{"id":100,"name":"app","full_name":"rehearsal-owner/app","owner":{"login":"rehearsal-owner"}},"pull_request":{"number":1,"head":{"ref":%q,"sha":%q}}}`, action, branch, head))
 		mac := hmac.New(sha256.New, []byte("webhook"))
@@ -137,4 +181,29 @@ func TestTODOGitHubCloseReopenComposedInstall(t *testing.T) {
 	require.NoError(t, r.pool.QueryRow(r.ctx, `SELECT count(*) FILTER(WHERE event_type='todo.github_dropped'),count(*) FILTER(WHERE event_type='todo.github_in_review') FROM product_job_events`).Scan(&dropped, &reopened))
 	require.Equal(t, 1, dropped)
 	require.Equal(t, 1, reopened)
+	// A person's merge on GitHub is followed through the real mirror sync and
+	// fetched-PR worker, without an in-product approval or second merge call.
+	access, err = connections.CreateGitHubInstallationToken(r.ctx, 93, services.GitHubTokenScope{AllRepositories: true, Permissions: map[string]string{"pull_requests": "write", "contents": "write"}})
+	require.NoError(t, err)
+	fakeRequest("PUT", "/repos/rehearsal-owner/app/pulls/1/merge", fmt.Sprintf(`{"sha":%q,"merge_method":"squash"}`, publishedHead))
+	code, _, err := r.keyed("POST", "/api/github/sync", "", "gh03-external-merge")
+	require.NoError(t, err)
+	require.Equal(t, 202, code)
+	hint("closed")
+	require.Eventually(t, func() bool { return cardState("merged") }, 60*time.Second, 100*time.Millisecond)
+	var mergeCommit string
+	var land []byte
+	require.NoError(t, r.pool.QueryRow(r.ctx, `SELECT pr_merge_commit,checks->'land' FROM mythical_items WHERE number=$1`, filed.N).Scan(&mergeCommit, &land))
+	require.NotEmpty(t, mergeCommit)
+	require.True(t, len(land) == 0 || string(land) == "null", "external merge never invents approval")
+	mirrored, err := r.gitDoor(token, "-C", work, "ls-remote", "origin", "refs/heads/main")
+	require.NoError(t, err)
+	require.Contains(t, mirrored, mergeCommit+"\trefs/heads/main")
+	merges := 0
+	for _, write := range r.fake.Writes() {
+		if write.Method == "PUT" && write.Path == "/repos/rehearsal-owner/app/pulls/1/merge" {
+			merges++
+		}
+	}
+	require.Equal(t, 1, merges, "only the person's simulated GitHub merge")
 }

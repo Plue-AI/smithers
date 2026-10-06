@@ -97,6 +97,7 @@ type rehearsal struct {
 	root           string
 	evidence       string
 	pool           *pgxpool.Pool
+	repoClient     *repository.Client
 	fake           *githubfake.Server
 	compute        *sandboxfake.Provider
 	coder          rehearsalCodingModel
@@ -134,7 +135,7 @@ var rehearsalTokenField = regexp.MustCompile(`"token":"[^"]*"`)
 
 // newRehearsal composes the install for check (C-J1-04, C-J2) and serves it;
 // it is enabled only by the environment variable enable set to 1.
-func newRehearsal(t *testing.T, enable, check, keyPrefix string) *rehearsal {
+func newRehearsal(t *testing.T, enable, check, keyPrefix string, poolCapacity ...int32) *rehearsal {
 	if os.Getenv(enable) != "1" {
 		t.Skip("enable explicitly with " + enable + "=1")
 	}
@@ -160,7 +161,7 @@ func newRehearsal(t *testing.T, enable, check, keyPrefix string) *rehearsal {
 	// /private/var) and confinement compares it with the workspace root.
 	processRoot, err := filepath.EvalSymlinks(t.TempDir())
 	require.NoError(t, err)
-	pool, databaseURL := postgresfixture.NewProductDatabase(t)
+	pool, databaseURL := postgresfixture.NewProductDatabase(t, poolCapacity...)
 	r.pool = pool
 	gitRoot := t.TempDir()
 	r.gitRoot = gitRoot
@@ -235,6 +236,7 @@ func newRehearsal(t *testing.T, enable, check, keyPrefix string) *rehearsal {
 	engine, err := repository.OpenLocal(repository.Config{StoragePath: t.TempDir(), AuthToken: "rehearsal-repo", FFILibraryPath: library, InstallMainMirror: true})
 	require.NoError(t, err, "build the repository's smithers-ffi library first")
 	t.Cleanup(func() { require.NoError(t, engine.Shutdown(context.Background())) })
+	r.repoClient = engine.Client()
 	require.True(t, engine.Client().InstallMainMirror(), "the install engine's client must carry the install fact")
 	repositoryServer := httptest.NewServer(engine.Handler())
 	t.Cleanup(repositoryServer.Close)

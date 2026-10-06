@@ -3252,6 +3252,11 @@ func (st *mythicalItemStep) proposedFrom(item db.MythicalItem, pull mythicalPull
 	next.PRURL, next.PRState = pull.URL, pull.State
 	proposed := mythicalChecksOf(next)
 	proposed.PRDraft = pull.Draft
+	if shape.Manifest != nil && pull.HeadSHA != "" && pull.HeadSHA == item.PRHead {
+		manifest := *shape.Manifest
+		manifest.Head = pull.HeadSHA
+		proposed.retainManifest(manifest)
+	}
 	if proposed.PRFirst == nil {
 		first := shape.First
 		proposed.PRFirst = &first
@@ -4429,6 +4434,9 @@ type mythicalChecks struct {
 	// PRIncludes are the earlier items the pull request body includes until
 	// they merge, as it was opened.
 	PRIncludes []int64 `json:"prIncludes,omitempty"`
+	// Retained manifests are immutable per published head, including superseded
+	// generations GitHub may report merged after a newer publication.
+	PRManifests []mythicalMergedManifest `json:"prManifests,omitempty"`
 	// PRBody is the digest of the pull request body Smithers last wrote: the
 	// one it opened the pull request with, then each update (reviewBody). A
 	// body GitHub holds that differs is a person's edit, never overwritten.
