@@ -64,7 +64,8 @@ const test = Smithers.Shell.Test({
     Smithers.glob("src/**/*.ts"),
     Smithers.glob("test/**/*.test.ts", { exclude: ["test/faults/**"] }),
     Smithers.file("vitest.config.ts"),
-    Smithers.glob("//packages/repo-targets/test-utils/effect-property.*"),
+    Smithers.file("//packages/repo-targets/test-utils/effect-property.mjs"),
+    Smithers.file("//packages/repo-targets/test-utils/effect-property.d.mts"),
     // `EvaluationCli.test.ts` lists the repository's shipped suites.
     Smithers.glob("//evals/**/*.eval.ts"),
     // `ProductApi.test.ts` checks the generated client against the spec.

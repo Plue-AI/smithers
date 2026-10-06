@@ -23494,9 +23494,12 @@
         "path": "packages/smithers/flows/database/vitest.config.ts"
       },
       {
-        "kind": "glob",
-        "pattern": "packages/repo-targets/test-utils/effect-property.*",
-        "exclude": []
+        "kind": "file",
+        "path": "packages/repo-targets/test-utils/effect-property.mjs"
+      },
+      {
+        "kind": "file",
+        "path": "packages/repo-targets/test-utils/effect-property.d.mts"
       }
     ],
     "outputs": [],
@@ -23922,9 +23925,12 @@
         "path": "packages/smithers/flows/engine-store/vitest.config.ts"
       },
       {
-        "kind": "glob",
-        "pattern": "packages/repo-targets/test-utils/effect-property.*",
-        "exclude": []
+        "kind": "file",
+        "path": "packages/repo-targets/test-utils/effect-property.mjs"
+      },
+      {
+        "kind": "file",
+        "path": "packages/repo-targets/test-utils/effect-property.d.mts"
       }
     ],
     "outputs": [],
@@ -34049,9 +34055,12 @@
         "path": "packages/smithers/vitest.config.ts"
       },
       {
-        "kind": "glob",
-        "pattern": "packages/repo-targets/test-utils/effect-property.*",
-        "exclude": []
+        "kind": "file",
+        "path": "packages/repo-targets/test-utils/effect-property.mjs"
+      },
+      {
+        "kind": "file",
+        "path": "packages/repo-targets/test-utils/effect-property.d.mts"
       },
       {
         "kind": "glob",
