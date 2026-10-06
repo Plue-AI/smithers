@@ -3450,6 +3450,12 @@ func (st *mythicalItemStep) pushProposal(ctx context.Context, item db.MythicalIt
 	default:
 		return &mythicalForeignHead{Branch: op.Branch, Head: current}
 	}
+	// A recorded intent is not permission to publish on an obsolete prefix.
+	// Settle an already-pushed head above without repeating the effect; an
+	// intent interrupted before push must wait for rebase and fresh checks.
+	if item.CandidateBase != st.prefix(item) {
+		return errors.New("rebase_pending: the candidate prefix changed before publication")
+	}
 	lease := "--force-with-lease=refs/heads/" + op.Branch + ":" + op.Expected
 	if _, err := r.g.git(ctx, "push", "--porcelain", "--no-verify", lease, gh.GitURL, op.Head+":refs/heads/"+op.Branch); err != nil {
 		return fmt.Errorf("push the proposal: %s", sanitizeMirrorError(err, gh.GitURL))

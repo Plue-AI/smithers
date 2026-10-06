@@ -92,3 +92,25 @@ func TestCandidatePublicationEqualTreePush(t *testing.T) {
 	require.NoError(t, step.pushProposal(t.Context(), item, mythicalGitHubRepo{GitURL: remote}, op))
 	require.Equal(t, proposal, f.run("--git-dir", remote, "rev-parse", "refs/heads/smithers/test"))
 }
+
+func TestCandidatePublicationReplayOnMovedPrefix(t *testing.T) {
+	f := newMythicalFixture(t)
+	base := f.commit("main", map[string]string{"a": "original\n"})
+	candidate := f.commit("checked", map[string]string{"a": "checked\n"})
+	remote := filepath.Join(t.TempDir(), "github.git")
+	f.run("init", "--quiet", "--bare", remote)
+	service := &MythicalService{publication: &mythicalPublication{}, prFacts: func(context.Context, db.MythicalItem) (mythicalPRShape, error) { return mythicalPRShape{}, nil }}
+	step := &mythicalItemStep{s: service, r: &mythicalRun{g: f.git, mainTip: base}}
+	item := db.MythicalItem{CandidateBase: base, CandidateHead: candidate, CandidateVerified: true, Checks: (mythicalChecks{Branch: "smithers/test"}).encode()}
+	op := mythicalProposalOp{Branch: "smithers/test", Head: candidate}
+	gh := mythicalGitHubRepo{GitURL: remote}
+	step.r.mainTip = f.commit("main moved", map[string]string{"b": "new main\n"})
+	require.ErrorContains(t, step.pushProposal(t.Context(), item, gh, op), "rebase_pending")
+	require.Empty(t, f.run("--git-dir", remote, "for-each-ref", "--format=%(refname)", "refs/heads"), "a recorded intent must not push after main moved")
+	step.r.mainTip = base
+	require.NoError(t, step.pushProposal(t.Context(), item, gh, op))
+	step.r.mainTip = "new-main"
+	require.NoError(t, step.pushProposal(t.Context(), item, gh, op), "settle the effect committed before the crash without a second push")
+	require.Equal(t, candidate, f.run("--git-dir", remote, "rev-parse", "refs/heads/smithers/test"))
+	require.Equal(t, "checked", f.run("--git-dir", remote, "show", "refs/heads/smithers/test:a"))
+}
