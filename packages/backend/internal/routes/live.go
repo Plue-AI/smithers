@@ -76,6 +76,17 @@ func (h *LiveHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		liveRefusal(w, http.StatusServiceUnavailable, "infra", "live_unavailable", "Live updates are unavailable")
 		return
 	}
+	if _, err := services.Authorize(r.Context(), h.Queries, "live"); err != nil {
+		var access *services.AccessError
+		if errors.As(err, &access) {
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(access.Status)
+			_ = json.NewEncoder(w).Encode(access)
+			return
+		}
+		liveRefusal(w, http.StatusServiceUnavailable, "infra", "live_unavailable", "Live updates are unavailable")
+		return
+	}
 	supported := false
 	for _, protocol := range strings.Split(r.Header.Get("Sec-WebSocket-Protocol"), ",") {
 		supported = supported || strings.TrimSpace(protocol) == live.Protocol
