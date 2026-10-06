@@ -1793,7 +1793,7 @@ func (st *mythicalItemStep) commitWith(ctx context.Context, item db.MythicalItem
 			return db.MythicalItem{}, err
 		}
 		delete(request, "feedback")
-		if feedback := todoFeedback(item, item.Attempt); feedback != "" {
+		if feedback := todoLaunchFeedback(item, item.Attempt); feedback != "" {
 			request["feedback"], _ = json.Marshal(feedback)
 		}
 		payload, err = json.Marshal(request)
@@ -2435,10 +2435,7 @@ func (st *mythicalItemStep) startPinned(ctx context.Context, item db.MythicalIte
 	}
 	request := map[string]any{"prompt": todoPrompt(item), "maxRounds": 3,
 		"base": map[string]string{"commitId": base, "ref": ref}}
-	// The steers held for this attempt are its first input (spec §10.7.3).
-	if feedback := todoFeedback(item, next.Attempt); feedback != "" {
-		request["feedback"] = feedback
-	}
+	// commit rebuilds held input and recovery guidance after author checks.
 	// Every question a person answered rides next to the steers.
 	if answers := todoAnswers(item); len(answers) > 0 {
 		request["answers"] = answers
