@@ -4,6 +4,9 @@ import { useSyncExternalStore } from "react"
 import { Markdown, MessageScrollerItem } from "@smthrs/ui"
 import { PlaceholderAvatarUrl } from "@smthrs/rpc/CardPrimitives"
 import { TranscriptMessage } from "./TranscriptMessage"
+import { cardActions } from "./flows/cardActions"
+import { contextActions } from "./flows/contextActions"
+import { contextOpenAction } from "./flows/contextOpenAction"
 import { EntryRow } from "./EntryRow"
 import { CardView } from "./ChatCards"
 import { controllerCardActions } from "./cards/controllerCardActions"
@@ -31,10 +34,13 @@ export function SharedConversation({ source }: { source: SharedConversationSeam 
       const text = frames.flatMap(frame => frame.type === "delta" && frame.kind === "text" ? [frame.text] : []).join("")
       const failure = [...frames].reverse().find(frame => frame.type === "done" && frame.error)
       const color = (turn.author % 6) as 0 | 1 | 2 | 3 | 4 | 5
+      const inspect = cardActions((tag, input) => controller.runCommand(tag, JSON.stringify(input)), turn.preflight ? [
+        { tag: "run.inspect", label: "Inspect", command_input: { id: turn.runId } }
+      ] : [])
       const answer = { kind: "agent" as const, id: turn.runId, agent: "smithers" as const, for_member: person, avatar_url: PlaceholderAvatarUrl, color_index: color }
       return <div key={turn.id} data-shared-turn={turn.id} data-state={turn.state}>
         <MessageScrollerItem style={{ contentVisibility: "visible" }} messageId={`${turn.id}:prompt`}><EntryRow kind="prompt" author={{ kind: "person", ...person, color_index: color }} title="" tone="quiet" card={<Markdown content={turn.prompt} />} onAction={() => {}} /></MessageScrollerItem>
-        <MessageScrollerItem style={{ contentVisibility: "visible" }} messageId={`${turn.id}:answer`}><EntryRow kind="answer" author={answer} title="" tone="quiet" context={turn.context ? { count: turn.context.length, items: turn.context } : undefined} card={<><Markdown content={text} />{failure?.type === "done" && failure.error ? <FailureNotice role="status" failure={describedFailure("SharedTurnFailed", { fault: "infra", sentence: "Smithers could not finish that. Not your fault.", actions: [] }, failure.error)} /> : null}</>} onAction={() => {}} /></MessageScrollerItem>
+        <MessageScrollerItem style={{ contentVisibility: "visible" }} messageId={`${turn.id}:answer`}><EntryRow kind="answer" author={answer} title="" tone="quiet" action={inspect.actions[0]} contextActions={turn.context ? contextActions(turn.context, (tag, input) => controller.runCommand(tag, JSON.stringify(input)), contextOpenAction) : undefined} context={turn.context ? { count: turn.context.length, items: turn.context } : undefined} card={<><Markdown content={text} />{failure?.type === "done" && failure.error ? <FailureNotice role="status" failure={describedFailure("SharedTurnFailed", { fault: "infra", sentence: "Smithers could not finish that. Not your fault.", actions: [] }, failure.error)} /> : null}</>} onAction={inspect.onAction} /></MessageScrollerItem>
         {frames.flatMap((frame) => {
           if (frame.type !== "card") return []
           const card = frame.card

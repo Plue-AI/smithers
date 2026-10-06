@@ -14,18 +14,26 @@ import (
 
 // SharedTurn is a public projection, not a journal capability. Private request
 // context, writer tokens, approvals and the member's queue never enter it.
+type SharedContextPreflight struct {
+	Context    []json.RawMessage `json:"context"`
+	Candidates []json.RawMessage `json:"candidates"`
+	Model      string            `json:"model"`
+	DurationMs float64           `json:"durationMs"`
+}
+
 type SharedTurn struct {
 	*ExternalDraft
-	ID          string             `json:"id"`
-	Title       string             `json:"title"`
-	Tone        string             `json:"tone"`
-	Author      int64              `json:"author"`
-	AuthorLogin string             `json:"authorLogin"`
-	RunID       string             `json:"runId"`
-	Prompt      string             `json:"prompt"`
-	State       State              `json:"state"`
-	Frames      []json.RawMessage  `json:"frames"`
-	Context     *[]json.RawMessage `json:"context,omitempty"`
+	ID          string                  `json:"id"`
+	Title       string                  `json:"title"`
+	Tone        string                  `json:"tone"`
+	Author      int64                   `json:"author"`
+	AuthorLogin string                  `json:"authorLogin"`
+	RunID       string                  `json:"runId"`
+	Prompt      string                  `json:"prompt"`
+	State       State                   `json:"state"`
+	Frames      []json.RawMessage       `json:"frames"`
+	Context     *[]json.RawMessage      `json:"context,omitempty"`
+	Preflight   *SharedContextPreflight `json:"preflight,omitempty"`
 }
 type SharedConversation struct {
 	ID      string       `json:"id"`
@@ -115,6 +123,7 @@ func (s *Store) SharedEntries(ctx context.Context, scope Scope, branch string) (
 						return result, err
 					}
 					entry.Context = preflight.context
+					entry.Preflight = preflight.result
 					if sharedFrame(frame) {
 						entry.Frames = append(entry.Frames, frame)
 					}
@@ -215,6 +224,8 @@ func sharedContext(raw json.RawMessage) []json.RawMessage {
 // sharedPreflight assembles numbered selections across replay pages. A partial
 // phase is never a shared context list; a new page zero fences interrupted work.
 type sharedPreflight struct {
+	result       *SharedContextPreflight
+	candidates   []json.RawMessage
 	context      *[]json.RawMessage
 	pending      []json.RawMessage
 	phase, model string
@@ -229,6 +240,7 @@ func (p *sharedPreflight) apply(raw json.RawMessage) error {
 		Result      struct {
 			Model      string
 			DurationMs float64
+			Candidates []map[string]json.RawMessage
 		}
 	}
 	if json.Unmarshal(raw, &frame) != nil {
@@ -241,6 +253,7 @@ func (p *sharedPreflight) apply(raw json.RawMessage) error {
 		*p = sharedPreflight{}
 		if selected := sharedContext(raw); selected != nil {
 			p.context = &selected
+			p.result = &SharedContextPreflight{Context: selected, Candidates: sharedCandidateItems(frame.Result.Candidates), Model: frame.Result.Model, DurationMs: frame.Result.DurationMs}
 		}
 		return nil
 	}
@@ -249,17 +262,19 @@ func (p *sharedPreflight) apply(raw json.RawMessage) error {
 		return ErrInvalidFrame
 	}
 	if page.Index == 0 {
-		*p = sharedPreflight{phase: frame.Phase, model: frame.Result.Model, duration: frame.Result.DurationMs, total: int(page.Total), pending: []json.RawMessage{}}
+		*p = sharedPreflight{phase: frame.Phase, model: frame.Result.Model, duration: frame.Result.DurationMs, total: int(page.Total), pending: []json.RawMessage{}, candidates: []json.RawMessage{}}
 	} else if float64(p.next) != page.Index || float64(p.total) != page.Total || p.phase != frame.Phase || p.model != frame.Result.Model || p.duration != frame.Result.DurationMs {
 		return ErrInvalidFrame
 	}
 	if frame.Phase == "completed" {
 		p.pending = append(p.pending, sharedContext(raw)...)
 	}
+	p.candidates = append(p.candidates, sharedCandidateItems(frame.Result.Candidates)...)
 	p.next++
 	if p.next == p.total && frame.Phase == "completed" {
 		selected := p.pending
 		p.context = &selected
+		p.result = &SharedContextPreflight{Context: selected, Candidates: p.candidates, Model: p.model, DurationMs: p.duration}
 	}
 	return nil
 }
@@ -285,4 +300,21 @@ func entryTone(state State) string {
 	default:
 		return "quiet"
 	}
+}
+
+// Inspect shares only pinned source identities; repository bytes and extra
+// fields in a provider frame never cross this audience projection.
+func sharedCandidateItems(items []map[string]json.RawMessage) []json.RawMessage {
+	result := make([]json.RawMessage, 0, len(items))
+	for _, item := range items {
+		selected := map[string]json.RawMessage{}
+		for _, key := range []string{"kind", "label", "ref", "revision"} {
+			if value, ok := item[key]; ok {
+				selected[key] = value
+			}
+		}
+		encoded, _ := json.Marshal(selected)
+		result = append(result, encoded)
+	}
+	return result
 }

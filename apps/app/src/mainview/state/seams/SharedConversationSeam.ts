@@ -2,6 +2,7 @@ import { Data } from "effect"
 import { z } from "zod"
 import { AgentTurnFrameSchema } from "@smthrs/rpc/NativeAgent"
 import { ContextItemSchema, ToneSchema } from "@smthrs/rpc/CardPrimitives"
+import { ContextPreflightResultSchema } from "@smthrs/rpc/ContextPreflight"
 import { MessageSchema } from "../AppState"
 import type { ControllerContext } from "../controller/context"
 import type { LiveTopics } from "../useTopic"
@@ -15,7 +16,7 @@ const SharedTurnSchema = z.object({
   origin: z.literal("smithers").optional(),
   id: z.string(), title: z.string().optional(), tone: ToneSchema.optional(), author: z.number().int().positive(), authorLogin: z.string().min(1), runId: z.string(), prompt: z.string(),
   state: z.enum(["accepted", "running", "completed", "failed", "cancelled", "uncertain"]),
-  frames: z.array(AgentTurnFrameSchema), context: z.array(ContextItemSchema).optional()
+  frames: z.array(AgentTurnFrameSchema), context: z.array(ContextItemSchema).optional(), preflight: ContextPreflightResultSchema.optional()
 }).strict()
 export const SharedConversationSchema = z.object({
   id: z.string(),
