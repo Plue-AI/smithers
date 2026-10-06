@@ -260,9 +260,23 @@ func modelAccessLabel(access []db.ModelAccess) string {
 // ingestion owns these snapshots; older attempts are never recomputed from the
 // current candidate. This replaces the previous current-attempt-only projection.
 type todoAttemptEvidence struct {
-	Attempt  int32            `json:"attempt"`
+	Attempt  int32                 `json:"attempt"`
+	Revision string                `json:"revision"`
+	Items    []map[string]any      `json:"items"`
+	Previous *todoRevisionEvidence `json:"previous,omitempty"`
+}
+
+type todoRevisionEvidence struct {
 	Revision string           `json:"revision"`
 	Items    []map[string]any `json:"items"`
+}
+
+func todoEvidenceWithPrevious(current, stored todoAttemptEvidence) todoAttemptEvidence {
+	current.Previous = stored.Previous
+	if stored.Revision != "" && current.Revision != stored.Revision && len(stored.Items) > 0 {
+		current.Previous = &todoRevisionEvidence{Revision: stored.Revision, Items: stored.Items}
+	}
+	return current
 }
 
 func currentTodoEvidence(item db.MythicalItem) todoAttemptEvidence {
@@ -298,7 +312,7 @@ func retainTodoAttemptEvidence(item db.MythicalItem) db.MythicalItem {
 	current := currentTodoEvidence(item)
 	for i, evidence := range checks.Attempts {
 		if evidence.Attempt == item.Attempt {
-			checks.Attempts[i] = current
+			checks.Attempts[i] = todoEvidenceWithPrevious(current, evidence)
 			item.Checks = checks.encode()
 			return item
 		}
@@ -310,12 +324,15 @@ func retainTodoAttemptEvidence(item db.MythicalItem) db.MythicalItem {
 
 func todoEvidence(item db.MythicalItem) []todoAttemptEvidence {
 	evidence := []todoAttemptEvidence{}
+	current := currentTodoEvidence(item)
 	for _, stored := range mythicalChecksOf(item).Attempts {
-		if stored.Attempt != item.Attempt && len(stored.Items) > 0 {
+		if stored.Attempt == item.Attempt {
+			current = todoEvidenceWithPrevious(current, stored)
+		} else if len(stored.Items) > 0 || stored.Previous != nil {
 			evidence = append(evidence, stored)
 		}
 	}
-	if current := currentTodoEvidence(item); current.Attempt > 0 && len(current.Items) > 0 {
+	if current.Attempt > 0 && (len(current.Items) > 0 || current.Previous != nil) {
 		evidence = append(evidence, current)
 	}
 	return evidence
