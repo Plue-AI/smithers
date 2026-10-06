@@ -1,3 +1,4 @@
+import { copyText } from "@smthrs/ui"
 import type { CommandGesture } from "../CommandGesture"
 /*
  * The `chat` flows. One module per namespace: a lane that adds or edits a
@@ -104,18 +105,8 @@ export const chatCopyFlows = (_actions: CommandActions): ReadonlyArray<FlowEntry
      * nothing at all. The refusal is awaited and answered.
      */
     handler: async ({ text }: { readonly text: string }, _signal: AbortSignal, _call: unknown, gesture?: CommandGesture) => {
-      const clipboard = navigator.clipboard
-      if (clipboard === undefined) {
-        return "This browser won't give Smithers the clipboard — select the text and copy it yourself."
-      }
-      try {
-        await (gesture?.copyText ? gesture.copyText(text) : clipboard.writeText(text))
-        return { value: "Copied to clipboard." }
-      } catch (cause) {
-        return cause instanceof Error && cause.name === "NotAllowedError"
-          ? "The browser refused the clipboard — it only allows a copy while the page has focus."
-          : "The copy didn't go through — select the text and copy it yourself."
-      }
+      const result = await copyText(text, gesture?.copyText)
+      return result.ok ? { value: "Copied to clipboard." } : "The copy didn't go through — select the text and copy it yourself."
     }
   }
   return [

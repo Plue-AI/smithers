@@ -132,7 +132,7 @@ C-DUR-02 also has a passing projection for the mounted recorded interrupted run:
 its Interrupted state and last edited phase survive reload without duplicate cards.
 Machine-kill recovery and retry version pinning remain fixme.
 
-| C-INS-01 | [C-INS-01.spec.ts](C-INS-01.spec.ts) | fixme-before-implementation | T-INS-04 |
+| C-INS-01 | [C-INS-01.spec.ts](C-INS-01.spec.ts) | partial: clipboard absent/refused passes; origin journey awaits app-agent output and reference hosts | T-INS-04 |
 | C-INS-03 | [C-INS-03.spec.ts](C-INS-03.spec.ts) | fixme-before-implementation | T-INS-04 |
 | C-INS-05 | [C-INS-05.spec.ts](C-INS-05.spec.ts) | fixme-before-implementation | T-INS-01, T-INS-02 |
 | C-INS-06 | [C-INS-06.spec.ts](C-INS-06.spec.ts) | fixme-before-implementation | T-INS-08 |

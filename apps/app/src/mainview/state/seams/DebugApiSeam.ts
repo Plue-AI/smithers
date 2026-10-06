@@ -1,3 +1,4 @@
+import { randomUuid } from "../../runtime/RandomUuid"
 import type { DebugApiCard, HttpMethod } from "@smthrs/rpc/DebugApiCard"
 import type { FormField } from "@smthrs/rpc/CardAction"
 
@@ -143,7 +144,7 @@ export const createDebugApiSeam = (options: {
   const instance = ++instances
   let abort: AbortController | undefined
   let loading: Promise<void> | undefined
-  const uuid = options.uuid ?? (() => crypto.randomUUID()), now = options.now ?? (() => performance.now())
+  const uuid = options.uuid ?? (() => randomUuid()), now = options.now ?? (() => performance.now())
   snapshot = { model: { operations: [] }, fields: [], epoch, instance }
   const publish = (value: DebugApiSnapshot) => { if (disposed) return; snapshot = { ...value, epoch, instance }; for (const listener of [...listeners]) listener() }
   const available = () => !disposed && Object.values(options.gates()).every(Boolean)

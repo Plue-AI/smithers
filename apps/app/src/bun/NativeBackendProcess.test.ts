@@ -446,7 +446,7 @@ describe("native backend ownership", () => {
   let argv: ReadonlyArray<string> = []
   let childOptions: unknown
   const instance = await startNativeBackend({
-   executablePath: link, stateDir: runtime.state, webRoot, setupHandoff,
+   executablePath: link, stateDir: runtime.state, webRoot, setupHandoff, bind:"0.0.0.0", publicOrigins:["http://lan-a:4000", "https://box.example"],
    env: { ...hostile, SMITHERS_BACKEND_MODE: "plue", SMITHERS_WORKSPACE_ISOLATION: "process", PATH: "/opt/homebrew/bin:/hostile/bin" },
    spawn: (args, options) => {
     argv = args; childOptions = options
@@ -460,7 +460,7 @@ describe("native backend ownership", () => {
     return { exited, kill: () => resolveExit(0) }
    }, fetch: async () => new Response(null, { status: 200 })
   })
-  expect(argv).toEqual(setupHandoff === "socket" ? [runtime.backend, "--setup-handoff=socket"] : [runtime.backend])
+  expect(argv).toEqual([runtime.backend, ...(setupHandoff === "socket" ? ["--setup-handoff=socket"] : []), "--bind", "0.0.0.0", "--origin", "http://lan-a:4000", "--origin", "https://box.example"])
   expect(childOptions).toMatchObject({ stdout: "inherit", stderr: "inherit" })
   expect(instance.mode).toBe("own")
   await instance.stop()

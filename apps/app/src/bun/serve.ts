@@ -2,8 +2,12 @@ import { startNativeBackend } from "./NativeBackendProcess"
 import { nativeStateDirectory } from "./NativeState"
 
 const stateDir = nativeStateDirectory()
+const argument = (name: string) => { const at = process.argv.indexOf(name); return at < 0 ? undefined : process.argv[at + 1] }
+const publicOrigins = process.argv.flatMap((value, at) => value === "--origin" && process.argv[at + 1] ? [process.argv[at + 1]!] : [])
 const backend = await startNativeBackend({
   stateDir,
+  ...(argument("--bind") === undefined ? {} : { bind: argument("--bind")! }),
+  publicOrigins,
   ...(process.argv.includes("--setup-handoff=socket") ? { setupHandoff: "socket" as const } : {})
 })
 const origin = backend.origin

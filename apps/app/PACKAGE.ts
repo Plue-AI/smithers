@@ -373,7 +373,7 @@ const securityReview = Smithers.SecurityReview({
         "An executable path taken from an env override that skips the checksum check.",
         "The bootstrap-token secrets file read when it is group/world readable or not a regular file.",
         "Isolation not forced to microvm or runtime paths taken from the shell.",
-        "An address, origin, PATH or machine sizing value taken from the process environment."
+        "An address, origin, PATH or machine sizing value taken from the process environment instead of explicit owner host flags."
       ],
       paths: ["src/bun/NativeBackendProcess.ts", "src/bun/serve.ts", "scripts/bundle-postgres.ts", "scripts/validate-git-bundle.ts"]
     },

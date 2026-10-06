@@ -3,6 +3,7 @@ import { spawnSync } from "node:child_process"
 import { createHash } from "node:crypto"
 import { existsSync, lstatSync, mkdirSync, readFileSync, readdirSync, readlinkSync, realpathSync, renameSync, rmSync, writeFileSync } from "node:fs"
 import { request } from "node:http"
+import { isIP } from "node:net"
 import { homedir } from "node:os"
 import { dirname, isAbsolute, join, resolve } from "node:path"
 
@@ -42,10 +43,10 @@ export const plist = (value: { readonly [key: string]: PlistValue }): string =>
   ].join("\n")
 
 
-export interface ServiceOptions { readonly bundle: string; readonly stateDir: string; readonly home: string }
+export interface ServiceOptions { readonly bundle: string; readonly stateDir: string; readonly home: string; readonly bind?: string; readonly origins?: ReadonlyArray<string> }
 export const hostPlist = (options: ServiceOptions): string => plist({
   Label: label,
-  ProgramArguments: [join(options.bundle, "bin/smithers-server"), "--setup-handoff=socket"],
+  ProgramArguments: [join(options.bundle, "bin/smithers-server"), "--setup-handoff=socket", ...(options.bind === undefined ? [] : ["--bind", options.bind]), ...(options.origins ?? []).flatMap((origin) => ["--origin", origin])],
   WorkingDirectory: options.stateDir,
   EnvironmentVariables: {
     HOME: options.home,
@@ -226,12 +227,14 @@ export const setupURLs = (stateDir: string): Promise<{ code: string; setup_urls?
     req.on("error", () => reject(new Error("Host setup socket unavailable")))
     req.end()
   })
-export const start = async (input?: string) => {
+export const start = async (input?: string, address: { readonly bind?: string; readonly origins?: ReadonlyArray<string> } = {}) => {
+  validateAddress(address)
   const system = launchd(), stateDir = stateDirectory()
   const bundle = realpathSync(resolveBundle(input))
-  install({ bundle, stateDir, home: homedir() }, system)
+  install({ bundle, stateDir, home: homedir(), ...address }, system)
   await waitReady()
-  return setupURLs(stateDir)
+  const result = await setupURLs(stateDir)
+  return address.bind && !address.origins?.length ? { ...result, warning: "LAN browsers need --origin" } : result
 }
 export const status = async () => {
   const system = launchd(), bundle = installedBundle(system)
@@ -248,4 +251,21 @@ export const doctor = (bundle: string, stateDir: string, run = spawnSync): void 
     env: { HOME: homedir(), PATH: `${bundle}/bin:/usr/bin:/bin`, SMITHERS_DATA_ROOT: stateDir }
   })
   if (result.status !== 0) throw new Error(`Bundled microVM doctor failed: ${bundle}`)
+}
+
+/** Validate local serving flags before changing launchd or opening a listener. */
+export function validateAddress(address: { readonly bind?: string; readonly origins?: ReadonlyArray<string> }): void {
+ if (address.bind !== undefined && address.bind !== "") {
+  const bind = address.bind;
+  const host = isIP(bind) ? bind : bind.match(/^\[([^\]]+)\]:4000$/)?.[1] ?? bind.match(/^([^:]+):4000$/)?.[1] ?? bind;
+  if (host !== "localhost" && !isIP(host)) throw new Error("Invalid bind address");
+ }
+ if ((address.origins?.length ?? 0) > 10) throw new Error("Invalid public origins");
+ const hosts = new Set<string>();
+ for (const origin of address.origins ?? []) {
+  let url: URL;
+  try { url = new URL(origin); } catch { throw new Error("Invalid public origin"); }
+  if (!/^(http|https):$/.test(url.protocol) || !url.host || url.username || url.password || url.pathname !== "/" || url.search || url.hash || origin.endsWith("/") || hosts.has(url.host)) throw new Error("Invalid public origin");
+  hosts.add(url.host);
+ }
 }

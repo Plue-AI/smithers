@@ -185,3 +185,22 @@ describe("private setup handoff", () => {
     await expect(Host.setupURLs(f.root)).rejects.toThrow("mode 0600")
   })
 })
+
+it("passes explicit network settings to the existing bundled launcher", () => {
+ const text = Host.hostPlist({bundle:"/bundle", stateDir:"/state", home:"/home", bind:"0.0.0.0", origins:["http://lan-a:4000", "https://box.example"]})
+ expect(text).toContain("<string>--bind</string>")
+ expect(text).toContain("<string>0.0.0.0</string>")
+ expect(text).toContain("<string>http://lan-a:4000</string>")
+ expect(text).toContain("<string>https://box.example</string>")
+ expect(text.match(/<string>--origin<\/string>/g)).toHaveLength(2)
+})
+
+it("refuses invalid serving flags before host service effects", () => {
+ for (const address of [
+  {bind:"invalid"}, {bind:"0.0.0.0:4001"},
+  {origins:["/relative"]}, {origins:["ftp://box"]}, {origins:["http://box/path"]},
+  {origins:["http://box", "https://box"]}
+ ]) expect(() => Host.validateAddress(address)).toThrow();
+ expect(() => Host.validateAddress({bind:"0.0.0.0",origins:["http://lan-a:4000", "https://box.example"]})).not.toThrow();
+ expect(() => Host.validateAddress({bind:"[::]:4000"})).not.toThrow();
+})

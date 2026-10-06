@@ -31,7 +31,7 @@ import { workspaces } from "./Workspaces.ts"
  * @since 1.0.0
  */
 export const handlers: Record<string, Handler> = {
-  "host start": (_c, _a, o) => HostService.start(typeof o.bundle === "string" ? o.bundle : undefined),
+  "host start": (_c, _a, o) => HostService.start(typeof o.bundle === "string" ? o.bundle : undefined, { ...(typeof o.bind === "string" ? { bind: o.bind } : {}), ...(Array.isArray(o.origin) ? { origins: o.origin as string[] } : {}) }),
   "host stop": async () => HostService.stop(HostService.launchd()),
   "host status": () => HostService.status(),
   ...resources,
@@ -170,7 +170,7 @@ export const mount = (cli: Cli.Cli<any, any, any, any>, runtime: Runtime) => {
     const human = name === "host start"
       ? (value: unknown) => {
         const row = object(value)
-        return Array.isArray(row.setup_urls) ? row.setup_urls.join("\n") : String(row.message ?? "")
+        return Array.isArray(row.setup_urls) ? [...row.setup_urls, ...(row.warning ? [row.warning] : [])].join("\n") : String(row.message ?? "")
       }
       : name === "host status"
       ? (value: unknown) => {

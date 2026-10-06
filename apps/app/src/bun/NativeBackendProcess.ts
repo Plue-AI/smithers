@@ -26,6 +26,8 @@ export interface NativeBackendOptions {
   /** Executable location injection for bundle fixtures only. */
   readonly executablePath?: string
   readonly setupHandoff?: "socket"
+ readonly bind?: string
+ readonly publicOrigins?: ReadonlyArray<string>
   readonly spawn?: (
     argv: ReadonlyArray<string>,
     options: {
@@ -352,7 +354,7 @@ export const startNativeBackend = async (
   // Names only: the triage line for a backend that differs between terminal and Dock launches.
   console.error(`owned backend env: ${Object.keys(environment).sort().join(" ")}`)
   const spawn = options.spawn ?? ((argv, childOptions) => Bun.spawn([...argv], childOptions))
-  const child = spawn(options.setupHandoff === "socket" ? [backend, "--setup-handoff=socket"] : [backend], {
+  const child = spawn([backend, ...(options.setupHandoff === "socket" ? ["--setup-handoff=socket"] : []), ...(options.bind === undefined ? [] : ["--bind", options.bind]), ...(options.publicOrigins ?? []).flatMap((origin) => ["--origin", origin])], {
     env: environment,
     stdout: "inherit",
     stderr: "inherit"

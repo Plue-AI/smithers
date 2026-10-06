@@ -10,7 +10,7 @@ export const definitions = {
   "host start": {
     description: "Start the bundled host service",
     args: z.object({}),
-    options: z.object({ bundle: z.string().optional().describe("Built server bundle directory") })
+    options: z.object({ bundle: z.string().optional().describe("Built server bundle directory"), bind: z.string().optional(), origin: z.array(z.string()).optional() })
   },
   "host stop": {
     description: "Stop the host service",
