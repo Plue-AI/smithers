@@ -74,11 +74,11 @@ test("Make TODO drafts from the open GitHub issue card and never launches a work
   await store.dispatch({ type: "card.upsert", actor: "user", card: { id: "issue-legacy", kind: "issue", title: legacy.title, status: "active", createdAt: 1, ordinal: 1, payload: legacy } }).isPersisted.promise
   expect(await flows.runIssueImplementation(7)).toBe("Open GitHub issue #7 before making a TODO.")
   const github = { ...legacy, title: "Webhooks fail on 502", author: "ben", issueBody: "Webhooks fail on 502", source: "github" as const,
-    htmlUrl: "https://github.com/owner/repo/issues/7",
+    htmlUrl: "https://github.com/owner/repo/issues/7", makeTodoAllowed: true, issueDigest: "a".repeat(64), todoAuthorizationScope: JSON.stringify([store.collections.identitySessions.get("identity"), ""]),
     comments: [{ author: "alice", commentBody: "retry at most 5 times", createdAt: null }] }
   await store.dispatch({ type: "card.upsert", actor: "user", card: { id: "issue-github-owner/repo-7", kind: "issue", title: github.title, status: "active", createdAt: 2, ordinal: 2, payload: github } }).isPersisted.promise
   expect(await flows.runIssueImplementation(7, REPO, true)).toEqual({ value: "Drafted" })
-  expect(drafted).toEqual([{ number: 7, title: "Webhooks fail on 502", body: "Webhooks fail on 502", url: "https://github.com/owner/repo/issues/7",
+  expect(drafted).toEqual([{ number: 7, digest: "a".repeat(64), title: "Webhooks fail on 502", body: "Webhooks fail on 502", url: "https://github.com/owner/repo/issues/7",
     comments: [{ author: "alice", body: "retry at most 5 times" }] }])
   // Another repository's issue and a closed issue draft nothing.
   expect(await flows.runIssueImplementation(7, "other/repo")).toBe("Open GitHub issue #7 before making a TODO.")
@@ -106,5 +106,31 @@ test("review refuses every browser door without reads, selection or launch", asy
   }
   expect(effects).toBe(0)
   expect([...store.collections.cards.values()]).toEqual([])
+  await store.dispose?.()
+})
+
+test("Make TODO refuses missing, incomplete and stale authorization before confirmation or drafting", async () => {
+  const {store,ctx} = await setup()
+  let role = "maintainer"
+  const scopedCtx = {...ctx, issueAuthorizationScope: () => role}
+  let drafts = 0
+  const controller = createIssueFlowsController(scopedCtx, {requireBox: () => undefined, listWorkspaceWorkflows: async () => "", runWorkflow: async () => ""}, {draftFromIssue: async () => { drafts++; return {value:"Drafted"} }})
+  expect(controller.issueTodoRefusal(7,REPO)).toBeDefined()
+  expect(typeof await controller.runIssueImplementation(7,REPO)).toBe("string")
+  const payload = {number:7,repo:REPO,title:"Issue",state:"open" as const,author:"ben",issueBody:"Body",labels:[],comments:[],source:"github" as const}
+  const put = async (extra: object) => store.dispatch({type:"card.upsert",actor:"system",card:{id:"issue-security",kind:"issue",title:"Issue",status:"active",createdAt:1,ordinal:1,payload:{...payload,...extra}}}).isPersisted.promise
+  const digest = "a".repeat(64)
+  for (const extra of [{issueDigest:digest}, {makeTodoAllowed:true}, {makeTodoAllowed:true,issueDigest:digest}]) {
+    await put(extra)
+    expect(controller.issueTodoRefusal(7,REPO)).toBeDefined()
+    expect(typeof await controller.runIssueImplementation(7,REPO)).toBe("string")
+  }
+  // A server-read card is valid only for the identity observation that read it.
+  await put({makeTodoAllowed:true,issueDigest:digest,todoAuthorizationScope:JSON.stringify([store.collections.identitySessions.get("identity"), role])})
+  expect(controller.issueTodoRefusal(7,REPO)).toBeUndefined()
+  role = "member"
+  expect(controller.issueTodoRefusal(7,REPO)).toBeDefined()
+  expect(typeof await controller.runIssueImplementation(7,REPO)).toBe("string")
+  expect(drafts).toBe(0)
   await store.dispose?.()
 })

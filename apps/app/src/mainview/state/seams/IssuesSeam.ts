@@ -1,3 +1,4 @@
+import { issueAuthorizationScope } from "./SeamContext"
 import { invalidatePreparedViews,preparedView,type ViewAction,type ViewResult } from "../PreparedView"
 import { readRepositoryDetail } from "../RepositoryReadReceipts"
 import { readRepositoryListError,repositoryListRead,type RepositoryForm } from "./RepositoryListSeam"
@@ -540,6 +541,7 @@ export const createIssuesSeam = (ctx: SeamContext, renderRepositoryForm?: Reposi
 
   /** One of an install's issues with its comments (GET /api/issues/{n}). */
   const readInstallIssue = async (repo: string, number: number): Promise<ViewResult> => {
+    const authorizationScope = issueAuthorizationScope(ctx)
     let response: Response
     try {
       response = await ctx.http(`${ctx.baseUrl}/api/issues/${number}`)
@@ -552,7 +554,10 @@ export const createIssuesSeam = (ctx: SeamContext, renderRepositoryForm?: Reposi
     const result = githubIssueCard(repo, number, body.issue, body.comments.flatMap(githubCommentOf))
     if (typeof result !== "string" && result.card?.kind === "issue") {
       if (typeof body.issue_digest === "string") result.card.payload.issueDigest = body.issue_digest
-      if (typeof body.make_todo_allowed === "boolean") result.card.payload.makeTodoAllowed = body.make_todo_allowed
+      if (typeof body.make_todo_allowed === "boolean" && authorizationScope === issueAuthorizationScope(ctx)) {
+        result.card.payload.makeTodoAllowed = body.make_todo_allowed
+        result.card.payload.todoAuthorizationScope = authorizationScope
+      }
     }
     return result
   }

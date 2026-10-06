@@ -851,7 +851,11 @@ export const createAppController = (
    * seam call carries the seam deadline, and the tap plus 401 recovery still
    * apply because boundedFetch wraps the tapped http.
    */
+  let issueAuthorizationRevision = 0
+  const issueAuthorizationSession = randomUuid()
+  if (services.live) ctx.onDispose(services.live.subscribe("members", () => { issueAuthorizationRevision++ }))
   const seamCtx: SeamContext = {
+    issueAuthorizationScope: () => installHost ? `${issueAuthorizationSession}:${issueAuthorizationRevision}` : "",
     resolveToast,
     withToast,
     isDisposed: () => ctx.disposed,

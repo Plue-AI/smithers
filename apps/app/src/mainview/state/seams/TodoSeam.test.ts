@@ -102,7 +102,7 @@ describe("TodoSeam — admission and live completion", () => {
     const h = await harness(async (url, init) => { calls.push({ url, init }); return json({ state: "accepted", n: 12 }) })
     try {
       const issue = {
-        number: 7, title: "Webhooks fail on 502", body: "Webhooks fail on 502", url: "https://github.com/acme/app/issues/7",
+        number: 7, digest: "4babb1e1dd0eee80b2bc65f0117d7ac639a2914627f7a0569119d42379ce3d37", title: "Webhooks fail on 502", body: "Webhooks fail on 502", url: "https://github.com/acme/app/issues/7",
         comments: [{ author: "maya", body: "Seen on staging too." }, { author: "alice", body: "retry at most 5 times\nwith jittered backoff" }, { author: null, body: "  " }]
       }
       expect(await h.seam.draftFromIssue(issue)).toEqual({ value: "Drafted" })
@@ -116,7 +116,7 @@ describe("TodoSeam — admission and live completion", () => {
         prompt: "Webhooks fail on 502\n\n@maya:\n> Seen on staging too.\n\n@alice:\n> retry at most 5 times\n> with jittered backoff",
         acceptance: [], private: true,
         issue: { number: 7, title: "Webhooks fail on 502", url: "https://github.com/acme/app/issues/7", fixes: true },
-        // SHA-256 of "Webhooks fail on 502\0Webhooks fail on 502", the install's mythicalIssueDigest.
+        // The server-issued snapshot digest is retained unchanged.
         issueDigest: "4babb1e1dd0eee80b2bc65f0117d7ac639a2914627f7a0569119d42379ce3d37"
       })
       expect(CardSchema.parse(h.draft()).payload).toEqual(h.draft().payload)
@@ -746,4 +746,12 @@ describe("TodoSeam — the TODO list Home reads where no `home` topic is served 
       expect(out.seam.list.get()).toEqual({})
     } finally { out.close() }
   })
+})
+
+test("Make TODO refuses a missing server digest before writing any Draft", async () => {
+ const h = await harness(async () => json({state:"accepted",n:12}))
+ try {
+  expect(typeof await h.seam.draftFromIssue({number:7,title:"Issue",body:"Body",url:"https://github.com/acme/app/issues/7",comments:[]})).toBe("string")
+  expect([...h.store.collections.cards.values()].filter(row => row.kind === "draft")).toHaveLength(0)
+ } finally {h.close()}
 })

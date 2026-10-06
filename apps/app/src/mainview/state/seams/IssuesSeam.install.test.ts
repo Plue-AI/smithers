@@ -27,6 +27,7 @@ const installApp = async ({ loaded = true, allowed = true } = {}) => {
   const install = { ...installFixture(), repository: { owner: "local-owner", name: "demo" }, repositories: [REPO] }
   const calls: string[] = []
   const posts: Array<{ path: string; body: unknown }> = []
+  const listeners = new Map<string, Set<() => void>>()
   const answer = (path: string, search: string): Response => {
     if (path === "/api/issues") return Response.json(new URLSearchParams(search).get("state") === "closed" ? []
       : [githubIssue(2, "Say goodbye", "JOURNEY.md should end with a farewell.", "ben"), githubIssue(1, "Retry webhooks", "They drop on 502.", "ben")])
@@ -38,6 +39,7 @@ const installApp = async ({ loaded = true, allowed = true } = {}) => {
     return new Response("", { status: 404 })
   }
   const controller = createAppController(store, silentAgent, {
+    live: { subscribe: (topic, receive) => { const rows = listeners.get(topic) ?? new Set<() => void>(); rows.add(receive); listeners.set(topic, rows); return () => { rows.delete(receive) } }, getSnapshot: () => undefined },
     bootstrap: { apiVersion: 1, host: "cloud", version: "test", buildSha: "test", authFlow: "redirect", sandbox: null, capabilities: ["identity", "install"] },
     fetchImpl: signupProfileFetch(async (input, init) => {
       const url = new URL(input instanceof Request ? input.url : String(input), "https://app.test")
@@ -47,7 +49,7 @@ const installApp = async ({ loaded = true, allowed = true } = {}) => {
       return answer(url.pathname, url.search)
     }).fetchImpl
   })
-  return { store, controller, calls, posts }
+  return { store, controller, calls, posts, roleChanged: () => { for (const receive of listeners.get("members") ?? []) receive() } }
 }
 
 const cardOf = <K extends Card["kind"]>(cards: Iterable<Card>, id: string, kind: K): Extract<Card, { kind: K }> => {
@@ -128,4 +130,23 @@ test("an install refuses a Member draft from outsider text before writing any Dr
     expect([...store.collections.cards.values()].filter(card => card.kind === "draft")).toHaveLength(0)
     expect(posts.filter(post => post.path === "/api/todos")).toHaveLength(0)
   } finally { await controller.dispose() }
+})
+
+test("a roster role change invalidates an allowed issue before the agent confirmation and private Draft", async () => {
+ const {store,controller,roleChanged,posts} = await installApp()
+ try {
+  expect(await controller.runCommandForResult("issue", "#2")).toMatchObject({status:"executed"})
+  const issue = cardOf(store.collections.cards.values(), `issue-github-${REPO}-2`, "issue")
+  expect(issue.payload.makeTodoAllowed).toBe(true)
+  roleChanged()
+  const agent = await controller.commands.executeForAgent({name:"commands",arguments:JSON.stringify({action:"execute",name:"todo.from-issue",args:`2 ${REPO}`})})
+  expect(agent).not.toContain("asked the user to confirm")
+  expect(agent).toContain("check permission")
+  expect(await controller.runCommandForResult("todo.from-issue", `2 ${REPO}`)).toMatchObject({status:"failed"})
+  expect([...store.collections.cards.values()].some(card => card.kind === "draft" || card.kind === "confirm")).toBe(false)
+  expect(posts).toEqual([])
+  // A fresh authorized read permits drafting again.
+  expect(await controller.runCommandForResult("issue", "#2")).toMatchObject({status:"executed"})
+  expect(await controller.runCommandForResult("todo.from-issue", `2 ${REPO}`)).toMatchObject({status:"executed",value:"Drafted"})
+ } finally {await controller.dispose()}
 })

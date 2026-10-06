@@ -20,6 +20,8 @@ import type { AppStore } from "../AppStore"
 export type SeamFetch = (input: string, init?: RequestInit) => Promise<Response>
 
 export interface SeamContext {
+  /** Changes whenever live roster authorization is invalidated. */
+  readonly issueAuthorizationScope?: () => string
   readonly http: SeamFetch
   /**
    * The unbounded streaming door: the tapped fetch WITHOUT boundedFetch's
@@ -198,3 +200,7 @@ export const readGitHubRefusal = async (response: Response, fallback: string): P
   }
   return { line }
 }
+
+/** Bind issue-read authorization to the current identity and live roster observation. */
+export const issueAuthorizationScope = (ctx: SeamContext): string =>
+  JSON.stringify([ctx.store.collections.identitySessions.get("identity"), ctx.issueAuthorizationScope?.() ?? ""])

@@ -3,7 +3,7 @@ import { TodoCardSchema, type TodoCard } from "@smthrs/rpc/TodoCard"
 import { DraftCardSchema, type DraftCard } from "@smthrs/rpc/DraftCard"
 import type { Card } from "@smthrs/rpc/Cards"
 /* The routes and cards the model host's TODO commands share (@smthrs/rpc/TodoCommands). */
-import { draftCard, issueDigest, todoCard, todoPath, TODOS_PATH, type DraftEntry, type TodoEntry } from "@smthrs/rpc/TodoCommands"
+import { draftCard, todoCard, todoPath, TODOS_PATH, type DraftEntry, type TodoEntry } from "@smthrs/rpc/TodoCommands"
 import { Data, Schema } from "effect"
 import { TodoNewInput, TodoAmendInput } from "../../flows/entries/todo"
 import { actorSharedState } from "../ActorBindings"
@@ -385,11 +385,11 @@ export const createTodoSeam = (ctx: SeamContext, options: TodoSeamOptions = {}) 
   /** Make TODO: the author's private Draft of the issue and its discussion, committed like any Draft (spec §14.5.1). */
   const draftFromIssue = async (source: IssueDraftSource) => {
     const refusal = signedIn(); if (refusal) return refusal
+    if (!source.digest || !/^[0-9a-f]{64}$/.test(source.digest)) return "Open the issue again before making a TODO."
     const open = [...ctx.store.collections.cards.values()].some(row => row.kind === "draft" && row.audience_member_id === owner()
       && !row.payload.committed && row.payload.issue?.number === source.number)
     if (open) return { value: "Drafted" }
-    let digest: string
-    try { digest = source.digest ?? issueDigest(source.title, source.body) } catch { return "This issue's text cannot be read." }
+    const digest = source.digest
     const id = `draft:${randomUuid()}`
     await write(draftCard({ id, author: owner()!, text: issuePrompt(source), title: source.title, options: placeOptions(),
       issue: { number: source.number, title: source.title, url: source.url, fixes: true }, issueDigest: digest,

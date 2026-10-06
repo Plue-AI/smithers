@@ -1616,6 +1616,7 @@ const CurrentCardSchema = z.discriminatedUnion("kind", [
       issueBody: z.string(),
       issueDigest: z.string().regex(/^[0-9a-f]{64}$/).optional(),
       makeTodoAllowed: z.boolean().optional(),
+      todoAuthorizationScope: z.string().optional(),
       source: z.enum(["smithers-cloud", "github"]).optional(),
       htmlUrl: HttpUrlSchema.optional(),
       conversation: z.object({ branchId: z.string(), owner: z.string(), creationKey: z.string() }).optional(),

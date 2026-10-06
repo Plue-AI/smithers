@@ -24,10 +24,10 @@ test("Make TODO uses one handler for slash, button, agent and recorded cards", a
     expect(flowArgs("todo.from-issue", { number: 7, repo: "owner/repo" })).toBe("7 owner/repo")
     for (const name of ["todo.from-issue", "issue.implement"]) {
       // No GitHub issue card is open, so there is nothing to draft from.
-      expect(await controller.runCommandForResult(name, "7 owner/repo")).toEqual({ status: "failed", error: "Open GitHub issue #7 before making a TODO." })
+      expect(await controller.runCommandForResult(name, "7 owner/repo")).toEqual({ status: "failed", error: "Open the issue again to check permission to make a TODO." })
       await controller.commands.submit({ name, payload: { number: 7, repo: "owner/repo" }, actor: "user" })
     }
-    expect(await controller.commands.executeForAgent({ name: "commands", arguments: JSON.stringify({ action: "execute", name: "todo.from-issue", args: "7 owner/repo" }) })).toContain("asked the user to confirm")
+    expect(await controller.commands.executeForAgent({ name: "commands", arguments: JSON.stringify({ action: "execute", name: "todo.from-issue", args: "7 owner/repo" }) })).not.toContain("asked the user to confirm")
     expect(requests).toEqual([])
     expect([...store.collections.cards.values()].some(card => card.kind === "run-trace" || card.kind === "change")).toBe(false)
   } finally { await controller.dispose() }
@@ -46,6 +46,7 @@ test("Make TODO on a GitHub issue card opens its author's Draft and files nothin
   }).fetchImpl })
   try {
     const issue = { repo: "owner/repo", number: 7, title: "Webhooks fail on 502", state: "open" as const, author: "ben", issueBody: "Webhooks fail on 502",
+      makeTodoAllowed: true, issueDigest: "a".repeat(64), todoAuthorizationScope: JSON.stringify([store.collections.identitySessions.get("identity"), ""]),
       source: "github" as const, htmlUrl: "https://github.com/owner/repo/issues/7", labels: [],
       comments: [{ author: "alice", commentBody: "retry at most 5 times", createdAt: null }] }
     await store.dispatch({ type: "card.upsert", actor: "user", card: { id: "issue-github-owner/repo-7", kind: "issue", title: issue.title, status: "active", createdAt: 1, ordinal: 1, payload: issue } }).isPersisted.promise

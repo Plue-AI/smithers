@@ -3,7 +3,7 @@ import type { Card } from "../AppState"
 type IssuePayload = Extract<Card, { kind: "issue" }>["payload"]
 import { gatewayBindingFor,resolveTargetRepo } from "../RepoContext"
 import type { SeamContext } from "../seams/SeamContext"
-import { readResult } from "../seams/SeamContext"
+import { issueAuthorizationScope, readResult } from "../seams/SeamContext"
 import type { WorkflowController } from "./workflows"
 import type { TodoSeam } from "../seams/TodoSeam"
 import { flowArgs } from "../../flows/FlowArgs"
@@ -22,6 +22,9 @@ export const createIssueFlowsController = (
   flows: Pick<WorkflowController, "listWorkspaceWorkflows" | "runWorkflow" | "requireBox">,
   todos: Pick<TodoSeam, "draftFromIssue">
 ): IssueFlowsController => {
+  const authorized = (issue: IssuePayload): boolean => issue.makeTodoAllowed === true
+    && /^[0-9a-f]{64}$/.test(issue.issueDigest ?? "")
+    && issue.todoAuthorizationScope === issueAuthorizationScope(ctx)
   const cards = (): Array<Card> => [...ctx.store.collections.cards.values()]
   const requireBox = (repo: string, flow: string, args: string, title: string, humanDoor: boolean): string | { readonly value: string } | undefined => {
     if (humanDoor) return flows.requireBox(repo, { flow, args }, title)
@@ -61,7 +64,8 @@ export const createIssueFlowsController = (
       const resolved = resolveTargetRepo(ctx.store, explicit)
       if ("error" in resolved) return resolved.error
       const issue = cards().find(card => card.kind === "issue" && card.payload.source === "github" && card.payload.repo === resolved.repo && card.payload.number === number)
-      return issue?.kind === "issue" && issue.payload.makeTodoAllowed === false ? "Only a maintainer can make a TODO from this issue." : undefined
+      if (issue?.kind === "issue" && issue.payload.makeTodoAllowed === false) return "Only a maintainer can make a TODO from this issue."
+      return issue?.kind === "issue" && authorized(issue.payload) ? undefined : "Open the issue again to check permission to make a TODO."
     },
     inspectIssueFlows,
     // Make TODO: a private Draft of the GitHub issue the card shows, its text
@@ -75,6 +79,7 @@ export const createIssueFlowsController = (
       if (issue === undefined) return `Open GitHub issue #${number} before making a TODO.`
       if (issue.state === "closed") return `Issue #${number} is closed.`
       if (issue.makeTodoAllowed === false) return "Only a maintainer can make a TODO from this issue."
+      if (!authorized(issue)) return "Open the issue again to check permission to make a TODO."
       return todos.draftFromIssue({ number, ...(issue.issueDigest ? { digest: issue.issueDigest } : {}), title: issue.title, body: issue.issueBody, url: issue.htmlUrl ?? `https://github.com/${resolved.repo}/issues/${number}`,
         comments: issue.comments.map(comment => ({ author: comment.author, body: comment.commentBody })) })
     },
