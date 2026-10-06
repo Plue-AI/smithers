@@ -79,7 +79,7 @@ func decodeMythicalOutbound(raw json.RawMessage) (MythicalOutboundOp, error) {
 		}
 	}
 	switch op.Kind {
-	case "push", "open", "body", "merge", "close":
+	case "push", "open", "body", "draft", "merge", "close":
 	default:
 		return op, errors.New("invalid pending GitHub operation kind")
 	}
@@ -163,7 +163,7 @@ func (st *mythicalItemStep) recoverOutbound(ctx context.Context, item db.Mythica
 	if op.State == "intended" {
 		// Drop retains uncertain effects for lookup, but never authorizes another
 		// proposal. Its owner must settle the terminal close obligation first.
-		if (item.State == "cancelled" || item.State == "dropped") && (op.Kind == "push" || op.Kind == "open" || op.Kind == "body") {
+		if (item.State == "cancelled" || item.State == "dropped") && (op.Kind == "push" || op.Kind == "open" || op.Kind == "body" || op.Kind == "draft") {
 			// An in-flight request may still apply after this read. Retain
 			// the uncertain slot; Drop never authorizes a proposal repeat.
 			return nil, errors.New("dropped proposal cannot be repeated")
@@ -184,7 +184,7 @@ func (st *mythicalItemStep) recoverOutbound(ctx context.Context, item db.Mythica
 			return nil, err
 		}
 		if err := p.Send(st, ctx, item, op); err != nil {
-			if errors.Is(err, errMythicalBodyStale) {
+			if errors.Is(err, errMythicalBodyStale) || errors.Is(err, errMythicalPlacementStale) {
 				// Nothing was sent: the gate prepares the body again.
 				item.PendingOp = nil
 				saved, saveErr := st.q.SaveMythicalItemUnderLease(ctx, item, st.r.row.Claim)
@@ -293,6 +293,9 @@ func (st *mythicalItemStep) yieldBody(ctx context.Context, item db.MythicalItem)
 	next := item
 	next.PendingOp = nil
 	checks := mythicalChecksOf(next)
+	if op, err := decodeMythicalOutbound(item.PendingOp); err == nil {
+		checks.PRBodyDeclined = op.Desired
+	}
 	if checks.Review != nil && checks.Review.Head == next.PRHead {
 		checks.Review.Posted = true
 	}

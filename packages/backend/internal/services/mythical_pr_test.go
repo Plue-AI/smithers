@@ -65,6 +65,7 @@ func TestTODOPrLifecycleDecision(t *testing.T) {
 		{"missing commit", mythicalGitHubFact{Kind: "merged", OnMain: true}, mythicalGitHubFactItem{State: "working"}, mythicalGitHubFactDecision{Noop: "merge_not_on_main"}},
 		{"close", mythicalGitHubFact{Kind: "closed"}, mythicalGitHubFactItem{State: "failed"}, mythicalGitHubFactDecision{Event: "dropped"}},
 		{"duplicate close", mythicalGitHubFact{Kind: "closed"}, mythicalGitHubFactItem{State: "dropped"}, mythicalGitHubFactDecision{Noop: "already_closed"}},
+		{"cancelled absorbs close", mythicalGitHubFact{Kind: "closed"}, mythicalGitHubFactItem{State: "cancelled"}, mythicalGitHubFactDecision{Noop: "already_closed"}},
 		{"day six", mythicalGitHubFact{Kind: "reopened"}, mythicalGitHubFactItem{State: "dropped", ClosedAt: now.Add(-6 * 24 * time.Hour)}, mythicalGitHubFactDecision{Event: "in_review"}},
 		{"day seven inclusive", mythicalGitHubFact{Kind: "reopened"}, mythicalGitHubFactItem{State: "dropped", ClosedAt: now.Add(-7 * 24 * time.Hour)}, mythicalGitHubFactDecision{Event: "in_review"}},
 		{"one nanosecond late", mythicalGitHubFact{Kind: "reopened"}, mythicalGitHubFactItem{State: "dropped", ClosedAt: now.Add(-7*24*time.Hour - time.Nanosecond)}, mythicalGitHubFactDecision{Noop: "reopen_window_expired"}},

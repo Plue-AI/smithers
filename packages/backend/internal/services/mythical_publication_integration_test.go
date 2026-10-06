@@ -546,3 +546,68 @@ func TestTodoPublicationPushesOnlyTheRecordedTodoBranch(t *testing.T) {
 		})
 	}
 }
+
+// Fixture acceptance supplies a verified unchanged tree after the prompt or
+// placement changed. Publication and keyed recovery use the real worker and App.
+func TestTodoPublicationUpdatesAcceptedBodyAndPlacementDraftThroughRecovery(t *testing.T) {
+	f := newPublicationFixture(t, false)
+	ctx := context.Background()
+	first := f.todo("First", "original prompt", f.main, "FIRST.txt", "first\n")
+	f.wake()
+	item := f.item(first.Number.Int64)
+	number := item.PRNumber.Int64
+	item.Revisions = []byte(`[{"rev":1,"text":"original prompt"},{"rev":2,"text":"updated prompt","acceptance":["passes"]}]`)
+	item.State = "proposing"
+	_, err := db.New(f.pool).SaveMythicalItem(ctx, item)
+	require.NoError(t, err)
+	for range 5 {
+		f.wake()
+	}
+	item = f.item(first.Number.Int64)
+	require.Equal(t, number, item.PRNumber.Int64)
+	require.Equal(t, "proposed", item.State, item.Reason)
+	gh, err := f.service.github.Resolve(ctx, mustPublicationRepository(t, f), "smithers-canary", f.userID)
+	require.NoError(t, err)
+	pull, err := f.service.github.Pull(ctx, gh, number)
+	require.NoError(t, err)
+	require.Contains(t, pull.Body, "updated prompt")
+	require.NotContains(t, pull.Body, "original prompt")
+	require.Len(t, f.pullCreates(), 1)
+	// Put an unverified predecessor before it. That predecessor contributes no
+	// tree, so the original item's verified candidate still has main as base.
+	_, err = f.pool.Exec(ctx, `INSERT INTO mythical_items(repository_id,source,state,issue_title,checks) VALUES ($1,'todo','proposed','Waiting predecessor','{"branch":"smithers/waiting-predecessor"}')`, f.repoID)
+	require.NoError(t, err)
+	_, err = f.pool.Exec(ctx, `UPDATE mythical_items SET stack_position=CASE WHEN id=$2 THEN 2 ELSE 1 END, state=CASE WHEN id=$2 THEN 'proposing' ELSE state END WHERE repository_id=$1`, f.repoID, first.ID)
+	require.NoError(t, err)
+	for range 5 {
+		f.wake()
+	}
+	item = f.item(first.Number.Int64)
+	require.True(t, mythicalChecksOf(item).PRDraft)
+	require.Empty(t, item.PendingOp)
+	require.Equal(t, "proposed", item.State, item.Reason)
+	// Its predecessor drops, and the already accepted head becomes first.
+	_, err = f.pool.Exec(ctx, `UPDATE mythical_items SET state=CASE WHEN id=$2 THEN 'proposing' ELSE 'rejected' END WHERE repository_id=$1`, f.repoID, first.ID)
+	require.NoError(t, err)
+	for range 5 {
+		f.wake()
+	}
+	item = f.item(first.Number.Int64)
+	require.False(t, mythicalChecksOf(item).PRDraft)
+	require.Empty(t, item.PendingOp)
+	require.Equal(t, number, item.PRNumber.Int64)
+	mutations := 0
+	for _, write := range f.fake.Writes() {
+		if write.Path == "/graphql" {
+			mutations++
+		}
+	}
+	require.Equal(t, 2, mutations, "one draft and one ready mutation; lookup never duplicates writes")
+}
+
+func mustPublicationRepository(t *testing.T, f *publicationFixture) db.Repository {
+	t.Helper()
+	repository, err := db.New(f.pool).GetRepoByID(context.Background(), f.repoID)
+	require.NoError(t, err)
+	return repository
+}

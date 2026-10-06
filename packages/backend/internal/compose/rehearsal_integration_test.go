@@ -86,14 +86,17 @@ func (h offlineGatewayHost) RunModelTest(ctx context.Context, owner int64, reque
 
 // rehearsal is one composed install a journey rehearsal walks.
 type rehearsal struct {
-	t        *testing.T
-	ctx      context.Context
-	root     string
-	evidence string
-	pool     *pgxpool.Pool
-	fake     *githubfake.Server
-	compute  *sandboxfake.Provider
-	coder    rehearsalCodingModel
+	// stepBudget overrides readiness polling for non-latency checks under contention.
+	stepBudget     time.Duration
+	installationID int64
+	t              *testing.T
+	ctx            context.Context
+	root           string
+	evidence       string
+	pool           *pgxpool.Pool
+	fake           *githubfake.Server
+	compute        *sandboxfake.Provider
+	coder          rehearsalCodingModel
 	// mainCommit is the repository's main as the fake's Git holds it, under
 	// gitRoot (<owner>/<repo>.git).
 	mainCommit string
@@ -200,6 +203,12 @@ func newRehearsal(t *testing.T, enable, check, keyPrefix string) *rehearsal {
 	if os.Getenv("REHEARSAL_CONFIG_FIXTURE") == "go" {
 		installationID = 92
 	}
+	if configured := os.Getenv("REHEARSAL_INSTALLATION_ID"); configured != "" {
+		installationID, err = strconv.ParseInt(configured, 10, 64)
+		require.NoError(t, err)
+		require.Positive(t, installationID)
+	}
+	r.installationID = installationID
 	r.fake, err = githubfake.New(githubfake.Config{OAuthCode: "owner-code", GitRoot: gitRoot, AppID: 42, Slug: "j1-rehearsal", OwnerLogin: "rehearsal-owner", OwnerKind: "user", ClientID: "client", ClientSecret: "secret", WebhookSecret: "webhook", PrivateKeyPEM: string(pem.EncodeToMemory(&pem.Block{Type: "RSA PRIVATE KEY", Bytes: x509.MarshalPKCS1PrivateKey(key)})), ConversionCode: "manifest-code", Installations: []githubfake.Installation{{ID: installationID, Repositories: []githubfake.Repository{{ID: 100, FullName: "rehearsal-owner/app", Private: true}, {ID: 101, FullName: "rehearsal-owner/trunk-app", Private: true, DefaultBranch: "trunk"}}}}})
 	require.NoError(t, err)
 	t.Cleanup(r.fake.Close)
@@ -440,7 +449,11 @@ func (r *rehearsal) expectAs(jar http.CookieJar, method, path, body string, stat
 // waitStep waits for one setup step to finish in its background worker;
 // Source waits out the durable importer's clone of main.
 func (r *rehearsal) waitStep(id string) error {
-	deadline := time.Now().Add(30 * time.Second)
+	budget := r.stepBudget
+	if budget == 0 {
+		budget = 30 * time.Second
+	}
+	deadline := time.Now().Add(budget)
 	for time.Now().Before(deadline) {
 		data, err := r.expect("GET", "/api/install", "", 200)
 		if err != nil {
@@ -897,7 +910,7 @@ func (r *rehearsal) readFakePull(number int64) (githubfake.Pull, error) {
 	}
 	credentials := services.NewGitHubAppCredentialStore(r.pool, codec)
 	tokens := services.NewRepoConnectionService(r.pool, credentials)
-	access, err := tokens.CreateGitHubInstallationToken(r.ctx, 91, services.GitHubTokenScope{AllRepositories: true, Permissions: map[string]string{"pull_requests": "read"}})
+	access, err := tokens.CreateGitHubInstallationToken(r.ctx, r.installationID, services.GitHubTokenScope{AllRepositories: true, Permissions: map[string]string{"pull_requests": "read"}})
 	if err != nil {
 		return githubfake.Pull{}, err
 	}

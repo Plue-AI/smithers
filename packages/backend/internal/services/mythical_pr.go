@@ -41,8 +41,8 @@ func (g *mythicalGitHubAPI) UpdatePullBody(ctx context.Context, gh mythicalGitHu
 	return nil
 }
 
-// These adapter writes are intentionally not mounted: T-GH-09 must journal
-// their intent and reconcile ambiguous success before any production caller.
+// Draft changes use the keyed outbound draft operation; lookup reconciles
+// ambiguous success before a production caller repeats the mutation.
 func (g *mythicalGitHubAPI) MarkReadyForReview(ctx context.Context, gh mythicalGitHubRepo, nodeID string) error {
 	return g.pullDraftMutation(ctx, gh, nodeID, "markPullRequestReadyForReview")
 }
@@ -187,7 +187,7 @@ func decideGitHubFact(f mythicalGitHubFact, item mythicalGitHubFactItem, now tim
 	case item.State == "merged" || item.State == "landed":
 		return mythicalGitHubFactDecision{Noop: "terminal"}
 	case f.Kind == "closed":
-		if item.State == "dropped" || item.State == "rejected" {
+		if item.State == "dropped" || item.State == "rejected" || item.State == "cancelled" {
 			return mythicalGitHubFactDecision{Noop: "already_closed"}
 		}
 		return mythicalGitHubFactDecision{Event: "dropped"}

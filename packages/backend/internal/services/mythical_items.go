@@ -1093,6 +1093,20 @@ func (s *MythicalService) advanceItems(ctx context.Context, r *mythicalRun) {
 			items = append(items, obligation)
 		}
 	}
+	// Reopen polling is uncapped too: dropped PRs can sit behind a large
+	// active backlog, yet still owe the same seven-day follow window.
+	if s.installGitHubPolling {
+		followed, err := q.ListMythicalOpenPullItems(ctx, r.row.RepositoryID)
+		if err != nil {
+			s.logger.Warn("mythical.pulls_failed", "error", err)
+			return
+		}
+		for _, item := range followed {
+			if !slices.ContainsFunc(items, func(other db.MythicalItem) bool { return other.ID == item.ID }) {
+				items = append(items, item)
+			}
+		}
+	}
 	// Runs in flight are read apart from the capped listing, so a long
 	// backlog never hides one from the daily budget's reservations.
 	active, err := q.ListMythicalItemsInStates(ctx, r.row.RepositoryID, []string{"running", "delivering", "verifying", "proposed"})
@@ -1161,7 +1175,7 @@ func (s *MythicalService) advanceItems(ctx context.Context, r *mythicalRun) {
 			if item.WorkspaceID != "" && (mythicalSettledStates[item.State] || item.State == "proposed" && !mythicalChecksOf(item).reviewing(item)) {
 				item = s.releaseLane(ctx, r, item)
 			}
-			if mythicalSettledStates[item.State] {
+			if mythicalSettledStates[item.State] && !mythicalReopenFollowed(item, step.now) {
 				continue
 			}
 		}
@@ -1233,10 +1247,32 @@ func mythicalNextDue(before, after db.MythicalItem, now time.Time) time.Time {
 // next (a new state, or a GitHub operation sent or settled). A settled item
 // steps on only to settle a GitHub operation it still owes (Drop's close)
 // and then to release its lane.
+func mythicalGitHubClosedAt(item db.MythicalItem) time.Time {
+	if at := mythicalChecksOf(item).GitHubClosedAt; at != nil {
+		return *at
+	}
+	return item.UpdatedAt.Time
+}
+
+// Rejected PRs are retained in the polling set through the inclusive seven-day
+// reopen window. Polls must not move the close timestamp forward.
+func mythicalReopenFollowed(item db.MythicalItem, now time.Time) bool {
+	if item.State != "rejected" || item.PRState != "closed" || !item.PRNumber.Valid {
+		return false
+	}
+	at := mythicalGitHubClosedAt(item)
+	return !at.IsZero() && !now.Before(at) && now.Sub(at) <= 7*24*time.Hour
+}
+
 func mythicalDue(item db.MythicalItem, moved bool, now time.Time) time.Time {
 	switch {
 	case mythicalSettledStates[item.State] && moved && (len(item.PendingOp) > 0 || item.WorkspaceID != ""):
 		return now
+	case mythicalReopenFollowed(item, now):
+		if item.NextAttemptAt.Valid && item.NextAttemptAt.Time.After(now) {
+			return item.NextAttemptAt.Time
+		}
+		return now.Add(mythicalPullPollEvery)
 	case mythicalSettledStates[item.State]:
 		return time.Time{}
 	case item.NextAttemptAt.Valid && item.NextAttemptAt.Time.After(now):
@@ -1500,6 +1536,11 @@ func (st *mythicalItemStep) advance(ctx context.Context, item db.MythicalItem) (
 			return next, false, err
 		}
 		return st.gate(ctx, *next)
+	case "rejected":
+		if mythicalReopenFollowed(item, st.now) {
+			next, err := st.follow(ctx, item)
+			return next, false, err
+		}
 	case "proposed":
 		next, err := st.follow(ctx, item)
 		if err == nil && next != nil && mythicalChecksOf(*next).GitHubOutages > mythicalChecksOf(item).GitHubOutages {
@@ -3013,7 +3054,40 @@ func (st *mythicalItemStep) bindPull(ctx context.Context, item db.MythicalItem, 
 			return nil, err
 		}
 	}
-	return st.proposedFrom(item, pull, shape), nil
+	next := st.proposedFrom(item, pull, shape)
+	checks := mythicalChecksOf(*next)
+	// A changed accepted body is published through the same keyed operation as
+	// review evidence, before draft promotion. Human body edits still win lookup.
+	_, body, err := shape.render()
+	if err != nil {
+		return nil, err
+	}
+	if checks.PRBody != "" && mythicalBodyDigest(body) != checks.PRBody && mythicalBodyDigest(body) != checks.PRBodyDeclined {
+		if err := st.s.outboundReady(ctx, item, "body"); err != nil {
+			return nil, err
+		}
+		op := MythicalOutboundOp{Kind: "body", Target: strconv.FormatInt(pull.Number, 10), Desired: mythicalBodyDigest(body), Precondition: checks.PRBody, State: "intended"}
+		next.PendingOp, _ = json.Marshal(op)
+		// Return to proposal after settlement so placement promotion runs next.
+		next.State = "proposing"
+		return next, nil
+	}
+	if shape.DraftsAvailable && checks.PRFirst != nil && *checks.PRFirst != shape.First {
+		desired := !shape.First
+		if pull.Draft != desired {
+			if err := st.s.outboundReady(ctx, item, "draft"); err != nil {
+				return nil, err
+			}
+			op := MythicalOutboundOp{Kind: "draft", Target: strconv.FormatInt(pull.Number, 10), Desired: strconv.FormatBool(desired), Precondition: strconv.FormatBool(pull.Draft), State: "intended"}
+			next.PendingOp, _ = json.Marshal(op)
+			next.State = "proposing"
+			return next, nil
+		}
+		first := shape.First
+		checks.PRFirst = &first
+		next.Checks = checks.encode()
+	}
+	return next, nil
 }
 
 // acceptedShape is the pass's accepted shape of the item published on branch.
@@ -3075,6 +3149,10 @@ func (st *mythicalItemStep) proposedFrom(item db.MythicalItem, pull mythicalPull
 	next.PRURL, next.PRState = pull.URL, pull.State
 	proposed := mythicalChecksOf(next)
 	proposed.PRDraft = pull.Draft
+	if proposed.PRFirst == nil {
+		first := shape.First
+		proposed.PRFirst = &first
+	}
 	if proposed.PRBody == "" || !item.PRNumber.Valid || item.PRNumber.Int64 != pull.Number {
 		// The body this pull request opened with: createPull renders the
 		// same accepted shape. Later binds of the same pull request keep it.
@@ -3134,6 +3212,10 @@ func (st *mythicalItemStep) follow(ctx context.Context, item db.MythicalItem) (*
 	next := item
 	next.NextAttemptAt = pgtype.Timestamptz{Time: st.now.Add(st.s.pullPollEvery()), Valid: true}
 	answered := mythicalChecksOf(next)
+	if item.State == "rejected" && answered.GitHubClosedAt == nil {
+		at := mythicalGitHubClosedAt(item)
+		answered.GitHubClosedAt = &at
+	}
 	// A person may mark a later PR ready or draft on GitHub: the card shows
 	// GitHub's flag as read, with no corrective write (§12.5.1).
 	answered.PRDraft = pull.Draft
@@ -3152,6 +3234,8 @@ func (st *mythicalItemStep) follow(ctx context.Context, item db.MythicalItem) (*
 	case pull.State == "closed":
 
 		fact.Kind = "closed"
+	case item.State == "rejected" && pull.State == "open":
+		fact.Kind = "reopened"
 	default:
 		fact.Kind = "push"
 	}
@@ -3161,7 +3245,7 @@ func (st *mythicalItemStep) follow(ctx context.Context, item db.MythicalItem) (*
 			return mythicalInfraOutage(item, "github", "GitHub did not answer for the merge commit on main", st.now), nil
 		}
 	}
-	itemFact := mythicalGitHubFactItem{State: item.State, Head: item.PRHead}
+	itemFact := mythicalGitHubFactItem{State: item.State, Head: item.PRHead, ClosedAt: mythicalGitHubClosedAt(item)}
 	decision := decideGitHubFact(fact, itemFact, st.now)
 	if decision.Attention == "foreign_push" {
 		itemFact.PendingHead, err = pendingGitHubPushHead(item, pull.HeadRef)
@@ -3179,6 +3263,12 @@ func (st *mythicalItemStep) follow(ctx context.Context, item db.MythicalItem) (*
 		return &next, nil
 	case decision.Event == "dropped":
 		next.PRState, next.State, next.Reason = "closed", "rejected", "closed on GitHub"
+		answered.GitHubClosedAt = &st.now
+		next.Checks = answered.encode()
+	case decision.Event == "in_review":
+		next.PRState, next.State, next.Reason = "open", "proposed", ""
+		answered.GitHubClosedAt = nil
+		next.Checks = answered.encode()
 	case decision.Noop == "terminal" || decision.Noop == "own_push":
 		// Only outbound reconciliation records an acknowledged own push.
 		// A matching read cannot settle an existing foreign-push hold, and a
@@ -4191,7 +4281,10 @@ func appliedByMaintainer(applied gitHubLabelApplication, label string) bool {
 // made its issue a TODO and asked for automerge, and the review of its pull
 // request's head.
 type mythicalChecks struct {
-	Attempts []todoAttemptEvidence `json:"attempts,omitempty"`
+	PRBodyDeclined       string                `json:"prBodyDeclined,omitempty"`
+	GitHubClosedPosition int64                 `json:"githubClosedPosition,omitempty"`
+	GitHubClosedAt       *time.Time            `json:"githubClosedAt,omitempty"`
+	Attempts             []todoAttemptEvidence `json:"attempts,omitempty"`
 	// Steers are the TODO's steers in order, each held for an attempt
 	// (todoFeedback); Retries are the Retry presses by Idempotency-Key, so a
 	// press sent again starts nothing more (retryTodo).
@@ -4231,7 +4324,8 @@ type mythicalChecks struct {
 	// its first publication intent and never derived again (§8.1.1).
 	Branch string `json:"branch,omitempty"`
 	// PRDraft is GitHub's draft flag on the item's pull request, as last read.
-	PRDraft bool `json:"prDraft,omitempty"`
+	PRDraft bool  `json:"prDraft,omitempty"`
+	PRFirst *bool `json:"prFirst,omitempty"`
 	// PRIncludes are the earlier items the pull request body includes until
 	// they merge, as it was opened.
 	PRIncludes []int64 `json:"prIncludes,omitempty"`

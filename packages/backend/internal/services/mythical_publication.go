@@ -184,7 +184,7 @@ func (s *MythicalService) currentMembership(ctx context.Context, item db.Mythica
 // person's browser session, or a Land that session recorded (M-05, M-39).
 func mythicalCommandAuthorization(ctx context.Context, item db.MythicalItem, kind string) error {
 	switch kind {
-	case "push", "open", "body":
+	case "push", "open", "body", "draft":
 		if item.Source != "todo" && item.Source != "issue" {
 			return errors.New("only a TODO's own change is published to GitHub")
 		}
@@ -216,7 +216,7 @@ func (s *MythicalService) acceptedGeneration(ctx context.Context, item db.Mythic
 		return errors.New("the TODO changed while its GitHub operation was prepared")
 	}
 	switch kind {
-	case "push", "open", "body":
+	case "push", "open", "body", "draft":
 		if persisted.State == "cancelled" || persisted.State == "dropped" || mythicalSettledStates[persisted.State] {
 			return errors.New("the TODO is " + persisted.State)
 		}
@@ -528,6 +528,19 @@ func (st *mythicalItemStep) appLookup(ctx context.Context, item db.MythicalItem,
 		return pull.HeadSHA, false, nil
 	case "merge":
 		return st.s.mergeLookup(ctx, gh, item, op)
+	case "draft":
+		number, err := strconv.ParseInt(op.Target, 10, 64)
+		if err != nil {
+			return "", false, err
+		}
+		pull, err := st.s.github.Pull(ctx, gh, number)
+		if err != nil {
+			return "", false, err
+		}
+		if pull.State != "open" {
+			return "closed", false, nil
+		}
+		return strconv.FormatBool(pull.Draft), false, nil
 	case "body":
 		number, err := strconv.ParseInt(op.Target, 10, 64)
 		if err != nil {
@@ -578,6 +591,8 @@ func mythicalBodyDigest(body string) string {
 // errMythicalBodyStale: the body a "body" operation was prepared with is not
 // the body the item renders now, so nothing is sent and the gate prepares
 // it again.
+var errMythicalPlacementStale = errors.New("the TODO placement changed since its draft update was prepared")
+
 var errMythicalBodyStale = errors.New("the pull request body changed since its update was prepared")
 
 // appSend repeats an operation whose lookup proved it never took effect: a
@@ -593,6 +608,40 @@ func (st *mythicalItemStep) appSend(ctx context.Context, item db.MythicalItem, o
 		return st.pushProposal(ctx, item, gh, mythicalProposalOp{Branch: op.Target, Expected: op.Precondition, Head: op.Desired})
 	case "open":
 		return st.createPull(ctx, item, gh, op.Target)
+	case "draft":
+		number, err := strconv.ParseInt(op.Target, 10, 64)
+		if err != nil || !item.PRNumber.Valid || number != item.PRNumber.Int64 {
+			return errors.New("draft target changed")
+		}
+		shape, err := st.acceptedShape(ctx, item, mythicalChecksOf(item).Branch)
+		if err != nil {
+			return err
+		}
+		if !shape.DraftsAvailable || op.Desired != strconv.FormatBool(!shape.First) {
+			return errMythicalPlacementStale
+		}
+
+		pull, err := st.s.github.Pull(ctx, gh, number)
+		if err != nil {
+			return err
+		}
+		if pull.State != "open" || pull.HeadSHA != item.PRHead {
+			return errors.New("draft head changed")
+		}
+		writer, ok := st.s.github.(interface {
+			MarkReadyForReview(context.Context, mythicalGitHubRepo, string) error
+			ConvertToDraft(context.Context, mythicalGitHubRepo, string) error
+		})
+		if !ok {
+			return &mythicalPRUnavailable{}
+		}
+		if op.Desired == "true" {
+			return writer.ConvertToDraft(ctx, gh, pull.NodeID)
+		}
+		if op.Desired != "false" {
+			return errors.New("invalid desired draft state")
+		}
+		return writer.MarkReadyForReview(ctx, gh, pull.NodeID)
 	case "body":
 		// The operation carries only the body's digest: the body is rendered
 		// again from the item, and sent only if it is the one prepared.
@@ -663,12 +712,22 @@ func (st *mythicalItemStep) prepareMerge(ctx context.Context, item db.MythicalIt
 // proposed head, records a written body or a closed pull request, and lands
 // a merge once main contains it; a push settles from lookup alone.
 func (st *mythicalItemStep) appSettle(ctx context.Context, item db.MythicalItem, op MythicalOutboundOp) (db.MythicalItem, error) {
+	if op.Kind == "draft" {
+		next := item
+		checks := mythicalChecksOf(next)
+		checks.PRDraft = op.Desired == "true"
+		first := !checks.PRDraft
+		checks.PRFirst = &first
+		next.Checks = checks.encode()
+		return next, nil
+	}
 	if op.Kind == "body" {
 		// Lookup found the body written: it is the one Smithers last wrote,
 		// and it carries the current head's verdict.
 		next := item
 		checks := mythicalChecksOf(next)
 		checks.PRBody = op.Desired
+		checks.PRBodyDeclined = ""
 		if checks.Review != nil && checks.Review.Head == next.PRHead {
 			checks.Review.Posted = true
 		}

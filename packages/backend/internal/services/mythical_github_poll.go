@@ -20,6 +20,9 @@ func (s *MythicalService) UseInstallGitHubPolling(synced *GitHubSyncedRepoServic
 	if synced != nil && synced.install != nil {
 		synced.install.requestPulls = s.requestInstallPulls
 		synced.install.requiredPulls = s.requiredInstallPulls
+		if synced.install.consumers != nil {
+			synced.install.consumers[GitHubRepoMetadataPulls] = s.consumeGitHubPullTodos
+		}
 	}
 }
 
@@ -54,6 +57,12 @@ func (st *mythicalItemStep) followInstallPull(ctx context.Context, item db.Mythi
 		return nil, err
 	}
 	next := item
+	if item.State == "rejected" && mythicalChecksOf(item).GitHubClosedAt == nil {
+		checks := mythicalChecksOf(item)
+		at := mythicalGitHubClosedAt(item)
+		checks.GitHubClosedAt = &at
+		next.Checks = checks.encode()
+	}
 	next.NextAttemptAt = pgtype.Timestamptz{Time: st.now.Add(st.s.pullPollEvery()), Valid: true}
 	// The fetched consumer owns PR state, foreign-head and merge effects, with
 	// its receipt in one transaction. A successful fetch cannot run the old gate.
@@ -101,7 +110,7 @@ func (s *MythicalService) requestInstallPulls(ctx context.Context, row db.Github
 		requested := false
 		s.installPullHints.mu.Lock()
 		for _, item := range items {
-			if mythicalSettledStates[item.State] || !item.PRNumber.Valid || item.PRNumber.Int64 <= 0 {
+			if (mythicalSettledStates[item.State] && !mythicalReopenFollowed(item, s.now())) || !item.PRNumber.Valid || item.PRNumber.Int64 <= 0 {
 				continue
 			}
 			hint := s.installPullHints.pending[item.ID]
@@ -137,7 +146,7 @@ func (s *MythicalService) fetchInstallPullHint(ctx context.Context, item db.Myth
 		hints.mu.Unlock()
 		return time.Time{}, nil
 	}
-	if mythicalSettledStates[item.State] || !item.PRNumber.Valid || item.PRNumber.Int64 <= 0 {
+	if (mythicalSettledStates[item.State] && !mythicalReopenFollowed(item, s.now())) || !item.PRNumber.Valid || item.PRNumber.Int64 <= 0 {
 		delete(hints.pending, item.ID)
 		hints.mu.Unlock()
 		return time.Time{}, nil

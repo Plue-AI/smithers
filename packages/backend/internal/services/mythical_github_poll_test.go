@@ -43,3 +43,33 @@ func TestInstallFollowCadenceAndRetryDeadline(t *testing.T) {
 	require.Equal(t, at, mythicalStepFailedDue(failure, now))
 	require.Equal(t, at.Add(time.Minute), mythicalStepFailedDue(failure, at), "expired deadline cannot busy-loop")
 }
+
+func TestRejectedPullFollowWindowDoesNotSlide(t *testing.T) {
+	closed := time.Date(2026, 10, 1, 12, 0, 0, 0, time.UTC)
+	item := db.MythicalItem{State: "rejected", PRState: "closed", PRNumber: pgtype.Int8{Int64: 7, Valid: true}, UpdatedAt: pgtype.Timestamptz{Time: closed, Valid: true}}
+	checks := mythicalChecksOf(item)
+	checks.GitHubClosedAt = &closed
+	item.Checks = checks.encode()
+	item.UpdatedAt.Time = closed.Add(6 * 24 * time.Hour)
+	for _, tc := range []struct {
+		name     string
+		at       time.Time
+		followed bool
+	}{
+		{"day six", closed.Add(6 * 24 * time.Hour), true},
+		{"day seven inclusive", closed.Add(7 * 24 * time.Hour), true},
+		{"after window", closed.Add(7*24*time.Hour + time.Nanosecond), false},
+		{"before close", closed.Add(-time.Nanosecond), false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			require.Equal(t, tc.followed, mythicalReopenFollowed(item, tc.at))
+			due := mythicalDue(item, false, tc.at)
+			require.Equal(t, !tc.followed, due.IsZero())
+		})
+	}
+	item.State = "landed"
+	require.False(t, mythicalReopenFollowed(item, closed))
+	item.State = "rejected"
+	item.PRNumber.Valid = false
+	require.False(t, mythicalReopenFollowed(item, closed))
+}
