@@ -87,7 +87,6 @@ impl Executor {
         let worker = thread::Builder::new()
             .name("machined-lock".into())
             .spawn(move || {
-                let mut cx = LockCx::new(hooks);
                 loop {
                     let (name, job) = match rx.recv_timeout(Duration::from_millis(25)) {
                         Ok(job) => job,
