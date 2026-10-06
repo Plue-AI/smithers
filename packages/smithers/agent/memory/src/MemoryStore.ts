@@ -263,6 +263,10 @@ export interface Note {
   readonly provenance: Provenance
   readonly status: NoteStatus
   readonly createdAtMs: number
+  /** Time of the last real status transition; retries retain it. */
+  readonly statusAtMs?: number | undefined
+  /** The ordinary TODO created when this learning note was accepted. */
+  readonly acceptedTodo?: string | undefined
 }
 
 /**
@@ -293,6 +297,8 @@ export interface PutNoteInput {
 export interface SetNoteStatusInput {
   readonly id: string
   readonly status: NoteStatus
+  /** Bind acceptance to one TODO; another TODO is an idempotency conflict. */
+  readonly acceptedTodo?: string | undefined
 }
 
 /**
