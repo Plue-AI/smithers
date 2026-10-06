@@ -18,7 +18,7 @@ const copyHygiene = (directory) => {
   writeFileSync(join(directory, "package.json"), '{"name":"landing-fixture","private":true,"packageManager":"pnpm@11.25.0"}\n')
   writeFileSync(join(directory, "yarn.lock"), "")
   writeFileSync(join(directory, "pnpm-workspace.yaml"), "verifyDepsBeforeRun: false\n")
-  mkdirSync(join(directory, ".smithers"))
+  mkdirSync(join(directory, ".smithers"), { recursive: true })
   writeFileSync(join(directory, ".smithers/WORKSPACE.ts"), `import { Smithers as S } from "@smthrs/targets"
 const packageJson = S.file("//package.json")
 export const Workspace = S.Workspace("landing", {

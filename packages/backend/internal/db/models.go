@@ -825,8 +825,6 @@ type GithubAppManifestState struct {
 }
 
 type GithubMainPull struct {
-	HealthCause         string             `json:"health_cause"`
-	RetryAt             pgtype.Timestamptz `json:"retry_at"`
 	RepositoryID        int64              `json:"repository_id"`
 	RequestedGeneration int64              `json:"requested_generation"`
 	SyncedGeneration    int64              `json:"synced_generation"`
@@ -849,6 +847,8 @@ type GithubMainPull struct {
 	UpdatedAt           pgtype.Timestamptz `json:"updated_at"`
 	FactoryState        string             `json:"factory_state"`
 	FactoryError        string             `json:"factory_error"`
+	HealthCause         string             `json:"health_cause"`
+	RetryAt             pgtype.Timestamptz `json:"retry_at"`
 }
 
 type GithubMirrorRefresh struct {
