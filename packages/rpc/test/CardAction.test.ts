@@ -15,7 +15,7 @@ const waits = {
 describe("shared viewer action", () => {
   for (const state of states) for (const kind of kinds) for (const first of [false, true]) for (const role of roles) {
     it(`${state}/${kind}/${first}/${role}`, () => {
-      const entry = { n: 3, state, needs_you: kind === undefined ? undefined : { kind }, first_in_order: first }
+      const entry = { n: 3, state, ...(kind === undefined ? {} : { needs_you: { kind } }), first_in_order: first }
       const result = actionFor(entry, { role })
       const expected = state === "needs_you" && kind !== undefined ? waits[kind]
         : state === "failed" ? { tag: "todo.retry", label: "Retry", args: { n: "3" } }

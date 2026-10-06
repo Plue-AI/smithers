@@ -752,6 +752,11 @@ func validateFrames(frames []json.RawMessage, expectedRunID string) (frameMeta, 
 			if !validID || !validPatch {
 				return frameMeta{}, ErrInvalidFrame
 			}
+		case "context.preflight":
+			phase, validPhase := stringField(object, "phase", false)
+			if !validPhase || (phase != "" && !oneOf(phase, "started", "completed")) || !validPreflight(object["result"]) {
+				return frameMeta{}, ErrInvalidFrame
+			}
 		case "link.authored":
 			_, validDigest := stringField(object, "scriptDigest", true)
 			_, validScript := stringField(object, "script", true)

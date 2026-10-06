@@ -358,3 +358,36 @@ export const declared = (
   input: Input
 ): Effect.Effect<Declared, MemoryError | Cause.TimeoutError, MemoryStore.MemoryStore | Recall.Recall> =>
   memorySource.read(input).pipe(Effect.map(({ rows }) => ofRows(rows)))
+
+/**
+ * Selects whole recalled rows for a host preflight. The existing recall service
+ * still enforces its public byte budget and namespace policy. The caller's
+ * tokenizer (or conservative UTF-8 bound) supplies a separate context budget.
+ * Choices are indexes into that frozen recall result, in model-ranked order.
+ * @category constructors
+ * @since 1.0.0
+ */
+export const selectRecall = <E>(
+  input: Recall.Input,
+  choose: (rows: Recall.Output) => Effect.Effect<ReadonlyArray<number>, E>,
+  cost: (row: Recall.Result) => number,
+  tokenBudget: number
+): Effect.Effect<Recall.Output, MemoryError | E, Recall.Recall> =>
+  Effect.gen(function*() {
+    const service = yield* Recall.Recall
+    const rows = yield* service.recall(input)
+    const choices = yield* choose(rows)
+    const selected: Array<Recall.Result> = []
+    const seen = new Set<number>()
+    let remaining = Number.isFinite(tokenBudget) ? Math.max(0, Math.floor(tokenBudget)) : 0
+    for (const index of choices) {
+      if (!Number.isSafeInteger(index) || index < 0 || index >= rows.length || seen.has(index)) continue
+      seen.add(index)
+      const row = rows[index]!
+      const tokens = cost(row)
+      if (!Number.isFinite(tokens) || tokens < 0 || tokens > remaining) break
+      selected.push(row)
+      remaining -= tokens
+    }
+    return selected
+  })

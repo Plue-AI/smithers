@@ -1,0 +1,71 @@
+import { GlobalRegistrator } from "@happy-dom/global-registrator"
+import { afterAll, expect, test } from "bun:test"
+import { flushSync } from "react-dom"
+import { createRoot } from "react-dom/client"
+import { ContextLine } from "./ContextLine"
+import { contextActions } from "./flows/contextActions"
+import { contextOpenAction } from "./flows/contextOpenAction"
+import { createAppController } from "./state/AppController"
+import { createAppStore } from "./state/AppStore"
+import { memoryStorage } from "./state/TestFixtures"
+import type { AgentPort } from "./runtime/AgentPort"
+
+GlobalRegistrator.register()
+afterAll(async () => { await new Promise(resolve => setTimeout(resolve, 0)); await GlobalRegistrator.unregister() })
+const pinned = "0123456789abcdef0123456789abcdef01234567"
+const items = [{ kind: "file" as const, label: "retry.ts", ref: "src/webhooks/retry.ts", revision: pinned, reason: "Retry implementation" }]
+const agent: AgentPort = { available: false, startTurn: async () => ({ status: "error", message: "Unavailable" }), cancelTurn: async () => {}, subscribe: () => () => {} }
+
+test("Context opens a pinned file through cardActions, the registered flow and the real install seam", async () => {
+  const requests: string[] = []
+  const store = await createAppStore({ kind: "localStorage", storage: memoryStorage() })
+  const controller = createAppController(store, agent, {
+    bootstrap: { apiVersion: 1, host: "cloud", version: "test", buildSha: "test", capabilities: ["install", "identity"], authFlow: "redirect", sandbox: null },
+    fetchImpl: async url => {
+      const path = String(url); requests.push(path)
+      if (path === `/api/branches/main/files/src/webhooks/retry.ts?at=${pinned}`) return Response.json({
+        branch: "main", path: "src/webhooks/retry.ts", language: "typescript", digest: "literal-retry",
+        content: { kind: "text", text: "export const retry = 3" }, mode: "read_only", diagnostics: [], authors: [], editors: []
+      })
+      return new Response("{}", { status: 404 })
+    }
+  })
+  const host = document.createElement("div"); document.body.append(host)
+  const root = createRoot(host)
+  try {
+    await store.dispatch({ type: "identity.session.loaded", actor: "system", state: "signed-in", login: "ben", admin: false, scopesPlain: null }).isPersisted.promise
+    await store.dispatch({ type: "repositories.loaded", actor: "system", repositories: [{ id: "acme/app", org: "acme", ownerKind: "user", name: "app", head: { bookmark: "main", changeId: "c", commitId: pinned } }] }).isPersisted.promise
+    let completed: Promise<unknown> = Promise.resolve()
+    const actions = contextActions(items, (tag, input) => { completed = controller.runCommandForResult(tag, JSON.stringify(input)) }, contextOpenAction)
+    let expanded = false
+    const render = () => flushSync(() => root.render(<ContextLine count={1} items={items} expanded={expanded} onView={patch => { expanded = patch.expanded; render() }} {...actions} />))
+    render()
+    expect(host.querySelectorAll("button")).toHaveLength(1)
+    host.querySelector<HTMLButtonElement>(".context-toggle")!.click()
+    const source = host.querySelector<HTMLButtonElement>(".context-chip")!
+    expect(source.tagName).toBe("BUTTON")
+    source.focus(); expect(document.activeElement).toBe(source)
+    expect(source.dataset.flow).toBe("file")
+    source.click(); await completed
+    expect(requests).toContain(`/api/branches/main/files/src/webhooks/retry.ts?at=${pinned}`)
+    const card = [...store.collections.cards.values()].find(card => card.kind === "file")
+    expect(card?.payload).toMatchObject({ path: "src/webhooks/retry.ts", ref: pinned, content: "export const retry = 3" })
+    expect(requests.some(path => path.includes("wake") || path.includes("/machines"))).toBe(false)
+  } finally { flushSync(() => root.unmount()); host.remove(); await controller.dispose() }
+})
+
+test("a missing pinned-page provider leaves disclosure readable without an active card action", () => {
+  const page = [{ kind: "page" as const, label: "Retries", ref: "retries", revision: "4", reason: "Policy" }]
+  const actions = contextActions(page, () => { throw new Error("unavailable provider ran") }, contextOpenAction)
+  const host = document.createElement("div"), root = createRoot(host)
+  flushSync(() => root.render(<ContextLine count={1} items={page} expanded={true} onView={() => {}} {...actions} />))
+  expect(host.querySelectorAll("button")).toHaveLength(1)
+  expect(host.querySelector(".context-chip")?.tagName).toBe("SPAN")
+  expect(host.textContent).toContain("Retries")
+  flushSync(() => root.unmount())
+})
+
+test("historical seeded file contexts keep their branch door", () => {
+  expect(contextOpenAction({ kind: "file", label: "checkout.test.ts", ref: "checkout.test.ts", revision: "b-race" })?.command_input)
+    .toEqual({ path: "checkout.test.ts", branch: "b-race" })
+})

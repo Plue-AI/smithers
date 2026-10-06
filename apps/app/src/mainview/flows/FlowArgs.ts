@@ -5,7 +5,7 @@ export interface FlowInput {
   readonly "flow": { readonly name: string }
   readonly "wiki.save": { readonly name?: string; readonly text?: string }
   readonly "todo.drop": { readonly n: number }
-  readonly "file": { readonly path: string; readonly branch?: string; readonly line?: number }
+  readonly "file": { readonly path: string; readonly branch?: string; readonly line?: number; readonly revision?: string }
 
  readonly "agent.model": { readonly role: string; readonly model?: string }
   readonly "debug.api": import("../state/seams/DebugApiSeam").DebugApiInput

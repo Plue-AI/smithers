@@ -5,6 +5,7 @@
  */
 
 import { z } from "zod"
+import { ContextPreflightResultSchema } from "./ContextPreflight.ts"
 import type { AgentRuntimeContext } from "./AgentContext.ts"
 import type { AgentRoleId, CloudRoleId } from "./AgentRoles.ts"
 import { CardPatchSchema, CardSchema } from "./Cards.ts"
@@ -80,6 +81,8 @@ export interface StartAgentTurnRequest {
    * upstream instructions — it is never persisted into the visible transcript.
    */
   readonly context?: AgentRuntimeContext
+  /** Host-selected repository data; never accepted from the browser. */
+  readonly selectedContext?: ReadonlyArray<import("./ContextPreflight.ts").ContextCandidate>
   /**
    * The model tier this turn asks for. A side turn that only has to pick the
    * next click (the recommender) asks for `cheap`; the conversation's own turns
@@ -232,6 +235,7 @@ export type AgentTurnUsage = z.infer<typeof AgentTurnUsageSchema>
  * @category schemas
  */
 export const AgentTurnFrameSchema = z.discriminatedUnion("type", [
+  z.object({ runId: z.string(), type: z.literal("context.preflight"), phase: z.enum(["started", "completed"]).optional(), result: ContextPreflightResultSchema }),
   z.object({
     runId: z.string(),
     type: z.literal("delta"),

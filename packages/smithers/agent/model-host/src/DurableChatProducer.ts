@@ -5,6 +5,8 @@
  */
 
 import type * as Model from "@smthrs/model/Model"
+import { ModelError } from "@smthrs/model/ModelError"
+import { ContextPreflightInputSchema } from "@smthrs/rpc/ContextPreflight"
 import {
   AgentTurnCursorSchema,
   agentTurnJournalDigestInput,
@@ -16,6 +18,8 @@ import { Effect } from "effect"
 import { apiReader, hostOwned, runHostTurn, sourceLister, sourceReader } from "./HostTools.ts"
 import { CommitRefused, ProducerUnreachable, ProviderStartRefused, ReceiptMismatch } from "./ModelHostError.ts"
 import type { ProducerError } from "./ModelHostError.ts"
+import { runContextPreflight } from "./ContextPreflight.ts"
+import type { ContextPreflightInput } from "@smthrs/rpc/ContextPreflight"
 import { runModelTurn } from "./ModelTurnHost.ts"
 import type { ModelTurnOptions } from "./ModelTurnHost.ts"
 
@@ -184,20 +188,39 @@ export const runDurableChatTurn = (
   grant: DurableChatGrant,
   options: ModelTurnOptions,
   callbackBaseUrl: string = grant.producerBaseUrl,
-  fetchImpl: FetchLike = fetch.bind(globalThis)
+  fetchImpl: FetchLike = fetch.bind(globalThis),
+  preflight?: { readonly input: ContextPreflightInput; readonly model: Model.Model; readonly options: ModelTurnOptions }
 ): Effect.Effect<void, Model.ModelFailure | ProducerError> => {
   const producer = new DurableChatProducer(callbackBaseUrl, grant, fetchImpl)
   const write = (frame: AgentTurnFrame) => producer.write(frame)
   return Effect.gen(function*() {
-    yield* producer.providerStarted()
-    if (hostOwned(grant.request)) {
-      yield* runHostTurn(model, grant, options, write, {
+    // Selected content is only supplied by the trusted provider; a renderer
+    // cannot pass its own selection or private transcript through this path.
+    const { selectedContext: _untrustedSelection, ...request } = grant.request
+    let prepared: DurableChatGrant = { ...grant, request }
+    if (preflight !== undefined) {
+      const decoded = ContextPreflightInputSchema.safeParse(preflight.input)
+      if (!decoded.success) return yield* Effect.fail(new ModelError({ code: "invalid_provider_output", message: "context preflight input is invalid" }))
+      // Prove durable step writes before spending on either model. A failed
+      // start receipt never permits the selector or answer request.
+      yield* write({ runId: grant.runId, type: "context.preflight", phase: "started", result: {
+        context: [], candidates: decoded.data.candidates.filter(candidate => !decoded.data.wikiOnly || candidate.item.kind === "page").map(candidate => candidate.item),
+        model: preflight.options.modelId, durationMs: 0
+      } })
+      yield* producer.providerStarted()
+      const answer = yield* runContextPreflight(decoded.data, preflight.model, preflight.options)
+      yield* write({ runId: grant.runId, type: "context.preflight", phase: "completed", result: answer.result })
+      prepared = { ...grant, request: { ...request, messages: answer.messages, selectedContext: answer.selectedContext } }
+    }
+    if (preflight === undefined) yield* producer.providerStarted()
+    if (hostOwned(prepared.request)) {
+      yield* runHostTurn(model, prepared, options, write, {
         read: sourceReader(callbackBaseUrl, grant, fetchImpl),
         list: sourceLister(callbackBaseUrl, grant, fetchImpl),
         api: apiReader(callbackBaseUrl, grant, fetchImpl)
       })
       return
     }
-    yield* runModelTurn(model, grant.request, options, write)
+    yield* runModelTurn(model, prepared.request, options, write)
   })
 }

@@ -565,7 +565,7 @@ export const MessageSchema = z.object({
   /** A one-line visible tool act ("Smithers ran /world.new-note") renders as a marker row, not a bubble. */
   act: z.string().optional(),
   /** The Context line of an answer (T-APP-17): what it read, shown as "Context · N". */
-  context: z.array(ContextItemSchema).max(16).optional(),
+  context: z.array(ContextItemSchema).optional(),
   /**
    * A door's own refusal, written where it stays.
    *
