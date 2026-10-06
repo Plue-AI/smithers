@@ -244,24 +244,26 @@ test("read, source creation, import and publication run on the host's NativeTran
       Effect.flatMap(NativeCoding, (service) => Effect.all(operations(service).map((effect) => Effect.result(effect))))
         .pipe(Effect.provide(layer))
     )
-    // Every operation reached a helper process and carried its answer back.
-    for (const result of results) {
+    // File patches refuse before helper execution; the other operations still
+    // reach the selected spawner and carry its answer back.
+    for (const [index, result] of results.entries()) {
       assert.equal(result._tag, "Failure")
-      if (result._tag === "Failure") assert.equal(result.failure.code, "workspace_busy")
+      if (result._tag === "Failure") {
+        assert.equal(result.failure.code, index === 2 ? "host_unavailable" : "workspace_busy")
+      }
     }
     return calls
   }
   assert.deepEqual(await run(true), [
     "raw:read",
     "guarded:create",
-    "guarded:apply_files",
     "raw:create_source",
     "raw:import_source",
     "raw:publish_source"
   ])
   assert.deepEqual(
     await run(false),
-    ["read", "create", "apply_files", "create_source", "import_source", "publish_source"].map((op) => `guarded:${op}`),
+    ["read", "create", "create_source", "import_source", "publish_source"].map((op) => `guarded:${op}`),
     "without NativeTransport every operation uses the run's guarded spawner"
   )
 })

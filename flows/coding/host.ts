@@ -83,6 +83,8 @@ import { dependencyPagesLayer, wikiRefreshRegistration } from "./wiki-route.ts"
 
 /** Operator configuration, never accepted from a workflow or gateway request. */
 export interface Options extends NativeOptions {
+  /** Qualified, run-authorized workspace writer. Never supplied by a flow request. */
+  readonly mutationProvider?: CodingFileSystem.MutationProvider | undefined
   /** Exact system names from the backend's packaged flow catalog. */
   readonly systemFlows: ReadonlyArray<string>
   /** Machine-local immutable export of the server-authorized source commit. */
@@ -501,7 +503,13 @@ export const layer = (platform: NativeControl.Platform, options: Options, suppli
       filesystem: (root, fs, spawner) =>
         fs.realPath(root).pipe(
           Effect.map((canonicalRoot) =>
-            CodingFileSystem.make({ ...options, repositoryPath: root }, fs, spawner, canonicalRoot)
+            CodingFileSystem.make(
+              { ...options, repositoryPath: root },
+              fs,
+              spawner,
+              canonicalRoot,
+              options.mutationProvider
+            )
           ),
           Effect.orDie
         )

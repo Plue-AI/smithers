@@ -171,6 +171,17 @@ response identifies its refusing path and acknowledges no writes. The qualified
 runtime capability now requires whole-batch semantics and preservation of
 existing modes. Service/HTTP tests of this seam do not qualify the guest.
 
+The coding filesystem now prepares immutable snapshots from its existing
+run-scoped ledger and submits every prepared path in one provider call. A move
+includes both destination bytes and source deletion. Receipts must acknowledge
+exactly those paths and expected full digests before own-write bases advance;
+stale, malformed, cancelled and failed attempts do not advance them. Settlement
+preserves any explicit read that raced the request. The operator-only provider
+receives the pinned root and trusted logical run ID and must enforce live run
+authorization and write permissions. No production provider is installed yet;
+recording-provider tests exercise the standard dispatcher, not guest security
+or authenticated HTTP acceptance.
+
 The production CLI/runtime gate still refuses new mutations. Coding run-bound
 authentication and transport, the actual working-copy filesystem
 and path-alias behavior, external-service/kernel-I/O exclusion, and fresh/retained
