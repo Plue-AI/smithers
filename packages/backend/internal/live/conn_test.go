@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -304,3 +305,73 @@ func (f *fakeHints) Listen(context.Context, []string) (<-chan sse.Event, func(),
 }
 
 func (f *fakeHints) notify() { f.out <- sse.Event{Data: `{"kind":"item"}`} }
+
+func TestLivePresenceCoalescesWithoutBlockingSocket(t *testing.T) {
+	for _, disconnect := range []bool{false, true} {
+		t.Run(fmt.Sprintf("disconnect=%t", disconnect), func(t *testing.T) {
+			ctx, cancel := context.WithCancel(t.Context())
+			defer cancel()
+			hub := NewHub(ctx, nil)
+			started := make(chan struct{})
+			release := make(chan struct{})
+			closed := make(chan struct{})
+			locations := make(chan string, 10)
+			calls := 0 // Only the one presence worker calls Move.
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				conn, err := websocket.Accept(w, r, &websocket.AcceptOptions{Subprotocols: []string{Protocol}})
+				if err != nil {
+					return
+				}
+				defer conn.CloseNow()
+				hub.Serve(r.Context(), conn, func(context.Context, string) (Source, string) {
+					return Source{Key: "home", Every: time.Second, Build: func(context.Context) (json.RawMessage, error) { return json.RawMessage(`{}`), nil }}, ""
+				}, PresenceSession{Move: func(ctx context.Context, where json.RawMessage) string {
+					calls++
+					if calls == 1 {
+						close(started)
+						select {
+						case <-release:
+						case <-ctx.Done():
+							return Unsupported
+						}
+					}
+					locations <- string(where)
+					return ""
+				}, Close: func() { close(closed) }})
+			}))
+			defer server.Close()
+			c := dial(t, "ws"+strings.TrimPrefix(server.URL, "http"))
+			c.send(`{"t":"presence","id":1,"where":{"line":1}}`)
+			select {
+			case <-started:
+			case <-time.After(time.Second):
+				t.Fatal("presence did not start")
+			}
+			for i := 2; i <= 100; i++ {
+				c.send(fmt.Sprintf(`{"t":"presence","id":1,"where":{"line":%d}}`, i))
+			}
+			// A person can still subscribe while presence authorization is unresolved.
+			c.send(`{"t":"sub","id":2,"topic":"home"}`)
+			require.Equal(t, "snap", c.next().T)
+			if disconnect {
+				require.NoError(t, c.conn.Close(websocket.StatusNormalClosure, ""))
+				select {
+				case <-closed:
+				case <-time.After(time.Second):
+					t.Fatal("presence worker outlived socket")
+				}
+				require.Empty(t, locations)
+			} else {
+				close(release)
+				require.Equal(t, `{"line":1}`, <-locations)
+				select {
+				case location := <-locations:
+					require.Equal(t, `{"line":100}`, location)
+				case <-time.After(time.Second):
+					t.Fatal("latest move did not replace the backlog")
+				}
+				require.Empty(t, locations)
+			}
+		})
+	}
+}

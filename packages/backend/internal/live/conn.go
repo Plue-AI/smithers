@@ -194,6 +194,37 @@ func (h *Hub) Serve(ctx context.Context, conn *websocket.Conn, resolve Resolver,
 		writer.Wait()
 	}()
 	refuse := func(id uint32, code string) { out.push(encode(frame{T: "err", ID: id, Code: code}), true) }
+	// Presence is a latest-location snapshot, not a command queue. Bound work
+	// before calling the database/bridge so fast cursor moves cannot backlog
+	// the socket reader or delay its final location behind obsolete moves.
+	moves := make(chan frame, 1)
+	var mover sync.WaitGroup
+	if session.Move != nil {
+		mover.Add(1)
+		go func() {
+			defer mover.Done()
+			ticker := time.NewTicker(250 * time.Millisecond)
+			defer ticker.Stop()
+			for {
+				select {
+				case <-ctx.Done():
+					return
+				case <-ticker.C:
+				}
+				select {
+				case in := <-moves:
+					if ctx.Err() != nil {
+						return
+					}
+					if code := session.Move(ctx, in.Where); code != "" {
+						refuse(in.ID, code)
+					}
+				default:
+				}
+			}
+		}()
+	}
+	defer func() { cancel(); mover.Wait() }()
 	for {
 		kind, raw, err := conn.Read(ctx)
 		if err != nil {
@@ -255,13 +286,15 @@ func (h *Hub) Serve(ctx context.Context, conn *websocket.Conn, resolve Resolver,
 		switch in.T {
 		case "unsub":
 		case "presence":
-			code := Unsupported
-			if session.Move != nil {
-				code = session.Move(ctx, in.Where)
+			if session.Move == nil {
+				refuse(in.ID, Unsupported)
+				continue
 			}
-			if code != "" {
-				refuse(in.ID, code)
+			select {
+			case <-moves:
+			default:
 			}
+			moves <- in
 		case "sub":
 			if in.Topic == "" {
 				_ = conn.Close(websocket.StatusInvalidFramePayloadData, "malformed_frame")

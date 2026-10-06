@@ -73,7 +73,15 @@ func TestPresenceDaemonAndRunThroughInstall(t *testing.T) {
 	for {
 		received := readPresenceFrame(t, reader)
 		require.NoError(t, json.Unmarshal(received.Data, &data))
+		complete := false
 		if len(data.Presence) == 3 {
+			for _, entry := range data.Presence {
+				if entry.Actor["kind"] == "person" && len(entry.Sessions) == 2 {
+					complete = true
+				}
+			}
+		}
+		if complete {
 			break
 		}
 		require.True(t, time.Now().Before(deadline), "three participants must reach subscribers within 1 second")
