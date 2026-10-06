@@ -326,7 +326,7 @@ describe("the run card as a trace", () => {
     const { host } = renderRun({ workflow: "review", steps: ["1 turn · 2 calls"], events: JOURNAL })
     expect(host.querySelector("[data-testid='run-trace-run-1']")).not.toBeNull()
     expect(host.textContent).toContain("2 turns · 2 calls")
-    expect(chips(host)).toEqual(["all", "running", "failed", "model", "flow", "forks"])
+    expect(chips(host)).toEqual(["all", "running", "failed", "model", "flow"])
     expect(host.querySelector("[data-testid='flow-run-steer-run-1']")).not.toBeNull()
     expect(host.querySelector("[data-testid='run-trace-banner-run-1']")).toBeNull()
 

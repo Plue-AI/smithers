@@ -484,26 +484,25 @@ describe("the trace model", () => {
     expect(visible("all")).toHaveLength(11)
   })
 
-  test("a prototype offers all, messages and failed; every other run the shared six (spec 06 §2, §3)", () => {
+  test("a prototype offers all, messages and failed; every other run the shared five (spec 06 §2, §3)", () => {
     expect(traceFiltersFor("prototype").map(([id]) => id)).toEqual(["all", "messages", "failed"])
     expect(traceFiltersFor("implement").map(([id]) => id)).toEqual([
       "all",
       "running",
       "failed",
       "model",
-      "flow",
-      "forks"
+      "flow"
     ])
     expect(traceFiltersFor(undefined).map(([id, label]) => `${id}=${label}`)).toEqual([
       "all=all",
       "running=running",
       "failed=failed",
       "model=model calls",
-      "flow=flow calls",
-      "forks=forks"
+      "flow=flow calls"
     ])
     expect(isTraceFilter("messages")).toBe(true)
     expect(isTraceFilter("calls")).toBe(false)
+    expect(isTraceFilter("forks")).toBe(false)
   })
 
   test("the messages filter keeps a prototype's agent/send and agent/await spans with their ancestors", () => {

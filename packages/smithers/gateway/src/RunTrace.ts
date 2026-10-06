@@ -2022,8 +2022,6 @@ export const spanMatches = (span: TraceSpan, filter: TraceFilter): boolean => {
     ? span.kind === "model"
     : filter === "flow"
     ? span.kind === "call" || span.kind === "execution" || span.kind === "attempt"
-    : filter === "forks"
-    ? span.kind === "fork"
     : span.kind === "call" && MESSAGE_FLOWS.has(span.label)
   return own || span.children.some((child) => spanMatches(child, filter))
 }
@@ -2033,7 +2031,7 @@ export const spanMatches = (span: TraceSpan, filter: TraceFilter): boolean => {
  * @category models
  * @since 1.0.0
  */
-export type TraceFilter = "all" | "running" | "failed" | "model" | "flow" | "forks" | "messages"
+export type TraceFilter = "all" | "running" | "failed" | "model" | "flow" | "messages"
 
 /**
  * Stable filter identifiers accepted by run trace commands.
@@ -2047,7 +2045,6 @@ export const TRACE_FILTER_IDS: ReadonlyArray<TraceFilter> = [
   "failed",
   "model",
   "flow",
-  "forks",
   "messages"
 ]
 
@@ -2057,7 +2054,6 @@ const FILTER_LABELS: Readonly<Record<TraceFilter, string>> = {
   failed: "failed",
   model: "model calls",
   flow: "flow calls",
-  forks: "forks",
   messages: "messages"
 }
 
@@ -2075,7 +2071,7 @@ const FILTER_LABELS: Readonly<Record<TraceFilter, string>> = {
 export const traceFiltersFor = (kind: string | undefined): ReadonlyArray<readonly [TraceFilter, string]> =>
   (kind === "prototype"
     ? (["all", "messages", "failed"] as const)
-    : (["all", "running", "failed", "model", "flow", "forks"] as const)).map((id) => [id, FILTER_LABELS[id]] as const)
+    : (["all", "running", "failed", "model", "flow"] as const)).map((id) => [id, FILTER_LABELS[id]] as const)
 
 /** Whether a filter word is one the trace knows.
  *

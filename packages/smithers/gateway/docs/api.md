@@ -493,7 +493,8 @@ evidence do not acquire invented phases, successful checks, or file changes.
 - `callSubject` and `callSemantics` interpret captured flow descriptors, with
   compatibility for older records. `CallMetadata` names their descriptor fields.
 - `spanMatches`, `traceFiltersFor`, `isTraceFilter`, and `TRACE_FILTER_IDS` own
-  the shared filter vocabulary. `TraceFilter` and `TraceView` type that state.
+  the shared filter vocabulary (`all`, `running`, `failed`, `model`, `flow`,
+  `messages`). Historical fork spans remain readable without a fork filter. `TraceFilter` and `TraceView` type that state.
 - `JournalRecord`, `TraceRun`, `TraceOptions`, `TraceSpan`, `SpanKind`,
   `SpanStatus`, `SpanDetail`, `TraceExtent`, `PhaseId`, `PhaseBand`, `Milestone`,
   `TraceOwner`, `FrameLine`, `TraceNote`, and `TurnNarrative` describe the

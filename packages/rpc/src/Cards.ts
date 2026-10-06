@@ -1178,7 +1178,10 @@ const CurrentCardSchema = z.discriminatedUnion("kind", [
       /** The scrub cursor, a journal sequence: the trace renders the journal up to it. Absent renders the whole journal. */
       cursorSeq: z.number().int().nonnegative().optional(),
       /** The tree's active filter (factory spec 06 §2, §3); `all` when absent. */
-      filter: z.enum(["all", "running", "failed", "model", "flow", "forks", "messages"]).optional(),
+      filter: z.preprocess(
+        value => value === "forks" ? "all" : value,
+        z.enum(["all", "running", "failed", "model", "flow", "messages"])
+      ).optional(),
       /** Whether the trace follows the newest frame (factory spec 06 §2); true when absent. A select turns it off. */
       liveTail: z.boolean().optional(),
       /**

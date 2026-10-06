@@ -145,10 +145,13 @@ describe("the runs grammar", () => {
     expect(payloadFor("runs.trace.filter", "run-1 failed")).toEqual({ payload: { runId: "run-1", filter: "failed" } })
     expect(payloadFor("runs.trace.filter", "")).toEqual({ error: "runs.trace.filter needs a run id" })
     expect(payloadFor("runs.trace.filter", "run-1")).toEqual({
-      error: "runs.trace.filter needs one of all, running, failed, model, flow, forks, messages"
+      error: "runs.trace.filter needs one of all, running, failed, model, flow, messages"
+    })
+    expect(payloadFor("runs.trace.filter", "run-1 forks")).toEqual({
+      error: "runs.trace.filter needs one of all, running, failed, model, flow, messages"
     })
     expect(payloadFor("runs.trace.filter", "run-1 calls")).toEqual({
-      error: "runs.trace.filter needs one of all, running, failed, model, flow, forks, messages"
+      error: "runs.trace.filter needs one of all, running, failed, model, flow, messages"
     })
     expect(payloadFor("runs.trace.filter", "run-1 failed extra")).toEqual({
       error: "runs.trace.filter takes a run id and one filter"
@@ -311,7 +314,8 @@ test("run source parsing preserves repository context for slash-shaped run IDs",
 /* Argument-bearing flows need a table decoder or a declaration grammar. */
 describe("every declaration that takes arguments names a decoder", () => {
   /** Registration never invokes a handler, so every controller call answers with nothing. */
-  const inertActions = new Proxy({}, { get: () => () => undefined }) as CommandActions
+  const inert = new Proxy(() => undefined, { get: () => inert })
+  const inertActions = inert as unknown as CommandActions
 
   test("a flow declaring an args hint carries a decoder, in the table or on the declaration", () => {
     const undecoded = [...baseFlows(inertActions), ...adminFlows(inertActions)]
@@ -354,7 +358,8 @@ test("the workspace launch grammar preserves container and VM but rejects deskto
     expect(payloadFor("box.open", `main --kind ${kind}`)).toEqual({ payload: { bookmark: "main", kind } })
   }
   expect(payloadFor("box.open", "main --kind desktop")).toHaveProperty("error")
-  const names = baseFlows({} as CommandActions).map(flow => nameOf(flow))
+  const inert = new Proxy(() => undefined, { get: () => inert })
+  const names = baseFlows(inert as unknown as CommandActions).map(flow => nameOf(flow))
   for (const removed of ["desktop", "box.desktop", "box.desktop.open", "box.desktop.rotate", "box.desktop.stop", "app.download", "app.download.prompt"]) {
     expect(names).not.toContain(removed)
   }
