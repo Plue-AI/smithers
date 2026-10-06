@@ -7,7 +7,7 @@ T-APP-10 commit-family cutover: BranchView remains reachable while CommitCards.t
 These hermetic UI scenarios do not replace reference-host qualification or check receipts.
 Fixmes await the seeded DesignWorld and complete journey controls; standalone card components are insufficient.
 
-C-UI-12 Members (T-UI-09): [install roster and keyboard Add/Role/Remove](C-UI-12-members.spec.ts), [Members stories](../view-stories.spec.ts) active; light/dark, 1440/390, embedded/maximized.
+C-UI-12 Members (T-UI-09): [install roster and keyboard Add/Role/Remove](C-UI-12-members.spec.ts) passed, including cancelled and confirmed Remove, pending read with usable Chat, and embedded/maximized light/dark at 1440/390; [Members stories](../view-stories.spec.ts) passed all 48 light/dark combinations at 1280/1440/390 with zero axe violations, plus keyboard Add/Role. Local Chromium evidence; CI receipt at the landed SHA remains outstanding.
 
 | id | spec file | status | ticket |
 | --- | --- | --- | --- |

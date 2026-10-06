@@ -50,6 +50,18 @@ test("C-UI-12: Members reads and edits the install roster through its card", asy
   await alice.getByRole("combobox", { name: "Role" }).selectOption("member")
   await alice.getByRole("button", { name: "Role", exact: true }).press("Space")
   await expect.poll(() => writes.length).toBe(2)
+  page.once("dialog", dialog => {
+    expect(dialog.type()).toBe("confirm")
+    expect(dialog.message()).toBe("Remove @alice?")
+    void dialog.dismiss()
+  })
+  await alice.getByRole("button", { name: "Remove", exact: true }).press("Enter")
+  await expect(alice).toBeVisible()
+  expect(writes).toHaveLength(2)
+  page.once("dialog", dialog => {
+    expect(dialog.message()).toBe("Remove @alice?")
+    void dialog.accept()
+  })
   await alice.getByRole("button", { name: "Remove", exact: true }).press("Enter")
   await expect(alice).toHaveCount(0)
   expect(writes).toEqual([
