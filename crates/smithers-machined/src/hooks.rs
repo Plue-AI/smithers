@@ -48,6 +48,11 @@ pub struct WriteRecord {
     pub post_digest: Digest,
 }
 pub trait Watcher: Send + Sync {
+    /// Report readiness only after this provider's real dependencies are ready.
+    /// Implementing an operation alone must not activate a partial daemon.
+    fn ready(&self) -> Result<()> {
+        Err(Error::unsupported())
+    }
     fn before_write(&self, _cx: &mut LockCx, _path: &str, _actor: &Actor) -> Result<()> {
         Err(Error::unsupported())
     }
@@ -68,9 +73,16 @@ pub trait Watcher: Send + Sync {
     }
 }
 pub trait Documents: Send + Sync {
+    /// Report readiness only after this provider's real dependencies are ready.
+    /// Implementing an operation alone must not activate a partial daemon.
+    fn ready(&self) -> Result<()> {
+        Err(Error::unsupported())
+    }
+    /// Persist every open document before capture; return the number flushed.
     fn flush_all(&self, _cx: &mut LockCx) -> Result<u16> {
         Err(Error::unsupported())
     }
+    /// None means the path is not open. Some(Err(_)) must never fall back to disk.
     fn write_through(
         &self,
         _cx: &mut LockCx,
@@ -81,6 +93,7 @@ pub trait Documents: Send + Sync {
     ) -> Option<Result<Digest>> {
         None
     }
+    /// Reconcile open documents after a settled rewrite, on the mutation lock.
     fn reconcile_all(&self, _cx: &mut LockCx, _actor: &Actor) -> Result<()> {
         Err(Error::unsupported())
     }
@@ -100,6 +113,11 @@ pub trait Documents: Send + Sync {
     }
 }
 pub trait Sessions: Send + Sync {
+    /// Report readiness only after this provider's real dependencies are ready.
+    /// Implementing an operation alone must not activate a partial daemon.
+    fn ready(&self) -> Result<()> {
+        Err(Error::unsupported())
+    }
     fn call(&self, _method: u8, _arguments: &[u8]) -> Result<Vec<u8>> {
         Err(Error::unsupported())
     }
@@ -117,6 +135,11 @@ pub trait Sessions: Send + Sync {
     }
 }
 pub trait Broker: Send + Sync {
+    /// Report readiness only after this provider's real dependencies are ready.
+    /// Implementing an operation alone must not activate a partial daemon.
+    fn ready(&self) -> Result<()> {
+        Err(Error::unsupported())
+    }
     fn freeze(&self, _timeout: Duration) -> Result<Option<u32>> {
         Err(Error::unsupported())
     }
@@ -128,6 +151,11 @@ pub trait Broker: Send + Sync {
     }
 }
 pub trait EventSink: Send + Sync {
+    /// Report readiness only after this provider's real dependencies are ready.
+    /// Implementing an operation alone must not activate a partial daemon.
+    fn ready(&self) -> Result<()> {
+        Err(Error::unsupported())
+    }
     fn append(&self, _event: &[u8], _pin: Option<Oid>) -> Result<(u64, [u8; 16])> {
         Err(Error::unsupported())
     }
@@ -136,6 +164,11 @@ pub trait EventSink: Send + Sync {
     }
 }
 pub trait Core: Send + Sync {
+    /// Report readiness only after this provider's real dependencies are ready.
+    /// Implementing an operation alone must not activate a partial daemon.
+    fn ready(&self) -> Result<()> {
+        Err(Error::unsupported())
+    }
     /// Refuse before freezing unless the native core is ready and onto is
     /// retained locally. This check performs no working-copy mutation.
     fn validate_rebase(&self, _onto: Oid) -> Result<()> {

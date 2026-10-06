@@ -24,3 +24,5 @@ pub mod versions;
 pub mod watch;
 
 pub mod document_payload;
+
+pub mod wiring;
