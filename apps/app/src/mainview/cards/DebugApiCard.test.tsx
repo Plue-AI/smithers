@@ -86,7 +86,7 @@ test("agent door refuses raw API; a running fetch never blocks Chat or duplicate
   finish(new Response('{"code":"signed_out","class":"permission","message":"Sign in"}', { status: 401 }))
   await settle(() => !controller.debugApi.get().busy)
   await settle(() => store.collections.toasts.get("toast-debug.api.send")?.status === "failed")
-  expect(controller.debugApi.get().model.exchange?.failure).toEqual({ class: "permission", code: "signed_out", message: "Sign in", status: 401 })
+  expect(controller.debugApi.get().model.exchange?.failure).toEqual({ class: "permission", code: "signed_out", message: "The API answered HTTP 401 (permission).", status: 401 })
 })
 
 test("the production help projection keeps unavailable docs and Debug API dark", async () => {
@@ -115,7 +115,8 @@ test("a debug-api failure journals only generic status copy; response text stays
   await settle(() => store.collections.cards.has("debug-api"))
   expect((await controller.runCommandForResult("debug.api", '{"operationId":"getStack","intent":"send"}')).status).toBe("executed")
   await settle(() => store.collections.toasts.get("toast-debug.api.send")?.status === "failed")
-  expect(controller.debugApi.get().model.exchange?.failure?.message).toBe("leaked response words")
+  expect(controller.debugApi.get().model.exchange?.failure?.message).toBe("The API answered HTTP 500 (infra).")
+  expect(controller.debugApi.get().model.exchange?.response?.body).toContain("leaked response words")
   expect(store.collections.toasts.get("toast-debug.api.send")?.detail).toBe("The API answered HTTP 500 (infra).")
   expect(JSON.stringify([...store.collections.transitions.values()])).not.toContain("leaked response words")
   expect(JSON.stringify([...store.collections.toasts.values()])).not.toContain("leaked response words")

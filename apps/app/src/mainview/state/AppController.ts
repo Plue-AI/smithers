@@ -1,6 +1,6 @@
 import type { TerminalCardSource } from "./seams/TerminalSeam"
 import { bundledOpenApi } from "../../debugApi/bundled"
-import { createDebugApiSeam, debugApiFailureCopy, type DebugApiSeam, type DebugApiInput, type DebugApiGates, type OpenApiDocument } from "./seams/DebugApiSeam"
+import { createDebugApiSeam, debugApiFailureCopy, presentDebugApiFailure, type DebugApiSeam, type DebugApiInput, type DebugApiGates, type OpenApiDocument } from "./seams/DebugApiSeam"
 import { confirmCancelRefusal } from "@smthrs/rpc/ConfirmCard"
 import type { Refusal } from "@smthrs/rpc/Refusal"
 import { openRequestedRepo } from "../RepoLink"
@@ -1292,7 +1292,7 @@ export const createAppController = (
           await debugApi.send(input)
           const failure = debugApi.get().model.exchange?.failure
           return failure === undefined ? undefined : debugApiFailureCopy(failure)
-        } catch (cause) { return cause instanceof Error && /^(?:Missing [\w-]{1,64}|Unknown API (?:operation|parameter)|Invalid (?:API path|path parameter|JSON body)|API confirmation is stale|Cross-origin API request|Debug API is unavailable)$/.test(cause.message) ? cause.message : "The API request failed." }
+        } catch (cause) { return presentDebugApiFailure(cause) }
       }, false, () => ctx.accountEpoch === epoch)
       return { value: "Requested" }
     }
