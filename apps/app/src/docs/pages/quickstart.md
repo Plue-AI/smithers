@@ -68,7 +68,7 @@ Add your public SSH key through the member controls. Edits share the branch's wo
 Install the CLI on your laptop, then sign in to your install address:
 
 ```sh
-smthrs login --hostname https://smithers.example.com
+smthrs login https://smithers.example.com
 ```
 
 Complete browser sign-in. Your laptop agent uses a delegated credential attributed to you; it cannot approve, merge or move `main`.
