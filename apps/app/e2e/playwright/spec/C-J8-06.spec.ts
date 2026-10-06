@@ -1,5 +1,7 @@
 import { expect, test } from "../browserTest"
 import { owner, say } from "./j1-fixtures"
+import { installCloudFixture } from "../cloudFixture"
+import { installFixture } from "../../../src/mainview/state/seams/InstallFixtures.test-support"
 
 // UI projection of .specs/engineering/checks/C-J8-06.md.
 // Written before implementation: mvp.md §6.11 Generated pages, §6.12, §6.4, M-11; lands with T-FLW-02, T-APP-01, T-REL-02
@@ -55,4 +57,44 @@ test("C-J8-06: generated wiki refresh retries and dismissal persist for everyone
       }
     }
   } finally { await ben.close() }
+})
+
+// Component evidence through the mounted install live seam. Shared run controls
+// and generated page publication remain the reference-host scenario above.
+test("C-J8-06: Home follows the install wiki refresh through failure and completion", async ({ page }) => {
+  await installCloudFixture(page, { capabilities: ["identity", "install"] })
+  await page.route("**/api/user", route => route.fulfill({ json: { id: 1, username: "maya", is_admin: false } }))
+  await page.route("**/api/install", route => route.fulfill({ json: installFixture() }))
+  await page.route("**/api/todos", route => route.fulfill({ json: [] }))
+  await page.route("**/api/conversations/main", route => route.fulfill({ json: { id: "main", entries: [] } }))
+  await page.route("**/api/conversations/main/view-state", route => route.fulfill({ json: {} }))
+  let runs: unknown[] = [{ id: "wiki-run-1", title: "Refresh wiki", state: "running", actions: [] }]
+  const publishers: Array<() => void> = []
+  const home = () => ({ repository: "owner/repo", main: { sha: "a".repeat(40), title: "main", last_success_at: "2026-10-06T00:00:00Z", health: "fresh" },
+    attention: [], items: [], counts: { queued: 0, starting: 0, working: 0, needs_you: 0, paused: 0, failed: 0, in_review: 0, merged: 0, dropped: 0 },
+    merged_since_last_look: [], machines: { in_use: 0, capacity: 2, slots: [] }, background_runs: runs })
+  await page.routeWebSocket("**/api/live", socket => socket.onMessage(raw => {
+    const frame = JSON.parse(String(raw))
+    if (frame.t !== "sub") return
+    if (frame.topic !== "home") { socket.send(JSON.stringify({ t: "err", id: frame.id, code: "unsupported" })); return }
+    let cursor = 0
+    const publish = () => socket.send(JSON.stringify({ t: "snap", id: frame.id, cursor: ++cursor, data: home() }))
+    publishers.push(publish); publish()
+  }))
+  await page.goto("/")
+  await say(page, "/stack")
+  const card = page.getByRole("region", { name: "owner/repo", exact: true }).last()
+  await expect(card).toContainText("Refresh wiki")
+  await expect(card).not.toContainText("Learning")
+  await expect(page.getByTestId("composer-input")).toBeEditable()
+  runs = [{ id: "wiki-run-1", title: "Refresh wiki", state: "failed", detail: "Page review failed", actions: [] }]
+  publishers.forEach(publish => publish())
+  await expect(card).toContainText("Page review failed")
+  await page.reload()
+  await say(page, "/stack")
+  await expect(card).toContainText("Page review failed")
+  runs = []
+  publishers.forEach(publish => publish())
+  await expect(card).not.toContainText("Refresh wiki")
+  await expect(page.getByTestId("composer-input")).toBeEditable()
 })
