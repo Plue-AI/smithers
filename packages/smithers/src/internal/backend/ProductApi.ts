@@ -1204,6 +1204,29 @@ export interface PostApiAgentConversationsReplayInput {
 export const postApiAgentConversationsReplay = (transport: Transport, input: PostApiAgentConversationsReplayInput): Promise<PostApiAgentConversationsReplayResponse> =>
   transport.request("POST", `/api/agent/conversations/replay`, input.body) as Promise<PostApiAgentConversationsReplayResponse>
 
+export type GetApiConversationViewStateResponse = Record<string, unknown>
+
+export interface GetApiConversationViewStateInput {
+  readonly path: { readonly b: string }
+}
+
+/** GET /api/conversations/{b}/view-state: Read my conversation view state */
+export const getApiConversationViewState = (transport: Transport, input: GetApiConversationViewStateInput): Promise<GetApiConversationViewStateResponse> =>
+  transport.request("GET", `/api/conversations/${segment(input.path.b)}/view-state`) as Promise<GetApiConversationViewStateResponse>
+
+export type PutApiConversationViewStateBody = Record<string, unknown>
+
+export type PutApiConversationViewStateResponse = Record<string, unknown>
+
+export interface PutApiConversationViewStateInput {
+  readonly path: { readonly b: string }
+  readonly body: PutApiConversationViewStateBody
+}
+
+/** PUT /api/conversations/{b}/view-state: Save my conversation view state */
+export const putApiConversationViewState = (transport: Transport, input: PutApiConversationViewStateInput): Promise<PutApiConversationViewStateResponse> =>
+  transport.request("PUT", `/api/conversations/${segment(input.path.b)}/view-state`, input.body) as Promise<PutApiConversationViewStateResponse>
+
 export type DeleteApiAppTimelinesIdMembersUserDResponse = AnyJSON
 
 export interface DeleteApiAppTimelinesIdMembersUserDInput {

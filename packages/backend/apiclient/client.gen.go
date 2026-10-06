@@ -2267,6 +2267,20 @@ func (c *Client) PostAPIAgentConversationsReplay(ctx context.Context, body Saved
 	return out, err
 }
 
+// GetAPIConversationViewState calls GET /api/conversations/{b}/view-state.
+func (c *Client) GetAPIConversationViewState(ctx context.Context, b string) (map[string]json.RawMessage, error) {
+	var out map[string]json.RawMessage
+	err := c.do(ctx, "GET", "/api/conversations/"+url.PathEscape(b)+"/view-state", nil, nil, &out)
+	return out, err
+}
+
+// PutAPIConversationViewState calls PUT /api/conversations/{b}/view-state.
+func (c *Client) PutAPIConversationViewState(ctx context.Context, b string, body map[string]json.RawMessage) (map[string]json.RawMessage, error) {
+	var out map[string]json.RawMessage
+	err := c.do(ctx, "PUT", "/api/conversations/"+url.PathEscape(b)+"/view-state", nil, body, &out)
+	return out, err
+}
+
 // DeleteAPIAppTimelinesIDMembersUserD calls DELETE /api/app-timelines/{id}/members/{userId}.
 func (c *Client) DeleteAPIAppTimelinesIDMembersUserD(ctx context.Context, id string, userID string) (AnyJSON, error) {
 	var out AnyJSON
