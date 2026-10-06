@@ -349,7 +349,15 @@ export const EvidenceItemSchema = z.discriminatedUnion("kind", [
     time_s: z.number().nonnegative()
   }),
   z.object({ kind: z.literal("flow"), name: z.string(), version: z.string() }),
-  z.object({ kind: z.literal("model_access"), label: z.string() })
+  z.object({ kind: z.literal("model_access"), label: z.string() }),
+  z.object({
+    kind: z.literal("wiki"),
+    slug: z.string().min(1),
+    pageID: z.string().regex(/^[1-9][0-9]*$/),
+    revision: z.number().int().positive(),
+    digest: z.string().regex(/^[0-9a-f]{64}$/),
+    url: RelativeUrlPathSchema
+  })
 ])
 
 /**

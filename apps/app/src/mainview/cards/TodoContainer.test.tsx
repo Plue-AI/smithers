@@ -332,3 +332,23 @@ test("served TODO cards retain composed takeover and image controls, and withhol
   Object.assign(controller, { openBranch: async () => undefined })
   expect(render(fixtures.working.model)).toContain('data-flow="branch"')
 })
+
+test("served TODO evidence opens each captured wiki revision after the page changes", () => {
+  const model = TodoCardSchema.parse({ ...fixtures.queued.model, evidence: [
+    { attempt: 1, revision: "first", items: [{ kind: "wiki", slug: "retry-policy", pageID: "42", revision: 3,
+      digest: "0590d40eefc0d1d5a9a5c8d407e4acfcb1cae6de15729033c56dc64ddb9abe47",
+      url: "/api/repos/owner/repo/wiki/history/42/3/content?visibility=public" }] },
+    { attempt: 2, revision: "second", items: [{ kind: "wiki", slug: "retry-policy", pageID: "42", revision: 7,
+      digest: "0b2889240d13d49add99a1daef222ddce288814a94826dbce1fbf456f03adc6b",
+      url: "/api/repos/owner/repo/wiki/history/42/7/content?visibility=public" }] }
+  ] })
+  const h = mount(model)
+  const markup = renderToStaticMarkup(<TodoView {...h.props} />)
+  expect(markup).toContain('href="/api/repos/owner/repo/wiki/history/42/3/content?visibility=public"')
+  expect(markup).toContain('href="/api/repos/owner/repo/wiki/history/42/7/content?visibility=public"')
+  expect(markup).toContain('retry-policy · r3')
+  expect(markup).toContain('retry-policy · r7')
+  expect(TodoCardSchema.safeParse({ ...model, evidence: [{ attempt: 1, revision: "x", items: [
+    { ...model.evidence[0]!.items[0], digest: "bad" }
+  ] }] }).success).toBe(false)
+})

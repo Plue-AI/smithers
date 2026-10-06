@@ -56,9 +56,17 @@ export type MemoryRow = typeof MemoryRow.Type
 /** The bounded, cited block the implementation, repair and correction steps open with. */
 export const ProjectMemory = Schema.Array(MemoryRow).check(Schema.isMaxLength(64))
 export type ProjectMemory = typeof ProjectMemory.Type
+/** Identity and bytes captured together by an authorized wiki read. */
+export const WikiCitation = Schema.Struct({
+  slug: Text,
+  pageID: Text,
+  revision: Schema.Int.check(Schema.isGreaterThan(0)),
+  digest: Schema.String.check(Schema.isPattern(/^[0-9a-f]{64}$/))
+})
 export const Plan = Schema.Struct({
   prompt: Text,
   memoryRevision: Text,
+  wikiCitations: Schema.optionalKey(Schema.Array(WikiCitation).check(Schema.isMaxLength(30))),
   // The project memory the planner was given, bounded and cited, so every
   // later step opens with the same block. Absent on plans made before it.
   memory: Schema.optionalKey(ProjectMemory),

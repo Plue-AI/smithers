@@ -44,6 +44,8 @@ function EvidenceLine({ item }: { item: EvidenceItem }) {
           {item.name} · {item.version}
         </span>
       );
+    case "wiki":
+      return <a href={item.url}>{item.slug} · r{item.revision}</a>;
     case "model_access":
       return <span>{item.label}</span>;
   }
@@ -250,6 +252,7 @@ export function TodoView({ model: todo, actions, onAction, conflictTerminal }: T
                     usage: "Usage",
                     flow: "Flow",
                     model_access: "Model",
+                    wiki: "Wiki",
                   }[item.kind]
                 }
               </span>

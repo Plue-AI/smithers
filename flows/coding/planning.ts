@@ -10,7 +10,7 @@ import { Effect, Layer, Schema } from "effect"
 import { Learning, learningRows, maxLearnings } from "./learnings.ts"
 import { maxSources, Source } from "./planning-sources.ts"
 import { projectMemory } from "./project-memory.ts"
-import { AtomicPlan, Change, Check, CodingError, Plan, PlanningInput, Revision, validatePlan } from "./schema.ts"
+import { AtomicPlan, Change, Check, CodingError, Plan, PlanningInput, Revision, validatePlan, WikiCitation } from "./schema.ts"
 export { PlanningInput } from "./schema.ts"
 
 const Text = Schema.NonEmptyString
@@ -23,12 +23,7 @@ const Note = Schema.Struct({
   inputDigest: Text,
   generated: Schema.optionalKey(Schema.Boolean)
 })
-export const WikiCitation = Schema.Struct({
-  slug: Text,
-  pageID: Text,
-  revision: Schema.Int.check(Schema.isGreaterThan(0)),
-  digest: Schema.String.check(Schema.isPattern(/^[0-9a-f]{64}$/))
-})
+export { WikiCitation } from "./schema.ts"
 const Historical = Schema.Struct({ ...Revision.fields, description: Schema.String })
 export const PlanningContext = Schema.Struct({
   head: Revision,
@@ -401,6 +396,7 @@ export const finalize = (input: typeof PlanningInput.Type, context: PlanningCont
   const plan: Plan = {
     prompt: input.prompt,
     memoryRevision: context.memoryRevision,
+    ...(context.wikiCitations === undefined ? {} : { wikiCitations: context.wikiCitations }),
     ...(memory.length === 0 ? {} : { memory }),
     base: context.history[baseIndex]!,
     observedHead: context.head,

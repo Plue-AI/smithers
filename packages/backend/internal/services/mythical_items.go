@@ -877,13 +877,21 @@ func mythicalRoute(update flowdispatch.ProjectionUpdate) string {
 
 // mythicalPlanSummary projects the request's plan placement for the UI and
 // keeps its checks for coding/verify.
+type planWikiCitation struct {
+	Slug     string `json:"slug"`
+	PageID   string `json:"pageID"`
+	Revision int64  `json:"revision"`
+	Digest   string `json:"digest"`
+}
+
 func mythicalPlanSummary(update flowdispatch.ProjectionUpdate) json.RawMessage {
 	if update.Checkpoint.Run == nil || update.Checkpoint.Run.FinalOutput == nil {
 		return nil
 	}
 	var result struct {
 		Plan struct {
-			Changes []struct {
+			WikiCitations []planWikiCitation `json:"wikiCitations,omitempty"`
+			Changes       []struct {
 				Title string `json:"title"`
 				Atoms []struct {
 					ChangeID *string `json:"changeId"`
@@ -901,15 +909,16 @@ func mythicalPlanSummary(update flowdispatch.ProjectionUpdate) json.RawMessage {
 		Title string `json:"title"`
 	}
 	summary := struct {
-		Title   string            `json:"title"`
-		Amends  []string          `json:"amends"`
-		Inserts []insert          `json:"inserts"`
-		Appends int               `json:"appends"`
-		Checks  []json.RawMessage `json:"checks"`
+		WikiCitations []planWikiCitation `json:"wikiCitations,omitempty"`
+		Title         string             `json:"title"`
+		Amends        []string           `json:"amends"`
+		Inserts       []insert           `json:"inserts"`
+		Appends       int                `json:"appends"`
+		Checks        []json.RawMessage  `json:"checks"`
 		// Steps are the plan's atoms in order, so a continuation can pick up
 		// the plan it continues.
 		Steps []string `json:"steps"`
-	}{Title: result.Plan.Changes[0].Title, Amends: []string{}, Inserts: []insert{}, Steps: []string{}}
+	}{WikiCitations: result.Plan.WikiCitations, Title: result.Plan.Changes[0].Title, Amends: []string{}, Inserts: []insert{}, Steps: []string{}}
 	seen := map[string]bool{}
 	var atoms []struct {
 		ChangeID *string
@@ -1989,6 +1998,7 @@ func (st *mythicalItemStep) start(ctx context.Context, item db.MythicalItem) (*d
 	}
 	next := item
 	next.Attempt, next.Generation = item.Attempt+1, item.Generation+1
+	next.Plan = nil
 	next.RequestOutcome, next.VibeOutcome, next.VerifyOutcome = "", "", ""
 	next.RequestRunID, next.VibeRunID, next.VerifyRunID = "", "", ""
 	next.CandidateBase, next.CandidateHead, next.CandidateVerified = "", "", false
@@ -2143,6 +2153,7 @@ func (st *mythicalItemStep) startPinned(ctx context.Context, item db.MythicalIte
 	}
 	next := item
 	next.Attempt, next.Generation = item.Attempt+1, item.Generation+1
+	next.Plan = nil
 	next.RequestOutcome, next.VibeOutcome, next.VerifyOutcome = "", "", ""
 	next.RequestRunID, next.VibeRunID, next.VerifyRunID = "", "", ""
 	next.CandidateBase, next.CandidateHead, next.CandidateVerified = "", "", false
