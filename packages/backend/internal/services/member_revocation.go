@@ -118,7 +118,7 @@ func revokeMemberCredentials(ctx context.Context, tx pgx.Tx, repo, user, actor i
 // Remove takes login off the roster and revokes everything they hold in the
 // same transaction. Removing someone not on the roster changes nothing.
 func (m *Members) Remove(ctx context.Context, login string) error {
-	decision, err := Authorize(ctx, db.New(m.Pool), "members.write")
+	decision, err := Authorize(ctx, db.New(m.Pool), "members.remove")
 	if err != nil {
 		return err
 	}

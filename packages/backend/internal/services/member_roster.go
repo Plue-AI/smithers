@@ -189,7 +189,7 @@ func (m *Members) LinkGitHub(ctx context.Context, id, userID int64, login string
 // Add puts a GitHub user on the roster. Their role seeds from their GitHub
 // permission; a person without write access there is refused with no row.
 func (m *Members) Add(ctx context.Context, login string) error {
-	if _, err := Authorize(ctx, db.New(m.Pool), "members.write"); err != nil {
+	if _, err := Authorize(ctx, db.New(m.Pool), "members.add"); err != nil {
 		return err
 	}
 	if !ValidMemberLogin(login) {
@@ -338,7 +338,7 @@ func (m *Members) roster(ctx context.Context, canWrite bool) (MembersProjection,
 
 // ChangeRole sets a member's role. The owner's role never changes.
 func (m *Members) ChangeRole(ctx context.Context, login, role string) error {
-	if _, err := Authorize(ctx, db.New(m.Pool), "members.write"); err != nil {
+	if _, err := Authorize(ctx, db.New(m.Pool), "members.role"); err != nil {
 		return err
 	}
 	if !ValidMemberLogin(login) {
