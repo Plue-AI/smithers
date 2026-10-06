@@ -698,6 +698,36 @@
       "status": "manual",
       "reason": "Person/hardware required: reference host A and a second Mac B, recorded; Absent: scripts/release/backup-restore.mjs, packages/smithers/test/host-backup.fault.test.ts, packages/backend/internal/services/install_quiesce_integration_test.go"
     },
+    "C-RMT-01": {
+      "status": "pending-owner",
+      "reason": "No approved CI target; remote-host validation and smithers-22 mapping approval required",
+      "ticket": "T-RMT-01"
+    },
+    "C-RMT-02": {
+      "status": "pending-owner",
+      "reason": "No approved CI target; remote-host validation and smithers-22 mapping approval required",
+      "ticket": "T-RMT-02"
+    },
+    "C-RMT-03": {
+      "status": "pending-owner",
+      "reason": "No approved CI target; remote-host validation and smithers-22 mapping approval required",
+      "ticket": "T-RMT-03"
+    },
+    "C-RMT-04": {
+      "status": "pending-owner",
+      "reason": "No approved CI target; remote-host validation and smithers-22 mapping approval required",
+      "ticket": "T-RMT-04"
+    },
+    "C-RMT-05": {
+      "status": "pending-owner",
+      "reason": "No approved CI target; remote-host validation and smithers-22 mapping approval required",
+      "ticket": "T-RMT-05"
+    },
+    "C-RMT-06": {
+      "status": "pending-owner",
+      "reason": "No approved CI target; remote-host validation and smithers-22 mapping approval required",
+      "ticket": "T-RMT-04"
+    },
     "C-SEC-01": {
       "status": "pending-owner",
       "reason": "Absent: packages/backend/internal/services/machine_secret_scan_integration_test.go",
