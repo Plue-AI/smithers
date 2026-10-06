@@ -33,7 +33,7 @@ type WikiGeneratedSource struct {
 }
 
 type WikiPageResponse struct {
-	Generated     *WikiGeneratedSource `json:"generated,omitempty"`
+	Generated     *WikiGeneratedSource `json:"generated"`
 	TitleSource   string               `json:"title_source,omitempty"`
 	Attachment    *WikiAttachment      `json:"attachment,omitempty"`
 	Visibility    string               `json:"visibility"`
@@ -227,7 +227,7 @@ func (s *WikiService) GetWikiPage(ctx context.Context, viewer *db.User, owner, r
 						sourceRevision = receipt.PublishedCommit
 					}
 					if published.Slug == page.Slug && !published.Edited && published.Revision == page.Revision &&
-						published.BodyDigest == page.ContentDigest && published.InputDigest != "" && sourceRevision != "" {
+						published.BodyDigest == page.ContentDigest {
 						response.Generated = &WikiGeneratedSource{ID: published.ID, InputDigest: published.InputDigest, SourceRevision: sourceRevision}
 						break
 					}

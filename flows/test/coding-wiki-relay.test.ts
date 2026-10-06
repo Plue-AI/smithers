@@ -20,7 +20,8 @@ test("planning captures the authorized relay response, including an edit after s
         revision: 7,
         title: "Retries",
         body: "Decision: exponential backoff.",
-        content_digest: digest
+        content_digest: digest,
+        generated: null
       })
     )
   })
@@ -160,4 +161,36 @@ test("relay passes revision-bound generated inputs to machine freshness checks",
     digest,
     generated
   })
+})
+
+test("a person-edited generated slug is authored without a generated inventory", async () => {
+  const provider = relayWikiProvider({
+    relayURL: "http://relay.test",
+    owner: "owner",
+    repository: "repo",
+    runCredential: "run-only",
+    authorize: () => Effect.void,
+    select: () => Effect.succeed([{ slug: "generated-runtime" }]),
+    fetch: async () =>
+      Response.json({
+        id: 42,
+        slug: "generated-runtime",
+        revision: 7,
+        title: "Runtime",
+        body: "Decision: exponential backoff.",
+        content_digest: digest,
+        generated: null
+      })
+  })
+  const result = await Effect.runPromise(
+    wikiMemory({
+      repositoryPath: "/unused",
+      pages: [],
+      implementation: "coding/implementation",
+      checks: [],
+      wikiProvider: provider
+    }, { prompt: "Retry deliveries", feedback: "" }).pipe(Effect.provide(NodeServices.layer))
+  )
+  assert.equal(result.pages[0]!.generated, false)
+  assert.deepEqual(result.pages[0]!.citation, { pageID: "42", slug: "generated-runtime", revision: 7, digest })
 })
