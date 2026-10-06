@@ -76,6 +76,39 @@ test("Shell breakpoint and keyboard controls", async ({ page }) => {
   }
 })
 
+test("Shell resize preserves disclosure and reports only breakpoint transitions", async ({ page }) => {
+  await page.addInitScript(() => {
+    Object.assign(window, { resizeReceipts: [] })
+    window.addEventListener("story-callback", event =>
+      (window as unknown as { resizeReceipts: unknown[] }).resizeReceipts.push((event as CustomEvent).detail))
+  })
+  for (const theme of ["light", "dark"]) {
+    await page.setViewportSize({ width: 1179, height: 1000 })
+    await page.goto(`/view-stories.html?story=Shell/Breakpoint%20and%20controls&theme=${theme}`)
+    const timeline = page.getByRole("navigation", { name: "Timeline", includeHidden: true })
+    await expect.poll(() => page.evaluate(() => Reflect.get(window, "resizeReceipts"))).toEqual([
+      { kind: "view", value: { timeline_visible: false } },
+    ])
+    await page.locator(".notice-more").press("Enter")
+    await expect(page.locator(".notice")).toHaveCount(5)
+    const expected = [{ kind: "view", value: { timeline_visible: false } }]
+    for (const [width, visible, changed] of [[1180, true, true], [1280, true, false], [1179, false, true], [1100, false, false], [1180, true, true]] as const) {
+      await page.setViewportSize({ width, height: 1000 })
+      await expect(timeline).toHaveCSS("display", visible ? "block" : "none")
+      await expect(page.locator('[data-edge="above"] .edge-pill')).toBeVisible({ visible: !visible })
+      await expect(page.locator(".notice")).toHaveCount(5)
+      await expect(page.locator(".notice-more")).toHaveCount(0)
+      if (changed) expected.push({ kind: "view", value: { timeline_visible: visible } })
+      await expect.poll(() => page.evaluate(() => Reflect.get(window, "resizeReceipts"))).toEqual(expected)
+    }
+    expect(await timeline.locator("li[data-in-view]").evaluateAll(rows => rows.map(row => row.getAttribute("data-entry")))).toEqual(["line-2", "line-3"])
+    await page.locator('[data-entry="line-3"] > button').press("Space")
+    await expect.poll(() => page.evaluate(() => Reflect.get(window, "resizeReceipts"))).toEqual([
+      ...expected, { kind: "view", value: { jump_to: "line-3" } },
+    ])
+  }
+})
+
 test("every View story: light/dark, desktop/mobile, axe and overflow", async ({ page, browserName }) => {
   test.skip(browserName !== "chromium", "C-UI-12 requires Chromium")
   test.setTimeout(1_800_000) // ~360 stories × 2 themes × 3 widths with axe takes ~11 min on the mini
