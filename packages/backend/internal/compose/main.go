@@ -1382,7 +1382,8 @@ func runWithOptions(ctx context.Context, args []string, stdout, stderr io.Writer
 		visits := &presenceVisits{audit: auditService, now: time.Now}
 		go visits.run(ctx)
 		presence = &branchPresence{startedAt: time.Now(), visits: visits, queries: queries, branches: workspaceService, members: authService.Members}
-		bindRebasePresence(mythicalService, presence)
+		// #3532: rebase presence activation waits for TODO sponsor authority and
+		// retired review machines; unknown presence must not be called empty.
 	}
 	flow, err := newFlowComposition(options, cfg, pool, webhookSecretCodec, agentService, repositoryJobService, billingPolicy, mythicalService, workspaceService, invokedFlowService, presence)
 	if err != nil {
