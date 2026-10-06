@@ -177,6 +177,7 @@ func TestLiveProviderChatPersistsAndReplays(t *testing.T) {
 }
 
 type localChat struct {
+	api          func(*chat.Runtime) http.Handler
 	ctx          context.Context
 	pool         *pgxpool.Pool
 	ownerID      int64
@@ -268,6 +269,9 @@ func startConfiguredLocalChat(t *testing.T, configure func(*localChat, *chat.Run
 	local.composition, err = newChatComposition(runOptions{topology: localTopology, Options: Options{ChatHost: local.host}}, pool, runtimeOptions)
 	require.NoError(t, err)
 	t.Cleanup(local.composition.close)
+	if local.api != nil {
+		local.composition.server.Handler = chatCallbackHandler(local.composition.runtime, local.api(local.composition.runtime))
+	}
 	local.serveDone = make(chan error, 1)
 	go func() { local.serveDone <- local.composition.server.Serve(local.composition.listener) }()
 	dispatchCtx, stopDispatch := context.WithCancel(context.Background())

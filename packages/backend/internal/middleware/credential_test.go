@@ -118,3 +118,33 @@ func TestReloadCredentialResolvesAKeptCredentialNow(t *testing.T) {
 	require.Zero(t, queries.refreshAuthSessionHit)
 	require.Zero(t, queries.updateAccessTokenLastUsedHit)
 }
+
+func TestReadsRepositoriesForTurnRetainsEveryDelegationRestriction(t *testing.T) {
+	t.Parallel()
+	person := &db.User{ID: 7, UserType: "individual"}
+	info := func(scopes string, issued bool) *AuthInfo {
+		return &AuthInfo{User: person, IsTokenAuth: true, TokenHash: "hash", RawScopes: scopes, Scopes: ParseTokenScopes(scopes), TokenSystemIssued: issued}
+	}
+	app := "read:repository,via:smithers,terminal-session:turn/1"
+	require.True(t, (&AuthInfo{User: person, SessionHash: "session"}).ReadsRepositoriesForTurn())
+	require.True(t, info(app, true).ReadsRepositoriesForTurn())
+	// Issuer-only labels on a personal token grant no delegation. Its existing
+	// repository-read permission still works as the person.
+	personal := info(app, false)
+	require.True(t, personal.ReadsRepositoriesForTurn())
+	_, delegated := personal.Delegation()
+	require.False(t, delegated)
+	for name, credential := range map[string]*AuthInfo{
+		"nil":          nil,
+		"unbound":      info("read:repository,via:smithers", true),
+		"terminal":     info(strings.Replace(app, "via:smithers", "via:terminal", 1), true),
+		"without read": info(strings.Replace(app, "read:repository", "write:user", 1), true),
+		"repository":   info(app+","+RepositoryRestrictionScope(3), true),
+		"workspace":    info(app+","+WorkspaceRestrictionScope("w1"), true),
+		"path":         info(app+","+strings.Join(PathRestrictionScopes([]string{"docs"}), ","), true),
+		"branch":       info(app+","+strings.Join(DelegationScopes(Delegation{Via: "smithers", Branch: "b"}), ","), true),
+		"profile":      info(app+","+strings.Join(DelegationScopes(Delegation{Via: "smithers", Profile: TerminalProfileS1}), ","), true),
+	} {
+		t.Run(name, func(t *testing.T) { require.False(t, credential.ReadsRepositoriesForTurn()) })
+	}
+}

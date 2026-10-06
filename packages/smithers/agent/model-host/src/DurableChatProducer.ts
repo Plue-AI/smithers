@@ -44,11 +44,10 @@ export interface DurableChatGrant {
   /** The mirrored repository the turn's author may read; absent until Source is ready for them. */
   readonly source?: { readonly repository: string }
   /**
-   * The install API the turn's commands may read as its author, whose login
-   * their private cards are addressed to; absent unless the credential that
-   * admitted the turn is its author's browser session.
+   * Host-only public API authority for the current producer generation.
+   * The author's login addresses private cards; the bearer is never model input.
    */
-  readonly api?: { readonly author: string }
+  readonly api?: { readonly author: string; readonly token: string }
 }
 
 type CommitReply = Extract<AgentTurnJournalReply, { readonly status: "committed" | "duplicate" }>

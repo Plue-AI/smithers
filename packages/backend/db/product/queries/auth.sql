@@ -410,7 +410,7 @@ WHERE user_id = sqlc.arg(user_id)
   AND system_issued;
 -- name: GetChatTurnCredentialSubject :one
 -- The issuer can mint only after the existing chat dispatcher claims a turn.
-SELECT id FROM chat_turns
+SELECT id, request_payload FROM chat_turns
 WHERE id = sqlc.arg(turn_id) AND user_id = sqlc.arg(user_id)
   AND producer_generation = sqlc.arg(generation)
   AND state = 'running' AND NOT terminal AND cancel_requested_at IS NULL

@@ -55,8 +55,6 @@ type Handler struct {
 	Dispatcher    *Dispatcher
 	// Sources serves the source read and list callbacks; nil refuses them.
 	Sources SourceReader
-	// API serves the API read callback; nil refuses it.
-	API CommandAPI
 	// credentials keeps the credential that admitted each turn here.
 	credentials *turnCredentials
 	logger      *slog.Logger
@@ -606,6 +604,5 @@ func (h *Handler) MountProducerCallbacks(router chi.Router) {
 	router.Post(ProviderStartedPath, h.ProviderStarted)
 	router.Post(SourceReadPath, h.SourceRead)
 	router.Post(SourceListPath, h.SourceList)
-	router.Post(APICallPath, h.APICall)
 	router.Post(ContextPath, h.Context)
 }

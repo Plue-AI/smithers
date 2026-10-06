@@ -2048,7 +2048,7 @@ func authLoader(queries *db.Queries, cfg config.AuthConfig) func(http.Handler) h
 }
 
 // mountTodoReads mounts the install's TODO read routes. The app agent's
-// host-run commands read through the same mount (installReadRoutes), as the
+// host-run commands read through the authenticated public API, as the
 // credential that admitted their turn.
 func mountTodoReads(r chi.Router, todos *routes.TodoHandler) {
 	r.Get("/todos", todos.List)
@@ -2058,21 +2058,9 @@ func mountTodoReads(r chi.Router, todos *routes.TodoHandler) {
 }
 
 // mountFlowReads mounts the install's flow catalog, which the Flow card and
-// the app agent's host-run commands read (installReadRoutes).
+// the app agent's host-run commands read through the public API.
 func mountFlowReads(r chi.Router, flows *routes.FlowsHandler) {
 	r.Get("/flows", flows.List)
-}
-
-// installReadRoutes are the install API routes a host-run command may read,
-// under /api as the public router mounts them: the TODOs and the flows.
-func installReadRoutes(queries *db.Queries, service routes.TodoRouteService) http.Handler {
-	router := chi.NewRouter()
-	router.Route("/api", func(r chi.Router) {
-		mountTodoReads(r, &routes.TodoHandler{Queries: queries, Service: service})
-		proposals, _ := service.(services.FlowProposalReader)
-		mountFlowReads(r, &routes.FlowsHandler{Queries: queries, Proposals: proposals})
-	})
-	return router
 }
 
 // mountModelProxy serves the metered model proxy at /model-proxy and, for the

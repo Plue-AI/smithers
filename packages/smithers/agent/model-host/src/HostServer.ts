@@ -59,7 +59,7 @@ const WireGrantSchema = z.object({
   request: z.unknown(),
   producerBaseUrl: z.string().url(),
   source: z.object({ repository: z.string().regex(/^[^/\s]+\/[^/\s]+$/).max(201) }).strict().optional(),
-  api: z.object({ author: Identity }).strict().optional()
+  api: z.object({ author: Identity, token: z.string().regex(/^smithers_[a-f0-9]{40}$/u) }).strict().optional()
 }).strict()
 
 /**

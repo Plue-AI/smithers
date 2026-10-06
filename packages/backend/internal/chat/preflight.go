@@ -118,7 +118,7 @@ func (h *Handler) Context(w http.ResponseWriter, r *http.Request) {
 	}
 	credentialActive := func() bool {
 		info, err := middleware.ReloadCredential(r.Context(), db.New(h.Store.pool), credential, time.Now().UTC())
-		if err != nil || !info.ReadsRepositoriesAsPerson() || info.User.ID != turn.UserID {
+		if err != nil || !info.ReadsRepositoriesForTurn() || info.User.ID != turn.UserID {
 			writeProblem(w, http.StatusForbidden, "forbidden")
 			return false
 		}

@@ -1390,12 +1390,13 @@ func runWithOptions(ctx context.Context, args []string, stdout, stderr io.Writer
 		return fmt.Errorf("initialize chat runtime: %w", err)
 	}
 	if config.IsSingleOwner(cfg.Auth) {
-		// Questions read the install's mirrored main once Source is ready, and
-		// their commands read the install's TODO and flow routes, as the
-		// credential that asked, behind the same member boundary.
+		// Context and file tools share the install's source/member boundary.
+		// Command calls use the author's generation-bound public API bearer.
 		members := identity.NewMemberBoundary(queries)
-		chatSizing.Sources = services.InstallSource{Pool: pool, Repos: repoService, Members: members}
-		chatSizing.API = services.InstallAPI{Pool: pool, Members: members, Routes: installReadRoutes(queries, mythicalService)}
+		source := services.InstallSource{Pool: pool, Repos: repoService, Members: members}
+		chatSizing.Sources = source
+		chatSizing.ContextRepository = services.InstallContext{Source: source, Wiki: wikiService, Branches: workspaceService}.Read
+		chatSizing.API = services.InstallAPI{Auth: authService}
 	}
 	chatService, err := newChatComposition(options, pool, chatSizing)
 	if err != nil {
@@ -1820,6 +1821,11 @@ func runWithOptions(ctx context.Context, args []string, stdout, stderr io.Writer
 		}
 		mountChatPublic(router, chatService.runtime, queries, cfg)
 		mountChatProducerOnSharedListener(router, chatService)
+		if config.IsSingleOwner(cfg.Auth) && chatService.server != nil {
+			// The same public router receives the host's bearer over loopback.
+			// Authentication, command policy and rate limiting are unchanged.
+			chatService.server.Handler = chatCallbackHandler(chatService.runtime, router)
+		}
 		ownerModels := modelhost.OwnerModels{Pool: pool, Codec: webhookSecretCodec}
 		if tester, ok := options.ChatHost.(modelhost.ModelTester); ok {
 			ownerModels.Tester = tester

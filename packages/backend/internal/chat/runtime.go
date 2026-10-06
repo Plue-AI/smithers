@@ -36,8 +36,8 @@ type RuntimeOptions struct {
 	// Sources serves turns' reads of a mirrored main as the credential that
 	// admitted each turn; nil offers none.
 	Sources SourceReader
-	// API serves turns' reads of the install's API as the credential that
-	// admitted each turn; nil offers none.
+	// API issues and revokes generation-bound credentials for public API calls;
+	// nil offers no API commands.
 	API CommandAPI
 }
 
@@ -84,7 +84,7 @@ func NewRuntime(pool *pgxpool.Pool, host ports.ChatHost, producerBaseURL string,
 		return nil, err
 	}
 	dispatcher.logger = options.Logger
-	handler := &Handler{ContextRepository: options.ContextRepository, Store: store, Dispatcher: dispatcher, Sources: options.Sources, API: options.API, credentials: credentials, logger: options.Logger, metrics: dispatcher.metrics}
+	handler := &Handler{ContextRepository: options.ContextRepository, Store: store, Dispatcher: dispatcher, Sources: options.Sources, credentials: credentials, logger: options.Logger, metrics: dispatcher.metrics}
 	return &Runtime{Handler: handler, dispatcher: dispatcher, store: store, concurrency: options.Concurrency}, nil
 }
 

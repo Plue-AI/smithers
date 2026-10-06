@@ -200,7 +200,7 @@ func (s InstallSource) readable(ctx context.Context, credential middleware.Crede
 // now. A credential that is gone, names another account, does not read
 // repositories as a person, or fails the member boundary reads nothing.
 func (s InstallSource) member(ctx context.Context, q *db.Queries, credential middleware.Credential, userID int64, may ...func(*middleware.AuthInfo) bool) (*db.User, error) {
-	predicate := (*middleware.AuthInfo).ReadsRepositoriesAsPerson
+	predicate := (*middleware.AuthInfo).ReadsRepositoriesForTurn
 	if len(may) == 1 {
 		predicate = may[0]
 	}
@@ -265,7 +265,7 @@ func (s InstallSource) ReadBranchFile(ctx context.Context, credential middleware
 		if delegation, delegated := info.Delegation(); delegated && delegation.Branch != "" && branch == "main" {
 			return false
 		}
-		if info.ReadsRepositoriesAsPerson() {
+		if info.ReadsRepositoriesForTurn() {
 			return true
 		}
 		delegation, ok := info.Delegation()

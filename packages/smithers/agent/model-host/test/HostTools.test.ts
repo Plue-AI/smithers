@@ -23,6 +23,7 @@ import { createHash } from "node:crypto"
 import { describe, expect, test } from "vitest"
 import { runDurableChatTurn } from "../src/DurableChatProducer.ts"
 import type { DurableChatGrant } from "../src/DurableChatProducer.ts"
+import { apiReader } from "../src/HostTools.ts"
 
 // Literal fixtures: the question, main's commit and JOURNEY.md's one line.
 const COMMIT = "0123456789abcdef0123456789abcdef01234567"
@@ -51,7 +52,7 @@ const grant: DurableChatGrant = {
 const { source: _source, ...sourceless } = grant
 
 /** An install turn its author's browser session admitted: it reads main and the install's TODOs as them. */
-const install: DurableChatGrant = { ...grant, api: { author: "ben" } }
+const install: DurableChatGrant = { ...grant, api: { author: "ben", token: "smithers_" + "a".repeat(40) } }
 
 interface SourceCall {
   readonly authorization: string | null
@@ -61,7 +62,7 @@ interface SourceCall {
 /** The install's TODO routes as the API callback answers them: the route's status and body. */
 const routes = (todos: Record<string, readonly [number, unknown]>) => (path: string): Response => {
   const [status, body] = todos[path] ?? [404, { code: "not_found", class: "user", message: "Not Found" }]
-  return Response.json({ status, body })
+  return Response.json(body, { status })
 }
 
 /** No directory: what the list callback answers a test that lists nothing. */
@@ -81,6 +82,16 @@ const producer = (
   const fetchImpl: FetchLike = async (input, init) => {
     const url = new URL(String(input))
     if (url.pathname === "/internal/chat/provider-started") return new Response(null, { status: 204 })
+    if (url.pathname.startsWith("/api/")) {
+      calls.push({
+        authorization: new Headers(init?.headers).get("authorization"),
+        body: { method: init?.method, path: url.pathname }
+      })
+      expect(new Headers(init?.headers).get("smithers-via")).toBe("smithers")
+      expect(new Headers(init?.headers).get("x-forwarded-host")).toBe("127.0.0.1:4000")
+      expect(init?.redirect).toBe("manual")
+      return api(url.pathname)
+    }
     const body = JSON.parse(String(init?.body))
     if (url.pathname === "/internal/chat/source/read") {
       reads.push({ authorization: new Headers(init?.headers).get("authorization"), body })
@@ -89,10 +100,6 @@ const producer = (
     if (url.pathname === "/internal/chat/source/list") {
       lists.push({ authorization: new Headers(init?.headers).get("authorization"), body })
       return list(body.path)
-    }
-    if (url.pathname === "/internal/chat/api") {
-      calls.push({ authorization: new Headers(init?.headers).get("authorization"), body })
-      return api(body.path)
     }
     const frame = body.frames[0] as AgentTurnFrame
     frames.push(frame)
@@ -845,7 +852,7 @@ describe("an install's host runs the catalog commands its grant allows, as the t
     const cases: ReadonlyArray<[DurableChatGrant, ReadonlyArray<string>]> = [
       [install, [...FILES_LINES, ...TODO_LINES]],
       [grant, FILES_LINES],
-      [{ ...sourceless, api: { author: "ben" } }, TODO_LINES]
+      [{ ...sourceless, api: { author: "ben", token: "smithers_" + "a".repeat(40) } }, TODO_LINES]
     ]
     for (const [turn, lines] of cases) {
       const journal = producer((path) => file(path, JOURNEY), stackRoutes)
@@ -876,7 +883,10 @@ describe("an install's host runs the catalog commands its grant allows, as the t
   test("the instructions keep the app agent's standing rules beside the install's commands", async () => {
     const cases: ReadonlyArray<[DurableChatGrant, string]> = [
       [install, "through files.list and files.read"],
-      [{ ...sourceless, api: { author: "ben" } }, "read arbitrary files off the user's machine; push"]
+      [
+        { ...sourceless, api: { author: "ben", token: "smithers_" + "a".repeat(40) } },
+        "read arbitrary files off the user's machine; push"
+      ]
     ]
     for (const [turn, files] of cases) {
       const provider = model([])
@@ -891,12 +901,18 @@ describe("an install's host runs the catalog commands its grant allows, as the t
     }
     // A turn that cannot list is never told to.
     const provider = model([])
-    await run({ ...sourceless, api: { author: "ben" } }, provider, producer((path) => file(path, JOURNEY), stackRoutes))
+    await run(
+      { ...sourceless, api: { author: "ben", token: "smithers_" + "a".repeat(40) } },
+      provider,
+      producer((path) => file(path, JOURNEY), stackRoutes)
+    )
     expect(systemText(provider.requests[0])).not.toContain("files.list")
   })
 
   test("an install turn's context states the host's capabilities and names no command the host does not run", async () => {
-    for (const turn of [install, grant, { ...sourceless, api: { author: "ben" } }]) {
+    for (
+      const turn of [install, grant, { ...sourceless, api: { author: "ben", token: "smithers_" + "a".repeat(40) } }]
+    ) {
       const provider = model([])
       const journal = producer((path) => file(path, JOURNEY), stackRoutes)
       await run({ ...turn, request: { ...question, context: browserContext } }, provider, journal)
@@ -942,8 +958,8 @@ describe("an install's host runs the catalog commands its grant allows, as the t
     const provider = model([execute("/stack")])
     await run(install, provider, journal)
     expect(journal.calls).toEqual([{
-      authorization: "Bearer producer_capability_producer_capability_1234",
-      body: { turnId: install.turnId, generation: 2, method: "GET", path: "/api/todos" }
+      authorization: "Bearer smithers_" + "a".repeat(40),
+      body: { method: "GET", path: "/api/todos" }
     }])
     expect(journal.reads).toEqual([])
     expect(journal.frames.map((frame) => frame.type)).toEqual([
@@ -999,7 +1015,7 @@ describe("an install's host runs the catalog commands its grant allows, as the t
       const provider = model([execute("/todo", args)])
       await run(install, provider, journal)
       expect(journal.calls.map((call) => call.body)).toEqual([
-        { turnId: install.turnId, generation: 2, method: "GET", path: "/api/todos/12" }
+        { method: "GET", path: "/api/todos/12" }
       ])
       expect(journal.frames.map((frame) => frame.type)).toEqual([
         "call.started",
@@ -1103,7 +1119,7 @@ describe("an install's host runs the catalog commands its grant allows, as the t
       [
         execute("stack"),
         () => Response.json({ status: "error", code: "forbidden" }, { status: 403 }),
-        "The person who asked can't use this install's TODOs now."
+        "The TODO read did not answer. Ask again."
       ],
       [
         execute("stack"),
@@ -1186,5 +1202,118 @@ describe("an install's host runs the catalog commands its grant allows, as the t
       expect(journal.calls).toEqual([])
       expect(answerText(journal.frames)).toBe(`From the source: ${unknownCommandResult(name)}`)
     }
+  })
+})
+
+describe("delegated public API transport", () => {
+  test("interrupting an API read aborts its outstanding request", async () => {
+    let entered!: () => void
+    const started = new Promise<void>((resolve) => {
+      entered = resolve
+    })
+    let observed: AbortSignal | undefined
+    let calls = 0
+    const read = apiReader("http://callback.test", install, (_input, init) => {
+      calls++
+      return new Promise((_resolve, reject) => {
+        observed = init?.signal as AbortSignal
+        observed.addEventListener("abort", () => reject(new Error("interrupted")))
+        entered()
+      })
+    })
+    const abort = new AbortController()
+    const pending = Effect.runPromiseExit(read("/api/todos"), { signal: abort.signal })
+    await started
+    abort.abort()
+    expect((await pending)._tag).toBe("Failure")
+    expect(observed?.aborted).toBe(true)
+    expect(calls).toBe(1)
+  })
+  test("decodes multibyte characters across stream boundaries", async () => {
+    const bytes = new TextEncoder().encode(JSON.stringify({ title: "café 日本 🐈" }))
+    const read = apiReader("http://callback.test", install, async () =>
+      new Response(
+        new ReadableStream({
+          start(controller) {
+            for (const byte of bytes) controller.enqueue(new Uint8Array([byte]))
+            controller.close()
+          }
+        })
+      ))
+    expect(await Effect.runPromise(read("/api/todos"))).toEqual({ status: 200, body: { title: "café 日本 🐈" } })
+  })
+  test("refuses absent authority and non-API destinations before transport", async () => {
+    let fetched = false
+    const fetchImpl: FetchLike = async () => {
+      fetched = true
+      return Response.json({})
+    }
+    expect(await Effect.runPromise(apiReader("http://callback.test", grant, fetchImpl)("/api/todos")))
+      .toEqual({ code: "forbidden" })
+    for (
+      const path of [
+        "/private",
+        "https://other.test/api/todos",
+        "//other.test/api/todos",
+        "/api/../private",
+        "/api/x#fragment",
+        "/api/\\private"
+      ]
+    ) {
+      expect(await Effect.runPromise(apiReader("http://callback.test", install, fetchImpl)(path)))
+        .toEqual({ code: "call_refused" })
+    }
+    expect(fetched).toBe(false)
+  })
+  test("uses the pinned origin and redacts literal and escaped bearer reflections", async () => {
+    const token = install.api!.token
+    const read = apiReader("http://callback.test", install, async (input, init) => {
+      expect(String(input)).toBe("http://callback.test/api/todos?q=one")
+      expect(init?.method).toBe("GET")
+      expect(new Headers(init?.headers).get("authorization")).toBe(`Bearer ${token}`)
+      expect(new Headers(init?.headers).get("smithers-via")).toBe("smithers")
+      expect(init?.redirect).toBe("manual")
+      expect(init?.signal).toBeInstanceOf(AbortSignal)
+      return new Response(`{"plain":"${token}","escaped":"\\u0073${token.slice(1)}"}`)
+    })
+    expect(await Effect.runPromise(read("/api/todos?q=one")))
+      .toEqual({ status: 200, body: { plain: "[redacted]", escaped: "[redacted]" } })
+  })
+  test("refuses redirects, empty responses and invalid UTF-8", async () => {
+    const redirected = Response.json({})
+    Object.defineProperty(redirected, "redirected", { value: true })
+    for (
+      const [response, code] of [
+        [Response.redirect("https://other.test", 302), "call_refused"],
+        [redirected, "call_refused"],
+        [new Response(null, { status: 204 }), "invalid_answer"],
+        [new Response(new Uint8Array([255])), "invalid_answer"]
+      ] as const
+    ) {
+      expect(await Effect.runPromise(apiReader("http://callback.test", install, async () => response)("/api/todos")))
+        .toEqual({ code })
+    }
+  })
+  test("bounds decoded API bodies at four MiB and cancels an oversized stream", async () => {
+    const boundary = JSON.stringify("x".repeat(4 * 1024 * 1024 - 2))
+    const valid = await Effect.runPromise(
+      apiReader("http://callback.test", install, async () => new Response(boundary))("/api/todos")
+    )
+    expect("status" in valid && valid.status).toBe(200)
+    let cancelled = false
+    const response = new Response(
+      new ReadableStream<Uint8Array>({
+        start(controller) {
+          controller.enqueue(new TextEncoder().encode(boundary + " "))
+        },
+        cancel() {
+          cancelled = true
+          throw new Error("upstream cancellation failed")
+        }
+      })
+    )
+    expect(await Effect.runPromise(apiReader("http://callback.test", install, async () => response)("/api/todos")))
+      .toEqual({ code: "invalid_answer" })
+    expect(cancelled).toBe(true)
   })
 })

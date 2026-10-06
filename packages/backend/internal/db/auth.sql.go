@@ -708,7 +708,7 @@ func (q *Queries) GetAuthSessionBySessionKey(ctx context.Context, sessionKey str
 }
 
 const getChatTurnCredentialSubject = `-- name: GetChatTurnCredentialSubject :one
-SELECT id FROM chat_turns
+SELECT id, request_payload FROM chat_turns
 WHERE id = $1 AND user_id = $2
   AND producer_generation = $3
   AND state = 'running' AND NOT terminal AND cancel_requested_at IS NULL
@@ -721,12 +721,17 @@ type GetChatTurnCredentialSubjectParams struct {
 	Generation int64  `json:"generation"`
 }
 
+type GetChatTurnCredentialSubjectRow struct {
+	ID             string `json:"id"`
+	RequestPayload []byte `json:"request_payload"`
+}
+
 // The issuer can mint only after the existing chat dispatcher claims a turn.
-func (q *Queries) GetChatTurnCredentialSubject(ctx context.Context, arg GetChatTurnCredentialSubjectParams) (string, error) {
+func (q *Queries) GetChatTurnCredentialSubject(ctx context.Context, arg GetChatTurnCredentialSubjectParams) (GetChatTurnCredentialSubjectRow, error) {
 	row := q.db.QueryRow(ctx, getChatTurnCredentialSubject, arg.TurnID, arg.UserID, arg.Generation)
-	var id string
-	err := row.Scan(&id)
-	return id, err
+	var i GetChatTurnCredentialSubjectRow
+	err := row.Scan(&i.ID, &i.RequestPayload)
+	return i, err
 }
 
 const getEmailByID = `-- name: GetEmailByID :one

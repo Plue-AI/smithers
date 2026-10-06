@@ -97,6 +97,13 @@ func TestAPIStaysResponsiveWhileChatWorkersAreSaturated(t *testing.T) {
 	repo, err := q.CreateRepo(ctx, db.CreateRepoParams{UserID: pgtype.Int8{Int64: owner.ID, Valid: true}, Name: "busy", LowerName: "busy", DefaultBookmark: "main"})
 	require.NoError(t, err)
 
+	binding := fmt.Sprintf(`{"owner_login":"saturated","repository_name":"busy","repository_id":%d,"last_access_check_at":"%s"}`, repo.ID, time.Now().UTC().Format(time.RFC3339))
+	for _, key := range []string{"github.repository", "owner.access"} {
+		require.NoError(t, q.UpsertInstallSetting(ctx, db.UpsertInstallSettingParams{Key: key, Value: []byte(binding)}))
+	}
+	_, err = pool.Exec(ctx, `INSERT INTO collaborators(repository_id,user_id,permission) VALUES($1,$2,'admin')`, repo.ID, owner.ID)
+	require.NoError(t, err)
+
 	call := func(method, path string, body any) (int, []byte, time.Duration) {
 		var reader io.Reader
 		if body != nil {
@@ -109,6 +116,7 @@ func TestAPIStaysResponsiveWhileChatWorkersAreSaturated(t *testing.T) {
 		req, reqErr := http.NewRequestWithContext(requestCtx, method, server.URL+path, reader)
 		require.NoError(t, reqErr)
 		req.Header.Set("Authorization", "Bearer "+token)
+		req.Host = "127.0.0.1:4000"
 		if body != nil {
 			req.Header.Set("Content-Type", "application/json")
 		}
@@ -131,6 +139,7 @@ func TestAPIStaysResponsiveWhileChatWorkersAreSaturated(t *testing.T) {
 		req, reqErr := http.NewRequest(http.MethodPost, server.URL+chat.TurnPath, bytes.NewReader(body))
 		require.NoError(t, reqErr)
 		req.Header.Set("Authorization", "Bearer "+token)
+		req.Host = "127.0.0.1:4000"
 		req.Header.Set("Content-Type", "application/json")
 		began := time.Now()
 		response, doErr := server.Client().Do(req)

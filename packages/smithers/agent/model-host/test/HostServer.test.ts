@@ -291,7 +291,7 @@ test("preserves the repository, source and API grants and hides provider failure
     resolve: (accepted) => {
       expect(accepted.repositoryId).toBe(17)
       expect(accepted.source).toEqual({ repository: "acme/app" })
-      expect(accepted.api).toEqual({ author: "ben" })
+      expect(accepted.api).toEqual({ author: "ben", token: "smithers_" + "a".repeat(40) })
       expect(accepted.producerBaseUrl).toBe("https://callback.test/")
       expect(accepted.request.tools).toEqual([])
       return options.resolve()
@@ -301,7 +301,7 @@ test("preserves the repository, source and API grants and hides provider failure
     ...grant,
     repositoryId: 17,
     source: { repository: "acme/app" },
-    api: { author: "ben" },
+    api: { author: "ben", token: "smithers_" + "a".repeat(40) },
     request: { ...grant.request, tools: [] },
     producerBaseUrl: "https://callback.test/other"
   })))

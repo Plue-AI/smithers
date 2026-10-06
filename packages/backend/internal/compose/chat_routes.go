@@ -104,9 +104,18 @@ func mountModelPublic(router chi.Router, models modelhost.OwnerModels, queries *
 	})
 }
 
-func chatCallbackHandler(runtime *chat.Runtime) http.Handler {
+func chatCallbackHandler(runtime *chat.Runtime, api ...http.Handler) http.Handler {
 	router := chi.NewRouter()
 	runtime.MountProducerCallbacks(router)
+	if len(api) == 1 && api[0] != nil {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			if strings.HasPrefix(r.URL.Path, "/api/") {
+				api[0].ServeHTTP(w, r)
+				return
+			}
+			router.ServeHTTP(w, r)
+		})
+	}
 	return router
 }
 

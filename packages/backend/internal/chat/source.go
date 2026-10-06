@@ -50,11 +50,9 @@ type admittedCredential struct {
 	at         time.Time
 }
 
-// turnCredentials keeps, for each turn this process admitted, the credential
-// that admitted it. A host-owned turn reads source only as that credential,
-// so its reads carry the admitting request's authority, and end when the
-// credential is revoked, expires or loses a scope. A turn this process did not
-// admit, such as one recovered after a restart, reads nothing.
+// turnCredentials holds the admitting credential until the producer binds its
+// delegated credential. Every source read revalidates that authority. Shared
+// turns can recover with a newly issued generation-bound credential.
 type turnCredentials struct {
 	mu       sync.Mutex
 	now      func() time.Time
@@ -93,7 +91,7 @@ func (c *turnCredentials) admit(key turnKey, credential middleware.Credential) (
 	}
 }
 
-// credential is the credential that admitted a turn, while it may still act.
+// credential resolves a turn's current credential while its cache entry lives.
 func (c *turnCredentials) credential(key turnKey) (middleware.Credential, bool) {
 	if c == nil {
 		return middleware.Credential{}, false
@@ -123,9 +121,8 @@ type sourceReadRequest struct {
 	Path       string `json:"path"`
 }
 
-// SourceRead serves one file to a live producer, read as the credential that
-// admitted its turn: a fenced, cancelled, expired or finished turn, or one
-// whose admitting credential is unknown here, reads nothing.
+// SourceRead serves a live producer under its current credential. A fenced,
+// cancelled, expired or finished turn, or one without a credential, reads nothing.
 func (h *Handler) SourceRead(w http.ResponseWriter, r *http.Request) {
 	h.serveSource(w, r, "read", func(ctx context.Context, credential middleware.Credential, turn ProducerTurn, path string) (any, error) {
 		return h.Sources.ReadSource(ctx, credential, turn.UserID, turn.RepositoryID, path)
@@ -141,7 +138,7 @@ func (h *Handler) SourceList(w http.ResponseWriter, r *http.Request) {
 }
 
 // serveSource answers one source callback for a live producer as the
-// credential that admitted its turn, and states each refusal by its code.
+// turn's current credential, and states each refusal by its code.
 func (h *Handler) serveSource(w http.ResponseWriter, r *http.Request, act string, serve func(context.Context, middleware.Credential, ProducerTurn, string) (any, error)) {
 	if h.Store == nil {
 		writeProblem(w, http.StatusServiceUnavailable, "storage_failed")
@@ -184,5 +181,24 @@ func (h *Handler) serveSource(w http.ResponseWriter, r *http.Request, act string
 		}
 		logger.Error("chat source "+act+" failed", "turn_id", request.TurnID, "error", err)
 		writeProblem(w, http.StatusServiceUnavailable, "source_failed")
+	}
+}
+
+// bind installs a producer generation's freshly issued credential. Its cleanup
+// cannot erase a newer producer's credential after the old lease was fenced.
+func (c *turnCredentials) bind(key turnKey, credential middleware.Credential) func() {
+	if c == nil {
+		return func() {}
+	}
+	c.mu.Lock()
+	recorded := admittedCredential{credential: credential, at: c.now()}
+	c.admitted[key] = recorded
+	c.mu.Unlock()
+	return func() {
+		c.mu.Lock()
+		defer c.mu.Unlock()
+		if current, ok := c.admitted[key]; ok && current == recorded {
+			delete(c.admitted, key)
+		}
 	}
 }

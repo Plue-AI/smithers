@@ -56,7 +56,6 @@ func TestHostedAPICallbackUsesSharedListenerWhenPrivateListenerIsAbsent(t *testi
 	// any read.
 	for path, body := range map[string]string{
 		chat.SourceReadPath: `{"turnId":"not-a-turn","generation":1,"path":"JOURNEY.md"}`,
-		chat.APICallPath:    `{"turnId":"not-a-turn","generation":1,"method":"GET","path":"/api/todos"}`,
 	} {
 		for _, authorization := range []string{"", "Bearer producer-capability"} {
 			request := httptest.NewRequest(http.MethodPost, path, strings.NewReader(body))
@@ -75,7 +74,7 @@ func TestSingleOwnerServesSourceReadsOnlyOnThePrivateCallbackListener(t *testing
 	runtime := &chat.Runtime{Handler: &chat.Handler{}}
 	public := chi.NewRouter()
 	mountChatPublic(public, runtime, nil, &config.Config{})
-	for _, path := range []string{chat.SourceReadPath, chat.APICallPath} {
+	for _, path := range []string{chat.SourceReadPath} {
 		private := httptest.NewRecorder()
 		chatCallbackHandler(runtime).ServeHTTP(private, httptest.NewRequest(http.MethodPost, path, strings.NewReader(`{}`)))
 		// Mounted: the handler answers, here that it has no journal store.
@@ -105,7 +104,7 @@ func TestChatStreamingRoutesRequireAuthentication(t *testing.T) {
 	history := httptest.NewRecorder()
 	router.ServeHTTP(history, httptest.NewRequest(http.MethodGet, chat.HistoryPath, nil))
 	require.Equal(t, http.StatusUnauthorized, history.Code, chat.HistoryPath)
-	for _, path := range []string{chat.CommitPath, chat.ProviderStartedPath, chat.SourceReadPath, chat.APICallPath} {
+	for _, path := range []string{chat.CommitPath, chat.ProviderStartedPath, chat.SourceReadPath} {
 		response := httptest.NewRecorder()
 		router.ServeHTTP(response, httptest.NewRequest(http.MethodPost, path, nil))
 		require.Equal(t, http.StatusNotFound, response.Code, path)

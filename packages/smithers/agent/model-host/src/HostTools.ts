@@ -10,7 +10,7 @@
  * Appendix B), binding each to this host's transport with the grammar, input
  * and card builder the GUI uses: `files.list` and `files.read` list and read
  * the turn's mirrored main through the producer's source callbacks; `stack` and `todo` read the
- * install's TODO routes through the producer's API callback; `todo.new`, a
+ * install's public TODO routes with a delegated bearer; `todo.new`, a
  * confirm command, only shows its author a private Draft, which they commit
  * themselves. Go grants each transport only when the credential that admitted
  * the turn can use it now and authorizes every call again as that credential.
@@ -73,14 +73,6 @@ export const SOURCE_READ_PATH = "/internal/chat/source/read"
  * @since 1.0.0-rc.0
  */
 export const SOURCE_LIST_PATH = "/internal/chat/source/list"
-
-/**
- * The producer callback a host command reads the install's API through.
- *
- * @category protocol
- * @since 1.0.0-rc.0
- */
-export const API_CALL_PATH = "/internal/chat/api"
 
 /**
  * Whether the host runs this turn's tool calls: its request offers no tools.
@@ -156,7 +148,7 @@ export type SourceList = (path: string) => Effect.Effect<SourceListing>
 
 /**
  * An API read's answer: the route's own status and body, or the refusal code
- * the callback stated before reaching the route.
+ * the transport stated before receiving a valid answer.
  *
  * @category models
  * @since 1.0.0-rc.0
@@ -164,7 +156,7 @@ export type SourceList = (path: string) => Effect.Effect<SourceListing>
 export type ApiAnswer = { readonly status: number; readonly body: unknown } | { readonly code: string }
 
 /**
- * Reads one install API route as the turn's admitting credential.
+ * Reads one install API route with the turn's generation-bound credential.
  *
  * @category models
  * @since 1.0.0-rc.0
@@ -172,7 +164,7 @@ export type ApiAnswer = { readonly status: number; readonly body: unknown } | { 
 export type ApiRead = (path: string) => Effect.Effect<ApiAnswer>
 
 /**
- * The producer callbacks a host-owned turn's commands reach the install through.
+ * The source callbacks and public API transport used by host-owned commands.
  *
  * @category models
  * @since 1.0.0-rc.0
@@ -239,20 +231,63 @@ export const sourceLister =
       return parsed.success ? { directory: parsed.data } : { code: "invalid_answer" }
     })
 
-const ApiAnswerSchema = z.object({ status: z.number().int(), body: z.unknown() }).strict()
-
 /**
- * The API read callback for one producer generation: a GET of one install
- * route, answered as the route answered the turn's admitting credential.
+ * Read the public API with the generation-bound bearer, at the same pinned
+ * loopback origin as the producer. Redirects never receive the credential.
  *
  * @category constructors
  * @since 1.0.0-rc.0
  */
 export const apiReader = (callbackBaseUrl: string, grant: DurableChatGrant, fetchImpl: FetchLike): ApiRead => (path) =>
-  callback(callbackBaseUrl, grant, fetchImpl, API_CALL_PATH, { method: "GET", path }, (_response, body) => {
-    const parsed = ApiAnswerSchema.safeParse(body)
-    return parsed.success ? { status: parsed.data.status, body: parsed.data.body } : { code: "invalid_answer" }
-  })
+  Effect.tryPromise({
+    try: async (signal): Promise<ApiAnswer> => {
+      if (grant.api === undefined) return { code: "forbidden" }
+      const origin = new URL(callbackBaseUrl)
+      const target = new URL(path, origin)
+      if (
+        !path.startsWith("/api/") || path.includes("\\") || target.origin !== origin.origin ||
+        !target.pathname.startsWith("/api/") || target.hash !== ""
+      ) return { code: "call_refused" }
+      const token = grant.api.token
+      const response = await fetchImpl(target, {
+        method: "GET",
+        signal,
+        redirect: "manual",
+        // The private listener reaches the same install router as the public
+        // loopback address. EffectiveOrigin trusts forwarding only from loopback.
+        headers: {
+          authorization: `Bearer ${token}`,
+          "Smithers-Via": "smithers",
+          "X-Forwarded-Host": "127.0.0.1:4000"
+        }
+      })
+      if (response.status >= 300 && response.status < 400 || response.redirected) return { code: "call_refused" }
+      if (response.body === null) return { code: "invalid_answer" }
+      const reader = response.body.getReader()
+      const decoder = new TextDecoder("utf-8", { fatal: true })
+      let raw = "", bytes = 0
+      try {
+        for (;;) {
+          const chunk = await reader.read()
+          if (chunk.done) break
+          bytes += chunk.value.byteLength
+          if (bytes > 4 * 1024 * 1024) return { code: "invalid_answer" }
+          raw += decoder.decode(chunk.value, { stream: true })
+        }
+        raw += decoder.decode()
+        // Normalize escapes before redacting: a reflected bearer never enters
+        // a model message, a card, or the durable transcript.
+        const body: unknown = JSON.parse(JSON.stringify(JSON.parse(raw)).split(token).join("[redacted]"))
+        return { status: response.status, body }
+      } catch {
+        return { code: "invalid_answer" }
+      } finally {
+        await reader.cancel().catch(() => undefined)
+        reader.releaseLock()
+      }
+    },
+    catch: () => ({ code: "unreachable" })
+  }).pipe(Effect.catch((refused) => Effect.succeed(refused)))
 
 const MAX_SHOWN_PATH = 200
 
@@ -393,11 +428,7 @@ const filesList: Bind = (grant, { list }) => {
 
 /** What the model and the conversation are told when a TODO read does not answer. */
 const todoRefusal = (answer: ApiAnswer): string => {
-  if ("code" in answer) {
-    return answer.code === "forbidden"
-      ? "The person who asked can't use this install's TODOs now."
-      : "The TODO read did not answer. Ask again."
-  }
+  if ("code" in answer) return "The TODO read did not answer. Ask again."
   // The route's own refusal names its reason, as it does for the person's browser.
   const { body } = answer
   return typeof body === "object" && body !== null && "message" in body && typeof body.message === "string"
