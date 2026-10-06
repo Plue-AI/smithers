@@ -1,6 +1,7 @@
 package compose
 
 import (
+	"context"
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
@@ -12,11 +13,14 @@ import (
 	"testing"
 	"time"
 
+	"github.com/coder/websocket"
 	"github.com/smithersai/smithers/packages/backend/flowdispatch"
 	"github.com/smithersai/smithers/packages/backend/flowruntime"
 	"github.com/smithersai/smithers/packages/backend/internal/blob"
 	"github.com/smithersai/smithers/packages/backend/internal/db"
+	"github.com/smithersai/smithers/packages/backend/internal/live"
 	"github.com/smithersai/smithers/packages/backend/internal/middleware"
+	"github.com/smithersai/smithers/packages/backend/internal/revocation"
 	"github.com/smithersai/smithers/packages/backend/internal/routes"
 	"github.com/smithersai/smithers/packages/backend/internal/services"
 	"github.com/smithersai/smithers/packages/backend/jobs"
@@ -170,6 +174,9 @@ func TestLearningProposalsComposedInstall(t *testing.T) {
 		require.NoError(t, pool.QueryRow(ctx, `UPDATE mythical_items SET state='landed',pr_state='merged',pr_number=41,pr_url='https://github.com/maya/app/pull/41',pr_merge_commit=repeat('c',40) WHERE repository_id=$1 AND number=1 RETURNING id::text`, repo).Scan(&itemID))
 		store, err := jobs.NewStore(pool)
 		require.NoError(t, err)
+		todoScope := jobs.Scope{TenantID: fmt.Sprint(repo), PrincipalID: "todo:" + itemID}
+		beforeReceipt, err := store.Head(ctx, todoScope)
+		require.NoError(t, err)
 		scope := jobs.Scope{TenantID: fmt.Sprintf("repository:%d", repo), PrincipalID: fmt.Sprintf("user:%d", owner.ID)}
 		target := flowruntime.Target{TenantID: scope.TenantID, PrincipalID: scope.PrincipalID, WorkspaceID: "learning-machine-1", BindingKind: "learning", BindingID: itemID}
 		pin := flowruntime.Pin{Flow: "learning", SourceCommit: strings.Repeat("c", 40), ExecutionDigest: strings.Repeat("d", 64)}
@@ -218,6 +225,9 @@ func TestLearningProposalsComposedInstall(t *testing.T) {
 		var facts int
 		require.NoError(t, pool.QueryRow(ctx, `SELECT count(*) FROM product_job_events WHERE event_type='learning.receipt' AND data->>'itemId'=$1`, itemID).Scan(&facts))
 		require.Zero(t, facts)
+		afterFailure, err := store.Head(ctx, todoScope)
+		require.NoError(t, err)
+		require.Equal(t, beforeReceipt, afterFailure)
 		// Several completion deliveries race the same immutable dispatch
 		// receipt. Only one may create lessons, a wiki revision and a fact.
 		var deliveries sync.WaitGroup
@@ -237,6 +247,9 @@ func TestLearningProposalsComposedInstall(t *testing.T) {
 		require.NoError(t, runtime.ProjectFlowRuntime(ctx, update))
 		require.NoError(t, pool.QueryRow(ctx, `SELECT count(*) FROM product_job_events WHERE event_type='learning.receipt' AND data->>'itemId'=$1`, itemID).Scan(&facts))
 		require.Equal(t, 1, facts)
+		afterReceipt, err := store.Head(ctx, todoScope)
+		require.NoError(t, err)
+		require.Equal(t, beforeReceipt+1, afterReceipt)
 		var fact []byte
 		require.NoError(t, pool.QueryRow(ctx, `SELECT data FROM product_job_events WHERE event_type='learning.receipt' AND data->>'itemId'=$1`, itemID).Scan(&fact))
 		require.Contains(t, string(fact), `"topics": ["todo:1", "home", "proposals"]`)
@@ -263,6 +276,50 @@ func TestLearningProposalsComposedInstall(t *testing.T) {
 		raw, err := source.Build(ctx)
 		require.NoError(t, err)
 		require.Contains(t, string(raw), `"lessons":2`)
+		// A replaced router/hub must replay the committed card to a browser
+		// resuming the TODO cursor from before Learning completed.
+		busCtx, stopBus := context.WithCancel(ctx)
+		defer stopBus()
+		bus := revocation.NewBus(pool, q)
+		require.NoError(t, bus.Start(busCtx))
+		routes.SetRevocationSource(bus)
+		defer routes.SetRevocationSource(nil)
+		for range 2 {
+			hubCtx, stopHub := context.WithCancel(ctx)
+			server := httptest.NewUnstartedServer(nil)
+			socketCfg := *cfg
+			socketCfg.Server.PublicURL = "http://" + server.Listener.Addr().String()
+			socketCfg.Server.AllowedOrigins = []string{socketCfg.Server.PublicURL}
+			topics := &liveTopics{queries: q, todos: service, jobs: store}
+			handler := &routes.LiveHandler{Queries: q, Hub: live.NewHub(hubCtx, nil), Origins: func() []string { return []string{socketCfg.Server.PublicURL} }, Topics: topics.resolver}
+			server.Config.Handler = githubAppSetupComposeRouter(&socketCfg, pool, nil, routerExtras{Live: handler, Mythical: &routes.MythicalHandler{Service: service}})
+			server.Start()
+			readCtx, done := context.WithTimeout(ctx, 10*time.Second)
+			conn, _, err := websocket.Dial(readCtx, "ws"+strings.TrimPrefix(server.URL, "http")+"/api/live", &websocket.DialOptions{Subprotocols: []string{"smithers.live.v1"}, HTTPHeader: http.Header{"Origin": {socketCfg.Server.PublicURL}, "Cookie": {"smithers_session=placement-session"}}})
+			require.NoError(t, err)
+			require.NoError(t, conn.Write(readCtx, websocket.MessageText, []byte(fmt.Sprintf(`{"t":"sub","id":1,"topic":"todo:1","cursor":%d}`, beforeReceipt))))
+			for {
+				_, raw, err := conn.Read(readCtx)
+				require.NoError(t, err)
+				var frame map[string]any
+				require.NoError(t, json.Unmarshal(raw, &frame))
+				require.NotEqual(t, "err", frame["t"], string(raw))
+				if frame["t"] != "delta" {
+					continue
+				}
+				require.Equal(t, float64(afterReceipt), frame["cursor"])
+				fact := frame["data"].(map[string]any)
+				require.Equal(t, "todo.learning_receipt", fact["Type"])
+				card := fact["Data"].(map[string]any)["card"].(map[string]any)
+				require.Equal(t, "merged", card["state"])
+				require.Equal(t, float64(2), card["lessons"])
+				break
+			}
+			conn.CloseNow()
+			done()
+			server.Close()
+			stopHub()
+		}
 	})
 	_, err = pool.Exec(ctx, `DELETE FROM self_host_owners`)
 	require.NoError(t, err)

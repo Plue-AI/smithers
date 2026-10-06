@@ -213,6 +213,18 @@ func (t *learningReceiptTx) RecordReceipt(ctx context.Context, b LearningBinding
 	if _, err = jobs.RecordFactInTx(ctx, t.tx, t.store.update.Scope, uuid.NewSHA1(uuid.NameSpaceOID, []byte("learning.receipt:"+uuidString(t.item.ID))).String(), "learning.receipt", "completed", payload); err != nil {
 		return err
 	}
+	// The TODO socket resumes its own stream, not the Learning launch stream.
+	// Persist the updated card there before commit so reconnects cannot skip
+	// lessons, and replay returns the card as it was when the receipt landed.
+	item, err := db.New(t.tx).GetMythicalItemByNumber(ctx, t.repository, b.Todo)
+	if err != nil {
+		return err
+	}
+	if _, err = t.store.runtime.service.recordTodoFact(ctx, t.tx, item,
+		uuid.NewSHA1(uuid.NameSpaceOID, []byte("todo.learning_receipt:"+uuidString(t.item.ID))).String(),
+		"todo.learning_receipt", "merged", payload); err != nil {
+		return err
+	}
 	_, err = t.tx.Exec(ctx, `SELECT pg_notify($1,$2)`, "mythical_"+strconv.FormatInt(t.repository, 10), string(payload))
 	return err
 }
