@@ -207,6 +207,9 @@ func (f *publicationFixture) pullCreates() []map[string]any {
 
 func TestTodoPublicationOpensReadyThenDraftPullRequests(t *testing.T) {
 	f := newPublicationFixture(t, false)
+	// No machine capacity provider: accepted publications still proceed,
+	// while fresh launches remain refused by the zero-slot admission gate.
+	f.service.SetInstallParallel(nil)
 	first := f.todo("Add a greeting to JOURNEY.md", "Say hello. Fixes #12.", f.main, "JOURNEY.md", "Hello from T1\n")
 	f.wake()
 

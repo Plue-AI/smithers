@@ -1154,18 +1154,21 @@ func (s *MythicalService) advanceItems(ctx context.Context, r *mythicalRun) {
 		s.logger.Warn("mythical.items_failed", "repository_id", r.row.RepositoryID, "error", err)
 		return
 	}
+	// Capacity qualifies new machine launches. GitHub polling, accepted
+	// publication and retained obligations still advance with zero slots.
 	parallel := int(r.row.MaxParallel)
 	if s.installParallelRequired && s.installParallel == nil {
 		s.logger.Warn("mythical.parallel_unavailable")
-		return
+		parallel = 0
 	}
 	if s.installParallel != nil {
 		setting, err := s.installParallel.Parallel(ctx)
 		if err != nil {
 			s.logger.Warn("mythical.parallel_failed", "error", err)
-			return
+			parallel = 0
+		} else {
+			parallel = setting.Effective
 		}
-		parallel = setting.Effective
 	}
 	step := &mythicalItemStep{s: s, r: r, q: q, now: s.now(), held: map[int32]pgtype.UUID{}, maxParallel: parallel,
 		inFlight: map[[16]byte]bool{}}
