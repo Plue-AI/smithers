@@ -7,16 +7,21 @@ import * as Discovery from "@smthrs/registry/Discovery"
 import * as Registry from "@smthrs/registry/Registry"
 import { Effect, Schema } from "effect"
 import assert from "node:assert/strict"
-import { mkdtemp, mkdir, rm, writeFile } from "node:fs/promises"
+import { cp, mkdtemp, mkdir, rm, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { join, resolve } from "node:path"
 import { share } from "../../coding/host-modules.ts"
 import { systemFlowsFromEnv } from "../../coding/host.ts"
 import { bindRepositoryRegistry, repositoryCatalog } from "../../repository/registry.ts"
 
+assert.equal(process.getuid?.(), 1000, "canary requires the unprivileged image user")
+assert.equal(process.getgid?.(), 1000, "canary requires the unprivileged image group")
+
 const systemFlows = systemFlowsFromEnv(process.env)
 share()
-const root = resolve(process.argv[2] ?? ".")
+const source = resolve(process.argv[2] ?? ".")
+const root = await mkdtemp(join(tmpdir(), "flw-canary-repository-"))
+await cp(source, root, { recursive: true })
 const packagedRoot = await mkdtemp(join(tmpdir(), "flw-canary-packaged-"))
 try {
   await mkdir(join(packagedRoot, "merge"))
@@ -72,6 +77,8 @@ export default Flow.make("merge", {
     return {
       receipt: "flow-isolation-canary",
       home: process.env.HOME,
+      uid: process.getuid?.(),
+      gid: process.getgid?.(),
       planned,
       refused: catalog.refused.map(({ flow, code }) => ({ flow, code }))
     }
@@ -79,4 +86,5 @@ export default Flow.make("merge", {
   process.stdout.write(`${JSON.stringify(result)}\n`)
 } finally {
   await rm(packagedRoot, { recursive: true, force: true })
+  await rm(root, { recursive: true, force: true })
 }
