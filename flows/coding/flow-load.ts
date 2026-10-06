@@ -30,7 +30,14 @@ export const FlowVersion = Schema.Struct({
   digest: Hex64,
   status: Schema.Literals(["loaded", "failed"]),
   error: Schema.optionalKey(Schema.String),
-  dependencies: Schema.optionalKey(Schema.Array(Schema.String))
+  dependencies: Schema.optionalKey(Schema.Array(Schema.String)),
+  /** Payload-independent guest metadata; omitted until the declaration can publish it. */
+  steps: Schema.optionalKey(Schema.Array(Schema.Struct({
+    id: Schema.String,
+    label: Schema.optionalKey(Schema.String),
+    wait: Schema.optionalKey(Schema.Boolean),
+    signals: Schema.optionalKey(Schema.Array(Schema.Struct({ on: Schema.String, to: Schema.String })))
+  })))
 })
 export type FlowVersion = typeof FlowVersion.Type
 

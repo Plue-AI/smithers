@@ -47,7 +47,7 @@ func TestFlowLoadProductionPollKeepsPreviousAndCoalesces(t *testing.T) {
 		require.NoError(t, h.service.PollOnce(ctx))
 	}
 	settle := func(request flowdispatch.LaunchRequest, commit, digest, status, loadError string) {
-		output := flowLoadOutput(commit, FlowLoadVersion{Name: "todo", Path: "flows/todo/flow.ts", Digest: digest, Status: status, Error: loadError})
+		output := flowLoadOutput(commit, FlowLoadVersion{Name: "todo", Path: "flows/todo/flow.ts", Digest: digest, Status: status, Error: loadError, Steps: []FlowStep{{ID: "changelog", Label: "Changelog"}}})
 		require.NoError(t, NewFlowLoadRuntime(h.service).ProjectFlowRuntime(ctx, flowdispatch.ProjectionUpdate{State: jobs.StateCompleted,
 			Checkpoint: flowdispatch.RuntimeCheckpoint{Projection: request.Projection, RunID: commit, Run: &flowruntime.FlowRuntimeRun{RunID: commit, FinalOutput: &output}}}))
 		require.NoError(t, h.service.PollOnce(ctx))
@@ -77,6 +77,7 @@ func TestFlowLoadProductionPollKeepsPreviousAndCoalesces(t *testing.T) {
 	require.Equal(t, d1, active)
 	cards, err := RepositoryFlowCatalog(ctx, h.q, h.repoID)
 	require.NoError(t, err)
+	require.Equal(t, []FlowStep{{ID: "changelog", Label: "Changelog"}}, cards[0].Versions[0].Steps)
 	require.Contains(t, states(cards[0]), "merged-failed "+strings.Repeat("2", 64)+": flows/todo/flow.ts:29: Type 'number' is not assignable to type 'string'.")
 	m3 := move("export default 'three'\n")
 	require.Len(t, loads(), 3)
@@ -105,6 +106,7 @@ func TestFlowLoadProductionPollKeepsPreviousAndCoalesces(t *testing.T) {
 	require.Equal(t, strings.Repeat("5", 64), active)
 	cards, err = RepositoryFlowCatalog(ctx, h.q, h.repoID)
 	require.NoError(t, err)
+	require.Equal(t, []FlowStep{{ID: "changelog", Label: "Changelog"}}, cards[0].Versions[0].Steps)
 	require.Contains(t, states(cards[0]), "merged-failed "+d6+": flows/todo/flow.ts: Module flows require a literal description in the default Flow.make value")
 	rows, err = h.q.ListFlowVersions(ctx, h.repoID)
 	require.NoError(t, err)
