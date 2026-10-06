@@ -389,8 +389,16 @@ type EntryRowProps = {
   tombstone?: boolean   // true: title only; ignore summary, action and card
   onAction: CardProps<unknown>["onAction"]
 }
-type ContextLineProps = { count: number; items: NonNullable<EntryRowProps["context"]>["items"]; expanded: boolean
+type ContextItem = NonNullable<EntryRowProps["context"]>["items"][number]
+type ContextLineProps = { count: number
+                          items: (ContextItem & { action?: Action })[]   // opens that item's card: File at revision, page, TODO, run, issue
+                          actions: Action[]                              // line-level; Inspect opens the preflight's run (T-APP-17)
+                          expanded: boolean
+                          onAction: CardProps<unknown>["onAction"]
                           onView: (patch: { expanded: boolean }) => void }
+// An item with an action renders as a data-flow button calling onAction(action.tag, action.args); without one it is
+// plain text (no gesture, no invented link). Line actions (Inspect) render after the list, only while expanded.
+// Collapsed, the line is the count alone. Disclosure stays onView({ expanded }) (T-APP-17, #3504).
 ```
 
 ### T-UI-08 Toasts, edge map, timeline
