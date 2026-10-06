@@ -1,30 +1,24 @@
 import { expect, test } from "../browserTest"
-import { owner, say } from "./j1-fixtures"
+import { fixtures } from "../../../../../packages/rpc/test/fixtures/Todo"
+import type { TodoCard } from "@smthrs/rpc/TodoCard"
+import { recoveryFixture } from "./github-recovery-fixture"
 
-// UI projection of .specs/engineering/checks/C-DUR-01.md; not a qualification receipt.
-// Written before implementation: mvp.md §6.1 Restart, §9 Durability; lands with T-FLW-09, T-REL-04
-test("C-DUR-01: A recovered host keeps the question and completed step evidence", async ({ page }) => {
-  test.fixme(true, "Written before implementation: mvp.md §6.1 Restart, §9 Durability; lands with T-FLW-09, T-REL-04")
-  await owner(page)
-  await page.goto("/")
-
-  // Required fault seed: K1–K5 host/database restarts during plan, model,
-  // check and wait. Each browser reload reconnects to the same recovered run.
-  // Journal attempts, provider call counts and event-before-projection ordering
-  // are proved by the real fault suite, never by this UI projection.
-  await say(page, "/todo T9")
-  const question = page.getByText("Change the delay, or raise the test timeout?", { exact: true }).last()
-  await expect(question).toBeVisible()
-  await page.getByRole("button", { name: "Inspect", exact: true }).last().press("Enter")
-  await expect(page.getByText("Waiting for a person since 10:42", { exact: true }).last()).toBeVisible()
-  await page.reload()
-  await expect(page.getByText("Waiting for a person since 10:42", { exact: true }).last()).toBeVisible()
-  await say(page, "/todo T9")
-  await expect(question).toBeVisible()
-  await page.getByRole("textbox", { name: "Answer", exact: true }).last().fill("Change the delay")
-  await page.getByRole("button", { name: "Answer", exact: true }).last().press("Enter")
-  await expect(page.getByText(/answered/).last()).toBeVisible()
-  await expect(page.getByText("In review", { exact: true }).last()).toBeVisible()
-  await page.getByRole("button", { name: "Inspect", exact: true }).last().press("Enter")
-  await expect(page.getByRole("navigation", { name: "Run timeline", exact: true }).last().getByText("Read 3 files", { exact: true })).toHaveCount(1)
+// Production REST/live card projection; worker/database kills require the
+// reference-host suite and are not qualified by a browser reload.
+test("C-DUR-01: recovered host retains its question and completed evidence", async ({ page }) => {
+  const model: TodoCard = { ...structuredClone(fixtures.needs_you.model), n: 1 }
+  model.steps.unshift({ id: "plan", label: "Plan", detail: "Read 3 files", state: "done" })
+  model.waits[0]!.actions[0]!.args = { n: "1", wait: "wait-question-1" }
+  const fixture = await recoveryFixture(page, model)
+  await fixture.open()
+  await expect(fixture.card()).toContainText("Include S3 fields?")
+  await fixture.reload()
+  await expect(fixture.card()).toContainText("Include S3 fields?")
+  await expect(fixture.card().getByText("Read 3 files", { exact: true })).toHaveCount(1)
+  expect(fixture.writes).toEqual([])
+  await fixture.card().getByRole("textbox", { name: "Answer", exact: true }).fill("Include S3 fields")
+  await fixture.card().getByRole("button", { name: "Answer", exact: true }).press("Enter")
+  await expect.poll(() => fixture.writes.length).toBe(1)
+  expect(fixture.writes[0]!.body).toEqual({ wait: "wait-question-1", answer: "Include S3 fields" })
+  expect(fixture.writes[0]!.key).toBeTruthy()
 })
