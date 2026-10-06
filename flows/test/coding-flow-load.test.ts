@@ -59,6 +59,14 @@ for (const pinnedAdmission of [false, true]) {
       const broken = await tree("broken", {
         "flows/todo/flow.ts": source.replace("Request.child(input)", "Request.child(input")
       })
+      const undiscoverable = await tree("undiscoverable", {
+        "flows/todo/flow.ts": source.replace("description: \"Route, plan, implement and deliver one TODO.\",", ""),
+        "flows/merge/flow.ts": "export default {}\n"
+      })
+      const rejectedAgain = await tree("undiscoverable-lock", {
+        "flows/todo/flow.ts": source.replace("description: \"Route, plan, implement and deliver one TODO.\",", ""),
+        "pnpm-lock.yaml": "lockfileVersion: 9\n"
+      })
       // A composition that imports a helper; the helper's bytes are its version.
       const withHelper = (value: string) =>
         tree(`helper-${value}`, {
@@ -135,7 +143,9 @@ printf '%s' "$*" > installed
         installFailed,
         lockMutated,
         otherLockMutated,
-        canaryLoaded
+        canaryLoaded,
+        undiscoverable,
+        rejectedAgain
       ], {
         env: {
           ...process.env,
@@ -160,7 +170,9 @@ printf '%s' "$*" > installed
         atInstallFailed,
         atLockMutated,
         atOtherLockMutated,
-        atCanaryLoaded
+        atCanaryLoaded,
+        atUndiscoverable,
+        atRejectedAgain
       ] = lines
 
       // Project provenance and its dependency set distinguish the copy from the shipped default.
@@ -207,6 +219,23 @@ printf '%s' "$*" > installed
       await assert.rejects(readFile(join(temporary, "import-mutated")), { code: "ENOENT" })
       assert.equal(atCanaryLoaded[0].status, "loaded", atCanaryLoaded[0].error)
       assert.equal(await readFile(join(temporary, "import-loaded"), "utf8"), "evaluated")
+      // Discovery refusal preserves the old Active version instead of removing it.
+      assert.equal(atUndiscoverable.length, 1)
+      assert.equal(atUndiscoverable[0].name, "todo")
+      assert.equal(atUndiscoverable[0].path, "flows/todo/flow.ts")
+      assert.equal(atUndiscoverable[0].status, "failed")
+      assert.match(atUndiscoverable[0].error, /flows\/todo\/flow\.ts: Module flows require a literal description/)
+      assert.match(atUndiscoverable[0].digest, /^[0-9a-f]{64}$/)
+      assert.equal(atRejectedAgain[0].status, "failed")
+      assert.notEqual(atRejectedAgain[0].digest, atUndiscoverable[0].digest)
+      const incomplete = await tree("incomplete", { "flows/flow.ts": source })
+      // A partial scan cannot authorize removal of previously loaded entries.
+      assert.throws(() =>
+        execFileSync(process.execPath, [...flags, output, incomplete], {
+          encoding: "utf8",
+          timeout: 30_000,
+          stdio: ["ignore", "pipe", "pipe"]
+        }), /root|name/i)
     }
   )
 }

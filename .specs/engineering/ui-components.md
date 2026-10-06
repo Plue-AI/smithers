@@ -692,3 +692,7 @@ supplied confirmation actions inside an attention inset. The exchange shows requ
 typed failures use ember. Absent actions render no control; disabled forms cannot
 submit. Inline cases in `DebugApiView.stories.tsx` replace the RPC fixture layer.
 The View stays unmounted until T-APP-21, makes no request and decides no authorization.
+
+## Pinned Wiki context (T-APP-17)
+
+The retained `WikiHistoryCardBody` accepts its existing `wiki-history` card with optional `payload.content: {revision, markdown}`. It renders the selected revision as read-only Markdown in the embedded card. Without content it retains the revision list. Context's page gesture runs `wiki.page({name, revision})` through `cardActions` and `flowAction`; no live document or editing controls are created.

@@ -5,10 +5,12 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -184,5 +186,41 @@ func TestTodoPinnedVersionComposedInstall(t *testing.T) {
 			require.Contains(t, fmt.Sprint(read()["evidence"]), tc.verdict)
 		})
 	}
+
+	t.Run("corrupt reconnect keeps the served pin without waking a host", func(t *testing.T) {
+		store, err := jobs.NewStore(pool)
+		require.NoError(t, err)
+		var resolutions atomic.Int32
+		dispatcher, err := flowdispatch.New(flowdispatch.Config{Store: store, Projector: service,
+			Resolver: flowruntime.ResolverFunc(func(context.Context, flowruntime.Target) (flowruntime.Runtime, error) {
+				resolutions.Add(1)
+				return nil, errors.New("machine must not be resolved for a corrupt reconnect")
+			})})
+		require.NoError(t, err)
+		scope := jobs.Scope{TenantID: fmt.Sprintf("repository:%d", repo.ID), PrincipalID: fmt.Sprintf("user:%d", owner.ID)}
+		target := flowruntime.Target{TenantID: scope.TenantID, PrincipalID: scope.PrincipalID, WorkspaceID: "pin-workspace", BindingKind: flowdispatch.StackBindingKind, BindingID: uuid.UUID(item.ID.Bytes).String()}
+		projection, err := json.Marshal(map[string]any{"kind": flowdispatch.StackBindingKind, "itemId": target.BindingID, "generation": 0, "attempt": 1, "phase": "todo", "flowDigest": digest, "flowSource": source})
+		require.NoError(t, err)
+		pin := flowruntime.Pin{Flow: "todo", SourceCommit: source, ExecutionDigest: digest}
+		receipt, err := dispatcher.Admit(ctx, flowdispatch.LaunchRequest{Scope: scope, RequestID: "corrupt-reconnect", Target: target, FlowID: "todo", Payload: json.RawMessage(`{}`), Projection: projection, ApprovalPolicy: flowdispatch.ApprovalAuto, Pin: &pin})
+		require.NoError(t, err)
+		checkpoint, err := json.Marshal(flowdispatch.RuntimeCheckpoint{Version: 1, Target: target, FlowID: "todo", RunID: "pinned-run", ExecutionDigest: activeDigest, Projection: projection})
+		require.NoError(t, err)
+		_, err = pool.Exec(ctx, `UPDATE product_job_dispatches SET external_receipt=$2::jsonb WHERE operation_id=$1`, receipt.OperationID, checkpoint)
+		require.NoError(t, err)
+		workerCtx, cancel := context.WithCancel(ctx)
+		done := make(chan error, 1)
+		go func() {
+			done <- dispatcher.RunWorker(workerCtx, jobs.WorkerConfig{WorkerID: "pin-reconnect", Capacity: 1, Lease: 2 * time.Second, PollInterval: 2 * time.Millisecond})
+		}()
+		defer func() { cancel(); require.NoError(t, <-done) }()
+		require.Eventually(t, func() bool {
+			var state, terminal string
+			err := pool.QueryRow(ctx, `SELECT state,COALESCE(terminal_receipt::text,'') FROM product_job_requests WHERE id=$1`, receipt.OperationID).Scan(&state, &terminal)
+			return err == nil && state == "failed" && strings.Contains(terminal, "checkpoint_pin_mismatch")
+		}, 5*time.Second, 10*time.Millisecond)
+		require.Zero(t, resolutions.Load())
+		require.Equal(t, card["flow_version"], read()["flow_version"], "the authenticated card retains the admitted version")
+	})
 
 }

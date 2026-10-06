@@ -25,6 +25,7 @@ import (
 	"github.com/smithersai/smithers/packages/backend/internal/db"
 	"github.com/smithersai/smithers/packages/backend/internal/identity"
 	"github.com/smithersai/smithers/packages/backend/internal/live"
+	"github.com/smithersai/smithers/packages/backend/internal/middleware"
 	"github.com/smithersai/smithers/packages/backend/internal/revocation"
 	"github.com/smithersai/smithers/packages/backend/internal/routes"
 	"github.com/smithersai/smithers/packages/backend/internal/services"
@@ -82,6 +83,17 @@ func realPresenceBridge(t *testing.T) *runtimebridge.Client {
 	return bridge
 }
 
+// Literal TODO provider facts exercise enrichment through the composed live socket.
+type presenceTodoFixture struct{ branch string }
+
+func (f presenceTodoFixture) Todo(ctx context.Context, repository, number int64) (map[string]any, error) {
+	cards, err := f.Todos(ctx, repository)
+	return cards[0], err
+}
+func (f presenceTodoFixture) Todos(context.Context, int64) ([]map[string]any, error) {
+	return []map[string]any{{"n": 1, "title": "Retry webhooks", "state": "working", "place": 2, "branch": map[string]any{"id": f.branch}, "rebase_pending": map[string]any{"onto": "main"}}}, nil
+}
+
 type presenceInstallFixture struct {
 	p           *branchPresence
 	row         db.Workspace
@@ -110,6 +122,18 @@ func presenceInstall(t *testing.T) presenceInstallFixture {
 	require.NoError(t, q.UpsertInstallSetting(ctx, db.UpsertInstallSettingParams{Key: "owner.access", Value: []byte(access)}))
 	row, err := q.CreateWorkspace(ctx, db.CreateWorkspaceParams{RepositoryID: repo.ID, UserID: user.ID, Name: "presence", TargetBookmark: "scratch/presence-owner/presence", Kind: "vm", Status: "running"})
 	require.NoError(t, err)
+	_, err = q.RequestMythicalBootstrap(ctx, repo.ID, user.ID, 1, false)
+	require.NoError(t, err)
+	_, err = pool.Exec(ctx, `UPDATE mythical_stacks SET state='active' WHERE repository_id=$1`, repo.ID)
+	require.NoError(t, err)
+	todoService := services.NewMythicalService(pool, nil)
+	todoContext := middleware.ContextWithAuthInfo(ctx, &middleware.AuthInfo{User: &user, SessionHash: "session"})
+	_, err = todoService.FileTodo(todoContext, repo.ID, user.ID, services.MythicalTodoInput{Title: "Retry webhooks", Prompt: "Retry webhooks", Request: "presence-item"})
+	require.NoError(t, err)
+	item, err := q.GetMythicalItemByNumber(ctx, repo.ID, 1)
+	require.NoError(t, err)
+	_, _, err = q.BindMythicalLane(ctx, db.MythicalLane{WorkspaceID: row.ID, RepositoryID: repo.ID, ItemID: item.ID, Name: "presence"})
+	require.NoError(t, err)
 	providers := services.InstallBranchMachineProviders(identity.NewMemberBoundary(q), nil)
 	branches := services.NewWorkspaceService(q, services.WithWorkspaceTransactions(pool), services.WithBranchMachineProviders(providers))
 	p := &branchPresence{visits: &presenceVisits{audit: services.NewAuditService(q), now: time.Now}, queries: q, branches: branches, dispatcher: presenceBridgeFixture{realPresenceBridge(t)}, members: &services.Members{Pool: pool}}
@@ -124,7 +148,7 @@ func presenceInstall(t *testing.T) presenceInstallFixture {
 	origin := "http://" + server.Listener.Addr().String()
 	cfg.Server.PublicURL = origin
 	cfg.Server.AllowedOrigins = []string{origin}
-	topics := &liveTopics{queries: q, presence: p}
+	topics := &liveTopics{queries: q, presence: p, todos: presenceTodoFixture{branch: row.ID}}
 	handler := &routes.LiveHandler{Queries: q, Hub: live.NewHub(ctx, nil), Origins: func() []string { return []string{origin} }, Topics: topics.resolver, Presence: p.session}
 	server.Config.Handler = githubAppSetupComposeRouter(cfg, pool, nil, routerExtras{Live: handler})
 	server.Start()
@@ -336,12 +360,15 @@ func TestPresenceBranchRefreshMachineNameAndOrigin(t *testing.T) {
 	first := readPresenceFrame(t, conn)
 	require.Equal(t, "snap", first.T)
 	require.Contains(t, string(first.Data), `"state":"awake"`)
+	require.Contains(t, string(first.Data), `"item":{"n":1,"place":2,"state":"working","title":"Retry webhooks"}`)
+	require.Contains(t, string(first.Data), `"rebase":{"onto":"main","state":"pending"}`)
 	require.Contains(t, string(first.Data), `"ssh_line":"ssh -p 2222 scratch/presence-owner/presence@factory.example"`)
 	_, err := f.pool.Exec(t.Context(), `UPDATE workspaces SET status='suspended', target_bookmark='scratch/presence-owner/renamed' WHERE id=$1`, f.row.ID)
 	require.NoError(t, err)
 	second := readPresenceFrame(t, conn)
 	require.Equal(t, "snap", second.T)
 	require.Contains(t, string(second.Data), `"state":"asleep"`)
+	require.Contains(t, string(second.Data), `"item":{"n":1,"place":2,"state":"working","title":"Retry webhooks"}`)
 	require.Contains(t, string(second.Data), `"name":"scratch/presence-owner/renamed"`)
 	require.Contains(t, string(second.Data), `"ssh_line":"ssh -p 2222 scratch/presence-owner/renamed@factory.example"`)
 	require.Contains(t, string(second.Data), `"id":"`+f.row.ID+`"`)

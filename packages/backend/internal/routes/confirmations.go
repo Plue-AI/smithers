@@ -86,8 +86,24 @@ func (h *ConfirmationsHandler) Create(w http.ResponseWriter, r *http.Request) {
 		confirmationError(w, 403, "permission", "permission", "Not available for this credential")
 		return
 	}
-	if _, ok := h.member(w, r, false); !ok {
+	var input struct {
+		Command string `json:"command"`
+	}
+	decoder := json.NewDecoder(http.MaxBytesReader(w, r.Body, 256<<10))
+	if err := decodeSingleJSONDocument(decoder, &input); err != nil || input.Command == "" {
+		confirmationError(w, 400, "user", "invalid_confirmation", "A command is required")
 		return
+	}
+	// Resolve authority for the requested action once. Reading confirmations
+	// is not authority to request a merge or a person-only write. In
+	// particular, a missing consumer must not hide permission/never refusals.
+	if _, err := services.Authorize(r.Context(), h.Queries, input.Command); err != nil {
+		var access *services.AccessError
+		if !errors.As(err, &access) || access.Code != "confirm_in_app" {
+			todoRouteError(w, err)
+			return
+		}
+		// Eligible TODO creation still requires the private dispatch consumer.
 	}
 	confirmationError(w, 503, "infra", "confirmation_unavailable", "Confirmation dispatch unavailable")
 }

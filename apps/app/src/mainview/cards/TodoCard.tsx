@@ -42,6 +42,7 @@ export const todoActionDefinitions = (model: TodoCard, role: TodoContainerProps[
   const n = model.n
   const live = !["merged", "dropped"].includes(model.state)
   const definitions: CardActionDefinition[] = model.branch ? [{ tag: "branch", label: "Open branch", args: { name: model.branch.name, wait: "" }, command_input: { name: model.branch.name } }] : []
+  if (model.branch && live) definitions.push({ tag: "branch.fork", label: "Fork", command_input: { from: `T${n}` } })
   if (model.run) definitions.push({ tag: "run.inspect", label: "Inspect", command_input: { id: model.run.id } })
   if (model.failure?.missing_tool) definitions.push({ tag: "image.add", label: "Add to machine image", command_input: { name: model.failure.missing_tool.name } })
   if (!live) return definitions
@@ -181,7 +182,7 @@ const TodoBody = ({ card, maximized }: { readonly card: CardOf<"todo">; readonly
   }
   const entry: TodoEntry = seeded === undefined ? card : { ...card, payload: { ...card.payload, model: seeded.model } }
   return <TodoContainer card={entry} role={seeded?.role ?? role} dispatch={dispatch} View={TodoView}
-    view={{ maximized }} onView={() => {}} availableActions={seeded ? undefined : [...servedTodoActions, ...(controller.openBranch ? ["branch" as const] : [])]} />
+    view={{ maximized }} onView={() => {}} availableActions={seeded ? undefined : [...servedTodoActions, ...(controller.openBranch ? ["branch" as const] : []), ...(controller.forkBranch ? ["branch.fork" as const] : [])]} />
 }
 // POST/PATCH /api/todos/{n}, question answer and merge are composed on the install.
 // Branch navigation is supplied when its install provider is composed.

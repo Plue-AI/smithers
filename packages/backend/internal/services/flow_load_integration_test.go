@@ -94,6 +94,21 @@ func TestFlowLoadProductionPollKeepsPreviousAndCoalesces(t *testing.T) {
 	rows, err := db.New(h.pool).ListFlowVersions(ctx, h.repoID)
 	require.NoError(t, err)
 	require.Len(t, rows, 4)
+	// A declaration rejected by guest discovery is a failed version, not a
+	// deletion. Its previous Active survives the production poll/settlement.
+	m6 := move("export default {}\n")
+	require.Len(t, loads(), 5)
+	d6 := strings.Repeat("6", 64)
+	settle(loads()[4], m6, d6, "failed", "flows/todo/flow.ts: Module flows require a literal description in the default Flow.make value")
+	active, err = ActiveFlowDigest(ctx, h.q, h.repoID, "todo")
+	require.NoError(t, err)
+	require.Equal(t, strings.Repeat("5", 64), active)
+	cards, err = RepositoryFlowCatalog(ctx, h.q, h.repoID)
+	require.NoError(t, err)
+	require.Contains(t, states(cards[0]), "merged-failed "+d6+": flows/todo/flow.ts: Module flows require a literal description in the default Flow.make value")
+	rows, err = h.q.ListFlowVersions(ctx, h.repoID)
+	require.NoError(t, err)
+	require.Len(t, rows, 5)
 }
 
 func TestFlowLoadProposalsUseCandidateDiffNotWorkingCopy(t *testing.T) {

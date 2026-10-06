@@ -184,7 +184,11 @@ func newRehearsal(t *testing.T, enable, check, keyPrefix string, poolCapacity ..
 	if os.Getenv("REHEARSAL_TEST_ONLY_REPOSITORY") == "1" {
 		makefile = "test:\n\tgrep -q . JOURNEY.md\n"
 	}
-	require.NoError(t, os.WriteFile(filepath.Join(seed, "Makefile"), []byte(makefile), 0600))
+	// The declaration-free Node/Go fixtures have only their own checks. The
+	// generic journey's Makefile would add a build and shadow Go's test ID.
+	if os.Getenv("REHEARSAL_CONFIG_FIXTURE") == "" {
+		require.NoError(t, os.WriteFile(filepath.Join(seed, "Makefile"), []byte(makefile), 0600))
+	}
 	switch os.Getenv("REHEARSAL_CONFIG_FIXTURE") {
 
 	case "node":

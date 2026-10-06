@@ -20,7 +20,7 @@ C-UI-12 Members (T-UI-09): [install roster and keyboard Add/Role/Remove](C-UI-12
 | C-J2-04 | [C-J2-04.spec.ts](C-J2-04.spec.ts) | fixme-before-implementation | T-STK-01 |
 | C-J2-05 | [C-J2-05.spec.ts](C-J2-05.spec.ts) | fixme-before-implementation | T-STK-04 |
 | C-J4-01 | [C-J4-01.spec.ts](C-J4-01.spec.ts) | fixme-before-implementation | T-APP-01 |
-| C-J4-02 | [C-J4-02.spec.ts](C-J4-02.spec.ts) | passing app HTTP-seam proof: Answer, head-bound Merge, Move, Retry and pending execution; real flow/GitHub and reference-host timing remain pending | T-STK-02, T-STK-05, T-APP-02 |
+| C-J4-02 | [C-J4-02.spec.ts](C-J4-02.spec.ts) | passing app HTTP-seam proof: Answer, head-bound Merge (acceptance stays In review until terminal projection), Move, Retry and pending execution; real flow/GitHub and reference-host timing remain pending | T-STK-02, T-STK-05, T-APP-02 |
 | C-J4-03 | [C-J4-03.spec.ts](C-J4-03.spec.ts) | fixme-before-implementation | T-STK-04, T-REL-02 |
 | C-J10-01 | [C-J10-01.spec.ts](C-J10-01.spec.ts) | fixme-before-implementation | T-GH-03, T-REL-02 |
 | C-J10-02 | [C-J10-02.spec.ts](C-J10-02.spec.ts) | fixme-before-implementation | T-GH-04 |
@@ -84,13 +84,13 @@ C-UI-12 Members (T-UI-09): [install roster and keyboard Add/Role/Remove](C-UI-12
 | C-UI-01 | [C-UI-01.spec.ts](C-UI-01.spec.ts) | fixme-before-implementation | T-REL-02 |
 | C-UI-02 | [C-UI-02.spec.ts](C-UI-02.spec.ts) | passing | T-CAT-01 |
 | C-UI-03 | [notifications.spec.ts](../notifications.spec.ts) | passing: Chromium + WebKit, loopback/plain HTTP, live owned TODOs, gesture, hidden/visible, dedupe, click/focus, no console errors; Notification API recorded | T-APP-18 |
-| C-UI-04 | [C-UI-04.spec.ts](C-UI-04.spec.ts) | partial: served TODO rail keyboard Retry and owner merge notice/Hide covered; shared entries, preference hiding and summaries remain fixme | T-APP-07 |
+| C-UI-04 | [C-UI-04.spec.ts](C-UI-04.spec.ts) | partial: served TODO rail keyboard Retry, approval/conflict notices and owner merge notice/Hide covered; shared entries, preference hiding and summaries remain fixme | T-APP-07 |
 | C-UI-05 | [C-UI-05.spec.ts](C-UI-05.spec.ts) | fixme-before-implementation | T-COL-02 |
 
 | C-UI-06 | [C-UI-06.spec.ts](C-UI-06.spec.ts) | fixme-before-implementation | T-APP-16 |
-| C-UI-07 | [C-UI-07.spec.ts](C-UI-07.spec.ts), [durable Context/Inspect projection](../context-inspect.spec.ts) | projection and reload pass with journal fixture; authenticated branch prompt/SharedEntries acceptance remains fixme | T-APP-17 |
+| C-UI-07 | [C-UI-07.spec.ts](C-UI-07.spec.ts), [durable Context/Inspect projection](../context-inspect.spec.ts) | projection, pinned wiki keyboard/mouse opening and reload pass with journal fixture; authenticated branch prompt/SharedEntries acceptance remains fixme | T-APP-17 |
 | C-UI-08 | [C-UI-08.spec.ts](C-UI-08.spec.ts) | fixme-before-implementation | T-APP-22 |
-| C-UI-09 | [C-UI-09.spec.ts](C-UI-09.spec.ts), [docs.spec.ts](../docs.spec.ts) | Settings phase passing Chromium: HTTP click/Enter/Space, HTTPS/loopback hidden hint, non-owner, bundled heading; missing dependencies covered through real dispatcher integration. Full C-UI-09 passes on isolated retry (2026-10-06), including agent docs.read; combined docs run: 8 pass, 1 HTTP-turn recovery failure. Anchor navigation now uses the shared transcript read target. | T-APP-20, T-APP-24 |
+| C-UI-09 | [C-UI-09.spec.ts](C-UI-09.spec.ts), [docs.spec.ts](../docs.spec.ts) | Passing Chromium (2026-10-06): all nine combined docs cases; real HTTP agent docs.read, bundled toc, internal page/anchor links, no outside-origin request, keyboard navigation, missing-page persistence and Settings activation. The journal fixture returns 404 for replay before leg acceptance, with a regression test preserving capability rejection after acceptance. | T-APP-20, T-APP-24 |
 | C-UI-10 | [C-UI-10.spec.ts](C-UI-10.spec.ts) | browser projection and local-own real-backend browser/SQL roles; complete operation inventory and install PUT /api/secrets form; independent production app dependency guards with zero transport/SQL effects and live 201 write controls; delegated and branch-machine evidence pending | T-APP-21 |
 | C-UI-11 | [C-UI-11.spec.ts](C-UI-11.spec.ts) | fixme-before-implementation | T-APP-15 |
 
@@ -370,7 +370,7 @@ The broad C-UI-12/13 fixmes still await the other Views and their wiring tickets
 | C-UI-12 Debug API | [Debug API stories](../view-stories.spec.ts) | passed: all 15 states, light/dark, 1280/1440/390, axe/overflow; Enter/Space selection and Send; POST/PUT/PATCH/DELETE confirmation, disabled/absent actions, inert response/failure text | T-UI-22 |
 | C-UI-12 Docs | [Docs stories](../view-stories.spec.ts) | passed: 8 stories, light/dark, 1280/1440/390px, axe/overflow, keyboard focus, anchors, inert HTML/unsafe links and missing/disabled gestures; rendered links reach the real flow seam in DocsCard.test.tsx; install activation remains T-APP-20 | T-UI-21 |
 | C-UI-12 Secrets | [Secrets stories](../view-stories.spec.ts) | passed: 11 stories, light/dark, 1440/390, axe/overflow; Add/Replace/Cancel clear Value, redacted callbacks, absent/disabled actions, optional Hosts, inert names, keyboard Delete | T-UI-18 |
-| C-UI-12 · TODO install | [TODO install case](C-UI-12-todo-install.spec.ts) | Keyboard Open branch from REST TODO through the composed app provider to the live Branch card; Branch tabs survive reload; keyboard item title returns through the real TODO flow/REST seam; owner Discard confirms the displayed wait/head, persists an idempotent request while HTTP is unresolved and settles from the served projection; stale Discard refreshes the newer push and reconfirms with its SHA; 3 passed | T-UI-04, T-GH-06 |
+| C-UI-12 · TODO install | [TODO install case](C-UI-12-todo-install.spec.ts) | Keyboard Fork submits the displayed TODO source through the real app flow to POST /api/branches; keyboard Open branch from REST TODO through the composed app provider to the live Branch card; Branch tabs survive reload; keyboard item title returns through the real TODO flow/REST seam; owner Discard confirms the displayed wait/head, persists an idempotent request while HTTP is unresolved and settles from the served projection; stale Discard refreshes the newer push and reconfirms with its SHA; 3 passed | T-UI-04, T-GH-06 |
 | C-UI-12 Proposal | [Proposal stories](../view-stories.spec.ts) | passed: open/accepted/dismissed/read-only, hostile refs, zero/one/multiple lessons, keyboard callbacks; light/dark, 1440/390, axe and overflow | T-UI-20; install mounting and lessons source await T-FLW-06 |
 
 T-MCH-08 scratch Diff has a passing install HTTP contract and browser projection in [scratch-diff.spec.ts](../scratch-diff.spec.ts): fork revision, unresolved read, duplicate input and reload. C-J7-02 remains pending for Add to stack/Confirm/Drop; C-MCH-08 remains pending for real capture and source boot continuity.

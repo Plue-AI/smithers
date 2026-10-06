@@ -5,6 +5,9 @@ import { Package as modelHostPackage } from "../../packages/smithers/agent/model
 const cwd = "apps/model-host"
 const sources = Smithers.glob("src/**/*.ts")
 
+/** Source identity for backend rehearsals that launch the production host. */
+const backendInputs = Smithers.Filegroup({ srcs: [sources], cwd })
+
 const check = Smithers.Typecheck({
   srcs: [sources],
   deps: [modelHostPackage.lib],
@@ -93,4 +96,4 @@ const securityReview = Smithers.SecurityReview({
   ]
 })
 
-export const Package = Smithers.Package({ targets: { bundle, check, test, ...securityReview } })
+export const Package = Smithers.Package({ targets: { backendInputs, bundle, check, test, ...securityReview } })

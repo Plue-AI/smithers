@@ -61,11 +61,15 @@ export const createChatStub = (publish: (frame: AgentTurnFrame) => void): CloudA
       const frames: ReadonlyArray<AgentTurnFrame> = call !== undefined
         ? [call, { runId: request.runId, type: "done", reason: "tool_call" }]
         : [
-          ...(lastUserMessage(request) === "stub-context-preflight" ? [
+          ...(["stub-context-preflight", "stub-wiki-preflight"].includes(lastUserMessage(request)) ? [
             { runId: request.runId, type: "context.preflight" as const, phase: "completed" as const,
-              result: { context: [{ kind: "file" as const, label: "retry.ts", ref: "src/webhooks/retry.ts",
+              result: { context: lastUserMessage(request) === "stub-wiki-preflight"
+                ? [{ kind: "page" as const, label: "Retries", ref: "retries", revision: "4", reason: "Retry policy" }]
+                : [{ kind: "file" as const, label: "retry.ts", ref: "src/webhooks/retry.ts",
                 revision: "0123456789abcdef0123456789abcdef01234567", reason: "Retry implementation" }],
-                candidates: [{ kind: "file" as const, label: "retry.ts", ref: "src/webhooks/retry.ts", revision: "0123456789abcdef0123456789abcdef01234567" }],
+                candidates: lastUserMessage(request) === "stub-wiki-preflight"
+                  ? [{ kind: "page" as const, label: "Retries", ref: "retries", revision: "4" }]
+                  : [{ kind: "file" as const, label: "retry.ts", ref: "src/webhooks/retry.ts", revision: "0123456789abcdef0123456789abcdef01234567" }],
                 model: "owner-fast", durationMs: 12 } },
             { runId: request.runId, type: "card" as const, card: { id: `run:${request.runId}`, kind: "run" as const,
               title: "App agent", status: "active" as const, createdAt: 1, ordinal: 1, payload: { id: request.runId } } }

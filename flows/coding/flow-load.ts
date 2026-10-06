@@ -77,7 +77,7 @@ export const loadRepositoryFlows = (
   Effect.gen(function*() {
     const fs = yield* FileSystem.FileSystem, path = yield* Path.Path
     const root = path.join(repositoryPath, "flows")
-    if (!(yield* fs.exists(root).pipe(Effect.orElseSucceed(() => false)))) return []
+    if (!(yield* fs.exists(root))) return []
     const system = new Set(systemFlows)
     const discovered = yield* Registry.make({
       sources: [{ root, source: "project", naming: "path", lockfileRoot: repositoryPath }]
@@ -105,6 +105,29 @@ export const loadRepositoryFlows = (
       undefined :
       yield* Executable.catalog({ delegates: [] }).pipe(Effect.provideService(Registry.Registry, only))
     const versions: Array<FlowVersion> = []
+    // Discovery refusals are still declarations, not removals. Omitting one
+    // would make settlement retire its previous Active version.
+    const declared = new Set(descriptors.map((entry) => entry.name))
+    for (const warning of yield* discovered.warnings()) {
+      const name = warning.name
+      if (name === undefined) {
+        // A scan/confinement refusal cannot prove which entries disappeared.
+        // Refuse the load rather than deactivate an incomplete catalog.
+        return yield* new CodingError({ code: "source_unavailable", message: warning.message })
+      }
+      if (system.has(name) || declared.has(name)) continue
+      const relative = path.relative(repositoryPath, warning.path).split(path.sep).join("/")
+      if (!relative.startsWith("flows/") || relative.split("/").includes("..")) continue
+      const source = yield* fs.readFileString(warning.path)
+      versions.push({
+        name,
+        path: relative,
+        digest: Digest.digest(JSON.stringify({ source, lockfileDigest })),
+        status: "failed",
+        error: `${relative}: ${warning.message}`.replace(/\s+/g, " ").slice(0, errorLimit)
+      })
+      declared.add(name)
+    }
     for (const descriptor of descriptors) {
       const digest = Descriptor.executionDigest(descriptor)
       const relative = path.relative(repositoryPath, descriptor.path).split(path.sep).join("/")

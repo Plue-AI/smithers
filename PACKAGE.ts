@@ -1,6 +1,8 @@
 import { BuildAndCheckTypeScriptPackage } from "@smthrs/repo-targets"
 import { ReviewDocsAgainstCode, ReviewJsdocAgainstCode } from "@smthrs/repo-targets"
 import { Smithers } from "@smthrs/targets"
+import { Package as backendPackage } from "./packages/backend/PACKAGE.ts"
+import { Package as modelHostAppPackage } from "./apps/model-host/PACKAGE.ts"
 import project from "./apps/site/src/data/project.json" with { type: "json" }
 import { Package as modelHostPackage } from "./packages/smithers/agent/model-host/PACKAGE.ts"
 import { Package as integrationsPackage } from "./packages/smithers/agent/integrations/PACKAGE.ts"
@@ -382,13 +384,13 @@ const backendGo = Smithers.Shell.Test({
     codingFlowsPackage.codingHostInputs,
     workspace,
     Smithers.file("//pnpm-lock.yaml"),
-    Smithers.glob("//apps/model-host/src/**/*.ts"),
+    modelHostAppPackage.backendInputs,
     Smithers.file("//apps/model-host/build.mjs"),
     Smithers.file("//apps/model-host/package.json"),
     Smithers.file("//go.mod"),
     Smithers.file("//go.sum"),
     Smithers.file("//packages/rpc/contracts/app-bootstrap-v1.schema.json"),
-    Smithers.glob("//packages/backend/**/*"),
+    backendPackage.buildInputs,
     Smithers.glob("//apps/backend/**/*"),
     Smithers.glob("//distribution/**/*"),
     Smithers.glob("//docs/api/**/*")
@@ -925,8 +927,8 @@ const reviewDocsAgainstCode = ReviewDocsAgainstCode({
     Smithers.glob("//packages/*/*/*/README.md"),
     // Keep the shared context below LlmLint's 2 MiB cap. Package-level
     // reviews can opt into their full local docs; this overview selects
-    // concepts plus the runtime and build API sections explicitly.
-    Smithers.glob("//apps/site/src/content/docs/docs/concepts/*.mdx"),
+    // installation plus the runtime and build API sections explicitly.
+    Smithers.glob("//apps/site/src/content/docs/docs/installation.mdx"),
     Smithers.glob("//apps/site/src/content/docs/docs/reference/api/flows.mdx"),
     Smithers.glob("//apps/site/src/content/docs/docs/reference/api/flow.mdx"),
     Smithers.glob("//apps/site/src/content/docs/docs/reference/api/plan.mdx"),

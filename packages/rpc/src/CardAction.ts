@@ -212,7 +212,7 @@ export interface CardCommandInput {
   readonly "issue.new": { readonly title: string; readonly body: string }
   readonly "issue.comment": { readonly number: number; readonly body: string }
   readonly "wiki": undefined
-  readonly "wiki.page": { readonly name: string }
+  readonly "wiki.page": { readonly name: string; readonly revision?: number }
   readonly "wiki.save": { readonly name?: string; readonly text?: string }
   readonly "flows": undefined
   readonly "flow": { readonly name: string }

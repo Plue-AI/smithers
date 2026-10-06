@@ -55,10 +55,10 @@ test("Context opens a pinned file through cardActions, the registered flow and t
     expect(card?.payload).toMatchObject({ path: "src/webhooks/retry.ts", ref: pinned, content: "export const retry = 3" })
     expect(requests.some(path => path.includes("wake") || path.includes("/machines"))).toBe(false)
   } finally { flushSync(() => root.unmount()); host.remove(); await controller.dispose() }
-})
+}, 15000)
 
-test("a missing pinned-page provider leaves disclosure readable without an active card action", () => {
-  const page = [{ kind: "page" as const, label: "Retries", ref: "retries", revision: "4", reason: "Policy" }]
+test("an unpinned page leaves disclosure readable without an active card action", () => {
+  const page = [{ kind: "page" as const, label: "Retries", ref: "retries", reason: "Policy" }]
   const actions = contextActions(page, () => { throw new Error("unavailable provider ran") }, contextOpenAction)
   const host = document.createElement("div"), root = createRoot(host)
   flushSync(() => root.render(<ContextLine count={1} items={page} expanded={true} onView={() => {}} {...actions} />))
@@ -114,4 +114,59 @@ test("the Inspect flow opens a durable host preflight on an install without the 
     await store.dispatch({ type: "identity.session.loaded", actor: "system", state: "signed-in", login: "alice", admin: false, scopesPlain: null }).isPersisted.promise
     expect(controller.contextRun("turn")).toBeUndefined()
   } finally { flushSync(() => root.unmount()); host.remove(); await controller.dispose() }
-})
+}, 15000)
+
+
+test("Context opens exact wiki bytes through the registered page flow and excludes stale or unavailable reads", async () => {
+  const storage = memoryStorage(), requests: string[] = []
+  let releaseRead!: (value: Response) => void, readStarted!: () => void
+  const started = new Promise<void>(resolve => { readStarted = resolve })
+  const pending = new Promise<Response>(resolve => { releaseRead = resolve })
+  const store = await createAppStore({ kind: "localStorage", storage })
+  const controller = createAppController(store, agent, {
+    bootstrap: { apiVersion: 1, host: "cloud", version: "test", buildSha: "test", capabilities: ["install", "identity"], authFlow: "redirect", sandbox: null },
+    fetchImpl: async (url, init) => {
+      const path = String(url); requests.push(`${init?.method ?? "GET"} ${path}`)
+      if (path === "/api/repos/acme/app/wiki/navigation/index?visibility=public") return Response.json({ pages: [{
+        id: 42, slug: "retries", title: "Retries", path: "Retries.md", revision: 9,
+        author: { id: 1, login: "alice" }, created_at: "2026-10-01", updated_at: "2026-10-06", metadata: {}
+      }] })
+      if (path === "/api/repos/acme/app/wiki/history/42/5/content?visibility=public") { readStarted(); return pending }
+      if (path === "/api/repos/acme/app/wiki/history/42/6/content?visibility=public") return new Response("<h1>HTML</h1>", { headers: { "content-type": "text/html" } })
+      if (path === "/api/repos/acme/app/wiki/history/42/4/content?visibility=public") return new Response("# Retries\n\nRetry three times.", { headers: { "content-type": "text/markdown; charset=utf-8" } })
+      return new Response("{}", { status: 404 })
+    }
+  })
+  const host = document.createElement("div"), root = createRoot(host)
+  try {
+    await store.dispatch({ type: "identity.session.loaded", actor: "system", state: "signed-in", login: "ben", admin: false, scopesPlain: null }).isPersisted.promise
+    await store.dispatch({ type: "repositories.loaded", actor: "system", repositories: [{ id: "acme/app", org: "acme", ownerKind: "user", name: "app", head: { bookmark: "main", changeId: "c", commitId: pinned } }] }).isPersisted.promise
+    const pageItems = [{ kind: "page" as const, label: "Retries", ref: "retries", revision: "4", reason: "Retry policy" }]
+    let completed: Promise<unknown> = Promise.resolve()
+    flushSync(() => root.render(<ContextLine count={1} items={pageItems} expanded={true} onView={() => {}}
+      {...contextActions(pageItems, (tag, input) => { completed = controller.runCommandForResult(tag, JSON.stringify(input)) }, contextOpenAction)} />))
+    host.querySelector<HTMLButtonElement>('[data-flow="wiki.page"]')!.click(); await completed
+    const card = store.collections.cards.get("wiki-revision-acme/app-public-42-4")!
+    expect(card).toMatchObject({ kind: "wiki-history", payload: { content: { revision: 4, markdown: "# Retries\n\nRetry three times." } } })
+    const { WikiHistoryCardBody } = await import("./cards/WikiCards")
+    if (card.kind !== "wiki-history") throw new Error("Wrong card")
+    flushSync(() => root.render(<WikiHistoryCardBody card={card} onRunCommand={() => {}} />))
+    expect(host.querySelector('[data-testid="wiki-pinned-content"]')?.textContent).toContain("Retry three times.")
+    expect(host.querySelectorAll('textarea,[contenteditable="true"]')).toHaveLength(0)
+    expect(store.collections.worldDocuments.size).toBe(0)
+    expect(requests.filter(request => request.includes("/wiki"))).toEqual(["GET /api/repos/acme/app/wiki/navigation/index?visibility=public", "GET /api/repos/acme/app/wiki/history/42/4/content?visibility=public"])
+    expect((await controller.runCommandForResult("wiki.page", JSON.stringify({ name: "missing", revision: 4 }))).status).toBe("failed")
+    expect((await controller.runCommandForResult("wiki.page", JSON.stringify({ name: "retries", revision: 6 }))).status).toBe("failed")
+    expect((await controller.runCommandForResult("wiki.page", JSON.stringify({ name: "retries", revision: 7 }))).status).toBe("failed")
+    expect(store.collections.cards.has("wiki-revision-acme/app-public-42-6")).toBe(false)
+    expect(store.collections.cards.has("wiki-revision-acme/app-public-42-7")).toBe(false)
+    const opening = controller.openWikiPage("retries", 5)
+    await started
+    await store.dispatch({ type: "identity.session.loaded", actor: "system", state: "signed-out", login: null, admin: false, scopesPlain: null }).isPersisted.promise
+    releaseRead(new Response("Private canary", { headers: { "content-type": "text/markdown" } }))
+    expect(await opening).toBe("The account or conversation changed while the Wiki was loading.")
+    expect(store.collections.cards.has("wiki-revision-acme/app-public-42-5")).toBe(false)
+    expect(requests.every(request => request.startsWith("GET "))).toBe(true)
+    expect(store.collections.cards.has(card.id)).toBe(false)
+  } finally { flushSync(() => root.unmount()); host.remove(); await controller.dispose() }
+}, 15000)

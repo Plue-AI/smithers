@@ -682,7 +682,7 @@ export type Frame = z.infer<typeof FrameSchema>
 export const ToastAudienceSchema = z.object({
   member: z.string(),
   entryId: z.string(),
-  kind: z.enum(["needs_you", "in_review", "failed", "merged"]),
+  kind: z.enum(["needs_you", "approval", "conflict", "in_review", "failed", "merged"]),
   actorLabel: z.string(),
   target: z.discriminatedUnion("flow", [
     z.object({ flow: z.literal("todo"), n: z.number().int().positive() }),

@@ -115,9 +115,9 @@ func TestTodoMergeComposedRouteBoundaryPostgres(t *testing.T) {
 		require.NoError(t, err, sql.text)
 	}
 	// Setup bound the repository and verified the owner's access to it.
-	require.NoError(t, q.UpsertInstallSetting(ctx, db.UpsertInstallSettingParams{Key: "github.repository", Value: []byte(`{"owner_login":"merge-owner","repository_name":"app","repository_id":100}`)}))
+	require.NoError(t, q.UpsertInstallSetting(ctx, db.UpsertInstallSettingParams{Key: "github.repository", Value: []byte(fmt.Sprintf(`{"owner_login":"merge-owner","repository_name":"app","repository_id":%d}`, repo.ID))}))
 	require.NoError(t, q.UpsertInstallSetting(ctx, db.UpsertInstallSettingParams{Key: "owner.access",
-		Value: []byte(`{"last_access_check_at":"` + time.Now().UTC().Format(time.RFC3339Nano) + `","owner_login":"merge-owner","repository_name":"app","repository_id":100}`)}))
+		Value: []byte(fmt.Sprintf(`{"last_access_check_at":%q,"owner_login":"merge-owner","repository_name":"app","repository_id":%d}`, time.Now().UTC().Format(time.RFC3339Nano), repo.ID))}))
 	session := func(user db.User, raw string) string {
 		digest := sha256.Sum256([]byte(raw))
 		_, err := pool.Exec(ctx, `INSERT INTO auth_sessions(session_key,user_id,username,expires_at) VALUES ($1,$2,$3,NOW() + interval '1 hour')`,
@@ -194,12 +194,26 @@ func TestTodoMergeComposedRouteBoundaryPostgres(t *testing.T) {
 
 	t.Run("shared TODO replay excludes private and other item facts", func(t *testing.T) {
 		scope := jobs.Scope{TenantID: strconv.FormatInt(repo.ID, 10), PrincipalID: "todo:" + uuid.UUID(before.ID.Bytes).String()}
-		var shared jobs.Event
-		err := pgx.BeginFunc(ctx, pool, func(tx pgx.Tx) error {
+		_, err := pool.Exec(ctx, `INSERT INTO collaborators(repository_id,user_id,permission) VALUES ($1,$2,'write')`, repo.ID, member.ID)
+		require.NoError(t, err)
+		defer func() {
+			_, err := pool.Exec(ctx, `DELETE FROM collaborators WHERE repository_id=$1 AND user_id=$2`, repo.ID, member.ID)
+			require.NoError(t, err)
+		}()
+		var shared []jobs.Event
+		err = pgx.BeginFunc(ctx, pool, func(tx pgx.Tx) error {
 			var err error
-			shared, err = jobs.RecordFactInTx(ctx, tx, scope, uuid.NewString(), "todo.test", "working", json.RawMessage(`{"attempt":2,"actor":"Ben"}`))
-			if err != nil {
-				return err
+			// Literal authors/attempts cross both boundaries. Event identity is
+			// returned by the production append and must survive HTTP replay.
+			for _, payload := range []string{
+				`{"attempt":1,"actor":"Alice"}`, `{"attempt":1,"actor":"Ben"}`,
+				`{"attempt":2,"actor":"Alice"}`, `{"attempt":2,"actor":"Ben"}`,
+			} {
+				event, err := jobs.RecordFactInTx(ctx, tx, scope, uuid.NewString(), "todo.test", "working", json.RawMessage(payload))
+				if err != nil {
+					return err
+				}
+				shared = append(shared, event)
 			}
 			for _, principal := range []string{"user:private", "todo:" + uuid.NewString()} {
 				_, err = jobs.RecordFactInTx(ctx, tx, jobs.Scope{TenantID: scope.TenantID, PrincipalID: principal}, uuid.NewString(), "secret", "working", json.RawMessage(`{"secret":"hidden"}`))
@@ -216,10 +230,10 @@ func TestTodoMergeComposedRouteBoundaryPostgres(t *testing.T) {
 		_, err = jobs.RecordFactInTx(ctx, tx, scope, uuid.NewString(), "rolled_back", "working", json.RawMessage(`{"private":"rollback"}`))
 		require.NoError(t, err)
 		require.NoError(t, tx.Rollback(ctx))
-		read := func(suffix string) (*http.Response, []byte) {
+		read := func(cookie, suffix string) (*http.Response, []byte) {
 			request, err := http.NewRequest(http.MethodGet, origin+"/api/todos/"+strconv.FormatInt(filed.Number, 10)+"/events"+suffix, nil)
 			require.NoError(t, err)
-			request.AddCookie(&http.Cookie{Name: "smithers_session", Value: "owner-browser-session"})
+			request.AddCookie(&http.Cookie{Name: "smithers_session", Value: cookie})
 			response, err := http.DefaultClient.Do(request)
 			require.NoError(t, err)
 			raw, err := io.ReadAll(response.Body)
@@ -227,21 +241,47 @@ func TestTodoMergeComposedRouteBoundaryPostgres(t *testing.T) {
 			response.Body.Close()
 			return response, raw
 		}
-		response, raw := read("")
-		require.Equal(t, 200, response.StatusCode, string(raw))
-		var page jobs.ReplayPage
-		require.NoError(t, json.Unmarshal(raw, &page))
-		require.Len(t, page.Events, 2)
-		require.Equal(t, "todo.created", page.Events[0].Type)
-		require.Equal(t, shared.EventID, page.Events[1].EventID)
-		require.Greater(t, page.Events[1].Sequence, page.Events[0].Sequence)
-		require.NotContains(t, string(raw), "hidden")
-		response, raw = read("?cursor=" + strconv.FormatInt(page.Cursor, 10))
-		require.Equal(t, 200, response.StatusCode, string(raw))
-		require.NoError(t, json.Unmarshal(raw, &page))
-		require.Empty(t, page.Events)
-		response, _ = read("?cursor=-1")
-		require.Equal(t, 400, response.StatusCode)
+		var canonical jobs.ReplayPage
+		for _, cookie := range []string{"owner-browser-session", "member-browser-session"} {
+			response, raw := read(cookie, "")
+			require.Equal(t, 200, response.StatusCode, string(raw))
+			var page jobs.ReplayPage
+			require.NoError(t, json.Unmarshal(raw, &page))
+			require.Len(t, page.Events, 5)
+			require.Equal(t, "todo.created", page.Events[0].Type)
+			for i, event := range shared {
+				require.Equal(t, event.EventID, page.Events[i+1].EventID)
+				require.JSONEq(t, string(event.Data), string(page.Events[i+1].Data))
+				require.Greater(t, page.Events[i+1].Sequence, page.Events[i].Sequence)
+			}
+			require.NotContains(t, string(raw), "hidden")
+			require.NotContains(t, string(raw), "rollback")
+			if cookie == "owner-browser-session" {
+				canonical = page
+			} else {
+				require.Equal(t, canonical, page)
+			}
+			// A cursor in the middle returns precisely the same suffix,
+			// including across the attempt boundary.
+			response, raw = read(cookie, "?cursor="+strconv.FormatInt(page.Events[2].Sequence, 10))
+			require.Equal(t, 200, response.StatusCode, string(raw))
+			var tail jobs.ReplayPage
+			require.NoError(t, json.Unmarshal(raw, &tail))
+			require.Equal(t, page.Events[3:], tail.Events)
+			require.Equal(t, page.Cursor, tail.Cursor)
+			response, raw = read(cookie, "?cursor="+strconv.FormatInt(page.Cursor, 10))
+			require.Equal(t, 200, response.StatusCode, string(raw))
+			require.NoError(t, json.Unmarshal(raw, &tail))
+			require.Empty(t, tail.Events)
+			response, _ = read(cookie, "?cursor=-1")
+			require.Equal(t, 400, response.StatusCode)
+		}
+		// Membership is checked again on the next request, before disclosure.
+		_, err = pool.Exec(ctx, `UPDATE collaborators SET suspended_at=now() WHERE repository_id=$1 AND user_id=$2`, repo.ID, member.ID)
+		require.NoError(t, err)
+		response, raw := read("member-browser-session", "")
+		require.Equal(t, 403, response.StatusCode, string(raw))
+		require.NotContains(t, string(raw), "Alice")
 	})
 
 	t.Run("attempt logs keep bytes and refuse unrelated digests", func(t *testing.T) {

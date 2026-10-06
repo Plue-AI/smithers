@@ -2,7 +2,7 @@ import { expect, test } from "../browserTest"
 import { say } from "./j1-fixtures"
 import { installCloudFixture } from "../cloudFixture"
 
-test("C-UI-12 TODO: Open branch reaches the install provider from a REST-served card", async ({ page }) => {
+test("C-UI-12 TODO: Fork and Open branch reach install providers from a REST-served card", async ({ page }) => {
   await installCloudFixture(page, { capabilities: ["identity", "install"] })
   const model = {
     n: 24, title: "Retry from the install", state: "working",
@@ -39,6 +39,14 @@ test("C-UI-12 TODO: Open branch reaches the install provider from a REST-served 
   const todo = page.getByRole("article", { name: "TODO T24", exact: true })
   await expect(todo).toContainText("Retry from the install")
   await expect(todo.getByRole("button", { name: "Stop", exact: true })).toHaveCount(0)
+  const forks: unknown[] = []
+  await page.route("**/api/branches", async route => {
+    forks.push(route.request().postDataJSON())
+    await route.fulfill({ status: 201, json: { name: "scratch/retry" } })
+  })
+  await todo.getByRole("button", { name: "Fork", exact: true }).press("Enter")
+  await expect.poll(() => forks).toEqual([{ from: "T24" }])
+  await expect(page.getByTestId("composer-input")).toBeEnabled()
   await todo.getByRole("button", { name: "Open branch", exact: true }).press("Enter")
   const branch = page.getByTestId("card-branch:b-live")
   await expect(branch).toContainText("smithers/retry-webhooks")

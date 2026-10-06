@@ -218,7 +218,7 @@ export interface AppController extends IssueFlowsController {
   readonly removeConnector: (id: string) => string | void
   readonly selectWorldDocument: (id: string) => string | void
   readonly changeWorldDocument: (id: string, body: string) => Promise<string | void>
-  readonly openWikiPage: (name: string) => Promise<string | void | { value: string }>
+  readonly openWikiPage: (name: string, revision?: number) => Promise<string | void | { value: string }>
   readonly listCloudWiki: (repo?: string, page?: number, space?: WikiSpace) => Promise<string | { value: string }>
   readonly openCloudWiki: (repo: string, slug: string, expectedPageId?: number, space?: WikiSpace) => Promise<string | { value: string }>
   readonly retryCloudWiki: (id: string) => Promise<string | void | { value: string }>
