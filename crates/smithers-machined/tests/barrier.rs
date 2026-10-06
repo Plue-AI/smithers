@@ -144,3 +144,118 @@ fn pending_rewrite_does_not_block_roster_revocation() {
     assert_eq!(*m.calls.lock().unwrap(), ["revoke roster"]);
     assert!(cx.rewrite_pending);
 }
+
+fn journal_hooks(machine: Arc<Machine>) -> Hooks {
+    Hooks {
+        broker: machine.clone(),
+        core: machine.clone(),
+        watcher: machine.clone(),
+        documents: machine,
+        ..Hooks::default()
+    }
+}
+
+#[test]
+fn interrupted_rewrite_child() {
+    use std::io::Write;
+    let Some(state) = std::env::var_os("W2_REWRITE_CRASH_STATE") else {
+        return;
+    };
+    let journal =
+        smithers_machined::rewrite_journal::Journal::open(std::path::Path::new(&state)).unwrap();
+    let mut cx = LockCx::recovering(journal_hooks(Arc::new(Machine::default())), journal).unwrap();
+    let request = include_bytes!(
+        "../../../packages/backend/internal/compose/testdata/cocontracts/req_rebase.bin"
+    );
+    rpc::serve_one(&mut Cursor::new(request), &mut vec![], &mut cx).unwrap();
+    assert!(cx.rewrite_pending);
+    println!("W2_REWRITE_READY");
+    std::io::stdout().flush().unwrap();
+    // Parent owns and kills this process after seeing the production RPC reply.
+    std::io::stdin().read_line(&mut String::new()).unwrap();
+    panic!("parent must kill the interrupted rewrite process");
+}
+
+#[test]
+fn killed_rewrite_retains_admission_barrier_until_restore_ten_times() {
+    use std::{
+        io::{BufRead, BufReader},
+        os::unix::fs::PermissionsExt,
+        process::{Command, Stdio},
+    };
+    for _ in 0..10 {
+        let mut random = [0; 16];
+        getrandom::fill(&mut random).unwrap();
+        let state = std::env::temp_dir().join(format!("w2-barrier-{random:x?}"));
+        std::fs::create_dir(&state).unwrap();
+        std::fs::set_permissions(&state, std::fs::Permissions::from_mode(0o700)).unwrap();
+        let mut child = Command::new(std::env::current_exe().unwrap())
+            .args(["--exact", "interrupted_rewrite_child", "--nocapture"])
+            .env("W2_REWRITE_CRASH_STATE", &state)
+            .stdin(Stdio::piped())
+            .stdout(Stdio::piped())
+            .spawn()
+            .unwrap();
+        let mut output = BufReader::new(child.stdout.take().unwrap());
+        let mut line = String::new();
+        loop {
+            assert!(
+                output.read_line(&mut line).unwrap() > 0,
+                "child stopped before checkpoint: {line}"
+            );
+            if line.contains("W2_REWRITE_READY") {
+                break;
+            }
+            line.clear();
+        }
+        child.kill().unwrap();
+        assert!(!child.wait().unwrap().success());
+        let m = Arc::new(Machine::default());
+        let journal = smithers_machined::rewrite_journal::Journal::open(&state).unwrap();
+        let mut cx = LockCx::recovering(journal_hooks(m.clone()), journal).unwrap();
+        assert!(cx.rewrite_pending);
+        assert!(freeze::freeze_then(&mut cx, &Actor::Outside, |_| Ok(())).is_err());
+        assert!(m.calls.lock().unwrap().is_empty());
+        assert!(freeze::restore(&mut cx, &Actor::Outside).is_err());
+        assert!(cx.rewrite_pending);
+        *m.restore_ok.lock().unwrap() = true;
+        freeze::restore(&mut cx, &Actor::Outside).unwrap();
+        assert_eq!(
+            *m.calls.lock().unwrap(),
+            ["restore", "restore", "reconcile", "thaw"]
+        );
+        let journal = smithers_machined::rewrite_journal::Journal::open(&state).unwrap();
+        assert!(
+            !LockCx::recovering(journal_hooks(m), journal)
+                .unwrap()
+                .rewrite_pending
+        );
+        std::fs::remove_dir_all(state).unwrap();
+    }
+}
+
+#[test]
+fn corrupt_or_symlinked_checkpoint_refuses_restart() {
+    use std::os::unix::fs::{symlink, PermissionsExt};
+    let mut random = [0; 16];
+    getrandom::fill(&mut random).unwrap();
+    let state = std::env::temp_dir().join(format!("w2-barrier-{random:x?}"));
+    std::fs::create_dir(&state).unwrap();
+    std::fs::set_permissions(&state, std::fs::Permissions::from_mode(0o700)).unwrap();
+    let path = state.join("rewrite.pending");
+    for bytes in [b"".as_slice(), b"0", b"11"] {
+        std::fs::write(&path, bytes).unwrap();
+        std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o600)).unwrap();
+        assert!(smithers_machined::rewrite_journal::Journal::open(&state)
+            .unwrap()
+            .pending()
+            .is_err());
+    }
+    std::fs::remove_file(&path).unwrap();
+    symlink("/dev/null", &path).unwrap();
+    assert!(smithers_machined::rewrite_journal::Journal::open(&state)
+        .unwrap()
+        .pending()
+        .is_err());
+    std::fs::remove_dir_all(state).unwrap();
+}
