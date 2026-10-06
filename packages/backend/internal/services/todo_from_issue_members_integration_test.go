@@ -42,7 +42,7 @@ func TestMembersMakeTodosFromIssuesThroughTheApp(t *testing.T) {
 		}
 		_, err = f.pool.Exec(ctx, `UPDATE collaborators SET github_id=$3,github_login=$4 WHERE repository_id=$1 AND user_id=$2`, f.repoID, id, githubID, login)
 		require.NoError(t, err)
-		return middleware.ContextWithAuthInfo(ctx, &middleware.AuthInfo{User: &db.User{ID: id}, SessionHash: login + "-session"})
+		return registerTestInstallCredential(t, f.pool, middleware.ContextWithAuthInfo(ctx, &middleware.AuthInfo{User: &db.User{ID: id}, SessionHash: login + "-session"}), f.repoID)
 	}
 	alice, ben := person("alice", "write"), person("ben", "admin")
 	commit := func(as context.Context, number int64, title, body, key string) (MythicalItemView, error) {

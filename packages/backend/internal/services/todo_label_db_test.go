@@ -24,6 +24,8 @@ func TestJourneyTodoLabelFrozenSnapshot(t *testing.T) {
 	ctx := context.Background()
 	var will, repo int64
 	require.NoError(t, pool.QueryRow(ctx, `INSERT INTO users(username, lower_username) VALUES ('Will','will') RETURNING id`).Scan(&will))
+	_, ownerErr := pool.Exec(ctx, `INSERT INTO self_host_owners(user_id) VALUES($1)`, will)
+	require.NoError(t, ownerErr)
 	for _, actor := range []string{"Ben", "Alice"} {
 		_, err := pool.Exec(ctx, `INSERT INTO users(username, lower_username) VALUES ($1::text,lower($1::text))`, actor)
 		require.NoError(t, err)
@@ -148,6 +150,8 @@ func TestTodoLabelDoorAdmitsOnlyAuthorizedLabels(t *testing.T) {
 	q := db.New(pool)
 	var will, repo int64
 	require.NoError(t, pool.QueryRow(ctx, `INSERT INTO users(username, lower_username) VALUES ('Will','will') RETURNING id`).Scan(&will))
+	_, ownerErr := pool.Exec(ctx, `INSERT INTO self_host_owners(user_id) VALUES($1)`, will)
+	require.NoError(t, ownerErr)
 	require.NoError(t, pool.QueryRow(ctx, `INSERT INTO repositories(user_id,name,lower_name) VALUES ($1,'canary','canary') RETURNING id`, will).Scan(&repo))
 	service := NewMythicalService(pool, nil)
 	count := func() (n int) {
