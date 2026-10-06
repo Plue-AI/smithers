@@ -807,10 +807,18 @@ func TestTodoMergeComposedRouteBoundaryPostgres(t *testing.T) {
 		digest := sha256.Sum256([]byte(machine))
 		_, err := q.CreateAccessToken(ctx, db.CreateAccessTokenParams{UserID: owner.ID, Name: "outbound-machine", TokenHash: hex.EncodeToString(digest[:]), TokenLastEight: hex.EncodeToString(digest[:])[56:], Scopes: "all,repo:" + strconv.FormatInt(repo.ID, 10), SystemIssued: true, ExpiresAt: pgtype.Timestamptz{Time: time.Now().Add(time.Hour), Valid: true}})
 		require.NoError(t, err)
+		// An unrelated uncertain publication is a durable obligation. A
+		// forbidden machine request cannot clear or replace that slot.
+		uncertain, err := q.InsertMythicalTodo(ctx, repo.ID, owner.ID, "Uncertain publication", "Publish once", json.RawMessage(`[]`), json.RawMessage(`{"todo":true}`))
+		require.NoError(t, err)
+		_, err = pool.Exec(ctx, `UPDATE mythical_items SET state='proposing',pending_op='{"kind":"open","target":"smithers/uncertain","desired":"fixed-head","precondition":"","state":"unknown"}'::jsonb WHERE id=$1`, uncertain.ID)
+		require.NoError(t, err)
+		uncertainBefore, err := q.GetMythicalItem(ctx, uncertain.ID)
+		require.NoError(t, err)
 		writes := len(fake.Writes())
 		var pendingBefore int
 		require.NoError(t, pool.QueryRow(ctx, `SELECT count(*) FROM mythical_items WHERE pending_op IS NOT NULL`).Scan(&pendingBefore))
-		for _, method := range []string{"POST", "PUT", "PATCH", "DELETE"} {
+		for _, method := range []string{"POST", "PUT", "PATCH", "DELETE", " post ", " put ", " patch ", " delete "} {
 			for _, target := range []string{"pulls", "git/refs/heads/main", "check-runs"} {
 				payload, _ := json.Marshal(map[string]any{"method": method, "path": "/repos/merge-owner/app/" + target, "body": map[string]string{"head": "hostile", "state": "closed"}})
 				r, err := http.NewRequest(http.MethodPost, origin+"/api/repos/merge-owner/app/github-proxy", bytes.NewReader(payload))
@@ -831,6 +839,9 @@ func TestTodoMergeComposedRouteBoundaryPostgres(t *testing.T) {
 		var pendingAfter int
 		require.NoError(t, pool.QueryRow(ctx, `SELECT count(*) FROM mythical_items WHERE pending_op IS NOT NULL`).Scan(&pendingAfter))
 		require.Equal(t, pendingBefore, pendingAfter)
+		uncertainAfter, err := q.GetMythicalItem(ctx, uncertain.ID)
+		require.NoError(t, err)
+		require.Equal(t, uncertainBefore, uncertainAfter, "machine mutations preserve the exact uncertain operation and item version")
 	})
 
 }
