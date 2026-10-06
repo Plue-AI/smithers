@@ -28,6 +28,7 @@ export interface TodoReceipt {
 }
 /** What Make TODO drafts from: one GitHub issue and its discussion, as its issue card read them. */
 export interface IssueDraftSource {
+  readonly author?: string | null | undefined
   readonly digest?: string | undefined
   readonly number: number
   readonly title: string
@@ -44,6 +45,10 @@ export interface TodoTopics {
   readonly subscribe: (topic: `todo:${number}`, receive: (model: unknown, receipts?: readonly TodoReceipt[]) => void) => () => void
 }
 export interface TodoSeamOptions {
+  readonly readIssue?: (number: number, repo: string) => Promise<IssueDraftSource | string>
+
+  readonly draftIssue?: (source: IssueDraftSource, signal: AbortSignal) => Promise<{ title: string; prompt: string; acceptance: string[] }>
+
   readonly sourceAvailable?: (path: string) => Promise<boolean>
   readonly openSource?: (n: number, path: string, live: () => boolean) => Promise<boolean>
   readonly actors?: () => ActorContext
@@ -578,25 +583,109 @@ export const createTodoSeam = (ctx: SeamContext, options: TodoSeamOptions = {}) 
     prepareImageDraft(id)
     return { value: "Requested" }
   }
-  /** Make TODO: the author's private Draft of the issue and its discussion, committed like any Draft (spec §14.5.1). */
-  const draftFromIssue = async (source: IssueDraftSource) => {
+  const prepareIssueDraft = (id: string): void => {
+    const row = draft(id), preparation = row?.payload.issuePreparation
+    if (!options.draftIssue || !row || !preparation || preparation.state !== "requested" || row.audience_member_id !== owner() || shared.sending.has(id)) return
+    shared.sending.add(id)
+    const login = owner(), revision = identity()?.ownerRevision ?? identity()?.revision
+    const abort = new AbortController()
+    shared.aborts.set(id, abort)
+    const live = () => current(login, revision) && draft(id)?.payload.issuePreparation?.state === "requested"
+    showNotice({ key: id, owner: login!, operation: "create", body: {}, state: "requested" }, row.title)
+    void (async () => {
+      try {
+        const result = await options.draftIssue!(preparation.source, abort.signal)
+        if (!live()) return
+        const latest = draft(id)!
+        await write({ ...latest, payload: { ...latest.payload, ...result, issuePreparation: { ...preparation, state: "ready" } } })
+        finishNotice(id, row.title, { status: "ok", detail: "Drafted" })
+        loadDraftPlaces(id)
+      } catch (error) {
+        if (!live()) return
+        const message = error instanceof Error ? error.message : "Could not draft this issue."
+        const latest = draft(id)!
+        await write({ ...latest, payload: { ...latest.payload, issuePreparation: { ...preparation, state: "failed", error: message } } })
+        finishNotice(id, row.title, { status: "failed", detail: message })
+      }
+    })().catch(error => ctx.report?.("todo.from-issue", error)).finally(() => { shared.sending.delete(id); shared.aborts.delete(id) })
+  }
+  /** One authorized snapshot stays browser-local through preparation, edits and Commit. */
+  const draftFromIssue = async (source: IssueDraftSource, requestedId?: string) => {
     const refusal = signedIn(); if (refusal) return refusal
-    const open = [...ctx.store.collections.cards.values()].some(row => row.kind === "draft" && row.audience_member_id === owner()
-      && !row.payload.committed && row.payload.issue?.number === source.number)
-    if (open) return { value: "Drafted" }
+    const prior = [...ctx.store.collections.cards.values()].find(row => row.kind === "draft" && row.audience_member_id === owner()
+      && !row.payload.committed && row.payload.issue?.url === source.url)
+    if (prior?.kind === "draft") {
+      if (prior.payload.issuePreparation?.state === "failed") {
+        await write({ ...prior, payload: { ...prior.payload, issuePreparation: { ...prior.payload.issuePreparation, state: "requested", error: undefined } } })
+        prepareIssueDraft(prior.id)
+      }
+      return { value: prior.payload.issuePreparation && prior.payload.issuePreparation.state !== "ready" ? "Requested" : "Drafted" }
+    }
     let digest: string
     try { digest = source.digest ?? issueDigest(source.title, source.body) } catch { return "This issue's text cannot be read." }
-    const id = `draft:${randomUuid()}`
-    await write(draftCard({ id, author: owner()!, text: issuePrompt(source), title: source.title, options: placeOptions(),
+    const id = requestedId ?? `draft:${randomUuid()}`
+    const card = draftCard({ id, author: owner()!, text: options.draftIssue ? "" : issuePrompt(source), title: source.title, options: placeOptions(),
       issue: { number: source.number, title: source.title, url: source.url, fixes: true }, issueDigest: digest,
-      idempotencyKey: randomUuid() }, ctx.nextOrdinal(), Date.now()))
-    loadDraftPlaces(id)
-    return { value: "Drafted" }
+      idempotencyKey: randomUuid() }, ctx.nextOrdinal(), Date.now())
+    await write(options.draftIssue ? { ...card, payload: { ...card.payload, issuePreparation: { source: { ...source, comments: [...source.comments] }, state: "requested" } } } : card)
+    if (options.draftIssue) prepareIssueDraft(id)
+    else loadDraftPlaces(id)
+    return { value: options.draftIssue ? "Requested" : "Drafted" }
+  }
+  type IssueReadRequest = NonNullable<ReturnType<typeof ctx.store.session>["issueTodoRequests"]>[number]
+  const issueRequests = () => ctx.store.session().issueTodoRequests ?? []
+  const saveIssueRequest = async (request: IssueReadRequest) => {
+    await ctx.dispatch({ type: "issue.todo.requests.changed", actor: ctx.actor(), requests: [...issueRequests().filter(row => row.id !== request.id), request] }).isPersisted.promise
+  }
+  const readIssueDraft = (request: IssueReadRequest): void => {
+    if (!options.readIssue || request.owner !== owner() || request.state !== "requested" || shared.sending.has(request.id)) return
+    shared.sending.add(request.id)
+    const login = owner(), revision = identity()?.ownerRevision ?? identity()?.revision
+    const live = () => current(login, revision) && issueRequests().some(row => row.id === request.id && row.state === "requested")
+    const title = `Issue #${request.number}`
+    showNotice({ key: request.id, owner: login!, operation: "create", body: {}, state: "requested" }, title)
+    void (async () => {
+      try {
+        const source = await options.readIssue!(request.number, request.repo)
+        if (!live()) return
+        if (typeof source === "string") throw new Error(source)
+        // Retire only this read's in-flight marker before the same identity
+        // becomes the model preparation. The model keeps its toast running.
+        shared.sending.delete(request.id)
+        await draftFromIssue(source, request.id)
+        if (!live()) return
+        await saveIssueRequest({ ...request, state: "completed", error: undefined })
+        if (!options.draftIssue) finishNotice(request.id, title, { status: "ok", detail: "Drafted" })
+      } catch (error) {
+        if (!live()) return
+        const message = error instanceof Error ? error.message : "Could not read this issue."
+        await saveIssueRequest({ ...request, state: "failed", error: message })
+        finishNotice(request.id, title, { status: "failed", detail: message })
+      }
+    })().catch(error => ctx.report?.("todo.from-issue", error)).finally(() => {
+      // The model preparation now owns the marker when a Draft exists.
+      if (!draft(request.id)?.payload.issuePreparation || draft(request.id)?.payload.issuePreparation?.state !== "requested") shared.sending.delete(request.id)
+    })
+  }
+  const draftIssueNumber = async (number: number, repo: string) => {
+    const refusal = signedIn(); if (refusal) return refusal
+    if (!options.readIssue) return `Open GitHub issue #${number} before making a TODO.`
+    const completed = issueRequests().find(row => row.owner === owner() && row.repo === repo && row.number === number && row.state === "completed" && draft(row.id) && !draft(row.id)?.payload.committed)
+    if (completed) {
+      const row = draft(completed.id)!
+      return row.payload.issuePreparation ? draftFromIssue(row.payload.issuePreparation.source) : { value: "Drafted" }
+    }
+    const prior = issueRequests().find(row => row.owner === owner() && row.repo === repo && row.number === number && row.state !== "completed")
+    const request: IssueReadRequest = { id: prior?.id ?? `draft:${randomUuid()}`, owner: owner()!, repo, number, state: "requested" }
+    if (prior?.state !== "requested") await saveIssueRequest(request)
+    readIssueDraft(request)
+    return { value: "Requested" }
   }
   const commitDraft = async (cardId: string) => {
     const refusal = signedIn(); if (refusal) return refusal
     const row = draft(cardId)
     if (!row || row.audience_member_id !== owner() && !row.payload.committed) return "This draft belongs to its author."
+    if (row.payload.issuePreparation && row.payload.issuePreparation.state !== "ready") return "Issue draft is not ready."
     if (row.payload.imagePreparation && row.payload.imagePreparation.state !== "ready") return "Machine image draft is not ready."
     if (row.payload.committed) return { value: `Committed T${row.payload.committed.n}` }
     if (row.payload.request?.state === "accepted") return { value: "Requested" }
@@ -619,6 +708,7 @@ export const createTodoSeam = (ctx: SeamContext, options: TodoSeamOptions = {}) 
   const setTodoFormField = async (cardId: string, field: string, value: string): Promise<string | void> => {
     const row = draft(cardId)
     if (!row || row.audience_member_id !== owner() || row.payload.committed) return "This draft belongs to its author."
+    if (row.payload.issuePreparation && row.payload.issuePreparation.state !== "ready") return "Issue draft is not ready."
     if (row.payload.imagePreparation && row.payload.imagePreparation.state !== "ready") return "Machine image draft is not ready."
     if (row.payload.request && row.payload.request.state !== "failed") return "Commit is pending."
     if (row.payload.request) return "Retry the pending commit before editing."
@@ -661,6 +751,7 @@ export const createTodoSeam = (ctx: SeamContext, options: TodoSeamOptions = {}) 
     if (epoch !== shared.epoch) { stop(); shared.epoch = epoch; publishList({}) }
     if (signedIn()) return
     pollList()
+    for (const request of issueRequests()) readIssueDraft(request)
     for (const row of ctx.store.collections.cards.values()) {
       if (row.kind === "todo") {
         // Follow only TODOs this seam fetched or requested; a row without either is the design seed's (MOCK SEAM).
@@ -672,6 +763,7 @@ export const createTodoSeam = (ctx: SeamContext, options: TodoSeamOptions = {}) 
       if (row.kind === "draft" && row.payload.source?.owner === owner() && row.payload.committed && !row.payload.source?.opened) watch(row.payload.committed.n)
       if (row.kind === "draft" && row.audience_member_id === owner()) {
         prepareImageDraft(row.id)
+        prepareIssueDraft(row.id)
         if (row.payload.request && row.payload.request.state !== "failed") send(row.id, row.payload.request)
         if (!row.payload.request) loadDraftPlaces(row.id)
       }
@@ -703,14 +795,14 @@ export const createTodoSeam = (ctx: SeamContext, options: TodoSeamOptions = {}) 
     }
     const observedId = confirmation.command === "merge" ? `${confirmation.id}:${confirmation.payload.merge_attempt ?? 0}` : confirmation.id
     if (ctx.actor() !== "user" || signedIn() || (confirmation.state !== "approved" && !(confirmation.command === "merge" && confirmation.state === "pending")) || !effect ||
-      !["todo.new", "todo.drop", "todo.amend", "branch.bring-in", "branch.discard-foreign", "merge"].includes(confirmation.command) || observingConfirmations.has(confirmation.id)) return
+      !["todo.new", "todo.from-issue", "todo.drop", "todo.amend", "branch.bring-in", "branch.discard-foreign", "merge"].includes(confirmation.command) || observingConfirmations.has(confirmation.id)) return
     const row = entry(effect.todo) ?? blank(effect.todo)
     if (row.payload.observedConfirmations?.includes(observedId)) return
     observingConfirmations.add(confirmation.id)
     const login = owner()!, revision = identity()?.ownerRevision ?? identity()?.revision
     try {
       const request: Request = { key: effect.request, owner: login,
-        operation: confirmation.command === "merge" ? "merge" : confirmation.command === "branch.bring-in" ? "bring-in" : confirmation.command === "branch.discard-foreign" ? "discard-foreign" : confirmation.command === "todo.new" ? "create" : confirmation.command === "todo.amend" ? "amend" : "drop",
+        operation: confirmation.command === "merge" ? "merge" : confirmation.command === "branch.bring-in" ? "bring-in" : confirmation.command === "branch.discard-foreign" ? "discard-foreign" : ["todo.new", "todo.from-issue"].includes(confirmation.command) ? "create" : confirmation.command === "todo.amend" ? "amend" : "drop",
         ...(effect.revision === undefined ? {} : { revision: effect.revision }),
         body: ["branch.bring-in", "branch.discard-foreign"].includes(confirmation.command) ? { ...confirmation.payload.input as object, branch: confirmation.payload.card.subject.ref } : confirmation.payload.input, n: effect.todo, state: "accepted" }
       await write({ ...row, title: confirmation.payload.card.summary, payload: { ...row.payload,
@@ -740,7 +832,7 @@ export const createTodoSeam = (ctx: SeamContext, options: TodoSeamOptions = {}) 
       if (!options.openSource || options.sourceAvailable && !await options.sourceAvailable(path)) return "Branch files are unavailable."
       if (!current(login, revision)) return "Sign in to work on TODOs."
       return newTodo(input, path)
-    }, draftImagePackage, draftFromIssue, amendTodo, setTodoFormField, dismissTodoDraft, resumeTodos, applyTodoProjection: applyProjection,
+    }, draftImagePackage, draftFromIssue, draftIssueNumber, amendTodo, setTodoFormField, dismissTodoDraft, resumeTodos, applyTodoProjection: applyProjection,
     answerTodo: (n: number, answer: string, wait?: string) => {
       const waits = entry(n)?.payload.model?.waits.filter(row => row.actions.some(action => action.tag === "todo.answer")) ?? []
       const id = wait ?? (waits.length === 1 ? waits[0]!.id : undefined)

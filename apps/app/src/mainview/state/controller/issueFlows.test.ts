@@ -78,7 +78,7 @@ test("Make TODO drafts from the open GitHub issue card and never launches a work
     comments: [{ author: "alice", commentBody: "retry at most 5 times", createdAt: null }] }
   await store.dispatch({ type: "card.upsert", actor: "user", card: { id: "issue-github-owner/repo-7", kind: "issue", title: github.title, status: "active", createdAt: 2, ordinal: 2, payload: github } }).isPersisted.promise
   expect(await flows.runIssueImplementation(7, REPO, true)).toEqual({ value: "Drafted" })
-  expect(drafted).toEqual([{ number: 7, title: "Webhooks fail on 502", body: "Webhooks fail on 502", url: "https://github.com/owner/repo/issues/7",
+  expect(drafted).toEqual([{ author: "ben", number: 7, title: "Webhooks fail on 502", body: "Webhooks fail on 502", url: "https://github.com/owner/repo/issues/7",
     comments: [{ author: "alice", body: "retry at most 5 times" }] }])
   // Another repository's issue and a closed issue draft nothing.
   expect(await flows.runIssueImplementation(7, "other/repo")).toBe("Open GitHub issue #7 before making a TODO.")

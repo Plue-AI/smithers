@@ -27,14 +27,14 @@ export const DraftContainer = ({ card, memberId, dispatch, View, view, onView }:
   const definitions: CardActionDefinition[] = []
   if (model.committed) definitions.push({ tag: "todo", label: `T${model.committed.n}`, command_input: { n: model.committed.n } })
   else {
-    const preparing = card.payload.imagePreparation && card.payload.imagePreparation.state !== "ready"
+    const preparing = card.payload.imagePreparation && card.payload.imagePreparation.state !== "ready" || card.payload.issuePreparation && card.payload.issuePreparation.state !== "ready"
     const pending = card.payload.request && card.payload.request.state !== "failed"
     const place = model.place
     /* Title and prompt save on blur, so a Commit pressed while typing must stay live; the flow refuses an empty draft. */
     const invalid = place.mode !== "append" && !place.options.some(option => option.n === place.n)
     /* Absent keys stay absent: the flow input decodes `before?: number`, not `before: undefined`. */
     const common = { cardId: card.id, text: model.prompt, ...(card.payload.idempotencyKey === undefined ? {} : { idempotencyKey: card.payload.idempotencyKey }) }
-    const disabled = preparing ? { reason: card.payload.imagePreparation?.error ?? "Preparing draft" } : pending ? { reason: "Commit pending" } : invalid ? { reason: "Complete the draft" } : undefined
+    const disabled = preparing ? { reason: card.payload.issuePreparation?.error ?? card.payload.imagePreparation?.error ?? "Preparing draft" } : pending ? { reason: "Commit pending" } : invalid ? { reason: "Complete the draft" } : undefined
     if (place.mode === "amend") definitions.push({ tag: "todo.amend", label: "Commit", primary: true,
       command_input: { ...common, n: place.n }, disabled })
     else {
@@ -49,7 +49,7 @@ export const DraftContainer = ({ card, memberId, dispatch, View, view, onView }:
   }
   const bindings = cardActions(dispatch, definitions)
   return <View model={model} actions={bindings.actions} onAction={bindings.onAction} view={view} onView={onView}
-    gestures={bindings.gestures} failure={card.payload.imagePreparation?.error ?? card.payload.request?.error ?? card.payload.optionsFailure} />
+    gestures={bindings.gestures} failure={card.payload.issuePreparation?.error ?? card.payload.imagePreparation?.error ?? card.payload.request?.error ?? card.payload.optionsFailure} />
 }
 
 /** The `draft` kind: private to its author until Commit. The viewer comes from the design seed (mock seam). */

@@ -6,7 +6,7 @@ import { MAX_TOOL_RESULT_BYTES, utf8Bytes } from "@smthrs/rpc/AgentToolResult"
 import { selectFailureToolResult } from "../state/CommandSelection"
 import type { CommandRegistry } from "./Commands"
 import type { CatalogItem, CommandState, FlowEntry } from "./registry"
-import { disclosedToAgent, itemOf } from "./registry"
+import { disclosedToAgent, itemOf, nameOf } from "./registry"
 
 export type { AgentToolSpec }
 
@@ -190,7 +190,10 @@ export const executeAgentToolCall = async (
    */
   // Only per-member UI instructions are executed in this browser. Every
   // catalog operation with an HTTP door runs in the host's author-bound loop.
-  if (target === undefined || target.metadata.http !== null || target.metadata.cli != null || target.metadata.actors?.includes("external_agent")) {
+  // Issue drafting is a private browser Draft, confirmed by its author. Its
+  // CLI spelling does not turn that UI action into a repository mutation.
+  const privateIssueDraft = target !== undefined && nameOf(target) === "todo.from-issue" && target.metadata.http === null
+  if (target === undefined || !privateIssueDraft && (target.metadata.http !== null || target.metadata.cli != null || target.metadata.actors?.includes("external_agent"))) {
     return "failed: this command runs on the conversation host"
   }
   const outcome = await registry.runAsAgent(name, input.args, call.httpCall)
