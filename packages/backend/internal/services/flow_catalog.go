@@ -2,7 +2,10 @@ package services
 
 import (
 	_ "embed"
+	"encoding/json"
+	"fmt"
 	"maps"
+	"regexp"
 	"slices"
 )
 
@@ -48,7 +51,7 @@ func Overridable(name string) bool { return !slices.Contains(SystemFlows, name) 
 // BuiltinFlowDefaults names the packaged defaults for overridable product
 // flows. The TODO composition ships in T-FLW-11; learning ships in T-FLW-06
 // (stage 3). These are path declarations required by T-FLW-01, not executable
-// entries; activation and consumption belong to T-FLW-03.
+// entries. Only defaults with a shipped digest are exposed or runnable.
 var BuiltinFlowDefaults = map[string]string{
 	"todo":     "flows/todo/flow.ts",
 	"learning": "flows/learning/flow.ts",
@@ -129,11 +132,41 @@ func FlowCatalog() ([]FlowCard, error) {
 	if err != nil {
 		return nil, err
 	}
-	names := slices.Sorted(maps.Keys(builtinFlowSteps))
+	names := slices.Sorted(maps.Keys(digests))
 	cards := make([]FlowCard, 0, len(names))
 	for _, name := range names {
+		steps := builtinFlowSteps[name]
+		if steps == nil {
+			steps = []FlowStep{}
+		}
 		cards = append(cards, FlowCard{Name: name, Source: FlowSource{Builtin: true},
-			Versions: []FlowVersion{{ID: digests[name], State: "active", Steps: builtinFlowSteps[name]}}})
+			Versions: []FlowVersion{{ID: digests[name], State: "active", Steps: steps}}})
 	}
 	return cards, nil
+}
+
+// repositoryJobDigest is the shared content identity format for flow versions.
+var repositoryJobDigest = regexp.MustCompile(`^[a-f0-9]{64}$`)
+
+func builtinFlowDigests() (map[string]string, error) {
+	var digests map[string]string
+	if err := json.Unmarshal(builtinFlowsJSON, &digests); err != nil {
+		return nil, fmt.Errorf("built-in flow digests: %w", err)
+	}
+	for name, path := range BuiltinFlowDefaults {
+		if !Overridable(name) || path != "flows/"+name+"/flow.ts" {
+			return nil, fmt.Errorf("built-in flow %q has an invalid default path", name)
+		}
+	}
+	for name, digest := range digests {
+		if _, declared := BuiltinFlowDefaults[name]; !declared || !repositoryJobDigest.MatchString(digest) {
+			return nil, fmt.Errorf("built-in flow %q has no declared default or valid digest", name)
+		}
+	}
+	for name := range builtinFlowSteps {
+		if _, shipped := digests[name]; !shipped {
+			return nil, fmt.Errorf("built-in flow %q has no valid digest", name)
+		}
+	}
+	return digests, nil
 }

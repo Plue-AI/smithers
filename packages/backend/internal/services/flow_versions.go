@@ -150,19 +150,6 @@ func ActiveFlowDigest(ctx context.Context, q *db.Queries, repositoryID int64, na
 	return "", fmt.Errorf("flow %q has no Active version", name)
 }
 
-func builtinFlowDigests() (map[string]string, error) {
-	var digests map[string]string
-	if err := json.Unmarshal(builtinFlowsJSON, &digests); err != nil {
-		return nil, fmt.Errorf("built-in flow digests: %w", err)
-	}
-	for _, name := range slices.Sorted(maps.Keys(builtinFlowSteps)) {
-		if !Overridable(name) || !repositoryJobDigest.MatchString(digests[name]) {
-			return nil, fmt.Errorf("built-in flow %q has no valid digest", name)
-		}
-	}
-	return digests, nil
-}
-
 // RepositoryFlowCatalog is GET /api/flows for one repository (§6.3, §4.3):
 // each overridable flow with its Active version, the version it replaced
 // (previous), a merged version not yet loaded (merged-syncing) and a merged
