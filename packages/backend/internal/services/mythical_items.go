@@ -3340,10 +3340,10 @@ func (st *mythicalItemStep) follow(ctx context.Context, item db.MythicalItem) (*
 		next.PRState, next.State, next.Reason = "open", "proposed", ""
 		answered.GitHubClosedAt = nil
 		next.Checks = answered.encode()
-	case decision.Noop == "terminal" || decision.Noop == "own_push":
+	case decision.Noop == "terminal" || decision.Noop == "own_push" || mythicalSettledStates[item.State]:
 		// Only outbound reconciliation records an acknowledged own push.
 		// A matching read cannot settle an existing foreign-push hold, and a
-		// terminal no-op cannot fall through to the foreign-head mutation.
+		// settled item cannot rebuild after Drop removes its old position.
 		next.PRState = pull.State
 	case decision.Attention == "foreign_push":
 		// Someone pushed to the pull request: its new head is theirs, so the

@@ -204,15 +204,18 @@ func (s *MythicalService) consumeGitHubPullTodos(ctx context.Context, tx pgx.Tx,
 			if decision.Event == "" && string(next.Checks) == string(item.Checks) {
 				continue
 			}
-			saved, err := q.SaveMythicalItem(ctx, next)
-			if err != nil {
-				return nil, err
-			}
 			if decision.Event == "in_review" {
-				saved, err = q.PlaceMythicalItem(ctx, saved.ID, next.StackPosition.Int64)
+				// Historical drops can retain a now-occupied slot. Move the
+				// terminal row before reactivating the unique live position.
+				placed, err := q.PlaceMythicalItem(ctx, next.ID, next.StackPosition.Int64)
 				if err != nil {
 					return nil, err
 				}
+				next.Version = placed.Version
+			}
+			saved, err := q.SaveMythicalItem(ctx, next)
+			if err != nil {
+				return nil, err
 			}
 			if decision.Event != "" {
 				data, _ := json.Marshal(map[string]any{"item": uuidString(item.ID), "n": mythicalItemNumber(item), "pr": pull.Number, "reason": next.Reason, "source": "github", "version": fetched.Version, "observation": fetched.PullObservation})

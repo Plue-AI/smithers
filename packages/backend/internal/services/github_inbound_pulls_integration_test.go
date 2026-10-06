@@ -17,7 +17,7 @@ import (
 )
 
 func TestGitHubInboundCloseReopenProductionPoll(t *testing.T) {
-	for _, mode := range []string{"GitHub close", "Smithers drop", "lost close response", "occupied position", "legacy drop", "expired drop"} {
+	for _, mode := range []string{"GitHub close", "Smithers drop", "free position", "lost close response", "occupied position", "legacy drop", "expired drop"} {
 		t.Run(mode, func(t *testing.T) { testGitHubInboundCloseReopen(t, mode) })
 	}
 }
@@ -35,7 +35,7 @@ func testGitHubInboundCloseReopen(t *testing.T, mode string) {
 	second := f.todo("Second", "second", base, "SECOND.txt", "second\n")
 	f.wake()
 	var third db.MythicalItem
-	if mode != "lost close response" {
+	if mode != "lost close response" && mode != "free position" {
 		third = f.todo("Third", "third", second.CandidateHead, "THIRD.txt", "third\n")
 		f.wake()
 	}
@@ -69,6 +69,7 @@ func testGitHubInboundCloseReopen(t *testing.T, mode string) {
 			require.Empty(t, f.item(second.Number.Int64).PendingOp)
 			require.Equal(t, "closed", f.item(second.Number.Int64).PRState)
 		}
+		require.Equal(t, "cancelled", f.item(second.Number.Int64).State, "following a closed PR must not rebuild a dropped TODO")
 		if mode == "occupied position" {
 			_, err = h.q.PlaceMythicalItem(h.ctx, third.ID, second.StackPosition.Int64)
 			require.NoError(t, err)
@@ -85,6 +86,12 @@ func testGitHubInboundCloseReopen(t *testing.T, mode string) {
 		dropped.Checks = checks.encode()
 		_, err := h.q.SaveMythicalItem(h.ctx, dropped)
 		require.NoError(t, err)
+		if mode == "legacy drop" {
+			// Pre-upgrade Drop retained its old position, which the next
+			// live TODO now occupies. Reopening must append atomically.
+			_, err = h.q.PlaceMythicalItem(h.ctx, dropped.ID, second.StackPosition.Int64)
+			require.NoError(t, err)
+		}
 	}
 	pool := f.pool.(*pgxpool.Pool)
 	ctx := context.Background()
@@ -167,7 +174,7 @@ func testGitHubInboundCloseReopen(t *testing.T, mode string) {
 	f.wake()
 	require.Eventually(t, func() bool { return f.item(second.Number.Int64).State == "proposed" }, 10*time.Second, 20*time.Millisecond)
 	reopened := f.item(second.Number.Int64)
-	if mode == "occupied position" {
+	if localDrop && third.Number.Valid {
 		require.Equal(t, second.StackPosition.Int64+1, reopened.StackPosition.Int64)
 	} else {
 		require.Equal(t, second.StackPosition.Int64, reopened.StackPosition.Int64)
