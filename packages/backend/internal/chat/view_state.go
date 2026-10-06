@@ -36,7 +36,7 @@ func (s *Store) readMemberView(ctx context.Context, userID int64, conversation s
 	if err != nil {
 		return nil, err
 	}
-	err = tx.QueryRow(ctx, `SELECT c.repository_id, coalesce(c.view_state->$2,'{}'::jsonb) || jsonb_build_object('toasts_hidden',c.toasts_hidden)
+	err = tx.QueryRow(ctx, `SELECT c.repository_id, coalesce(c.view_state->$2,'{}'::jsonb) || jsonb_build_object('global_toasts_hidden',c.toasts_hidden)
  FROM collaborators c JOIN users u ON u.id=c.user_id
  WHERE c.repository_id=$3 AND c.user_id=$1 AND c.suspended_at IS NULL AND NOT u.prohibit_login`, userID, conversation, repositoryID).Scan(&repositoryID, &result)
 	if errors.Is(err, pgx.ErrNoRows) {
@@ -138,8 +138,13 @@ func (s *Store) memberViewState(ctx context.Context, userID int64, conversation 
 		if _, supplied := state["queue"]; supplied {
 			return nil, ErrInvalidRequest
 		}
-		var hidden *bool
 		if preference, present := state["toasts_hidden"]; present {
+			if _, ok := preference.(bool); !ok {
+				return nil, ErrInvalidRequest
+			}
+		}
+		var hidden *bool
+		if preference, present := state["global_toasts_hidden"]; present {
 			flag, ok := preference.(bool)
 			if !ok {
 				return nil, ErrInvalidRequest
@@ -167,12 +172,11 @@ func (s *Store) memberViewState(ctx context.Context, userID int64, conversation 
 		if err != nil {
 			return nil, err
 		}
-		// Toast visibility is global for this member. Strip any per-branch
-		// copy so changing branches cannot restore an older preference.
-		row = tx.QueryRow(ctx, `UPDATE collaborators c SET view_state=jsonb_set(c.view_state,ARRAY[$2],$3::jsonb-'toasts_hidden',true),
+		// Keep the conversation flag independent from the member-wide preference.
+		row = tx.QueryRow(ctx, `UPDATE collaborators c SET view_state=jsonb_set(c.view_state,ARRAY[$2],$3::jsonb-'global_toasts_hidden',true),
    toasts_hidden=COALESCE($4,c.toasts_hidden)
    WHERE c.repository_id=$5
-   AND c.user_id=$1 AND c.suspended_at IS NULL RETURNING (c.view_state->$2) || jsonb_build_object('toasts_hidden',c.toasts_hidden),
+   AND c.user_id=$1 AND c.suspended_at IS NULL RETURNING (c.view_state->$2) || jsonb_build_object('global_toasts_hidden',c.toasts_hidden),
    pg_notify('view_' || c.repository_id::text || '_' || c.user_id::text,'{"type":"view_state"}')`, userID, conversation, canonical, hidden, repositoryID)
 	}
 	var result json.RawMessage
