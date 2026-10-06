@@ -57,5 +57,11 @@ pub fn compose(hooks: Hooks) -> Result<Hooks, StartError> {
 /// Start the one mutation executor only when every required provider is ready.
 /// Broker confinement and authenticated link admission remain the caller's job.
 pub fn start(hooks: Hooks) -> Result<Executor, StartError> {
-    Executor::start(compose(hooks)?).map_err(StartError::Executor)
+    let hooks = compose(hooks)?;
+    if cfg!(target_os = "linux") && rustix::process::geteuid().as_raw() == 19998 {
+        Executor::start_persistent(hooks, std::path::Path::new("/var/lib/smithers-machined"))
+            .map_err(StartError::Executor)
+    } else {
+        Executor::start(hooks).map_err(StartError::Executor)
+    }
 }

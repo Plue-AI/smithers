@@ -27,6 +27,8 @@ pub fn local(cx: &mut LockCx, repository: &mut impl Repository) -> Result<Captur
     hooks.watcher.drain(cx)?;
     hooks.watcher.close_bursts(cx)?;
     let (head, tree) = repository.snapshot()?;
+    #[cfg(all(feature = "killpoints", debug_assertions))]
+    crate::events::killpoint("K5a");
     if repository.acknowledged()? != Some(head) && !repository.queued(head)? {
         let base = repository.base()?;
         hooks

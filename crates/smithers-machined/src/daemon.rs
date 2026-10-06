@@ -31,6 +31,11 @@ impl Daemon {
         self.reconciled.load(Ordering::Acquire)
             && self.roster.load(Ordering::Acquire)
             && crate::wiring::ready(&self.hooks).is_ok()
+            && self
+                .executor
+                .lock
+                .run_blocking("readiness", |cx| !cx.rewrite_pending)
+                .unwrap_or(false)
     }
     /// Entry requires a completed mutual handshake. The caller fences replaced
     /// connections before entering here. No network IO occurs on the lock thread.
@@ -122,7 +127,7 @@ impl Daemon {
                         return rpc::dispatch(&frame, cx);
                     }
                     let (id, method, args) = frame.request()?;
-                    if crate::wiring::ready(&cx.hooks).is_err() {
+                    if cx.rewrite_pending || crate::wiring::ready(&cx.hooks).is_err() {
                         state.store(false, Ordering::Release);
                         roster.store(false, Ordering::Release);
                     }
