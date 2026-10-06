@@ -66,7 +66,7 @@ describe("MVP deferred manifest", () => {
       expect(LEGACY_CARD_KINDS).toContain(kind)
       expect(current).not.toContain(kind)
       expect(CardSchema.parse({ id: "saved-picker", title: "Repository", status: "active",
-        createdAt: 1, ordinal: 1, kind, payload: {} })).toMatchObject({
+        createdAt: 1, ordinal: 1, kind, payload: { intent: "create", repos: ["owner/repo"] } })).toMatchObject({
         kind: "retired", status: "acted", payload: { was: kind }
       })
     }
