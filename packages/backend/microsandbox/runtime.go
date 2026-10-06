@@ -715,12 +715,16 @@ func (r *Runtime) removeMachine(ctx context.Context, name string) error {
 	removeCtx, cancel := context.WithTimeout(ctx, 2*time.Minute)
 	defer cancel()
 	_, err := r.cli.run(removeCtx, nil, "remove", "--force", "-q", name)
-	if err == nil {
+	// `msb remove -q` reports a missing machine with a bare exit 1.
+	_, found, statusErr := r.cli.sandboxStatus(ctx, name)
+	if statusErr == nil && !found {
 		return nil
 	}
-	// `msb remove -q` reports a missing machine with a bare exit 1.
-	if _, found, statusErr := r.cli.sandboxStatus(ctx, name); statusErr == nil && !found {
-		return nil
+	if statusErr != nil {
+		return fmt.Errorf("observe removed microVM %s: %w", name, statusErr)
+	}
+	if err == nil {
+		return fmt.Errorf("microVM %s removal is not confirmed", name)
 	}
 	return err
 }
@@ -729,12 +733,15 @@ func (r *Runtime) stopMachine(ctx context.Context, name string) error {
 	stopCtx, cancel := context.WithTimeout(ctx, time.Minute)
 	defer cancel()
 	_, err := r.cli.run(stopCtx, nil, "stop", "-t", "10", "-q", name)
-	if err == nil {
-		return nil
-	}
 	status, found, statusErr := r.cli.sandboxStatus(ctx, name)
 	if statusErr == nil && (!found || status == "stopped") {
 		return nil
+	}
+	if statusErr != nil {
+		return fmt.Errorf("observe stopped microVM %s: %w", name, statusErr)
+	}
+	if err == nil {
+		return fmt.Errorf("microVM %s stop is not confirmed: %s", name, status)
 	}
 	return fmt.Errorf("stop microVM %s: %w", name, err)
 }
@@ -955,6 +962,11 @@ func (r *Runtime) StopWorkspace(ctx context.Context, id string) error {
 	}
 	previous := ws.State
 	ws.State = string(workspaceapi.WorkspaceStopping)
+	for _, h := range r.admission {
+		if h.held && h.machine == ws.Machine && h.releasing.IsZero() {
+			h.releasing = time.Now()
+		}
+	}
 	commands := r.detachProcessesLocked(ws)
 	r.mu.Unlock()
 

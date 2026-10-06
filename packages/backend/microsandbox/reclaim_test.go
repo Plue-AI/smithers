@@ -76,7 +76,7 @@ func TestReclaimWorkspaceDiskRemovesOnlyAStoppedMachine(t *testing.T) {
 	running := addReclaimWorkspace(t, r, "agent-running", string(workspaceapi.WorkspaceRunning), layer)
 
 	require.NoError(t, r.ReclaimWorkspaceDisk(t.Context(), ws.ID))
-	require.Equal(t, []string{"remove --force -q " + ws.Machine}, invocations(t, log))
+	require.Equal(t, []string{"remove --force -q " + ws.Machine, "list --format json"}, invocations(t, log))
 	stored := readReclaimMetadata(t, ws)
 	require.True(t, stored.Reclaimed)
 	require.Equal(t, string(workspaceapi.WorkspaceStopped), stored.State)
@@ -87,12 +87,12 @@ func TestReclaimWorkspaceDiskRemovesOnlyAStoppedMachine(t *testing.T) {
 
 	// Idempotent: a reclaimed workspace is not removed again.
 	require.NoError(t, r.ReclaimWorkspaceDisk(t.Context(), ws.ID))
-	require.Len(t, invocations(t, log), 1)
+	require.Len(t, invocations(t, log), 2)
 
 	err = r.ReclaimWorkspaceDisk(t.Context(), running.ID)
 	require.EqualError(t, err, "workspace is running; only a stopped workspace's disk is reclaimed")
 	require.False(t, readReclaimMetadata(t, running).Reclaimed)
-	require.Len(t, invocations(t, log), 1)
+	require.Len(t, invocations(t, log), 2)
 
 	require.ErrorIs(t, r.ReclaimWorkspaceDisk(t.Context(), "missing"), workspaceapi.ErrWorkspaceNotFound)
 }

@@ -125,7 +125,7 @@ func TestPrepareFailedRemovalKeepsCapacityUntilConfirmed(t *testing.T) {
 	require.NoError(t, r.reserveAuxVM(t.Context(), "prepare"))
 	require.Error(t, r.finishAuxVM("prepare"))
 	require.Equal(t, 1, r.InUse())
-	require.NoError(t, os.WriteFile(binary, []byte("#!/bin/sh\nexit 0\n"), 0700))
+	require.NoError(t, os.WriteFile(binary, []byte("#!/bin/sh\ncase \"$1\" in list) echo '[]';; esac\nexit 0\n"), 0700))
 	// The next product admission reconciles failed cleanup, without private retry.
 	require.NoError(t, r.reserveAuxVM(t.Context(), "next"))
 	require.Equal(t, 1, r.InUse())
@@ -153,7 +153,7 @@ func TestCachedLayerCapacityRefusalPreservesSnapshotAndRecovers(t *testing.T) {
 	require.NoError(t, err)
 	binary := filepath.Join(root, "msb")
 	log := filepath.Join(root, "requests")
-	script := fmt.Sprintf("#!/bin/sh\necho \"$*\" >> %s\nrequest=\"\"\ncase \"$*\" in *run\\ exec*) request=$(cat); printf '\\000SMITHERS-EXIT 0\\000' >&2 ;; esac\ncase \"$* $request\" in\n' snapshot') ;;\n'snapshot list --format json ') printf '%%s' %s ;;\n*'cat '*) printf '%%s' %s ;;\nesac\n", shellQuote(log), shellQuote(string(listing)), shellQuote(string(marker)))
+	script := fmt.Sprintf("#!/bin/sh\necho \"$*\" >> %s\nrequest=\"\"\ncase \"$*\" in *run\\ exec*) request=$(cat); printf '\\000SMITHERS-EXIT 0\\000' >&2 ;; esac\ncase \"$* $request\" in\n' snapshot') ;;\n'list --format json ') echo '[]';;\n'snapshot list --format json ') printf '%%s' %s ;;\n*'cat '*) printf '%%s' %s ;;\nesac\n", shellQuote(log), shellQuote(string(listing)), shellQuote(string(marker)))
 	require.NoError(t, os.WriteFile(binary, []byte(script), 0700))
 	r.cli = &cli{binary: binary, home: root}
 	require.NoError(t, r.reserveAuxVM(t.Context(), "busy"))
@@ -185,7 +185,7 @@ func TestCloseRetriesOnlyFailedAuxiliaryCleanup(t *testing.T) {
 	require.NoError(t, r.reserveAuxVM(t.Context(), "prepare"))
 	require.Error(t, r.finishAuxVM("prepare"))
 	require.Equal(t, 1, r.InUse())
-	require.NoError(t, os.WriteFile(binary, []byte("#!/bin/sh\nexit 0\n"), 0700))
+	require.NoError(t, os.WriteFile(binary, []byte("#!/bin/sh\ncase \"$1\" in list) echo '[]';; esac\nexit 0\n"), 0700))
 	require.NoError(t, r.Close())
 	require.Zero(t, r.InUse())
 	require.NoError(t, r.Close())
@@ -224,7 +224,7 @@ func TestSlowAuxCleanupDoesNotBlockUsage(t *testing.T) {
 	entered, release := filepath.Join(root, "entered"), filepath.Join(root, "release")
 	binary := filepath.Join(root, "msb")
 	// A real local process blocks cleanup; no VM/hardware is needed to test lock scope.
-	script := fmt.Sprintf("#!/bin/sh\ntouch %s\nwhile [ ! -f %s ]; do sleep 0.01; done\n", shellQuote(entered), shellQuote(release))
+	script := fmt.Sprintf("#!/bin/sh\ntouch %s\nwhile [ ! -f %s ]; do sleep 0.01; done\ncase \"$1\" in list) echo '[]';; esac\n", shellQuote(entered), shellQuote(release))
 	require.NoError(t, os.WriteFile(binary, []byte(script), 0700))
 	r := &Runtime{cli: &cli{binary: binary, home: root}, config: Config{MaxRunningVMs: 1}, auxVMs: map[string]struct{}{"old": {}}, auxCleanup: map[string]struct{}{"old": {}}}
 	done := make(chan error, 1)
@@ -262,11 +262,12 @@ func TestCachedLayerVerificationCleanupFailurePreservesSnapshot(t *testing.T) {
 	require.NoError(t, err)
 	binary := filepath.Join(root, "msb")
 	log := filepath.Join(root, "requests")
-	script := fmt.Sprintf("#!/bin/sh\necho \"$*\" >> %s\nrequest=\"\"\ncase \"$*\" in *run\\ exec*) request=$(cat); printf '\\000SMITHERS-EXIT 0\\000' >&2 ;; esac\ncase \"$* $request\" in\n' snapshot') ;;\n'snapshot list --format json ') printf '%%s' %s ;;\n*'cat '*) printf '%%s' %s ;;\nesac\n", shellQuote(log), shellQuote(string(listing)), shellQuote(string(marker)))
+	script := fmt.Sprintf("#!/bin/sh\necho \"$*\" >> %s\nrequest=\"\"\ncase \"$*\" in *run\\ exec*) request=$(cat); printf '\\000SMITHERS-EXIT 0\\000' >&2 ;; esac\ncase \"$* $request\" in\n' snapshot') ;;\n'list --format json ') echo '[]';;\n'snapshot list --format json ') printf '%%s' %s ;;\n*'cat '*) printf '%%s' %s ;;\nesac\n", shellQuote(log), shellQuote(string(listing)), shellQuote(string(marker)))
 	require.NoError(t, os.WriteFile(binary, []byte(script), 0700))
 	r.cli = &cli{binary: binary, home: root}
 	// Verification succeeds, then a transport failure prevents confirmed removal.
 	script = strings.Replace(script, "request=\"\"\ncase \"$*\" in *run\\ exec*) request=$(cat); printf '\\000SMITHERS-EXIT 0\\000' >&2 ;; esac\ncase \"$* $request\" in", "request=\"\"\ncase \"$*\" in *run\\ exec*) request=$(cat); printf '\\000SMITHERS-EXIT 0\\000' >&2 ;; esac\ncase \"$* $request\" in\nremove\\ *) echo failure >&2; exit 2 ;;", 1)
+	script = strings.Replace(script, "'list --format json ') echo '[]';;", "'list --format json ') exit 2;;", 1)
 	require.NoError(t, os.WriteFile(binary, []byte(script), 0700))
 	_, err = e.ensure(t.Context(), layerDependency, value, "", "fixture", nil, false)
 	require.Error(t, err)
@@ -319,7 +320,7 @@ func TestCachedLayerMarkerFailureClassification(t *testing.T) {
 			require.NoError(t, err)
 			binary := filepath.Join(root, "msb")
 			log := filepath.Join(root, "requests")
-			script := fmt.Sprintf("#!/bin/sh\necho \"$*\" >> %s\nrequest=\"\"\ncase \"$*\" in *run\\ exec*) request=$(cat); printf '\\000SMITHERS-EXIT 0\\000' >&2 ;; esac\ncase \"$* $request\" in\n' snapshot') ;;\n'snapshot list --format json ') printf '%%s' %s ;;\n*'cat '*) printf '%%s' %s ;;\nesac\n", shellQuote(log), shellQuote(string(listing)), shellQuote(string(marker)))
+			script := fmt.Sprintf("#!/bin/sh\necho \"$*\" >> %s\nrequest=\"\"\ncase \"$*\" in *run\\ exec*) request=$(cat); printf '\\000SMITHERS-EXIT 0\\000' >&2 ;; esac\ncase \"$* $request\" in\n' snapshot') ;;\n'list --format json ') echo '[]';;\n'snapshot list --format json ') printf '%%s' %s ;;\n*'cat '*) printf '%%s' %s ;;\nesac\n", shellQuote(log), shellQuote(string(listing)), shellQuote(string(marker)))
 			require.NoError(t, os.WriteFile(binary, []byte(script), 0700))
 			r.cli = &cli{binary: binary, home: root}
 			failure := "*'cat '*) echo transport-failure >&2; exit 1 ;;\n*'if [ -e '*) echo transport-failure >&2; exit 1 ;;"
@@ -643,7 +644,7 @@ func TestFailedBootRetainsCapacityUntilConfirmedStop(t *testing.T) {
 			}
 			require.Equal(t, 1, r.InUse())
 			require.Error(t, r.reserveAuxVM(t.Context(), "next"))
-			require.NoError(t, os.WriteFile(binary, []byte("#!/bin/sh\nexit 0\n"), 0700))
+			require.NoError(t, os.WriteFile(binary, []byte("#!/bin/sh\ncase \"$1\" in list) echo '[]';; esac\nexit 0\n"), 0700))
 			require.NoError(t, r.StopWorkspace(t.Context(), "A"))
 			require.Zero(t, r.InUse())
 		})
@@ -705,14 +706,14 @@ func TestAdmissionWaitWakesOnConfirmedStop(t *testing.T) {
 }
 
 func TestAdmissionOverdueStopWaitsForObservation(t *testing.T) {
-	for _, status := range []string{"running", "starting", "stopped", "missing", "unknown", "booting"} {
+	for _, status := range []string{"running", "starting", "stopped", "missing", "unknown", "booting", "preparing"} {
 		t.Run(status, func(t *testing.T) {
 			r, p := admissionFixture()
 			root := t.TempDir()
 			binary := filepath.Join(root, "msb")
 			log := filepath.Join(root, "calls")
 			listing := fmt.Sprintf(`[{"name":"vm-a","status":%q}]`, status)
-			if status == "booting" {
+			if status == "booting" || status == "preparing" {
 				listing = `[{"name":"vm-a","status":"stopped"}]`
 			}
 			if status == "missing" {
@@ -726,6 +727,9 @@ func TestAdmissionOverdueStopWaitsForObservation(t *testing.T) {
 			_, err = r.GrantNext(t.Context(), p)
 			require.NoError(t, err)
 			require.NoError(t, r.BindAdmissionMachine("A", "vm-a"))
+			if status == "preparing" {
+				r.auxVMs = map[string]struct{}{"vm-a": {}}
+			}
 			if status == "booting" {
 				ws := newWorkspace(metadata{ID: "A", Machine: "vm-a", State: "starting"}, root)
 				ws.booting = true
@@ -752,6 +756,13 @@ func TestAdmissionOverdueStopWaitsForObservation(t *testing.T) {
 			if status == "booting" {
 				r.finishBoot(r.workspaces["A"])
 				require.NoError(t, r.ReconcileAdmissionReleases(t.Context(), now.Add(time.Minute)))
+				grant, err = r.GrantNext(t.Context(), p)
+				require.NoError(t, err)
+				require.Equal(t, "B", grant.Holder)
+				require.Equal(t, 1, r.InUse())
+			}
+			if status == "preparing" {
+				r.releaseAuxVM("vm-a") // owner observed removal after prepare returned
 				grant, err = r.GrantNext(t.Context(), p)
 				require.NoError(t, err)
 				require.Equal(t, "B", grant.Holder)
@@ -929,4 +940,64 @@ func TestAdmissionReleaseObservedWithoutWaitingCaller(t *testing.T) {
 			require.Equal(t, "cancelled", r.AdmissionSnapshot()[0].State)
 		})
 	}
+}
+
+func TestAdmissionOrdinaryStopRequiresRuntimeObservation(t *testing.T) {
+	r, p := admissionFixture()
+	root := t.TempDir()
+	binary := filepath.Join(root, "msb")
+	listing := filepath.Join(root, "status")
+	require.NoError(t, os.WriteFile(listing, []byte(`[{"name":"vm-a","status":"running"}]`), 0600))
+	script := fmt.Sprintf("#!/bin/sh\ncase \"$1\" in\nlist) cat '%s';;\nesac\n", listing)
+	require.NoError(t, os.WriteFile(binary, []byte(script), 0700))
+	r.cli = &cli{binary: binary, home: root}
+	_, err := r.Request("person", "workspace:A", "Alice", "terminal")
+	require.NoError(t, err)
+	_, err = r.GrantNext(t.Context(), p)
+	require.NoError(t, err)
+	require.NoError(t, r.BindAdmissionMachine("workspace:A", "vm-a"))
+	ws := newWorkspace(metadata{ID: "A", Machine: "vm-a", State: "running"}, root)
+	r.workspaces["A"] = ws
+	require.ErrorContains(t, r.StopWorkspace(t.Context(), "A"), "stop is not confirmed")
+	require.Equal(t, 1, r.InUse())
+	_, err = r.Request("person", "workspace:B", "Ben", "terminal")
+	require.NoError(t, err)
+	grant, err := r.GrantNext(t.Context(), p)
+	require.NoError(t, err)
+	require.Empty(t, grant.Holder)
+	request, err := r.Request("person", "workspace:A", "Alice", "terminal")
+	require.NoError(t, err)
+	require.Equal(t, "waiting", request.State, "new demand cannot reuse a releasing grant")
+	require.Equal(t, 2, request.Position, "new demand ranks after Ben's earlier request")
+	require.NoError(t, os.WriteFile(listing, []byte(`[{"name":"vm-a","status":"stopped"}]`), 0600))
+	require.NoError(t, r.ReconcileAdmissionReleases(t.Context(), time.Now()))
+	require.Equal(t, "stopped", ws.State)
+	grant, err = r.GrantNext(t.Context(), p)
+	require.NoError(t, err)
+	require.Equal(t, "workspace:B", grant.Holder)
+	require.Equal(t, 1, r.InUse())
+}
+
+func TestAdmissionAuxiliaryRemovalRequiresRuntimeObservation(t *testing.T) {
+	r, p := admissionFixture()
+	root := t.TempDir()
+	binary := filepath.Join(root, "msb")
+	listing := filepath.Join(root, "status")
+	require.NoError(t, os.WriteFile(listing, []byte(`[{"name":"prepare","status":"stopped"}]`), 0600))
+	script := fmt.Sprintf("#!/bin/sh\ncase \"$1\" in\nlist) cat '%s';;\nesac\n", listing)
+	require.NoError(t, os.WriteFile(binary, []byte(script), 0700))
+	r.cli = &cli{binary: binary, home: root}
+	_, err := r.Request("person", "workspace:A", "Alice", "terminal")
+	require.NoError(t, err)
+	_, err = r.GrantNext(t.Context(), p)
+	require.NoError(t, err)
+	ctx := WithAdmissionHolder(t.Context(), "workspace:A")
+	require.NoError(t, r.reserveAuxVM(ctx, "prepare"))
+	require.ErrorContains(t, r.finishAuxVM("prepare"), "removal is not confirmed")
+	require.Equal(t, 1, r.InUse())
+	require.Error(t, r.BindAdmissionMachine("workspace:A", "branch"), "no transfer before prepare removal")
+	require.NoError(t, os.WriteFile(listing, []byte(`[]`), 0600))
+	require.NoError(t, r.finishAuxVM("prepare"))
+	require.Equal(t, 1, r.InUse(), "confirmed prepare removal retains branch grant")
+	require.NoError(t, r.BindAdmissionMachine("workspace:A", "branch"))
 }

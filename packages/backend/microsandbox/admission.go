@@ -90,6 +90,11 @@ func (r *Runtime) Request(class, holder, actor, reason string) (AdmissionRequest
 		row.Class = class
 		row.sequence = r.admissionSequence
 	}
+	if h.held && !h.releasing.IsZero() && row.State == "granted" {
+		r.admissionSequence++
+		row.State = "waiting"
+		row.sequence = r.admissionSequence
+	}
 	if h.held && h.releasing.IsZero() {
 		row.State = "granted"
 	}
@@ -342,6 +347,13 @@ func (r *Runtime) ReconcileAdmissionReleases(ctx context.Context, now time.Time)
 		r.mu.Lock()
 		// Another observer can have completed release while transport ran.
 		booting := false
+		// Auxiliary creation has no workspace boot flag. Its owner keeps the
+		// reservation until finishAuxVM returns, even when list has not yet
+		// observed the prepare VM. A failed cleanup has returned to its caller.
+		if _, active := r.auxVMs[machine]; active {
+			_, cleanup := r.auxCleanup[machine]
+			booting = !cleanup
+		}
 		for _, ws := range r.workspaces {
 			if ws.Machine == machine && ws.booting {
 				booting = true
@@ -606,7 +618,7 @@ func (r *Runtime) admissionGranted(holder, actor string) bool {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	h := r.admission[holder]
-	return h != nil && h.rows[actor] != nil && h.rows[actor].State == "granted"
+	return h != nil && h.held && h.releasing.IsZero() && h.rows[actor] != nil && h.rows[actor].State == "granted"
 }
 
 // CancelFailedAdmission cancels the actor after a failed wake. A bound VM keeps
