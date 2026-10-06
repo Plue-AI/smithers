@@ -4,7 +4,7 @@ import { join } from "node:path"
 import { J1PreconditionError, requireJ1Preconditions } from "./j1-preconditions"
 
 // Stay in the worktree: the QA lane cannot write fixtures elsewhere.
-const names = ["SMITHERS_REAL_BASE_URL", "SMITHERS_E2E_BASE_URL", "SMITHERS_J1_PRECONDITIONS", "SMITHERS_J1_FINAL_EVIDENCE", "SMITHERS_J1_REVIEW", "SMITHERS_REAL_HEADED", "SMITHERS_REAL_E2E_ARTIFACTS", "SMITHERS_REAL_E2E_HOST", "SMITHERS_J1_ACTIVATION"]
+const names = ["SMITHERS_REAL_BASE_URL", "SMITHERS_E2E_BASE_URL", "SMITHERS_J1_PRECONDITIONS", "SMITHERS_J1_FINAL_EVIDENCE", "SMITHERS_J1_REVIEW", "SMITHERS_REAL_HEADED", "SMITHERS_REAL_E2E_ARTIFACTS", "SMITHERS_REAL_E2E_HOST", "SMITHERS_REAL_E2E_BUILD_SHA", "SMITHERS_J1_ACTIVATION"]
 const run = (body: (dir: string, value: ReturnType<typeof fixture>) => void) => {
   const saved = Object.fromEntries(names.map(name => [name, process.env[name]]))
   const dir = mkdtempSync(join(process.cwd(), ".j1-precondition-test-"))
@@ -69,5 +69,22 @@ test("valid evidence uses the external install and the check's artifact tree", (
   expect(process.env.SMITHERS_REAL_BASE_URL).toBe("http://localhost:4000")
   expect(process.env.SMITHERS_REAL_E2E_HOST).toBe("local")
   expect(process.env.SMITHERS_J1_ACTIVATION).toBe("1")
+  expect(process.env.SMITHERS_REAL_E2E_BUILD_SHA).toBe(value.install.commit)
   expect(process.env.SMITHERS_REAL_E2E_ARTIFACTS).toContain(".artifacts/checks/C-J1-04/")
+}))
+
+test("conflicting candidate pin refuses before enabling activation", () => run(() => {
+  process.env.SMITHERS_REAL_E2E_BUILD_SHA = "b".repeat(40)
+  expect(requireJ1Preconditions).toThrow("declared build SHA must match")
+  expect(process.env.SMITHERS_J1_ACTIVATION).toBeUndefined()
+}))
+
+test("release self-hosting pins the installed candidate without changing host classification", () => run((_dir, value) => {
+  value.stage = "R"
+  value.operator.instructions = "quickstart"
+  writeFileSync(process.env.SMITHERS_J1_PRECONDITIONS!, JSON.stringify(value))
+  expect(requireJ1Preconditions().stage).toBe("R")
+  expect(process.env.SMITHERS_REAL_E2E_HOST).toBe("local")
+  expect(process.env.SMITHERS_REAL_E2E_BUILD_SHA).toBe(value.install.commit)
+  expect(requireJ1Preconditions().install.commit).toBe(value.install.commit)
 }))

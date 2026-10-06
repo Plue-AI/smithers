@@ -40,7 +40,11 @@ export function requireJ1Preconditions() {
     if (!process.env.SMITHERS_J1_REVIEW) throw new Error("SMITHERS_J1_REVIEW must name the operator review evidence")
     if (!process.env.SMITHERS_J1_FINAL_EVIDENCE) throw new Error("SMITHERS_J1_FINAL_EVIDENCE must name the operator's end-of-run attestation")
     if (process.env.SMITHERS_REAL_HEADED !== "1") throw new Error("SMITHERS_REAL_HEADED=1 is required for the independent operator's setup and review")
+    if (process.env.SMITHERS_REAL_E2E_BUILD_SHA !== undefined && process.env.SMITHERS_REAL_E2E_BUILD_SHA !== parsed.install.commit) {
+      throw new Error("declared build SHA must match the operator's installed candidate")
+    }
     process.env.SMITHERS_REAL_BASE_URL = baseURL
+    process.env.SMITHERS_REAL_E2E_BUILD_SHA = parsed.install.commit
     process.env.SMITHERS_REAL_E2E_HOST ??= "local"
     process.env.SMITHERS_J1_ACTIVATION = "1"
     process.env.SMITHERS_REAL_E2E_ARTIFACTS ??= resolve("../../.artifacts/checks/C-J1-04", new Date().toISOString().replaceAll(":", "-"))
