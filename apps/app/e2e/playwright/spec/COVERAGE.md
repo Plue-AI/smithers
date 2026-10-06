@@ -375,7 +375,7 @@ including live repository rows, inline/maximized/reload, light/dark and 1440/390
 
 | Check subset | Spec | Status | Ticket |
 | --- | --- | --- | --- |
-| C-UI-13 Commands | [C-UI-13.spec.ts](C-UI-13.spec.ts) | passed: /help, registry and repository rows, inline/maximized/reload, light/dark, 1440/390 | T-UI-14 |
+| C-UI-13 Commands | [C-UI-13.spec.ts](C-UI-13.spec.ts) | passed: /help, registry and repository rows, inline/maximized/reload, light/dark, 1440/390; 2026-10-06 wave 2 recheck: 2 passed with durable restore settlement between commands | T-UI-14 |
 | C-UI-12 Commands | [Commands stories](../view-stories.spec.ts) | passed: keyboard disclosure/focus, policies, inert text, action input | T-UI-14 |
 | C-UI-12 Debug API | [Debug API stories](../view-stories.spec.ts) | passed: all 15 states, light/dark, 1280/1440/390, axe/overflow; Enter/Space selection and Send; POST/PUT/PATCH/DELETE confirmation, disabled/absent actions, inert response/failure text | T-UI-22 |
 | C-UI-12 Docs | [Docs stories](../view-stories.spec.ts) | passed: 8 stories, light/dark, 1280/1440/390px, axe/overflow, keyboard focus, anchors, inert HTML/unsafe links and missing/disabled gestures; rendered links reach the real flow seam in DocsCard.test.tsx; absent/disabled navigation also removes native link targets and restores keyboard links when enabled; production mounting is active (C-UI-09 agent fixture remains blocked on T-APP-16) | T-UI-21 |

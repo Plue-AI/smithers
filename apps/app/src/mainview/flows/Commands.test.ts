@@ -274,9 +274,10 @@ describe("trace argument redaction", () => {
       ["form.set", "arbitrary-card arbitrary-field ordinary words", "arbitrary-card arbitrary-field [REDACTED]"],
       ["form.submit", "form-env.set", "form-env.set"]
     ]) {
-      test(`${invoker} redacts ${name} diagnostics without changing handler input: ${args}`, async () => {
+      test(`${invoker} redacts ${name} diagnostics and preserves invocation policy: ${args}`, async () => {
         const records: Parameters<CommandActions["traceFlow"]>[0][] = []
         const received: unknown[][] = []
+        const cards: string[] = []
         const actions = {
           docsAvailable: () => false,
           debugApi: createDebugApiSeam({ document: async () => ({ paths: {} }), gates: () => ({ view: false, catalog: false, authorizer: false }), origin: "http://localhost", fetch: async () => { throw Error("dark") } }),
@@ -285,17 +286,21 @@ describe("trace argument redaction", () => {
           snapshot: () => ({ surface: "chat", typing: false, hasConnectors: true, admin: false, signedOut: false }),
           noteCommandRun: () => {},
           traceFlow: (record) => { records.push(record) },
+          presentCard: async (kind) => { cards.push(kind); return "Settings" },
           setEnvironmentVar: async (...input) => { received.push(input); return `Invalid ${args}` },
           setFormField: async (...input) => { received.push(input); return `Invalid ${args}` },
           submitForm: async (...input) => { received.push(input); return { value: "Saved VALUE=ordinary words" } }
         } satisfies Partial<CommandActions>
         const commands = createCommandRegistry(actions as unknown as CommandActions)
-        await commands[invoker](name!, args)
-        expect(received).toHaveLength(1)
+        const outcome = await commands[invoker](name!, args)
+        const refused = name === "env.set" && invoker === "runAsAgent"
+        expect(received).toHaveLength(refused ? 0 : 1)
+        expect(cards).toEqual(name === "env.set" && !refused ? ["settings"] : [])
+        if (refused) expect(outcome.status).toBe("failed")
         expect(records).toHaveLength(1)
         expect(records[0]?.args).toBe(expected!)
         expect(records[0]?.detail).toBe("[REDACTED]")
-        if (name === "env.set") expect(received[0]?.[0]).toBe(args!.replace(/ owner\/repo$/, ""))
+        if (name === "env.set" && !refused) expect(received[0]?.[0]).toBe(args!.replace(/ owner\/repo$/, ""))
         if (name === "form.set") expect(received[0]?.[2]).toBe(args!.split(/\s+/).slice(2).join(" "))
       })
     }
