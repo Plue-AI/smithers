@@ -583,15 +583,33 @@ func (s *Store) RenewProducer(ctx context.Context, grant ProducerGrant, lease ti
 	if lease <= 0 {
 		return time.Time{}, ErrInvalidRequest
 	}
-	expiresAt := s.now().UTC().Add(lease)
-	result, err := s.pool.Exec(ctx, `UPDATE chat_turns SET producer_lease_expires_at=$4
-		WHERE id=$1 AND producer_generation=$2 AND producer_token_hash=$3 AND state='running' AND NOT terminal`,
-		grant.TurnID, grant.Generation, hashToken(grant.Token), expiresAt)
+	tx, err := s.pool.Begin(ctx)
 	if err != nil {
 		return time.Time{}, err
 	}
-	if result.RowsAffected() != 1 {
+	defer func() { _ = tx.Rollback(context.WithoutCancel(ctx)) }()
+	var previous *time.Time
+	err = tx.QueryRow(ctx, `SELECT producer_lease_expires_at FROM chat_turns
+		WHERE id=$1 AND producer_generation=$2 AND producer_token_hash=$3 AND state='running' AND NOT terminal FOR UPDATE`,
+		grant.TurnID, grant.Generation, hashToken(grant.Token)).Scan(&previous)
+	if errors.Is(err, pgx.ErrNoRows) {
 		return time.Time{}, ErrProducerFenced
+	}
+	if err != nil {
+		return time.Time{}, err
+	}
+	// Sample the same clock as Claim after acquiring the row lock. A renewal
+	// that waited past expiry cannot revive a released or abandoned producer.
+	now := s.now().UTC()
+	if previous == nil || !previous.After(now) {
+		return time.Time{}, ErrProducerFenced
+	}
+	expiresAt := now.Add(lease)
+	if _, err = tx.Exec(ctx, `UPDATE chat_turns SET producer_lease_expires_at=$2 WHERE id=$1`, grant.TurnID, expiresAt); err != nil {
+		return time.Time{}, err
+	}
+	if err = tx.Commit(ctx); err != nil {
+		return time.Time{}, err
 	}
 	return expiresAt, nil
 }
