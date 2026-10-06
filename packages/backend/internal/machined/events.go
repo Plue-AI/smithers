@@ -34,7 +34,7 @@ type BurstIngest struct {
 }
 
 func validBurstPath(p string) bool {
-	return p != "" && !strings.ContainsAny(p, "\x00\\") && !strings.HasPrefix(p, "/") && path.Clean(p) == p && p != ".." && !strings.HasPrefix(p, "../") && p != ".git" && !strings.HasPrefix(p, ".git/") && p != ".jj" && !strings.HasPrefix(p, ".jj/")
+	return p != "" && p != "." && len(p) <= 4096 && !strings.ContainsAny(p, "\x00\\") && !strings.HasPrefix(p, "/") && path.Clean(p) == p && p != ".." && !strings.HasPrefix(p, "../") && p != ".git" && !strings.HasPrefix(p, ".git/") && p != ".jj" && !strings.HasPrefix(p, ".jj/")
 }
 
 // Apply is called by the W3 event pump; it returns an ack only after commit
@@ -156,4 +156,17 @@ func (s *BurstIngest) Apply(ctx context.Context, connection *Connection, scope j
 		ack.Outcome = AckDuplicate
 	}
 	return ack, nil
+}
+
+// DispatchBurst binds the commit and its acknowledgement to the same admitted
+// link. A boot change can never redirect an old event's ack to a new daemon.
+func (s *BurstIngest) DispatchBurst(ctx context.Context, link *Link, scope jobs.Scope, event Event) error {
+	if link == nil {
+		return ErrNotReady
+	}
+	ack, err := s.Apply(ctx, link.Connection, scope, event)
+	if err != nil {
+		return err
+	}
+	return link.Ack(ctx, link.boot.branch, ack)
 }

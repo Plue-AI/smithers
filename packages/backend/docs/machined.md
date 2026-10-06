@@ -1,7 +1,8 @@
 # Machine host admission
 
-T-COL-03's host registry is unmounted. It does not plant a binary, accept a
-wire connection, dispatch an RPC, publish awake state or replace the reporter.
+The host registry, authenticated link and RPC dispatcher are implemented as
+library boundaries. Install composition still does not plant the daemon or
+connect its watcher and object receiver; the existing reporter remains mounted.
 The existing reporter cannot supply boot authentication or connection leases;
 the registry is new for those duties.
 
@@ -125,3 +126,39 @@ pipe. Use the Rust broker's lifetime module when its owning core lands, porting
 validated descriptor cleanup and privilege-drop ordering from the helper.
 Owner acceptance and root validation receipts remain pending. No helper or
 terminal ownership code is replaced until the actual cutover.
+
+
+## Watcher changes and recovery
+
+`session::samples` derives candidate identity from the authenticated broker:
+all sessions of a member share `Person(uid)`, and registered agent PTY commands
+share `Run(run_id)`. Agent exec hosts are excluded from CPU-window candidates;
+their socket writes already have exact attribution. Missing counters, unknown
+actors, changed bindings and overlapping participants remain outside changes.
+The wire actor remains a session reference for host resolution, not a grant.
+
+The W3 event pump calls `BurstIngest.Apply` with its admitted connection. Its
+object provider must verify the parentless versions commit, indexed blobs,
+`a/` and `b/` paths and post-digests. Missing objects produce no receipt.
+The existing product event writer, file rows and machine receipt commit in one
+transaction; post-commit notifications rebuild `:activity` and `:files` through
+the shared live broker. Burst identity and payload fingerprints reject divergent
+replays. Retaining the branch-scoped burst ref precedes acknowledgement, and
+replay repairs a failed ref publication. Split bursts are refused until their
+complete assembly is supplied; no partial activity is acknowledged as complete.
+
+Activity uses persisted stream cursors on `/api/live`: a fresh subscription gets
+the last 200 entries, reconnect gets subsequent deltas, and a missing cursor or
+more than 200 replay entries yields `gap`. File projections remain readable
+while the machine sleeps and do not wake it.
+
+`POST /api/branches/{b}/files/{path}` accepts the File seam's
+`{action: "restore" | "restore-deleted", version, base_digest}`. The catalog
+resolves the member; unknown fields, including actor overrides, are refused.
+Only that branch's retained version can supply the before bytes. Its blob hash
+is checked before the shared guarded write, using the recorded post-digest (or
+`absent` for deletion). A stale file returns 409 without a retry or overwrite.
+
+The host connection pump and object receiver are still uncomposed. Component
+PostgreSQL, HTTP and live-socket evidence does not qualify the real watcher,
+object transfer, formatter or reference-host timing checks.

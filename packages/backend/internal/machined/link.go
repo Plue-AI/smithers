@@ -212,19 +212,24 @@ func (l *Link) read() {
 			}
 		case wire.Events:
 			var event Event
-			event.Payload = append([]byte(nil), f.Payload...)
 			switch f.Payload[0] {
 			case 1:
 				fields, err := wire.Fields("durable", f.Payload[1:])
 				if err != nil {
 					return
 				}
+				event.Payload = append([]byte(nil), fields[3]...)
 				event.Seq = binary.BigEndian.Uint64(fields[1])
 				copy(event.EventID[:], fields[2])
 				if event.Seq == 0 || event.EventID == ([16]byte{}) {
 					return
 				}
 			case 2:
+				fields, err := wire.Fields("hint_wrapper", f.Payload[1:])
+				if err != nil {
+					return
+				}
+				event.Payload = append([]byte(nil), fields[1]...)
 			default:
 				return
 			}

@@ -53,24 +53,11 @@ func DecodeDurableEvent(frame Frame) (DurableEvent, error) {
 	return e, nil
 }
 
-// fields projects already validated schema values without a second decoder.
+// fields projects values through the shared schema/field reader. Callers have
+// already validated the enclosing union before projecting its fields.
 func fields(body []byte, name string) map[byte][]byte {
-	c := cursor{body}
-	n, _ := c.number(4)
-	inner := cursor{c.b[:int(n)]}
-	out := map[byte][]byte{}
-	for len(inner.b) > 0 {
-		tag, _ := inner.number(1)
-		start := inner.b
-		for _, f := range structures[name] {
-			if f.tag == byte(tag) {
-				_ = inner.value(f.typ)
-				out[byte(tag)] = start[:len(start)-len(inner.b)]
-				break
-			}
-		}
-	}
-	return out
+	result, _ := Fields(name, body)
+	return result
 }
 
 func textValue(b []byte) string {

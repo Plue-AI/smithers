@@ -29,7 +29,7 @@ func (h *FileRestoreHandler) Restore(w http.ResponseWriter, r *http.Request) {
 		Version string `json:"version"`
 		Base    string `json:"base_digest"`
 	}
-	d := json.NewDecoder(io.LimitReader(r.Body, 8193))
+	d := json.NewDecoder(http.MaxBytesReader(w, r.Body, 8192))
 	d.DisallowUnknownFields()
 	if err := d.Decode(&input); err != nil {
 		writeRouteError(w, r, pkgerrors.BadRequest("invalid restore request"))

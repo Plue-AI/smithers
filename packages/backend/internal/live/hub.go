@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/smithersai/smithers/packages/backend/internal/sse"
@@ -14,6 +15,7 @@ import (
 // subscriber of a topic reads the same committed facts, so one Build serves
 // them all at one cursor.
 type Source struct {
+	Log      *LogSource
 	Document *DocumentSource
 	// Key names the topic's stream. Subscribers with one key share its
 	// cursor and its snapshots byte for byte.
@@ -61,6 +63,7 @@ type Hub struct {
 
 	mu      sync.Mutex
 	streams map[string]*stream
+	logs    atomic.Int64
 	// last is each key's last cursor, so a topic whose stream restarts in
 	// this process never reuses one. lastMu is taken last, under any other.
 	lastMu sync.Mutex
@@ -138,7 +141,7 @@ func (h *Hub) Join(source Source, deliver func(cursor int64, data json.RawMessag
 func (h *Hub) Streams() int {
 	h.mu.Lock()
 	defer h.mu.Unlock()
-	return len(h.streams)
+	return len(h.streams) + int(h.logs.Load())
 }
 
 func (s *stream) run(ctx context.Context) {

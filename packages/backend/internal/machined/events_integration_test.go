@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"io"
 	"strings"
 	"testing"
 
@@ -50,12 +49,10 @@ func TestBurstIngestProductionBoundary(t *testing.T) {
 	require.NoError(t, pool.QueryRow(ctx, `INSERT INTO repositories(user_id,name,lower_name) VALUES($1,'app','app') RETURNING id`, user).Scan(&repo))
 	require.NoError(t, pool.QueryRow(ctx, `INSERT INTO workspaces(repository_id,user_id,name) VALUES($1,$2,'watch') RETURNING id`, repo, user).Scan(&branch))
 	registry := &Registry{}
-	boot := [16]byte{1}
-	secret := []byte("w6-boot")
-	require.NoError(t, registry.BindBoot(branch, "vm", boot, secret))
-	connection, err := registry.Admit(boot, secret, io.NopCloser(strings.NewReader("")))
+	authority, err := registry.MintBoot(branch, "vm")
 	require.NoError(t, err)
-	defer connection.Close()
+	link, daemon := connectTest(t, registry, branch, authority)
+	connection := link.Connection
 	objects := &burstObjectFixture{}
 	s := &BurstIngest{Pool: pool, Objects: objects, ResolveActor: func(_ context.Context, b string, a wire.Actor) (json.RawMessage, error) {
 		require.Equal(t, branch, b)
@@ -86,9 +83,36 @@ func TestBurstIngestProductionBoundary(t *testing.T) {
 	counts(0, 0, 0)
 	_, err = pool.Exec(ctx, `ALTER TABLE burst_files DROP CONSTRAINT fixture_fail`)
 	require.NoError(t, err)
-	ack, err = s.Apply(ctx, connection, scope, event)
+	// The real W3 handshake and event demultiplexer deliver the Event union
+	// to the production dispatcher; the peer sees success only after commit.
+	peerDone := make(chan error, 1)
+	go func() {
+		frame := wire.Frame{Kind: wire.Events, Payload: wire.Union(1, wire.Field(1, wire.U64(event.Seq)), wire.Field(2, event.EventID[:]), wire.Field(3, event.Payload))}
+		if err := wire.Write(daemon, frame); err != nil {
+			peerDone <- err
+			return
+		}
+		frame, err := wire.Read(daemon)
+		if err != nil {
+			peerDone <- err
+			return
+		}
+		values, err := wire.Fields("ack", frame.Payload[1:])
+		if err != nil {
+			peerDone <- err
+			return
+		}
+		if frame.Kind != wire.Events || frame.Payload[0] != 3 || values[2][0] != byte(AckApplied) {
+			peerDone <- fmt.Errorf("unexpected acknowledgement")
+			return
+		}
+		peerDone <- nil
+	}()
+	received, err := link.Receive(ctx)
 	require.NoError(t, err)
-	require.Equal(t, AckApplied, ack.Outcome)
+	require.Equal(t, event, received)
+	require.NoError(t, s.DispatchBurst(ctx, link, scope, received))
+	require.NoError(t, <-peerDone)
 	counts(1, 2, 1)
 	ack, err = s.Apply(ctx, connection, scope, event)
 	require.NoError(t, err)

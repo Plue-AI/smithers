@@ -82,8 +82,47 @@ func TestBranchChangesProductionLiveBoundary(t *testing.T) {
 	require.Empty(t, snapshot.Open)
 	require.Equal(t, "modified", snapshot.Changed[0].Change)
 	require.Equal(t, "member:1", snapshot.Changed[0].Writer["id"])
+	require.NotNil(t, activity.Cursor)
+	require.Equal(t, int64(1), *activity.Cursor)
+	nextID := [16]byte{5}
+	next := event
+	next.Seq = 2
+	next.EventID = [16]byte{4}
+	next.Payload = wire.Union(1, wire.Field(1, nextID[:]), wire.Field(2, wire.Union(2, wire.Field(1, wire.U32(1)))), wire.Field(3, list), wire.Field(4, []byte(strings.Repeat("v", 20))))
+	_, err = ingest.Apply(t.Context(), c, scope, next)
+	require.NoError(t, err)
+	resumed := f.dial(t)
+	sendPresenceFrame(t, resumed, fmt.Sprintf(`{"t":"sub","id":1,"topic":"branch:%s:activity","cursor":1}`, f.row.ID))
+	delta := readPresenceFrame(t, resumed)
+	require.Equal(t, "delta", delta.T)
+	require.Equal(t, int64(2), *delta.Cursor)
+	require.NoError(t, json.Unmarshal(delta.Data, &entries))
+	require.Len(t, entries, 1)
+	require.Equal(t, "05000000-0000-0000-0000-000000000000", entries[0].ID)
+	resumed.CloseNow()
 	// Cross-repository IDs cannot leak retained versions through the live door.
 	sendPresenceFrame(t, socket, `{"t":"sub","id":3,"topic":"branch:11111111-1111-4111-8111-111111111111:activity"}`)
 	refused := readPresenceFrame(t, socket)
 	require.Equal(t, "err", refused.T)
+	socket.CloseNow()
+	// A committed replay window of 201 entries must force resubscription.
+	for i := 1; i <= 201; i++ {
+		id := [16]byte{8, byte(i)}
+		next.Seq = uint64(i + 2)
+		next.EventID = [16]byte{9, byte(i)}
+		next.Payload = wire.Union(1, wire.Field(1, id[:]), wire.Field(2, wire.Union(2, wire.Field(1, wire.U32(1)))), wire.Field(3, list), wire.Field(4, []byte(strings.Repeat("v", 20))))
+		_, err = ingest.Apply(t.Context(), c, scope, next)
+		require.NoError(t, err)
+	}
+	gapSocket := f.dial(t)
+	sendPresenceFrame(t, gapSocket, fmt.Sprintf(`{"t":"sub","id":1,"topic":"branch:%s:activity","cursor":2}`, f.row.ID))
+	require.Equal(t, "gap", readPresenceFrame(t, gapSocket).T)
+	sendPresenceFrame(t, gapSocket, fmt.Sprintf(`{"t":"sub","id":1,"topic":"branch:%s:activity"}`, f.row.ID))
+	latest := readPresenceFrame(t, gapSocket)
+	require.Equal(t, "snap", latest.T)
+	require.Equal(t, int64(203), *latest.Cursor)
+	require.NoError(t, json.Unmarshal(latest.Data, &entries))
+	require.Len(t, entries, 200)
+	sendPresenceFrame(t, gapSocket, fmt.Sprintf(`{"t":"sub","id":2,"topic":"branch:%s:activity","cursor":999999}`, f.row.ID))
+	require.Equal(t, "gap", readPresenceFrame(t, gapSocket).T)
 }

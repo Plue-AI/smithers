@@ -127,8 +127,12 @@ func presenceInstall(t *testing.T) presenceInstallFixture {
 	require.NoError(t, err)
 	_, err = pool.Exec(ctx, `UPDATE mythical_stacks SET state='active' WHERE repository_id=$1`, repo.ID)
 	require.NoError(t, err)
+	cookie := "presence-cookie"
+	sum := sha256.Sum256([]byte(cookie))
+	_, err = q.CreateAuthSession(ctx, db.CreateAuthSessionParams{UserID: user.ID, Username: user.Username, SessionKey: hex.EncodeToString(sum[:]), ExpiresAt: time.Now().Add(time.Hour)})
+	require.NoError(t, err)
 	todoService := services.NewMythicalService(pool, nil)
-	todoContext := middleware.ContextWithAuthInfo(ctx, &middleware.AuthInfo{User: &user, SessionHash: "session"})
+	todoContext := middleware.ContextWithAuthInfo(ctx, &middleware.AuthInfo{User: &user, SessionHash: hex.EncodeToString(sum[:])})
 	_, err = todoService.FileTodo(todoContext, repo.ID, user.ID, services.MythicalTodoInput{Title: "Retry webhooks", Prompt: "Retry webhooks", Request: "presence-item"})
 	require.NoError(t, err)
 	item, err := q.GetMythicalItemByNumber(ctx, repo.ID, 1)
@@ -154,10 +158,6 @@ func presenceInstall(t *testing.T) presenceInstallFixture {
 	server.Config.Handler = githubAppSetupComposeRouter(cfg, pool, nil, routerExtras{Live: handler})
 	server.Start()
 	t.Cleanup(server.Close)
-	cookie := "presence-cookie"
-	sum := sha256.Sum256([]byte(cookie))
-	_, err = q.CreateAuthSession(ctx, db.CreateAuthSessionParams{UserID: user.ID, Username: user.Username, SessionKey: hex.EncodeToString(sum[:]), ExpiresAt: time.Now().Add(time.Hour)})
-	require.NoError(t, err)
 	return presenceInstallFixture{p, row, user, "ws" + strings.TrimPrefix(origin, "http") + "/api/live", origin, bus, revocation.NewDBPublisher(q, bus), cookie, pool}
 }
 func (f presenceInstallFixture) dial(t *testing.T) *websocket.Conn {
@@ -168,6 +168,7 @@ func (f presenceInstallFixture) dial(t *testing.T) *websocket.Conn {
 	if err != nil {
 		t.Fatalf("live upgrade: %v response=%v", err, response)
 	}
+	conn.SetReadLimit(live.SendBudget)
 	t.Cleanup(func() { conn.CloseNow() })
 	return conn
 }

@@ -171,6 +171,18 @@ func TestPresenceVisitAuditSharedWithSSH(t *testing.T) {
 	browser := f.dial(t)
 	sendPresenceFrame(t, browser, fmt.Sprintf(`{"t":"presence","id":2,"where":{"branch":%q}}`, f.row.ID))
 	require.Eventually(t, func() bool { return len(f.roster(t)) == 1 }, time.Second, 10*time.Millisecond)
+	// The roster is published before the audit heartbeat is recorded.
+	// Advance the fake clock only after the initial visit receipt exists.
+	require.Eventually(t, func() bool {
+		f.p.visits.mu.Lock()
+		defer f.p.visits.mu.Unlock()
+		for _, visit := range f.p.visits.visits {
+			if visit.start.Equal(base) && len(visit.sessions) == 1 {
+				return true
+			}
+		}
+		return false
+	}, time.Second, 10*time.Millisecond)
 	registry := new(machined.Registry)
 	require.NoError(t, registry.BindBoot(f.row.ID, "machine", [16]byte{1}, []byte("secret")))
 	connection, err := registry.Admit([16]byte{1}, []byte("secret"), presenceStream{})

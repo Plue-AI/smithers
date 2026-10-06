@@ -282,6 +282,14 @@ func (h *Hub) Serve(ctx context.Context, conn *websocket.Conn, resolve Resolver,
 				go sub.relay(subctx, out, in.ID, refuse)
 				continue
 			}
+			if source.Log != nil {
+				if source.Log.Page == nil || source.Key == "" {
+					refuse(in.ID, Unsupported)
+					continue
+				}
+				subscriptions[in.ID] = h.serveLog(ctx, source, out, in.ID, in.Cursor, refuse)
+				continue
+			}
 			if source.Build == nil || source.Key == "" {
 				refuse(in.ID, Unsupported)
 				continue
