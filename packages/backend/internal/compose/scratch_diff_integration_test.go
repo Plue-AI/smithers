@@ -13,6 +13,7 @@ import (
 
 	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/smithersai/smithers/packages/backend/internal/db"
+	"github.com/smithersai/smithers/packages/backend/internal/middleware"
 	"github.com/smithersai/smithers/packages/backend/internal/repohost"
 	"github.com/stretchr/testify/require"
 )
@@ -98,6 +99,19 @@ func TestScratchDiffUsesForkRevisionInstall(t *testing.T) {
 		handler.ServeHTTP(recorder, request)
 		return recorder
 	}
+	// A credential bound to another branch never reaches even the scratch reader.
+	raw := "smithers_" + strings.Repeat("d", 40)
+	digest := sha256.Sum256([]byte(raw))
+	encoded := hex.EncodeToString(digest[:])
+	_, err = q.CreateAccessToken(ctx, db.CreateAccessTokenParams{UserID: owner.ID, Name: "other-branch-cli", TokenHash: encoded, TokenLastEight: encoded[len(encoded)-8:], SystemIssued: true, Scopes: "read:repository," + strings.Join(middleware.DelegationScopes(middleware.Delegation{Via: "cli", Branch: "other-branch"}), ","), ExpiresAt: pgtype.Timestamptz{Time: time.Now().Add(time.Hour), Valid: true}})
+	require.NoError(t, err)
+	request := httptest.NewRequest("GET", "http://127.0.0.1:4000/api/branches/"+url.PathEscape(branch)+"/diff", nil)
+	request.RemoteAddr = "127.0.0.1:12345"
+	request.Header.Set("Authorization", "Bearer "+raw)
+	refused := httptest.NewRecorder()
+	handler.ServeHTTP(refused, request)
+	require.Equal(t, 403, refused.Code, refused.Body.String())
+	require.Zero(t, reads)
 	got := call(branch, cookie)
 	require.Equal(t, 200, got.Code, got.Body.String())
 	require.JSONEq(t, fmt.Sprintf(`{"files":[{"path":"src/retry.ts","branch":"%s","against":{"kind":"fork","rev":"%s"},"change":"added","hunks":[{"old_start":0,"new_start":1,"lines":[{"op":"+","text":"export const backoff = 2"}]}]}]}`, branch, fork), got.Body.String())

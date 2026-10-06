@@ -8,13 +8,13 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/smithersai/smithers/packages/backend/internal/db"
 	"github.com/smithersai/smithers/packages/backend/internal/diffview"
-	pkgerrors "github.com/smithersai/smithers/packages/backend/internal/pkg/errors"
 	"net/http"
 	"net/url"
-	"strconv"
+	"sort"
 	"strings"
-	"unicode/utf8"
 
+	"github.com/smithersai/smithers/packages/backend/internal/middleware"
+	pkgerrors "github.com/smithersai/smithers/packages/backend/internal/pkg/errors"
 	"github.com/smithersai/smithers/packages/backend/internal/repohost"
 )
 
@@ -96,13 +96,14 @@ func ProjectTODOBranchDiff(branch, acceptedPrefix string, files []repohost.FileD
 	return result, nil
 }
 
-// TODOBranchDiff reads only the recorded accepted candidate and its base. Live
-// workspace contents and today's stack order cannot change this comparison.
+// TODOBranchDiff compares the verified sleeping snapshot or accepted candidate
+// with its recorded item base. It never enters or starts a branch machine.
 func (s *MythicalService) TODOBranchDiff(ctx context.Context, branch string) (BranchDiff, error) {
 	if s == nil || s.store == nil || s.host == nil {
 		return BranchDiff{}, &mythicalPRUnavailable{}
 	}
-	if _, err := Authorize(ctx, s.queries(), "branches.read"); err != nil {
+	authorization, err := Authorize(ctx, s.queries(), "branch.read")
+	if err != nil {
 		return BranchDiff{}, err
 	}
 	repository, err := InstallRepositoryID(ctx, s.queries())
@@ -131,7 +132,34 @@ func (s *MythicalService) TODOBranchDiff(ctx context.Context, branch string) (Br
 	if err := todoBranchForbids(ctx, item); err != nil {
 		return BranchDiff{}, err
 	}
-	if !item.CandidateVerified || item.CandidateBase == "" || item.CandidateHead == "" {
+	if delegation, delegated := middleware.AuthInfoFromContext(ctx).Delegation(); delegated && (delegation.Branch == "" || delegation.Branch != item.WorkspaceID) {
+		return BranchDiff{}, &BranchError{http.StatusForbidden, "permission", "permission", "Credential is bound to another branch"}
+	}
+	base, head := item.CandidateBase, item.CandidateHead
+	lane, exists, err := s.todoBranchWorkspace(ctx, item)
+	if err != nil {
+		return BranchDiff{}, err
+	}
+	if exists && item.WorkspaceID == lane.ID && (lane.Status == "suspended" || lane.Status == "stopped") {
+		reader, ok := s.lanes.(interface {
+			CapturedHead(context.Context, string, int64, int64) (string, error)
+		})
+		if !ok {
+			return BranchDiff{}, &mythicalPRUnavailable{}
+		}
+		head, err = reader.CapturedHead(ctx, lane.ID, repository, authorization.UserID)
+		if err != nil {
+			return BranchDiff{}, err
+		}
+		base = item.BaseCommit
+	} else if !item.CandidateVerified {
+		return BranchDiff{}, &mythicalPRUnavailable{}
+	}
+	if !mythicalSHA.MatchString(base) || !mythicalSHA.MatchString(head) {
+		return BranchDiff{}, &mythicalPRUnavailable{}
+	}
+	store, ok := s.host.(branchDiffStore)
+	if !ok {
 		return BranchDiff{}, &mythicalPRUnavailable{}
 	}
 	repo, owner, err := s.repository(ctx, repository)
@@ -140,28 +168,25 @@ func (s *MythicalService) TODOBranchDiff(ctx context.Context, branch string) (Br
 	}
 	bridge, err := startMythicalBridge(ctx, s.host, owner, repo.Name, RepositoryStillAt(s.queries(), repository, owner, repo.Name))
 	if err != nil {
-		return BranchDiff{}, err
+		return BranchDiff{}, pkgerrors.New(pkgerrors.CodeServiceUnavailable, "branch snapshot diff unavailable").WithCause(err)
 	}
 	defer bridge.Close()
 	g, cleanup, err := s.forkGit(ctx, repository)
 	if err != nil {
-		return BranchDiff{}, err
+		return BranchDiff{}, pkgerrors.New(pkgerrors.CodeServiceUnavailable, "branch snapshot diff unavailable").WithCause(err)
 	}
 	defer cleanup()
-	for _, rev := range []string{item.CandidateBase, item.CandidateHead} {
-		if !mythicalSHA.MatchString(rev) {
-			return BranchDiff{}, &mythicalPRUnavailable{}
-		}
+	for _, rev := range []string{base, head} {
 		if !g.has(ctx, rev) {
 			if err := g.fetch(ctx, bridge.URL(), 0, 0, rev); err != nil {
-				return BranchDiff{}, err
+				return BranchDiff{}, pkgerrors.New(pkgerrors.CodeServiceUnavailable, "branch snapshot diff unavailable").WithCause(err)
 			}
 		}
 	}
-	reader := acceptedTreeDiffReader{g: g, base: item.CandidateBase, head: item.CandidateHead}
-	diff, err := diffview.BuildChangeDiff(ctx, reader, owner, repo.Name, item.CandidateHead, diffview.BuildOptions{})
+	reader := acceptedTreeDiffReader{store: store, g: g, base: base, head: head}
+	diff, err := diffview.BuildChangeDiff(ctx, reader, owner, repo.Name, head, diffview.BuildOptions{})
 	if err != nil {
-		return BranchDiff{}, err
+		return BranchDiff{}, pkgerrors.New(pkgerrors.CodeServiceUnavailable, "branch snapshot diff unavailable").WithCause(err)
 	}
 	sizes := map[string]BranchDiffBinary{}
 	for _, file := range diff.FileDiffs {
@@ -173,16 +198,16 @@ func (s *MythicalService) TODOBranchDiff(ctx context.Context, branch string) (Br
 			if before && file.ChangeType == "added" || !before && file.ChangeType == "deleted" {
 				continue
 			}
-			rev, path := item.CandidateHead, file.Path
+			rev, path := head, file.Path
 			if before {
-				rev = item.CandidateBase
+				rev = base
 				if file.OldPath != "" {
 					path = file.OldPath
 				}
 			}
 			content, err := reader.GetFileAtChange(ctx, owner, repo.Name, rev, path)
 			if err != nil {
-				return BranchDiff{}, err
+				return BranchDiff{}, pkgerrors.New(pkgerrors.CodeServiceUnavailable, "branch snapshot diff unavailable").WithCause(err)
 			}
 			if content.TooLarge {
 				return BranchDiff{}, &mythicalPRUnavailable{}
@@ -191,7 +216,7 @@ func (s *MythicalService) TODOBranchDiff(ctx context.Context, branch string) (Br
 			if content.Encoding == "base64" {
 				bytes, err = base64.StdEncoding.DecodeString(content.Content)
 				if err != nil {
-					return BranchDiff{}, err
+					return BranchDiff{}, pkgerrors.New(pkgerrors.CodeServiceUnavailable, "branch snapshot diff unavailable").WithCause(err)
 				}
 			} else if content.Encoding != "" && content.Encoding != "utf8" {
 				return BranchDiff{}, &mythicalPRUnavailable{}
@@ -204,13 +229,17 @@ func (s *MythicalService) TODOBranchDiff(ctx context.Context, branch string) (Br
 		}
 		sizes[file.Path] = size
 	}
-	return ProjectTODOBranchDiff(branch, item.CandidateBase, diff.FileDiffs, sizes)
+	return ProjectTODOBranchDiff(branch, base, diff.FileDiffs, sizes)
 }
 
-// acceptedTreeDiffReader adapts controlled object reads to the existing bounded
-// diff builder. Git's NUL-delimited classification keeps unusual paths intact;
-// all patch construction, binary detection and caps remain in diffview.
+// acceptedTreeDiffReader pins the shared bounded diff builder to immutable
+// host-store objects. Branch configuration and executables never run on the host.
+type branchDiffStore interface {
+	GetRevisionDiff(context.Context, string, string, string, string, string, string) (repohost.ChangeDiff, error)
+	GetFileAtCommit(context.Context, string, string, string, string) (repohost.FileContent, error)
+}
 type acceptedTreeDiffReader struct {
+	store      branchDiffStore
 	g          mythicalGit
 	base, head string
 }
@@ -218,66 +247,42 @@ type acceptedTreeDiffReader struct {
 func (r acceptedTreeDiffReader) GetChange(context.Context, string, string, string) (repohost.Change, error) {
 	return repohost.Change{ParentCommitID: r.base}, nil
 }
-func (r acceptedTreeDiffReader) GetChangeDiff(ctx context.Context, _, _, _ string) (repohost.ChangeDiff, error) {
-	raw, err := r.g.command(ctx, nil, "diff", "--name-status", "-z", "--find-renames", "--no-ext-diff", "--no-textconv", r.base, r.head, "--")
+func (r acceptedTreeDiffReader) GetChangeDiff(ctx context.Context, owner, repo, _ string) (repohost.ChangeDiff, error) {
+	diff, err := r.store.GetRevisionDiff(ctx, owner, repo, r.head, r.base, r.head, "")
+	if err != nil {
+		return repohost.ChangeDiff{}, err
+	}
+	// The native interdiff reports moves as add/delete. Retain the existing
+	// controlled Git rename classification without executing textconv or hooks.
+	raw, err := r.g.command(ctx, nil, "diff", "--name-status", "-z", "--find-renames", "--diff-filter=R", "--no-ext-diff", "--no-textconv", r.base, r.head, "--")
 	if err != nil {
 		return repohost.ChangeDiff{}, err
 	}
 	parts := strings.Split(string(raw), "\x00")
-	result := repohost.ChangeDiff{ChangeID: r.head, FileDiffs: []repohost.FileDiff{}}
-	for i := 0; i < len(parts)-1; {
-		status := parts[i]
-		i++
-		if status == "" || i >= len(parts)-1 {
-			return repohost.ChangeDiff{}, fmt.Errorf("invalid file classification")
+	for i := 0; i < len(parts)-1; i += 3 {
+		if i+2 >= len(parts)-1 || !strings.HasPrefix(parts[i], "R") {
+			return repohost.ChangeDiff{}, fmt.Errorf("invalid rename classification")
 		}
-		file := repohost.FileDiff{Path: parts[i]}
-		i++
-		switch status[0] {
-		case 'A':
-			file.ChangeType = "added"
-		case 'D':
-			file.ChangeType = "deleted"
-		case 'M', 'T':
-			file.ChangeType = "modified"
-		case 'R':
-			if i >= len(parts)-1 {
-				return repohost.ChangeDiff{}, fmt.Errorf("invalid rename classification")
+		oldPath, newPath := parts[i+1], parts[i+2]
+		files := make([]repohost.FileDiff, 0, len(diff.FileDiffs))
+		for _, file := range diff.FileDiffs {
+			if file.ChangeType == "deleted" && file.Path == oldPath || file.ChangeType == "added" && file.Path == newPath {
+				continue
 			}
-			file.ChangeType = "renamed"
-			file.OldPath = file.Path
-			file.Path = parts[i]
-			i++
-		default:
-			return repohost.ChangeDiff{}, fmt.Errorf("unsupported file classification")
+			files = append(files, file)
 		}
-		result.FileDiffs = append(result.FileDiffs, file)
+		diff.FileDiffs = append(files, repohost.FileDiff{Path: newPath, OldPath: oldPath, ChangeType: "renamed"})
 	}
-	return result, nil
+	sort.Slice(diff.FileDiffs, func(i, j int) bool { return diff.FileDiffs[i].Path < diff.FileDiffs[j].Path })
+	return diff, nil
 }
-func (r acceptedTreeDiffReader) GetFileAtChange(ctx context.Context, _, _, rev, path string) (repohost.FileContent, error) {
-	object := rev + ":" + path
-	size, err := r.g.git(ctx, "cat-file", "-s", object)
-	if err != nil {
-		return repohost.FileContent{}, err
+func (r acceptedTreeDiffReader) GetFileAtChange(ctx context.Context, owner, repo, rev, path string) (repohost.FileContent, error) {
+	file, err := r.store.GetFileAtCommit(ctx, owner, repo, rev, path)
+	if err == nil && (file.Encoding == "" || file.Encoding == "utf8") && strings.ContainsRune(file.Content, 0) {
+		file.Content = base64.StdEncoding.EncodeToString([]byte(file.Content))
+		file.Encoding = "base64"
 	}
-	n, err := strconv.ParseInt(size, 10, 64)
-	if err != nil {
-		return repohost.FileContent{}, err
-	}
-	if n > 1<<20 {
-		return repohost.FileContent{Path: path, TooLarge: true}, nil
-	}
-	content, err := r.g.command(ctx, nil, "cat-file", "blob", object)
-	if err != nil {
-		return repohost.FileContent{}, err
-	}
-	result := repohost.FileContent{Path: path, Content: string(content), Encoding: "utf8"}
-	if !utf8.Valid(content) || strings.ContainsRune(result.Content, 0) {
-		result.Encoding = "base64"
-		result.Content = base64.StdEncoding.EncodeToString(content)
-	}
-	return result, nil
+	return file, err
 }
 
 // scratchBranchDiff compares retained fork and advertised head revisions without a machine operation.
@@ -288,6 +293,9 @@ func (s *MythicalService) scratchBranchDiff(ctx context.Context, repositoryID in
 	}
 	if err != nil {
 		return BranchDiff{}, err
+	}
+	if delegation, delegated := middleware.AuthInfoFromContext(ctx).Delegation(); delegated && (delegation.Branch == "" || delegation.Branch != row.ID) {
+		return BranchDiff{}, &BranchError{http.StatusForbidden, "permission", "permission", "Credential is bound to another branch"}
 	}
 	if !row.IsFork || !mythicalSHA.MatchString(row.SourceCommit) {
 		return BranchDiff{}, &TODOPrUnavailable{}

@@ -299,9 +299,9 @@ func TestStackLanesAreTheirOwnBranchMachines(t *testing.T) {
 }
 
 // The stack binds a lane after creating it; until then the lane's person may
-// not touch it, and once bound they may. A failed bind deletes the never
-// provisioned machine, unless a claimant bound that same lane first.
-func TestStackLaneCreateBindsOrDeletes(t *testing.T) {
+// not touch it, and once bound they may. Failed binds retain the branch
+// record without provisioning it; ordinary failure never bypasses cleanup gates.
+func TestStackLaneCreateBindsOrRetains(t *testing.T) {
 	pool := newProductTestPool(t)
 	owner, repo := setupTestUserAndRepo(t, pool)
 	installBranchOwner(t, pool, owner)
@@ -326,7 +326,11 @@ func TestStackLaneCreateBindsOrDeletes(t *testing.T) {
 	require.NotEmpty(t, created)
 	var live int
 	require.NoError(t, pool.QueryRow(ctx, `SELECT count(*) FROM workspaces WHERE id=$1 AND deleted_at IS NULL`, created).Scan(&live))
-	require.Zero(t, live, "an unbound lane that was never provisioned is deleted")
+	require.Equal(t, 1, live, "a failed bind retains the canonical branch record")
+	failed, err := q.GetWorkspace(ctx, created)
+	require.NoError(t, err)
+	require.Empty(t, failed.VmID, "a failed bind never provisions a machine")
+	require.ErrorIs(t, svc.preflightBranchMachine(ctx, repo, owner, MythicalBookmark, created), errBranchMachineAdmission, "retained unbound records admit no person")
 
 	var kept string
 	_, err = lanes.Create(ctx, repository, "owner", owner, "TODO 1 attempt 2 g2", MythicalPlacement{Kind: "container"}, func(id string) error {

@@ -317,6 +317,11 @@ func repositoryRestrictionForbids(authInfo *AuthInfo, r *http.Request) bool {
 	// repository that its profile names (allowTerminalProfileToken): its
 	// person's identity and the install's TODOs.
 	delegation, ok := authInfo.Delegation()
+	// Branch read handlers resolve the install repository and enforce both the
+	// repository binding and delegated branch before accessing immutable objects.
+	if ok && delegation.Branch != "" && authInfo.CredentialKind() == CredentialDelegated && InstallMemberCommand(r.Method, r.URL.EscapedPath()) == "branch.read" {
+		return false
+	}
 	return !ok || delegation.Profile != TerminalProfileS1
 }
 

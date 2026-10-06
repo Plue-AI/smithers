@@ -80,7 +80,7 @@ func TestBranchSleepStoredFilesInstallNeverWake(t *testing.T) {
 	machineOwner, err := q.GetBranchMachineOwner(ctx)
 	require.NoError(t, err)
 	var id string
-	require.NoError(t, pool.QueryRow(ctx, `INSERT INTO workspaces(repository_id,user_id,name,kind,status,vm_id,target_bookmark) VALUES($1,$2,'sleep','container','suspended','retained-vm','scratch/sleepowner/sleep') RETURNING id`, repo.ID, machineOwner).Scan(&id))
+	require.NoError(t, pool.QueryRow(ctx, `INSERT INTO workspaces(repository_id,user_id,name,kind,status,vm_id,target_bookmark) VALUES($1,$2,'sleep','container','suspended','retained-vm','smithers/sleep-item') RETURNING id`, repo.ID, machineOwner).Scan(&id))
 	seed := t.TempDir()
 	git := func(args ...string) string {
 		out, err := exec.Command("/usr/bin/git", args...).CombinedOutput()
@@ -91,8 +91,8 @@ func TestBranchSleepStoredFilesInstallNeverWake(t *testing.T) {
 	require.NoError(t, os.MkdirAll(filepath.Join(seed, "src"), 0700))
 	const retry = "export const retry = 3;\n"
 	const backoff = "export const backoff = 100;\n"
-	require.NoError(t, os.WriteFile(filepath.Join(seed, "src/retry.ts"), []byte(retry), 0600))
-	require.NoError(t, os.WriteFile(filepath.Join(seed, "src/backoff.ts"), []byte(backoff), 0600))
+	require.NoError(t, os.WriteFile(filepath.Join(seed, "src/retry.ts"), []byte("export const retry = 2;\n"), 0600))
+
 	require.NoError(t, os.WriteFile(filepath.Join(seed, "binary.bin"), []byte{0xff, 0x00, 0x01}, 0600))
 	marker := filepath.Join(t.TempDir(), "executed")
 	hostile := "#!/bin/sh\ntouch '" + marker + "'\n"
@@ -103,14 +103,38 @@ func TestBranchSleepStoredFilesInstallNeverWake(t *testing.T) {
 	require.NoError(t, os.WriteFile(filepath.Join(seed, "large.bin"), []byte(strings.Repeat("x", services.MaxWorkspaceFileBytes+1)), 0600))
 	require.NoError(t, os.Symlink("/etc/passwd", filepath.Join(seed, "outside-link")))
 	git("-C", seed, "add", ".")
+	git("-C", seed, "-c", "user.name=Fixture", "-c", "user.email=fixture@example.test", "commit", "-m", "Item base")
+	base := git("-C", seed, "rev-parse", "HEAD")
+	require.NoError(t, os.WriteFile(filepath.Join(seed, "src/retry.ts"), []byte(retry), 0600))
+	require.NoError(t, os.WriteFile(filepath.Join(seed, "src/backoff.ts"), []byte(backoff), 0600))
+	git("-C", seed, "add", ".")
 	git("-C", seed, "-c", "user.name=Fixture", "-c", "user.email=fixture@example.test", "commit", "-m", "Captured tree")
 	head := git("-C", seed, "rev-parse", "HEAD")
 	hostGit := filepath.Join(storage, "sleepowner", "demo", ".jj/repo/store/git")
 	// Fixture construction only: production reads never run Git against files.
 	git("-C", seed, "push", hostGit, "HEAD:"+repohost.BranchHeadRef(id))
+	require.NoError(t, os.WriteFile(filepath.Join(seed, "src/retry.ts"), []byte("export const retry = 99;\n"), 0600))
+	git("-C", seed, "add", ".")
+	git("-C", seed, "-c", "user.name=Fixture", "-c", "user.email=fixture@example.test", "commit", "-m", "Unrelated main")
+	mainHead := git("-C", seed, "rev-parse", "HEAD")
+	require.NotEqual(t, base, mainHead)
+	require.NotEqual(t, head, mainHead)
+	git("-C", seed, "push", hostGit, "HEAD:refs/heads/main")
 	require.NoError(t, client.ImportRefs(ctx, "sleepowner", "demo"))
+	item, _, err := q.InsertMythicalChatItem(ctx, db.MythicalItem{RepositoryID: repo.ID, IssueTitle: "Sleep item", WorkspaceID: id, CandidateBase: base, CandidateHead: head})
+	require.NoError(t, err)
+	_, err = pool.Exec(ctx, `UPDATE mythical_items SET base_commit=$2, candidate_verified=false WHERE id=$1`, item.ID, base)
+	require.NoError(t, err)
+	_, _, err = q.BindMythicalLane(ctx, db.MythicalLane{WorkspaceID: id, RepositoryID: repo.ID, ItemID: item.ID, Name: "sleep-item"})
+	require.NoError(t, err)
+
 	_, err = pool.Exec(ctx, `UPDATE workspaces SET head_commit_id=$2 WHERE id=$1`, id, head)
 	require.NoError(t, err)
+	for path, text := range map[string]string{"src/retry.ts": retry, "src/backoff.ts": backoff} {
+		file, err := client.GetFileAtCommit(ctx, "sleepowner", "demo", head, path)
+		require.NoError(t, err)
+		require.Equal(t, text, file.Content)
+	}
 	runtime, err := process.New(process.Config{Root: t.TempDir()})
 	require.NoError(t, err)
 	t.Cleanup(func() { require.NoError(t, runtime.Close()) })
@@ -139,6 +163,32 @@ func TestBranchSleepStoredFilesInstallNeverWake(t *testing.T) {
 		require.Equal(t, status, res.StatusCode, string(raw))
 		return raw
 	}
+	assertDiff := func() {
+		var diff services.BranchDiff
+		require.NoError(t, json.Unmarshal(readPath("/api/branches/"+id+"/diff", 200), &diff))
+		against := services.BranchDiffAgainst{Kind: "item_base", Rev: base}
+		require.Equal(t, services.BranchDiff{Files: []services.BranchDiffModel{
+			{Path: "src/backoff.ts", Branch: id, Against: against, Change: "added", Hunks: []services.BranchDiffHunk{{OldStart: 0, NewStart: 1, Lines: []services.BranchDiffLine{{Op: "+", Text: "export const backoff = 100;"}}}}},
+			{Path: "src/retry.ts", Branch: id, Against: against, Change: "modified", Hunks: []services.BranchDiffHunk{{OldStart: 1, NewStart: 1, Lines: []services.BranchDiffLine{{Op: "-", Text: "export const retry = 2;"}, {Op: "+", Text: "export const retry = 3;"}}}}},
+		}}, diff)
+	}
+	assertDiff()
+	// An awake/released candidate keeps its existing immutable candidate semantics.
+	_, err = pool.Exec(ctx, `UPDATE workspaces SET status='running' WHERE id=$1`, id)
+	require.NoError(t, err)
+	_, err = pool.Exec(ctx, `UPDATE mythical_items SET candidate_verified=true, candidate_head=$2 WHERE id=$1`, item.ID, base)
+	require.NoError(t, err)
+	require.JSONEq(t, `{"files":[]}`, string(readPath("/api/branches/"+id+"/diff", 200)))
+	_, err = pool.Exec(ctx, `UPDATE workspaces SET status='suspended' WHERE id=$1`, id)
+	require.NoError(t, err)
+	_, err = pool.Exec(ctx, `UPDATE mythical_items SET candidate_verified=false, candidate_head=$2 WHERE id=$1`, item.ID, head)
+	require.NoError(t, err)
+	assertDiff()
+	_, err = pool.Exec(ctx, `UPDATE mythical_items SET base_commit=$2 WHERE id=$1`, item.ID, strings.Repeat("e", 40))
+	require.NoError(t, err)
+	readPath("/api/branches/"+id+"/diff", 503)
+	_, err = pool.Exec(ctx, `UPDATE mythical_items SET base_commit=$2 WHERE id=$1`, item.ID, base)
+	require.NoError(t, err)
 	read := func(suffix string, status int) []byte {
 		return readPath("/api/repos/sleepowner/demo/workspaces/"+id+suffix, status)
 	}
@@ -167,11 +217,13 @@ func TestBranchSleepStoredFilesInstallNeverWake(t *testing.T) {
 	readPath("/api/branches/"+id+"/files/outside-link", 404)
 	require.Zero(t, counted.starts.Load())
 	require.Zero(t, counted.reads.Load())
+	minted := 0
 	mint := func(branch string) (string, int64) {
-		raw := "smithers_" + strings.Repeat("d", 39) + fmt.Sprint(len(branch)%10)
+		minted++
+		raw := "smithers_" + fmt.Sprintf("%040d", minted)
 		digest := sha256.Sum256([]byte(raw))
 		encoded := hex.EncodeToString(digest[:])
-		token, err := q.CreateAccessToken(ctx, db.CreateAccessTokenParams{UserID: owner.ID, Name: "sleep-cli-" + branch, TokenHash: encoded, TokenLastEight: encoded[len(encoded)-8:], SystemIssued: true, Scopes: "read:repository," + strings.Join(middleware.DelegationScopes(middleware.Delegation{Via: "cli", Branch: branch}), ","), ExpiresAt: pgtype.Timestamptz{Time: time.Now().Add(time.Hour), Valid: true}})
+		token, err := q.CreateAccessToken(ctx, db.CreateAccessTokenParams{UserID: owner.ID, Name: "sleep-cli-" + branch, TokenHash: encoded, TokenLastEight: encoded[len(encoded)-8:], SystemIssued: true, Scopes: fmt.Sprintf("read:repository,repo:%d,", repo.ID) + strings.Join(middleware.DelegationScopes(middleware.Delegation{Via: "cli", Branch: branch}), ","), ExpiresAt: pgtype.Timestamptz{Time: time.Now().Add(time.Hour), Valid: true}})
 		require.NoError(t, err)
 		return raw, token.ID
 	}
@@ -188,10 +240,12 @@ func TestBranchSleepStoredFilesInstallNeverWake(t *testing.T) {
 		require.NoError(t, json.Unmarshal(readPath("/api/branches/"+id+"/files/src/backoff.ts", 200), &branchFile))
 		require.Equal(t, backoff, branchFile.Content.Text)
 		read("/files/content?path=src/retry.ts", 200)
+		assertDiff()
 		readPath("/api/branches/"+id+"/files?path=src", 200)
 		_, err = pool.Exec(ctx, `UPDATE collaborators SET suspended_at=NOW() WHERE repository_id=$1 AND user_id=$2`, repo.ID, member.ID)
 		require.NoError(t, err)
 		readPath("/api/branches/"+id+"/files/src/backoff.ts", 403)
+		readPath("/api/branches/"+id+"/diff", 403)
 	}
 	cookie = ownerCookie
 	var tokenID int64
@@ -203,13 +257,27 @@ func TestBranchSleepStoredFilesInstallNeverWake(t *testing.T) {
 	require.NoError(t, json.Unmarshal(readPath("/api/branches/"+id+"/files/src/backoff.ts", 200), &branchFile))
 	require.Equal(t, backoff, branchFile.Content.Text)
 	read("/files/content?path=src/retry.ts", 200)
+	assertDiff()
 	_, err = pool.Exec(ctx, `DELETE FROM access_tokens WHERE id=$1`, tokenID)
 	require.NoError(t, err)
 	readPath("/api/branches/"+id+"/files/src/backoff.ts", 401)
+	readPath("/api/branches/"+id+"/diff", 401)
 	credential, _ = mint("different-branch")
 	readPath("/api/branches/"+id+"/files/src/backoff.ts", 403)
+	readPath("/api/branches/"+id+"/diff", 403)
 	readPath("/api/branches/"+id, 403)
 	read("/files/content?path=src/retry.ts", 403)
+	credential, tokenID = mint(id)
+	_, err = pool.Exec(ctx, `UPDATE access_tokens SET scopes=$2 WHERE id=$1`, tokenID, strings.Join(middleware.DelegationScopes(middleware.Delegation{Via: "cli", Branch: id}), ","))
+	require.NoError(t, err)
+	for _, endpoint := range []string{"/api/branches/" + id, "/api/branches/" + id + "/files", "/api/branches/" + id + "/diff", "/api/branches/" + id + "/files/src/backoff.ts"} {
+		readPath(endpoint, 403)
+	}
+	_, err = pool.Exec(ctx, `UPDATE access_tokens SET scopes=$2 WHERE id=$1`, tokenID, fmt.Sprintf("read:repository,repo:%d,", repo.ID+1)+strings.Join(middleware.DelegationScopes(middleware.Delegation{Via: "cli", Branch: id}), ","))
+	require.NoError(t, err)
+	for _, endpoint := range []string{"/api/branches/" + id, "/api/branches/" + id + "/files", "/api/branches/" + id + "/diff", "/api/branches/" + id + "/files/src/backoff.ts"} {
+		readPath(endpoint, 403)
+	}
 	credential = ""
 	// A changed ref cannot serve stale or unrelated bytes.
 	var captured struct{ Content struct{ Kind, Text string } }
@@ -221,6 +289,7 @@ func TestBranchSleepStoredFilesInstallNeverWake(t *testing.T) {
 	_, err = pool.Exec(ctx, `UPDATE workspaces SET head_commit_id=$2 WHERE id=$1`, id, strings.Repeat("e", 40))
 	require.NoError(t, err)
 	readPath("/api/branches/"+id+"/files/src/backoff.ts", 503)
+	readPath("/api/branches/"+id+"/diff", 503)
 	_, err = pool.Exec(ctx, `UPDATE workspaces SET head_commit_id=$2 WHERE id=$1`, id, head)
 	require.NoError(t, err)
 	git("--git-dir", hostGit, "update-ref", "-d", repohost.BranchHeadRef(id))

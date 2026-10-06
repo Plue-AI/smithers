@@ -103,7 +103,7 @@ type mythicalLauncher interface {
 type mythicalLanes interface {
 	// Create records the workspace on the placement's machine, calls bind
 	// with its ID, and provisions it only after bind succeeds; a failed bind
-	// deletes the record.
+	// retains the branch record for retry.
 	Create(ctx context.Context, repository db.Repository, owner string, actorUserID int64, name string, placement MythicalPlacement, bind func(workspaceID string) error) (string, error)
 	// Offer is the machine a lane boots on (mythical_placement.go).
 	Offer(ctx context.Context, repositoryID int64) (mythicalMachineOffer, error)
@@ -3793,11 +3793,8 @@ func (l *workspaceMythicalLanes) Create(ctx context.Context, repository db.Repos
 		return "", err
 	}
 	if err := bind(workspace.ID); err != nil {
-		// A claimant that bound this same lane first keeps it. An unbound
-		// machine was never provisioned: the machine service deletes it.
-		if !l.bound(context.WithoutCancel(ctx), workspace.ID) {
-			_ = l.workspaces.DeleteWorkspace(context.WithoutCancel(ctx), workspace.ID, repository.ID, workspace.UserID)
-		}
+		// Cleanup requires settled work and verified capture (MVP §6.7).
+		// A failed binding never starts this machine; its record remains for retry.
 		return "", err
 	}
 	l.workspaces.provisionWorkspaceAsync(ctx, workspace, CreateWorkspaceSessionInput{RepositoryID: repository.ID, UserID: actorUserID,
@@ -3838,19 +3835,6 @@ func (l *workspaceMythicalLanes) Owned(ctx context.Context, repositoryID, userID
 		return false, nil
 	}
 	return store.WorkspaceSoleWriter(ctx, db.WorkspaceSoleWriterParams{WorkspaceID: workspace.ID, UserID: userID})
-}
-
-// bound reports whether the stack bound workspaceID as a lane that is not
-// retired.
-func (l *workspaceMythicalLanes) bound(ctx context.Context, workspaceID string) bool {
-	store, ok := l.workspaces.q.(interface {
-		GetMythicalLane(context.Context, string) (db.MythicalLane, error)
-	})
-	if !ok {
-		return false
-	}
-	lane, err := store.GetMythicalLane(ctx, workspaceID)
-	return err == nil && !lane.RetiredAt.Valid
 }
 
 // Delete retires a lane's machine (T-MCH-06, T-MCH-07): every retirement

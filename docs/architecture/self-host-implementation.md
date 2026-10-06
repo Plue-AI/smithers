@@ -75,7 +75,9 @@ One dedicated Sol owner per issue, scheduled in dependency waves due to bounded 
 
 Sleep remains disabled until authenticated final capture, object verification,
 outbox drain, branch runtime binding and live state publication are available.
-Snapshot reads never wake a machine. Work-triggered wake requires admission and
+File, directory, head and item-base diff reads use the verified captured head
+without entering the guest. The diff base stays the TODO’s recorded base rather
+than current main. Snapshot reads never wake a machine. Work-triggered wake requires admission and
 validated privileged entry; billing quota alone does not authorize it.
 
 A captured working copy includes untracked files that are not ignored. Every
