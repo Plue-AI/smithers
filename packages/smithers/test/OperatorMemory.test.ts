@@ -189,6 +189,21 @@ describe("operator memory", () => {
     expect((await invoke(root, ["notes", "list"])).data).toEqual([])
   })
 
+  it("persists a dismissal timestamp across CLI reopen and repeated rejection", async () => {
+    const root = fixture()
+    expect((await invoke(root, ["notes", "add", "Run lint before review", "--note-id", "check:lint@review", "--status", "pending"])).code).toBe(0)
+    const original = (await invoke(root, ["notes", "get", "check:lint@review"])).data
+    expect((await invoke(root, ["notes", "status", "check:lint@review", "rejected"])).code).toBe(0)
+    const dismissed = (await invoke(root, ["notes", "get", "check:lint@review"])).data
+    expect(dismissed.status).toBe("rejected")
+    expect(dismissed.statusAtMs).toBeGreaterThanOrEqual(original.createdAtMs)
+    expect((await invoke(root, ["notes", "status", "check:lint@review", "rejected"])).code).toBe(0)
+    expect((await invoke(root, ["notes", "get", "check:lint@review"])).data).toEqual(dismissed)
+    expect(dismissed.text).toBe(original.text)
+    expect(dismissed.provenance).toEqual(original.provenance)
+    expect(dismissed.createdAtMs).toBe(original.createdAtMs)
+  })
+
   it("recalls accepted notes with keyword and FTS while honoring supersession", async () => {
     const root = fixture()
     expect((await invoke(root, ["notes", "add", "amber deployment guide", "--note-id", "guide"])).code).toBe(0)

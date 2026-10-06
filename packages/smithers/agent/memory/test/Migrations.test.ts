@@ -153,12 +153,16 @@ describe("memory migrations", () => {
         return { first, second, recorded }
       }).pipe(Effect.provide(TestDatabase.layer))
     )
-    expect(result.first).toEqual([[7001, "memory_initial"], [7002, "memory_indexes"], [7003, "memory_fts_fold"]])
+    expect(result.first).toEqual([[7001, "memory_initial"], [7002, "memory_indexes"], [7003, "memory_fts_fold"], [
+      7004,
+      "memory_note_lifecycle"
+    ]])
     expect(result.second).toEqual([])
     expect(result.recorded).toEqual([
       { migration_id: 7001, name: "memory_initial" },
       { migration_id: 7002, name: "memory_indexes" },
-      { migration_id: 7003, name: "memory_fts_fold" }
+      { migration_id: 7003, name: "memory_fts_fold" },
+      { migration_id: 7004, name: "memory_note_lifecycle" }
     ])
   })
 
@@ -183,7 +187,7 @@ describe("memory migrations", () => {
         const search = (query: string) =>
           store.searchFts({ namespace, query, limit: 5 }).pipe(Effect.map((rows) => rows.map((row) => row.key)))
         const before = yield* search("cafe")
-        yield* sql`DELETE FROM flows_migrations WHERE migration_id = 7003`
+        yield* sql`DELETE FROM flows_migrations WHERE migration_id >= 7003`
         const applied = yield* Migrations.run
         const indexes = Dialect.isPostgres(sql) ?
           yield* sql<NameRow>`SELECT indexname AS name FROM pg_indexes
@@ -199,7 +203,7 @@ describe("memory migrations", () => {
       }).pipe(Effect.provide(TestMemory.layerWithDatabase))
     )
     expect(result.before).toEqual(result.postgres ? [] : ["menu"])
-    expect(result.applied).toEqual([[7003, "memory_fts_fold"]])
+    expect(result.applied).toEqual([[7003, "memory_fts_fold"], [7004, "memory_note_lifecycle"]])
     expect(result.after).toEqual([["menu"], ["menu"], ["menu"], ["menu"]])
     expect(result.indexes).toEqual(result.postgres ? ["memory_fts_flow_search"] : [])
   })
@@ -228,7 +232,10 @@ describe("memory migrations", () => {
       }).pipe(Effect.provide(TestDatabase.layer))
     )
     expect(result.before).toEqual(["memory_facts_expiry_idx"])
-    expect(result.applied).toEqual([[7002, "memory_indexes"], [7003, "memory_fts_fold"]])
+    expect(result.applied).toEqual([[7002, "memory_indexes"], [7003, "memory_fts_fold"], [
+      7004,
+      "memory_note_lifecycle"
+    ]])
     expect(result.after).toEqual(["memory_facts_expires_at_idx", "memory_note_supersedes_target_idx"])
   })
 
@@ -313,6 +320,32 @@ describe("memory migrations", () => {
 
     expect(result.columns).toContain("tags_json")
     expect(result.facts.map((fact) => [fact.key, fact.value])).toEqual([["kept", "survivor"]])
+  })
+
+  it("adds lifecycle columns to existing notes without inventing historical dismissal times", async () => {
+    const result = await Effect.runPromise(
+      Effect.gen(function*() {
+        const sql = yield* SqlClient.SqlClient
+        yield* Migrations.run
+        yield* sql`ALTER TABLE memory_notes DROP COLUMN status_at_ms`
+        yield* sql`ALTER TABLE memory_notes DROP COLUMN accepted_todo`
+        yield* sql`DELETE FROM flows_migrations WHERE migration_id = 7004`
+        yield* sql`INSERT INTO memory_notes
+        (id, namespace_kind, namespace_id, text, tags_json, provenance_json, status, created_at_ms)
+        VALUES ('check:lint@review', 'flow', 'coding', 'Run lint', '[]', '{"runId":"learning-7"}', 'rejected', 12)`
+        const store = yield* MemoryStore.make
+        return yield* store.getNote({ id: "check:lint@review" })
+      }).pipe(Effect.provide(TestDatabase.layer), Effect.provide(testCrypto))
+    )
+    expect(result).toEqual({
+      namespace: { kind: "flow", id: "coding" },
+      id: "check:lint@review",
+      text: "Run lint",
+      tags: [],
+      provenance: { runId: "learning-7" },
+      status: "rejected",
+      createdAtMs: 12
+    })
   })
 
   it("reopens the store over a populated database without losing rows or search", async () => {
