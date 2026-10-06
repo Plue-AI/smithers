@@ -242,7 +242,6 @@ impl<I: Ignore> Inotify<I> {
                 Err(e) => return Err(e.into()),
             }
         }
-        drop(reader);
         let mut candidates = Vec::new();
         for (wd, flags, _, name) in &raw {
             if let Some(d) = self.dirs.get(wd).filter(|d| !d.metadata) {
