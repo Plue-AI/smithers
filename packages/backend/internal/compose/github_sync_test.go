@@ -388,7 +388,7 @@ func TestInstallSyncCompositionDoesNotActivatePartialStreamOwners(t *testing.T) 
 	require.Zero(t, count)
 }
 
-func TestInstallMainRetryWithMissingCheckReviewOwners(t *testing.T) {
+func TestInstallMainRetryQueuesWithMissingCheckReviewOwners(t *testing.T) {
 	pool, _ := postgresfixture.NewProductDatabase(t)
 	q := db.New(pool)
 	key, err := rsa.GenerateKey(rand.Reader, 2048)
@@ -438,4 +438,10 @@ func TestInstallMainRetryWithMissingCheckReviewOwners(t *testing.T) {
 	require.Equal(t, 1, count)
 	main.Sweep(t.Context())
 	require.NoError(t, main.PollOnce(t.Context()), "missing owners cannot reject the independently admitted main worker")
+	// This admission-only fixture has no token provider or repository engine.
+	// PollOnce records that failure; the native integration test proves sync.
+	observed, err := q.GetGithubMainPull(t.Context(), repo.ID)
+	require.NoError(t, err)
+	require.Equal(t, "failed", observed.State)
+	require.False(t, observed.LastSyncedAt.Valid)
 }
