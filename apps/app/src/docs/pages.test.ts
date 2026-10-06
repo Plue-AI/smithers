@@ -52,6 +52,7 @@ const member: CommandState = {
   surface: "chat", typing: false, hasConnectors: false, admin: false, signedOut: false
 }
 const discovery = {
+  debugApi: { available: () => false },
   bootstrap: { apiVersion: 1, host: "local", version: "docs-test", buildSha: "docs-test",
     capabilities: [], authFlow: "none", sandbox: null },
   snapshot: () => member,

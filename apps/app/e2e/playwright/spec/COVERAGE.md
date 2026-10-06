@@ -368,3 +368,4 @@ The broad C-UI-12/13 fixmes still await the other Views and their wiring tickets
 | C-UI-13 Commands | [C-UI-13.spec.ts](C-UI-13.spec.ts) | passed: /help, registry and repository rows, inline/maximized/reload, light/dark, 1440/390 | T-UI-14 |
 | C-UI-12 Commands | [Commands stories](../view-stories.spec.ts) | passed: keyboard disclosure/focus, policies, inert text, action input | T-UI-14 |
 | C-UI-12 Debug API | [Debug API stories](../view-stories.spec.ts) | passed: all 15 states, light/dark, 1280/1440/390, axe/overflow; Enter/Space selection and Send; POST/PUT/PATCH/DELETE confirmation, disabled/absent actions, inert response/failure text | T-UI-22 |
+| C-UI-12 Docs | [Docs stories](../view-stories.spec.ts) | passed: 8 stories, light/dark, 1280/1440/390px, axe/overflow, keyboard focus, anchors, inert HTML/unsafe links and missing/disabled gestures; rendered links reach the real flow seam in DocsCard.test.tsx; install activation remains T-APP-20 | T-UI-21 |
