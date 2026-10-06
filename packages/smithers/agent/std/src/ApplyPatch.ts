@@ -277,6 +277,13 @@ export const run = Effect.fn("ApplyPatch.run")(function*(
     }
   }
 
+  yield* FileMutation.validate(
+    fileSystem,
+    parsed.hunks.flatMap((hunk) =>
+      hunk.kind === "update" && hunk.movePath !== undefined ? [hunk.path, hunk.movePath] : [hunk.path]
+    )
+  )
+
   // Create only parents the patch already intends to create, before taking
   // stable sibling locks for new destinations as well as existing sources.
   for (const hunk of parsed.hunks) {

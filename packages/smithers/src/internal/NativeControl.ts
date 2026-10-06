@@ -1684,18 +1684,31 @@ export const make = (
               })
           }).pipe(
             Effect.map((provider): AgentSession.SandboxOpener => (session) =>
-              Effect.map(
+              Effect.flatMap(
                 Layer.build(Machine.layerHost(provider, { session: `${sandboxNamespace}:${session}` })),
-                (machine) => ({
-                  flows: [
-                    StandardFlows.filesystem(Context.pick(FileSystem.FileSystem, KernelPath.Path)(machine)),
-                    StandardFlows.shell(
-                      Context.pick(KernelChildProcessSpawner.ChildProcessSpawner, KernelPath.Path)(machine)
-                    ),
-                    StandardFlows.memory(memoryServices, judge, StandardFlows.hostWide),
-                    StandardFlows.jev(judge)
-                  ]
-                })
+                (machine) =>
+                  Effect.gen(function*() {
+                    const guestFilesystem = Context.get(machine, FileSystem.FileSystem)
+                    const filesystem = native.filesystem === undefined ? guestFilesystem : yield* native.filesystem(
+                      Context.get(machine, KernelPath.Path).resolve("."),
+                      guestFilesystem,
+                      Context.get(machine, KernelChildProcessSpawner.ChildProcessSpawner)
+                    )
+                    return {
+                      flows: [
+                        StandardFlows.filesystem(
+                          Context.pick(FileSystem.FileSystem, KernelPath.Path)(
+                            Context.add(machine, FileSystem.FileSystem, filesystem)
+                          )
+                        ),
+                        StandardFlows.shell(
+                          Context.pick(KernelChildProcessSpawner.ChildProcessSpawner, KernelPath.Path)(machine)
+                        ),
+                        StandardFlows.memory(memoryServices, judge, StandardFlows.hostWide),
+                        StandardFlows.jev(judge)
+                      ]
+                    }
+                  })
               )
             )
           )

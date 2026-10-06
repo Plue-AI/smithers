@@ -153,7 +153,7 @@ export const filesystem = (
     FlowBinding.provide(
       FlowBinding.make({
         flow: Read.flow,
-        handler: Read.run,
+        handler: (input, call) => Read.run(input).pipe(Effect.provideService(Read.ReadSession, call.identity.session)),
         publicError: publicRefusal,
         activity: Read.activity,
         presentation: Read.presentation
@@ -163,7 +163,7 @@ export const filesystem = (
     FlowBinding.provide(
       FlowBinding.make({
         flow: Write.flow,
-        handler: Write.run,
+        handler: (input, call) => Write.run(input).pipe(Effect.provideService(Read.ReadSession, call.identity.session)),
         publicError: publicRefusal,
         activity: Write.activity,
         presentation: Write.presentation
@@ -173,7 +173,7 @@ export const filesystem = (
     FlowBinding.provide(
       FlowBinding.make({
         flow: Edit.flow,
-        handler: Edit.run,
+        handler: (input, call) => Edit.run(input).pipe(Effect.provideService(Read.ReadSession, call.identity.session)),
         publicError: publicRefusal,
         activity: Edit.activity,
         presentation: Edit.presentation
@@ -183,7 +183,7 @@ export const filesystem = (
     FlowBinding.provide(
       FlowBinding.make({
         flow: ApplyPatch.flow,
-        handler: ApplyPatch.run,
+        handler: (input, call) => ApplyPatch.run(input).pipe(Effect.provideService(Read.ReadSession, call.identity.session)),
         publicError: publicRefusal,
         activity: ApplyPatch.activity,
         presentation: ApplyPatch.presentation

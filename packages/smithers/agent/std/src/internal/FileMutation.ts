@@ -5,12 +5,50 @@
  * @since 1.0.0
  */
 
+import * as Context from "effect/Context"
 import * as Effect from "effect/Effect"
 import type * as FileSystem from "effect/FileSystem"
 import type * as Path from "effect/Path"
 import type * as Scope from "effect/Scope"
 import * as StdError from "../StdError.ts"
 import * as FsFailure from "./FsFailure.ts"
+
+/** Authenticated standard-flow call session; absent callers cannot borrow another run's base. */
+export const ReadSession = Context.Reference<string | undefined>("@smthrs/std/read-session", {
+  defaultValue: () => undefined
+})
+
+/** The coding host attaches one run-scoped precondition policy to its guarded filesystem. */
+export const Preconditions = Symbol.for("@smthrs/std/file-preconditions")
+
+/** Read records only successful model-facing reads; mutation-internal reads never refresh a base. */
+export interface VersionedFileSystem extends FileSystem.FileSystem {
+  readonly [Preconditions]?: {
+    readonly record: (
+      path: string,
+      bytes: Uint8Array,
+      session: string | undefined
+    ) => Effect.Effect<void, StdError.StdError>
+    readonly validate: (
+      paths: ReadonlyArray<string>,
+      session: string | undefined
+    ) => Effect.Effect<void, StdError.StdError>
+  }
+}
+
+/** Record the entire original file, before pagination, through the host's existing policy. */
+export const recordRead = (fs: FileSystem.FileSystem, path: string, bytes: Uint8Array) =>
+  Effect.flatMap(
+    ReadSession,
+    (session) => (fs as VersionedFileSystem)[Preconditions]?.record(path, bytes, session) ?? Effect.void
+  )
+
+/** Refuse an unqualified provider before creating any parent or lock directories. */
+export const validate = (fs: FileSystem.FileSystem, paths: ReadonlyArray<string>) =>
+  Effect.flatMap(
+    ReadSession,
+    (session) => (fs as VersionedFileSystem)[Preconditions]?.validate(paths, session) ?? Effect.void
+  )
 
 // The on-disk lock protocol owns this hash; dependency upgrades must not
 // change the name and let two versions acquire different locks for one file.
@@ -40,6 +78,11 @@ export const acquire = (
   creationPaths?: Path.Path
 ): Effect.Effect<void, StdError.StdError, Scope.Scope> =>
   Effect.gen(function*() {
+    const session = yield* ReadSession
+    const policy = (fileSystem as VersionedFileSystem)[Preconditions]
+    // Unavailable coding providers refuse before acquiring even protocol state.
+    // A qualified policy is checked again under all locks below.
+    yield* policy?.validate(paths, session) ?? Effect.void
     const locks = new Map<string, string>()
     for (const path of paths) {
       const destination = yield* fileSystem.realPath(path).pipe(
@@ -70,4 +113,5 @@ export const acquire = (
         () => fileSystem.remove(lock, { recursive: true }).pipe(Effect.orDie)
       )
     }
+    yield* policy?.validate(paths, session) ?? Effect.void
   })
