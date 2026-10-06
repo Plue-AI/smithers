@@ -2,6 +2,8 @@
 import { Smithers } from "@smthrs/targets"
 import { Package as modelHostPackage } from "../../packages/smithers/agent/model-host/PACKAGE.ts"
 
+import { Package as harnessPackage } from "../../packages/smithers/agent/harness/PACKAGE.ts"
+
 const cwd = "apps/model-host"
 const sources = Smithers.glob("src/**/*.ts")
 
@@ -10,7 +12,7 @@ const backendInputs = Smithers.Filegroup({ srcs: [sources], cwd })
 
 const check = Smithers.Typecheck({
   srcs: [sources],
-  deps: [modelHostPackage.lib],
+  deps: [modelHostPackage.lib, harnessPackage.lib],
   tsconfig: Smithers.file("tsconfig.json"),
   buildMode: false,
   incremental: false,
@@ -20,7 +22,7 @@ const check = Smithers.Typecheck({
 const bundle = Smithers.NodeTest({
   runner: Smithers.entrypoint(Smithers.file("build.mjs")),
   srcs: [sources, Smithers.file("build.mjs"), Smithers.file("package.json")],
-  deps: [modelHostPackage.lib],
+  deps: [modelHostPackage.lib, harnessPackage.lib],
   cwd
 })
 
@@ -30,7 +32,7 @@ const bundle = Smithers.NodeTest({
 const test = Smithers.NodeTest({
   runner: Smithers.testRunner([Smithers.file("test/serve.test.mjs")]),
   srcs: [sources, Smithers.file("build.mjs"), Smithers.file("package.json")],
-  deps: [modelHostPackage.lib],
+  deps: [modelHostPackage.lib, harnessPackage.lib],
   cwd
 })
 

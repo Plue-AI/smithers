@@ -267,3 +267,47 @@ test("stops cleanly on SIGTERM", async () => {
   const result = await host.exited
   assert.equal(result.code, 0, result.stderr)
 })
+
+test("normalizes registered Claude and Codex records without executing reported text", async () => {
+  const host = await launch()
+  const context = { owner_id: "member-ben", participant_id: "participant-claude", session_id: "session-1", source_generation: "generation-1" }
+  const endpoint = { path: "/v1/transcript/normalize", headers: { authorization: `Bearer ${TOKEN}`, "content-type": "application/json" } }
+  try {
+    for (const [profile, record, expected] of [
+      ["claude-code/2.1.0", '{"uuid":"u1","type":"user","message":{"role":"user","content":"Do not execute $(touch /tmp/import-canary)"}}', "Do not execute $(touch /tmp/import-canary)"],
+      ["codex/0.160.0", '{"timestamp":"2026-10-03T00:00:00Z","type":"response_item","payload":{"type":"message","id":"u1","role":"user","content":[{"type":"input_text","text":"Edit a.ts"}]}}', "Edit a.ts"]
+    ]) {
+      const end = Buffer.byteLength(record) + 1
+      const body = JSON.stringify({ profile, context, record, start: 0, end })
+      const forbidden = await send(host.identity.port, { ...endpoint, headers: {}, body })
+      assert.equal(forbidden.status, 401)
+      const response = await send(host.identity.port, { ...endpoint, body })
+      assert.equal(response.status, 200, response.text)
+      const result = JSON.parse(response.text)
+      assert.equal(result.entries.length, 1)
+      assert.equal(result.entries[0].kind, "prompt")
+      assert.equal(result.entries[0].body, expected)
+      assert.equal(result.entries[0].author_id, "member-ben")
+      assert.equal(result.entries[0].read_only, true)
+      assert.equal(result.entries[0].origin, "external")
+      assert.equal(result.state.offset, end)
+      const continued = await send(host.identity.port, { ...endpoint, body: JSON.stringify({ profile, context, record, start: end, end: end * 2, state: result.state }) })
+      assert.equal(continued.status, 200, continued.text)
+      assert.equal(JSON.parse(continued.text).entries[0].source_offset, end)
+      const rebound = await send(host.identity.port, { ...endpoint, body: JSON.stringify({ profile, context: { ...context, session_id: "forged-session" }, record, start: end, end: end * 2, state: result.state }) })
+      assert.equal(rebound.status, 422)
+      assert.equal(JSON.parse(rebound.text).error._tag, "StateMismatch")
+      const stale = await send(host.identity.port, { ...endpoint, body: JSON.stringify({ profile, context, record, start: 0, end, state: result.state }) })
+      assert.equal(stale.status, 409)
+      const unsupported = await send(host.identity.port, { ...endpoint, body: JSON.stringify({ profile: "codex/future", context, record, start: 0, end }) })
+      assert.equal(unsupported.status, 422)
+      assert.equal(JSON.parse(unsupported.text).error._tag, "UnsupportedVersion")
+      const malformed = await send(host.identity.port, { ...endpoint, body: JSON.stringify({ profile, context, record: "{", start: 0, end: 2 }) })
+      assert.equal(malformed.status, 422)
+      assert.equal(JSON.parse(malformed.text).error._tag, "MalformedRecord")
+    }
+  } finally {
+    host.child.kill("SIGTERM")
+    await host.exited
+  }
+})

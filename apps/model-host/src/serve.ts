@@ -1,3 +1,4 @@
+import { normalizeTranscript } from "./transcript.ts"
 import {
   bearerAuthorization,
   createModelTurnHandler,
@@ -123,7 +124,9 @@ const server = createServer({
       ...(method === "GET" || method === "HEAD" ? {} : { body: bytes }),
       signal: abort.signal
     })
-    const response = new URL(request.url).pathname === "/v1/model/test" && method === "POST"
+    const response = new URL(request.url).pathname === "/v1/transcript/normalize" && method === "POST"
+      ? await normalizeTranscript(request, authorized)
+      : new URL(request.url).pathname === "/v1/model/test" && method === "POST"
       ? await testModel(request)
       : await handle(request)
     outgoing.writeHead(response.status, Object.fromEntries(response.headers.entries()))
