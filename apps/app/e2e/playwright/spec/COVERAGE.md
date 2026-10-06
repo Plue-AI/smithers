@@ -73,8 +73,8 @@ C-UI-12 Members (T-UI-09): [install roster and keyboard Add/Role/Remove](C-UI-12
 | C-APP-03 | [C-APP-03.spec.ts](C-APP-03.spec.ts) | browser-pass (failure/slash Draft, literal recipe diff and read-only seed; reload with seed fallback and on the install; two-browser private Draft isolation; Settings name refusal and Draft with the design seed disabled; guest qualification pending) | T-APP-02, T-APP-03 |
 | C-APP-04 | [C-APP-04.spec.ts](C-APP-04.spec.ts) | browser-pass: composer host admission, reload and read-only Earlier; authenticated packaged-host ordering, privacy, revocation and retired-route receipts | T-APP-16 |
 | C-APP-05 | [C-APP-05.spec.ts](C-APP-05.spec.ts) | browser-pass: real composed install, two members, author tab closes, host completes and both replay; author-only UI instructions use the typed flow | T-APP-16 |
-| C-ACC-01 | [C-ACC-01.spec.ts](C-ACC-01.spec.ts) | fixme-before-implementation | T-ACC-02, T-ACC-03, T-ACC-04, T-APP-04, T-INS-08, T-TRM-02, T-CUT-03, T-STK-06 |
-| C-ACC-02 | [C-ACC-02.spec.ts](C-ACC-02.spec.ts) | partial: stale expiry/fresh review browser journey; composed PostgreSQL/GitHub-fake admission and settlement; reference-host recovery pending | T-ACC-04, T-APP-04, T-STK-04 |
+| C-ACC-01 | [C-ACC-01.spec.ts](C-ACC-01.spec.ts) | partial: install-seam Member browser journey passed; exhaustive server/system matrix pending | T-ACC-02, T-ACC-03, T-ACC-04, T-APP-04, T-INS-08, T-TRM-02, T-CUT-03, T-STK-06 |
+| C-ACC-02 | [C-ACC-02.spec.ts](C-ACC-02.spec.ts) | partial: composed PostgreSQL merge admission/settlement, stale revision and pending merge reload browser journeys passed; reference-host recovery pending | T-ACC-04, T-APP-04, T-STK-04 |
 | C-ACC-03 | [C-ACC-03.spec.ts](C-ACC-03.spec.ts) | passing: removal, owner protection, retained TODO history | T-ACC-02 |
 | C-ACC-04 | [C-ACC-04.spec.ts](C-ACC-04.spec.ts) | roster and sign-in refusal HTTP projections pass; composed OAuth qualification separate | T-ACC-01, T-ACC-02 |
 | C-STK-01 | [C-STK-01.spec.ts](C-STK-01.spec.ts) | fixme-before-implementation | T-STK-01 |
@@ -416,3 +416,5 @@ T-APP-03 pass 3: the image Draft uses the ticket title “Add figlet to the mach
 T-APP-04 merge admission additionally passes the Confirm browser contract: a person press receives 202 pending, disables repeated presses while merging, survives reload without another merge request, and ends only from the confirmed TODO/private approval projection. PostgreSQL/GitHub-fake service tests and composed install HTTP tests cover the separate admission and settlement boundaries; reference-host recovery and the full C-ACC-02 browser journey remain pending.
 
 T-ACC-04 removes the C-ACC-02 and C-J6-02 browser fixmes using the install live confirmation seam. The browser contracts cover stale expiry, a fresh revision held by required checks, a person press, pending admission, reload, settlement and issuer attribution. These mocked transport projections supplement the composed PostgreSQL/CLI/GitHub-fake boundaries; they do not replace a real-host journey or the full C-ACC-01 command ledger.
+
+T-ACC-03 wave 2 adds the Member install-seam journey and C-ACC-02 current-check/pending-merge reload evidence. Exhaustive retained-route/system authorization and reference-host recovery remain separate pending evidence.
