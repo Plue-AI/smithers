@@ -362,18 +362,21 @@ export const Package = S.Package({ targets: { docsFiles } })
 
   it("validates repository-wide NodeTest inputs through package-scoped groups", async () => {
     const root = await fixture()
+    await write(root, ".smithers/WORKSPACE.ts", workspaceModule.replace('version: "26"', 'version: ">=26.4.0"').replace("  cache:", "  sandboxes: S.Sandboxes({ default: S.Sandbox.None() }),\n  cache:"))
     await write(root, "shared/PACKAGE.ts", `import { Smithers as S } from "@smthrs/targets"
 export const Package = S.Package({ targets: {} })
 `)
     await write(root, "shared/src/source.ts", "export const value = 1\n")
     await write(root, "PACKAGE.ts", packageModule().replace(
       'const good =',
-      'const sharedInputs = S.Filegroup({ cwd: "shared", srcs: [S.glob("src/*.ts")] })\nconst checkoutInputs = S.Filegroup({ cwd: "//", srcs: [S.glob("**/*"), sharedInputs] })\nconst consumer = S.NodeTest({ runner: S.entrypoint(S.file("//scripts/notes.mjs")), srcs: [], deps: [checkoutInputs] })\nconst good ='
+      'const sharedInputs = S.Filegroup({ cwd: "shared", srcs: [S.glob("src/*.ts")] })\nconst checkoutInputs = S.Filegroup({ cwd: "./", srcs: [S.glob("**/*"), sharedInputs] })\nconst consumer = S.NodeTest({ runner: S.entrypoint(S.file("//scripts/notes.mjs")), srcs: [], deps: [checkoutInputs] })\nconst good ='
     ).replace("all, good, notes, targetIndex", "sharedInputs, checkoutInputs, consumer, all, good, notes, targetIndex"))
     expect((await serve(root, ["target", "//:targetIndex", "--write"])).exitCode).toBe(0)
     const valid = await serve(root, ["lint", "//:targetIndex"])
     expect(valid.exitCode, valid.logs + valid.output).toBe(0)
     expect((await indexOf(root)).find((row) => row.label === "//:consumer")?.dependencies).toEqual(["//:checkoutInputs"])
+    const executed = await serve(root, ["test", "//:consumer"])
+    expect(executed.exitCode, executed.logs + executed.output).toBe(0)
     await Fs.rename(NodePath.join(root, "shared/src/source.ts"), NodePath.join(root, "shared/src/source.moved"))
     const missing = await serve(root, ["lint", "//:targetIndex"])
     expect(missing.exitCode).toBe(1)

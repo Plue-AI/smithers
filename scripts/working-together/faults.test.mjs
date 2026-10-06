@@ -83,11 +83,9 @@ test('missing host fixture records a failure before starting either boundary sui
 })
 
 test('filtered target environment keeps the shared cache and explicit lane fixture', async () => {
-  const { homedir } = await import('node:os')
-  const { join } = await import('node:path')
   const config = { databaseUrl: 'postgres://test', libraryPath: '/native.dylib', lane: 'fr3-wt-w20-r5' }
   const env = boundaryEnvironment(config, {})
-  assert.equal(env.GOCACHE, join(homedir(), '.cache/go-build-shared'))
+  assert.equal(env.GOCACHE, undefined)
   assert.equal(env.LANE, config.lane)
   assert.equal(env.SMITHERS_TEST_DATABASE_URL, config.databaseUrl)
   assert.equal(env.SMITHERS_FFI_LIBRARY_PATH, config.libraryPath)
