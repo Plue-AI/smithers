@@ -3,7 +3,10 @@ import { readFileSync } from "node:fs"
 import { evidence, MachineRecipeError, memoryRepository } from "../src/suggest/Checklist.ts"
 try {
   const files = JSON.parse(readFileSync(0, "utf8")) as Record<string, string>
-  const recipe = evidence(memoryRepository("/mirror", files)).machine
+  const facts = evidence(memoryRepository("/mirror", files))
+  const recipe = process.argv[1] === "checks"
+    ? { tools: {}, ...(facts.checks.length === 0 ? {} : { checks: facts.checks }) }
+    : facts.machine
   if (recipe instanceof MachineRecipeError) throw recipe
   process.stdout.write(JSON.stringify({ recipe }))
 } catch (error) {
