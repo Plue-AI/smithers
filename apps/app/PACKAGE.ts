@@ -273,7 +273,7 @@ const journeyTodoMerge = Smithers.NodeTest({
  */
 const proofRecord = Smithers.Shell.Build({
   shell: "cd apps/app && rm -rf test-results/proof && bunx playwright test --config playwright.proof.config.ts; test -s test-results/proof/results.json || { echo 'proofRecord: the run wrote no test-results/proof/results.json' >&2; exit 1; }",
-  data: [serverBundle, harnessSources, suiteSources, Smithers.glob("//.specs/product/*.json"),
+  data: [serverBundle, harnessSources, suiteSources, Smithers.glob("//.specs/product/**/*"),
     Smithers.file("package.json"), Smithers.file("//pnpm-lock.yaml")],
   outDirs: ["//apps/app/test-results/proof"],
   sandbox: "none",
@@ -283,7 +283,7 @@ const proofRecord = Smithers.Shell.Build({
 /** Regenerates the proof page from the newest recorded run; fails when features.json disagrees with it. */
 const proofPage = Smithers.Shell.Build({
   shell: "bun apps/app/proof/page.ts --out apps/app/test-results/proof-page",
-  data: [proofSources, Smithers.glob("//.specs/product/*.json"),
+  data: [proofSources, Smithers.glob("//.specs/product/**/*"),
     Smithers.glob("//.specs/design/mock/src/**/*")],
   outDirs: ["//apps/app/test-results/proof-page"],
   sandbox: "none",

@@ -113,3 +113,9 @@ constructed; they are not golden evidence.
    hit is the word `task-notification`). Home-directory paths, session names
    such as `smithers-2f`, and request and message ids stay; they are not
    credentials.
+
+4. Temporary session roots in tool calls and outputs are normalized to
+   `/tmp/fixture-session/repository/`; their working-script directory is
+   `scratchpad/recorded-work`. The same literal substitutions apply to the
+   captured rows and their expected entries. Record order, IDs, tool names,
+   exit codes, truncation markers and the 133-row/36-entry shape are unchanged.

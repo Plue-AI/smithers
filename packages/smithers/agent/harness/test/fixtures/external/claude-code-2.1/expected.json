@@ -614,11 +614,11 @@
       "part": {
         "type": "tool",
         "call_id": "toolu_01T28zuSVmJFyvhaDiHff5em",
-        "command": "F=$(ls -t /private/tmp/claude-501/-Users-williamcory-smithers/*/scratchpad/lanes/mklane.py /private/tmp/claude-501/-Users-williamcory-smithers/*/scratchpad/mklane.py 2>/dev/null | head -1); echo \"launcher: $F\"; sed -n '1,60p' \"$F\"",
+        "command": "F=$(ls -t /tmp/fixture-session/repository/*/scratchpad/recorded-work/mklane.py /tmp/fixture-session/repository/*/scratchpad/mklane.py 2>/dev/null | head -1); echo \"launcher: $F\"; sed -n '1,60p' \"$F\"",
         "reads": [],
         "status": "error",
         "exit_code": 1,
-        "output": "Exit code 1\n(eval):1: no matches found: /private/tmp/claude-501/-Users-williamcory-smithers/*/scratchpad/mklane.py\nlauncher: \nsed: : No such file or directory",
+        "output": "Exit code 1\n(eval):1: no matches found: /tmp/fixture-session/repository/*/scratchpad/mklane.py\nlauncher: \nsed: : No such file or directory",
         "duration_ms": 201
       }
     },
@@ -652,7 +652,7 @@
       "part": {
         "type": "tool",
         "call_id": "toolu_01XYjZJ8ggqyWbcJVpjFArFF",
-        "command": "Read {\"file_path\":\"/private/tmp/claude-501/-Users-williamcory-smithers/93469675-c700-423f-be09-43aefb36a280/tasks/b97awd6dz.output\"}",
+        "command": "Read {\"file_path\":\"/tmp/fixture-session/repository/93469675-c700-423f-be09-43aefb36a280/tasks/b97awd6dz.output\"}",
         "reads": [
           "Read b97awd6dz.output"
         ],

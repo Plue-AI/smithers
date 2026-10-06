@@ -1721,7 +1721,7 @@
       },
       {
         "kind": "glob",
-        "pattern": ".specs/product/*.json",
+        "pattern": ".specs/product/**/*",
         "exclude": []
       },
       {
@@ -1758,7 +1758,7 @@
       },
       {
         "kind": "glob",
-        "pattern": ".specs/product/*.json",
+        "pattern": ".specs/product/**/*",
         "exclude": []
       },
       {
