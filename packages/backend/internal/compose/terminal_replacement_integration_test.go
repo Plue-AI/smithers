@@ -64,15 +64,21 @@ func (*replacementRuntime) Isolation() workspaceapi.IsolationLevel {
 func (*replacementRuntime) InspectWorkspace(_ context.Context, id string) (workspaceapi.Workspace, error) {
 	return workspaceapi.Workspace{ID: id, State: workspaceapi.WorkspaceRunning}, nil
 }
-func (r *replacementRuntime) PutSessionToken(_ context.Context, _, session string, token []byte) (string, error) {
+func (r *replacementRuntime) PutSessionToken(_ context.Context, _, session string, token []byte, expected string) (string, error) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
+	if (r.token == "" && expected != "") || (r.token != "" && workspaceapi.SessionCredentialIdentity([]byte(r.token)) != expected) {
+		return "", fmt.Errorf("identity mismatch")
+	}
 	r.token = string(token)
 	return workspaceapi.SessionTokenRoot + "/" + session + "/token", nil
 }
-func (r *replacementRuntime) DeleteSessionToken(context.Context, string, string) error {
+func (r *replacementRuntime) DeleteSessionToken(_ context.Context, _, _ string, expected string) error {
 	r.mu.Lock()
 	defer r.mu.Unlock()
+	if r.token != "" && workspaceapi.SessionCredentialIdentity([]byte(r.token)) != expected {
+		return fmt.Errorf("identity mismatch")
+	}
 	r.token = ""
 	return nil
 }
@@ -118,30 +124,41 @@ func TestTerminalReplacementThroughInstallHTTPPostgres(t *testing.T) {
 	require.NoError(t, err)
 	runtime := &replacementRuntime{repoID: repo.ID}
 	svc := services.NewWorkspaceService(q, services.WithWorkspaceRuntime(runtime), services.WithWorkspaceTransactions(pool), services.WithWorkspaceGitBaseURL("http://127.0.0.1:4000"))
-	open := func() *websocket.Conn {
+	open := func(service *services.WorkspaceService, refused bool) *websocket.Conn {
 		server := httptest.NewUnstartedServer(nil)
 		origin := "http://" + server.Listener.Addr().String()
 		cfg := testConfigAllFlagsOn()
 		cfg.Auth.Mode = "selfhost"
 		cfg.Server.PublicURL = origin
 		cfg.Server.AllowedOrigins = []string{origin}
-		handler := &routes.WorkspaceTerminalHandler{Service: svc, AllowedOrigins: cfg.Server.AllowedOrigins}
+		handler := &routes.WorkspaceTerminalHandler{Service: service, AllowedOrigins: cfg.Server.AllowedOrigins}
 		server.Config.Handler = hostStatusProductionRouter(cfg, q, &services.InstallCapacityService{Queries: q}, conformanceServices{pool: pool, terminal: handler})
 		server.Start()
 		t.Cleanup(server.Close)
 		url := "ws" + strings.TrimPrefix(server.URL, "http") + "/api/repos/ben/demo/workspace/sessions/" + session + "/terminal"
 		conn, response, err := websocket.Dial(ctx, url, &websocket.DialOptions{HTTPHeader: http.Header{"Origin": {origin}, "Cookie": {"smithers_session=replacement-cookie"}}, Subprotocols: []string{"terminal"}})
-		if response != nil && err != nil {
-			t.Logf("terminal HTTP status %d", response.StatusCode)
+		if refused {
+			require.Error(t, err)
+			require.NotNil(t, response)
+			require.Equal(t, http.StatusInternalServerError, response.StatusCode)
+			return nil
 		}
 		require.NoError(t, err)
 		t.Cleanup(func() { _ = conn.CloseNow() })
 		return conn
 	}
-	a := open()
+	a := open(svc, false)
 	first := runtime.current()
 	require.NotEmpty(t, first)
-	b := open()
+	// Another host service has no ownership of this retained session file.
+	// Its create-only attempt must fail, revoke its candidate, and leave A usable.
+	replica := services.NewWorkspaceService(q, services.WithWorkspaceRuntime(runtime), services.WithWorkspaceTransactions(pool), services.WithWorkspaceGitBaseURL("http://127.0.0.1:4000"))
+	require.Nil(t, open(replica, true))
+	require.True(t, first == runtime.current(), "a replica must not replace a foreign lifecycle")
+	var live int
+	require.NoError(t, pool.QueryRow(ctx, `SELECT count(*) FROM access_tokens WHERE name=$1`, "terminal-session-"+session).Scan(&live))
+	require.Equal(t, 1, live, "failed replacement must revoke its candidate without revoking A")
+	b := open(svc, false)
 	second := runtime.current()
 	require.NotEmpty(t, second, "replacement must survive old credential cleanup")
 	require.True(t, first != second, "replacement rotates the delegated credential")

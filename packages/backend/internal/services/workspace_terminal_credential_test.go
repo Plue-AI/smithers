@@ -12,6 +12,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/smithersai/smithers/packages/backend/internal/db"
+	workspaceapi "github.com/smithersai/smithers/packages/backend/workspace"
 )
 
 type fakeTerminalTokens struct {
@@ -58,7 +59,7 @@ type fakeSessionFiles struct {
 	fail  error
 }
 
-func (f *fakeSessionFiles) PutSessionToken(_ context.Context, workspaceID, sessionID string, token []byte) (string, error) {
+func (f *fakeSessionFiles) PutSessionToken(_ context.Context, workspaceID, sessionID string, token []byte, expected string) (string, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	if f.fail != nil {
@@ -67,13 +68,19 @@ func (f *fakeSessionFiles) PutSessionToken(_ context.Context, workspaceID, sessi
 	if f.files == nil {
 		f.files = map[string]string{}
 	}
+	if current, exists := f.files[sessionID]; (exists && workspaceapi.SessionCredentialIdentity([]byte(current)) != expected) || (!exists && expected != "") {
+		return "", errors.New("identity mismatch")
+	}
 	f.files[sessionID] = string(token)
 	return "/run/smithers/sessions/" + sessionID + "/token", nil
 }
 
-func (f *fakeSessionFiles) DeleteSessionToken(_ context.Context, _, sessionID string) error {
+func (f *fakeSessionFiles) DeleteSessionToken(_ context.Context, _, sessionID, expected string) error {
 	f.mu.Lock()
 	defer f.mu.Unlock()
+	if current, exists := f.files[sessionID]; exists && workspaceapi.SessionCredentialIdentity([]byte(current)) != expected {
+		return errors.New("identity mismatch")
+	}
 	delete(f.files, sessionID)
 	return nil
 }
@@ -243,4 +250,22 @@ func TestTerminalCredentialReplacementWriteFailureLeavesNoIdentity(t *testing.T)
 	require.False(t, exists)
 	require.ErrorIs(t, a.AcquireCredential(t.Context()), errTerminalClosed)
 	require.Nil(t, b.renew)
+}
+
+func TestTerminalCredentialForeignReplacementSurvivesStaleHost(t *testing.T) {
+	tokens, files := &fakeTerminalTokens{}, &fakeSessionFiles{}
+	c := &terminalCredential{tokens: tokens, writer: files, workspaceID: "branch", sessionID: "session-a", userID: 2, repositoryID: 7}
+	require.NoError(t, c.issueLocked(t.Context()))
+	original, ok := files.token("session-a")
+	require.True(t, ok)
+	_, err := files.PutSessionToken(t.Context(), "branch", "session-a", []byte("smithers_successor"), workspaceapi.SessionCredentialIdentity([]byte(original)))
+	require.NoError(t, err)
+	// A stale renewal revokes only its newly minted candidate on CAS failure.
+	require.ErrorContains(t, c.issueLocked(t.Context()), "identity mismatch")
+	require.Len(t, tokens.liveIDs(), 1)
+	c.Close()
+	successor, ok := files.token("session-a")
+	require.True(t, ok)
+	require.Equal(t, "smithers_successor", successor)
+	require.Empty(t, tokens.liveIDs())
 }

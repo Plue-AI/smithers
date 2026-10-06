@@ -34,6 +34,7 @@ import base64
 import ctypes
 import contextlib
 import fcntl
+from contextlib import contextmanager
 import grp
 import hashlib
 import grp
@@ -199,61 +200,102 @@ def session_token_body(body):
     return body
 
 
-def put_session_token(session, body):
-    """Writes one terminal session's credential for the guest's single user.
+def session_token_identity(directory, expected, entry):
+    """Check the retained bearer before any rotation or deletion."""
+    try:
+        fd = os.open("token", os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK, dir_fd=directory)
+    except FileNotFoundError:
+        if expected == "absent":
+            return
+        fail(3, "session credential identity is missing")
+    with os.fdopen(fd, "rb") as handle:
+        info = os.fstat(handle.fileno())
+        if (expected == "absent" or not stat.S_ISREG(info.st_mode) or
+                info.st_uid != entry.pw_uid or info.st_gid != entry.pw_gid or
+                stat.S_IMODE(info.st_mode) != 0o600 or info.st_nlink != 1 or
+                info.st_size > SESSION_TOKEN_LIMIT + 1):
+            fail(3, "untrusted session credential")
+        body = handle.read(SESSION_TOKEN_LIMIT + 2)
+        if not body.endswith(b"\n"):
+            fail(3, "invalid retained session credential")
+        token = session_token_body(body[:-1])
+        if hashlib.sha256(token).hexdigest() != expected:
+            fail(3, "session credential identity differs")
 
-    Root opens each directory by descriptor without following links. The
-    session directory is root's, so the user can read its own token but
-    cannot swap the file or its directory; the token is replaced by rename.
-    """
+
+@contextmanager
+def session_token_parent(session, expected, create):
     if os.geteuid() != 0:
         fail(3, "session token writer requires root")
     if not valid_id(session):
         fail(125, "invalid session id")
+    if not valid_digest(expected) and not (create and expected == "absent"):
+        fail(3, "invalid session credential identity")
+    try:
+        parent = safe_directory(SESSION_TOKEN_DIR, trusted=True, create=create)
+    except FileNotFoundError:
+        yield None
+        return
+    lock = None
+    try:
+        # All host replicas use the same root-owned guest lock. A user cannot
+        # rename it or install a symlink, and no bearer is stored in it.
+        lock = os.open(".credential-lock", os.O_RDWR | os.O_CREAT | os.O_NOFOLLOW | os.O_NONBLOCK,
+                       0o600, dir_fd=parent)
+        info = os.fstat(lock)
+        if (not stat.S_ISREG(info.st_mode) or info.st_uid != 0 or
+                stat.S_IMODE(info.st_mode) != 0o600 or info.st_nlink != 1):
+            fail(3, "untrusted session credential lock")
+        fcntl.flock(lock, fcntl.LOCK_EX)
+        yield parent
+    finally:
+        if lock is not None:
+            os.close(lock)
+        os.close(parent)
+
+
+def put_session_token(session, body, expected):
+    """Compare and atomically replace one session's delegated credential."""
     body = session_token_body(body)
     entry = assigned_identity("agent")
-    parent = safe_directory(SESSION_TOKEN_DIR, trusted=True)
-    try:
-        try:
-            os.mkdir(session, 0o755, dir_fd=parent)
-        except FileExistsError:
-            pass
+    with session_token_parent(session, expected, True) as parent:
+        if expected == "absent":
+            try:
+                os.mkdir(session, 0o755, dir_fd=parent)
+            except FileExistsError:
+                pass
         directory = os.open(session, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW, dir_fd=parent)
-    finally:
-        os.close(parent)
-    temporary = ".token-" + secrets.token_hex(16)
-    created = False
-    try:
-        info = os.fstat(directory)
-        if info.st_uid != 0 or info.st_mode & 0o022:
-            fail(3, "untrusted session token directory")
-        fd = os.open(temporary, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, 0o600, dir_fd=directory)
-        created = True
-        with os.fdopen(fd, "wb") as handle:
-            os.fchmod(handle.fileno(), 0o600)
-            os.fchown(handle.fileno(), entry.pw_uid, entry.pw_gid)
-            handle.write(body + b"\n")
-            handle.flush()
-            os.fsync(handle.fileno())
-        os.replace(temporary, "token", src_dir_fd=directory, dst_dir_fd=directory)
+        temporary = ".token-" + secrets.token_hex(16)
         created = False
-    finally:
-        if created:
-            os.unlink(temporary, dir_fd=directory)
-        os.close(directory)
+        try:
+            info = os.fstat(directory)
+            if info.st_uid != 0 or info.st_mode & 0o022:
+                fail(3, "untrusted session token directory")
+            session_token_identity(directory, expected, entry)
+            if os.listdir(directory) != ([] if expected == "absent" else ["token"]):
+                fail(3, "unexpected session credential entries")
+            fd = os.open(temporary, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, 0o600, dir_fd=directory)
+            created = True
+            with os.fdopen(fd, "wb") as handle:
+                os.fchmod(handle.fileno(), 0o600)
+                os.fchown(handle.fileno(), entry.pw_uid, entry.pw_gid)
+                handle.write(body + b"\n")
+                handle.flush()
+                os.fsync(handle.fileno())
+            os.replace(temporary, "token", src_dir_fd=directory, dst_dir_fd=directory)
+            created = False
+            os.fsync(directory)
+        finally:
+            if created:
+                os.unlink(temporary, dir_fd=directory)
+            os.close(directory)
 
 
-def delete_session_token(session):
-    """Removes one terminal session's credential and its directory."""
-    if os.geteuid() != 0:
-        fail(3, "session token writer requires root")
-    if not valid_id(session):
-        fail(125, "invalid session id")
-    try:
-        parent = safe_directory(SESSION_TOKEN_DIR, trusted=True, create=False)
-    except FileNotFoundError:
-        return
-    try:
+def delete_session_token(session, expected):
+    """Delete only the matching bearer; never unlink unrelated entries."""
+    with session_token_parent(session, expected, False) as parent:
+        if parent is None:
+            return
         try:
             directory = os.open(session, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW, dir_fd=parent)
         except FileNotFoundError:
@@ -262,13 +304,13 @@ def delete_session_token(session):
             info = os.fstat(directory)
             if info.st_uid != 0 or info.st_mode & 0o022:
                 fail(3, "untrusted session token directory")
-            for name in os.listdir(directory):
-                os.unlink(name, dir_fd=directory)
+            session_token_identity(directory, expected, assigned_identity("agent"))
+            if os.listdir(directory) != ["token"]:
+                fail(3, "unexpected session credential entries")
+            os.unlink("token", dir_fd=directory)
         finally:
             os.close(directory)
         os.rmdir(session, dir_fd=parent)
-    finally:
-        os.close(parent)
 
 
 def load_secret_environment():
@@ -2143,11 +2185,11 @@ def main(args):
     if command == "put-env" and len(args) == 1:
         put_secret_environment(sys.stdin.buffer.read(SECRET_ENV_LIMIT + 1))
         return
-    if command == "put-token" and len(args) == 2:
-        put_session_token(args[1], sys.stdin.buffer.read(SESSION_TOKEN_LIMIT + 1))
+    if command == "put-token" and len(args) == 3:
+        put_session_token(args[1], sys.stdin.buffer.read(SESSION_TOKEN_LIMIT + 1), args[2])
         return
-    if command == "delete-token" and len(args) == 2:
-        delete_session_token(args[1])
+    if command == "delete-token" and len(args) == 3:
+        delete_session_token(args[1], args[2])
         return
     if command == "coding-helper-check" and len(args) in (2, 3):
         print("current" if coding_helper_current(*args[1:]) else "replace")
