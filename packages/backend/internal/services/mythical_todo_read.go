@@ -188,6 +188,9 @@ func (s *MythicalService) todoCard(ctx context.Context, item db.MythicalItem, it
 			return nil, err
 		}
 		card["queue"] = map[string]any{"reason": "machine", "position": position}
+		if item.Reason == todoDailyLimitReason {
+			card["queue"] = map[string]any{"reason": "daily_limit", "position": position}
+		}
 	}
 	if item.IssueNumber.Valid && item.IssueURL != "" {
 		card["issue"] = map[string]any{"number": item.IssueNumber.Int64, "url": item.IssueURL, "fixes": item.FixesIssue}

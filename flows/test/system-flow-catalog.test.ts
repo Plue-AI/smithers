@@ -1,3 +1,4 @@
+import * as Descriptor from "@smthrs/registry/Descriptor"
 import { NodeServices } from "@effect/platform-node"
 import * as Discovery from "@smthrs/registry/Discovery"
 import * as Registry from "@smthrs/registry/Registry"
@@ -25,7 +26,7 @@ test("launch-spec fixtures agree with the canonical backend system catalog", asy
 })
 
 // GET /api/flows serves the built-in TODO flow at the digest the backend
-// embeds (services/builtin_flows.json). It must be the content digest the
+// embeds (services/builtin_flows.json). It must be the execution digest the
 // flow registry measures for the composition this repository ships, so a
 // change to flows/todo/flow.ts changes the served version too.
 test("the backend serves the built-in TODO flow at the digest the registry measures", async () => {
@@ -43,7 +44,7 @@ test("the backend serves the built-in TODO flow at the digest the registry measu
   assert.deepEqual(Object.keys(served), ["todo"])
   assert.equal(
     served.todo,
-    todo.body.contentDigest,
-    "flows/todo/flow.ts changed: set todo in packages/backend/internal/services/builtin_flows.json to its sha256"
+    Descriptor.executionDigest(todo),
+    "flows/todo/flow.ts changed: set todo in packages/backend/internal/services/builtin_flows.json to its execution digest"
   )
 })

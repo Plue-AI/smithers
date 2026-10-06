@@ -1,10 +1,11 @@
-import { Effect, FileSystem } from "effect"
+import { NativeCoding, NativeCodingError, type ImportSource, type SourceImport } from "../coding/native.ts"
+import { Effect, FileSystem, Layer } from "effect"
 import assert from "node:assert/strict"
 import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { test } from "node:test"
-import { withImmutableCommit } from "../coding/immutable-source.ts"
+import { preparePinnedFlowSource, withImmutableCommit } from "../coding/immutable-source.ts"
 
 for (const mode of ["valid", "wrong-commit", "outside", "unavailable"] as const) {
   test(`pinned machine source export ${mode} never selects the editable checkout`, async (t) => {
@@ -191,4 +192,49 @@ test("an installer cannot replace the approved lockfile before flow imports", as
   )
   assert.equal(result._tag, "Failure")
   assert.equal(imports, 0)
+})
+
+const workspace = "22222222-2222-4222-8222-222222222222"
+const source = "a".repeat(40)
+const unavailable = Effect.die("unrelated native operation")
+const service = (importSource?: NativeCoding["Service"]["importSource"]) => Layer.succeed(NativeCoding)({
+  sourcePublication: "cloud", read: () => unavailable, apply: () => unavailable,
+  publishOriginalSource: () => unavailable,
+  ...(importSource === undefined ? {} : { importSource })
+})
+
+test("pinned startup imports only its immutable source through the workspace transport", async () => {
+  const calls: Array<typeof ImportSource.Type> = []
+  const native = service((request) => Effect.sync(() => {
+    calls.push(request)
+    const revision = { kind: "resolved" as const, changeId: "k".repeat(32), commitId: source,
+      treeId: "b".repeat(40), operationId: "c".repeat(128), parentCommitIds: [] }
+    return { status: "imported", requestId: request.requestId, workspaceId: workspace, repositoryId: 1,
+      operationId: revision.operationId, head: revision, revisions: [revision] } satisfies typeof SourceImport.Type
+  }))
+  await Effect.runPromise(preparePinnedFlowSource(workspace, source).pipe(Effect.provide(native)))
+  await Effect.runPromise(preparePinnedFlowSource(workspace, source).pipe(Effect.provide(native)))
+  assert.deepEqual(calls[0]!.commits, [{ commitId: source,
+    ref: `refs/smithers/workspaces/22222222-2222-4222-8222-222222222222/sources/${"a".repeat(40)}` }])
+  assert.deepEqual(calls[1], calls[0], "startup recovery repeats the identical native request")
+})
+
+test("malformed pin or workspace refuses before importing anything", async () => {
+  let calls = 0
+  const native = service(() => { calls++; return unavailable })
+  for (const [owner, commit] of [[workspace, "main"], [workspace, "0".repeat(40)],
+    [workspace, "A".repeat(40)], ["../another-workspace", source]]) {
+    await assert.rejects(Effect.runPromise(preparePinnedFlowSource(owner!, commit!).pipe(Effect.provide(native))))
+  }
+  assert.equal(calls, 0)
+})
+
+test("a host without the qualified importer refuses pinned startup", async () => {
+  await assert.rejects(Effect.runPromise(preparePinnedFlowSource(workspace, source).pipe(Effect.provide(service()))))
+})
+
+test("an unavailable retained source cannot fall back to the editing checkout", async () => {
+  await assert.rejects(Effect.runPromise(preparePinnedFlowSource(workspace, source).pipe(Effect.provide(service(() =>
+    Effect.fail(new NativeCodingError({ code: "source_missing", message: "Retained source missing" })))))),
+    /Retained source missing/)
 })

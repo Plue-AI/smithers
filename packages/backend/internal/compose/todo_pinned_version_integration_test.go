@@ -147,4 +147,9 @@ func TestTodoPinnedVersionComposedInstall(t *testing.T) {
 	require.Equal(t, activeDigest, checks.Retries[1].Pin.ExecutionDigest)
 	require.Equal(t, card["flow_version"], read()["flow_version"])
 	require.Equal(t, card["evidence"], read()["evidence"])
+	_, err = pool.Exec(ctx, `UPDATE mythical_items SET state='queued',reason='Daily limit reached · starts tomorrow',attempt=0,request_run_id='' WHERE id=$1`, item.ID)
+	require.NoError(t, err)
+	queued := read()
+	require.Equal(t, "queued", queued["state"])
+	require.Equal(t, "daily_limit", queued["queue"].(map[string]any)["reason"], "the install card exposes the admission hold")
 }

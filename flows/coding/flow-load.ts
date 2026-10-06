@@ -10,12 +10,13 @@
  */
 import * as Digest from "@smthrs/core/Digest"
 import { Action } from "@smthrs/flow"
-import type * as Descriptor from "@smthrs/registry/Descriptor"
+import * as Descriptor from "@smthrs/registry/Descriptor"
 import * as Discovery from "@smthrs/registry/Discovery"
 import * as Executable from "@smthrs/registry/Executable"
 import * as ExecutionSnapshot from "@smthrs/registry/ExecutionSnapshot"
 import * as Registry from "@smthrs/registry/Registry"
 import { Effect, FileSystem, Layer, Path, Schema } from "effect"
+import { bindFlowDependencies } from "./flow-version.ts"
 import { prepareFlowDependencies } from "./immutable-source.ts"
 import { CodingError, StackBase } from "./schema.ts"
 
@@ -57,15 +58,8 @@ export const LoadFlows = Action.make("coding/load-flows", {
  * before any host lists the flow. Neither names an absolute path, so the same
  * bytes measure the same version on every machine.
  */
-export const versionDigest = (descriptor: Descriptor.FlowDescriptor): string | undefined => {
-  const content = descriptor.body.contentDigest
-  if (content === undefined) return undefined
-  const imports = descriptor.body._tag === "Module" ? descriptor.body.imports ?? [] : []
-  return imports.length === 0 ? content : Digest.digest(Digest.canonical({
-    content,
-    imports: imports.map((entry) => ({ path: entry.path, contentDigest: entry.contentDigest ?? null }))
-  }))
-}
+export const versionDigest = (descriptor: Descriptor.FlowDescriptor): string | undefined =>
+  Descriptor.executionDigest(descriptor)
 
 /** Statements about this host's delegates, not defects in the flow (Executable.catalog). */
 const hostRefusals = new Set(["missing_delegate", "ambiguous_delegate"])
@@ -124,12 +118,7 @@ export const loadRepositoryFlows = (
       yield* Executable.catalog({ delegates: [] }).pipe(Effect.provideService(Registry.Registry, only))
     const versions: Array<FlowVersion> = []
     for (const descriptor of descriptors) {
-      const sourceDigest = versionDigest(descriptor)
-      const digest = sourceDigest === undefined ?
-        undefined :
-        lockfileDigest === Digest.digest(new TextEncoder().encode("[]")) ?
-        sourceDigest :
-        Digest.digest(Digest.canonical({ sourceDigest, lockfileDigest }))
+      const digest = versionDigest(bindFlowDependencies(descriptor, lockfileDigest))
       const relative = path.relative(repositoryPath, descriptor.path).split(path.sep).join("/")
       const failure = built?.refused.find((entry) => entry.flow === descriptor.name && !hostRefusals.has(entry.code))
       if (digest === undefined) {

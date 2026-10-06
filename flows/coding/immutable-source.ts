@@ -2,6 +2,7 @@
 import * as Digest from "@smthrs/core/Digest"
 import { Effect, type FileSystem, Option, Path, Schema, Stream } from "effect"
 import { ChildProcess, ChildProcessSpawner } from "effect/unstable/process"
+import { NativeCoding, SourceImport, requestIdFor } from "./native.ts"
 import { CodingError, type Revision } from "./schema.ts"
 
 export const ExportedTree = Schema.Struct({
@@ -333,4 +334,22 @@ export const prepareFlowDependencies = (options: ImmutableSourceOptions, root: s
       }
       return
     }
+  })
+
+/** Import the admitted source through the protected workspace binding before
+ * immutable export. Importing objects never edits the working change. */
+export const preparePinnedFlowSource = (workspaceId: string, sourceCommit: string) =>
+  Effect.gen(function*() {
+    if (!/^[a-f0-9]{40}$/.test(sourceCommit) || /^0+$/.test(sourceCommit)) {
+      return yield* invalid("Pinned flow source identity is invalid")
+    }
+    yield* Schema.decodeUnknownEffect(SourceImport.fields.workspaceId)(workspaceId).pipe(
+      Effect.mapError(() => invalid("Pinned flow workspace identity is invalid"))
+    )
+    const native = yield* NativeCoding
+    if (!native.importSource) return yield* invalid("Pinned flow source import is unavailable")
+    return yield* native.importSource({
+      requestId: requestIdFor(workspaceId, `flow-source/${sourceCommit}`),
+      commits: [{ commitId: sourceCommit, ref: `refs/smithers/workspaces/${workspaceId}/sources/${sourceCommit}` }]
+    })
   })

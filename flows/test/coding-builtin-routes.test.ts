@@ -19,7 +19,7 @@ import * as Registry from "@smthrs/registry/Registry"
 import { Effect, Layer, Option, Schema } from "effect"
 import assert from "node:assert/strict"
 import { execFileSync } from "node:child_process"
-import { access, copyFile, mkdir, mkdtemp, rm, symlink, writeFile } from "node:fs/promises"
+import { access, copyFile, mkdir, mkdtemp, readFile, rm, symlink, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { test, type TestContext } from "node:test"
@@ -425,4 +425,25 @@ test("a repository copy of the TODO composition loads on the packaged host with 
   const own = await todoDescriptor(fileURLToPath(new URL("../", import.meta.url)))
   assert.deepEqual(closure(own), [])
   assert.equal(own.body.contentDigest, copy.body.contentDigest)
+})
+
+
+test("a pinned host serves the shipped TODO without a repository flow copy", async (t) => {
+  const { repositoryPath, stateRoot } = await workspace(t)
+  const expected = JSON.parse(await readFile(new URL("../../packages/backend/internal/services/builtin_flows.json", import.meta.url), "utf8")).todo as string
+  const result = await Effect.gen(function*() {
+    const planning = yield* loadProject(repositoryPath, undefined)
+    const builtins = yield* provisionHostBuiltins(stateRoot, policy, { planning, landing })
+    const base = yield* Registry.make({ sources: [{ root: join(repositoryPath, "flows"), source: "project", naming: "path" }] }).pipe(Effect.provide(Discovery.layer))
+    const registry = bindRepositoryRegistry(base, builtins.registry, policy, systemFlows, expected)
+    const descriptor = yield* registry.get("todo")
+    yield* registry.loadBody("todo", expected)
+    const built = yield* repositoryCatalog({ delegates: [RunSetup, RunJob, RunTrigger] }, builtins.load).pipe(Effect.provideService(Registry.Registry, registry))
+    return { digest: Descriptor.executionDigest(descriptor),
+      tag: built.executables.find((entry) => entry.descriptor.name === "todo")?.declaredTag,
+      refused: built.refused.filter((entry) => entry.flow === "todo") }
+  }).pipe(Effect.provide(platform), Effect.runPromise)
+  assert.equal(result.digest, expected)
+  assert.equal(result.tag, "todo")
+  assert.deepEqual(result.refused, [])
 })

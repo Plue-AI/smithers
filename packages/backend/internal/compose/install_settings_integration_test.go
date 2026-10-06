@@ -8,6 +8,7 @@ import (
 	"errors"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 	"time"
 
@@ -41,6 +42,35 @@ func TestSettingsHealthInstallHTTPPostgres(t *testing.T) {
 	server.Config.Handler = githubAppSetupComposeRouter(cfg, pool, &routes.GitHubAppSetupHandler{Setup: setup, Owners: q, Origins: middleware.FixedOrigins(origin)})
 	server.Start()
 	defer server.Close()
+	for _, setting := range []struct {
+		body   string
+		status int
+	}{
+		{`{"todo_daily_admissions":24}`, 200},
+		{`{"todo_daily_admissions":0}`, 400},
+		{`{"todo_daily_admissions":-1}`, 400},
+		{`{"todo_daily_admissions":1.5}`, 400},
+	} {
+		request, err := http.NewRequest("PUT", origin+"/api/install", strings.NewReader(setting.body))
+		require.NoError(t, err)
+		request.Header.Set("Content-Type", "application/json")
+		request.Header.Set("Origin", origin)
+		request.Header.Set("X-CSRF-Token", "settings-csrf")
+		request.AddCookie(&http.Cookie{Name: "smithers_session", Value: "settings-owner-session"})
+		request.AddCookie(&http.Cookie{Name: middleware.CSRFCookieName, Value: "settings-csrf"})
+		response, err := http.DefaultClient.Do(request)
+		require.NoError(t, err)
+		var body map[string]any
+		require.NoError(t, json.NewDecoder(response.Body).Decode(&body))
+		response.Body.Close()
+		require.Equal(t, setting.status, response.StatusCode, body)
+		if setting.status == 200 {
+			require.Equal(t, float64(24), body["todo_daily_admissions"])
+		}
+	}
+	stored, err := q.GetInstallSetting(t.Context(), "todo_daily_admissions")
+	require.NoError(t, err)
+	require.JSONEq(t, "24", string(stored.Value), "invalid owner writes preserve the allowance")
 	retry := time.Date(2026, 10, 6, 12, 0, 0, 0, time.UTC)
 	for _, test := range []struct {
 		name, state, cause, process string

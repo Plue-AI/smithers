@@ -1,4 +1,5 @@
 /** Private staged /usr/local/bin/smithers-coding-host entry for an owning Plue workspace. */
+import * as ExecutionSnapshot from "@smthrs/registry/ExecutionSnapshot"
 import { Effect, FileSystem, Layer } from "effect"
 import type { HttpClient } from "effect/unstable/http"
 import { mkdirSync } from "node:fs"
@@ -12,13 +13,14 @@ import { remoteLayer } from "../repository/remote.ts"
 import { consume as consumeCheckEnvironment } from "./check-environment.ts"
 import { share } from "./host-modules.ts"
 import { layer, operatorSeats, optionsFromEnv, systemFlowsFromEnv } from "./host.ts"
-import { prepareFlowDependencies, withImmutableCommit } from "./immutable-source.ts"
+import { prepareFlowDependencies, preparePinnedFlowSource, withImmutableCommit } from "./immutable-source.ts"
 import { consumeInstallProject } from "./install-project.ts"
 import { load as loadLanding } from "./landing-config.ts"
 import * as Landing from "./landing.ts"
 import { loadProject } from "./project-config.ts"
 import { resolveRuntimeBridgeIdentity } from "./runtime-bridge.ts"
 import * as CodingState from "./state.ts"
+import { nativeLayer } from "./native.ts"
 
 /** Operator role→seat pins; `configured` validates each entry. */
 const parseSeats = (text: string): Readonly<Record<string, string>> => {
@@ -169,6 +171,7 @@ if (parsed.values.version) {
       Effect.flatMap((landing) => {
         const serveSource = (flowSourceRoot: string, flowSourceRevision?: string) =>
           Effect.all([
+            ExecutionSnapshot.measureLockfiles(flowSourceRoot),
             loadProject(flowSourceRoot, process.env.SMITHERS_CODING_PROJECT).pipe(
               Effect.mapError((error) =>
                 snapshot === undefined
@@ -181,11 +184,12 @@ if (parsed.values.version) {
             Effect.succeed(landing),
             optionsFromEnv(process.env).pipe(Effect.provide(platform.requestExecutor))
           ]).pipe(
-            Effect.flatMap(([planning, landing, models]) =>
+            Effect.flatMap(([flowLockfileDigest, planning, landing, models]) =>
               Serve.host(bind, root).pipe(Effect.provide(layer(platform, {
                 ...options,
                 flowSourceRoot,
                 flowSourceRevision,
+                flowLockfileDigest,
                 ...models,
                 planning,
                 ...(landing === undefined ? {} : {
@@ -211,6 +215,9 @@ if (parsed.values.version) {
               throw new Error("Pinned TODO execution digest is unavailable")
             }
             if (landing === undefined) throw new Error("Pinned TODO workspace binding is unavailable")
+            yield* preparePinnedFlowSource(landing.workspaceId, options.runtimeSourceRevision ?? "").pipe(
+              Effect.provide(nativeLayer(options))
+            )
             const fs = yield* FileSystem.FileSystem
             const sourceOptions = {
               repositoryPath: root,

@@ -548,6 +548,7 @@ func (s *MythicalService) ProjectFlowRuntime(ctx context.Context, update flowdis
 			}
 			// Only the attempt's bound run opens or withdraws its questions.
 			mythicalProjectWaits(&next, projection, update, runID, s.now().UTC())
+			projectTodoWatchdog(&next, update, s.now().UTC())
 			if err := s.persistTodoLogs(ctx, &next); err != nil {
 				return err
 			}
@@ -1236,6 +1237,11 @@ func (s *MythicalService) advanceItems(ctx context.Context, r *mythicalRun) {
 		if ctx.Err() != nil {
 			return
 		}
+		if todoWatchdogEligible(item) {
+			if w := mythicalChecksOf(item).Watchdog; w != nil && w.ActiveSince > 0 {
+				r.dueAt(time.UnixMilli(w.ActiveSince + (4 * time.Hour).Milliseconds() - w.ActiveMillis))
+			}
+		}
 		if len(item.PendingOp) > 0 {
 			recovered, err := step.recoverOutbound(ctx, item)
 			if err != nil {
@@ -1570,6 +1576,9 @@ func mythicalInfraOutage(item db.MythicalItem, tag, reason string, now time.Time
 // advance decides one item's next step, or nil when it waits. saved reports
 // that the step already saved the item (with a launch, in one transaction).
 func (st *mythicalItemStep) advance(ctx context.Context, item db.MythicalItem) (*db.MythicalItem, bool, error) {
+	if next, saved, err := st.enforceTodoWatchdog(ctx, item); next != nil || err != nil {
+		return next, saved, err
+	}
 	switch item.State {
 	case "queued", "retrying":
 		return st.start(ctx, item)
@@ -1606,6 +1615,7 @@ func (st *mythicalItemStep) advance(ctx context.Context, item db.MythicalItem) (
 			}
 			next := item
 			next.CandidateVerified, next.State, next.Reason = true, "proposing", ""
+			acceptTodoWatchdog(&next, st.now)
 			return &next, false, nil
 		default:
 			return mythicalFailure(item, "checks on the rebased result ended", mythicalFailChecks, outcome, st.now), false, nil
@@ -1669,6 +1679,17 @@ func (st *mythicalItemStep) commitWith(ctx context.Context, item db.MythicalItem
 	// Every admitted run counts toward the item's launch bound; the failure
 	// it retries after is behind it.
 	launched := mythicalChecksOf(item)
+	if flowID == flowdispatch.TodoFlow && item.Attempt == 1 && launched.AdmissionDay == "" {
+		// Serialize the install allowance and its retained first-admission fact
+		// with dispatch; failed admission rolls both back.
+		if _, err := tx.Exec(ctx, `SELECT pg_advisory_xact_lock(hashtextextended('todo_daily_admissions', 0))`); err != nil {
+			return db.MythicalItem{}, err
+		}
+		if err := todoDailyAllowance(ctx, tx, st.now); err != nil {
+			return db.MythicalItem{}, err
+		}
+		launched.AdmissionDay = st.now.UTC().Format("2006-01-02")
+	}
 	if flowID == flowdispatch.TodoFlow {
 		retained := make([]todoSteer, 0, len(launched.Steers))
 		for _, feedback := range launched.Steers {
@@ -2226,6 +2247,23 @@ func (st *mythicalItemStep) startPinned(ctx context.Context, item db.MythicalIte
 	if item.Source != "todo" || s == nil || r == nil || s.todoFlow == nil || s.launcher == nil || s.lanes == nil || !r.row.ActorUserID.Valid {
 		return todoAdmissionUnavailable(item, "", st.now), false, nil
 	}
+	if w := mythicalChecksOf(item).Watchdog; w != nil && item.WorkspaceID != "" &&
+		(w.elapsed(st.now) >= (4*time.Hour).Milliseconds() || len(w.Steps) >= 1024) {
+		if err := s.retireLane(ctx, r, item.WorkspaceID); err != nil {
+			return mythicalInfraOutage(item, "launch", "the exhausted TODO machine could not be retired", st.now), false, nil
+		}
+	}
+	if item.Attempt == 0 && mythicalChecksOf(item).AdmissionDay == "" {
+		drained, err := todoLegacyDrained(ctx, s.store, item.RepositoryID)
+		if err != nil || !drained {
+			return todoAdmissionUnavailable(item, "legacy TODO work is still draining", st.now), false, nil
+		}
+		if err := todoDailyAllowance(ctx, s.store, st.now); errors.Is(err, errTodoDailyLimit) {
+			return todoDailyQueued(item), false, nil
+		} else if err != nil {
+			return todoAdmissionUnavailable(item, "the daily admission allowance could not be read", st.now), false, nil
+		}
+	}
 	// The first attempt pins the Active todo flow at main's mirrored commit,
 	// the one this stack folded; Retry and Resume keep that pin unchanged.
 	pin, pinned := mythicalPinOf(item)
@@ -2275,6 +2313,7 @@ func (st *mythicalItemStep) startPinned(ctx context.Context, item db.MythicalIte
 	}
 	checks := mythicalChecksOf(next)
 	checks.Placement = &placement
+	checks.Watchdog = nil
 	checks.RunLaunched, checks.RunAttached, checks.Rebase = true, false, nil
 	checks.FlowSource = pin.SourceCommit
 	next.Checks = checks.encode()
@@ -2286,6 +2325,13 @@ func (st *mythicalItemStep) startPinned(ctx context.Context, item db.MythicalIte
 	ref, err := s.retainFor(ctx, r, workspaceID, base)
 	if err != nil {
 		return mythicalInfraOutage(item, "launch", "the stack tip could not reach the lane: "+err.Error(), st.now), false, nil
+	}
+	// The immutable flow source and editing base may differ. Both enter the
+	// lane through the same protected workspace source transport as objects.
+	if pin.SourceCommit != base {
+		if _, err := s.retainFor(ctx, r, workspaceID, pin.SourceCommit); err != nil {
+			return mythicalInfraOutage(item, "launch", "the pinned flow source could not reach the lane: "+err.Error(), st.now), false, nil
+		}
 	}
 	request := map[string]any{"prompt": todoPrompt(item), "maxRounds": 3,
 		"base": map[string]string{"commitId": base, "ref": ref}}
@@ -2305,6 +2351,9 @@ func (st *mythicalItemStep) startPinned(ctx context.Context, item db.MythicalIte
 	next.FlowDigest = pgtype.Text{String: pin.ExecutionDigest, Valid: true}
 	next.State, next.Reason, next.NextAttemptAt = "running", "", pgtype.Timestamptz{}
 	saved, err := st.commit(ctx, next, "todo", flowdispatch.TodoFlow, payload)
+	if errors.Is(err, errTodoDailyLimit) {
+		return todoDailyQueued(item), false, nil
+	}
 	if err != nil {
 		// The lane stays bound; the sweep retires it once the item provably
 		// does not reference it, so a lost COMMIT acknowledgment never
@@ -2502,6 +2551,7 @@ func (st *mythicalItemStep) integrate(ctx context.Context, item db.MythicalItem)
 		}
 		integration, _ := json.Marshal(map[string]any{"kind": "fast-forward"})
 		next.Integration, next.State, next.Reason = integration, "proposing", ""
+		acceptTodoWatchdog(&next, st.now)
 		return &next, false, nil
 	}
 	if err := st.fetchOnto(ctx, onto); err != nil {
@@ -4599,6 +4649,8 @@ func appliedByMaintainer(applied gitHubLabelApplication, label string) bool {
 // made its issue a TODO and asked for automerge, and the review of its pull
 // request's head.
 type mythicalChecks struct {
+	Watchdog             *todoWatchdog         `json:"watchdog,omitempty"`
+	AdmissionDay         string                `json:"admissionDay,omitempty"`
 	IssueContext         json.RawMessage       `json:"issue_context,omitempty"`
 	GitHubInputs         []todoGitHubInput     `json:"githubInputs,omitempty"`
 	PRBodyDeclined       string                `json:"prBodyDeclined,omitempty"`

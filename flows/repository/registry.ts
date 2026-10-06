@@ -21,12 +21,15 @@ import FlowLoad from "../coding/flow-load/flow.ts"
 import ImplementPlan from "../coding/flow.ts"
 import ImplementAtoms from "../coding/implementation/flow.ts"
 import Verify from "../coding/verify/flow.ts"
+import Todo from "../todo/flow.ts"
+import { bindFlowDependencies } from "../coding/flow-version.ts"
 import CodingWiki from "../coding/wiki/flow.ts"
 import { deploymentMinutes, deploymentTokens } from "./inspection.ts"
 import { JobInput, JobResult, OperationResult, SetupInput, TriggerRequest } from "./schema.ts"
 import { TriggerOutcome } from "./triggers.ts"
 
 declare const __SMITHERS_CODING_ARTIFACT_DIGEST__: string | undefined
+declare const __SMITHERS_TODO_SOURCE__: string | undefined
 /**
  * The built-in prompt bodies, compiled into the deployed host.
  *
@@ -55,6 +58,7 @@ const policySources = [
   "../coding/steps.ts",
   "../coding/package.json",
   "../coding/flow-load.ts",
+  "../coding/flow-version.ts",
   "../coding/flow-load/flow.ts",
   "../todo/flow.ts",
   "../coding/verify/flow.ts",
@@ -169,6 +173,11 @@ const checkBody = (check: BuiltinCheck) =>
     ""
   ].join("\n")
 
+const bundledOwnership = Symbol("bundledOwnership")
+type BundledLoader = NonNullable<Executable.Options["load"]> & {
+  readonly [bundledOwnership]?: (file: string) => boolean
+}
+
 export const provisionBuiltins = (
   stateRoot: string,
   policy: string,
@@ -220,6 +229,7 @@ export const provisionBuiltins = (
         delegate: "repository/RunJob",
         description: `Run the reviewed ${job} responsibility with recorded evidence.`
       })),
+      { name: "todo", flow: Todo, description: "Route, plan, implement and deliver one TODO." },
       { name: "coding", flow: ImplementPlan, description: "Execute a native coding plan with its required checks." },
       { name: "coding/dispatch", flow: Dispatch, description: "Run one dispatched agent turn in this workspace." },
       { name: "coding/implementation", flow: ImplementAtoms, description: "Implement one native coding atom." },
@@ -235,7 +245,11 @@ export const provisionBuiltins = (
       const directory = path.join(root, entry.name)
       yield* fs.makeDirectory(directory, { recursive: true })
       const header = `// Bundled repository policy ${policy}.`
-      const body = entry.flow === undefined
+      const body = entry.name === "todo"
+        ? typeof __SMITHERS_TODO_SOURCE__ === "undefined"
+          ? yield* fs.readFileString(fileURLToPath(new URL("../todo/flow.ts", import.meta.url)))
+          : __SMITHERS_TODO_SOURCE__
+        : entry.flow === undefined
         ? `import type * as FlowBinding from "@smthrs/harness/FlowBinding"\nimport { Schema } from "effect"\n${header}\nexport default ({ name: ${
           JSON.stringify(entry.name)
         }, description: ${JSON.stringify(entry.description)}, capabilities: ["*"], flows: [${
@@ -320,7 +334,7 @@ export const provisionBuiltins = (
         ? Effect.succeed({ default: entry.declaration }) :
         Effect.fail(new Error("Bundled declaration bytes changed"))
     }
-    return { registry, load }
+    return { registry, load: Object.assign(load, { [bundledOwnership]: (file: string) => modules.has(path.resolve(file)) }) }
   })
 
 /** Project modules retain their normal verified import loader; built-ins use
@@ -332,7 +346,7 @@ export const repositoryCatalog = (options: Executable.Options, load: NonNullable
       Registry.Registry.of({
         ...registry,
         list: () =>
-          Effect.succeed(descriptors.filter((entry) => (entry.provenance.source === "repository-host") === bundled))
+          Effect.succeed(descriptors.filter((entry) => (entry.provenance.source === "repository-host" || (load as BundledLoader)[bundledOwnership]?.(entry.path) === true) === bundled))
       })
     const project = yield* Executable.catalog(options).pipe(Effect.provideService(Registry.Registry, selected(false)))
     const builtins = yield* Executable.catalog({ ...options, load }).pipe(
@@ -441,7 +455,8 @@ export const bindRepositoryRegistry = (
   builtins: Registry.Registry,
   policy: string,
   systemFlows: ReadonlyArray<string>,
-  expectedTodoDigest?: string
+  expectedTodoDigest?: string,
+  lockfileDigest?: string
 ): Registry.Registry => {
   // The `todo` composition (flows/todo/flow.ts) runs only from stack admission
   // with the real pinned-source and current-attempt providers (T-FLW-03/04,
@@ -463,6 +478,15 @@ export const bindRepositoryRegistry = (
       ? { input: JobInput, output: JobResult }
       : undefined
   const derived = (descriptor: Descriptor.FlowDescriptor) => {
+    // The packaged default and a byte-identical repository copy are one
+    // flow version. Compiled-module ownership stays on the loader, separate
+    // from the source metadata that the execution digest measures.
+    if (descriptor.name === "todo" && descriptor.provenance.source === "repository-host") {
+      descriptor = new Descriptor.FlowDescriptor({ ...descriptor,
+        provenance: new Descriptor.Provenance({ ...descriptor.provenance, source: "project" }) })
+    } else if (descriptor.provenance.source !== "repository-host") {
+      descriptor = bindFlowDependencies(descriptor, lockfileDigest)
+    }
     // Retained executors are engine bindings, never model command doors.
     if (["coding/request", "coding/vibe", "coding/verify", "review/change"].includes(descriptor.name)) {
       descriptor = new Descriptor.FlowDescriptor({ ...descriptor, modelInvocable: false })

@@ -90,6 +90,7 @@ export interface Options extends NativeOptions {
   /** Commit identity returned by the verified native source export, never copied from the launch envelope. */
   readonly flowSourceRevision?: string | undefined
   readonly todoExecutionDigest?: string | undefined
+  readonly flowLockfileDigest?: string | undefined
   /** Same operator credential used by Serve; enables the existing native gateway delegation. */
   readonly credential?: string | undefined
   /** Existing authority override, including a narrower operator policy. */
@@ -568,7 +569,8 @@ export const layer = (platform: NativeControl.Platform, options: Options, suppli
               builtins.registry,
               repositoryPolicy,
               options.systemFlows,
-              options.todoExecutionDigest
+              options.todoExecutionDigest,
+              options.flowLockfileDigest
             ))
         ).pipe(Layer.provide(native.layerRegistry(options.flowSourceRoot ?? options.repositoryPath)))
         const request = options.planning === undefined ? Layer.empty : Layer.mergeAll(
