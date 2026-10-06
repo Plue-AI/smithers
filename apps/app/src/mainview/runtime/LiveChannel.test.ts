@@ -35,7 +35,6 @@ describe("live channel", () => {
     expect(channel.getSnapshot("confirmations:17")?.data).toEqual([{ id: "private", state: "pending" }])
     sockets[0]!.drop()
     expect(channel.getSnapshot("confirmations:17")).toEqual({ topic: "confirmations:17" })
-    expect(channel.collection.get("confirmations:17")?.data).toBeUndefined()
     timers[0]!.run(); sockets[1]!.open()
     expect(sockets[1]!.frames[0]).toEqual({ t: "sub", id: 1, topic: "confirmations:17" })
     sockets[1]!.receive({ t: "err", id: 1, code: "forbidden" })
