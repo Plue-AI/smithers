@@ -346,8 +346,18 @@ func TestGitHubUserReposService_FirstSyncPaginatesFullListing(t *testing.T) {
 
 func TestGitHubUserReposService_StaleCacheServesImmediatelyAndRefreshesOnce(t *testing.T) {
 	upstream := &countingRepoServer{items: testRepoItems(3)}
-	srv := httptest.NewServer(upstream.handler())
+	refreshReleased := make(chan struct{})
+	var releaseOnce sync.Once
+	releaseRefresh := func() { releaseOnce.Do(func() { close(refreshReleased) }) }
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		select {
+		case <-refreshReleased:
+			upstream.handler().ServeHTTP(w, r)
+		case <-r.Context().Done():
+		}
+	}))
 	defer srv.Close()
+	defer releaseRefresh()
 	t.Setenv(envGitHubAppAPIBaseURL, srv.URL)
 
 	queries := newFakeGitHubUserReposDB()
@@ -384,6 +394,9 @@ func TestGitHubUserReposService_StaleCacheServesImmediatelyAndRefreshesOnce(t *t
 		assert.Equal(t, "octo/old-repo", result.Repos[0].FullName)
 		require.NotNil(t, result.CacheSyncedAt)
 	}
+
+	// Finish the refresh only after every concurrent stale read has returned.
+	releaseRefresh()
 
 	select {
 	case err := <-syncDone:
