@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"math"
 	"net/http"
 
 	"github.com/jackc/pgx/v5"
@@ -74,6 +75,7 @@ func (s *Store) SharedEntries(ctx context.Context, scope Scope, branch string) (
 		}
 		entry := SharedTurn{ID: turn.ID, Author: turn.UserID, RunID: turn.RunID, Prompt: prompt, State: turn.State, Frames: []json.RawMessage{}}
 		cursor := initialCursor(acceptance)
+		var preflight sharedPreflight
 		for {
 			page, e := s.replayVerified(ctx, tx, turn, cursor, maxReplayBatches)
 			if e != nil {
@@ -81,9 +83,10 @@ func (s *Store) SharedEntries(ctx context.Context, scope Scope, branch string) (
 			}
 			for _, batch := range page.Batches {
 				for _, frame := range batch.Frames {
-					if selected := sharedContext(frame); selected != nil {
-						entry.Context = &selected
+					if err := preflight.apply(frame); err != nil {
+						return result, err
 					}
+					entry.Context = preflight.context
 					if sharedFrame(frame) {
 						entry.Frames = append(entry.Frames, frame)
 					}
@@ -179,4 +182,56 @@ func sharedContext(raw json.RawMessage) []json.RawMessage {
 		result = append(result, encoded)
 	}
 	return result
+}
+
+// sharedPreflight assembles numbered selections across replay pages. A partial
+// phase is never a shared context list; a new page zero fences interrupted work.
+type sharedPreflight struct {
+	context      *[]json.RawMessage
+	pending      []json.RawMessage
+	phase, model string
+	duration     float64
+	next, total  int
+}
+
+func (p *sharedPreflight) apply(raw json.RawMessage) error {
+	var frame struct {
+		Type, Phase string
+		Page        *struct{ Index, Total float64 }
+		Result      struct {
+			Model      string
+			DurationMs float64
+		}
+	}
+	if json.Unmarshal(raw, &frame) != nil {
+		return ErrInvalidFrame
+	}
+	if frame.Type != "context.preflight" {
+		return nil
+	}
+	if frame.Page == nil {
+		*p = sharedPreflight{}
+		if selected := sharedContext(raw); selected != nil {
+			p.context = &selected
+		}
+		return nil
+	}
+	page := frame.Page
+	if page.Index < 0 || page.Total <= page.Index || page.Index != math.Trunc(page.Index) || page.Total != math.Trunc(page.Total) || page.Total > 9007199254740991 || !oneOf(frame.Phase, "started", "completed") {
+		return ErrInvalidFrame
+	}
+	if page.Index == 0 {
+		*p = sharedPreflight{phase: frame.Phase, model: frame.Result.Model, duration: frame.Result.DurationMs, total: int(page.Total), pending: []json.RawMessage{}}
+	} else if float64(p.next) != page.Index || float64(p.total) != page.Total || p.phase != frame.Phase || p.model != frame.Result.Model || p.duration != frame.Result.DurationMs {
+		return ErrInvalidFrame
+	}
+	if frame.Phase == "completed" {
+		p.pending = append(p.pending, sharedContext(raw)...)
+	}
+	p.next++
+	if p.next == p.total && frame.Phase == "completed" {
+		selected := p.pending
+		p.context = &selected
+	}
+	return nil
 }

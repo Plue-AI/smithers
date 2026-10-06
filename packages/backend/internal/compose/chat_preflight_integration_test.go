@@ -202,20 +202,37 @@ func TestLocalSharedPreflightUsesFastRoleThenCodingFallback(t *testing.T) {
           FROM chat_turn_batches b CROSS JOIN LATERAL jsonb_array_elements(b.frames) WITH ORDINALITY AS f(frame,position)
           WHERE b.turn_id=$1 AND frame->>'type'='context.preflight'`, admitted.TurnID).Scan(&journal))
 		var steps []struct {
-			Phase  string `json:"phase"`
+			Phase  string                     `json:"phase"`
+			Page   struct{ Index, Total int } `json:"page"`
 			Result struct {
 				Model string `json:"model"`
 			} `json:"result"`
 		}
 		require.NoError(t, json.Unmarshal(journal, &steps))
-		require.Len(t, steps, 2)
+		require.Greater(t, len(steps), 2, "large catalog must span bounded journal pages")
+		for _, phase := range []string{"started", "completed"} {
+			next, total := 0, 0
+			for _, step := range steps {
+				if step.Phase != phase {
+					continue
+				}
+				require.Equal(t, next, step.Page.Index)
+				require.Equal(t, role, step.Result.Model)
+				next++
+				if total == 0 {
+					total = step.Page.Total
+				}
+				require.Equal(t, total, step.Page.Total)
+			}
+			require.Greater(t, total, 1)
+			require.Equal(t, total, next)
+		}
 		require.NotContains(t, string(journal), "canary-C")
 		require.Contains(t, string(journal), "background-2.txt", "large catalog must not be silently truncated")
+		require.Contains(t, string(journal), "catalog-0499-", "last catalog entry must remain inspectable")
 		require.NotContains(t, string(journal), "private-wiki-canary")
 		require.Equal(t, "started", steps[0].Phase)
-		require.Equal(t, "completed", steps[1].Phase)
-		require.Equal(t, role, steps[0].Result.Model)
-		require.Equal(t, role, steps[1].Result.Model)
+		require.Equal(t, "completed", steps[len(steps)-1].Phase)
 		for _, key := range []string{"app-private-key", "fast-private-key", "coding-private-key"} {
 			require.NotContains(t, string(frames), key)
 			require.NotContains(t, string(journal), key)
@@ -365,6 +382,12 @@ func composedContextSources(t *testing.T, local *localChat) (services.InstallCon
 	// Unrelated files remain candidates without entering the answer.
 	for i := 0; i < 3; i++ {
 		require.NoError(t, os.WriteFile(filepath.Join(repoPath, fmt.Sprintf("background-%d.txt", i)), []byte(strings.Repeat("background-content-canary ", 32000)), 0644))
+	}
+	// Metadata alone exceeds one journal batch. These native files must all
+	// reach Inspect while each committed page stays inside the existing bound.
+	for i := 0; i < 500; i++ {
+		name := fmt.Sprintf("catalog-%04d-%s.txt", i, strings.Repeat("c", 180))
+		require.NoError(t, os.WriteFile(filepath.Join(repoPath, name), []byte("Catalog filler"), 0644))
 	}
 	outside := filepath.Join(t.TempDir(), "outside")
 	require.NoError(t, os.WriteFile(outside, []byte("outside-symlink-canary"), 0644))

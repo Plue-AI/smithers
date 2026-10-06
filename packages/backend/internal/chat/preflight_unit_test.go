@@ -23,3 +23,19 @@ func TestContextPreflightJournalEnvelope(t *testing.T) {
 		require.ErrorIs(t, err, ErrInvalidFrame)
 	}
 }
+
+func TestContextPreflightJournalPageEnvelope(t *testing.T) {
+	for _, page := range []string{`{"index":0,"total":1}`, `{"index":0.0,"total":1.0}`, `{"index":1,"total":2}`} {
+		raw := strings.Replace(literalPreflight, `"type":"context.preflight"`, `"type":"context.preflight","phase":"completed","page":`+page, 1)
+		_, err := validateFrames([]json.RawMessage{json.RawMessage(raw)}, "run")
+		require.NoError(t, err)
+	}
+	for _, page := range []string{`null`, `{}`, `{"index":0,"total":0}`, `{"index":-1,"total":1}`, `{"index":1,"total":1}`, `{"index":0.5,"total":2}`, `{"index":0,"total":1,"extra":true}`} {
+		raw := strings.Replace(literalPreflight, `"type":"context.preflight"`, `"type":"context.preflight","phase":"completed","page":`+page, 1)
+		_, err := validateFrames([]json.RawMessage{json.RawMessage(raw)}, "run")
+		require.ErrorIs(t, err, ErrInvalidFrame)
+	}
+	raw := strings.Replace(literalPreflight, `"type":"context.preflight"`, `"type":"context.preflight","page":{"index":0,"total":1}`, 1)
+	_, err := validateFrames([]json.RawMessage{json.RawMessage(raw)}, "run")
+	require.ErrorIs(t, err, ErrInvalidFrame)
+}

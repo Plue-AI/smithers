@@ -5,7 +5,7 @@
  */
 
 import { z } from "zod"
-import { ContextPreflightResultSchema } from "./ContextPreflight.ts"
+import { ContextPreflightFrameSchema } from "./ContextPreflight.ts"
 import type { AgentRuntimeContext } from "./AgentContext.ts"
 import type { AgentRoleId, CloudRoleId } from "./AgentRoles.ts"
 import { CardPatchSchema, CardSchema } from "./Cards.ts"
@@ -237,7 +237,7 @@ export type AgentTurnUsage = z.infer<typeof AgentTurnUsageSchema>
  * @category schemas
  */
 export const AgentTurnFrameSchema = z.discriminatedUnion("type", [
-  z.object({ runId: z.string(), type: z.literal("context.preflight"), phase: z.enum(["started", "completed"]).optional(), result: ContextPreflightResultSchema }),
+  ContextPreflightFrameSchema,
   z.object({
     runId: z.string(),
     type: z.literal("delta"),

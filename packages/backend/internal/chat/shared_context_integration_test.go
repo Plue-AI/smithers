@@ -3,6 +3,7 @@ package chat
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -76,4 +77,38 @@ func TestSharedConversationRetainsSelectedContext(t *testing.T) {
 	require.NoError(t, err)
 	defer response.Body.Close()
 	require.Equal(t, http.StatusForbidden, response.StatusCode)
+}
+
+func TestSharedConversationAssemblesPreflightAcrossReplayPages(t *testing.T) {
+	f := newContextFixture(t)
+	grant := f.admit(t, "paged", "Read the catalog", true, true, false)
+	for i := 0; i < 20; i++ {
+		raw, err := json.Marshal(map[string]any{"runId": grant.RunID, "type": "context.preflight", "phase": "completed",
+			"page": map[string]int{"index": i, "total": 20}, "result": map[string]any{"model": "fast", "durationMs": 12, "candidates": []any{},
+				"context": []any{map[string]any{"kind": "todo", "label": "TODO", "ref": fmt.Sprintf("T%d", i), "reason": "Selected", "private": "canary"}}}})
+		require.NoError(t, err)
+		ack, err := f.handler.Store.Commit(t.Context(), CommitInput{TurnID: grant.TurnID, Generation: grant.Generation, Token: grant.Token, Expected: grant.Cursor, Frames: []json.RawMessage{raw}})
+		require.NoError(t, err)
+		grant.Cursor = ack.Cursor
+		if i == 18 {
+			shared, err := f.handler.Store.SharedEntries(t.Context(), f.scope, "main")
+			require.NoError(t, err)
+			require.Nil(t, shared.Entries[0].Context, "19 valid pages are not a completed selection")
+		}
+	}
+	_, err := f.handler.Store.Commit(t.Context(), CommitInput{TurnID: grant.TurnID, Generation: grant.Generation, Token: grant.Token, Expected: grant.Cursor, Frames: []json.RawMessage{done(grant.RunID, "stop")}})
+	require.NoError(t, err)
+	cold, err := NewStore(f.handler.Store.pool)
+	require.NoError(t, err)
+	for range 2 {
+		shared, err := cold.SharedEntries(t.Context(), f.scope, "main")
+		require.NoError(t, err)
+		require.Len(t, *shared.Entries[0].Context, 20)
+		for i, raw := range *shared.Entries[0].Context {
+			require.JSONEq(t, fmt.Sprintf(`{"kind":"todo","label":"TODO","ref":"T%d","reason":"Selected"}`, i), string(raw))
+		}
+		raw, err := json.Marshal(shared)
+		require.NoError(t, err)
+		require.NotContains(t, string(raw), "canary")
+	}
 }

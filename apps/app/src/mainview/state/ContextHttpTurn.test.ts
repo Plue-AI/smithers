@@ -55,3 +55,24 @@ test("Inspect never reports a started selection as completed and keeps old entri
     expect(stopped.attempts[0]?.graph[0]?.state).toBe("failed")
   }
 })
+
+test("paged choices become visible only after the complete durable phase", () => {
+  const candidate = { kind: "todo" as const, label: "T1", ref: "T1" }
+  const item = { ...candidate, reason: "Relevant" }
+  const page = { runId: "turn", type: "context.preflight" as const, phase: "completed" as const, page: { index: 0, total: 2 },
+    result: { candidates: [candidate], context: [item], model: "fast", durationMs: 4 } }
+  const partialEvent: AppTransition = { type: "http.turn.batch.received", actor: "system", attemptId: "attempt", legId: "leg",
+    batch: batchOf(initialCursor(), [page, { runId: "turn", type: "delta", kind: "text", text: "Answer" }, { runId: "turn", type: "done", reason: "stop" }]) }
+  const partial = step(accepted(), partialEvent)
+  expect(partial.messages.find(message => message.role === "smithers")?.context).toBeUndefined()
+  expect(partial.httpTurns[0]?.preflightPhase).toBe("started")
+  const wholeEvent: AppTransition = { type: "http.turn.batch.received", actor: "system", attemptId: "attempt", legId: "leg",
+    batch: batchOf(initialCursor(), [page, { ...page, page: { index: 1, total: 2 }, result: { ...page.result, candidates: [], context: [] } },
+      { runId: "turn", type: "delta", kind: "text", text: "Answer" }, { runId: "turn", type: "done", reason: "stop" }]) }
+  const whole = step(accepted(), wholeEvent)
+  expect(whole.messages.find(message => message.role === "smithers")?.context).toEqual([item])
+  expect(whole.httpTurns[0]?.preflightPage).toBeUndefined()
+  expect(MonitorCardSchema.parse(contextMonitor(whole.httpTurns[0]!)).attempts[0]?.steps[0]?.output).toEqual({ candidates: [candidate], choices: [item], model: "fast" })
+  expect(appProjectionHash(step(accepted(), wholeEvent))).toBe(appProjectionHash(whole))
+  expect(() => step(accepted(), { ...wholeEvent, batch: batchOf(initialCursor(), [{ ...page, page: { index: 1, total: 2 } }]) })).toThrow("Invalid preflight page sequence")
+})

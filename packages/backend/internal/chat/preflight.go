@@ -67,6 +67,22 @@ func validPreflight(value any) bool {
 	return true
 }
 
+// Page bounds are part of the persisted frame contract. Legacy unpaged
+// frames retain their original decoding; a paged frame must name its phase.
+func validPreflightPage(frame map[string]any, phase string) bool {
+	value, exists := frame["page"]
+	if !exists {
+		return true
+	}
+	page, ok := value.(map[string]any)
+	if !ok || len(page) != 2 || phase == "" || !integerField(page, "index", false) || !integerField(page, "total", true) {
+		return false
+	}
+	index, _ := page["index"].(json.Number).Float64()
+	total, _ := page["total"].(json.Number).Float64()
+	return index < total
+}
+
 // ContextRepository supplies host-read candidate data and settings. Selection
 // stays in the existing TypeScript recall step. An absent provider refuses;
 // the callback never substitutes a browser transcript or an empty repository.

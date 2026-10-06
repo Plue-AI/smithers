@@ -6,20 +6,20 @@
 
 import type * as Model from "@smthrs/model/Model"
 import { ModelError } from "@smthrs/model/ModelError"
-import { ContextPreflightInputSchema } from "@smthrs/rpc/ContextPreflight"
 import {
   AgentTurnCursorSchema,
   agentTurnJournalDigestInput,
   AgentTurnJournalReplySchema
 } from "@smthrs/rpc/AgentTurnJournal"
 import type { AgentTurnCursor, AgentTurnJournalReply } from "@smthrs/rpc/AgentTurnJournal"
+import { ContextPreflightInputSchema } from "@smthrs/rpc/ContextPreflight"
+import type { ContextPreflightFrame, ContextPreflightInput, ContextPreflightResult } from "@smthrs/rpc/ContextPreflight"
 import type { AgentTurnFrame, FetchLike, StartAgentTurnRequest } from "@smthrs/rpc/NativeAgent"
 import { Effect } from "effect"
+import { runContextPreflight } from "./ContextPreflight.ts"
 import { apiReader, hostOwned, runHostTurn, sourceLister, sourceReader } from "./HostTools.ts"
 import { CommitRefused, ProducerUnreachable, ProviderStartRefused, ReceiptMismatch } from "./ModelHostError.ts"
 import type { ProducerError } from "./ModelHostError.ts"
-import { runContextPreflight } from "./ContextPreflight.ts"
-import type { ContextPreflightInput } from "@smthrs/rpc/ContextPreflight"
 import { runModelTurn } from "./ModelTurnHost.ts"
 import type { ModelTurnOptions } from "./ModelTurnHost.ts"
 
@@ -124,6 +124,71 @@ export class DurableChatProducer {
     )
   }
 
+  writePreflight(
+    phase: "started" | "completed",
+    result: ContextPreflightResult
+  ): Effect.Effect<void, ProducerError | ModelError> {
+    return Effect.gen({ self: this }, function*() {
+      const pages: Array<ContextPreflightResult> = []
+      let current: ContextPreflightResult = { ...result, candidates: [], context: [] }
+      const frame: ContextPreflightFrame = {
+        runId: this.grant.runId,
+        type: "context.preflight",
+        phase,
+        page: { index: Number.MAX_SAFE_INTEGER - 1, total: Number.MAX_SAFE_INTEGER },
+        result: current
+      }
+      const bytes = (value: unknown) => new TextEncoder().encode(agentTurnJournalDigestInput("batch", value)).byteLength
+      // Canonical sizes use the journal's own encoding. Worst-case cursor
+      // digits and per-item digest prefixes conservatively cover all overhead.
+      const overhead = bytes({
+        version: 1,
+        runId: this.grant.runId,
+        legId: this.grant.legId,
+        batch: Number.MAX_SAFE_INTEGER,
+        from: Number.MAX_SAFE_INTEGER,
+        previousHash: this.cursor.hash,
+        hash: this.cursor.hash,
+        frames: [frame]
+      })
+      if (overhead > 96 * 1024) {
+        return yield* Effect.fail(
+          new ModelError({ code: "invalid_provider_output", message: "preflight metadata exceeds journal limit" })
+        )
+      }
+      let size = overhead
+      for (const field of ["candidates", "context"] as const) {
+        for (const item of result[field]) {
+          const cost = bytes(item) + 1
+          if (overhead + cost > 96 * 1024) {
+            return yield* Effect.fail(
+              new ModelError({ code: "invalid_provider_output", message: "preflight item exceeds journal limit" })
+            )
+          }
+          if (size + cost > 96 * 1024) {
+            pages.push(current)
+            current = { ...result, candidates: [], context: [] }
+            size = overhead
+          }
+          current = { ...current, [field]: [...current[field], item] }
+          size += cost
+        }
+      }
+      pages.push(current)
+      // Finish preparing every page before the first write. A refused page
+      // cannot authorize provider start or the following answer request.
+      for (const [index, value] of pages.entries()) {
+        yield* this.write({
+          runId: this.grant.runId,
+          type: "context.preflight",
+          phase,
+          page: { index, total: pages.length },
+          result: value
+        })
+      }
+    })
+  }
+
   write(frame: AgentTurnFrame): Effect.Effect<void, ProducerError> {
     const expected = this.cursor
     const body = JSON.stringify({
@@ -197,7 +262,9 @@ export const runDurableChatTurn = (
     // Shared prompt admission must never degrade to a transcript-only answer
     // while the authorized host context provider is unavailable.
     if (grant.request.sharedConversation === true && preflight === undefined) {
-      return yield* Effect.fail(new ModelError({ code: "invalid_provider_output", message: "shared conversation preflight is unavailable" }))
+      return yield* Effect.fail(
+        new ModelError({ code: "invalid_provider_output", message: "shared conversation preflight is unavailable" })
+      )
     }
     // Selected content is only supplied by the trusted provider; a renderer
     // cannot pass its own selection or private transcript through this path.
@@ -205,17 +272,28 @@ export const runDurableChatTurn = (
     let prepared: DurableChatGrant = { ...grant, request }
     if (preflight !== undefined) {
       const decoded = ContextPreflightInputSchema.safeParse(preflight.input)
-      if (!decoded.success) return yield* Effect.fail(new ModelError({ code: "invalid_provider_output", message: "context preflight input is invalid" }))
+      if (!decoded.success) {
+        return yield* Effect.fail(
+          new ModelError({ code: "invalid_provider_output", message: "context preflight input is invalid" })
+        )
+      }
       // Prove durable step writes before spending on either model. A failed
       // start receipt never permits the selector or answer request.
-      yield* write({ runId: grant.runId, type: "context.preflight", phase: "started", result: {
-        context: [], candidates: decoded.data.candidates.filter(candidate => !decoded.data.wikiOnly || candidate.item.kind === "page").map(candidate => candidate.item),
-        model: preflight.options.modelId, durationMs: 0
-      } })
+      yield* producer.writePreflight("started", {
+        context: [],
+        candidates: decoded.data.candidates.filter((candidate) =>
+          !decoded.data.wikiOnly || candidate.item.kind === "page"
+        ).map((candidate) => candidate.item),
+        model: preflight.options.modelId,
+        durationMs: 0
+      })
       yield* producer.providerStarted()
       const answer = yield* runContextPreflight(decoded.data, preflight.model, preflight.options)
-      yield* write({ runId: grant.runId, type: "context.preflight", phase: "completed", result: answer.result })
-      prepared = { ...grant, request: { ...request, messages: answer.messages, selectedContext: answer.selectedContext } }
+      yield* producer.writePreflight("completed", answer.result)
+      prepared = {
+        ...grant,
+        request: { ...request, messages: answer.messages, selectedContext: answer.selectedContext }
+      }
     }
     if (preflight === undefined) yield* producer.providerStarted()
     if (hostOwned(prepared.request)) {

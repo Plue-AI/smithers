@@ -760,7 +760,7 @@ func validateFrames(frames []json.RawMessage, expectedRunID string) (frameMeta, 
 			}
 		case "context.preflight":
 			phase, validPhase := stringField(object, "phase", false)
-			if !validPhase || (phase != "" && !oneOf(phase, "started", "completed")) || !validPreflight(object["result"]) {
+			if !validPhase || (phase != "" && !oneOf(phase, "started", "completed")) || !validPreflight(object["result"]) || !validPreflightPage(object, phase) {
 				return frameMeta{}, ErrInvalidFrame
 			}
 		case "link.authored":
