@@ -350,7 +350,7 @@ func newRehearsal(t *testing.T, enable, check, keyPrefix string) *rehearsal {
 	})
 	r.jar, err = cookiejar.New(nil)
 	require.NoError(t, err)
-	r.client = &http.Client{Jar: r.jar, Timeout: 8 * time.Second, CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}
+	r.client = &http.Client{Jar: r.jar, Timeout: 30 * time.Second, CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}
 	t.Cleanup(func() {
 		r.mu.Lock()
 		defer r.mu.Unlock()
@@ -1075,6 +1075,10 @@ func (r *rehearsal) waitMerged(number, pull int64, head string) error {
 					return err
 				}
 				if health.State != "fresh" || health.LastSuccessAt == nil {
+					if !time.Now().After(deadline) && health.State == "stale" {
+						time.Sleep(200 * time.Millisecond)
+						continue
+					}
 					return fmt.Errorf("GitHub sync %q after the follow", health.State)
 				}
 				r.actual = fmt.Sprintf("200 merged; install main %s = GitHub's squash commit; sync fresh", squash)

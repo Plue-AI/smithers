@@ -1572,7 +1572,7 @@ func (st *mythicalItemStep) advance(ctx context.Context, item db.MythicalItem) (
 		}
 	case "proposing", "waiting":
 		next, err := st.propose(ctx, item)
-		if err != nil || next == nil || next.State != "proposed" || st.s.installGitHubPolling {
+		if err != nil || next == nil || next.State != "proposed" {
 			return next, false, err
 		}
 		return st.gate(ctx, *next)
@@ -1588,7 +1588,7 @@ func (st *mythicalItemStep) advance(ctx context.Context, item db.MythicalItem) (
 			// and nothing gates on what GitHub did not say.
 			return next, false, nil
 		}
-		if err != nil || next == nil || next.State != "proposed" || st.s.installGitHubPolling {
+		if err != nil || next == nil || next.State != "proposed" {
 			return next, false, err
 		}
 		return st.gate(ctx, *next)
@@ -3448,7 +3448,7 @@ func (st *mythicalItemStep) gate(ctx context.Context, item db.MythicalItem) (*db
 		// The verdict goes on the pull request body first; an approved
 		// automerge TODO merges on the next pass.
 		return st.reviewBody(ctx, item)
-	case review.Verdict == "approve" && checks.Automerge && checks.Todo && st.gh != nil:
+	case review.Verdict == "approve" && checks.Automerge && checks.Todo && st.gh != nil && !st.s.installGitHubPolling:
 		return st.merge(ctx, item), false, nil
 	}
 	return &item, false, nil
