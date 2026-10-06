@@ -602,6 +602,17 @@ func (s *Server) lookupPrincipal(ctx context.Context, fingerprint string) (sshPr
 	}, nil
 }
 
+// activeMemberKey fences channels opened on an already-authenticated connection.
+// Revocation closes existing channels, but SSH authentication is connection-wide:
+// a removed key must not open another shell, SFTP or forwarding channel.
+func (s *Server) activeMemberKey(ctx context.Context, principal sshPrincipal) bool {
+	if s.Queries == nil || principal.IsDeployKey || principal.UserID == 0 || principal.Fingerprint == "" {
+		return false
+	}
+	current, err := s.Queries.GetUserBySSHFingerprint(ctx, principal.Fingerprint)
+	return err == nil && current.UserID == principal.UserID
+}
+
 // auditAuthFailure records a failed SSH authentication attempt.
 func (s *Server) auditAuthFailure(ctx context.Context, fingerprint, remoteIP string) {
 	if s.AuditService != nil {
@@ -647,7 +658,7 @@ func (s *Server) sessionHandler(sess ssh.Session) {
 		}
 		if s.BranchLogins {
 			p, ok := sess.Context().Value(principalKey).(sshPrincipal)
-			if !ok || p.IsDeployKey || s.BranchResolver == nil {
+			if !ok || p.IsDeployKey || s.BranchResolver == nil || !s.activeMemberKey(sess.Context(), p) {
 				_, _ = fmt.Fprintln(sess.Stderr(), "ERROR: workspace unavailable, retry")
 				_ = sess.Exit(1)
 				return

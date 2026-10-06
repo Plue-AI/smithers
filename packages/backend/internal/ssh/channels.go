@@ -101,7 +101,7 @@ func (s *Server) directTCPIPHandler(_ *gliderssh.Server, _ *gossh.ServerConn, ch
 	}
 	if s.BranchLogins {
 		principal, ok := ctx.Value(principalKey).(sshPrincipal)
-		if !ok || principal.IsDeployKey || s.BranchResolver == nil {
+		if !ok || principal.IsDeployKey || s.BranchResolver == nil || !s.activeMemberKey(ctx, principal) {
 			_ = channel.Reject(gossh.Prohibited, "workspace access denied")
 			return
 		}

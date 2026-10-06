@@ -545,6 +545,9 @@ func TestMembersComposedInstallPostgres(t *testing.T) {
 	require.Equal(t, 401, status, "restoring never revives a revoked session")
 	login("writer", 302)
 	exerciseMemberRevocation(t, pool, origin, writer, bus, request, createSession)
+	t.Run("imported_keys_authenticate_and_revoke_real_ssh", func(t *testing.T) {
+		exerciseImportedSSHKeys(t, pool, members, github, writer, bus, request, createSession)
+	})
 	// Real additions allocate reserved names and truncate before collision suffixes.
 	for _, fixture := range []struct{ github, unix string }{
 		{"root", "root2"},

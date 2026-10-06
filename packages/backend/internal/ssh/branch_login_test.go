@@ -2,6 +2,7 @@ package ssh
 
 import (
 	"context"
+	"errors"
 	"github.com/smithersai/smithers/packages/backend/internal/db"
 	"testing"
 
@@ -137,6 +138,7 @@ type branchTestSession struct{ *testSession }
 func (*branchTestSession) User() string { return "retry-webhooks" }
 
 func TestBranchChannelRechecksAuthorization(t *testing.T) {
+	_, fingerprint := outageTestKey(t)
 	for _, tc := range []struct {
 		name      string
 		principal bool
@@ -151,7 +153,7 @@ func TestBranchChannelRechecksAuthorization(t *testing.T) {
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			bridge := &stubWorkspaceBridge{}
-			s := &Server{BranchLogins: true, WorkspaceBridge: bridge}
+			s := &Server{BranchLogins: true, WorkspaceBridge: bridge, Queries: knownUserQuerier(fingerprint)}
 			if tc.resolver {
 				s.BranchResolver = branchResolverFunc(func(_ context.Context, member int64, branch string) (WorkspaceAccess, error) {
 					assert.Equal(t, int64(7), member)
@@ -162,11 +164,42 @@ func TestBranchChannelRechecksAuthorization(t *testing.T) {
 			sess := &branchTestSession{newTestSession("", "")}
 			sess.ctx.SetValue(workspaceAccessKey, WorkspaceAccess{SandboxID: "machine-1", User: "alice"})
 			if tc.principal {
-				sess.ctx.SetValue(principalKey, sshPrincipal{UserID: 7, Username: "alice"})
+				sess.ctx.SetValue(principalKey, sshPrincipal{UserID: 7, Username: "alice", Fingerprint: fingerprint})
 			}
 			s.sessionHandler(sess)
 			assert.Equal(t, 1, sess.exitCode)
 			assert.Zero(t, bridge.calls, "refuse before validating or serving a different/revoked identity")
+		})
+	}
+}
+
+func TestBranchChannelRequiresCommittedKey(t *testing.T) {
+	for _, tc := range []struct {
+		name      string
+		principal sshPrincipal
+		database  bool
+		user      int64
+		err       error
+		want      bool
+	}{
+		{name: "active", principal: sshPrincipal{UserID: 7, Fingerprint: "key"}, database: true, user: 7, want: true},
+		{name: "missing database", principal: sshPrincipal{UserID: 7, Fingerprint: "key"}},
+		{name: "deploy key", principal: sshPrincipal{UserID: 7, Fingerprint: "key", IsDeployKey: true}, database: true, user: 7},
+		{name: "missing identity", principal: sshPrincipal{Fingerprint: "key"}, database: true, user: 7},
+		{name: "missing fingerprint", principal: sshPrincipal{UserID: 7}, database: true, user: 7},
+		{name: "changed owner", principal: sshPrincipal{UserID: 7, Fingerprint: "key"}, database: true, user: 8},
+		{name: "revoked or unavailable", principal: sshPrincipal{UserID: 7, Fingerprint: "key"}, database: true, err: errors.New("key unavailable")},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			server := &Server{}
+			if tc.database {
+				queries := knownUserQuerier("key")
+				queries.getUserBySSHFingerprintFn = func(context.Context, string) (db.GetUserBySSHFingerprintRow, error) {
+					return db.GetUserBySSHFingerprintRow{UserID: tc.user}, tc.err
+				}
+				server.Queries = queries
+			}
+			assert.Equal(t, tc.want, server.activeMemberKey(t.Context(), tc.principal))
 		})
 	}
 }
