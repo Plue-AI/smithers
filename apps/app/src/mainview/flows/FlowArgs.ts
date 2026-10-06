@@ -2,6 +2,7 @@ import { fileArgs } from "@smthrs/rpc/FileRead"
 
 /** The typed input of every flow a card raises with structured values. */
 export interface FlowInput {
+  readonly "context.inspect": { readonly branch: string; readonly answer: string }
   readonly "debug.api": import("../state/seams/DebugApiSeam").DebugApiInput
   readonly "docs": { readonly page?: string }
   readonly "docs.read": { readonly page: string }
@@ -229,6 +230,7 @@ const ENCODERS: { readonly [N in FlowWithInput]: (payload: Payload) => string } 
   "files.open-diff": (payload) => JSON.stringify(payload),
   "debug.api": payload => JSON.stringify(payload),
   "docs": payload => token(payload, "page") ?? "",
+  "context.inspect": payload => JSON.stringify(payload),
   "docs.read": payload => token(payload, "page") ?? "",
   "files.read": (payload) => fileArgs(
     [payload.path, payload.line, payload.column].filter((value) => value !== undefined).join(":"),

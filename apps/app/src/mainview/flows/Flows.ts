@@ -36,6 +36,7 @@ import { billingBalanceFlows, billingPlanFlows } from "./entries/billing"
 import { branchesFlows } from "./entries/branches"
 import { commitsFlows } from "./entries/commits"
 import { browserFlows } from "./entries/browser"
+import { contextFlows } from "./entries/context"
 import { cardFlows } from "./entries/card"
 import { changeFlows } from "./entries/change"
 import { chatCopyFlows, chatFlows, chatReloadFlows } from "./entries/chat"
@@ -128,6 +129,7 @@ export const baseFlows = (actions: CommandActions): ReadonlyArray<FlowEntry> => 
   ...flowRunStopAllFlows(actions),
   ...approvalsFlows(actions),
   ...cardFlows(actions),
+  ...contextFlows(actions),
   ...frameFlows(actions),
   ...chatCopyFlows(actions),
   ...approvalFlows(actions),

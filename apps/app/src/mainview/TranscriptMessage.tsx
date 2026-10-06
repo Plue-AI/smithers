@@ -9,7 +9,7 @@ import type { Message } from "./state/AppState"
 import { scrubToolEcho } from "./state/MessageScrub"
 import { timeLabel } from "./Timestamps"
 import { StorageRecoveryButton } from "./StorageRecoveryButton"
-import { ContextLine } from "./ContextLine"
+import { ContextContainer } from "./ContextContainer"
 import { STORAGE_RECOVERY_EXPORT } from "./state/StorageRecoveryContract"
 import type { CommandOutcome } from "./flows/Commands"
 
@@ -53,14 +53,9 @@ function CopyMessageButton({
 }
 
 
-/* The answer's Context line: expanding is this viewer's transient chrome (T-APP-17). */
-function AnswerContext({ items }: { items: NonNullable<Message["context"]> }) {
-  const [expanded, setExpanded] = useState(false)
-  return <ContextLine count={items.length} items={[...items]} expanded={expanded} onView={patch => setExpanded(patch.expanded)} />
-}
-
 export function TranscriptMessage({ entry, streamingMessageId }: { entry: { kind: "message"; message: Message } | { kind: "init"; message: InitMessage }; streamingMessageId?: string }) {
   const controller = useController()
+  const context = entry.kind === "message" ? controller.contextLine(entry.message.id) : undefined
   return entry.message.act !== undefined ?
   (
     <ActLineView key={entry.message.id} line={entry.message.text} steps={[]} />
@@ -125,7 +120,7 @@ export function TranscriptMessage({ entry, streamingMessageId }: { entry: { kind
           />
         ) :
         null}
-      {entry.kind === "message" && entry.message.context !== undefined && entry.message.context.length > 0 ? <AnswerContext items={entry.message.context} /> : null}
+      {context ? <ContextContainer {...context} available={controller.contextAvailable()} dispatch={(tag, input) => controller.commands.submit({ name: tag, payload: (input ?? {}) as Record<string, unknown>, actor: "user" })} /> : null}
       {/* The synthetic auth message has no clock time to tell. */}
       {entry.message.answeredAction && <p role="status">{entry.message.answeredAction.answer}</p>}
       {entry.message.createdAt > 0 ?

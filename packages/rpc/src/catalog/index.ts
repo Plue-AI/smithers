@@ -56,6 +56,7 @@ export const APPENDIX_A_TAGS = [
   "github",
   "monitor",
   "run.inspect",
+  "context.inspect",
   "flow.source",
   "flow.plan",
   "agents",
