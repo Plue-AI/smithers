@@ -14,6 +14,28 @@ import (
 // frameBytes encodes numeric arrays, matching Rust Vec<u8>, rather than Go's
 // default base64 encoding. Decode refuses non-byte values before dispatch.
 type frameBytes []uint16
+
+func (b *frameBytes) UnmarshalJSON(body []byte) error {
+	// A null element must never become a zero byte (encoding/json's default
+	// for numeric slices). Decode the same non-null integer domain as Rust.
+	var values []*uint16
+	if err := json.Unmarshal(body, &values); err != nil {
+		return err
+	}
+	if len(values) == 0 || len(values) > 8192 {
+		return errors.New("invalid data size")
+	}
+	data := make(frameBytes, len(values))
+	for i, value := range values {
+		if value == nil || *value > 255 {
+			return errors.New("invalid byte")
+		}
+		data[i] = *value
+	}
+	*b = data
+	return nil
+}
+
 type frame struct {
 	Type   string     `json:"type"`
 	Stream *uint8     `json:"stream,omitempty"`
