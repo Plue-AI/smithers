@@ -57,6 +57,11 @@ export const TodoCardSchema = z.object({
   state: TodoStateSchema,
   owner: PersonRefSchema,
   owner_removed: z.boolean().optional(),
+  flow_version: z.object({
+    flow_name: z.string(),
+    source_commit: z.string().regex(/^[a-f0-9]{40}$/),
+    digest: z.string().regex(/^[a-f0-9]{64}$/)
+  }).optional(),
   place: z.number().int().positive().optional(),
   queue: QueueSchema.optional(),
   pause: z.object({

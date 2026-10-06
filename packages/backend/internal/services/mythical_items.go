@@ -3797,8 +3797,15 @@ func (resolver *MythicalFlowHostTargetResolver) ResolveFlowHostTarget(ctx contex
 	if lane, err := q.GetWorkspace(ctx, item.WorkspaceID); err != nil || (lane.Status != "running" && lane.Status != "suspended" && lane.Status != "stopped") {
 		return flowhost.Authority{}, mythicalLaneNotRunning(lane, err)
 	}
-	return flowhost.Authority{Target: target, RepositoryID: repositoryID, UserID: userID, WorkspaceID: item.WorkspaceID,
-		CatalogKey: flowhost.CatalogCoding}, nil
+	authority := flowhost.Authority{Target: target, RepositoryID: repositoryID, UserID: userID, WorkspaceID: item.WorkspaceID,
+		CatalogKey: flowhost.CatalogCoding}
+	if pin, pinned := mythicalPinOf(item); pinned {
+		authority.SourceRevision = pin.SourceCommit
+		authority.ExecutionPin = &pin
+	} else if item.FlowDigest.Valid {
+		return flowhost.Authority{}, mythicalFlowFailure{code: "runtime_pin_invalid"}
+	}
+	return authority, nil
 }
 
 // mythicalLaneNotRunning is why a lane cannot host a launch: a lane whose

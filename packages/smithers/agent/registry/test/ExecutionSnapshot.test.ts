@@ -54,6 +54,29 @@ const run = <A, E, R>(effect: Effect.Effect<A, E, R>) =>
   ) as Effect.Effect<A, E>)
 
 describe("durable execution snapshots", () => {
+  it("restores the pinned checkout while the independent TODO checkout changes helper and lockfile bytes", async () => {
+    await run(Effect.gen(function*() {
+      const { fs, root, helper, executable, digest } = yield* fixture
+      const branch = yield* fs.makeTempDirectoryScoped({ prefix: "smithers-editable-todo-" })
+      yield* fs.makeDirectory(`${branch}/flows/snapshot`, { recursive: true })
+      yield* fs.writeFileString(`${branch}/flows/snapshot/flow.ts`, "throw 'BRANCH_IMPORT_CANARY'")
+      yield* fs.writeFileString(`${branch}/flows/snapshot/helper.ts`, "throw 'BRANCH_HELPER_CANARY'")
+      yield* fs.writeFileString(`${branch}/pnpm-lock.yaml`, "lockfileVersion: edited-branch")
+      const snapshots = yield* Snapshot.makeFileSystem({ root })
+      const restored = yield* snapshots.restore(digest)
+      expect(new TextDecoder().decode(restored.modules.get(helper)!.bytes)).toBe('export const value = "approved"')
+      expect(restored.descriptor).toEqual(executable.descriptor)
+      const registry = yield* Registry.make({ sources: [{ source: "project", root: `${root}/flows`, naming: "path" }], snapshots })
+      const loaded = yield* registry.loadBody("snapshot", digest)
+      expect(loaded._tag).toBe("Module")
+      const index = `${root}/.flows/executions/${digest}.json`
+      yield* fs.writeFileString(index, '"' + "0".repeat(64) + '"')
+      const corrupt = yield* snapshots.restore(digest).pipe(Effect.flip)
+      expect(corrupt.code).toBe("missing")
+      expect(corrupt.message).not.toContain("BRANCH_IMPORT_CANARY")
+    }))
+  })
+
   it("verifies the production issue-sweep closure before evaluating any module", async () => {
     await run(Effect.gen(function*() {
       const fs = yield* FileSystem.FileSystem

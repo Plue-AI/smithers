@@ -135,6 +135,8 @@ type Authority struct {
 	// SourceRevision names the actual workspace snapshot read by the host.
 	// It may be empty when reconnecting to an existing, pinned binding.
 	SourceRevision string
+	// ExecutionPin is resolved from the current TODO attempt, never caller input.
+	ExecutionPin *flowruntime.Pin
 }
 
 // TargetResolver maps a durable product target to its current authorized

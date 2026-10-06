@@ -348,7 +348,7 @@ export const EvidenceItemSchema = z.discriminatedUnion("kind", [
     tokens: z.number().int().nonnegative(),
     time_s: z.number().nonnegative()
   }),
-  z.object({ kind: z.literal("flow"), name: z.string(), version: z.string() }),
+  z.object({ kind: z.literal("flow"), name: z.string(), version: z.string(), source_commit: z.string().optional() }),
   z.object({ kind: z.literal("model_access"), label: z.string() }),
   z.object({
     kind: z.literal("wiki"),

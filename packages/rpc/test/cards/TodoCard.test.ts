@@ -213,3 +213,19 @@ describe("TODO daily limit and pause reason (spec §4.1.1, §10.4.1b, §15.2.2)"
     expect(fixtures.paused_by_budget.model.pause?.reason).toBe("daily_token_budget")
   })
 })
+
+describe("pinned flow version", () => {
+  const pin = { flow_name: "todo", source_commit: "a".repeat(40), digest: "b".repeat(64) }
+  test("retains the server's complete pin through card decoding", () => {
+    expect(TodoCardSchema.parse({ ...fixtures.working.model, flow_version: pin }).flow_version).toEqual(pin)
+    expect(TodoCardSchema.parse(fixtures.queued.model).flow_version).toBeUndefined()
+  })
+  test.each([
+    { ...pin, source_commit: "main" },
+    { ...pin, digest: "B".repeat(64) },
+    { ...pin, digest: "b".repeat(63) },
+    { flow_name: "todo", digest: pin.digest }
+  ])("refuses incomplete or malformed version %j", (flow_version) => {
+    expect(TodoCardSchema.safeParse({ ...fixtures.working.model, flow_version }).success).toBe(false)
+  })
+})

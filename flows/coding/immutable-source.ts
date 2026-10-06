@@ -17,6 +17,8 @@ export interface ImmutableSourceOptions {
   /** Existing trusted host filesystem, captured before action workspace guards. */
   readonly fs: FileSystem.FileSystem
   readonly exporterPath?: string | undefined
+  /** Install-selected storage outside the editable checkout, for a host-lifetime source export. */
+  readonly sourceDirectory?: string | undefined
   /** Host-selected build environment. No operator/provider credentials by default. */
   readonly environment?: Readonly<Record<string, string>> | undefined
 }
@@ -252,7 +254,7 @@ const exportTree = <A, E, R>(
     // small tmpfs and copying the monorepo dependencies there exhausts it. A
     // confined check reads and writes only inside the workspace root, so the
     // tree is exported under the root's .jj directory, which jj never snapshots.
-    const checkCache = path.join(options.repositoryPath, ".jj", "smithers-checks")
+    const checkCache = options.sourceDirectory ?? path.join(options.repositoryPath, ".jj", "smithers-checks")
     yield* fs.makeDirectory(checkCache, { recursive: true })
     const temporary = yield* fs.makeTempDirectoryScoped({ prefix: "smithers-check-", directory: checkCache })
     const temporaryRoot = yield* fs.realPath(temporary)
@@ -308,3 +310,27 @@ const exportTree = <A, E, R>(
 
     return yield* use(tree, root)
   }).pipe(Effect.scoped)
+
+/** Resolve dependencies in the pinned export, as the machine's agent user. */
+export const prepareFlowDependencies = (options: ImmutableSourceOptions, root: string) =>
+  Effect.gen(function*() {
+    const path = yield* Path.Path
+    const managers = [
+      ["pnpm-lock.yaml", ["pnpm", "install", "--frozen-lockfile"]],
+      ["package-lock.json", ["npm", "ci"]],
+      ["yarn.lock", ["yarn", "install", "--immutable"]],
+      ["bun.lock", ["bun", "install", "--frozen-lockfile"]],
+      ["bun.lockb", ["bun", "install", "--frozen-lockfile"]]
+    ] as const
+    for (const [lockfile, argv] of managers) {
+      const filename = path.join(root, lockfile)
+      if (!(yield* options.fs.exists(filename))) continue
+      const approved = Digest.digest(yield* options.fs.readFile(filename))
+      const installed = yield* runSourceProcess(options, argv, root, 120_000)
+      if (installed.exitCode !== 0) return yield* invalid("Pinned flow dependencies could not be resolved")
+      if (Digest.digest(yield* options.fs.readFile(filename)) !== approved) {
+        return yield* invalid("Pinned flow dependency installation changed its lockfile")
+      }
+      return
+    }
+  })

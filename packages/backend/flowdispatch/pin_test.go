@@ -16,7 +16,7 @@ import (
 
 var (
 	// The recording runtime serves source "b"*40, here the pin's own source.
-	todoPin      = flowruntime.Pin{Flow: TodoFlow, SourceCommit: strings.Repeat("b", 40), ExecutionDigest: strings.Repeat("d", 64)}
+	todoPin       = flowruntime.Pin{Flow: TodoFlow, SourceCommit: strings.Repeat("b", 40), ExecutionDigest: strings.Repeat("d", 64)}
 	otherDigest   = strings.Repeat("e", 64)
 	stackScope    = jobs.Scope{TenantID: "repository:5", PrincipalID: "user:9"}
 	stackTarget   = flowruntime.Target{WorkspaceID: "lane-1", BindingKind: StackBindingKind, BindingID: "item-1"}
@@ -190,7 +190,11 @@ func TestPinnedLaunchRunsOnlyThePinnedCode(t *testing.T) {
 			projector.mu.Unlock()
 			require.Equal(t, jobs.StateFailed, last.State)
 			require.Equal(t, "pin_mismatch", last.Checkpoint.FailureCode)
-			require.Equal(t, test.digest, last.Checkpoint.ExecutionDigest)
+			if test.flowID == pin.Flow {
+				require.Equal(t, pin.ExecutionDigest, last.Checkpoint.ExecutionDigest, "the admitted pin is never overwritten by host output")
+			} else {
+				require.Equal(t, test.digest, last.Checkpoint.ExecutionDigest)
+			}
 		})
 	}
 }

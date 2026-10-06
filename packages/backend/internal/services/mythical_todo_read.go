@@ -159,6 +159,9 @@ func (s *MythicalService) todoCard(ctx context.Context, item db.MythicalItem, it
 		}
 		card["branch"] = map[string]any{"id": workspace.ID, "name": name, "machine": machine}
 	}
+	if pin, pinned := mythicalPinOf(item); pinned {
+		card["flow_version"] = map[string]any{"flow_name": pin.Flow, "source_commit": pin.SourceCommit, "digest": pin.ExecutionDigest}
+	}
 	if item.Attempt > 0 && item.RequestRunID != "" {
 		card["run"] = map[string]any{"id": item.RequestRunID, "attempt": item.Attempt, "indicators": []any{}}
 	}
@@ -349,7 +352,7 @@ func currentTodoEvidence(item db.MythicalItem) todoAttemptEvidence {
 		evidence.Items = append(evidence.Items, map[string]any{"kind": "review", "summary": checks.Review.Verdict})
 	}
 	if item.FlowDigest.Valid && item.FlowDigest.String != "" {
-		evidence.Items = append(evidence.Items, map[string]any{"kind": "flow", "name": "todo", "version": item.FlowDigest.String})
+		evidence.Items = append(evidence.Items, map[string]any{"kind": "flow", "name": "todo", "version": item.FlowDigest.String, "source_commit": checks.FlowSource})
 	}
 	return evidence
 }

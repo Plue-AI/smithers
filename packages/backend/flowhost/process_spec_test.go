@@ -351,3 +351,22 @@ func TestBuildProcessSpecTransportsInstallProjectAsData(t *testing.T) {
 		require.ErrorContains(t, err, "install coding configuration")
 	}
 }
+
+func TestPinnedTodoHostUsesImmutableSourceExport(t *testing.T) {
+	catalog := Catalog{Key: CatalogCoding, Family: CatalogCoding, Executable: "/opt/smithers/coding-host", ArtifactDigest: strings.Repeat("a", 64), ServiceName: "smithers-flow-coding"}
+	target := flowruntime.Target{TenantID: "repository:5", PrincipalID: "user:9", BindingKind: "mythical-item", BindingID: "item"}
+	binding := Binding{ID: "11111111-1111-4111-8111-111111111111", TenantID: target.TenantID, PrincipalID: target.PrincipalID, BindingKind: target.BindingKind, BindingID: target.BindingID, RepositoryID: 5, UserID: 9, WorkspaceID: "lane", CatalogKey: CatalogCoding, ServiceName: catalog.ServiceName, RuntimeArtifactDigest: catalog.ArtifactDigest, SourceRevision: strings.Repeat("b", 40), OwnerGeneration: 1, State: "starting"}
+	authority := Authority{Target: target, RepositoryID: 5, UserID: 9, WorkspaceID: "lane", CatalogKey: CatalogCoding, SourceRevision: binding.SourceRevision, ExecutionPin: &flowruntime.Pin{Flow: "todo", SourceCommit: binding.SourceRevision, ExecutionDigest: strings.Repeat("c", 64)}}
+	spec, err := BuildProcessSpec(HostLaunch{Binding: binding, Authority: authority, Catalog: catalog, Credential: "bearer"}, WorkspacePaths{Root: "/workspace/repo", StateDir: "/workspace/state"}, 4317)
+	require.NoError(t, err)
+	require.Equal(t, "1", spec.Environment["SMITHERS_FLOW_SOURCE_PINNED"])
+	require.Equal(t, strings.Repeat("c", 64), spec.Environment["SMITHERS_TODO_EXECUTION_DIGEST"])
+	require.Equal(t, strings.Repeat("b", 40), spec.Environment["SMITHERS_SOURCE_REVISION"])
+	require.Contains(t, spec.Args, "/workspace/repo", "coding actions retain their editable root")
+	authority.ExecutionPin = nil
+	binding.BindingKind = "workflow-run"
+	authority.Target.BindingKind = binding.BindingKind
+	spec, err = BuildProcessSpec(HostLaunch{Binding: binding, Authority: authority, Catalog: catalog, Credential: "bearer"}, WorkspacePaths{Root: "/workspace/repo", StateDir: "/workspace/state"}, 4317)
+	require.NoError(t, err)
+	require.NotContains(t, spec.Environment, "SMITHERS_FLOW_SOURCE_PINNED", "scratch flow runs keep the working-copy source")
+}

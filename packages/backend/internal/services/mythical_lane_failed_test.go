@@ -115,6 +115,7 @@ func TestTodoTargetAllowsRetainedLaneWithoutWakingIt(t *testing.T) {
 		authority, err := resolver.ResolveFlowHostTarget(ctx, launches[0].Target)
 		require.NoError(t, err)
 		require.Equal(t, lane, authority.WorkspaceID)
+		require.Equal(t, mythicalChecksOf(o.byID(uuidString(item.ID))).FlowSource, authority.SourceRevision, "retained hosts keep the attempt source, independently of the branch")
 		current, err := db.New(o.pool).GetWorkspace(ctx, lane)
 		require.NoError(t, err)
 		require.Equal(t, state, current.Status, "target resolution never wakes")

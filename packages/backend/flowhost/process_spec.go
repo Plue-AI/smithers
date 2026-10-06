@@ -12,6 +12,7 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/smithersai/smithers/packages/backend/flowruntime"
 	"github.com/smithersai/smithers/packages/backend/modelproxy"
 )
 
@@ -90,6 +91,15 @@ func BuildProcessSpec(launch HostLaunch, paths WorkspacePaths, port uint16) (Pro
 	environment["SMITHERS_OWNER_GENERATION"] = strconv.FormatInt(launch.Binding.OwnerGeneration, 10)
 	environment["SMITHERS_FLOW_ARTIFACT_SHA256"] = launch.Binding.RuntimeArtifactDigest
 	environment["SMITHERS_SOURCE_REVISION"] = launch.Binding.SourceRevision
+	delete(environment, "SMITHERS_FLOW_SOURCE_PINNED")
+	delete(environment, "SMITHERS_TODO_EXECUTION_DIGEST")
+	if pin := launch.Authority.ExecutionPin; pin != nil {
+		if launch.Binding.BindingKind != "mythical-item" || !pin.Valid() || pin.Flow != "todo" || pin.SourceCommit != launch.Binding.SourceRevision {
+			return ProcessSpec{}, errors.New("flow host attempt pin conflicts with its source binding")
+		}
+		environment["SMITHERS_FLOW_SOURCE_PINNED"] = "1"
+		environment["SMITHERS_TODO_EXECUTION_DIGEST"] = pin.ExecutionDigest
+	}
 	// The backend owns this catalog. Repository files cannot redefine the
 	// names the guest refuses before importing their modules.
 	names := launch.Catalog.SystemFlows
@@ -129,9 +139,10 @@ func hostServiceIdentity(launch HostLaunch) string {
 		Catalog                                    Catalog
 		Repository                                 string
 		// Omitted when empty, so SQLite hosts keep their existing identity.
-		Journal       string `json:",omitempty"`
-		ProjectConfig string `json:",omitempty"`
-	}{launch.Binding.ID, launch.Binding.WorkspaceID, launch.Binding.RuntimeArtifactDigest, launch.Binding.SourceRevision, launch.Binding.OwnerGeneration, launch.Catalog, launch.Authority.Repository, launch.Journal.identity(), string(launch.ProjectConfig)}
+		Journal       string           `json:",omitempty"`
+		ProjectConfig string           `json:",omitempty"`
+		ExecutionPin  *flowruntime.Pin `json:",omitempty"`
+	}{launch.Binding.ID, launch.Binding.WorkspaceID, launch.Binding.RuntimeArtifactDigest, launch.Binding.SourceRevision, launch.Binding.OwnerGeneration, launch.Catalog, launch.Authority.Repository, launch.Journal.identity(), string(launch.ProjectConfig), launch.Authority.ExecutionPin}
 	data, _ := json.Marshal(identity)
 	digest := sha256.Sum256(data)
 	return "flow-host:" + hex.EncodeToString(digest[:])
