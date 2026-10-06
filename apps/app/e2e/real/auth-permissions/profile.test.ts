@@ -23,7 +23,7 @@ describe("matrix authenticated-user probe", () => {
 
 const scope: OwnerSessionScope = {
   appOrigin: "http://127.0.0.1:4000/owner/repo", apiOrigin: "http://127.0.0.1:4000",
-  username: "owner", password: "unit-test-password", bootstrapToken: "unit-bootstrap"
+  username: "owner", sessionCookie: "a".repeat(64)
 }
 const cookies = (): Cookie[] => [{
   name: "session", value: "issued-session", domain: "127.0.0.1", path: "/",
@@ -48,7 +48,7 @@ describe("verified owner session cookies", () => {
     cache.remember(scope, cookies())
     for (const change of [
       { appOrigin: "http://127.0.0.1:4001" }, { apiOrigin: "http://127.0.0.1:4001" },
-      { username: "another-owner" }, { password: "rotated-password" }, { bootstrapToken: "new-installation" }
+      { username: "another-owner" }, { sessionCookie: "b".repeat(64) }
     ]) expect(cache.read({ ...scope, ...change })).toEqual([])
   })
 
@@ -119,19 +119,19 @@ describe("owner authentication Retry-After", () => {
   })
 })
 
-test("owner credential envelopes retain legacy login fields and validate the optional seeded cookie", () => {
+test("owner credential envelopes require a verified GitHub session cookie", () => {
   const previousName = process.env.SMITHERS_REAL_AUTH_ENVIRONMENT
   const previousValue = process.env.MATRIX_SEEDED_COOKIE_TEST
   process.env.SMITHERS_REAL_AUTH_ENVIRONMENT = "MATRIX_SEEDED_COOKIE_TEST"
-  const legacy = { username: "owner", password: "unused-fixture-password", bootstrapToken: "unused-fixture-bootstrap" }
+  const envelope = { username: "owner", sessionCookie: "a".repeat(64) }
   try {
-    process.env.MATRIX_SEEDED_COOKIE_TEST = JSON.stringify(legacy)
-    expect(ownerCredentialsFromEnvironment()).toEqual(legacy)
-    const seeded = { ...legacy, sessionCookie: "a".repeat(64) }
+    process.env.MATRIX_SEEDED_COOKIE_TEST = JSON.stringify(envelope)
+    expect(ownerCredentialsFromEnvironment()).toEqual(envelope)
+    const seeded = { ...envelope, sessionCookie: "a".repeat(64) }
     process.env.MATRIX_SEEDED_COOKIE_TEST = JSON.stringify(seeded)
     expect(ownerCredentialsFromEnvironment()).toEqual(seeded)
-    for (const sessionCookie of [null, 1, "", "a".repeat(63), "a".repeat(65), "g".repeat(64)]) {
-      process.env.MATRIX_SEEDED_COOKIE_TEST = JSON.stringify({ ...legacy, sessionCookie })
+    for (const sessionCookie of [undefined, null, 1, "", "a".repeat(63), "a".repeat(65), "g".repeat(64)]) {
+      process.env.MATRIX_SEEDED_COOKIE_TEST = JSON.stringify({ ...envelope, sessionCookie })
       expect(() => ownerCredentialsFromEnvironment()).toThrow("invalid seeded session cookie")
     }
   } finally {

@@ -41,7 +41,6 @@ func TestStartServesReadyAndBootstrapFromProductPostgres(t *testing.T) {
 		"SMITHERS_DATABASE_URL":                  databaseURL,
 		"SMITHERS_BLOB_DATA_DIR":                 t.TempDir(),
 		"SMITHERS_AUTH_MODE":                     "selfhost",
-		"SMITHERS_AUTH_BOOTSTRAP_TOKEN":          "test-bootstrap-token",
 		"SMITHERS_AUTH_SESSION_SECRET":           "test-secret",
 		"SMITHERS_LFS_SIGNING_SECRET":            "test-lfs-signing-secret",
 		"SMITHERS_WEBHOOK_SECRET_ENCRYPTION_KEY": "test-webhook-key",
@@ -73,7 +72,9 @@ func TestStartServesReadyAndBootstrapFromProductPostgres(t *testing.T) {
 	})
 	for _, path := range []string{"/readyz", "/api/bootstrap"} {
 		response := httptest.NewRecorder()
-		instance.Handler().ServeHTTP(response, httptest.NewRequest(http.MethodGet, path, nil))
+		request := httptest.NewRequest(http.MethodGet, "http://127.0.0.1:4000"+path, nil)
+		request.RemoteAddr = "127.0.0.1:1234"
+		instance.Handler().ServeHTTP(response, request)
 		if response.Code != http.StatusOK {
 			t.Fatalf("GET %s: status %d, body %s", path, response.Code, response.Body.String())
 		}
@@ -88,8 +89,8 @@ func TestStartServesReadyAndBootstrapFromProductPostgres(t *testing.T) {
 			}
 		}
 		if path == "/api/bootstrap" {
-			// The self-host bootstrap is a web host with owner credentials, never the native shell.
-			if body["host"] != "cloud" || body["authFlow"] != "credentials" {
+			// The self-host bootstrap is a web host with GitHub sign-in, never the native shell.
+			if body["host"] != "cloud" || body["authFlow"] != "redirect" {
 				t.Fatalf("bootstrap response: %v", body)
 			}
 		}

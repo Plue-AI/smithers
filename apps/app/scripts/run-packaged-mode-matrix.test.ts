@@ -76,7 +76,7 @@ test("local-own forwards its seeded owner session and Git origin to the matrix r
   expect(run.acquisitions).toEqual(["local"])
   expect(run.closes).toEqual(["local"])
   expect(JSON.parse(run.matrixEnvironment!.MATRIX_TEST_AUTH!)).toEqual({
-    username: "owner", password: "unused-fixture-password", bootstrapToken: "unused-fixture-bootstrap", sessionCookie: "b".repeat(64)
+    username: "owner", sessionCookie: "b".repeat(64)
   })
   expect(run.matrixEnvironment!.SMITHERS_LOCAL_GIT_ORIGIN).toBe("http://127.0.0.1:3001")
   expect(readFileSync(join(dir, "output", "config.json"), "utf8")).not.toContain("sessionCookie")

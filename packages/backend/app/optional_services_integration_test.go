@@ -66,8 +66,8 @@ func TestOptionalServicesDisabledRepositoryAndChatReplay(t *testing.T) {
 	configFile := filepath.Join(t.TempDir(), "config.json")
 	require.NoError(t, os.WriteFile(configFile, []byte(`{"email":{"smtp_host":"","smtp_user":"","smtp_pass":""},"auth":{"github_client_id":"","github_client_secret":""},"wiki_sync":{"obsidian":[]}}`), 0600))
 	for key, value := range map[string]string{
+		"SMITHERS_AUTH_MODE":    "selfhost",
 		"SMITHERS_DATABASE_URL": databaseURL, "SMITHERS_DATA_ROOT": t.TempDir(), "SMITHERS_BLOB_DATA_DIR": t.TempDir(),
-		"SMITHERS_AUTH_MODE": "selfhost", "SMITHERS_AUTH_BOOTSTRAP_TOKEN": "optional-bootstrap",
 		"SMITHERS_AUTH_SESSION_SECRET": "optional-session", "SMITHERS_LFS_SIGNING_SECRET": "optional-lfs",
 		"SMITHERS_WEBHOOK_SECRET_ENCRYPTION_KEY": "optional-webhook", "SMITHERS_REPO_HOST_AUTH_TOKEN": "optional-repo-token",
 		"SMITHERS_REPO_HOST_URL": "", "SMITHERS_PUSH_HOOK_CALLBACK_TOKEN": "optional-push-callback",
@@ -218,6 +218,7 @@ func TestOptionalServicesDisabledRepositoryAndChatReplay(t *testing.T) {
 		require.NoError(t, err)
 		req, err := http.NewRequestWithContext(ctx, method, server.URL+path, bytes.NewReader(raw))
 		require.NoError(t, err)
+		req.Host = "127.0.0.1:4000"
 		req.Header.Set("Content-Type", "application/json")
 		if token != "" {
 			req.Header.Set("Authorization", "token "+token)
@@ -236,7 +237,8 @@ func TestOptionalServicesDisabledRepositoryAndChatReplay(t *testing.T) {
 	}
 	require.NoError(t, json.Unmarshal(request("GET", "/api/bootstrap", "", nil, http.StatusOK), &bootstrap))
 	require.Contains(t, bootstrap.Capabilities, "agent")
-	require.NotContains(t, bootstrap.Capabilities, "github")
+	// GitHub setup is an install prerequisite, even before App credentials exist.
+	require.Contains(t, bootstrap.Capabilities, "github")
 	for _, capability := range bootstrap.Capabilities {
 		require.False(t, strings.HasPrefix(capability, "billing."), "unexpected optional capability %q", capability)
 	}

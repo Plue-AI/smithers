@@ -155,7 +155,6 @@ describe("native backend ownership", () => {
       expect(env[name]).toBeUndefined()
     }
     expect(instance.origin).toBe("http://127.0.0.1:4000")
-    expect(instance.bootstrapToken).toBeUndefined()
     await instance.stop()
     expect(await instance.failure).toBeUndefined()
     expect(signals).toEqual(["SIGTERM"])
