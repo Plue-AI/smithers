@@ -86,8 +86,8 @@ export const CATALOG_TAGS = [
   "learning.dismiss",
   "terminal.watch",
   "notifications.allow",
-  "todo.takeover",
   "image.add",
+  "todo.takeover",
   "merge.confirm",
   "order.ok",
   "background.retry",
@@ -109,11 +109,11 @@ export const CATALOG_TAGS = [
   "model.list",
   "model.new",
   "model.edit",
-  "model.save",
   "model.show",
   "model.remove",
   "model.test",
   "model.assign",
+  "model.save",
   "settings.model.set"
 ] as const
 export const CatalogTagSchema = z.enum(CATALOG_TAGS)

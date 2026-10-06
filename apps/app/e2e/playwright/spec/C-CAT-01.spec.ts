@@ -23,7 +23,7 @@ test("C-CAT-01: Commands show MVP doors and hide retired commands", async ({ pag
   await expect(commands.getByText("/monitor", { exact: true })).not.toBeVisible()
   await commands.getByText("Advanced", { exact: true }).press("Enter")
   await expect(commands.getByText("/monitor", { exact: true })).toBeVisible()
-  await expect(commands.getByText("/release-notes", { exact: true })).toBeVisible()
+  await expect(commands.getByText("/release-notes [owner/repo] [JSON object]", { exact: true })).toBeVisible()
   for (const retired of ["/chat.clear", "/billing", "/debug", "/issue-sweep"]) {
     await expect(commands.getByText(retired, { exact: true })).toHaveCount(0)
   }

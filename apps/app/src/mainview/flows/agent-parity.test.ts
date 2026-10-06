@@ -34,14 +34,13 @@ import { WIKI_ATTACH_USER_ONLY_REASON, WIKI_HEADING_USER_ONLY_REASON } from "@sm
  */
 const USER_ONLY_ALLOWLIST: Readonly<Record<string, string>> = {
   "agent.model": "Only the owner’s browser session changes models",
-  "settings.model.set": "Only the owner’s browser session changes models",
-  "model.assign": "Only the owner’s browser session configures models",
-  "model.edit": "Only the owner’s browser session configures models",
   "model.new": "Only the owner’s browser session configures models",
-  "model.remove": "Only the owner’s browser session configures models",
+  "model.edit": "Only the owner’s browser session configures models",
   "model.save": "Only the owner’s browser session configures models",
+  "model.remove": "Only the owner’s browser session configures models",
   "model.test": "Only the owner’s browser session configures models",
-  "todo.takeover": "TODO ownership belongs to a person; agents never take over",
+  "model.assign": "Only the owner’s browser session configures models",
+
   "notifications.allow": "browser permission requires the person’s in-card gesture",
   "debug.api": "raw API bypasses flow typing and approvals; agents use flows",
   "debug-api": "raw API bypasses flow typing and approvals; agents use flows",

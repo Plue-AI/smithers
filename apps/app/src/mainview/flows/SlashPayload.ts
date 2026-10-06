@@ -1108,8 +1108,13 @@ export const payloadFor = (
   grammar?: Grammar,
   known?: KnownRepositories
 ): Parsed => {
-  const parse = grammar ?? GRAMMAR[name]
-  if (parse === undefined) return NONE
+  const selected = grammar ?? GRAMMAR[name]
+  if (selected === undefined) return NONE
+  const parse: Grammar = (line, repositories) => {
+    const result = selected(line, repositories)
+    if ("payload" in result && (result.payload === null || typeof result.payload !== "object" || Array.isArray(result.payload))) return no("Input must be a JSON object")
+    return result
+  }
   if (takesRunSource(name)) {
     const source = splitRunSource(args)
     const parsed = parse(source.args, known)

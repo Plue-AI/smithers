@@ -285,10 +285,6 @@ export const repositoryFlowLeaves = (
         actors: row.modelInvocable ? policy?.actors ?? ["person", "app_agent"] : ["person"],
         minimumRole: policy?.minimumRole ?? "member",
         summary: row.summary ?? firstLine(row.description),
-        // The repository projection supplies the model policy; this one leaf serves every listing.
-        visibility: "core", group: "flow", minimumRole: "member",
-        actors: row.modelInvocable ? ["person", "app_agent", "external_agent"] : ["person"],
-        agent: row.modelInvocable ? "run" : "never",
         workflow: row.id,
         runtime: ["cloud"],
         requires: ["signed-in"],

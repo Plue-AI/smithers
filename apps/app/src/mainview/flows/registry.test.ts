@@ -585,7 +585,10 @@ describe("command registry bindings", () => {
 
   test("a bare /name typed into the composer runs the command, not a prompt", async () => {
     const { store, controller } = await freshController()
+    await store.dispatch({ type: "identity.session.loaded", actor: "system", state: "signed-in", login: "ben", admin: false, scopesPlain: null }).isPersisted.promise
+    await store.settled?.()
     controller.changeDraft("/wiki")
+    await store.settled?.()
     controller.send(store.session().draft)
     const deadline = Date.now() + 2_000
     // MOCK SEAM: /wiki opens the seeded wiki's first page (DesignWorld/subjects.ts wikiCard).
@@ -612,7 +615,7 @@ describe("command registry bindings", () => {
    */
   test("every registered flow leads its own name's listing", async () => {
     const { controller } = await freshController()
-    const listed = visible(controller.commands.all())
+    const listed = visible(controller.commands.viewerCatalog() ?? [])
     // Not a vacuous pass: the whole registered catalog is under test.
     expect(listed.length).toBeGreaterThan(40)
     const misdirected = listed

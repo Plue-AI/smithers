@@ -319,6 +319,19 @@ interface DeclaredMove {
 const CUT_FLOW_NAMES = new Set([/* renamed to their mvp.md Appendix A names, or replaced by /help */ "appearance.dark-mode", "history.show", "branches.list", "agent.list", "secrets.list", "flow.create", "issue.implement", "chat.stop", "search.open", "auth.sign-in", "auth.sign-out", "chat.commands", "chat.filter", "chat.filter.grep", "chat.filter.reset", "chat.filter.toggle", "chat.clear", "tab.card", "tab.close", "tab.select", "world", "world.delete", "world.delete.cancel", "world.delete.confirm", "world.new-note", "world.select", "subagents", "flows", "connect", "smithers.who", "workspace.rename", "workspace.rename.edit", "app.first-run.dismiss", "notifications.read-update", "notifications.tag", "search.targets", "search.boxes", "box.select", "files.add", "change.request", "change.split", "change.revert", "prs.create", "issues", "issues.fix", "issues.verify", "issues.set", "issues.comment.react", "issues.comment.retry", "wiki.ask", "runs.takeover", "runs.release", "runs.handoff", "runs.burndown.filter", "runs.burndown.select", "agent.session.list", "agent.session.new", "agent.session.say", "agent.session.stop", "agent.session.view", "notifications.list", "notifications.read", "admin.grant", "admin.grant.confirm", "admin.grant.cancel", "admin.health", "repository.register", "signup.account", "signup.finish", "signup.next", "signup.repo", "signup.set", "setup.ask", "setup.configure", "setup.discard", "setup.discard.confirm", "setup.guide", "setup.retry", "setup.run", "setup.view", "setup.work", "issues.setup", "review.setup", "ci.setup", "feature.setup", "chores.setup", "feature.prototype", "system.recommend", "issue-sweep"])
 
 const DECLARED: ReadonlyArray<DeclaredMove> = [
+  { flow: "model.show", kind: "card", rows: 33, because: "T-UI-19 restores owner model records with the configured-model schema; the retired seat/recordId form is replaced" },
+  { flow: "model.show", kind: "sentence", rows: 15, because: "T-UI-19 restores owner model records with the configured-model schema; the retired seat/recordId form is replaced" },
+  { flow: "model.edit", kind: "card", rows: 33, because: "T-UI-19 restores owner model records with the configured-model schema; the retired seat/recordId form is replaced" },
+  { flow: "model.edit", kind: "sentence", rows: 15, because: "T-UI-19 restores owner model records with the configured-model schema; the retired seat/recordId form is replaced" },
+  { flow: "model.remove", kind: "card", rows: 33, because: "T-UI-19 restores owner model records with the configured-model schema; the retired seat/recordId form is replaced" },
+  { flow: "model.remove", kind: "sentence", rows: 15, because: "T-UI-19 restores owner model records with the configured-model schema; the retired seat/recordId form is replaced" },
+  { flow: "model.test", kind: "card", rows: 33, because: "T-UI-19 restores owner model records with the configured-model schema; the retired seat/recordId form is replaced" },
+  { flow: "model.test", kind: "sentence", rows: 15, because: "T-UI-19 restores owner model records with the configured-model schema; the retired seat/recordId form is replaced" },
+  { flow: "model.save", kind: "card", rows: 44, because: "T-UI-19 restores owner model records with the configured-model schema; the retired seat/recordId form is replaced" },
+  { flow: "model.save", kind: "sentence", rows: 4, because: "T-UI-19 restores owner model records with the configured-model schema; the retired seat/recordId form is replaced" },
+  { flow: "model.assign", kind: "card", rows: 36, because: "T-UI-19 restores owner model records with the configured-model schema; the retired seat/recordId form is replaced" },
+  { flow: "model.assign", kind: "sentence", rows: 8, because: "T-UI-19 restores owner model records with the configured-model schema; the retired seat/recordId form is replaced" },
+
   ...(["runs.list", "github.mirror.retry-ref"] as const).map(flow => ({
     flow, kind: "sentence" as const, rows: 2,
     because: "Structured button arguments preserve their explicit repository without inventory (#2082). Malformed JSON and unknown fields now receive a grammar diagnostic rather than being interpreted as an identifier or filter."
@@ -402,7 +415,9 @@ const HISTORICAL_CASES = [
     `triggers.register::known-flag:${field}`,
     `triggers.register::known-flag-number:${field}`
   ]),
-  "issues.list::known-flags:filter+repo"
+  "issues.list::known-flags:filter+repo",
+  "model.assign::known-flags:seat+recordId",
+  ...["seat", "recordId"].flatMap(field => [`model.assign::known-flag:${field}`, `model.assign::known-flag-number:${field}`])
 ].sort()
 
 /**
@@ -508,9 +523,12 @@ describe("the card every slash line opens, against main@origin", () => {
     const pause = lost.filter((row) => row.flow === "triggers.pause")
     expect(pause.length).toBe(13)
     expect(pause.every((row) => baseline.sentences[baseline.rows[key(row)]![0]] === "triggers.pause takes the values its button carries")).toBe(true)
-    expect(lost.filter((row) => row.flow !== "triggers.pause").map((row) => `/${row.flow} ${row.args ?? ""}`)).toEqual([
+    expect(lost.filter((row) => row.flow !== "triggers.pause" && !row.flow.startsWith("model.")).map((row) => `/${row.flow} ${row.args ?? ""}`)).toEqual([
       "/issues.list codeplanesmithers/canary"
     ])
+    const modelLost = lost.filter(row => row.flow.startsWith("model."))
+    expect(Object.fromEntries(["model.show", "model.edit", "model.remove", "model.test", "model.assign"].map(name =>
+      [name, modelLost.filter(row => row.flow === name).length]))).toEqual({ "model.show": 15, "model.edit": 15, "model.remove": 15, "model.test": 15, "model.assign": 8 })
     /* `here` counts only flows that still exist: the three `change.pick` rows left with the flow (#1904). */
     /* 1448: `/issues.create --nope value` and friends now read the create grammar's own --kind refusal instead of a usage line (smithers-ui-DESIGN.md §3.1). */
     /* 1462: the one-input register form (D-18) fills whole from a positional line, so 14 such lines keep the grammar's sentence main@origin's six-field card withheld. */
@@ -551,7 +569,7 @@ describe("the card every slash line opens, against main@origin", () => {
       // 29: the #3311 `/appearance.dark-mode` sentences counted in 1361 left with the rename to `/theme`.
       // The two post-capture flow.create grammar additions moved to flow.new;
       // its new-name boundaries are exercised independently of this old-name differential.
-      here: 1359 - 29 - cutDiagnostics - removedDeclaredDiagnostics + historicalDiagnostics.length
+      here: 1359 + 4 /* restored configured-model forms, T-UI-19 */ - 29 - cutDiagnostics - removedDeclaredDiagnostics + historicalDiagnostics.length
     })
     /* Every slash line must be answerable without a dispatch exception, including scalar JSON. */
     expect(rows.filter((row) => row.threw !== null).map((row) => `/${row.flow} ${row.args ?? ""}`)).toEqual([])

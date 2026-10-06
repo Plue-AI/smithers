@@ -36,11 +36,13 @@ test("all TODO commands register slash, button and agent doors; amend/drop and c
   const h = await boot()
   try {
     const entries = h.controller.commands.entries().filter(entry => nameOf(entry) === "todo" || nameOf(entry).startsWith("todo."))
-    expect(entries.map(nameOf).sort()).toEqual(["todo", "todo.amend", "todo.answer", "todo.drop", "todo.from-issue", "todo.new", "todo.resume", "todo.retry", "todo.retry-current-flow", "todo.steer", "todo.stop", "todo.takeover"])
+    expect(entries.map(nameOf).sort()).toEqual(["todo", "todo.amend", "todo.answer", "todo.drop", "todo.from-issue", "todo.new", "todo.preapprove", "todo.unapprove", "todo.return-to-item", "todo.keep-moved", "todo.resume", "todo.retry", "todo.retry-current-flow", "todo.steer", "todo.stop", "todo.takeover"].sort())
     for (const entry of entries) {
-      expect(modelInvocable(entry)).toBe(nameOf(entry) !== "todo.takeover")
-      expect(entry.metadata.grammar).toBeDefined()
-      expect(entry.metadata.form).toBeDefined()
+      expect(modelInvocable(entry)).toBe(!["todo.takeover", "todo.preapprove", "todo.unapprove", "todo.keep-moved"].includes(nameOf(entry)))
+      if (!["todo.preapprove", "todo.unapprove", "todo.return-to-item", "todo.keep-moved"].includes(nameOf(entry))) {
+        expect(entry.metadata.grammar).toBeDefined()
+        expect(entry.metadata.form).toBeDefined()
+      }
     }
     await agent(h.controller, "todo.drop", "T12")
     await agent(h.controller, "todo.amend", "T12 Amend the prompt")

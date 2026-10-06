@@ -159,6 +159,73 @@
       }
     },
     {
+      "name": "agent.model",
+      "slash": null,
+      "cli": null,
+      "journey": [],
+      "group": "",
+      "visibility": "in-card",
+      "actors": [
+        "person"
+      ],
+      "minimumRole": "owner",
+      "agent": "never",
+      "summary": "Change model",
+      "http": null,
+      "payload": {
+        "dialect": "draft-2020-12",
+        "schema": {
+          "type": "object",
+          "properties": {
+            "role": {
+              "type": "string"
+            },
+            "model": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "role",
+            "model"
+          ],
+          "additionalProperties": true
+        },
+        "definitions": {}
+      }
+    },
+    {
+      "name": "agent.open",
+      "slash": null,
+      "cli": null,
+      "journey": [],
+      "group": "",
+      "visibility": "in-card",
+      "actors": [
+        "person",
+        "app_agent"
+      ],
+      "minimumRole": "member",
+      "agent": "run",
+      "summary": "Configure an agent",
+      "http": null,
+      "payload": {
+        "dialect": "draft-2020-12",
+        "schema": {
+          "type": "object",
+          "properties": {
+            "role": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "role"
+          ],
+          "additionalProperties": true
+        },
+        "definitions": {}
+      }
+    },
+    {
       "name": "agents",
       "slash": "/agents",
       "cli": [
@@ -3101,8 +3168,8 @@
       "slash": null,
       "cli": null,
       "journey": [],
-      "group": "",
-      "visibility": "in-card",
+      "group": "chat",
+      "visibility": "hidden",
       "actors": [
         "person",
         "app_agent"
@@ -3460,8 +3527,17 @@
           "type": "object",
           "properties": {
             "path": {
-              "type": "string",
-              "minLength": 1
+              "type": "string"
+            },
+            "branch": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ]
             }
           },
           "required": [
@@ -3493,8 +3569,17 @@
           "type": "object",
           "properties": {
             "path": {
-              "type": "string",
-              "minLength": 1
+              "type": "string"
+            },
+            "branch": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ]
             }
           },
           "required": [
@@ -3517,7 +3602,7 @@
       ],
       "minimumRole": "member",
       "agent": "never",
-      "summary": "Reapply",
+      "summary": "Reapply unsaved edits",
       "http": null,
       "payload": {
         "dialect": "draft-2020-12",
@@ -3525,8 +3610,7 @@
           "type": "object",
           "properties": {
             "path": {
-              "type": "string",
-              "minLength": 1
+              "type": "string"
             }
           },
           "required": [
@@ -3579,6 +3663,16 @@
                   "type": "null"
                 }
               ]
+            },
+            "post_digest": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ]
             }
           },
           "required": [
@@ -3610,8 +3704,17 @@
           "type": "object",
           "properties": {
             "path": {
-              "type": "string",
-              "minLength": 1
+              "type": "string"
+            },
+            "branch": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ]
             }
           },
           "required": [
@@ -5042,13 +5145,13 @@
         "schema": {
           "type": "object",
           "properties": {
-            "package": {
+            "name": {
               "type": "string",
               "minLength": 1
             }
           },
           "required": [
-            "package"
+            "name"
           ],
           "additionalProperties": true
         },
@@ -6171,6 +6274,306 @@
           "required": [
             "n",
             "revision"
+          ],
+          "additionalProperties": true
+        },
+        "definitions": {}
+      }
+    },
+    {
+      "name": "model",
+      "slash": null,
+      "cli": null,
+      "journey": [],
+      "group": "",
+      "visibility": "hidden",
+      "actors": [
+        "person",
+        "app_agent"
+      ],
+      "minimumRole": "member",
+      "agent": "run",
+      "summary": "Models",
+      "http": null,
+      "payload": {
+        "dialect": "draft-2020-12",
+        "schema": {
+          "type": "object",
+          "additionalProperties": false
+        },
+        "definitions": {}
+      }
+    },
+    {
+      "name": "model.assign",
+      "slash": null,
+      "cli": null,
+      "journey": [],
+      "group": "",
+      "visibility": "in-card",
+      "actors": [
+        "person"
+      ],
+      "minimumRole": "owner",
+      "agent": "never",
+      "summary": "Assign model",
+      "http": null,
+      "payload": {
+        "dialect": "draft-2020-12",
+        "schema": {
+          "type": "object",
+          "properties": {
+            "role": {
+              "type": "string"
+            },
+            "model": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "role",
+            "model"
+          ],
+          "additionalProperties": true
+        },
+        "definitions": {}
+      }
+    },
+    {
+      "name": "model.edit",
+      "slash": null,
+      "cli": null,
+      "journey": [],
+      "group": "",
+      "visibility": "in-card",
+      "actors": [
+        "person"
+      ],
+      "minimumRole": "owner",
+      "agent": "never",
+      "summary": "Edit model",
+      "http": null,
+      "payload": {
+        "dialect": "draft-2020-12",
+        "schema": {
+          "type": "object",
+          "properties": {
+            "id": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "id"
+          ],
+          "additionalProperties": true
+        },
+        "definitions": {}
+      }
+    },
+    {
+      "name": "model.list",
+      "slash": null,
+      "cli": null,
+      "journey": [],
+      "group": "",
+      "visibility": "hidden",
+      "actors": [
+        "person",
+        "app_agent"
+      ],
+      "minimumRole": "member",
+      "agent": "run",
+      "summary": "Models",
+      "http": null,
+      "payload": {
+        "dialect": "draft-2020-12",
+        "schema": {
+          "type": "object",
+          "additionalProperties": false
+        },
+        "definitions": {}
+      }
+    },
+    {
+      "name": "model.new",
+      "slash": null,
+      "cli": null,
+      "journey": [],
+      "group": "",
+      "visibility": "in-card",
+      "actors": [
+        "person"
+      ],
+      "minimumRole": "owner",
+      "agent": "never",
+      "summary": "New model",
+      "http": null,
+      "payload": {
+        "dialect": "draft-2020-12",
+        "schema": {
+          "type": "object",
+          "additionalProperties": false
+        },
+        "definitions": {}
+      }
+    },
+    {
+      "name": "model.remove",
+      "slash": null,
+      "cli": null,
+      "journey": [],
+      "group": "",
+      "visibility": "in-card",
+      "actors": [
+        "person"
+      ],
+      "minimumRole": "owner",
+      "agent": "never",
+      "summary": "Remove model",
+      "http": null,
+      "payload": {
+        "dialect": "draft-2020-12",
+        "schema": {
+          "type": "object",
+          "properties": {
+            "id": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "id"
+          ],
+          "additionalProperties": true
+        },
+        "definitions": {}
+      }
+    },
+    {
+      "name": "model.save",
+      "slash": null,
+      "cli": null,
+      "journey": [],
+      "group": "",
+      "visibility": "in-card",
+      "actors": [
+        "person"
+      ],
+      "minimumRole": "owner",
+      "agent": "never",
+      "summary": "Save model",
+      "http": null,
+      "payload": {
+        "dialect": "draft-2020-12",
+        "schema": {
+          "type": "object",
+          "properties": {
+            "name": {
+              "type": "string"
+            },
+            "protocol": {
+              "type": "string",
+              "enum": [
+                "anthropic-messages",
+                "openai-responses",
+                "openai-chat",
+                "evaluation"
+              ]
+            },
+            "modelId": {
+              "type": "string"
+            },
+            "credential": {
+              "type": "string"
+            },
+            "baseUrl": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "path": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            }
+          },
+          "required": [
+            "name",
+            "protocol",
+            "modelId",
+            "credential"
+          ],
+          "additionalProperties": true
+        },
+        "definitions": {}
+      }
+    },
+    {
+      "name": "model.show",
+      "slash": null,
+      "cli": null,
+      "journey": [],
+      "group": "",
+      "visibility": "hidden",
+      "actors": [
+        "person",
+        "app_agent"
+      ],
+      "minimumRole": "member",
+      "agent": "run",
+      "summary": "Model",
+      "http": null,
+      "payload": {
+        "dialect": "draft-2020-12",
+        "schema": {
+          "type": "object",
+          "properties": {
+            "id": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "id"
+          ],
+          "additionalProperties": true
+        },
+        "definitions": {}
+      }
+    },
+    {
+      "name": "model.test",
+      "slash": null,
+      "cli": null,
+      "journey": [],
+      "group": "",
+      "visibility": "in-card",
+      "actors": [
+        "person"
+      ],
+      "minimumRole": "owner",
+      "agent": "never",
+      "summary": "Test model",
+      "http": null,
+      "payload": {
+        "dialect": "draft-2020-12",
+        "schema": {
+          "type": "object",
+          "properties": {
+            "id": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "id"
           ],
           "additionalProperties": true
         },
@@ -9407,7 +9810,7 @@
               "enum": [
                 "fast",
                 "coding",
-                "decisions"
+                "jev"
               ]
             },
             "model": {
@@ -10131,6 +10534,19 @@
             "text": {
               "type": "string",
               "minLength": 1
+            },
+            "acceptance": {
+              "anyOf": [
+                {
+                  "type": "array",
+                  "items": {
+                    "type": "string"
+                  }
+                },
+                {
+                  "type": "null"
+                }
+              ]
             },
             "cardId": {
               "anyOf": [

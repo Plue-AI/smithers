@@ -11,7 +11,6 @@ import { Schema } from "effect"
 import { flow } from "./Declare"
 import type { FlowEntry, Namespace } from "../registry"
 import type { CommandActions } from "./Declare"
-import { openDesignHome } from "../../state/seams/DesignWorld/home"
 
 /** The `history` namespace row: the slash tree lists it in registry.ts NAMESPACES order. */
 export const namespace: Namespace = { id: "history", label: "History", summary: "The repository's history of changes" }

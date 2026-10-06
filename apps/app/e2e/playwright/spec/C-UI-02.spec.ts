@@ -16,7 +16,7 @@ test("C-UI-02: Product words and minimal text: a deterministic copy lint", async
       await page.emulateMedia({ colorScheme: scheme })
       for (const [line, kind] of [["/stack", "home"], ["/settings", "settings"], ["/todo T8", "todo"], ["/help", "commands"]]) {
         await say(page, line)
-        const card = page.locator(kind === "home" ? ".mvp-home" : `.smithers-card[data-kind="${kind}"]`).last()
+        const card = page.locator(kind === "home" ? ".home.smithers-card" : `.smithers-card[data-kind="${kind}"]`).last()
         await expect(card).toBeVisible()
         const chrome = await card.locator("button, label, h1, h2, h3, dt").allTextContents()
         for (const attribute of ["aria-label", "title", "placeholder"]) {

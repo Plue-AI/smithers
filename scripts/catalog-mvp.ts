@@ -56,4 +56,6 @@ if (import.meta.main) {
       renameSync(temporary, path!)
     }
   }
+  // All output is synchronous; imported host modules may own long-lived resources.
+  process.exit(0)
 }
