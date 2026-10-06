@@ -1,3 +1,4 @@
+import { BranchTreeNodeCardSchema } from "@smthrs/rpc/BranchTreeNodeCard"
 import type { ConversationHistory } from "./ConversationHistory"
 import type { ApprovalRow } from "@smthrs/gateway/GatewayProjection"
 import type { AgentRole } from "@smthrs/rpc/AgentRoles"
@@ -830,7 +831,13 @@ export const ChatUsageSchema = z.object({
 })
 export type ChatUsage = z.infer<typeof ChatUsageSchema>
 
+export const BranchNavigationSchema = z.object({
+  owner: z.string().nullable(), open: z.boolean(), selected_branch: z.string(), selected_archive: z.string().optional(), previous_branch: z.string().optional(),
+  nodes: z.array(BranchTreeNodeCardSchema)
+})
+
 export const SessionSchema = z.object({
+  branchNavigation: BranchNavigationSchema.optional(),
   wikiSaves: z.array(z.object({
     id: z.string(), owner: z.string(), branch: z.string(), repo: z.string(), space: z.enum(["public", "private"]),
     name: z.string(), text: z.string(), state: z.enum(["requested", "completed", "failed"]), error: z.string().optional()
@@ -1335,6 +1342,7 @@ export type AppTransition =
   | { type: "repository.imports.changed"; actor: Actor; requests: NonNullable<Session["repositoryImports"]> }
   | { type: "secret.requests.changed"; actor: Actor; requests: NonNullable<Session["secretRequests"]> }
   | { type: "egress.requests.changed"; actor: Actor; requests: NonNullable<Session["egressRequests"]> }
+  | { type: "branch.navigation.changed"; actor: Actor; navigation: z.infer<typeof BranchNavigationSchema> }
   | { type: "theme.changed"; actor: "user" | "system"; theme: Session["theme"] }
   /* The color theme (/theme) — the axis orthogonal to light/dark. */
   | { type: "palette.changed"; actor: "user" | "system"; palette: Palette }

@@ -61,7 +61,7 @@ C-UI-12 Members (T-UI-09): [install roster and keyboard Add/Role/Remove](C-UI-12
 | C-APP-01 | [C-APP-01.spec.ts](C-APP-01.spec.ts) | browser-pass (Take over; PostgreSQL role/idempotency receipt; live toast qualification pending) | T-APP-02 |
 | C-APP-02 | [C-APP-02.spec.ts](C-APP-02.spec.ts) | browser-pass (Edit, deduplication, reload, person Drop confirm, working step, daily admission limit, budget pause owner, outside-push Discard binding/deduplication/role gate; planner/multiplayer pending) | T-APP-02 |
 | C-APP-03 | [C-APP-03.spec.ts](C-APP-03.spec.ts) | browser-pass (failure/slash Draft, main recipe, reload; Settings name refusal and Draft passed with the design seed disabled in settings-install.spec.ts; guest qualification pending) | T-APP-02, T-APP-03 |
-| C-APP-04 | [C-APP-04.spec.ts](C-APP-04.spec.ts) | fixme-before-implementation | T-APP-16 |
+| C-APP-04 | [C-APP-04.spec.ts](C-APP-04.spec.ts) | partial: EntryRow and branch tree/Earlier local archive browser projections pass; shared composer and journal archive pending | T-APP-16 |
 | C-APP-05 | [C-APP-05.spec.ts](C-APP-05.spec.ts) | fixme-before-implementation | T-APP-16 |
 | C-ACC-01 | [C-ACC-01.spec.ts](C-ACC-01.spec.ts) | fixme-before-implementation | T-ACC-02, T-ACC-03, T-ACC-04, T-APP-04, T-INS-08, T-TRM-02, T-CUT-03, T-STK-06 |
 | C-ACC-02 | [C-ACC-02.spec.ts](C-ACC-02.spec.ts) | fixme-before-implementation | T-ACC-04, T-APP-04, T-STK-04 |
@@ -378,3 +378,5 @@ T-MCH-08 scratch Diff has a passing install HTTP contract and browser projection
 T-UI-15 pass 3: Branch states pass at 1440/390 px in light/dark; Enter/Space controls, tabs/SSH and missing/disabled/hostile cases pass (5 browser tests). Live Branch tab selection also passes keyboard and reload through the install app fixture (1 browser test). These fixtures do not establish machine execution or design-owner acceptance.
 
 T-UI-15 pass 5: the Branch matrix checks serious/critical axe violations and saves named screenshot attachments for all 17 cases in light/dark at 1440/390 px (68 screens). Design-owner copy acceptance remains pending; screenshots and automated copy checks are engineering receipts, not approval.
+
+T-APP-16 wave 2 browser receipts: `entry-row.spec.ts` covers prompt/answer EntryRow rendering and reload; `branch-navigation.spec.ts` covers the served nested branch tree, retired Branches card removal, Earlier and durable view selection on reload. These do not replace the full C-APP-04 shared-host acceptance.

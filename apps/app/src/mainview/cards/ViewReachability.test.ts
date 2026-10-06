@@ -103,3 +103,10 @@ test("T-APP-16 mounts EntryRow and removes the replaced transcript markup", () =
   expect(reachable.has(join(root, ENTRY_WIRING.view))).toBe(true)
   expect(readFileSync(join(root, "TranscriptMessage.tsx"), "utf8")).not.toContain("<ChatMessage")
 })
+
+const BRANCH_WIRING = { views: ["BranchTree.tsx", "EarlierArchive.tsx"], ticket: "T-APP-16", legacy: ["cards/BranchesCard.tsx"] }
+test("T-APP-16 mounts branch navigation and Earlier from App", () => {
+  visit(join(root, "App.tsx"))
+  for (const view of BRANCH_WIRING.views) expect(reachable.has(join(root, view))).toBe(true)
+  for (const path of BRANCH_WIRING.legacy) expect(() => statSync(join(root, path))).toThrow()
+})

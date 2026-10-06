@@ -12,7 +12,7 @@ import { RepositoryHomeSchema } from "@smthrs/rpc/RepositoryHome"
 import { z } from "zod"
 import type { AppProjectionSnapshot } from "./AppProjection"
 import {
-ActorSchema,BranchSchema,CardHistorySchema,CardPatchSchema,CardSchema,ChangeRowSchema,
+ActorSchema,BranchSchema,BranchNavigationSchema,CardHistorySchema,CardPatchSchema,CardSchema,ChangeRowSchema,
 CloudRepositorySchema,CloudWorkspaceRowSchema,FrameSchema,GitHubAppStatusRowSchema,
 MessageSchema,HISTORICAL_PALETTES,
 RecommendationSourceSchema,RepositoryEntrySchema,RepositoryCommandEntrySchema,RepositoryFlowSchema,RepositoryJobObservationSchema,
@@ -101,6 +101,7 @@ export const APP_TRANSITION_SCHEMAS = {
   "conversation.reset.asked": z.object({ "type": z.literal("conversation.reset.asked"), "actor": z.literal("user"), "open": z.boolean() }).strict(),
   "conversation.cleared": z.object({ "type": z.literal("conversation.cleared"), "actor": z.literal("user"), "branchId": z.string(), "notes": z.array(z.object({ "title": z.string(), "body": z.string(), "confidence": z.number().finite() }).strict()), "interruptedTurnId": z.string().optional() }).strict(),
   "app.reset": z.object({ "type": z.literal("app.reset"), "actor": ActorSchema }).strict(),
+  "branch.navigation.changed": z.object({ type: z.literal("branch.navigation.changed"), actor: ActorSchema, navigation: BranchNavigationSchema }).strict(),
   "theme.changed": z.object({ "type": z.literal("theme.changed"), "actor": z.enum(["user", "system"]), "theme": SessionSchema.shape["theme"] }).strict(),
   "palette.changed": z.object({ "type": z.literal("palette.changed"), "actor": z.enum(["user", "system"]), "palette": z.enum(HISTORICAL_PALETTES) }).strict(),
   "card.maximized": z.object({ "type": z.literal("card.maximized"), "actor": z.literal("user"), "id": z.string() }).strict(),

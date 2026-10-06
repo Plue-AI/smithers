@@ -186,14 +186,9 @@ export const createFormsController = (ctx: ControllerContext, deps: FormsControl
       case "cloud-repos":
         return [...collections.repositories.values()].map((repo) => ({ value: repo.id, label: repo.id }))
       case "bookmarks": {
-        const seen = new Map<string, FieldOption>()
-        for (const card of collections.cards.values()) {
-          if (card.kind !== "branches") continue
-          for (const bookmark of card.payload.bookmarks) {
-            if (!seen.has(bookmark.name)) seen.set(bookmark.name, { value: bookmark.name, label: `${bookmark.name} · ${card.payload.repo}` })
-          }
-        }
-        return [...seen.values()]
+        const flatten = (nodes: NonNullable<ReturnType<typeof ctx.store.session>["branchNavigation"]>["nodes"]): FieldOption[] =>
+          nodes.flatMap(node => node.kind === "earlier" ? [] : [{ value: node.name, label: node.name }, ...flatten(node.children)])
+        return flatten(ctx.store.session().branchNavigation?.nodes ?? [])
       }
       case "workspaces":
         return [...collections.cloudWorkspaces.values()].map(workspaceOption)

@@ -800,7 +800,7 @@ const FIXTURES: Record<
 > = {
   todo: {
     minimal: { n: 12, requests: [] },
-    full: { n: 12, model: todoFixtures.failed.model, requests: [], answerDraft: "A late answer", answeredBy: "maya" }
+    full: { n: 12, model: todoFixtures.failed.model, requests: [], observedConfirmations: [], answerDraft: "A late answer", answeredBy: "maya" }
   },
   /* Confirm (T-APP-04): the card names its subject; the card file reads the confirmation. */
   confirm: { minimal: { id: "act:act-1" }, full: { id: "merge:t-stripe" } },

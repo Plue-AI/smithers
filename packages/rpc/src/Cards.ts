@@ -1876,15 +1876,6 @@ const CurrentCardSchema = z.discriminatedUnion("kind", [
       error: z.string().optional()
     })
   }),
-  /* Wave 2 of the multi parity: bookmarks (jj branches) and repo file reads. */
-  z.object({
-    ...cardBaseShape,
-    kind: z.literal("branches"),
-    payload: z.object({
-      repo: z.string(),
-      bookmarks: z.array(z.object({ name: z.string(), head: z.string().nullable() }))
-    })
-  }),
   /*
    * A repository's commits (commits.list): one branch's first-parent history,
    * newest first, the way GitHub's Commits page lists them. Fields the source
@@ -2588,6 +2579,7 @@ const CurrentCardSchema = z.discriminatedUnion("kind", [
  * @category constants
  */
 export const LEGACY_CARD_KINDS = [
+  "branches",
   "workflow-repo",
   "provider-accounts", "repo-import", "connector-setup",
   "env",

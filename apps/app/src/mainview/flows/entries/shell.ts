@@ -8,7 +8,7 @@ import { Schema } from "effect"
 import { flow, type CommandActions } from "./Declare"
 import type { FlowEntry } from "../registry"
 import type { Grammar } from "../SlashPayload"
-import { goToBranch } from "../../state/seams/DesignWorld/shell"
+import { goToBranch, shellViewsOf } from "../../state/seams/DesignWorld/shell"
 import { presentDesignBranch } from "./branch"
 
 const name: Grammar = args => {
@@ -34,6 +34,7 @@ export const shellFlows = (actions: CommandActions): ReadonlyArray<FlowEntry> =>
       if (actions.design.enabled === false) return "Branch unavailable"
       const result = goToBranch(actions.design, actions.design.viewer(), target)
       if (!result.ok) return result.refusal
+      await actions.selectConversationBranch(shellViewsOf(actions.design).get(actions.design.viewer())?.at ?? "main")
       await presentDesignBranch(actions, target)
       return { value: result.ack }
     }

@@ -229,6 +229,7 @@ export const APP_TRANSITION_TYPES = {
   "repository.imports.changed": true,
   "secret.requests.changed": true,
   "egress.requests.changed": true,
+  "branch.navigation.changed": true,
   "theme.changed": true,
   "palette.changed": true,
   "composer.control.changed": true,
@@ -2137,6 +2138,10 @@ export const projectAppEvent = (previous: AppProjectionSnapshot, context: AppPro
           collections.sessions.update(SESSION_ID, draft => { draft.wikiSaves = transition.requests })
           break
         }
+        case "branch.navigation.changed":
+          collections.sessions.update(SESSION_ID, draft => { draft.branchNavigation = transition.navigation })
+          break
+
         case "theme.changed":
           collections.sessions.update(SESSION_ID, (draft) => {
             draft.theme = transition.theme

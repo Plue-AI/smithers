@@ -1,3 +1,4 @@
+import { accountOwnerOf } from "./AccountOwner"
 import { createHomeViewSeam, type HomeViewSeam } from "./seams/HomeViewSeam"
 import { contextMonitor } from "./ContextMonitor"
 import type { MonitorCard } from "@smthrs/rpc/MonitorCard"
@@ -103,8 +104,7 @@ import { createBillingSeam, showHostedBalance } from "./seams/HostedBilling"
 import { createDocsController } from "./controller/docs"
 import type { Docs } from "../../docs/Docs"
 import { bundledDocs } from "../../docs/bundled"
-import type { BookmarksSeam } from "./seams/BookmarksSeam"
-import { createBookmarksSeam } from "./seams/BookmarksSeam"
+import { createBranchNavigationSeam } from "./seams/BranchNavigationSeam"
 import type { ChangeSeam } from "./seams/ChangeSeam"
 import { createChangeSeam } from "./seams/ChangeSeam"
 import type { CloudSeam } from "./seams/CloudSeam"
@@ -528,6 +528,7 @@ export interface AppController extends IssueFlowsController {
   /** The flows /flow, /flows and /flow.edit read: GET /api/flows on an install (undefined when it is not served); elsewhere the seeded flows (MOCK SEAM, DesignWorld/run.ts). */
   readonly flowCards: () => Promise<ReadonlyArray<import("@smthrs/rpc/FlowCard").FlowCard> | undefined>
   /** branch.fork on an install: POST /api/branches {from, name?} (spec §8.5); its value is the new scratch branch. A string is the refusal. Absent off an install, where the flow acts on the seeded world. */
+  readonly selectConversationBranch: (name: string) => Promise<void>
   readonly openBranch?: (name: string) => Promise<string | { readonly value: string }>
   readonly forkBranch?: (input: { readonly from: string; readonly name?: string }) => Promise<string | { readonly value: string }>
   /** members.add, members.role and members.remove: the install's routes, or the seeded roster off an install. A string is the refusal. */
@@ -565,7 +566,7 @@ export interface AppController extends IssueFlowsController {
   readonly stackSnapshots: StackSeam["snapshots"]
   readonly importRepository: RepoImportSeam["importRepository"]
   readonly retryImport: RepoImportSeam["retryImport"]
-  readonly listBookmarks: BookmarksSeam["listBookmarks"]
+  readonly listBookmarks: ReturnType<typeof createBranchNavigationSeam>["listBookmarks"]
   /** A branch's commits and one commit (seams/CommitsSeam.ts). */
   readonly listCommits: CommitsSeam["listCommits"]
   readonly readCommit: CommitsSeam["readCommit"]
@@ -933,7 +934,15 @@ export const createAppController = (
   /* Flows (T-APP-05): an install reads its catalog from GET /api/flows; the seeded flows stand in only off an install. */
   const flowsSeam = createFlowsSeam({ http: (path, init) => seamCtx.http(`${baseUrl.replace(/\/$/, "")}${path}`, init), live: services.live })
   ctx.onDispose(flowsSeam.dispose)
+  const selectConversationBranch = async (name: string) => {
+    const owner = accountOwnerOf(store.collections.identitySessions.get("identity")) ?? null
+    const previous = store.session().branchNavigation
+    await store.dispatch({ type: "branch.navigation.changed", actor: "user", navigation: {
+      owner, open: true, selected_branch: name, nodes: previous && previous.owner === owner ? previous.nodes : []
+    } }).isPersisted.promise
+  }
   const openBranch: AppController["openBranch"] = installHost ? async target => {
+    if (target === "main") { await selectConversationBranch("main"); return { value: "Opened main" } }
     try {
       let name = target
       if (/^T[1-9][0-9]*$/.test(target)) {
@@ -945,6 +954,7 @@ export const createAppController = (
       const response = await seamCtx.http(`${baseUrl.replace(/\/$/, "")}/api/branches/${encodeURIComponent(name)}`, { credentials: "same-origin" })
       const body = await response.json() as { name?: unknown; machine?: { id?: unknown }; message?: unknown }
       if (!response.ok || typeof body.name !== "string" || typeof body.machine?.id !== "string") return typeof body.message === "string" ? body.message : "Branch unavailable"
+      await selectConversationBranch(body.name)
       await presentCard("branch", body.name, body.machine.id)
       return { value: `Opened ${body.name}` }
     } catch { return "Branch unavailable" }
@@ -1116,7 +1126,7 @@ export const createAppController = (
     withToast
   }))
   const repoImportSeam = actors.pair(seamCtx, (context) => createRepoImportSeam(context))
-  const bookmarksSeam = actors.pair(seamCtx, (context) => createBookmarksSeam(context))
+  const bookmarksSeam = actors.pair(seamCtx, (context) => createBranchNavigationSeam(context, design))
   const commitsSeam = actors.pair(seamCtx, (context) => createCommitsSeam(context))
   const filesSeam = actors.pair(seamCtx, (context) => createFilesSeam(context, services.branchOptions ? { ...services.branchOptions, topics: services.live, onDispose: ctx.onDispose } : undefined, installHost))
   const readFlowSource: AppController["readFlowSource"] = actors.pair(seamCtx, (context, select) => ({
@@ -1860,6 +1870,7 @@ export const createAppController = (
     showMembers,
     changeMembers,
     flowCards,
+    selectConversationBranch,
     ...(openBranch ? { openBranch } : {}),
     ...(forkBranch ? { forkBranch } : {}),
     promptStorageRecovery,

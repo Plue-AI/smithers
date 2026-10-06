@@ -2063,9 +2063,9 @@ export const legacyCards = [
         ]
       }
     },
-    "expectedKind": "branches",
+    "expectedKind": "retired",
     "expectedTitle": "Aomi",
-    "expectedWas": null
+    "expectedWas": "branches"
   },
   {
     "row": {

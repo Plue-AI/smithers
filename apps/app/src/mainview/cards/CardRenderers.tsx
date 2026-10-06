@@ -21,7 +21,6 @@ import type { Card } from "../state/AppState"
 import { agentCardFamily } from "./AgentCards"
 import { anonymousCeilingCardFamily } from "./AnonymousCeilingCard"
 import { approvalCardFamily } from "./ApprovalCard"
-import { branchesCardFamily } from "./BranchesCard"
 import type { CardActions, CardFamily, CardFamilyEntry, CardProjectionAuthority } from "./CardFamily"
 import { changeCardFamily } from "./ChangeCards"
 import { commitCardFamily } from "./CommitCards"
@@ -80,7 +79,6 @@ export const CARD_FAMILIES: ReadonlyArray<CardFamily<never>> = [
   repositoryUpdateCardFamily,
   secretsCardFamily,
   syncCardFamily,
-  branchesCardFamily,
   fileCardFamily,
   agentCardFamily,
   flowFormCardFamily,
@@ -122,7 +120,6 @@ export const CARD_RENDERERS: CardFamily<RenderedCardKind> = {
   ...repositoryUpdateCardFamily,
   ...secretsCardFamily,
   ...syncCardFamily,
-  ...branchesCardFamily,
   ...fileCardFamily,
   ...agentCardFamily,
   ...flowFormCardFamily,

@@ -1,7 +1,6 @@
 import { describe, expect, test } from "bun:test"
 import { renderToStaticMarkup } from "react-dom/server"
 import type { Card } from "../state/AppState"
-import { BranchesCardBody } from "./BranchesCard"
 import { CommitDetailBody, CommitListBody, dayLabel, groupByDay } from "./CommitCards"
 
 /*
@@ -97,20 +96,5 @@ describe("commit card", () => {
     expect(html).toContain("logo.png is binary")
     expect(html).toContain("No patch was returned for src/a.ts.")
     expect(html).toContain('aria-label="Checks in progress"')
-  })
-})
-
-describe("branches card", () => {
-  test("a row is a commits.list door for that branch", () => {
-    const html = renderToStaticMarkup(
-      <BranchesCardBody
-        card={{ ...base, id: "branches-will/flows", kind: "branches", payload: { repo: "will/flows", bookmarks: [{ name: "feat/x", head: "0123456789" }] } }}
-        onRunCommand={() => {}}
-      />
-    )
-    expect(html).toContain('data-flow="commits.list"')
-    expect(html).toContain('aria-label="Commits on feat/x"')
-    expect(html).toContain("01234567")
-    expect(html).not.toContain("/prs.create")
   })
 })

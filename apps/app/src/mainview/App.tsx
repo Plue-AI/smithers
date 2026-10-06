@@ -1,7 +1,9 @@
+import { accountOwnerOf } from "./state/AccountOwner"
 import { renderHomeCard, renderConfirmCard } from "./cards/CardRenderers"
 import { memberConfirmations, memberConfirmCardProps } from "./cards/ApprovalCard"
 import { useTopic } from "./state/useTopic"
 import { flowArgs } from "./flows/FlowArgs"
+import { BranchNavigation } from "./BranchNavigation"
 import { shownInTranscript } from "./state/ApprovalDeciders"
 import {
 Button,
@@ -83,6 +85,7 @@ function AppContent() {
       surface: session.surface,
       maximizedCardId: session.maximizedCardId,
       activeBranchId: session.activeBranchId,
+      branchNavigation: session.branchNavigation,
       devtoolsOpen: session.devtoolsOpen,
       paletteOpen: session.paletteOpen,
       dictating: session.dictating,
@@ -114,6 +117,7 @@ function AppContent() {
    * always main's. Rows keep their conversation stamp (a turn in flight writes
    * where it started), and this filter reads it.
    */
+  const earlier = session.branchNavigation?.open && session.branchNavigation.owner === (accountOwnerOf(identityRows[0]) ?? null) && session.branchNavigation.selected_branch === "earlier"
   const conversationTabId = conversationTabIdOf(session)
   // A recovery door is an acknowledgment only once its journal receipt exists.
   const messages = messageRows.filter((message) => inConversation(message, conversationTabId) &&
@@ -381,6 +385,11 @@ function AppContent() {
           dismissComposer()
           return
         }
+        if (event.key === "Escape" && earlier) {
+          event.preventDefault()
+          controller.runCommand("branch", session.branchNavigation?.previous_branch ?? "main")
+          return
+        }
         if (event.key === "Escape" && session.maximizedCardId !== null) {
           controller.runCommand("card.minimize")
           return
@@ -461,8 +470,9 @@ function AppContent() {
             {loginScreen && <MessageScrollerItem messageId="login" style={{ contentVisibility: "visible" }}>
               <LoginScreen onRunCommand={controller.runCommand} />
             </MessageScrollerItem>}
-            {!repositoryNotice && home && <MessageScrollerItem messageId={HOME_ENTRY_ID}>{homeCard}</MessageScrollerItem>}
-            {entries.map((entry) => <MessageScrollerItem key={entryId(entry)} messageId={entryId(entry)} style={{ contentVisibility: "visible" }}>
+            {!earlier && !repositoryNotice && home && <MessageScrollerItem messageId={HOME_ENTRY_ID}>{homeCard}</MessageScrollerItem>}
+            {!loginScreen && !repositoryNotice && <BranchNavigation />}
+            {!earlier && entries.map((entry) => <MessageScrollerItem key={entryId(entry)} messageId={entryId(entry)} style={{ contentVisibility: "visible" }}>
               {entry.kind === "card" ?
                 (
                   <CardView
@@ -489,7 +499,7 @@ function AppContent() {
                 }
               }))}
             </MessageScrollerItem>)}
-            {typing && <ChatMessage role="assistant" pending pendingLabel="Smithers is responding" />}
+            {!earlier && typing && <ChatMessage role="assistant" pending pendingLabel="Smithers is responding" />}
             </MessageScrollerContent>
             </MessageScrollerViewport>
             <MessageScrollerButton />
