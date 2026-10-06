@@ -3,6 +3,7 @@ package flowdispatch
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -218,4 +219,99 @@ func TestTodoWakeExpiredReplayNeverStartsOrConsumes(t *testing.T) {
 	require.Equal(t, "wake_timeout", terminal.ErrorCode)
 	require.Equal(t, checkpoint.WakeStartedAt, final.WakeStartedAt)
 	require.Zero(t, starts.Load())
+}
+
+// This PostgreSQL restart campaign qualifies durable delivery fan-in. The
+// runtime is the protocol fixture because the built-in TODO host composition
+// is owned by T-FLW-11; it is not the full C-STK-06 guest/run-loop receipt.
+func TestTodoWakeFiftyPendingInputsRestart(t *testing.T) {
+	store, pool := newFlowDispatchStore(t)
+	runtime := newRecordingRuntime()
+	runtime.status = "waiting"
+	var grants [50]atomic.Bool
+	resolver := flowruntime.ResolverFunc(func(_ context.Context, target flowruntime.Target) (flowruntime.Runtime, error) {
+		var index int
+		if _, err := fmt.Sscanf(target.WorkspaceID, "held-%02d", &index); err != nil || index < 0 || index >= 50 {
+			return nil, fmt.Errorf("unexpected workspace %s", target.WorkspaceID)
+		}
+		if !grants[index].Load() {
+			return nil, &testRuntimeFailure{code: "runtime_host_not_running"}
+		}
+		return todoWakeRuntime{runtime}, nil
+	})
+	service, err := New(Config{Store: store, Resolver: resolver})
+	require.NoError(t, err)
+	requests := make([]SignalRequest, 50)
+	receipts := make([]jobs.RequestReceipt, 50)
+	for i := range requests {
+		id := fmt.Sprintf("held-%02d", i)
+		requests[i] = SignalRequest{Scope: jobs.Scope{TenantID: "repository:5", PrincipalID: "user:9"}, RequestID: id, Target: flowruntime.Target{BindingKind: "workspace", BindingID: id, WorkspaceID: id}, FlowID: "todo", RunID: fmt.Sprintf("original-run-%02d", i), Name: "steer", Payload: json.RawMessage(`{"text":"Keep notes.txt"}`)}
+		receipts[i], err = service.Signal(context.Background(), requests[i])
+		require.NoError(t, err)
+	}
+	// Join the old worker before recreating the dispatcher, like process exit.
+	worker := func(s *Service, id string) func() {
+		ctx, cancel := context.WithCancel(context.Background())
+		done := make(chan error, 1)
+		go func() {
+			done <- s.RunWorker(ctx, jobs.WorkerConfig{WorkerID: id, Capacity: 4, Lease: 2 * time.Second, PollInterval: 2 * time.Millisecond, RetryDelay: 2 * time.Millisecond})
+		}()
+		return func() {
+			cancel()
+			select {
+			case err := <-done:
+				require.NoError(t, err)
+			case <-time.After(5 * time.Second):
+				t.Fatal("worker did not exit")
+			}
+		}
+	}
+	stop := worker(service, "fifty-before-restart")
+	for i, receipt := range receipts {
+		op := waitOperation(t, store, requests[i].Scope, receipt.OperationID, func(op jobs.Operation) bool {
+			c, e := decodeCheckpoint(op.ExternalReceipt)
+			return e == nil && op.State == jobs.StateWaiting && c.FailureStep == "wake"
+		})
+		c, err := decodeCheckpoint(op.ExternalReceipt)
+		require.NoError(t, err)
+		require.Positive(t, c.WakeStartedAt)
+		require.Equal(t, requests[i].RunID, c.RunID)
+	}
+	stop()
+	runtime.mu.Lock()
+	require.Empty(t, runtime.signals)
+	require.Empty(t, runtime.launches)
+	runtime.mu.Unlock()
+	restored, err := jobs.NewStore(pool)
+	require.NoError(t, err)
+	restarted, err := New(Config{Store: restored, Resolver: resolver})
+	require.NoError(t, err)
+	ready := time.Now()
+	stop = worker(restarted, "fifty-after-restart")
+	defer stop()
+	for i := range requests {
+		duplicate, err := restarted.Signal(context.Background(), requests[i])
+		require.NoError(t, err)
+		require.Equal(t, receipts[i].OperationID, duplicate.OperationID)
+		grants[i].Store(true)
+		time.Sleep(10 * time.Millisecond)
+	}
+	for i, receipt := range receipts {
+		waitOperation(t, restored, requests[i].Scope, receipt.OperationID, func(op jobs.Operation) bool { return op.State == jobs.StateCompleted })
+	}
+	elapsed := time.Since(ready)
+	require.Less(t, elapsed, 60*time.Second)
+	runtime.mu.Lock()
+	defer runtime.mu.Unlock()
+	require.Len(t, runtime.signals, 50)
+	require.Empty(t, runtime.launches)
+	seen := map[string]string{}
+	for _, signal := range runtime.signals {
+		require.NotContains(t, seen, signal.ApplicationRequestID)
+		seen[signal.ApplicationRequestID] = signal.RunID
+	}
+	for i, receipt := range receipts {
+		require.Equal(t, requests[i].RunID, seen[receipt.OperationID])
+	}
+	t.Logf("restored_pending_inputs=50 delivered_once=50 restart_to_delivery_ms=%d; protocol fixture excludes machine queue, wake, run_attached and model reservations", elapsed.Milliseconds())
 }
