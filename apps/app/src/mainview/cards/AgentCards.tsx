@@ -42,6 +42,7 @@ const ProfileRowView = ({ agent, native, canAssign, onRunCommand }: { readonly a
         ].filter((fact) => fact !== undefined && fact !== "").join(" · ")}
       </span>
     </span>
+    {agent.runs && agent.runs.length > 0 && <ul data-testid={`agent-recent-runs-${agent.id}`}>{agent.runs.map((run, index) => <li key={`${run.id}:${index}`}>{run.id} · {run.model}</li>)}</ul>}
     <AgentModel agent={agent} canAssign={canAssign} onRunCommand={onRunCommand} />
     <Button variant="ghost" size="sm" data-testid={`agent-runs-${agent.id}`} {...flowAction(onRunCommand, "runs.list", flowArgs("runs.list", { flow: agent.id }))}>Runs</Button>
   </li>

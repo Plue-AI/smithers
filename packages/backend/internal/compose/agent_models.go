@@ -36,6 +36,10 @@ func agentBinding(ctx context.Context, q *db.Queries, role string) (json.RawMess
 
 func agentProfiles(ctx context.Context, q *db.Queries) (map[string]any, error) {
 	profiles := []map[string]any{}
+	appRuns, err := q.RecentAppAgentRuns(ctx)
+	if err != nil {
+		return nil, err
+	}
 	for _, role := range []string{"planner", "implementer", "reviewer", "app"} {
 		binding, source, err := agentBinding(ctx, q, role)
 		if err != nil {
@@ -58,8 +62,12 @@ func agentProfiles(ctx context.Context, q *db.Queries) (map[string]any, error) {
 			path = ".smithers/instructions/app.md"
 			label = "App agent"
 		}
+		runs := []db.AgentModelRun{}
+		if role == "app" {
+			runs = appRuns
+		}
 		profiles = append(profiles, map[string]any{"id": role, "label": label, "purpose": "", "builtin": true, "available": false, "reason": "", "account": "",
-			"model": map[string]string{"id": model.ModelID, "label": modelLabel, "provider": model.Protocol}, "source": source, "binding": binding, "instructions": path})
+			"model": map[string]string{"id": model.ModelID, "label": modelLabel, "provider": model.Protocol}, "source": source, "binding": binding, "instructions": path, "runs": runs})
 	}
 	bindings := map[string]json.RawMessage{}
 	for _, role := range []string{"fast", "coding", "jev"} {

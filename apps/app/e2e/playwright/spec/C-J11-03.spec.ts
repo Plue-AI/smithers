@@ -13,7 +13,7 @@ test("C-J11-03: the owner switches the reviewer model immediately", async ({ pag
   { id: "planner", label: "Planner agent", purpose: "", model: { id: "model-a", label: "model-a", provider: "openai-responses" }, builtin: true, available: false, account: "", reason: "", source: "owner", instructions: "flows/todo/flow.ts" },
   { id: "implementer", label: "Implementer agent", purpose: "", model: { id: "model-a", label: "model-a", provider: "openai-responses" }, builtin: true, available: false, account: "", reason: "", source: "owner", instructions: "flows/todo/flow.ts" },
   { id: "reviewer", label: "Reviewer agent", purpose: "", model: { id: model, label: model, provider: "openai-responses" }, binding: { protocol: "openai-responses", modelId: model, credential: "OPENAI_API_KEY" }, builtin: true, available: false, account: "", reason: "", source: "owner", instructions: "flows/todo/flow.ts" },
-  { id: "app", label: "App agent", purpose: "", model: { id: "model-f", label: "model-f", provider: "openai-chat" }, builtin: true, available: false, account: "", reason: "", source: "owner", instructions: ".smithers/instructions/app.md" }
+  { id: "app", label: "App agent", purpose: "", runs: [{ id: "turn-before-switch", model: "model-old" }, { id: "turn-after-switch", model: "model-f" }], model: { id: "model-f", label: "model-f", provider: "openai-chat" }, builtin: true, available: false, account: "", reason: "", source: "owner", instructions: ".smithers/instructions/app.md" }
  ] })
  await page.route("**/api/agents", route => route.fulfill({ json: snapshot() }))
  const writes: unknown[] = []
@@ -26,6 +26,8 @@ test("C-J11-03: the owner switches the reviewer model immediately", async ({ pag
  await say(page, "/agents")
  for (const name of ["Planner agent", "Implementer agent", "Reviewer agent", "App agent"])
   await expect(page.getByText(name, { exact: true }).last()).toBeVisible()
+ await expect(page.getByTestId("agent-recent-runs-app")).toContainText("turn-before-switch · model-old")
+ await expect(page.getByTestId("agent-recent-runs-app")).toContainText("turn-after-switch · model-f")
  await page.getByTestId("agent-model-reviewer").press("Enter")
  await page.getByLabel("Model", { exact: true }).last().fill("model-b")
  await expect(page.getByRole("button", { name: "Save", exact: true }).last()).toBeEnabled()
