@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"reflect"
 	"strconv"
 	"strings"
 	"time"
@@ -57,6 +58,25 @@ func (service *Service) handleLaunch(ctx context.Context, lease *jobs.Lease) err
 	if checkpoint.FlowID != payload.FlowID || checkpoint.Target != payload.Target {
 		return service.fail(lease, "checkpoint_request_mismatch", checkpoint)
 	}
+	// PostgreSQL may reorder JSON keys. Compare decoded correlation data,
+	// not bytes, before a retained receipt can select an attempt to project.
+	var savedProjection, admittedProjection any
+	if len(checkpoint.Projection) > 0 {
+		if err := json.Unmarshal(checkpoint.Projection, &savedProjection); err != nil {
+			return service.fail(lease, "invalid_checkpoint", RuntimeCheckpoint{Projection: payload.Projection})
+		}
+	}
+	if len(payload.Projection) > 0 {
+		if err := json.Unmarshal(payload.Projection, &admittedProjection); err != nil {
+			return service.fail(lease, "invalid_product_request", RuntimeCheckpoint{})
+		}
+	}
+	if savedProjection != nil && !reflect.DeepEqual(savedProjection, admittedProjection) {
+		return service.fail(lease, "checkpoint_projection_mismatch", RuntimeCheckpoint{Projection: payload.Projection})
+	}
+	// Older receipts omitted correlation metadata. Restore it from admission,
+	// which is also the authoritative source for every later projection.
+	checkpoint.Projection = payload.Projection
 	// The todo composition runs only from a pinned stack launch. Refuse any
 	// other before a machine wakes, a host starts or a token is minted.
 	if (payload.Pin != nil && !payload.Pin.Valid()) || !todoLaunchAllowed(payload.FlowID, payload.Target, payload.Pin) {

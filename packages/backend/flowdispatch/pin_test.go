@@ -154,6 +154,7 @@ func TestPinnedReconnectValidatesDigestBeforeResolution(t *testing.T) {
 		valid               bool
 		failure             string
 	}{
+		{"wrong projection", "run-1", todoPin.ExecutionDigest, false, ""},
 		{"wrong launch digest", "", otherDigest, false, ""},
 		{"wrong reconnect digest", "run-1", otherDigest, false, ""},
 		{"missing reconnect digest", "run-1", "", false, ""},
@@ -178,6 +179,11 @@ func TestPinnedReconnectValidatesDigestBeforeResolution(t *testing.T) {
 			target := stackTarget
 			target.TenantID, target.PrincipalID = stackScope.TenantID, stackScope.PrincipalID
 			checkpoint := RuntimeCheckpoint{Version: 1, Target: target, FlowID: "todo", RunID: test.runID, ExecutionDigest: test.digest, FailureCode: test.failure}
+			wantFailure := "checkpoint_pin_mismatch"
+			if test.name == "wrong projection" {
+				checkpoint.Projection = json.RawMessage(`{"kind":"mythical-item","attempt":99}`)
+				wantFailure = "checkpoint_projection_mismatch"
+			}
 			_, err = pool.Exec(t.Context(), `UPDATE product_job_dispatches SET external_receipt=$2::jsonb WHERE operation_id=$1`, receipt.OperationID, mustJSON(checkpoint))
 			require.NoError(t, err)
 			startTestWorker(t, service, "reconnect-pin-worker")
@@ -191,7 +197,7 @@ func TestPinnedReconnectValidatesDigestBeforeResolution(t *testing.T) {
 				require.Positive(t, resolved.Load())
 			} else {
 				require.Equal(t, jobs.StateFailed, operation.State)
-				require.Contains(t, string(operation.TerminalReceipt), "checkpoint_pin_mismatch")
+				require.Contains(t, string(operation.TerminalReceipt), wantFailure)
 				require.Zero(t, resolved.Load())
 			}
 			runtime.mu.Lock()
