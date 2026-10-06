@@ -96,6 +96,7 @@ export const APP_TRANSITION_SCHEMAS = {
   "message.retried": z.object({ "type": z.literal("message.retried"), "actor": z.literal("user"), "turnId": z.string() }).strict(),
   "message.response.cancelled": z.object({ "type": z.literal("message.response.cancelled"), "actor": z.enum(["user", "system"]), "turnId": z.string(), "detail": z.string().optional() }).strict(),
   "session.turn.orphaned": z.object({ "type": z.literal("session.turn.orphaned"), "actor": z.literal("system") }).strict(),
+  "conversation.archives.loaded": z.object({ type: z.literal("conversation.archives.loaded"), actor: z.literal("system"), owner: z.string().min(1), branches: z.array(BranchSchema) }).strict(),
   "conversation.restored": z.object({ type: z.literal("conversation.restored"), actor: z.literal("system"), owner: z.string().min(1), afterRevision: z.number().int().nonnegative(), conversations: z.array(ConversationHistorySchema) }).strict(),
   "conversation.reset": z.object({ "type": z.literal("conversation.reset"), "actor": z.literal("user") }).strict(),
   "conversation.reset.asked": z.object({ "type": z.literal("conversation.reset.asked"), "actor": z.literal("user"), "open": z.boolean() }).strict(),

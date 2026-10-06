@@ -1,3 +1,5 @@
+import { createWebAgent } from "../native/WebAgent"
+import historyFixture from "./testdata/earlier-history.json"
 import { GlobalRegistrator } from "@happy-dom/global-registrator"
 import { afterAll, afterEach, expect, test } from "bun:test"
 import { flushSync } from "react-dom"
@@ -60,4 +62,52 @@ test("/branches mounts the install tree before an unresolved read, then shows re
 test("tree refuses cycles and repeated branch identities", () => {
   expect(() => branchTree([row("a", "b"), row("b", "a")])).toThrow("Cyclic")
   expect(() => branchTree([row("a"), row("a")])).toThrow("Repeated")
+})
+
+
+test("Earlier combines two browser archives with private journal replay without restoring execution", async () => {
+  const store = await createAppStore({ kind: "localStorage", storage: memoryStorage() })
+  const requests: Array<{ path: string; method: string; body?: unknown }> = []
+  const history = createWebAgent({ fetchImpl: async (input, init) => {
+    const path = String(input)
+    requests.push({ path, method: init?.method ?? "GET", ...(init?.body ? { body: JSON.parse(String(init.body)) } : {}) })
+    return Response.json(store.collections.identitySessions.get("identity")?.login === "alice" ? { status: "ok", conversations: [], next: null } : path.endsWith("/replay") ? historyFixture.replay : historyFixture.index)
+  } }).history
+  let starts = 0
+  const controller = controllerFor(store, { ...silentAgent, history, startTurn: async () => { starts++; return { status: "started" } } }, {
+    bootstrap: { apiVersion: 1, host: "local", version: "test", buildSha: "test", capabilities: ["install"], authFlow: "redirect", sandbox: null },
+    fetchImpl: async input => String(input).includes("/api/branches?") ? Response.json([]) : new Response("{}", { status: 404 })
+  })
+  await store.dispatch({ type: "identity.session.loaded", actor: "system", state: "signed-in", login: "ben", admin: false, scopesPlain: null }).isPersisted.promise
+  await store.dispatch({ type: "message.appended", actor: "system", text: "First browser archive" }).isPersisted.promise
+  await store.dispatch({ type: "conversation.cleared", actor: "user", branchId: "local-two", notes: [] }).isPersisted.promise
+  await store.dispatch({ type: "message.appended", actor: "system", text: "Second browser archive" }).isPersisted.promise
+  await store.dispatch({ type: "conversation.cleared", actor: "user", branchId: "current", notes: [] }).isPersisted.promise
+  await store.dispatch({ type: "message.appended", actor: "system", text: "Current conversation" }).isPersisted.promise
+  const messages = [...store.collections.messages.values()].map(row => row.text)
+  const host = mount(controller)
+  expect((await controller.submitCommand({ name: "branches", payload: {}, actor: "user" })).status).toBe("executed")
+  await waitFor(() => store.collections.branches.has("earlier:journal:legacy-journal"))
+  expect([...store.collections.messages.values()].map(row => row.text)).toEqual(messages)
+  expect(store.session().activeBranchId).toBe("current")
+  flushSync(() => host.querySelector<HTMLButtonElement>('[data-node="earlier"]')!.click())
+  await waitFor(() => host.querySelectorAll("[data-archive]").length === 3)
+  flushSync(() => host.querySelector<HTMLButtonElement>('[data-archive="earlier:journal:legacy-journal"]')!.click())
+  await waitFor(() => host.querySelector(".archive-entries")?.textContent?.includes("Archived journal greeting") === true)
+  expect(host.querySelector(".archive-entries")?.textContent).toContain("Legacy journal question")
+  expect(host.querySelectorAll(".archive-entries button")).toHaveLength(0)
+  expect(starts).toBe(0)
+  expect(requests).toEqual([
+    { path: "/api/agent/conversations", method: "GET" },
+    { path: "/api/agent/conversations/replay", method: "POST", body: { runId: "legacy-turn", legId: "legacy-leg" } }
+  ])
+  expect(store.collections.httpTurns.size).toBe(0)
+  expect(store.collections.runtimeApprovals.size).toBe(0)
+  await store.dispatch({ type: "identity.session.loaded", actor: "system", state: "signed-in", login: "alice", admin: false, scopesPlain: null }).isPersisted.promise
+  await waitFor(() => host.querySelector(".archive-entries") === null)
+  await controller.submitCommand({ name: "branches", payload: {}, actor: "user" })
+  await waitFor(() => host.querySelector('[data-node="earlier"]') !== null)
+  flushSync(() => host.querySelector<HTMLButtonElement>('[data-node="earlier"]')!.click())
+  await waitFor(() => host.querySelector('[aria-label="Earlier"]') !== null)
+  expect(host.querySelectorAll("[data-archive]")).toHaveLength(0)
 })

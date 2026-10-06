@@ -1,3 +1,4 @@
+import { createEarlierHistoryController } from "./controller/earlierHistory"
 import { accountOwnerOf } from "./AccountOwner"
 import { createHomeViewSeam, type HomeViewSeam } from "./seams/HomeViewSeam"
 import { contextMonitor } from "./ContextMonitor"
@@ -1265,6 +1266,7 @@ export const createAppController = (
   } = actors.pair(ctx, createPresentationController)
 
   const conversationHistory = createConversationHistoryController(ctx)
+  const earlierHistory = createEarlierHistoryController(ctx)
   const {
     maximizeCard,
     minimizeCard,
@@ -2084,7 +2086,7 @@ export const createAppController = (
     registerTrigger,
     importRepository: repoImportSeam.importRepository,
     retryImport: repoImportSeam.retryImport,
-    listBookmarks: bookmarksSeam.listBookmarks,
+    listBookmarks: async () => { earlierHistory.load(); return bookmarksSeam.listBookmarks() },
     listCommits: commitsSeam.listCommits,
     readCommit: commitsSeam.readCommit,
     branchFiles: filesSeam.branchFiles,

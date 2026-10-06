@@ -644,6 +644,7 @@ export const FrameSnapshotSchema = z.object({
 export type FrameSnapshot = z.infer<typeof FrameSnapshotSchema>
 
 export const BranchSchema = z.object({
+  archiveOwner: z.string().optional(),
   id: z.string(),
   workspaceId: z.string(),
   title: z.string(),
@@ -1314,6 +1315,7 @@ export type AppTransition =
     type: "session.turn.orphaned"
     actor: "system"
   }
+  | { type: "conversation.archives.loaded"; actor: "system"; owner: string; branches: readonly Branch[] }
   | { type: "conversation.restored"; actor: "system"; owner: string; afterRevision: number; conversations: readonly ConversationHistory[] }
   | { type: "conversation.reset"; actor: "user" }
   | { type: "conversation.reset.asked"; actor: "user"; open: boolean }

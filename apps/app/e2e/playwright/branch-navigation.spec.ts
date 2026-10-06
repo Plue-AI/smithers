@@ -1,3 +1,4 @@
+import historyFixture from "../../src/mainview/state/testdata/earlier-history.json"
 import { expect, test } from "./browserTest"
 import { owner, say } from "./spec/j1-fixtures"
 
@@ -20,4 +21,28 @@ test("/branches mounts the served tree inline and preserves its view on reload",
   await page.reload()
   await expect(tree).toBeVisible()
   await expect(page.getByRole("region", { name: "Earlier", exact: true })).toBeVisible()
+})
+
+
+test("Earlier opens verified journal output without starting or resuming a turn", async ({ page }) => {
+  await owner(page)
+  let available = false
+  let turns = 0
+  page.on("request", request => { if (/\/api\/(agent|chat)\/turn$/.test(new URL(request.url()).pathname)) turns++ })
+  await page.route("**/api/branches?*", route => route.fulfill({ json: [] }))
+  await page.route("**/api/agent/conversations", route => route.fulfill({ json: available ? historyFixture.index : { status: "ok", conversations: [], next: null } }))
+  await page.route("**/api/agent/conversations/replay", route => route.fulfill({ json: historyFixture.replay }))
+  await page.goto("/")
+  await expect(page.getByRole("button", { name: "Chat", exact: true })).toBeVisible()
+  available = true
+  await say(page, "/branches")
+  const earlier = page.getByRole("region", { name: "Earlier", exact: true })
+  await page.locator('[data-node="earlier"]').press("Enter")
+  await earlier.getByRole("button", { name: "Legacy journal question", exact: true }).press("Enter")
+  await expect(earlier).toContainText("Archived journal greeting")
+  await expect(earlier.locator(".archive-entries button")).toHaveCount(0)
+  await expect(page.locator("[data-branch-navigation]")).toHaveAttribute("aria-busy", "false")
+  await page.reload()
+  await expect(earlier).toContainText("Archived journal greeting")
+  expect(turns).toBe(0)
 })

@@ -194,6 +194,7 @@ export const APP_TRANSITION_TYPES = {
   "conversation.reset": true,
   "conversation.reset.asked": true,
   "conversation.cleared": true,
+  "conversation.archives.loaded": true,
   "conversation.restored": true,
   "card.maximized": true,
   "card.minimized": true,
@@ -1681,6 +1682,20 @@ export const projectAppEvent = (previous: AppProjectionSnapshot, context: AppPro
             draft.resetConfirmOpen = transition.open
           })
           break
+
+        case "conversation.archives.loaded": {
+          if (accountOwnerOf(collections.identitySessions.get("identity")) !== transition.owner) return
+          const incoming = new Set(transition.branches.map(branch => branch.id))
+          for (const branch of collections.branches.values()) {
+            if (branch.archiveOwner === transition.owner && !incoming.has(branch.id)) collections.branches.delete(branch.id)
+          }
+          for (const branch of transition.branches) {
+            if (branch.archiveOwner !== transition.owner || !branch.id.startsWith("earlier:journal:")) throw new Error("Invalid archive audience")
+            if (collections.branches.has(branch.id)) collections.branches.update(branch.id, draft => { Object.assign(draft, branch) })
+            else collections.branches.insert(branch)
+          }
+          break
+        }
 
         case "conversation.restored": {
           if (accountOwnerOf(collections.identitySessions.get("identity")) !== transition.owner || current.phase !== "idle" || current.draft !== "" || (current.queuedPrompts?.length ?? 0) > 0 ||
