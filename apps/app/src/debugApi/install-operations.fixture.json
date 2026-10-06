@@ -6,6 +6,8 @@
   {"id":"post_api_agent_turn_retire","method":"POST","path":"/api/agent/turn/retire"},
   {"id":"get_api_agent_conversations","method":"GET","path":"/api/agent/conversations"},
   {"id":"post_api_agent_conversations_replay","method":"POST","path":"/api/agent/conversations/replay"},
+  {"id":"get_api_conversation_view_state","method":"GET","path":"/api/conversations/{b}/view-state"},
+  {"id":"put_api_conversation_view_state","method":"PUT","path":"/api/conversations/{b}/view-state"},
   {"id":"delete_api_app_timelines_id_members_user_d","method":"DELETE","path":"/api/app-timelines/{id}/members/{userId}"},
   {"id":"get_api_app_timelines_id","method":"GET","path":"/api/app-timelines/{id}"},
   {"id":"get_api_app_timelines_id_members","method":"GET","path":"/api/app-timelines/{id}/members"},
