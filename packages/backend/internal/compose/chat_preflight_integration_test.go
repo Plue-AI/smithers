@@ -509,23 +509,70 @@ func composedContextSources(t *testing.T, local *localChat) (services.InstallCon
 	outside := filepath.Join(t.TempDir(), "outside")
 	require.NoError(t, os.WriteFile(outside, []byte("outside-symlink-canary"), 0644))
 	require.NoError(t, os.Symlink(outside, filepath.Join(repoPath, "outside-link")))
-	jj := func(args ...string) string {
+	// Seed immutable Git objects through the same native mirror boundary used
+	// by install_source_integration_test; no working-copy snapshot command.
+	gitDir := cfg.GitBackendPath("chatowner", "chatrepo")
+	git := func(stdin string, args ...string) string {
 		t.Helper()
-		argv := append([]string{"--repository", repoPath, "--config", "user.name=Context fixture", "--config", "user.email=context@example.invalid"}, args...)
-		command := exec.CommandContext(local.ctx, "jj", argv...)
-		command.Env = append(os.Environ(), "JJ_CONFIG=/dev/null")
+		command := exec.CommandContext(local.ctx, "git", append([]string{"--git-dir", gitDir}, args...)...)
+		command.Env = append(os.Environ(), "GIT_AUTHOR_NAME=Context fixture", "GIT_AUTHOR_EMAIL=context@example.invalid", "GIT_COMMITTER_NAME=Context fixture", "GIT_COMMITTER_EMAIL=context@example.invalid", "GIT_INDEX_FILE="+filepath.Join(t.TempDir(), "index"))
+		command.Stdin = strings.NewReader(stdin)
 		output, err := command.CombinedOutput()
 		require.NoError(t, err, string(output))
 		return strings.TrimSpace(string(output))
 	}
-	jj("describe", "-m", "Mirrored context fixture")
-	jj("bookmark", "create", "main", "-r", "@")
-	revision := jj("log", "--no-graph", "-r", "@", "-T", "commit_id")
+	var treeEntries []string
+	require.NoError(t, filepath.WalkDir(repoPath, func(path string, entry os.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+		if entry.IsDir() {
+			if entry.Name() == ".jj" {
+				return filepath.SkipDir
+			}
+			return nil
+		}
+		name, err := filepath.Rel(repoPath, path)
+		if err != nil {
+			return err
+		}
+		mode, body := "100644", ""
+		if entry.Type()&os.ModeSymlink != 0 {
+			mode = "120000"
+			body, err = os.Readlink(path)
+		} else {
+			var content []byte
+			content, err = os.ReadFile(path)
+			body = string(content)
+		}
+		if err != nil {
+			return err
+		}
+		object := git(body, "hash-object", "-w", "--stdin")
+		treeEntries = append(treeEntries, mode+" "+object+"\t"+name+"\n")
+		return nil
+	}))
+	// A single persistent index is scoped to this test's temporary directory.
+	index := filepath.Join(t.TempDir(), "snapshot-index")
+	writeTree := func(entries []string) string {
+		command := exec.CommandContext(local.ctx, "git", "--git-dir", gitDir, "update-index", "--index-info")
+		command.Env = append(os.Environ(), "GIT_INDEX_FILE="+index)
+		command.Stdin = strings.NewReader(strings.Join(entries, ""))
+		output, err := command.CombinedOutput()
+		require.NoError(t, err, string(output))
+		command = exec.CommandContext(local.ctx, "git", "--git-dir", gitDir, "write-tree")
+		command.Env = append(os.Environ(), "GIT_INDEX_FILE="+index)
+		output, err = command.CombinedOutput()
+		require.NoError(t, err, string(output))
+		return strings.TrimSpace(string(output))
+	}
+	revision := git("", "commit-tree", writeTree(treeEntries), "-m", "Mirrored context fixture")
+	git("", "update-ref", "refs/heads/main", revision)
+	candidateBlob := git("export const retries = 7", "hash-object", "-w", "--stdin")
+	candidate := git("", "commit-tree", writeTree([]string{"100644 " + candidateBlob + "\tsrc/webhooks/retry.ts\n"}), "-p", revision, "-m", "Accepted item candidate fixture")
+	git("", "update-ref", "refs/heads/item-fixture", candidate)
+	require.NoError(t, native.ImportGitRefs(repoPath))
 	require.Regexp(t, `^[a-f0-9]{40}$`, revision)
-	jj("new", "@")
-	require.NoError(t, os.WriteFile(filepath.Join(repoPath, "src/webhooks/retry.ts"), []byte("export const retries = 7"), 0644))
-	jj("describe", "-m", "Accepted item candidate fixture")
-	candidate := jj("log", "--no-graph", "-r", "@", "-T", "commit_id")
 	require.Regexp(t, `^[a-f0-9]{40}$`, candidate)
 	require.NotEqual(t, revision, candidate)
 	server, err := repohostserver.NewWithFFI(cfg, native)
