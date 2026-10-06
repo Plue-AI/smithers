@@ -64,7 +64,7 @@ fn file_reads_and_unavailable_writes_through_production_rpc_socket() {
     let path = conn::field(1, [0, 1, b'a']);
     let reply = exchange(
         &fixture,
-        request(2, &[path.clone()]),
+        request(2, std::slice::from_ref(&path)),
         Arc::new(hooks::Disabled),
     );
     let result = conn::fields("response", &reply.payload[1..]).unwrap()[1].1;
