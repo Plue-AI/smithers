@@ -21,7 +21,7 @@ go test -run 'TestMigrationGate|TestMigrationRegistry' ./packages/backend/db/pro
 ```
 
 `node scripts/commit.mjs --push --test '<required check>'` runs that mandatory
-gate and the sqlc drift gate before either Git or jj publication. Missing or
+gate, sqlc drift, and the mandatory five-target drift set before either Git or jj publication. Missing or
 failed gates refuse publication, including with `--no-test`. The bootstrap
 helper publishes main; this authorized wave uses the lane's explicit Git
 fetch/rebase/push workflow to frontrun after the same checks.
