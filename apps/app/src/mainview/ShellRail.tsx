@@ -18,6 +18,8 @@ import type { ShellView, ToastCard } from "@smthrs/rpc/ToastCard"
 import type { TimelineLine } from "@smthrs/rpc/TimelineCard"
 import { useMessageBand, useMessageScroller } from "@smthrs/ui"
 import { useLiveQuery } from "@tanstack/react-db"
+import { useSharedConversation } from "./state/useSharedConversation"
+import type { SharedConversation } from "./state/seams/SharedConversationSeam"
 import { useState } from "react"
 import { useController } from "./ControllerContext"
 import { EdgeMap } from "./EdgeMap"
@@ -74,6 +76,25 @@ export const railLines = (entries: ReadonlyArray<RailEntry>, viewer: Parameters<
   return [message.role === "user"
     ? { entry_id: message.id, kind: "prompt", title: `“${text}”`, tone: "quiet", glyph: toneGlyph("quiet") }
     : { entry_id: message.id, kind: "answer", title: text, tone: message.status === "failed" ? "failed" : "quiet", glyph: { actor: { kind: "agent", id: "smithers", agent: "smithers", avatar_url: PlaceholderAvatarUrl, color_index: 6 } } }]
+})
+
+/** Shared history uses exactly the transcript's scroll ids and recorded actors. */
+export const sharedRailLines = (conversation: SharedConversation | undefined, viewer: Parameters<typeof actionFor>[1]): TimelineLine[] => (conversation?.entries ?? []).flatMap(turn => {
+  const color_index = (turn.author % 6) as 0 | 1 | 2 | 3 | 4 | 5
+  const person = { login: turn.authorLogin, name: turn.authorLogin, avatar_url: PlaceholderAvatarUrl }
+  const frames = turn.frames.filter(frame => frame.runId === turn.runId)
+  const text = frames.flatMap(frame => frame.type === "delta" && frame.kind === "text" ? [frame.text] : []).join("")
+  const tone = turn.tone ?? (turn.state === "accepted" || turn.state === "running" ? "live" : turn.state === "failed" ? "failed" : turn.state === "completed" ? "done" : "quiet")
+  const rows: TimelineLine[] = [
+    { entry_id: `${turn.id}:prompt`, kind: "prompt", title: turn.title ?? firstLine(turn.prompt), tone: "quiet", glyph: { actor: { kind: "person", ...person, color_index } } },
+    { entry_id: `${turn.id}:answer`, kind: "answer", title: firstLine(text) || turn.title || firstLine(turn.prompt), tone,
+      glyph: { actor: { kind: "agent", id: turn.runId, agent: "smithers", for_member: person, avatar_url: PlaceholderAvatarUrl, color_index } } }
+  ]
+  for (const frame of frames) {
+    if (frame.type !== "card") continue
+    rows.push(...railLines([{ kind: "card", card: frame.card }], viewer))
+  }
+  return rows
 })
 
 /** Bind only the current lines' acts; duplicate entries for one TODO share one command input. */
@@ -170,15 +191,17 @@ export function ShellRail({ entries, home }: { readonly entries: ReadonlyArray<R
   const scroller = useMessageScroller()
   const homeAnswer = useHome(home)
   const role = useTodoRole()
+  const shared = useSharedConversation(controller.sharedConversation)
   const { data: identities } = useLiveQuery(controller.store.collections.identitySessions)
   const { data: toasts } = useLiveQuery(controller.store.collections.toasts)
   const { data: privacyNotices } = useLiveQuery(controller.privacyNotices)
   // Transient chrome: whether the rail is wide enough for the timeline (the View reports it).
   const [wide, setWide] = useState(false)
-  const lines = [
+  const lines = [...new Map([
     ...(home && homeAnswer !== undefined ? [homeLine(homeAnswer)] : []),
-    ...railLines(entries, { role })
-  ]
+    ...(controller.sharedConversation ? sharedRailLines(shared.conversation, { role }) : []),
+    ...railLines(controller.sharedConversation ? entries.filter(entry => entry.kind === "card" || entry.kind === "entry" || entry.kind === "message" && (entry.message.origin === "external" || entry.message.action !== undefined)) : entries, { role })
+  ].map(line => [line.entry_id, line] as const)).values()]
   const timeline = timelineActions(lines, homeDispatch(controller))
   const band = useMessageBand(lines.map(line => line.entry_id))
   const edges = railEdges(lines, band)

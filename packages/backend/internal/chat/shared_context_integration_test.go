@@ -60,6 +60,8 @@ func TestSharedConversationRetainsSelectedContext(t *testing.T) {
 		require.NoError(t, json.NewDecoder(response.Body).Decode(&body))
 		response.Body.Close()
 		require.Len(t, body.Entries, 1)
+		require.Equal(t, "Where do we retry?", body.Entries[0].Title)
+		require.Equal(t, "done", body.Entries[0].Tone)
 		require.NotNil(t, body.Entries[0].Context)
 		require.Len(t, *body.Entries[0].Context, 1)
 		require.JSONEq(t, `{"kind":"file","label":"retry.ts","ref":"src/webhooks/retry.ts","revision":"abc123","reason":"Retry code"}`, string((*body.Entries[0].Context)[0]))
