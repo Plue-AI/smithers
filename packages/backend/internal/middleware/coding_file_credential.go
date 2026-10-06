@@ -19,7 +19,10 @@ const CodingFileProfileS1 = "coding_file_s1"
 
 const codingFilePrefix = "coding-file-"
 
-var codingRunPattern = regexp.MustCompile(`^[A-Za-z0-9._:-]{1,256}$`)
+// AgentAction sessions include the execution/flow path, @step:attempt and
+// #correction suffix. Commas and whitespace must remain forbidden because the
+// exact session is carried inside a comma-separated restriction scope.
+var codingRunPattern = regexp.MustCompile(`^[A-Za-z0-9._:/@#-]{1,256}$`)
 var codingDigestPattern = regexp.MustCompile(`^[0-9a-f]{64}$`)
 
 // CodingFileBinding is issuer-owned metadata on a short-lived access token.

@@ -193,7 +193,7 @@ if (parsed.values.version) {
                   workspaceId: landing.workspaceId,
                   gatewayId: options.gatewayId,
                   credential: options.credential ?? ""
-                }).pipe(Effect.provide(http))
+                })
                 return yield* Serve.host(bind, root).pipe(Effect.provide(layer(platform, {
                   ...options,
                   mutationProvider,
@@ -213,7 +213,9 @@ if (parsed.values.version) {
                     ).pipe(Layer.provide(http), Layer.orDie)
                   })
                 })))
-              })
+                // The mutation provider retains this client for later writes.
+                // Keep its connection pool alive until the serving host exits.
+              }).pipe(Effect.provide(http))
             ),
             Effect.provide(platform.host)
           )

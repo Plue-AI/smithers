@@ -13,7 +13,8 @@ export interface Options extends Omit<Transport.Options, "authorize"> {
   readonly credential: string
 }
 
-const unavailable = () => new StdError({ code: "provider_unavailable", message: "Coding file grant unavailable" })
+const unavailable = (reason = "issuer transport failed") =>
+  new StdError({ code: "provider_unavailable", message: `Coding file grant unavailable: ${reason}` })
 const denied = () => new StdError({ code: "permission_denied", message: "Coding run file-write authority refused" })
 
 /** Check the same store and current fiber ceiling as the guarded filesystem,
@@ -25,7 +26,7 @@ export const protect = (
 ): MutationProvider => ({
   compareWrite: (request) =>
     Effect.gen(function*() {
-      if (Option.isNone(grants)) return yield* Effect.fail(unavailable())
+      if (Option.isNone(grants)) return yield* Effect.fail(unavailable("write-grant store missing"))
       const pinned = {
         ...request,
         changes: request.changes.map((change) => ({
@@ -49,7 +50,7 @@ export const make = (input: Options): Effect.Effect<MutationProvider, StdError, 
   Effect.gen(function*() {
     const options = { ...input }
     if (!/^[0-9a-f]{8}(-[0-9a-f]{4}){3}-[0-9a-f]{12}$/.test(options.gatewayId) || options.credential.trim() === "") {
-      return yield* Effect.fail(unavailable())
+      return yield* Effect.fail(unavailable("host binding invalid"))
     }
     const client = yield* HttpClient.HttpClient
     const hostToken = Redacted.make(options.credential)
@@ -58,7 +59,7 @@ export const make = (input: Options): Effect.Effect<MutationProvider, StdError, 
       HttpClient.withScope(client).execute(
         request.pipe(HttpClientRequest.bearerToken(token), HttpClientRequest.acceptJson)
       )
-        .pipe(Effect.provideService(FetchHttpClient.RequestInit, { redirect: "manual" }), Effect.mapError(unavailable))
+        .pipe(Effect.provideService(FetchHttpClient.RequestInit, { redirect: "manual" }), Effect.mapError(() => unavailable()))
     return yield* Transport.make({
       ...options,
       authorize: (session, _paths, batchDigest) =>
@@ -72,16 +73,16 @@ export const make = (input: Options): Effect.Effect<MutationProvider, StdError, 
                 hostToken
               )
               if (response.status === 401 || response.status === 403) return yield* Effect.fail(denied())
-              if (response.status !== 201) return yield* Effect.fail(unavailable())
-              const value = yield* Transport.readJson(response).pipe(Effect.mapError(unavailable))
+              if (response.status !== 201) return yield* Effect.fail(unavailable(`issuer returned HTTP ${response.status}`))
+              const value = yield* Transport.readJson(response).pipe(Effect.mapError(() => unavailable("invalid issuer response")))
               if (typeof value !== "object" || value === null || Array.isArray(value)) {
-                return yield* Effect.fail(unavailable())
+                return yield* Effect.fail(unavailable("invalid issuer response"))
               }
               const raw = value as Record<string, unknown>
               if (
                 typeof raw.token_id !== "number" || !Number.isSafeInteger(raw.token_id) || raw.token_id <= 0 ||
                 typeof raw.token !== "string" || !/^smithers_[0-9a-f]{40}$/.test(raw.token)
-              ) return yield* Effect.fail(unavailable())
+              ) return yield* Effect.fail(unavailable("invalid issued token"))
               return { raw, tokenId: raw.token_id, token: Redacted.make(raw.token) }
             }).pipe(Effect.interruptible),
             (issued) =>

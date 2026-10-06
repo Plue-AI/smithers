@@ -66,6 +66,29 @@ func TestCodingFileCredentialScopes(t *testing.T) {
 	require.False(t, ok)
 }
 
+func TestCodingFileCredentialNestedRunIdentity(t *testing.T) {
+	for _, run := range []string{
+		"run-1/coding/edit-atom@step-3:0#0",
+		"run-1/coding/edit-atom@step-3:0/panel/1#2",
+		"run-1/coding/edit-atom@step-3:0/merge#1",
+		strings.Repeat("a", 256),
+	} {
+		info, binding := fileGrantFixture()
+		binding.RunID = run
+		require.True(t, binding.Valid(), run)
+		info.RawScopes = strings.Join(CodingFileScopes(binding), ",")
+		actual, ok := CodingFileCredential(info)
+		require.True(t, ok, run)
+		require.Equal(t, binding, actual)
+		require.Equal(t, run, ParseTokenAgentSessionRestriction(info.RawScopes))
+	}
+	for _, run := range []string{"", "run,admin", "run other", "run\n", "run\x00", "run%2Cadmin", strings.Repeat("a", 257)} {
+		_, binding := fileGrantFixture()
+		binding.RunID = run
+		require.False(t, binding.Valid(), run)
+	}
+}
+
 func TestCodingFileCredentialAdmitsOnlyExactBoundedBody(t *testing.T) {
 	info, binding := fileGrantFixture()
 	path := "/api/repos/owner/repo/workspaces/" + binding.WorkspaceID + "/files/content"

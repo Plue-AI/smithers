@@ -2,7 +2,7 @@ import { CapabilityPattern } from "@smthrs/capability/Capability"
 import * as CapabilitySet from "@smthrs/kernel/CapabilitySet"
 import * as GrantStore from "@smthrs/kernel/GrantStore"
 import * as Workspace from "@smthrs/kernel/Workspace"
-import { Deferred, Effect, Fiber, Option } from "effect"
+import { Deferred, Effect, Fiber, ManagedRuntime, Option } from "effect"
 import { TestClock } from "effect/testing"
 import { FetchHttpClient } from "effect/unstable/http"
 import assert from "node:assert/strict"
@@ -11,6 +11,7 @@ import { createServer, type IncomingMessage, type ServerResponse } from "node:ht
 import { test, type TestContext } from "node:test"
 import * as Grants from "../coding/file-grants.ts"
 import type { MutationProvider } from "../coding/filesystem.ts"
+import * as EgressHttpClient from "../../packages/smithers/flows/platform-node/src/EgressHttpClient.ts"
 
 const workspaceId = "11111111-1111-4111-a111-111111111111"
 const gatewayId = "22222222-2222-4222-a222-222222222222"
@@ -123,6 +124,22 @@ test("real HTTP issuer binds each exact batch and revokes before returning", asy
   assert.deepEqual(await Effect.runPromise(f.provider.compareWrite(batch())), result)
   assert.deepEqual(await Effect.runPromise(f.provider.compareWrite(batch())), result)
   assert.deepEqual(f.calls, ["POST", "PUT", "DELETE", "POST", "PUT", "DELETE"])
+})
+
+test("Node file grants retain the host's client through issuance, mutation and revocation", async (t) => {
+  const f = await fixture(t)
+  const host = ManagedRuntime.make(EgressHttpClient.layer({}))
+  t.after(() => host.dispose())
+  const provider = await host.runPromise(Grants.make(f.options))
+  assert.deepEqual(await host.runPromise(provider.compareWrite(batch())), result)
+  assert.deepEqual(f.calls, ["POST", "PUT", "DELETE"])
+  await host.dispose()
+  const error = await Effect.runPromise(Effect.flip(provider.compareWrite(batch())))
+  assert.equal(error.code, "provider_unavailable")
+  assert.match(error.message, /issuer transport failed/)
+  assert.deepEqual(f.calls, ["POST", "PUT", "DELETE"], "a closed host cannot issue another grant")
+  assert(!JSON.stringify(error).includes(hostToken))
+  assert(!JSON.stringify(error).includes(grantToken))
 })
 
 test("cleanup runs on failed writes, malformed receipts, metadata and expired grants", async (t) => {
