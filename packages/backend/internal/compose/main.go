@@ -491,7 +491,13 @@ func runWithOptions(ctx context.Context, args []string, stdout, stderr io.Writer
 	stopRevocationBus := func() {
 		stopRevocationListener(cancelRevocationBus, revocationBus, revocationBusStopTimeout)
 	}
-	defer stopRevocationBus()
+	defer func() {
+		stopRevocationBus()
+		// A stopped install must not leave its database's revoked identities
+		// attached to the next composition in this process.
+		routes.SetRevocationSource(nil)
+		revocationChecker = nil
+	}()
 	revocationPublisher := revocation.NewDBPublisher(queries, revocationBus)
 	routes.SetRevocationSource(revocationBus)
 	revocationChecker = revocationBus
