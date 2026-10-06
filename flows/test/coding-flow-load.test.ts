@@ -46,7 +46,9 @@ for (const pinnedAdmission of [false, true]) {
       // beside a system name a repository cannot take.
       const copy = await tree("copy", {
         "flows/todo/flow.ts": source,
-        "flows/merge/flow.ts": "export default {}\n",
+        "flows/merge/flow.ts": `throw new Error("reserved module evaluated")\n${
+          source.replace("Flow.make(\"todo\",", "Flow.make(\"merge\",")
+        }`,
         "src/index.ts": "export const unrelated = 1\n"
       })
       // The scripted [FLOWEDIT] change: the composition plus a changelog step.
@@ -202,7 +204,15 @@ printf '%s' "$*" > installed
       ] = lines
 
       // Project provenance and its dependency set distinguish the copy from the shipped default.
-      assert.deepEqual(atCopy, [{ name: "todo", path: "flows/todo/flow.ts", digest: projectDigest, status: "loaded" }])
+      assert.equal(atCopy[0].name, "merge")
+      assert.equal(atCopy[0].status, "failed")
+      assert.match(atCopy[0].error, /reserved_name/)
+      assert.deepEqual(atCopy.slice(1), [{
+        name: "todo",
+        path: "flows/todo/flow.ts",
+        digest: projectDigest,
+        status: "loaded"
+      }])
       // The edit loads as a new version.
       assert.equal(atEdited.length, 1)
       assert.equal(atEdited[0].status, "loaded")
@@ -246,7 +256,8 @@ printf '%s' "$*" > installed
       assert.equal(atCanaryLoaded[0].status, "loaded", atCanaryLoaded[0].error)
       assert.equal(await readFile(join(temporary, "import-loaded"), "utf8"), "evaluated")
       // Discovery refusal preserves the old Active version instead of removing it.
-      assert.equal(atUndiscoverable.length, 1)
+      assert.equal(atUndiscoverable.length, 2)
+      assert.equal(atUndiscoverable.shift().error, "flows/merge/flow.ts: reserved_name")
       assert.equal(atUndiscoverable[0].name, "todo")
       assert.equal(atUndiscoverable[0].path, "flows/todo/flow.ts")
       assert.equal(atUndiscoverable[0].status, "failed")

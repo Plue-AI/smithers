@@ -171,7 +171,8 @@ func ActiveFlowDigest(ctx context.Context, q *db.Queries, repositoryID int64, na
 // RepositoryFlowCatalog is GET /api/flows for one repository (§6.3, §4.3):
 // each overridable flow with its Active version, the version it replaced
 // (previous), a merged version not yet loaded (merged-syncing) and a merged
-// version that failed to load (merged-failed, with its error).
+// version that failed to load (merged-failed, with its error). Reserved
+// repository declarations are read-only failed cards, never executable versions.
 func RepositoryFlowCatalog(ctx context.Context, q *db.Queries, repositoryID int64, readers ...FlowProposalReader) ([]FlowCard, error) {
 	digests, err := builtinFlowDigests()
 	if err != nil {
@@ -215,9 +216,25 @@ func RepositoryFlowCatalog(ctx context.Context, q *db.Queries, repositoryID int6
 	for _, flow := range syncing {
 		names[flow.Name] = true
 	}
+	for _, flow := range measured {
+		names[flow.Name] = true
+	}
 	cards := []FlowCard{}
 	for _, name := range slices.Sorted(maps.Keys(names)) {
 		if !Overridable(name) {
+			// Never project historical Active overrides or proposals for system
+			// names. Only a current measured declaration has a refusal to show.
+			card := FlowCard{Name: name, System: true, Versions: []FlowVersion{}}
+			for _, version := range measured {
+				if version.Name == name {
+					card.Source = FlowSource{Path: version.Path}
+					card.Versions = append(card.Versions, FlowVersion{ID: version.Digest,
+						State: "merged-failed", Error: "reserved_name", Steps: []FlowStep{}})
+				}
+			}
+			if len(card.Versions) > 0 {
+				cards = append(cards, card)
+			}
 			continue
 		}
 		steps := builtinFlowSteps[name]

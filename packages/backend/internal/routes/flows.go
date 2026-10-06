@@ -19,8 +19,8 @@ type FlowsHandler struct {
 	Proposals services.FlowProposalReader
 }
 
-// List answers the catalog: each overridable flow with its versions, and no
-// system flow. Before setup binds a repository it lists the built-ins.
+// List answers overridable flows and measured refusals of repository files
+// with system names. Before setup binds a repository it lists the built-ins.
 func (h *FlowsHandler) List(w http.ResponseWriter, r *http.Request) {
 	if h == nil || h.Queries == nil {
 		todoRouteError(w, &services.TodoControlError{Status: http.StatusServiceUnavailable, Code: "flows_unavailable", Class: "infra", Message: "Flows unavailable"})

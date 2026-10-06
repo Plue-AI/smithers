@@ -85,7 +85,8 @@ export const loadRepositoryFlows = (
     }).pipe(
       Effect.provide(Discovery.layer)
     )
-    const descriptors = (yield* discovered.list()).filter((entry) => !system.has(entry.name))
+    const discoveredDescriptors = yield* discovered.list()
+    const descriptors = discoveredDescriptors.filter((entry) => !system.has(entry.name))
     const only = Registry.Registry.of({ ...discovered, list: () => Effect.succeed(descriptors) })
     // Measure before installing: a failed or lockfile-mutating installer must
     // never turn its output into an accepted source identity.
@@ -102,16 +103,37 @@ export const loadRepositoryFlows = (
       })),
       Effect.result
     )
-    const typeFailures = dependenciesReady._tag === "Failure" ? new Map<string, string>() :
-      yield* Effect.try(() => checkFlowTypes(repositoryPath, descriptors.filter(entry => entry.body._tag === "Module").map(entry => entry.path)))
-    const loadable = Registry.Registry.of({ ...only, list: () => Effect.succeed(descriptors.filter(entry => !typeFailures.has(entry.path))) })
+    const typeFailures = dependenciesReady._tag === "Failure" ?
+      new Map<string, string>() :
+      yield* Effect.try(() =>
+        checkFlowTypes(
+          repositoryPath,
+          descriptors.filter((entry) => entry.body._tag === "Module").map((entry) => entry.path)
+        )
+      )
+    const loadable = Registry.Registry.of({
+      ...only,
+      list: () => Effect.succeed(descriptors.filter((entry) => !typeFailures.has(entry.path)))
+    })
     const built = dependenciesReady._tag === "Failure" ?
       undefined :
       yield* Executable.catalog({ delegates: [] }).pipe(Effect.provideService(Registry.Registry, loadable))
+    // Reserved declarations are measured as data, never typechecked or imported.
+    // Retain the refusal so the install can show it on the Flow card.
     const versions: Array<FlowVersion> = []
+    for (const descriptor of discoveredDescriptors.filter((entry) => system.has(entry.name))) {
+      const relative = path.relative(repositoryPath, descriptor.path).split(path.sep).join("/")
+      versions.push({
+        name: descriptor.name,
+        path: relative,
+        digest: Descriptor.executionDigest(descriptor) ?? Digest.digest(yield* fs.readFileString(descriptor.path)),
+        status: "failed",
+        error: `${relative}: reserved_name`
+      })
+    }
     // Discovery refusals are still declarations, not removals. Omitting one
     // would make settlement retire its previous Active version.
-    const declared = new Set(descriptors.map((entry) => entry.name))
+    const declared = new Set(discoveredDescriptors.map((entry) => entry.name))
     for (const warning of yield* discovered.warnings()) {
       const name = warning.name
       if (name === undefined) {
@@ -119,7 +141,7 @@ export const loadRepositoryFlows = (
         // Refuse the load rather than deactivate an incomplete catalog.
         return yield* new CodingError({ code: "source_unavailable", message: warning.message })
       }
-      if (system.has(name) || declared.has(name)) continue
+      if (declared.has(name)) continue
       const relative = path.relative(repositoryPath, warning.path).split(path.sep).join("/")
       if (!relative.startsWith("flows/") || relative.split("/").includes("..")) continue
       const source = yield* fs.readFileString(warning.path)
@@ -128,7 +150,10 @@ export const loadRepositoryFlows = (
         path: relative,
         digest: Digest.digest(JSON.stringify({ source, lockfileDigest })),
         status: "failed",
-        error: `${relative}: ${warning.message}`.replace(/\s+/g, " ").slice(0, errorLimit)
+        error: `${relative}: ${system.has(name) ? "reserved_name" : warning.message}`.replace(/\s+/g, " ").slice(
+          0,
+          errorLimit
+        )
       })
       declared.add(name)
     }
@@ -162,7 +187,14 @@ export const loadRepositoryFlows = (
             ...metadata
           } :
           typeFailures.has(descriptor.path) ?
-          { name: descriptor.name, path: relative, digest, status: "failed", error: typeFailures.get(descriptor.path)!, ...metadata } :
+          {
+            name: descriptor.name,
+            path: relative,
+            digest,
+            status: "failed",
+            error: typeFailures.get(descriptor.path)!,
+            ...metadata
+          } :
           failure === undefined ?
           { name: descriptor.name, path: relative, digest, status: "loaded", ...metadata } :
           {
