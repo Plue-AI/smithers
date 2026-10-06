@@ -4,10 +4,28 @@ import { mkdtemp, readFile, rm, mkdir, symlink, readdir } from 'node:fs/promises
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { run } from '../run.mjs'
-import { publicOrigin, validateHost } from './host.mjs'
+import { publicOrigin, validateHost, readHost } from './host.mjs'
 
 const host = { profile: { memory_bytes: 68719476736, perf_cores: 10, physical_cores: 12, disk_free_bytes: 200000000000, macos_version: '15.7', hypervisor: true }, limits: { capacity: 5 } }
 const options = { origin: 'http://mini.lan:8080', token: 'test-secret', commit: 'a'.repeat(40), installVersion: 'fixture', browser: 'not-run', timestamp: '2026-10-04T00-00-00-000Z', read: async () => host }
+test('host reader uses the owner metrics boundary and records only its Go host response', async () => {
+  // Unit transport substitute: the real authenticated router is independently
+  // exercised with PostgreSQL by TestInstallMetricsOwnerBoundary.
+  let calls = 0
+  const result = await readHost('https://factory.example', { cookie: 'session=secret' }, async (url, options) => {
+    calls++
+    assert.equal(url, 'https://factory.example/api/install/metrics')
+    assert.deepEqual(options.headers, { Cookie: 'session=secret' })
+    assert.equal(options.redirect, 'error')
+    return new Response(JSON.stringify({ host, metrics: [], live_connections: 0 }))
+  })
+  assert.equal(calls, 1)
+  assert.deepEqual(result, host)
+  for (const status of [401, 403, 503]) {
+    await assert.rejects(readHost('https://factory.example', { cookie: 'session=secret' }, async () => new Response('{}', { status })), new RegExp(`returned ${status}`))
+  }
+  await assert.rejects(readHost('https://factory.example', { cookie: 'session=secret' }, async () => new Response('{"host":null}')), /host profile missing/)
+})
 async function temporary(body) {
   const root = await mkdtemp(join(tmpdir(), 'smithers-perf-'))
   try { await body(root) } finally { await rm(root, { recursive: true, force: true }) }

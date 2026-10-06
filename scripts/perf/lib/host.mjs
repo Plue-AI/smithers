@@ -17,12 +17,12 @@ export function validateHost(host) {
   return host
 }
 
-export async function readHost(origin, credential) {
+export async function readHost(origin, credential, request = fetch) {
   const headers = typeof credential === 'object' && credential?.cookie
     ? { Cookie: credential.cookie } : { Authorization: `Bearer ${credential}` }
   // /api/host was retired when Settings collapsed into the install contract.
   // Read the same Go capacity service through the owner-only metrics adapter.
-  const response = await fetch(`${publicOrigin(origin)}/api/install/metrics`, {
+  const response = await request(`${publicOrigin(origin)}/api/install/metrics`, {
     headers, redirect: 'error', signal: AbortSignal.timeout(10000)
   })
   if (response.status !== 200) throw new Error(`T-INS-06: GET /api/install/metrics returned ${response.status}`)
