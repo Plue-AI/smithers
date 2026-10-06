@@ -1,11 +1,12 @@
 import { Smithers } from "@smthrs/targets"
+import { Package as backendPackage } from "../../packages/backend/PACKAGE.ts"
 
 const sources = [
   Smithers.glob("//crates/smithers-machined/**/*.rs"),
   Smithers.file("//crates/smithers-machined/Cargo.toml"),
   Smithers.file("//Cargo.toml"),
   Smithers.file("//Cargo.lock"),
-  Smithers.glob("//packages/backend/internal/compose/testdata/cocontracts/**")
+  backendPackage.machineContractInputs
 ]
 const destinations = ["index.crates.io", "static.crates.io", "github.com"]
 const cargoTest = Smithers.Cargo.Test({

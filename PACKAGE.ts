@@ -1,6 +1,7 @@
 import { BuildAndCheckTypeScriptPackage } from "@smthrs/repo-targets"
 import { ReviewDocsAgainstCode, ReviewJsdocAgainstCode } from "@smthrs/repo-targets"
 import { Smithers } from "@smthrs/targets"
+import { Package as flowsJjPackage } from "./crates/flows-jj/PACKAGE.ts"
 import { Package as backendPackage } from "./packages/backend/PACKAGE.ts"
 import { Package as modelHostAppPackage } from "./apps/model-host/PACKAGE.ts"
 import project from "./apps/site/src/data/project.json" with { type: "json" }
@@ -327,7 +328,7 @@ const nativeFfi = Smithers.Shell.Build({
     Smithers.file("//Cargo.lock"),
     Smithers.file("//rust-toolchain.toml"),
     Smithers.file("//crates/flows-jj/Cargo.toml"),
-    Smithers.glob("//crates/flows-jj/src/**/*.rs"),
+    flowsJjPackage.nativeSources,
     Smithers.glob("//crates/smithers-ffi/**/*.rs"),
     Smithers.file("//crates/smithers-ffi/Cargo.toml")
   ],

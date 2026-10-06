@@ -611,11 +611,6 @@
       },
       {
         "kind": "glob",
-        "pattern": "crates/flows-jj/src/**/*.rs",
-        "exclude": []
-      },
-      {
-        "kind": "glob",
         "pattern": "crates/smithers-ffi/**/*.rs",
         "exclude": []
       },
@@ -625,7 +620,9 @@
       }
     ],
     "outputs": [],
-    "dependencies": [],
+    "dependencies": [
+      "//crates/flows-jj:nativeSources"
+    ],
     "source": {
       "file": "PACKAGE.ts"
     }
@@ -5789,6 +5786,26 @@
     }
   },
   {
+    "label": "//crates/flows-jj:nativeSources",
+    "package": "crates/flows-jj",
+    "name": "nativeSources",
+    "rule": "Filegroup",
+    "kinds": [],
+    "cacheable": true,
+    "inputs": [
+      {
+        "kind": "glob",
+        "pattern": "crates/flows-jj/src/**/*.rs",
+        "exclude": []
+      }
+    ],
+    "outputs": [],
+    "dependencies": [],
+    "source": {
+      "file": "crates/flows-jj/PACKAGE.ts"
+    }
+  },
+  {
     "label": "//crates/flows-jj:security",
     "package": "crates/flows-jj",
     "name": "security",
@@ -5954,15 +5971,12 @@
       {
         "kind": "file",
         "path": "Cargo.lock"
-      },
-      {
-        "kind": "glob",
-        "pattern": "packages/backend/internal/compose/testdata/cocontracts/**",
-        "exclude": []
       }
     ],
     "outputs": [],
-    "dependencies": [],
+    "dependencies": [
+      "//packages/backend:machineContractInputs"
+    ],
     "destinations": [
       "github.com",
       "index.crates.io",
@@ -5998,15 +6012,12 @@
       {
         "kind": "file",
         "path": "Cargo.lock"
-      },
-      {
-        "kind": "glob",
-        "pattern": "packages/backend/internal/compose/testdata/cocontracts/**",
-        "exclude": []
       }
     ],
     "outputs": [],
-    "dependencies": [],
+    "dependencies": [
+      "//packages/backend:machineContractInputs"
+    ],
     "destinations": [
       "github.com",
       "index.crates.io",
@@ -12771,6 +12782,26 @@
       {
         "kind": "file",
         "path": "go.sum"
+      }
+    ],
+    "outputs": [],
+    "dependencies": [],
+    "source": {
+      "file": "packages/backend/PACKAGE.ts"
+    }
+  },
+  {
+    "label": "//packages/backend:machineContractInputs",
+    "package": "packages/backend",
+    "name": "machineContractInputs",
+    "rule": "Filegroup",
+    "kinds": [],
+    "cacheable": true,
+    "inputs": [
+      {
+        "kind": "glob",
+        "pattern": "packages/backend/internal/compose/testdata/cocontracts/**",
+        "exclude": []
       }
     ],
     "outputs": [],
