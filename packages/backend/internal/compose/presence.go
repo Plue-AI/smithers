@@ -281,6 +281,20 @@ func (p *branchPresence) source(ctx context.Context, branch string, repository, 
 			origin = p.publicOrigin()
 		}
 		model := branchPresenceModel(current, presence, origin)
+		if current.IsFork {
+			from := map[string]any{"kind": "main"}
+			if current.ForkedFromItem.Valid {
+				item, err := p.queries.GetMythicalItem(ctx, current.ForkedFromItem)
+				if err != nil {
+					return nil, err
+				}
+				if item.RepositoryID != repository || !item.Number.Valid {
+					return nil, errors.New("scratch source item unavailable")
+				}
+				from = map[string]any{"kind": "item", "n": item.Number.Int64, "title": item.IssueTitle}
+			}
+			model["scratch"] = map[string]any{"forked_from": from}
+		}
 		if position, waiting := p.branches.MachinePlace(current); waiting {
 			model["machine"] = map[string]any{"state": "waiting", "position": position}
 		}
