@@ -153,6 +153,17 @@ func TestMemberRoutesAuthorizeByRolePostgres(t *testing.T) {
 	// Scoped owner questions reach the chat host, which gates capabilities.
 	status, _ = call("POST", "/api/agent/turn", "", ownerToken)
 	require.Equal(t, http.StatusOK, status)
+	status, _ = call("GET", "/api/repos/maya/demo/mythical", "", ownerToken)
+	require.Equal(t, http.StatusOK, status)
+	// Provisioned run credentials read repository state, never chat or merge.
+	_, err = pool.Exec(ctx, `UPDATE access_tokens SET system_issued=true WHERE user_id=$1`, owner.ID)
+	require.NoError(t, err)
+	status, _ = call("GET", "/api/repos/maya/demo/mythical", "", ownerToken)
+	require.Equal(t, http.StatusOK, status)
+	for _, path := range []string{"/api/agent/turn", "/api/todos/1/merge"} {
+		status, _ = call("POST", path, "", ownerToken)
+		require.Equal(t, http.StatusForbidden, status, path)
+	}
 	// Suspending Ben refuses his very next request.
 	_, err = pool.Exec(ctx, `UPDATE collaborators SET suspended_at=now() WHERE user_id=$1`, ben.ID)
 	require.NoError(t, err)
