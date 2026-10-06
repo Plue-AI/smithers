@@ -12,6 +12,9 @@ run-kind targets; `flow start` starts durable flows.
 
 | Command | Purpose |
 | --- | --- |
+| `auth login/logout/status/token`, `login` | Authenticate to Smithers and inspect token status. |
+| `index <pattern>` | Read selected target declarations. |
+| `mcp add` | Register Smithers with a coding agent. |
 | `build/test/lint/docs/review/ci/run <patterns...>` | Execute the union of the selected target kinds; `ci` combines build, test, lint, and docs. |
 | `target <labels...>` or `//package:target` | Execute exact declarations using their own kinds. |
 | `targets [pattern]` | List target labels and summaries. |
@@ -360,9 +363,7 @@ scripts. The Claude mirror protocol is hidden as `internal claude`.
 
 ## Command pages
 
-Every canonical command has a page generated from its `--help` at
-[smithers.sh/docs/reference/cli](https://smithers.sh/docs/reference/cli/), with
-the hidden-alias table.
+
 
 ## Other reference
 
