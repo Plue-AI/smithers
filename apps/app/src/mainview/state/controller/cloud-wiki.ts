@@ -111,7 +111,7 @@ export const createCloudWikiController = (ctx: ControllerContext, nextOrdinal: (
           ctx.store.dispatch({ type: "world.document.upserted", actor, document, select: false }).isPersisted.promise,
         catch: () =>
           new CloudWikiError({ sentence: "The Wiki edit could not be saved locally. Check storage before retrying." })
-      })
+      }).pipe(Effect.asVoid)
     const read = (id: string) => {
       const document = ctx.store.collections.worldDocuments.get(id)
       return cloudDocument(document) ? document : undefined
@@ -126,7 +126,7 @@ export const createCloudWikiController = (ctx: ControllerContext, nextOrdinal: (
               try: () =>
                 ctx.store.dispatch({ type: "world.document.removed", actor: "system", id }).isPersisted.promise,
               catch: () => new CloudWikiError({ sentence: "Could not clear the revoked Wiki page from local storage." })
-            }).pipe(Effect.tap(() => Effect.sync(() => watches.get(id)?.stop())))
+            }).pipe(Effect.tap(() => Effect.sync(() => watches.get(id)?.stop())), Effect.asVoid)
           )
         }
         const saved = ctx.store.committedWorldDocument(id)?.cloud
@@ -864,12 +864,12 @@ export const createCloudWikiController = (ctx: ControllerContext, nextOrdinal: (
         await saveRequest({ ...request, state: "failed", error: message })
         return message
       }
-    }, false, current).catch(error => ctx.failures.report("wiki.save", error)).finally(() => saving.delete(request.id))
+    }, false, current).catch(error => ctx.failures.report("seam.failure", error, "wiki.save")).finally(() => saving.delete(request.id))
   }
   const resumeWikiSaves = () => {
-    void ctx.store.settled().then(() => {
+    void (ctx.store.settled?.() ?? Promise.resolve()).then(() => {
       for (const request of ctx.store.session().wikiSaves ?? []) if (request.state === "requested") sendWikiSave(request)
-    }).catch(error => ctx.failures.report("wiki.save.recover", error))
+    }).catch(error => ctx.failures.report("seam.failure", error, "wiki.save.recover"))
   }
   const wikiSaveIdentity = ctx.store.collections.identitySessions.subscribeChanges(resumeWikiSaves)
   const wikiSaveSession = ctx.store.collections.sessions.subscribeChanges(resumeWikiSaves)

@@ -310,6 +310,7 @@ export const withDesignTodos = (real: TodoSeam, ctx: SeamContext, design: Design
       case "retry":
       case "retry-current-flow": return design.retry(todo.id, by(), text)
       case "drop": return design.drop(todo.id, by())
+      case "takeover": return { ok: false, refusal: "Take over is unavailable in the preview" }
     }
   }
   const setSeedField = async (id: string, field: string, value: string): Promise<string | void> => {

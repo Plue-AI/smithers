@@ -314,3 +314,17 @@ test("only a verified missing-tool failure offers the shared machine-image Draft
  expect(h.dispatches).toEqual([{ tag: "image.add", input: { name: "figlet" } }])
  expect(mount({ ...fixtures.failed.model, failure: { ...failure, missing_tool: undefined } }).props.actions.some(action => action.tag === "image.add")).toBe(false)
 })
+
+
+test("served TODO cards retain composed takeover, image and run controls", async () => {
+  const store = await createAppStore({ kind: "localStorage", storage: memoryStorage() })
+  await store.dispatch({ type: "identity.session.loaded", actor: "system", state: "signed-in", login: "ben", admin: false, scopesPlain: null }).isPersisted.promise
+  const snapshot = { model: { github: { signed_in: true, owner: "ben" } } }
+  const controller = { store, design: createDesignWorld({ enabled: false }), installSnapshots: { get: () => snapshot, subscribe: () => () => {} }, commands: { submit: () => {} } } as unknown as AppController
+  const render = (model: TodoCard) => renderToStaticMarkup(<ControllerTestProvider controller={controller}>{todoCardFamily.todo.render(
+    { id: `todo:${model.n}`, kind: "todo", title: model.title, status: "active", createdAt: 1, ordinal: 1, payload: { n: model.n, model, requests: [] } }, { presentation: "embedded" } as never)}</ControllerTestProvider>)
+  expect(render({ ...fixtures.queued.model, owner_removed: true })).toContain('data-flow="todo.takeover"')
+  expect(render({ ...fixtures.failed.model, failure: { ...fixtures.failed.model.failure!, missing_tool: { name: "figlet", file: ".smithers/machine.json" } } })).toContain('data-flow="image.add"')
+  expect(render(fixtures.working.model)).toContain('data-flow="todo.stop"')
+  expect(render(fixtures.paused.model)).toContain('data-flow="todo.resume"')
+})

@@ -109,6 +109,7 @@ export const IN_CARD_TAGS = [
   "terminal.watch",
   "notifications.allow",
   "todo.takeover",
+  "image.add",
   "merge.confirm",
   "order.ok",
   "background.retry",
