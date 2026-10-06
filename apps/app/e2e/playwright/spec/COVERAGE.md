@@ -65,7 +65,7 @@ C-UI-12 Members (T-UI-09): [install roster and keyboard Add/Role/Remove](C-UI-12
 | C-APP-05 | [C-APP-05.spec.ts](C-APP-05.spec.ts) | fixme-before-implementation | T-APP-16 |
 | C-ACC-01 | [C-ACC-01.spec.ts](C-ACC-01.spec.ts) | fixme-before-implementation | T-ACC-02, T-ACC-03, T-ACC-04, T-APP-04, T-INS-08, T-TRM-02, T-CUT-03, T-STK-06 |
 | C-ACC-02 | [C-ACC-02.spec.ts](C-ACC-02.spec.ts) | fixme-before-implementation | T-ACC-04, T-APP-04, T-STK-04 |
-| C-ACC-03 | [C-ACC-03.spec.ts](C-ACC-03.spec.ts) | fixme-before-implementation | T-ACC-02 |
+| C-ACC-03 | [C-ACC-03.spec.ts](C-ACC-03.spec.ts) | passing: removal, owner protection, retained TODO history | T-ACC-02 |
 | C-ACC-04 | [C-ACC-04.spec.ts](C-ACC-04.spec.ts) | fixme-before-implementation | T-ACC-01, T-ACC-02 |
 | C-STK-01 | [C-STK-01.spec.ts](C-STK-01.spec.ts) | fixme-before-implementation | T-STK-01 |
 | C-STK-02 | [C-STK-02.spec.ts](C-STK-02.spec.ts) | fixme-before-implementation | T-STK-03 |
