@@ -1,5 +1,6 @@
 import { createContext } from "react"
 import * as Y from "yjs"
+import type { Awareness } from "y-protocols/awareness"
 import { yCollab, yUndoManagerKeymap, ySyncAnnotation } from "y-codemirror.next"
 import { keymap, ViewPlugin } from "@codemirror/view"
 import { EditorState, StateEffect, StateField } from "@codemirror/state"
@@ -19,7 +20,7 @@ export function documentAuthors(doc: Y.Doc, context: ActorContext = {}): AuthorR
     const to = from + item.length, wire = authors.get(String(item.id.client))
     if (wire !== undefined) {
       try {
-        const actor = toActor(wire as Parameters<typeof toActor>[0], context.roster, context.runs, context.sessions)
+        const actor = toActor((typeof wire === "string" ? JSON.parse(wire) : wire) as Parameters<typeof toActor>[0], context.roster, context.runs, context.sessions)
         ranges.push({ from, to, actor })
       } catch { /* Unknown attribution is omitted, never granted authority. */ }
     }
@@ -28,8 +29,8 @@ export function documentAuthors(doc: Y.Doc, context: ActorContext = {}): AuthorR
   return ranges
 }
 
-/** Compose sync and own-edit undo without awareness's remote-selection plugin or CM history. */
-export function liveBinding(doc: Y.Doc, context: ActorContext = {}, canEdit: () => boolean = () => true): EditorBinding & { readonly undo: Y.UndoManager; dispose(): void } {
+/** Compose sync and own-edit undo with authenticated awareness and own-edit history. */
+export function liveBinding(doc: Y.Doc, context: ActorContext = {}, canEdit: () => boolean = () => true, awareness?: Awareness): EditorBinding & { readonly undo: Y.UndoManager; dispose(): void } {
   const text = doc.getText("content")
   const undo = new Y.UndoManager(text, { trackedOrigins: new Set() })
   const changed = StateEffect.define<readonly AuthorRange[]>()
@@ -52,7 +53,7 @@ export function liveBinding(doc: Y.Doc, context: ActorContext = {}, canEdit: () 
     return { destroy: () => { disposed = true; doc.off("afterTransaction", refresh) } }
   })
   return { get text() { return text.toString() }, undo,
-    extensions: [EditorState.transactionFilter.of(transaction => !canEdit() && transaction.docChanged && !transaction.annotation(ySyncAnnotation) ? [] : transaction), ranges, attribution, yCollab(text, null, { undoManager: undo }), keymap.of(yUndoManagerKeymap)],
+    extensions: [EditorState.transactionFilter.of(transaction => !canEdit() && transaction.docChanged && !transaction.annotation(ySyncAnnotation) ? [] : transaction), ranges, attribution, yCollab(text, awareness ?? null, { undoManager: undo }), keymap.of(yUndoManagerKeymap)],
     dispose: () => undo.destroy() }
 }
 
@@ -89,12 +90,12 @@ export const LiveFileContext = createContext<{ resolve(branch: string, path: str
 
 /** Own one binding per document identity, including the replacement after an epoch reset. */
 export function fileDocument(provider: import("../runtime/LiveDocProvider").LiveDocProvider, context: ActorContext = {}): FileDocumentBinding & { dispose(): void } {
-  let current: { doc: Y.Doc; binding: ReturnType<typeof liveBinding> } | undefined
+  let current: { doc: Y.Doc; awareness: Awareness; binding: ReturnType<typeof liveBinding> } | undefined
   return { provider,
     get binding() {
-      if (current?.doc !== provider.doc) {
+      if (current?.doc !== provider.doc || current?.awareness !== provider.awareness) {
         current?.binding.dispose()
-        current = { doc: provider.doc, binding: liveBinding(provider.doc, context, () => provider.editable) }
+        current = { doc: provider.doc, awareness: provider.awareness, binding: liveBinding(provider.doc, context, () => provider.editable, provider.awareness) }
       }
       return current.binding
     },

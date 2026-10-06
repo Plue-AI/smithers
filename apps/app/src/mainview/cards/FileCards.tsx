@@ -294,7 +294,7 @@ const FileContent = ({ card, model, binding, provider, onRunCommand }: { provide
     <LazyViewerBoundary fallback={<pre className="world-card-path">{payload.content}</pre>}>
       <Suspense fallback={<pre className="world-card-path">{payload.content}</pre>}>
         <div role={provider?.comparison ? "group" : undefined} aria-label={provider?.comparison ? "Live and outside versions" : undefined} data-version={provider?.comparison?.version}>
-        <CodeSurface binding={binding} onCopy={provider ? () => provider.copy() : undefined} comparison={provider?.comparison ?? payload.comparison} model={model} view={{ maximized: false, compare: !!provider?.comparison || payload.compare }} {...bindings} onView={({ line }) => { if (provider) { const actor = ActorSchema.safeParse(provider.doc.getMap("authors").get(String(provider.doc.clientID))); if (actor.success) provider.setLine(line ?? 1, actorColour(actor.data)) } }} />
+        <CodeSurface binding={binding} onCopy={provider ? () => provider.copy() : undefined} comparison={provider?.comparison ?? payload.comparison} model={model} view={{ maximized: false, compare: !!provider?.comparison || payload.compare }} {...bindings} onView={({ line }) => { if (provider) { const actor = ActorSchema.safeParse(provider.doc.getMap("authors").get(String(provider.doc.clientID))); provider.setLine(line ?? 1, actor.success ? actorColour(actor.data) : "var(--lane-0)") } }} />
         </div>
       </Suspense>
     </LazyViewerBoundary>

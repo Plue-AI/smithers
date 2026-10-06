@@ -1158,7 +1158,16 @@ export const createAppController = (
   const repoImportSeam = actors.pair(seamCtx, (context) => createRepoImportSeam(context))
   const bookmarksSeam = actors.pair(seamCtx, (context) => createBranchNavigationSeam(context, design))
   const commitsSeam = actors.pair(seamCtx, (context) => createCommitsSeam(context))
-  const filesSeam = actors.pair(seamCtx, (context) => createFilesSeam(context, services.branchOptions ? { ...services.branchOptions, topics: services.live, onDispose: ctx.onDispose } : undefined, installHost))
+  const branchFileOptions = services.branchOptions ?? (installHost ? {
+    ready: () => true,
+    scope: (branch = "main") => {
+      const identity = store.collections.identitySessions.get("identity")
+      if (identity?.state !== "signed-in" || !identity.login) return null
+      // The server authorizes each operation; this fences in-flight answers on sign-out.
+      return { branch, member: identity.login, revision: 1, sleeping: false }
+    }
+  } : undefined)
+  const filesSeam = actors.pair(seamCtx, (context) => createFilesSeam(context, branchFileOptions ? { ...branchFileOptions, topics: services.live, onDispose: ctx.onDispose } : undefined, installHost))
   const readFlowSource: AppController["readFlowSource"] = actors.pair(seamCtx, (context, select) => ({
     read: async (n: number, path: string) => {
       const read = select(filesSeam.readFile)
@@ -1169,7 +1178,7 @@ export const createAppController = (
     }
   })).read
   const installDiffReader = installHost ? createBranchDiffReader(ctx).readBranchDiff : undefined
-  const diffFilesSeam = actors.pair(seamCtx, context => createDiffFilesSeam(context, services.branchOptions ? { ...services.branchOptions, topics: services.live, onDispose: ctx.onDispose } : undefined, filesSeam.branchFiles, installDiffReader))
+  const diffFilesSeam = actors.pair(seamCtx, context => createDiffFilesSeam(context, branchFileOptions ? { ...branchFileOptions, topics: services.live, onDispose: ctx.onDispose } : undefined, filesSeam.branchFiles, installDiffReader))
   const fileDocuments = services.documentOptions && services.live === services.documentOptions.channel ? new FileDocuments(services.documentOptions.channel, services.documentOptions.prerequisites, filesSeam.branchFiles) : undefined
   ctx.onDispose(() => fileDocuments?.dispose())
   const { recoverFile } = actors.pair(seamCtx, context => ({
@@ -2141,7 +2150,7 @@ export const createAppController = (
     ...diffFilesSeam,
     // Before branch providers are composed, read from the authenticated mirror.
     // An absent live-branch scope must not disable Source-ready file cards.
-    readFile: installHost && services.branchOptions !== undefined ? (path, branch, anchor, ref) => ref === undefined && filesSeam.branchFiles.available() ? filesSeam.branchFiles.open(path, branch, anchor?.line) : filesSeam.readFile(path, branch, anchor, ref) : filesSeam.readFile,
+    readFile: installHost && branchFileOptions !== undefined ? (path, branch, anchor, ref) => ref === undefined && filesSeam.branchFiles.available() ? filesSeam.branchFiles.open(path, branch, anchor?.line) : filesSeam.readFile(path, branch, anchor, ref) : filesSeam.readFile,
     codeHover,
     codeDefinition,
     codeDiagnostics,

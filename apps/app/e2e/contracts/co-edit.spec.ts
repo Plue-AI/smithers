@@ -180,7 +180,7 @@ test("two File cards opened through files.read converge on literal 1000-edit pac
     // Saved metadata alone has not settled either member's pending updates.
     await new Promise(resolve => setTimeout(resolve, 1100))
     expect(a.provider.saved).toBe("saving")
-    resumed.receive(JSON.stringify({ t: "saved", id: 1, sv: fixture.saved, seq: 500 }))
+    resumed.receive(JSON.stringify({ t: "saved", id: 1, sv: fixture.saved, seq: 1000 }))
     expect(a.provider.saved).toBe("saved")
     expect(a.sockets.length).toBe(2)
     resumed.receive('{"t":"err","id":1,"code":"forbidden"}')

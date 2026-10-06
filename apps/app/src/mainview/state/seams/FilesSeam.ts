@@ -430,7 +430,7 @@ export interface BranchFileOptions {
   /** Authenticated host scope; null after removal/sign-out. Sleeping reads require a captured head. */
   readonly topics?: import("../useTopic").LiveTopics
   readonly onDispose?: (dispose: () => void) => void
-  readonly scope: () => { branch: string; member: string; revision: number; sleeping: boolean; capturedHead?: string } | null
+  readonly scope: (branch?: string) => { branch: string; member: string; revision: number; sleeping: boolean; capturedHead?: string } | null
 }
 export type BranchFileAnswer<T> = { readonly ok: T } | { readonly error: string }
 export interface BranchFileOperations {
@@ -457,14 +457,14 @@ const branchFileOperations = (ctx: SeamContext, options?: BranchFileOptions): Br
   const reloads = new Map<string, { digest: string; answer: Promise<BranchFileAnswer<FileCard>> }>()
   const scopeFor = (branch: string, path: string, write = false) => {
     if (!options || BRANCH_FILE_PROVIDERS.some(provider => !options.ready(provider))) return { error: "Branch files are unavailable." } as const
-    const scope = options.scope()
+    const scope = options.scope(branch)
     if (!scope || scope.branch !== branch || !scope.member || ctx.isDisposed?.()) return { error: "Branch access was removed." } as const
     if (!path || unsafePath(path) || path.startsWith("/") || path.endsWith("/")) return { error: "File paths must stay inside the repository." } as const
     if (scope.sleeping && (write || !scope.capturedHead)) return { error: "The branch is asleep." } as const
     return scope
   }
   const current = (scope: Exclude<ReturnType<typeof scopeFor>, { error: string }>) => {
-    const next = options?.scope()
+    const next = options?.scope(scope.branch)
     return !ctx.isDisposed?.() && next?.branch === scope.branch && next.member === scope.member && next.revision === scope.revision
       && next.sleeping === scope.sleeping && next.capturedHead === scope.capturedHead
       && BRANCH_FILE_PROVIDERS.every(provider => options?.ready(provider))

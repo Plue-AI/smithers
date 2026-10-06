@@ -34,7 +34,7 @@ C-UI-12 Members (T-UI-09): [install roster and keyboard Add/Role/Remove](C-UI-12
 | C-J3-01 | [C-J3-01.spec.ts](C-J3-01.spec.ts) | fixme-before-implementation | T-COL-06, T-APP-10, T-REL-02 |
 | C-J3-02 | [C-J3-02.spec.ts](C-J3-02.spec.ts) | fixme-before-implementation | T-TRM-01, T-APP-12 |
 | C-J3-03 | [C-J3-03.spec.ts](C-J3-03.spec.ts) | fixme-before-implementation | T-COL-04, T-COL-12, T-APP-10 |
-| C-J3-04 | [C-J3-04.spec.ts](C-J3-04.spec.ts) | fixme-before-implementation | T-COL-08, T-APP-14, T-APP-14a, T-COL-08a, T-COL-08b |
+| C-J3-04 | [C-J3-04.spec.ts](C-J3-04.spec.ts) | Browser contract: two member contexts, real boot and /file dispatcher, shared channel, carets and author colours; second-Mac machine qualification pending | T-COL-08, T-APP-14, T-APP-14a, T-COL-08a, T-COL-08b |
 | C-J3-05 | [C-J3-05.spec.ts](C-J3-05.spec.ts) | real seam HTTP fixture; guest timing/delegation pending reference host | T-STK-06 |
 | C-J3-06 | [C-J3-06.spec.ts](C-J3-06.spec.ts) | fixme-before-implementation | T-TRM-03, T-ACC-02, T-TRM-07, T-COL-04, T-COL-06, T-REL-02 |
 | C-J3-08 | [C-J3-08.spec.ts](C-J3-08.spec.ts) | fixme-before-implementation | T-APP-11, T-REL-02 |
@@ -171,7 +171,7 @@ is lost on reload in the seeded world; persistence remains tracked by T-MCH-08.
 Cycle 20: maintainer admission/reply surfaces and reference-host performance
 evidence remain pending. Home production doors currently refuse with
 “Home provider unavailable”; no passing mutation projection is claimed.
-| C-PERF-03 | [C-PERF-03.spec.ts](C-PERF-03.spec.ts) | fixme-before-implementation | T-COL-08, T-COL-08a, T-COL-08b, T-REL-01 |
+| C-PERF-03 | [C-PERF-03.spec.ts](C-PERF-03.spec.ts) | Browser contract: 200 ordered markers through mounted editors on a fake host; real LAN/disk qualification pending | T-COL-08, T-COL-08a, T-COL-08b, T-REL-01 |
 | C-PERF-04 | [C-PERF-04.spec.ts](C-PERF-04.spec.ts) | fixme-before-implementation | T-COL-04, T-APP-11, T-REL-01 |
 | C-PERF-05 | [C-PERF-05.spec.ts](C-PERF-05.spec.ts) | fixme-before-implementation | T-MCH-06, T-REL-01 |
 | C-PERF-06 | [C-PERF-06.spec.ts](C-PERF-06.spec.ts) | fixme-before-implementation | T-STK-08, T-REL-01 |

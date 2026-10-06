@@ -70,6 +70,7 @@ const bootProgram = (options: ControllerBootOptions = {}) =>
         {
           fetchImpl: runtime.http,
           live: liveChannel(),
+          documentOptions: { channel: liveChannel(), prerequisites: { contract: true, actor: true, file: true, recovery: true, catalog: true, machine: true } },
           // Selection needs a backend that serves it; one that does not advertises no row and turns run on the pinned commands.
           ...(hasCapability(bootstrap, "commands.select") ? { commandSelector: httpCommandSelector(runtime.http, client.baseUrl) } : {}),
           pageLifetime: pageLifetime.signal,

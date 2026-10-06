@@ -19,7 +19,7 @@ export interface LiveSocket {
   close(): void
 }
 export interface LiveChannelOptions {
-  /** Explicit contract seam; production leaves documents disabled until T-APP-14. */
+  /** Explicit contract seam; browser boot enables it on the shared channel. */
   documentFrames?: boolean
   socket?: () => LiveSocket
   random?: () => number
@@ -218,7 +218,7 @@ export class LiveChannel {
       const reply = result.data
       if (reply.t === "saved") {
         if (entry.awaitingSnapshot || entry.snapshot.error) return
-        try { this.documentEvent(topic, { kind: "saved", vector: Uint8Array.from(atob(reply.sv), char => char.charCodeAt(0)) }) } catch { /* Malformed vectors never save. */ }
+        try { this.documentEvent(topic, { kind: "saved", seq: reply.seq, vector: Uint8Array.from(atob(reply.sv), char => char.charCodeAt(0)) }) } catch { /* Malformed vectors never save. */ }
         return
       }
       if (reply.t === "gap") {
@@ -273,4 +273,4 @@ export class LiveChannel {
 
 /** Lazy module singleton: exactly one channel for the browser tab. */
 let browserChannel: LiveChannel | undefined
-export const liveChannel = (): LiveChannel => browserChannel ??= new LiveChannel()
+export const liveChannel = (): LiveChannel => browserChannel ??= new LiveChannel({ documentFrames: true })

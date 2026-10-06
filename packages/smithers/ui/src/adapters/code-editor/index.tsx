@@ -17,6 +17,8 @@ export interface EditorPosition { readonly line: number; readonly col?: number }
 export interface EditorGesture<Tag extends string> { readonly tag: Tag; readonly label: string; readonly args?: Record<string, string>; readonly disabled?: { readonly reason: string } }
 /** A host-approved document binding; no transport or authority is discovered here. */
 export interface EditorBinding {
+  /** Stable document binding; visual extensions may change without detaching sync. */
+  readonly identity?: object
   readonly extensions: Extension
   readonly text: string
 }
@@ -132,7 +134,7 @@ export function CodeEditorView<Tag extends string>(props: CodeEditorViewProps<Ta
   }, [])
   useLayoutEffect(() => {
     const view = editor.current!
-    const replaced = bound.current !== props.binding
+    const replaced = (bound.current?.identity ?? bound.current) !== (props.binding?.identity ?? props.binding)
     if (replaced) view.dispatch({ effects: [compartments.current.binding.reconfigure([]), compartments.current.access.reconfigure([EditorState.readOnly.of(!props.binding), EditorView.editable.of(!!props.binding), ...(props.binding ? [EditorState.lineSeparator.of("\n")] : [])])] })
     const before = view.state.doc.toString()
     const after = view.state.toText(props.binding?.text ?? props.text).toString()

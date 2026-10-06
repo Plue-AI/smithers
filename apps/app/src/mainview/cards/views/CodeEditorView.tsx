@@ -14,10 +14,10 @@ export type CodeEditorViewProps = FileEditorProps & { readonly binding?: EditorB
 
 /** File presentation. The card supplies authority; content changes keep the same CodeMirror instance. */
 export const CodeEditorView = ({ model, view, actions, gestures, onAction, onView, binding, comparison, onCopy }: CodeEditorViewProps) => {
-  const comparing = !!view.compare && !model.gone && model.content.kind === "text" && !!model.outside && comparison?.version === model.outside.version
+  const comparing = !!view.compare && !model.gone && model.content.kind === "text" && ((!!model.outside && comparison?.version === model.outside.version) || (!!model.unsaved && comparison?.version === "unsaved"))
   const live = !comparing && !!binding && model.mode === "live" && model.content.kind === "text" && !model.gone
   const visualBinding = useMemo<EditorBinding | undefined>(() => live && binding ? {
-    get text() { return binding.text }, extensions: [binding.extensions, coEditingVisuals(model.authors, model.editors)]
+    identity: binding, get text() { return binding.text }, extensions: [binding.extensions, coEditingVisuals(model.authors, model.editors)]
   } : undefined, [live, binding, model.authors, model.editors])
   const [copyFailed, setCopyFailed] = useState(false)
   const buttons = actions.map((action, index) => <DiffAction key={index} action={action} onAction={onAction} />)

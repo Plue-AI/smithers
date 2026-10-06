@@ -240,7 +240,7 @@ test("the served live seam mounts in the File card while an absent seam retains 
   flushSync(() => editor.dispatch({ changes: { from: 15, insert: "!" } }))
   expect(provider.doc.getText("content").toString()).toBe("served document!")
   const { encodeStateVector } = await import("yjs")
-  receive!({ kind: "saved", vector: encodeStateVector(provider.doc) })
+  receive!({ kind: "saved", seq: 3, vector: encodeStateVector(provider.doc) })
   await loaded(host)
   // Re-render the same real seam after the disk acknowledgment.
   flushSync(() => root.render(<FileCardBody card={card} live={{ provider, binding }} onRunCommand={() => {}} />))
@@ -336,7 +336,7 @@ test("a closed authorized socket disables the registered File editor and retains
   reconnected.onmessage!({ data: JSON.stringify(assignment) })
   reconnected.onmessage!({ data: encodeLiveDocBinary({ kind: 1, id: 1, payload: encoding.toUint8Array(encoder) }) })
   expect(provider.unsaved?.text).toBe("const retry = 1!")
-  reconnected.onmessage!({ data: JSON.stringify({ t: "saved", id: 1, at: "2026-10-06T00:00:00Z", sv: btoa(String.fromCharCode(...Y.encodeStateVector(provider.doc))) }) })
+  reconnected.onmessage!({ data: JSON.stringify({ t: "saved", id: 1, seq: 1, sv: btoa(String.fromCharCode(...Y.encodeStateVector(provider.doc))) }) })
   paint()
   expect(provider.unsaved).toBeUndefined()
   expect(host.querySelector('[data-mode="live"]')).not.toBeNull()
