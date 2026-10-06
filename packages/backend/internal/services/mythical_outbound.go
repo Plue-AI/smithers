@@ -9,7 +9,6 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
-	"github.com/smithersai/smithers/packages/backend/jobs"
 
 	"github.com/smithersai/smithers/packages/backend/internal/db"
 )
@@ -244,7 +243,7 @@ func (st *mythicalItemStep) finishNoPRPushConflict(ctx context.Context, item db.
 			return err
 		}
 		data, _ := json.Marshal(map[string]any{"item": uuidString(item.ID), "n": item.Number.Int64, "operation": op, "observed": observed, "outcome": "conflict"})
-		if _, err = jobs.RecordFactInTx(ctx, tx, todoOperationScope(item), uuid.NewString(), "todo.github_operation_conflict", todoState(saved), data); err != nil {
+		if _, err = st.s.recordTodoFact(ctx, tx, saved, uuid.NewString(), "todo.github_operation_conflict", todoState(saved), data); err != nil {
 			return err
 		}
 		var live bool
@@ -305,7 +304,7 @@ func (st *mythicalItemStep) settleOutbound(ctx context.Context, item db.Mythical
 			return err
 		}
 		data, _ := json.Marshal(map[string]any{"item": uuidString(item.ID), "n": item.Number.Int64, "operation": op, "from": todoState(item), "to": todoState(saved), "merge_commit": saved.PRMergeCommit})
-		if _, err = jobs.RecordFactInTx(ctx, tx, todoOperationScope(saved), uuid.NewString(), "todo.github_operation_settled", todoState(saved), data); err != nil {
+		if _, err = st.s.recordTodoFact(ctx, tx, saved, uuid.NewString(), "todo.github_operation_settled", todoState(saved), data); err != nil {
 			return err
 		}
 		var live bool
