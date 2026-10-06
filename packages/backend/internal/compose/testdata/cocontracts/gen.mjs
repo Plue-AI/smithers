@@ -45,7 +45,13 @@ emit('ev_burst_rename_delete',2,durable(8,un(1,f(1,id),f(2,un(2,f(1,num(1,4)))),
 emit('ev_burst_part',2,durable(9,un(1,f(1,id),f(2,un(4)),f(3,list(bf('a',1,f(5,oid),f(6,digest)))),f(4,oid),f(5,num(1,2)),f(6,num(2,2)))),0,'ok','daemon-to-host');
 emit('ev_captured',2,durable(8,un(2,f(1,oid),f(2,oid2),f(3,oid))),0,'ok','daemon-to-host');
 for(const [v,name]of [[1,'moved'],[2,'conflict']])emit('ev_reconciled_'+name,2,durable(10,un(3,f(1,oid),f(2,oid2),f(3,[v]),...(v==2?[f(4,list(str('a')))]:[]))),0,'ok','daemon-to-host');
-for(const [v,name]of [[4,'moved_off'],[5,'transcript'],[6,'doc_edit']])emit('ev_reserved_'+name,2,durable(11,un(v)),0,'ok','daemon-to-host');
+for(const [v,name]of [[4,'moved_off'],[5,'transcript'],[6,'doc_edit']])emit('ev_reserved_'+name,2,durable(11,un(v)),0,v===5?'missing_field':'ok','daemon-to-host');
+// T-AGT-02 variant 5: wire version, registry session, participant, source lifetime,
+// explicit adapter profile, generation, inclusive start/exclusive end, UTF-8 record.
+const transcript=(text=Buffer.from('{"type":"user"}'),version=1)=>un(5,f(1,num(version,2)),f(2,num(1,4)),f(3,id),f(4,digest.subarray(0,16)),f(5,str('claude-code/2.1.0')),f(6,num(1,8)),f(7,num(0,8)),f(8,num(text.length+1,8)),f(9,bytes(text)));
+emit('ev_transcript',2,durable(12,transcript()),0,'ok','daemon-to-host');
+emit('ev_transcript_bad_utf8',2,durable(12,transcript(Buffer.from([255]))),0,'bad_utf8','daemon-to-host');
+emit('ev_transcript_partial',2,durable(12,transcript(Buffer.from('one\ntwo'))),0,'bad_utf8','daemon-to-host');
 emit('hint_file_written',2,un(2,f(1,un(1,f(1,str('a')),f(2,actor),f(3,digest)))),0,'ok','daemon-to-host');
 emit('presence_snapshot',3,un(1,f(1,list(st(f(1,num(1,4)),f(2,str('a'))),st(f(1,num(2,4)))))),0,'ok','daemon-to-host');
 for(const [v,name,fs]of [[1,'applied',[]],[2,'duplicate',[]],[3,'missing_objects',[f(3,list(oid)),f(5,list(oid2))]],[4,'rejected',[f(4,st(f(1,[11])))]],[5,'stale_base',[]]])emit('ack_'+name,2,un(3,f(1,num(7,8)),f(2,[v]),...fs));

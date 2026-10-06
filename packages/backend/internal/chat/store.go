@@ -526,6 +526,9 @@ func (s *Store) Claim(ctx context.Context, scope Scope, turnID string, lease tim
 	if err != nil {
 		return ProducerGrant{}, err
 	}
+	if externalTurn(turn) {
+		return ProducerGrant{}, ErrForbidden
+	}
 	if turn.State == StateRetired {
 		return ProducerGrant{}, ErrRetired
 	}
@@ -1235,6 +1238,9 @@ func (s *Store) Cancel(ctx context.Context, scope Scope, runID string) (CancelRe
 	result := CancelResult{}
 	for index := range turns {
 		turn := &turns[index]
+		if externalTurn(*turn) {
+			return CancelResult{}, ErrForbidden
+		}
 		if turn.Terminal {
 			continue
 		}

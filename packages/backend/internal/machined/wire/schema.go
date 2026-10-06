@@ -67,6 +67,7 @@ var structures = map[string][]field{
 	"captured":      {{1, true, "oid"}, {2, true, "oid"}, {3, true, "oid"}},
 	"reconciled":    {{1, true, "oid"}, {2, true, "oid"}, {3, true, "reconcile_outcome"}, {4, false, "list:str"}},
 	"written":       {{1, true, "str"}, {2, true, "actor"}, {3, false, "digest"}},
+	"transcript":    {{1, true, "u16"}, {2, true, "u32"}, {3, true, "id128"}, {4, true, "id128"}, {5, true, "str"}, {6, true, "u64"}, {7, true, "u64"}, {8, true, "u64"}, {9, true, "record"}},
 	"snapshot":      {{1, true, "list:where"}},
 	"where":         {{1, true, "u32"}, {2, false, "str"}},
 }
@@ -83,7 +84,7 @@ var unions = map[string]map[byte]string{
 	"target":        {1: "target_user", 2: "run_actor"},
 	"outcome":       {1: "empty", 2: "moved", 3: "conflict"},
 	"events":        {1: "durable", 2: "hint_wrapper", 3: "ack"},
-	"event":         {1: "burst", 2: "captured", 3: "reconciled", 4: "empty", 5: "empty", 6: "empty"},
+	"event":         {1: "burst", 2: "captured", 3: "reconciled", 4: "empty", 5: "transcript", 6: "empty"},
 	"hint":          {1: "written"},
 	"presence":      {1: "snapshot"},
 }

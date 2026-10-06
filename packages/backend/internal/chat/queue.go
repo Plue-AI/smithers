@@ -45,6 +45,9 @@ func (s *Store) MutateQueuedTurn(ctx context.Context, scope Scope, branch, id, m
 	if err != nil {
 		return Cursor{}, err
 	}
+	if externalTurn(turn) {
+		return Cursor{}, ErrForbidden
+	}
 	if turn.UserID != scope.UserID {
 		return Cursor{}, ErrForbidden
 	}
