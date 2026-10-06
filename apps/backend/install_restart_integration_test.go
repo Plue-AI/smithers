@@ -355,6 +355,17 @@ func testInstallSetupCompiledHostRestart(t *testing.T, boundary string) {
 	var externalStarted bool
 	require.NoError(t, pool.QueryRow(ctx, `SELECT external_started_at IS NOT NULL FROM product_job_dispatches WHERE operation_id=$1`, admitted.OperationID).Scan(&externalStarted))
 	require.Equal(t, boundary == "address effect", externalStarted)
+	// Retain the actual pre-crash worker fence, rather than constructing a
+	// deliberately invalid token. After restart it must no longer authorize
+	// either a checkpoint or completion, even with the original operation id.
+	var stale jobs.Claim
+	if externalStarted {
+		stale.OperationID = admitted.OperationID
+		require.NoError(t, pool.QueryRow(ctx, `SELECT d.claim_token,d.generation,d.worker_id,r.tenant_id,r.principal_id
+ FROM product_job_dispatches d JOIN product_job_requests r ON r.id=d.operation_id
+ WHERE d.operation_id=$1`, admitted.OperationID).Scan(&stale.Token, &stale.Generation, &stale.WorkerID, &stale.Scope.TenantID, &stale.Scope.PrincipalID))
+		require.NotEmpty(t, stale.Token)
+	}
 	require.NoError(t, command.Process.Kill())
 	require.Error(t, command.Wait())
 	_, err = lock.Exec(ctx, `SELECT pg_advisory_unlock(90345506)`)
@@ -381,6 +392,40 @@ func testInstallSetupCompiledHostRestart(t *testing.T, boundary string) {
 	var completions int
 	require.NoError(t, pool.QueryRow(ctx, `SELECT value->>'operation_id' FROM install_settings WHERE key='setup.step.address'`).Scan(&operation))
 	require.Equal(t, admitted.OperationID, operation)
+	require.NoError(t, pool.QueryRow(ctx, `SELECT count(*) FROM product_job_events WHERE operation_id=$1 AND event_type='operation.completed'`, operation).Scan(&completions))
+	require.Equal(t, 1, completions)
+	if externalStarted {
+		store, err := jobs.NewStore(pool)
+		require.NoError(t, err)
+		_, err = store.Checkpoint(ctx, stale, json.RawMessage(`{"stale":true}`))
+		require.ErrorIs(t, err, jobs.ErrClaimLost)
+		require.ErrorIs(t, store.Complete(ctx, stale, json.RawMessage(`{"stale":true}`)), jobs.ErrClaimLost)
+		var generation int64
+		require.NoError(t, pool.QueryRow(ctx, `SELECT generation FROM product_job_dispatches WHERE operation_id=$1`, operation).Scan(&generation))
+		require.Greater(t, generation, stale.Generation)
+	}
+	// Inspect the person-facing projection after the stale completion attempt.
+	response, err = client.Get(origin + "/api/install")
+	require.NoError(t, err)
+	defer response.Body.Close()
+	require.Equal(t, 200, response.StatusCode)
+	var recovered struct {
+		Steps   []struct{ ID, State string }
+		Address struct {
+			Origins []string `json:"origins"`
+		}
+	}
+	require.NoError(t, json.NewDecoder(response.Body).Decode(&recovered))
+	require.Len(t, recovered.Steps, 7)
+	for i, id := range []string{"address", "app_manifest", "sign_in", "repository", "models", "source", "machine"} {
+		require.Equal(t, id, recovered.Steps[i].ID)
+		state := "pending"
+		if i == 0 {
+			state = "done"
+		}
+		require.Equal(t, state, recovered.Steps[i].State)
+	}
+	require.Equal(t, []string{"http://localhost:4000"}, recovered.Address.Origins)
 	require.NoError(t, pool.QueryRow(ctx, `SELECT count(*) FROM product_job_events WHERE operation_id=$1 AND event_type='operation.completed'`, operation).Scan(&completions))
 	require.Equal(t, 1, completions)
 }
