@@ -21955,6 +21955,10 @@
       },
       {
         "kind": "file",
+        "path": "flows/test/coding-candidate-equality.test.ts"
+      },
+      {
+        "kind": "file",
         "path": "flows/test/coding-install-project.test.ts"
       },
       {
@@ -22543,6 +22547,10 @@
       {
         "kind": "file",
         "path": "flows/test/wiki-reuse.test.ts"
+      },
+      {
+        "kind": "file",
+        "path": "flows/test/wiki-install-defaults.test.ts"
       },
       {
         "kind": "file",
@@ -23913,6 +23921,10 @@
       },
       {
         "kind": "file",
+        "path": "packages/backend/internal/services/github_synced_related.go"
+      },
+      {
+        "kind": "file",
         "path": "packages/backend/internal/services/github_synced_comments.go"
       },
       {
@@ -24114,6 +24126,14 @@
       {
         "kind": "file",
         "path": "packages/backend/db/product/migrations/0105_github_app.sql"
+      },
+      {
+        "kind": "file",
+        "path": "packages/backend/db/product/migrations/0126_github_comment_sources.sql"
+      },
+      {
+        "kind": "file",
+        "path": "packages/backend/db/product/queries/github_synced_repos.sql"
       },
       {
         "kind": "file",

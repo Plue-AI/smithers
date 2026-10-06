@@ -2,6 +2,7 @@ package services
 
 import (
 	"context"
+	"errors"
 	"strconv"
 	"strings"
 	"sync"
@@ -18,15 +19,13 @@ func (s *MythicalService) UseInstallGitHubPolling(synced *GitHubSyncedRepoServic
 	s.installGitHubPolling, s.installGitHubSync = true, synced
 	s.installPullHints = &mythicalPullHints{pending: make(map[pgtype.UUID]mythicalPullHint), wake: make(chan struct{}, 1)}
 	if synced != nil && synced.install != nil {
-		if synced.install.consumers == nil {
-			synced.install.consumers = map[string]gitHubFetchedConsumer{}
-		}
+		synced.RegisterFetchedConsumer(gitHubIssueEvents, s.consumeGitHubTodoLabels)
+		synced.RegisterFetchedConsumer(gitHubRefs, s.consumeGitHubRefTodos)
 		synced.install.pullFacts = true
 		synced.install.requestPulls = s.requestInstallPulls
 		synced.install.requiredPulls = s.requiredInstallPulls
 		synced.install.requiredPullFacts = s.requiredInstallPullResources
 		if synced.install.consumers != nil {
-			synced.install.consumers[gitHubIssueEvents] = s.consumeGitHubTodoLabels
 			synced.install.consumers[GitHubRepoMetadataPulls] = s.consumeGitHubPullTodos
 			synced.install.consumers[gitHubConversationComments] = s.consumeGitHubReviewTodos
 			synced.install.consumers[gitHubReviews] = s.consumeGitHubReviewTodos
@@ -62,8 +61,13 @@ func (st *mythicalItemStep) followInstallPull(ctx context.Context, item db.Mythi
 	st.s.installPullHints.mu.Lock()
 	delete(st.s.installPullHints.pending, item.ID)
 	st.s.installPullHints.mu.Unlock()
-	if err := synced.pollInstallPull(ctx, row, item.PRNumber.Int64); err != nil {
-		return nil, err
+	if err := st.s.pollInstallTodoPull(ctx, row, item.PRNumber.Int64); err != nil {
+		if ctx.Err() != nil {
+			return nil, ctx.Err()
+		}
+		// Stream observations retain the failure. One paused stream must not
+		// stretch successful readers beyond the existing 45-second deadline.
+		st.s.logger.Warn("github.todo_poll.failed", "repository_id", item.RepositoryID, "pull", item.PRNumber.Int64, "error", err)
 	}
 	next := item
 	if item.State == "rejected" && mythicalChecksOf(item).GitHubClosedAt == nil {
@@ -178,7 +182,7 @@ func (s *MythicalService) fetchInstallPullHint(ctx context.Context, item db.Myth
 		return time.Time{}, nil
 	}
 	if err == nil {
-		err = synced.pollInstallPull(ctx, hint.row, item.PRNumber.Int64)
+		err = s.pollInstallTodoPull(ctx, hint.row, item.PRNumber.Int64)
 	}
 	if err != nil {
 		hint.retryAt = mythicalStepFailedDue(err, s.now())
@@ -222,4 +226,9 @@ func (s *MythicalService) requiredInstallPullResources(ctx context.Context, row 
 		}
 	}
 	return streams, nil
+}
+
+func (s *MythicalService) pollInstallTodoPull(ctx context.Context, row db.GithubSyncedRepo, number int64) error {
+	detailErr := s.installGitHubSync.pollInstallPull(ctx, row, number)
+	return errors.Join(detailErr, s.installGitHubSync.pollInstallPullFacts(ctx, row, number))
 }

@@ -16,7 +16,6 @@ import (
 )
 
 const gitHubReviews = "pulls/reviews"
-const gitHubReviewComments = "pulls/comments"
 
 // Lifecycle versions are part of the TODO projection, protected by the stack
 // lock. Delivery receipts and activity remain in the shared product journal.

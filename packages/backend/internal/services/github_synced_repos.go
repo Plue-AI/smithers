@@ -1124,7 +1124,7 @@ func (s *GitHubSyncedRepoService) loadCommentBaseline(ctx context.Context, row d
 func (s *GitHubSyncedRepoService) backfill(ctx context.Context, row db.GithubSyncedRepo, fetch gitHubSyncedRepoPageFetcher) error {
 	if s.install != nil {
 		plans := make([]gitHubStreamPlan, 0, len(installMetadataResources))
-		for _, resource := range installMetadataResources {
+		for _, resource := range s.installResources() {
 			plans = append(plans, gitHubStreamPlan{resource: resource, scheduled: true})
 		}
 		return s.backfillInstallStreams(ctx, row, fetch, plans)
@@ -1172,14 +1172,14 @@ func (s *GitHubSyncedRepoService) backfillResource(ctx context.Context, row db.G
 		query := url.Values{}
 		// state=all: the store holds both open and closed rows and filters on
 		// read, so one backfill serves every state the proxy can be asked for.
-		if resource != gitHubConversationComments {
+		if resource != gitHubConversationComments && resource != gitHubReviewComments {
 			query.Set("state", "all")
 		}
 		query.Set("sort", "updated")
 		query.Set("direction", "desc")
 		query.Set("per_page", strconv.Itoa(pageSize))
 		query.Set("page", strconv.Itoa(page))
-		if s.install != nil && (resource == GitHubRepoMetadataIssues || resource == gitHubConversationComments) && !boundary.IsZero() {
+		if s.install != nil && (resource == GitHubRepoMetadataIssues || resource == gitHubConversationComments || resource == gitHubReviewComments) && !boundary.IsZero() {
 			query.Set("since", boundary.Format(time.RFC3339))
 		}
 

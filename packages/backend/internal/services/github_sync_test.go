@@ -438,3 +438,15 @@ func TestSyncFreshnessDoesNotExpireHourlyPermissions(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, "stale", aggregateGitHubSyncHealth(observations, now).State)
 }
+
+func TestGitHubSyncHealthUsesFastStreamFreshness(t *testing.T) {
+	now := time.Now().UTC()
+	old := now.Add(-time.Hour)
+	streams := []GitHubSyncStream{{LastSuccessAt: &now}, {LastSuccessAt: &old, Background: true}, {Background: true}}
+	health := aggregateGitHubSyncHealth(streams, now)
+	require.Equal(t, "fresh", health.State)
+	require.Equal(t, &now, health.LastSuccessAt)
+	require.Equal(t, "stale", aggregateGitHubSyncHealth(streams[1:], now).State)
+	streams[1].Cause = "permission"
+	require.Equal(t, "refused", aggregateGitHubSyncHealth(streams, now).State)
+}

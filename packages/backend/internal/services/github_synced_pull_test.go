@@ -226,7 +226,7 @@ func TestGitHubIndividualPullUsesExistingFollowWithoutEffects(t *testing.T) {
 		require.Equal(t, item, *next, "fetch alone cannot apply a head, review, merge or other product effect")
 	}
 	require.Equal(t, 10, calls, "each follow reads the PR, checks, statuses, reviews and line comments")
-	require.Equal(t, 1, fetchedCount(t, pool, `SELECT count(*) FROM product_job_requests`))
+	require.Equal(t, 3, fetchedCount(t, pool, `SELECT count(*) FROM product_job_requests`))
 	require.Equal(t, 1, fetchedCount(t, pool, `SELECT count(*) FROM github_synced_issues WHERE synced_repo_id=`+strconv.FormatInt(row.ID, 10)))
 }
 
@@ -303,18 +303,18 @@ func TestGitHubPullHintsWakeExistingStackAndKeepCadence(t *testing.T) {
 	failure := false
 	s.SetConditionalFetcherFactory(func(db.GithubSyncedRepo) GitHubSyncedRepoConditionalFetcher {
 		return func(ctx context.Context, resource string, _ url.Values, etag string) (GitHubSyncedRepoConditionalPage, error) {
-			if strings.HasSuffix(resource, "check-runs") {
-				return GitHubSyncedRepoConditionalPage{Body: json.RawMessage(`{"check_runs":[]}`)}, nil
-			}
-			if resource != "pulls/7" {
-				return GitHubSyncedRepoConditionalPage{Body: json.RawMessage(`[]`)}, nil
-			}
 			calls = append(calls, resource)
 			during()
 			if failure {
 				return GitHubSyncedRepoConditionalPage{}, errors.New("temporary network failure")
 			}
-			return GitHubSyncedRepoConditionalPage{Body: json.RawMessage(strings.Replace(fetchedPullDetail, "head-1", strings.Repeat("a", 40), 1)), ETag: `"hint"`}, nil
+			body := json.RawMessage(strings.Replace(fetchedPullDetail, "head-1", strings.Repeat("a", 40), 1))
+			if strings.HasSuffix(resource, "/check-runs") {
+				body = json.RawMessage(`{"check_runs":[]}`)
+			} else if strings.HasSuffix(resource, "/statuses") || strings.HasSuffix(resource, "/reviews") || strings.HasSuffix(resource, "/comments") {
+				body = json.RawMessage(`[]`)
+			}
+			return GitHubSyncedRepoConditionalPage{Body: body, ETag: `"hint"`}, nil
 		}
 	})
 	hint := func() {
@@ -344,15 +344,15 @@ func TestGitHubPullHintsWakeExistingStackAndKeepCadence(t *testing.T) {
 	run := &mythicalRun{row: after}
 	stack.advanceItems(ctx, run)
 	require.Equal(t, item.NextAttemptAt.Time, run.due, "the normal poll is still due at its original time")
-	require.Equal(t, []string{"pulls/7"}, calls)
+	require.Equal(t, []string{"pulls/7", "commits/" + strings.Repeat("a", 40) + "/check-runs", "commits/" + strings.Repeat("a", 40) + "/statuses", "pulls/7/reviews", "pulls/7/comments"}, calls)
 	retry, err := stack.fetchInstallPullHint(ctx, item)
 	require.NoError(t, err)
 	require.True(t, retry.IsZero())
-	require.Len(t, calls, 1, "duplicates coalesce")
+	require.Len(t, calls, 5, "duplicates coalesce")
 	unchanged, err := q.GetMythicalItem(ctx, item.ID)
 	require.NoError(t, err)
 	require.Equal(t, item, unchanged, "an early read changes neither product state nor the regular deadline")
-	require.Equal(t, 1, fetchedCount(t, pool, `SELECT count(*) FROM product_job_requests WHERE state<>'completed'`))
+	require.Equal(t, 3, fetchedCount(t, pool, `SELECT count(*) FROM product_job_requests WHERE state<>'completed'`))
 	// A newer delivery arriving during the read survives its completion.
 	hint()
 	during = func() { during = func() {}; hint() }
@@ -378,7 +378,7 @@ func TestGitHubPullHintsWakeExistingStackAndKeepCadence(t *testing.T) {
 	now = retry
 	_, err = stack.fetchInstallPullHint(ctx, item)
 	require.NoError(t, err)
-	require.Len(t, calls, count+1)
+	require.Len(t, calls, count+5)
 
 	// Both a stream pause and exhausted resource budget stop reads before minting.
 	for _, code := range []int{403, 429, 200} {
@@ -413,7 +413,7 @@ func TestGitHubPullHintsWakeExistingStackAndKeepCadence(t *testing.T) {
 		now = retry
 		_, err = stack.fetchInstallPullHint(ctx, item)
 		require.NoError(t, err)
-		require.Len(t, calls, count+1)
+		require.Len(t, calls, count+5)
 	}
 	// A destination change after admission cannot fetch the previous binding.
 	hint()

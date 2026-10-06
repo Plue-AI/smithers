@@ -124,9 +124,6 @@ func (s *GitHubSyncedRepoService) pollInstallPull(ctx context.Context, row db.Gi
 		}
 		s.install.mu.Unlock()
 	}
-	if s.install.pullFacts {
-		return s.pollInstallPullFacts(ctx, row, number)
-	}
 	return nil
 }
 

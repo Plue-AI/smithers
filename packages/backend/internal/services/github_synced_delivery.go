@@ -96,7 +96,7 @@ func (s *GitHubSyncedRepoService) requestInstallFetch(ctx context.Context, githu
 	}
 	s.install.mu.Lock()
 	if len(resources) == 0 {
-		resources = installMetadataResources
+		resources = s.installResources()
 	}
 	for _, resource := range resources {
 		s.install.requested[syncedStreamKey(row, resource)] = true
@@ -123,7 +123,7 @@ func (s *GitHubSyncedRepoService) commitFetched(ctx context.Context, row db.Gith
 	if err := s.authorizeFetched(ctx, row); err != nil {
 		return err
 	}
-	if resource != GitHubRepoMetadataIssues && resource != GitHubRepoMetadataPulls && resource != gitHubConversationComments {
+	if resource != GitHubRepoMetadataIssues && resource != GitHubRepoMetadataPulls && resource != gitHubConversationComments && resource != gitHubReviewComments {
 		return fmt.Errorf("unsupported fetched resource %q", resource)
 	}
 	return pgx.BeginFunc(ctx, s.install.pool, func(tx pgx.Tx) error {
@@ -140,8 +140,8 @@ func (s *GitHubSyncedRepoService) commitFetched(ctx context.Context, row db.Gith
 			return err
 		}
 
-		if resource == gitHubConversationComments {
-			return s.commitFetchedComments(ctx, tx, row, objects)
+		if resource == gitHubConversationComments || resource == gitHubReviewComments {
+			return s.commitFetchedCommentsFrom(ctx, tx, row, resource, objects)
 		}
 		for _, object := range objects {
 			if err := s.commitFetchedIssue(ctx, tx, row, resource, object); err != nil {
@@ -205,7 +205,9 @@ func (s *GitHubSyncedRepoService) consumeFetched(ctx context.Context, lease *job
 	if claim.Operation != githubFetchedOperation || json.Unmarshal(claim.Payload, &fact) != nil {
 		return errors.New("invalid fetched delivery")
 	}
+	s.install.mu.Lock()
 	consumer := s.install.consumers[fact.Resource]
+	s.install.mu.Unlock()
 	if consumer == nil {
 		return gitHubFetchUnavailable()
 	}
@@ -290,4 +292,23 @@ func (s *GitHubSyncedRepoService) SetIssueEventsEvery(every time.Duration) {
 	if s != nil && s.install != nil && every > 0 {
 		s.install.issueEventsEvery = every
 	}
+}
+
+// GitHubFetchedObject is the durable fetched version shared with downstream
+// owners. Effects and receipts must use the transaction supplied to the handler.
+type GitHubFetchedObject = gitHubFetchedObject
+type GitHubFetchedConsumer = gitHubFetchedConsumer
+
+// RegisterFetchedConsumer binds the owner before workers start. Unregistered
+// resources keep their pending deliveries for restart and later registration.
+func (s *GitHubSyncedRepoService) RegisterFetchedConsumer(resource string, consumer GitHubFetchedConsumer) {
+	if s == nil || s.install == nil {
+		return
+	}
+	s.install.mu.Lock()
+	defer s.install.mu.Unlock()
+	if s.install.consumers == nil {
+		s.install.consumers = map[string]gitHubFetchedConsumer{}
+	}
+	s.install.consumers[resource] = consumer
 }

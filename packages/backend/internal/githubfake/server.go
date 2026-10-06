@@ -725,6 +725,9 @@ func (s *Server) serveHTTP(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) respond(r *http.Request, body []byte) (int, any) {
 	path := strings.Split(strings.Trim(r.URL.Path, "/"), "/")
+	if status, response, ok := s.reviewRead(r, path); ok {
+		return status, response
+	}
 	if r.Method == http.MethodPost && len(path) == 3 && path[0] == "app-manifests" && path[2] == "conversions" {
 		if path[1] != s.config.ConversionCode || s.converted {
 			return failure(http.StatusNotFound, "manifest code not found")
@@ -1172,7 +1175,8 @@ func (s *Server) pullRequest(r *http.Request, repo string, path []string, body [
 		if page, _ := strconv.Atoi(r.URL.Query().Get("page")); page > 1 {
 			runs = []CheckRun{}
 		}
-		return 200, map[string]any{"total_count": len(runs), "check_runs": runs}
+		start, end := pageBounds(r, len(runs))
+		return 200, map[string]any{"total_count": len(runs), "check_runs": runs[start:end]}
 	}
 	if r.Method == http.MethodGet && len(path) == 3 && path[0] == "commits" && path[2] == "statuses" {
 		return 200, []any{}

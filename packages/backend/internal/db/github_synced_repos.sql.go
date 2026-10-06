@@ -123,7 +123,7 @@ func (q *Queries) DeleteGitHubSyncedIssue(ctx context.Context, arg DeleteGitHubS
 
 const deleteGitHubSyncedIssueComment = `-- name: DeleteGitHubSyncedIssueComment :exec
 DELETE FROM github_synced_issue_comments
-WHERE synced_repo_id = $1
+WHERE source='conversation' AND synced_repo_id = $1
   AND github_id = $2
 `
 
@@ -139,7 +139,7 @@ func (q *Queries) DeleteGitHubSyncedIssueComment(ctx context.Context, arg Delete
 
 const deleteGitHubSyncedIssueCommentsNotIn = `-- name: DeleteGitHubSyncedIssueCommentsNotIn :exec
 DELETE FROM github_synced_issue_comments
-WHERE synced_repo_id = $1
+WHERE source='conversation' AND synced_repo_id = $1
   AND issue_number = $2
   AND NOT (github_id = ANY($3::bigint[]))
 `
@@ -317,7 +317,7 @@ SELECT
     (
         SELECT COUNT(*)
         FROM github_synced_issue_comments c
-        WHERE c.synced_repo_id = i.synced_repo_id
+        WHERE c.source='conversation' AND c.synced_repo_id = i.synced_repo_id
           AND c.issue_number = i.number
     )::bigint AS stored
 FROM github_synced_issues i
@@ -508,9 +508,9 @@ func (q *Queries) ListDueGitHubSyncedRepos(ctx context.Context, rowLimit int32) 
 }
 
 const listGitHubSyncedIssueComments = `-- name: ListGitHubSyncedIssueComments :many
-SELECT id, synced_repo_id, issue_number, github_id, payload, github_created_at, github_updated_at, created_at, updated_at
+SELECT id, synced_repo_id, issue_number, github_id, payload, github_created_at, github_updated_at, created_at, updated_at, source
 FROM github_synced_issue_comments
-WHERE synced_repo_id = $1
+WHERE source='conversation' AND synced_repo_id = $1
   AND issue_number = $2
 ORDER BY github_created_at NULLS LAST, github_id
 LIMIT $4::int OFFSET $3::int
@@ -547,6 +547,7 @@ func (q *Queries) ListGitHubSyncedIssueComments(ctx context.Context, arg ListGit
 			&i.GithubUpdatedAt,
 			&i.CreatedAt,
 			&i.UpdatedAt,
+			&i.Source,
 		); err != nil {
 			return nil, err
 		}
@@ -948,7 +949,7 @@ func (q *Queries) UpsertGitHubSyncedIssue(ctx context.Context, arg UpsertGitHubS
 const upsertGitHubSyncedIssueComment = `-- name: UpsertGitHubSyncedIssueComment :exec
 INSERT INTO github_synced_issue_comments (
     synced_repo_id, issue_number, github_id, payload,
-    github_created_at, github_updated_at
+    github_created_at, github_updated_at, source
 )
 VALUES (
     $1,
@@ -956,9 +957,10 @@ VALUES (
     $3,
     $4,
     $5::timestamptz,
-    $6::timestamptz
+    $6::timestamptz,
+ COALESCE(NULLIF($7::text,''),'conversation')
 )
-ON CONFLICT (synced_repo_id, github_id) DO UPDATE
+ON CONFLICT (synced_repo_id, source, github_id) DO UPDATE
 SET issue_number      = EXCLUDED.issue_number,
     payload           = EXCLUDED.payload,
     github_created_at = EXCLUDED.github_created_at,
@@ -976,6 +978,7 @@ type UpsertGitHubSyncedIssueCommentParams struct {
 	Payload         json.RawMessage    `json:"payload"`
 	GithubCreatedAt pgtype.Timestamptz `json:"github_created_at"`
 	GithubUpdatedAt pgtype.Timestamptz `json:"github_updated_at"`
+	Source          string             `json:"source"`
 }
 
 // Same out-of-order guard as the issues upsert: an older comment snapshot
@@ -988,6 +991,7 @@ func (q *Queries) UpsertGitHubSyncedIssueComment(ctx context.Context, arg Upsert
 		arg.Payload,
 		arg.GithubCreatedAt,
 		arg.GithubUpdatedAt,
+		arg.Source,
 	)
 	return err
 }

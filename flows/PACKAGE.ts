@@ -276,6 +276,7 @@ const codingRuntime = Smithers.NodeTest({
     Smithers.file("//flows/test/coding-project-config.test.ts"),
     Smithers.file("//flows/test/coding-project-defaults.test.ts"),
     Smithers.file("//flows/test/coding-build-only.test.ts"),
+    Smithers.file("//flows/test/coding-candidate-equality.test.ts"),
     Smithers.file("//flows/test/coding-install-project.test.ts"),
     Smithers.file("//flows/test/coding-steering.test.ts"),
     Smithers.file("//flows/test/coding-request-coordinator.test.ts"),
@@ -484,6 +485,7 @@ const fixtures = Smithers.NodeTest({
   runtime: node,
   runner: Smithers.testRunner([
     fixture("wiki-reuse.test.ts"),
+    fixture("wiki-install-defaults.test.ts"),
     fixture("wiki-jev-citations.test.ts"),
     fixture("content-jev-template.test.ts"),
     fixture("coding-fault.test.ts"),

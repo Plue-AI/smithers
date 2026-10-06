@@ -251,8 +251,11 @@ func GitHubRateLimitHeaders(header http.Header) (string, GitHubRateLimit, bool) 
 // NewGitHubResponseBudgetTracker selects upstream accounting for the install.
 // Hosted deployments retain their existing token bucket; install calls have no
 // hourly request-count cap and no linear refill between GitHub resets.
-func NewGitHubResponseBudgetTracker() *BudgetTracker {
+func NewGitHubResponseBudgetTracker(clock ...func() time.Time) *BudgetTracker {
 	t := NewBudgetTracker()
+	if len(clock) > 0 && clock[0] != nil {
+		t.now = clock[0]
+	}
 	t.headers = true
 	t.resources = make(map[string]GitHubRateLimit)
 	t.pauses = make(map[string]time.Time)
