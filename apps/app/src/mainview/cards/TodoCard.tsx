@@ -184,7 +184,7 @@ const TodoBody = ({ card, maximized }: { readonly card: CardOf<"todo">; readonly
 // POST/PATCH /api/todos/{n}, question answer and merge are composed on the install.
 // Branch navigation is supplied when its install provider is composed.
 // Stop/Resume/current-flow retry and branch repair/terminal providers remain gated until their composition lands.
-const servedTodoActions: readonly CatalogTag[] = ["run.inspect", "todo.answer", "todo.steer", "todo.amend", "todo.drop", "todo.retry", "todo.takeover", "image.add", "merge"]
+const servedTodoActions: readonly CatalogTag[] = ["run.inspect", "todo.answer", "todo.steer", "todo.amend", "todo.drop", "todo.retry", "todo.takeover", "image.add", "todo.preapprove", "todo.unapprove", "merge"]
 
 export const todoCardFamily: CardFamily<"todo"> = {
   todo: { render: (card, { presentation }) => <TodoBody card={card} maximized={presentation === "maximized"} />, pill: () => "" }

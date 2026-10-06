@@ -463,7 +463,7 @@ func Authorize(ctx context.Context, q *db.Queries, command string) (InstallAutho
 		!(command == "branch.read" && info.CredentialKind() == middleware.CredentialDelegated) {
 		message := "Sign in with a browser session"
 		if command == "merge" {
-			message = "Merge requires an owner or maintainer browser session"
+			message = mythicalMergeForbidden().Message
 		}
 		return InstallAuthorization{}, &AccessError{Status: http.StatusForbidden, Class: "permission", Code: "permission", Message: message}
 	}
