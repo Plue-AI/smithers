@@ -2195,8 +2195,18 @@ describe("DocsView", () => {
     for (const gestures of [{}, { open: { ...props.gestures.open!, disabled: { reason: "Unavailable" } } }]) {
       const rendered = await mounted({ name: "inert", expect: [], render: callbacks => <DocsView {...props} gestures={gestures} {...callbacks} /> })
       try {
+        for (const link of rendered.host.querySelectorAll<HTMLAnchorElement>(".sui-md a")) {
+          expect(link.getAttribute("href")).toBeNull()
+          expect(link.tabIndex).toBe(-1)
+        }
         for (const link of rendered.host.querySelectorAll("a")) { const event = new MouseEvent("click", { bubbles: true, cancelable: true }); await act(async () => link.dispatchEvent(event)); expect(event.defaultPrevented).toBe(true) }
         expect(rendered.onAction).toHaveBeenCalledTimes(0)
+        await act(async () => rendered.root.render(<DocsView {...props} onAction={rendered.onAction} onView={rendered.onView} />))
+        const restored = rendered.host.querySelector<HTMLAnchorElement>(".sui-md a")!
+        expect(restored.getAttribute("href")).toBe("../todos.md#review")
+        expect(restored.tabIndex).toBe(0)
+        await act(async () => restored.click())
+        expect(rendered.onAction.mock.calls).toEqual([["docs", { source: "docs-card", page: "todos#review" }]])
       } finally { await rendered.close() }
     }
   })
