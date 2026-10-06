@@ -7,6 +7,7 @@ Arguments:
 
 Options:
   --reviewed_head_sha <value>
+  --idempotency-key <value>
   --verbose                    Show redacted diagnostic details
 
 Custom Global Options:
