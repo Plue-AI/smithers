@@ -534,6 +534,9 @@ func buildRouter(
 			r.Use(browserCORS(apiCORS, config.IsSingleOwner(cfg.Auth)))
 			r.Use(authLoader(queries, cfg.Auth))
 			r.Use(sseTicketAuth)
+			if config.IsSingleOwner(cfg.Auth) {
+				r.Use(memberCommands(queries))
+			}
 			if queries != nil {
 				r.Use(middleware.LoadRepoContext(queries))
 			}

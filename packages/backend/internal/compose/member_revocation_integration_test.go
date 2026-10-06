@@ -3,12 +3,14 @@ package compose
 import (
 	"context"
 	"fmt"
+	"io"
 	"net/http"
 	"strings"
 	"testing"
 	"time"
 
 	"github.com/coder/websocket"
+	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/smithersai/smithers/packages/backend/internal/db"
 	"github.com/smithersai/smithers/packages/backend/internal/revocation"
@@ -142,6 +144,10 @@ func exerciseMemberRevocation(t *testing.T, pool *pgxpool.Pool, origin string, w
 			committed <- err
 		})
 		defer unsubscribe()
+		agent, err := db.New(pool).CreateAgentSession(ctx, db.CreateAgentSessionParams{ID: uuid.NewString(), RepositoryID: repository, UserID: ownerID, Title: "member stream revocation", Status: "active"})
+		require.NoError(t, err)
+		streamPath := "/api/repos/owner/app/agent/sessions/" + agent.ID + "/stream"
+		maxSSEElapsed := time.Duration(0)
 		maxElapsed := time.Duration(0)
 		for run := 1; run <= 20; run++ {
 			if run > 1 {
@@ -153,6 +159,27 @@ func exerciseMemberRevocation(t *testing.T, pool *pgxpool.Pool, origin string, w
 			cookie := fmt.Sprintf("live-revocation-%d", run)
 			session(writer, cookie)
 			socket := open(cookie)
+			streamCtx, cancelStream := context.WithTimeout(ctx, 10*time.Second)
+			defer cancelStream()
+			req, err := http.NewRequestWithContext(streamCtx, http.MethodGet, origin+streamPath, nil)
+			require.NoError(t, err)
+			req.Header.Set("Accept", "text/event-stream")
+			req.AddCookie(&http.Cookie{Name: "session", Value: cookie})
+			response, err := http.DefaultClient.Do(req)
+			require.NoError(t, err)
+			defer response.Body.Close()
+			require.Equal(t, http.StatusOK, response.StatusCode)
+			require.Contains(t, response.Header.Get("Content-Type"), "text/event-stream")
+			type streamResult struct {
+				body   string
+				err    error
+				closed time.Time
+			}
+			streamDone := make(chan streamResult, 1)
+			go func() {
+				data, err := io.ReadAll(response.Body)
+				streamDone <- streamResult{string(data), err, time.Now()}
+			}()
 			started := time.Now()
 			status, body := request("DELETE", "/api/members/writer", "", "owner-cookie")
 			require.Equal(t, 204, status, body)
@@ -167,6 +194,26 @@ func exerciseMemberRevocation(t *testing.T, pool *pgxpool.Pool, origin string, w
 					break
 				}
 			}
+			select {
+			case result := <-streamDone:
+				require.NoError(t, result.err, "SSE must reach server EOF, not client cancellation")
+				require.Contains(t, result.body, "event: revoked")
+				require.Contains(t, result.body, fmt.Sprintf(`"user_id":%d`, writer.ID))
+				sseElapsed := result.closed.Sub(started)
+				require.LessOrEqual(t, sseElapsed, 5*time.Second)
+				if sseElapsed > maxSSEElapsed {
+					maxSSEElapsed = sseElapsed
+				}
+				t.Logf("run=%d transport=sse request_to_eof_seconds=%.6f", run, sseElapsed.Seconds())
+			case <-time.After(time.Until(started.Add(5 * time.Second))):
+				cancelStream()
+				response.Body.Close()
+				t.Fatal("member removal did not close SSE within five seconds")
+			}
+			cancelStream()
+			response.Body.Close()
+			status, body = request("GET", streamPath, "", cookie)
+			require.Equal(t, http.StatusUnauthorized, status, body)
 			elapsed := time.Since(started)
 			cancel()
 			socket.CloseNow()
@@ -187,6 +234,7 @@ func exerciseMemberRevocation(t *testing.T, pool *pgxpool.Pool, origin string, w
 		var unrelatedGrants int
 		require.NoError(t, pool.QueryRow(ctx, `SELECT count(*) FROM workspace_shares WHERE grantee_user_id=$1`, other.ID).Scan(&unrelatedGrants))
 		require.Equal(t, 1, unrelatedGrants, "another member's branch access survives")
+		t.Logf("SSE max over 20 runs: %.6f seconds; NOTIFY delivery disabled", maxSSEElapsed.Seconds())
 		t.Logf("live max over 20 runs: %.6f seconds; NOTIFY delivery disabled", maxElapsed.Seconds())
 		status, body := request("POST", "/api/members", `{"login":"writer"}`, "owner-cookie")
 		require.Equal(t, 204, status, body)

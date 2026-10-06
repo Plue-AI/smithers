@@ -433,6 +433,8 @@ var installMemberRoutes = []struct {
 	{http.MethodGet, "repo.read", regexp.MustCompile(`^/api/user/repos$`)},
 	{http.MethodGet, "repo.read", regexp.MustCompile(`^/api/repos/[^/]+/[^/]+/mythical(/events|/items/[^/]+)?$`)},
 	{http.MethodGet, "wiki.read", wikiReadPath},
+	// Existing persisted coding-run messages remain readable by repository members.
+	{http.MethodGet, "repo.read", regexp.MustCompile(`^/api/repos/[^/]+/[^/]+/agent/sessions/[^/]+/stream$`)},
 	{http.MethodGet, "sync.read", regexp.MustCompile(`^/api/github/sync$`)},
 	{http.MethodPost, "sync.retry", regexp.MustCompile(`^/api/github/sync$`)},
 	{http.MethodGet, "live", regexp.MustCompile(`^/api/live$`)},

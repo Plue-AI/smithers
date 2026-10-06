@@ -121,6 +121,7 @@ func TestInstallMemberCommandRoutes(t *testing.T) {
 		{http.MethodGet, "/api/repos/local-owner/demo/mythical/items/x/y", ""},
 		{http.MethodGet, "/api/repos/local-owner/demo/contents/README.md", ""},
 		{http.MethodGet, "/api/user/keys", "self.read"},
+		{http.MethodGet, "/api/repos/acme/app/agent/sessions/00000000-0000-4000-8000-000000000001/stream", "repo.read"},
 		{http.MethodGet, "/api/user/keys/12", "self.read"},
 		{http.MethodPost, "/api/user/keys", ""},
 		{http.MethodGet, "/api/user/keys/ben", ""},

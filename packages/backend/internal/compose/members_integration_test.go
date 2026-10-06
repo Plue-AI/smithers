@@ -25,6 +25,7 @@ import (
 	"github.com/smithersai/smithers/packages/backend/internal/revocation"
 	"github.com/smithersai/smithers/packages/backend/internal/routes"
 	"github.com/smithersai/smithers/packages/backend/internal/services"
+	"github.com/smithersai/smithers/packages/backend/internal/sse"
 	"github.com/smithersai/smithers/packages/backend/testkit/postgresfixture"
 	"github.com/stretchr/testify/require"
 )
@@ -178,7 +179,12 @@ func TestMembersComposedInstallPostgres(t *testing.T) {
 	cfg.Server.AllowedOrigins = []string{origin}
 	topics := &liveTopics{queries: q, members: members}
 	liveHandler := &routes.LiveHandler{Hub: live.NewHub(ctx, nil), Queries: q, Origins: func() []string { return []string{origin} }, Topics: topics.resolver}
-	server.Config.Handler = buildRouterCompat(cfg, q, pool, &routes.RepoHandler{}, handler, &routes.UserHandler{}, &routes.SSHKeyHandler{Service: services.NewSSHKeyService(q)}, &routes.LabelHandler{}, &routes.OrgHandler{}, &routes.LandingHandler{}, &routes.SearchHandler{Service: &mockRouterSearchService{}}, &routes.IssueHandler{}, nil, &routes.GitSmartHandler{Service: &mockRouterGitService{}}, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, &routes.WorkspaceHandler{}, nil, nil, nil, nil, nil, nil, routerExtras{Members: &routes.MembersHandler{Service: members}, Live: liveHandler})
+	broker := sse.NewBroker(pool)
+	require.NoError(t, broker.Start(ctx))
+	defer broker.Stop()
+	agentService := services.NewAgentServiceWithPool(q, pool)
+	streamHandler := &routes.AgentSessionStreamHandler{Service: agentService, Broker: broker}
+	server.Config.Handler = buildRouterCompat(cfg, q, pool, &routes.RepoHandler{}, handler, &routes.UserHandler{}, &routes.SSHKeyHandler{Service: services.NewSSHKeyService(q)}, &routes.LabelHandler{}, &routes.OrgHandler{}, &routes.LandingHandler{}, &routes.SearchHandler{Service: &mockRouterSearchService{}}, &routes.IssueHandler{}, nil, &routes.GitSmartHandler{Service: &mockRouterGitService{}}, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, streamHandler, nil, nil, &routes.WorkspaceHandler{}, nil, nil, nil, nil, nil, nil, routerExtras{Members: &routes.MembersHandler{Service: members}, Live: liveHandler})
 	server.Start()
 	defer server.Close()
 	// Even the owner's token must pass command authorization before the
