@@ -304,7 +304,6 @@ export const FLOW_NAMES = [
   "todo.unapprove",
   "todo.drop",
   "wiki.save",
-  "notifications.allow",
   "toast.dismiss",
   "triggers.approve",
   "triggers.list",
