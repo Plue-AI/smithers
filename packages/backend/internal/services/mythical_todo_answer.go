@@ -317,7 +317,7 @@ func (s *MythicalService) AnswerTodo(ctx context.Context, repositoryID, userID, 
 			id := uuidString(saved.ID)
 			fact, _ := json.Marshal(map[string]any{"item": id, "n": saved.Number.Int64, "wait": input.Wait, "run": signal.Run,
 				"actor": map[string]any{"kind": "person", "id": userID, "login": person.Username}, "by": todoActorRef(ctx, person), "from": todoState(item), "to": todoState(saved)})
-			if _, err := jobs.RecordFactInTx(ctx, tx, todoOperationScope(saved), uuid.NewString(), "todo.answered", todoState(saved), fact); err != nil {
+			if _, err := s.recordTodoFact(ctx, tx, saved, uuid.NewString(), "todo.answered", todoState(saved), fact); err != nil {
 				return err
 			}
 			payload, _ := json.Marshal(input.Answer)

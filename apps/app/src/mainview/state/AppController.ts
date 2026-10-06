@@ -1,3 +1,4 @@
+import { projectTodoCard } from "../runtime/TodoProjection"
 import { createSharedPrompts } from "./controller/sharedPrompts"
 import { createSharedConversationSeam, type SharedConversationSeam } from "./seams/SharedConversationSeam"
 import { createEarlierHistoryController } from "./controller/earlierHistory"
@@ -1172,10 +1173,13 @@ export const createAppController = (
     if (!live() || !file.ok) return false
     const opened = await filesSeam.readFile(path, undefined, undefined, source.branch)
     return opened !== undefined && typeof opened !== "string"
-  }, topics: services.todoTopics ?? (services.live ? { subscribe: (topic, receive) => services.live!.subscribe(topic, () => {
-    const snapshot = services.live!.getSnapshot(topic)
-    if (snapshot?.data !== undefined) receive(snapshot.data)
-  }) } : undefined), debounceMs: ctx.toastDebounceMs, onDispose: ctx.onDispose }), context, design, todoSource))
+  }, topics: services.todoTopics ?? (services.live ? { subscribe: (topic, receive) => {
+    services.live!.registerProjection?.(topic, projectTodoCard)
+    return services.live!.subscribe(topic, () => {
+      const snapshot = services.live!.getSnapshot(topic)
+      if (snapshot?.data !== undefined) receive(snapshot.data)
+    })
+  } } : undefined), debounceMs: ctx.toastDebounceMs, onDispose: ctx.onDispose }), context, design, todoSource))
   if (installHost) ctx.onDispose(todoSeam.list.subscribe(() => {}))
   const confirmations = createConfirmationSeam(seamCtx, { ready: installHost && services.applicationTarget?.auth.kind !== "bearer",
     live: services.live, observe: todoSeam.observeConfirmation, debounceMs: ctx.toastDebounceMs })
