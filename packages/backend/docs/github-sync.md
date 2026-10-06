@@ -22,8 +22,11 @@ next attempt after checking current membership again.
 
 Outsiders contribute GitHub activity only. App comments are ignored. GitHub
 approvals remain review facts and cannot grant a Smithers merge approval.
-Edits update activity; held inputs can be replaced or withdrawn. Once a runtime
-intent exists, its keyed input remains immutable.
+Edits update activity; held inputs can be replaced or withdrawn. The current runtime
+bridge has no atomic replace-if-unconsumed operation: after admission, edits
+update activity only, even if the run has not consumed the input. Completing
+that lifecycle requires the runtime consumption fence; admission is not proof
+of consumption.
 
 Reference-host validation must additionally prove guest wake, non-root execution,
 and a pushed fix on the same PR. The Linux protocol fixtures prove transaction
