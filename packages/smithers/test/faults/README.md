@@ -67,5 +67,8 @@ The Go JSON stream is retained in the existing FaultSuite output. Per-kill
 observations supplied by case owners are uploaded from the matching check
 evidence directories; this runner does not synthesize observations or receipts.
 The runner requires a passed named test, no skipped/failed subtests and a
-`CRASH-POINT` line attributed to that test. Controllers still own exact point
+complete `CRASH-POINT` line attributed to every executed leaf case. Nested
+matrices must mark each leaf; a parent's or sibling's marker cannot qualify
+another case, and an unfinished leaf fails even if its parent reports success.
+Controllers still own exact point
 validation before killing. A marker alone is never recovery proof.
