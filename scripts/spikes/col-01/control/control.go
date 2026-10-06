@@ -139,14 +139,16 @@ func Run(ctx context.Context, runtime *microsandbox.Runtime, workspaceID, artifa
 	provider := &runtimeProvider{runtime: runtime}
 	svc := services.NewWorkspaceService(db.New(fixture.pool), services.WithWorkspaceSandboxClient(provider), services.WithWorkspaceTransactions(fixture.pool))
 	const name = "col01-control.txt"
+	baseDigest := "absent"
 	write := func(ctx context.Context, content string) error {
-		result, err := svc.WriteWorkspaceFile(ctx, workspaceID, 1, 1, name, content)
+		result, err := svc.WriteWorkspaceFile(ctx, workspaceID, 1, 1, name, content, baseDigest)
 		if err != nil {
 			return err
 		}
 		if result.Content != content || result.Size != int64(len(content)) || result.Path != name || result.Encoding != "utf-8" {
 			return errors.New("service write receipt does not match payload")
 		}
+		baseDigest = result.Digest
 		return nil
 	}
 	read := func(ctx context.Context) ([]byte, error) { return runtime.ReadFile(ctx, workspaceID, name) }
