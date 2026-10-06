@@ -1703,7 +1703,6 @@ func runWithOptions(ctx context.Context, args []string, stdout, stderr io.Writer
 		if flow != nil {
 			presence.dispatcher = flow.dispatcher
 		}
-		mythicalService.SetRebasePresence(presence.rebasePresence)
 		topics := &liveTopics{secrets: secretService, capacity: installCapacity, presence: presence, queries: queries, todos: mythicalService, sync: gitHubSyncRoute, install: installSetup, members: authService.Members}
 
 		if chatService != nil {
