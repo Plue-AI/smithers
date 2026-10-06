@@ -1465,6 +1465,19 @@ type LinearSyncRun struct {
 	CreatedAt      time.Time          `json:"created_at"`
 }
 
+type MemoryNote struct {
+	ID             string      `json:"id"`
+	NamespaceKind  string      `json:"namespace_kind"`
+	NamespaceID    string      `json:"namespace_id"`
+	Text           string      `json:"text"`
+	TagsJson       string      `json:"tags_json"`
+	ProvenanceJson string      `json:"provenance_json"`
+	Status         string      `json:"status"`
+	CreatedAtMs    int64       `json:"created_at_ms"`
+	StatusAtMs     pgtype.Int8 `json:"status_at_ms"`
+	AcceptedTodo   pgtype.Text `json:"accepted_todo"`
+}
+
 type Mention struct {
 	ID               int64       `json:"id"`
 	RepositoryID     int64       `json:"repository_id"`
@@ -1517,6 +1530,7 @@ type ModelUsage struct {
 	CacheWrite1hTokens int64              `json:"cache_write_1h_tokens"`
 	BoundTokens        int64              `json:"bound_tokens"`
 	PaidBy             string             `json:"paid_by"`
+	WorkflowStepID     pgtype.Int8        `json:"workflow_step_id"`
 }
 
 type MythicalChange struct {
