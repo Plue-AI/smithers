@@ -140,6 +140,7 @@ import { createGitHubSyncSeam, type GitHubSyncSeam } from "./seams/GitHubSyncSea
 import { createMembersSeam, type MembersSnapshots } from "./seams/MembersSeam"
 import { createFlowsSeam, type FlowsSnapshots } from "./seams/FlowsSeam"
 import { createTodoSeam, type TodoSeam, type TodoTopics } from "./seams/TodoSeam"
+import { createConfirmationSeam } from "./seams/ConfirmationSeam"
 import { createDesignWorld, type DesignWorld } from "./seams/DesignWorld"
 import { actCard, confirmSubject, designPlainTurn, designTurn, mergeCard, type DesignTurn } from "./seams/DesignWorld/chat"
 import { designMembers, designMembersRoster, designSecrets, designSettings, designViewerRole } from "./seams/DesignWorld/settings"
@@ -1057,6 +1058,9 @@ export const createAppController = (
     if (snapshot?.data !== undefined) receive(snapshot.data)
   }) } : undefined), debounceMs: ctx.toastDebounceMs, onDispose: ctx.onDispose }), context, design, todoSource))
   if (installHost) ctx.onDispose(todoSeam.list.subscribe(() => {}))
+  const confirmations = createConfirmationSeam(seamCtx, { ready: installHost && services.applicationTarget?.auth.kind !== "bearer",
+    live: services.live, observe: todoSeam.observeConfirmation, debounceMs: ctx.toastDebounceMs })
+  ctx.onDispose(confirmations.dispose)
   const stackSeam = actors.pair(seamCtx, (context) => createStackSeam(context, withToast, {
     debounceMs: ctx.toastDebounceMs,
     onDispose: ctx.onDispose
@@ -1348,7 +1352,7 @@ export const createAppController = (
     send,
     reset,
     stop,
-    decideApproval,
+    decideApproval: decideRunApproval,
     retryLastTurn
   } = createTurnController(ctx, {
     settleTurnBilling,
@@ -1358,6 +1362,13 @@ export const createAppController = (
     forwardInboxApprovalDecision
   })
   const promptQueue = createPromptQueueController(ctx, send)
+  const decideApproval: typeof decideRunApproval = (id, decision, answer, question) => {
+    if (id.startsWith("confirmation:")) {
+      if (answer === undefined) confirmations.decide(id.slice("confirmation:".length), decision)
+      return
+    }
+    decideRunApproval(id, decision, answer, question)
+  }
   const { enqueuePrompt, removeQueuedPrompt, restoreQueuedPrompts, resumePromptQueue } = promptQueue
   const cloudWiki = actors.pair(ctx, (context) => createCloudWikiController(context, store.nextOrdinal))
   const { listCloudWiki, openCloudWiki, retryCloudWiki, attachWorldEditor,

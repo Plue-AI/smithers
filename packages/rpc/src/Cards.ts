@@ -842,6 +842,8 @@ const CurrentCardSchema = z.discriminatedUnion("kind", [
       n: z.number().int().positive(),
       model: TodoModelSchema.optional(),
       requests: z.array(TodoRequestSchema),
+      /** Private confirmation IDs already attached to this browser's durable progress observer. */
+      observedConfirmations: z.array(z.string()).optional(),
       answerDraft: z.string().optional(),
       answeredBy: z.string().optional()
     })

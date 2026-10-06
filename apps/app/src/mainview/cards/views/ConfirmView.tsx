@@ -15,11 +15,15 @@ export function ConfirmView({ model, actions, onAction }: ConfirmViewProps) {
   const { review, receipt } = model
   const evidence = review?.evidence
   const stale = review?.approved_revision !== undefined && review.approved_revision !== evidence?.revision
-  const title = receipt?.text ?? (model.kind === "review_merge" ? `Merge ${model.subject.ref} into main?` : `${model.summary}?`)
+  const receiptText = receipt && (receipt.result === "done" ? receipt.text ?? "Done" : receipt.result === "cancelled" ? "Cancelled" : "Expired")
+  const title = receiptText ?? (model.kind === "review_merge" ? `Merge ${model.subject.ref} into main?` : `${model.summary}?`)
+  if (receipt) return <section className="smithers-card confirm-view" data-kind="confirm" data-keyboard-pane="Confirmation" aria-label={title}>
+    <p className="confirm-receipt">{receipt.result === "done" ? <Check size={14} aria-hidden="true" /> : null}{receiptText}{receipt.result === "done" ? ` · ${receipt.by.name.split(" ")[0]}` : ""}</p>
+  </section>
   return <section className="smithers-card confirm-view" data-kind="confirm" data-keyboard-pane="Confirmation" aria-label={title}>
     <header className="smithers-card-header"><h2 className="smithers-card-title">{title}</h2></header>
     <div className="smithers-card-body">
-      {receipt ? <p className="confirm-receipt">{receipt.result === "done" ? <Check size={14} aria-hidden="true" /> : null}{receipt.result === "done" ? receipt.by.name.split(" ")[0] : receipt.result === "cancelled" ? "Cancelled" : "Expired"}</p> : <>
+      <>
         {model.kind === "one_click" ? <p className="confirm-asker"><ActorChip actor={model.asked_by} size="s" /><span>{actorName(model.asked_by)}</span></p> : null}
         {model.kind === "review_merge" && review && evidence ? <>
           <div className="confirm-meta"><b>{review.title}</b><span>#{review.place} in stack</span></div>
@@ -34,7 +38,7 @@ export function ConfirmView({ model, actions, onAction }: ConfirmViewProps) {
           {stale ? <p className="confirm-stale">Approved {review.approved_revision} · Review {evidence.revision}</p> : null}
           {review.merge.state !== "ready" ? <p className="confirm-merge-reason" data-state={review.merge.state}>{review.merge.reason === "order" && review.merge.detail ? `Merges after ${review.merge.detail}` : review.merge.detail ?? (review.merge.reason ? reasons[review.merge.reason] : review.merge.state === "done" ? "Merged into main" : "Merging")}</p> : null}
         </> : null}
-      </>}
+      </>
       {model.text === undefined ? null : <p className="confirm-text">{model.text}</p>}
       <div className="confirm-actions">{actions.map((action, i) => <span className="confirm-control" key={i}>
         <button type="button" data-flow={action.tag} data-primary={action.primary || undefined} disabled={action.disabled !== undefined} onClick={() => onAction(action.tag, { ...action.args })}>

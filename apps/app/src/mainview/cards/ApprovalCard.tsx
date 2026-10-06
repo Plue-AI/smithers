@@ -1,5 +1,5 @@
-import type { ConfirmCard, ConfirmViewProps } from "@smthrs/rpc/ConfirmCard"
-import { cardActions } from "../flows/cardActions"
+import { MemberConfirmationSchema, type MemberConfirmation, type ConfirmCard, type ConfirmViewProps } from "@smthrs/rpc/ConfirmCard"
+import { cardActions, type CardCommandDispatch } from "../flows/cardActions"
 import type { CardFamily } from "./CardFamily"
 
 /** T-ACC-02/03/04 and T-CAT-01 must supply private audience and session-only dispatch before activation. */
@@ -16,6 +16,33 @@ export const confirmCardProps = (model: ConfirmCard): ConfirmViewProps => ({
   view: { maximized: false },
   onView: () => {}
 })
+
+/** Only the authenticated private live projection can supply a person confirmation. */
+export const memberConfirmations = (data: unknown): readonly MemberConfirmation[] => {
+  if (!Array.isArray(data)) return []
+  const rows = data.flatMap(value => {
+    const row = MemberConfirmationSchema.safeParse(value)
+    return row.success ? [row.data] : []
+  })
+  return [...new Map(rows.map(row => [row.id, row])).values()]
+}
+
+/** The initiating tag is presentation only; the press always uses a person decision flow. */
+export const memberConfirmCardProps = (row: MemberConfirmation, dispatch: CardCommandDispatch): ConfirmViewProps => {
+  let model = row.payload.card
+  if (row.state === "expired") {
+    const by = model.asked_by.kind === "person" ? model.asked_by : model.asked_by.kind === "agent" ? model.asked_by.for_member : undefined
+    if (by) model = { ...model, receipt: { by, result: "expired", at: row.decided_at ?? row.expires_at, text: "Expired" } }
+  }
+  const pending = row.state === "pending" && !model.receipt
+  const disabled = model.kind === "review_merge" && model.review?.merge.state !== "ready"
+    ? { reason: model.review?.merge.reason === "rechecking" ? "Checks running" : "Merge unavailable" } : undefined
+  return { model, view: { maximized: false }, onView: () => {},
+    ...cardActions(dispatch, pending ? [
+      { tag: "approval.approve", label: model.action.verb, primary: true, command_input: { cardId: `confirmation:${row.id}` }, ...(disabled ? { disabled } : {}) },
+      { tag: "approval.deny", label: "Cancel", command_input: { cardId: `confirmation:${row.id}` } }
+    ] : [], confirmationUnavailable) }
+}
 
 /** Legacy rows keep their title in the shared shell. No private Confirm payload mounts without actor authority. */
 export const approvalCardFamily: CardFamily<"approval"> = {

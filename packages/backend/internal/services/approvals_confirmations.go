@@ -472,6 +472,7 @@ func (s *ApprovalsService) DecideConfirmation(ctx context.Context, id, decision,
 			// owned by the existing service.
 			consumer := *s.confirmationTodos
 			consumer.store = tx
+			var number int64
 			switch command {
 			case "todo.new":
 				var request MythicalTodoInput
@@ -479,7 +480,9 @@ func (s *ApprovalsService) DecideConfirmation(ctx context.Context, id, decision,
 					return err
 				}
 				request.Request = input.Key
-				_, err = consumer.FileTodo(bound, repository, info.User.ID, request)
+				var item MythicalItemView
+				item, err = consumer.FileTodo(bound, repository, info.User.ID, request)
+				number = item.Number
 			case "todo.drop":
 				var subject struct {
 					Ref string `json:"ref"`
@@ -488,11 +491,21 @@ func (s *ApprovalsService) DecideConfirmation(ctx context.Context, id, decision,
 					return err
 				}
 				n, _ := strconv.ParseInt(strings.TrimPrefix(subject.Ref, "T"), 10, 64)
+				number = n
 				_, err = consumer.ControlTodo(bound, n, TodoControlInput{Repository: repository, Actor: info.User.ID, Request: input.Key, Op: "drop"})
 			default:
 				return confirmationUnavailable()
 			}
 			if err != nil {
+				return err
+			}
+			// The private projection retains the admitted subject across a lost
+			// response/reload. This is an admission receipt, never execution success.
+			effect, err := json.Marshal(map[string]any{"todo": number, "request": input.Key})
+			if err != nil {
+				return err
+			}
+			if _, err = tx.Exec(bound, `UPDATE approvals SET payload=jsonb_set(payload,'{effect}',$2::jsonb) WHERE id=$1`, id, effect); err != nil {
 				return err
 			}
 		}
@@ -502,6 +515,23 @@ func (s *ApprovalsService) DecideConfirmation(ctx context.Context, id, decision,
 		}
 		if !changed {
 			return confirmationResolved()
+		}
+		person := middleware.AuthInfoFromContext(bound).User
+		name := person.DisplayName
+		if name == "" {
+			name = person.Username
+		}
+		decisionReceipt, err := json.Marshal(map[string]any{
+			"by":     map[string]string{"login": person.Username, "name": name, "avatar_url": todoAvatar(*person)},
+			"result": map[string]string{"approved": "done", "rejected": "cancelled"}[want],
+			"text":   map[string]string{"approved": "Approved", "rejected": "Cancelled"}[want],
+			"at":     time.Now().UTC().Format(time.RFC3339Nano),
+		})
+		if err != nil {
+			return err
+		}
+		if _, err = tx.Exec(bound, `UPDATE approvals SET payload=jsonb_set(payload,'{card,receipt}',$2::jsonb) WHERE id=$1`, id, decisionReceipt); err != nil {
+			return err
 		}
 
 		receipt = ConfirmationReceipt{ID: id, State: want}

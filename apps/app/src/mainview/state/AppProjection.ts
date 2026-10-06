@@ -2696,6 +2696,8 @@ export const projectAppEvent = (previous: AppProjectionSnapshot, context: AppPro
               : transition.state === "signed-out" ? null : owner
             draft.state = transition.state
             draft.login = transition.login
+            if (transition.state === "signed-in" && transition.memberId !== undefined) draft.memberId = transition.memberId
+            else delete draft.memberId
             if (transition.provider !== undefined && transition.state !== "unavailable") draft.provider = transition.provider
             draft.sessionObservation = { at: createdAt, revision }
             draft.admin = transition.admin
@@ -2717,6 +2719,7 @@ export const projectAppEvent = (previous: AppProjectionSnapshot, context: AppPro
             draft.ownerRevision = revision
             draft.state = "signed-out"
             draft.login = null
+            delete draft.memberId
             draft.accountOwnerLogin = null
             draft.admin = false
             draft.updatedAt = createdAt

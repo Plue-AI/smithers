@@ -9,6 +9,8 @@ import { memoryStorage, waitFor } from "../TestFixtures"
 import type { SeamContext } from "./SeamContext"
 import { createTodoSeam, type DraftEntry, type TodoEntry, type TodoReceipt, type TodoTopics, type TodoSeamOptions } from "./TodoSeam"
 import { fixtures } from "../../../../../../packages/rpc/test/fixtures/Todo"
+import { fixtures as confirms } from "@smthrs/rpc/fixtures/Confirm"
+import type { MemberConfirmation } from "@smthrs/rpc/ConfirmCard"
 import { draftCard, todoCard } from "@smthrs/rpc/TodoCommands"
 import { digest } from "@smthrs/core/Digest"
 import { agentTurnJournalDigestInput } from "@smthrs/rpc/AgentTurnJournal"
@@ -44,6 +46,34 @@ const harness = async (http: SeamContext["http"], storage = memoryStorage(), act
 }
 
 describe("TodoSeam — admission and live completion", () => {
+  test("an approved Drop recovers progress without resending the action, and settles only from its TODO", async () => {
+    const calls: RequestInit[] = []
+    const storage = memoryStorage()
+    const row: MemberConfirmation = { id: "10000000-0000-4000-8000-000000000001", command: "todo.drop", state: "approved", revision: "item:2", expires_at: "2099-01-01T00:00:00Z",
+      payload: { input: { op: "drop" }, card: confirms.one_click.model, effect: { todo: 12, request: "confirmation:drop" } } }
+    const h = await harness(async (_url, init) => { if (init?.method) calls.push(init); return json(fixtures.queued.model, 200) }, storage)
+    await h.seam.observeConfirmation(row)
+    await h.seam.observeConfirmation(row)
+    expect(h.todo().payload.requests).toHaveLength(1)
+    expect(h.todo().payload.requests[0]).toMatchObject({ state: "accepted", operation: "drop", key: "confirmation:drop" })
+    expect(h.outcomes).toEqual([])
+    h.close()
+    const restored = await harness(async (_url, init) => { if (init?.method) calls.push(init); return json(fixtures.queued.model, 200) }, storage)
+    try {
+      restored.seam.resumeTodos()
+      await restored.seam.observeConfirmation(row)
+      await waitFor(() => restored.observed.has("todo:12"))
+      expect(calls).toEqual([])
+      expect(restored.outcomes).toEqual([])
+      restored.observed.get("todo:12")!(fixtures.dropped.model)
+      await waitFor(() => restored.outcomes.length === 1)
+      expect(restored.outcomes[0]).toMatchObject({ key: "todo.request.confirmation:drop", status: "ok", detail: "Dropped" })
+      await restored.seam.observeConfirmation(row)
+      expect(restored.todo().payload.requests).toEqual([])
+      expect(restored.outcomes).toHaveLength(1)
+      expect(calls).toEqual([])
+    } finally { restored.close() }
+  })
   test("draft stays private and editable; two presses acknowledge before HTTP and commit with one key", async () => {
     const admission = deferred<Response>()
     const calls: { url: string; init?: RequestInit }[] = []

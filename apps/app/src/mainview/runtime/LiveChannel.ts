@@ -172,6 +172,10 @@ export class LiveChannel {
         if (this.socket !== socket) return
         this.socket = undefined
         for (const [topic, entry] of this.topics) {
+          if (topic.startsWith("confirmations:")) {
+            entry.awaitingSnapshot = true
+            this.publish(topic, entry, { topic })
+          }
           if (topic.startsWith("doc:") || (topic === "members" || topic === "secrets")) entry.awaitingSnapshot = true
           if (topic.startsWith("doc:")) {
             // The closed socket no longer holds branch authority. Retain pending

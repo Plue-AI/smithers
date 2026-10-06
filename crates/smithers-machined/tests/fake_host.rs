@@ -254,3 +254,50 @@ fn document_dispatch_requires_and_preserves_host_principal() {
     );
     assert_eq!(documents.opens.lock().unwrap().len(), 1);
 }
+
+#[test]
+fn document_dispatch_rejects_untrusted_envelopes_before_provider() {
+    struct Recording(Mutex<Vec<Frame>>);
+    impl Documents for Recording {
+        fn frame(&self, frame: &Frame) -> Result<Frame> {
+            self.0.lock().unwrap().push(frame.clone());
+            Err(Error::unsupported())
+        }
+    }
+    let provider = Arc::new(Recording(Mutex::new(vec![])));
+    let mut cx = LockCx::new(Hooks {
+        documents: provider.clone(),
+        ..Hooks::default()
+    });
+    // Literal payloads: missing actor, zero-length actor, truncated actor,
+    // server sync, epoch and saved messages cannot enter the provider.
+    for payload in [
+        vec![1],
+        vec![1, 1, 0, 0, 0, 5, 1, 0, 0, 0, 0],
+        vec![1, 1, 0, 0, 0, 7, 1, 0, 0, 0, 2, b'B'],
+        vec![3, 0, 0, 1, 0],
+        vec![
+            5, 0, 17, 34, 51, 68, 85, 102, 119, 136, 153, 170, 187, 204, 221, 238, 255, 0, 0, 0, 42,
+        ],
+        vec![6, 0, 0, 0, 0, 0, 0, 0, 1, 0],
+    ] {
+        let mut wire = (payload.len() as u32).to_be_bytes().to_vec();
+        wire.extend([4, 0, 0, 0, 9]);
+        wire.extend(payload);
+        let mut output = vec![];
+        rpc::serve_one(&mut Cursor::new(wire), &mut output, &mut cx).unwrap();
+        assert_eq!(output, [0, 0, 0, 7, 4, 0, 0, 0, 9, 255, 0, 0, 0, 2, 1, 2]);
+    }
+    assert!(provider.0.lock().unwrap().is_empty());
+    for name in ["doc-input", "doc-awareness-input"] {
+        let mut output = vec![];
+        rpc::serve_one(&mut Cursor::new(fixture(name)), &mut output, &mut cx).unwrap();
+    }
+    let seen = provider.0.lock().unwrap();
+    assert_eq!(seen.len(), 2);
+    assert_eq!(seen[0], Frame::decode(&fixture("doc-input")).unwrap());
+    assert_eq!(
+        seen[1],
+        Frame::decode(&fixture("doc-awareness-input")).unwrap()
+    );
+}
