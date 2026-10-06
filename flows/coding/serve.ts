@@ -11,7 +11,7 @@ import { layer as checkReceiptLayer } from "../repository/check-receipt.ts"
 import { remoteLayer } from "../repository/remote.ts"
 import { consume as consumeCheckEnvironment } from "./check-environment.ts"
 import { share } from "./host-modules.ts"
-import { layer, optionsFromEnv, systemFlowsFromEnv } from "./host.ts"
+import { layer, operatorSeats, optionsFromEnv, systemFlowsFromEnv } from "./host.ts"
 import { load as loadLanding } from "./landing-config.ts"
 import * as Landing from "./landing.ts"
 import { loadProject } from "./project-config.ts"
@@ -133,9 +133,10 @@ if (parsed.values.version) {
     ...(process.env.SMITHERS_CODING_REVIEW_MODEL === undefined
       ? {}
       : { reviewModel: process.env.SMITHERS_CODING_REVIEW_MODEL }),
-    ...(process.env.SMITHERS_CODING_SEATS === undefined
-      ? {}
-      : { seats: parseSeats(process.env.SMITHERS_CODING_SEATS) }),
+    seats: {
+      ...operatorSeats(process.env),
+      ...(process.env.SMITHERS_CODING_SEATS === undefined ? {} : parseSeats(process.env.SMITHERS_CODING_SEATS))
+    },
     checkEnvironment: repositoryProcesses.environment,
     cacheEnvironment: repositoryProcesses.cache,
     // A local lander's jj, git and gh also get the operator's jj identity and

@@ -404,8 +404,9 @@ func TestDetectRecipePythonVersionFilePrecedence(t *testing.T) {
 func TestDetectRecipeReadsOnlySpecifiedFilesAndEmptyRepositoryIsBaseOnly(t *testing.T) {
 	// This independent whitelist comes from spec §8.6.2 and T-MCH-10 Changes;
 	// T-MCH-10 Tests require a base-only recipe when no listed file exists.
+	// Makefile adds only the existing coding check declarations, no image layer.
 	allowed := map[string]bool{}
-	for _, file := range []string{".node-version", ".nvmrc", "package.json", "pnpm-lock.yaml", "package-lock.json", "yarn.lock", "bun.lock", "bun.lockb", "go.mod", "rust-toolchain.toml", "Cargo.toml", ".python-version", "pyproject.toml", "uv.lock", "requirements.txt", "requirements*.txt", "setup.py", "pytest.ini"} {
+	for _, file := range []string{".node-version", ".nvmrc", "package.json", "pnpm-lock.yaml", "package-lock.json", "yarn.lock", "bun.lock", "bun.lockb", "Makefile", "go.mod", "rust-toolchain.toml", "Cargo.toml", ".python-version", "pyproject.toml", "uv.lock", "requirements.txt", "requirements*.txt", "setup.py", "pytest.ini"} {
 		allowed[file] = true
 	}
 	var reads []string
@@ -462,7 +463,7 @@ func TestDetectRecipeInvalidEvidenceRefusesWithFile(t *testing.T) {
 }
 
 func TestDetectRecipePropagatesReadFailure(t *testing.T) {
-	for _, file := range []string{".node-version", ".nvmrc", "package.json", "pnpm-lock.yaml", "package-lock.json", "yarn.lock", "bun.lock", "bun.lockb", "go.mod", "rust-toolchain.toml", "Cargo.toml", ".python-version", "pyproject.toml", "uv.lock", "requirements*.txt"} {
+	for _, file := range []string{".node-version", ".nvmrc", "package.json", "pnpm-lock.yaml", "package-lock.json", "yarn.lock", "bun.lock", "bun.lockb", "Makefile", "go.mod", "rust-toolchain.toml", "Cargo.toml", ".python-version", "pyproject.toml", "uv.lock", "requirements*.txt"} {
 		t.Run(file, func(t *testing.T) {
 			sentinel := errors.New("mirror unavailable")
 			_, err := DetectRecipe(func(name string) ([]byte, bool, error) {
@@ -579,5 +580,24 @@ func TestDetectRecipeLiteralCheckInventory(t *testing.T) {
 		if !reflect.DeepEqual(fixture.want, recipe.Checks) {
 			t.Fatalf("checks=%v want=%v", recipe.Checks, fixture.want)
 		}
+	}
+}
+
+func TestDetectRecipeMakefileChecksWithoutImageLayer(t *testing.T) {
+	recipe, err := DetectRecipe(func(name string) ([]byte, bool, error) {
+		if name == "Makefile" {
+			return []byte("build:\n\ttest -s JOURNEY.md\ntest :\n\tgrep -q . JOURNEY.md\n# lint:\n"), true, nil
+		}
+		return nil, false, nil
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := []DetectedCheck{{ID: "test", Argv: []string{"make", "test"}}, {ID: "build", Argv: []string{"make", "build"}}}
+	if !reflect.DeepEqual(want, recipe.Checks) {
+		t.Fatalf("checks=%v", recipe.Checks)
+	}
+	if len(recipe.Tools) != 0 || len(recipe.Installs) != 0 {
+		t.Fatalf("Makefile checks require an image layer: %+v", recipe)
 	}
 }

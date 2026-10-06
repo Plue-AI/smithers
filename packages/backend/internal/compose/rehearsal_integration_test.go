@@ -180,14 +180,6 @@ func newRehearsal(t *testing.T, enable, check, keyPrefix string) *rehearsal {
 	require.NoError(t, os.WriteFile(filepath.Join(seed, "Makefile"), []byte(makefile), 0600))
 	switch os.Getenv("REHEARSAL_CONFIG_FIXTURE") {
 
-	case "":
-		scripts := map[string]string{"build": "make build", "test": "make test"}
-		if os.Getenv("REHEARSAL_TEST_ONLY_REPOSITORY") == "1" {
-			delete(scripts, "build")
-		}
-		manifest, err := json.Marshal(map[string]any{"scripts": scripts})
-		require.NoError(t, err)
-		require.NoError(t, os.WriteFile(filepath.Join(seed, "package.json"), manifest, 0600))
 	case "node":
 		require.NoError(t, os.WriteFile(filepath.Join(seed, "package.json"), []byte(`{"packageManager":"pnpm@9.15.4","scripts":{"test":"vitest run","lint":"eslint ."}}`), 0600))
 		require.NoError(t, os.WriteFile(filepath.Join(seed, "pnpm-lock.yaml"), []byte("lockfileVersion: '9.0'\n"), 0600))

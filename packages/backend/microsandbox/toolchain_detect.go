@@ -12,7 +12,7 @@ import (
 )
 
 // DetectorVersion is part of every detected layer's content identity.
-const DetectorVersion = "smithers.toolchain-detect/v3"
+const DetectorVersion = "smithers.toolchain-detect/v4"
 
 // RecipeError is an actionable machine preparation or command failure.
 type MissingTool struct {
@@ -63,7 +63,7 @@ type Recipe struct {
 
 var detectionFiles = []string{
 	".node-version", ".nvmrc", "package.json", "pnpm-lock.yaml", "package-lock.json", "yarn.lock", "bun.lock", "bun.lockb",
-	"go.mod", "rust-toolchain.toml", "Cargo.toml", ".python-version", "pyproject.toml", "uv.lock", "requirements.txt", "requirements*.txt", "setup.py", "pytest.ini",
+	"Makefile", "go.mod", "rust-toolchain.toml", "Cargo.toml", ".python-version", "pyproject.toml", "uv.lock", "requirements.txt", "requirements*.txt", "setup.py", "pytest.ini",
 }
 
 var goDirective = regexp.MustCompile(`(?m)^\s*(go|toolchain)\s+(\S+)\s*(?://[^\n]*)?$`)
@@ -377,6 +377,20 @@ func DetectRecipe(read func(string) ([]byte, bool, error)) (Recipe, error) {
 				argv = []string{"npm", "run", name}
 			}
 			r.Checks = append(r.Checks, DetectedCheck{ID: name, Argv: argv})
+		}
+	}
+	// Match the ordinary repository check detector's Makefile targets. A
+	// target declares a guest command, never an image-install command.
+	for _, name := range []string{"test", "lint", "typecheck", "format", "build"} {
+		if !regexp.MustCompile(`(?m)^` + name + `\s*:`).Match(files["Makefile"]) {
+			continue
+		}
+		found := false
+		for _, check := range r.Checks {
+			found = found || check.ID == name
+		}
+		if !found {
+			r.Checks = append(r.Checks, DetectedCheck{ID: name, Argv: []string{"make", name}})
 		}
 	}
 	addTest := func(argv []string) {

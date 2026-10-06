@@ -195,6 +195,17 @@ export const missingCodingExecutables = (
   ).map(([name]) => name)
 }
 
+/** Explicit host model pins override repository and generated role defaults. */
+export const operatorSeats = (environment: Readonly<Record<string, string | undefined>>): Readonly<Record<string, string>> => {
+  const implement = environment.SMITHERS_CODING_IMPLEMENT_MODEL
+  return implement === undefined ? {} : defaultRoles(implement, {
+    planningModel: environment.SMITHERS_CODING_PLAN_MODEL,
+    pocModel: environment.SMITHERS_CODING_POC_MODEL,
+    wikiModel: environment.SMITHERS_CODING_WIKI_MODEL,
+    reviewModel: environment.SMITHERS_CODING_REVIEW_MODEL
+  })
+}
+
 /** Resolve at host startup, including accounts connected since workspace boot. */
 export const optionsFromEnv = (environment: Readonly<Record<string, string | undefined>>) =>
   Effect.gen(function*() {
