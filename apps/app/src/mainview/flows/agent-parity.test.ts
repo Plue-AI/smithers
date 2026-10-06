@@ -378,7 +378,7 @@ describe("the three-door law", () => {
     for (const name of ["flow.create", "agent.list", "form.set", "form.submit", "card.dismiss"]) {
       expect(callable.has(name)).toBe(true)
     }
-    // And listed: the slash menu and the prompt's catalog show them.
+    // Flow authoring is listed; the owner model roster remains a hidden door.
     const disclosed = new Set(controller.commands.disclosed().map((descriptor) => descriptor.name))
     for (const name of ["flow.create", "agents"]) {
       expect(disclosed.has(name)).toBe(true)

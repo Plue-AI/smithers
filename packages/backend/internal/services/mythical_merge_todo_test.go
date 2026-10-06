@@ -10,6 +10,7 @@ import (
 	"fmt"
 	"log/slog"
 	"net/http"
+	"os"
 	"strconv"
 	"strings"
 	"sync"
@@ -2094,4 +2095,41 @@ func TestMythicalStandingPreapprovalLostAnswerDoesNotRepeat(t *testing.T) {
 	card, err := h.service.Todo(h.ctx, h.repoID, n)
 	require.NoError(t, err)
 	require.Equal(t, "rehearsal-owner", card["preapproval"].(map[string]any)["by"])
+}
+
+// Install follow reads through the real qualified fetched-fact consumer rather
+// than resolving the outbound binding. The standing evaluator must resolve it.
+func TestMythicalStandingPreapprovalInstallPolling(t *testing.T) {
+	h := newMergeHarness(t)
+	n, head, _ := h.first("Install standing approval")
+	h.freezeClock()
+	_, err := h.q.SetGithubAppInstallation(h.ctx, h.installation)
+	require.NoError(t, err)
+	synced := NewGitHubSyncedRepoService(h.q, WithGitHubSyncedRepoBudget(NewBudgetTracker()))
+	require.NoError(t, synced.ConfigureInstallSync(h.pool.(*pgxpool.Pool)))
+	synced.BindInstallAuthority(h.credentials, os.Geteuid() != 0)
+	client := NewGitHubUserReposService(h.q, nil)
+	synced.SetConditionalFetcherFactory(client.SyncedRepoConditionalFetcherFactory(h.connections))
+	_, err = h.q.EnrollGitHubSyncedRepo(h.ctx, db.EnrollGitHubSyncedRepoParams{OwnerLogin: "rehearsal-owner", RepoName: "app",
+		InstallationID: pgtype.Int8{Int64: h.installation, Valid: true}, GithubRepositoryID: pgtype.Int8{Int64: 100, Valid: true},
+		SyncMetadata: true, EnrolledVia: GitHubSyncedRepoEnrolledViaInstallation})
+	require.NoError(t, err)
+	h.service.UseInstallGitHubPolling(synced)
+	_, err = h.service.PreapproveTodo(h.ctx, h.repoID, h.userID, n, true)
+	require.NoError(t, err)
+	for i := 0; i < 5; i++ {
+		h.pass()
+	}
+	require.Len(t, h.merges(), 1, "state=%s reason=%s", h.item(n).State, h.item(n).Reason)
+	var send struct {
+		SHA    string `json:"sha"`
+		Method string `json:"merge_method"`
+	}
+	require.NoError(t, json.Unmarshal(h.merges()[0].Body, &send))
+	require.Equal(t, head, send.SHA)
+	require.Equal(t, "squash", send.Method)
+	card, err := h.service.Todo(h.ctx, h.repoID, n)
+	require.NoError(t, err)
+	require.Equal(t, "merged", card["state"])
+	require.Empty(t, h.item(n).PendingOp)
 }

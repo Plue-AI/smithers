@@ -3680,11 +3680,17 @@ func (st *mythicalItemStep) proposalDiff(ctx context.Context, item db.MythicalIt
 
 // merge prepares a standing person's approval through the same fenced outbound path.
 func (st *mythicalItemStep) merge(ctx context.Context, item db.MythicalItem) *db.MythicalItem {
-	st.s.logger.Debug("mythical.preapproval_evaluate", "item", uuidString(item.ID), "version", item.Version)
 	// A person may already have merged on GitHub. Preserve the existing read
 	// recovery, which settles only when main contains the commit and sends no PUT.
-	if st.s.github == nil || st.gh == nil {
+	if st.s.github == nil {
 		return mythicalLater(item, "merge recovery is unavailable", st.now)
+	}
+	// Install follow uses the fetched-fact service and deliberately leaves
+	// the outbound binding unresolved. Reuse publication's canonical binding.
+	if st.gh == nil {
+		if _, err := st.publicationGitHub(ctx); err != nil {
+			return mythicalLater(item, "merge recovery is unavailable", st.now)
+		}
 	}
 	pull, err := st.s.github.Pull(ctx, *st.gh, item.PRNumber.Int64)
 	if err != nil {
@@ -3709,11 +3715,9 @@ func (st *mythicalItemStep) merge(ctx context.Context, item db.MythicalItem) *db
 	candidate := item
 	candidate.PendingOp, _ = json.Marshal(op)
 	if err := st.s.mergeDispatchReady(ctx, candidate); err != nil {
-		st.s.logger.Debug("mythical.preapproval_block", "item", uuidString(item.ID), "error", err)
 		return &item
 	}
 	if _, err := st.s.MergeDecision(ctx, candidate, op); err != nil {
-		st.s.logger.Debug("mythical.preapproval_block", "item", uuidString(item.ID), "error", err)
 		return &item
 	}
 	candidate.NextAttemptAt = pgtype.Timestamptz{}

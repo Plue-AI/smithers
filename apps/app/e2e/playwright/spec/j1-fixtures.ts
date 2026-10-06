@@ -44,6 +44,6 @@ export async function mergeOwner(page: Page, defaultWrites: boolean[] = []) {
     health: { process: "ok", postgres_bytes: 1024, disk_free_gb: 200,
       github: { health: "fresh", rate_remaining: 4900, rate_limit: 5000 } },
     models: ["fast", "coding", "jev"].map(role => ({ role, provider: "OpenAI", key: "saved" })),
-    chatgpt: false, capacity: 4, new_todos_preapproved: preapproved
+    chatgpt: false, capacity: 4, new_todos_preapproved: preapproved, can_assign_models: true
   } }) })
 }
