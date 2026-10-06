@@ -236,11 +236,11 @@ export function ShellRail({ entries, home }: { readonly entries: ReadonlyArray<R
   const edges = railEdges(lines, band)
   const all = [...toasts, ...privacyNotices]
   const member = accountOwnerOf(identities.find(identity => identity.id === "identity"))
-  const notices = railNotices(all, lines, member)
+  const notices = controller.sharedConversation && ((!shared.view && !shared.error) || shared.view?.toasts_hidden) ? [] : railNotices(all, lines, member)
   const onView = (patch: ShellView): void => {
     if (patch.toast_hidden !== undefined) controller.runCommand("toast.dismiss", patch.toast_hidden)
     if (patch.jump_to !== undefined) scroller.scrollToMessage(patch.jump_to, { behavior: "smooth" })
-    if (patch.timeline_visible !== undefined) setWide(patch.timeline_visible)
+    if (patch.timeline_visible !== undefined) { setWide(patch.timeline_visible); controller.sharedConversation?.setTimelineVisible(patch.timeline_visible) }
   }
   const onToastAction = toastActions(controller, all, timeline.onAction)
   const onEdgeAction = timeline.onAction

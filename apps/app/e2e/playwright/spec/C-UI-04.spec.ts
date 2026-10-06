@@ -4,6 +4,7 @@ import { owner, say } from "./j1-fixtures"
 // Exercise the self-hosted composition, including its branch and audience providers.
 const installOwner = async (page: Page) => {
   await owner(page)
+  await page.route("**/api/conversations/main/view-state", route => route.fulfill({ json: { toasts_hidden: false } }))
   await page.route("**/api/bootstrap", route => route.fulfill({ json: {
     apiVersion: 1, host: "local", version: "test", buildSha: "test",
     capabilities: ["agent", "identity", "install"], authFlow: "credentials", sandbox: null
@@ -200,4 +201,28 @@ test("C-UI-04: shared history supplies actor lines and keyboard jumps to the sha
   await expect(page.getByTestId("composer-input")).toBeEditable()
   await page.setViewportSize({ width: 900, height: 1000 })
   await expect(timeline).toBeHidden()
+})
+
+
+test("C-UI-04: saved toast hiding suppresses the owner's new notice while the entry updates", async ({ page }) => {
+  await installOwner(page)
+  await page.setViewportSize({ width: 1440, height: 1000 })
+  let state = "in_review"
+  const model = () => ({ n: 24, title: "Hidden merge toast", state,
+    owner: { login: "canary-owner", name: "Ben", avatar_url: "https://example.test/avatar.png" },
+    prompt_revisions: [], steps: [], steers: [], evidence: [], present: [], waits: [],
+    merge: { state: "waiting", reason: "state", on_github: false }
+  })
+  await page.route("**/api/conversations/main", route => route.fulfill({ json: { id: "main", entries: [] } }))
+  await page.route("**/api/conversations/main/view-state", route => route.fulfill({ json: { toasts_hidden: true } }))
+  await page.route("**/api/todos", route => route.fulfill({ json: [model()] }))
+  await page.route("**/api/todos/24", route => route.fulfill({ json: model() }))
+  await page.goto("/")
+  await say(page, "/todo T24")
+  const line = page.getByRole("navigation", { name: "Timeline", exact: true }).locator('[data-entry="todo:24"]')
+  await expect(line).toContainText("Hidden merge toast")
+  state = "merged"
+  await expect(line).toHaveAttribute("data-tone", "done")
+  await expect(page.locator('[data-notice="toast-todo.merged.24.no-run.0"]')).toHaveCount(0)
+  await expect(page.getByTestId("composer-input")).toBeEditable()
 })
