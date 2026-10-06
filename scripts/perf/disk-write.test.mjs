@@ -5,7 +5,7 @@ import { mkdtemp, readdir, readFile, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { spawnSync } from 'node:child_process'
-import { configuration, markers, verifySample, verifyActivity } from './disk-write.mjs'
+import { configuration, markers, verifySample, verifyActivity, activityEntries } from './disk-write.mjs'
 const env = { SMITHERS_PERF_ORIGIN: 'https://mini.example', SMITHERS_PERF_PAGE: '/repo', SMITHERS_PERF_MEMBER_A: '/tmp/a.json', SMITHERS_PERF_OWNER_COOKIE: 'fixture', SMITHERS_PERF_INSTALL_VERSION: 'fixture', SMITHERS_PERF_SSH_MEMBER: 'C', SMITHERS_PERF_SSH_DESTINATION: 'T2@mini.lan', SMITHERS_PERF_BRANCH: 'b2' }
 test('scratch branch configuration refuses host programs, SSH options, foreign pages and absent identity', () => {
   assert.equal(configuration(env).branch, 'b2')
@@ -42,4 +42,15 @@ test('public CLI failure retains identical raw artifacts without a timing pass',
     const result = JSON.parse(bytes)
     assert.equal(result.status, 'failed'); assert.deepEqual(result.samples, []); assert.equal(result.summary, undefined)
   } finally { await rm(root, { recursive: true, force: true }) }
+})
+
+test('production activity log arrays retain every entry across batched deltas', () => {
+  const entries = markers.map((_, i) => ({ id: String(i), kind: 'burst', actor: { member_id: 'C', via: 'ssh' }, files: [{ path: 'src/a.ts' }] }))
+  const frames = [{ t: 'snap', id: 802, data: [{ id: 'old' }] }, { t: 'delta', id: 801, data: { changed: [] } },
+    { t: 'delta', id: 802, data: entries.slice(0, 100) }, { t: 'delta', id: 802, data: entries.slice(100) }]
+  assert.deepEqual(activityEntries(frames), [{ id: 'old' }, ...entries])
+  assert.equal(verifyActivity(activityEntries(frames), new Set(['old']), 'C').length, 200)
+  for (const t of ['gap', 'err']) assert.throws(() => activityEntries([...frames, { t, id: 802 }]), /subscription failed/)
+  for (const data of [null, {}, entries[0]]) assert.throws(() => activityEntries([{ t: 'delta', id: 802, data }]), /entry array/)
+  assert.throws(() => verifyActivity(activityEntries([...frames, { t: 'delta', id: 802, data: [entries[0]] }]), new Set(['old']), 'C'), /distinct/)
 })
