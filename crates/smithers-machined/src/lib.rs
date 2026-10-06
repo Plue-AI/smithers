@@ -6,3 +6,4 @@ pub mod credit;
 pub mod doc;
 pub mod outbox_store;
 pub mod stream;
+pub mod transcript;
