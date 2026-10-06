@@ -167,6 +167,30 @@ export const Package = S.Package({ targets: { sources: S.Shell.Test({ shell: "tr
     expect(missing.logs + missing.output).toContain("child/PACKAGE.ts")
   })
 
+  it("indexes and executes workspace manifest inputs across package boundaries", async () => {
+    const root = await fixture()
+    await write(root, "pnpm-workspace.yaml", "packages:\n  - child\n")
+    await write(root, "child/PACKAGE.ts", `import { Smithers as S } from "@smthrs/targets"
+export const Package = S.Package({ targets: {} })
+`)
+    await write(root, "child/package.json", '{"name":"child","private":true}\n')
+    await write(root, "PACKAGE.ts", packageModule(`const later = S.Shell.Diff({
+      shell: "true", data: [S.pnpmWorkspace("//pnpm-workspace.yaml")], changes: [], sandbox: "none"
+    })`))
+    expect((await serve(root, ["target", "//:targetIndex", "--write"])).exitCode).toBe(0)
+    const indexed = await serve(root, ["lint", "//:targetIndex"])
+    expect(indexed.exitCode, indexed.logs + indexed.output).toBe(0)
+    expect((await indexOf(root)).find((row) => row.label === "//:later")?.inputs).toEqual([
+      { kind: "pnpm-workspace", path: "pnpm-workspace.yaml" }
+    ])
+    const checked = await serve(root, ["lint", "//:later"])
+    expect(checked.exitCode, checked.logs + checked.output).toBe(0)
+    await write(root, "pnpm-workspace.yaml", "packages: invalid\n")
+    const invalid = await serve(root, ["lint", "//:later"])
+    expect(invalid.exitCode).toBe(1)
+    expect(invalid.logs + invalid.output).toContain("pnpm-workspace.yaml")
+  })
+
   it("validates exact shared helper files across package boundaries", async () => {
     const root = await fixture()
     await write(root, "helpers/PACKAGE.ts", `import { Smithers as S } from "@smthrs/targets"
