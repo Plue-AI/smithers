@@ -89,14 +89,18 @@ func (a *AuthInfo) ReadsRepositoriesAsPerson() bool {
 }
 
 // ReadsRepositoriesForTurn admits a person's repository read authority or an
-// app-agent credential. Callers must ReloadCredential first: that lookup fences
+// delegated repository reader. Callers must ReloadCredential first: that lookup fences
 // the app bearer to its live producer generation and checks the account.
 func (a *AuthInfo) ReadsRepositoriesForTurn() bool {
 	if a.ReadsRepositoriesAsPerson() {
 		return true
 	}
 	delegation, ok := a.Delegation()
-	return ok && a.User != nil && delegation.Via == "smithers" && delegation.Session != "" &&
+	// External credentials retain their explicit read scope after PAT migration.
+	// App credentials additionally belong to one live producer generation.
+	reader := delegation.Via == "smithers" && delegation.Session != "" ||
+		delegation.Via != "smithers" && delegation.Via != "terminal" && delegation.Session == ""
+	return ok && a.User != nil && !IsAgentAccount(a.User.UserType) && reader &&
 		delegation.Branch == "" && delegation.Profile == "" &&
 		a.Scopes.Has(ScopeReadRepository) && a.RepositoryRestriction() == 0 &&
 		len(ParseTokenPathRestrictions(a.RawScopes)) == 0 && a.WorkspaceRestriction() == ""
