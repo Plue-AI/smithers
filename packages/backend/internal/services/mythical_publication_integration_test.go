@@ -621,3 +621,85 @@ func mustPublicationRepository(t *testing.T, f *publicationFixture) db.Repositor
 	require.NoError(t, err)
 	return repository
 }
+
+// The answer's durable lease must reach the real smart-HTTP publication path.
+// Detection is seeded here; the composed install HTTP test independently proves
+// permission, wait/revision binding and the same AnswerBranch transaction.
+func TestForeignPushDiscardPublishesAgainstObservedLease(t *testing.T) {
+	for _, moved := range []bool{false, true} {
+		name := "discard"
+		if moved {
+			name = "newer-push"
+		}
+		t.Run(name, func(t *testing.T) {
+			f := newPublicationFixture(t, false)
+			ctx := t.Context()
+			q := db.New(f.pool)
+			binding, err := json.Marshal(map[string]any{"owner_login": "smithers-canary", "repository_name": "smithers", "repository_id": f.repoID})
+			require.NoError(t, err)
+			require.NoError(t, q.UpsertInstallSetting(ctx, db.UpsertInstallSettingParams{Key: "github.repository", Value: binding}))
+			first := f.todo("Add a greeting to JOURNEY.md", "Say hello", f.main, "JOURNEY.md", "Hello from T1\n")
+			f.wake()
+			f.wake()
+			item := f.item(first.Number.Int64)
+			require.Equal(t, "proposed", item.State, item.Reason)
+			branch := mythicalChecksOf(item).Branch
+			originalPR := item.PRNumber
+
+			// A verified new candidate and Alice's unrelated laptop commit coexist.
+			f.git(f.work, "checkout", "-q", first.CandidateHead)
+			candidate := f.commit("Smithers' verified revision", "JOURNEY.md", "Hello again from T1\n")
+			f.git(f.work, "push", "-q", f.hostDir, candidate+":"+repohost.MythicalReservedRefNS+"keep/"+candidate)
+			f.git(f.work, "checkout", "-q", f.main)
+			alice := f.commit("Alice's laptop change", "LAPTOP.md", "Alice\n")
+			f.git(f.work, "push", "-q", "--force", f.github, alice+":refs/heads/"+branch)
+			// Use the production retention transport before admitting an answer.
+			repo, err := q.GetRepoByID(ctx, f.repoID)
+			require.NoError(t, err)
+			gh, err := f.service.github.Resolve(ctx, repo, "smithers-canary", f.userID)
+			require.NoError(t, err)
+			require.NoError(t, f.service.retainFetchedPush(ctx, q, repo, "smithers-canary", gh, alice))
+			checks := mythicalChecksOf(item)
+			checks.ForeignHead = alice
+			checks.Waits = []TodoWait{{ID: "laptop", Kind: "foreign_push", SHA: alice, Since: time.Now(), By: json.RawMessage(`{"kind":"github","login":"Alice","color_index":7}`)}}
+			item.State, item.CandidateHead, item.CandidateVerified, item.Checks = "proposing", candidate, true, checks.encode()
+			item, err = q.SaveMythicalItem(ctx, item)
+			require.NoError(t, err)
+			f.wake()
+			require.Equal(t, alice, f.githubRef(branch), "a verified candidate stays held before the answer")
+			owner, err := q.GetUserByID(ctx, f.userID)
+			require.NoError(t, err)
+			session := middleware.ContextWithAuthInfo(ctx, &middleware.AuthInfo{User: &owner, SessionHash: "owner-session"})
+			receipt, err := f.service.AnswerBranch(session, branch, TodoControlInput{Op: "discard-foreign", Wait: "laptop", Revision: alice, Repository: f.repoID, Actor: f.userID, Request: "discard-laptop"})
+			require.NoError(t, err)
+			require.Equal(t, "accepted", receipt.State)
+			require.Equal(t, alice, f.hostRef(repohost.KeptCommitRefPrefix+alice))
+			expected := alice
+			if moved {
+				expected = f.commit("Alice pushes again", "LAPTOP.md", "Alice again\n")
+				f.git(f.work, "push", "-q", f.github, expected+":refs/heads/"+branch)
+			}
+			for range 3 {
+				f.wake()
+			}
+			after := f.item(first.Number.Int64)
+			require.Equal(t, originalPR, after.PRNumber, "the answer retains the pull request")
+			if moved {
+				require.Equal(t, expected, f.githubRef(branch), "the old answer never authorizes overwriting a newer push")
+				require.Equal(t, expected, mythicalChecksOf(after).ForeignHead)
+				op, err := decodeMythicalOutbound(after.PendingOp)
+				require.NoError(t, err)
+				require.Equal(t, "conflict", op.State)
+			} else {
+				require.Equal(t, "proposed", after.State, after.Reason)
+				published := f.githubRef(branch)
+				require.Equal(t, after.PRHead, published)
+				require.NotEqual(t, alice, published)
+				require.Equal(t, "Hello again from T1", f.git(f.github, "show", published+":JOURNEY.md"))
+				require.Equal(t, f.main, f.git(f.github, "rev-parse", published+"^"))
+				require.Empty(t, mythicalChecksOf(after).ForeignHead)
+			}
+			require.Equal(t, alice, f.hostRef(repohost.KeptCommitRefPrefix+alice), "publication cannot erase the discarded commit")
+		})
+	}
+}
