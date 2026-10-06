@@ -1231,18 +1231,6 @@ export interface PostApiAgentTurnInput {
 export const postApiAgentTurn = (transport: Transport, input: PostApiAgentTurnInput): Promise<PostApiAgentTurnResponse> =>
   transport.request("POST", `/api/agent/turn`, input.body) as Promise<PostApiAgentTurnResponse>
 
-export type PostApiAgentTurnCancelBody = AnyJSON
-
-export type PostApiAgentTurnCancelResponse = AnyJSON
-
-export interface PostApiAgentTurnCancelInput {
-  readonly body?: PostApiAgentTurnCancelBody
-}
-
-/** POST /api/agent/turn/cancel */
-export const postApiAgentTurnCancel = (transport: Transport, input?: PostApiAgentTurnCancelInput): Promise<PostApiAgentTurnCancelResponse> =>
-  transport.request("POST", `/api/agent/turn/cancel`, input?.body) as Promise<PostApiAgentTurnCancelResponse>
-
 export type PostApiAgentTurnEraseBody = AnyJSON
 
 export type PostApiAgentTurnEraseResponse = AnyJSON
@@ -1266,18 +1254,6 @@ export interface PostApiAgentTurnReplayInput {
 /** POST /api/agent/turn/replay */
 export const postApiAgentTurnReplay = (transport: Transport, input?: PostApiAgentTurnReplayInput): Promise<PostApiAgentTurnReplayResponse> =>
   transport.request("POST", `/api/agent/turn/replay`, input?.body) as Promise<PostApiAgentTurnReplayResponse>
-
-export type PostApiAgentTurnRetireBody = AnyJSON
-
-export type PostApiAgentTurnRetireResponse = AnyJSON
-
-export interface PostApiAgentTurnRetireInput {
-  readonly body?: PostApiAgentTurnRetireBody
-}
-
-/** POST /api/agent/turn/retire */
-export const postApiAgentTurnRetire = (transport: Transport, input?: PostApiAgentTurnRetireInput): Promise<PostApiAgentTurnRetireResponse> =>
-  transport.request("POST", `/api/agent/turn/retire`, input?.body) as Promise<PostApiAgentTurnRetireResponse>
 
 export type GetApiAgentConversationsResponse = SavedConversationPage
 
@@ -1422,100 +1398,6 @@ export interface PutApiAgentsRoleModelInput {
 /** PUT /api/agents/{role}/model: Assign a factory agent model */
 export const putApiAgentsRoleModel = (transport: Transport, input: PutApiAgentsRoleModelInput): Promise<PutApiAgentsRoleModelResponse> =>
   transport.request("PUT", `/api/agents/${segment(input.path.role)}/model`, input.body) as Promise<PutApiAgentsRoleModelResponse>
-
-export type DeleteApiAppTimelinesIdMembersUserDResponse = AnyJSON
-
-export interface DeleteApiAppTimelinesIdMembersUserDInput {
-  readonly path: { readonly id: string; readonly userId: string }
-}
-
-/** DELETE /api/app-timelines/{id}/members/{userId} */
-export const deleteApiAppTimelinesIdMembersUserD = (transport: Transport, input: DeleteApiAppTimelinesIdMembersUserDInput): Promise<DeleteApiAppTimelinesIdMembersUserDResponse> =>
-  transport.request("DELETE", `/api/app-timelines/${segment(input.path.id)}/members/${segment(input.path.userId)}`) as Promise<DeleteApiAppTimelinesIdMembersUserDResponse>
-
-export type GetApiAppTimelinesIdResponse = AnyJSON
-
-export interface GetApiAppTimelinesIdInput {
-  readonly path: { readonly id: string }
-}
-
-/** GET /api/app-timelines/{id} */
-export const getApiAppTimelinesId = (transport: Transport, input: GetApiAppTimelinesIdInput): Promise<GetApiAppTimelinesIdResponse> =>
-  transport.request("GET", `/api/app-timelines/${segment(input.path.id)}`) as Promise<GetApiAppTimelinesIdResponse>
-
-export type GetApiAppTimelinesIdMembersResponse = AnyJSON
-
-export interface GetApiAppTimelinesIdMembersInput {
-  readonly path: { readonly id: string }
-}
-
-/** GET /api/app-timelines/{id}/members */
-export const getApiAppTimelinesIdMembers = (transport: Transport, input: GetApiAppTimelinesIdMembersInput): Promise<GetApiAppTimelinesIdMembersResponse> =>
-  transport.request("GET", `/api/app-timelines/${segment(input.path.id)}/members`) as Promise<GetApiAppTimelinesIdMembersResponse>
-
-export type PostApiAppTimelinesIdMembersBody = AnyJSON
-
-export type PostApiAppTimelinesIdMembersResponse = AnyJSON
-
-export interface PostApiAppTimelinesIdMembersInput {
-  readonly path: { readonly id: string }
-  readonly body?: PostApiAppTimelinesIdMembersBody
-}
-
-/** POST /api/app-timelines/{id}/members */
-export const postApiAppTimelinesIdMembers = (transport: Transport, input: PostApiAppTimelinesIdMembersInput): Promise<PostApiAppTimelinesIdMembersResponse> =>
-  transport.request("POST", `/api/app-timelines/${segment(input.path.id)}/members`, input.body) as Promise<PostApiAppTimelinesIdMembersResponse>
-
-export type PostApiAppTimelinesBody = AnyJSON
-
-export type PostApiAppTimelinesResponse = AnyJSON
-
-export interface PostApiAppTimelinesInput {
-  readonly body?: PostApiAppTimelinesBody
-}
-
-/** POST /api/app-timelines */
-export const postApiAppTimelines = (transport: Transport, input?: PostApiAppTimelinesInput): Promise<PostApiAppTimelinesResponse> =>
-  transport.request("POST", `/api/app-timelines`, input?.body) as Promise<PostApiAppTimelinesResponse>
-
-export type PostApiAppTimelinesIdEventsBody = AnyJSON
-
-export type PostApiAppTimelinesIdEventsResponse = AnyJSON
-
-export interface PostApiAppTimelinesIdEventsInput {
-  readonly path: { readonly id: string }
-  readonly body?: PostApiAppTimelinesIdEventsBody
-}
-
-/** POST /api/app-timelines/{id}/events */
-export const postApiAppTimelinesIdEvents = (transport: Transport, input: PostApiAppTimelinesIdEventsInput): Promise<PostApiAppTimelinesIdEventsResponse> =>
-  transport.request("POST", `/api/app-timelines/${segment(input.path.id)}/events`, input.body) as Promise<PostApiAppTimelinesIdEventsResponse>
-
-export type PutApiAppTimelinesIdSnapshotsBody = AnyJSON
-
-export type PutApiAppTimelinesIdSnapshotsResponse = AnyJSON
-
-export interface PutApiAppTimelinesIdSnapshotsInput {
-  readonly path: { readonly id: string }
-  readonly body?: PutApiAppTimelinesIdSnapshotsBody
-}
-
-/** PUT /api/app-timelines/{id}/snapshots */
-export const putApiAppTimelinesIdSnapshots = (transport: Transport, input: PutApiAppTimelinesIdSnapshotsInput): Promise<PutApiAppTimelinesIdSnapshotsResponse> =>
-  transport.request("PUT", `/api/app-timelines/${segment(input.path.id)}/snapshots`, input.body) as Promise<PutApiAppTimelinesIdSnapshotsResponse>
-
-export type PutApiAppTimelinesIdStateBody = AnyJSON
-
-export type PutApiAppTimelinesIdStateResponse = AnyJSON
-
-export interface PutApiAppTimelinesIdStateInput {
-  readonly path: { readonly id: string }
-  readonly body?: PutApiAppTimelinesIdStateBody
-}
-
-/** PUT /api/app-timelines/{id}/state */
-export const putApiAppTimelinesIdState = (transport: Transport, input: PutApiAppTimelinesIdStateInput): Promise<PutApiAppTimelinesIdStateResponse> =>
-  transport.request("PUT", `/api/app-timelines/${segment(input.path.id)}/state`, input.body) as Promise<PutApiAppTimelinesIdStateResponse>
 
 export type GetApiAuthAuth0AuthorizeResponse = AnyJSON
 
