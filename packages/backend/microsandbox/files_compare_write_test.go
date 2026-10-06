@@ -132,15 +132,16 @@ func TestCompareWriteBatchRefusesInvalidInputBeforeTransport(t *testing.T) {
 	}{
 		{"empty", nil}, {"too many", make([]workspaceapi.FileMutation, 257)},
 		{"path", []workspaceapi.FileMutation{{Path: "../a", BaseDigest: "absent"}}},
+		{"invalid utf8", []workspaceapi.FileMutation{{Path: string([]byte{255}), BaseDigest: "absent"}}},
 		{"base", []workspaceapi.FileMutation{{Path: "a", BaseDigest: "bad"}}},
 		{"duplicate", []workspaceapi.FileMutation{{Path: "a", BaseDigest: "absent"}, {Path: "a", BaseDigest: "absent"}}},
 		{"overlap", []workspaceapi.FileMutation{{Path: "a/b", BaseDigest: "absent"}, {Path: "a", BaseDigest: "absent"}}},
 		{"aggregate", []workspaceapi.FileMutation{{Path: "a", BaseDigest: "absent", Content: make([]byte, guestMutationByteLimit)}, {Path: "b", BaseDigest: "absent", Content: []byte("x")}}},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
-			// No CLI or workspace is available: any attempted transport would panic.
+			// With no workspace/CLI, a lookup error would expose missing validation.
 			r := &Runtime{}
-			require.Error(t, r.compareWriteFiles(t.Context(), "fixture", tt.changes))
+			require.ErrorContains(t, r.compareWriteFiles(t.Context(), "fixture", tt.changes), "workspace mutation")
 		})
 	}
 }

@@ -12,6 +12,7 @@ import (
 	"path"
 	"strconv"
 	"strings"
+	"unicode/utf8"
 
 	workspaceapi "github.com/smithersai/smithers/packages/backend/workspace"
 )
@@ -38,7 +39,7 @@ func (r *Runtime) compareWriteFiles(ctx context.Context, workspaceID string, cha
 	total := 0
 	for i, input := range changes {
 		name := input.Path
-		if name == "" || len(name) > 4096 || name == "." || path.IsAbs(name) || path.Clean(name) != name || name == ".." || strings.HasPrefix(name, "../") || strings.ContainsRune(name, 0) {
+		if !utf8.ValidString(name) || name == "" || len(name) > 4096 || name == "." || path.IsAbs(name) || path.Clean(name) != name || name == ".." || strings.HasPrefix(name, "../") || strings.ContainsRune(name, 0) {
 			return errors.New("invalid workspace mutation path")
 		}
 		if _, duplicate := expected[name]; duplicate {

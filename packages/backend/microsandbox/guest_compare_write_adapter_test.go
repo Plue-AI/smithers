@@ -88,7 +88,7 @@ no_pending()
 }
 
 func TestGuestCompareWriteAdapterRejectsMalformedBatchAndAllowsRetry(t *testing.T) {
-	for _, scenario := range []string{"digest", "upper-digest", "path", "absolute", "empty-path", "root", "mode", "uid", "actor", "branch", "machine", "unknown", "missing-content", "missing-base", "null-encoding", "delete-encoding", "bad-encoding", "bad-base64", "base64-bits", "base64-newline", "surrogate", "number", "duplicate-path", "overlap", "reverse-overlap", "empty", "too-many", "oversize", "total-oversize", "invalid-json", "duplicate-field", "duplicate-top", "top-unknown", "trailing-json", "non-utf8", "nan", "wire-limit"} {
+	for _, scenario := range []string{"digest", "upper-digest", "path", "absolute", "empty-path", "surrogate-path", "root", "mode", "uid", "actor", "branch", "machine", "unknown", "missing-content", "missing-base", "null-encoding", "delete-encoding", "bad-encoding", "bad-base64", "base64-bits", "base64-newline", "surrogate", "number", "duplicate-path", "overlap", "reverse-overlap", "empty", "too-many", "oversize", "total-oversize", "invalid-json", "duplicate-field", "duplicate-top", "top-unknown", "trailing-json", "non-utf8", "nan", "wire-limit"} {
 		t.Run(scenario, func(t *testing.T) {
 			boundaryPython(t, compareWriteAdapterFixture+fmt.Sprintf("scenario=%q\n", scenario)+`
 c=change('a',H(b'alpha'),b'new');batch=[c];root='/workspace';raw=None
@@ -97,6 +97,7 @@ elif scenario=='upper-digest':c['base_digest']=c['base_digest'].upper()
 elif scenario=='path':c['path']='../escape'
 elif scenario=='absolute':c['path']='/a'
 elif scenario=='empty-path':c['path']=''
+elif scenario=='surrogate-path':c['path']='\udcff'
 elif scenario=='root':root='/elsewhere'
 elif scenario in ('mode','uid','actor','branch','machine','unknown'):c[scenario]=0
 elif scenario=='missing-content':del c['content']

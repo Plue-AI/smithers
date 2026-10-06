@@ -1127,6 +1127,10 @@ def mutation_path(path):
     if (not isinstance(path, str) or not path or len(path) > 1024 or "\x00" in path
             or any(part in ("", ".", "..") for part in path.split("/"))):
         fail(3, "invalid mutation path")
+    try:
+        path.encode("utf-8")
+    except UnicodeError:
+        fail(3, "invalid mutation path encoding")
     return path.split("/")
 
 
