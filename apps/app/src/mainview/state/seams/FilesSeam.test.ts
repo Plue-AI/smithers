@@ -743,7 +743,9 @@ describe("install file cards before Machine ready", () => {
       expect(result.status).toBe("executed")
       const cards = [...store.collections.cards.values()].filter(card => card.kind === "file")
       expect(cards).toHaveLength(1)
-      expect(cards[0]?.payload).toMatchObject({ path: "src/b.ts", content: '\n\n\n\nadd(1, "2")\n', line: 5, column: 3 })
+      expect(cards[0]?.payload).toMatchObject({ path: "src/b.ts", content: '\n\n\n\nadd(1, "2")\n', line: 5, column: 3,
+        digest: "sha256:fixture", file: { branch: "main", path: "src/b.ts", language: "typescript", digest: "sha256:fixture",
+          content: { kind: "text", text: '\n\n\n\nadd(1, "2")\n' }, mode: "read_only", reveal: { line: 5, col: 2 } } })
       expect(requests).toContain("/api/branches/main/files/src/b.ts")
       expect(requests.filter(url => url === "/api/members").length).toBeGreaterThanOrEqual(2)
       expect(requests.some(url => url.includes("/contents/src/b.ts") || url.includes("/workspace/sessions"))).toBe(false)

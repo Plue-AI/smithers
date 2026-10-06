@@ -316,13 +316,20 @@ export const createFilesSeam = (ctx: SeamContext, branchOptions?: BranchFileOpti
       const at = ref !== undefined ? { ref }
         : commit ? { readAt: { changeId: null, commitId: commit, source: "head" as const } }
         : readAt === undefined ? {} : { readAt }
-      const shown = (content: string, binary: boolean): ViewResult =>
+      const shown = (content: string, binary: boolean) =>
         fileReadCard(
           { repo, path: normalized, content, binary, ...at, ...(binary ? {} : anchored(anchor)) },
           ctx.nextOrdinal(),
           Date.now()
         )
-      if (branchFile?.success) return shown(rawContent, branchFile.data.content.kind === "binary")
+      if (branchFile?.success) {
+        const result = shown(rawContent, branchFile.data.content.kind === "binary")
+        const model: FileCard = { ...branchFile.data, mode: "read_only",
+          ...(anchor === undefined || branchFile.data.content.kind === "binary" ? {} : {
+            reveal: { line: anchor.line, ...(anchor.column === undefined ? {} : { col: anchor.column - 1 }) }
+          }) }
+        return { ...result, card: { ...result.card, payload: { ...result.card.payload, content: rawContent, truncated: false, file: model, digest: model.digest } } }
+      }
       if (body.encoding === "base64") {
         const decoded = decodeBase64(rawContent)
         return shown(decoded.text, decoded.binary)

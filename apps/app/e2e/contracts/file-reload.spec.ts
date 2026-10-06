@@ -181,3 +181,39 @@ test("deleted Restore uses absent and a recreated file is read without a second 
   ])
   await app.dispose()
 })
+
+
+test.each(["read_only", "live", "large"] as const)("install files.read retains a %s projection as read-only through CardRenderers without execution providers", async variant => {
+  const store = await createAppStore({ kind: "localStorage", storage: memoryStorage() })
+  const requests: string[] = []
+  const text = variant === "large" ? "// retained line\n".repeat(1100) + "export const retry = 1\n" : "export const retry = 1\n"
+  const model: FileCard = { ...first, branch: "main", last_writer: maya, mode: variant === "live" ? "live" : "read_only", content: { kind: "text", text } }
+  const app = controller(store, agent, { bootstrap: { ...bootstrap, capabilities: ["install", "identity"] },
+    fetchImpl: async input => {
+      const url = String(input); requests.push(url)
+      if (url === "/api/members") return json({ members: [{ login: "ben", name: "Ben", avatar_url: "https://example.com/ben.png", color_index: 0, role: "owner", needs_access: false, suspended: false, actions: [] }], access_url: "https://github.com/will/flows/settings/access" })
+      if (url === "/api/branches/main/files/retry.ts") return json(model)
+      return json({}, 404)
+    }
+  })
+  const host = document.createElement("div"); document.body.append(host); const root = createRoot(host)
+  try {
+    await store.dispatch({ type: "identity.session.loaded", actor: "system", state: "signed-in", login: "ben", admin: false, scopesPlain: null }).isPersisted.promise
+    await store.dispatch({ type: "repositories.loaded", actor: "system", repositories: [{ id: "will/flows", org: "will", ownerKind: "user", name: "flows", head: { bookmark: "main", changeId: "change123", commitId: "commit123" } }] }).isPersisted.promise
+    expect((await app.commands.run("files.read", "retry.ts:1:2")).status).toBe("executed")
+    const card = [...store.collections.cards.values()].find(card => card.kind === "file")
+    if (card?.kind !== "file") throw new Error("Missing install File card")
+    expect(card.payload.file).toEqual({ ...model, mode: "read_only", reveal: { line: 1, col: 1 } })
+    expect(card.payload.digest).toBe("one")
+    expect(card.payload.content).toBe(text)
+    expect(card.payload.truncated).toBe(false)
+    flushSync(() => root.render(createElement(ControllerContext.Provider, { value: app }, renderCardBody(card, noActions))))
+    await wait(() => !!host.querySelector('[data-digest="one"]'))
+    expect(host.textContent).toContain(variant === "large" ? "retained line" : "export const retry = 1")
+    expect(host.querySelector('[role="img"][aria-label="Maya via SSH"]')).not.toBeNull()
+    expect(host.querySelector('[data-mode="read_only"]')).not.toBeNull()
+    expect(requests.filter(url => url.includes("retry.ts"))).toEqual(["/api/branches/main/files/retry.ts"])
+    expect(requests.some(url => url.includes("sessions") || url.includes("wake"))).toBe(false)
+    expect(app.commands.find("code.hover")).toBeUndefined()
+  } finally { flushSync(() => root.unmount()); host.remove(); await app.dispose() }
+})
