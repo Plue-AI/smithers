@@ -627,7 +627,10 @@ export type Branch = {
     base: string
     item?: number
   }
-  machine: Record<string, unknown>
+  machine: {
+    wait_position?: number
+    [key: string]: unknown
+  }
 }
 
 export type TODOBranchDiff = {

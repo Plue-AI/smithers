@@ -669,3 +669,164 @@ func TestAdmissionSlotDrivesRealAuxiliaryReservation(t *testing.T) {
 	require.Error(t, r.reserveAuxVM(ctx, "ungranted"))
 	require.Zero(t, r.InUse())
 }
+
+func TestAdmissionWaitWakesOnConfirmedStop(t *testing.T) {
+	r, p := admissionFixture()
+	_, err := r.Request("todo", "A", "T1", "wake")
+	require.NoError(t, err)
+	_, err = r.GrantNext(t.Context(), p)
+	require.NoError(t, err)
+	require.NoError(t, r.BindAdmissionMachine("A", "vm-a"))
+	result := make(chan error, 1)
+	go func() {
+		ctx, err := r.WaitAdmission(t.Context(), p, "person", "B", "Alice", "terminal")
+		if err == nil && ctx.Value(admissionContextKey{}) != "B" {
+			err = errors.New("grant context lost its holder")
+		}
+		result <- err
+	}()
+	require.Eventually(t, func() bool { rows := r.AdmissionSnapshot(); return len(rows) == 2 && rows[1].Position == 1 }, time.Second, time.Millisecond)
+	require.True(t, r.CancelAdmission("A", "T1", time.Now()))
+	select {
+	case <-result:
+		t.Fatal("slot released before confirmed stop")
+	case <-time.After(20 * time.Millisecond):
+	}
+	require.Equal(t, 1, r.InUse())
+	r.ConfirmAdmissionStop("A", false)
+	select {
+	case err := <-result:
+		require.NoError(t, err)
+	case <-time.After(500 * time.Millisecond):
+		t.Fatal("confirmed stop did not wake waiter")
+	}
+	require.Equal(t, 1, r.InUse())
+	require.Equal(t, "granted", r.AdmissionSnapshot()[1].State)
+}
+
+func TestAdmissionWaitCancellationAndMissingProviders(t *testing.T) {
+	r, p := admissionFixture()
+	_, err := r.Request("todo", "held", "run", "wake")
+	require.NoError(t, err)
+	_, err = r.GrantNext(t.Context(), p)
+	require.NoError(t, err)
+	ctx, cancel := context.WithCancel(t.Context())
+	result := make(chan error, 1)
+	go func() { _, err := r.WaitAdmission(ctx, p, "person", "waiting", "Alice", "terminal"); result <- err }()
+	require.Eventually(t, func() bool { return len(r.AdmissionSnapshot()) == 2 }, time.Second, time.Millisecond)
+	cancel()
+	require.ErrorIs(t, <-result, context.Canceled)
+	require.Equal(t, "cancelled", r.AdmissionSnapshot()[1].State)
+	require.Equal(t, 1, r.InUse())
+	r.ConfirmAdmissionStop("held", false)
+	_, err = r.WaitAdmission(t.Context(), AdmissionProviders{}, "todo", "missing", "run", "wake")
+	require.Error(t, err)
+	require.Zero(t, r.InUse())
+}
+
+func TestAdmissionUnusedGrantCancelledWithoutReleasingBoundVM(t *testing.T) {
+	r, p := admissionFixture()
+	_, err := r.WaitAdmission(t.Context(), p, "todo", "A", "T1", "wake")
+	require.NoError(t, err)
+	r.CancelFailedAdmission("A", "T1")
+	require.Zero(t, r.InUse())
+	require.Equal(t, "cancelled", r.AdmissionSnapshot()[0].State)
+	_, err = r.WaitAdmission(t.Context(), p, "todo", "A", "T1", "wake")
+	require.NoError(t, err)
+	require.NoError(t, r.BindAdmissionMachine("A", "vm-a"))
+	r.CancelFailedAdmission("A", "T1")
+	require.Equal(t, 1, r.InUse())
+	require.Equal(t, "cancelled", r.AdmissionSnapshot()[0].State)
+}
+
+func TestAdmissionExistingVMReusesOneSlot(t *testing.T) {
+	r, p := admissionFixture()
+	r.workspaces["A"] = newWorkspace(metadata{ID: "A", Machine: "vm-a", State: "running"}, "")
+	require.Equal(t, 1, r.InUse())
+	ctx, err := r.WaitAdmission(t.Context(), p, "person", "workspace:A", "Alice", "terminal")
+	require.NoError(t, err)
+	require.Equal(t, "workspace:A", ctx.Value(admissionContextKey{}))
+	require.Equal(t, 1, r.InUse())
+	_, err = r.WaitAdmission(t.Context(), AdmissionProviders{}, "person", "workspace:A", "Ben", "terminal")
+	require.Error(t, err, "missing authority must also refuse demand on a held VM")
+	require.Len(t, r.AdmissionSnapshot(), 1)
+	require.Equal(t, 1, r.InUse())
+}
+
+func TestAdmissionWaitsForPublishedBinding(t *testing.T) {
+	r, p := admissionFixture()
+	var mu sync.Mutex
+	published := false
+	p.Ready = func(context.Context, AdmissionRequest) error {
+		mu.Lock()
+		defer mu.Unlock()
+		if !published {
+			return ErrAdmissionNotReady
+		}
+		return nil
+	}
+	result := make(chan error, 1)
+	go func() { _, err := r.WaitAdmission(t.Context(), p, "todo", "branch", "T1", "wake"); result <- err }()
+	require.Eventually(t, func() bool {
+		rows := r.AdmissionSnapshot()
+		return len(rows) == 1 && rows[0].State == "waiting" && rows[0].Position == 1
+	}, time.Second, time.Millisecond)
+	require.Zero(t, r.InUse(), "an unpublished binding cannot book a VM")
+	mu.Lock()
+	published = true
+	mu.Unlock()
+	select {
+	case err := <-result:
+		require.NoError(t, err)
+	case <-time.After(2 * time.Second):
+		t.Fatal("published binding did not grant")
+	}
+	require.Equal(t, 1, r.InUse())
+}
+
+func TestAdmissionCancelledPrepareReleasesAfterConfirmedRemoval(t *testing.T) {
+	r, p := admissionFixture()
+	ctx, err := r.WaitAdmission(t.Context(), p, "todo", "A", "T1", "wake")
+	require.NoError(t, err)
+	require.NoError(t, r.reserveAuxVM(ctx, "prepare"))
+	r.CancelFailedAdmission("A", "T1")
+	require.Equal(t, 1, r.InUse(), "failed prepare retains its VM until removal confirms")
+	require.Equal(t, "cancelled", r.AdmissionSnapshot()[0].State)
+	r.releaseAuxVM("prepare")
+	require.Zero(t, r.InUse(), "confirmed removal must release an abandoned grant")
+	_, err = r.WaitAdmission(t.Context(), p, "person", "B", "Alice", "terminal")
+	require.NoError(t, err)
+	require.Equal(t, 1, r.InUse())
+}
+
+func TestAdmissionOperationFailureNeverStopsAwakeWork(t *testing.T) {
+	r, p := admissionFixture()
+	r.workspaces["A"] = newWorkspace(metadata{ID: "A", Machine: "vm-a", State: "running"}, "")
+	_, err := r.WaitAdmission(t.Context(), p, "person", "workspace:A", "Alice", "terminal")
+	require.NoError(t, err)
+	r.CancelFailedAdmission("workspace:A", "Alice")
+	require.Equal(t, 1, r.InUse())
+	require.Equal(t, "cancelled", r.AdmissionSnapshot()[0].State)
+	require.Empty(t, r.AdmissionForceStops(time.Now().Add(2*time.Hour)), "an operation failure must not schedule preemption")
+	require.Equal(t, "running", r.workspaces["A"].State)
+}
+
+func TestAdmissionExternalCancellationEndsWait(t *testing.T) {
+	r, p := admissionFixture()
+	_, err := r.WaitAdmission(t.Context(), p, "todo", "held", "run", "wake")
+	require.NoError(t, err)
+	result := make(chan error, 1)
+	go func() {
+		_, err := r.WaitAdmission(t.Context(), p, "person", "waiting", "Alice", "terminal")
+		result <- err
+	}()
+	require.Eventually(t, func() bool { return len(r.AdmissionSnapshot()) == 2 }, time.Second, time.Millisecond)
+	r.CancelAdmission("waiting", "Alice", time.Now())
+	select {
+	case err := <-result:
+		require.ErrorIs(t, err, context.Canceled)
+	case <-time.After(500 * time.Millisecond):
+		t.Fatal("cancelled row left its waiter blocked")
+	}
+	require.Equal(t, 1, r.InUse())
+}

@@ -512,6 +512,9 @@ func runWithOptions(ctx context.Context, args []string, stdout, stderr io.Writer
 		// Startup validation permits this only for the single trusted owner.
 		billingPolicy = services.NewUnlimitedBillingPolicy()
 	}
+	if options.InstallBranchMachines {
+		billingPolicy = installMachineAdmissionPolicy{Policy: billingPolicy, start: services.NewMachineAdmissionPolicy(billingPolicy)}
+	}
 	// Every attributed push is capped at, and recorded in, its owner's
 	// storage quota (smithersai/plue#593).
 	repoHostClient.SetPushMeter(services.NewGitStorageMeter(billingPolicy, queries))
@@ -911,6 +914,15 @@ func runWithOptions(ctx context.Context, args []string, stdout, stderr io.Writer
 	}
 	if branchMachines != nil {
 		services.WithBranchMachineProviders(*branchMachines)(workspaceService)
+		if options.InstallBranchMachines {
+			disk, ok := options.Workspace.(interface {
+				FreeDisk(context.Context) (int64, error)
+			})
+			if !ok {
+				return errors.New("install admission free-disk reader unavailable")
+			}
+			workspaceService.EnableMachineAdmission(disk.FreeDisk)
+		}
 	}
 	adminUserService := services.NewAdminUserService(queries,
 		services.WithTokenCreator(authService),
@@ -2260,3 +2272,14 @@ type originFlags []string
 
 func (o *originFlags) String() string         { return strings.Join(*o, ",") }
 func (o *originFlags) Set(value string) error { *o = append(*o, value); return nil }
+
+// Preserve the host policy's complete accounting contract while the install
+// workspace lifecycle supplies its typed machine-start intent.
+type installMachineAdmissionPolicy struct {
+	admission.Policy
+	start services.BillingPolicy
+}
+
+func (p installMachineAdmissionPolicy) AuthorizeSandboxStart(ctx context.Context, actorID int64) error {
+	return p.start.AuthorizeSandboxStart(ctx, actorID)
+}
