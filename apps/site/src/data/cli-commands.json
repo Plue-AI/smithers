@@ -326,72 +326,6 @@
       }
     },
     {
-      "name": "debug api",
-      "description": "Call the documented API",
-      "schema": {
-        "args": {
-          "type": "object",
-          "properties": {},
-          "additionalProperties": false
-        },
-        "options": {
-          "type": "object",
-          "properties": {
-            "operationId": {
-              "type": [
-                "string",
-                "null"
-              ]
-            },
-            "intent": {
-              "anyOf": [
-                {
-                  "type": "string",
-                  "enum": [
-                    "open",
-                    "send",
-                    "confirm"
-                  ]
-                },
-                {
-                  "type": "null"
-                }
-              ]
-            },
-            "values": {
-              "anyOf": [
-                {
-                  "type": "object",
-                  "properties": {},
-                  "additionalProperties": {
-                    "type": "string"
-                  }
-                },
-                {
-                  "type": "null"
-                }
-              ]
-            },
-            "confirmation": {
-              "type": [
-                "string",
-                "null"
-              ]
-            },
-            "verbose": {
-              "default": false,
-              "description": "Show redacted diagnostic details",
-              "type": "boolean"
-            }
-          },
-          "required": [
-            "verbose"
-          ],
-          "additionalProperties": false
-        }
-      }
-    },
-    {
       "name": "diff",
       "description": "Show a branch's changes",
       "schema": {
@@ -1314,7 +1248,10 @@
         "args": {
           "type": "object",
           "properties": {
-            "n": {}
+            "n": {
+              "type": "string",
+              "pattern": "^T[1-9]\\d*$"
+            }
           },
           "required": [
             "n"
@@ -1720,13 +1657,32 @@
       }
     },
     {
+      "name": "stack",
+      "description": "Show the stack and background runs",
+      "schema": {
+        "args": {
+          "type": "object",
+          "properties": {},
+          "additionalProperties": false
+        },
+        "options": {
+          "type": "object",
+          "properties": {},
+          "additionalProperties": false
+        }
+      }
+    },
+    {
       "name": "stack move",
       "description": "Reorder an item",
       "schema": {
         "args": {
           "type": "object",
           "properties": {
-            "n": {},
+            "n": {
+              "type": "string",
+              "pattern": "^T[1-9]\\d*$"
+            },
             "direction": {
               "type": "string",
               "enum": [
@@ -1764,7 +1720,10 @@
         "args": {
           "type": "object",
           "properties": {
-            "n": {},
+            "n": {
+              "type": "string",
+              "pattern": "^T[1-9]\\d*$"
+            },
             "text": {
               "type": "string",
               "minLength": 1
@@ -1829,7 +1788,10 @@
         "args": {
           "type": "object",
           "properties": {
-            "n": {},
+            "n": {
+              "type": "string",
+              "pattern": "^T[1-9]\\d*$"
+            },
             "answer": {
               "type": "string",
               "minLength": 1
@@ -1875,7 +1837,10 @@
         "args": {
           "type": "object",
           "properties": {
-            "n": {}
+            "n": {
+              "type": "string",
+              "pattern": "^T[1-9]\\d*$"
+            }
           },
           "required": [
             "n"
@@ -1991,16 +1956,8 @@
               ]
             },
             "before": {
-              "anyOf": [
-                {
-                  "type": "integer",
-                  "minimum": 1,
-                  "maximum": 9007199254740991
-                },
-                {
-                  "type": "null"
-                }
-              ]
+              "type": "string",
+              "pattern": "^T[1-9]\\d*$"
             },
             "cardId": {
               "type": [
@@ -2039,7 +1996,10 @@
         "args": {
           "type": "object",
           "properties": {
-            "n": {}
+            "n": {
+              "type": "string",
+              "pattern": "^T[1-9]\\d*$"
+            }
           },
           "required": [
             "n"
@@ -2069,7 +2029,10 @@
         "args": {
           "type": "object",
           "properties": {
-            "n": {}
+            "n": {
+              "type": "string",
+              "pattern": "^T[1-9]\\d*$"
+            }
           },
           "required": [
             "n"
@@ -2105,7 +2068,10 @@
         "args": {
           "type": "object",
           "properties": {
-            "n": {}
+            "n": {
+              "type": "string",
+              "pattern": "^T[1-9]\\d*$"
+            }
           },
           "required": [
             "n"
@@ -2135,7 +2101,10 @@
         "args": {
           "type": "object",
           "properties": {
-            "n": {},
+            "n": {
+              "type": "string",
+              "pattern": "^T[1-9]\\d*$"
+            },
             "text": {
               "type": "string",
               "minLength": 1
@@ -2170,7 +2139,10 @@
         "args": {
           "type": "object",
           "properties": {
-            "n": {}
+            "n": {
+              "type": "string",
+              "pattern": "^T[1-9]\\d*$"
+            }
           },
           "required": [
             "n"
@@ -2213,6 +2185,18 @@
         "options": {
           "type": "object",
           "properties": {
+            "revision": {
+              "anyOf": [
+                {
+                  "type": "integer",
+                  "minimum": 1,
+                  "maximum": 9007199254740991
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
             "verbose": {
               "default": false,
               "description": "Show redacted diagnostic details",
