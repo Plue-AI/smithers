@@ -320,3 +320,38 @@ fn authenticated_dispatch_requires_reconcile_and_roster_on_every_link() {
     }
     worker.join().unwrap();
 }
+
+#[test]
+fn retained_v2_decode_does_not_negotiate_an_unready_live_peer() {
+    let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+    let addr = listener.local_addr().unwrap();
+    let worker = thread::spawn(move || {
+        let (stream, _) = listener.accept().unwrap();
+        let identity = Identity::new([4; 16], [9; 32], b"fixture-machine-token".to_vec()).unwrap();
+        assert!(matches!(
+            link::authenticate(stream, &identity, 7, &[]),
+            Err(ProtocolError::VersionMismatch)
+        ));
+    });
+    let mut socket = TcpStream::connect(addr).unwrap();
+    let challenge = Frame::read(&mut socket).unwrap();
+    let fields = conn::fields("challenge", &challenge.payload[1..]).unwrap();
+    let boot = fields[2].1.try_into().unwrap();
+    let nonce = fields[3].1.try_into().unwrap();
+    hello(
+        2,
+        &[
+            conn::field(1, 2u16.to_be_bytes()),
+            conn::field(2, conn::host_mac(&[9; 32], &boot, &nonce)),
+        ],
+    )
+    .write(&mut socket)
+    .unwrap();
+    assert_eq!(
+        Frame::read(&mut socket).unwrap().payload,
+        vec![5, 0, 0, 0, 2, 1, 13]
+    );
+    let mut byte = [0];
+    assert_eq!(socket.read(&mut byte).unwrap(), 0);
+    worker.join().unwrap();
+}
