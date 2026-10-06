@@ -474,3 +474,36 @@ describe("native backend ownership", () => {
   })).rejects.toThrow("Bundled microVM runtime is unavailable")
   expect(spawned).toBe(false)
  })
+
+ test.each([
+  ["127.0.0.1:48731", "48731", "48732", "48733"],
+  ["0.0.0.0:48731", "48731", "48732", "48733"],
+  ["[::]:48731", "48731", "48732", "48733"],
+  ["127.0.0.1:65533", "65533", "65534", "65535"]
+ ] as const)("explicit bind port selects readiness and host ports (%s)", async (bind, port, relay, ssh) => {
+  const runtime = packagedRuntime()
+  let resolveExit!: (code: number) => void
+  const exited = new Promise<number>((resolve) => { resolveExit = resolve })
+  const instance = await startNativeBackend({
+   executablePath: join(runtime.root, "smithers-server"), stateDir: runtime.state, webRoot, bind,
+   spawn: (argv, options) => {
+    expect(argv).toEqual([runtime.backend, "--bind", bind])
+    expect(options.env.SMITHERS_SERVER_ADDR).toBe(`127.0.0.1:${port}`)
+    expect(options.env.SMITHERS_EGRESS_RELAY_PORT).toBe(relay)
+    expect(options.env.SMITHERS_SSH_ADDR).toBe(`127.0.0.1:${ssh}`)
+    return { exited, kill: () => resolveExit(0) }
+   },
+   fetch: async (input) => { expect(String(input)).toBe(`http://127.0.0.1:${port}/readyz`); return new Response(null, { status: 200 }) }
+  })
+  expect(instance.origin).toBe(`http://127.0.0.1:${port}`)
+  await instance.stop()
+ })
+
+ test.each(["127.0.0.1:0", "127.0.0.1:65534", "127.0.0.1:65535"])("invalid bind port refuses before spawning (%s)", async (bind) => {
+  const runtime = packagedRuntime()
+  let spawned = false
+  await expect(startNativeBackend({ executablePath: join(runtime.root, "smithers-server"), stateDir: runtime.state, webRoot, bind,
+   spawn: () => { spawned = true; throw new Error("must not spawn") }
+  })).rejects.toThrow("Install bind port must be between 1 and 65533.")
+  expect(spawned).toBe(false)
+ })
