@@ -143,7 +143,7 @@ impl SocketpairBroker {
             }
             let mut bytes = vec![0; 65561];
             let (n, _) = recv(&*fd, &mut bytes, RecvFlags::empty())?;
-            if n < 5 || n > 65560 || bytes[..4] != id.to_be_bytes() {
+            if !(5..=65560).contains(&n) || bytes[..4] != id.to_be_bytes() {
                 return Err(io::ErrorKind::InvalidData.into());
             }
             bytes.truncate(n);
