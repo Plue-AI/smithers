@@ -8069,7 +8069,17 @@
       "credentialScope": "write:repository",
       "agent": "confirm",
       "summary": "Review a change, return findings",
-      "http": null,
+      "http": {
+        "method": "POST",
+        "path": "/api/reviews",
+        "body": {
+          "number": "number",
+          "repo": "repo"
+        },
+        "defaults": {
+          "conversation": "main"
+        }
+      },
       "payload": {
         "dialect": "draft-2020-12",
         "schema": {
