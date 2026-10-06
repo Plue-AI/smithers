@@ -349,3 +349,17 @@ mechanism is superseded pending controller/worker reconciliation (§8.13.0);
 reference-rig, isolation, transport, capacity and credential receipts remain
 required. Cloud qualification stays in stage 2. C-RMT-06 also needs VT-x enabled
 on beaver and a rig fixture for the configuration-only flag transition.
+
+T-UI-14 (2026-10-05): `/help` passes through the production dispatcher and
+CardRenderers in light/dark at 1440/390 px, inline/maximized and after reload.
+The repository contents seam supplies a live `/release-notes` row and summary;
+listing neither launches that flow nor evaluates repository code.
+Commands stories pass keyboard disclosure (Tab, Enter, Space, visible focus),
+muted policy marks, inert metadata, fixture screenshots and edited action input.
+The broad C-UI-12/13 fixmes still await the other Views and their wiring tickets.
+
+
+| Check subset | Spec | Status | Ticket |
+| --- | --- | --- | --- |
+| C-UI-13 Commands | [C-UI-13.spec.ts](C-UI-13.spec.ts) | passed: /help, registry and repository rows, inline/maximized/reload, light/dark, 1440/390 | T-UI-14 |
+| C-UI-12 Commands | [Commands stories](../view-stories.spec.ts) | passed: keyboard disclosure/focus, policies, inert text, action input | T-UI-14 |

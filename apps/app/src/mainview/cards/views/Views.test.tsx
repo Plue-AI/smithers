@@ -1142,13 +1142,26 @@ test("missing selected branch has no unnamed crumb; popover arrows move and go t
 // T-UI-14: Appendix A literal copy, presentation-only policy and inert text.
 const { CommandsView } = await import("./CommandsView")
 test("Commands renders supplied policies and order without dispatch or role filtering", async () => {
-  const { fixtures } = await import("@smthrs/rpc/fixtures/Commands")
-  const story: ViewStory = { name: "commands", expect: [], render: callbacks => <CommandsView {...fixtures.maintainer} {...callbacks} /> }
+  const story: ViewStory = { name: "commands", expect: [], render: callbacks => <CommandsView
+    model={{ groups: [
+      { label: "TODOs", advanced: false, commands: [{ tag: "todo.answer", synopsis: "/todo.answer Tn", description: "Answer", agent: "run" }, { tag: "todo.amend", synopsis: "/todo.amend Tn", description: "Change", agent: "confirm" }] },
+      { label: "People", advanced: false, commands: [{ tag: "members", synopsis: "/members", description: "People", agent: "never" }] },
+      { label: "Advanced", advanced: true, commands: [{ tag: "settings", synopsis: "/settings", description: "Settings", agent: "never" }] }
+    ] }} actions={[]} gestures={{}} view={{ maximized: false }} {...callbacks} /> }
   const mountedStory = await mounted(story)
   try {
     expect([...mountedStory.host.querySelectorAll("h3, summary")].map(node => node.textContent)).toEqual(["TODOs", "People", "Advanced"])
-    expect([...mountedStory.host.querySelectorAll(".mvp-command-policy")].map(node => node.textContent)).toEqual(["Asks first", "Only you", "Only you"])
-    expect(mountedStory.host.querySelector(".mvp-command")!.querySelector(".mvp-command-policy")).toBeNull()
+    expect([...mountedStory.host.querySelectorAll(".command-policy")].map(node => node.textContent)).toEqual(["Asks first", "Only you", "Only you"])
+    expect(mountedStory.host.querySelector(".command")!.querySelector(".command-policy")).toBeNull()
+    const details = mountedStory.host.querySelector("details")!
+    const summary = details.querySelector("summary")!
+    expect(details.open).toBe(false)
+    summary.focus()
+    expect(document.activeElement).toBe(summary)
+    summary.click()
+    expect(details.open).toBe(true)
+    summary.click()
+    expect(details.open).toBe(false)
     expect(mountedStory.onAction).not.toHaveBeenCalled()
     expect(mountedStory.onView).not.toHaveBeenCalled()
   } finally { await mountedStory.close() }

@@ -902,6 +902,8 @@ export const createAppController = (
     return refused ? refused.message : { value: tag === "members.add" ? `Added ${login}` : tag === "members.role" ? `${login}: ${role ?? "member"}` : `Removed ${login}` }
   }
   const presentCard = async (kind: "settings" | "members" | "commands" | "branch" | "terminal", title: string, subject?: string): Promise<string> => {
+    if (kind === "commands" && installHost) { membersSeam.start(); await membersSeam.read() }
+    if (kind === "commands" && commands.viewerCatalog() === undefined) return "Commands unavailable"
     const id = subject === undefined ? kind : `${kind}:${subject}`
     const existing = store.collections.cards.get(id)
     const base = { id, title, status: "active" as const, createdAt: existing?.createdAt ?? Date.now(), ordinal: existing?.ordinal ?? store.nextOrdinal() }
@@ -1999,8 +2001,11 @@ export const createAppController = (
       const catalogRefused = entry?.phase === "failed" && entry.failureKind === "not-public" && (
         requestedRepo === undefined || requestedRepo.toLowerCase() === entry.repo.toLowerCase()
       )
+      const roster = membersSeam.snapshots.get()
+      const viewer = roster.model?.members.find(member => member.login.toLowerCase() === identity?.login?.toLowerCase())
       return {
         repositoryReadiness,
+        viewerRole: installHost ? identity?.state === "signed-in" && roster.error === undefined && viewer?.suspended === false && viewer.needs_access === false ? viewer.role : undefined : membersRole(),
         surface: store.session().surface,
         typing: store.session().phase === "responding",
         // Sign-in IS the GitHub connector (§2a′): a valid session means

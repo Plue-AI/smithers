@@ -291,7 +291,7 @@ describe("subject card bodies", () => {
   const controller = (viewer: string, find: (name: string) => unknown) => {
     const design = createDesignWorld({ viewer })
     return { design, installSnapshots: unanswered, membersRoster: designMembersRoster(design), membersRole: () => designViewerRole(design),
-      commands: { find, submit: async () => ({ status: "done" }) } } as unknown as AppController
+      commands: { find, viewerCatalog: () => ["help", "members"].flatMap(name => find(name) === undefined ? [] : [{ name, summary: `Live ${name}`, visibility: "core", group: "chat", agent: name === "help" ? "run" : "never" }]), submit: async () => ({ status: "done" }) } } as unknown as AppController
   }
   const body = <K extends "settings" | "members" | "commands">(kind: K, viewer: string, find: (name: string) => unknown = () => undefined) =>
     renderToStaticMarkup(<ControllerTestProvider controller={controller(viewer, find)}>

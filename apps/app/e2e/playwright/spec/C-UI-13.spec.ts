@@ -49,3 +49,36 @@ test("C-UI-13: Setup View mounts from the install fixture", async ({ page }) => 
   await page.reload()
   await expect(page.getByRole("region", { name: "Set up Smithers" })).toBeVisible()
 })
+
+// T-UI-14: the real dispatcher and mounted Commands card; other doors above retain their own wiring gates.
+test("C-UI-13: /help mounts live Commands inline, maximized and after reload", async ({ page }) => {
+  await owner(page)
+  await page.route("**/contents/.smithers/factory.json", route => route.fulfill({ json: { content: JSON.stringify({ on: [], flows: [
+    { id: "release-notes", description: "Write release notes", summary: "Live repository summary", featured: false, kind: "ts", path: "flows/release-notes/flow.ts", capabilities: [], model: null, modelInvocable: true }
+  ] }) } }))
+  await page.goto("/")
+  await say(page, "/repo.select smithersai/smithers")
+  for (const mode of ["light", "dark"]) {
+    await say(page, `/theme ${mode}`)
+    for (const width of [1440, 390]) {
+      await page.setViewportSize({ width, height: 1000 })
+      await say(page, "/help")
+      const commands = page.getByRole("article", { name: "Commands", exact: true })
+      await expect(commands).toHaveCount(1)
+      await expect(commands).toBeVisible()
+      await expect(commands).toContainText("/help")
+      await expect(commands).toContainText("List these commands")
+      await expect(commands).toContainText("/release-notes [owner/repo] [JSON object]")
+      await expect(commands).toContainText("Live repository summary")
+      await expect(commands.locator("button")).toHaveCount(0)
+      await expect(commands).not.toContainText("/chat.commands")
+      const card = page.locator('.smithers-card[data-kind="commands"]')
+      await card.getByRole("button", { name: "Maximize card", exact: true }).press("Enter")
+      await expect(page.getByRole("button", { name: "Restore", exact: true })).toBeVisible()
+      await expect(commands).toBeVisible()
+      await page.getByRole("button", { name: "Restore", exact: true }).press("Enter")
+    }
+  }
+  await page.reload()
+  await expect(page.getByRole("article", { name: "Commands", exact: true })).toContainText("/help")
+})

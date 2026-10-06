@@ -39,6 +39,7 @@ import {
   flowRequirements,
   itemOf,
   modelInvocable,
+  viewerAdmitted,
   nameOf,
   namespaceOf,
   parseSubmit,
@@ -181,6 +182,8 @@ export interface FlowSubmission {
 export interface CommandRegistry {
   /** Every registered flow as UI-catalog records, admin entries included only for admin sessions. */
   readonly all: () => ReadonlyArray<CatalogItem>
+  /** Shared, authoritative viewer projection; undefined while authority is unavailable. */
+  readonly viewerCatalog: () => ReadonlyArray<CatalogItem> | undefined
   /** The same flows as executable entries. */
   readonly entries: () => ReadonlyArray<FlowEntry>
   readonly find: (name: string) => FlowEntry | undefined
@@ -344,6 +347,12 @@ export const createCommandRegistry = (actions: CommandActions, agentActions: Com
   }
 
   const items = (): ReadonlyArray<CatalogItem> => entries().map(itemOf)
+
+  const listingItems = (): ReadonlyArray<CatalogItem> => {
+    const catalog = items()
+    const admitted = new Set(viewerAdmitted(actions.snapshot(), catalog).map(item => item.name))
+    return catalog.filter(item => item.visibility === undefined || admitted.has(item.name))
+  }
 
   const find = (name: string): FlowEntry | undefined => entries().find((entry) => nameOf(entry) === name)
 
@@ -806,12 +815,18 @@ export const createCommandRegistry = (actions: CommandActions, agentActions: Com
   const registry: CommandRegistry = {
     preload,
     all: items,
+    viewerCatalog: () => {
+      const state = actions.snapshot()
+      const catalog = items()
+      return state.viewerRole === undefined || !catalog.some(item => item.visibility !== undefined)
+        ? undefined : viewerAdmitted(state, catalog)
+    },
     entries,
     find,
     explainAbsent,
     state: actions.snapshot,
-    slashItems: (needle) => slashItems(actions.snapshot(), needle, items()),
-    slashTree: (needle) => slashTree(actions.snapshot(), needle, items()),
+    slashItems: (needle) => slashItems(actions.snapshot(), needle, listingItems()),
+    slashTree: (needle) => slashTree(actions.snapshot(), needle, listingItems()),
     recommended: () => {
       const name = recommendedNames(actions.snapshot())[0]
       const command = name === undefined ? undefined : items().find((item) => item.name === name)

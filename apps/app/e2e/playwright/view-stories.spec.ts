@@ -231,11 +231,12 @@ test("Commands keyboard disclosure and inert policy marks", async ({ page }) => 
   await expect(page.getByText("/monitor", { exact: true })).toBeHidden()
   await page.keyboard.press("Tab")
   await expect(page.locator("summary")).toBeFocused()
+  await expect(page.locator("summary")).toHaveCSS("outline-style", "solid")
   await page.keyboard.press("Enter")
   await expect(page.getByText("/monitor", { exact: true })).toBeVisible()
   await page.keyboard.press("Space")
   await expect(advanced).not.toHaveAttribute("open")
-  await expect(page.locator(".mvp-command-policy").filter({ hasText: "Asks first" })).toHaveCount(1)
+  await expect(page.locator(".command-policy").filter({ hasText: "Asks first" })).toHaveCount(1)
   await expect(page.locator("button, a")).toHaveCount(0)
   expect(await page.evaluate(() => (window as unknown as { commandCallbacks: unknown[] }).commandCallbacks)).toEqual([])
 })
@@ -257,7 +258,7 @@ test("Commands review screenshots and muted policy marks", async ({ page }) => {
     }
     await page.evaluate(() => document.fonts.ready)
     {
-      const policyColors = await page.locator(".mvp-command-policy").evaluateAll(marks => {
+      const policyColors = await page.locator(".command-policy").evaluateAll(marks => {
         const probe = document.createElement("span")
         probe.style.color = "var(--text-faint)"
         document.body.append(probe)

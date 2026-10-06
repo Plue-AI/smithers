@@ -74,6 +74,12 @@ import type { OperationMetadata } from "@smthrs/ui/app-operations"
  * `userOnlyReason`; `workflow` names the flow a run card belongs to.
  */
 export interface FlowMetadata extends OperationMetadata<RuntimeCapability, AppBootstrap["host"]> {
+  /** Authoritative catalog fields supplied by the operation provider (T-CAT-01). */
+  readonly visibility?: "core" | "advanced" | "in-card" | "hidden"
+  readonly group?: string
+  readonly actors?: ReadonlyArray<"person" | "app_agent" | "external_agent">
+  readonly minimumRole?: "member" | "maintainer" | "owner"
+  readonly agent?: "run" | "confirm" | "never"
   /**
    * The slash grammar of a flow declared at RUNTIME (a repository's flow
    * leaf, entries/flow.ts `repositoryFlowLeaves`). SlashPayload's table names
@@ -250,6 +256,7 @@ export const unmetRequirements = (
 
 /** The app state the recommendation rule reads, sampled from the store. */
 export interface CommandState {
+  readonly viewerRole?: "member" | "maintainer" | "owner"
   readonly surface: "chat" | "world" | "connectors" | "flows" | "plugins" | "subagents"
   readonly typing: boolean
   readonly hasConnectors: boolean
@@ -511,6 +518,21 @@ const offerable = <C extends CatalogItem>(state: CommandState, commands: Readonl
 export const visible = <C extends CatalogItem>(
   commands: ReadonlyArray<C>
 ): Array<C> => commands.filter((command) => command.hidden !== true)
+
+/** The shared human listing admission; absent authority never becomes a row. */
+export const viewerAdmitted = (state: CommandState, commands: ReadonlyArray<CatalogItem>): Array<CatalogItem> => {
+  const roles = { member: 0, maintainer: 1, owner: 2 }
+  const role = state.viewerRole
+  if (role === undefined) return []
+  return commands.filter(command =>
+    (command.visibility === "core" || command.visibility === "advanced") &&
+    command.hidden !== true && command.actors?.includes("person") === true &&
+    command.minimumRole !== undefined && roles[command.minimumRole] !== undefined &&
+    roles[role] >= roles[command.minimumRole] &&
+    (command.agent === "run" || command.agent === "confirm" || command.agent === "never") &&
+    typeof command.group === "string" && command.group.length > 0 &&
+    unmetRequirements(command, state).length === 0)
+}
 
 /** Model discovery is explicit for internal controls; invocation authority is unchanged. */
 export const disclosedToAgent = (metadata: FlowMetadata): boolean =>
