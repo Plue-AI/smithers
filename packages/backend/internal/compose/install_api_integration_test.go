@@ -142,20 +142,23 @@ func TestInstallAPIReadsTodosThroughTheirOwnRoutes(t *testing.T) {
 	require.Equal(t, http.StatusOK, status)
 	require.NotEmpty(t, flows[0]["versions"].([]any)[0].(map[string]any)["steps"])
 
-	// Dependency preparation failures use the same person-facing failure state
-	// as an import refusal; the last loaded version remains Active.
-	dependencyError := "flows/todo/flow.ts: Pinned flow dependencies could not be resolved"
-	load.Versions, err = json.Marshal([]services.FlowLoadVersion{{Name: "todo", Path: "flows/todo/flow.ts", Digest: strings.Repeat("c", 64), Status: "failed", Error: dependencyError}})
-	require.NoError(t, err)
-	load, err = q.SaveFlowLoad(ctx, load)
-	require.NoError(t, err)
-	status, _, flows = read(ownerSession, owner.ID, "/api/flows")
-	require.Equal(t, http.StatusOK, status)
-	versions = flows[0]["versions"].([]any)
-	require.Equal(t, loadedDigest, versions[0].(map[string]any)["id"])
-	require.Equal(t, "active", versions[0].(map[string]any)["state"])
-	require.Equal(t, "merged-failed", versions[1].(map[string]any)["state"])
-	require.Equal(t, dependencyError, versions[1].(map[string]any)["error"])
+	// Discovery and dependency refusals retain Active through the served route.
+	for _, loadError := range []string{
+		"flows/todo/flow.ts: Pinned flow dependencies could not be resolved",
+		"flows/todo/flow.ts: Module flows require a literal description in the default Flow.make value",
+	} {
+		load.Versions, err = json.Marshal([]services.FlowLoadVersion{{Name: "todo", Path: "flows/todo/flow.ts", Digest: strings.Repeat("c", 64), Status: "failed", Error: loadError}})
+		require.NoError(t, err)
+		load, err = q.SaveFlowLoad(ctx, load)
+		require.NoError(t, err)
+		status, _, flows = read(ownerSession, owner.ID, "/api/flows")
+		require.Equal(t, http.StatusOK, status)
+		versions = flows[0]["versions"].([]any)
+		require.Equal(t, loadedDigest, versions[0].(map[string]any)["id"])
+		require.Equal(t, "active", versions[0].(map[string]any)["state"])
+		require.Equal(t, "merged-failed", versions[1].(map[string]any)["state"])
+		require.Equal(t, loadError, versions[1].(map[string]any)["error"])
+	}
 
 	status, refusal, _ := read(ownerSession, owner.ID, "/api/todos/2")
 	require.Equal(t, http.StatusNotFound, status)
