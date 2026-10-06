@@ -32,23 +32,32 @@ func TestSharedContextOnlyCompletedSelection(t *testing.T) {
 func TestSharedPreflightPagesNeverExposePartialSelections(t *testing.T) {
 	page := func(index, total int, phase, model string, ms int) json.RawMessage {
 		raw, err := json.Marshal(map[string]any{"type": "context.preflight", "runId": "r", "phase": phase,
-			"page": map[string]int{"index": index, "total": total}, "result": map[string]any{"model": model, "durationMs": ms, "candidates": []any{}, "context": []any{map[string]string{"kind": "todo", "label": "T1", "ref": "T1", "reason": "Selected", "private": "canary"}}}})
+			"page": map[string]int{"index": index, "total": total}, "result": map[string]any{"model": model, "durationMs": ms, "candidates": []any{map[string]string{"kind": "file", "label": "retry.ts", "ref": "retry.ts", "revision": "abc123", "text": "candidate-canary"}}, "context": []any{map[string]string{"kind": "todo", "label": "T1", "ref": "T1", "reason": "Selected", "private": "canary"}}}})
 		require.NoError(t, err)
 		return raw
 	}
 	var projection sharedPreflight
 	require.NoError(t, projection.apply(page(0, 2, "completed", "fast", 4)))
 	require.Nil(t, projection.context)
+	require.Nil(t, projection.result)
 	for _, invalid := range []json.RawMessage{page(1, 3, "completed", "fast", 4), page(1, 2, "started", "fast", 4), page(1, 2, "completed", "other", 4), page(1, 2, "completed", "fast", 5)} {
 		require.ErrorIs(t, projection.apply(invalid), ErrInvalidFrame)
 		require.Nil(t, projection.context)
 	}
 	require.NoError(t, projection.apply(page(1, 2, "completed", "fast", 4)))
 	require.Len(t, *projection.context, 2)
+	require.Equal(t, "fast", projection.result.Model)
+	require.Equal(t, float64(4), projection.result.DurationMs)
+	require.Len(t, projection.result.Candidates, 2)
+	encoded, err := json.Marshal(projection.result)
+	require.NoError(t, err)
+	require.NotContains(t, string(encoded), "canary")
+	require.JSONEq(t, `{"kind":"file","label":"retry.ts","ref":"retry.ts","revision":"abc123"}`, string(projection.result.Candidates[0]))
 	require.NotContains(t, string((*projection.context)[0]), "canary")
 	require.ErrorIs(t, projection.apply(page(1, 2, "completed", "fast", 4)), ErrInvalidFrame)
 	require.NoError(t, projection.apply(page(0, 1, "started", "fast", 0)))
 	require.Nil(t, projection.context)
+	require.Nil(t, projection.result)
 	require.NoError(t, projection.apply(json.RawMessage(literalPreflight)))
 	require.Len(t, *projection.context, 1)
 	require.NoError(t, projection.apply(json.RawMessage(`{"type":"done"}`)))

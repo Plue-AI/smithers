@@ -1074,7 +1074,13 @@ export const createAppController = (
   const contextRun = (id: string): MonitorCard | undefined => {
     const owner = ctx.accountOwner()
     const turn = [...store.collections.httpTurns.values()].find(row => row.turnId === id && row.owner === owner)
-    return turn === undefined ? undefined : contextMonitor(turn)
+    if (turn) return contextMonitor(turn)
+    const shared = sharedConversation?.get().conversation?.entries.find(entry => entry.id === id || entry.runId === id)
+    return shared?.preflight === undefined ? undefined : contextMonitor({
+      turnId: shared.runId, preflight: shared.preflight, preflightPhase: "completed",
+      status: shared.state === "completed" ? "complete" : shared.state === "failed" ? "failed"
+        : shared.state === "cancelled" ? "cancelled" : shared.state === "uncertain" ? "ambiguous" : "active"
+    })
   }
   /* THE EMBED LAW: only a person's press maximizes; the agent's binding (ActorBindings) opens the Run card embedded. */
   const { presentRun } = actors.pair(ctx, context => ({ presentRun: async (runId: string, title: string, maximize: boolean): Promise<string> => {
