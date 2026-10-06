@@ -817,7 +817,7 @@ const FIXTURES: Record<
   branch: { minimal: { id: "b-retry" }, full: { id: "b-retry", tab: "activity" } },
   terminal: { minimal: { id: "term-1" }, full: { id: "term-1" } },
   run: { minimal: { id: "run-1" }, full: { id: "run-1" } },
-  flow: { minimal: { name: "todo" }, full: { name: "todo", version: "v3", proposal: { request: "request-1", diff: "diff-1" } } },
+  flow: { minimal: { name: "todo" }, full: { name: "todo", version: "v3", memberVersions: { will: "v3", ben: "v2" }, proposal: { request: "request-1", diff: "diff-1" } } },
   setup: { minimal: {}, full: {} },
   settings: { minimal: {}, full: {} },
   members: { minimal: {}, full: {} },

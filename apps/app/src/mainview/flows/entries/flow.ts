@@ -81,7 +81,7 @@ export const flowVersionFlows = (actions: CommandActions): ReadonlyArray<FlowEnt
         if (model.system) return `${flowTitle(name)} is built in`
         const path = "path" in model.source ? model.source.path : `flows/${name}/flow.ts`
         const proposing = model.versions.find(each => each.state === "proposed" && each.todo !== undefined)
-        if (!actions.design.enabled) return proposing?.todo === undefined ? "Branch files are unavailable." : actions.readFlowSource(proposing.todo, path)
+        if (!actions.design.enabled) return proposing?.todo === undefined ? actions.newTodo(flowEditTodoInput(name, "Edit the source")) : actions.readFlowSource(proposing.todo, path)
         if (proposing === undefined) {
           // Retain the design seed's source projection off an install.
           const seeded = findFile(world, path, "main")

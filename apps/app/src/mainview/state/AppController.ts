@@ -985,7 +985,7 @@ export const createAppController = (
   const presentSubject = async (card: Pick<Card, "id" | "kind" | "title" | "payload">): Promise<string> => {
     const existing = store.collections.cards.get(card.id)
     await store.dispatch({ type: "card.upsert", actor: ctx.commandActor, card: {
-      ...card, status: "active", createdAt: existing?.createdAt ?? Date.now(), ordinal: existing?.ordinal ?? store.nextOrdinal()
+      ...card, ...(card.kind === "flow" && existing?.kind === "flow" ? { payload: { ...card.payload, memberVersions: existing.payload.memberVersions } } : {}), status: "active", createdAt: existing?.createdAt ?? Date.now(), ordinal: existing?.ordinal ?? store.nextOrdinal()
     } as Card }).isPersisted.promise
     return `Opened ${card.title}`
   }
@@ -994,7 +994,7 @@ export const createAppController = (
     const existing = store.collections.cards.get(id)
     await store.dispatch({ type: "card.upsert", actor: ctx.commandActor, card: {
       id, kind: "flow", title, status: "active", createdAt: existing?.createdAt ?? Date.now(),
-      ordinal: existing?.ordinal ?? store.nextOrdinal(), payload: version === undefined ? { name } : { name, version }
+      ordinal: existing?.ordinal ?? store.nextOrdinal(), payload: { name, ...(version === undefined ? {} : { version }), ...(existing?.kind === "flow" ? { memberVersions: existing.payload.memberVersions } : {}) }
     } }).isPersisted.promise
     return `Opened ${title}`
   }

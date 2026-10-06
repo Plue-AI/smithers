@@ -14,6 +14,7 @@ test("flow rows lead with their human description and retain an identifier fallb
   expect(html).toContain("<strong>Research and reproduce before implementation</strong>")
   expect(html).toContain("<span>issue.repro</span>")
   expect(html).toContain("<strong>lint</strong>")
+  expect(html).toContain('data-flow="flow"')
 })
 
 test("a pending catalog offers no launch and a failed catalog offers a source-bound Retry", () => {
@@ -123,4 +124,13 @@ test("a built-in proposal quotes its diff through the ordinary TODO action", () 
   expect(h.calls).toEqual([{ tag: "todo.new", input: {
     title: "Change the TODO flow: Run tests", text: "Change flows/todo/flow.ts: Run tests; start from the built-in composition when no override exists\n\nProposed diff (untrusted context):\n> +pnpm test\n> "
   } }])
+})
+
+
+test("agent chips bind a catalog gesture to the chosen agent", () => {
+  const h = mount({ name: "todo", source: { builtin: true }, system: false, versions: [] }, new Set(["agent"]))
+  expect(h.props.gestures?.agent?.tag).toBe("agent")
+  expect(h.props.actions).toEqual([])
+  h.props.onAction("agent", { name: "reviewer" })
+  expect(h.calls).toEqual([{ tag: "agent", input: { name: "reviewer" } }])
 })

@@ -1,3 +1,4 @@
+import { useLiveQuery } from "@tanstack/react-db"
 import { flowEditTodoInput } from "../flows/entries/flow"
 import { ViewSkeleton } from "../ViewSkeleton"
 import { flowAction, flowProps } from "../flows/FlowAction"
@@ -35,12 +36,13 @@ export const FlowCard = ({ model: source, allowed, dispatch, View = FlowView, vi
   const active = new Set(activeVersion?.steps.map(step => step.id))
   const model = { ...source, versions: source.versions.map(version => ({ ...version,
     steps: version.steps.map(step => "wait" in step ? step : { ...step, added: activeVersion !== undefined && version.state !== "active" && !active.has(step.id) }) })) }
-  const definitions: CardActionDefinition[] = []
+  const definitions: CardActionDefinition<CatalogTag, "agent">[] = []
   for (const [tag, label] of [["flow.source", "Source"], ["flow.plan", "Plan"], ["flow.run", "Run"], ["flow.edit", "Edit"]] as const) {
     if (allowed.has(tag) && (!model.system || tag === "flow.plan")) definitions.push({ tag, label, command_input: { name: model.name } })
   }
   if (!model.system && allowed.has("flow.edit") && model.proposal !== undefined) definitions.push({ tag: "todo.new", label: "Make TODO", command_input: flowEditTodoInput(model.name, model.proposal.request, model.proposal.diff) })
-  const bindings = cardActions(dispatch, definitions)
+  if (allowed.has("agent")) definitions.push({ tag: "agent", label: "Agent", gesture: "agent", command_input: { name: "" }, resolve_input: input => ({ name: input.name ?? "" }) })
+  const bindings = cardActions<"agent">(dispatch, definitions)
   return <View model={model} actions={bindings.actions} gestures={bindings.gestures} onAction={bindings.onAction} view={view} onView={onView} />
 }
 
@@ -135,7 +137,7 @@ export const WorkflowListCardBody = ({
         {workflows.map((workflow) => (
           <li key={workflow.key} className="workflow-list-row">
             <div className="workflow-list-text">
-              <strong>{workflow.description ?? workflow.key.replace(/^issue\//, "issue.")}</strong>
+              <button type="button" {...flowAction(onRunCommand, "flow", flowArgs("flow", { name: workflow.key }))}><strong>{workflow.description ?? workflow.key.replace(/^issue\//, "issue.")}</strong></button>
               {workflow.description !== null ? <span>{workflow.key.replace(/^issue\//, "issue.")}</span> : null}
               {workflow.prompt ? <Markdown className="smithers-card-markdown" content={workflow.prompt} /> : null}
             </div>
@@ -166,27 +168,39 @@ export const workflowCardFamily: CardFamily<"workflow-repo" | "workflow-list"> =
 /*
  * The `flow` kind (card-kinds.md L5, T-APP-05): the card names its flow; this
  * reads the model. On an install it is GET /api/flows (controller.flowCatalog),
- * where Edit is the one press: Source, Plan and Run wait on their providers.
+ * where Edit, Source and agent navigation use install providers; Plan and Run await machine composition.
  * MOCK SEAM elsewhere: the seeded design world (state/seams/DesignWorld/run.ts),
  * whose Source and Edit are the design seam's presses.
  */
-const DESIGN_FLOW_ACTIONS: ReadonlySet<CatalogTag> = new Set<CatalogTag>(["flow.source", "flow.edit"])
-const INSTALL_FLOW_ACTIONS: ReadonlySet<CatalogTag> = new Set<CatalogTag>(["flow.edit"])
-const INSTALL_SOURCE_FLOW_ACTIONS: ReadonlySet<CatalogTag> = new Set<CatalogTag>(["flow.edit", "flow.source"])
+const DESIGN_FLOW_ACTIONS: ReadonlySet<CatalogTag> = new Set<CatalogTag>(["flow.source", "flow.edit", "agent"])
+const INSTALL_FLOW_ACTIONS: ReadonlySet<CatalogTag> = new Set<CatalogTag>(["flow.edit", "flow.source", "agent"])
 const UNAVAILABLE_FLOW_ACTIONS: ReadonlySet<CatalogTag> = new Set()
 const NO_FLOWS: FlowsSnapshot = {}
 const noCatalog: FlowsSnapshots = { subscribe: () => () => {}, get: () => NO_FLOWS }
 const FlowBody = ({ card, maximized }: { readonly card: CardOf<"flow">; readonly maximized: boolean }) => {
   const controller = useController()
   const world = useDesignWorld()
+  const identity = useLiveQuery(controller.store.collections.identitySessions).data[0]
+  const member = controller.design.enabled ? controller.design.viewer() : identity?.login
+  const saved = useLiveQuery(controller.store.collections.cards).data.find(row => row.id === card.id)
+  const payload = saved?.kind === "flow" ? saved.payload : card.payload
   const catalog = controller.flowCatalog ?? noCatalog
   const served = useSyncExternalStore(catalog.subscribe, catalog.get, catalog.get)
   const model = controller.flowCatalog === undefined ? flowCardOf(world, card.payload.name) : served.flows?.find(flow => flow.name === card.payload.name)
   const dispatch: CardCommandDispatch = (tag, input) =>
     controller.commands.submit({ name: tag, payload: (input ?? {}) as Record<string, unknown>, actor: "user", originCardId: card.id })
-  const proposed = model === undefined || card.payload.proposal === undefined ? model : { ...model, proposal: card.payload.proposal }
-  return <FlowCard model={proposed} allowed={controller.flowCatalog === undefined ? DESIGN_FLOW_ACTIONS : served.error !== undefined ? UNAVAILABLE_FLOW_ACTIONS : model?.versions.some(version => version.state === "proposed" && version.todo !== undefined) ? INSTALL_SOURCE_FLOW_ACTIONS : INSTALL_FLOW_ACTIONS} dispatch={dispatch}
-    view={{ maximized }} onView={() => {}} />
+  if (model === undefined && controller.flowCatalog !== undefined) return served.error !== undefined
+    ? <p role="alert">{served.error}</p>
+    : served.flows === undefined ? <ViewSkeleton /> : <p role="alert">{`No flow ${card.payload.name}`}</p>
+  const proposed = model === undefined || payload.proposal === undefined ? model : { ...model, proposal: payload.proposal }
+  return <FlowCard model={proposed} allowed={controller.flowCatalog === undefined ? DESIGN_FLOW_ACTIONS : served.error !== undefined ? UNAVAILABLE_FLOW_ACTIONS : INSTALL_FLOW_ACTIONS} dispatch={dispatch}
+    view={{ maximized, tab: member === undefined || member === null ? undefined : payload.memberVersions?.[member] ?? payload.version }} onView={patch => {
+      if (!member || patch.tab === undefined || !model?.versions.some(version => version.id === patch.tab)) return
+      const current = controller.store.collections.cards.get(card.id)
+      if (current?.kind !== "flow" || current.payload.memberVersions?.[member] === patch.tab) return
+      controller.store.dispatch({ type: "card.upsert", actor: "user", card: { ...current,
+        payload: { ...current.payload, memberVersions: { ...current.payload.memberVersions, [member]: patch.tab } } } })
+    }} />
 }
 export const flowCardFamily: CardFamily<"flow"> = {
   flow: { render: (card, actions) => <FlowBody card={card} maximized={actions.presentation === "maximized"} />, pill: () => "" }

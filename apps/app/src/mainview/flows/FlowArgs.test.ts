@@ -23,6 +23,9 @@ const roundTrip = <N extends FlowWithInput>(name: N, input: FlowInput[N], line: 
 }
 
 describe("flowArgs — one serialisation, and the grammar gives the values back", () => {
+  test("a flow list row opens its named version card", () => {
+    roundTrip("flow", { name: "issue/repro" }, '{"name":"issue/repro"}', { name: "issue/repro" })
+  })
   test("flow authoring keeps prose distinct from the selected repository", () => {
     roundTrip("flow.new", { description: "Compare owner/other with today", repo: "will/flows" },
       '{"description":"Compare owner/other with today","repo":"will/flows"}',

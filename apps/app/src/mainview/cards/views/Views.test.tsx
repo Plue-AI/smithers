@@ -63,7 +63,7 @@ for (const path of paths) {
             displays.push(host.textContent)
           }
           expect(onAction).toHaveBeenCalledTimes(0)
-          expect(onView).toHaveBeenCalledTimes(0)
+          expect(onView).toHaveBeenCalledTimes(host.querySelectorAll(".flow-version").length)
         }
         for (const text of story.expect) {
           if (story.name.startsWith("actor-")) {
@@ -1338,8 +1338,13 @@ test("Members story renders unexpected supplied owner actions for oracle detecti
 // T-UI-10 / C-UI-12: literal state and action oracles, selection is local.
 import { fixtures as flows } from "@smthrs/rpc/fixtures/Flow"
 import { FlowView } from "./FlowView"
+import type { FlowViewProps } from "@smthrs/rpc/FlowCard"
+function ControlledFlowView(props: FlowViewProps) {
+  const [view, setView] = useState(props.view)
+  return <FlowView {...props} view={view} onView={patch => { props.onView(patch); setView(current => ({ ...current, ...patch })) }} />
+}
 for (const [id, fixture] of Object.entries(flows)) test(`Flow ${id}`, () => {
-  const host = render(<FlowView {...fixture} onAction={() => {}} onView={() => {}} />)
+  const host = render(<ControlledFlowView {...fixture} onAction={() => {}} onView={() => {}} />)
   const displays = [host.textContent]
   for (const button of host.querySelectorAll<HTMLButtonElement>(".flow-version")) {
     act(() => button.click())
@@ -1347,32 +1352,32 @@ for (const [id, fixture] of Object.entries(flows)) test(`Flow ${id}`, () => {
   }
   for (const text of fixture.expect) expect(displays.join("\n")).toContain(text)
 })
-test("Flow version selection is local and marks only supplied added true", () => {
+test("Flow version selection patches its member view and marks only supplied added true", () => {
   const calls = mock((..._args: unknown[]) => {})
-  const host = render(<FlowView {...flows.proposed} onAction={calls} onView={calls} />)
+  const host = render(<ControlledFlowView {...flows.proposed} onAction={calls} onView={calls} />)
   expect(host.querySelector('[aria-pressed="true"]')?.textContent).toContain("Active")
   act(() => host.querySelector<HTMLButtonElement>('[data-state="proposed"]')!.click())
   expect(host.textContent).toContain("Update docs")
   expect(host.querySelectorAll('[data-added="true"]').length).toBe(1)
   expect(host.querySelector('[data-added="true"]')?.textContent).toContain("Update docs")
-  expect(calls).toHaveBeenCalledTimes(0)
-  act(() => root!.render(<FlowView {...flows.proposed} model={{ ...flows.proposed.model, versions: [{ id: "v4", state: "proposed", steps: [{ id: "docs", label: "Update docs", added: false }, { id: "other", label: "Other" }] }] }} onAction={calls} onView={calls} />))
+  expect(calls.mock.calls).toEqual([[{ tab: "v4" }]])
+  act(() => root!.render(<ControlledFlowView {...flows.proposed} model={{ ...flows.proposed.model, versions: [{ id: "v4", state: "proposed", steps: [{ id: "docs", label: "Update docs", added: false }, { id: "other", label: "Other" }] }] }} onAction={calls} onView={calls} />))
   expect(host.querySelectorAll("[data-added]").length).toBe(0)
 })
 test("Flow actions retain literal order and bindings; omitted and disabled controls", () => {
   const calls = mock((..._args: unknown[]) => {})
-  const host = render(<FlowView {...flows.active} onAction={calls} onView={() => { throw new Error("Unexpected view patch") }} />)
+  const host = render(<ControlledFlowView {...flows.active} onAction={calls} onView={() => { throw new Error("Unexpected view patch") }} />)
   expect([...host.querySelectorAll('[data-flow]')].map(button => button.textContent)).toEqual(["Source", "Plan", "Run", "Edit"])
   for (const button of host.querySelectorAll<HTMLButtonElement>('[data-flow]')) act(() => button.click())
   expect(calls.mock.calls).toEqual([["flow.source", { name: "todo" }], ["flow.plan", { name: "todo" }], ["flow.run", { name: "todo" }], ["flow.edit", { name: "todo" }]])
-  act(() => root!.render(<FlowView {...flows.active} actions={[{ tag: "flow.run", label: "Run", disabled: { reason: "No machine available" } }]} onAction={calls} onView={() => {}} />))
+  act(() => root!.render(<ControlledFlowView {...flows.active} actions={[{ tag: "flow.run", label: "Run", disabled: { reason: "No machine available" } }]} onAction={calls} onView={() => {}} />))
   expect(host.querySelector('[data-flow="flow.source"]')).toBeNull()
   expect(host.textContent).toContain("No machine available")
   act(() => host.querySelector<HTMLButtonElement>('[data-flow="flow.run"]')!.click())
   expect(calls).toHaveBeenCalledTimes(4)
 })
 test("Flow source is inert text and merge signals use supplied targets", () => {
-  const host = render(<FlowView {...flows.active} model={{ ...flows.active.model, source: { path: '<script>throw new Error("executed")</script>' } }} onAction={() => {}} onView={() => {}} />)
+  const host = render(<ControlledFlowView {...flows.active} model={{ ...flows.active.model, source: { path: '<script>throw new Error("executed")</script>' } }} onAction={() => {}} onView={() => {}} />)
   expect(host.querySelector("script")).toBeNull()
   expect(host.textContent).toContain('<script>throw new Error("executed")</script>')
   expect(host.textContent).toContain("Wait for merge")
@@ -1384,23 +1389,23 @@ for (const [fixture, labels] of [
   [flows.proposed, ["Active", "ProposedT12"]],
   [flows.merged_syncing, ["Merged · active after syncT12", "Active"]],
   [flows.merged_failed, ["Merged · not activeT12", "Active"]],
-  [flows.previous, ["Active", "Previous"]],
+  [flows.previous, ["Active"]],
 ] as const) test(`Flow version words: ${labels.join(", ")}`, () => {
-  const host = render(<FlowView {...fixture} onAction={() => {}} onView={() => {}} />)
+  const host = render(<ControlledFlowView {...fixture} onAction={() => {}} onView={() => {}} />)
   expect([...host.querySelectorAll(".flow-version")].map(chip => chip.textContent)).toEqual([...labels])
   expect(host.querySelector('.flow-version[aria-pressed="true"]')?.textContent).toBe("Active")
 })
 
 // Mock Flow.tsx: the visible title and accessible name agree; signal arrows are decorative.
 test("Flow accessible title and decorative signal arrows", () => {
-  const host = render(<FlowView {...flows.active} onAction={() => {}} onView={() => {}} />)
+  const host = render(<ControlledFlowView {...flows.active} onAction={() => {}} onView={() => {}} />)
   expect(host.querySelector("section")?.getAttribute("aria-label")).toBe("TODO flow")
   expect([...host.querySelectorAll('.flow-signal [aria-hidden="true"]')].map(node => node.textContent)).toEqual(["↺", "↺"])
 })
 
 // Flow mock: only the selected failed version owns its error; Active remains usable.
 test("Flow load failure belongs to selected version", () => {
-  const host = render(<FlowView {...flows.merged_failed} onAction={() => {}} onView={() => {}} />)
+  const host = render(<ControlledFlowView {...flows.merged_failed} onAction={() => {}} onView={() => {}} />)
   expect(host.textContent).not.toContain("Load failed")
   act(() => host.querySelector<HTMLButtonElement>('[data-state="merged-failed"]')!.click())
   expect(host.textContent).toContain("Load failed")
@@ -1417,7 +1422,7 @@ test("Flow load failure belongs to selected version", () => {
 // FlowCard error is optional: absent/blank diagnostics do not invent detail text.
 test("Flow failed version without diagnostics has no disclosure", () => {
   for (const diagnostic of [undefined, "", "   "]) {
-    const host = render(<FlowView {...flows.merged_failed} model={{ ...flows.merged_failed.model, versions: [{ id: "failed", state: "merged-failed", steps: [], error: diagnostic }] }} onAction={() => {}} onView={() => {}} />)
+    const host = render(<ControlledFlowView {...flows.merged_failed} model={{ ...flows.merged_failed.model, versions: [{ id: "failed", state: "merged-failed", steps: [], error: diagnostic }] }} onAction={() => {}} onView={() => {}} />)
     expect(host.querySelector(".flow-failure b")?.textContent).toBe("Load failed")
     expect(host.querySelector(".flow-failure details")).toBeNull()
     expect(host.textContent).not.toContain("undefined")
@@ -1426,12 +1431,12 @@ test("Flow failed version without diagnostics has no disclosure", () => {
 
 test("Flow without supplied actions keeps versions usable and matches its sole stylesheet", () => {
   const calls = mock((..._args: unknown[]) => {})
-  const host = render(<FlowView {...flows.proposed} actions={[]} onAction={calls} onView={calls} />)
+  const host = render(<ControlledFlowView {...flows.proposed} actions={[]} onAction={calls} onView={calls} />)
   expect(host.querySelectorAll('[data-flow]')).toHaveLength(0)
   act(() => host.querySelector<HTMLButtonElement>('.flow-version[data-state="proposed"]')!.click())
   expect(host.querySelector('.flow-steps [data-added="true"]')?.textContent).toContain("Update docs")
   expect(host.querySelector('.flow-path')?.textContent).toBe("Built-in")
-  expect(calls).toHaveBeenCalledTimes(0)
+  expect(calls.mock.calls).toEqual([[{ tab: "v4" }]])
   const css = readFileSync(new URL("../../styles/cards.css", import.meta.url), "utf8")
   for (const node of host.querySelectorAll('[class]')) for (const name of node.classList) {
     if (name.startsWith("flow-")) expect(css).toContain(`.${name}`)
