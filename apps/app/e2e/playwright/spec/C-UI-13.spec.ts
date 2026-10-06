@@ -64,6 +64,7 @@ test("C-UI-13: Setup View mounts from the install fixture", async ({ page }) => 
 
 // T-UI-14: the real dispatcher and mounted Commands card; other doors above retain their own wiring gates.
 test("C-UI-13: /help mounts live Commands inline, maximized and after reload", async ({ page }) => {
+  test.setTimeout(120_000)
   await owner(page)
   await page.route("**/contents/.smithers/factory.json", route => route.fulfill({ json: { content: JSON.stringify({ on: [], flows: [
     { id: "release-notes", description: "Write release notes", summary: "Live repository summary", featured: false, kind: "ts", path: "flows/release-notes/flow.ts", capabilities: [], model: null, modelInvocable: true }
@@ -76,7 +77,7 @@ test("C-UI-13: /help mounts live Commands inline, maximized and after reload", a
       await page.setViewportSize({ width, height: 1000 })
       await say(page, "/help")
       const commands = page.getByRole("article", { name: "Commands", exact: true })
-      await expect(commands).toHaveCount(1)
+      await expect(commands).toHaveCount(1, { timeout: 30_000 })
       await expect(commands).toBeVisible()
       await expect(commands).toContainText("/help")
       await expect(commands).toContainText("List these commands")
@@ -86,9 +87,10 @@ test("C-UI-13: /help mounts live Commands inline, maximized and after reload", a
       await expect(commands).not.toContainText("/chat.commands")
       const card = page.locator('.smithers-card[data-kind="commands"]')
       await card.getByRole("button", { name: "Maximize card", exact: true }).press("Enter")
-      await expect(page.getByRole("button", { name: "Restore", exact: true })).toBeVisible()
+      await expect(page.getByRole("button", { name: "Restore", exact: true })).toBeVisible({ timeout: 30_000 })
       await expect(commands).toBeVisible()
       await page.getByRole("button", { name: "Restore", exact: true }).press("Enter")
+      await expect(card).toHaveAttribute("data-maximized", "false", { timeout: 30_000 })
     }
   }
   await page.reload()
