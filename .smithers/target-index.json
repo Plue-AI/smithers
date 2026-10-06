@@ -22083,6 +22083,10 @@
       },
       {
         "kind": "file",
+        "path": "flows/test/coding-candidate-equality.test.ts"
+      },
+      {
+        "kind": "file",
         "path": "flows/test/coding-vibe-landing.test.ts"
       },
       {
