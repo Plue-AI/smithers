@@ -13,7 +13,7 @@ beforeAll(() => {
 }, 30_000)
 afterAll(() => { rmSync(root, { recursive: true, force: true }) })
 
-for (const args of [["unknown"], ["host", "stop", "extra"], ["host", "status", "extra"], ["host", "start", "--bundle"], ["host", "start", "--bind"], ["host", "start", "--origin"], ["host", "start", "--unknown"]]) {
+for (const args of [["unknown"], ["host", "stop", "extra"], ["host", "status", "extra"], ["host", "start", "--bundle"], ["host", "start", "--bind"], ["host", "start", "--origin"], ["host", "start", "extra"], ["host", "start", "--unknown"]]) {
   test(`compiled bundle CLI refuses ${args.join(" ")} before service effects`, () => {
     const result = Bun.spawnSync([binary, ...args], { env: { HOME: root, PATH: "/usr/bin:/bin" } })
     expect(result.exitCode).toBe(1)
@@ -31,6 +31,23 @@ requiresMacOS("compiled bundle CLI refuses invalid bundles before service effect
   const result = Bun.spawnSync([binary, "host", "start", "--bundle", bundle], { env: { HOME: root, PATH: "/usr/bin:/bin" } })
   expect(result.exitCode).toBe(1)
   expect(new TextDecoder().decode(result.stderr)).toContain("Invalid bundle manifest")
+    for (const flags of [
+      ["--bind", "127.0.0.1", "--origin", "https://smithers.example", "--origin", "https://team.example"],
+      ["--origin=https://smithers.example", "--bind=127.0.0.1"]
+    ]) {
+      const accepted = Bun.spawnSync([binary, "host", "start", ...flags, "--bundle", bundle], { env: { HOME: root, PATH: "/usr/bin:/bin" } })
+      expect(accepted.exitCode).toBe(1)
+      expect(new TextDecoder().decode(accepted.stderr)).toContain("Invalid bundle manifest")
+    }
+    for (const flags of [
+      ["--bind", "not-an-address"],
+      ["--origin", "https://smithers.example/path"],
+      ["--origin", "https://smithers.example", "--origin", "https://smithers.example"]
+    ]) {
+      const refused = Bun.spawnSync([binary, "host", "start", "--bundle", bundle, ...flags], { env: { HOME: root, PATH: "/usr/bin:/bin" } })
+      expect(refused.exitCode).toBe(1)
+      expect(new TextDecoder().decode(refused.stderr)).toMatch(/Invalid (bind address|public origin)/)
+    }
   expect(existsSync(join(root, "Library/LaunchAgents/sh.smithers.host.plist"))).toBe(false)
 })
 
