@@ -28,13 +28,14 @@ type TranscriptIngest struct {
 	Store     *chat.Store
 	Resolve   func(context.Context, pgx.Tx, string, uint32) (TranscriptBinding, error)
 	Normalize TranscriptNormalize
+	Host      transcriptAdapter
 }
 
 // Write composes with Ingestor: normalization, chat journal and machine receipt
 // commit together before acknowledgment. No dispatcher or execution API is used.
 func (s *TranscriptIngest) Write(ctx context.Context, tx pgx.Tx, branch string, event machined.Event) (machined.Acknowledgement, error) {
 	ack := machined.Acknowledgement{Seq: event.Seq}
-	if s == nil || s.Store == nil || s.Resolve == nil || s.Normalize == nil {
+	if s == nil || s.Store == nil || s.Resolve == nil || (s.Normalize == nil && s.Host == nil) {
 		return ack, machined.ErrNotReady
 	}
 	record, err := wire.DecodeTranscript(event.Payload)
@@ -55,7 +56,12 @@ func (s *TranscriptIngest) Write(ctx context.Context, tx pgx.Tx, branch string, 
 	if repository != binding.Scope.RepositoryID {
 		return ack, machined.ErrUnauthorized
 	}
-	drafts, err := s.Normalize(ctx, tx, branch, binding, record)
+	var drafts []chat.ExternalDraft
+	if s.Normalize != nil {
+		drafts, err = s.Normalize(ctx, tx, branch, binding, record)
+	} else {
+		drafts, err = s.normalizeHost(ctx, tx, branch, binding, record, event.EventID)
+	}
 	if err != nil {
 		return ack, err
 	}
