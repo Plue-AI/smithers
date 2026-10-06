@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/hex"
 	"errors"
+	"fmt"
 	"net"
 	"strings"
 	"testing"
@@ -43,11 +44,12 @@ func TestRegistryFileRPC(t *testing.T) {
 	}
 	result := make(chan read, 1)
 	go func() { file, err := r.ReadFile(t.Context(), "a", "README.md", ""); result <- read{file, err} }()
+	helloDigest, _ := hex.DecodeString("2cf24dba5fb0a30e26e83b2ac5b9e29e1b161e5c1fa7425e73043362938b9824")
 	digest, _ := hex.DecodeString(strings.Repeat("ab", 32))
-	answer(t, peer, wire.ReadFile, wire.Field(1, wire.Bytes([]byte("hello"))), wire.Field(2, digest), wire.Field(3, wire.U32(420)))
+	answer(t, peer, wire.ReadFile, wire.Field(1, wire.Bytes([]byte("hello"))), wire.Field(2, helloDigest), wire.Field(3, wire.U32(420)))
 	got := <-result
 	require.NoError(t, got.err)
-	require.Equal(t, File{Content: []byte("hello"), Digest: strings.Repeat("ab", 32), Mode: 420}, got.file)
+	require.Equal(t, File{Content: []byte("hello"), Digest: hex.EncodeToString(helloDigest), Mode: 420}, got.file)
 	type written struct {
 		result WriteResult
 		err    error
@@ -57,7 +59,8 @@ func TestRegistryFileRPC(t *testing.T) {
 		result, err := r.WriteFiles(t.Context(), "a", []byte("host-author"), []FileChange{{Path: "first", Content: []byte("a")}, {Path: "second", Content: []byte("b")}})
 		writes <- written{result, err}
 	}()
-	answer(t, peer, wire.WriteFile, wire.Field(1, digest), wire.Field(2, wire.Struct(wire.Field(1, wire.String("first")), wire.Field(2, digest))))
+	aDigest, _ := hex.DecodeString("ca978112ca1bbdcafac231b39a23dc4da786eff8147c4e72b9807785afee48bb")
+	answer(t, peer, wire.WriteFile, wire.Field(1, aDigest), wire.Field(2, wire.Struct(wire.Field(1, wire.String("first")), wire.Field(2, digest))))
 	request, err := wire.Read(peer)
 	require.NoError(t, err)
 	id, method, _, err := request.Request()
@@ -303,4 +306,37 @@ func TestRegistryRosterFailureCannotAdmit(t *testing.T) {
 	go func() { done <- r.AdmitReady(t.Context(), "a", strings.Repeat("a", 40), nil) }()
 	require.ErrorIs(t, <-done, failure)
 	require.ErrorIs(t, link.RequireReady("a"), ErrNotReady)
+}
+
+func TestRegistryRejectsFalseFileDigests(t *testing.T) {
+	for _, method := range []wire.Method{wire.ReadFile, wire.WriteFile} {
+		t.Run(fmt.Sprint(method), func(t *testing.T) {
+			r, link, peer := rpcFixture(t)
+			done := make(chan error, 1)
+			go func() {
+				if method == wire.ReadFile {
+					file, err := r.ReadFile(t.Context(), "a", "README.md", "")
+					if len(file.Content) != 0 {
+						done <- fmt.Errorf("unverified bytes escaped")
+						return
+					}
+					done <- err
+				} else {
+					result, err := r.WriteFiles(t.Context(), "a", []byte("member"), []FileChange{{Path: "README.md", Content: []byte("hello")}})
+					if len(result.Applied) != 0 {
+						done <- fmt.Errorf("unverified receipt escaped")
+						return
+					}
+					done <- err
+				}
+			}()
+			if method == wire.ReadFile {
+				answer(t, peer, method, wire.Field(1, wire.Bytes([]byte("hello"))), wire.Field(2, make([]byte, 32)), wire.Field(3, wire.U32(420)))
+			} else {
+				answer(t, peer, method, wire.Field(1, make([]byte, 32)))
+			}
+			require.ErrorIs(t, <-done, wire.BadValue)
+			require.ErrorIs(t, link.RequireReady("a"), ErrUnauthorized)
+		})
+	}
 }
