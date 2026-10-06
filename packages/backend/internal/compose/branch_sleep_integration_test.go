@@ -254,6 +254,16 @@ func TestBranchSleepStoredFilesInstallNeverWake(t *testing.T) {
 	require.NoError(t, json.Unmarshal(readPath("/api/branches/"+id, 200), &projection))
 	require.Equal(t, head, projection.Head)
 	require.Equal(t, "asleep", projection.State)
+	// The Branch card remains readable without captured objects. File reads
+	// still require the independently verified retained head and never wake.
+	_, err = pool.Exec(ctx, `UPDATE workspaces SET head_commit_id='' WHERE id=$1`, id)
+	require.NoError(t, err)
+	require.NoError(t, json.Unmarshal(readPath("/api/branches/"+id, 200), &projection))
+	require.Equal(t, "asleep", projection.State)
+	readPath("/api/branches/"+id+"/files/src/backoff.ts", 503)
+	_, err = pool.Exec(ctx, `UPDATE workspaces SET head_commit_id=$2 WHERE id=$1`, id, head)
+	require.NoError(t, err)
+
 	require.NoError(t, json.Unmarshal(readPath("/api/branches/"+id+"/files/src/backoff.ts", 200), &branchFile))
 	require.Equal(t, backoff, branchFile.Content.Text)
 	read("/files/content?path=src/retry.ts", 200)

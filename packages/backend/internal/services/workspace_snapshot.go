@@ -23,13 +23,22 @@ type workspaceSnapshotStore interface {
 	GetFileAtCommit(context.Context, string, string, string, string) (repohost.FileContent, error)
 }
 
+// Metadata and snapshot reads share the credential's branch restriction.
+// Snapshot verification belongs only to reads that consume retained objects.
+func authorizeWorkspaceReadBinding(ctx context.Context, row db.Workspace) error {
+	if delegation, delegated := middleware.AuthInfoFromContext(ctx).Delegation(); delegated && (delegation.Branch == "" || !strings.EqualFold(delegation.Branch, row.ID)) {
+		return pkgerrors.Forbidden("credential is bound to another branch")
+	}
+	return nil
+}
+
 func (s *WorkspaceService) workspaceSnapshotTarget(ctx context.Context, id string, repositoryID, userID int64) (db.Workspace, string, string, string, bool, error) {
 	row, err := s.loadWorkspaceWithAccess(ctx, id, repositoryID, userID, WorkspaceAccessRead)
 	if err != nil {
 		return row, "", "", "", false, err
 	}
-	if delegation, delegated := middleware.AuthInfoFromContext(ctx).Delegation(); delegated && (delegation.Branch == "" || !strings.EqualFold(delegation.Branch, row.ID)) {
-		return row, "", "", "", false, pkgerrors.Forbidden("credential is bound to another branch")
+	if err := authorizeWorkspaceReadBinding(ctx, row); err != nil {
+		return row, "", "", "", false, err
 	}
 	if row.Status != "suspended" && row.Status != "stopped" {
 		return row, "", "", "", false, nil
@@ -72,6 +81,19 @@ func (s *WorkspaceService) workspaceSnapshotTarget(ctx context.Context, id strin
 		}
 	}
 	return unavailable()
+}
+
+// RetainedBranchHead verifies the objects behind an asleep branch's file
+// reads. A metadata projection is not a snapshot verification receipt.
+func (s *WorkspaceService) RetainedBranchHead(ctx context.Context, id string, repositoryID, userID int64) (string, error) {
+	_, _, _, head, asleep, err := s.workspaceSnapshotTarget(ctx, id, repositoryID, userID)
+	if err != nil {
+		return "", err
+	}
+	if !asleep {
+		return "", pkgerrors.New(pkgerrors.CodeServiceUnavailable, "branch snapshot changed")
+	}
+	return head, nil
 }
 
 func (s *WorkspaceService) readWorkspaceSnapshot(ctx context.Context, owner, repo, head, relative string) (WorkspaceFileContent, error) {
