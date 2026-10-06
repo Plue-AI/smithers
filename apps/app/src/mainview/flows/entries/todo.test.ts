@@ -32,7 +32,7 @@ const boot = async (install = false) => {
 const agent = (controller: Awaited<ReturnType<typeof boot>>["controller"], name: string, args?: string) => controller.commands.executeForAgent({
   name: "commands", arguments: JSON.stringify({ action: "execute", name, args })
 })
-test("TODO controls share the catalog and browser agent writes require the conversation host", async () => {
+test("TODO model doors remain catalogued but browser execution refuses before confirmation", async () => {
   const h = await boot()
   try {
     const entries = h.controller.commands.entries().filter(entry => nameOf(entry) === "todo" || nameOf(entry).startsWith("todo."))
@@ -438,11 +438,13 @@ test("on an install, person's slash and card Drop wait for confirmation and only
   } finally { h.controller.dispose() }
 })
 
-test("on an install, browser agent Drop refuses without a host confirmation or write", async () => {
+test("on an install, browser tool delivery cannot create or approve a Drop confirmation", async () => {
   const h = await boot(true)
   try {
     expect(await agent(h.controller, "todo.drop", "T12")).toBe("failed: this command runs on the conversation host")
     expect(h.mutations).toEqual([])
     expect([...h.store.collections.messages.values()].filter(message => message.action?.flow === "todo.drop")).toHaveLength(0)
+    expect(await h.controller.commands.confirm("host-confirmation", "untrusted-revision")).toEqual({ status: "failed", error: "Confirmation is stale." })
+    expect(h.mutations).toEqual([])
   } finally { h.controller.dispose() }
 })
