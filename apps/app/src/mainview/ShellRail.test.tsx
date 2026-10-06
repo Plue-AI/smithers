@@ -356,3 +356,49 @@ test("install shared history feeds the rail with recorded actors and the transcr
   expect(rows[0]!.glyph).toEqual({ actor: { kind: "person", login: "alice", name: "alice", avatar_url: PlaceholderAvatarUrl, color_index: 2 } })
   expect(rows[1]!.glyph).toEqual({ actor: { kind: "agent", id: "run-1", agent: "smithers", for_member: { login: "alice", name: "alice", avatar_url: PlaceholderAvatarUrl }, avatar_url: PlaceholderAvatarUrl, color_index: 2 } })
 })
+
+
+test("member toast hiding leaves shared lines present and timeline leases use private view state", async () => {
+  const store = await createAppStore({ kind: "localStorage", storage: memoryStorage() })
+  await store.dispatch({ type: "identity.session.loaded", actor: "system", state: "signed-in", login: "smithersai", admin: false, scopesPlain: null }).isPersisted.promise
+  let view: Record<string, unknown> = { toasts_hidden: true, scroll_anchor: "turn:prompt" }
+  const writes: Record<string, unknown>[] = []
+  const controller = createAppController(store, silentAgent, {
+    bootstrap: { apiVersion: 1, host: "local", version: "test", buildSha: "test", capabilities: ["install", "agent", "identity"], authFlow: "none", sandbox: null },
+    fetchImpl: async (input, init) => {
+      const path = new URL(String(input), "https://install.test").pathname
+      if (path === "/api/conversations/main/view-state") {
+        if (init?.method === "PUT") { view = JSON.parse(String(init.body)); writes.push(view) }
+        return Response.json(view)
+      }
+      return path === "/api/user" ? Response.json({ id: 1, username: "smithersai", is_admin: false }) : path === "/api/conversations/main" ? Response.json({ id: "main", entries: [{ id: "turn", author: 2, authorLogin: "alice", runId: "run", prompt: "Check tests", title: "Check tests", tone: "failed", state: "failed", frames: [] }] })
+        : path === "/api/install" ? Response.json(installFixture()) : path === "/api/todos" ? Response.json([]) : new Response("", { status: 404 })
+    }
+  })
+  await store.dispatch({ type: "toast.shown", actor: "system", key: "own-failure", title: "Tests failed", sourceCard: "turn:answer" }).isPersisted.promise
+  await store.dispatch({ type: "toast.resolved", actor: "system", key: "own-failure", title: "Tests failed", detail: "Lint", status: "failed" }).isPersisted.promise
+  const host = mount(<ControllerTestProvider controller={controller}><MessageScrollerProvider><ShellRail home={false} entries={[]} /></MessageScrollerProvider></ControllerTestProvider>)
+  await waitFor(() => host.querySelector('[data-entry="turn:answer"]') !== null)
+  expect(host.querySelectorAll(".notice")).toHaveLength(0)
+  expect(store.collections.toasts.get("toast-own-failure")?.status).toBe("failed")
+  await controller.sharedConversation!.saveView({ toasts_hidden: false })
+  await waitFor(() => host.querySelectorAll(".notice").length === 1)
+  expect(host.querySelector('[data-entry="turn:answer"]')?.getAttribute("data-tone")).toBe("failed")
+  const before = Date.now()
+  controller.sharedConversation!.setTimelineVisible(true)
+  await waitFor(() => typeof view.timeline_visible_until === "string")
+  expect(Date.parse(view.timeline_visible_until as string) - before).toBeGreaterThanOrEqual(30_000)
+  expect(Date.parse(view.timeline_visible_until as string) - Date.now()).toBeLessThanOrEqual(30_000)
+  expect(view.scroll_anchor).toBe("turn:prompt")
+  try {
+    Object.defineProperty(document, "hidden", { configurable: true, value: true })
+    document.dispatchEvent(new Event("visibilitychange"))
+    await waitFor(() => view.timeline_visible_until === null)
+    Object.defineProperty(document, "hidden", { configurable: true, value: false })
+    document.dispatchEvent(new Event("visibilitychange"))
+    await waitFor(() => typeof view.timeline_visible_until === "string")
+  } finally { Reflect.deleteProperty(document, "hidden") }
+  controller.sharedConversation!.setTimelineVisible(false)
+  await waitFor(() => view.timeline_visible_until === null)
+  expect(writes.at(-1)).toEqual({ toasts_hidden: false, scroll_anchor: "turn:prompt", timeline_visible_until: null })
+})
