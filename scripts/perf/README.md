@@ -39,7 +39,7 @@ are not copied into artifacts. A driver is not reference-host evidence: no
 passing real-stack run has been recorded yet. The operator must ensure this
 runner is the second Mac and the selected install is the reference Mac mini.
 
-Outstanding: five other public-boundary drivers, 20 fixed repository/wiki questions,
+Outstanding: five other public-boundary drivers,
 browser and SSH fixtures, remaining §20.3 latency/wake/burst producers,
 qualified network/machine security evidence,
 real raw-sample artifacts, second-Mac runs, and
