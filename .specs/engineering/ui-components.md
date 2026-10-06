@@ -639,7 +639,9 @@ its command. Moved-off copy reads "<actor> moved this branch off Tn".
 Activity distinguishes Steer, Answer, Asked and Asks in the retained mock.
 Named gestures are `item`, `file` and `terminal`. Each optional supplied action
 opens the TODO, file (path and optional line) or terminal (id); bound args are
-retained. No gesture means plain text. Renamed files open renamed_to.
+retained. The live item gesture binds the supplied TODO number through `todo`
+when its `showTodo` provider is composed, including on closed branches; input
+cannot replace that number. No gesture means plain text. Renamed files open renamed_to.
 
 ### T-UI-16 File live states (S2)
 

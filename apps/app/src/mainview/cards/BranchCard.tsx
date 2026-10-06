@@ -49,6 +49,8 @@ export const liveBranchActionDefinitions = (model: BranchModel, providers: Reado
   if (model.terminals.length) definitions.push({ tag: "terminal.watch", label: "Watch", gesture: "terminal",
     command_input: { id: "" }, resolve_input: input => ({ id: input.id ?? "" }) })
   const n = model.item?.n
+  if (n !== undefined) definitions.push({ tag: "todo", label: model.item!.title, gesture: "item",
+    command_input: { n }, resolve_input: () => ({ n }) })
   definitions.push({ tag: "file", label: "Open", gesture: "file",
     command_input: { path: "", branch: model.name },
     resolve_input: input => ({ path: input.path ?? "", branch: model.name,
@@ -126,6 +128,7 @@ export const LiveBranchBody = ({ card, actions }: { readonly card: CardOf<"branc
   if (controller.design.enabled !== false && branch?.data === undefined
     && (branch?.error === undefined || branch.error === "unknown_topic" || branch.error === "unsupported")) return <DesignBranchBody card={card} actions={actions} />
   const providers = new Set<CatalogTag>()
+  if (typeof controller.showTodo === "function") providers.add("todo")
   if (controller.branchFiles?.available()) providers.add("file")
   if (controller.terminalCards?.available()) providers.add("terminal.watch")
   if (controller.forkBranch) providers.add("branch.fork")

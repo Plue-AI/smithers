@@ -12,7 +12,11 @@ test("C-UI-12 TODO: Open branch reaches the install provider from a REST-served 
     merge: { state: "waiting", reason: "attention", on_github: false }
   }
   await page.route("**/api/todos", route => route.fulfill({ json: [model] }))
-  await page.route("**/api/todos/24", route => route.fulfill({ json: model }))
+  const todoReads: string[] = []
+  await page.route("**/api/todos/24", route => {
+    todoReads.push(route.request().method())
+    return route.fulfill({ json: model })
+  })
   const reads: string[] = []
   await page.route("**/api/branches/smithers%2Fretry-webhooks", route => {
     reads.push(route.request().method())
@@ -47,6 +51,11 @@ test("C-UI-12 TODO: Open branch reaches the install provider from a REST-served 
   await expect(branch.getByRole("tab", { name: "Terminals", exact: true })).toHaveAttribute("aria-selected", "true")
   await branch.getByRole("tab", { name: "Activity", exact: true }).press("Enter")
   await expect(branch.getByRole("tab", { name: "Activity", exact: true })).toHaveAttribute("aria-selected", "true")
+  const previousReads = todoReads.length
+  await branch.getByRole("button", { name: "Retry from the install", exact: true }).press("Enter")
+  await expect.poll(() => todoReads.length).toBe(previousReads + 1)
+  await expect(todo).toContainText("Retry from the install")
+  expect(todoReads.every(method => method === "GET")).toBe(true)
   expect(reads).toEqual(["GET"])
   await expect(page.getByTestId("composer-input")).toBeEnabled()
 })

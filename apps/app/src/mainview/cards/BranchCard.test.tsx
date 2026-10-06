@@ -299,3 +299,16 @@ test("registered live terminal links dispatch Watch and disappear with unavailab
     expect(host.querySelector('[data-flow="terminal.watch"]')).toBeNull()
   } finally { await act(async () => root.unmount()); provider.dispose(); live.dispose(); controller.design.dispose() }
 })
+
+test("live item gestures open only the supplied TODO and require its provider", () => {
+  const model = definitionsOf(make(), "b-retry").model
+  const { calls, dispatch } = recorder()
+  cardActions(dispatch, liveBranchActionDefinitions(model, new Set())).onAction("todo", { n: "200" })
+  expect(calls).toEqual([])
+  const bindings = cardActions(dispatch, liveBranchActionDefinitions(model, new Set(["todo"])))
+  expect(bindings.gestures.item?.tag).toBe("todo")
+  bindings.onAction("todo", { n: "200" })
+  expect(calls).toEqual([["todo", { n: 9 }]])
+  expect(liveBranchActionDefinitions({ ...model, item: undefined }, new Set(["todo"]))).toEqual([])
+  expect(liveBranchActionDefinitions({ ...model, machine: { state: "closed" } }, new Set(["todo"]))[0]?.gesture).toBe("item")
+})
