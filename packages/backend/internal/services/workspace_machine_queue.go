@@ -51,6 +51,22 @@ func isMachineCapacityError(err error) bool {
 func machineQueueHolder(workspaceID string) string { return "workspace:" + workspaceID }
 
 type personMachineDemandKey struct{}
+type sessionMachineDemandKey struct{}
+
+func sessionMachineActor(userID int64, sessionID string) string {
+	return fmt.Sprintf("person:%d:session:%s", userID, sessionID)
+}
+
+func (s *WorkspaceService) validateMachineSession(ctx context.Context, row db.Workspace, actor int64, sessionID string) error {
+	session, err := s.q.GetWorkspaceSession(ctx, sessionID)
+	if err != nil {
+		return err
+	}
+	if session.WorkspaceID != row.ID || session.RepositoryID != row.RepositoryID || session.UserID != actor || (session.Status != "pending" && session.Status != "starting" && session.Status != "running") {
+		return context.Canceled
+	}
+	return nil
+}
 
 // A person's wake is classified by its entry point, never by whether that
 // person happens to own the branch's workspace row.
@@ -61,6 +77,9 @@ func personMachineDemand(ctx context.Context) context.Context {
 func machineDemand(ctx context.Context, row db.Workspace, requesterID int64) (string, string) {
 	person, _ := ctx.Value(personMachineDemandKey{}).(bool)
 	if person || requesterID != row.UserID {
+		if sessionID, _ := ctx.Value(sessionMachineDemandKey{}).(string); sessionID != "" {
+			return "person", sessionMachineActor(requesterID, sessionID)
+		}
 		return "person", fmt.Sprintf("person:%d", requesterID)
 	}
 	return "todo", machineQueueHolder(row.ID)
@@ -186,12 +205,18 @@ func (s *WorkspaceService) EnableMachineAdmission(freeDisk func(context.Context)
 			}
 			defer func() { _ = tx.Rollback(context.WithoutCancel(ctx)) }()
 			if request.Class == "person" {
-				actor, err := strconv.ParseInt(strings.TrimPrefix(request.Actor, "person:"), 10, 64)
+				parts := strings.SplitN(strings.TrimPrefix(request.Actor, "person:"), ":session:", 2)
+				actor, err := strconv.ParseInt(parts[0], 10, 64)
 				if err != nil {
 					return err
 				}
 				if err := p.Membership(ctx, tx, row.RepositoryID, actor); err != nil {
 					return err
+				}
+				if len(parts) == 2 {
+					if err := s.validateMachineSession(ctx, row, actor, parts[1]); err != nil {
+						return err
+					}
 				}
 			}
 			if err := p.LaneBinding(ctx, tx, row.RepositoryID, row.TargetBookmark, row.ID); err != nil {
