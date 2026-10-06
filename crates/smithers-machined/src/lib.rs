@@ -15,6 +15,7 @@ pub mod rpc;
 pub mod session_stream;
 pub mod moved_off;
 pub mod stream;
+pub mod transcript;
 
 pub mod attrib;
 pub mod events;
