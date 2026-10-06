@@ -62,7 +62,7 @@ export const FileCardSchema = z.object({
     z.object({ kind: z.literal("deleted"), by: ActorSchema }),
     z.object({ kind: z.literal("renamed"), to: z.string(), by: ActorSchema })
   ]).optional(),
-  outside: z.object({ version: z.string(), at: z.string() }).optional(),
+  outside: z.object({ version: z.string(), at: z.string(), post_digest: z.string().optional() }).optional(),
   authors: z.array(ActorSchema),
   editors: z.array(z.object({ actor: ActorSchema, line: z.number().int().positive() })),
   saved: z.enum(["saving", "saved"]).optional(),
@@ -115,3 +115,11 @@ export type FileCardCallbacks = CardCallbacks<
   | "code.hover"
   | "code.definition"
 >
+
+/** The immediate disk-write hint on branch:<id>:files. */
+export const FileWrittenSchema = z.object({
+  kind: z.literal("file_written"), path: z.string(), post_digest: z.string(), actor: ActorSchema
+})
+
+/** Hint topics replace the previous hint; they do not append an unbounded event log. */
+export const projectBranchFiles = (_previous: unknown, delta: unknown): unknown => FileWrittenSchema.parse(delta)

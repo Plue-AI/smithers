@@ -47,6 +47,7 @@ export const subjectFlows = (actions: CommandActions): ReadonlyArray<FlowEntry> 
   const open = async (card: Parameters<CommandActions["presentSubject"]>[0]): Promise<CommandResult> => ({ value: await actions.presentSubject(card) })
   /* An install's issues are its repository's GitHub issues, through IssuesSeam (GET /api/issues). */
   const install = () => actions.bootstrap?.capabilities.includes("install") === true
+  const realFiles = () => install() || actions.branchFiles.available()
   return [
     flow({ name: "issue", summary: "Open an issue's card", args: "#n", discloseToAgent: true,
       grammar: numbered(), input: Schema.Struct({ number: Schema.Number }),
@@ -68,6 +69,7 @@ export const subjectFlows = (actions: CommandActions): ReadonlyArray<FlowEntry> 
     flow({ name: "file", summary: "Open and co-edit a file", args: "<path>", discloseToAgent: true,
       grammar: positional("path"), input: Schema.Struct({ path: Schema.String, branch: Schema.optional(Schema.String), line: Schema.optional(Schema.Number) }),
       handler: ({ path, branch, line }) => {
+        if (realFiles()) return actions.branchFiles.open(path, branch, line)
         const world = design.world()
         if (path === "") return open(fileListCard(repo(), findBranch(world, branch ?? "")?.id ?? "main"))
         const file = findFile(world, path, branch, design.viewer())
@@ -75,11 +77,12 @@ export const subjectFlows = (actions: CommandActions): ReadonlyArray<FlowEntry> 
       } }),
     flow({ name: "files", summary: "Browse a branch's files", args: "[branch]", discloseToAgent: true,
       grammar: positional("branch"), input: Schema.Struct({ branch: Schema.optional(Schema.String) }),
-      handler: ({ branch }) => open(fileListCard(repo(), findBranch(design.world(), branch ?? "")?.id ?? "main")) }),
+      handler: ({ branch }) => realFiles() ? actions.branchFiles.list(branch) : open(fileListCard(repo(), findBranch(design.world(), branch ?? "")?.id ?? "main")) }),
     flow({ name: "diff", summary: "Show a branch's changes", args: "[branch|path]", discloseToAgent: true,
       grammar: positional("subject"),
       input: Schema.Struct({ subject: Schema.optional(Schema.String), branch: Schema.optional(Schema.String), path: Schema.optional(Schema.String), entry: Schema.optional(Schema.String) }),
       handler: ({ subject, branch, path }) => {
+        if (realFiles()) return actions.branchDiff(branch ?? subject)
         const world = design.world()
         const wanted = path ?? subject ?? ""
         const file = wanted === "" ? undefined : findFile(world, wanted, branch, design.viewer())
@@ -90,14 +93,28 @@ export const subjectFlows = (actions: CommandActions): ReadonlyArray<FlowEntry> 
         const target = findBranch(world, branch ?? wanted) ?? (wanted === "" && branch === undefined ? fallback : undefined)
         return target === undefined ? `Nothing to diff for ${wanted}` : open(diffCard(repo(), target.id, target.name))
       } }),
-    flow({ name: "file.restore", summary: "Restore this file", args: "<path>", hidden: true,
-      grammar: positional("path"), input: Schema.Struct({ path: Schema.String, branch: Schema.optional(Schema.String), revision: Schema.optional(Schema.String) }),
-      handler: ({ path, branch }) => {
+    flow({ name: "file.restore", summary: "Restore this file", args: "<path>", hidden: true, discloseToAgent: true,
+      grammar: positional("path"), input: Schema.Struct({ path: Schema.String, branch: Schema.optional(Schema.String), revision: Schema.optional(Schema.String), post_digest: Schema.optional(Schema.String) }),
+      handler: ({ path, branch, revision, post_digest }) => {
+        if (realFiles()) return revision && post_digest ? actions.branchFiles.restoreVersion(path, branch, revision, post_digest) : actions.branchFiles.action("file.restore", path, branch)
         const file = findFile(design.world(), path, branch, design.viewer())
         if (file === undefined) return `No file ${path}`
         const result = design.restoreFile(file.id)
         return result.ok ? { value: result.ack } : result.refusal
       } }),
+    ...(["file.compare", "file.restore-deleted", "file.follow-rename"] as const).map(name => flow({
+      name, summary: name === "file.compare" ? "Compare" : name === "file.restore-deleted" ? "Restore" : "Follow", hidden: true, discloseToAgent: true,
+      grammar: positional("path"), input: Schema.Struct({ path: Schema.String, branch: Schema.optional(Schema.String) }),
+      handler: ({ path, branch }) => {
+        if (realFiles()) return actions.branchFiles.action(name, path, branch)
+        const file = findFile(design.world(), path, branch, design.viewer())
+        if (!file) return `No file ${path}`
+        if (name === "file.follow-rename" && file.gone?.kind === "renamed") return open(fileCard(repo(), file.branch, file.gone.to ?? file.path))
+        if (name === "file.compare") return open(diffCard(repo(), file.id, file.path))
+        const result = design.restoreFile(file.id)
+        return result.ok ? { value: result.ack } : result.refusal
+      }
+    })),
     flow({ name: "wiki.page", summary: "Open or create a page", args: "<name>", discloseToAgent: true,
       grammar: positional("name"), input: Schema.Struct({ name: Schema.NonEmptyString }),
       handler: ({ name }) => {

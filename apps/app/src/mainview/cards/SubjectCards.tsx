@@ -12,7 +12,7 @@ import { Button, Markdown } from "@smthrs/ui"
 import type { CatalogTag } from "@smthrs/rpc/CardAction"
 import type { DiffCard } from "@smthrs/rpc/DiffCard"
 import type { CodeEditorViewProps, FileCard } from "@smthrs/rpc/FileCard"
-import { BookOpen, CircleAlert, CircleDot, ExternalLink, FileSymlink, FileX, FolderSync, GitCommitHorizontal, Info, Link2, Signpost } from "lucide-react"
+import { BookOpen, CircleAlert, CircleDot, ExternalLink, GitCommitHorizontal, Info, Link2, Signpost } from "lucide-react"
 import { useController } from "../ControllerContext"
 import { flowAction, type FlowActionProps } from "../flows/FlowAction"
 import { flowArgs, hasFlowArgs } from "../flows/FlowArgs"
@@ -143,6 +143,9 @@ const FileBody = ({ card, subject }: { readonly card: Extract<Card, { kind: "fil
   if (file === undefined) return null
   const model: FileCard = { ...designFileCard(world, file, card.payload.line), ...intel }
   const answer = (tag: CatalogTag, input?: Record<string, string>) => {
+    if (tag === "file.restore" || tag === "file.restore-deleted") { press(tag, { path: file.path, branch: file.branch, revision: "before" }).onClick(); return }
+    if (tag === "file.compare") { press("file.compare", { path: file.path, branch: file.branch }).onClick(); return }
+    if (tag === "file.follow-rename" && model.gone?.kind === "renamed") { press("file.follow-rename", { path: file.path, branch: file.branch }).onClick(); return }
     const line = Number(input?.line)
     const col = Number(input?.col)
     if (!Number.isInteger(line) || !Number.isInteger(col)) return
@@ -154,27 +157,12 @@ const FileBody = ({ card, subject }: { readonly card: Extract<Card, { kind: "fil
       if (reveal !== undefined) setIntel(current => ({ ...current, reveal }))
     }
   }
-  const restore = press("file.restore", { path: file.path, branch: file.branch, revision: "before" })
   return (
     <div className="design-subject" data-subject="file">
-      {model.gone === undefined ? null : (
-        <div className="mvp-file-notice" data-mock="file-gone">
-          {model.gone.kind === "deleted" ? <FileX size={14} aria-hidden="true" /> : <FileSymlink size={14} aria-hidden="true" />}
-          <span>{model.gone.kind === "deleted" ? `Deleted by ${actorName(model.gone.by)}` : <>Renamed to <code>{model.gone.to.split("/").at(-1)}</code> by {actorName(model.gone.by)}</>}</span>
-          <span className="mvp-actions-end"><Button size="sm" variant="outline" {...restore}>Restore</Button></span>
-        </div>
-      )}
-      {model.outside === undefined || model.gone !== undefined ? null : (
-        <div className="mvp-file-notice" data-tone="outside" data-mock="file-outside">
-          <FolderSync size={14} aria-hidden="true" />
-          <span>Changed outside Smithers</span>
-          <span className="mvp-actions-end"><Button size="sm" variant="outline" {...restore}>Restore</Button></span>
-        </div>
-      )}
       {model.editors.length === 0 ? null : (
         <div className="mvp-meta"><span className="mvp-wiki-authors">{model.editors.map((each, index) => <ActorChip key={index} actor={each.actor} size="s" />)}</span></div>
       )}
-      <CodeSurface model={model} actions={[]} gestures={FILE_GESTURES} onAction={answer} view={{ maximized: false }} onView={() => {}} />
+      <CodeSurface model={model} actions={model.gone?.kind === "renamed" ? [{ tag: "file.follow-rename", label: "Follow" }] : model.gone?.kind === "deleted" ? [{ tag: "file.restore-deleted", label: "Restore" }] : model.outside ? [{ tag: "file.compare", label: "Compare" }] : []} gestures={FILE_GESTURES} onAction={answer} view={{ maximized: false }} onView={() => {}} />
     </div>
   )
 }

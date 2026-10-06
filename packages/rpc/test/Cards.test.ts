@@ -1783,6 +1783,9 @@ const FIXTURES: Record<
   file: {
     minimal: { repo: "smithersai/smithers", path: "README.md", content: "# hi\n", truncated: false },
     full: {
+      file: { path: "README.md", branch: "b12", language: "markdown", digest: "digest-2", content: { kind: "text", text: "# current\n" }, mode: "read_only", diagnostics: [], authors: [], editors: [] },
+      compare: true,
+      comparison: { version: "versions-17", text: "# before\n" },
       workspaceId: gatewayWorkspaceId,
       repo: "smithersai/smithers",
       localRepoId: "repo-1",
@@ -2028,6 +2031,7 @@ const FIXTURES: Record<
       files: []
     },
     full: {
+      branchFiles: [{ path: "retry.ts", branch: "b12", against: { kind: "item_base", rev: "candidate-11" }, change: "modified", hunks: [{ old_start: 1, new_start: 1, lines: [{ op: "-", text: "const n = 1" }, { op: "+", text: "const n = 2" }] }] }],
       repo: "smithersai/smithers",
       changeId: "qupxosqw",
       from: "4",

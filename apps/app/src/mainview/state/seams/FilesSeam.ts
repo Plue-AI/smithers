@@ -11,7 +11,7 @@ import { preparedView,type ViewAction,type ViewResult } from "../PreparedView"
  * decodeContent :117). Parsing is defensive: unknown JSON in, typed card
  * payload out, malformed rows drop; failures are honest strings, never throws.
  */
-import { FileCardSchema, type FileCard } from "@smthrs/rpc/FileCard"
+import { FileCardSchema, FileWrittenSchema, projectBranchFiles, type FileCard } from "@smthrs/rpc/FileCard"
 import { fileListCard, type FileListEntry } from "@smthrs/rpc/FileList"
 import { fileReadCard } from "@smthrs/rpc/FileRead"
 import { refusalOf } from "@smthrs/rpc/Refusal"
@@ -20,7 +20,7 @@ import type { AppStore } from "../AppStore"
 import { resolveTargetRepo } from "../RepoContext"
 import type { SeamContext } from "./SeamContext"
 import { readContentsPages } from "./ContentsPages"
-import { refusalWords,readErrorMessage,unreachableSentence } from "./SeamContext"
+import { refusalWords,readErrorMessage,readResult,unreachableSentence } from "./SeamContext"
 
 /*
  * Both commands answer a `value` beside the card: the card is what the human
@@ -409,10 +409,18 @@ export const BRANCH_FILE_PROVIDERS = [
 export interface BranchFileOptions {
   readonly ready: (provider: typeof BRANCH_FILE_PROVIDERS[number]) => boolean
   /** Authenticated host scope; null after removal/sign-out. Sleeping reads require a captured head. */
+  readonly topics?: import("../useTopic").LiveTopics
+  readonly onDispose?: (dispose: () => void) => void
   readonly scope: () => { branch: string; member: string; revision: number; sleeping: boolean; capturedHead?: string } | null
 }
 export type BranchFileAnswer<T> = { readonly ok: T } | { readonly error: string }
 export interface BranchFileOperations {
+  readonly available: () => boolean
+  readonly list: (branch?: string) => Promise<string | { value: string }>
+  readonly restoreVersion: (path: string, branch: string | undefined, version: string, postDigest: string) => Promise<string | { value: string }>
+  readonly open: (path: string, branch?: string, line?: number) => Promise<string | { value: string }>
+  readonly action: (tag: "file.restore" | "file.restore-deleted" | "file.compare" | "file.follow-rename", path: string, branch?: string) => Promise<string | { value: string }>
+
   readonly read: (branch: string, path: string, digest?: string) => Promise<BranchFileAnswer<FileCard>>
   readonly reload: (file: FileCard, event: { path: string; post_digest: string; actor: FileCard["last_writer"] }) => Promise<BranchFileAnswer<FileCard> | undefined>
   readonly restore: (file: FileCard, burst: { version: string; post_digest: string }, deleted?: boolean) => Promise<BranchFileAnswer<FileCard> | { readonly compare: unknown }>
@@ -475,7 +483,123 @@ const branchFileOperations = (ctx: SeamContext, options?: BranchFileOptions): Br
       return current(scope) ? { ok: body } : { error: "Branch access was removed." }
     } catch { return { error: "Could not compare the file." } }
   }
-  return {
+  const project = async (model: FileCard, id?: string, line?: number, actor: "user" | "smithers" | "system" = ctx.actor()) => {
+    const cardId = id ?? `file-branch-${model.branch}-${model.path}`
+    const previous = ctx.store.collections.cards.get(cardId)
+    const text = model.content.kind === "binary" ? "" : model.content.text
+    await ctx.dispatch({ type: "card.upsert", actor, card: {
+      id: cardId, kind: "file", title: model.path, status: "active",
+      createdAt: previous?.createdAt ?? Date.now(), ordinal: previous?.ordinal ?? ctx.nextOrdinal(),
+      payload: { ...(previous?.kind === "file" ? previous.payload : {}), repo: model.branch, path: model.path,
+        content: text, truncated: false, binary: model.content.kind === "binary", digest: model.digest,
+        file: model, ref: options?.scope()?.sleeping ? options.scope()?.capturedHead : undefined, compare: false, comparison: undefined, ...(line === undefined ? {} : { line }) }
+    } }).isPersisted.promise
+    return readResult(text)
+  }
+  const watches = new Map<string, () => void>()
+  options?.onDispose?.(() => { for (const stop of watches.values()) stop(); watches.clear() })
+  const watch = (branch: string) => {
+    if (!options?.topics || watches.has(branch)) return
+    const topic = `branch:${branch}:files`
+    options.topics.registerProjection?.(topic, projectBranchFiles)
+    let cursor: number | undefined
+    const receive = () => {
+      const snapshot = options.topics!.getSnapshot(topic)
+      if (!snapshot || snapshot.error || snapshot.cursor === cursor) return
+      cursor = snapshot.cursor
+      const data = snapshot.data
+      const events = Array.isArray(data) ? data : [data]
+      for (const event of events) {
+        const parsed = FileWrittenSchema.safeParse(event)
+        if (!parsed.success) continue
+        const written = parsed.data
+        for (const card of ctx.store.collections.cards.values()) {
+          if (card.kind !== "file" || card.payload.file?.branch !== branch || card.payload.path !== written.path) continue
+          const original = card.payload.file
+          void operations.reload(original, { path: written.path, post_digest: written.post_digest, actor: written.actor }).then(async answer => {
+            if (!answer || !("ok" in answer)) return
+            const currentCard = ctx.store.collections.cards.get(card.id)
+            if (currentCard?.kind !== "file" || currentCard.payload.file?.branch !== branch || currentCard.payload.path !== original.path || currentCard.payload.file.digest !== original.digest) return
+            await project(answer.ok, card.id, undefined, "system")
+          })
+        }
+      }
+    }
+    watches.set(branch, options.topics.subscribe(topic, receive))
+    receive()
+  }
+  const operations: BranchFileOperations = {
+    available: () => !!options?.scope() && BRANCH_FILE_PROVIDERS.every(provider => options.ready(provider)),
+    list: async (branch = options?.scope()?.branch) => {
+      if (!branch) return "Branch access was removed."
+      const scope = scopeFor(branch, "listing")
+      if ("error" in scope) return scope.error
+      try {
+        const query = scope.sleeping ? `?at=${encodeURIComponent(scope.capturedHead!)}` : ""
+        const response = await ctx.http(`${ctx.baseUrl}/api/branches/${encodeURIComponent(branch)}/files${query}`)
+        if (!response.ok) return readErrorMessage(response, "Could not list files.")
+        const body: unknown = await response.json()
+        if (!current(scope)) return "Branch access was removed."
+        if (!Array.isArray(body)) return "The file listing response was malformed."
+        const entries = body.flatMap(row => { const entry = parseEntry(row); return entry ? [entry] : [] })
+        const result = fileListCard({ repo: branch, path: "", entries }, ctx.nextOrdinal(), Date.now())
+        await ctx.dispatch({ type: "card.upsert", actor: ctx.actor(), card: { ...result.card, id: `files-branch-${branch}` } }).isPersisted.promise
+        return { value: result.value ?? "" }
+      } catch { return "Could not list files." }
+    },
+    restoreVersion: async (path, branch = options?.scope()?.branch, version, postDigest) => {
+      if (!branch) return "Branch access was removed."
+      const loaded = await read(branch, path)
+      if ("error" in loaded) return loaded.error
+      const file = { ...loaded.ok, outside: { version, post_digest: postDigest, at: "" } }
+      const answer = await operations.restore(file, { version, post_digest: postDigest })
+      if ("error" in answer) return answer.error
+      await project("ok" in answer ? answer.ok : file)
+      watch(branch)
+      if ("compare" in answer) {
+        if (!isRecord(answer.compare) || typeof answer.compare.text !== "string") return "The comparison response was malformed."
+        const id = `file-branch-${branch}-${path}`
+        const card = ctx.store.collections.cards.get(id)
+        if (card?.kind !== "file") return "Open the file first."
+        await ctx.dispatch({ type: "card.updated", actor: ctx.actor(), id, patch: { payload: { ...card.payload, compare: true, comparison: { version, text: answer.compare.text } } } }).isPersisted.promise
+        return { value: answer.compare.text }
+      }
+      return { value: "Restored" }
+    },
+    open: async (path, branch = options?.scope()?.branch, line) => {
+      if (!branch) return "Branch access was removed."
+      const answer = await read(branch, path)
+      if ("error" in answer) return answer.error
+      const result = await project(answer.ok, undefined, line)
+      watch(branch)
+      return result
+    },
+    action: async (tag, path, branch = options?.scope()?.branch) => {
+      const card = [...ctx.store.collections.cards.values()].find(card => card.kind === "file" && card.payload.file?.branch === branch && card.payload.path === path)
+      if (card?.kind !== "file" || !card.payload.file) return "Open the file first."
+      const file = card.payload.file
+      if (tag === "file.follow-rename") {
+        const answer = await operations.follow(file)
+        return "error" in answer ? answer.error : project(answer.ok, card.id)
+      }
+      if (!file.outside) return "The file has no captured version."
+      if (tag === "file.restore" && !file.outside.post_digest) return "The file has no captured digest."
+      const answer = tag === "file.compare" ? await compare(file, file.outside.version)
+        : await operations.restore(file, { version: file.outside.version, post_digest: file.outside.post_digest ?? "absent" }, tag === "file.restore-deleted")
+      if ("error" in answer) return answer.error
+      const comparison = "compare" in answer ? answer.compare : tag === "file.compare" ? answer.ok : undefined
+      if (comparison !== undefined) {
+        if (!isRecord(comparison) || typeof comparison.text !== "string") return "The comparison response was malformed."
+        if (ctx.store.collections.cards.get(card.id) !== card) return "The file changed while loading."
+        await ctx.dispatch({ type: "card.updated", actor: ctx.actor(), id: card.id, patch: { payload: {
+          ...card.payload, compare: true, comparison: { version: file.outside.version, text: comparison.text }
+        } } }).isPersisted.promise
+        return { value: comparison.text }
+      }
+      if (ctx.store.collections.cards.get(card.id) !== card) return "The file changed while loading."
+      if ("ok" in answer) return project(answer.ok as FileCard, card.id)
+      return "Could not restore the file."
+    },
     read, compare,
     reload: async (file, event) => {
       if (event.path !== file.path || event.post_digest === file.digest) return undefined
@@ -513,4 +637,5 @@ const branchFileOperations = (ctx: SeamContext, options?: BranchFileOptions): Br
       } catch { return { error: "Could not restore the file." } }
     }
   }
+  return operations
 }

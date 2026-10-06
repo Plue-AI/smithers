@@ -130,19 +130,19 @@ test("unavailable Compare and Reapply refuse in the production dispatcher withou
   const controller = createAppController(store, {
     available: false, startTurn: async () => ({ status: "error", message: "unavailable" }),
     cancelTurn: async () => {}, subscribe: () => () => {}
-  }, { fetchImpl: async input => { requests.push(String(input)); return new Response("{}", { status: 404 }) } })
+  }, { bootstrap: { apiVersion: 1, host: "local", version: "test", buildSha: "test", capabilities: ["install"], authFlow: "none", sandbox: null }, fetchImpl: async input => { requests.push(String(input)); return new Response("{}", { status: 404 }) } })
   try {
     await store.dispatch({ type: "identity.session.loaded", actor: "system", state: "signed-in", login: "maya", admin: false, scopesPlain: null }).isPersisted.promise
     const cards = [...store.collections.cards.values()]
     const world = JSON.stringify(controller.design.world())
     requests.length = 0
     for (const name of ["file.compare", "file.reapply", "file.restore-deleted", "file.follow-rename"]) {
-      expect((await controller.runCommandForResult(name, JSON.stringify({ path: "retry.ts", version: "retained-17" }))).status).toBe("unknown-command")
+      expect((await controller.runCommandForResult(name, JSON.stringify({ path: "retry.ts", version: "retained-17" }))).status).toBe(name === "file.reapply" ? "unknown-command" : "failed")
     }
     expect([...store.collections.cards.values()]).toEqual(cards)
     expect(JSON.stringify(controller.design.world())).toBe(world)
     expect(requests).toEqual([])
-  } finally { controller.dispose() }
+  } finally { await controller.dispose() }
 })
 
 describe("file listing bindings", () => {

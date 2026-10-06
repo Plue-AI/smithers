@@ -3,6 +3,7 @@ import type { EditorBinding } from "@smthrs/ui/adapters/code-editor"
 import { LiveFileContext, liveFileModel, type FileDocumentBinding } from "./liveDoc"
 import { CodeSurface } from "../ViewModules"
 import { cardActions } from "../flows/cardActions"
+import { flowArgs } from "../flows/FlowArgs"
 import { flowAction } from "../flows/FlowAction"
 import { fileArgs } from "@smthrs/rpc/FileRead"
 /*
@@ -203,7 +204,7 @@ export const FileListCardBody = ({
                     <Button
                       variant="ghost"
                       size="sm"
-                      {...flowAction(onRunCommand, read, fileArgs(childPath(path, entry.name), scope))}
+                      {...(card.id.startsWith("files-branch-") ? flowAction(onRunCommand, "file", flowArgs("file", { path: childPath(path, entry.name), branch: repo })) : flowAction(onRunCommand, read, fileArgs(childPath(path, entry.name), scope)))}
                     >
                       <FileText size={12} aria-hidden="true" />
                       <span className="world-card-title">{entry.name}</span>
@@ -222,9 +223,10 @@ export const FileListCardBody = ({
 
 /** Legacy journal data maps to S1 props without granting execution authority. */
 export const fileModel = (payload: Extract<Card, { kind: "file" }>["payload"]): FileCard => {
+  if (payload.file) return { ...payload.file, mode: "read_only" }
   const bytes = new TextEncoder().encode(payload.content).length
   return {
-    path: payload.path, branch: payload.ref ?? payload.repo, language: "", digest: "",
+    path: payload.path, branch: payload.ref ?? payload.repo, language: "", digest: payload.digest ?? "",
     content: bytes > LiveFileMaxBytes
       ? { kind: "too_large", bytes, text: payload.content }
       : { kind: "text", text: payload.content }, mode: "read_only",
@@ -241,7 +243,7 @@ export const FileCardBody = ({ card, live, onRunCommand }: { readonly card: Extr
   const documents = useContext(LiveFileContext)
   const document = live ?? documents?.resolve(payload.ref ?? payload.repo, payload.path)
   // Old binary cards carry no byte count. Do not invent one.
-  if (payload.binary) return <p className="code-file-size">Binary file</p>
+  if (payload.binary && !payload.file) return <p className="code-file-size">Binary file</p>
   if (document) return <LiveFileBody card={card} document={document} onRunCommand={onRunCommand} />
   return <FileContent card={card} model={fileModel(payload)} onRunCommand={onRunCommand} />
 }
@@ -272,11 +274,22 @@ export const fileIntelligenceActions = (
 const FileContent = ({ card, model, binding, onRunCommand }: { card: Extract<Card, { kind: "file" }>; model: FileCard; binding?: EditorBinding | undefined } & FileCardActions) => {
   const payload = card.payload
   const controller = useContext(ControllerContext)
-  const bindings = fileIntelligenceActions(payload, onRunCommand, tag => controller?.commands.find(tag) !== undefined)
+  const bindings = fileIntelligenceActions(payload, onRunCommand, tag => !(payload.file && payload.ref) && controller?.commands.find(tag) !== undefined)
+  const presence = cardActions((tag, input) => {
+    if (tag === "file.restore-deleted" || tag === "file.follow-rename" || tag === "file.compare")
+      return controller?.commands.submit({ name: tag, payload: { ...input, branch: model.branch }, actor: "user", originCardId: card.id })
+  },
+    model.gone?.kind === "renamed" ? [{ tag: "file.follow-rename", label: "Follow", command_input: { path: model.path } }]
+      : model.gone?.kind === "deleted" ? [{ tag: "file.restore-deleted", label: "Restore", command_input: { path: model.path } }]
+      : model.outside ? [{ tag: "file.compare", label: "Compare", command_input: { path: model.path } }] : [])
+  const onAction: typeof bindings.onAction = (tag, input) => {
+    if (tag === "code.hover" || tag === "code.definition") bindings.onAction(tag, input)
+    else presence.onAction(tag, input)
+  }
   return <div className="world-card-panel" data-line={payload.line}>
     <LazyViewerBoundary fallback={<pre className="world-card-path">{payload.content}</pre>}>
       <Suspense fallback={<pre className="world-card-path">{payload.content}</pre>}>
-        <CodeSurface binding={binding} model={model} view={{ maximized: false }} {...bindings} onView={() => {}} />
+        <CodeSurface binding={binding} model={model} comparison={payload.comparison} view={{ maximized: false, compare: payload.compare }} {...bindings} actions={presence.actions} onAction={onAction} onView={() => {}} />
       </Suspense>
     </LazyViewerBoundary>
     {payload.truncated ? <p className="world-card-empty">Truncated</p> : null}

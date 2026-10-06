@@ -27,6 +27,8 @@ import {
 } from "./Changes.ts"
 import { type DraftCard, DraftCardSchema } from "./DraftCard.ts"
 import { FactoryRuleSchema } from "./FactoryProjection.ts"
+import { DiffCardSchema } from "./DiffCard.ts"
+import { FileCardSchema } from "./FileCard.ts"
 import { GatewayWorkspaceIdSchema } from "./GatewayWorkspace.ts"
 import { StatusRollupSchema } from "./Health.ts"
 import { HARNESS_IDS } from "./LocalApp.ts"
@@ -2084,6 +2086,10 @@ const CurrentCardSchema = z.discriminatedUnion("kind", [
     kind: z.literal("file"),
     payload: z.object({
       repo: z.string(),
+      /** Branch file projection; old pinned cards continue decoding without it. */
+      file: FileCardSchema.optional(),
+      comparison: z.object({ version: z.string(), text: z.string() }).optional(),
+      compare: z.boolean().optional(),
       /** Exact local working copy; retained by refresh and code-intelligence actions. */
       localRepoId: z.string().optional(),
       /** The box the bytes were read from (`box.file`); its markdown links open that box's files. */
@@ -2310,6 +2316,7 @@ const CurrentCardSchema = z.discriminatedUnion("kind", [
       /** Where the `to` side pins: seq null until plue#450 records revisions. */
       pin: RevisionPinSchema,
       files: ChangeDiffSchema.shape.files,
+      branchFiles: z.array(DiffCardSchema).optional(),
       /** The one file this card was cut at, when the flow named one. */
       path: z.string().optional(),
       error: z.string().optional()

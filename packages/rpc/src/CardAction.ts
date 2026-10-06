@@ -240,7 +240,7 @@ export interface CardCommandInput {
   readonly "todo.keep-moved": { readonly n: number }
   readonly "branch.bring-in": z.infer<typeof BranchForeignAnswerInputSchema>
   readonly "branch.discard-foreign": z.infer<typeof BranchForeignAnswerInputSchema>
-  readonly "file.restore": { readonly path: string; readonly revision: string }
+  readonly "file.restore": { readonly path: string; readonly revision: string; readonly post_digest?: string }
   readonly "file.compare": { readonly path: string }
   readonly "file.reapply": { readonly path: string }
   readonly "file.restore-deleted": { readonly path: string }

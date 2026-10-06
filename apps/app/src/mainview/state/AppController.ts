@@ -559,6 +559,7 @@ export interface AppController extends IssueFlowsController {
   readonly readCommit: CommitsSeam["readCommit"]
   readonly branchFiles: FilesSeam["branchFiles"]
   readonly listFiles: FilesSeam["listFiles"]
+  readonly branchDiff: ReturnType<typeof createDiffFilesSeam>["branchDiff"]
   readonly openDiffFile: ReturnType<typeof createDiffFilesSeam>["openDiffFile"]
   readonly readFile: FilesSeam["readFile"]
   /* Code intelligence (docs/code-intel/PLAN.md §4): the three code.* reads against the local language server (seams/CodeIntelSeam.ts). */
@@ -1025,8 +1026,8 @@ export const createAppController = (
   const repoImportSeam = actors.pair(seamCtx, (context) => createRepoImportSeam(context))
   const bookmarksSeam = actors.pair(seamCtx, (context) => createBookmarksSeam(context))
   const commitsSeam = actors.pair(seamCtx, (context) => createCommitsSeam(context))
-  const diffFilesSeam = actors.pair(seamCtx, createDiffFilesSeam)
-  const filesSeam = actors.pair(seamCtx, (context) => createFilesSeam(context, services.branchOptions, installHost))
+  const filesSeam = actors.pair(seamCtx, (context) => createFilesSeam(context, services.branchOptions ? { ...services.branchOptions, topics: services.live, onDispose: ctx.onDispose } : undefined, installHost))
+  const diffFilesSeam = actors.pair(seamCtx, context => createDiffFilesSeam(context, services.branchOptions ? { ...services.branchOptions, topics: services.live, onDispose: ctx.onDispose } : undefined, filesSeam.branchFiles))
   const repoTreeSeam = actors.pair(seamCtx, (context) => createRepoTreeSeam(context))
 
   const gitHubSeam = actors.pair(seamCtx, (context) => createGitHubSeam(context, {
@@ -1940,9 +1941,9 @@ export const createAppController = (
     listCommits: commitsSeam.listCommits,
     readCommit: commitsSeam.readCommit,
     branchFiles: filesSeam.branchFiles,
-    listFiles: filesSeam.listFiles,
+    listFiles: installHost ? (_path, branch) => filesSeam.branchFiles.list(branch) : filesSeam.listFiles,
     ...diffFilesSeam,
-    readFile: filesSeam.readFile,
+    readFile: installHost ? (path, branch, anchor, ref) => ref === undefined ? filesSeam.branchFiles.open(path, branch, anchor?.line) : filesSeam.readFile(path, branch, anchor, ref) : filesSeam.readFile,
     codeHover,
     codeDefinition,
     codeDiagnostics,
@@ -1981,7 +1982,7 @@ export const createAppController = (
     listSessionEgress: egressSeam.listSessionEgress,
     allowEgressHost: egressSeam.allowEgressHost,
     viewChange: changeSeam.viewChange,
-    diffChange: changeSeam.diffChange,
+    diffChange: installHost ? branch => diffFilesSeam.branchDiff(branch) : changeSeam.diffChange,
     landChange: changeSeam.landChange,
     resolveChangeConflict: changeSeam.resolveConflict,
     setChangeFacet: changeSeam.setFacet,

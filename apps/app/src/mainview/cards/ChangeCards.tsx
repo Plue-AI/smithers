@@ -1,3 +1,7 @@
+import { DiffCardSurface } from "./DiffSurface"
+import { cardActions } from "../flows/cardActions"
+import { useContext } from "react"
+import { ControllerContext } from "../ControllerContext"
 import { DiffSurface } from "../ViewModules"
 import { flowAction, flowProps } from "../flows/FlowAction"
 import type React from "react"
@@ -1057,6 +1061,13 @@ export const DiffCardBody = ({
   onRunCommand
 }: { readonly card: DiffCard } & ChangeCardActions) => {
   const { payload } = card
+  const controller = useContext(ControllerContext)
+  if (payload.branchFiles) return <>{payload.branchFiles.map(model => {
+    const bindings = cardActions((tag, input) => {
+      if (tag === "file.restore") void controller?.commands.submit({ name: "file.restore", payload: { ...input, branch: model.branch }, actor: "user", originCardId: card.id })
+    }, model.against.kind === "burst" && model.version && model.post_digest ? [{ tag: "file.restore", label: "Restore this file", command_input: { path: model.path, revision: model.version, post_digest: model.post_digest } }] : [])
+    return <DiffCardSurface key={model.path} model={model} view={{ maximized: false }} {...bindings} onView={() => {}} />
+  })}</>
   return (
     <div className="world-card-list">
       <p className="world-card-path">
