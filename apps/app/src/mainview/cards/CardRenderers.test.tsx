@@ -1,3 +1,4 @@
+import { DEFERRED_CARD_KINDS } from "../state/CardAvailability"
 import { describe, expect, test } from "bun:test"
 import { renderToStaticMarkup } from "react-dom/server"
 import { GlobalRegistrator } from "@happy-dom/global-registrator"
@@ -24,7 +25,7 @@ import { designMembersRoster, designViewerRole } from "../state/seams/DesignWorl
 
 /** Every card kind the wire declares, read off the discriminated union itself. */
 const wireKinds = (): ReadonlyArray<string> =>
-  CardSchema.options.map((option) => option.shape.kind.value).filter(kind => !["retired", "balance", "billing-plans", "stack", "factory.home"].includes(kind))
+  CardSchema.options.map((option) => option.shape.kind.value).filter(kind => !["retired", "balance", "billing-plans", ...DEFERRED_CARD_KINDS].includes(kind))
 
 const base = { id: "card-x", title: "Card", createdAt: 1, ordinal: 1 } as const
 

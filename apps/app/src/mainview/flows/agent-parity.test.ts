@@ -1,3 +1,4 @@
+import { agentVisibleCatalog } from "./agentTools"
 /*
  * The three-door law (apps/app/AGENTS.md; .specs/engineering/spec.md §6.1):
  * every act is ONE flow with three doors — slash, button, agent. `userOnly`
@@ -434,5 +435,14 @@ test("Members doors are a person's: the slash and card commands exist, and the a
   const { controller } = await boot()
   try {
     for (const name of ["members", "members.add", "members.role", "members.remove"]) expect(modelInvocable(controller.commands.find(name)!)).toBe(false)
+  } finally { controller.dispose() }
+})
+
+test("history.bootstrap is hidden from slash discovery and the agent catalog on the cloud host", async () => {
+  const { controller } = await boot(WEB)
+  try {
+    expect(controller.commands.find("history.bootstrap")?.metadata.hidden).toBe(true)
+    expect(controller.commands.disclosed().map(entry => entry.name)).not.toContain("history.bootstrap")
+    expect(agentVisibleCatalog(controller.commands.callable()).map(entry => entry.name)).not.toContain("history.bootstrap")
   } finally { controller.dispose() }
 })
