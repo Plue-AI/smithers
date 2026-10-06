@@ -1,0 +1,25 @@
+{
+  "uid": 1000,
+  "kernel": "7.0.0-38-generic",
+  "helper_sha256": "3897747e8219ba1cb649e0a6284804477dd8a19cab7531ceecd4ff265c4063d1",
+  "results": [
+    {
+      "case": "later-stale",
+      "passed": true,
+      "outside_writer_held_until_settlement": true,
+      "thaw_positive_control": true
+    },
+    {
+      "case": "ancestor-move",
+      "passed": true,
+      "outside_writer_held_until_settlement": true,
+      "thaw_positive_control": true
+    },
+    {
+      "case": "mutation-death",
+      "passed": true,
+      "outside_writer_held_until_settlement": true,
+      "thaw_positive_control": true
+    }
+  ]
+}

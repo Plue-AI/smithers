@@ -746,6 +746,320 @@ def file_digest_at(parent, name, limit):
         os.close(fd)
 
 
+def mutation_path(path):
+    if (not isinstance(path, str) or not path or len(path) > 1024 or "\x00" in path
+            or any(part in ("", ".", "..") for part in path.split("/"))):
+        fail(3, "invalid mutation path")
+    return path.split("/")
+
+
+def mutation_parent(root, path):
+    """Open only existing, non-symlink ancestors; return None when absent."""
+    parts = mutation_path(path)
+    parent = os.dup(root)
+    try:
+        for part in parts[:-1]:
+            try:
+                child = os.open(part, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW, dir_fd=parent)
+            except FileNotFoundError:
+                os.close(parent)
+                return None
+            os.close(parent)
+            parent = child
+        return parent
+    except BaseException:
+        os.close(parent)
+        raise
+
+
+def mutation_read(parent, leaf, limit):
+    if parent is None:
+        return None, None
+    try:
+        fd = os.open(leaf, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK, dir_fd=parent)
+    except FileNotFoundError:
+        return None, None
+    try:
+        info = os.fstat(fd)
+        if not stat.S_ISREG(info.st_mode):
+            fail(3, "mutation input is not a regular file")
+        chunks, count = [], 0
+        while True:
+            chunk = os.read(fd, min(65536, limit + 1 - count))
+            if not chunk:
+                return b"".join(chunks), stat.S_IMODE(info.st_mode) & 0o777
+            chunks.append(chunk)
+            count += len(chunk)
+            if count > limit:
+                fail(4, "mutation exceeds byte limit")
+    finally:
+        os.close(fd)
+
+
+def mutation_digest(body):
+    return "absent" if body is None else hashlib.sha256(body).hexdigest()
+
+
+def mutation_write_new(parent, leaf, body, mode):
+    fd = os.open(leaf, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW,
+                 0o600, dir_fd=parent)
+    try:
+        view = memoryview(body)
+        while view:
+            count = os.write(fd, view)
+            if count <= 0:
+                raise OSError("mutation write made no progress")
+            view = view[count:]
+        os.fchmod(fd, mode)
+        os.fsync(fd)
+    finally:
+        os.close(fd)
+
+
+def mutation_save_state(journal, state):
+    # The old durable state remains authoritative until atomic replacement.
+    try:
+        os.unlink("state.next", dir_fd=journal)
+    except FileNotFoundError:
+        pass
+    body = json.dumps(state, separators=(",", ":"), sort_keys=True).encode()
+    if len(body) > 1 << 20:
+        fail(4, "mutation journal exceeds byte limit")
+    mutation_write_new(journal, "state.next", body, 0o600)
+    os.replace("state.next", "state.json", src_dir_fd=journal, dst_dir_fd=journal)
+    os.fsync(journal)
+
+
+def mutation_identity(journal, limit):
+    # Only the dedicated, dropped mutation worker may consume this journal.
+    # Ordinary exec deliberately retains its team supplementary group instead.
+    if os.geteuid() == 0 or os.getegid() == 0 or os.getgroups():
+        fail(125, "mutation worker requires dropped uid, gid and supplementary groups")
+    if type(limit) is not int or not 0 < limit <= 64 << 20:
+        fail(3, "invalid mutation limit")
+    info = os.fstat(journal)
+    if (not stat.S_ISDIR(info.st_mode) or info.st_uid != os.geteuid()
+            or stat.S_IMODE(info.st_mode) != 0o700):
+        fail(125, "mutation journal is not private")
+
+
+def mutation_validate_state(state):
+    digest = lambda value: isinstance(value, str) and (value == "absent" or re.fullmatch(r"[0-9a-f]{64}", value))
+    if (not isinstance(state, dict) or set(state) != {"version", "phase", "entries", "directories"}
+            or type(state["version"]) is not int or state["version"] != 1
+            or state["phase"] not in ("prepared", "committed", "aborted")
+            or not isinstance(state["entries"], list) or not 0 < len(state["entries"]) <= 256
+            or not isinstance(state["directories"], list) or len(state["directories"]) > 256 * 512):
+        fail(125, "invalid mutation journal")
+    paths, temporaries = set(), set()
+    for index, entry in enumerate(state["entries"]):
+        if (not isinstance(entry, dict) or set(entry) != {"path", "base", "before_mode", "after", "temporary", "backup"}
+                or not digest(entry["base"]) or not digest(entry["after"])
+                or entry["backup"] != "base-" + str(index)
+                or not isinstance(entry["temporary"], str)
+                or not re.fullmatch(r"\.smithers-mutation-[0-9a-f]{32}", entry["temporary"])):
+            fail(125, "invalid mutation journal entry")
+        mutation_path(entry["path"])
+        mode = entry["before_mode"]
+        if (mode is not None if entry["base"] == "absent" else type(mode) is not int or not 0 <= mode <= 0o777):
+            fail(125, "invalid mutation journal mode")
+        if entry["path"] in paths or entry["temporary"] in temporaries:
+            fail(125, "duplicate mutation journal path")
+        paths.add(entry["path"])
+        temporaries.add(entry["temporary"])
+    for path in paths:
+        parts = path.split("/")
+        if any("/".join(parts[:i]) in paths for i in range(1, len(parts))):
+            fail(3, "mutation paths overlap")
+    directories = set()
+    for path in state["directories"]:
+        mutation_path(path)
+        if path in directories or not any(entry.startswith(path + "/") for entry in paths):
+            fail(125, "invalid mutation journal directory")
+        directories.add(path)
+
+
+def recover_mutation(root, journal, limit):
+    """Private worker phase; qualified writer exclusion MUST remain held.
+
+    This is deliberately not exposed by a CLI or runtime capability. Root never
+    reads this journal. The future coordinator must kill any old mutation worker
+    and freeze all other writers before invoking recovery after credential drop.
+    """
+    mutation_identity(journal, limit)
+    body, _ = mutation_read(journal, "state.json", 1 << 20)
+    if body is None:
+        # No workspace operation precedes the first durable prepared state.
+        return "aborted"
+    try:
+        state = json.loads(body)
+    except (ValueError, UnicodeError):
+        fail(125, "unreadable mutation journal")
+    mutation_validate_state(state)
+    if state["phase"] != "prepared":
+        # A settled journal must never reapply bytes after a possible thaw.
+        os.fsync(journal)
+        return state["phase"]
+    originals, observed, total = [], [], 0
+    # Validate every backup and current path before restoring even the first.
+    for entry in state["entries"]:
+        original = None
+        if entry["base"] != "absent":
+            original, _ = mutation_read(journal, entry["backup"], limit)
+            if original is None or mutation_digest(original) != entry["base"]:
+                fail(125, "mutation backup does not match its base")
+            total += len(original)
+            if total > limit:
+                fail(4, "mutation backups exceed byte limit")
+        parent = mutation_parent(root, entry["path"])
+        try:
+            if parent is None and original is not None:
+                fail(125, "mutation recovery ancestor is missing")
+            current, mode = mutation_read(parent, entry["path"].split("/")[-1], limit)
+            if mutation_digest(current) not in (entry["base"], entry["after"]):
+                fail(125, "mutation recovery found an outside write")
+            observed.append((mutation_digest(current), mode))
+            originals.append(original)
+        finally:
+            if parent is not None:
+                os.close(parent)
+    for entry, original, (current, mode) in zip(state["entries"], originals, observed):
+        parent = mutation_parent(root, entry["path"])
+        if parent is None:
+            continue
+        try:
+            leaf, temporary = entry["path"].split("/")[-1], entry["temporary"]
+            try:
+                os.unlink(temporary, dir_fd=parent)
+            except FileNotFoundError:
+                pass
+            if original is None:
+                if current != "absent":
+                    os.unlink(leaf, dir_fd=parent)
+            elif current != entry["base"] or mode != entry["before_mode"]:
+                mutation_write_new(parent, temporary, original, entry["before_mode"])
+                os.replace(temporary, leaf, src_dir_fd=parent, dst_dir_fd=parent)
+            os.fsync(parent)
+        finally:
+            os.close(parent)
+    for path in sorted(state["directories"], key=lambda value: (-value.count("/"), value)):
+        parent = mutation_parent(root, path)
+        if parent is None:
+            continue
+        try:
+            try:
+                os.rmdir(path.split("/")[-1], dir_fd=parent)
+            except FileNotFoundError:
+                pass
+            os.fsync(parent)
+        finally:
+            os.close(parent)
+    state["phase"] = "aborted"
+    mutation_save_state(journal, state)
+    return "aborted"
+
+
+def apply_mutation_batch(root, journal, changes, limit):
+    """Prepare, apply and durably settle one batch in the dropped worker.
+
+    The caller must hold qualified exclusion through this call AND recovery;
+    these descriptor operations alone cannot stop outside writers. No production
+    provider invokes this candidate until the coordinator and security gates pass.
+    Changes are private normalized tuples (relative path, base, bytes-or-None,
+    mode), adapted from the existing file-tool contract rather than a new API.
+    """
+    mutation_identity(journal, limit)
+    if not isinstance(changes, list) or not 0 < len(changes) <= 256:
+        fail(3, "invalid mutation batch")
+    if os.listdir(journal):
+        fail(125, "mutation journal requires recovery")
+    entries, originals, directories, total_before, total_after = [], [], set(), 0, 0
+    for index, change in enumerate(changes):
+        if not isinstance(change, tuple) or len(change) != 4:
+            fail(3, "invalid mutation change")
+        path, base, body, mode = change
+        parts = mutation_path(path)
+        if ((base != "absent" and (not isinstance(base, str) or not re.fullmatch(r"[0-9a-f]{64}", base)))
+                or (body is not None and not isinstance(body, bytes))
+                or type(mode) is not int or not 0 <= mode <= 0o777):
+            fail(3, "invalid mutation change")
+        parent = mutation_parent(root, path)
+        try:
+            original, before_mode = mutation_read(parent, parts[-1], limit)
+        finally:
+            if parent is not None:
+                os.close(parent)
+        current = mutation_digest(original)
+        if current != base:
+            fail(6, "stale:" + current)
+        total_before += len(original) if original is not None else 0
+        total_after += len(body) if body is not None else 0
+        if max(total_before, total_after) > limit:
+            fail(4, "mutation batch exceeds byte limit")
+        # Discover all absent ancestors without creating anything during validation.
+        parent = os.dup(root)
+        missing = False
+        try:
+            for i, part in enumerate(parts[:-1]):
+                if not missing:
+                    try:
+                        child = os.open(part, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW, dir_fd=parent)
+                    except FileNotFoundError:
+                        missing = True
+                    else:
+                        os.close(parent)
+                        parent = child
+                if missing and body is not None:
+                    directories.add("/".join(parts[:i + 1]))
+        finally:
+            os.close(parent)
+        entries.append({"path": path, "base": base, "before_mode": before_mode,
+                        "after": mutation_digest(body), "temporary": ".smithers-mutation-" + secrets.token_hex(16),
+                        "backup": "base-" + str(index)})
+        originals.append(original)
+    state = {"version": 1, "phase": "prepared", "entries": entries,
+             "directories": sorted(directories, key=lambda value: (value.count("/"), value))}
+    mutation_validate_state(state)
+    for entry, original in zip(entries, originals):
+        if original is not None:
+            mutation_write_new(journal, entry["backup"], original, 0o600)
+    mutation_save_state(journal, state)
+    try:
+        for path in state["directories"]:
+            parent = mutation_parent(root, path)
+            if parent is None:
+                fail(125, "mutation ancestor disappeared")
+            try:
+                os.mkdir(path.split("/")[-1], 0o775, dir_fd=parent)
+                os.fsync(parent)
+            finally:
+                os.close(parent)
+        for entry, (_, _, body, mode) in zip(entries, changes):
+            parent = mutation_parent(root, entry["path"])
+            if parent is None and body is None:
+                continue
+            if parent is None:
+                fail(125, "mutation ancestor disappeared")
+            try:
+                leaf, temporary = entry["path"].split("/")[-1], entry["temporary"]
+                if body is None:
+                    if entry["base"] != "absent":
+                        os.unlink(leaf, dir_fd=parent)
+                else:
+                    mutation_write_new(parent, temporary, body, mode)
+                    os.replace(temporary, leaf, src_dir_fd=parent, dst_dir_fd=parent)
+                os.fsync(parent)
+            finally:
+                if parent is not None:
+                    os.close(parent)
+        state["phase"] = "committed"
+        mutation_save_state(journal, state)
+    except BaseException:
+        recover_mutation(root, journal, limit)
+        raise
+    return {entry["path"]: entry["after"] for entry in entries}
+
+
 def fs_compare_write(root, path, mode, base, limit):
     """Candidate S1 exchange; NOT an enabled/qualified runtime capability.
 

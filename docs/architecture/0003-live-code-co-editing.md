@@ -113,6 +113,28 @@ recipe subprocess path with an instrumented root identity and test recipe pin.
 These are not privileged guest receipts, nor proof that services started through
 external IPC or already executing kernel I/O cannot write during exclusion.
 
+The private mutation worker now prepares a bounded journal for one whole batch.
+It compares all affected paths before creating workspace directories or changing
+files, saves original bytes and modes, then records a durable prepared state.
+Updates, additions, deletions and moves settle as one committed state. Recovery
+validates every backup and current path before restoring anything; an unexpected
+outside write or corrupt journal refuses further recovery. Settled commit/abort
+records never reapply bytes after writers may have resumed. Process-death and
+I/O-failure tests cover preparation, directory creation, replacement, deletion,
+rollback and settlement. The supplemental Linux `testdata/mutation_batch/` probe
+holds an actual competing writer while exercising stale refusal and recovery.
+
+This worker has no production caller. Its exclusion is a caller precondition,
+supplied manually by the supplemental probe, not an assertion that descriptor
+operations alone prevent outside writes. The installed coordinator still needs
+to preserve freezing and the pending fence across worker/supervisor death and
+machine restart, drop the worker's credentials, and settle before thawing or
+delivering a response to a frozen caller. The actual working-copy filesystem and
+path-alias behavior also require qualification. Authenticated app/coding transport
+and fresh/retained security receipts remain outstanding. The old failing exchange
+candidate is retained only for the diagnostic counterexamples until this repair
+replaces it; neither candidate is exposed by the production write gate.
+
 The supplemental probe in
 `packages/backend/microsandbox/testdata/compare_write_freezer/` checks queued
 io_uring poll-and-write requests in ordinary and SQPOLL modes, with a thaw
