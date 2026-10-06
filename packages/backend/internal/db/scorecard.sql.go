@@ -13,13 +13,41 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 )
 
+const scorecardFirstAnswer = `-- name: ScorecardFirstAnswer :one
+SELECT COALESCE(min(b.created_at), 'epoch'::timestamptz)::timestamptz AS answered_at,
+       (count(*) > 0)::boolean AS covered
+FROM chat_turns t JOIN chat_turn_batches b ON b.turn_id = t.id
+WHERE t.repository_id > 0 AND t.conversation_id IS NOT NULL AND t.conversation_id <> ''
+ AND EXISTS(SELECT 1 FROM jsonb_array_elements(
+   CASE WHEN jsonb_typeof(b.frames) = 'array' THEN b.frames ELSE '[]'::jsonb END
+ ) AS f(frame) WHERE frame->>'type' = 'delta' AND frame->>'kind' = 'text'
+   AND jsonb_typeof(frame->'text') = 'string' AND frame->>'text' <> '')
+`
+
+type ScorecardFirstAnswerRow struct {
+	AnsweredAt time.Time `json:"answered_at"`
+	Covered    bool      `json:"covered"`
+}
+
+// The shared app journal's first persisted answer text. Frames are data:
+// malformed arrays and reasoning/tool frames cannot count as an answer.
+func (q *Queries) ScorecardFirstAnswer(ctx context.Context) (ScorecardFirstAnswerRow, error) {
+	row := q.db.QueryRow(ctx, scorecardFirstAnswer)
+	var i ScorecardFirstAnswerRow
+	err := row.Scan(&i.AnsweredAt, &i.Covered)
+	return i, err
+}
+
 const scorecardSourceRelations = `-- name: ScorecardSourceRelations :many
 SELECT source.name::text AS name,
        (to_regclass('public.' || source.name) IS NOT NULL
         AND (source.name <> 'mythical_items' OR
              (SELECT count(*) = 2 FROM information_schema.columns
               WHERE table_schema = 'public' AND table_name = 'mythical_items'
-                AND column_name IN ('owner_id', 'created_by'))))::boolean AS present
+                AND column_name IN ('owner_id', 'created_by')))
+        AND (source.name <> 'chat_turns' OR EXISTS(
+             SELECT 1 FROM information_schema.columns WHERE table_schema = 'public'
+              AND table_name = 'chat_turns' AND column_name = 'conversation_id')))::boolean AS present
 FROM unnest(ARRAY['install_settings', 'mythical_items', 'product_job_events',
                  'chat_turns', 'chat_turn_batches', 'burst_files', 'audit_log',
                  'workflow_definitions']) AS source(name)

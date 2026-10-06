@@ -73,6 +73,33 @@ func TestInstallScorecardOwnerReadsRealCreationReceipts(t *testing.T) {
 		require.Equal(t, services.ScorecardPersonMinutes{Source: "sampled_alpha_sessions", Verdict: "manual"}, out.PersonMinutes)
 		require.Equal(t, "2020-01-02T06:30:00Z", out.Window.From.Format(time.RFC3339))
 	}
+	// Literal persisted app frames: reasoning precedes the first answer;
+	// private legacy turns and malformed frames must not move its timestamp.
+	_, err = pool.Exec(ctx, `INSERT INTO chat_turns(id,repository_id,conversation_id,user_id,run_id,leg_id,request_hash,access_hash,state)
+ VALUES('shared-answer',$1,'alice',$2,'shared-answer','one','request','access','running'),
+ ('private-answer',$1,NULL,$2,'private-answer','one','request','access','completed');
+ `, repo, owner)
+	require.NoError(t, err)
+	_, err = pool.Exec(ctx, `INSERT INTO chat_turn_batches(turn_id,batch_number,from_position,previous_hash,frames,hash,canonical_bytes,created_at) VALUES
+ ('shared-answer',1,1,'before','[{"type":"delta","kind":"reasoning","text":"thinking"}]','one',1,'2026-10-04T08:00:00Z'),
+ ('shared-answer',2,2,'one','[{"type":"delta","kind":"text","text":"Answer"}]','two',1,'2026-10-04T08:01:00Z'),
+ ('shared-answer',3,3,'two','[{"type":"delta","kind":"text","text":"More"}]','three',1,'2026-10-04T08:02:00Z'),
+ ('shared-answer',4,4,'three','{}','four',1,'2026-10-04T07:00:00Z'),
+ ('private-answer',1,1,'before','[{"type":"delta","kind":"text","text":"private"}]','private',1,'2026-10-04T06:00:00Z');`)
+	require.NoError(t, err)
+	request := httptest.NewRequest("GET", "http://localhost:4000/api/install/scorecard?from=2026-10-03T23:30:00-07:00&to=2026-10-17T23:30:00-07:00", nil)
+	request.RemoteAddr = "127.0.0.1:61000"
+	request.AddCookie(&http.Cookie{Name: "session", Value: "scorecard-cookie"})
+	response := httptest.NewRecorder()
+	router.ServeHTTP(response, request)
+	require.Equal(t, 200, response.Code, response.Body.String())
+	var answerCard services.Scorecard
+	require.NoError(t, json.Unmarshal(response.Body.Bytes(), &answerCard))
+	require.Equal(t, "2026-10-04T08:01:00Z", answerCard.Measures["first_answer"].Value)
+	require.Equal(t, "between", answerCard.Measures["first_answer"].Verdict)
+	require.Empty(t, answerCard.Measures["first_answer"].MissingTickets)
+	require.Equal(t, "source_missing", answerCard.Measures["install_start"].Verdict)
+
 	// The composed handler uses the shared person-only authorizer. Refuse
 	// eligible delegated credentials with never; run and machine authority
 	// cannot become owner-person authority.

@@ -99,6 +99,16 @@ func (s *ScorecardService) Summary(ctx context.Context, from, to time.Time) (Sco
 		}
 		facts.Coverage["T-STK-01"] = complete
 	}
+	if present["chat_turns"] && present["chat_turn_batches"] {
+		answer, err := queries.ScorecardFirstAnswer(ctx)
+		if err != nil {
+			return Scorecard{}, err
+		}
+		if answer.Covered {
+			facts.Coverage["T-APP-16"] = true
+			facts.FirstAnswer = &answer.AnsweredAt
+		}
+	}
 	out := aggregateScorecard(window, facts)
 	if err := tx.Commit(ctx); err != nil {
 		return Scorecard{}, err
