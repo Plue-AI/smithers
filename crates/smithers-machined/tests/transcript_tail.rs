@@ -238,6 +238,87 @@ fn valid_record_before_malformed_record_is_persisted() {
 }
 
 #[test]
+fn persistence_failure_before_malformed_input_preserves_replay() {
+    let fixture = Fixture::new();
+    fixture.write("session.jsonl", b"{}\n\xff\n");
+    let mut tail = fixture.tail("session.jsonl").unwrap();
+    let now = Instant::now();
+    let mut attempted = vec![];
+    assert!(tail
+        .poll(now, |r| {
+            attempted.push(r.clone());
+            Err(io::Error::other("outbox unavailable"))
+        })
+        .is_err());
+    let mut replay = vec![];
+    assert!(tail
+        .poll(now, |r| {
+            replay.push(r.clone());
+            Ok(())
+        })
+        .is_err());
+    assert_eq!(attempted, replay);
+    assert_eq!(
+        replay,
+        vec![Record {
+            generation: 1,
+            start: 0,
+            end: 3,
+            text: "{}".into(),
+        }]
+    );
+    assert_eq!(
+        tail.poll(now, |_| panic!("stopped source published"))
+            .unwrap_err()
+            .kind(),
+        io::ErrorKind::PermissionDenied
+    );
+}
+
+#[test]
+fn held_root_survives_path_replacement_without_reading_replacement() {
+    let fixture = Fixture::new();
+    fs::create_dir(fixture.0.join("owner-root")).unwrap();
+    fs::create_dir(fixture.0.join("outside")).unwrap();
+    fixture.write("owner-root/session.jsonl", b"owner\n");
+    fixture.write("outside/session.jsonl", b"sentinel secret\n");
+    let mut tail = Tail::new(
+        File::open(fixture.0.join("owner-root")).unwrap(),
+        "session.jsonl",
+        rustix::process::getuid().as_raw(),
+    )
+    .unwrap();
+    fs::rename(
+        fixture.0.join("owner-root"),
+        fixture.0.join("retained-root"),
+    )
+    .unwrap();
+    symlink("outside", fixture.0.join("owner-root")).unwrap();
+    let mut records = vec![];
+    assert_eq!(
+        tail.poll(Instant::now(), |r| {
+            records.push(r.clone());
+            Ok(())
+        })
+        .unwrap(),
+        1
+    );
+    assert_eq!(
+        records,
+        vec![Record {
+            generation: 1,
+            start: 0,
+            end: 6,
+            text: "owner".into()
+        }]
+    );
+    assert_eq!(
+        fs::read(fixture.0.join("outside/session.jsonl")).unwrap(),
+        b"sentinel secret\n"
+    );
+}
+
+#[test]
 fn backlog_and_partial_records_do_not_wait_for_reconciliation() {
     let fixture = Fixture::new();
     let mut bytes = vec![b'x'; smithers_machined::transcript::READ_BYTES + 7];
