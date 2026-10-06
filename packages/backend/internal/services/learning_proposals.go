@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"strconv"
+	"strings"
 
 	"github.com/jackc/pgx/v5"
 	"github.com/smithersai/smithers/packages/backend/internal/db"
@@ -65,6 +66,11 @@ func proposalCard(id, status string, note LearningProposalNote, accepted *string
 // LearningProposals projects only the bound install repository's learning
 // namespace. Unrelated agent memory never reaches a Proposal card.
 func (s *MythicalService) LearningProposals(ctx context.Context, repository int64) ([]LearningProposalCard, error) {
+	repo, owner, err := s.repository(ctx, repository)
+	if err != nil {
+		return nil, err
+	}
+	expected := owner + "/" + repo.Name
 	rows, err := s.store.Query(ctx, `SELECT id,status,provenance_json,accepted_todo FROM memory_notes WHERE namespace_kind='flow' AND namespace_id=$1 ORDER BY created_at_ms,id`, learningNamespace(repository))
 	if err != nil {
 		return nil, err
@@ -78,8 +84,8 @@ func (s *MythicalService) LearningProposals(ctx context.Context, repository int6
 			return nil, err
 		}
 		var note LearningProposalNote
-		if err = json.Unmarshal([]byte(raw), &note); err != nil {
-			return nil, err
+		if json.Unmarshal([]byte(raw), &note) != nil || !learningNoteBound(note, expected) {
+			continue
 		}
 		card := proposalCard(id, status, note, accepted)
 		if err = enrichLearningProposal(ctx, db.New(s.store), repository, note, &card); err != nil {
@@ -105,6 +111,11 @@ func (s *MythicalService) ResolveLearningProposal(ctx context.Context, repositor
 	if decision.UserID != user {
 		return LearningProposalCard{}, proposalError(403, "permission", "Not your request")
 	}
+	repo, owner, err := s.repository(ctx, repository)
+	if err != nil {
+		return LearningProposalCard{}, err
+	}
+	expected := owner + "/" + repo.Name
 	var card LearningProposalCard
 	err = pgx.BeginFunc(ctx, s.store, func(tx pgx.Tx) error {
 		var status, raw string
@@ -117,8 +128,8 @@ func (s *MythicalService) ResolveLearningProposal(ctx context.Context, repositor
 			return err
 		}
 		var note LearningProposalNote
-		if err = json.Unmarshal([]byte(raw), &note); err != nil {
-			return err
+		if json.Unmarshal([]byte(raw), &note) != nil || !learningNoteBound(note, expected) {
+			return proposalError(409, "proposal_invalid", "Proposal unavailable")
 		}
 		card = proposalCard(id, status, note, accepted)
 		if err = enrichLearningProposal(ctx, db.New(tx), repository, note, &card); err != nil {
@@ -184,4 +195,10 @@ func enrichLearningProposal(ctx context.Context, q *db.Queries, repository int64
 		card.Todo.Title = item.IssueTitle
 	}
 	return nil
+}
+
+// A namespace is a storage index, not proof of machine-output provenance.
+// Refuse mismatched or unbound persisted output before any note or TODO effect.
+func learningNoteBound(note LearningProposalNote, repository string) bool {
+	return strings.EqualFold(note.Repository, repository) && strings.TrimSpace(note.Run) != "" && strings.TrimSpace(note.Signature) != ""
 }

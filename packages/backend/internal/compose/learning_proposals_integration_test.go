@@ -128,6 +128,31 @@ func TestLearningProposalsComposedInstall(t *testing.T) {
 	require.Equal(t, 200, response.Code, response.Body.String())
 	require.NoError(t, json.Unmarshal(response.Body.Bytes(), &cards))
 	require.Len(t, cards, 3)
+
+	// A note accidentally stored in this namespace must not carry another
+	// repository's output into this install's TODO/context path.
+	for _, bad := range []struct{ id, raw string }{
+		{"wrong-repository", `{"repository":"other/app","run":"learning-5","signature":"check:lint@review","title":"Foreign","prompt":"Foreign prompt","evidence":["foreign"],"todos":[1]}`},
+		{"missing-run", `{"repository":"maya/app","signature":"check:lint@review","title":"Unbound","prompt":"Unbound prompt","evidence":["unbound"],"todos":[1]}`},
+		{"invalid-json", `[]`},
+	} {
+		_, err = pool.Exec(ctx, `INSERT INTO memory_notes(id,namespace_kind,namespace_id,text,tags_json,provenance_json,status,created_at_ms) VALUES($1,'flow',$2,'Bad','[]',$3,'pending',5)`, bad.id, fmt.Sprintf("learning:%d", repo), bad.raw)
+		require.NoError(t, err)
+		for _, action := range []string{"accept", "dismiss"} {
+			code, body = call("POST", "/api/proposals/"+bad.id+"/"+action, "{}", bad.id+action)
+			require.Equal(t, 409, code, body)
+			require.Equal(t, "proposal_invalid", body["code"])
+		}
+		require.NoError(t, pool.QueryRow(ctx, `SELECT status FROM memory_notes WHERE id=$1`, bad.id).Scan(&noteStatus))
+		require.Equal(t, "pending", noteStatus)
+	}
+	require.NoError(t, pool.QueryRow(ctx, `SELECT count(*) FROM mythical_items WHERE repository_id=$1`, repo).Scan(&count))
+	require.Equal(t, 1, count)
+	response = httptest.NewRecorder()
+	router.ServeHTTP(response, get)
+	require.Equal(t, 200, response.Code, response.Body.String())
+	require.NoError(t, json.Unmarshal(response.Body.Bytes(), &cards))
+	require.Len(t, cards, 3, "invalid output must not hide valid proposals or be published")
 	_, err = pool.Exec(ctx, `DELETE FROM self_host_owners`)
 	require.NoError(t, err)
 	_, err = pool.Exec(ctx, `DELETE FROM collaborators WHERE user_id=$1`, owner.ID)
