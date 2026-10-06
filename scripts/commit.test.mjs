@@ -9,6 +9,12 @@ import { test } from "node:test"
 const script = resolve(import.meta.dirname, "commit.mjs")
 const copyHygiene = (directory) => {
   installMigrationFixture(directory)
+  // Exercise this checkout's production build CLI, rather than an installed release.
+  const gateBin = join(directory, ".git/test-bin")
+  mkdirSync(gateBin, { recursive: true })
+  writeFileSync(join(gateBin, "smthrs"), `#!/bin/sh
+exec "${process.execPath}" "${resolve(import.meta.dirname, "../packages/smithers/build/build-cli/src/main.ts")}" "$@"
+`, { mode: 0o755 })
   mkdirSync(join(directory, "scripts"), { recursive: true })
   copyFileSync(resolve(import.meta.dirname, "check-tracked-hygiene.mjs"), join(directory, "scripts/check-tracked-hygiene.mjs"))
   rmSync(join(directory, "node_modules"), { recursive: true, force: true })
@@ -58,7 +64,7 @@ export const Package = S.Package({ targets: {
   assert.equal(indexed.status, 0, indexed.stderr + indexed.stdout)
 
 }
-const command = (cwd, bin, args, environment = {}) => spawnSync(bin, args, { cwd, encoding: "utf8", env: { ...process.env, ...environment, HOME: join(cwd, ".git/test-home") } })
+const command = (cwd, bin, args, environment = {}) => spawnSync(bin, args, { cwd, encoding: "utf8", env: { ...process.env, ...environment, PATH: `${join(cwd, ".git/test-bin")}:${process.env.PATH}`, HOME: join(cwd, ".git/test-home") } })
 const ok = (cwd, bin, args) => {
   const result = command(cwd, bin, args)
   assert.equal(result.status, 0, result.stderr + result.stdout)
