@@ -29,6 +29,7 @@ import (
 	"github.com/smithersai/smithers/packages/backend/internal/revocation"
 	"github.com/smithersai/smithers/packages/backend/internal/routes"
 	"github.com/smithersai/smithers/packages/backend/internal/services"
+	"github.com/smithersai/smithers/packages/backend/microsandbox"
 	"github.com/smithersai/smithers/packages/backend/runtimebridge"
 	"github.com/smithersai/smithers/packages/backend/testkit/postgresfixture"
 	"github.com/stretchr/testify/require"
@@ -375,4 +376,45 @@ func TestPresenceBranchRefreshMachineNameAndOrigin(t *testing.T) {
 	var status string
 	require.NoError(t, f.pool.QueryRow(t.Context(), `SELECT status FROM workspaces WHERE id=$1`, f.row.ID).Scan(&status))
 	require.Equal(t, "suspended", status, "subscription never wakes a branch")
+}
+
+// The mounted Branch card follows the same coalesced queue as branch GET.
+func TestPresenceBranchMachineWaitPosition(t *testing.T) {
+	f := presenceInstall(t)
+	q := db.New(f.pool)
+	runtime := new(microsandbox.Runtime)
+	providers := services.InstallBranchMachineProviders(identity.NewMemberBoundary(q), nil)
+	f.p.branches = services.NewWorkspaceService(q, services.WithWorkspaceTransactions(f.pool), services.WithWorkspaceRuntime(runtime), services.WithBranchMachineProviders(providers))
+	_, err := f.pool.Exec(t.Context(), `UPDATE workspaces SET status='starting', vm_id='' WHERE id=$1`, f.row.ID)
+	require.NoError(t, err)
+	holder := "workspace:" + f.row.ID
+	_, err = runtime.Request("todo", holder, "todo:1", "machine")
+	require.NoError(t, err)
+	_, err = runtime.Request("person", "workspace:other", "person:2", "terminal")
+	require.NoError(t, err)
+	conn := f.dial(t)
+	sendPresenceFrame(t, conn, fmt.Sprintf(`{"t":"sub","id":1,"topic":"branch:%s"}`, f.row.ID))
+	read := func(position int) {
+		t.Helper()
+		frame := readPresenceFrame(t, conn)
+		require.Equal(t, "snap", frame.T)
+		var branch struct {
+			Machine struct {
+				State    string `json:"state"`
+				Position int    `json:"wait_position"`
+			} `json:"machine"`
+		}
+		require.NoError(t, json.Unmarshal(frame.Data, &branch))
+		require.Equal(t, "waking", branch.Machine.State)
+		require.Equal(t, position, branch.Machine.Position)
+		if position == 0 {
+			require.NotContains(t, string(frame.Data), `"wait_position"`)
+		}
+	}
+	read(2)
+	runtime.CancelAdmission("workspace:other", "person:2", time.Now())
+	read(1)
+	runtime.CancelAdmission(holder, "todo:1", time.Now())
+	read(0)
+	require.Zero(t, runtime.InUse(), "subscribing and ranking do not wake a machine")
 }

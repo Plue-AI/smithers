@@ -235,7 +235,11 @@ func (p *branchPresence) source(ctx context.Context, branch string, repository, 
 		if p.publicOrigin != nil {
 			origin = p.publicOrigin()
 		}
-		return json.Marshal(branchPresenceModel(current, presence, origin))
+		model := branchPresenceModel(current, presence, origin)
+		if position, waiting := p.branches.MachinePlace(current); waiting {
+			model["machine"].(map[string]any)["wait_position"] = position
+		}
+		return json.Marshal(model)
 	}}, ""
 }
 
