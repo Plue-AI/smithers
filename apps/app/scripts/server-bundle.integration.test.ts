@@ -1,7 +1,7 @@
 import { expect, test } from "bun:test"
 import { spawnSync } from "node:child_process"
 import { createHash } from "node:crypto"
-import { constants, cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs"
+import { constants, cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs"
 import { homedir, tmpdir } from "node:os"
 import { join, resolve } from "node:path"
 
@@ -221,3 +221,194 @@ boundary("packaged doctor and server refuse a real msb with an unqualified versi
     rmSync(temporary, { recursive: true, force: true })
   }
 }, 180_000)
+boundary("packaged setup mint pipe rotates before claim and is silent after claim", async () => {
+  expect(process.platform).toBe("darwin")
+  expect(process.arch).toBe("arm64")
+  expect(process.getuid!()).not.toBe(0)
+  const receipt = process.env.SMITHERS_SETUP_RELAY_RECEIPT
+  if (receipt) rmSync(receipt, { force: true })
+  // Refuse stale packages before starting any listener or private database.
+  const symbols = spawnSync("/usr/bin/nm", ["-gU", join(bundle!, "bin/libsmithers_ffi.dylib")], { encoding: "utf8" })
+  expect(symbols.status).toBe(0)
+  expect(/\b_ld_open\b/.test(symbols.stdout), "bundle exports the live-document ABI").toBe(true)
+  // The launcher gives the backend its stdout descriptor unchanged. Inspect
+  // that descriptor in both real processes, then capture its complete bytes.
+  // No wrapper replaces a manifest member, and no credential is printed by tests.
+  const root = resolve(import.meta.dir, "../../..")
+  const temporary = mkdtempSync(join(tmpdir(), "smithers-packaged-claim-"))
+  const home = join(temporary, "home")
+  mkdirSync(home, { mode: 0o700 })
+  const port = 47400 + Math.floor(Math.random() * 2000)
+  const origin = `http://127.0.0.1:${port}`
+  const fixture = Bun.spawn(["go", "test", "./packages/backend/testkit", "-run", "^TestPackagedSetupGitHubFixture$", "-count=1", "-v"], {
+    cwd: root, env: { ...process.env, SMITHERS_PACKAGED_FIXTURE_ROOT: temporary, SMITHERS_PACKAGED_FIXTURE_ORIGIN: origin },
+    stdin: "pipe", stdout: "pipe", stderr: "pipe"
+  })
+  const fixtureOutput = new Response(fixture.stdout).text()
+  const fixtureErrors = new Response(fixture.stderr).text()
+  const captures: Array<{ stdout: string; stderr: string; pipe: string }> = []
+  const secrets: string[] = []
+  let child: ReturnType<typeof Bun.spawn> | undefined
+  try {
+    // A readiness file avoids waiting for the long-lived fixture to exit.
+    const readiness = join(temporary, "fixture-ready.json")
+    const deadline = Date.now() + 120_000
+    while (!existsSync(readiness) && Date.now() < deadline) await Bun.sleep(50)
+    expect(existsSync(readiness), "external GitHub fixture readiness").toBe(true)
+    const external = JSON.parse(readFileSync(readiness, "utf8")) as { control: string; proxy: string; cert: string }
+    const status = async () => {
+      const response = await fetch(external.control + "/status")
+      expect(response.status).toBe(200)
+      return await response.json() as { owners: number; sessions: number; digest: string }
+    }
+    const stop = async () => {
+      child!.kill("SIGTERM")
+      const exited = await Promise.race([child!.exited, Bun.sleep(30_000).then(() => undefined)])
+      if (exited === undefined) { child!.kill("SIGKILL"); await child!.exited }
+      expect(exited, "launcher graceful shutdown").toBe(0)
+      child = undefined
+    }
+    for (let start = 0; start < 3; start++) {
+      child = Bun.spawn([join(bundle!, "bin/smithers-server"), "--bind", `127.0.0.1:${port}`, "--origin", origin], {
+        env: { HOME: home, PATH: "/usr/bin:/bin", HTTPS_PROXY: external.proxy, HTTP_PROXY: external.proxy,
+          NO_PROXY: "127.0.0.1,localhost", SSL_CERT_FILE: external.cert }, stdout: "pipe", stderr: "pipe"
+      })
+      const capture = { stdout: "", stderr: "", pipe: "" }
+      captures.push(capture)
+      const consume = async (stream: ReadableStream<Uint8Array>, key: "stdout" | "stderr") => {
+        const decoder = new TextDecoder()
+        const reader = stream.getReader()
+        try {
+          while (true) {
+            const { done, value } = await reader.read()
+            if (done) break
+            capture[key] += decoder.decode(value, { stream: true })
+          }
+          capture[key] += decoder.decode()
+        } finally { reader.releaseLock() }
+      }
+      const drained = Promise.all([consume(child.stdout as ReadableStream<Uint8Array>, "stdout"), consume(child.stderr as ReadableStream<Uint8Array>, "stderr")])
+      const startupDeadline = Date.now() + 120_000
+      let exited = false
+      void child.exited.then(() => { exited = true })
+      let ready = false
+      while (!exited && Date.now() < startupDeadline) {
+        try { ready = (await fetch(origin + "/readyz", { signal: AbortSignal.timeout(1000) })).ok } catch {}
+        if (ready && capture.stdout.includes(`SMITHERS_LOCAL_ORIGIN=${origin}\n`)) break
+        ready = false
+        await Bun.sleep(50)
+      }
+      expect(ready, "assembled backend readiness").toBe(true)
+      const processes = spawnSync("/bin/ps", ["-axo", "pid=,ppid=,comm="], { encoding: "utf8" })
+      expect(processes.status).toBe(0)
+      const backend = processes.stdout.split("\n").map(line => line.trim().split(/\s+/)).find(parts => Number(parts[1]) === child!.pid && parts.slice(2).join(" ").endsWith("/smithers-backend"))
+      expect(backend, "real packaged backend child").toBeDefined()
+      const descriptor = (pid: number) => {
+        const result = spawnSync("/usr/sbin/lsof", ["-a", "-p", String(pid), "-d", "1", "-F", "Din"], { encoding: "utf8" })
+        expect(result.status).toBe(0)
+        return result.stdout.split("\n").filter(line => /^[Din]/.test(line)).join("\n")
+      }
+      capture.pipe = descriptor(child.pid)
+      expect(capture.pipe.length).toBeGreaterThan(0)
+      expect(descriptor(Number(backend![0]))).toBe(capture.pipe)
+      const lines = capture.stdout.split(/(?<=\n)/).filter(line => line.includes('"setup_urls"'))
+      if (start < 2) {
+        expect(lines.length).toBe(1)
+        expect(lines[0]!.endsWith("\n")).toBe(true)
+        const mint = JSON.parse(lines[0]!) as { setup_urls: string[] }
+        expect(Object.keys(mint)).toEqual(["setup_urls"])
+        const token = new URL(mint.setup_urls[0]!).searchParams.get("token")!
+        expect(typeof token).toBe("string")
+        expect(token.length).toBeGreaterThan(0)
+        expect(JSON.stringify(mint.setup_urls) === JSON.stringify([`http://localhost:4000/setup?token=${token}`, `${origin}/setup?token=${token}`])).toBe(true)
+        const before = await status()
+        expect(before.owners).toBe(0)
+        expect(before.digest).toContain(createHash("sha256").update(token).digest("hex"))
+        if (start === 1) {
+          expect(token === secrets[0]).toBe(false)
+          const stale = await fetch(`${origin}/setup?token=${encodeURIComponent(secrets[0]!)}`, { redirect: "manual" })
+          expect(stale.status).toBe(401)
+          const claimed = await fetch(external.control + "/claim", { method: "POST", body: JSON.stringify({ token }) })
+          expect(claimed.status, "served OAuth owner claim").toBe(200)
+          const result = await claimed.json() as { claimed: boolean; credentials: string[] }
+          expect(result.claimed).toBe(true)
+          expect(result.credentials.length).toBeGreaterThan(0)
+          secrets.push(...result.credentials)
+          expect(await status()).toEqual({ owners: 1, sessions: 0, digest: "" })
+        }
+        secrets.push(token)
+      } else {
+        expect(lines.length).toBe(0)
+        expect(await status()).toEqual({ owners: 1, sessions: 0, digest: "" })
+        const owner = await fetch(external.control + "/owner")
+        expect(owner.status).toBe(200)
+        expect(await owner.json()).toEqual({ install: 200, status: 403, provisional: true })
+      }
+      await stop()
+      await drained
+    }
+    for (const [index, capture] of captures.entries()) {
+      const allowed = capture.stdout.split(/(?<=\n)/).filter(line => line.includes('"setup_urls"'))
+      expect(allowed.length).toBe(index < 2 ? 1 : 0)
+      const ordinary = capture.stdout.split(/(?<=\n)/).filter(line => !line.includes('"setup_urls"')).join("") + capture.stderr
+      for (const token of secrets) expect(ordinary.includes(token) || ordinary.includes(encodeURIComponent(token))).toBe(false)
+    }
+    const logDirectory = join(home, "Library/Application Support/Smithers/logs")
+    const scanLogs = (directory: string): void => {
+      if (!existsSync(directory)) return
+      for (const entry of readdirSync(directory, { withFileTypes: true })) {
+        const path = join(directory, entry.name)
+        if (entry.isDirectory()) scanLogs(path)
+        else if (entry.isFile()) {
+          const content = readFileSync(path, "utf8")
+          for (const token of secrets) expect(content.includes(token) || content.includes(encodeURIComponent(token))).toBe(false)
+        }
+      }
+    }
+    scanLogs(logDirectory)
+    if (receipt) writeFileSync(receipt, JSON.stringify({ check: "C-SEC-04", scope: "packaged three-start relay", passed: true,
+      starts: 3, mintLines: [1, 1, 0], ownerCount: 1, setupSessions: 0,
+      manifestSha256: createHash("sha256").update(readFileSync(join(bundle!, "manifest.json"))).digest("hex"),
+      completedAt: new Date().toISOString() }, null, 2) + "\n", { mode: 0o600 })
+  } catch (error) {
+    const diagnostic = process.env.SMITHERS_SETUP_RELAY_DIAGNOSTIC
+    if (diagnostic) {
+      for (const capture of captures) {
+        for (const line of capture.stdout.split("\n")) {
+          try {
+            const mint = JSON.parse(line) as { setup_urls?: string[] }
+            for (const raw of mint.setup_urls ?? []) {
+              const token = new URL(raw).searchParams.get("token")
+              if (token) secrets.push(token)
+            }
+          } catch {}
+        }
+      }
+      const redacted = captures.map(capture => {
+        let stderr = capture.stderr
+        for (const token of secrets) stderr = stderr.replaceAll(token, "<redacted>").replaceAll(encodeURIComponent(token), "<redacted>")
+        return { stderr, observedMintLines: capture.stdout.split("\n").filter(line => line.includes('"setup_urls"')).length }
+      })
+      writeFileSync(diagnostic, JSON.stringify({ check: "C-SEC-04", passed: false, captures: redacted }, null, 2) + "\n", { mode: 0o600 })
+    }
+    throw error
+  } finally {
+    if (child) {
+      // The launcher may fail before it installs its signal handlers. Stop
+      // only backend children of this test's launcher, so private PG closes.
+      const processes = spawnSync("/bin/ps", ["-axo", "pid=,ppid=,comm="], { encoding: "utf8" })
+      for (const line of processes.stdout.split("\n")) {
+        const parts = line.trim().split(/\s+/)
+        if (Number(parts[1]) === child.pid && parts.slice(2).join(" ").endsWith("/smithers-backend")) {
+          try { process.kill(Number(parts[0]), "SIGTERM") } catch {}
+        }
+      }
+      if (await Promise.race([child.exited, Bun.sleep(30_000).then(() => undefined)]) === undefined) { child.kill("SIGKILL"); await child.exited }
+    }
+    fixture.stdin.end()
+    await fixture.exited
+    await fixtureOutput
+    await fixtureErrors
+    rmSync(temporary, { recursive: true, force: true })
+  }
+}, 600_000)
