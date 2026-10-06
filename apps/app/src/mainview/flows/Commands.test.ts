@@ -275,7 +275,7 @@ describe("trace argument redaction", () => {
       ["form.set", "arbitrary-card arbitrary-field ordinary words", "arbitrary-card arbitrary-field [REDACTED]"],
       ["form.submit", "form-env.set", "form-env.set"]
     ]) {
-      test(`${invoker} redacts ${name} diagnostics without changing handler input: ${args}`, async () => {
+      test(`${invoker} redacts ${name} diagnostics and preserves invocation policy: ${args}`, async () => {
         const records: Parameters<CommandActions["traceFlow"]>[0][] = []
         const received: unknown[][] = []
         const actions = stubCommandActions({
