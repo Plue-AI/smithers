@@ -298,6 +298,57 @@ func (r *Runtime) AdmissionForceStops(now time.Time) []string {
 	return holders
 }
 
+// ReconcileAdmissionReleases retries overdue stops without relinquishing the
+// slot on a CLI acknowledgment. Only an observed stopped or missing VM frees it.
+func (r *Runtime) ReconcileAdmissionReleases(ctx context.Context, now time.Time) error {
+	var errs []error
+	for _, holder := range r.AdmissionForceStops(now) {
+		r.mu.Lock()
+		h := r.admission[holder]
+		machine := h.machine
+		r.mu.Unlock()
+		if machine == "" {
+			continue // A preparing grant still owns its reservation.
+		}
+		stopCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
+		_, stopErr := r.cli.run(stopCtx, nil, "stop", "-t", "0", "-q", machine)
+		cancel()
+		status, found, err := r.cli.sandboxStatus(ctx, machine)
+		if err != nil || found && status != "stopped" {
+			if err != nil {
+				errs = append(errs, err)
+			} else if stopErr != nil {
+				errs = append(errs, stopErr)
+			}
+			continue
+		}
+		r.mu.Lock()
+		// Another observer can have completed release while transport ran.
+		booting := false
+		for _, ws := range r.workspaces {
+			if ws.Machine == machine && ws.booting {
+				booting = true
+			}
+		}
+		if current := r.admission[holder]; !booting && current != nil && current.held && current.machine == machine && !current.releasing.IsZero() {
+			for _, ws := range r.workspaces {
+				if ws.Machine == machine {
+					ws.State = "stopped"
+					ws.guestOK = false
+					if err := writeMetadata(ws); err != nil {
+						errs = append(errs, err)
+					}
+				}
+			}
+			delete(r.auxVMs, machine)
+			delete(r.auxCleanup, machine)
+			r.detachAdmissionMachineLocked(machine, true)
+		}
+		r.mu.Unlock()
+	}
+	return errors.Join(errs...)
+}
+
 // AdmissionSafety is an observation from the existing presence/session/run
 // adapters. Unknown or stale observations cannot establish safe-idle.
 type AdmissionSafety struct {
@@ -421,6 +472,9 @@ func (r *Runtime) WaitAdmission(ctx context.Context, p AdmissionProviders, class
 			r.abandonAdmission(holder, actor)
 			return ctx, err
 		}
+		// Failed stop attempts keep their slots and are retried on the next
+		// event/tick. They must not fail an unrelated person's waiting action.
+		_ = r.ReconcileAdmissionReleases(ctx, time.Now())
 		r.mu.Lock()
 		h := r.admission[holder]
 		cancelled := r.closed || h == nil || h.rows[actor] == nil || h.rows[actor].State == "cancelled" || h.rows[actor].State == "released"

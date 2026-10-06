@@ -37,6 +37,7 @@ type liveTopics struct {
 	install   *services.InstallSetupService
 	members   *services.Members
 	documents *live.DocRelay
+	capacity  *services.InstallCapacityService
 }
 
 // liveRefreshEvery bounds how stale a topic is when its facts change without
@@ -214,7 +215,17 @@ func (t *liveTopics) home(ctx context.Context, repository int64, slug string) (j
 	if err = json.Unmarshal(raw, &cards); err != nil {
 		return nil, err
 	}
-	return json.Marshal(homeModel(slug, cards, sync))
+	model := homeModel(slug, cards, sync)
+	if t.capacity != nil {
+		status, err := t.capacity.Read(ctx)
+		if err != nil {
+			return nil, err
+		}
+		machines := model["machines"].(map[string]any)
+		machines["in_use"] = status.Machines.InUse
+		machines["capacity"] = status.Machines.Capacity
+	}
+	return json.Marshal(model)
 }
 
 // homeStates are the TODO states Home counts (TodoStateSchema).

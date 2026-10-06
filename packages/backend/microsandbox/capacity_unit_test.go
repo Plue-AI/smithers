@@ -704,6 +704,63 @@ func TestAdmissionWaitWakesOnConfirmedStop(t *testing.T) {
 	require.Equal(t, "granted", r.AdmissionSnapshot()[1].State)
 }
 
+func TestAdmissionOverdueStopWaitsForObservation(t *testing.T) {
+	for _, status := range []string{"running", "starting", "stopped", "missing", "unknown", "booting"} {
+		t.Run(status, func(t *testing.T) {
+			r, p := admissionFixture()
+			root := t.TempDir()
+			binary := filepath.Join(root, "msb")
+			log := filepath.Join(root, "calls")
+			listing := fmt.Sprintf(`[{"name":"vm-a","status":%q}]`, status)
+			if status == "booting" {
+				listing = `[{"name":"vm-a","status":"stopped"}]`
+			}
+			if status == "missing" {
+				listing = "[]"
+			}
+			script := fmt.Sprintf("#!/bin/sh\necho \"$*\" >> '%s'\ncase \"$1\" in\nlist) echo '%s';;\nesac\n", log, listing)
+			require.NoError(t, os.WriteFile(binary, []byte(script), 0700))
+			r.cli = &cli{binary: binary, home: root}
+			_, err := r.Request("person", "A", "Alice", "terminal")
+			require.NoError(t, err)
+			_, err = r.GrantNext(t.Context(), p)
+			require.NoError(t, err)
+			require.NoError(t, r.BindAdmissionMachine("A", "vm-a"))
+			if status == "booting" {
+				ws := newWorkspace(metadata{ID: "A", Machine: "vm-a", State: "starting"}, root)
+				ws.booting = true
+				r.workspaces["A"] = ws
+			}
+			now := time.Now()
+			require.True(t, r.CancelAdmission("A", "Alice", now))
+			_, err = r.Request("person", "B", "Ben", "terminal")
+			require.NoError(t, err)
+			require.NoError(t, r.ReconcileAdmissionReleases(t.Context(), now.Add(59999*time.Millisecond)))
+			require.NoFileExists(t, log)
+			require.NoError(t, r.ReconcileAdmissionReleases(t.Context(), now.Add(time.Minute)))
+			calls, err := os.ReadFile(log)
+			require.NoError(t, err)
+			require.Contains(t, string(calls), "stop -t 0 -q vm-a")
+			grant, err := r.GrantNext(t.Context(), p)
+			require.NoError(t, err)
+			if status == "stopped" || status == "missing" {
+				require.Equal(t, "B", grant.Holder)
+			} else {
+				require.Empty(t, grant.Holder, "CLI success is not a confirmed stop")
+			}
+			require.Equal(t, 1, r.InUse())
+			if status == "booting" {
+				r.finishBoot(r.workspaces["A"])
+				require.NoError(t, r.ReconcileAdmissionReleases(t.Context(), now.Add(time.Minute)))
+				grant, err = r.GrantNext(t.Context(), p)
+				require.NoError(t, err)
+				require.Equal(t, "B", grant.Holder)
+				require.Equal(t, 1, r.InUse())
+			}
+		})
+	}
+}
+
 func TestAdmissionWaitCancellationAndMissingProviders(t *testing.T) {
 	r, p := admissionFixture()
 	_, err := r.Request("todo", "held", "run", "wake")

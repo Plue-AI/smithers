@@ -168,9 +168,10 @@ func (s *WorkspaceService) ensureRuntimeWorkspaceRunning(ctx context.Context, ro
 	err := s.withWorkspaceMutationAuthority(ctx, row, requesterID, func(ctx context.Context) error {
 		// Register person demand before waiting on a branch's lifecycle lock, so
 		// a person can promote the TODO already waiting on that same branch.
-		if s.machineAdmission != nil && requesterID != row.UserID {
+		class, actor := machineDemand(ctx, row, requesterID)
+		if s.machineAdmission != nil && class == "person" {
 			if queue, ok := s.runtime.(workspaceMachineQueue); ok {
-				if _, err := queue.Request("person", machineQueueHolder(row.ID), fmt.Sprintf("person:%d", requesterID), workspaceMachineReason); err != nil {
+				if _, err := queue.Request(class, machineQueueHolder(row.ID), actor, workspaceMachineReason); err != nil {
 					return err
 				}
 			}

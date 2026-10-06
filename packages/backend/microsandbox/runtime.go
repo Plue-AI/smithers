@@ -141,6 +141,7 @@ type metadata struct {
 
 type workspace struct {
 	metadata
+	booting   bool // guarded by Runtime.mu; an in-flight launcher can still create a VM
 	directory string
 	commands  map[string]*guestCommand
 	services  map[string]*managedService
@@ -590,7 +591,9 @@ func (r *Runtime) createFrom(ctx context.Context, spec workspaceapi.WorkspaceSpe
 		State: string(workspaceapi.WorkspaceStarting), Snapshot: layer.Snapshot, LayerKey: layer.Key, Link: layer.Link,
 		CreatedAt: time.Now().UTC().Format(time.RFC3339)}, directory)
 	r.workspaces[id] = ws
+	ws.booting = true
 	r.mu.Unlock()
+	defer r.finishBoot(ws)
 
 	if err := writeMetadata(ws); err != nil {
 		r.forget(ws)
@@ -626,6 +629,13 @@ func (r *Runtime) forget(ws *workspace) {
 		r.detachAdmissionMachineLocked(ws.Machine, true)
 	}
 	_ = os.RemoveAll(ws.directory)
+}
+
+func (r *Runtime) finishBoot(ws *workspace) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	ws.booting = false
+	r.notifyAdmissionLocked()
 }
 
 // admitRunningLocked refuses to boot beyond the running-VM cap rather than
@@ -811,7 +821,9 @@ func (r *Runtime) StartWorkspace(ctx context.Context, id string) (workspaceapi.W
 		return workspaceapi.Workspace{}, err
 	}
 	ws.State = string(workspaceapi.WorkspaceStarting)
+	ws.booting = true
 	r.mu.Unlock()
+	defer r.finishBoot(ws)
 
 	var startErr error
 	if ws.Reclaimed {

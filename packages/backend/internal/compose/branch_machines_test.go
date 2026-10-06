@@ -6,11 +6,13 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"github.com/coder/websocket"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/smithersai/smithers/packages/backend/db/product"
 	"github.com/smithersai/smithers/packages/backend/internal/db"
 	"github.com/smithersai/smithers/packages/backend/internal/identity"
+	"github.com/smithersai/smithers/packages/backend/internal/live"
 	"github.com/smithersai/smithers/packages/backend/internal/routes"
 	"github.com/smithersai/smithers/packages/backend/microsandbox"
 	"github.com/smithersai/smithers/packages/backend/testkit/postgresfixture"
@@ -19,6 +21,7 @@ import (
 	"net/url"
 	"os"
 	"reflect"
+	"strings"
 	"testing"
 	"time"
 
@@ -144,9 +147,17 @@ func TestFrTMCH06BranchWaitPositionProductionHTTPPostgres(t *testing.T) {
 	runtime := new(microsandbox.Runtime)
 	svc := services.NewWorkspaceService(q, services.WithWorkspaceRuntime(runtime), services.WithWorkspaceTransactions(pool), services.WithBranchMachineProviders(services.InstallBranchMachineProviders(identity.NewMemberBoundary(q), runtime)))
 	cfg := testConfigAllFlagsOn()
+	server := httptest.NewUnstartedServer(nil)
+	t.Cleanup(server.Close)
+	origin := "http://" + server.Listener.Addr().String()
 	cfg.Auth.Mode = "selfhost"
-	cfg.Server.PublicURL = "http://localhost:4000"
-	cfg.Server.AllowedOrigins = []string{"http://localhost:4000"}
+	cfg.Server.PublicURL = origin
+	cfg.Server.AllowedOrigins = []string{origin}
+	hubCtx, cancelHub := context.WithCancel(ctx)
+	t.Cleanup(cancelHub)
+	capacity := &services.InstallCapacityService{Queries: q, Profile: microsandbox.HostProfile{MemoryBytes: 64 << 30, PerfCores: 8, DiskFreeBytes: 140 << 30}, InUse: runtime.InUse}
+	topics := &liveTopics{queries: q, todos: &todoCalls{}, capacity: capacity}
+	liveHandler := &routes.LiveHandler{Queries: q, Hub: live.NewHub(hubCtx, nil), Origins: func() []string { return []string{origin} }, Topics: topics.resolver}
 	fn := reflect.ValueOf(buildRouter)
 	args := make([]reflect.Value, fn.Type().NumIn())
 	for i := range args[:len(args)-1] {
@@ -162,15 +173,17 @@ func TestFrTMCH06BranchWaitPositionProductionHTTPPostgres(t *testing.T) {
 		}
 	}
 	args[0] = reflect.ValueOf(cfg)
-	args[len(args)-1] = reflect.ValueOf([]any{routerExtras{}})
+	args[len(args)-1] = reflect.ValueOf([]any{routerExtras{Live: liveHandler}})
 	router := fn.CallSlice(args)[0].Interface().(http.Handler)
+	server.Config.Handler = router
+	server.Start()
 	holder := "workspace:" + row.ID
 	_, err = runtime.Request("todo", holder, holder, "machine")
 	require.NoError(t, err)
 	_, err = runtime.Request("person", "workspace:other", "person:2", "terminal")
 	require.NoError(t, err)
 	read := func(position int) {
-		req := httptest.NewRequest("GET", "http://localhost:4000/api/branches/main", nil)
+		req := httptest.NewRequest("GET", origin+"/api/branches/main", nil)
 		req.RemoteAddr = "127.0.0.1:1234"
 		req.AddCookie(&http.Cookie{Name: "smithers_session", Value: token})
 		response := httptest.NewRecorder()
@@ -189,4 +202,29 @@ func TestFrTMCH06BranchWaitPositionProductionHTTPPostgres(t *testing.T) {
 	runtime.CancelAdmission(holder, holder, time.Now())
 	read(0)
 	require.Zero(t, runtime.InUse(), "reads never wake machines")
+	// The Home card uses the same owner capacity and runtime accounting as
+	// admission, rather than counting only the machines visible on TODO cards.
+	header := http.Header{"Origin": []string{origin}, "Cookie": []string{"smithers_session=" + token}}
+	conn, _, err := websocket.Dial(ctx, "ws"+strings.TrimPrefix(origin, "http")+"/api/live", &websocket.DialOptions{Subprotocols: []string{"smithers.live.v1"}, HTTPHeader: header})
+	require.NoError(t, err)
+	defer conn.CloseNow()
+	require.NoError(t, conn.Write(ctx, websocket.MessageText, []byte(`{"t":"sub","id":1,"topic":"home"}`)))
+	readCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
+	defer cancel()
+	for {
+		_, raw, err := conn.Read(readCtx)
+		require.NoError(t, err)
+		var frame liveFrame
+		require.NoError(t, json.Unmarshal(raw, &frame))
+		if frame.T != "snap" {
+			require.NotEqual(t, "err", frame.T, string(raw))
+			continue
+		}
+		var home struct {
+			Machines services.MachineCapacity `json:"machines"`
+		}
+		require.NoError(t, json.Unmarshal(frame.Data, &home))
+		require.Equal(t, services.MachineCapacity{InUse: 0, Capacity: 3}, home.Machines)
+		break
+	}
 }

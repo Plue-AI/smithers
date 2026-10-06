@@ -2647,6 +2647,26 @@ func (c *Client) PostAPICommandsSelect(ctx context.Context, body any) (AnyJSON, 
 	return out, err
 }
 
+// GetAPIConfirmations calls GET /api/confirmations.
+func (c *Client) GetAPIConfirmations(ctx context.Context) error {
+	return c.do(ctx, "GET", "/api/confirmations", nil, nil, nil)
+}
+
+// PostAPIConfirmations calls POST /api/confirmations.
+func (c *Client) PostAPIConfirmations(ctx context.Context, idempotencyKey string) error {
+	return c.withHeader("Idempotency-Key", idempotencyKey).do(ctx, "POST", "/api/confirmations", nil, nil, nil)
+}
+
+// PostAPIConfirmationsIDApprove calls POST /api/confirmations/{id}/approve.
+func (c *Client) PostAPIConfirmationsIDApprove(ctx context.Context, id string, idempotencyKey string) error {
+	return c.withHeader("Idempotency-Key", idempotencyKey).do(ctx, "POST", "/api/confirmations/"+url.PathEscape(id)+"/approve", nil, nil, nil)
+}
+
+// PostAPIConfirmationsIDDeny calls POST /api/confirmations/{id}/deny.
+func (c *Client) PostAPIConfirmationsIDDeny(ctx context.Context, id string, idempotencyKey string) error {
+	return c.withHeader("Idempotency-Key", idempotencyKey).do(ctx, "POST", "/api/confirmations/"+url.PathEscape(id)+"/deny", nil, nil, nil)
+}
+
 // GetAPIFeatureFlags calls GET /api/feature-flags.
 func (c *Client) GetAPIFeatureFlags(ctx context.Context) (AnyJSON, error) {
 	var out AnyJSON
@@ -5222,6 +5242,11 @@ func (c *Client) PostAPIRepoConnection(ctx context.Context) (AnyJSON, error) {
 // DeleteAPIRepoConnection calls DELETE /api/repo-connection.
 func (c *Client) DeleteAPIRepoConnection(ctx context.Context) error {
 	return c.do(ctx, "DELETE", "/api/repo-connection", nil, nil, nil)
+}
+
+// PostAPIReviews calls POST /api/reviews.
+func (c *Client) PostAPIReviews(ctx context.Context, idempotencyKey string) error {
+	return c.withHeader("Idempotency-Key", idempotencyKey).do(ctx, "POST", "/api/reviews", nil, nil, nil)
 }
 
 // GetAPISearchCode calls GET /api/search/code.

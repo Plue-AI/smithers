@@ -50,6 +50,22 @@ func isMachineCapacityError(err error) bool {
 
 func machineQueueHolder(workspaceID string) string { return "workspace:" + workspaceID }
 
+type personMachineDemandKey struct{}
+
+// A person's wake is classified by its entry point, never by whether that
+// person happens to own the branch's workspace row.
+func personMachineDemand(ctx context.Context) context.Context {
+	return context.WithValue(ctx, personMachineDemandKey{}, true)
+}
+
+func machineDemand(ctx context.Context, row db.Workspace, requesterID int64) (string, string) {
+	person, _ := ctx.Value(personMachineDemandKey{}).(bool)
+	if person || requesterID != row.UserID {
+		return "person", fmt.Sprintf("person:%d", requesterID)
+	}
+	return "todo", machineQueueHolder(row.ID)
+}
+
 // waitForMachine keeps a workspace the full host refused in the runtime's
 // admission queue instead of failing it (T-MCH-06): its row stays pending at
 // the stage waiting_for_machine, and it tries again only at the head of the
@@ -196,10 +212,7 @@ func (s *WorkspaceService) admitWorkspaceOperation(ctx context.Context, row db.W
 	if !ok {
 		return ctx, errors.New("machine admission runtime unavailable")
 	}
-	class, actor := "todo", machineQueueHolder(row.ID)
-	if requesterID != row.UserID {
-		class, actor = "person", fmt.Sprintf("person:%d", requesterID)
-	}
+	class, actor := machineDemand(ctx, row, requesterID)
 	holder := machineQueueHolder(row.ID)
 	s.setWorkspaceProvisioningStageBestEffort(ctx, row.ID, workspaceWaitingForMachine)
 	granted, err := runtime.WaitAdmission(ctx, *s.machineAdmission, class, holder, actor, workspaceMachineReason)

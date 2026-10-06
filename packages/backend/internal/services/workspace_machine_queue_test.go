@@ -108,6 +108,23 @@ func TestMachineCapacityRefusalIsNoCapacity(t *testing.T) {
 	require.False(t, isNoCapacityError(runtimeOperationError("inspect workspace runtime", zero)))
 }
 
+func TestMachineDemandOwnerTerminalIsPerson(t *testing.T) {
+	row := sampleDBWorkspace("owner-terminal")
+	for _, tc := range []struct {
+		ctx             context.Context
+		actor           int64
+		class, identity string
+	}{
+		{context.Background(), row.UserID, "todo", "workspace:owner-terminal"},
+		{personMachineDemand(context.Background()), row.UserID, "person", fmt.Sprintf("person:%d", row.UserID)},
+		{context.Background(), row.UserID + 1, "person", fmt.Sprintf("person:%d", row.UserID+1)},
+	} {
+		class, actor := machineDemand(context.WithoutCancel(tc.ctx), row, tc.actor)
+		require.Equal(t, tc.class, class)
+		require.Equal(t, tc.identity, actor)
+	}
+}
+
 // A full host queues workspaces in the runtime's admission queue instead of
 // failing them: each stays pending, waiting for a machine with its place in
 // line, and only the head of the line tries again, so machines go out in
