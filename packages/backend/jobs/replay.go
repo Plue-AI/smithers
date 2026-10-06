@@ -187,6 +187,12 @@ func (store *Store) ExpireEventsThrough(ctx context.Context, scope Scope, sequen
 		return err
 	}
 	defer rollback(tx)
+	// Match repository-before-item source allocation locks.
+	var repositoryHead int64
+	err = tx.QueryRow(ctx, `SELECT head FROM product_job_streams WHERE tenant_id=$1 AND principal_id='repository:todos' FOR UPDATE`, scope.TenantID).Scan(&repositoryHead)
+	if err != nil && !errors.Is(err, pgx.ErrNoRows) {
+		return err
+	}
 	var head int64
 	err = tx.QueryRow(ctx, `SELECT head FROM product_job_streams
 		WHERE tenant_id=$1 AND principal_id=$2 FOR UPDATE`, scope.TenantID, scope.PrincipalID).Scan(&head)
@@ -198,6 +204,15 @@ func (store *Store) ExpireEventsThrough(ctx context.Context, scope Scope, sequen
 	}
 	if sequence > head {
 		sequence = head
+	}
+	var repositoryFloor int64
+	if err := tx.QueryRow(ctx, `SELECT COALESCE(MAX(repository_sequence),0) FROM product_job_events WHERE tenant_id=$1 AND principal_id=$2 AND sequence<=$3`, scope.TenantID, scope.PrincipalID, sequence).Scan(&repositoryFloor); err != nil {
+		return err
+	}
+	if repositoryFloor > 0 {
+		if _, err := tx.Exec(ctx, `UPDATE product_job_streams SET retention_floor=GREATEST(retention_floor,$2+1) WHERE tenant_id=$1 AND principal_id='repository:todos'`, scope.TenantID, repositoryFloor); err != nil {
+			return err
+		}
 	}
 	if _, err := tx.Exec(ctx, `DELETE FROM product_job_events
 		WHERE tenant_id=$1 AND principal_id=$2 AND sequence<=$3`,

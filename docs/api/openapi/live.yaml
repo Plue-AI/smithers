@@ -11,7 +11,7 @@ paths:
         member's browser session from the install's own origin, or a scoped delegated bearer without cookies, subscribes to
         shared topics (home, todo:<n>, flows) with text
         frames {"t":"sub","id","topic"} and {"t":"unsub","id"}; each topic
-        answers {"t":"snap","id","cursor","data"} initially. TODO sources also
+        answers {"t":"snap","id","cursor","data"} initially. TODO and Home stack sources also
         deliver {"t":"delta","id","cursor","data"} with committed job-event
         payloads, resuming strictly after the requested source cursor. An expired
         cursor receives a fresh snapshot. Snapshot-only topics update when their committed

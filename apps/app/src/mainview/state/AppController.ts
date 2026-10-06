@@ -1,3 +1,4 @@
+import { projectHome } from "../runtime/HomeProjection"
 import { projectTodoCard } from "../runtime/TodoProjection"
 import { createSharedPrompts } from "./controller/sharedPrompts"
 import { createSharedConversationSeam, type SharedConversationSeam } from "./seams/SharedConversationSeam"
@@ -915,6 +916,7 @@ export const createAppController = (
   }, http: (path, init) => seamCtx.http(`${baseUrl.replace(/\/$/, "")}${path}`, init), live: services.live })
   ctx.onDispose(runMonitorSeam.dispose)
   const runMonitors = installHost || services.live ? runMonitorSeam.snapshots : undefined
+  services.live?.registerProjection?.("home", projectHome)
   const design = createDesignWorld({ enabled: !installHost })
   ctx.onDispose(design.dispose)
   const gitHubSyncSeam = createGitHubSyncSeam({ http: installHost ? (path, init) => seamCtx.http(`${baseUrl.replace(/\/$/, "")}${path}`, init) : undefined })
