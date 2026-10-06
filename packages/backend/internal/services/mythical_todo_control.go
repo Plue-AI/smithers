@@ -173,6 +173,12 @@ func todoRequestCredential(ctx context.Context, actor int64) (string, error) {
 		if !info.IsTokenAuth && info.SessionHash != "" {
 			return info.SessionHash, nil
 		}
+		if info.IsTokenAuth && info.TokenID > 0 && (info.CredentialKind() == middleware.CredentialDelegated || info.CredentialKind() == middleware.CredentialPerson) {
+			if _, terminal := info.TerminalDelegation(); !terminal {
+				identity, _ := json.Marshal([]any{"delegated", info.TokenID, actor})
+				return string(identity), nil
+			}
+		}
 		if binding, ok := info.TerminalDelegation(); ok && info.CredentialKind() == middleware.CredentialDelegated && info.TokenID > 0 && binding.Branch != "" {
 			identity, _ := json.Marshal([]any{"delegated", info.TokenID, actor, binding.Branch, binding.Profile, binding.Session})
 			return string(identity), nil

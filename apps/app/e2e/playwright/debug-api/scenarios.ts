@@ -11,7 +11,7 @@ import operations from "../../../src/debugApi/install-operations.fixture.json"
 // Release YAML is input under test; the committed JSON is the literal oracle.
 // Like the app's existing Playwright commands, run from apps/app.
 const document = () => parse(readFileSync(resolve("../../docs/api/openapi.yaml"), "utf8")) as OpenApiDocument
-const activationBlocker = "Reference-install evidence still required; browser projection is covered by spec/C-UI-10.spec.ts. The composed install now advertises debug.api and the app binds the shared descriptor."
+const activationBlocker = "This check still requires its own install or branch-machine evidence. Slash/Advanced and documented forms have a local-own real-backend browser test; the composed install advertises debug.api."
 
 export function debugApiScenarios(prefix: string) {
   test.describe(prefix, () => {
@@ -40,9 +40,9 @@ export function debugApiScenarios(prefix: string) {
       })
     }
 
-    // Unimplemented browser/dispatcher and execution receipts remain visible.
-    // The role cases below own an isolated startLocalOwn backend and PostgreSQL;
-    // it is a seam receipt, not a CardRenderers/browser interaction receipt.
+    // Missing delegated-dispatch and execution receipts remain visible.
+    // Browser and role cases own an isolated startLocalOwn backend and PostgreSQL.
+    // This trusted-process test install supplies no branch-machine receipt.
     // The blocked cases deliberately have no route.fulfill/cloudFixture and
     // no guessed success bodies, sessions, SQL mappings or process receipts.
     const pending = (name: string, dependency: string) => {
@@ -51,8 +51,22 @@ export function debugApiScenarios(prefix: string) {
         throw new Error(`Missing real-install evidence: ${dependency}`)
       })
     }
-    pending("slash and Advanced open through CardRenderers; selecting a literal operation sends zero requests",
-      "Browser projection passes through CardRenderers separately; reference-install browser/session harness still required.")
+    test("slash and Advanced reach CardRenderers on a real install; literal operations and secret fields; selection sends nothing", async () => {
+      test.setTimeout(900_000)
+      const output = mkdtempSync(resolve(tmpdir(), "c-ui-10-browser-"))
+      try {
+        const result = await promisify(execFile)("bun", ["e2e/playwright/debug-api/local-own-read.ts", output, "browser"], {
+          env: { ...process.env, TMPDIR: output }, timeout: 840_000, maxBuffer: 8 * 1024 * 1024
+        })
+        expect(result.stdout).toContain("C-UI-10 REAL BROWSER PASS")
+      } finally {
+        for (const name of ["local-own.execution.json", "browser.role-receipt.json"]) {
+          const path = resolve(output, name)
+          if (existsSync(path)) await test.info().attach(name, { path, contentType: "application/json" })
+        }
+        rmSync(output, { recursive: true, force: true })
+      }
+    })
     test("Ben Member GET /api/todos returns literal seeded 200 body; independently compare curl with Ben's session", async () => {
       test.setTimeout(900_000)
       const output = mkdtempSync(resolve(tmpdir(), "c-ui-10-read-"))
@@ -69,7 +83,7 @@ export function debugApiScenarios(prefix: string) {
         rmSync(output, { recursive: true, force: true })
       }
     })
-    test("Ben POST secrets awaits Confirm then 403 permission with zero SQL rows; Mia Maintainer gets 201 and one SQL row", async () => {
+    test("Ben PUT /api/secrets awaits Confirm then 403 permission with zero SQL rows; Mia Maintainer gets 201 and one SQL row", async () => {
       test.setTimeout(900_000)
       const output = mkdtempSync(resolve(tmpdir(), "c-ui-10-write-"))
       try {
@@ -103,8 +117,6 @@ export function debugApiScenarios(prefix: string) {
     })
     pending("eligible delegated app-agent and smthrs dispatch refuse debug.api as never with zero effects; scope/role refusals retain precedence",
       "App agent and descriptor-generated smthrs debug api refuse locally; authenticated delegated reference-install fixture still required.")
-    pending("displayed operations and form fields equal committed install fixture; Plue-only and undocumented operations absent",
-      "Complete literal operation and request-field inventories pass at the seam; browser operation inventory and secret fields pass; reference-install browser receipt still required.")
     pending("repository-flow execution with isolation unavailable refuses before execution with no host process",
       "Production flow composition refuses missing isolation before startup; no documented repository-flow invocation operation exposes that canary to the playground. Reference-install HTTP/process receipt required.")
     pending("available repository-flow execution runs only in a branch machine",

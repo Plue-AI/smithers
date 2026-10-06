@@ -442,3 +442,17 @@ test("an admitted pin loads the packaged default TODO without a repository overr
     assert.equal((yield* stale.loadBody("todo").pipe(Effect.result))._tag, "Failure")
   }).pipe(Effect.provide(platform), Effect.runPromise)
 })
+
+test("legacy coding doors and engine verification/review are absent from model commands", async (t) => {
+  const names = ["coding/request", "coding/vibe", "coding/verify", "review/change"]
+  const { catalog } = await boundary(t, names, names)
+  const { registry } = await catalog()
+  const visible = await Effect.runPromise(registry.visible())
+  assert.deepEqual(visible.filter((entry) => names.includes(entry.name)), [])
+  // Retained engine execution still resolves the packaged implementation.
+  for (const name of names) {
+    const entry = await Effect.runPromise(registry.get(name))
+    assert.equal(entry.name, name)
+    assert.equal(entry.modelInvocable, false)
+  }
+})

@@ -58,6 +58,8 @@ type mythicalPull struct {
 	Body string
 	// BaseRef is the branch GitHub would merge the pull request into.
 	BaseRef string
+	// BaseSHA is the immutable comparison base returned with the PR head.
+	BaseSHA string
 	// MergeableState is GitHub's word: clean, dirty (conflicts), behind
 	// (the base moved and the branch must be updated), blocked, unknown.
 	MergeableState string
@@ -384,7 +386,7 @@ type mythicalGitHubPull struct {
 
 func (p mythicalGitHubPull) pull() mythicalPull {
 	out := mythicalPull{Author: p.Author, Draft: p.Draft, NodeID: p.NodeID, Number: p.Number, URL: p.HTMLURL, State: p.State, Merged: p.MergedAt != nil,
-		HeadRef: p.Head.Ref, HeadSHA: p.Head.SHA, BaseRef: p.Base.Ref, MergeableState: p.MergeableState}
+		HeadRef: p.Head.Ref, HeadSHA: p.Head.SHA, BaseRef: p.Base.Ref, BaseSHA: p.Base.SHA, MergeableState: p.MergeableState}
 	if p.Body != nil {
 		out.Body = *p.Body
 	}

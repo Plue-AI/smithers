@@ -5,6 +5,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
@@ -13,6 +14,7 @@ import (
 
 	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/smithersai/smithers/packages/backend/flowdispatch"
+	"github.com/smithersai/smithers/packages/backend/flowruntime"
 	"github.com/smithersai/smithers/packages/backend/internal/db"
 	"github.com/smithersai/smithers/packages/backend/internal/middleware"
 	"github.com/smithersai/smithers/packages/backend/internal/routes"
@@ -132,6 +134,27 @@ func TestTodoInterruptedComposedInstall(t *testing.T) {
 	require.Equal(t, 200, status, card)
 	require.Equal(t, "failed", card["state"])
 	require.Equal(t, map[string]any{"step": "runtime", "class": "interrupted", "message": "Interrupted", "retryable": true}, card["failure"])
+	// A delayed nonterminal checkpoint of the failed run cannot open a new
+	// question or change the failed attempt while a person decides Retry.
+	failed, err := q.GetMythicalItem(ctx, item.ID)
+	require.NoError(t, err)
+	var failureEvents int
+	require.NoError(t, pool.QueryRow(ctx, `SELECT count(*) FROM product_job_events`).Scan(&failureEvents))
+	require.NoError(t, service.ProjectFlowRuntime(ctx, flowdispatch.ProjectionUpdate{State: jobs.StateWaiting,
+		Scope: jobs.Scope{TenantID: fmt.Sprintf("repository:%d", repo.ID), PrincipalID: fmt.Sprintf("user:%d", owner.ID)},
+		Checkpoint: flowdispatch.RuntimeCheckpoint{FlowID: "coding/request", Projection: projection, RunID: "run-1", Run: &flowruntime.Run{
+			RunID: "run-1", PendingWaits: []flowruntime.PendingWait{{RunID: "request-step", Token: "late-question", Name: "choice",
+				Request: []byte(`{"kind":"ask","prompt":"Too late?"}`)}},
+		}}}))
+	unchanged, err := q.GetMythicalItem(ctx, item.ID)
+	require.NoError(t, err)
+	require.Equal(t, failed, unchanged)
+	require.NoError(t, pool.QueryRow(ctx, `SELECT count(*) FROM product_job_events`).Scan(&afterEvents))
+	require.Equal(t, failureEvents, afterEvents)
+	status, card = call("GET", "", "")
+	require.Equal(t, 200, status)
+	require.Equal(t, "failed", card["state"])
+	require.NotContains(t, card, "needs_you")
 	status, receipt := call("POST", `{"op":"retry"}`, "retry-1")
 	require.Equal(t, 202, status, receipt)
 	status, card = call("GET", "", "")
@@ -202,4 +225,93 @@ func TestTodoInterruptedComposedInstall(t *testing.T) {
 	require.Equal(t, "queued", card["state"], "the earlier open PR does not hide a queued retry")
 	status, mismatch := call("POST", `{"op":"retry"}`, "current-1")
 	require.Equal(t, 409, status, mismatch)
+	t.Run("Drop cancels the attempt across candidate generations atomically", func(t *testing.T) {
+		store, err := jobs.NewStore(pool)
+		require.NoError(t, err)
+		dispatcher, err := flowdispatch.New(flowdispatch.Config{Store: store, Projector: service,
+			Resolver: flowruntime.ResolverFunc(func(context.Context, flowruntime.Target) (flowruntime.Runtime, error) {
+				return nil, errors.New("no host should be contacted by admission or Drop")
+			})})
+		require.NoError(t, err)
+		service.SetLauncher(dispatcher)
+		scope := jobs.Scope{TenantID: fmt.Sprintf("repository:%d", repo.ID), PrincipalID: fmt.Sprintf("user:%d", owner.ID)}
+		admit := func(request, itemID string, attempt int, principal string) string {
+			launchScope := scope
+			launchScope.PrincipalID = principal
+			binding, err := json.Marshal(map[string]any{"kind": "mythical-item", "itemId": itemID, "attempt": attempt, "generation": 1, "phase": "request"})
+			require.NoError(t, err)
+			receipt, err := dispatcher.Admit(ctx, flowdispatch.LaunchRequest{Scope: launchScope, RequestID: request,
+				Target: flowruntime.Target{TenantID: launchScope.TenantID, PrincipalID: principal, WorkspaceID: "todo-lane", BindingKind: "mythical-item", BindingID: itemID},
+				FlowID: "coding/request", Payload: []byte(`{"prompt":"continue"}`), Projection: binding})
+			require.NoError(t, err)
+			return receipt.OperationID
+		}
+		id := fmt.Sprintf("%x-%x-%x-%x-%x", item.ID.Bytes[0:4], item.ID.Bytes[4:6], item.ID.Bytes[6:8], item.ID.Bytes[8:10], item.ID.Bytes[10:16])
+		own := admit("old-generation-current-attempt", id, 2, scope.PrincipalID)
+		otherAttempt := admit("prior-attempt", id, 1, scope.PrincipalID)
+		otherItem := admit("other-item", "11111111-1111-1111-1111-111111111111", 2, scope.PrincipalID)
+		otherPrincipal := admit("other-principal", id, 2, "user:999")
+		_, err = pool.Exec(ctx, `UPDATE mythical_items SET state='running',generation=9,attempt=2,paused_at=NOW(),pending_op=NULL,
+		 checks='{"todo":true,"run_launched":true,"run_attached":true,"waits":[{"id":"question","kind":"question","prompt":"Which?","since":"2026-10-06T00:00:00Z"},{"id":"foreign","kind":"foreign_push","prompt":"Push","since":"2026-10-06T00:00:00Z"}]}' WHERE id=$1`, item.ID)
+		require.NoError(t, err)
+		before, err := q.GetMythicalItem(ctx, item.ID)
+		require.NoError(t, err)
+		// Cancellation, wait settlement and the event must all roll back when
+		// the event insert fails after cancellation has been requested.
+		_, err = pool.Exec(ctx, `CREATE TRIGGER refuse_attachment_fact BEFORE INSERT ON product_job_events FOR EACH ROW WHEN (NEW.event_type='todo.dropped') EXECUTE FUNCTION refuse_attachment_fact()`)
+		require.NoError(t, err)
+		status, _ := call("POST", `{"op":"drop"}`, "drop-after-generation")
+		require.Equal(t, 503, status)
+		after, err := q.GetMythicalItem(ctx, item.ID)
+		require.NoError(t, err)
+		require.Equal(t, before, after)
+		cancelled := func(operation string) bool {
+			var value bool
+			require.NoError(t, pool.QueryRow(ctx, `SELECT cancellation_requested FROM product_job_requests WHERE id=$1`, operation).Scan(&value))
+			return value
+		}
+		require.False(t, cancelled(own))
+		_, err = pool.Exec(ctx, `DROP TRIGGER refuse_attachment_fact ON product_job_events`)
+		require.NoError(t, err)
+		status, _ = call("POST", `{"op":"drop"}`, "drop-after-generation")
+		require.Equal(t, 202, status)
+		require.True(t, cancelled(own), "candidate generation changes cannot orphan the continuing run")
+		for _, untouched := range []string{otherAttempt, otherItem, otherPrincipal} {
+			require.False(t, cancelled(untouched), "cancellation stays within this attempt and principal")
+		}
+		status, card = call("GET", "", "")
+		require.Equal(t, 200, status)
+		require.Equal(t, "dropped", card["state"])
+		require.NotContains(t, card, "needs_you")
+		after, err = q.GetMythicalItem(ctx, item.ID)
+		require.NoError(t, err)
+		require.False(t, after.PausedAt.Valid)
+		var settled struct {
+			Waits []struct {
+				SettledAt *string `json:"settled_at"`
+			} `json:"waits"`
+		}
+		require.NoError(t, json.Unmarshal(after.Checks, &settled))
+		require.Len(t, settled.Waits, 2)
+		for _, wait := range settled.Waits {
+			require.NotNil(t, wait.SettledAt)
+		}
+		var events int
+		require.NoError(t, pool.QueryRow(ctx, `SELECT count(*) FROM product_job_events WHERE event_type='todo.dropped'`).Scan(&events))
+		require.Equal(t, 1, events)
+		var fact []byte
+		require.NoError(t, pool.QueryRow(ctx, `SELECT data FROM product_job_events WHERE event_type='todo.dropped'`).Scan(&fact))
+		var activity map[string]any
+		require.NoError(t, json.Unmarshal(fact, &activity))
+		require.Equal(t, "needs_you", activity["from"])
+		require.Equal(t, "dropped", activity["to"])
+		require.Equal(t, id, activity["item"])
+		require.Equal(t, map[string]any{"kind": "person", "id": float64(owner.ID), "login": "owner"}, activity["actor"])
+		status, _ = call("POST", `{"op":"drop"}`, "drop-after-generation")
+		require.Equal(t, 202, status)
+		replayed, err := q.GetMythicalItem(ctx, item.ID)
+		require.NoError(t, err)
+		require.Equal(t, after, replayed)
+	})
+
 }

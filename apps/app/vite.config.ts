@@ -47,7 +47,7 @@ const entryChunkGuard = (): Plugin => ({
 export default defineConfig({
   server: process.env.SMITHERS_DEV_BACKEND_ORIGIN ? {
     proxy: {
-      "/api": { target: process.env.SMITHERS_DEV_BACKEND_ORIGIN, changeOrigin: true, ws: true },
+      "/api": { target: process.env.SMITHERS_DEV_BACKEND_ORIGIN, changeOrigin: false, ws: true },
       "/readyz": process.env.SMITHERS_DEV_BACKEND_ORIGIN
     }
   } : undefined,

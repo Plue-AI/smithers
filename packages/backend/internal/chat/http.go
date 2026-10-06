@@ -97,19 +97,23 @@ type producerRequest struct {
 }
 
 func decodeBounded(w http.ResponseWriter, r *http.Request, target any) bool {
+	return decodeBoundedWithProblem(w, r, target, writeProblem)
+}
+
+func decodeBoundedWithProblem(w http.ResponseWriter, r *http.Request, target any, problem func(http.ResponseWriter, int, string)) bool {
 	decoder := json.NewDecoder(io.LimitReader(r.Body, maxPayloadBytes+maxBatchBytes+4097))
 	decoder.DisallowUnknownFields()
 	if err := decoder.Decode(target); err != nil {
 		if middleware.IsMaxBytesError(err) {
-			writeProblem(w, http.StatusRequestEntityTooLarge, "request_too_large")
+			problem(w, http.StatusRequestEntityTooLarge, "request_too_large")
 			return false
 		}
-		writeProblem(w, http.StatusBadRequest, "request_invalid")
+		problem(w, http.StatusBadRequest, "request_invalid")
 		return false
 	}
 	var trailing any
 	if err := decoder.Decode(&trailing); !errors.Is(err, io.EOF) {
-		writeProblem(w, http.StatusBadRequest, "request_invalid")
+		problem(w, http.StatusBadRequest, "request_invalid")
 		return false
 	}
 	return true
@@ -573,6 +577,9 @@ func (h *Handler) MountAuthenticated(router chi.Router) {
 	router.Post(CancelPath, h.Cancel)
 	router.Post(ReplayPath, h.Replay)
 	router.Post(RetirePath, h.Retire)
+	router.Post("/api/conversations/{b}/turns/{id}/stop", h.QueueTurn)
+	router.Patch("/api/conversations/{b}/turns/{id}", h.QueueTurn)
+	router.Delete("/api/conversations/{b}/turns/{id}", h.QueueTurn)
 	router.Get("/api/conversations/{b}/view-state", h.ViewState)
 	router.Put("/api/conversations/{b}/view-state", h.ViewState)
 	router.Get(HistoryPath, h.History)

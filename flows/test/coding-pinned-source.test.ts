@@ -7,7 +7,17 @@ import { test } from "node:test"
 import { withImmutableCommit, withPinnedSource } from "../coding/immutable-source.ts"
 import { nativeLayer } from "../coding/native.ts"
 
-for (const mode of ["valid", "refused", "wrong-workspace", "wrong-commit"] as const) {
+for (
+  const mode of [
+    "valid",
+    "refused",
+    "wrong-workspace",
+    "wrong-commit",
+    "zero-source",
+    "bad-workspace",
+    "uppercase-source"
+  ] as const
+) {
   test(`pinned startup ${mode} imports retained source before exporting or loading it`, async (t) => {
     const temporary = await mkdtemp(join(tmpdir(), "coding-pinned-import-"))
     t.after(() => rm(temporary, { recursive: true, force: true }))
@@ -63,8 +73,8 @@ if (process.argv[2] === '--local') {
               exporterPath: helper,
               environment: { PATH: process.env.PATH! }
             },
-            workspace,
-            commit,
+            mode === "bad-workspace" ? "../other" : workspace,
+            mode === "zero-source" ? "0".repeat(40) : mode === "uppercase-source" ? "A".repeat(40) : commit,
             (_tree, root) =>
               Effect.gen(function*() {
                 loaded++
@@ -78,6 +88,11 @@ if (process.argv[2] === '--local') {
       assert.equal(result._tag, mode === "valid" ? "Success" : "Failure")
     }
     assert.equal(loaded, mode === "valid" ? 2 : 0)
+    if (mode === "zero-source" || mode === "bad-workspace" || mode === "uppercase-source") {
+      await assert.rejects(readFile(join(temporary, "imports")), { code: "ENOENT" })
+      await assert.rejects(readFile(join(temporary, "exports")), { code: "ENOENT" })
+      return
+    }
     const requests = (await readFile(join(temporary, "imports"), "utf8")).trim().split("\n").map((line) =>
       JSON.parse(line)
     )

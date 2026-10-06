@@ -497,17 +497,18 @@ func (h *GitHubAppSetupHandler) SetSettings(w http.ResponseWriter, r *http.Reque
 		Obsidian *struct {
 			Path string `json:"path"`
 		} `json:"wiki_sync.obsidian"`
-		ChatGPT  *bool     `json:"chatgpt"`
-		Capacity *int      `json:"capacity"`
-		Parallel *int      `json:"parallel"`
-		Bind     *string   `json:"bind"`
-		Origins  *[]string `json:"origins"`
+		ChatGPT             *bool     `json:"chatgpt"`
+		Capacity            *int      `json:"capacity"`
+		Parallel            *int      `json:"parallel"`
+		TodoDailyAdmissions *int64    `json:"todo_daily_admissions"`
+		Bind                *string   `json:"bind"`
+		Origins             *[]string `json:"origins"`
 	}
 	if !decodeStrictJSONBody(w, r, &input) {
 		return
 	}
 	if input.Obsidian != nil {
-		if input.Bind != nil || input.Origins != nil || input.Capacity != nil || input.ChatGPT != nil || input.Parallel != nil {
+		if input.Bind != nil || input.Origins != nil || input.Capacity != nil || input.ChatGPT != nil || input.Parallel != nil || input.TodoDailyAdmissions != nil {
 			writeInstallAPIError(w, pkgerrors.BadRequest("Obsidian must be set separately"))
 			return
 		}
@@ -523,7 +524,7 @@ func (h *GitHubAppSetupHandler) SetSettings(w http.ResponseWriter, r *http.Reque
 		return
 	}
 	if input.Bind != nil || input.Origins != nil {
-		if input.Capacity != nil || input.Parallel != nil || input.ChatGPT != nil {
+		if input.Capacity != nil || input.Parallel != nil || input.ChatGPT != nil || input.TodoDailyAdmissions != nil {
 			writeInstallAPIError(w, pkgerrors.BadRequest("other settings and address must be set separately"))
 			return
 		}
@@ -555,13 +556,37 @@ func (h *GitHubAppSetupHandler) SetSettings(w http.ResponseWriter, r *http.Reque
 		h.Status(w, r)
 		return
 	}
-	if input.Capacity == nil && input.Parallel == nil && input.ChatGPT == nil {
+	if input.Capacity == nil && input.Parallel == nil && input.ChatGPT == nil && input.TodoDailyAdmissions == nil {
 		writeInstallAPIError(w, pkgerrors.BadRequest("install setting required"))
 		return
 	}
 	if h.Setup == nil || ((input.Capacity != nil || input.Parallel != nil) && h.Setup.Capacity == nil) {
 		writeInstallAPIError(w, pkgerrors.New(pkgerrors.CodeServiceUnavailable, "install capacity unavailable"))
 		return
+	}
+	if input.TodoDailyAdmissions != nil {
+		if *input.TodoDailyAdmissions <= 0 {
+			writeInstallAPIError(w, pkgerrors.BadRequest("daily admissions must be positive"))
+			return
+		}
+		tx, err := h.Setup.Pool.Begin(r.Context())
+		if err != nil {
+			writeInstallAPIError(w, pkgerrors.New(pkgerrors.CodeServiceUnavailable, "install setting unavailable"))
+			return
+		}
+		defer tx.Rollback(context.WithoutCancel(r.Context()))
+		q := db.New(tx)
+		raw, _ := json.Marshal(*input.TodoDailyAdmissions)
+		if err = q.UpsertInstallSetting(r.Context(), db.UpsertInstallSettingParams{Key: "todo_daily_admissions", Value: raw}); err == nil {
+			_, err = tx.Exec(r.Context(), `UPDATE mythical_stacks SET requested_generation=requested_generation+1,next_attempt_at=LEAST(next_attempt_at,NOW()),updated_at=NOW() WHERE state='active'`)
+		}
+		if err == nil {
+			err = tx.Commit(r.Context())
+		}
+		if err != nil {
+			writeInstallAPIError(w, pkgerrors.New(pkgerrors.CodeServiceUnavailable, "install setting unavailable"))
+			return
+		}
 	}
 	if input.Parallel != nil {
 		if err = h.Setup.Capacity.SetParallel(r.Context(), *input.Parallel); err != nil {

@@ -43,6 +43,8 @@ Ask a question about the repository. Open the answer's file cards to check the s
 
 Open `/todo.new`, write one small change and choose **Append**. Watch it move through Queued, Starting, Working and In review. Answer a Needs you question on the branch; use Steer for an additional instruction.
 
+When an outside push needs a decision, an owner or maintainer can choose **Discard** on the TODO card. The decision targets the displayed commit; that commit stays in history.
+
 Open the TODO's evidence and pull request. Read the diff, verification results, GitHub checks and review. When the reviewed revision is ready, choose **Merge** in the app and confirm it. People merge; agents cannot approve or merge. The TODO becomes Merged after GitHub reports the squash merge. A learning run follows.
 
 ## Members and secrets

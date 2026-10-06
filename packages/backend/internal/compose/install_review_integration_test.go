@@ -66,6 +66,7 @@ func TestInstallReviewHTTPAdmissionWithoutRuntime(t *testing.T) {
 		{"missing conversation", `{"number":50}`, "review", true, 400, "invalid_review"},
 		{"invalid number", `{"number":0,"conversation":"ben"}`, "review", true, 400, "invalid_review"},
 		{"caller pin refused", `{"number":50,"conversation":"ben","head":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"}`, "review", true, 400, "invalid_review"},
+		{"caller base refused", `{"number":50,"conversation":"ben","base":"9999999999999999999999999999999999999999"}`, "review", true, 400, "invalid_review"},
 		{"trailing JSON", `{"number":50,"conversation":"ben"}{}`, "review", true, 400, "invalid_review"},
 		{"no GitHub", `{"number":50,"conversation":"ben"}`, "review", true, 503, "github_unavailable"},
 		{"retry no GitHub", `{"number":50,"conversation":"ben"}`, "review", true, 503, "github_unavailable"},
@@ -123,6 +124,7 @@ func TestInstallReviewHTTPAdmissionWithoutRuntime(t *testing.T) {
 	upstream.UpdatePull("review-owner/app", 50, func(p *githubfake.Pull) {
 		p.Number, p.Repository, p.State = 50, "review-owner/app", "open"
 		p.Head.SHA = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+		p.Base.SHA = "9999999999999999999999999999999999999999"
 		p.User = &githubfake.PullAuthor{ID: 4242, Login: "alice", Type: "User"}
 	})
 	member, err := q.CreateUser(ctx, db.CreateUserParams{Username: "alice", LowerUsername: "alice", DisplayName: "Alice"})
@@ -155,6 +157,12 @@ func TestInstallReviewHTTPAdmissionWithoutRuntime(t *testing.T) {
 	require.True(t, active)
 	requestReview(503, "review_delivery_unavailable")
 	requestReview(503, "review_delivery_unavailable") // Refusal replay allocates nothing.
+	for _, base := range []string{"", "main", strings.Repeat("0", 40), strings.Repeat("A", 40), strings.Repeat("9", 39), strings.Repeat("9", 41)} {
+		upstream.UpdatePull("review-owner/app", 50, func(p *githubfake.Pull) { p.Base.SHA = base })
+		requestReview(503, "pr_base_unavailable")
+	}
+	upstream.UpdatePull("review-owner/app", 50, func(p *githubfake.Pull) { p.Base.SHA = "9999999999999999999999999999999999999999" })
+	requestReview(503, "review_delivery_unavailable")
 	upstream.UpdatePull("review-owner/app", 50, func(p *githubfake.Pull) { p.Head.SHA = strings.Repeat("0", 40) })
 	requestReview(503, "pr_head_unavailable")
 	upstream.UpdatePull("review-owner/app", 50, func(p *githubfake.Pull) {

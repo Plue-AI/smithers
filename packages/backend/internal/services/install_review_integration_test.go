@@ -25,6 +25,7 @@ func TestInstallReviewPinsMemberPRBeforeDispatch(t *testing.T) {
 		p.User = &githubfake.PullAuthor{ID: 4242, Login: "alice", Type: "User"}
 		p.Head.Ref = "literal-review-fixture"
 		p.Head.SHA = strings.Repeat("a", 40)
+		p.Base.SHA = strings.Repeat("9", 40)
 	})
 	writes := len(f.fake.Writes())
 	request := ReviewRequest{Number: pull.Number, Conversation: "ben-review"}
@@ -45,6 +46,7 @@ func TestInstallReviewPinsMemberPRBeforeDispatch(t *testing.T) {
 	admission, err := f.service.prepareReview(ctx, f.repoID, f.userID, request, "review-50")
 	require.NoError(t, err)
 	require.Equal(t, strings.Repeat("a", 40), admission.Head)
+	require.Equal(t, strings.Repeat("9", 40), admission.Base)
 	require.Equal(t, strings.Repeat("b", 40), admission.Pin.SourceCommit)
 	require.Equal(t, strings.Repeat("c", 64), admission.Pin.ExecutionDigest)
 	require.Equal(t, member.ID, admission.AuthorID)
@@ -56,8 +58,12 @@ func TestInstallReviewPinsMemberPRBeforeDispatch(t *testing.T) {
 	require.True(t, activated)
 	require.Equal(t, strings.Repeat("b", 40), admission.Pin.SourceCommit)
 	require.Equal(t, strings.Repeat("c", 64), admission.Pin.ExecutionDigest)
-	f.fake.UpdatePull("rehearsal-owner/app", pull.Number, func(p *githubfake.Pull) { p.Head.SHA = strings.Repeat("d", 40) })
+	f.fake.UpdatePull("rehearsal-owner/app", pull.Number, func(p *githubfake.Pull) {
+		p.Head.SHA = strings.Repeat("d", 40)
+		p.Base.SHA = strings.Repeat("8", 40)
+	})
 	require.Equal(t, strings.Repeat("a", 40), admission.Head)
+	require.Equal(t, strings.Repeat("9", 40), admission.Base)
 	_, err = f.service.RequestReview(ctx, f.repoID, f.userID, request, "review-50")
 	requireTodoControl(t, err, 503, "review_delivery_unavailable")
 	_, err = f.pool.Exec(ctx, `UPDATE collaborators SET suspended_at=now() WHERE user_id=$1`, member.ID)

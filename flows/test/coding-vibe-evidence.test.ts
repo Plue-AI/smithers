@@ -548,6 +548,8 @@ for (const mode of stackModes) {
 const todoAdapter = "registry/entry/dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd/todo"
 const todoModes = [
   "valid",
+  "no-owner",
+  "unavailable",
   "recovered",
   "bug",
   "feature",
@@ -653,33 +655,38 @@ for (const mode of todoModes) {
       const catalog: RunCatalogRead.Service = {
         listRunIds: () => Effect.die("TODO delivery must not scan the global run catalog"),
         listRuns: (options) =>
-          Effect.sync(() => {
-            const name = options?.filters?.flowName
-            if (name === todoAdapter) {
-              assert.deepEqual(options, { filters: { flowName: todoAdapter, parentRunId: root }, limit: 2 })
-              return listed(
-                todoAdapter,
-                root,
-                mode === "missing-bridge"
-                  ? []
-                  : mode === "duplicate-bridge"
-                  ? ["todo-bridge", "other"]
-                  : ["todo-bridge"],
-                mode === "more-bridges" ? "next" : null
-              )
-            }
-            if (name === Request._tag) {
-              assert.deepEqual(options, { filters: { flowName: Request._tag, parentRunId: "todo-bridge" }, limit: 2 })
-              return listed(
-                Request._tag,
-                "todo-bridge",
-                mode === "missing-request" ? [] : mode === "duplicate-request" ? ["request", "other"] : ["request"],
-                mode === "more-requests" ? "next" : null
-              )
-            }
-            assert.deepEqual(options, { filters: { flowName: PrepareRequest._tag, parentRunId: "request" }, limit: 2 })
-            return listed(PrepareRequest._tag, "request", ["preparation"])
-          })
+          mode === "unavailable" ?
+            Effect.fail(new Error("catalog unavailable") as never) :
+            Effect.sync(() => {
+              const name = options?.filters?.flowName
+              if (name === todoAdapter) {
+                assert.deepEqual(options, { filters: { flowName: todoAdapter, parentRunId: root }, limit: 2 })
+                return listed(
+                  todoAdapter,
+                  root,
+                  mode === "missing-bridge"
+                    ? []
+                    : mode === "duplicate-bridge"
+                    ? ["todo-bridge", "other"]
+                    : ["todo-bridge"],
+                  mode === "more-bridges" ? "next" : null
+                )
+              }
+              if (name === Request._tag) {
+                assert.deepEqual(options, { filters: { flowName: Request._tag, parentRunId: "todo-bridge" }, limit: 2 })
+                return listed(
+                  Request._tag,
+                  "todo-bridge",
+                  mode === "missing-request" ? [] : mode === "duplicate-request" ? ["request", "other"] : ["request"],
+                  mode === "more-requests" ? "next" : null
+                )
+              }
+              assert.deepEqual(options, {
+                filters: { flowName: PrepareRequest._tag, parentRunId: "request" },
+                limit: 2
+              })
+              return listed(PrepareRequest._tag, "request", ["preparation"])
+            })
       }
       const supplied = structuredClone(retained)
       if (mode === "foreign-result") Object.assign(supplied.plan, { prompt: "a different planner's result" })
@@ -696,7 +703,13 @@ for (const mode of todoModes) {
         assert.deepEqual(evidence.originalSource, original)
         return evidence
       }).pipe(
-        Effect.provideService(ModuleOwner, { rootId: root, flowId: mode === "wrong-owner" ? "coding/vibe" : "todo" }),
+        (effect) =>
+          mode === "no-owner" ? effect : effect.pipe(
+            Effect.provideService(ModuleOwner, {
+              rootId: root,
+              flowId: mode === "wrong-owner" ? "coding/vibe" : "todo"
+            })
+          ),
         Effect.provideService(RunCatalogRead.RunCatalogRead, catalog),
         Effect.provide(RunStore.layerNoop({
           get: (id) =>
@@ -733,7 +746,7 @@ for (const mode of todoModes) {
       assert.equal(outcome._tag, "Failure", mode)
       if (outcome._tag === "Failure") {
         assert(outcome.failure instanceof CodingError)
-        assert.equal(outcome.failure.code, "invalid_receipt")
+        assert.equal(outcome.failure.code, mode === "unavailable" ? "unavailable" : "invalid_receipt")
       }
     }
   })

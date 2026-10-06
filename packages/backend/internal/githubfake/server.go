@@ -1106,6 +1106,7 @@ type Pull struct {
 	} `json:"head"`
 	Base struct {
 		Ref string `json:"ref"`
+		SHA string `json:"sha"`
 	} `json:"base"`
 	Labels []Label `json:"labels"`
 }

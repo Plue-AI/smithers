@@ -518,6 +518,7 @@ export interface AppController extends IssueFlowsController {
   readonly steerTodo: TodoSeam["steerTodo"]
   readonly amendTodo: TodoSeam["amendTodo"]
   readonly draftImagePackage: TodoSeam["draftImagePackage"]
+  readonly discardForeign: TodoSeam["discardForeign"]
   readonly controlTodo: TodoSeam["controlTodo"]
   /** Move up or Move down on Tn: the seed's, or this host's POST /api/todos/{n} {op: move}. */
   readonly moveTodo: TodoSeam["moveTodo"]
@@ -2045,6 +2046,7 @@ export const createAppController = (
     steerTodo: todoSeam.steerTodo,
     amendTodo: todoSeam.amendTodo,
     draftImagePackage: todoSeam.draftImagePackage,
+    discardForeign: todoSeam.discardForeign,
     controlTodo: todoSeam.controlTodo,
     moveTodo: todoSeam.moveTodo,
     refreshWiki: stackSeam.refreshWiki,

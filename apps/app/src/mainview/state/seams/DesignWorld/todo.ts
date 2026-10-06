@@ -359,6 +359,11 @@ export const withDesignTodos = (real: TodoSeam, ctx: SeamContext, design: Design
   }
   return {
     ...real,
+    discardForeign: (branch: string, id: string, revision: string) => route(`branch:${branch}`, ["discard-foreign", id, revision], () => {
+      const target = design.world().branches.find(each => each.id === branch || each.name === branch)
+      const todo = design.world().todos.find(each => each.branch === target?.id)
+      return todo ? result(design.discardForeign(todo.id, me())) : "No such TODO"
+    }, () => real.discardForeign(branch, id, revision), REQUESTED),
     todoRoute: <T>(n: number, act: ReadonlyArray<unknown>, seed: () => T | Promise<T>, provider: () => T | Promise<T>) =>
       route<T | typeof REQUESTED>(`todo:${n}`, act, seed, provider, REQUESTED),
     showTodo: (n: number) => onTodo(n, ["show"], async todo => {

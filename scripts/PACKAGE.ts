@@ -509,17 +509,7 @@ const lockfileParity = Smithers.NodeTest({
   srcs: [
     ...sources,
     Smithers.file("//bun.lock"),
-    Smithers.file("//pnpm-workspace.yaml"),
-    Smithers.glob("//packages/*/package.json"),
-    Smithers.glob("//packages/smithers/*/package.json"),
-    Smithers.glob("//packages/smithers/agent/*/package.json"),
-    Smithers.glob("//packages/smithers/build/*/package.json"),
-    Smithers.glob("//packages/smithers/flows/*/package.json"),
-    Smithers.glob("//packages/smithers/ui/*/package.json"),
-    Smithers.file("//examples/package.json"),
-    Smithers.file("//flows/package.json"),
-    Smithers.glob("//apps/*/package.json"),
-    Smithers.glob("//evals/*/package.json")
+    Smithers.pnpmWorkspace("//pnpm-workspace.yaml")
   ],
   deps: []
 })

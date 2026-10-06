@@ -130,4 +130,88 @@ func TestForeignPushAnswersComposedInstall(t *testing.T) {
 	require.NoError(t, err)
 	call(ownerCookie, body, "discard", 202)
 	call(ownerCookie, body, "after-merge", 409)
+	// Literal C-STK-08 precedence cases through the install's served doors.
+	// Only the foreign wait settles; the phase, pause and question survive.
+	readCard := func() map[string]any {
+		req, err := http.NewRequest("GET", server.URL+"/api/todos/4", nil)
+		require.NoError(t, err)
+		req.Host = "127.0.0.1:4000"
+		req.AddCookie(&http.Cookie{Name: "smithers_session", Value: ownerCookie})
+		res, err := server.Client().Do(req)
+		require.NoError(t, err)
+		defer res.Body.Close()
+		var card map[string]any
+		require.NoError(t, json.NewDecoder(res.Body).Decode(&card))
+		require.Equal(t, 200, res.StatusCode, card)
+		return card
+	}
+	cases := []struct {
+		name, engine, after string
+		paused, question    bool
+	}{
+		{"working", "running", "working", false, false},
+		{"paused", "running", "paused", true, false},
+		{"failed", "blocked", "failed", false, false},
+		{"question", "running", "needs_you", false, true},
+		{"paused-question", "running", "needs_you", true, true},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			var fixture map[string]any
+			require.NoError(t, json.Unmarshal([]byte(checks), &fixture))
+			fixture["run_launched"], fixture["run_attached"] = true, true
+			if !c.question {
+				fixture["waits"].([]any)[0].(map[string]any)["settled_at"] = "2026-10-05T09:00:00Z"
+			}
+			raw, err := json.Marshal(fixture)
+			require.NoError(t, err)
+			_, err = pool.Exec(ctx, `UPDATE mythical_items SET state=$2,checks=$3,attempt=1,request_run_id='retained-run',
+			 paused_at=CASE WHEN $4 THEN NOW() ELSE NULL END,pending_op=NULL,pr_state='open' WHERE id=$1`, item.ID, c.engine, raw, c.paused)
+			require.NoError(t, err)
+			before, err := q.GetMythicalItem(ctx, item.ID)
+			require.NoError(t, err)
+			require.Equal(t, "needs_you", readCard()["state"])
+			var prior int
+			require.NoError(t, pool.QueryRow(ctx, `SELECT count(*) FROM product_job_events WHERE event_type='todo.foreign_discard-foreign'`).Scan(&prior))
+			call(ownerCookie, body, "discard-"+c.name, 202)
+			require.Equal(t, c.after, readCard()["state"])
+			after, err := q.GetMythicalItem(ctx, item.ID)
+			require.NoError(t, err)
+			require.Equal(t, before.State, after.State)
+			require.Equal(t, before.PausedAt, after.PausedAt)
+			require.Equal(t, before.RequestRunID, after.RequestRunID)
+			require.Equal(t, before.CandidateHead, after.CandidateHead)
+			var waits struct {
+				Waits []struct {
+					SettledAt *string `json:"settled_at"`
+				} `json:"waits"`
+			}
+			require.NoError(t, json.Unmarshal(after.Checks, &waits))
+			require.Len(t, waits.Waits, 2)
+			require.NotNil(t, waits.Waits[1].SettledAt)
+			require.Equal(t, !c.question, waits.Waits[0].SettledAt != nil)
+			require.NoError(t, pool.QueryRow(ctx, `SELECT count(*) FROM product_job_events WHERE event_type='todo.foreign_discard-foreign'`).Scan(&count))
+			require.Equal(t, prior+1, count)
+			if c.name == "failed" {
+				req, err := http.NewRequest("POST", server.URL+"/api/todos/4", strings.NewReader(`{"op":"retry"}`))
+				require.NoError(t, err)
+				req.Host = "127.0.0.1:4000"
+				req.Header.Set("Origin", "http://127.0.0.1:4000")
+				req.Header.Set("Content-Type", "application/json")
+				req.Header.Set("X-CSRF-Token", "csrf-fixture")
+				req.Header.Set("Idempotency-Key", "retry-after-discard")
+				req.AddCookie(&http.Cookie{Name: "__csrf", Value: "csrf-fixture"})
+				req.AddCookie(&http.Cookie{Name: "smithers_session", Value: ownerCookie})
+				res, err := server.Client().Do(req)
+				require.NoError(t, err)
+				defer res.Body.Close()
+				var receipt map[string]any
+				require.NoError(t, json.NewDecoder(res.Body).Decode(&receipt))
+				require.Equal(t, 202, res.StatusCode, receipt)
+				require.EqualValues(t, 2, receipt["attempt"])
+				require.Equal(t, "queued", readCard()["state"])
+			}
+		})
+	}
+
 }

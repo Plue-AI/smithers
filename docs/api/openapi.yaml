@@ -1309,6 +1309,125 @@ paths:
                 anyOf:
                   - $ref: '#/components/schemas/SavedConversationProblem'
                   - $ref: '#/components/schemas/Error'
+  /api/conversations/{b}/turns/{id}:
+    parameters:
+      - name: b
+        in: path
+        required: true
+        schema:
+          type: string
+          maxLength: 160
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: string
+          maxLength: 160
+    patch:
+      summary: Edit my queued prompt
+      operationId: patch_api_conversation_turn
+      tags:
+        - Agent
+      security:
+        - sessionCookie: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [prompt]
+              properties:
+                prompt:
+                  type: string
+                  minLength: 1
+                  maxLength: 1048576
+      responses:
+        '200':
+          description: The committed replay cursor. Stop is idempotent; edits and removal require an unstarted queued turn owned by this member.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AnyJSON'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '503':
+          $ref: '#/components/responses/ServiceUnavailable'
+    delete:
+      summary: Remove my queued prompt
+      operationId: delete_api_conversation_turn
+      tags:
+        - Agent
+      security:
+        - sessionCookie: []
+      responses:
+        '200':
+          description: The committed replay cursor. Stop is idempotent; edits and removal require an unstarted queued turn owned by this member.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AnyJSON'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '503':
+          $ref: '#/components/responses/ServiceUnavailable'
+  /api/conversations/{b}/turns/{id}/stop:
+    parameters:
+      - name: b
+        in: path
+        required: true
+        schema:
+          type: string
+          maxLength: 160
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: string
+          maxLength: 160
+    post:
+      summary: Stop my answer
+      operationId: post_api_conversation_turn_stop
+      tags:
+        - Agent
+      security:
+        - sessionCookie: []
+      responses:
+        '200':
+          description: The committed replay cursor. Stop is idempotent; edits and removal require an unstarted queued turn owned by this member.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AnyJSON'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '503':
+          $ref: '#/components/responses/ServiceUnavailable'
   /api/conversations/{b}/view-state:
     parameters:
       - name: b

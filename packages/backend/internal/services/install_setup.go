@@ -865,6 +865,11 @@ func (s *InstallSetupService) Status(ctx context.Context) (map[string]any, error
 		}
 	}
 	result := map[string]any{"ssh_host": sshHost, "ssh_line": "ssh -p 2222 <branch>@" + sshHost, "address": map[string]any{"listen": listen, "bind": bind, "origins": origins}, "steps": projected, "this_mac": thisMac, "github": github, "models": models, "chatgpt": chatgpt, "capacity": capacity}
+	dailyAdmissions, err := todoDailyAdmissionLimit(ctx, s.Pool)
+	if err != nil {
+		return nil, err
+	}
+	result["todo_daily_admissions"] = dailyAdmissions
 	if s.Capacity != nil {
 		parallel, err := s.Capacity.Parallel(ctx)
 		if err != nil {

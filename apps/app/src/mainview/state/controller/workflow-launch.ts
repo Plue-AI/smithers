@@ -2,7 +2,7 @@ import { Data } from "effect"
 import type { Actor, Card } from "../AppState"
 import { actorSharedState } from "../ActorBindings"
 import { canonicalStoredJsonValue } from "../EventValue"
-import { projectRuntimeCard, runtimeRunKey } from "../RuntimeProjection"
+import { runtimeRunKey } from "../RuntimeProjection"
 import { workflowLaunchOf, type WorkflowLaunch } from "../WorkflowLaunch"
 import type { ControllerContext } from "./context"
 import { TOAST_CANCELLED, TOAST_SUPERSEDED } from "./failures"
@@ -11,19 +11,15 @@ import { gatewayBindingFor } from "../RepoContext"
 import { planCardSnapshot } from "../../cards/PlanNodes"
 import { runFailureOf, stampOf } from "../RunFailure"
 import { digest } from "@smthrs/core/Digest"
-import { codingVibeRequestOf } from "../../cards/CodingVibe"
-import { codingEvidenceOf } from "../../cards/CodingPlan"
-import { engineProjectionPending } from "../../cards/EngineTrace"
 import { randomUuid } from "../../runtime/RandomUuid"
 
 type RunCard = Extract<Card, { kind: "run-trace" }>
-/** A request that names its box: the only kind a new request card records. */
 type BoxLaunch = WorkflowLaunch & { readonly workspaceId: string }
+/** A request that names its box: the only kind a new request card records. */
 /** A launch refusal: one sentence in product words, and its code. */
 type Refusal = { readonly message: string; readonly code?: string; readonly retryAfterSeconds?: number }
 const terminal = new Set(["completed", "failed", "cancelled"])
 /** Polls a completed request waits for its journal before judging whether it validated. */
-const EVIDENCE_ROUNDS = 24
 /** The dedup identity of a request: a change request is not the same work as a bare run of its first flow. */
 const requestKey = (request: Pick<WorkflowLaunch, "owner" | "repo" | "workspaceId" | "workflow" | "input" | "then" | "triggerRegistration" | "source" | "rerunOf">): string =>
   canonicalStoredJsonValue([request.owner, request.repo, request.workspaceId ?? null, request.workflow,
@@ -111,54 +107,6 @@ export const createWorkflowLaunchController = (
         await publish({ ...request, error: record }, { phase: "failed", error: record.message })
         return record.message
       }
-      /*
-       * A change request lands only through coding/vibe, and coding/vibe
-       * admits only a validated request. Read that verdict off the run's own
-       * journal, then hand over to one follow-up request whose identity is
-       * derived from this one, so a reload or a second observer resumes it
-       * instead of starting another.
-       */
-      const continueChange = async (): Promise<true | string | typeof TOAST_SUPERSEDED> => {
-        for (let round = 0; current(); round++) {
-          const followed = workflowLaunchOf(read(id))?.next
-          if (followed !== undefined) {
-            const next = workflowLaunchOf(read(`flow-request-${followed}`))
-            if (next !== undefined && !next.error) send(`flow-request-${followed}`, next)
-            return true
-          }
-          const run = store.committedRuntimeRun(runtimeRunKey(read(id)!.payload))
-          const card = projectRuntimeCard(read(id)!, run === undefined ? [] : [run], [])
-          if (card.kind !== "run-trace") return TOAST_SUPERSEDED
-          const validated = codingVibeRequestOf(card)
-          if (validated !== undefined) {
-            if (box === undefined) return "This request's box is gone."
-            const fresh: BoxLaunch = { version: 1, id: `${request.id}.vibe`, owner: request.owner, repo: request.repo,
-              workspaceId: box, workflow: "coding/vibe",
-              input: { requestExecutionId: validated.requestExecutionId }, preparationStartedAt: Date.now() }
-            // The plan card's own Vibe button may already have asked for the same landing.
-            const adopted = [...store.collections.cards.values()].map(workflowLaunchOf)
-              .find(held => held !== undefined && !held.error && requestKey(held) === requestKey(fresh))
-            const next = adopted ?? fresh
-            const nextId = next.id
-            const cardId = `flow-request-${nextId}`
-            // An adopted request has this one's key, so it names the same box.
-            if (read(cardId) === undefined) await save(requestCard(cardId, { ...next, workspaceId: box }))
-            if (!current()) return TOAST_SUPERSEDED
-            await publish({ ...request, next: nextId })
-            send(cardId, next)
-            return true
-          }
-          const outcome = codingEvidenceOf(card).outcome
-          if (outcome !== undefined && outcome.status !== "validated") {
-            return outcome.blocked?.message ?? `Changes requested after ${outcome.rounds} ${outcome.rounds === 1 ? "round" : "rounds"}.`
-          }
-          if (round >= EVIDENCE_ROUNDS && run?.journalPending !== true && !engineProjectionPending(run?.events)) {
-            return "The run finished without a validated change."
-          }
-          await pause(ctx.workflowPollMs, controller.signal)
-        }
-        return TOAST_SUPERSEDED
-      }
       try {
         if (request.runId === undefined) {
           if (box === undefined) {
@@ -244,7 +192,7 @@ export const createWorkflowLaunchController = (
             if (summary.status === "completed") {
               completed?.(request)
               if (!current()) return TOAST_SUPERSEDED
-              return request.then === undefined ? true : await continueChange()
+              return true
             }
             if (summary.status === "cancelled") return TOAST_CANCELLED
             return runFailureOf({ workflow: request.workflow, error: summary.verdict,

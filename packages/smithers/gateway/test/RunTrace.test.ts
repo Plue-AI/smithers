@@ -1424,3 +1424,24 @@ describe("what the journal did not say", () => {
     expect(bookkeeping.bands.map((band) => band.phase)).toEqual(["unrecorded"])
   })
 })
+
+
+describe("Appendix C Inspect labels", () => {
+  test("recorded coding actions use literal past-tense titles on every replay", () => {
+    const journal = [
+      at(1, "control.agent.cell-call-started", { flowName: "coding/edit-atom", callId: "edit" }, 1000),
+      at(2, "control.agent.cell-call-settled", { flowName: "coding/edit-atom", callId: "edit", outcome: "success", value: {} }, 2000),
+      at(3, "control.agent.cell-call-started", { flowName: "coding/check-command", callId: "check" }, 3000),
+      at(4, "control.agent.cell-call-settled", { flowName: "coding/check-command", callId: "check", outcome: "failure", message: "2 failed" }, 4000),
+      at(5, "control.agent.cell-call-started", { flowName: "<cell-call:coding/PreparePlan>", callId: "plan" }, 5000),
+      at(6, "control.agent.cell-call-started", { flowName: "historical/action", callId: "old" }, 6000)
+    ]
+    const run = { runId: "labels", flowId: "todo", status: "running" }
+    const first = traceFromJournal(run, journal)
+    expect(first.rows.filter(row => row.kind === "call").map(row => row.label)).toEqual([
+      "Edited the files", "Ran checks", "Planned the change", "historical/action"
+    ])
+    expect(traceFromJournal(run, journal)).toEqual(first)
+    expect(first.rows.find(row => row.id === "call-2")?.detail.message).toBe("2 failed")
+  })
+})

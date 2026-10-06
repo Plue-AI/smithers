@@ -12,6 +12,7 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgtype"
 
+	"github.com/smithersai/smithers/packages/backend/flowdispatch"
 	"github.com/smithersai/smithers/packages/backend/internal/db"
 	"github.com/smithersai/smithers/packages/backend/internal/middleware"
 	"github.com/smithersai/smithers/packages/backend/jobs"
@@ -138,19 +139,54 @@ func (s *MythicalService) dropTodo(ctx context.Context, number int64, input Todo
 	return receipt, err
 }
 
-// cancelAttempt records the cancellation of every launch of item's current
-// attempt and generation in tx. A phase never launched, or a run already
-// ended, changes nothing.
+// cancelAttempt cancels every persisted launch of the current attempt,
+// including its composition launched before candidate generations advanced.
+// A phase never launched, or a run already ended, changes nothing.
 func (s *MythicalService) cancelAttempt(ctx context.Context, tx pgx.Tx, stack db.MythicalStack, item db.MythicalItem) error {
 	canceller, ok := s.launcher.(mythicalRunCanceller)
 	if !ok || !stack.ActorUserID.Valid || item.Attempt <= 0 {
 		return nil
 	}
 	scope := jobs.Scope{TenantID: "repository:" + strconv.FormatInt(stack.RepositoryID, 10), PrincipalID: "user:" + strconv.FormatInt(stack.ActorUserID.Int64, 10)}
+	// Request identity belongs to admission, not the current candidate. Keep
+	// current-generation identities for legacy launchers, and add persisted
+	// earlier launches from the same item and attempt. Never select a private
+	// principal stream or cancel another item's work.
+	requests := make([]string, 0, len(mythicalAttemptPhases))
+	seen := map[string]bool{}
 	for _, phase := range mythicalAttemptPhases {
 		request := mythicalLaunchRequestID(uuidString(item.ID), item.Attempt, phase, item.Generation)
+		requests = append(requests, request)
+		seen[request] = true
+	}
+	rows, err := tx.Query(ctx, `SELECT request_id FROM product_job_requests
+	 WHERE tenant_id=$1 AND principal_id=$2 AND operation=$3
+	 AND payload->'projection'->>'kind'=$4
+	 AND payload->'projection'->>'itemId'=$5
+	 AND payload->'projection'->>'attempt'=$6
+	 ORDER BY created_at,id`, scope.TenantID, scope.PrincipalID, flowdispatch.OperationLaunch,
+		mythicalBindingKind, uuidString(item.ID), strconv.FormatInt(int64(item.Attempt), 10))
+	if err != nil {
+		return err
+	}
+	for rows.Next() {
+		var request string
+		if err := rows.Scan(&request); err != nil {
+			rows.Close()
+			return err
+		}
+		if !seen[request] {
+			requests = append(requests, request)
+			seen[request] = true
+		}
+	}
+	rows.Close()
+	if err := rows.Err(); err != nil {
+		return err
+	}
+	for _, request := range requests {
 		if _, err := canceller.CancelRequestInTx(ctx, tx, scope, request); err != nil && !errors.Is(err, jobs.ErrNotFound) {
-			return fmt.Errorf("cancel the TODO's %s run: %w", phase, err)
+			return fmt.Errorf("cancel the TODO's launch %s: %w", request, err)
 		}
 	}
 	return nil

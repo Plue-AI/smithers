@@ -222,3 +222,38 @@ test("whole-stack polling notifies an owned TODO without opening or creating its
     expect(b.notices).toHaveLength(4)
   } finally { stop(); finalizers.forEach(stop => stop()); await t.dispose() }
 })
+
+test("owned live topics deliver without cards or polling, fence stale reads and release on member change", async () => {
+  const { createTodoSeam } = await import("../seams/TodoSeam")
+  const { fixtures } = await import("../../../../../../packages/rpc/test/fixtures/Todo")
+  const { waitFor } = await import("../TestFixtures")
+  const b = browser(), t = await fixture(), finalizers: (() => void)[] = []
+  const receivers = new Map<string, (model: unknown) => void>()
+  let released = 0, reads = 0
+  const seam = createTodoSeam({ store: t.store, dispatch: t.store.dispatch, actor: () => "user", nextOrdinal: t.store.nextOrdinal,
+    baseUrl: "https://install.test", http: async () => { reads++; return Response.json([fixtures.working.model]) }, isDisposed: () => false },
+    { listPollMs: 5, topics: { subscribe: (topic, receive) => { receivers.set(topic, receive); return () => { released++; receivers.delete(topic) } } },
+      onDispose: stop => finalizers.push(stop) })
+  const stop = seam.list.subscribe(() => {})
+  try {
+    await waitFor(() => receivers.has("todo:12"))
+    const receive = receivers.get("todo:12")!
+    receive(fixtures.needs_you.model)
+    receive(fixtures.needs_you.model)
+    await waitFor(() => b.notices.length === 1)
+    const seen = reads
+    await waitFor(() => reads >= seen + 2)
+    // Older REST snapshots cannot resolve the live question or re-emit it.
+    expect(t.store.collections.toasts.get("toast-todo.needs-you.12.wait-question-1")?.status).toBe("running")
+    receive(fixtures.in_review.model)
+    receive(fixtures.failed.model)
+    await waitFor(() => b.notices.length === 3)
+    expect(t.store.collections.cards.has("todo:12")).toBe(false)
+    await t.store.dispatch({ type: "identity.session.loaded", actor: "system", state: "signed-in", login: "maya", provider: "github", admin: false, scopesPlain: null }).isPersisted.promise
+    await waitFor(() => released === 1)
+    receive({ ...fixtures.needs_you.model, waits: [{ ...fixtures.needs_you.model.waits[0]!, id: "old-member-question" }] })
+    await settle()
+    expect(b.notices).toHaveLength(3)
+    expect(b.notices.every(notice => notice.closed)).toBe(true)
+  } finally { stop(); finalizers.forEach(stop => stop()); await t.dispose() }
+})

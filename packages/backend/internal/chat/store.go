@@ -1195,13 +1195,7 @@ func (s *Store) Cancel(ctx context.Context, scope Scope, runID string) (CancelRe
 		if turn.Terminal {
 			continue
 		}
-		// cancel_requested_at is an audit timestamp. The same transaction seals
-		// the turn, so no producer path ever sees it on a live turn.
-		if _, err = tx.Exec(ctx, `UPDATE chat_turns SET cancel_requested_at=COALESCE(cancel_requested_at,$2),updated_at=$2 WHERE id=$1`, turn.ID, now); err != nil {
-			return CancelResult{}, err
-		}
-		turn.CancelRequestedAt = &now
-		if err = s.appendTerminalTx(ctx, tx, turn, cancelledFrame(turn.RunID), StateCancelled, now); err != nil {
+		if err = s.cancelTurnTx(ctx, tx, turn, now); err != nil {
 			return CancelResult{}, err
 		}
 		result.TurnIDs = append(result.TurnIDs, turn.ID)

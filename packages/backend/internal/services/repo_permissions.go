@@ -454,6 +454,32 @@ func Authorize(ctx context.Context, q *db.Queries, command string) (InstallAutho
 		}
 		return InstallAuthorization{UserID: info.User.ID, Role: role}, nil
 	}
+	// The control route resolves its concrete command before dispatch. Full
+	// delegated credentials may reach that resolver and execute stack.move.
+	// Creation waits for the private confirmation consumer; terminal_s1
+	// retains its narrower profile below.
+	if (command == "stack.move" || command == "todo.control" || command == "todo.new") && info.IsTokenAuth && !middleware.IsAgentAccount(info.User.UserType) {
+		_, terminal := info.TerminalDelegation()
+		kind := info.CredentialKind()
+		if !terminal && (kind == middleware.CredentialDelegated || kind == middleware.CredentialPerson) && info.TokenID > 0 && info.Scopes.Has(middleware.ScopeWriteRepository) && info.WorkspaceRestriction() == "" && len(middleware.ParseTokenPathRestrictions(info.RawScopes)) == 0 {
+			repository, err := InstallRepositoryID(ctx, q)
+			if err != nil {
+				return InstallAuthorization{}, err
+			}
+			if restriction := info.RepositoryRestriction(); restriction == 0 || restriction == repository {
+				role, err := InstallRoleOf(ctx, q, info.User.ID)
+				if err != nil {
+					return InstallAuthorization{}, err
+				}
+				if role.rank() >= need.role.rank() {
+					if command == "todo.new" {
+						return InstallAuthorization{}, &AccessError{Status: http.StatusForbidden, Class: "permission", Code: "confirm_in_app", Message: "Confirm in the app"}
+					}
+					return InstallAuthorization{UserID: info.User.ID, Role: role}, nil
+				}
+			}
+		}
+	}
 	if need.personOnly {
 		return authorizePersonOnly(ctx, q, info, need.role)
 	}

@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/smithersai/smithers/packages/backend/internal/db"
 	"github.com/smithersai/smithers/packages/backend/internal/middleware"
 	"github.com/smithersai/smithers/packages/backend/internal/routes"
@@ -53,6 +54,7 @@ func TestTodoPlacementComposedInstall(t *testing.T) {
 	cfg.Server.AllowedOrigins = []string{cfg.Server.PublicURL}
 	service := services.NewMythicalService(pool, nil)
 	router := todoMergeComposeRouter(cfg, q, pool, &routes.MythicalHandler{Service: service})
+	bearerToken := ""
 	call := func(method, path, body, key string) (int, map[string]any) {
 		t.Helper()
 		req := httptest.NewRequest(method, cfg.Server.PublicURL+path, strings.NewReader(body))
@@ -62,7 +64,11 @@ func TestTodoPlacementComposedInstall(t *testing.T) {
 		req.Header.Set("Idempotency-Key", key)
 		req.Header.Set("X-CSRF-Token", "placement-csrf")
 		req.AddCookie(&http.Cookie{Name: middleware.CSRFCookieName, Value: "placement-csrf"})
-		req.AddCookie(&http.Cookie{Name: cfg.Auth.SessionCookieName, Value: "placement-session"})
+		if bearerToken == "" {
+			req.AddCookie(&http.Cookie{Name: cfg.Auth.SessionCookieName, Value: "placement-session"})
+		} else {
+			req.Header.Set("Authorization", "Bearer "+bearerToken)
+		}
 		res := httptest.NewRecorder()
 		router.ServeHTTP(res, req)
 		var result map[string]any
@@ -211,5 +217,53 @@ func TestTodoPlacementComposedInstall(t *testing.T) {
 	require.Equal(t, 202, <-outcomes)
 	require.Equal(t, 202, <-outcomes)
 	require.Equal(t, []int64{5, 4, 2, 3, 6, 7}, order())
+
+	// A full-scope delegated member moves immediately through the real
+	// dispatcher and service, without acquiring confirmation authority.
+	member, err := q.CreateUser(ctx, db.CreateUserParams{Username: "ben", LowerUsername: "ben"})
+	require.NoError(t, err)
+	_, err = pool.Exec(ctx, `UPDATE users SET is_active=true WHERE id=$1`, member.ID)
+	require.NoError(t, err)
+	_, err = pool.Exec(ctx, `INSERT INTO collaborators(repository_id,user_id,permission) VALUES($1,$2,'write')`, repo, member.ID)
+	require.NoError(t, err)
+	mint := func(raw, scopes string, system bool) string {
+		digest := sha256.Sum256([]byte(raw))
+		hash := hex.EncodeToString(digest[:])
+		_, err := q.CreateAccessToken(ctx, db.CreateAccessTokenParams{UserID: member.ID, Name: raw, TokenHash: hash, TokenLastEight: hash[len(hash)-8:], Scopes: scopes, SystemIssued: system, ExpiresAt: pgtype.Timestamptz{Time: time.Now().Add(time.Hour), Valid: true}})
+		require.NoError(t, err)
+		return raw
+	}
+	delegated := mint("smithers_"+strings.Repeat("e", 40), "write:repository,"+middleware.RepositoryRestrictionScope(repo)+",via:cli", true)
+	bearerToken = delegated
+	code, body = call("POST", "/api/todos/7", `{"op":"move","direction":"up"}`, "delegated-move")
+	require.Equal(t, 202, code, body)
+	require.Equal(t, []int64{5, 4, 2, 3, 7, 6}, order())
+	code, body = call("POST", "/api/todos/7", `{"op":"move","direction":"up"}`, "delegated-move")
+	require.Equal(t, 202, code, body)
+	require.Equal(t, []int64{5, 4, 2, 3, 7, 6}, order())
+	code, body = call("POST", "/api/todos", `{"title":"Delegated","prompt":"Add a line","place":{"mode":"before","n":7}}`, "delegated-create")
+	require.Equal(t, 403, code, body)
+	require.Equal(t, "confirm_in_app", body["code"])
+	require.Equal(t, []int64{5, 4, 2, 3, 7, 6}, order())
+	code, body = call("POST", "/api/todos/7", `{"op":"drop"}`, "delegated-drop")
+	require.Equal(t, 403, code, body)
+	for _, credential := range []string{
+		mint("smithers_"+strings.Repeat("f", 40), "read:repository,via:cli", true),
+		mint("smithers_"+strings.Repeat("a", 40), "write:repository", true),
+		mint("smithers_"+strings.Repeat("b", 40), "write:repository,via:cli,"+middleware.RepositoryRestrictionScope(repo+1), true),
+		mint("smithers_"+strings.Repeat("c", 40), "write:repository,workspace:5a1b0000-0000-4000-8000-0000000000b1", true),
+	} {
+		bearerToken = credential
+		code, body = call("POST", "/api/todos/7", `{"op":"move","direction":"up"}`, "denied-move")
+		require.Equal(t, 403, code, body)
+		require.Equal(t, []int64{5, 4, 2, 3, 7, 6}, order())
+	}
+
+	_, err = pool.Exec(ctx, `UPDATE collaborators SET suspended_at=now() WHERE repository_id=$1 AND user_id=$2`, repo, member.ID)
+	require.NoError(t, err)
+	bearerToken = delegated
+	code, body = call("POST", "/api/todos/7", `{"op":"move","direction":"up"}`, "suspended-move")
+	require.Equal(t, 403, code, body)
+	require.Equal(t, []int64{5, 4, 2, 3, 7, 6}, order())
 
 }

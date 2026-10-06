@@ -229,3 +229,19 @@ test("install Watch reaches the terminal card only for authenticated registered 
     expect((await submit(h, "terminal.watch", { id: "t-ben" })).status).toBe("failed")
   } finally { release(); h.controller.dispose(); live.dispose() }
 })
+
+test("an agent's Discard asks the person with the exact wait/head and changes nothing", async () => {
+  const h = await boot()
+  try {
+    const before = structuredClone(h.controller.design.world())
+    const input = { branch: "smithers/retry-webhooks", id: "foreign-1", revision: "a".repeat(40) }
+    expect(await h.controller.commands.runForAgent("branch.discard-foreign", JSON.stringify(input))).toMatchObject({
+      status: "executed", value: expect.stringContaining("asked the user to confirm")
+    })
+    const asks = [...h.store.collections.messages.values()].filter(each => each.action?.flow === "branch.discard-foreign")
+    expect(asks).toHaveLength(1)
+    expect(JSON.parse(asks[0]!.action!.args!)).toEqual(input)
+    expect(h.controller.design.world()).toEqual(before)
+    expect([...h.store.collections.cards.values()].filter(each => each.kind === "todo" && each.payload.requests.length > 0)).toEqual([])
+  } finally { h.controller.dispose() }
+})

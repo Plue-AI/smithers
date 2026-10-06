@@ -20,7 +20,7 @@ C-UI-12 Members (T-UI-09): [install roster and keyboard Add/Role/Remove](C-UI-12
 | C-J2-04 | [C-J2-04.spec.ts](C-J2-04.spec.ts) | fixme-before-implementation | T-STK-01 |
 | C-J2-05 | [C-J2-05.spec.ts](C-J2-05.spec.ts) | fixme-before-implementation | T-STK-04 |
 | C-J4-01 | [C-J4-01.spec.ts](C-J4-01.spec.ts) | fixme-before-implementation | T-APP-01 |
-| C-J4-02 | [C-J4-02.spec.ts](C-J4-02.spec.ts) | fixme-before-implementation | T-STK-02, T-STK-05, T-APP-02 |
+| C-J4-02 | [C-J4-02.spec.ts](C-J4-02.spec.ts) | passing app HTTP-seam proof: Answer, head-bound Merge, Move, Retry and pending execution; real flow/GitHub and reference-host timing remain pending | T-STK-02, T-STK-05, T-APP-02 |
 | C-J4-03 | [C-J4-03.spec.ts](C-J4-03.spec.ts) | fixme-before-implementation | T-STK-04, T-REL-02 |
 | C-J10-01 | [C-J10-01.spec.ts](C-J10-01.spec.ts) | fixme-before-implementation | T-GH-03, T-REL-02 |
 | C-J10-02 | [C-J10-02.spec.ts](C-J10-02.spec.ts) | fixme-before-implementation | T-GH-04 |
@@ -59,7 +59,7 @@ C-UI-12 Members (T-UI-09): [install roster and keyboard Add/Role/Remove](C-UI-12
 | C-J11-03 | [C-J11-03.spec.ts](C-J11-03.spec.ts) | owner picker wired; Active-main instructions and per-call TODO routing pending | T-FLW-08 |
 | C-J11-04 | [C-J11-04.spec.ts](C-J11-04.spec.ts) | fixme-before-implementation | T-FLW-07, T-REL-02 |
 | C-APP-01 | [C-APP-01.spec.ts](C-APP-01.spec.ts) | browser-pass (Take over; PostgreSQL role/idempotency receipt; live toast qualification pending) | T-APP-02 |
-| C-APP-02 | [C-APP-02.spec.ts](C-APP-02.spec.ts) | browser-pass (Edit, deduplication, reload, person Drop confirm, working step, daily admission limit, budget pause owner; planner/multiplayer pending) | T-APP-02 |
+| C-APP-02 | [C-APP-02.spec.ts](C-APP-02.spec.ts) | browser-pass (Edit, deduplication, reload, person Drop confirm, working step, daily admission limit, budget pause owner, outside-push Discard binding/deduplication/role gate; planner/multiplayer pending) | T-APP-02 |
 | C-APP-03 | [C-APP-03.spec.ts](C-APP-03.spec.ts) | browser-pass (failure/slash Draft, main recipe, reload; Settings/guest qualification pending) | T-APP-02, T-APP-03 |
 | C-APP-04 | [C-APP-04.spec.ts](C-APP-04.spec.ts) | fixme-before-implementation | T-APP-16 |
 | C-APP-05 | [C-APP-05.spec.ts](C-APP-05.spec.ts) | fixme-before-implementation | T-APP-16 |
@@ -76,14 +76,14 @@ C-UI-12 Members (T-UI-09): [install roster and keyboard Add/Role/Remove](C-UI-12
 | C-STK-07 | [C-STK-07.spec.ts](C-STK-07.spec.ts) | fixme-before-implementation | T-STK-04 |
 | C-STK-08 | [C-STK-08.spec.ts](C-STK-08.spec.ts) | fixme-before-implementation | T-STK-01 |
 | C-STK-13 | [C-STK-13.spec.ts](C-STK-13.spec.ts) | fixme-before-implementation | T-STK-04 |
-| C-GH-01 | [C-GH-01.spec.ts](C-GH-01.spec.ts) | fixme-before-implementation | T-GH-01 |
+| C-GH-01 | [C-GH-01.spec.ts](C-GH-01.spec.ts) | passing mounted install seam; explicit writer recovery on reload; real GitHub/LAN/reference-host receipts pending | T-GH-01 |
 | C-GH-07 | [C-GH-07.spec.ts](C-GH-07.spec.ts) | fixme-before-implementation | T-GH-02 |
 | C-GH-08 | [C-GH-08.spec.ts](C-GH-08.spec.ts) | fixme-before-implementation | T-GH-02 |
 | C-GH-09 | [C-GH-09.spec.ts](C-GH-09.spec.ts) | fixme-before-implementation | T-GH-09, T-GH-01 |
 | C-GH-13 | [C-GH-13.spec.ts](C-GH-13.spec.ts) | fixme-before-implementation | T-GH-04 |
 | C-UI-01 | [C-UI-01.spec.ts](C-UI-01.spec.ts) | fixme-before-implementation | T-REL-02 |
 | C-UI-02 | [C-UI-02.spec.ts](C-UI-02.spec.ts) | passing | T-CAT-01 |
-| C-UI-03 | [C-UI-03.spec.ts](C-UI-03.spec.ts) | fixme-before-implementation | T-APP-18 |
+| C-UI-03 | [notifications.spec.ts](../notifications.spec.ts) | passing: Chromium + WebKit, loopback/plain HTTP, live owned TODOs, gesture, hidden/visible, dedupe, click/focus, no console errors; Notification API recorded | T-APP-18 |
 | C-UI-04 | [C-UI-04.spec.ts](C-UI-04.spec.ts) | partial: served TODO rail keyboard Retry passes; shared entries, hiding and summaries remain fixme | T-APP-07 |
 | C-UI-05 | [C-UI-05.spec.ts](C-UI-05.spec.ts) | fixme-before-implementation | T-COL-02 |
 
@@ -91,7 +91,7 @@ C-UI-12 Members (T-UI-09): [install roster and keyboard Add/Role/Remove](C-UI-12
 | C-UI-07 | [C-UI-07.spec.ts](C-UI-07.spec.ts) | fixme-before-implementation | T-APP-17 |
 | C-UI-08 | [C-UI-08.spec.ts](C-UI-08.spec.ts) | fixme-before-implementation | T-APP-22 |
 | C-UI-09 | [C-UI-09.spec.ts](C-UI-09.spec.ts), [docs.spec.ts](../docs.spec.ts) | Settings phase passing Chromium: HTTP click/Enter/Space, HTTPS/loopback hidden hint, non-owner, bundled heading; missing dependencies covered through real dispatcher integration. Full C-UI-09 passes on isolated retry (2026-10-06), including agent docs.read; combined docs run: 8 pass, 1 HTTP-turn recovery failure. Anchor navigation now uses the shared transcript read target. | T-APP-20, T-APP-24 |
-| C-UI-10 | [C-UI-10.spec.ts](C-UI-10.spec.ts) | browser projection, complete operation inventory and secret form fields; reference-install role effects separate | T-APP-21 |
+| C-UI-10 | [C-UI-10.spec.ts](C-UI-10.spec.ts) | browser projection and local-own real-backend browser/SQL roles; complete operation inventory and install PUT /api/secrets form; branch-machine evidence pending | T-APP-21 |
 | C-UI-11 | [C-UI-11.spec.ts](C-UI-11.spec.ts) | fixme-before-implementation | T-APP-15 |
 
 C-J1-01 also has a passing test for the mounted Setup card: detected capacity,
