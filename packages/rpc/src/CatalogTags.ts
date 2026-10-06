@@ -27,6 +27,8 @@ export const CATALOG_TAGS = [
   "todo.stop",
   "todo.resume",
   "todo.retry",
+  "todo.preapprove",
+  "todo.unapprove",
   "todo.drop",
   "stack.move",
   "merge",

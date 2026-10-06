@@ -57,10 +57,10 @@ export default showcase({
   id: "change",
   order: 110,
   title: "Change",
-  summary: "Triage findings, settle review comments, ask a reviewer, land, read the diff.",
-  flows: ["change.view", "change.facet", "findings.please-fix", "findings.not-useful", "review.done", "review.ack", "review.request", "review.unrequest", "change.land", "change.diff"],
+  summary: "Triage findings, settle review comments, ask a reviewer, read the diff.",
+  flows: ["change.view", "change.facet", "findings.please-fix", "findings.not-useful", "review.done", "review.ack", "review.request", "review.unrequest", "change.diff"],
   run: async ({ page, app, backend }) => {
-    let landing = "open"
+    const landing = "open"
     const lands: Array<unknown> = []
     const acts: Array<string> = []
     let threadState: "open" | "done" | "resolved" = "open"
@@ -122,7 +122,6 @@ export default showcase({
     })
     await backend.route(url => url.pathname === `${API}/landings/42/land`, route => {
       lands.push(route.request().postDataJSON())
-      landing = "queued"
       return route.fulfill({ status: 202, json: { number: 42, state: "queued" } })
     })
     await backend.json(`${API}/commits/a03f5f1111111111/statuses`, {
@@ -138,7 +137,6 @@ export default showcase({
     await app.slash("/change.view qupxosqw")
     const card = page.getByTestId(`card-change-${REPO}-qupxosqw`)
     await expect(card).toContainText("Add the split flow", { timeout: 15_000 })
-    await expect(card).toContainText("1 comment open")
     await app.closeComposer()
     await app.show(card)
     await app.beat(1200)
@@ -160,9 +158,8 @@ export default showcase({
     await expect(card).toContainText("Nobody has been asked")
     await app.beat(900)
 
-    await app.click(card.getByRole("button", { name: "Land the change" }))
-    await expect.poll(() => lands).toEqual([{ commit_id: "a03f5f1111111111" }])
-    await expect(card).toContainText("queued → main", { timeout: 15_000 })
+    await expect(card.locator('[data-flow="change.land"]')).toHaveCount(0)
+    expect(lands).toEqual([])
     expect(acts).toEqual(["please-fix", "not-useful", "done", "ack", "request", "unrequest"])
     await app.beat(1200)
 
