@@ -1789,7 +1789,7 @@ func (st *mythicalItemStep) advance(ctx context.Context, item db.MythicalItem) (
 		if err == nil && next != nil && next.State == "proposed" && mythicalChecksOf(*next).Preapproval != nil {
 			return st.merge(ctx, *next), false, nil
 		}
-		if err != nil || next == nil || next.State != "proposed" || st.s.installGitHubPolling {
+		if err != nil || next == nil || next.State != "proposed" {
 			return next, false, err
 		}
 		return st.gate(ctx, *next)
