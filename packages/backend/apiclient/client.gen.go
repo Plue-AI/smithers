@@ -1518,6 +1518,7 @@ type TodoCard struct {
 	Title                string                        `json:"title"`
 	State                string                        `json:"state"`
 	Owner                TodoCardOwner                 `json:"owner"`
+	FlowVersion          *TodoCardFlowVersion          `json:"flow_version,omitempty"`
 	Place                *int64                        `json:"place,omitempty"`
 	PromptRevisions      []TodoCardPromptRevisionsItem `json:"prompt_revisions"`
 	Issue                *TodoCardIssue                `json:"issue,omitempty"`
@@ -1539,7 +1540,7 @@ func (v *TodoCard) UnmarshalJSON(data []byte) error {
 	if err := json.Unmarshal(data, (*plain)(v)); err != nil {
 		return err
 	}
-	return splitAdditional(data, &v.AdditionalProperties, "n", "title", "state", "owner", "place", "prompt_revisions", "issue", "branch", "run", "pr", "steps", "waits", "steers", "evidence", "merge", "present")
+	return splitAdditional(data, &v.AdditionalProperties, "n", "title", "state", "owner", "flow_version", "place", "prompt_revisions", "issue", "branch", "run", "pr", "steps", "waits", "steers", "evidence", "merge", "present")
 }
 
 // MarshalJSON writes AdditionalProperties beside the declared members of TodoCard.
@@ -1553,6 +1554,13 @@ type TodoCardOwner struct {
 	Login     string `json:"login"`
 	Name      string `json:"name"`
 	AvatarURL string `json:"avatar_url"`
+}
+
+// TodoCardFlowVersion is generated from docs/api/openapi.yaml.
+type TodoCardFlowVersion struct {
+	FlowName     string `json:"flow_name"`
+	SourceCommit string `json:"source_commit"`
+	Digest       string `json:"digest"`
 }
 
 // TodoCardPromptRevisionsItem is generated from docs/api/openapi.yaml.
@@ -1809,6 +1817,44 @@ type GetAPIReposOwnerRepoIssuesStateEventsStreamParams struct {
 type GetAPIReposOwnerRepoWorkspacesIDEgressParams struct {
 	Cursor *string
 	Limit  *int64
+}
+
+// GetAPIReposOwnerRepoWorkspacesIDFilesContentParams is the query of GET /api/repos/{owner}/{repo}/workspaces/{id}/files/content.
+type GetAPIReposOwnerRepoWorkspacesIDFilesContentParams struct {
+	Path string
+}
+
+// GetAPIReposOwnerRepoWorkspacesIDFilesContentResponse is generated from docs/api/openapi.yaml.
+type GetAPIReposOwnerRepoWorkspacesIDFilesContentResponse struct {
+	Name     string `json:"name"`
+	Path     string `json:"path"`
+	Type     string `json:"type"`
+	Encoding string `json:"encoding"`
+	Content  string `json:"content"`
+	Size     int64  `json:"size"`
+	Digest   string `json:"digest"`
+}
+
+// PutAPIReposOwnerRepoWorkspacesIDFilesContentParams is the query of PUT /api/repos/{owner}/{repo}/workspaces/{id}/files/content.
+type PutAPIReposOwnerRepoWorkspacesIDFilesContentParams struct {
+	Path string
+}
+
+// PutAPIReposOwnerRepoWorkspacesIDFilesContentBody is generated from docs/api/openapi.yaml.
+type PutAPIReposOwnerRepoWorkspacesIDFilesContentBody struct {
+	Content    string `json:"content"`
+	BaseDigest string `json:"base_digest"`
+}
+
+// PutAPIReposOwnerRepoWorkspacesIDFilesContentResponse is generated from docs/api/openapi.yaml.
+type PutAPIReposOwnerRepoWorkspacesIDFilesContentResponse struct {
+	Name     string `json:"name"`
+	Path     string `json:"path"`
+	Type     string `json:"type"`
+	Encoding string `json:"encoding"`
+	Content  string `json:"content"`
+	Size     int64  `json:"size"`
+	Digest   string `json:"digest"`
 }
 
 // PostAPIReposOwnerRepoMythicalItemsIDMergeBody is generated from docs/api/openapi.yaml.
@@ -4582,16 +4628,20 @@ func (c *Client) GetAPIReposOwnerRepoWorkspacesIDFiles(ctx context.Context, owne
 }
 
 // GetAPIReposOwnerRepoWorkspacesIDFilesContent calls GET /api/repos/{owner}/{repo}/workspaces/{id}/files/content.
-func (c *Client) GetAPIReposOwnerRepoWorkspacesIDFilesContent(ctx context.Context, owner string, repo string, id string) (AnyJSON, error) {
-	var out AnyJSON
-	err := c.do(ctx, "GET", "/api/repos/"+url.PathEscape(owner)+"/"+url.PathEscape(repo)+"/workspaces/"+url.PathEscape(id)+"/files/content", nil, nil, &out)
+func (c *Client) GetAPIReposOwnerRepoWorkspacesIDFilesContent(ctx context.Context, owner string, repo string, id string, params GetAPIReposOwnerRepoWorkspacesIDFilesContentParams) (GetAPIReposOwnerRepoWorkspacesIDFilesContentResponse, error) {
+	query := url.Values{}
+	query.Set("path", params.Path)
+	var out GetAPIReposOwnerRepoWorkspacesIDFilesContentResponse
+	err := c.do(ctx, "GET", "/api/repos/"+url.PathEscape(owner)+"/"+url.PathEscape(repo)+"/workspaces/"+url.PathEscape(id)+"/files/content", query, nil, &out)
 	return out, err
 }
 
 // PutAPIReposOwnerRepoWorkspacesIDFilesContent calls PUT /api/repos/{owner}/{repo}/workspaces/{id}/files/content.
-func (c *Client) PutAPIReposOwnerRepoWorkspacesIDFilesContent(ctx context.Context, owner string, repo string, id string) (AnyJSON, error) {
-	var out AnyJSON
-	err := c.do(ctx, "PUT", "/api/repos/"+url.PathEscape(owner)+"/"+url.PathEscape(repo)+"/workspaces/"+url.PathEscape(id)+"/files/content", nil, nil, &out)
+func (c *Client) PutAPIReposOwnerRepoWorkspacesIDFilesContent(ctx context.Context, owner string, repo string, id string, params PutAPIReposOwnerRepoWorkspacesIDFilesContentParams, body PutAPIReposOwnerRepoWorkspacesIDFilesContentBody) (PutAPIReposOwnerRepoWorkspacesIDFilesContentResponse, error) {
+	query := url.Values{}
+	query.Set("path", params.Path)
+	var out PutAPIReposOwnerRepoWorkspacesIDFilesContentResponse
+	err := c.do(ctx, "PUT", "/api/repos/"+url.PathEscape(owner)+"/"+url.PathEscape(repo)+"/workspaces/"+url.PathEscape(id)+"/files/content", query, body, &out)
 	return out, err
 }
 

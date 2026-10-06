@@ -3,10 +3,13 @@ package routes
 import (
 	"context"
 	"encoding/json"
+	"errors"
+	workspaceapi "github.com/smithersai/smithers/packages/backend/workspace"
 	"net"
 	"net/http"
 	"net/http/httputil"
 	"net/url"
+	"regexp"
 	"strconv"
 	"strings"
 
@@ -29,7 +32,7 @@ type WorkspaceRouteService interface {
 	ListUserWorkspacesAcrossRepos(ctx context.Context, userID int64, page, perPage int) (services.UserWorkspaceListResult, error)
 	ListWorkspaceFiles(ctx context.Context, workspaceID string, repositoryID, userID int64, path string) ([]services.WorkspaceFileEntry, error)
 	ReadWorkspaceFile(ctx context.Context, workspaceID string, repositoryID, userID int64, path string) (services.WorkspaceFileContent, error)
-	WriteWorkspaceFile(ctx context.Context, workspaceID string, repositoryID, userID int64, path, content string) (services.WorkspaceFileContent, error)
+	WriteWorkspaceFile(ctx context.Context, workspaceID string, repositoryID, userID int64, path, content, baseDigest string) (services.WorkspaceFileContent, error)
 	ListWorkspaceServices(ctx context.Context, workspaceID string, repositoryID, userID int64) ([]services.WorkspaceManagedService, error)
 	ManageWorkspaceService(ctx context.Context, workspaceID string, repositoryID, userID int64, serviceName, action string) (services.WorkspaceManagedService, error)
 	GetWorkspaceSSHConnectionInfo(ctx context.Context, workspaceID string, repositoryID, userID int64) (services.WorkspaceSSHConnectionInfo, error)
@@ -155,8 +158,11 @@ type createWorkspaceSnapshotRequest struct {
 	Name        string `json:"name"`
 }
 
+var workspaceBaseDigestPattern = regexp.MustCompile(`^[0-9a-f]{64}$`)
+
 type writeWorkspaceFileRequest struct {
-	Content string `json:"content"`
+	Content    string `json:"content"`
+	BaseDigest string `json:"base_digest"`
 }
 
 // LaunchWorkspaceService starts a runtime-managed process. Its declared port
@@ -474,11 +480,20 @@ func (h *WorkspaceHandler) WriteWorkspaceFile(w http.ResponseWriter, r *http.Req
 		return
 	}
 	var request writeWorkspaceFileRequest
-	if !decodeJSONBody(w, r, &request) {
+	if !decodeStrictJSONBody(w, r, &request) {
 		return
 	}
-	content, svcErr := h.Service.WriteWorkspaceFile(r.Context(), workspaceID, repoCtx.Repository.ID, user.ID, r.URL.Query().Get("path"), request.Content)
+	if request.BaseDigest != "absent" && !workspaceBaseDigestPattern.MatchString(request.BaseDigest) {
+		pkgerrors.WriteError(w, pkgerrors.BadRequest("base_digest must be a SHA-256 digest or absent"))
+		return
+	}
+	content, svcErr := h.Service.WriteWorkspaceFile(r.Context(), workspaceID, repoCtx.Repository.ID, user.ID, r.URL.Query().Get("path"), request.Content, request.BaseDigest)
 	if svcErr != nil {
+		var stale *workspaceapi.StaleFileError
+		if errors.As(svcErr, &stale) {
+			pkgerrors.WriteJSON(w, http.StatusConflict, map[string]string{"code": "stale", "current_digest": stale.CurrentDigest})
+			return
+		}
 		writeRouteError(w, r, svcErr)
 		return
 	}

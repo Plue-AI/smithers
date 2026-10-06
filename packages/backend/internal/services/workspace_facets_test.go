@@ -51,7 +51,7 @@ func TestWorkspaceService_ReadWorkspaceFile(t *testing.T) {
 	result, err := newWorkspaceServiceForTests(&mockWorkspaceQuerier{}, WithWorkspaceSandboxClient(vm)).
 		ReadWorkspaceFile(context.Background(), "ws-1", 101, 1, "README.md")
 	require.NoError(t, err)
-	assert.Equal(t, WorkspaceFileContent{Name: "README.md", Path: "README.md", Type: "file", Encoding: "utf-8", Content: "hello\n", Size: 6}, result)
+	assert.Equal(t, WorkspaceFileContent{Name: "README.md", Path: "README.md", Type: "file", Encoding: "utf-8", Content: "hello\n", Size: 6, Digest: "5891b5b522d5df086d0ff0b110fbd9d21bb4fc7163af34d08286a2e846f6be03"}, result)
 }
 
 func TestWorkspaceService_ReadWorkspaceFile_MapsGuestErrors(t *testing.T) {
@@ -81,27 +81,12 @@ func TestWorkspaceService_ReadWorkspaceFile_MapsGuestErrors(t *testing.T) {
 
 func TestWorkspaceService_WriteWorkspaceFile(t *testing.T) {
 	t.Parallel()
-	zero := int32(0)
-	var writtenPath, writtenContent string
-	vm := &mockWorkspaceSandboxVMClient{
-		execAwaitFn: func(_ context.Context, _ string, request sandbox.ExecRequest) (sandbox.ExecResult, error) {
-			assert.Contains(t, request.Command, "realpath -m")
-			return sandbox.ExecResult{StatusCode: &zero}, nil
-		},
-		writeFileFn: func(_ context.Context, vmID, filePath string, request sandbox.WriteFileRequest) error {
-			assert.Equal(t, "vm-source-1", vmID)
-			writtenPath, writtenContent = filePath, request.Content
-			return nil
-		},
-	}
-
-	result, err := newWorkspaceServiceForTests(&mockWorkspaceQuerier{}, WithWorkspaceSandboxClient(vm)).
-		WriteWorkspaceFile(context.Background(), "ws-1", 101, 1, "src/app.go", "package main\n")
-	require.NoError(t, err)
-	assert.Equal(t, "/workspace/src/app.go", writtenPath)
-	assert.Equal(t, "package main\n", writtenContent)
-	assert.Equal(t, "src/app.go", result.Path)
-	assert.Equal(t, int64(13), result.Size)
+	called := false
+	vm := &mockWorkspaceSandboxVMClient{writeFileFn: func(context.Context, string, string, sandbox.WriteFileRequest) error { called = true; return nil }}
+	_, err := newWorkspaceServiceForTests(&mockWorkspaceQuerier{}, WithWorkspaceSandboxClient(vm)).WriteWorkspaceFile(context.Background(), "ws-1", 101, 1, "src/app.go", "package main\n", "absent")
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "compare-and-write unavailable")
+	assert.False(t, called, "an unqualified provider must not write")
 }
 
 func TestWorkspaceService_WriteWorkspaceFile_ValidatesBeforeProvider(t *testing.T) {
@@ -113,9 +98,9 @@ func TestWorkspaceService_WriteWorkspaceFile_ValidatesBeforeProvider(t *testing.
 	}}
 	svc := newWorkspaceServiceForTests(&mockWorkspaceQuerier{}, WithWorkspaceSandboxClient(vm))
 
-	_, err := svc.WriteWorkspaceFile(context.Background(), "ws-1", 101, 1, "../secret", "x")
+	_, err := svc.WriteWorkspaceFile(context.Background(), "ws-1", 101, 1, "../secret", "x", "absent")
 	assertAPIErrorStatus(t, err, http.StatusBadRequest)
-	_, err = svc.WriteWorkspaceFile(context.Background(), "ws-1", 101, 1, "large", strings.Repeat("x", MaxWorkspaceFileBytes+1))
+	_, err = svc.WriteWorkspaceFile(context.Background(), "ws-1", 101, 1, "large", strings.Repeat("x", MaxWorkspaceFileBytes+1), "absent")
 	assertAPIErrorStatus(t, err, http.StatusRequestEntityTooLarge)
 	assert.False(t, called)
 }
@@ -134,7 +119,7 @@ func TestWorkspaceService_FilesHonorReadAndWriteShares(t *testing.T) {
 
 	_, err := svc.ListWorkspaceFiles(context.Background(), "ws-1", 101, 2, "")
 	require.NoError(t, err)
-	_, err = svc.WriteWorkspaceFile(context.Background(), "ws-1", 101, 2, "README.md", "x")
+	_, err = svc.WriteWorkspaceFile(context.Background(), "ws-1", 101, 2, "README.md", "x", "absent")
 	assertAPIErrorStatus(t, err, http.StatusForbidden)
 }
 
@@ -202,4 +187,11 @@ func TestWorkspaceService_ManageWorkspaceService_ValidationAndMissing(t *testing
 	_, err = newWorkspaceServiceForTests(&mockWorkspaceQuerier{}, WithWorkspaceSandboxClient(vm)).
 		ManageWorkspaceService(context.Background(), "ws-1", 101, 1, "web", "stop")
 	assertAPIErrorStatus(t, err, http.StatusNotFound)
+}
+
+func TestWorkspaceFileContentDigest(t *testing.T) {
+	t.Parallel()
+	// SHA-256 fixtures computed independently, not with the production helper.
+	assert.Equal(t, "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855", workspaceFileContent("empty", nil).Digest)
+	assert.Equal(t, "11507a0e2f5e69d5dfa40a62a1bd7b6ee57e6bcd85c67c9b8431b36fff21c437", workspaceFileContent("text", []byte("new")).Digest)
 }

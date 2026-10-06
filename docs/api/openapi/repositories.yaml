@@ -7821,6 +7821,11 @@ paths:
           required: true
           schema:
             type: string
+        - name: path
+          in: query
+          required: true
+          schema:
+            type: string
       security:
         - tokenAuth: []
         - bearerAuth: []
@@ -7831,7 +7836,16 @@ paths:
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/AnyJSON'
+                type: object
+                required: [name, path, type, encoding, content, size, digest]
+                properties:
+                  name: {type: string}
+                  path: {type: string}
+                  type: {type: string, const: file}
+                  encoding: {type: string, enum: [utf-8, base64]}
+                  content: {type: string}
+                  size: {type: integer}
+                  digest: {type: string, pattern: '^[0-9a-f]{64}$'}
         '400':
           $ref: '#/components/responses/BadRequest'
         '401':
@@ -7867,7 +7881,25 @@ paths:
           required: true
           schema:
             type: string
-      x-smithers-opaque-body: true
+        - name: path
+          in: query
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [content, base_digest]
+              properties:
+                content:
+                  type: string
+                base_digest:
+                  type: string
+                  pattern: '^(absent|[0-9a-f]{64})$'
       security:
         - tokenAuth: []
         - bearerAuth: []
@@ -7878,7 +7910,28 @@ paths:
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/AnyJSON'
+                type: object
+                required: [name, path, type, encoding, content, size, digest]
+                properties:
+                  name: {type: string}
+                  path: {type: string}
+                  type: {type: string, const: file}
+                  encoding: {type: string, enum: [utf-8, base64]}
+                  content: {type: string}
+                  size: {type: integer}
+                  digest: {type: string, pattern: '^[0-9a-f]{64}$'}
+        '409':
+          description: The current file does not match base_digest; no bytes changed.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [code, current_digest]
+                properties:
+                  code: {type: string, const: stale}
+                  current_digest: {type: string, pattern: '^(absent|[0-9a-f]{64})$'}
+        '503':
+          description: Qualified isolated compare-and-write provider unavailable.
         '400':
           $ref: '#/components/responses/BadRequest'
         '401':

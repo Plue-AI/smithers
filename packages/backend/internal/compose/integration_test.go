@@ -202,7 +202,7 @@ func (m *mockIntegrationWorkspaceService) ListWorkspaceFiles(context.Context, st
 func (m *mockIntegrationWorkspaceService) ReadWorkspaceFile(context.Context, string, int64, int64, string) (services.WorkspaceFileContent, error) {
 	return services.WorkspaceFileContent{}, nil
 }
-func (m *mockIntegrationWorkspaceService) WriteWorkspaceFile(context.Context, string, int64, int64, string, string) (services.WorkspaceFileContent, error) {
+func (m *mockIntegrationWorkspaceService) WriteWorkspaceFile(context.Context, string, int64, int64, string, string, string) (services.WorkspaceFileContent, error) {
 	return services.WorkspaceFileContent{}, nil
 }
 func (m *mockIntegrationWorkspaceService) ListWorkspaceServices(context.Context, string, int64, int64) ([]services.WorkspaceManagedService, error) {

@@ -40,6 +40,8 @@ const (
 	workspaceExecServiceFailure int32 = 50
 )
 
+var workspaceFileBaseDigestPattern = regexp.MustCompile(`^[0-9a-f]{64}$`)
+
 var workspaceServiceNamePattern = regexp.MustCompile(`^[A-Za-z0-9_.@:-]+$`)
 
 // WorkspaceFileEntry is one immediate child in a workspace directory.
@@ -60,6 +62,7 @@ type WorkspaceFileContent struct {
 	Encoding string `json:"encoding"`
 	Content  string `json:"content"`
 	Size     int64  `json:"size"`
+	Digest   string `json:"digest"`
 }
 
 // WorkspaceManagedService is an init-declared guest service and its current
@@ -75,10 +78,6 @@ type WorkspaceManagedService struct {
 
 type workspaceFacetExecClient interface {
 	Execute(ctx context.Context, vmID string, req sandbox.ExecRequest) (sandbox.ExecResult, error)
-}
-
-type workspaceFacetWriteClient interface {
-	WriteFile(ctx context.Context, vmID, path string, req sandbox.WriteFileRequest) error
 }
 
 type workspaceFacetIngressClient interface {
@@ -251,65 +250,51 @@ base64 -w0 -- "$resolved"`, workspaceExecNotFound, MaxWorkspaceFileBytes, worksp
 }
 
 // WriteWorkspaceFile writes one bounded file inside the working copy.
-func (s *WorkspaceService) WriteWorkspaceFile(ctx context.Context, workspaceID string, repositoryID, userID int64, filePath, content string) (WorkspaceFileContent, error) {
+func (s *WorkspaceService) WriteWorkspaceFile(ctx context.Context, workspaceID string, repositoryID, userID int64, filePath, content, baseDigest string) (WorkspaceFileContent, error) {
+	if baseDigest != "absent" && !workspaceFileBaseDigestPattern.MatchString(baseDigest) {
+		return WorkspaceFileContent{}, pkgerrors.BadRequest("base_digest must be a SHA-256 digest or absent")
+	}
+
 	if len(content) > MaxWorkspaceFileBytes {
 		return WorkspaceFileContent{}, pkgerrors.RequestEntityTooLarge("workspace file exceeds 1 MiB limit")
 	}
-	relativePath, absolutePath, err := workspaceFilePath(filePath, false)
+	relativePath, _, err := workspaceFilePath(filePath, false)
 	if err != nil {
 		return WorkspaceFileContent{}, err
 	}
 	var written WorkspaceFileContent
 	err = s.withWorkspaceMutation(ctx, workspaceID, repositoryID, userID, func(ctx context.Context, _ db.Workspace) error {
 		var err error
-		written, err = s.writeWorkspaceFile(ctx, workspaceID, repositoryID, userID, relativePath, absolutePath, content)
+		written, err = s.writeWorkspaceFile(ctx, workspaceID, repositoryID, userID, relativePath, content, baseDigest)
 		return err
 	})
 	return written, err
 }
 
-func (s *WorkspaceService) writeWorkspaceFile(ctx context.Context, workspaceID string, repositoryID, userID int64, relativePath, absolutePath, content string) (WorkspaceFileContent, error) {
+func (s *WorkspaceService) writeWorkspaceFile(ctx context.Context, workspaceID string, repositoryID, userID int64, relativePath, content, baseDigest string) (WorkspaceFileContent, error) {
 	if s.runtime != nil {
+		writer, ok := s.runtime.(workspaceapi.WorkspaceCompareWriter)
+		if !ok {
+			return WorkspaceFileContent{}, pkgerrors.New(pkgerrors.CodeServiceUnavailable, "workspace compare-and-write unavailable")
+		}
 		digest := sha256Hex(content)
-		row, runtimeCtx, targetErr := s.workspaceRuntimeFacetTarget(ctx, workspaceID, repositoryID, userID, WorkspaceAccessWrite, "workspace-file:"+relativePath+":"+digest)
+		row, runtimeCtx, targetErr := s.workspaceRuntimeFacetTarget(ctx, workspaceID, repositoryID, userID, WorkspaceAccessWrite, "workspace-file:"+relativePath+":"+baseDigest+":"+digest)
 		if targetErr != nil {
 			return WorkspaceFileContent{}, targetErr
 		}
-		if writeErr := s.runtime.WriteFile(runtimeCtx, row.ID, relativePath, []byte(content), 0o644); writeErr != nil {
+		if writeErr := writer.CompareWriteFile(runtimeCtx, row.ID, relativePath, baseDigest, []byte(content), 0o644); writeErr != nil {
+			var stale *workspaceapi.StaleFileError
+			if errors.As(writeErr, &stale) {
+				return WorkspaceFileContent{}, stale
+			}
 			return WorkspaceFileContent{}, mapRuntimeFileError(writeErr, "file")
 		}
 		s.touchWorkspaceEntryRecency(ctx, row.ID, "file-content-write")
 		return workspaceFileContent(relativePath, []byte(content)), nil
 	}
-	workspace, client, err := s.workspaceFacetTarget(ctx, workspaceID, repositoryID, userID, WorkspaceAccessWrite)
-	if err != nil {
-		return WorkspaceFileContent{}, err
-	}
-
-	// WriteFile is the provider-neutral mutation path. Check the canonical
-	// target first so an in-workspace symlink cannot redirect the write outside
-	// the working copy.
-	guard := fmt.Sprintf(`root=%s
-target=%s
-resolved=$(realpath -m -- "$target") || exit %d
-case "$resolved" in "$root"|"$root"/*) ;; *) exit %d ;; esac`, shellQuote(defaultWorkspaceClonePath), shellQuote(absolutePath), workspaceExecNotFound, workspaceExecOutsideRoot)
-	guardResponse, err := client.Execute(ctx, workspace.VmID, sandbox.ExecRequest{Command: guard, TimeoutMS: workspaceFacetTimeoutPtr()})
-	if err != nil {
-		return WorkspaceFileContent{}, pkgerrors.Internal("validate workspace file path").WithCause(err)
-	}
-	if err := mapWorkspaceFileExecError(guardResponse, "file"); err != nil {
-		return WorkspaceFileContent{}, err
-	}
-	writeClient, ok := s.sandbox.(workspaceFacetWriteClient)
-	if !ok {
-		return WorkspaceFileContent{}, pkgerrors.Internal("workspace file writes unavailable")
-	}
-	if err := writeClient.WriteFile(ctx, workspace.VmID, absolutePath, sandbox.WriteFileRequest{Content: content}); err != nil {
-		return WorkspaceFileContent{}, pkgerrors.Internal("write workspace file").WithCause(err)
-	}
-
-	s.touchWorkspaceEntryRecency(ctx, workspace.ID, "file-content-write")
-	return workspaceFileContent(relativePath, []byte(content)), nil
+	// Authorization has already been held by withWorkspaceMutation. The
+	// legacy provider cannot compare and must not launch or write anything.
+	return WorkspaceFileContent{}, pkgerrors.New(pkgerrors.CodeServiceUnavailable, "workspace compare-and-write unavailable")
 }
 
 // ListWorkspaceServices returns services declared as persistent units by the
@@ -576,6 +561,7 @@ func workspaceFileContent(relativePath string, content []byte) WorkspaceFileCont
 		Encoding: "utf-8",
 		Content:  string(content),
 		Size:     int64(len(content)),
+		Digest:   sha256Hex(string(content)),
 	}
 	if !utf8.Valid(content) {
 		result.Encoding = "base64"
