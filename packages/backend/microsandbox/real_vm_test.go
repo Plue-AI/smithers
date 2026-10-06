@@ -165,6 +165,29 @@ func TestRealMicroVMGuestFacts(t *testing.T) {
 	require.Equal(t, "b.txt", entries[0].Name)
 }
 
+// C-APP-03's failure must originate in the guest, rather than a served TODO
+// fixture. The public runner must retain the guest exit and the image action's
+// literal package/file attribution together.
+func TestRealMicroVMMissingImagePackage(t *testing.T) {
+	runtime := realRuntime(t, t.TempDir())
+	ctx := operation("missing-image-package")
+	const id = "missing-image-package"
+	_, err := runtime.CreateWorkspace(ctx, workspaceapi.WorkspaceSpec{ID: id})
+	require.NoError(t, err)
+	t.Cleanup(func() { require.NoError(t, runtime.DeleteWorkspace(operation("delete"), id)) })
+
+	result, err := runtime.ExecuteCommand(ctx, id, workspaceapi.Command{Args: []string{"/bin/sh", "-c", "figlet ok"}})
+	var failure *RecipeError
+	require.ErrorAs(t, err, &failure)
+	require.Equal(t, 127, result.ExitCode)
+	require.Contains(t, result.Stderr, "figlet")
+	require.Equal(t, "missing_machine_tool", failure.Code)
+	require.Equal(t, "user", failure.Class)
+	require.Equal(t, &MissingTool{Name: "figlet", File: ".smithers/machine.json"}, failure.MissingTool)
+	require.Contains(t, failure.Message, "figlet")
+	require.Contains(t, failure.Message, ".smithers/machine.json")
+}
+
 // Cancellation must end the command and everything it started, including a
 // descendant that detached into its own session.
 func TestRealMicroVMCancellationKillsGuestWork(t *testing.T) {
