@@ -315,8 +315,12 @@ func TestWorkspaceCoding_NativePostgresProjection(t *testing.T) {
 		Operations []WorkspaceCodingProjection `json:"coding_operations"`
 	}
 	require.NoError(t, json.Unmarshal(projectionBytes, &projection))
-	require.Len(t, projection.Operations, 1)
-	require.Equal(t, local.OperationID, projection.Operations[0].OperationID)
+	// The native journal retains both accepted operations, including the one
+	// the backend already recorded. Replaying the full projection must not
+	// duplicate that row or let callers suppress native provenance.
+	require.Len(t, projection.Operations, 2)
+	operationIDs := []string{projection.Operations[0].OperationID, projection.Operations[1].OperationID}
+	require.ElementsMatch(t, []string{result.OperationID, local.OperationID}, operationIDs)
 	headInput := ReportWorkspaceHeadInput{WorkspaceID: workspace.ID, RepositoryID: repoID,
 		TokenWorkspaceID: workspace.ID, ChangeID: local.Head.ChangeID, CommitID: local.Head.CommitID,
 		CodingOperations: projection.Operations}
