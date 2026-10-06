@@ -16,7 +16,7 @@ type presenceVisit struct {
 	member      int64
 	name        string
 	start, last time.Time
-	sessions    map[string]struct{}
+	sessions    map[string]time.Time
 }
 type presenceVisits struct {
 	mu     sync.Mutex
@@ -42,11 +42,11 @@ func (v *presenceVisits) heartbeat(branch string, member int64, name, session st
 		visit = nil
 	}
 	if visit == nil {
-		visit = &presenceVisit{branch: branch, member: member, name: name, start: now, sessions: map[string]struct{}{}}
+		visit = &presenceVisit{branch: branch, member: member, name: name, start: now, sessions: map[string]time.Time{}}
 		v.visits[key] = visit
 	}
 	visit.last = now
-	visit.sessions[session] = struct{}{}
+	visit.sessions[session] = now
 }
 func (v *presenceVisits) leave(branch string, member int64, session string) {
 	if v == nil {
@@ -60,6 +60,12 @@ func (v *presenceVisits) leave(branch string, member int64, session string) {
 		return
 	}
 	delete(visit.sessions, session)
+	// A silently lost tab must not delay the last live session's clean leave.
+	for id, last := range visit.sessions {
+		if !v.now().Before(last.Add(30 * time.Second)) {
+			delete(visit.sessions, id)
+		}
+	}
 	if len(visit.sessions) == 0 {
 		end := v.now()
 		if expiry := visit.last.Add(30 * time.Second); expiry.Before(end) {

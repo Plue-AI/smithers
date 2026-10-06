@@ -350,6 +350,50 @@ func TestPresenceVisitAudit(t *testing.T) {
 	require.JSONEq(t, fmt.Sprintf(`{"branch":%q,"member":%d,"via":"app","start":"2026-10-05T13:00:00Z","end":"2026-10-05T13:02:00Z"}`, f.row.ID, f.user.ID), string(metadata))
 }
 
+// An expired second tab cannot hold the visit open after the last active tab
+// leaves. Both announcements and departure go through the install live door.
+func TestPresenceVisitAuditExpiredTabCleanLeave(t *testing.T) {
+	f := presenceInstall(t)
+	base := time.Date(2026, 10, 6, 12, 0, 0, 0, time.UTC)
+	var seconds atomic.Int64
+	f.p.visits.now = func() time.Time { return base.Add(time.Duration(seconds.Load()) * time.Second) }
+	active, lost := f.dial(t), f.dial(t)
+	beat := func(c *websocket.Conn, at int64) {
+		seconds.Store(at)
+		sendPresenceFrame(t, c, fmt.Sprintf(`{"t":"presence","id":7,"where":{"branch":%q}}`, f.row.ID))
+		require.Eventually(t, func() bool {
+			f.p.visits.mu.Lock()
+			defer f.p.visits.mu.Unlock()
+			for _, visit := range f.p.visits.visits {
+				if visit.last.Equal(base.Add(time.Duration(at) * time.Second)) {
+					return true
+				}
+			}
+			return false
+		}, time.Second, 10*time.Millisecond)
+	}
+	beat(lost, 0)
+	for at := int64(1); at <= 121; at += 10 {
+		beat(active, at)
+	}
+	seconds.Store(122)
+	sendPresenceFrame(t, active, `{"t":"presence","id":7,"where":{"branch":""}}`)
+	require.Eventually(t, func() bool {
+		var n int
+		err := f.pool.QueryRow(t.Context(), `SELECT count(*) FROM audit_log WHERE event_type='presence' AND action='visit'`).Scan(&n)
+		return err == nil && n == 1
+	}, time.Second, 10*time.Millisecond)
+	var metadata []byte
+	require.NoError(t, f.pool.QueryRow(t.Context(), `SELECT metadata FROM audit_log WHERE event_type='presence' AND action='visit'`).Scan(&metadata))
+	require.JSONEq(t, fmt.Sprintf(`{"branch":%q,"member":%d,"via":"app","start":"2026-10-06T12:00:00Z","end":"2026-10-06T12:02:02Z"}`, f.row.ID, f.user.ID), string(metadata))
+	// The lost tab's later leave cannot emit a duplicate visit.
+	sendPresenceFrame(t, lost, `{"t":"presence","id":7,"where":{"branch":""}}`)
+	require.Eventually(t, func() bool { return len(f.roster(t)) == 0 }, time.Second, 10*time.Millisecond)
+	var count int
+	require.NoError(t, f.pool.QueryRow(t.Context(), `SELECT count(*) FROM audit_log WHERE event_type='presence'`).Scan(&count))
+	require.Equal(t, 1, count)
+}
+
 // Machine state and branch names change under an already mounted card. These
 // facts are read over the composed install socket, with no wake request.
 func TestPresenceBranchRefreshMachineNameAndOrigin(t *testing.T) {
