@@ -7,6 +7,7 @@ for (const optionalStreams of ["served", "unsupported"] as const) test(`install 
   await installCloudFixture(page, { capabilities: ["identity", "install"] })
   const posts: unknown[] = []
   const presence: unknown[] = []
+  const writer = { id: "member:2", member_id: "2", kind: "person", login: "presence-owner", name: "Alice", avatar_url: "https://github.com/identicons/placeholder.png", color_index: 0, via: "ssh" }
   await page.route("**/api/todos/2", route => route.fulfill({ json: { branch: { name: "smithers/retry-webhooks" } } }))
   await page.route("**/api/branches/smithers%2Fretry-webhooks", route => route.fulfill({ json: { name: "smithers/retry-webhooks", machine: { id: "b-live" } } }))
   await page.route("**/api/branches", route => {
@@ -24,8 +25,8 @@ for (const optionalStreams of ["served", "unsupported"] as const) test(`install 
       rebase: { state: "pending", onto: "main" },
       presence: [{ actor: { kind: "person", login: "maya", name: "Maya", avatar_url: "https://github.com/identicons/placeholder.png", color_index: 1, via: "ssh" }, where: { kind: "file", path: "retry.ts", line: 12 } }],
       terminals: [], ssh_line: "ssh -p 2222 retry-webhooks@localhost"
-    } : frame.topic === "branch:b-live:activity" && optionalStreams === "served" ? [{ id: "outside-1", at: "2026-10-06T12:00:00Z", kind: "burst", actor: { id: "outside", kind: "outside", via: "tool" }, files: [{ path: "retry.ts", change: "modified" }] }]
-      : frame.topic === "branch:b-live:files" && optionalStreams === "served" ? { changed: [{ path: "retry.ts", change: "modified", last_writer: { id: "outside", kind: "outside", via: "tool" } }], open: [] } : undefined
+    } : frame.topic === "branch:b-live:activity" && optionalStreams === "served" ? [{ id: "outside-1", at: "2026-10-06T12:00:00Z", kind: "burst", actor: { id: "outside", kind: "outside", via: "tool" }, files: [{ path: "retry.ts", change: "modified" }] }, { id: "owned-1", at: "2026-10-06T12:00:01Z", kind: "burst", actor: writer, files: [{ path: "retry.ts", change: "modified" }] }]
+      : frame.topic === "branch:b-live:files" && optionalStreams === "served" ? { changed: [{ path: "retry.ts", change: "modified", last_writer: writer }], open: [] } : undefined
     socket.send(JSON.stringify(data === undefined ? { t: "err", id: frame.id, code: "unsupported" } : { t: "snap", id: frame.id, cursor: 1, data }))
   }))
   await page.goto("/")
@@ -39,6 +40,7 @@ for (const optionalStreams of ["served", "unsupported"] as const) test(`install 
   await expect(card.getByRole("button", { name: "Rebase now", exact: true })).toHaveCount(0)
   if (optionalStreams === "served") {
     await expect(card).toContainText("changed outside Smithers")
+    await expect(card.getByRole("tabpanel")).toContainText("Alice via SSH")
     await card.getByRole("tab", { name: /Files\s*1/ }).press("Enter")
     await expect(card.getByRole("tabpanel")).toContainText("retry.ts")
     expect(posts).toEqual([])

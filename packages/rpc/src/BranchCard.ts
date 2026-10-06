@@ -1,6 +1,7 @@
 /** Props-only Branch contract; HTTP/storage decoding belongs to T-APP-10. */
 import { z } from "zod"
 import type { Action, CardCallbacks, CardProps } from "./CardAction.ts"
+import { ActorSchema } from "./CardPrimitives.ts"
 import type { Actor, MachineState, TodoState } from "./CardPrimitives.ts"
 
 /**
@@ -104,7 +105,7 @@ export const BranchActivityEntry = z.strictObject({
   id: z.string().min(1),
   at: z.iso.datetime(),
   kind: z.enum(["write", "burst", "doc_edit", "rebase", "moved_off"]),
-  actor: BranchParticipant,
+  actor: z.union([BranchParticipant, ActorSchema]),
   files: z.array(z.strictObject({
     path: z.string().min(1).refine(value =>
       !/[\\\u0000]/.test(value) && value.split("/").every(part => part !== "" && part !== "." && part !== "..")),

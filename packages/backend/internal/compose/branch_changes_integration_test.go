@@ -22,6 +22,7 @@ import (
 // This fixture supplies the remote burst; it does not claim a real watcher run.
 func TestBranchChangesProductionLiveBoundary(t *testing.T) {
 	f := presenceInstall(t)
+	require.Equal(t, int64(2), f.user.ID)
 	registry := &machined.Registry{}
 	boot := [16]byte{1}
 	secret := []byte("changes-boot")
@@ -61,7 +62,7 @@ func TestBranchChangesProductionLiveBoundary(t *testing.T) {
 		}
 		return store, nil
 	}}, ResolveActor: func(context.Context, string, wire.Actor) (json.RawMessage, error) {
-		return json.RawMessage(`{"id":"member:1","kind":"person","member_id":"1","via":"ssh"}`), nil
+		return json.RawMessage(`{"id":"member:2","kind":"person","member_id":"2","via":"ssh"}`), nil
 	}}
 	list := wire.U16(12)
 	for i := 0; i < 12; i++ {
@@ -94,7 +95,10 @@ func TestBranchChangesProductionLiveBoundary(t *testing.T) {
 	require.NoError(t, json.Unmarshal(activity.Data, &entries))
 	require.Len(t, entries, 1)
 	require.Equal(t, "burst", entries[0].Kind)
-	require.Equal(t, "member:1", entries[0].Actor["id"])
+	require.Equal(t, "member:2", entries[0].Actor["id"])
+	require.Equal(t, "presence-owner", entries[0].Actor["login"])
+	require.Equal(t, "Alice", entries[0].Actor["name"])
+	require.Equal(t, "ssh", entries[0].Actor["via"])
 	require.Len(t, entries[0].Files, 12)
 	require.Equal(t, before, entries[0].Files[0]["before_blob"])
 	sendPresenceFrame(t, socket, fmt.Sprintf(`{"t":"sub","id":2,"topic":"branch:%s:files"}`, f.row.ID))
@@ -109,9 +113,10 @@ func TestBranchChangesProductionLiveBoundary(t *testing.T) {
 	}
 	require.NoError(t, json.Unmarshal(files.Data, &snapshot))
 	require.Len(t, snapshot.Changed, 12)
+	require.Equal(t, "presence-owner", snapshot.Changed[0].Writer["login"])
 	require.Empty(t, snapshot.Open)
 	require.Equal(t, "modified", snapshot.Changed[0].Change)
-	require.Equal(t, "member:1", snapshot.Changed[0].Writer["id"])
+	require.Equal(t, "member:2", snapshot.Changed[0].Writer["id"])
 	require.NotNil(t, activity.Cursor)
 	require.Equal(t, int64(1), *activity.Cursor)
 	nextID := [16]byte{5}

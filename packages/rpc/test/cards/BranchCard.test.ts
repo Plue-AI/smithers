@@ -73,3 +73,9 @@ test("branch live topics and durable activity fixtures match the I2 wire contrac
     { ...entry, files: [{ path: "a", change: "modified", before_blob: "bad" }] }
   ]) expect(BranchActivityEntry.safeParse(invalid).success).toBe(false)
 })
+
+test("the branch stream also accepts server-resolved display attribution", () => {
+  const actor = { id: "member:2", member_id: "2", kind: "person", login: "presence-owner", name: "Alice", avatar_url: "https://github.com/identicons/placeholder.png", color_index: 0, via: "ssh" }
+  const entry = { id: "burst-owned", kind: "burst", at: "2026-10-06T12:00:00Z", actor, files: [{ path: "src/retry.ts", change: "modified" }] }
+  expect(BranchActivityEntry.parse(entry)).toEqual({ ...entry, actor: { kind: "person", login: "presence-owner", name: "Alice", avatar_url: "https://github.com/identicons/placeholder.png", color_index: 0, via: "ssh" } })
+})

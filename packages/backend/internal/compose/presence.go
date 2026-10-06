@@ -254,15 +254,7 @@ func (p *branchPresence) source(ctx context.Context, branch string, repository, 
 			if err != nil {
 				return nil, err
 			}
-			avatar := person.AvatarUrl
-			if avatar == "" {
-				avatar = placeholderAvatar
-			}
-			name := person.DisplayName
-			if name == "" {
-				name = person.Username
-			}
-			actor := map[string]any{"kind": "person", "login": person.Username, "name": name, "avatar_url": avatar, "color_index": colors[person.Username]}
+			actor := branchPersonActor(person, colors[person.Username])
 			if lease.Via != "" {
 				actor["via"] = lease.Via
 			}
@@ -394,4 +386,16 @@ func (p *branchPresence) startupUnknown() bool {
 		now = p.now
 	}
 	return now().Before(p.startedAt.Add(30 * time.Second))
+}
+
+// Presence and durable authors use the same member projection.
+func branchPersonActor(person db.User, color int) map[string]any {
+	avatar, name := person.AvatarUrl, person.DisplayName
+	if avatar == "" {
+		avatar = placeholderAvatar
+	}
+	if name == "" {
+		name = person.Username
+	}
+	return map[string]any{"kind": "person", "login": person.Username, "name": name, "avatar_url": avatar, "color_index": color}
 }
