@@ -830,6 +830,7 @@ const FIXTURES: Record<
       seed: draftFixtures.seed.model.seed,
       committed: { n: 12, rev: 1 },
       optionsFailure: "Could not load placement",
+      imagePreparation: { name: "todo", repo: "org/repo", state: "requested" },
       idempotencyKey: "commit-1",
       request: { key: "commit-1", owner: "ben", operation: "create", state: "accepted", body: {}, n: 12 }
     }
