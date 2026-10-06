@@ -792,6 +792,10 @@ func (s *MythicalService) mergeChecks(ctx context.Context, gh mythicalGitHubRepo
 	if err != nil {
 		return err
 	}
+	return mythicalMergeCheckFacts(facts)
+}
+
+func mythicalMergeCheckFacts(facts []mythicalHeadCheck) error {
 	sort.SliceStable(facts, func(i, j int) bool { return facts[i].Name < facts[j].Name })
 	for _, fact := range facts {
 		if fact.Required && fact.State != mythicalCIGreen {

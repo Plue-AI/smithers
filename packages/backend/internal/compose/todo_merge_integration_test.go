@@ -75,6 +75,17 @@ func (noPolicy) GetFileAtCommit(context.Context, string, string, string, string)
 // credential is refused before any TODO is read, and none records an
 // approval, a fence or a GitHub merge.
 func TestTodoMergeComposedRouteBoundaryPostgres(t *testing.T) {
+	testTodoMergeComposedRouteBoundaryPostgres(t, false)
+}
+
+func TestConfirmationMergeAdmissionComposedPostgres(t *testing.T) {
+	testTodoMergeComposedRouteBoundaryPostgres(t, true)
+}
+
+var confirmationMergeInstallations atomic.Int64
+
+func testTodoMergeComposedRouteBoundaryPostgres(t *testing.T, confirmations bool) {
+	installation := int64(98300) + confirmationMergeInstallations.Add(1)
 	pool, _ := postgresfixture.NewProductDatabase(t)
 	ctx := context.Background()
 	q := db.New(pool)
@@ -84,7 +95,7 @@ func TestTodoMergeComposedRouteBoundaryPostgres(t *testing.T) {
 		ClientSecret: "secret", WebhookSecret: "webhook", PEM: string(pem.EncodeToMemory(&pem.Block{Type: "RSA PRIVATE KEY", Bytes: x509.MarshalPKCS1PrivateKey(key)}))}
 	fake, err := githubfake.New(githubfake.Config{OAuthCode: "owner-code", AppID: app.ID, Slug: app.Slug, OwnerLogin: app.OwnerLogin, OwnerKind: app.OwnerKind,
 		ClientID: app.ClientID, ClientSecret: app.ClientSecret, WebhookSecret: app.WebhookSecret, PrivateKeyPEM: app.PEM, ConversionCode: "manifest-code",
-		Installations: []githubfake.Installation{{ID: 9301, Repositories: []githubfake.Repository{{ID: 100, FullName: "rehearsal-owner/app"}}}}})
+		Installations: []githubfake.Installation{{ID: installation, Repositories: []githubfake.Repository{{ID: 100, FullName: "rehearsal-owner/app"}}}}})
 	require.NoError(t, err)
 	t.Cleanup(fake.Close)
 	t.Setenv("SMITHERS_GITHUB_APP_API_BASE_URL", fake.URL)
@@ -194,6 +205,60 @@ func TestTodoMergeComposedRouteBoundaryPostgres(t *testing.T) {
 	server.Config.Handler = todoMergeComposeRouter(cfg, q, pool, &routes.MythicalHandler{Service: mythical}, &routes.GitHubProxyHandler{Service: services.NewGitHubProxyService(issuer)})
 	server.Start()
 	t.Cleanup(server.Close)
+
+	if confirmations {
+		_, err = pool.Exec(ctx, `UPDATE mythical_items SET attempt=1 WHERE id=$1`, before.ID)
+		require.NoError(t, err)
+		call := func(method, path, cookie, bearer, key, body string) (int, map[string]any) {
+			r, err := http.NewRequest(method, origin+path, strings.NewReader(body))
+			require.NoError(t, err)
+			r.Header.Set("Origin", origin)
+			r.Header.Set("Content-Type", "application/json")
+			r.Header.Set("Idempotency-Key", key)
+			if cookie != "" {
+				r.AddCookie(&http.Cookie{Name: "smithers_session", Value: cookie})
+				r.AddCookie(&http.Cookie{Name: middleware.CSRFCookieName, Value: "csrf"})
+				r.Header.Set("X-CSRF-Token", "csrf")
+			}
+			if bearer != "" {
+				r.Header.Set("Authorization", "Bearer "+bearer)
+			}
+			response, err := http.DefaultClient.Do(r)
+			require.NoError(t, err)
+			defer response.Body.Close()
+			var bodyMap map[string]any
+			require.NoError(t, json.NewDecoder(response.Body).Decode(&bodyMap))
+			return response.StatusCode, bodyMap
+		}
+		body := fmt.Sprintf(`{"reviewed_head_sha":%q}`, pull.Head.SHA)
+		status, receipt := call("POST", fmt.Sprintf("/api/todos/%d/merge", filed.Number), "", pat, "confirm-create", body)
+		require.Equal(t, 202, status, receipt)
+		require.Len(t, receipt, 2)
+		require.Equal(t, "pending", receipt["state"])
+		id := receipt["confirmation"].(string)
+		require.Empty(t, item().PendingOp)
+		status, receipt = call("POST", "/api/confirmations/"+id+"/approve", "", pat, "agent-press", `{}`)
+		require.Equal(t, 403, status, receipt)
+		status, receipt = call("POST", "/api/confirmations/"+id+"/approve", "member-browser-session", "", "foreign-press", `{}`)
+		require.Equal(t, 403, status, receipt)
+		status, receipt = call("POST", "/api/confirmations/"+id+"/approve", "owner-browser-session", "", "person-press", `{}`)
+		require.Equal(t, 202, status, receipt)
+		require.Equal(t, "pending", receipt["state"])
+		version := item().Version
+		status, receipt = call("POST", "/api/confirmations/"+id+"/approve", "owner-browser-session", "", "person-press", `{}`)
+		require.Equal(t, 202, status, receipt)
+		require.Equal(t, version, item().Version)
+		status, receipt = call("POST", "/api/confirmations/"+id+"/deny", "owner-browser-session", "", "cancel-in-flight", `{}`)
+		require.Equal(t, 409, status, receipt)
+		require.Equal(t, "merging", receipt["code"])
+		row, err := q.GetMemberConfirmation(ctx, id, owner.ID)
+		require.NoError(t, err)
+		require.Equal(t, "pending", row.State)
+		for _, write := range fake.Writes() {
+			require.False(t, write.Method == "PUT" && strings.HasSuffix(write.Path, "/merge"), "admission never sends a merge")
+		}
+		return
+	}
 
 	t.Run("shared TODO replay excludes private and other item facts", func(t *testing.T) {
 		scope := jobs.Scope{TenantID: strconv.FormatInt(repo.ID, 10), PrincipalID: "todo:" + uuid.UUID(before.ID.Bytes).String()}
@@ -442,12 +507,18 @@ func TestTodoMergeComposedRouteBoundaryPostgres(t *testing.T) {
 					// API credential requires app confirmation before reading a TODO.
 					if tc.name == "the owner's personal access token" && door.name == "numbered" && (target == door.valid || target == door.unknown) {
 						expectedStatus = http.StatusServiceUnavailable
+						if target == door.unknown {
+							expectedStatus = http.StatusNotFound
+						}
 					}
 					require.Equal(t, expectedStatus, status, "%s %s: %v", door.name, target, envelope)
 					if tc.envelope != nil {
 						expected := tc.envelope
 						if tc.name == "the owner's personal access token" && door.name == "numbered" && (target == door.valid || target == door.unknown) {
 							expected = map[string]any{"code": "confirmation_unavailable", "class": "infra", "message": "Confirmation unavailable"}
+							if target == door.unknown {
+								expected = map[string]any{"code": "todo_not_found", "class": "user", "message": "TODO not found"}
+							}
 						} else if tc.name == "the owner's personal access token" {
 							expected = map[string]any{"code": "permission", "class": "permission", "message": "Not available"}
 						}

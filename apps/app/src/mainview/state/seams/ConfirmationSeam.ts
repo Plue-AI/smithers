@@ -28,6 +28,12 @@ export const createConfirmationSeam = (ctx: SeamContext, options: {
     void (async () => {
       for (const row of rows()) {
         if (!current(mine)) return
+        if (row.command === "merge" && row.state === "pending" && !row.payload.effect && (row.payload.merge_attempt ?? 0) > 0) {
+          clearTimeout(timers.get(row.id)); timers.delete(row.id)
+          const press = presses.get(row.id); press?.abort(); presses.delete(row.id)
+          const notice = `todo.request.confirmation:${row.id}`
+          if (press || ctx.store.collections.toasts.get(`toast-${notice}`)?.status === "running") ctx.resolveToast?.(notice, { status: "failed", detail: row.payload.card.review?.merge.detail ?? "Merge refused" })
+        }
         if (row.state !== "pending") {
           clearTimeout(timers.get(row.id)); timers.delete(row.id)
           const press = presses.get(row.id)
@@ -37,7 +43,7 @@ export const createConfirmationSeam = (ctx: SeamContext, options: {
             ctx.resolveToast?.(notice, row.state === "rejected" ? { status: "cancelled", detail: "Cancelled" } : { status: "failed", detail: "Expired" })
           }
         }
-        if (row.state === "approved") await options.observe(row)
+        if (row.state === "approved" || row.command === "merge" && row.state === "pending") await options.observe(row)
       }
     })().catch(error => ctx.report?.("confirmations.observe", error))
   }
@@ -62,13 +68,13 @@ export const createConfirmationSeam = (ctx: SeamContext, options: {
   const decide = (id: string, decision: "approved" | "denied"): void => {
     refresh()
     const row = rows().find(row => row.id === id)
-    if (ctx.actor() !== "user" || !scope || !row || row.state !== "pending" || presses.has(id)) return
+    if (ctx.actor() !== "user" || !scope || !row || row.state !== "pending" || presses.has(id) || row.command === "merge" && row.payload.effect) return
     const mine = generation, abort = new AbortController()
     let admitted = false
     presses.set(id, abort)
     // One decision operation per immutable confirmation; retry/reload retains
     // its key. The server additionally binds that key to the browser session.
-    const key = `confirmation:${id}:${decision}`
+    const key = `confirmation:${id}:${decision}${row.command === "merge" ? `:${row.payload.merge_attempt ?? 0}` : ""}`
     const notice = `todo.request.confirmation:${id}`
     const timer = setTimeout(() => {
       timers.delete(id)

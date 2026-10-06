@@ -691,19 +691,27 @@ export const createTodoSeam = (ctx: SeamContext, options: TodoSeamOptions = {}) 
   const observingConfirmations = new Set<string>()
   const observeConfirmation = async (confirmation: MemberConfirmation): Promise<void> => {
     const effect = confirmation.payload.effect
-    if (ctx.actor() !== "user" || signedIn() || confirmation.state !== "approved" || !effect ||
-      !["todo.new", "todo.drop", "todo.amend", "branch.bring-in", "branch.discard-foreign"].includes(confirmation.command) || observingConfirmations.has(confirmation.id)) return
+    if (confirmation.command === "merge" && confirmation.state === "pending" && !effect && (confirmation.payload.merge_attempt ?? 0) > 0 && ctx.actor() === "user" && !signedIn()) {
+      const key = `confirmation:${confirmation.id}`
+      for (const row of ctx.store.collections.cards.values()) {
+        if (row.kind === "todo" && row.payload.requests.some(request => request.key === key)) await write({ ...row, payload: { ...row.payload, requests: row.payload.requests.filter(request => request.key !== key) } }, "system")
+      }
+      return
+    }
+    const observedId = confirmation.command === "merge" ? `${confirmation.id}:${confirmation.payload.merge_attempt ?? 0}` : confirmation.id
+    if (ctx.actor() !== "user" || signedIn() || (confirmation.state !== "approved" && !(confirmation.command === "merge" && confirmation.state === "pending")) || !effect ||
+      !["todo.new", "todo.drop", "todo.amend", "branch.bring-in", "branch.discard-foreign", "merge"].includes(confirmation.command) || observingConfirmations.has(confirmation.id)) return
     const row = entry(effect.todo) ?? blank(effect.todo)
-    if (row.payload.observedConfirmations?.includes(confirmation.id)) return
+    if (row.payload.observedConfirmations?.includes(observedId)) return
     observingConfirmations.add(confirmation.id)
     const login = owner()!, revision = identity()?.ownerRevision ?? identity()?.revision
     try {
       const request: Request = { key: effect.request, owner: login,
-        operation: confirmation.command === "branch.bring-in" ? "bring-in" : confirmation.command === "branch.discard-foreign" ? "discard-foreign" : confirmation.command === "todo.new" ? "create" : confirmation.command === "todo.amend" ? "amend" : "drop",
+        operation: confirmation.command === "merge" ? "merge" : confirmation.command === "branch.bring-in" ? "bring-in" : confirmation.command === "branch.discard-foreign" ? "discard-foreign" : confirmation.command === "todo.new" ? "create" : confirmation.command === "todo.amend" ? "amend" : "drop",
         ...(effect.revision === undefined ? {} : { revision: effect.revision }),
         body: ["branch.bring-in", "branch.discard-foreign"].includes(confirmation.command) ? { ...confirmation.payload.input as object, branch: confirmation.payload.card.subject.ref } : confirmation.payload.input, n: effect.todo, state: "accepted" }
       await write({ ...row, title: confirmation.payload.card.summary, payload: { ...row.payload,
-        observedConfirmations: [...row.payload.observedConfirmations ?? [], confirmation.id],
+        observedConfirmations: [...row.payload.observedConfirmations ?? [], observedId],
         requests: [...row.payload.requests.filter(old => old.key !== request.key), request] } }, "system")
       if (current(login, revision)) { showNotice(request, row.title); watch(effect.todo) }
     } finally { observingConfirmations.delete(confirmation.id) }

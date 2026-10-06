@@ -1333,3 +1333,29 @@ for (const operation of ["stop", "resume"] as const) test(`${operation} without 
     expect(h.outcomes.at(-1)).toMatchObject({ status: "ok", detail: operation === "stop" ? "Paused" : "Resumed" })
   } finally { h.close() }
 })
+
+test("pending Merge confirmation reconnects without resending, and a refused attempt permits retry", async () => {
+  const calls: RequestInit[] = [], storage = memoryStorage()
+  const id = "10000000-0000-4000-8000-000000000009"
+  const row: MemberConfirmation = { id, command: "merge", state: "pending", revision: "item:1:h2", expires_at: "2099-01-01T00:00:00Z", payload: { input: { reviewed_head_sha: "h2" }, card: confirms.review_merge.model, effect: { todo: 12, request: `confirmation:${id}` } } }
+  const http: SeamContext["http"] = async (_url, init) => { if (init?.method) calls.push(init); return json(fixtures.in_review.model, 200) }
+  const h = await harness(http, storage)
+  await h.seam.observeConfirmation(row)
+  expect(h.todo().payload.requests[0]).toMatchObject({ operation: "merge", state: "accepted" })
+  h.close()
+  const restored = await harness(http, storage)
+  try {
+    restored.seam.resumeTodos()
+    await restored.seam.observeConfirmation(row)
+    expect(restored.todo().payload.requests).toHaveLength(1)
+    expect(restored.outcomes).toEqual([])
+    await restored.seam.observeConfirmation({ ...row, payload: { ...row.payload, effect: undefined, merge_attempt: 1 } })
+    expect(restored.todo().payload.requests).toEqual([])
+    await restored.seam.observeConfirmation({ ...row, payload: { ...row.payload, merge_attempt: 1 } })
+    expect(restored.todo().payload.requests).toHaveLength(1)
+    await restored.seam.applyTodoProjection(12, fixtures.merged.model)
+    expect(restored.todo().payload.requests).toEqual([])
+    expect(restored.outcomes.at(-1)).toMatchObject({ status: "ok", detail: "Merged" })
+    expect(calls).toEqual([])
+  } finally { restored.close() }
+})

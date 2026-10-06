@@ -183,3 +183,26 @@ test("retry replaces failure with running progress and keeps a successful admiss
     expect(h.outcomes).toHaveLength(1)
   } finally { h.seam.dispose() }
 })
+
+test("Merge admission stays pending, observes its subject, and a definitive refusal permits a fresh press", async () => {
+  const keys: string[] = []
+  const h = await harness(async (_path, init) => { keys.push(new Headers(init?.headers).get("Idempotency-Key")!); return Response.json({ id, state: "pending" }, { status: 202 }) })
+  const row: MemberConfirmation = { ...pending, command: "merge", payload: { input: { reviewed_head_sha: "h2" }, card: fixtures.review_merge.model } }
+  try {
+    h.publish({ topic: "confirmations:17", data: [row] })
+    h.seam.decide(id, "approved")
+    await waitFor(() => h.store.collections.toasts.size === 1)
+    const admitted = { ...row, payload: { ...row.payload, effect: { todo: 12, request: `confirmation:${id}` } } }
+    h.publish({ topic: "confirmations:17", data: [admitted] })
+    await waitFor(() => h.observed.some(item => item.payload.effect))
+    expect(h.outcomes).toEqual([])
+    h.seam.decide(id, "approved"); expect(keys).toHaveLength(1)
+    const refused: MemberConfirmation = { ...row, payload: { ...row.payload, merge_attempt: 1, card: { ...row.payload.card, review: { ...row.payload.card.review!, merge: { state: "ready", detail: "GitHub refused this press", on_github: true } } } } }
+    h.publish({ topic: "confirmations:17", data: [refused] })
+    await waitFor(() => h.outcomes.length === 1)
+    expect(h.outcomes[0]).toMatchObject({ status: "failed", detail: "GitHub refused this press" })
+    h.seam.decide(id, "approved")
+    await waitFor(() => keys.length === 2)
+    expect(keys).toEqual([`confirmation:${id}:approved:0`, `confirmation:${id}:approved:1`])
+  } finally { h.seam.dispose() }
+})

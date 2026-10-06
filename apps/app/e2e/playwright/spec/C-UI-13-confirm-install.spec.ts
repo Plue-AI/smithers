@@ -133,3 +133,38 @@ test("C-UI-13 Confirm: Retry restores progress until the private decision arrive
   await expect(toast).toHaveAttribute("data-tone", "failed")
   await expect(toast).toContainText("Expired")
 })
+
+test("C-UI-13 Confirm: Review & merge stays pending through admission and settles from confirmed Merge", async ({ page }) => {
+  test.setTimeout(120_000)
+  let row = privateRow(true), calls = 0
+  let todo: TodoCard = todos.in_review.model
+  row.payload.card.review!.merge = { state: "ready", on_github: true }
+  const publish = await fixture(page, topic => topic === "confirmations:1" ? [row] : topic === "members" ? roster("owner") : topic === "todo:12" ? todo : undefined)
+  await page.route("**/api/todos", route => route.fulfill({ json: [todo] }))
+  await page.route("**/api/todos/12", route => route.fulfill({ json: todo }))
+  await page.route(`**/api/confirmations/${id}/approve`, async route => {
+    calls++
+    await route.fulfill({ status: 202, json: { id, state: "pending" } })
+  })
+  const confirm = await open(page)
+  await confirm.getByRole("button", { name: "Review & merge", exact: true }).press("Enter")
+  const toast = page.locator(`[data-notice="toast-todo.request.confirmation:${id}"]`)
+  await expect(toast).toHaveAttribute("data-tone", "live")
+  await expect(page.getByTestId("composer-input")).toBeEnabled()
+  row = { ...row, payload: { ...row.payload, input: { reviewed_head_sha: "h2" }, effect: { todo: 12, request: `confirmation:${id}` }, card: { ...row.payload.card, review: { ...row.payload.card.review!, merge: { state: "merging", reason: "merging", on_github: true } } } } }
+  publish("confirmations:1")
+  await expect(confirm.locator('[data-flow="approval.approve"]')).toBeDisabled()
+  await expect(confirm.getByRole("button", { name: "Cancel", exact: true })).toBeDisabled()
+  await expect(confirm).not.toContainText("Merged")
+  await page.reload()
+  await expect(page.locator('[data-kind="confirm"]')).toBeVisible()
+  await expect(toast).toHaveAttribute("data-tone", "live")
+  expect(calls).toBe(1)
+  todo = todos.merged.model
+  publish("todo:12")
+  row = { ...row, state: "approved", payload: { ...row.payload, card: { ...row.payload.card, receipt: { ...confirms.done.model.receipt!, text: "Merged" } } } }
+  publish("confirmations:1")
+  await expect(toast).toHaveAttribute("data-tone", "done")
+  await expect(page.locator('[data-kind="confirm"]')).toContainText("Merged")
+  expect(calls).toBe(1)
+})

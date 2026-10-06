@@ -40,7 +40,7 @@ export const memberConfirmCardProps = (row: MemberConfirmation, dispatch: CardCo
   return { model, view: { maximized: false }, onView: () => {},
     ...cardActions(dispatch, pending ? [
       { tag: "approval.approve", label: model.action.verb, primary: true, command_input: { cardId: `confirmation:${row.id}` }, ...(disabled ? { disabled } : {}) },
-      { tag: "approval.deny", label: "Cancel", command_input: { cardId: `confirmation:${row.id}` } }
+      { tag: "approval.deny", label: "Cancel", command_input: { cardId: `confirmation:${row.id}` }, ...(model.kind === "review_merge" && model.review?.merge.state === "merging" ? { disabled: { reason: "" } } : {}) }
     ] : [], confirmationUnavailable) }
 }
 

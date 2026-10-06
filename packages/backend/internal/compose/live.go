@@ -161,6 +161,14 @@ func (t *liveTopics) resolve(ctx context.Context, topic string, repository int64
 		}
 		return live.Source{Key: topic, Every: liveRefreshEvery, Build: func(ctx context.Context) (json.RawMessage, error) {
 			rows, err := t.queries.ListMemberConfirmations(ctx, member)
+			if service, ok := t.todos.(interface {
+				RefreshConfirmationCards(context.Context, int64, []db.Confirmation) error
+			}); err == nil && ok {
+				err = service.RefreshConfirmationCards(ctx, member, rows)
+				if err == nil {
+					rows, err = t.queries.ListMemberConfirmations(ctx, member)
+				}
+			}
 			if err != nil {
 				return nil, err
 			}
