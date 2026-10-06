@@ -106,6 +106,7 @@ C-UI-01 also exercises the mounted Home order menu and composer by keyboard.
 | C-CAT-01 | [C-CAT-01.spec.ts](C-CAT-01.spec.ts) | passing | T-CAT-01 |
 | C-CAT-02 | [C-CAT-02.spec.ts](C-CAT-02.spec.ts), [composed CLI/browser](../../real/confirm-merge.browser.ts) | 3 card doors pass; source CLI TODO create/read/Drop, named pending result, private keyboard approval and reload pass against real PostgreSQL; merge consumer remains fixme | T-CAT-01 |
 | C-CAT-03 | [C-CAT-03.spec.ts](C-CAT-03.spec.ts), [composed CLI/browser](../../real/confirm-merge.browser.ts) | installed generated skill and visible Commands pass; literal installed path/agent/excluded-group inventory passes in SkillsInstall.test.ts; real delegated TODO create/read/Drop and private approval pass | T-CAT-01 |
+| C-UI-12 · Flow | [Flow browser case](C-UI-12.spec.ts), `FlowCard.install.test.tsx`, `compose/flow_reserved_catalog_integration_test.go` | Passed locally: keyboard version selection and Source/Plan/Run/Edit callbacks, failure disclosure, absent/disabled actions, Paper focus and overflow in light/dark at 1440/390; install `/flow` uses the real HTTP seam and persists member selection; authenticated composed `/api/flows` serves built-in and failed repository versions. CI receipt at the landed SHA remains outstanding. | T-UI-10 |
 | C-UI-12 · Home | [Home cases](../home.spec.ts) | passing: sync health, keyboard menu, absent/disabled actions and hostile text in light/dark at 1440/390 | T-UI-06 |
 | C-AGT-01 | [C-AGT-01.spec.ts](C-AGT-01.spec.ts) | fixme-before-implementation | T-AGT-01 |
 
