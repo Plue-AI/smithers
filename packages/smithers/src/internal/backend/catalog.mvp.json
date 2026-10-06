@@ -3848,6 +3848,16 @@
           "properties": {
             "path": {
               "type": "string"
+            },
+            "branch": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ]
             }
           },
           "required": [
