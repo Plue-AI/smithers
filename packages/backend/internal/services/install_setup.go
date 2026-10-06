@@ -98,13 +98,25 @@ func validateInstallSetupBody(step string, raw []byte, requireNetworkOrigin bool
 		teammates := false
 		for i, origin := range input.Origins {
 			u, err := url.Parse(origin)
-			if err != nil || (u.Scheme != "http" && u.Scheme != "https") || u.Host == "" || u.User != nil || u.Path != "" || u.RawQuery != "" || u.Fragment != "" || seen[strings.ToLower(u.Host)] {
+			if err != nil || (u.Scheme != "http" && u.Scheme != "https") || u.Host == "" || u.User != nil || u.Path != "" || u.RawQuery != "" || u.ForceQuery || u.Fragment != "" || strings.Contains(origin, "#") {
 				return input, pkgerrors.BadRequest("invalid public origin")
 			}
-			seen[strings.ToLower(u.Host)] = true
+			canonical := middleware.CanonicalOrigin(origin)
+			parsed, _ := url.Parse(canonical)
+			if seen[strings.ToLower(parsed.Host)] {
+				return input, pkgerrors.BadRequest("invalid public origin")
+			}
+			// These control hosts always serve plain HTTP beside network binds.
+			switch strings.ToLower(u.Host) {
+			case "localhost:4000", "127.0.0.1:4000", "[::1]:4000":
+				if u.Scheme != "http" {
+					return input, pkgerrors.BadRequest("loopback control origin must use HTTP")
+				}
+			}
+			seen[strings.ToLower(parsed.Host)] = true
 			// Saved as the browser sends it: macOS names the host
 			// Williams-Mac-mini.local, the browser's Origin is lower case.
-			input.Origins[i] = middleware.CanonicalOrigin(origin)
+			input.Origins[i] = canonical
 			teammates = teammates || !loopbackOrigin(origin)
 		}
 		// A network bind serves teammates only at an origin they can open;

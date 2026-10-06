@@ -33,7 +33,7 @@ run-kind targets; `flow start` starts durable flows.
 | `environment add/list/view/remove/exec/shell/forward` | Save an execution location and run commands there. |
 | `memory`, `credentials`, `triggers`, `integrations`, `eval` | Operate the persistent agent features described below. |
 | `open [dir]`, `.` | Open the checkout's `owner/repo` in the Smithers app (`smithers://open/<owner>/<repo>`), the dev build inside a smithers checkout whose remote is on github.com or smithers.sh, or print its smithers.sh page. |
-| `host start [--bundle <dir>]`, `host stop`, `host status` | Run a verified server bundle as an unprivileged macOS LaunchAgent, stop it, or inspect its health. |
+| `host start [--bundle <dir>] [--bind <addr>] [--origin <url>]`, `host stop`, `host status` | Run a verified server bundle as an unprivileged macOS LaunchAgent, stop it, or inspect its health. |
 | `host backup`, `host upgrade`, `host restore <directory>` | Host maintenance commands. Currently refuse until capture, drain and owner authorization are composed; restore validates the backup before any state change. |
 | `serve`, `doctor`, `suggest`, `migrate`, `update`, `bug` | Host, diagnose, discover uses, migrate source, check versions, or submit a report. |
 | `token mint` | Mint a scoped, expiring gateway token under `SMITHERS_TOKEN`. |
@@ -438,6 +438,10 @@ Build the stage-1 server bundle with `smthrs build //apps/app:serverBundle`,
 then run `smthrs host start --bundle <output-directory>` in your macOS login
 session. Start verifies every manifest digest before registering the service.
 Without `--bundle`, it uses `/opt/homebrew/opt/smithers/libexec`.
+
+Before setup, add `--bind 0.0.0.0 --origin http://lan-a:4000` to serve the
+install on the network. Repeat `--origin` for each public address. Loopback
+stays available. After setup, saved owner settings take precedence over startup flags.
 
 Start waits up to 60 seconds for `http://127.0.0.1:4000/readyz` and prints the
 setup links. Open one to set up the owner. The links come from backend memory

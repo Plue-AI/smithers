@@ -36,8 +36,10 @@ func (h *PublicRepositoryCatalogHandler) ServeHTTP(w http.ResponseWriter, r *htt
 		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
 		return
 	}
-	w.Header().Set("Access-Control-Allow-Origin", "*")
-	w.Header().Set("Access-Control-Allow-Methods", "GET, HEAD, OPTIONS")
+	if _, install := middleware.EffectiveOriginFromContext(r.Context()); !install {
+		w.Header().Set("Access-Control-Allow-Origin", "*")
+		w.Header().Set("Access-Control-Allow-Methods", "GET, HEAD, OPTIONS")
+	}
 	w.Header().Set("Content-Type", "application/json")
 	if r.Method == http.MethodOptions {
 		w.WriteHeader(http.StatusNoContent)

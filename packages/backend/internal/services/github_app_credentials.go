@@ -18,6 +18,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/smithersai/smithers/packages/backend/internal/db"
+	"github.com/smithersai/smithers/packages/backend/internal/middleware"
 	"github.com/smithersai/smithers/packages/backend/internal/webhook"
 )
 
@@ -285,7 +286,7 @@ func validateGitHubAppCallbackURLs(urls []string) ([]string, error) {
 		if err != nil || (u.Scheme != "http" && u.Scheme != "https") || u.Host == "" || u.User != nil || u.Path != "/api/auth/github/callback" || u.RawQuery != "" || u.Fragment != "" {
 			return nil, errors.New("GitHub App callback URL snapshot contains an invalid origin")
 		}
-		canonical := u.Scheme + "://" + strings.ToLower(u.Host) + "/api/auth/github/callback"
+		canonical := middleware.CanonicalOrigin(u.Scheme+"://"+u.Host) + "/api/auth/github/callback"
 		if !seen[canonical] {
 			seen[canonical] = true
 			callbacks = append(callbacks, canonical)

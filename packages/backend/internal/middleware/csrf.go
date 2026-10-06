@@ -86,7 +86,7 @@ func enforceCSRF(w http.ResponseWriter, r *http.Request, next http.Handler) {
 		return
 	}
 
-	if origin, ok := r.Context().Value(effectiveOriginKey{}).(string); ok {
+	if origin, ok := EffectiveOriginFromContext(r.Context()); ok {
 		if !SameOrigin(r.Header.Get("Origin"), origin) {
 			writeOriginPermission(w, "origin")
 			return

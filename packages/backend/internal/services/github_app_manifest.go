@@ -18,6 +18,7 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/smithersai/smithers/packages/backend/internal/db"
+	"github.com/smithersai/smithers/packages/backend/internal/middleware"
 	pkgerrors "github.com/smithersai/smithers/packages/backend/internal/pkg/errors"
 )
 
@@ -106,7 +107,7 @@ func normalizedGitHubAppOrigins(origins []string) ([]string, error) {
 		if err != nil || (u.Scheme != "http" && u.Scheme != "https") || u.Host == "" || u.User != nil || (u.Path != "" && u.Path != "/") || u.RawQuery != "" || u.Fragment != "" {
 			return nil, pkgerrors.BadRequest("invalid GitHub App callback origin")
 		}
-		origin = u.Scheme + "://" + strings.ToLower(u.Host)
+		origin = middleware.CanonicalOrigin(origin)
 		if !seen[origin] {
 			result = append(result, origin)
 			seen[origin] = true

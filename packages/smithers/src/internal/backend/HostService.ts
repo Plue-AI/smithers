@@ -293,7 +293,8 @@ export function validateAddress(address: { readonly bind?: string; readonly orig
  for (const origin of address.origins ?? []) {
   let url: URL;
   try { url = new URL(origin); } catch { throw new Error("Invalid public origin"); }
-  if (!/^(http|https):$/.test(url.protocol) || !url.host || url.username || url.password || url.pathname !== "/" || url.search || url.hash || origin.endsWith("/") || hosts.has(url.host)) throw new Error("Invalid public origin");
+  if (!/^(http|https):$/.test(url.protocol) || !url.host || url.username || url.password || url.pathname !== "/" || url.search || url.hash || origin.includes("?") || origin.includes("#") || origin.endsWith("/") || hosts.has(url.host)) throw new Error("Invalid public origin");
+  if (["localhost:4000", "127.0.0.1:4000", "[::1]:4000"].includes(url.host) && url.protocol !== "http:") throw new Error("Loopback control origin must use HTTP");
   hosts.add(url.host);
  }
 }
