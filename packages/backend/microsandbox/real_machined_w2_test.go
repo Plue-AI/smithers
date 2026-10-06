@@ -56,6 +56,7 @@ func TestRealMicroVMMachinedW2Recovery(t *testing.T) {
 	fixtures := []struct{ environment, name, filter, expected string }{
 		{"SMITHERS_MACHINED_W2_BARRIER_BIN", "barrier", "", "test killed_rewrite_retains_admission_barrier_until_restore_ten_times ... ok"},
 		{"SMITHERS_MACHINED_W2_LINK_BIN", "link", "", "test authenticated_status_cannot_report_ready_after_interrupted_rewrite ... ok"},
+		{"SMITHERS_MACHINED_W2_RECONCILE_BIN", "reconcile", "", "test failed_wake_retains_restart_barrier_and_success_removes_it ... ok"},
 		{"SMITHERS_MACHINED_W2_TEST_BIN", "files", "files::tests", "test files::tests::wrapper_delegates_rewrite_restore_to_native_core ... ok"},
 	}
 	for _, fixture := range fixtures {
