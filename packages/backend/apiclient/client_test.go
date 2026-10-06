@@ -106,7 +106,7 @@ func TestRequiredHeaderIsSentPerCall(t *testing.T) {
 	place := apiclient.PostAPITodosBodyPlace{Mode: "append"}
 	accepted, err := client.PostAPITodos(context.Background(), "draft-7", apiclient.PostAPITodosBody{Title: "One", Prompt: "Change README", Place: &place})
 	require.NoError(t, err)
-	assert.Equal(t, apiclient.PostAPITodosResponse{State: "accepted", N: 4, Rev: 1}, accepted)
+	assert.JSONEq(t, `{"state":"accepted","n":4,"rev":1}`, string(accepted))
 	_, err = client.PostAPITodos(context.Background(), "draft-8", apiclient.PostAPITodosBody{Title: "Two", Prompt: "Change README"})
 	require.NoError(t, err)
 	assert.Equal(t, "draft-7", (*requests)[0].IdempotencyKey)
