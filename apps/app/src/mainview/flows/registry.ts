@@ -80,6 +80,8 @@ export interface FlowMetadata extends OperationMetadata<RuntimeCapability, AppBo
   readonly actors?: ReadonlyArray<"person" | "app_agent" | "external_agent">
   readonly minimumRole?: "member" | "maintainer" | "owner"
   readonly agent?: "run" | "confirm" | "never"
+  /** Require a person to press the confirmation too. */
+  readonly confirmPerson?: boolean
   /**
    * The slash grammar of a flow declared at RUNTIME (a repository's flow
    * leaf, entries/flow.ts `repositoryFlowLeaves`). SlashPayload's table names

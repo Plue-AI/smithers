@@ -169,7 +169,14 @@ export function TranscriptMessage({ entry, streamingMessageId }: { entry: { kind
           <Button
             className="message-cta"
             autoFocus={entry.message.id === "auth-state"}
-            {...dynamicFlowAction(controller.runCommand, entry.message.action?.flow ?? "", entry.message.action?.args)}
+            {...dynamicFlowAction((name, args) => {
+              const action = entry.message.action
+              if (action?.revision && controller.commands.find(name)?.metadata.confirmPerson) {
+                void controller.commands.confirm(entry.message.id, action.revision)
+                return true
+              }
+              return controller.runCommand(name, args)
+            }, entry.message.action?.flow ?? "", entry.message.action?.args)}
           >
             {entry.message.action.label}
           </Button>

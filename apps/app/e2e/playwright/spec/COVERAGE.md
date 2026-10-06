@@ -248,7 +248,7 @@ Cycle 26: production TODO admission, issue drafts, question answers, steers and 
 | A-TODO-STOP | [A-TODO-STOP.spec.ts](A-TODO-STOP.spec.ts) | fixme-before-implementation | T-STK-05 |
 | A-TODO-RESUME | [A-TODO-RESUME.spec.ts](A-TODO-RESUME.spec.ts) | fixme-before-implementation | T-STK-05 |
 | A-TODO-RETRY | [A-TODO-RETRY.spec.ts](A-TODO-RETRY.spec.ts) | fixme-before-implementation | T-STK-05 |
-| A-TODO-DROP | [A-TODO-DROP.spec.ts](A-TODO-DROP.spec.ts) | fixme-before-implementation | T-STK-05 |
+| A-TODO-DROP | [A-TODO-DROP.spec.ts](A-TODO-DROP.spec.ts) | partial: mounted Drop confirms; durable capture/fold journey remains fixme | T-STK-05 |
 | A-STACK-MOVE | [A-STACK-MOVE.spec.ts](A-STACK-MOVE.spec.ts) | fixme-before-implementation | T-STK-02 |
 | A-MERGE | [A-MERGE.spec.ts](A-MERGE.spec.ts) | fixme-before-implementation | T-STK-04 |
 

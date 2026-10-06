@@ -203,6 +203,8 @@ export interface CommandRegistry {
   readonly slashTree: (needle: string) => Array<SlashRow<CatalogItem>>
   readonly recommended: () => CatalogItem
   readonly preload?: (name: string, args?: string) => Promise<void>
+  /** Continue only the pending, revision-bound message the person pressed. */
+  readonly confirm: (id: string, revision: string) => Promise<CommandOutcome>
   readonly run: (name: string, args?: string, source?: "automatic", originCardId?: string) => Promise<CommandOutcome>
   /**
    * `run` at the agent boundary (requirement axis): an unmet requirement is an
@@ -280,7 +282,7 @@ const valueOf = (value: unknown): string | undefined => {
 const OVER_MAXIMIZED_CARD: ReadonlySet<string> = new Set(["chat.open", "chat.dictate", "palette.open", "palette.actions", "theme", "input.mode"])
 
 
-export const createCommandRegistry = (actions: CommandActions, agentActions: CommandActions = actions, lifecycle?: CommandLifecycle): CommandRegistry => {
+export const createCommandRegistry = (actions: CommandActions, agentActions: CommandActions = actions, lifecycle?: CommandLifecycle, resolveConfirmation?: (id: string, revision: string) => { name: string; args?: string } | undefined): CommandRegistry => {
   /*
    * The app's own invocation carries no host authority. Approval is a
    * host-injected decorator over typed capabilities (a GrantStore the cell
@@ -480,7 +482,8 @@ export const createCommandRegistry = (actions: CommandActions, agentActions: Com
     named?: Record<string, unknown>,
     httpCall?: AgentToolCall["httpCall"],
     inheritedGesture?: CommandGesture,
-    originCardId?: string
+    originCardId?: string,
+    confirmed = false
   ): Promise<CommandOutcome> => {
     invocation?.signal?.throwIfAborted()
     const request = { name, actor: invoker === "agent" ? "smithers" as const : invoker,
@@ -549,7 +552,7 @@ export const createCommandRegistry = (actions: CommandActions, agentActions: Com
     } }
     const canPublish = (): boolean => acceptance === undefined || lifecycle?.canPublish?.(acceptance.receipt, request) !== false
     let outcome: CommandOutcome
-    try { outcome = await settle(invoker, name, args, seen, startedAt, scopedInvocation, named, gesture, execution, canPublish) }
+    try { outcome = await settle(invoker, name, args, seen, startedAt, scopedInvocation, named, gesture, execution, canPublish, confirmed) }
     catch { outcome = { status: "failed", error: "The command did not finish. Check its result before trying again." } }
     const retryableAuthorization = authorizationRefused && (!execution.invoked || name === "form.submit")
     if (acceptance !== undefined && lifecycle !== undefined && !await lifecycle.settle(acceptance.receipt, outcome, retryableAuthorization)) {
@@ -590,7 +593,8 @@ export const createCommandRegistry = (actions: CommandActions, agentActions: Com
     named?: Record<string, unknown>,
     gesture?: CommandGesture,
     execution?: { invoked: boolean },
-    canPublish: () => boolean = () => true
+    canPublish: () => boolean = () => true,
+    confirmed = false
   ): Promise<CommandOutcome> => {
     const entry = find(name)
     if (entry === undefined) {
@@ -737,7 +741,7 @@ export const createCommandRegistry = (actions: CommandActions, agentActions: Com
       return { status: "form", flow: nameOf(target), cardId: rendered.cardId, fields: rendered.missing }
     }
     /*
-     * A `confirm` flow asked for by the MODEL: consequential acts (land a
+     * A `confirm` flow asked for by the model (or person when declared): consequential acts (land a
      * PR, remove a credential, launch a harness) are invocable by the agent
      * — every listed flow is — but never performed by it. The invocation
      * posts a confirmation message whose button runs the flow as the user.
@@ -745,7 +749,8 @@ export const createCommandRegistry = (actions: CommandActions, agentActions: Com
      */
     const refusal = target.preflight?.(parsed.payload, invoker)
     if (refusal !== undefined) return { status: "failed", error: refusal }
-    const confirmation = invoker === "agent" ? confirmLabel(target.metadata, parsed.payload) : undefined
+    const confirmation = invoker === "agent" || target.metadata.confirmPerson && !confirmed
+      ? confirmLabel(target.metadata, parsed.payload) : undefined
     if (confirmation !== undefined) {
       /*
        * The line the button will run. A flow whose bare form resolves an
@@ -846,6 +851,11 @@ export const createCommandRegistry = (actions: CommandActions, agentActions: Com
       return command
     },
     run,
+    confirm: (id, revision) => {
+      const action = resolveConfirmation?.(id, revision)
+      if (!action) return Promise.resolve({ status: "failed", error: "Confirmation is stale." })
+      return runAs("user", action.name, action.args, new Set(), undefined, undefined, undefined, undefined, undefined, true)
+    },
     // Preserve the native host's direct tool path. Form continuations
     // still enter runForAgent below and must bring authority or fail closed.
     runAsAgent: (name, args, httpCall) => runAs("agent", name, args, new Set(), undefined, undefined, httpCall),
