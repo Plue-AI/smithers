@@ -62,7 +62,7 @@ export const SettingsContainer = ({ View, install, dispatch, owner, origin, view
       resolve_input: input => ({ name: input.name ?? "" }) },
     ...(needsHttps && docsAvailable() ? [{ tag: "docs" as const, label: "Notifications need HTTPS ↗",
       args: { page: "quickstart#put-https-in-front" }, command_input: { page: "quickstart#put-https-in-front" } }] : []),
-    { tag: "settings.capacity", label: "Machines", args: { field: "capacity", min: "0", max: String(model.this_mac.capacity) }, command_input: { capacity: model.capacity },
+    { tag: "settings.capacity", label: "Machines", args: { field: "capacity", min: "1", max: String(model.this_mac.capacity) }, command_input: { capacity: model.capacity },
       input: [{ name: "value", label: "Machines", kind: "text", required: true, value: String(model.capacity) }],
       resolve_input: input => ({ capacity: Number(input.value ?? input.capacity ?? model.capacity) }) },
     ...(model.todo_daily_admissions === undefined ? [] : [{ tag: "settings.daily-admissions" as const, label: "TODOs per day", args: { field: "todo_daily_admissions", min: "1" }, command_input: { todo_daily_admissions: model.todo_daily_admissions },

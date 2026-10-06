@@ -21,19 +21,33 @@ async function mount(model: InstallModel, dispatch: InstallCardDispatch = () => 
   return host
 }
 
-test.each([0, 2, 3])("Machines buttons enforce the served formula at %i", async capacity => {
+test.each([0, 1, 2, 3])("Machines buttons enforce the served formula at %i", async capacity => {
   const model = installFixture(); model.capacity = capacity; delete model.parallel
   const commands: unknown[] = []
   const host = await mount(model, (tag, input) => { commands.push({ tag, input }) })
   const fewer = host.querySelector<HTMLButtonElement>('[aria-label="Fewer Machines"]')!
   const more = host.querySelector<HTMLButtonElement>('[aria-label="More Machines"]')!
-  expect(fewer.disabled).toBe(capacity === 0)
+  expect(fewer.disabled).toBe(capacity <= 1)
   expect(more.disabled).toBe(capacity === 3)
   await act(async () => { fewer.click(); more.click() })
   expect(commands).toEqual([
-    ...(capacity === 0 ? [] : [{ tag: "settings.capacity", input: { capacity: capacity - 1 } }]),
+    ...(capacity <= 1 ? [] : [{ tag: "settings.capacity", input: { capacity: capacity - 1 } }]),
     ...(capacity === 3 ? [] : [{ tag: "settings.capacity", input: { capacity: capacity + 1 } }])
   ])
+})
+
+test("A zero-capacity host cannot submit either Machines adjustment", async () => {
+  const model = installFixture()
+  model.capacity = 0
+  model.this_mac.capacity = 0
+  const commands: unknown[] = []
+  const host = await mount(model, (tag, input) => { commands.push({ tag, input }) })
+  const fewer = host.querySelector<HTMLButtonElement>('[aria-label="Fewer Machines"]')!
+  const more = host.querySelector<HTMLButtonElement>('[aria-label="More Machines"]')!
+  expect(fewer.disabled).toBe(true)
+  expect(more.disabled).toBe(true)
+  await act(async () => { fewer.click(); more.click() })
+  expect(commands).toEqual([])
 })
 
 test("Address keeps all origins and the bind input; LAN HTTP is marked per origin", async () => {

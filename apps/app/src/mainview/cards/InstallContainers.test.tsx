@@ -51,7 +51,7 @@ describe("T-APP-03 Containers with recording Views", () => {
     expect(props.actions.map(action => [action.tag, action.args])).toEqual([
       ["settings.address", { field: "address", listen: "mac" }], ["settings.address", { field: "address", listen: "network" }],
       ["image.add", undefined],
-      ["settings.capacity", { field: "capacity", min: "0", max: "3" }], ["settings.parallel", { field: "parallel", min: "1", max: "8" }],
+      ["settings.capacity", { field: "capacity", min: "1", max: "3" }], ["settings.parallel", { field: "parallel", min: "1", max: "8" }],
       ["settings.model-key", { field: "key", role: "fast" }], ["settings.model-key", { field: "key", role: "coding" }], ["settings.model-key", { field: "key", role: "jev" }],
       ["settings.model.set", { role: "fast" }], ["settings.model.set", { role: "coding" }], ["settings.model.set", { role: "jev" }]
     ])
