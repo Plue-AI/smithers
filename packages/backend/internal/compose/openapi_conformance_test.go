@@ -20,6 +20,7 @@ import (
 	"github.com/go-chi/chi/v5"
 	"github.com/go-chi/cors"
 	"github.com/jackc/pgx/v5/pgtype"
+	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/stretchr/testify/require"
 
 	"github.com/smithersai/smithers/packages/backend/internal/chat"
@@ -119,21 +120,31 @@ func openAPIConformanceRouter(cfg *config.Config) chi.Router {
 }
 
 // Shared production-router fixture: host HTTP tests use real PostgreSQL queries.
-func hostStatusProductionRouter(cfg *config.Config, queries *db.Queries, host *services.InstallCapacityService) chi.Router {
+type conformanceServices struct {
+	pool    *pgxpool.Pool
+	billing *routes.BillingHandler
+	jobs    *routes.RepositoryJobHandler
+}
+
+func hostStatusProductionRouter(cfg *config.Config, queries *db.Queries, host *services.InstallCapacityService, supplied ...conformanceServices) chi.Router {
+	deps := conformanceServices{billing: &routes.BillingHandler{}, jobs: &routes.RepositoryJobHandler{}}
+	if len(supplied) > 0 {
+		deps = supplied[0]
+	}
 	authHandler := &routes.AuthHandler{}
 	workspaceHandler := &routes.WorkspaceHandler{
 		EnvironmentImages: &routes.SandboxEnvironmentImageHandler{},
 	}
 	wiki := services.NewWikiService(nil, nil, services.WithWikiCollaboration(nil, nil), services.WithWikiContent(nil))
-	router := buildRouter(cfg, queries, nil,
+	router := buildRouter(cfg, queries, deps.pool,
 		&routes.RepoHandler{}, &routes.GitMirrorSyncHandler{}, authHandler, &routes.UserHandler{}, &routes.SSHKeyHandler{}, &routes.DeployKeyHandler{}, &routes.LabelHandler{},
 		&routes.OrgHandler{}, &routes.LandingHandler{}, &routes.BuildCacheHandler{}, &routes.StackHandler{}, &routes.SearchHandler{}, &routes.IssueHandler{},
 		wiki, &routes.GitSmartHandler{}, &routes.NotificationHandler{}, &routes.AdminUserHandler{}, &routes.AdminOrgHandler{}, &routes.AdminRepoHandler{}, &routes.AdminGitHubAppHandler{}, &routes.AdminAuditHandler{},
-		&routes.WebhookHandler{}, &routes.SecretHandler{}, &routes.ProviderConnectionHandler{}, &routes.VariableHandler{}, &routes.BillingHandler{},
+		&routes.WebhookHandler{}, &routes.SecretHandler{}, &routes.ProviderConnectionHandler{}, &routes.VariableHandler{}, deps.billing,
 		&routes.ProtectedBookmarkHandler{}, &routes.CommitStatusHandler{}, &routes.LFSHandler{}, &routes.JJVCSHandler{}, &routes.AgentInternalHandler{},
 		&routes.AgentSessionHandler{}, &routes.AgentSessionStreamHandler{}, &routes.ApprovalsHandler{}, &routes.InternalPushHookHandler{},
 		&routes.WorkflowHandler{}, &routes.WorkflowCacheHandler{}, &routes.WorkflowArtifactHandler{},
-		&routes.IssueEventHandler{}, workspaceHandler, &routes.WorkspaceInternalHandler{}, &routes.RepositoryJobHandler{}, &routes.GitHubProxyHandler{},
+		&routes.IssueEventHandler{}, workspaceHandler, &routes.WorkspaceInternalHandler{}, deps.jobs, &routes.GitHubProxyHandler{},
 		&routes.GitHubRepoListHandler{}, &routes.GitHubUserReposHandler{}, &routes.GitHubSyncedReposHandler{}, &routes.GitHubImportHandler{},
 		&routes.WorkspaceTerminalHandler{}, &routes.TelemetryHandler{}, &routes.FeatureFlagHandler{}, &routes.OAuth2Handler{},
 		&routes.GitHubWebhookHandler{}, routes.NewSmithersMetrics(),
