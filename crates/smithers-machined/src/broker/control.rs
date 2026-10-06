@@ -1,8 +1,14 @@
-//! Bounded broker socketpair protocol. No accepted operation takes a path,
-//! executable, identity, environment, token, or caller-selected cgroup.
+//! Bounded broker socketpair protocol. No operation selects a cgroup path.
+//! Session commands validate typed identities before reaching the root provider;
+//! argv remains data until that provider has dropped privileges.
 use crate::{conn, hooks::Error};
 use std::{io, time::Duration};
 pub trait Controls {
+    /// Implementations must bind users to trusted accounts and the synchronized
+    /// roster, and drop privileges before resolving any branch argv or home.
+    fn session(&mut self, _request: super::request::Request) -> io::Result<Vec<u8>> {
+        Err(io::ErrorKind::Unsupported.into())
+    }
     fn freeze(&mut self, timeout: Duration) -> io::Result<Option<u32>>;
     fn thaw(&mut self) -> io::Result<()>;
     fn kill(&mut self) -> io::Result<u16>;
@@ -12,6 +18,16 @@ fn error(code: u8) -> Error {
         code,
         ..Error::unsupported()
     }
+}
+fn map_io(e: io::Error) -> Error {
+    error(match e.kind() {
+        io::ErrorKind::InvalidInput | io::ErrorKind::InvalidData => 1,
+        io::ErrorKind::Unsupported => 2,
+        io::ErrorKind::NotFound => 5,
+        io::ErrorKind::TimedOut => 9,
+        io::ErrorKind::PermissionDenied => 11,
+        _ => 12,
+    })
 }
 fn response(id: &[u8], variant: u8, fields: &[Vec<u8>]) -> Vec<u8> {
     let mut bytes = id.to_vec();
@@ -24,6 +40,17 @@ pub fn handle(packet: &[u8], controls: &mut impl Controls) -> io::Result<Vec<u8>
     }
     let id = &packet[..4];
     let request = (|| {
+        if matches!(packet[4], 6..=10 | 15 | 16) {
+            let request =
+                super::request::Request::decode(packet[4], &packet[5..]).map_err(|_| error(1))?;
+            let body = controls.session(request).map_err(map_io)?;
+            let fields =
+                conn::fields(&format!("result{}", packet[4]), &body).map_err(|_| error(12))?;
+            return Ok(fields
+                .into_iter()
+                .map(|(tag, value)| conn::field(tag, value))
+                .collect());
+        }
         let name = match packet[4] {
             1 => "broker_freeze",
             2 | 3 => "empty",
@@ -52,13 +79,7 @@ pub fn handle(packet: &[u8], controls: &mut impl Controls) -> io::Result<Vec<u8>
                 .map(|count| vec![conn::field(1, count.to_be_bytes())]),
             _ => unreachable!(),
         };
-        result.map_err(|e| {
-            error(if e.kind() == io::ErrorKind::TimedOut {
-                9
-            } else {
-                12
-            })
-        })
+        result.map_err(map_io)
     })();
     Ok(match request {
         Ok(fields) => response(id, packet[4], &fields),
@@ -77,6 +98,9 @@ impl SocketpairBroker {
         Ok(Self(std::sync::Mutex::new((fd, 0, false))))
     }
     fn call(&self, variant: u8, fields: &[Vec<u8>]) -> crate::hooks::Result<Vec<u8>> {
+        self.call_body(variant, &conn::structure_bytes(fields))
+    }
+    fn call_body(&self, variant: u8, body: &[u8]) -> crate::hooks::Result<Vec<u8>> {
         use rustix::net::{recv, send, RecvFlags, SendFlags};
         let mut connection = self.0.lock().map_err(|_| error(12))?;
         let (fd, id, failed) = &mut *connection;
@@ -84,7 +108,12 @@ impl SocketpairBroker {
             return Err(error(12));
         }
         *id = id.checked_add(1).ok_or_else(|| error(12))?;
-        let request = response(&id.to_be_bytes(), variant, fields);
+        let mut request = id.to_be_bytes().to_vec();
+        request.push(variant);
+        request.extend_from_slice(body);
+        if request.len() > 65536 {
+            return Err(error(1));
+        }
         let exchange = (|| -> io::Result<Vec<u8>> {
             if send(&*fd, &request, SendFlags::NOSIGNAL)? != request.len() {
                 return Err(io::ErrorKind::WriteZero.into());
@@ -117,6 +146,12 @@ impl SocketpairBroker {
 }
 #[cfg(target_os = "linux")]
 impl crate::hooks::Broker for SocketpairBroker {
+    fn set_roster(&self, members: &[super::sessions::User]) -> crate::hooks::Result<()> {
+        let body = super::request::roster_bytes(members).map_err(map_io)?;
+        let result = self.call_body(16, &body)?;
+        conn::fields("result16", &result).map_err(|_| error(12))?;
+        Ok(())
+    }
     fn freeze(&self, timeout: Duration) -> crate::hooks::Result<Option<u32>> {
         if timeout.is_zero() || timeout > Duration::from_secs(1) {
             return Err(error(1));
@@ -167,4 +202,17 @@ pub fn serve(fd: &std::os::fd::OwnedFd, controls: &mut impl Controls) -> io::Res
     }
     // The process owner kills descendants after EOF. Never thaw a rewrite whose
     // daemon died before reporting settlement.
+}
+
+#[cfg(target_os = "linux")]
+impl crate::hooks::Sessions for SocketpairBroker {
+    fn call(&self, method: u8, args: &[u8]) -> crate::hooks::Result<Vec<u8>> {
+        if !matches!(method, 6..=10 | 15) {
+            return Err(error(2));
+        }
+        super::request::Request::decode(method, args).map_err(map_io)?;
+        let body = self.call_body(method, args)?;
+        conn::fields(&format!("result{method}"), &body).map_err(|_| error(12))?;
+        Ok(body)
+    }
 }
