@@ -1,0 +1,258 @@
+{
+  "index": {
+    "status": "ok",
+    "conversations": [
+      {
+        "id": "legacy-journal",
+        "turns": [
+          {
+            "runId": "legacy-turn",
+            "legId": "legacy-leg",
+            "acceptedAt": 1,
+            "terminal": true,
+            "runLinks": []
+          }
+        ]
+      }
+    ],
+    "next": null
+  },
+  "replay": {
+    "conversationId": "legacy-journal",
+    "userText": "Old prompt",
+    "page": {
+      "status": "ok",
+      "after": {
+        "version": 1,
+        "runId": "legacy-turn",
+        "legId": "legacy-leg",
+        "batch": 0,
+        "position": 0,
+        "hash": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+      },
+      "head": {
+        "version": 1,
+        "runId": "legacy-turn",
+        "legId": "legacy-leg",
+        "batch": 1,
+        "position": 12,
+        "hash": "600b93ff606c5c48328c709fbee2bb6b557ba34bce1eb370cc92ba9eb4142824"
+      },
+      "next": {
+        "version": 1,
+        "runId": "legacy-turn",
+        "legId": "legacy-leg",
+        "batch": 1,
+        "position": 12,
+        "hash": "600b93ff606c5c48328c709fbee2bb6b557ba34bce1eb370cc92ba9eb4142824"
+      },
+      "terminal": true,
+      "more": false,
+      "batches": [
+        {
+          "version": 1,
+          "runId": "legacy-turn",
+          "legId": "legacy-leg",
+          "batch": 1,
+          "from": 1,
+          "previousHash": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          "frames": [
+            {
+              "type": "delta",
+              "runId": "legacy-turn",
+              "kind": "text",
+              "text": "Old answer"
+            },
+            {
+              "type": "card",
+              "runId": "legacy-turn",
+              "card": {
+                "id": "cut-admin-health",
+                "kind": "admin-health",
+                "title": "Saved admin-health",
+                "body": "private-body-canary",
+                "status": "active",
+                "createdAt": 1,
+                "ordinal": 1,
+                "payload": {
+                  "secret": "private-payload-canary",
+                  "action": {
+                    "flow": "signup.finish"
+                  }
+                }
+              }
+            },
+            {
+              "type": "card",
+              "runId": "legacy-turn",
+              "card": {
+                "id": "cut-agent",
+                "kind": "agent",
+                "title": "Saved agent",
+                "body": "private-body-canary",
+                "status": "active",
+                "createdAt": 1,
+                "ordinal": 2,
+                "payload": {
+                  "secret": "private-payload-canary",
+                  "action": {
+                    "flow": "signup.finish"
+                  }
+                }
+              }
+            },
+            {
+              "type": "card",
+              "runId": "legacy-turn",
+              "card": {
+                "id": "cut-connect",
+                "kind": "connect",
+                "title": "Saved connect",
+                "body": "private-body-canary",
+                "status": "active",
+                "createdAt": 1,
+                "ordinal": 3,
+                "payload": {
+                  "secret": "private-payload-canary",
+                  "action": {
+                    "flow": "signup.finish"
+                  }
+                }
+              }
+            },
+            {
+              "type": "card",
+              "runId": "legacy-turn",
+              "card": {
+                "id": "cut-grant-confirm",
+                "kind": "grant-confirm",
+                "title": "Saved grant-confirm",
+                "body": "private-body-canary",
+                "status": "active",
+                "createdAt": 1,
+                "ordinal": 4,
+                "payload": {
+                  "secret": "private-payload-canary",
+                  "action": {
+                    "flow": "signup.finish"
+                  }
+                }
+              }
+            },
+            {
+              "type": "card",
+              "runId": "legacy-turn",
+              "card": {
+                "id": "cut-notifications",
+                "kind": "notifications",
+                "title": "Saved notifications",
+                "body": "private-body-canary",
+                "status": "active",
+                "createdAt": 1,
+                "ordinal": 5,
+                "payload": {
+                  "secret": "private-payload-canary",
+                  "action": {
+                    "flow": "signup.finish"
+                  }
+                }
+              }
+            },
+            {
+              "type": "card",
+              "runId": "legacy-turn",
+              "card": {
+                "id": "cut-registration",
+                "kind": "registration",
+                "title": "Saved registration",
+                "body": "private-body-canary",
+                "status": "active",
+                "createdAt": 1,
+                "ordinal": 6,
+                "payload": {
+                  "secret": "private-payload-canary",
+                  "action": {
+                    "flow": "signup.finish"
+                  }
+                }
+              }
+            },
+            {
+              "type": "card",
+              "runId": "legacy-turn",
+              "card": {
+                "id": "cut-repository-setup",
+                "kind": "repository-setup",
+                "title": "Saved repository-setup",
+                "body": "private-body-canary",
+                "status": "active",
+                "createdAt": 1,
+                "ordinal": 7,
+                "payload": {
+                  "secret": "private-payload-canary",
+                  "action": {
+                    "flow": "signup.finish"
+                  }
+                }
+              }
+            },
+            {
+              "type": "card",
+              "runId": "legacy-turn",
+              "card": {
+                "id": "hostile",
+                "kind": "notifications",
+                "title": "<script>archiveCanary()</script>",
+                "body": "private-body-canary",
+                "status": "active",
+                "createdAt": 1,
+                "ordinal": 8,
+                "payload": {}
+              }
+            },
+            {
+              "type": "card",
+              "runId": "legacy-turn",
+              "card": {
+                "status": "active",
+                "createdAt": 1,
+                "id": "kept-file",
+                "kind": "file",
+                "ordinal": 9,
+                "title": "Saved File",
+                "payload": {
+                  "repo": "ben/demo",
+                  "path": "src/retry.ts",
+                  "content": "retained-file-body-canary",
+                  "truncated": false
+                }
+              }
+            },
+            {
+              "type": "card",
+              "runId": "legacy-turn",
+              "card": {
+                "status": "active",
+                "createdAt": 1,
+                "id": "kept-run",
+                "kind": "run",
+                "ordinal": 10,
+                "title": "Saved Run",
+                "payload": {
+                  "id": "run-1"
+                }
+              }
+            },
+            {
+              "type": "done",
+              "runId": "legacy-turn",
+              "reason": "stop"
+            }
+          ],
+          "hash": "600b93ff606c5c48328c709fbee2bb6b557ba34bce1eb370cc92ba9eb4142824"
+        }
+      ]
+    },
+    "status": "ok"
+  }
+}

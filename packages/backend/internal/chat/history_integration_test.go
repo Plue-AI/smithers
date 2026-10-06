@@ -398,7 +398,7 @@ func TestCutCardAccountHistoryRealJournalEarlier(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	raw, err := os.ReadFile(filepath.Join(root, "apps/app/src/mainview/state/testdata/cut-history.json"))
+	raw, err := os.ReadFile(filepath.Join(root, "apps/app/src/mainview/state/testdata/cut-history-mixed.json"))
 	if err != nil {
 		t.Fatal(err)
 	}
