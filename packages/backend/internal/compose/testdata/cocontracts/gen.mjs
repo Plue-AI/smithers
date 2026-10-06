@@ -71,6 +71,11 @@ raw('bad_unknown_kind',cat(num(0,4),[99],num(0,4)),'unknown_kind');
 raw('bad_stream_on_control',cat(num(0,4),[1],num(1,4)),'bad_stream');
 raw('bad_trailing_bytes',cat(num(5,4),[0],num(0,4),un(4),[0]),'trailing_bytes');
 for(const [n,name,expected] of [[1048576,'content_at_limit','ok'],[1048577,'content_over_limit','bad_value']])emit(name,1,req(3,f(1,str('a')),f(2,un(2)),f(3,bytes(Buffer.alloc(n,97))),f(4,actor)),0,expected);
+// S3 document fixtures are literal tables, independent of either codec.
+const docs=JSON.parse(readFileSync(dir+'doc-daemon.json','utf8'));
+for(const d of docs.frames){const b=Buffer.from(d.hex,'hex');raw('doc-'+d.name,b,'ok',{kind:4,stream:9,payload:b.subarray(9).toString('hex'),local:false},d.msg===1||d.msg===2?'host-to-daemon':'daemon-to-host')}
+emit('req_open_doc_s3',1,req(13,f(1,str('retry.ts')),f(2,un(1,f(1,bytes(Buffer.from('Be')))))));
+emit('req_close_doc_s3',1,un(1,f(1,num(43,4)),f(2,un(14,f(1,num(9,4))))));
 const previous=JSON.parse(readFileSync(dir+'MANIFEST.json','utf8'));
 const manifest={...previous,scope:"ADR 0004 daemon contract and T-COL-08b browser fixtures",protocol:1,pins:{...previous.pins,yrs:'=0.27.4'},frames:entries.map(e=>({name:e.name,direction:e.direction,expected:e.expected,local:e.value?.local??false,sha256:createHash('sha256').update(e.b).digest('hex')})),sequences:{seq_handshake:['hello_challenge','hello_host_proof','hello_machine','hello_welcome'],seq_write_stale:['req_write_file','err_stale'],seq_capture:['obj_data','obj_eof','ev_captured','ack_captured'],seq_missing_objects:['ack_missing_objects','obj_data','obj_eof','ev_burst','ack_applied'],seq_duplicate_receipt:['ev_burst','ack_duplicate'],seq_reconnect_replay:['hello_challenge','hello_host_proof','hello_machine','hello_welcome','ev_burst','ev_captured'],seq_reserved_doc_s2:['doc_reserved_sync','doc_refused_unsupported'],seq_newer_boot:['goodbye_superseded'],seq_wake_objects:['obj_host_data','obj_host_eof','obj_host_close','req_wake_reconcile']}};
 function save(name,bytes){if(check){if(!readFileSync(dir+name).equals(Buffer.from(bytes)))throw Error('fixture drift: '+name)}else writeFileSync(dir+name,bytes)}

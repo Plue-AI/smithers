@@ -328,3 +328,34 @@ The FIFO executor supports asynchronous waiting, drains admitted mutations,
 retains jobs when a waiter disappears and continues after a job panics.
 These are component receipts, not C-DUR-04 or real-machine confinement evidence.
 No acceptance or security approval is inferred from passing tests.
+
+### S3 document payloads (T-COL-08b)
+
+The kind remains `0x04`, with the daemon-allocated `open_doc(path)` stream;
+`close_doc(stream)` closes that exact stream. S3 adds required tag 2
+`actor: Actor.principal` to `open_doc` so the epoch notice can bind a client id
+before the first browser update. No branch selector is accepted
+inside a payload: the authenticated connection supplies it. The following
+fixed bodies follow `msg`; all fixed integers are big-endian. The existing
+`0xFF refused` Error struct remains unchanged.
+
+| msg | direction | body |
+| --- | --- | --- |
+| 1 input sync | host → daemon | canonical `Actor.principal`, then unchanged y-protocols sync bytes |
+| 2 input awareness | host → daemon | canonical `Actor.principal`, then unchanged awareness bytes |
+| 3 sync | daemon → host | unchanged y-protocols sync bytes |
+| 4 awareness | daemon → host | unchanged awareness bytes |
+| 5 epoch | daemon → host | epoch `id128`, client id `u32` (nonzero) |
+| 6 saved | daemon → host | Unix milliseconds `u64`, then saved state-vector bytes |
+| 7 gone | daemon → host | form `u8` (1 deleted, 2 renamed), `by: str`, then `to: str` for renamed |
+
+The actor comes exclusively from the host authorizer, never a browser payload.
+The daemon rejects client-id and authors-map spoofing before applying updates.
+Each browser subscription opens its own stream, allowing the daemon to bind
+its actor and client id; the daemon document remains shared by path. Epoch
+precedes sync; the relay cannot manufacture epoch, state vectors or saved.
+A browser gap closes that stream and requires resubscription and sync step 1;
+no queued update or save acknowledgment from the old stream is replayed.
+Document frame bodies retain the existing 4 MiB daemon framing maximum; the
+browser connection has the stricter 2 MiB unsent budget. Missing topology,
+authenticated connection or document handler returns unsupported.

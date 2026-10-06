@@ -160,7 +160,9 @@ func composeBranchMachines(options Options, hosted bool, members identity.Member
 
 // Options are the only deployment seams in the common product assembly.
 type Options struct {
-	HostProfile *microsandbox.HostProfile
+	// DocumentRelay is the authenticated document seam; nil refuses document subscriptions.
+	DocumentRelay *live.DocRelay
+	HostProfile   *microsandbox.HostProfile
 	// GitHubImportGitRunner reuses the importer transport seam for integration fixtures.
 	GitHubImportGitRunner func(context.Context, []string, ...string) (string, error)
 	// MachineImages builds main's first machine image (setup step 6) for a
@@ -1654,6 +1656,7 @@ func runWithOptions(ctx context.Context, args []string, stdout, stderr io.Writer
 	var liveHandler *routes.LiveHandler
 	if config.IsSingleOwner(cfg.Auth) {
 		topics := &liveTopics{queries: queries, todos: mythicalService, sync: gitHubSyncRoute, install: installSetup, members: authService.Members}
+		topics.documents = options.DocumentRelay
 		liveHandler = &routes.LiveHandler{Hub: live.NewHub(ctx, live.BrokerHints{Broker: sseBroker}), Queries: queries, Origins: installAddress.Origins, Topics: topics.resolver}
 	}
 	router := buildRouter(

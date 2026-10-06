@@ -34,9 +34,16 @@ describe("document browser contract", () => {
   test("reviewed pins and fixture digest", () => {
     const manifest = JSON.parse(readFileSync(new URL("MANIFEST.json", root), "utf8"))
     const pkg = JSON.parse(readFileSync(new URL("../package.json", import.meta.url), "utf8"))
-    expect(manifest.pins).toEqual({ yjs: "13.6.32", yrs: "0.27.4" })
+    expect(manifest.pins).toEqual({ yjs: "13.6.32", yrs: "=0.27.4" })
     expect(pkg.dependencies.yjs).toBe("13.6.32")
     expect(createHash("sha256").update(fixture).digest("hex")).toBe(manifest.files["doc-browser.json"])
+    for (const [name, digest] of Object.entries(manifest.files)) {
+      expect(createHash("sha256").update(readFileSync(new URL(name, root))).digest("hex")).toBe(digest)
+    }
+    const daemon = JSON.parse(readFileSync(new URL("doc-daemon.json", root), "utf8"))
+    for (const frame of daemon.frames) {
+      expect(readFileSync(new URL(`doc-${frame.name}.bin`, root)).toString("hex")).toBe(frame.hex)
+    }
   })
   test("topics preserve branch and repository data", () => {
     expect(parseLiveDocTopic("doc:code:b:src/a:b.ts")).toEqual({ kind: "code", branch: "b", path: "src/a:b.ts" })

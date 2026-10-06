@@ -21,3 +21,5 @@ pub mod session;
 pub mod versions;
 #[cfg(target_os = "linux")]
 pub mod watch;
+
+pub mod document_payload;
