@@ -11,6 +11,8 @@ import { defaultPill, type CardOf } from "./CardFamily"
 import { renderCardBody, CARD_FAMILIES, CARD_RENDERERS, cardRenderer, pillStatus } from "./CardRenderers"
 import { ControllerTestProvider } from "../ControllerContext"
 import type { AppController } from "../state/AppController"
+import { createAppStore } from "../state/AppStore"
+import { memoryStorage } from "../state/TestFixtures"
 import { createDesignWorld } from "../state/seams/DesignWorld"
 import { BEN, MAYA } from "../state/seams/DesignWorld/world"
 import { designMembersRoster, designViewerRole } from "../state/seams/DesignWorld/settings"
@@ -288,28 +290,29 @@ test("repository chooser exposes one keyboard stop and the highlighted repositor
  */
 describe("subject card bodies", () => {
   const unanswered = { get: () => ({}), subscribe: () => () => {} }
-  const controller = (viewer: string, find: (name: string) => unknown) => {
+  const controller = async (viewer: string, find: (name: string) => unknown) => {
     const design = createDesignWorld({ viewer })
-    return { design, installSnapshots: unanswered, membersRoster: designMembersRoster(design), membersRole: () => designViewerRole(design),
+    const store = await createAppStore({ kind: "localStorage", storage: memoryStorage() })
+    return { store, design, installSnapshots: unanswered, membersRoster: designMembersRoster(design), membersRole: () => designViewerRole(design),
       commands: { find, viewerCatalog: () => ["help", "members"].flatMap(name => find(name) === undefined ? [] : [{ name, summary: `Live ${name}`, visibility: "core", group: "chat", agent: name === "help" ? "run" : "never" }]), submit: async () => ({ status: "done" }) } } as unknown as AppController
   }
-  const body = <K extends "settings" | "members" | "commands">(kind: K, viewer: string, find: (name: string) => unknown = () => undefined) =>
-    renderToStaticMarkup(<ControllerTestProvider controller={controller(viewer, find)}>
+  const body = async <K extends "settings" | "members" | "commands">(kind: K, viewer: string, find: (name: string) => unknown = () => undefined) =>
+    renderToStaticMarkup(<ControllerTestProvider controller={await controller(viewer, find)}>
       {cardRenderer(kind).render(CardSchema.parse({ ...base, kind, status: "active", payload: {} }) as CardOf<K>, handlers)}</ControllerTestProvider>)
 
-  test("settings renders the seeded install for the owner and nothing for a maintainer", () => {
-    expect(body("settings", MAYA)).toContain("Machines")
-    expect(body("settings", BEN)).toBe("")
+  test("settings renders the seeded install for the owner and nothing for a maintainer", async () => {
+    expect(await body("settings", MAYA)).toContain("Machines")
+    expect(await body("settings", BEN)).toBe("")
   })
-  test("members lists the seeded roster off an install", () => {
-    const markup = body("members", MAYA)
+  test("members lists the seeded roster off an install", async () => {
+    const markup = await body("members", MAYA)
     expect(markup).toContain('data-login="mayachen"')
     expect(markup).toContain('data-login="benortiz"')
   })
-  test("commands lists only the flows the registry holds", () => {
+  test("commands lists only the flows the registry holds", async () => {
     const find = (name: string) => name === "help" || name === "members"
       ? { binding: { descriptor: { modelInvocable: name === "help" } }, metadata: {} } : undefined
-    const markup = body("commands", MAYA, find)
+    const markup = await body("commands", MAYA, find)
     expect(markup).toContain("/help")
     expect(markup).toContain("/members")
     expect(markup).not.toContain("/settings")
