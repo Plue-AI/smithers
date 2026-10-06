@@ -159,7 +159,7 @@ func (s *InstallCapacityService) Parallel(ctx context.Context) (InstallParallel,
 	if err != nil {
 		return InstallParallel{}, err
 	}
-	requested := max(1, capacity-1)
+	requested := min(8, max(1, capacity-1))
 	if len(raw) != 0 {
 		var saved *int
 		if err = json.Unmarshal(raw, &saved); err != nil {

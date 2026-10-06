@@ -86,7 +86,7 @@ func parallelOwnerContext(ctx context.Context, id int64) context.Context {
 func TestInstallParallelDefaultsClampAndSavedValues(t *testing.T) {
 	q := &parallelQueries{capacityQueries: capacityQueries{row: db.GetInstallCapacityRow{OwnerID: 1}, rows: 1}}
 	s := InstallCapacityService{Queries: q, Profile: microsandbox.HostProfile{MemoryBytes: 128 << 30, PerfCores: 32, DiskFreeBytes: 1024 << 30}}
-	for _, tc := range []struct{ capacity, requested, effective int }{{0, 1, 0}, {1, 1, 1}, {2, 1, 1}, {3, 2, 2}, {6, 5, 5}, {7, 6, 6}} {
+	for _, tc := range []struct{ capacity, requested, effective int }{{0, 1, 0}, {1, 1, 1}, {2, 1, 1}, {3, 2, 2}, {6, 5, 5}, {7, 6, 6}, {10, 8, 8}} {
 		// Inject the disk term only, leaving startup memory/core measurements fixed.
 		s.Profile.DiskFreeBytes = int64(40+32*tc.capacity) << 30
 		result, err := s.Parallel(t.Context())

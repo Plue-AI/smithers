@@ -113,4 +113,16 @@ func TestParallelOwnerOnlyInstallBoundary(t *testing.T) {
 	setting, err := capacity.Parallel(ctx)
 	require.NoError(t, err)
 	require.Equal(t, services.InstallParallel{Requested: 8, Effective: 0}, setting)
+	// An unsaved default must also fit the owner field on a larger host.
+	_, err = pool.Exec(ctx, `DELETE FROM install_settings WHERE key='parallel'`)
+	require.NoError(t, err)
+	capacity.Profile.MemoryBytes = 128 << 30
+	capacity.Profile.PerfCores = 32
+	capacity.Profile.DiskFreeBytes = 360 << 30
+	capacity.FreeDisk = func(context.Context) (int64, error) { return 360 << 30, nil }
+	w = request("PUT", "/api/install", "quiesceowner-session", `{"capacity":10}`)
+	require.Equal(t, 200, w.Code, w.Body.String())
+	require.Contains(t, w.Body.String(), `"parallel":8`)
+	require.Contains(t, w.Body.String(), `"capacity":10`)
+
 }
