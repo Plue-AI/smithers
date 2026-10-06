@@ -13,4 +13,7 @@ test("C-PRC-03: recorder-to-close refuses invalid evidence before publication", 
   expect(stdout).toMatch(/# fail 0\b/)
   expect(stdout).toMatch(/# skipped 0\b/)
   expect(stdout).toMatch(/# pass [1-9]\d*/)
+  expect(stdout).toContain("executable CLI closes recorder-produced evidence through isolated transport")
+  expect(stdout).toContain("root-check-mapping-validation: markers refuse recorder and close without dispatch")
+  expect(stdout).toContain("duplicate CI artifact identities refuse at recorder and completed-close boundaries")
 })
