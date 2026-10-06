@@ -194,6 +194,22 @@ describe("live channel", () => {
     expect(sockets[0]!.frames.at(-1)).toEqual({ t: "sub", id: 1, topic: "home" })
     channel.dispose()
   })
+  test.each(["forbidden", "permission", "internal", "future_refusal"])("%s clears retained data and rejects deltas until recovery", code => {
+    const { channel, sockets } = harness()
+    channel.subscribe("home", () => {})
+    const socket = sockets[0]!
+    socket.open()
+    socket.receive({ t: "snap", id: 1, cursor: 1, data: "private" })
+    socket.receive({ t: "err", id: 1, code: 42 })
+    expect(channel.getSnapshot("home")?.data).toBe("private")
+    socket.receive({ t: "err", id: 1, code })
+    expect(channel.getSnapshot("home")).toEqual({ topic: "home", error: code })
+    socket.receive({ t: "delta", id: 1, cursor: 2, data: "stale" })
+    expect(channel.getSnapshot("home")).toEqual({ topic: "home", error: code })
+    socket.receive({ t: "snap", id: 1, cursor: 3, data: "authorized" })
+    expect(channel.getSnapshot("home")).toEqual({ topic: "home", cursor: 3, data: "authorized" })
+    channel.dispose()
+  })
   test("subscription refusal stays on its topic and the socket remains open", () => {
     const { channel, sockets } = harness()
     channel.subscribe("home", () => {})

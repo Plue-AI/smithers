@@ -182,6 +182,14 @@ export class LiveChannel {
         return
       }
     }
+    // A provider refusal invalidates retained data even when its code is
+    // newer than the shared protocol enum. Validate the envelope before clearing.
+    if (frame.t === "err" && typeof frame.code === "string" &&
+      LiveReplySchema.safeParse({ ...frame, code: "forbidden" }).success) {
+      entry.awaitingSnapshot = true
+      this.publish(topic, entry, { topic, error: frame.code })
+      return
+    }
     const decoded = LiveReplySchema.safeParse(frame)
     if (!decoded.success) return
     frame = decoded.data
@@ -190,11 +198,6 @@ export class LiveChannel {
       this.notifyContinuityLoss()
       this.publish(topic, entry, { topic, data: entry.snapshot.data })
       this.send({ t: "sub", id: entry.id, topic })
-      return
-    }
-    if (frame.t === "err" && typeof frame.code === "string") {
-      entry.awaitingSnapshot = true
-      this.publish(topic, entry, { topic, error: frame.code })
       return
     }
     if (frame.t !== "snap" && frame.t !== "delta") return
