@@ -45,3 +45,4 @@ pub mod files;
 pub mod local;
 
 pub mod wiring;
+pub mod transcript;
