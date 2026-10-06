@@ -18,12 +18,14 @@ pub struct Closed<A, B, C> {
     pub renamed_to: BTreeMap<String, String>,
     pub last_path: String,
 }
+type BurstIdentity<A> = (Key<A>, [u8; 16], Option<Window<A>>);
+
 #[derive(Clone, Debug)]
 pub struct Checkpoint<A, B> {
     pub recorded: BTreeMap<String, Version<B>>,
     pub bursts: Bursts<A, Version<B>>,
     renames: BTreeMap<String, String>,
-    identities: Vec<(Key<A>, [u8; 16], Option<Window<A>>)>,
+    identities: Vec<BurstIdentity<A>>,
 }
 impl<A: Clone + Eq, B: Clone> Checkpoint<A, B> {
     pub fn renames(&self) -> &BTreeMap<String, String> {
