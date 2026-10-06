@@ -173,6 +173,7 @@ payload: {}, success: Schema.String, body: () => Node.succeed(%q) })
 		Receipt string `json:"receipt"`
 		Home    string `json:"home"`
 		UID     int    `json:"uid"`
+		GID     int    `json:"gid"`
 		Planned []struct {
 			Name   string   `json:"name"`
 			Values []string `json:"values"`
@@ -192,7 +193,8 @@ payload: {}, success: Schema.String, body: () => Node.succeed(%q) })
 	require.NoError(t, json.Unmarshal(receiptLine, &receipt))
 	require.Equal(t, "flow-isolation-canary", receipt.Receipt)
 	require.Equal(t, "/home/node", receipt.Home)
-	require.Equal(t, 1000, receipt.UID)
+	require.Equal(t, 1000, receipt.UID, "repository code must execute without root authority")
+	require.Equal(t, 1000, receipt.GID)
 	require.Len(t, receipt.Planned, 2)
 	require.Equal(t, "todo", receipt.Planned[0].Name)
 	require.Contains(t, receipt.Planned[0].Values, "guest-todo")
