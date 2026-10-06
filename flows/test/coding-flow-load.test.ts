@@ -56,17 +56,40 @@ test("flow-load answers each overridable flow's version and whether it loaded", 
       "flows/todo/label.ts": `export const label = ${JSON.stringify(value)}\n`
     })
   const [helperA, helperB] = [await withHelper("a"), await withHelper("b")]
+  const outsideA = await tree("outside-a", {
+    "flows/todo/flow.ts": `import { label } from "../../lib/label.ts"\n${source}\nvoid label\n`,
+    "lib/label.ts": "export const label = 'a'\n"
+  })
+  const outsideB = await tree("outside-b", {
+    "flows/todo/flow.ts": `import { label } from "../../lib/label.ts"\n${source}\nvoid label\n`,
+    "lib/label.ts": "export const label = 'b'\n"
+  })
+  const lockA = await tree("lock-a", { "flows/todo/flow.ts": source, "pnpm-lock.yaml": "lockfileVersion: 9\n# a\n" })
+  const lockB = await tree("lock-b", { "flows/todo/flow.ts": source, "pnpm-lock.yaml": "lockfileVersion: 9\n# b\n" })
   const none = await tree("none", { "README.md": "No flows here.\n" })
 
   const output = join(temporary, "host.mjs")
   await bundle(fileURLToPath(new URL("./fixtures/coding-host-flow-load-entry.ts", import.meta.url)), output)
   const flags = process.versions.bun ? [] : ["--experimental-strip-types"]
-  const lines = execFileSync(process.execPath, [...flags, output, copy, edited, broken, helperA, helperB, none], {
+  const lines = execFileSync(process.execPath, [
+    ...flags,
+    output,
+    copy,
+    edited,
+    broken,
+    helperA,
+    helperB,
+    none,
+    lockA,
+    lockB,
+    outsideA,
+    outsideB
+  ], {
     encoding: "utf8",
     timeout: 240_000,
     stdio: ["ignore", "pipe", "pipe"]
   }).split("\n").filter((line) => line.startsWith("versions ")).map((line) => JSON.parse(line.slice(9)))
-  const [atCopy, atEdited, atBroken, atHelperA, atHelperB, atNone] = lines
+  const [atCopy, atEdited, atBroken, atHelperA, atHelperB, atNone, atLockA, atLockB, atOutsideA, atOutsideB] = lines
 
   // The copy is the built-in version: the digest GET /api/flows serves as D1.
   assert.deepEqual(atCopy, [{ name: "todo", path: "flows/todo/flow.ts", digest: served.todo, status: "loaded" }])
@@ -82,12 +105,21 @@ test("flow-load answers each overridable flow's version and whether it loaded", 
   const line = source.split("\n").findIndex((text) => text.includes("Request.child(input)")) + 1
   assert.ok(line > 0)
   assert.match(atBroken[0].error, /^flows\/todo\/flow\.ts:\d+: /)
-  assert.ok(Number(atBroken[0].error.match(/^flows\/todo\/flow\.ts:(\d+)/)[1]) >= line, atBroken[0].error)
+  assert.ok(Number(atBroken[0].error.match(/^flows\/todo\/flow\.ts:(\d+)/)![1]) >= line, atBroken[0].error)
   // A changed helper the composition imports is a new version; both load.
   assert.equal(atHelperA[0].status, "loaded", atHelperA[0].error)
   assert.equal(atHelperB[0].status, "loaded", atHelperB[0].error)
   assert.notEqual(atHelperA[0].digest, atHelperB[0].digest)
+  assert.deepEqual(atHelperA[0].dependencies, ["flows/todo/label.ts"])
   assert.notEqual(atHelperA[0].digest, served.todo)
   // A repository without flows/ declares none.
   assert.deepEqual(atNone, [])
+  assert.equal(atLockA[0].status, "loaded")
+  assert.equal(atLockB[0].status, "loaded")
+  assert.notEqual(atLockA[0].digest, served.todo)
+  assert.notEqual(atLockA[0].digest, atLockB[0].digest)
+  assert.equal(atOutsideA[0].status, "loaded", atOutsideA[0].error)
+  assert.equal(atOutsideB[0].status, "loaded", atOutsideB[0].error)
+  assert.deepEqual(atOutsideA[0].dependencies, ["lib/label.ts"])
+  assert.notEqual(atOutsideA[0].digest, atOutsideB[0].digest)
 })

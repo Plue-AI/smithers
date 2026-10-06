@@ -990,7 +990,11 @@ func buildRouter(
 			r.Delete("/members/{login}", extras.Members.Mutate)
 		}
 		if config.IsSingleOwner(cfg.Auth) {
-			mountFlowReads(r, &routes.FlowsHandler{Queries: queries})
+			var proposals services.FlowProposalReader
+			if extras.Mythical != nil {
+				proposals, _ = extras.Mythical.Service.(services.FlowProposalReader)
+			}
+			mountFlowReads(r, &routes.FlowsHandler{Queries: queries, Proposals: proposals})
 			if smithersMetrics != nil && queries != nil {
 				h := &routes.InstallMetricsHandler{Metrics: smithersMetrics}
 				if extras.GitHubAppSetup != nil && extras.GitHubAppSetup.Setup != nil {
@@ -2044,7 +2048,8 @@ func installReadRoutes(queries *db.Queries, service routes.TodoRouteService) htt
 	router := chi.NewRouter()
 	router.Route("/api", func(r chi.Router) {
 		mountTodoReads(r, &routes.TodoHandler{Queries: queries, Service: service})
-		mountFlowReads(r, &routes.FlowsHandler{Queries: queries})
+		proposals, _ := service.(services.FlowProposalReader)
+		mountFlowReads(r, &routes.FlowsHandler{Queries: queries, Proposals: proposals})
 	})
 	return router
 }

@@ -71,6 +71,24 @@ const fail = (code: ExecutionSnapshotError["code"], message: string, cause?: unk
   new ExecutionSnapshotError({ code, message, cause, ...(indexMissing ? { indexMissing } : {}) })
 const address = (value: string) => /^[a-f0-9]{64}$/.test(value)
 const lockfiles = ["pnpm-lock.yaml", "package-lock.json", "yarn.lock", "bun.lock", "bun.lockb"]
+/** Measure the repository dependency environment without executing it.
+ * @category utilities
+ * @since 1.0.0-rc.1
+ */
+export const measureLockfiles = (root: string) =>
+  Effect.gen(function*() {
+    const fs = yield* FileSystem.FileSystem, path = yield* Path.Path
+    const measured: Array<readonly [string, string]> = []
+    for (const name of lockfiles) {
+      const bytes = yield* fs.readFile(path.join(root, name)).pipe(
+        Effect.map(Option.some),
+        Effect.catchReason("PlatformError", "NotFound", () => Effect.succeed(Option.none()))
+      )
+      if (Option.isSome(bytes)) measured.push([name, Digest.digest(bytes.value)])
+    }
+    return Digest.digest(new TextEncoder().encode(JSON.stringify(measured)))
+  })
+
 const verifiedCompilation = (filename: string, module: ClosureModule, descriptor: Descriptor.FlowDescriptor) =>
   Effect.gen(function*() {
     const raw = new TextDecoder().decode(module.bytes)
@@ -114,18 +132,10 @@ export const makeFileSystem = (options: { readonly root: string; readonly store?
         yield* Effect.scoped(Effect.flatMap(fs.open(parent, { flag: "r" }), (file) => file.sync))
       }
     })
-    const lockfileDigest = Effect.gen(function*() {
-      const measured: Array<readonly [string, string]> = []
-      for (const name of lockfiles) {
-        const filename = path.join(root, name)
-        const bytes = yield* fs.readFile(filename).pipe(
-          Effect.map(Option.some),
-          Effect.catchReason("PlatformError", "NotFound", () => Effect.succeed(Option.none()))
-        )
-        if (Option.isSome(bytes)) measured.push([name, Digest.digest(bytes.value)])
-      }
-      return Digest.digest(new TextEncoder().encode(JSON.stringify(measured)))
-    })
+    const lockfileDigest = measureLockfiles(root).pipe(
+      Effect.provideService(FileSystem.FileSystem, fs),
+      Effect.provideService(Path.Path, path)
+    )
     const readManifest = (digest: string, checkLockfiles = true) =>
       Effect.gen(function*() {
         if (!address(digest)) return yield* Effect.fail(fail("corrupt", "Invalid execution digest"))

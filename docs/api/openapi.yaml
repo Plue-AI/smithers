@@ -2878,7 +2878,7 @@ paths:
     get:
       x-composition: install
       summary: Read the install's flow catalog
-      description: Each overridable flow with its versions, as the Flow card shows it. The TODO flow is built in and Active at its digest until the repository overrides it. No system flow is listed. Any member's browser session reads it.
+      description: Each overridable flow with its versions, as the Flow card shows it. The TODO flow is built in and Active at its digest until the repository overrides it. No system flow is listed. Open TODO candidate diffs supply proposed versions and their TODO numbers. A failed merged load retains the previous Active version and exposes its error. Any member's browser session reads it.
       operationId: get_api_flows
       tags:
         - Flows
@@ -24484,7 +24484,7 @@ components:
             required: [id, state, steps]
             properties:
               id:
-                description: The version's digest
+                description: The loaded version's digest, or a provisional immutable candidate identity before loading
                 type: string
               state: {type: string, enum: [active, proposed, merged-syncing, merged-failed, previous]}
               todo: {type: integer, minimum: 1}

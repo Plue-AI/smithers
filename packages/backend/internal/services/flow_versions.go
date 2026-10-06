@@ -22,11 +22,12 @@ import (
 // FlowLoadVersion is one flow version as flow-load measured it at one commit
 // (FlowVersion in flows/coding/flow-load.ts).
 type FlowLoadVersion struct {
-	Name   string `json:"name"`
-	Path   string `json:"path"`
-	Digest string `json:"digest"`
-	Status string `json:"status"`
-	Error  string `json:"error,omitempty"`
+	Name         string   `json:"name"`
+	Path         string   `json:"path"`
+	Digest       string   `json:"digest"`
+	Status       string   `json:"status"`
+	Error        string   `json:"error,omitempty"`
+	Dependencies []string `json:"dependencies,omitempty"`
 }
 
 // FlowLoadResult is a flow-load run's output (FlowLoadResult in
@@ -82,10 +83,11 @@ func flowVersionConfig(name string) json.RawMessage {
 // a row writes nothing; a loaded version becomes Active; a failed one leaves
 // Active where it was. An overridable flow the repository no longer declares
 // returns to its built-in version. It answers the flows whose Active moved.
-func persistFlowVersions(ctx context.Context, q *db.Queries, repositoryID int64, commit string, versions []FlowLoadVersion) ([]string, error) {
+func persistFlowVersions(ctx context.Context, q *db.Queries, repositoryID int64, commit string, versions []FlowLoadVersion, activate ...bool) ([]string, error) {
 	if !flowCommitPattern.MatchString(commit) {
 		return nil, errors.New("flow versions need the main commit they were loaded at")
 	}
+	current := len(activate) == 0 || activate[0]
 	declared := map[string]bool{}
 	moved := []string{}
 	for _, version := range versions {
@@ -97,7 +99,7 @@ func persistFlowVersions(ctx context.Context, q *db.Queries, repositoryID int64,
 			version.Error, flowVersionConfig(version.Name)); err != nil {
 			return nil, fmt.Errorf("record %s at %s: %w", version.Name, short(version.Digest), err)
 		}
-		if version.Status != "loaded" {
+		if version.Status != "loaded" || !current {
 			continue
 		}
 		activated, err := q.ActivateFlowVersion(ctx, repositoryID, version.Name, version.Digest)
@@ -107,6 +109,9 @@ func persistFlowVersions(ctx context.Context, q *db.Queries, repositoryID int64,
 		if activated {
 			moved = append(moved, version.Name)
 		}
+	}
+	if !current {
+		return moved, nil
 	}
 	rows, err := q.ListFlowVersions(ctx, repositoryID)
 	if err != nil {
@@ -154,7 +159,7 @@ func ActiveFlowDigest(ctx context.Context, q *db.Queries, repositoryID int64, na
 // each overridable flow with its Active version, the version it replaced
 // (previous), a merged version not yet loaded (merged-syncing) and a merged
 // version that failed to load (merged-failed, with its error).
-func RepositoryFlowCatalog(ctx context.Context, q *db.Queries, repositoryID int64) ([]FlowCard, error) {
+func RepositoryFlowCatalog(ctx context.Context, q *db.Queries, repositoryID int64, readers ...FlowProposalReader) ([]FlowCard, error) {
 	digests, err := builtinFlowDigests()
 	if err != nil {
 		return nil, err
@@ -177,7 +182,17 @@ func RepositoryFlowCatalog(ctx context.Context, q *db.Queries, repositoryID int6
 	// A load that could not run at all, after its last attempt, is not
 	// syncing any more: the merged versions failed to load.
 	exhausted := pending && load.State == "idle" && load.Attempt >= flowLoadAttempts && load.Error != ""
+	proposals := map[string][]FlowVersion{}
+	if len(readers) > 0 && readers[0] != nil {
+		proposals, err = readers[0].FlowProposals(ctx, repositoryID)
+		if err != nil {
+			return nil, err
+		}
+	}
 	names := map[string]bool{}
+	for name := range proposals {
+		names[name] = true
+	}
 	for name := range digests {
 		names[name] = true
 	}
@@ -249,6 +264,10 @@ func RepositoryFlowCatalog(ctx context.Context, q *db.Queries, repositoryID int6
 			if previous != "" {
 				card.Versions = append(card.Versions, FlowVersion{ID: previous, State: "previous", Steps: steps})
 			}
+		}
+		card.Versions = append(card.Versions, proposals[name]...)
+		if card.Source == (FlowSource{}) && len(proposals[name]) > 0 {
+			card.Source = FlowSource{Path: "flows/" + name + "/flow.ts"}
 		}
 		if len(card.Versions) == 0 {
 			continue

@@ -810,3 +810,11 @@ func (q *Queries) ListMythicalPredecessors(ctx context.Context, repositoryID, po
 	rows, err := q.db.Query(ctx, `SELECT `+mythicalItemColumns+` FROM mythical_items WHERE repository_id=$1 AND stack_position<$2 AND state NOT IN ('landed','cancelled','rejected','declined') ORDER BY stack_position`, repositoryID, position)
 	return scanMythicalItems(rows, err)
 }
+
+// ListMythicalFlowCandidates reads all open TODO candidates for projection.
+func (q *Queries) ListMythicalFlowCandidates(ctx context.Context, repositoryID int64) ([]MythicalItem, error) {
+	rows, err := q.db.Query(ctx, `SELECT `+mythicalItemColumns+` FROM mythical_items WHERE repository_id=$1
+ AND number IS NOT NULL AND candidate_head <> '' AND candidate_base <> ''
+ AND state NOT IN ('landed','cancelled','declined','skipped','rejected') ORDER BY number`, repositoryID)
+	return scanMythicalItems(rows, err)
+}

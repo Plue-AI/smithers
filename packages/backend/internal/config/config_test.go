@@ -1863,3 +1863,14 @@ func TestLoad_WorkspaceResourceLimits(t *testing.T) {
 	require.Equal(t, int32(32768), cfg.Sandbox.WorkspaceMaxMemoryMB)
 	require.Equal(t, int32(65536), cfg.Sandbox.WorkspaceMaxDiskMB)
 }
+
+func TestLoadFlowLoadDefaultAndExplicitDisable(t *testing.T) {
+	clearConfigEnv(t)
+	cfg, err := Load("")
+	require.NoError(t, err)
+	require.True(t, cfg.FeatureFlags.FlowLoad)
+	t.Setenv("SMITHERS_FEATURE_FLAGS_FLOW_LOAD", "false")
+	cfg, err = Load("")
+	require.NoError(t, err)
+	require.False(t, cfg.FeatureFlags.FlowLoad)
+}

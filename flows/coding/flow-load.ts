@@ -13,6 +13,7 @@ import { Action } from "@smthrs/flow"
 import type * as Descriptor from "@smthrs/registry/Descriptor"
 import * as Discovery from "@smthrs/registry/Discovery"
 import * as Executable from "@smthrs/registry/Executable"
+import * as ExecutionSnapshot from "@smthrs/registry/ExecutionSnapshot"
 import * as Registry from "@smthrs/registry/Registry"
 import { Effect, FileSystem, Layer, Path, Schema } from "effect"
 import { CodingError, StackBase } from "./schema.ts"
@@ -26,7 +27,8 @@ export const FlowVersion = Schema.Struct({
   path: Schema.String,
   digest: Hex64,
   status: Schema.Literals(["loaded", "failed"]),
-  error: Schema.optionalKey(Schema.String)
+  error: Schema.optionalKey(Schema.String),
+  dependencies: Schema.optionalKey(Schema.Array(Schema.String))
 })
 export type FlowVersion = typeof FlowVersion.Type
 
@@ -98,9 +100,16 @@ export const loadRepositoryFlows = (repositoryPath: string, systemFlows: Readonl
     const descriptors = (yield* discovered.list()).filter((entry) => !system.has(entry.name))
     const only = Registry.Registry.of({ ...discovered, list: () => Effect.succeed(descriptors) })
     const built = yield* Executable.catalog({ delegates: [] }).pipe(Effect.provideService(Registry.Registry, only))
+    // Use the snapshot store's dependency identity; lockfile reads stay in the guest.
+    const lockfileDigest = yield* ExecutionSnapshot.measureLockfiles(repositoryPath)
     const versions: Array<FlowVersion> = []
     for (const descriptor of descriptors) {
-      const digest = versionDigest(descriptor)
+      const sourceDigest = versionDigest(descriptor)
+      const digest = sourceDigest === undefined ?
+        undefined :
+        lockfileDigest === Digest.digest(new TextEncoder().encode("[]")) ?
+        sourceDigest :
+        Digest.digest(Digest.canonical({ sourceDigest, lockfileDigest }))
       const relative = path.relative(repositoryPath, descriptor.path).split(path.sep).join("/")
       const failure = built.refused.find((entry) => entry.flow === descriptor.name && !hostRefusals.has(entry.code))
       if (digest === undefined) {
@@ -113,10 +122,22 @@ export const loadRepositoryFlows = (repositoryPath: string, systemFlows: Readonl
         })
         continue
       }
+      const imported = descriptor.body._tag === "Module" ? descriptor.body.imports ?? [] : []
+      const dependencies = imported.map((entry) =>
+        path.relative(repositoryPath, path.resolve(path.dirname(descriptor.path), entry.path)).split(path.sep).join("/")
+      )
+      const metadata = dependencies.length === 0 ? {} : { dependencies }
       versions.push(
         failure === undefined ?
-          { name: descriptor.name, path: relative, digest, status: "loaded" } :
-          { name: descriptor.name, path: relative, digest, status: "failed", error: loadError(failure, relative) }
+          { name: descriptor.name, path: relative, digest, status: "loaded", ...metadata } :
+          {
+            name: descriptor.name,
+            path: relative,
+            digest,
+            status: "failed",
+            error: loadError(failure, relative),
+            ...metadata
+          }
       )
     }
     return versions.sort((a, b) => a.name < b.name ? -1 : a.name > b.name ? 1 : 0)

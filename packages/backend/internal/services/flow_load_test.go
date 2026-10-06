@@ -237,7 +237,7 @@ func TestFlowLoadLoadsEveryMainMoveAndKeepsThePreviousVersionWhenALoadFails(t *t
 	assert.NotEmpty(t, row.Error)
 	active, err = ActiveFlowDigest(ctx, q, o.repoID, "todo")
 	require.NoError(t, err)
-	assert.Equal(t, strings.Repeat("5", 64), active)
+	assert.Equal(t, d2, active, "an older main result must not activate")
 	_, err = o.pool.Exec(ctx, `UPDATE flow_loads SET next_attempt_at = NOW() WHERE repository_id = $1`, o.repoID)
 	require.NoError(t, err)
 	o.wake()
@@ -356,4 +356,57 @@ func TestFlowLoadKeepsForeignAnswersInstallOwned(t *testing.T) {
 	for _, card := range cards {
 		require.NotContains(t, names, card.Name)
 	}
+}
+
+// A repeated guest result cannot turn a failed digest into an Active version
+// or clear the existing Active pointer. The original row is immutable.
+func TestFlowLoadFailedDigestCannotClearActiveOnReplay(t *testing.T) {
+	pool := getAgentTestPool(t)
+	q := db.New(pool)
+	repo := createWorkflowRunIntegrationRepo(t, pool)
+	ctx := t.Context()
+	commit := strings.Repeat("a", 40)
+	loaded, failed := strings.Repeat("b", 64), strings.Repeat("c", 64)
+	_, err := persistFlowVersions(ctx, q, repo, commit, []FlowLoadVersion{{Name: "todo", Path: "flows/todo/flow.ts", Digest: loaded, Status: "loaded"}})
+	require.NoError(t, err)
+	_, err = persistFlowVersions(ctx, q, repo, commit, []FlowLoadVersion{{Name: "todo", Path: "flows/todo/flow.ts", Digest: failed, Status: "failed", Error: "invalid type"}})
+	require.NoError(t, err)
+	moved, err := persistFlowVersions(ctx, q, repo, commit, []FlowLoadVersion{{Name: "todo", Path: "flows/todo/flow.ts", Digest: failed, Status: "loaded"}})
+	require.NoError(t, err)
+	require.Empty(t, moved)
+	active, err := ActiveFlowDigest(ctx, q, repo, "todo")
+	require.NoError(t, err)
+	require.Equal(t, loaded, active)
+	rows, err := q.ListFlowVersions(ctx, repo)
+	require.NoError(t, err)
+	require.Len(t, rows, 2)
+	require.Equal(t, "failed", rows[1].Status.String)
+}
+
+func TestFlowLoadSyncingTracksImportedHelpersAndLockfiles(t *testing.T) {
+	o := newMythicalOrchestration(t)
+	ctx := t.Context()
+	o.lanes.provision = func(id string) {
+		_, err := o.pool.Exec(ctx, `INSERT INTO workspaces(id,repository_id,user_id,name,status) VALUES($1,$2,$3,$4,'running')`, id, o.repoID, o.userID, id)
+		require.NoError(t, err)
+	}
+	o.commitFile("helper", "lib/todo-steps.ts", "export const step = 1\n")
+	m1 := o.commitFile("flow", "flows/todo/flow.ts", "import {step} from '../../lib/todo-steps.ts'\nexport default step\n")
+	o.service.SetFlowLoad(true)
+	o.wake()
+	require.Len(t, o.flowLoads(), 1)
+	d1 := strings.Repeat("1", 64)
+	o.projectLoad(o.flowLoads()[0], jobs.StateCompleted, "initial", flowLoadOutput(m1, FlowLoadVersion{Name: "todo", Path: "flows/todo/flow.ts", Digest: d1, Status: "loaded", Dependencies: []string{"lib/todo-steps.ts"}}))
+	o.wake()
+	m2 := o.commitFile("helper changes", "lib/todo-steps.ts", "export const step = 2\n")
+	o.wake()
+	card := o.flowCard("todo")
+	require.Len(t, card.Versions, 3)
+	require.Equal(t, "merged-syncing", card.Versions[1].State)
+	o.projectLoad(o.flowLoads()[1], jobs.StateCompleted, "helper", flowLoadOutput(m2, FlowLoadVersion{Name: "todo", Path: "flows/todo/flow.ts", Digest: strings.Repeat("2", 64), Status: "loaded", Dependencies: []string{"lib/todo-steps.ts"}}))
+	o.wake()
+	o.commitFile("lock changes", "pnpm-lock.yaml", "lockfileVersion: 9\n")
+	o.wake()
+	card = o.flowCard("todo")
+	require.Equal(t, "merged-syncing", card.Versions[1].State)
 }

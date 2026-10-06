@@ -15,7 +15,8 @@ import (
 // the model the Flow card and the app agent's flow commands read. Any member's
 // browser session reads it.
 type FlowsHandler struct {
-	Queries *db.Queries
+	Queries   *db.Queries
+	Proposals services.FlowProposalReader
 }
 
 // List answers the catalog: each overridable flow with its versions, and no
@@ -63,5 +64,5 @@ func (h *FlowsHandler) catalog(r *http.Request) ([]services.FlowCard, error) {
 	if err != nil {
 		return nil, err
 	}
-	return services.RepositoryFlowCatalog(r.Context(), h.Queries, repo.ID)
+	return services.RepositoryFlowCatalog(r.Context(), h.Queries, repo.ID, h.Proposals)
 }

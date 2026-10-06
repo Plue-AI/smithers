@@ -101,6 +101,11 @@ ON CONFLICT (repository_id, name, digest) WHERE digest IS NOT NULL DO NOTHING`,
 // Active one; it answers whether Active moved. A failed version is never
 // activated.
 func (q *Queries) ActivateFlowVersion(ctx context.Context, repositoryID int64, name, digest string) (bool, error) {
+	var eligible bool
+	if err := q.db.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM workflow_definitions
+ WHERE repository_id=$1 AND name=$2 AND digest=$3 AND status='loaded')`, repositoryID, name, digest).Scan(&eligible); err != nil || !eligible {
+		return false, err
+	}
 	var current string
 	err := q.db.QueryRow(ctx, `SELECT COALESCE((SELECT digest FROM workflow_definitions
 WHERE repository_id = $1 AND name = $2 AND digest IS NOT NULL AND is_active), '')`, repositoryID, name).Scan(&current)

@@ -470,6 +470,12 @@ func (s *MythicalService) run(ctx context.Context, row db.MythicalStack) mythica
 		return mythicalFailed("the repository has no %s bookmark", branch)
 	}
 
+	// Loading follows the mirrored main observed by the poll listener, even
+	// when the stack cannot fold it (frozen or awaiting a prepared write).
+	loadRun := *r
+	loadRun.row.LandedMain = r.mainTip
+	s.advanceFlowLoad(ctx, &loadRun)
+
 	// A prepared write from an earlier claim is settled before anything else.
 	if len(row.PendingOp) > 0 {
 		var op mythicalOp
@@ -506,10 +512,9 @@ func (s *MythicalService) run(ctx context.Context, row db.MythicalStack) mythica
 		if s.reconcileFactory != nil {
 			outcome.factoryState, outcome.factoryError = s.localFactoryOutcome(ctx, r)
 		}
-		// This claim moves the items, the wiki and the flow-load.
+		// This claim moves the items and the wiki.
 		s.advanceItems(ctx, r)
 		s.advanceWiki(ctx, r)
-		s.advanceFlowLoad(ctx, r)
 		outcome.due = r.due
 		return outcome
 	}
