@@ -341,9 +341,11 @@ func TestBranchConversationCutover(t *testing.T) {
 	f := workingConversation(t)
 	var before int
 	require.NoError(t, f.local.pool.QueryRow(f.local.ctx, `SELECT count(*) FROM chat_turns`).Scan(&before))
-	for _, path := range []string{"/api/agent/turn", "/api/agent/turn/cancel", "/api/agent/turn/retire", "/api/chat/turn", "/api/chat/cancel", "/api/app-timelines"} {
+	for _, path := range []string{"/api/agent/turn/cancel", "/api/agent/turn/retire", "/api/chat/turn", "/api/chat/cancel", "/api/app-timelines"} {
 		f.call(t, "ben", "POST", path, `{"runId":"legacy","prompt":"must not start"}`, 404)
 	}
+	// The private host API remains available, but malformed admissions do no work.
+	f.call(t, "ben", "POST", "/api/agent/turn", `{"runId":"legacy","prompt":"must not start"}`, 400)
 	for _, method := range []string{"GET", "PUT", "PATCH", "DELETE"} {
 		f.call(t, "ben", method, "/api/app-timelines/retired", "", 404)
 	}

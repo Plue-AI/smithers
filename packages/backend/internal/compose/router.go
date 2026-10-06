@@ -174,7 +174,7 @@ func buildRouter(
 			}
 			if request.Method == http.MethodPost {
 				switch request.URL.Path {
-				case "/api/agent/turn", "/api/agent/turn/cancel", "/api/agent/turn/retire", "/api/chat/turn", "/api/chat/cancel":
+				case "/api/agent/turn/cancel", "/api/agent/turn/retire", "/api/chat/turn", "/api/chat/cancel":
 					http.NotFound(w, request)
 					return
 				}

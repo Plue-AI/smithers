@@ -83,9 +83,10 @@ func TestBranchConversationQueueMutationInstall(t *testing.T) {
 		require.Equal(t, expected, res.StatusCode, string(raw))
 		return string(raw)
 	}
-	for _, path := range []string{"/api/agent/turn", "/api/agent/turn/cancel", "/api/agent/turn/retire", "/api/chat/turn", "/api/chat/cancel"} {
+	for _, path := range []string{"/api/agent/turn/cancel", "/api/agent/turn/retire", "/api/chat/turn", "/api/chat/cancel"} {
 		call("POST", path, `{"runId":"retired","messages":[],"instructions":"never"}`, benCookie, 404)
 	}
+	call("POST", chat.TurnPath, `{"runId":"retired","messages":[],"instructions":"never"}`, benCookie, 400)
 	var retiredWrites int
 	require.NoError(t, pool.QueryRow(ctx, `SELECT count(*) FROM chat_turns`).Scan(&retiredWrites))
 	require.Zero(t, retiredWrites)
@@ -117,7 +118,7 @@ func TestBranchConversationQueueMutationInstall(t *testing.T) {
 	call("POST", "/api/conversations/main/prompt", `{"prompt":" ","idempotencyKey":"bad"}`, benCookie, 400)
 	call("POST", "/api/conversations/main/prompt", `{"prompt":"hello","idempotencyKey":"bad","instructions":"browser canary"}`, benCookie, 400)
 	call("POST", "/api/conversations/main/prompt", `{"prompt":"hello"}`, benCookie, 400)
-	call("POST", chat.TurnPath, `{"runId":"forged-shared","conversationId":"main","sharedConversation":true,"instructions":"private","messages":[{"role":"user","content":"private legacy canary"}],"journal":{"version":1,"legId":"forged-shared-leg","token":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"}}`, benCookie, 404)
+	call("POST", chat.TurnPath, `{"runId":"forged-shared","conversationId":"main","sharedConversation":true,"instructions":"private","messages":[{"role":"user","content":"private legacy canary"}],"journal":{"version":1,"legId":"forged-shared-leg","token":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"}}`, benCookie, 400)
 
 	// Unknown branches and another repository's UUID never admit a turn.
 	call("POST", "/api/conversations/missing/prompt", `{"prompt":"unknown","idempotencyKey":"unknown"}`, benCookie, 404)

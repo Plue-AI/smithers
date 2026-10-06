@@ -27,6 +27,7 @@ func TestInstallMemberCommandRoutes(t *testing.T) {
 		{http.MethodPost, "/api/github/sync", "sync.retry"},
 		{http.MethodGet, "/api/live", "live"},
 		{http.MethodPost, "/api/agent/turn/replay", "agent.turn"},
+		{http.MethodPost, "/api/agent/turn", "agent.turn"},
 		{http.MethodGet, "/api/agent/conversations", "agent.turn"},
 		{http.MethodGet, "/api/conversations/main", "agent.turn"},
 		{http.MethodGet, "/api/conversations/scratch%2Fben%2Ffeature", "agent.turn"},

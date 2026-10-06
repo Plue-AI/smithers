@@ -599,12 +599,13 @@ interface Offered {
 const offeredCommands = (grant: DurableChatGrant, transport: HostTransport): ReadonlyArray<Offered> =>
   catalogDescriptors.flatMap((row) => {
     if (
-      !row.actors.includes("app_agent") || row.visibility === "hidden" || row.name === "merge" ||
+      !row.actors.includes("app_agent") || row.visibility === "hidden" ||
+      (row.name === "merge" && grant.request.sharedConversation !== true) ||
       (row.agent !== "run" && row.agent !== "confirm")
     ) return []
     const bind = row.name === "files.list" ? filesList
       : row.name === "files.read" ? filesRead
-      : row.name === "todo.new" ? todoNew
+      : row.name === "todo.new" && grant.request.sharedConversation !== true ? todoNew
       : row.name === "theme" ? themeCommand(row)
       : catalogCommand(row)
     const run = bind(grant, transport)

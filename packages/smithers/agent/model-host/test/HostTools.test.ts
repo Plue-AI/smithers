@@ -24,7 +24,7 @@ import { createHash } from "node:crypto"
 import { describe, expect, test } from "vitest"
 import { runDurableChatTurn } from "../src/DurableChatProducer.ts"
 import type { DurableChatGrant } from "../src/DurableChatProducer.ts"
-import { apiCaller } from "../src/HostTools.ts"
+import { apiCaller, runHostTurn } from "../src/HostTools.ts"
 
 // Literal fixtures: the question, main's commit and JOURNEY.md's one line.
 const COMMIT = "0123456789abcdef0123456789abcdef01234567"
@@ -1172,6 +1172,23 @@ describe("an install's host runs the catalog commands its grant allows, as the t
           "Drafted: the Draft is on the person's screen. Nothing is filed until they press Commit, so never say the TODO exists."
       )
     )
+  })
+
+  test("shared prompts retain the author's server Confirm instead of an invisible private Draft", async () => {
+    const turn = { ...install, request: { ...install.request, sharedConversation: true } }
+    const journal = producer(path => file(path, JOURNEY), () => Response.json({ confirmation: "confirm-1", state: "pending" }, { status: 202 }))
+    const provider = model([execute("todo.new", "Add a greeting"), execute("merge", "T12")])
+    await Effect.runPromise(runHostTurn(provider.model, turn, { modelId: "m" }, frame => Effect.sync(() => { journal.frames.push(frame) }), {
+      read: () => Effect.succeed({ code: "unused" }),
+      list: () => Effect.succeed({ code: "unused" }),
+      api: apiCaller("http://callback.test", turn, journal.fetchImpl)
+    }))
+    expect(journal.calls.map(call => call.body)).toEqual([
+      { method: "POST", path: "/api/todos", payload: { prompt: "Add a greeting", place: { mode: "append" } }, key: `chat:${turn.turnId}:0` },
+      { method: "POST", path: "/api/todos/12/merge", payload: {}, key: `chat:${turn.turnId}:1` }
+    ])
+    expect(journal.frames.some(frame => frame.type === "card")).toBe(false)
+    expect(toolOutputs(provider)).toEqual(Array(2).fill('{"confirmation":"confirm-1","state":"pending"}'))
   })
 
   test("confirmation commands return pending status without copying the private Confirm into shared frames", async () => {

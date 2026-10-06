@@ -22,7 +22,7 @@ import (
 func mountChatPublic(router chi.Router, runtime *chat.Runtime, queries *db.Queries, cfg *config.Config) {
 	// Retired clients must get 404 even when the generic /api subtree would
 	// otherwise enter owner-only middleware. These refusals never read a body.
-	for _, path := range []string{"/api/agent/turn", "/api/agent/turn/cancel", "/api/agent/turn/retire", "/api/chat/turn", "/api/chat/cancel"} {
+	for _, path := range []string{"/api/agent/turn/cancel", "/api/agent/turn/retire", "/api/chat/turn", "/api/chat/cancel"} {
 		router.Post(path, http.NotFound)
 	}
 	if runtime == nil {

@@ -575,6 +575,9 @@ func (h *Handler) ProviderStarted(w http.ResponseWriter, r *http.Request) {
 
 // MountAuthenticated contains the routes that need an active account scope.
 func (h *Handler) MountAuthenticated(router chi.Router) {
+	// Private API questions share the same journal, dispatcher and host as
+	// branch prompts. They retain scoped reader access and private Drafts.
+	router.Post(TurnPath, h.Turn)
 	router.Get("/api/conversations/{b}", h.Conversation)
 	router.Post("/api/conversations/{b}/prompt", h.Prompt)
 	router.Post(ReplayPath, h.Replay)
