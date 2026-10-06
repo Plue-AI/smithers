@@ -2,8 +2,10 @@ package services
 
 import (
 	"context"
+	"fmt"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"testing"
 
@@ -62,6 +64,12 @@ func TestFlowLoadProductionPollKeepsPreviousAndCoalesces(t *testing.T) {
 	}
 	// A frozen stack must still load main; it cannot hold activation hostage.
 	h.exec(`UPDATE mythical_stacks SET state='frozen' WHERE repository_id=$1`, h.repoID)
+	instructionRevision := func(want string) {
+		t.Helper()
+		row, err := h.q.GetInstallSetting(ctx, fmt.Sprintf("agent.instructions.main:%d", h.repoID))
+		require.NoError(t, err)
+		require.JSONEq(t, strconv.Quote(want), string(row.Value))
+	}
 	m1 := move("export default 'one'\n")
 	require.Len(t, loads(), 1)
 	d1 := strings.Repeat("1", 64)
@@ -69,12 +77,14 @@ func TestFlowLoadProductionPollKeepsPreviousAndCoalesces(t *testing.T) {
 	active, err := ActiveFlowDigest(ctx, h.q, h.repoID, "todo")
 	require.NoError(t, err)
 	require.Equal(t, d1, active)
+	instructionRevision(m1)
 	m2 := move("const prompt: string = 123\nexport default prompt\n")
 	require.Len(t, loads(), 2)
 	settle(loads()[1], m2, strings.Repeat("2", 64), "failed", "flows/todo/flow.ts:29: Type 'number' is not assignable to type 'string'.")
 	active, err = ActiveFlowDigest(ctx, h.q, h.repoID, "todo")
 	require.NoError(t, err)
 	require.Equal(t, d1, active)
+	instructionRevision(m1)
 	cards, err := RepositoryFlowCatalog(ctx, h.q, h.repoID)
 	require.NoError(t, err)
 	require.Equal(t, []FlowStep{{ID: "changelog", Label: "Changelog"}}, cards[0].Versions[0].Steps)
@@ -91,7 +101,9 @@ func TestFlowLoadProductionPollKeepsPreviousAndCoalesces(t *testing.T) {
 	active, err = ActiveFlowDigest(ctx, h.q, h.repoID, "todo")
 	require.NoError(t, err)
 	require.Equal(t, d1, active, "stale success cannot activate")
+	instructionRevision(m1)
 	settle(loads()[3], m5, strings.Repeat("5", 64), "loaded", "")
+	instructionRevision(m5)
 	rows, err := db.New(h.pool).ListFlowVersions(ctx, h.repoID)
 	require.NoError(t, err)
 	require.Len(t, rows, 4)
@@ -104,6 +116,7 @@ func TestFlowLoadProductionPollKeepsPreviousAndCoalesces(t *testing.T) {
 	active, err = ActiveFlowDigest(ctx, h.q, h.repoID, "todo")
 	require.NoError(t, err)
 	require.Equal(t, strings.Repeat("5", 64), active)
+	instructionRevision(m5)
 	cards, err = RepositoryFlowCatalog(ctx, h.q, h.repoID)
 	require.NoError(t, err)
 	require.Equal(t, []FlowStep{{ID: "changelog", Label: "Changelog"}}, cards[0].Versions[0].Steps)

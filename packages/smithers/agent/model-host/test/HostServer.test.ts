@@ -243,6 +243,8 @@ test.each([
   { ...grant, producerBaseUrl: "http://other.test" },
   { ...grant, expiresAt: "not a date" },
   { ...grant, expiresAt: "2000-01-01" },
+  { ...grant, agentInstructions: 7 },
+  { ...grant, agentInstructions: "x".repeat(66001) },
   { ...grant, source: "acme/app" },
   { ...grant, source: { repository: "acme" } },
   { ...grant, source: { repository: "acme/app/extra" } },
@@ -290,6 +292,7 @@ test("preserves the repository, source and API grants and hides provider failure
     callbackBaseUrl: "https://callback.test/nested",
     resolve: (accepted) => {
       expect(accepted.repositoryId).toBe(17)
+      expect(accepted.agentInstructions).toBe("Always end with DONE.")
       expect(accepted.source).toEqual({ repository: "acme/app" })
       expect(accepted.api).toEqual({ author: "ben", token: "smithers_" + "a".repeat(40) })
       expect(accepted.producerBaseUrl).toBe("https://callback.test/")
@@ -300,6 +303,7 @@ test("preserves the repository, source and API grants and hides provider failure
   const response = await handler(post(JSON.stringify({
     ...grant,
     repositoryId: 17,
+    agentInstructions: "Always end with DONE.",
     source: { repository: "acme/app" },
     api: { author: "ben", token: "smithers_" + "a".repeat(40) },
     request: { ...grant.request, tools: [] },

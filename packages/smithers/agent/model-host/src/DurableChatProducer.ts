@@ -43,6 +43,8 @@ export interface DurableChatGrant {
   readonly producerBaseUrl: string
   /** The mirrored repository the turn's author may read; absent until Source is ready for them. */
   readonly source?: { readonly repository: string }
+  /** Backend-verified Active-main Markdown; never taken from the browser request. */
+  readonly agentInstructions?: string
   /**
    * Host-only public API authority for the current producer generation.
    * The author's login addresses private cards; the bearer is never model input.

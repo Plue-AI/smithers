@@ -261,6 +261,8 @@ type ChatTurnGrant struct {
 	// Source is present only when the turn's author can read a mirrored
 	// main; the model host offers its source read tool only then.
 	Source *ChatTurnSource `json:"source,omitempty"`
+	// AgentInstructions is backend-verified Active-main Markdown, never request data.
+	AgentInstructions string `json:"agentInstructions,omitempty"`
 	// API is a host-only credential bound to this producer generation and
 	// the turn's author. It never enters model input or conversation frames.
 	API *ChatTurnAPI `json:"api,omitempty"`
@@ -290,6 +292,8 @@ type SourceDirectory = services.SourceDirectory
 
 // SourceEntry is one entry of a listed directory: a file or a directory.
 type SourceEntry = services.SourceEntry
+
+const BuiltinAppInstructions = services.BuiltinAppInstructions
 
 // Source read refusals. A turn's host states each one to the model and the
 // conversation; none is retried by the host.

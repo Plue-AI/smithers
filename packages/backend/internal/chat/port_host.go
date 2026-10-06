@@ -69,6 +69,25 @@ func (h PortHost) RunTurn(ctx context.Context, grant ProducerGrant) (result erro
 		}
 	}
 	grant.Source = h.source(ctx, grant)
+	if reader, ok := h.Sources.(interface {
+		ReadAgentInstructions(context.Context, middleware.Credential, int64, int64) (string, error)
+	}); ok && grant.Source != nil {
+		current, admitted := h.credentials.credential(key)
+		if !admitted {
+			return ports.ErrSourceForbidden
+		}
+		instructions, err := reader.ReadAgentInstructions(ctx, current, grant.OwnerID, grant.RepositoryID)
+		if err != nil {
+			if errors.Is(err, ports.ErrSourceTooLarge) {
+				return &ProviderRefusal{Code: "instructions_invalid", Provider: "App instructions"}
+			}
+			return err
+		}
+		grant.AgentInstructions = ports.BuiltinAppInstructions
+		if instructions != "" {
+			grant.AgentInstructions += "\n\n" + instructions
+		}
+	}
 	err := h.Host.RunChatTurn(ctx, grant)
 	if err == nil && grant.API == nil {
 		h.credentials.end(key)

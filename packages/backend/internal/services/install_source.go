@@ -274,6 +274,16 @@ func (s InstallSource) ReadBranchFile(ctx context.Context, credential middleware
 	if err != nil {
 		return repohost.FileContent{}, "", err
 	}
+	if branch == "main" && at == "" && filePath == ".smithers/instructions/app.md" {
+		text, revision, err := s.activatedAppInstructions(ctx, owner, repository)
+		if err != nil {
+			return repohost.FileContent{}, "", err
+		}
+		if text == "" {
+			text = BuiltinAppInstructions
+		}
+		return repohost.FileContent{Content: text}, revision, nil
+	}
 	if branch == "main" && at == "" {
 		commit, file, err := s.Repos.defaultBookmarkFile(ctx, owner, repository, filePath)
 		return file, commit, err

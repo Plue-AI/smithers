@@ -418,6 +418,21 @@ func (s *MythicalService) persistFlowLoad(ctx context.Context, r *mythicalRun, r
 	if err != nil {
 		return err
 	}
+	// Only an activation of current main with no failed declarations advances
+	// instruction data. Keep the previous revision during failed or stale loads.
+	verified := current
+	for _, version := range result.Flows {
+		verified = verified && version.Status == "loaded"
+	}
+	if verified {
+		revision, err := json.Marshal(row.CommitID)
+		if err != nil {
+			return err
+		}
+		if err := q.UpsertInstallSetting(ctx, db.UpsertInstallSettingParams{Key: fmt.Sprintf("agent.instructions.main:%d", r.row.RepositoryID), Value: revision}); err != nil {
+			return err
+		}
+	}
 	if err := tx.Commit(ctx); err != nil {
 		return err
 	}

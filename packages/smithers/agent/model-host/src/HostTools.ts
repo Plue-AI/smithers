@@ -834,6 +834,9 @@ export const runHostTurn = <E>(
     let request: StartAgentTurnRequest = offered.length === 0
       ? { ...grant.request, tools: [] }
       : hostRequest(grant.request, offered)
+    if (grant.agentInstructions !== undefined) {
+      request = { ...request, instructions: request.instructions + "\n\n" + grant.agentInstructions }
+    }
     let usage: AgentTurnUsage | undefined
     let ordinal = 0
     for (let link = 0;; link += 1) {

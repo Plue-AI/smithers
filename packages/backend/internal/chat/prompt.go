@@ -10,6 +10,7 @@ import (
 
 	"github.com/smithersai/smithers/packages/backend/internal/middleware"
 	pkgerrors "github.com/smithersai/smithers/packages/backend/internal/pkg/errors"
+	"github.com/smithersai/smithers/packages/backend/ports"
 )
 
 // admit is the common journal admission boundary for renderer transports.
@@ -64,7 +65,7 @@ func (h *Handler) Prompt(w http.ResponseWriter, r *http.Request) {
 	runID, legID := "prompt-"+key, "prompt-leg-"+key
 	request, err := json.Marshal(map[string]any{
 		"runId": runID, "conversationId": branch, "purpose": "conversation", "sharedConversation": true,
-		"instructions": "Answer the repository question as Smithers for the prompt author.",
+		"instructions": ports.BuiltinAppInstructions,
 		"messages":     []map[string]string{{"role": "user", "content": input.Prompt}},
 	})
 	if err != nil {
