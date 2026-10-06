@@ -1263,6 +1263,8 @@ test("Members reordered colors and absent owner actions", async () => {
   try {
     await act(async () => root.render(<MembersView {...fixtures.team} model={{ ...fixtures.team.model, members: [...fixtures.team.model.members].reverse() }} onAction={() => {}} onView={() => {}} />))
     expect([...host.querySelectorAll<HTMLElement>(".avatar")].map(node => node.style.getPropertyValue("--who"))).toEqual(["var(--lane-2)", "var(--lane-0)", "var(--lane-1)"])
+    expect(host.querySelector(".members-view .members-list .member-name")?.textContent).toBe("Sam Lee")
+    expect([...host.querySelectorAll("[class]")].flatMap(node => [...node.classList]).filter(name => name.startsWith("mvp-"))).toEqual([])
     expect(host.querySelector('[data-login="williamcory"]')?.querySelectorAll("button[data-flow]").length).toBe(0)
   } finally { await act(async () => root.unmount()) }
 })

@@ -26,7 +26,7 @@ export const stories: ViewStory[] = Object.entries(fixtures).map(([key, fixture]
   name: key, expect: expects[key as keyof typeof expects], actions: expectedActions[key as keyof typeof fixtures],
   interactions: [
     ...fixture.model.members.flatMap(member => member.actions.filter(action => action.input).map(() => ({ selector: `[data-login="${member.login}"] select`, event: "change" as const, value: member.role }))),
-    ...(fixture.actions.length ? [{ selector: '.mvp-add-row input', event: "input" as const, value: "alice" }, { selector: '.mvp-add-row select', event: "change" as const, value: "member" }] : []),
+    ...(fixture.actions.length ? [{ selector: '.members-add-row input', event: "input" as const, value: "alice" }, { selector: '.members-add-row select', event: "change" as const, value: "member" }] : []),
   ],
   render: ({ onAction, onView }, actions) => {
     // Ordinary renders pass every supplied action unchanged; only step 3 removes one.

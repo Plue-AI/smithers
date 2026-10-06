@@ -3,6 +3,8 @@
 These hermetic UI scenarios do not replace reference-host qualification or check receipts.
 Fixmes await the seeded DesignWorld and complete journey controls; standalone card components are insufficient.
 
+C-UI-12 Members (T-UI-09): [install roster and keyboard Add/Role/Remove](C-UI-12-members.spec.ts), [Members stories](../view-stories.spec.ts) active; light/dark, 1440/390, embedded/maximized.
+
 | id | spec file | status | ticket |
 | --- | --- | --- | --- |
 | C-UI-12 · Setup/Settings | [C-UI-12.spec.ts](C-UI-12.spec.ts) | Empty/supplied model slot, zero dispatch, keyboard; 390px capacity line passed | T-UI-02 |
