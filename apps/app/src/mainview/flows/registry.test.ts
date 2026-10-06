@@ -624,7 +624,7 @@ describe("command registry bindings", () => {
     expect(misdirected).toEqual([])
   })
 
-  test("the agent tool lists commands and executes them through the same path", async () => {
+  test("browser discovery lists flows but host commands cannot execute in the browser", async () => {
     const { controller } = await freshController()
     const listed = await executeAgentToolCall(controller.commands, {
       name: "commands",
@@ -642,7 +642,7 @@ describe("command registry bindings", () => {
       name: "commands",
       arguments: JSON.stringify({ action: "execute", name: "wiki" })
     })
-    expect(executed).toBe("Opened Webhook retries")
+    expect(executed).toBe("failed: this command runs on the conversation host")
 
     // The recovery is in the error: the dead-end "unknown-command: nope"
     // left the live model telling the USER to run the command instead of
@@ -651,9 +651,7 @@ describe("command registry bindings", () => {
       name: "commands",
       arguments: JSON.stringify({ action: "execute", name: "nope" })
     })
-    expect(unknown).toBe(
-      "unknown-command: nope — no command has that name; use the list action for every command callable right now"
-    )
+    expect(unknown).toBe("failed: this command runs on the conversation host")
   })
 
   test("the model may spell a command the way the catalog does — /name resolves to name", async () => {
@@ -671,9 +669,9 @@ describe("command registry bindings", () => {
       name: "commands",
       arguments: JSON.stringify({ action: "execute", name: "/wiki" })
     })
-    expect(executed).toBe("Opened Webhook retries")
+    expect(executed).toBe("failed: this command runs on the conversation host")
     expect(store.session().surface).toBe("chat")
-    expect(store.collections.cards.get("design:wiki:webhook-retries")?.title).toBe("Webhook retries")
+    expect(store.collections.cards.has("design:wiki:webhook-retries")).toBe(false)
 
     // The slash spelling resolves through the alias and executes now that the
     // look-and-feel flows are model-invocable (flows/invocable.test.ts).
