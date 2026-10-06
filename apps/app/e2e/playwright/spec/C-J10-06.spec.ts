@@ -1,27 +1,80 @@
 import { expect, test } from "../browserTest"
-import { owner, say } from "./j1-fixtures"
+import { say } from "./j1-fixtures"
+import { installCloudFixture } from "../cloudFixture"
+import { installFixture } from "../../../src/mainview/state/seams/InstallFixtures.test-support"
 
-// UI projection of .specs/engineering/checks/C-J10-06.md.
-// Requires the forthcoming seeded DesignWorld. Seed fresh sync, advance beyond 120 seconds without success, hold Retry unresolved, then publish successful sync and an installation refusal.
-// This scenario does not replace the check's backend, timing or reference-host receipts.
-// Written before implementation: mvp.md J10.6, §6.3; lands with T-GH-07
+// Browser proof through the install HTTP seam, catalog, cardActions and Home.
+// Composed backend tests separately qualify stream admission and persisted health.
 test("C-J10-06: sync age and Retry stay honest while Chat remains usable", async ({ page }) => {
-  test.fixme(true, "Written before implementation: mvp.md J10.6, §6.3; lands with T-GH-07")
-  await owner(page)
-  await page.goto('/smithers-mvp-canary/node')
-  await say(page, '/stack')
-  await expect(page.getByText('synced 40 s ago', { exact: true })).toBeVisible()
-  await expect(page.getByText('synced 6 min ago', { exact: true })).toBeVisible()
-  await page.getByRole('button', { name: 'Retry', exact: true }).first().press('Enter')
-  await say(page, '/help')
-  await expect(page.getByText('Commands', { exact: true }).last()).toBeVisible()
-  await expect(page.getByText('synced 6 min ago', { exact: true })).toBeVisible()
-  await say(page, 'retry the GitHub sync')
-  await expect(page.getByRole('button', { name: 'Confirm', exact: true })).toHaveCount(0)
-  await expect(page.getByText(/synced [0-9]+ s ago/).first()).toBeVisible()
-  await say(page, '/github')
-  await expect(page.getByText(/App installation/).last()).toBeVisible()
-  await expect(page.getByRole('button', { name: 'Settings', exact: true }).last()).toBeVisible()
-  await page.getByRole('button', { name: 'Retry', exact: true }).last().press('Enter')
-  await expect(page.getByText(/synced [0-9]+ s ago/).last()).toBeVisible()
+  await installCloudFixture(page, { capabilities: ["identity", "install"] })
+  await page.route("**/api/user", route => route.fulfill({ json: { id: 1, username: "canary-owner", is_admin: false } }))
+  await page.route("**/api/members", route => route.fulfill({ json: {
+    members: [{ login: "canary-owner", name: "Will", avatar_url: "https://example.com/owner.png", color_index: 0,
+      role: "owner", needs_access: false, suspended: false, actions: [] }],
+    access_url: "https://github.com/smithers-mvp-canary/node/settings/access"
+  } }))
+  await page.route("**/api/conversations/main", route => route.fulfill({ json: { id: "main", entries: [] } }))
+  await page.route("**/api/install", route => route.fulfill({ json: installFixture() }))
+  await page.route("**/api/todos", route => route.fulfill({ json: [] }))
+  const base = Date.parse("2026-10-06T12:00:00Z")
+  await page.clock.install({ time: base })
+  await page.clock.setFixedTime(base)
+  let health: { state: string; last_success_at: string; cause?: string } = {
+    state: "fresh", last_success_at: new Date(base - 40_000).toISOString()
+  }
+  let posts = 0, reads = 0, accepted = false
+  let release!: () => void
+  const pending = new Promise<void>(resolve => { release = resolve })
+  await page.route("**/api/github/sync", async route => {
+    if (route.request().method() === "POST") {
+      posts++
+      expect(route.request().headers()["idempotency-key"]).toBeTruthy()
+      await pending
+      await route.fulfill({ status: 202, json: { state: "accepted" } })
+      accepted = true
+    } else {
+      reads++
+      await route.fulfill({ json: health })
+    }
+  })
+  try {
+    await page.goto("/")
+    await say(page, "/help")
+    await expect(page.getByText("Commands", { exact: true }).last()).toBeVisible()
+    await say(page, "/github")
+    const sync = page.locator(".sync").last()
+    await expect(sync).toHaveText("synced 40 s ago")
+    await expect(sync).toHaveAttribute("data-health", "fresh")
+    expect(posts).toBe(0)
+    expect(reads).toBeGreaterThan(0)
+    await page.clock.setFixedTime(base + 80_000)
+    await page.clock.runFor(1100)
+    await expect(sync).toHaveAttribute("data-health", "fresh")
+    await page.clock.setFixedTime(base + 81_000)
+    await page.clock.runFor(1100)
+    await expect(sync).toHaveAttribute("data-health", "stale")
+    await page.getByRole("button", { name: "Retry", exact: true }).last().press("Enter")
+    await expect.poll(() => posts).toBe(1)
+    await page.getByRole("button", { name: "Retry", exact: true }).last().press("Enter")
+    await say(page, "/help")
+    await expect(page.getByText("Commands", { exact: true }).last()).toBeVisible()
+    await expect(page.getByTestId("composer-input")).toBeEditable()
+    await expect(sync).toHaveAttribute("data-health", "stale")
+    await expect(page.getByRole("button", { name: "Confirm", exact: true })).toHaveCount(0)
+    await expect(page.getByText("Syncing GitHub", { exact: true }).last()).toBeVisible()
+    release()
+    await expect.poll(() => accepted).toBe(true)
+    await expect(sync).toHaveAttribute("data-health", "stale")
+    await expect(page.getByText("Syncing GitHub", { exact: true }).last()).toBeVisible()
+    health = { state: "fresh", last_success_at: new Date(base + 81_000).toISOString() }
+    await page.clock.runFor(10_100)
+    await expect(sync).toHaveAttribute("data-health", "fresh")
+    expect(posts).toBe(1)
+    await expect(page.getByText("Syncing GitHub", { exact: true })).toHaveCount(0)
+    health = { ...health, state: "refused", cause: "not_installed" }
+    await page.clock.runFor(10_100)
+    await expect(sync).toHaveAttribute("data-health", "refused")
+    await expect(sync).toContainText("GitHub App not installed")
+    await expect(page.getByRole("button", { name: "Retry", exact: true })).toHaveCount(0)
+  } finally { release() }
 })

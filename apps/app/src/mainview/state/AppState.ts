@@ -881,6 +881,7 @@ export const SessionSchema = z.object({
     state: z.enum(["requested", "completed", "failed"]), error: z.string().max(1024).optional()
   }).strict()).optional(),
   /* Wiki refreshes asked of a repository's stack (StackSeam.refreshWiki): each notice reconnects after a reload until the Wiki settles. */
+  githubSyncRequest: z.object({ id: z.string(), owner: z.string(), lastSuccessAt: z.string().nullable(), phase: z.enum(["requested", "running", "failed"]), error: z.string().optional() }).optional(),
   wikiRequests: z.array(z.object({ repo: z.string(), owner: z.string(), requestedAt: z.number() })).optional(),
 
   /** Optional so previously saved sessions still parse. */
@@ -1346,6 +1347,7 @@ export type AppTransition =
   /* Retired with the Librarian history flow (#2165): replayed journals still decode it; it changes nothing. */
   | { type: "librarian.launches.changed"; actor: Actor; launches: ReadonlyArray<unknown> }
   | { type: "coding.provider.requests.changed"; actor: Actor; requests: NonNullable<Session["codingProviderRequests"]> }
+  | { type: "github.sync.request.changed"; actor: Actor; request?: Session["githubSyncRequest"] }
   | { type: "stack.wiki.requests.changed"; actor: Actor; requests: NonNullable<Session["wikiRequests"]> }
   | { type: "wiki.saves.changed"; actor: Actor; requests: NonNullable<Session["wikiSaves"]> }
   | { type: "install.requests.changed"; actor: Actor; requests: NonNullable<Session["installRequests"]> }

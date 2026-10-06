@@ -84,3 +84,26 @@ test("an answer from before dispose or a newer read never publishes", async () =
   expect(seam.snapshots.get()).toBeUndefined()
   stop()
 })
+
+test("duplicate Retry input shares the pending admission; a failed admission can be retried", async () => {
+  let release!: (response: Response) => void
+  let posts = 0
+  const seam = createGitHubSyncSeam({ http: async (_path, init) => {
+    if (init?.method !== "POST") return Response.json(STALE)
+    posts++
+    return new Promise<Response>(done => { release = done })
+  }, pollMs: 60_000 })
+  try {
+    await seam.read()
+    const first = seam.retry(), duplicate = seam.retry()
+    expect(posts).toBe(1)
+    expect(seam.snapshots.get()).toEqual(STALE)
+    release(new Response(null, { status: 503 }))
+    expect(await first).toBe("Sync retry failed")
+    expect(await duplicate).toBe("Sync retry failed")
+    const next = seam.retry()
+    expect(posts).toBe(2)
+    release(Response.json({ state: "accepted" }, { status: 202 }))
+    expect(await next).toEqual({ value: "Sync requested" })
+  } finally { seam.dispose() }
+})

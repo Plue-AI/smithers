@@ -95,6 +95,7 @@ import { createStorageRecoveryController } from "./controller/storage-recovery"
 import type { TabsController } from "./controller/tabs"
 import { createTabsController } from "./controller/tabs"
 import { observeBackgroundWork } from "./controller/backgroundWork"
+import { createGitHubSyncRetry } from "./controller/githubSync"
 import { createPromptQueueController } from "./controller/promptQueue"
 import { createTurnController, type TurnController } from "./controller/turns"
 import { createFlowDurationsReader } from "./controller/flowDurations"
@@ -921,6 +922,7 @@ export const createAppController = (
   const design = createDesignWorld({ enabled: !installHost })
   ctx.onDispose(design.dispose)
   const gitHubSyncSeam = createGitHubSyncSeam({ http: installHost ? (path, init) => seamCtx.http(`${baseUrl.replace(/\/$/, "")}${path}`, init) : undefined })
+  const gitHubSyncRetry = createGitHubSyncRetry(ctx, gitHubSyncSeam)
   ctx.onDispose(gitHubSyncSeam.dispose)
   const homeView = installHost ? createHomeViewSeam({
     http: (path, init) => seamCtx.http(`${baseUrl.replace(/\/$/, "")}${path}`, init),
@@ -2234,7 +2236,7 @@ export const createAppController = (
     githubChooseInstallation: gitHubSeam.chooseInstallation,
     githubOpenInstall: gitHubSeam.openInstall,
     githubReconcile: gitHubSeam.reconcile,
-    retryGitHubSync: gitHubSyncSeam.retry,
+    retryGitHubSync: gitHubSyncRetry.retry,
     retryMirrorRef: gitHubSeam.retryMirrorRef,
     githubMirrorSync: gitHubSeam.mirrorSync,
     loadCloudSession,
@@ -2386,6 +2388,7 @@ export const createAppController = (
     if (card.loading) store.dispatch({ type: "card.upsert", actor: "system", card: { ...card, loading: false, status: "error", body: "Loading was interrupted. Open this view again to retry." } })
   }
 
+  gitHubSyncRetry.resume()
   triggersSeam.resumePauses()
   triggersSeam.resumePreparations()
   repoImportSeam.resume()
@@ -2404,6 +2407,7 @@ export const createAppController = (
     queueMicrotask(() => { if (!ctx.disposed) { conversationHistory.resume(); triggersSeam.resumePauses(); triggersSeam.resumePreparations() } })
     queueMicrotask(() => { if (!ctx.disposed) { secretsSeam.resumeSecretRequests(); egressSeam.resumeEgressRequests(); proposalSeam.resumeProposals() } })
     workflowController.resumeWorkflowRequests()
+    gitHubSyncRetry.resume()
     // Catalog recovery writes a card; leave the identity projection before dispatching it.
     repositoryReadiness.resume()
     repoImportSeam.resume()

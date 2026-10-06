@@ -65,15 +65,21 @@ export function createGitHubSyncSeam(options: GitHubSyncSeamOptions) {
    * `github.retry` on a host that serves the sync: every followed `main` is due now, and the row re-reads. Undefined
    * when this host serves no sync, so the caller takes its other door.
    */
-  const retry = async (): Promise<string | { readonly value: string } | undefined> => {
+  let pendingRetry: Promise<string | { readonly value: string }> | undefined
+  const retry = async (idempotencyKey = randomUuid()): Promise<string | { readonly value: string } | undefined> => {
     if (disposed || !options.http || health === undefined) return undefined
-    try {
-      const response = await options.http("/api/github/sync", { method: "POST", credentials: "same-origin",
-        headers: { "Content-Type": "application/json", "Idempotency-Key": randomUuid() } })
-      if (response.status !== 202) return "Sync retry failed"
-      void read()
-      return { value: "Sync requested" }
-    } catch { return "Sync retry failed" }
+    if (pendingRetry) return pendingRetry
+    const request = async (): Promise<string | { readonly value: string }> => {
+      try {
+        const response = await options.http!("/api/github/sync", { method: "POST", credentials: "same-origin",
+          headers: { "Content-Type": "application/json", "Idempotency-Key": idempotencyKey } })
+        if (response.status !== 202) return "Sync retry failed"
+        void read()
+        return { value: "Sync requested" }
+      } catch { return "Sync retry failed" }
+    }
+    pendingRetry = request()
+    try { return await pendingRetry } finally { pendingRetry = undefined }
   }
   const dispose = () => {
     disposed = true; ++generation
