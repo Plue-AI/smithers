@@ -108,7 +108,9 @@ in the existing receipt, with truncation disclosed.
 
 Command checks compare the exported tracked files before and after execution,
 including executable modes and symlink targets. A write, deletion or replacement
-fails with `check_modified_tree`, even on exit zero. Generated build outputs do
+fails with `check_modified_tree`, even on exit zero. The stack stops for a
+person's Retry even if a retained runtime labels this failure as a factory
+fault or reports only its checkpoint code. Generated build outputs do
 not change the candidate. The changed export is retained under
 `.jj/smithers-checks/modified-*/source`; formatting must happen before capture.
 This failure stops correction rather than starting a repair or reproposal cycle.

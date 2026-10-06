@@ -535,6 +535,9 @@ func TestMythicalRunOutcomeReadsTheTypedFault(t *testing.T) {
 	}{
 		{failed("factory", "coding/Error/fast_gate", "", ""), "failed: coding/Error/fast_gate"},
 		{failed("factory", "coding/Error/execution", "", ""), "failed: coding/Error/execution"},
+		{failed("factory", "coding/Error/check_modified_tree", "", ""), "stopped: user: coding/Error/check_modified_tree"},
+		{failed("", "", "", "check_modified_tree"), "stopped: user: coding/Error/check_modified_tree"},
+		{failed("user", "coding/Error/check_modified_tree", "", ""), "stopped: user: coding/Error/check_modified_tree"},
 		{failed("dependency", "coding/Error/unavailable", "", ""), "outage: dependency: coding/Error/unavailable"},
 		{failed("wait", "flows/model/ModelError/quota_exceeded", "", ""), "outage: wait: flows/model/ModelError/quota_exceeded"},
 		{failed("user", "flows/model/ModelError/authentication", "", ""), "stopped: user: flows/model/ModelError/authentication"},

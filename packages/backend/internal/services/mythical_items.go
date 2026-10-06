@@ -849,6 +849,13 @@ func mythicalFailedOutcome(update flowdispatch.ProjectionUpdate) string {
 	if run := update.Checkpoint.Run; run != nil && (run.Status == "interrupted" || run.Status == "uncertain" || run.FailureTag == "@smthrs/flow/IrreversibleRetryRequiresIdempotencyKey") {
 		return mythicalInterrupted
 	}
+	// Tree-writing checks require a person's Retry, even when a retained
+	// runtime classified the check as a factory fault or sent only its code.
+	// Replanning must not hide the check's preserved output (S13).
+	if update.Checkpoint.FailureCode == "check_modified_tree" ||
+		(update.Checkpoint.Run != nil && update.Checkpoint.Run.FailureTag == "coding/Error/check_modified_tree") {
+		return mythicalStopped + "user: coding/Error/check_modified_tree"
+	}
 	if code := strings.TrimSpace(update.Checkpoint.FailureCode); code == placementToolsMissing {
 		// The lane's box lacks a tool the repository declares: no machine
 		// here matches it until the owner fixes the environment.
