@@ -56,6 +56,20 @@ describe("MVP deferred manifest", () => {
       "balance", "billing-plans", "anonymous-ceiling", "repository-choice", "repo-update",
       "trigger-list", "sync-ops", "environment-images"
     ].sort())
+    const current = CardSchema.options.map(option => option.shape.kind.value)
+    for (const kind of manifest.deferred.flatMap(row => row.cardKinds)) {
+      expect(current).toContain(kind)
+      expect(LEGACY_CARD_KINDS).not.toContain(kind)
+    }
+    expect(manifest.deferred.flatMap(row => row.legacyCardKinds ?? [])).toEqual(["workflow-repo"])
+    for (const kind of manifest.deferred.flatMap(row => row.legacyCardKinds ?? [])) {
+      expect(LEGACY_CARD_KINDS).toContain(kind)
+      expect(current).not.toContain(kind)
+      expect(CardSchema.parse({ id: "saved-picker", title: "Repository", status: "active",
+        createdAt: 1, ordinal: 1, kind, payload: { intent: "create", repos: ["owner/repo"] } })).toMatchObject({
+        kind: "retired", status: "acted", payload: { was: kind }
+      })
+    }
     expect(manifest.deferred.flatMap(row => row.cliGroups ?? []).sort()).toEqual(["org", "triggers", "tui"])
     const cutNames = manifest.rows.flatMap(row => row.flowNames)
     const cutKinds = manifest.rows.flatMap(row => row.cardKinds)
