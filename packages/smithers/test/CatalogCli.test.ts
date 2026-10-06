@@ -180,6 +180,25 @@ describe("C-CAT-02 installed parser and descriptor dispatcher", () => {
       expect(f.seen).toHaveLength(1)
     } finally { await f.close() }
   })
+  it.each([
+    { state: "pending" },
+    { state: "pending", confirmation: null },
+    { state: "pending", confirmation: "" },
+    { state: "pending", confirmation: "   " },
+    { state: "pending", confirmation: 12 },
+    { confirmation: "confirm-1" },
+    { state: "requested", confirmation: "confirm-1" },
+    { state: "completed", confirmation: "confirm-1" }
+  ])("refuses malformed confirmation metadata without claiming success: %j", async receipt => {
+    const f = await fixture(202, receipt)
+    try {
+      const result = await f.invoke(["todo", "new", "--text", "Retry"])
+      expect(result.exitCode).toBe(1)
+      expect(JSON.parse(result.stdout)).toMatchObject({ code: "backend_protocol" })
+      expect(result.stdout).not.toContain("Waiting for")
+      expect(f.seen).toHaveLength(1)
+    } finally { await f.close() }
+  })
   it("uses the supplied request identity for retried TODO creation", async () => {
     const f = await fixture()
     try {
@@ -187,6 +206,16 @@ describe("C-CAT-02 installed parser and descriptor dispatcher", () => {
         expect((await f.invoke(["todo", "new", "--text", "Retry", "--idempotencyKey", "stable-create"])).exitCode).toBe(0)
       }
       expect(f.idempotencyKeys).toEqual(["stable-create", "stable-create"])
+    } finally { await f.close() }
+  })
+  it("preserves a supplied steering identity across retries without sending it as feedback", async () => {
+    const f = await fixture()
+    try {
+      for (let attempt = 0; attempt < 2; attempt++) {
+        expect((await f.invoke(["todo", "steer", "T1", "Use retries", "--idempotencyKey", "stable-steer"])).exitCode).toBe(0)
+      }
+      expect(f.idempotencyKeys).toEqual(["stable-steer", "stable-steer"])
+      expect(f.seen).toEqual([0, 1].map(() => ({ method: "POST", path: "/api/todos/1", body: { steer: "Use retries" }, via: "codex" })))
     } finally { await f.close() }
   })
   it("retains pending identity and uses an exit distinct from success or refusal", async () => {

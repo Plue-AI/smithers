@@ -148,8 +148,8 @@ export const mountCatalog = (cli: Cli.Cli<any, any, any, any>, runtime: Runtime)
             let result: unknown = text.trim() ? JSON.parse(text) : null
             if (row.name === "todo.answer") result = { todo: payload.n, wait: body.wait, ...object(result) }
             const receipt = object(result)
-            if (receipt.confirmation !== undefined && receipt.state === "pending") {
-              if (response.status !== 202 || typeof receipt.confirmation !== "string" || !receipt.confirmation) {
+            if (receipt.confirmation !== undefined || receipt.state === "pending") {
+              if (response.status !== 202 || receipt.state !== "pending" || typeof receipt.confirmation !== "string" || !receipt.confirmation.trim()) {
                 throw new Refused({ fault: "infra", code: "backend_protocol", message: "Invalid confirmation response" })
               }
               let person = "you"

@@ -1,6 +1,7 @@
 package compose
 
 import (
+	"context"
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
@@ -15,9 +16,12 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5/pgtype"
+	"github.com/smithersai/smithers/packages/backend/flowdispatch"
+	"github.com/smithersai/smithers/packages/backend/flowruntime"
 	"github.com/smithersai/smithers/packages/backend/internal/db"
 	"github.com/smithersai/smithers/packages/backend/internal/routes"
 	"github.com/smithersai/smithers/packages/backend/internal/services"
+	"github.com/smithersai/smithers/packages/backend/jobs"
 	"github.com/smithersai/smithers/packages/backend/testkit/postgresfixture"
 	"github.com/stretchr/testify/require"
 )
@@ -66,6 +70,18 @@ func TestCatalogCLIConfirmationsPostgres(t *testing.T) {
 	_, err = pool.Exec(ctx, `INSERT INTO mythical_stacks(repository_id,actor_user_id,state) VALUES($1,$2,'active')`, repo.ID, owner.ID)
 	require.NoError(t, err)
 	todos := services.NewMythicalService(pool, nil)
+	todos.EnableTodoSteering()
+	todos.SetTodoFlow(func(ctx context.Context, repositoryID int64, source string) (string, error) {
+		return services.ActiveFlowDigest(ctx, q, repositoryID, "todo")
+	})
+	receiver := &reviewFixtureReceiver{messages: map[string]flowruntime.Steer{}}
+	store, err := jobs.NewStore(pool)
+	require.NoError(t, err)
+	dispatcher, err := flowdispatch.New(flowdispatch.Config{Store: store, Resolver: flowruntime.ResolverFunc(func(context.Context, flowruntime.Target) (flowruntime.Runtime, error) {
+		return receiver, nil
+	}), SteerAuthorizer: todos, Projector: todos})
+	require.NoError(t, err)
+	todos.SetLauncher(dispatcher)
 	approvals := services.NewApprovalsService(q, services.WithConfirmationTodos(pool, todos))
 	router := githubAppSetupComposeRouter(cfg, pool, nil, routerExtras{Mythical: &routes.MythicalHandler{Service: todos}, Confirmations: approvals})
 	server.Config.Handler = router
@@ -132,6 +148,20 @@ console.log(JSON.stringify({ code, result: JSON.parse(stdout) }));`
 	var prompt string
 	require.NoError(t, pool.QueryRow(ctx, `SELECT number,issue_body FROM mythical_items`).Scan(&number, &prompt))
 	require.Equal(t, "Keep the exact delegated request", prompt)
+	// A delegated steer is immediate, durable feedback, not a confirmation.
+	code, receipt = invoke("todo", "steer", fmt.Sprintf("T%d", number), "Keep the same retry helper", "--idempotencyKey", "catalog-steer")
+	require.Equal(t, 0, code, receipt)
+	require.NotContains(t, receipt, "confirmation")
+	var feedback []byte
+	require.NoError(t, pool.QueryRow(ctx, `SELECT checks->'steers' FROM mythical_items WHERE number=$1`, number).Scan(&feedback))
+	var steers []map[string]any
+	require.NoError(t, json.Unmarshal(feedback, &steers))
+	require.Len(t, steers, 1)
+	require.Equal(t, "Keep the same retry helper", steers[0]["text"])
+	code, replay = invoke("todo", "steer", fmt.Sprintf("T%d", number), "Keep the same retry helper", "--idempotencyKey", "catalog-steer")
+	require.Equal(t, 0, code, replay)
+	require.NoError(t, pool.QueryRow(ctx, `SELECT jsonb_array_length(checks->'steers') FROM mythical_items WHERE number=$1`, number).Scan(&count))
+	require.Equal(t, 1, count, "replayed steering must not append feedback twice")
 	code, receipt = invoke("todo", "show", fmt.Sprintf("T%d", number))
 	require.Equal(t, 0, code, receipt)
 	code, receipt = invoke("todo", "drop", fmt.Sprintf("T%d", number))
