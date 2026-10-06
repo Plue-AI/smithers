@@ -112,6 +112,38 @@ describe("T-APP-03 settings command doors", () => {
       expect(h.controller.design.world().repo[field]).toBe(seeded)
     } finally { await h.controller.dispose() }
   })
+  test("T-STK-03 mounted Parallel control dispatches once and waits for the install receipt", async () => {
+    let resolve!: (response: Response) => void
+    const pending = new Promise<Response>(done => { resolve = done })
+    let reads = 0
+    const h = await harness(undefined, () => ++reads === 1 ? Response.json(installFixture()) : pending)
+    try {
+      await h.controller.commands.run("settings"); await tick()
+      const seeded = h.controller.design.world().repo.parallel
+      let props!: SettingsViewProps
+      const render = (owner = true) => renderToStaticMarkup(createElement(SettingsContainer, {
+        View: input => { props = input; return createElement(SettingsView, input) },
+        install: h.controller.installSnapshots, owner, origin: "http://localhost", view: { maximized: false }, onView: () => {},
+        dispatch: (name, payload, gesture) => h.controller.commands.submit({ name, payload: payload ?? {}, actor: "user", gesture })
+      }))
+      expect(render()).toContain('data-flow="settings.parallel"')
+      const onAction = props.onAction
+      onAction("settings.parallel", { value: "8" })
+      onAction("settings.parallel", { value: "8" }); await tick()
+      expect(h.requests.filter(request => request.method === "PUT")).toEqual([{ path: "/api/install", method: "PUT", body: '{"parallel":8}' }])
+      expect(h.controller.installSnapshots.get().model?.parallel).toBe(2)
+      // An unresolved setting write leaves unrelated chat commands usable.
+      expect((await h.controller.commands.run("settings")).status).toBe("executed")
+      resolve(Response.json({ ...installFixture(), parallel: 8 })); await tick()
+      render()
+      expect(h.controller.installSnapshots.get().model?.parallel).toBe(8)
+      expect(props.actions.find(action => action.tag === "settings.parallel")?.input?.[0]?.value).toBe("8")
+      expect(h.controller.design.world().repo.parallel).toBe(seeded)
+      expect(render(false)).toBe("")
+      await h.controller.commands.submit({ name: "settings.parallel", payload: { parallel: 1 }, actor: "agent" }); await tick()
+      expect(h.requests.filter(request => request.method === "PUT")).toHaveLength(1)
+    } finally { resolve(Response.json(installFixture())); await h.controller.dispose() }
+  })
   test("settings.address writes the seed while no install serves a model; nothing reaches /api/install", async () => {
     const h = await harness(undefined, () => Response.json({ code: "unavailable", class: "infra", message: "Install unavailable" }, { status: 503 }))
     try {
