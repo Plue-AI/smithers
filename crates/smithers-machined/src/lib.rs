@@ -14,6 +14,7 @@ pub mod outbox_store;
 pub mod rpc;
 pub mod session_stream;
 pub mod stream;
+pub mod transcript;
 
 pub mod attrib;
 pub mod events;
@@ -45,4 +46,3 @@ pub mod files;
 pub mod local;
 
 pub mod wiring;
-pub mod transcript;
