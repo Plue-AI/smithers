@@ -22,13 +22,18 @@ import (
 const setupTimeout = 2 * time.Minute
 
 // NewProductDatabase creates an isolated database with the product schema
-// that exists for the duration of the test.
-func NewProductDatabase(t testing.TB) (*pgxpool.Pool, string) {
+// that exists for the duration of the test. An optional capacity matches the
+// composition under test; absent it, pgx uses its default pool size.
+func NewProductDatabase(t testing.TB, maxConnections ...int32) (*pgxpool.Pool, string) {
 	t.Helper()
 	db := testdb.New(t)
 	ctx, cancel := context.WithTimeout(context.Background(), setupTimeout)
 	defer cancel()
-	pool, err := Open(ctx, db.URL, 0)
+	var capacity int32
+	if len(maxConnections) > 0 {
+		capacity = maxConnections[0]
+	}
+	pool, err := Open(ctx, db.URL, capacity)
 	if err != nil {
 		t.Fatal(err)
 	}

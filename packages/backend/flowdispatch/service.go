@@ -335,7 +335,7 @@ func (service *Service) CallRPC(ctx context.Context, target flowruntime.Target, 
 		return nil, err
 	}
 	var runtime flowruntime.Runtime
-	if procedure == "List" || procedure == "Projection.Snapshot" {
+	if procedure == "List" || procedure == "Projection.Snapshot" || strings.HasPrefix(procedure, "Branch.") {
 		reader, ok := service.resolver.(flowruntime.ExistingResolver)
 		if !ok {
 			return nil, errors.New("flow dispatch: runtime has no read-only resolver")

@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"sort"
 	"strings"
 	"time"
 
@@ -67,6 +68,8 @@ func (s *MythicalService) consumeGitHubPullTodos(ctx context.Context, tx pgx.Tx,
 		if err != nil {
 			return nil, err
 		}
+		// Containment notes follow the pre-fold stack order, not UUID order.
+		sort.SliceStable(items, func(i, j int) bool { return items[i].StackPosition.Int64 < items[j].StackPosition.Int64 })
 		for _, item := range items {
 			if !item.PRNumber.Valid || item.PRNumber.Int64 != pull.Number {
 				continue
@@ -108,13 +111,20 @@ func (s *MythicalService) consumeGitHubPullTodos(ctx context.Context, tx pgx.Tx,
 				if !fact.OnMain {
 					return nil, fmt.Errorf("waiting for mirrored main to contain %s", pull.MergeCommit)
 				}
-				// Missing retained containment provider cannot silently absorb earlier
-				// items. Keep this fetched delivery for its order-attention consumer.
+				fact.Manifest = checks.retainedManifest(pull.HeadSHA)
 				for _, earlier := range items {
 					if earlier.ID != item.ID && earlier.StackPosition.Valid && item.StackPosition.Valid && earlier.StackPosition.Int64 < item.StackPosition.Int64 && !mythicalSettledStates[earlier.State] {
-						return nil, &mythicalPRUnavailable{}
+						fact.Earlier = append(fact.Earlier, mythicalCandidateIdentity(earlier))
 					}
 				}
+				// Until durable stack attention and its merge fence are composed,
+				// retain this delivery before any transition or outbound effect.
+				// The shared decision now receives immutable head-bound proof;
+				// an attention provider must commit its fold with this receipt.
+				if decideGitHubFact(fact, mythicalGitHubFactItem{State: item.State, Head: item.PRHead}, s.now()).Attention != "" {
+					return nil, &mythicalPRUnavailable{}
+				}
+
 			case pull.State == "closed":
 				fact.Kind = "closed"
 			case mythicalDroppedPull(item) && pull.State == "open":

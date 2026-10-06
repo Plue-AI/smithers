@@ -14,11 +14,10 @@ export const namespace: Namespace = { id: "toast", label: "Toasts", summary: "No
 /** The `toast` flows registered as one aggregator block. */
 export const toastFlows = (actions: CommandActions): ReadonlyArray<FlowEntry> => [
   flow({
-    name: "notifications.allow",
+    name: "notifications.allow", agent: "never", minimumRole: "member", actors: ["person"], visibility: "in-card",
     summary: "Allow notifications",
     hidden: true,
-    userOnly: true,
-    userOnlyReason: "browser permission requires the person’s in-card gesture",
+    agentReason: "browser permission requires the person’s in-card gesture",
     input: NoPayload,
     handler: async (_payload, _signal, _call, gesture) => {
       if (!gesture?.notificationPermission) return "Browser notifications are unavailable."
@@ -29,8 +28,8 @@ export const toastFlows = (actions: CommandActions): ReadonlyArray<FlowEntry> =>
     name: "toast.dismiss",
     summary: "Dismiss a toast notification",
     hidden: true,
-    userOnly: true,
-    userOnlyReason: "dismissing a toast is the human's gesture",
+    agent: "never" as const,
+    agentReason: "dismissing a toast is the human's gesture",
     args: "<toastId>",
     input: Schema.Struct({ toastId: Schema.String }),
     handler: ({ toastId }) => {

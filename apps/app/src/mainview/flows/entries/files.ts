@@ -18,7 +18,7 @@ export const namespace: Namespace = { id: "files", label: "Files", summary: "Rea
 /** `files.list` and `files.read`. */
 export const filesFlows = (actions: CommandActions): ReadonlyArray<FlowEntry> => [
   ...(["file.reapply"] as const).map(name => flow({
-    name, summary: "Reapply unsaved edits",
+    name, visibility: "in-card", agent: "never", actors: ["person"], minimumRole: "member", summary: "Reapply unsaved edits",
     grammar: args => {
       const value = args?.trim() ?? ""
       if (!value) return { payload: {} }

@@ -22,12 +22,12 @@ pub fn dispatch(frame: &Frame, cx: &mut LockCx) -> Result<Frame, ProtocolError> 
     let hooks: Hooks = cx.hooks.clone();
     let result = match method {
         13 => {
-            // hook receives a schema-validated UTF-8 path
-            let n = u16::from_be_bytes(args[5..7].try_into().unwrap()) as usize;
-            hooks
-                .documents
-                .open(std::str::from_utf8(&args[7..7 + n]).map_err(|_| ProtocolError::BadUtf8)?)
-                .map(|s| conn::structure_bytes(&[conn::field(1, s.to_be_bytes())]))
+            let (path, actor) = conn::open_doc_args(args)?;
+            match actor {
+                Some(actor) => hooks.documents.open_authenticated(&path, &actor),
+                None => Err(crate::hooks::Error::unsupported()),
+            }
+            .map(|s| conn::structure_bytes(&[conn::field(1, s.to_be_bytes())]))
         }
         14 => hooks
             .documents

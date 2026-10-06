@@ -135,18 +135,27 @@ type AppTimelineSnapshot struct {
 }
 
 type Approval struct {
-	ID           string             `json:"id"`
-	SessionID    string             `json:"session_id"`
-	RepositoryID int64              `json:"repository_id"`
-	State        string             `json:"state"`
-	Kind         string             `json:"kind"`
-	Title        string             `json:"title"`
-	Description  pgtype.Text        `json:"description"`
-	CreatedAt    time.Time          `json:"created_at"`
-	DecidedAt    pgtype.Timestamptz `json:"decided_at"`
-	DecidedBy    pgtype.Int8        `json:"decided_by"`
-	ExpiresAt    pgtype.Timestamptz `json:"expires_at"`
-	Payload      json.RawMessage    `json:"payload"`
+	ID                 string             `json:"id"`
+	SessionID          string             `json:"session_id"`
+	RepositoryID       int64              `json:"repository_id"`
+	State              string             `json:"state"`
+	Kind               string             `json:"kind"`
+	Title              string             `json:"title"`
+	Description        pgtype.Text        `json:"description"`
+	CreatedAt          time.Time          `json:"created_at"`
+	DecidedAt          pgtype.Timestamptz `json:"decided_at"`
+	DecidedBy          pgtype.Int8        `json:"decided_by"`
+	ExpiresAt          pgtype.Timestamptz `json:"expires_at"`
+	Payload            json.RawMessage    `json:"payload"`
+	MemberID           pgtype.Int8        `json:"member_id"`
+	CredentialID       pgtype.Text        `json:"credential_id"`
+	Command            pgtype.Text        `json:"command"`
+	Subject            []byte             `json:"subject"`
+	Revision           pgtype.Text        `json:"revision"`
+	Generation         pgtype.Int8        `json:"generation"`
+	ReviewedHeadSha    pgtype.Text        `json:"reviewed_head_sha"`
+	DecisionCredential pgtype.Text        `json:"decision_credential"`
+	DecisionKey        pgtype.Text        `json:"decision_key"`
 }
 
 type AuditLog struct {
@@ -893,6 +902,7 @@ type GithubSyncedIssue struct {
 	GithubUpdatedAt pgtype.Timestamptz `json:"github_updated_at"`
 	CreatedAt       time.Time          `json:"created_at"`
 	UpdatedAt       time.Time          `json:"updated_at"`
+	RelatedFacts    json.RawMessage    `json:"related_facts"`
 }
 
 type GithubSyncedIssueComment struct {

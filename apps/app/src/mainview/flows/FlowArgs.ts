@@ -11,7 +11,7 @@ export interface FlowInput {
   readonly "docs": { readonly page?: string }
   readonly "docs.read": { readonly page: string }
   readonly "box.open": { readonly bookmark?: string; readonly repo: string; readonly kind?: "container" | "vm"; readonly snapshot?: string; readonly recoveryOf?: string }
-  readonly "flow.create": { readonly description: string; readonly repo: string }
+  readonly "flow.new": { readonly description: string; readonly repo: string }
   readonly "file.compare": { readonly path: string }
   readonly "file.restore-deleted": { readonly path: string }
   readonly "file.follow-rename": { readonly path: string }
@@ -179,7 +179,7 @@ const ENCODERS: { readonly [N in FlowWithInput]: (payload: Payload) => string } 
   "wiki.save": payload => JSON.stringify(payload),
   "file": payload => JSON.stringify(payload),
   "agent.model": payload => JSON.stringify(payload),
-  "flow.create": payload => JSON.stringify(payload),
+  "flow.new": payload => JSON.stringify(payload),
   "commits.read": payload => line(token(payload, "ref"), token(payload, "repo")),
   "runs.trace.view": payload => line(token(payload, "runId"), token(payload, "view")),
   "runs.trace.filter": payload => line(token(payload, "runId"), token(payload, "filter")),

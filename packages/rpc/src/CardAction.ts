@@ -7,7 +7,7 @@ import { z } from "zod"
 import type { TodoNewInputSchema as TodoCommandNewInputSchema } from "./TodoCommands.ts"
 import { ModelIdSchema } from "./AgentRoles.ts"
 import { type ModelRoleId, ModelRoleIdSchema, type NeedsYouKind, type TodoState } from "./CardPrimitives.ts"
-import { type CatalogTag, CatalogTagSchema } from "./catalog/index.ts"
+import { type CatalogTag, CatalogTagSchema } from "./CatalogTags.ts"
 import { ConfirmRevisionSchema } from "./ConfirmCard.ts"
 import { DraftIdSchema } from "./DraftCard.ts"
 import type { SetupStepId } from "./SetupCard.ts"
@@ -17,7 +17,7 @@ import type { ModelProtocol } from "./ConfiguredModel.ts"
  * @since 1.0.0
  * @category models
  */
-export type { CatalogTag } from "./catalog/index.ts"
+export type { CatalogTag } from "./CatalogTags.ts"
 
 /**
  * An action form field.

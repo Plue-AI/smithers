@@ -1,3 +1,4 @@
+import { installMigrationFixture } from './migration-fixture.mjs'
 import assert from "node:assert/strict"
 import { spawnSync } from "node:child_process"
 import { copyFileSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs"
@@ -7,7 +8,8 @@ import { test } from "node:test"
 
 const script = resolve(import.meta.dirname, "commit.mjs")
 const copyHygiene = (directory) => {
-  mkdirSync(join(directory, "scripts"))
+  installMigrationFixture(directory)
+  mkdirSync(join(directory, "scripts"), { recursive: true })
   copyFileSync(resolve(import.meta.dirname, "check-tracked-hygiene.mjs"), join(directory, "scripts/check-tracked-hygiene.mjs"))
 }
 const command = (cwd, bin, args) => spawnSync(bin, args, { cwd, encoding: "utf8" })
@@ -25,7 +27,7 @@ for (const vcs of ["git", "jj"]) {
       ok(directory, "git", ["init", "-b", "main"])
       ok(directory, "git", ["config", "user.name", "Commit test"])
       ok(directory, "git", ["config", "user.email", "test@example.com"])
-      writeFileSync(join(directory, ".gitignore"), ".env\n")
+      writeFileSync(join(directory, ".gitignore"), ".env\nnode_modules\n.flows/\n")
       ok(directory, "git", ["add", ".gitignore", "scripts/check-tracked-hygiene.mjs"])
       ok(directory, "git", ["commit", "-m", "initial"])
       ok(remote, "git", ["init", "--bare", "-b", "main"])

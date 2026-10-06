@@ -182,7 +182,7 @@ export const createTurnController = (
   const contextMessages = (): ReadonlyArray<AgentChatMessage> => {
     return [...store
       .agentContextSnapshot()
-      .messages.filter((message) => message.act === undefined && message.text.trim() !== "")
+      .messages.filter((message) => message.origin !== "external" && message.act === undefined && message.text.trim() !== "")
       .map((message) => ({
         role: message.role === "user" ? ("user" as const) : ("assistant" as const),
         content: message.text
@@ -340,7 +340,7 @@ export const createTurnController = (
         "Hold a streaming conversation in this chat and read its visible transcript.",
         "Run app commands through the \"commands\" tool — the same code path as the UI buttons and slash commands.",
         "Render structured cards (plans, approvals, statuses, recommendations) in the transcript.",
-        "Create, list, and run Smithers flows on the user's loaded repositories (flow.create, flow.list, flow.run). Runs report live as embedded cards in this chat.",
+        "Create, list, and run Smithers flows on the user's loaded repositories (flow.new, flow.list, flow.run). Runs report live as embedded cards in this chat.",
         ...(exploring === null
           ? []
           : [
@@ -630,7 +630,10 @@ export const createTurnController = (
      * there is no run for the model to misdescribe and its prose stands.
      */
     const launched = runLaunchCommandOf(call.name, call.args)
-    if (launched !== undefined && toolResultLaunchedRun(result)) turn.runLaunch = launched
+    if (launched !== undefined) {
+      if (toolResultLaunchedRun(result)) turn.runLaunch = launched
+      else if (result.includes("asked the user to confirm")) turn.runLaunch = `confirm:${launched}`
+    }
     store.dispatch({
       type: "toolcall.recorded",
       actor: "smithers",
@@ -1126,7 +1129,7 @@ export const createTurnController = (
       return "A response is still in progress — stop it first, then retry."
     }
     const last = [...store.collections.messages.values()]
-      .filter((message) => message.role === "user")
+      .filter((message) => message.role === "user" && message.origin !== "external")
       .sort((left, right) => right.ordinal - left.ordinal)[0]
     const turnId = last?.id.match(/^message-(.+)-user$/)?.[1]
     if (turnId === undefined) return "Nothing to retry yet — send a message first."

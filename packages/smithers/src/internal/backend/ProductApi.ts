@@ -628,7 +628,10 @@ export type Branch = {
     base: string
     item?: number
   }
-  machine: Record<string, unknown>
+  machine: {
+    wait_position?: number
+    [key: string]: unknown
+  }
 }
 
 export type TODOBranchDiff = {
@@ -698,7 +701,7 @@ export type FlowCard = {
   }>
 }
 
-/** Dark install-settings contract; no write route is served until settings, shared authority and catalog policy are composed. Settings retains the request; Home reports min(parallel, capacity), including zero. */
+/** Owner browser session setting, unavailable to agents. Settings retains the request; Home reports min(parallel, capacity), including zero. */
 export type InstallParallelSetting = {
   parallel: number
 }
@@ -1562,6 +1565,22 @@ export interface GetApiBranchFileInput {
 export const getApiBranchFile = (transport: Transport, input: GetApiBranchFileInput): Promise<GetApiBranchFileResponse> =>
   transport.request("GET", `/api/branches/${segment(input.path.b)}/files/${segment(input.path.path)}${search({ at: input.query?.at })}`) as Promise<GetApiBranchFileResponse>
 
+export type GetApiBranchesBFilesResponse = Array<{
+  name: string
+  path: string
+  type: string
+  size?: number
+}>
+
+export interface GetApiBranchesBFilesInput {
+  readonly path: { readonly b: string }
+  readonly query?: { readonly path?: string }
+}
+
+/** GET /api/branches/{b}/files: List branch files */
+export const getApiBranchesBFiles = (transport: Transport, input: GetApiBranchesBFilesInput): Promise<GetApiBranchesBFilesResponse> =>
+  transport.request("GET", `/api/branches/${segment(input.path.b)}/files${search({ path: input.query?.path })}`) as Promise<GetApiBranchesBFilesResponse>
+
 export type GetApiBuildCacheHealthzResponse = AnyJSON
 
 /** GET /api/build-cache/healthz */
@@ -1583,6 +1602,36 @@ export interface PostApiCommandsSelectInput {
 /** POST /api/commands/select */
 export const postApiCommandsSelect = (transport: Transport, input?: PostApiCommandsSelectInput): Promise<PostApiCommandsSelectResponse> =>
   transport.request("POST", `/api/commands/select`, input?.body) as Promise<PostApiCommandsSelectResponse>
+
+/** GET /api/confirmations: List your confirmations */
+export const getApiConfirmations = (transport: Transport): Promise<void> =>
+  transport.request("GET", `/api/confirmations`).then(() => undefined)
+
+export interface PostApiConfirmationsInput {
+  readonly headers: { readonly "Idempotency-Key": string }
+}
+
+/** POST /api/confirmations: Request a confirmation through delegated command dispatch */
+export const postApiConfirmations = (transport: Transport, input: PostApiConfirmationsInput): Promise<void> =>
+  transport.request("POST", `/api/confirmations`, undefined, { headers: { "Idempotency-Key": input.headers["Idempotency-Key"] } }).then(() => undefined)
+
+export interface PostApiConfirmationsIdApproveInput {
+  readonly path: { readonly id: string }
+  readonly headers: { readonly "Idempotency-Key": string }
+}
+
+/** POST /api/confirmations/{id}/approve: Approve your bound confirmation */
+export const postApiConfirmationsIdApprove = (transport: Transport, input: PostApiConfirmationsIdApproveInput): Promise<void> =>
+  transport.request("POST", `/api/confirmations/${segment(input.path.id)}/approve`, undefined, { headers: { "Idempotency-Key": input.headers["Idempotency-Key"] } }).then(() => undefined)
+
+export interface PostApiConfirmationsIdDenyInput {
+  readonly path: { readonly id: string }
+  readonly headers: { readonly "Idempotency-Key": string }
+}
+
+/** POST /api/confirmations/{id}/deny: Cancel your confirmation */
+export const postApiConfirmationsIdDeny = (transport: Transport, input: PostApiConfirmationsIdDenyInput): Promise<void> =>
+  transport.request("POST", `/api/confirmations/${segment(input.path.id)}/deny`, undefined, { headers: { "Idempotency-Key": input.headers["Idempotency-Key"] } }).then(() => undefined)
 
 export type GetApiFeatureFlagsResponse = AnyJSON
 
@@ -1753,6 +1802,18 @@ export type PostWebhooksGithubResponse = AnyJSON
 export const postWebhooksGithub = (transport: Transport): Promise<PostWebhooksGithubResponse> =>
   transport.request("POST", `/webhooks/github`) as Promise<PostWebhooksGithubResponse>
 
+export type GetApiInstallMetricsResponse = {
+  collected_at: string
+  clock: string
+  metrics: Array<Record<string, unknown>>
+  live_connections?: number
+  host?: Record<string, unknown>
+}
+
+/** GET /api/install/metrics: Read in-process install metrics */
+export const getApiInstallMetrics = (transport: Transport): Promise<GetApiInstallMetricsResponse> =>
+  transport.request("GET", `/api/install/metrics`) as Promise<GetApiInstallMetricsResponse>
+
 export type GetApiInstallScorecardResponse = InstallScorecard
 
 export interface GetApiInstallScorecardInput {
@@ -1769,7 +1830,7 @@ export type GetApiInstallResponse = InstallSetupStatus
 export const getApiInstall = (transport: Transport): Promise<GetApiInstallResponse> =>
   transport.request("GET", `/api/install`) as Promise<GetApiInstallResponse>
 
-export type PutApiInstallBody = (unknown | unknown) | (unknown | unknown)
+export type PutApiInstallBody = (unknown | unknown | unknown) | (unknown | unknown)
 
 export type PutApiInstallResponse = InstallSetupStatus
 
@@ -5309,6 +5370,14 @@ export const postApiRepoConnection = (transport: Transport): Promise<PostApiRepo
 /** DELETE /api/repo-connection */
 export const deleteApiRepoConnection = (transport: Transport): Promise<void> =>
   transport.request("DELETE", `/api/repo-connection`).then(() => undefined)
+
+export interface PostApiReviewsInput {
+  readonly headers: { readonly "Idempotency-Key": string }
+}
+
+/** POST /api/reviews: Request review of a GitHub pull request */
+export const postApiReviews = (transport: Transport, input: PostApiReviewsInput): Promise<void> =>
+  transport.request("POST", `/api/reviews`, undefined, { headers: { "Idempotency-Key": input.headers["Idempotency-Key"] } }).then(() => undefined)
 
 export type GetApiSearchCodeResponse = AnyJSON
 

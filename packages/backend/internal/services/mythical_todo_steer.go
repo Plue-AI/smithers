@@ -77,6 +77,15 @@ func (s *MythicalService) AuthorizeFlowSteer(ctx context.Context, request flowdi
 				break
 			}
 		}
+		if matched >= 0 && checks.Steers[matched].GitHubAuthor > 0 {
+			active, err := currentGitHubFeedbackAuthor(ctx, tx, item.RepositoryID, checks.Steers[matched])
+			if err != nil {
+				return mythicalFlowFailure{code: "steer_authorization_unavailable", retryable: true}
+			}
+			if !active {
+				return mythicalFlowFailure{code: "steer_author_revoked"}
+			}
+		}
 		if matched < 0 {
 			return refused
 		}
@@ -156,9 +165,8 @@ func todoSteerReady(item db.MythicalItem) bool {
 }
 
 // steerTodo joins feedback, activity and a bound run's Message intent in
-// the existing product transaction. Production leaves todoSteering false until
-// held-input delivery and ordered model-turn consumption have acceptance proof.
-// In particular, merely binding a launcher or a pinned flow cannot enable it.
+// the existing product transaction. The install composition selects steering;
+// absent pinned-run providers continue to refuse effective admission.
 func (s *MythicalService) steerTodo(ctx context.Context, number int64, input TodoControlInput) (TodoControlReceipt, error) {
 	return s.admitTodoFeedback(ctx, number, input, nil)
 }
@@ -169,7 +177,7 @@ func (s *MythicalService) admitTodoFeedback(ctx context.Context, number int64, i
 	if s == nil || !s.todoSteering || s.todoFlow == nil || s.store == nil {
 		return TodoControlReceipt{}, todoControlUnavailable()
 	}
-	steerer, ok := s.launcher.(mythicalSteerer)
+	_, ok := s.launcher.(mythicalSteerer)
 	if !ok {
 		return TodoControlReceipt{}, todoControlUnavailable()
 	}
@@ -290,16 +298,7 @@ func (s *MythicalService) admitTodoFeedback(ctx context.Context, number int64, i
 				if !stack.ActorUserID.Valid {
 					return todoControlUnavailable()
 				}
-				scope := jobs.Scope{TenantID: "repository:" + strconv.FormatInt(repository, 10), PrincipalID: "user:" + strconv.FormatInt(stack.ActorUserID.Int64, 10)}
-				authority, _ := json.Marshal(map[string]any{"repositoryId": repository, "userId": person.ID, "itemId": id, "input": feedback.ID, "by": todoActorRef(ctx, person)})
-				projection, _ := json.Marshal(map[string]any{"kind": "mythical-steer", "itemId": id, "input": feedback.ID})
-				_, err = steerer.SteerInTx(ctx, tx, flowdispatch.SteerRequest{
-					Scope: scope, RequestID: "todo-steer:" + feedback.ID,
-					Target: flowruntime.Target{TenantID: scope.TenantID, PrincipalID: scope.PrincipalID, WorkspaceID: saved.WorkspaceID, BindingKind: mythicalBindingKind, BindingID: id},
-					FlowID: "todo", RunID: saved.RequestRunID, MessageID: feedback.ID, CreatedAt: float64(now.UnixMilli()), Body: feedback.Text,
-					Attribution:          feedback.Attribution,
-					AuthorizationContext: authority, Projection: projection,
-				})
+				err = s.admitTodoSteerIntent(ctx, tx, stack, saved, feedback)
 				if err != nil {
 					return err
 				}
@@ -373,9 +372,23 @@ func prepareTodoSteer(ctx context.Context, item db.MythicalItem, input TodoContr
 			next.State, next.NextAttemptAt = "running", pgtype.Timestamptz{}
 		}
 	}
-	feedback := todoSteer{ID: uuid.NewString(), Request: input.Request, Credential: credential, Author: input.Actor, Text: *input.Steer, By: by, Attribution: maps.Clone(attribution), At: now, Attempt: attempt,
+	feedback := todoSteer{ID: uuid.NewString(), Request: input.Request, Credential: credential, Author: input.Actor, Text: *input.Steer, By: by, Attribution: maps.Clone(attribution), At: now.UTC(), Attempt: attempt,
 		ReleasePending: !deliver}
 	checks.Steers = append(checks.Steers, feedback)
 	next.Checks = checks.encode()
 	return next, feedback, deliver, false, nil
+}
+
+// All feedback sources share the same bound runtime intent and authority.
+func (s *MythicalService) admitTodoSteerIntent(ctx context.Context, tx pgx.Tx, stack db.MythicalStack, item db.MythicalItem, feedback todoSteer) error {
+	steerer, ok := s.launcher.(mythicalSteerer)
+	if !ok || !stack.ActorUserID.Valid {
+		return todoControlUnavailable()
+	}
+	id := uuidString(item.ID)
+	scope := jobs.Scope{TenantID: "repository:" + strconv.FormatInt(item.RepositoryID, 10), PrincipalID: "user:" + strconv.FormatInt(stack.ActorUserID.Int64, 10)}
+	authority, _ := json.Marshal(map[string]any{"repositoryId": item.RepositoryID, "userId": feedback.Author, "itemId": id, "input": feedback.ID, "by": feedback.Attribution})
+	projection, _ := json.Marshal(map[string]any{"kind": "mythical-steer", "itemId": id, "input": feedback.ID})
+	_, err := steerer.SteerInTx(ctx, tx, flowdispatch.SteerRequest{Scope: scope, RequestID: "todo-steer:" + feedback.ID, Target: flowruntime.Target{TenantID: scope.TenantID, PrincipalID: scope.PrincipalID, WorkspaceID: item.WorkspaceID, BindingKind: mythicalBindingKind, BindingID: id}, FlowID: flowdispatch.TodoFlow, RunID: item.RequestRunID, MessageID: feedback.ID, CreatedAt: float64(feedback.At.UnixMilli()), Body: feedback.Text, Attribution: feedback.Attribution, AuthorizationContext: authority, Projection: projection})
+	return err
 }

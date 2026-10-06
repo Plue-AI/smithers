@@ -209,7 +209,7 @@ describe("wave 12 §1 — the model may not narrate run state", () => {
           name: "commands",
           arguments: JSON.stringify({
             action: "execute",
-            name: "flow.create",
+            name: "flow.new",
             args: "a workflow that summarizes my open issues"
           })
         },
@@ -231,10 +231,10 @@ describe("wave 12 §1 — the model may not narrate run state", () => {
     expect(rendered).not.toContain("has been created")
     expect(rendered).not.toContain("summarize-open-issues")
     // What IS on screen: the deterministic line, and the card beside it.
-    expect(rendered).toContain("Run requested.")
-    expect(runCard(store)).toBeDefined()
+    expect(rendered).toContain("Waiting for you to confirm.")
+    expect(runCard(store)).toBeUndefined()
     // The act line names the run the CLIENT started, from the machine ack.
-    expect(rendered).toContain(`Smithers requested a create-flow run on ${REPO}`)
+    expect(rendered).toContain("Smithers asked for confirmation of /flow.new")
   })
 
   test("prose that claims nothing about the run is rendered untouched", async () => {
@@ -246,7 +246,7 @@ describe("wave 12 §1 — the model may not narrate run state", () => {
           type: "tool_call" as const,
           call_id: "call_1",
           name: "commands",
-          arguments: JSON.stringify({ action: "execute", name: "flow.create", args: "summarize my issues" })
+          arguments: JSON.stringify({ action: "execute", name: "flow.new", args: "summarize my issues" })
         },
         { type: "done" as const, reason: "tool_call" as const }
       ],
@@ -269,7 +269,7 @@ describe("wave 12 §1 — the model may not narrate run state", () => {
 
   test("a slash-prefixed launch arms the gate exactly like the bare spelling", async () => {
     // ui-state-store/api-design/1: the tool schema accepts the catalog's
-    // "/flow.create"; execution launched from it while the classifier read
+    // "/flow.new"; execution launched from it while the classifier read
     // the raw name and left the claim gate unarmed, so the lie rendered.
     const store = await webStore()
     const double = relay()
@@ -279,7 +279,7 @@ describe("wave 12 §1 — the model may not narrate run state", () => {
           type: "tool_call" as const,
           call_id: "call_1",
           name: "commands",
-          arguments: JSON.stringify({ action: "execute", name: " /flow.create ", args: "summarize my issues" })
+          arguments: JSON.stringify({ action: "execute", name: " /flow.new ", args: "summarize my issues" })
         },
         { type: "done" as const, reason: "tool_call" as const }
       ],
@@ -295,9 +295,9 @@ describe("wave 12 §1 — the model may not narrate run state", () => {
     await settle(30)
     const rendered = transcript(store)
     expect(rendered).not.toContain("has been created")
-    expect(rendered).toContain("Run requested.")
-    expect(rendered).toContain(`Smithers requested a create-flow run on ${REPO}`)
-    expect(runCard(store)).toBeDefined()
+    expect(rendered).toContain("Waiting for you to confirm.")
+    expect(rendered).toContain("Smithers asked for confirmation of /flow.new")
+    expect(runCard(store)).toBeUndefined()
   })
 
   test("a preamble before the tool call is covered too — half a suppressed claim is still a claim", async () => {
@@ -310,7 +310,7 @@ describe("wave 12 §1 — the model may not narrate run state", () => {
           type: "tool_call" as const,
           call_id: "call_1",
           name: "commands",
-          arguments: JSON.stringify({ action: "execute", name: "flow.create", args: "summarize my issues" })
+          arguments: JSON.stringify({ action: "execute", name: "flow.new", args: "summarize my issues" })
         },
         { type: "done" as const, reason: "tool_call" as const }
       ],
@@ -322,7 +322,7 @@ describe("wave 12 §1 — the model may not narrate run state", () => {
     controller.send("make me a workflow")
     await settle(30)
     expect(transcript(store)).not.toContain("Creating that workflow for you now")
-    expect(transcript(store)).toContain("Run requested.")
+    expect(transcript(store)).toContain("Waiting for you to confirm.")
   })
 
   test("an unknown remote flow is requested, then its recorded refusal appears on the card", async () => {
@@ -379,7 +379,7 @@ describe("wave 12 §1 — the model may not narrate run state", () => {
           type: "tool_call" as const,
           call_id: "call_1",
           name: "commands",
-          arguments: JSON.stringify({ action: "execute", name: "flow.create", args: "summarize my issues" })
+          arguments: JSON.stringify({ action: "execute", name: "flow.new", args: "summarize my issues" })
         },
         { type: "done" as const, reason: "tool_call" as const }
       ],
@@ -395,7 +395,7 @@ describe("wave 12 §1 — the model may not narrate run state", () => {
     await waitFor(() => store.session().phase === "idle")
     expect(store.session().phase).toBe("idle")
     // The launch itself still happened and is stated by the client.
-    expect(transcript(store)).toContain("Smithers requested a create-flow run")
+    expect(transcript(store)).toContain("Smithers asked for confirmation of /flow.new")
   })
 
   test("a turn stopped mid-flight does not leave a claiming preamble standing (review)", async () => {
@@ -414,7 +414,7 @@ describe("wave 12 §1 — the model may not narrate run state", () => {
           type: "tool_call" as const,
           call_id: "call_1",
           name: "commands",
-          arguments: JSON.stringify({ action: "execute", name: "flow.create", args: "summarize my issues" })
+          arguments: JSON.stringify({ action: "execute", name: "flow.new", args: "summarize my issues" })
         },
         { type: "done" as const, reason: "tool_call" as const }
       ],
@@ -425,12 +425,13 @@ describe("wave 12 §1 — the model may not narrate run state", () => {
     await signIn(store)
 
     controller.send("make me a workflow")
-    await waitFor(() => runCard(store) !== undefined)
+    await waitFor(() => [...store.collections.messages.values()].some(message => message.action?.flow === "flow.new"))
+    expect(runCard(store)).toBeUndefined()
     controller.stop()
     await settle(4)
 
     expect(transcript(store)).not.toContain("has been created")
-    expect(transcript(store)).toContain("Run requested.")
+    expect(transcript(store)).toContain("Waiting for you to confirm.")
     expect(store.session().phase).toBe("idle")
   })
 
@@ -439,15 +440,15 @@ describe("wave 12 §1 — the model may not narrate run state", () => {
     expect(claimsRunState("The workflow is ready for you.")).toBe(true)
     expect(claimsRunState("It should be done shortly.")).toBe(true)
     expect(claimsRunState("Approvals go to you, never to me.")).toBe(false)
-    expect(renderedRunTurnText("flow.create", WAVE11_LIE)).toBe(
+    expect(renderedRunTurnText("flow.new", WAVE11_LIE)).toBe(
       "Run requested."
     )
     expect(
-      runLaunchCommandOf("commands", JSON.stringify({ action: "execute", name: "flow.create", args: "x" }))
-    ).toBe("flow.create")
+      runLaunchCommandOf("commands", JSON.stringify({ action: "execute", name: "flow.new", args: "x" }))
+    ).toBe("flow.new")
     expect(
-      runLaunchCommandOf("commands", JSON.stringify({ action: "execute", name: "/flow.create", args: "x" }))
-    ).toBe("flow.create")
+      runLaunchCommandOf("commands", JSON.stringify({ action: "execute", name: "/flow.new", args: "x" }))
+    ).toBe("flow.new")
     expect(runLaunchCommandOf("commands", JSON.stringify({ action: "execute", name: "world" }))).toBeUndefined()
     expect(runLaunchCommandOf("commands", "not json")).toBeUndefined()
     expect(toolResultLaunchedRun("run-started workflow=create-flow run=r1 repo=o/r")).toBe(true)
@@ -455,14 +456,14 @@ describe("wave 12 §1 — the model may not narrate run state", () => {
   })
 })
 
-describe("wave 12 §2 — flow.create asks WHICH loaded repo", () => {
+describe("wave 12 §2 — flow.new asks WHICH loaded repo", () => {
   test("one loaded repo is not a question", async () => {
     const store = await webStore()
     const double = relay()
     const controller = createAppController(store, silentAgent, double.services)
     await signIn(store, [REPO])
 
-    const outcome = await controller.commands.run("flow.create", "summarize my issues")
+    const outcome = await controller.commands.run("flow.new", "summarize my issues")
     /* The door SAVES the request and answers; the launch rides the background (AGENTS.md instant chat). */
     expect(said(outcome)).toContain(`flow-requested repo=${REPO}`)
     expect(store.collections.cards.get("workflow-repo")).toBeUndefined()
@@ -476,7 +477,7 @@ describe("wave 12 §2 — flow.create asks WHICH loaded repo", () => {
     const controller = createAppController(store, silentAgent, double.services)
     await signIn(store, [REPO, OTHER_REPO])
 
-    const outcome = await controller.commands.run("flow.create", `summarize my open issues ${OTHER_REPO}`)
+    const outcome = await controller.commands.run("flow.new", `summarize my open issues ${OTHER_REPO}`)
     expect(said(outcome)).toContain(`repo=${OTHER_REPO}`)
     // The repo token is the target, NOT part of the description.
     await waitFor(() => double.state.launched.length > 0)
@@ -494,11 +495,11 @@ describe("wave 12 §2 — flow.create asks WHICH loaded repo", () => {
     const controller = createAppController(store, silentAgent, double.services)
     await signIn(store, [REPO, OTHER_REPO])
 
-    const asked = await controller.commands.run("flow.create", "summarize my open issues")
+    const asked = await controller.commands.run("flow.new", "summarize my open issues")
     expect(said(asked)).toContain("2 repositories")
     /*
      * Review pass: a QUESTION is not a failure. Live on canary the transcript
-     * read "Smithers tried /flow.create — failed: You have 3
+     * read "Smithers tried /flow.new — failed: You have 3
      * repositories…" beside the card that had just asked, correctly, which one.
      */
     expect(asked.status).toBe("executed")
@@ -552,7 +553,7 @@ describe("wave 12 §2 — flow.create asks WHICH loaded repo", () => {
     const controller = createAppController(store, silentAgent, double.services)
     await signIn(store, [REPO, OTHER_REPO])
 
-    await controller.commands.run("flow.create", "summarize my open issues")
+    await controller.commands.run("flow.new", "summarize my open issues")
     expect(store.collections.cards.get("workflow-repo")).toBeDefined()
 
     const refused = await controller.commands.executeForAgent({
@@ -584,7 +585,7 @@ describe("wave 12 §2 — flow.create asks WHICH loaded repo", () => {
       arguments: JSON.stringify({ action: "list" })
     })
     expect(listed).not.toContain("flow.repo.choose")
-    expect(listed).not.toContain("flow.run.stop")
+    expect(listed).toContain("flow.run.stop")
   })
 })
 

@@ -28,7 +28,8 @@ type LiveHandler struct {
 	Origins func() []string
 	// Topics answers the request's topic resolver; repository is the
 	// install's repository id, or 0 before setup binds one.
-	Topics func(r *http.Request) (resolve live.Resolver, repository int64)
+	Topics   func(r *http.Request) (resolve live.Resolver, repository int64)
+	Presence func(r *http.Request, repository int64) live.PresenceSession
 }
 
 func liveRefusal(w http.ResponseWriter, status int, class, code, message string) {
@@ -108,11 +109,25 @@ func (h *LiveHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 	// The Origin was checked against the effective origin above, which a
 	// loopback proxy's X-Forwarded-Host may name instead of Host.
+	if events == nil {
+		original := resolve
+		resolve = func(ctx context.Context, topic string) (live.Source, string) {
+			if strings.HasPrefix(topic, "branch:") {
+				return live.Source{}, live.Unsupported
+			}
+			return original(ctx, topic)
+		}
+	}
 	conn, err := websocket.Accept(w, r, &websocket.AcceptOptions{Subprotocols: []string{live.Protocol}, InsecureSkipVerify: true})
 	if err != nil {
 		return
 	}
 	defer conn.CloseNow()
+	var presence live.PresenceSession
+	if h.Presence != nil && events != nil {
+		presence = h.Presence(r, repository)
+	}
+
 	if events != nil {
 		go func() {
 			select {
@@ -120,6 +135,9 @@ func (h *LiveHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			case _, ok := <-events:
 				if ok {
 					close(revoked)
+					if presence.Close != nil {
+						presence.Close()
+					}
 					// Send the reason before canceling the reader: canceling
 					// websocket.Read first forcibly closes the transport.
 					_ = conn.Close(websocket.StatusPolicyViolation, "access revoked")
@@ -128,7 +146,7 @@ func (h *LiveHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			}
 		}()
 	}
-	h.Hub.Serve(ctx, conn, resolve)
+	h.Hub.Serve(ctx, conn, resolve, presence)
 	select {
 	case <-revoked:
 		_ = conn.Close(websocket.StatusPolicyViolation, "access revoked")

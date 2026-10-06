@@ -6,6 +6,7 @@ import { request } from "node:http"
 import { isIP } from "node:net"
 import { homedir } from "node:os"
 import { dirname, isAbsolute, join, resolve } from "node:path"
+import { Refused } from "../../CliError.ts"
 
 export const label = "sh.smithers.host"
 export const stateDirectory = (home = homedir()) => join(home, "Library", "Application Support", "Smithers")
@@ -155,6 +156,32 @@ export const installedBundle = (system: Launchd): string => {
   const executable = text.match(/<key>ProgramArguments<\/key>\s*<array>\s*<string>([^<]+)<\/string>/)?.[1]
   if (!executable) throw new Error("Installed host bundle path unavailable")
   return dirname(dirname(executable.replaceAll("&quot;", '\"').replaceAll("&gt;", ">").replaceAll("&lt;", "<").replaceAll("&amp;", "&")))
+}
+
+/** Maintenance runs only the verified installed backend, with an inert environment.
+ * It must not borrow a repository executable, login token or shell hook.
+ */
+export const maintenance = (operation: "backup" | "upgrade" | "restore", directory?: string) => {
+  const system = launchd()
+  if (operation === "restore" && loaded(system)) {
+    throw new Refused({ fault: "infra", code: "install_running", message: "Restore refuses a running install; run smthrs host stop first" })
+  }
+  if (operation === "restore" && !directory?.trim()) {
+    throw new Refused({ fault: "user", code: "invalid_backup", message: "Backup directory is required" })
+  }
+  // stop removes the plist. Recovery must still find the current Homebrew keg.
+  const bundle = verifyBundle(existsSync(plistFile(system)) ? installedBundle(system) : resolveBundle()).bundle
+  const result = spawnSync(join(bundle, "bin/smithers-backend"), ["host-maintenance", operation,
+    ...(directory === undefined ? [] : [resolve(directory)])], {
+    encoding: "utf8", timeout: 120_000, maxBuffer: 65536,
+    env: { HOME: homedir(), PATH: `${bundle}/bin:/usr/bin:/bin:/usr/sbin:/sbin` }
+  })
+  if (result.status !== 0) {
+    const message = result.stderr?.trim() || "Host maintenance backend did not answer"
+    const code = message.match(/^([a-z_]+):/)?.[1] ?? "host_maintenance_failed"
+    throw new Refused({ fault: "infra", code, message })
+  }
+  return JSON.parse(result.stdout)
 }
 /**
  * true when the host is ready; while it starts, the starting page's step

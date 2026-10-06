@@ -57,3 +57,13 @@ func (s *WorkspaceService) authorizeBranchFileRead(ctx context.Context, row db.W
 	}
 	return p.LaneBinding(ctx, tx, row.RepositoryID, row.TargetBookmark, row.ID)
 }
+
+// PresenceBranch resolves a branch under the same membership, lane and branch
+// authorizer as file reads. Presence metadata never opens a guest file or wakes it.
+func (s *WorkspaceService) PresenceBranch(ctx context.Context, branch string, repositoryID, userID int64) (db.Workspace, error) {
+	row, err := s.branchFileWorkspace(ctx, branch, repositoryID, userID)
+	if err != nil {
+		return row, err
+	}
+	return row, s.authorizeBranchFileRead(ctx, row, userID)
+}

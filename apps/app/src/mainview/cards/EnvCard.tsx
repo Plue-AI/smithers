@@ -42,7 +42,7 @@ export const EnvCardBody = ({
       ) :
       null}
     {card.payload.setupScript !== null ? <pre className="world-card-path">{card.payload.setupScript}</pre> : null}
-    <Button size="sm" {...flowAction(onRunCommand, "secrets.list", card.payload.repo)}>Secrets</Button>
+    <Button size="sm" {...flowAction(onRunCommand, "secrets", card.payload.repo)}>Secrets</Button>
   </div>
 )
 

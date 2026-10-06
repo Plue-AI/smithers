@@ -80,7 +80,7 @@ test("/ssh hands back the branch's SSH line", async () => {
 test("Fork opens a scratch branch; Add to stack places it after the item it came from", async () => {
   const h = await boot()
   try {
-    expect((await submit(h, "branch.fork", { name: "retry-webhooks" })).status).toBe("executed")
+    expect((await submit(h, "branch.fork", { from: "T9" })).status).toBe("executed")
     const fork = h.controller.design.world().branches.find(each => each.name === "maya/retry-webhooks")!
     expect(fork.from).toBe("b-retry")
     expect(fork.item).toBeUndefined()
@@ -98,7 +98,7 @@ test("Fork opens a scratch branch; Add to stack places it after the item it came
 test("A✓: the agent's Add to stack asks for the person's press and commits nothing; the press commits it", async () => {
   const h = await boot()
   try {
-    await submit(h, "branch.fork", { name: "retry-webhooks" })
+    await submit(h, "branch.fork", { from: "T9" })
     const fork = h.controller.design.world().branches.find(each => each.name === "maya/retry-webhooks")!
     const item = () => h.controller.design.world().branches.find(each => each.id === fork.id)?.item
     expect(await h.controller.commands.runForAgent("branch.add-to-stack", fork.id)).toMatchObject({ status: "executed", value: expect.stringContaining("asked the user to confirm") })
@@ -121,7 +121,7 @@ test("install live dispatcher refuses absent Branch and Terminal providers befor
       ["terminal.send", { id: "term-retry-1", command: "bad" }, "Terminal unavailable"],
       ["branch", { name: "retry-webhooks" }, "Branch unavailable"],
       ["branch.rebase", { branch: "b-retry" }, "Branch unavailable"],
-      ["branch.fork", { name: "b-retry" }, "Branch unavailable"]
+      ["branch.fork", { from: "T9" }, "Branch unavailable"]
     ] as const) {
       expect(await submit(h, name, payload)).toMatchObject({ status: "failed", error })
     }
@@ -140,7 +140,7 @@ test("bootstrap and an unanswered live channel keep seeded Home branch doors ava
   try {
     expect(await controller.submitCommand({ name: "branch", payload: { name: "T9" }, actor: "user" })).toMatchObject({ status: "executed" })
     expect(store.collections.cards.get("branch:b-retry")).toMatchObject({ kind: "branch", title: "retry-webhooks" })
-    expect(await controller.submitCommand({ name: "branch.fork", payload: { name: "T10" }, actor: "user" })).toMatchObject({ status: "executed" })
+    expect(await controller.submitCommand({ name: "branch.fork", payload: { from: "T10" }, actor: "user" })).toMatchObject({ status: "executed" })
     const scratch = controller.design.world().branches.find(branch => branch.from === "b-checkout" && branch.item === undefined)!
     expect(scratch).toBeDefined()
     expect(await controller.submitCommand({ name: "branch.add-to-stack", payload: { branch: scratch.id }, actor: "user" })).toMatchObject({ status: "executed" })
@@ -170,6 +170,8 @@ test("On an install Fork is POST /api/branches {from, name}: the value is the ne
     expect(await controller.submitCommand({ name: "branch.fork", payload: { from: "T2", name: "try-retry" }, actor: "user" })).toEqual({ status: "executed", value: "scratch/ben/try-retry" })
     expect(await controller.runCommandForResult("branch.fork", "T2")).toMatchObject({ status: "executed", value: "scratch/ben/fork-t2" })
     expect((await controller.submitCommand({ name: "branch.fork", payload: { from: "T9" }, actor: "user" })).status).toBe("failed")
+    // A name is never a substitute for the required source; no HTTP mutation.
+    expect(await controller.submitCommand({ name: "branch.fork", payload: { name: "T2" }, actor: "user" })).toMatchObject({ status: "form", fields: ["from"] })
     expect(posts.map(post => post.body)).toEqual([{ from: "T2", name: "try-retry" }, { from: "T2" }, { from: "T9" }])
     expect(posts.every(post => post.key !== null && post.key.length > 0)).toBe(true)
     // The seeded world is off on an install: nothing forked there.

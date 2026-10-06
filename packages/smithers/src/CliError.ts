@@ -124,6 +124,7 @@ export type Fault = (typeof FAULTS)[number]
  */
 export class Refused extends Schema.TaggedError<Refused>()("/cli/Refused", {
   fault: Schema.Literals(FAULTS),
+  class: Schema.optionalKey(Schema.Literals(["user", "permission", "capacity", "github", "infra", "conflict", "never"])),
   code: Schema.String,
   message: Schema.String,
   /** The HTTP response's status, when this refusal came from HTTP. Older records omit it. */

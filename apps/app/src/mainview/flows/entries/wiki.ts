@@ -59,8 +59,8 @@ export const wikiFlows = (actions: CommandActions): ReadonlyArray<FlowEntry> =>
     "wiki.attach": ({ path, repo }, _signal, _call, gesture) => actions.attachCloudWiki(path ?? "", repo, gesture),
     "wiki.pane": () => actions.showWikiPane()
   }), flow({
-    name: "wiki.save", summary: "Save this answer as a page", args: "<name>",
-    input: Schema.Struct({ name: Schema.NonEmptyString, text: Schema.optional(Schema.String) }),
+    name: "wiki.save",  slash: "/wiki.save", cli: ["wiki","save"], journey: ["J9"], group: "Wiki", visibility: "core", actors: ["person","app_agent","external_agent"], minimumRole: "member", http: null, summary: "Save this answer as a page", args: "<name>",
+    agent: "run", input: Schema.Struct({ name: Schema.NonEmptyString, text: Schema.optional(Schema.String) }),
     grammar: args => {
       if (!args?.trim().startsWith("{")) return { payload: args?.trim() ? { name: args.trim() } : {} }
       try {

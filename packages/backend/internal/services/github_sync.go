@@ -231,7 +231,7 @@ func (g requiredGitHubSyncStreams) providers() []GitHubSyncStreams {
 
 func (g requiredGitHubSyncStreams) RequiredStreams(ctx context.Context) ([]GitHubSyncStream, error) {
 	var result []GitHubSyncStream
-	for _, p := range g.providers() {
+	for index, p := range g.providers() {
 		if p == nil {
 			// Missing downstream owners are stale observations, not admission gates
 			// for independently qualified streams.
@@ -242,7 +242,18 @@ func (g requiredGitHubSyncStreams) RequiredStreams(ctx context.Context) ([]GitHu
 		if err != nil {
 			return nil, err
 		}
-		result = append(result, observations...)
+		// Permission reads are hourly (§12.2), outside the required freshness
+		// streams (§12.2.3). Preserve unread authority, refusals and pauses;
+		// a successful roster read must not expire the faster sync streams.
+		if index == 4 {
+			for _, observation := range observations {
+				if observation.LastSuccessAt == nil || observation.Cause == "permission" || observation.Cause == "not_installed" || observation.RetryAt != nil {
+					result = append(result, observation)
+				}
+			}
+		} else {
+			result = append(result, observations...)
+		}
 	}
 	return result, nil
 }

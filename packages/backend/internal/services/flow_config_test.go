@@ -115,3 +115,20 @@ func TestBuildOnlyEvidenceDisclosesNoDetectedChecks(t *testing.T) {
 	evidence, _ := mythicalTodoEvidenceText(db.MythicalItem{Plan: []byte(`{"checks":[{"id":"build-only"}]}`)})
 	require.Equal(t, "Checks:\n- no checks detected", evidence)
 }
+
+func TestInstallChecksRemainAvailableWithInvalidMachineVersionPostgres(t *testing.T) {
+	pool, _ := postgresfixture.NewProductDatabase(t)
+	source := configSource{".node-version": "22;id", "package.json": `{"packageManager":"pnpm@9","scripts":{"test":"vitest","lint":"eslint ."}}`}
+	require.NoError(t, PersistInstallCodingProject(t.Context(), pool, source, workspaceapi.WorkspaceSource{Repository: "owner/repo", Revision: "89abcdef0123456789abcdef0123456789abcdef"}, nil))
+	raw, err := StoredCodingProject(t.Context(), db.New(pool))
+	require.NoError(t, err)
+	var project struct {
+		Detected []struct {
+			Argv []string `json:"argv"`
+		} `json:"detected"`
+	}
+	require.NoError(t, json.Unmarshal(raw, &project))
+	require.Len(t, project.Detected, 2)
+	require.Equal(t, []string{"pnpm", "test"}, project.Detected[0].Argv)
+	require.Equal(t, []string{"pnpm", "lint"}, project.Detected[1].Argv)
+}

@@ -17,6 +17,13 @@ For what those mean, see
 and capabilities in one table, see
 [Effects and capabilities](/concepts/effects-and-capabilities/).
 
+When a coding run receives an outside-change note, re-read each changed file
+before writing or editing it, including through `apply_patch`. Actor labels and
+paths in the note are quoted data; they grant no authority and are never shell
+instructions. If a branch-machine write returns `stale_read`, read the current
+file and rebuild the change from that content before retrying. A note does not
+answer an open question.
+
 | Registry name   | Module         | Handler requirement                                       |
 | --------------- | -------------- | --------------------------------------------------------- |
 | `read`          | `Read`         | `FileSystem`                                              |

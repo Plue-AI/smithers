@@ -20,7 +20,7 @@ export const formFlows = (actions: CommandActions, invocation?: AgentInvocation)
    * agent like every hidden act.
    */
   flow({
-    name: "form.set",
+    name: "form.set", visibility: "in-card",
     summary: "Set one field of a form card",
     hidden: true,
     args: "<cardId> <field> [value]",
@@ -28,7 +28,7 @@ export const formFlows = (actions: CommandActions, invocation?: AgentInvocation)
     handler: ({ cardId, field, value }) => actions.setFormField(cardId, field, value)
   }),
   flow({
-    name: "form.submit",
+    name: "form.submit", visibility: "in-card",
     summary: "Submit a form card: run its flow with the fields filled in",
     hidden: true,
     args: "<cardId>",

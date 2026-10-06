@@ -1,0 +1,219 @@
+{
+  "commands": [
+    {
+      "path": "search",
+      "agent": "run"
+    },
+    {
+      "path": "stack",
+      "agent": "run"
+    },
+    {
+      "path": "todo new",
+      "agent": "confirm"
+    },
+    {
+      "path": "todo from-issue",
+      "agent": "confirm"
+    },
+    {
+      "path": "todo show",
+      "agent": "run"
+    },
+    {
+      "path": "todo answer",
+      "agent": "run"
+    },
+    {
+      "path": "todo steer",
+      "agent": "run"
+    },
+    {
+      "path": "todo amend",
+      "agent": "confirm"
+    },
+    {
+      "path": "todo stop",
+      "agent": "run"
+    },
+    {
+      "path": "todo resume",
+      "agent": "run"
+    },
+    {
+      "path": "todo retry",
+      "agent": "run"
+    },
+    {
+      "path": "todo drop",
+      "agent": "confirm"
+    },
+    {
+      "path": "stack move",
+      "agent": "run"
+    },
+    {
+      "path": "merge",
+      "agent": "confirm"
+    },
+    {
+      "path": "branches",
+      "agent": "run"
+    },
+    {
+      "path": "branch show",
+      "agent": "run"
+    },
+    {
+      "path": "branch fork",
+      "agent": "run"
+    },
+    {
+      "path": "branch add-to-stack",
+      "agent": "confirm"
+    },
+    {
+      "path": "branch rebase",
+      "agent": "run"
+    },
+    {
+      "path": "file",
+      "agent": "run"
+    },
+    {
+      "path": "files",
+      "agent": "run"
+    },
+    {
+      "path": "diff",
+      "agent": "run"
+    },
+    {
+      "path": "review",
+      "agent": "confirm"
+    },
+    {
+      "path": "pr",
+      "agent": "run"
+    },
+    {
+      "path": "issues",
+      "agent": "run"
+    },
+    {
+      "path": "issue show",
+      "agent": "run"
+    },
+    {
+      "path": "issue new",
+      "agent": "confirm"
+    },
+    {
+      "path": "issue comment",
+      "agent": "confirm"
+    },
+    {
+      "path": "wiki show",
+      "agent": "run"
+    },
+    {
+      "path": "wiki page",
+      "agent": "run"
+    },
+    {
+      "path": "wiki save",
+      "agent": "run"
+    },
+    {
+      "path": "flows",
+      "agent": "run"
+    },
+    {
+      "path": "flow show",
+      "agent": "run"
+    },
+    {
+      "path": "flow edit",
+      "agent": "confirm"
+    },
+    {
+      "path": "flow run",
+      "agent": "run"
+    },
+    {
+      "path": "flow new",
+      "agent": "confirm"
+    },
+    {
+      "path": "runs list",
+      "agent": "run"
+    },
+    {
+      "path": "runs show",
+      "agent": "run"
+    },
+    {
+      "path": "github",
+      "agent": "run"
+    },
+    {
+      "path": "monitor",
+      "agent": "run"
+    },
+    {
+      "path": "run inspect",
+      "agent": "run"
+    },
+    {
+      "path": "flow source",
+      "agent": "run"
+    },
+    {
+      "path": "flow plan",
+      "agent": "run"
+    },
+    {
+      "path": "agents",
+      "agent": "run"
+    },
+    {
+      "path": "agent",
+      "agent": "run"
+    }
+  ],
+  "excluded": [
+    "admin",
+    "org",
+    "tui",
+    "triggers",
+    "webhook",
+    "variable",
+    "cache",
+    "artifact",
+    "label",
+    "notification",
+    "egress",
+    "history",
+    "workflow",
+    "workspace children",
+    "settings",
+    "members",
+    "secrets"
+  ],
+  "banned": [
+    "workflow",
+    "thread",
+    "task",
+    "lane",
+    "box",
+    "workspace",
+    "mythical",
+    "sandbox",
+    "vm",
+    "microvm",
+    "seat",
+    "profile",
+    "jev",
+    "forge"
+  ]
+}

@@ -2,6 +2,7 @@ package githubfake
 
 import (
 	"encoding/json"
+	"hash/fnv"
 	"net/http"
 	"sort"
 	"strconv"
@@ -153,7 +154,7 @@ func (s *Server) people(w http.ResponseWriter, r *http.Request) bool {
 		}
 		result := []map[string]any{}
 		for _, review := range s.pullReviews[key] {
-			user := map[string]string{"login": review.Login, "type": "User"}
+			user := s.fetchedActor(review.Login, false)
 			if path[5] == "reviews" {
 				result = append(result, map[string]any{"id": review.ID, "user": user, "state": review.State, "body": review.Body, "commit_id": review.CommitID, "submitted_at": review.SubmittedAt})
 			} else if review.Path != "" {
@@ -161,7 +162,30 @@ func (s *Server) people(w http.ResponseWriter, r *http.Request) bool {
 					"line": review.Line, "commit_id": review.CommitID, "created_at": review.SubmittedAt, "updated_at": review.SubmittedAt})
 			}
 		}
-		return reply(200, result)
+		start, end := pageBounds(r, len(result))
+		return reply(200, result[start:end])
 	}
 	return false
+}
+
+// Fetched author identities mirror GitHub's numeric account binding. Fixture
+// outsiders have stable identities too, without becoming collaborators.
+func (s *Server) fetchedActor(login string, app bool) map[string]any {
+	actor := s.actor(login, app)
+	id := int64(0)
+	if login == s.config.OwnerLogin {
+		id = 7
+	}
+	for account, name := range s.accounts {
+		if login == name {
+			id = account
+		}
+	}
+	if id == 0 {
+		h := fnv.New32a()
+		_, _ = h.Write([]byte(login))
+		id = int64(h.Sum32()) + 1000
+	}
+	actor["id"] = id
+	return actor
 }

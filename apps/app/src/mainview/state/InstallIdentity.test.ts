@@ -77,3 +77,31 @@ test("Source ready reads the repositories again, so the mirrored repository reac
   await controller.showSetup(); await settle()
   expect(repoReads).toBe(2)
 })
+
+test("the install uses the shared live channel for readiness, outages and revoked access", async () => {
+  const store = await createAppStore({ kind: "localStorage", storage: memoryStorage() })
+  let snapshot: { topic: string; data?: unknown; error?: string } | undefined
+  let receive: (() => void) | undefined
+  let stopped = 0
+  const controller = createAppController(store, silentAgent, { bootstrap,
+    fetchImpl: async input => String(input).endsWith("/api/install") ? Response.json({ ...installFixture(),
+      steps: installFixture().steps.map(step => step.id === "machine" ? { ...step, state: "running" } : step) }) : new Response("", { status: 404 }),
+    live: { getSnapshot: () => snapshot, subscribe: (topic, notify) => {
+      if (topic !== "install") return () => {}
+      receive = notify
+      return () => { stopped++ }
+    } } })
+  await waitFor(() => receive !== undefined && controller.installSnapshots.get().model !== undefined)
+  expect(controller.installSnapshots.get().model!.steps[6]!.state).toBe("running")
+  snapshot = { topic: "install", data: installFixture() }; receive!()
+  expect(controller.installSnapshots.get().model!.steps[6]!.state).toBe("done")
+  snapshot = { topic: "install", error: "unavailable" }; receive!()
+  expect(controller.installSnapshots.get().error?.class).toBe("infra")
+  expect(controller.installSnapshots.get().model!.steps[6]!.state).toBe("done")
+  snapshot = { topic: "install", data: installFixture() }; receive!()
+  expect(controller.installSnapshots.get().error).toBeUndefined()
+  snapshot = { topic: "install", error: "unauthenticated" }; receive!()
+  expect(controller.installSnapshots.get().error?.class).toBe("permission")
+  expect(controller.installSnapshots.get().model).toBeUndefined()
+  expect(stopped).toBe(1)
+})

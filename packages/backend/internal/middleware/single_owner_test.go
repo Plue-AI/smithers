@@ -70,3 +70,23 @@ func TestRejectUnboundRepositoryJobCallbacks(t *testing.T) {
 	}
 	assert.Zero(t, effects)
 }
+
+func TestRejectTenantProvisioningAllowsOnlyAccountErasure(t *testing.T) {
+	for _, tc := range []struct {
+		method, path string
+		want         int
+	}{
+		{http.MethodPost, "/api/admin/users/ben/erase", http.StatusNoContent},
+		{http.MethodGet, "/api/admin/users/ben/erase", http.StatusNotFound},
+		{http.MethodPost, "/api/admin/users/ben/export", http.StatusNotFound},
+		{http.MethodPost, "/api/admin/users/ben/erase/extra", http.StatusNotFound},
+		{http.MethodPost, "/api/admin/users/erase", http.StatusNotFound},
+	} {
+		t.Run(tc.method+tc.path, func(t *testing.T) {
+			next := http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) { w.WriteHeader(http.StatusNoContent) })
+			rec := httptest.NewRecorder()
+			RejectTenantProvisioning(next).ServeHTTP(rec, httptest.NewRequest(tc.method, tc.path, nil))
+			assert.Equal(t, tc.want, rec.Code)
+		})
+	}
+}

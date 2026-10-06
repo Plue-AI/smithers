@@ -164,7 +164,7 @@ describe("the shared private recovery action and Flow", () => {
     try {
       const flow = storageRecoveryExportFlow(action.run)
       expect(flow.binding.descriptor.modelInvocable).toBe(false)
-      expect(flow.metadata.userOnlyReason).toContain("storage.recovery")
+      expect(flow.metadata.agentReason).toContain("storage.recovery")
       const result = await invokeStartupRecovery(flow)
       expect(result.outcome).toBe("failure")
       expect(result.message).toContain(RECOVERY_HUMAN_ONLY)

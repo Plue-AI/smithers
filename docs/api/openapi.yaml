@@ -3708,6 +3708,7 @@ paths:
               additionalProperties: false
               oneOf:
                 - anyOf:
+                    - required: [parallel]
                     - required: [capacity]
                     - required: [chatgpt]
                 - anyOf:
@@ -3728,6 +3729,10 @@ paths:
                     type: string
                     format: uri
                   description: HTTP or HTTPS origins with distinct hosts and ports.
+                parallel:
+                  type: integer
+                  minimum: 1
+                  maximum: 8
                 capacity:
                   type: integer
                   minimum: 1
@@ -24464,6 +24469,10 @@ components:
         machine:
           type: object
           additionalProperties: true
+          properties:
+            wait_position:
+              type: integer
+              minimum: 1
     TODOBranchDiff:
       type: object
       required: [files]
@@ -24591,7 +24600,7 @@ components:
                           to: {type: string}
     InstallParallelSetting:
       type: object
-      description: Dark install-settings contract; no write route is served until settings, shared authority and catalog policy are composed. Settings retains the request; Home reports min(parallel, capacity), including zero.
+      description: Owner browser session setting, unavailable to agents. Settings retains the request; Home reports min(parallel, capacity), including zero.
       required: [parallel]
       properties:
         parallel:

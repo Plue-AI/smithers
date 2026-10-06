@@ -394,19 +394,23 @@ guards, `MergeDecision`, the merge's preparation (`PrepareMerge`) and the
 merge kind of the App's lookup and settlement together. A composition without them, such as Plue's, refuses the
 route `409 rechecking` before any approval. C-J1-04 remains incomplete.
 
-## Parallel setting (dark)
+## Parallel setting
 
 `install_settings.parallel` stores the owner's requested integer, 1–8. The
 capacity service projects requested and effective values separately; effective
-is `min(requested, capacity)`, including zero. Only an absent saved value uses
+is `min(requested, capacity)`, including zero. Capacity refreshes free disk
+from the runtime state volume while keeping startup memory and core measurements.
+A failed disk read refuses admission. Only an absent saved value uses
 `max(1, capacity − 1)`. The forward migration preserves a single legacy stack's
 value and never overwrites an install value. Multiple legacy stacks are not a
 single-repository install and are not arbitrarily selected by the migration.
 
 Settings retains the request even above capacity; Home can represent effective
 zero. The old repository config write and `history.parallel` door are removed.
-The install write remains unmounted, and the service refuses writes without the
-shared authorization/catalog provider. On an install a fresh TODO attempt
+`PUT /api/install` reads and writes the requested value through the shared
+owner-only person policy. The service refuses writes without that provider.
+The composed engine uses the effective value for its launch limit, and Home
+reports that value to the owner. On an install a fresh TODO attempt
 launches `coding/request` on its own lane (`EnableTodoAdmission`); hosted
 composition refuses it. Ordered runtime demands, holder release accounting and
 live queue positions require the ordering, scheduler and machine-execution

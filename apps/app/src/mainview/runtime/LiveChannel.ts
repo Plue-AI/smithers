@@ -73,7 +73,7 @@ export class LiveChannel {
       this.presenceOwners.delete(owner)
       const remaining = [...this.presenceOwners.values()].at(-1)
       if (remaining) this.heartbeat.move(remaining)
-      else this.heartbeat.pause()
+      else { this.heartbeat.pause(); this.presence({ branch: "" }) }
     } }
   }
   private socket?: LiveSocket

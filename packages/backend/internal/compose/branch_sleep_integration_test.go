@@ -258,6 +258,12 @@ func TestBranchSleepStoredFilesInstallNeverWake(t *testing.T) {
 	require.Equal(t, backoff, branchFile.Content.Text)
 	read("/files/content?path=src/retry.ts", 200)
 	assertDiff()
+	// An unrestricted repository read scope does not erase a branch binding.
+	_, err = pool.Exec(ctx, `UPDATE access_tokens SET scopes=$2 WHERE id=$1`, tokenID, "read:repository,"+strings.Join(middleware.DelegationScopes(middleware.Delegation{Via: "cli", Branch: id}), ","))
+	require.NoError(t, err)
+	readPath("/api/branches/main/files/src/retry.ts", 403)
+	readPath("/api/branches/"+id+"/files/src/backoff.ts", 200)
+	assertDiff()
 	_, err = pool.Exec(ctx, `DELETE FROM access_tokens WHERE id=$1`, tokenID)
 	require.NoError(t, err)
 	readPath("/api/branches/"+id+"/files/src/backoff.ts", 401)

@@ -38,8 +38,8 @@ export const repoFlows = (actions: CommandActions): ReadonlyArray<FlowEntry> => 
     name: "repo.select", hidden: true, discloseToAgent: false,
     summary: "Make a pinned repository the active one",
     runtime: ["cloud"],
-    userOnly: true,
-    userOnlyReason: "which pinned repository is active is the human's selection",
+    agent: "never" as const,
+    agentReason: "which pinned repository is active is the human's selection",
     args: "<repoKey>",
     input: Schema.Struct({ repo: Schema.String }),
     handler: ({ repo }) => actions.selectRepo(repo)
@@ -51,7 +51,7 @@ export const repoFlows = (actions: CommandActions): ReadonlyArray<FlowEntry> => 
    * agent reads contents with files.list and files.read, the same route.
    */
   flow({
-    name: "repo.tree", hidden: true, discloseToAgent: false,
+    name: "repo.tree", visibility: "in-card", hidden: true, discloseToAgent: false,
     form: { args: (payload) => text(payload, "path") === undefined ? text(payload, "copy") ?? "" : `${text(payload, "copy")}#${text(payload, "path")}` },
     summary: "Expand or collapse a directory of a working copy (a local checkout or a cloud workspace)",
     /* A workspace copy lists through Smithers Cloud (RepoTreeSeam). */

@@ -419,3 +419,22 @@ func TestInstallMainPullDoesNotFallBackToAnonymousAfterTokenRefusal(t *testing.T
 		})
 	}
 }
+
+func TestSyncFreshnessDoesNotExpireHourlyPermissions(t *testing.T) {
+	now := time.Now()
+	recent, old := now.Add(-time.Second), now.Add(-30*time.Minute)
+	core := &syncStreamFixture{streams: []GitHubSyncStream{{LastSuccessAt: &recent}}}
+	permissions := &syncStreamFixture{streams: []GitHubSyncStream{{LastSuccessAt: &old}}}
+	required := requiredGitHubSyncStreams{core, core, core, core, permissions}
+	observations, err := required.RequiredStreams(t.Context())
+	require.NoError(t, err)
+	require.Equal(t, "fresh", aggregateGitHubSyncHealth(observations, now).State)
+	permissions.streams[0].Cause = "permission"
+	observations, err = required.RequiredStreams(t.Context())
+	require.NoError(t, err)
+	require.Equal(t, "refused", aggregateGitHubSyncHealth(observations, now).State)
+	permissions.streams = []GitHubSyncStream{{}}
+	observations, err = required.RequiredStreams(t.Context())
+	require.NoError(t, err)
+	require.Equal(t, "stale", aggregateGitHubSyncHealth(observations, now).State)
+}

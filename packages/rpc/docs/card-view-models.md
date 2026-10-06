@@ -76,9 +76,9 @@ stale revision as `stale`) and `SettingsModelSetInputSchema` (`{role, model}`,
 with the shared model role enum and a catalog model id). Who may run each is
 catalog policy, not an input field.
 
-`catalog/index` exports the temporary catalog tag union: Appendix A plus the
-Appendix B controls the cards need. T-CAT-01 replaces the placeholder at that
-same module path and derives command inputs from catalog payload schemas.
+`CatalogTags` exports the card command tag union generated from the shared
+Operation declarations and checked against `catalog.mvp.json`. `CardAction`
+keeps command inputs correlated with their tags.
 No command is registered by these data modules.
 
 A Container gives the app's `flows/cardActions` helper viewer-filtered action

@@ -52,6 +52,11 @@ const rosterKey = (participants: ReadonlyArray<Participant>): string =>
     participants.map((participant) => [
       participant.participantId,
       participant.displayName,
+      participant.sessionId,
+      participant.kind,
+      participant.where,
+      participant.watching,
+      participant.for_member,
       participant.leaseExpiresAtMs,
       participant.cursor === null ? null : [participant.cursor.cardId, participant.cursor.offset]
     ])
@@ -156,6 +161,7 @@ export const layerHandlers: Layer.Layer<
       "Branch.Announce": (payload) => presence.announce(payload),
       "Branch.Leave": (payload) => Effect.as(presence.leave(payload), null),
       "Branch.Roster": (payload) => presence.list(payload),
+      "Branch.PresenceOn": (payload) => presence.presenceOn(payload),
       "Branch.WatchRoster": (payload) =>
         Stream.merge(
           // The subscription's own snapshot is a TRIGGER like the other two,

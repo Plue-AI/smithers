@@ -21,10 +21,11 @@ import (
 
 const InstallCodingProjectKey = "coding.project"
 
-// PersistInstallCodingProject consumes the image detector's evidence at pinned
-// main. It reads data only and never writes generated defaults to the repository.
+// PersistInstallCodingProject consumes shared check evidence at pinned main.
+// Machine recipe failures belong to Machine ready, never Source ready. This
+// reads data only and never writes generated defaults to the repository.
 func PersistInstallCodingProject(ctx context.Context, pool *pgxpool.Pool, sources workspaceapi.SourceFiles, source workspaceapi.WorkspaceSource, paths []string) error {
-	recipe, err := microsandbox.DetectRecipe(func(name string) ([]byte, bool, error) {
+	recipe, err := microsandbox.DetectCheckRecipe(func(name string) ([]byte, bool, error) {
 		data, err := sources.ReadSourceFile(ctx, source, name)
 		if errors.Is(err, fs.ErrNotExist) {
 			return nil, false, nil

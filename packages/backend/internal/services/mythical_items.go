@@ -1154,7 +1154,20 @@ func (s *MythicalService) advanceItems(ctx context.Context, r *mythicalRun) {
 		s.logger.Warn("mythical.items_failed", "repository_id", r.row.RepositoryID, "error", err)
 		return
 	}
-	step := &mythicalItemStep{s: s, r: r, q: q, now: s.now(), held: map[int32]pgtype.UUID{}, maxParallel: int(r.row.MaxParallel),
+	parallel := int(r.row.MaxParallel)
+	if s.installParallelRequired && s.installParallel == nil {
+		s.logger.Warn("mythical.parallel_unavailable")
+		return
+	}
+	if s.installParallel != nil {
+		setting, err := s.installParallel.Parallel(ctx)
+		if err != nil {
+			s.logger.Warn("mythical.parallel_failed", "error", err)
+			return
+		}
+		parallel = setting.Effective
+	}
+	step := &mythicalItemStep{s: s, r: r, q: q, now: s.now(), held: map[int32]pgtype.UUID{}, maxParallel: parallel,
 		inFlight: map[[16]byte]bool{}}
 	for _, item := range active {
 		if mythicalRunInFlight(item) {
@@ -1583,7 +1596,7 @@ func (st *mythicalItemStep) advance(ctx context.Context, item db.MythicalItem) (
 		}
 	case "proposing", "waiting":
 		next, err := st.propose(ctx, item)
-		if err != nil || next == nil || next.State != "proposed" || st.s.installGitHubPolling {
+		if err != nil || next == nil || next.State != "proposed" {
 			return next, false, err
 		}
 		return st.gate(ctx, *next)
@@ -1599,7 +1612,7 @@ func (st *mythicalItemStep) advance(ctx context.Context, item db.MythicalItem) (
 			// and nothing gates on what GitHub did not say.
 			return next, false, nil
 		}
-		if err != nil || next == nil || next.State != "proposed" || st.s.installGitHubPolling {
+		if err != nil || next == nil || next.State != "proposed" {
 			return next, false, err
 		}
 		return st.gate(ctx, *next)
@@ -1640,6 +1653,36 @@ func (st *mythicalItemStep) commitWith(ctx context.Context, item db.MythicalItem
 	// Every admitted run counts toward the item's launch bound; the failure
 	// it retries after is behind it.
 	launched := mythicalChecksOf(item)
+	if flowID == flowdispatch.TodoFlow {
+		retained := make([]todoSteer, 0, len(launched.Steers))
+		for _, feedback := range launched.Steers {
+			if feedback.GitHubAuthor > 0 && feedback.ReleasePending && feedback.Attempt <= item.Attempt {
+				active, err := currentGitHubFeedbackAuthor(ctx, tx, item.RepositoryID, feedback)
+				if err != nil {
+					return db.MythicalItem{}, err
+				}
+				if !active {
+					continue
+				}
+				feedback.ReleasePending = false
+			}
+			retained = append(retained, feedback)
+		}
+		launched.Steers = retained
+		item.Checks = launched.encode()
+		var request map[string]json.RawMessage
+		if err := json.Unmarshal(payload, &request); err != nil {
+			return db.MythicalItem{}, err
+		}
+		delete(request, "feedback")
+		if feedback := todoFeedback(item, item.Attempt); feedback != "" {
+			request["feedback"], _ = json.Marshal(feedback)
+		}
+		payload, err = json.Marshal(request)
+		if err != nil {
+			return db.MythicalItem{}, err
+		}
+	}
 	launched.Launches++
 	if launched.Fault != nil {
 		// The reason was the failure's diagnostic; the launch is past it.
@@ -3220,6 +3263,11 @@ func (st *mythicalItemStep) proposedFrom(item db.MythicalItem, pull mythicalPull
 	next.PRURL, next.PRState = pull.URL, pull.State
 	proposed := mythicalChecksOf(next)
 	proposed.PRDraft = pull.Draft
+	if shape.Manifest != nil && pull.HeadSHA != "" && pull.HeadSHA == item.PRHead {
+		manifest := *shape.Manifest
+		manifest.Head = pull.HeadSHA
+		proposed.retainManifest(manifest)
+	}
 	if proposed.PRFirst == nil {
 		first := shape.First
 		proposed.PRFirst = &first
@@ -3429,7 +3477,7 @@ func (st *mythicalItemStep) gate(ctx context.Context, item db.MythicalItem) (*db
 		// The verdict goes on the pull request body first; an approved
 		// automerge TODO merges on the next pass.
 		return st.reviewBody(ctx, item)
-	case review.Verdict == "approve" && checks.Automerge && checks.Todo && st.gh != nil:
+	case review.Verdict == "approve" && checks.Automerge && checks.Todo && st.gh != nil && !st.s.installGitHubPolling:
 		return st.merge(ctx, item), false, nil
 	}
 	return &item, false, nil
@@ -4003,7 +4051,18 @@ func (s *MythicalService) ObserveGitHubEvent(ctx context.Context, eventType stri
 	case "issues", "issue_comment":
 		return issueTodoUnavailable()
 	case "pull_request_review", "pull_request_review_comment":
-		return gitHubReviewUnavailable()
+		if s.installGitHubSync == nil || s.installGitHubSync.install == nil {
+			return gitHubReviewUnavailable()
+		}
+		var hint struct {
+			Repository struct {
+				ID int64 `json:"id"`
+			} `json:"repository"`
+		}
+		if json.Unmarshal(payload, &hint) != nil || hint.Repository.ID <= 0 {
+			return gitHubReviewUnavailable()
+		}
+		return s.installGitHubSync.requestInstallFetch(ctx, hint.Repository.ID, GitHubRepoMetadataPulls)
 	default:
 		return nil
 	}
@@ -4337,6 +4396,7 @@ func appliedByMaintainer(applied gitHubLabelApplication, label string) bool {
 // request's head.
 type mythicalChecks struct {
 	IssueContext         json.RawMessage       `json:"issue_context,omitempty"`
+	GitHubInputs         []todoGitHubInput     `json:"githubInputs,omitempty"`
 	PRBodyDeclined       string                `json:"prBodyDeclined,omitempty"`
 	GitHubClosedPosition int64                 `json:"githubClosedPosition,omitempty"`
 	GitHubClosedAt       *time.Time            `json:"githubClosedAt,omitempty"`
@@ -4386,6 +4446,9 @@ type mythicalChecks struct {
 	// PRIncludes are the earlier items the pull request body includes until
 	// they merge, as it was opened.
 	PRIncludes []int64 `json:"prIncludes,omitempty"`
+	// Retained manifests are immutable per published head, including superseded
+	// generations GitHub may report merged after a newer publication.
+	PRManifests []mythicalMergedManifest `json:"prManifests,omitempty"`
 	// PRBody is the digest of the pull request body Smithers last wrote: the
 	// one it opened the pull request with, then each update (reviewBody). A
 	// body GitHub holds that differs is a person's edit, never overwritten.

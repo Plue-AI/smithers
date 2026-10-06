@@ -875,7 +875,18 @@ export const createAppController = (
     report: (subject, error) => ctx.failures.report("seam.failure", error, subject),
     checkout: services.bootstrap?.capabilities.includes("billing.checkout") ?? false
   }
-  const installSeam = actors.pair(seamCtx, context => createInstallSeam(context, withToast, { topic: services.installTopic, present: async kind => {
+  const installSeam = actors.pair(seamCtx, context => createInstallSeam(context, withToast, { topic: services.installTopic ?? (services.live ? {
+    subscribe: (topic, receive, refuse) => {
+      const notify = () => {
+        const snapshot = services.live!.getSnapshot(topic)
+        if (snapshot?.error) refuse({ code: snapshot.error, class: snapshot.error === "permission" || snapshot.error === "forbidden" || snapshot.error === "unauthenticated" ? "permission" : "infra", message: "Install updates unavailable" })
+        else if (snapshot?.data !== undefined) receive(snapshot.data)
+      }
+      const stop = services.live!.subscribe(topic, notify)
+      notify()
+      return stop
+    }
+  } : undefined), present: async kind => {
       if (kind === "settings") await presentCard("settings", "Settings")
       services.presentInstallCard?.(kind)
     },

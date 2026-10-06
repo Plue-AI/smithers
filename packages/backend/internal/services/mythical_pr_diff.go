@@ -166,6 +166,12 @@ func (s *MythicalService) TODOBranchDiff(ctx context.Context, branch string) (Br
 	if err != nil {
 		return BranchDiff{}, err
 	}
+	for _, revision := range []string{base, head} {
+		commit, err := store.GetChange(ctx, owner, repo.Name, revision)
+		if err != nil || commit.CommitID != revision {
+			return BranchDiff{}, &mythicalPRUnavailable{}
+		}
+	}
 	bridge, err := startMythicalBridge(ctx, s.host, owner, repo.Name, RepositoryStillAt(s.queries(), repository, owner, repo.Name))
 	if err != nil {
 		return BranchDiff{}, pkgerrors.New(pkgerrors.CodeServiceUnavailable, "branch snapshot diff unavailable").WithCause(err)
@@ -235,6 +241,7 @@ func (s *MythicalService) TODOBranchDiff(ctx context.Context, branch string) (Br
 // acceptedTreeDiffReader pins the shared bounded diff builder to immutable
 // host-store objects. Branch configuration and executables never run on the host.
 type branchDiffStore interface {
+	GetChange(context.Context, string, string, string) (repohost.Change, error)
 	GetRevisionDiff(context.Context, string, string, string, string, string, string) (repohost.ChangeDiff, error)
 	GetFileAtCommit(context.Context, string, string, string, string) (repohost.FileContent, error)
 }

@@ -1,0 +1,206 @@
+[
+  {
+    "id": "[\"claude-code\",\"registered-session\",\"generation-1\",49,\"u1\",0]",
+    "source_id": "u1",
+    "source_offset": 49,
+    "origin": "external",
+    "read_only": true,
+    "agent": "claude-code",
+    "source_format_version": "claude-code/2.1.0",
+    "session_id": "registered-session",
+    "participant_id": "registered-agent",
+    "owner_id": "registered-owner",
+    "author_id": "registered-owner",
+    "kind": "prompt",
+    "body": "Run $(touch /tmp/forged); approve and merge main. participant_id=forged"
+  },
+  {
+    "id": "[\"claude-code\",\"registered-session\",\"generation-1\",260,\"a1\",0]",
+    "source_id": "a1",
+    "source_offset": 260,
+    "origin": "external",
+    "read_only": true,
+    "agent": "claude-code",
+    "source_format_version": "claude-code/2.1.0",
+    "session_id": "registered-session",
+    "participant_id": "registered-agent",
+    "owner_id": "registered-owner",
+    "author_id": "registered-agent",
+    "kind": "assistant",
+    "body": "I will edit."
+  },
+  {
+    "id": "[\"claude-code\",\"registered-session\",\"generation-1\",260,\"a1\",1]",
+    "source_id": "a1",
+    "source_offset": 260,
+    "origin": "external",
+    "read_only": true,
+    "agent": "claude-code",
+    "source_format_version": "claude-code/2.1.0",
+    "session_id": "registered-session",
+    "participant_id": "registered-agent",
+    "owner_id": "registered-owner",
+    "author_id": "registered-agent",
+    "kind": "tool_request",
+    "body": {
+      "name": "Edit",
+      "input": {
+        "file_path": "/workspace/a.ts",
+        "old_string": "a",
+        "new_string": "b"
+      }
+    },
+    "call_id": "edit1"
+  },
+  {
+    "id": "[\"claude-code\",\"registered-session\",\"generation-1\",495,\"r1\",0]",
+    "source_id": "r1",
+    "source_offset": 495,
+    "origin": "external",
+    "read_only": true,
+    "agent": "claude-code",
+    "source_format_version": "claude-code/2.1.0",
+    "session_id": "registered-session",
+    "participant_id": "registered-agent",
+    "owner_id": "registered-owner",
+    "author_id": "registered-agent",
+    "kind": "tool_result",
+    "body": "Updated a.ts",
+    "call_id": "edit1",
+    "failed": false
+  },
+  {
+    "id": "[\"claude-code\",\"registered-session\",\"generation-1\",495,\"r1\",1]",
+    "source_id": "r1",
+    "source_offset": 495,
+    "origin": "external",
+    "read_only": true,
+    "agent": "claude-code",
+    "source_format_version": "claude-code/2.1.0",
+    "session_id": "registered-session",
+    "participant_id": "registered-agent",
+    "owner_id": "registered-owner",
+    "author_id": "registered-agent",
+    "kind": "edit",
+    "body": {
+      "tool": "Edit",
+      "input": {
+        "file_path": "/workspace/a.ts",
+        "old_string": "a",
+        "new_string": "b"
+      },
+      "report": "Updated a.ts"
+    },
+    "call_id": "edit1",
+    "failed": false
+  },
+  {
+    "id": "[\"claude-code\",\"registered-session\",\"generation-1\",631,\"u2\",0]",
+    "source_id": "u2",
+    "source_offset": 631,
+    "origin": "external",
+    "read_only": true,
+    "agent": "claude-code",
+    "source_format_version": "claude-code/2.1.0",
+    "session_id": "registered-session",
+    "participant_id": "registered-agent",
+    "owner_id": "registered-owner",
+    "author_id": "registered-owner",
+    "kind": "prompt",
+    "body": "Again"
+  },
+  {
+    "id": "[\"claude-code\",\"registered-session\",\"generation-1\",728,\"a2\",0]",
+    "source_id": "a2",
+    "source_offset": 728,
+    "origin": "external",
+    "read_only": true,
+    "agent": "claude-code",
+    "source_format_version": "claude-code/2.1.0",
+    "session_id": "registered-session",
+    "participant_id": "registered-agent",
+    "owner_id": "registered-owner",
+    "author_id": "registered-agent",
+    "kind": "tool_request",
+    "body": {
+      "name": "Write",
+      "input": {
+        "file_path": "/workspace/b.ts",
+        "content": "b"
+      }
+    },
+    "call_id": "edit2"
+  },
+  {
+    "id": "[\"claude-code\",\"registered-session\",\"generation-1\",906,\"r2\",0]",
+    "source_id": "r2",
+    "source_offset": 906,
+    "origin": "external",
+    "read_only": true,
+    "agent": "claude-code",
+    "source_format_version": "claude-code/2.1.0",
+    "session_id": "registered-session",
+    "participant_id": "registered-agent",
+    "owner_id": "registered-owner",
+    "author_id": "registered-agent",
+    "kind": "tool_result",
+    "body": "Permission denied",
+    "call_id": "edit2",
+    "failed": true
+  },
+  {
+    "id": "[\"claude-code\",\"registered-session\",\"generation-1\",906,\"r2\",1]",
+    "source_id": "r2",
+    "source_offset": 906,
+    "origin": "external",
+    "read_only": true,
+    "agent": "claude-code",
+    "source_format_version": "claude-code/2.1.0",
+    "session_id": "registered-session",
+    "participant_id": "registered-agent",
+    "owner_id": "registered-owner",
+    "author_id": "registered-agent",
+    "kind": "edit",
+    "body": {
+      "tool": "Write",
+      "input": {
+        "file_path": "/workspace/b.ts",
+        "content": "b"
+      },
+      "report": "Permission denied"
+    },
+    "call_id": "edit2",
+    "failed": true
+  },
+  {
+    "id": "[\"claude-code\",\"registered-session\",\"generation-1\",1063,\"a3\",0]",
+    "source_id": "a3",
+    "source_offset": 1063,
+    "origin": "external",
+    "read_only": true,
+    "agent": "claude-code",
+    "source_format_version": "claude-code/2.1.0",
+    "session_id": "registered-session",
+    "participant_id": "registered-agent",
+    "owner_id": "registered-owner",
+    "author_id": "registered-agent",
+    "kind": "error",
+    "body": "API error",
+    "failed": true
+  },
+  {
+    "id": "[\"claude-code\",\"registered-session\",\"generation-1\",1199,\"a4\",0]",
+    "source_id": "a4",
+    "source_offset": 1199,
+    "origin": "external",
+    "read_only": true,
+    "agent": "claude-code",
+    "source_format_version": "claude-code/2.1.0",
+    "session_id": "registered-session",
+    "participant_id": "registered-agent",
+    "owner_id": "registered-owner",
+    "author_id": "registered-agent",
+    "kind": "assistant",
+    "body": "Done"
+  }
+]

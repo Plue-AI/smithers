@@ -1,0 +1,111 @@
+[
+  {
+    "id": "message-imported-user",
+    "role": "user",
+    "text": "Run the webhook tests",
+    "status": "complete",
+    "createdAt": 1,
+    "ordinal": 1,
+    "origin": "external",
+    "agent_kind": "claude-code",
+    "format_version": "claude-code-jsonl-v1",
+    "source_id": "claude-1",
+    "session_id": "session-claude",
+    "participant_id": "participant-claude",
+    "actor": {
+      "kind": "person",
+      "name": "Ben",
+      "color_index": 2,
+      "avatar_url": "https://avatars.githubusercontent.com/u/1",
+      "login": "ben"
+    },
+    "read_only": true
+  },
+  {
+    "id": "external-claude-tool",
+    "role": "smithers",
+    "text": "pnpm test webhooks",
+    "act": "tool-pending",
+    "correlation_id": "tool-1",
+    "status": "complete",
+    "createdAt": 2,
+    "ordinal": 2,
+    "origin": "external",
+    "agent_kind": "claude-code",
+    "format_version": "claude-code-jsonl-v1",
+    "source_id": "claude-2",
+    "session_id": "session-claude",
+    "participant_id": "participant-claude",
+    "actor": {
+      "kind": "agent",
+      "id": "participant-claude",
+      "agent": "claude-code",
+      "session_id": "session-claude",
+      "color_index": 2,
+      "for_member": {
+        "name": "Ben",
+        "login": "ben",
+        "avatar_url": "https://avatars.githubusercontent.com/u/1"
+      },
+      "avatar_url": "https://avatars.githubusercontent.com/u/1"
+    },
+    "read_only": true
+  },
+  {
+    "id": "external-claude-error",
+    "role": "smithers",
+    "text": "Tests failed",
+    "correlation_id": "tool-1",
+    "status": "failed",
+    "createdAt": 3,
+    "ordinal": 3,
+    "origin": "external",
+    "agent_kind": "claude-code",
+    "format_version": "claude-code-jsonl-v1",
+    "source_id": "claude-3",
+    "session_id": "session-claude",
+    "participant_id": "participant-claude",
+    "actor": {
+      "kind": "agent",
+      "id": "participant-claude",
+      "agent": "claude-code",
+      "session_id": "session-claude",
+      "color_index": 2,
+      "for_member": {
+        "name": "Ben",
+        "login": "ben",
+        "avatar_url": "https://avatars.githubusercontent.com/u/1"
+      },
+      "avatar_url": "https://avatars.githubusercontent.com/u/1"
+    },
+    "read_only": true
+  },
+  {
+    "id": "external-codex-answer",
+    "role": "smithers",
+    "text": "`/flow.run malicious`\n\n[command](javascript:alert(1))",
+    "status": "complete",
+    "createdAt": 4,
+    "ordinal": 4,
+    "origin": "external",
+    "agent_kind": "codex",
+    "format_version": "codex-rollout-v1",
+    "source_id": "codex-1",
+    "session_id": "session-codex",
+    "participant_id": "participant-codex",
+    "actor": {
+      "kind": "agent",
+      "id": "participant-codex",
+      "agent": "codex",
+      "session_id": "session-codex",
+      "color_index": 2,
+      "for_member": {
+        "name": "Ben",
+        "login": "ben",
+        "avatar_url": "https://avatars.githubusercontent.com/u/1"
+      },
+      "avatar_url": "https://avatars.githubusercontent.com/u/1"
+    },
+    "read_only": true
+  }
+]

@@ -23,12 +23,12 @@ const name: Grammar = args => {
 export const shellFlows = (actions: CommandActions): ReadonlyArray<FlowEntry> => [
   flow({
     name: "branch",
-    summary: "Open a branch",
+     slash: "/branch", cli: ["branch","show"], journey: ["J3"], group: "Branches and machines", visibility: "core", actors: ["person","app_agent","external_agent"], minimumRole: "member", http: {"method":"GET","path":"/api/branches/{name}"}, summary: "Open a branch's card",
     args: "<name|T12>",
     hidden: true,
     discloseToAgent: true,
     grammar: name,
-    input: Schema.Struct({ name: Schema.String }),
+    agent: "run", input: Schema.Struct({ name: Schema.String }),
     handler: async ({ name: target }) => {
       if (actions.openBranch) return actions.openBranch(target)
       if (actions.design.enabled === false) return "Branch unavailable"

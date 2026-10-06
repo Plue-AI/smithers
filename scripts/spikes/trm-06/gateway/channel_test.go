@@ -19,6 +19,10 @@ func TestFrameRejectsHostileGuestEnvelopes(t *testing.T) {
 	for _, body := range []string{
 		`{"type":"window","bytes":262145}`, `{"type":"window","bytes":0}`,
 		`{"type":"data","stream":1,"bytes":[256]}`, `{"type":"data","stream":1,"bytes":[]}`,
+		`{"type":"data","stream":1,"bytes":[null]}`,
+		`{"type":"data","stream":1,"bytes":[1,null,2]}`,
+		`{"type":"data","stream":1,"bytes":[0.0]}`,
+		`{"type":"data","stream":1,"bytes":[-1]}`,
 		`{"type":"data","stream":3,"bytes":[1]}`, `{"type":"close","uid":0}`,
 		`{"type":"exit"}`, `{"type":"exit_signal","name":"STOP","core":false}`,
 		`{"type":"exit","code":0,"code":7}`,
@@ -280,7 +284,19 @@ func TestSSHDispatchPTYSettingsAndUnavailableAuthority(t *testing.T) {
 	}
 }
 
-func TestSSHDispatchRefusesDuplicateGuestExit(t *testing.T) {
+func TestSSHDispatchRefusesHostileGuestFrames(t *testing.T) {
+	for _, fixture := range []struct{ name, body, refusal string }{
+		{"duplicate-exit", `{"type":"exit","code":0,"code":7}`, "duplicate frame field"},
+		{"null-byte", `{"type":"data","stream":1,"bytes":[65,null,66]}`, "invalid byte"},
+	} {
+		t.Run(fixture.name, func(t *testing.T) {
+			checkSSHDispatchRefusal(t, fixture.body, fixture.refusal)
+		})
+	}
+}
+
+func checkSSHDispatchRefusal(t *testing.T, hostile, refusal string) {
+	t.Helper()
 	_, private, err := ed25519.GenerateKey(rand.Reader)
 	if err != nil {
 		t.Fatal(err)
@@ -323,9 +339,10 @@ func TestSSHDispatchRefusesDuplicateGuestExit(t *testing.T) {
 			go func() {
 				defer guest.Close()
 				// Literal hostile peer bytes; no shared encoder or payload process.
-				body := []byte(`{"type":"exit","code":0,"code":7}`)
+				body := []byte(hostile)
 				binary.Write(guest, binary.BigEndian, uint32(len(body)))
 				guest.Write(body)
+				io.Copy(io.Discard, guest) // keep peer alive until adapter refuses
 			}()
 			return host, nil
 		})
@@ -342,6 +359,8 @@ func TestSSHDispatchRefusesDuplicateGuestExit(t *testing.T) {
 	defer session.Close()
 	// An ambiguous guest exit must close the channel without reporting success
 	// or laundering the last value into a legitimate SSH exit-status.
+	var output bytes.Buffer
+	session.Stdout = &output
 	if err := session.Run("exit 7"); err == nil {
 		t.Fatal("ambiguous exit reported success")
 	} else if _, ok := err.(*ssh.ExitMissingError); !ok {
@@ -349,7 +368,10 @@ func TestSSHDispatchRefusesDuplicateGuestExit(t *testing.T) {
 	}
 	select {
 	case err := <-result:
-		if err == nil || err.Error() != "duplicate frame field" {
+		if output.Len() != 0 {
+			t.Fatalf("hostile output delivered: %x", output.Bytes())
+		}
+		if err == nil || err.Error() != refusal {
 			t.Fatalf("dispatch result: %v", err)
 		}
 	case <-time.After(5 * time.Second):

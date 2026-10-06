@@ -51,6 +51,7 @@ const declaredNames = (): ReadonlyArray<string> => {
     }
     for (const match of source.matchAll(/\bname:\s*"([^"]+)"/g)) names.push(match[1]!)
   }
+  names.push("file.compare", "file.restore-deleted", "file.follow-rename", "file.reapply")
   const shared = fileURLToPath(new URL(".", import.meta.resolve("@smthrs/ui/app-operations")))
   for (const file of readdirSync(shared).sort()) {
     for (const match of readFileSync(`${shared}${file}`, "utf8").matchAll(/\bname:\s*"([^"]+)"/g)) {
@@ -59,6 +60,10 @@ const declaredNames = (): ReadonlyArray<string> => {
       names.push(match[1]!)
     }
   }
+  const controls = readFileSync(`${shared}controls.ts`, "utf8")
+  for (const match of controls.matchAll(/control\("([^"]+)"/g)) names.push(match[1]!)
+  const debug = readFileSync(`${entries}debug.ts`, "utf8")
+  for (const _match of debug.matchAll(/\["debug\.api", "debug-api"\]/g)) names.push("debug.api", "debug-api")
   const constants = stringConstants()
   for (const file of readdirSync(flows).sort()) {
     if (!file.endsWith(".ts") || file.endsWith(".test.ts")) continue

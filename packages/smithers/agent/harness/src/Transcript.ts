@@ -504,3 +504,21 @@ export const projectResult = (
   entries: ReadonlyArray<JournalEvent.Entry>
 ): Result.Result<ReadonlyArray<ModelRequest.Message>, TranscriptError> =>
   Result.map(projectStateResult(entries), (state) => state.messages.map((item) => item.message))
+
+/**
+ * Pure external-source decoders; never create executable journal identities.
+ * @since 1.0.0-rc.1
+ */
+export { decodeClaudeCode, decodeCodex } from "./ExternalTranscript.ts"
+/**
+ * Inert host-ingest contracts, distinct from executable harness journal state.
+ * @since 1.0.0-rc.1
+ */
+export type {
+  Context as ExternalContext,
+  Decoded as ExternalDecoded,
+  DecodeError as ExternalDecodeError,
+  Draft as ExternalDraft,
+  Profile as ExternalProfile,
+  State as ExternalState
+} from "./ExternalTranscript.ts"

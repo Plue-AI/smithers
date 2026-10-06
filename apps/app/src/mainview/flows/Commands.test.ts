@@ -77,10 +77,10 @@ describe("commands from a maximized card", () => {
     test(`${origin} origin decides presentation independently of the flow name`, async () => {
       const { store, controller } = await freshController()
       try {
-        await controller.commands.run("agent.list")
+        await controller.commands.run("agents")
         const card = [...store.collections.cards.values()].find(card => card.kind === "agents")!
         await controller.commands.run("card.maximize", card.id)
-        const outcome = await controller.commands.run("agent.list", "", undefined,
+        const outcome = await controller.commands.run("agents", "", undefined,
           origin === "self" ? card.id : origin === "other" ? "other-card" : undefined)
         expect(outcome.status).toBe("executed")
         expect(store.session().maximizedCardId).toBe(origin === "self" ? card.id : null)
@@ -91,12 +91,12 @@ describe("commands from a maximized card", () => {
   test("a structured submission preserves only its originating maximized card", async () => {
     const { store, controller } = await freshController()
     try {
-      await controller.commands.run("agent.list")
+      await controller.commands.run("agents")
       const card = [...store.collections.cards.values()].find(card => card.kind === "agents")!
       await controller.commands.run("card.maximize", card.id)
-      expect((await controller.commands.submit({ name: "agent.list", payload: {}, actor: "user", originCardId: card.id })).status).toBe("executed")
+      expect((await controller.commands.submit({ name: "agents", payload: {}, actor: "user", originCardId: card.id })).status).toBe("executed")
       expect(store.session().maximizedCardId).toBe(card.id)
-      expect((await controller.commands.submit({ name: "agent.list", payload: {}, actor: "user" })).status).toBe("executed")
+      expect((await controller.commands.submit({ name: "agents", payload: {}, actor: "user" })).status).toBe("executed")
       expect(store.session().maximizedCardId).toBeNull()
     } finally { await controller.dispose() }
   })
@@ -112,7 +112,7 @@ describe("Chat slash presentation transport (#3348)", () => {
   }
   const maximized = async () => {
     const fixture = await freshController()
-    await fixture.controller.commands.run("agent.list")
+    await fixture.controller.commands.run("agents")
     const card = [...fixture.store.collections.cards.values()].find(card => card.kind === "agents")!
     await fixture.controller.commands.run("card.maximize", card.id)
     return { ...fixture, card }
@@ -150,12 +150,12 @@ describe("Chat slash presentation transport (#3348)", () => {
     })
   }
 
-  for (const line of ["/agent.list", "a plain prompt", "/missing-command", "/INPUT.mode vim", "/input.mode"]) {
+  for (const line of ["/agents", "a plain prompt", "/missing-command", "/INPUT.mode vim", "/input.mode"]) {
     test(`Chat retains existing transcript behavior for ${line}`, async () => {
       const { store, controller } = await maximized()
       try {
         expect((await controller.commands.run("chat.send", line)).status).toBe("executed")
-        if (line === "/agent.list") await settledCommand(store, "agent.list", 1)
+        if (line === "/agents") await settledCommand(store, "agents", 1)
         if (line === "/input.mode") await settledCommand(store, "input.mode")
         expect(store.session().maximizedCardId).toBeNull()
         if (line === "/input.mode") {

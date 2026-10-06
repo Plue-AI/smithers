@@ -1,0 +1,237 @@
+package compose
+
+import (
+	"context"
+	"encoding/json"
+	"errors"
+	"net/http"
+	"strconv"
+	"strings"
+	"sync"
+	"time"
+
+	"github.com/google/uuid"
+	"github.com/smithersai/smithers/packages/backend/flowruntime"
+	"github.com/smithersai/smithers/packages/backend/internal/db"
+	"github.com/smithersai/smithers/packages/backend/internal/live"
+	"github.com/smithersai/smithers/packages/backend/internal/middleware"
+	"github.com/smithersai/smithers/packages/backend/internal/services"
+)
+
+type branchPresence struct {
+	queries    *db.Queries
+	branches   *services.WorkspaceService
+	dispatcher browserFlowDispatcher
+	members    *services.Members
+	visits     *presenceVisits
+}
+
+type leaseParticipant struct {
+	ParticipantID    string          `json:"participantId"`
+	SessionID        string          `json:"sessionId"`
+	Kind             string          `json:"kind"`
+	DisplayName      string          `json:"displayName"`
+	Where            json.RawMessage `json:"where"`
+	Watching         string          `json:"watching"`
+	LeaseExpiresAtMs int64           `json:"leaseExpiresAtMs"`
+}
+
+func (p *branchPresence) call(ctx context.Context, row db.Workspace, slug, procedure string, fields map[string]any) (json.RawMessage, error) {
+	ctx, cancel := context.WithTimeout(ctx, time.Second)
+	defer cancel()
+	// The branch's one existing host belongs to the workspace owner. Caller
+	// membership was checked before selecting it; this does not grant host RPC
+	// access to the caller or start a machine for a heartbeat.
+	target := flowruntime.Target{TenantID: "repository:" + strconv.FormatInt(row.RepositoryID, 10), PrincipalID: "user:" + strconv.FormatInt(row.UserID, 10), WorkspaceID: row.ID, BindingKind: "browser-flow", BindingID: slug}
+	fields["branchId"] = row.ID
+	// Existing BranchProtocol requires this envelope. The host adapter discards
+	// it and mints its own signed scope after authenticating the runtime bearer.
+	fields["capability"] = map[string]any{"signature": "", "claims": map[string]any{"kid": "host", "branchId": row.ID, "capabilityId": "host", "access": "write", "issuedAtMs": 0, "expiresAtMs": 0}}
+	raw, err := json.Marshal(fields)
+	if err != nil {
+		return nil, err
+	}
+	answer, err := p.dispatcher.CallRPC(ctx, target, procedure, raw)
+	if err != nil {
+		return nil, err
+	}
+	var result struct {
+		OK      bool            `json:"ok"`
+		Payload json.RawMessage `json:"payload"`
+	}
+	if json.Unmarshal(answer, &result) != nil || !result.OK {
+		return nil, errors.New("presence bridge refused")
+	}
+	return result.Payload, nil
+}
+
+func (p *branchPresence) session(r *http.Request, repository int64) live.PresenceSession {
+	user := middleware.UserFromContext(r.Context())
+	if p == nil || p.dispatcher == nil || p.branches == nil || user == nil || repository == 0 {
+		return live.PresenceSession{}
+	}
+	_, slug, err := installRepository(r.Context(), p.queries)
+	if err != nil {
+		return live.PresenceSession{}
+	}
+	session := uuid.NewString()
+	actor := "member:" + strconv.FormatInt(user.ID, 10)
+	var held *db.Workspace
+	var mu sync.Mutex
+	closed := false
+	leave := func() {
+		if held == nil {
+			return
+		}
+		ctx, cancel := context.WithTimeout(context.WithoutCancel(r.Context()), time.Second)
+		defer cancel()
+		_, _ = p.call(ctx, *held, slug, "Branch.Leave", map[string]any{"participantId": actor, "sessionId": session})
+		p.visits.leave(held.ID, user.ID, session)
+		held = nil
+	}
+	return live.PresenceSession{Close: func() { mu.Lock(); defer mu.Unlock(); closed = true; leave() }, Move: func(ctx context.Context, raw json.RawMessage) string {
+		mu.Lock()
+		defer mu.Unlock()
+		if closed {
+			return live.Forbidden
+		}
+		var where struct {
+			Branch   string `json:"branch"`
+			Path     string `json:"path"`
+			Line     *int64 `json:"line"`
+			Terminal string `json:"terminal"`
+			Run      string `json:"run"`
+			Step     string `json:"step"`
+		}
+		if len(raw) == 0 || json.Unmarshal(raw, &where) != nil {
+			return live.Forbidden
+		}
+		if where.Branch == "" {
+			leave()
+			return ""
+		}
+		// Browser heartbeats cannot claim a run or foreign terminal. Those sources
+		// require their authenticated session adapters, not user-controlled IDs.
+		if where.Terminal != "" || where.Run != "" || where.Step != "" {
+			return live.Unsupported
+		}
+		location := map[string]any{"kind": "branch"}
+		if where.Path != "" {
+			if strings.HasPrefix(where.Path, "/") || strings.Contains(where.Path, "\\") || len(where.Path) > 4096 {
+				return live.Forbidden
+			}
+			for _, part := range strings.Split(where.Path, "/") {
+				if part == ".." || part == "" {
+					return live.Forbidden
+				}
+			}
+			location = map[string]any{"kind": "file", "path": where.Path}
+			if where.Line != nil {
+				if *where.Line <= 0 {
+					return live.Forbidden
+				}
+				location["line"] = *where.Line
+			}
+		} else if where.Line != nil {
+			return live.Forbidden
+		}
+		row, err := p.branches.PresenceBranch(ctx, where.Branch, repository, user.ID)
+		if err != nil {
+			return live.Forbidden
+		}
+		if held != nil && held.ID != row.ID {
+			leave()
+		}
+		name := user.DisplayName
+		if name == "" {
+			name = user.Username
+		}
+		held = &row
+		_, err = p.call(ctx, row, slug, "Branch.Announce", map[string]any{"participantId": actor, "sessionId": session, "displayName": name, "cursor": nil, "kind": "person", "where": location})
+		if err != nil {
+			return live.Unsupported
+		}
+		held = &row
+		p.visits.heartbeat(row.ID, user.ID, user.Username, session)
+		return ""
+	}}
+}
+
+func (p *branchPresence) source(ctx context.Context, branch string, repository, member int64, slug string) (live.Source, string) {
+	if p == nil || p.dispatcher == nil || p.branches == nil {
+		return live.Source{}, live.Unsupported
+	}
+	row, err := p.branches.PresenceBranch(ctx, branch, repository, member)
+	if err != nil {
+		return live.Source{}, live.Forbidden
+	}
+	return live.Source{Key: "branch:" + row.ID, Every: 250 * time.Millisecond, MinInterval: 250 * time.Millisecond, FailClosed: true, Build: func(ctx context.Context) (json.RawMessage, error) {
+		raw, err := p.call(ctx, row, slug, "Branch.Roster", map[string]any{})
+		if err != nil {
+			return nil, err
+		}
+		var leases []leaseParticipant
+		if err = json.Unmarshal(raw, &leases); err != nil {
+			return nil, err
+		}
+		// Multiple sessions retain leases but render one participant, at the newest
+		// location. Lease timestamps stay internal, so heartbeats do not fan out.
+		latest := map[string]leaseParticipant{}
+		order := []string{}
+		for _, lease := range leases {
+			prior, ok := latest[lease.ParticipantID]
+			if !ok {
+				order = append(order, lease.ParticipantID)
+			}
+			if !ok || lease.LeaseExpiresAtMs > prior.LeaseExpiresAtMs {
+				latest[lease.ParticipantID] = lease
+			}
+		}
+		presence := []any{}
+		colors := map[string]int{}
+		if p.members != nil {
+			roster, err := p.members.SharedRoster(ctx)
+			if err != nil {
+				return nil, err
+			}
+			for _, member := range roster.Members {
+				colors[member.Login] = member.ColorIndex
+			}
+		}
+		for _, id := range order {
+			lease := latest[id]
+			memberID, err := strconv.ParseInt(strings.TrimPrefix(id, "member:"), 10, 64)
+			if err != nil || lease.Kind != "person" {
+				continue
+			}
+			person, err := p.queries.GetUserByID(ctx, memberID)
+			if err != nil {
+				return nil, err
+			}
+			avatar := person.AvatarUrl
+			if avatar == "" {
+				avatar = placeholderAvatar
+			}
+			name := person.DisplayName
+			if name == "" {
+				name = person.Username
+			}
+			actor := map[string]any{"kind": "person", "login": person.Username, "name": name, "avatar_url": avatar, "color_index": colors[person.Username]}
+			location := lease.Where
+			if len(location) == 0 {
+				location = json.RawMessage(`{"kind":"branch"}`)
+			}
+			presence = append(presence, map[string]any{"actor": actor, "where": location})
+		}
+		machine := map[string]any{"state": "asleep"}
+		if row.Status == "running" {
+			machine["state"] = "awake"
+		} else if row.Status == "starting" || row.Status == "pending" {
+			machine["state"] = "waking"
+		} else if row.Status == "failed" {
+			machine["state"] = "failed"
+			machine["error"] = map[string]any{"class": "infra", "code": "machine_failed", "message": "Machine failed"}
+		}
+		return json.Marshal(map[string]any{"id": branch, "name": row.TargetBookmark, "machine": machine, "presence": presence, "terminals": []any{}, "ssh_line": ""})
+	}}, ""
+}

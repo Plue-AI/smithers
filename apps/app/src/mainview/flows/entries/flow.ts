@@ -54,14 +54,14 @@ export const flowVersionFlows = (actions: CommandActions): ReadonlyArray<FlowEnt
     return cards === undefined ? flowsUnavailable : cards.find(card => card.name === name) ?? `No flow ${name}`
   }
   return [
-    flow({ name: "flow", summary: "Show a flow's steps and versions", args: "<name>",
-      input: Schema.Struct({ name: Schema.NonEmptyString }), grammar: flowNameGrammar,
+    flow({ name: "flow",   slash: "/flow", cli: ["flow","show"], journey: ["J5"], group: "Flows", visibility: "core", actors: ["person","app_agent","external_agent"], minimumRole: "member", http: {"method":"GET","path":"/api/flows/{name}"}, summary: "Show a flow's steps and versions", args: "<name>",
+      agent: "run", input: Schema.Struct({ name: Schema.NonEmptyString }), grammar: flowNameGrammar,
       handler: async ({ name }) => {
         const model = await named(name)
         return typeof model === "string" ? model : { value: await actions.presentFlow(name, flowTitle(name)) }
       } }),
-    flow({ name: "flow.edit", summary: "Propose a change to a flow", args: "<name> <request>",
-      input: Schema.Struct({ name: Schema.NonEmptyString, request: Schema.NonEmptyString, diff: Schema.optional(Schema.String) }),
+    flow({ name: "flow.edit",   slash: "/flow.edit", cli: ["flow","edit"], journey: ["J5"], group: "Flows", visibility: "core", actors: ["person","app_agent","external_agent"], minimumRole: "member", http: {"method":"POST","path":"/api/flows/{name}/edit"}, summary: "Propose a change to a flow", args: "<name> <request>",
+      agent: "confirm", input: Schema.Struct({ name: Schema.NonEmptyString, request: Schema.NonEmptyString, diff: Schema.optional(Schema.String) }),
       grammar: flowNameGrammar, confirm: payload => payload.diff === undefined ? "change this flow" : undefined,
       form: { requires: () => ["name", "request"], fields: { name: { label: "Flow" }, request: { label: "Request" }, diff: { hidden: true } },
         args: payload => payload.diff === undefined ? line(text(payload, "name"), text(payload, "request")) : JSON.stringify(payload) },
@@ -72,8 +72,8 @@ export const flowVersionFlows = (actions: CommandActions): ReadonlyArray<FlowEnt
         if (diff !== undefined) return { value: await actions.presentSubject({ id: `flow:${name}`, kind: "flow", title: flowTitle(name), payload: { name, proposal: { request, diff } } }) }
         return actions.newTodo(flowEditTodoInput(name, request))
       } }),
-    flow({ name: "flow.source", summary: "Open a flow's source", args: "<name>",
-      input: Schema.Struct({ name: Schema.NonEmptyString }), grammar: flowNameGrammar,
+    flow({ name: "flow.source",   slash: "/flow.source", cli: ["flow","source"], journey: ["J11"], group: "Advanced", visibility: "advanced", actors: ["person","app_agent","external_agent"], minimumRole: "member", http: null, summary: "Co-edit a flow's source", args: "<name>",
+      agent: "run", input: Schema.Struct({ name: Schema.NonEmptyString }), grammar: flowNameGrammar,
       handler: async ({ name }) => {
         const world = actions.design.world()
         const model = await named(name)
@@ -93,7 +93,7 @@ export const flowVersionFlows = (actions: CommandActions): ReadonlyArray<FlowEnt
         if (file === undefined) return `No source for ${flowTitle(name)}`
         return { value: await actions.presentSubject(fileCard(world.repo.repo, file.branch, file.path)) }
       } }),
-    flow({ name: "flows", summary: "List the repository's flows", input: Schema.Struct({}),
+    flow({ name: "flows",   slash: "/flows", cli: ["flows"], journey: ["J5"], group: "Flows", visibility: "core", actors: ["person","app_agent","external_agent"], minimumRole: "member", http: {"method":"GET","path":"/api/flows"}, summary: "List the repository's flows", agent: "run", input: Schema.Struct({}),
       handler: async () => {
         const cards = await actions.flowCards()
         if (cards === undefined) return flowsUnavailable
@@ -115,8 +115,8 @@ export const flowFlows = (actions: CommandActions): ReadonlyArray<FlowEntry> => 
      * with more than one loaded repository, the chooser-among-loaded asks —
      * the target is a genuine user choice, not a guess.
      */
-    name: "flow.create",
-    summary: "Create a Smithers flow from a description",
+    name: "flow.new", slash: "/flow.new", cli: ["flow","new"], journey: [], group: "Flows", visibility: "core", actors: ["person","app_agent","external_agent"], minimumRole: "member", agent: "confirm", http: {"method":"POST","path":"/api/flows"},
+    summary: "Create a new flow",
     runtime: ["cloud"],
     args: "<description> [owner/repo]",
     requires: ["signed-in"],
@@ -136,11 +136,11 @@ export const flowFlows = (actions: CommandActions): ReadonlyArray<FlowEntry> => 
      * them and provisions on ITS guess. Hidden keeps it out of the catalog;
      * user-only keeps it un-executable even by a model that guesses the name.
      */
-    name: "flow.repo.choose", hidden: true, discloseToAgent: false,
+    name: "flow.repo.choose", visibility: "in-card", hidden: true, discloseToAgent: false,
     summary: "Choose which loaded repository a flow belongs to",
     runtime: ["cloud"],
-    userOnly: true,
-    userOnlyReason: "the answer to the which-repository card is the human's choice; a model must not provision on its guess",
+    agent: "never" as const,
+    agentReason: "the answer to the which-repository card is the human's choice; a model must not provision on its guess",
     args: "<owner/repo>",
     input: Schema.Struct({ repo: Schema.String }),
     handler: ({ repo }) => actions.chooseWorkflowRepo(repo)
@@ -153,7 +153,7 @@ export const flowFlows = (actions: CommandActions): ReadonlyArray<FlowEntry> => 
      * never perform it: `confirm` turns an agent invocation into a
      * confirmation message whose button runs the stop as the user.
      */
-    name: "flow.run.stop",
+    name: "flow.run.stop", visibility: "in-card",
     summary: "Stop a run",
     runtime: ["cloud"],
     hidden: true,
@@ -167,7 +167,7 @@ export const flowFlows = (actions: CommandActions): ReadonlyArray<FlowEntry> => 
   }),
   flow({
     /* A retry spends (.specs/engineering/spec.md §6.1): the model may ask, the human confirms. */
-    name: "flow.run.retry",
+    name: "flow.run.retry", visibility: "in-card",
     summary: "Check a run again",
     runtime: ["cloud"],
     hidden: true,
@@ -187,14 +187,14 @@ export const flowFlows = (actions: CommandActions): ReadonlyArray<FlowEntry> => 
   }),
   flow({
     name: "flow.run",
-    form: {
+     slash: "/flow.run", cli: ["flow","run"], journey: [], group: "Flows", visibility: "core", actors: ["person","app_agent","external_agent"], minimumRole: "member", http: {"method":"POST","path":"/api/flows/{name}/run"}, form: {
       fields: { name: { label: "Flow" }, repo: { optionsFrom: "cloud-repos", kind: "text" }, input: { label: "Input JSON" } },
       partial: flowRunParts,
       args: (payload) => line(text(payload, "sourceCard") === undefined ? undefined : `sourceCard=${text(payload, "sourceCard")}`,
         text(payload, "name"), text(payload, "repo"),
         payload.input === undefined ? undefined : typeof payload.input === "string" ? text(payload, "input") : JSON.stringify(payload.input))
     },
-    summary: "Run a flow on your workspace",
+    summary: "Run a flow with typed input",
     runtime: ["cloud"],
     args: "[sourceCard=id] <name> [owner/repo] [JSON object]",
     requires: ["signed-in"],
@@ -212,7 +212,7 @@ export const flowFlows = (actions: CommandActions): ReadonlyArray<FlowEntry> => 
    */
   flow({
     name: "flow.plan",
-    form: {
+     slash: "/flow.plan", cli: ["flow","plan"], journey: ["J11"], group: "Advanced", visibility: "advanced", actors: ["person","app_agent","external_agent"], minimumRole: "member", http: null, form: {
       fields: { name: { label: "Flow" }, repo: { optionsFrom: "cloud-repos", kind: "text" }, input: { label: "Input JSON" } },
       partial: flowPlanParts,
       args: (payload) => line(text(payload, "sourceCard") === undefined ? undefined : `sourceCard=${text(payload, "sourceCard")}`,
@@ -271,19 +271,20 @@ const firstLine = (text: string): string => text.split("\n")[0]?.trim() ?? ""
 export const repositoryFlowLeaves = (
   actions: CommandActions,
   repo: string,
-  flows: ReadonlyArray<RepositoryFlow>
+  flows: ReadonlyArray<RepositoryFlow>,
+  builtins: ReadonlyArray<FlowEntry> = []
 ): ReadonlyArray<FlowEntry> =>
   flows.flatMap((row) => {
     const name = repositoryFlowName(row.id)
     if (!SLASH_NAME.test(name)) return []
+    const policy = builtins.find(entry => entry.declaredName === name)?.metadata
     return [
       flow({
-        name,
+        name, visibility: "core", slash: `/${name}`, group: "Flows",
+        agent: row.modelInvocable ? policy?.agent ?? "run" : "never",
+        actors: row.modelInvocable ? policy?.actors ?? ["person", "app_agent"] : ["person"],
+        minimumRole: policy?.minimumRole ?? "member",
         summary: row.summary ?? firstLine(row.description),
-        // The repository projection supplies the model policy; this one leaf serves every listing.
-        visibility: "core", group: "flow", minimumRole: "member",
-        actors: row.modelInvocable ? ["person", "app_agent", "external_agent"] : ["person"],
-        agent: row.modelInvocable ? "run" : "never",
         workflow: row.id,
         runtime: ["cloud"],
         requires: ["signed-in"],
@@ -292,7 +293,7 @@ export const repositoryFlowLeaves = (
         form: { fields: { repo: { optionsFrom: "cloud-repos", kind: "text" } } },
         ...(row.modelInvocable
           ? {}
-          : { userOnly: true, userOnlyReason: `${repo} declares ${row.id} is not for a model to start (.smithers/FACTORY.ts)` }),
+          : { agent: "never" as const, agentReason: `${repo} declares ${row.id} is not for a model to start (.smithers/FACTORY.ts)` }),
         input: Schema.Struct({ repo: Schema.optional(Schema.String), input: Schema.optional(Schema.Record(Schema.String, Schema.Json)) }),
         handler: ({ repo: target, input }) => actions.runWorkflow(row.id, target ?? repo, input, undefined, true)
       })
@@ -303,7 +304,7 @@ export const repositoryFlowLeaves = (
 export const flowRunStopAllFlows = (actions: CommandActions): ReadonlyArray<FlowEntry> => [
   flow({
     /* Stopping every run is consequential: agent invocations confirm first. */
-    name: "flow.run.stop-all",
+    name: "flow.run.stop-all", visibility: "in-card",
     summary: "Stop every live run on your workspace",
     runtime: ["cloud"],
     hidden: true,

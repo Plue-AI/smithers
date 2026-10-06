@@ -43,7 +43,7 @@ startup registration.
   frames: numeric byte arrays match Rust, stdin half-close is preserved, stdout
   and stderr remain separate, and exit status/signals use SSH messages. Input
   credit is capped at 256 KiB; output credit is returned only after the SSH
-  channel write finishes. Unknown/malformed guest envelopes, duplicate fields and trailing JSON refuse.
+  channel write finishes. Unknown/malformed guest envelopes, duplicate fields, trailing JSON and null/non-integer byte elements refuse before SSH output.
   A real SSH dispatch regression confirms an ambiguous guest exit closes the
   channel without emitting an SSH exit status. Channel
   dispatch supports session and loopback direct-tcpip only. Missing session

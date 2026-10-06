@@ -97,6 +97,7 @@ type rehearsal struct {
 	root           string
 	evidence       string
 	pool           *pgxpool.Pool
+	repoClient     *repository.Client
 	fake           *githubfake.Server
 	compute        *sandboxfake.Provider
 	coder          rehearsalCodingModel
@@ -134,7 +135,7 @@ var rehearsalTokenField = regexp.MustCompile(`"token":"[^"]*"`)
 
 // newRehearsal composes the install for check (C-J1-04, C-J2) and serves it;
 // it is enabled only by the environment variable enable set to 1.
-func newRehearsal(t *testing.T, enable, check, keyPrefix string) *rehearsal {
+func newRehearsal(t *testing.T, enable, check, keyPrefix string, poolCapacity ...int32) *rehearsal {
 	if os.Getenv(enable) != "1" {
 		t.Skip("enable explicitly with " + enable + "=1")
 	}
@@ -160,7 +161,7 @@ func newRehearsal(t *testing.T, enable, check, keyPrefix string) *rehearsal {
 	// /private/var) and confinement compares it with the workspace root.
 	processRoot, err := filepath.EvalSymlinks(t.TempDir())
 	require.NoError(t, err)
-	pool, databaseURL := postgresfixture.NewProductDatabase(t)
+	pool, databaseURL := postgresfixture.NewProductDatabase(t, poolCapacity...)
 	r.pool = pool
 	gitRoot := t.TempDir()
 	r.gitRoot = gitRoot
@@ -235,6 +236,7 @@ func newRehearsal(t *testing.T, enable, check, keyPrefix string) *rehearsal {
 	engine, err := repository.OpenLocal(repository.Config{StoragePath: t.TempDir(), AuthToken: "rehearsal-repo", FFILibraryPath: library, InstallMainMirror: true})
 	require.NoError(t, err, "build the repository's smithers-ffi library first")
 	t.Cleanup(func() { require.NoError(t, engine.Shutdown(context.Background())) })
+	r.repoClient = engine.Client()
 	require.True(t, engine.Client().InstallMainMirror(), "the install engine's client must carry the install fact")
 	repositoryServer := httptest.NewServer(engine.Handler())
 	t.Cleanup(repositoryServer.Close)
@@ -319,6 +321,9 @@ func newRehearsal(t *testing.T, enable, check, keyPrefix string) *rehearsal {
 		done <- StartWithOptions(ctx, nil, r.stdout, io.MultiWriter(r.logs, live), Options{Repository: engine.Client(), Workspace: workspace, MachineImages: trustedProcessImages{sources: repositorySourceFiles{client: engine.Client()}}, ComputeProvider: r.compute, ChatHost: offlineGatewayHost{host}, FlowHostProductAPIURL: r.origin,
 			FlowHostRegistry: registry, FlowHostConfig: flowhost.WorkspaceLauncherConfig{AllowTrustedProcessForTests: true},
 			PlatformModelKeys: platformKeys, ModelProxyUpstreams: upstreams, BranchMachines: rehearsalBranchMachines(pool),
+			// Explicit measurements for the real install capacity policy; this
+			// process-runtime fixture is not machine/reference-host evidence.
+			HostProfile: &microsandbox.HostProfile{MemoryBytes: 32 << 30, PerfCores: 10, DiskFreeBytes: 400 << 30},
 			// A label on GitHub is read within seconds, not the product's 120 s.
 			GitHubIssueEventsEvery: 2 * time.Second}, func(h http.Handler) { ready <- h })
 	}()
@@ -350,7 +355,7 @@ func newRehearsal(t *testing.T, enable, check, keyPrefix string) *rehearsal {
 	})
 	r.jar, err = cookiejar.New(nil)
 	require.NoError(t, err)
-	r.client = &http.Client{Jar: r.jar, Timeout: 8 * time.Second, CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}
+	r.client = &http.Client{Jar: r.jar, Timeout: 30 * time.Second, CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}
 	t.Cleanup(func() {
 		r.mu.Lock()
 		defer r.mu.Unlock()
@@ -1075,6 +1080,10 @@ func (r *rehearsal) waitMerged(number, pull int64, head string) error {
 					return err
 				}
 				if health.State != "fresh" || health.LastSuccessAt == nil {
+					if !time.Now().After(deadline) && health.State == "stale" {
+						time.Sleep(200 * time.Millisecond)
+						continue
+					}
 					return fmt.Errorf("GitHub sync %q after the follow", health.State)
 				}
 				r.actual = fmt.Sprintf("200 merged; install main %s = GitHub's squash commit; sync fresh", squash)

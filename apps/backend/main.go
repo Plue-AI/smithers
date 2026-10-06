@@ -51,6 +51,9 @@ func run(ctx context.Context, args []string, testFlowHostConfigs ...flowhost.Wor
 func serve(ctx context.Context, args []string, executable func() (string, error), testFlowHostConfig flowhost.WorkspaceLauncherConfig) (runErr error) {
 	var cleanupErr error
 	defer func() { runErr = stopResult(ctx, runErr, cleanupErr) }()
+	if handled, err := native.DispatchMaintenance(ctx, args); handled {
+		return err
+	}
 	// Schema maintenance is server-free. The native path migrates its owned
 	// PostgreSQL after the supervisor reports readiness.
 	if len(args) > 0 && args[0] == "migrate" {

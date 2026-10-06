@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"sort"
+	"strings"
 	"time"
 )
 
@@ -26,6 +27,10 @@ type admissionHolder struct {
 // AdmissionProviders keeps missing authority fail-closed. Ready must verify the
 // unique branch binding, launcher security receipts and durable TODO/publication
 // adapters for the particular request. It must not perform a VM start.
+// ErrAdmissionNotReady marks authority that has not been published yet. Demand
+// remains queued; this never grants a VM or treats missing authority as success.
+var ErrAdmissionNotReady = errors.New("admission authority not ready")
+
 type AdmissionProviders struct {
 	Ready    func(context.Context, AdmissionRequest) error
 	FreeDisk func(context.Context) (int64, error)
@@ -60,7 +65,20 @@ func (r *Runtime) Request(class, holder, actor, reason string) (AdmissionRequest
 	h := r.admission[holder]
 	if h == nil {
 		h = &admissionHolder{rows: map[string]*AdmissionRequest{}}
+
 		r.admission[holder] = h
+	}
+	if !h.held {
+		// A live retained VM already owns capacity, including after recovery.
+		// Registering demand must reuse it rather than reserve a second slot.
+		if id, ok := strings.CutPrefix(holder, "workspace:"); ok {
+			if ws := r.workspaces[id]; ws != nil && ws.Machine != "" && ws.State != "stopped" && ws.State != "recovery_required" {
+				h.held, h.machine = true, ws.Machine
+				if ws.State == "stopping" {
+					h.releasing = time.Now()
+				}
+			}
+		}
 	}
 	row := h.rows[actor]
 	if row == nil || row.State == "cancelled" || row.State == "released" {
@@ -76,6 +94,7 @@ func (r *Runtime) Request(class, holder, actor, reason string) (AdmissionRequest
 		row.State = "granted"
 	}
 	r.rankAdmissionLocked()
+	r.notifyAdmissionLocked()
 	return *row, nil
 }
 
@@ -150,6 +169,11 @@ func (r *Runtime) GrantNext(ctx context.Context, p AdmissionProviders) (Admissio
 	if err := p.Ready(ctx, candidate); err != nil {
 		return AdmissionRequest{}, err
 	}
+	// Retry failed auxiliary removals through the existing reconciliation path.
+	// A failed removal remains counted, so this cannot manufacture capacity.
+	if _, err := r.prepareAdmission(ctx); err != nil {
+		return AdmissionRequest{}, err
+	}
 	maximum, err := reader(ctx)
 	if err != nil {
 		return AdmissionRequest{}, err
@@ -164,6 +188,9 @@ func (r *Runtime) GrantNext(ctx context.Context, p AdmissionProviders) (Admissio
 	defer r.mu.Unlock()
 	if r.closed {
 		return AdmissionRequest{}, errors.New("microsandbox runtime is closed")
+	}
+	if err := ctx.Err(); err != nil {
+		return AdmissionRequest{}, err
 	}
 	heads = r.rankAdmissionLocked()
 	// Demand can be cancelled/promoted while providers do I/O. Retry on the next event.
@@ -181,6 +208,7 @@ func (r *Runtime) GrantNext(ctx context.Context, p AdmissionProviders) (Admissio
 		}
 	}
 	r.rankAdmissionLocked()
+	r.notifyAdmissionLocked()
 	return *h.rows[candidate.Actor], nil
 }
 
@@ -195,6 +223,7 @@ func (r *Runtime) CancelAdmission(holder, actor string, now time.Time) bool {
 	}
 	if row := h.rows[actor]; row != nil {
 		row.State = "cancelled"
+		r.notifyAdmissionLocked()
 	}
 	r.rankAdmissionLocked()
 	for _, row := range h.rows {
@@ -251,6 +280,7 @@ func (r *Runtime) ConfirmAdmissionStop(holder string, transfer bool) {
 		}
 	}
 	r.rankAdmissionLocked()
+	r.notifyAdmissionLocked()
 }
 
 // AdmissionForceStops reports releases past the 60 s deadline. Reporting never
@@ -266,6 +296,57 @@ func (r *Runtime) AdmissionForceStops(now time.Time) []string {
 	}
 	sort.Strings(holders)
 	return holders
+}
+
+// ReconcileAdmissionReleases retries overdue stops without relinquishing the
+// slot on a CLI acknowledgment. Only an observed stopped or missing VM frees it.
+func (r *Runtime) ReconcileAdmissionReleases(ctx context.Context, now time.Time) error {
+	var errs []error
+	for _, holder := range r.AdmissionForceStops(now) {
+		r.mu.Lock()
+		h := r.admission[holder]
+		machine := h.machine
+		r.mu.Unlock()
+		if machine == "" {
+			continue // A preparing grant still owns its reservation.
+		}
+		stopCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
+		_, stopErr := r.cli.run(stopCtx, nil, "stop", "-t", "0", "-q", machine)
+		cancel()
+		status, found, err := r.cli.sandboxStatus(ctx, machine)
+		if err != nil || found && status != "stopped" {
+			if err != nil {
+				errs = append(errs, err)
+			} else if stopErr != nil {
+				errs = append(errs, stopErr)
+			}
+			continue
+		}
+		r.mu.Lock()
+		// Another observer can have completed release while transport ran.
+		booting := false
+		for _, ws := range r.workspaces {
+			if ws.Machine == machine && ws.booting {
+				booting = true
+			}
+		}
+		if current := r.admission[holder]; !booting && current != nil && current.held && current.machine == machine && !current.releasing.IsZero() {
+			for _, ws := range r.workspaces {
+				if ws.Machine == machine {
+					ws.State = "stopped"
+					ws.guestOK = false
+					if err := writeMetadata(ws); err != nil {
+						errs = append(errs, err)
+					}
+				}
+			}
+			delete(r.auxVMs, machine)
+			delete(r.auxCleanup, machine)
+			r.detachAdmissionMachineLocked(machine, true)
+		}
+		r.mu.Unlock()
+	}
+	return errors.Join(errs...)
 }
 
 // AdmissionSafety is an observation from the existing presence/session/run
@@ -365,4 +446,136 @@ func (r *Runtime) detachAdmissionMachineLocked(machine string, release bool) {
 		}
 	}
 	r.rankAdmissionLocked()
+	r.notifyAdmissionLocked()
+}
+
+// WaitAdmission wakes on demand and retries disk/owner changes every second.
+// The grant context carries the same slot through preparation and branch boot.
+// Caller authority is checked by Ready on every grant; a missing adapter fails closed.
+func (r *Runtime) WaitAdmission(ctx context.Context, p AdmissionProviders, class, holder, actor, reason string) (context.Context, error) {
+	if p.Ready == nil || p.FreeDisk == nil {
+		return ctx, errors.New("admission providers unavailable")
+	}
+	request := AdmissionRequest{Class: class, Holder: holder, Actor: actor, Reason: reason}
+	readyErr := p.Ready(ctx, request)
+	if readyErr != nil && !errors.Is(readyErr, ErrAdmissionNotReady) {
+		return ctx, readyErr
+	}
+	if _, err := r.Request(class, holder, actor, reason); err != nil {
+		return ctx, err
+	}
+	ticker := time.NewTicker(time.Second)
+	defer ticker.Stop()
+
+	for {
+		if err := ctx.Err(); err != nil {
+			r.abandonAdmission(holder, actor)
+			return ctx, err
+		}
+		// Failed stop attempts keep their slots and are retried on the next
+		// event/tick. They must not fail an unrelated person's waiting action.
+		_ = r.ReconcileAdmissionReleases(ctx, time.Now())
+		r.mu.Lock()
+		h := r.admission[holder]
+		cancelled := r.closed || h == nil || h.rows[actor] == nil || h.rows[actor].State == "cancelled" || h.rows[actor].State == "released"
+		r.mu.Unlock()
+		if cancelled {
+			return ctx, context.Canceled
+		}
+		if readyErr != nil {
+			readyErr = p.Ready(ctx, request)
+			if readyErr != nil && !errors.Is(readyErr, ErrAdmissionNotReady) {
+				r.abandonAdmission(holder, actor)
+				return ctx, readyErr
+			}
+			if readyErr != nil {
+				select {
+				case <-ctx.Done():
+				case <-ticker.C:
+				}
+				continue
+			}
+		}
+		if r.admissionGranted(holder, actor) {
+			return WithAdmissionHolder(ctx, holder), nil
+		}
+		if _, err := r.GrantNext(ctx, p); err != nil && !errors.Is(err, ErrAdmissionNotReady) {
+			r.abandonAdmission(holder, actor)
+			return ctx, err
+		}
+		if err := ctx.Err(); err != nil {
+			r.abandonAdmission(holder, actor)
+			return ctx, err
+		}
+		r.mu.Lock()
+		changed := r.admissionChanged
+		r.mu.Unlock()
+		if r.admissionGranted(holder, actor) {
+			return WithAdmissionHolder(ctx, holder), nil
+		}
+		select {
+		case <-ctx.Done():
+		case <-changed:
+		case <-ticker.C:
+		}
+	}
+}
+
+// abandonAdmission releases only an unbound reservation. A live or failed-stop
+// VM retains ownership until the lifecycle observes its stop.
+func (r *Runtime) abandonAdmission(holder, actor string) {
+	// A failed operation on an already awake machine is not proof that the
+	// machine is safe to stop. Keep release decisions behind the safety adapter.
+	r.mu.Lock()
+	h := r.admission[holder]
+	if h != nil && h.machine != "" {
+		for _, ws := range r.workspaces {
+			if ws.Machine == h.machine && ws.State == "running" {
+				if row := h.rows[actor]; row != nil {
+					row.State = "cancelled"
+				}
+				r.rankAdmissionLocked()
+				r.notifyAdmissionLocked()
+				r.mu.Unlock()
+				return
+			}
+		}
+	}
+	r.mu.Unlock()
+	r.CancelAdmission(holder, actor, time.Now())
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	h = r.admission[holder]
+	if h == nil || !h.held || h.machine != "" {
+		return
+	}
+	for _, row := range h.rows {
+		if row.State == "granted" || row.State == "waiting" {
+			return
+		}
+	}
+	h.held = false
+	h.releasing = time.Time{}
+	r.rankAdmissionLocked()
+	r.notifyAdmissionLocked()
+}
+
+func (r *Runtime) admissionGranted(holder, actor string) bool {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	h := r.admission[holder]
+	return h != nil && h.rows[actor] != nil && h.rows[actor].State == "granted"
+}
+
+// CancelFailedAdmission cancels the actor after a failed wake. A bound VM keeps
+// the slot until observed stop; an unbound grant can be relinquished immediately.
+func (r *Runtime) CancelFailedAdmission(holder, actor string) {
+	r.abandonAdmission(holder, actor)
+}
+
+func (r *Runtime) notifyAdmissionLocked() {
+	if r.admissionChanged != nil {
+		close(r.admissionChanged)
+	}
+	r.admissionChanged = make(chan struct{})
 }

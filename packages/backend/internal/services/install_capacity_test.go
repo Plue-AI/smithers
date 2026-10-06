@@ -163,3 +163,15 @@ func TestInstallParallelOwnerAndPolicyRefuseBeforeEffects(t *testing.T) {
 	require.Error(t, s.SetParallel(owner, 2))
 	require.Error(t, (*InstallCapacityService)(nil).SetParallel(owner, 2))
 }
+
+func TestInstallParallelCurrentDiskFailureRefuses(t *testing.T) {
+	q := &parallelQueries{capacityQueries: capacityQueries{row: db.GetInstallCapacityRow{OwnerID: 1}, rows: 1}, saved: []byte(`8`)}
+	failure := errors.New("disk unavailable")
+	s := InstallCapacityService{Queries: q, Profile: microsandbox.HostProfile{MemoryBytes: 32 << 30, PerfCores: 10, DiskFreeBytes: 400 << 30}, FreeDisk: func(context.Context) (int64, error) { return 0, failure }}
+	_, err := s.Parallel(t.Context())
+	require.ErrorIs(t, err, failure)
+	_, err = s.Read(t.Context())
+	require.ErrorIs(t, err, failure)
+	require.Equal(t, []byte(`8`), q.saved)
+	require.EqualValues(t, 400<<30, s.Profile.DiskFreeBytes)
+}

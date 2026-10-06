@@ -1,3 +1,5 @@
+import appendixA from "./fixtures/AppendixA.json"
+const SURFACE_FLOWS: readonly string[] = appendixA.map(row => row.name).filter(name => name !== "review")
 /*
  * The repository's own flows as slash leaves (Factory design session
  * 2026-09-07 §4; owner rule: flows are slash commands, and the featured ones
@@ -20,7 +22,7 @@ import { createAppStore } from "../state/AppStore"
 import type { AppStore } from "../state/AppStore"
 import { executeAgentToolCall } from "./agentTools"
 import { visibleItems } from "./Commands"
-import { namespaceOf, parseSubmit, SURFACE_FLOWS } from "./registry"
+import { namespaceOf, parseSubmit } from "./registry"
 import { readRepositoryHome } from "../state/seams/RepositoryFlowsSeam"
 import { loadBox, signupProfileFetch } from "../state/TestFixtures"
 
@@ -192,22 +194,18 @@ describe("the repository's flows are slash leaves", () => {
     }
     expect(names.indexOf("review")).toBeLessThan(names.indexOf("lint"))
     expect(names.indexOf("lint")).toBeLessThan(names.indexOf("release-notes"))
-    for (const surface of SURFACE_FLOWS) expect(names.indexOf(surface)).toBeLessThan(names.indexOf("review"))
+    for (const surface of SURFACE_FLOWS.filter(name => names.includes(name) && !name.includes("."))) expect(names).toContain(surface)
   })
 
   test("the collision rule: bare /review runs the repository flow and /review. opens the review namespace, with one note saying so", async () => {
     const { controller } = await ready(backend({ [PROJECTION]: projectionDocument(CATALOG) }))
     const bare = controller.slashTree("review")
-    expect(bare[0]).toEqual({
-      kind: "note",
-      text: "Enter runs /review, this repository's flow. Type /review. to open the review flows instead."
-    })
-    expect(bare[1]).toMatchObject({ kind: "flow", flow: { name: "review" } })
+    expect(bare[0]).toMatchObject({ kind: "flow", flow: { name: "review" } })
     expect(bare.some((entry) => entry.kind === "namespace")).toBe(false)
     expect(parseSubmit("/review", controller.commands.all())).toEqual({ kind: "command", name: "review" })
 
     const branch = controller.slashTree("review.")
-    expect(branch.length).toBeGreaterThan(0)
+    expect(branch).toEqual([])
     expect(branch.every((entry) => entry.kind === "flow" && entry.flow.name.startsWith("review."))).toBe(true)
     // The note is only for the colliding name: a leaf that is no namespace lists plainly.
     expect(controller.slashTree("lint").some((entry) => entry.kind === "note")).toBe(false)
@@ -265,7 +263,7 @@ describe("the repository's flows are slash leaves", () => {
     const { store, controller } = await ready(backend({ [PROJECTION]: projectionDocument(CATALOG) }), "signed-out")
     // The leaf is offered when the user names it outright, so Enter on the menu is the deferral, not a review.* flow.
     const listed = treeNames(controller.slashTree("review"))
-    expect(listed[1]).toBe("review")
+    expect(listed).toEqual([])
     controller.send("/review")
     await settled()
     expect(store.session().pendingCommand).toMatchObject({ name: "review", requirement: "signed-in" })

@@ -1,9 +1,11 @@
 package services
 
 import (
+	"cmp"
 	"context"
 	"encoding/json"
 	"errors"
+	"slices"
 	"strings"
 	"time"
 
@@ -494,10 +496,17 @@ func mythicalDependsOn(item db.MythicalItem, items []db.MythicalItem) []string {
 	if mythicalOffStack(item.State) || !item.StackPosition.Valid {
 		return dependencies
 	}
-	for _, earlier := range items {
+	predecessors := []int{}
+	for index, earlier := range items {
 		if !mythicalOffStack(earlier.State) && earlier.StackPosition.Valid && earlier.StackPosition.Int64 < item.StackPosition.Int64 {
-			dependencies = append(dependencies, uuidString(earlier.ID))
+			predecessors = append(predecessors, index)
 		}
+	}
+	// Legacy snapshots put failed items after moving ones. Dependencies
+	// follow stack positions regardless of that display grouping.
+	slices.SortFunc(predecessors, func(a, b int) int { return cmp.Compare(items[a].StackPosition.Int64, items[b].StackPosition.Int64) })
+	for _, index := range predecessors {
+		dependencies = append(dependencies, uuidString(items[index].ID))
 	}
 	return dependencies
 }

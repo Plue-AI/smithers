@@ -141,6 +141,7 @@ type metadata struct {
 
 type workspace struct {
 	metadata
+	booting   bool // guarded by Runtime.mu; an in-flight launcher can still create a VM
 	directory string
 	commands  map[string]*guestCommand
 	services  map[string]*managedService
@@ -169,6 +170,7 @@ type Runtime struct {
 	capacityReader    func(context.Context) (int, error)
 	admission         map[string]*admissionHolder
 	admissionSequence uint64
+	admissionChanged  chan struct{}
 }
 
 // New qualifies Microsandbox, loads persisted workspaces, reaps this
@@ -467,6 +469,7 @@ func (r *Runtime) recover(ctx context.Context) error {
 			// A stopped state makes common reconciliation call StartWorkspace,
 			// which restarts the host bridge before anything runs.
 			if err := r.stopMachine(ctx, ws.Machine); err != nil {
+				ws.State = string(workspaceapi.WorkspaceStarting)
 				errs = append(errs, err)
 			}
 		default:
@@ -588,7 +591,9 @@ func (r *Runtime) createFrom(ctx context.Context, spec workspaceapi.WorkspaceSpe
 		State: string(workspaceapi.WorkspaceStarting), Snapshot: layer.Snapshot, LayerKey: layer.Key, Link: layer.Link,
 		CreatedAt: time.Now().UTC().Format(time.RFC3339)}, directory)
 	r.workspaces[id] = ws
+	ws.booting = true
 	r.mu.Unlock()
+	defer r.finishBoot(ws)
 
 	if err := writeMetadata(ws); err != nil {
 		r.forget(ws)
@@ -624,6 +629,13 @@ func (r *Runtime) forget(ws *workspace) {
 		r.detachAdmissionMachineLocked(ws.Machine, true)
 	}
 	_ = os.RemoveAll(ws.directory)
+}
+
+func (r *Runtime) finishBoot(ws *workspace) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	ws.booting = false
+	r.notifyAdmissionLocked()
 }
 
 // admitRunningLocked refuses to boot beyond the running-VM cap rather than
@@ -719,7 +731,7 @@ func (r *Runtime) stopMachine(ctx context.Context, name string) error {
 		return nil
 	}
 	status, found, statusErr := r.cli.sandboxStatus(ctx, name)
-	if statusErr == nil && (!found || status != "running") {
+	if statusErr == nil && (!found || status == "stopped") {
 		return nil
 	}
 	return fmt.Errorf("stop microVM %s: %w", name, err)
@@ -809,7 +821,9 @@ func (r *Runtime) StartWorkspace(ctx context.Context, id string) (workspaceapi.W
 		return workspaceapi.Workspace{}, err
 	}
 	ws.State = string(workspaceapi.WorkspaceStarting)
+	ws.booting = true
 	r.mu.Unlock()
+	defer r.finishBoot(ws)
 
 	var startErr error
 	if ws.Reclaimed {

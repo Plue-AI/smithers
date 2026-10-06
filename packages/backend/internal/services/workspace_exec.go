@@ -17,6 +17,7 @@ import (
 // CreateSession creates a new workspace session and ensures its configured
 // workspace runtime is running.
 func (s *WorkspaceService) CreateSession(ctx context.Context, input CreateWorkspaceSessionInput) (WorkspaceSessionResponse, error) {
+	ctx = personMachineDemand(ctx)
 	if s.q == nil {
 		return WorkspaceSessionResponse{}, pkgerrors.Internal("workspace store unavailable")
 	}

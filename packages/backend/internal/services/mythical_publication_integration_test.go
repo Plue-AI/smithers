@@ -247,7 +247,7 @@ func TestTodoPublicationOpensReadyThenDraftPullRequests(t *testing.T) {
 	// The owner saves the Address teammates open (setup step 0): the next
 	// pull request links there, not to the configured loopback origin.
 	address := &InstallAddress{Configured: []string{"http://smithers.test"}}
-	address.commit("0.0.0.0:4000", []string{"http://localhost:4000", "http://williams-mac-mini.local:4000"})
+	address.commit("0.0.0.0:4000", []string{"http://williams-mac-mini.local:4000", "http://localhost:4000"})
 	f.service.SetPublicOrigin(address.Public)
 	second := f.todo("Wave goodbye", "Say goodbye too", first.CandidateHead, "GOODBYE.md", "Bye from T2\n")
 	f.wake()
@@ -261,6 +261,11 @@ func TestTodoPublicationOpensReadyThenDraftPullRequests(t *testing.T) {
 	assert.Equal(t, true, creates[1]["draft"], "a later item's pull request opens as a draft")
 	assert.Contains(t, creates[1]["body"], "Includes [T1](https://github.com/rehearsal-owner/app/pull/1) until they merge")
 	secondHead := f.githubRef(secondBranch)
+	manifests := mythicalChecksOf(f.item(second.Number.Int64)).PRManifests
+	require.Len(t, manifests, 1)
+	require.Equal(t, secondHead, manifests[0].Head)
+	require.Equal(t, []mythicalManifestItem{{ID: uuidString(first.ID), Number: 1, Head: first.CandidateHead, Change: f.main + ".." + first.CandidateHead}}, manifests[0].Included)
+
 	assert.Equal(t, f.main, f.git(f.github, "rev-parse", secondHead+"^"))
 	assert.Equal(t, "Hello from T1", f.git(f.github, "show", secondHead+":JOURNEY.md"), "the prefix's change is included")
 	card = f.card(second.Number.Int64)

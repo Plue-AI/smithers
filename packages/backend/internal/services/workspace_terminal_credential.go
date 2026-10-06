@@ -63,18 +63,33 @@ func (s *WorkspaceService) signInWorkspaceTerminal(ctx context.Context, row db.W
 	}
 	credential := &terminalCredential{registry: s.terminalCredentials, tokens: s.q, writer: writer, workspaceID: row.ID,
 		sessionID: sessionID, userID: userID, repositoryID: row.RepositoryID, url: url}
+	if err := s.installTerminalCredential(ctx, credential); err != nil {
+		return nil, err
+	}
+	return credential, nil
+}
+
+// Serialize replacements before writing the shared session path. Retiring the
+// previous lifecycle first prevents its late close or renewal from deleting or
+// replacing the new lifecycle's file.
+func (s *WorkspaceService) installTerminalCredential(ctx context.Context, credential *terminalCredential) error {
+	s.terminalCredentialMu.Lock()
+	defer s.terminalCredentialMu.Unlock()
+	if s.terminalCredentials != nil {
+		if previous, loaded := s.terminalCredentials.Load(credential.sessionID); loaded {
+			previous.(*terminalCredential).Close()
+		}
+	}
 	credential.mu.Lock()
 	err := credential.issueLocked(ctx)
 	credential.mu.Unlock()
 	if err != nil {
-		return nil, err
+		return err
 	}
 	if s.terminalCredentials != nil {
-		if previous, loaded := s.terminalCredentials.Swap(sessionID, credential); loaded {
-			previous.(*terminalCredential).Close()
-		}
+		s.terminalCredentials.Store(credential.sessionID, credential)
 	}
-	return credential, nil
+	return nil
 }
 
 // environment is what the signed-in shell is started with.

@@ -108,6 +108,23 @@ func TestMachineCapacityRefusalIsNoCapacity(t *testing.T) {
 	require.False(t, isNoCapacityError(runtimeOperationError("inspect workspace runtime", zero)))
 }
 
+func TestMachineDemandOwnerTerminalIsPerson(t *testing.T) {
+	row := sampleDBWorkspace("owner-terminal")
+	for _, tc := range []struct {
+		ctx             context.Context
+		actor           int64
+		class, identity string
+	}{
+		{context.Background(), row.UserID, "todo", "workspace:owner-terminal"},
+		{personMachineDemand(context.Background()), row.UserID, "person", fmt.Sprintf("person:%d", row.UserID)},
+		{context.Background(), row.UserID + 1, "person", fmt.Sprintf("person:%d", row.UserID+1)},
+	} {
+		class, actor := machineDemand(context.WithoutCancel(tc.ctx), row, tc.actor)
+		require.Equal(t, tc.class, class)
+		require.Equal(t, tc.identity, actor)
+	}
+}
+
 // A full host queues workspaces in the runtime's admission queue instead of
 // failing them: each stays pending, waiting for a machine with its place in
 // line, and only the head of the line tries again, so machines go out in
@@ -212,4 +229,54 @@ func TestMachineWaitNeedsAQueueAndNoMachine(t *testing.T) {
 	require.ErrorIs(t, svc.waitForMachine(context.Background(), row, refusal, nil), refusal)
 	plain := newWorkspaceServiceForTests(&mockWorkspaceQuerier{}, WithWorkspaceRuntime(&laneStopRuntime{}))
 	require.ErrorIs(t, plain.waitForMachine(context.Background(), q.row("lane"), refusal, nil), refusal)
+}
+
+func TestMachinePositionProjectsEveryWaitingState(t *testing.T) {
+	svc, q := machineQueueService(t, "todo", "person")
+	queue := svc.runtime.(workspaceMachineQueue)
+	_, err := queue.Request("todo", machineQueueHolder("todo"), "run", "machine")
+	require.NoError(t, err)
+	_, err = queue.Request("person", machineQueueHolder("person"), "Alice", "terminal")
+	require.NoError(t, err)
+	row := q.row("todo")
+	// A retained sleeping branch has a machine ID and still needs a position.
+	row.Status, row.VmID = "suspended", "retained-vm"
+	require.Equal(t, 2, svc.toWorkspaceResponse(row).WaitPosition)
+	position, waiting := svc.MachinePlace(row)
+	require.True(t, waiting)
+	require.Equal(t, 2, position)
+	queue.CancelAdmission(machineQueueHolder("person"), "Alice", time.Now())
+	require.Equal(t, 1, svc.toWorkspaceResponse(row).WaitPosition)
+	queue.CancelAdmission(machineQueueHolder("todo"), "run", time.Now())
+	require.Zero(t, svc.toWorkspaceResponse(row).WaitPosition)
+}
+
+func TestAdmissionReplacesAgeOnlyIdleSweep(t *testing.T) {
+	listed := false
+	svc := newWorkspaceServiceForTests(&mockWorkspaceQuerier{listIdleWorkspacesFn: func(context.Context) ([]db.Workspace, error) {
+		listed = true
+		return nil, errors.New("the old age-only sweep must not run")
+	}})
+	svc.EnableMachineAdmission(nil)
+	require.NoError(t, svc.CleanupIdleWorkspaces(t.Context()))
+	require.False(t, listed)
+}
+
+func TestMachineStartsUseExistingPolicyHook(t *testing.T) {
+	calls := 0
+	policy := NewMachineAdmissionPolicy(NewUnlimitedBillingPolicy())
+	require.NoError(t, policy.AuthorizeSandboxStart(t.Context(), 7), "durable request admission does not book a VM")
+	intent := &machineStartIntent{acquire: func(ctx context.Context) (context.Context, error) {
+		calls++
+		return microsandbox.WithAdmissionHolder(ctx, "workspace:branch"), nil
+	}}
+	ctx := context.WithValue(t.Context(), machineStartIntentKey{}, intent)
+	require.NoError(t, policy.AuthorizeSandboxStart(ctx, 7))
+	require.Equal(t, 1, calls)
+	require.NotNil(t, intent.granted)
+	denied := errors.New("binding unavailable")
+	intent = &machineStartIntent{acquire: func(ctx context.Context) (context.Context, error) { return nil, denied }}
+	require.ErrorIs(t, policy.AuthorizeSandboxStart(context.WithValue(t.Context(), machineStartIntentKey{}, intent), 7), denied)
+	require.Nil(t, intent.granted)
+	require.Error(t, policy.AuthorizeSandboxStart(context.WithValue(t.Context(), machineStartIntentKey{}, &machineStartIntent{}), 7))
 }

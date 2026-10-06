@@ -26,7 +26,7 @@ export default showcase({
   order: 105,
   title: "Flows",
   summary: "Plan a flow and inspect its graph, run it, write a new one; schedules in the Dispatcher.",
-  flows: ["flow.list", "flow.plan", "flow.plan.select", "flow.run", "flow.create", "triggers.list", "triggers.register", "triggers.run", "triggers.pause", "triggers.resume"],
+  flows: ["flow.list", "flow.plan", "flow.plan.select", "flow.run", "flow.new", "triggers.list", "triggers.register", "triggers.run", "triggers.pause", "triggers.resume"],
   run: async ({ page, app, backend }) => {
     let paused = false
     const pauseReceipt = Promise.withResolvers<void>()
@@ -241,7 +241,7 @@ export default showcase({
     await expect(follow).toHaveAttribute("aria-pressed", "true")
 
     // A new flow from one sentence: an authoring run on the workspace.
-    await app.slash(`/flow.create Mark issues idle for 30 days stale ${REPO}`)
+    await app.slash(`/flow.new Mark issues idle for 30 days stale ${REPO}`)
     const authoring = page.locator('[data-kind="run-trace"][data-run-id="run-create-flow-3"]')
     await expect(authoring).toContainText("Running", { timeout: 15_000 })
     await app.closeComposer()

@@ -65,10 +65,7 @@ func newFlowComposition(options runOptions, cfg *config.Config, pool *pgxpool.Po
 	// reach the account pool: the binding user's connected Codex (ChatGPT)
 	// accounts and Anthropic API keys, per request. A Claude subscription is
 	// never pooled (#2777).
-	accountPoolURL := ""
-	if cfg.FeatureFlags.SubscriptionConnections {
-		accountPoolURL = productAPIURL + services.ProviderPoolPath
-	}
+	accountPoolURL := codingHostAccountPoolURL(cfg, productAPIURL)
 	environment := codingHostEnvironment(options.topology)
 	readyTimeout := time.Duration(0)
 	if options.FlowHostConfig.AllowTrustedProcessForTests && options.Workspace.Isolation() == workspace.IsolationTrustedProcess {
@@ -315,4 +312,13 @@ func withInvokedFlowTargets(base, invoked flowhost.TargetResolver) flowhost.Targ
 		}
 		return base.ResolveFlowHostTarget(ctx, target)
 	})
+}
+
+// Install owners can change models.chatgpt after hosts are composed. The
+// served pool checks that setting on every request, including existing hosts.
+func codingHostAccountPoolURL(cfg *config.Config, productAPIURL string) string {
+	if config.IsSingleOwner(cfg.Auth) || cfg.FeatureFlags.SubscriptionConnections {
+		return productAPIURL + services.ProviderPoolPath
+	}
+	return ""
 }

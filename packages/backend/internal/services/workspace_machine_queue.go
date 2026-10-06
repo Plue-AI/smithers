@@ -3,10 +3,13 @@ package services
 import (
 	"context"
 	"errors"
+	"fmt"
+	"strconv"
 	"strings"
 	"time"
 
 	"github.com/smithersai/smithers/packages/backend/internal/db"
+	pkgerrors "github.com/smithersai/smithers/packages/backend/internal/pkg/errors"
 	"github.com/smithersai/smithers/packages/backend/microsandbox"
 )
 
@@ -47,6 +50,22 @@ func isMachineCapacityError(err error) bool {
 
 func machineQueueHolder(workspaceID string) string { return "workspace:" + workspaceID }
 
+type personMachineDemandKey struct{}
+
+// A person's wake is classified by its entry point, never by whether that
+// person happens to own the branch's workspace row.
+func personMachineDemand(ctx context.Context) context.Context {
+	return context.WithValue(ctx, personMachineDemandKey{}, true)
+}
+
+func machineDemand(ctx context.Context, row db.Workspace, requesterID int64) (string, string) {
+	person, _ := ctx.Value(personMachineDemandKey{}).(bool)
+	if person || requesterID != row.UserID {
+		return "person", fmt.Sprintf("person:%d", requesterID)
+	}
+	return "todo", machineQueueHolder(row.ID)
+}
+
 // waitForMachine keeps a workspace the full host refused in the runtime's
 // admission queue instead of failing it (T-MCH-06): its row stays pending at
 // the stage waiting_for_machine, and it tries again only at the head of the
@@ -66,7 +85,7 @@ func (s *WorkspaceService) waitForMachine(ctx context.Context, workspace db.Work
 	}
 	// The line is left whatever ends the wait; a machine started without a
 	// grant holds no reservation.
-	defer queue.CancelAdmission(holder, holder, time.Now())
+	defer func() { queue.CancelAdmission(holder, holder, time.Now()) }()
 	s.setWorkspaceProvisioningStageBestEffort(ctx, workspace.ID, workspaceWaitingForMachine)
 	ticker := time.NewTicker(workspaceMachineWaitEvery)
 	defer ticker.Stop()
@@ -106,7 +125,7 @@ func machineQueuePlace(queue workspaceMachineQueue, holder string) (int, bool) {
 // MachinePlace is a waiting workspace's place in the line for a machine
 // ("Waiting for a machine · #2"); false when it is not waiting.
 func (s *WorkspaceService) MachinePlace(workspace db.Workspace) (int, bool) {
-	if s == nil || workspace.ProvisioningStage != workspaceWaitingForMachine || workspace.Status != "pending" && workspace.Status != "starting" {
+	if s == nil {
 		return 0, false
 	}
 	queue, ok := s.runtime.(workspaceMachineQueue)
@@ -135,4 +154,71 @@ func (s *MythicalService) machinePlace(workspace db.Workspace) (int, bool) {
 		return 0, false
 	}
 	return lanes.MachinePlace(workspace)
+}
+
+// EnableMachineAdmission composes the existing branch authority with the runtime
+// queue. Unknown bindings and missing runtime/host providers refuse before boot.
+func (s *WorkspaceService) EnableMachineAdmission(freeDisk func(context.Context) (int64, error)) {
+	s.machineAdmission = &microsandbox.AdmissionProviders{
+		FreeDisk: freeDisk,
+		Ready: func(ctx context.Context, request microsandbox.AdmissionRequest) error {
+			if err := s.requireBranchMachineProviders(); err != nil {
+				return err
+			}
+			id := strings.TrimPrefix(request.Holder, "workspace:")
+			row, err := s.q.GetWorkspace(ctx, id)
+			if err != nil {
+				return err
+			}
+			if row.DeletedAt.Valid {
+				return errWorkspaceMachineWaitEnded
+			}
+			p := s.branchMachineProviders
+			if err := p.MicroVM(ctx); err != nil {
+				return err
+			}
+			if err := p.SessionIdentity(ctx); err != nil {
+				return err
+			}
+			tx, err := s.transactions.Begin(ctx)
+			if err != nil {
+				return err
+			}
+			defer func() { _ = tx.Rollback(context.WithoutCancel(ctx)) }()
+			if request.Class == "person" {
+				actor, err := strconv.ParseInt(strings.TrimPrefix(request.Actor, "person:"), 10, 64)
+				if err != nil {
+					return err
+				}
+				if err := p.Membership(ctx, tx, row.RepositoryID, actor); err != nil {
+					return err
+				}
+			}
+			if err := p.LaneBinding(ctx, tx, row.RepositoryID, row.TargetBookmark, row.ID); err != nil {
+				return fmt.Errorf("%w: %v", microsandbox.ErrAdmissionNotReady, err)
+			}
+			return nil
+		},
+	}
+}
+
+func (s *WorkspaceService) admitWorkspaceOperation(ctx context.Context, row db.Workspace, requesterID int64) (context.Context, error) {
+	if s.machineAdmission == nil {
+		return ctx, nil
+	}
+	runtime, ok := s.runtime.(interface {
+		WaitAdmission(context.Context, microsandbox.AdmissionProviders, string, string, string, string) (context.Context, error)
+	})
+	if !ok {
+		return ctx, errors.New("machine admission runtime unavailable")
+	}
+	class, actor := machineDemand(ctx, row, requesterID)
+	holder := machineQueueHolder(row.ID)
+	s.setWorkspaceProvisioningStageBestEffort(ctx, row.ID, workspaceWaitingForMachine)
+	granted, err := runtime.WaitAdmission(ctx, *s.machineAdmission, class, holder, actor, workspaceMachineReason)
+	if err != nil {
+		return ctx, pkgerrors.New(pkgerrors.CodeServiceUnavailable, "machine admission unavailable").WithCause(err)
+	}
+	s.setWorkspaceProvisioningStageBestEffort(ctx, row.ID, "")
+	return granted, nil
 }

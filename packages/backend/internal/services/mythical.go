@@ -59,12 +59,14 @@ type mythicalRepoHost interface {
 }
 
 type MythicalService struct {
-	todoLogs    blob.Store
-	store       MythicalStore
-	host        mythicalRepoHost
-	scratchRoot string
-	logger      *slog.Logger
-	now         func() time.Time
+	installParallel         *InstallCapacityService
+	installParallelRequired bool
+	todoLogs                blob.Store
+	store                   MythicalStore
+	host                    mythicalRepoHost
+	scratchRoot             string
+	logger                  *slog.Logger
+	now                     func() time.Time
 
 	// The item machinery (SetOrchestration); absent, the stack only
 	// bootstraps and folds.
@@ -99,8 +101,8 @@ type MythicalService struct {
 	// (EnableTodoAdmission): a fresh attempt launches coding/request on a new
 	// lane. Only the install's composition sets it; hosted leaves it off.
 	todoAdmission bool
-	// todoSteering stays off until ordered input consumption, held delivery,
-	// current-member revalidation and the pinned guest runtime are qualified.
+	// todoSteering selects the install feedback protocol. Admission still
+	// requires the pinned composition, and delivery revalidates current authority.
 	todoSteering bool
 	// followMain asks the GitHub sync to read GitHub's main now
 	// (SetMainFollower): a merge the stack sent moved it. Unset, the sync's
@@ -1080,4 +1082,10 @@ func (s *MythicalService) refreshMerged(ctx context.Context, r *mythicalRun) {
 			s.notify(ctx, q, r.row.RepositoryID, r.row.Generation, "item", uuidString(saved.ID))
 		}
 	}
+}
+
+// SetInstallParallel binds the install owner setting to TODO admission.
+func (s *MythicalService) SetInstallParallel(capacity *InstallCapacityService) {
+	s.installParallel = capacity
+	s.installParallelRequired = true
 }

@@ -60,7 +60,7 @@ export const agentVisibleCatalog = (
 
 /*
  * The agent's own door beside a user-only act (§2a): the registry's
- * `userOnlyReason` says WHY the act is the human's; this table says what the
+ * `agentReason` says WHY the act is the human's; this table says what the
  * model does INSTEAD, where an instead exists — a prompt flow that renders the
  * human's button in the chat, or the text answer that replaces the gesture.
  * A flow that stops being user-only leaves this table (.specs/engineering/spec.md §6.1).
@@ -191,7 +191,7 @@ export const executeAgentToolCall = async (
    */
   const target = registry.find(name)
   if (target !== undefined && !registry.callable().includes(target)) {
-    return userOnlyError(name, target.metadata.userOnlyReason)
+    return userOnlyError(name, target.metadata.agentReason)
   }
   /*
    * The agent-mode run (requirement axis): an unmet requirement comes back

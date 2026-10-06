@@ -179,6 +179,11 @@ func (s *GitHubSyncedRepoService) readInstallPullFacts(ctx context.Context, row 
 		if err := s.authorizeFetched(ctx, current); err != nil {
 			return err
 		}
+		if kind == "reviews" && s.install.consumers[gitHubReviews] != nil {
+			if err := s.admitFetchedReviewSnapshot(ctx, tx, row, number, facts); err != nil {
+				return err
+			}
+		}
 		result, err := tx.Exec(ctx, `UPDATE github_synced_issues SET related_facts=jsonb_set(related_facts,ARRAY[$4::text],$5::jsonb) WHERE synced_repo_id=$1 AND resource='pulls' AND number=$2 AND payload->'head'->>'sha'=$3`, row.ID, number, head, kind, body)
 		if err != nil {
 			return err

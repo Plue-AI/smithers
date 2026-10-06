@@ -1,3 +1,4 @@
+import { ActorChip, actorName } from "./cards/views/ActorChip"
 import { flowArgs } from "./flows/FlowArgs"
 import { answerActions } from "./flows/AnswerActions"
 import { DiffAction } from "./cards/views/DiffAction"
@@ -63,7 +64,8 @@ function AnswerContext({ items }: { items: NonNullable<Message["context"]> }) {
 
 export function TranscriptMessage({ entry, streamingMessageId }: { entry: { kind: "message"; message: Message } | { kind: "init"; message: InitMessage }; streamingMessageId?: string }) {
   const controller = useController()
-  return entry.message.act !== undefined ?
+  const external = entry.kind === "message" && entry.message.origin === "external"
+  return !external && entry.message.act !== undefined ?
   (
     <Marker
       key={entry.message.id}
@@ -77,6 +79,12 @@ export function TranscriptMessage({ entry, streamingMessageId }: { entry: { kind
     <ChatMessage
       className="smithers-chat-message"
       key={entry.message.id}
+      data-origin={external ? "external" : undefined}
+      data-session-id={external ? entry.message.session_id : undefined}
+      data-correlation-id={external ? entry.message.correlation_id : undefined}
+      variant={external && entry.message.act ? "terminal" : "default"}
+      data-participant-id={external ? entry.message.participant_id : undefined}
+      label={external && entry.message.actor ? <><ActorChip actor={entry.message.actor} size="s" />{actorName(entry.message.actor)}</> : undefined}
       role={entry.message.role === "user" ? "user" : "assistant"}
       meta={entry.message.status !== "complete" ?
         (
@@ -129,17 +137,17 @@ export function TranscriptMessage({ entry, streamingMessageId }: { entry: { kind
           // the store and dev-tools keep the raw truth.
           <Markdown
             className="message-markdown"
-            content={scrubToolEcho(entry.message.text)}
+            content={external ? entry.message.text : scrubToolEcho(entry.message.text)}
           />
         ) :
         null}
-      {entry.kind === "message" && entry.message.role === "smithers" && entry.message.status === "complete" && entry.message.id !== streamingMessageId && !entry.message.action && scrubToolEcho(entry.message.text).trim() ? (() => {
+      {!external && entry.kind === "message" && entry.message.role === "smithers" && entry.message.status === "complete" && entry.message.id !== streamingMessageId && !entry.message.action && scrubToolEcho(entry.message.text).trim() ? (() => {
         const bindings = answerActions((name, input) => controller.commands.submit({ name, payload: (input ?? {}) as Record<string, unknown>, actor: "user", ...(name === "wiki.save" ? { display: flowArgs("wiki.save", input as { name?: string; text?: string }) } : {}) }), scrubToolEcho(entry.message.text))
         return <div className="message-answer-actions">{bindings.actions.map(action => <DiffAction key={action.tag} action={action} onAction={bindings.onAction} />)}</div>
       })() : null}
       {entry.kind === "message" && entry.message.context !== undefined && entry.message.context.length > 0 ? <AnswerContext items={entry.message.context} /> : null}
       {/* The synthetic auth message has no clock time to tell. */}
-      {entry.message.answeredAction && <p role="status">{entry.message.answeredAction.answer}</p>}
+      {!external && entry.message.answeredAction && <p role="status">{entry.message.answeredAction.answer}</p>}
       {entry.message.createdAt > 0 ?
         (
           <time
@@ -150,7 +158,7 @@ export function TranscriptMessage({ entry, streamingMessageId }: { entry: { kind
           </time>
         ) :
         null}
-      {entry.message.action?.flow === STORAGE_RECOVERY_EXPORT ?
+      {external ? null : entry.message.action?.flow === STORAGE_RECOVERY_EXPORT ?
         <StorageRecoveryButton state={controller.storageRecoveryState} onDownload={() => { controller.runCommand(STORAGE_RECOVERY_EXPORT) }} /> :
         entry.message.action !== undefined ?
         (
@@ -168,7 +176,7 @@ export function TranscriptMessage({ entry, streamingMessageId }: { entry: { kind
           text={entry.message.text}
           onCopy={(text) => controller.runCommandForResult("chat.copy-message", text)}
         />
-        {entry.message.status === "failed" ?
+        {!external && entry.message.status === "failed" ?
           (
             <Button
               variant="ghost"

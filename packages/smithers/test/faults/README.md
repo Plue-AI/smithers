@@ -72,3 +72,9 @@ matrices must mark each leaf; a parent's or sibling's marker cannot qualify
 another case, and an unfinished leaf fails even if its parent reports success.
 Controllers still own exact point
 validation before killing. A marker alone is never recovery proof.
+
+The nightly Linux job provisions an isolated PostgreSQL 18 service and requires
+database tests. The reference entry remains refused before branch execution.
+The Go wrapper prints stdout and stderr before checking process errors, signals
+and exit status, retaining partial JSON on failed or timed-out cases. These
+logs are diagnostic output, not passing check receipts.

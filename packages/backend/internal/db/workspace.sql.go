@@ -1071,7 +1071,7 @@ SELECT id, repository_id, user_id, name, is_fork, parent_workspace_id, target_bo
 WHERE repository_id = $1
   AND target_bookmark = $2::text
   AND deleted_at IS NULL
-FOR UPDATE
+FOR NO KEY UPDATE
 `
 
 type GetBranchWorkspaceParams struct {
@@ -1080,6 +1080,8 @@ type GetBranchWorkspaceParams struct {
 }
 
 // Includes excluded-index sources and retained failures; none permit replacement.
+// Canonical creation holds the branch advisory lock. A no-key update lock
+// protects metadata without waiting for a launch's long-lived key-share grant.
 func (q *Queries) GetBranchWorkspace(ctx context.Context, arg GetBranchWorkspaceParams) (Workspace, error) {
 	row := q.db.QueryRow(ctx, getBranchWorkspace, arg.RepositoryID, arg.TargetBookmark)
 	var i Workspace

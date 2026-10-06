@@ -204,7 +204,7 @@ export const createWorkflowController = (
     /^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/.test(value) && !/(?:^|\/)\.{1,2}(?:\/|$)/.test(value)
 
   /**
-   * `flow.create <description> [owner/repo]` — a trailing `owner/repo`
+   * `flow.new <description> [owner/repo]` — a trailing `owner/repo`
    * token is the target, everything before it is the description. Anything
    * that is not a repository name stays part of the description.
    */
@@ -730,7 +730,7 @@ export const createWorkflowController = (
     /*
      * A QUESTION is not a failure. A bare string result marks the outcome
      * `failed`, and live on canary the transcript read "Smithers tried
-     * /flow.create — failed: You have 3 repositories loaded…" beside the card
+     * /flow.new — failed: You have 3 repositories loaded…" beside the card
      * that had just asked them, correctly, which one. The command did exactly
      * what it should; the value carries the question to the model, and the
      * card carries it to the human (§2b — values never render raw).
@@ -786,13 +786,13 @@ export const createWorkflowController = (
     /* The zero-balance refusal is already an embedded message; a second one would say it twice. */
     const balanceGuard = zeroBalanceGuard()
     if (balanceGuard !== undefined) return balanceGuard
-    // §2: `flow.create <description> [owner/repo]` — one argument string
+    // §2: `flow.new <description> [owner/repo]` — one argument string
     // for both the slash form and the agent tool.
     const split = repoArg === undefined
       ? splitDescriptionAndRepo(rawDescription)
       : { description: rawDescription.trim(), repo: repoArg }
     const description = split.description
-    if (description === "") return refuseCreate("flow.create needs a description of what the flow should do")
+    if (description === "") return refuseCreate("flow.new needs a description of what the flow should do")
     const target = workflowTargetRepoOrAsk(split.repo)
     if ("error" in target) return refuseCreate(target.error)
     if ("ask" in target) return askWhichRepo(description, target.ask)
@@ -800,7 +800,7 @@ export const createWorkflowController = (
     const binding = flowAuthoringBinding(store, repo)
     if ("error" in binding) {
       const prerequisite = boxPrerequisite(repo, binding,
-        { flow: "flow.create", args: flowArgs("flow.create", { description, repo }) },
+        { flow: "flow.new", args: flowArgs("flow.new", { description, repo }) },
         `Open a box to create a flow in ${repo}`)
       return typeof prerequisite === "string" ? refuseCreate(prerequisite) : prerequisite
     }

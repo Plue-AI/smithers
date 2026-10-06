@@ -13,7 +13,7 @@ C-UI-12 Members (T-UI-09): [install roster and keyboard Add/Role/Remove](C-UI-12
 | C-J1-03 | [C-J1-03.spec.ts](C-J1-03.spec.ts) | fixme-before-implementation | T-APP-15 |
 | C-J1-04 | [C-J1-04.spec.ts](C-J1-04.spec.ts) | fixme-before-implementation | T-APP-02 |
 | C-J1-05 | [C-J1-05.spec.ts](C-J1-05.spec.ts) | passing: install seam, keyboard, live refresh, confirmation, reconnect; reference-host GitHub/LAN evidence pending | T-APP-06 |
-| C-J1-06 | [C-J1-06.spec.ts](C-J1-06.spec.ts) | fixme-before-implementation | T-MCH-10 |
+| C-J1-06 | [C-J1-06.spec.ts](C-J1-06.spec.ts) | mounted install seam: Node/Go readiness, failure, live completion, reload and check evidence; reference-host qualification separate | T-MCH-10 |
 | C-J2-01 | [C-J2-01.spec.ts](C-J2-01.spec.ts) | implemented — Chromium passed 2026-10-05 (mounted install seam; composed router proof separate) | T-STK-09 |
 | C-J2-02 | [C-J2-02.spec.ts](C-J2-02.spec.ts) | implemented — Chromium passed 2026-10-05 (mounted install seam; composed router proof separate) | T-STK-09 |
 | C-J2-03 | [C-J2-03.spec.ts](C-J2-03.spec.ts) | fixme-before-implementation | T-STK-01 |
@@ -82,7 +82,7 @@ C-UI-12 Members (T-UI-09): [install roster and keyboard Add/Role/Remove](C-UI-12
 | C-GH-09 | [C-GH-09.spec.ts](C-GH-09.spec.ts) | fixme-before-implementation | T-GH-09, T-GH-01 |
 | C-GH-13 | [C-GH-13.spec.ts](C-GH-13.spec.ts) | fixme-before-implementation | T-GH-04 |
 | C-UI-01 | [C-UI-01.spec.ts](C-UI-01.spec.ts) | fixme-before-implementation | T-REL-02 |
-| C-UI-02 | [C-UI-02.spec.ts](C-UI-02.spec.ts) | fixme-before-implementation | T-CAT-01 |
+| C-UI-02 | [C-UI-02.spec.ts](C-UI-02.spec.ts) | passing | T-CAT-01 |
 | C-UI-03 | [C-UI-03.spec.ts](C-UI-03.spec.ts) | fixme-before-implementation | T-APP-18 |
 | C-UI-04 | [C-UI-04.spec.ts](C-UI-04.spec.ts) | partial: served TODO rail keyboard Retry passes; shared entries, hiding and summaries remain fixme | T-APP-07 |
 | C-UI-05 | [C-UI-05.spec.ts](C-UI-05.spec.ts) | fixme-before-implementation | T-COL-02 |
@@ -101,8 +101,8 @@ C-UI-01 also exercises the mounted Home order menu and composer by keyboard.
 
 | C-UI-12 | [C-UI-12.spec.ts](C-UI-12.spec.ts), [Draft and shell cases](../view-stories.spec.ts) | T-UI-01 primitives, T-UI-07 shell, T-UI-10 Flow, T-UI-15 Branch states/recovery, T-UI-16 read-only Compare, T-UI-17 terminal states and T-UI-19 co-editing active; Draft passed (light/dark, 1440/390, keyboard); T-UI-04 TODO conflict/mobile/keyboard, Fork/Add to stack and real-seam question active; T-UI-08 shell passes light/dark at 1,179/1,180 px with pointer/Tab + Enter/Space; remaining View matrix fixme | T-UI-01..T-UI-17, T-UI-19 |
 | C-UI-13 | [C-UI-13.spec.ts](C-UI-13.spec.ts) | fixme-before-implementation | T-APP-01, T-APP-02, T-APP-03, T-APP-04, T-APP-05, T-APP-06, T-APP-07, T-APP-16, T-APP-15, T-FLW-07, T-FLW-08, T-UI-14 |
-| C-CAT-01 | [C-CAT-01.spec.ts](C-CAT-01.spec.ts) | fixme-before-implementation | T-CAT-01 |
-| C-CAT-02 | [C-CAT-02.spec.ts](C-CAT-02.spec.ts) | fixme-before-implementation | T-CAT-01 |
+| C-CAT-01 | [C-CAT-01.spec.ts](C-CAT-01.spec.ts) | passing | T-CAT-01 |
+| C-CAT-02 | [C-CAT-02.spec.ts](C-CAT-02.spec.ts) | 3 card doors pass; delegated confirmation still pending | T-CAT-01 |
 | C-CAT-03 | [C-CAT-03.spec.ts](C-CAT-03.spec.ts) | fixme-before-implementation | T-CAT-01 |
 | C-UI-12 · Home | [Home cases](../home.spec.ts) | passing: sync health, keyboard menu, absent/disabled actions and hostile text in light/dark at 1440/390 | T-UI-06 |
 | C-AGT-01 | [C-AGT-01.spec.ts](C-AGT-01.spec.ts) | fixme-before-implementation | T-AGT-01 |

@@ -6,7 +6,7 @@
 import { z } from "zod"
 import type { CardCallbacks, CardProps } from "./CardAction.ts"
 import { ActorSchema, EvidenceSchema, MergeSchema, PersonRefSchema } from "./CardPrimitives.ts"
-import { CatalogTagSchema } from "./catalog/index.ts"
+import { CatalogTagSchema } from "./CatalogTags.ts"
 import { type Refusal, refusalOf } from "./Refusal.ts"
 import { HttpUrlSchema } from "./WebUrl.ts"
 

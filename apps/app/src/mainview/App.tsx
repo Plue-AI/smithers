@@ -191,6 +191,8 @@ function AppContent() {
    */
   const hasBootstrap = controller.bootstrap !== undefined
   const githubIdentity = hasBootstrap && controller.identityProvider === "github"
+  // The explicit setup address retains its final readiness receipt after completion.
+  const setupEntry = useMemo(() => typeof window !== "undefined" && window.location.pathname === "/setup", [])
   const bootRepository = useMemo(() => typeof window === "undefined" ? null : pathRepo(window.location.pathname), [])
   // The catalog receipt owns admission. A build-time roster cannot classify a
   // pending/failed request, or reject a repository added since this build.
@@ -452,7 +454,7 @@ function AppContent() {
             <div data-slot="message-scroller" className="sui-msg-scroller" data-streaming={typing ? "true" : "false"}>
             <MessageScrollerViewport fade>
             <MessageScrollerContent className="sui-chat-messages">
-            {install.model && install.model.steps.some(step => step.state !== "done") && renderSetupCard({
+            {install.model && (setupEntry || install.model.steps.some(step => step.state !== "done")) && renderSetupCard({
               install: controller.installSnapshots, allowed: true, view: { maximized: false }, onView: () => {},
               dispatch: (name, payload, gesture) => controller.commands.submit({ name, payload: payload ?? {}, actor: "user", gesture })
             })}

@@ -39,6 +39,7 @@ type frame struct {
 	Topic  string          `json:"topic,omitempty"`
 	Cursor *int64          `json:"cursor,omitempty"`
 	Data   json.RawMessage `json:"data,omitempty"`
+	Where  json.RawMessage `json:"where,omitempty"`
 	Code   string          `json:"code,omitempty"`
 }
 
@@ -132,9 +133,23 @@ func encode(f frame) []byte {
 // joins its topic's stream and receives that stream's snapshots as snap
 // frames; a refused topic gets err and the socket stays open. The caller
 // closes conn.
-func (h *Hub) Serve(ctx context.Context, conn *websocket.Conn, resolve Resolver) {
+// PresenceSession binds operations to the authenticated socket, never a body identity.
+// Close removes that socket's leases even when its reader was cancelled by revocation.
+type PresenceSession struct {
+	Move  func(context.Context, json.RawMessage) string
+	Close func()
+}
+
+func (h *Hub) Serve(ctx context.Context, conn *websocket.Conn, resolve Resolver, presence ...PresenceSession) {
 	ctx, cancel := context.WithCancel(ctx)
 	defer cancel()
+	var session PresenceSession
+	if len(presence) > 0 {
+		session = presence[0]
+	}
+	if session.Close != nil {
+		defer session.Close()
+	}
 	// The hub's end (the backend stopping) ends every socket.
 	defer context.AfterFunc(h.ctx, cancel)()
 	connections.Add(1)
@@ -219,14 +234,20 @@ func (h *Hub) Serve(ctx context.Context, conn *websocket.Conn, resolve Resolver)
 			_ = conn.Close(websocket.StatusInvalidFramePayloadData, "malformed_frame")
 			return
 		}
-		if previous := subscriptions[in.ID]; previous != nil {
+		if previous := subscriptions[in.ID]; previous != nil && (in.T == "sub" || in.T == "unsub") {
 			previous.close()
 			delete(subscriptions, in.ID)
 		}
 		switch in.T {
 		case "unsub":
 		case "presence":
-			refuse(in.ID, Unsupported)
+			code := Unsupported
+			if session.Move != nil {
+				code = session.Move(ctx, in.Where)
+			}
+			if code != "" {
+				refuse(in.ID, code)
+			}
 		case "sub":
 			if in.Topic == "" {
 				_ = conn.Close(websocket.StatusInvalidFramePayloadData, "malformed_frame")

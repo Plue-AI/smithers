@@ -104,7 +104,7 @@ describe("bookmarks seam — branches.list", () => {
         ])
       })
     )
-    const outcome = await controller.commands.run("branches.list")
+    const outcome = await controller.commands.run("branches")
     expect(outcome.status).toBe("executed")
     await settled()
     const card = store.collections.cards.get("branches-will/flows")
@@ -136,7 +136,7 @@ describe("bookmarks seam — branches.list", () => {
         }
       })
     )
-    const outcome = await controller.commands.run("branches.list")
+    const outcome = await controller.commands.run("branches")
     expect(outcome.status).toBe("executed")
     expect(cursors).toEqual(["", "page-2"])
     await settled()
@@ -154,7 +154,7 @@ describe("bookmarks seam — branches.list", () => {
         "/api/repos/acme/site/bookmarks": page([bookmark("main", "chg-z", "cafe1234")])
       })
     )
-    const outcome = await controller.commands.run("branches.list", "acme/site")
+    const outcome = await controller.commands.run("branches", "acme/site")
     expect(outcome.status).toBe("executed")
     await settled()
     const card = store.collections.cards.get("branches-acme/site")
@@ -167,7 +167,7 @@ describe("bookmarks seam — branches.list", () => {
     const { store, controller } = await ready(
       backend({ [BOOKMARKS]: json(500, { message: "the bookmark store fell over" }) })
     )
-    const outcome = await controller.commands.run("branches.list")
+    const outcome = await controller.commands.run("branches")
     expect(outcome.status).toBe("failed")
     if (outcome.status === "failed") {
       expect(outcome.error).toBe("Branches for will/flows couldn't be listed. That's a bug in Smithers, not something you did.")
@@ -182,7 +182,7 @@ describe("bookmarks seam — branches.list", () => {
         throw new Error("socket dropped")
       }
     })
-    const outcome = await controller.commands.run("branches.list")
+    const outcome = await controller.commands.run("branches")
     expect(outcome.status).toBe("failed")
     if (outcome.status === "failed") {
       expect(outcome.error).toBe(
@@ -195,7 +195,7 @@ describe("bookmarks seam — branches.list", () => {
     const { controller } = await ready(
       backend({ [BOOKMARKS]: json(200, ["not", "a", "page"]) })
     )
-    const outcome = await controller.commands.run("branches.list")
+    const outcome = await controller.commands.run("branches")
     expect(outcome.status).toBe("failed")
     if (outcome.status === "failed") {
       expect(outcome.error).toBe(
@@ -214,7 +214,7 @@ describe("bookmarks seam — branches.list", () => {
         }
       })
     )
-    const outcome = await controller.commands.run("branches.list")
+    const outcome = await controller.commands.run("branches")
     expect(outcome.status).toBe("failed")
     if (outcome.status === "failed") {
       expect(outcome.error).toBe(
@@ -232,7 +232,7 @@ describe("bookmarks seam — branches.list", () => {
       backend({})
     )
     await signedIn(store)
-    const outcome = await controller.commands.run("branches.list")
+    const outcome = await controller.commands.run("branches")
     expect(outcome.status).toBe("failed")
     if (outcome.status === "failed") {
       expect(outcome.error).toBe(

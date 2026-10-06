@@ -11,14 +11,15 @@ import { Schema } from "effect"
 import { flow, type CommandActions } from "./Declare"
 import type { FlowEntry } from "../registry"
 
-export const docsFlows = (actions: CommandActions): ReadonlyArray<FlowEntry> => [
+export const docsFlows = (actions: CommandActions): ReadonlyArray<FlowEntry> => {
+  const available = typeof actions.docsAvailable === "function" && actions.docsAvailable()
+  return [
   flow({
     name: "docs",
-    summary: "Read the docs in the app",
-    args: "[page][#anchor]",
-    visibility: "core", group: "chat", actors: ["person", "app_agent"], minimumRole: "member", agent: "run",
-    hidden: !actions.docsAvailable(),
-    input: Schema.Struct({ page: Schema.optional(Schema.String) }),
+     slash: "/docs", cli: null, journey: [], group: "Ask", visibility: available ? "core" : "hidden", actors: ["person","app_agent"], minimumRole: "member", http: null, summary: "Read the docs in the app",
+    args: "[page]",
+    hidden: !available,
+    agent: "run", input: Schema.Struct({ page: Schema.optional(Schema.String) }),
     handler: ({ page }) => actions.openDocsPage(page)
   }),
   flow({
@@ -27,8 +28,9 @@ export const docsFlows = (actions: CommandActions): ReadonlyArray<FlowEntry> => 
     args: "<page>",
     visibility: "hidden", group: "chat", actors: ["person", "app_agent"], minimumRole: "member", agent: "run",
     hidden: true,
-    discloseToAgent: actions.docsAvailable(),
+    discloseToAgent: available,
     input: Schema.Struct({ page: Schema.String }),
     handler: ({ page }) => actions.readDocsPage(page)
   })
 ]
+}

@@ -31,6 +31,7 @@ run-kind targets; `flow start` starts durable flows.
 | `memory`, `credentials`, `triggers`, `integrations`, `eval` | Operate the persistent agent features described below. |
 | `open [dir]`, `.` | Open the checkout's `owner/repo` in the Smithers app (`smithers://open/<owner>/<repo>`), the dev build inside a smithers checkout whose remote is on github.com or smithers.sh, or print its smithers.sh page. |
 | `host start [--bundle <dir>]`, `host stop`, `host status` | Run a verified server bundle as an unprivileged macOS LaunchAgent, stop it, or inspect its health. |
+| `host backup`, `host upgrade`, `host restore <directory>` | Host maintenance commands. Currently refuse until capture, drain and owner authorization are composed; restore validates the backup before any state change. |
 | `serve`, `doctor`, `suggest`, `migrate`, `update`, `bug` | Host, diagnose, discover uses, migrate source, check versions, or submit a report. |
 | `token mint` | Mint a scoped, expiring gateway token under `SMITHERS_TOKEN`. |
 

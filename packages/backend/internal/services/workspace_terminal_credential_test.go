@@ -152,3 +152,95 @@ func TestTerminalCredentialRevokesWhenItsFileCannotBeWritten(t *testing.T) {
 	assert.Equal(t, 1, tokens.created)
 	assert.Empty(t, tokens.liveIDs(), "a credential that never reached its file is revoked")
 }
+
+func TestTerminalCredentialReplacementRetiresPreviousBeforeWriting(t *testing.T) {
+	tokens, files, registry := &fakeTerminalTokens{}, &fakeSessionFiles{}, &sync.Map{}
+	s := &WorkspaceService{terminalCredentials: registry, terminalCredentialMu: &sync.Mutex{}}
+	newCredential := func(session string) *terminalCredential {
+		return &terminalCredential{registry: registry, tokens: tokens, writer: files,
+			workspaceID: "branch", sessionID: session, userID: 2, repositoryID: 7}
+	}
+	a, b := newCredential("session-a"), newCredential("session-b")
+	require.NoError(t, s.installTerminalCredential(t.Context(), a))
+	require.NoError(t, s.installTerminalCredential(t.Context(), b))
+	t.Cleanup(b.Close)
+	bToken, _ := files.token(b.sessionID)
+	replacement := newCredential(a.sessionID)
+	require.NoError(t, s.installTerminalCredential(t.Context(), replacement))
+	t.Cleanup(replacement.Close)
+	currentToken, ok := files.token(a.sessionID)
+	require.True(t, ok, "old cleanup must finish before the replacement file is written")
+	require.NotEmpty(t, currentToken)
+	a.Close()
+	a.ReleaseCredential()
+	a.renewal()
+	require.ErrorIs(t, a.AcquireCredential(t.Context()), errTerminalClosed)
+	after, ok := files.token(a.sessionID)
+	require.True(t, ok)
+	require.Equal(t, currentToken, after, "a stale lifecycle cannot delete or rotate its successor")
+	bAfter, ok := files.token(b.sessionID)
+	require.True(t, ok)
+	require.Equal(t, bToken, bAfter, "another session remains independent")
+	require.ElementsMatch(t, []int64{2, 3}, tokens.liveIDs())
+	current, ok := registry.Load(a.sessionID)
+	require.True(t, ok)
+	require.Same(t, replacement, current)
+}
+
+func TestTerminalCredentialConcurrentReplacement(t *testing.T) {
+	tokens, files, registry := &fakeTerminalTokens{}, &fakeSessionFiles{}, &sync.Map{}
+	s := &WorkspaceService{terminalCredentials: registry, terminalCredentialMu: &sync.Mutex{}}
+	var group sync.WaitGroup
+	errors := make(chan error, 8)
+	credentials := make([]*terminalCredential, 8)
+	for i := range credentials {
+		credentials[i] = &terminalCredential{registry: registry, tokens: tokens, writer: files,
+			workspaceID: "branch", sessionID: "session-a", userID: 2, repositoryID: 7}
+		group.Add(1)
+		go func(c *terminalCredential) {
+			defer group.Done()
+			errors <- s.installTerminalCredential(t.Context(), c)
+		}(credentials[i])
+	}
+	group.Wait()
+	close(errors)
+	for err := range errors {
+		require.NoError(t, err)
+	}
+	value, ok := registry.Load("session-a")
+	require.True(t, ok)
+	current := value.(*terminalCredential)
+	t.Cleanup(current.Close)
+	before, ok := files.token("session-a")
+	require.True(t, ok)
+	for _, c := range credentials {
+		if c != current {
+			c.Close()
+			c.renewal()
+			require.ErrorIs(t, c.AcquireCredential(t.Context()), errTerminalClosed)
+		}
+	}
+	after, ok := files.token("session-a")
+	require.True(t, ok)
+	require.Equal(t, before, after)
+	require.Len(t, tokens.liveIDs(), 1)
+}
+
+func TestTerminalCredentialReplacementWriteFailureLeavesNoIdentity(t *testing.T) {
+	tokens, files, registry := &fakeTerminalTokens{}, &fakeSessionFiles{}, &sync.Map{}
+	s := &WorkspaceService{terminalCredentials: registry, terminalCredentialMu: &sync.Mutex{}}
+	a := &terminalCredential{registry: registry, tokens: tokens, writer: files,
+		workspaceID: "branch", sessionID: "session-a", userID: 2, repositoryID: 7}
+	require.NoError(t, s.installTerminalCredential(t.Context(), a))
+	files.fail = errors.New("guest write failed")
+	b := &terminalCredential{registry: registry, tokens: tokens, writer: files,
+		workspaceID: "branch", sessionID: "session-a", userID: 2, repositoryID: 7}
+	require.ErrorContains(t, s.installTerminalCredential(t.Context(), b), "guest write failed")
+	require.Empty(t, tokens.liveIDs())
+	_, exists := files.token("session-a")
+	require.False(t, exists)
+	_, exists = registry.Load("session-a")
+	require.False(t, exists)
+	require.ErrorIs(t, a.AcquireCredential(t.Context()), errTerminalClosed)
+	require.Nil(t, b.renew)
+}

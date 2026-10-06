@@ -549,7 +549,7 @@ func (s *Server) repositoryIssueComments(r *http.Request, repo string) []any {
 	}
 	for _, e := range all[start:end] {
 		c := e.comment
-		out = append(out, map[string]any{"id": c.ID, "body": c.Body, "user": s.actor(c.Author, c.ViaApp), "performed_via_github_app": s.viaApp(c.ViaApp), "created_at": c.CreatedAt, "updated_at": e.updated, "issue_url": scheme + "://" + r.Host + "/repos/" + repo + "/issues/" + strconv.FormatInt(e.number, 10)})
+		out = append(out, map[string]any{"id": c.ID, "body": c.Body, "user": s.fetchedActor(c.Author, c.ViaApp), "performed_via_github_app": s.viaApp(c.ViaApp), "created_at": c.CreatedAt, "updated_at": e.updated, "issue_url": scheme + "://" + r.Host + "/repos/" + repo + "/issues/" + strconv.FormatInt(e.number, 10)})
 	}
 	return out
 }

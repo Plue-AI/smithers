@@ -18,7 +18,7 @@ test("direct activation selection refuses a missing reference install during con
   expect(result.stderr).not.toContain("SMITHERS_REAL_E2E_REVISION is required")
 }, 35_000)
 
-test("direct release activation refuses a conflicting candidate before a browser or host starts", () => {
+for (const refusal of ["candidate", "recording-review"] as const) test(`direct release activation refuses ${refusal} before a browser or host starts`, () => {
   const dir = mkdtempSync(join(process.cwd(), ".j1-admission-test-"))
   try {
     const recording = join(dir, "screen.mp4")
@@ -37,11 +37,14 @@ test("direct release activation refuses a conflicting candidate before a browser
       cwd: new URL("../../..", import.meta.url), encoding: "utf8", timeout: 30_000,
       env: { ...process.env, SMITHERS_JOURNEY: "j1-activation.spec.ts", SMITHERS_REAL_BASE_URL: "http://localhost:4000",
         SMITHERS_J1_PRECONDITIONS: evidence, SMITHERS_J1_REVIEW: join(dir, "review.json"),
-        SMITHERS_J1_FINAL_EVIDENCE: join(dir, "final.json"), SMITHERS_REAL_HEADED: "1", SMITHERS_REAL_E2E_BUILD_SHA: "b".repeat(40) }
+        SMITHERS_J1_FINAL_EVIDENCE: join(dir, "final.json"), SMITHERS_J1_RECORDING_REVIEW: refusal === "recording-review" ? "" : join(dir, "recording-review.json"),
+        SMITHERS_REAL_HEADED: "1", SMITHERS_REAL_E2E_BUILD_SHA: "b".repeat(40) }
     })
     expect(result.error).toBeUndefined()
     expect(result.status).toBe(1)
-    expect(result.stderr).toContain("declared build SHA must match the operator's installed candidate")
+    expect(result.stderr).toContain(refusal === "candidate"
+      ? "declared build SHA must match the operator's installed candidate"
+      : "SMITHERS_J1_RECORDING_REVIEW must name the sanitized full-run recording review")
     expect(result.stderr).not.toContain("webServer")
     expect(result.stderr).not.toContain("SMITHERS_REAL_E2E_REVISION is required")
   } finally {

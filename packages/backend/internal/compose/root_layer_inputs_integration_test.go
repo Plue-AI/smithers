@@ -25,6 +25,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -251,6 +252,26 @@ func TestRootLayerInputsValidatedBeforeUse(t *testing.T) {
 	})
 }
 
+// Setup completes once. The Go canary therefore needs its own fresh install,
+// rather than attempting to restart the Node install's completed machine step.
+func TestUndeclaredGoMachineReadyThroughComposedSetup(t *testing.T) {
+	if os.Getenv("SMITHERS_TEST_DATABASE_URL") == "" {
+		t.Skip("set SMITHERS_TEST_DATABASE_URL: real PostgreSQL and FFI mirror required")
+	}
+	t.Setenv("SMITHERS_REQUIRE_DATABASE_TESTS", "1")
+	h := startRootLayerHarness(t)
+	h.commitMain(rootLayerFixtures()["go"])
+	h.runSetupThroughSource()
+	source := h.steps()["source"]
+	require.Equal(t, "done", source.State)
+	require.Equal(t, "pending", h.steps()["machine"].State)
+	state, message := h.runMachine(t, "go-main")
+	require.Equal(t, "done", state, message)
+	step := h.machineStep(t)
+	require.NotEmpty(t, step.Revision)
+	require.NotEmpty(t, step.LayerKey)
+}
+
 // ---- cases ----
 
 type rootLayerCase struct {
@@ -392,7 +413,12 @@ func (h *rootLayerHarness) ctx(t *testing.T) context.Context {
 	return ctx
 }
 
+var rootLayerFixtureID atomic.Int64
+
 func startRootLayerHarness(t *testing.T) *rootLayerHarness {
+	// GitHub IDs are globally unique. Distinct fake installations must not
+	// share the process-wide installation-token cache's ID namespace.
+	fixtureID := 1_000_000 + rootLayerFixtureID.Add(1)
 	_, source, _, _ := goruntime.Caller(0)
 	root := filepath.Clean(filepath.Join(filepath.Dir(source), "../../../.."))
 	library := os.Getenv("SMITHERS_FFI_LIBRARY_PATH")
@@ -414,7 +440,7 @@ func startRootLayerHarness(t *testing.T) *rootLayerHarness {
 	h.git("init", "-q", "-b", "main", h.seed)
 	key, err := rsa.GenerateKey(rand.Reader, 2048)
 	require.NoError(t, err)
-	fake, err := githubfake.New(githubfake.Config{OAuthCode: "owner-code", GitRoot: gitRoot, AppID: 42, Slug: "r4-root-inputs", OwnerLogin: "rehearsal-owner", OwnerKind: "user", ClientID: "client", ClientSecret: "secret", WebhookSecret: "webhook", PrivateKeyPEM: string(pem.EncodeToMemory(&pem.Block{Type: "RSA PRIVATE KEY", Bytes: x509.MarshalPKCS1PrivateKey(key)})), ConversionCode: "manifest-code", Installations: []githubfake.Installation{{ID: 91, Repositories: []githubfake.Repository{{ID: 100, FullName: "rehearsal-owner/app", Private: true}}}}})
+	fake, err := githubfake.New(githubfake.Config{OAuthCode: "owner-code", GitRoot: gitRoot, AppID: fixtureID, Slug: "r4-root-inputs", OwnerLogin: "rehearsal-owner", OwnerKind: "user", ClientID: "client", ClientSecret: "secret", WebhookSecret: "webhook", PrivateKeyPEM: string(pem.EncodeToMemory(&pem.Block{Type: "RSA PRIVATE KEY", Bytes: x509.MarshalPKCS1PrivateKey(key)})), ConversionCode: "manifest-code", Installations: []githubfake.Installation{{ID: fixtureID, Repositories: []githubfake.Repository{{ID: 100, FullName: "rehearsal-owner/app", Private: true}}}}})
 	require.NoError(t, err)
 	t.Cleanup(fake.Close)
 	h.storage = repohostserver.Config{StoragePath: t.TempDir(), AuthToken: "r4-repo", FFILibraryPath: library}
@@ -467,7 +493,21 @@ func startRootLayerHarness(t *testing.T) *rootLayerHarness {
 	require.NoError(t, err)
 	resolver, err := modelhost.NewOwnerSecretResolver(func() string { return databaseURL }, func() string { return "r4-encryption-key" })
 	require.NoError(t, err)
-	chatHost, err := modelhost.New(resolver, launcher)
+	gateway := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		require.Equal(t, "Bearer r4-key", r.Header.Get("Authorization"))
+		var input struct {
+			Questions map[string]json.RawMessage `json:"questions"`
+		}
+		require.NoError(t, json.NewDecoder(r.Body).Decode(&input))
+		answers := map[string]any{}
+		for name := range input.Questions {
+			answers[name] = map[string]any{"type": "boolean", "probability": 1}
+		}
+		w.Header().Set("Content-Type", "application/json")
+		require.NoError(t, json.NewEncoder(w).Encode(map[string]any{"answers": answers}))
+	}))
+	t.Cleanup(gateway.Close)
+	chatHost, err := modelhost.New(resolver, launcher, modelhost.WithProviderStandIn(gateway.URL))
 	require.NoError(t, err)
 	ctx, cancel := context.WithCancel(t.Context())
 	ready := make(chan http.Handler, 1)

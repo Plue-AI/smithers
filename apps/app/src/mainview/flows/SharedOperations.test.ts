@@ -28,14 +28,14 @@ describe("GUI wiki flows", () => {
 
   test("carry the shared rules as their catalog metadata", () => {
     bound.forEach((entry, index) => {
-      const { name: _name, input: _input, userOnly: _userOnly, ...rules } = shared[index]!
+      const { name: _name, input: _input, ...rules } = shared[index]!
       expect(entry.metadata).toEqual(rules)
     })
   })
 
   test("disclose to the model exactly the operations that are not user-only", () => {
     bound.forEach((entry, index) =>
-      expect(entry.binding.descriptor.modelInvocable).toBe(shared[index]!.userOnly !== true))
+      expect(entry.binding.descriptor.modelInvocable).toBe(shared[index]!.agent !== "never"))
   })
 })
 

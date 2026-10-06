@@ -424,7 +424,15 @@ func runWithOptions(ctx context.Context, args []string, stdout, stderr io.Writer
 	queries := db.New(pool)
 	var installCapacity *services.InstallCapacityService
 	if options.HostProfile != nil {
-		capacity := &services.InstallCapacityService{Queries: queries, Profile: *options.HostProfile}
+		capacity := &services.InstallCapacityService{Queries: queries, Profile: *options.HostProfile, AuthorizeParallel: func(ctx context.Context) error {
+			_, err := services.Authorize(ctx, queries, "settings.parallel")
+			return err
+		}}
+		if disk, ok := options.Workspace.(interface {
+			FreeDisk(context.Context) (int64, error)
+		}); ok {
+			capacity.FreeDisk = disk.FreeDisk
+		}
 		if counter, ok := options.Workspace.(interface{ InUse() int }); ok {
 			capacity.InUse = counter.InUse
 		}
@@ -513,6 +521,9 @@ func runWithOptions(ctx context.Context, args []string, stdout, stderr io.Writer
 	if billingPolicy == nil {
 		// Startup validation permits this only for the single trusted owner.
 		billingPolicy = services.NewUnlimitedBillingPolicy()
+	}
+	if options.InstallBranchMachines {
+		billingPolicy = installMachineAdmissionPolicy{Policy: billingPolicy, start: services.NewMachineAdmissionPolicy(billingPolicy)}
 	}
 	// Every attributed push is capped at, and recorded in, its owner's
 	// storage quota (smithersai/plue#593).
@@ -913,6 +924,15 @@ func runWithOptions(ctx context.Context, args []string, stdout, stderr io.Writer
 	}
 	if branchMachines != nil {
 		services.WithBranchMachineProviders(*branchMachines)(workspaceService)
+		if options.InstallBranchMachines {
+			disk, ok := options.Workspace.(interface {
+				FreeDisk(context.Context) (int64, error)
+			})
+			if !ok {
+				return errors.New("install admission free-disk reader unavailable")
+			}
+			workspaceService.EnableMachineAdmission(disk.FreeDisk)
+		}
 	}
 	adminUserService := services.NewAdminUserService(queries,
 		services.WithTokenCreator(authService),
@@ -1053,6 +1073,9 @@ func runWithOptions(ctx context.Context, args []string, stdout, stderr io.Writer
 	// issue, works it on lane workspaces and proposes it to GitHub.
 	mythicalService := services.NewMythicalService(pool, repoHostClient)
 	mythicalService.SetTodoLogStore(blobStore)
+	if config.IsSingleOwner(cfg.Auth) {
+		mythicalService.SetInstallParallel(installCapacity)
+	}
 	composeGitHubTodoPolling(mythicalService, gitHubMainPullService, gitHubSyncedRepoService, options.topology)
 	gitHubSyncedRepoService.SetIssueEventsEvery(options.GitHubIssueEventsEvery)
 	if installSync {
@@ -1340,6 +1363,9 @@ func runWithOptions(ctx context.Context, args []string, stdout, stderr io.Writer
 		repositorySetupService.SetFlowDispatcher(flow.dispatcher)
 		invokedFlowService.SetFlowDispatcher(flow.dispatcher)
 		mythicalService.SetLauncher(flow.dispatcher)
+		if config.IsSingleOwner(cfg.Auth) {
+			mythicalService.EnableTodoSteering()
+		}
 		if options.topology.workers() {
 			flowWorker = newCriticalWorker()
 		}
@@ -1655,9 +1681,17 @@ func runWithOptions(ctx context.Context, args []string, stdout, stderr io.Writer
 	}
 	var liveHandler *routes.LiveHandler
 	if config.IsSingleOwner(cfg.Auth) {
-		topics := &liveTopics{queries: queries, todos: mythicalService, sync: gitHubSyncRoute, install: installSetup, members: authService.Members}
+
+		visits := &presenceVisits{audit: auditService, now: time.Now}
+		go visits.run(ctx)
+		presence := &branchPresence{visits: visits, queries: queries, branches: workspaceService, members: authService.Members}
+		if flow != nil {
+			presence.dispatcher = flow.dispatcher
+		}
+		topics := &liveTopics{capacity: installCapacity, presence: presence, queries: queries, todos: mythicalService, sync: gitHubSyncRoute, install: installSetup, members: authService.Members}
+
 		topics.documents = options.DocumentRelay
-		liveHandler = &routes.LiveHandler{Hub: live.NewHub(ctx, live.BrokerHints{Broker: sseBroker}), Queries: queries, Origins: installAddress.Origins, Topics: topics.resolver}
+		liveHandler = &routes.LiveHandler{Hub: live.NewHub(ctx, live.BrokerHints{Broker: sseBroker}), Queries: queries, Origins: installAddress.Origins, Topics: topics.resolver, Presence: presence.session}
 	}
 	router := buildRouter(
 		cfg,
@@ -2264,3 +2298,14 @@ type originFlags []string
 
 func (o *originFlags) String() string         { return strings.Join(*o, ",") }
 func (o *originFlags) Set(value string) error { *o = append(*o, value); return nil }
+
+// Preserve the host policy's complete accounting contract while the install
+// workspace lifecycle supplies its typed machine-start intent.
+type installMachineAdmissionPolicy struct {
+	admission.Policy
+	start services.BillingPolicy
+}
+
+func (p installMachineAdmissionPolicy) AuthorizeSandboxStart(ctx context.Context, actorID int64) error {
+	return p.start.AuthorizeSandboxStart(ctx, actorID)
+}

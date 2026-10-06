@@ -11,6 +11,8 @@ import (
 	"strings"
 	"time"
 	"unicode/utf8"
+
+	"github.com/smithersai/smithers/packages/backend/internal/db"
 )
 
 // GitHubRefusal preserves definitive merge refusals for the install envelope.
@@ -94,6 +96,7 @@ type mythicalPRShape struct {
 	DraftsAvailable                                                           bool
 	FirstNumber                                                               int64
 	Included                                                                  []mythicalPRIncluded
+	Manifest                                                                  *mythicalMergedManifest
 }
 type mythicalPRIncluded struct {
 	Number int64
@@ -419,14 +422,14 @@ func (*mythicalPRUnavailable) MarshalJSON() ([]byte, error) {
 // candidate owner. Stack position and head equality without this record prove
 // nothing. The caller must fetch the actual merged head before supplying it.
 type mythicalManifestItem struct {
-	ID     string
-	Number int64
-	Head   string
-	Change string
+	ID     string `json:"id"`
+	Number int64  `json:"number"`
+	Head   string `json:"head"`
+	Change string `json:"change"`
 }
 type mythicalMergedManifest struct {
-	Head     string
-	Included []mythicalManifestItem
+	Head     string                 `json:"head"`
+	Included []mythicalManifestItem `json:"included"`
 }
 
 func mythicalContainedDecision(f mythicalGitHubFact) mythicalGitHubFactDecision {
@@ -457,4 +460,39 @@ func mythicalContainedDecision(f mythicalGitHubFact) mythicalGitHubFactDecision 
 	}
 	d.AttentionText = strings.Join(sentences, "\n")
 	return d
+}
+
+// Candidate identity names the accepted change by its exact base/head pair.
+// Neither today's position nor an equal published head establishes inclusion.
+func mythicalCandidateIdentity(item db.MythicalItem) mythicalManifestItem {
+	identity := mythicalManifestItem{ID: uuidString(item.ID), Number: mythicalItemNumber(item)}
+	if item.CandidateVerified && item.CandidateBase != "" && item.CandidateHead != "" {
+		identity.Head, identity.Change = item.CandidateHead, item.CandidateBase+".."+item.CandidateHead
+	}
+	return identity
+}
+
+func (c *mythicalChecks) retainManifest(manifest mythicalMergedManifest) {
+	for _, retained := range c.PRManifests {
+		if retained.Head == manifest.Head {
+			return
+		}
+	}
+	manifest.Included = append([]mythicalManifestItem{}, manifest.Included...)
+	c.PRManifests = append(c.PRManifests, manifest)
+}
+
+// retainedManifest resolves the actual fetched merged head only. Unknown or
+// foreign heads cannot borrow the current generation's prefix proof.
+func (c mythicalChecks) retainedManifest(head string) *mythicalMergedManifest {
+	if head == "" {
+		return nil
+	}
+	for _, manifest := range c.PRManifests {
+		if manifest.Head == head {
+			manifest.Included = append([]mythicalManifestItem{}, manifest.Included...)
+			return &manifest
+		}
+	}
+	return nil
 }

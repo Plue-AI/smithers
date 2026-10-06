@@ -39,6 +39,7 @@ export function requireJ1Preconditions() {
     if (!statSync(parsed.recording).isFile() || statSync(parsed.recording).size === 0) throw new Error("full screen recording must exist and be nonempty")
     if (!process.env.SMITHERS_J1_REVIEW) throw new Error("SMITHERS_J1_REVIEW must name the operator review evidence")
     if (!process.env.SMITHERS_J1_FINAL_EVIDENCE) throw new Error("SMITHERS_J1_FINAL_EVIDENCE must name the operator's end-of-run attestation")
+    if (!process.env.SMITHERS_J1_RECORDING_REVIEW) throw new Error("SMITHERS_J1_RECORDING_REVIEW must name the sanitized full-run recording review; raw setup captures cannot be retained")
     if (process.env.SMITHERS_REAL_HEADED !== "1") throw new Error("SMITHERS_REAL_HEADED=1 is required for the independent operator's setup and review")
     if (process.env.SMITHERS_REAL_E2E_BUILD_SHA !== undefined && process.env.SMITHERS_REAL_E2E_BUILD_SHA !== parsed.install.commit) {
       throw new Error("declared build SHA must match the operator's installed candidate")

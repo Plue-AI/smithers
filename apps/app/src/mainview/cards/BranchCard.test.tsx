@@ -212,3 +212,21 @@ test("live presses refuse each missing provider and dispatch only the bound TODO
   expect(buttons(liveBranchActionDefinitions({ ...model, machine: { state: "closed" } }, providers))).toEqual(["Fork"])
   expect(liveBranchActionDefinitions({ ...model, item: undefined, name: "scratch/ben/try" }, providers)).toEqual([])
 })
+
+test("opening a Branch announces its authorized scope while child topics are unresolved, and unmount releases it", async () => {
+  const leases: unknown[] = [], released: unknown[] = []
+  const live = { subscribe: () => () => {}, getSnapshot: () => undefined,
+    trackPresence: (where: unknown) => { leases.push(where); return { move: () => {}, release: () => released.push(where) } } }
+  const design = createDesignWorld({ enabled: false })
+  const controller = { design, live, bootstrap: { host: "local" } } as unknown as AppController
+  const card = { id: "branch:actual-branch", kind: "branch", title: "Branch", status: "active", createdAt: 1, ordinal: 1, payload: { id: "actual-branch" } } as const
+  const actions = { onDecideApproval: () => {}, onConnectGitHub: () => {}, onRunWorkflow: () => {}, onStopRun: () => {}, onRetryRun: () => {}, onChooseWorkflowRepo: () => {}, worldDocuments: [], onChangeWorldDocument: () => {}, onRunCommand: () => {} }
+  const root = createRoot(document.createElement("div"))
+  try {
+    await act(async () => root.render(<ControllerTestProvider controller={controller}>{CARD_RENDERERS.branch.render(card, actions)}</ControllerTestProvider>))
+    expect(leases).toEqual([{ branch: "actual-branch" }])
+    expect(released).toEqual([])
+    await act(async () => root.unmount())
+    expect(released).toEqual([{ branch: "actual-branch" }])
+  } finally { design.dispose() }
+})
