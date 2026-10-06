@@ -3,6 +3,7 @@ import { readFileSync, writeFileSync, renameSync } from "node:fs"
 import { resolve } from "node:path"
 import { Schema } from "effect"
 import { baseFlows, adminFlows, type CommandActions } from "../apps/app/src/mainview/flows/Flows"
+import { httpProjections } from "../packages/smithers/ui/src/app-operations/http"
 import { nameOf } from "../apps/app/src/mainview/flows/registry"
 
 const root = resolve(import.meta.dir, "..")
@@ -11,10 +12,10 @@ const actions = new Proxy({ docsAvailable: () => true, debugApi: { available: ()
 }) as unknown as CommandActions
 
 export const generateCatalog = () => {
-  const entries = [...baseFlows(actions), ...adminFlows(actions)]
+  const entries = [...baseFlows(actions), ...adminFlows(actions), ...httpProjections.map(operation => ({ declaredName: operation.name, metadata: operation, input: operation.input }))]
   const names = new Set<string>()
   return entries.map(entry => {
-    const name = nameOf(entry)
+    const name = "binding" in entry ? nameOf(entry) : entry.declaredName
     if (names.has(name)) throw new Error(`Duplicate operation: ${name}`)
     names.add(name)
     const m = entry.metadata

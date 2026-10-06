@@ -3276,9 +3276,6 @@ func (e *mythicalForeignHead) Error() string {
 // card. Detection already retained that exact commit at its immutable kept ref.
 // Discard changes only the publication lease, never the candidate or other waits.
 func (s *MythicalService) AnswerBranch(ctx context.Context, branch string, input TodoControlInput) (TodoControlReceipt, error) {
-	if err := middleware.RequirePerson(ctx, "answer an outside push"); err != nil {
-		return TodoControlReceipt{}, err
-	}
 	if input.Op != "bring-in" && input.Op != "discard-foreign" || !mythicalTodoBranchValid(branch) || input.Wait == "" || len(input.Wait) > 128 || !mythicalSHA.MatchString(input.Revision) || strings.Trim(input.Revision, "0") == "" {
 		return TodoControlReceipt{}, &TodoControlError{400, "invalid_branch_answer", "user", "Invalid branch answer"}
 	}

@@ -80,8 +80,8 @@ func (s *MythicalService) forkBranch(ctx context.Context, repositoryID, actorID 
 	if !ok {
 		return BranchMachineResponse{}, branchForkUnavailable("fork unavailable")
 	}
-	if err := middleware.RequirePerson(ctx, "fork a branch"); err != nil {
-		return BranchMachineResponse{}, &BranchError{http.StatusForbidden, "permission", "permission", "Only a person forks a branch"}
+	if _, err := Authorize(ctx, s.queries(), "branch.fork"); err != nil {
+		return BranchMachineResponse{}, err
 	}
 	from := strings.TrimSpace(input.From)
 	if from == "" {

@@ -12,7 +12,6 @@ import (
 	"github.com/jackc/pgx/v5"
 
 	"github.com/smithersai/smithers/packages/backend/internal/db"
-	"github.com/smithersai/smithers/packages/backend/internal/middleware"
 )
 
 // todoMoveNamespace identifies historical unscoped move receipts. They remain
@@ -31,9 +30,6 @@ var todoMoveNamespace = uuid.MustParse("5b0d6a3e-8f43-4c1e-9d7a-2e61c4b8f0a9")
 func (s *MythicalService) moveTodo(ctx context.Context, number int64, input TodoControlInput) (TodoControlReceipt, error) {
 	if s == nil || s.store == nil {
 		return TodoControlReceipt{}, todoControlUnavailable()
-	}
-	if err := middleware.RequirePerson(ctx, "move a TODO"); err != nil && middleware.AuthInfoFromContext(ctx).CredentialKind() != middleware.CredentialDelegated {
-		return TodoControlReceipt{}, &TodoControlError{http.StatusForbidden, "permission", "permission", "Only a person moves a TODO"}
 	}
 	if _, err := Authorize(ctx, s.queries(), "stack.move"); err != nil {
 		return TodoControlReceipt{}, err

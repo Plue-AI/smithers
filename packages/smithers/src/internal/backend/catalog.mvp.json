@@ -257,6 +257,34 @@
       }
     },
     {
+      "name": "agents.read",
+      "slash": null,
+      "cli": null,
+      "journey": [],
+      "group": "",
+      "visibility": "hidden",
+      "actors": [
+        "person",
+        "app_agent",
+        "external_agent"
+      ],
+      "minimumRole": "member",
+      "agent": "run",
+      "summary": "agents.read",
+      "http": {
+        "method": "GET",
+        "path": "/api/agents"
+      },
+      "payload": {
+        "dialect": "draft-2020-12",
+        "schema": {
+          "type": "object",
+          "additionalProperties": false
+        },
+        "definitions": {}
+      }
+    },
+    {
       "name": "app.hint.dismiss",
       "slash": null,
       "cli": null,
@@ -1401,6 +1429,34 @@
       }
     },
     {
+      "name": "branch.read",
+      "slash": null,
+      "cli": null,
+      "journey": [],
+      "group": "",
+      "visibility": "hidden",
+      "actors": [
+        "person",
+        "app_agent",
+        "external_agent"
+      ],
+      "minimumRole": "member",
+      "agent": "run",
+      "summary": "branch.read",
+      "http": {
+        "method": "GET",
+        "path": "/api/branches/{b}"
+      },
+      "payload": {
+        "dialect": "draft-2020-12",
+        "schema": {
+          "type": "object",
+          "additionalProperties": false
+        },
+        "definitions": {}
+      }
+    },
+    {
       "name": "branch.rebase",
       "slash": "/branch.rebase",
       "cli": [
@@ -1514,6 +1570,34 @@
             }
           },
           "additionalProperties": true
+        },
+        "definitions": {}
+      }
+    },
+    {
+      "name": "branches.read",
+      "slash": null,
+      "cli": null,
+      "journey": [],
+      "group": "",
+      "visibility": "hidden",
+      "actors": [
+        "person",
+        "app_agent",
+        "external_agent"
+      ],
+      "minimumRole": "member",
+      "agent": "run",
+      "summary": "branches.read",
+      "http": {
+        "method": "GET",
+        "path": "/api/branches"
+      },
+      "payload": {
+        "dialect": "draft-2020-12",
+        "schema": {
+          "type": "object",
+          "additionalProperties": false
         },
         "definitions": {}
       }
@@ -2716,6 +2800,34 @@
             "revision"
           ],
           "additionalProperties": true
+        },
+        "definitions": {}
+      }
+    },
+    {
+      "name": "confirmations.read",
+      "slash": null,
+      "cli": null,
+      "journey": [],
+      "group": "",
+      "visibility": "hidden",
+      "actors": [
+        "person",
+        "app_agent",
+        "external_agent"
+      ],
+      "minimumRole": "member",
+      "agent": "run",
+      "summary": "confirmations.read",
+      "http": {
+        "method": "GET",
+        "path": "/api/confirmations"
+      },
+      "payload": {
+        "dialect": "draft-2020-12",
+        "schema": {
+          "type": "object",
+          "additionalProperties": false
         },
         "definitions": {}
       }
@@ -4664,6 +4776,34 @@
       }
     },
     {
+      "name": "flows.read",
+      "slash": null,
+      "cli": null,
+      "journey": [],
+      "group": "",
+      "visibility": "hidden",
+      "actors": [
+        "person",
+        "app_agent",
+        "external_agent"
+      ],
+      "minimumRole": "member",
+      "agent": "run",
+      "summary": "flows.read",
+      "http": {
+        "method": "GET",
+        "path": "/api/flows"
+      },
+      "payload": {
+        "dialect": "draft-2020-12",
+        "schema": {
+          "type": "object",
+          "additionalProperties": false
+        },
+        "definitions": {}
+      }
+    },
+    {
       "name": "form.set",
       "slash": null,
       "cli": null,
@@ -5149,6 +5289,58 @@
       }
     },
     {
+      "name": "install.read",
+      "slash": null,
+      "cli": null,
+      "journey": [],
+      "group": "",
+      "visibility": "hidden",
+      "actors": [
+        "person"
+      ],
+      "minimumRole": "owner",
+      "agent": "never",
+      "summary": "install.read",
+      "http": {
+        "method": "GET",
+        "path": "/api/install"
+      },
+      "payload": {
+        "dialect": "draft-2020-12",
+        "schema": {
+          "type": "object",
+          "additionalProperties": false
+        },
+        "definitions": {}
+      }
+    },
+    {
+      "name": "install.scorecard",
+      "slash": null,
+      "cli": null,
+      "journey": [],
+      "group": "",
+      "visibility": "hidden",
+      "actors": [
+        "person"
+      ],
+      "minimumRole": "owner",
+      "agent": "never",
+      "summary": "install.scorecard",
+      "http": {
+        "method": "GET",
+        "path": "/api/install/scorecard"
+      },
+      "payload": {
+        "dialect": "draft-2020-12",
+        "schema": {
+          "type": "object",
+          "additionalProperties": false
+        },
+        "definitions": {}
+      }
+    },
+    {
       "name": "issue",
       "slash": "/issue",
       "cli": [
@@ -5465,6 +5657,34 @@
             "number"
           ],
           "additionalProperties": true
+        },
+        "definitions": {}
+      }
+    },
+    {
+      "name": "issue.read",
+      "slash": null,
+      "cli": null,
+      "journey": [],
+      "group": "",
+      "visibility": "hidden",
+      "actors": [
+        "person",
+        "app_agent",
+        "external_agent"
+      ],
+      "minimumRole": "member",
+      "agent": "run",
+      "summary": "issue.read",
+      "http": {
+        "method": "GET",
+        "path": "/api/issues"
+      },
+      "payload": {
+        "dialect": "draft-2020-12",
+        "schema": {
+          "type": "object",
+          "additionalProperties": false
         },
         "definitions": {}
       }
@@ -5995,6 +6215,34 @@
       }
     },
     {
+      "name": "live",
+      "slash": null,
+      "cli": null,
+      "journey": [],
+      "group": "",
+      "visibility": "hidden",
+      "actors": [
+        "person",
+        "app_agent",
+        "external_agent"
+      ],
+      "minimumRole": "member",
+      "agent": "run",
+      "summary": "live",
+      "http": {
+        "method": "GET",
+        "path": "/api/live"
+      },
+      "payload": {
+        "dialect": "draft-2020-12",
+        "schema": {
+          "type": "object",
+          "additionalProperties": false
+        },
+        "definitions": {}
+      }
+    },
+    {
       "name": "main.reset-to-github",
       "slash": null,
       "cli": null,
@@ -6092,6 +6340,32 @@
             "login"
           ],
           "additionalProperties": true
+        },
+        "definitions": {}
+      }
+    },
+    {
+      "name": "members.list",
+      "slash": null,
+      "cli": null,
+      "journey": [],
+      "group": "",
+      "visibility": "hidden",
+      "actors": [
+        "person"
+      ],
+      "minimumRole": "member",
+      "agent": "never",
+      "summary": "members.list",
+      "http": {
+        "method": "GET",
+        "path": "/api/members"
+      },
+      "payload": {
+        "dialect": "draft-2020-12",
+        "schema": {
+          "type": "object",
+          "additionalProperties": false
         },
         "definitions": {}
       }
@@ -6843,6 +7117,34 @@
       }
     },
     {
+      "name": "proposals.read",
+      "slash": null,
+      "cli": null,
+      "journey": [],
+      "group": "",
+      "visibility": "hidden",
+      "actors": [
+        "person",
+        "app_agent",
+        "external_agent"
+      ],
+      "minimumRole": "member",
+      "agent": "run",
+      "summary": "proposals.read",
+      "http": {
+        "method": "GET",
+        "path": "/api/proposals"
+      },
+      "payload": {
+        "dialect": "draft-2020-12",
+        "schema": {
+          "type": "object",
+          "additionalProperties": false
+        },
+        "definitions": {}
+      }
+    },
+    {
       "name": "prs",
       "slash": null,
       "cli": null,
@@ -7263,6 +7565,34 @@
             }
           },
           "additionalProperties": true
+        },
+        "definitions": {}
+      }
+    },
+    {
+      "name": "repo.read",
+      "slash": null,
+      "cli": null,
+      "journey": [],
+      "group": "",
+      "visibility": "hidden",
+      "actors": [
+        "person",
+        "app_agent",
+        "external_agent"
+      ],
+      "minimumRole": "member",
+      "agent": "run",
+      "summary": "repo.read",
+      "http": {
+        "method": "GET",
+        "path": "/api/repos/{owner}/{repo}/mythical"
+      },
+      "payload": {
+        "dialect": "draft-2020-12",
+        "schema": {
+          "type": "object",
+          "additionalProperties": false
         },
         "definitions": {}
       }
@@ -9398,6 +9728,32 @@
       }
     },
     {
+      "name": "secrets.read",
+      "slash": null,
+      "cli": null,
+      "journey": [],
+      "group": "",
+      "visibility": "hidden",
+      "actors": [
+        "person"
+      ],
+      "minimumRole": "member",
+      "agent": "never",
+      "summary": "secrets.read",
+      "http": {
+        "method": "GET",
+        "path": "/api/secrets"
+      },
+      "payload": {
+        "dialect": "draft-2020-12",
+        "schema": {
+          "type": "object",
+          "additionalProperties": false
+        },
+        "definitions": {}
+      }
+    },
+    {
       "name": "secrets.revoke",
       "slash": null,
       "cli": null,
@@ -9550,6 +9906,34 @@
             "name"
           ],
           "additionalProperties": true
+        },
+        "definitions": {}
+      }
+    },
+    {
+      "name": "self.read",
+      "slash": null,
+      "cli": null,
+      "journey": [],
+      "group": "",
+      "visibility": "hidden",
+      "actors": [
+        "person",
+        "app_agent",
+        "external_agent"
+      ],
+      "minimumRole": "member",
+      "agent": "run",
+      "summary": "self.read",
+      "http": {
+        "method": "GET",
+        "path": "/api/user/orgs"
+      },
+      "payload": {
+        "dialect": "draft-2020-12",
+        "schema": {
+          "type": "object",
+          "additionalProperties": false
         },
         "definitions": {}
       }
@@ -10265,6 +10649,89 @@
       }
     },
     {
+      "name": "sync.read",
+      "slash": null,
+      "cli": null,
+      "journey": [],
+      "group": "",
+      "visibility": "hidden",
+      "actors": [
+        "person",
+        "app_agent",
+        "external_agent"
+      ],
+      "minimumRole": "member",
+      "agent": "run",
+      "summary": "sync.read",
+      "http": {
+        "method": "GET",
+        "path": "/api/github/sync"
+      },
+      "payload": {
+        "dialect": "draft-2020-12",
+        "schema": {
+          "type": "object",
+          "additionalProperties": false
+        },
+        "definitions": {}
+      }
+    },
+    {
+      "name": "sync.retry",
+      "slash": null,
+      "cli": null,
+      "journey": [],
+      "group": "",
+      "visibility": "hidden",
+      "actors": [
+        "person",
+        "app_agent"
+      ],
+      "minimumRole": "member",
+      "agent": "run",
+      "summary": "Retry sync",
+      "http": {
+        "method": "POST",
+        "path": "/api/github/sync"
+      },
+      "payload": {
+        "dialect": "draft-2020-12",
+        "schema": {
+          "type": "object",
+          "additionalProperties": false
+        },
+        "definitions": {}
+      }
+    },
+    {
+      "name": "telemetry.report",
+      "slash": null,
+      "cli": null,
+      "journey": [],
+      "group": "",
+      "visibility": "hidden",
+      "actors": [
+        "person",
+        "app_agent",
+        "external_agent"
+      ],
+      "minimumRole": "member",
+      "agent": "run",
+      "summary": "Report error",
+      "http": {
+        "method": "POST",
+        "path": "/api/telemetry/errors"
+      },
+      "payload": {
+        "dialect": "draft-2020-12",
+        "schema": {
+          "type": "object",
+          "additionalProperties": false
+        },
+        "definitions": {}
+      }
+    },
+    {
       "name": "terminal",
       "slash": "/terminal",
       "cli": null,
@@ -10902,6 +11369,34 @@
             "n"
           ],
           "additionalProperties": true
+        },
+        "definitions": {}
+      }
+    },
+    {
+      "name": "todo.read",
+      "slash": null,
+      "cli": null,
+      "journey": [],
+      "group": "",
+      "visibility": "hidden",
+      "actors": [
+        "person",
+        "app_agent",
+        "external_agent"
+      ],
+      "minimumRole": "member",
+      "agent": "run",
+      "summary": "todo.read",
+      "http": {
+        "method": "GET",
+        "path": "/api/todos"
+      },
+      "payload": {
+        "dialect": "draft-2020-12",
+        "schema": {
+          "type": "object",
+          "additionalProperties": false
         },
         "definitions": {}
       }
@@ -12471,6 +12966,34 @@
       "agent": "never",
       "summary": "Open the Wiki beside the chat",
       "http": null,
+      "payload": {
+        "dialect": "draft-2020-12",
+        "schema": {
+          "type": "object",
+          "additionalProperties": false
+        },
+        "definitions": {}
+      }
+    },
+    {
+      "name": "wiki.read",
+      "slash": null,
+      "cli": null,
+      "journey": [],
+      "group": "",
+      "visibility": "hidden",
+      "actors": [
+        "person",
+        "app_agent",
+        "external_agent"
+      ],
+      "minimumRole": "member",
+      "agent": "run",
+      "summary": "wiki.read",
+      "http": {
+        "method": "GET",
+        "path": "/api/repos/{owner}/{repo}/wiki"
+      },
       "payload": {
         "dialect": "draft-2020-12",
         "schema": {

@@ -14,7 +14,6 @@ import (
 
 	"github.com/smithersai/smithers/packages/backend/flowdispatch"
 	"github.com/smithersai/smithers/packages/backend/internal/db"
-	"github.com/smithersai/smithers/packages/backend/internal/middleware"
 	"github.com/smithersai/smithers/packages/backend/jobs"
 )
 
@@ -59,8 +58,8 @@ func (s *MythicalService) dropTodo(ctx context.Context, number int64, input Todo
 	if s == nil || s.store == nil {
 		return TodoControlReceipt{}, todoControlUnavailable()
 	}
-	if err := middleware.RequirePerson(ctx, "drop a TODO"); err != nil {
-		return TodoControlReceipt{}, &TodoControlError{http.StatusForbidden, "permission", "permission", "Only a person drops a TODO"}
+	if _, err := Authorize(ctx, s.queries(), "todo.drop"); err != nil {
+		return TodoControlReceipt{}, err
 	}
 	var receipt TodoControlReceipt
 	err := pgx.BeginFunc(ctx, s.store, func(tx pgx.Tx) error {

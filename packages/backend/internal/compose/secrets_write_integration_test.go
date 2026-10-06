@@ -104,7 +104,7 @@ func testSecretsComposed(t *testing.T, install bool) {
 			require.NoError(t, service.DeleteSecret(directCtx, &who, "owner", "app", "DIRECT_KEY"))
 		}
 	}
-	delegatedCtx := middleware.ContextWithAuthInfo(ctx, &middleware.AuthInfo{User: &owner, IsTokenAuth: true, TokenSystemIssued: true, RawScopes: "write:repository,via:cli"})
+	delegatedCtx := middleware.ContextWithAuthInfo(ctx, &middleware.AuthInfo{User: &owner, IsTokenAuth: true, TokenSystemIssued: true, RawScopes: "write:repository,via:cli", Scopes: middleware.ScopeSet{middleware.ScopeWriteRepository: {}}})
 	_, directErr := service.SetSecret(delegatedCtx, &owner, "owner", "app", "DENIED_KEY", "value", nil, nil)
 	var access *services.AccessError
 	require.ErrorAs(t, directErr, &access)
@@ -346,6 +346,7 @@ func testSecretsComposed(t *testing.T, install bool) {
 		{"the owner's delegated credential", delegated(owner), 403, never, ""},
 		{"a maintainer's delegated credential", delegated(maintainer), 403, never, ""},
 		{"the owner's personal access token", ownerPAT, 403, never, ""},
+		{"a read-only owner delegation", credential{bearer: token(owner, "readonly-cli", "read:repository,via:cli", true)}, 403, map[string]any{"class": "permission", "code": "permission", "message": "Insufficient credential scope"}, ""},
 		{"a member's delegated credential", delegated(writer), 403, permission, ""},
 		{"a maintainer's run credential", run, 403, nil, "permission"},
 		{"an outsider's session", outsiderSession, 403, nil, "forbidden"},

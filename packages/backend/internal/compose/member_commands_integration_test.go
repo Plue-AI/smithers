@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 	"time"
 
@@ -84,6 +85,9 @@ func TestMemberRoutesAuthorizeByRolePostgres(t *testing.T) {
 			require.NoError(t, err)
 		}
 		command := middleware.InstallMemberCommand(r.Method, r.URL.Path)
+		if command == "todo.control" {
+			command = "todo.steer"
+		}
 		if command != "" && command != "self" {
 			// A same-command service entry reuses the middleware decision even
 			// without a second database lookup.
@@ -108,10 +112,15 @@ func TestMemberRoutesAuthorizeByRolePostgres(t *testing.T) {
 	for _, route := range routes {
 		router.MethodFunc(route.method, route.path, served)
 	}
-	ownerOnly := map[string]bool{"POST /api/install/setup/models": true, "GET /api/user/tokens": true, "POST /api/agent/turn/erase": true}
+	ownerOnly := map[string]bool{"GET /api/install": true, "POST /api/install/setup/models": true, "GET /api/user/tokens": true, "POST /api/agent/turn/erase": true}
 	maintainerOnly := map[string]bool{"POST /api/todos/1/merge": true, "POST /api/members": true, "PATCH /api/members/alice": true, "DELETE /api/members/alice": true}
 	call := func(method, path, cookie, bearer string) (int, map[string]any) {
-		req := httptest.NewRequest(method, path, nil)
+		var body *strings.Reader
+		body = strings.NewReader("")
+		if method == "POST" && path == "/api/todos/1" {
+			body = strings.NewReader(`{"op":"steer","text":"Continue"}`)
+		}
+		req := httptest.NewRequest(method, path, body)
 		if cookie != "" {
 			req.AddCookie(&http.Cookie{Name: "session", Value: cookie})
 		}
@@ -131,7 +140,7 @@ func TestMemberRoutesAuthorizeByRolePostgres(t *testing.T) {
 			want := http.StatusOK
 			switch {
 			case who == "owner":
-			case who == "member token" && (key == "GET /api/user/orgs" || key == "GET /api/user/workspaces" || key == "POST /api/telemetry/errors" || key == "GET /api/issues" || key == "GET /api/issues/2" || key == "GET /api/agent/conversations" || key == "POST /api/agent/conversations/replay" || key == "POST /api/agent/turn" || key == "POST /api/agent/turn/cancel" || key == "POST /api/agent/turn/replay" || key == "POST /api/agent/turn/retire"):
+			case who == "member token" && (key == "GET /api/user/orgs" || key == "GET /api/user/workspaces" || key == "POST /api/telemetry/errors" || key == "GET /api/agent/conversations" || key == "POST /api/agent/conversations/replay" || key == "POST /api/agent/turn" || key == "POST /api/agent/turn/cancel" || key == "POST /api/agent/turn/replay" || key == "POST /api/agent/turn/retire"):
 				want = http.StatusOK
 			case ownerOnly[key], who == "off roster", who == "suspended", who == "member token":
 				want = http.StatusForbidden
@@ -150,16 +159,7 @@ func TestMemberRoutesAuthorizeByRolePostgres(t *testing.T) {
 				require.Equal(t, map[string]any{"class": "permission", "code": "permission", "message": "Only a maintainer can do this"}, envelope, key)
 			}
 			if want == http.StatusForbidden && who == "member token" && !ownerOnly[key] {
-				message := "Sign in with a browser session"
-				if middleware.InstallMemberCommand(route.method, route.path) == "members.write" {
-					message = "Only a maintainer can do this"
-				}
-				if key == "GET /api/members" || key == "GET /api/install" || key == "GET /api/github/sync" || key == "POST /api/github/sync" || key == "GET /api/live" {
-					message = "Only a person can do this"
-				}
-				if key == "POST /api/todos" || key == "POST /api/todos/1" || key == "POST /api/todos/1/answer" || key == "POST /api/todos/1/merge" {
-					message = "Insufficient credential scope"
-				}
+				message := "Insufficient credential scope"
 				require.Equal(t, message, envelope["message"], key)
 			}
 		}

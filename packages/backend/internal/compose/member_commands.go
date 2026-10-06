@@ -28,6 +28,20 @@ func memberCommands(queries *db.Queries, confirmations ...*services.ApprovalsSer
 				next.ServeHTTP(w, r)
 				return
 			}
+			if command == "todo.control" {
+				raw, err := io.ReadAll(http.MaxBytesReader(w, r.Body, 256<<10))
+				if err != nil {
+					writeConfirmationDispatchError(w, &services.TodoControlError{Status: 400, Class: "user", Code: "invalid_control", Message: "Invalid TODO control"})
+					return
+				}
+				_, resolved, err := routes.DecodeTodoControl(bytes.NewReader(raw))
+				if err != nil {
+					writeConfirmationDispatchError(w, err)
+					return
+				}
+				command = resolved
+				r.Body = io.NopCloser(bytes.NewReader(raw))
+			}
 			// Resolve the existing command body once, before its sole authority
 			// decision. Only a configured approval service owns confirmation.
 			delegation, delegated := info.Delegation()

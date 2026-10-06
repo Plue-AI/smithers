@@ -175,8 +175,8 @@ func TestTerminalCredentialTodoActionsPostgres(t *testing.T) {
 			// The terminal is on T2's branch.
 			header := bearer(terminal(holder, branches[1]))
 			status, envelope := call("PATCH", "/api/todos/2", `{"prompt":"Revised","acceptance":[]}`, header)
-			require.Equal(t, http.StatusServiceUnavailable, status)
-			require.Equal(t, "confirmation_unavailable", envelope["code"])
+			require.Equal(t, http.StatusForbidden, status)
+			require.Equal(t, "permission", envelope["code"])
 			require.Empty(t, calls.take(), "delegated amendment must not reach the service")
 			for _, admitted := range []struct{ method, path, body, call string }{
 				{"GET", "/api/user", "", ""},

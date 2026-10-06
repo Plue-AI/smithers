@@ -74,9 +74,6 @@ func (p *MythicalTodoPlace) UnmarshalJSON(data []byte) error {
 // App's todo label and one "Committed as Tn" comment, which the stack's next
 // pass posts (deliverNotice).
 func (s *MythicalService) FileTodo(ctx context.Context, repositoryID, userID int64, input MythicalTodoInput) (MythicalItemView, error) {
-	if err := middleware.RequirePerson(ctx, "make a TODO"); err != nil {
-		return MythicalItemView{}, err
-	}
 	if s == nil || s.store == nil {
 		return MythicalItemView{}, issueTodoUnavailable()
 	}

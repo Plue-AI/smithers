@@ -124,3 +124,33 @@ func TestSystemCredentialsCannotInheritTerminalCommandAuthority(t *testing.T) {
 		assert.Equal(t, "permission", access.Code)
 	}
 }
+
+// Literal policy expectations: catalog metadata is the input, never the oracle.
+func TestInstallCommandCatalogPolicies(t *testing.T) {
+	for _, tt := range []struct {
+		command, role, agent string
+		actors               []string
+	}{
+		{"todo.new", "member", "confirm", []string{"person", "app_agent", "external_agent"}},
+		{"todo.amend", "member", "confirm", []string{"person", "app_agent", "external_agent"}},
+		{"todo.drop", "member", "confirm", []string{"person", "app_agent", "external_agent"}},
+		{"merge", "maintainer", "confirm", []string{"person", "app_agent", "external_agent"}},
+		{"branch.bring-in", "member", "confirm", []string{"person", "app_agent"}},
+		{"branch.discard-foreign", "maintainer", "confirm", []string{"person", "app_agent"}},
+		{"learning.accept", "member", "confirm", []string{"person", "app_agent"}},
+		{"todo.takeover", "maintainer", "never", []string{"person"}},
+		{"members.write", "maintainer", "never", []string{"person"}},
+		{"secrets.write", "maintainer", "never", []string{"person"}},
+		{"settings.parallel", "owner", "never", []string{"person"}},
+	} {
+		t.Run(tt.command, func(t *testing.T) {
+			policy, ok := installCommandPolicy(tt.command)
+			assert.True(t, ok)
+			assert.Equal(t, tt.role, policy.MinimumRole)
+			assert.Equal(t, tt.agent, policy.Agent)
+			assert.Equal(t, tt.actors, policy.Actors)
+		})
+	}
+	_, ok := installCommandPolicy("unmapped")
+	assert.False(t, ok)
+}
