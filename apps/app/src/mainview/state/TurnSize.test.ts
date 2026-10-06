@@ -1,7 +1,7 @@
 import type { AgentChatMessage,AgentTurnFrame,StartAgentTurnRequest } from "@smthrs/rpc/NativeAgent"
 import { describe,expect,test } from "bun:test"
 import type { AgentPort } from "../runtime/AgentPort"
-import { MAX_TOOL_RESULT_BYTES,utf8Bytes } from "@smthrs/rpc/AgentToolResult"
+import { MAX_TOOL_RESULT_BYTES } from "@smthrs/rpc/AgentToolResult"
 import { MAX_TURN_REQUEST_BYTES,turnRequestBytes } from "./AgentTurnPolicy"
 import { createAppStore } from "./AppStore"
 import { scopedControllers } from "./ControllerTestScope"
@@ -73,7 +73,7 @@ describe("a long conversation still sends a turn the boundary accepts", () => {
  * command returned as the function_call_output, so one wide tool result could
  * fill the next request by itself. This pins the wiring at the seam.
  */
-describe("a wide tool result is bounded before it goes back to the model", () => {
+describe("a legacy tool request cannot create browser output", () => {
   /** A transport double that answers with a scripted tool call, then ends. */
   const toolCallingAgent = (
     requests: StartAgentTurnRequest[],
@@ -102,7 +102,7 @@ describe("a wide tool result is bounded before it goes back to the model", () =>
     }
   }
 
-  test("the function_call_output is cut to the tool-result limit with the marker, the record keeps it whole", async () => {
+  test("even a wide tool call executes nothing and produces no continuation", async () => {
     const store = await createAppStore({ kind: "localStorage", storage: memoryStorage() })
     const requests: StartAgentTurnRequest[] = []
     // An unknown command echoes its name in the honest error, so a very long
@@ -122,21 +122,9 @@ describe("a wide tool result is bounded before it goes back to the model", () =>
     await settled()
     await settled()
 
-    expect(requests).toHaveLength(2)
-    expect(turnRequestBytes(requests[1] as StartAgentTurnRequest)).toBeLessThanOrEqual(MAX_TURN_REQUEST_BYTES)
-    const output = requests[1]?.messages.find(
-      (message): message is Extract<AgentChatMessage, { type: "function_call_output" }> =>
-        "type" in message && message.type === "function_call_output"
-    )
-    expect(output).toBeDefined()
-    expect(utf8Bytes(output?.output ?? "")).toBeLessThanOrEqual(MAX_TOOL_RESULT_BYTES)
-    expect(output?.output).toStartWith("unknown-command: nnn")
-    expect(output?.output).toContain("[Tool result truncated:")
-    // The store's own record is the evidence and stays whole.
-    const recorded = [...store.collections.toolCalls.values()].at(-1)
-    expect(recorded?.result).toBe(
-      `unknown-command: ${name} — no command has that name; use the list action for every command callable right now`
-    )
+    expect(requests).toHaveLength(1)
+    expect(store.collections.toolCalls.size).toBe(0)
+    expect(requests[0]?.messages.some(message => "type" in message && message.type === "function_call_output")).toBe(false)
     controller.dispose()
   })
 })

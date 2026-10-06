@@ -79,11 +79,7 @@ export const changeActionDefinitions = (model: BranchModel): CardActionDefinitio
 /** View selections use the same durable card transition on installs and demos. */
 function persistBranchView(controller: ReturnType<typeof useController>, card: CardOf<"branch">, patch: { tab?: string }) {
   if (patch.tab !== "activity" && patch.tab !== "files" && patch.tab !== "terminals") return
-  const current = controller.store.collections.cards.get(card.id)
-  if (current?.kind !== "branch") return
-  controller.store.dispatch({ type: "card.upsert", actor: "user", card: {
-    ...current, payload: { ...current.payload, tab: patch.tab }
-  } })
+  controller.setCardTab(card.id, patch.tab)
 }
 
 const DesignBranchBody = ({ card, actions }: { readonly card: CardOf<"branch">; readonly actions: CardActions }) => {

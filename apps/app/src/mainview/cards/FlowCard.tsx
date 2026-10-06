@@ -124,10 +124,7 @@ const FlowBody = ({ card, maximized }: { readonly card: CardOf<"flow">; readonly
   return <FlowCard model={proposed} allowed={controller.flowCatalog === undefined ? DESIGN_FLOW_ACTIONS : served.error !== undefined ? UNAVAILABLE_FLOW_ACTIONS : INSTALL_FLOW_ACTIONS} dispatch={dispatch}
     view={{ maximized, tab: member === undefined || member === null ? undefined : payload.memberVersions?.[member] ?? payload.version }} onView={patch => {
       if (!member || patch.tab === undefined || !model?.versions.some(version => version.id === patch.tab)) return
-      const current = controller.store.collections.cards.get(card.id)
-      if (current?.kind !== "flow" || current.payload.memberVersions?.[member] === patch.tab) return
-      controller.store.dispatch({ type: "card.upsert", actor: "user", card: { ...current,
-        payload: { ...current.payload, memberVersions: { ...current.payload.memberVersions, [member]: patch.tab } } } })
+      controller.setCardTab(card.id, patch.tab)
     }} />
 }
 export const flowCardFamily: CardFamily<"flow"> = {

@@ -401,6 +401,11 @@ func authenticatedRoutes(handler *Handler, userID int64, owner string) http.Hand
 		})
 	})
 	handler.MountPublic(router)
+	// Historical-journal fixtures exercise the retained decoder/writer protocol;
+	// these routes are deliberately absent from the product mount.
+	router.Post(TurnPath, handler.Turn)
+	router.Post(CancelPath, handler.Cancel)
+	router.Post(RetirePath, handler.Retire)
 	handler.MountProducerCallbacks(router)
 	return router
 }

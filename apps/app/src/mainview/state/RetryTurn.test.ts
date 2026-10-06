@@ -150,7 +150,7 @@ const deferred = <T,>() => {
 }
 
 describe("turn continuation ownership", () => {
-  test("Stop mid-tool then retry ignores the old tool completion", async () => {
+  test("a refused legacy tool cannot execute before an explicit retry", async () => {
     const store = await signedInStore()
     const { agent, launches, emit, answer } = recordingAgent({
       startTurn: async () => launches.length > 2
@@ -165,7 +165,7 @@ describe("turn continuation ownership", () => {
       const runId = launches[0]!.runId
       emit({ runId, type: "tool_call", call_id: "old-call", name: "commands", arguments: "{}" })
       emit({ runId, type: "done", reason: "tool_call" })
-      expect(execute).toHaveBeenCalledTimes(1)
+      expect(execute).toHaveBeenCalledTimes(0)
       controller.stop()
       await controller.commands.run("chat.retry")
       await settled()

@@ -1,7 +1,6 @@
 package compose
 
 import (
-	"bufio"
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
@@ -217,7 +216,10 @@ func TestBranchConversationAuthorRevocationInstall(t *testing.T) {
 
 			ownerCookie := session(owner)
 			host := revokedAuthorHost{started: make(chan ports.ChatTurnGrant, 8), stopped: make(chan string, 8)}
-			server := httptest.NewServer(startSplitProcess(t, Options{ChatHost: host}))
+			runtime, err := process.New(process.Config{Root: t.TempDir()})
+			require.NoError(t, err)
+			providers := services.InstallBranchMachineProviders(identity.NewMemberBoundary(q), runtime)
+			server := httptest.NewServer(startSplitProcess(t, Options{ChatHost: host, Workspace: runtime, BranchMachines: &providers, FlowHostProductAPIURL: "http://127.0.0.1:4000", FlowHostConfig: flowhost.WorkspaceLauncherConfig{AllowTrustedProcessForTests: true}}))
 			defer server.Close()
 			request := func(method, path, body, cookie string) *http.Response {
 				req, err := http.NewRequest(method, server.URL+path, strings.NewReader(body))
@@ -233,17 +235,21 @@ func TestBranchConversationAuthorRevocationInstall(t *testing.T) {
 				return res
 			}
 			admit := func(name, cookie string) string {
-				run := name + "-" + uuid.NewString()
-				payload, err := json.Marshal(map[string]any{"runId": run, "conversationId": "main", "instructions": "Answer", "messages": []any{map[string]string{"role": "user", "content": "SLOW"}}, "journal": map[string]any{"version": 1, "legId": uuid.NewString(), "token": strings.Repeat("c", 48)}})
+				payload, err := json.Marshal(map[string]string{"prompt": "SLOW", "idempotencyKey": name + "-" + uuid.NewString()})
 				require.NoError(t, err)
-				res := request("POST", chat.TurnPath, string(payload), cookie)
+				res := request("POST", "/api/conversations/main/prompt", string(payload), cookie)
 				defer res.Body.Close()
-				require.Equal(t, 200, res.StatusCode)
-				line, err := bufio.NewReader(res.Body).ReadString('\n')
+				raw, err := io.ReadAll(res.Body)
 				require.NoError(t, err)
-				require.Contains(t, line, `"type":"accepted"`)
-				return run
+				require.Equal(t, 202, res.StatusCode, string(raw))
+				var admitted struct {
+					RunID string `json:"runId"`
+				}
+				require.NoError(t, json.Unmarshal(raw, &admitted))
+				require.NotEmpty(t, admitted.RunID)
+				return admitted.RunID
 			}
+
 			first := admit("alice", aliceCookie)
 			var grant ports.ChatTurnGrant
 			select {

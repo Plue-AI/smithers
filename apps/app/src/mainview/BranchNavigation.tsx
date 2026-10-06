@@ -28,7 +28,7 @@ export function BranchNavigation() {
   const update = (patch: Partial<typeof view>) => {
     const request = ++pending.current
     setSaving(true)
-    void controller.store.dispatch({ type: "branch.navigation.changed", actor: "user", navigation: { ...view, ...patch } }).isPersisted.promise
+    void controller.setBranchNavigationView(patch)
       .catch(() => { /* The store owns persistence failure and recovery. */ })
       .finally(() => { if (request === pending.current) setSaving(false) })
   }

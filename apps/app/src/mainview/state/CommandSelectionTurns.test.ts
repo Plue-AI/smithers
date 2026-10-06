@@ -5,15 +5,12 @@
  */
 import { describe, expect, test } from "bun:test"
 import type { AgentTurnFrame, StartAgentTurnRequest } from "@smthrs/rpc/NativeAgent"
-import type { AgentTurnJournalDelivery, AgentTurnJournalReply } from "@smthrs/rpc/AgentTurnJournal"
 import type { AgentPort } from "../runtime/AgentPort"
 import { scopedControllers } from "./ControllerTestScope"
 import { createAppStore } from "./AppStore"
 import type { CommandSelectRequest, CommandSelector, SelectedCommand } from "./CommandSelection"
 import { CommandSelectError } from "./CommandSelection"
 import { memoryStorage, settled } from "./TestFixtures"
-import { installFixture } from "./seams/InstallFixtures.test-support"
-import type { AppBootstrap } from "@smthrs/rpc/AppBootstrap"
 
 const createAppController = scopedControllers()
 
@@ -69,7 +66,7 @@ const userMessage = (store: Awaited<ReturnType<typeof createAppStore>>) =>
   [...store.collections.messages.values()].filter(message => message.role === "user").sort((a, b) => a.ordinal - b.ordinal).at(-1)
 
 describe("command selection before the first leg", () => {
-  test("switch to dark mode: Jev's pick is listed in full, recorded on the message, and the model's call switches the theme", async () => {
+  test("legacy selection cannot execute a tool in the browser", async () => {
     const store = await createAppStore({ kind: "localStorage", storage: memoryStorage() })
     const { selector, asked } = fakeSelector(() => [{ name: "theme", probability: 0.99 }])
     const { agent, requests } = scriptedAgent([
@@ -79,7 +76,7 @@ describe("command selection before the first leg", () => {
     const controller = createAppController(store, agent, { commandSelector: selector })
     const before = store.session().theme
     controller.send("make it darker")
-    await until(() => requests.length === 2)
+    await until(() => requests.length === 1)
     await settled()
 
     expect(asked).toHaveLength(1)
@@ -90,9 +87,9 @@ describe("command selection before the first leg", () => {
     expect(userMessage(store)?.disclosed).toEqual(["theme"])
     expect(requests[0]!.instructions).toContain(DARK_LINE)
     // The continuation leg reuses the selection: no second request.
-    expect(requests[1]!.instructions).toContain(DARK_LINE)
     expect(before).toBe("light")
-    expect(store.session().theme).toBe("dark")
+    expect(store.session().theme).toBe(before)
+    expect(store.collections.toolCalls.size).toBe(0)
   })
 
   test("without a selection, a command neither pinned nor disclosed stays out of the prompt", async () => {
@@ -136,127 +133,10 @@ describe("command selection before the first leg", () => {
     await until(() => requests.length === 1 && store.session().phase === "idle")
     controller.send("thanks")
     await until(() => requests.length === 2 && store.session().phase === "idle")
-    expect(requests[1]!.instructions).toContain(DARK_LINE)
 
     expect(controller.commands.find("chat.clear")).toBeUndefined()
     controller.send("thanks again")
     await until(() => requests.length >= 3)
     expect(requests.at(-1)!.instructions).toContain("/theme")
   })
-})
-
-describe("the list action's query", () => {
-  test("discloses Jev's pick among undisclosed commands, records it, and the next leg lists it in full", async () => {
-    const store = await createAppStore({ kind: "localStorage", storage: memoryStorage() })
-    const { selector, asked } = fakeSelector(request => request.message === "open issue 4 and list the open pull requests"
-      ? [{ name: "issues.view", probability: 0.5 }]
-      : [{ name: "prs.list", probability: 0.8 }, { name: "issues.view", probability: 0.1 }])
-    let toolResult = ""
-    const { agent, requests } = scriptedAgent([
-      () => call("call_q", { action: "list", query: "list pull requests" }),
-      (request) => {
-        const output = request.messages.find(item => "type" in item && item.type === "function_call_output")
-        toolResult = output !== undefined && "output" in output ? output.output : ""
-        return say("Listing them.")
-      }
-    ])
-    const controller = createAppController(store, agent, { commandSelector: selector })
-    controller.send("open issue 4 and list the open pull requests")
-    await until(() => requests.length === 2)
-    await settled()
-
-    expect(asked).toHaveLength(2)
-    expect(asked[1]!.message).toBe("list pull requests")
-    // Already-disclosed and pinned commands are not offered to the query.
-    expect(asked[1]!.commands.some(command => command.name === "issues.view")).toBe(false)
-    expect(asked[1]!.commands.some(command => command.name === "auth.prompt")).toBe(false)
-    const listed = JSON.parse(toolResult) as { commands: Array<{ name: string; args?: string }> }
-    expect(listed.commands.map(command => command.name)).toEqual(["prs.list"])
-    expect(listed.commands[0]!.args).toBeDefined()
-    expect(userMessage(store)?.disclosed).toEqual(["issues.view", "prs.list"])
-    expect(requests[1]!.instructions).toContain("- /prs.list ")
-    expect(requests[1]!.instructions).toContain("- /issues.view ")
-  })
-
-  test("a failed query is the model's coded tool failure, and the turn continues", async () => {
-    const store = await createAppStore({ kind: "localStorage", storage: memoryStorage() })
-    let calls = 0
-    const { selector } = fakeSelector(() => (calls += 1) === 1 ? [] : new CommandSelectError("http"))
-    let toolResult = ""
-    const { agent, requests } = scriptedAgent([
-      () => call("call_q", { action: "list", query: "anything" }),
-      (request) => {
-        const output = request.messages.find(item => "type" in item && item.type === "function_call_output")
-        toolResult = output !== undefined && "output" in output ? output.output : ""
-        return say("I could not look that up.")
-      }
-    ])
-    const controller = createAppController(store, agent, { commandSelector: selector })
-    controller.send("do the thing")
-    await until(() => requests.length === 2)
-    expect(toolResult).toMatch(/^failed: commands_select_failed \(http\):/)
-  })
-})
-
-describe("the web turn path (HTTP journal)", () => {
-  const journalAgent = () => {
-    const starts: StartAgentTurnRequest[] = []
-    const reply: AgentTurnJournalReply = { status: "error", code: "not-found" }
-    let listener: ((delivery: AgentTurnJournalDelivery) => Promise<void>) | undefined
-    const agent: AgentPort = {
-      available: true,
-      startTurn: async request => { starts.push(request); return { status: "started" } },
-      cancelTurn: async () => {},
-      subscribe: () => () => {},
-      journal: { subscribe: next => { listener = next; return () => { listener = undefined } }, read: async () => reply, retire: async () => {}, disconnect: () => {} }
-    }
-    return { agent, starts, listening: () => listener !== undefined }
-  }
-
-  test("the first leg waits for selection; a failure interrupts the attempt with no POST", async () => {
-    const store = await createAppStore({ kind: "localStorage", storage: memoryStorage() })
-    let fail = false
-    const { selector } = fakeSelector(() => fail ? new CommandSelectError("credit") : [{ name: "theme", probability: 0.99 }])
-    const remote = journalAgent()
-    const controller = createAppController(store, remote.agent, { commandSelector: selector })
-    controller.send("make it darker")
-    await until(() => remote.starts.length === 1)
-    expect(remote.starts[0]!.instructions).toContain(DARK_LINE)
-    expect(userMessage(store)?.disclosed).toEqual(["theme"])
-    await controller.commands.run("stop")
-    await until(() => store.session().phase === "idle")
-
-    fail = true
-    controller.send("and brighter later")
-    // The latest Smithers line by ordinal: a collection's iteration order is not the transcript's.
-    const refusal = () => {
-      const failed = [...store.collections.messages.values()].filter(message => message.role === "smithers").sort((a, b) => a.ordinal - b.ordinal).at(-1)
-      return failed?.text ?? failed?.statusDetail ?? ""
-    }
-    // The send settles asynchronously: an idle phase can be read before the second send leaves it, so wait for its refusal.
-    await until(() => refusal().includes("your balance is spent"))
-    await until(() => store.session().phase === "idle")
-    expect(remote.starts).toHaveLength(1)
-  })
-
-  // The no-GitHub walk's question (C-J1-03): on an install the browser's repository inventory is empty, so its own
-  // files.read refused; the host reads main's mirror for a turn that offers no tools (model-host HostTools.ts).
-  for (const install of [false, true]) {
-    test(`install=${install}: ${install ? "the host runs the tools: no selection, no browser tools" : "the browser selects and offers its commands"}`, async () => {
-      const store = await createAppStore({ kind: "localStorage", storage: memoryStorage() })
-      const { selector, asked } = fakeSelector(() => [{ name: "theme", probability: 0.99 }])
-      const remote = journalAgent()
-      const bootstrap: AppBootstrap = { apiVersion: 1, host: "local", version: "test", buildSha: "test", capabilities: install ? ["install"] : [], authFlow: "none", sandbox: null }
-      const controller = createAppController(store, remote.agent, {
-        commandSelector: selector, bootstrap,
-        fetchImpl: async input => String(input).endsWith("/api/install") ? Response.json(installFixture()) : new Response("", { status: 404 })
-      })
-      controller.send("What is in README.md? Show the file.")
-      await until(() => remote.starts.length === 1)
-      expect(asked).toHaveLength(install ? 0 : 1)
-      expect(userMessage(store)?.disclosed).toEqual(install ? undefined : ["theme"])
-      expect(remote.starts[0]!.tools?.map(tool => tool.name)).toEqual(install ? undefined : ["commands"])
-      expect(remote.starts[0]!.messages.at(-1)).toEqual({ role: "user", content: "What is in README.md? Show the file." })
-    })
-  }
 })

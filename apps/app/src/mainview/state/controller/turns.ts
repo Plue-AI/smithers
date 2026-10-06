@@ -6,12 +6,9 @@ import type { AgentRuntimeContext } from "@smthrs/rpc/AgentContext"
 import { AGENT_RUNTIME_CONTEXT_VERSION } from "@smthrs/rpc/AgentContext"
 import { hasCapability } from "@smthrs/rpc/AppBootstrap"
 import type { AgentChatMessage,AgentToolSpec,AgentTurnFrame,TurnRefusal } from "@smthrs/rpc/NativeAgent"
-import { clientRefusal } from "@smthrs/rpc/Refusal"
-import { agentRefusalText } from "@smthrs/rpc/RefusalCopy"
 import type { CommandOutcome } from "../../flows/Commands"
-import { agentFailureText,agentVisibleCatalog } from "../../flows/agentTools"
+import { agentVisibleCatalog } from "../../flows/agentTools"
 import { parseSubmit } from "../../flows/registry"
-import { boundToolResult } from "@smthrs/rpc/AgentToolResult"
 import { boundTurnRequest } from "../AgentTurnPolicy"
 import type { Card } from "../AppState"
 import { CardPatchSchema,CardSchema,conversationTabIdOf,inConversation,MAIN_TAB_ID } from "../AppState"
@@ -19,35 +16,25 @@ import { isCurrentApprovalAnswer,prepareApprovalAnswer } from "../ApprovalAnswer
 import { parseApprovalActionId } from "../ApprovalReference"
 import type { ImpossibleAskClass } from "../Instructions"
 import { smithersInstructions,STANDING_INSTRUCTION_TEXT } from "../Instructions"
-import { commandSelectRequest,disclosedCommandNames,pinnedCommandNames,QUERY_DISCLOSURE_LIMIT,selectFailureText } from "../CommandSelection"
+import { commandSelectRequest,disclosedCommandNames,pinnedCommandNames,selectFailureText } from "../CommandSelection"
 import { activeCatalogRepositoryId,activeRepositoryId } from "../RepoContext"
 import { currentRepositoryUpdate } from "../RepositoryContext"
 import {
 impossibleAskOf,
 renderedAskTurnText,
 renderedRunTurnText,
-RUN_LAUNCH_COMMANDS,
-runLaunchCommandOf,
-toolResultLaunchedRun
+RUN_LAUNCH_COMMANDS
 } from "../RunClaims"
-import { toolActLine } from "../ToolActLine"
 import { WORLD_BODY_BUDGET,worldContextDocuments } from "../WorldContext"
 import { isRuntimeOwnedCard } from "../isRuntimeOwnedCard"
 import type { ActiveTurn,ControllerContext } from "./context"
 import type { FailureController } from "./failures"
-import { createHttpTurnDriver } from "./httpTurns"
 import { agentFrameCard } from "../HttpTurn"
 import { ZERO_BALANCE_EXHAUSTED_TEXT } from "./failures"
 import { outOfCreditRefusal, renderCreditExhausted } from "../seams/HostedBilling"
 import { latestOrdinal } from "./spokenLines"
 import { randomUuid } from "../../runtime/RandomUuid"
 
-/**
- * The client-side tool-loop leg cap, mirroring the chat worker's
- * CHAT_MAX_TOOL_LEGS default (8): over it the turn ends honestly instead of
- * looping forever on a model that keeps calling tools.
- */
-const MAX_TOOL_LEGS = 8
 /** How many of this conversation's cards a turn describes, the boundary's own maximum (AgentContext recentCards). */
 const RECENT_CARD_WINDOW = 12
 /**
@@ -451,23 +438,7 @@ export const createTurnController = (
    * this conversation has not disclosed, recorded on the turn's user message
    * so every later leg's prompt lists them in full.
    */
-  const discover = async (query: string, turnId: string | undefined): Promise<ReadonlyArray<string>> => {
-    const selector = ctx.services.commandSelector
-    if (selector === undefined) return []
-    const catalog = agentVisibleCatalog(ctx.commands.callable())
-    const known = new Set([...pinnedCommandNames(STANDING_INSTRUCTION_TEXT, catalog), ...disclosedCommandNames(store.agentContextSnapshot().messages, Number.POSITIVE_INFINITY)])
-    const offered = catalog.filter(command => !known.has(command.name))
-    if (offered.length === 0) return []
-    const selected = await selector(commandSelectRequest({ message: query, earlier: [], repo: activeRepositoryId(store), commands: offered }))
-    const names = offeredNames(selected, offered).slice(0, QUERY_DISCLOSURE_LIMIT)
-    if (turnId !== undefined && names.length > 0 && store.collections.messages.get(`message-${turnId}-user`) !== undefined) {
-      await store.dispatch({ type: "message.commands.disclosed", actor: "smithers", turnId, names }).isPersisted.promise
-    }
-    return names
-  }
-  // Retries keep their transcript id, so its previous backend run must finish
-  // cancelling before that id can launch again. The map also fences final
-  // frames from the cancelled run while a retry holds the turn seat.
+
   const pendingCancellations = new Map<string, Promise<void>>()
   const cancelTurn = (turnId: string): void => {
     if (pendingCancellations.has(turnId)) return
@@ -601,66 +572,6 @@ export const createTurnController = (
    */
 
   /*
-   * One tool-loop leg: execute the model's call through the registry (the
-   * same path as buttons and slash, actor smithers), render the act line,
-   * then POST the continuation turn with the tool-role result appended.
-   */
-  const continueToolLeg = async (turn: ActiveTurn): Promise<void> => {
-    if (!isCurrentTurn(turn)) return
-    const call = turn.pendingCall
-    if (call === undefined) return
-    turn.pendingCall = undefined
-    turn.toolLegs += 1
-    // The registry selects fixed smithers bindings for the same flow
-    // definitions used by buttons and slash commands.
-    /*
-     * A throw here is a request that never got an answer — a fetch that died
-     * before any server judged it. It used to reach the model as
-     * `failed: <message>`, a sentence with no verdict in it, which the model
-     * read as the user's mistake and apologised for. It is infra by
-     * construction, and now says so.
-     */
-    const result = await ctx.commands.executeForAgent({ name: call.name, arguments: call.args, httpCall: { turnId: turn.id, callId: call.callId } }, discover).catch((error: unknown) =>
-      agentFailureText(agentRefusalText(clientRefusal(error)))
-    )
-    if (!isCurrentTurn(turn)) return
-    /*
-     * Wave 12 §1: a real launch arms the deterministic claim surface for the
-     * rest of this turn. A refusal or a chooser route launched nothing, so
-     * there is no run for the model to misdescribe and its prose stands.
-     */
-    const launched = runLaunchCommandOf(call.name, call.args)
-    if (launched !== undefined) {
-      if (toolResultLaunchedRun(result)) turn.runLaunch = launched
-      else if (result.includes("asked the user to confirm")) turn.runLaunch = `confirm:${launched}`
-    }
-    store.dispatch({
-      type: "toolcall.recorded",
-      actor: "smithers",
-      turnId: turn.id,
-      name: call.name,
-      arguments: call.args,
-      result
-    })
-    store.dispatch({
-      type: "message.tool.executed",
-      actor: "smithers",
-      turnId: turn.id,
-      text: toolActLine(call, result)
-    })
-    /*
-     * The record above keeps the whole result; the model gets it bounded, so
-     * one wide tool output cannot fill the next request by itself and force
-     * the turn bound to drop the conversation around it.
-     */
-    turn.toolItems.push(
-      { type: "function_call", call_id: call.callId, name: call.name, arguments: call.args },
-      { type: "function_call_output", call_id: call.callId, output: boundToolResult(result).modelOutput }
-    )
-    launchLeg(turn.id, [...contextMessages(), ...turn.toolItems], turn.toolItems.length + 1)
-  }
-
-  /*
    * Wave 12 §1 — the claim surface settles deterministically.
    *
    * A turn that launched a run renders the model's whole answer only when it
@@ -709,7 +620,6 @@ export const createTurnController = (
   }
 
   const subscribeToAgent = (): void => {
-    httpTurns.subscribe()
     const unsubscribe = agent.subscribe((frame: AgentTurnFrame) => {
       if (ctx.activeTurn === undefined || !isCurrentTurn(ctx.activeTurn) ||
         ctx.activeTurn.httpAttemptId !== undefined ||
@@ -833,19 +743,10 @@ export const createTurnController = (
         frame.reason !== "tool_limit" &&
         turn.pendingCall !== undefined
       ) {
-        if (turn.toolLegs >= MAX_TOOL_LEGS) {
-          ctx.activeTurn = undefined
-          settleRunClaims(turn)
-          store.dispatch({
-            type: "message.response.failed",
-            actor: "system",
-            turnId: turn.id,
-            message: `I hit the tool-call limit for this turn (${MAX_TOOL_LEGS}) — stopping here instead of looping.`
-          })
-          settleTurnBilling()
-          return
-        }
-        void continueToolLeg(turn)
+        ctx.activeTurn = undefined
+        store.dispatch({ type: "message.response.failed", actor: "system", turnId: turn.id,
+          message: "Tool execution requires a host-owned conversation." })
+        settleTurnBilling()
         return
       }
       ctx.activeTurn = undefined
@@ -983,9 +884,6 @@ export const createTurnController = (
       return offerChatSignIn(text).then(() => false)
     }
     const turnId = admission?.turnId ?? randomUuid()
-    if (agent.journal !== undefined) {
-      return httpTurns.start(turnId, prompt, false, ctx.commandActor, !draftCurrent())
-    }
     ctx.activeTurn = ownTurn({
       id: turnId,
       receivedText: false,
@@ -1024,7 +922,6 @@ export const createTurnController = (
 
   const stop = (): void => {
     if (ctx.disposed || ctx.activeTurn === undefined) return
-    if (httpTurns.stop()) return
     const turn = ctx.activeTurn
     const turnId = turn.id
     ctx.activeTurn = undefined
@@ -1137,10 +1034,6 @@ export const createTurnController = (
       void offerChatSignIn(last?.text ?? "").catch(error => ctx.failures.report("turn.sign-in", error))
       return
     }
-    if (agent.journal !== undefined) {
-      httpTurns.start(turnId, last?.text ?? "", true, "user")
-      return
-    }
     store.dispatch({ type: "message.retried", actor: "user", turnId })
     if (store.session().phase !== "responding") return
     ctx.activeTurn = ownTurn({
@@ -1156,13 +1049,5 @@ export const createTurnController = (
     firstLeg(ctx.activeTurn)
   }
 
-  const httpTurns = createHttpTurnDriver(ctx, {
-    ownTurn, isCurrentTurn, contextMessages, composeTurn, select: selectFor, discover, settled: settleTurnBilling,
-    refused: (turnId, result, attemptId) => {
-      if (result.refusal?.code === "sign_in_required") return offerChatSignIn(store.collections.messages.get(`message-${turnId}-user`)?.text ?? "", turnId, attemptId)
-      else if (result.refusal?.code === "out_of_credit") offerCreditUpgrade()
-      else if (result.refusal !== undefined) refuseAnonymousTurn(turnId, result.refusal)
-    }
-  })
   return { subscribeToAgent, send, reset, stop, decideApproval, retryLastTurn }
 }

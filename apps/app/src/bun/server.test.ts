@@ -2,15 +2,9 @@ import { afterAll, beforeAll, describe, expect, test } from "bun:test"
 import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
-import { TURN_PATH } from "@smthrs/rpc/AgentApiRoutes"
 import { APP_BOOTSTRAP_PATH, AppBootstrapSchema } from "@smthrs/rpc/AppBootstrap"
 import { localCapabilities } from "@smthrs/rpc/HostCapabilities"
-import { decodeAgentTurnFrame } from "@smthrs/rpc/NativeAgent"
-import type { AgentTurnFrame } from "@smthrs/rpc/NativeAgent"
 import { LOCAL_SESSION_HEADER, LOCAL_SESSION_META } from "@smthrs/rpc/LocalSession"
-import { PROVIDER_ECHO_LEAD, PROVIDER_MODEL, PROVIDER_REPLY } from "../../e2e/real/support/model-provider-behaviors"
-import { launchModelProvider } from "../../e2e/real/support/model-provider-process"
-import type { ModelProvider } from "../../e2e/real/support/model-provider-process"
 import { createChatStub } from "../../e2e/support/ChatStub"
 import { defaultDistDir, describeCookie, rescopeCookie, startLocalServer } from "./server"
 import type { LocalServer } from "./server"
@@ -45,16 +39,6 @@ afterAll(async () => {
   await server.stop()
   await rm(dist, { recursive: true, force: true })
 })
-
-const readFrames = async (response: Response): Promise<Array<AgentTurnFrame>> => {
-  const text = await response.text()
-  return text.split("\n").filter((line) => line.trim() !== "").map((line) => {
-    const parsed: unknown = JSON.parse(line)
-    const frame = decodeAgentTurnFrame(parsed)
-    if (frame === null) throw new Error(`not a frame: ${line}`)
-    return frame
-  })
-}
 
 describe("the local origin", () => {
   test("prints SMITHERS_LOCAL_ORIGIN when listening and binds 127.0.0.1", () => {
@@ -128,7 +112,7 @@ describe("the local origin", () => {
     expect((await fetch(`${server.origin}${APP_BOOTSTRAP_PATH}`)).status).toBe(401)
     expect((await apiFetch(APP_BOOTSTRAP_PATH, { headers: { origin: "https://evil.test" } })).status).toBe(403)
     expect((await fetch(`${server.origin}/`, { headers: { host: "evil.test" } })).status).toBe(421)
-    const plain = await apiFetch(TURN_PATH, {
+    const plain = await apiFetch("/api/agent/turn/replay", {
       method: "POST",
       headers: { "content-type": "text/plain" },
       body: JSON.stringify({ runId: "plain", messages: [], instructions: "" })
@@ -417,7 +401,7 @@ describe("the Smithers Cloud seam", () => {
     // table (@smthrs/rpc/HostCapabilities) for a launch with no Smithers Cloud upstream.
     const bootstrap = (await (await apiFetch("/api/bootstrap")).json()) as { capabilities: Array<string> }
     expect(bootstrap.capabilities).toEqual(
-      localCapabilities({ agent: true, identity: false, cloud: false })
+      localCapabilities({ agent: false, identity: false, cloud: false })
     )
     expect((await apiFetch("/api/cloud/api/user/repos")).status).toBe(501)
     expect((await apiFetch("/api/cloud-auth/start", {
@@ -532,7 +516,7 @@ describe("the Smithers Cloud seam", () => {
       })).json()) as { capabilities: Array<string> }
       // The same table the parity matrix reads: a Smithers Cloud upstream opens both cloud doors.
       expect(bootstrap.capabilities).toEqual(
-        localCapabilities({ agent: true, identity: false, cloud: true, browser: true })
+        localCapabilities({ agent: false, identity: false, cloud: true, browser: true })
       )
 
       const response = await fetch(`${proxied.origin}/api/cloud/api/user/repos?per_page=1`, {
@@ -584,285 +568,11 @@ describe("the Smithers Cloud seam", () => {
 })
 
 
-describe("POST /api/chat/turn", () => {
-  test("streams the stub's frames as NDJSON and ends on done", async () => {
-    const response = await apiFetch("/api/chat/turn", {
-      method: "POST",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify({
-        runId: "run-1",
-        messages: [{ role: "user", content: "say ok" }],
-        instructions: "Be brief."
-      })
-    })
-    expect(response.status).toBe(200)
-    expect(response.headers.get("content-type")).toBe("application/x-ndjson")
-    expect(await readFrames(response)).toEqual([
-      { runId: "run-1", type: "delta", kind: "reasoning", text: "stub: thinking" },
-      { runId: "run-1", type: "delta", kind: "text", text: "stub: say ok" },
-      { runId: "run-1", type: "done", reason: "stop" }
-    ])
-  })
-
-  test("a malformed body answers 400 with the error envelope", async () => {
-    const response = await apiFetch("/api/chat/turn", {
-      method: "POST",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify({ runId: "", messages: "no" })
-    })
-    expect(response.status).toBe(400)
-    const body = (await response.json()) as { error: { code: string } }
-    expect(body.error.code).toBe("invalid_request")
-  })
-
-  test("caps the body by bytes received, so a chunked turn past the cap answers 413", async () => {
-    const declared = await apiFetch("/api/chat/turn", {
-      method: "POST",
-      headers: { "content-type": "application/json", "content-length": String(4 * 1024 * 1024) },
-      body: "x".repeat(4 * 1024 * 1024)
-    })
-    expect(declared.status).toBe(413)
-    // Chunked: no Content-Length on the wire, so only the received bytes bound it.
-    const encoder = new TextEncoder()
-    const chunk = encoder.encode("a".repeat(256 * 1024))
-    const chunked = await apiFetch("/api/chat/turn", {
-      method: "POST",
-      headers: { "content-type": "application/json" },
-      body: new ReadableStream<Uint8Array>({
-        start(controller) {
-          controller.enqueue(encoder.encode("{\"runId\":\"chunked\",\"instructions\":\"x\",\"messages\":[{\"role\":\"user\",\"content\":\""))
-          for (let index = 0; index < 8; index += 1) controller.enqueue(chunk)
-          controller.enqueue(encoder.encode("\"}]}"))
-          controller.close()
-        }
-      }),
-      duplex: "half"
-    } as RequestInit)
-    expect(chunked.status).toBe(413)
-    expect(((await chunked.json()) as { error: { code: string } }).error.code).toBe("body_too_large")
-  })
-
-  test("cancel answers ok and closes a live stream", async () => {
-    const response = await apiFetch("/api/chat/turn", {
-      method: "POST",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify({ runId: "run-3", messages: [{ role: "user", content: "x" }], instructions: "" })
-    })
-    const cancel = await apiFetch("/api/chat/cancel", {
-      method: "POST",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify({ runId: "run-3" })
-    })
-    expect(cancel.status).toBe(200)
-    expect(((await cancel.json()) as { ok: boolean }).ok).toBe(true)
-    // The stream ends (possibly with no done frame) instead of hanging.
-    const frames = await readFrames(response)
-    expect(frames.every((frame) => frame.runId === "run-3")).toBe(true)
-    const late = await apiFetch("/api/chat/cancel", {
-      method: "POST",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify({ runId: "run-3" })
-    })
-    expect(await late.json()).toEqual({ ok: true, status: "not-found" })
-  })
-})
-
-/*
- * The configured model (R6): a turn that names a model is answered by that
- * model over the real loopback provider, or refused. The stub agent stands
- * behind the same host, so any `stub:` text in an answer is a fallback.
- */
-describe("a turn that names a configured model", () => {
-  const KEY = "sk-turn-REDACTME-0123456789abcdef"
-  let provider: ModelProvider
-  let bound: LocalServer
-  let redirector: ReturnType<typeof Bun.serve>
-  const trail: Array<string> = []
-
-  beforeAll(async () => {
-    // The provider finishes a slow answer before it exits, so the wait is kept under afterAll's budget.
-    provider = await launchModelProvider({ key: KEY, slowMs: 1_500 })
-    redirector = Bun.serve({
-      hostname: "127.0.0.1",
-      port: 0,
-      fetch: (request) =>
-        new Response(null, { status: 307, headers: { location: `${provider.origin}${new URL(request.url).pathname}` } })
-    })
-    bound = await startLocalServer({
-      port: 0,
-      distDir: dist,
-      agent: createChatStub,
-      env: {
-        SMITHERS_MODEL_KEY_LOOPBACK: KEY,
-        SMITHERS_MODEL_KEY_LOOPBACK_ORIGIN: provider.origin,
-        SMITHERS_MODEL_KEY_UNSET_ORIGIN: provider.origin,
-        SMITHERS_MODEL_KEY_DETOUR: KEY,
-        SMITHERS_MODEL_KEY_DETOUR_ORIGIN: `http://127.0.0.1:${redirector.port}`
-      },
-      log: (line) => trail.push(line)
-    })
-  })
-
-  afterAll(async () => {
-    await bound.stop()
-    await redirector.stop(true)
-    await provider.close()
-  })
-
-  const binding = (modelId: string, fields: Record<string, unknown> = {}) => ({
-    protocol: "openai-chat",
-    baseUrl: provider.origin,
-    modelId,
-    credential: "LOOPBACK",
-    ...fields
-  })
-  const post = (path: string, body: unknown): Promise<Response> =>
-    fetch(`${bound.origin}${path}`, {
-      method: "POST",
-      headers: { "content-type": "application/json", [LOCAL_SESSION_HEADER]: bound.sessionToken },
-      body: JSON.stringify(body)
-    })
-  const turn = (runId: string, model: unknown, extra: Record<string, unknown> = {}): Promise<Response> =>
-    post(TURN_PATH, { runId, messages: [{ role: "user", content: "say ok" }], instructions: "Be brief.", purpose: "explain", role: "explainer", model, ...extra })
-
-  test("is answered by that model through its Route, never by the agent", async () => {
-    const before = (await provider.journal()).length
-    const response = await turn("bound-1", binding(PROVIDER_MODEL.answers))
-    expect(response.status).toBe(200)
-    expect(response.headers.get("content-type")).toBe("application/x-ndjson")
-    expect(await readFrames(response)).toEqual([
-      { runId: "bound-1", type: "delta", kind: "text", text: PROVIDER_REPLY.join("") },
-      { runId: "bound-1", type: "done", reason: "stop" }
-    ])
-    const seen = (await provider.journal()).slice(before)
-    expect(seen).toHaveLength(1)
-    expect(seen[0]).toMatchObject({ modelId: PROVIDER_MODEL.answers, authorized: true, credentialSha256: provider.acceptedKeySha256 })
-  })
-
-  test("with tools, or continuing a tool call, is refused tools_not_supported", async () => {
-    const before = (await provider.journal()).length
-    const tooled = await turn("bound-2", binding(PROVIDER_MODEL.answers), {
-      tools: [{ type: "function", name: "read", description: "Reads.", parameters: {} }]
-    })
-    expect(tooled.status).toBe(400)
-    expect(await tooled.json()).toMatchObject({ status: "error", code: "tools_not_supported", origin: "local" })
-    const continued = await turn("bound-2", binding(PROVIDER_MODEL.answers), {
-      messages: [{ type: "function_call_output", call_id: "c1", output: "x" }]
-    })
-    expect(continued.status).toBe(400)
-    expect(await continued.json()).toMatchObject({ code: "tools_not_supported" })
-    expect((await provider.journal()).length).toBe(before)
-  })
-
-  test("with a binding this host will not serve is refused by code, and nothing answers in its place", async () => {
-    const cases: ReadonlyArray<readonly [unknown, number, string]> = [
-      [binding(PROVIDER_MODEL.answers, { credential: "GITHUB_TOKEN" }), 400, "request_invalid"],
-      [binding(PROVIDER_MODEL.answers, { credential: "OPENAI_API_KEY" }), 400, "request_invalid"],
-      [binding(PROVIDER_MODEL.answers, { protocol: "evaluation" }), 400, "request_invalid"],
-      [binding(PROVIDER_MODEL.answers, { apiKey: KEY }), 400, "request_invalid"],
-      ["cerebras", 400, "request_invalid"],
-      [binding(PROVIDER_MODEL.answers, { credential: "UNSET" }), 503, "seam_not_configured"]
-    ]
-    const before = (await provider.journal()).length
-    for (const [model, status, code] of cases) {
-      const response = await turn("bound-3", model)
-      const text = await response.text()
-      expect(response.status).toBe(status)
-      expect(JSON.parse(text)).toMatchObject({ status: "error", code, origin: "local" })
-      expect(text).not.toContain("stub:")
-      expect(text).not.toContain(KEY)
-    }
-    expect((await provider.journal()).length).toBe(before)
-  })
-
-  test("whose provider refuses ends the turn with the typed line, not with another model's answer", async () => {
-    const response = await turn("bound-4", binding(PROVIDER_MODEL.rateLimited))
-    expect(response.status).toBe(200)
-    expect(await readFrames(response)).toEqual([{ runId: "bound-4", type: "done", reason: "stop", error: "refused · 429" }])
-  })
-
-  test("whose provider redirects is refused with the status, and the target is never dialled", async () => {
-    const before = (await provider.journal()).length
-    for (const protocol of ["openai-chat", "anthropic-messages"] as const) {
-      const runId = `bound-detour-${protocol}`
-      const response = await turn(runId, binding(PROVIDER_MODEL.answers, {
-        protocol,
-        baseUrl: `http://127.0.0.1:${redirector.port}`,
-        credential: "DETOUR"
-      }))
-      expect(response.status).toBe(200)
-      expect(await readFrames(response)).toEqual([{ runId, type: "done", reason: "stop", error: "refused · 307" }])
-    }
-    expect((await provider.journal()).length).toBe(before)
-  })
-
-  test("on an offline host is served on loopback only, and nothing else is dialled", async () => {
-    let dialled = 0
-    const offline = await startLocalServer({
-      port: 0,
-      distDir: dist,
-      agent: createChatStub,
-      env: { ANTHROPIC_API_KEY: KEY },
-      modelFetch: (async () => {
-        dialled += 1
-        return new Response(null, { status: 500 })
-      }) as unknown as typeof fetch
-    })
-    try {
-      const response = await fetch(`${offline.origin}${TURN_PATH}`, {
-        method: "POST",
-        headers: { "content-type": "application/json", [LOCAL_SESSION_HEADER]: offline.sessionToken },
-        body: JSON.stringify({
-          runId: "bound-offline",
-          messages: [{ role: "user", content: "say ok" }],
-          instructions: "Be brief.",
-          purpose: "explain",
-          role: "explainer",
-          model: { protocol: "anthropic-messages", modelId: "claude-x", credential: "ANTHROPIC_API_KEY" }
-        })
-      })
-      const text = await response.text()
-      expect(response.status).toBe(400)
-      expect(JSON.parse(text)).toMatchObject({ status: "error", code: "request_invalid", origin: "local" })
-      expect(text).not.toContain("stub:")
-      expect(text).not.toContain(KEY)
-      expect(dialled).toBe(0)
-    } finally {
-      await offline.stop()
-    }
-  })
-
-  test("whose provider nests credential echoes has them cut from the complete answer", async () => {
-    for (const protocol of ["openai-chat", "anthropic-messages"] as const) {
-      const runId = `bound-echo-${protocol}`
-      const response = await turn(runId, binding(PROVIDER_MODEL.echoes, { protocol }))
-      expect(response.status).toBe(200)
-      const raw = await response.text()
-      expect(raw).not.toContain(KEY)
-      const frames = raw.split("\n").filter((line) => line !== "").map((line) => JSON.parse(line) as AgentTurnFrame)
-      const said = frames.flatMap((frame) => frame.type === "delta" ? [frame.text] : []).join("")
-      // The words around the value arrive whole and in order; only the value is gone.
-      expect(said).toBe(PROVIDER_ECHO_LEAD)
-      expect(frames.at(-1)).toEqual({ runId, type: "done", reason: "stop" })
-    }
-  })
-
-  test("is cancelled by interrupting it, and the stream closes", async () => {
-    const before = (await provider.journal()).length
-    // Bun sends the headers with the first frame, so the turn is awaited only after the cancel.
-    const pending = turn("bound-5", binding(PROVIDER_MODEL.slow))
-    while ((await provider.journal()).length === before) await Bun.sleep(10)
-    const cancel = await post("/api/chat/cancel", { runId: "bound-5" })
-    expect(await cancel.json()).toEqual({ ok: true, status: "cancelled" })
-    expect(await readFrames(await pending)).toEqual([])
-    const late = await post("/api/chat/cancel", { runId: "bound-5" })
-    expect(await late.json()).toEqual({ ok: true, status: "not-found" })
-  })
-
-  test("leaves the credential out of every trail line", () => {
-    expect(trail.length).toBeGreaterThan(0)
-    expect(trail.some((line) => line.includes(KEY))).toBe(false)
-  })
+test("all five retired write routes return 404 without starting an agent", async () => {
+  for (const path of ["/api/agent/turn", "/api/agent/turn/cancel", "/api/agent/turn/retire", "/api/chat/turn", "/api/chat/cancel"]) {
+    const response = await apiFetch(path, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ runId: "retired", messages: [], instructions: "never" }) })
+    expect(response.status).toBe(404)
+  }
 })
 
 describe("defaultDistDir", () => {

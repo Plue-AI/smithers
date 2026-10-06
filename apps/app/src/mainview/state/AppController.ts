@@ -531,6 +531,8 @@ export interface AppController extends IssueFlowsController {
   readonly flowCards: () => Promise<ReadonlyArray<import("@smthrs/rpc/FlowCard").FlowCard> | undefined>
   /** branch.fork on an install: POST /api/branches {from, name?} (spec §8.5); its value is the new scratch branch. A string is the refusal. Absent off an install, where the flow acts on the seeded world. */
   readonly selectConversationBranch: (name: string) => Promise<void>
+  readonly setBranchNavigationView: (patch: { selected_branch?: string; selected_archive?: string; previous_branch?: string; open?: boolean }) => Promise<void>
+  readonly setCardTab: (id: string, tab: string) => void
   readonly openBranch?: (name: string) => Promise<string | { readonly value: string }>
   readonly forkBranch?: (input: { readonly from: string; readonly name?: string }) => Promise<string | { readonly value: string }>
   /** members.add, members.role and members.remove: the install's routes, or the seeded roster off an install. A string is the refusal. */
@@ -938,6 +940,21 @@ export const createAppController = (
   /* Flows (T-APP-05): an install reads its catalog from GET /api/flows; the seeded flows stand in only off an install. */
   const flowsSeam = createFlowsSeam({ http: (path, init) => seamCtx.http(`${baseUrl.replace(/\/$/, "")}${path}`, init), live: services.live })
   ctx.onDispose(flowsSeam.dispose)
+  const setBranchNavigationView: AppController["setBranchNavigationView"] = async patch => {
+    const current = store.session().branchNavigation
+    if (!current || current.owner !== (ctx.accountOwner() ?? null)) return
+    await store.dispatch({ type: "branch.navigation.changed", actor: "user", navigation: { ...current, ...patch } }).isPersisted.promise
+  }
+  const setCardTab: AppController["setCardTab"] = (id, tab) => {
+    const current = store.collections.cards.get(id)
+    if (current?.kind === "branch" && ["activity", "files", "terminals"].includes(tab)) {
+      store.dispatch({ type: "card.upsert", actor: "user", card: { ...current, payload: { ...current.payload, tab: tab as "activity" | "files" | "terminals" } } })
+    } else if (current?.kind === "flow") {
+      const member = design.enabled ? design.viewer() : store.collections.identitySessions.get("identity")?.login
+      if (!member || current.payload.memberVersions?.[member] === tab) return
+      store.dispatch({ type: "card.upsert", actor: "user", card: { ...current, payload: { ...current.payload, memberVersions: { ...current.payload.memberVersions, [member]: tab } } } })
+    }
+  }
   const selectConversationBranch = async (name: string) => {
     const owner = accountOwnerOf(store.collections.identitySessions.get("identity")) ?? null
     const previous = store.session().branchNavigation
@@ -1878,6 +1895,8 @@ export const createAppController = (
     changeMembers,
     flowCards,
     selectConversationBranch,
+    setBranchNavigationView,
+    setCardTab,
     ...(openBranch ? { openBranch } : {}),
     ...(forkBranch ? { forkBranch } : {}),
     promptStorageRecovery,

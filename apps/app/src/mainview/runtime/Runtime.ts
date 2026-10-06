@@ -85,7 +85,7 @@ export const createRuntime = (options: {
     bootstrap,
     http,
     backend: {
-      ...(hasCapability(bootstrap, "agent") ? { agent: createWebAgent({ fetchImpl: http }) }
+      ...((hasCapability(bootstrap, "install") || hasCapability(bootstrap, "agent")) ? { agent: createWebAgent({ fetchImpl: http }) }
         : hasCapability(bootstrap, "model.turn") ? { agent: modelOnlyAgent(http) } : {})
     },
     shell: { kind: "browser" }

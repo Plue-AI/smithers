@@ -574,12 +574,9 @@ func (h *Handler) ProviderStarted(w http.ResponseWriter, r *http.Request) {
 
 // MountAuthenticated contains the routes that need an active account scope.
 func (h *Handler) MountAuthenticated(router chi.Router) {
-	router.Post(TurnPath, h.Turn)
 	router.Get("/api/conversations/{b}", h.Conversation)
 	router.Post("/api/conversations/{b}/prompt", h.Prompt)
-	router.Post(CancelPath, h.Cancel)
 	router.Post(ReplayPath, h.Replay)
-	router.Post(RetirePath, h.Retire)
 	router.Post("/api/conversations/{b}/turns/{id}/stop", h.QueueTurn)
 	router.Patch("/api/conversations/{b}/turns/{id}", h.QueueTurn)
 	router.Delete("/api/conversations/{b}/turns/{id}", h.QueueTurn)
