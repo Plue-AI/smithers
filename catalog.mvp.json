@@ -508,12 +508,11 @@
       "group": "",
       "visibility": "in-card",
       "actors": [
-        "person",
-        "app_agent"
+        "person"
       ],
       "minimumRole": "member",
       "credentialScope": "write:repository",
-      "agent": "run",
+      "agent": "never",
       "summary": "Continue with an email address",
       "http": null,
       "payload": {

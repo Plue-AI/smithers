@@ -5,12 +5,12 @@ import cli from "../../../../../packages/smithers/test/CatalogCli.fixture.json"
 import { assertCatalogPolicy, auditAppIds, auditCliPaths, auditRuntimeTags } from "../../../../../scripts/catalog-policy"
 
 test("literal B inventory expands shorthand without authorizing renamed aliases", () => {
-  expect(b.rows).toHaveLength(116)
+  expect(b.rows).toHaveLength(117)
   expect(b.rows.flatMap(row => row.ids)).toContain("chat.queue.edit")
   expect(b.rows.flatMap(row => row.ids)).toContain("storage.recovery.export")
   expect(b.rows.flatMap(row => row.ids)).not.toContain("chat.edit")
   expect(auditAppIds(b.publicIds)).toEqual([])
-  expect(auditAppIds(["todo.takeover", "history.bootstrap", "runs.graph.execution", "wiki.card.select"])).toEqual([])
+  expect(auditAppIds(["auth.email", "todo.takeover", "history.bootstrap", "runs.graph.execution", "wiki.card.select"])).toEqual([])
   expect(auditAppIds(["history.todo", "box.open", "prs.land", "change.land", "chat.clear", "world.page", "invented"])).toEqual([
     { id: "history.todo", reason: "renamed" }, { id: "box.open", reason: "renamed" },
     { id: "prs.land", reason: "renamed" }, { id: "change.land", reason: "renamed" },

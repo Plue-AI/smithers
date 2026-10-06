@@ -17,6 +17,9 @@ describe("C-CAT-01 literal Appendix A contract", () => {
         actors: expected.actors, minimumRole: expected.minimumRole, agent: expected.agent })
     }
   })
+  test("the owner-required email login door remains person-only", () => {
+    expect(rows.find(row => row.name === "auth.email")).toMatchObject({ actors: ["person"], agent: "never", visibility: "in-card" })
+  })
   test("declared core doors remain visible to an eligible person despite legacy hidden hints", () => {
     const state = { viewerRole: "owner", surface: "chat", typing: false, hasConnectors: true, admin: true, signedOut: false } as CommandState
     const entry = { name: "branch", summary: "Open a branch", group: "Branches and machines", visibility: "core" as const,

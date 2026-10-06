@@ -1193,6 +1193,15 @@
       ],
       "status": "cut",
       "who": "–"
+    },
+    {
+      "section": "B.1",
+      "ids": [
+        "auth.email"
+      ],
+      "status": "keep",
+      "who": "P",
+      "decision": "Owner, 2026-10-03: apps/app/AGENTS.md Login screen requires the Continue email door."
     }
   ],
   "publicIds": [

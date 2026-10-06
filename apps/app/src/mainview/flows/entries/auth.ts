@@ -84,7 +84,8 @@ export const authFlows = (actions: CommandActions): ReadonlyArray<FlowEntry> => 
      * Hidden: it belongs to the login screen's form (cards/LoginScreen.tsx), not to
      * the catalog. The controller answers with what this host can do with it.
      */
-    name: "auth.email", visibility: "in-card",
+    name: "auth.email", visibility: "in-card", actors: ["person"], agent: "never",
+    agentReason: "sign-in is the human's browser gesture; the agent renders the step with auth.prompt",
     hidden: true,
     summary: "Continue with an email address",
     args: "<email>",
