@@ -1,6 +1,7 @@
 import { copyFile, readFile, writeFile } from "node:fs/promises"
 import { z } from "zod"
 import { test as realTest, expect, command, realApi } from "./support/test"
+import { FIRST_TODO_PROMPT, CANARY_README, FIRST_TODO_README } from "./support/canary"
 import { realHost } from "./support/host"
 import { scenario } from "./coverage/types"
 import { J1PreconditionError, requireJ1Preconditions } from "./support/j1-preconditions"
@@ -81,8 +82,7 @@ test("C-J1-04 first TODO activation", scenario("journey.j1-activation", {
     info.annotations.push({ type: "real-build-sha", description: bootstrap.buildSha })
   }
 
-  // JOURNEY.md is read from the real scratch repository on GitHub, never from specs
-  // or a production implementation's constants. Its complete text is the fixed TODO.
+  // Read independent GitHub state; expectations remain checked-in literals.
   const github = async (path: string) => {
     const response = await request.get(`https://api.github.com/repos/${input.repository}${path}`, {
       headers: { Accept: "application/vnd.github+json" }
@@ -94,10 +94,9 @@ test("C-J1-04 first TODO activation", scenario("journey.j1-activation", {
   expect(repo.allow_squash_merge).toBe(true)
   expect(repo.default_branch).toBe("main")
   const initialMain = (await github("/git/ref/heads/main")).object.sha as string
-  const journey = await github("/contents/JOURNEY.md?ref=main")
-  expect(journey.encoding).toBe("base64")
-  const prompt = Buffer.from(journey.content, "base64").toString("utf8").trim()
-  expect(prompt.length).toBeGreaterThan(0)
+  const initialReadme = await github("/contents/README.md?ref=main")
+  expect(initialReadme.encoding).toBe("base64")
+  expect(Buffer.from(initialReadme.content, "base64").toString("utf8")).toBe(CANARY_README)
   await command(page, "What does this repository do? Show the relevant files.")
   await expect(page.locator('[data-kind="file-list"]').last()).toBeVisible({ timeout: remaining() })
   await record("first answer")
@@ -109,7 +108,7 @@ test("C-J1-04 first TODO activation", scenario("journey.j1-activation", {
   const draft = page.getByRole("region", { name: "Draft", exact: true }).last()
   await expect(draft).toBeVisible()
   await draft.getByLabel("Title", { exact: true }).fill("First TODO")
-  await draft.getByLabel("Prompt", { exact: true }).fill(prompt)
+  await draft.getByLabel("Prompt", { exact: true }).fill(FIRST_TODO_PROMPT)
   await draft.getByLabel("Place", { exact: true }).selectOption({ label: "Append" })
   await draft.getByRole("button", { name: "Commit", exact: true }).click()
   await record("TODO placed")
@@ -170,6 +169,10 @@ test("C-J1-04 first TODO activation", scenario("journey.j1-activation", {
   expect(compare.commits[0].sha).toBe(merged!.merge_commit_sha)
   expect(compare.commits[0].parents).toHaveLength(1)
   expect(compare.commits[0].parents[0].sha).toBe(initialMain)
+  expect(compare.files.map((file: { filename: string }) => file.filename)).toEqual(["README.md"])
+  const mergedReadme = await github(`/contents/README.md?ref=${merged!.merge_commit_sha}`)
+  expect(mergedReadme.encoding).toBe("base64")
+  expect(Buffer.from(mergedReadme.content, "base64").toString("utf8")).toBe(FIRST_TODO_README)
   const main = (await github("/git/ref/heads/main")).object.sha
   expect(main).toBe(merged!.merge_commit_sha)
   await expect(todo.getByText("Merged", { exact: true })).toBeVisible({ timeout: remaining() })
