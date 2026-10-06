@@ -124,8 +124,7 @@ func TestCSEC02BundledInstallIsolation(t *testing.T) {
 	if database == "" {
 		t.Fatal("prerequisite: environment: PG18: allocated database required")
 	}
-	command := exec.CommandContext(ctx, "psql", "-Atqc", "SHOW server_version_num")
-	command.Env = append(os.Environ(), "PGDATABASE="+database)
+	command := exec.CommandContext(ctx, "psql", "--dbname", database, "-XAtqc", "SHOW server_version_num")
 	version, err = command.CombinedOutput()
 	if err != nil || !strings.HasPrefix(strings.TrimSpace(string(version)), "18") {
 		t.Fatal("prerequisite: environment: PG18: server version 18 required")
