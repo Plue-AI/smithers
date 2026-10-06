@@ -20,7 +20,6 @@ import type { ShowcaseRecord } from "./showcase"
 export const UNAVAILABLE: Readonly<Record<string, string>> = {
   "chat.dictate": "needs a microphone",
   "box.terminal": "needs a live cloud sandbox terminal",
-  "code.*": "needs a live cloud sandbox language server",
   "cloud.sign-in": "local host only (host-held Cloud session)",
   "cloud.sign-out": "local host only (host-held Cloud session)"
 }
