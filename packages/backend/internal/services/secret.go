@@ -610,7 +610,7 @@ func (s *SecretService) guardedSecretWrite(ctx context.Context, repository db.Re
 		if _, err = tx.Exec(ctx, `SELECT user_id FROM self_host_owners FOR SHARE`); err != nil {
 			return err
 		}
-		if _, err = tx.Exec(ctx, `SELECT key FROM install_settings WHERE key='github.repository' FOR SHARE`); err != nil {
+		if _, err = db.New(tx).LockInstallRepositoryBinding(ctx); err != nil {
 			return err
 		}
 		info := middleware.AuthInfoFromContext(ctx)

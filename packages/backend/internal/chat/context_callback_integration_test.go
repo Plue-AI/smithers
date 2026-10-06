@@ -53,7 +53,7 @@ func newContextFixture(t *testing.T) contextFixture {
 	require.NoError(t, err)
 	_, err = pool.Exec(ctx, `INSERT INTO collaborators(repository_id,user_id,permission) VALUES($1,$2,'write')`, repo.ID, uid)
 	require.NoError(t, err)
-	setting, _ := json.Marshal(map[string]any{"repository_id": repo.ID})
+	setting, _ := json.Marshal(map[string]any{"owner_login": "context-ben", "repository_name": "context", "repository_id": repo.ID})
 	require.NoError(t, q.UpsertInstallSetting(ctx, db.UpsertInstallSettingParams{Key: "github.repository", Value: setting}))
 	_, err = q.CreateAuthSession(ctx, db.CreateAuthSessionParams{UserID: uid, Username: "context-ben", SessionKey: contextSession.SessionHash, ExpiresAt: time.Now().Add(time.Hour)})
 	require.NoError(t, err)

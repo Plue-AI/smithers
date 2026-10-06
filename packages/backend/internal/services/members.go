@@ -58,19 +58,11 @@ func (m *Members) VerifyOwner(ctx context.Context, user db.User) error {
 	if owner.ID != user.ID {
 		return pkgerrors.Forbidden("not a member")
 	}
-	setting, err := q.GetInstallSetting(ctx, "github.repository")
+	repo, err := q.ReadInstallRepositoryBinding(ctx)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return nil
 	}
 	if err != nil {
-		return err
-	}
-	var repo struct {
-		Owner string `json:"owner_login"`
-		Name  string `json:"repository_name"`
-		ID    int64  `json:"repository_id"`
-	}
-	if err = json.Unmarshal(setting.Value, &repo); err != nil {
 		return err
 	}
 	if !gitHubAppComponent.MatchString(repo.Owner) || !gitHubAppComponent.MatchString(repo.Name) {

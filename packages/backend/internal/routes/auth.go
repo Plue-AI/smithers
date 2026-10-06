@@ -281,10 +281,6 @@ func (h *AuthHandler) GetGitHubOAuthStart(w http.ResponseWriter, r *http.Request
 }
 
 func (h *AuthHandler) GetGitHubOAuthCLIStart(w http.ResponseWriter, r *http.Request) {
-	if config.IsSingleOwner(h.AuthConfig) && (h.InstallSetup == nil || h.Origins == nil) {
-		writeRouteError(w, r, &services.AccessError{Status: 503, Class: "infra", Code: "credential_issuer_unavailable", Message: "Credential issuer unavailable"})
-		return
-	}
 	r, ok := h.prepareGitHubOAuthStart(w, r)
 	if !ok {
 		return
@@ -371,10 +367,6 @@ func (h *AuthHandler) setupSignInFailed(w http.ResponseWriter, r *http.Request, 
 }
 
 func (h *AuthHandler) GetGitHubOAuthCallback(w http.ResponseWriter, r *http.Request) {
-	if config.IsSingleOwner(h.AuthConfig) && (h.InstallSetup == nil || h.Origins == nil) {
-		writeRouteError(w, r, &services.AccessError{Status: 503, Class: "infra", Code: "credential_issuer_unavailable", Message: "Credential issuer unavailable"})
-		return
-	}
 
 	browserOrigin := h.githubBrowserOrigin()
 	if h.InstallSetup != nil {

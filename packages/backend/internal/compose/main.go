@@ -415,8 +415,6 @@ func runWithOptions(ctx context.Context, args []string, stdout, stderr io.Writer
 	defer pool.Close()
 	slog.Info("connected to database")
 
-	provisioningEnforced := options.topology.hosted()
-
 	// Start background DB pool stats collector (reports every 15s).
 	poolStatsCtx, poolStatsCancel := context.WithCancel(ctx)
 	defer poolStatsCancel()
@@ -625,11 +623,9 @@ func runWithOptions(ctx context.Context, args []string, stdout, stderr io.Writer
 	if options.topology.hosted() {
 		repoOptions = append(repoOptions, services.WithRepoPlacementResolver(options.RepositoryPlacement), services.WithRepoProvisioningStore(options.RepositoryProvisioning))
 		repoService = services.NewRepoServiceWithPool(queries, repoHostClient, activeStorageSetID, pool, repoOptions...)
+		repoService.EnableDurableProvisioning()
 	} else {
 		repoService = services.NewProductRepoServiceWithPool(queries, repoHostClient, pool, repoOptions...)
-	}
-	if provisioningEnforced {
-		repoService.EnableDurableProvisioning()
 	}
 	repositoryStorageReconciler := services.NewRepositoryStorageOperationReconciler(pool, repoHostClient)
 	repositoryProvisioningReconciler := services.NewRepositoryProvisioningReconciler(options.RepositoryProvisioning, repoHostClient)
@@ -1007,9 +1003,7 @@ func runWithOptions(ctx context.Context, args []string, stdout, stderr io.Writer
 		// start per branch, and Machine ready is setup step 6 (spec §8.6.3).
 		services.WithGitHubImportProductProvisioning(pool)(gitHubImportService)
 	}
-	if !options.topology.hosted() || provisioningEnforced {
-		gitHubImportService.EnableDurableWorker()
-	}
+	gitHubImportService.EnableDurableWorker()
 
 	landingWorker := services.NewLandingWorker(queries, repoHostClient,
 		services.WithLandingWorkerMetrics(smithersMetrics),
@@ -2037,12 +2031,10 @@ func runWithOptions(ctx context.Context, args []string, stdout, stderr io.Writer
 		})
 	}
 	var gitHubImportWorker *joinedBackgroundWorker
-	if options.topology.workers() && (!options.topology.hosted() || provisioningEnforced) {
+	if options.topology.workers() {
 		gitHubImportWorker = startJoinedBackgroundWorker(func() {
 			gitHubImportService.Start(workerCtx)
 		})
-	} else if options.topology.hosted() && options.topology.workers() {
-		slog.Error("durable GitHub import worker is disabled until repository provisioning enforcement is enabled")
 	}
 	if options.topology.workers() {
 		// The poll catches missed webhooks even where workflows are off.

@@ -14,7 +14,7 @@ import (
 
 func TestInstallReviewPinsMemberPRBeforeDispatch(t *testing.T) {
 	f := newPublicationFixture(t, false)
-	require.NoError(t, db.New(f.pool).UpsertInstallSetting(context.Background(), db.UpsertInstallSettingParams{Key: "github.repository", Value: []byte(fmt.Sprintf(`{"repository_id":%d}`, f.repoID))}))
+	require.NoError(t, db.New(f.pool).UpsertInstallSetting(context.Background(), db.UpsertInstallSettingParams{Key: "github.repository", Value: []byte(fmt.Sprintf(`{"owner_login":"rehearsal-owner","repository_name":"app","repository_id":%d}`, f.repoID))}))
 	ctx := middleware.ContextWithAuthInfo(context.Background(), &middleware.AuthInfo{User: &db.User{ID: f.userID}, SessionHash: "owner-session"})
 	f.git(f.work, "push", "-q", f.github, "HEAD:refs/heads/alice/cache")
 	gh, err := f.service.stackGitHub(ctx, f.repoID)

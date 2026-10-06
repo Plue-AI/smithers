@@ -43,26 +43,12 @@ func (h *FlowsHandler) List(w http.ResponseWriter, r *http.Request) {
 // catalog is the install repository's catalog (its loaded versions), or the
 // built-in catalog while setup has bound no repository.
 func (h *FlowsHandler) catalog(r *http.Request) ([]services.FlowCard, error) {
-	setting, err := h.Queries.GetInstallSetting(r.Context(), "github.repository")
-	if errors.Is(err, pgx.ErrNoRows) {
+	repositoryID, err := h.Queries.InstallRepositoryID(r.Context())
+	if errors.Is(err, pgx.ErrNoRows) || errors.Is(err, db.ErrInstallRepositoryUnavailable) {
 		return services.FlowCatalog()
 	}
 	if err != nil {
 		return nil, err
 	}
-	var binding struct {
-		Owner string `json:"owner_login"`
-		Name  string `json:"repository_name"`
-	}
-	if err = json.Unmarshal(setting.Value, &binding); err != nil || binding.Owner == "" || binding.Name == "" {
-		return services.FlowCatalog()
-	}
-	repo, err := h.Queries.GetRepoByOwnerAndName(r.Context(), db.GetRepoByOwnerAndNameParams{Owner: binding.Owner, Name: binding.Name})
-	if errors.Is(err, pgx.ErrNoRows) {
-		return services.FlowCatalog()
-	}
-	if err != nil {
-		return nil, err
-	}
-	return services.RepositoryFlowCatalog(r.Context(), h.Queries, repo.ID, h.Proposals)
+	return services.RepositoryFlowCatalog(r.Context(), h.Queries, repositoryID, h.Proposals)
 }

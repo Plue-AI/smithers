@@ -19,17 +19,17 @@ const run = (root) => spawnSync(process.execPath, [script, root], { encoding: "u
 const mode = "if config.IsSingleOwner(cfg.Auth) {}\n"
 test("CLI accepts limits and ignores test files and comments", (t) => {
   const files = {
-    "packages/backend/internal/compose/main.go": mode.repeat(141) + "// config.IsSingleOwner(cfg.Auth)\n/* topology.hosted() */\n",
+    "packages/backend/internal/compose/main.go": mode.repeat(135) + "// config.IsSingleOwner(cfg.Auth)\n/* topology.hosted() */\n",
     "packages/backend/new_test.go": mode.repeat(200),
     "apps/app/src/check.ts": 'bootstrap.host === "cloud";\n'.repeat(8) + 'bootstrap.capabilities.includes("install");\n'.repeat(8),
     "apps/app/src/check.test.ts": 'host === "cloud";\n'.repeat(99)
   }
   for (let i = 0; i < 8; i++) files[`packages/backend/internal/services/import${i}.go`] = 'import "github.com/smithersai/smithers/microsandbox"\n'
   const result = run(fixture(t, files)); assert.equal(result.status, 0, result.stdout + result.stderr)
-  assert.deepEqual(JSON.parse(result.stdout), { errors: [], go: 141, imports: 8, app: 16 })
+  assert.deepEqual(JSON.parse(result.stdout), { errors: [], go: 135, imports: 8, app: 16 })
 })
 for (const [name, files, diagnostic] of [
-  ["Go overflow counts two checks on one line", { "packages/backend/internal/compose/main.go": mode.repeat(140) + "config.IsSingleOwner(a) || config.IsMultitenant(b)" }, "142 exceeds 141"],
+  ["Go overflow counts two checks on one line", { "packages/backend/internal/compose/main.go": mode.repeat(134) + "config.IsSingleOwner(a) || config.IsMultitenant(b)" }, "136 exceeds 135"],
   ["raw mode check in new Go file", { "packages/backend/internal/new.go": 'if cfg.Auth.Mode == "selfhost" {}' }, "15-file allowlist"],
   ["new Go file", { "packages/backend/internal/new.go": "topology.hosted()" }, "15-file allowlist"],
   ["ninth service import", Object.fromEntries(Array.from({ length: 9 }, (_, i) => [`packages/backend/internal/services/${i}.go`, 'import msb "example/microsandbox"'])), "9 exceeds 8"],

@@ -95,6 +95,7 @@ func (b *MemberBoundary) AuthorizeMember(ctx context.Context, userID int64) *pkg
 	}
 	if q, ok := b.queries.(interface {
 		GetInstallSetting(context.Context, string) (db.InstallSetting, error)
+		ReadInstallRepositoryBinding(context.Context) (db.InstallRepositoryBinding, error)
 	}); ok {
 		if allowed, _ := ctx.Value(setupScopeKey{}).(bool); !allowed {
 			setting, err := q.GetInstallSetting(ctx, "owner.access")
@@ -110,13 +111,8 @@ func (b *MemberBoundary) AuthorizeMember(ctx context.Context, userID int64) *pkg
 			if _, err := time.Parse(time.RFC3339Nano, access.LastAccessCheckAt); err != nil {
 				return pkgerrors.New(pkgerrors.CodeOwnerUnverified, "owner_unverified")
 			}
-			binding, err := q.GetInstallSetting(ctx, "github.repository")
-			var repo struct {
-				OwnerLogin     string `json:"owner_login"`
-				RepositoryName string `json:"repository_name"`
-				RepositoryID   int64  `json:"repository_id"`
-			}
-			if err != nil || json.Unmarshal(binding.Value, &repo) != nil || repo.OwnerLogin != access.OwnerLogin || repo.RepositoryName != access.RepositoryName || repo.RepositoryID != access.RepositoryID {
+			repo, err := q.ReadInstallRepositoryBinding(ctx)
+			if err != nil || repo.Owner != access.OwnerLogin || repo.Name != access.RepositoryName || repo.ID != access.RepositoryID {
 				return pkgerrors.New(pkgerrors.CodeOwnerUnverified, "owner_unverified")
 			}
 

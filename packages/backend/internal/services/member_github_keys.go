@@ -39,8 +39,12 @@ func (m *Members) SyncGitHubKeys(ctx context.Context, userID int64, login string
 		return err
 	}
 	if !owner {
+		repositoryID, err := InstallRepositoryID(ctx, db.New(tx))
+		if err != nil {
+			return err
+		}
 		var id int64
-		if err = tx.QueryRow(ctx, `SELECT c.id FROM collaborators c JOIN install_settings s ON s.key='github.repository' AND c.repository_id=(s.value->>'repository_id')::bigint WHERE c.user_id=$1 AND lower(c.github_login)=lower($2) AND c.suspended_at IS NULL FOR SHARE OF c`, userID, login).Scan(&id); err != nil {
+		if err = tx.QueryRow(ctx, `SELECT c.id FROM collaborators c WHERE c.repository_id=$3 AND c.user_id=$1 AND lower(c.github_login)=lower($2) AND c.suspended_at IS NULL FOR SHARE OF c`, userID, login, repositoryID).Scan(&id); err != nil {
 			return err
 		}
 	}

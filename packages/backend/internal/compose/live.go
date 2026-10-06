@@ -54,16 +54,9 @@ const liveRefreshEvery = time.Second
 // installRepository is the install's persisted GitHub repository, never a
 // caller-supplied one (as routes.TodoHandler resolves it).
 func installRepository(ctx context.Context, q *db.Queries) (int64, string, error) {
-	setting, err := q.GetInstallSetting(ctx, "github.repository")
+	binding, err := q.ReadInstallRepositoryBinding(ctx)
 	if err != nil {
 		return 0, "", err
-	}
-	var binding struct {
-		Owner string `json:"owner_login"`
-		Name  string `json:"repository_name"`
-	}
-	if err = json.Unmarshal(setting.Value, &binding); err != nil || binding.Owner == "" || binding.Name == "" {
-		return 0, "", fmt.Errorf("install repository binding unreadable")
 	}
 	repositoryID, err := services.InstallRepositoryID(ctx, q)
 	if err != nil {

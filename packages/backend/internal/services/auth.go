@@ -338,9 +338,6 @@ func (s *AuthService) CreateKeyAuthNonce(ctx context.Context) (string, error) {
 
 func (s *AuthService) VerifyKeyAuth(ctx context.Context, message, signature string) (result VerifyKeyAuthResult, retErr error) {
 	defer func() { s.observeLogin("key", retErr) }()
-	if config.IsSingleOwner(s.cfg) {
-		return VerifyKeyAuthResult{}, pkgerrors.NotFound("key authentication is not available in single-owner mode")
-	}
 	if s.keyAuthVerifier == nil {
 		return VerifyKeyAuthResult{}, pkgerrors.Internal("key auth verifier is not configured")
 	}

@@ -76,12 +76,8 @@ func (s *InstallObsidianSettings) authorizedFolder(ctx context.Context, setting 
 	if err = s.CheckOwner(ctx, owner); err != nil {
 		return nil, err
 	}
-	binding, err := s.Queries.GetInstallSetting(ctx, "github.repository")
-	if err != nil {
-		return nil, wikiUnavailable("install Obsidian repository unavailable")
-	}
-	var repo memberRepository
-	if err = json.Unmarshal(binding.Value, &repo); err != nil || repo.ID <= 0 || !gitHubAppComponent.MatchString(repo.Owner) || !gitHubAppComponent.MatchString(repo.Name) {
+	repo, err := s.Queries.ReadInstallRepositoryBinding(ctx)
+	if err != nil || repo.ID <= 0 || !gitHubAppComponent.MatchString(repo.Owner) || !gitHubAppComponent.MatchString(repo.Name) {
 		return nil, wikiUnavailable("install Obsidian repository unavailable")
 	}
 	if setting.RepositoryOwner != "" && (setting.RepositoryOwner != repo.Owner || setting.RepositoryName != repo.Name) {

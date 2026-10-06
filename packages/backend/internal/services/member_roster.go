@@ -2,7 +2,6 @@ package services
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"net/http"
 	"os"
@@ -37,11 +36,8 @@ func (r memberRepository) accessURL() string {
 }
 
 func (m *Members) repository(ctx context.Context) (memberRepository, error) {
-	var repo memberRepository
-	setting, err := db.New(m.Pool).GetInstallSetting(ctx, "github.repository")
-	if err == nil {
-		err = json.Unmarshal(setting.Value, &repo)
-	}
+	binding, err := db.New(m.Pool).ReadInstallRepositoryBinding(ctx)
+	repo := memberRepository{Owner: binding.Owner, Name: binding.Name, ID: binding.ID}
 	if err != nil || repo.ID <= 0 || !gitHubAppComponent.MatchString(repo.Owner) || !gitHubAppComponent.MatchString(repo.Name) {
 		return repo, memberError(http.StatusServiceUnavailable, "infra", "unavailable", "Repository unavailable")
 	}

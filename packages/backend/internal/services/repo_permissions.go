@@ -2,7 +2,6 @@ package services
 
 import (
 	"context"
-	"encoding/json"
 	stdErrors "errors"
 	"log/slog"
 	"net/http"
@@ -572,30 +571,11 @@ func todoBranchRefusal() error {
 // InstallRepositoryID is the install's repository: the GitHub repository the
 // repository step stores (github.repository); a caller never names it.
 func InstallRepositoryID(ctx context.Context, q *db.Queries) (int64, error) {
-	setting, err := q.GetInstallSetting(ctx, "github.repository")
-	if err != nil {
-		return 0, err
-	}
-	var binding struct {
-		Owner string `json:"owner_login"`
-		Name  string `json:"repository_name"`
-		ID    int64  `json:"repository_id"`
-	}
-	if err = json.Unmarshal(setting.Value, &binding); err != nil || binding.Owner == "" || binding.Name == "" {
+	id, err := q.InstallRepositoryID(ctx)
+	if stdErrors.Is(err, db.ErrInstallRepositoryUnavailable) {
 		return 0, &AccessError{Status: http.StatusServiceUnavailable, Class: "infra", Code: "unavailable", Message: "Repository unavailable"}
 	}
-	// The setup binding records the local repository identity separately
-	// from its GitHub owner, which need not be a local member's login.
-	if binding.ID > 0 {
-		row, err := q.GetRepoByID(ctx, binding.ID)
-		if !stdErrors.Is(err, pgx.ErrNoRows) {
-			return row.ID, err
-		}
-		// Earlier setup versions retained a GitHub id here. Preserve their
-		// persisted slug binding when it does not name a local repository.
-	}
-	row, err := q.GetRepoByOwnerAndName(ctx, db.GetRepoByOwnerAndNameParams{Owner: binding.Owner, Name: binding.Name})
-	return row.ID, err
+	return id, err
 }
 
 // InstallRoleOf is userID's current role, or "" for a person who is not an

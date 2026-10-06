@@ -62,9 +62,17 @@ func installBranchMembership(ctx context.Context, tx pgx.Tx, repositoryID, actor
 	if err != nil || actorID == owner {
 		return err
 	}
+	installedID, err := InstallRepositoryID(ctx, db.New(tx))
+	if errors.Is(err, pgx.ErrNoRows) {
+		return pkgerrors.Forbidden("not a member of this install")
+	}
+	if err != nil {
+		return err
+	}
+	if installedID != repositoryID {
+		return pkgerrors.Forbidden("not a member of this install")
+	}
 	err = tx.QueryRow(ctx, `SELECT c.id FROM collaborators c
-        JOIN install_settings s ON s.key='github.repository'
-        AND c.repository_id=(s.value->>'repository_id')::bigint
         WHERE c.repository_id=$1 AND c.user_id=$2 AND c.suspended_at IS NULL
         AND c.permission IN ('write','admin') FOR SHARE OF c`, repositoryID, actorID).Scan(&id)
 	if errors.Is(err, pgx.ErrNoRows) {

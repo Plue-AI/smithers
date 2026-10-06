@@ -22,6 +22,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/smithersai/smithers/packages/backend/internal/buildcache"
+	"github.com/smithersai/smithers/packages/backend/internal/db"
 )
 
 const (
@@ -584,10 +585,14 @@ func (s *Store) Claim(ctx context.Context, scope Scope, turnID string, lease tim
 }
 
 func (s *Store) MarkProviderStarted(ctx context.Context, grant ProducerGrant) error {
+	repositoryID, err := optionalInstallRepositoryID(ctx, db.New(s.pool))
+	if err != nil {
+		return err
+	}
 	now := s.now().UTC()
 	result, err := s.pool.Exec(ctx, `UPDATE chat_turns t SET producer_started_at=COALESCE(producer_started_at,$4),updated_at=$4
-		WHERE id=$1 AND producer_generation=$2 AND producer_token_hash=$3 AND state='running' AND producer_lease_expires_at>$4 AND NOT (`+inactiveInstallAuthor+`)`,
-		grant.TurnID, grant.Generation, hashToken(grant.Token), now)
+		WHERE id=$1 AND producer_generation=$2 AND producer_token_hash=$3 AND state='running' AND producer_lease_expires_at>$4 AND NOT (`+inactiveInstallAuthor("$5")+`)`,
+		grant.TurnID, grant.Generation, hashToken(grant.Token), now, repositoryID)
 	if err != nil {
 		return err
 	}
@@ -608,10 +613,14 @@ func (s *Store) RenewProducer(ctx context.Context, grant ProducerGrant, lease ti
 		return time.Time{}, err
 	}
 	defer func() { _ = tx.Rollback(context.WithoutCancel(ctx)) }()
+	repositoryID, err := optionalInstallRepositoryID(ctx, db.New(tx))
+	if err != nil {
+		return time.Time{}, err
+	}
 	var previous *time.Time
 	err = tx.QueryRow(ctx, `SELECT producer_lease_expires_at FROM chat_turns t
-		WHERE id=$1 AND producer_generation=$2 AND producer_token_hash=$3 AND state='running' AND NOT terminal AND NOT (`+inactiveInstallAuthor+`) FOR UPDATE`,
-		grant.TurnID, grant.Generation, hashToken(grant.Token)).Scan(&previous)
+		WHERE id=$1 AND producer_generation=$2 AND producer_token_hash=$3 AND state='running' AND NOT terminal AND NOT (`+inactiveInstallAuthor("$4")+`) FOR UPDATE`,
+		grant.TurnID, grant.Generation, hashToken(grant.Token), repositoryID).Scan(&previous)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return time.Time{}, ErrProducerFenced
 	}
@@ -665,11 +674,15 @@ func (s *Store) Producer(ctx context.Context, turnID string, generation int64, t
 	if _, err := uuid.Parse(turnID); err != nil || generation <= 0 || token == "" {
 		return ProducerTurn{}, ErrProducerFenced
 	}
+	repositoryID, err := optionalInstallRepositoryID(ctx, db.New(s.pool))
+	if err != nil {
+		return ProducerTurn{}, err
+	}
 	var turn ProducerTurn
-	err := s.pool.QueryRow(ctx, `SELECT user_id,repository_id,run_id,leg_id FROM chat_turns t
+	err = s.pool.QueryRow(ctx, `SELECT user_id,repository_id,run_id,leg_id FROM chat_turns t
 		WHERE id=$1 AND producer_generation=$2 AND producer_token_hash=$3 AND state='running' AND NOT terminal
-		AND cancel_requested_at IS NULL AND producer_lease_expires_at>$4 AND NOT (`+inactiveInstallAuthor+`)`,
-		turnID, generation, hashToken(token), s.now().UTC()).Scan(&turn.UserID, &turn.RepositoryID, &turn.RunID, &turn.LegID)
+		AND cancel_requested_at IS NULL AND producer_lease_expires_at>$4 AND NOT (`+inactiveInstallAuthor("$5")+`)`,
+		turnID, generation, hashToken(token), s.now().UTC(), repositoryID).Scan(&turn.UserID, &turn.RepositoryID, &turn.RunID, &turn.LegID)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return ProducerTurn{}, ErrProducerFenced
 	}

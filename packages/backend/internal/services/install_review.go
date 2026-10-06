@@ -2,7 +2,6 @@ package services
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"net/http"
@@ -58,14 +57,11 @@ func (s *MythicalService) prepareReview(ctx context.Context, repositoryID, reque
 	if request.Number <= 0 || request.Conversation == "" || len(request.Conversation) > 256 || key == "" || len(key) > 256 {
 		return ReviewAdmission{}, &TodoControlError{Status: 400, Class: "user", Code: "invalid_review", Message: "PR, conversation and Idempotency-Key are required"}
 	}
-	setting, err := s.queries().GetInstallSetting(ctx, "github.repository")
-	var binding struct {
-		RepositoryID int64 `json:"repository_id"`
-	}
-	if err != nil || json.Unmarshal(setting.Value, &binding) != nil || binding.RepositoryID <= 0 {
+	installRepositoryID, err := InstallRepositoryID(ctx, s.queries())
+	if err != nil {
 		return ReviewAdmission{}, reviewUnavailable("repository_unavailable")
 	}
-	if binding.RepositoryID != repositoryID {
+	if installRepositoryID != repositoryID {
 		return ReviewAdmission{}, &AccessError{Status: 403, Class: "permission", Code: "permission", Message: "Not available"}
 	}
 	if s.github == nil {
@@ -99,8 +95,7 @@ func (s *MythicalService) prepareReview(ctx context.Context, repositoryID, reque
 	}
 	var authorID int64
 	err = s.store.QueryRow(ctx, `SELECT u.id FROM users u WHERE u.is_active AND u.deleted_at IS NULL AND NOT u.prohibit_login
- AND (EXISTS (SELECT 1 FROM collaborators c JOIN install_settings i ON i.key='github.repository'
- AND (i.value->>'repository_id')::bigint=c.repository_id WHERE c.user_id=u.id AND c.repository_id=$1
+ AND (EXISTS (SELECT 1 FROM collaborators c WHERE c.user_id=u.id AND c.repository_id=$1
  AND c.github_id=$2 AND c.permission IN ('admin','write') AND c.suspended_at IS NULL)
  OR EXISTS (SELECT 1 FROM self_host_owners o JOIN oauth_accounts a ON a.user_id=o.user_id
  WHERE o.singleton AND o.user_id=u.id AND a.provider='workos' AND a.provider_user_id=$2::text))`, repositoryID, pull.Author.ID).Scan(&authorID)

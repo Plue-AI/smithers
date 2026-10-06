@@ -43,7 +43,7 @@ export const checkDeploymentBranches = (root) => {
     const text = uncomment(readFileSync(join(root, path), "utf8"))
     app += [...text.matchAll(/\bhost\s*===\s*["']cloud["']|\bcapabilities\s*(?:\?\.)?\.?\s*includes\s*\(\s*["']install["']/g)].length
   }
-  for (const [label, count, max] of [["Go mode checks", go, 141], ["services microsandbox imports", imports, 8], ["app deployment checks", app, 16]])
+  for (const [label, count, max] of [["Go mode checks", go, 135], ["services microsandbox imports", imports, 8], ["app deployment checks", app, 16]])
     if (count > max) errors.push(`${label}: ${count} exceeds ${max}`)
   const baseline = new Set(JSON.parse(readFileSync(new URL("./deployment-composition-baseline.json", import.meta.url), "utf8")))
   for (const path of [...walk(root, "docs/api/openapi").filter((p) => p.endsWith(".yaml")), "docs/api/openapi.yaml"])

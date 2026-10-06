@@ -2,12 +2,12 @@ package services
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"time"
 
 	"github.com/jackc/pgx/v5"
+	"github.com/smithersai/smithers/packages/backend/internal/db"
 )
 
 const MemberRecheckInterval = time.Hour
@@ -141,12 +141,13 @@ func (m *Members) applyRecheckedPermission(ctx context.Context, repo memberRepos
 	if _, err = tx.Exec(ctx, `SELECT user_id FROM self_host_owners FOR UPDATE`); err != nil {
 		return "", err
 	}
-	var raw []byte
-	if err = tx.QueryRow(ctx, `SELECT value FROM install_settings WHERE key='github.repository' FOR SHARE`).Scan(&raw); err != nil {
+	q := db.New(tx)
+	bindingRow, err := q.LockInstallRepositoryBinding(ctx)
+	if err != nil {
 		return "", err
 	}
-	var current memberRepository
-	if json.Unmarshal(raw, &current) != nil || current != repo {
+	current := memberRepository{Owner: bindingRow.Owner, Name: bindingRow.Name, ID: bindingRow.ID}
+	if current != repo {
 		return "", githubSyncUnavailable()
 	}
 	var version, login string

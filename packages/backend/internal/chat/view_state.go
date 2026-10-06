@@ -8,6 +8,7 @@ import (
 	"net/http"
 
 	"github.com/jackc/pgx/v5"
+	"github.com/smithersai/smithers/packages/backend/internal/db"
 	"github.com/smithersai/smithers/packages/backend/internal/middleware"
 )
 
@@ -28,11 +29,16 @@ func (s *Store) readMemberView(ctx context.Context, userID int64, conversation s
 	}
 	defer func() { _ = tx.Rollback(context.WithoutCancel(ctx)) }()
 	var result json.RawMessage
-	var repositoryID int64
+	repositoryID, err := db.New(tx).InstallRepositoryID(ctx)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return nil, ErrForbidden
+	}
+	if err != nil {
+		return nil, err
+	}
 	err = tx.QueryRow(ctx, `SELECT c.repository_id, coalesce(c.view_state->$2,'{}'::jsonb) || jsonb_build_object('toasts_hidden',c.toasts_hidden)
  FROM collaborators c JOIN users u ON u.id=c.user_id
- JOIN install_settings i ON i.key='github.repository' AND (i.value->>'repository_id')::bigint=c.repository_id
- WHERE c.user_id=$1 AND c.suspended_at IS NULL AND NOT u.prohibit_login`, userID, conversation).Scan(&repositoryID, &result)
+ WHERE c.repository_id=$3 AND c.user_id=$1 AND c.suspended_at IS NULL AND NOT u.prohibit_login`, userID, conversation, repositoryID).Scan(&repositoryID, &result)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return nil, ErrForbidden
 	}
@@ -116,6 +122,7 @@ func (s *Store) memberViewState(ctx context.Context, userID int64, conversation 
 		return s.readMemberView(ctx, userID, conversation)
 	}
 	var row pgx.Row
+	var tx pgx.Tx
 	{
 		object, canonical, err := parseCanonical(value)
 		if err != nil {
@@ -139,13 +146,34 @@ func (s *Store) memberViewState(ctx context.Context, userID int64, conversation 
 			}
 			hidden = &flag
 		}
+		tx, err = s.pool.Begin(ctx)
+		if err != nil {
+			return nil, err
+		}
+		defer func() { _ = tx.Rollback(context.WithoutCancel(ctx)) }()
+		// Lock the binding while updating the latest member row; concurrent
+		// view writes retain PostgreSQL's normal row-update serialization.
+		q := db.New(tx)
+		if _, err = q.LockInstallRepositoryBinding(ctx); err != nil {
+			if errors.Is(err, pgx.ErrNoRows) {
+				return nil, ErrForbidden
+			}
+			return nil, err
+		}
+		repositoryID, err := q.InstallRepositoryID(ctx)
+		if errors.Is(err, pgx.ErrNoRows) {
+			return nil, ErrForbidden
+		}
+		if err != nil {
+			return nil, err
+		}
 		// Toast visibility is global for this member. Strip any per-branch
 		// copy so changing branches cannot restore an older preference.
-		row = s.pool.QueryRow(ctx, `UPDATE collaborators c SET view_state=jsonb_set(c.view_state,ARRAY[$2],$3::jsonb-'toasts_hidden',true),
+		row = tx.QueryRow(ctx, `UPDATE collaborators c SET view_state=jsonb_set(c.view_state,ARRAY[$2],$3::jsonb-'toasts_hidden',true),
    toasts_hidden=COALESCE($4,c.toasts_hidden)
-   FROM install_settings i WHERE i.key='github.repository' AND (i.value->>'repository_id')::bigint=c.repository_id
+   WHERE c.repository_id=$5
    AND c.user_id=$1 AND c.suspended_at IS NULL RETURNING (c.view_state->$2) || jsonb_build_object('toasts_hidden',c.toasts_hidden),
-   pg_notify('view_' || c.repository_id::text || '_' || c.user_id::text,'{"type":"view_state"}')`, userID, conversation, canonical, hidden)
+   pg_notify('view_' || c.repository_id::text || '_' || c.user_id::text,'{"type":"view_state"}')`, userID, conversation, canonical, hidden, repositoryID)
 	}
 	var result json.RawMessage
 	var err error
@@ -157,6 +185,9 @@ func (s *Store) memberViewState(ctx context.Context, userID int64, conversation 
 	}
 	if errors.Is(err, pgx.ErrNoRows) {
 		return nil, ErrForbidden
+	}
+	if err == nil {
+		err = tx.Commit(ctx)
 	}
 	return result, err
 }

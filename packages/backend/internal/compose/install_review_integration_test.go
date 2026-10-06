@@ -42,6 +42,7 @@ func TestInstallReviewHTTPAdmissionWithoutRuntime(t *testing.T) {
 	require.NoError(t, err)
 	cfg := testConfigAllFlagsOn()
 	cfg.Auth.Mode = "selfhost"
+	cfg.Auth.EnableKeyAuth = true
 	cfg.Auth.SessionCookieName = "session"
 	cfg.Server.AllowedOrigins = []string{"http://localhost:4000"}
 	service := services.NewMythicalService(pool, nil)
@@ -88,6 +89,52 @@ func TestInstallReviewHTTPAdmissionWithoutRuntime(t *testing.T) {
 			require.Contains(t, response.Body.String(), `"code":"`+tc.code+`"`)
 		})
 	}
+	// Legacy setup stored a GitHub ID instead of the local ID. Every door
+	// must use the same slug fallback, including the identity roster boundary.
+	t.Run("legacy binding serves member todos and flows", func(t *testing.T) {
+		member, err := q.CreateUser(ctx, db.CreateUserParams{Username: "binding-member", LowerUsername: "binding-member", DisplayName: "Member"})
+		require.NoError(t, err)
+		_, err = pool.Exec(ctx, `INSERT INTO collaborators(repository_id,user_id,permission) VALUES($1,$2,'write')`, repo.ID, member.ID)
+		require.NoError(t, err)
+		sum := sha256.Sum256([]byte("binding-member-cookie"))
+		_, err = q.CreateAuthSession(ctx, db.CreateAuthSessionParams{UserID: member.ID, Username: member.Username, SessionKey: hex.EncodeToString(sum[:]), ExpiresAt: time.Now().Add(time.Hour)})
+		require.NoError(t, err)
+		legacy := fmt.Sprintf(`{"owner_login":"review-owner","repository_name":"app","repository_id":%d}`, repo.ID+9000000)
+		require.NoError(t, q.UpsertInstallSetting(ctx, db.UpsertInstallSettingParams{Key: "github.repository", Value: []byte(legacy)}))
+		t.Cleanup(func() {
+			require.NoError(t, q.UpsertInstallSetting(ctx, db.UpsertInstallSettingParams{Key: "github.repository", Value: []byte(binding)}))
+		})
+		for _, path := range []string{"/api/todos", "/api/flows"} {
+			req := httptest.NewRequest("GET", "http://localhost:4000"+path, nil)
+			req.RemoteAddr = "127.0.0.1:61001"
+			req.AddCookie(&http.Cookie{Name: "session", Value: "binding-member-cookie"})
+			response := httptest.NewRecorder()
+			router.ServeHTTP(response, req)
+			require.Equal(t, 200, response.Code, path+": "+response.Body.String())
+		}
+		_, err = pool.Exec(ctx, `DELETE FROM collaborators WHERE repository_id=$1 AND user_id=$2`, repo.ID, member.ID)
+		require.NoError(t, err)
+		req := httptest.NewRequest("GET", "http://localhost:4000/api/todos", nil)
+		req.RemoteAddr = "127.0.0.1:61001"
+		req.AddCookie(&http.Cookie{Name: "session", Value: "binding-member-cookie"})
+		response := httptest.NewRecorder()
+		router.ServeHTTP(response, req)
+		require.Equal(t, 403, response.Code, response.Body.String())
+	})
+	t.Run("key auth remains absent", func(t *testing.T) {
+		for _, path := range []string{"/api/auth/key/nonce", "/api/auth/key/verify", "/api/auth/key/token"} {
+			method := "POST"
+			if strings.HasSuffix(path, "/nonce") {
+				method = "GET"
+			}
+			req := httptest.NewRequest(method, "http://localhost:4000"+path, nil)
+			req.RemoteAddr = "127.0.0.1:61002"
+			req.Header.Set("Origin", "http://localhost:4000")
+			response := httptest.NewRecorder()
+			router.ServeHTTP(response, req)
+			require.Equal(t, 404, response.Code, response.Body.String())
+		}
+	})
 	// Reuse this composed router with the production repository/token adapters,
 	// real PostgreSQL and GitHub fake; no review-service fake bypasses HTTP.
 	seed, err := githubfake.LocalSeedFor("review-owner")

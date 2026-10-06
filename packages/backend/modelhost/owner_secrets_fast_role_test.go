@@ -154,7 +154,7 @@ func TestResolveSharedPreflightUsesIndependentFastRoleAndCodingFallback(t *testi
 	require.NoError(t, f.pool.QueryRow(ctx, `INSERT INTO users(username,lower_username) VALUES('role-member','role-member') RETURNING id`).Scan(&member))
 	_, err = f.pool.Exec(ctx, `INSERT INTO collaborators(repository_id,user_id,permission) VALUES($1,$2,'write')`, repo, member)
 	require.NoError(t, err)
-	binding, err := json.Marshal(map[string]int64{"repository_id": repo})
+	binding, err := json.Marshal(map[string]any{"owner_login": "maya", "repository_name": "roles", "repository_id": repo})
 	require.NoError(t, err)
 	require.NoError(t, q.UpsertInstallSetting(ctx, db.UpsertInstallSettingParams{Key: "github.repository", Value: binding}))
 	require.Equal(t, first, resolve(member, true))

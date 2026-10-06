@@ -95,11 +95,14 @@ func (resolver *OwnerSecretResolver) ResolveChatModel(ctx context.Context, owner
 	// §6.15): the owner's fast role or default, never a model the member's
 	// request names.
 	var installOwner int64
+	installRepositoryID, bindingErr := db.New(pool).InstallRepositoryID(ctx)
+	if bindingErr != nil && !errors.Is(bindingErr, pgx.ErrNoRows) {
+		return Binding{}, fmt.Errorf("read install repository: %w", bindingErr)
+	}
 	err = pool.QueryRow(ctx, `SELECT o.user_id FROM self_host_owners o
-		JOIN install_settings s ON s.key='github.repository'
-		JOIN collaborators c ON c.repository_id=(s.value->>'repository_id')::bigint AND c.user_id=$1 AND c.suspended_at IS NULL AND c.permission IN ('write','admin')
+		JOIN collaborators c ON c.repository_id=$2 AND c.user_id=$1 AND c.suspended_at IS NULL AND c.permission IN ('write','admin')
 		JOIN users u ON u.id=c.user_id AND NOT u.prohibit_login
-		WHERE o.singleton AND o.user_id<>$1`, ownerID).Scan(&installOwner)
+		WHERE o.singleton AND o.user_id<>$1`, ownerID, installRepositoryID).Scan(&installOwner)
 	switch {
 	case err == nil:
 		ownerID, input.Model = installOwner, nil

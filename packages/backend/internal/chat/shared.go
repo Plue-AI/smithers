@@ -8,6 +8,7 @@ import (
 	"net/http"
 
 	"github.com/jackc/pgx/v5"
+	"github.com/smithersai/smithers/packages/backend/internal/db"
 )
 
 // SharedTurn is a public projection, not a journal capability. Private request
@@ -40,8 +41,18 @@ func (s *Store) SharedEntries(ctx context.Context, scope Scope, branch string) (
 		return result, err
 	}
 	defer func() { _ = tx.Rollback(context.WithoutCancel(ctx)) }()
+	installedID, err := db.New(tx).InstallRepositoryID(ctx)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return result, ErrForbidden
+	}
+	if err != nil {
+		return result, err
+	}
+	if installedID != scope.RepositoryID {
+		return result, ErrForbidden
+	}
 	var active bool
-	err = tx.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM collaborators c JOIN users u ON u.id=c.user_id JOIN install_settings i ON i.key='github.repository' AND (i.value->>'repository_id')::bigint=c.repository_id WHERE c.repository_id=$1 AND c.user_id=$2 AND c.suspended_at IS NULL AND NOT u.prohibit_login)`, scope.RepositoryID, scope.UserID).Scan(&active)
+	err = tx.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM collaborators c JOIN users u ON u.id=c.user_id WHERE c.repository_id=$1 AND c.user_id=$2 AND c.suspended_at IS NULL AND NOT u.prohibit_login)`, scope.RepositoryID, scope.UserID).Scan(&active)
 	if err != nil {
 		return result, err
 	}

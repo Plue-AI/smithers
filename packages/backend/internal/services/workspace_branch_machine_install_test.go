@@ -149,7 +149,7 @@ func TestInstallBranchMachineMembership(t *testing.T) {
 	require.NoError(t, check(owner))
 	requireBranchStatus(t, check(other), 403)
 	requireBranchStatus(t, check(0), 403)
-	_, err := pool.Exec(ctx, `INSERT INTO install_settings(key,value) VALUES('github.repository',jsonb_build_object('repository_id',$1::bigint))`, repo)
+	_, err := pool.Exec(ctx, `INSERT INTO install_settings(key,value) VALUES('github.repository',jsonb_build_object('owner_login','owner','repository_name','repo','repository_id',$1::bigint))`, repo)
 	require.NoError(t, err)
 	_, err = pool.Exec(ctx, `INSERT INTO collaborators(repository_id,user_id,permission) VALUES($1,$2,'write')`, repo, other)
 	require.NoError(t, err)
@@ -380,7 +380,7 @@ func TestInstallBranchMachineRevocationOrdering(t *testing.T) {
 	ctx := t.Context()
 	var member int64
 	require.NoError(t, pool.QueryRow(ctx, `INSERT INTO users(username,lower_username) VALUES('branch-member','branch-member') RETURNING id`).Scan(&member))
-	_, err := pool.Exec(ctx, `INSERT INTO install_settings(key,value) VALUES('github.repository',jsonb_build_object('repository_id',$1::bigint))`, repo)
+	_, err := pool.Exec(ctx, `INSERT INTO install_settings(key,value) VALUES('github.repository',jsonb_build_object('owner_login','owner','repository_name','repo','repository_id',$1::bigint))`, repo)
 	require.NoError(t, err)
 	_, err = pool.Exec(ctx, `INSERT INTO collaborators(repository_id,user_id,permission) VALUES($1,$2,'write')`, repo, member)
 	require.NoError(t, err)
@@ -456,7 +456,7 @@ func TestInstallBranchMachineJoinRechecksRemoval(t *testing.T) {
 			ctx := t.Context()
 			var member int64
 			require.NoError(t, pool.QueryRow(ctx, `INSERT INTO users(username,lower_username) VALUES('join-member','join-member') RETURNING id`).Scan(&member))
-			_, err := pool.Exec(ctx, `INSERT INTO install_settings(key,value) VALUES('github.repository',jsonb_build_object('repository_id',$1::bigint))`, repo)
+			_, err := pool.Exec(ctx, `INSERT INTO install_settings(key,value) VALUES('github.repository',jsonb_build_object('owner_login','owner','repository_name','repo','repository_id',$1::bigint))`, repo)
 			require.NoError(t, err)
 			_, err = pool.Exec(ctx, `INSERT INTO collaborators(repository_id,user_id,permission) VALUES($1,$2,'write')`, repo, member)
 			require.NoError(t, err)

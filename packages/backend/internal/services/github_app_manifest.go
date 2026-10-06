@@ -531,25 +531,17 @@ func (s *GitHubAppManifestService) ResumeInstallation(ctx context.Context) error
 	if s == nil || s.pool == nil || s.store == nil {
 		return pkgerrors.Internal("GitHub App setup is unavailable")
 	}
-	setting, err := db.New(s.pool).GetInstallSetting(ctx, "github.repository")
+	repository, err := db.New(s.pool).ReadInstallRepositoryBinding(ctx)
 	if err != nil {
 		return err
 	}
-	var repository struct {
-		OwnerLogin     string `json:"owner_login"`
-		OwnerKind      string `json:"owner_kind"`
-		RepositoryName string `json:"repository_name"`
-	}
-	if err := json.Unmarshal(setting.Value, &repository); err != nil {
-		return err
-	}
-	if !gitHubAppComponent.MatchString(repository.OwnerLogin) || (repository.RepositoryName != "" && !gitHubAppComponent.MatchString(repository.RepositoryName)) {
+	if !gitHubAppComponent.MatchString(repository.Owner) || (repository.Name != "" && !gitHubAppComponent.MatchString(repository.Name)) {
 		return pkgerrors.Internal("invalid GitHub repository binding")
 	}
-	if repository.RepositoryName == "" {
+	if repository.Name == "" {
 		return nil
 	} // Repository selection discovers the installation server-side.
-	return s.discoverInstallation(ctx, db.GithubAppManifestState{OwnerLogin: repository.OwnerLogin, OwnerKind: repository.OwnerKind, RepositoryName: repository.RepositoryName})
+	return s.discoverInstallation(ctx, db.GithubAppManifestState{OwnerLogin: repository.Owner, OwnerKind: repository.OwnerKind, RepositoryName: repository.Name})
 }
 func (s *GitHubAppManifestService) discoverInstallation(ctx context.Context, attempt db.GithubAppManifestState) error {
 	creds, err := s.store.Load(ctx)
