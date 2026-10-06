@@ -92,10 +92,6 @@ type ChangeRevertService interface {
 	RevertChange(context.Context, *db.User, int64, string, string, string) (services.ChangeRevertResponse, error)
 }
 
-type ChangeSplitService interface {
-	SplitChange(context.Context, int64, string, string, string, services.SplitChangeInput) (services.SplitChangeResponse, error)
-}
-
 type ChangeOperationRouteService interface {
 	ListOperations(context.Context, int64, string, *int64) ([]services.ChangeOperationResponse, error)
 	PreviewUndo(context.Context, int64, int64, string, string) (services.OperationUndoPreview, error)
@@ -114,7 +110,6 @@ type JJVCSHandler struct {
 	FindingsService    ChangeFindingsService
 	ConflictResolver   ChangeConflictResolutionService
 	ChangeReverter     ChangeRevertService
-	ChangeSplitter     ChangeSplitService
 	ChangeOperations   ChangeOperationRouteService
 	WalkthroughService ChangeWalkthroughService
 	Broker             *sse.Broker
@@ -725,54 +720,6 @@ func (h *JJVCSHandler) RevertChange(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	errors.WriteJSON(w, http.StatusCreated, response)
-}
-
-// SplitChange handles POST /api/repos/{owner}/{repo}/changes/{change_id}/split.
-func (h *JJVCSHandler) SplitChange(w http.ResponseWriter, r *http.Request) {
-	if middleware.UserFromContext(r.Context()) == nil {
-		writeRouteError(w, r, errors.Unauthorized("authentication required"))
-		return
-	}
-	owner, repoName, err := repoOwnerAndName(r)
-	if err != nil {
-		writeRouteError(w, r, err)
-		return
-	}
-	changeID, err := routeParam(r, "change_id", "change_id is required")
-	if err != nil {
-		writeRouteError(w, r, err)
-		return
-	}
-	var input services.SplitChangeInput
-	if !decodeJSONBody(w, r, &input) {
-		return
-	}
-	if len(input.Paths) == 0 {
-		writeRouteError(w, r, errors.BadRequest("paths must not be empty"))
-		return
-	}
-	for _, filePath := range input.Paths {
-		if strings.TrimSpace(filePath) == "" {
-			writeRouteError(w, r, errors.BadRequest("paths must not contain empty values"))
-			return
-		}
-	}
-	if h.ChangeSplitter == nil {
-		writeRouteError(w, r, errors.Internal("change split service not configured"))
-		return
-	}
-	repository, apiErr := h.resolveRepository(r.Context(), owner, repoName)
-	if apiErr != nil {
-		writeRouteError(w, r, apiErr)
-		return
-	}
-
-	response, err := h.ChangeSplitter.SplitChange(r.Context(), repository.ID, owner, repoName, changeID, input)
-	if err != nil {
-		writeRouteError(w, r, err)
-		return
-	}
-	errors.WriteJSON(w, http.StatusOK, response)
 }
 
 // GetChangeDiff handles GET /api/repos/{owner}/{repo}/changes/{change_id}/diff.

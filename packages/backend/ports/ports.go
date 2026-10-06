@@ -105,13 +105,6 @@ type Recommender interface {
 	SelectCommands(context.Context, CommandSelectionRequest) (CommandSelectionResult, error)
 }
 
-// RecommendationLog persists the receipt that pairs a recommendation with
-// the next command the user runs.
-type RecommendationLog interface {
-	AppendRecommendation(context.Context, RecommendationRequest, RecommendationResult, string) (string, error)
-	RecordRecommendationOutcome(context.Context, string, string, time.Time) (int, error)
-}
-
 // ModelStreamHost runs a sealed, non-tool model request in the same owner
 // scoped model host used by durable chat turns.
 type ModelStreamHost interface {

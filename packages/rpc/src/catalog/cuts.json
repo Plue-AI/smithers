@@ -29,5 +29,269 @@
     {"id": "maintainer-issue-tools", "disposition": "defer", "flowNames": ["issue.repro", "issue.poc", "issue.add-flow", "issue.flows"], "cardKinds": [], "sourcePaths": ["apps/app/src/mainview/flows/entries/issue.ts"]},
     {"id": "tui", "disposition": "defer", "flowNames": [], "cardKinds": [], "sourcePaths": ["apps/tui/package.json", "packages/smithers/scripts/build-tui.mjs"], "cliGroups": ["tui"]},
     {"id": "organization-cli", "disposition": "defer", "flowNames": [], "cardKinds": [], "sourcePaths": ["packages/smithers/src/Cli.ts"], "cliGroups": ["org"]}
+  ],
+  "routes": [
+    {
+      "method": "POST",
+      "path": "/api/repos/{owner}/{repo}/changes/{change_id}/split",
+      "disposition": "cut",
+      "reason": "MVP §8: splitting across TODOs breaks identity"
+    },
+    {
+      "method": "POST",
+      "path": "/api/recommend",
+      "disposition": "cut",
+      "reason": "Retired first-run recommendations; command selection remains"
+    },
+    {
+      "method": "POST",
+      "path": "/api/recommend/outcome",
+      "disposition": "cut",
+      "reason": "Receipt door for retired recommendations"
+    },
+    {
+      "method": "GET",
+      "path": "/api/repos/{owner}/{repo}/agent-sessions/{id}/egress",
+      "disposition": "defer",
+      "composition": "plue",
+      "reason": "Kept Egress flow consumer; deferred from install"
+    },
+    {
+      "method": "GET",
+      "path": "/api/repository-setup/{operation}",
+      "disposition": "cut",
+      "reason": "TODO flow replaces five-job setup"
+    },
+    {
+      "method": "POST",
+      "path": "/api/repository-setup/{operation}",
+      "disposition": "cut",
+      "reason": "TODO flow replaces five-job setup"
+    },
+    {
+      "method": "POST",
+      "path": "/api/admin/grant",
+      "disposition": "cut",
+      "composition": "plue",
+      "reason": "MVP §8 admin console cut; Plue compatibility retained"
+    },
+    {
+      "method": "PATCH",
+      "path": "/api/admin/users/{username}",
+      "disposition": "cut",
+      "composition": "plue",
+      "reason": "MVP §8 admin console cut; Plue compatibility retained"
+    },
+    {
+      "method": "DELETE",
+      "path": "/api/admin/users/{username}",
+      "disposition": "cut",
+      "composition": "plue",
+      "reason": "MVP §8 admin console cut; Plue compatibility retained"
+    },
+    {
+      "method": "DELETE",
+      "path": "/api/admin/users/{username}/tokens/{token_id}",
+      "disposition": "cut",
+      "composition": "plue",
+      "reason": "MVP §8 admin console cut; Plue compatibility retained"
+    },
+    {
+      "method": "GET",
+      "path": "/api/admin/agent-sessions",
+      "disposition": "cut",
+      "composition": "plue",
+      "reason": "MVP §8 admin console cut; Plue compatibility retained"
+    },
+    {
+      "method": "GET",
+      "path": "/api/admin/analytics/summary",
+      "disposition": "cut",
+      "composition": "plue",
+      "reason": "MVP §8 admin console cut; Plue compatibility retained"
+    },
+    {
+      "method": "GET",
+      "path": "/api/admin/audit-logs",
+      "disposition": "cut",
+      "composition": "plue",
+      "reason": "MVP §8 admin console cut; Plue compatibility retained"
+    },
+    {
+      "method": "GET",
+      "path": "/api/admin/orgs",
+      "disposition": "cut",
+      "composition": "plue",
+      "reason": "MVP §8 admin console cut; Plue compatibility retained"
+    },
+    {
+      "method": "GET",
+      "path": "/api/admin/repos",
+      "disposition": "cut",
+      "composition": "plue",
+      "reason": "MVP §8 admin console cut; Plue compatibility retained"
+    },
+    {
+      "method": "GET",
+      "path": "/api/admin/sandbox/environment-images",
+      "disposition": "cut",
+      "composition": "plue",
+      "reason": "MVP §8 admin console cut; Plue compatibility retained"
+    },
+    {
+      "method": "POST",
+      "path": "/api/admin/sandbox/environment-images",
+      "disposition": "cut",
+      "composition": "plue",
+      "reason": "MVP §8 admin console cut; Plue compatibility retained"
+    },
+    {
+      "method": "GET",
+      "path": "/api/admin/system/health",
+      "disposition": "keep",
+      "composition": "owner-health-exception",
+      "reason": "Retained until T-INS-08 diagnostics receipt"
+    },
+    {
+      "method": "GET",
+      "path": "/api/admin/system/status",
+      "disposition": "cut",
+      "composition": "plue",
+      "reason": "MVP §8 admin console cut; Plue compatibility retained"
+    },
+    {
+      "method": "GET",
+      "path": "/api/admin/tokens",
+      "disposition": "cut",
+      "composition": "plue",
+      "reason": "MVP §8 admin console cut; Plue compatibility retained"
+    },
+    {
+      "method": "GET",
+      "path": "/api/admin/users",
+      "disposition": "cut",
+      "composition": "plue",
+      "reason": "MVP §8 admin console cut; Plue compatibility retained"
+    },
+    {
+      "method": "POST",
+      "path": "/api/admin/users",
+      "disposition": "cut",
+      "composition": "plue",
+      "reason": "MVP §8 admin console cut; Plue compatibility retained"
+    },
+    {
+      "method": "GET",
+      "path": "/api/admin/workspaces",
+      "disposition": "cut",
+      "composition": "plue",
+      "reason": "MVP §8 admin console cut; Plue compatibility retained"
+    },
+    {
+      "method": "POST",
+      "path": "/api/admin/users/{username}/erase",
+      "disposition": "cut",
+      "composition": "plue",
+      "reason": "MVP §8 admin console cut; Plue compatibility retained"
+    },
+    {
+      "method": "POST",
+      "path": "/api/admin/users/{username}/export",
+      "disposition": "cut",
+      "composition": "plue",
+      "reason": "MVP §8 admin console cut; Plue compatibility retained"
+    },
+    {
+      "method": "PATCH",
+      "path": "/api/admin/users/{username}/admin",
+      "disposition": "cut",
+      "composition": "plue",
+      "reason": "MVP §8 admin console cut; Plue compatibility retained"
+    },
+    {
+      "method": "POST",
+      "path": "/api/admin/agent-sessions/{id}/cancel",
+      "disposition": "cut",
+      "composition": "plue",
+      "reason": "MVP §8 admin console cut; Plue compatibility retained"
+    },
+    {
+      "method": "POST",
+      "path": "/api/admin/github-app/reconcile",
+      "disposition": "cut",
+      "composition": "plue",
+      "reason": "MVP §8 admin console cut; Plue compatibility retained"
+    },
+    {
+      "method": "POST",
+      "path": "/api/admin/users/{username}/tokens",
+      "disposition": "cut",
+      "composition": "plue",
+      "reason": "MVP §8 admin console cut; Plue compatibility retained"
+    },
+    {
+      "method": "POST",
+      "path": "/api/admin/workspaces/{id}/stop",
+      "disposition": "cut",
+      "composition": "plue",
+      "reason": "MVP §8 admin console cut; Plue compatibility retained"
+    },
+    {
+      "method": "POST",
+      "path": "/api/admin/workspaces/{id}/suspend",
+      "disposition": "cut",
+      "composition": "plue",
+      "reason": "MVP §8 admin console cut; Plue compatibility retained"
+    },
+    {
+      "method": "PUT",
+      "path": "/api/gateways/{hostID}/repository-jobs/{job}/trials/{requestID}",
+      "disposition": "cut",
+      "composition": "plue",
+      "reason": "Five-job setup cut from install; retained Plue worker receipts"
+    },
+    {
+      "method": "PUT",
+      "path": "/api/gateways/{hostID}/repository-jobs/ci/check-receipts/{requestID}",
+      "disposition": "cut",
+      "composition": "plue",
+      "reason": "Five-job setup cut from install; retained Plue worker receipts"
+    },
+    {
+      "method": "POST",
+      "path": "/api/repos/{owner}/{repo}/branch-locks/acquire",
+      "disposition": "cut",
+      "reason": "MVP §8 shared branches replace exclusive locks"
+    },
+    {
+      "method": "POST",
+      "path": "/api/repos/{owner}/{repo}/branch-locks/heartbeat",
+      "disposition": "cut",
+      "reason": "MVP §8 shared branches replace exclusive locks"
+    },
+    {
+      "method": "POST",
+      "path": "/api/repos/{owner}/{repo}/branch-locks/release",
+      "disposition": "cut",
+      "reason": "MVP §8 shared branches replace exclusive locks"
+    },
+    {
+      "method": "POST",
+      "path": "/api/repos/{owner}/{repo}/branch-locks/join-requests",
+      "disposition": "cut",
+      "reason": "MVP §8 shared branches replace exclusive locks"
+    },
+    {
+      "method": "GET",
+      "path": "/api/repos/{owner}/{repo}/branch-locks/join-requests",
+      "disposition": "cut",
+      "reason": "MVP §8 shared branches replace exclusive locks"
+    },
+    {
+      "method": "POST",
+      "path": "/api/repos/{owner}/{repo}/branch-locks/join-requests/{id}/decide",
+      "disposition": "cut",
+      "reason": "MVP §8 shared branches replace exclusive locks"
+    }
   ]
 }

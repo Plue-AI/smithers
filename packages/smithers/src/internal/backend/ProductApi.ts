@@ -1584,6 +1584,36 @@ export interface PostApiCommandsSelectInput {
 export const postApiCommandsSelect = (transport: Transport, input?: PostApiCommandsSelectInput): Promise<PostApiCommandsSelectResponse> =>
   transport.request("POST", `/api/commands/select`, input?.body) as Promise<PostApiCommandsSelectResponse>
 
+/** GET /api/confirmations: List your confirmations */
+export const getApiConfirmations = (transport: Transport): Promise<void> =>
+  transport.request("GET", `/api/confirmations`).then(() => undefined)
+
+export interface PostApiConfirmationsInput {
+  readonly headers: { readonly "Idempotency-Key": string }
+}
+
+/** POST /api/confirmations: Request a confirmation through delegated command dispatch */
+export const postApiConfirmations = (transport: Transport, input: PostApiConfirmationsInput): Promise<void> =>
+  transport.request("POST", `/api/confirmations`, undefined, { headers: { "Idempotency-Key": input.headers["Idempotency-Key"] } }).then(() => undefined)
+
+export interface PostApiConfirmationsIdApproveInput {
+  readonly path: { readonly id: string }
+  readonly headers: { readonly "Idempotency-Key": string }
+}
+
+/** POST /api/confirmations/{id}/approve: Approve your bound confirmation */
+export const postApiConfirmationsIdApprove = (transport: Transport, input: PostApiConfirmationsIdApproveInput): Promise<void> =>
+  transport.request("POST", `/api/confirmations/${segment(input.path.id)}/approve`, undefined, { headers: { "Idempotency-Key": input.headers["Idempotency-Key"] } }).then(() => undefined)
+
+export interface PostApiConfirmationsIdDenyInput {
+  readonly path: { readonly id: string }
+  readonly headers: { readonly "Idempotency-Key": string }
+}
+
+/** POST /api/confirmations/{id}/deny: Cancel your confirmation */
+export const postApiConfirmationsIdDeny = (transport: Transport, input: PostApiConfirmationsIdDenyInput): Promise<void> =>
+  transport.request("POST", `/api/confirmations/${segment(input.path.id)}/deny`, undefined, { headers: { "Idempotency-Key": input.headers["Idempotency-Key"] } }).then(() => undefined)
+
 export type GetApiFeatureFlagsResponse = AnyJSON
 
 /** GET /api/feature-flags */
@@ -1752,6 +1782,18 @@ export type PostWebhooksGithubResponse = AnyJSON
 /** POST /webhooks/github */
 export const postWebhooksGithub = (transport: Transport): Promise<PostWebhooksGithubResponse> =>
   transport.request("POST", `/webhooks/github`) as Promise<PostWebhooksGithubResponse>
+
+export type GetApiInstallMetricsResponse = {
+  collected_at: string
+  clock: string
+  metrics: Array<Record<string, unknown>>
+  live_connections?: number
+  host?: Record<string, unknown>
+}
+
+/** GET /api/install/metrics: Read in-process install metrics */
+export const getApiInstallMetrics = (transport: Transport): Promise<GetApiInstallMetricsResponse> =>
+  transport.request("GET", `/api/install/metrics`) as Promise<GetApiInstallMetricsResponse>
 
 export type GetApiInstallScorecardResponse = InstallScorecard
 
@@ -2492,30 +2534,6 @@ export type GetApiPublicReposResponse = AnyJSON
 /** GET /api/public/repos */
 export const getApiPublicRepos = (transport: Transport): Promise<GetApiPublicReposResponse> =>
   transport.request("GET", `/api/public/repos`) as Promise<GetApiPublicReposResponse>
-
-export type PostApiRecommendBody = AnyJSON
-
-export type PostApiRecommendResponse = AnyJSON
-
-export interface PostApiRecommendInput {
-  readonly body?: PostApiRecommendBody
-}
-
-/** POST /api/recommend */
-export const postApiRecommend = (transport: Transport, input?: PostApiRecommendInput): Promise<PostApiRecommendResponse> =>
-  transport.request("POST", `/api/recommend`, input?.body) as Promise<PostApiRecommendResponse>
-
-export type PostApiRecommendOutcomeBody = AnyJSON
-
-export type PostApiRecommendOutcomeResponse = AnyJSON
-
-export interface PostApiRecommendOutcomeInput {
-  readonly body?: PostApiRecommendOutcomeBody
-}
-
-/** POST /api/recommend/outcome */
-export const postApiRecommendOutcome = (transport: Transport, input?: PostApiRecommendOutcomeInput): Promise<PostApiRecommendOutcomeResponse> =>
-  transport.request("POST", `/api/recommend/outcome`, input?.body) as Promise<PostApiRecommendOutcomeResponse>
 
 export type GetApiReposOwnerRepoChangesCountResponse = AnyJSON
 
@@ -4377,16 +4395,6 @@ export interface PostApiReposOwnerRepoChangesChangeIdRevertInput {
 export const postApiReposOwnerRepoChangesChangeIdRevert = (transport: Transport, input: PostApiReposOwnerRepoChangesChangeIdRevertInput): Promise<PostApiReposOwnerRepoChangesChangeIdRevertResponse> =>
   transport.request("POST", `/api/repos/${segment(input.path.owner)}/${segment(input.path.repo)}/changes/${segment(input.path.change_id)}/revert`) as Promise<PostApiReposOwnerRepoChangesChangeIdRevertResponse>
 
-export type PostApiReposOwnerRepoChangesChangeIdSplitResponse = AnyJSON
-
-export interface PostApiReposOwnerRepoChangesChangeIdSplitInput {
-  readonly path: { readonly owner: string; readonly repo: string; readonly change_id: string }
-}
-
-/** POST /api/repos/{owner}/{repo}/changes/{change_id}/split */
-export const postApiReposOwnerRepoChangesChangeIdSplit = (transport: Transport, input: PostApiReposOwnerRepoChangesChangeIdSplitInput): Promise<PostApiReposOwnerRepoChangesChangeIdSplitResponse> =>
-  transport.request("POST", `/api/repos/${segment(input.path.owner)}/${segment(input.path.repo)}/changes/${segment(input.path.change_id)}/split`) as Promise<PostApiReposOwnerRepoChangesChangeIdSplitResponse>
-
 export type PostApiReposOwnerRepoGithubProxyResponse = AnyJSON
 
 export interface PostApiReposOwnerRepoGithubProxyInput {
@@ -5309,6 +5317,14 @@ export const postApiRepoConnection = (transport: Transport): Promise<PostApiRepo
 /** DELETE /api/repo-connection */
 export const deleteApiRepoConnection = (transport: Transport): Promise<void> =>
   transport.request("DELETE", `/api/repo-connection`).then(() => undefined)
+
+export interface PostApiReviewsInput {
+  readonly headers: { readonly "Idempotency-Key": string }
+}
+
+/** POST /api/reviews: Request review of a GitHub pull request */
+export const postApiReviews = (transport: Transport, input: PostApiReviewsInput): Promise<void> =>
+  transport.request("POST", `/api/reviews`, undefined, { headers: { "Idempotency-Key": input.headers["Idempotency-Key"] } }).then(() => undefined)
 
 export type GetApiSearchCodeResponse = AnyJSON
 

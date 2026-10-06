@@ -51,12 +51,6 @@ test("the packaged host settles a repository file flow with the flow's own schem
     encoded: { _tag: "Complete", exit: { _tag: "Success", value: "echoed" } },
     settled: "echoed"
   })
-  // This repository's own register-repository flow, its typed failure included.
-  const failure = { _tag: "register-repository/Error", code: "unavailable", message: "GitHub is unavailable" }
-  const registered = settle(fileURLToPath(new URL("../register-repository/flow.ts", import.meta.url)), "error", failure)
-  assert.equal(registered.flow, "register-repository")
-  assert.equal(registered.encoded.exit._tag, "Failure")
-  assert.deepEqual(registered.settled, failure)
 })
 
 test("a shared package entry point the host does not bundle is refused, not loaded twice", async (t) => {

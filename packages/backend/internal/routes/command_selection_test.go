@@ -93,7 +93,7 @@ func TestSelectHandler_RejectsInvalidRequestsBeforeCallingJev(t *testing.T) {
 	} {
 		t.Run(name, func(t *testing.T) {
 			provider := &selectionFake{}
-			rec := postSelect(NewRecommendationHandler(provider, nil, nil), body, true)
+			rec := postSelect(NewRecommendationHandler(provider, nil), body, true)
 			require.Equal(t, http.StatusBadRequest, rec.Code, rec.Body.String())
 			require.JSONEq(t, `{"status":"error","code":"request_invalid"}`, rec.Body.String())
 			require.Zero(t, provider.calls.Load())
@@ -108,7 +108,7 @@ func TestSelectHandler_AcceptsTheContractBoundaries(t *testing.T) {
 	} {
 		t.Run(name, func(t *testing.T) {
 			provider := &selectionFake{result: ports.CommandSelectionResult{Model: ports.RecommendationModelID}}
-			rec := postSelect(NewRecommendationHandler(provider, nil, nil), body, true)
+			rec := postSelect(NewRecommendationHandler(provider, nil), body, true)
 			require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
 			require.JSONEq(t, `{"commands":[],"model":"typesafe-ai/jev"}`, rec.Body.String())
 			require.EqualValues(t, 1, provider.calls.Load())
@@ -130,7 +130,7 @@ func TestSelectHandler_ReturnsOnlyOfferedCommandsByProbability(t *testing.T) {
 	}
 	commands += "]"
 	provider := &selectionFake{result: ports.CommandSelectionResult{Commands: selected, Model: ports.RecommendationModelID}}
-	rec := postSelect(NewRecommendationHandler(provider, nil, nil), `{"message":" review it ","tail":[],"repo":"owner/created","commands":`+commands+`}`, true)
+	rec := postSelect(NewRecommendationHandler(provider, nil), `{"message":" review it ","tail":[],"repo":"owner/created","commands":`+commands+`}`, true)
 	require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
 	var body struct {
 		Commands []ports.SelectedCommand `json:"commands"`
@@ -168,7 +168,7 @@ func TestSelectHandler_MapsErrorsToCodes(t *testing.T) {
 		{"canceled", context.Canceled, http.StatusBadGateway, "select_failed"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			rec := postSelect(NewRecommendationHandler(&selectionFake{err: tc.err}, nil, nil), selectBody, true)
+			rec := postSelect(NewRecommendationHandler(&selectionFake{err: tc.err}, nil), selectBody, true)
 			require.Equal(t, tc.status, rec.Code)
 			require.JSONEq(t, `{"status":"error","code":"`+tc.code+`"}`, rec.Body.String())
 			if tc.code == "spend_cap_reached" {
@@ -177,7 +177,7 @@ func TestSelectHandler_MapsErrorsToCodes(t *testing.T) {
 		})
 	}
 	t.Run("answer without model", func(t *testing.T) {
-		rec := postSelect(NewRecommendationHandler(&selectionFake{}, nil, nil), selectBody, true)
+		rec := postSelect(NewRecommendationHandler(&selectionFake{}, nil), selectBody, true)
 		require.Equal(t, http.StatusBadGateway, rec.Code)
 		require.JSONEq(t, `{"status":"error","code":"select_failed"}`, rec.Body.String())
 	})
@@ -185,7 +185,7 @@ func TestSelectHandler_MapsErrorsToCodes(t *testing.T) {
 
 func TestSelectHandler_TimesOutAtTheDeadline(t *testing.T) {
 	provider := &selectionFake{block: true}
-	handler := NewRecommendationHandler(provider, nil, nil)
+	handler := NewRecommendationHandler(provider, nil)
 	handler.SelectDeadline = 50 * time.Millisecond
 	started := time.Now()
 	rec := postSelect(handler, selectBody, true)
@@ -199,7 +199,7 @@ func TestSelectHandler_TimesOutAtTheDeadline(t *testing.T) {
 func TestSelectHandler_DefaultsToTheContractDeadline(t *testing.T) {
 	require.Equal(t, 1500*time.Millisecond, CommandSelectDeadline)
 	var remaining time.Duration
-	handler := NewRecommendationHandler(&deadlineProbe{remaining: &remaining}, nil, nil)
+	handler := NewRecommendationHandler(&deadlineProbe{remaining: &remaining}, nil)
 	rec := postSelect(handler, selectBody, true)
 	require.Equal(t, http.StatusOK, rec.Code)
 	require.LessOrEqual(t, remaining, CommandSelectDeadline)
@@ -225,7 +225,7 @@ func (p *deadlineProbe) SelectCommands(ctx context.Context, _ ports.CommandSelec
 func TestSelectHandler_AdmissionUsesTheChatTurnBoundary(t *testing.T) {
 	provider := &selectionFake{result: ports.CommandSelectionResult{Model: ports.RecommendationModelID}}
 	router := chi.NewRouter()
-	router.With(middleware.RequireAuth, middleware.RequireScope(middleware.ScopeWriteUser)).Post("/api/commands/select", NewRecommendationHandler(provider, nil, nil).Select)
+	router.With(middleware.RequireAuth, middleware.RequireScope(middleware.ScopeWriteUser)).Post("/api/commands/select", NewRecommendationHandler(provider, nil).Select)
 	send := func(info *middleware.AuthInfo) int {
 		request := httptest.NewRequest(http.MethodPost, "/api/commands/select", bytes.NewBufferString(selectBody))
 		if info != nil {
@@ -255,8 +255,8 @@ func TestSelectHandler_MetersTheUserAndKeepsNoLog(t *testing.T) {
 		Model:    ports.RecommendationModelID,
 		Usage:    &ports.RecommendationUsage{InputTokens: 1_000, OutputTokens: 3},
 	}}
-	// No RecommendationLog: selection is never logged.
-	handler := NewRecommendationHandler(provider, nil, meter)
+	// Selection does not persist recommendation receipts.
+	handler := NewRecommendationHandler(provider, meter)
 	rec := postSelect(handler, selectBody, true)
 	require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
 	require.JSONEq(t, `{"commands":[{"name":"review","probability":0.9}],"model":"typesafe-ai/jev"}`, rec.Body.String())
@@ -281,7 +281,7 @@ func TestSelectHandler_SettlesATimedOutMeteredCall(t *testing.T) {
 	meter, account := recommendationMeter(t)
 	ctx := context.Background()
 	require.NoError(t, meter.Ledger.Grant(ctx, account, "test", 10_000_000, nil))
-	handler := NewRecommendationHandler(&selectionFake{block: true}, nil, meter)
+	handler := NewRecommendationHandler(&selectionFake{block: true}, meter)
 	handler.SelectDeadline = 30 * time.Millisecond
 	rec := postSelect(handler, selectBody, true)
 	require.Equal(t, http.StatusGatewayTimeout, rec.Code)

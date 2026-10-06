@@ -22,7 +22,6 @@ import ImplementPlan from "../coding/flow.ts"
 import ImplementAtoms from "../coding/implementation/flow.ts"
 import Verify from "../coding/verify/flow.ts"
 import CodingWiki from "../coding/wiki/flow.ts"
-import Register from "../register-repository/flow.ts"
 import { deploymentMinutes, deploymentTokens } from "./inspection.ts"
 import { JobInput, JobResult, OperationResult, SetupInput, TriggerRequest } from "./schema.ts"
 import { TriggerOutcome } from "./triggers.ts"
@@ -63,20 +62,7 @@ const policySources = [
   "../coding/wiki/flow.ts",
   "../coding/planning-authority.ts",
   "../coding/immutable-source.ts",
-  ...[
-    "flow.ts",
-    "setup/flow.ts",
-    "workflow.ts",
-    "schema.ts",
-    "host.ts",
-    "tree.ts",
-    "history.ts",
-    "readiness.ts",
-    "cleanup.ts",
-    "pulls.ts",
-    "jev.ts",
-    "link.ts"
-  ].map((name) => `../register-repository/${name}`),
+  "../coding/check-detection.ts",
   "../../packages/rpc/src/RepositorySetup.ts",
   "../../pnpm-lock.yaml",
   // A prompt a workspace runs is policy: editing one changes what every
@@ -190,6 +176,8 @@ export const provisionBuiltins = (
   Effect.gen(function*() {
     const fs = yield* FileSystem.FileSystem, path = yield* Path.Path
     const root = path.join(stateRoot, "builtin-flows", policy)
+    // A reused host state must not rediscover the retired registration door.
+    yield* fs.remove(path.join(root, "register-repository"), { recursive: true, force: true })
     for (const check of checks) {
       if (
         !builtinCheckName.test(check.flow) || (check.argv.length === 0 && check.flow !== "checks/build-only") ||
@@ -233,12 +221,7 @@ export const provisionBuiltins = (
       { name: "coding", flow: ImplementPlan, description: "Execute a native coding plan with its required checks." },
       { name: "coding/dispatch", flow: Dispatch, description: "Run one dispatched agent turn in this workspace." },
       { name: "coding/implementation", flow: ImplementAtoms, description: "Implement one native coding atom." },
-      ...routes.map((name) => ({ name, ...codingRoutes[name] })),
-      {
-        name: "register-repository",
-        flow: Register,
-        description: "Analyze this repository from its link, wait for Smithers review, then set it up."
-      }
+      ...routes.map((name) => ({ name, ...codingRoutes[name] }))
     ]
     // The policy root outlives a configuration change (landing unbound, wiki
     // off), so a route this host no longer serves must not stay discoverable.

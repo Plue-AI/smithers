@@ -22,7 +22,6 @@ test("every pinned credential operation is a release install operation", () => {
 const CREDENTIAL_EXEMPTIONS: Readonly<Record<string, string>> = {
   get_api_install: "`models[].key` is a key-status enum (none|validating|saved|failed), never key material",
   put_api_install: "`models[].key` is a key-status enum (none|validating|saved|failed), never key material",
-  get_api_repos_owner_repo_agent_sessions_id_egress: "`swapped_secret_names` lists secret names, never values",
   get_api_repos_owner_repo_workspaces_id_egress: "`swapped_secret_names` lists secret names, never values",
   get_api_repos_owner_repo_issues: "`idempotency_key` echoes the caller's own retry key",
   post_api_repos_owner_repo_issues: "`idempotency_key` echoes the caller's own retry key",

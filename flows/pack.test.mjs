@@ -608,7 +608,7 @@ describe("discovery over the project flows directory", () => {
     // Every module declaration under flows/. Each one but `checks/wiki` IS its
     // own `@smthrs/flow` flow: one file, no `flows:` list, and no delegate name
     // registered on a host to join a second declaration to it.
-    const modules = ["coding", "coding/dispatch", "coding/implementation", "coding/prototype", "coding/request", "coding/verify", "coding/vibe", "coding/wiki", "issue-sweep", "issue-sweep/work", "learning", "memory/calibrate", "memory/mine", "register-repository", "register-repository/setup", "release", "release-content", "review", "rollout", "todo", "wiki", "wrapped"];
+    const modules = ["coding", "coding/dispatch", "coding/flow-load", "coding/implementation", "coding/prototype", "coding/request", "coding/verify", "coding/vibe", "coding/wiki", "issue-sweep", "issue-sweep/work", "learning", "memory/calibrate", "memory/mine", "release", "release-content", "review", "rollout", "todo", "wiki", "wrapped"];
     // `checks/wiki` still delegates, and its own file says why: the host binds
     // its reviewer policy to a descriptor by the `flows:` list, and the capture
     // action requires that descriptor's delegate to be the flow this host
@@ -625,14 +625,14 @@ describe("discovery over the project flows directory", () => {
     };
     // The runners, schedules and registration steps are the host's to start,
     // never a model's tool.
-    const hiddenModules = ["issue-sweep", "issue-sweep/work", "learning", "memory/mine", "register-repository", "register-repository/setup", "rollout", "todo"];
+    const hiddenModules = ["coding/flow-load", "issue-sweep", "issue-sweep/work", "learning", "memory/mine", "rollout", "todo"];
     // These named payloads cannot be safely reduced to a static document.
     // Keep this inventory independent of discovery's emitted warning list.
     const unavailablePayloads = [
-      "coding", "coding/dispatch", "coding/implementation", "coding/prototype",
+      "coding", "coding/dispatch", "coding/flow-load", "coding/implementation", "coding/prototype",
       "coding/request", "coding/verify", "coding/vibe", "coding/wiki",
       "issue-sweep", "issue-sweep/work", "learning", "memory/calibrate", "memory/mine",
-      "register-repository", "register-repository/setup", "release-content",
+      "release-content",
       "release", "review", "todo", "wiki", "wrapped",
     ];
     for (const name of unavailablePayloads) {
