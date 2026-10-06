@@ -22,6 +22,40 @@ func nativePlanEvent(run string, sequence int64, title string) flowruntime.Event
  "changes":[{"title":%q,"atoms":[{"changeId":null,"message":"Add greeting"}],"checks":[]}]}}}}}}`, title))}
 }
 
+func nativeRouteEvent(run string, sequence int64, route string) flowruntime.Event {
+	return flowruntime.Event{RunID: run, Sequence: sequence, Kind: "control.engine.event", Payload: json.RawMessage(fmt.Sprintf(`{
+ "version":1,"executionId":"route-child","generation":0,"sequence":8,"eventType":"flows.engine.run-decision",
+ "payload":{"decision":"transitioned","status":"completed",
+ "executionFact":{"version":1,"baseline":"created","observation":{"executionId":"route-child","flowName":"factory/Todo","status":"completed"}},
+ "state":{"version":1,"flowName":"factory/Todo","result":{"_tag":"Complete","exit":{"_tag":"Success","value":{"route":%q,"feedback":"untrusted context"}}}}}}`, route))}
+}
+
+func TestTodoRetainsNativeRouteAcrossTypedFailure(t *testing.T) {
+	o, session := newTodoAdmission(t)
+	o.service.SetTodoFlow(func(context.Context, int64, string) (string, error) { return todoPinOne, nil })
+	id := uuidString(o.fileTodo(session, "typed-fault-route").ID)
+	o.wake()
+	launch := o.launcher.last("todo")
+	update := flowdispatch.ProjectionUpdate{State: jobs.StateWaiting, Checkpoint: flowdispatch.RuntimeCheckpoint{
+		Projection: launch.Projection, FlowID: "todo", RunID: "route-run", ExecutionDigest: todoPinOne,
+		Run: &flowruntime.Run{RunID: "route-run", Status: "running"}}}
+	project := func(events ...flowruntime.Event) {
+		t.Helper()
+		update.Events = events
+		require.NoError(t, o.service.ProjectFlowRuntime(t.Context(), update))
+	}
+	project(nativeRouteEvent("route-run", 10, "bug"), nativePlanEvent("route-run", 20, "Prepared"))
+	require.Equal(t, "bug", mythicalChecksOf(o.byID(id)).Route)
+	// Replaying an old page, a foreign run or a malformed route cannot replace
+	// the decision that belongs to this attempt, even after a later plan.
+	project(nativeRouteEvent("route-run", 5, "close"), nativeRouteEvent("foreign-run", 30, "feature"), nativeRouteEvent("route-run", 30, "invented"))
+	require.Equal(t, "bug", mythicalChecksOf(o.byID(id)).Route)
+	output := `{"_tag":"/harness/HarnessError","code":"read_only_cap","message":"No edits made"}`
+	update.Checkpoint.Run = &flowruntime.Run{RunID: "route-run", Status: "failed", FinalOutput: &output}
+	project()
+	require.Equal(t, "bug", mythicalChecksOf(o.byID(id)).Route, "a typed failure without a route field retains the native route receipt")
+}
+
 func TestTodoRecoversNativePlanBeforeCandidate(t *testing.T) {
 	o, session := newTodoAdmission(t)
 	o.service.SetTodoFlow(func(context.Context, int64, string) (string, error) { return todoPinOne, nil })
@@ -36,11 +70,12 @@ func TestTodoRecoversNativePlanBeforeCandidate(t *testing.T) {
 		update.Events = events
 		require.NoError(t, o.service.ProjectFlowRuntime(t.Context(), update))
 	}
-	project(nativePlanEvent("planning-run", 10, "First preparation"))
+	project(nativeRouteEvent("planning-run", 5, "bug"), nativePlanEvent("planning-run", 10, "First preparation"))
 	require.Contains(t, string(o.byID(id).Plan), "First preparation")
 	project(nativePlanEvent("planning-run", 20, "Feedback preparation"))
 	latest := o.byID(id)
 	require.Empty(t, latest.CandidateHead, "no candidate has ever supplied a plan")
+	require.Equal(t, "bug", mythicalChecksOf(latest).Route)
 	require.Contains(t, string(latest.Plan), "Feedback preparation")
 	require.EqualValues(t, 20, mythicalChecksOf(latest).PlanReceipt.Cursor.Sequence)
 	// Read back persisted position and repeat an old page plus the exact
@@ -78,13 +113,15 @@ func TestTodoRecoversNativePlanBeforeCandidate(t *testing.T) {
 			fresh.Checkpoint.Projection = o.launcher.last("todo").Projection
 			fresh.Checkpoint.RunID = runID
 			fresh.Checkpoint.Run = &flowruntime.Run{RunID: runID, Status: "running"}
-			fresh.Events = []flowruntime.Event{nativePlanEvent(runID, 1, "New attempt preparation")}
+			fresh.Events = []flowruntime.Event{nativeRouteEvent(runID, 0, "feature"), nativePlanEvent(runID, 1, "New attempt preparation")}
 			require.NoError(t, o.service.ProjectFlowRuntime(t.Context(), fresh))
 			latest = o.byID(id)
 			require.Contains(t, string(latest.Plan), "New attempt preparation")
 			require.EqualValues(t, 1, mythicalChecksOf(latest).PlanReceipt.Cursor.Sequence)
 			require.Equal(t, latest.Attempt, mythicalChecksOf(latest).PlanReceipt.Attempt)
-			project(nativePlanEvent("planning-run", 100, "Late old attempt"))
+			require.Equal(t, "feature", mythicalChecksOf(latest).Route)
+			require.Equal(t, latest.Attempt, mythicalChecksOf(latest).RouteReceipt.Attempt)
+			project(nativeRouteEvent("planning-run", 99, "close"), nativePlanEvent("planning-run", 100, "Late old attempt"))
 			require.Equal(t, latest, o.byID(id))
 		}
 		projectTodoPlanFailure(t, o, runID)

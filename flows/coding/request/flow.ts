@@ -14,6 +14,7 @@ import { RouteRequest, StampRoute } from "../todo-route.ts"
 import { InstallDependencyPages } from "../wiki-refresh.ts"
 
 export const maximumPlanningPasses = 8
+const RequestError = Schema.Union([PrepareRequest.errorSchema, CorrectPlan.errorSchema])
 /** Private durable cursor. Notification bodies and provenance stay in the
  * existing action receipts; the planner receives their bounded rendered text. */
 export const Cursor = Schema.Struct({
@@ -83,7 +84,7 @@ type CoordinateFlow = Flow.Flow<
   "coding/CoordinateRequest",
   typeof Cursor,
   typeof RequestResult,
-  typeof PrepareRequest.errorSchema,
+  typeof RequestError,
   Action.Requirement<(typeof MergeFeedback | typeof ReceiveFeedback | typeof AdmitSource | typeof RefusePlan)["name"]>
 >
 
@@ -93,7 +94,7 @@ type CoordinateFlow = Flow.Flow<
 export const Coordinate: CoordinateFlow = Flow.make("coding/CoordinateRequest", {
   payload: Cursor,
   success: RequestResult,
-  error: PrepareRequest.errorSchema,
+  error: RequestError,
   maxRounds: maximumPlanningPasses,
   body: (cursor) =>
     (cursor.preparedPlan === undefined
@@ -163,7 +164,7 @@ export default Flow.make("coding/Request", {
   effects: { reads: ["**"], writes: ["**"], mode: "expected", onConflict: "serialize", tier: "irreversible" },
   payload: RequestInput,
   success: RequestResult,
-  error: PrepareRequest.errorSchema,
+  error: RequestError,
   body: (input) => {
     const wiki = input.wiki === undefined ? {} : { wiki: input.wiki }
     // Every answer a person gave an earlier attempt reaches each planning pass.

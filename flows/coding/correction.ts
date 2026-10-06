@@ -4,6 +4,7 @@ import * as Digest from "@smthrs/core/Digest"
 import { Action, Flow, FlowRuntime, Interpreter, Stall } from "@smthrs/flow"
 import { Node } from "@smthrs/plan"
 import { Cause, Effect, Layer, Schema } from "effect"
+import { atomError } from "./atoms.ts"
 import {
   ApplyNative,
   NativeCodingError,
@@ -136,7 +137,8 @@ const Repair = Schema.Struct({
   index: Schema.Int,
   ordinal: Schema.Int
 })
-const Error = Schema.Union([CodingError, EarlyFeedback, NativeCodingError, AgentAction.AgentFailure])
+const Error = Schema.Union([atomError, EarlyFeedback])
+const isStepFailure = Schema.is(atomError)
 
 /** Same role and runtime; deployment capabilities govern this planning step. */
 export const SelectRepair = AgentAction.make("coding/select-owner-repair", {
@@ -186,7 +188,7 @@ const Refresh = Action.make("coding/refresh-restacked-evidence", {
 const RunRound = Action.make("coding/run-correction-round", {
   payload: Cursor,
   success: RoundOutcome,
-  error: CodingError,
+  error: atomError,
   nondeterministic: true
 })
 const Finish = Action.make("coding/finish-correction", {
@@ -385,13 +387,13 @@ type RoundFlow = Flow.Flow<
   "coding/CorrectionRound",
   typeof Cursor,
   typeof CorrectionResult,
-  typeof CodingError,
+  typeof atomError,
   Action.Requirement<(typeof RunRound | typeof RecordLearning | typeof Finish)["name"]>
 >
 const Round: RoundFlow = Flow.make("coding/CorrectionRound", {
   payload: Cursor,
   success: CorrectionResult,
-  error: CodingError,
+  error: atomError,
   maxRounds: 8,
   body: (cursor) =>
     RunRound.call(cursor).pipe(
@@ -411,7 +413,7 @@ const Round: RoundFlow = Flow.make("coding/CorrectionRound", {
 export const CorrectPlan = Flow.make("coding/CorrectPlan", {
   payload: Input,
   success: CorrectionResult,
-  error: CodingError,
+  error: atomError,
   body: (input) => Begin.call(input).pipe(Node.bindPlanned((cursor) => Round.child(cursor)))
 })
 
@@ -551,11 +553,11 @@ export const correctionLayers = Layer.mergeAll(
         Effect.map((result): Pass => ({ result, blocked: null })),
         Effect.catchCause((cause) => {
           if (Cause.hasInterruptsOnly(cause)) return Effect.interrupt
-          // Preserve declared coding failures and their recovery class. Turning
+          // Preserve declared step failures and their recovery class. Turning
           // them into a blocked result makes delivery replace the original fault
           // with invalid_receipt when it refuses the unvalidated request.
           for (const reason of cause.reasons) {
-            if (Cause.isFailReason(reason) && reason.error instanceof CodingError) return Effect.fail(reason.error)
+            if (Cause.isFailReason(reason) && isStepFailure(reason.error)) return Effect.fail(reason.error)
           }
           const early = cause.reasons.find((reason) =>
             Cause.isFailReason(reason) && reason.error instanceof EarlyFeedback

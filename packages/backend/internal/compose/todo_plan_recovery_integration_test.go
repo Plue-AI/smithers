@@ -43,6 +43,7 @@ func TestTodoNativePlanRecoveryBundledHost(t *testing.T) {
 	require.Equal(t, "Add a greeting", summary.Title)
 	require.Contains(t, summary.Steps, "📝 docs: add a greeting to JOURNEY.md")
 	var retained struct {
+		Route       string `json:"route"`
 		PlanReceipt struct {
 			Attempt int    `json:"attempt"`
 			RunID   string `json:"runId"`
@@ -52,6 +53,7 @@ func TestTodoNativePlanRecoveryBundledHost(t *testing.T) {
 		} `json:"planReceipt"`
 	}
 	require.NoError(t, json.Unmarshal(checks, &retained))
+	require.Equal(t, "implement", retained.Route, "the native route survives a later typed implementation failure")
 	require.NotEmpty(t, retained.PlanReceipt.RunID)
 	require.Positive(t, retained.PlanReceipt.Attempt)
 	require.LessOrEqual(t, retained.PlanReceipt.Attempt, attempt)

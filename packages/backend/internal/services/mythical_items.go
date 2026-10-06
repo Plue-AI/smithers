@@ -695,7 +695,9 @@ func mythicalProjectRun(next *db.MythicalItem, item db.MythicalItem, projection 
 		}
 		if outcome != "" && item.RequestOutcome == "" {
 			next.RequestOutcome = outcome
-			checks.Route = mythicalRoute(update)
+			if route := mythicalRoute(update); route != "" {
+				checks.Route = route
+			}
 		}
 		next.Checks = checks.encode()
 	case "request":
@@ -713,8 +715,11 @@ func mythicalProjectRun(next *db.MythicalItem, item db.MythicalItem, projection 
 			if plan := mythicalPlanSummary(update); plan != nil {
 				next.Plan = plan
 			}
-			// A request that failed before Jev routed it carries none.
-			checks.Route = mythicalRoute(update)
+			// Typed native/agent failures have no route field. Keep the router's
+			// native receipt, if one was already observed for this attempt.
+			if route := mythicalRoute(update); route != "" {
+				checks.Route = route
+			}
 			checks.Receipts = mythicalKeepReceipts(item.CandidateHead, checks.Receipts, mythicalRunReceipts(projection.Phase, next.RequestRunID, update, mythicalTodo(item)))
 			next.Checks = checks.encode()
 		}
@@ -931,10 +936,16 @@ func mythicalRoute(update flowdispatch.ProjectionUpdate) string {
 	if update.Checkpoint.Run == nil || update.Checkpoint.Run.FinalOutput == nil {
 		return ""
 	}
+	return mythicalRouteJSON([]byte(*update.Checkpoint.Run.FinalOutput))
+}
+
+func mythicalRouteJSON(encoded []byte) string {
 	var result struct {
 		Route string `json:"route"`
 	}
-	_ = json.Unmarshal([]byte(*update.Checkpoint.Run.FinalOutput), &result)
+	if json.Unmarshal(encoded, &result) != nil {
+		return ""
+	}
 	switch result.Route {
 	case "implement", "bug", "feature", "close":
 		return result.Route
@@ -4783,7 +4794,8 @@ func appliedByMaintainer(applied gitHubLabelApplication, label string) bool {
 // made its issue a TODO and asked for automerge, and the review of its pull
 // request's head.
 type mythicalChecks struct {
-	PlanReceipt           *todoPlanReceipt      `json:"planReceipt,omitempty"`
+	PlanReceipt           *todoRequestReceipt   `json:"planReceipt,omitempty"`
+	RouteReceipt          *todoRequestReceipt   `json:"routeReceipt,omitempty"`
 	Watchdog              *todoWatchdog         `json:"watchdog,omitempty"`
 	AdmissionDay          string                `json:"admissionDay,omitempty"`
 	IssueContext          json.RawMessage       `json:"issue_context,omitempty"`

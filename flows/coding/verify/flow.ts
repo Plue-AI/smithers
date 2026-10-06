@@ -19,7 +19,7 @@ export default Flow.make("coding/Verify", {
   effects: { reads: ["**"], writes: ["**"], mode: "expected", onConflict: "serialize", tier: "irreversible" },
   payload: VerifyInput,
   success: VerifyResult,
-  error: CodingError,
+  error: RunCheck.errorSchema,
   body: (input) => {
     // Admission refuses a check set that cannot verify anything before any check runs.
     return AdmitVerifySource.call({ source: input.source, checks: input.checks }).pipe(

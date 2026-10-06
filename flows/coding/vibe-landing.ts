@@ -222,7 +222,7 @@ const AwaitAppend = Poll.make("coding/AwaitVibeAppend", {
         })
     }))
 })
-export const LandVibeError = Schema.Union([CodingError, Poll.Failure])
+export const LandVibeError = Schema.Union([RunCheck.errorSchema, Poll.Failure])
 /** Fast-forward: the project's checks on the candidate, then main moves or the candidate is evicted. */
 const fastForward = (cleanup: VibeCleanup) =>
   PrepareCandidate.call({ cleanup }).pipe(

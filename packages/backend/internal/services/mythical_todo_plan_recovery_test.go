@@ -153,7 +153,8 @@ func TestTodoRetainedPlanCannotValidateNewCandidate(t *testing.T) {
 		State: jobs.StateWaiting, Checkpoint: flowdispatch.RuntimeCheckpoint{
 			Projection: o.launcher.last("todo").Projection, FlowID: "todo", RunID: "current-run", ExecutionDigest: todoPinOne,
 			Run: &flowruntime.Run{RunID: "current-run", Status: "running"}},
-		Events: []flowruntime.Event{nativePlanEvent("current-run", 100, "Late preparation")},
+		Events: []flowruntime.Event{nativeRouteEvent("current-run", 99, "bug"), nativePlanEvent("current-run", 100, "Late preparation")},
 	}))
 	require.JSONEq(t, string(after.Plan), string(o.byID(id).Plan))
+	require.Equal(t, "bug", mythicalChecksOf(o.byID(id)).Route, "late route evidence survives candidate submission without replacing its plan")
 }

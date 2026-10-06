@@ -8,9 +8,9 @@ import (
 	"github.com/smithersai/smithers/packages/backend/internal/db"
 )
 
-// Only an observation position is retained here. The existing Plan column is
-// the recovery summary; a submitted candidate always supplies its own plan.
-type todoPlanReceipt struct {
+// Only an observation position is retained here. The existing Plan and Route
+// fields hold their values; a submitted candidate always supplies its own plan.
+type todoRequestReceipt struct {
 	Attempt int32                   `json:"attempt"`
 	RunID   string                  `json:"runId"`
 	Cursor  flowruntime.EventCursor `json:"cursor"`
@@ -24,7 +24,7 @@ type todoPlanReceipt struct {
 // This is untrusted continuation context, never candidate/check authority.
 func projectTodoPlan(item *db.MythicalItem, projection mythicalProjection, update flowdispatch.ProjectionUpdate) {
 	if !mythicalTodo(*item) || (projection.Phase != "todo" && projection.Phase != "request") ||
-		item.CandidateHead != "" || item.RequestRunID == "" || item.RequestRunID != update.Checkpoint.RunID {
+		item.RequestRunID == "" || item.RequestRunID != update.Checkpoint.RunID {
 		return
 	}
 	checks := mythicalChecksOf(*item)
@@ -39,12 +39,21 @@ func projectTodoPlan(item *db.MythicalItem, projection mythicalProjection, updat
 		if cursor.Sequence < 0 || (cursor.Offset != nil && *cursor.Offset < 0) {
 			continue
 		}
+		if prior := checks.RouteReceipt; prior == nil || prior.Attempt != item.Attempt || prior.RunID != item.RequestRunID || todoPlanAfter(cursor, prior.Cursor) {
+			if route := mythicalRouteJSON(todoNativeResult(event, "factory/Todo")); route != "" {
+				checks.Route = route
+				checks.RouteReceipt = &todoRequestReceipt{Attempt: item.Attempt, RunID: item.RequestRunID, Cursor: cursor}
+			}
+		}
+		if item.CandidateHead != "" {
+			continue // A routed decision remains useful; an admitted candidate owns its plan.
+		}
 		if prior := checks.PlanReceipt; prior != nil && prior.Attempt == item.Attempt && prior.RunID == item.RequestRunID && !todoPlanAfter(cursor, prior.Cursor) {
 			continue
 		}
 		if plan := todoNativePlan(event); plan != nil {
 			item.Plan = plan
-			checks.PlanReceipt = &todoPlanReceipt{Attempt: item.Attempt, RunID: item.RequestRunID, Cursor: cursor}
+			checks.PlanReceipt = &todoRequestReceipt{Attempt: item.Attempt, RunID: item.RequestRunID, Cursor: cursor}
 		}
 	}
 	item.Checks = checks.encode()
@@ -62,6 +71,19 @@ func todoPlanAfter(next, previous flowruntime.EventCursor) bool {
 }
 
 func todoNativePlan(event flowruntime.Event) json.RawMessage {
+	plan := todoNativeResult(event, "coding/PreparePlan")
+	if plan == nil {
+		return nil
+	}
+	wrapped, _ := json.Marshal(struct {
+		Plan json.RawMessage `json:"plan"`
+	}{Plan: plan})
+	return mythicalPlanSummaryJSON(wrapped)
+}
+
+// Read only a completed native flow fact whose envelope and state agree.
+// Router results remain available when a later typed error has no route field.
+func todoNativeResult(event flowruntime.Event, flowName string) json.RawMessage {
 	if event.Kind != "control.engine.event" {
 		return nil
 	}
@@ -106,13 +128,10 @@ func todoNativePlan(event flowruntime.Event) json.RawMessage {
 	if p.Decision != "transitioned" || p.Status != "completed" || fact.Version != 1 ||
 		(fact.Baseline != "created" && fact.Baseline != "legacy") ||
 		fact.Observation.ExecutionID != envelope.ExecutionID || fact.Observation.Status != "completed" ||
-		fact.Observation.FlowName != "coding/PreparePlan" || state.Version != 1 || state.FlowName != "coding/PreparePlan" ||
+		fact.Observation.FlowName != flowName || state.Version != 1 || state.FlowName != flowName ||
 		state.Result.Tag != "Complete" || state.Result.Exit.Tag != "Success" || len(state.Result.Exit.Value) == 0 ||
 		len(state.Result.Exit.Value) > 1<<20 { // Same plan bound as candidate admission.
 		return nil
 	}
-	wrapped, _ := json.Marshal(struct {
-		Plan json.RawMessage `json:"plan"`
-	}{Plan: state.Result.Exit.Value})
-	return mythicalPlanSummaryJSON(wrapped)
+	return state.Result.Exit.Value
 }

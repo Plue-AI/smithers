@@ -7,7 +7,7 @@ import * as Executable from "@smthrs/registry/Executable"
 import { Effect, FileSystem, Layer, ManagedRuntime } from "effect"
 import assert from "node:assert/strict"
 import { execFileSync } from "node:child_process"
-import { access, mkdir, mkdtemp, readFile, rm, symlink, writeFile } from "node:fs/promises"
+import { access, mkdir, mkdtemp, readFile, realpath, rm, symlink, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { basename, dirname, join } from "node:path"
 import { test } from "node:test"
@@ -16,20 +16,13 @@ import { Rule } from "../../packages/smithers/flows/capability/src/Permission.ts
 import * as NodeJj from "../../packages/smithers/flows/jj/src/node/NodeJj.ts"
 import { catalogLayers } from "../coding/catalog.ts"
 import { checkDelegate, checkLayers } from "../coding/checks.ts"
-import {
-  type Check,
-  CodingError,
-  type Implementation,
-  Receipt,
-  receiptMatches,
-  type Revision
-} from "../coding/schema.ts"
+import { type Check, type Implementation, Receipt, receiptMatches, type Revision } from "../coding/schema.ts"
 import { RunCheck } from "../coding/workflow.ts"
 
 const CheckRun = Flow.make("acceptance/RegisteredCheck", {
   payload: RunCheck.payloadSchema,
   success: Receipt,
-  error: CodingError,
+  error: RunCheck.errorSchema,
   body: (input) => RunCheck.call(input)
 })
 
@@ -41,15 +34,16 @@ test("native command checks read immutable source during edits and replay exact 
   timeout: 900_000
 }, async (t) => {
   const nativeRuntime = process.versions.bun ? await import("@smthrs/flows/BunRuntime") : NodeRuntime
-  const temporary = await mkdtemp(join(tmpdir(), "coding-check-acceptance-"))
+  const temporary = await realpath(await mkdtemp(join(tmpdir(), "coding-check-acceptance-")))
   let disposeHost = async () => {}
   t.after(async () => {
     await disposeHost()
     await rm(temporary, { force: true, recursive: true })
   })
-  const root = join(temporary, "repo"), started = join(temporary, "started"), release = join(temporary, "release")
+  const root = join(temporary, "repo"), started = join(root, ".jj", "started"), release = join(root, ".jj", "release")
   execFileSync("jj", ["git", "init", root], { stdio: "pipe" })
-  const jj = (...args: string[]) => execFileSync("jj", ["-R", root, ...args], { cwd: root, stdio: "pipe" }).toString()
+  const jj = (...args: Array<string>) =>
+    execFileSync("jj", ["-R", root, ...args], { cwd: root, stdio: "pipe" }).toString()
   jj("config", "set", "--repo", "user.name", "Check Acceptance")
   jj("config", "set", "--repo", "user.email", "check@example.com")
   await writeFile(join(root, ".gitignore"), ".flows/\n")
@@ -126,7 +120,7 @@ process.exit(mode==='fail'?7:value==='old source'?0:9);
     tier: "slow",
     required: true
   }
-  const directories: string[] = []
+  const directories: Array<string> = []
   const fs = await Effect.runPromise(FileSystem.FileSystem.pipe(Effect.provide(NodeFileSystem.layer)))
   const recordingFs: FileSystem.FileSystem = {
     ...fs,
@@ -145,7 +139,12 @@ process.exit(mode==='fail'?7:value==='old source'?0:9);
         owner: { hostId: "check-acceptance" },
         signals: [],
         rules: [[
-          new Rule({ effect: "allow", pattern: new CapabilityPattern({ action: "proc:spawn", resource: "**" }) })
+          new Rule({ effect: "allow", pattern: new CapabilityPattern({ action: "proc:spawn", resource: "**" }) }),
+          ...[root, `${root}/**`].flatMap((resource) =>
+            (["fs:read", "fs:write"] as const).map((action) =>
+              new Rule({ effect: "allow", pattern: new CapabilityPattern({ action, resource }) })
+            )
+          )
         ]]
       },
       Layer.mergeAll(
@@ -184,7 +183,9 @@ process.exit(mode==='fail'?7:value==='old source'?0:9);
     try {
       await access(started)
       break
-    } catch {}
+    } catch {
+      // The checker has not created its start marker yet.
+    }
     assert.ok(Date.now() < deadline, "checker must start within the host acquisition budget")
     await new Promise((resolve) => setTimeout(resolve, 50))
   }
