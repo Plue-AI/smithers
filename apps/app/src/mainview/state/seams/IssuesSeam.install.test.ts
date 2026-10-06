@@ -1,4 +1,5 @@
 import { expect, test } from "bun:test"
+import { LiveChannel, type LiveSocket } from "../../runtime/LiveChannel"
 import { createAppController } from "../AppController"
 import type { Card } from "../AppState"
 import { createAppStore } from "../AppStore"
@@ -20,7 +21,7 @@ const githubIssue = (number: number, title: string, body: string, login: string)
 })
 
 /** An install's app signed in as alice; the owner's app loads the repository, a member's loads none (GET /api/user/repos is empty). */
-const installApp = async ({ loaded = true, allowed = true } = {}) => {
+const installApp = async ({ loaded = true, allowed = true, channel = undefined as LiveChannel | undefined, outsider = false } = {}) => {
   const store = await createAppStore({ kind: "localStorage", storage: memoryStorage() })
   await store.dispatch({ type: "identity.session.loaded", actor: "system", state: "signed-in", login: "alice", admin: false, scopesPlain: null }).isPersisted.promise
   if (loaded) await store.dispatch({ type: "repositories.loaded", actor: "system", repositories: [{ id: REPO, org: "local-owner", ownerKind: "user", name: "demo", head: null }] }).isPersisted.promise
@@ -31,7 +32,7 @@ const installApp = async ({ loaded = true, allowed = true } = {}) => {
   const answer = (path: string, search: string): Response => {
     if (path === "/api/issues") return Response.json(new URLSearchParams(search).get("state") === "closed" ? []
       : [githubIssue(2, "Say goodbye", "JOURNEY.md should end with a farewell.", "ben"), githubIssue(1, "Retry webhooks", "They drop on 502.", "ben")])
-    if (path === "/api/issues/2") return Response.json({ issue_digest: "a".repeat(64), make_todo_allowed: allowed, issue: githubIssue(2, "Say goodbye", "JOURNEY.md should end with a farewell.", "ben"),
+    if (path === "/api/issues/2") return Response.json({ issue_digest: "a".repeat(64), make_todo_allowed: allowed, issue: githubIssue(2, "Say goodbye", "JOURNEY.md should end with a farewell.", outsider ? "carol" : "ben"),
       comments: [{ id: 5, body: "Keep it short.", user: { login: "carol" }, created_at: "2026-10-05T11:00:00Z" }] })
     if (path === "/api/issues/9") return Response.json({ code: "not_found", class: "user", message: "Issue #9 was not found" }, { status: 404 })
     if (path === "/api/todos") return Response.json({ state: "accepted", n: 4, rev: 1 }, { status: 202 })
@@ -39,7 +40,7 @@ const installApp = async ({ loaded = true, allowed = true } = {}) => {
     return new Response("", { status: 404 })
   }
   const controller = createAppController(store, silentAgent, {
-    live: { subscribe: (topic, receive) => { const rows = listeners.get(topic) ?? new Set<() => void>(); rows.add(receive); listeners.set(topic, rows); return () => { rows.delete(receive) } }, getSnapshot: () => undefined },
+    live: channel ?? { subscribe: (topic, receive) => { const rows = listeners.get(topic) ?? new Set<() => void>(); rows.add(receive); listeners.set(topic, rows); return () => { rows.delete(receive) } }, getSnapshot: () => undefined },
     bootstrap: { apiVersion: 1, host: "cloud", version: "test", buildSha: "test", authFlow: "redirect", sandbox: null, capabilities: ["identity", "install"] },
     fetchImpl: signupProfileFetch(async (input, init) => {
       const url = new URL(input instanceof Request ? input.url : String(input), "https://app.test")
@@ -49,7 +50,7 @@ const installApp = async ({ loaded = true, allowed = true } = {}) => {
       return answer(url.pathname, url.search)
     }).fetchImpl
   })
-  return { store, controller, calls, posts, roleChanged: () => { for (const receive of listeners.get("members") ?? []) receive() } }
+  return { store, controller, calls, posts, setAllowed: (value: boolean) => { allowed = value }, roleChanged: () => { for (const receive of listeners.get("members") ?? []) receive() } }
 }
 
 const cardOf = <K extends Card["kind"]>(cards: Iterable<Card>, id: string, kind: K): Extract<Card, { kind: K }> => {
@@ -149,4 +150,37 @@ test("a roster role change invalidates an allowed issue before the agent confirm
   expect(await controller.runCommandForResult("issue", "#2")).toMatchObject({status:"executed"})
   expect(await controller.runCommandForResult("todo.from-issue", `2 ${REPO}`)).toMatchObject({status:"executed",value:"Drafted"})
  } finally {await controller.dispose()}
+})
+
+for (const loss of ["disconnect", "gap", "other-topic gap"] as const) test(`live ${loss} invalidates an outsider issue when the maintainer is demoted offline`, async () => {
+  const socket: LiveSocket = { readyState: 1, onopen: null, onclose: null, onmessage: null, send() {}, close() {} }
+  const channel = new LiveChannel({ socket: () => socket, schedule: () => 1, cancel() {} })
+  const { store, controller, posts, setAllowed } = await installApp({ channel, outsider: true })
+  try {
+    const releaseOther = channel.subscribe("home", () => {})
+    socket.onopen?.()
+    // Deliver the members cursor before the authorized read.
+    socket.onmessage?.({ data: JSON.stringify({ t: "snap", id: 1, cursor: 1, data: [] }) })
+    await controller.runCommandForResult("issue", "#2")
+    expect(cardOf(store.collections.cards.values(), `issue-github-${REPO}-2`, "issue").payload.makeTodoAllowed).toBe(true)
+    if (loss === "disconnect") socket.onclose?.()
+    else socket.onmessage?.({ data: JSON.stringify({ t: "gap", id: loss === "gap" ? 1 : 2 }) })
+    setAllowed(false) // Demotion elsewhere cannot deliver a roster notification.
+    const agent = await controller.commands.executeForAgent({
+      name: "commands", arguments: JSON.stringify({ action: "execute", name: "todo.from-issue", args: `2 ${REPO}` })
+    })
+    expect(agent).not.toContain("asked the user to confirm")
+    expect(await controller.runCommandForResult("todo.from-issue", `2 ${REPO}`)).toMatchObject({ status: "failed" })
+    expect([...store.collections.cards.values()].some(card => card.kind === "draft" || card.kind === "confirm")).toBe(false)
+    expect(posts).toEqual([])
+    // A live snapshot alone does not reauthorize the retained issue.
+    socket.onmessage?.({ data: JSON.stringify({ t: "snap", id: 1, cursor: 2, data: [] }) })
+    expect(await controller.runCommandForResult("todo.from-issue", `2 ${REPO}`)).toMatchObject({ status: "failed" })
+    releaseOther()
+    await controller.runCommandForResult("issue", "#2")
+    expect(await controller.runCommandForResult("todo.from-issue", `2 ${REPO}`)).toMatchObject({ status: "failed" })
+    setAllowed(true)
+    await controller.runCommandForResult("issue", "#2")
+    expect(await controller.runCommandForResult("todo.from-issue", `2 ${REPO}`)).toMatchObject({ status: "executed", value: "Drafted" })
+  } finally { await controller.dispose(); channel.dispose() }
 })
