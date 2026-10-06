@@ -3675,6 +3675,22 @@ func (st *mythicalItemStep) proposalDiff(ctx context.Context, item db.MythicalIt
 
 // merge prepares a standing person's approval through the same fenced outbound path.
 func (st *mythicalItemStep) merge(ctx context.Context, item db.MythicalItem) *db.MythicalItem {
+	// A person may already have merged on GitHub. Preserve the existing read
+	// recovery, which settles only when main contains the commit and sends no PUT.
+	if st.s.github == nil || st.gh == nil {
+		return mythicalLater(item, "merge recovery is unavailable", st.now)
+	}
+	pull, err := st.s.github.Pull(ctx, *st.gh, item.PRNumber.Int64)
+	if err != nil {
+		return mythicalLater(item, "GitHub did not answer for merge recovery", st.now)
+	}
+	if pull.Merged {
+		next, err := st.follow(ctx, item)
+		if err != nil {
+			return mythicalLater(item, "GitHub did not answer for merge containment", st.now)
+		}
+		return next
+	}
 	checks := mythicalChecksOf(item)
 	if !checks.Automerge || checks.Preapproval == nil || len(item.PendingOp) != 0 || checks.PreapprovalFailure != nil && checks.PreapprovalFailure.Head == item.PRHead && checks.PreapprovalFailure.Generation == item.Generation {
 		return &item

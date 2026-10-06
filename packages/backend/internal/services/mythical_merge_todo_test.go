@@ -131,7 +131,13 @@ func (h *mergeHarness) first(title string) (int64, string, int64) {
 	return h.todoInReview(title, h.main)
 }
 
-func (h *mergeHarness) pass() { h.wake() }
+// pass makes the item due against the service clock, including tests with a
+// fixed clock. PostgreSQL NOW() may be ahead of that clock after publication.
+func (h *mergeHarness) pass() {
+	h.exec(`UPDATE mythical_items SET next_attempt_at = NULL WHERE repository_id = $1`, h.repoID)
+	h.service.MainMoved(context.Background(), h.repoID)
+	require.NoError(h.t, h.service.PollOnce(context.Background()))
+}
 
 func (h *mergeHarness) mergeCard(number int64) (string, map[string]any) {
 	h.t.Helper()
@@ -1961,18 +1967,17 @@ func TestMythicalMergeTodoProjectionDuringTheClaimDoesNotDeadlock(t *testing.T) 
 	assert.Equal(t, "run-projected", h.item(n).RequestRunID, "the projection's write is kept")
 }
 
-// These cases test approval/readiness/recovery, with a fixed service clock;
+// These cases test approval/readiness/recovery, with a service clock fixed after publication;
 // the separate claim tests exercise elapsed-time bounds with advancing clocks.
-func newStandingMergeHarness(t *testing.T) *mergeHarness {
-	h := newMergeHarness(t)
+func (h *mergeHarness) freezeClock() {
 	now := time.Now()
 	h.service.now = func() time.Time { return now }
-	return h
 }
 
 func TestMythicalStandingPreapprovalUsesGuardedMerge(t *testing.T) {
-	h := newStandingMergeHarness(t)
+	h := newMergeHarness(t)
 	n, head, _ := h.first("Standing approval")
+	h.freezeClock()
 	h.fake.RequireCheck("unit")
 	h.fake.SetCheck("rehearsal-owner/app", head, "unit", "in_progress", "")
 	_, err := h.service.PreapproveTodo(h.ctx, h.repoID, h.userID, n, true)
@@ -2004,8 +2009,9 @@ func TestMythicalStandingPreapprovalUsesGuardedMerge(t *testing.T) {
 func TestMythicalStandingPreapprovalRemovalAndRevocation(t *testing.T) {
 	for _, revoked := range []bool{false, true} {
 		t.Run(fmt.Sprintf("revoked=%t", revoked), func(t *testing.T) {
-			h := newStandingMergeHarness(t)
+			h := newMergeHarness(t)
 			n, _, _ := h.first("Remove approval")
+			h.freezeClock()
 			_, err := h.service.PreapproveTodo(h.ctx, h.repoID, h.userID, n, true)
 			require.NoError(t, err)
 			if revoked {
@@ -2028,8 +2034,9 @@ func TestMythicalStandingPreapprovalRemovalAndRevocation(t *testing.T) {
 }
 
 func TestMythicalStandingPreapprovalRemovalBeforeSend(t *testing.T) {
-	h := newStandingMergeHarness(t)
+	h := newMergeHarness(t)
 	n, _, _ := h.first("Cancel unsent")
+	h.freezeClock()
 	_, err := h.service.PreapproveTodo(h.ctx, h.repoID, h.userID, n, true)
 	require.NoError(t, err)
 	h.pass() // Persist the ready intent; only the next recovery pass may send.
@@ -2045,8 +2052,9 @@ func TestMythicalStandingPreapprovalRemovalBeforeSend(t *testing.T) {
 }
 
 func TestMythicalStandingPreapprovalManualMergeKeepsItsAttribution(t *testing.T) {
-	h := newStandingMergeHarness(t)
+	h := newMergeHarness(t)
 	n, head, _ := h.first("A person's Merge")
+	h.freezeClock()
 	_, err := h.service.PreapproveTodo(h.ctx, h.repoID, h.userID, n, true)
 	require.NoError(t, err)
 	require.NoError(t, h.press(h.ctx, n, head))
@@ -2062,15 +2070,17 @@ func TestMythicalStandingPreapprovalManualMergeKeepsItsAttribution(t *testing.T)
 }
 
 func TestMythicalStandingPreapprovalLostAnswerDoesNotRepeat(t *testing.T) {
-	h := newStandingMergeHarness(t)
+	h := newMergeHarness(t)
 	n, _, pr := h.first("Lost standing merge")
+	h.freezeClock()
 	_, err := h.service.PreapproveTodo(h.ctx, h.repoID, h.userID, n, true)
 	require.NoError(t, err)
 	path := fmt.Sprintf("/repos/rehearsal-owner/app/pulls/%d/merge", pr)
 	h.fake.LoseNextResponses(path, 1)
-	h.pass()
-	h.pass()
-	require.Len(t, h.merges(), 1)
+	for i := 0; i < 5 && len(h.merges()) == 0; i++ {
+		h.pass()
+	}
+	require.Len(t, h.merges(), 1, "state=%s reason=%s intent=%+v checks=%+v", h.item(n).State, h.item(n).Reason, h.operation(n), mythicalChecksOf(h.item(n)))
 	require.Equal(t, "unknown", h.operation(n).State)
 	_, err = h.service.PreapproveTodo(h.ctx, h.repoID, h.userID, n, false)
 	require.NoError(t, err)
