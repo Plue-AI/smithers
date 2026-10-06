@@ -19,6 +19,7 @@ import (
 	"net/http"
 	"net/http/cookiejar"
 	"net/http/httptest"
+	"net/http/httputil"
 	"net/url"
 	"os"
 	"os/exec"
@@ -91,6 +92,7 @@ var rehearsalInstallations atomic.Int64
 type rehearsal struct {
 	// stepBudget overrides readiness polling for non-latency checks under contention.
 	stepBudget     time.Duration
+	deferredDoors  bool
 	installationID int64
 	t              *testing.T
 	ctx            context.Context
@@ -152,7 +154,7 @@ func newRehearsal(t *testing.T, enable, check, keyPrefix string, poolCapacity ..
 	t.Cleanup(func() { _ = os.RemoveAll(tmp) })
 	t.Setenv("TMPDIR", tmp)
 	_, source, _, _ := runtime.Caller(0)
-	r := &rehearsal{t: t, keyPrefix: keyPrefix, check: check, continuing: os.Getenv("J1_REHEARSAL_CONTINUE") == "1",
+	r := &rehearsal{t: t, deferredDoors: enable == "SMITHERS_DEFERRED_DOORS_BROWSER", keyPrefix: keyPrefix, check: check, continuing: os.Getenv("J1_REHEARSAL_CONTINUE") == "1",
 		table: "step\troute\texpected\tactual\tresult\tticket\n", counts: map[string]int{}, waiting: map[string][]string{}}
 	r.root = filepath.Clean(filepath.Join(filepath.Dir(source), "../../../.."))
 	r.evidence = filepath.Join(r.root, ".artifacts/checks", check, "rehearsal", time.Now().UTC().Format("20060102T150405.000000000Z"))
@@ -291,7 +293,17 @@ path = "lib.rs"
 	} {
 		t.Setenv(name, value)
 	}
-	r.provider = localChatProvider(make(chan string, 16), "JOURNEY.md", "../../etc/passwd")
+	if r.deferredDoors {
+		origin, err := url.Parse(os.Getenv("SMITHERS_DEFERRED_PROVIDER_ORIGIN"))
+		require.NoError(t, err)
+		require.Equal(t, "http", origin.Scheme)
+		require.Equal(t, "127.0.0.1", origin.Hostname())
+		// Only the external provider transport is adapted; the model host's
+		// actual request, credentials and disclosed commands pass unchanged.
+		r.provider = httptest.NewServer(httputil.NewSingleHostReverseProxy(origin))
+	} else {
+		r.provider = localChatProvider(make(chan string, 16), "JOURNEY.md", "../../etc/passwd")
+	}
 	t.Cleanup(r.provider.Close)
 	bundle := filepath.Join(t.TempDir(), "model-host")
 	build := exec.Command(node, filepath.Join(r.root, "apps/model-host/build.mjs"), bundle)
@@ -315,7 +327,7 @@ path = "lib.rs"
 	var registry *flowmanifest.Registry
 	var platformKeys modelproxy.Keys
 	var upstreams map[string]string
-	if enable == "SMITHERS_BRANCH_FILES_INTEGRATION" {
+	if enable == "SMITHERS_BRANCH_FILES_INTEGRATION" || enable == "SMITHERS_DEFERRED_DOORS_BROWSER" {
 		// No TODO runs in the held-build file journey. The app agent below
 		// still uses its real model host and registered files.read dispatch.
 	} else if helper := rehearsalJJExport(r.root, library); helper == "" {
@@ -364,6 +376,21 @@ path = "lib.rs"
 	select {
 	case h := <-ready:
 		server.Config.Handler = h
+		if enable == "SMITHERS_DEFERRED_DOORS_BROWSER" {
+			spa := os.Getenv("SMITHERS_DEFERRED_SPA_DIR")
+			require.FileExists(t, filepath.Join(spa, "index.html"))
+			server.Config.Handler = http.HandlerFunc(func(w http.ResponseWriter, request *http.Request) {
+				if strings.HasPrefix(request.URL.Path, "/api/") || strings.HasPrefix(request.URL.Path, "/setup") || strings.Contains(request.URL.Path, ".git/") || strings.HasSuffix(request.URL.Path, ".git") {
+					h.ServeHTTP(w, request)
+					return
+				}
+				path := filepath.Join(spa, filepath.Clean("/"+request.URL.Path))
+				if info, err := os.Stat(path); err != nil || info.IsDir() {
+					path = filepath.Join(spa, "index.html")
+				}
+				http.ServeFile(w, request, path)
+			})
+		}
 	case err := <-done:
 		t.Fatalf("composition: %v\n%s", err, r.logs.String())
 	case <-time.After(45 * time.Second):
@@ -711,7 +738,11 @@ func (r *rehearsal) setupSource() bool {
 	}
 	if !r.step("5 Model access", "POST /api/model/credential; PUT /api/model/default; POST /api/install/setup/models", "sealed coding/Gateway keys; models done", "T-INS-06", func() error {
 		for _, c := range []struct{ Name, Origin string }{{"TEST_PROVIDER", r.provider.URL}, {"AI_GATEWAY_API_KEY", "https://ai-gateway.vercel.sh"}} {
-			body, _ := json.Marshal(map[string]string{"action": "enroll", "requestId": uuid.NewString(), "name": c.Name, "origin": c.Origin, "value": "rehearsal-key"})
+			key := "rehearsal-key"
+			if r.deferredDoors {
+				key = os.Getenv("SMITHERS_MODEL_PROVIDER_KEY")
+			}
+			body, _ := json.Marshal(map[string]string{"action": "enroll", "requestId": uuid.NewString(), "name": c.Name, "origin": c.Origin, "value": key})
 			data, err := r.expect("POST", "/api/model/credential", string(body), 200)
 			if err != nil {
 				return err
@@ -720,7 +751,11 @@ func (r *rehearsal) setupSource() bool {
 				return fmt.Errorf("credential refused: %s", data)
 			}
 		}
-		body, _ := json.Marshal(map[string]any{"model": map[string]string{"protocol": "openai-chat", "modelId": "test-model", "credential": "TEST_PROVIDER", "baseUrl": r.provider.URL}})
+		modelID := "test-model"
+		if r.deferredDoors {
+			modelID = "e2e-answers"
+		}
+		body, _ := json.Marshal(map[string]any{"model": map[string]string{"protocol": "openai-chat", "modelId": modelID, "credential": "TEST_PROVIDER", "baseUrl": r.provider.URL}})
 		if _, err := r.expect("PUT", "/api/model/default", string(body), 200); err != nil {
 			return err
 		}
