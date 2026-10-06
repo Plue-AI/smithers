@@ -141,6 +141,40 @@ impl Document {
         Ok(b)
     }
 }
+
+fn refusal(p: &[u8]) -> Result<u8> {
+    let mut payload = vec![255];
+    payload.extend_from_slice(p);
+    crate::conn::Frame {
+        kind: 4,
+        stream: 1,
+        payload,
+    }
+    .encode()
+    .map_err(|_| BadDocumentPayload)?;
+    Ok(p[5])
+}
+
+fn put_string(b: &mut Vec<u8>, s: &str) -> Result<()> {
+    if s.len() > 4096 || s.as_bytes().contains(&0) {
+        return Err(BadDocumentPayload);
+    }
+    b.extend_from_slice(&(s.len() as u16).to_be_bytes());
+    b.extend_from_slice(s.as_bytes());
+    Ok(())
+}
+fn take_string(p: &[u8]) -> Result<(String, &[u8])> {
+    if p.len() < 2 {
+        return Err(BadDocumentPayload);
+    }
+    let n = u16::from_be_bytes(p[..2].try_into().unwrap()) as usize;
+    if n > 4096 || p.len() < n + 2 || p[2..2 + n].contains(&0) {
+        return Err(BadDocumentPayload);
+    }
+    let s = std::str::from_utf8(&p[2..2 + n]).map_err(|_| BadDocumentPayload)?;
+    Ok((s.to_owned(), &p[2 + n..]))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -203,37 +237,4 @@ mod tests {
             .is_err());
         }
     }
-}
-
-fn refusal(p: &[u8]) -> Result<u8> {
-    let mut payload = vec![255];
-    payload.extend_from_slice(p);
-    crate::conn::Frame {
-        kind: 4,
-        stream: 1,
-        payload,
-    }
-    .encode()
-    .map_err(|_| BadDocumentPayload)?;
-    Ok(p[5])
-}
-
-fn put_string(b: &mut Vec<u8>, s: &str) -> Result<()> {
-    if s.len() > 4096 || s.as_bytes().contains(&0) {
-        return Err(BadDocumentPayload);
-    }
-    b.extend_from_slice(&(s.len() as u16).to_be_bytes());
-    b.extend_from_slice(s.as_bytes());
-    Ok(())
-}
-fn take_string(p: &[u8]) -> Result<(String, &[u8])> {
-    if p.len() < 2 {
-        return Err(BadDocumentPayload);
-    }
-    let n = u16::from_be_bytes(p[..2].try_into().unwrap()) as usize;
-    if n > 4096 || p.len() < n + 2 || p[2..2 + n].contains(&0) {
-        return Err(BadDocumentPayload);
-    }
-    let s = std::str::from_utf8(&p[2..2 + n]).map_err(|_| BadDocumentPayload)?;
-    Ok((s.to_owned(), &p[2 + n..]))
 }

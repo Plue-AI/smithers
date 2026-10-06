@@ -18,12 +18,14 @@ pub struct Closed<A, B, C> {
     pub renamed_to: BTreeMap<String, String>,
     pub last_path: String,
 }
+type Identity<A> = (Key<A>, [u8; 16], Option<Window<A>>);
+
 #[derive(Clone, Debug)]
 pub struct Checkpoint<A, B> {
     pub recorded: BTreeMap<String, Version<B>>,
     pub bursts: Bursts<A, Version<B>>,
     renames: BTreeMap<String, String>,
-    identities: Vec<(Key<A>, [u8; 16], Option<Window<A>>)>,
+    identities: Vec<Identity<A>>,
 }
 impl<A: Clone + Eq, B: Clone> Checkpoint<A, B> {
     pub fn renames(&self) -> &BTreeMap<String, String> {
@@ -93,6 +95,25 @@ impl<A: Clone + Eq, B: Clone> Default for Checkpoint<A, B> {
         }
     }
 }
+#[cfg(not(target_os = "linux"))]
+fn burst_id() -> io::Result<[u8; 16]> {
+    Err(io::ErrorKind::Unsupported.into())
+}
+#[cfg(target_os = "linux")]
+fn burst_id() -> io::Result<[u8; 16]> {
+    let mut id = [0; 16];
+    let mut offset = 0;
+    while offset < id.len() {
+        match rustix::rand::getrandom(&mut id[offset..], rustix::rand::GetRandomFlags::empty()) {
+            Ok(0) => return Err(io::Error::other("random source exhausted")),
+            Ok(n) => offset += n,
+            Err(rustix::io::Errno::INTR) => continue,
+            Err(e) => return Err(e.into()),
+        }
+    }
+    Ok(id)
+}
+
 /// All methods execute inside the core's shared FIFO mutation job. Production
 /// must supply authenticated actors/session samples, confined reads, the real
 /// checkpoint/object provider, and durable outbox. There are no no-op defaults.
@@ -343,24 +364,7 @@ impl<A: Eq + Clone, B: Eq + Clone> Changes<A, B> {
         self.close_due(p, now, Some((&key, path)), false)?;
         let opened = !self.state.identities.iter().any(|(k, _, _)| k == &key);
         if opened {
-            let mut id = [0; 16];
-            #[cfg(target_os = "linux")]
-            {
-                let mut offset = 0;
-                while offset < id.len() {
-                    match rustix::rand::getrandom(
-                        &mut id[offset..],
-                        rustix::rand::GetRandomFlags::empty(),
-                    ) {
-                        Ok(0) => return Err(io::Error::other("random source exhausted")),
-                        Ok(n) => offset += n,
-                        Err(rustix::io::Errno::INTR) => continue,
-                        Err(e) => return Err(e.into()),
-                    }
-                }
-            }
-            #[cfg(not(target_os = "linux"))]
-            return Err(io::ErrorKind::Unsupported.into());
+            let id = burst_id()?;
             let window = if matches!(key, Key::Outside) {
                 Some(Window::new(if self.previous_samples.is_empty() {
                     &self.samples

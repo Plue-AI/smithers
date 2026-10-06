@@ -2,3 +2,5 @@
 #[cfg(target_os = "linux")]
 pub mod cgroups;
 pub mod sessions;
+
+pub mod control;

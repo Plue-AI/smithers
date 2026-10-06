@@ -94,6 +94,154 @@ impl SessionReceiver {
     }
 }
 
+/// Object frames share the same accounting as sessions. No bytes are read when
+/// the peer has exhausted its window, and EOF is emitted exactly once.
+pub struct ObjectSender {
+    pipe: Sender,
+    stream: u32,
+    eof_sent: bool,
+    closed: bool,
+}
+impl ObjectSender {
+    pub fn new(stream: u32) -> io::Result<Self> {
+        if stream == 0 {
+            return Err(invalid("zero object stream"));
+        }
+        Ok(Self {
+            pipe: Sender::default(),
+            stream,
+            eof_sent: false,
+            closed: false,
+        })
+    }
+    pub fn next(&mut self, source: &mut impl Read) -> io::Result<Option<crate::conn::Frame>> {
+        if self.closed {
+            return Err(invalid("object stream closed"));
+        }
+        if self.eof_sent {
+            return Ok(None);
+        }
+        let payload = match self.pipe.read(source)? {
+            ReadOutcome::Blocked => return Ok(None),
+            ReadOutcome::Data(bytes) => {
+                let mut payload = vec![1, 0];
+                payload.extend(bytes);
+                payload
+            }
+            ReadOutcome::Eof => {
+                self.eof_sent = true;
+                vec![2, 0]
+            }
+        };
+        Ok(Some(crate::conn::Frame {
+            kind: 6,
+            stream: self.stream,
+            payload,
+        }))
+    }
+    pub fn peer(&mut self, frame: &crate::conn::Frame) -> io::Result<()> {
+        frame
+            .encode()
+            .map_err(|_| invalid("invalid object frame"))?;
+        if frame.kind != 6 || frame.stream != self.stream {
+            return Err(invalid("wrong object stream"));
+        }
+        match frame.payload[0] {
+            6 => self
+                .pipe
+                .window(u32::from_be_bytes(frame.payload[1..5].try_into().unwrap())),
+            7 | 255 => {
+                self.pipe.close();
+                self.closed = true;
+                Ok(())
+            }
+            _ => Err(invalid("unexpected object response")),
+        }
+    }
+    pub fn outstanding(&self) -> usize {
+        self.pipe.outstanding()
+    }
+}
+/// Spools each frame before returning its credit. EOF alone does not produce a
+/// close: the object importer must verify/fetch and sync the objects first.
+pub struct ObjectReceiver {
+    pipe: Receiver,
+    stream: u32,
+    eof: bool,
+    closed: bool,
+}
+impl ObjectReceiver {
+    pub fn new(stream: u32) -> io::Result<Self> {
+        if stream == 0 {
+            return Err(invalid("zero object stream"));
+        }
+        Ok(Self {
+            pipe: Receiver::default(),
+            stream,
+            eof: false,
+            closed: false,
+        })
+    }
+    pub fn receive(
+        &mut self,
+        frame: &crate::conn::Frame,
+        destination: &mut impl std::io::Write,
+    ) -> io::Result<Option<crate::conn::Frame>> {
+        frame
+            .encode()
+            .map_err(|_| invalid("invalid object frame"))?;
+        if self.closed || frame.kind != 6 || frame.stream != self.stream {
+            return Err(invalid("wrong or closed object stream"));
+        }
+        match frame.payload[0] {
+            1 => {
+                let bytes = &frame.payload[2..];
+                if bytes.is_empty() {
+                    return Err(invalid("empty object data"));
+                }
+                self.pipe.data(bytes.len())?;
+                if let Err(error) = destination.write_all(bytes) {
+                    self.pipe.close();
+                    self.closed = true;
+                    return Err(error);
+                }
+                let credit = self.pipe.consumed(bytes.len())?;
+                let mut payload = vec![6];
+                payload.extend(credit.to_be_bytes());
+                Ok(Some(crate::conn::Frame {
+                    kind: 6,
+                    stream: self.stream,
+                    payload,
+                }))
+            }
+            2 => {
+                self.pipe.eof()?;
+                self.eof = true;
+                Ok(None)
+            }
+            7 | 255 => {
+                self.pipe.close();
+                self.closed = true;
+                Ok(None)
+            }
+            _ => Err(invalid("unexpected object input")),
+        }
+    }
+    /// Caller owns successful bundle verification/import and durable sync.
+    pub fn verified_close(&mut self) -> io::Result<crate::conn::Frame> {
+        if self.closed || !self.eof || self.pipe.pending() != 0 {
+            return Err(invalid("object stream not verified-ready"));
+        }
+        self.closed = true;
+        self.pipe.close();
+        Ok(crate::conn::Frame {
+            kind: 6,
+            stream: self.stream,
+            payload: vec![7],
+        })
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
