@@ -1169,4 +1169,81 @@ mod descriptor_stream {
         }
         assert_eq!(pipe.poll(1, &mut blocked).unwrap(), None);
     }
+    #[test]
+    fn reattach_discards_only_undelivered_stdin_before_peer_replay() {
+        struct Trickle {
+            calls: usize,
+            delivered: Arc<Mutex<Vec<u8>>>,
+            eof: Arc<Mutex<usize>>,
+        }
+        impl Write for Trickle {
+            fn write(&mut self, bytes: &[u8]) -> io::Result<usize> {
+                self.calls += 1;
+                if self.calls == 2 {
+                    return Err(io::ErrorKind::WouldBlock.into());
+                }
+                let n = if self.calls == 1 { 2 } else { bytes.len() };
+                self.delivered
+                    .lock()
+                    .unwrap()
+                    .extend_from_slice(&bytes[..n]);
+                Ok(n)
+            }
+            fn flush(&mut self) -> io::Result<()> {
+                Ok(())
+            }
+        }
+        impl Input for Trickle {
+            fn eof(&mut self) -> io::Result<()> {
+                *self.eof.lock().unwrap() += 1;
+                Ok(())
+            }
+            fn close(&mut self) -> io::Result<()> {
+                Ok(())
+            }
+            fn resize(&mut self, _: u16, _: u16) -> io::Result<()> {
+                Ok(())
+            }
+            fn signal(&mut self, _: u8) -> io::Result<()> {
+                Ok(())
+            }
+        }
+        let delivered = Arc::new(Mutex::new(Vec::new()));
+        let eofs = Arc::new(Mutex::new(0));
+        let mut pipe = Pipe::new(
+            17,
+            Trickle {
+                calls: 0,
+                delivered: delivered.clone(),
+                eof: eofs.clone(),
+            },
+            false,
+        )
+        .unwrap();
+        pipe.accept(&data(b"abcdef")).unwrap();
+        pipe.accept(&frame(vec![2, 0])).unwrap();
+        assert_eq!(pipe.flush().unwrap().unwrap().payload, [6, 0, 0, 0, 2]);
+        assert_eq!(pipe.received(), 2);
+        assert_eq!(pipe.buffered_input(), 4);
+        assert!(pipe.attach(1).is_err()); // invalid output offset is atomic
+        assert_eq!(pipe.buffered_input(), 4);
+        assert_eq!(pipe.attach(0).unwrap().0, 2);
+        assert_eq!(pipe.buffered_input(), 0);
+        assert_eq!(*eofs.lock().unwrap(), 0);
+        // Host resumes from the broker's actual delivery offset, including EOF.
+        pipe.accept(&data(b"cdef")).unwrap();
+        pipe.accept(&frame(vec![2, 0])).unwrap();
+        assert_eq!(pipe.flush().unwrap().unwrap().payload, [6, 0, 0, 0, 4]);
+        assert_eq!(delivered.lock().unwrap().as_slice(), b"abcdef");
+        assert_eq!(*eofs.lock().unwrap(), 1);
+        assert_eq!(pipe.attach(0).unwrap().0, 6);
+        assert!(pipe.accept(&data(b"after eof")).is_err());
+        pipe.accept(&frame(vec![2, 0])).unwrap();
+        pipe.flush().unwrap();
+        assert_eq!(
+            *eofs.lock().unwrap(),
+            1,
+            "lost EOF control may be replayed safely"
+        );
+    }
 }

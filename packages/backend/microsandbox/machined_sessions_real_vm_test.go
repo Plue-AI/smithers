@@ -34,5 +34,5 @@ func TestRealMicroVMMachinedSessionTransport(t *testing.T) {
 	require.NoError(t, err)
 	t.Log(result.Stdout)
 	require.Equal(t, 0, result.ExitCode, result.Stderr)
-	require.Contains(t, result.Stdout, "15 passed; 0 failed")
+	require.Contains(t, result.Stdout, "16 passed; 0 failed")
 }
