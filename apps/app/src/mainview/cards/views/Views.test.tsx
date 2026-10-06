@@ -843,10 +843,10 @@ test("shell text is inert; private, empty and disabled boundaries", async () => 
   } finally { await row.close() }
   const context = await mounted({ name: "empty", expect: [], render: ({ onView, onAction }) => <ContextLine count={0} items={[]} actions={[]} onAction={onAction} expanded={false} onView={onView} /> })
   try {
-    expect(context.host.textContent).toBe("Context · 0")
+    expect(context.host.textContent).toBe("")
     expect(context.host.querySelector(".mvp-context-chip")).toBeNull()
-    await act(async () => context.host.querySelector<HTMLButtonElement>("button")!.click())
-    expect(context.onView.mock.calls).toEqual([[{ expanded: true }]])
+    expect(context.host.querySelector("button")).toBeNull()
+    expect(context.onView.mock.calls).toEqual([])
     expect(context.onAction.mock.calls).toEqual([])
   } finally { await context.close() }
   const disabled = await mounted({ name: "disabled branch", expect: [], render: ({ onAction, onView }) => <BranchTree nodes={[{ ...branches.scratch.model, action: { tag: "branch", label: "Open", args: { name: "scratch/repro" }, disabled: { reason: "Repository access refused" } } }]} view={{}} onAction={onAction} onView={onView} /> })
@@ -2589,7 +2589,13 @@ test.each([false, true])("ContextLine item and Inspect actions expanded=%s", asy
       expect(item.tagName).toBe("BUTTON")
       expect(item.textContent).toBe("flow.tsabc123")
       expect(item.querySelector("svg")).not.toBeNull()
-      expect(context.host.querySelector('[data-kind="page"]')!.tagName).toBe("SPAN")
+      const plain = context.host.querySelector('[data-kind="page"]')!
+      expect(plain.tagName).toBe("SPAN")
+      expect(plain.className).toBe("mvp-context-text")
+      expect(plain.querySelector("svg")).not.toBeNull()
+      const inspect = context.host.querySelector('[data-flow="context.inspect"]')!
+      expect(inspect.className).toBe("mvp-context-chip")
+      expect(inspect.querySelector("svg.lucide-maximize2")).not.toBeNull()
       await act(async () => item.click())
       await act(async () => context.host.querySelector<HTMLButtonElement>('[data-flow="context.inspect"]')!.click())
       expect(context.onAction.mock.calls).toEqual([["file", { path: "flows/todo/flow.ts" }], ["context.inspect", {}]])
@@ -2665,4 +2671,17 @@ test("Settings address step keeps its typed label and collapsed diagnostics", ()
   expect(host.querySelector('[role="alert"]')?.textContent).toBe("address_failed")
   expect(host.querySelector("details pre")?.textContent).toBe("Socket unavailable")
   expect(host.querySelector<HTMLDetailsElement>("details")?.open).toBe(false)
+})
+
+for (const expanded of [false, true]) for (const [count, items] of [
+  [0, [{ kind: "file", label: "flow.ts", ref: "flow.ts" }]], [2, []], [0, []],
+] as const) test(`ContextLine hides empty context count=${count} items=${items.length} expanded=${expanded}`, async () => {
+  const { ContextLine } = await import("../../ContextLine")
+  const context = await mounted({ name: "empty context", expect: [], render: ({ onAction, onView }) => <ContextLine count={count} items={[...items]} expanded={expanded} actions={[{ tag: "context.inspect", label: "Inspect" }]} onAction={onAction} onView={onView} /> })
+  try {
+    expect(context.host.childElementCount).toBe(0)
+    expect(context.host.textContent).toBe("")
+    expect(context.onAction.mock.calls).toEqual([])
+    expect(context.onView.mock.calls).toEqual([])
+  } finally { await context.close() }
 })

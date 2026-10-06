@@ -37,7 +37,13 @@ const navigation: Record<keyof typeof branches, ViewStory["interactions"]> = {
 }
 export const stories: ViewStory[] = [
   { name: "branch-disabled", expect: ["scratch/repro", "Repository access refused"], actions: [{ tag: "branch", label: "Open", args: { name: "scratch/repro" }, disabled: { reason: "Repository access refused" } }], render: ({ onAction, onView }, actions = [{ tag: "branch", label: "Open", args: { name: "scratch/repro" }, disabled: { reason: "Repository access refused" } }]) => <BranchTree nodes={[withAction(branches.scratch.model, actions[0] as Action | undefined)]} view={{}} onAction={onAction} onView={onView} /> },
-  { name: "context-empty", expect: ["Context · 0"], interactions: [{ selector: ".mvp-context-toggle", patch: { expanded: true } }], render: ({ onView, onAction }) => <ContextLine count={0} items={[]} actions={[]} onAction={onAction} expanded={false} onView={onView} /> },
+  { name: "context-empty", expect: [], render: ({ onView, onAction }) => <ContextLine count={0} items={[]} actions={[]} onAction={onAction} expanded={false} onView={onView} /> },
+  { name: "context-mixed", expect: ["flow.ts", "Factory decisions", "#3474", "Inspect"],
+    interactions: [{ selector: ".mvp-context-toggle", patch: { expanded: false } }],
+    actions: [contexts.expanded.model.items[0]!.action!, { tag: "issue", label: "#3474", args: { n: "3474" } }, ...contexts.expanded.model.actions],
+    render: ({ onView, onAction }, actions = [contexts.expanded.model.items[0]!.action!, { tag: "issue", label: "#3474", args: { n: "3474" } }, ...contexts.expanded.model.actions]) => <ContextLine count={3} expanded
+      items={[{ ...contexts.expanded.model.items[0]!, action: actions.find(action => action.tag === "file") as Action | undefined }, contexts.expanded.model.items[1]!, { ...contexts.expanded.model.items[2]!, action: actions.find(action => action.tag === "issue") as Action | undefined }]}
+      actions={actions ? contexts.expanded.model.actions.filter(action => actions.includes(action)) : contexts.expanded.model.actions} onAction={onAction} onView={onView} /> },
   ...Object.entries(branches).map(([name, fixture]): ViewStory => ({
     name: `branch-${name}`, expect: branchExpect[name as keyof typeof branches],
     actions: name === "main" || name === "scratch" ? [{ tag: "branch", label: "Open", args: { name: "scratch/repro" } }] : [],
