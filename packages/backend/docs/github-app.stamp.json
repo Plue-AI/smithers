@@ -5,7 +5,7 @@
     "path": "packages/backend/docs/github-app.md",
     "digest": "680d354eba941fcf26beb859b1579a3bac4220c3cfb590c4fd8d5f502fa9d526"
   },
-  "closure": "8fc309df4fcb6c4eb18f4986013665ef87c362ba81d6bb8b38403b54cc6e349e",
+  "closure": "48545348082986d914b3191f0c27e0ba8a737893d7a43058740fe7a214749e1d",
   "inputs": [
     {
       "path": "docs/api/openapi/install.yaml",
@@ -49,7 +49,7 @@
     },
     {
       "path": "packages/backend/internal/compose/main.go",
-      "digest": "6655f671eeda19bd2862359fada904f844b524e8c57a0662f1170f4a5de40603"
+      "digest": "5d41701ec9aba9a2eb95dd2f2d95349fafa477eca457696a5062907f8d39b1e6"
     },
     {
       "path": "packages/backend/internal/compose/runtime_helpers.go",
@@ -237,7 +237,7 @@
     },
     {
       "path": "packages/backend/internal/services/mythical.go",
-      "digest": "a90c683a855817c2859c8169499fcfeffc1ba347ceb6a395d9a9bfeb5b182248"
+      "digest": "123515b9cf0cdab0724f575164aeee80afef82f4af295cabdb36481790253d5e"
     },
     {
       "path": "packages/backend/internal/services/mythical_github.go",
@@ -253,7 +253,7 @@
     },
     {
       "path": "packages/backend/internal/services/mythical_items.go",
-      "digest": "732ae10a4636ee202e04d269ab341429230d678e3f7bfea3808b588941285ecf"
+      "digest": "124d7a010bdb40dc8b2400948862def881a1904cff0d274f1a4c419d4f309995"
     },
     {
       "path": "packages/backend/internal/services/mythical_outbound.go",
