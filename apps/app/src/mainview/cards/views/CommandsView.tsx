@@ -11,11 +11,15 @@ function CommandRows({ commands }: { commands: CommandsViewProps["model"]["group
 }
 
 export function CommandsView({ model, actions, onAction }: CommandsViewProps) {
-  const controls = []
-  for (const [index, action] of actions.entries()) controls.push(<CommandActionView key={`${index}:${JSON.stringify(action)}`} action={action} onAction={onAction} />)
+  const controls = [], advancedControls = []
+  for (const [index, action] of actions.entries()) {
+    const control = <CommandActionView key={`${index}:${JSON.stringify(action)}`} action={action} onAction={onAction} />
+    const target = action.tag === "debug.api" ? advancedControls : controls
+    target.push(control)
+  }
   return <article className="commands-card" aria-label="Commands">
     <div className="commands">{model.groups.map((group, index) => group.advanced
-      ? <details key={index} className="commands-advanced"><summary>{group.label}</summary><CommandRows commands={group.commands} /></details>
+      ? <details key={index} className="commands-advanced"><summary>{group.label}</summary><CommandRows commands={group.commands} />{advancedControls}</details>
       : <section key={index}><h3>{group.label}</h3><CommandRows commands={group.commands} /></section>)}</div>
     {controls}
   </article>
