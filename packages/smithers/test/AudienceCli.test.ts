@@ -58,6 +58,11 @@ describe("audience-aware public CLI", { timeout: 90_000 }, () => {
       expect(explicit.code, explicit.stdout + explicit.stderr).toBe(0)
       expect(explicit.stdout).toContain(group)
     }
+    const shortHelp = await invoke(["--audience", "human", "tui", "-h"], {})
+    expect(shortHelp.code, shortHelp.stdout + shortHelp.stderr).toBe(0)
+    expect(shortHelp.stdout).toContain("Usage: smthrs tui")
+    const manifestWithHelp = await invoke(["tui", "--help", "--llms-full", "--format", "json"], {})
+    expect(manifestWithHelp.stdout).not.toContain("Usage: smthrs tui")
   })
 
   it("returns compact Incur data and next actions to a harness with a PTY", async () => {
