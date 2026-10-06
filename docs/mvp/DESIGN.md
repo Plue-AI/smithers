@@ -193,7 +193,7 @@ The runtime agent authors repository-specific cases. The maintainer can edit exp
 
 ## 12. Implemented setup in the app
 
-The actual bundled app, SQLite persistence and typed commands are exercised by [six browser scenarios](../../apps/app/e2e/playwright/repository-setup.spec.ts). Backend replies are fixtures; these captures verify UI behavior, not repository work. [Capture provenance](implementation/README.md).
+The actual bundled app, SQLite persistence and typed commands are exercised by [six browser scenarios](https://github.com/smithersai/smithers/blob/cac882adebf0a3edb80a72f6384abad9286bd8e5/apps/app/e2e/playwright/repository-setup.spec.ts). Backend replies are fixtures; these captures verify UI behavior, not repository work. [Capture provenance](implementation/README.md).
 
 **320px, after editing and reloading.** Selecting a repository closes the drawer and returns focus to its opener.
 
