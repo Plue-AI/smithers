@@ -114,7 +114,9 @@ fails with `check_modified_tree`, even on exit zero. The stack stops for a
 person's Retry even if a retained runtime labels this failure as a factory
 fault or reports only its checkpoint code. Generated build outputs do
 not change the candidate. The changed export is retained under
-`.jj/smithers-checks/modified-*/source`; formatting must happen before capture.
+`modified-*/source` under the host-selected `sourceDirectory`, or the default
+`.jj/smithers-checks` cache; formatting must happen before capture.
+Retention does not require a writable checkout when `sourceDirectory` is configured.
 The adjacent `failure.json` records the sorted changed tracked paths.
 This failure stops correction rather than starting a repair or reproposal cycle.
 
