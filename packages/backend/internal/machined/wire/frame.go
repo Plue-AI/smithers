@@ -3,6 +3,7 @@
 package wire
 
 import (
+	"bytes"
 	"crypto/hmac"
 	"crypto/sha256"
 	"encoding/binary"
@@ -268,12 +269,12 @@ func (c *cursor) value(typ string) error {
 	case "id128":
 		_, e := c.take(16)
 		return e
-	case "str", "str1024", "content", "bytes1024":
+	case "str", "str1024", "content", "bytes1024", "record":
 		width, limit := 2, 4096
 		if typ == "str1024" {
 			limit = 1024
 		}
-		if typ == "content" {
+		if typ == "content" || typ == "record" {
 			width = 4
 			limit = 1048576
 		}
@@ -291,6 +292,9 @@ func (c *cursor) value(typ string) error {
 		b, e := c.take(int(n))
 		if e != nil {
 			return e
+		}
+		if typ == "record" && (!utf8.Valid(b) || len(b) == 0 || bytes.ContainsAny(b, "\n\x00")) {
+			return BadUTF8
 		}
 		if width == 2 && (!utf8.Valid(b) || strings.ContainsRune(string(b), 0)) {
 			return BadUTF8
