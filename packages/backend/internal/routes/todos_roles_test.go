@@ -153,9 +153,13 @@ func TestTodoRoutesAuthorizeByRole(t *testing.T) {
 					path = "/api/todos/99"
 				}
 				status, envelope = call(http.MethodPost, path, body, "control-"+tc.who, info)
-				if tc.list == 200 && strings.HasPrefix(body, `{"op":"retry"`) {
+				if tc.list == 200 && (strings.HasPrefix(body, `{"op":"retry"`) || body == `{"op":"retry-current-flow"}`) {
+					trigger := "retry"
+					if body == `{"op":"retry-current-flow"}` {
+						trigger = "retry-current-flow"
+					}
 					require.Equal(t, http.StatusConflict, status, body)
-					require.Equal(t, map[string]any{"code": "conflict", "class": "conflict", "message": "TODO has not failed"}, envelope, body)
+					require.Equal(t, map[string]any{"code": "todo_transition_refused", "class": "conflict", "message": "TODO has not failed", "from": "needs_you", "trigger": trigger}, envelope, body)
 				} else if tc.list == 200 && body == `{"op":"drop"}` {
 					require.Equal(t, http.StatusNotFound, status, body)
 					require.Equal(t, "todo_not_found", envelope["code"], body)

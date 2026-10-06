@@ -92,7 +92,7 @@ func TestTodoMoveSwapsWithTheNearestItemOnTheStack(t *testing.T) {
 	_, err = o.move(session, n[3], "down", "move-4")
 	requireTodoRefusal(t, err, http.StatusConflict, "conflict", "T3 is already last")
 	_, err = o.move(session, n[1], "down", "move-5")
-	requireTodoRefusal(t, err, http.StatusConflict, "conflict", "TODO is settled")
+	requireTodoRefusal(t, err, http.StatusConflict, "todo_transition_refused", "TODO is settled")
 	_, err = o.move(session, 99, "down", "move-6")
 	requireTodoRefusal(t, err, http.StatusNotFound, "todo_not_found", "")
 	_, err = o.service.ControlTodo(mythicalRunContext(context.Background(), o.userID), n[2], TodoControlInput{Op: "move", Direction: "down",

@@ -91,7 +91,7 @@ func TestTodoRetryStartsTheNextAttemptWithItsSteer(t *testing.T) {
 	_, err = o.service.ControlTodo(session, n, other)
 	var refusal *TodoControlError
 	require.ErrorAs(t, err, &refusal)
-	require.Equal(t, &TodoControlError{http.StatusConflict, "conflict", "conflict", "TODO has not failed"}, refusal)
+	require.Equal(t, &TodoControlError{http.StatusConflict, "todo_transition_refused", "conflict", "TODO has not failed"}, refusal)
 
 	// The stack takes the launch: attempt 2 of the same pin, the steer its
 	// first input, revision 1 its prompt.

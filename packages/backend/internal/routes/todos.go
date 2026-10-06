@@ -56,6 +56,13 @@ func todoRouteError(w http.ResponseWriter, err error) {
 		_ = json.NewEncoder(w).Encode(access)
 		return
 	}
+	var transition *services.TodoTransitionRefusedError
+	if errors.As(err, &transition) {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(transition.Status)
+		_ = json.NewEncoder(w).Encode(transition)
+		return
+	}
 	var typed *services.TodoControlError
 	if errors.As(err, &typed) {
 		failure = typed

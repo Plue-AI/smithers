@@ -592,6 +592,7 @@ func TestTodoMergeComposedRouteBoundaryPostgres(t *testing.T) {
 						before, err := q.GetMythicalItem(ctx, id)
 						require.NoError(t, err)
 						key := "literal-drop-" + uuid.NewString()
+						var envelope map[string]any
 						press := func() int {
 							req, err := http.NewRequest(http.MethodPost, origin+fmt.Sprintf("/api/todos/%d", n), strings.NewReader(`{"op":"drop"}`))
 							require.NoError(t, err)
@@ -601,6 +602,8 @@ func TestTodoMergeComposedRouteBoundaryPostgres(t *testing.T) {
 							resp, err := http.DefaultClient.Do(req)
 							require.NoError(t, err)
 							defer resp.Body.Close()
+							envelope = nil
+							require.NoError(t, json.NewDecoder(resp.Body).Decode(&envelope))
 							return resp.StatusCode
 						}
 						if index == 0 && !paused && !waiting {
@@ -638,6 +641,10 @@ func TestTodoMergeComposedRouteBoundaryPostgres(t *testing.T) {
 						require.NoError(t, rows.Err())
 						if terminal {
 							refused++
+							require.Equal(t, "todo_transition_refused", envelope["code"])
+							require.Equal(t, "conflict", envelope["class"])
+							require.Equal(t, from, envelope["from"])
+							require.Equal(t, "drop", envelope["trigger"])
 							require.Equal(t, before, after)
 							require.Empty(t, facts)
 							return

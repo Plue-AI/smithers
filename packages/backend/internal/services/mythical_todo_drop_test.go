@@ -90,7 +90,7 @@ func TestTodoDropClosesThePullRequestWithItsComment(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, receipt, again, "the same press again is the same drop")
 	refusal := refusalOf(t, func() error { _, err := h.drop(n, "drop-2"); return err }())
-	require.Equal(t, &TodoControlError{http.StatusConflict, "conflict", "conflict", "TODO is settled"}, refusal)
+	require.Equal(t, &TodoControlError{http.StatusConflict, "todo_transition_refused", "conflict", "TODO is settled"}, refusal)
 	require.Equal(t, MythicalOutboundOp{Kind: "close", Target: strconv.FormatInt(pr, 10), Desired: "closed", Precondition: "open", State: "intended"}, h.operation(n))
 	require.Equal(t, "open", h.pull(pr).State, "the press itself never calls GitHub")
 	require.Equal(t, "dropped", h.card(n)["state"])

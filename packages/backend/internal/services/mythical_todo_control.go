@@ -64,6 +64,24 @@ type TodoControlError struct {
 
 func (e *TodoControlError) Error() string { return e.Message }
 
+// TodoTransitionRefusedError identifies the refused lifecycle command. It
+// wraps the existing control error so every caller retains its HTTP status
+// and class while the route supplies the literal source state and trigger.
+type TodoTransitionRefusedError struct {
+	*TodoControlError
+	From    string `json:"from"`
+	Trigger string `json:"trigger"`
+}
+
+func (e *TodoTransitionRefusedError) Unwrap() error { return e.TodoControlError }
+
+func todoTransitionRefused(item db.MythicalItem, input TodoControlInput, message string) error {
+	return &TodoTransitionRefusedError{
+		TodoControlError: &TodoControlError{http.StatusConflict, "todo_transition_refused", "conflict", message},
+		From:             todoState(item), Trigger: input.Op,
+	}
+}
+
 func todoControlConflict(message string) error {
 	return &TodoControlError{http.StatusConflict, "conflict", "conflict", message}
 }
@@ -117,25 +135,25 @@ func todoControlGuard(item db.MythicalItem, input TodoControlInput, facts todoCo
 		return &TodoControlError{http.StatusConflict, "merging", "conflict", "TODO is merging"}
 	}
 	if item.State == "landed" || item.State == "cancelled" || item.State == "rejected" || item.State == "declined" {
-		return todoControlConflict("TODO is settled")
+		return todoTransitionRefused(item, input, "TODO is settled")
 	}
 	switch input.Op {
 	case "stop":
 		if !facts.Executing {
-			return todoControlConflict("TODO has no executing run")
+			return todoTransitionRefused(item, input, "TODO has no executing run")
 		}
 		for _, wait := range facts.Waits {
 			if wait == "question" || wait == "approval" {
-				return todoControlConflict("Answer the open wait first")
+				return todoTransitionRefused(item, input, "Answer the open wait first")
 			}
 		}
 	case "resume":
 		if !facts.Paused {
-			return todoControlConflict("TODO is not paused")
+			return todoTransitionRefused(item, input, "TODO is not paused")
 		}
 	case "retry", "retry-current-flow":
 		if item.State != "blocked" {
-			return todoControlConflict("TODO has not failed")
+			return todoTransitionRefused(item, input, "TODO has not failed")
 		}
 	}
 	return nil
