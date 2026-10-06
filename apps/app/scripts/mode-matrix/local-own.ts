@@ -5,7 +5,7 @@ import { createServer } from "node:net"
 import { homedir, tmpdir } from "node:os"
 import { dirname, join, resolve } from "node:path"
 import type { ExecutionReceipt, ModeConfig } from "../../e2e/real/coverage/matrix"
-import { executeCommand } from "./docker-web-selfhost"
+import { executeCommand } from "./command-execution"
 
 export interface LocalOwnSession {
   readonly modeConfig: ModeConfig

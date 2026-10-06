@@ -45,7 +45,7 @@ test("duplicate external Plue target is rejected before acquiring owned resource
   dirs.push(dir)
   const external = join(dir, "external.json")
   writeFileSync(external, JSON.stringify({ revision, modes: [modeConfig("web-plue")] }))
-  const run = runCli(dir, ["audit", "--modes", "web-selfhost,web-plue", "--external-config", external, "--output-dir", join(dir, "output")], {
+  const run = runCli(dir, ["audit", "--modes", "web-plue", "--external-config", external, "--output-dir", join(dir, "output")], {
     SMITHERS_MODE_MATRIX_PLUE_URL: "https://plue.example",
     SMITHERS_MODE_MATRIX_PLUE_TOKEN: "test-token"
   })
@@ -60,9 +60,9 @@ test("config write failure closes all acquired sessions once and retains the ori
   dirs.push(dir)
   const output = join(dir, "output")
   mkdirSync(join(output, "config.json"), { recursive: true })
-  const run = runCli(dir, ["audit", "--modes", "web-selfhost,local-own", "--output-dir", output], { MATRIX_FAKES_FAIL_CLOSE: "1" })
-  expect(run.acquisitions).toEqual(["docker", "local"])
-  expect(run.closes).toEqual(["docker", "local"])
+  const run = runCli(dir, ["audit", "--modes", "local-own", "--output-dir", output], { MATRIX_FAKES_FAIL_CLOSE: "1" })
+  expect(run.acquisitions).toEqual(["local"])
+  expect(run.closes).toEqual(["local"])
   expect(run.stderr).toContain("EISDIR")
   expect(run.stderr).toContain("mode launcher teardown failed")
   expect(run.status).toBe(1)

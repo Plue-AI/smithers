@@ -132,7 +132,7 @@ const rustPins = [
 ]
 
 /** The files outside `.github/workflows` that name a Rust release. */
-export const rustPinFiles = ["PACKAGE.ts", "scripts/ci/cloud.sh", "distribution/Dockerfile"]
+export const rustPinFiles = ["PACKAGE.ts", "scripts/ci/cloud.sh"]
 
 /**
  * Every Rust release `files` (path to text) names that is not the channel

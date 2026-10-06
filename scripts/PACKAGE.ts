@@ -208,8 +208,7 @@ const toolchainPins = Smithers.NodeTest({
     Smithers.file("//rust-toolchain.toml"),
     Smithers.glob("//.github/workflows/*.yml"),
     Smithers.file("//PACKAGE.ts"),
-    Smithers.file("//scripts/ci/cloud.sh"),
-    Smithers.file("//distribution/Dockerfile")
+    Smithers.file("//scripts/ci/cloud.sh")
   ],
   deps: []
 })
