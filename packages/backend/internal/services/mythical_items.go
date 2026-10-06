@@ -533,6 +533,15 @@ func (s *MythicalService) ProjectFlowRuntime(ctx context.Context, update flowdis
 			if (item.Generation != projection.Generation && !boundAttempt) || (projection.Attempt != 0 && item.Attempt != projection.Attempt) || (item.Source == "todo" && (item.Attempt <= 0 || projection.Attempt <= 0)) {
 				return nil
 			}
+			// Review retries share the candidate generation. The dispatcher's
+			// existing workspace binding fences a late checkpoint from a retired
+			// review lane before it can attach a run or record a verdict.
+			if projection.Phase == "review" && update.Checkpoint.Target.WorkspaceID != "" {
+				review := mythicalChecksOf(item).Review
+				if review == nil || review.Lane != update.Checkpoint.Target.WorkspaceID {
+					return nil
+				}
+			}
 			// A pinned attempt counts only launches of exactly its pin, and only
 			// runs whose host named an execution identity.
 			pin, pinned := mythicalPinOf(item)
@@ -1854,9 +1863,15 @@ func (st *mythicalItemStep) commitWith(ctx context.Context, item db.MythicalItem
 	}
 	projection, _ := json.Marshal(projected)
 	authorization, _ := json.Marshal(binding)
+	requestID := mythicalLaunchRequestID(id, saved.Attempt, phase, saved.Generation)
+	if phase == "review" {
+		// A new isolated review lane distinguishes a retry without allocating
+		// another candidate generation. Replaying admission retains the lane.
+		requestID += ":lane:" + saved.WorkspaceID
+	}
 	if _, err := s.launcher.AdmitInTx(ctx, tx, flowdispatch.LaunchRequest{
 		Scope:     jobs.Scope{TenantID: tenant, PrincipalID: principal},
-		RequestID: mythicalLaunchRequestID(id, saved.Attempt, phase, saved.Generation),
+		RequestID: requestID,
 		Target: flowruntime.FlowRuntimeTarget{TenantID: tenant, PrincipalID: principal, WorkspaceID: saved.WorkspaceID,
 			BindingKind: mythicalBindingKind, BindingID: id},
 		FlowID: flowID, Payload: payload, AuthorizationContext: authorization, Projection: projection,
@@ -4058,9 +4073,9 @@ func (st *mythicalItemStep) review(ctx context.Context, item db.MythicalItem) (*
 		}
 		next.WorkspaceID, next.Lane, next.LaneStartedAt = "", pgtype.Int4{}, pgtype.Timestamptz{}
 	}
-	name := fmt.Sprintf("mythical #%d review g%d", item.IssueNumber.Int64, item.Generation+1)
+	name := fmt.Sprintf("mythical #%d review g%d", item.IssueNumber.Int64, item.Generation)
 	if mythicalTodo(item) {
-		name = fmt.Sprintf("TODO %d review g%d", item.Number.Int64, item.Generation+1)
+		name = fmt.Sprintf("TODO %d review g%d", item.Number.Int64, item.Generation)
 	}
 	workspaceID, err := st.lane(ctx, next, name, placement)
 	if err != nil {
@@ -4069,7 +4084,6 @@ func (st *mythicalItemStep) review(ctx context.Context, item db.MythicalItem) (*
 	next.WorkspaceID = workspaceID
 	next.Lane = pgtype.Int4{Int32: st.freeLane(item.ID), Valid: true}
 	next.LaneStartedAt = pgtype.Timestamptz{Time: st.now, Valid: true}
-	next.Generation++
 	checks.Review.Lane = workspaceID
 	next.Checks = checks.encode()
 	args := fmt.Sprintf("Pull request #%d.\n\n<untrusted-title>\n%s\n</untrusted-title>\n\n<untrusted-diff>\n%s\n</untrusted-diff>\n",
