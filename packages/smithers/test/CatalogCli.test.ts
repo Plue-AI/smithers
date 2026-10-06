@@ -72,6 +72,29 @@ async function fixture(status = 200, response: unknown = { state: "accepted" }, 
 }
 
 describe("C-CAT-02 installed parser and descriptor dispatcher", () => {
+  it("B.6 host doors resolve through the installed parser without executing maintenance", async () => {
+    const f = await fixture()
+    try {
+      const paths = fixtureCases.b6.filter(path => path.startsWith("host "))
+      expect(paths).toHaveLength(6)
+      for (const path of paths) {
+        const result = await f.invoke([...path.split(" "), "--schema"])
+        expect(result.exitCode, result.stdout).toBe(0)
+        const schema = JSON.parse(result.stdout)
+        expect(schema.options.properties).toHaveProperty("verbose")
+        if (path === "host restore") expect(schema.args.required).toEqual(["directory"])
+        if (path === "host start") expect(Object.keys(schema.options.properties).sort()).toEqual(["bind", "bundle", "origin", "verbose"])
+      }
+      expect(f.seen).toEqual([])
+    } finally { await f.close() }
+  })
+  it("the generated host reference is fresh and contains exactly the literal B.6 host paths", async () => {
+    const { generateHostReference } = await import("../../../scripts/catalog-host.ts")
+    const reference = await readFile(new URL("../docs/reference/cli/host.md", import.meta.url), "utf8")
+    expect(reference).toBe(generateHostReference())
+    expect([...reference.matchAll(/\| `smthrs (host [a-z]+)/g)].map(match => match[1]).sort())
+      .toEqual(fixtureCases.b6.filter(path => path.startsWith("host ")).sort())
+  })
   it("every external-agent command has a literal request or unavailable-provider case", () => {
     const argv = [...cases.map(row => row.argv), ...fixtureCases.unavailable]
     for (const command of fixtureCases.commands) {
