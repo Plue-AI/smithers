@@ -5873,7 +5873,7 @@
       ],
       "minimumRole": "member",
       "credentialScope": "write:repository",
-      "agent": "run",
+      "agent": "confirm",
       "summary": "Close an issue",
       "http": null,
       "payload": {
@@ -5928,7 +5928,7 @@
       ],
       "minimumRole": "member",
       "credentialScope": "write:repository",
-      "agent": "run",
+      "agent": "confirm",
       "summary": "Comment on an issue",
       "http": null,
       "payload": {
@@ -5987,7 +5987,7 @@
       ],
       "minimumRole": "member",
       "credentialScope": "write:repository",
-      "agent": "run",
+      "agent": "confirm",
       "summary": "Create an issue, or a private conversation with --kind conversation",
       "http": null,
       "payload": {
@@ -6121,7 +6121,7 @@
       ],
       "minimumRole": "member",
       "credentialScope": "write:repository",
-      "agent": "run",
+      "agent": "confirm",
       "summary": "Reopen a closed issue",
       "http": null,
       "payload": {

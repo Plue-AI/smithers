@@ -1498,3 +1498,60 @@ describe("comment pagination failures preserve honest view state", () => {
       "GET /api/repos/will/flows/issues/7", "GET /api/repos/will/flows/issues/7/comments"])
   })
 })
+
+
+describe("issue writes require a person's confirmation for agent submissions", () => {
+  for (const [name, payload, mutation, body] of [
+    ["issues.create", { title: "Check --kind conversation and other/repo" }, "POST /api/repos/will/flows/issues", { title: "Check --kind conversation and other/repo" }],
+    ["issues.close", { number: 7 }, "PATCH /api/repos/will/flows/issues/7", { state: "closed" }],
+    ["issues.reopen", { number: 7 }, "PATCH /api/repos/will/flows/issues/7", { state: "open" }],
+    ["issues.comment", { number: 7, text: "Please investigate\n\n```ts\n  retry()\n```" }, "POST /api/repos/will/flows/issues/7/comments", { body: "Please investigate\n\n```ts\n  retry()\n```" }]
+  ] as const) {
+    for (const explicitRepo of [false, true]) test(`${name}, ${explicitRepo ? "explicit" : "selected"} repository`, async () => {
+      const calls: string[] = []
+      const bodies: unknown[] = []
+      const { store, controller } = await issuesController(selectedUserBackend({
+        "GET /api/user": json(200, { id: 1, username: "will", is_admin: false }),
+        [mutation]: async request => { bodies.push(await request.json()); return json(200, wireIssue(7)) },
+        "GET /api/repos/will/flows/issues/7": json(200, wireIssue(7)),
+        "GET /api/repos/will/flows/issues/7/comments": json(200, [])
+      }, calls))
+      try {
+        const outcome = await controller.commands.submit({ name, payload: { ...payload, ...(explicitRepo ? { repo: "will/flows" } : {}) }, actor: "agent" })
+        expect(calls.filter(call => /^(POST|PATCH|DELETE) /.test(call))).toEqual([])
+        expect(outcome).toMatchObject({ status: "executed", value: expect.stringContaining("asked the user to confirm") })
+        const action = [...store.collections.messages.values()].find(message => message.action?.flow === name)?.action
+        expect(action?.flow).toBe(name)
+        expect(action?.args).toContain("will/flows")
+        // A delayed confirmation keeps the original repository after navigation.
+        store.dispatch({ type: "repositories.loaded", actor: "system", repositories: [{ id: "will/elsewhere", org: "will", ownerKind: "user", name: "elsewhere", head: null }] })
+        await settled()
+        expect(await controller.commands.run(name, action!.args ?? undefined)).toMatchObject({ status: "executed" })
+        expect(calls.filter(call => /^(POST|PATCH|DELETE) /.test(call))).toEqual([mutation])
+        expect(bodies).toEqual([expect.objectContaining(body)])
+      } finally {
+        controller.dispose()
+      }
+    })
+  }
+})
+
+
+test("agent issue writes with an ambiguous repository refuse without confirmation or network writes", async () => {
+  const calls: string[] = []
+  const { store, controller } = await issuesController(selectedUserBackend({
+    "GET /api/user": json(200, { id: 1, username: "will", is_admin: false })
+  }, calls))
+  try {
+    store.dispatch({ type: "repositories.loaded", actor: "system", repositories: [
+      { id: "will/flows", org: "will", ownerKind: "user", name: "flows", head: null },
+      { id: "will/elsewhere", org: "will", ownerKind: "user", name: "elsewhere", head: null }
+    ] })
+    await settled()
+    expect(await controller.commands.submit({ name: "issues.create", payload: { title: "Do not guess" }, actor: "agent" })).toMatchObject({
+      status: "failed", error: expect.stringContaining("Several repositories")
+    })
+    expect(calls.filter(call => /^(POST|PATCH|DELETE) /.test(call))).toEqual([])
+    expect([...store.collections.messages.values()].some(message => message.action?.flow === "issues.create")).toBe(false)
+  } finally { controller.dispose() }
+})
