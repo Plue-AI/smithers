@@ -46,8 +46,11 @@ export const ownerCredentialsFromEnvironment = (): OwnerCredentials => {
   if (typeof candidate.username !== "string" || candidate.username.trim() === "") {
     throw new Error(`${name} must contain a non-empty username.`)
   }
-  if (typeof candidate.sessionCookie !== "string" || !/^[0-9a-f]{64}$/.test(candidate.sessionCookie)) {
-    throw new Error(`${name} has an invalid seeded session cookie.`)
+  // Normal OAuth sessions use the backend's UUID key; older isolated
+  // fixtures use a random 64-hex key. Both are verified live at /api/user.
+  if (typeof candidate.sessionCookie !== "string" ||
+      !/^(?:[0-9a-f]{64}|[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12})$/.test(candidate.sessionCookie)) {
+    throw new Error(`${name} has an invalid owner session cookie.`)
   }
   return { username: candidate.username.trim(), sessionCookie: candidate.sessionCookie }
 }
@@ -165,7 +168,7 @@ const establishOwnerSession = async (context: BrowserContext, page: Page, baseUR
   const existing = await readSessionAtOrigin(context, baseURL)
   if (existing === undefined || existing.login !== credentials.username) {
     ownerSessions.forget(scope)
-    throw new Error("Seeded GitHub owner session failed verification at /api/user.")
+    throw new Error("GitHub owner session failed verification at /api/user.")
   }
   ownerSessions.remember(scope, await context.cookies(origin))
   const startedAt = performance.now()
