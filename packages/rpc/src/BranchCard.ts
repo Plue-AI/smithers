@@ -1,4 +1,5 @@
 /** Props-only Branch contract; HTTP/storage decoding belongs to T-APP-10. */
+import { z } from "zod"
 import type { Action, CardCallbacks, CardProps } from "./CardAction.ts"
 import type { Actor, MachineState, TodoState } from "./CardPrimitives.ts"
 
@@ -71,3 +72,47 @@ export type BranchCardCallbacks = CardCallbacks<
   | "diff"
   | "ssh"
 >
+
+/**
+ * Authenticated participant attribution; identity never grants permission.
+ * @since 1.0.0
+ * @category schemas
+ */
+export const BranchParticipant = z.strictObject({
+  id: z.string().min(1),
+  kind: z.enum(["person", "smithers", "coding", "claude-code", "codex", "reviewer", "outside"]),
+  member_id: z.string().min(1).optional(),
+  for_member: z.string().min(1).optional(),
+  run_id: z.string().min(1).optional(),
+  session_id: z.string().min(1).optional(),
+  via: z.enum(["app", "ssh", "terminal", "tool"])
+})
+/** @since 1.0.0 @category models */
+export type BranchParticipant = z.infer<typeof BranchParticipant>
+
+/** Branch subscription names on the shared live channel.
+ * @since 1.0.0
+ * @category schemas
+ */
+export const BranchTopic = z.string().regex(/^branch:[^:\s/\\\u0000]+(?::(?:files|activity))?$/)
+
+/** Durable change entry, separate from the card's rendered conversation activity.
+ * @since 1.0.0
+ * @category schemas
+ */
+export const BranchActivityEntry = z.strictObject({
+  id: z.string().min(1),
+  at: z.iso.datetime(),
+  kind: z.enum(["write", "burst", "doc_edit", "rebase", "moved_off"]),
+  actor: BranchParticipant,
+  files: z.array(z.strictObject({
+    path: z.string().min(1).refine(value =>
+      !/[\\\u0000]/.test(value) && value.split("/").every(part => part !== "" && part !== "." && part !== "..")),
+    change: z.enum(["added", "modified", "deleted", "renamed"]),
+    before_blob: z.string().regex(/^(?:[0-9a-f]{40}|[0-9a-f]{64})$/).optional(),
+    after_blob: z.string().regex(/^(?:[0-9a-f]{40}|[0-9a-f]{64})$/).optional()
+  })),
+  versions: z.string().regex(/^(?:[0-9a-f]{40}|[0-9a-f]{64})$/).optional()
+})
+/** @since 1.0.0 @category models */
+export type BranchActivityEntry = z.infer<typeof BranchActivityEntry>

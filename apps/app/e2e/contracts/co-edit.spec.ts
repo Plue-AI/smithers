@@ -66,9 +66,9 @@ test("TS fake relay replays literal golden frames through the sole channel and m
     expect(socket.frames.at(-1)).toEqual(Uint8Array.from([1, 0, 0, 0, 7, 0, 3, 1, 42, 1]))
     const before = socket.frames.length
     // A different subscription's saved or update cannot affect this document.
-    socket.receive('{"t":"saved","id":99,"sv":"ASoB","at":"2026-10-03T12:00:00Z"}')
+    socket.receive('{"t":"saved","id":99,"sv":"ASoB","seq":1}')
     socket.receive(Uint8Array.from([1, 0, 0, 0, 99, 2, 2, 0, 0]))
-    socket.receive('{"t":"saved","id":7,"sv":"!","at":"2026-10-03T12:00:00Z"}')
+    socket.receive('{"t":"saved","id":7,"sv":"!","seq":1}')
     expect(editor.state.doc.toString()).toBe("A")
     socket.receive(relay.next())
     expect(provider.editable).toBe(false)
@@ -76,7 +76,7 @@ test("TS fake relay replays literal golden frames through the sole channel and m
     expect(socket.frames.length).toBe(before)
     expect(host.querySelector(".cm-ySelection")).toBeNull()
     const gone = relay.next()
-    expect(gone).toBe('{"t":"gone","id":7,"data":{"deleted":true,"by":"Ben"}}')
+    expect(gone).toBe('{"t":"gone","id":7,"data":{"kind":"deleted","by":{"id":"ben","kind":"person","member_id":"ben","via":"app"}}}')
     socket.receive(gone)
     expect(provider.editable).toBe(false)
     expect(editor.state.doc.toString()).toBe("A")
@@ -180,7 +180,7 @@ test("two File cards opened through files.read converge on literal 1000-edit pac
     // Saved metadata alone has not settled either member's pending updates.
     await new Promise(resolve => setTimeout(resolve, 1100))
     expect(a.provider.saved).toBe("saving")
-    resumed.receive(JSON.stringify({ t: "saved", id: 1, sv: fixture.saved, at: "2026-10-04T12:00:00Z" }))
+    resumed.receive(JSON.stringify({ t: "saved", id: 1, sv: fixture.saved, seq: 500 }))
     expect(a.provider.saved).toBe("saved")
     expect(a.sockets.length).toBe(2)
     resumed.receive('{"t":"err","id":1,"code":"forbidden"}')
@@ -280,9 +280,9 @@ test("File recovery buttons cross the registered dispatcher and branch transport
     expect(resource.provider.doc.getText("content").toString()).toBe("Alice's retained document")
     expect(resource.provider.unsaved?.text).toBe("Alice's retained document")
     // Client 42 inserted 25 retained characters in the new epoch; only the covering vector clears recovery.
-    socket.receive('{"t":"saved","id":1,"sv":"ASoA","at":"2026-10-05T12:02:00Z"}')
+    socket.receive('{"t":"saved","id":1,"sv":"ASoA","seq":1}')
     expect(resource.provider.unsaved?.text).toBe("Alice's retained document")
-    socket.receive('{"t":"saved","id":1,"sv":"ASoZ","at":"2026-10-05T12:02:01Z"}')
+    socket.receive('{"t":"saved","id":1,"sv":"ASoZ","seq":1}')
     expect(resource.provider.unsaved).toBeUndefined()
     resource.provider.setFile({ ...model, gone: { kind: "deleted", by: { kind: "outside", color_index: 7 } } })
     socket.receive('{"t":"err","id":2,"code":"forbidden"}')

@@ -1,6 +1,7 @@
 import { z } from "zod"
+import { BranchParticipant } from "./BranchCard.ts"
 
-// No existing RPC module describes the reserved stage-3 document channel.
+// Working-together I2: browser wire contract; durability belongs to the document host.
 /**
  * The maximum document frame size accepted for transmission.
  * @since 1.0.0
@@ -49,6 +50,31 @@ export function parseLiveDocTopic(topic: string): LiveDocTopic {
 }
 
 const base64 = z.string().regex(/^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$/)
+/** Host-stamped awareness. Relative positions use Yjs's JSON representation.
+ * @since 1.0.0
+ * @category schemas
+ */
+export const LiveDocRelativePosition = z.strictObject({
+  type: z.strictObject({ client: z.number().int().nonnegative(), clock: z.number().int().nonnegative() }).optional(),
+  tname: z.string().optional(),
+  item: z.strictObject({ client: z.number().int().nonnegative(), clock: z.number().int().nonnegative() }).optional(),
+  assoc: z.number().int().optional()
+})
+/** @since 1.0.0 @category schemas */
+export const LiveDocAwareness = z.strictObject({
+  actor: BranchParticipant,
+  colour: z.string().min(1),
+  line: z.number().int().positive(),
+  anchor: LiveDocRelativePosition.optional(),
+  head: LiveDocRelativePosition.optional()
+})
+/** @since 1.0.0 @category schemas */
+export const LiveDocOutside = z.strictObject({ version: z.string().min(1), by: BranchParticipant })
+/** @since 1.0.0 @category schemas */
+export const LiveDocGone = z.discriminatedUnion("kind", [
+  z.strictObject({ kind: z.literal("deleted"), by: BranchParticipant }),
+  z.strictObject({ kind: z.literal("renamed"), by: BranchParticipant, to: path })
+])
 /**
  * Validates a document channel reply at the wire boundary.
  * @since 1.0.0
@@ -61,12 +87,10 @@ export const LiveDocReply = z.discriminatedUnion("t", [
     cursor: z.number().int().nonnegative(),
     data: z.strictObject({ epoch: z.string().regex(/^[0-9a-f]{32}$/), client_id: LiveDocId })
   }),
-  z.strictObject({ t: z.literal("saved"), id: LiveDocId, sv: base64, at: z.iso.datetime() }),
+  z.strictObject({ t: z.literal("saved"), id: LiveDocId, sv: base64, seq: z.number().int().nonnegative().max(Number.MAX_SAFE_INTEGER) }),
   z.strictObject({ t: z.literal("gap"), id: LiveDocId }),
-  z.strictObject({ t: z.literal("gone"), id: LiveDocId, data: z.union([
-    z.strictObject({ deleted: z.literal(true), by: z.string() }),
-    z.strictObject({ renamed: z.literal(true), to: path, by: z.string() })
-  ]) }),
+  z.strictObject({ t: z.literal("outside"), id: LiveDocId, data: LiveDocOutside }),
+  z.strictObject({ t: z.literal("gone"), id: LiveDocId, data: LiveDocGone }),
   z.strictObject({ t: z.literal("err"), id: LiveDocId, code: z.enum(["unknown_topic", "forbidden", "unsupported"]) })
 ])
 /**
@@ -144,3 +168,15 @@ export function encodeLiveDocBinary(frame: LiveDocBinary): Uint8Array {
   bytes.set(frame.payload, 5)
   return bytes
 }
+
+/** @since 1.0.0 @category models */
+export type LiveDocAwareness = z.infer<typeof LiveDocAwareness>
+
+/** @since 1.0.0 @category models */
+export type LiveDocOutside = z.infer<typeof LiveDocOutside>
+
+/** @since 1.0.0 @category models */
+export type LiveDocGone = z.infer<typeof LiveDocGone>
+
+/** @since 1.0.0 @category models */
+export type LiveDocRelativePosition = z.infer<typeof LiveDocRelativePosition>
