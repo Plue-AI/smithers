@@ -157,7 +157,7 @@ export const fit = (cases: ReadonlyArray<CorpusCase>, method: Fit["method"] = "c
   const vector = (entry: CorpusCase) => normalize(entry, strata, pooled)
   const rows = train.filter((entry) => entry.label !== "hybrid").map((entry) => ({
     x: vector(entry),
-    y: (entry.label === "agent" ? 1 : 0)
+    y: (entry.label === "agent" ? 1 as const : 0 as const)
   }))
   const { weights, scale, bias } = fitWeights(rows)
   const score = (entry: CorpusCase) => vector(entry).reduce((sum, value, index) => sum + value * weights[index]!, 0)

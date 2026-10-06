@@ -2,7 +2,7 @@ import { NodeServices } from "@effect/platform-node"
 import * as ControlRuntime from "@smthrs/control/ControlRuntime"
 import { DurableEngineState } from "@smthrs/engine-store"
 import * as RunCatalogRead from "@smthrs/engine-store/RunCatalogRead"
-import { Flow } from "@smthrs/flow"
+import { Flow, FlowRuntime } from "@smthrs/flow"
 import * as RunStore from "@smthrs/run-store/RunStore"
 import { Effect, Exit, Layer, Schema } from "effect"
 import assert from "node:assert/strict"
@@ -19,6 +19,7 @@ import {
   RequestResult,
   type Revision
 } from "../coding/schema.ts"
+import { todoDelivery } from "../coding/todo.ts"
 import { readVibeRequest } from "../coding/vibe-evidence.ts"
 
 const revision = (name: string, parent?: string): Revision => ({
@@ -137,6 +138,10 @@ const pocResult = (value: PocResult) =>
   )
 const modes = [
   "valid",
+  "todo",
+  "todo-wrong-owner",
+  "todo-wrong-input",
+  "todo-completed-root",
   "prepared",
   "prepared-wrong-input",
   "prepared-missing-source",
@@ -165,10 +170,11 @@ const modes = [
 ] as const
 for (const mode of modes) {
   test(`vibe evidence: ${mode}`, async () => {
+    const composed = mode.startsWith("todo")
     const program = Effect.gen(function*() {
       const control = yield* ControlRuntime.ControlRuntime, graph = yield* DurableEngineState.DurableEngineState
       const { card } = yield* control.plan({
-        flowId: mode === "wrong-control-flow" ? "other" : "coding/request",
+        flowId: composed ? "todo" : mode === "wrong-control-flow" ? "other" : "coding/request",
         input
       })
       const token = yield* control.lookupApproval(card.approval.target)
@@ -179,7 +185,11 @@ for (const mode of modes) {
       const root = launch.run.runId
       const fence = yield* control.claimFence(root)
       assert(fence !== undefined)
-      yield* control.writeStatus(root, fence!, mode === "pending" ? "running" : "completed")
+      yield* control.writeStatus(
+        root,
+        fence!,
+        mode === "pending" || composed && mode !== "todo-completed-root" ? "running" : "completed"
+      )
       const retained = structuredClone(request)
       if (mode === "duplicate-receipt") {
         ;(retained.outcome.result!.changes[0]!.receipts as unknown[]).push(
@@ -192,8 +202,12 @@ for (const mode of modes) {
           "delegate",
           row(
             "delegate",
-            mode === "missing-delegate" ? "unrelated" : "coding/request",
-            { input: mode === "wrong-bridge-input" ? { ...input, prompt: "forged" } : input },
+            composed ? "todo" : mode === "missing-delegate" ? "unrelated" : "coding/request",
+            {
+              input: mode === "wrong-bridge-input" || mode === "todo-wrong-input"
+                ? { ...input, prompt: "forged" }
+                : input
+            },
             undefined,
             root
           )
@@ -223,6 +237,10 @@ for (const mode of modes) {
           )
         ]
       ])
+      if (composed) {
+        rows.set(root, { ...rows.get(root)!, status: mode === "todo-completed-root" ? "completed" : "running" })
+        rows.set("delegate", { ...rows.get("delegate")!, status: "running" })
+      }
       if (mode === "forked-root") rows.set(root, { ...rows.get(root)!, parentRunId: "old-control-root" })
       if (mode === "trampoline-parent") {
         rows.set("delegate", { ...row("delegate", "coding/request", { input }), parentRunId: root })
@@ -323,8 +341,8 @@ for (const mode of modes) {
       const read = readVibeRequest({ requestExecutionId: "request" })
       return yield* (mode === "no-owner" ? read : read.pipe(
         Effect.provideService(ModuleOwner, {
-          rootId: "vibe-control",
-          flowId: mode === "outside-vibe" ? "coding/request" : "coding/vibe"
+          rootId: composed && mode !== "todo-wrong-owner" ? root : "vibe-control",
+          flowId: composed ? "todo" : mode === "outside-vibe" ? "coding/request" : "coding/vibe"
         })
       )).pipe(
         Effect.provideService(RunCatalogRead.RunCatalogRead, catalog),
@@ -342,7 +360,7 @@ for (const mode of modes) {
         Layer.mergeAll(
           DurableEngineState.layerMemory,
           ControlRuntime.layerMemory({
-            flows: ["coding/request", "other"].map((flowId) => ({
+            flows: ["coding/request", "other", "todo"].map((flowId) => ({
               flowId,
               description: "fixture",
               deployClass: false,
@@ -352,7 +370,10 @@ for (const mode of modes) {
         )
       )
     )
-    if (mode === "valid" || mode === "prepared" || mode === "forked-root" || mode === "trampoline-parent") {
+    if (
+      mode === "valid" || mode === "todo" || mode === "prepared" || mode === "forked-root" ||
+      mode === "trampoline-parent"
+    ) {
       const result = await Effect.runPromise(program)
       assert.deepEqual(
         result.originalSource,
@@ -540,6 +561,68 @@ for (const mode of stackModes) {
       assert.equal(outcome.failure.code, "invalid_receipt")
       assert.equal(outcome.failure.message, "Select a native coding/Request execution")
       assert.equal(queries.length, 1, "an ambiguous or missing request reads nothing further")
+    }
+  })
+}
+
+for (
+  const mode of [
+    "completed",
+    "running",
+    "missing",
+    "duplicate",
+    "more-pages",
+    "wrong-owner",
+    "no-owner",
+    "unavailable"
+  ] as const
+) {
+  test(`TODO delivery: ${mode}`, async () => {
+    const catalog: RunCatalogRead.Service = {
+      listRunIds: () => Effect.die("Delivery must not scan all runs"),
+      listRuns: (options) =>
+        Effect.gen(function*() {
+          assert.deepEqual(options, { filters: { flowName: Request._tag, parentRunId: "todo-composition" }, limit: 2 })
+          if (mode === "unavailable") return yield* Effect.fail(new Error("storage unavailable") as never)
+          return {
+            source: "0".repeat(32),
+            revision: 1,
+            cursor: mode === "more-pages" ? "next" : null,
+            runs: (mode === "missing" ? [] : mode === "duplicate" ? ["request", "other"] : ["request"]).map((
+              runId
+            ) => ({
+              _tag: "Observed" as const,
+              runId,
+              source: "0".repeat(32),
+              revision: 1,
+              status: mode === "running" ? "running" as const : "completed" as const,
+              flowName: Request._tag,
+              createdAtMs: 1,
+              startedAtMs: 1,
+              finishedAtMs: 2,
+              parentRunId: "todo-composition",
+              lineageId: "todo-root",
+              roundOrdinal: 0,
+              cancellation: { requestedAtMs: null, acknowledgement: null },
+              waiting: null
+            }))
+          }
+        })
+    }
+    const program = todoDelivery.pipe(
+      Effect.provideService(RunCatalogRead.RunCatalogRead, catalog),
+      Effect.provideService(FlowRuntime.FlowInstance, { executionId: "todo-composition" } as never)
+    )
+    const authorized = mode === "no-owner" ? program : program.pipe(Effect.provideService(ModuleOwner, {
+      rootId: "todo-root",
+      flowId: mode === "wrong-owner" ? "coding/vibe" : "todo"
+    }))
+    if (mode === "completed") {
+      assert.deepEqual(await Effect.runPromise(authorized), { requestExecutionId: "request" })
+    } else {
+      const error = await Effect.runPromise(Effect.flip(authorized))
+      assert(error instanceof CodingError)
+      assert.equal(error.code, mode === "unavailable" ? "unavailable" : "invalid_receipt")
     }
   })
 }

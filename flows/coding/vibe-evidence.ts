@@ -40,10 +40,11 @@ export const readVibeRequest = (input: typeof VibeInput.Type) =>
   Effect.gen(function*() {
     // ModuleAuthority supplies this per handler, never while layers are built.
     const currentOwner = yield* Effect.serviceOption(ModuleOwner)
-    if (Option.isNone(currentOwner) || currentOwner.value.flowId !== "coding/vibe") {
+    if (Option.isNone(currentOwner) || !["coding/vibe", "todo"].includes(currentOwner.value.flowId)) {
       return yield* invalid("Only an approved coding/vibe execution may admit finalization")
     }
     const owner = currentOwner.value
+    const composed = owner.flowId === "todo"
     const store = yield* RunStore.RunStore, graph = yield* DurableEngineState.DurableEngineState
     const control = yield* ControlRuntime, catalog = yield* RunCatalogRead.RunCatalogRead
     let totalBytes = 0
@@ -61,7 +62,12 @@ export const readVibeRequest = (input: typeof VibeInput.Type) =>
           return yield* invalid("Finalization evidence exceeds its bounded native-state lookup")
         }
         const state = Schema.decodeUnknownOption(Schema.fromJsonString(RunState))(row.stateJson)
-        if (Option.isNone(state) || row.status !== "completed" || state.value.cancellation !== undefined) {
+        if (
+          Option.isNone(state) ||
+          (row.status !== "completed" &&
+            !(composed && (id === owner.rootId || state.value.flowName === "todo") && row.status === "running")) ||
+          state.value.cancellation !== undefined
+        ) {
           return yield* invalid("Finalization requires completed, uncancelled native ancestry")
         }
         return { row, state: state.value }
@@ -72,7 +78,10 @@ export const readVibeRequest = (input: typeof VibeInput.Type) =>
     let selected = input.requestExecutionId
     let requestRow = yield* read(selected)
     if (requestRow.state.flowName === "agent/run") {
-      const children = yield* catalog.listRuns({ filters: { flowName: "coding/request", parentRunId: selected }, limit: 2 })
+      const children = yield* catalog.listRuns({
+        filters: { flowName: "coding/request", parentRunId: selected },
+        limit: 2
+      })
       if (children.cursor !== null || children.runs.length !== 1) {
         return yield* invalid("Select a native coding/Request execution")
       }
@@ -112,7 +121,7 @@ export const readVibeRequest = (input: typeof VibeInput.Type) =>
       const entry = id === selected ? requestRow : yield* read(id)
       // Executable.fromDescriptor persists the descriptor's name and inlines
       // delegate.call. There need not be a separate coding/Request row.
-      if (entry.state.flowName === "coding/request") {
+      if (entry.state.flowName === "coding/request" || (composed && entry.state.flowName === "todo")) {
         const invocation = entry.state.payload as { readonly input?: unknown } | null
         const bridgeInput = Schema.decodeUnknownOption(RequestInput)(invocation?.input)
         if (
@@ -131,7 +140,10 @@ export const readVibeRequest = (input: typeof VibeInput.Type) =>
       if (Option.isSome(run)) {
         const nativePayload = entry.state.payload as { readonly planId?: unknown } | null
         if (
-          !bridged || id === owner.rootId || run.value.status !== "completed" || run.value.planId === undefined ||
+          !bridged || (composed
+            ? id !== owner.rootId || run.value.status !== "running"
+            : id === owner.rootId || run.value.status !== "completed") ||
+          run.value.planId === undefined ||
           entry.state.flowName !== "agent/run" || nativePayload?.planId !== run.value.planId ||
           parents.length !== 0 || entry.state.parentExecutionId !== undefined
         ) {
@@ -141,7 +153,8 @@ export const readVibeRequest = (input: typeof VibeInput.Type) =>
         const approvedInput = Schema.decodeUnknownOption(RequestInput)(plan.decodedInput)
         if (
           plan.decision !== "approved" || run.value.planDigest !== plan.card.digest ||
-          run.value.flowId !== "coding/request" || plan.card.flowId !== "coding/request" ||
+          run.value.flowId !== (composed ? "todo" : "coding/request") ||
+          plan.card.flowId !== (composed ? "todo" : "coding/request") ||
           // `coding/request` IS its own flow, so its approved envelope names no
           // delegate. An envelope that names one was approved for a descriptor
           // that handed this work to code the descriptor does not measure.
