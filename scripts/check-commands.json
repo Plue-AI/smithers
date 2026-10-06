@@ -228,7 +228,7 @@
     },
     "C-GH-09": {
       "status": "pending-owner",
-      "reason": "Absent: packages/backend/internal/services/github_outbound_fault_test.go",
+      "reason": "Automation present: packages/backend/internal/services/github_outbound_fault_test.go; authenticated executable mapping and owner approval pending",
       "ticket": "T-GH-09"
     },
     "C-GH-13": {

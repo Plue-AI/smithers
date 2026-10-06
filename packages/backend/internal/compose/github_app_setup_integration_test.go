@@ -597,8 +597,29 @@ func TestGitHubAppManualFallbackThroughInstallRouterPostgres(t *testing.T) {
 			require.Equal(t, 400, post(input, "/api/install/setup/app").Code)
 			input["slug"] = "manual-app"
 			require.Equal(t, 404, post(input, "/api/install/setup/github_app").Code)
+			// A browser can switch to manual registration after GitHub refuses
+			// the started manifest. The old callback must not replace that App.
+			started := post(map[string]any{"owner": "acme"}, "/api/install/setup/app")
+			require.Equal(t, 200, started.Code, started.Body.String())
+			var attempt services.GitHubAppManifestStart
+			require.NoError(t, json.Unmarshal(started.Body.Bytes(), &attempt))
+			require.NotEmpty(t, attempt.State)
 			w := post(input, "/api/install/setup/app")
 			require.Equal(t, 200, w.Code, w.Body.String())
+			writes := len(fake.Writes())
+			callback := httptest.NewRequest("GET", origin+"/setup/github/callback?code=late-code&state="+attempt.State, nil)
+			callback.RemoteAddr = "192.0.2.1:12345"
+			if origin == "http://localhost:4000" {
+				callback.RemoteAddr = "127.0.0.1:12345"
+			}
+			callback.AddCookie(&http.Cookie{Name: routes.GitHubAppSetupSessionCookie, Value: session})
+			for _, cookie := range started.Result().Cookies() {
+				callback.AddCookie(cookie)
+			}
+			late := httptest.NewRecorder()
+			router.ServeHTTP(late, callback)
+			require.Equal(t, 403, late.Code, late.Body.String())
+			require.Len(t, fake.Writes(), writes, "a late manifest callback never exchanges after manual completion")
 			restarted := services.NewGitHubAppCredentialStore(pool, codec)
 			c, err := restarted.Load(t.Context())
 			require.NoError(t, err)
