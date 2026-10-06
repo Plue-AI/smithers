@@ -1,4 +1,6 @@
 //! ADR 0004 S3 payload codec; stream framing belongs to the shared connection.
+/// Only a ready protocol-2 link may select the sequenced document layout.
+pub const SEQUENCED_DOCUMENT_PROTOCOL: u16 = 2;
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub struct Document {
     pub msg: u8,
@@ -7,6 +9,8 @@ pub struct Document {
     pub epoch: [u8; 16],
     pub client_id: u32,
     pub at_ms: u64,
+    pub seq: u64,
+    pub through_seq: u64,
     pub refusal: u8,
     pub refusal_body: Vec<u8>,
     pub gone_kind: u8,
@@ -18,6 +22,13 @@ pub struct BadDocumentPayload;
 type Result<T> = std::result::Result<T, BadDocumentPayload>;
 impl Document {
     pub fn decode(bytes: &[u8]) -> Result<Self> {
+        Self::decode_mode(bytes, false)
+    }
+    /// Requires explicit protocol 2 selection; protocol 1 recordings stay readable.
+    pub fn decode_v2(bytes: &[u8]) -> Result<Self> {
+        Self::decode_mode(bytes, true)
+    }
+    fn decode_mode(bytes: &[u8], sequenced: bool) -> Result<Self> {
         if bytes.is_empty() || bytes.len() > 4 << 20 {
             return Err(BadDocumentPayload);
         }
@@ -37,7 +48,15 @@ impl Document {
                     return Err(BadDocumentPayload);
                 }
                 d.actor = p[10..10 + n].to_vec();
-                d.data = p[10 + n..].to_vec();
+                let mut tail = &p[10 + n..];
+                if sequenced && d.msg == 1 {
+                    if tail.len() < 8 {
+                        return Err(BadDocumentPayload);
+                    }
+                    d.seq = u64::from_be_bytes(tail[..8].try_into().unwrap());
+                    tail = &tail[8..];
+                }
+                d.data = tail.to_vec();
             }
             3 | 4 => d.data = p.to_vec(),
             7 => {
@@ -74,7 +93,15 @@ impl Document {
                     return Err(BadDocumentPayload);
                 }
                 d.at_ms = u64::from_be_bytes(p[..8].try_into().unwrap());
-                d.data = p[8..].to_vec();
+                let mut tail = &p[8..];
+                if sequenced {
+                    if tail.len() < 8 {
+                        return Err(BadDocumentPayload);
+                    }
+                    d.through_seq = u64::from_be_bytes(tail[..8].try_into().unwrap());
+                    tail = &tail[8..];
+                }
+                d.data = tail.to_vec();
             }
             255 => {
                 d.refusal = refusal(p)?;
@@ -85,6 +112,15 @@ impl Document {
         Ok(d)
     }
     pub fn encode(&self) -> Result<Vec<u8>> {
+        self.encode_mode(false)
+    }
+    pub fn encode_v2(&self) -> Result<Vec<u8>> {
+        self.encode_mode(true)
+    }
+    fn encode_mode(&self, sequenced: bool) -> Result<Vec<u8>> {
+        if !sequenced && (self.seq != 0 || self.through_seq != 0) {
+            return Err(BadDocumentPayload);
+        }
         let mut b = vec![self.msg];
         match self.msg {
             1 | 2 => {
@@ -96,6 +132,9 @@ impl Document {
                 b.push(1);
                 b.extend_from_slice(&(self.actor.len() as u32).to_be_bytes());
                 b.extend_from_slice(&self.actor);
+                if sequenced && self.msg == 1 {
+                    b.extend_from_slice(&self.seq.to_be_bytes());
+                }
                 b.extend_from_slice(&self.data);
             }
             3 | 4 => b.extend_from_slice(&self.data),
@@ -121,6 +160,9 @@ impl Document {
             }
             6 => {
                 b.extend_from_slice(&self.at_ms.to_be_bytes());
+                if sequenced {
+                    b.extend_from_slice(&self.through_seq.to_be_bytes());
+                }
                 b.extend_from_slice(&self.data);
             }
             255 => {

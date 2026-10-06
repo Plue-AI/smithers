@@ -110,3 +110,60 @@ fn nonce_hmac_proof_is_bound_to_boot_and_secret() {
     assert!(!verify_host_mac(b"secret", &[0x45; 16], &[0x33; 32], &got));
     assert!(!verify_host_mac(b"secret", &[0x44; 16], &[0x34; 32], &got));
 }
+
+#[test]
+fn sequenced_document_golden_payloads() {
+    use smithers_machined::document_payload::Document;
+    for (name, seq) in [
+        ("doc-input-v2", 0x0102030405060708),
+        ("doc-saved-v2", 0x0102030405060708),
+        ("doc-input-v2-zero", 0),
+        ("doc-saved-v2-max", u64::MAX),
+    ] {
+        let bytes = std::fs::read(root().join(format!("{name}.bin"))).unwrap();
+        let f = Frame::decode(&bytes).unwrap();
+        let d = Document::decode_v2(&f.payload).unwrap();
+        if seq != 0 {
+            assert!(d.encode().is_err());
+        }
+        let offset = if d.msg == 1 {
+            assert_eq!(d.actor, b"Be");
+            assert_eq!(d.seq, seq);
+            assert_eq!(d.data, [0, 2, 0]);
+            13
+        } else {
+            assert_eq!(d.at_ms, 1791028800000);
+            assert_eq!(d.through_seq, seq);
+            assert_eq!(d.data, [1, 42, 1]);
+            9
+        };
+        assert_eq!(d.encode_v2().unwrap(), f.payload);
+        for n in 0..8 {
+            assert!(Document::decode_v2(&f.payload[..offset + n]).is_err());
+        }
+    }
+    for name in [
+        "doc-awareness-input",
+        "doc-sync",
+        "doc-awareness",
+        "doc-epoch",
+        "doc-gone",
+        "doc-renamed",
+        "doc-unsupported-detail",
+    ] {
+        let bytes = std::fs::read(root().join(format!("{name}.bin"))).unwrap();
+        let d = Document::decode_v2(&bytes[9..]).unwrap();
+        assert_eq!(d, Document::decode(&bytes[9..]).unwrap());
+        assert_eq!(d.encode_v2().unwrap(), bytes[9..]);
+    }
+    for msg in [1, 6] {
+        assert!(Document {
+            msg,
+            actor: b"Be".to_vec(),
+            data: vec![0; (4 << 20) - 9],
+            ..Default::default()
+        }
+        .encode_v2()
+        .is_err());
+    }
+}

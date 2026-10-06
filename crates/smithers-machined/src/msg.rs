@@ -18,6 +18,7 @@ pub enum Method {
     OpenDoc,
     CloseDoc,
     AttachSession,
+    SetRoster,
 }
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[repr(u8)]
