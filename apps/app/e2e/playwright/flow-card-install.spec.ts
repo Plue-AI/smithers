@@ -85,6 +85,43 @@ test("Source without a proposal continues after Commit and reload on the served 
   await expect(page.getByTestId("composer-input")).toBeEditable()
 })
 
+test("Source opens the proposing TODO branch without another Draft or TODO", async ({ page }) => {
+  const { fixtures } = await import("../../../../packages/rpc/test/fixtures/Todo")
+  await owner(page)
+  await page.route("**/api/bootstrap", route => route.fulfill({ json: {
+    apiVersion: 1, host: "local", version: "test", buildSha: "test", capabilities: ["install", "identity"], authFlow: "credentials", sandbox: null
+  } }))
+  await page.route("**/api/install", route => route.fulfill({ json: installFixture() }))
+  await page.route("**/api/flows", route => route.fulfill({ json: [{ name: "todo", source: { builtin: true }, system: false,
+    versions: [{ id: "d1", state: "active", steps: [] }, { id: "d2", state: "proposed", todo: 42, steps: [] }] }] }))
+  let writes = 0
+  let branchReads = 0
+  await page.route("**/api/todos", route => {
+    if (route.request().method() !== "GET") writes++
+    return route.fulfill({ json: [] })
+  })
+  await page.route("**/api/todos/42", route => route.fulfill({ json: { ...fixtures.in_review.model, n: 42,
+    branch: { id: "branch-42", name: "flow-edit-42", machine: { state: "awake" } } } }))
+  await page.route("**/api/branches/branch-42/files/flows/todo/flow.ts", route => {
+    branchReads++
+    return route.fulfill({ json: { branch: "branch-42", path: "flows/todo/flow.ts", language: "typescript", digest: "file-42",
+      content: { kind: "text", text: "export default pinnedComposition\n" }, mode: "read_only", diagnostics: [], authors: [], editors: [] } })
+  })
+  await page.goto("/")
+  await say(page, "/flow.source todo")
+  await expect(page.getByText("export default pinnedComposition", { exact: false }).last()).toBeVisible()
+  expect(branchReads).toBeGreaterThan(0)
+  expect(writes).toBe(0)
+  await expect(page.getByRole("textbox", { name: "Prompt", exact: true })).toHaveCount(0)
+  await expect(page.getByTestId("composer-input")).toBeEditable()
+  await page.reload()
+  await expect(page.getByText("export default pinnedComposition", { exact: false }).last()).toBeVisible()
+  await say(page, "/flow.source todo")
+  await expect(page.getByText("export default pinnedComposition", { exact: false }).last()).toBeVisible()
+  expect(writes).toBe(0)
+  await expect(page.getByRole("textbox", { name: "Prompt", exact: true })).toHaveCount(0)
+})
+
 test("proposed built-in edit displays literal diff before one ordinary TODO append", async ({ page }) => {
   const { fixtures } = await import("../../../../packages/rpc/test/fixtures/Todo")
   await owner(page)
