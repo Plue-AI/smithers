@@ -21955,6 +21955,10 @@
       },
       {
         "kind": "file",
+        "path": "flows/test/coding-candidate-equality.test.ts"
+      },
+      {
+        "kind": "file",
         "path": "flows/test/coding-install-project.test.ts"
       },
       {
