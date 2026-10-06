@@ -45,10 +45,13 @@ metadata such as title, placement and issue linkage is not a PATCH payload.
 
 Active owners, maintainers and members may reach these operations with their
 browser session. A stage-1 terminal credential may steer only its own branch's
-TODO. Its amendment request returns `503 infra/confirmation_unavailable`
-before any subject read or mutation. Other token, run and machine credentials
-do not gain amendment authority. The shared confirmation provider must be
-integrated before delegated amendments can execute.
+TODO. Delegated Amend returns `202` with `state: "pending"` and the private
+confirmation ID. Only its person can approve it through the shared confirmation
+route; approval commits one revision and one attributed steer. Replays do not
+repeat either effect. A changed TODO expires the confirmation before effects.
+Without the shared confirmation provider, delegated Amend refuses with
+`503 infra/confirmation_unavailable`. Run and machine credentials do not gain
+amendment authority.
 
 ## Committed feedback
 
@@ -70,13 +73,20 @@ authorized request even for the same member and key. The server derives the
 identity from the stored session or token and its binding; attribution headers
 cannot change it. Historical feedback without a credential identity stays
 readable, but replay of its key refuses rather than inferring authority from
-its author. Confirmation creation and approval still need joint validation
-with the shared confirmation provider.
+its author. Confirmation creation and approval use the same command authority
+and retain the delegated participant's attribution.
 
 For an already-launched, bound attempt, the same transaction calls
 `flowdispatch.SteerInTx`. Its stable input ID becomes the runtime Message ID.
 The existing jobs worker retries delivery after interruption or a lost
 acknowledgment; it does not allocate a second input ID.
+
+Answer signals and Steer messages for the same bound run dispatch in the
+committed order of their `operation.accepted` events. An unresolved earlier
+input holds later delivery across worker concurrency, retry and restart. An
+uncertain outcome remains a barrier until reconciliation. Other runs continue
+independently. This orders runtime delivery; the guest still owns the model-turn
+barrier that consumes every input committed before dispatch.
 
 | State at admission or delivery       | Behavior                                                                       |
 | ------------------------------------ | ------------------------------------------------------------------------------ |
@@ -99,8 +109,6 @@ runtime's authenticated principal.
 The following acceptance evidence remains required beyond the composed-router,
 PostgreSQL dispatcher and browser-seam tests:
 
-- The shared catalog and confirmation path preserve authority, exact payload,
-  request identity and the person's approval before a delegated amendment.
 - Inputs received before run attachment join live Answer and Steer in one
   committed order, without duplicating initial launch feedback or losing text.
   The current launch payload aggregates historical feedback into a bounded

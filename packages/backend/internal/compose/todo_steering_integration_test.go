@@ -24,6 +24,51 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+// Protocol fixture holds a delivered input while another worker tries to
+// dispatch the next one. It does not substitute for guest/model-turn proof.
+type orderedFeedbackReceiver struct {
+	*reviewFixtureReceiver
+	entered chan string
+	holds   map[string]chan struct{}
+	order   []string
+}
+
+func (r *orderedFeedbackReceiver) receive(ctx context.Context, text string) error {
+	r.mu.Lock()
+	r.order = append(r.order, text)
+	r.mu.Unlock()
+	if release, ok := r.holds[text]; ok {
+		select {
+		case r.entered <- text:
+		case <-ctx.Done():
+			return ctx.Err()
+		}
+		select {
+		case <-release:
+		case <-ctx.Done():
+			return ctx.Err()
+		}
+	}
+	return nil
+}
+func (r *orderedFeedbackReceiver) Steer(ctx context.Context, input flowruntime.Steer) (flowruntime.MutationResult, error) {
+	if err := r.receive(ctx, input.Body); err != nil {
+		return flowruntime.MutationResult{}, err
+	}
+	return r.reviewFixtureReceiver.Steer(ctx, input)
+}
+func (r *orderedFeedbackReceiver) Signal(ctx context.Context, input flowruntime.Signal) (flowruntime.MutationResult, error) {
+	var text string
+	if err := json.Unmarshal(input.Payload, &text); err != nil {
+		return flowruntime.MutationResult{}, err
+	}
+	if err := r.receive(ctx, text); err != nil {
+		return flowruntime.MutationResult{}, err
+	}
+	return flowruntime.MutationResult{Operation: "signal", ApplicationRequestID: input.ApplicationRequestID,
+		Receipt: flowruntime.Receipt{Tag: "Accepted", ReceiptID: input.ApplicationRequestID, RunID: input.RunID}}, nil
+}
+
 // Real PostgreSQL and the install router/auth; seeded attempt facts qualify
 // the public projection, not production machine source loading.
 func TestTodoFeedbackComposedInstall(t *testing.T) {
@@ -58,7 +103,8 @@ func TestTodoFeedbackComposedInstall(t *testing.T) {
 		return services.ActiveFlowDigest(ctx, q, repositoryID, "todo")
 	})
 	service.EnableTodoSteering()
-	receiver := &reviewFixtureReceiver{messages: map[string]flowruntime.Steer{}}
+	receiver := &orderedFeedbackReceiver{reviewFixtureReceiver: &reviewFixtureReceiver{messages: map[string]flowruntime.Steer{}},
+		entered: make(chan string, 2), holds: map[string]chan struct{}{"Ordered steer": make(chan struct{}), "Ordered answer": make(chan struct{})}}
 	store, err := jobs.NewStore(pool)
 	require.NoError(t, err)
 	dispatcher, err := flowdispatch.New(flowdispatch.Config{Store: store, Resolver: flowruntime.ResolverFunc(func(context.Context, flowruntime.Target) (flowruntime.Runtime, error) { return receiver, nil }), SteerAuthorizer: service, Projector: service})
@@ -70,7 +116,7 @@ func TestTodoFeedbackComposedInstall(t *testing.T) {
 	workerCtx, cancel := context.WithCancel(ctx)
 	done := make(chan error, 1)
 	go func() {
-		done <- dispatcher.RunWorker(workerCtx, jobs.WorkerConfig{WorkerID: "todo-feedback", Capacity: 1, Lease: time.Second, RetryDelay: 10 * time.Millisecond, MaxRetryDelay: 20 * time.Millisecond, PollInterval: 10 * time.Millisecond})
+		done <- dispatcher.RunWorker(workerCtx, jobs.WorkerConfig{WorkerID: "todo-feedback", Capacity: 2, Lease: time.Second, RetryDelay: 10 * time.Millisecond, MaxRetryDelay: 20 * time.Millisecond, PollInterval: 10 * time.Millisecond})
 	}()
 	t.Cleanup(func() { cancel(); require.NoError(t, <-done) })
 	call := func(method, body, key string) map[string]any {
@@ -214,5 +260,88 @@ func TestTodoFeedbackComposedInstall(t *testing.T) {
 	require.Equal(t, "expired", state)
 	require.NoError(t, pool.QueryRow(ctx, `SELECT count(*) FROM product_job_requests WHERE operation='flow.runtime.steer'`).Scan(&count))
 	require.Equal(t, 4, count)
+
+	// Both public input doors serialize by committed admission, even with two
+	// workers and an earlier external call held deliberately unresolved.
+	for index, pair := range []struct {
+		first, second string
+		answerFirst   bool
+	}{
+		{"Ordered steer", "Quick answer", false},
+		{"Ordered answer", "Quick steer", true},
+	} {
+		waitID := fmt.Sprintf("ordered-question-%d", index)
+		scope := jobs.Scope{TenantID: fmt.Sprintf("repository:%d", repo.ID), PrincipalID: fmt.Sprintf("user:%d", owner.ID)}
+		waits, err := json.Marshal([]services.TodoWait{{ID: waitID, Kind: "question", Prompt: "Which retry limit?", Since: time.Now().UTC(),
+			Signal: &services.TodoWaitSignal{Scope: scope, Target: flowruntime.Target{TenantID: scope.TenantID, PrincipalID: scope.PrincipalID,
+				WorkspaceID: read.WorkspaceID, BindingKind: "mythical-item", BindingID: fmt.Sprintf("%x-%x-%x-%x-%x", item.ID.Bytes[0:4], item.ID.Bytes[4:6], item.ID.Bytes[6:8], item.ID.Bytes[8:10], item.ID.Bytes[10:16])},
+				Flow: "todo", Run: "pinned-run", Name: "answer:" + waitID}}})
+		require.NoError(t, err)
+		_, err = pool.Exec(ctx, `UPDATE mythical_items SET checks=jsonb_set(checks,'{waits}',$2::jsonb) WHERE id=$1`, item.ID, waits)
+		require.NoError(t, err)
+		answer := func(text string) {
+			body, err := json.Marshal(map[string]string{"wait": waitID, "answer": text})
+			require.NoError(t, err)
+			confirmationCall("POST", "/api/todos/1/answer", string(body), waitID, false, 202)
+		}
+		steer := func(text string) {
+			body, err := json.Marshal(map[string]string{"steer": text})
+			require.NoError(t, err)
+			call("POST", string(body), fmt.Sprintf("ordered-steer-%d", index))
+		}
+		if pair.answerFirst {
+			answer(pair.first)
+		} else {
+			steer(pair.first)
+		}
+		select {
+		case got := <-receiver.entered:
+			require.Equal(t, pair.first, got)
+		case <-time.After(5 * time.Second):
+			t.Fatal("first input never entered the runtime")
+		}
+		if !pair.answerFirst {
+			var open int
+			require.NoError(t, pool.QueryRow(ctx, `SELECT count(*) FROM mythical_items,jsonb_array_elements(checks->'waits') wait WHERE id=$1 AND NOT wait ? 'settled_at'`, item.ID).Scan(&open))
+			require.Equal(t, 1, open, "a steer must leave the question open")
+		}
+		if pair.answerFirst {
+			steer(pair.second)
+		} else {
+			answer(pair.second)
+		}
+		require.Eventually(t, func() bool {
+			var attempted bool
+			err := pool.QueryRow(ctx, `SELECT EXISTS (
+			 SELECT 1 FROM product_job_requests request JOIN product_job_dispatches dispatch ON dispatch.operation_id=request.id
+			 WHERE dispatch.attempt>0 AND (request.payload->>'body'=$1 OR request.payload->>'payload'=$1)
+			)`, pair.second).Scan(&attempted)
+			return err == nil && attempted
+		}, 5*time.Second, 10*time.Millisecond, "second worker never attempted the later input")
+		require.Never(t, func() bool {
+			receiver.mu.Lock()
+			defer receiver.mu.Unlock()
+			for _, text := range receiver.order {
+				if text == pair.second {
+					return true
+				}
+			}
+			return false
+		}, 200*time.Millisecond, 10*time.Millisecond, "later input overtook an unresolved predecessor")
+		close(receiver.holds[pair.first])
+		require.Eventually(t, func() bool {
+			receiver.mu.Lock()
+			defer receiver.mu.Unlock()
+			for _, text := range receiver.order {
+				if text == pair.second {
+					return true
+				}
+			}
+			return false
+		}, 5*time.Second, 10*time.Millisecond)
+		receiver.mu.Lock()
+		require.Equal(t, []string{pair.first, pair.second}, receiver.order[len(receiver.order)-2:])
+		receiver.mu.Unlock()
+	}
 
 }

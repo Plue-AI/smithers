@@ -445,6 +445,19 @@ func (service *Service) handleRunMutation(ctx context.Context, lease *jobs.Lease
 	if checkpoint.Target != payload.Target || checkpoint.FlowID != payload.FlowID || checkpoint.RunID != payload.RunID {
 		return service.fail(lease, "checkpoint_request_mismatch", checkpoint)
 	}
+	if payload.FlowID == TodoFlow && payload.Target.BindingKind == StackBindingKind {
+		// Answer and Steer share one committed input sequence. A retry or
+		// slow/lost acknowledgment must not let another worker overtake it.
+		fragment := mustJSON(map[string]any{"target": payload.Target, "flowId": payload.FlowID, "runId": payload.RunID})
+		pending, err := service.store.HasEarlierPending(ctx, claim.Scope, claim.OperationID,
+			[]string{OperationSignal, OperationSteer}, fragment)
+		if err != nil {
+			return safeFailure{code: "input_order_unavailable", retryable: true}
+		}
+		if pending {
+			return safeFailure{code: "input_order_pending", retryable: true}
+		}
+	}
 	if payload.FlowID == "todo" {
 		// Checkpoint before the resolver's existing start/verification path.
 		// Outages and process restarts cannot restart this wake allowance.
