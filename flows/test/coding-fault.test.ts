@@ -25,7 +25,7 @@ const declared = sources(flows).flatMap((file) =>
 )
 
 test("every tagged error the repository flows declare has a fault class", async () => {
-  for (const tag of ["coding/Error", "WikiError", "ReleaseError", "register-repository/Error"]) {
+  for (const tag of ["coding/Error", "WikiError", "ReleaseError", "coding/NativeCodingError"]) {
     assert.ok(declared.some((entry) => entry.tag === tag), tag)
   }
   for (const file of new Set(declared.map((entry) => entry.file))) await import(pathToFileURL(file).href)
