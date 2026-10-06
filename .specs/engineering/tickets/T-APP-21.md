@@ -3,6 +3,7 @@
 Stage S2 · Size M · Depends on T-UI-22, T-CAT-01, T-ACC-03 · Unblocks — · Issue: [#3559](https://github.com/smithersai/smithers/issues/3559)
 Spec: spec.md §1.3, §5.2, §6.2, §6.3, §14.2, §14.3 · Delta: delta.md §9 · Product: mvp.md M-36 (advanced primitive), §6.13 API
 Ready: 2026-10-05 smithers-8a sha256:719895280eef
+Landed: 2026-10-06 smithers-8a (backfill audit, #3738) 2202ac97aa, c3d1c0fdeb, fb692c778b, 64a9936c66, 80f0d03b19, 18a2af7b61, 1fe8c01ca3, c4e16887b9
 
 ## Goal
 

@@ -4,6 +4,7 @@ Stage S1 · Size M · Depends on first merge: —; rest of S1: — · Unblocks T
 Spec: spec.md §1.2, §16.1.0, §16.1.1 · Product: mvp.md J1.1, §6.1, §11 stage 1 item 1, M-10
 Rescoped by the minimal-code synthesis, 2026-10-03 (v1 §5). Restored code is not new code.
 Ready: 2026-10-03 smithers-8a sha256:bc6bed23a1c7
+Landed: 2026-10-06 smithers-8a (backfill audit, #3738) bdd9ec5672, 921f22dd4e, e37325545f, 984c91ab10
 
 ## Goal
 One command in a clean checkout produces a digest-matched, relocatable darwin-arm64 server bundle. Launcher readiness belongs to T-INS-02.

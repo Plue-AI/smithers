@@ -27,6 +27,8 @@ HARD RULES (no test can make these safe, so they're forbidden):
 
 The stamp carries the ticket file's SHA-256, truncated to its first 12 hexadecimal digits; compute it over the reviewed UTF-8 file bytes with the entire `Ready:` line omitted and the generated ` · Unblocks …` and ` · Issue: …` header fields removed (product, 2026-10-02), so recomputing dependencies never changes a digest. Lanes cite that digest before starting. Any later ruling becomes a follow-up ticket instead of changing the stamped scope.
 
+Landed is one recorded line (8a ruling, 2026-10-06, #3738). A ticket is **landed** when every item in its Scope "In" and Changes is on `main`; a dark landing counts when the ticket's Scope says to land dark. The lane that lands the last part adds `Landed: <date> <who> <sha>[, <sha>…]` under the header, in the landing commit or the next one. A partial landing writes nothing. Landed is not closed: the issue closes only with passing receipts (tickets/README.md). The stamp digest omits the `Landed:` line, so writing it never stales a Ready stamp. Every frontier and report counts a ticket as landed only from this line or a closed issue, never from a commit that cites the issue.
+
 In-flight tickets are frozen (product, 2026-10-02). A ruling that changes a ticket a lane is already implementing goes into a follow-up ticket, except for security, data loss, or a contradiction of Will's binding rules. A ruling that blocks a lane takes 30 minutes at most.
 
 Rules that override convenience:

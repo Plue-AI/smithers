@@ -4,6 +4,7 @@ Stage S1 · Size S · Depends on — · Unblocks T-MCH-01, T-REL-02 · Issue: [#
 Spec: spec.md §21.4–§21.4a · Delta: delta.md §11 (one check runner) · Product: mvp.md §12 item 1 (acceptance evidence), M-29 · Owner: smithers-22
 Rescoped by the minimal-code synthesis, 2026-10-03 (v2 ruling 3; v1 §6 host-profile readers). #3663 is re-scoped to this ticket.
 Ready: 2026-10-03 smithers-8a sha256:95198577c4ce
+Landed: 2026-10-06 smithers-8a (backfill audit, #3738) a109c5d0ca, 4e03c27d57
 
 ## Goal
 A ticket closes only with a machine-written receipt for every named check, bound to `--landed <sha>`, and one check runner writes those receipts. A receipt is `.artifacts/checks/<id>/<ts>/receipt.json` with `{version: 1, check, commit, layer, command, exit, started, ended, log_digest}`; `commit` is a full SHA, `exit` an integer, times ISO UTC, `log_digest` `sha256:<hex>`. A receipt records CI's own result for the check's target at the landed SHA; it executes nothing locally.
