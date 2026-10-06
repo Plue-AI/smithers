@@ -1656,6 +1656,11 @@ type GetAPIAgentConversationsParams struct {
 	Limit *int64
 }
 
+// PatchAPIConversationTurnBody is generated from docs/api/openapi.yaml.
+type PatchAPIConversationTurnBody struct {
+	Prompt string `json:"prompt"`
+}
+
 // GetAPIConversationViewStateResponse is generated from docs/api/openapi.yaml.
 type GetAPIConversationViewStateResponse struct {
 	ToastsHidden         bool                       `json:"toasts_hidden"`
@@ -2531,6 +2536,27 @@ func (c *Client) GetAPIAgentConversations(ctx context.Context, params GetAPIAgen
 func (c *Client) PostAPIAgentConversationsReplay(ctx context.Context, body SavedConversationReplayRequest) (SavedConversationReplay, error) {
 	var out SavedConversationReplay
 	err := c.do(ctx, "POST", "/api/agent/conversations/replay", nil, body, &out)
+	return out, err
+}
+
+// DeleteAPIConversationTurn calls DELETE /api/conversations/{b}/turns/{id}.
+func (c *Client) DeleteAPIConversationTurn(ctx context.Context, b string, id string) (AnyJSON, error) {
+	var out AnyJSON
+	err := c.do(ctx, "DELETE", "/api/conversations/"+url.PathEscape(b)+"/turns/"+url.PathEscape(id), nil, nil, &out)
+	return out, err
+}
+
+// PatchAPIConversationTurn calls PATCH /api/conversations/{b}/turns/{id}.
+func (c *Client) PatchAPIConversationTurn(ctx context.Context, b string, id string, body PatchAPIConversationTurnBody) (AnyJSON, error) {
+	var out AnyJSON
+	err := c.do(ctx, "PATCH", "/api/conversations/"+url.PathEscape(b)+"/turns/"+url.PathEscape(id), nil, body, &out)
+	return out, err
+}
+
+// PostAPIConversationTurnStop calls POST /api/conversations/{b}/turns/{id}/stop.
+func (c *Client) PostAPIConversationTurnStop(ctx context.Context, b string, id string) (AnyJSON, error) {
+	var out AnyJSON
+	err := c.do(ctx, "POST", "/api/conversations/"+url.PathEscape(b)+"/turns/"+url.PathEscape(id)+"/stop", nil, nil, &out)
 	return out, err
 }
 
