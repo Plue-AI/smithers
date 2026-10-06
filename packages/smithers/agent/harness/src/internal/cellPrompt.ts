@@ -254,14 +254,10 @@ const environmentText = (environment: Environment): string => {
   const absent = environment.absentTools === undefined ? [] : [...environment.absentTools].sort()
   if (absent.length > 0) {
     lines.push(
-      `- Not installed: ${
-        absent.join(", ")
-      }. Calls to them fail; use \`ctx.flows\`.`
+      `- Not installed: ${absent.join(", ")}. Calls to them fail; use \`ctx.flows\`.`
     )
   }
-  return `Harness-computed facts about the checkout and container, not the task.\n${
-    lines.join("\n")
-  }`
+  return `Harness-computed facts about the checkout and container, not the task.\n${lines.join("\n")}`
 }
 
 const digest = (id: Section["id"], text: string): string => Digest.digest(CanonicalJson.stringify({ id, text }))

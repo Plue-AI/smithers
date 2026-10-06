@@ -84,10 +84,16 @@ func (s *WorkspaceService) authorizeBranchMachine(ctx context.Context, tx pgx.Tx
 	// The machine service owns every branch machine and is no member: it
 	// cannot sign in, so only the product's own steps (the box's head reporter
 	// and coding runtime) act as it.
-	if tx != nil {
-		if owner, err := db.New(tx).GetBranchMachineOwner(ctx); err == nil && owner == actorID {
-			return s.requireBranchMachineRuntime(ctx)
+	// Admission already holds a transaction (and may hold the branch lock).
+	// Borrowing another pool connection here can deadlock concurrent joins.
+	service, ownerErr := func() (bool, error) {
+		if tx != nil {
+			return branchMachineOwnerMatches(ctx, db.New(tx), actorID)
 		}
+		return s.branchMachineOwned(ctx, actorID)
+	}()
+	if ownerErr == nil && service {
+		return s.requireBranchMachineRuntime(ctx)
 	}
 	p := s.branchMachineProviders
 	if err := p.Membership(ctx, tx, repositoryID, actorID); err != nil {

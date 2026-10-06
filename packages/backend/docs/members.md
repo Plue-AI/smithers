@@ -52,6 +52,7 @@ delegated credentials land.
 | `merge` | Maintainer | `POST /api/todos/{n}/merge` |
 | `members.list` | Member | `GET /api/members` |
 | `members.write` | Maintainer | `POST /api/members`, `PATCH`, `DELETE /api/members/{login}` |
+| `external.read` (person-only) | Owner | `GET /api/external/sessions`, live topic `external:<agent>:<session>` |
 | `secrets.write` (person-only) | Maintainer | `POST /api/repos/{o}/{r}/secrets`, `PATCH`, `DELETE /api/repos/{o}/{r}/secrets/{name}` |
 
 A person-only command checks the role first, then the credential, and it
@@ -76,9 +77,14 @@ owner changes it. Git HTTP and SSE tickets stay owner-only for members.
 The issue list card and the issue card read the install repository's GitHub
 issues from `GET /api/issues` and `GET /api/issues/{n}` (the issue with its
 comments). The install reads them through its GitHub App as the stack's actor,
-so a member needs no GitHub credential that can read them, and Make TODO reads
-the issue the same way when it commits. A Member makes a TODO only from an
-issue whose author and last writers have write access on GitHub; an
+so a member needs no GitHub credential that can read them. Each browser issue
+read returns an `issue_digest` bound to that member's original issue and
+discussion. Make TODO commits that snapshot after remote edits; unknown or
+another member's digests return `409 issue_snapshot_unknown`. The editable
+Draft stays in the browser. The run receives the admitted discussion as quoted
+data attributed to each author, with no later comments. A Member makes a TODO
+only from an issue whose author and last writers are active roster members
+with live GitHub write access, or the install's App; an
 outsider's issue answers `403 permission` ("Only a maintainer can make a TODO
 from this issue"), and a maintainer's TODO from it is marked outsider.
 

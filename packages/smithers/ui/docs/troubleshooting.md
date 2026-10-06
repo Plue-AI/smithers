@@ -21,7 +21,7 @@ import: the sheet is a JavaScript string, because the bundler the Smithers
 applications are built with drops CSS artifacts. See
 [How styling ships](./concepts/styling.md).
 
-## Colors are wrong, or every surface is the default violet
+## Colors are wrong, or dark mode shows the light palette
 
 **Symptom.** Components render with structure but the wrong palette, or a
 standalone page looks correct in light mode and wrong in dark.

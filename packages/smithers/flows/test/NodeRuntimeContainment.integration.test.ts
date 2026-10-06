@@ -198,10 +198,12 @@ const cancelFromAnotherDriver = (options: {
             allowSpawn,
             // The shell reads its sleeper and writes its pid only inside this
             // case's workspace; native confinement remains enabled.
-            ...(["fs:read", "fs:write"] as const).map((action) => new Permission.Rule({
-              effect: "allow",
-              pattern: new Capability.CapabilityPattern({ action, resource: `${root}/**` })
-            })),
+            ...(["fs:read", "fs:write"] as const).map((action) =>
+              new Permission.Rule({
+                effect: "allow",
+                pattern: new Capability.CapabilityPattern({ action, resource: `${root}/**` })
+              })
+            ),
             new Permission.Rule({
               effect: "allow",
               pattern: new Capability.CapabilityPattern({ action: "fs:write", resource: root })

@@ -44,8 +44,7 @@ export const INSTALLER_DONE: ReadonlyArray<string> = [
 
 /** The coding model's provider. */
 export const PROVIDER = "Anthropic"
-/* Pasted keys, one per model role. The card masks every character as it is typed. A rejected key is a States entry, not J1. */
-export const FAST_KEY = "csk-4tW9mQ2xR7vK1pL8nZ3cH6yB5dF0jG2s"
+/* Pasted keys: the coding model's and the AI Gateway's; the fast model needs none. The card masks every character as it is typed. A rejected key is a States entry, not J1. */
 export const CODING_KEY = "sk-ant-api03-hN4wQ8rT2mZ6vK1pL9xC3f2a"
 export const GATEWAY_KEY = "vck_7Rm2Qx9Lp4Tz8Wn5Kd1Hs91bd"
 /** The install's Obsidian folder on the Mac, which Settings edits like the address. */

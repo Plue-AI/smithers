@@ -56,6 +56,11 @@ export type CommandActions =
     // Live stack snapshots are what the Stack views read, never an act.
     | "installSnapshots"
     | "githubSyncSnapshots"
+    // A Codex session the conversation shows read-only (M-38), never an act.
+    | "externalSession"
+    // The fast model's titles are what the timeline reads, never an act.
+    | "timelineTitles"
+    | "contextLine"
     // The roster and the person's role are what the Members card reads, never an act.
     | "membersRoster"
     | "membersRole"
@@ -133,7 +138,7 @@ export type Handler<I extends OperationPayload> = (payload: I["Type"], signal: A
  * enumerates them.
  */
 export interface Declaration<I extends OperationPayload> extends AppOperation<I>, FlowMetadata {
-  readonly preflight?: (payload: I["Type"], invoker?: "user" | "agent" | "system") => string | undefined
+  readonly preflight?: (payload: I["Type"], invoker?: "user" | "agent" | "system") => string | undefined | Promise<string | undefined>
   /** The call identity is available for destination-side idempotency. */
   readonly prepare?: (payload: I["Type"]) => void | Promise<void>
   readonly handler: Handler<I>

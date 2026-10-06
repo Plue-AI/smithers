@@ -48,6 +48,7 @@
     "./CompletionClaim": "./src/CompletionClaim.ts",
     "./ContextWindow": "./src/ContextWindow.ts",
     "./EngineLike": "./src/EngineLike.ts",
+    "./ExternalTranscript": "./src/ExternalTranscript.ts",
     "./FlowBinding": "./src/FlowBinding.ts",
     "./HarnessError": "./src/HarnessError.ts",
     "./Judgement": "./src/Judgement.ts",
@@ -210,6 +211,16 @@
         "require": {
           "types": "./dist/cjs/EngineLike.d.ts",
           "default": "./dist/cjs/EngineLike.js"
+        }
+      },
+      "./ExternalTranscript": {
+        "import": {
+          "types": "./dist/esm/ExternalTranscript.d.ts",
+          "default": "./dist/esm/ExternalTranscript.js"
+        },
+        "require": {
+          "types": "./dist/cjs/ExternalTranscript.d.ts",
+          "default": "./dist/cjs/ExternalTranscript.js"
         }
       },
       "./FlowBinding": {

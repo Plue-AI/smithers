@@ -3,6 +3,7 @@
 Stage S1 · Size S · Depends on T-CUT-01, T-APP-22 · Unblocks — · Issue: [#3610](https://github.com/smithersai/smithers/issues/3610)
 Spec: spec.md §6.1.2, §14.1.5, §14.2 · Delta: delta.md §10 · Product: mvp.md §8 (Cut rows), Appendix B; AGENTS.md "Old sessions and recorded events must remain readable" · Reference: [card-kinds.md](../card-kinds.md) §2, §3
 Ready: 2026-10-03 smithers-8a sha256:9d3c3d0f18e2
+Landed: 2026-10-06 smithers-8a (backfill audit, #3738) feadab778f, 7f0948edd7
 
 ## Goal
 Every card kind mvp.md §8 cuts is gone from the live card union and the renderers, its old rows decode as titled tombstones, and no cut producer survives in a file that also holds kept code. This is the follow-up of T-CUT-01, which is frozen while its lane runs (product rule, 2026-10-02).

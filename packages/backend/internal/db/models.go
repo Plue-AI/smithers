@@ -184,15 +184,16 @@ type BillingEntitlement struct {
 }
 
 type BillingPlanGrant struct {
-	ID        int64     `json:"id"`
-	OwnerType string    `json:"owner_type"`
-	OwnerID   int64     `json:"owner_id"`
-	SourceKey string    `json:"source_key"`
-	PlanKey   string    `json:"plan_key"`
-	ExpiresAt time.Time `json:"expires_at"`
-	Actor     string    `json:"actor"`
-	Reason    string    `json:"reason"`
-	CreatedAt time.Time `json:"created_at"`
+	ID                  int64       `json:"id"`
+	OwnerType           string      `json:"owner_type"`
+	OwnerID             int64       `json:"owner_id"`
+	SourceKey           string      `json:"source_key"`
+	PlanKey             string      `json:"plan_key"`
+	ExpiresAt           time.Time   `json:"expires_at"`
+	Actor               string      `json:"actor"`
+	Reason              string      `json:"reason"`
+	CreatedAt           time.Time   `json:"created_at"`
+	ConcurrentSandboxes pgtype.Int8 `json:"concurrent_sandboxes"`
 }
 
 type BillingSubscription struct {
@@ -312,6 +313,16 @@ type BuildCacheReadToken struct {
 type BuildCacheRepositoryUsage struct {
 	RepositoryID int64 `json:"repository_id"`
 	SizeBytes    int64 `json:"size_bytes"`
+}
+
+type BurstFile struct {
+	EventID    string      `json:"event_id"`
+	Path       string      `json:"path"`
+	Change     string      `json:"change"`
+	BeforeBlob pgtype.Text `json:"before_blob"`
+	AfterBlob  pgtype.Text `json:"after_blob"`
+	PostDigest pgtype.Text `json:"post_digest"`
+	RenamedTo  pgtype.Text `json:"renamed_to"`
 }
 
 type CanonicalImportReceipt struct {
@@ -1427,6 +1438,13 @@ type LinearSyncRun struct {
 	StartedAt      pgtype.Timestamptz `json:"started_at"`
 	FinishedAt     pgtype.Timestamptz `json:"finished_at"`
 	CreatedAt      time.Time          `json:"created_at"`
+}
+
+type MachineEventReceipt struct {
+	WorkspaceID string    `json:"workspace_id"`
+	EventID     string    `json:"event_id"`
+	Outcome     string    `json:"outcome"`
+	At          time.Time `json:"at"`
 }
 
 type MemoryNote struct {

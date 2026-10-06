@@ -333,6 +333,7 @@ protected execution snapshot reader, independently of its redacted event view.
 | `WakeOutcome`             | `Woken`, `NotWaiting`, or `NotFound`                                                                 |
 | `RecordRunParentOutcome`  | `Recorded` or `Existing`                                                                             |
 | `RunParentCycleError`     | tagged error carrying `path`, the execution ids from the child back to itself                        |
+| `EngineStateFault`        | defect for a broken invariant: `reason` names it, `field` names an unwritable or unreadable column   |
 
 Both implementations answer one behavior contract, so a test written against
 the memory twin holds for the SQL one. See

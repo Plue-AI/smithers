@@ -3,6 +3,7 @@
 Stage S2 · Size S · Depends on T-UI-01 · Unblocks T-APP-21 · Issue: [#3584](https://github.com/smithersai/smithers/issues/3584)
 Spec: spec.md §14.2.1 · Delta: delta.md §9 · Product: mvp.md M-36 · Props: written by this ticket when S2 starts
 Ready: 2026-10-03 smithers-8a sha256:2ea993a776a9
+Landed: 2026-10-06 smithers-8a (backfill audit, #3738) 49ef0688eb
 
 ## Goal
 

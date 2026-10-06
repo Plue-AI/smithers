@@ -191,6 +191,21 @@ close reason reaches the card verbatim. A cloud repository without a running
 workspace is told which act opens or resumes one; a file no relayed language
 handles is told the DTO's `lsp.languages`.
 
+## Codex and Claude Code sessions (M-38)
+
+`/?codex=<session id or prefix>` or `/?claude=<session id or prefix>` shows a Codex or Claude Code session run on the host's machine after the conversation, read-only: the owner's prompts, "Codex for <owner>" or "Claude Code for <owner>" answers, one act line per run of commands (it opens to each command and its output), and a diff card per edited file. A Claude Code tool call shows once its result arrives; a subagent's sidechain stays out. Nothing imported offers an act.
+
+Every host serves the same raw contract, `GET /api/external/sessions?agent=codex|claude-code&session=<id>&offset=<n>`, answering `{ agent, session_id, owner, offset, next, text, eof }`: the session file's complete JSONL lines from byte `offset`, at most 4 MiB of them (one longer line alone, up to 64 MiB). The browser keeps the decoder state per session, decodes each chunk with `@smthrs/harness/ExternalTranscript` (`decodeCodex`, `decodeClaude`), asks again from `next` until `eof`, and clips long command output and diffs for display. A host only finds the file, by id or unique prefix, never by path: Codex `rollout-*.jsonl` under a `sessions` directory, Claude Code `<session>.jsonl` in a project directory under `projects`. An ambiguous prefix is refused.
+
+- On an install, the Go backend (`packages/backend/internal/externalsessions`) serves the install owner's browser session only, from the account the backend runs as: `$CODEX_HOME` and `~/.codex`; `$CLAUDE_CONFIG_DIR` and `~/.claude`. No other directory is read: a person who keeps more homes for an agent points those variables at the one to show. The newest copy of a session wins, and no link under those directories is followed. The owner is the person the read names. The live topic `external:<agent>:<session>` carries the file's size, checked every second, so the conversation reads appended lines at once; the five-second poll runs only while that topic serves nothing.
+- The local preview (`src/bun/ExternalSessions.ts`, the T1 test host) serves only in local mode, on loopback, behind the local session capability, from the OS user's own `$CODEX_HOME` (else `~/.codex`) or `$CLAUDE_CONFIG_DIR` (else `~/.claude`), refusing a link in any path component; the OS user is the owner. It has no live channel, so the conversation polls every five seconds.
+
+An unknown id, an ambiguous prefix, a read missing its metadata, an unsupported release or a malformed line shows as one failed line in the conversation, keeping what decoded before it.
+
+To look at one locally: `SMITHERS_LOCAL_PORT=47313 SMITHERS_CHAT_STUB=1 bun e2e/playwright/webserver.ts`, then open `http://127.0.0.1:47313/?codex=<id>` or `?claude=<id>`.
+
+`/agent.codex <prompt>` and `/agent.claude <prompt>` start Codex or Claude Code on this machine and show its conversation with no id typed (#3730). Each exists only where the host advertises `launch.codex` or `launch.claude-code`: today the local preview host given a launcher (`agentLauncher`), which the T1 test host composes with the fixture CLIs in `e2e/fixtures/agent-launch/`; the install's backend starts no CLI. `POST /api/external/launch { agent, prompt }` runs the CLI headless in the launcher's directory, the prompt one argument after `--` (`codex exec --sandbox workspace-write -C <dir> -- <prompt>`, `claude -p --permission-mode acceptEdits -- <prompt>`), then binds the earliest session whose first record names that directory and began at or after the launch (`src/bun/AgentLaunch.ts` `launchedSession`); launches run one at a time so two never trade sessions. The app answers "Requested" at once, keeps one toast until the session is bound or refused, and records the binding as an `agent-session` card, so a reload keeps it. The conversation shows the newest started session where it was started. The agent's call confirms first.
+
 ## Model-authored cards
 
 Models can provide explanatory text but cannot author markup, scripts, command

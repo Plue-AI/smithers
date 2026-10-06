@@ -12,9 +12,9 @@ them:
 ```ts
 import { tokens } from "@smthrs/ui"
 
-tokens.background // "var(--bg, #FBFBFB)"
-tokens.destructive // "var(--danger, #ba3f3c)"
-tokens.primarySoft // "var(--brand-soft, color-mix(in srgb, var(--brand, #9449bc) 10%, var(--surface, #fefefe)))"
+tokens.background // "var(--bg, #f7f4ee)"
+tokens.destructive // "var(--danger, #a4442a)"
+tokens.primarySoft // "var(--brand-soft, color-mix(in srgb, var(--brand, #0f766e) 10%, var(--surface, #fffefa)))"
 ```
 
 Each value is a CSS expression, not a color, so it is usable anywhere CSS is: a

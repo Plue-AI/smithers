@@ -2733,7 +2733,7 @@
 .branch-view .setup-field { display: flex; flex-direction: column; gap: 4px; min-width: 0; font-size: var(--fs-caption); }
 .branch-view .setup-field input { min-height: 28px; width: 220px; max-width: 100%; padding: 6px 8px; border: 1px solid var(--border); border-radius: 6px; background: var(--surface); color: var(--text); font: inherit; }
 .branch-view .branch-ssh { display: flex; align-items: center; gap: 8px; margin-top: 12px; padding-top: 10px; border-top: 1px solid var(--border); }
-.branch-view .branch-ssh code { min-width: 0; color: var(--text-muted); overflow-wrap: normal; white-space: nowrap; overflow-x: auto; }
+.branch-view .branch-ssh code { min-width: 0; color: var(--text-muted); overflow-wrap: normal; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .branch-view .branch-ssh button { flex: none; display: inline-flex; padding: 6px; border: 0; border-radius: 6px; background: transparent; color: var(--text-muted); cursor: pointer; }
 .branch-view button:focus-visible, .branch-view input:focus-visible { outline: 2px solid var(--ring-border); outline-offset: 2px; }
 @media (max-width: 480px) {
@@ -3124,6 +3124,8 @@ from main down to the last item. */
 .design-subject .mvp-link:hover { color: var(--action-primary); text-decoration: underline; text-underline-offset: 3px; }
 .design-subject .mvp-branch-chip,
 .home .branch-chip { display: inline-flex; align-items: center; height: 20px; padding: 0 7px; border: 1px solid var(--border-strong); border-radius: var(--r-full); background: var(--surface-2); color: var(--text); font-family: var(--font-mono); font-size: 11.5px; }
+.code-diff-view .mvp-branch-chip,
+.mvp-home .mvp-branch-chip { display: inline-flex; align-items: center; height: 20px; padding: 0 7px; border: 1px solid var(--border-strong); border-radius: var(--r-full); background: var(--surface-2); color: var(--text); font-family: var(--font-mono); font-size: 11.5px; }
 .design-subject button.mvp-branch-chip:hover { background: var(--hover); }
 .design-subject .mvp-edited-by { display: inline-flex; align-items: center; gap: 6px; color: var(--text-muted); font-size: var(--fs-caption); font-weight: 500; }
 .design-subject .avatar { box-shadow: none; }
@@ -3462,3 +3464,18 @@ button.mvp-node:focus-visible { outline: 2px solid var(--ring-border); outline-o
 .code-file-view .code-compare-cap { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 4px; color: var(--text-muted); font-size: var(--fs-caption); }
 .code-file-view .code-compare-cap code { overflow-wrap: anywhere; }
 @media (max-width: 640px) { .code-file-view .code-compare { grid-template-columns: minmax(0, 1fr); } }
+/* Zoomed lines (T-UI-08 zoom, #3728): a stacked node on the hairline, and tighter, quieter type the coarser the level. Level 3 is the coarsest look; higher levels wear it. */
+.timeline li[data-zoom] > button { padding: 2px 8px 2px 0; }
+.timeline li[data-zoom="2"] > button { padding: 3px 8px 3px 0; }
+.timeline li[data-zoom="1"] > button { padding: 4px 8px 4px 0; }
+.tl-stack { display: block; flex: none; }
+.timeline li[data-zoom] .tl-text b { color: var(--text-muted); font-size: var(--fs-caption); font-weight: 400; line-height: 15px; }
+.timeline li[data-zoom="2"] .tl-text b { color: var(--text); font-size: var(--fs-caption); line-height: 16px; }
+.timeline li[data-zoom="1"] .tl-text b { color: var(--text); font-size: var(--fs-caption); font-weight: 500; line-height: 18px; }
+.timeline li[data-zoom] .tl-zoom { color: var(--text-faint); font-size: var(--fs-caption); line-height: 13px; font-variant-numeric: tabular-nums; }
+.timeline li[data-zoom="2"] .tl-zoom { color: var(--text-muted); font-size: var(--fs-caption); line-height: 14px; }
+.timeline li[data-zoom="1"] .tl-zoom { color: var(--text-muted); font-size: var(--fs-caption); line-height: 15px; }
+.timeline li[data-zoom][data-tone="attention"] .tl-zoom { color: var(--attention-text); }
+.timeline li[data-zoom][data-tone="failed"] .tl-zoom { color: var(--danger); }
+/* A title the fast model wrote (#3732) leads with the written sparkle, inline with the words. */
+.tl-text b .written { display: inline; margin-right: 3px; }

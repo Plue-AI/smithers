@@ -23,7 +23,6 @@
       "kind": "current",
       "document": "factory/wiki/pages/start-here.md",
       "inputs": [
-        "packages/smithers/flows/flow/docs/README.md",
         "packages/smithers/flows/src/NodeRuntime.ts",
         "packages/smithers/agent/docs/concepts/agent-loop.md",
         "packages/smithers/build/targets/docs/README.md"
@@ -359,7 +358,8 @@
       "kind": "current",
       "document": "factory/wiki/pages/coding-ui.md",
       "inputs": [
-        "flows/coding/planning.md"
+        "flows/coding/planning.md",
+        "apps/app/src/mainview/cards/CodingPlanCard.tsx"
       ],
       "related": [
         "product-ui",
@@ -376,7 +376,6 @@
       "kind": "intent",
       "document": "factory/wiki/pages/coding-experience.md",
       "inputs": [
-        "apps/app/docs/http-turn-recovery.md",
         "factory/wiki/pages/coding-direction.md"
       ],
       "related": [
@@ -393,8 +392,7 @@
       "kind": "current",
       "document": "factory/wiki/pages/product-ui.md",
       "inputs": [
-        "apps/app/README.md",
-        "apps/app/docs/http-turn-recovery.md"
+        "apps/app/README.md"
       ],
       "related": [
         "app",
@@ -454,7 +452,6 @@
       "kind": "current",
       "document": "factory/wiki/pages/native-engine-evidence.md",
       "inputs": [
-        "packages/smithers/flows/docs/concepts/runtime-portability.md",
         "packages/smithers/ENGINE-JOURNAL-PROJECTION.md",
         "apps/app/src/mainview/cards/EngineTrace.ts"
       ],

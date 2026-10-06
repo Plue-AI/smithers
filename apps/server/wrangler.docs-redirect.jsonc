@@ -1,0 +1,71 @@
+{
+	// smithers-docs-redirect: the retired library docs sites (T-DOC-04, #3510).
+	// A separate Worker from the shared edge (wrangler.jsonc); no workflow deploys
+	// it. docs/docs-redirect.md is the runbook: inventory, deploy, DNS, rollback.
+	// Deploy: bun x wrangler deploy -c wrangler.docs-redirect.jsonc
+	// Rollback: bun x wrangler delete -c wrangler.docs-redirect.jsonc (removes the routes;
+	// the docs-site Custom Domains under them answer again).
+	"name": "smithers-docs-redirect",
+	"main": "src/docsRedirectWorker.ts",
+	"compatibility_date": "2026-08-01",
+	"compatibility_flags": ["nodejs_compat"],
+	"workers_dev": false,
+	"observability": { "enabled": true },
+	// One route per retired docs site and no other hostname: scripts/package-docs.mjs
+	// legacySites, held here by src/docsRedirect.test.ts. A route outranks the old
+	// site Worker's Custom Domain on the same hostname, so one deploy cuts every site over.
+	// No wildcard route: *.smithers.sh/* would run this Worker on every other subdomain.
+	"routes": [
+		{ "pattern": "agent.smithers.sh/*", "zone_id": "8ebd98d2f0dc7d8db2e61f31ebc19c14" },
+		{ "pattern": "artifacts.smithers.sh/*", "zone_id": "8ebd98d2f0dc7d8db2e61f31ebc19c14" },
+		{ "pattern": "canonical.smithers.sh/*", "zone_id": "8ebd98d2f0dc7d8db2e61f31ebc19c14" },
+		{ "pattern": "capability.smithers.sh/*", "zone_id": "8ebd98d2f0dc7d8db2e61f31ebc19c14" },
+		{ "pattern": "chain.smithers.sh/*", "zone_id": "8ebd98d2f0dc7d8db2e61f31ebc19c14" },
+		{ "pattern": "cli.smithers.sh/*", "zone_id": "8ebd98d2f0dc7d8db2e61f31ebc19c14" },
+		{ "pattern": "control.smithers.sh/*", "zone_id": "8ebd98d2f0dc7d8db2e61f31ebc19c14" },
+		{ "pattern": "core.smithers.sh/*", "zone_id": "8ebd98d2f0dc7d8db2e61f31ebc19c14" },
+		{ "pattern": "crypto.smithers.sh/*", "zone_id": "8ebd98d2f0dc7d8db2e61f31ebc19c14" },
+		{ "pattern": "database.smithers.sh/*", "zone_id": "8ebd98d2f0dc7d8db2e61f31ebc19c14" },
+		{ "pattern": "engine.smithers.sh/*", "zone_id": "8ebd98d2f0dc7d8db2e61f31ebc19c14" },
+		{ "pattern": "engine-store.smithers.sh/*", "zone_id": "8ebd98d2f0dc7d8db2e61f31ebc19c14" },
+		{ "pattern": "errors.smithers.sh/*", "zone_id": "8ebd98d2f0dc7d8db2e61f31ebc19c14" },
+		{ "pattern": "evals.smithers.sh/*", "zone_id": "8ebd98d2f0dc7d8db2e61f31ebc19c14" },
+		{ "pattern": "flow.smithers.sh/*", "zone_id": "8ebd98d2f0dc7d8db2e61f31ebc19c14" },
+		{ "pattern": "flows.smithers.sh/*", "zone_id": "8ebd98d2f0dc7d8db2e61f31ebc19c14" },
+		{ "pattern": "fs.smithers.sh/*", "zone_id": "8ebd98d2f0dc7d8db2e61f31ebc19c14" },
+		{ "pattern": "gateway.smithers.sh/*", "zone_id": "8ebd98d2f0dc7d8db2e61f31ebc19c14" },
+		{ "pattern": "harness.smithers.sh/*", "zone_id": "8ebd98d2f0dc7d8db2e61f31ebc19c14" },
+		{ "pattern": "integrations.smithers.sh/*", "zone_id": "8ebd98d2f0dc7d8db2e61f31ebc19c14" },
+		{ "pattern": "jj.smithers.sh/*", "zone_id": "8ebd98d2f0dc7d8db2e61f31ebc19c14" },
+		{ "pattern": "journal.smithers.sh/*", "zone_id": "8ebd98d2f0dc7d8db2e61f31ebc19c14" },
+		{ "pattern": "kernel.smithers.sh/*", "zone_id": "8ebd98d2f0dc7d8db2e61f31ebc19c14" },
+		{ "pattern": "keys.smithers.sh/*", "zone_id": "8ebd98d2f0dc7d8db2e61f31ebc19c14" },
+		{ "pattern": "mcp.smithers.sh/*", "zone_id": "8ebd98d2f0dc7d8db2e61f31ebc19c14" },
+		{ "pattern": "memory.smithers.sh/*", "zone_id": "8ebd98d2f0dc7d8db2e61f31ebc19c14" },
+		{ "pattern": "migrate.smithers.sh/*", "zone_id": "8ebd98d2f0dc7d8db2e61f31ebc19c14" },
+		{ "pattern": "model.smithers.sh/*", "zone_id": "8ebd98d2f0dc7d8db2e61f31ebc19c14" },
+		{ "pattern": "notifications.smithers.sh/*", "zone_id": "8ebd98d2f0dc7d8db2e61f31ebc19c14" },
+		{ "pattern": "observability.smithers.sh/*", "zone_id": "8ebd98d2f0dc7d8db2e61f31ebc19c14" },
+		{ "pattern": "plan.smithers.sh/*", "zone_id": "8ebd98d2f0dc7d8db2e61f31ebc19c14" },
+		{ "pattern": "plan-store.smithers.sh/*", "zone_id": "8ebd98d2f0dc7d8db2e61f31ebc19c14" },
+		{ "pattern": "platform-browser.smithers.sh/*", "zone_id": "8ebd98d2f0dc7d8db2e61f31ebc19c14" },
+		{ "pattern": "platform-bun.smithers.sh/*", "zone_id": "8ebd98d2f0dc7d8db2e61f31ebc19c14" },
+		{ "pattern": "platform-node.smithers.sh/*", "zone_id": "8ebd98d2f0dc7d8db2e61f31ebc19c14" },
+		{ "pattern": "plugin.smithers.sh/*", "zone_id": "8ebd98d2f0dc7d8db2e61f31ebc19c14" },
+		{ "pattern": "registry.smithers.sh/*", "zone_id": "8ebd98d2f0dc7d8db2e61f31ebc19c14" },
+		{ "pattern": "run-store.smithers.sh/*", "zone_id": "8ebd98d2f0dc7d8db2e61f31ebc19c14" },
+		{ "pattern": "sandbox.smithers.sh/*", "zone_id": "8ebd98d2f0dc7d8db2e61f31ebc19c14" },
+		{ "pattern": "scorers.smithers.sh/*", "zone_id": "8ebd98d2f0dc7d8db2e61f31ebc19c14" },
+		{ "pattern": "smithers-patterns.smithers.sh/*", "zone_id": "8ebd98d2f0dc7d8db2e61f31ebc19c14" },
+		{ "pattern": "smithers-sync.smithers.sh/*", "zone_id": "8ebd98d2f0dc7d8db2e61f31ebc19c14" },
+		{ "pattern": "smthrs.smithers.sh/*", "zone_id": "8ebd98d2f0dc7d8db2e61f31ebc19c14" },
+		{ "pattern": "std.smithers.sh/*", "zone_id": "8ebd98d2f0dc7d8db2e61f31ebc19c14" },
+		{ "pattern": "step-cache.smithers.sh/*", "zone_id": "8ebd98d2f0dc7d8db2e61f31ebc19c14" },
+		{ "pattern": "testing.smithers.sh/*", "zone_id": "8ebd98d2f0dc7d8db2e61f31ebc19c14" },
+		{ "pattern": "time-travel.smithers.sh/*", "zone_id": "8ebd98d2f0dc7d8db2e61f31ebc19c14" },
+		{ "pattern": "triggers.smithers.sh/*", "zone_id": "8ebd98d2f0dc7d8db2e61f31ebc19c14" }
+	],
+	// "off": an unknown slug never reaches this Worker. "txt-marker" goes with a
+	// *.smithers.sh/* route and the wildcard DNS records in docs/docs-redirect.md.
+	"vars": { "UNKNOWN_SLUGS": "off" }
+}

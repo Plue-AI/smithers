@@ -368,7 +368,7 @@ const expectedAskers: Record<string, string> = {
 for (const [name, story] of Object.entries(confirmStories)) {
   test(`renders ${name}`, () => {
     const host = render({ ...story, ...callbacks })
-    expect(host.querySelector("h2")).not.toBeNull()
+    expect(host.querySelector(story.model.receipt ? ".confirm-receipt" : "h2")).not.toBeNull()
     for (const text of story.expect) expect(host.textContent).toContain(text)
     if (story.model.kind === "one_click" && !story.model.receipt) {
       const label = expectedAskers[name]
@@ -1121,7 +1121,7 @@ test("shell text is inert; private, empty and disabled boundaries", async () => 
     expect(row.host.querySelector("script")).toBeNull()
     expect(row.host.querySelector("button")).toBeNull()
   } finally { await row.close() }
-  const context = await mounted({ name: "empty", expect: [], render: ({ onView }) => <ContextLine count={0} items={[]} expanded={false} onView={onView} /> })
+  const context = await mounted({ name: "empty", expect: [], render: ({ onView, onAction }) => <ContextLine count={0} items={[]} actions={[]} onAction={onAction} expanded={false} onView={onView} /> })
   try {
     expect(context.host.textContent).toBe("Context · 0")
     expect(context.host.querySelector(".context-chip")).toBeNull()
@@ -1836,7 +1836,7 @@ const branchStateOracles = [
   ["asleep", "Asleep", "Wake", "box.resume", { branch: "todo/12" }],
   ["failed", "Image build failed", "Retry", "box.resume", { branch: "todo/12" }],
   ["rebase_pending", "Rebase pending onto T8", "Rebase now", "branch.rebase-now", { branch: "todo/12" }],
-  ["moved_off", "Needs you", "Return to T15", "todo.return-to-item", { n: "15" }],
+  ["moved_off", "Needs you", "Return to T12", "todo.return-to-item", { n: "12" }],
 ] as const
 for (const [key, copy, label, tag, args] of branchStateOracles) test(`Branch ${key} projects its control`, async () => {
   const host = document.createElement("div"); document.body.append(host); const root = createRoot(host)
@@ -1860,6 +1860,9 @@ test("Branch SSH copies the supplied host line without a flow", async () => {
   const onAction = mock(() => {}), onView = mock(() => {})
   try {
     await act(async () => root.render(<BranchView {...branchFixtures.awake} onAction={onAction} onView={onView} />))
+    expect(host.querySelector(".branch-ssh code")!.getAttribute("title")).toBe("ssh -p 2222 todo-12@mac-mini.local")
+    expect(host.querySelector(".branch-presence")).toBeNull()
+    expect(host.textContent).not.toContain("Nobody here")
     await act(async () => host.querySelector<HTMLButtonElement>('[aria-label="Copy SSH line"]')!.click())
     expect(writeText.mock.calls).toEqual([["ssh -p 2222 todo-12@mac-mini.local"]])
     expect(onAction).toHaveBeenCalledTimes(0); expect(onView).toHaveBeenCalledTimes(0)
@@ -2371,6 +2374,8 @@ describe("DebugApiView", () => {
 
 // T-UI-15: literal projection oracles supplement the reused stories.
 for (const [key, text] of [
+  ["asleep", "In review"], ["failed", "Failed · Starting"], ["moved_off", "Ben moved this branch off T12"],
+  ["waking", "Starting"], ["waiting", "Queued"], ["closed", "Merged"],
   ["waking", "Waking"], ["waiting", "Waiting for a machine · #2"], ["closed", "Closed"],
   ["rebasing", "Rebasing… onto T8"], ["scratch_main", "Forked from main"],
   ["scratch_item", "Forked from T12 Card model contracts"], ["scratch_branch", "Forked from scratch/repro"],
@@ -2441,7 +2446,7 @@ test("Branch copy identifies editing, running, settled questions and moved-off w
     expect(item.host.querySelector('[data-kind="question"]')!.textContent).toContain("Asked · Coding agent for Ben")
     expect(item.host.querySelector('[data-kind="answer"]')!.textContent).toContain("Answer · Ben")
     await act(async () => item.root.render(<BranchView {...branchFixtures.moved_off} onAction={item.onAction} onView={item.onView} />))
-    expect(item.host.querySelector('[data-tone="attention"]')!.textContent).toContain("Ben moved this branch off T15")
+    expect(item.host.querySelector('[data-tone="attention"]')!.textContent).toContain("Ben moved this branch off T12")
     expect(item.onAction).toHaveBeenCalledTimes(0)
   } finally { await item.close() }
 })
@@ -3178,3 +3183,74 @@ describe("Shell controls and viewport subscription", () => {
   })
 })
 
+
+describe("ActLine disclosure", () => {
+  test("plain line has no disclosure or callbacks", async () => {
+    const { stories } = await import("./ActLineView.stories")
+    const m = await mounted(stories[0]!)
+    expect(m.host.textContent).toBe("Smithers ran 1 command")
+    expect(m.host.querySelector("details")).toBeNull()
+    expect(m.host.querySelector(".bubble-system-note.tool-act-line")).not.toBeNull()
+    await m.close()
+  })
+  test("steps, error and nonzero exit output disclose locally", async () => {
+    const { ActLineView } = await import("./ActLineView")
+    const m = await mounted({ name: "acts", expect: ["Commands"], render: () => <ActLineView line="Commands" tone="failed" steps={[
+      { text: "read", status: "ok" }, { text: "test", status: "error", output: "FAIL", exit_code: 2 },
+      { text: "build", status: "running", output: "OK", exit_code: 0 }, { text: "empty", output: "" }
+    ]} /> })
+    const details = m.host.querySelector("details")!
+    expect(details.open).toBe(false)
+    details.open = true
+    expect(m.host.querySelectorAll("li")).toHaveLength(4)
+    expect(m.host.querySelector('li[data-status="error"] > code')!.textContent).toBe("test")
+    expect(m.host.querySelector('.act-line-output summary')!.textContent).toBe("Output · exit 2")
+    expect([...m.host.querySelectorAll('.act-line-output summary')].map(n => n.textContent)).toEqual(["Output · exit 2", "Output"])
+    expect(m.host.querySelector('pre')!.textContent).toBe("FAIL")
+    expect(m.host.querySelector('[data-tone="failed"]')).not.toBeNull()
+    expect(m.onAction).not.toHaveBeenCalled()
+    expect(m.onView).not.toHaveBeenCalled()
+    await m.close()
+  })
+})
+
+test.each([false, true])("ContextLine item and Inspect actions expanded=%s", async expanded => {
+  const { ContextLine } = await import("../../ContextLine")
+  const context = await mounted({ name: "context actions", expect: [], render: ({ onAction, onView }) => <ContextLine count={2} expanded={expanded}
+    items={[{ kind: "file", label: "flow.ts", ref: "flows/todo/flow.ts", revision: "abc123", action: { tag: "file", label: "Open", args: { path: "flows/todo/flow.ts" } } }, { kind: "page", label: "Decisions", ref: "decisions" }]}
+    actions={[{ tag: "context.inspect", label: "Inspect" }]} onAction={onAction} onView={onView} /> })
+  try {
+    expect(context.host.querySelector('[data-flow="context.inspect"]') !== null).toBe(expanded)
+    expect(context.host.querySelectorAll(".context-chip").length).toBe(expanded ? 2 : 0)
+    if (expanded) {
+      const item = context.host.querySelector<HTMLButtonElement>('[data-flow="file"]')!
+      expect(item.tagName).toBe("BUTTON")
+      expect(item.textContent).toBe("flow.tsabc123")
+      expect(item.querySelector("svg")).not.toBeNull()
+      expect(context.host.querySelector('[data-kind="page"]')!.tagName).toBe("SPAN")
+      await act(async () => item.click())
+      await act(async () => context.host.querySelector<HTMLButtonElement>('[data-flow="context.inspect"]')!.click())
+      expect(context.onAction.mock.calls).toEqual([["file", { path: "flows/todo/flow.ts" }], ["context.inspect", {}]])
+      expect(context.onView.mock.calls).toEqual([])
+    }
+    await act(async () => context.host.querySelector<HTMLButtonElement>(".context-toggle")!.click())
+    expect(context.onView.mock.calls).toEqual([[{ expanded: !expanded }]])
+  } finally { await context.close() }
+})
+
+test("ContextLine disabled actions show reasons and do not dispatch", async () => {
+  const { ContextLine } = await import("../../ContextLine")
+  const context = await mounted({ name: "disabled context", expect: [], render: ({ onAction, onView }) => <ContextLine count={1} expanded
+    items={[{ kind: "run", label: "Implement", ref: "run-12", action: { tag: "run", label: "Open", disabled: { reason: "Run unavailable" } } }]}
+    actions={[{ tag: "context.inspect", label: "Inspect", disabled: { reason: "Access refused" } }]} onAction={onAction} onView={onView} /> })
+  try {
+    expect(context.host.textContent).toContain("Run unavailable")
+    expect(context.host.textContent).toContain("Access refused")
+    for (const button of context.host.querySelectorAll<HTMLButtonElement>("[data-flow]")) {
+      expect(button.disabled).toBe(true)
+      await act(async () => button.click())
+    }
+    expect(context.onAction.mock.calls).toEqual([])
+    expect(context.onView.mock.calls).toEqual([])
+  } finally { await context.close() }
+})

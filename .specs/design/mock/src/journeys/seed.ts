@@ -33,7 +33,7 @@ export const INSTALL_ADDRESS = "https://maya-mini.tail1234.ts.net"
 const installedSetup = (): Setup => ({
   listen: "network", addresses: [INSTALL_ADDRESS], memory: "32 GB",
   github: "app-installed", repository: "acme/api", provider: "Anthropic",
-  fastKey: "saved", codingKey: "saved", gatewayKey: "saved", obsidian: "~/Obsidian/acme-api",
+  smithers: "connected", codingKey: "saved", gatewayKey: "saved", obsidian: "~/Obsidian/acme-api",
   source: "ready", sourcePct: 100, machine: "ready", machinePct: 100
 })
 

@@ -214,6 +214,15 @@ func codingHostEnvironment(_ topology) map[string]string {
 	return map[string]string{"SMITHERS_WORKSPACE_JJ_EXPORT_BINARY": services.WorkspaceJJExportGuestPath}
 }
 
+// The install checks the durable owner setting on each pool request, so
+// changing it also applies to coding hosts that are already running.
+func codingHostAccountPoolURL(cfg *config.Config, productAPIURL string) string {
+	if config.IsSingleOwner(cfg.Auth) || cfg.FeatureFlags.SubscriptionConnections {
+		return productAPIURL + services.ProviderPoolPath
+	}
+	return ""
+}
+
 func (flow *flowComposition) recover(ctx context.Context) error {
 	if _, err := flow.jobs.RecoverExpiredForOperations(ctx,
 		[]string{flowdispatch.OperationLaunch, flowdispatch.OperationApprove, flowdispatch.OperationSignal, flowdispatch.OperationSteer}, 100); err != nil {
@@ -313,13 +322,4 @@ func withInvokedFlowTargets(base, invoked flowhost.TargetResolver) flowhost.Targ
 		}
 		return base.ResolveFlowHostTarget(ctx, target)
 	})
-}
-
-// Install owners can change models.chatgpt after hosts are composed. The
-// served pool checks that setting on every request, including existing hosts.
-func codingHostAccountPoolURL(cfg *config.Config, productAPIURL string) string {
-	if config.IsSingleOwner(cfg.Auth) || cfg.FeatureFlags.SubscriptionConnections {
-		return productAPIURL + services.ProviderPoolPath
-	}
-	return ""
 }

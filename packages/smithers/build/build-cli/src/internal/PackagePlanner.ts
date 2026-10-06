@@ -29,7 +29,7 @@ import * as Cause from "effect/Cause"
 import * as Effect from "effect/Effect"
 import * as Exit from "effect/Exit"
 import * as Schema from "effect/Schema"
-import { minimatch } from "minimatch"
+import { braceExpand, minimatch } from "minimatch"
 import * as NodeFs from "node:fs"
 import * as Fs from "node:fs/promises"
 import * as NodeOs from "node:os"
@@ -48,6 +48,7 @@ import * as NixExec from "../NixExec.ts"
 import * as OverlayExec from "../OverlayExec.ts"
 import * as OwnersResolution from "../Owners.ts"
 import type * as PackageIndexModule from "../PackageIndex.ts"
+import { DeclaredInputMissing, type MissingInput } from "../PackageError.ts"
 import * as PackageTree from "../PackageTree.ts"
 import * as Planner from "../Planner.ts"
 import * as RepoResolution from "../RepoResolution.ts"
@@ -1334,6 +1335,7 @@ const visit = async (
   // argv builder is unchanged.
   const plannedMode = context.rootModes.get(label) ?? options.mode
   const attrs = await withTargetIndex(
+    context,
     rule,
     withFactory(
       rule,
@@ -1343,10 +1345,7 @@ const visit = async (
         plannedMode
       ),
       context.index.factory
-    ),
-    context.repoResolutions,
-    context.cacheDirectory,
-    context.signal
+    )
   )
 
   // Dependencies: always visited for key material; the execution edges are a
@@ -3198,20 +3197,94 @@ const withFactory = (rule: string, attrs: unknown, factory: PackageIndexModule.P
     }
     : attrs
 
-/** All absent inputs discovered in one check, with their declaring targets. */
-class MissingDeclaredInputs extends Error {
-  readonly _tag = "MissingDeclaredInputs"
-  readonly inputs: ReadonlyArray<{ path: string; label: string; sourceFile: string | undefined }>
-  constructor(inputs: ReadonlyArray<{ path: string; label: string; sourceFile: string | undefined }>) {
-    super(
-      inputs.map((input) =>
-        `${input.label}: missing declared input "${input.path}" (${input.sourceFile ?? "unknown source"})`
-      ).join("\n")
-    )
-    this.inputs = inputs
+/** The segment characters `Input.expandGlob` treats as pattern syntax when it finds a static prefix. */
+const globSyntax = /[*?[\]{}!()|@+]/
+
+/**
+ * Whether one declared glob names something on disk. A glob that matches a
+ * file is present. One that matches nothing is still present when, for some
+ * brace alternative, the static prefix (the path up to the first segment with
+ * pattern syntax) holds a file: the directory exists and the pattern merely
+ * selects nothing in it today. An alternative without pattern syntax is a file
+ * path and must be that file. Every expansion goes through `Input.expandGlob`
+ * with the rules planning applies (cache directory, child repositories,
+ * `.gitignore`, exclusions); the package boundary is lifted, because it
+ * decides which package owns a file, not whether the file exists.
+ */
+const globPresent = async (
+  context: PlanContext,
+  packagePath: string,
+  declaration: Input.Glob,
+  repositoryBoundaries: ReadonlyArray<string>
+): Promise<boolean> => {
+  const expand = (pattern: string | Input.Glob) =>
+    Input.expandGlob(context.root, packagePath, pattern, {
+      cacheDirectory: context.cacheDirectory,
+      repositoryBoundaries,
+      packageScoped: false,
+      signal: context.signal
+    })
+  if ((await expand(declaration)).length > 0) return true
+  for (const alternative of braceExpand(Input.resolvePath(packagePath, declaration.pattern))) {
+    const segments = alternative.split("/")
+    const first = segments.findIndex((segment) => globSyntax.test(segment))
+    if (first === -1) {
+      const digest = await Input.digestFile(NodePath.join(context.root, alternative), {
+        workspaceRoot: context.root,
+        signal: context.signal
+      })
+      if (digest !== undefined) return true
+      continue
+    }
+    const prefix = segments.slice(0, first).join("/")
+    if (prefix === "" || (await expand(`//${prefix}/**`)).length > 0) return true
   }
+  return false
 }
 
+/**
+ * The declared inputs of every target a pattern selects that do not exist on
+ * disk. A `File` is absent when `Input.digestFile` finds no file; a `Glob` is
+ * absent when {@link globPresent} says so, which is a missing static prefix,
+ * not a pattern that merely matches nothing today. A file some selected
+ * target writes is skipped: a missing generated file is its generator's drift
+ * failure, not a stale declaration. `PnpmWorkspace` and `GitDiff` inputs name
+ * no file to check.
+ */
+const absentInputsOf = async (
+  context: PlanContext,
+  pattern: string,
+  listing: TargetIndex.Listing
+): Promise<ReadonlyArray<MissingInput>> => {
+  const generated = new Set(listing.targets.flatMap((row) => row.outputs))
+  const repositoryBoundaries = Object.values(context.index.workspace.repos ?? {}).map((repo) => repo.path)
+  const missing: Array<MissingInput> = []
+  for (const row of context.index.resolve(pattern)) {
+    const metadata = Target.metadata(row.target)
+    const packagePath = inputPackage(metadata, row.packagePath)
+    const sourceFile = metadata.sourceFile === undefined
+      ? undefined
+      : Path.containedRelative(context.root, metadata.sourceFile)
+    const absent = (path: string) =>
+      missing.push({ path, label: row.label, sourceFile: sourceFile === undefined ? undefined : posix(sourceFile) })
+    for (const declaration of metadata.inputs) {
+      if (declaration._tag === "File") {
+        const path = Input.resolvePath(packagePath, declaration.path)
+        if (generated.has(path)) continue
+        const digest = await Input.digestFile(NodePath.join(context.root, path), {
+          workspaceRoot: context.root,
+          signal: context.signal
+        })
+        if (digest === undefined) absent(path)
+      } else if (declaration._tag === "Glob") {
+        if (!(await globPresent(context, packagePath, declaration, repositoryBoundaries))) {
+          absent(Input.resolvePath(packagePath, declaration.pattern))
+        }
+      }
+    }
+  }
+  return missing
+}
 
 /**
  * The target index carries the rows the planner built from the loaded
@@ -3219,52 +3292,25 @@ class MissingDeclaredInputs extends Error {
  * every declaration the pattern covers is key material, and an edit to any
  * of them re-keys the check. Nothing here plans a target: the rows are
  * metadata and labeled edges, plus the child query a `Repo.Target` row needs.
+ *
+ * Before the rows ride, every declared input they name must exist: the
+ * index refuses with {@link DeclaredInputMissing}, naming each absent path,
+ * its target label and the declaring `PACKAGE.ts`, rather than commit a row
+ * that points at nothing.
  */
 
 const withTargetIndex = async (
+  context: PlanContext,
   rule: string,
-  attrs: unknown,
-  resolver: RepoResolution.Resolver,
-  cacheDirectory: string,
-  signal: AbortSignal | undefined
+  attrs: unknown
 ): Promise<unknown> => {
   if (rule !== "TargetIndex" || typeof attrs !== "object" || attrs === null) return attrs
-  const pattern = (attrs as { readonly pattern?: unknown }).pattern
-  const listing = await TargetIndex.build(
-    resolver.index,
-    typeof pattern === "string" ? pattern : "//...",
-    resolver.environment,
-    signal
-  )
-  if ((attrs as { readonly mode?: unknown }).mode !== "write") {
-    const packages = new Map(resolver.index.resolve(listing.pattern).map((row) => [
-      row.label, inputPackage(Target.metadata(row.target), row.packagePath)
-    ]))
-    const missing: Array<{ path: string; label: string; sourceFile: string | undefined }> = []
-    for (const row of listing.targets) {
-      for (const input of row.inputs) {
-        let absent = false
-        let path: string
-        if (input.kind === "file") {
-          path = input.path
-          absent = await Input.digestFile(NodePath.join(resolver.index.root, path), {
-            workspaceRoot: resolver.index.root,
-            signal
-          }) === undefined
-        } else if (input.kind === "glob") {
-          path = input.pattern
-          absent = (await Input.expandGlob(resolver.index.root, packages.get(row.label) ?? row.package, `//${input.pattern}`, {
-            exclude: input.exclude.map((path) => `//${path}`),
-            cacheDirectory,
-            repositoryBoundaries: Object.values(resolver.index.workspace.repos ?? {}).map((repo) => repo.path),
-            signal
-          })).length === 0
-        } else continue
-        if (absent) missing.push({ path, label: row.label, sourceFile: row.source?.file })
-      }
-    }
-    if (missing.length > 0) throw new MissingDeclaredInputs(missing)
-  }
+  const declared = (attrs as { readonly pattern?: unknown }).pattern
+  const pattern = typeof declared === "string" ? declared : "//..."
+  const resolver = context.repoResolutions
+  const listing = await TargetIndex.build(resolver.index, pattern, resolver.environment, context.signal)
+  const missing = await absentInputsOf(context, pattern, listing)
+  if (missing.length > 0) throw new DeclaredInputMissing(missing)
   return { ...attrs, targets: listing.targets }
 }
 

@@ -41,7 +41,7 @@ test("Context opens a pinned file through cardActions, the registered flow and t
     let completed: Promise<unknown> = Promise.resolve()
     const actions = contextActions(items, (tag, input) => { completed = controller.runCommandForResult(tag, JSON.stringify(input)) }, contextOpenAction)
     let expanded = false
-    const render = () => flushSync(() => root.render(<ContextLine count={1} items={items} expanded={expanded} onView={patch => { expanded = patch.expanded; render() }} {...actions} />))
+    const render = () => flushSync(() => root.render(<ContextLine count={1} expanded={expanded} onView={patch => { expanded = patch.expanded; render() }} {...actions} />))
     render()
     expect(host.querySelectorAll("button")).toHaveLength(1)
     host.querySelector<HTMLButtonElement>(".context-toggle")!.click()
@@ -61,7 +61,7 @@ test("an unpinned page leaves disclosure readable without an active card action"
   const page = [{ kind: "page" as const, label: "Retries", ref: "retries", reason: "Policy" }]
   const actions = contextActions(page, () => { throw new Error("unavailable provider ran") }, contextOpenAction)
   const host = document.createElement("div"), root = createRoot(host)
-  flushSync(() => root.render(<ContextLine count={1} items={page} expanded={true} onView={() => {}} {...actions} />))
+  flushSync(() => root.render(<ContextLine count={1} expanded={true} onView={() => {}} {...actions} />))
   expect(host.querySelectorAll("button")).toHaveLength(1)
   expect(host.querySelector(".context-chip")?.tagName).toBe("SPAN")
   expect(host.textContent).toContain("Retries")
@@ -143,7 +143,7 @@ test("Context opens exact wiki bytes through the registered page flow and exclud
     await store.dispatch({ type: "repositories.loaded", actor: "system", repositories: [{ id: "acme/app", org: "acme", ownerKind: "user", name: "app", head: { bookmark: "main", changeId: "c", commitId: pinned } }] }).isPersisted.promise
     const pageItems = [{ kind: "page" as const, label: "Retries", ref: "retries", revision: "4", reason: "Retry policy" }]
     let completed: Promise<unknown> = Promise.resolve()
-    flushSync(() => root.render(<ContextLine count={1} items={pageItems} expanded={true} onView={() => {}}
+    flushSync(() => root.render(<ContextLine count={1} expanded={true} onView={() => {}}
       {...contextActions(pageItems, (tag, input) => { completed = controller.runCommandForResult(tag, JSON.stringify(input)) }, contextOpenAction)} />))
     host.querySelector<HTMLButtonElement>('[data-flow="wiki.page"]')!.click(); await completed
     const card = store.collections.cards.get("wiki-revision-acme/app-public-42-4")!

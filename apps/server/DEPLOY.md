@@ -5,6 +5,10 @@ forward to the shared backend at `SMITHERS_BACKEND_ORIGIN`. Authentication,
 bootstrap, chat, model credentials, recommendations, billing, jobs and streaming
 all belong to that backend. The edge does not hold active product authority.
 
+This package also holds one separate Worker, `smithers-docs-redirect`
+(`wrangler.docs-redirect.jsonc`), which answers the retired library docs
+hostnames. No workflow deploys it; `docs/docs-redirect.md` is its runbook.
+
 `wrangler.jsonc` is the edge (`main` = `src/edge.ts`); `docs/legacy-worker-deploy.md`
 records the retired legacy Worker for rollback reference. The first edge deploy
 replaces the live legacy version directly, admitted by the committed owner

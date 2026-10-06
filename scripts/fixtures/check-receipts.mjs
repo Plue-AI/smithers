@@ -72,10 +72,12 @@ Automation: \`smthrs test //fixture:canary\` · Runs in: CI
       [`repos/${repo}/actions/runs/7/artifacts?per_page=100`]: { artifacts: [{ id: 10, name: 'smthrs-results-test-0-1', workflow_run: { id: 7 }, expired: false, digest: hash(bytes) }] }
     } }
   }
+  let approvalComment = {}
   const writes = []; let closed = false; let comments = [{ body: `Claimed by fixture on ${hostname()} at ${new Date().toISOString()}; expires ${new Date(Date.now()+6*3600_000).toISOString()}`, created_at: new Date().toISOString() }]; let labeled = true
   // Only remote transport is intercepted; production parser, gate and proxy write() run.
   const gh = (args) => {
     const path = args.find(a => a.startsWith('http://fixture.test/'))
+    if (path.endsWith('/issues/comments/8')) return JSON.stringify(approvalComment)
     if (path.includes('/commits/') || path.includes('/actions/')) return JSON.stringify(ci().responses[path.split('http://fixture.test/')[1]])
     if (path.includes('/_smithers/admission')) return JSON.stringify({ principal: 'fixture', deferred: false })
     if (args.includes('-i')) { writes.push(args); if (args.includes('PATCH')) closed = true; if (args.includes('DELETE')) labeled = false; if (path.endsWith('/comments')) comments.push({ body: args.find(a => a.startsWith('body=')).slice(5) }); return '{}' }
@@ -138,8 +140,8 @@ globalThis.fetch = async (url) => {
     return spawnSync(process.execPath, ['scripts/check-run.mjs', id, '--landed', sha], { cwd: root, encoding: 'utf8', env: transportEnv() })
   }
   const transportEnv = () => ({ ...process.env, HOME: join(root, 'home'), NODE_OPTIONS: `--import=${join(root, 'transport.mjs')}`, PRC03_TRANSPORT: join(root, 'transport.json'), SMITHERS_GITHUB_PROXY: 'http://fixture.test' })
-  const cliClose = paths => spawnSync(process.execPath, ['scripts/issue-claim.mjs', 'comment', 'o/r#7', '--by', 'fixture', '--body', 'Complete', '--close', '--landed', sha, ...paths.flatMap(p => ['--receipt', p])], { cwd: root, encoding: 'utf8', env: transportEnv() })
+  const cliClose = (paths, extra = []) => spawnSync(process.execPath, ['scripts/issue-claim.mjs', 'comment', 'o/r#7', '--by', 'fixture', '--body', 'Complete', '--close', '--landed', sha, ...paths.flatMap(p => ['--receipt', p]), ...extra], { cwd: root, encoding: 'utf8', env: transportEnv() })
   const invoke = (argv) => run(argv,{cwd:root,env:{SMITHERS_GITHUB_PROXY:'http://fixture.test'},ensure:()=>{},gh,ghBytes})
-  return { root, put, git, get sha() { return sha }, commit, ci, runner, recorded, cliClose, close, writes, evidence, invoke, cleanup: () => { if (process.env.PRC03_EVIDENCE_DIR) cpSync(root, join(process.env.PRC03_EVIDENCE_DIR, 'fixtures', basename(root)), { recursive: true }); rmSync(root, { recursive: true, force: true }) } }
+  return { approval: comment => { approvalComment = comment }, root, put, git, get sha() { return sha }, commit, ci, runner, recorded, cliClose, close, writes, evidence, invoke, cleanup: () => { if (process.env.PRC03_EVIDENCE_DIR) cpSync(root, join(process.env.PRC03_EVIDENCE_DIR, 'fixtures', basename(root)), { recursive: true }); rmSync(root, { recursive: true, force: true }) } }
 }
 

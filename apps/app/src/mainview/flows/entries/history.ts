@@ -20,6 +20,7 @@ export const historyFlows = (actions: CommandActions): ReadonlyArray<FlowEntry> 
   flow({
     name: "history.bootstrap", visibility: "hidden",
     summary: "Create the history from main's commits",
+    hidden: true,
     runtime: ["cloud"],
     args: "<owner/repo>",
     requires: ["signed-in"],

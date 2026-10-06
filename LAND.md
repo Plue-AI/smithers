@@ -8,8 +8,7 @@ the migration gate refuses another ticket's reservation.
 
 Fetch the landing branch, then run `node scripts/renumber-migration.mjs <file>`
 for each unlanded product migration. The helper requires sqlc v1.30.0 from
-`PACKAGE.ts`, assigns max(origin/frontrun)+1 during the authorized wave
-(otherwise origin/main), updates the registry, converts implemented reservations,
+`PACKAGE.ts`, assigns max(origin/main)+1, updates the registry, converts implemented reservations,
 and regenerates sqlc. It refuses files already on `origin/main` before writes,
 including renamed copies, and refuses when unlanded status cannot be established.
 Never change landed migration filenames, numbers or bytes.

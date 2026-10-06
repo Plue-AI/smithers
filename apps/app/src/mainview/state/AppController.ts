@@ -141,6 +141,9 @@ import { createSecretsSeam } from "./seams/SecretsSeam"
 import type { StackSeam } from "./seams/StackSeam"
 import { createInstallSeam, type InstallSeam, type InstallTopic } from "./seams/InstallSeam"
 import { createGitHubSyncSeam, type GitHubSyncSeam } from "./seams/GitHubSyncSeam"
+import { createExternalSessionSeam, type ExternalSessionSeam } from "./seams/ExternalSessionSeam"
+import { createTimelineTitleSeam, modelStreamTitles, type TimelineTitleSeam } from "./seams/TimelineTitleSeam"
+import { createAgentLaunch, type StartAgent } from "./controller/agentLaunch"
 import { createMembersSeam, type MembersSnapshots } from "./seams/MembersSeam"
 import { createRunMonitorSeam, type RunMonitorSnapshots } from "./seams/RunMonitorSeam"
 import { traceNamed } from "./seams/DesignWorld/run"
@@ -161,6 +164,9 @@ import type { LiveTopics } from "./useTopic"
 import type { WorkspaceSeam } from "./seams/WorkspaceSeam"
 import { createWorkspaceSeam } from "./seams/WorkspaceSeam"
 import { randomUuid } from "../runtime/RandomUuid"
+
+import type { ContextContainerProps } from "../ContextContainer"
+import { createContextSeam, type ContextProvider } from "./seams/ContextSeam"
 
 export interface AppController extends IssueFlowsController {
   readonly storageRecoveryState: StorageRecoveryAction["state"]
@@ -264,6 +270,9 @@ export interface AppController extends IssueFlowsController {
   readonly debugApi: DebugApiSeam
   readonly debugApiCommand: (input: DebugApiInput) => string | { readonly value: string }
   readonly docsTargetAvailable: (target: string) => boolean
+  readonly contextLine: (answerId: string) => Omit<ContextContainerProps, "dispatch" | "available"> | undefined
+  readonly contextAvailable: () => boolean
+  readonly inspectContext: (branch: string, answer: string) => Promise<import("../flows/entries/Declare").CommandResult>
   readonly docsAvailable: () => boolean
   readonly openDocsPage: (page?: string) => string | { readonly value: string }
   /** `docs.read <page>`: the page's title, summary and Markdown as JSON, for the agent. */
@@ -546,6 +555,12 @@ export interface AppController extends IssueFlowsController {
   readonly todoList: TodoSeam["list"]
   /** The install's GitHub sync health, which Home's `main` row shows (GET /api/github/sync); none on other hosts. */
   readonly githubSyncSnapshots: GitHubSyncSeam["snapshots"]
+  /** A Codex or Claude Code session run on the host's machine, read-only for the conversation (M-38): GET /api/external/sessions, decoded here, read while shown. */
+  readonly externalSession: ExternalSessionSeam["session"]
+  /** The fast model's titles for the timeline's folded lines (#3732): POST /api/model/stream, asked while the rail shows them. */
+  readonly timelineTitles: TimelineTitleSeam["ask"]
+  /** Start an agent CLI on the host and show its session in this conversation (#3730). */
+  readonly startAgent: StartAgent
   /** MOCK SEAM (state/seams/DesignWorld): the seeded design world and its stub mutations, deleted in one change. */
   readonly design: DesignWorld
   /** The `/api/live` channel the Home card subscribes through; absent when the composition supplied none. */
@@ -773,6 +788,10 @@ export interface AppServices {
    * files read from disk (src/docs/DiskPages.ts).
    */
   readonly docs?: () => Docs
+  /** T-APP-17 composition gate. No production provider exists yet. */
+  readonly contextProvider?: ContextProvider
+  /** Stored answer projection, supplied only with the authenticated conversation and action-capable View. */
+  readonly contextLine?: (answerId: string) => Omit<ContextContainerProps, "dispatch" | "available"> | undefined
   /** Optional host override; bundled docs are available without a backend provider. */
   readonly docsCatalogAvailable?: () => boolean
   readonly debugApiGates?: () => DebugApiGates
@@ -866,7 +885,11 @@ export const createAppController = (
    * seam call carries the seam deadline, and the tap plus 401 recovery still
    * apply because boundedFetch wraps the tapped http.
    */
+  let issueAuthorizationRevision = 0
+  const issueAuthorizationSession = randomUuid()
+  if (services.live) ctx.onDispose(services.live.subscribe("members", () => { issueAuthorizationRevision++ }))
   const seamCtx: SeamContext = {
+    issueAuthorizationScope: () => installHost ? `${issueAuthorizationSession}:${issueAuthorizationRevision}` : "",
     resolveToast,
     withToast,
     isDisposed: () => ctx.disposed,
@@ -935,6 +958,13 @@ export const createAppController = (
     report: error => seamCtx.report?.("Home view", error)
   }) : undefined
   if (homeView) ctx.onDispose(homeView.dispose)
+  const externalSessionSeam = createExternalSessionSeam({ http: (path, init) => seamCtx.http(`${baseUrl.replace(/\/$/, "")}${path}`, init), live: services.live })
+  ctx.onDispose(externalSessionSeam.dispose)
+  /* The fast model titles the timeline's folded lines (#3732), only on a host that serves POST /api/model/stream. */
+  const timelineTitleSeam = createTimelineTitleSeam({ ...(services.bootstrap !== undefined && hasCapability(services.bootstrap, "model.turn")
+    ? { write: modelStreamTitles(ctx.boundedFetch, baseUrl.replace(/\/$/, "")) } : {}) })
+  ctx.onDispose(timelineTitleSeam.dispose)
+  const { startAgent } = createAgentLaunch(ctx, (path, init) => seamCtx.http(`${baseUrl.replace(/\/$/, "")}${path}`, init))
   /* Members (T-ACC-02): an install reads and changes its roster through /api/members; the seeded roster stands in only off an install. */
   const membersSeam = createMembersSeam({ ready: installHost, http: (path, init) => seamCtx.http(`${baseUrl.replace(/\/$/, "")}${path}`, init),
     live: services.live ?? { subscribe: () => () => {}, getSnapshot: () => undefined } })
@@ -1559,6 +1589,11 @@ export const createAppController = (
     })
     return { value: "Requested" }
   }
+  const { contextAvailable, inspectContext } = actors.pair(ctx, context =>
+    createContextSeam(context.http, context.baseUrl, services.contextProvider, () => {
+      const epoch = context.accountEpoch
+      return () => !context.disposed && context.accountEpoch === epoch
+    }, () => context.commandActor))
   const { docsTargetAvailable, docsAvailable, openDocsPage, readDocsPage } = actors.pair(ctx, (context) =>
     createDocsController(context, { nextOrdinal: store.nextOrdinal, docs: services.docs ?? bundledDocs, available: services.docsCatalogAvailable ?? (() => true) }))
 
@@ -1960,6 +1995,7 @@ export const createAppController = (
   const commandActions: CommandActions = {
     recoverFile,
     live: services.live,
+    startAgent,
     design,
     presentCard,
     runMonitors,
@@ -2035,6 +2071,7 @@ export const createAppController = (
     debugApi,
     debugApiCommand,
     docsTargetAvailable,
+    contextAvailable, inspectContext,
     docsAvailable,
     openDocsPage,
     readDocsPage,
@@ -2492,6 +2529,9 @@ export const createAppController = (
     sharedConversation,
     todoList: todoSeam.list,
     githubSyncSnapshots: gitHubSyncSeam.snapshots,
+    externalSession: externalSessionSeam.session,
+    timelineTitles: timelineTitleSeam.ask,
+    contextLine: answerId => contextAvailable() ? services.contextLine?.(answerId) : undefined,
     design,
     live: services.live,
     presentCard,

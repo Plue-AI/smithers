@@ -339,6 +339,28 @@ export const JEV_PATH = "/api/jev"
 export const HEALTH_PATH = "/api/health"
 
 /**
+ * A Codex or Claude Code session, as raw JSONL for the conversation (mvp.md M-38):
+ * `?agent=codex|claude-code&session=<id or prefix>&offset=<next>` answers
+ * `{ agent, session_id, owner, offset, next, text, eof }`, the file's complete lines from `offset`, at most 4 MiB.
+ * The app decodes them with `@smthrs/harness/ExternalTranscript`; every host serves the same bytes. The install's
+ * backend serves the install owner's browser session only; the local preview serves only on loopback, behind the
+ * local-session capability, from the OS user's own CODEX_HOME or CLAUDE_CONFIG_DIR.
+ *
+ * @since 1.0.0
+ * @category constants
+ */
+export const EXTERNAL_SESSIONS_PATH = "/api/external/sessions"
+
+/**
+ * Start an agent CLI on this machine: `POST { agent: "codex" | "claude-code", prompt }` answers `{ agent, session }`,
+ * the id of the session the CLI wrote, which EXTERNAL_SESSIONS_PATH then reads.
+ *
+ * @since 1.0.0
+ * @category constants
+ */
+export const EXTERNAL_LAUNCH_PATH = "/api/external/launch"
+
+/**
  * The account's current billing standing: its plan key, its caps, and today's spend.
  *
  * @since 1.0.0
@@ -382,5 +404,6 @@ export const SHARED_BACKEND_CLIENT_ROUTES = [
   { method: "POST", path: RECOMMEND_PATH, capability: "recommend" },
   { method: "POST", path: RECOMMEND_OUTCOME_PATH, capability: "recommend" },
   { method: "POST", path: COMMANDS_SELECT_PATH, capability: "commands.select" },
-  { method: "POST", path: MODEL_STREAM_PATH, capability: "model.turn" }
+  { method: "POST", path: MODEL_STREAM_PATH, capability: "model.turn" },
+  { method: "GET", path: EXTERNAL_SESSIONS_PATH }
 ] as const

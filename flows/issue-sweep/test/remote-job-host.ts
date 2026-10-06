@@ -166,10 +166,12 @@ await Effect.runPromise(withCrypto(Effect.scoped(
       }
       if (mode === "cancel" && row.status === "suspended") {
         yield* engine.interrupt(Caller, "external-job-root")
-        for (let attempt = 0; attempt < 200; attempt++) {
+        // The retained worker is destroyed after the run settles cancelled, so
+        // the receipt waits for both before the test reads the calls.
+        for (let attempt = 0; attempt < 1200; attempt++) {
           const calls = yield* Effect.promise(() => readFile(join(directory, "calls"), "utf8"))
           const cancelled = yield* runs.get("external-job-root")
-          if (calls.includes("cancel:") && cancelled.status === "cancelled") {
+          if (calls.includes("cancel:") && calls.includes("destroy:") && cancelled.status === "cancelled") {
             process.stdout.write(`${JSON.stringify({ status: "cancelled" })}\n`)
             return
           }

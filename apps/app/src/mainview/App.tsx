@@ -43,19 +43,41 @@ import { TranscriptMessage } from "./TranscriptMessage"
 import { HOME_ENTRY_ID, ShellRail } from "./ShellRail"
 import { WikiDeleteDialog } from "./WikiDeleteDialog"
 import { WorldSurface } from "./WorldSurface"
+import { ExternalEntry, useExternalConversation, type ExternalConversation, type ExternalItem } from "./ExternalEntries"
+import type { ExternalAgent } from "./state/seams/ExternalSessionSeam"
 
 type TranscriptEntry =
   | { readonly kind: "message"; readonly message: Message }
   | { readonly kind: "init"; readonly message: InitMessage }
   | { readonly kind: "card"; readonly card: Card }
+  /**
+   * A Codex session's read-only item (M-38). A session started here sits at its launch's ordinal (#3730);
+   * one named by `?codex=` has none and follows the conversation's own entries.
+   */
+  | { readonly kind: "external"; readonly item: ExternalItem; readonly conversation?: ExternalConversation | undefined; readonly ordinal?: number | undefined }
 
 const entryOrdinal = (entry: TranscriptEntry): number =>
-  entry.kind === "card" ? entry.card.ordinal : entry.message.ordinal
+  entry.kind === "card" ? entry.card.ordinal : entry.kind === "external" ? entry.ordinal ?? 0 : entry.message.ordinal
 
 const entryCreatedAt = (entry: TranscriptEntry): number =>
-  entry.kind === "card" ? entry.card.createdAt : entry.message.createdAt
+  entry.kind === "card" ? entry.card.createdAt : entry.kind === "external" ? entry.item.at : entry.message.createdAt
 
-const entryId = (entry: TranscriptEntry): string => entry.kind === "card" ? entry.card.id : entry.message.id
+const transcriptOrder = (left: TranscriptEntry, right: TranscriptEntry): number =>
+  entryOrdinal(left) - entryOrdinal(right) || entryCreatedAt(left) - entryCreatedAt(right)
+
+const entryId = (entry: TranscriptEntry): string => entry.kind === "card" ? entry.card.id : entry.kind === "external" ? entry.item.id : entry.message.id
+
+/**
+ * `?codex=<session id or prefix>` or `?claude=<session id or prefix>` shows that Codex or Claude Code session after
+ * the conversation (M-38). Read when this module loads, as boot reads its entry search: the frame history rewrites
+ * the address before App renders.
+ */
+const EXTERNAL_SESSION = ((): { readonly agent: ExternalAgent; readonly id: string } | undefined => {
+  if (typeof window === "undefined") return undefined
+  const search = new URLSearchParams(window.location.search)
+  const codex = search.get("codex"), claude = search.get("claude")
+  return codex ? { agent: "codex", id: codex } : claude ? { agent: "claude-code", id: claude } : undefined
+})()
 
 function AppContent() {
   const controller = useController()
@@ -325,16 +347,28 @@ function AppContent() {
     // stay stored, but cannot become the requested repository's projection.
     ...(repositoryNotice ? conversationCards.filter(card => !("repo" in card.payload) || card.payload.repo === missingBootRepository) : conversationCards)
       .map((card): TranscriptEntry => ({ kind: "card", card }))
-  ].sort((left, right) => {
-    if (entryOrdinal(left) !== entryOrdinal(right)) return entryOrdinal(left) - entryOrdinal(right)
-    return entryCreatedAt(left) - entryCreatedAt(right)
-  })
+  ].sort(transcriptOrder)
   // Batches before the newest ten fold into one row; opening it is transient chrome for this conversation only.
   const transcriptKey = controller.sharedConversation
     ? `${identity?.login ?? ""}:${session.branchNavigation?.selected_branch ?? "main"}:${sharedConversation.view ? "ready" : "loading"}`
     : `${conversationTabId ?? "main"}:${session.activeRepoKey ?? ""}`
 
-  const entries = mainEntries
+  /*
+   * M-38: a Codex or Claude Code session run on the host's machine, read-only. `?codex=` or `?claude=` names one by
+   * hand, after the conversation's own entries; otherwise the conversation shows the newest session started from it
+   * (#3730), where it started.
+   */
+  const started = conversationRows.reduce<Extract<Card, { kind: "agent-session" }> | undefined>((newest, card) =>
+    card.kind === "agent-session" && (newest === undefined || card.ordinal > newest.ordinal) ? card : newest, undefined)
+  const externalSession = EXTERNAL_SESSION ?? (started === undefined ? undefined : { agent: started.payload.agent, id: started.payload.session })
+  const external = useExternalConversation(externalSession === undefined ? undefined : controller.externalSession(externalSession.agent, externalSession.id))
+  const placed = EXTERNAL_SESSION === undefined ? started?.ordinal : undefined
+  const externalEntries: ReadonlyArray<TranscriptEntry> = [
+    ...(external.conversation?.items ?? []).map((item): TranscriptEntry => ({ kind: "external", item, conversation: external.conversation!, ordinal: placed })),
+    ...(external.error === undefined ? [] : [{ kind: "external", item: { id: "external-error", at: 0, kind: "error", text: external.error }, ordinal: placed } as const])
+  ]
+  const entries = externalEntries.length === 0 ? mainEntries
+    : placed === undefined ? [...mainEntries, ...externalEntries] : [...mainEntries, ...externalEntries].sort(transcriptOrder)
   const latestEntry = entries.at(-1)
   const latestReadId = latestEntry === undefined ? undefined : entryId(latestEntry)
   const initialReadId = loginScreen ? "login" : repositoryNotice ? authMessage?.id : home ? HOME_ENTRY_ID : undefined
@@ -487,7 +521,7 @@ function AppContent() {
             {!loginScreen && !repositoryNotice && <BranchNavigation />}
             {!earlier && controller.sharedConversation && <SharedConversation source={controller.sharedConversation} />}
             {!earlier && entries.filter(entry => !controller.sharedConversation || entry.kind !== "message" || entry.message.origin === "external" || entry.message.action !== undefined).map((entry) => <MessageScrollerItem key={entryId(entry)} messageId={entryId(entry)} style={{ contentVisibility: "visible" }}>
-              {entry.kind === "card" ?
+              {entry.kind === "external" ? <ExternalEntry item={entry.item} conversation={entry.conversation} /> : entry.kind === "card" ?
                 (
                   <CardView
                     key={entry.card.id}

@@ -129,6 +129,9 @@ export const FEATURE_MATRIX: Readonly<Record<RuntimeCapability, Readonly<Record<
   "billing.portal": { selfhost: billing, plue: billing },
   "cloud.terminal": { selfhost: core, plue: core },
   "cloud.pat": { selfhost: optional("a local host's session with its configured backend"), plue: absent("the shared backend holds no Smithers Cloud PAT session") },
+  // #3730: only the local preview host starts an agent CLI on its own machine; the backend has no launch route.
+  "launch.codex": { selfhost: absent("the backend starts no agent CLI"), plue: absent("the backend starts no agent CLI") },
+  "launch.claude-code": { selfhost: absent("the backend starts no agent CLI"), plue: absent("the backend starts no agent CLI") },
   "native.shell": { selfhost: absent("retired shell capability"), plue: absent("retired shell capability") },
 }
 

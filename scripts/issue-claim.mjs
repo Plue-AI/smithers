@@ -7,6 +7,7 @@
 //   node scripts/issue-claim.mjs comment <repo>#<n> (--body TEXT | --body-file PATH) [--close] [--pr]
 //                                        [--landed SHA --receipt PATH...] [--release [--by NAME] [--note TEXT] [--force]]
 // Non-completion: --close --reason not-planned|duplicate|superseded --note <link>.
+// Spike: --close --reason spike-verdict --landed SHA --receipt verdict.json --note <approval URL>.
 // Every explicit reason needs a note; duplicate/superseded identify the replacement.
 // <repo> is `name` (org smithersai) or `owner/name`. NAME defaults to ISSUE_CLAIM_BY,
 // then CLAUDE_SESSION_NAME, then `<user>-<parent pid>`; the host is os.hostname().
@@ -39,7 +40,7 @@ import { homedir, hostname, userInfo } from "node:os"
 import { join } from "node:path"
 import process from "node:process"
 
-import { evidenceGate, reverifyCi } from "./check-evidence.mjs"
+import { spikeGate, evidenceGate, reverifyCi } from "./check-evidence.mjs"
 
 import { proxyUrl } from "./github-proxy.mjs"
 
@@ -196,14 +197,18 @@ export const run = (argv, { gh = defaultGh, ghBytes = defaultGhBytes, now = () =
   const option = (name) => { const at = rest.indexOf(name); return at < 0 ? undefined : rest[at + 1] }
   const flag = (name) => rest.includes(name)
   if (!["check", "claim", "release", "comment"].includes(command)) {
-    throw new Error("usage: issue-claim.mjs check|claim|release|comment <repo>#<n> [--by NAME] [--note TEXT] [--force] [--body TEXT | --body-file PATH] [--close --landed SHA --receipt PATH... | --close --reason not-planned|duplicate|superseded --note LINK] [--pr] [--release]")
+    throw new Error("usage: issue-claim.mjs check|claim|release|comment <repo>#<n> [--by NAME] [--note TEXT] [--force] [--body TEXT | --body-file PATH] [--close --landed SHA --receipt PATH... | --close --reason not-planned|duplicate|superseded|spike-verdict --note LINK] [--pr] [--release]")
   }
   const issue = parseRef(ref)
   const me = { by: option("--by") || env.ISSUE_CLAIM_BY || env.CLAUDE_SESSION_NAME || `${userInfo().username}-${process.ppid}`, host: hostname() }
   const id = `${issue.repo}#${issue.number}`
   const closeReason = option("--reason")
   if (command === "comment" && flag("--close")) {
-    if (flag("--reason") && (!["completed", "not-planned", "duplicate", "superseded"].includes(closeReason) || !option("--note")?.trim() || (["duplicate", "superseded"].includes(closeReason) && !/(?:[\w.-]+\/[\w.-]+#\d+|https:\/\/github\.com\/[\w.-]+\/[\w.-]+\/issues\/\d+|\b[a-f0-9]{40}\b)/.test(option("--note"))))) return { code: 2, out: { issue: id, action: "evidence-refused", checks: [{ check: "reason", reason: "coverage" }] } }
+    if (flag("--reason") && (!["completed", "not-planned", "duplicate", "superseded", "spike-verdict"].includes(closeReason) || !option("--note")?.trim() || (["duplicate", "superseded"].includes(closeReason) && !/(?:[\w.-]+\/[\w.-]+#\d+|https:\/\/github\.com\/[\w.-]+\/[\w.-]+\/issues\/\d+|\b[a-f0-9]{40}\b)/.test(option("--note"))))) return { code: 2, out: { issue: id, action: "evidence-refused", checks: [{ check: "reason", reason: "coverage" }] } }
+    if (closeReason === "spike-verdict") {
+      const checks = spikeGate({root:cwd, issue, landed:option("--landed"), note:option("--note"), receipts:rest.flatMap((arg,index) => arg === "--receipt" ? [rest[index+1]] : [])})
+      if (checks.length) return {code:2,out:{issue:id,action:"evidence-refused",checks}}
+    }
     if (!closeReason || closeReason === "completed") {
       const receipts = rest.flatMap((arg, index) => arg === "--receipt" ? [rest[index + 1]] : [])
       const checks = evidenceGate({ root: cwd, issue, landed: option("--landed"), receipts })
@@ -228,6 +233,10 @@ export const run = (argv, { gh = defaultGh, ghBytes = defaultGhBytes, now = () =
         github: { json: (path) => JSON.parse(github.read(["api", path])), bytes: (path) => bytes.read(["api", path]) } })
       if (checks.length) return { code: 2, out: { issue: id, action: "evidence-refused", checks } }
     }
+    if (command === "comment" && flag("--close") && closeReason === "spike-verdict") {
+      const checks = spikeGate({root:cwd, issue, landed:option("--landed"), note:option("--note"), receipts:rest.flatMap((arg,index) => arg === "--receipt" ? [rest[index+1]] : []), github:{json:path => JSON.parse(github.read(["api",path]))}})
+      if (checks.length) return {code:2,out:{issue:id,action:"evidence-refused",checks}}
+    }
     admit(0)
     const initial = readIssue()
     const before = holder(initial, now().getTime())
@@ -251,7 +260,7 @@ export const run = (argv, { gh = defaultGh, ghBytes = defaultGhBytes, now = () =
       if (close) {
         write(flag("--pr")
           ? ["api", "--method", "PATCH", `repos/${issue.repo}/pulls/${issue.number}`, "-f", "state=closed"]
-          : ["api", "--method", "PATCH", base, "-f", "state=closed", "-f", `state_reason=${closeReason === "duplicate" ? "duplicate" : closeReason && closeReason !== "completed" ? "not_planned" : "completed"}`])
+          : ["api", "--method", "PATCH", base, "-f", "state=closed", "-f", `state_reason=${closeReason === "duplicate" ? "duplicate" : closeReason && !["completed", "spike-verdict"].includes(closeReason) ? "not_planned" : "completed"}`])
       }
       return result(0, { issue: id, action: posted ? "already-commented" : "commented", closed: flag("--close"), ...(closeReason ? { reason: closeReason } : {}),
         released: release && Boolean(live || initial.labeled), ...(flag("--release") && !release ? { holder: before } : {}) })

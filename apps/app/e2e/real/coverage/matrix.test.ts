@@ -183,7 +183,7 @@ describe("deployment mode matrix", () => {
 
   test("the README publishes the same feature matrix", () => {
     const readme = readFileSync(resolve(import.meta.dir, "README.md"), "utf8")
-    const published = [...readme.matchAll(/^\| `([a-z.]+)` \| (core|optional|absent) \| (core|optional|absent) \|/gm)]
+    const published = [...readme.matchAll(/^\| `([a-z.-]+)` \| (core|optional|absent) \| (core|optional|absent) \|/gm)]
       .map(([, capability, selfhost, plue]) => [capability, selfhost, plue])
     expect(published).toEqual(Object.entries(FEATURE_MATRIX).map(([capability, { selfhost, plue }]) => [capability, selfhost.support, plue.support]))
     expect(readme).toContain(`Feature matrix version ${FEATURE_MATRIX_VERSION}`)

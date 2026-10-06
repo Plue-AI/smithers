@@ -7,7 +7,7 @@ description: "Every smithers-build command, argument, option, exit code, and err
 smithers-build <command> [arguments] [options]
 ```
 
-`makeCli` registers 24 commands, including the alias for `git-hooks` and grouped
+`makeCli` registers 23 commands, including the alias for `git-hooks` and grouped
 `cache` and `show` surfaces. `normalizeArgv` adds another spelling: an argv
 whose first token starts with `//` or `:` is rewritten to `target <label>`, so
 `smithers-build //packages/api:lint` runs the bare-label form.
@@ -38,14 +38,14 @@ in the workspace declaration, then `.flows`. See
 `affected`, `clean`, `watch`, `build`, `test`, `lint`, `docs`, `run`,
 `target`, and `ci` add these to the workspace options.
 
-| Option                   | Alias | Type       | Default          | Meaning                                                           |
-| ------------------------ | ----- | ---------- | ---------------- | ----------------------------------------------------------------- |
-| `--plan`                 |       | boolean    | `false`          | Print the plan and skip target bodies.                            |
-| `--verbose`              |       | boolean    | `false`          | Show plain progress for agents and pipe consumers.                |
-| `--jobs`                 | `-j`  | integer 1+ | host parallelism | Maximum concurrent targets.                                       |
-| `--include-exclusive`    |       | boolean    | `false`          | Include exclusive targets in wildcard `ci` and `test` selections. |
-| `--cache` / `--no-cache` |       | boolean    | `true`           | Consult the cache before running. `--no-cache` still publishes.   |
-| `--known-red`            |       | path       | none             | JSON list of reviewed failures; unmatched failures fail.          |
+| Option                   | Alias | Type       | Default          | Meaning                                                              |
+| ------------------------ | ----- | ---------- | ---------------- | -------------------------------------------------------------------- |
+| `--plan`                 |       | boolean    | `false`          | Print the plan and skip target bodies.                               |
+| `--verbose`              |       | boolean    | `false`          | Show plain progress for agents and pipe consumers.                   |
+| `--jobs`                 | `-j`  | integer 1+ | host parallelism | Maximum concurrent targets.                                          |
+| `--include-exclusive`    |       | boolean    | `false`          | Include exclusive targets in wildcard `ci` and `test` selections.    |
+| `--cache` / `--no-cache` |       | boolean    | `true`           | Consult the cache before running. `--no-cache` still publishes.      |
+| `--known-red`            |       | path       | none             | JSON list of reviewed failures; unmatched failures fail.             |
 | `--results-file`         |       | path       | none             | Also write the summary, one status per label, as JSON to a new file. |
 
 Exclusive targets run alone after ready ordinary work drains, regardless of
@@ -385,7 +385,10 @@ person the listing is aligned `LABEL`, `RULE`, and `KINDS` columns with the
 outputs after an arrow and a star on a featured row. The root `//:targetIndex`
 target (`Smithers.TargetIndex`) commits the same rows as
 `.smithers/target-index.json`: `target //:targetIndex --write` writes the
-file and `lint '//:targetIndex'` fails on drift.
+file and `lint '//:targetIndex'` fails on drift. Both refuse with
+`declared_input_missing` when a declared file, glob static prefix or
+Actionlint workflow is absent, listing each path with the target label and
+the `PACKAGE.ts` that declares it.
 
 ### graph
 

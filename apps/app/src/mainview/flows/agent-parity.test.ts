@@ -1,3 +1,4 @@
+import { agentVisibleCatalog } from "./agentTools"
 /*
  * The three-door law (apps/app/AGENTS.md; .specs/engineering/spec.md §6.1):
  * every act is ONE flow with three doors — slash, button, agent. `userOnly`
@@ -22,6 +23,7 @@ import type { AgentPort } from "../runtime/AgentPort"
 import { createAppController } from "../state/AppController"
 import { createAppStore } from "../state/AppStore"
 import type { AppStore } from "../state/AppStore"
+import { loadBox } from "../state/TestFixtures"
 import { STORAGE_RECOVERY_USER_ONLY_REASON, STORAGE_RESET_USER_ONLY_REASON } from "../state/StorageRecoveryContract"
 import { modelInvocable, nameOf } from "./registry"
 import { PALETTE_ACTIONS_REASON, PALETTE_OPEN_REASON } from "./entries/palette"
@@ -156,6 +158,10 @@ const AGENT_ROWS: ReadonlyArray<{ readonly name: string; readonly args?: string;
   { name: "runs.rerun", args: "sourceCard=card-1 run-1", confirm: true },
   /* Agents as data (custom-agents.md): listing and the form render cards; defining what spends money confirms. */
   { name: "agents", confirm: false },
+  { name: "agent.list", confirm: false },
+  /* #3730: starting an agent CLI on the host is consequential, so the agent's call asks first. */
+  { name: "agent.codex", args: '{"prompt":"Fix the flaky test"}', confirm: true },
+  { name: "agent.claude", args: '{"prompt":"Fix the flaky test"}', confirm: true },
   /*
    * The cloud agent sessions (UI-COVERAGE-GAPS.md "agents · Cloud agent
    * sessions"): the reads are free; launching a sandbox agent, steering it
@@ -306,7 +312,38 @@ describe("the three-door law", () => {
       const entry = controller.commands.entries().find((candidate) => nameOf(candidate) === name)
       expect(entry?.metadata.agent).toBe("run")
     }
-    controller.dispose()
+  })
+
+  test("automatic calls of every confirmation-gated flow refuse before any act (#3736)", async () => {
+    for (const bootstrap of [EVERYTHING, WEB]) {
+      const { store, controller } = await boot(bootstrap)
+      try {
+        const gated = controller.commands.entries().filter(entry => entry.metadata.confirm !== undefined)
+        expect(gated.length).toBeGreaterThan(0)
+        for (const entry of gated) {
+          const name = nameOf(entry)
+          const args = AGENT_ROWS.find(row => row.name === name)?.args
+          const before = messages(store).length
+          expect(await controller.commands.run(name, args, "automatic")).toEqual({
+            status: "failed", error: `/${name} requires a person's confirmation.`
+          })
+          expect(messages(store).length).toBe(before)
+        }
+      } finally { controller.dispose() }
+    }
+  })
+
+  test("the two automatic callers' flows stay invocable automatically", async () => {
+    const { store, controller } = await boot()
+    try {
+      cloudSession(store, "signed-in", "will")
+      await loadBox(store, "will/smithers")
+      await settle()
+      expect((await controller.commands.run("flow.plan", "review will/smithers", "automatic")).status).toBe("executed")
+      expect([...store.collections.cards.values()].some(card => card.kind === "flow-plan" && card.payload.flowId === "review")).toBe(true)
+      expect((await controller.commands.run("triggers.list", "will/smithers", "automatic")).status).toBe("executed")
+      expect(store.collections.cards.get("trigger-list-will/smithers")?.kind).toBe("trigger-list")
+    } finally { controller.dispose() }
   })
 
   test("backend agent rows refuse browser execution; UI rows keep their confirmation policy", async () => {
@@ -459,5 +496,14 @@ test("Members doors are a person's: the slash and card commands exist, and the a
   const { controller } = await boot()
   try {
     for (const name of ["members", "members.add", "members.role", "members.remove"]) expect(modelInvocable(controller.commands.find(name)!)).toBe(false)
+  } finally { controller.dispose() }
+})
+
+test("history.bootstrap is hidden from slash discovery and the agent catalog on the cloud host", async () => {
+  const { controller } = await boot(WEB)
+  try {
+    expect(controller.commands.find("history.bootstrap")?.metadata.hidden).toBe(true)
+    expect(controller.commands.disclosed().map(entry => entry.name)).not.toContain("history.bootstrap")
+    expect(agentVisibleCatalog(controller.commands.callable()).map(entry => entry.name)).not.toContain("history.bootstrap")
   } finally { controller.dispose() }
 })

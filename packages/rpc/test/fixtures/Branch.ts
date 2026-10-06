@@ -56,12 +56,12 @@ const states = {
     actions: [{ tag: "box.suspend", label: "Sleep", args: { branch: "todo/12" } }, steer, newTerminal, fork],
     expect: ["todo/12", "Card model contracts", "ssh -p 2222 todo-12@mac-mini.local"]
   }),
-  asleep: story("Machine asleep", { ...base, machine: { state: "asleep" } }, {
+  asleep: story("Machine asleep", { ...base, item: { ...itemWithoutStep, state: "in_review" }, machine: { state: "asleep" } }, {
     actions: [{ tag: "box.resume", label: "Wake", args: { branch: "todo/12" } }, fork],
     expect: ["todo/12"]
   }),
-  waking: story("Machine waking", { ...base, machine: { state: "waking" } }, { expect: ["todo/12"] }),
-  waiting: story("Waiting for a machine", { ...base, machine: { state: "waiting", position: 2 } }, {
+  waking: story("Machine waking", { ...base, item: { ...itemWithoutStep, state: "starting" }, machine: { state: "waking" } }, { expect: ["todo/12"] }),
+  waiting: story("Waiting for a machine", { ...base, item: { ...itemWithoutStep, state: "queued" }, machine: { state: "waiting", position: 2 } }, {
     expect: ["todo/12"]
   }),
   closed: story(
@@ -71,8 +71,8 @@ const states = {
   ),
   failed: story(
     "Machine failed to start",
-    { ...base, machine: { state: "failed", error: { class: "machine_start", message: "Image build failed" } } },
-    { actions: [{ tag: "box.resume", label: "Retry", args: { branch: "todo/12" } }], expect: ["Image build failed"] }
+    { ...base, item: { ...itemWithoutStep, state: "failed", step: "Starting" }, machine: { state: "failed", error: { class: "machine_start", message: "Image build failed" } } },
+    { actions: [{ tag: "box.resume", label: "Retry", args: { branch: "todo/12" } }], expect: ["Image build failed", "Starting"] }
   ),
   rebase_pending: story("Rebase pending onto T8", { ...base, rebase: { state: "pending", onto: "T8" } }, {
     actions: [{ tag: "branch.rebase-now", label: "Rebase now", args: { branch: "todo/12" }, primary: true }],
@@ -104,12 +104,12 @@ const states = {
     { actions: [addToStack], expect: ["scratch/repro-2", "scratch/repro"] }
   ),
   moved_off: story(
-    "Moved off to T15",
-    { ...base, item: { ...itemWithoutStep, state: "needs_you" }, moved_off: { by: person, item: 15 } },
+    "Moved off T12",
+    { ...base, item: { ...itemWithoutStep, state: "needs_you" }, moved_off: { by: person, item: 12 } },
     {
       actions: [
-        { tag: "todo.return-to-item", label: "Return to T15", args: { n: "15" }, primary: true },
-        { tag: "todo.keep-moved", label: "Keep for now", args: { n: "15" } }
+        { tag: "todo.return-to-item", label: "Return to T12", args: { n: "12" }, primary: true },
+        { tag: "todo.keep-moved", label: "Keep for now", args: { n: "12" } }
       ],
       expect: ["Ben"]
     }

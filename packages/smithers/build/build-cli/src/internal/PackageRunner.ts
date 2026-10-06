@@ -1379,11 +1379,11 @@ export const executeEffect = (
       Effect.scoped(Effect.uninterruptibleMask((restore) =>
         Effect.gen(function*() {
           const portals = yield* Effect.acquireRelease(
-            joined(() => PackageTree.snapshotPortals(root, cacheDirectory)),
+            joined(() => PackageTree.snapshotPortals(root, cacheDirectory, undefined, hostTrees)),
             (portals) => joined(() => PackageTree.releasePortals(portals)).pipe(Effect.orDie)
           )
           const scratch = yield* Effect.acquireRelease(
-            joined(() => PackageTree.scratchCopy(root, cacheDirectory, skip)),
+            joined(() => PackageTree.scratchCopy(root, cacheDirectory, skip, hostTrees)),
             (scratch) => joined(() => Fs.rm(scratch, { recursive: true, force: true })).pipe(Effect.orDie)
           )
           const exit = yield* Effect.exit(restore(Effect.suspend(() => body(scratch))))

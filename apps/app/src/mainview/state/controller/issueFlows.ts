@@ -1,15 +1,16 @@
+import { createIssuesSeam } from "../seams/IssuesSeam"
 import type { Card } from "../AppState"
 
 type IssuePayload = Extract<Card, { kind: "issue" }>["payload"]
 import { gatewayBindingFor,resolveTargetRepo } from "../RepoContext"
 import type { SeamContext } from "../seams/SeamContext"
-import { readResult } from "../seams/SeamContext"
+import { issueAuthorizationScope, readResult } from "../seams/SeamContext"
 import type { WorkflowController } from "./workflows"
 import type { TodoSeam } from "../seams/TodoSeam"
 import { flowArgs } from "../../flows/FlowArgs"
 
 export interface IssueFlowsController {
-  readonly issueTodoRefusal: (number: number, repo?: string) => string | undefined
+  readonly issueTodoRefusal: (number: number, repo?: string) => Promise<string | undefined>
   readonly inspectIssueFlows: (number: number, repo?: string, humanDoor?: boolean) => Promise<string | { readonly value: string }>
   readonly runIssueFlow: (name: "repro" | "poc", number: number, repo?: string, humanDoor?: boolean) => Promise<string | void | { readonly value: string }>
   readonly runIssueImplementation: (number: number, repo?: string, humanDoor?: boolean) => Promise<string | void | { readonly value: string }>
@@ -22,6 +23,9 @@ export const createIssueFlowsController = (
   flows: Pick<WorkflowController, "listWorkspaceWorkflows" | "runWorkflow" | "requireBox">,
   todos: Pick<TodoSeam, "draftFromIssue">
 ): IssueFlowsController => {
+  const authorized = (issue: IssuePayload): boolean => issue.makeTodoAllowed === true
+    && /^[0-9a-f]{64}$/.test(issue.issueDigest ?? "")
+    && issue.todoAuthorizationScope === issueAuthorizationScope(ctx)
   const cards = (): Array<Card> => [...ctx.store.collections.cards.values()]
   const requireBox = (repo: string, flow: string, args: string, title: string, humanDoor: boolean): string | { readonly value: string } | undefined => {
     if (humanDoor) return flows.requireBox(repo, { flow, args }, title)
@@ -56,25 +60,53 @@ export const createIssueFlowsController = (
     await ctx.dispatch({ type: "card.upsert", actor: ctx.actor(), card: catalog }).isPersisted.promise
     return readResult(catalog.payload.workflows.map(flow => `${flow.key}: ${flow.description ?? ""}${flow.prompt ? `\n${flow.prompt}` : ""}`).join("\n") || "No issue flows are installed on this workspace.")
   }
+  const issueTodoRefusal: IssueFlowsController["issueTodoRefusal"] = async (number, explicit) => {
+    const resolved = resolveTargetRepo(ctx.store, explicit)
+    if ("error" in resolved) return resolved.error
+    const issue = cards().find(card => card.kind === "issue" && card.payload.source === "github" && card.payload.repo === resolved.repo && card.payload.number === number)
+    if (issue?.kind !== "issue") return "Open the issue again to check permission to make a TODO."
+    const scope = issueAuthorizationScope(ctx)
+    const selection = ctx.store.session().activeRepoKey
+    const validate = (payload: IssuePayload, digest?: string): string | undefined => {
+      if (scope !== issueAuthorizationScope(ctx) || selection !== ctx.store.session().activeRepoKey) return "Open the issue again to check permission to make a TODO."
+      if (payload.makeTodoAllowed === false) return "Only a maintainer can make a TODO from this issue."
+      if (!authorized(payload) || (digest !== undefined && payload.issueDigest !== digest)) return "Open the issue again to check permission to make a TODO."
+      if (payload.state === "closed") return `Issue #${number} is closed.`
+      return undefined
+    }
+    let fresh
+    try { fresh = await createIssuesSeam(ctx).readInstallIssue(resolved.repo, number) }
+    catch { return "Open the issue again to check permission to make a TODO." }
+    if (typeof fresh === "string" || fresh.card.kind !== "issue") return "Open the issue again to check permission to make a TODO."
+    const refusal = validate(fresh.card.payload)
+    if (refusal !== undefined) return refusal
+    await ctx.dispatch({ type: "card.upsert", actor: ctx.actor(), card: { ...issue, payload: fresh.card.payload } }).isPersisted.promise
+    const persistedRefusal = validate(fresh.card.payload)
+    if (persistedRefusal !== undefined) return persistedRefusal
+    // Browser reads cannot be atomic with server changes; admission at POST /api/todos remains authoritative.
+    let latest
+    try { latest = await createIssuesSeam(ctx).readInstallIssue(resolved.repo, number) }
+    catch { return "Open the issue again to check permission to make a TODO." }
+    if (typeof latest === "string" || latest.card.kind !== "issue") return "Open the issue again to check permission to make a TODO."
+    return validate(latest.card.payload, fresh.card.payload.issueDigest)
+  }
   return {
-    issueTodoRefusal: (number, explicit) => {
-      const resolved = resolveTargetRepo(ctx.store, explicit)
-      if ("error" in resolved) return resolved.error
-      const issue = cards().find(card => card.kind === "issue" && card.payload.source === "github" && card.payload.repo === resolved.repo && card.payload.number === number)
-      return issue?.kind === "issue" && issue.payload.makeTodoAllowed === false ? "Only a maintainer can make a TODO from this issue." : undefined
-    },
+    issueTodoRefusal,
     inspectIssueFlows,
     // Make TODO: a private Draft of the GitHub issue the card shows, its text
-    // and discussion, committed through POST /api/todos like any Draft. It
+    // and discussion after a current authorized read, committed through POST /api/todos like any Draft. It
     // never launches a workspace flow.
     runIssueImplementation: async (number, explicit) => {
       const resolved = resolveTargetRepo(ctx.store, explicit)
       if ("error" in resolved) return resolved.error
+      const refusal = await issueTodoRefusal(number, explicit)
+      if (refusal !== undefined) return refusal
       const issue = cards().find((card): card is Extract<Card, { kind: "issue" }> => card.kind === "issue" && card.payload.source === "github"
         && card.payload.repo === resolved.repo && card.payload.number === number)?.payload
       if (issue === undefined) return `Open GitHub issue #${number} before making a TODO.`
       if (issue.state === "closed") return `Issue #${number} is closed.`
       if (issue.makeTodoAllowed === false) return "Only a maintainer can make a TODO from this issue."
+      if (!authorized(issue)) return "Open the issue again to check permission to make a TODO."
       return todos.draftFromIssue({ number, ...(issue.issueDigest ? { digest: issue.issueDigest } : {}), title: issue.title, body: issue.issueBody, url: issue.htmlUrl ?? `https://github.com/${resolved.repo}/issues/${number}`,
         comments: issue.comments.map(comment => ({ author: comment.author, body: comment.commentBody })) })
     },

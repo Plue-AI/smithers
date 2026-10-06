@@ -1,3 +1,4 @@
+import { decodeAgentTurnFrame, type AgentTurnFrame } from "@smthrs/rpc/NativeAgent"
 import { afterAll, beforeAll, describe, expect, test } from "bun:test"
 import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
@@ -6,6 +7,7 @@ import { APP_BOOTSTRAP_PATH, AppBootstrapSchema } from "@smthrs/rpc/AppBootstrap
 import { localCapabilities } from "@smthrs/rpc/HostCapabilities"
 import { LOCAL_SESSION_HEADER, LOCAL_SESSION_META } from "@smthrs/rpc/LocalSession"
 import { createChatStub } from "../../e2e/support/ChatStub"
+import { TITLE_INSTRUCTIONS } from "../mainview/state/seams/TimelineTitleSeam"
 import { defaultDistDir, describeCookie, rescopeCookie, startLocalServer } from "./server"
 import type { LocalServer } from "./server"
 import type { CloudAuth } from "./CloudAuth"
@@ -587,4 +589,77 @@ describe("defaultDistDir", () => {
     expect(defaultDistDir("/nowhere/src/bun", {})).toBe("/nowhere/dist")
     await rm(app, { recursive: true, force: true })
   })
+})
+
+describe("POST /api/model/stream", () => {
+  const post = (body: unknown, origin = server.origin, token = server.sessionToken) => fetch(`${origin}/api/model/stream`, {
+    method: "POST",
+    headers: { [LOCAL_SESSION_HEADER]: token, "content-type": "application/json" },
+    body: JSON.stringify(body)
+  })
+
+  test("answers one unrecorded model answer as a turn's NDJSON frames; the stub titles a fold (#3732)", async () => {
+    const response = await post({ runId: "title-1", instructions: TITLE_INSTRUCTIONS, messages: [{ role: "user", content: "This stretch holds 42 entries. Its lines, in order:\nprompt: “Fix it”" }] })
+    expect(response.status).toBe(200)
+    expect(response.headers.get("content-type")).toBe("application/x-ndjson")
+    expect(await readFrames(response)).toEqual([
+      { runId: "title-1", type: "delta", kind: "reasoning", text: "stub: thinking" },
+      { runId: "title-1", type: "delta", kind: "text", text: "Fast title for 42 entries." },
+      { runId: "title-1", type: "done", reason: "stop" }
+    ])
+  })
+
+  test("refuses a recorded turn, tools and a malformed body", async () => {
+    const turn = { runId: "title-2", instructions: TITLE_INSTRUCTIONS, messages: [{ role: "user", content: "x" }] }
+    const recorded = await post({ ...turn, journal: { version: 1, legId: "leg", token: "private_capability_1234567890abcdef" } })
+    expect(recorded.status).toBe(400)
+    expect(((await recorded.json()) as { error: { code: string } }).error.code).toBe("invalid_request")
+    const tools = await post({ ...turn, tools: [{ type: "function", name: "commands", description: "", parameters: {} }] })
+    expect(((await tools.json()) as { code: string }).code).toBe("tools_not_supported")
+    const malformed = await post({ runId: "", messages: "no" })
+    expect(malformed.status).toBe(400)
+  })
+
+  test("a host with no agent and no named model refuses, and nothing answers in its place", async () => {
+    const bare = await startLocalServer({ port: 0, distDir: dist, cloudMode: "offline", cloudApi: null, identityUpstream: null, home: "/fake/home", log: () => {} })
+    try {
+      const refused = await post({ runId: "title-3", instructions: TITLE_INSTRUCTIONS, messages: [{ role: "user", content: "x" }] }, bare.origin, bare.sessionToken)
+      expect(((await refused.json()) as { error: { code: string } }).error.code).toBe("agent_unavailable")
+    } finally {
+      await bare.stop()
+    }
+  })
+})
+
+const readFrames = async (response: Response): Promise<Array<AgentTurnFrame>> => {
+  const text = await response.text()
+  return text.split("\n").filter((line) => line.trim() !== "").map((line) => {
+    const parsed: unknown = JSON.parse(line)
+    const frame = decodeAgentTurnFrame(parsed)
+    if (frame === null) throw new Error(`not a frame: ${line}`)
+    return frame
+  })
+}
+
+
+test("an install model answer uses the authenticated shared backend without starting a fixture agent", async () => {
+  const seen: Array<{ path: string; cookie: string | null; body: unknown }> = []
+  const frames = [{ runId: "title-install", type: "delta", kind: "text", text: "Shared title" }, { runId: "title-install", type: "done", reason: "stop" }]
+  const backend = Bun.serve({ hostname: "127.0.0.1", port: 0, async fetch(request) {
+    seen.push({ path: new URL(request.url).pathname, cookie: request.headers.get("cookie"), body: await request.json() })
+    return new Response(frames.map(frame => JSON.stringify(frame)).join("\n")+"\n", { headers: { "content-type": "application/x-ndjson" } })
+  } })
+  let starts = 0
+  const host = await startLocalServer({ port: 0, distDir: dist, cloudMode: "offline", identityUpstream: null,
+    backendApi: backend.url.origin, agent: () => ({ start: () => { starts++; return { status: "error", message: "unexpected" } }, cancel: () => ({ status: "not-found" }) }), log: () => {} })
+  try {
+    const body = { runId: "title-install", instructions: TITLE_INSTRUCTIONS, messages: [{ role: "user", content: "Name these entries" }] }
+    const response = await fetch(`${host.origin}/api/model/stream`, { method: "POST", headers: {
+      [LOCAL_SESSION_HEADER]: host.sessionToken, "content-type": "application/json", cookie: "smithers_session=fixture-owner"
+    }, body: JSON.stringify(body) })
+    expect(response.status).toBe(200)
+    expect(await readFrames(response)).toEqual(frames)
+    expect(seen).toEqual([{ path: "/api/model/stream", cookie: "smithers_session=fixture-owner", body }])
+    expect(starts).toBe(0)
+  } finally { await host.stop(); backend.stop(true) }
 })

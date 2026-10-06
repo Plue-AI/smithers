@@ -6,9 +6,14 @@
  * window and Playwright can drive it in plain Chromium.
  */
 import type { Server, ServerWebSocket } from "bun"
+import { Effect, Fiber } from "effect"
+import { AgentRuntimeContextSchema } from "@smthrs/rpc/AgentContext"
+import { modelFailureRefusalCode } from "@smthrs/rpc/ConfiguredModel"
+import { modelFailureLine, sealedMessages, sealedTurn } from "./ConfiguredModelHost"
+import { planOnLocal } from "@smthrs/model-host/LocalModel"
 import { createHash, randomBytes, timingSafeEqual } from "node:crypto"
 import { existsSync, statSync } from "node:fs"
-import { homedir } from "node:os"
+import { homedir, userInfo } from "node:os"
 import { join, normalize, resolve } from "node:path"
 import {
   AUTH_CALLBACK_PATH,
@@ -18,6 +23,9 @@ import {
   HEALTH_PATH,
   IDENTITY_ROUTE_PREFIX,
   MODEL_CATALOG_PATH,
+  EXTERNAL_SESSIONS_PATH,
+  EXTERNAL_LAUNCH_PATH,
+  MODEL_STREAM_PATH,
   TURN_REPLAY_PATH,
   TURN_ERASE_PATH
 } from "@smthrs/rpc/AgentApiRoutes"
@@ -53,7 +61,9 @@ import { createCloudAuth } from "./CloudAuth"
 import type { CloudAuth, CloudKeychain } from "./CloudAuth"
 import { createModelProbe } from "@smthrs/model-host/ModelProbe"
 import { machineReadableRefusal, upstreamRefusalMessage } from "@smthrs/rpc/UpstreamProse"
-import { decodePath, invalidPath, json, jsonError, readJson, refuse, Router } from "./routes"
+import { decodePath, invalidPath, json, jsonError, jsonErrorWithStatus, readJson, refuse, Router } from "./routes"
+import { externalSessions } from "./ExternalSessions"
+import type { AgentLauncher } from "./AgentLaunch"
 
 /** The deployed identity seam the sign-in device flow talks to. */
 export const DEFAULT_IDENTITY_UPSTREAM = "https://canary.smithers.sh"
@@ -85,6 +95,27 @@ const redactClientError = (text: string): string => String(Redaction.redactDiagn
 export const CLIENT_ERROR_MAX_BODY = 16 * 1024
 
 /** Long conversations are replayed on every turn, so the cap is generous, not tight. */
+const isStartTurnRequest = (value: unknown): value is StartAgentTurnRequest =>
+  typeof value === "object" &&
+  value !== null &&
+  "runId" in value &&
+  typeof value.runId === "string" &&
+  value.runId !== "" &&
+  "messages" in value &&
+  Array.isArray(value.messages) &&
+  "instructions" in value &&
+  typeof value.instructions === "string" &&
+  (!("tools" in value) || value.tools === undefined || Array.isArray(value.tools)) &&
+  (!("context" in value) ||
+    value.context === undefined ||
+    AgentRuntimeContextSchema.safeParse(value.context).success)
+
+/** A live turn's open NDJSON response. `end` is idempotent so a disconnect, a cancel and a `done` can race. */
+interface TurnWriter {
+  readonly write: (frame: AgentTurnFrame) => void
+  readonly end: () => void
+}
+
 const encoder = new TextEncoder()
 
 const MAX_BODY_BYTES = 1024 * 1024
@@ -135,6 +166,12 @@ export interface LocalServerOptions {
   readonly identityUpstream?: string | null
   /** Self-hosted product backend for the live channel; independent of cloud mode. */
   readonly backendApi?: string | null
+  /** Codex and Claude Code sessions on this machine (M-38); tests pass their own agent homes. */
+  readonly externalSessions?: ReturnType<typeof externalSessions>
+  /** Test compositions only: the person their fixture sessions name. The preview otherwise names the OS user. */
+  readonly externalOwner?: { readonly login: string; readonly name: string }
+  /** Starts agent CLIs on this machine (#3730); absent, this host has no launch door. The server stops it. */
+  readonly agentLauncher?: AgentLauncher
   /**
    * Where `/api/cloud/*` forwards (the Smithers Cloud API) and where the
    * `/api/cloud-auth/*` login points. `undefined` reads SMITHERS_CLOUD_API,
@@ -624,6 +661,16 @@ const proxyCloud = async (
   return new Response(response.body, { status: response.status, headers: out })
 }
 
+/** The OS user whose own Codex and Claude Code homes the local preview reads. */
+const machineOwner = (): { readonly login: string; readonly name: string } => {
+  const login = userInfo().username
+  return { login, name: login }
+}
+
+/** Both the request target and its actual peer must be loopback. */
+export const localPreviewLoopback = (hostname: string, address: string | undefined): boolean =>
+  hostname === "127.0.0.1" && (address === "127.0.0.1" || address === "::1" || address === "::ffff:127.0.0.1")
+
 export const startLocalServer = async (options: LocalServerOptions): Promise<LocalServer> => {
   const log = options.log ?? ((line: string) => console.log(line))
   const distDir = resolve(options.distDir)
@@ -658,6 +705,14 @@ export const startLocalServer = async (options: LocalServerOptions): Promise<Loc
   if (!isLocalSessionToken(sessionToken)) throw new Error("Local server session token must be 256-bit base64url.")
   const websocketProtocol = localSessionProtocol(sessionToken)
 
+  const writers = new Map<string, TurnWriter>()
+  const publishFrame = (frame: AgentTurnFrame): void => writers.get(frame.runId)?.write(frame)
+  const agent = options.agent?.(publishFrame)
+  const finish = (runId: string, writer: TurnWriter): void => {
+    if (writers.get(runId) === writer) writers.delete(runId)
+    writer.end()
+  }
+
   const router = new Router()
   router.add("POST", "/api/tools/browser-fetch", ({ request }) => remoteEnabled
     ? handleBrowserFetch(request)
@@ -681,6 +736,8 @@ export const startLocalServer = async (options: LocalServerOptions): Promise<Loc
         plans: identityUpstream !== null,
         cloud: cloudUpstream !== null,
         browser: remoteEnabled,
+        launchCodex: launcher?.agents.includes("codex") === true,
+        launchClaudeCode: launcher?.agents.includes("claude-code") === true
       }),
       authFlow: identityUpstream === null ? "none" : "both",
       // Required by `AppBootstrapSchema`, and omitting it stopped the app
@@ -704,8 +761,166 @@ export const startLocalServer = async (options: LocalServerOptions): Promise<Loc
       home
     }))
 
+  /**
+   * Local-mode preview only (M-38): the OS owner's local-session capability
+   * reads their own Codex or Claude Code home on the loopback listener, as
+   * raw JSONL from a byte offset, the contract the install's backend serves;
+   * the app decodes it. Never mount on an install listener.
+   */
+  const localPreview = !remoteEnabled && !(options.backendApi === undefined ? Bun.env.SMITHERS_BACKEND_API : options.backendApi)
+  const readSession = options.externalSessions ?? externalSessions()
+  const owner = options.externalOwner ?? machineOwner()
+  if (localPreview) router.add("GET", EXTERNAL_SESSIONS_PATH, async ({ url }) => {
+    const agent = url.searchParams.get("agent")
+    if (agent !== "codex" && agent !== "claude-code") return jsonError("invalid_request", "agent must be codex or claude-code.")
+    const offset = url.searchParams.get("offset") ?? "0"
+    if (!/^(0|[1-9]\d{0,15})$/.test(offset)) return jsonError("invalid_request", "offset must be a byte offset the previous read answered as next.")
+    const read = await readSession(agent, url.searchParams.get("session") ?? "", Number(offset))
+    if ("refusal" in read) {
+      const { status, message } = read.refusal
+      return jsonErrorWithStatus(status, status === 404 ? "source_not_found" : "invalid_request", message)
+    }
+    return json({ ...read, owner })
+  })
+
+  /*
+   * #3730: start Codex or Claude Code here and answer the session it wrote; the conversation reads it through the route above.
+   * The same local preview only, on the same loopback listener: an install never starts a CLI on its host.
+   */
+  const launcher = localPreview ? options.agentLauncher : undefined
+  if (launcher !== undefined) router.add("POST", EXTERNAL_LAUNCH_PATH, async ({ request }) => {
+    const generation = launcher.admission()
+    const read = await readJson(request, 64 * 1024)
+    if ("error" in read) return read.error
+    const body = read.body as { agent?: unknown; prompt?: unknown } | undefined
+    const prompt = typeof body?.prompt === "string" ? body.prompt.trim() : ""
+    const agent = launcher.agents.find(each => each === body?.agent)
+    if (agent === undefined || prompt === "") return jsonError("invalid_request", `Name an agent this host starts (${launcher.agents.join(", ")}) and give it a prompt.`)
+    const launched = await launcher.launch(agent, prompt, generation)!
+    // Only a typed, public failure crosses the HTTP boundary; stderr stays local.
+    return "error" in launched ? jsonError("agent_unavailable", launched.error, { reason: launched.reason }) : json(launched)
+  })
+
+  if (launcher !== undefined) router.add("DELETE", EXTERNAL_LAUNCH_PATH, async () => {
+    await launcher.stopAll()
+    return json({ ok: true })
+  })
+
   const modelEnv: ModelCredentialEnv = options.env ?? Bun.env
   /** Offline performs no egress, so a configured model may be reached on loopback only. */
+  const modelEgress = remoteEnabled ? {} : { egress: false }
+  /** Live configured-model turns by runId: what a cancel interrupts. */
+  const sealedTurns = new Map<string, () => void>()
+
+  /**
+   * One turn's open response. The writer exists before its producer starts, so
+   * a frame published before the response stream opens is queued, never lost.
+   * `cancel` is the producer's own stop, run when the reader goes away.
+   */
+  const openTurn = (runId: string, cancel: () => void): () => Response => {
+    let controller: ReadableStreamDefaultController<Uint8Array> | undefined
+    const queue: Array<Uint8Array> = []
+    let ended = false
+    const writer: TurnWriter = {
+      write: (frame) => {
+        if (ended) return
+        const chunk = encoder.encode(`${JSON.stringify(frame)}\n`)
+        if (controller === undefined) queue.push(chunk)
+        else controller.enqueue(chunk)
+        if (frame.type === "done") finish(runId, writer)
+      },
+      end: () => {
+        if (ended) return
+        ended = true
+        try {
+          controller?.close()
+        } catch {
+          // Already closed by the client.
+        }
+      }
+    }
+    writers.set(runId, writer)
+    return () => {
+      const stream = new ReadableStream<Uint8Array>({
+        start(streamController) {
+          controller = streamController
+          for (const chunk of queue) streamController.enqueue(chunk)
+          queue.length = 0
+          if (ended) {
+            try {
+              streamController.close()
+            } catch {
+              // Nothing to close twice.
+            }
+          }
+        },
+        cancel() {
+          // Only this response's own writer may cancel: a later turn reusing
+          // the runId must survive this one's teardown.
+          if (writers.get(runId) !== writer) return
+          writers.delete(runId)
+          ended = true
+          cancel()
+        }
+      })
+      return new Response(stream, {
+        status: 200,
+        headers: { "content-type": "application/x-ndjson", "cache-control": "no-store" }
+      })
+    }
+  }
+
+  /**
+   * The configured model (R6): a turn that names a model is answered by THAT
+   * model through its decoded Route, or refused. It never reaches the agent
+   * below, so no failure here can fall back to the default upstream.
+   */
+  const startConfiguredTurn = (body: StartAgentTurnRequest, model: unknown): Response => {
+    if (body.tools !== undefined && body.tools.length > 0) {
+      return refuse("tools_not_supported", "A configured model runs no tools; send this turn without tools.")
+    }
+    const messages = sealedMessages(body.messages)
+    if (messages === undefined) {
+      return refuse("tools_not_supported", "A configured model runs no tools, so it cannot continue a tool call.")
+    }
+    const planned = planOnLocal(model, modelEnv, { kind: "generation", ...modelEgress })
+    if (!planned.ok) return refuse(modelFailureRefusalCode(planned.failure), modelFailureLine(planned.failure))
+    const runId = body.runId
+    if (writers.has(runId)) return jsonError("turn_running", "That Smithers turn is already running.")
+    let interrupt = (): void => {}
+    const respond = openTurn(runId, () => interrupt())
+    const fiber = Effect.runFork(
+      sealedTurn(
+        planned,
+        { runId, instructions: body.instructions, messages, ...(body.context === undefined ? {} : { context: body.context }) },
+        publishFrame,
+        options.modelFetch
+      ).pipe(Effect.ensuring(Effect.sync(() => sealedTurns.delete(runId))))
+    )
+    interrupt = () => Effect.runFork(Fiber.interrupt(fiber))
+    sealedTurns.set(runId, interrupt)
+    return respond()
+  }
+
+  const startModelAnswer = (body: StartAgentTurnRequest): Response => {
+    /*
+     * The binding stays untrusted until the planner has judged it: a malformed
+     * one is refused by name, never dropped, because a dropped binding is the
+     * silent fallback R6 forbids.
+     */
+    const model: unknown = "model" in body ? body.model : undefined
+    if (model !== undefined) return startConfiguredTurn(body, model)
+    if (agent === undefined) return jsonError("agent_unavailable", "No agent provider is configured in local-only mode.")
+    const runId = body.runId
+    if (writers.has(runId)) return jsonError("turn_running", "That Smithers turn is already running.")
+    const respond = openTurn(runId, () => agent.cancel(runId))
+    const started = agent.start(body)
+    if (started.status === "error") {
+      writers.delete(runId)
+      return jsonError(started.refusal?.code === "sign_in_required" ? "cloud_sign_in_required" : "turn_running", started.message)
+    }
+    return respond()
+  }
   // The backend owns admission, delivery and retirement. Keep the renderer
   // identity and sealed bytes intact; a disconnect ends delivery only.
   const relayTurn = async (request: Request, path: string, body: unknown): Promise<Response> => {
@@ -726,6 +941,35 @@ export const startLocalServer = async (options: LocalServerOptions): Promise<Loc
     headers.delete("set-cookie")
     return new Response(answer.response.body, { status: answer.response.status, headers })
   }
+  router.add("POST", MODEL_STREAM_PATH, async ({ request }) => {
+    const parsed = await readJson(request, MAX_BODY_BYTES)
+    if ("error" in parsed) return parsed.error
+    if (!isStartTurnRequest(parsed.body) || parsed.body.journal !== undefined) {
+      return jsonError("invalid_request", "Body must be { runId, messages, instructions } with optional context and no journal.")
+    }
+    const body = parsed.body
+    if (body.tools !== undefined && body.tools.length > 0) return refuse("tools_not_supported", "A model answer runs no tools; send it without tools.")
+    const backend = options.backendApi === undefined ? Bun.env.SMITHERS_BACKEND_API : options.backendApi
+    if (backend) {
+      const headers = new Headers({ "content-type": "application/json" })
+      for (const name of ["cookie", "authorization", "origin", "x-csrf-token"]) {
+        const value = request.headers.get(name)
+        if (value !== null) headers.set(name, value)
+      }
+      const answer = await fetchWithDeadline(new URL(MODEL_STREAM_PATH, backend), {
+        method: "POST", redirect: "manual", headers, body: JSON.stringify(body)
+      }, upstreamTimeoutMs, request.signal)
+      if ("failure" in answer) return upstreamRefusal(CLOUD_SEAM, answer, upstreamTimeoutMs, log)
+      if (answer.response.status >= 300 && answer.response.status < 400) {
+        await answer.response.body?.cancel()
+        return refuse("upstream_malformed", "The model host refused a redirect.")
+      }
+      const responseHeaders = new Headers(answer.response.headers)
+      responseHeaders.delete("set-cookie")
+      return new Response(answer.response.body, { status: answer.response.status, headers: responseHeaders })
+    }
+    return startModelAnswer(body)
+  })
   for (const path of [TURN_REPLAY_PATH, TURN_ERASE_PATH]) {
     router.add("POST", path, async ({ request }) => {
       if (options.fixtureJournal !== undefined) return options.fixtureJournal.access(request)
@@ -754,7 +998,7 @@ export const startLocalServer = async (options: LocalServerOptions): Promise<Loc
    */
   router.add("POST", CLOUD_AUTH_START_PATH, async () => {
     if (cloudAuth === undefined) return jsonError("not_implemented", "The cloud seam is disabled in this build.")
-    const started = await cloudAuth.start()
+    const started = await (launcher ? launcher.revoke(() => cloudAuth.start()) : cloudAuth.start())
     return "error" in started ? jsonError("cloud_auth_unavailable", started.error) : json(started)
   })
   router.add("GET", CLOUD_AUTH_SESSION_PATH, () =>
@@ -779,7 +1023,7 @@ export const startLocalServer = async (options: LocalServerOptions): Promise<Loc
   }
   router.add("POST", CLOUD_AUTH_SIGN_OUT_PATH, async () => {
     if (cloudAuth === undefined) return jsonError("not_implemented", "The cloud seam is disabled in this build.")
-    await cloudAuth.signOut()
+    await (launcher ? launcher.revoke(() => cloudAuth.signOut()) : cloudAuth.signOut())
     closeCloudBridges(4401, "signed out of Smithers Cloud")
     return json({ ok: true })
   })
@@ -836,6 +1080,10 @@ export const startLocalServer = async (options: LocalServerOptions): Promise<Loc
     const { pathname } = url
     if (request.headers.get("host") !== expectedHost) {
       return jsonError("invalid_host", "This local server accepts only its loopback origin.")
+    }
+    if (pathname === EXTERNAL_SESSIONS_PATH || pathname === EXTERNAL_LAUNCH_PATH) {
+      if (!localPreview) return jsonError("not_found", "Not found.")
+      if (!localPreviewLoopback(url.hostname, bunServer.requestIP(request)?.address)) return jsonError("invalid_host", "This local server accepts only its loopback origin.")
     }
     if (pathname === "/api/live") {
       if (request.headers.get("origin") !== origin) return jsonError("invalid_origin", "WebSocket origin does not match the local app.")
@@ -956,7 +1204,9 @@ export const startLocalServer = async (options: LocalServerOptions): Promise<Loc
       }
       if (pathname === "/api/auth/session") return jsonError("not_found", `No route for ${request.method} ${pathname}.`)
       if (pathname.startsWith(AUTH_ROUTE_PREFIX) || pathname.startsWith(IDENTITY_ROUTE_PREFIX)) {
-        return identityUpstream === null ? stubIdentity() : proxyIdentity(request, url, identityUpstream, upstreamTimeoutMs, log)
+        const transition = async () => identityUpstream === null ? stubIdentity() : proxyIdentity(request, url, identityUpstream, upstreamTimeoutMs, log)
+        return launcher && (pathname === "/api/auth/sign-out" || pathname === "/api/auth/sign-in")
+          ? launcher.revoke(transition) : transition()
       }
       /*
        * The product API. The cloud client is served BY the Worker, so every
@@ -1180,6 +1430,9 @@ export const startLocalServer = async (options: LocalServerOptions): Promise<Loc
       // failed finalizer must not strand the listener or another child owner.
       const results = await Promise.allSettled([
         () => closeCloudBridges(1001, "the local app is shutting down"),
+        () => options.agentLauncher?.dispose(),
+        () => { for (const interrupt of sealedTurns.values()) interrupt(); sealedTurns.clear() },
+        () => { for (const runId of writers.keys()) agent?.cancel(runId); for (const writer of writers.values()) writer.end(); writers.clear() },
         () => server.stop(true),
         () => cloudAuth?.stop()
       ].map(async (cleanup) => cleanup()))

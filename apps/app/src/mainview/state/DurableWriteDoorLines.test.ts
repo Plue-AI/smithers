@@ -108,8 +108,6 @@ const flakyStorage = (): StorageApi & { refuseCommandWrites: (flow: string, time
   }
 }
 
-const settle = (ms: number): Promise<void> => new Promise(resolve => setTimeout(resolve, ms))
-
 /*
  * The roll call. A claim about a class is only as good as the list it was
  * measured over, so `DOOR_ROLL_CALL=1 bun test …` prints every door and what
@@ -155,13 +153,12 @@ const reachEveryDoor = async (): Promise<ReadonlyArray<Reached>> => {
     })
     try {
       storage.refuseCommandWrites(door.flow, 2)
-      const registered = controller.runCommand(door.flow)
+      const registered = controller.commands.find(door.flow) !== undefined
       // Each act settles before the next is admitted: two acts refused inside
       // one commit are rolled back together, which is the store's business and
       // not the rule under test. The overlap is layer 2's question.
-      await settle(150)
-      controller.runCommand(door.flow)
-      await settle(150)
+      await controller.runCommandForResult(door.flow)
+      await controller.runCommandForResult(door.flow)
       const lines = [...store.collections.messages.values()].filter(message => message.text === STORAGE_FULL).length
       rollCall("two acts at one door, driven", door.flow, lines, 2)
       results.push({ flow: door.flow, lines, registered })

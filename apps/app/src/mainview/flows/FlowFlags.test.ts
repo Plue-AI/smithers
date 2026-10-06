@@ -12,6 +12,7 @@ import { describe, expect, test } from "bun:test"
 import type { CommandActions } from "./Flows"
 import { adminFlows, baseFlows } from "./Flows"
 import { nameOf } from "./registry"
+import { debugApiFlows } from "./entries/debug"
 
 /** Every controller call answers with nothing, `snapshot` included. */
 const noSnapshot = new Proxy({}, { get: () => () => undefined }) as CommandActions
@@ -33,4 +34,20 @@ describe("a snapshot that answers nothing", () => {
     expect(names(noSnapshot)).toEqual(names(emptySnapshot))
     expect(names(noSnapshot)).not.toContain("plugins")
   })
+})
+
+describe("Debug API availability at registration", () => {
+  for (const [label, debugApi, hidden] of [
+    ["absent provider", undefined, true],
+    ["inert provider", () => undefined, true],
+    ["disabled provider", { available: () => false }, true],
+    ["enabled provider", { available: () => true }, false]
+  ] as const) {
+    test(label, () => {
+      const entries = debugApiFlows({ debugApi } as unknown as CommandActions)
+      expect(entries.map(nameOf)).toEqual(["debug.api", "debug-api"])
+      expect(entries.map(entry => entry.metadata.hidden)).toEqual([true, hidden])
+      expect(entries.every(entry => entry.binding.descriptor.modelInvocable === false)).toBe(true)
+    })
+  }
 })

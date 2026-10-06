@@ -56,6 +56,10 @@
 
 ### Fixed
 
+- A command that fails with `CliError.Refused` reports the refusal's own
+  code even when the command passes a default code, so a missing eval suite
+  reads `eval_suite_missing` rather than `eval_run_failed`.
+
 - A `claude-code` seat's idle sessions end when the host releases its seat
   resolver. Each conversation's Claude Code process stayed open for up to an
   hour waiting for a next turn, so `flow start` never exited after a module

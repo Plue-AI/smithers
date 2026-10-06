@@ -109,7 +109,7 @@
 .mvp-models { display: flex; width: 100%; flex-direction: column; gap: 10px; container-type: inline-size; }
 .mvp-model {
 	display: grid;
-	grid-template-columns: 96px 124px minmax(0, 1fr) 92px;
+	grid-template-columns: 96px 176px minmax(0, 1fr) 92px;
 	align-items: center;
 	gap: 6px 10px;
 	font-size: var(--fs-small);
@@ -138,6 +138,8 @@ span.mvp-model-name { padding-left: 11px; color: var(--text-muted); }
 .mvp-key-status[data-state="saved"] { color: var(--success); }
 .mvp-key-status[data-state="failed"] { color: var(--danger); }
 .mvp-key-error { grid-column: 3 / -1; margin: 0; color: var(--danger); font-size: var(--fs-caption); font-weight: 500; }
+/* The fast model's control is a sign-in, not a key: a button, then the account it signed in as. */
+.mvp-model-control { display: inline-flex; min-width: 0; align-items: center; gap: 8px; justify-self: start; font-size: var(--fs-small); }
 /* The coding model's other way in: a ChatGPT sign-in in place of a key. */
 .mvp-model-alt { display: flex; grid-column: 2 / -1; align-items: center; gap: 8px; margin: 0; color: var(--text-faint); font-size: var(--fs-caption); }
 /* Narrow: the role and its state on one line, then whose key and the key. */
@@ -146,7 +148,8 @@ span.mvp-model-name { padding-left: 11px; color: var(--text-muted); }
 	.mvp-model-role { grid-column: 1 / 3; }
 	.mvp-model > .mvp-key-status { grid-area: 1 / 3; }
 	.mvp-model-name { grid-row: 2; }
-	.mvp-model input { grid-area: 2 / 2 / auto / -1; }
+	.mvp-model input,
+	.mvp-model-control { grid-area: 2 / 2 / auto / -1; }
 	.mvp-model .mvp-key-error,
 	.mvp-model-alt { grid-column: 1 / -1; }
 }

@@ -6,7 +6,7 @@ Spec: spec.md §8.13.2, §8.13.3, §5.2, §14.3 (Settings) · Product: #3706 Pro
 Added 2026-10-04 by smithers-8a for Will's sandbox-placement ruling (#3706). Behind `remoteSandboxes`, off by default.
 
 
-**ON HOLD (2026-10-04, Will via smithers-56, #3706):** remote machines reuse the Plue Cloud controller and `microsandbox-worker`; this ticket's SSH mechanism is superseded until spec §8.13 is reconciled (§8.13.0). Do not start.
+**DEFERRED (M-40 revised 2026-10-06, #3706): first item after launch.** The install connects out through the Cloud fleet's controller and worker, which move into the public repository after launch (§8.13.0). This ticket's SSH mechanism is superseded; it is re-cut on that fleet move after T-RMT-01 answers §8.13.0's open questions. Do not start before launch.
 
 ## Goal
 The owner registers a Linux KVM host by SSH in Settings behind the off-by-default `remoteSandboxes` flag; the install pins its host key, probes its profile and refuses a host without KVM.

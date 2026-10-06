@@ -5,9 +5,9 @@ This record becomes accepted when Will approves the MVP engineering spec.
 
 ## Context
 
-The MVP serves one team and one GitHub repository from one Apple Silicon Mac. Members share branches with the coding agent. Repository flows and agents process untrusted issue text. ADR 0001's single-owner `trusted_process` model cannot protect host secrets or members' personal logins.
+The MVP serves one team and one GitHub repository from one Apple Silicon Mac. Behind the `remoteSandboxes` setting, off by default, that Mac may also place branch machines on other computers the owner adds (M-40). Members share branches with the coding agent. Repository flows and agents process untrusted issue text. ADR 0001's single-owner `trusted_process` model cannot protect host secrets or members' personal logins.
 
-This record captures `.specs/engineering/overview.md` decisions E-01, E-02, E-03, E-09, E-10, E-13 and E-17, and the corresponding requirements in `.specs/engineering/spec.md`. The [product decisions](../../.specs/product/mvp.md#7-decisions) include M-10, M-17, M-28, M-29 and M-30. The [implementation ledger](self-host-implementation.md) tracks the work and required proof.
+This record captures `.specs/engineering/overview.md` decisions E-01, E-02, E-03, E-09, E-10, E-13 and E-17, and the corresponding requirements in `.specs/engineering/spec.md`. The [product decisions](../../.specs/product/mvp.md#7-decisions) include M-10, M-17, M-28, M-29, M-30 and M-40. The [implementation ledger](self-host-implementation.md) tracks the work and required proof.
 
 ## Decision
 
@@ -21,7 +21,7 @@ Sources: E-01; engineering spec §1.1, §1.2 and §16.1; product M-10 and §6.1.
 
 ### Run repository code only inside microVMs
 
-Repository code runs only inside machines: overridable TODO, learning, review and repository flows, coding agents, checks, terminals, SSH sessions and services. Repository flows run in the branch's coding host or an ephemeral background machine. The Mac host runs only code shipped in the install package and never loads repository flows into its process. The install refuses to start without working microVM isolation and never falls back to host processes or `trusted_process`.
+Repository code runs only inside machines: overridable TODO, learning, review and repository flows, coding agents, checks, terminals, SSH sessions and services. Repository flows run in the branch's coding host or an ephemeral background machine. The Mac host runs only code shipped in the install package and never loads repository flows into its process. On a computer the owner adds, machines run under the same microVM isolation through the reused Plue controller and worker; no plain-SSH or container path runs repository code (spec §8.13.3). The install refuses to start without working microVM isolation and never falls back to host processes or `trusted_process`.
 
 The installed bundle is the host's trust anchor: executable, library and planted artifact bytes must match its pinned manifest before use. Guest root uses only the pinned base image's interpreter and system tools in root-owned directories that machine users cannot write. Nothing a branch build produces is installed, loaded or executed by root.
 
@@ -61,9 +61,9 @@ Sources: E-13; engineering spec §1.4, §5.1.0, §16.3 and §17.5a; product M-28
 
 ### Derive limits from the detected host
 
-Capacity, machine memory, vCPUs and the layer budget derive from the host profile detected at startup: memory, performance cores, free disk, macOS version and Hypervisor.framework availability. Reserve capacity for macOS and the install before allocating machines. Fixed defaults per Mac model cannot account for the team's available resources.
+Capacity, machine memory, vCPUs and the layer budget derive from the host profile detected at startup: memory, performance cores, free disk, macOS version and Hypervisor.framework availability. Reserve capacity for macOS and the install before allocating machines. Fixed defaults per Mac model cannot account for the team's available resources. With `remoteSandboxes` on, each added computer has its own limits from its own profile, and install capacity is the sum over reachable computers; only the machine moves, while the engine, journal, provider keys and merge stay on the Mac (M-40, spec §8.13).
 
-Sources: E-17; engineering spec §8.2.1; product M-06.
+Sources: E-17; engineering spec §8.2.1 and §8.13; product M-06 and M-40.
 
 ## Consequences
 

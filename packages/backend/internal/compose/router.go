@@ -72,6 +72,9 @@ type routerExtras struct {
 	GitHubSync routes.GitHubSyncRouteService
 	// Live is the install's live channel (GET /api/live); nil serves none.
 	Live *routes.LiveHandler
+	// ExternalSessions serves the owner's Codex and Claude Code sessions
+	// (GET /api/external/sessions); nil serves none.
+	ExternalSessions *routes.ExternalSessionsHandler
 }
 
 func buildRouter(
@@ -1029,6 +1032,10 @@ func buildRouter(
 				}
 				r.With(middleware.RequireAuth, installModelOwner(queries)).Get("/install/metrics", h.Read)
 			}
+		}
+		// Outside the member table: the install owner's sessions are the owner's alone.
+		if config.IsSingleOwner(cfg.Auth) && extras.ExternalSessions != nil {
+			r.Get("/external/sessions", extras.ExternalSessions.Read)
 		}
 		// Mounted only with the shared owner-person-session authorizer.
 		if extras.InstallScorecard.Available() {

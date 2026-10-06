@@ -1073,7 +1073,6 @@ const securityReview = Smithers.SecurityReview({
     ".github/scripts/*.sh",
     ".smithers/*.ts",
     ".smithers/*.json",
-    ".smithers/workflows/*.tsx",
     "distribution/*",
     "crates/smithers-ffi/Cargo.toml",
     "crates/smithers-ffi/src/*.rs",

@@ -888,6 +888,9 @@ func (s *WorkspaceService) ForkWorkspace(ctx context.Context, input ForkWorkspac
 		return WorkspaceResponse{}, err
 	}
 	if s.q == nil {
+		if err := s.requireBranchMachineProviders(); err != nil {
+			return WorkspaceResponse{}, err
+		}
 		return WorkspaceResponse{}, pkgerrors.Internal("workspace store unavailable")
 	}
 	if s.runtime != nil || s.revisionFork != nil {

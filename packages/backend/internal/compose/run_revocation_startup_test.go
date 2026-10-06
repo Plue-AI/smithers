@@ -5,10 +5,12 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"errors"
+	"fmt"
 	"io"
 	"net"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -92,6 +94,12 @@ func TestRunWaitsForRevocationCursorBeforeAdmittingConsumers(t *testing.T) {
 				_, _ = writerPool.Exec(context.Background(),
 					`DELETE FROM self_host_owners WHERE user_id = $1`, user.ID)
 			})
+			repo, err := writer.CreateRepo(context.Background(), db.CreateRepoParams{UserID: pgtype.Int8{Int64: user.ID, Valid: true}, Name: "app", LowerName: "app", DefaultBookmark: "main"})
+			require.NoError(t, err)
+			binding := fmt.Sprintf(`{"owner_login":"acme","repository_name":"app","repository_id":%d}`, repo.ID)
+			require.NoError(t, writer.UpsertInstallSetting(context.Background(), db.UpsertInstallSettingParams{Key: "github.repository", Value: []byte(binding)}))
+			require.NoError(t, writer.UpsertInstallSetting(context.Background(), db.UpsertInstallSettingParams{Key: "owner.access", Value: []byte(strings.TrimSuffix(binding, "}") + `,"last_access_check_at":"2026-10-04T22:00:00Z"}`)}))
+
 			makeCredential := func(name string) (string, int64, string) {
 				t.Helper()
 				secret := sha256.Sum256([]byte(name + ":" + userName))

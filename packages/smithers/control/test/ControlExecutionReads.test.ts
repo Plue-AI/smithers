@@ -15,7 +15,9 @@ const runtime = () =>
   memoryRuntime({
     principal: alice,
     approvalAuthority: Effect.runSync(ApprovalAuthority.make([{
-      principal: { id: alice.id, kind: alice.kind }, scopes: ["once"], targets: ["Plan"]
+      principal: { id: alice.id, kind: alice.kind },
+      scopes: ["once"],
+      targets: ["Plan"]
     }])),
     flows: [{
       flowId: "read-test",
@@ -178,10 +180,17 @@ describe("public execution read authorization", () => {
           source,
           revision: 17,
           observation: Schema.decodeUnknownSync(ExecutionFact.Observation)({
-            executionId: "child", flowName: "read-test/child", status: "cancelled",
-            createdAtMs: 1, startedAtMs: 2, finishedAtMs: 3,
-            parentRunId: "root", lineageId: "child", roundOrdinal: 0,
-            cancelRequestedAtMs: 3, waiting: null
+            executionId: "child",
+            flowName: "read-test/child",
+            status: "cancelled",
+            createdAtMs: 1,
+            startedAtMs: 2,
+            finishedAtMs: 3,
+            parentRunId: "root",
+            lineageId: "child",
+            roundOrdinal: 0,
+            cancelRequestedAtMs: 3,
+            waiting: null
           })
         },
         { _tag: "Missing", executionId: "gone", source, revision: 17, deleted: true },
@@ -191,18 +200,21 @@ describe("public execution read authorization", () => {
     const asked: Array<ReadonlyArray<string>> = []
     const executor = {
       ...ControlExecutor.makeNoop(),
-      readExecutions: (input: { readonly executionIds: ReadonlyArray<string> }) => Effect.sync(() => {
-        asked.push(input.executionIds)
-        return batch
-      })
+      readExecutions: (input: { readonly executionIds: ReadonlyArray<string> }) =>
+        Effect.sync(() => {
+          asked.push(input.executionIds)
+          return batch
+        })
     }
-    await Effect.runPromise(Effect.gen(function*() {
-      const control = yield* Control
-      const runId = yield* start
-      const executionIds = ["child", "gone", "foreign"]
-      const result = yield* control.list({ _tag: "executions", runId, executionIds, reader: alice })
-      expect(result).toEqual({ _tag: "executions", source, revision: 17, items: batch.snapshots })
-      expect(asked).toEqual([executionIds])
-    }).pipe(Effect.provide(live({ runtime: runtime(), executor })), Effect.scoped))
+    await Effect.runPromise(
+      Effect.gen(function*() {
+        const control = yield* Control
+        const runId = yield* start
+        const executionIds = ["child", "gone", "foreign"]
+        const result = yield* control.list({ _tag: "executions", runId, executionIds, reader: alice })
+        expect(result).toEqual({ _tag: "executions", source, revision: 17, items: batch.snapshots })
+        expect(asked).toEqual([executionIds])
+      }).pipe(Effect.provide(live({ runtime: runtime(), executor })), Effect.scoped)
+    )
   })
 })

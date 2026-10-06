@@ -50,7 +50,7 @@ Three rules keep this small. One writer per fact. The host never reads the worki
 
 ### 3.1 Choice
 
-Yjs on the wire: `yjs` 13.6.32 and `y-codemirror.next` 0.3.6 in browsers (already in `apps/app/package.json`), Yrs 0.27.4 on the host through `smithers-ffi`, which the backend already loads. A doc hub in the host process holds one replica per open document. One browser provider, `apps/app/src/mainview/runtime/LiveDocProvider.ts`, serves both kinds. The two persistence adapters differ only in where durable state goes: code saves through the daemon to the machine disk, wiki pages to `wiki_page_revisions` as today. Today neither is live: `0126_wiki_live_cutover.sql` retired the wiki's POST and SSE path, and no production code assigns `DocumentRelay`, so the wiki editor is read-only.
+Yjs on the wire: `yjs` 13.6.32 and `y-codemirror.next` 0.3.6 in browsers (already in `apps/app/package.json`), Yrs 0.27.4 on the host through `smithers-ffi`, which the backend already loads. A doc hub in the host process holds one replica per open document. One browser provider, `apps/app/src/mainview/runtime/LiveDocProvider.ts`, serves both kinds. The two persistence adapters differ only in where durable state goes: code saves through the daemon to the machine disk, wiki pages to `wiki_page_revisions` as today. Today neither is live: `0127_wiki_live_cutover.sql` retired the wiki's POST and SSE path, and no production code assigns `DocumentRelay`, so the wiki editor is read-only.
 
 ### 3.2 Paths
 
@@ -189,7 +189,7 @@ Deltas coalesce to 4 per second per branch. Nothing is released in the 30 s afte
 
 ## 7. Shared conversation
 
-- **Storage and order.** `chat_turns.conversation_id` = branch id, cards and events in `chat_turn_batches`, landed in `0120_branch_conversations.sql` with an index allowing one running turn per conversation. Entries order by the replay sequence assigned at commit; prompts queue first-in, first-out. `app_timelines` is deleted.
+- **Storage and order.** `chat_turns.conversation_id` = branch id, cards and events in `chat_turn_batches`, landed in `0121_branch_conversations.sql` with an index allowing one running turn per conversation. Entries order by the replay sequence assigned at commit; prompts queue first-in, first-out. `app_timelines` is deleted.
 - **Credentials.** At turn start the runner checks the author is an active member, then mints `delegated(via=smithers)` for that author, valid 1 h and revoked at turn end. Tools run on the host through the catalog; `confirm` rows post a private Confirm card to the author; `never` rows are absent.
 - **Who runs what.** App-agent turns run as their author. Steers and answers to the coding agent are input recorded with their author; the run keeps its sponsor's `run` credential, which can do no person action, so a teammate's steer grants nothing. External agents in terminals (M-38) appear as read-only imported entries.
 - **Privacy and revocation.** Every started turn and its output is shared with every active member. Queued prompts, Confirm cards, drafts and view state stay private, and turn credentials cannot read them. Removal cancels queued turns (`author_revoked`) and stops the running one within 5 s.

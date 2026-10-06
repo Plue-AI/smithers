@@ -18,7 +18,12 @@ const cwd = "apps/server"
 const sources = [
   Smithers.glob("//apps/server/src/**/*.ts"),
   Smithers.glob("//apps/server/scripts/**/*.ts"),
-  Smithers.file("//flows/rollout/runtime.ts")
+  Smithers.file("//flows/rollout/runtime.ts"),
+  // src/docsRedirect.test.ts regenerates the redirect map from the package list.
+  Smithers.file("//scripts/package-docs.mjs"),
+  Smithers.file("//scripts/workspace-packages.mjs"),
+  Smithers.file("//pnpm-workspace.yaml"),
+  Smithers.file("wrangler.docs-redirect.jsonc")
 ]
 
 /**

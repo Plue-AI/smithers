@@ -201,7 +201,7 @@ export function BranchView({ model, actions, gestures, view, onAction, onView }:
           )}
         </div>
         <div className="branch-ssh">
-          <code tabIndex={0}>{model.ssh_line}</code>
+          <code tabIndex={0} title={model.ssh_line}>{model.ssh_line}</code>
           <button
             type="button"
             aria-label="Copy SSH line"
@@ -219,9 +219,10 @@ export function BranchView({ model, actions, gestures, view, onAction, onView }:
 
 type ListProps = Pick<BranchViewProps, "model" | "gestures" | "onAction">
 function Presence({ model, gestures, onAction }: ListProps) {
+  if (!model.presence.length) return null
   return (
     <ul className="branch-presence" aria-label="On this branch">
-      {model.presence.length ? (
+      {(
         [
           ...model.presence.filter((row) => row.actor.kind === "person"),
           ...model.presence.filter((row) => row.actor.kind !== "person"),
@@ -280,8 +281,6 @@ function Presence({ model, gestures, onAction }: ListProps) {
             ) : null}
           </li>
         ))
-      ) : (
-        <li className="branch-muted">Nobody here</li>
       )}
     </ul>
   )

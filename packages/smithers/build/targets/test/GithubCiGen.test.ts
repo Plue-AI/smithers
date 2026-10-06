@@ -1542,21 +1542,36 @@ describe("GithubCiGen target wiring", () => {
     expect(metadata.cacheable).toBe(true)
   })
 
-  it("declares exactly the Actionlint workflow list as file inputs", () => {
-    const target = GithubCiGen({
-      ...goldenAttrs,
-      jobs: [{
-        ...goldenAttrs.jobs[0]!,
-        toolchain: CiToolchain.Needs({
-          workflowLint: CiToolchain.Actionlint({
-            release: "1.7.11",
-            workflows: [".github/workflows/custom.yml", ".github/workflows/extra-*.yml"]
-          })
-        })
-      }]
+  it("declares every workflow an Actionlint requirement names as a check-mode input, once each", () => {
+    const linting = (workflows: ReadonlyArray<string>) => ({
+      id: "lint",
+      runsOn: "ubuntu-latest",
+      toolchain: CiToolchain.Needs({ workflowLint: CiToolchain.Actionlint({ release: "1.7.11", workflows }) }),
+      steps: [{ name: "Index", verb: Verb.Lint, pattern: "//:targetIndex" }]
     })
-    expect(Target.metadata(target).inputs).toContainEqual(Input.file("//.github/workflows/custom.yml"))
-    expect(Target.metadata(target).inputs).toContainEqual(Input.glob("//.github/workflows/extra-*.yml"))
+    const checking = Target.metadata(GithubCiGen({
+      ...checkingAttrs,
+      jobs: [
+        linting([".github/workflows/release.yml", ".github/workflows/ci.yml"]),
+        { ...linting(["./.github/workflows/release.yml", ".github/actions/*.yml"]), id: "again" }
+      ]
+    }) as never)
+    expect(checking.inputs).toEqual([
+      { _tag: "File", path: "//.github/workflows/ci.yml" },
+      { _tag: "File", path: "//.github/workflows/release.yml" },
+      { _tag: "Glob", pattern: "//.github/actions/*.yml", exclude: [] }
+    ])
+    // A writing target declares no inputs; its lint form declares the same set.
+    const writing = Target.metadata(GithubCiGen({
+      ...checkingAttrs,
+      mode: "write",
+      jobs: [linting([".github/workflows/release.yml"])]
+    }) as never)
+    expect(writing.inputs).toEqual([])
+    expect(writing.forKind("lint").inputs).toEqual([
+      { _tag: "File", path: "//.github/workflows/ci.yml" },
+      { _tag: "File", path: "//.github/workflows/release.yml" }
+    ])
   })
 
   it("maps the lint verb of a writing target to the checking form", () => {

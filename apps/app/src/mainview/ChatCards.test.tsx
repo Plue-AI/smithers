@@ -207,3 +207,17 @@ test("saved grant confirmation renders its title without actions", () => {
   expect(host.textContent).toBe("Saved grant")
   expect(host.querySelector("button, [data-flow]")).toBeNull()
 })
+
+for (const kind of ["stack", "factory.home"] as const) {
+  test(`${kind} renders only its title with no live controls, including restored maximized state`, () => {
+    const card = CardSchema.parse({ id: kind, kind, title: "Saved history", status: "active", ordinal: 1, createdAt: 1,
+      payload: kind === "stack" ? { repo: "org/repo", failure: null } : { repo: "org/repo", home: { kind: "error", message: "Saved body" }, flows: [] } })
+    const { host, render } = mount({ card })
+    for (const maximized of [false, true]) {
+      render({ maximized, card: { ...card, navigation: { index: 1, length: 2 } } })
+      expect(host.textContent).toBe("Saved history")
+      expect(host.querySelector("button, [data-flow]")).toBeNull()
+      expect(host.querySelector(".smithers-card-body, .card-maximize-backdrop")).toBeNull()
+    }
+  })
+}

@@ -16,6 +16,7 @@ import { StorageRecoveryButton } from "./StorageRecoveryButton"
 import { ContextLine } from "./ContextLine"
 import { contextActions } from "./flows/contextActions"
 import { contextOpenAction } from "./flows/contextOpenAction"
+import { ContextContainer } from "./ContextContainer"
 import { STORAGE_RECOVERY_EXPORT } from "./state/StorageRecoveryContract"
 import type { CommandOutcome } from "./flows/Commands"
 
@@ -64,11 +65,12 @@ function AnswerContext({ items }: { items: NonNullable<Message["context"]> }) {
   const [expanded, setExpanded] = useState(false)
   const controller = useController()
   const actions = contextActions(items, (tag, input) => controller.runCommand(tag, JSON.stringify(input)), contextOpenAction)
-  return <ContextLine count={items.length} items={[...items]} expanded={expanded} onView={patch => setExpanded(patch.expanded)} {...actions} />
+  return <ContextLine count={items.length} expanded={expanded} onView={patch => setExpanded(patch.expanded)} {...actions} />
 }
 
 export function TranscriptMessage({ entry, streamingMessageId }: { entry: { kind: "message"; message: Message } | { kind: "init"; message: InitMessage }; streamingMessageId?: string }) {
   const controller = useController()
+  const context = entry.kind === "message" ? controller.contextLine(entry.message.id) : undefined
   const external = entry.kind === "message" && entry.message.origin === "external"
   const identity = controller.store.collections.identitySessions.get("identity")
   const member = identity?.state === "signed-in" && identity.login ? { login: identity.login, name: identity.login, avatar_url: PlaceholderAvatarUrl } : undefined
@@ -139,7 +141,7 @@ export function TranscriptMessage({ entry, streamingMessageId }: { entry: { kind
         const bindings = answerActions((name, input) => controller.commands.submit({ name, payload: (input ?? {}) as Record<string, unknown>, actor: "user", ...(name === "wiki.save" ? { display: flowArgs("wiki.save", input as { name?: string; text?: string }) } : {}) }), scrubToolEcho(entry.message.text))
         return <div className="message-answer-actions">{bindings.actions.map(action => <DiffAction key={action.tag} action={action} onAction={bindings.onAction} />)}</div>
       })() : null}
-      {entry.kind === "message" && entry.message.context !== undefined ? <AnswerContext items={entry.message.context} /> : null}
+{context ? <ContextContainer {...context} available={controller.contextAvailable()} dispatch={(tag, input) => controller.commands.submit({ name: tag, payload: (input ?? {}) as Record<string, unknown>, actor: "user" })} /> : entry.kind === "message" && entry.message.context !== undefined ? <AnswerContext items={entry.message.context} /> : null}
       {/* The synthetic auth message has no clock time to tell. */}
       {!external && entry.message.answeredAction && <p role="status">{entry.message.answeredAction.answer}</p>}
       {entry.message.createdAt > 0 ?

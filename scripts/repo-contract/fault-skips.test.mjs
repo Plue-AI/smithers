@@ -192,6 +192,11 @@ const allowedSkips = new Map([
   [
     "packages/smithers/flows/jj/test/faults/case21-jj-pointer-integrity.test.ts",
     "Needs the jj binary to take and restore real snapshots. Skips locally without it and throws on CI."
+  ],
+  [
+    "packages/smithers/test/faults/burndown-infrastructure.test.ts",
+    "The #3367 disk case needs a Microsandbox libkrun guest and the POSIX `msb-nice.sh` wrapper, "
+      + "which exist on darwin and linux only. Skips on every other platform; the other cases always run."
   ]
 ])
 

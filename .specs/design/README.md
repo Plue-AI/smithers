@@ -138,11 +138,16 @@ main ──┬── T8   upgrade-stripe      In review   next to merge
 
 The port follows [`../engineering/ui-components.md`](../engineering/ui-components.md) in its order of need (T-UI-01..20). Design builds each card as a props-only View in `apps/app/src/mainview/cards/views/*View.tsx` with fixtures in `cards/fixtures/` and styles in `styles/views.css`; the frontend lead's containers feed it `CardProps<M>` and turn `onAction(action.tag)` into catalog commands. A View imports no state, flow or RPC module (C-UI-08). A field a View needs that the model lacks is a spec change raised with the tech lead, never a workaround. Once a View exists, the mock renders that View through an adapter, so later polish lands in the product, not here.
 
+## Decisions taken with Will (2026-10-03)
+
+- Self-hosted first stands, with bring-your-own keys: core users won't adopt without them. A Cloud-first, Smithers-billed release was considered and dropped the same day.
+- Only the fast model runs on Smithers' infrastructure: Cerebras, reached by signing the install in to a Smithers account with GitHub. The coding model and the AI Gateway stay the team's own keys.
+
 ## Decisions taken with product (2026-10-02)
 
 - The install runs on one Mac: `smthrs host start` prints a one-time setup link, and `smthrs host upgrade` upgrades it. It serves plain HTTP and listens only to this Mac until the owner lets the network in. HTTPS comes from what the team puts in front; the journeys use `https://maya-mini.tail1234.ts.net`. SSH is `ssh -p 2222 <branch>@<that host>`, and laptops connect with `smthrs login <address>`.
 - Setup asks for the address first, because the GitHub App's callback returns to it.
-- Model access has three roles: a fast model (Cerebras) for the app agent and summaries, a coding model (a key or ChatGPT sign-in), and the AI Gateway key for typed decisions.
+- Model access has three roles: a fast model for the app agent and summaries, a coding model (a key or ChatGPT sign-in), and the AI Gateway key for typed decisions. The fast model is Cerebras through Smithers' own infrastructure (2026-10-03, above).
 - People take machines ahead of queued TODOs. Opening a sleeping branch never wakes it.
 - Live co-editing happens in the File card. SSH editors join on save. An outside burst is one entry, named only when one session was running; its diff offers Restore this file.
 - Smithers never overwrites a person's commit: a laptop push is Needs you, with Bring in or Discard.

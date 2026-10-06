@@ -237,6 +237,8 @@ SHA-256 digest of the table. Change a row only with a version bump.
 | `billing.portal` | optional | optional |
 | `cloud.terminal` | core | core |
 | `cloud.pat` | optional | absent |
+| `launch.codex` | absent | absent |
+| `launch.claude-code` | absent | absent |
 | `native.shell` | absent | absent |
 
 Plue owes `github` because its hosted backend serves GitHub sign-in and

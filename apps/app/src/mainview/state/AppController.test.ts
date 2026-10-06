@@ -173,6 +173,8 @@ describe("the controller's command surface", () => {
       "membersRole",
       "membersRoster",
       "githubSyncSnapshots",
+      "externalSession",
+      "timelineTitles",
       "wikiIndexes",
       "wikiAttachments",
       "controlFocus",

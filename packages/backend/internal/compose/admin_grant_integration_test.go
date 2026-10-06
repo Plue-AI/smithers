@@ -21,6 +21,7 @@ import (
 
 	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/smithersai/smithers/packages/backend/credits"
+	"github.com/smithersai/smithers/packages/backend/internal/config"
 	"github.com/smithersai/smithers/packages/backend/internal/db"
 	"github.com/smithersai/smithers/packages/backend/internal/routes"
 	"github.com/smithersai/smithers/packages/backend/internal/services"
@@ -57,7 +58,9 @@ func TestAdminGrantProductHTTPPostgres(t *testing.T) {
 	for i := range args[:len(args)-1] {
 		args[i] = reflect.Zero(fn.Type().In(i))
 	}
-	args[0] = reflect.ValueOf(testConfigAllFlagsOn())
+	cfg := testConfigAllFlagsOn()
+	cfg.Auth.Mode = config.AuthModeMultitenant
+	args[0] = reflect.ValueOf(cfg)
 	args[1] = reflect.ValueOf(q)
 	args[2] = reflect.ValueOf(pool)
 	args[len(args)-1] = reflect.ValueOf([]any{routerExtras{AdminGrant: &routes.AdminGrantHandler{Service: services.NewAdminGrantService(pool, credits.Ledger{DB: pool})}}})

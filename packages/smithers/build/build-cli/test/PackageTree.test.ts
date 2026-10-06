@@ -273,6 +273,39 @@ describe("scratchCopy keeps installed dependencies as host state", () => {
     }
   })
 
+  it.skipIf(process.platform === "win32")(
+    "links a declared host cache, so a read-only module cache is neither copied nor left behind",
+    async () => {
+      // Go writes its module cache read-only; a copy of it cannot be removed.
+      const module = NodePath.join(root, "caches", "go", "pkg@v1")
+      await Fs.mkdir(module, { recursive: true })
+      await Fs.writeFile(NodePath.join(module, "LICENSE"), "license")
+      await Fs.chmod(NodePath.join(module, "LICENSE"), 0o444)
+      await Fs.chmod(module, 0o555)
+      await Fs.writeFile(NodePath.join(root, "caches", "notes.txt"), "copied")
+      try {
+        const scratch = await PackageTree.scratchCopy(root, ".flows", [], ["caches/go", "absent"])
+        try {
+          expect((await Fs.lstat(NodePath.join(scratch, "caches", "go"))).isSymbolicLink()).toBe(true)
+          expect(await Fs.realpath(NodePath.join(scratch, "caches", "go"))).toBe(
+            await Fs.realpath(NodePath.join(root, "caches", "go"))
+          )
+          expect(await Fs.readFile(NodePath.join(scratch, "caches", "go", "pkg@v1", "LICENSE"), "utf8")).toBe(
+            "license"
+          )
+          expect(await Fs.readFile(NodePath.join(scratch, "caches", "notes.txt"), "utf8")).toBe("copied")
+          expect(await Fs.lstat(NodePath.join(scratch, "absent")).then(() => true, () => false)).toBe(false)
+        } finally {
+          await Fs.rm(scratch, { recursive: true, force: true })
+        }
+        expect(await Fs.lstat(scratch).then(() => true, () => false)).toBe(false)
+        expect(await Fs.readFile(NodePath.join(module, "LICENSE"), "utf8")).toBe("license")
+      } finally {
+        await Fs.chmod(module, 0o755)
+      }
+    }
+  )
+
   it("omits the roots the caller is going to clear anyway", async () => {
     await Fs.mkdir(NodePath.join(root, "out", "nested"), { recursive: true })
     await Fs.writeFile(NodePath.join(root, "out", "nested", "stale.js"), "stale")

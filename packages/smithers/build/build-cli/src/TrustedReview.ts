@@ -17,6 +17,12 @@ import * as ContainedProcess from "./internal/ContainedProcess.ts"
 import * as Label from "./Label.ts"
 import * as PackageDiscovery from "./PackageDiscovery.ts"
 
+/** Index validation and proposed-policy limits are operator refusals, not defects. */
+class ReviewRefused extends Data.TaggedError("smithers-build/ReviewRefused")<{
+  readonly code: "invalid_index_labels" | "policy_changes_too_large"
+  readonly message: string
+}> {}
+
 const hash = /^(?:[a-f0-9]{40}|[a-f0-9]{64})$/
 const indexLimit = 32 * 1024 * 1024
 
@@ -112,7 +118,10 @@ const decodeRows = (text: string): ReadonlyArray<TargetIndex.Row> => {
   const labels = new Set<string>()
   for (const row of rows) {
     if (labels.has(row.label) || row.label !== Label.format(row.package, row.name)) {
-      throw new Error("Review index contains duplicate or inconsistent labels")
+      throw new ReviewRefused({
+        code: "invalid_index_labels",
+        message: "Review index contains duplicate or inconsistent labels"
+      })
     }
     labels.add(row.label)
   }
@@ -325,7 +334,10 @@ export const prepareSource = async (source: ReviewSource, options: Selection) =>
     if (changes.length > 0) {
       const contents = JSON.stringify({ representation: "review-policy-changes", changes })
       if (Buffer.byteLength(contents, "utf8") > LlmLint.maximumReviewFileBytes) {
-        throw new Error("Proposed policy changes exceed the review limit")
+        throw new ReviewRefused({
+          code: "policy_changes_too_large",
+          message: "Proposed policy changes exceed the review limit"
+        })
       }
       policies.push({
         label: "//:proposed-review-index",

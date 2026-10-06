@@ -12,6 +12,34 @@ import { descendants, sample, monitor } from "./host-process-sampler.mjs"
 
 const sampler = fileURLToPath(new URL("./host-process-sampler.mjs", import.meta.url))
 
+test("samples a process snapshot larger than the subprocess default buffer", async (t) => {
+  await mkdir(join(process.cwd(), ".artifacts"), { recursive: true })
+  const directory = await mkdtemp(join(process.cwd(), ".artifacts", "sampler-large-"))
+  const previousPath = process.env.PATH
+  t.after(async () => {
+    if (previousPath === undefined) delete process.env.PATH
+    else process.env.PATH = previousPath
+    await rm(directory, { recursive: true, force: true })
+  })
+  // A fixed ps executable fixture makes the busy-host boundary reproducible
+  // without starting hundreds of unrelated processes. execFile is real.
+  const snapshot = "ignored\n".repeat(262144) + "123 1 501 /usr/bin/true\n"
+  await writeFile(join(directory, "snapshot"), snapshot)
+  const script = `#!${process.execPath}\nimport { readFileSync } from "node:fs";` +
+    `process.stdout.write(readFileSync(${JSON.stringify(join(directory, "snapshot"))}))\n`
+  await writeFile(join(directory, "ps"), script, { mode: 0o755 })
+  process.env.PATH = `${directory}:${previousPath}`
+  const result = await sample({ rootPid: 123, directory: join(directory, "evidence") })
+  assert.deepEqual(result, { rootPid: 123, processes: [{ pid: 123, ppid: 1, uid: 501, command: "/usr/bin/true" }] })
+  const records = await readFile(join(directory, "evidence/process-samples.jsonl"), "utf8")
+  assert.deepEqual(JSON.parse(records).processes, result.processes)
+  await writeFile(join(directory, "snapshot"), "ignored\n".repeat(17 * 131072))
+  await assert.rejects(sample({ rootPid: 123, directory: join(directory, "over-limit") }), {
+    code: "ERR_CHILD_PROCESS_STDIO_MAXBUFFER"
+  })
+  await assert.rejects(access(join(directory, "over-limit/process-samples.jsonl")), { code: "ENOENT" })
+})
+
 const within = async (promise, milliseconds, description) => {
   let timer
   try {

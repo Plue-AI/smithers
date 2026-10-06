@@ -493,6 +493,13 @@ func (h *GitHubAppSetupHandler) SetSettings(w http.ResponseWriter, r *http.Reque
 		writeInstallAPIError(w, pkgerrors.Forbidden("setup origin and CSRF token required"))
 		return
 	}
+	var rawInput struct {
+		Capacity json.RawMessage `json:"capacity"`
+		ChatGPT  json.RawMessage `json:"chatgpt"`
+	}
+	if !decodeStrictJSONBody(w, r, &rawInput) {
+		return
+	}
 	var input struct {
 		Obsidian *struct {
 			Path string `json:"path"`
@@ -504,7 +511,20 @@ func (h *GitHubAppSetupHandler) SetSettings(w http.ResponseWriter, r *http.Reque
 		Bind                json.RawMessage `json:"bind"`
 		Origins             json.RawMessage `json:"origins"`
 	}
-	if !decodeStrictJSONBody(w, r, &input) {
+	if len(rawInput.Capacity) > 0 {
+		if json.Unmarshal(rawInput.Capacity, &input.Capacity) != nil || input.Capacity == nil {
+			writeInstallAPIError(w, pkgerrors.BadRequest("capacity must be an integer"))
+			return
+		}
+	}
+	if len(rawInput.ChatGPT) > 0 {
+		if json.Unmarshal(rawInput.ChatGPT, &input.ChatGPT) != nil || input.ChatGPT == nil {
+			writeInstallAPIError(w, pkgerrors.BadRequest("chatgpt must be a boolean"))
+			return
+		}
+	}
+	if input.Capacity == nil && input.ChatGPT == nil {
+		writeInstallAPIError(w, pkgerrors.BadRequest("install setting required"))
 		return
 	}
 	if input.Obsidian != nil {

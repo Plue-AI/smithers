@@ -132,7 +132,7 @@ Never lose an acknowledged document transaction, accepted prompt, completed flow
 | Browser | Keep `runtime/LiveChannel.ts`, `LiveDocProvider.ts`, `cards/liveDoc.ts`, `CodeEditorSurface.tsx`, `views/CodeEditorView.tsx`. Fix receipt, recovery and cursor semantics; bind the production channel. Delete duplicate text-reload/editing surfaces. |
 | Wiki | Reshape `internal/services/wiki_collaboration.go` to the same live provider/persistence adapter. Delete old update POST/SSE-refetch callers and routes together; retain old revisions. |
 | Presence/changes | Keep `compose/presence.go`, sync `BranchPresence.ts`/`BranchProtocol.ts` and revocation bus. Replace `attrib.rs` inference with kernel facts. New observer only; keep existing burst/version engine. |
-| Chat | Keep `internal/chat/{store,queue,shared,preflight,dispatcher}.go`, migration `0120_branch_conversations.sql` and `compose/conversation_branch.go`. Finish shared shell/revocation; remove `internal/services/app_timeline.go` writers/store after archive conversion. |
+| Chat | Keep `internal/chat/{store,queue,shared,preflight,dispatcher}.go`, migration `0121_branch_conversations.sql` and `compose/conversation_branch.go`. Finish shared shell/revocation; remove `internal/services/app_timeline.go` writers/store after archive conversion. |
 | Capture | Replace `internal/services/workspace_head.go` polling/report duties with daemon capture/outbox. No second reporter remains. |
 
 All abbreviated backend paths are beneath `packages/backend/`; app paths are beneath `apps/app/src/mainview/`. Plue’s read-only composition confirms it consumes the shared backend. It receives deployment adapters later, not multiplayer product code.

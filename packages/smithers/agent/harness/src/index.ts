@@ -78,6 +78,12 @@ export * as ContextWindow from "./ContextWindow.ts"
 export * as Transcript from "./Transcript.ts"
 
 /**
+ * @category projections
+ * @since 1.0.0-rc.1
+ */
+export * as ExternalTranscript from "./ExternalTranscript.ts"
+
+/**
  * @category compaction
  * @since 0.1.0
  */

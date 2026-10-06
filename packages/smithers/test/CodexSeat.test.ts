@@ -10,12 +10,12 @@ import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "nod
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { afterEach, describe, expect, it, vi } from "vitest"
-import { liveModel } from "./support/liveModel.ts"
 import * as Agents from "../src/Agents.ts"
 import * as Application from "../src/Application.ts"
 import * as CodexCode from "../src/internal/CodexCode.ts"
 import * as NodeControl from "../src/NodeControl.ts"
 import * as Providers from "../src/Providers.ts"
+import { liveModel } from "./support/liveModel.ts"
 
 const roots: Array<string> = []
 afterEach(() => {

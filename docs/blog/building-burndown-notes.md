@@ -6,7 +6,9 @@ record each step as it was taught, the code at that step, and what broke.
 ## Goal (the maintainer's six requirements)
 
 1. Run locally, with some work on Smithers Cloud.
-2. Find every open GitHub issue. Skip an issue only while the Mac mini
+2. Find every open GitHub issue. Skip issues labeled `do-not-implement`,
+   `needs-human-approval`, `wontfix`, `epic`, `invalid`, `duplicate`, or `question`
+   before reading claims. Otherwise skip while the Mac mini
    (`Williams-Mac-mini.local`) holds a live claim on it; every other claim is an
    abandoned attempt and the issue is ours.
 3. Use the round-robin Codex and Claude subscription accounts (`codex-rr`, `claude-rr`).
@@ -44,8 +46,10 @@ written by strangers (issue titles, bodies) flows into commands.
 Claim comment format (written by `scripts/issue-claim.mjs`):
 `Claimed by <who> on <host> at <UTC>; expires <UTC+6h>`. Live data: 62 Mac mini
 claims (44 live, 18 expired), 17 claims from the MacBook (abandoned).
-Rule: skip = live Mac mini claim; everything else is ours (expired Mac mini
-claims count as ours, matching the repo's 6 h takeover rule).
+Rule: skip labels are checked first, with the matching label recorded in the
+skip detail. Without a skip label, skip = live Mac mini claim; everything else
+is ours (expired Mac mini claims count as ours, matching the repo's 6 h takeover
+rule).
 
 Key idea: `Node.bindPlanned` chains steps. The body builds a plan; step results
 are placeholders. "Pass it, never compute on it": `ReadClaims.call({ issues })`

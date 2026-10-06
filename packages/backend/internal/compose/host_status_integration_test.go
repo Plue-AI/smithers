@@ -134,7 +134,7 @@ func TestInstallStatusOwnerHTTPModelPostgres(t *testing.T) {
 		require.NoError(t, err)
 		require.Equal(t, strings.Contains(body, "true"), projection["chatgpt"])
 	}
-	for _, body := range []string{`{"chatgpt":"true"}`, `{"chatgpt":null}`, `{"chatgpt":true,"unknown":1}`} {
+	for _, body := range []string{`{"chatgpt":"true"}`, `{"chatgpt":null}`, `{"chatgpt":true,"unknown":1}`, `{"chatgpt":null,"capacity":2}`, `{"chatgpt":true,"capacity":null}`} {
 		require.Equal(t, 400, request("PUT", "/api/install", good, body).Code)
 	}
 	// A real authenticated Home socket shares the production capacity reader

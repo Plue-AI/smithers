@@ -85,7 +85,7 @@ const docs = Smithers.Docs.Check({
     Smithers.file("internal/middleware/effective_origin.go"),
     Smithers.file("db/product/queries/github_app.sql"),
     Smithers.file("db/product/migrations/0105_github_app.sql"),
-    Smithers.file("db/product/migrations/0131_github_comment_sources.sql"),
+    Smithers.file("db/product/migrations/0132_github_comment_sources.sql"),
     Smithers.file("db/product/queries/github_synced_repos.sql"),
     Smithers.file("//docs/api/openapi/install.yaml")
   ]

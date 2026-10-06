@@ -650,7 +650,7 @@ func testInstallSetupCompiledHostRestart(t *testing.T, boundary string) {
 	_, err = pool.Exec(ctx, `UPDATE install_settings SET value=jsonb_set(value,'{expires_at}',to_jsonb(clock_timestamp()-interval '1 second')) WHERE key='setup.step.address'`)
 	require.NoError(t, err)
 	// Restart with identical state root and database; cookie remains valid.
-	start()
+	command, _ = start()
 	// Recovery may finish before Retry. GET must eventually certify completion.
 	require.Eventually(t, func() bool {
 		response, err := client.Get(origin + "/api/install")
@@ -701,6 +701,67 @@ func testInstallSetupCompiledHostRestart(t *testing.T, boundary string) {
 	require.Equal(t, []string{"http://localhost:4000"}, recovered.Address.Origins)
 	require.NoError(t, pool.QueryRow(ctx, `SELECT count(*) FROM product_job_events WHERE operation_id=$1 AND event_type='operation.completed'`, operation).Scan(&completions))
 	require.Equal(t, 1, completions)
+
+	// Exercise the owner setting through the compiled HTTP boundary, then
+	// restart: existing hosts must observe the durable gate without rebuilding.
+	var ownerID int64
+	require.NoError(t, pool.QueryRow(ctx, `INSERT INTO users(username,lower_username) VALUES('restart-owner','restart-owner') RETURNING id`).Scan(&ownerID))
+	_, err = pool.Exec(ctx, `INSERT INTO self_host_owners(user_id) VALUES($1)`, ownerID)
+	require.NoError(t, err)
+	// Repository choice has its own GitHub qualification. This setting test
+	// starts with a chosen repository and never requests its remote inventory.
+	_, err = pool.Exec(ctx, `INSERT INTO install_settings(key,value) VALUES('repository','"restart-owner/app"')`)
+	require.NoError(t, err)
+	ownerToken := "restart-owner-session"
+	ownerHash := sha256.Sum256([]byte(ownerToken))
+	_, err = pool.Exec(ctx, `INSERT INTO auth_sessions(session_key,user_id,username,expires_at) VALUES($1,$2,'restart-owner',$3)`, hex.EncodeToString(ownerHash[:]), ownerID, time.Now().Add(time.Hour))
+	require.NoError(t, err)
+	ownerURL, err := url.Parse(origin)
+	require.NoError(t, err)
+	jar.SetCookies(ownerURL, []*http.Cookie{
+		{Name: "smithers_setup_session", Value: "", Path: "/", MaxAge: -1},
+		{Name: "smithers_session", Value: ownerToken, Path: "/"},
+	})
+	setChatGPT := func(enabled bool) {
+		t.Helper()
+		body, err := json.Marshal(map[string]bool{"chatgpt": enabled})
+		require.NoError(t, err)
+		request, err := http.NewRequestWithContext(ctx, "PUT", origin+"/api/install", bytes.NewReader(body))
+		require.NoError(t, err)
+		request.Header.Set("Origin", origin)
+		request.Header.Set("Content-Type", "application/json")
+		for _, cookie := range jar.Cookies(ownerURL) {
+			if cookie.Name == "__csrf" {
+				request.Header.Set("X-CSRF-Token", cookie.Value)
+			}
+		}
+		response, err := client.Do(request)
+		require.NoError(t, err)
+		defer response.Body.Close()
+		raw, readErr := io.ReadAll(response.Body)
+		require.NoError(t, readErr)
+		require.Equal(t, 200, response.StatusCode, string(raw))
+		var status struct {
+			ChatGPT bool `json:"chatgpt"`
+		}
+		require.NoError(t, json.Unmarshal(raw, &status))
+		require.Equal(t, enabled, status.ChatGPT)
+	}
+	setChatGPT(true)
+	// Only the test-owned child is killed. Its successor reads the same database.
+	require.NoError(t, command.Process.Kill())
+	require.Error(t, command.Wait())
+	start()
+	response, err = client.Get(origin + "/api/install")
+	require.NoError(t, err)
+	require.Equal(t, 200, response.StatusCode)
+	defer response.Body.Close()
+	var status struct {
+		ChatGPT bool `json:"chatgpt"`
+	}
+	require.NoError(t, json.NewDecoder(response.Body).Decode(&status))
+	require.True(t, status.ChatGPT)
+	setChatGPT(false)
 }
 
 // Captures are read while the restarted process is serving. Synchronize writes

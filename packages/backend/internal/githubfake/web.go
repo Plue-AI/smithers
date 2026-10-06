@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"net/url"
 	"sort"
+	"strconv"
 	"strings"
 	"time"
 )
@@ -74,6 +75,48 @@ func (s *Server) web(w http.ResponseWriter, r *http.Request) bool {
 		_ = json.NewEncoder(w).Encode(rows)
 		return true
 	}
+	// Browser stack walks control provider events, never install state.
+	if r.Method == "POST" && r.URL.Path == "/_fake/merge-refusal" {
+		var body struct {
+			Repo    string
+			Number  int64
+			Status  int
+			Message string
+		}
+		if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 1<<16)).Decode(&body); err != nil || body.Repo == "" || body.Number <= 0 || body.Status < 400 || body.Status > 599 || body.Message == "" {
+			http.Error(w, "repo, number, refusal status and message required", 400)
+			return true
+		}
+		key := body.Repo + "/" + strconv.FormatInt(body.Number, 10)
+		if _, ok := s.pulls[key]; !ok {
+			http.Error(w, "pull not found", 404)
+			return true
+		}
+		s.refusals[key] = Refusal{Status: body.Status, Message: body.Message}
+		w.WriteHeader(http.StatusNoContent)
+		return true
+	}
+	if r.Method == "GET" && r.URL.Path == "/_fake/pull" {
+		key := r.URL.Query().Get("repo") + "/" + r.URL.Query().Get("number")
+		pull, ok := s.pulls[key]
+		if !ok {
+			http.Error(w, "pull not found", 404)
+			return true
+		}
+		w.Header().Set("Content-Type", "application/json")
+		parent := ""
+		if dir, hosted := s.gitDir(r.URL.Query().Get("repo")); hosted {
+			var err error
+			parent, err = s.git(dir, "rev-parse", pull.Head.SHA+"^")
+			if err != nil {
+				http.Error(w, "pull parent unavailable", 500)
+				return true
+			}
+		}
+		_ = json.NewEncoder(w).Encode(map[string]any{"pull": pull, "comments": s.comments[key], "parent": parent})
+		return true
+	}
+
 	path := strings.Split(strings.Trim(r.URL.Path, "/"), "/")
 	manifest := r.URL.Path == "/settings/apps/new" || (len(path) == 5 && path[0] == "organizations" && path[2] == "settings" && path[3] == "apps" && path[4] == "new")
 	link := func(label, target, code, state string) {

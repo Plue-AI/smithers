@@ -37,7 +37,7 @@ const navigation: Record<keyof typeof branches, ViewStory["interactions"]> = {
 }
 export const stories: ViewStory[] = [
   { name: "branch-disabled", expect: ["scratch/repro", "Repository access refused"], actions: [{ tag: "branch", label: "Open", args: { name: "scratch/repro" }, disabled: { reason: "Repository access refused" } }], render: ({ onAction, onView }, actions = [{ tag: "branch", label: "Open", args: { name: "scratch/repro" }, disabled: { reason: "Repository access refused" } }]) => <BranchTree nodes={[withAction(branches.scratch.model, actions[0] as Action | undefined)]} view={{}} onAction={onAction} onView={onView} /> },
-  { name: "context-empty", expect: ["Context · 0"], interactions: [{ selector: ".context-toggle", patch: { expanded: true } }], render: ({ onView }) => <ContextLine count={0} items={[]} expanded={false} onView={onView} /> },
+  { name: "context-empty", expect: ["Context · 0"], interactions: [{ selector: ".context-toggle", patch: { expanded: true } }], render: ({ onView, onAction }) => <ContextLine count={0} items={[]} actions={[]} onAction={onAction} expanded={false} onView={onView} /> },
   ...Object.entries(branches).map(([name, fixture]): ViewStory => ({
     name: `branch-${name}`, expect: branchExpect[name as keyof typeof branches],
     actions: name === "main" || name === "scratch" ? [{ tag: "branch", label: "Open", args: { name: "scratch/repro" } }] : [],
@@ -50,9 +50,13 @@ export const stories: ViewStory[] = [
     render: ({ onAction }, actions) => <EntryRow {...fixture.model} action={actions?.length === 0 ? undefined : fixture.model.action} onAction={onAction} />,
   })),
   ...Object.entries(contexts).map(([name, fixture]): ViewStory => ({
-    name: `context-${name}`, expect: name === "collapsed" ? ["Context · 5"] : name === "one" ? ["Context · 1", "flow.ts"] : ["Context · 5", "flow.ts", "Factory decisions", "#3474", "T12", "Implement"],
+    name: `context-${name}`, expect: name === "collapsed" ? ["Context · 5"] : name === "one" ? ["Context · 1", "flow.ts"] : ["Context · 5", "flow.ts", "head", "Factory decisions", "#3474", "T12", "Implement", "Inspect"],
+    actions: [...fixture.model.items.flatMap(item => item.action ? [item.action] : []), ...fixture.model.actions],
     interactions: [{ selector: ".context-toggle", patch: { expanded: name === "collapsed" } }],
-    render: ({ onView }) => <ContextLine {...fixture.model} onView={onView} />,
+    render: ({ onView, onAction }, actions) => <ContextLine {...fixture.model}
+      items={fixture.model.items.map(item => ({ ...item, action: !actions || (item.action && actions.includes(item.action)) ? item.action : undefined }))}
+      actions={actions ? fixture.model.actions.filter(action => actions.includes(action)) : fixture.model.actions}
+      onAction={onAction} onView={onView} />,
   })),
   { name: "earlier-selected", expect: ["Earlier · 3", "Read-only", "Earlier question", "Card model contracts"],
     interactions: [{ selector: '[data-archive="old"]', patch: { selected_archive: "old" } }],

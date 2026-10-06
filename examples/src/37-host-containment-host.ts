@@ -16,6 +16,7 @@ import * as Effect from "effect/Effect"
 import * as Exit from "effect/Exit"
 import * as Layer from "effect/Layer"
 import * as Schema from "effect/Schema"
+import * as Stream from "effect/Stream"
 import { ChildProcess } from "effect/unstable/process"
 import { ChildProcessSpawner } from "effect/unstable/process/ChildProcessSpawner"
 import { dirname } from "node:path"
@@ -26,7 +27,14 @@ if (filename === undefined || hostId === undefined) {
   throw new Error("usage: 37-host-containment-host.ts <sqlite file> <hostId>")
 }
 
-/** Starts a two-process tree that outlives anything short of a group signal. */
+/**
+ * Starts a two-process tree that outlives anything short of a group SIGKILL.
+ *
+ * When its host dies, the group's process owner stops the group with SIGTERM
+ * and keeps it until the grace period ends. This tree ignores SIGTERM before it
+ * reports ready, and its grace period is longer than the example, so after the
+ * host's SIGKILL only the host's replacement can reap the group.
+ */
 const Spawn = Action.make({
   name: "examples/host-containment/spawn",
   success: Schema.String,
@@ -34,7 +42,20 @@ const Spawn = Action.make({
   idempotencyKey: "examples/host-containment/spawn/v1",
   execute: Effect.gen(function*() {
     const spawner = yield* ChildProcessSpawner
-    const handle = yield* Effect.orDie(spawner.spawn(ChildProcess.make("sh", ["-c", "sleep 300 & sleep 300"])))
+    const handle = yield* Effect.orDie(spawner.spawn(ChildProcess.make(
+      "sh",
+      ["-c", "trap '' TERM; sleep 300 & echo ready; sleep 300"],
+      { forceKillAfter: "60 seconds" }
+    )))
+    // Both sleeps inherit the ignored SIGTERM, so a stop from here on cannot
+    // end the tree.
+    yield* handle.stdout.pipe(
+      Stream.decodeText(),
+      Stream.splitLines,
+      Stream.filter((line) => line === "ready"),
+      Stream.runHead,
+      Effect.orDie
+    )
     // Printed only after the spawn returned, and the spawn returns only after
     // the ledger has durably recorded it. Whoever reads this line may kill this
     // process immediately.

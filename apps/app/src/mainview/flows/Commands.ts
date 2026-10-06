@@ -605,6 +605,11 @@ export const createCommandRegistry = (actions: CommandActions, agentActions: Com
 
     }
     let target = invoker === "agent" ? agentEntry(nameOf(entry)) ?? entry : entry
+    // Automatic callers carry no person's authorization (#3736), including
+    // incomplete inputs which would otherwise open a form or defer execution.
+    if (invoker !== "user" && invoker !== "agent" && target.metadata.confirm !== undefined) {
+      return { status: "failed", error: `/${nameOf(target)} requires a person's confirmation.` }
+    }
     if (invoker === "agent" && !modelInvocable(target)) {
       return { status: "failed", error: userOnlyError(nameOf(target), target.metadata.agentReason) }
     }
@@ -747,7 +752,7 @@ export const createCommandRegistry = (actions: CommandActions, agentActions: Com
      * posts a confirmation message whose button runs the flow as the user.
      * The label may depend on the payload (registry.ts `confirm`).
      */
-    const refusal = target.preflight?.(parsed.payload, invoker)
+    const refusal = await target.preflight?.(parsed.payload, invoker)
     if (refusal !== undefined) return { status: "failed", error: refusal }
     const confirmation = invoker === "agent" || target.metadata.confirmPerson && !confirmed
       ? confirmLabel(target.metadata, parsed.payload) : undefined

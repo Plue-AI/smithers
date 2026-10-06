@@ -1,5 +1,5 @@
-import { describe, expect, test } from "vitest"
 import { readFileSync } from "node:fs"
+import { describe, expect, test } from "vitest"
 import { z } from "zod"
 import { AGENT_ROLES } from "../src/AgentRoles.ts"
 import type { Card } from "../src/Cards.ts"
@@ -813,6 +813,11 @@ const FIXTURES: Record<
   run: { minimal: { id: "run-1" }, full: { id: "run-1", view: { selected: "cell-legacy", tab: "journal", at: 3 }, memberViews: { alice: { selected: "cell-alice", tab: "run", at: 2 } } } },
   flow: { minimal: { name: "todo" }, full: { name: "todo", version: "v3", memberVersions: { will: "v3", ben: "v2" }, proposal: { request: "request-1", diff: "diff-1" } } },
   setup: { minimal: {}, full: {} },
+  /* #3730: an agent CLI started from the conversation names the session it wrote. */
+  "agent-session": {
+    minimal: { agent: "codex", session: "0199e2e0-0000-7000-8000-00000000a11c" },
+    full: { agent: "codex", session: "0199e2e0-0000-7000-8000-00000000a11c" }
+  },
   settings: { minimal: {}, full: {} },
   members: { minimal: {}, full: {} },
   commands: { minimal: {}, full: {} },
@@ -1399,6 +1404,7 @@ const FIXTURES: Record<
       issueBody: "shard-3 wedges on sqlite",
       issueDigest: "a".repeat(64),
       makeTodoAllowed: true,
+      todoAuthorizationScope: "identity-and-roster-observation",
       source: "github",
       htmlUrl: "https://github.com/smithersai/smithers/issues/1634",
       labels: ["ci", "flaky"],
@@ -2515,7 +2521,14 @@ const FIXTURES: Record<
   "debug-api": { minimal: {}, full: {} },
   docs: {
     minimal: { page: "quickstart", markdown: "" },
-    full: { page: "quickstart", markdown: "## Open a flow\n\nRead [Flows](flows.md).\n", summary: "Read", toc: [{ slug: "quickstart", title: "Quickstart" }], anchor: "open-a-flow", not_found: "missing" }
+    full: {
+      page: "quickstart",
+      markdown: "## Open a flow\n\nRead [Flows](flows.md).\n",
+      summary: "Read",
+      toc: [{ slug: "quickstart", title: "Quickstart" }],
+      anchor: "open-a-flow",
+      not_found: "missing"
+    }
   },
   "commit-list": {
     minimal: { repo: "smithersai/smithers", branch: null, commits: [] },
@@ -2941,21 +2954,35 @@ const cloudAgentFixtures: KindFixtures = {
 
 describe("removed presentation compatibility", () => {
   // Pin the Cut contract independently of the schema and retirement registry.
-  const cutKinds = ["admin-health", "agent", "connect", "grant-confirm", "notifications", "registration", "repository-setup"] as const
+  const cutKinds = [
+    "admin-health",
+    "agent",
+    "connect",
+    "grant-confirm",
+    "notifications",
+    "registration",
+    "repository-setup"
+  ] as const
   test("the cut manifest records exactly the seven removed card kinds", () => {
     const manifest = JSON.parse(readFileSync(new URL("../src/catalog/cuts.json", import.meta.url), "utf8")) as {
       rows: { disposition: string; cardKinds: string[] }[]
     }
-    expect(manifest.rows.filter(row => row.disposition === "cut").flatMap(row => row.cardKinds).sort())
+    expect(manifest.rows.filter((row) => row.disposition === "cut").flatMap((row) => row.cardKinds).sort())
       .toEqual([...cutKinds].sort())
   })
-  test.each(cutKinds)("Cut %s preserves only its stored identity and title", kind => {
-    expect(CardSchema.options.map(option => option.shape.kind.value)).not.toContain(kind)
+  test.each(cutKinds)("Cut %s preserves only its stored identity and title", (kind) => {
+    expect(CardSchema.options.map((option) => option.shape.kind.value)).not.toContain(kind)
     expect(LEGACY_CARD_KINDS).toContain(kind)
-    const row = legacyCards.find(fixture => fixture.row.kind === kind)!.row
+    const row = legacyCards.find((fixture) => fixture.row.kind === kind)!.row
     expect(CardSchema.parse(row)).toEqual({
-      id: row.id, ordinal: row.ordinal, createdAt: row.createdAt, title: row.title,
-      kind: "retired", status: "acted", loading: false, payload: { was: kind }
+      id: row.id,
+      ordinal: row.ordinal,
+      createdAt: row.createdAt,
+      title: row.title,
+      kind: "retired",
+      status: "acted",
+      loading: false,
+      payload: { was: kind }
     })
   })
   const saved = (kind: string, payload: unknown) => ({

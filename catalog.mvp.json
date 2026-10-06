@@ -164,6 +164,100 @@
       }
     },
     {
+      "name": "agent.claude",
+      "slash": null,
+      "cli": null,
+      "journey": [],
+      "group": "",
+      "visibility": "in-card",
+      "actors": [
+        "person",
+        "app_agent"
+      ],
+      "minimumRole": "member",
+      "credentialScope": "write:repository",
+      "agent": "confirm",
+      "summary": "Start Claude Code on this machine and show its conversation",
+      "http": null,
+      "payload": {
+        "dialect": "draft-2020-12",
+        "schema": {
+          "type": "object",
+          "properties": {
+            "prompt": {
+              "type": "string",
+              "minLength": 1
+            }
+          },
+          "required": [
+            "prompt"
+          ],
+          "additionalProperties": true
+        },
+        "definitions": {}
+      }
+    },
+    {
+      "name": "agent.codex",
+      "slash": null,
+      "cli": null,
+      "journey": [],
+      "group": "",
+      "visibility": "in-card",
+      "actors": [
+        "person",
+        "app_agent"
+      ],
+      "minimumRole": "member",
+      "credentialScope": "write:repository",
+      "agent": "confirm",
+      "summary": "Start Codex on this machine and show its conversation",
+      "http": null,
+      "payload": {
+        "dialect": "draft-2020-12",
+        "schema": {
+          "type": "object",
+          "properties": {
+            "prompt": {
+              "type": "string",
+              "minLength": 1
+            }
+          },
+          "required": [
+            "prompt"
+          ],
+          "additionalProperties": true
+        },
+        "definitions": {}
+      }
+    },
+    {
+      "name": "agent.list",
+      "slash": null,
+      "cli": null,
+      "journey": [],
+      "group": "",
+      "visibility": "advanced",
+      "actors": [
+        "person",
+        "app_agent",
+        "external_agent"
+      ],
+      "minimumRole": "member",
+      "credentialScope": "write:repository",
+      "agent": "run",
+      "summary": "Show the agents and their runs",
+      "http": null,
+      "payload": {
+        "dialect": "draft-2020-12",
+        "schema": {
+          "type": "object",
+          "additionalProperties": false
+        },
+        "definitions": {}
+      }
+    },
+    {
       "name": "agent.model",
       "slash": null,
       "cli": null,
@@ -2928,6 +3022,45 @@
       }
     },
     {
+      "name": "context.inspect",
+      "slash": null,
+      "cli": null,
+      "journey": [],
+      "group": "",
+      "visibility": "hidden",
+      "actors": [
+        "person",
+        "app_agent"
+      ],
+      "minimumRole": "member",
+      "credentialScope": "write:repository",
+      "agent": "run",
+      "summary": "Inspect an answer’s stored context",
+      "http": null,
+      "payload": {
+        "dialect": "draft-2020-12",
+        "schema": {
+          "type": "object",
+          "properties": {
+            "branch": {
+              "type": "string",
+              "minLength": 1
+            },
+            "answer": {
+              "type": "string",
+              "minLength": 1
+            }
+          },
+          "required": [
+            "branch",
+            "answer"
+          ],
+          "additionalProperties": true
+        },
+        "definitions": {}
+      }
+    },
+    {
       "name": "debug-api",
       "slash": "/debug-api",
       "cli": null,
@@ -3660,6 +3793,33 @@
       }
     },
     {
+      "name": "external.read",
+      "slash": null,
+      "cli": null,
+      "journey": [],
+      "group": "",
+      "visibility": "hidden",
+      "actors": [
+        "person"
+      ],
+      "minimumRole": "owner",
+      "credentialScope": "read:repository",
+      "agent": "never",
+      "summary": "external.read",
+      "http": {
+        "method": "GET",
+        "path": "/api/external/sessions"
+      },
+      "payload": {
+        "dialect": "draft-2020-12",
+        "schema": {
+          "type": "object",
+          "additionalProperties": false
+        },
+        "definitions": {}
+      }
+    },
+    {
       "name": "file",
       "slash": "/file",
       "cli": [
@@ -3848,6 +4008,16 @@
           "properties": {
             "path": {
               "type": "string"
+            },
+            "branch": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ]
             }
           },
           "required": [
@@ -5683,6 +5853,61 @@
       "credentialScope": "write:repository",
       "agent": "run",
       "summary": "Inspect the flows available for an issue",
+      "http": null,
+      "payload": {
+        "dialect": "draft-2020-12",
+        "schema": {
+          "type": "object",
+          "properties": {
+            "number": {
+              "anyOf": [
+                {
+                  "type": "number"
+                },
+                {
+                  "type": "string",
+                  "enum": [
+                    "Infinity",
+                    "-Infinity",
+                    "NaN"
+                  ]
+                }
+              ]
+            },
+            "repo": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            }
+          },
+          "required": [
+            "number"
+          ],
+          "additionalProperties": true
+        },
+        "definitions": {}
+      }
+    },
+    {
+      "name": "issue.implement",
+      "slash": null,
+      "cli": null,
+      "journey": [],
+      "group": "",
+      "visibility": "hidden",
+      "actors": [
+        "person",
+        "app_agent"
+      ],
+      "minimumRole": "member",
+      "credentialScope": "write:repository",
+      "agent": "confirm",
+      "summary": "Make TODO",
       "http": null,
       "payload": {
         "dialect": "draft-2020-12",

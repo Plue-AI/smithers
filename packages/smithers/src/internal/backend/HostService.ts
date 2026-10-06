@@ -1,7 +1,18 @@
 /** Per-user launchd adapter restored from organization/setup/service.ts. */
 import { spawnSync } from "node:child_process"
 import { createHash } from "node:crypto"
-import { existsSync, lstatSync, mkdirSync, readFileSync, readdirSync, readlinkSync, realpathSync, renameSync, rmSync, writeFileSync } from "node:fs"
+import {
+  existsSync,
+  lstatSync,
+  mkdirSync,
+  readdirSync,
+  readFileSync,
+  readlinkSync,
+  realpathSync,
+  renameSync,
+  rmSync,
+  writeFileSync
+} from "node:fs"
 import { request } from "node:http"
 import { isIP } from "node:net"
 import { homedir } from "node:os"
@@ -62,16 +73,25 @@ export const hostPlist = (options: ServiceOptions): string => plist({
 export interface Launchctl {
   (args: ReadonlyArray<string>): { readonly status: number | null; readonly stdout: string; readonly stderr: string }
 }
-export interface Launchd { readonly agentsDir: string; readonly domain: string; readonly launchctl: Launchctl }
+export interface Launchd {
+  readonly agentsDir: string
+  readonly domain: string
+  readonly launchctl: Launchctl
+}
 export const launchd = (): Launchd => {
   if (process.platform !== "darwin" || !process.getuid || process.getuid() === 0) {
     throw new Error("Host service requires an unprivileged macOS login session")
   }
   return {
-    agentsDir: join(homedir(), "Library/LaunchAgents"), domain: `gui/${process.getuid()}`,
+    agentsDir: join(homedir(), "Library/LaunchAgents"),
+    domain: `gui/${process.getuid()}`,
     launchctl: (args) => {
       const result = spawnSync("/bin/launchctl", [...args], { encoding: "utf8" })
-      return { status: result.status, stdout: result.stdout ?? "", stderr: result.stderr ?? result.error?.message ?? "" }
+      return {
+        status: result.status,
+        stdout: result.stdout ?? "",
+        stderr: result.stderr ?? result.error?.message ?? ""
+      }
     }
   }
 }
@@ -82,23 +102,36 @@ export const plistFile = (system: Launchd) => join(system.agentsDir, `${label}.p
 export const verifyBundle = (input: string): { bundle: string; version: string } => {
   const bundle = realpathSync(resolve(input))
   const manifest = JSON.parse(readFileSync(join(bundle, "manifest.json"), "utf8"))
-  if (manifest.version !== 1 || manifest.platform !== "darwin-arm64" || !/^[a-f0-9]{40,64}$/.test(manifest.revision)) throw new Error("Invalid bundle manifest")
+  if (manifest.version !== 1 || manifest.platform !== "darwin-arm64" || !/^[a-f0-9]{40,64}$/.test(manifest.revision)) {
+    throw new Error("Invalid bundle manifest")
+  }
   if (!Array.isArray(manifest.files) || manifest.files.length === 0) throw new Error("Invalid bundle manifest files")
   const declared = new Set<string>()
   for (const entry of manifest.files) {
     const path = entry.path
-    if (typeof path !== "string" || !path || isAbsolute(path) || path.split("/").some((part: string) => part === ".." || part === "." || !part) || declared.has(path)) {
+    if (
+      typeof path !== "string" || !path || isAbsolute(path) || path.split("/").some((part: string) =>
+        part === ".." || part === "." || !part
+      ) || declared.has(path)
+    ) {
       throw new Error("Invalid bundle manifest path")
     }
     declared.add(path)
     const file = join(bundle, path)
-    if (typeof entry.sha256 !== "string" || !/^[a-f0-9]{64}$/.test(entry.sha256) || !realpathSync(file).startsWith(bundle + "/")) {
+    if (
+      typeof entry.sha256 !== "string" || !/^[a-f0-9]{64}$/.test(entry.sha256) ||
+      !realpathSync(file).startsWith(bundle + "/")
+    ) {
       throw new Error(`Invalid bundle manifest entry: ${path}`)
     }
     const info = lstatSync(file)
-    if (typeof entry.stage !== "string" || !entry.stage || entry.mode !== (info.mode & 0o777) ||
-      (info.isSymbolicLink() ? entry.symlink !== readlinkSync(file) || isAbsolute(entry.symlink) : entry.symlink !== undefined) ||
-      (!info.isFile() && !info.isSymbolicLink())) throw new Error(`Bundle metadata differs: ${path}`)
+    if (
+      typeof entry.stage !== "string" || !entry.stage || entry.mode !== (info.mode & 0o777) ||
+      (info.isSymbolicLink()
+        ? entry.symlink !== readlinkSync(file) || isAbsolute(entry.symlink)
+        : entry.symlink !== undefined) ||
+      (!info.isFile() && !info.isSymbolicLink())
+    ) throw new Error(`Bundle metadata differs: ${path}`)
     if (createHash("sha256").update(readFileSync(file)).digest("hex") !== entry.sha256) {
       throw new Error(`Bundle hash differs: ${path}`)
     }
@@ -107,12 +140,16 @@ export const verifyBundle = (input: string): { bundle: string; version: string }
     for (const entry of readdirSync(directory, { withFileTypes: true })) {
       const path = prefix + entry.name
       if (entry.isDirectory()) walk(join(directory, entry.name), path + "/")
-      else if (path !== "manifest.json" && !declared.has(path)) throw new Error(`Bundle file absent from manifest: ${path}`)
+      else if (path !== "manifest.json" && !declared.has(path)) {
+        throw new Error(`Bundle file absent from manifest: ${path}`)
+      }
     }
   }
   walk(bundle)
   for (const path of ["bin/smithers-server", "bin/smithers-backend", "bin/msb"]) {
-    if (!declared.has(path) || !(lstatSync(join(bundle, path)).mode & 0o111)) throw new Error(`Bundle executable missing: ${path}`)
+    if (!declared.has(path) || !(lstatSync(join(bundle, path)).mode & 0o111)) {
+      throw new Error(`Bundle executable missing: ${path}`)
+    }
   }
   return { bundle, version: manifest.revision }
 }
@@ -123,12 +160,36 @@ export const resolveBundle = (input?: string): string => {
   throw new Error(`No server bundle; use --bundle <dir> or install the bundle at ${keg}`)
 }
 
+/** Wait for launchd removal and the owned launcher's backend/PostgreSQL shutdown. */
+const waitStopped = async (system: Launchd, output: string): Promise<void> => {
+  const pid = Number(output.match(/\bpid = (\d+)/)?.[1])
+  const deadline = Date.now() + 30_000
+  while (true) {
+    let alive = false
+    if (Number.isSafeInteger(pid) && pid > 0) {
+      try {
+        process.kill(pid, 0)
+        alive = true
+      } catch (error) {
+        if ((error as NodeJS.ErrnoException).code !== "ESRCH") throw error
+      }
+    }
+    if (!alive && !loaded(system)) break
+    if (Date.now() >= deadline) throw new Error("Host service did not stop")
+    await new Promise((done) => setTimeout(done, 100))
+  }
+}
+
 /** Writes and loads one agent; unchanged loaded agents retain their backend token. */
-export const install = (options: ServiceOptions, system: Launchd): "installed" | "reloaded" | "unchanged" => {
+export const install = async (
+  options: ServiceOptions,
+  system: Launchd
+): Promise<"installed" | "reloaded" | "unchanged"> => {
   verifyBundle(options.bundle)
   const file = plistFile(system), content = hostPlist(options)
   const previous = existsSync(file) ? readFileSync(file, "utf8") : undefined
-  const isLoaded = loaded(system)
+  const job = system.launchctl(["print", `${system.domain}/${label}`])
+  const isLoaded = job.status === 0
   if (previous === content && isLoaded) return "unchanged"
   mkdirSync(options.stateDir, { recursive: true, mode: 0o700 })
   mkdirSync(join(options.stateDir, "logs"), { recursive: true, mode: 0o700 })
@@ -136,6 +197,7 @@ export const install = (options: ServiceOptions, system: Launchd): "installed" |
   if (isLoaded) {
     const out = system.launchctl(["bootout", `${system.domain}/${label}`])
     if (out.status !== 0) throw new Error("launchctl bootout failed; bundle unchanged")
+    await waitStopped(system, job.stdout)
   }
   writeFileSync(`${file}.tmp`, content, { mode: 0o600 })
   renameSync(`${file}.tmp`, file)
@@ -143,10 +205,12 @@ export const install = (options: ServiceOptions, system: Launchd): "installed" |
   if (result.status !== 0) throw new Error(`launchctl bootstrap failed: ${result.stderr.trim()}`)
   return isLoaded ? "reloaded" : "installed"
 }
-export const stop = (system: Launchd): { state: "stopped" } => {
-  if (loaded(system)) {
+export const stop = async (system: Launchd): Promise<{ state: "stopped" }> => {
+  const job = system.launchctl(["print", `${system.domain}/${label}`])
+  if (job.status === 0) {
     const out = system.launchctl(["bootout", `${system.domain}/${label}`])
     if (out.status !== 0 && loaded(system)) throw new Error("launchctl bootout failed")
+    await waitStopped(system, job.stdout)
   }
   rmSync(plistFile(system), { force: true })
   return { state: "stopped" }
@@ -155,7 +219,11 @@ export const installedBundle = (system: Launchd): string => {
   const text = readFileSync(plistFile(system), "utf8")
   const executable = text.match(/<key>ProgramArguments<\/key>\s*<array>\s*<string>([^<]+)<\/string>/)?.[1]
   if (!executable) throw new Error("Installed host bundle path unavailable")
-  return dirname(dirname(executable.replaceAll("&quot;", '\"').replaceAll("&gt;", ">").replaceAll("&lt;", "<").replaceAll("&amp;", "&")))
+  return dirname(
+    dirname(
+      executable.replaceAll("&quot;", "\"").replaceAll("&gt;", ">").replaceAll("&lt;", "<").replaceAll("&amp;", "&")
+    )
+  )
 }
 
 /** Maintenance runs only the verified installed backend, with an inert environment.
@@ -190,12 +258,17 @@ export const maintenance = (operation: "backup" | "upgrade" | "restore", directo
  */
 export const ready = async (): Promise<boolean | string> => {
   try {
-    const response = await fetch("http://127.0.0.1:4000/readyz", { signal: AbortSignal.timeout(1000), redirect: "error" })
+    const response = await fetch("http://127.0.0.1:4000/readyz", {
+      signal: AbortSignal.timeout(1000),
+      redirect: "error"
+    })
     if (response.ok) return true
     if (response.status !== 503) return false
     const body: { status?: unknown; phase?: unknown; applied?: unknown; total?: unknown } = await response.json()
     return body?.status === "starting" ? JSON.stringify([body.phase, body.applied, body.total]) : false
-  } catch { return false }
+  } catch {
+    return false
+  }
 }
 /**
  * Waits for readiness, allowing `timeout` without progress: each new
@@ -217,12 +290,15 @@ export const waitReady = async (probe: () => Promise<boolean | string> = ready, 
   throw new Error("Host readiness failed at http://127.0.0.1:4000/readyz")
 }
 /** The private backend socket is the sole authority; missing output never means claimed. */
-export const setupURLs = (stateDir: string): Promise<{ code: string; setup_urls?: string[]; message?: string; exitCode: number }> =>
+export const setupURLs = (
+  stateDir: string
+): Promise<{ code: string; setup_urls?: string[]; message?: string; exitCode: number }> =>
   new Promise((done, reject) => {
     const socketPath = join(stateDir, "run/host.sock")
     const info = lstatSync(socketPath)
     if (!info.isSocket() || (info.mode & 0o777) !== 0o600 || info.uid !== process.getuid?.()) {
-      reject(new Error("Host setup socket must be user-owned with mode 0600")); return
+      reject(new Error("Host setup socket must be user-owned with mode 0600"))
+      return
     }
     const req = request({ socketPath, path: "/setup-urls", method: "GET", timeout: 5000 }, (res) => {
       let body = ""
@@ -236,18 +312,26 @@ export const setupURLs = (stateDir: string): Promise<{ code: string; setup_urls?
         try {
           const data = JSON.parse(body)
           if (res.statusCode === 401 && data.error === "setup_closed") {
-            done({ code: "setup_closed", message: "Already set up.", exitCode: 3 }); return
+            done({ code: "setup_closed", message: "Already set up.", exitCode: 3 })
+            return
           }
           if (res.statusCode === 503 && data.error === "setup_mint_failed") {
-            done({ code: "setup_mint_failed", message: "Setup URL mint failed; nothing emitted.", exitCode: 4 }); return
+            done({ code: "setup_mint_failed", message: "Setup URL mint failed; nothing emitted.", exitCode: 4 })
+            return
           }
-          if (res.statusCode !== 200 || Object.keys(data).join() !== "setup_urls" || !Array.isArray(data.setup_urls) || !data.setup_urls.length || data.setup_urls.some((value: unknown) => {
-            if (typeof value !== "string") return true
-            const url = new URL(value)
-            return !["http:", "https:"].includes(url.protocol) || url.pathname !== "/setup" || !url.searchParams.get("token") || url.username || url.password || /[\r\n\x1b]/.test(value)
-          })) throw new Error("Invalid setup handoff response")
+          if (
+            res.statusCode !== 200 || Object.keys(data).join() !== "setup_urls" || !Array.isArray(data.setup_urls) ||
+            !data.setup_urls.length || data.setup_urls.some((value: unknown) => {
+              if (typeof value !== "string") return true
+              const url = new URL(value)
+              return !["http:", "https:"].includes(url.protocol) || url.pathname !== "/setup" ||
+                !url.searchParams.get("token") || url.username || url.password || /[\r\n\x1b]/.test(value)
+            })
+          ) throw new Error("Invalid setup handoff response")
           done({ code: "setup_ready", setup_urls: data.setup_urls, exitCode: 0 })
-        } catch { reject(new Error("Invalid setup handoff response")) }
+        } catch {
+          reject(new Error("Invalid setup handoff response"))
+        }
       })
     })
     req.on("timeout", () => req.destroy(new Error("Host setup socket timed out")))
@@ -258,7 +342,7 @@ export const start = async (input?: string, address: { readonly bind?: string; r
   validateAddress(address)
   const system = launchd(), stateDir = stateDirectory()
   const bundle = realpathSync(resolveBundle(input))
-  install({ bundle, stateDir, home: homedir(), ...address }, system)
+  await install({ bundle, stateDir, home: homedir(), ...address }, system)
   await waitReady()
   const result = await setupURLs(stateDir)
   return address.bind && !address.origins?.length ? { ...result, warning: "LAN browsers need --origin" } : result
@@ -275,7 +359,8 @@ export const status = async () => {
 /** Read-only bundled diagnostics need the same state root as the running service; the backend runs only its own bundle's msb. */
 export const doctor = (bundle: string, stateDir: string, run = spawnSync): void => {
   const result = run(join(bundle, "bin/smithers-backend"), ["microvm", "doctor"], {
-    encoding: "utf8", timeout: 30_000,
+    encoding: "utf8",
+    timeout: 30_000,
     env: { HOME: homedir(), PATH: `${bundle}/bin:/usr/bin:/bin`, SMITHERS_DATA_ROOT: stateDir }
   })
   if (result.status !== 0) throw new Error(`Bundled microVM doctor failed: ${bundle}`)

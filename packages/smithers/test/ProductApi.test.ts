@@ -97,14 +97,24 @@ describe("the generated product API client", () => {
     // Exact parity above and the literal resource inventory below remain independent.
     expect(expected).toHaveLength(514)
     expect(spec.paths).not.toHaveProperty("/api/repository-setup/{operation}")
-    expect(operations.filter(({ path }) => path.startsWith("/api/install")).map(({ path, method }) =>
-      `${method.toUpperCase()} ${path}`
-    ).sort()).toEqual([
+    expect(
+      operations.filter(({ path }) => path.startsWith("/api/install")).map(({ path, method }) =>
+        `${method.toUpperCase()} ${path}`
+      ).sort()
+    ).toEqual([
       // T-INS-06 setup steps in §16.2 order (9e9493943, #3455) plus the install read/write, scorecard and quiesce.
-      "DELETE /api/install/quiesce", "GET /api/install", "GET /api/install/scorecard", "POST /api/install/quiesce",
-      "POST /api/install/setup/address", "POST /api/install/setup/app", "POST /api/install/setup/machine",
-      "POST /api/install/setup/models", "POST /api/install/setup/repository", "POST /api/install/setup/sign_in",
-      "POST /api/install/setup/source", "PUT /api/install"
+      "DELETE /api/install/quiesce",
+      "GET /api/install",
+      "GET /api/install/scorecard",
+      "POST /api/install/quiesce",
+      "POST /api/install/setup/address",
+      "POST /api/install/setup/app",
+      "POST /api/install/setup/machine",
+      "POST /api/install/setup/models",
+      "POST /api/install/setup/repository",
+      "POST /api/install/setup/sign_in",
+      "POST /api/install/setup/source",
+      "PUT /api/install"
     ])
     for (const path of Object.keys(spec.paths)) {
       expect(path).not.toMatch(/^\/api\/(?:pair-sessions|share|oauth2\/applications)(?:\/|$)/)
@@ -118,7 +128,9 @@ describe("the generated product API client", () => {
       const pathValues = Object.fromEntries(parameters.filter((p) => p.in === "path").map((p) => [p.name, sample(p)]))
       const queryValues = Object.fromEntries(parameters.filter((p) => p.in === "query").map((p) => [p.name, sample(p)]))
       // Only a required header is the caller's; the transport owns the rest.
-      const headers = Object.fromEntries(parameters.filter((p) => p.in === "header" && p.required === true).map((p) => [p.name, `key ${p.name}`]))
+      const headers = Object.fromEntries(
+        parameters.filter((p) => p.in === "header" && p.required === true).map((p) => [p.name, `key ${p.name}`])
+      )
       const sendsHeaders = Object.keys(headers).length > 0
       const body = { operation: operation.operationId }
       const input = {

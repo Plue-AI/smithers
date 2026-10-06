@@ -175,7 +175,7 @@ func TestServerRouter_SelfhostDoesNotMountAdminUserProvisioning(t *testing.T) {
 }
 
 func routerWithAdminUserHandler(adminUserHandler *routes.AdminUserHandler, authModes ...string) http.Handler {
-	cfg := &config.Config{}
+	cfg := &config.Config{Auth: config.AuthConfig{Mode: config.AuthModeMultitenant}}
 	if len(authModes) > 0 {
 		cfg.Auth.Mode = authModes[0]
 	}

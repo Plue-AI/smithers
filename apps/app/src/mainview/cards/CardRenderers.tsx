@@ -1,3 +1,4 @@
+import { DEFERRED_CARD_KINDS } from "../state/CardAvailability"
 import { proposalCardFamily } from "./ProposalContainer"
 import { SetupCard, setupCardFamily, type SetupCardProps } from "./SetupCard"
 import { SetupView } from "./views/SetupView"
@@ -49,12 +50,15 @@ import { draftCardFamily } from "./DraftCard"
 import { confirmCardFamily } from "./ActCard"
 import { branchCardFamily } from "./BranchCard"
 import { terminalCardFamily } from "./TerminalCard"
+import { agentSessionCardFamily } from "./AgentSessionCard"
 import { runCardFamily } from "./RunContainer"
 
 /* MOCK SEAM (state/seams/DesignWorld): `design:` cards read the seeded world through their own bodies. */
 import { isDesignCard } from "../state/seams/DesignWorld/subjects"
 import { DesignSubjectBody } from "./SubjectCards"
-type RenderedCardKind = Exclude<Card["kind"], "repository-choice" | "retired" | "balance" | "billing-plans" | "stack" | "factory.home">
+type RenderedCardKind = Exclude<Card["kind"], "retired" | "balance" | "billing-plans" | (typeof DEFERRED_CARD_KINDS)[number]>
+const isDeferredCard = (card: Card): card is Extract<Card, { kind: (typeof DEFERRED_CARD_KINDS)[number] }> =>
+  (DEFERRED_CARD_KINDS as readonly string[]).includes(card.kind)
 export const isRetiredCard = (card: Card): card is Extract<Card, { kind: "retired" }> =>
   card.kind === "retired"
 
@@ -92,6 +96,7 @@ export const CARD_FAMILIES: ReadonlyArray<CardFamily<never>> = [
   confirmCardFamily,
   branchCardFamily,
   terminalCardFamily,
+  agentSessionCardFamily,
   runCardFamily,
   flowCardFamily,
   docsCardFamily,
@@ -132,6 +137,7 @@ export const CARD_RENDERERS: CardFamily<RenderedCardKind> = {
   ...confirmCardFamily,
   ...branchCardFamily,
   ...terminalCardFamily,
+  ...agentSessionCardFamily,
   ...runCardFamily,
   ...flowCardFamily,
   ...docsCardFamily,
@@ -146,14 +152,14 @@ export const cardRenderer = <K extends RenderedCardKind>(kind: K): CardFamilyEnt
  * otherwise the family that owns the kind answers.
  */
 export const pillStatus = (card: Card): string => {
-  if (isRetiredCard(card) || card.kind === "repository-choice" || card.kind === "balance" || card.kind === "billing-plans" || card.kind === "stack" || card.kind === "factory.home" || isDesignCard(card)) return ""
+  if (isRetiredCard(card) || card.kind === "balance" || card.kind === "billing-plans" || isDeferredCard(card) || isDesignCard(card)) return ""
   if (card.status === "error" && card.kind !== "flow-form") return "failed"
   return cardRenderer(card.kind).pill(card)
 }
 
 /** The card's body, from the family that owns its kind. */
 export const renderCardBody = (card: Card, actions: CardActions) =>
-  isRetiredCard(card) || card.kind === "repository-choice" || card.kind === "balance" || card.kind === "billing-plans" || card.kind === "stack" || card.kind === "factory.home" ? null : isDesignCard(card) ? <DesignSubjectBody card={card} />
+  isRetiredCard(card) || card.kind === "balance" || card.kind === "billing-plans" || isDeferredCard(card) ? null : isDesignCard(card) ? <DesignSubjectBody card={card} />
     : card.kind === "repo-update" && actions.projectionStore !== undefined
     ? <ProjectedRepositoryUpdateBody card={card} actions={actions} store={actions.projectionStore} />
     : cardRenderer(card.kind).render(card, actions)

@@ -17,7 +17,7 @@ import * as SqlError from "effect/unstable/sql/SqlError"
 import { mkdtemp, rm } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
-import { describe, expect, it } from "vitest"
+import { describe, expect, it, onTestFinished, vi } from "vitest"
 import * as NativeExecutionRead from "../src/internal/NativeExecutionRead.ts"
 
 const source = "a".repeat(32)
@@ -148,9 +148,17 @@ describe("native execution read confinement", () => {
     }
   })
 
-  it.skipIf(process.env.SMITHERS_TEST_PG_URL === undefined)(
+  // The `smithers` test target sets SMITHERS_HISTORY_TEST_PG_URL beside its
+  // PostgreSQL service. `TestDatabase` selects PostgreSQL from
+  // SMITHERS_TEST_PG_URL, which that target must not export; see
+  // scripts/test-pins.md.
+  it.skipIf(process.env.SMITHERS_HISTORY_TEST_PG_URL === undefined)(
     "PostgreSQL retains one native ancestry snapshot across a committed writer on a separate connection",
     async () => {
+      vi.stubEnv("SMITHERS_TEST_PG_URL", process.env.SMITHERS_HISTORY_TEST_PG_URL!)
+      onTestFinished(() => {
+        vi.unstubAllEnvs()
+      })
       await Effect.runPromise(
         Effect.gen(function*() {
           const sql = yield* SqlClient.SqlClient

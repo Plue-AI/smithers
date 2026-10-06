@@ -20,7 +20,7 @@ export const validMapping = (mapping) => {
   if (!mapping.status && pending && ((pending.unboundSubcases ?? []).length || (pending.commands ?? []).some(command => !command.expectedCaseIds?.length))) return false
   if (mapping.status || mapping.approvedBy !== 'smithers-22' || typeof mapping.host !== 'string' || !mapping.host.trim()) return false
   // CI ran the target; approved mappings carry no executable argv.
-  return mapping.host === 'CI' && targetLabel(mapping.target) && !('command' in mapping) && !('paths' in mapping)
+  return ['CI', 'reference-host'].includes(mapping.host) && targetLabel(mapping.target) && !('command' in mapping) && !('paths' in mapping)
 }
 
 /** Read the same landed declaration at recording and completed closure. */
@@ -175,11 +175,16 @@ export const confined = (root, path, base = '.artifacts/checks') => {
 const iso = (time) => typeof time === 'string' && /^\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d\.\d{3}Z$/.test(time) && Number.isFinite(Date.parse(time)) && new Date(time).toISOString() === time
 
 /** Derive coverage from the unique committed ticket naming this repository and issue. */
-export const ticketChecks = (root, issue, revision = 'refs/remotes/origin/main') => {
+export const ticketText = (root, issue, revision = 'refs/remotes/origin/main') => {
   const url = `https://github.com/${issue.repo}/issues/${issue.number}`
   const tickets = gitRead(root, ['ls-tree', '--name-only', revision, '.specs/engineering/tickets/']).split('\n').filter(name => /\/T-[A-Z]+-\d+[a-z]*\.md$/.test(name)).map(name => gitRead(root, ['show', `${revision}:${name}`])).filter(text => { const line = /^.*\bIssue:([^\n]+)$/m.exec(text)?.[1] ?? ''; return [...line.matchAll(/https:\/\/github\.com\/[\w.-]+\/[\w.-]+\/issues\/\d+/g)].some(match => match[0] === url) })
   if (tickets.length !== 1) throw new Error('missing or ambiguous ticket')
-  const section = /^## Acceptance\s*\n([\s\S]*?)(?=^## |$(?![\s\S]))/m.exec(tickets[0])?.[1]
+  return tickets[0]
+}
+
+export const ticketChecks = (root, issue, revision = 'refs/remotes/origin/main') => {
+  const text = ticketText(root, issue, revision)
+  const section = /^## Acceptance\s*\n([\s\S]*?)(?=^## |$(?![\s\S]))/m.exec(text)?.[1]
   const checks = [...new Set(section?.match(/\bC-[A-Z][A-Z0-9]*-\d+\b/g) ?? [])]
   if (!checks.length) throw new Error('no declared coverage')
   return checks
@@ -258,4 +263,48 @@ export const reverifyCi = ({ root, repo, landed, receipts, github, unpack = unpa
     }
   }
   return failures
+}
+
+
+/**
+ * Spike evidence is data; approval is read from GitHub. The landed ticket's
+ * `Spike reviewer: <login>` names its authorized reviewer. Each verdict has
+ * {version:1, check, commit, variant, artifacts:[{path,digest}]}. Approval lines
+ * bind the check, landed SHA and verdict digest, including all artifact hashes.
+ */
+export const spikeGate = ({root, issue, landed, receipts, note, github}) => {
+  let required
+  try { required = ticketChecks(root, issue) } catch { return [{check:'ticket',reason:'coverage'}] }
+  const refuse = reason => required.map(check => ({check,reason}))
+  try {
+    if (!fullSha(landed)) return refuse('commit')
+    const main = /^([a-f0-9]{40})\s+refs\/heads\/main$/.exec(gitRead(root,['ls-remote','--exit-code','origin','refs/heads/main']))?.[1]
+    if (!main) return refuse('commit')
+    gitRead(root,['merge-base','--is-ancestor',landed,main])
+    required = ticketChecks(root,issue,landed)
+    for (const check of required) {
+      const text = gitRead(root,['show',`${landed}:.specs/engineering/checks/${check}.md`])
+      if (!/\bLayer:\s*spike(?:\s|$)/.test(text)) return refuse('coverage')
+    }
+    const reviewer = /^Spike reviewer:\s*([\w-]+)\s*$/m.exec(ticketText(root,issue,landed))?.[1]
+    if (!reviewer) return refuse('missing')
+    const commentId = new RegExp(`^https://github\\.com/${issue.repo}/issues/${issue.number}#issuecomment-(\\d+)$`).exec(note ?? '')?.[1]
+    if (!commentId || receipts.length !== required.length) return refuse('coverage')
+    const approved = []
+    for (const check of required) {
+      const path = receipts.find(path => path?.startsWith(`.artifacts/checks/${check}/`))
+      if (!path) return refuse('coverage')
+      const verdict = JSON.parse(readFileSync(confined(root,path),'utf8'))
+      if (verdict.check !== check || verdict.commit !== landed || verdict.version !== 1 || typeof verdict.variant !== 'string' || !verdict.variant.trim() || !Array.isArray(verdict.artifacts) || !verdict.artifacts.length) return refuse('coverage')
+      for (const artifact of verdict.artifacts) {
+        if (typeof artifact.path !== 'string' || !artifact.path.startsWith(`${relative(root,resolve(root,path,'..'))}/`) || hashLog(readFileSync(confined(root,artifact.path))) !== artifact.digest) return refuse('digest')
+      }
+      approved.push(`Approved spike-verdict ${check} ${landed} ${hashLog(readFileSync(confined(root,path)))}`)
+    }
+    if (github) {
+      const comment = github.json(`repos/${issue.repo}/issues/comments/${commentId}`)
+      if (comment.user?.login !== reviewer || comment.issue_url !== `https://api.github.com/repos/${issue.repo}/issues/${issue.number}` || !approved.every(line => (comment.body ?? '').split('\n').includes(line))) return refuse('coverage')
+    }
+    return []
+  } catch { return refuse('digest') }
 }

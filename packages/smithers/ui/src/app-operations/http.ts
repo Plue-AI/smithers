@@ -12,6 +12,7 @@ const read = (name: string, path: string, agent: "run" | "never" = "run", minimu
 export const httpProjections = [
   read("install.read", "/api/install", "never", "owner"),
   read("install.scorecard", "/api/install/scorecard", "never", "owner"),
+  read("external.read", "/api/external/sessions", "never", "owner"),
   read("self.read", "/api/user/orgs"),
   read("repo.read", "/api/repos/{owner}/{repo}/mythical"),
   read("wiki.read", "/api/repos/{owner}/{repo}/wiki"),

@@ -4,6 +4,7 @@ Stage S1 · Size M · Depends on first merge: —; rest of S1: — · Unblocks T
 Spec: spec.md §5.1.0–§5.1.2, §3 (`collaborators`, `install_settings`), §16.2 step 3, §16.3.3 · Delta: delta.md §2 (Delete row) · Product: mvp.md J1.1, J1.2, J1.8, §6.2, M-05, M-17
 Edited by the minimal-code synthesis, 2026-10-03 (v2 ruling 1; v1 §6): owner and members live on `collaborators`; GH-01's second setup login is deleted here.
 Ready: 2026-10-03 smithers-8a sha256:c5d777feb3ed
+Landed: 2026-10-06 smithers-8a (backfill audit, #3738) b5db0488ab, 3aee414ce9
 
 ## Goal
 On a fresh install the first GitHub sign-in from a setup session becomes the owner, on any known origin, and that owner can do only setup until GitHub confirms push access on the chosen repository. Every later sign-in is checked against the roster and live GitHub push permission, and no password or local-auth route exists. This ticket is on the thin path and starts on day 1.

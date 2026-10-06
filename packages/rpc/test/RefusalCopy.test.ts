@@ -404,7 +404,6 @@ describe("a refusal the native host wrote", () => {
 })
 
 describe("doors", () => {
-
   test("report is offered for infra and bug, and is not offered for a user fault", async () => {
     expect(refusalDoors(forCode("no_capacity"))).toContain("report")
     expect(refusalDoors(forCode("internal"))).toContain("report")

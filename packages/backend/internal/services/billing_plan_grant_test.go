@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/stretchr/testify/require"
 
 	"github.com/smithersai/smithers/packages/backend/credits"
@@ -21,15 +22,17 @@ func TestBillingServiceGrantPlanValidatesBeforeDatabase(t *testing.T) {
 	base := PlanGrant{OwnerType: BillingOwnerTypeUser, OwnerID: 7, PlanKey: BillingPlanPro,
 		Key: "operator:case-1", ExpiresAt: now.Add(time.Hour), Actor: "will", Reason: "support case"}
 	tests := map[string]func(*PlanGrant){
-		"owner type":   func(g *PlanGrant) { g.OwnerType = BillingOwnerTypeOrg },
-		"owner id":     func(g *PlanGrant) { g.OwnerID = 0 },
-		"free plan":    func(g *PlanGrant) { g.PlanKey = BillingPlanFree },
-		"team plan":    func(g *PlanGrant) { g.PlanKey = BillingPlanTeam },
-		"unknown plan": func(g *PlanGrant) { g.PlanKey = "unknown" },
-		"key":          func(g *PlanGrant) { g.Key = "  " },
-		"actor":        func(g *PlanGrant) { g.Actor = "  " },
-		"reason":       func(g *PlanGrant) { g.Reason = "  " },
-		"zero end":     func(g *PlanGrant) { g.ExpiresAt = time.Time{} },
+		"owner type":                     func(g *PlanGrant) { g.OwnerType = BillingOwnerTypeOrg },
+		"owner id":                       func(g *PlanGrant) { g.OwnerID = 0 },
+		"free plan":                      func(g *PlanGrant) { g.PlanKey = BillingPlanFree },
+		"team plan":                      func(g *PlanGrant) { g.PlanKey = BillingPlanTeam },
+		"unknown plan":                   func(g *PlanGrant) { g.PlanKey = "unknown" },
+		"key":                            func(g *PlanGrant) { g.Key = "  " },
+		"actor":                          func(g *PlanGrant) { g.Actor = "  " },
+		"reason":                         func(g *PlanGrant) { g.Reason = "  " },
+		"zero end":                       func(g *PlanGrant) { g.ExpiresAt = time.Time{} },
+		"negative concurrent sandboxes":  func(g *PlanGrant) { g.ConcurrentSandboxes = -1 },
+		"unlimited concurrent sandboxes": func(g *PlanGrant) { g.ConcurrentSandboxes = unlimitedBillingQuantity },
 	}
 	for name, mutate := range tests {
 		t.Run(name, func(t *testing.T) {
@@ -270,4 +273,133 @@ func requirePlanGrantQueryError(t *testing.T, err, cause error) {
 	var apiErr *pkgerrors.APIError
 	require.ErrorAs(t, err, &apiErr)
 	require.ErrorIs(t, apiErr.Cause(), cause)
+}
+
+// An operator comp can lift one owner's concurrent-sandbox limit without
+// changing the plan catalog. Admission refuses at exactly the granted limit.
+func TestBillingServiceGrantPlanConcurrentSandboxesAdmitsToGrantedLimit(t *testing.T) {
+	queries := newBillingQuerierMock()
+	queries.getActiveBillingPlanGrantFn = func(context.Context, db.GetActiveBillingPlanGrantParams) (db.BillingPlanGrant, error) {
+		return db.BillingPlanGrant{PlanKey: BillingPlanMax, ConcurrentSandboxes: pgtype.Int8{Int64: 256, Valid: true}}, nil
+	}
+	svc := NewBillingService(queries, nil, BillingServiceConfig{})
+	for _, tc := range []struct {
+		name         string
+		live, agents int64
+		wantRefusal  bool
+	}{
+		{name: "workspaces and agents below the grant", live: 55, agents: 200},
+		{name: "one below the grant", agents: 255},
+		{name: "at the grant", agents: 256, wantRefusal: true},
+		{name: "workspaces fill the grant", live: 6, agents: 250, wantRefusal: true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			queries.countActiveSandboxesFn = func(context.Context, int64) (int, error) { return int(tc.live), nil }
+			queries.countActiveAgentsFn = func(context.Context, int64) (int64, error) { return tc.agents, nil }
+			entitlement, err := svc.SandboxEntitlement(t.Context(), 7)
+			require.NoError(t, err)
+			require.Equal(t, BillingPlanMax, entitlement.PlanKey)
+			require.Equal(t, int64(256), entitlement.ConcurrentSandboxes)
+			require.Equal(t, tc.live+tc.agents, entitlement.ConcurrentInUse)
+			err = svc.AuthorizeSandboxStart(t.Context(), 7)
+			if !tc.wantRefusal {
+				require.NoError(t, err)
+				return
+			}
+			var api *pkgerrors.APIError
+			require.ErrorAs(t, err, &api)
+			require.Equal(t, pkgerrors.CodePlanLimitExceeded, api.Code)
+			require.Equal(t, "concurrent_sandboxes", api.LimitKind)
+			require.Equal(t, BillingPlanMax, api.PlanKey)
+			require.NotNil(t, api.Limit)
+			require.Equal(t, 256, *api.Limit)
+			require.Equal(t, "Your Max plan allows 256 running sandboxes. Suspend one to continue.", api.Message)
+		})
+	}
+}
+
+func TestBillingServiceGrantPlanConcurrentSandboxesReceiptAndPrecedence(t *testing.T) {
+	pool := newProductTestPool(t)
+	ownerID := planGrantTestUser(t, pool)
+	now := time.Now().UTC().Truncate(time.Microsecond)
+	svc := NewBillingService(db.New(pool), nil, BillingServiceConfig{})
+	svc.now = func() time.Time { return now }
+	owner := billingOwnerRef{OwnerType: BillingOwnerTypeUser, OwnerID: ownerID}
+	entitlement := func() SandboxEntitlement {
+		t.Helper()
+		got, err := svc.SandboxEntitlement(t.Context(), ownerID)
+		require.NoError(t, err)
+		return got
+	}
+	catalogMax := svc.checkoutPlans[BillingOwnerTypeUser][BillingPlanMax+":"+BillingIntervalMonthly].Limits
+
+	grant := PlanGrant{OwnerType: BillingOwnerTypeUser, OwnerID: ownerID, PlanKey: BillingPlanMax,
+		Key: "operator:will-256", ExpiresAt: now.Add(time.Hour), Actor: "will", Reason: "founder fan-out",
+		ConcurrentSandboxes: 256}
+	require.NoError(t, svc.GrantPlan(t.Context(), grant))
+	var stored pgtype.Int8
+	require.NoError(t, pool.QueryRow(t.Context(), `SELECT concurrent_sandboxes FROM billing_plan_grants WHERE source_key = $1`, grant.Key).Scan(&stored))
+	require.Equal(t, pgtype.Int8{Int64: 256, Valid: true}, stored)
+
+	got := entitlement()
+	require.Equal(t, BillingPlanMax, got.PlanKey)
+	require.Equal(t, int64(256), got.ConcurrentSandboxes)
+	// Only the concurrent-sandbox limit changes; the rest stays the catalog's.
+	require.Equal(t, catalogMax.EgressBytesPerDay, got.EgressBytesPerDay)
+	require.Equal(t, catalogMax.SandboxIdleTimeoutSecs, got.IdleTimeoutSecs)
+	require.Equal(t, int64(64), catalogMax.ConcurrentSandboxes, "the catalog plan is unchanged")
+	require.Equal(t, int64(64), svc.checkoutPlans[BillingOwnerTypeUser][BillingPlanMax+":"+BillingIntervalMonthly].Limits.ConcurrentSandboxes)
+	require.NoError(t, svc.AuthorizeSandboxStart(t.Context(), ownerID))
+	resolved, err := svc.resolvePlan(t.Context(), owner)
+	require.NoError(t, err)
+	require.Equal(t, int64(256), resolved.Limits.ConcurrentSandboxes)
+
+	// The receipt is immutable: an identical replay is a no-op and any change
+	// to the granted limit conflicts.
+	require.NoError(t, svc.GrantPlan(t.Context(), grant))
+	for _, value := range []int64{0, 128, 257} {
+		changed := grant
+		changed.ConcurrentSandboxes = value
+		require.ErrorIs(t, svc.GrantPlan(t.Context(), changed), credits.ErrConflict, "value %d", value)
+	}
+	require.Equal(t, 1, planGrantRowCount(t, pool, "billing_plan_grants"))
+
+	// The database refuses a non-positive limit even without the service.
+	_, err = pool.Exec(t.Context(), `INSERT INTO billing_plan_grants(owner_type,owner_id,source_key,plan_key,expires_at,actor,reason,concurrent_sandboxes)
+		VALUES ('user',$1,'raw-zero','max',$2,'will','raw',0)`, ownerID, now.Add(time.Hour))
+	require.Error(t, err)
+
+	// A newer grant without a limit restores the catalog limit of its plan.
+	plain := PlanGrant{OwnerType: BillingOwnerTypeUser, OwnerID: ownerID, PlanKey: BillingPlanPro,
+		Key: "operator:plain-pro", ExpiresAt: now.Add(10 * time.Minute), Actor: "will", Reason: "plain comp"}
+	require.NoError(t, svc.GrantPlan(t.Context(), plain))
+	require.NoError(t, pool.QueryRow(t.Context(), `SELECT concurrent_sandboxes FROM billing_plan_grants WHERE source_key = $1`, plain.Key).Scan(&stored))
+	require.False(t, stored.Valid)
+	got = entitlement()
+	require.Equal(t, BillingPlanPro, got.PlanKey)
+	require.Equal(t, int64(3), got.ConcurrentSandboxes)
+
+	// When the plain grant expires the earlier, still-active limit applies again.
+	svc.now = func() time.Time { return now.Add(15 * time.Minute) }
+	require.Equal(t, int64(256), entitlement().ConcurrentSandboxes)
+
+	// A live Stripe subscription takes precedence over every comp.
+	var accountID int64
+	require.NoError(t, pool.QueryRow(t.Context(), `INSERT INTO billing_accounts(owner_type,owner_id,stripe_customer_id)
+		VALUES ('user',$1,'cus_concurrency_grant') RETURNING id`, ownerID).Scan(&accountID))
+	_, err = pool.Exec(t.Context(), `INSERT INTO billing_subscriptions(billing_account_id,stripe_subscription_id,plan_key,billing_interval,status,quantity)
+		VALUES ($1,'sub_concurrency_grant','personal','monthly','active',1)`, accountID)
+	require.NoError(t, err)
+	got = entitlement()
+	require.Equal(t, BillingPlanPersonal, got.PlanKey)
+	require.Equal(t, int64(3), got.ConcurrentSandboxes)
+	_, err = pool.Exec(t.Context(), `UPDATE billing_subscriptions SET status='canceled'`)
+	require.NoError(t, err)
+	require.Equal(t, int64(256), entitlement().ConcurrentSandboxes)
+
+	// After expiry the owner is back on the Free catalog limit.
+	svc.now = func() time.Time { return now.Add(2 * time.Hour) }
+	got = entitlement()
+	require.Equal(t, BillingPlanFree, got.PlanKey)
+	require.Equal(t, int64(1), got.ConcurrentSandboxes)
 }

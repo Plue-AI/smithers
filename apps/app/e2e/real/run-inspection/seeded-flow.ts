@@ -5,6 +5,8 @@ import { cloudRepoPath } from "../repositories-github/production"
 /** Repository-owned prompt subjects, discovered when the disposable host restarts. */
 export const SEEDED_FLOW = "timeline-probe"
 export const FAILED_FLOW = "timeline-probe-failed"
+/** A subject whose one-token `park` budget refuses its first model call, parking the run on a Runaway guard. */
+export const GUARD_FLOW = "guard-probe"
 export const MARKER_TEST = "timeline-marker.test.ts"
 export const PIN_FILES = ["timeline-pin-1.txt", "timeline-pin-2.txt", "timeline-pin-3.txt"] as const
 
@@ -34,6 +36,18 @@ const flowText = (failure: boolean, marker: string): string => [
       '7. In the next response run the exact same bun test command with timeoutMs 110000 and print the result. It must pass after the edit.',
       '8. In the next response read README.md again. Finish with ctx.done only if the exact marker line exists and the test passed.'
     ].join("\n")
+].join("\n") + "\n"
+
+const guardFlowText = [
+  "---",
+  "description: Park on a token guard so an operator decides Continue or Stop.",
+  'capabilities: ["fs:read:**"]',
+  "model: coding/implement",
+  "budget:",
+  "  tokens: 1",
+  "  onExceeded: park",
+  "---", "",
+  "Read README.md in one cell, print its first line, then finish with ctx.done. Do not write any files."
 ].join("\n") + "\n"
 
 export const readWorkspaceText = async (page: Page, request: APIRequestContext, repo: string, workspaceId: string, path: string): Promise<string> => {
@@ -116,6 +130,7 @@ export const writeSeededFlow = async (page: Page, request: APIRequestContext, re
   const files = new Map([
     [`flows/${SEEDED_FLOW}/flow.mdx`, flowText(false, marker)],
     [`flows/${FAILED_FLOW}/flow.mdx`, flowText(true, marker)],
+    [`flows/${GUARD_FLOW}/flow.mdx`, guardFlowText],
     // The live interval comes from the subject's own frames now, so this check
     // only has to be a real process that fails before the edit and passes after.
     [MARKER_TEST, `import {test, expect} from "bun:test";\nimport {readFileSync} from "node:fs";\ntest("exact marker line", async () => { await Bun.sleep(5000); expect(readFileSync("README.md", "utf8").split(/\\r?\\n/)).toContain(${JSON.stringify(marker)}); }, 60000);\n`]
@@ -129,7 +144,7 @@ export const writeSeededFlow = async (page: Page, request: APIRequestContext, re
     await terminal.locator(".xterm-helper-textarea").focus()
     for (const [path, content] of files) {
       const encoded = Buffer.from(content).toString("base64")
-      await page.keyboard.insertText(`mkdir -p flows/${SEEDED_FLOW} flows/${FAILED_FLOW}; printf %s '${encoded}' | base64 -d > '${path}'`)
+      await page.keyboard.insertText(`mkdir -p flows/${SEEDED_FLOW} flows/${FAILED_FLOW} flows/${GUARD_FLOW}; printf %s '${encoded}' | base64 -d > '${path}'`)
       await page.keyboard.press("Enter")
       await expect(async () => expect(await readWorkspaceText(page, request, repo, workspaceId, path)).toBe(content)).toPass({ timeout: 45000 })
     }
@@ -173,11 +188,11 @@ const catalogOnce = async (page: Page, request: APIRequestContext, repo: string,
  * reads in a row. One good answer is not enough: the gateway flaps for minutes
  * after a resume, and a launch into a flap is refused upstream.
  */
-export const awaitSeededFlow = async (page: Page, request: APIRequestContext, repo: string, workspaceId: string): Promise<void> => {
+export const awaitSeededFlow = async (page: Page, request: APIRequestContext, repo: string, workspaceId: string, flow = SEEDED_FLOW): Promise<void> => {
   let steady = 0
   await expect.poll(async () => {
     const flows = await catalogOnce(page, request, repo, workspaceId)
-    steady = flows !== undefined && flows.includes(SEEDED_FLOW) ? steady + 1 : 0
+    steady = flows !== undefined && flows.includes(flow) ? steady + 1 : 0
     return steady
-  }, { message: `the restarted host must list ${SEEDED_FLOW} three reads in a row`, timeout: 420_000, intervals: [5_000] }).toBeGreaterThanOrEqual(3)
+  }, { message: `the restarted host must list ${flow} three reads in a row`, timeout: 420_000, intervals: [5_000] }).toBeGreaterThanOrEqual(3)
 }

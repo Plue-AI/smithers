@@ -134,6 +134,9 @@ test("every View story: light/dark, desktop/mobile, axe and overflow", async ({ 
         expect(top).toBeLessThan(width === 390 ? 844 : 800)
       }
     }
+    if (story.name.startsWith("ActLineView/")) {
+      await page.locator(".act-line-steps, .act-line-output").evaluateAll(nodes => nodes.forEach(node => (node as HTMLDetailsElement).open = true))
+    }
     await page.evaluate(() => document.fonts.ready)
     // Worker highlighting can replace an entering annotation. Audit its settled projection.
     const flagCount = story.name === "CodeEditorView/live_separate" ? 3
@@ -324,6 +327,9 @@ test("Commands review screenshots and muted policy marks", async ({ page }) => {
       
       const text = diffExpected[story.name.split("/")[1]!]
       if (text) await expect(page.locator("diffs-container")).toContainText(text)
+    }
+    if (story.name.startsWith("ActLineView/")) {
+      await page.locator(".act-line-steps, .act-line-output").evaluateAll(nodes => nodes.forEach(node => (node as HTMLDetailsElement).open = true))
     }
     await page.evaluate(() => document.fonts.ready)
     {
@@ -870,8 +876,8 @@ for (const key of ["Enter", "Space"]) test(`T-UI-15 keyboard ${key} controls pre
     ["rebase_pending", "Rebase now", "branch.rebase-now", { branch: "todo/12" }],
     ["scratch_conflict", "Resolve", "terminal", { branch: "scratch/repro" }],
     ["scratch_ready", "Done", "branch.rebase", { branch: "scratch/repro", conflict_change: "conflict-1", onto_revision: "main-revision" }],
-    ["moved_off", "Return to T15", "todo.return-to-item", { n: "15" }],
-    ["moved_off", "Keep for now", "todo.keep-moved", { n: "15" }],
+    ["moved_off", "Return to T12", "todo.return-to-item", { n: "12" }],
+    ["moved_off", "Keep for now", "todo.keep-moved", { n: "12" }],
     ["active", "Diff", "diff", { branch: "todo/12", burst: "burst-6" }],
     ["scratch_item", "Add to stack", "branch.add-to-stack", { branch: "scratch/repro", text: "Keyboard TODO" }],
   ] as const
@@ -1035,5 +1041,26 @@ test("Proposal keyboard actions and receipt navigation use supplied callbacks", 
       else await expect(page.locator('.proposal-lessons')).toContainText(count!)
       expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true)
     }
+  }
+})
+
+test("T-UI-15r phone SSH ellipsis retains full copy and empty presence is unboxed", async ({ page }) => {
+  await page.setViewportSize({ width: 390, height: 844 })
+  for (const theme of ["light", "dark"]) {
+    await page.goto(`/view-stories.html?story=BranchView/branch-scratch_conflict-activity&theme=${theme}`)
+    const code = page.locator(".branch-ssh code")
+    await expect(code).toHaveAttribute("title", "ssh -p 2222 scratch-repro@mac-mini.local")
+    await expect(code).toHaveCSS("overflow", "hidden")
+    await expect(code).toHaveCSS("text-overflow", "ellipsis")
+    await expect(code).toHaveCSS("white-space", "nowrap")
+    await expect(code).toHaveCSS("min-width", "0px")
+    expect(await code.evaluate(node => node.scrollWidth > node.clientWidth)).toBe(true)
+    const copy = page.getByRole("button", { name: "Copy SSH line" })
+    expect(await copy.evaluate(node => node.getBoundingClientRect().right <= innerWidth)).toBe(true)
+    await page.evaluate(() => Object.defineProperty(navigator, "clipboard", { configurable: true, value: { writeText: async (text: string) => { Reflect.set(window, "copiedSsh", text) } } }))
+    await copy.click()
+    await expect.poll(() => page.evaluate(() => Reflect.get(window, "copiedSsh"))).toBe("ssh -p 2222 scratch-repro@mac-mini.local")
+    await expect(page.locator(".branch-presence")).toHaveCount(0)
+    await expect(page.locator("p.branch-muted").filter({ hasText: "Nobody here" })).toHaveCSS("border-width", "0px")
   }
 })

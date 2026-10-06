@@ -7,8 +7,8 @@
       "size": 8,
       "outputDigest": "a34bc4e2433de629b2890564a6ed2e3c589f430bd8665e8c0395171ebf9f0f8e",
       "counts": {
-        "queries": 380,
-        "prepares": 187,
+        "queries": 540,
+        "prepares": 259,
         "execs": 0,
         "dispatches": 8
       }
@@ -18,8 +18,8 @@
       "size": 32,
       "outputDigest": "a9c18b5f8119854af73e9e08a747858b2b835cb9e7d1c1c8ccccb964fb4f32eb",
       "counts": {
-        "queries": 1480,
-        "prepares": 667,
+        "queries": 2100,
+        "prepares": 955,
         "execs": 0,
         "dispatches": 32
       }
@@ -29,8 +29,8 @@
       "size": 64,
       "outputDigest": "95d6bdd37b77a166f1839a8e640125689eebeebeb7ea6f72ccd15e5b2ef6127f",
       "counts": {
-        "queries": 3026,
-        "prepares": 1307,
+        "queries": 4180,
+        "prepares": 1883,
         "execs": 0,
         "dispatches": 64
       }
@@ -40,8 +40,8 @@
       "size": 8,
       "outputDigest": "a34bc4e2433de629b2890564a6ed2e3c589f430bd8665e8c0395171ebf9f0f8e",
       "counts": {
-        "queries": 380,
-        "prepares": 187,
+        "queries": 540,
+        "prepares": 259,
         "execs": 0,
         "dispatches": 8
       }
@@ -51,8 +51,8 @@
       "size": 32,
       "outputDigest": "a9c18b5f8119854af73e9e08a747858b2b835cb9e7d1c1c8ccccb964fb4f32eb",
       "counts": {
-        "queries": 1476,
-        "prepares": 667,
+        "queries": 2100,
+        "prepares": 955,
         "execs": 0,
         "dispatches": 32
       }
@@ -62,8 +62,8 @@
       "size": 64,
       "outputDigest": "95d6bdd37b77a166f1839a8e640125689eebeebeb7ea6f72ccd15e5b2ef6127f",
       "counts": {
-        "queries": 3020,
-        "prepares": 1307,
+        "queries": 4180,
+        "prepares": 1883,
         "execs": 0,
         "dispatches": 64
       }
@@ -73,8 +73,8 @@
       "size": 8,
       "outputDigest": "a34bc4e2433de629b2890564a6ed2e3c589f430bd8665e8c0395171ebf9f0f8e",
       "counts": {
-        "queries": 380,
-        "prepares": 187,
+        "queries": 540,
+        "prepares": 259,
         "execs": 0,
         "dispatches": 8
       }
@@ -84,8 +84,8 @@
       "size": 32,
       "outputDigest": "a9c18b5f8119854af73e9e08a747858b2b835cb9e7d1c1c8ccccb964fb4f32eb",
       "counts": {
-        "queries": 1480,
-        "prepares": 667,
+        "queries": 2100,
+        "prepares": 955,
         "execs": 0,
         "dispatches": 32
       }
@@ -95,8 +95,8 @@
       "size": 64,
       "outputDigest": "95d6bdd37b77a166f1839a8e640125689eebeebeb7ea6f72ccd15e5b2ef6127f",
       "counts": {
-        "queries": 3026,
-        "prepares": 1307,
+        "queries": 4180,
+        "prepares": 1883,
         "execs": 0,
         "dispatches": 64
       }

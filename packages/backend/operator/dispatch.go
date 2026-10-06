@@ -76,7 +76,11 @@ func Dispatch(ctx context.Context, args []string, cfg Config) (bool, error) {
 			if err := service.GrantPlan(ctx, grant); err != nil {
 				return err
 			}
-			_, err = fmt.Fprintf(cfg.Stdout, "%s %s until %s\n", strings.TrimSpace(owner), grant.PlanKey, grant.ExpiresAt.UTC().Format(time.RFC3339))
+			limit := ""
+			if grant.ConcurrentSandboxes > 0 {
+				limit = fmt.Sprintf(" with %d concurrent sandboxes", grant.ConcurrentSandboxes)
+			}
+			_, err = fmt.Fprintf(cfg.Stdout, "%s %s%s until %s\n", strings.TrimSpace(owner), grant.PlanKey, limit, grant.ExpiresAt.UTC().Format(time.RFC3339))
 			return err
 		}
 	}
@@ -101,7 +105,7 @@ func withDatabase(ctx context.Context, cfg Config, run func(*pgxpool.Pool) error
 func parsePlanGrant(args []string, stderr io.Writer) (services.PlanGrant, string, error) {
 	var g services.PlanGrant
 	if len(args) == 0 || args[0] != "grant" {
-		return g, "", errors.New("usage: plans grant -owner user:NAME -plan pro|max -expires RFC3339 -key KEY -actor ACTOR -reason REASON")
+		return g, "", errors.New("usage: plans grant -owner user:NAME -plan pro|max [-concurrent-sandboxes N] -expires RFC3339 -key KEY -actor ACTOR -reason REASON")
 	}
 	fs := flag.NewFlagSet("plans grant", flag.ContinueOnError)
 	fs.SetOutput(stderr)
@@ -111,11 +115,17 @@ func parsePlanGrant(args []string, stderr io.Writer) (services.PlanGrant, string
 	fs.StringVar(&g.Key, "key", "", "idempotency key")
 	fs.StringVar(&g.Actor, "actor", "", "operator identity")
 	fs.StringVar(&g.Reason, "reason", "", "grant reason")
+	fs.Int64Var(&g.ConcurrentSandboxes, "concurrent-sandboxes", 0, "optional concurrent-sandbox limit replacing the plan's while the grant applies")
 	if err := fs.Parse(args[1:]); err != nil {
 		return g, "", err
 	}
 	if fs.NArg() > 0 {
 		return g, "", fmt.Errorf("plans: unexpected argument %q", fs.Arg(0))
+	}
+	var limitSet bool
+	fs.Visit(func(f *flag.Flag) { limitSet = limitSet || f.Name == "concurrent-sandboxes" })
+	if limitSet && g.ConcurrentSandboxes <= 0 {
+		return g, "", errors.New("plans: -concurrent-sandboxes must be a positive number")
 	}
 	kind, _, err := credits.ParseOwner(*owner)
 	if err != nil {

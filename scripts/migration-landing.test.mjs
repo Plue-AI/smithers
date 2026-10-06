@@ -61,6 +61,18 @@ test('production helper: renumber, real pinned sqlc, reservation conversion, lan
  } finally {rmSync(dir, { recursive: true, force: true })}
 })
 
+test('production helper numbers against main even when another remote branch contains the file', () => {
+ const dir = fixture()
+ try {
+  pending(dir)
+  ok(dir, 'git', ['add', '.'])
+  ok(dir, 'git', ['commit', '-m', 'unlanded work'])
+  ok(dir, 'git', ['update-ref', 'refs/remotes/origin/frontrun', 'HEAD'])
+  ok(dir, 'node', ['scripts/renumber-migration.mjs', 'packages/backend/db/product/migrations/0009_reserved.sql'], { SMITHERS_MIGRATION_TICKET: 'T-TEST-01' })
+  assert.equal(readFileSync(join(dir, 'packages/backend/db/product/migrations/0002_reserved.sql'), 'utf8'), 'CREATE TABLE reserved(id bigint PRIMARY KEY);\n')
+ } finally {rmSync(dir, { recursive: true, force: true })}
+})
+
 test('production helper: another ticket and failed generator roll back every fixture byte', () => {
  for (const mode of ['another ticket', 'bad SQL']) {
   const dir = fixture()

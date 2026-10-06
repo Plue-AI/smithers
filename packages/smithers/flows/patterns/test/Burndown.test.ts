@@ -837,7 +837,10 @@ describe("Burndown.make", () => {
     })
     const failure = new DiscoveryFailed({ message: "provider refused discovery" })
     const burndown = Burndown.make({
-      discover: FailedDiscovery, dispatch: Dispatch, maxRounds: 2, error: Failure
+      discover: FailedDiscovery,
+      dispatch: Dispatch,
+      maxRounds: 2,
+      error: Failure
     })
     const declaredError: typeof Failure = burndown.errorSchema
     expect(declaredError).toBe(Failure)
@@ -846,15 +849,19 @@ describe("Burndown.make", () => {
       expect(JSON.parse(JSON.stringify(encoded))).toEqual(encoded)
       expect(Schema.decodeUnknownSync(burndown.errorSchema)(encoded)).toEqual(error)
     }
-    const result = await Effect.runPromise(Effect.flip(burndown.execute(
-      { input: null }, { executionId: `burndown-${++executions}` }
-    )).pipe(
-      Effect.provide(host(burndown,
-        FailedDiscovery.toLayer(() => Effect.fail(failure)),
-        Dispatch.toLayer(() => Effect.die("failed discovery must not dispatch"))
-      )),
-      Effect.scoped
-    ))
+    const result = await Effect.runPromise(
+      Effect.flip(burndown.execute(
+        { input: null },
+        { executionId: `burndown-${++executions}` }
+      )).pipe(
+        Effect.provide(host(
+          burndown,
+          FailedDiscovery.toLayer(() => Effect.fail(failure)),
+          Dispatch.toLayer(() => Effect.die("failed discovery must not dispatch"))
+        )),
+        Effect.scoped
+      )
+    )
     expect(result).toBeInstanceOf(DiscoveryFailed)
     expect(result).toEqual(failure)
   })

@@ -8,6 +8,51 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+func TestIssueEditRetainsWritersThroughGraphQL(t *testing.T) {
+	server, cfg, key := fixture(t)
+	n := server.OpenIssue("acme/app", "ben", "Original", "Body")
+	require.False(t, server.EditIssue("acme/app", 999, "carol", "x", "y"))
+	require.True(t, server.EditIssue("acme/app", n, "carol", "Renamed", "Edited"))
+	require.True(t, server.EditIssue("acme/app", n, "dana", "Renamed", "Edited"), "unchanged text keeps its earlier writer")
+	status, body := request(t, server, "POST", "/app/installations/91/access_tokens", jwt(t, key, cfg.AppID, time.Now().Add(time.Minute)), nil)
+	require.Equal(t, 201, status)
+	var access struct{ Token string }
+	require.NoError(t, json.Unmarshal(body, &access))
+	status, body = request(t, server, "POST", "/graphql", access.Token, []byte(`{"query":"query{repository{issueOrPullRequest(number:1){title}}}","variables":{"owner":"acme","name":"app","number":1}}`))
+	require.Equal(t, 200, status)
+	var read struct {
+		Data struct {
+			Repository struct {
+				Issue struct {
+					Title, Body  string
+					LastEditedAt time.Time
+					Author       struct{ Login string }
+					Edits        struct {
+						Nodes []struct{ Editor struct{ Login string } }
+					} `json:"userContentEdits"`
+					Renames struct {
+						Nodes []struct {
+							Actor     struct{ Login string }
+							CreatedAt time.Time
+						}
+					} `json:"timelineItems"`
+				} `json:"issueOrPullRequest"`
+			}
+		}
+	}
+	require.NoError(t, json.Unmarshal(body, &read))
+	issue := read.Data.Repository.Issue
+	require.Equal(t, "Renamed", issue.Title)
+	require.Equal(t, "Edited", issue.Body)
+	require.Equal(t, "ben", issue.Author.Login)
+	require.False(t, issue.LastEditedAt.IsZero())
+	require.Len(t, issue.Edits.Nodes, 1)
+	require.Equal(t, "carol", issue.Edits.Nodes[0].Editor.Login)
+	require.Len(t, issue.Renames.Nodes, 1)
+	require.Equal(t, "carol", issue.Renames.Nodes[0].Actor.Login)
+	require.False(t, issue.Renames.Nodes[0].CreatedAt.IsZero())
+}
+
 // An issue a person opens is read, labeled, commented on and closed through
 // the same installation-token boundary the stack's writes use; the App's
 // own label and comments carry its identity, a person's do not.

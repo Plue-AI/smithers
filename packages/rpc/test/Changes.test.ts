@@ -331,7 +331,7 @@ describe("a walkthrough artifact (plue#465)", () => {
       sections: [
         { title: "The route", markdown: "one bounded read", diagram: "graph TD; a-->b" },
         { title: "The cap", markdown: "400 patch lines", diagram: null }
-      ],
+      ]
     }
     expect(ChangeWalkthroughSchema.parse({ ...walkthrough, quiz: [{ question: "retired" }] })).toEqual(walkthrough)
   })

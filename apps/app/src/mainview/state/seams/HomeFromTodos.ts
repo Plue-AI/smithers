@@ -1,6 +1,7 @@
 import type { HomeCard as HomeModel, HomeItem } from "@smthrs/rpc/HomeCard"
-import { actionFor, type Action } from "@smthrs/rpc/CardAction"
+import { type Action } from "@smthrs/rpc/CardAction"
 import { PlaceholderAvatarUrl, type TodoState } from "@smthrs/rpc/CardPrimitives"
+import { actionFor } from "../../flows/rowAction"
 import type { TodoCard } from "@smthrs/rpc/TodoCard"
 
 // Wire-model projection (seam layer): the row actions are HomeCard data, bound later by HomeContainer through cardActions.
@@ -9,22 +10,16 @@ import type { TodoCard } from "@smthrs/rpc/TodoCard"
  * order with the controls its state offers, every state counted, a machine per TODO branch that is awake or waking,
  * and main's row without sync facts, which the list does not carry.
  */
-export const homeFromTodos = (repository: string, todos: ReadonlyArray<TodoCard>): HomeModel => {
+export const homeFromTodos = (repository: string, todos: ReadonlyArray<TodoCard>, role: "owner" | "maintainer" | "member" = "member"): HomeModel => {
   const counts: Record<TodoState, number> = { queued: 0, starting: 0, working: 0, needs_you: 0, paused: 0, failed: 0, in_review: 0, merged: 0, dropped: 0 }
   for (const todo of todos) counts[todo.state] += 1
   const open = todos.filter(todo => todo.state !== "merged" && todo.state !== "dropped")
   const items = open.map((todo): HomeItem => {
     const args = { n: String(todo.n) }
     const actions: Action[] = [{ tag: "todo", label: todo.title, args: { ...args, door: "title" } }]
-    if (todo.state === "needs_you") {
-      const wait = todo.waits[0]
-      const action = actionFor({ n: todo.n, state: todo.state, ...(wait ? { needs_you: { kind: wait.kind } } : {}) }, { role: "member" })
-      if (action) actions.push({ ...action, ...(action.tag === "branch" && todo.branch ? { args: { name: todo.branch.name } } : {}), primary: true })
-    }
-    if (todo.state === "in_review") actions.push(todo.merge.state === "ready" ? { tag: "merge", label: "Merge", args, primary: true } : { tag: "todo", label: "Review", args })
-    if (todo.state === "failed") actions.push({ tag: "todo.retry", label: "Retry", args })
-    if (todo.state === "paused") actions.push({ tag: "todo.resume", label: "Resume", args })
     const wait = todo.waits[0]
+    const action = actionFor({ ...todo, first_in_order: todo === open[0], ...(wait === undefined ? {} : { needs_you: { kind: wait.kind } }) }, { role })
+    if (action) actions.push(action)
     return {
       n: todo.n, title: todo.title, state: todo.state, owner: todo.owner, merge: todo.merge,
       ...(todo.place === undefined ? {} : { place: todo.place }),

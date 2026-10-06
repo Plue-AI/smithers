@@ -418,7 +418,7 @@ export type ChangeLanded = z.infer<typeof ChangeLandedSchema>
  */
 export const ChangeWalkthroughSchema = z.object({
   seq: z.number().int().positive().nullable(),
-  sections: z.array(z.object({ title: z.string(), markdown: z.string(), diagram: z.string().nullable() })),
+  sections: z.array(z.object({ title: z.string(), markdown: z.string(), diagram: z.string().nullable() }))
 })
 /**
  * The decoded value accepted by {@link ChangeWalkthroughSchema}.

@@ -744,25 +744,36 @@ describe("repository setup activation evidence", () => {
 
 it("preserves safe pre-run observations on reload and accepts recovery", () => {
   const setup = initialSetup("owner/repo", "review", "owner")
-  const queued = { ...receipt(setup, "inspect"), runId: undefined, phase: "queued" as const,
-    observation: { state: "blocked" as const, code: "runtime_unavailable" as const, observedAt: 200 }, updatedAt: 200 }
+  const queued = {
+    ...receipt(setup, "inspect"),
+    runId: undefined,
+    phase: "queued" as const,
+    observation: { state: "blocked" as const, code: "runtime_unavailable" as const, observedAt: 200 },
+    updatedAt: 200
+  }
   const parsed = RepositorySetupSchema.parse({ ...setup, receipt: queued })
   expect(parsed.receipt?.observation).toEqual(queued.observation)
   const recovered = { ...queued, phase: "running" as const, runId: "same-run", observation: undefined, updatedAt: 201 }
   const result = reconcileSetupHistory({ ...parsed, previousReceipts: [queued], receipt: recovered })
   expect(result.previousReceipts[0]?.phase).toBe("running")
   expect(result.previousReceipts[0]?.observation).toBeUndefined()
-  for (const observation of [
-    { state: "failed", code: "runtime_unrecoverable", observedAt: 202 },
-    { state: "blocked", code: "runtime_unavailable", observedAt: 200 }
-  ]) {
-    expect(RepositorySetupSchema.parse({ ...setup, receipt: { ...queued, observation } }).receipt?.observation).toEqual(observation)
+  for (
+    const observation of [
+      { state: "failed", code: "runtime_unrecoverable", observedAt: 202 },
+      { state: "blocked", code: "runtime_unavailable", observedAt: 200 }
+    ]
+  ) {
+    expect(RepositorySetupSchema.parse({ ...setup, receipt: { ...queued, observation } }).receipt?.observation).toEqual(
+      observation
+    )
   }
-  for (const observation of [
-    { state: "blocked", code: "raw_provider_secret", observedAt: 200 },
-    { state: "unknown", code: "runtime_unavailable", observedAt: 200 },
-    { state: "blocked", code: "runtime_unavailable", observedAt: 0 }
-  ]) {
+  for (
+    const observation of [
+      { state: "blocked", code: "raw_provider_secret", observedAt: 200 },
+      { state: "unknown", code: "runtime_unavailable", observedAt: 200 },
+      { state: "blocked", code: "runtime_unavailable", observedAt: 0 }
+    ]
+  ) {
     expect(RepositorySetupSchema.safeParse({ ...setup, receipt: { ...queued, observation } }).success).toBe(false)
   }
 })

@@ -4,6 +4,7 @@ Stage S1 · Size M · Depends on — · Unblocks T-ACC-02, T-AGT-04, T-APP-01, T
 Owner: smithers-3f
 Spec: spec.md §1.3, §11.1, §17.3 · Delta: delta.md §4 · Product: mvp.md §9, M-29, M-30
 Ready: 2026-10-02 smithers-8a sha256:361c57d6c22b
+Landed: 2026-10-06 smithers-8a (backfill audit, #3738) 7ec92e8fbf, 61fcb3969d, 62409accef, 10d14a5e41
 
 ## Goal
 Validate the shared guest root boundary before the nine flagged tickets land. Tickets may start before this ticket completes.

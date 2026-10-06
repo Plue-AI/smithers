@@ -6,8 +6,6 @@ import (
 	"errors"
 	"fmt"
 	"math"
-	"net/http"
-	"net/url"
 	"sort"
 	"strconv"
 	"strings"
@@ -274,49 +272,6 @@ WHERE (install_settings.value->>'cursor')::bigint < $2::bigint`, key, cursor)
 	return err
 }
 
-// Membership is the install roster and a live GitHub push check, not GitHub
-// collaborator standing alone. Suspended rows cannot authorize labels or text.
-func (s *MythicalService) todoLabelMember(ctx context.Context, repositoryID int64, gh mythicalGitHubRepo, actor gitHubActor) (string, error) {
-	if !gitHubPerson(&actor) {
-		return "", nil
-	}
-	if actor.ID <= 0 {
-		api, ok := s.github.(*mythicalGitHubAPI)
-		if !ok {
-			return "", issueTodoUnavailable()
-		}
-		var account gitHubActor
-		status, err := api.api.request(ctx, gh.Token, http.MethodGet, "/users/"+url.PathEscape(actor.Login), nil, &account)
-		if err != nil {
-			return "", err
-		}
-		if status == http.StatusNotFound {
-			return "", nil
-		}
-		if status != http.StatusOK || account.ID <= 0 {
-			return "", errGitHubIssueTextUnavailable
-		}
-		actor.ID = account.ID
-	}
-	var role string
-	err := s.store.QueryRow(ctx, `SELECT role FROM (
- SELECT 'owner' AS role FROM self_host_owners o JOIN oauth_accounts a ON a.user_id=o.user_id AND a.provider IN ('github','workos') WHERE a.provider_user_id=$2::text
- UNION ALL SELECT c.permission FROM collaborators c LEFT JOIN users u ON u.id=c.user_id
- WHERE c.repository_id=$1 AND c.suspended_at IS NULL AND c.github_id=$2::bigint
- AND c.permission IN ('admin','write')) roles ORDER BY CASE role WHEN 'owner' THEN 3 WHEN 'admin' THEN 2 ELSE 1 END DESC LIMIT 1`, repositoryID, strconv.FormatInt(actor.ID, 10)).Scan(&role)
-	if errors.Is(err, pgx.ErrNoRows) {
-		return "", nil
-	}
-	if err != nil {
-		return "", err
-	}
-	push, err := s.github.MaintainerNow(ctx, gh, actor)
-	if err != nil || !push {
-		return "", err
-	}
-	return role, nil
-}
-
 // Refusal completion is keyed by the immutable label event. A failed remote
 // write leaves the cursor behind it; the existing keyed comment converges on
 // replay after a crash between GitHub success and local acknowledgment.
@@ -346,52 +301,10 @@ func (s *MythicalService) refuseTodoLabel(ctx context.Context, admission pgx.Tx,
 	})
 }
 
-// The canonical install App may write team issue text, while its labels
-// remain acknowledgments rather than admissions.
-func (s *MythicalService) todoIssueWriter(ctx context.Context, repositoryID int64, gh mythicalGitHubRepo, actor gitHubActor) (bool, error) {
-	if !gitHubPerson(&actor) {
-		if api, ok := s.github.(*mythicalGitHubAPI); ok && api.credentials != nil {
-			app, err := api.credentials.Load(ctx)
-			if err != nil {
-				return false, err
-			}
-			return strings.EqualFold(actor.Login, app.Slug+"[bot]"), nil
-		}
-		return false, nil
-	}
-	role, err := s.todoLabelMember(ctx, repositoryID, gh, actor)
-	return role != "", err
-}
-
 func advanceTodoLabelCursor(ctx context.Context, tx pgx.Tx, repositoryID, eventID int64) error {
 	_, err := tx.Exec(ctx, `UPDATE install_settings SET value=jsonb_build_object('cursor',$2::bigint),updated_at=now()
  WHERE key=$1 AND (value->>'cursor')::bigint<$2`, mythicalIssueEventsCursor+strconv.FormatInt(repositoryID, 10), eventID)
 	return err
-}
-
-// Both issue doors classify the same writers against the install roster.
-func (s *MythicalService) todoIssueTeamText(ctx context.Context, repositoryID int64, gh mythicalGitHubRepo, issue mythicalIssue) (bool, error) {
-	api, ok := s.github.(*mythicalGitHubAPI)
-	if !ok {
-		return s.github.IssueTextByMaintainer(ctx, gh, issue)
-	}
-	text, err := api.text.IssueText(ctx, gh.Token, gh.Owner, gh.Name, issue.Number)
-	if err != nil {
-		return false, err
-	}
-	if text.Title != issue.Title || text.Body != issue.Body {
-		return false, errGitHubIssueTextUnavailable
-	}
-	for _, writer := range []*gitHubActor{text.Author, text.TitleWriter, text.BodyWriter} {
-		if writer == nil {
-			return false, nil
-		}
-		trusted, err := s.todoIssueWriter(ctx, repositoryID, gh, *writer)
-		if err != nil || !trusted {
-			return false, err
-		}
-	}
-	return true, nil
 }
 
 // The fetched-fact acknowledgment and TODO admission share this transaction.

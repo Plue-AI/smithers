@@ -23,6 +23,7 @@ mvp.md §11 builds the MVP in three stages, and every one ships at launch. Will 
 | Triggers, the Machine view, sending signals by hand, agent permissions/tools/budget editing | §11.7, §6.14 of mvp.md |
 | Obsidian over git from laptops | §13.3 |
 | Replace a stack item's work with a scratch branch | §8.5.3 |
+| Remote computers and Cloud machines (first item after launch, M-40) | §8.13 |
 | Secret usage by run | §8.8.1 |
 | Exact per-write kernel attribution (fanotify) | §9.3.1 |
 
@@ -60,7 +61,7 @@ Conventions. **MUST** and **MUST NOT** are requirements that a check in [checks/
 
 1.2 Processes. launchd starts the host launcher, which supervises the host service and PostgreSQL. A crash of either restarts both under the existing supervisor contract. No Docker, Kubernetes, Electron or Electrobun process exists on the MVP install.
 
-1.3 Execution boundary (M-29, M-30). Repository code MUST execute only inside a branch machine. Repository code means overridable flows, the coding agent, checks, terminals, SSH sessions and services. The host executes only code shipped in the install package. The install MUST refuse to start without working microVM isolation and MUST NOT fall back to host processes. A machine may run on a registered remote host under the same microVM isolation, behind the `remoteSandboxes` flag (§8.13).
+1.3 Execution boundary (M-29, M-30). Repository code MUST execute only inside a branch machine. Repository code means overridable flows, the coding agent, checks, terminals, SSH sessions and services. The host executes only code shipped in the install package. The install MUST refuse to start without working microVM isolation and MUST NOT fall back to host processes. After launch, a machine may run on a computer the owner adds, under the same microVM isolation, behind the `remoteSandboxes` flag (§8.13, deferred).
 
 1.4 Network [S1]. The install is origin-agnostic:
 - By default every listener binds loopback: HTTP on `127.0.0.1:4000`, SSH on `127.0.0.1:2222`, PostgreSQL.
@@ -554,7 +555,7 @@ Terminals keep their existing WebSocket and are not on `/api/live` [S2]. Kind 4 
 
 ### 8.2 Capacity
 
-8.2.1 Every limit derives from the host the install detects at start (M-06). With registered remote hosts, each host has its own limits and install capacity is their sum (§8.13.4). The install never assumes a Mac model. Host profile: `hw.memsize`, `hw.perflevel0.physicalcpu` (performance cores) plus `hw.physicalcpu`, free disk on the `$STATE` volume, the macOS version, and Hypervisor.framework availability. The ticket touching detection collapses the three host-profile readers to one; the check runner stops parsing the ops health line. Check: C-MCH-01.
+8.2.1 Every limit derives from the host the install detects at start (M-06). After launch, with computers added, each has its own limits and install capacity is their sum (§8.13.4, deferred). The install never assumes a Mac model. Host profile: `hw.memsize`, `hw.perflevel0.physicalcpu` (performance cores) plus `hw.physicalcpu`, free disk on the `$STATE` volume, the macOS version, and Hypervisor.framework availability. The ticket touching detection collapses the three host-profile readers to one; the check runner stops parsing the ops health line. Check: C-MCH-01.
 
 | Limit | Formula | 24 GB / 8 P-cores / 200 GiB free | 32 GB / 10 / 400 | 64 GB / 12 / 1 TiB |
 | --- | --- | --- | --- | --- |
@@ -688,15 +689,14 @@ Exit status, exit signals, window changes, signals, EOF and flow-control windows
 
 A machine's VM and disk are deleted only when four things hold: its TODO is merged or dropped (or its scratch branch is archived), a final capture succeeded and the head ref equals the captured head, no terminal or service is active, and 24 h have passed. Services still running on a settled branch are stopped after those 24 h. History, activity and evidence remain in PostgreSQL and the repository store.
 
-### 8.13 Placement and remote machines [S1; branch machines S2; Cloud boxes S2] (M-40)
+### 8.13 Placement and remote machines [D: first item after launch] (M-40)
 
 Will's ruling (2026-10-04, product position on #3706, M-40 pending in mvp.md): sandboxes run on this machine or on remote machines, behind one flag. This section amends §1.3, §8.2 and §10.3. "Machine" below means a TODO's workspace in stage 1 (T-MCH-14) and a branch machine from stage 2 (§8.1.2). Both run on one `WorkspaceRuntime` (`packages/backend/workspace/contracts.go`).
 
-8.13.0 **Reconciliation pending (Will, 2026-10-04 ~13:30 PT, #3706).** Remote machines reuse the Smithers Cloud machinery from Plue: a controller with a host registry and scheduler, and a `microsandbox-worker` per computer that boots microVMs and registers by signed heartbeat over mutual TLS, behind Plue's controller-backed `WorkspaceRuntime` adapter. The install does not get a new SSH-prefixed runtime. Until this section is rewritten from smithers-56's spike of that stack on `beaver`:
-- **Still in force:** §8.13.1 (only the machine moves; engine, journal, keys and merge stay on the install), §8.13.2 (the flag), §8.13.4 (capacity per computer, summed), §8.13.5 (placement, pause, forks), §8.13.6 (unreachable and Remove) and design placement.md.
-- **Superseded:** §8.13.3's SSH key registration and probe, §8.13.7's install-dialed SSH connection and reverse forwards, and §8.13.8's two Cloud branches. Registration, reachability and Cloud follow the controller and worker.
-- **Open (product, 98):** where the controller and worker run for a self-hosted install, which today live in Plue; and whether a worker that dials the controller requires the install to be reachable from each computer, which §1.4's loopback default does not allow.
-T-RMT-02, T-RMT-03 and T-RMT-04 are on hold; T-RMT-01 is replaced by smithers-56's spike.
+8.13.0 **Deferred, and how (M-40 revised 2026-10-06 by product with a6, #3706).** Remote computers are the first item after launch; the MVP builds none of §8.13 (§0.1). The install always connects out to each computer through the Cloud fleet's controller and worker, which move from Plue into the public repository after launch (design/hosting.md, a proposal until Will accepts it). A Mac on loopback or behind NAT needs no reachable address. Falsifier: in the first post-launch release, an install on loopback wakes a TODO on `beaver` from the app (C-RMT-06). Still open, answered by T-RMT-01 when it runs after launch:
+- whether the worker's guest image and in-guest Flow host match the install's (journal, model proxy, egress relay) or need a bridge;
+- whether `this-mac` also runs a worker or stays on the local `microsandbox.New` runtime beside the controller-backed one (a composite runtime).
+§8.13.1 to §8.13.9 record the agreed product rules so the MVP leaves room for them.
 
 8.13.1 **Placements.** A machine runs on a **machine host** (product word: **computer**, design placement.md): `this-mac`, the install's own host, or a **remote host** the owner registered. `this-mac` always exists and is the default. Only the machine moves. The engine, the stack service, the journal (PostgreSQL), the repository store, merge, the model proxy and every provider key stay on the install. A remote host holds only the VMs placed on it and their disks. Check: C-RMT-03.
 
@@ -706,11 +706,7 @@ T-RMT-02, T-RMT-03 and T-RMT-04 are on hold; T-RMT-01 is replaced by smithers-56
 - a host that still holds machines keeps its row ("beaver · 2 branches · remove to finish") and those machines keep running and waking there until the owner removes the host (§8.13.6).
 Check: C-RMT-02.
 
-8.13.3 **Registering a remote host.** Owner only (§5.2), in Settings. A remote host is a Linux machine (arm64 or x86_64) reachable by SSH, with `/dev/kvm`, where the install runs the same pinned `msb` and guest image it runs locally. Registration stores `{name, ssh: user@host[:port], host_key, state_dir}` under the `install_settings` key `machines`.
-1. The install generates one ed25519 key pair per install, seals the private key in `install_settings`, and shows the public key for the owner to add to `authorized_keys`.
-2. The first connection pins the host key. Settings shows its fingerprint, and the owner confirms it. A later mismatch refuses every connection to that host with class `security` until the owner re-confirms.
-3. A probe over SSH reads the profile (§8.13.4), checks `/dev/kvm`, installs or verifies the pinned `msb` and pulls the guest image for the host's architecture. A host without KVM is refused naming the fix ("needs /dev/kvm"). Repository code never runs on a remote host outside a microVM: no plain-SSH or container execution path exists (§1.3, M-29, M-30).
-A remote host is trusted like the install's own host for the machines placed on it: its root can read their disks. Settings says so beside **Add machine**. Check: C-RMT-02. Security review: smithers-3f must approve before this lands.
+8.13.3 **Adding a computer.** Owner only (§5.2), in Settings (design placement.md, whose join flow follows the connection direction below). The install pairs with the computer's worker by a one-time join secret that expires after 1 hour and establishes mutual TLS; the install then connects to the worker. Settings waits for that first connection and then runs the OS, Runtime and Machine image steps. A computer without KVM fails the Runtime step naming its fix ("Virtualization is off · turn on VT-x in firmware"). Repository code never runs on a computer outside a microVM: no plain-SSH or container execution path exists (§1.3, M-29, M-30). A computer is trusted like the install's own host for the machines placed on it: its root can read their disks. Settings says so beside **Add computer**. Check: C-RMT-02. Security review: smithers-3f must approve before this lands.
 
 8.13.4 **Capacity.** Each host has its own profile and its own §8.2.1 limits. On a remote host the profile comes from `/proc/meminfo`, physical cores (the core term uses physical cores where macOS uses performance cores) and free disk under `state_dir`, re-read before every grant as in §8.2.1b. Install capacity is the sum over reachable hosts. The owner may lower any host's capacity, never raise it. An unreachable host contributes 0 and keeps the slots of machines it holds until they are confirmed stopped or moved. `parallel` (§10.3.1) defaults from the summed capacity. Check: C-RMT-04.
 
@@ -718,7 +714,7 @@ A remote host is trusted like the install's own host for the machines placed on 
 
 8.13.6 **Unreachable and removal.** A host that fails its connection for 60 s is unreachable. Its awake machines show "Machine unreachable · beaver" with **Retry**; their running TODO step fails with class `computer_unreachable`; asleep ones read "Asleep · beaver unreachable", and reads of them still come from the host store (§8.4.4). The owner may **Remove** a host with no machines. Removing an unreachable host that holds machines closes them; each branch's activity records "Closed · beaver removed by <owner>", and queued TODOs pinned to it move to `auto`. A TODO whose machine was closed this way restarts on Retry from the last head the install holds (the last candidate in stage 1, the captured head from stage 2), placed by `auto`; uncaptured work and homes on the removed host are lost, and the Remove confirmation says so. The old disk is deleted if the host is ever reachable again (§8.12). Check: C-RMT-04.
 
-8.13.7 **Reaching the install.** The install always dials; a remote host never needs inbound access to it, so loopback-only installs (§1.4) work. Per remote host, the install keeps one SSH connection that runs `msb` and carries reverse forwards for the endpoints a guest uses on `this-mac`: the host-relay port (§8.9, §9.1) and the endpoints the in-guest Flow host uses today (its journal database and the model proxy, `flowhost/journal_database.go`, `flowhost/model_credential.go`). The forwards bind the remote loopback only. Guest egress leaves through the install's egress relay over the same connection, so audit and host-bound secret substitution (§8.8.0) are unchanged. The connection reconnects with backoff from 250 ms to 5 s, like §9.1.1. T-RMT-01 measures whether this path meets C-PERF budgets for package installs. Check: C-RMT-03.
+8.13.7 **Connection direction.** The install always connects out to each computer's worker; a computer never needs a route to the install, so the loopback default (§1.4, M-28) holds with `remoteSandboxes` on or off. The engine, journal, model proxy, provider keys and merge stay on the install; the guest's journal, model-proxy and egress-relay traffic rides that install-opened connection, and host-bound secret substitution (§8.8.0) is unchanged, unless T-RMT-01 records a ruling otherwise. Check: C-RMT-03.
 
 8.13.8 **Cloud boxes** [S2]. Smithers Cloud is a remote host kind. If spike T-RMT-01 shows that a Cloud box runs `msb` under nested KVM, a Cloud box registers like any remote host, through `CloudSandbox`'s SSH grant (`packages/smithers/src/CloudSandbox.ts`) instead of a stored key. Otherwise T-RMT-05 adds a second `WorkspaceRuntime` adapter in which the Cloud box itself is the machine. Cloud billing stays out of the MVP (M-09). Check: C-RMT-05.
 
@@ -1306,8 +1302,11 @@ The seam is one zod schema per card in `packages/rpc`, exported through per-modu
 | conflict, moved_off | Resolve → `/branch Tn` |
 | foreign_push, order, force_push | Review → `/todo Tn` (force_push: owner only; order: maintainers) |
 | failed | Retry → `/todo.retry Tn` |
-| in_review, first in order, viewer may merge | Merge → `/merge Tn` |
+| paused | Resume → `/todo.resume Tn` (mvp.md §4: "Resume or drop") |
+| in_review, first in order, merge ready and not a draft PR (§10.6.2a), viewer may merge (owner or maintainer) | Merge → `/merge Tn` |
 | otherwise | none |
+
+This table is the one row-action mapping for every surface that shows a TODO row: the timeline, Home rows and toasts compute it through one app-side function, and the derived action is the row's primary (8a ruling, 2026-10-06). A `needs_you` TODO without a recorded kind gets none, which also flags the missing kind as a bug.
 
 14.5.3 **Summary** is one line written by the install's cheap fast model (`agent:fast`, §11.5a) from the entry's run events. It is shared by everyone who sees the entry. While at least one subscriber has the timeline on screen (the client renews a 30 s `timeline_visible_until` lease in its `view:<member>:<branch>` state) and the run is live, it is refreshed 5 s after the last event and at least every 30 s while events keep arriving. Otherwise it is written once per state change. A summarizer failure keeps the last summary. The summarizer never blocks or slows the run, and it uses no machine. The same summarizer writes the monitor's phase summaries and cell explanations (§11.6.3) into `run_summaries` (§3), only for runs someone inspects. When a `run:<id>` subscription opens, it fills the missing ones with one call per phase. While that subscription lasts, it refreshes a live phase 5 s after its last event and at least every 30 s, and retries a failed call every 30 s. A pending or failed one leaves the deterministic title or label standing alone, with no error state (check C-J11-01).
 

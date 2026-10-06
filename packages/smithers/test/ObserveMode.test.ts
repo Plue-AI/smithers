@@ -292,8 +292,10 @@ describe("observing host", { timeout: 120_000 }, () => {
   })
 })
 
-// The storage matrix (`flows/database/scripts/test-matrix.mjs`) provides SMITHERS_TEST_PG_URL.
-const postgres = process.env.SMITHERS_HISTORY_TEST_PG_URL || process.env.SMITHERS_TEST_PG_URL
+// The `smithers` test target sets this URL beside its PostgreSQL service. The
+// storage matrix never runs this package, so `SMITHERS_TEST_PG_URL` is no
+// alternative here; see scripts/test-pins.md.
+const postgres = process.env.SMITHERS_HISTORY_TEST_PG_URL
 
 /** A project whose stores are PostgreSQL schemas holding one run, selected for this process. */
 const postgresProject = async () => {

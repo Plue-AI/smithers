@@ -8,12 +8,23 @@
  * it touches the guest.
  *
  * @internal
+ * @since 1.0.0
  */
 
-/** The label recording a machine's network: `none`, `open`, or a vendor policy as JSON. */
+/**
+ * The label recording a machine's network: `none`, `open`, or a vendor policy as JSON.
+ *
+ * @category constants
+ * @since 1.0.0
+ */
 export const networkLabel = "smithers.network"
 
-/** The network a machine handle's persisted configuration records, or `undefined` for none. */
+/**
+ * The network a machine handle's persisted configuration records, or `undefined` for none.
+ *
+ * @category utilities
+ * @since 1.0.0
+ */
 export const recordedNetwork = (configJson: string): string | undefined => {
   const labels = Reflect.get(Object(JSON.parse(configJson)), "labels")
   const value = Reflect.get(Object(labels), networkLabel)

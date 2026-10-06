@@ -1,6 +1,15 @@
-import { spawnSync } from "node:child_process"
+import { spawn, spawnSync } from "node:child_process"
 import { createHash } from "node:crypto"
-import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs"
+import {
+  chmodSync,
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  rmSync,
+  symlinkSync,
+  writeFileSync
+} from "node:fs"
 import { createServer } from "node:http"
 import { homedir, tmpdir } from "node:os"
 import { join } from "node:path"
@@ -8,9 +17,13 @@ import { afterEach, describe, expect, it, vi } from "vitest"
 import * as Host from "../src/internal/backend/HostService.ts"
 
 const roots: string[] = []
-afterEach(() => { vi.restoreAllMocks(); for (const root of roots.splice(0)) rmSync(root, { recursive: true, force: true }) })
+afterEach(() => {
+  vi.restoreAllMocks()
+  for (const root of roots.splice(0)) rmSync(root, { recursive: true, force: true })
+})
 const fixture = () => {
-  const root = mkdtempSync(join(tmpdir(), "smithers-host-")); roots.push(root)
+  const root = mkdtempSync(join(tmpdir(), "smithers-host-"))
+  roots.push(root)
   const bundle = join(root, "bundle & <dir>")
   mkdirSync(join(bundle, "bin"), { recursive: true })
   const files = ["bin/smithers-server", "bin/smithers-backend", "bin/msb"].map((path) => {
@@ -18,11 +31,15 @@ const fixture = () => {
     writeFileSync(join(bundle, path), path, { mode: 0o755 })
     return { path, sha256: createHash("sha256").update(path).digest("hex"), stage: "fixture", mode: 0o755 }
   })
-  writeFileSync(join(bundle, "manifest.json"), JSON.stringify({ version: 1, platform: "darwin-arm64", revision: "a".repeat(40), files }))
+  writeFileSync(
+    join(bundle, "manifest.json"),
+    JSON.stringify({ version: 1, platform: "darwin-arm64", revision: "a".repeat(40), files })
+  )
   let running = false
   const calls: string[][] = []
   const system = {
-    agentsDir: join(root, "LaunchAgents"), domain: "gui/501",
+    agentsDir: join(root, "LaunchAgents"),
+    domain: "gui/501",
     launchctl: (args: ReadonlyArray<string>) => {
       calls.push([...args])
       if (args[0] === "print") return { status: running ? 0 : 113, stdout: "", stderr: "" }
@@ -35,15 +52,65 @@ const fixture = () => {
 }
 
 describe("restored launchd service", () => {
+  it.each(["still loaded", "cannot observe launcher"])(
+    "refuses replacement when %s without rewriting the plist",
+    async (failure) => {
+      const f = fixture(), other = fixture()
+      await Host.install(f.options, f.system)
+      const before = readFileSync(Host.plistFile(f.system), "utf8")
+      f.calls.splice(0)
+      f.system.launchctl = (args) => {
+        f.calls.push([...args])
+        return { status: 0, stdout: failure === "cannot observe launcher" ? "pid = 123" : "", stderr: "" }
+      }
+      if (failure === "still loaded") vi.spyOn(Date, "now").mockReturnValueOnce(0).mockReturnValue(30_000)
+      else {vi.spyOn(process, "kill").mockImplementation(() => {
+          throw Object.assign(new Error("cannot observe launcher"), { code: "EPERM" })
+        })}
+      await expect(Host.install({ ...f.options, bundle: other.bundle }, f.system)).rejects.toThrow(
+        failure === "still loaded" ? "did not stop" : "cannot observe launcher"
+      )
+      expect(readFileSync(Host.plistFile(f.system), "utf8")).toBe(before)
+      expect(f.calls.some((args) => args[0] === "bootstrap")).toBe(false)
+    }
+  )
+  it.each(["replacement", "stop"])("waits for the old launcher to exit before %s completes", async (action) => {
+    const child = spawn(process.execPath, [
+      "-e",
+      "process.on(\"SIGTERM\",()=>setTimeout(()=>process.exit(0),150));console.log(\"ready\");setInterval(()=>{},1000)"
+    ])
+    const exited = new Promise<void>((done) => child.once("exit", () => done()))
+    await new Promise<void>((done) => child.stdout!.once("data", () => done()))
+    const f = fixture(), other = fixture()
+    await Host.install(f.options, f.system)
+    const launch = f.system.launchctl
+    f.system.launchctl = (args) => {
+      if (args[0] === "print") return { ...launch(args), stdout: `pid = ${child.pid}` }
+      if (args[0] === "bootout") child.kill("SIGTERM")
+      if (args[0] === "bootstrap" && child.exitCode === null) {
+        return { status: 5, stdout: "", stderr: "old job is stopping" }
+      }
+      return launch(args)
+    }
+    try {
+      if (action === "stop") expect(await Host.stop(f.system)).toEqual({ state: "stopped" })
+      else expect(await Host.install({ ...f.options, bundle: other.bundle }, f.system)).toBe("reloaded")
+      expect(child.exitCode).toBe(0)
+    } finally {
+      if (child.exitCode === null) child.kill("SIGTERM")
+      await exited
+    }
+  })
   it("refuses root before any launchctl invocation", () => {
     vi.spyOn(process, "getuid").mockReturnValue(0)
     expect(() => Host.launchd()).toThrow("unprivileged macOS login session")
   })
   it("escapes every plist value type and parses with macOS plutil", () => {
-    const text = Host.plist({ A: 'x<&>"', B: 3, C: true, D: false, E: ["1", "2"], F: { G: "h" } })
+    const text = Host.plist({ A: "x<&>\"", B: 3, C: true, D: false, E: ["1", "2"], F: { G: "h" } })
     expect(text).toContain("<string>x&lt;&amp;&gt;&quot;</string>")
     expect(text).toContain("<integer>3</integer>")
-    expect(text).toContain("<true/>"); expect(text).toContain("<false/>")
+    expect(text).toContain("<true/>")
+    expect(text).toContain("<false/>")
     if (process.platform === "darwin") {
       const f = fixture(), file = join(f.root, "parse.plist")
       writeFileSync(file, text)
@@ -53,81 +120,101 @@ describe("restored launchd service", () => {
   it("runs the absolute bundled launcher at login without shell tools or privileged fields", () => {
     const f = fixture(), text = Host.hostPlist(f.options), file = join(f.root, "parse.plist")
     writeFileSync(file, text)
-    const parsed = JSON.parse(spawnSync("/usr/bin/plutil", ["-convert", "json", "-o", "-", file], { encoding: "utf8" }).stdout)
+    const parsed = JSON.parse(
+      spawnSync("/usr/bin/plutil", ["-convert", "json", "-o", "-", file], { encoding: "utf8" }).stdout
+    )
     expect(parsed).toEqual({
-      Label: "sh.smithers.host", ProgramArguments: [join(f.bundle, "bin/smithers-server"), "--setup-handoff=socket"],
+      Label: "sh.smithers.host",
+      ProgramArguments: [join(f.bundle, "bin/smithers-server"), "--setup-handoff=socket"],
       WorkingDirectory: f.options.stateDir,
       EnvironmentVariables: { HOME: f.root, PATH: `${f.bundle}/bin:/usr/bin:/bin:/usr/sbin:/sbin` },
-      RunAtLoad: true, KeepAlive: true, ThrottleInterval: 5, ExitTimeOut: 30, ProcessType: "Standard",
-      StandardOutPath: join(f.root, "state/logs/host.log"), StandardErrorPath: join(f.root, "state/logs/host.log")
+      RunAtLoad: true,
+      KeepAlive: true,
+      ThrottleInterval: 5,
+      ExitTimeOut: 30,
+      ProcessType: "Standard",
+      StandardOutPath: join(f.root, "state/logs/host.log"),
+      StandardErrorPath: join(f.root, "state/logs/host.log")
     })
   })
-  it("starts once, keeps an unchanged agent, then reloads a changed bundle once", () => {
+  it("starts once, keeps an unchanged agent, then reloads a changed bundle once", async () => {
     const f = fixture()
-    expect(Host.install(f.options, f.system)).toBe("installed")
-    expect(Host.install(f.options, f.system)).toBe("unchanged")
+    expect(await Host.install(f.options, f.system)).toBe("installed")
+    expect(await Host.install(f.options, f.system)).toBe("unchanged")
     const other = fixture()
-    expect(Host.install({ ...f.options, bundle: other.bundle }, f.system)).toBe("reloaded")
+    expect(await Host.install({ ...f.options, bundle: other.bundle }, f.system)).toBe("reloaded")
     expect(f.calls.filter((args) => args[0] !== "print")).toEqual([
       ["bootstrap", "gui/501", join(f.root, "LaunchAgents/sh.smithers.host.plist")],
       ["bootout", "gui/501/sh.smithers.host"],
       ["bootstrap", "gui/501", join(f.root, "LaunchAgents/sh.smithers.host.plist")]
     ])
     expect(Host.installedBundle(f.system)).toBe(other.bundle)
-    expect(Host.stop(f.system)).toEqual({ state: "stopped" })
+    expect(await Host.stop(f.system)).toEqual({ state: "stopped" })
     expect(existsSync(f.options.stateDir)).toBe(true)
     expect(existsSync(Host.plistFile(f.system))).toBe(false)
-    Host.stop(f.system)
+    await Host.stop(f.system)
   })
-  it.each(["hash", "extra", "traversal", "duplicate", "missing", "symlink", "not executable", "empty"])("refuses %s before plist or launchctl mutations", (kind) => {
-    const f = fixture()
-    if (kind === "hash") writeFileSync(join(f.bundle, "bin/msb"), "changed")
-    if (kind === "extra") writeFileSync(join(f.bundle, "extra"), "undeclared")
-    if (kind === "traversal") f.files[0]!.path = "../escape"
-    if (kind === "duplicate") f.files.push(f.files[0]!)
-    if (kind === "missing") rmSync(join(f.bundle, "bin/msb"))
-    if (kind === "symlink") {
-      rmSync(join(f.bundle, "bin/msb")); writeFileSync(join(f.root, "outside"), "bin/msb")
-      symlinkSync(join(f.root, "outside"), join(f.bundle, "bin/msb"))
+  it.each(["hash", "extra", "traversal", "duplicate", "missing", "symlink", "not executable", "empty"])(
+    "refuses %s before plist or launchctl mutations",
+    async (kind) => {
+      const f = fixture()
+      if (kind === "hash") writeFileSync(join(f.bundle, "bin/msb"), "changed")
+      if (kind === "extra") writeFileSync(join(f.bundle, "extra"), "undeclared")
+      if (kind === "traversal") f.files[0]!.path = "../escape"
+      if (kind === "duplicate") f.files.push(f.files[0]!)
+      if (kind === "missing") rmSync(join(f.bundle, "bin/msb"))
+      if (kind === "symlink") {
+        rmSync(join(f.bundle, "bin/msb"))
+        writeFileSync(join(f.root, "outside"), "bin/msb")
+        symlinkSync(join(f.root, "outside"), join(f.bundle, "bin/msb"))
+      }
+      if (kind === "not executable") chmodSync(join(f.bundle, "bin/msb"), 0o644)
+      if (kind === "empty") f.files.splice(0)
+      writeFileSync(
+        join(f.bundle, "manifest.json"),
+        JSON.stringify({ version: 1, platform: "darwin-arm64", revision: "a".repeat(40), files: f.files })
+      )
+      await expect(Host.install(f.options, f.system)).rejects.toThrow()
+      expect(f.calls).toEqual([])
+      expect(existsSync(f.system.agentsDir)).toBe(false)
     }
-    if (kind === "not executable") chmodSync(join(f.bundle, "bin/msb"), 0o644)
-    if (kind === "empty") f.files.splice(0)
-    writeFileSync(join(f.bundle, "manifest.json"), JSON.stringify({ version: 1, platform: "darwin-arm64", revision: "a".repeat(40), files: f.files }))
-    expect(() => Host.install(f.options, f.system)).toThrow()
-    expect(f.calls).toEqual([])
-    expect(existsSync(f.system.agentsDir)).toBe(false)
-  })
-  it.each(["version", "platform", "revision", "mode", "stage", "symlink"])("verifies landed manifest %s metadata before touching launchd", (kind) => {
-    const f = fixture(), path = join(f.bundle, "manifest.json"), manifest = JSON.parse(readFileSync(path, "utf8"))
-    if (["version", "platform", "revision"].includes(kind)) manifest[kind] = "invalid"
-    else if (kind === "mode") manifest.files[0].mode = 0o644
-    else if (kind === "stage") delete manifest.files[0].stage
-    else manifest.files[0].symlink = "other"
-    writeFileSync(path, JSON.stringify(manifest))
-    expect(() => Host.install(f.options, f.system)).toThrow()
-    expect(f.calls).toEqual([])
-  })
-  it("does not replace the plist when bootout fails", () => {
-    const f = fixture(); Host.install(f.options, f.system)
+  )
+  it.each(["version", "platform", "revision", "mode", "stage", "symlink"])(
+    "verifies landed manifest %s metadata before touching launchd",
+    async (kind) => {
+      const f = fixture(), path = join(f.bundle, "manifest.json"), manifest = JSON.parse(readFileSync(path, "utf8"))
+      if (["version", "platform", "revision"].includes(kind)) manifest[kind] = "invalid"
+      else if (kind === "mode") manifest.files[0].mode = 0o644
+      else if (kind === "stage") delete manifest.files[0].stage
+      else manifest.files[0].symlink = "other"
+      writeFileSync(path, JSON.stringify(manifest))
+      await expect(Host.install(f.options, f.system)).rejects.toThrow()
+      expect(f.calls).toEqual([])
+    }
+  )
+  it("does not replace the plist when bootout fails", async () => {
+    const f = fixture()
+    await Host.install(f.options, f.system)
     const before = readFileSync(Host.plistFile(f.system), "utf8")
     f.system.launchctl = (args) => ({ status: args[0] === "print" ? 0 : 5, stdout: "", stderr: "refused" })
     const other = fixture()
-    expect(() => Host.install({ ...f.options, bundle: other.bundle }, f.system)).toThrow("bootout failed")
+    await expect(Host.install({ ...f.options, bundle: other.bundle }, f.system)).rejects.toThrow("bootout failed")
     expect(readFileSync(Host.plistFile(f.system), "utf8")).toBe(before)
-    expect(() => Host.stop(f.system)).toThrow("bootout failed")
+    await expect(Host.stop(f.system)).rejects.toThrow("bootout failed")
   })
-  it("reports bootstrap failure and permits the next unloaded retry", () => {
+  it("reports bootstrap failure and permits the next unloaded retry", async () => {
     const f = fixture(), launch = f.system.launchctl
     f.system.launchctl = (args) => args[0] === "bootstrap" ? { status: 5, stdout: "", stderr: "refused" } : launch(args)
-    expect(() => Host.install(f.options, f.system)).toThrow("bootstrap failed")
+    await expect(Host.install(f.options, f.system)).rejects.toThrow("bootstrap failed")
     f.system.launchctl = launch
-    expect(Host.install(f.options, f.system)).toBe("installed")
+    expect(await Host.install(f.options, f.system)).toBe("installed")
   })
   it("runs bundled doctor with the required state root and no shell credentials", () => {
     const run = vi.fn(() => ({ status: 0, stdout: "", stderr: "" })) as unknown as typeof spawnSync
     Host.doctor("/bundle", "/state", run)
     expect(run).toHaveBeenCalledWith("/bundle/bin/smithers-backend", ["microvm", "doctor"], {
-      encoding: "utf8", timeout: 30000,
+      encoding: "utf8",
+      timeout: 30000,
       env: { HOME: homedir(), PATH: "/bundle/bin:/usr/bin:/bin", SMITHERS_DATA_ROOT: "/state" }
     })
     const failed = vi.fn(() => ({ status: 1, stdout: "", stderr: "private diagnostic" })) as unknown as typeof spawnSync
@@ -135,7 +222,9 @@ describe("restored launchd service", () => {
   })
   it("resolves explicit bundle paths and refuses a missing default naming both choices", () => {
     expect(Host.resolveBundle(".")).toBe(process.cwd())
-    if (!existsSync("/opt/homebrew/opt/smithers/libexec/manifest.json")) expect(() => Host.resolveBundle()).toThrow("--bundle <dir>")
+    if (!existsSync("/opt/homebrew/opt/smithers/libexec/manifest.json")) {
+      expect(() => Host.resolveBundle()).toThrow("--bundle <dir>")
+    }
   })
   it("waits for real readiness and refuses an expired readiness deadline", async () => {
     let calls = 0
@@ -166,22 +255,30 @@ describe("private setup handoff", () => {
     [200, { setup_urls: ["file:///setup?token=x"] }, "invalid", 1],
     [200, { setup_urls: ["http://localhost:4000/setup?token=x"], extra: true }, "invalid", 1]
   ])("maps HTTP %s %j without treating transport failures as owner state", async (status, body, code, exitCode) => {
-    const f = fixture(); mkdirSync(join(f.root, "run"))
+    const f = fixture()
+    mkdirSync(join(f.root, "run"))
     const socket = join(f.root, "run/host.sock")
     const server = createServer((req, res) => {
-      expect(req.url).toBe("/setup-urls"); expect(req.method).toBe("GET")
-      res.writeHead(status); res.end(JSON.stringify(body))
+      expect(req.url).toBe("/setup-urls")
+      expect(req.method).toBe("GET")
+      res.writeHead(status)
+      res.end(JSON.stringify(body))
     })
-    await new Promise<void>((done) => server.listen(socket, done)); chmodSync(socket, 0o600)
+    await new Promise<void>((done) => server.listen(socket, done))
+    chmodSync(socket, 0o600)
     try {
       if (code === "invalid") await expect(Host.setupURLs(f.root)).rejects.toThrow("Invalid setup handoff response")
       else expect(await Host.setupURLs(f.root)).toMatchObject({ code, exitCode })
-    } finally { await new Promise<void>((done) => server.close(() => done())) }
+    } finally {
+      await new Promise<void>((done) => server.close(() => done()))
+    }
   })
   it("rejects a missing, regular or insecure socket", async () => {
-    const f = fixture(); mkdirSync(join(f.root, "run"))
+    const f = fixture()
+    mkdirSync(join(f.root, "run"))
     await expect(Host.setupURLs(f.root)).rejects.toThrow()
-    const socket = join(f.root, "run/host.sock"); writeFileSync(socket, "", { mode: 0o600 })
+    const socket = join(f.root, "run/host.sock")
+    writeFileSync(socket, "", { mode: 0o600 })
     await expect(Host.setupURLs(f.root)).rejects.toThrow("mode 0600")
   })
 })

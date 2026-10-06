@@ -558,6 +558,9 @@ mod tests {
                         Err(error) => panic!("source publication HTTP accept failed: {error}"),
                     }
                 };
+                // BSD sockets inherit the listener's non-blocking mode on
+                // accept; the request is read under the timeout below instead.
+                stream.set_nonblocking(false).unwrap();
                 stream
                     .set_read_timeout(Some(std::time::Duration::from_secs(10)))
                     .unwrap();

@@ -2,6 +2,7 @@
  * Built-in deterministic scorers over text, unified diffs and sandbox commands.
  * @since 0.1.0
  */
+
 import type { Session } from "@smthrs/sandbox/Sandbox"
 import { Effect, Stream } from "effect"
 import * as Rubric from "./Rubric.ts"
@@ -14,7 +15,12 @@ const text = (value: unknown): Effect.Effect<string, ScorerError> =>
   typeof value === "string" ? Effect.succeed(value) : Effect.fail(inconclusive("Scorer requires text"))
 const normalize = (value: string) => value.trim().replace(/\s+/g, " ")
 
-/** Normalized text equality: trims edges and collapses whitespace. @category scorers @since 0.1.0 */
+/**
+ * Normalized text equality: trims edges and collapses whitespace.
+ *
+ * @category scorers
+ * @since 0.1.0
+ */
 export const exact = () =>
   Scorer.make({
     id: "smithers/scorers/exact",
@@ -27,7 +33,12 @@ export const exact = () =>
       })
   })
 
-/** Case-sensitive containment of the ground-truth text. @category scorers @since 0.1.0 */
+/**
+ * Case-sensitive containment of the ground-truth text.
+ *
+ * @category scorers
+ * @since 0.1.0
+ */
 export const contains = () =>
   Scorer.make({
     id: "smithers/scorers/contains",
@@ -40,10 +51,20 @@ export const contains = () =>
       })
   })
 
-/** Existing model-agnostic 1 to 5 rubric scorer. @category scorers @since 0.1.0 */
+/**
+ * Existing model-agnostic 1 to 5 rubric scorer.
+ *
+ * @category scorers
+ * @since 0.1.0
+ */
 export const rubric = Rubric.make
 
-/** A command in an already acquired sandbox session. @category models @since 0.1.0 */
+/**
+ * A command in an already acquired sandbox session.
+ *
+ * @category models
+ * @since 0.1.0
+ */
 export interface TestsPassOptions {
   readonly command: string
   readonly sandbox: Pick<Session, "spawn">
@@ -51,7 +72,12 @@ export interface TestsPassOptions {
   readonly timeoutMs?: number
 }
 
-/** Exit zero passes; nonzero fails; launch, transport and timeout failures are inconclusive. @category scorers @since 0.1.0 */
+/**
+ * Exit zero passes; nonzero fails; launch, transport and timeout failures are inconclusive.
+ *
+ * @category scorers
+ * @since 0.1.0
+ */
 export const testsPass = (options: TestsPassOptions) => {
   const { command, sandbox } = options, timeoutMs = options.timeoutMs ?? 60_000
   if (!command.trim() || !Number.isSafeInteger(timeoutMs) || timeoutMs <= 0) {
@@ -81,7 +107,12 @@ export const testsPass = (options: TestsPassOptions) => {
   })
 }
 
-/** Inclusive diff budget. @category models @since 0.1.0 */
+/**
+ * Inclusive diff budget.
+ *
+ * @category models
+ * @since 0.1.0
+ */
 export interface DiffOptions {
   readonly max: number
 }
@@ -96,7 +127,7 @@ interface DiffCounts {
 const path = (header: string): string => {
   const raw = header.startsWith("\"") ? header : header.split("\t")[0]!
   if (!raw.startsWith("\"")) return raw
-  const bytes: number[] = []
+  const bytes: Array<number> = []
   for (let index = 1; index < raw.length - 1; index++) {
     const char = raw[index]!
     if (char !== "\\") {
@@ -122,7 +153,7 @@ const path = (header: string): string => {
             "\\": "\\"
           }
         if (!(escaped in simple)) throw inconclusive("Invalid quoted diff path")
-        bytes.push(...new TextEncoder().encode(simple[escaped]!))
+        bytes.push(...new TextEncoder().encode(simple[escaped]))
       }
     }
   }
@@ -208,7 +239,19 @@ const diffScorer = (name: "diffSize" | "touchedFiles", options: DiffOptions) => 
       })
   })
 }
-/** Counts added plus removed lines against an inclusive cap. @category scorers @since 0.1.0 */
+
+/**
+ * Counts added plus removed lines against an inclusive cap.
+ *
+ * @category scorers
+ * @since 0.1.0
+ */
 export const diffSize = (options: DiffOptions) => diffScorer("diffSize", options)
-/** Counts distinct file paths against an inclusive cap. @category scorers @since 0.1.0 */
+
+/**
+ * Counts distinct file paths against an inclusive cap.
+ *
+ * @category scorers
+ * @since 0.1.0
+ */
 export const touchedFiles = (options: DiffOptions) => diffScorer("touchedFiles", options)

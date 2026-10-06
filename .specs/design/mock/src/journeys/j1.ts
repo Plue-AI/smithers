@@ -11,7 +11,7 @@ import type { Journey } from "../journey"
 import { branch, dismissToasts, edit, present, reply, run, say, setTodo, showCard, toast, todo, type CardKind, type Entry, type Member, type Setup, type State } from "../world"
 import { ALICE, BEN, INSTALL_ADDRESS, MAYA, MEMBERS, seedState } from "./seed"
 import {
-  ANSWER, BRANCH_NAME, CHANGE, CODING_KEY, FAST_KEY, GATEWAY_KEY, HOST_START, HOST_STARTED, INSTALLER_DONE, INSTALLER_READY, INSTALLER_TITLE, LOOPBACK,
+  ANSWER, BRANCH_NAME, CHANGE, CODING_KEY, GATEWAY_KEY, HOST_START, HOST_STARTED, INSTALLER_DONE, INSTALLER_READY, INSTALLER_TITLE, LOOPBACK,
   MAIL_CITED, MAIL_PATH, OBSIDIAN, PR, PROMPT, PROVIDER, QUESTION, REQUEST, SHELL_PROMPT, TERMINAL_TITLE, TEST_PATH, TITLE, TOKEN_PATH,
   evidence, mailFile, testFile, tokenFile
 } from "./j1-data"
@@ -140,14 +140,14 @@ export const j1: Journey = {
       act: state => { Object.assign(setupOf(state), { repository: "acme/api", github: "app-installed", source: "mirroring", sourcePct: 22 }) }
     },
     {
-      caption: "Model access has three roles. The fast model runs the app agent: she pastes a Cerebras key, masked from the first character.",
-      spec: "§6.5", target: '[data-mock="setup-fast"]', typing: { into: "setup-fast", text: FAST_KEY }, hold: 2400,
-      act: state => { Object.assign(setupOf(state), { fastKey: "validating", sourcePct: 38 }) }
+      caption: "Model access has three roles. The fast model runs the app agent: Cerebras, through Smithers' own infrastructure, so there is no key. She signs in to Smithers with GitHub.",
+      spec: "§6.5", target: '[data-mock="setup-smithers"]', hold: 2400,
+      act: state => { Object.assign(setupOf(state), { smithers: "connecting", sourcePct: 38 }) }
     },
     {
-      caption: "It validates and saves. The coding model runs the coding agent: she pastes an Anthropic key, or could sign in with ChatGPT.",
+      caption: "Signed in. The coding model runs the coding agent on the team's own key: she pastes an Anthropic key, or could sign in with ChatGPT.",
       spec: "§6.5", target: '[data-mock="setup-coding"]', typing: { into: "setup-coding", text: CODING_KEY }, hold: 2400,
-      act: state => { Object.assign(setupOf(state), { fastKey: "saved", codingKey: "validating", sourcePct: 61 }) }
+      act: state => { Object.assign(setupOf(state), { smithers: "connected", codingKey: "validating", sourcePct: 61 }) }
     },
     {
       caption: "It saves. Then the AI Gateway key, for typed decisions. The mirror finishes: Source ready.",

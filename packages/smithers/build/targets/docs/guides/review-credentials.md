@@ -28,6 +28,8 @@ to a trusted private rotation receiver before inference. The callback receives
 only `{ file, line, name }` records, once per review. Delivery failure stops the
 review with a generic error and never starts inference. Cancellation interrupts
 pending delivery. No callback runs when the scan finds no credentials.
+`smithers-build review --credential-receiver <path>` connects this callback to a
+trusted executable; see the build CLI reference.
 
 The host workflow owns durable retry, deduplication and failure receipts. Hosted
 receiver configuration belongs in the private deployment repository. Without a

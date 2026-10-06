@@ -75,7 +75,9 @@ const weather = ModelRequest.ToolDefinition.make({
 /** Skips with the missing credential named, never with a bare skipped count. */
 const requireKey = (ctx: TestContext): void => {
   if (process.env["SMITHERS_LIVE_MODEL_TESTS"] !== "1") {
-    if (process.env["SMITHERS_REQUIRE_LIVE_CREDENTIALS"] === "1") throw new Error("Required live evidence needs SMITHERS_LIVE_MODEL_TESTS=1")
+    if (process.env["SMITHERS_REQUIRE_LIVE_CREDENTIALS"] === "1") {
+      throw new Error("Required live evidence needs SMITHERS_LIVE_MODEL_TESTS=1")
+    }
     ctx.skip("live provider tests require SMITHERS_LIVE_MODEL_TESTS=1")
   }
   if (apiKey === undefined || apiKey === "") {
@@ -146,7 +148,9 @@ describe("Route.openaiChatCompatible over Cerebras", () => {
 
     expect(response.status).toBe(200)
     const body = await response.json() as {
-      choices: Array<{ finish_reason: string; message: { tool_calls: Array<{ function: { name: string; arguments: string } }> } }>
+      choices: Array<
+        { finish_reason: string; message: { tool_calls: Array<{ function: { name: string; arguments: string } }> } }
+      >
     }
     expect(body.choices[0]?.finish_reason).toBe("tool_calls")
     const call = body.choices[0]?.message.tool_calls[0]

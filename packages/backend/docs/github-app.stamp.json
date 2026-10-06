@@ -16,7 +16,7 @@
       "digest": "7915580ca677e904d0c0aa6f0edbb5d4b3ccbf036c7f6beb3a121cf93d5159f3"
     },
     {
-      "path": "packages/backend/db/product/migrations/0131_github_comment_sources.sql",
+      "path": "packages/backend/db/product/migrations/0132_github_comment_sources.sql",
       "digest": "6b83df8139f2c6b37881f294aeb86d02b665f68d7dd85419e36387cba42e820d"
     },
     {

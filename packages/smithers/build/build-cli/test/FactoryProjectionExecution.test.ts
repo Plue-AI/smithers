@@ -241,7 +241,10 @@ export const factory = S.Factory({ summary: String(typeof Package) })
   it("projects every declared budget ceiling, the USD ceiling and onExceeded included, and reds when one changes", async () => {
     const root = await fixture()
     const budgeted = (usd: string) =>
-      reviewFlow.replace("---\n\n#", `budget:\n  tokens: 500\n  milliseconds: 60000\n  usd: ${usd}\n  onExceeded: park\n---\n\n#`)
+      reviewFlow.replace(
+        "---\n\n#",
+        `budget:\n  tokens: 500\n  milliseconds: 60000\n  usd: ${usd}\n  onExceeded: park\n---\n\n#`
+      )
     await write(root, "flows/review/flow.mdx", budgeted("2.5"))
     const written = await serve(root, ["target", "//:factoryProjection", "--write"])
     expect(written.exitCode, written.logs).toBe(0)

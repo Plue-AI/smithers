@@ -9,7 +9,8 @@ import { browserNotificationAskAvailable } from "./state/controller/failures"
 import { accountOwnerOf } from "./state/AccountOwner"
 import { PlaceholderAvatarUrl } from "@smthrs/rpc/CardPrimitives"
 import type { EntryRowCard } from "@smthrs/rpc/EntryRowCard"
-import { actionFor, type CatalogTag } from "@smthrs/rpc/CardAction"
+import { actionFor } from "./flows/rowAction"
+import type { CatalogTag } from "@smthrs/rpc/CardAction"
 import { cardActions, type CardActionDefinition, type CardCommandDispatch } from "./flows/cardActions"
 import { todoActionDefinitions, useTodoRole } from "./cards/TodoCard"
 import { TodoCardSchema } from "@smthrs/rpc/TodoCard"
@@ -18,7 +19,7 @@ import type { ShellView, ToastCard } from "@smthrs/rpc/ToastCard"
 import type { TimelineLine } from "@smthrs/rpc/TimelineCard"
 import { useMessageBand, useMessageScroller } from "@smthrs/ui"
 import { useLiveQuery } from "@tanstack/react-db"
-import { useState } from "react"
+import { useState, useSyncExternalStore } from "react"
 import { useController } from "./ControllerContext"
 import { EdgeMap } from "./EdgeMap"
 import type { InitMessage } from "./HostOpening"
@@ -26,12 +27,15 @@ import type { Card, Message, Toast } from "./state/AppState"
 import { useHome, type HomeAnswer } from "./cards/HomeContainer"
 import { Timeline } from "./Timeline"
 import { ToastStack } from "./ToastStackView"
+import { actsLine, type ExternalConversation, type ExternalItem } from "./ExternalEntries"
+import { foldedRuns, withTitles, zoomTimeline } from "./TimelineZoom"
 
 export type RailEntry =
   | { readonly kind: "entry"; readonly id: string; readonly entry: EntryRowCard; readonly facts?: Omit<Parameters<typeof actionFor>[0], "state"> }
   | { readonly kind: "message"; readonly message: Message }
   | { readonly kind: "init"; readonly message: InitMessage }
   | { readonly kind: "card"; readonly card: Card }
+  | { readonly kind: "external"; readonly item: ExternalItem; readonly conversation?: ExternalConversation | undefined }
 
 const firstLine = (text: string): string => text.split("\n").find(line => line.trim() !== "")?.trim() ?? ""
 
@@ -56,7 +60,7 @@ export const railLines = (entries: ReadonlyArray<RailEntry>, viewer: Parameters<
     if (parsed.success) {
       const model = parsed.data
       const wait = model.waits[0]
-      const candidate = actionFor({ n: model.n, state: model.state, first_in_order: model.place === 1,
+      const candidate = actionFor({ ...model, first_in_order: model.place === 1,
         ...(wait ? { needs_you: { kind: wait.kind } } : {}) }, viewer)
       // A state label alone cannot grant a command: the mounted TODO's provider
       // must offer that command too (retryability, branch and merge readiness).
@@ -67,6 +71,7 @@ export const railLines = (entries: ReadonlyArray<RailEntry>, viewer: Parameters<
       return [{ entry_id: entry.card.id, kind: "card", title: model.title, tone, glyph: { state: model.state }, ...(action ? { action } : {}) }]
     }
   }
+  if (entry.kind === "external") return externalLine(entry.item, entry.conversation)
   if (entry.kind === "card") return [{ entry_id: entry.card.id, kind: "card", title: entry.card.title || entry.card.kind, tone: cardTone(entry.card), glyph: toneGlyph(cardTone(entry.card)) }]
   const { message } = entry
   const text = firstLine(message.text)
@@ -75,6 +80,29 @@ export const railLines = (entries: ReadonlyArray<RailEntry>, viewer: Parameters<
     ? { entry_id: message.id, kind: "prompt", title: `“${text}”`, tone: "quiet", glyph: toneGlyph("quiet") }
     : { entry_id: message.id, kind: "answer", title: text, tone: message.status === "failed" ? "failed" : "quiet", glyph: { actor: { kind: "agent", id: "smithers", agent: "smithers", avatar_url: PlaceholderAvatarUrl, color_index: 6 } } }]
 })
+
+/** A Codex session's item (M-38): prompts carry their owner, answers the agent; a run of commands and a diff are events. */
+const externalLine = (item: ExternalItem, conversation: ExternalConversation | undefined): TimelineLine[] => {
+  switch (item.kind) {
+    case "message": {
+      const text = firstLine(item.text) || (item.reasoning === undefined ? "" : "Reasoning")
+      if (text === "" || conversation === undefined) return []
+      return [item.role === "user"
+        ? { entry_id: item.id, kind: "prompt", title: `“${text}”`, tone: "quiet", glyph: { actor: conversation.owner } }
+        : { entry_id: item.id, kind: "answer", title: text, tone: "quiet", glyph: { actor: conversation.agent } }]
+    }
+    case "acts": return [{ entry_id: item.id, kind: "event", title: actsLine(item).replace(/^ran/, "Ran"), tone: "quiet", glyph: { event: item.failed ? "attention" : "ok" } }]
+    case "diff": return [{ entry_id: item.id, kind: "card", title: `Diff · ${item.card.path.split("/").at(-1)}`, tone: "quiet", glyph: { event: "ok" } }]
+    case "error": return [{ entry_id: item.id, kind: "event", title: item.text, tone: "failed", glyph: { event: "failed" } }]
+  }
+}
+
+/** Each entry's time, where it has one: a folded timeline line shows its span (#3728). */
+export const railTimes = (entries: ReadonlyArray<RailEntry>): Map<string, number> => new Map(entries.flatMap((entry): Array<[string, number]> =>
+  entry.kind === "card" ? [[entry.card.id, entry.card.createdAt]]
+    : entry.kind === "external" ? [[entry.item.id, entry.item.at]]
+    : entry.kind === "message" ? [[entry.message.id, entry.message.createdAt]]
+    : []))
 
 /** Bind only the current lines' acts; duplicate entries for one TODO share one command input. */
 export const timelineActions = (lines: readonly TimelineLine[], dispatch: CardCommandDispatch) => {
@@ -88,6 +116,7 @@ export const timelineActions = (lines: readonly TimelineLine[], dispatch: CardCo
     const n = Number(action.args?.n)
     switch (action.tag) {
       case "todo.answer": definitions.push({ ...action, tag: "todo.answer", command_input: { n, answer: "", ...(action.args?.wait ? { wait: action.args.wait } : {}) } }); break
+      case "todo.resume": definitions.push({ ...action, tag: "todo.resume", command_input: { n } }); break
       case "todo.retry": definitions.push({ ...action, tag: "todo.retry", command_input: { n } }); break
       case "todo": definitions.push({ ...action, tag: "todo", command_input: { n } }); break
       case "merge": definitions.push({ ...action, tag: "merge", command_input: { n } }); break
@@ -193,9 +222,15 @@ export function ShellRail({ entries, home }: { readonly entries: ReadonlyArray<R
   const onToastAction = toastActions(controller, all, timeline.onAction)
   const onEdgeAction = timeline.onAction
   const last = lines.at(-1)?.entry_id ?? ""
+  // A long conversation zooms out with distance from the band; the band and the edges still read every entry (#3728).
+  const folded = zoomTimeline(lines, band, railTimes(entries))
+  // While the timeline shows, the fast model retitles folded lines once they hold still; until then, or if it cannot,
+  // their own titles stand (#3732).
+  const asked = controller.timelineTitles(wide ? foldedRuns(lines, folded) : [])
+  const shown = withTitles(folded, useSyncExternalStore(asked.subscribe, asked.get, asked.get))
   return <aside className="rail" aria-label="Activity" data-keyboard-pane="Timeline" data-wide={wide || undefined}>
     <EdgeMap above={edges.above} below={edges.below} narrow={!wide} onAction={onEdgeAction} onView={onView} />
-    <Timeline lines={lines} on_screen={band === undefined ? [last, last] : [band[0], band[1]]} onView={onView} onAction={timeline.onAction} />
+    <Timeline lines={shown} on_screen={band === undefined ? [last, last] : [band[0], band[1]]} onView={onView} onAction={timeline.onAction} />
     <ToastStack toasts={notices} more={Math.max(0, notices.length - 3)} onAction={onToastAction} onView={onView} />
   </aside>
 }

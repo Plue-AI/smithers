@@ -171,6 +171,7 @@ export class LiveChannel {
       socket.onclose = () => {
         if (this.socket !== socket) return
         this.socket = undefined
+        this.notifyContinuityLoss()
         for (const [topic, entry] of this.topics) {
           if (topic.startsWith("confirmations:")) {
             entry.awaitingSnapshot = true
@@ -222,12 +223,14 @@ export class LiveChannel {
         return
       }
       if (reply.t === "gap") {
+        this.notifyContinuityLoss()
         if (!entry.awaitingSnapshot && !entry.snapshot.error) this.documentEvent(topic, { kind: "restart" })
         return
       }
     }
     if (frame.t === "gap") {
       entry.awaitingSnapshot = true
+      this.notifyContinuityLoss()
       this.send({ t: "sub", id: entry.id, topic })
       return
     }
@@ -245,14 +248,19 @@ export class LiveChannel {
     const project = this.projectors.get(topic) ?? (this.options.project ? (previous: unknown, delta: unknown) => this.options.project!(topic, previous, delta) : undefined)
     if (frame.t === "delta" && !project) {
       entry.awaitingSnapshot = true
+      this.notifyContinuityLoss()
       this.send({ t: "sub", id: entry.id, topic })
       return
     }
     let data: unknown
     try { data = frame.t === "snap" ? frame.data : project!(entry.snapshot.data, frame.data) }
-    catch { entry.awaitingSnapshot = true; this.send({ t: "sub", id: entry.id, topic }); return }
+    catch { entry.awaitingSnapshot = true; this.notifyContinuityLoss(); this.send({ t: "sub", id: entry.id, topic }); return }
     entry.awaitingSnapshot = false
     this.publish(topic, entry, { topic, cursor, data })
+  }
+  /** Topic observers must reauthorize retained actions after transport continuity is lost. */
+  private notifyContinuityLoss() {
+    for (const entry of this.topics.values()) for (const listener of entry.listeners) listener()
   }
   private publish(topic: string, entry: { snapshot: TopicSnapshot; listeners: Set<() => void> }, snapshot: TopicSnapshot) {
     entry.snapshot = snapshot

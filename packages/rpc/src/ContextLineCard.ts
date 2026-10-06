@@ -4,7 +4,7 @@
  */
 
 import { z } from "zod"
-import type { Action, CatalogTag } from "./CardAction.ts"
+import { ActionSchema, type CardProps } from "./CardAction.ts"
 import { ContextItemSchema } from "./CardPrimitives.ts"
 
 /**
@@ -15,7 +15,8 @@ import { ContextItemSchema } from "./CardPrimitives.ts"
  */
 export const ContextLineCardSchema = z.object({
   count: z.number().int().nonnegative(),
-  items: z.array(ContextItemSchema),
+  items: z.array(ContextItemSchema.extend({ action: ActionSchema.optional() })),
+  actions: z.array(ActionSchema),
   expanded: z.boolean()
 })
 
@@ -32,8 +33,6 @@ export type ContextLineCard = z.infer<typeof ContextLineCardSchema>
  * @category models
  */
 export type ContextLineProps = ContextLineCard & {
+  readonly onAction: CardProps<unknown>["onAction"]
   readonly onView: (patch: { readonly expanded: boolean }) => void
-  /** The Container supplies only actions whose pinned-source provider exists. */
-  readonly openActions?: ReadonlyArray<Action | undefined>
-  readonly onAction?: (tag: CatalogTag, input?: Record<string, string>) => void
 }

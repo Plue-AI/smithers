@@ -25,8 +25,15 @@ describe("context line", () => {
     expect([...new Set(base.items.map((item) => item.kind))].sort()).toEqual([...ITEM_KINDS].sort())
     expect(ContextLineCardSchema.parse(fixtures.collapsed.model).items[0]?.revision).toBe("head")
   })
+  test("retains item and Inspect actions and allows inert items", () => {
+    const decoded = ContextLineCardSchema.parse(base)
+    expect(decoded.items[0]?.action).toEqual({ tag: "file", label: "flow.ts", args: { path: "flows/todo/flow.ts" } })
+    expect(decoded.items[1]?.action).toBeUndefined()
+    expect(decoded.actions).toEqual([{ tag: "context.inspect", label: "Inspect", args: { branch: "T12", answer: "answer-12" } }])
+    expect(ContextLineCardSchema.parse(fixtures.one.model).actions).toEqual([])
+  })
   test("an empty line still parses; counts are nonnegative integers", () => {
-    expect(ContextLineCardSchema.safeParse({ count: 0, items: [], expanded: false }).success).toBe(true)
+    expect(ContextLineCardSchema.safeParse({ count: 0, items: [], actions: [], expanded: false }).success).toBe(true)
     for (const count of [-1, 0.5]) expect(ContextLineCardSchema.safeParse({ ...base, count }).success).toBe(false)
   })
 })

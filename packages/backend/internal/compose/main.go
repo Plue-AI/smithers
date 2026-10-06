@@ -36,6 +36,7 @@ import (
 	"github.com/smithersai/smithers/packages/backend/internal/database"
 	"github.com/smithersai/smithers/packages/backend/internal/db"
 	"github.com/smithersai/smithers/packages/backend/internal/email"
+	"github.com/smithersai/smithers/packages/backend/internal/externalsessions"
 	"github.com/smithersai/smithers/packages/backend/internal/identity"
 	"github.com/smithersai/smithers/packages/backend/internal/lfsauth"
 	"github.com/smithersai/smithers/packages/backend/internal/live"
@@ -1719,13 +1720,19 @@ func runWithOptions(ctx context.Context, args []string, stdout, stderr io.Writer
 		}
 	}
 	var liveHandler *routes.LiveHandler
+	var externalSessionsHandler *routes.ExternalSessionsHandler
 	if config.IsSingleOwner(cfg.Auth) {
+		// M-38: the Codex and Claude Code sessions of the account the install
+		// runs as, from its HOME, CODEX_HOME and CLAUDE_CONFIG_DIR.
+		home, _ := os.UserHomeDir()
+		sessions := &externalsessions.Finder{Home: home, Getenv: os.Getenv, Remember: 10 * time.Second}
+		externalSessionsHandler = &routes.ExternalSessionsHandler{Queries: queries, Sessions: sessions}
 
 		presence.publicOrigin = installAddress.Public
 		if flow != nil {
 			presence.dispatcher = flow.dispatcher
 		}
-		topics := &liveTopics{changePool: pool, secrets: secretService, capacity: installCapacity, presence: presence, queries: queries, todos: mythicalService, sync: gitHubSyncRoute, install: installSetup, members: authService.Members}
+		topics := &liveTopics{changePool: pool, secrets: secretService, capacity: installCapacity, presence: presence, queries: queries, todos: mythicalService, sync: gitHubSyncRoute, external: sessions, install: installSetup, members: authService.Members}
 
 		if chatService != nil {
 			resolveBranch := conversationBranchResolver(workspaceService)
@@ -1841,7 +1848,7 @@ func runWithOptions(ctx context.Context, args []string, stdout, stderr io.Writer
 			AdminTokens:        &routes.AdminTokenHandler{Service: adminManageService},
 			DeploymentAdmin:    deploymentAdminRoutes,
 			EgressPolicy:       &routes.RepositoryEgressPolicyHandler{Service: egressPolicyService},
-			GitHubSync:         gitHubSyncRoute, Live: liveHandler},
+			GitHubSync:         gitHubSyncRoute, Live: liveHandler, ExternalSessions: externalSessionsHandler},
 	)
 	if flow != nil && options.topology.servesHTTP() {
 		browser := &browserFlowAPI{repos: repoService, queries: queries, dispatcher: flow.dispatcher, boxes: workspaceService,
@@ -1901,7 +1908,7 @@ func runWithOptions(ctx context.Context, args []string, stdout, stderr io.Writer
 	// An in-process repository has no network health endpoint; a remote
 	// client, whatever the identity mode, is probed at repo_host.url by the router.
 	if options.Repository != nil && options.Repository.InProcess() {
-		r = withLocalReadiness(r, pool, options.Repository)
+		r = withLocalReadiness(r, pool, options.Repository, blobStore)
 	}
 	r = mountBlobTransferHandler(r, transferStore, cfg)
 	r = withCriticalWorkerReadiness(r, workspaceCommandWorker)

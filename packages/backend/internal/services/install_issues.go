@@ -5,10 +5,12 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"net/url"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/google/uuid"
@@ -47,6 +49,7 @@ type InstallIssueLabel struct {
 // InstallIssue is one GitHub issue as the issue cards read it, in GitHub's
 // own field names.
 type InstallIssue struct {
+	ViaApp    *json.RawMessage     `json:"performed_via_github_app,omitempty"`
 	Number    int64                `json:"number"`
 	Title     string               `json:"title"`
 	Body      string               `json:"body"`
@@ -222,7 +225,8 @@ func (s *MythicalService) InstallIssue(ctx context.Context, repositoryID, number
 		if err != nil {
 			return InstallIssueThread{}, err
 		}
-		issue := mythicalIssue{Number: number, Title: thread.Issue.Title, Body: thread.Issue.Body, URL: thread.Issue.HTMLURL, State: thread.Issue.State}
+		issue := mythicalIssue{Number: number, Title: thread.Issue.Title, Body: thread.Issue.Body, URL: thread.Issue.HTMLURL, State: thread.Issue.State, ViaApp: thread.Issue.ViaApp != nil && string(*thread.Issue.ViaApp) != "null"}
+		issue.AppID = gitHubAppID(thread.Issue.ViaApp)
 		team, err := s.todoIssueTeamText(ctx, repositoryID, gh, issue)
 		if err != nil {
 			return InstallIssueThread{}, err
@@ -251,4 +255,99 @@ func todoIssueSnapshotDigest(thread InstallIssueThread) string {
 	}{thread.Issue, thread.Comments})
 	sum := sha256.Sum256(snapshot)
 	return hex.EncodeToString(sum[:])
+}
+
+func (s *MythicalService) todoLabelMember(ctx context.Context, repositoryID int64, gh mythicalGitHubRepo, actor gitHubActor) (string, error) {
+	if !gitHubPerson(&actor) {
+		return "", nil
+	}
+	if actor.ID <= 0 {
+		api, ok := s.github.(*mythicalGitHubAPI)
+		if !ok {
+			return "", issueTodoUnavailable()
+		}
+		var account gitHubActor
+		status, err := api.api.request(ctx, gh.Token, http.MethodGet, "/users/"+url.PathEscape(actor.Login), nil, &account)
+		if err != nil {
+			return "", err
+		}
+		if status == http.StatusNotFound {
+			return "", nil
+		}
+		if status != http.StatusOK || account.ID <= 0 {
+			return "", errGitHubIssueTextUnavailable
+		}
+		actor.ID = account.ID
+	}
+	// Resolve identity only here; InstallRoleOf owns the active-membership predicate.
+	var userID int64
+	err := s.store.QueryRow(ctx, `SELECT user_id FROM oauth_accounts WHERE provider IN ('github','workos') AND provider_user_id=$2::text
+ UNION SELECT user_id FROM collaborators WHERE repository_id=$1 AND github_id=$2::bigint AND user_id IS NOT NULL`, repositoryID, strconv.FormatInt(actor.ID, 10)).Scan(&userID)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return "", nil
+	}
+	if err != nil {
+		return "", err
+	}
+	role, err := InstallRoleOf(ctx, s.queries(), userID)
+	if err != nil || role == "" {
+		return "", err
+	}
+	push, err := s.github.MaintainerNow(ctx, gh, actor)
+	if err != nil || !push {
+		return "", err
+	}
+	return string(role), nil
+}
+
+func (s *MythicalService) todoIssueWriter(ctx context.Context, repositoryID int64, gh mythicalGitHubRepo, actor gitHubActor) (bool, error) {
+	if !gitHubPerson(&actor) {
+		if api, ok := s.github.(*mythicalGitHubAPI); ok && api.credentials != nil {
+			app, err := api.credentials.Load(ctx)
+			if err != nil {
+				return false, err
+			}
+			return strings.EqualFold(actor.Login, app.Slug+"[bot]"), nil
+		}
+		return false, nil
+	}
+	role, err := s.todoLabelMember(ctx, repositoryID, gh, actor)
+	return role != "", err
+}
+
+func (s *MythicalService) todoIssueTeamText(ctx context.Context, repositoryID int64, gh mythicalGitHubRepo, issue mythicalIssue) (bool, error) {
+	if issue.ViaApp {
+		api, ok := s.github.(*mythicalGitHubAPI)
+		if !ok || api.credentials == nil || issue.AppID <= 0 {
+			return false, nil
+		}
+		app, err := api.credentials.Load(ctx)
+		if err != nil {
+			return false, err
+		}
+		if issue.AppID != app.ID {
+			return false, nil
+		}
+	}
+	api, ok := s.github.(*mythicalGitHubAPI)
+	if !ok {
+		return s.github.IssueTextByMaintainer(ctx, gh, issue)
+	}
+	text, err := api.text.IssueText(ctx, gh.Token, gh.Owner, gh.Name, issue.Number)
+	if err != nil {
+		return false, err
+	}
+	if text.Title != issue.Title || text.Body != issue.Body {
+		return false, errGitHubIssueTextUnavailable
+	}
+	for _, writer := range []*gitHubActor{text.Author, text.TitleWriter, text.BodyWriter} {
+		if writer == nil {
+			return false, nil
+		}
+		trusted, err := s.todoIssueWriter(ctx, repositoryID, gh, *writer)
+		if err != nil || !trusted {
+			return false, err
+		}
+	}
+	return true, nil
 }

@@ -151,7 +151,9 @@ export const clockCompletedFor = (
   clockCompleted({
     runId: clock.executionId,
     lineageId,
-    sourceId: `${journalSource}:clock-completed:${JSON.stringify([clock.flowName, clock.executionId, clock.clockName])}`,
+    sourceId: `${journalSource}:clock-completed:${
+      JSON.stringify([clock.flowName, clock.executionId, clock.clockName])
+    }`,
     sourceSeq: 0
   }, {
     flowName: clock.flowName,

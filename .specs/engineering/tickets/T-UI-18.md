@@ -3,6 +3,7 @@
 Stage S2 · Size S · Depends on T-UI-01 · Unblocks T-APP-13 · Issue: [#3582](https://github.com/smithersai/smithers/issues/3582)
 Spec: spec.md §14.2.1, §8.8, §8.9, §14.3 (Secrets), §14.6b · Delta: delta.md §9 · Product: mvp.md J1.8, §6.15 Secrets, M-29 · Props: reuse or reshape `packages/rpc/src/SecretsCard.ts`; update ui-components.md at S2
 Ready: 2026-10-03 smithers-8a sha256:3829ce3a3d81
+Landed: 2026-10-06 smithers-8a (backfill audit, #3738) 0f45267a68, 653c507d49
 
 ## Goal
 

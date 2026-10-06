@@ -385,7 +385,13 @@ export const Payload = Schema.Struct({
  * @category models
  * @since 1.0.0
  */
-export type BurndownFlow<E extends Schema.Top = typeof Schema.Unknown> = Flow.Flow<string, typeof Payload, typeof Result, E, any>
+export type BurndownFlow<E extends Schema.Top = typeof Schema.Unknown> = Flow.Flow<
+  string,
+  typeof Payload,
+  typeof Result,
+  E,
+  any
+>
 
 /**
  * Configuration for {@link make}.

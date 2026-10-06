@@ -154,8 +154,8 @@ const pending = {
     { actions: [{ tag: "pr", label: "on GitHub ↗", args: { number: "3475" } }], expect: ["required-ci"] }
   ),
   done: story("Receipt: done", receipt("done", "Amended T12"), { expect: ["Amended T12"] }),
-  cancelled: story("Receipt: cancelled", receipt("cancelled"), { expect: ["Amend T12"] }),
-  expired: story("Receipt: expired", receipt("expired"), { expect: ["Amend T12"] })
+  cancelled: story("Receipt: cancelled", receipt("cancelled"), { expect: ["Cancelled"] }),
+  expired: story("Receipt: expired", receipt("expired"), { expect: ["Expired"] })
 } satisfies Record<string, Story<ConfirmCard>>
 
 // Cancel (confirm.cancel, people only) on every confirmation still waiting, bound to its revision.

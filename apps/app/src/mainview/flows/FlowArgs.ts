@@ -12,6 +12,7 @@ export interface FlowInput {
   readonly "file": { readonly path: string; readonly branch?: string; readonly line?: number; readonly revision?: string }
 
  readonly "agent.model": { readonly role: string; readonly model?: string }
+  readonly "context.inspect": { readonly branch: string; readonly answer: string }
   readonly "debug.api": import("../state/seams/DebugApiSeam").DebugApiInput
   readonly "docs": { readonly page?: string }
   readonly "docs.read": { readonly page: string }
@@ -251,6 +252,7 @@ const ENCODERS: { readonly [N in FlowWithInput]: (payload: Payload) => string } 
   "files.open-diff": (payload) => JSON.stringify(payload),
   "debug.api": payload => JSON.stringify(payload),
   "docs": payload => token(payload, "page") ?? "",
+  "context.inspect": payload => JSON.stringify(payload),
   "docs.read": payload => token(payload, "page") ?? "",
   "file.compare": payload => JSON.stringify(payload),
   "file.restore-deleted": payload => JSON.stringify(payload),

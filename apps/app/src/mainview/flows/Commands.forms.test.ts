@@ -20,6 +20,7 @@ import { createAppController } from "../state/AppController"
 import { createAppStore } from "../state/AppStore"
 import type { AppStore } from "../state/AppStore"
 import type { Card } from "../state/AppState"
+import { loadBox, TEST_BOX } from "../state/TestFixtures"
 import { Option, Schema } from "effect"
 import { createCommandRegistry } from "./Commands"
 import type { CommandActions } from "./Flows"
@@ -76,16 +77,22 @@ const settle = async (ticks = 8): Promise<void> => {
 const json = (status: number, body: unknown): Response =>
   new Response(JSON.stringify(body), { status, headers: { "content-type": "application/json" } })
 
-const boot = async () => {
+const boot = async (withIssue = false) => {
   const store = await createAppStore({ kind: "localStorage", storage: memoryStorage() })
   const agents: Array<AgentRole> = [...AGENT_ROLES]
   const puts: Array<{ id: string; body: Record<string, unknown> }> = []
+  const issueReads: string[] = []
   const controller = createAppController(store, unavailableAgent, {
     bootstrap: EVERYTHING,
     fetchImpl: async (input, init) => {
       const url = typeof input === "string" ? input : input instanceof URL ? input.toString() : input.url
       const path = new URL(url, "http://local.test").pathname
       const method = init?.method ?? "GET"
+      if (withIssue && path === "/api/issues/212" && method === "GET") {
+        issueReads.push(path)
+        return json(200, { make_todo_allowed: true, issue_digest: "a".repeat(64),
+          issue: { number: 212, title: "Fix the form", body: "Keep the values", state: "open", user: { login: "will" } }, comments: [] })
+      }
       if (path === "/api/harnesses") return json(200, { harnesses: HARNESSES })
       if (path === "/api/agents" && method === "GET") return json(200, { agents })
       const put = /^\/api\/agents\/([^/]+)$/.exec(path)
@@ -108,7 +115,7 @@ const boot = async () => {
   store.dispatch({ type: "identity.session.loaded", actor: "system", state: "signed-in", login: "will", admin: true, scopesPlain: null })
   store.dispatch({ type: "card.upsert", actor: "system", card: { id: "card-1", kind: "status", title: "Status", status: "active", createdAt: 1, ordinal: 0, payload: { progress: 0.5 } } })
   await settle()
-  return { store, controller, puts }
+  return { store, controller, puts, issueReads }
 }
 
 /** The production agent door (turns.ts continueToolLeg): one tool call, run as actor smithers. */
@@ -284,7 +291,14 @@ describe("THE FORM LAW — filling and submitting", () => {
    * answered "cannot be confirmed" and left the person no button to press.
    */
   test("an agent's form for a confirm flow posts a confirmation whose line re-runs the same values", async () => {
-    const { store, controller } = await boot()
+    const { store, controller, issueReads } = await boot(true)
+    // Make TODO confirms only an open GitHub issue after current server reads.
+    await loadBox(store, "will/flows")
+    await store.dispatch({ type: "repo.selected", actor: "user", id: `will/flows#workspace:${TEST_BOX}` }).isPersisted.promise
+    await store.dispatch({ type: "card.upsert", actor: "system", card: {
+      id: "issue-github-will/flows-212", kind: "issue", title: "Fix the form", status: "active", createdAt: 1, ordinal: store.nextOrdinal(),
+      payload: { number: 212, repo: "will/flows", source: "github", title: "Fix the form", state: "open", author: "will", issueBody: "Keep the values", labels: [], comments: [] }
+    } }).isPersisted.promise
     const cases = [
       { flow: "todo.from-issue", set: [["number", "212"]], payload: { number: 212 } },
       { flow: "triggers.pause", set: [["slug", "nightly"], ["repo", "will/flows"]], payload: { slug: "nightly", repo: "will/flows" } }
@@ -297,6 +311,7 @@ describe("THE FORM LAW — filling and submitting", () => {
       const line = messages(store).find((message) => message.action?.flow === flow)?.action?.args
       expect(payloadFor(flow, line ?? undefined, controller.commands.find(flow)?.metadata.grammar)).toEqual({ payload })
     }
+    expect(issueReads).toEqual(["/api/issues/212", "/api/issues/212"])
   })
 })
 

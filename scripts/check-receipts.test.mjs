@@ -638,3 +638,52 @@ test('duplicate CI artifact identities refuse at recorder and completed-close bo
     assert.deepEqual(JSON.parse(readFileSync(statePath)).writes, [])
   } finally { f.cleanup() }
 })
+
+test('reference-host mappings accept only reviewed targets and keep all other rules', () => {
+  const mapping = {host: 'reference-host', approvedBy: 'smithers-22', target: '//fixture:canary'}
+  assert.equal(validMapping(JSON.parse(JSON.stringify(mapping))), true)
+  for (const change of [{host:'other'}, {approvedBy:'other'}, {command:['echo']}, {paths:[]}, {target:'bad'}, {status:'approved'}]) assert.equal(validMapping({...mapping,...change}), false)
+})
+
+test('spike-verdict refuses non-spike checks before remote writes', () => {
+  const f = fixture()
+  try {
+    const out = f.close([], ['--reason','spike-verdict','--note','https://github.com/o/r/issues/7#issuecomment-8'])
+    assert.equal(out.code,2); assert.equal(out.out.action,'evidence-refused')
+    assert.deepEqual(out.out.checks,[{check:'C-FIX-01',reason:'coverage'},{check:'C-FIX-02',reason:'coverage'}])
+    assert.equal(f.writes.length,0)
+  } finally { f.cleanup() }
+})
+
+test('spike-verdict accepts spike evidence only with the committed reviewer approval', () => {
+  const f = fixture()
+  try {
+    f.put('.specs/engineering/tickets/T-FIX-01.md','Issue: https://github.com/o/r/issues/7\nSpike reviewer: reviewer\n## Acceptance\n- C-FIX-01\n')
+    f.put('.specs/engineering/checks/C-FIX-01.md','Layer: spike\nAutomation: manual\n')
+    f.commit()
+    const artifact = '.artifacts/checks/C-FIX-01/UTC/output.txt'
+    const path = '.artifacts/checks/C-FIX-01/UTC/verdict.json'
+    f.put(artifact,'observed result')
+    const verdict = JSON.stringify({version:1,check:'C-FIX-01',commit:f.sha,variant:'B',artifacts:[{path:artifact,digest:digest('observed result')}]})
+    f.put(path,verdict)
+    const flags = ['--reason','spike-verdict','--note','https://github.com/o/r/issues/7#issuecomment-8']
+    const approval = {user:{login:'reviewer'},issue_url:'https://api.github.com/repos/o/r/issues/7',body:`Approved spike-verdict C-FIX-01 ${f.sha} ${digest(verdict)}`}
+    f.approval(approval)
+    for (const bad of [{...approval,user:{login:'impostor'}},{...approval,body:'Approved'},{...approval,issue_url:'https://api.github.com/repos/o/r/issues/8'}]) {
+      f.approval(bad); assert.equal(f.close([path],flags).code,2); assert.equal(f.writes.length,0)
+    }
+    f.approval(approval)
+    f.put(artifact,'tampered'); assert.equal(f.close([path],flags).code,2); assert.equal(f.writes.length,0)
+    f.put(artifact,'observed result')
+    // Exercise the executable CLI with the same parsed verdict and remote approval.
+    f.recorded()
+    const transport = JSON.parse(readFileSync(join(f.root,'transport.json')))
+    transport.responses['repos/o/r/issues/comments/8'] = approval
+    f.put('transport.json',JSON.stringify(transport))
+    const cli = f.cliClose([path],flags)
+    assert.equal(cli.status,0,cli.stdout + cli.stderr)
+    assert.equal(JSON.parse(readFileSync(join(f.root,'transport.json'))).writes.filter(args => args.includes('state_reason=completed')).length,1)
+    assert.equal(f.close([path],flags).code,0)
+    assert.equal(f.writes.filter(args => args.includes('state_reason=completed')).length,1)
+  } finally { f.cleanup() }
+})

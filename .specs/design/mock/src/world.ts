@@ -328,13 +328,15 @@ export interface Setup {
   /** A newer Smithers the owner can upgrade to, with `smthrs host upgrade` on the Mac. */
   upgrade?: string
   /*
-   * Model access (mvp.md §6.5), one key per role: the fast model runs the app
-   * agent and timeline summaries, the coding model runs the coding agent, and
-   * the AI Gateway key makes typed decisions. Each key validates before it is
-   * saved; a failed key keeps its field open with its provider's reason.
-   * Without a fast key, the app agent falls back to the coding model.
+   * Model access (mvp.md §6.5; Will, 2026-10-03). The fast model runs the app
+   * agent and timeline summaries: Cerebras, through Smithers' own
+   * infrastructure, so the install signs in to a Smithers account instead of
+   * taking a key. The coding model and the AI Gateway are the team's own keys
+   * (BYOK): each validates before it is saved, and a failed key keeps its
+   * field open with its provider's reason. Without the Smithers sign-in, the
+   * app agent falls back to the coding model.
    */
-  fastKey?: "validating" | "saved" | "failed"
+  smithers?: "connecting" | "connected" | "failed"
   codingKey?: "validating" | "saved" | "failed"
   gatewayKey?: "validating" | "saved" | "failed"
   /** The coding model's provider, chosen on its row. */
