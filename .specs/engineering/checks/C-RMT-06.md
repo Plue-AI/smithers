@@ -1,8 +1,8 @@
 # C-RMT-06 Journey: a coordinator install wakes a TODO's machine on a remote host from the app
 
-Product falsifier (98, #3706): if the coordinator box cannot wake a branch on `beaver` over SSH from the app by the end of stage 1, this did not ship.
+Product falsifier (M-40, revised 2026-10-06): in the first post-launch release, an install on loopback wakes a TODO on `beaver` from the app. If it can't, this did not ship.
 
-Owner: T-RMT-04. Layer: e2e on the reference rig (Will's Mac mini as the install, `beaver` as the remote host).
+Owner: T-RMT-04 (deferred to the first post-launch release). Layer: e2e on the reference rig (Will's Mac mini as the install, on loopback; `beaver` as the computer).
 
 1. Turn `remoteSandboxes` on. In Settings, register `beaver`, confirm its fingerprint and see its profile and capacity.
 2. From the app, make a TODO with placement `beaver`. Let it run to a candidate.

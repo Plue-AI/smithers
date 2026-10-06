@@ -6,7 +6,7 @@ Spec: spec.md §8.13.4, §8.13.5, §8.13.6, §8.2, §8.3, §10.3.1 · Product: #
 Added 2026-10-04 by smithers-8a for Will's sandbox-placement ruling (#3706). Behind `remoteSandboxes`, off by default.
 
 
-**ON HOLD (2026-10-04; gate updated 2026-10-06 for M-40):** remote machines reuse the Plue controller (hosted by the install) and `microsandbox-worker` per computer (§8.13.0). This ticket's SSH mechanism is superseded. It is re-cut after T-RMT-01 boots a guest on a computer and answers §8.13.0's two open questions. Do not start.
+**DEFERRED (M-40 revised 2026-10-06, #3706): first item after launch.** The install connects out through the Cloud fleet's controller and worker, which move into the public repository after launch (§8.13.0). This ticket's SSH mechanism is superseded; it is re-cut on that fleet move after T-RMT-01 answers §8.13.0's open questions. Do not start before launch.
 
 ## Goal
 Install capacity is the sum over reachable hosts; a new machine goes where there is room or where its TODO says; a machine with a disk wakes where the disk is; an unreachable host offers Retry; the owner may pause or remove a host.

@@ -6,7 +6,7 @@ Spec: spec.md §8.13.8, M-09 · Product: #3706 Product position (M-40 pending in
 Added 2026-10-04 by smithers-8a for Will's sandbox-placement ruling (#3706). Behind `remoteSandboxes`, off by default.
 
 
-**ON HOLD (2026-10-04; gate updated 2026-10-06 for M-40):** remote machines reuse the Plue controller (hosted by the install) and `microsandbox-worker` per computer (§8.13.0). This ticket's SSH mechanism is superseded. It is re-cut after T-RMT-01 boots a guest on a computer and answers §8.13.0's two open questions. Do not start.
+**DEFERRED (M-40 revised 2026-10-06, #3706): first item after launch.** The install connects out through the Cloud fleet's controller and worker, which move into the public repository after launch (§8.13.0). This ticket's SSH mechanism is superseded; it is re-cut on that fleet move after T-RMT-01 answers §8.13.0's open questions. Do not start before launch.
 
 ## Goal
 The owner adds a Smithers Cloud box as a machine host behind the same flag, without Cloud billing.
