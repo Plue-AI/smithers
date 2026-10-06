@@ -115,9 +115,13 @@ func TestTerminalCredentialTodoActionsPostgres(t *testing.T) {
 		raw := fmt.Sprintf("smithers_%040x", 0x7e000+minted)
 		sum := sha256.Sum256([]byte(raw))
 		hash := hex.EncodeToString(sum[:])
+		_, err := pool.Exec(ctx, `INSERT INTO workspaces(id,repository_id,user_id,name) VALUES($1,$2,$3,$4) ON CONFLICT(id) DO NOTHING`, branch, repo.ID, u.ID, "terminal-"+u.Username)
+		require.NoError(t, err)
+		subject, err := q.CreateWorkspaceSession(ctx, db.CreateWorkspaceSessionParams{WorkspaceID: branch, RepositoryID: repo.ID, UserID: u.ID, Cols: 80, Rows: 24})
+		require.NoError(t, err)
 		scopes := strings.Join(append([]string{"read:repository", "read:user", middleware.RepositoryRestrictionScope(repo.ID)},
-			middleware.DelegationScopes(middleware.Delegation{Via: "terminal", Branch: branch, Profile: middleware.TerminalProfileS1, Session: u.Username + "-session"})...), ",")
-		_, err := q.CreateAccessToken(ctx, db.CreateAccessTokenParams{UserID: u.ID, Name: fmt.Sprintf("terminal-session-%d", minted), TokenHash: hash, TokenLastEight: hash[len(hash)-8:],
+			middleware.DelegationScopes(middleware.Delegation{Via: "terminal", Branch: branch, Profile: middleware.TerminalProfileS1, Session: subject.ID})...), ",")
+		_, err = q.CreateAccessToken(ctx, db.CreateAccessTokenParams{UserID: u.ID, Name: fmt.Sprintf("terminal-session-%d", minted), TokenHash: hash, TokenLastEight: hash[len(hash)-8:],
 			Scopes: scopes, SystemIssued: true, ExpiresAt: pgtype.Timestamptz{Time: time.Now().Add(time.Hour), Valid: true}})
 		require.NoError(t, err)
 		return raw

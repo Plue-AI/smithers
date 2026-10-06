@@ -34,6 +34,17 @@ WHERE t.token_hash = $1
         AND ('terminal-session:' || lower(c.id) || '/' || c.producer_generation::text)
           = ANY(regexp_split_to_array(lower(t.scopes), U&'[,\0009-\000D\0020\0085\00A0\1680\2000-\200A\2028\2029\202F\205F\3000]+'))
     ))
+  -- Terminal bearers die with their bound session even when cleanup crashes.
+  AND (NOT (t.system_issued AND ('via:terminal' = ANY(regexp_split_to_array(lower(t.scopes), U&'[,\0009-\000D\0020\0085\00A0\1680\2000-\200A\2028\2029\202F\205F\3000]+'))
+      OR 'profile:terminal_s1' = ANY(regexp_split_to_array(lower(t.scopes), U&'[,\0009-\000D\0020\0085\00A0\1680\2000-\200A\2028\2029\202F\205F\3000]+'))))
+    OR EXISTS (
+      SELECT 1 FROM workspace_sessions ws
+      WHERE ws.user_id = t.user_id AND ws.kind = 'terminal'
+        AND ws.status IN ('pending', 'starting', 'running')
+        AND ('terminal-session:' || ws.id::text) = ANY(regexp_split_to_array(lower(t.scopes), U&'[,\0009-\000D\0020\0085\00A0\1680\2000-\200A\2028\2029\202F\205F\3000]+'))
+        AND ('branch:' || ws.workspace_id::text) = ANY(regexp_split_to_array(lower(t.scopes), U&'[,\0009-\000D\0020\0085\00A0\1680\2000-\200A\2028\2029\202F\205F\3000]+'))
+        AND ('repo:' || ws.repository_id::text) = ANY(regexp_split_to_array(lower(t.scopes), U&'[,\0009-\000D\0020\0085\00A0\1680\2000-\200A\2028\2029\202F\205F\3000]+'))
+    ))
   AND u.is_active = true
   AND u.prohibit_login = false;
 

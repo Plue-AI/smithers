@@ -74,8 +74,12 @@ func TestTodoTakeoverComposedInstall(t *testing.T) {
 	delegated := "smithers_0000000000000000000000000000000000003466"
 	digest := sha256.Sum256([]byte(delegated))
 	hash := hex.EncodeToString(digest[:])
+	branch, err := q.CreateWorkspace(ctx, db.CreateWorkspaceParams{RepositoryID: repo, UserID: ben.ID, Name: "takeover-terminal", Kind: "agent", Status: "running", TargetBookmark: "mythical", EnvironmentSource: "repository"})
+	require.NoError(t, err)
+	subject, err := q.CreateWorkspaceSession(ctx, db.CreateWorkspaceSessionParams{WorkspaceID: branch.ID, RepositoryID: repo, UserID: ben.ID, Cols: 80, Rows: 24})
+	require.NoError(t, err)
 	_, err = q.CreateAccessToken(ctx, db.CreateAccessTokenParams{UserID: ben.ID, Name: "takeover-terminal", TokenHash: hash, TokenLastEight: hash[len(hash)-8:],
-		Scopes:       strings.Join(append([]string{"read:repository", "read:user", middleware.RepositoryRestrictionScope(repo)}, middleware.DelegationScopes(middleware.Delegation{Via: "terminal", Branch: "takeover-branch", Profile: middleware.TerminalProfileS1, Session: "ben-terminal"})...), ","),
+		Scopes:       strings.Join(append([]string{"read:repository", "read:user", middleware.RepositoryRestrictionScope(repo)}, middleware.DelegationScopes(middleware.Delegation{Via: "terminal", Branch: branch.ID, Profile: middleware.TerminalProfileS1, Session: subject.ID})...), ","),
 		SystemIssued: true, ExpiresAt: pgtype.Timestamptz{Time: time.Now().Add(time.Hour), Valid: true}})
 	require.NoError(t, err)
 	service := services.NewMythicalService(pool, nil)

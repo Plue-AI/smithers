@@ -358,10 +358,74 @@ func TestDelegatedCredentialComposedInstallPostgres(t *testing.T) {
 	require.WithinDuration(t, time.Now().Add(time.Hour), *terminal.ExpiresAt, 10*time.Second)
 	status, body = call("GET", "/api/user", "", terminal.Token)
 	require.Equal(t, 200, status, body)
+	terminalDigest := sha256.Sum256([]byte(terminal.Token))
+	heldTerminal := middleware.Credential{TokenHash: hex.EncodeToString(terminalDigest[:])}
+	for _, state := range []string{"pending", "starting", "running", "failed", "stopped"} {
+		t.Run("terminal-subject-"+state, func(t *testing.T) {
+			_, err := q.UpdateWorkspaceSessionStatus(ctx, db.UpdateWorkspaceSessionStatusParams{ID: terminalSession.ID, Status: state})
+			require.NoError(t, err)
+			status, body := call("GET", "/api/user", "", terminal.Token)
+			_, err = middleware.ReloadCredential(ctx, q, heldTerminal, time.Now())
+			if state == "failed" || state == "stopped" {
+				require.Equal(t, 401, status, body)
+				require.ErrorIs(t, err, middleware.ErrCredentialGone)
+			} else {
+				require.Equal(t, 200, status, body)
+				require.NoError(t, err)
+			}
+		})
+	}
+	_, err = q.UpdateWorkspaceSessionStatus(ctx, db.UpdateWorkspaceSessionStatusParams{ID: terminalSession.ID, Status: "running"})
+	require.NoError(t, err)
+	for _, separator := range []string{",", " ", "\t", "\n", "\u00a0", "\u2003"} {
+		_, err = pool.Exec(ctx, `UPDATE access_tokens SET scopes=$2 WHERE id=$1`, terminal.ID, strings.Join(terminal.Scopes, separator))
+		require.NoError(t, err)
+		status, body = call("GET", "/api/user", "", terminal.Token)
+		require.Equal(t, 200, status, body)
+		_, err = middleware.ReloadCredential(ctx, q, heldTerminal, time.Now())
+		require.NoError(t, err)
+	}
+	for _, binding := range []struct{ name, from, to string }{
+		{"session", "terminal-session:" + terminalSession.ID, "terminal-session:missing"},
+		{"branch", "branch:" + workspace.ID, "branch:missing"},
+		{"repository", fmt.Sprintf("repo:%d", repo.ID), "repo:999999"},
+	} {
+		t.Run("terminal-wrong-"+binding.name, func(t *testing.T) {
+			scopes := strings.Replace(strings.Join(terminal.Scopes, ","), binding.from, binding.to, 1)
+			_, err := pool.Exec(ctx, `UPDATE access_tokens SET scopes=$2 WHERE id=$1`, terminal.ID, scopes)
+			require.NoError(t, err)
+			status, body := call("GET", "/api/user", "", terminal.Token)
+			require.Equal(t, 401, status, body)
+			_, err = middleware.ReloadCredential(ctx, q, heldTerminal, time.Now())
+			require.ErrorIs(t, err, middleware.ErrCredentialGone)
+		})
+	}
+	_, err = pool.Exec(ctx, `UPDATE access_tokens SET scopes=$2 WHERE id=$1`, terminal.ID, strings.Join(terminal.Scopes, ","))
+	require.NoError(t, err)
+	for _, mutation := range []struct{ name, change, restore string }{
+		{"member", fmt.Sprintf("user_id=%d", member.ID), fmt.Sprintf("user_id=%d", owner.ID)},
+		{"kind", "kind='lsp',language='go'", "kind='terminal',language=''"},
+	} {
+		t.Run("terminal-foreign-"+mutation.name, func(t *testing.T) {
+			_, err := pool.Exec(ctx, "UPDATE workspace_sessions SET "+mutation.change+" WHERE id=$1", terminalSession.ID)
+			require.NoError(t, err)
+			status, body := call("GET", "/api/user", "", terminal.Token)
+			require.Equal(t, 401, status, body)
+			_, err = middleware.ReloadCredential(ctx, q, heldTerminal, time.Now())
+			require.ErrorIs(t, err, middleware.ErrCredentialGone)
+			_, err = pool.Exec(ctx, "UPDATE workspace_sessions SET "+mutation.restore+" WHERE id=$1", terminalSession.ID)
+			require.NoError(t, err)
+		})
+	}
 	_, err = q.UpdateWorkspaceSessionStatus(ctx, db.UpdateWorkspaceSessionStatusParams{ID: terminalSession.ID, Status: "stopped"})
 	require.NoError(t, err)
 	_, err = svc.MintForTerminal(ctx, owner.ID, repo.ID, workspace.ID, terminalSession.ID)
 	require.Error(t, err)
+	// Closing the subject fences its bearer even if host cleanup did not run.
+	status, body = call("GET", "/api/user", "", terminal.Token)
+	require.Equal(t, 401, status, body)
+	_, err = middleware.ReloadCredential(ctx, q, heldTerminal, time.Now())
+	require.ErrorIs(t, err, middleware.ErrCredentialGone)
 	before := time.Now()
 	require.NoError(t, svc.DeleteToken(ctx, owner.ID, terminal.ID))
 	require.Less(t, time.Since(before), 5*time.Second)
@@ -414,7 +478,7 @@ if(settled.status!==200) throw Error(await settled.text());
 `), 0700))
 	_, sourceFile, _, _ := runtime.Caller(0)
 	root := filepath.Clean(filepath.Join(filepath.Dir(sourceFile), "../../../.."))
-	cliCtx, cancel := context.WithTimeout(ctx, 90*time.Second)
+	cliCtx, cancel := context.WithTimeout(ctx, 3*time.Minute)
 	defer cancel()
 	command := exec.CommandContext(cliCtx, node, filepath.Join(root, "packages/smithers/bin/smithers.mjs"), "login", origin, "--agent", "claude-code", "--format", "json")
 	command.Dir = root
