@@ -182,7 +182,7 @@ export const createTurnController = (
   const contextMessages = (): ReadonlyArray<AgentChatMessage> => {
     return [...store
       .agentContextSnapshot()
-      .messages.filter((message) => message.act === undefined && message.text.trim() !== "")
+      .messages.filter((message) => message.origin !== "external" && message.act === undefined && message.text.trim() !== "")
       .map((message) => ({
         role: message.role === "user" ? ("user" as const) : ("assistant" as const),
         content: message.text
@@ -1129,7 +1129,7 @@ export const createTurnController = (
       return "A response is still in progress — stop it first, then retry."
     }
     const last = [...store.collections.messages.values()]
-      .filter((message) => message.role === "user")
+      .filter((message) => message.role === "user" && message.origin !== "external")
       .sort((left, right) => right.ordinal - left.ordinal)[0]
     const turnId = last?.id.match(/^message-(.+)-user$/)?.[1]
     if (turnId === undefined) return "Nothing to retry yet — send a message first."

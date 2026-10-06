@@ -18,7 +18,7 @@ WorkspaceServiceSchema
 } from "@smthrs/rpc/Cards"
 import type { ConfiguredModel,ModelRecordId,ModelTestRecord,SeatId } from "@smthrs/rpc/ConfiguredModel"
 import { ConfiguredModelSchema,ModelTestRecordSchema,SeatAssignmentSchema } from "@smthrs/rpc/ConfiguredModel"
-import { ContextItemSchema } from "@smthrs/rpc/CardPrimitives"
+import { ActorSchema as ParticipantActorSchema, ContextItemSchema } from "@smthrs/rpc/CardPrimitives"
 import { RepoFileEntrySchema } from "@smthrs/rpc/LocalApp"
 import type { AgentTurnUsage } from "@smthrs/rpc/NativeAgent"
 import type { LocalRepositoryInspection,RepositoryAccess } from "@smthrs/rpc/NativeRepository"
@@ -539,6 +539,16 @@ const AnsweredActionSchema = MessageActionSchema.extend({ answer: z.string(), an
 
 export const MessageSchema = z.object({
   id: z.string(),
+  /** Imported identities are data only, never executable Smithers turns. */
+  origin: z.enum(["smithers", "external"]).optional(),
+  agent_kind: z.enum(["claude-code", "codex"]).optional(),
+  format_version: z.string().trim().min(1).optional(),
+  source_id: z.string().trim().min(1).optional(),
+  session_id: z.string().trim().min(1).optional(),
+  participant_id: z.string().trim().min(1).optional(),
+  actor: ParticipantActorSchema.optional(),
+  read_only: z.literal(true).optional(),
+  correlation_id: z.string().trim().min(1).optional(),
   issueCardId: z.string().optional(),
   issueCommentId: z.number().int().optional(),
   /** Owning turn for tool-act cleanup on retry. */
@@ -582,6 +592,27 @@ export const MessageSchema = z.object({
    * persisted by a build that had conversation tabs parse unchanged.
    */
   tabId: z.string().optional()
+}).superRefine((message, ctx) => {
+  const imported = message.origin === "external"
+  const metadata = [message.agent_kind, message.format_version, message.source_id,
+    message.session_id, message.participant_id, message.read_only]
+  if (!imported && (metadata.some(value => value !== undefined) || message.correlation_id !== undefined ||
+    (message.actor?.kind === "agent" && ["claude-code", "codex"].includes(message.actor.agent)))) {
+    ctx.addIssue({ code: "custom", message: "External metadata requires external origin" })
+  }
+  if (!imported) return
+  const actor = message.actor
+  if (metadata.some(value => value === undefined) || !actor ||
+    (actor.kind === "person" && !actor.login.trim()) || (actor.kind === "agent" && !actor.id.trim()) ||
+    (message.role === "user" ? actor.kind !== "person" :
+      actor.kind !== "agent" || actor.agent !== message.agent_kind ||
+      actor.id !== message.participant_id || actor.session_id !== message.session_id || !actor.for_member?.login.trim())) {
+    ctx.addIssue({ code: "custom", message: "Incomplete external conversation identity" })
+  }
+  if (message.turnId !== undefined || message.action !== undefined || message.answeredAction !== undefined ||
+    message.disclosed !== undefined) {
+    ctx.addIssue({ code: "custom", message: "External conversations cannot carry executable turns or actions" })
+  }
 })
 export type Message = z.infer<typeof MessageSchema>
 
