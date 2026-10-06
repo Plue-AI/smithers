@@ -810,7 +810,7 @@ const FIXTURES: Record<
     refs: [{ label: "T7", url: "https://github.com/smithers/canary/pull/41" }], state: "accepted", todo: { n: 12, title: "Run lint" } },
     load: { owner: "ben", state: "failed", error: "Not available" },
     request: { action: "accept", owner: "ben", state: "failed", error: "Not available" } } },
-  run: { minimal: { id: "run-1" }, full: { id: "run-1" } },
+  run: { minimal: { id: "run-1" }, full: { id: "run-1", view: { selected: "cell-legacy", tab: "journal", at: 3 }, memberViews: { alice: { selected: "cell-alice", tab: "run", at: 2 } } } },
   flow: { minimal: { name: "todo" }, full: { name: "todo", version: "v3", memberVersions: { will: "v3", ben: "v2" }, proposal: { request: "request-1", diff: "diff-1" } } },
   setup: { minimal: {}, full: {} },
   settings: { minimal: {}, full: {} },

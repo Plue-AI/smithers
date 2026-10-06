@@ -2,19 +2,18 @@
  * The Run card (T-FLW-07): maps the run to RunView's props and binds every
  * press through cardActions. Embedded, the card offers Inspect; maximized (the
  * monitor) it offers Answer, Steer and Stop; a failed or interrupted run offers
- * Retry. App-agent preflight reads the verified durable HTTP turn; other runs
- * come from the seeded design world
- * (state/seams/DesignWorld/run.ts) until topic `run:<id>` lands; the flows it
- * names are flows/entries/runs.ts (run.inspect) and todo.ts (the rest).
+ * Retry. The authenticated run topic serves install runs; verified app-agent
+ * preflight and the retained design provider supply their own evidence.
  */
 import { useLiveQuery } from "@tanstack/react-db"
-import { type ComponentType } from "react"
+import { useCallback, useSyncExternalStore, type ComponentType } from "react"
 import type { MonitorCard, RunViewProps } from "@smthrs/rpc/MonitorCard"
 import { useController } from "../ControllerContext"
 import { cardActions, type CardActionDefinition, type CardCommandDispatch } from "../flows/cardActions"
 import { useDesignWorld } from "../state/seams/DesignWorld/hooks"
 import { monitorOf } from "../state/seams/DesignWorld/run"
 import type { CardFamily, CardOf } from "./CardFamily"
+import { ViewSkeleton } from "../ViewSkeleton"
 import { RunView } from "./views/RunView"
 
 const finished = (state: MonitorCard["state"]): boolean => state === "done" || state === "failed" || state === "interrupted"
@@ -42,7 +41,7 @@ export const runActionDefinitions = (model: MonitorCard, maximized: boolean): Ca
 }
 
 export interface RunContainerProps {
-  /** The run projection (topic `run:<id>` when it lands; the design seam now). */
+  /** The validated run projection, or the retained design provider. */
   readonly model: MonitorCard | undefined
   readonly dispatch: CardCommandDispatch
   readonly View?: ComponentType<RunViewProps>
@@ -58,16 +57,27 @@ export const RunContainer = ({ model, dispatch, View = RunView, view, onView }: 
     view={newest === undefined ? view : { ...view, selected: newest }} onView={onView} />
 }
 
+const noRun: import("../state/seams/RunMonitorSeam").RunMonitorSnapshot = {}
+
 /** The `run` kind: the card names its run (card-kinds.md L5); this reads the model and keeps the member's selection. */
 const RunBody = ({ card, maximized }: { readonly card: CardOf<"run">; readonly maximized: boolean }) => {
   const controller = useController()
   const world = useDesignWorld()
   useLiveQuery(controller.store.collections.httpTurns)
   useLiveQuery(controller.store.collections.identitySessions)
-  const view = card.payload.view ?? {}
+  const source = controller.runMonitors
+  const identity = controller.store.collections.identitySessions.get("identity")
+  const member = controller.design.enabled ? controller.design.viewer() : identity?.login
+  const subscribe = useCallback((notify: () => void) => source?.subscribe(card.payload.id, notify) ?? (() => {}), [source, card.payload.id, member, identity?.state])
+  const get = useCallback(() => source?.get(card.payload.id) ?? noRun, [source, card.payload.id])
+  const served = useSyncExternalStore(subscribe, get, get)
+  const view = (member ? card.payload.memberViews?.[member] ?? (card.payload.memberViews === undefined ? card.payload.view : undefined) : card.payload.view) ?? {}
   const dispatch: CardCommandDispatch = (tag, input) =>
     controller.commands.submit({ name: tag, payload: (input ?? {}) as Record<string, unknown>, actor: "user", originCardId: card.id })
-  return <RunContainer model={controller.contextRun(card.payload.id) ?? monitorOf(world, card.payload.id)} dispatch={dispatch}
+  const model = served.model ?? controller.contextRun(card.payload.id) ?? monitorOf(world, card.payload.id)
+  if (model === undefined && served.error) return <p role="alert">{served.error}</p>
+  if (model === undefined && source !== undefined) return <ViewSkeleton />
+  return <RunContainer model={served.model && model ? { ...model, journal: model.journal ?? [] } : model} dispatch={dispatch}
     view={{ ...view, maximized }} onView={patch => { void dispatch("run.view", { cardId: card.id, ...patch }) }} />
 }
 export const runCardFamily: CardFamily<"run"> = {

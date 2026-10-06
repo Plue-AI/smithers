@@ -6,9 +6,9 @@
 import { Schema } from "effect"
 import { line, text } from "@smthrs/ui/flow-form"
 import type { FlowEntry, Namespace } from "../registry"
-import { flow, type CommandActions, type CommandResult } from "./Declare"
+import { flow, type CommandActions } from "./Declare"
 import type { Grammar } from "../SlashPayload"
-import { activeTraces, traceNamed } from "../../state/seams/DesignWorld/run"
+import { activeTraces } from "../../state/seams/DesignWorld/run"
 
 /** The `runs` namespace row: the slash tree lists it in registry.ts NAMESPACES order. */
 export const namespace: Namespace = {
@@ -28,20 +28,8 @@ const runGrammar: Grammar = args => {
 
 /** The `runs` flows registered as one aggregator block. */
 export const runsFlows = (actions: CommandActions): ReadonlyArray<FlowEntry> => {
-  /*
-   * The Run card doors (T-FLW-07): `/run` opens the card, `/run.inspect` is
-   * Inspect (the card maximized), `/runs` opens every run still going. Stored
-   * app-agent preflight is read first; otherwise
-   * they read the seeded design world (state/seams/DesignWorld/run.ts) until
-   * topic `run:<id>` and /api/runs land; the handlers then read those.
-   */
-  const open = async (id: string, maximize: boolean): Promise<CommandResult> => {
-    const stored = actions.contextRun(id)
-    if (stored !== undefined) return { value: await actions.presentRun(stored.id, stored.title, maximize) }
-    const trace = traceNamed(actions.design.world(), id)
-    if (trace === undefined) return `No run ${id}`
-    return { value: await actions.presentRun(trace.id, trace.title, maximize) }
-  }
+  // The doors share the install's authenticated run topic, retained preflight
+  // evidence, and the design provider outside an install.
   return [
   flow({ name: "run.view", summary: "Select a run detail", args: "<cardId> [JSON view]",
     input: Schema.Struct({ cardId: Schema.String, selected: Schema.optional(Schema.String),
@@ -51,7 +39,7 @@ export const runsFlows = (actions: CommandActions): ReadonlyArray<FlowEntry> => 
   flow({ name: "monitor", summary: "Every run, with its debug view", slash: "/monitor", cli: ["monitor"],
     group: "Advanced", journey: ["J11"], visibility: "advanced", actors: ["person", "app_agent", "external_agent"],
     minimumRole: "member", agent: "run", http: { method: "GET", path: "/api/runs" },
-    input: Schema.Struct({}), handler: () => actions.listRuns({}) }),
+    input: Schema.Struct({}), handler: () => actions.listRunMonitors() }),
   flow({ name: "runs",   slash: "/runs", cli: ["runs","list"], journey: ["J4"], group: "Runs", visibility: "core", actors: ["person","app_agent","external_agent"], minimumRole: "member", http: {"method":"GET","path":"/api/runs"}, summary: "Active and attention-needing runs", agent: "run", input: Schema.Struct({}),
     handler: async () => {
       const traces = activeTraces(actions.design.world())
@@ -59,9 +47,9 @@ export const runsFlows = (actions: CommandActions): ReadonlyArray<FlowEntry> => 
       return { value: traces.length === 0 ? "No active runs" : `${traces.length} active ${traces.length === 1 ? "run" : "runs"}` }
     } }),
   flow({ name: "run",   slash: "/run", cli: ["runs","show"], journey: ["J4"], group: "Runs", visibility: "core", actors: ["person","app_agent","external_agent"], minimumRole: "member", http: {"method":"GET","path":"/api/runs/{id}"}, summary: "Open a run's card", args: "<id>", grammar: runGrammar,
-    agent: "run", input: Schema.Struct({ id: Schema.String }), handler: ({ id }) => open(id, false) }),
+    agent: "run", input: Schema.Struct({ id: Schema.String }), handler: ({ id }) => actions.openRunMonitor(id, false) }),
   flow({ name: "run.inspect",   slash: "/run.inspect", cli: ["run","inspect"], journey: ["J11"], group: "Advanced", visibility: "advanced", actors: ["person","app_agent","external_agent"], minimumRole: "member", http: {"method":"GET","path":"/api/runs/{id}"}, summary: "Open a run's monitor", args: "<id>", grammar: runGrammar,
-    agent: "run", input: Schema.Struct({ id: Schema.String }), handler: ({ id }) => open(id, true) }),
+    agent: "run", input: Schema.Struct({ id: Schema.String }), handler: ({ id }) => actions.openRunMonitor(id, true) }),
   flow({
     name: "runs.attention",
     summary: "Show pending approvals and parked or failed runs on this repository",

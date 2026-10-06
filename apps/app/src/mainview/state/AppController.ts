@@ -76,7 +76,7 @@ import { createControllerContext, UNRECORDED_NET, type UnrecordedInit } from "./
 import type { ControlFocusController } from "./controller/controlFocus"
 import { createControlFocus } from "./controller/controlFocus"
 import { createDictation } from "./controller/dictation"
-import { createFailureController,humanCommandText } from "./controller/failures"
+import { TOAST_SUPERSEDED, createFailureController,humanCommandText } from "./controller/failures"
 import type { FormFocusHandoff, FormsController } from "./controller/forms"
 import { createFormsController } from "./controller/forms"
 import { createFramesController } from "./controller/frames"
@@ -142,6 +142,8 @@ import type { StackSeam } from "./seams/StackSeam"
 import { createInstallSeam, type InstallSeam, type InstallTopic } from "./seams/InstallSeam"
 import { createGitHubSyncSeam, type GitHubSyncSeam } from "./seams/GitHubSyncSeam"
 import { createMembersSeam, type MembersSnapshots } from "./seams/MembersSeam"
+import { createRunMonitorSeam, type RunMonitorSnapshots } from "./seams/RunMonitorSeam"
+import { traceNamed } from "./seams/DesignWorld/run"
 import { createFlowsSeam, type FlowsSnapshots } from "./seams/FlowsSeam"
 import { createTodoSeam, type TodoSeam, type TodoTopics } from "./seams/TodoSeam"
 import { createConfirmationSeam } from "./seams/ConfirmationSeam"
@@ -552,6 +554,9 @@ export interface AppController extends IssueFlowsController {
   /** With a `subject` (Branch, Terminal: card-kinds.md L5) the card is `${kind}:${subject}` with payload `{ id: subject }`. */
   readonly presentCard: (kind: "setup" | "settings" | "members" | "commands" | "branch" | "terminal", title: string, subject?: string) => Promise<string>
   /** Opens (or reveals) the Run card for run `id`; `maximize` is Inspect. */
+  readonly runMonitors: RunMonitorSnapshots | undefined
+  readonly openRunMonitor: (id: string, maximize: boolean) => Promise<string | { readonly value: string } | void>
+  readonly listRunMonitors: () => Promise<string | { readonly value: string } | void>
   readonly setRunView: (cardId: string, patch: { selected?: string; at?: number; tab?: "run" | "journal" | "custom" }) => Promise<string | void>
   readonly contextRun: (id: string) => MonitorCard | undefined
   readonly presentRun: (id: string, title: string, maximize: boolean) => Promise<string>
@@ -905,6 +910,14 @@ export const createAppController = (
   const setupEntry = typeof window !== "undefined" && window.location.pathname === "/setup"
   if (installHost) void installSeam.showSetup()
   const sharedConversation = installHost ? createSharedConversationSeam(ctx, services.live) : undefined
+  const runMonitorSeam = createRunMonitorSeam({ owner: () => `${ctx.accountOwner()}:${ctx.accountEpoch}`, view: id => {
+    const card = store.collections.cards.get(`run:${id}`)
+    if (card?.kind !== "run") return undefined
+    const member = design.enabled ? design.viewer() : store.collections.identitySessions.get("identity")?.login
+    return member ? card.payload.memberViews?.[member] ?? (card.payload.memberViews === undefined ? card.payload.view : undefined) : card.payload.view
+  }, http: (path, init) => seamCtx.http(`${baseUrl.replace(/\/$/, "")}${path}`, init), live: services.live })
+  ctx.onDispose(runMonitorSeam.dispose)
+  const runMonitors = installHost || services.live ? runMonitorSeam.snapshots : undefined
   const design = createDesignWorld({ enabled: !installHost })
   ctx.onDispose(design.dispose)
   const gitHubSyncSeam = createGitHubSyncSeam({ http: installHost ? (path, init) => seamCtx.http(`${baseUrl.replace(/\/$/, "")}${path}`, init) : undefined })
@@ -1016,9 +1029,20 @@ export const createAppController = (
   const { setRunView } = actors.pair(ctx, context => ({ setRunView: async (cardId: string, patch: { selected?: string; at?: number; tab?: "run" | "journal" | "custom" }): Promise<string | void> => {
     const card = store.collections.cards.get(cardId)
     if (card?.kind !== "run") return "This run is no longer available."
+    const member = design.enabled ? design.viewer() : store.collections.identitySessions.get("identity")?.login
+    const previous = member ? card.payload.memberViews?.[member] ?? (card.payload.memberViews === undefined ? card.payload.view : undefined) : card.payload.view
+    const view = { ...previous, ...patch }
     await store.dispatch({ type: "card.updated", actor: context.commandActor, id: cardId,
-      patch: { kind: "run", payload: { ...card.payload, view: { ...card.payload.view, ...patch } } }
+      patch: { kind: "run", payload: { ...card.payload, view: member ? undefined : view,
+        ...(member ? { memberViews: { ...card.payload.memberViews, [member]: view } } : {}) } }
     }).isPersisted.promise
+    if (installHost && (patch.tab === "journal" || patch.at !== undefined)) {
+      const epoch = ctx.accountEpoch
+      void withToast(`monitor.trace:${card.payload.id}`, "Loading journal", "", async () => {
+        const error = await runMonitorSeam.trace(card.payload.id, patch.at ?? previous?.at)
+        return epoch !== ctx.accountEpoch ? TOAST_SUPERSEDED : error ?? true
+      }).catch(error => ctx.failures.report("toast.work", error, "monitor.trace"))
+    }
   } }))
   const contextRun = (id: string): MonitorCard | undefined => {
     const owner = ctx.accountOwner()
@@ -1031,12 +1055,54 @@ export const createAppController = (
     const existing = store.collections.cards.get(id)
     await store.dispatch({ type: "card.upsert", actor: context.commandActor, card: {
       id, kind: "run", title, status: "active", createdAt: existing?.createdAt ?? Date.now(),
-      ordinal: existing?.ordinal ?? store.nextOrdinal(), payload: { id: runId, ...(existing?.kind === "run" ? { view: existing.payload.view } : {}) }
+      ordinal: existing?.ordinal ?? store.nextOrdinal(), payload: { id: runId, ...(existing?.kind === "run" ? { view: existing.payload.view, memberViews: existing.payload.memberViews } : {}) }
     } }).isPersisted.promise
     const inspect = maximize && context.commandActor === "user"
     if (inspect) maximizeCard(id)
     return inspect ? `Inspecting ${title}` : `Opened ${title}`
   } }))
+  const monitorLists = new Map<number, Promise<unknown>>()
+  const { openRunMonitor, listRunMonitors } = actors.pair(ctx, (context, select) => ({
+    openRunMonitor: async (id: string, maximize: boolean): Promise<string | { readonly value: string } | void> => {
+      const stored = contextRun(id)
+      if (stored) return { value: await select(presentRun)(stored.id, stored.title, maximize) }
+      if (installHost) return { value: await select(presentRun)(id, id, maximize) }
+      const trace = traceNamed(design.world(), id)
+      if (trace) return { value: await select(presentRun)(trace.id, trace.title, maximize) }
+      return runMonitors ? { value: await select(presentRun)(id, id, maximize) } : `No run ${id}`
+    },
+    listRunMonitors: async (): Promise<string | { readonly value: string } | void> => {
+      if (!installHost && !services.live) {
+        for (const trace of design.world().traces) await select(presentRun)(trace.id, trace.title, false)
+        return
+      }
+      const epoch = ctx.accountEpoch
+      const owner = ctx.accountOwner()
+      if (monitorLists.has(epoch)) return { value: "Requested" }
+      const work = withToast("monitor.list", "Loading runs", "", async () => {
+        const runs = await runMonitorSeam.list()
+        if (ctx.disposed || epoch !== ctx.accountEpoch || owner !== ctx.accountOwner()) return TOAST_SUPERSEDED
+        if (!runs && !installHost) {
+          for (const trace of design.world().traces) await select(presentRun)(trace.id, trace.title, false)
+          return true
+        }
+        if (!runs) return "Runs unavailable"
+        for (const run of runs) {
+          const existing = store.collections.cards.get(`run:${run.id}`)
+          if (ctx.disposed || epoch !== ctx.accountEpoch || owner !== ctx.accountOwner()) return TOAST_SUPERSEDED
+          await store.dispatch({ type: "card.upsert", actor: context.commandActor, card: {
+            id: `run:${run.id}`, kind: "run", title: run.title, status: "active", createdAt: existing?.createdAt ?? Date.now(),
+            ordinal: existing?.ordinal ?? store.nextOrdinal(), payload: { id: run.id, view: existing?.kind === "run" ? existing.payload.view : undefined, memberViews: existing?.kind === "run" ? existing.payload.memberViews : undefined }
+          } }).isPersisted.promise
+        }
+        return true
+      })
+      monitorLists.set(epoch, work)
+      void work.finally(() => { if (monitorLists.get(epoch) === work) monitorLists.delete(epoch) })
+        .catch(error => ctx.failures.report("toast.work", error, "monitor.list"))
+      return { value: "Requested" }
+    }
+  }))
   const presentBranchCard = async (kind: "branch" | "terminal", subject: string, title: string): Promise<string> => {
     const id = `${kind}:${subject}`
     const existing = store.collections.cards.get(id)
@@ -1896,6 +1962,9 @@ export const createAppController = (
     live: services.live,
     design,
     presentCard,
+    runMonitors,
+    openRunMonitor,
+    listRunMonitors,
     setRunView,
     contextRun,
     presentRun,
@@ -2426,6 +2495,9 @@ export const createAppController = (
     design,
     live: services.live,
     presentCard,
+    runMonitors,
+    openRunMonitor,
+    listRunMonitors,
     setRunView,
     contextRun,
     presentRun,

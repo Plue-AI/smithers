@@ -138,6 +138,17 @@ export const MonitorCardSchema = z.object({
 })
 
 /**
+ * Persisted per-member monitor selection, journal tab and replay position.
+ * @since 1.0.0
+ * @category schemas
+ */
+export const RunViewStateSchema = z.object({
+  selected: z.string().optional(),
+  at: z.number().int().nonnegative().optional(),
+  tab: z.enum(["run", "journal", "custom"]).optional()
+})
+
+/**
  * The value decoded by {@link MonitorCardSchema}.
  * @since 1.0.0
  * @category models

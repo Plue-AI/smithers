@@ -392,3 +392,5 @@ T-APP-16 view-state receipt: `C-UI-06.spec.ts` passes two browser identities wit
 T-APP-03 wave 2: [owner pre-approval default](C-APP-03-settings.spec.ts) passed (1): the served install field `todo_preapprove_default` toggles through the owner-only typed Settings flow, persists after reload, and can be disabled. Test-only HTTP provider; production setting attribution, creation inheritance and standing merge qualification remain T-STK-04 dependencies.
 
 T-APP-03 wave 2 revalidated C-UI-13 Setup and Commands (2 passed, 1 unrelated all-card skip): Setup explicitly boots the install capability and checks its This Mac only / Network controls before and after reload.
+
+T-FLW-07 additional contract coverage: [install monitor](C-J11-01-monitor-install.spec.ts) exercises authenticated run snapshots through `/run.inspect`, native phases and interrupted state, journal tab reads/restoration, GET-only replay, an unresolved `/monitor` list read with usable chat, background runs, and topic refusal. This uses test-only HTTP/WebSocket contracts; native run ingest, host projections and the full C-J11-01/C-J11-04/C-UI-13 checks remain pending.
