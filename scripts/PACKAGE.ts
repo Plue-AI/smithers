@@ -13,6 +13,7 @@
  */
 import { Smithers } from "@smthrs/targets"
 import { existsSync, readdirSync } from "node:fs"
+import { listFiles } from "./check-tracked-hygiene.mjs"
 import { libraryPackages, repoRoot } from "./workspace-packages.mjs"
 import { Package as backendPackage } from "../packages/backend/PACKAGE.ts"
 import { Package as appPackage } from "../apps/app/PACKAGE.ts"
@@ -29,6 +30,31 @@ const sources = [
   Smithers.glob("//scripts/**/*.ts"),
   Smithers.glob("//scripts/fixtures/**/*.json")
 ]
+
+/** The whole checkout is the subject of repository-wide engineering gates. */
+const repositoryPackages = Object.fromEntries(
+  [...new Set(["", ...listFiles(repoRoot, { includeUntracked: true })
+    .filter((path) => path === "PACKAGE.ts" || path.endsWith("/PACKAGE.ts"))
+    .map((path) => path === "PACKAGE.ts" ? "" : path.slice(0, -"/PACKAGE.ts".length))])]
+    .sort()
+    .map((directory) => [
+      `repositoryInputs_${Buffer.from(directory).toString("hex") || "root"}`,
+      Smithers.Filegroup({ cwd: directory === "" ? "//" : directory, srcs: [Smithers.glob("**/*")] })
+    ])
+)
+const repositoryInputs = Smithers.Filegroup({ srcs: Object.values(repositoryPackages) })
+
+const engineeringScriptRegressions = Smithers.NodeTest({
+  runner: Smithers.testRunner([
+    Smithers.file("//scripts/homebrew-publish.test.mjs"),
+    Smithers.file("//scripts/homebrew-release.test.mjs"),
+    Smithers.file("//scripts/migration-landing.test.mjs"),
+    Smithers.file("//scripts/perf/questions.test.mjs"),
+    Smithers.file("//scripts/spikes/col-01/result.test.mjs")
+  ]),
+  srcs: [],
+  deps: [repositoryInputs]
+})
 
 /**
  * The pack directory the release rehearsal writes and the smoke check reads.
@@ -320,16 +346,12 @@ const mvpDocs = Smithers.NodeTest({
     Smithers.file("//docs/architecture/0002-mac-install.md"),
     Smithers.file("//docs/architecture/self-host-implementation.md"),
     Smithers.file("//.specs/product/mvp.md"),
-    Smithers.glob("//docs/**/*"),
-    Smithers.glob("//apps/**/*.{md,mdx,ts,tsx,js,mjs,html,json,go,rs}"),
-    Smithers.glob("//packages/**/*.{md,mdx,ts,tsx,js,mjs,html,json,go,rs}"),
-    Smithers.glob("//flows/**/*.{md,mdx,ts,tsx,js,mjs,html,json,go,rs}"),
     Smithers.file("//scripts/check-release-evidence-tags.mjs"),
     Smithers.file("//.specs/engineering/README.md"),
     Smithers.file("//.specs/design/README.md"),
     Smithers.file("//.specs/engineering/spec.md")
   ],
-  deps: []
+  deps: [repositoryInputs]
 })
 
 /**
@@ -350,7 +372,7 @@ const conflictMarkers = Smithers.Shell.Diff({
 /** Tracked files must resolve declared paths and exclude local build and agent state. */
 const trackedHygiene = Smithers.Shell.Diff({
   shell: "node scripts/check-tracked-hygiene.mjs --projected-tree",
-  data: [Smithers.file("//scripts/check-tracked-hygiene.mjs"), Smithers.glob("//**/*", { exclude: ["//node_modules/**"] })],
+  data: [repositoryInputs],
   changes: [],
   timeout: "2m"
 })
@@ -1109,6 +1131,9 @@ const packageDocs = Smithers.NodeTest({
 
 export const Package = Smithers.Package({
   targets: {
+    ...repositoryPackages,
+    repositoryInputs,
+    engineeringScriptRegressions,
     engineeringChecks, integrationSources, gatewaySources, apiSchemas, workflowSources, machineSources, ffiSources,
     gates,
     apiBaseline,

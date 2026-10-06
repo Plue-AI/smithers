@@ -4281,14 +4281,12 @@
         "path": "apps/site/package.json"
       },
       {
-        "kind": "glob",
-        "pattern": "apps/*/wrangler.jsonc",
-        "exclude": []
+        "kind": "file",
+        "path": "apps/server/wrangler.jsonc"
       },
       {
-        "kind": "glob",
-        "pattern": "apps/*/alchemy.run.ts",
-        "exclude": []
+        "kind": "file",
+        "path": "apps/bug-worker/alchemy.run.ts"
       },
       {
         "kind": "file",
@@ -4435,11 +4433,6 @@
         "path": "apps/site/public/_redirects"
       },
       {
-        "kind": "glob",
-        "pattern": "apps/app/src/docs/pages/*.md",
-        "exclude": []
-      },
-      {
         "kind": "file",
         "path": ".specs/engineering/tickets/T-INS-04.md"
       },
@@ -4463,21 +4456,12 @@
         "kind": "glob",
         "pattern": "apps/site/src/content/docs/docs/**/*",
         "exclude": []
-      },
-      {
-        "kind": "glob",
-        "pattern": "packages/smithers/src/**/*",
-        "exclude": []
-      },
-      {
-        "kind": "glob",
-        "pattern": "packages/smithers/build/build-cli/src/**/*",
-        "exclude": []
       }
     ],
     "outputs": [],
     "dependencies": [
-      "//packages/smithers:docsSources"
+      "//packages/smithers:docsSources",
+      "//scripts:repositoryInputs"
     ],
     "source": {
       "file": "apps/site/PACKAGE.ts"
@@ -35125,25 +35109,12 @@
         "kind": "glob",
         "pattern": "scripts/repo-contract/**/*.mjs",
         "exclude": []
-      },
-      {
-        "kind": "glob",
-        "pattern": "distribution/*",
-        "exclude": []
-      },
-      {
-        "kind": "glob",
-        "pattern": ".github/workflows/*.yml",
-        "exclude": []
-      },
-      {
-        "kind": "glob",
-        "pattern": "apps/app/scripts/mode-matrix/*.ts",
-        "exclude": []
       }
     ],
     "outputs": [],
-    "dependencies": [],
+    "dependencies": [
+      "//scripts:repositoryInputs"
+    ],
     "source": {
       "file": "scripts/repo-contract/PACKAGE.ts"
     }
@@ -35440,16 +35411,6 @@
         "path": "scripts/repo-contract/PACKAGE.ts"
       },
       {
-        "kind": "glob",
-        "pattern": "scripts/**/*.test.mjs",
-        "exclude": []
-      },
-      {
-        "kind": "glob",
-        "pattern": "factory/**/*.test.ts",
-        "exclude": []
-      },
-      {
         "kind": "file",
         "path": ".github/workflows/ci.yml"
       },
@@ -35463,7 +35424,9 @@
       }
     ],
     "outputs": [],
-    "dependencies": [],
+    "dependencies": [
+      "//scripts:repositoryInputs"
+    ],
     "source": {
       "file": "scripts/repo-contract/PACKAGE.ts"
     }
@@ -36251,6 +36214,45 @@
     }
   },
   {
+    "label": "//scripts:engineeringScriptRegressions",
+    "package": "scripts",
+    "name": "engineeringScriptRegressions",
+    "rule": "NodeTest",
+    "kinds": [
+      "test"
+    ],
+    "cacheable": false,
+    "inputs": [
+      {
+        "kind": "file",
+        "path": "scripts/homebrew-publish.test.mjs"
+      },
+      {
+        "kind": "file",
+        "path": "scripts/homebrew-release.test.mjs"
+      },
+      {
+        "kind": "file",
+        "path": "scripts/migration-landing.test.mjs"
+      },
+      {
+        "kind": "file",
+        "path": "scripts/perf/questions.test.mjs"
+      },
+      {
+        "kind": "file",
+        "path": "scripts/spikes/col-01/result.test.mjs"
+      }
+    ],
+    "outputs": [],
+    "dependencies": [
+      "//scripts:repositoryInputs"
+    ],
+    "source": {
+      "file": "scripts/PACKAGE.ts"
+    }
+  },
+  {
     "label": "//scripts:ffiSources",
     "package": "scripts",
     "name": "ffiSources",
@@ -36898,26 +36900,6 @@
         "path": ".specs/product/mvp.md"
       },
       {
-        "kind": "glob",
-        "pattern": "docs/**/*",
-        "exclude": []
-      },
-      {
-        "kind": "glob",
-        "pattern": "apps/**/*.{md,mdx,ts,tsx,js,mjs,html,json,go,rs}",
-        "exclude": []
-      },
-      {
-        "kind": "glob",
-        "pattern": "packages/**/*.{md,mdx,ts,tsx,js,mjs,html,json,go,rs}",
-        "exclude": []
-      },
-      {
-        "kind": "glob",
-        "pattern": "flows/**/*.{md,mdx,ts,tsx,js,mjs,html,json,go,rs}",
-        "exclude": []
-      },
-      {
         "kind": "file",
         "path": "scripts/check-release-evidence-tags.mjs"
       },
@@ -36935,7 +36917,9 @@
       }
     ],
     "outputs": [],
-    "dependencies": [],
+    "dependencies": [
+      "//scripts:repositoryInputs"
+    ],
     "source": {
       "file": "scripts/PACKAGE.ts"
     }
@@ -41915,6 +41899,2394 @@
     }
   },
   {
+    "label": "//scripts:repositoryInputs",
+    "package": "scripts",
+    "name": "repositoryInputs",
+    "rule": "Filegroup",
+    "kinds": [],
+    "cacheable": true,
+    "inputs": [],
+    "outputs": [],
+    "dependencies": [
+      "//scripts:repositoryInputs_617070732f617070",
+      "//scripts:repositoryInputs_617070732f6170702f6532652f66697874757265732f7265706f2d706c7567696e",
+      "//scripts:repositoryInputs_617070732f6170702f6532652f66697874757265732f7265706f2d706c7567696e2f746f6f6c73",
+      "//scripts:repositoryInputs_617070732f6275672d776f726b6572",
+      "//scripts:repositoryInputs_617070732f6d6f64656c2d686f7374",
+      "//scripts:repositoryInputs_617070732f736572766572",
+      "//scripts:repositoryInputs_617070732f73697465",
+      "//scripts:repositoryInputs_617070732f747569",
+      "//scripts:repositoryInputs_6372617465732f666c6f77732d6a6a",
+      "//scripts:repositoryInputs_6372617465732f736d6974686572732d6d616368696e6564",
+      "//scripts:repositoryInputs_6576616c732f6167656e74",
+      "//scripts:repositoryInputs_6576616c732f616c65",
+      "//scripts:repositoryInputs_6576616c732f617574686f72696e67",
+      "//scripts:repositoryInputs_6576616c732f686172626f72",
+      "//scripts:repositoryInputs_6576616c732f7265636f6d6d656e64",
+      "//scripts:repositoryInputs_6576616c732f7265766965772d7365656465642d62756773",
+      "//scripts:repositoryInputs_6576616c732f73776562656e6368",
+      "//scripts:repositoryInputs_6578616d706c6573",
+      "//scripts:repositoryInputs_666c6f7773",
+      "//scripts:repositoryInputs_666c6f77732f726576696577",
+      "//scripts:repositoryInputs_666c6f77732f77696b69",
+      "//scripts:repositoryInputs_7061636b616765732f6261636b656e64",
+      "//scripts:repositoryInputs_7061636b616765732f6572726f7273",
+      "//scripts:repositoryInputs_7061636b616765732f7265706f2d74617267657473",
+      "//scripts:repositoryInputs_7061636b616765732f727063",
+      "//scripts:repositoryInputs_7061636b616765732f736d697468657273",
+      "//scripts:repositoryInputs_7061636b616765732f736d6974686572732f6167656e74",
+      "//scripts:repositoryInputs_7061636b616765732f736d6974686572732f6167656e742f636861696e",
+      "//scripts:repositoryInputs_7061636b616765732f736d6974686572732f6167656e742f6576616c73",
+      "//scripts:repositoryInputs_7061636b616765732f736d6974686572732f6167656e742f6673",
+      "//scripts:repositoryInputs_7061636b616765732f736d6974686572732f6167656e742f6861726e657373",
+      "//scripts:repositoryInputs_7061636b616765732f736d6974686572732f6167656e742f6861726e6573732d646574656374",
+      "//scripts:repositoryInputs_7061636b616765732f736d6974686572732f6167656e742f696e746567726174696f6e73",
+      "//scripts:repositoryInputs_7061636b616765732f736d6974686572732f6167656e742f6d656d6f7279",
+      "//scripts:repositoryInputs_7061636b616765732f736d6974686572732f6167656e742f6d6f64656c",
+      "//scripts:repositoryInputs_7061636b616765732f736d6974686572732f6167656e742f6d6f64656c2d686f7374",
+      "//scripts:repositoryInputs_7061636b616765732f736d6974686572732f6167656e742f706c7567696e",
+      "//scripts:repositoryInputs_7061636b616765732f736d6974686572732f6167656e742f7265676973747279",
+      "//scripts:repositoryInputs_7061636b616765732f736d6974686572732f6167656e742f73636f72657273",
+      "//scripts:repositoryInputs_7061636b616765732f736d6974686572732f6167656e742f737464",
+      "//scripts:repositoryInputs_7061636b616765732f736d6974686572732f6167656e742f7472696767657273",
+      "//scripts:repositoryInputs_7061636b616765732f736d6974686572732f6275696c64",
+      "//scripts:repositoryInputs_7061636b616765732f736d6974686572732f6275696c642f6275696c642d636c69",
+      "//scripts:repositoryInputs_7061636b616765732f736d6974686572732f6275696c642f6275696c642d636c692f746573742f66697874757265732f636861696e2d65786563",
+      "//scripts:repositoryInputs_7061636b616765732f736d6974686572732f6275696c642f6275696c642d636c692f746573742f66697874757265732f666f7263652d73706563",
+      "//scripts:repositoryInputs_7061636b616765732f736d6974686572732f6275696c642f6275696c642d636c692f746573742f66697874757265732f666f7263652d737065632f2e676974687562",
+      "//scripts:repositoryInputs_7061636b616765732f736d6974686572732f6275696c642f6275696c642d636c692f746573742f66697874757265732f666f7263652d737065632f2e73746f7279626f6f6b",
+      "//scripts:repositoryInputs_7061636b616765732f736d6974686572732f6275696c642f6275696c642d636c692f746573742f66697874757265732f666f7263652d737065632f64617461",
+      "//scripts:repositoryInputs_7061636b616765732f736d6974686572732f6275696c642f6275696c642d636c692f746573742f66697874757265732f666f7263652d737065632f70617463686573",
+      "//scripts:repositoryInputs_7061636b616765732f736d6974686572732f6275696c642f6275696c642d636c692f746573742f66697874757265732f666f7263652d737065632f706c6179777269676874",
+      "//scripts:repositoryInputs_7061636b616765732f736d6974686572732f6275696c642f6275696c642d636c692f746573742f66697874757265732f666f7263652d737065632f737263",
+      "//scripts:repositoryInputs_7061636b616765732f736d6974686572732f6275696c642f6275696c642d636c692f746573742f66697874757265732f666f7263652d737065632f7372632f417070732f41756374696f6e",
+      "//scripts:repositoryInputs_7061636b616765732f736d6974686572732f6275696c642f6275696c642d636c692f746573742f66697874757265732f666f7263652d737065632f7372632f417070732f4f7264657232",
+      "//scripts:repositoryInputs_7061636b616765732f736d6974686572732f6275696c642f6275696c642d636c692f746573742f66697874757265732f666f7263652d737065632f7372632f417070732f53657474696e6773",
+      "//scripts:repositoryInputs_7061636b616765732f736d6974686572732f6275696c642f6275696c642d636c692f746573742f66697874757265732f666f7263652d737065632f7372632f536572766572",
+      "//scripts:repositoryInputs_7061636b616765732f736d6974686572732f6275696c642f6275696c642d636c692f746573742f66697874757265732f666f7263652d737065632f776f726b666c6f77732f616464696e672d612d6e65772d6170702d726f757465",
+      "//scripts:repositoryInputs_7061636b616765732f736d6974686572732f6275696c642f6275696c642d636c692f746573742f66697874757265732f666f7263652d737065632f776f726b666c6f77732f62656570",
+      "//scripts:repositoryInputs_7061636b616765732f736d6974686572732f6275696c642f6275696c642d636c692f746573742f66697874757265732f666f7263652d737065632f776f726b666c6f77732f6669782d73656e7472792d6973737565",
+      "//scripts:repositoryInputs_7061636b616765732f736d6974686572732f6275696c642f6275696c642d636c692f746573742f66697874757265732f6d756c74692d7265706f",
+      "//scripts:repositoryInputs_7061636b616765732f736d6974686572732f6275696c642f6275696c642d636c692f746573742f66697874757265732f6d756c74692d7265706f2d63726564656e7469616c73",
+      "//scripts:repositoryInputs_7061636b616765732f736d6974686572732f6275696c642f6275696c642d636c692f746573742f66697874757265732f6d756c74692d7265706f2d63726564656e7469616c732f6368696c64",
+      "//scripts:repositoryInputs_7061636b616765732f736d6974686572732f6275696c642f6275696c642d636c692f746573742f66697874757265732f6d756c74692d7265706f2f62726f6b656e",
+      "//scripts:repositoryInputs_7061636b616765732f736d6974686572732f6275696c642f6275696c642d636c692f746573742f66697874757265732f6d756c74692d7265706f2f6368696c64",
+      "//scripts:repositoryInputs_7061636b616765732f736d6974686572732f6275696c642f6275696c642d636c692f746573742f66697874757265732f73746570732d666f726d",
+      "//scripts:repositoryInputs_7061636b616765732f736d6974686572732f6275696c642f6275696c642d636c692f746573742f66697874757265732f73746570732d666f726d2f2e676974687562",
+      "//scripts:repositoryInputs_7061636b616765732f736d6974686572732f6275696c642f6275696c642d636c692f746573742f66697874757265732f7461726765742d626f6479",
+      "//scripts:repositoryInputs_7061636b616765732f736d6974686572732f6275696c642f6275696c642d636c692f746573742f66697874757265732f7669656d2d6e6f64652d737065632f656e7669726f6e6d656e7473",
+      "//scripts:repositoryInputs_7061636b616765732f736d6974686572732f6275696c642f6275696c642d636c692f746573742f66697874757265732f7669656d2d6e6f64652d737065632f6578616d706c6573",
+      "//scripts:repositoryInputs_7061636b616765732f736d6974686572732f6275696c642f6275696c642d636c692f746573742f66697874757265732f7669656d2d6e6f64652d737065632f73697465",
+      "//scripts:repositoryInputs_7061636b616765732f736d6974686572732f6275696c642f6275696c642d636c692f746573742f66697874757265732f7669656d2d6e6f64652d737065632f737263",
+      "//scripts:repositoryInputs_7061636b616765732f736d6974686572732f6275696c642f6275696c642d636c692f746573742f66697874757265732f7669656d2d6e6f64652d737065632f766563746f7273",
+      "//scripts:repositoryInputs_7061636b616765732f736d6974686572732f6275696c642f696e667261",
+      "//scripts:repositoryInputs_7061636b616765732f736d6974686572732f6275696c642f74617267657473",
+      "//scripts:repositoryInputs_7061636b616765732f736d6974686572732f636f6e74726f6c",
+      "//scripts:repositoryInputs_7061636b616765732f736d6974686572732f666c6f7773",
+      "//scripts:repositoryInputs_7061636b616765732f736d6974686572732f666c6f77732f617274696661637473",
+      "//scripts:repositoryInputs_7061636b616765732f736d6974686572732f666c6f77732f63616e6f6e6963616c",
+      "//scripts:repositoryInputs_7061636b616765732f736d6974686572732f666c6f77732f6361706162696c697479",
+      "//scripts:repositoryInputs_7061636b616765732f736d6974686572732f666c6f77732f636f7265",
+      "//scripts:repositoryInputs_7061636b616765732f736d6974686572732f666c6f77732f63727970746f",
+      "//scripts:repositoryInputs_7061636b616765732f736d6974686572732f666c6f77732f6461746162617365",
+      "//scripts:repositoryInputs_7061636b616765732f736d6974686572732f666c6f77732f656e67696e65",
+      "//scripts:repositoryInputs_7061636b616765732f736d6974686572732f666c6f77732f656e67696e652d73746f7265",
+      "//scripts:repositoryInputs_7061636b616765732f736d6974686572732f666c6f77732f666c6f77",
+      "//scripts:repositoryInputs_7061636b616765732f736d6974686572732f666c6f77732f6a6a",
+      "//scripts:repositoryInputs_7061636b616765732f736d6974686572732f666c6f77732f6a6f75726e616c",
+      "//scripts:repositoryInputs_7061636b616765732f736d6974686572732f666c6f77732f6b65726e656c",
+      "//scripts:repositoryInputs_7061636b616765732f736d6974686572732f666c6f77732f6b657973",
+      "//scripts:repositoryInputs_7061636b616765732f736d6974686572732f666c6f77732f6f62736572766162696c697479",
+      "//scripts:repositoryInputs_7061636b616765732f736d6974686572732f666c6f77732f7061747465726e73",
+      "//scripts:repositoryInputs_7061636b616765732f736d6974686572732f666c6f77732f706c616e",
+      "//scripts:repositoryInputs_7061636b616765732f736d6974686572732f666c6f77732f706c616e2d73746f7265",
+      "//scripts:repositoryInputs_7061636b616765732f736d6974686572732f666c6f77732f706c6174666f726d2d62726f77736572",
+      "//scripts:repositoryInputs_7061636b616765732f736d6974686572732f666c6f77732f706c6174666f726d2d62756e",
+      "//scripts:repositoryInputs_7061636b616765732f736d6974686572732f666c6f77732f706c6174666f726d2d6e6f6465",
+      "//scripts:repositoryInputs_7061636b616765732f736d6974686572732f666c6f77732f72756e2d73746f7265",
+      "//scripts:repositoryInputs_7061636b616765732f736d6974686572732f666c6f77732f73616e64626f78",
+      "//scripts:repositoryInputs_7061636b616765732f736d6974686572732f666c6f77732f737465702d6361636865",
+      "//scripts:repositoryInputs_7061636b616765732f736d6974686572732f666c6f77732f73796e63",
+      "//scripts:repositoryInputs_7061636b616765732f736d6974686572732f666c6f77732f74696d652d74726176656c",
+      "//scripts:repositoryInputs_7061636b616765732f736d6974686572732f67617465776179",
+      "//scripts:repositoryInputs_7061636b616765732f736d6974686572732f6d6370",
+      "//scripts:repositoryInputs_7061636b616765732f736d6974686572732f6d696772617465",
+      "//scripts:repositoryInputs_7061636b616765732f736d6974686572732f6e6f74696669636174696f6e73",
+      "//scripts:repositoryInputs_7061636b616765732f736d6974686572732f7569",
+      "//scripts:repositoryInputs_7061636b616765732f736d6974686572732f75692f75692d7374796c656775696465",
+      "//scripts:repositoryInputs_7061636b616765732f736d746872732d6465707265636174696f6e",
+      "//scripts:repositoryInputs_7061636b616765732f74657374696e67",
+      "//scripts:repositoryInputs_73637269707473",
+      "//scripts:repositoryInputs_736372697074732f7265706f2d636f6e7472616374",
+      "//scripts:repositoryInputs_736372697074732f7370696b65732f636f6c2d3031",
+      "//scripts:repositoryInputs_736372697074732f7370696b65732f6d63682d30322d76697274696f66732d686f6d6573",
+      "//scripts:repositoryInputs_root"
+    ],
+    "source": {
+      "file": "scripts/PACKAGE.ts"
+    }
+  },
+  {
+    "label": "//scripts:repositoryInputs_617070732f617070",
+    "package": "scripts",
+    "name": "repositoryInputs_617070732f617070",
+    "rule": "Filegroup",
+    "kinds": [],
+    "cacheable": true,
+    "inputs": [
+      {
+        "kind": "glob",
+        "pattern": "apps/app/**/*",
+        "exclude": []
+      }
+    ],
+    "outputs": [],
+    "dependencies": [],
+    "source": {
+      "file": "scripts/PACKAGE.ts"
+    }
+  },
+  {
+    "label": "//scripts:repositoryInputs_617070732f6170702f6532652f66697874757265732f7265706f2d706c7567696e",
+    "package": "scripts",
+    "name": "repositoryInputs_617070732f6170702f6532652f66697874757265732f7265706f2d706c7567696e",
+    "rule": "Filegroup",
+    "kinds": [],
+    "cacheable": true,
+    "inputs": [
+      {
+        "kind": "glob",
+        "pattern": "apps/app/e2e/fixtures/repo-plugin/**/*",
+        "exclude": []
+      }
+    ],
+    "outputs": [],
+    "dependencies": [],
+    "source": {
+      "file": "scripts/PACKAGE.ts"
+    }
+  },
+  {
+    "label": "//scripts:repositoryInputs_617070732f6170702f6532652f66697874757265732f7265706f2d706c7567696e2f746f6f6c73",
+    "package": "scripts",
+    "name": "repositoryInputs_617070732f6170702f6532652f66697874757265732f7265706f2d706c7567696e2f746f6f6c73",
+    "rule": "Filegroup",
+    "kinds": [],
+    "cacheable": true,
+    "inputs": [
+      {
+        "kind": "glob",
+        "pattern": "apps/app/e2e/fixtures/repo-plugin/tools/**/*",
+        "exclude": []
+      }
+    ],
+    "outputs": [],
+    "dependencies": [],
+    "source": {
+      "file": "scripts/PACKAGE.ts"
+    }
+  },
+  {
+    "label": "//scripts:repositoryInputs_617070732f6275672d776f726b6572",
+    "package": "scripts",
+    "name": "repositoryInputs_617070732f6275672d776f726b6572",
+    "rule": "Filegroup",
+    "kinds": [],
+    "cacheable": true,
+    "inputs": [
+      {
+        "kind": "glob",
+        "pattern": "apps/bug-worker/**/*",
+        "exclude": []
+      }
+    ],
+    "outputs": [],
+    "dependencies": [],
+    "source": {
+      "file": "scripts/PACKAGE.ts"
+    }
+  },
+  {
+    "label": "//scripts:repositoryInputs_617070732f6d6f64656c2d686f7374",
+    "package": "scripts",
+    "name": "repositoryInputs_617070732f6d6f64656c2d686f7374",
+    "rule": "Filegroup",
+    "kinds": [],
+    "cacheable": true,
+    "inputs": [
+      {
+        "kind": "glob",
+        "pattern": "apps/model-host/**/*",
+        "exclude": []
+      }
+    ],
+    "outputs": [],
+    "dependencies": [],
+    "source": {
+      "file": "scripts/PACKAGE.ts"
+    }
+  },
+  {
+    "label": "//scripts:repositoryInputs_617070732f736572766572",
+    "package": "scripts",
+    "name": "repositoryInputs_617070732f736572766572",
+    "rule": "Filegroup",
+    "kinds": [],
+    "cacheable": true,
+    "inputs": [
+      {
+        "kind": "glob",
+        "pattern": "apps/server/**/*",
+        "exclude": []
+      }
+    ],
+    "outputs": [],
+    "dependencies": [],
+    "source": {
+      "file": "scripts/PACKAGE.ts"
+    }
+  },
+  {
+    "label": "//scripts:repositoryInputs_617070732f73697465",
+    "package": "scripts",
+    "name": "repositoryInputs_617070732f73697465",
+    "rule": "Filegroup",
+    "kinds": [],
+    "cacheable": true,
+    "inputs": [
+      {
+        "kind": "glob",
+        "pattern": "apps/site/**/*",
+        "exclude": []
+      }
+    ],
+    "outputs": [],
+    "dependencies": [],
+    "source": {
+      "file": "scripts/PACKAGE.ts"
+    }
+  },
+  {
+    "label": "//scripts:repositoryInputs_617070732f747569",
+    "package": "scripts",
+    "name": "repositoryInputs_617070732f747569",
+    "rule": "Filegroup",
+    "kinds": [],
+    "cacheable": true,
+    "inputs": [
+      {
+        "kind": "glob",
+        "pattern": "apps/tui/**/*",
+        "exclude": []
+      }
+    ],
+    "outputs": [],
+    "dependencies": [],
+    "source": {
+      "file": "scripts/PACKAGE.ts"
+    }
+  },
+  {
+    "label": "//scripts:repositoryInputs_6372617465732f666c6f77732d6a6a",
+    "package": "scripts",
+    "name": "repositoryInputs_6372617465732f666c6f77732d6a6a",
+    "rule": "Filegroup",
+    "kinds": [],
+    "cacheable": true,
+    "inputs": [
+      {
+        "kind": "glob",
+        "pattern": "crates/flows-jj/**/*",
+        "exclude": []
+      }
+    ],
+    "outputs": [],
+    "dependencies": [],
+    "source": {
+      "file": "scripts/PACKAGE.ts"
+    }
+  },
+  {
+    "label": "//scripts:repositoryInputs_6372617465732f736d6974686572732d6d616368696e6564",
+    "package": "scripts",
+    "name": "repositoryInputs_6372617465732f736d6974686572732d6d616368696e6564",
+    "rule": "Filegroup",
+    "kinds": [],
+    "cacheable": true,
+    "inputs": [
+      {
+        "kind": "glob",
+        "pattern": "crates/smithers-machined/**/*",
+        "exclude": []
+      }
+    ],
+    "outputs": [],
+    "dependencies": [],
+    "source": {
+      "file": "scripts/PACKAGE.ts"
+    }
+  },
+  {
+    "label": "//scripts:repositoryInputs_6576616c732f6167656e74",
+    "package": "scripts",
+    "name": "repositoryInputs_6576616c732f6167656e74",
+    "rule": "Filegroup",
+    "kinds": [],
+    "cacheable": true,
+    "inputs": [
+      {
+        "kind": "glob",
+        "pattern": "evals/agent/**/*",
+        "exclude": []
+      }
+    ],
+    "outputs": [],
+    "dependencies": [],
+    "source": {
+      "file": "scripts/PACKAGE.ts"
+    }
+  },
+  {
+    "label": "//scripts:repositoryInputs_6576616c732f616c65",
+    "package": "scripts",
+    "name": "repositoryInputs_6576616c732f616c65",
+    "rule": "Filegroup",
+    "kinds": [],
+    "cacheable": true,
+    "inputs": [
+      {
+        "kind": "glob",
+        "pattern": "evals/ale/**/*",
+        "exclude": []
+      }
+    ],
+    "outputs": [],
+    "dependencies": [],
+    "source": {
+      "file": "scripts/PACKAGE.ts"
+    }
+  },
+  {
+    "label": "//scripts:repositoryInputs_6576616c732f617574686f72696e67",
+    "package": "scripts",
+    "name": "repositoryInputs_6576616c732f617574686f72696e67",
+    "rule": "Filegroup",
+    "kinds": [],
+    "cacheable": true,
+    "inputs": [
+      {
+        "kind": "glob",
+        "pattern": "evals/authoring/**/*",
+        "exclude": []
+      }
+    ],
+    "outputs": [],
+    "dependencies": [],
+    "source": {
+      "file": "scripts/PACKAGE.ts"
+    }
+  },
+  {
+    "label": "//scripts:repositoryInputs_6576616c732f686172626f72",
+    "package": "scripts",
+    "name": "repositoryInputs_6576616c732f686172626f72",
+    "rule": "Filegroup",
+    "kinds": [],
+    "cacheable": true,
+    "inputs": [
+      {
+        "kind": "glob",
+        "pattern": "evals/harbor/**/*",
+        "exclude": []
+      }
+    ],
+    "outputs": [],
+    "dependencies": [],
+    "source": {
+      "file": "scripts/PACKAGE.ts"
+    }
+  },
+  {
+    "label": "//scripts:repositoryInputs_6576616c732f7265636f6d6d656e64",
+    "package": "scripts",
+    "name": "repositoryInputs_6576616c732f7265636f6d6d656e64",
+    "rule": "Filegroup",
+    "kinds": [],
+    "cacheable": true,
+    "inputs": [
+      {
+        "kind": "glob",
+        "pattern": "evals/recommend/**/*",
+        "exclude": []
+      }
+    ],
+    "outputs": [],
+    "dependencies": [],
+    "source": {
+      "file": "scripts/PACKAGE.ts"
+    }
+  },
+  {
+    "label": "//scripts:repositoryInputs_6576616c732f7265766965772d7365656465642d62756773",
+    "package": "scripts",
+    "name": "repositoryInputs_6576616c732f7265766965772d7365656465642d62756773",
+    "rule": "Filegroup",
+    "kinds": [],
+    "cacheable": true,
+    "inputs": [
+      {
+        "kind": "glob",
+        "pattern": "evals/review-seeded-bugs/**/*",
+        "exclude": []
+      }
+    ],
+    "outputs": [],
+    "dependencies": [],
+    "source": {
+      "file": "scripts/PACKAGE.ts"
+    }
+  },
+  {
+    "label": "//scripts:repositoryInputs_6576616c732f73776562656e6368",
+    "package": "scripts",
+    "name": "repositoryInputs_6576616c732f73776562656e6368",
+    "rule": "Filegroup",
+    "kinds": [],
+    "cacheable": true,
+    "inputs": [
+      {
+        "kind": "glob",
+        "pattern": "evals/swebench/**/*",
+        "exclude": []
+      }
+    ],
+    "outputs": [],
+    "dependencies": [],
+    "source": {
+      "file": "scripts/PACKAGE.ts"
+    }
+  },
+  {
+    "label": "//scripts:repositoryInputs_6578616d706c6573",
+    "package": "scripts",
+    "name": "repositoryInputs_6578616d706c6573",
+    "rule": "Filegroup",
+    "kinds": [],
+    "cacheable": true,
+    "inputs": [
+      {
+        "kind": "glob",
+        "pattern": "examples/**/*",
+        "exclude": []
+      }
+    ],
+    "outputs": [],
+    "dependencies": [],
+    "source": {
+      "file": "scripts/PACKAGE.ts"
+    }
+  },
+  {
+    "label": "//scripts:repositoryInputs_666c6f7773",
+    "package": "scripts",
+    "name": "repositoryInputs_666c6f7773",
+    "rule": "Filegroup",
+    "kinds": [],
+    "cacheable": true,
+    "inputs": [
+      {
+        "kind": "glob",
+        "pattern": "flows/**/*",
+        "exclude": []
+      }
+    ],
+    "outputs": [],
+    "dependencies": [],
+    "source": {
+      "file": "scripts/PACKAGE.ts"
+    }
+  },
+  {
+    "label": "//scripts:repositoryInputs_666c6f77732f726576696577",
+    "package": "scripts",
+    "name": "repositoryInputs_666c6f77732f726576696577",
+    "rule": "Filegroup",
+    "kinds": [],
+    "cacheable": true,
+    "inputs": [
+      {
+        "kind": "glob",
+        "pattern": "flows/review/**/*",
+        "exclude": []
+      }
+    ],
+    "outputs": [],
+    "dependencies": [],
+    "source": {
+      "file": "scripts/PACKAGE.ts"
+    }
+  },
+  {
+    "label": "//scripts:repositoryInputs_666c6f77732f77696b69",
+    "package": "scripts",
+    "name": "repositoryInputs_666c6f77732f77696b69",
+    "rule": "Filegroup",
+    "kinds": [],
+    "cacheable": true,
+    "inputs": [
+      {
+        "kind": "glob",
+        "pattern": "flows/wiki/**/*",
+        "exclude": []
+      }
+    ],
+    "outputs": [],
+    "dependencies": [],
+    "source": {
+      "file": "scripts/PACKAGE.ts"
+    }
+  },
+  {
+    "label": "//scripts:repositoryInputs_7061636b616765732f6261636b656e64",
+    "package": "scripts",
+    "name": "repositoryInputs_7061636b616765732f6261636b656e64",
+    "rule": "Filegroup",
+    "kinds": [],
+    "cacheable": true,
+    "inputs": [
+      {
+        "kind": "glob",
+        "pattern": "packages/backend/**/*",
+        "exclude": []
+      }
+    ],
+    "outputs": [],
+    "dependencies": [],
+    "source": {
+      "file": "scripts/PACKAGE.ts"
+    }
+  },
+  {
+    "label": "//scripts:repositoryInputs_7061636b616765732f6572726f7273",
+    "package": "scripts",
+    "name": "repositoryInputs_7061636b616765732f6572726f7273",
+    "rule": "Filegroup",
+    "kinds": [],
+    "cacheable": true,
+    "inputs": [
+      {
+        "kind": "glob",
+        "pattern": "packages/errors/**/*",
+        "exclude": []
+      }
+    ],
+    "outputs": [],
+    "dependencies": [],
+    "source": {
+      "file": "scripts/PACKAGE.ts"
+    }
+  },
+  {
+    "label": "//scripts:repositoryInputs_7061636b616765732f7265706f2d74617267657473",
+    "package": "scripts",
+    "name": "repositoryInputs_7061636b616765732f7265706f2d74617267657473",
+    "rule": "Filegroup",
+    "kinds": [],
+    "cacheable": true,
+    "inputs": [
+      {
+        "kind": "glob",
+        "pattern": "packages/repo-targets/**/*",
+        "exclude": []
+      }
+    ],
+    "outputs": [],
+    "dependencies": [],
+    "source": {
+      "file": "scripts/PACKAGE.ts"
+    }
+  },
+  {
+    "label": "//scripts:repositoryInputs_7061636b616765732f727063",
+    "package": "scripts",
+    "name": "repositoryInputs_7061636b616765732f727063",
+    "rule": "Filegroup",
+    "kinds": [],
+    "cacheable": true,
+    "inputs": [
+      {
+        "kind": "glob",
+        "pattern": "packages/rpc/**/*",
+        "exclude": []
+      }
+    ],
+    "outputs": [],
+    "dependencies": [],
+    "source": {
+      "file": "scripts/PACKAGE.ts"
+    }
+  },
+  {
+    "label": "//scripts:repositoryInputs_7061636b616765732f736d697468657273",
+    "package": "scripts",
+    "name": "repositoryInputs_7061636b616765732f736d697468657273",
+    "rule": "Filegroup",
+    "kinds": [],
+    "cacheable": true,
+    "inputs": [
+      {
+        "kind": "glob",
+        "pattern": "packages/smithers/**/*",
+        "exclude": []
+      }
+    ],
+    "outputs": [],
+    "dependencies": [],
+    "source": {
+      "file": "scripts/PACKAGE.ts"
+    }
+  },
+  {
+    "label": "//scripts:repositoryInputs_7061636b616765732f736d6974686572732f6167656e74",
+    "package": "scripts",
+    "name": "repositoryInputs_7061636b616765732f736d6974686572732f6167656e74",
+    "rule": "Filegroup",
+    "kinds": [],
+    "cacheable": true,
+    "inputs": [
+      {
+        "kind": "glob",
+        "pattern": "packages/smithers/agent/**/*",
+        "exclude": []
+      }
+    ],
+    "outputs": [],
+    "dependencies": [],
+    "source": {
+      "file": "scripts/PACKAGE.ts"
+    }
+  },
+  {
+    "label": "//scripts:repositoryInputs_7061636b616765732f736d6974686572732f6167656e742f636861696e",
+    "package": "scripts",
+    "name": "repositoryInputs_7061636b616765732f736d6974686572732f6167656e742f636861696e",
+    "rule": "Filegroup",
+    "kinds": [],
+    "cacheable": true,
+    "inputs": [
+      {
+        "kind": "glob",
+        "pattern": "packages/smithers/agent/chain/**/*",
+        "exclude": []
+      }
+    ],
+    "outputs": [],
+    "dependencies": [],
+    "source": {
+      "file": "scripts/PACKAGE.ts"
+    }
+  },
+  {
+    "label": "//scripts:repositoryInputs_7061636b616765732f736d6974686572732f6167656e742f6576616c73",
+    "package": "scripts",
+    "name": "repositoryInputs_7061636b616765732f736d6974686572732f6167656e742f6576616c73",
+    "rule": "Filegroup",
+    "kinds": [],
+    "cacheable": true,
+    "inputs": [
+      {
+        "kind": "glob",
+        "pattern": "packages/smithers/agent/evals/**/*",
+        "exclude": []
+      }
+    ],
+    "outputs": [],
+    "dependencies": [],
+    "source": {
+      "file": "scripts/PACKAGE.ts"
+    }
+  },
+  {
+    "label": "//scripts:repositoryInputs_7061636b616765732f736d6974686572732f6167656e742f6673",
+    "package": "scripts",
+    "name": "repositoryInputs_7061636b616765732f736d6974686572732f6167656e742f6673",
+    "rule": "Filegroup",
+    "kinds": [],
+    "cacheable": true,
+    "inputs": [
+      {
+        "kind": "glob",
+        "pattern": "packages/smithers/agent/fs/**/*",
+        "exclude": []
+      }
+    ],
+    "outputs": [],
+    "dependencies": [],
+    "source": {
+      "file": "scripts/PACKAGE.ts"
+    }
+  },
+  {
+    "label": "//scripts:repositoryInputs_7061636b616765732f736d6974686572732f6167656e742f6861726e657373",
+    "package": "scripts",
+    "name": "repositoryInputs_7061636b616765732f736d6974686572732f6167656e742f6861726e657373",
+    "rule": "Filegroup",
+    "kinds": [],
+    "cacheable": true,
+    "inputs": [
+      {
+        "kind": "glob",
+        "pattern": "packages/smithers/agent/harness/**/*",
+        "exclude": []
+      }
+    ],
+    "outputs": [],
+    "dependencies": [],
+    "source": {
+      "file": "scripts/PACKAGE.ts"
+    }
+  },
+  {
+    "label": "//scripts:repositoryInputs_7061636b616765732f736d6974686572732f6167656e742f6861726e6573732d646574656374",
+    "package": "scripts",
+    "name": "repositoryInputs_7061636b616765732f736d6974686572732f6167656e742f6861726e6573732d646574656374",
+    "rule": "Filegroup",
+    "kinds": [],
+    "cacheable": true,
+    "inputs": [
+      {
+        "kind": "glob",
+        "pattern": "packages/smithers/agent/harness-detect/**/*",
+        "exclude": []
+      }
+    ],
+    "outputs": [],
+    "dependencies": [],
+    "source": {
+      "file": "scripts/PACKAGE.ts"
+    }
+  },
+  {
+    "label": "//scripts:repositoryInputs_7061636b616765732f736d6974686572732f6167656e742f696e746567726174696f6e73",
+    "package": "scripts",
+    "name": "repositoryInputs_7061636b616765732f736d6974686572732f6167656e742f696e746567726174696f6e73",
+    "rule": "Filegroup",
+    "kinds": [],
+    "cacheable": true,
+    "inputs": [
+      {
+        "kind": "glob",
+        "pattern": "packages/smithers/agent/integrations/**/*",
+        "exclude": []
+      }
+    ],
+    "outputs": [],
+    "dependencies": [],
+    "source": {
+      "file": "scripts/PACKAGE.ts"
+    }
+  },
+  {
+    "label": "//scripts:repositoryInputs_7061636b616765732f736d6974686572732f6167656e742f6d656d6f7279",
+    "package": "scripts",
+    "name": "repositoryInputs_7061636b616765732f736d6974686572732f6167656e742f6d656d6f7279",
+    "rule": "Filegroup",
+    "kinds": [],
+    "cacheable": true,
+    "inputs": [
+      {
+        "kind": "glob",
+        "pattern": "packages/smithers/agent/memory/**/*",
+        "exclude": []
+      }
+    ],
+    "outputs": [],
+    "dependencies": [],
+    "source": {
+      "file": "scripts/PACKAGE.ts"
+    }
+  },
+  {
+    "label": "//scripts:repositoryInputs_7061636b616765732f736d6974686572732f6167656e742f6d6f64656c",
+    "package": "scripts",
+    "name": "repositoryInputs_7061636b616765732f736d6974686572732f6167656e742f6d6f64656c",
+    "rule": "Filegroup",
+    "kinds": [],
+    "cacheable": true,
+    "inputs": [
+      {
+        "kind": "glob",
+        "pattern": "packages/smithers/agent/model/**/*",
+        "exclude": []
+      }
+    ],
+    "outputs": [],
+    "dependencies": [],
+    "source": {
+      "file": "scripts/PACKAGE.ts"
+    }
+  },
+  {
+    "label": "//scripts:repositoryInputs_7061636b616765732f736d6974686572732f6167656e742f6d6f64656c2d686f7374",
+    "package": "scripts",
+    "name": "repositoryInputs_7061636b616765732f736d6974686572732f6167656e742f6d6f64656c2d686f7374",
+    "rule": "Filegroup",
+    "kinds": [],
+    "cacheable": true,
+    "inputs": [
+      {
+        "kind": "glob",
+        "pattern": "packages/smithers/agent/model-host/**/*",
+        "exclude": []
+      }
+    ],
+    "outputs": [],
+    "dependencies": [],
+    "source": {
+      "file": "scripts/PACKAGE.ts"
+    }
+  },
+  {
+    "label": "//scripts:repositoryInputs_7061636b616765732f736d6974686572732f6167656e742f706c7567696e",
+    "package": "scripts",
+    "name": "repositoryInputs_7061636b616765732f736d6974686572732f6167656e742f706c7567696e",
+    "rule": "Filegroup",
+    "kinds": [],
+    "cacheable": true,
+    "inputs": [
+      {
+        "kind": "glob",
+        "pattern": "packages/smithers/agent/plugin/**/*",
+        "exclude": []
+      }
+    ],
+    "outputs": [],
+    "dependencies": [],
+    "source": {
+      "file": "scripts/PACKAGE.ts"
+    }
+  },
+  {
+    "label": "//scripts:repositoryInputs_7061636b616765732f736d6974686572732f6167656e742f7265676973747279",
+    "package": "scripts",
+    "name": "repositoryInputs_7061636b616765732f736d6974686572732f6167656e742f7265676973747279",
+    "rule": "Filegroup",
+    "kinds": [],
+    "cacheable": true,
+    "inputs": [
+      {
+        "kind": "glob",
+        "pattern": "packages/smithers/agent/registry/**/*",
+        "exclude": []
+      }
+    ],
+    "outputs": [],
+    "dependencies": [],
+    "source": {
+      "file": "scripts/PACKAGE.ts"
+    }
+  },
+  {
+    "label": "//scripts:repositoryInputs_7061636b616765732f736d6974686572732f6167656e742f73636f72657273",
+    "package": "scripts",
+    "name": "repositoryInputs_7061636b616765732f736d6974686572732f6167656e742f73636f72657273",
+    "rule": "Filegroup",
+    "kinds": [],
+    "cacheable": true,
+    "inputs": [
+      {
+        "kind": "glob",
+        "pattern": "packages/smithers/agent/scorers/**/*",
+        "exclude": []
+      }
+    ],
+    "outputs": [],
+    "dependencies": [],
+    "source": {
+      "file": "scripts/PACKAGE.ts"
+    }
+  },
+  {
+    "label": "//scripts:repositoryInputs_7061636b616765732f736d6974686572732f6167656e742f737464",
+    "package": "scripts",
+    "name": "repositoryInputs_7061636b616765732f736d6974686572732f6167656e742f737464",
+    "rule": "Filegroup",
+    "kinds": [],
+    "cacheable": true,
+    "inputs": [
+      {
+        "kind": "glob",
+        "pattern": "packages/smithers/agent/std/**/*",
+        "exclude": []
+      }
+    ],
+    "outputs": [],
+    "dependencies": [],
+    "source": {
+      "file": "scripts/PACKAGE.ts"
+    }
+  },
+  {
+    "label": "//scripts:repositoryInputs_7061636b616765732f736d6974686572732f6167656e742f7472696767657273",
+    "package": "scripts",
+    "name": "repositoryInputs_7061636b616765732f736d6974686572732f6167656e742f7472696767657273",
+    "rule": "Filegroup",
+    "kinds": [],
+    "cacheable": true,
+    "inputs": [
+      {
+        "kind": "glob",
+        "pattern": "packages/smithers/agent/triggers/**/*",
+        "exclude": []
+      }
+    ],
+    "outputs": [],
+    "dependencies": [],
+    "source": {
+      "file": "scripts/PACKAGE.ts"
+    }
+  },
+  {
+    "label": "//scripts:repositoryInputs_7061636b616765732f736d6974686572732f6275696c64",
+    "package": "scripts",
+    "name": "repositoryInputs_7061636b616765732f736d6974686572732f6275696c64",
+    "rule": "Filegroup",
+    "kinds": [],
+    "cacheable": true,
+    "inputs": [
+      {
+        "kind": "glob",
+        "pattern": "packages/smithers/build/**/*",
+        "exclude": []
+      }
+    ],
+    "outputs": [],
+    "dependencies": [],
+    "source": {
+      "file": "scripts/PACKAGE.ts"
+    }
+  },
+  {
+    "label": "//scripts:repositoryInputs_7061636b616765732f736d6974686572732f6275696c642f6275696c642d636c69",
+    "package": "scripts",
+    "name": "repositoryInputs_7061636b616765732f736d6974686572732f6275696c642f6275696c642d636c69",
+    "rule": "Filegroup",
+    "kinds": [],
+    "cacheable": true,
+    "inputs": [
+      {
+        "kind": "glob",
+        "pattern": "packages/smithers/build/build-cli/**/*",
+        "exclude": []
+      }
+    ],
+    "outputs": [],
+    "dependencies": [],
+    "source": {
+      "file": "scripts/PACKAGE.ts"
+    }
+  },
+  {
+    "label": "//scripts:repositoryInputs_7061636b616765732f736d6974686572732f6275696c642f6275696c642d636c692f746573742f66697874757265732f636861696e2d65786563",
+    "package": "scripts",
+    "name": "repositoryInputs_7061636b616765732f736d6974686572732f6275696c642f6275696c642d636c692f746573742f66697874757265732f636861696e2d65786563",
+    "rule": "Filegroup",
+    "kinds": [],
+    "cacheable": true,
+    "inputs": [
+      {
+        "kind": "glob",
+        "pattern": "packages/smithers/build/build-cli/test/fixtures/chain-exec/**/*",
+        "exclude": []
+      }
+    ],
+    "outputs": [],
+    "dependencies": [],
+    "source": {
+      "file": "scripts/PACKAGE.ts"
+    }
+  },
+  {
+    "label": "//scripts:repositoryInputs_7061636b616765732f736d6974686572732f6275696c642f6275696c642d636c692f746573742f66697874757265732f666f7263652d73706563",
+    "package": "scripts",
+    "name": "repositoryInputs_7061636b616765732f736d6974686572732f6275696c642f6275696c642d636c692f746573742f66697874757265732f666f7263652d73706563",
+    "rule": "Filegroup",
+    "kinds": [],
+    "cacheable": true,
+    "inputs": [
+      {
+        "kind": "glob",
+        "pattern": "packages/smithers/build/build-cli/test/fixtures/force-spec/**/*",
+        "exclude": []
+      }
+    ],
+    "outputs": [],
+    "dependencies": [],
+    "source": {
+      "file": "scripts/PACKAGE.ts"
+    }
+  },
+  {
+    "label": "//scripts:repositoryInputs_7061636b616765732f736d6974686572732f6275696c642f6275696c642d636c692f746573742f66697874757265732f666f7263652d737065632f2e676974687562",
+    "package": "scripts",
+    "name": "repositoryInputs_7061636b616765732f736d6974686572732f6275696c642f6275696c642d636c692f746573742f66697874757265732f666f7263652d737065632f2e676974687562",
+    "rule": "Filegroup",
+    "kinds": [],
+    "cacheable": true,
+    "inputs": [
+      {
+        "kind": "glob",
+        "pattern": "packages/smithers/build/build-cli/test/fixtures/force-spec/.github/**/*",
+        "exclude": []
+      }
+    ],
+    "outputs": [],
+    "dependencies": [],
+    "source": {
+      "file": "scripts/PACKAGE.ts"
+    }
+  },
+  {
+    "label": "//scripts:repositoryInputs_7061636b616765732f736d6974686572732f6275696c642f6275696c642d636c692f746573742f66697874757265732f666f7263652d737065632f2e73746f7279626f6f6b",
+    "package": "scripts",
+    "name": "repositoryInputs_7061636b616765732f736d6974686572732f6275696c642f6275696c642d636c692f746573742f66697874757265732f666f7263652d737065632f2e73746f7279626f6f6b",
+    "rule": "Filegroup",
+    "kinds": [],
+    "cacheable": true,
+    "inputs": [
+      {
+        "kind": "glob",
+        "pattern": "packages/smithers/build/build-cli/test/fixtures/force-spec/.storybook/**/*",
+        "exclude": []
+      }
+    ],
+    "outputs": [],
+    "dependencies": [],
+    "source": {
+      "file": "scripts/PACKAGE.ts"
+    }
+  },
+  {
+    "label": "//scripts:repositoryInputs_7061636b616765732f736d6974686572732f6275696c642f6275696c642d636c692f746573742f66697874757265732f666f7263652d737065632f64617461",
+    "package": "scripts",
+    "name": "repositoryInputs_7061636b616765732f736d6974686572732f6275696c642f6275696c642d636c692f746573742f66697874757265732f666f7263652d737065632f64617461",
+    "rule": "Filegroup",
+    "kinds": [],
+    "cacheable": true,
+    "inputs": [
+      {
+        "kind": "glob",
+        "pattern": "packages/smithers/build/build-cli/test/fixtures/force-spec/data/**/*",
+        "exclude": []
+      }
+    ],
+    "outputs": [],
+    "dependencies": [],
+    "source": {
+      "file": "scripts/PACKAGE.ts"
+    }
+  },
+  {
+    "label": "//scripts:repositoryInputs_7061636b616765732f736d6974686572732f6275696c642f6275696c642d636c692f746573742f66697874757265732f666f7263652d737065632f70617463686573",
+    "package": "scripts",
+    "name": "repositoryInputs_7061636b616765732f736d6974686572732f6275696c642f6275696c642d636c692f746573742f66697874757265732f666f7263652d737065632f70617463686573",
+    "rule": "Filegroup",
+    "kinds": [],
+    "cacheable": true,
+    "inputs": [
+      {
+        "kind": "glob",
+        "pattern": "packages/smithers/build/build-cli/test/fixtures/force-spec/patches/**/*",
+        "exclude": []
+      }
+    ],
+    "outputs": [],
+    "dependencies": [],
+    "source": {
+      "file": "scripts/PACKAGE.ts"
+    }
+  },
+  {
+    "label": "//scripts:repositoryInputs_7061636b616765732f736d6974686572732f6275696c642f6275696c642d636c692f746573742f66697874757265732f666f7263652d737065632f706c6179777269676874",
+    "package": "scripts",
+    "name": "repositoryInputs_7061636b616765732f736d6974686572732f6275696c642f6275696c642d636c692f746573742f66697874757265732f666f7263652d737065632f706c6179777269676874",
+    "rule": "Filegroup",
+    "kinds": [],
+    "cacheable": true,
+    "inputs": [
+      {
+        "kind": "glob",
+        "pattern": "packages/smithers/build/build-cli/test/fixtures/force-spec/playwright/**/*",
+        "exclude": []
+      }
+    ],
+    "outputs": [],
+    "dependencies": [],
+    "source": {
+      "file": "scripts/PACKAGE.ts"
+    }
+  },
+  {
+    "label": "//scripts:repositoryInputs_7061636b616765732f736d6974686572732f6275696c642f6275696c642d636c692f746573742f66697874757265732f666f7263652d737065632f737263",
+    "package": "scripts",
+    "name": "repositoryInputs_7061636b616765732f736d6974686572732f6275696c642f6275696c642d636c692f746573742f66697874757265732f666f7263652d737065632f737263",
+    "rule": "Filegroup",
+    "kinds": [],
+    "cacheable": true,
+    "inputs": [
+      {
+        "kind": "glob",
+        "pattern": "packages/smithers/build/build-cli/test/fixtures/force-spec/src/**/*",
+        "exclude": []
+      }
+    ],
+    "outputs": [],
+    "dependencies": [],
+    "source": {
+      "file": "scripts/PACKAGE.ts"
+    }
+  },
+  {
+    "label": "//scripts:repositoryInputs_7061636b616765732f736d6974686572732f6275696c642f6275696c642d636c692f746573742f66697874757265732f666f7263652d737065632f7372632f417070732f41756374696f6e",
+    "package": "scripts",
+    "name": "repositoryInputs_7061636b616765732f736d6974686572732f6275696c642f6275696c642d636c692f746573742f66697874757265732f666f7263652d737065632f7372632f417070732f41756374696f6e",
+    "rule": "Filegroup",
+    "kinds": [],
+    "cacheable": true,
+    "inputs": [
+      {
+        "kind": "glob",
+        "pattern": "packages/smithers/build/build-cli/test/fixtures/force-spec/src/Apps/Auction/**/*",
+        "exclude": []
+      }
+    ],
+    "outputs": [],
+    "dependencies": [],
+    "source": {
+      "file": "scripts/PACKAGE.ts"
+    }
+  },
+  {
+    "label": "//scripts:repositoryInputs_7061636b616765732f736d6974686572732f6275696c642f6275696c642d636c692f746573742f66697874757265732f666f7263652d737065632f7372632f417070732f4f7264657232",
+    "package": "scripts",
+    "name": "repositoryInputs_7061636b616765732f736d6974686572732f6275696c642f6275696c642d636c692f746573742f66697874757265732f666f7263652d737065632f7372632f417070732f4f7264657232",
+    "rule": "Filegroup",
+    "kinds": [],
+    "cacheable": true,
+    "inputs": [
+      {
+        "kind": "glob",
+        "pattern": "packages/smithers/build/build-cli/test/fixtures/force-spec/src/Apps/Order2/**/*",
+        "exclude": []
+      }
+    ],
+    "outputs": [],
+    "dependencies": [],
+    "source": {
+      "file": "scripts/PACKAGE.ts"
+    }
+  },
+  {
+    "label": "//scripts:repositoryInputs_7061636b616765732f736d6974686572732f6275696c642f6275696c642d636c692f746573742f66697874757265732f666f7263652d737065632f7372632f417070732f53657474696e6773",
+    "package": "scripts",
+    "name": "repositoryInputs_7061636b616765732f736d6974686572732f6275696c642f6275696c642d636c692f746573742f66697874757265732f666f7263652d737065632f7372632f417070732f53657474696e6773",
+    "rule": "Filegroup",
+    "kinds": [],
+    "cacheable": true,
+    "inputs": [
+      {
+        "kind": "glob",
+        "pattern": "packages/smithers/build/build-cli/test/fixtures/force-spec/src/Apps/Settings/**/*",
+        "exclude": []
+      }
+    ],
+    "outputs": [],
+    "dependencies": [],
+    "source": {
+      "file": "scripts/PACKAGE.ts"
+    }
+  },
+  {
+    "label": "//scripts:repositoryInputs_7061636b616765732f736d6974686572732f6275696c642f6275696c642d636c692f746573742f66697874757265732f666f7263652d737065632f7372632f536572766572",
+    "package": "scripts",
+    "name": "repositoryInputs_7061636b616765732f736d6974686572732f6275696c642f6275696c642d636c692f746573742f66697874757265732f666f7263652d737065632f7372632f536572766572",
+    "rule": "Filegroup",
+    "kinds": [],
+    "cacheable": true,
+    "inputs": [
+      {
+        "kind": "glob",
+        "pattern": "packages/smithers/build/build-cli/test/fixtures/force-spec/src/Server/**/*",
+        "exclude": []
+      }
+    ],
+    "outputs": [],
+    "dependencies": [],
+    "source": {
+      "file": "scripts/PACKAGE.ts"
+    }
+  },
+  {
+    "label": "//scripts:repositoryInputs_7061636b616765732f736d6974686572732f6275696c642f6275696c642d636c692f746573742f66697874757265732f666f7263652d737065632f776f726b666c6f77732f616464696e672d612d6e65772d6170702d726f757465",
+    "package": "scripts",
+    "name": "repositoryInputs_7061636b616765732f736d6974686572732f6275696c642f6275696c642d636c692f746573742f66697874757265732f666f7263652d737065632f776f726b666c6f77732f616464696e672d612d6e65772d6170702d726f757465",
+    "rule": "Filegroup",
+    "kinds": [],
+    "cacheable": true,
+    "inputs": [
+      {
+        "kind": "glob",
+        "pattern": "packages/smithers/build/build-cli/test/fixtures/force-spec/workflows/adding-a-new-app-route/**/*",
+        "exclude": []
+      }
+    ],
+    "outputs": [],
+    "dependencies": [],
+    "source": {
+      "file": "scripts/PACKAGE.ts"
+    }
+  },
+  {
+    "label": "//scripts:repositoryInputs_7061636b616765732f736d6974686572732f6275696c642f6275696c642d636c692f746573742f66697874757265732f666f7263652d737065632f776f726b666c6f77732f62656570",
+    "package": "scripts",
+    "name": "repositoryInputs_7061636b616765732f736d6974686572732f6275696c642f6275696c642d636c692f746573742f66697874757265732f666f7263652d737065632f776f726b666c6f77732f62656570",
+    "rule": "Filegroup",
+    "kinds": [],
+    "cacheable": true,
+    "inputs": [
+      {
+        "kind": "glob",
+        "pattern": "packages/smithers/build/build-cli/test/fixtures/force-spec/workflows/beep/**/*",
+        "exclude": []
+      }
+    ],
+    "outputs": [],
+    "dependencies": [],
+    "source": {
+      "file": "scripts/PACKAGE.ts"
+    }
+  },
+  {
+    "label": "//scripts:repositoryInputs_7061636b616765732f736d6974686572732f6275696c642f6275696c642d636c692f746573742f66697874757265732f666f7263652d737065632f776f726b666c6f77732f6669782d73656e7472792d6973737565",
+    "package": "scripts",
+    "name": "repositoryInputs_7061636b616765732f736d6974686572732f6275696c642f6275696c642d636c692f746573742f66697874757265732f666f7263652d737065632f776f726b666c6f77732f6669782d73656e7472792d6973737565",
+    "rule": "Filegroup",
+    "kinds": [],
+    "cacheable": true,
+    "inputs": [
+      {
+        "kind": "glob",
+        "pattern": "packages/smithers/build/build-cli/test/fixtures/force-spec/workflows/fix-sentry-issue/**/*",
+        "exclude": []
+      }
+    ],
+    "outputs": [],
+    "dependencies": [],
+    "source": {
+      "file": "scripts/PACKAGE.ts"
+    }
+  },
+  {
+    "label": "//scripts:repositoryInputs_7061636b616765732f736d6974686572732f6275696c642f6275696c642d636c692f746573742f66697874757265732f6d756c74692d7265706f",
+    "package": "scripts",
+    "name": "repositoryInputs_7061636b616765732f736d6974686572732f6275696c642f6275696c642d636c692f746573742f66697874757265732f6d756c74692d7265706f",
+    "rule": "Filegroup",
+    "kinds": [],
+    "cacheable": true,
+    "inputs": [
+      {
+        "kind": "glob",
+        "pattern": "packages/smithers/build/build-cli/test/fixtures/multi-repo/**/*",
+        "exclude": []
+      }
+    ],
+    "outputs": [],
+    "dependencies": [],
+    "source": {
+      "file": "scripts/PACKAGE.ts"
+    }
+  },
+  {
+    "label": "//scripts:repositoryInputs_7061636b616765732f736d6974686572732f6275696c642f6275696c642d636c692f746573742f66697874757265732f6d756c74692d7265706f2d63726564656e7469616c73",
+    "package": "scripts",
+    "name": "repositoryInputs_7061636b616765732f736d6974686572732f6275696c642f6275696c642d636c692f746573742f66697874757265732f6d756c74692d7265706f2d63726564656e7469616c73",
+    "rule": "Filegroup",
+    "kinds": [],
+    "cacheable": true,
+    "inputs": [
+      {
+        "kind": "glob",
+        "pattern": "packages/smithers/build/build-cli/test/fixtures/multi-repo-credentials/**/*",
+        "exclude": []
+      }
+    ],
+    "outputs": [],
+    "dependencies": [],
+    "source": {
+      "file": "scripts/PACKAGE.ts"
+    }
+  },
+  {
+    "label": "//scripts:repositoryInputs_7061636b616765732f736d6974686572732f6275696c642f6275696c642d636c692f746573742f66697874757265732f6d756c74692d7265706f2d63726564656e7469616c732f6368696c64",
+    "package": "scripts",
+    "name": "repositoryInputs_7061636b616765732f736d6974686572732f6275696c642f6275696c642d636c692f746573742f66697874757265732f6d756c74692d7265706f2d63726564656e7469616c732f6368696c64",
+    "rule": "Filegroup",
+    "kinds": [],
+    "cacheable": true,
+    "inputs": [
+      {
+        "kind": "glob",
+        "pattern": "packages/smithers/build/build-cli/test/fixtures/multi-repo-credentials/child/**/*",
+        "exclude": []
+      }
+    ],
+    "outputs": [],
+    "dependencies": [],
+    "source": {
+      "file": "scripts/PACKAGE.ts"
+    }
+  },
+  {
+    "label": "//scripts:repositoryInputs_7061636b616765732f736d6974686572732f6275696c642f6275696c642d636c692f746573742f66697874757265732f6d756c74692d7265706f2f62726f6b656e",
+    "package": "scripts",
+    "name": "repositoryInputs_7061636b616765732f736d6974686572732f6275696c642f6275696c642d636c692f746573742f66697874757265732f6d756c74692d7265706f2f62726f6b656e",
+    "rule": "Filegroup",
+    "kinds": [],
+    "cacheable": true,
+    "inputs": [
+      {
+        "kind": "glob",
+        "pattern": "packages/smithers/build/build-cli/test/fixtures/multi-repo/broken/**/*",
+        "exclude": []
+      }
+    ],
+    "outputs": [],
+    "dependencies": [],
+    "source": {
+      "file": "scripts/PACKAGE.ts"
+    }
+  },
+  {
+    "label": "//scripts:repositoryInputs_7061636b616765732f736d6974686572732f6275696c642f6275696c642d636c692f746573742f66697874757265732f6d756c74692d7265706f2f6368696c64",
+    "package": "scripts",
+    "name": "repositoryInputs_7061636b616765732f736d6974686572732f6275696c642f6275696c642d636c692f746573742f66697874757265732f6d756c74692d7265706f2f6368696c64",
+    "rule": "Filegroup",
+    "kinds": [],
+    "cacheable": true,
+    "inputs": [
+      {
+        "kind": "glob",
+        "pattern": "packages/smithers/build/build-cli/test/fixtures/multi-repo/child/**/*",
+        "exclude": []
+      }
+    ],
+    "outputs": [],
+    "dependencies": [],
+    "source": {
+      "file": "scripts/PACKAGE.ts"
+    }
+  },
+  {
+    "label": "//scripts:repositoryInputs_7061636b616765732f736d6974686572732f6275696c642f6275696c642d636c692f746573742f66697874757265732f73746570732d666f726d",
+    "package": "scripts",
+    "name": "repositoryInputs_7061636b616765732f736d6974686572732f6275696c642f6275696c642d636c692f746573742f66697874757265732f73746570732d666f726d",
+    "rule": "Filegroup",
+    "kinds": [],
+    "cacheable": true,
+    "inputs": [
+      {
+        "kind": "glob",
+        "pattern": "packages/smithers/build/build-cli/test/fixtures/steps-form/**/*",
+        "exclude": []
+      }
+    ],
+    "outputs": [],
+    "dependencies": [],
+    "source": {
+      "file": "scripts/PACKAGE.ts"
+    }
+  },
+  {
+    "label": "//scripts:repositoryInputs_7061636b616765732f736d6974686572732f6275696c642f6275696c642d636c692f746573742f66697874757265732f73746570732d666f726d2f2e676974687562",
+    "package": "scripts",
+    "name": "repositoryInputs_7061636b616765732f736d6974686572732f6275696c642f6275696c642d636c692f746573742f66697874757265732f73746570732d666f726d2f2e676974687562",
+    "rule": "Filegroup",
+    "kinds": [],
+    "cacheable": true,
+    "inputs": [
+      {
+        "kind": "glob",
+        "pattern": "packages/smithers/build/build-cli/test/fixtures/steps-form/.github/**/*",
+        "exclude": []
+      }
+    ],
+    "outputs": [],
+    "dependencies": [],
+    "source": {
+      "file": "scripts/PACKAGE.ts"
+    }
+  },
+  {
+    "label": "//scripts:repositoryInputs_7061636b616765732f736d6974686572732f6275696c642f6275696c642d636c692f746573742f66697874757265732f7461726765742d626f6479",
+    "package": "scripts",
+    "name": "repositoryInputs_7061636b616765732f736d6974686572732f6275696c642f6275696c642d636c692f746573742f66697874757265732f7461726765742d626f6479",
+    "rule": "Filegroup",
+    "kinds": [],
+    "cacheable": true,
+    "inputs": [
+      {
+        "kind": "glob",
+        "pattern": "packages/smithers/build/build-cli/test/fixtures/target-body/**/*",
+        "exclude": []
+      }
+    ],
+    "outputs": [],
+    "dependencies": [],
+    "source": {
+      "file": "scripts/PACKAGE.ts"
+    }
+  },
+  {
+    "label": "//scripts:repositoryInputs_7061636b616765732f736d6974686572732f6275696c642f6275696c642d636c692f746573742f66697874757265732f7669656d2d6e6f64652d737065632f656e7669726f6e6d656e7473",
+    "package": "scripts",
+    "name": "repositoryInputs_7061636b616765732f736d6974686572732f6275696c642f6275696c642d636c692f746573742f66697874757265732f7669656d2d6e6f64652d737065632f656e7669726f6e6d656e7473",
+    "rule": "Filegroup",
+    "kinds": [],
+    "cacheable": true,
+    "inputs": [
+      {
+        "kind": "glob",
+        "pattern": "packages/smithers/build/build-cli/test/fixtures/viem-node-spec/environments/**/*",
+        "exclude": []
+      }
+    ],
+    "outputs": [],
+    "dependencies": [],
+    "source": {
+      "file": "scripts/PACKAGE.ts"
+    }
+  },
+  {
+    "label": "//scripts:repositoryInputs_7061636b616765732f736d6974686572732f6275696c642f6275696c642d636c692f746573742f66697874757265732f7669656d2d6e6f64652d737065632f6578616d706c6573",
+    "package": "scripts",
+    "name": "repositoryInputs_7061636b616765732f736d6974686572732f6275696c642f6275696c642d636c692f746573742f66697874757265732f7669656d2d6e6f64652d737065632f6578616d706c6573",
+    "rule": "Filegroup",
+    "kinds": [],
+    "cacheable": true,
+    "inputs": [
+      {
+        "kind": "glob",
+        "pattern": "packages/smithers/build/build-cli/test/fixtures/viem-node-spec/examples/**/*",
+        "exclude": []
+      }
+    ],
+    "outputs": [],
+    "dependencies": [],
+    "source": {
+      "file": "scripts/PACKAGE.ts"
+    }
+  },
+  {
+    "label": "//scripts:repositoryInputs_7061636b616765732f736d6974686572732f6275696c642f6275696c642d636c692f746573742f66697874757265732f7669656d2d6e6f64652d737065632f73697465",
+    "package": "scripts",
+    "name": "repositoryInputs_7061636b616765732f736d6974686572732f6275696c642f6275696c642d636c692f746573742f66697874757265732f7669656d2d6e6f64652d737065632f73697465",
+    "rule": "Filegroup",
+    "kinds": [],
+    "cacheable": true,
+    "inputs": [
+      {
+        "kind": "glob",
+        "pattern": "packages/smithers/build/build-cli/test/fixtures/viem-node-spec/site/**/*",
+        "exclude": []
+      }
+    ],
+    "outputs": [],
+    "dependencies": [],
+    "source": {
+      "file": "scripts/PACKAGE.ts"
+    }
+  },
+  {
+    "label": "//scripts:repositoryInputs_7061636b616765732f736d6974686572732f6275696c642f6275696c642d636c692f746573742f66697874757265732f7669656d2d6e6f64652d737065632f737263",
+    "package": "scripts",
+    "name": "repositoryInputs_7061636b616765732f736d6974686572732f6275696c642f6275696c642d636c692f746573742f66697874757265732f7669656d2d6e6f64652d737065632f737263",
+    "rule": "Filegroup",
+    "kinds": [],
+    "cacheable": true,
+    "inputs": [
+      {
+        "kind": "glob",
+        "pattern": "packages/smithers/build/build-cli/test/fixtures/viem-node-spec/src/**/*",
+        "exclude": []
+      }
+    ],
+    "outputs": [],
+    "dependencies": [],
+    "source": {
+      "file": "scripts/PACKAGE.ts"
+    }
+  },
+  {
+    "label": "//scripts:repositoryInputs_7061636b616765732f736d6974686572732f6275696c642f6275696c642d636c692f746573742f66697874757265732f7669656d2d6e6f64652d737065632f766563746f7273",
+    "package": "scripts",
+    "name": "repositoryInputs_7061636b616765732f736d6974686572732f6275696c642f6275696c642d636c692f746573742f66697874757265732f7669656d2d6e6f64652d737065632f766563746f7273",
+    "rule": "Filegroup",
+    "kinds": [],
+    "cacheable": true,
+    "inputs": [
+      {
+        "kind": "glob",
+        "pattern": "packages/smithers/build/build-cli/test/fixtures/viem-node-spec/vectors/**/*",
+        "exclude": []
+      }
+    ],
+    "outputs": [],
+    "dependencies": [],
+    "source": {
+      "file": "scripts/PACKAGE.ts"
+    }
+  },
+  {
+    "label": "//scripts:repositoryInputs_7061636b616765732f736d6974686572732f6275696c642f696e667261",
+    "package": "scripts",
+    "name": "repositoryInputs_7061636b616765732f736d6974686572732f6275696c642f696e667261",
+    "rule": "Filegroup",
+    "kinds": [],
+    "cacheable": true,
+    "inputs": [
+      {
+        "kind": "glob",
+        "pattern": "packages/smithers/build/infra/**/*",
+        "exclude": []
+      }
+    ],
+    "outputs": [],
+    "dependencies": [],
+    "source": {
+      "file": "scripts/PACKAGE.ts"
+    }
+  },
+  {
+    "label": "//scripts:repositoryInputs_7061636b616765732f736d6974686572732f6275696c642f74617267657473",
+    "package": "scripts",
+    "name": "repositoryInputs_7061636b616765732f736d6974686572732f6275696c642f74617267657473",
+    "rule": "Filegroup",
+    "kinds": [],
+    "cacheable": true,
+    "inputs": [
+      {
+        "kind": "glob",
+        "pattern": "packages/smithers/build/targets/**/*",
+        "exclude": []
+      }
+    ],
+    "outputs": [],
+    "dependencies": [],
+    "source": {
+      "file": "scripts/PACKAGE.ts"
+    }
+  },
+  {
+    "label": "//scripts:repositoryInputs_7061636b616765732f736d6974686572732f636f6e74726f6c",
+    "package": "scripts",
+    "name": "repositoryInputs_7061636b616765732f736d6974686572732f636f6e74726f6c",
+    "rule": "Filegroup",
+    "kinds": [],
+    "cacheable": true,
+    "inputs": [
+      {
+        "kind": "glob",
+        "pattern": "packages/smithers/control/**/*",
+        "exclude": []
+      }
+    ],
+    "outputs": [],
+    "dependencies": [],
+    "source": {
+      "file": "scripts/PACKAGE.ts"
+    }
+  },
+  {
+    "label": "//scripts:repositoryInputs_7061636b616765732f736d6974686572732f666c6f7773",
+    "package": "scripts",
+    "name": "repositoryInputs_7061636b616765732f736d6974686572732f666c6f7773",
+    "rule": "Filegroup",
+    "kinds": [],
+    "cacheable": true,
+    "inputs": [
+      {
+        "kind": "glob",
+        "pattern": "packages/smithers/flows/**/*",
+        "exclude": []
+      }
+    ],
+    "outputs": [],
+    "dependencies": [],
+    "source": {
+      "file": "scripts/PACKAGE.ts"
+    }
+  },
+  {
+    "label": "//scripts:repositoryInputs_7061636b616765732f736d6974686572732f666c6f77732f617274696661637473",
+    "package": "scripts",
+    "name": "repositoryInputs_7061636b616765732f736d6974686572732f666c6f77732f617274696661637473",
+    "rule": "Filegroup",
+    "kinds": [],
+    "cacheable": true,
+    "inputs": [
+      {
+        "kind": "glob",
+        "pattern": "packages/smithers/flows/artifacts/**/*",
+        "exclude": []
+      }
+    ],
+    "outputs": [],
+    "dependencies": [],
+    "source": {
+      "file": "scripts/PACKAGE.ts"
+    }
+  },
+  {
+    "label": "//scripts:repositoryInputs_7061636b616765732f736d6974686572732f666c6f77732f63616e6f6e6963616c",
+    "package": "scripts",
+    "name": "repositoryInputs_7061636b616765732f736d6974686572732f666c6f77732f63616e6f6e6963616c",
+    "rule": "Filegroup",
+    "kinds": [],
+    "cacheable": true,
+    "inputs": [
+      {
+        "kind": "glob",
+        "pattern": "packages/smithers/flows/canonical/**/*",
+        "exclude": []
+      }
+    ],
+    "outputs": [],
+    "dependencies": [],
+    "source": {
+      "file": "scripts/PACKAGE.ts"
+    }
+  },
+  {
+    "label": "//scripts:repositoryInputs_7061636b616765732f736d6974686572732f666c6f77732f6361706162696c697479",
+    "package": "scripts",
+    "name": "repositoryInputs_7061636b616765732f736d6974686572732f666c6f77732f6361706162696c697479",
+    "rule": "Filegroup",
+    "kinds": [],
+    "cacheable": true,
+    "inputs": [
+      {
+        "kind": "glob",
+        "pattern": "packages/smithers/flows/capability/**/*",
+        "exclude": []
+      }
+    ],
+    "outputs": [],
+    "dependencies": [],
+    "source": {
+      "file": "scripts/PACKAGE.ts"
+    }
+  },
+  {
+    "label": "//scripts:repositoryInputs_7061636b616765732f736d6974686572732f666c6f77732f636f7265",
+    "package": "scripts",
+    "name": "repositoryInputs_7061636b616765732f736d6974686572732f666c6f77732f636f7265",
+    "rule": "Filegroup",
+    "kinds": [],
+    "cacheable": true,
+    "inputs": [
+      {
+        "kind": "glob",
+        "pattern": "packages/smithers/flows/core/**/*",
+        "exclude": []
+      }
+    ],
+    "outputs": [],
+    "dependencies": [],
+    "source": {
+      "file": "scripts/PACKAGE.ts"
+    }
+  },
+  {
+    "label": "//scripts:repositoryInputs_7061636b616765732f736d6974686572732f666c6f77732f63727970746f",
+    "package": "scripts",
+    "name": "repositoryInputs_7061636b616765732f736d6974686572732f666c6f77732f63727970746f",
+    "rule": "Filegroup",
+    "kinds": [],
+    "cacheable": true,
+    "inputs": [
+      {
+        "kind": "glob",
+        "pattern": "packages/smithers/flows/crypto/**/*",
+        "exclude": []
+      }
+    ],
+    "outputs": [],
+    "dependencies": [],
+    "source": {
+      "file": "scripts/PACKAGE.ts"
+    }
+  },
+  {
+    "label": "//scripts:repositoryInputs_7061636b616765732f736d6974686572732f666c6f77732f6461746162617365",
+    "package": "scripts",
+    "name": "repositoryInputs_7061636b616765732f736d6974686572732f666c6f77732f6461746162617365",
+    "rule": "Filegroup",
+    "kinds": [],
+    "cacheable": true,
+    "inputs": [
+      {
+        "kind": "glob",
+        "pattern": "packages/smithers/flows/database/**/*",
+        "exclude": []
+      }
+    ],
+    "outputs": [],
+    "dependencies": [],
+    "source": {
+      "file": "scripts/PACKAGE.ts"
+    }
+  },
+  {
+    "label": "//scripts:repositoryInputs_7061636b616765732f736d6974686572732f666c6f77732f656e67696e65",
+    "package": "scripts",
+    "name": "repositoryInputs_7061636b616765732f736d6974686572732f666c6f77732f656e67696e65",
+    "rule": "Filegroup",
+    "kinds": [],
+    "cacheable": true,
+    "inputs": [
+      {
+        "kind": "glob",
+        "pattern": "packages/smithers/flows/engine/**/*",
+        "exclude": []
+      }
+    ],
+    "outputs": [],
+    "dependencies": [],
+    "source": {
+      "file": "scripts/PACKAGE.ts"
+    }
+  },
+  {
+    "label": "//scripts:repositoryInputs_7061636b616765732f736d6974686572732f666c6f77732f656e67696e652d73746f7265",
+    "package": "scripts",
+    "name": "repositoryInputs_7061636b616765732f736d6974686572732f666c6f77732f656e67696e652d73746f7265",
+    "rule": "Filegroup",
+    "kinds": [],
+    "cacheable": true,
+    "inputs": [
+      {
+        "kind": "glob",
+        "pattern": "packages/smithers/flows/engine-store/**/*",
+        "exclude": []
+      }
+    ],
+    "outputs": [],
+    "dependencies": [],
+    "source": {
+      "file": "scripts/PACKAGE.ts"
+    }
+  },
+  {
+    "label": "//scripts:repositoryInputs_7061636b616765732f736d6974686572732f666c6f77732f666c6f77",
+    "package": "scripts",
+    "name": "repositoryInputs_7061636b616765732f736d6974686572732f666c6f77732f666c6f77",
+    "rule": "Filegroup",
+    "kinds": [],
+    "cacheable": true,
+    "inputs": [
+      {
+        "kind": "glob",
+        "pattern": "packages/smithers/flows/flow/**/*",
+        "exclude": []
+      }
+    ],
+    "outputs": [],
+    "dependencies": [],
+    "source": {
+      "file": "scripts/PACKAGE.ts"
+    }
+  },
+  {
+    "label": "//scripts:repositoryInputs_7061636b616765732f736d6974686572732f666c6f77732f6a6a",
+    "package": "scripts",
+    "name": "repositoryInputs_7061636b616765732f736d6974686572732f666c6f77732f6a6a",
+    "rule": "Filegroup",
+    "kinds": [],
+    "cacheable": true,
+    "inputs": [
+      {
+        "kind": "glob",
+        "pattern": "packages/smithers/flows/jj/**/*",
+        "exclude": []
+      }
+    ],
+    "outputs": [],
+    "dependencies": [],
+    "source": {
+      "file": "scripts/PACKAGE.ts"
+    }
+  },
+  {
+    "label": "//scripts:repositoryInputs_7061636b616765732f736d6974686572732f666c6f77732f6a6f75726e616c",
+    "package": "scripts",
+    "name": "repositoryInputs_7061636b616765732f736d6974686572732f666c6f77732f6a6f75726e616c",
+    "rule": "Filegroup",
+    "kinds": [],
+    "cacheable": true,
+    "inputs": [
+      {
+        "kind": "glob",
+        "pattern": "packages/smithers/flows/journal/**/*",
+        "exclude": []
+      }
+    ],
+    "outputs": [],
+    "dependencies": [],
+    "source": {
+      "file": "scripts/PACKAGE.ts"
+    }
+  },
+  {
+    "label": "//scripts:repositoryInputs_7061636b616765732f736d6974686572732f666c6f77732f6b65726e656c",
+    "package": "scripts",
+    "name": "repositoryInputs_7061636b616765732f736d6974686572732f666c6f77732f6b65726e656c",
+    "rule": "Filegroup",
+    "kinds": [],
+    "cacheable": true,
+    "inputs": [
+      {
+        "kind": "glob",
+        "pattern": "packages/smithers/flows/kernel/**/*",
+        "exclude": []
+      }
+    ],
+    "outputs": [],
+    "dependencies": [],
+    "source": {
+      "file": "scripts/PACKAGE.ts"
+    }
+  },
+  {
+    "label": "//scripts:repositoryInputs_7061636b616765732f736d6974686572732f666c6f77732f6b657973",
+    "package": "scripts",
+    "name": "repositoryInputs_7061636b616765732f736d6974686572732f666c6f77732f6b657973",
+    "rule": "Filegroup",
+    "kinds": [],
+    "cacheable": true,
+    "inputs": [
+      {
+        "kind": "glob",
+        "pattern": "packages/smithers/flows/keys/**/*",
+        "exclude": []
+      }
+    ],
+    "outputs": [],
+    "dependencies": [],
+    "source": {
+      "file": "scripts/PACKAGE.ts"
+    }
+  },
+  {
+    "label": "//scripts:repositoryInputs_7061636b616765732f736d6974686572732f666c6f77732f6f62736572766162696c697479",
+    "package": "scripts",
+    "name": "repositoryInputs_7061636b616765732f736d6974686572732f666c6f77732f6f62736572766162696c697479",
+    "rule": "Filegroup",
+    "kinds": [],
+    "cacheable": true,
+    "inputs": [
+      {
+        "kind": "glob",
+        "pattern": "packages/smithers/flows/observability/**/*",
+        "exclude": []
+      }
+    ],
+    "outputs": [],
+    "dependencies": [],
+    "source": {
+      "file": "scripts/PACKAGE.ts"
+    }
+  },
+  {
+    "label": "//scripts:repositoryInputs_7061636b616765732f736d6974686572732f666c6f77732f7061747465726e73",
+    "package": "scripts",
+    "name": "repositoryInputs_7061636b616765732f736d6974686572732f666c6f77732f7061747465726e73",
+    "rule": "Filegroup",
+    "kinds": [],
+    "cacheable": true,
+    "inputs": [
+      {
+        "kind": "glob",
+        "pattern": "packages/smithers/flows/patterns/**/*",
+        "exclude": []
+      }
+    ],
+    "outputs": [],
+    "dependencies": [],
+    "source": {
+      "file": "scripts/PACKAGE.ts"
+    }
+  },
+  {
+    "label": "//scripts:repositoryInputs_7061636b616765732f736d6974686572732f666c6f77732f706c616e",
+    "package": "scripts",
+    "name": "repositoryInputs_7061636b616765732f736d6974686572732f666c6f77732f706c616e",
+    "rule": "Filegroup",
+    "kinds": [],
+    "cacheable": true,
+    "inputs": [
+      {
+        "kind": "glob",
+        "pattern": "packages/smithers/flows/plan/**/*",
+        "exclude": []
+      }
+    ],
+    "outputs": [],
+    "dependencies": [],
+    "source": {
+      "file": "scripts/PACKAGE.ts"
+    }
+  },
+  {
+    "label": "//scripts:repositoryInputs_7061636b616765732f736d6974686572732f666c6f77732f706c616e2d73746f7265",
+    "package": "scripts",
+    "name": "repositoryInputs_7061636b616765732f736d6974686572732f666c6f77732f706c616e2d73746f7265",
+    "rule": "Filegroup",
+    "kinds": [],
+    "cacheable": true,
+    "inputs": [
+      {
+        "kind": "glob",
+        "pattern": "packages/smithers/flows/plan-store/**/*",
+        "exclude": []
+      }
+    ],
+    "outputs": [],
+    "dependencies": [],
+    "source": {
+      "file": "scripts/PACKAGE.ts"
+    }
+  },
+  {
+    "label": "//scripts:repositoryInputs_7061636b616765732f736d6974686572732f666c6f77732f706c6174666f726d2d62726f77736572",
+    "package": "scripts",
+    "name": "repositoryInputs_7061636b616765732f736d6974686572732f666c6f77732f706c6174666f726d2d62726f77736572",
+    "rule": "Filegroup",
+    "kinds": [],
+    "cacheable": true,
+    "inputs": [
+      {
+        "kind": "glob",
+        "pattern": "packages/smithers/flows/platform-browser/**/*",
+        "exclude": []
+      }
+    ],
+    "outputs": [],
+    "dependencies": [],
+    "source": {
+      "file": "scripts/PACKAGE.ts"
+    }
+  },
+  {
+    "label": "//scripts:repositoryInputs_7061636b616765732f736d6974686572732f666c6f77732f706c6174666f726d2d62756e",
+    "package": "scripts",
+    "name": "repositoryInputs_7061636b616765732f736d6974686572732f666c6f77732f706c6174666f726d2d62756e",
+    "rule": "Filegroup",
+    "kinds": [],
+    "cacheable": true,
+    "inputs": [
+      {
+        "kind": "glob",
+        "pattern": "packages/smithers/flows/platform-bun/**/*",
+        "exclude": []
+      }
+    ],
+    "outputs": [],
+    "dependencies": [],
+    "source": {
+      "file": "scripts/PACKAGE.ts"
+    }
+  },
+  {
+    "label": "//scripts:repositoryInputs_7061636b616765732f736d6974686572732f666c6f77732f706c6174666f726d2d6e6f6465",
+    "package": "scripts",
+    "name": "repositoryInputs_7061636b616765732f736d6974686572732f666c6f77732f706c6174666f726d2d6e6f6465",
+    "rule": "Filegroup",
+    "kinds": [],
+    "cacheable": true,
+    "inputs": [
+      {
+        "kind": "glob",
+        "pattern": "packages/smithers/flows/platform-node/**/*",
+        "exclude": []
+      }
+    ],
+    "outputs": [],
+    "dependencies": [],
+    "source": {
+      "file": "scripts/PACKAGE.ts"
+    }
+  },
+  {
+    "label": "//scripts:repositoryInputs_7061636b616765732f736d6974686572732f666c6f77732f72756e2d73746f7265",
+    "package": "scripts",
+    "name": "repositoryInputs_7061636b616765732f736d6974686572732f666c6f77732f72756e2d73746f7265",
+    "rule": "Filegroup",
+    "kinds": [],
+    "cacheable": true,
+    "inputs": [
+      {
+        "kind": "glob",
+        "pattern": "packages/smithers/flows/run-store/**/*",
+        "exclude": []
+      }
+    ],
+    "outputs": [],
+    "dependencies": [],
+    "source": {
+      "file": "scripts/PACKAGE.ts"
+    }
+  },
+  {
+    "label": "//scripts:repositoryInputs_7061636b616765732f736d6974686572732f666c6f77732f73616e64626f78",
+    "package": "scripts",
+    "name": "repositoryInputs_7061636b616765732f736d6974686572732f666c6f77732f73616e64626f78",
+    "rule": "Filegroup",
+    "kinds": [],
+    "cacheable": true,
+    "inputs": [
+      {
+        "kind": "glob",
+        "pattern": "packages/smithers/flows/sandbox/**/*",
+        "exclude": []
+      }
+    ],
+    "outputs": [],
+    "dependencies": [],
+    "source": {
+      "file": "scripts/PACKAGE.ts"
+    }
+  },
+  {
+    "label": "//scripts:repositoryInputs_7061636b616765732f736d6974686572732f666c6f77732f737465702d6361636865",
+    "package": "scripts",
+    "name": "repositoryInputs_7061636b616765732f736d6974686572732f666c6f77732f737465702d6361636865",
+    "rule": "Filegroup",
+    "kinds": [],
+    "cacheable": true,
+    "inputs": [
+      {
+        "kind": "glob",
+        "pattern": "packages/smithers/flows/step-cache/**/*",
+        "exclude": []
+      }
+    ],
+    "outputs": [],
+    "dependencies": [],
+    "source": {
+      "file": "scripts/PACKAGE.ts"
+    }
+  },
+  {
+    "label": "//scripts:repositoryInputs_7061636b616765732f736d6974686572732f666c6f77732f73796e63",
+    "package": "scripts",
+    "name": "repositoryInputs_7061636b616765732f736d6974686572732f666c6f77732f73796e63",
+    "rule": "Filegroup",
+    "kinds": [],
+    "cacheable": true,
+    "inputs": [
+      {
+        "kind": "glob",
+        "pattern": "packages/smithers/flows/sync/**/*",
+        "exclude": []
+      }
+    ],
+    "outputs": [],
+    "dependencies": [],
+    "source": {
+      "file": "scripts/PACKAGE.ts"
+    }
+  },
+  {
+    "label": "//scripts:repositoryInputs_7061636b616765732f736d6974686572732f666c6f77732f74696d652d74726176656c",
+    "package": "scripts",
+    "name": "repositoryInputs_7061636b616765732f736d6974686572732f666c6f77732f74696d652d74726176656c",
+    "rule": "Filegroup",
+    "kinds": [],
+    "cacheable": true,
+    "inputs": [
+      {
+        "kind": "glob",
+        "pattern": "packages/smithers/flows/time-travel/**/*",
+        "exclude": []
+      }
+    ],
+    "outputs": [],
+    "dependencies": [],
+    "source": {
+      "file": "scripts/PACKAGE.ts"
+    }
+  },
+  {
+    "label": "//scripts:repositoryInputs_7061636b616765732f736d6974686572732f67617465776179",
+    "package": "scripts",
+    "name": "repositoryInputs_7061636b616765732f736d6974686572732f67617465776179",
+    "rule": "Filegroup",
+    "kinds": [],
+    "cacheable": true,
+    "inputs": [
+      {
+        "kind": "glob",
+        "pattern": "packages/smithers/gateway/**/*",
+        "exclude": []
+      }
+    ],
+    "outputs": [],
+    "dependencies": [],
+    "source": {
+      "file": "scripts/PACKAGE.ts"
+    }
+  },
+  {
+    "label": "//scripts:repositoryInputs_7061636b616765732f736d6974686572732f6d6370",
+    "package": "scripts",
+    "name": "repositoryInputs_7061636b616765732f736d6974686572732f6d6370",
+    "rule": "Filegroup",
+    "kinds": [],
+    "cacheable": true,
+    "inputs": [
+      {
+        "kind": "glob",
+        "pattern": "packages/smithers/mcp/**/*",
+        "exclude": []
+      }
+    ],
+    "outputs": [],
+    "dependencies": [],
+    "source": {
+      "file": "scripts/PACKAGE.ts"
+    }
+  },
+  {
+    "label": "//scripts:repositoryInputs_7061636b616765732f736d6974686572732f6d696772617465",
+    "package": "scripts",
+    "name": "repositoryInputs_7061636b616765732f736d6974686572732f6d696772617465",
+    "rule": "Filegroup",
+    "kinds": [],
+    "cacheable": true,
+    "inputs": [
+      {
+        "kind": "glob",
+        "pattern": "packages/smithers/migrate/**/*",
+        "exclude": []
+      }
+    ],
+    "outputs": [],
+    "dependencies": [],
+    "source": {
+      "file": "scripts/PACKAGE.ts"
+    }
+  },
+  {
+    "label": "//scripts:repositoryInputs_7061636b616765732f736d6974686572732f6e6f74696669636174696f6e73",
+    "package": "scripts",
+    "name": "repositoryInputs_7061636b616765732f736d6974686572732f6e6f74696669636174696f6e73",
+    "rule": "Filegroup",
+    "kinds": [],
+    "cacheable": true,
+    "inputs": [
+      {
+        "kind": "glob",
+        "pattern": "packages/smithers/notifications/**/*",
+        "exclude": []
+      }
+    ],
+    "outputs": [],
+    "dependencies": [],
+    "source": {
+      "file": "scripts/PACKAGE.ts"
+    }
+  },
+  {
+    "label": "//scripts:repositoryInputs_7061636b616765732f736d6974686572732f7569",
+    "package": "scripts",
+    "name": "repositoryInputs_7061636b616765732f736d6974686572732f7569",
+    "rule": "Filegroup",
+    "kinds": [],
+    "cacheable": true,
+    "inputs": [
+      {
+        "kind": "glob",
+        "pattern": "packages/smithers/ui/**/*",
+        "exclude": []
+      }
+    ],
+    "outputs": [],
+    "dependencies": [],
+    "source": {
+      "file": "scripts/PACKAGE.ts"
+    }
+  },
+  {
+    "label": "//scripts:repositoryInputs_7061636b616765732f736d6974686572732f75692f75692d7374796c656775696465",
+    "package": "scripts",
+    "name": "repositoryInputs_7061636b616765732f736d6974686572732f75692f75692d7374796c656775696465",
+    "rule": "Filegroup",
+    "kinds": [],
+    "cacheable": true,
+    "inputs": [
+      {
+        "kind": "glob",
+        "pattern": "packages/smithers/ui/ui-styleguide/**/*",
+        "exclude": []
+      }
+    ],
+    "outputs": [],
+    "dependencies": [],
+    "source": {
+      "file": "scripts/PACKAGE.ts"
+    }
+  },
+  {
+    "label": "//scripts:repositoryInputs_7061636b616765732f736d746872732d6465707265636174696f6e",
+    "package": "scripts",
+    "name": "repositoryInputs_7061636b616765732f736d746872732d6465707265636174696f6e",
+    "rule": "Filegroup",
+    "kinds": [],
+    "cacheable": true,
+    "inputs": [
+      {
+        "kind": "glob",
+        "pattern": "packages/smthrs-deprecation/**/*",
+        "exclude": []
+      }
+    ],
+    "outputs": [],
+    "dependencies": [],
+    "source": {
+      "file": "scripts/PACKAGE.ts"
+    }
+  },
+  {
+    "label": "//scripts:repositoryInputs_7061636b616765732f74657374696e67",
+    "package": "scripts",
+    "name": "repositoryInputs_7061636b616765732f74657374696e67",
+    "rule": "Filegroup",
+    "kinds": [],
+    "cacheable": true,
+    "inputs": [
+      {
+        "kind": "glob",
+        "pattern": "packages/testing/**/*",
+        "exclude": []
+      }
+    ],
+    "outputs": [],
+    "dependencies": [],
+    "source": {
+      "file": "scripts/PACKAGE.ts"
+    }
+  },
+  {
+    "label": "//scripts:repositoryInputs_73637269707473",
+    "package": "scripts",
+    "name": "repositoryInputs_73637269707473",
+    "rule": "Filegroup",
+    "kinds": [],
+    "cacheable": true,
+    "inputs": [
+      {
+        "kind": "glob",
+        "pattern": "scripts/**/*",
+        "exclude": []
+      }
+    ],
+    "outputs": [],
+    "dependencies": [],
+    "source": {
+      "file": "scripts/PACKAGE.ts"
+    }
+  },
+  {
+    "label": "//scripts:repositoryInputs_736372697074732f7265706f2d636f6e7472616374",
+    "package": "scripts",
+    "name": "repositoryInputs_736372697074732f7265706f2d636f6e7472616374",
+    "rule": "Filegroup",
+    "kinds": [],
+    "cacheable": true,
+    "inputs": [
+      {
+        "kind": "glob",
+        "pattern": "scripts/repo-contract/**/*",
+        "exclude": []
+      }
+    ],
+    "outputs": [],
+    "dependencies": [],
+    "source": {
+      "file": "scripts/PACKAGE.ts"
+    }
+  },
+  {
+    "label": "//scripts:repositoryInputs_736372697074732f7370696b65732f636f6c2d3031",
+    "package": "scripts",
+    "name": "repositoryInputs_736372697074732f7370696b65732f636f6c2d3031",
+    "rule": "Filegroup",
+    "kinds": [],
+    "cacheable": true,
+    "inputs": [
+      {
+        "kind": "glob",
+        "pattern": "scripts/spikes/col-01/**/*",
+        "exclude": []
+      }
+    ],
+    "outputs": [],
+    "dependencies": [],
+    "source": {
+      "file": "scripts/PACKAGE.ts"
+    }
+  },
+  {
+    "label": "//scripts:repositoryInputs_736372697074732f7370696b65732f6d63682d30322d76697274696f66732d686f6d6573",
+    "package": "scripts",
+    "name": "repositoryInputs_736372697074732f7370696b65732f6d63682d30322d76697274696f66732d686f6d6573",
+    "rule": "Filegroup",
+    "kinds": [],
+    "cacheable": true,
+    "inputs": [
+      {
+        "kind": "glob",
+        "pattern": "scripts/spikes/mch-02-virtiofs-homes/**/*",
+        "exclude": []
+      }
+    ],
+    "outputs": [],
+    "dependencies": [],
+    "source": {
+      "file": "scripts/PACKAGE.ts"
+    }
+  },
+  {
+    "label": "//scripts:repositoryInputs_root",
+    "package": "scripts",
+    "name": "repositoryInputs_root",
+    "rule": "Filegroup",
+    "kinds": [],
+    "cacheable": true,
+    "inputs": [
+      {
+        "kind": "glob",
+        "pattern": "**/*",
+        "exclude": []
+      }
+    ],
+    "outputs": [],
+    "dependencies": [],
+    "source": {
+      "file": "scripts/PACKAGE.ts"
+    }
+  },
+  {
     "label": "//scripts:security",
     "package": "scripts",
     "name": "security",
@@ -42377,21 +44749,11 @@
       "lint"
     ],
     "cacheable": false,
-    "inputs": [
-      {
-        "kind": "file",
-        "path": "scripts/check-tracked-hygiene.mjs"
-      },
-      {
-        "kind": "glob",
-        "pattern": "**/*",
-        "exclude": [
-          "node_modules/**"
-        ]
-      }
-    ],
+    "inputs": [],
     "outputs": [],
-    "dependencies": [],
+    "dependencies": [
+      "//scripts:repositoryInputs"
+    ],
     "source": {
       "file": "scripts/PACKAGE.ts"
     }

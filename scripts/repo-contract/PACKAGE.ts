@@ -11,6 +11,7 @@
  * `node`.
  */
 import { Smithers } from "@smthrs/targets"
+import { Package as scriptPackage } from "../PACKAGE.ts"
 import { Package as sitePackage } from "../../apps/site/PACKAGE.ts"
 
 /** Every gate in this directory, digested as the input of each target. */
@@ -80,13 +81,11 @@ const testScriptWiring = Smithers.NodeTest({
     Smithers.file("//PACKAGE.ts"),
     Smithers.file("//scripts/PACKAGE.ts"),
     Smithers.file("//scripts/repo-contract/PACKAGE.ts"),
-    Smithers.glob("//scripts/**/*.test.mjs"),
-    Smithers.glob("//factory/**/*.test.ts"),
     Smithers.file("//.github/workflows/ci.yml"),
     Smithers.file("//package.json"),
     Smithers.file("//pnpm-workspace.yaml")
   ],
-  deps: []
+  deps: [scriptPackage.repositoryInputs]
 })
 
 /**
@@ -129,8 +128,8 @@ const reliabilityWorkflow = Smithers.NodeTest({
 /** Mac distribution deletion and lifecycle handoff contract. */
 const macDistribution = Smithers.NodeTest({
   runner: Smithers.testRunner([Smithers.file("//scripts/repo-contract/mac-distribution.test.mjs")]),
-  srcs: [sources, Smithers.glob("//distribution/*"), Smithers.glob("//.github/workflows/*.yml"), Smithers.glob("//apps/app/scripts/mode-matrix/*.ts")],
-  deps: []
+  srcs: [sources, ],
+  deps: [scriptPackage.repositoryInputs]
 })
 
 /**

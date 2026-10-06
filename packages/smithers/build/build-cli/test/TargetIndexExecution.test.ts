@@ -360,7 +360,7 @@ export const Package = S.Package({ targets: { docsFiles } })
     expect(missing.logs + missing.output).toContain("agent/PACKAGE.ts")
   })
 
-  it("validates a NodeTest dependency anchored in a sibling package", async () => {
+  it("validates repository-wide NodeTest inputs through package-scoped groups", async () => {
     const root = await fixture()
     await write(root, "shared/PACKAGE.ts", `import { Smithers as S } from "@smthrs/targets"
 export const Package = S.Package({ targets: {} })
@@ -368,12 +368,12 @@ export const Package = S.Package({ targets: {} })
     await write(root, "shared/src/source.ts", "export const value = 1\n")
     await write(root, "PACKAGE.ts", packageModule().replace(
       'const good =',
-      'const sharedInputs = S.Filegroup({ cwd: "shared", srcs: [S.glob("src/*.ts")] })\nconst consumer = S.NodeTest({ runner: S.entrypoint(S.file("//scripts/notes.mjs")), srcs: [], deps: [sharedInputs] })\nconst good ='
-    ).replace("all, good, notes, targetIndex", "sharedInputs, consumer, all, good, notes, targetIndex"))
+      'const sharedInputs = S.Filegroup({ cwd: "shared", srcs: [S.glob("src/*.ts")] })\nconst checkoutInputs = S.Filegroup({ cwd: "//", srcs: [S.glob("**/*"), sharedInputs] })\nconst consumer = S.NodeTest({ runner: S.entrypoint(S.file("//scripts/notes.mjs")), srcs: [], deps: [checkoutInputs] })\nconst good ='
+    ).replace("all, good, notes, targetIndex", "sharedInputs, checkoutInputs, consumer, all, good, notes, targetIndex"))
     expect((await serve(root, ["target", "//:targetIndex", "--write"])).exitCode).toBe(0)
     const valid = await serve(root, ["lint", "//:targetIndex"])
     expect(valid.exitCode, valid.logs + valid.output).toBe(0)
-    expect((await indexOf(root)).find((row) => row.label === "//:consumer")?.dependencies).toEqual(["//:sharedInputs"])
+    expect((await indexOf(root)).find((row) => row.label === "//:consumer")?.dependencies).toEqual(["//:checkoutInputs"])
     await Fs.rename(NodePath.join(root, "shared/src/source.ts"), NodePath.join(root, "shared/src/source.moved"))
     const missing = await serve(root, ["lint", "//:targetIndex"])
     expect(missing.exitCode).toBe(1)
