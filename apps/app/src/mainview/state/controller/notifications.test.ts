@@ -165,3 +165,60 @@ test("reusing a work slot clears its old routed audience", async () => {
     expect(b.notices.length).toBe(1)
   } finally { await t.dispose() }
 })
+
+
+test("served TODO projections route questions, review and retry failure into browser delivery", async () => {
+  const { createTodoSeam } = await import("../seams/TodoSeam")
+  const { fixtures } = await import("../../../../../../packages/rpc/test/fixtures/Todo")
+  const b = browser(), t = await fixture()
+  const seam = createTodoSeam({ store: t.store, dispatch: t.store.dispatch, actor: () => "user", nextOrdinal: t.store.nextOrdinal,
+    baseUrl: "https://install.test", http: async () => new Response("{}"), isDisposed: () => false })
+  try {
+    await seam.applyTodoProjection(12, fixtures.working.model)
+    await seam.applyTodoProjection(12, fixtures.needs_you.model)
+    await seam.applyTodoProjection(12, fixtures.needs_you.model)
+    await seam.applyTodoProjection(12, fixtures.in_review.model)
+    await seam.applyTodoProjection(12, fixtures.in_review.model)
+    await seam.applyTodoProjection(12, fixtures.failed.model)
+    await seam.applyTodoProjection(12, fixtures.failed.model)
+    await settle()
+    expect(b.notices).toHaveLength(3)
+    expect([...t.store.collections.toasts.values()].filter(row => row.audience).map(row => row.audience?.kind).sort()).toEqual(["failed", "in_review", "needs_you"])
+    b.notices[1]!.onclick!()
+    expect(t.opens).toEqual([["todo", { n: 12 }]])
+    await seam.applyTodoProjection(13, { ...fixtures.failed.model, n: 13, owner: { ...fixtures.failed.model.owner, login: "maya" } })
+    await settle()
+    expect(b.notices).toHaveLength(3)
+  } finally { await t.dispose() }
+})
+
+test("whole-stack polling notifies an owned TODO without opening or creating its card", async () => {
+  const { createTodoSeam } = await import("../seams/TodoSeam")
+  const { fixtures } = await import("../../../../../../packages/rpc/test/fixtures/Todo")
+  const { waitFor } = await import("../TestFixtures")
+  const b = browser(), t = await fixture()
+  let model = fixtures.working.model
+  const finalizers: (() => void)[] = []
+  const seam = createTodoSeam({ store: t.store, dispatch: t.store.dispatch, actor: () => "user", nextOrdinal: t.store.nextOrdinal,
+    baseUrl: "https://install.test", http: async () => Response.json([model]), isDisposed: () => false },
+    { listPollMs: 5, onDispose: stop => finalizers.push(stop) })
+  const stop = seam.list.subscribe(() => {})
+  try {
+    await waitFor(() => seam.list.get().todos?.[0]?.state === "working")
+    model = fixtures.needs_you.model
+    await waitFor(() => b.notices.length === 1)
+    model = fixtures.in_review.model
+    await waitFor(() => b.notices.length === 2)
+    model = fixtures.failed.model
+    await waitFor(() => b.notices.length === 3)
+    expect(t.store.collections.cards.has("todo:12")).toBe(false)
+    model = { ...fixtures.failed.model, run: { ...fixtures.failed.model.run!, attempt: 3 } }
+    await waitFor(() => b.notices.length === 4)
+    expect([...t.store.collections.toasts.values()].filter(row => row.audience?.kind === "failed")).toHaveLength(2)
+    stop()
+    finalizers.forEach(stop => stop())
+    model = fixtures.needs_you.model
+    await settle()
+    expect(b.notices).toHaveLength(4)
+  } finally { stop(); finalizers.forEach(stop => stop()); await t.dispose() }
+})

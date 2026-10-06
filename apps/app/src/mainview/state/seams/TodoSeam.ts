@@ -12,6 +12,7 @@ import { TodoNewInput, TodoAmendInput } from "../../flows/entries/todo"
 import { actorSharedState } from "../ActorBindings"
 import type { SeamContext } from "./SeamContext"
 import { readResult, unreachableSentence } from "./SeamContext"
+import { actorName } from "../../cards/views/actorName"
 import { randomUuid } from "../../runtime/RandomUuid"
 
 class TodoTopicMismatch extends Data.TaggedError("TodoTopicMismatch") { readonly message = "TODO topic mismatch" }
@@ -64,7 +65,7 @@ export interface TodoListSnapshots {
 }
 export const createTodoSeam = (ctx: SeamContext, options: TodoSeamOptions = {}) => {
   const shared = actorSharedState(ctx, "todo", () => ({
-    opening: new Set<string>(), sending: new Set<string>(), aborts: new Map<string, AbortController>(), watches: new Map<number, () => void>(),
+    notableModels: new Map<number, TodoCard>(), opening: new Set<string>(), sending: new Set<string>(), aborts: new Map<string, AbortController>(), watches: new Map<number, () => void>(),
     timers: new Map<string, ReturnType<typeof setTimeout>>(), epoch: ctx.store.collections.identitySessions.get("identity")?.ownerRevision ?? ctx.store.collections.identitySessions.get("identity")?.revision,
     list: { snapshot: {} as TodoListSnapshot, listeners: new Set<() => void>(), timer: undefined as ReturnType<typeof setTimeout> | undefined, reading: false, disposed: false }
   }))
@@ -162,6 +163,35 @@ export const createTodoSeam = (ctx: SeamContext, options: TodoSeamOptions = {}) 
       finally { shared.opening.delete(row.id) }
     }
   }
+  // Both the whole-stack read and a card's live topic enter this one audience router.
+  const routeNotable = (model: TodoCard, live: () => boolean) => {
+    const n = model.n, previous = shared.notableModels.get(n)
+    if (!live()) return
+    shared.notableModels.set(n, model)
+    // Needs you (M-14): each question the agent opens raises one toast with its Answer for the TODO's owner and anyone
+    // on its branch, settled when the question is.
+    const asked = (value: TodoCard | undefined) => new Set((value?.waits ?? []).filter(wait => wait.kind === "question").map(wait => wait.id))
+    const before = asked(previous), after = asked(model)
+    const sourceActor = model.present.find(actor => actor.kind === "agent")
+    const actorLabel = sourceActor ? actorName(sourceActor) : "Smithers"
+    const toasted = model.owner.login === owner() || model.present.some(actor => actor.kind === "person" && actor.login === owner())
+    for (const id of after) {
+      if (toasted && !before.has(id) && live()) ctx.dispatch({ type: "toast.shown", actor: "system", key: needsYouKey(n, id), title: `T${n} needs you`,
+        sourceCard: `todo:${n}`, audience: { member: owner()!, entryId: needsYouKey(n, id), kind: "needs_you",
+          actorLabel: model.waits.find(wait => wait.id === id)?.by ? actorName(model.waits.find(wait => wait.id === id)!.by!) : actorLabel,
+          target: { flow: "todo", n } }, action: { flow: "todo", args: `T${n}`, label: "Answer" } })
+    }
+    // The served owner and attempt identify these events; ordinary work receipts are not audience facts.
+    if (model.owner.login === owner() && live() && (model.state === "in_review" || model.state === "failed")
+      && (previous?.state !== model.state || previous?.run?.id !== model.run?.id
+        || previous?.run?.attempt !== model.run?.attempt)) {
+      const key = `todo.${model.state}.${n}.${model.run?.id ?? "no-run"}.${model.run?.attempt ?? 0}`
+      ctx.dispatch({ type: "toast.shown", actor: "system", key, title: model.title, sourceCard: `todo:${n}`,
+        audience: { member: owner()!, entryId: key, kind: model.state, actorLabel, target: { flow: "todo", n } },
+        action: { flow: "todo", args: `T${n}`, label: model.state === "in_review" ? "Review" : "Open" } })
+    }
+    for (const id of before) if (!after.has(id) && live()) ctx.resolveToast?.(needsYouKey(n, id), { status: "ok", detail: "Answered" })
+  }
   const applyModel = async (n: number, model: TodoCard, receipts: readonly TodoReceipt[], live: () => boolean) => {
     const card = entry(n) ?? blank(n)
     // REST snapshots are durable source facts too: admission alone never clears a Draft or a toast.
@@ -211,16 +241,7 @@ export const createTodoSeam = (ctx: SeamContext, options: TodoSeamOptions = {}) 
       ...(receipts.some(receipt => receipt.outcome?.status === "ok" && card.payload.requests.some(request => request.key === receipt.key && request.operation === "steer"))
         ? { answerDraft: undefined, answeredBy: undefined } : {})
     } }, "system")
-    // Needs you (M-14): each question the agent opens raises one toast with its Answer for the TODO's owner and anyone
-    // on its branch, settled when the question is.
-    const asked = (value: TodoCard | undefined) => new Set((value?.waits ?? []).filter(wait => wait.kind === "question").map(wait => wait.id))
-    const before = asked(card.payload.model), after = asked(model)
-    const toasted = model.owner.login === owner() || model.present.some(actor => actor.kind === "person" && actor.login === owner())
-    for (const id of after) {
-      if (toasted && !before.has(id) && live()) ctx.dispatch({ type: "toast.shown", actor: "system", key: needsYouKey(n, id), title: `T${n} needs you`,
-        sourceCard: card.id, action: { flow: "todo", args: `T${n}`, label: "Answer" } })
-    }
-    for (const id of before) if (!after.has(id) && live()) ctx.resolveToast?.(needsYouKey(n, id), { status: "ok", detail: "Answered" })
+    routeNotable(model, live)
     for (const receipt of receipts) {
       if (!live()) return
       const original = pending.find(request => request.key === receipt.key)
@@ -364,7 +385,10 @@ export const createTodoSeam = (ctx: SeamContext, options: TodoSeamOptions = {}) 
         : !response.ok ? { ...shared.list.snapshot, error: "internal" }
         : parsed?.success ? { todos: parsed.data } : { ...shared.list.snapshot, error: "invalid" }
     } catch { next = { ...shared.list.snapshot, error: "unreachable" } }
-    if (current(login, revision)) publishList(next)
+    if (current(login, revision)) {
+      for (const model of next.todos ?? []) routeNotable(model, () => current(login, revision))
+      publishList(next)
+    }
   }
   const pollList = () => {
     const list = shared.list
@@ -595,6 +619,7 @@ export const createTodoSeam = (ctx: SeamContext, options: TodoSeamOptions = {}) 
     shared.aborts.clear()
     for (const unsubscribe of shared.watches.values()) unsubscribe()
     shared.watches.clear()
+    shared.notableModels.clear()
     for (const timer of shared.timers.values()) clearTimeout(timer)
     shared.timers.clear()
     if (shared.list.timer !== undefined) { clearTimeout(shared.list.timer); shared.list.timer = undefined }
