@@ -387,18 +387,12 @@ func TestTodoMergeComposedRouteBoundaryPostgres(t *testing.T) {
 					status, envelope := post(door.path(target), tc.set)
 					require.Equal(t, tc.status, status, "%s %s: %v", door.name, target, envelope)
 					if tc.envelope != nil {
-						expected := tc.envelope
-						if tc.name == "the owner's personal access token" && door.name == "numbered" && (target == door.valid || target == door.unknown) {
-							expected = map[string]any{"code": "permission", "class": "permission", "message": "Merge requires an owner or maintainer browser session"}
-						}
-						require.Equal(t, expected, envelope, "%s %s", door.name, target)
+						require.Equal(t, tc.envelope, envelope, "%s %s", door.name, target)
 					}
 					if first == nil {
 						first = envelope
 					}
-					if tc.name != "the owner's personal access token" {
-						require.Equal(t, first, envelope, "%s %s: the same refusal through every door", door.name, target)
-					}
+					require.Equal(t, first, envelope, "%s %s: the same refusal through every door", door.name, target)
 				}
 			}
 			unchanged(t)

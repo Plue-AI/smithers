@@ -168,7 +168,7 @@ test("Retry with the current flow is an agent-invocable card control with its st
     const entry = h.controller.commands.entries().find(row => nameOf(row) === "todo.retry-current-flow")!
     expect(entry.metadata.hidden).toBe(true)
     expect(entry.metadata.discloseToAgent).toBe(true)
-    expect(modelInvocable(entry)).toBe(!["todo.preapprove", "todo.unapprove"].includes(nameOf(entry)))
+    expect(modelInvocable(entry)).toBe(!["todo.takeover", "todo.preapprove", "todo.unapprove"].includes(nameOf(entry)))
     /* MOCK SEAM: while the design seed is mounted the control lands on its T10, stopped first, not on /api/todos. */
     await h.controller.runCommandForResult("todo.stop", "T10")
     expect(await h.controller.runCommandForResult("todo.retry-current-flow", JSON.stringify({ n: 10, text: " First\nmessage " })))

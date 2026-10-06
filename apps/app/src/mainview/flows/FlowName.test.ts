@@ -51,7 +51,7 @@ const declaredNames = (): ReadonlyArray<string> => {
     }
     for (const match of source.matchAll(/\bname:\s*"([^"]+)"/g)) names.push(match[1]!)
     // The debug aliases declare their names with one literal array and one shared flow body.
-    for (const declaration of source.matchAll(/\breturn\s+\[([^\]]+)\]\.map\(name\s*=>\s*flow\(\{\s*name,/g)) {
+    for (const declaration of source.matchAll(/\breturn\s+\[([^\]]+)\]\.map\(name\s*=>\s*flow\(\{\s*(?:\.\.\.\w+,\s*)?name,/g)) {
       for (const name of declaration[1]!.matchAll(/"([^"]+)"/g)) names.push(name[1]!)
     }
   }
