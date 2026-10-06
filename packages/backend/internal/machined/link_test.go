@@ -3,8 +3,10 @@ package machined
 import (
 	"context"
 	"encoding/binary"
+	"errors"
 	"io"
 	"net"
+	"os"
 	"testing"
 	"time"
 
@@ -201,4 +203,78 @@ func TestHostLinkBlockedWriterCancellation(t *testing.T) {
 	case <-time.After(time.Second):
 		t.Fatal("cancellation did not interrupt blocked transport write")
 	}
+}
+
+func TestHostLinkPresenceSnapshots(t *testing.T) {
+	r := new(Registry)
+	a, err := r.MintBoot("a", "vm")
+	require.NoError(t, err)
+	link, daemon := connectTest(t, r, "a", a)
+	_, err = link.ReceivePresence(t.Context(), "a")
+	require.ErrorIs(t, err, ErrNotReady)
+	require.NoError(t, link.Reconciled())
+	raw, err := os.ReadFile("../compose/testdata/cocontracts/presence_snapshot.bin")
+	require.NoError(t, err)
+	frame, err := wire.Decode(raw)
+	require.NoError(t, err)
+	for i := 0; i < 100; i++ {
+		require.NoError(t, wire.Write(daemon, frame))
+	}
+	empty := wire.Frame{Kind: wire.Presence, Payload: wire.Union(1, wire.Field(1, []byte{0, 0}))}
+	require.NoError(t, wire.Write(daemon, empty))
+	// A control request after the snapshot fences reader processing and proves
+	// the unread burst did not stall the link.
+	done := make(chan error, 1)
+	go func() {
+		request, err := wire.Read(daemon)
+		if err != nil {
+			done <- err
+			return
+		}
+		id, _, _, err := request.Request()
+		if err != nil {
+			done <- err
+			return
+		}
+		done <- wire.Write(daemon, wire.Frame{Kind: wire.Control, Payload: wire.Union(2, wire.Field(1, wire.U32(id)), wire.Field(2, wire.Union(byte(wire.CloseSession))))})
+	}()
+	_, err = link.Request(t.Context(), "a", wire.CloseSession, wire.Field(1, wire.U32(1)))
+	require.NoError(t, err)
+	require.NoError(t, <-done)
+	got, err := link.ReceivePresence(t.Context(), "a")
+	require.NoError(t, err)
+	require.Equal(t, empty, got)
+	_, err = link.ReceivePresence(t.Context(), "b")
+	require.ErrorIs(t, err, ErrUnauthorized)
+	ctx, cancel := context.WithCancel(t.Context())
+	cancel()
+	_, err = link.ReceivePresence(ctx, "a")
+	require.ErrorIs(t, err, context.Canceled)
+	wait, stop := context.WithTimeout(t.Context(), 10*time.Millisecond)
+	defer stop()
+	_, err = link.ReceivePresence(wait, "a")
+	require.ErrorIs(t, err, context.DeadlineExceeded)
+	_, err = r.MintBoot("a", "vm")
+	require.NoError(t, err)
+	_, err = link.ReceivePresence(t.Context(), "a")
+	require.ErrorIs(t, err, ErrUnauthorized)
+}
+
+func TestHostLinkInvalidPresenceSnapshot(t *testing.T) {
+	r := new(Registry)
+	a, err := r.MintBoot("a", "vm")
+	require.NoError(t, err)
+	link, daemon := connectTest(t, r, "a", a)
+	require.NoError(t, link.Reconciled())
+	raw, err := os.ReadFile("../compose/testdata/cocontracts/presence_snapshot.bin")
+	require.NoError(t, err)
+	frame, err := wire.Decode(raw)
+	require.NoError(t, err)
+	// Session zero is syntactically framed but is not an authorized session.
+	copy(frame.Payload[13:17], []byte{0, 0, 0, 0})
+	require.NoError(t, wire.Write(daemon, frame))
+	ctx, cancel := context.WithTimeout(t.Context(), time.Second)
+	defer cancel()
+	_, err = link.ReceivePresence(ctx, "a")
+	require.True(t, errors.Is(err, io.ErrClosedPipe) || errors.Is(err, ErrUnauthorized), "invalid snapshot must fence the connection: %v", err)
 }

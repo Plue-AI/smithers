@@ -125,7 +125,7 @@ func (r *Registry) Connect(ctx context.Context, branch string, stream net.Conn) 
 		_ = lease.Close()
 		return nil, err
 	}
-	l := &Link{Connection: lease, stream: stream, pending: make(map[uint32]chan wire.Frame), events: make(chan Event, 64), done: make(chan struct{}), next: 1, protocol: binary.BigEndian.Uint16(fields[2]), documents: make(map[uint32]chan []byte)}
+	l := &Link{Connection: lease, stream: stream, pending: make(map[uint32]chan wire.Frame), events: make(chan Event, 64), presence: make(chan wire.Frame, 1), done: make(chan struct{}), next: 1, protocol: binary.BigEndian.Uint16(fields[2]), documents: make(map[uint32]chan []byte)}
 	r.mu.Lock()
 	if !lease.current() {
 		r.mu.Unlock()
@@ -153,6 +153,7 @@ type Link struct {
 	protocol         uint16
 	next             uint32
 	events           chan Event
+	presence         chan wire.Frame
 	done             chan struct{}
 	once             sync.Once
 }
@@ -238,6 +239,17 @@ func (l *Link) read() {
 			default:
 				return
 			}
+		case wire.Presence:
+			if _, err := f.PresenceSnapshot(); err != nil {
+				return
+			}
+			// Snapshots are complete and ephemeral. Retain the latest without
+			// blocking control replies or the durable outbox on a slow consumer.
+			select {
+			case <-l.presence:
+			default:
+			}
+			l.presence <- f
 		case wire.Documents:
 			l.mu.Lock()
 			queue := l.documents[f.Stream]
@@ -325,5 +337,27 @@ func (l *Link) Receive(ctx context.Context) (Event, error) {
 			return Event{}, ErrUnauthorized
 		}
 		return event, nil
+	}
+}
+
+// ReceivePresence returns the latest complete daemon snapshot, fenced to the
+// admitted boot. Identity resolution remains the host consumer's responsibility.
+func (l *Link) ReceivePresence(ctx context.Context, branch string) (wire.Frame, error) {
+	if err := ctx.Err(); err != nil {
+		return wire.Frame{}, err
+	}
+	if err := l.RequireReady(branch); err != nil {
+		return wire.Frame{}, err
+	}
+	select {
+	case <-ctx.Done():
+		return wire.Frame{}, ctx.Err()
+	case <-l.done:
+		return wire.Frame{}, io.ErrClosedPipe
+	case frame := <-l.presence:
+		if err := l.RequireReady(branch); err != nil {
+			return wire.Frame{}, err
+		}
+		return frame, nil
 	}
 }

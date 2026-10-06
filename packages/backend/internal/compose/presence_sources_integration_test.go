@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"net"
 	"os"
 	"strings"
 	"sync/atomic"
@@ -35,11 +36,8 @@ func TestPresenceDaemonAndRunThroughInstall(t *testing.T) {
 	browser := f.dial(t)
 	sendPresenceFrame(t, browser, fmt.Sprintf(`{"t":"presence","id":2,"where":{"branch":%q,"path":"retry.ts","line":12}}`, f.row.ID))
 	registry := new(machined.Registry)
-	boot := [16]byte{1}
-	require.NoError(t, registry.BindBoot(f.row.ID, "machine", boot, []byte("secret")))
-	connection, err := registry.Admit(boot, []byte("secret"), presenceStream{})
-	require.NoError(t, err)
-	t.Cleanup(func() { _ = connection.Close() })
+	link, guest := presenceTestLink(t, registry, f.row.ID)
+	connection := link.Connection
 	raw, err := os.ReadFile("testdata/cocontracts/presence_snapshot.bin")
 	require.NoError(t, err)
 	frame, err := wire.Decode(raw)
@@ -53,6 +51,9 @@ func TestPresenceDaemonAndRunThroughInstall(t *testing.T) {
 	}
 	require.ErrorIs(t, f.p.daemonSnapshot(t.Context(), connection, f.row.ID, frame, resolve), machined.ErrNotReady)
 	require.NoError(t, connection.Reconciled())
+	require.NoError(t, wire.Write(guest, frame))
+	frame, err = link.ReceivePresence(t.Context(), f.row.ID)
+	require.NoError(t, err)
 	require.NoError(t, f.p.daemonSnapshot(t.Context(), connection, f.row.ID, frame, resolve))
 	update := flowdispatch.ProjectionUpdate{State: jobs.StateRunning, Checkpoint: flowdispatch.RuntimeCheckpoint{
 		Target: flowruntime.Target{TenantID: fmt.Sprintf("repository:%d", f.row.RepositoryID), PrincipalID: fmt.Sprintf("user:%d", f.user.ID), WorkspaceID: f.row.ID, BindingKind: "mythical-item"},
@@ -241,4 +242,49 @@ func TestPresenceAgentSessionResolvesAdmittedBranch(t *testing.T) {
 	update.State = jobs.StateCompleted
 	require.NoError(t, f.p.ProjectFlowRuntime(t.Context(), update))
 	require.Empty(t, f.roster(t))
+}
+
+// The guest is the only fake here; host authentication, snapshot transport,
+// bridge, PostgreSQL authorization and the install live route are production.
+func presenceTestLink(t *testing.T, registry *machined.Registry, branch string) (*machined.Link, net.Conn) {
+	t.Helper()
+	authority, err := registry.MintBoot(branch, "machine")
+	require.NoError(t, err)
+	host, guest := net.Pipe()
+	t.Cleanup(func() { host.Close(); guest.Close() })
+	done := make(chan error, 1)
+	go func() {
+		nonce := make([]byte, 32)
+		err := wire.Write(guest, wire.Frame{Kind: wire.Hello, Payload: wire.Union(1, wire.Field(1, wire.U32(0x534d4d44)), wire.Field(2, wire.U16(2)), wire.Field(3, authority.ID[:]), wire.Field(4, nonce))})
+		if err != nil {
+			done <- err
+			return
+		}
+		proof, err := wire.Read(guest)
+		if err != nil {
+			done <- err
+			return
+		}
+		fields, err := wire.Fields("proof", proof.Payload[1:])
+		if err != nil {
+			done <- err
+			return
+		}
+		if !wire.VerifyHostMAC(authority.Secret[:], authority.ID[:], nonce, fields[2]) {
+			done <- wire.AuthFailed
+			return
+		}
+		err = wire.Write(guest, wire.Frame{Kind: wire.Hello, Payload: wire.Union(3, wire.Field(1, wire.Bytes([]byte(authority.Credential))), wire.Field(2, make([]byte, 16)), wire.Field(3, wire.U64(1)), wire.Field(4, wire.U16(0)))})
+		if err != nil {
+			done <- err
+			return
+		}
+		_, err = wire.Read(guest)
+		done <- err
+	}()
+	link, err := registry.Connect(t.Context(), branch, host)
+	require.NoError(t, err)
+	require.NoError(t, <-done)
+	t.Cleanup(func() { link.Close() })
+	return link, guest
 }
