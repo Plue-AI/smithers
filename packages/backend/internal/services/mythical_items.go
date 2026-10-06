@@ -393,6 +393,11 @@ func (s *MythicalService) SubmitLane(ctx context.Context, repositoryID, userID i
 		if item.RequestRunID == "" || input.RequestRunID != item.RequestRunID || input.Base != item.BaseCommit {
 			return MythicalLaneReceipt{}, pkgerrors.Conflict("the result does not come from this lane's current request on its tip")
 		}
+		if composed && len(input.Plan) == 0 {
+			// A retained plan is history, not validation of this candidate.
+			// Every new composed submission supplies its own request receipt.
+			return MythicalLaneReceipt{}, pkgerrors.BadRequest("a TODO result must retain its validated check plan")
+		}
 		next := item
 		if len(input.Plan) > 0 {
 			// Persist the validated request's plan with its candidate: a TODO
@@ -407,9 +412,6 @@ func (s *MythicalService) SubmitLane(ctx context.Context, repositoryID, userID i
 			if len(next.Plan) == 0 {
 				return MythicalLaneReceipt{}, pkgerrors.BadRequest("the submitted plan has no changes")
 			}
-		}
-		if composed && len(next.Plan) == 0 {
-			return MythicalLaneReceipt{}, pkgerrors.BadRequest("a TODO result must retain its validated check plan")
 		}
 		next.CandidateBase, next.CandidateHead, next.CandidateVerified = input.Base, input.Source, true
 		next.Summary, next.VibeOutcome, next.State, next.Reason = strings.TrimSpace(input.Summary), "submitted", "integrating", ""
@@ -2401,7 +2403,9 @@ func (st *mythicalItemStep) startPinned(ctx context.Context, item db.MythicalIte
 	}
 	next := item
 	next.Attempt, next.Generation = item.Attempt+1, item.Generation+1
-	next.Plan = nil
+	// Keep the latest plan through recovery and runs that produce none, as
+	// the legacy retry path does. SubmitLane requires a new plan before a
+	// new candidate can replace it; retaining history grants no validation.
 	next.RequestOutcome, next.VibeOutcome, next.VerifyOutcome = "", "", ""
 	next.RequestRunID, next.VibeRunID, next.VerifyRunID = "", "", ""
 	next.CandidateBase, next.CandidateHead, next.CandidateVerified = "", "", false

@@ -360,7 +360,11 @@ func currentTodoEvidence(item db.MythicalItem) todoAttemptEvidence {
 	var plan struct {
 		WikiCitations []planWikiCitation `json:"wikiCitations"`
 	}
-	if json.Unmarshal(item.Plan, &plan) == nil {
+	// A pinned composition records its plan with its candidate. Admission
+	// retains the previous plan for history, but a new run has not used its
+	// citations until it submits a new candidate and plan together. Legacy
+	// request runs can record their plan before separate delivery begins.
+	if (!item.FlowDigest.Valid || item.CandidateHead != "") && json.Unmarshal(item.Plan, &plan) == nil {
 		for _, citation := range plan.WikiCitations {
 			if citation.Slug == "" || citation.Revision < 1 || !wikiCitationPageID.MatchString(citation.PageID) || !wikiCitationDigest.MatchString(citation.Digest) {
 				continue

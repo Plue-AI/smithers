@@ -126,6 +126,10 @@ func TestTodoWatchdogSurvivesSameAttemptRecovery(t *testing.T) {
 	require.Equal(t, time.Minute.Milliseconds(), spent.ActiveMillis)
 	require.Zero(t, spent.ActiveSince)
 	require.Len(t, spent.Steps, 1)
+	retained := o.byID(id)
+	retained.Plan = json.RawMessage(`{"title":"Retained plan","steps":["Add the greeting"],"checks":[]}`)
+	_, err := o.service.queries().SaveMythicalItem(t.Context(), retained)
+	require.NoError(t, err)
 	o.wake()
 	retrying := o.byID(id)
 	require.Equal(t, "retrying", retrying.State)
@@ -140,6 +144,7 @@ func TestTodoWatchdogSurvivesSameAttemptRecovery(t *testing.T) {
 	require.Equal(t, &spent, mythicalChecksOf(recovered).Watchdog, "same-attempt admission must not reset the allowance or charge backoff")
 	require.Equal(t, mythicalChecksOf(retrying).AdmissionDay, mythicalChecksOf(recovered).AdmissionDay)
 	require.EqualValues(t, 2, mythicalChecksOf(recovered).Launches)
+	require.JSONEq(t, string(retained.Plan), string(recovered.Plan), "outage recovery retains the preceding plan")
 
 	launch = o.launcher.last("todo")
 	update.Checkpoint.Projection = launch.Projection
@@ -161,6 +166,7 @@ func TestTodoWatchdogSurvivesSameAttemptRecovery(t *testing.T) {
 	o.wake()
 	fresh := o.byID(id)
 	require.EqualValues(t, 2, fresh.Attempt)
+	require.JSONEq(t, string(retained.Plan), string(fresh.Plan), "a new run without a plan must not erase the latest plan")
 	require.Nil(t, mythicalChecksOf(fresh).Watchdog)
 	require.Equal(t, mythicalChecksOf(recovered).AdmissionDay, mythicalChecksOf(fresh).AdmissionDay)
 }
