@@ -28,6 +28,7 @@ type boot struct {
 	branch, machine string
 	id              [16]byte
 	credential      [32]byte
+	relaySecret     [32]byte
 	connection      *Connection
 }
 
@@ -48,6 +49,10 @@ type Connection struct {
 // person token. Reusing a boot id is refused, including after revocation.
 // The old credential is revoked atomically before the new one is admitted.
 func (r *Registry) BindBoot(branch, machine string, id [16]byte, credential []byte) error {
+	return r.bindBoot(branch, machine, id, credential, [32]byte{})
+}
+
+func (r *Registry) bindBoot(branch, machine string, id [16]byte, credential []byte, relaySecret [32]byte) error {
 	if branch == "" || machine == "" || id == ([16]byte{}) || len(credential) == 0 || len(credential) > 1024 {
 		return ErrUnauthorized
 	}
@@ -65,7 +70,7 @@ func (r *Registry) BindBoot(branch, machine string, id [16]byte, credential []by
 		old = previous.connection
 		previous.connection = nil
 	}
-	b := &boot{branch: branch, machine: machine, id: id, credential: sha256.Sum256(credential)}
+	b := &boot{branch: branch, machine: machine, id: id, credential: sha256.Sum256(credential), relaySecret: relaySecret}
 	r.branches[branch], r.boots[id] = b, b
 	r.mu.Unlock()
 	if old != nil {
