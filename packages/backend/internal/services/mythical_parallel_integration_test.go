@@ -153,8 +153,18 @@ func TestParallelFinishedReviewRetiresBeforeNextAdmission(t *testing.T) {
 	workspace := first.WorkspaceID
 	require.NotEmpty(t, workspace)
 	require.Equal(t, "queued", o.byID(uuidString(second.ID)).State)
-	first.State, first.PRState = "proposed", "open"
+	first.State, first.PRState, first.PRHead = "proposed", "open", "reviewed-head"
 	_, err := db.New(o.pool).SaveMythicalItem(t.Context(), first)
+	require.NoError(t, err)
+	o.wake()
+	first = o.byID(uuidString(first.ID))
+	require.NotEmpty(t, first.WorkspaceID, "a pending review retains its machine until the review launch owns the handoff")
+	require.Equal(t, "queued", o.byID(uuidString(second.ID)).State)
+	workspace = first.WorkspaceID
+	checks := mythicalChecksOf(first)
+	checks.Review = &mythicalReview{Head: first.PRHead, Verdict: "approve"}
+	first.Checks = checks.encode()
+	_, err = db.New(o.pool).SaveMythicalItem(t.Context(), first)
 	require.NoError(t, err)
 	o.wake()
 	require.Empty(t, o.byID(uuidString(first.ID)).WorkspaceID)

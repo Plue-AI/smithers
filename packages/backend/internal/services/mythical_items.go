@@ -1525,6 +1525,14 @@ func (s *MythicalService) releaseLane(ctx context.Context, r *mythicalRun, item 
 		if state == "paused" || state == "needs_you" {
 			return item
 		}
+		if item.State == "proposed" {
+			review := mythicalChecksOf(item).Review
+			// review() owns the coding-to-review machine handoff. Releasing
+			// before it claims the replacement lets a queued TODO take its slot.
+			if review == nil || review.Head != item.PRHead || review.Verdict == "" {
+				return item
+			}
+		}
 	}
 	if s.lanes == nil || item.WorkspaceID == "" || !r.row.ActorUserID.Valid {
 		return item
