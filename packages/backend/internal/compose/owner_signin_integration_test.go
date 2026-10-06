@@ -9,9 +9,12 @@ import (
 	"html"
 	"io"
 	"log/slog"
+	"net"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
+	"os"
+	"path/filepath"
 	"strings"
 	"sync"
 	"testing"
@@ -91,6 +94,31 @@ func TestOwnerSignInHTTPPostgres(t *testing.T) {
 			t.Cleanup(func() { cancelWorker(); require.NoError(t, <-doneWorker) })
 			var output bytes.Buffer
 			require.NoError(t, setup.Mint(ctx, []string{origin}, &output))
+			// Exercise the service's real socket authority across the composed
+			// OAuth claim, rather than calling Claim directly in a helper test.
+			root, err := os.MkdirTemp("/tmp", "ins08-") // macOS Unix sockets have a short path limit.
+			require.NoError(t, err)
+			t.Cleanup(func() { require.NoError(t, os.RemoveAll(root)) })
+			closeHandoff, err := services.StartInstallSetupHandoff(ctx, root, setup.Emit)
+			require.NoError(t, err)
+			t.Cleanup(func() { require.NoError(t, closeHandoff()) })
+			transport := &http.Transport{DialContext: func(ctx context.Context, _, _ string) (net.Conn, error) {
+				return (&net.Dialer{}).DialContext(ctx, "unix", filepath.Join(root, "run/host.sock"))
+			}}
+			t.Cleanup(transport.CloseIdleConnections)
+			handoffClient := &http.Client{Transport: transport, Timeout: 5 * time.Second}
+			readHandoff := func(status int) string {
+				response, err := handoffClient.Get("http://localhost/setup-urls")
+				require.NoError(t, err)
+				defer response.Body.Close()
+				body, err := io.ReadAll(response.Body)
+				require.NoError(t, err)
+				require.Equal(t, status, response.StatusCode)
+				require.Equal(t, "no-store", response.Header.Get("Cache-Control"))
+				return string(body)
+			}
+			require.Equal(t, output.String(), readHandoff(200))
+			require.Equal(t, output.String(), readHandoff(200), "repeat service start must replay without rotating")
 			var mint struct {
 				URLs []string `json:"setup_urls"`
 			}
@@ -292,6 +320,14 @@ func TestOwnerSignInHTTPPostgres(t *testing.T) {
 				err := pool.QueryRow(ctx, `SELECT value->>'status' FROM install_settings WHERE key='setup.step.sign_in' AND value->>'operation_id' IS NOT NULL`).Scan(&state)
 				return err == nil && state == "done"
 			}, 5*time.Second, 20*time.Millisecond)
+			require.JSONEq(t, `{"error":"setup_closed"}`, readHandoff(401))
+			require.JSONEq(t, `{"error":"setup_closed"}`, readHandoff(401), "claim permanently closes repeated service reads")
+			var afterClaim bytes.Buffer
+			restartedSetup := &services.InstallSetupSessions{Pool: pool}
+			require.NoError(t, restartedSetup.Mint(ctx, []string{origin}, &afterClaim))
+			require.Empty(t, afterClaim.String(), "service restart after claim emits no setup authority")
+			require.ErrorContains(t, restartedSetup.Emit(ctx, &afterClaim), "setup_closed")
+			require.Empty(t, afterClaim.String())
 			for _, session := range []string{credential, otherSession} {
 				closed := httptest.NewRecorder()
 				router.ServeHTTP(closed, request("/api/auth/github", &http.Cookie{Name: routes.GitHubAppSetupSessionCookie, Value: session}))
