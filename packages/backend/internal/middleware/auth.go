@@ -429,6 +429,9 @@ var installMemberRoutes = []struct {
 	// conversations.
 	{http.MethodPost, "agent.turn", regexp.MustCompile(`^/api/agent/turn(/cancel|/replay|/retire)?$`)},
 	{http.MethodGet, "agent.turn", regexp.MustCompile(`^/api/agent/conversations$`)},
+	{http.MethodPost, "agent.turn", regexp.MustCompile(`^/api/conversations/[^/]+/turns/[^/]+/stop$`)},
+	{http.MethodPatch, "agent.turn", regexp.MustCompile(`^/api/conversations/[^/]+/turns/[^/]+$`)},
+	{http.MethodDelete, "agent.turn", regexp.MustCompile(`^/api/conversations/[^/]+/turns/[^/]+$`)},
 	{http.MethodGet, "agent.turn", regexp.MustCompile(`^/api/conversations/[^/]+/view-state$`)},
 	{http.MethodPut, "agent.turn", regexp.MustCompile(`^/api/conversations/[^/]+/view-state$`)},
 	{http.MethodPost, "agent.turn", regexp.MustCompile(`^/api/agent/conversations/replay$`)},
