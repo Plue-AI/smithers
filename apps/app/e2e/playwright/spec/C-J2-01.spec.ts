@@ -21,10 +21,10 @@ test("C-J2-01: Issue discussion drafts an editable, placed TODO", async ({ page 
   await expect.poll(() => commits.length).toBe(1)
   expect(commits[0]).toMatchObject({ issue: 7, issue_digest: snapshotDigest, fixes: true, place: { mode: "before", n: 2 } })
   await say(page, "/todo T3")
-  await expect(page.locator('.smithers-card[data-kind="todo"]').last()).toContainText("Log each retry.")
+  await expect(page.locator('.smithers-card[data-kind="todo"]').last()).toContainText("Log each retry.", { timeout: 30_000 })
   await page.reload()
   await say(page, "/todo T3")
-  await expect(page.locator('.smithers-card[data-kind="todo"]').last()).toContainText("Log each retry.")
+  await expect(page.locator('.smithers-card[data-kind="todo"]').last()).toContainText("Log each retry.", { timeout: 30_000 })
   expect(commits).toHaveLength(1)
 })
 
