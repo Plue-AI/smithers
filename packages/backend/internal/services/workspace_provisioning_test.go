@@ -42,8 +42,8 @@ func assertWorkspaceClaudeBootstrap(t *testing.T, req sandbox.CreateRequest) {
 	assert.Contains(t, scriptFile.Content, workspaceClaudePackage)
 	assert.Contains(t, scriptFile.Content, "repos/jj-vcs/jj/releases/tags/v0.39.0")
 	assert.Contains(t, scriptFile.Content, "nodejs.org/dist/index.json")
-	assert.Contains(t, scriptFile.Content, workspaceLocalBinDir)
-	assert.Contains(t, scriptFile.Content, workspaceLocalNodeDir)
+	assert.Contains(t, scriptFile.Content, defaultWorkspaceGuestLayout.localBinDir())
+	assert.Contains(t, scriptFile.Content, defaultWorkspaceGuestLayout.localNodeDir())
 	assert.Contains(t, scriptFile.Content, "runuser -u "+defaultWorkspaceUser)
 	assert.Contains(t, scriptFile.Content, `cat "`+workspaceCLIPackageB64Path+`".part* | base64 -d | tar -xzf -`)
 	assert.Contains(t, scriptFile.Content, "smithers workspace bootstrap: npm CLI package extraction failed")
@@ -657,7 +657,7 @@ func TestBuildForkBookmarkSwitchCommand_InitializesMissingJjRepo(t *testing.T) {
 func TestBuildWorkspaceClaudeBootstrapScript_InstallRendersAsSingleRunnableLine(t *testing.T) {
 	t.Parallel()
 
-	script := buildWorkspaceClaudeBootstrapScript()
+	script := buildWorkspaceClaudeBootstrapScript(defaultWorkspaceGuestLayout)
 
 	// Regression: the claude-install script is rendered into
 	// `bash -lc {{printf "%q" .Script}}`. If it is newline-joined, %q escapes
@@ -1082,8 +1082,8 @@ func TestBuildWorkspaceVMRequest_BindsRepositorySecretsToTheEgressProxy(t *testi
 func TestWorkspaceBootstrapsInstallPinnedClaudeCode(t *testing.T) {
 	t.Parallel()
 	for name, script := range map[string]string{
-		"container": buildWorkspaceClaudeBootstrapScript(),
-		"nixos":     buildWorkspaceNixBootstrapScript(),
+		"container": buildWorkspaceClaudeBootstrapScript(defaultWorkspaceGuestLayout),
+		"nixos":     buildWorkspaceNixBootstrapScript(defaultWorkspaceGuestLayout),
 	} {
 		t.Run(name, func(t *testing.T) {
 			t.Parallel()

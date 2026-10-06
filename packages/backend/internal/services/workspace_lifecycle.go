@@ -814,7 +814,7 @@ func (s *WorkspaceService) resumeWorkspaceVM(ctx context.Context, workspace db.W
 	if err := s.waitForWorkspaceGuestActivation(startCtx, workspace); err != nil {
 		return workspace, err
 	}
-	if err := finishWorkspaceArtifacts(resumeCtx, s.sandbox, workspace.VmID, workspaceBootstrapScriptForKind(workspace.Kind)); err != nil {
+	if err := finishWorkspaceArtifacts(resumeCtx, s.sandbox, workspace.VmID, workspaceBootstrapScriptForKind(workspace.Kind, defaultWorkspaceGuestLayout)); err != nil {
 		return workspace, err
 	}
 	if client, ok := s.sandbox.(workspaceArtifactClient); ok {

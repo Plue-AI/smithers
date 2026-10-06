@@ -32,8 +32,8 @@ func TestWorkspaceCodingHostAndNpmCLI(t *testing.T) {
 	require.True(t, addWorkspaceCodingHost(files))
 	addWorkspaceJJExport(files)
 	addWorkspaceCLI(files)
-	require.Contains(t, buildWorkspaceClaudeBootstrapScript(), "/usr/local/lib/smithers-cli/node_modules/@smthrs/cli/bin/smithers.mjs")
-	require.NotContains(t, buildWorkspaceClaudeBootstrapScript(), "init --global")
+	require.Contains(t, buildWorkspaceClaudeBootstrapScript(defaultWorkspaceGuestLayout), "/usr/local/lib/smithers-cli/node_modules/@smthrs/cli/bin/smithers.mjs")
+	require.NotContains(t, buildWorkspaceClaudeBootstrapScript(defaultWorkspaceGuestLayout), "init --global")
 	for path, expected := range map[string][]byte{workspaceCodingHostB64Path: host, workspaceCLIPackageB64Path: []byte("npm package archive")} {
 		data, err := base64.StdEncoding.DecodeString(files[path+".part00000000"].Content)
 		require.NoError(t, err)
@@ -69,9 +69,9 @@ func TestWorkspaceCodingHostStagingExecutesAndRefusesBrokenPayload(t *testing.T)
 				files := map[string]sandbox.SandboxFile{}
 				require.True(t, addWorkspaceCodingHost(files))
 				require.NoError(t, os.WriteFile(payload+".part00000000", []byte(files[workspaceCodingHostB64Path+".part00000000"].Content), 0600))
-				script := buildWorkspaceClaudeBootstrapScript()
+				script := buildWorkspaceClaudeBootstrapScript(defaultWorkspaceGuestLayout)
 				if nix {
-					script = buildWorkspaceNixBootstrapScript()
+					script = buildWorkspaceNixBootstrapScript(defaultWorkspaceGuestLayout)
 				}
 				start := strings.Index(script, "# The configured coding host")
 				end := strings.Index(script, "# End configured coding host staging.")
@@ -130,7 +130,7 @@ func TestWorkspaceJJExportStagedAlongsideCodingHost(t *testing.T) {
 	}
 	// Both bootstrap variants install the helper at the path coding.py's
 	// JJ_HELPER and the flows' exporterPath default name.
-	for _, script := range []string{buildWorkspaceClaudeBootstrapScript(), buildWorkspaceNixBootstrapScript()} {
+	for _, script := range []string{buildWorkspaceClaudeBootstrapScript(defaultWorkspaceGuestLayout), buildWorkspaceNixBootstrapScript(defaultWorkspaceGuestLayout)} {
 		require.Contains(t, script, `install -m 0755 "`+workspaceJJExportPath+`".tmp "`+workspaceJJExportPath+`"`)
 	}
 }
@@ -172,9 +172,9 @@ func TestWorkspaceJJExportStagingExecutesAndRefusesBrokenPayload(t *testing.T) {
 				files := map[string]sandbox.SandboxFile{}
 				require.True(t, addWorkspaceJJExport(files))
 				require.NoError(t, os.WriteFile(payload+".part00000000", []byte(files[workspaceJJExportB64Path+".part00000000"].Content), 0600))
-				script := buildWorkspaceClaudeBootstrapScript()
+				script := buildWorkspaceClaudeBootstrapScript(defaultWorkspaceGuestLayout)
 				if nix {
-					script = buildWorkspaceNixBootstrapScript()
+					script = buildWorkspaceNixBootstrapScript(defaultWorkspaceGuestLayout)
 				}
 				start := strings.Index(script, "# The native jj helper")
 				end := strings.Index(script, "# End configured jj export staging.")
@@ -259,9 +259,9 @@ func TestWorkspaceNpmCLIStagingExecutes(t *testing.T) {
 			for name, file := range files {
 				require.NoError(t, os.WriteFile(strings.ReplaceAll(name, workspaceCLIPackageB64Path, payload), []byte(file.Content), 0600))
 			}
-			bootstrap := buildWorkspaceClaudeBootstrapScript()
+			bootstrap := buildWorkspaceClaudeBootstrapScript(defaultWorkspaceGuestLayout)
 			if nix {
-				bootstrap = buildWorkspaceNixBootstrapScript()
+				bootstrap = buildWorkspaceNixBootstrapScript(defaultWorkspaceGuestLayout)
 			}
 			start := strings.Index(bootstrap, "# Install the deployed npm package")
 			end := strings.Index(bootstrap[start:], "if [ -x") + start
@@ -271,7 +271,7 @@ func TestWorkspaceNpmCLIStagingExecutes(t *testing.T) {
 			require.NoError(t, os.Mkdir(bin, 0755))
 			bootstrap = strings.ReplaceAll(bootstrap, workspaceCLIPackageB64Path, payload)
 			bootstrap = strings.ReplaceAll(bootstrap, workspaceCLIPackageDir, filepath.Join(dir, "installed"))
-			bootstrap = strings.ReplaceAll(bootstrap, workspaceLocalBinDir, bin)
+			bootstrap = strings.ReplaceAll(bootstrap, defaultWorkspaceGuestLayout.localBinDir(), bin)
 			bootstrap = strings.ReplaceAll(bootstrap, "/tmp/smithers-workspace-cli-help.log", filepath.Join(dir, "help.log"))
 			output, err := exec.Command("bash", "-c", bootstrap).CombinedOutput()
 			require.NoError(t, err, string(output))

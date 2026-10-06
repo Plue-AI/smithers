@@ -287,30 +287,16 @@ func (s *WorkspaceService) recordCodingOperation(ctx context.Context, workspaceI
 }
 
 func (s *WorkspaceService) executeCoding(ctx context.Context, workspaceID string, repositoryID, userID int64, access WorkspaceAccessLevel, request map[string]any) (WorkspaceCodingResult, error) {
-	workspace, client, err := s.workspaceFacetTarget(ctx, workspaceID, repositoryID, userID, access)
+	var stdout string
+	var succeeded bool
+	var err error
+	if s.runtimeGuest() {
+		stdout, succeeded, err = s.runRuntimeCoding(ctx, workspaceID, repositoryID, userID, access, request)
+	} else {
+		stdout, succeeded, err = s.runSandboxCoding(ctx, workspaceID, repositoryID, userID, access, request)
+	}
 	if err != nil {
 		return WorkspaceCodingResult{}, err
-	}
-	// Resume may take time. Recheck workspace access immediately before exec.
-	current, err := s.loadWorkspaceWithAccess(ctx, workspaceID, repositoryID, userID, access)
-	if err != nil {
-		return WorkspaceCodingResult{}, err
-	}
-	if current.VmID != workspace.VmID {
-		return WorkspaceCodingResult{}, pkgerrors.Conflict("workspace execution changed before coding; read its current revision")
-	}
-	user := strings.TrimSpace(s.workspaceUsername)
-	if user == "" {
-		user = defaultWorkspaceUser
-	}
-	command, err := buildWorkspaceCodingCommand(defaultWorkspaceClonePath, user, request)
-	if err != nil {
-		return WorkspaceCodingResult{}, pkgerrors.Internal("encode workspace coding request").WithCause(err)
-	}
-	ctx = sandbox.WithIdempotencyKey(ctx, "coding-exec-"+uuid.NewString())
-	response, err := client.Execute(ctx, workspace.VmID, sandbox.ExecRequest{Command: command, TimeoutMS: workspaceOperationTimeoutPtr()})
-	if err != nil {
-		return WorkspaceCodingResult{}, &pkgerrors.APIError{Status: http.StatusServiceUnavailable, Code: pkgerrors.CodeCodingOutcomeUnknown, Message: "workspace transport interrupted; retry the identical request to recover its native receipt", RetryAfter: 1}
 	}
 	var envelope struct {
 		WorkspaceCodingResult
@@ -320,7 +306,7 @@ func (s *WorkspaceService) executeCoding(ctx context.Context, workspaceID string
 			Recovery *WorkspaceCodingRecovery `json:"recovery,omitempty"`
 		} `json:"error"`
 	}
-	if len(response.Stdout) > 16<<20 || json.Unmarshal([]byte(response.Stdout), &envelope) != nil {
+	if len(stdout) > 16<<20 || json.Unmarshal([]byte(stdout), &envelope) != nil {
 		return WorkspaceCodingResult{}, pkgerrors.Internal("invalid native coding response; retry identical request to recover its receipt")
 	}
 	if envelope.Error != nil {
@@ -346,14 +332,100 @@ func (s *WorkspaceService) executeCoding(ctx context.Context, workspaceID string
 		}
 		return WorkspaceCodingResult{}, apiError
 	}
-	if !workspaceExecSucceeded(response) || !codingOpID.MatchString(envelope.OperationID) ||
+	if !succeeded || !codingOpID.MatchString(envelope.OperationID) ||
 		(envelope.Status != "read" && envelope.Status != "accepted" && envelope.Status != "unchanged") {
 		return WorkspaceCodingResult{}, pkgerrors.Internal("invalid native coding receipt")
 	}
 	return envelope.WorkspaceCodingResult, nil
 }
 
+// runRuntimeCoding sends a coding request to a runtime guest's helper
+// through its runtime, which runs it as the guest's account in its checkout.
+func (s *WorkspaceService) runRuntimeCoding(ctx context.Context, workspaceID string, repositoryID, userID int64, access WorkspaceAccessLevel, request map[string]any) (string, bool, error) {
+	workspace, _, err := s.workspaceRuntimeFacetTarget(ctx, workspaceID, repositoryID, userID, access, "")
+	if err != nil {
+		return "", false, err
+	}
+	if err := s.recheckCodingExecution(ctx, workspace, repositoryID, userID, access); err != nil {
+		return "", false, err
+	}
+	layout, operationCtx, err := s.runtimeGuestPaths(ctx, workspace, userID)
+	if err != nil {
+		return "", false, err
+	}
+	script, err := buildWorkspaceCodingScript(layout.Root, request)
+	if err != nil {
+		return "", false, pkgerrors.Internal("encode workspace coding request").WithCause(err)
+	}
+	result, err := s.execRuntimeGuestScript(operationCtx, workspace.ID, script)
+	if err != nil {
+		return "", false, codingOutcomeUnknown()
+	}
+	return result.Stdout, result.ExitCode == 0 && !result.OutputTruncated, nil
+}
+
+// runSandboxCoding runs a coding request in this backend's own guest through
+// the sandbox provider, as the workspace user.
+func (s *WorkspaceService) runSandboxCoding(ctx context.Context, workspaceID string, repositoryID, userID int64, access WorkspaceAccessLevel, request map[string]any) (string, bool, error) {
+	workspace, client, err := s.workspaceFacetTarget(ctx, workspaceID, repositoryID, userID, access)
+	if err != nil {
+		return "", false, err
+	}
+	if err := s.recheckCodingExecution(ctx, workspace, repositoryID, userID, access); err != nil {
+		return "", false, err
+	}
+	user := strings.TrimSpace(s.workspaceUsername)
+	if user == "" {
+		user = defaultWorkspaceUser
+	}
+	command, err := buildWorkspaceCodingCommand(defaultWorkspaceClonePath, user, request)
+	if err != nil {
+		return "", false, pkgerrors.Internal("encode workspace coding request").WithCause(err)
+	}
+	ctx = sandbox.WithIdempotencyKey(ctx, "coding-exec-"+uuid.NewString())
+	response, err := client.Execute(ctx, workspace.VmID, sandbox.ExecRequest{Command: command, TimeoutMS: workspaceOperationTimeoutPtr()})
+	if err != nil {
+		return "", false, codingOutcomeUnknown()
+	}
+	return response.Stdout, workspaceExecSucceeded(response), nil
+}
+
+// recheckCodingExecution rechecks access immediately before a coding request
+// runs, since a resume may take time, and refuses a replaced machine.
+func (s *WorkspaceService) recheckCodingExecution(ctx context.Context, workspace db.Workspace, repositoryID, userID int64, access WorkspaceAccessLevel) error {
+	current, err := s.loadWorkspaceWithAccess(ctx, workspace.ID, repositoryID, userID, access)
+	if err != nil {
+		return err
+	}
+	if current.VmID != workspace.VmID {
+		return pkgerrors.Conflict("workspace execution changed before coding; read its current revision")
+	}
+	return nil
+}
+
+func codingOutcomeUnknown() error {
+	return &pkgerrors.APIError{Status: http.StatusServiceUnavailable, Code: pkgerrors.CodeCodingOutcomeUnknown, Message: "workspace transport interrupted; retry the identical request to recover its native receipt", RetryAfter: 1}
+}
+
+// buildWorkspaceCodingCommand runs the helper's script as user, the account
+// this backend's own guest provisions repositories as.
 func buildWorkspaceCodingCommand(repo, user string, request any) (string, error) {
+	script, err := buildWorkspaceCodingScript(repo, request)
+	if err != nil {
+		return "", err
+	}
+	// Match repository provisioning's developer identity. The sandbox control
+	// channel executes as root; running JJ there would create root-owned native
+	// metadata and bypass the workspace user's JJ author/configuration.
+	asDev := "runuser -u " + shellQuote(user) + " -- env -u JJ_CONFIG HOME=" + shellQuote(defaultWorkspaceHome) +
+		" XDG_CONFIG_HOME=" + shellQuote(defaultWorkspaceHome+"/.config") + " USER=" + shellQuote(user) + " LOGNAME=" + shellQuote(user) +
+		" PATH=/usr/local/bin:/run/current-system/sw/bin:/usr/bin:/bin "
+	return asDev + script, nil
+}
+
+// buildWorkspaceCodingScript sends request, for the checkout at repo, to the
+// guest's coding helper.
+func buildWorkspaceCodingScript(repo string, request any) (string, error) {
 	raw, err := json.Marshal(request)
 	if err != nil {
 		return "", err
@@ -371,11 +443,5 @@ func buildWorkspaceCodingCommand(repo, user string, request any) (string, error)
 	if err != nil {
 		return "", err
 	}
-	// Match repository provisioning's developer identity. The sandbox control
-	// channel executes as root; running JJ there would create root-owned native
-	// metadata and bypass the workspace user's JJ author/configuration.
-	asDev := "runuser -u " + shellQuote(user) + " -- env -u JJ_CONFIG HOME=" + shellQuote(defaultWorkspaceHome) +
-		" XDG_CONFIG_HOME=" + shellQuote(defaultWorkspaceHome+"/.config") + " USER=" + shellQuote(user) + " LOGNAME=" + shellQuote(user) +
-		" PATH=/usr/local/bin:/run/current-system/sw/bin:/usr/bin:/bin "
-	return asDev + shellQuote(workspaceJJExportPath) + " --local <<'SMITHERS_CODING_JSON'\n" + string(raw) + "\nSMITHERS_CODING_JSON", nil
+	return shellQuote(workspaceJJExportPath) + " --local <<'SMITHERS_CODING_JSON'\n" + string(raw) + "\nSMITHERS_CODING_JSON", nil
 }

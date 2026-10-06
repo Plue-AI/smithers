@@ -28,15 +28,40 @@ func (s *WorkspaceService) resolveWorkspaceSSHUser(requested string) (string, er
 	if user == "agent" && (requested == "" || requested == user) {
 		return user, nil
 	}
-	return "", pkgerrors.New(pkgerrors.CodeWorkspaceSSHUserInvalid, fmt.Sprintf("workspace ssh user %q is unavailable", requested))
+	return "", workspaceSSHUserUnavailable(requested)
+}
+
+func workspaceSSHUserUnavailable(requested string) error {
+	return pkgerrors.New(pkgerrors.CodeWorkspaceSSHUserInvalid, fmt.Sprintf("workspace ssh user %q is unavailable", requested))
+}
+
+// workspaceSSHAccount is the account an SSH grant for workspace names and the
+// directory its sessions start in. A runtime guest offers only the account
+// its runtime runs commands as, in its own checkout; any other workspace
+// offers this backend's configured account.
+func (s *WorkspaceService) workspaceSSHAccount(ctx context.Context, workspace db.Workspace, requesterID int64, requested string) (string, string, error) {
+	if !s.runtimeGuest() {
+		user, err := s.resolveWorkspaceSSHUser(requested)
+		return user, defaultWorkspaceClonePath, err
+	}
+	layout, err := s.workspaceGuestLayout(ctx, workspace, requesterID)
+	if err != nil {
+		return "", "", err
+	}
+	if requested = strings.TrimSpace(requested); requested != "" && requested != layout.User {
+		return "", "", workspaceSSHUserUnavailable(requested)
+	}
+	return layout.User, layout.Root, nil
 }
 
 // GetWorkspaceSSHConnectionInfoAs is GetWorkspaceSSHConnectionInfo for a
 // chosen guest user; the minted grant allows only that user.
 func (s *WorkspaceService) GetWorkspaceSSHConnectionInfoAs(ctx context.Context, workspaceID string, repositoryID, userID int64, guestUser string) (WorkspaceSSHConnectionInfo, error) {
-	guestUser, err := s.resolveWorkspaceSSHUser(guestUser)
-	if err != nil {
-		return WorkspaceSSHConnectionInfo{}, err
+	// A runtime guest's account is known only once it runs.
+	if !s.runtimeGuest() {
+		if _, err := s.resolveWorkspaceSSHUser(guestUser); err != nil {
+			return WorkspaceSSHConnectionInfo{}, err
+		}
 	}
 	if s.q == nil {
 		return WorkspaceSSHConnectionInfo{}, pkgerrors.Internal("workspace store unavailable")
@@ -46,7 +71,7 @@ func (s *WorkspaceService) GetWorkspaceSSHConnectionInfoAs(ctx context.Context, 
 	}
 
 	var info WorkspaceSSHConnectionInfo
-	err = s.withWorkspaceMutation(ctx, workspaceID, repositoryID, userID, func(ctx context.Context, workspace db.Workspace) error {
+	err := s.withWorkspaceMutation(ctx, workspaceID, repositoryID, userID, func(ctx context.Context, workspace db.Workspace) error {
 		workspace, err := s.ensureExistingWorkspaceRunningFor(ctx, workspace, userID)
 		if err != nil {
 			return err
@@ -54,7 +79,7 @@ func (s *WorkspaceService) GetWorkspaceSSHConnectionInfoAs(ctx context.Context, 
 		if err := s.waitForWorkspaceGuestActivation(ctx, workspace); err != nil {
 			return err
 		}
-		info, err = s.buildWorkspaceSSHConnectionInfoAs(ctx, workspace, guestUser)
+		info, err = s.buildWorkspaceSSHConnectionInfoAs(ctx, workspace, userID, guestUser)
 		if err != nil {
 			return err
 		}
@@ -112,7 +137,7 @@ func (s *WorkspaceService) GetSSHConnectionInfo(ctx context.Context, sessionID s
 		return WorkspaceSSHConnectionInfo{}, err
 	}
 
-	info, err := s.buildWorkspaceSSHConnectionInfo(ctx, workspace)
+	info, err := s.buildWorkspaceSSHConnectionInfo(ctx, workspace, userID)
 	if err != nil {
 		return WorkspaceSSHConnectionInfo{}, err
 	}
@@ -218,18 +243,18 @@ func (s *WorkspaceService) waitForWorkspaceGuestActivation(ctx context.Context, 
 	return pkgerrors.GuestNotReady("workspace guest is still starting; retry shortly")
 }
 
-func (s *WorkspaceService) buildWorkspaceSSHConnectionInfo(ctx context.Context, workspace db.Workspace) (WorkspaceSSHConnectionInfo, error) {
-	return s.buildWorkspaceSSHConnectionInfoAs(ctx, workspace, s.workspaceSSHUsername)
+func (s *WorkspaceService) buildWorkspaceSSHConnectionInfo(ctx context.Context, workspace db.Workspace, requesterID int64) (WorkspaceSSHConnectionInfo, error) {
+	return s.buildWorkspaceSSHConnectionInfoAs(ctx, workspace, requesterID, "")
 }
 
-// buildWorkspaceSSHConnectionInfoAs mints a grant bound to guestUser and
-// returns the connection details for it.
-func (s *WorkspaceService) buildWorkspaceSSHConnectionInfoAs(ctx context.Context, workspace db.Workspace, guestUser string) (WorkspaceSSHConnectionInfo, error) {
-	resolved, resolveErr := s.resolveWorkspaceSSHUser(guestUser)
+// buildWorkspaceSSHConnectionInfoAs mints a grant bound to the workspace's
+// SSH account (requested, when named, must be that account) and returns the
+// connection details for it.
+func (s *WorkspaceService) buildWorkspaceSSHConnectionInfoAs(ctx context.Context, workspace db.Workspace, requesterID int64, requested string) (WorkspaceSSHConnectionInfo, error) {
+	guestUser, workdir, resolveErr := s.workspaceSSHAccount(ctx, workspace, requesterID, requested)
 	if resolveErr != nil {
 		return WorkspaceSSHConnectionInfo{}, resolveErr
 	}
-	guestUser = resolved
 	var (
 		identity sandbox.Identity
 		err      error
@@ -271,7 +296,7 @@ func (s *WorkspaceService) buildWorkspaceSSHConnectionInfoAs(ctx context.Context
 		SSHHost:     sshHost,
 		Username:    guestUser,
 		Port:        22,
-		Workdir:     defaultWorkspaceClonePath,
+		Workdir:     workdir,
 		AccessToken: createdToken.Token,
 		Command:     fmt.Sprintf("ssh %s+%s:%s@%s", workspace.VmID, guestUser, createdToken.Token, publicHost),
 		HostKeys:    hostKeys,

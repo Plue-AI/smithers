@@ -154,11 +154,11 @@ func workspaceArtifactSources() []workspaceArtifactSource {
 	}
 }
 
-func workspaceBootstrapScriptForKind(kind string) string {
+func workspaceBootstrapScriptForKind(kind string, layout workspaceGuestLayout) string {
 	if sandboxKindForWorkspace(kind) == "container" {
-		return buildWorkspaceClaudeBootstrapScript()
+		return buildWorkspaceClaudeBootstrapScript(layout)
 	}
-	return buildWorkspaceNixBootstrapScript()
+	return buildWorkspaceNixBootstrapScript(layout)
 }
 
 // The key is based on bytes and the current bootstrap recipe, never the workspace

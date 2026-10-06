@@ -128,7 +128,7 @@ func TestWorkspaceArtifactForkUsesChildIdentityAndOneBootstrapPath(t *testing.T)
 	require.NoError(t, err)
 	require.Equal(t, workspaceArtifactOwner("child"), client.content[workspaceArtifactOwnerPath])
 	require.Len(t, client.writes, 6) // Child owner, current script, three artifacts and the manifest.
-	require.Equal(t, workspaceBootstrapScriptForKind("container"), stagedWorkspaceScript(client))
+	require.Equal(t, workspaceBootstrapScriptForKind("container", defaultWorkspaceGuestLayout), stagedWorkspaceScript(client))
 	require.Contains(t, buildForkBookmarkSwitchCommand("", "main"), workspaceRuntimeReadyCommand())
 	require.NotContains(t, buildForkBookmarkSwitchCommand("", "main"), shellQuote(workspaceClaudeScriptPath))
 	require.NotContains(t, buildWorkspaceCloneCommand("https://git.test/repo", "", "main", 0, workspaceCloneSource{}), shellQuote(workspaceClaudeScriptPath))
