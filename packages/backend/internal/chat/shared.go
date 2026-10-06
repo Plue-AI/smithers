@@ -15,6 +15,7 @@ import (
 // SharedTurn is a public projection, not a journal capability. Private request
 // context, writer tokens, approvals and the member's queue never enter it.
 type SharedTurn struct {
+	*ExternalDraft
 	ID          string             `json:"id"`
 	Title       string             `json:"title"`
 	Tone        string             `json:"tone"`
@@ -89,6 +90,15 @@ func (s *Store) SharedEntries(ctx context.Context, scope Scope, branch string) (
 			return result, e
 		}
 		entry := SharedTurn{ID: turn.ID, Author: turn.UserID, RunID: turn.RunID, Prompt: prompt, Title: entryTitle(prompt), Tone: entryTone(turn.State), State: turn.State, Frames: []json.RawMessage{}}
+		if externalTurn(turn) {
+			var request struct {
+				External ExternalDraft `json:"external"`
+			}
+			if json.Unmarshal(turn.Request, &request) != nil || !request.External.valid() {
+				return result, ErrCorrupt
+			}
+			entry.ExternalDraft = &request.External
+		}
 		if err := tx.QueryRow(ctx, `SELECT username FROM users WHERE id=$1`, turn.UserID).Scan(&entry.AuthorLogin); err != nil {
 			return result, err
 		}
