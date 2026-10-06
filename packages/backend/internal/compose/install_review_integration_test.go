@@ -155,6 +155,29 @@ func TestInstallReviewHTTPAdmissionWithoutRuntime(t *testing.T) {
 	active, err := q.ActivateFlowVersion(ctx, repo.ID, "review", strings.Repeat("c", 64))
 	require.NoError(t, err)
 	require.True(t, active)
+	// Legacy/incomplete Active rows must never select a built-in digest or
+	// proceed toward execution. In particular Git's missing-object sentinel
+	// is syntactically a SHA but cannot identify a pinned closure.
+	for _, tc := range []struct {
+		name   string
+		source any
+		status any
+		active bool
+	}{
+		{"missing source", nil, "loaded", true},
+		{"missing load status", "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb", nil, true},
+		{"zero source", strings.Repeat("0", 40), "loaded", true},
+		{"inactive loaded version", "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb", "loaded", false},
+		{"failed version", "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb", "failed", false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			_, err := pool.Exec(ctx, `UPDATE workflow_definitions SET source_commit=$2,status=$3,is_active=$4 WHERE repository_id=$1 AND name='review' AND digest=$5`, repo.ID, tc.source, tc.status, tc.active, strings.Repeat("c", 64))
+			require.NoError(t, err)
+			requestReview(503, "active_flow_unavailable")
+		})
+	}
+	_, err = pool.Exec(ctx, `UPDATE workflow_definitions SET source_commit='bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb',status='loaded',is_active=true WHERE repository_id=$1 AND name='review' AND digest=$2`, repo.ID, strings.Repeat("c", 64))
+	require.NoError(t, err)
 	requestReview(503, "review_delivery_unavailable")
 	requestReview(503, "review_delivery_unavailable") // Refusal replay allocates nothing.
 	for _, base := range []string{"", "main", strings.Repeat("0", 40), strings.Repeat("A", 40), strings.Repeat("9", 39), strings.Repeat("9", 41)} {

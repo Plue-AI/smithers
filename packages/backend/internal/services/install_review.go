@@ -129,7 +129,10 @@ func (s *MythicalService) prepareReview(ctx context.Context, repositoryID, reque
 			break
 		}
 	}
-	if !pin.Valid() {
+	// Git's all-zero object ID denotes a missing revision, not restorable
+	// source. The shared pin shape checks encoding; review also needs an
+	// actual selected source before it can admit repository execution.
+	if !pin.Valid() || strings.Trim(pin.SourceCommit, "0") == "" {
 		return ReviewAdmission{}, reviewUnavailable("active_flow_unavailable")
 	}
 	return ReviewAdmission{RepositoryID: repositoryID, RequesterID: requesterID, AuthorID: authorID, Number: request.Number, Base: pull.BaseSHA, Head: pull.HeadSHA, URL: fmt.Sprintf("https://github.com/%s/%s/pull/%d", gh.Owner, gh.Name, request.Number), Pin: pin, IdempotencyKey: key, Conversation: request.Conversation}, nil
