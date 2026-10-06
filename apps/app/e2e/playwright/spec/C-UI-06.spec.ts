@@ -19,7 +19,7 @@ test("C-UI-06: Shared branch entries keep personal views", async ({ page, browse
     await target.route("**/api/conversations/main", route => route.fulfill({ json: { id: "main", entries } }))
     await target.route("**/api/conversations/main/view-state", async route => {
       if (route.request().method() === "PUT") views[login] = route.request().postDataJSON()
-      await route.fulfill({ json: views[login] })
+      await route.fulfill({ json: { ...views[login], instructions: login === "ben" && entries.length ? [{ id: "host-turn:1:3", command: "theme", mode: "dark" }] : [] } })
     })
     await target.route("**/api/conversations/main/prompt", async route => {
       expect(login).toBe("ben")
@@ -42,12 +42,15 @@ test("C-UI-06: Shared branch entries keep personal views", async ({ page, browse
     }))
   }
   try {
+    await page.emulateMedia({ colorScheme: "light" }); await peer.emulateMedia({ colorScheme: "light" })
     await fixture(page, "ben", 1); await fixture(peer, "alice", 2)
     await page.goto("/"); await peer.goto("/")
     await expect.poll(() => publishers.length).toBe(2)
     await say(page, "List the changed tests")
     const mine = page.getByTestId("card-shared-file"), theirs = peer.getByTestId("card-shared-file")
     await expect(theirs).toBeVisible()
+    await expect(page.locator("html")).toHaveAttribute("data-theme", "dark")
+    await expect(peer.locator("html")).toHaveAttribute("data-theme", "light")
     await expect(peer.locator('[data-shared-conversation="main"]')).toContainText("Smithers for ben")
     await expect(peer.locator('[data-shared-conversation="main"]')).toContainText("List the changed tests")
     await mine.locator('[data-flow="card.maximize"]').press("Enter")

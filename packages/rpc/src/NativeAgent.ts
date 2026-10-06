@@ -291,7 +291,8 @@ export const AgentTurnFrameSchema = z.discriminatedUnion("type", [
     ordinal: z.number().int().nonnegative(),
     name: z.string(),
     verdict: ChainCallVerdictSchema,
-    resultDigest: z.string().optional()
+    resultDigest: z.string().optional(),
+    ui: z.object({ command: z.literal("theme"), mode: z.enum(["light", "dark"]) }).strict().optional()
   }),
   z.object({
     runId: z.string(),

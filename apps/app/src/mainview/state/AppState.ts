@@ -845,6 +845,7 @@ export type SharedPrompt = z.infer<typeof SharedPromptSchema>
 
 export const SessionSchema = z.object({
   sharedPrompts: z.array(SharedPromptSchema).optional(),
+  uiInstructionsSeen: z.array(z.string()).optional(),
   branchNavigation: BranchNavigationSchema.optional(),
   wikiSaves: z.array(z.object({
     id: z.string(), owner: z.string(), branch: z.string(), repo: z.string(), space: z.enum(["public", "private"]),
@@ -1351,6 +1352,7 @@ export type AppTransition =
   | { type: "repository.imports.changed"; actor: Actor; requests: NonNullable<Session["repositoryImports"]> }
   | { type: "secret.requests.changed"; actor: Actor; requests: NonNullable<Session["secretRequests"]> }
   | { type: "egress.requests.changed"; actor: Actor; requests: NonNullable<Session["egressRequests"]> }
+  | { type: "conversation.ui.applied"; actor: "system"; owner: string; id: string }
   | { type: "conversation.prompt.changed"; actor: Actor; request: SharedPrompt; clearDraft?: boolean }
   | { type: "branch.navigation.changed"; actor: Actor; navigation: z.infer<typeof BranchNavigationSchema> }
   | { type: "theme.changed"; actor: "user" | "system"; theme: Session["theme"] }

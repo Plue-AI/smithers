@@ -89,7 +89,7 @@ export function createHomeViewSeam(options: {
       const body = await request()
       if (!valid(revision, principal)) return
       // Queued prompts are read-only; the API refuses a browser-supplied queue.
-      const { queue: _queue, ...saved } = body
+      const { queue: _queue, instructions: _instructions, ...saved } = body
       const home = saved.home && typeof saved.home === "object" ? saved.home as Record<string, unknown> : {}
       ++readGeneration
       const result = await request({ method: "PUT", headers: { "Content-Type": "application/json" },

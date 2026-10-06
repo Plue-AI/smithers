@@ -10,7 +10,7 @@ export const SharedConversationSchema = z.object({ id: z.string(), entries: z.ar
   frames: z.array(AgentTurnFrameSchema), context: z.array(ContextItemSchema).optional()
 })) })
 export type SharedConversation = z.infer<typeof SharedConversationSchema>
-export const ConversationViewSchema = z.object({ scroll_anchor: z.string().optional(), card_view: z.record(z.string(), z.unknown()).optional(), last_seen_seq: z.number().int().nonnegative().optional(), toasts_hidden: z.boolean().optional(), queue: z.array(z.object({ id: z.string(), prompt: z.string() })).default([]) }).passthrough()
+export const ConversationViewSchema = z.object({ instructions: z.array(z.object({ id: z.string(), command: z.literal("theme"), mode: z.enum(["light", "dark"]) })).default([]), scroll_anchor: z.string().optional(), card_view: z.record(z.string(), z.unknown()).optional(), last_seen_seq: z.number().int().nonnegative().optional(), toasts_hidden: z.boolean().optional(), queue: z.array(z.object({ id: z.string(), prompt: z.string() })).default([]) }).passthrough()
 export type ConversationView = z.infer<typeof ConversationViewSchema>
 export interface ConversationSnapshot { readonly view?: ConversationView; readonly queue?: readonly { id: string; prompt: string }[]; readonly conversation?: SharedConversation; readonly error?: string }
 
@@ -25,6 +25,26 @@ export function createSharedConversationSeam(ctx: ControllerContext, live?: Live
   const listeners = new Set<() => void>()
   const publish = (next: ConversationSnapshot) => { snapshot = next; for (const listener of listeners) listener() }
   const valid = (revision: number) => !disposed && !ctx.disposed && generation === revision
+  const applying = new Set<string>()
+  let uiWork = Promise.resolve()
+  const applyInstructions = (view: ConversationView, revision: number) => {
+    const owner = ctx.accountOwner(), at = branch
+    if (!owner || !valid(revision)) return
+    for (const instruction of view.instructions) {
+      const id = JSON.stringify([owner, at, instruction.id])
+      if (applying.has(id) || ctx.store.session().uiInstructionsSeen?.includes(id)) continue
+      applying.add(id)
+      uiWork = uiWork.then(async () => {
+        if (!valid(revision)) return
+        // The schema permits explicit theme assignments only. No tool payload,
+        // arbitrary command, shared mutation or model continuation reaches this door.
+        const outcome = await ctx.commands.submit({ name: "theme", payload: { mode: instruction.mode }, actor: "agent" })
+        if (outcome.status !== "executed") throw new Error("Theme unavailable")
+        await ctx.store.settled?.()
+        if (valid(revision)) await ctx.store.dispatch({ type: "conversation.ui.applied", actor: "system", owner, id }).isPersisted.promise
+      }).catch(error => { if (valid(revision)) ctx.failures.report("seam.failure", error, "conversation-ui") }).finally(() => applying.delete(id))
+    }
+  }
   const read = async () => {
     if (!key || disposed) return
     if (reading) { again = true; return }
@@ -38,7 +58,7 @@ export function createSharedConversationSeam(ctx: ControllerContext, live?: Live
       const viewResponse = await ctx.boundedFetch(`${ctx.baseUrl}/api/conversations/${encodeURIComponent(at)}/view-state`, { credentials: "same-origin" })
       if (viewResponse.ok) {
         const view = ConversationViewSchema.parse(await viewResponse.json())
-        if (valid(revision) && viewing === viewRevision) publish({ ...snapshot, view, queue: view.queue })
+        if (valid(revision) && viewing === viewRevision) { publish({ ...snapshot, view, queue: view.queue }); applyInstructions(view, revision) }
       }
     } catch { if (valid(revision)) publish({ error: "Conversation unavailable" }) }
     finally { reading = false; if (again) { again = false; void read() } }
@@ -52,7 +72,7 @@ export function createSharedConversationSeam(ctx: ControllerContext, live?: Live
       const path = `${ctx.baseUrl}/api/conversations/${encodeURIComponent(at)}/view-state`
       const response = await ctx.boundedFetch(path, { credentials: "same-origin" })
       if (!response.ok) throw new Error("View unavailable")
-      const { queue: _queue, ...previous } = ConversationViewSchema.parse(await response.json())
+      const { queue: _queue, instructions: _instructions, ...previous } = ConversationViewSchema.parse(await response.json())
       if (!valid(revision)) return
       const written = await ctx.boundedFetch(path, { method: "PUT", credentials: "same-origin", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ ...previous, ...patch }) })
       if (!written.ok) throw new Error("View unavailable")

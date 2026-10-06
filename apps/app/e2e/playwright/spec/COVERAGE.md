@@ -87,7 +87,7 @@ C-UI-12 Members (T-UI-09): [install roster and keyboard Add/Role/Remove](C-UI-12
 | C-UI-04 | [C-UI-04.spec.ts](C-UI-04.spec.ts) | partial: served TODO rail keyboard Retry, Answer with bound TODO and Resolve with bound branch, approval/conflict notices and owner merge notice/Hide covered; shared entries, preference hiding and summaries remain fixme | T-APP-07 |
 | C-UI-05 | [C-UI-05.spec.ts](C-UI-05.spec.ts) | fixme-before-implementation | T-COL-02 |
 
-| C-UI-06 | [C-UI-06.spec.ts](C-UI-06.spec.ts) | passed: two install identities, live shared entries and independent card view reload; real-host acceptance separate | T-APP-16 |
+| C-UI-06 | [C-UI-06.spec.ts](C-UI-06.spec.ts) | passed: two install identities, live shared entries, author-only theme and independent card view reload; real-host acceptance separate | T-APP-16 |
 | C-UI-07 | [C-UI-07.spec.ts](C-UI-07.spec.ts), [durable Context/Inspect projection](../context-inspect.spec.ts) | projection, pinned wiki keyboard/mouse opening and reload pass with journal fixture; authenticated branch prompt/SharedEntries acceptance remains fixme | T-APP-17 |
 | C-UI-08 | [C-UI-08.spec.ts](C-UI-08.spec.ts) | fixme-before-implementation | T-APP-22 |
 | C-UI-09 | [C-UI-09.spec.ts](C-UI-09.spec.ts), [docs.spec.ts](../docs.spec.ts) | Passing Chromium (2026-10-06): all nine combined docs cases; real HTTP agent docs.read, bundled toc, internal page/anchor links, no outside-origin request, keyboard navigation, missing-page persistence and Settings activation. The journal fixture returns 404 for replay before leg acceptance, with a regression test preserving capability rejection after acceptance. | T-APP-20, T-APP-24 |
@@ -387,4 +387,4 @@ T-APP-16 shared read receipt: `shared-conversation.spec.ts` renders the install 
 
 T-APP-16 prompt receipt: install composer uses only the canonical prompt body, acknowledges persisted requests before unresolved admission, deduplicates, retains progress through host completion and reconnects after reload. Mounted tests cover server queue PATCH/DELETE/restore, own-turn Stop, and retry after refusal. The legacy non-install executor and Bun route deletion remain pending.
 
-T-APP-16 view-state receipt: `C-UI-06.spec.ts` passes two browser identities with HTTP/live contract fixtures. `shared-conversation.spec.ts` passes scroll-anchor and maximized-card restoration on reload. Writes retain Home preferences and exclude the read-only queue. PostgreSQL privacy remains covered separately by the composed-router checks.
+T-APP-16 view-state receipt: `C-UI-06.spec.ts` passes two browser identities with HTTP/live contract fixtures. `shared-conversation.spec.ts` passes scroll-anchor and maximized-card restoration on reload. Writes retain Home preferences and exclude the read-only queue and UI instructions. Author-only theme instructions survive reload without reapplying completed instructions. PostgreSQL privacy remains covered separately by the composed-router checks.

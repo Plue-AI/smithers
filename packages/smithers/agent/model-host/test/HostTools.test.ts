@@ -273,6 +273,7 @@ const HOST_COMMANDS = [
   "search",
   "stack",
   "stack.move",
+  "theme",
   "todo",
   "todo.amend",
   "todo.answer",
@@ -1244,6 +1245,28 @@ describe("an install's host runs the catalog commands its grant allows, as the t
     ])
   })
 
+  test("theme commits an explicit private instruction without an HTTP command or card", async () => {
+    const journal = producer(path => file(path, JOURNEY), stackRoutes)
+    const provider = model([execute("theme", "dark")])
+    await run(install, provider, journal)
+    expect(journal.calls).toEqual([])
+    expect(journal.frames.filter(frame => frame.type === "call.settled")).toEqual([
+      { runId: install.request.runId, type: "call.settled", link: 0, ordinal: 0, name: "theme", verdict: "run", ui: { command: "theme", mode: "dark" } }
+    ])
+    expect(toolOutputs(provider)).toEqual(["Requested /theme dark on the author's screen."])
+  })
+
+  test("theme refuses toggles, unknown modes and extra authority fields", async () => {
+    for (const args of [undefined, "pink", "{broken", '{"mode":null}', '{"mode":"dark","command":"todo.drop"}']) {
+      const journal = producer(path => file(path, JOURNEY), stackRoutes)
+      const provider = model([execute("theme", args)])
+      await run(install, provider, journal)
+      expect(journal.calls).toEqual([])
+      expect(journal.frames.filter(frame => frame.type === "call.settled")).toEqual([])
+      expect(toolOutputs(provider)).toEqual(["failed: Invalid arguments for theme; use light or dark."])
+    }
+  })
+
   test("schema and argument errors refuse before transport", async () => {
     for (
       const [name, args] of [
@@ -1274,7 +1297,6 @@ describe("an install's host runs the catalog commands its grant allows, as the t
       const name of [
         "approval.approve",
         "members.remove",
-        "theme",
         "todo.erase",
         "flow.list",
         "files.write",

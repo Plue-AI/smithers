@@ -194,3 +194,10 @@ describe("RPC sources stay runtime-free", () => {
     }
   })
 })
+
+
+test("host UI instructions retain explicit theme data and refuse arbitrary browser actions", () => {
+  const frame = { runId: "run", type: "call.settled", link: 0, ordinal: 0, name: "theme", verdict: "run", ui: { command: "theme", mode: "dark" } }
+  expect(AgentTurnFrameSchema.parse(frame)).toEqual(frame)
+  for (const ui of [null, { command: "todo.drop", mode: "dark" }, { command: "theme", mode: null }, { command: "theme", mode: "dark", extra: "authority" }]) expect(parses({ ...frame, ui })).toBe(false)
+})
