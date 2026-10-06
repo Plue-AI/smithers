@@ -1,5 +1,8 @@
 # One product, self-hosted and hosted: merged design
 
+> **Status: proposal awaiting Will's review (2026-10-06).** Produced by a four-way panel and a merger at Will's request. Not normative: spec.md and mvp.md govern until Will accepts it. **Known conflict:** this design has the install dial out to remote computers and Cloud machines after launch, while M-40 (on main, a90c199253) has workers dial the install with a stage-1 falsifier on beaver. M-40 governs until Will rules.
+
+
 Merger: Claude Fable, 2026-10-06. Inputs: `codex-sol.md`, `codex-astra.md`, `fable.md`, `opus.md`. Every contested fact below was re-read in `~/smithers-frontrun` (origin/frontrun, `0384b6be9a`) and `~/plue` (main). Paths without a prefix are in smithers-frontrun; `B/` is `packages/backend/`; `P/` is `~/plue`.
 
 ## Decisions for Will
