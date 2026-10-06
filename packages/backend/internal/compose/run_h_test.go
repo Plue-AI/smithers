@@ -86,7 +86,6 @@ func baseRunEnv(t *testing.T) map[string]string {
 		"SMITHERS_DATABASE_URL":                  testDatabaseURL(t),
 		"SMITHERS_BLOB_DATA_DIR":                 t.TempDir(),
 		"SMITHERS_AUTH_MODE":                     "selfhost",
-		"SMITHERS_AUTH_BOOTSTRAP_TOKEN":          "test-bootstrap-token",
 		"SMITHERS_AUTH_SESSION_SECRET":           "test-secret",
 		"SMITHERS_LFS_SIGNING_SECRET":            "test-lfs-signing-secret",
 		"SMITHERS_WEBHOOK_SECRET_ENCRYPTION_KEY": "test-webhook-key",
@@ -174,7 +173,14 @@ func (h *runHarness) addr() string { return h.ln.Addr().String() }
 
 func (h *runHarness) get(path string) (*http.Response, error) {
 	client := &http.Client{Timeout: 5 * time.Second}
-	return client.Get("http://" + h.addr() + path)
+	req, err := http.NewRequest(http.MethodGet, "http://"+h.addr()+path, nil)
+	if err != nil {
+		return nil, err
+	}
+	// The listener uses an ephemeral test port, while the install keeps its
+	// configured browser origin. Send that Host through the real listener.
+	req.Host = "127.0.0.1:4000"
+	return client.Do(req)
 }
 
 // shutdownAndWaitNil cancels the context to drive the graceful-shutdown path
@@ -318,6 +324,9 @@ func TestRun_SSEBrokerStartError(t *testing.T) {
 func TestRun_AuthProviderConfigError(t *testing.T) {
 	preserveSlog(t)
 	env := baseRunEnv(t)
+	// Install callbacks follow the configured request origin; only hosted
+	// OAuth consumes this static callback setting.
+	env["SMITHERS_AUTH_MODE"] = "multitenant"
 	env["SMITHERS_AUTH_GITHUB_REDIRECT_URL"] = "https://app.example/wrong-callback"
 	applyEnv(t, env)
 	stubSSEBroker(t)

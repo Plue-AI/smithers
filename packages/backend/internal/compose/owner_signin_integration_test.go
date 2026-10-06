@@ -67,8 +67,7 @@ func TestOwnerSignInHTTPPostgres(t *testing.T) {
 			require.NoError(t, json.Unmarshal(output.Bytes(), &mint))
 			u, err := url.Parse(mint.URLs[0])
 			require.NoError(t, err)
-			credential, err := setup.Exchange(ctx, u.Query().Get("token"))
-			require.NoError(t, err)
+			var credential string
 			cfg := config.AuthConfig{Mode: "selfhost", SessionSecret: "test-secret", SessionCookieName: "session", SessionDuration: "24h"}
 			svc := services.NewAuthService(q, cfg, nil, auth.NewGitHubClient(ownerOAuthCredentials{seed.ClientID, seed.ClientSecret}, "", provider.URL, provider.URL))
 			// Configuration names localhost, as the bundle's does: the sign-in
@@ -76,6 +75,45 @@ func TestOwnerSignInHTTPPostgres(t *testing.T) {
 			cfg.GitHubRedirectURL = "http://localhost:4000/api/auth/github/callback"
 			svc.InstallSetup = setup
 			handler := &routes.AuthHandler{Service: svc, AuthConfig: cfg, Origins: middleware.FixedOrigins(tc.saved), InstallSetup: setup}
+			installConfig := testConfigAllFlagsOn()
+			installConfig.Auth = cfg
+			installConfig.Server.PublicURL = origin
+			installConfig.Server.AllowedOrigins = []string{tc.saved}
+			router := buildRouterCompat(
+				installConfig, q, pool,
+				&routes.RepoHandler{}, handler, &routes.UserHandler{TokenService: svc, ProfileService: services.NewUserService(q)}, &routes.SSHKeyHandler{}, &routes.LabelHandler{},
+				&routes.OrgHandler{}, &routes.LandingHandler{}, &routes.SearchHandler{Service: &mockRouterSearchService{}}, &routes.IssueHandler{},
+				nil, &routes.GitSmartHandler{Service: &mockRouterGitService{}},
+				nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil,
+				nil, nil, nil, nil, nil, nil,
+				&routes.WorkspaceHandler{}, nil, nil, nil, nil, nil, nil,
+				routerExtras{GitHubAppSetup: &routes.GitHubAppSetupHandler{Sessions: setup, Owners: q, Origins: middleware.FixedOrigins(tc.saved)}},
+			)
+			exchangeRequest := httptest.NewRequest(http.MethodGet, origin+"/setup?token="+url.QueryEscape(u.Query().Get("token")), nil)
+			exchangeRequest.RemoteAddr = "127.0.0.1:1234"
+			exchange := httptest.NewRecorder()
+			router.ServeHTTP(exchange, exchangeRequest)
+			require.Equal(t, http.StatusSeeOther, exchange.Code, exchange.Body.String())
+			require.Equal(t, "/", exchange.Header().Get("Location"), "the token leaves the browser URL")
+			for _, cookie := range exchange.Result().Cookies() {
+				if cookie.Name == routes.GitHubAppSetupSessionCookie {
+					credential = cookie.Value
+					require.True(t, cookie.HttpOnly)
+				}
+			}
+			require.NotEmpty(t, credential)
+			for _, route := range []string{"status", "bootstrap", "login", "token", "password"} {
+				method := http.MethodPost
+				if route == "status" {
+					method = http.MethodGet
+				}
+				deleted := httptest.NewRecorder()
+				request := httptest.NewRequest(method, origin+"/api/auth/local/"+route, strings.NewReader("{}"))
+				request.Header.Set("Content-Type", "application/json")
+				request.RemoteAddr = "127.0.0.1:1234"
+				router.ServeHTTP(deleted, request)
+				require.Equal(t, http.StatusNotFound, deleted.Code, route)
+			}
 			request := func(path string, cookies ...*http.Cookie) *http.Request {
 				r := httptest.NewRequest("GET", origin+path, nil)
 				r.RemoteAddr = "127.0.0.1:1234"
@@ -85,10 +123,10 @@ func TestOwnerSignInHTTPPostgres(t *testing.T) {
 				return r
 			}
 			denied := httptest.NewRecorder()
-			handler.GetGitHubOAuthStart(denied, request("/api/auth/github"))
+			router.ServeHTTP(denied, request("/api/auth/github"))
 			require.Equal(t, 401, denied.Code)
 			start := httptest.NewRecorder()
-			handler.GetGitHubOAuthStart(start, request("/api/auth/github", &http.Cookie{Name: routes.GitHubAppSetupSessionCookie, Value: credential}))
+			router.ServeHTTP(start, request("/api/auth/github", &http.Cookie{Name: routes.GitHubAppSetupSessionCookie, Value: credential}))
 			require.Equal(t, 302, start.Code)
 			redirect, err := url.Parse(start.Header().Get("Location"))
 			require.NoError(t, err)
@@ -105,7 +143,7 @@ func TestOwnerSignInHTTPPostgres(t *testing.T) {
 			require.NoError(t, err)
 			callback := request(callbackURL.RequestURI(), cookies...)
 			result := httptest.NewRecorder()
-			handler.GetGitHubOAuthCallback(result, callback)
+			router.ServeHTTP(result, callback)
 			require.Equal(t, 302, result.Code, result.Body.String())
 			require.Equal(t, origin+"/", result.Header().Get("Location"), "the sign-in returns to the origin that started it")
 			owner, err := q.GetSelfHostOwner(ctx)
@@ -120,7 +158,7 @@ func TestOwnerSignInHTTPPostgres(t *testing.T) {
 			require.NoError(t, pool.QueryRow(ctx, `SELECT count(*) FROM auth_sessions WHERE user_id=$1`, owner.ID).Scan(&sessions))
 			require.Equal(t, 1, sessions)
 			replay := httptest.NewRecorder()
-			handler.GetGitHubOAuthCallback(replay, callback)
+			router.ServeHTTP(replay, callback)
 			require.Equal(t, 401, replay.Code)
 			require.Contains(t, replay.Body.String(), `"code":"setup_closed"`)
 			for _, cookie := range result.Result().Cookies() {

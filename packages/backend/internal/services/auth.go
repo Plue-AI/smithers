@@ -612,7 +612,7 @@ func (s *AuthService) completeOAuthWithClient(ctx context.Context, client GitHub
 func (s *AuthService) resolveOAuthUser(ctx context.Context, client GitHubClient, provider, accessToken, refreshToken string, expiresIn int64) (db.User, error) {
 	profile, err := client.FetchUser(ctx, accessToken)
 	if err != nil {
-		return db.User{}, oauthFetchError("profile", err)
+		return db.User{}, oauthFetchError("profile", err, config.IsSingleOwner(s.cfg))
 	}
 
 	if config.IsSingleOwner(s.cfg) && s.Members != nil {
@@ -623,7 +623,7 @@ func (s *AuthService) resolveOAuthUser(ctx context.Context, client GitHubClient,
 
 	emails, err := client.FetchEmails(ctx, accessToken)
 	if err != nil {
-		return db.User{}, oauthFetchError("emails", err)
+		return db.User{}, oauthFetchError("emails", err, config.IsSingleOwner(s.cfg))
 	}
 
 	providerUserID := fmt.Sprintf("%d", profile.ID)
@@ -1306,7 +1306,7 @@ func containsPrivilegedScope(scopes []string) bool {
 // oauthFetchError maps a GitHub profile or emails fetch failure to an API
 // error. Rejected credentials are 401; typed dependency failures retain their
 // class and pacing, while untyped failures keep a private cause.
-func oauthFetchError(what string, err error) error {
+func oauthFetchError(what string, err error, install bool) error {
 	if stdErrors.Is(err, ErrGitHubTokenRejected) {
 		if what == "emails" {
 			// The profile read just accepted this token: the App lacks the permission.
@@ -1316,6 +1316,9 @@ func oauthFetchError(what string, err error) error {
 	}
 	var failure *pkgerrors.APIError
 	if stdErrors.As(err, &failure) {
+		if install && what == "emails" && failure.Code == pkgerrors.CodeGitHubPermission {
+			return pkgerrors.New(pkgerrors.CodeGitHubPermission, "GitHub App needs Email addresses read access")
+		}
 		return err
 	}
 	if stdErrors.Is(err, context.Canceled) || stdErrors.Is(err, context.DeadlineExceeded) {

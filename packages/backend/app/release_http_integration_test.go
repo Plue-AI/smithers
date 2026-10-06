@@ -2,6 +2,8 @@ package app_test
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"io"
 	"log/slog"
@@ -29,8 +31,8 @@ func TestReleaseHTTPWriteAndPaginationContracts(t *testing.T) {
 	require.NoError(t, err)
 	t.Cleanup(func() { require.NoError(t, local.Shutdown(context.Background())) })
 	for key, value := range map[string]string{
+		"SMITHERS_AUTH_MODE":    "selfhost",
 		"SMITHERS_DATABASE_URL": databaseURL, "SMITHERS_BLOB_DATA_DIR": t.TempDir(),
-		"SMITHERS_AUTH_MODE": "selfhost", "SMITHERS_AUTH_BOOTSTRAP_TOKEN": "release-audit-bootstrap",
 		"SMITHERS_AUTH_SESSION_SECRET": "release-audit-session", "SMITHERS_LFS_SIGNING_SECRET": "release-audit-lfs",
 		"SMITHERS_WEBHOOK_SECRET_ENCRYPTION_KEY": "release-audit-webhook", "SMITHERS_REPO_HOST_AUTH_TOKEN": "release-audit-repo",
 		"SMITHERS_PUSH_HOOK_CALLBACK_TOKEN": "release-audit-push", "SMITHERS_SERVER_ADDR": "127.0.0.1:0",
@@ -50,6 +52,7 @@ func TestReleaseHTTPWriteAndPaginationContracts(t *testing.T) {
 	server := httptest.NewServer(instance.Handler())
 	t.Cleanup(server.Close)
 	token := ""
+	session := ""
 	request := func(method, path, body string, want int, headers map[string]string) (map[string]any, http.Header) {
 		t.Helper()
 		var reader io.Reader
@@ -58,11 +61,16 @@ func TestReleaseHTTPWriteAndPaginationContracts(t *testing.T) {
 		}
 		req, err := http.NewRequest(method, server.URL+path, reader)
 		require.NoError(t, err)
+		req.Host = "127.0.0.1:4000"
 		if body != "" {
 			req.Header.Set("Content-Type", "application/json")
 		}
-		if token != "" {
-			req.Header.Set("Authorization", "token "+token)
+		if session != "" {
+			// Exercise person-only writes and browser-only reads as the owner.
+			req.AddCookie(&http.Cookie{Name: "smithers_session", Value: session})
+			req.AddCookie(&http.Cookie{Name: "__csrf", Value: "release-csrf"})
+			req.Header.Set("Origin", "http://127.0.0.1:4000")
+			req.Header.Set("X-CSRF-Token", "release-csrf")
 		}
 		for k, v := range headers {
 			req.Header.Set(k, v)
@@ -80,6 +88,11 @@ func TestReleaseHTTPWriteAndPaginationContracts(t *testing.T) {
 		return result, res.Header
 	}
 	token, err = seed.OwnerToken(t.Context(), pool, "releaseowner")
+	require.NoError(t, err)
+	session = strings.TrimPrefix(token, "smithers_") + strings.Repeat("0", 24)
+	digest := sha256.Sum256([]byte(session))
+	_, err = pool.Exec(ctx, `INSERT INTO auth_sessions(session_key,user_id,username,expires_at)
+        SELECT $1,id,username,now()+interval '1 hour' FROM users WHERE username='releaseowner'`, hex.EncodeToString(digest[:]))
 	require.NoError(t, err)
 
 	repo, _ := request("POST", "/api/user/repos", `{"name":"audit","private":true,"auto_init":true}`, 201, nil)
@@ -143,7 +156,8 @@ func TestReleaseHTTPWriteAndPaginationContracts(t *testing.T) {
 	for next != "" {
 		req, err := http.NewRequest("GET", server.URL+next, nil)
 		require.NoError(t, err)
-		req.Header.Set("Authorization", "token "+token)
+		req.AddCookie(&http.Cookie{Name: "smithers_session", Value: session})
+		req.Host = "127.0.0.1:4000"
 		res, err := server.Client().Do(req)
 		require.NoError(t, err)
 		require.Equal(t, 200, res.StatusCode)

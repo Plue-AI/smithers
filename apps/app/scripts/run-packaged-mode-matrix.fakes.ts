@@ -37,7 +37,7 @@ mock.module("./mode-matrix/source-revision", () => ({ sourceRevision: async () =
 mock.module("./mode-matrix/local-own", () => ({
   startLocalOwn: async () => {
     acquisitions.push("local")
-    return { modeConfig: modeConfig("local-own"), runtimeEnvironment: { MATRIX_TEST_AUTH: JSON.stringify({ username: "owner", password: "unused-fixture-password", bootstrapToken: "unused-fixture-bootstrap", sessionCookie: "b".repeat(64) }), SMITHERS_LOCAL_GIT_ORIGIN: "http://127.0.0.1:3001" }, close: async () => { closes.push("local"); if (failClose) throw new Error("close failed") } }
+    return { modeConfig: modeConfig("local-own"), runtimeEnvironment: { MATRIX_TEST_AUTH: JSON.stringify({ username: "owner", sessionCookie: "b".repeat(64) }), SMITHERS_LOCAL_GIT_ORIGIN: "http://127.0.0.1:3001" }, close: async () => { closes.push("local"); if (failClose) throw new Error("close failed") } }
   }
 }))
 mock.module("./mode-matrix/plue-target", () => ({

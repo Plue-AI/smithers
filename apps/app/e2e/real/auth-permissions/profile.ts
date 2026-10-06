@@ -4,7 +4,7 @@ import { access, link, readFile, realpath, unlink, writeFile } from "node:fs/pro
 import { homedir } from "node:os"
 import { join } from "node:path"
 import type { BrowserContext, BrowserType, Page } from "@playwright/test"
-import { OwnerSessionCookies, withOwnerAuthRetry, type OwnerSessionScope } from "./owner-session"
+import { OwnerSessionCookies, type OwnerSessionScope } from "./owner-session"
 import { expect, test as realTest } from "../support/test"
 import { appEntryPath, awaitBoot } from "../support"
 
@@ -23,7 +23,7 @@ type LockRecord = { readonly pid?: unknown; readonly nonce?: unknown }
 type AuthenticatedProfileOptions = { readonly profileEnvironment: string | undefined }
 type AuthenticatedProfileFixtures = { readonly _authenticatedReady: void }
 type RealAuthKind = "browser-profile" | "owner-session" | "application-token"
-type OwnerCredentials = { readonly username: string; readonly password: string; readonly bootstrapToken: string; readonly sessionCookie?: string }
+type OwnerCredentials = { readonly username: string; readonly sessionCookie: string }
 
 const realAuthKind = (): RealAuthKind => {
   const configured = process.env.SMITHERS_REAL_AUTH_KIND?.trim()
@@ -42,17 +42,14 @@ export const ownerCredentialsFromEnvironment = (): OwnerCredentials => {
   let value: unknown
   try { value = JSON.parse(raw) } catch { throw new Error(`${name} must contain a JSON owner credential envelope.`) }
   if (typeof value !== "object" || value === null) throw new Error(`${name} must contain a JSON owner credential envelope.`)
-  const candidate = value as { readonly username?: unknown; readonly password?: unknown; readonly bootstrapToken?: unknown; readonly sessionCookie?: unknown }
-  if (typeof candidate.username !== "string" || candidate.username.trim() === "" ||
-      typeof candidate.password !== "string" || candidate.password.length < 12 ||
-      typeof candidate.bootstrapToken !== "string" || candidate.bootstrapToken.trim() === "") {
-    throw new Error(`${name} must contain non-empty username, password, and bootstrapToken fields.`)
+  const candidate = value as { readonly username?: unknown; readonly sessionCookie?: unknown }
+  if (typeof candidate.username !== "string" || candidate.username.trim() === "") {
+    throw new Error(`${name} must contain a non-empty username.`)
   }
-  if (candidate.sessionCookie !== undefined && (typeof candidate.sessionCookie !== "string" || !/^[0-9a-f]{64}$/.test(candidate.sessionCookie))) {
+  if (typeof candidate.sessionCookie !== "string" || !/^[0-9a-f]{64}$/.test(candidate.sessionCookie)) {
     throw new Error(`${name} has an invalid seeded session cookie.`)
   }
-  return { username: candidate.username.trim(), password: candidate.password, bootstrapToken: candidate.bootstrapToken.trim(),
-    ...(typeof candidate.sessionCookie === "string" ? { sessionCookie: candidate.sessionCookie } : {}) }
+  return { username: candidate.username.trim(), sessionCookie: candidate.sessionCookie }
 }
 
 const ownerSessions = new OwnerSessionCookies()
@@ -164,56 +161,17 @@ const establishOwnerSession = async (context: BrowserContext, page: Page, baseUR
   const origin = new URL(process.env.SMITHERS_REAL_API_ORIGIN ?? baseURL).origin
   const credentials = ownerCredentialsFromEnvironment()
   const scope = ownerSessionScope(baseURL)
-  if (credentials.sessionCookie) {
-    await context.addCookies([{ name: "smithers_session", value: credentials.sessionCookie, url: origin, httpOnly: true, sameSite: "Lax" }])
-  }
+  await context.addCookies([{ name: "smithers_session", value: credentials.sessionCookie, url: origin, httpOnly: true, sameSite: "Lax" }])
   const existing = await readSessionAtOrigin(context, baseURL)
-  if (existing !== undefined) {
-    if (existing.login !== credentials.username) throw new Error("The cached owner session belongs to a different user.")
-    const startedAt = performance.now()
-    await page.goto(new URL(appEntryPath(), baseURL).toString(), { waitUntil: "domcontentloaded" })
-    await awaitBoot(page, "navigate", startedAt)
-    return existing
-  }
-  if (credentials.sessionCookie) throw new Error("Seeded owner session failed verification at /api/user.")
-  // A revoked/expired session is never treated as an authenticated fixture.
-  ownerSessions.forget(scope)
-  const statusResponse = await context.request.get(new URL("/api/auth/local/status", origin).toString())
-  const status = await statusResponse.json().catch(() => undefined) as {
-    readonly enabled?: unknown
-    readonly initialized?: unknown
-    readonly username?: unknown
-  } | undefined
-  if (statusResponse.status() !== 200 || status?.enabled !== true || typeof status.initialized !== "boolean") {
-    throw new Error(`Owner identity status preflight failed: HTTP ${statusResponse.status()}.`)
-  }
-  if (status.initialized && status.username !== undefined && status.username !== credentials.username) {
-    throw new Error(`The initialized owner ${String(status.username)} does not match the configured matrix owner.`)
-  }
-  const path = status.initialized ? "/api/auth/local/login" : "/api/auth/local/bootstrap"
-  // Authenticate in the renderer's cookie jar. APIRequestContext can race the
-  // browser's jar when the app is simultaneously booting and reading identity.
-  const login = await withOwnerAuthRetry(() => page.evaluate(async ({ path, credentials, status }) => {
-    const response = await fetch(path, { method: "POST", credentials: "include", headers: {
-      "Content-Type": "application/json",
-      ...(status.initialized ? {} : { "X-Smithers-Bootstrap-Token": credentials.bootstrapToken })
-    }, body: JSON.stringify({ username: credentials.username, password: credentials.password }) })
-    return { status: response.status, retryAfter: response.headers.get("retry-after") }
-  }, { path, credentials, status }))
-  if (login.status !== 200) throw new Error(`Owner authentication failed at ${path}: HTTP ${login.status}.`)
-  const observed = await page.evaluate(async () => {
-    const response = await fetch("/api/user", { credentials: "include" })
-    return { status: response.status, body: await response.json().catch(() => undefined) }
-  })
-  const session = parseAuthenticatedUser(observed.status, observed.body)
-  if (session === undefined || session.login !== credentials.username) {
-    throw new Error("Owner authentication returned without the configured authenticated session.")
+  if (existing === undefined || existing.login !== credentials.username) {
+    ownerSessions.forget(scope)
+    throw new Error("Seeded GitHub owner session failed verification at /api/user.")
   }
   ownerSessions.remember(scope, await context.cookies(origin))
   const startedAt = performance.now()
   await page.goto(new URL(appEntryPath(), baseURL).toString(), { waitUntil: "domcontentloaded" })
   await awaitBoot(page, "navigate", startedAt)
-  return session
+  return existing
 }
 
 export const readAuthenticatedSession = async (page: Page): Promise<AuthenticatedSession | undefined> => {
@@ -390,7 +348,7 @@ export const authenticatedTest = realTest.extend<AuthenticatedProfileOptions & A
           }
           await use(context)
         } finally {
-          // Local sessions are browser-session cookies; Chromium does not keep
+          // Owner sessions are browser-session cookies; Chromium does not keep
           // them when Playwright closes the context between scenario files.
           try { await writeFile(cookieCache, JSON.stringify(await context.cookies(baseURL)), { mode: 0o600 }) }
           finally { await context.close() }
@@ -470,7 +428,7 @@ export const authenticatedTest = realTest.extend<AuthenticatedProfileOptions & A
     if (typeof baseURL !== "string") throw new Error("The authenticated profile fixture requires a configured baseURL.")
     if (realAuthKind() === "owner-session") {
       await establishOwnerSession(context, page, baseURL)
-      testInfo.annotations.push({ type: "real-authenticated-owner", description: "local-session-established-after-lifecycle" })
+      testInfo.annotations.push({ type: "real-authenticated-owner", description: "github-owner-session-verified-after-lifecycle" })
       await use()
       return
     }
