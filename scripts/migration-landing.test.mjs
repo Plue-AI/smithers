@@ -58,7 +58,19 @@ test('production helper: renumber, real pinned sqlc, reservation conversion, lan
    const result = invoke(dir, 'node', ['scripts/renumber-migration.mjs', 'packages/backend/db/product/migrations/0001_things.sql'])
    assert.notEqual(result.status, 0);assert.match(result.stderr, missing ? /origin\/main/ : /already on origin\/main/);assert.deepEqual(bytes(dir), before)
   }
- } finally {rmSync(dir, { recursive: true, force: true })}
+ } finally {rmSync(dir, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 })}
+})
+
+test('production helper numbers against main even when another remote branch contains the file', () => {
+ const dir = fixture()
+ try {
+  pending(dir)
+  ok(dir, 'git', ['add', '.'])
+  ok(dir, 'git', ['commit', '-m', 'unlanded work'])
+  ok(dir, 'git', ['update-ref', 'refs/remotes/origin/frontrun', 'HEAD'])
+  ok(dir, 'node', ['scripts/renumber-migration.mjs', 'packages/backend/db/product/migrations/0009_reserved.sql'], { SMITHERS_MIGRATION_TICKET: 'T-TEST-01' })
+  assert.equal(readFileSync(join(dir, 'packages/backend/db/product/migrations/0002_reserved.sql'), 'utf8'), 'CREATE TABLE reserved(id bigint PRIMARY KEY);\n')
+ } finally {rmSync(dir, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 })}
 })
 
 test('production helper: another ticket and failed generator roll back every fixture byte', () => {
@@ -70,7 +82,7 @@ test('production helper: another ticket and failed generator roll back every fix
    const before = bytes(dir)
    const result = invoke(dir, 'node', ['scripts/renumber-migration.mjs', 'packages/backend/db/product/migrations/0009_reserved.sql'], { SMITHERS_MIGRATION_TICKET: mode === 'another ticket' ? 'T-TEST-02' : 'T-TEST-01' })
    assert.notEqual(result.status, 0);assert.match(result.stderr, mode === 'another ticket' ? /another ticket/ : /absent/);assert.deepEqual(bytes(dir), before)
-  } finally {rmSync(dir, { recursive: true, force: true })}
+  } finally {rmSync(dir, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 })}
  }
 })
 
@@ -107,7 +119,7 @@ for (const vcs of ['git', 'jj']) for (const defect of ['duplicate', 'gap', 'drif
    } else {
     assert.notEqual(result.status, 0);assert.match(result.stdout + result.stderr, defect === 'drift missing' ? /drift gate is unavailable/ : defect === 'drift failure' ? /differs|no committed sqlc/ : defect.startsWith('target ') ? /targets_failed|target.*found|target.*unknown|pattern.*match/i : /duplicate or gap/);assert.equal(commands.filter(x => x === 'PUSH').length, 0)
    }
-  } finally {rmSync(dir, { recursive: true, force: true });rmSync(tools, { recursive: true, force: true })}
+  } finally {rmSync(dir, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });rmSync(tools, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 })}
  })
 }
 
@@ -134,7 +146,7 @@ test('helper regeneration precedes mandatory push gates in the same production c
    'go test -count=1 -run ^TestSQLCRegenerationIsClean$ -v packages/backend/internal/db/sqlc_regeneration_test.go',
   ])
   assert.equal(commands.at(-1), 'PUSH');assert.equal(commands.filter(x => x === 'PUSH').length, 1)
- } finally {rmSync(dir, { recursive: true, force: true });rmSync(tools, { recursive: true, force: true })}
+ } finally {rmSync(dir, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });rmSync(tools, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 })}
 })
 
 test('selected production gate returns nonzero for literal SQL and ownership violations without DB URLs', () => {
@@ -151,6 +163,6 @@ test('selected production gate returns nonzero for literal SQL and ownership vio
    writeFileSync(join(dir, 'packages/backend/db/ownership.csv'), 'table,target_owner,status\n' + csv)
    const result = invoke(dir, go, ['test', '-count=1', '-run', '^TestMigrationGate$', './packages/backend/db/product/'], { SMITHERS_MIGRATION_TICKET: 'T-TEST-01' })
    assert.notEqual(result.status, 0);assert.match(result.stdout + result.stderr, expected)
-  } finally {rmSync(dir, { recursive: true, force: true })}
+  } finally {rmSync(dir, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 })}
  }
 })

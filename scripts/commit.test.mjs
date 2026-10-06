@@ -11,7 +11,7 @@ const copyHygiene = (directory) => {
   installMigrationFixture(directory)
   mkdirSync(join(directory, "scripts"), { recursive: true })
   copyFileSync(resolve(import.meta.dirname, "check-tracked-hygiene.mjs"), join(directory, "scripts/check-tracked-hygiene.mjs"))
-  rmSync(join(directory, "node_modules"), { recursive: true, force: true })
+  rmSync(join(directory, "node_modules"), { recursive: true, force: true, maxRetries: 10, retryDelay: 100 })
   rmSync(join(directory, "WORKSPACE.ts"), { force: true })
   symlinkSync(resolve(import.meta.dirname, "../node_modules"), join(directory, "node_modules"), "dir")
   writeFileSync(join(directory, ".gitignore"), "node_modules\n.flows/\n")
@@ -105,8 +105,8 @@ for (const vcs of ["git", "jj"]) {
         assert.equal(ok(directory, "git", ["rev-parse", "main"]), before)
       }
     } finally {
-      rmSync(directory, { recursive: true, force: true })
-      rmSync(remote, { recursive: true, force: true })
+      rmSync(directory, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 })
+      rmSync(remote, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 })
     }
   })
   for (const finding of ["scaffold", "dangling", "untracked", "deleted"]) {
@@ -163,8 +163,8 @@ for (const vcs of ["git", "jj"]) {
         ok(directory, process.execPath, [script])
         assert.equal(ok(directory, "git", ["rev-parse", "main"]), before)
       } finally {
-        rmSync(directory, { recursive: true, force: true })
-        rmSync(remote, { recursive: true, force: true })
+        rmSync(directory, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 })
+        rmSync(remote, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 })
       }
     })
   }
@@ -244,8 +244,8 @@ ${scenario === "rejected" ? "exit 1" : ""}
           }
         }
       } finally {
-        rmSync(directory, { recursive: true, force: true })
-        rmSync(remote, { recursive: true, force: true })
+        rmSync(directory, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 })
+        rmSync(remote, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 })
       }
     })
   }
@@ -272,7 +272,7 @@ for (const gate of ["driftCi", "targetIndex", "ci", "trackedHygiene", "conflictM
       assert.doesNotMatch(result.stdout, /^LANDED /m)
       assert.equal(ok(directory, "git", ["rev-parse", "HEAD"]), before)
       assert.equal(ok(directory, "git", ["diff", "--cached"]), "")
-    } finally { rmSync(directory, { recursive: true, force: true }) }
+    } finally { rmSync(directory, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 }) }
   })
 }
 
@@ -288,5 +288,5 @@ test("git: credential store refuses before tests, gates and push", () => {
     assert.match(result.stderr, /isolated home/)
     assert.throws(() => readFileSync(join(directory, "attempted")))
     assert.doesNotMatch(result.stdout, /^LANDED /m)
-  } finally { rmSync(directory, { recursive: true, force: true }) }
+  } finally { rmSync(directory, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 }) }
 })

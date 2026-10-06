@@ -21,9 +21,7 @@ try {
   const mainFiles = run('git', ['ls-tree', '-r', 'origin/main', '--', relative(root, directory)], root).split('\n')
   const blob = run('git', ['hash-object', file], root)
   if (mainFiles.some(line => line.endsWith(`\t${relative(root, file)}`) || line.split(/\s+/)[2] === blob)) throw new Error('Refusing to renumber a migration already on origin/main')
-  const landingRef = spawnSync('git', ['rev-parse', '--verify', 'origin/frontrun'], { cwd: root }).status === 0 ? 'origin/frontrun' : 'origin/main'
-  const landed = run('git', ['ls-tree', '-r', '--name-only', landingRef, '--', relative(root, directory)], root).split('\n')
-  if (landed.includes(relative(root, file))) throw new Error(`Migration already on ${landingRef}`)
+  const landed = run('git', ['ls-tree', '-r', '--name-only', 'origin/main', '--', relative(root, directory)], root).split('\n')
   const max = Math.max(0, ...landed.map(name => Number(basename(name).match(/^(\d{4})_/)?.[1] ?? 0)))
   const number = max + 1
   const next = join(directory, basename(file).replace(/^\d{4}/, String(number).padStart(4, '0')))

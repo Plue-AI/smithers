@@ -559,7 +559,7 @@ func (q *Queries) ListGitHubSyncedIssueComments(ctx context.Context, arg ListGit
 }
 
 const listGitHubSyncedIssues = `-- name: ListGitHubSyncedIssues :many
-SELECT id, synced_repo_id, resource, number, github_id, state, title, payload, github_created_at, github_updated_at, created_at, updated_at, related_facts
+SELECT id, synced_repo_id, resource, number, github_id, state, title, payload, github_created_at, github_updated_at, created_at, updated_at
 FROM github_synced_issues
 WHERE synced_repo_id = $1
   AND resource = $2::text
@@ -613,7 +613,6 @@ func (q *Queries) ListGitHubSyncedIssues(ctx context.Context, arg ListGitHubSync
 			&i.GithubUpdatedAt,
 			&i.CreatedAt,
 			&i.UpdatedAt,
-			&i.RelatedFacts,
 		); err != nil {
 			return nil, err
 		}

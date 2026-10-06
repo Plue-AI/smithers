@@ -135,27 +135,18 @@ type AppTimelineSnapshot struct {
 }
 
 type Approval struct {
-	ID                 string             `json:"id"`
-	SessionID          string             `json:"session_id"`
-	RepositoryID       int64              `json:"repository_id"`
-	State              string             `json:"state"`
-	Kind               string             `json:"kind"`
-	Title              string             `json:"title"`
-	Description        pgtype.Text        `json:"description"`
-	CreatedAt          time.Time          `json:"created_at"`
-	DecidedAt          pgtype.Timestamptz `json:"decided_at"`
-	DecidedBy          pgtype.Int8        `json:"decided_by"`
-	ExpiresAt          pgtype.Timestamptz `json:"expires_at"`
-	Payload            json.RawMessage    `json:"payload"`
-	MemberID           pgtype.Int8        `json:"member_id"`
-	CredentialID       pgtype.Text        `json:"credential_id"`
-	Command            pgtype.Text        `json:"command"`
-	Subject            []byte             `json:"subject"`
-	Revision           pgtype.Text        `json:"revision"`
-	Generation         pgtype.Int8        `json:"generation"`
-	ReviewedHeadSha    pgtype.Text        `json:"reviewed_head_sha"`
-	DecisionCredential pgtype.Text        `json:"decision_credential"`
-	DecisionKey        pgtype.Text        `json:"decision_key"`
+	ID           string             `json:"id"`
+	SessionID    string             `json:"session_id"`
+	RepositoryID int64              `json:"repository_id"`
+	State        string             `json:"state"`
+	Kind         string             `json:"kind"`
+	Title        string             `json:"title"`
+	Description  pgtype.Text        `json:"description"`
+	CreatedAt    time.Time          `json:"created_at"`
+	DecidedAt    pgtype.Timestamptz `json:"decided_at"`
+	DecidedBy    pgtype.Int8        `json:"decided_by"`
+	ExpiresAt    pgtype.Timestamptz `json:"expires_at"`
+	Payload      json.RawMessage    `json:"payload"`
 }
 
 type AuditLog struct {
@@ -842,8 +833,6 @@ type GithubMainPull struct {
 	UpdatedAt           pgtype.Timestamptz `json:"updated_at"`
 	FactoryState        string             `json:"factory_state"`
 	FactoryError        string             `json:"factory_error"`
-	HealthCause         string             `json:"health_cause"`
-	RetryAt             pgtype.Timestamptz `json:"retry_at"`
 }
 
 type GithubMirrorRefresh struct {
@@ -899,7 +888,6 @@ type GithubSyncedIssue struct {
 	GithubUpdatedAt pgtype.Timestamptz `json:"github_updated_at"`
 	CreatedAt       time.Time          `json:"created_at"`
 	UpdatedAt       time.Time          `json:"updated_at"`
-	RelatedFacts    json.RawMessage    `json:"related_facts"`
 }
 
 type GithubSyncedIssueComment struct {
@@ -1465,19 +1453,6 @@ type LinearSyncRun struct {
 	CreatedAt      time.Time          `json:"created_at"`
 }
 
-type MemoryNote struct {
-	ID             string      `json:"id"`
-	NamespaceKind  string      `json:"namespace_kind"`
-	NamespaceID    string      `json:"namespace_id"`
-	Text           string      `json:"text"`
-	TagsJson       string      `json:"tags_json"`
-	ProvenanceJson string      `json:"provenance_json"`
-	Status         string      `json:"status"`
-	CreatedAtMs    int64       `json:"created_at_ms"`
-	StatusAtMs     pgtype.Int8 `json:"status_at_ms"`
-	AcceptedTodo   pgtype.Text `json:"accepted_todo"`
-}
-
 type Mention struct {
 	ID               int64       `json:"id"`
 	RepositoryID     int64       `json:"repository_id"`
@@ -1530,7 +1505,6 @@ type ModelUsage struct {
 	CacheWrite1hTokens int64              `json:"cache_write_1h_tokens"`
 	BoundTokens        int64              `json:"bound_tokens"`
 	PaidBy             string             `json:"paid_by"`
-	WorkflowStepID     pgtype.Int8        `json:"workflow_step_id"`
 }
 
 type MythicalChange struct {
