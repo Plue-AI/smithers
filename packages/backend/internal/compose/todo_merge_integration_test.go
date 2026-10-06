@@ -27,6 +27,8 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/stretchr/testify/require"
 
+	"github.com/smithersai/smithers/packages/backend/flowdispatch"
+	"github.com/smithersai/smithers/packages/backend/flowruntime"
 	"github.com/smithersai/smithers/packages/backend/internal/blob"
 	"github.com/smithersai/smithers/packages/backend/internal/config"
 	"github.com/smithersai/smithers/packages/backend/internal/db"
@@ -675,6 +677,123 @@ func TestTodoMergeComposedRouteBoundaryPostgres(t *testing.T) {
 		require.Equal(t, 16, refused)
 		t.Logf("literal Drop boundary cases: %d accepted, %d refused", accepted, refused)
 	})
+	t.Run("bound attachment commits with its fact and survives independent waits", func(t *testing.T) {
+		const run = "literal-resumed-run"
+		digest, source := strings.Repeat("d", 64), strings.Repeat("c", 40)
+		checks := fmt.Sprintf(`{"run_launched":true,"run_attached":false,"flowSource":%q,"attempts":[{"attempt":2,"run_id":%q,"items":[]}],"waits":[{"id":"foreign","kind":"foreign_push","prompt":"Alice pushed","since":"2026-10-05T12:00:00Z"}]}`, source, run)
+		var id pgtype.UUID
+		var n int64
+		require.NoError(t, pool.QueryRow(ctx, `INSERT INTO mythical_items(repository_id,source,state,title,issue_title,revisions,owner_id,attempt,generation,request_run_id,flow_digest,checks,paused_at)
+ VALUES($1,'todo','running','Resume fixture','Resume fixture','[{"rev":1,"text":"Resume fixture"}]',$2,2,3,$3,$4,$5::jsonb,NOW()) RETURNING id,number`, repo.ID, owner.ID, run, digest, checks).Scan(&id, &n))
+		itemID := uuid.UUID(id.Bytes).String()
+		read := func() (db.MythicalItem, map[string]any, int) {
+			stored, err := q.GetMythicalItem(ctx, id)
+			require.NoError(t, err)
+			req, err := http.NewRequest(http.MethodGet, origin+fmt.Sprintf("/api/todos/%d", n), nil)
+			require.NoError(t, err)
+			req.AddCookie(&http.Cookie{Name: "smithers_session", Value: "owner-browser-session"})
+			resp, err := http.DefaultClient.Do(req)
+			require.NoError(t, err)
+			defer resp.Body.Close()
+			require.Equal(t, http.StatusOK, resp.StatusCode)
+			var card map[string]any
+			require.NoError(t, json.NewDecoder(resp.Body).Decode(&card))
+			var facts int
+			require.NoError(t, pool.QueryRow(ctx, `SELECT count(*) FROM product_job_events WHERE event_type='todo.run_updated' AND data->>'item'=$1`, itemID).Scan(&facts))
+			return stored, card, facts
+		}
+		// The launch belongs to generation 1; candidate capture advanced it to
+		// 3 without replacing attempt 2. No first-step event is supplied.
+		projection, err := json.Marshal(map[string]any{"kind": "mythical-item", "itemId": itemID, "generation": 1, "attempt": 2, "phase": "todo", "flowDigest": digest, "flowSource": source})
+		require.NoError(t, err)
+		update := flowdispatch.ProjectionUpdate{State: jobs.StateWaiting, Checkpoint: flowdispatch.RuntimeCheckpoint{
+			Projection: projection, FlowID: "todo", RunID: run, ExecutionDigest: digest,
+			Run: &flowruntime.Run{RunID: run, FlowID: "todo", Status: "running"},
+		}}
+		before, cardBefore, factsBefore := read()
+		require.Equal(t, "needs_you", cardBefore["state"])
+		// Failure between the versioned item save and its fact rolls back
+		// both; the HTTP card must still expose the original stored facts.
+		_, err = pool.Exec(ctx, `CREATE FUNCTION refuse_attach_fact() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN IF NEW.event_type='todo.run_updated' THEN RAISE EXCEPTION 'injected attachment failure'; END IF; RETURN NEW; END $$;
+ CREATE TRIGGER refuse_attach_fact BEFORE INSERT ON product_job_events FOR EACH ROW EXECUTE FUNCTION refuse_attach_fact()`)
+		require.NoError(t, err)
+		t.Cleanup(func() {
+			_, _ = pool.Exec(ctx, `DROP TRIGGER IF EXISTS refuse_attach_fact ON product_job_events; DROP FUNCTION IF EXISTS refuse_attach_fact()`)
+		})
+		require.Error(t, mythical.ProjectFlowRuntime(ctx, update))
+		rolledBack, cardRolledBack, factsRolledBack := read()
+		require.Equal(t, before, rolledBack)
+		require.Equal(t, cardBefore, cardRolledBack)
+		require.Equal(t, factsBefore, factsRolledBack)
+		_, err = pool.Exec(ctx, `DROP TRIGGER refuse_attach_fact ON product_job_events; DROP FUNCTION refuse_attach_fact()`)
+		require.NoError(t, err)
+		require.NoError(t, mythical.ProjectFlowRuntime(ctx, update))
+		after, cardAfter, factsAfter := read()
+		require.Equal(t, before.Version+1, after.Version)
+		require.Equal(t, before.PausedAt, after.PausedAt)
+		require.Equal(t, before.Generation, after.Generation)
+		require.Equal(t, run, after.RequestRunID)
+		require.Equal(t, "needs_you", cardAfter["state"])
+		require.Equal(t, cardBefore["waits"], cardAfter["waits"])
+		require.Len(t, cardAfter["waits"], 1)
+		var attached struct {
+			Attached bool                `json:"run_attached"`
+			Waits    []services.TodoWait `json:"waits"`
+		}
+		require.NoError(t, json.Unmarshal(after.Checks, &attached))
+		require.True(t, attached.Attached)
+		require.Len(t, attached.Waits, 1)
+		require.Nil(t, attached.Waits[0].SettledAt)
+		require.Equal(t, factsBefore+1, factsAfter)
+		require.NoError(t, mythical.ProjectFlowRuntime(ctx, update))
+		replayed, cardReplayed, factsReplayed := read()
+		require.Equal(t, after, replayed)
+		require.Equal(t, cardAfter, cardReplayed)
+		require.Equal(t, factsAfter, factsReplayed)
+		// A resumed run's delayed question cannot create a run wait while
+		// the person still has it paused, or after it proposed its result.
+		update.Checkpoint.Run.PendingWaits = []flowruntime.PendingWait{{RunID: "planning-child", Token: "late-question", Name: "choice", Request: json.RawMessage(`{"kind":"ask","prompt":"Too late?"}`)}}
+		for _, state := range []string{"paused", "in_review"} {
+			if state == "in_review" {
+				_, err := pool.Exec(ctx, `UPDATE mythical_items SET state='proposed',paused_at=NULL WHERE id=$1`, id)
+				require.NoError(t, err)
+			}
+			before, cardBefore, factsBefore := read()
+			require.NoError(t, mythical.ProjectFlowRuntime(ctx, update))
+			after, cardAfter, factsAfter := read()
+			require.Equal(t, before, after, state)
+			require.Equal(t, cardBefore, cardAfter, state)
+			require.Equal(t, factsBefore, factsAfter, state)
+		}
+		// With the same run working again, a question may join its branch
+		// wait. The branch wait remains primary and neither settles the other.
+		_, err = pool.Exec(ctx, `UPDATE mythical_items SET state='running',paused_at=NULL WHERE id=$1`, id)
+		require.NoError(t, err)
+		_, _, beforeQuestion := read()
+		require.NoError(t, mythical.ProjectFlowRuntime(ctx, update))
+		withQuestion, questionCard, questionFacts := read()
+		require.Equal(t, "needs_you", questionCard["state"])
+		require.Len(t, questionCard["waits"], 2)
+		require.Equal(t, "foreign_push", questionCard["waits"].([]any)[0].(map[string]any)["kind"])
+		require.NoError(t, json.Unmarshal(withQuestion.Checks, &attached))
+		require.Len(t, attached.Waits, 2)
+		require.Equal(t, "foreign_push", attached.Waits[0].Kind)
+		require.Equal(t, "question", attached.Waits[1].Kind)
+		for _, wait := range attached.Waits {
+			require.Nil(t, wait.SettledAt)
+		}
+		require.Equal(t, beforeQuestion+1, questionFacts)
+		update.State = jobs.StateCompleted
+		require.NoError(t, mythical.ProjectFlowRuntime(ctx, update))
+		ended, endedCard, endedFacts := read()
+		require.Equal(t, "needs_you", endedCard["state"])
+		require.NoError(t, json.Unmarshal(ended.Checks, &attached))
+		require.Nil(t, attached.Waits[0].SettledAt)
+		require.NotNil(t, attached.Waits[1].SettledAt)
+		require.Equal(t, questionFacts+1, endedFacts)
+
+	})
+
 	t.Run("machine proxy mutations mint no token", func(t *testing.T) {
 		seed := sha256.Sum256([]byte("outbound-machine-token"))
 		machine := "smithers_" + hex.EncodeToString(seed[:])[:40]

@@ -72,8 +72,19 @@ func mythicalProjectWaits(next *db.MythicalItem, projection mythicalProjection, 
 		withdrawn := now
 		wait.SettledAt, changed = &withdrawn, true
 	}
+	// Only a working run opens a new run wait (§4.1). A reported existing
+	// question stays open while another wait masks it; a late checkpoint of
+	// a paused or proposed run cannot invent a new question. Withdrawal and
+	// terminal settlement above still apply independently.
+	canAsk := false
+	if !next.PausedAt.Valid {
+		switch next.State {
+		case "running", "delivering", "integrating", "verifying", "proposing", "waiting", "retrying":
+			canAsk = true
+		}
+	}
 	for _, question := range asked {
-		if !known[question.ID] {
+		if canAsk && !known[question.ID] {
 			checks.Waits, changed = append(checks.Waits, question), true
 		}
 	}
