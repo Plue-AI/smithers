@@ -491,9 +491,9 @@ var installMemberRoutes = []struct {
 	{http.MethodPost, "branch.fork", regexp.MustCompile(`^/api/branches$`)},
 	{http.MethodPost, "branch.join", regexp.MustCompile(`^/api/repos/[^/]+/[^/]+/workspaces$`)},
 	{http.MethodGet, "members.list", regexp.MustCompile(`^/api/members$`)},
-	{http.MethodPost, "members.write", regexp.MustCompile(`^/api/members$`)},
-	{http.MethodPatch, "members.write", regexp.MustCompile(`^/api/members/[^/]+$`)},
-	{http.MethodDelete, "members.write", regexp.MustCompile(`^/api/members/[^/]+$`)},
+	{http.MethodPost, "members.add", regexp.MustCompile(`^/api/members$`)},
+	{http.MethodPatch, "members.role", regexp.MustCompile(`^/api/members/[^/]+$`)},
+	{http.MethodDelete, "members.remove", regexp.MustCompile(`^/api/members/[^/]+$`)},
 	// Maintainers add, replace and delete the repository's secrets
 	// (mvp.md §6.15, M-05; spec §5.2): a person-only command, so the
 	// owner's delegated credentials are refused here too. Org secrets stay
