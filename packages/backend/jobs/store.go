@@ -8,6 +8,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/google/uuid"
@@ -177,6 +178,16 @@ func appendEvent(ctx context.Context, tx pgx.Tx, scope Scope, operationID, event
 	if err != nil {
 		return Event{}, err
 	}
+	var repositorySequence *int64
+	if strings.HasPrefix(eventType, "todo.") {
+		var head int64
+		err = tx.QueryRow(ctx, `INSERT INTO product_job_streams(tenant_id,principal_id,head) VALUES($1,'repository:todos',1)
+	 ON CONFLICT(tenant_id,principal_id) DO UPDATE SET head=product_job_streams.head+1 RETURNING head`, scope.TenantID).Scan(&head)
+		if err != nil {
+			return Event{}, err
+		}
+		repositorySequence = &head
+	}
 	var sequence int64
 	err = tx.QueryRow(ctx, `
 		INSERT INTO product_job_streams (tenant_id, principal_id, head)
@@ -193,12 +204,15 @@ func appendEvent(ctx context.Context, tx pgx.Tx, scope Scope, operationID, event
 	}
 	err = tx.QueryRow(ctx, `
 		INSERT INTO product_job_events
-			(tenant_id, principal_id, sequence, event_id, operation_id, event_type, state, data)
-		VALUES ($1,$2,$3,$4,$5,$6,$7,$8)
+			(tenant_id, principal_id, sequence, event_id, operation_id, event_type, state, data, repository_sequence)
+		VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)
 		RETURNING recorded_at`, scope.TenantID, scope.PrincipalID, sequence, event.EventID,
-		operationID, eventType, state, canonical).Scan(&event.RecordedAt)
+		operationID, eventType, state, canonical, repositorySequence).Scan(&event.RecordedAt)
 	if err != nil {
 		return Event{}, err
+	}
+	if repositorySequence != nil {
+		event.RepositorySequence = *repositorySequence
 	}
 	// NOTIFY is delivered on commit. It is only a wake hint; subscribers always
 	// repair from product_job_events using their committed cursor.

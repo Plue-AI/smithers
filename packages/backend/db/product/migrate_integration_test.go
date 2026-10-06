@@ -186,7 +186,7 @@ func TestDurableProductJobsMigrationRegistered(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if string(content) != jobs.SchemaSQL() {
+	if string(content)+"\n"+string(repositoryTodosMigration(t)) != jobs.SchemaSQL() {
 		t.Fatal("canonical product migration and jobs schema fixture diverged")
 	}
 	found := false
@@ -198,6 +198,29 @@ func TestDurableProductJobsMigrationRegistered(t *testing.T) {
 	if !found {
 		t.Fatal("durable jobs migration 0005 is not registered")
 	}
+}
+
+// Discover the additive source migration by content, so concurrent lanes may
+// renumber it without changing the fixture's schema contract.
+func repositoryTodosMigration(t *testing.T) []byte {
+	t.Helper()
+	var found []byte
+	for _, spec := range migrationRegistry {
+		content, err := migrations.ReadFile(spec.path)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if strings.Contains(string(content), "ALTER TABLE product_job_events ADD COLUMN repository_sequence") {
+			if found != nil {
+				t.Fatal("repository source ordering registered twice")
+			}
+			found = content
+		}
+	}
+	if found == nil {
+		t.Fatal("repository TODO source migration is not registered")
+	}
+	return found
 }
 
 func TestDurableProductJobsMigration0005(t *testing.T) {
@@ -215,6 +238,9 @@ func TestDurableProductJobsMigration0005(t *testing.T) {
 		t.Fatal("direct replay must reject an existing product table; the ledger owns replay")
 	}
 
+	if _, err := pool.Exec(ctx, string(repositoryTodosMigration(t)), pgx.QueryExecModeSimpleProtocol); err != nil {
+		t.Fatalf("apply additive repository source ordering to the historical jobs schema: %v", err)
+	}
 	store, err := jobs.NewStore(pool)
 	if err != nil {
 		t.Fatal(err)

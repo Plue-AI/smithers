@@ -13,7 +13,7 @@ paths:
         external:<agent>:<session>, the size of a Codex or Claude Code
         session file) with text
         frames {"t":"sub","id","topic"} and {"t":"unsub","id"}; each topic
-        answers {"t":"snap","id","cursor","data"} initially. TODO sources also
+        answers {"t":"snap","id","cursor","data"} initially. TODO and Home stack sources also
         deliver {"t":"delta","id","cursor","data"} with committed job-event
         payloads, resuming strictly after the requested source cursor. An expired
         cursor receives a fresh snapshot. Dispatched run topics read summary,

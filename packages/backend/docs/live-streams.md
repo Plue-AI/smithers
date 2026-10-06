@@ -13,7 +13,7 @@ owner, as another account and anonymously through the composed backend.
 
 | Stream | Transport | Who may open it | Delivery | Test composition |
 | --- | --- | --- | --- | --- |
-| `GET /api/live` | WebSocket | install members with a browser session from the install's origin or a scoped delegated bearer | shared snapshots (`home`, `flows`; the install owner’s `external:<agent>:<session>`); `todo:<n>` snapshots and durable job-event deltas at source cursors; `smithers.live.v1` | refused 404: install-only; the J4 and J11 rehearsals open it on the install |
+| `GET /api/live` | WebSocket | install members with a browser session from the install's origin or a scoped delegated bearer | shared `home` and `todo:<n>` snapshots and durable TODO-fact deltas; `run:<id>` runtime journal; `flows` and owner `external:<agent>:<session>` snapshots; `smithers.live.v1` | refused 404: install-only; the J4 and J11 rehearsals open it on the install |
 | `GET /api/notifications` | SSE | the signed-in account, its own notifications | live hints; no replay | opens |
 | `GET /api/notifications/events/stream` | SSE | the signed-in account, its own notifications | durable facts; `Last-Event-ID` cursor | opens |
 | `GET /api/github/import/{id}` | SSE with `Accept: text/event-stream` | the account that started the import | polled import snapshots until terminal | opens |
@@ -69,8 +69,12 @@ TODO subscriptions reuse `product_job_events` and `product_job_streams` through
 `jobs.Store.Replay`: a resume returns only later source rows, and an expired
 cursor returns a fresh committed snapshot. Broker notifications wake replay;
 a 250 ms repair poll recovers missed notifications. No transport event or
-retention table is created. Home and flows still serve snapshots; they do not
-have the TODO source's replay contract.
+retention table is created. Home orders those same rows by the source's
+`repository_sequence`; TODO streams retain their existing item cursors. Facts
+carry historical cards and Home items/counts, built inside their transaction.
+Pruning an item stream advances the repository retention floor too. Main health,
+capacity and background providers retain periodic committed snapshots; flows
+remain snapshot-only.
 
 `run:<id>` resolves a durable Flow dispatch checkpoint in the install's
 repository and rechecks branch read access before every poll. It reads the
