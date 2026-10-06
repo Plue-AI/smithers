@@ -17,7 +17,7 @@ export const SharedConversationSchema = z.object({
   entries: z.array(z.union([MessageSchema.refine(message => message.origin === "external"), SharedTurnSchema]))
 })
 export type SharedConversation = z.infer<typeof SharedConversationSchema>
-export const ConversationViewSchema = z.object({ instructions: z.array(z.object({ id: z.string(), command: z.literal("theme"), mode: z.enum(["light", "dark"]) })).default([]), scroll_anchor: z.string().optional(), card_view: z.record(z.string(), z.unknown()).optional(), last_seen_seq: z.number().int().nonnegative().optional(), toasts_hidden: z.boolean().optional(), queue: z.array(z.object({ id: z.string(), prompt: z.string() })).default([]) }).passthrough()
+export const ConversationViewSchema = z.object({ instructions: z.array(z.object({ id: z.string(), command: z.literal("theme"), mode: z.enum(["light", "dark"]) })).default([]), scroll_anchor: z.string().optional(), card_view: z.record(z.string(), z.unknown()).optional(), last_seen_seq: z.number().int().nonnegative().optional(), toasts_hidden: z.boolean().optional(), timeline_visible_until: z.string().nullable().optional(), queue: z.array(z.object({ id: z.string(), prompt: z.string() })).default([]) }).passthrough()
 export type ConversationView = z.infer<typeof ConversationViewSchema>
 export interface ConversationSnapshot { readonly view?: ConversationView; readonly queue?: readonly { id: string; prompt: string }[]; readonly conversation?: SharedConversation; readonly error?: string }
 
@@ -70,7 +70,7 @@ export function createSharedConversationSeam(ctx: ControllerContext, live?: Live
     } catch { if (valid(revision)) publish({ error: "Conversation unavailable" }) }
     finally { reading = false; if (again) { again = false; void read() } }
   }
-  const saveView = (patch: Partial<Pick<ConversationView, "scroll_anchor" | "card_view" | "last_seen_seq" | "toasts_hidden">>) => {
+  const saveView = (patch: Partial<Pick<ConversationView, "scroll_anchor" | "card_view" | "last_seen_seq" | "toasts_hidden" | "timeline_visible_until">>) => {
     const revision = generation, at = branch
     if (!key || !valid(revision)) return Promise.resolve()
     ++viewRevision
@@ -88,6 +88,26 @@ export function createSharedConversationSeam(ctx: ControllerContext, live?: Live
     }).catch(error => { if (valid(revision)) { publish({ ...snapshot, error: "View unavailable" }); ctx.failures.report("seam.failure", error, "conversation-view") } })
     return saving
   }
+  let timelineVisible = false
+  let leaseTimer: ReturnType<typeof setTimeout> | undefined
+  const renewTimeline = () => {
+    if (leaseTimer !== undefined) clearTimeout(leaseTimer)
+    leaseTimer = undefined
+    if (disposed || !key) return
+    const visible = timelineVisible && (typeof document === "undefined" || !document.hidden)
+    void saveView({ timeline_visible_until: visible ? new Date(Date.now() + 30_000).toISOString() : null })
+    if (visible) {
+      leaseTimer = setTimeout(renewTimeline, 15_000)
+      ctx.unref(leaseTimer)
+    }
+  }
+  const setTimelineVisible = (visible: boolean) => {
+    if (timelineVisible === visible) return
+    timelineVisible = visible
+    renewTimeline()
+  }
+  const visibilityChanged = () => { if (timelineVisible) renewTimeline() }
+  if (typeof document !== "undefined") document.addEventListener("visibilitychange", visibilityChanged)
   const rememberScroll = (anchor: string) => {
     if (scrollTimer !== undefined) clearTimeout(scrollTimer)
     const revision = generation
@@ -113,13 +133,14 @@ export function createSharedConversationSeam(ctx: ControllerContext, live?: Live
     })
     if (identity?.memberId) stopView = live?.subscribe(`view:${identity.memberId}:${branch}`, () => { void read() })
     void read()
+    if (timelineVisible) renewTimeline()
   }
   const sessions = ctx.store.collections.sessions.subscribeChanges(change)
   const identities = ctx.store.collections.identitySessions.subscribeChanges(change)
   const stopAccount = ctx.onAccountChange(change)
-  const dispose = () => { if (scrollTimer !== undefined) clearTimeout(scrollTimer); disposed = true; ++generation; stopLive?.(); stopView?.(); sessions.unsubscribe(); identities.unsubscribe(); stopAccount(); listeners.clear() }
+  const dispose = () => { if (typeof document !== "undefined") document.removeEventListener("visibilitychange", visibilityChanged); if (leaseTimer !== undefined) clearTimeout(leaseTimer); if (scrollTimer !== undefined) clearTimeout(scrollTimer); disposed = true; ++generation; stopLive?.(); stopView?.(); sessions.unsubscribe(); identities.unsubscribe(); stopAccount(); listeners.clear() }
   ctx.onDispose(dispose)
   change()
-  return { get: () => snapshot, subscribe: (listener: () => void) => { listeners.add(listener); return () => { listeners.delete(listener) } }, read, saveView, rememberScroll, dispose }
+  return { get: () => snapshot, subscribe: (listener: () => void) => { listeners.add(listener); return () => { listeners.delete(listener) } }, read, saveView, setTimelineVisible, rememberScroll, dispose }
 }
 export type SharedConversationSeam = ReturnType<typeof createSharedConversationSeam>
