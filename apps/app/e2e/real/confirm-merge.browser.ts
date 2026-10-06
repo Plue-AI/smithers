@@ -106,6 +106,18 @@ try {
   const read = await cli(["todo", "show", `T${n}`, "--json"])
   expect(read.exitCode).toBe(0)
   expect(read.value.n).toBe(n)
+  // The delegated Before door reaches the same private card and placement
+  // transaction as Append, without filing anything ahead of its author's press.
+  const before = await api("/api/todos", "POST", { title: "Before the sample", prompt: "Keep the earlier placement.", place: { mode: "before", n } }, true, "browser-before")
+  expect(before.status).toBe(202)
+  expect(before.value.state).toBe("pending")
+  expect((await api("/api/todos")).value.map((todo: { n: number }) => todo.n)).toEqual([1])
+  await expect(commit).toBeVisible({ timeout: 30_000 })
+  await commit.focus(); await page.keyboard.press("Enter")
+  await expect.poll(async () => (await api("/api/todos")).value.length, { timeout: 30_000 }).toBe(2)
+  const placed = (await api("/api/todos")).value
+  expect(placed.map((todo: { n: number; place: number }) => ({ n: todo.n, place: todo.place })).sort((a: { place: number }, b: { place: number }) => a.place - b.place))
+    .toEqual([{ n: 2, place: 1 }, { n: 1, place: 2 }])
   const dropped = await cli(["todo", "drop", `T${n}`, "--json"])
   expect(dropped.exitCode).toBe(3)
   expect(dropped.value.message).toBe("Waiting for Maya to confirm")
@@ -122,10 +134,10 @@ try {
   await expect.poll(async () => (await api(`/api/todos/${n}`)).value.state).toBe("dropped")
   await expect(page.locator('[data-kind="confirm"] [data-flow="approval.approve"]')).toHaveCount(0)
   const agentRows = (await api("/api/confirmations", "GET", undefined, true)).value
-  expect(agentRows).toHaveLength(2)
+  expect(agentRows).toHaveLength(3)
   for (const row of agentRows) expect(Object.keys(row).sort()).toEqual(["id", "state"])
   expect(errors).toEqual([])
-  console.log("CONFIRMATION_BROWSER_PASS installed skill, source CLI, named pending result, private delivery, keyboard approval, admission progress, reload, other-member refusal, Drop, delegated redaction")
+  console.log("CONFIRMATION_BROWSER_PASS installed skill, source CLI, named pending result, private delivery, keyboard approval, Before placement, admission progress, reload, other-member refusal, Drop, delegated redaction")
 } finally {
   await browser.close()
   await vite.close()
