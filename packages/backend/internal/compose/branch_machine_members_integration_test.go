@@ -10,6 +10,7 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"strings"
 	"sync"
 	"testing"
@@ -18,6 +19,7 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/smithersai/smithers/packages/backend/flowhost"
 	"github.com/smithersai/smithers/packages/backend/internal/db"
+	"github.com/smithersai/smithers/packages/backend/microsandbox"
 	"github.com/smithersai/smithers/packages/backend/process"
 	workspaceapi "github.com/smithersai/smithers/packages/backend/workspace"
 	"github.com/stretchr/testify/require"
@@ -26,15 +28,27 @@ import (
 // Composed install HTTP, real sessions and PostgreSQL. The retained machine
 // is a fixture; this verifies member admission and removal, not VM isolation.
 func TestBranchMachineMemberAccessAndRevocationInstall(t *testing.T) {
-	branchMachineMemberInstall(t, false, false)
+	branchMachineMemberInstall(t, false, false, false)
 }
 
 func TestBranchMachineMemberErasureInstall(t *testing.T) {
-	branchMachineMemberInstall(t, true, false)
+	branchMachineMemberInstall(t, true, false, false)
 }
 
 func TestBranchMachineConcurrentJoinHTTP(t *testing.T) {
-	branchMachineMemberInstall(t, false, true)
+	branchMachineMemberInstall(t, false, true, false)
+}
+
+// Real-machine receipt for concurrent joins and erasure of a member. Guest
+// session supervision and the coding agent's tool door are proved by W7/W8.
+func TestBranchMachineConcurrentJoinRealMicroVM(t *testing.T) {
+	if os.Getenv("SMITHERS_MICROSANDBOX_BIN") == "" {
+		if os.Getenv("SMITHERS_REQUIRE_MICROVM_TESTS") == "1" {
+			t.Fatal("SMITHERS_MICROSANDBOX_BIN required")
+		}
+		t.Skip("real microVM opt-in absent")
+	}
+	branchMachineMemberInstall(t, true, true, true)
 }
 
 // Runtime inspection is an external effect sentinel. Holding it unresolved
@@ -59,7 +73,7 @@ func (r *pendingBranchInspection) InspectWorkspace(ctx context.Context, _ string
 	}
 }
 
-func branchMachineMemberInstall(t *testing.T, erase, concurrent bool) {
+func branchMachineMemberInstall(t *testing.T, erase, concurrent, realMachine bool) {
 	t.Cleanup(func() {
 		require.Nil(t, revocationChecker, "install shutdown releases the revoked member identities before another install starts")
 	})
@@ -99,13 +113,26 @@ func branchMachineMemberInstall(t *testing.T, erase, concurrent bool) {
 	require.NoError(t, err)
 	var runtimeBoundary workspaceapi.WorkspaceRuntime = runtime
 	pending := &pendingBranchInspection{Runtime: runtime, release: make(chan struct{}), entered: make(chan struct{})}
-	if concurrent {
+	if concurrent && !realMachine {
 		runtimeBoundary = pending
+	}
+	var vm *microsandbox.Runtime
+	if realMachine {
+		vm, err = microsandbox.New(ctx, microsandbox.Config{Binary: os.Getenv("SMITHERS_MICROSANDBOX_BIN"), Root: t.TempDir(), CPUs: 2, MemoryMiB: 2048, DiskMiB: 8192, MaxRunningVMs: 3})
+		require.NoError(t, err)
+		t.Cleanup(func() { require.NoError(t, vm.Close()) })
+		runtimeBoundary = vm
 	}
 	server := httptest.NewUnstartedServer(nil)
 	origin := "http://" + server.Listener.Addr().String()
 	t.Setenv("SMITHERS_PUBLIC_URL", origin)
-	server.Config.Handler = startSplitProcess(t, Options{ChatHost: unusedChatHost{}, Workspace: runtimeBoundary, FlowHostProductAPIURL: origin, FlowHostConfig: flowhost.WorkspaceLauncherConfig{AllowTrustedProcessForTests: true}, BranchMachines: rehearsalBranchMachines(pool)})
+	options := Options{ChatHost: unusedChatHost{}, Workspace: runtimeBoundary, FlowHostProductAPIURL: origin, FlowHostConfig: flowhost.WorkspaceLauncherConfig{AllowTrustedProcessForTests: !realMachine}}
+	if realMachine {
+		options.InstallBranchMachines = true
+	} else {
+		options.BranchMachines = rehearsalBranchMachines(pool)
+	}
+	server.Config.Handler = startSplitProcess(t, options)
 	server.Start()
 	defer server.Close()
 	t.Cleanup(pending.finish)
@@ -113,6 +140,15 @@ func branchMachineMemberInstall(t *testing.T, erase, concurrent bool) {
 	require.NoError(t, err)
 	machine, err := q.CreateWorkspace(ctx, db.CreateWorkspaceParams{RepositoryID: repo.ID, UserID: machineOwner, TargetBookmark: "mythical", Kind: "container", Status: "running", EnvironmentSource: "repository"})
 	require.NoError(t, err)
+	if realMachine {
+		operation := workspaceapi.WithOperation(ctx, workspaceapi.Operation{TenantID: "w4", PrincipalID: "owner", OperationID: "w4-create"})
+		created, createErr := vm.CreateWorkspace(operation, workspaceapi.WorkspaceSpec{ID: machine.ID})
+		require.NoError(t, createErr)
+		t.Cleanup(func() { require.NoError(t, vm.DeleteWorkspace(context.WithoutCancel(operation), machine.ID)) })
+		machine, err = q.UpdateWorkspaceExecutionInfo(ctx, db.UpdateWorkspaceExecutionInfoParams{ID: machine.ID, VmID: created.ID, Status: "running"})
+		require.NoError(t, err)
+		require.NoError(t, vm.WriteFile(operation, machine.ID, "shared.txt", []byte("ben\n"), 0664))
+	}
 	item, _, err := q.InsertMythicalChatItem(ctx, db.MythicalItem{RepositoryID: repo.ID, IssueTitle: "shared TODO"})
 	require.NoError(t, err)
 	_, _, err = q.BindMythicalLane(ctx, db.MythicalLane{RepositoryID: repo.ID, ItemID: item.ID, WorkspaceID: machine.ID, Name: "shared lane"})
@@ -197,12 +233,14 @@ func branchMachineMemberInstall(t *testing.T, erase, concurrent bool) {
 		close(start)
 
 		joins.Wait()
-		select {
-		case <-pending.entered:
-		case <-time.After(3 * time.Second):
-			t.Fatal("accepted joins never reached runtime inspection")
+		if !realMachine {
+			select {
+			case <-pending.entered:
+			case <-time.After(3 * time.Second):
+				t.Fatal("accepted joins never reached runtime inspection")
+			}
+			pending.finish()
 		}
-		pending.finish()
 		for i, v := range results {
 			require.NoError(t, v.err, "join %d", i)
 			require.Equal(t, 202, v.status, "join %d: %s", i, v.body)
@@ -216,6 +254,12 @@ func branchMachineMemberInstall(t *testing.T, erase, concurrent bool) {
 		require.Equal(t, 3, grants)
 	}
 
+	if realMachine {
+		// This retained fixture has no imported repository. Probe the member
+		// HTTP door through validation without claiming a source-ready edit.
+		call("PUT", "/api/repos/owner/demo/workspaces/"+machine.ID+"/files/content?path=shared.txt", `{"content":"ben\n","base_digest":"invalid"}`, benCookie, 400)
+		require.Contains(t, call("GET", "/api/repos/owner/demo/workspaces/"+machine.ID+"/files/content?path=shared.txt", "", aliceCookie, 200), "ben")
+	}
 	for _, cookie := range []string{benCookie, aliceCookie} {
 		require.Contains(t, call("GET", "/api/branches/mythical", "", cookie, 200), machine.ID)
 	}
@@ -229,6 +273,7 @@ func branchMachineMemberInstall(t *testing.T, erase, concurrent bool) {
 	}
 	call("GET", "/api/branches/mythical", "", benCookie, 401)
 	call("GET", "/api/branches", "", benCookie, 401)
+	call("PUT", "/api/repos/owner/demo/workspaces/"+machine.ID+"/files/content?path=shared.txt", `{"content":"revoked","base_digest":"absent"}`, benCookie, 401)
 	require.Contains(t, call("GET", "/api/branches/mythical", "", aliceCookie, 200), machine.ID)
 	var shares, events, machines int
 	require.NoError(t, pool.QueryRow(ctx, `SELECT count(*) FROM workspace_shares WHERE workspace_id=$1 AND grantee_user_id=$2`, machine.ID, ben.ID).Scan(&shares))
@@ -239,6 +284,17 @@ func branchMachineMemberInstall(t *testing.T, erase, concurrent bool) {
 	}
 	require.NoError(t, pool.QueryRow(ctx, `SELECT count(*) FROM workspaces WHERE id=$1 AND user_id=$2`, machine.ID, machineOwner).Scan(&machines))
 	require.Equal(t, 1, machines)
+	if realMachine {
+		require.Equal(t, 1, vm.InUse(), "all joins retain exactly one real VM")
+		operation := workspaceapi.WithOperation(ctx, workspaceapi.Operation{TenantID: "w4", PrincipalID: "alice", OperationID: "w4-after-erase"})
+		observed, inspectErr := vm.InspectWorkspace(operation, machine.ID)
+		require.NoError(t, inspectErr)
+		require.Equal(t, workspaceapi.WorkspaceRunning, observed.State)
+		bytes, readErr := vm.ReadFile(operation, machine.ID, "shared.txt")
+		require.NoError(t, readErr)
+		require.Equal(t, "ben\n", string(bytes))
+		require.Contains(t, call("GET", "/api/repos/owner/demo/workspaces/"+machine.ID+"/files/content?path=shared.txt", "", aliceCookie, 200), "ben")
+	}
 	// Ben never owns the repository or machine. Direct erasure of a current
 	// member and roster removal each leave Alice's machine row intact.
 	require.NoError(t, pool.QueryRow(ctx, `SELECT count(*) FROM workspaces WHERE id=$1 AND user_id=$2 AND deleted_at IS NULL`, machine.ID, machineOwner).Scan(&machines))
