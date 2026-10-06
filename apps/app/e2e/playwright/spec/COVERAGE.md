@@ -376,3 +376,5 @@ The broad C-UI-12/13 fixmes still await the other Views and their wiring tickets
 T-MCH-08 scratch Diff has a passing install HTTP contract and browser projection in [scratch-diff.spec.ts](../scratch-diff.spec.ts): fork revision, unresolved read, duplicate input and reload. C-J7-02 remains pending for Add to stack/Confirm/Drop; C-MCH-08 remains pending for real capture and source boot continuity.
 
 T-UI-15 pass 3: Branch states pass at 1440/390 px in light/dark; Enter/Space controls, tabs/SSH and missing/disabled/hostile cases pass (5 browser tests). Live Branch tab selection also passes keyboard and reload through the install app fixture (1 browser test). These fixtures do not establish machine execution or design-owner acceptance.
+
+T-UI-15 pass 5: the Branch matrix checks serious/critical axe violations and saves named screenshot attachments for all 17 cases in light/dark at 1440/390 px (68 screens). Design-owner copy acceptance remains pending; screenshots and automated copy checks are engineering receipts, not approval.
