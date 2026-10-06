@@ -21,10 +21,10 @@ export default showcase({
   id: "review",
   order: 112,
   title: "Pull requests",
-  summary: "Read a PR, approve and land it.",
-  flows: [ "prs.tab", "prs.review", "prs.land", "prs.list", "prs.view"],
+  summary: "Read and review a PR.",
+  flows: [ "prs.tab", "prs.review", "prs.list", "prs.view"],
   run: async ({ page, app, backend }) => {
-    let state = "open"
+    const state = "open"
     const opened = true
     const reviews: Array<unknown> = []
     const writes: Array<string> = []
@@ -60,11 +60,6 @@ export default showcase({
       }
       return route.fulfill({ json: route.request().url().includes("/12/") ? reviews : [] })
     })
-    await backend.route(url => url.pathname === `${API}/landings/12/land`, route => {
-      writes.push("land")
-      state = "queued"
-      return route.fulfill({ status: 202, json: detail() })
-    })
     await backend.json(`${API}/landings/12/changes`, CHANGES.slice(0, 2))
     await backend.json(`${API}/landings/12/diff`, { landing_number: 12, changes: [
       { change_id: BASE, file_diffs: [{ path: "flows/split/walk.ts", change_type: "added", additions: 18, deletions: 0, patch: "@@ -0,0 +1 @@\n+export const walk = () => []" }] },
@@ -96,10 +91,8 @@ export default showcase({
     await app.click(card.getByRole("button", { name: "Approve", exact: true }))
     await expect(card).toContainText("approved", { timeout: 15_000 })
     await app.beat(1200)
-    await app.click(card.getByRole("button", { name: /Land \(queue merge\)/ }))
-    await expect.poll(() => writes).toEqual(["land"])
-    await expect(card).toContainText(/queued/i, { timeout: 15_000 })
-    await app.beat(1500)
+    await expect(card.getByRole("button", { name: /Land/ })).toHaveCount(0)
+    await expect.poll(() => writes).toEqual([])
 
     await app.slash(`/prs.list ${REPO}`)
     const list = page.locator('[data-kind="pr-list"]').last()

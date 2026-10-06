@@ -8,12 +8,22 @@
  * uses the workspace's Node runtime and package manager.
  */
 import { Smithers } from "@smthrs/targets"
+import { Package as backendPackage } from "../../packages/backend/PACKAGE.ts"
+import { Package as flowsJjPackage } from "../../crates/flows-jj/PACKAGE.ts"
+import { Package as machinedPackage } from "../../crates/smithers-machined/PACKAGE.ts"
 import { Package as rpcPackage } from "../../packages/rpc/PACKAGE.ts"
 import { Package as harnessDetectPackage } from "../../packages/smithers/agent/harness-detect/PACKAGE.ts"
 import { Package as gatewayPackage } from "../../packages/smithers/gateway/PACKAGE.ts"
 import { Package as componentPackage } from "../../packages/smithers/ui/PACKAGE.ts"
 
 const cwd = "apps/app"
+
+const distributionInputs = Smithers.Filegroup({ cwd: "distribution", srcs: [Smithers.glob("**/*")] })
+const crateInputs = Smithers.Filegroup({
+  cwd: "crates",
+  srcs: [Smithers.glob("**/*"), flowsJjPackage.nativeSources, machinedPackage.buildInputs]
+})
+const proofMockInputs = Smithers.Filegroup({ cwd: ".specs/design/mock", srcs: [Smithers.glob("src/**/*")] })
 
 /**
  * Uncached release assembly: external toolchains and registry inputs are validated by the assembler,
@@ -23,8 +33,8 @@ const serverBundle = Smithers.Shell.Build({
   cache: false,
   shell: 'SMITHERS_BUILD_SHA="$(git rev-parse HEAD)" bun apps/app/scripts/build-native.ts',
   data: [Smithers.glob("//apps/app/scripts/**/*"), Smithers.glob("//apps/app/src/**/*"),
-    Smithers.file("//packages/smithers/src/internal/backend/HostService.ts"), Smithers.glob("//distribution/**/*"), Smithers.glob("//crates/**/*"),
-    Smithers.glob("//packages/backend/microsandbox/**/*"), Smithers.file("//scripts/build-backend.sh"),
+    Smithers.file("//packages/smithers/src/internal/backend/HostService.ts"), distributionInputs, crateInputs,
+    backendPackage.buildInputs, Smithers.file("//scripts/build-backend.sh"),
     Smithers.file("//package.json"), Smithers.file("//pnpm-lock.yaml"), Smithers.file("//rust-toolchain.toml")],
   outDirs: ["//apps/app/.native", "//apps/app/.native-archive"],
   sandbox: "none",
@@ -285,7 +295,7 @@ const proofRecord = Smithers.Shell.Build({
 const proofPage = Smithers.Shell.Build({
   shell: "bun apps/app/proof/page.ts --out apps/app/test-results/proof-page",
   data: [proofSources, Smithers.glob("//.specs/product/*.json"),
-    Smithers.glob("//.specs/design/mock/src/**/*")],
+    proofMockInputs],
   outDirs: ["//apps/app/test-results/proof-page"],
   sandbox: "none",
   timeout: "10m"
@@ -450,5 +460,5 @@ const securityReview = Smithers.SecurityReview({
 })
 
 export const Package = Smithers.Package({
-  targets: { serverBundle, solidCodegenInputs, check, unitTests, conformance, browserE2e, viewStories, journeyJ1Activation, journeyTodoFromIssue, journeyTodoNeedsYou, journeyTodoEvidence, journeyTodoMerge, proofRecord, proofPage, webSources, ...securityReview }
+  targets: { distributionInputs, crateInputs, proofMockInputs, serverBundle, solidCodegenInputs, check, unitTests, conformance, browserE2e, viewStories, journeyJ1Activation, journeyTodoFromIssue, journeyTodoNeedsYou, journeyTodoEvidence, journeyTodoMerge, proofRecord, proofPage, webSources, ...securityReview }
 })

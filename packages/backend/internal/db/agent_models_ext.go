@@ -40,3 +40,32 @@ func (q *Queries) AssignInstallAgentModel(ctx context.Context, role string, valu
  ON CONFLICT(key) DO UPDATE SET value=excluded.value,updated_at=now()`, role, value)
 	return err
 }
+
+// AgentModelRun is an actual model receipt for a shared app-agent turn.
+// Private conversations and unbound calls do not enter the team Agent card.
+type AgentModelRun struct {
+	ID    string `json:"id"`
+	Model string `json:"model"`
+}
+
+func (q *Queries) RecentAppAgentRuns(ctx context.Context) ([]AgentModelRun, error) {
+	runs := []AgentModelRun{}
+	rows, err := q.db.Query(ctx, `SELECT t.run_id, u.model FROM model_usage u
+ JOIN chat_turns t ON t.id=u.reference AND t.repository_id=u.repository_id
+ WHERE u.source='app' AND u.repository_id=(SELECT (value->>'repository_id')::bigint FROM install_settings WHERE key='github.repository')
+ AND t.request_payload->>'sharedConversation'='true'
+ AND u.outcome IN ('pending','succeeded','unknown')
+ ORDER BY u.created_at DESC,u.id DESC LIMIT 10`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var run AgentModelRun
+		if err := rows.Scan(&run.ID, &run.Model); err != nil {
+			return nil, err
+		}
+		runs = append(runs, run)
+	}
+	return runs, rows.Err()
+}

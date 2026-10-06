@@ -219,6 +219,9 @@ func (s *Server) SetInstallationPermission(name, level string) {
 type Refusal struct {
 	Status  int
 	Message string
+	Errors  []struct {
+		Message string `json:"message"`
+	} `json:"errors,omitempty"`
 }
 
 // CheckRun is one check GitHub reports on a commit.
@@ -1287,7 +1290,7 @@ func (s *Server) pullRequest(r *http.Request, repo string, path []string, body [
 			}
 			if refusal, ok := s.refusals[key]; ok {
 				delete(s.refusals, key)
-				return failure(refusal.Status, refusal.Message)
+				return refusal.Status, map[string]any{"message": refusal.Message, "errors": refusal.Errors}
 			}
 			if p.Merged {
 				// GitHub refuses a merge of a merged pull request.

@@ -36,6 +36,7 @@ type MythicalMergeInput struct {
 // and is never retried until another press replaces it.
 type mythicalLand struct {
 	StandingUser int64     `json:"standing_user,omitempty"`
+	LabelIssue   int64     `json:"label_issue,omitempty"`
 	By           string    `json:"by"`
 	Account      int64     `json:"account"`
 	Generation   int64     `json:"generation,omitempty"`
@@ -69,6 +70,9 @@ type mythicalMergeRefusal struct {
 	Class   string    `json:"class"`
 	Message string    `json:"message"`
 	At      time.Time `json:"at"`
+	Errors  []struct {
+		Message string `json:"message"`
+	} `json:"errors,omitempty"`
 }
 
 var mythicalHead = regexp.MustCompile(`^[0-9a-f]{40}$`)
@@ -359,7 +363,11 @@ func mythicalMergeRepeat(prior db.MythicalItem, id pgtype.UUID, session, request
 	for _, accepted := range checks.MergeRequests {
 		if accepted.Session == session && accepted.Request == request && prior.ID == id && accepted.Head == head {
 			if land := checks.Land; land != nil && land.Request == request && land.Session == session && land.Refused != nil {
-				return &TodoControlError{Status: http.StatusConflict, Code: land.Refused.Code, Class: land.Refused.Class, Message: land.Refused.Message}
+				refusal := &TodoControlError{Status: http.StatusConflict, Code: land.Refused.Code, Class: land.Refused.Class, Message: land.Refused.Message}
+				if land.Refused.Code == "github_refused" {
+					return &TodoGitHubRefusal{TodoControlError: refusal, Errors: land.Refused.Errors}
+				}
+				return refusal
 			}
 			return nil
 		}
@@ -488,6 +496,9 @@ func (s *MythicalService) todoMerge(ctx context.Context, item db.MythicalItem) (
 		return block, nil
 	case land != nil && land.Refused != nil && land.Head == item.PRHead && land.Generation == item.Generation && mythicalMergeReason(land.Refused.Code) != "":
 		block["state"], block["reason"], block["detail"] = "blocked", mythicalMergeReason(land.Refused.Code), land.Refused.Message
+		if len(land.Refused.Errors) > 0 {
+			block["errors"] = land.Refused.Errors
+		}
 		return block, nil
 	}
 	before, err := mythicalMergeAfter(ctx, s.store, item)
@@ -615,6 +626,19 @@ func (s *MythicalService) mergeAuthority(ctx context.Context, item db.MythicalIt
 	}
 	if account.ID != land.Account {
 		return gitHubActor{}, mythicalMergeAccountMoved()
+	}
+	if land.LabelIssue != 0 {
+		gh, _, readErr := s.maintainerPerson(ctx, item.RepositoryID, land.StandingUser, "check a label approval")
+		if readErr != nil {
+			return gitHubActor{}, mythicalAuthorityRefusal(readErr)
+		}
+		issue, readErr := s.github.Issue(ctx, gh, land.LabelIssue)
+		if readErr != nil {
+			return gitHubActor{}, readErr
+		}
+		if !issueCarriesLabel(issue.Labels, automergeLabel) {
+			return gitHubActor{}, mythicalMergeForbidden()
+		}
 	}
 	return account, nil
 }
@@ -865,6 +889,17 @@ const (
 	mythicalMergeMoved  = "head "
 )
 
+// TodoGitHubRefusal keeps the provider's field messages while
+// preserving the shared control error used to settle a definitive refusal.
+type TodoGitHubRefusal struct {
+	*TodoControlError
+	Errors []struct {
+		Message string `json:"message"`
+	} `json:"errors,omitempty"`
+}
+
+func (e *TodoGitHubRefusal) Unwrap() error { return e.TodoControlError }
+
 // mergeSend is the merge's request, after its claim (prepareMerge): GitHub's
 // squash merge with sha = the reviewed head, sent with the App token minted
 // for it, its commit title and message rendered by mythicalMergeCommit. A
@@ -884,7 +919,7 @@ func (s *MythicalService) mergeSend(ctx context.Context, gh mythicalGitHubRepo, 
 			return lookup
 		}
 		if !pull.Merged {
-			return &TodoControlError{Status: refusal.Status, Code: "github_refused", Class: "github", Message: refusal.Message}
+			return &TodoGitHubRefusal{TodoControlError: &TodoControlError{Status: refusal.Status, Code: "github_refused", Class: "github", Message: refusal.Message}, Errors: refusal.Errors}
 		}
 	} else if err != nil {
 		return err
@@ -1251,6 +1286,10 @@ func (st *mythicalItemStep) refuseMerge(ctx context.Context, item db.MythicalIte
 	}
 	if checks.Land != nil && checks.Land.Head == op.Desired {
 		checks.Land.Refused = &mythicalMergeRefusal{Code: refusal.Code, Class: refusal.Class, Message: refusal.Message, At: st.now}
+	}
+	var github *TodoGitHubRefusal
+	if checks.Land != nil && checks.Land.Head == op.Desired && checks.Land.Refused != nil && errors.As(err, &github) {
+		checks.Land.Refused.Errors = github.Errors
 	}
 	next.Checks = checks.encode()
 	next.PendingOp = nil

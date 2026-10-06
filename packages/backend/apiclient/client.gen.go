@@ -1512,6 +1512,41 @@ type InstallIssueThreadCommentsItem struct {
 	CreatedAt *time.Time      `json:"created_at,omitempty"`
 }
 
+// LiveSubscription is generated from docs/api/openapi.yaml.
+type LiveSubscription struct {
+	T      string `json:"t"`
+	ID     int64  `json:"id"`
+	Topic  string `json:"topic"`
+	Cursor *int64 `json:"cursor,omitempty"`
+}
+
+// LiveUnsubscribe is generated from docs/api/openapi.yaml.
+type LiveUnsubscribe struct {
+	T  string `json:"t"`
+	ID int64  `json:"id"`
+}
+
+// LiveProjection is generated from docs/api/openapi.yaml.
+type LiveProjection struct {
+	T      string          `json:"t"`
+	ID     int64           `json:"id"`
+	Cursor int64           `json:"cursor"`
+	Data   json.RawMessage `json:"data"`
+}
+
+// LiveGap is generated from docs/api/openapi.yaml.
+type LiveGap struct {
+	T  string `json:"t"`
+	ID int64  `json:"id"`
+}
+
+// LiveError is generated from docs/api/openapi.yaml.
+type LiveError struct {
+	T    string `json:"t"`
+	ID   int64  `json:"id"`
+	Code string `json:"code"`
+}
+
 // AccessError — An authorization or roster refusal (spec §6.2.3).
 type AccessError struct {
 	Class   string  `json:"class"`

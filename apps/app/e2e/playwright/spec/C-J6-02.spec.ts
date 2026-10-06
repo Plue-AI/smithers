@@ -1,23 +1,48 @@
 import { expect, test } from "../browserTest"
-import { owner, say } from "./j1-fixtures"
+import { fixtures as confirms } from "../../../../../packages/rpc/test/fixtures/Confirm"
+import { fixture, id, open, privateRow, roster } from "./confirmation-fixtures"
 
-// UI projection of .specs/engineering/checks/C-J6-02.md.
-// Requires the forthcoming seeded DesignWorld. Seed Ben as maintainer, a laptop Claude Code delegated action creating T4, and its pending merge request for T1. CLI credential scope, direct API refusals and GitHub merge counts require integration receipts.
-// These UI assertions do not replace backend, timing or reference-host receipts.
-// Written before implementation: mvp.md J6.3–J6.4, §6.13, M-21; lands with T-ACC-04, T-APP-04, T-REL-02
+// Actual makeCli login and delegated Merge requests are covered through the
+// composed PostgreSQL install tests; this proves the member's browser door.
 test("C-J6-02: a laptop agent leaves merge approval to the member", async ({ page }) => {
-  test.fixme(true, "Written before implementation: mvp.md J6.3–J6.4, §6.13, M-21; lands with T-ACC-04, T-APP-04, T-REL-02")
-  await owner(page)
-  await page.route("**/api/user", route => route.fulfill({ json: { id: 1, username: "ben", is_admin: false } }))
-  await page.goto('/smithers-mvp-canary/node')
-  await say(page, '/settings')
-  await expect(page.getByText('Laptop agents', { exact: true }).last()).toBeVisible()
-  await expect(page.getByText(/smthrs login https:\/\/maya-mini/).last()).toBeVisible()
-  await say(page, '/todo T4')
-  await expect(page.getByText('Claude Code for Ben', { exact: true }).last()).toBeVisible()
-  await say(page, '/todo T1')
-  await expect(page.getByText(/Review & merge/).last()).toBeVisible()
-  await expect(page.getByText('Merged', { exact: true })).toHaveCount(0)
-  await page.getByRole('button', { name: 'Merge', exact: true }).last().press('Enter')
-  await expect(page.getByText('Merged', { exact: true }).last()).toBeVisible()
+  test.setTimeout(120_000)
+  let row = privateRow(true), calls = 0
+  row = { ...row, payload: { ...row.payload, card: { ...row.payload.card, asked_by: confirms.one_click.model.asked_by,
+    review: { ...row.payload.card.review!, merge: { state: "ready", on_github: true } } } } }
+  const publish = await fixture(page, topic => topic === "confirmations:1" ? [row] : topic === "members" ? roster("owner") : undefined)
+  await page.route(`**/api/confirmations/${id}/approve`, async route => {
+    calls++
+    expect(route.request().headers()["authorization"]).toBeUndefined()
+    expect(route.request().headers()["idempotency-key"]).toContain(id)
+    await route.fulfill({ status: 202, json: { id, state: "pending" } })
+  })
+  const card = await open(page)
+  expect(calls).toBe(0)
+  await expect(card).not.toContainText("Merged")
+  await card.getByRole("button", { name: "Review & merge", exact: true }).press("Enter")
+  await expect.poll(() => calls).toBe(1)
+  await expect(page.getByTestId("composer-input")).toBeEnabled()
+  row = { ...row, payload: { ...row.payload, effect: { todo: 12, request: `confirmation:${id}` }, card: { ...row.payload.card,
+    review: { ...row.payload.card.review!, merge: { state: "merging", reason: "merging", on_github: true } } } } }
+  publish("confirmations:1")
+  await expect(card.locator('[data-flow="approval.approve"]')).toBeDisabled()
+  await expect(card).not.toContainText("Merged")
+  await page.reload()
+  expect(calls).toBe(1)
+  row = { ...row, state: "approved", payload: { ...row.payload, card: { ...row.payload.card, receipt: { ...confirms.done.model.receipt!, text: "Merged" } } } }
+  publish("confirmations:1")
+  await expect(page.locator('[data-kind="confirm"]')).toContainText("Merged")
+  expect(calls).toBe(1)
+})
+
+test("C-J6-02: the private laptop request retains issuer attribution", async ({ page }) => {
+  test.setTimeout(120_000)
+  const row = privateRow()
+  await fixture(page, topic => topic === "confirmations:1" ? [row] : topic === "members" ? roster("owner") : undefined)
+  const card = await open(page)
+  await expect(card.getByText("Claude Code for Ben", { exact: true })).toBeVisible()
+  await expect(card.getByRole("button", { name: "Commit", exact: true })).toBeEnabled()
+  await expect(page.getByTestId("composer-input")).toBeEnabled()
+  await page.reload()
+  await expect(page.locator('[data-kind="confirm"]').getByText("Claude Code for Ben", { exact: true })).toBeVisible()
 })

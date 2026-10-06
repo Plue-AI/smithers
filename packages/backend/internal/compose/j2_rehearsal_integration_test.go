@@ -314,7 +314,7 @@ func TestJ2Rehearsal(t *testing.T) {
 			if time.Now().After(deadline) {
 				// Where the review stopped: the item's review and its jobs.
 				var reason, checked string
-				_ = r.pool.QueryRow(r.ctx, `SELECT reason, coalesce(checks->>'review', '') FROM mythical_items WHERE number=$1`, number).Scan(&reason, &checked)
+				_ = r.pool.QueryRow(r.ctx, `SELECT reason, coalesce(checks::text, '') FROM mythical_items WHERE number=$1`, number).Scan(&reason, &checked)
 				jobs := []string{}
 				rows, err := r.pool.Query(r.ctx, `SELECT r.request_id, r.state, coalesce(d.status, ''), coalesce(d.attempt, 0), coalesce(d.last_error, ''), coalesce(r.terminal_receipt::text, '')
  FROM product_job_requests r LEFT JOIN product_job_dispatches d ON d.operation_id = r.id WHERE r.request_id LIKE 'mythical:%:review:%' ORDER BY r.request_id`)
@@ -328,7 +328,7 @@ func TestJ2Rehearsal(t *testing.T) {
 					}
 					rows.Close()
 				}
-				return fmt.Errorf("no approved review on the PR head and its body after a minute: %s (item reason %q, review %s, jobs %v)", r.actual, reason, checked, jobs)
+				return fmt.Errorf("no approved review on the PR head and its body after a minute: %s (item reason %q, checks %s, jobs %v, PR body %q)", r.actual, reason, checked, jobs, pull.Body)
 			}
 			time.Sleep(500 * time.Millisecond)
 		}

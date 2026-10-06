@@ -1005,7 +1005,7 @@
     },
     "C-STK-07": {
       "status": "pending-owner",
-      "reason": "Absent: packages/backend/internal/services/todo_merge_race_db_test.go",
+      "reason": "Implemented in mythical_merge_todo_test.go, github_outbound_fault_test.go and compose/todo_merge_integration_test.go; authenticated owner approval of argv and host remains pending",
       "ticket": "T-STK-04"
     },
     "C-STK-08": {
@@ -1015,8 +1015,8 @@
     },
     "C-STK-13": {
       "status": "pending-owner",
-      "reason": "Absent: packages/backend/internal/services/todo_preapproval_db_test.go",
-      "ticket": "T-STK-16"
+      "reason": "Implemented in mythical_merge_todo_test.go and mythical_automerge_label_integration_test.go, with composed preapproval routes; folded into T-STK-04, authenticated owner approval of argv and host remains pending",
+      "ticket": "T-STK-04"
     },
     "C-UI-01": {
       "status": "manual",

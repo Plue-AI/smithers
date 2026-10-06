@@ -6,9 +6,11 @@ import (
 	"fmt"
 	"net/http"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 
+	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/smithersai/smithers/packages/backend/internal/db"
@@ -288,4 +290,64 @@ func TestGitHubInboundReopenWithSamePayloadAfterDrop(t *testing.T) {
 	require.Equal(t, before.Attempt, h.item(n).Attempt)
 	require.Equal(t, before.CandidateHead, h.item(n).CandidateHead)
 	require.Len(t, h.writes(), writes, "fresh evidence performs no GitHub write")
+}
+
+// A failure when the jobs receipt is inserted must roll back the real pull
+// consumer's TODO transition as well. Restart reads the retained delivery;
+// duplicate polling after commit must create no second transition or intent.
+func TestGitHubInboundCloseReopenCommitRecovery(t *testing.T) {
+	h := newMergeHarness(t)
+	f := h.publicationFixture
+	n, _, pr := h.first("Atomic lifecycle")
+	synced, row := configureInboundPullPolling(t, f)
+	pool := f.pool.(*pgxpool.Pool)
+	ctx := t.Context()
+	token, err := f.connections.CreateGitHubInstallationTokenForRepositoryOwner(ctx, f.userID, 0, "rehearsal-owner", "app", map[string]string{"pull_requests": "write"})
+	require.NoError(t, err)
+	var attempts atomic.Int32
+	consumer := synced.install.consumers[GitHubRepoMetadataPulls]
+	synced.RegisterFetchedConsumer(GitHubRepoMetadataPulls, func(ctx context.Context, tx pgx.Tx, fact gitHubFetchedObject) (json.RawMessage, error) {
+		attempts.Add(1)
+		return consumer(ctx, tx, fact)
+	})
+	for _, step := range []struct{ remote, before, after, event string }{
+		{"closed", "proposed", "rejected", "todo.github_dropped"},
+		{"open", "rejected", "proposed", "todo.github_in_review"},
+	} {
+		t.Run(step.remote, func(t *testing.T) {
+			before := f.item(n)
+			calls := attempts.Load()
+			_, err := pool.Exec(ctx, `CREATE FUNCTION reject_pull_receipt() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN IF NEW.event_type='operation.completed' THEN RAISE EXCEPTION 'injected precommit crash'; END IF; RETURN NEW; END $$; CREATE TRIGGER reject_pull_receipt BEFORE INSERT ON product_job_events FOR EACH ROW EXECUTE FUNCTION reject_pull_receipt()`)
+			require.NoError(t, err)
+			req, err := http.NewRequest("PATCH", f.fake.URL+fmt.Sprintf("/repos/rehearsal-owner/app/pulls/%d", pr), strings.NewReader(fmt.Sprintf(`{"state":%q}`, step.remote)))
+			require.NoError(t, err)
+			req.Header.Set("Authorization", "Bearer "+token.Token)
+			resp, err := f.fake.Client().Do(req)
+			require.NoError(t, err)
+			require.Equal(t, 200, resp.StatusCode)
+			require.NoError(t, resp.Body.Close())
+			writes := len(f.writes())
+			require.NoError(t, synced.pollInstallPull(ctx, row, pr))
+			stop := runFetchedFixture(t, synced)
+			require.Eventually(t, func() bool { return attempts.Load() > calls+1 }, 10*time.Second, 20*time.Millisecond)
+			stop()
+			require.Equal(t, before, f.item(n), "failed receipt rolls back all item fields")
+			require.Equal(t, step.before, f.item(n).State)
+			require.Zero(t, fetchedCount(t, pool, `SELECT count(*) FROM product_job_events WHERE event_type='`+step.event+`'`))
+			require.Len(t, f.writes(), writes, "ingestion emits no GitHub write")
+			_, err = pool.Exec(ctx, `DROP TRIGGER reject_pull_receipt ON product_job_events; DROP FUNCTION reject_pull_receipt()`)
+			require.NoError(t, err)
+			stop = runFetchedFixture(t, synced)
+			require.Eventually(t, func() bool { return f.item(n).State == step.after }, 10*time.Second, 20*time.Millisecond)
+			stop()
+			require.Equal(t, 1, fetchedCount(t, pool, `SELECT count(*) FROM product_job_events WHERE event_type='`+step.event+`'`))
+			committed := f.item(n)
+			require.NoError(t, synced.pollInstallPull(ctx, row, pr))
+			stop = runFetchedFixture(t, synced)
+			stop()
+			require.Equal(t, committed, f.item(n), "postcommit redelivery changes nothing")
+			require.Len(t, f.writes(), writes)
+			require.Equal(t, 1, fetchedCount(t, pool, `SELECT count(*) FROM product_job_events WHERE event_type='`+step.event+`'`))
+		})
+	}
 }

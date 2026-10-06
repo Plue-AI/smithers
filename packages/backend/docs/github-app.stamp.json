@@ -3,13 +3,13 @@
   "producer": null,
   "output": {
     "path": "packages/backend/docs/github-app.md",
-    "digest": "4989ca8e6eb0af5a992659730ed84fc89473768f027c672825bb11dc5ee4fcec"
+    "digest": "88f824c7b728474d7dc892b5bb9062e0893a9f65b9885400a75f6a7dfb1ad092"
   },
-  "closure": "c3f0393659a337c8899f26e6a1593325776c17869c3fb7748e6e0c54ff01af7c",
+  "closure": "08f0a71833edb5aaa52967da4f3fa3f07b4ad9d317cbe2469e0a2d42d208ec3a",
   "inputs": [
     {
       "path": "docs/api/openapi/install.yaml",
-      "digest": "4881b83dc4f312b119270804ee61f0b980a97442df1dc95955e24ad9d33336b8"
+      "digest": "633b511151a9374e6bd403dfc16e1661f8a14448278fba4811459187be1cb6f6"
     },
     {
       "path": "packages/backend/db/product/migrations/0105_github_app.sql",
@@ -49,11 +49,11 @@
     },
     {
       "path": "packages/backend/internal/compose/main.go",
-      "digest": "e429b50a123185be157fdc2ddd81fc3f431f7fc30ba717f99e6fabf07594e29d"
+      "digest": "9e82aa63b74ef4752d6dc0c90a6398bcfd0b2c2747f89e8c4bdfdcab4735997c"
     },
     {
       "path": "packages/backend/internal/compose/runtime_helpers.go",
-      "digest": "02a07782173b8db7505c426716e3084427335dce9c095fcffb9ff97ca7eeff72"
+      "digest": "9e85d3432890c9332bed4a779c8f8da8b61c156b001c425e24b4f57d80f0ee81"
     },
     {
       "path": "packages/backend/internal/db/mythical_ext.go",
@@ -77,7 +77,7 @@
     },
     {
       "path": "packages/backend/internal/routes/github_app_setup.go",
-      "digest": "244033120bedbc49beaf67a1806102685e76078d553f9d09577a3fa9e21d27c4"
+      "digest": "0aaec81962d44611373e58cbc2075b3b4a86bd28786a83fe5b8941e47e26da0c"
     },
     {
       "path": "packages/backend/internal/routes/members.go",
@@ -85,7 +85,7 @@
     },
     {
       "path": "packages/backend/internal/services/auth.go",
-      "digest": "90ae93ddda0938116f167f3e313f17151f2028206f838bf61fbaece749e000aa"
+      "digest": "bf3291d528aa6eecd1e73ef2661dee95a4f60884abd12f0654565e181324b510"
     },
     {
       "path": "packages/backend/internal/services/flow_catalog.go",
@@ -93,7 +93,7 @@
     },
     {
       "path": "packages/backend/internal/services/flow_versions.go",
-      "digest": "696a61776799c45bd6ab4957bfa83b9f03ea1e892387510ff9ea8777eb4e36b1"
+      "digest": "4c4d5f38d7fd4fcff65bc78f923a332456236d32ad3e370d32da0dcbfa0334bc"
     },
     {
       "path": "packages/backend/internal/services/github_access_diagnosis.go",
@@ -109,7 +109,7 @@
     },
     {
       "path": "packages/backend/internal/services/github_app_manifest.go",
-      "digest": "c252b168aafe937376f309ea66e9886a5505c094adecdf53fdff68c2dd83b0c6"
+      "digest": "973c7d728c612984be64ad97c2fdc2c10c87d825b34e733e6696010d8a7c1fdf"
     },
     {
       "path": "packages/backend/internal/services/github_budget.go",
@@ -117,7 +117,7 @@
     },
     {
       "path": "packages/backend/internal/services/github_import.go",
-      "digest": "990780cdf710cb2c401f356cc51082e226e41524a42e40f133d8c8e4058279b6"
+      "digest": "3b98ca82d93dca11544284d5b8415acc562bc491667913b813effea8460a4d1e"
     },
     {
       "path": "packages/backend/internal/services/github_issue_comments.go",
@@ -209,7 +209,7 @@
     },
     {
       "path": "packages/backend/internal/services/install_setup.go",
-      "digest": "40365a1b3d49ac4cba53b8c5bac0f44e4d041edb3f5a0c473c3537644e8f45ff"
+      "digest": "68879e2a2de82d8ddc33ad6cb09ff1906e3d67f73839ac764839c2755644c81c"
     },
     {
       "path": "packages/backend/internal/services/install_setup_session.go",
@@ -225,19 +225,19 @@
     },
     {
       "path": "packages/backend/internal/services/member_recheck.go",
-      "digest": "0751036ae37c64ee0b45ebe751fb739bdd83ec41e8e86c88e7c916ab1ea966c7"
+      "digest": "24fe96e45e15a855bc591493f00fdc66868c21d2eb4f4c09c54abd44a65a92eb"
     },
     {
       "path": "packages/backend/internal/services/member_roster.go",
-      "digest": "cb10695b840ee02b16081da7d0afb7cdf44898026bbc3441072bdc7e7326e3e9"
+      "digest": "56f2928b72479dfd44ca66877f07bef297676e9710a9df0be424331b2e1e846c"
     },
     {
       "path": "packages/backend/internal/services/members.go",
-      "digest": "77d195ebf8ae924d582fbc1d0d8dd081556d36cae24aa2d35ecbf0e771184acc"
+      "digest": "4069537aab42d520d64ad79ab38f3218537fa697c7eecc75c9213834afda7027"
     },
     {
       "path": "packages/backend/internal/services/mythical.go",
-      "digest": "1844f4a0a6d5d365b57fb940af14fc0063068bfbe0134aeeb2873e3f474f5dce"
+      "digest": "7da75077682ac10da81b325c09a414df5d81c6547784037b833f9e50b42cc829"
     },
     {
       "path": "packages/backend/internal/services/mythical_github.go",
@@ -245,7 +245,7 @@
     },
     {
       "path": "packages/backend/internal/services/mythical_github_poll.go",
-      "digest": "5a93e147bc8ff542de813825aa3ad12507f749db00bf0f2c015524572e7ef3ac"
+      "digest": "a7f1b9d6b82ab89e2271305f2c9ec3c7be928fec731086489b4b2a94d02b7cd8"
     },
     {
       "path": "packages/backend/internal/services/mythical_issue_events.go",
@@ -253,11 +253,11 @@
     },
     {
       "path": "packages/backend/internal/services/mythical_items.go",
-      "digest": "4de06794be4e37a8cd392b9b87660c265b33c4de9ab7e5ac5d2273f9ee08ed9c"
+      "digest": "a5ba9ca10e9fcd5cf27f30846ca3ea62aeb2e05a9042901cc8c340535278704d"
     },
     {
       "path": "packages/backend/internal/services/mythical_outbound.go",
-      "digest": "8f2ce6c313ab60268cd63139e9301435ce955d6744a127377a772b4fed5773e5"
+      "digest": "4b1234b7ee7a889611f4201bed418440eed0eb8a9f891a7d3410bdc152876237"
     },
     {
       "path": "packages/backend/internal/services/mythical_pr.go",
@@ -265,7 +265,7 @@
     },
     {
       "path": "packages/backend/internal/services/mythical_todo_read.go",
-      "digest": "cd48744d6d04e35bca04eceb932562317ab1c17549e65e11657806944f12829c"
+      "digest": "a67cd9cfb4d09de9f2eddfc25ac3619aebd0965104f09148066fbc938f2fc411"
     },
     {
       "path": "packages/backend/internal/services/mythical_todo_state.go",

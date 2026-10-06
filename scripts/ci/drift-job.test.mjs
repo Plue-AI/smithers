@@ -71,6 +71,18 @@ test('drift job concurrency group includes github.sha and runs only drift gates'
   assert.equal(gateSteps[0].run.includes('//...:fmt'), true)
 })
 
+test('CI declares the retained document components using the moved native ABI adapter', async () => {
+  const workflow = YAML.parse(await readFile(ciPath, 'utf8'))
+  const step = workflow.jobs.rust.steps.find((step) => step.name === 'Daemon document component tests')
+  assert.ok(step)
+  assert.match(step.run, /smthrs test '\/\/crates\/smithers-machined:documentComponents'/)
+  const source = await readFile(new URL('../../crates/smithers-machined/PACKAGE.ts', import.meta.url), 'utf8')
+  assert.ok(source.includes('cargo test --locked -p smithers-machined --test documents'))
+  assert.ok(source.includes('cargo build --locked -p smithers-ffi --example live_document_interop'))
+  assert.ok(source.includes('node crates/smithers-ffi/tests/yjs-interop.ts'))
+  assert.ok(!step.run.includes('examples/document_interop'))
+})
+
 test('API baseline and docs drift targets are check-only and independent of release packing', async () => {
   const source = await readFile(scriptsPackagePath, 'utf8')
   const api = source.match(/const apiBaseline\s*=\s*Smithers\.NodeBinary\(\{([\s\S]*?)\n\}\)/)?.[1]
@@ -87,9 +99,10 @@ test('API baseline and docs drift targets are check-only and independent of rele
   assert.match(docs, /changes:\s*\[\]/)
   assert.match(docs, /pnpm run docs:check/)
   const manifest = JSON.parse(await readFile(manifestPath, 'utf8'))
-  for (const generator of ['gen-sites.mjs', 'sync-content.mjs']) {
-    assert.match(manifest.scripts['docs:check'], new RegExp(`${generator.replace('.', '\\.')}.{0,100}--check`))
-  }
+  assert.match(manifest.scripts['docs:check'], /modelprice\/cmd\/generate -check/)
+  assert.match(manifest.scripts['docs:check'], /node scripts\/package-docs\.test\.mjs/)
+  const packageCheck = await readFile(new URL('../package-docs.test.mjs', import.meta.url), 'utf8')
+  assert.match(packageCheck, /"pack", "--dry-run"/)
   for (const generator of ['ingest-reference.mjs', 'generate-llms.mjs']) {
     assert.match(docs, new RegExp(`${generator.replace('.', '\\.')}[\\s\\S]{0,100}--check`), `${generator} must run in check mode`)
   }

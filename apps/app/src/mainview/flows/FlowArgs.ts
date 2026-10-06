@@ -42,7 +42,6 @@ export interface FlowInput {
   readonly "wiki.attach": { readonly path?: string; readonly repo?: string }
   readonly "wiki.card.select": { readonly cardId: string; readonly documentId: string }
   readonly "wiki.card.view": { readonly cardId: string; readonly view: string }
-  readonly "prs.land": { readonly number: number; readonly repo: string }
   readonly "prs.review": { readonly number: number; readonly verdict: "approve" | "request-changes" | "comment"; readonly repo: string }
 
   readonly "box.egress": { readonly workspaceId: string; readonly cursor?: string }
@@ -206,7 +205,6 @@ const ENCODERS: { readonly [N in FlowWithInput]: (payload: Payload) => string } 
   "wiki.attach": payload => line(token(payload, "path"), token(payload, "repo")),
   "wiki.card.select": payload => fileArgs(String(payload.cardId), String(payload.documentId)),
   "wiki.card.view": payload => line(token(payload, "cardId"), token(payload, "view")),
-  "prs.land": payload => line(token(payload, "number"), token(payload, "repo")),
   "prs.review": payload => JSON.stringify(payload),
   "github.mirror.retry-ref": payload => JSON.stringify(payload),
 

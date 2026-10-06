@@ -33,18 +33,6 @@ const (
 // the refusal code.
 type Resolver func(ctx context.Context, topic string) (Source, string)
 
-// frame is one text frame (spec §7.1).
-type frame struct {
-	ClientID uint32          `json:"client_id,omitempty"`
-	T        string          `json:"t"`
-	ID       uint32          `json:"id"`
-	Topic    string          `json:"topic,omitempty"`
-	Cursor   *int64          `json:"cursor,omitempty"`
-	Data     json.RawMessage `json:"data,omitempty"`
-	Where    json.RawMessage `json:"where,omitempty"`
-	Code     string          `json:"code,omitempty"`
-}
-
 var connections atomic.Int64
 
 // Connections is the number of open live sockets in this process (§20.3).
@@ -64,7 +52,8 @@ type outbox struct {
 	ready  chan struct{}
 }
 
-// push reserves control space within the connection budget. Refusals cannot grow it.
+// push reserves 256 bytes for a gap; control frames share the same hard
+// connection limit, so refused-subscription floods cannot grow the outbox.
 func (o *outbox) push(b []byte, force bool) bool {
 	return o.pushKind(b, force, websocket.MessageText)
 }
@@ -135,17 +124,8 @@ func (s *subscription) close() {
 // topic, unsub or presence, each with a positive id, and a cursor that is
 // never negative. Anything else is malformed.
 func clientFrame(raw []byte) (frame, bool) {
-	var in frame
-	if json.Unmarshal(raw, &in) != nil || in.ID == 0 || (in.Cursor != nil && *in.Cursor < 0) {
-		return frame{}, false
-	}
-	switch in.T {
-	case "unsub", "presence":
-		return in, true
-	case "sub":
-		return in, in.Topic != ""
-	}
-	return frame{}, false
+	in, err := DecodeRequest(raw)
+	return in, err == nil
 }
 
 func encode(f frame) []byte {
@@ -256,8 +236,8 @@ func (h *Hub) Serve(ctx context.Context, conn *websocket.Conn, resolve Resolver,
 			return
 		}
 		if kind == websocket.MessageBinary {
-			if len(raw) < 5 || (raw[0] != 1 && raw[0] != 2) {
-				_ = conn.Close(websocket.StatusUnsupportedData, "malformed_frame")
+			if len(raw) < 5 || (raw[0] != 1 && raw[0] != 2) || binary.BigEndian.Uint32(raw[1:5]) == 0 {
+				_ = conn.Close(websocket.StatusInvalidFramePayloadData, "malformed_frame")
 				return
 			}
 			id := binary.BigEndian.Uint32(raw[1:5])
@@ -303,8 +283,8 @@ func (h *Hub) Serve(ctx context.Context, conn *websocket.Conn, resolve Resolver,
 			}
 			continue
 		}
-		in, ok := clientFrame(raw)
-		if !ok {
+		in, decodeErr := DecodeRequest(raw)
+		if decodeErr != nil {
 			_ = conn.Close(websocket.StatusInvalidFramePayloadData, "malformed_frame")
 			return
 		}
@@ -365,6 +345,30 @@ func (h *Hub) Serve(ctx context.Context, conn *websocket.Conn, resolve Resolver,
 					continue
 				}
 				subscriptions[in.ID] = h.serveLog(ctx, source, out, in.ID, in.Cursor, refuse)
+				continue
+			}
+			if source.Durable != nil && source.Snapshot != nil {
+				id := in.ID
+				sub := &subscription{}
+				streamCtx, stop := context.WithCancel(ctx)
+				sub.leave = stop
+				subscriptions[id] = sub
+				go h.serveDurable(streamCtx, source, in.Cursor, func(f frame) bool {
+					sub.mu.Lock()
+					defer sub.mu.Unlock()
+					if sub.closed || sub.gapped {
+						return false
+					}
+					f.ID = id
+					if out.push(encode(f), f.T == "err" || f.T == "gap") {
+						return true
+					}
+					sub.gapped = true
+					if !out.push(encode(frame{T: "gap", ID: id}), true) {
+						cancel()
+					}
+					return false
+				})
 				continue
 			}
 			if source.Build == nil || source.Key == "" {

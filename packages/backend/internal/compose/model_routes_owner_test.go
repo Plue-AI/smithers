@@ -13,6 +13,7 @@ import (
 
 	"github.com/go-chi/chi/v5"
 	"github.com/jackc/pgx/v5/pgtype"
+	"github.com/smithersai/smithers/packages/backend/internal/chat"
 	"github.com/smithersai/smithers/packages/backend/internal/db"
 	"github.com/smithersai/smithers/packages/backend/internal/middleware"
 	"github.com/smithersai/smithers/packages/backend/internal/routes"
@@ -96,6 +97,34 @@ func TestInstallAgentModelsOwnerBoundaryPostgres(t *testing.T) {
 			require.Equal(t, 200, res.Code, res.Body.String())
 		}
 	}
+	// Recent runs come from actual turn-linked model receipts, never the role's
+	// current model. Private conversations and unrelated calls stay private.
+	store, err := chat.NewStore(pool)
+	require.NoError(t, err)
+	for _, shared := range []bool{true, false} {
+		run := fmt.Sprintf("receipt-run-%t", shared)
+		request := json.RawMessage(fmt.Sprintf(`{"runId":%q,"instructions":"Answer","messages":[],"sharedConversation":%t}`, run, shared))
+		accepted, err := store.Admit(ctx, chat.AdmitInput{Scope: chat.Scope{UserID: owner.ID, RepositoryID: repo.ID, Owner: "maya"}, RunID: run,
+			Journal: chat.JournalRequest{Version: 1, LegID: "leg", Token: strings.Repeat("a", 48)}, Request: request})
+		require.NoError(t, err)
+		_, err = pool.Exec(ctx, `INSERT INTO model_usage(request_key,paid_by,owner_type,owner_id,source,repository_id,reference,provider,model,outcome,settled_at)
+   VALUES($1,'owner','user',$2,'app',$3,$4,'openai','actual-model-old','succeeded',now())`, run, owner.ID, repo.ID, accepted.TurnID)
+		require.NoError(t, err)
+	}
+	recent := call("alice", "GET", "/api/agents", "")
+	require.Equal(t, 200, recent.Code, recent.Body.String())
+	var recentPayload struct {
+		Agents []struct {
+			ID   string             `json:"id"`
+			Runs []db.AgentModelRun `json:"runs"`
+		} `json:"agents"`
+	}
+	require.NoError(t, json.Unmarshal(recent.Body.Bytes(), &recentPayload))
+	require.Equal(t, []db.AgentModelRun{{ID: "receipt-run-true", Model: "actual-model-old"}}, recentPayload.Agents[3].Runs)
+	for _, agent := range recentPayload.Agents[:3] {
+		require.Empty(t, agent.Runs, "no factory role inferred from a chat receipt")
+	}
+	require.NotContains(t, recent.Body.String(), "receipt-run-false")
 	const fast = `{"protocol":"openai-chat","modelId":"model-f","credential":"CEREBRAS_API_KEY","baseUrl":"https://api.cerebras.ai"}`
 	require.NoError(t, q.UpsertInstallSetting(ctx, db.UpsertInstallSettingParams{Key: "agent:fast", Value: []byte(fast)}))
 	_, err = pool.Exec(ctx, `INSERT INTO owner_model_credentials(user_id,name,origin,value_encrypted) VALUES($1,'CEREBRAS_API_KEY','https://api.cerebras.ai','sealed-fixture')`, owner.ID)
@@ -128,7 +157,7 @@ func TestInstallAgentModelsOwnerBoundaryPostgres(t *testing.T) {
 	for _, person := range []db.User{owner, alice} {
 		raw := fmt.Sprintf("smithers_%040x", person.ID)
 		hash := sha256.Sum256([]byte(raw))
-		_, err := q.CreateAccessToken(ctx, db.CreateAccessTokenParams{UserID: person.ID, Name: "model-delegation", TokenHash: hex.EncodeToString(hash[:]), TokenLastEight: "12345678", Scopes: "write:user", ExpiresAt: pgtype.Timestamptz{Time: time.Now().Add(time.Hour), Valid: true}})
+		_, err := q.CreateAccessToken(ctx, db.CreateAccessTokenParams{UserID: person.ID, Name: "model-delegation", TokenHash: hex.EncodeToString(hash[:]), TokenLastEight: "12345678", Scopes: "write:user,write:agent,write:repository", ExpiresAt: pgtype.Timestamptz{Time: time.Now().Add(time.Hour), Valid: true}})
 		require.NoError(t, err)
 		req := httptest.NewRequest("PUT", "/api/agents/reviewer/model", strings.NewReader(modelB))
 		req.Header.Set("Content-Type", "application/json")
@@ -166,6 +195,8 @@ func TestInstallAgentModelsOwnerBoundaryPostgres(t *testing.T) {
 	res = call("maya", "PUT", "/api/agents/coding/model", modelB)
 	require.Equal(t, 200, res.Code, res.Body.String())
 	res = call("alice", "GET", "/api/install", "")
+	require.Equal(t, 403, res.Code, res.Body.String())
+	res = call("maya", "GET", "/api/install", "")
 	require.Equal(t, 200, res.Code, res.Body.String())
 	var install struct {
 		CanAssignModels bool `json:"can_assign_models"`
@@ -175,7 +206,7 @@ func TestInstallAgentModelsOwnerBoundaryPostgres(t *testing.T) {
 		} `json:"models"`
 	}
 	require.NoError(t, json.Unmarshal(res.Body.Bytes(), &install))
-	require.False(t, install.CanAssignModels)
+	require.True(t, install.CanAssignModels)
 	require.Len(t, install.Models, 3)
 	require.Equal(t, "coding", install.Models[1].Role)
 	require.Equal(t, "model-b", install.Models[1].Model)

@@ -135,3 +135,13 @@ test("Settings displays the assigned model in the shared Models section", () => 
  const host = mount(<ModelRoles model={settingsCardModel(served, "http://localhost:4000")} actions={[]} onAction={() => {}} />)
  expect(host.querySelector('[data-testid="settings-model-coding"]')?.textContent).toBe("model-b")
 })
+
+
+test("the Agent card shows actual models from recent runs after the assigned model changes", () => {
+ const agent = { ...orchestrator, id: "app", label: "App agent", model: { provider: "openai", id: "new-model", label: "new-model" }, runs: [{ id: "turn-before-switch", model: "old-model" }, { id: "turn-after-switch", model: "new-model" }] }
+ const host = mount(<AgentsCardBody card={agentsCard({ native: false, install: true, canAssign: false, agents: [agent] })} onRunCommand={() => {}} />)
+ const runs = host.querySelector('[data-testid="agent-recent-runs-app"]')
+ expect(runs?.textContent).toContain("turn-before-switch · old-model")
+ expect(runs?.textContent).toContain("turn-after-switch · new-model")
+ expect(host.querySelector('[data-flow="agent.model"]')).toBeNull()
+})

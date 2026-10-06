@@ -152,6 +152,7 @@ func (st *mythicalItemStep) recoverOutbound(ctx context.Context, item db.Mythica
 	}
 	op.State = outboundResult(op, observed, appliedClose)
 	if op.Kind == "body" && op.State == "conflict" {
+		st.s.logger.Info("mythical.review_body_conflict", "item", uuidString(item.ID), "expected", op.Precondition, "observed", observed, "desired", op.Desired)
 		// A person edited the body or the pull request closed: nothing is
 		// written, and the verdict stays on the card.
 		return st.yieldBody(ctx, item)

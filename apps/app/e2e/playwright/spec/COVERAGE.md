@@ -17,7 +17,7 @@ C-UI-12 Members (T-UI-09): [install roster and keyboard Add/Role/Remove](C-UI-12
 | C-J1-01 | [C-J1-01.spec.ts](C-J1-01.spec.ts) | fixme-before-implementation | T-INS-08 |
 | C-J1-02 | [C-J1-02.spec.ts](C-J1-02.spec.ts) | passing: mounted install seam, live readiness, reload, squash/image fixes; reference Mac/LAN/OAuth evidence pending | T-APP-03 |
 | C-J1-03 | [C-J1-03.spec.ts](C-J1-03.spec.ts) | partial: mirrored read-only File card during held machine build and reload; question journey pending | T-APP-15 |
-| C-J1-04 | [C-J1-04.spec.ts](C-J1-04.spec.ts) | regression 2026-10-06: Draft remains Commit pending after HTTP admission (line 60, reproduced twice); fresh macOS install/real execution/GitHub/timing pending | T-APP-02 |
+| C-J1-04 | [C-J1-04.spec.ts](C-J1-04.spec.ts) | browser-pass 2026-10-06: private Draft admission/completion, served TODO reviewed-head Merge and reload; fresh macOS install/real execution/GitHub/timing pending | T-APP-02 |
 | C-J1-05 | [C-J1-05.spec.ts](C-J1-05.spec.ts) | passing: install seam, keyboard, invalid login sends nothing, typed unknown-user refusal, live refresh, confirmation, reconnect; reference-host GitHub/LAN evidence pending | T-APP-06 |
 | C-J1-06 | [C-J1-06.spec.ts](C-J1-06.spec.ts) | mounted install seam: Node/Go readiness, failure, live completion, reload and check evidence; reference-host qualification separate | T-MCH-10 |
 | C-J2-01 | [C-J2-01.spec.ts](C-J2-01.spec.ts) | implemented — Chromium passed 2026-10-05 (mounted install seam; composed router proof separate) | T-STK-09 |
@@ -50,7 +50,7 @@ C-UI-12 Members (T-UI-09): [install roster and keyboard Add/Role/Remove](C-UI-12
 | C-J5-02 | [C-J5-02.spec.ts](C-J5-02.spec.ts) | fixme-before-implementation | T-FLW-03, T-FLW-04, T-FLW-11 |
 | C-J5-03 | [C-J5-03.spec.ts](C-J5-03.spec.ts), [receipt navigation](../learning-receipt.spec.ts) | Partial: receipt → Proposal → Make TODO → reload passes in Chromium; automatic learning, flow activation and sixth-TODO journey remain fixme | T-FLW-06, T-REL-02 |
 | C-J6-01 | [C-J6-01.spec.ts](C-J6-01.spec.ts) | browser-pass (served delegated answer/steer/presence, member color, independent coding participant, reload and person replacement); full installed terminal/skill/confirmation journey fixme, reference-host pending | T-TRM-02, T-APP-09, T-REL-02 |
-| C-J6-02 | [C-J6-02.spec.ts](C-J6-02.spec.ts) | fixme-before-implementation | T-ACC-04, T-APP-04, T-REL-02 |
+| C-J6-02 | [C-J6-02.spec.ts](C-J6-02.spec.ts) | partial: install confirmation seam, member press, reload and issuer attribution; composed CLI login/Merge covered separately; reference-host journey pending | T-ACC-04, T-APP-04, T-REL-02 |
 | C-J7-01 | [C-J7-01.spec.ts](C-J7-01.spec.ts) | app HTTP-seam proof: private Before draft, stack order, Amend, retained identity and reload; guest steer/ancestry and reference-host receipts pending | T-STK-02, T-STK-06, T-REL-02 |
 | C-J7-02 | [C-J7-02.spec.ts](C-J7-02.spec.ts) | fixme-before-implementation | T-MCH-08, T-STK-05 |
 | C-J7-03 | [C-J7-03.spec.ts](C-J7-03.spec.ts) | fixme-before-implementation | T-STK-08, T-REL-02 |
@@ -62,7 +62,7 @@ C-UI-12 Members (T-UI-09): [install roster and keyboard Add/Role/Remove](C-UI-12
 | C-J8-06 | [C-J8-06.spec.ts](C-J8-06.spec.ts) | fixme-before-implementation | T-FLW-02, T-APP-01, T-REL-02 |
 | C-J11-01 | [C-J11-01.spec.ts](C-J11-01.spec.ts) | fixme-before-implementation | T-FLW-07, T-APP-07, T-REL-02 |
 | C-J11-02 | [C-J11-02.spec.ts](C-J11-02.spec.ts) | fixme-before-implementation | T-APP-05, T-FLW-04, T-FLW-05, T-FLW-07 |
-| C-J11-03 | [C-J11-03.spec.ts](C-J11-03.spec.ts) | owner picker wired; Active-main instructions and per-call TODO routing pending | T-FLW-08 |
+| C-J11-03 | [C-J11-03.spec.ts](C-J11-03.spec.ts) | passing Chromium: owner assignment, reload, model records, read-only instruction File card and actual recent-run models; composed Active-main prompt test passes; merged TODO/ongoing TODO journey pending | T-FLW-08 |
 | C-J11-04 | [C-J11-04.spec.ts](C-J11-04.spec.ts) | fixme-before-implementation | T-FLW-07, T-REL-02 |
 | C-APP-01 | [C-APP-01.spec.ts](C-APP-01.spec.ts) | browser-pass (Take over; PostgreSQL role/idempotency receipt; live toast qualification pending) | T-APP-02 |
 | C-APP-02 | [C-APP-02.spec.ts](C-APP-02.spec.ts) | browser-pass (Edit, deduplication, reload, person Drop confirm, working step, daily admission limit, budget pause owner, outside-push Discard binding/deduplication/role gate; planner/multiplayer pending) | T-APP-02 |
@@ -70,7 +70,7 @@ C-UI-12 Members (T-UI-09): [install roster and keyboard Add/Role/Remove](C-UI-12
 | C-APP-04 | [C-APP-04.spec.ts](C-APP-04.spec.ts) | browser-pass: composer host admission, reload and read-only Earlier; authenticated packaged-host ordering, privacy, revocation and retired-route receipts | T-APP-16 |
 | C-APP-05 | [C-APP-05.spec.ts](C-APP-05.spec.ts) | browser-pass: real composed install, two members, author tab closes, host completes and both replay; author-only UI instructions use the typed flow | T-APP-16 |
 | C-ACC-01 | [C-ACC-01.spec.ts](C-ACC-01.spec.ts) | fixme-before-implementation | T-ACC-02, T-ACC-03, T-ACC-04, T-APP-04, T-INS-08, T-TRM-02, T-CUT-03, T-STK-06 |
-| C-ACC-02 | [C-ACC-02.spec.ts](C-ACC-02.spec.ts) | partial: composed PostgreSQL/browser one-click journey passed; merge recovery pending | T-ACC-04, T-APP-04, T-STK-04 |
+| C-ACC-02 | [C-ACC-02.spec.ts](C-ACC-02.spec.ts) | partial: stale expiry/fresh review browser journey; composed PostgreSQL/GitHub-fake admission and settlement; reference-host recovery pending | T-ACC-04, T-APP-04, T-STK-04 |
 | C-ACC-03 | [C-ACC-03.spec.ts](C-ACC-03.spec.ts) | passing: removal, owner protection, retained TODO history | T-ACC-02 |
 | C-ACC-04 | [C-ACC-04.spec.ts](C-ACC-04.spec.ts) | roster and sign-in refusal HTTP projections pass; composed OAuth qualification separate | T-ACC-01, T-ACC-02 |
 | C-STK-01 | [C-STK-01.spec.ts](C-STK-01.spec.ts) | fixme-before-implementation | T-STK-01 |
@@ -410,3 +410,5 @@ T-APP-03 rerun: C-UI-13 now runs each card door independently without fixme. Flo
 T-APP-03 pass 3: the image Draft uses the ticket title “Add figlet to the machine image”. C-APP-03 asserts the literal one-file recipe diff and private browser isolation, including independent Settings refusal, creation and discard. Settings retains a saved daily allowance when an older GET completes during its PUT; the seam regression also retains newer live-frame fencing. These are app-boundary receipts with test-only HTTP providers, not guest, merge, OAuth or reference-install qualification.
 
 T-APP-04 merge admission additionally passes the Confirm browser contract: a person press receives 202 pending, disables repeated presses while merging, survives reload without another merge request, and ends only from the confirmed TODO/private approval projection. PostgreSQL/GitHub-fake service tests and composed install HTTP tests cover the separate admission and settlement boundaries; reference-host recovery and the full C-ACC-02 browser journey remain pending.
+
+T-ACC-04 removes the C-ACC-02 and C-J6-02 browser fixmes using the install live confirmation seam. The browser contracts cover stale expiry, a fresh revision held by required checks, a person press, pending admission, reload, settlement and issuer attribution. These mocked transport projections supplement the composed PostgreSQL/CLI/GitHub-fake boundaries; they do not replace a real-host journey or the full C-ACC-01 command ledger.

@@ -262,7 +262,6 @@ test("structured trace, wiki and landing actions match their grammars", () => {
   roundTrip("wiki.cloud", { repo: "team/project", page: 2 }, "team/project 2", { repo: "team/project", page: 2 })
   roundTrip("wiki.card.view", { cardId: "wiki-1", view: "list" }, "wiki-1 list", { cardId: "wiki-1", view: "list" })
   roundTrip("wiki.cloud.open", { slug: "my-page", repo: "team/project" }, "my-page team/project", { slug: "my-page", repo: "team/project" })
-  roundTrip("prs.land", { number: 42, repo: "team/project" }, "42 team/project", { number: 42, repo: "team/project" })
   roundTrip("prs.review", { number: 42, verdict: "request-changes", repo: "team/project" }, '{"number":42,"verdict":"request-changes","repo":"team/project"}', { number: 42, verdict: "request_changes", text: "", repo: "team/project" })
 })
 

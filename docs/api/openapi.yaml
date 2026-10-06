@@ -4538,26 +4538,32 @@ paths:
         - Live
       description: >-
         WebSocket upgrade with subprotocol smithers.live.v1 (spec §7.1). A
-        member's browser session from the install's own origin subscribes to
+        member's browser session from the install's own origin, or a scoped delegated bearer without cookies, subscribes to
         shared topics (home, todo:<n>, flows; the install owner also
         external:<agent>:<session>, the size of a Codex or Claude Code
         session file) with text
         frames {"t":"sub","id","topic"} and {"t":"unsub","id"}; each topic
-        answers {"t":"snap","id","cursor","data"} whenever its committed
+        answers {"t":"snap","id","cursor","data"} initially. TODO sources also
+        deliver {"t":"delta","id","cursor","data"} with committed job-event
+        payloads, resuming strictly after the requested source cursor. An expired
+        cursor receives a fresh snapshot. Snapshot-only topics update when their committed
         facts change, every subscriber at the same cursor with the same
         bytes. A refused topic answers {"t":"err","id","code"} with
         unknown_topic, forbidden or unsupported, and the socket stays open.
         Over the 2 MiB send budget a subscription gets {"t":"gap","id"} and
-        resubscribes. Revocation closes the socket.
+        resubscribes. Revocation closes the socket. Reserved presence and binary kinds 1 and 2
+        return unsupported without closing the socket. Malformed requests close
+        with malformed_frame.
       security:
         - sessionCookie: []
+        - bearerAuth: []
       responses:
         '101':
           description: WebSocket upgrade
         '400':
           description: The smithers.live.v1 subprotocol is missing
         '401':
-          description: No browser session, or a token
+          description: Missing, expired or revoked credential, or a machine/run credential
         '403': {$ref: '#/components/responses/AuthorizationForbidden'}
         '421':
           description: Unknown host
@@ -25511,6 +25517,41 @@ components:
                   - $ref: '#/components/schemas/InstallIssuePerson'
                   - type: 'null'
               created_at: {type: string, format: date-time}
+    LiveSubscription:
+      type: object
+      required: [t, id, topic]
+      properties:
+        t: {type: string, enum: [sub]}
+        id: {type: integer, minimum: 1, maximum: 4294967295}
+        topic: {type: string, minLength: 1}
+        cursor: {type: integer, minimum: 0, maximum: 9007199254740991}
+    LiveUnsubscribe:
+      type: object
+      required: [t, id]
+      properties:
+        t: {type: string, enum: [unsub]}
+        id: {type: integer, minimum: 1, maximum: 4294967295}
+    LiveProjection:
+      type: object
+      required: [t, id, cursor, data]
+      properties:
+        t: {type: string, enum: [snap, delta]}
+        id: {type: integer, minimum: 1, maximum: 4294967295}
+        cursor: {type: integer, minimum: 0, maximum: 9007199254740991}
+        data: {}
+    LiveGap:
+      type: object
+      required: [t, id]
+      properties:
+        t: {type: string, enum: [gap]}
+        id: {type: integer, minimum: 1, maximum: 4294967295}
+    LiveError:
+      type: object
+      required: [t, id, code]
+      properties:
+        t: {type: string, enum: [err]}
+        id: {type: integer, minimum: 1, maximum: 4294967295}
+        code: {type: string, enum: [unknown_topic, forbidden, unsupported]}
     AccessError:
       description: An authorization or roster refusal (spec §6.2.3).
       type: object

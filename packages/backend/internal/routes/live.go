@@ -49,14 +49,21 @@ func (h *LiveHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	info := middleware.AuthInfoFromContext(r.Context())
-	// Existing tokens are not live session credentials until T-ACC-04.
-	if info == nil || info.User == nil || info.IsTokenAuth || info.IsAgent() {
+	// The credential loader and shared authorizer decide delegated scopes.
+	// Machine and run credentials never become member Live sessions.
+	if info == nil || info.User == nil || middleware.IsAgentAccount(info.User.UserType) ||
+		(info.IsTokenAuth && info.CredentialKind() != middleware.CredentialDelegated && info.CredentialKind() != middleware.CredentialPerson) {
 		liveRefusal(w, http.StatusUnauthorized, "permission", "unauthenticated", middleware.UnauthenticatedMessage(r.Context()))
 		return
 	}
 	// A cookie upgrade comes from the install's own page.
-	if !middleware.SameOrigin(r.Header.Get("Origin"), origin) {
+	if (!info.IsTokenAuth || r.Header.Get("Cookie") != "") && !middleware.SameOrigin(r.Header.Get("Origin"), origin) {
 		liveRefusal(w, http.StatusForbidden, "permission", "origin", "origin")
+		return
+	}
+	source := currentRevocationSource()
+	if source == nil {
+		liveRefusal(w, http.StatusServiceUnavailable, "infra", "live_unavailable", "Live updates are unavailable")
 		return
 	}
 	if _, err := services.Authorize(r.Context(), h.Queries, "live"); err != nil {
@@ -79,6 +86,10 @@ func (h *LiveHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	resolve, repository := h.Topics(r)
+	if resolve == nil {
+		liveRefusal(w, http.StatusServiceUnavailable, "infra", "live_unavailable", "Live updates are unavailable")
+		return
+	}
 	// Revocation (a removed member, a signed-out session, a disabled
 	// person) closes the socket (§5.6).
 	ctx, cancel := context.WithCancel(r.Context())
@@ -94,6 +105,10 @@ func (h *LiveHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 		events = source.Watch(ctx, principal)
+		if events == nil {
+			liveRefusal(w, http.StatusServiceUnavailable, "infra", "live_unavailable", "Live updates are unavailable")
+			return
+		}
 		// Register before a fresh roster read; ignore the middleware cached decision.
 		role, err := services.InstallRoleOf(ctx, h.Queries, info.User.ID)
 		if err != nil || role == "" {

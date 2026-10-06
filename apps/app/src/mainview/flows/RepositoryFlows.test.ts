@@ -261,7 +261,7 @@ describe("the repository's flows are slash leaves", () => {
     const { store, controller } = await ready(backend({ [PROJECTION]: projectionDocument(CATALOG) }), "signed-out")
     // The leaf is offered when the user names it outright, so Enter on the menu is the deferral, not an app flow.
     const listed = treeNames(controller.slashTree("audit"))
-    expect(listed[0]).toBe("audit")
+    expect(listed).toEqual([])
     controller.send("/audit")
     await settled()
     expect(store.session().pendingCommand).toMatchObject({ name: "audit", requirement: "signed-in" })

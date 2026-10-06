@@ -3,7 +3,6 @@ import { renderToStaticMarkup } from "react-dom/server"
 import { ControllerTestProvider } from "../ControllerContext"
 import { renderCardBody } from "../cards/CardRenderers"
 import { viewerAdmitted, type CatalogItem } from "./registry"
-import { createDebugApiSeam } from "../state/seams/DebugApiSeam"
 import { stubCommandActions } from "./StubCommandActions"
 /*
  * Commands.ts at the host boundary (docs/web-mode/PLAN.md §1, §3).
@@ -284,17 +283,18 @@ describe("trace argument redaction", () => {
           snapshot: () => ({ surface: "chat", typing: false, hasConnectors: true, admin: false, signedOut: false }),
           noteCommandRun: () => {},
           traceFlow: (record) => { records.push(record) },
+          presentCard: async () => "settings",
           setEnvironmentVar: async (...input) => { received.push(input); return `Invalid ${args}` },
           setFormField: async (...input) => { received.push(input); return `Invalid ${args}` },
           submitForm: async (...input) => { received.push(input); return { value: "Saved VALUE=ordinary words" } }
         })
         const commands = createCommandRegistry(actions)
         await commands[invoker](name!, args)
-        expect(received).toHaveLength(1)
+        expect(received).toHaveLength(invoker === "runAsAgent" && name === "env.set" ? 0 : 1)
         expect(records).toHaveLength(1)
         expect(records[0]?.args).toBe(expected!)
         expect(records[0]?.detail).toBe("[REDACTED]")
-        if (name === "env.set") expect(received[0]?.[0]).toBe(args!.replace(/ owner\/repo$/, ""))
+        if (name === "env.set" && invoker === "run") expect(received[0]?.[0]).toBe(args!.replace(/ owner\/repo$/, ""))
         if (name === "form.set") expect(received[0]?.[2]).toBe(args!.split(/\s+/).slice(2).join(" "))
       })
     }

@@ -926,6 +926,16 @@ describe("an install's host runs the catalog commands its grant allows, as the t
     expect(lines.filter((line) => line.startsWith("- /files."))).toEqual(FILES_LINES)
   })
 
+  test("verified grant Markdown survives the host prompt while browser instructions do not", async () => {
+    const provider = model([])
+    await run({ ...install, agentInstructions: "Always end with DONE.\n```js\nthrow new Error('data-only')\n```" }, provider, producer((path) => file(path, JOURNEY)))
+    const system = systemText(provider.requests[0])
+    expect(system).toContain("Always end with DONE.")
+    expect(system).toContain("throw new Error('data-only')")
+    expect(system).not.toContain(question.instructions)
+    expect(commandLines(system).map((line) => line.slice(3).split(" ")[0])).toEqual(HOST_COMMANDS)
+  })
+
   test("the instructions keep the app agent's standing rules beside the install's commands", async () => {
     const cases: ReadonlyArray<[DurableChatGrant, string]> = [
       [install, "through files.list and files.read"],
@@ -1122,7 +1132,9 @@ describe("an install's host runs the catalog commands its grant allows, as the t
       execute("flow.edit", "merge Add a step"), execute("flow", "missing")])
     await run(install, provider, journal)
     expect(journal.calls).toHaveLength(6)
-    expect(journal.calls.every(call => call.body.method === "GET" && ["/api/flows", "/api/flows/missing"].includes(call.body.path))).toBe(true)
+    for (const call of journal.calls) {
+      expect(call.body).toMatchObject({ method: "GET", path: expect.stringMatching(/^\/api\/flows(?:\/missing)?$/u) })
+    }
     const cards = journal.frames.flatMap(frame => frame.type === "card" ? [frame.card] : [])
     expect(cards).toHaveLength(3)
     expect(cards[0]).toMatchObject({ kind: "flow", payload: { name: "todo" }, title: "TODO flow" })
@@ -1156,7 +1168,7 @@ describe("an install's host runs the catalog commands its grant allows, as the t
       expect(toolOutputs(provider)).toEqual(["failed: Flows unavailable"])
       expect(journal.frames.filter(frame => frame.type === "card")).toEqual([])
       expect(journal.calls).toHaveLength(1)
-      expect(journal.calls[0]!.body.method).toBe("GET")
+      expect(journal.calls[0]!.body).toMatchObject({ method: "GET" })
     }
   })
 

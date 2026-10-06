@@ -1,4 +1,3 @@
-import { stubCommandActions } from "./StubCommandActions"
 import { describe, expect, test } from "bun:test"
 import type { CommandActions } from "./Flows"
 import { adminFlows, baseFlows } from "./Flows"
@@ -400,10 +399,10 @@ describe("box.open recovery grammar", () => {
   }
 })
 
-test("restored model forms refuse scalar JSON before dispatch", () => {
+test("restored model forms collect missing fields from scalar JSON", () => {
   for (const name of ["agent.model", "model.save"]) {
     const entry = baseFlows(inertActions).find(row => nameOf(row) === name)!
-    for (const value of ["7", "0", '"hello world"', "500000", "null", "[]"]) expect(payloadFor(name, value, entry.metadata.grammar)).toEqual({ error: "Input must be a JSON object" })
+    for (const value of ["7", "0", '"hello world"', "500000", "null", "[]"]) expect(payloadFor(name, value, entry.metadata.grammar)).toEqual({ payload: {} })
   }
 })
 

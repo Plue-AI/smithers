@@ -39,7 +39,7 @@ const repositoryPackages = Object.fromEntries(
     .sort()
     .map((directory) => [
       `repositoryInputs_${Buffer.from(directory).toString("hex") || "root"}`,
-      Smithers.Filegroup({ cwd: directory === "" ? "//" : directory, srcs: [Smithers.glob("**/*")] })
+      Smithers.Filegroup({ cwd: directory === "" ? "./" : directory, srcs: [Smithers.glob("**/*")] })
     ])
 )
 const repositoryInputs = Smithers.Filegroup({ srcs: Object.values(repositoryPackages) })

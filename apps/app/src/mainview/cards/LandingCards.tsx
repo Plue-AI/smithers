@@ -257,7 +257,6 @@ export const LandingCardBody = ({
   const { repo, number, title, state, author, prBody, reviews, checks } = card.payload
   const extra = card.payload
   const actionable = ["open", "draft", "failed"].includes(state.toLowerCase())
-  const canLand = actionable && state.toLowerCase() !== "draft" && !extra.draft
   const tab = card.payload.tab ?? "conversation"
   const summary = checksSummary(checks)
   const additions = (extra.files ?? []).reduce((sum, file) => sum + (file.additions ?? 0), 0)
@@ -369,12 +368,6 @@ export const LandingCardBody = ({
                   ) :
                   null}
                 {actionable && <footer className="ghc-merge-foot">
-                  {canLand && <Button
-                    size="sm"
-                    {...flowAction(onRunCommand, "prs.land", flowArgs("prs.land", { number, repo }))}
-                  >
-                    <Octicon name="git-merge" /> Land (queue merge)
-                  </Button>}
                   <Button
                     size="sm"
                     variant="outline"

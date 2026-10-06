@@ -744,7 +744,8 @@ const ci = Smithers.GithubCiGen({
       steps: [
         { name: "Cargo lint gates", verb: Smithers.Verb.Lint, pattern: "//crates/flows-jj/..." },
         { name: "Third-party notices", verb: Smithers.Verb.Test, pattern: "//scripts:thirdPartyNotices" },
-        { name: "Cargo test suite", verb: Smithers.Verb.Test, pattern: "//crates/flows-jj:cargoTest" }
+        { name: "Cargo test suite", verb: Smithers.Verb.Test, pattern: "//crates/flows-jj:cargoTest" },
+        { name: "Daemon document component tests", verb: Smithers.Verb.Test, pattern: "//crates/smithers-machined:documentComponents" }
       ]
     },
     {
@@ -1073,6 +1074,7 @@ const securityReview = Smithers.SecurityReview({
     ".github/scripts/*.sh",
     ".smithers/*.ts",
     ".smithers/*.json",
+    "flows/**/flow.{ts,mdx}",
     "distribution/*",
     "crates/smithers-ffi/Cargo.toml",
     "crates/smithers-ffi/src/*.rs",

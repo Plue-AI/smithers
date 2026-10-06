@@ -919,6 +919,36 @@ export type InstallIssueThread = {
   }>
 }
 
+export type LiveSubscription = {
+  t: "sub"
+  id: number
+  topic: string
+  cursor?: number
+}
+
+export type LiveUnsubscribe = {
+  t: "unsub"
+  id: number
+}
+
+export type LiveProjection = {
+  t: "snap" | "delta"
+  id: number
+  cursor: number
+  data: unknown
+}
+
+export type LiveGap = {
+  t: "gap"
+  id: number
+}
+
+export type LiveError = {
+  t: "err"
+  id: number
+  code: "unknown_topic" | "forbidden" | "unsupported"
+}
+
 /** An authorization or roster refusal (spec §6.2.3). */
 export type AccessError = {
   class: "user" | "permission" | "capacity" | "github" | "infra" | "conflict" | "never"

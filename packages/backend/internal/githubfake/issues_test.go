@@ -109,9 +109,12 @@ func TestOpenedIssuesAnswerTextEventsCommentsAndClose(t *testing.T) {
 	status, body = request(t, server, "GET", "/repos/acme/app/issues/1/events?per_page=100&page=1", access.Token, nil)
 	require.Equal(t, 200, status)
 	var events []struct {
-		ID     int64  `json:"id"`
-		Event  string `json:"event"`
-		Actor  struct{ Login, Type string }
+		ID    int64  `json:"id"`
+		Event string `json:"event"`
+		Actor struct {
+			ID          int64
+			Login, Type string
+		}
 		ViaApp *json.RawMessage `json:"performed_via_github_app"`
 		Label  struct{ Name string }
 	}
@@ -119,6 +122,7 @@ func TestOpenedIssuesAnswerTextEventsCommentsAndClose(t *testing.T) {
 	require.Len(t, events, 2, "the App applying a present label is no new event")
 	require.Equal(t, event, events[0].ID)
 	require.Equal(t, "ben", events[0].Actor.Login)
+	require.Positive(t, events[0].Actor.ID)
 	require.Nil(t, events[0].ViaApp)
 	require.Equal(t, "smithers", events[1].Label.Name)
 	require.Equal(t, "Bot", events[1].Actor.Type)
@@ -283,9 +287,12 @@ func TestRepositoryIssueEventsListNewestFirstWithTheirIssues(t *testing.T) {
 	}
 	require.NoError(t, json.Unmarshal(body, &access))
 	type listed struct {
-		ID     int64  `json:"id"`
-		Event  string `json:"event"`
-		Actor  struct{ Login, Type string }
+		ID    int64  `json:"id"`
+		Event string `json:"event"`
+		Actor struct {
+			ID          int64
+			Login, Type string
+		}
 		ViaApp *json.RawMessage `json:"performed_via_github_app"`
 		Label  struct{ Name string }
 		Issue  struct {

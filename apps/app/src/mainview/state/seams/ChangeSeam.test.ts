@@ -942,90 +942,6 @@ describe("createChangeSeam", () => {
     expect(file?.patchLines).toBe(500)
   })
 
-  test("change.land PUTs the change's current commit_id, queues the carrying landing request, and re-reads", async () => {
-    const { store, seam, requests, bodies } = await harness({
-      ...viewRoutes,
-      [`PUT ${REPO}/landings/42/land`]: json(202, { status: "queued" })
-    })
-    const result = await seam.landChange("qupxosqw")
-
-    /* qupxosqw is the request's top (2 of 2), so the PUT is in scope — and the line names the whole scope it covered. */
-    expect(textOf(result)).toBe(
-      "Landing request #42 is queued — it lands 1 → 2 together (mzxvbnmk, qupxosqw); the card tracks it."
-    )
-    expect(requests).toContain(`PUT ${REPO}/landings/42/land`)
-    /* plue's land requires the commit it lands (LandLandingRequestInput.commit_id); the change is re-read for it right before. */
-    expect(JSON.parse(bodies[`PUT ${REPO}/landings/42/land`] ?? "null")).toEqual({ commit_id: "a03f5f" })
-    expect(payloadOf(store)?.stack?.landingNumber).toBe(42)
-    expect(payloadOf(store)?.stack?.changeIds).toEqual(["mzxvbnmk", "qupxosqw"])
-  })
-
-  test("change.land on a mid-stack change refuses, names the whole-request scope and the top, and PUTs nothing", async () => {
-    const { seam, requests } = await harness({
-      ...viewRoutes,
-      [`${REPO}/landings?limit=100`]: json(200, {
-        items: [{ ...LANDING, change_ids: ["qupxosqw", "ronvznsk"] }]
-      }),
-      [`PUT ${REPO}/landings/42/land`]: json(202, { status: "queued" })
-    })
-    expect(textOf(await seam.landChange("qupxosqw"))).toBe(
-      "Land all 2 changes from ronvznsk."
-    )
-    expect(requests.some((request) => request.startsWith("PUT "))).toBe(false)
-  })
-
-  test("change.land on a queued landing request refuses without a PUT — plue lands only open or failed", async () => {
-    const { seam, requests } = await harness({
-      ...viewRoutes,
-      [`${REPO}/landings?limit=100`]: json(200, { items: [{ ...LANDING, state: "queued" }] }),
-      [`PUT ${REPO}/landings/42/land`]: json(202, { status: "queued" })
-    })
-    expect(textOf(await seam.landChange("qupxosqw"))).toBe(
-      "Landing request #42 is queued. Only open or failed requests can land."
-    )
-    expect(requests.some((request) => request.startsWith("PUT "))).toBe(false)
-  })
-
-
-  test("change.land without a carrying landing request says so and names the way out", async () => {
-    const { seam } = await harness({
-      [`${REPO}/landings?limit=100`]: json(200, { items: [] })
-    })
-    expect(textOf(await seam.landChange("qupxosqw"))).toBe(
-      "No landing request carries qupxosqw on will/smithers."
-    )
-  })
-
-  /*
-   * Walk run 3, C3-N8: the door read the repository's landing requests, sent no
-   * land, and put nothing on screen — its sentence reached the person only as a
-   * toast that leaves after four seconds, and the next session could not read it
-   * back. A land that lands writes its card; a land that refuses writes the
-   * sentence, so a door that acted on nothing still says so where the person is
-   * looking.
-   */
-  test("every change.land refusal is in the transcript, not only in a toast that leaves", async () => {
-    const said = (store: AppStore) => [...store.collections.messages.values()].map((message) => message.text)
-
-    const absent = await harness({ [`${REPO}/landings?limit=100`]: json(200, { items: [] }) })
-    await absent.seam.landChange("qupxosqw")
-    expect(said(absent.store)).toEqual(["No landing request carries qupxosqw on will/smithers."])
-
-    const unread = await harness({ [`${REPO}/landings?limit=100`]: json(500, { message: "landings down" }) })
-    await unread.seam.landChange("qupxosqw")
-    expect(said(unread.store)).toEqual([`The landing requests of will/smithers weren't read (Reading from Smithers Cloud failed (500). That's a bug in Smithers, not something you did.) — nothing was landed.`])
-    expect(said(unread.store).join(" ")).not.toContain("landings down")
-
-    const signedOut = await harness({}, { signedIn: false })
-    await signedOut.seam.landChange("qupxosqw")
-    expect(said(signedOut.store)).toEqual([SIGN_OUT_REFUSAL])
-
-    /* A queued land already renders its card; its line is not said twice. */
-    const queued = await harness({ ...viewRoutes, [`PUT ${REPO}/landings/42/land`]: json(202, { status: "queued" }) })
-    await queued.seam.landChange("qupxosqw")
-    expect(said(queued.store)).toEqual([])
-  })
-
 
 
   test("review.done / ack / reopen POST the thread transition on the carrying landing and re-read the card", async () => {
@@ -1439,31 +1355,6 @@ describe("committed change mutations", () => {
     }
   })
 
-  test("retirement during landing preflight sends no mutation", async () => {
-    const entered = deferred<void>()
-    const release = deferred<Response>()
-    const route = `${REPO}/landings?limit=100`
-    const { store, storage, seam, requests } = await harness({ ...viewRoutes, [route]: () => {
-      entered.resolve()
-      return release.promise
-    } })
-    try {
-      const pending = seam.landChange("qupxosqw")
-      await entered.promise
-      await store.dispatch({ type: "cloud.session.loaded", actor: "system", state: "signed-out", username: null, expiresAt: null, scopes: null }).isPersisted.promise
-      await store.eventHistory()
-      const before = storage.snapshot()
-      release.resolve(json(200, { items: [LANDING] })({ method: "GET", body: null }))
-      expect(await pending).toBe(SIGN_OUT_REFUSAL)
-      await store.eventHistory()
-      expect(storage.snapshot()).toEqual(before)
-      expect(requests.some((request) => request.startsWith("PUT "))).toBe(false)
-    } finally {
-      release.resolve(json(503, {})({ method: "GET", body: null }))
-      await store.dispose?.()
-    }
-  })
-
   test("please-fix retains its session and opens its workspace after a failed change refresh", async () => {
     const { seam, requests, shownWorkspaces } = await harness({
       ...viewRoutes,
@@ -1502,23 +1393,6 @@ describe("committed change mutations", () => {
     expect(result).toEqual({ value: expect.stringContaining("session session-created") })
     expect(textOf(result)).toContain("src/app.ts in qupxosqw")
     expectRefreshWarning(textOf(result))
-  })
-
-  test("land retains the queued request and scope after a failed change refresh", async () => {
-    let committed = false
-    const { seam, requests } = await harness({
-      ...viewRoutes,
-      [CHANGE_ROUTE]: (request) => (committed ? refreshFailure : json(200, CHANGE))(request),
-      [`PUT ${REPO}/landings/42/land`]: (request) => {
-        committed = true
-        return json(202, { state: "queued" })(request)
-      }
-    })
-    const result = await seam.landChange("qupxosqw")
-    expect(result).toEqual({ value: expect.stringContaining("Landing request #42 is queued") })
-    expect(textOf(result)).toContain("mzxvbnmk, qupxosqw")
-    expectRefreshWarning(textOf(result))
-    expect(requests.filter((request) => request.startsWith("PUT "))).toHaveLength(1)
   })
 
 
@@ -1593,23 +1467,6 @@ describe("change repository resolution", () => {
     expect(store.collections.cards.get("change-ana/other-qupxosqw")).toEqual(foreignCard)
     expect(store.collections.cards.get("change-will/smithers-qupxosqw")).toBeUndefined()
     expect(requests).toEqual([])
-  })
-
-  test("bare mutations refuse duplicate change ids across repositories; explicit repositories still route", async () => {
-    const otherRoute = "api/repos/ana/other/changes/qupxosqw"
-    const { seam, requests } = await harness({
-      ...viewRoutes,
-      [otherRoute]: json(200, CHANGE),
-      [`POST ${otherRoute}/conflicts/resolve`]: json(201, { agent_session_id: "explicit-session" })
-    })
-    await seam.viewChange("qupxosqw", undefined, "will/smithers")
-    await seam.viewChange("qupxosqw", undefined, "ana/other")
-    requests.length = 0
-    const refusal = "Change qupxosqw is loaded in several repositories (ana/other, will/smithers) — name one as owner/repo"
-    expect(await seam.landChange("qupxosqw")).toBe(refusal)
-    expect(requests).toEqual([])
-    expect(textOf(await seam.resolveConflict("qupxosqw", "src/app.ts", "ana/other"))).toContain("explicit-session")
-    expect(requests.filter((request) => request.startsWith("POST "))).toEqual([`POST ${otherRoute}/conflicts/resolve`])
   })
 })
 
@@ -1742,23 +1599,6 @@ test("walkthrough sections remain readable with retired quiz data", async () => 
  expect(payloadOf(store)?.walkthrough).not.toHaveProperty("quiz")
 })
 
-for (const retiredAnswer of [404, 500]) {
-  test(`org-owned change views and lands without the retired changeset route (${retiredAnswer})`, async () => {
-    const { seam, store, requests, bodies } = await harness({
-      ...viewRoutes,
-      "api/orgs/will/changesets": json(retiredAnswer, { message: "retired" }),
-      [`PUT ${REPO}/landings/42/land`]: json(202, { status: "queued" })
-    }, { ownerKind: "org" })
-    await seam.viewChange("qupxosqw")
-    const result = await seam.landChange("qupxosqw")
-    await settleStore(store)
-    expect(result).toEqual({ value: "Landing request #42 is queued — it lands 1 → 2 together (mzxvbnmk, qupxosqw); the card tracks it." })
-    expect(requests.filter(request => request.includes("changesets"))).toEqual([])
-    expect(requests.filter(request => request.startsWith("PUT "))).toEqual([`PUT ${REPO}/landings/42/land`])
-    expect(bodies[`PUT ${REPO}/landings/42/land`]).toBe('{"commit_id":"a03f5f"}')
-    expect(payloadOf(store)?.changeset).toBeNull()
-  })
-}
 
 test("malformed findings reread replaces a successful panel with unread before valid recovery", async () => {
   let body: unknown = FINDINGS

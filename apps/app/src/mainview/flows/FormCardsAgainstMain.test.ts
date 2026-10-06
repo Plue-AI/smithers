@@ -316,9 +316,13 @@ interface DeclaredMove {
 }
 
 /** Only these app doors left; the persisted oracle is unchanged. */
-const CUT_FLOW_NAMES = new Set([/* renamed to their mvp.md Appendix A names, or replaced by /help */ "appearance.dark-mode", "history.show", "branches.list", "agent.list", "secrets.list", "flow.create", "issue.implement", "chat.stop", "search.open", "auth.sign-in", "auth.sign-out", "chat.commands", "chat.filter", "chat.filter.grep", "chat.filter.reset", "chat.filter.toggle", "chat.clear", "tab.card", "tab.close", "tab.select", "world", "world.delete", "world.delete.cancel", "world.delete.confirm", "world.new-note", "world.select", "subagents", "flows", "connect", "smithers.who", "workspace.rename", "workspace.rename.edit", "app.first-run.dismiss", "notifications.read-update", "notifications.tag", "search.targets", "search.boxes", "box.select", "files.add", "change.request", "change.split", "change.revert", "prs.create", "issues", "issues.fix", "issues.verify", "issues.set", "issues.comment.react", "issues.comment.retry", "wiki.ask", "runs.takeover", "runs.release", "runs.handoff", "runs.burndown.filter", "runs.burndown.select", "agent.session.list", "agent.session.new", "agent.session.say", "agent.session.stop", "agent.session.view", "notifications.list", "notifications.read", "admin.grant", "admin.grant.confirm", "admin.grant.cancel", "admin.health", "repository.register", "signup.account", "signup.finish", "signup.next", "signup.repo", "signup.set", "setup.ask", "setup.configure", "setup.discard", "setup.discard.confirm", "setup.guide", "setup.retry", "setup.run", "setup.view", "setup.work", "issues.setup", "review.setup", "ci.setup", "feature.setup", "chores.setup", "feature.prototype", "system.recommend", "issue-sweep"])
+const CUT_FLOW_NAMES = new Set([/* renamed to their mvp.md Appendix A names, or replaced by /help */ "appearance.dark-mode", "history.show", "branches.list", "secrets.list", "flow.create", "chat.stop", "search.open", "auth.sign-in", "auth.sign-out", "chat.commands", "chat.filter", "chat.filter.grep", "chat.filter.reset", "chat.filter.toggle", "chat.clear", "tab.card", "tab.close", "tab.select", "world", "world.delete", "world.delete.cancel", "world.delete.confirm", "world.new-note", "world.select", "subagents", "flows", "connect", "smithers.who", "workspace.rename", "workspace.rename.edit", "app.first-run.dismiss", "notifications.read-update", "notifications.tag", "search.targets", "search.boxes", "box.select", "files.add", "change.request", "change.split", "change.revert", "prs.create", "issues", "issues.fix", "issues.verify", "issues.set", "issues.comment.react", "issues.comment.retry", "wiki.ask", "runs.takeover", "runs.release", "runs.handoff", "runs.burndown.filter", "runs.burndown.select", "agent.session.list", "agent.session.new", "agent.session.say", "agent.session.stop", "agent.session.view", "notifications.list", "notifications.read", "admin.grant", "admin.grant.confirm", "admin.grant.cancel", "admin.health", "repository.register", "signup.account", "signup.finish", "signup.next", "signup.repo", "signup.set", "setup.ask", "setup.configure", "setup.discard", "setup.discard.confirm", "setup.guide", "setup.retry", "setup.run", "setup.view", "setup.work", "issues.setup", "review.setup", "ci.setup", "feature.setup", "chores.setup", "feature.prototype", "system.recommend", "issue-sweep"])
 
 const DECLARED: ReadonlyArray<DeclaredMove> = [
+  { flow: "runs.trace.filter", kind: "sentence", rows: 13, because: "MVP #3385 removes the historical fork filter from the available choices." },
+  { flow: "repo.choose", kind: "card", rows: 33, because: "Recorded first-run doors now open the install Setup card without legacy repository forms (T-SET-02)." },
+  { flow: "repo.create", kind: "card", rows: 33, because: "The compatibility name opens the same install Setup card without a legacy form (T-SET-02)." },
+  { flow: "issues.create", kind: "sentence", rows: 1, because: "Malformed JSON at the carried-payload boundary is refused before a write." },
   { flow: "model.show", kind: "card", rows: 33, because: "T-UI-19 restores owner model records with the configured-model schema; the retired seat/recordId form is replaced" },
   { flow: "model.show", kind: "sentence", rows: 15, because: "T-UI-19 restores owner model records with the configured-model schema; the retired seat/recordId form is replaced" },
   { flow: "model.edit", kind: "card", rows: 33, because: "T-UI-19 restores owner model records with the configured-model schema; the retired seat/recordId form is replaced" },
@@ -417,6 +421,10 @@ const HISTORICAL_CASES = [
     `triggers.register::known-flag-number:${field}`
   ]),
   "issues.list::known-flags:filter+repo",
+  "repo.choose::known-flag-number:repo",
+  "repo.choose::known-flag:repo",
+  "repo.create::known-flag-number:name",
+  "repo.create::known-flag:name",
   "model.assign::known-flags:seat+recordId",
   ...["seat", "recordId"].flatMap(field => [`model.assign::known-flag:${field}`, `model.assign::known-flag-number:${field}`])
 ].sort()
@@ -538,8 +546,6 @@ describe("the card every slash line opens, against main@origin", () => {
     /* 1483: the 29 `/theme` lines that name no mode read `dark-mode takes light or dark` (#3311). */
     /* 1359: the MVP cut (#3385) removed the desktop, forge, integration, model-lab and time-travel doors; their rows left with them. */
     /* 1361: malformed recovery rejection refuses two unknown box.open flags (099995ffa, #3318). */
-    const cutDiagnostics = Object.entries(baseline.rows)
-      .filter(([name, [index]]) => CUT_FLOW_NAMES.has(name.split(SEPARATOR)[0]!) && index !== -1).length
     const removedDeltas = new Map<string, number>()
     for (const move of CUT_DIAGNOSTIC_MOVES) {
       expect(CUT_FLOW_NAMES.has(move.flow)).toBe(true)
@@ -556,7 +562,6 @@ describe("the card every slash line opens, against main@origin", () => {
       "agent.session.stop": 1,
       "change.split": 1
     })
-    const removedDeclaredDiagnostics = [...removedDeltas.values()].reduce((sum, count) => sum + count, 0)
     const historicalDiagnostics = rows.filter(row => row.historical && row.error !== null)
     expect(historicalDiagnostics.map(key).sort()).toEqual([
       "issues.list::known-flags:filter+repo",
@@ -571,7 +576,7 @@ describe("the card every slash line opens, against main@origin", () => {
       // 29: the #3311 `/appearance.dark-mode` sentences counted in 1361 left with the rename to `/theme`.
       // The two post-capture flow.create grammar additions moved to flow.new;
       // its new-name boundaries are exercised independently of this old-name differential.
-      here: 1359 + 4 /* restored configured-model forms, T-UI-19 */ - 29 - cutDiagnostics - removedDeclaredDiagnostics + historicalDiagnostics.length
+      here: 894 // Exact merged-catalog census, including retained agent.list and issue.implement aliases.
     })
     /* Every slash line must be answerable without a dispatch exception, including scalar JSON. */
     expect(rows.filter((row) => row.threw !== null).map((row) => `/${row.flow} ${row.args ?? ""}`)).toEqual([])
