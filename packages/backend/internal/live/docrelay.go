@@ -87,9 +87,9 @@ func (r *DocRelay) Resolve(ctx context.Context, topic string, repository, member
 		if code != "" || !bytes.Equal(current, actor) || ctx.Err() != nil {
 			return machined.ErrUnauthorized
 		}
-		return connection.RequireReady(doc.Branch)
+		return nil
 	}
-	if err := ready(); err != nil {
+	if err := connection.RequireReady(doc.Branch); err != nil {
 		if errors.Is(err, machined.ErrNotReady) {
 			return Source{}, Unsupported
 		}
@@ -101,7 +101,14 @@ func (r *DocRelay) Resolve(ctx context.Context, topic string, repository, member
 			return nil, err
 		}
 		return r.Host.open(ctx, topic, func(peer context.Context) (DocumentStream, error) {
-			return rpc.OpenDocument(peer, doc.Path, []byte("host"))
+			current, transport := r.Connection(peer, doc.Branch)
+			if current == nil || transport == nil {
+				return nil, machined.ErrNotReady
+			}
+			if err := current.RequireReady(doc.Branch); err != nil {
+				return nil, err
+			}
+			return transport.OpenDocument(peer, doc.Path, []byte("host"))
 		}, actor)
 	}}}, ""
 }

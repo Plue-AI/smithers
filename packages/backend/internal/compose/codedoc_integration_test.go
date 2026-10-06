@@ -10,6 +10,7 @@ import (
 	"os"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -122,19 +123,25 @@ func peerFor(t *testing.T, f *docFixture) *codePeer {
 }
 func readSaved(t *testing.T, f *docFixture, want uint64) {
 	t.Helper()
-	_, raw := f.read(t)
-	var saved struct {
-		T   string
-		ID  uint32
-		SV  string
-		Seq uint64
+	for {
+		_, raw := f.read(t)
+		var saved struct {
+			T   string
+			ID  uint32
+			SV  string
+			Seq uint64
+		}
+		require.NoError(t, json.Unmarshal(raw, &saved))
+		require.Equal(t, "saved", saved.T)
+		require.Equal(t, uint32(7), saved.ID)
+		require.NotEmpty(t, saved.SV)
+		require.LessOrEqual(t, saved.Seq, want)
+		if saved.Seq == want {
+			return
+		}
 	}
-	require.NoError(t, json.Unmarshal(raw, &saved))
-	require.Equal(t, "saved", saved.T)
-	require.Equal(t, uint32(7), saved.ID)
-	require.Equal(t, want, saved.Seq)
-	require.NotEmpty(t, saved.SV)
 }
+
 func TestDocRelayWireContract(t *testing.T) {
 	f := newDocFixture(t)
 	p := peerFor(t, f)
@@ -400,5 +407,153 @@ func TestDocRelayRebuildBarrier(t *testing.T) {
 		t.Fatal("no rebuilt snapshot")
 	}
 	kind, _ := f.read(t)
+	require.Equal(t, websocket.MessageBinary, kind)
+}
+
+type codeRPC func(context.Context, string, []byte) (machined.DocumentStream, error)
+
+func (f codeRPC) OpenDocument(ctx context.Context, path string, actor []byte) (machined.DocumentStream, error) {
+	return f(ctx, path, actor)
+}
+
+type interruptedDocument struct {
+	machined.DocumentStream
+	link context.Context
+}
+
+func (s interruptedDocument) Receive(ctx context.Context) ([]byte, error) {
+	read, cancel := context.WithCancel(ctx)
+	defer cancel()
+	stop := context.AfterFunc(s.link, cancel)
+	defer stop()
+	return s.DocumentStream.Receive(read)
+}
+func (s interruptedDocument) Send(ctx context.Context, b []byte) error {
+	if s.link.Err() != nil {
+		return s.link.Err()
+	}
+	return s.DocumentStream.Send(ctx, b)
+}
+
+func TestDocRelayReconnectUnreceipted(t *testing.T) {
+	f := newDocFixture(t)
+	p := peerFor(t, f)
+	original := f.relay.Connection
+	link, drop := context.WithCancel(t.Context())
+	defer drop()
+	var offline atomic.Bool
+	var opens atomic.Int32
+	f.relay.Connection = func(ctx context.Context, branch string) (*machined.Connection, live.DocumentRPC) {
+		if offline.Load() {
+			return nil, nil
+		}
+		binding, rpc := original(ctx, branch)
+		return binding, codeRPC(func(ctx context.Context, path string, actor []byte) (machined.DocumentStream, error) {
+			number := opens.Add(1)
+			if number > 1 {
+				p.mu.Lock()
+				state, err := p.doc.State()
+				p.last = 0
+				p.mu.Unlock()
+				require.NoError(t, err)
+				f.daemon.Script = [][]byte{docGolden(t, "epoch"), append([]byte{3}, codeSync(1, state)...)}
+			}
+			stream, err := rpc.OpenDocument(ctx, path, actor)
+			if number == 1 && err == nil {
+				return interruptedDocument{stream, link}, nil
+			}
+			return stream, err
+		})
+	}
+	f.sub(t, "doc:code:branch-a:retry.ts")
+	client := f.assigned(t)
+	readSaved(t, f, 0) // Untouched text is saved only after the daemon says so.
+	offline.Store(true)
+	drop()
+	f.update(t, codeInsert(client, "offline"))
+	// Request the live host snapshot while no daemon link can be opened.
+	require.NoError(t, f.conn.Write(t.Context(), websocket.MessageBinary, []byte{1, 0, 0, 0, 7, 0, 1, 0}))
+	kind, raw := f.read(t)
+	require.Equal(t, websocket.MessageBinary, kind)
+	require.Contains(t, string(raw), "offline")
+	require.Equal(t, int32(1), opens.Load())
+	offline.Store(false)
+	kind, _ = f.read(t)
+	require.Equal(t, websocket.MessageBinary, kind) // peer resync delta
+	readSaved(t, f, 1)
+	require.Equal(t, int32(2), opens.Load())
+	p.mu.Lock()
+	text, err := p.doc.Text("content")
+	p.mu.Unlock()
+	require.NoError(t, err)
+	require.Equal(t, "offline", text)
+}
+
+func TestDocRelayAuthorizationAwareness(t *testing.T) {
+	f := newDocFixture(t)
+	observed := make(chan wire.Document, 1)
+	f.daemon.Reply = func(raw []byte) [][]byte {
+		msg, err := wire.DecodeDocumentV2(raw)
+		require.NoError(t, err)
+		if msg.Msg == wire.DocumentAwarenessInput {
+			observed <- msg
+		}
+		return nil
+	}
+	f.sub(t, "doc:code:branch-a:retry.ts")
+	client := f.assigned(t)
+	awareness := func(id uint32) []byte {
+		data := []byte(`{"actor":{"id":"Mallory"},"colour":"red","line":3,"permission":"admin"}`)
+		raw := binary.AppendUvarint([]byte{1}, uint64(id))
+		raw = append(raw, 1)
+		raw = binary.AppendUvarint(raw, uint64(len(data)))
+		return append(raw, data...)
+	}
+	require.NoError(t, f.conn.Write(t.Context(), websocket.MessageBinary, append([]byte{2, 0, 0, 0, 7}, awareness(client)...)))
+	select {
+	case msg := <-observed:
+		require.Equal(t, []byte("Be"), msg.Actor)
+		raw := msg.Data
+		for i := 0; i < 4; i++ {
+			_, n := binary.Uvarint(raw)
+			require.Positive(t, n)
+			raw = raw[n:]
+		}
+		var value map[string]any
+		require.NoError(t, json.Unmarshal(raw, &value))
+		require.Equal(t, "Be", value["actor"].(map[string]any)["id"])
+		require.NotEqual(t, "red", value["colour"])
+		require.Equal(t, float64(3), value["line"])
+		require.NotContains(t, value, "permission")
+	case <-time.After(time.Second):
+		t.Fatal("awareness not forwarded")
+	}
+	require.NoError(t, f.conn.Write(t.Context(), websocket.MessageBinary, append([]byte{2, 0, 0, 0, 7}, awareness(client^1)...)))
+	f.text(t, `{"t":"err","id":7,"code":"forbidden"}`)
+}
+
+func TestDocRelayEpochResync(t *testing.T) {
+	f := newDocFixture(t)
+	epoch := docGolden(t, "epoch")
+	epoch[1] = 0xff
+	f.daemon.Reply = func(raw []byte) [][]byte {
+		msg, err := wire.DecodeDocumentV2(raw)
+		require.NoError(t, err)
+		if msg.Seq > 0 {
+			return [][]byte{epoch}
+		}
+		return nil
+	}
+	f.sub(t, "doc:code:branch-a:retry.ts")
+	f.assigned(t)
+	f.text(t, `{"t":"gap","id":7}`)
+	require.Eventually(t, func() bool { _, _, n := f.daemon.Recorded(); return n == 1 }, time.Second, time.Millisecond)
+	f.daemon.Reply = nil
+	f.daemon.Script = [][]byte{epoch, {3, 1, 2, 0, 0}}
+	f.sub(t, "doc:code:branch-a:retry.ts")
+	kind, raw := f.read(t)
+	require.Equal(t, websocket.MessageText, kind)
+	require.Contains(t, string(raw), `"epoch":"ff112233445566778899aabbccddeeff"`)
+	kind, _ = f.read(t)
 	require.Equal(t, websocket.MessageBinary, kind)
 }

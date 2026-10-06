@@ -35,6 +35,7 @@ type codeDocument struct {
 	err         error
 	doc         *livedocument.Document
 	peer        DocumentStream
+	peerCancel  context.CancelFunc
 	epoch       [16]byte
 	initialized bool
 	subscribers map[*codeSubscription]bool
@@ -56,6 +57,7 @@ type codeSubscription struct {
 	actor  []byte
 	client uint32
 	seq    uint64
+	saved  uint64
 	frames chan []byte
 	done   chan struct{}
 	closed bool
@@ -98,22 +100,33 @@ func (h *CodeDocuments) open(ctx context.Context, key string, open func(context.
 		return nil, d.ctx.Err()
 	}
 	var client uint32
-	for client == 0 {
+	var author []byte
+	for attempts := 0; attempts < 32; attempts++ {
 		var b [4]byte
 		if _, err := rand.Read(b[:]); err != nil {
 			return nil, err
 		}
 		client = binary.BigEndian.Uint32(b[:])
-		for s := range d.subscribers {
-			if s.client == client {
-				client = 0
-				break
-			}
+		if client == 0 {
+			continue
 		}
+		delta, err := d.doc.SetAuthor(uint64(client), string(actor))
+		if errors.Is(err, livedocument.ErrRefused) {
+			continue
+		}
+		if err != nil {
+			return nil, err
+		}
+		// An existing author returns an empty update. Never reuse a retired tab's
+		// CRDT clock, even when the same person opens another tab in this epoch.
+		if len(delta) == 2 && delta[0] == 0 && delta[1] == 0 {
+			continue
+		}
+		author = delta
+		break
 	}
-	author, err := d.doc.SetAuthor(uint64(client), string(actor))
-	if err != nil {
-		return nil, err
+	if author == nil {
+		return nil, errors.New("client id allocation exhausted")
 	}
 	s := &codeSubscription{owner: d, actor: append([]byte(nil), actor...), client: client, frames: make(chan []byte, 256), done: make(chan struct{})}
 	d.subscribers[s] = true
@@ -133,6 +146,14 @@ func (h *CodeDocuments) open(ctx context.Context, key string, open func(context.
 func (d *codeDocument) run(open func(context.Context) (DocumentStream, error)) {
 	var err error
 	defer func() {
+		d.cancel()
+		// Remove before notifying subscribers so an immediate gap resubscribe
+		// cannot find the discarded epoch's cache.
+		d.host.mu.Lock()
+		if d.host.docs[d.key] == d {
+			delete(d.host.docs, d.key)
+		}
+		d.host.mu.Unlock()
 		d.mu.Lock()
 		if err == nil {
 			err = context.Canceled
@@ -142,6 +163,9 @@ func (d *codeDocument) run(open func(context.Context) (DocumentStream, error)) {
 			close(d.ready)
 		}
 		for s := range d.subscribers {
+			if errors.Is(err, errDocumentGap) {
+				s.err = errDocumentGap
+			}
 			s.closeLocked()
 		}
 		if d.doc != nil {
@@ -152,99 +176,164 @@ func (d *codeDocument) run(open func(context.Context) (DocumentStream, error)) {
 		if d.peer != nil {
 			_ = d.peer.Close()
 		}
-		d.host.mu.Lock()
-		if d.host.docs[d.key] == d {
-			delete(d.host.docs, d.key)
-		}
-		d.host.mu.Unlock()
 		close(d.done)
 	}()
-	startup, stop := context.WithTimeout(d.ctx, 5*time.Second)
-	defer stop()
-	// Keep the stream on the mirror lifetime, not the startup deadline.
-	startupLimit := time.AfterFunc(5*time.Second, d.cancel)
-	defer startupLimit.Stop()
-	d.peer, err = open(d.ctx)
-	if err != nil {
-		return
-	}
 	d.doc, err = d.host.Library.Open(livedocument.Code, nil)
 	if err != nil {
 		return
 	}
-	// Start from an empty vector. No browser receives an epoch or snapshot until
-	// the daemon has answered sync step 2 and its state has passed native validation.
-	err = d.send(startup, wire.Document{Msg: wire.DocumentInput, Actor: []byte("host"), Data: syncPayload(0, []byte{0})})
+	err = d.connect(open)
 	if err != nil {
 		return
 	}
-	hasEpoch := false
-	for !d.initialized {
-		var raw []byte
-		raw, err = d.peer.Receive(startup)
-		if err != nil {
+	for d.ctx.Err() == nil {
+		err = d.pump()
+		if d.ctx.Err() != nil {
 			return
 		}
-		var msg wire.Document
-		msg, err = wire.DecodeDocumentV2(raw)
-		if err != nil {
+		_ = d.peer.Close()
+		if errors.Is(err, errDocumentGap) {
 			return
+		}
+		// The mirror remains usable while the peer is down. Only the bounded
+		// unreceipted ledger is retried; no local event can claim a disk save.
+		for {
+			select {
+			case <-d.ctx.Done():
+				return
+			case <-time.After(time.Second):
+			}
+			err = d.connect(open)
+			if err == nil {
+				break
+			}
+			if d.peer != nil {
+				_ = d.peer.Close()
+			}
+			if errors.Is(err, errDocumentGap) {
+				return
+			}
+		}
+	}
+}
+
+func (d *codeDocument) connect(open func(context.Context) (DocumentStream, error)) error {
+	peerctx, cancel := context.WithCancel(d.ctx)
+	limit := time.AfterFunc(5*time.Second, cancel)
+	ok := false
+	defer func() {
+		limit.Stop()
+		if !ok {
+			cancel()
+		}
+	}()
+	peer, err := open(peerctx)
+	if err != nil {
+		return err
+	}
+	d.peer = peer
+	startup, stop := context.WithTimeout(peerctx, 5*time.Second)
+	defer stop()
+	d.mu.Lock()
+	sv, err := d.doc.Sync1()
+	d.mu.Unlock()
+	if err != nil {
+		return err
+	}
+	if err = d.send(startup, wire.Document{Msg: wire.DocumentInput, Actor: []byte("host"), Data: syncPayload(0, sv)}); err != nil {
+		return err
+	}
+	hasEpoch := false
+	for {
+		raw, err := peer.Receive(startup)
+		if err != nil {
+			return err
+		}
+		msg, err := wire.DecodeDocumentV2(raw)
+		if err != nil {
+			return err
 		}
 		if msg.Msg == wire.DocumentEpoch {
-			d.epoch = msg.Epoch
+			d.mu.Lock()
+			changed := d.initialized && d.epoch != msg.Epoch
+			if !changed {
+				d.epoch = msg.Epoch
+			}
+			d.mu.Unlock()
+			if changed {
+				return errDocumentGap
+			}
 			hasEpoch = true
 			continue
 		}
-		if msg.Msg != wire.DocumentSync || !hasEpoch {
-			err = errors.New("daemon snapshot required")
-			return
+		if !hasEpoch || msg.Msg != wire.DocumentSync {
+			return wire.ErrDocumentPayload
 		}
-		var kind uint64
-		var payload []byte
-		kind, payload, err = parseSync(msg.Data)
+		kind, payload, err := parseSync(msg.Data)
 		if err != nil {
-			return
+			return err
 		}
 		if kind == 0 {
-			var state []byte
-			state, err = d.doc.Sync2(payload)
-			if err == nil {
-				err = d.send(startup, wire.Document{Msg: wire.DocumentInput, Actor: []byte("host"), Data: syncPayload(1, state)})
+			d.mu.Lock()
+			state, e := d.doc.Sync2(payload)
+			d.mu.Unlock()
+			if e != nil {
+				return e
 			}
-			if err != nil {
-				return
+			if e = d.send(startup, wire.Document{Msg: wire.DocumentInput, Actor: []byte("host"), Data: syncPayload(1, state)}); e != nil {
+				return e
 			}
 			continue
 		}
 		if kind != 1 {
-			err = errors.New("daemon sync step 2 required")
-			return
-		}
-		_, err = d.doc.Peer(payload)
-		if err != nil {
-			return
+			return wire.ErrDocumentPayload
 		}
 		d.mu.Lock()
-		d.initialized = true
-		close(d.ready)
+		_, err = d.doc.Peer(payload)
+		if err == nil {
+			if !d.initialized {
+				d.initialized = true
+				close(d.ready)
+			} else {
+				d.broadcast(wire.Document{Msg: wire.DocumentSync, Data: syncPayload(2, payload)}, nil)
+				d.next = 0
+				d.sent = 0
+				for _, batch := range d.receipts {
+					d.next++
+					batch.streamSeq = d.next
+				}
+				d.pending = append([]*codeBatch(nil), d.receipts...)
+			}
+		}
 		d.mu.Unlock()
+		if err != nil {
+			return err
+		}
+		ok = true
+		// The successful stream keeps its context until mirror shutdown. A child
+		// context is explicitly released when its transport ends by pump.
+		d.peerCancel = cancel
+		return nil
 	}
-	startupLimit.Stop()
-	stop()
-	// Receive runs independently of the 50 ms send cadence. A stalled machine
-	// cannot hold up host fan-out. Cancellation closes both directions.
+}
+
+func (d *codeDocument) pump() error {
+	ctx, cancel := context.WithCancel(d.ctx)
+	defer cancel()
+	defer d.peerCancel()
+	peer := d.peer
 	incoming := make(chan []byte)
 	failed := make(chan error, 1)
 	go func() {
 		for {
-			b, e := d.peer.Receive(d.ctx)
+			b, e := peer.Receive(ctx)
 			if e != nil {
 				failed <- e
 				return
 			}
 			select {
 			case incoming <- b:
-			case <-d.ctx.Done():
+			case <-ctx.Done():
 				return
 			}
 		}
@@ -254,33 +343,31 @@ func (d *codeDocument) run(open func(context.Context) (DocumentStream, error)) {
 	for {
 		select {
 		case <-d.ctx.Done():
-			return
-		case err = <-failed:
-			return
+			return d.ctx.Err()
+		case err := <-failed:
+			return err
 		case raw := <-incoming:
 			d.mu.Lock()
-			err = d.receive(raw)
+			err := d.receive(raw)
 			d.mu.Unlock()
 			if err != nil {
-				return
+				return err
 			}
 		case <-ticker.C:
 			d.mu.Lock()
 			batch := d.pending
+			d.pending = nil
 			awareness := d.awareness
 			d.awareness = nil
-			d.pending = nil
 			d.mu.Unlock()
 			for sub, payload := range awareness {
-				err = d.send(d.ctx, wire.Document{Msg: wire.DocumentAwarenessInput, Actor: sub.actor, Data: payload})
-				if err != nil {
-					return
+				if err := d.send(ctx, wire.Document{Msg: wire.DocumentAwarenessInput, Actor: sub.actor, Data: payload}); err != nil {
+					return err
 				}
 			}
 			for _, b := range batch {
-				err = d.send(d.ctx, wire.Document{Msg: wire.DocumentInput, Actor: b.actor, Seq: b.streamSeq, Data: syncPayload(2, b.update)})
-				if err != nil {
-					return
+				if err := d.send(ctx, wire.Document{Msg: wire.DocumentInput, Actor: b.actor, Seq: b.streamSeq, Data: syncPayload(2, b.update)}); err != nil {
+					return err
 				}
 				d.mu.Lock()
 				d.sent = b.streamSeq
@@ -289,6 +376,7 @@ func (d *codeDocument) run(open func(context.Context) (DocumentStream, error)) {
 		}
 	}
 }
+
 func (d *codeDocument) send(ctx context.Context, msg wire.Document) error {
 	b, e := wire.EncodeDocumentV2(msg)
 	if e != nil {
@@ -332,15 +420,18 @@ func (d *codeDocument) receive(raw []byte) error {
 			}
 		}
 		d.receipts = d.receipts[n:]
-		for s, seq := range covered {
+		for s := range d.subscribers {
+			if covered[s] > s.saved {
+				s.saved = covered[s]
+			}
 			receipt := msg
-			receipt.ThroughSeq = seq
+			receipt.ThroughSeq = s.saved
 			s.push(receipt)
 		}
 	case wire.DocumentEpoch:
 		// A changed epoch invalidates the cache. Force a fresh daemon handshake;
 		// browsers retain unreceipted edits for explicit recovery.
-		return errors.New("daemon epoch changed")
+		return errDocumentGap
 	case wire.DocumentGone, wire.DocumentAwareness:
 		d.broadcast(msg, nil)
 	case 255:
@@ -450,9 +541,15 @@ func (s *codeSubscription) Send(ctx context.Context, raw []byte) error {
 		s.push(wire.Document{Msg: 255, Refusal: 11})
 		return nil
 	}
-	s.seq++
 	d.broadcast(wire.Document{Msg: wire.DocumentSync, Data: syncPayload(2, update)}, s)
-	d.queue(s, s.actor, sv, update)
+	if kind == 2 {
+		s.seq++
+		d.queue(s, s.actor, sv, update)
+	} else {
+		// Handshake sync step 2 is not a browser edit. Counting it would let
+		// its receipt acknowledge a later delete-only edit prematurely.
+		d.queue(nil, s.actor, sv, update)
+	}
 	// Bound unreceipted data even if the daemon never acknowledges saves.
 	total := 0
 	for _, b := range d.receipts {
