@@ -3,15 +3,15 @@ import { chromium, expect as browserExpect } from "@playwright/test"
 import { mkdtemp, rm, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
-import { createChatStub } from "./support/ChatStub"
-import { startLocalServer } from "../src/bun/server"
+import { createChatStub } from "../support/ChatStub"
+import { startLocalServer } from "../../src/bun/server"
 
 // A protocol peer supplies literal committed frames, not a replacement client.
 // Chromium runs the shipped LiveChannel through the shipped app's socket proxy.
 test("browser shares a socket and recovers gap and retention cursors through the app route", async () => {
   const dist = await mkdtemp(join(tmpdir(), "col02-browser-"))
   const entry = join(dist, "entry.ts")
-  await writeFile(entry, `import { LiveChannel } from ${JSON.stringify(join(import.meta.dirname, "../src/mainview/runtime/LiveChannel.ts"))};
+  await writeFile(entry, `import { LiveChannel } from ${JSON.stringify(join(import.meta.dirname, "../../src/mainview/runtime/LiveChannel.ts"))};
     const channel = new LiveChannel();
     const render = () => document.querySelector('output').textContent = JSON.stringify(channel.getSnapshot('home'));
     const release = channel.subscribe('home', render);
