@@ -5,7 +5,9 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"io/fs"
+	"path"
 	"strconv"
 	"strings"
 	"time"
@@ -42,14 +44,62 @@ func (r *Runtime) fileOperation(ctx context.Context, workspaceID, root string, s
 	case 3, 4, 5:
 		return nil, errors.New(message)
 	case 6:
-		// Only the existing compare-write protocol defines a stale result.
-		// Refuse malformed/mixed diagnostics instead of inventing a version.
-		digest, ok := strings.CutPrefix(strings.TrimSuffix(cliErr.stderr, "\n"), "smithers-guest: stale:")
-		if operation[0] == "compare-write" && ok && (digest == "absent" || sha256Pattern.MatchString(digest)) {
-			return nil, &workspaceapi.StaleFileError{CurrentDigest: digest}
+		if operation[0] == "compare-write" {
+			if stale := decodeMutationStale(cliErr.stderr); stale != nil {
+				return nil, stale
+			}
 		}
 	}
 	return nil, fmt.Errorf("%w: guest file operation: %v", ErrUnavailable, err)
+}
+
+// decodeMutationStale accepts one bounded, exact diagnostic. Paths may contain
+// colons and newlines, so the batch path and digest use JSON instead of splitting
+// a branch-controlled delimiter. No duplicate/unknown field can change identity.
+func decodeMutationStale(stderr string) *workspaceapi.StaleFileError {
+	if len(stderr) > 16<<10 {
+		return nil
+	}
+	body, ok := strings.CutPrefix(strings.TrimSuffix(stderr, "\n"), "smithers-guest: stale:")
+	if !ok {
+		return nil
+	}
+	decoder := json.NewDecoder(strings.NewReader(body))
+	start, err := decoder.Token()
+	if err != nil || start != json.Delim('{') {
+		return nil
+	}
+	values := make(map[string]string, 2)
+	for decoder.More() {
+		key, err := decoder.Token()
+		if err != nil {
+			return nil
+		}
+		name, ok := key.(string)
+		if !ok || (name != "path" && name != "current_digest") {
+			return nil
+		}
+		if _, exists := values[name]; exists {
+			return nil
+		}
+		var value string
+		if decoder.Decode(&value) != nil {
+			return nil
+		}
+		values[name] = value
+	}
+	end, err := decoder.Token()
+	if err != nil || end != json.Delim('}') || decoder.Decode(new(any)) != io.EOF || len(values) != 2 {
+		return nil
+	}
+	name, digest := values["path"], values["current_digest"]
+	if name == "" || len(name) > 4096 || name == "." || path.IsAbs(name) || path.Clean(name) != name || strings.HasPrefix(name, "../") || name == ".." || strings.ContainsRune(name, 0) {
+		return nil
+	}
+	if digest != "absent" && !sha256Pattern.MatchString(digest) {
+		return nil
+	}
+	return &workspaceapi.StaleFileError{Path: name, CurrentDigest: digest}
 }
 
 func (r *Runtime) ReadFile(ctx context.Context, workspaceID, path string) ([]byte, error) {

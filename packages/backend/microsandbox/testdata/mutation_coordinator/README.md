@@ -19,10 +19,17 @@ freezing before input completes or emitting before thaw would deadlock. Four
 more cases kill the coordinator during input, partial mutation, settled commit
 before thaw, and after thaw. The production `recover-files` entry creates a fresh
 coordinator, collects the orphan worker and recovers. An outside save after thaw
-remains unchanged. A sixth case exercises
+remains unchanged. The cancellation case exercises
 the existing `kill-all` entry point: it collects the mutation worker while
 preserving the pending fence and freeze for recovery. Control-failure diagnostics
 are expected for the intentionally killed processes.
+
+Two batch-envelope cases also run the real decoder/coordinator: exact binary
+replacement, move and permission preservation, followed by a later stale path
+that leaves all earlier files and directories unchanged. A third uses a long
+Unicode path and a 4 KiB stderr pipe whose reader is in the frozen writer tree.
+The stale diagnostic exceeds the pipe and must be emitted after thaw; otherwise
+the coordinator cannot settle.
 
 Root identity, account lookup, directory ownership and credential dropping are
 substituted for uid1000 delegation; the kernel uid stays ordinary. Non-dumpable

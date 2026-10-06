@@ -150,14 +150,16 @@ save after thaw survives.
 Root ownership and credential transitions are instrumented for ordinary-user
 delegation, so this does not qualify privileged journal isolation or machine reboot.
 
-The private single-file adapter now decodes the existing `fs compare-write`
-envelope after credential drop and submits it through the whole-batch coordinator.
-Root reads only the bounded size envelope. Rejected input settles an abort and
-cleans up the pending fence; a killed input worker still requires recovery.
-The host decodes only valid compare-write stale responses into the existing typed
-error. Malformed responses remain unavailable. Tests exercise exact binary bytes,
-absent creation, stale preservation, input rejection followed by retry, and the
-continued production gate.
+The private guest adapter now decodes the same `changes` envelope as the existing
+file-content route. Paths, bases, exact UTF-8/base64 bytes and explicit deletions
+are decoded only after credential drop, before writers freeze. Duplicate fields,
+identity/mode injection, malformed content and bounded-size violations refuse.
+The journal preserves the existing mode observed under exclusion, or uses 0644
+for a new file. Stale responses include the affected path and full digest as
+structured data, emitted only after durable abort and thaw so a frozen caller
+cannot block settlement on a full error pipe. The private host transport submits the whole batch once and
+checks every acknowledgment path/digest; malformed or incomplete replies cannot
+be reported as success. It does not implement the qualified runtime capability.
 
 The existing authenticated file-content PUT also accepts a bounded `changes`
 array: one full base per path, exact text/base64 bytes, explicit null deletions,
@@ -169,8 +171,8 @@ response identifies its refusing path and acknowledges no writes. The qualified
 runtime capability now requires whole-batch semantics and preservation of
 existing modes. Service/HTTP tests of this seam do not qualify the guest.
 
-There is still no CLI/runtime caller for new file mutations. Authenticated
-app/coding transport, the actual working-copy filesystem
+The production CLI/runtime gate still refuses new mutations. Coding run-bound
+authentication and transport, the actual working-copy filesystem
 and path-alias behavior, external-service/kernel-I/O exclusion, and fresh/retained
 security receipts remain outstanding. The old failing exchange candidate is
 retained only for diagnostic counterexamples until repair cutover; neither

@@ -30,6 +30,7 @@ reaches it only through `msb exec`. It holds no credentials. Subcommands:
                   report whether that planted file is current
 """
 
+import base64
 import ctypes
 import contextlib
 import fcntl
@@ -541,6 +542,13 @@ def mutation_cleanup(journal):
     os.fsync(journal)
 
 
+class MutationStale(SystemExit):
+    """Private settlement signal; no diagnostic is written under the freeze."""
+    def __init__(self, path, digest):
+        super().__init__(6)
+        self.path, self.digest = path, digest
+
+
 def coordinate_mutation(prepare, emit, limit, *, recover_only=False):
     """Coordinate recovery; new mutations remain private and gated off.
 
@@ -623,6 +631,9 @@ def coordinate_mutation(prepare, emit, limit, *, recover_only=False):
                         os.write(state_w, b"C" if phase == "committed" else b"A")
                         mutation_control(command_r, (b"T",))
                         try:
+                            if isinstance(error, MutationStale):
+                                fail(6, "stale:" + json.dumps({"path": error.path, "current_digest": error.digest},
+                                                            separators=(",", ":")))
                             if error is not None:
                                 raise error
                             if not recovery:
@@ -691,37 +702,87 @@ def coordinate_mutation(prepare, emit, limit, *, recover_only=False):
 
 
 def coordinated_compare_write(args):
-    """Adapter for the EXISTING fs compare-write envelope; still gated off.
+    """Decode the file-content batch in the dropped worker; still gated off.
 
-    Size is bounded host metadata. Root does not examine the relative path,
-    base digest, mode or payload. All request interpretation and output happen
-    in the dropped worker using the same batch/journal coordinator.
+    Root consumes only the host's bounded size envelope. Paths, bases, content
+    and encodings use the existing HTTP changes shape; no request chooses uid,
+    root, mode, journal or an executable. Input completes before writers freeze.
     """
-    if len(args) != 8 or not isinstance(args[7], str) or not re.fullmatch(r"[0-9]{1,8}", args[7]):
+    if len(args) != 5 or not isinstance(args[4], str) or not re.fullmatch(r"[0-9]{1,8}", args[4]):
         fail(3, "invalid compare-write size envelope")
-    limit = int(args[7])
+    limit = int(args[4])
     if not 0 < limit <= 64 << 20:
         fail(3, "invalid compare-write limit")
-    prepared = {}
 
     def prepare():
-        if args[:3] != ["fs", "agent", "compare-write"] or args[3] != "/workspace":
+        if args[:4] != ["fs", "agent", "compare-write", "/workspace"]:
             fail(3, "invalid compare-write envelope")
-        path, mode, base = args[4:7]
-        mutation_path(path)
-        if (not isinstance(mode, str) or not re.fullmatch(r"[0-7]{1,4}", mode)
-                or int(mode, 8) > 0o777):
-            fail(3, "invalid compare-write mode")
-        if base != "absent" and (not isinstance(base, str) or not re.fullmatch(r"[0-9a-f]{64}", base)):
-            fail(3, "invalid base_digest")
-        body = sys.stdin.buffer.read(limit + 1)
-        if len(body) > limit:
-            fail(4, "workspace file exceeds write limit")
-        prepared["path"] = path
-        return [(path, base, body, int(mode, 8))]
+        # JSON can expand a byte to six characters; separately bound path/key
+        # overhead. Neither parsing nor base64 decoding sees unbounded input.
+        wire_limit = min(64 << 20, 6 * limit + (2 << 20))
+        body = sys.stdin.buffer.read(wire_limit + 1)
+        if len(body) > wire_limit:
+            fail(4, "mutation request exceeds byte limit")
+
+        def unique(pairs):
+            result = {}
+            for key, value in pairs:
+                if key in result:
+                    fail(3, "duplicate mutation field")
+                result[key] = value
+            return result
+
+        try:
+            request = json.loads(body.decode("utf-8"), object_pairs_hook=unique,
+                                 parse_constant=lambda _: fail(3, "invalid mutation JSON"))
+        except (ValueError, UnicodeError, RecursionError):
+            fail(3, "invalid mutation JSON")
+        if (not isinstance(request, dict) or set(request) != {"changes"}
+                or not isinstance(request["changes"], list) or not 0 < len(request["changes"]) <= 256):
+            fail(3, "invalid mutation batch")
+        changes, paths, total = [], set(), 0
+        for change in request["changes"]:
+            if (not isinstance(change, dict) or not {"path", "base_digest", "content"} <= set(change)
+                    or set(change) - {"path", "base_digest", "content", "encoding"}):
+                fail(3, "invalid mutation fields")
+            path, base, content = change["path"], change["base_digest"], change["content"]
+            mutation_path(path)
+            if path in paths:
+                fail(3, "duplicate mutation path")
+            paths.add(path)
+            if base != "absent" and (not isinstance(base, str) or not re.fullmatch(r"[0-9a-f]{64}", base)):
+                fail(3, "invalid base_digest")
+            encoding = change.get("encoding", "utf-8")
+            if encoding not in ("utf-8", "base64") or (content is None and "encoding" in change):
+                fail(3, "invalid mutation encoding")
+            if content is not None:
+                if not isinstance(content, str):
+                    fail(3, "invalid mutation content")
+                try:
+                    if encoding == "base64":
+                        decoded = base64.b64decode(content, validate=True)
+                        if base64.b64encode(decoded).decode("ascii") != content:
+                            fail(3, "noncanonical mutation base64")
+                    else:
+                        decoded = content.encode("utf-8")
+                except (ValueError, UnicodeError):
+                    fail(3, "invalid mutation content")
+                content = decoded
+                total += len(content)
+                if total > limit:
+                    fail(4, "mutation batch exceeds byte limit")
+            # None mode means preserve the mode observed under writer exclusion.
+            changes.append((path, base, content, None))
+        for path in paths:
+            parts = path.split("/")
+            if any("/".join(parts[:i]) in paths for i in range(1, len(parts))):
+                fail(3, "mutation paths overlap")
+        return changes
 
     def emit(result):
-        sys.stdout.write(json.dumps({"digest": result[prepared["path"]]}, separators=(",", ":")))
+        sys.stdout.write(json.dumps({"changes": [{"path": path, "digest": digest}
+                                                for path, digest in result.items()]},
+                                   separators=(",", ":")))
 
     return coordinate_mutation(prepare, emit, limit)
 
@@ -854,7 +915,7 @@ def run_fs(args):
         fs_read(root, path, int(args[5]))
     elif operation == "write":
         fs_write(root, path, int(args[5], 8))
-    elif operation == "compare-write" and len(args) == 8:
+    elif operation == "compare-write":
         # No branch argument or environment can open this qualification gate.
         fail(125, "compare-write provider is not qualified")
     elif operation == "list":
@@ -1282,7 +1343,8 @@ def apply_mutation_batch(root, journal, changes, limit):
     these descriptor operations alone cannot stop outside writers. No production
     provider invokes this candidate until the coordinator and security gates pass.
     Changes are private normalized tuples (relative path, base, bytes-or-None,
-    mode), adapted from the existing file-tool contract rather than a new API.
+    mode-or-None), adapted from the existing file-tool contract rather than a new API.
+    None preserves existing permissions (0644 for a newly created file).
     """
     mutation_identity(journal, limit)
     if not isinstance(changes, list) or not 0 < len(changes) <= 256:
@@ -1297,7 +1359,7 @@ def apply_mutation_batch(root, journal, changes, limit):
         parts = mutation_path(path)
         if ((base != "absent" and (not isinstance(base, str) or not re.fullmatch(r"[0-9a-f]{64}", base)))
                 or (body is not None and not isinstance(body, bytes))
-                or type(mode) is not int or not 0 <= mode <= 0o777):
+                or (mode is not None and (type(mode) is not int or not 0 <= mode <= 0o777))):
             fail(3, "invalid mutation change")
         parent = mutation_parent(root, path)
         try:
@@ -1307,7 +1369,7 @@ def apply_mutation_batch(root, journal, changes, limit):
                 os.close(parent)
         current = mutation_digest(original)
         if current != base:
-            fail(6, "stale:" + current)
+            raise MutationStale(path, current)
         total_before += len(original) if original is not None else 0
         total_after += len(body) if body is not None else 0
         if max(total_before, total_after) > limit:
@@ -1362,7 +1424,8 @@ def apply_mutation_batch(root, journal, changes, limit):
                     if entry["base"] != "absent":
                         os.unlink(leaf, dir_fd=parent)
                 else:
-                    mutation_write_new(parent, temporary, body, mode)
+                    after_mode = mode if mode is not None else (entry["before_mode"] if entry["before_mode"] is not None else 0o644)
+                    mutation_write_new(parent, temporary, body, after_mode)
                     os.replace(temporary, leaf, src_dir_fd=parent, dst_dir_fd=parent)
                 os.fsync(parent)
             finally:

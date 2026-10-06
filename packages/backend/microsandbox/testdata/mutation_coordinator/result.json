@@ -1,12 +1,26 @@
 {
   "uid": 1000,
   "kernel": "7.0.0-38-generic",
-  "helper_sha256": "c9af1a9e3cfd44556d88d640de3f8512331eee742b972c44631e8aa2b0c4b37f",
+  "helper_sha256": "950321c306cab28fdab2ae1817da21f3070c0633a1208fc6070a8e0158658f9d",
   "results": [
     {
       "case": "streaming-caller",
       "input_bytes": 280000,
       "reply_bytes": 320000,
+      "passed": true
+    },
+    {
+      "case": "batch-envelope-exact-bytes-move-mode",
+      "passed": true
+    },
+    {
+      "case": "batch-envelope-later-stale",
+      "passed": true
+    },
+    {
+      "case": "stale-diagnostic-after-thaw",
+      "pipe_bytes": 4096,
+      "diagnostic_bytes": 11979,
       "passed": true
     },
     {
