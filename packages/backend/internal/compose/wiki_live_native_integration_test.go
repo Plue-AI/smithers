@@ -297,7 +297,9 @@ func TestWikiHostCommittedReceiptsAndRestart(t *testing.T) {
 	// belongs to this parent, so its normal test cleanup survives every kill.
 	startChild := func() (*exec.Cmd, string) {
 		address := filepath.Join(t.TempDir(), "address")
-		child := exec.Command(os.Args[0], "-test.run=^TestWikiHostCrashChild$", "-test.v")
+		// The killed child borrows this migrated database; short mode skips
+		// TestMain's otherwise uncollectable extra database, not this proof.
+		child := exec.Command(os.Args[0], "-test.run=^TestWikiHostCrashChild$", "-test.short", "-test.v")
 		child.Env = append(os.Environ(), "SMITHERS_WIKI_CRASH_DATABASE="+databaseURL, "SMITHERS_WIKI_CRASH_ADDRESS="+address)
 		var logs strings.Builder
 		child.Stdout = &logs

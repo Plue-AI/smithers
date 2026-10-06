@@ -1,35 +1,53 @@
 ---
 title: "Repository Wiki collaboration"
-description: "Real wiki reads and live document admission."
+description: "Shared wiki editing over the install live channel."
 ---
 
 ## Repository pages
 
-On a self-hosted install, `/wiki` reads the selected repository's navigation
-index and `/wiki.page <name>` opens its real page in an embedded card. Existing
-pages resolve by slug, title or Markdown path. An absent page uses the ordinary
-creation flow; a refused index read never creates a page. Outside installs the
-DesignWorld seed remains the fallback.
+On a self-hosted install, `/wiki` reads the repository navigation index and
+`/wiki.page <name>` opens a page in an embedded card. Pages resolve by slug,
+title or Markdown path. Creation, navigation and history retain their existing
+flows. Outside installs the DesignWorld seed remains the fallback.
 
-The document endpoint remains a snapshot reader for the page and stored Yjs
-state. Page history and revision content remain readable. Snapshot reads do
-not authorize editing or acknowledge pending updates.
+The document HTTP endpoint is a read-only bootstrap snapshot. `/updates` and
+`/stream` return 404; neither the POST save queue nor SSE synchronization exists.
 
 ## Live documents
 
-Wiki documents use the shared `LiveDocProvider` with `Y.Text("markdown")` on
-`doc:wiki:<page-id>`. The install currently refuses document subscriptions and
-binary frames: the Wiki authority and durable client binding are not composed. The editor
-stays read-only and the production `wiki.edit` dispatcher refuses new edits.
-There is no POST queue, SSE watcher or HTTP synchronization fallback.
+The existing `wiki.edit` flow splices Markdown into `Y.Text("markdown")` in
+`LiveDocProvider`. The tab's shared `/api/live` channel subscribes to
+`doc:wiki:<page-id>`. The host assigns the authenticated client id; native Yrs
+handles reject foreign new structs, client authors-map writes and invalid roots.
+Code and wiki use the same sync codec and host-stamped awareness.
 
-Previously persisted pending updates stay in `worldDocuments`, including
-unadmitted drafts. Refresh and reload merge them for reading without sending
-or acknowledging them. Account, branch and page identity remain fenced; a
-replacement page using the old slug cannot receive the original page's edits.
+Local edits persist in the existing `worldDocuments` collection before
+transmission. Unadmitted command drafts remain local. Pending admitted updates
+are retained until a `saved` receipt covers both their state vector and stream
+sequence; deletion-only edits therefore cannot be acknowledged by an older
+vector. Reconnect and reload request the retained client id and replay updates
+within the same page epoch. Account, branch and immutable page id fence edits.
 
-The remaining live integration needs authenticated assignment, sync step 1/2,
-author validation and revocation, batched PostgreSQL persistence at 2 seconds
-idle or 10 seconds of continuous edits, and commit-before-`saved` receipts.
-No live convergence or host-crash guarantee is claimed until that integration
-passes the real-install checks.
+The host batches persistence at 2 seconds idle or 10 seconds of continuous
+editing. Markdown, CRDT state, vector and revision history commit together.
+Only a successful database commit produces `saved`; failed writes retry and
+never claim durability. A PostgreSQL advisory lease prevents two host processes
+from independently owning the page. Stored CRDT state rebuilds the host after
+restart, preserving old revisions and causal history.
+
+## Verification
+
+`TestWikiHostCommittedReceiptsAndRestart` uses the composed install router,
+real PostgreSQL, native FFI and two authenticated members. It holds the page
+row lock across the idle deadline, checks commit-before-receipt, rejects a
+second page owner and reopens a receipted deletion after host recreation. It
+sends 100 updates/s through the ten-second cap, then kills actual host child
+processes before and after save receipts to verify retained replay and durable
+restart without a graceful flush.
+
+`C-J8-02.spec.ts` uses two Chromium contexts against that same composed router
+and native/database fixture through `/wiki.page` and the production edit flow.
+It keeps only unrelated shell providers as test fixtures, waits for the actual
+local commit before offline reload, reads the original revision and probes the
+retired routes with valid session/CSRF credentials. Reference-host
+latency and real-model decision-following receipts remain separate checks.

@@ -83,8 +83,10 @@ export class LiveChannel {
   private disposed = false
   constructor(private readonly options: LiveChannelOptions = {}) {}
   private readonly documents = new Map<string, Set<(event: DocumentEvent) => void>>()
+  private readonly documentClients = new Map<string, number>()
   private isDarkTopic(topic: string) { return topic.startsWith("doc:") && !this.options.documentFrames }
-  subscribeDocument(topic: string, receive: (event: DocumentEvent) => void) {
+  subscribeDocument(topic: string, receive: (event: DocumentEvent) => void, clientId?: number) {
+    if (clientId !== undefined) this.documentClients.set(topic, clientId)
     if (this.disposed) { receive({ kind: "refused" }); return { send() {}, release() {} } }
     try { parseLiveDocTopic(topic) } catch {
       receive({ kind: "refused" }); return { send() {}, release() {} }
@@ -111,7 +113,7 @@ export class LiveChannel {
       release: () => {
         if (released) return
         released = true; listeners.delete(receive)
-        if (!listeners.size) this.documents.delete(topic)
+        if (!listeners.size) { this.documents.delete(topic); this.documentClients.delete(topic) }
         unsubscribe()
       }
     }
@@ -151,7 +153,7 @@ export class LiveChannel {
   private send(frame: unknown) { this.socket?.send(JSON.stringify(frame)) }
   private sub(topic: string, entry: { id: number; snapshot: TopicSnapshot; awaitingSnapshot: boolean }) {
     if (this.isDarkTopic(topic)) return
-    this.send({ t: "sub", id: entry.id, topic, ...(entry.awaitingSnapshot || entry.snapshot.cursor === undefined ? {} : { cursor: entry.snapshot.cursor }) })
+    this.send({ t: "sub", id: entry.id, topic, ...(topic.startsWith("doc:") && this.documentClients.has(topic) ? { client_id: this.documentClients.get(topic) } : {}), ...(entry.awaitingSnapshot || entry.snapshot.cursor === undefined ? {} : { cursor: entry.snapshot.cursor }) })
   }
   private hasTransportTopics() { return [...this.topics.keys()].some(topic => !this.isDarkTopic(topic)) }
   private connect() {
@@ -180,7 +182,7 @@ export class LiveChannel {
           if (topic.startsWith("doc:")) {
             // The closed socket no longer holds branch authority. Retain pending
             // text, but stop local editing until a fresh authenticated assignment.
-            this.documentEvent(topic, { kind: "refused" })
+            this.documentEvent(topic, { kind: topic.startsWith("doc:wiki:") ? "offline" : "refused" })
           }
         }
         this.retry()
@@ -239,6 +241,11 @@ export class LiveChannel {
     if (frame.t !== "snap" && frame.t !== "delta") return
     if (!("data" in frame)) return
     if (!Number.isSafeInteger(frame.cursor) || (frame.cursor as number) < 0) return
+    if (topic.startsWith("doc:") && frame.t === "snap") {
+      const decoded = LiveDocReply.safeParse(frame)
+      if (!decoded.success || decoded.data.t !== "snap") return
+      this.documentClients.set(topic, decoded.data.data.client_id)
+    }
     const cursor = frame.cursor as number
     if (entry.snapshot.cursor !== undefined && cursor <= entry.snapshot.cursor && !(frame.t === "snap" && entry.awaitingSnapshot && cursor === entry.snapshot.cursor)) return
     if (frame.t === "delta" && entry.awaitingSnapshot) return
