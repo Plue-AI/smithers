@@ -72,8 +72,10 @@ func (s *WorkspaceService) authorizeBranchMachine(ctx context.Context, tx pgx.Tx
 	// The machine service owns every branch machine and is no member: it
 	// cannot sign in, so only the product's own steps (the box's head reporter
 	// and coding runtime) act as it.
-	if service, err := s.branchMachineOwned(ctx, actorID); err == nil && service {
-		return nil
+	if tx != nil {
+		if owner, err := db.New(tx).GetBranchMachineOwner(ctx); err == nil && owner == actorID {
+			return nil
+		}
 	}
 	p := s.branchMachineProviders
 	if err := p.Membership(ctx, tx, repositoryID, actorID); err != nil {
@@ -82,6 +84,16 @@ func (s *WorkspaceService) authorizeBranchMachine(ctx context.Context, tx pgx.Tx
 	if err := p.Authorize(ctx, tx, "branch.join", repositoryID, branch, actorID); err != nil {
 		return err
 	}
+	// A join by branch name resolves its existing lane before asking for
+	// lane authority. Only the stack's fresh lane creation uses an empty ID.
+	if workspaceID == "" && !StackLaneCreation(ctx) && tx != nil {
+		err := tx.QueryRow(ctx, `SELECT id::text FROM workspaces
+            WHERE repository_id=$1 AND target_bookmark=$2 AND deleted_at IS NULL`, repositoryID, branch).Scan(&workspaceID)
+		if err != nil && !errors.Is(err, pgx.ErrNoRows) {
+			return err
+		}
+	}
+
 	if err := p.LaneBinding(ctx, tx, repositoryID, branch, workspaceID); err != nil {
 		return err
 	}
@@ -302,10 +314,7 @@ func (s *WorkspaceService) withBranchMachineMutation(ctx context.Context, row db
 // transaction. The caller holds the collaborator's removal lock in this same
 // tx. Deleting the share waits for the existing mutation grant lock; durable
 // revocation and NOTIFY become visible only when the caller commits.
-func (s *WorkspaceService) RevokeBranchMachineShare(ctx context.Context, tx pgx.Tx, workspaceID string, memberID int64) error {
-	if err := s.requireBranchMachineProviders(); err != nil {
-		return err
-	}
+func RevokeBranchMachineShare(ctx context.Context, tx pgx.Tx, workspaceID string, memberID int64) error {
 	q := db.New(tx)
 	row, err := q.GetWorkspace(ctx, workspaceID)
 	if err != nil {

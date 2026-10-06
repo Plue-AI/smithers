@@ -20,6 +20,7 @@ import (
 	"github.com/smithersai/smithers/packages/backend/internal/identity"
 	"github.com/smithersai/smithers/packages/backend/internal/lfsauth"
 	"github.com/smithersai/smithers/packages/backend/internal/middleware"
+	pkgerrors "github.com/smithersai/smithers/packages/backend/internal/pkg/errors"
 	"github.com/smithersai/smithers/packages/backend/internal/routes"
 	"github.com/smithersai/smithers/packages/backend/internal/services"
 	"github.com/smithersai/smithers/packages/backend/internal/sse"
@@ -1945,6 +1946,21 @@ func buildRouter(
 					}
 					if extras.AdminSystemHealth != nil && (config.IsSingleOwner(cfg.Auth) || config.IsMultitenant(cfg.Auth)) {
 						r.With(readAdmin...).Get("/system/health", extras.AdminSystemHealth.SystemHealth)
+					}
+					if config.IsSingleOwner(cfg.Auth) && adminUserHandler != nil {
+						r.With(middleware.RequireAuth).Post("/users/{username}/erase", func(w http.ResponseWriter, r *http.Request) {
+							info := middleware.AuthInfoFromContext(r.Context())
+							role, err := services.InstallRoleOf(r.Context(), queries, info.User.ID)
+							if err != nil {
+								pkgerrors.WriteError(w, pkgerrors.New(pkgerrors.CodeServiceUnavailable, "members unavailable").WithCause(err))
+								return
+							}
+							if role != services.InstallOwner || info.IsTokenAuth || info.IsAgent() || info.SessionHash == "" {
+								pkgerrors.WriteError(w, pkgerrors.Forbidden("install owner session required"))
+								return
+							}
+							adminUserHandler.EraseUser(w, r)
+						})
 					}
 					if config.IsMultitenant(cfg.Auth) {
 						if extras.AdminGrant != nil {

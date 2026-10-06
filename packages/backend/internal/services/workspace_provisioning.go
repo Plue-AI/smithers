@@ -891,6 +891,9 @@ func (s *WorkspaceService) ForkWorkspace(ctx context.Context, input ForkWorkspac
 		return s.forkRuntimeWorkspace(ctx, input)
 	}
 	if s.sandbox == nil {
+		if err := s.requireBranchMachineProviders(); err != nil {
+			return WorkspaceResponse{}, err
+		}
 		return WorkspaceResponse{}, pkgerrors.Internal("sandbox provider unavailable")
 	}
 
