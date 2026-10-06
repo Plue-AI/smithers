@@ -10,7 +10,7 @@ import type { FlowEntry } from "../registry"
 import type { Grammar } from "../SlashPayload"
 import { designBranchFor, designSshLine } from "../../state/seams/DesignWorld/branch"
 
-/** `/branch.fork retry-webhooks`, or the JSON a card button sends. */
+/** A slash argument or the JSON a card button sends. */
 const field = (key: string): Grammar => args => {
   const text = args?.trim() ?? ""
   if (text.startsWith("{")) {
@@ -36,17 +36,17 @@ export const branchFlows = (actions: CommandActions): ReadonlyArray<FlowEntry> =
   }
   return [
     flow({ name: "branch.fork", summary: "Fork a scratch branch", args: "<branch>", hidden: true, discloseToAgent: true,
-      grammar: field("name"), input: Schema.Struct({ from: Schema.optional(Schema.String), name: Schema.optional(Schema.String), branch: Schema.optional(Schema.String) }),
-      handler: async ({ from, name, branch }) => {
+      grammar: field("from"), input: Schema.Struct({ from: Schema.NonEmptyString, name: Schema.optional(Schema.NonEmptyString) }),
+      handler: async ({ from, name }) => {
         // An install forks through the stack service: {from: "main" | "T2", name?}; a bare `/branch.fork T2` names the source.
         if (actions.forkBranch) {
-          const source = (from ?? branch ?? name ?? "").trim()
+          const source = from.trim()
           if (source === "") return "Fork main or a TODO such as T2"
-          return actions.forkBranch(from === undefined ? { from: source } : { from: source, ...(name ? { name } : {}) })
+          return actions.forkBranch({ from: source, ...(name ? { name } : {}) })
         }
         if (actions.design.enabled === false) return "Branch unavailable"
-        const forked = branchOf(branch ?? name ?? "")
-        if (forked === undefined) return `No branch ${branch ?? name ?? ""}`
+        const forked = branchOf(from)
+        if (forked === undefined) return `No branch ${from}`
         const result = design.fork(forked.id, design.viewer())
         if (!result.ok) return result.refusal
         return result.id === undefined ? undefined : openBranch(result.id)
