@@ -23,6 +23,14 @@ export const validMapping = (mapping) => {
   return mapping.host === 'CI' && targetLabel(mapping.target) && !('command' in mapping) && !('paths' in mapping)
 }
 
+/** Read the same landed declaration at recording and completed closure. */
+export const checkDeclaration = (root, landed, id) => {
+  const doc = gitRead(root, ['show', `${landed}:.specs/engineering/checks/${id}.md`])
+  const declaration = /^Automation: `([^`\n]+)`(?:[^\n]*?) · Runs in: ([^\n]+)$/m.exec(doc)
+  if (!declaration || /to write|unwritten|unavailable/i.test(declaration[0])) throw new Error('absent, unwritten or unparsable Automation')
+  return { automation: declaration[1], runsIn: declaration[2], layer: /\bLayer: ([a-z]+)\b/.exec(doc)?.[1] }
+}
+
 export const targetLabel = (label) => typeof label === 'string' && /^\/\/[A-Za-z0-9._/-]*:[A-Za-z0-9._-]+$/.test(label)
 
 /** The receipt command a mapping must reproduce: the CI receipt of its label. */
@@ -187,7 +195,16 @@ export const evidenceGate = ({ root, issue, landed, receipts }) => {
   } catch { return required.map(check => ({ check, reason: 'commit' })) }
   let mappings
   try { mappings = JSON.parse(gitRead(root, ['show', `${landed}:scripts/check-commands.json`])) } catch { return required.map(check => ({ check, reason: 'missing' })) }
-  const unavailable = required.filter(check => !validMapping(mappings.checks?.[check]) || mappings.checks[check].status)
+  const declarations = new Map()
+  const unavailable = required.filter(check => {
+    const mapping = mappings?.version === 1 && mappings.checks?.[check]
+    if (!validMapping(mapping) || mapping.status) return true
+    try {
+      const declaration = checkDeclaration(root, landed, check)
+      declarations.set(check, declaration)
+      return !declaration.layer || mapping.automation !== declaration.automation || mapping.runsIn !== declaration.runsIn
+    } catch { return true }
+  })
   if (unavailable.length) return unavailable.map(check => ({ check, reason: 'missing' }))
   if (!receipts.length) return required.map(check => ({ check, reason: 'missing' }))
   const failures = []; const covered = new Set()
@@ -200,7 +217,7 @@ export const evidenceGate = ({ root, issue, landed, receipts }) => {
       covered.add(check)
       if (!fullSha(r.commit) || r.commit !== landed) reason = 'commit'
       else if (!isDeepStrictEqual(r.command, expectedCommand(mappings.checks[check]))) reason = 'coverage'
-      else if (r.version !== 1 || !Number.isInteger(r.exit) || r.exit !== 0 || !iso(r.started) || !iso(r.ended) || r.started > r.ended || typeof r.layer !== 'string' || !r.layer) reason = 'failed'
+      else if (r.version !== 1 || !Number.isInteger(r.exit) || r.exit !== 0 || !iso(r.started) || !iso(r.ended) || r.started > r.ended || r.layer !== declarations.get(check).layer) reason = 'failed'
       else {
         try {
           const log = confined(root, join(resolve(root, path), '..', 'log.txt'))

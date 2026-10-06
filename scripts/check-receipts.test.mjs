@@ -6,7 +6,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { test } from 'node:test'
 import { expectedCommand, reverifyCi, unpackResults, validMapping, verifyCiRun, zeroTests } from './check-evidence.mjs'
-import { fixture } from './fixtures/check-receipts.mjs'
+import { fixture, zipFixture } from './fixtures/check-receipts.mjs'
 import { run as claimRun } from './issue-claim.mjs'
 
 const digest = (data) => `sha256:${createHash('sha256').update(data).digest('hex')}`
@@ -46,7 +46,7 @@ test('invalid evidence refuses every variant before any remote write', () => {
       refused(paths, 'commit', flags, null); refused(paths, 'commit', flags, 'abc'); refused(paths, 'commit', [...flags, '--note', f.sha], null)
     }
     f.put('second', 'x'); f.git('add','second'); f.git('commit','-m','not landed'); refused(paths,'commit',[],f.git('rev-parse','HEAD'))
-    for (const [field, value, reason] of [['version',2,'failed'],['exit',1,'failed'],['exit','0','failed'],['commit','0'.repeat(40),'commit'],['started','yesterday','failed'],['ended','2020-01-01T00:00:00.000Z','failed'],['layer',null,'failed'],['command',[],'coverage'],['log_digest','sha256:no','digest']]) {
+    for (const [field, value, reason] of [['version',2,'failed'],['exit',1,'failed'],['exit','0','failed'],['commit','0'.repeat(40),'commit'],['started','yesterday','failed'],['ended','2020-01-01T00:00:00.000Z','failed'],['layer',null,'failed'],['layer','unit','failed'],['command',[],'coverage'],['log_digest','sha256:no','digest']]) {
       f.put(paths[0], JSON.stringify({ ...JSON.parse(original), [field]: value })); refused(paths,reason); assert.equal(f.close(paths).out.checks[0].receipt, paths[0])
     }
     f.put(paths[0], original); f.put(join(paths[0],'..','log.txt'),'altered'); refused(paths,'digest')
@@ -377,15 +377,15 @@ test('runner requires --landed and refuses argv mappings even with CI=true', () 
 test('artifact unpacking is confined: symlinks, nested paths and oversize zips refuse with fixed reasons (3f, #3663)', () => {
   const dir = mkdtempSync(join(tmpdir(), 'unpack-'))
   try {
-    const zip = (name, setup, flags = []) => {
+    const zip = (name, setup) => {
       const work = join(dir, name); mkdirSync(work, { recursive: true }); setup(work)
-      spawnSync('/usr/bin/zip', ['-q', '-r', ...flags, join(dir, `${name}.zip`), '.'], { cwd: work })
+      zipFixture(work, join(dir, `${name}.zip`))
       return readFileSync(join(dir, `${name}.zip`))
     }
     const good = unpackResults(zip('good', (w) => writeFileSync(join(w, 'step.json'), '{"version":1,"results":[]}')))
     assert.deepEqual(good, { files: [{ name: 'step.json', text: '{"version":1,"results":[]}' }] })
     const secret = join(dir, 'secret.txt'); writeFileSync(secret, '-----BEGIN PRIVATE KEY-----')
-    const link = unpackResults(zip('link', (w) => symlinkSync(secret, join(w, 'x.json')), ['-y']))
+    const link = unpackResults(zip('link', (w) => symlinkSync(secret, join(w, 'x.json'))))
     assert.deepEqual(link, { reason: 'artifact_entry' })
     assert.deepEqual(unpackResults(zip('nested', (w) => { mkdirSync(join(w, 'sub')); writeFileSync(join(w, 'sub', 'x.json'), '{}') })), { reason: 'artifact_entry' })
     assert.deepEqual(unpackResults(zip('other', (w) => writeFileSync(join(w, 'x.txt'), '{}'))), { reason: 'artifact_entry' })
@@ -579,4 +579,28 @@ test('scripts/checks retains only the host sampler and no duplicate runner', () 
   const dir = new URL('./checks/', import.meta.url)
   assert.deepEqual(readdirSync(dir).sort(), ['host-process-sampler.mjs', 'host-process-sampler.test.mjs'])
   for (const name of readdirSync(dir)) assert.doesNotMatch(readFileSync(new URL(name, dir), 'utf8'), /check-run|check-evidence|check-commands|host-profile|ops-health-line/)
+})
+
+
+test('completed closure requires the landed declaration to match the approved mapping', () => {
+  for (const doc of [
+    'Layer: integration\nAutomation: `smthrs test //fixture:other` · Runs in: CI\n',
+    'Layer: integration\nAutomation: `smthrs test //fixture:canary` · Runs in: reference host\n',
+    'Layer: integration\nAutomation: `smthrs test //fixture:canary` (to write) · Runs in: CI\n',
+    'Layer: integration\nAutomation: unavailable · Runs in: CI\n',
+    'Automation: `smthrs test //fixture:canary` · Runs in: CI\n'
+  ]) {
+    const f = fixture()
+    try {
+      f.put('.specs/engineering/checks/C-FIX-01.md', doc); f.commit()
+      const paths = ['C-FIX-01', 'C-FIX-02'].map(f.evidence)
+      for (const flags of [[], ['--release'], ['--force'], ['--release', '--force']]) {
+        const out = f.close(paths, flags)
+        assert.equal(out.code, 2)
+        assert.equal(out.out.action, 'evidence-refused')
+        assert.deepEqual(out.out.checks, [{ check: 'C-FIX-01', reason: 'missing' }])
+        assert.equal(f.writes.length, 0)
+      }
+    } finally { f.cleanup() }
+  }
 })
