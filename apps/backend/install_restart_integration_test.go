@@ -198,10 +198,18 @@ func testInstallSetupCompiledHostRestart(t *testing.T, boundary string) {
 	// This is a recovery fixture, not a latency check; the shared host may
 	// be compiling other lanes while PostgreSQL resolves the status model.
 	var responses setupProcessBuffer
-	client := &http.Client{Jar: jar, Timeout: 15 * time.Second, Transport: setupTraceTransport{captured: &responses}}
+	var deliveredSecrets sync.Map
+	client := &http.Client{Jar: jar, Timeout: 15 * time.Second, Transport: setupTraceTransport{captured: &responses, secrets: &deliveredSecrets}}
 	var captures []*setupProcessCapture
 	secrets := []string{}
 	t.Cleanup(func() {
+		deliveredCount := 0
+		deliveredSecrets.Range(func(key, _ any) bool {
+			deliveredCount++
+			secrets = append(secrets, key.(string))
+			return true
+		})
+		require.GreaterOrEqual(t, deliveredCount, 3, "scan must include both minted authorities and the setup-session cookie")
 		for _, secret := range secrets {
 			require.False(t, strings.Contains(responses.String()+traces.String(), secret) || strings.Contains(responses.String()+traces.String(), url.QueryEscape(secret)), "credential leaked in HTTP response or exported trace")
 		}
@@ -249,6 +257,14 @@ func testInstallSetupCompiledHostRestart(t *testing.T, boundary string) {
 				}
 				if json.Unmarshal(lineBytes, &line) == nil && len(line.URLs) > 0 {
 					mintCount++
+					for _, raw := range line.URLs {
+						parsed, parseErr := url.Parse(raw)
+						if parseErr != nil || parsed.Query().Get("token") == "" {
+							capture.invalidMint.Store(true)
+							continue
+						}
+						deliveredSecrets.Store(parsed.Query().Get("token"), true)
+					}
 					if mintCount != 1 || !bytes.HasSuffix(lineBytes, []byte("\n")) {
 						capture.invalidMint.Store(true)
 					}
@@ -591,7 +607,7 @@ func testInstallSetupCompiledHostRestart(t *testing.T, boundary string) {
 		require.Error(t, command.Wait())
 		_, err = pool.Exec(ctx, `UPDATE install_settings SET value=jsonb_set(value,'{expires_at}',to_jsonb(now()-interval '1 second')) WHERE key='setup.step.app_manifest'`)
 		require.NoError(t, err)
-		start()
+		command, _ = start()
 		response, err = client.Get(origin + "/api/install")
 		require.NoError(t, err)
 		require.Equal(t, 200, response.StatusCode)
@@ -606,6 +622,8 @@ func testInstallSetupCompiledHostRestart(t *testing.T, boundary string) {
 		var attempts int
 		require.NoError(t, pool.QueryRow(ctx, `SELECT count(*) FROM github_app_manifest_states`).Scan(&attempts))
 		require.Equal(t, 1, attempts)
+		require.NoError(t, command.Process.Signal(syscall.SIGTERM))
+		require.NoError(t, command.Wait())
 		return
 	}
 	lock, err := pool.Acquire(ctx)
@@ -680,7 +698,7 @@ func testInstallSetupCompiledHostRestart(t *testing.T, boundary string) {
 	_, err = pool.Exec(ctx, `UPDATE install_settings SET value=jsonb_set(value,'{expires_at}',to_jsonb(clock_timestamp()-interval '1 second')) WHERE key='setup.step.address'`)
 	require.NoError(t, err)
 	// Restart with identical state root and database; cookie remains valid.
-	start()
+	command, _ = start()
 	// Recovery may finish before Retry. GET must eventually certify completion.
 	require.Eventually(t, func() bool {
 		response, err := client.Get(origin + "/api/install")
@@ -731,6 +749,8 @@ func testInstallSetupCompiledHostRestart(t *testing.T, boundary string) {
 	require.Equal(t, []string{"http://localhost:4000"}, recovered.Address.Origins)
 	require.NoError(t, pool.QueryRow(ctx, `SELECT count(*) FROM product_job_events WHERE operation_id=$1 AND event_type='operation.completed'`, operation).Scan(&completions))
 	require.Equal(t, 1, completions)
+	require.NoError(t, command.Process.Signal(syscall.SIGTERM))
+	require.NoError(t, command.Wait())
 }
 
 // Captures are read while the restarted process is serving. Synchronize writes
@@ -758,7 +778,10 @@ func (b *setupProcessBuffer) String() string {
 // Capture actual responses before callers consume them. Set-Cookie is the
 // intentional credential delivery surface; bodies and navigation headers must
 // never carry the setup token or setup-session credential.
-type setupTraceTransport struct{ captured *setupProcessBuffer }
+type setupTraceTransport struct {
+	captured *setupProcessBuffer
+	secrets  *sync.Map
+}
 
 func (transport setupTraceTransport) RoundTrip(request *http.Request) (*http.Response, error) {
 	response, err := http.DefaultTransport.RoundTrip(request)
@@ -771,6 +794,15 @@ func (transport setupTraceTransport) RoundTrip(request *http.Request) (*http.Res
 		return nil, err
 	}
 	response.Body = io.NopCloser(bytes.NewReader(body))
+	// Register every setup-session delivery, including recovery cases that
+	// never sign in. The cookie header is allowed; every other surface is scanned.
+	if transport.secrets != nil {
+		for _, cookie := range response.Cookies() {
+			if cookie.Name == "smithers_setup_session" && cookie.Value != "" {
+				transport.secrets.Store(cookie.Value, true)
+			}
+		}
+	}
 	transport.captured.Write(body)
 	for name, values := range response.Header {
 		if strings.EqualFold(name, "Set-Cookie") {

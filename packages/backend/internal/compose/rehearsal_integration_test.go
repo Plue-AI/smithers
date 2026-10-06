@@ -439,7 +439,7 @@ func (r *rehearsal) keyedAs(jar http.CookieJar, method, path, body, key string) 
 			req.Header.Set("X-CSRF-Token", cookie.Value)
 		}
 	}
-	client := &http.Client{Jar: jar, Timeout: r.client.Timeout, CheckRedirect: r.client.CheckRedirect}
+	client := &http.Client{Jar: jar, Timeout: r.client.Timeout, CheckRedirect: r.client.CheckRedirect, Transport: r.client.Transport}
 	resp, err := client.Do(req)
 	if err != nil {
 		r.actual = err.Error()
