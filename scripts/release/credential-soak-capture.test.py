@@ -11,7 +11,7 @@ spec.loader.exec_module(capture)
 
 class Redaction(unittest.TestCase):
     def test_only_fixed_reports_survive_terminal_boundary(self):
-        for data in ["call:claude:1:0:0", "call:codex:2:124:1", "version:gh:2:81:0", "begin:3:1001", "end:86403:0", "refused:4:2"]:
+        for data in ["call:claude:1:0:0", "call:codex:2:124:1", "version:gh:2:81:0", "begin:3:20001", "end:86403:0", "refused:4:2"]:
             self.assertEqual(capture.redacted_line("SOAK:nonce:" + data + "\r\n", "nonce"), data)
 
     def test_credentials_prompts_echo_and_escape_sequences_are_discarded(self):
@@ -38,7 +38,7 @@ class CaptureBoundary(unittest.TestCase):
             evidence = root / "evidence"
             evidence.mkdir()
             with patch.dict(os.environ, {"PATH": str(root) + os.pathsep + os.environ["PATH"]}):
-                result = capture.capture("smithers-mvp-canary/2026-10-05", "machine-a", 1001, evidence)
+                result = capture.capture("smithers-mvp-canary/2026-10-05", "machine-a", 20001, evidence)
             contents = "".join(file.read_text() for file in evidence.iterdir())
             self.assertNotIn("secret-output", contents)
             self.assertIn('"qualification": "not evaluated"', contents)
@@ -52,7 +52,7 @@ class CaptureBoundary(unittest.TestCase):
             self.assertEqual(self.run_terminal(records)[0], 1)
 
     def test_completed_capture_is_still_not_qualification(self):
-        result, contents = self.run_terminal(["begin:1:1001", "version:gh:2:81:0", "end:86401:0"])
+        result, contents = self.run_terminal(["begin:1:20001", "version:gh:2:81:0", "end:86401:0"])
         self.assertEqual(result, 0)
         self.assertIn("end:86401:0", contents)
 

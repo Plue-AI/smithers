@@ -12,6 +12,7 @@ repo=$1 machine=$2 guest_uid=$3 evidence=$4
 [[ "$repo" =~ ^smithers-mvp-canary/[0-9]{4}-[0-9]{2}-[0-9]{2}[a-zA-Z0-9_-]*$ ]] || exit 64
 [[ "$machine" =~ ^[a-zA-Z0-9_-]+$ ]] || exit 64
 [[ "$guest_uid" =~ ^[1-9][0-9]*$ ]] || exit 64
+[ "$guest_uid" -ge 20000 ] && [ "$guest_uid" -le 4294967294 ] || exit 64
 [ "${SMITHERS_SOAK_BEN_INDEPENDENT_LOGIN:-}" = 1 ] || {
   echo 'Ben must attest independent logins on this machine before the soak.' >&2; exit 78;
 }

@@ -3,8 +3,14 @@
 set +x
 set +e
 report() { printf '\nSOAK:%s:%s\n' "$nonce" "$1"; }
-if [ "$(id -u)" != "$expected_uid" ] || [ "$(id -u)" = 0 ]; then
+if [ "$(id -u)" != "$expected_uid" ] || [ "$(id -u)" -lt 20000 ]; then
   report "refused:$(date +%s):1"
+  exit 78
+fi
+# Subscription and gh logins must be the independently created home logins,
+# never injected provider or GitHub tokens from a shared environment.
+if [ -n "${ANTHROPIC_API_KEY:-}${OPENAI_API_KEY:-}${GH_TOKEN:-}${GITHUB_TOKEN:-}" ]; then
+  report "refused:$(date +%s):5"
   exit 78
 fi
 command -v timeout >/dev/null || { report "refused:$(date +%s):2"; exit 69; }
