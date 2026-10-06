@@ -413,6 +413,7 @@ function AppContent() {
       <MessageScrollerProvider key={transcriptKey} scrollAnchor="bottom"
             initialMessageId={initialReadId}
             readAnchor={{ messageId: latestReadId ?? "",
+              targetId: latestEntry?.kind === "card" && latestEntry.card.kind === "docs" ? latestEntry.card.payload.anchor : undefined,
               actor: latestEntry?.kind === "message" && latestEntry.message.role === "user" ? "user" : "output",
               requestId: readRequestRef.current,
               userMessageId: messages.filter(message => message.role === "user").at(-1)?.id,

@@ -210,7 +210,7 @@ export const absentDoor = (metadata: FlowMetadata, bootstrap: AppBootstrap): Mis
  * the model can neither invoke them nor promise them.
  */
 export const modelInvocable = (entry: FlowEntry): boolean =>
-  entry.metadata.agent === undefined ? entry.binding.descriptor.modelInvocable : entry.metadata.agent !== "never" && entry.metadata.visibility !== "hidden" &&
+  entry.metadata.agent === undefined ? entry.binding.descriptor.modelInvocable : entry.metadata.agent !== "never" && (entry.metadata.visibility !== "hidden" || entry.metadata.discloseToAgent === true) &&
     (entry.metadata.actors === undefined || entry.metadata.actors.includes("app_agent"))
 
 /**
@@ -538,7 +538,7 @@ export const viewerAdmitted = (state: CommandState, commands: ReadonlyArray<Cata
 /** Model discovery is explicit for internal controls; invocation authority is unchanged. */
 export const disclosedToAgent = (metadata: FlowMetadata): boolean =>
   metadata.agent !== "never" && (metadata.actors === undefined || metadata.actors.includes("app_agent")) &&
-  (metadata.visibility === undefined ? metadata.hidden !== true || metadata.discloseToAgent === true : metadata.visibility !== "hidden")
+  (metadata.visibility === undefined ? metadata.hidden !== true || metadata.discloseToAgent === true : metadata.visibility !== "hidden" || metadata.discloseToAgent === true)
 
 /** A needle matches a flow by name or summary, case-insensitively. */
 export const matches = (command: CatalogItem, needle: string): boolean => {

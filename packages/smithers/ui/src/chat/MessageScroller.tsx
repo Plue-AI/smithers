@@ -38,7 +38,7 @@ export type MessageScrollerProviderProps = {
   /** Saved-transcript restore: anchor this registered message on mount. */
   initialMessageId?: string;
   /** Read new output from its top when oversized; otherwise follow its bottom. */
-  readAnchor?: { messageId: string; actor?: "arrival" | "user" | "output"; userMessageId?: string; requestId?: number; version?: string | number };
+  readAnchor?: { targetId?: string; messageId: string; actor?: "arrival" | "user" | "output"; userMessageId?: string; requestId?: number; version?: string | number };
   bottomThreshold?: number;
   /** Previous-item peek (px) applied on jump/restore. */
   peekPx?: number;
@@ -462,8 +462,11 @@ function MessageScrollerProviderImpl({
     const el = itemsRef.current.get(read.id);
     if (!el) return;
     if (read.arrival && followingRef.current) actor = "arrival";
+    // An explicit in-card destination participates in the same viewport
+    // authority as reading a message, so later layout cannot re-pin its top.
+    const target = request.targetId ? [...el.querySelectorAll<HTMLElement>("[id]")].find(node => node.id === request.targetId) ?? el : el;
     const decision = decideTranscriptScroll({ following: followingRef.current }, viewport,
-      { top: itemTopWithinViewport(el), height: el.getBoundingClientRect().height }, actor);
+      { top: itemTopWithinViewport(target), height: target.getBoundingClientRect().height }, target !== el && (actor !== "output" || followingRef.current) ? "arrival" : actor);
     if (decision.top !== null) viewport.scrollTop = decision.top;
     setFollowing(decision.following);
     measure(viewport);
