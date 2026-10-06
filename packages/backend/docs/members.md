@@ -119,6 +119,12 @@ row; legacy repository collaborators may lack one, while owner rows are excluded
 Member-specific lookup or permission failures skip only that member, are logged
 and counted in `MemberRecheckFailures`, and let confirmed members proceed.
 
+After GitHub replies, applying the result locks the roster and re-reads the
+original row's current account binding. A first sign-in during the lookup is
+included in revocation; a removed or replaced row makes the old result a no-op.
+Removal's sign-in bar and a newly added membership cannot be changed by that
+old result.
+
 A permission-endpoint 404 confirms member loss only after resolving the
 expected account ID and proving that the same installation token lists the
 repository's numeric GitHub ID. A confirmed missing account also suspends.

@@ -44,22 +44,20 @@ func (m *Members) Recheck(ctx context.Context) (result error) {
 		return err
 	}
 	type row struct {
-		id        int64
-		githubID  *int64
-		login     string
-		user      *int64
-		suspended bool
-		role      string
-		resolved  bool
+		id       int64
+		githubID *int64
+		login    string
+		role     string
+		resolved bool
 	}
-	rows, err := m.Pool.Query(ctx, `SELECT c.id,c.github_id,c.user_id,c.suspended_at IS NOT NULL
+	rows, err := m.Pool.Query(ctx, `SELECT c.id,c.github_id
  FROM collaborators c CROSS JOIN self_host_owners o WHERE c.repository_id=$1 AND c.user_id IS DISTINCT FROM o.user_id ORDER BY c.id`, repo.ID)
 	if err != nil {
 		return err
 	}
 	members, err := pgx.CollectRows(rows, func(r pgx.CollectableRow) (row, error) {
 		var out row
-		err := r.Scan(&out.id, &out.githubID, &out.user, &out.suspended)
+		err := r.Scan(&out.id, &out.githubID)
 		return out, err
 	})
 	if err != nil {
@@ -94,24 +92,13 @@ func (m *Members) Recheck(ctx context.Context) (result error) {
 		if !member.resolved {
 			continue
 		}
-		if member.login != "" {
-			_, err = m.Pool.Exec(ctx, `UPDATE collaborators SET github_login=$2 WHERE id=$1 AND github_id=$3`, member.id, member.login, *member.githubID)
-			if err != nil {
-				return err
-			}
-		}
-		switch {
-		case member.role == "" && !member.suspended:
-			err = m.suspend(ctx, repo.ID, member.id, member.user)
-		case member.role != "" && member.suspended:
-			err = m.restore(ctx, member.id, member.user)
-		default:
-			continue
-		}
+		changed, err := m.applyMemberRecheck(ctx, repo.ID, member.id, *member.githubID, member.login, member.role == "")
 		if err != nil {
 			return err
 		}
-		slog.InfoContext(ctx, "members.recheck", "login", member.login, "suspended", member.role == "")
+		if changed {
+			slog.InfoContext(ctx, "members.recheck", "login", member.login, "suspended", member.role == "")
+		}
 	}
 	return errors.Join(failed...)
 }
@@ -146,39 +133,44 @@ func (m *Members) recordPermissionHealth(ctx context.Context, err error) error {
 	return q.UpsertInstallSetting(ctx, db.UpsertInstallSettingParams{Key: "github.permissions.health", Value: value})
 }
 
-// suspend marks the row and revokes the member's credentials in one
-// transaction, under the owner row lock every roster change takes.
-func (m *Members) suspend(ctx context.Context, repositoryID, id int64, user *int64) error {
+// applyMemberRecheck fences a remote permission result to the original roster
+// row and immutable GitHub account. The owner lock orders it with removal and
+// sign-in; the row lock also orders LinkGitHub's account binding. Read the local
+// user here, since a first sign-in may have completed during the GitHub request.
+func (m *Members) applyMemberRecheck(ctx context.Context, repositoryID, id, githubID int64, login string, suspend bool) (bool, error) {
 	tx, err := m.lockRoster(ctx)
 	if err != nil {
-		return err
+		return false, err
 	}
 	defer tx.Rollback(ctx)
-	if _, err = tx.Exec(ctx, `UPDATE collaborators SET suspended_at=now() WHERE id=$1 AND suspended_at IS NULL`, id); err != nil {
-		return err
+	var user *int64
+	var suspended bool
+	err = tx.QueryRow(ctx, `SELECT user_id,suspended_at IS NOT NULL FROM collaborators
+ WHERE id=$1 AND repository_id=$2 AND github_id=$3 FOR UPDATE`, id, repositoryID, githubID).Scan(&user, &suspended)
+	if errors.Is(err, pgx.ErrNoRows) {
+		// Removal or replacement won. Its credentials and sign-in bar belong
+		// to that newer decision, not this old permission read.
+		return false, nil
 	}
-	if user != nil {
-		if err = revokeMemberCredentials(ctx, tx, repositoryID, *user, 0); err != nil {
-			return err
-		}
-	}
-	return tx.Commit(ctx)
-}
-
-// restore clears a suspension and lifts the sign-in bar it set.
-func (m *Members) restore(ctx context.Context, id int64, user *int64) error {
-	tx, err := m.lockRoster(ctx)
 	if err != nil {
-		return err
+		return false, err
 	}
-	defer tx.Rollback(ctx)
-	if _, err = tx.Exec(ctx, `UPDATE collaborators SET suspended_at=NULL WHERE id=$1`, id); err != nil {
-		return err
+	if _, err = tx.Exec(ctx, `UPDATE collaborators SET
+ github_login=CASE WHEN $2='' THEN github_login ELSE $2 END,
+ suspended_at=CASE WHEN $3 THEN coalesce(suspended_at,now()) ELSE NULL END
+ WHERE id=$1`, id, login, suspend); err != nil {
+		return false, err
 	}
-	if user != nil {
-		if _, err = tx.Exec(ctx, `UPDATE users SET prohibit_login=false WHERE id=$1`, *user); err != nil {
-			return err
+	changed := suspended != suspend
+	if changed && user != nil {
+		if suspend {
+			err = revokeMemberCredentials(ctx, tx, repositoryID, *user, 0)
+		} else {
+			_, err = tx.Exec(ctx, `UPDATE users SET prohibit_login=false WHERE id=$1`, *user)
+		}
+		if err != nil {
+			return false, err
 		}
 	}
-	return tx.Commit(ctx)
+	return changed, tx.Commit(ctx)
 }
