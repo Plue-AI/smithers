@@ -68,6 +68,11 @@ test("/branch T2 mounts live facts and its Fork enters the production dispatcher
       requests.push(["GET", path, undefined])
       return Response.json({ name: "smithers/retry-webhooks", machine: { id: "b-live" } })
     }
+    if (path === "/api/branches/smithers%2Fretry-webhooks/files/retry.ts") {
+      requests.push(["GET", path, undefined])
+      return Response.json({ branch: "smithers/retry-webhooks", path: "retry.ts", language: "typescript", digest: "captured-digest",
+        content: { kind: "text", text: "retained bytes\n" }, mode: "read_only", diagnostics: [], authors: [], editors: [] })
+    }
     if (path === "/api/branches" && init?.method === "POST") {
       requests.push(["POST", path, JSON.parse(String(init.body))])
       return Response.json({ name: "scratch/ben/retry", kind: "scratch" }, { status: 201 })
@@ -78,6 +83,7 @@ test("/branch T2 mounts live facts and its Fork enters the production dispatcher
   const socket: LiveSocket = { readyState: 0, onopen: null, onclose: null, onmessage: null, send: frame => frames.push(JSON.parse(String(frame))), close() {} }
   const live = new LiveChannel({ socket: () => socket })
   const controller = createAppController(store, unavailableAgent, { fetchImpl: profile.fetchImpl, live,
+    branchOptions: { ready: () => true, scope: () => ({ branch: "smithers/retry-webhooks", member: "ben", revision: 1, sleeping: true, capturedHead: "captured-7" }) },
     bootstrap: { apiVersion: 1, host: "local", version: "test", buildSha: "test", capabilities: ["install"], authFlow: "redirect", sandbox: null } })
   const host = document.createElement("div"), root = createRoot(host)
   try {
@@ -91,7 +97,7 @@ test("/branch T2 mounts live facts and its Fork enters the production dispatcher
       const frame = frames.find(frame => (frame as { topic?: string }).topic === topic) as { id: number }
       await act(async () => socket.onmessage?.({ data: JSON.stringify({ t: "snap", id: frame.id, cursor: 1, data }) }))
     }
-    await snap("branch:b-live", { id: "b-live", name: "smithers/retry-webhooks", machine: { state: "asleep" }, item: { n: 2, title: "Retry webhooks", state: "working", place: 2 }, presence: [], terminals: [], ssh_line: "ssh -p 2222 retry-webhooks@localhost" })
+    await snap("branch:b-live", { id: "b-live", name: "smithers/retry-webhooks", machine: { state: "asleep" }, item: { n: 2, title: "Retry webhooks", state: "working", place: 2 }, presence: [{ actor: { kind: "person", login: "alice", name: "Alice", avatar_url: "https://example.test/alice.png", color_index: 1 }, where: { kind: "file", path: "retry.ts", line: 12 } }], terminals: [], ssh_line: "ssh -p 2222 retry-webhooks@localhost" })
     await snap("branch:b-live:activity", [])
     await snap("branch:b-live:files", [])
     expect(host.textContent).toContain("Asleep")
@@ -107,10 +113,17 @@ test("/branch T2 mounts live facts and its Fork enters the production dispatcher
     }
     expect(host.querySelector('[data-flow="box.resume"]')).toBeNull()
     await act(async () => {
-      (host.querySelector('[data-flow="branch.fork"]') as HTMLButtonElement).click()
+      (host.querySelector('.branch-location [data-flow="file"]') as HTMLButtonElement).click()
       for (let i = 0; i < 20 && requests.length < 3; i++) await new Promise(resolve => setTimeout(resolve, 5))
     })
-    expect(requests).toEqual([["GET", "/api/todos/2", undefined], ["GET", "/api/branches/smithers%2Fretry-webhooks", undefined], ["POST", "/api/branches", { from: "T2" }]])
+    const opened = [...store.collections.cards.values()].find(each => each.kind === "file")
+    expect(opened?.payload).toMatchObject({ path: "retry.ts", line: 12 })
+    expect(requests.at(-1)).toEqual(["GET", "/api/branches/smithers%2Fretry-webhooks/files/retry.ts", undefined])
+    await act(async () => {
+      (host.querySelector('[data-flow="branch.fork"]') as HTMLButtonElement).click()
+      for (let i = 0; i < 20 && requests.length < 4; i++) await new Promise(resolve => setTimeout(resolve, 5))
+    })
+    expect(requests).toEqual([["GET", "/api/todos/2", undefined], ["GET", "/api/branches/smithers%2Fretry-webhooks", undefined], ["GET", "/api/branches/smithers%2Fretry-webhooks/files/retry.ts", undefined], ["POST", "/api/branches", { from: "T2" }]])
     expect(controller.design.enabled).toBe(false)
   } finally { await act(async () => root.unmount()); await controller.dispose(); live.dispose() }
 })

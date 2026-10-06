@@ -47,6 +47,10 @@ export const branchActionDefinitions = (world: DesignWorldRows, branch: DesignBr
 export const liveBranchActionDefinitions = (model: BranchModel, providers: ReadonlySet<CatalogTag>): Definition[] => {
   const definitions: Definition[] = []
   const n = model.item?.n
+  definitions.push({ tag: "file", label: "Open", gesture: "file",
+    command_input: { path: "", branch: model.name },
+    resolve_input: input => ({ path: input.path ?? "", branch: model.name,
+      ...(input.line === undefined ? {} : { line: Number(input.line) }) }) })
   if (model.machine.state !== "closed" && n !== undefined) {
     const question = [...model.activity].reverse().find(entry => entry.kind === "question" || entry.kind === "answer")
     if (model.item?.state === "needs_you" && question?.kind === "question") definitions.push({
@@ -120,6 +124,7 @@ export const LiveBranchBody = ({ card, actions }: { readonly card: CardOf<"branc
   if (controller.design.enabled !== false && branch?.data === undefined
     && (branch?.error === undefined || branch.error === "unknown_topic" || branch.error === "unsupported")) return <DesignBranchBody card={card} actions={actions} />
   const providers = new Set<CatalogTag>()
+  if (controller.branchFiles?.available()) providers.add("file")
   if (controller.forkBranch) providers.add("branch.fork")
   if (typeof controller.answerTodo === "function") providers.add("todo.answer")
   if (typeof controller.steerTodo === "function") providers.add("todo.steer")

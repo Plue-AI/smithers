@@ -213,6 +213,17 @@ test("live presses refuse each missing provider and dispatch only the bound TODO
   expect(liveBranchActionDefinitions({ ...model, item: undefined, name: "scratch/ben/try" }, providers)).toEqual([])
 })
 
+test("live file gestures preserve branch and coordinates and refuse a missing file provider", () => {
+  const model = definitionsOf(make(), "b-retry").model
+  const { calls, dispatch } = recorder()
+  cardActions(dispatch, liveBranchActionDefinitions(model, new Set())).onAction("file", { path: "retry.ts", line: "12" })
+  expect(calls).toEqual([])
+  const bindings = cardActions(dispatch, liveBranchActionDefinitions(model, new Set(["file"])))
+  bindings.onAction("file", { path: "retry.ts", line: "12" })
+  bindings.onAction("file", { path: "deliver.ts" })
+  expect(calls).toEqual([["file", { path: "retry.ts", branch: model.name, line: 12 }], ["file", { path: "deliver.ts", branch: model.name }]])
+})
+
 test("opening a Branch announces its authorized scope while child topics are unresolved, and unmount releases it", async () => {
   const leases: unknown[] = [], released: unknown[] = []
   const live = { subscribe: () => () => {}, getSnapshot: () => undefined,
@@ -240,7 +251,7 @@ test("branch action copy passes the catalog text lint", async () => {
   if (!forked.ok || !forked.id) throw new Error("fork refused")
   for (const id of ["b-retry", "b-checkout", "b-stripe", forked.id]) {
     const { definitions, model } = definitionsOf(design, id)
-    const all = [...definitions, ...liveBranchActionDefinitions(model, new Set(["branch.fork", "todo.answer", "todo.steer"])), ...changeActionDefinitions(model)]
+    const all = [...definitions, ...liveBranchActionDefinitions(model, new Set(["branch.fork", "todo.answer", "todo.steer", "file"])), ...changeActionDefinitions(model)]
     // Item titles are user content; every emitted action label is product copy.
     const productActions = all.filter(action => !("gesture" in action) || action.gesture !== "item")
     for (const action of productActions) expect(lintText(action.label)).toEqual([])
