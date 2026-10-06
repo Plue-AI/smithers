@@ -113,7 +113,7 @@ func outboundResult(op MythicalOutboundOp, observed string, appliedClose bool) s
 // recoverOutbound runs within the existing claimed stack worker. Every repeat
 // is preceded by lookup, then current authority, then a committed unknown slot.
 // An uncertain slot survives errors, cancellation, Drop and missing providers.
-// A merge is decided after its lookup by recoverMerge, which never repeats one.
+// A merge is decided after lookup by recoverMerge; applied merges never repeat.
 func (st *mythicalItemStep) recoverOutbound(ctx context.Context, item db.MythicalItem) (*db.MythicalItem, error) {
 	op, err := decodeMythicalOutbound(item.PendingOp)
 	if err != nil {

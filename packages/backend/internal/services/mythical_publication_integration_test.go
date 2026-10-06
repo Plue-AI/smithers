@@ -585,6 +585,8 @@ func TestTodoPublicationUpdatesAcceptedBodyAndPlacementDraftThroughRecovery(t *t
 	// tree, so the original item's verified candidate still has main as base.
 	_, err = f.pool.Exec(ctx, `INSERT INTO mythical_items(repository_id,source,state,issue_title,checks) VALUES ($1,'todo','proposed','Waiting predecessor','{"branch":"smithers/waiting-predecessor"}')`, f.repoID)
 	require.NoError(t, err)
+	_, err = f.pool.Exec(ctx, `UPDATE mythical_items SET stack_position=NULL WHERE repository_id=$1`, f.repoID)
+	require.NoError(t, err)
 	_, err = f.pool.Exec(ctx, `UPDATE mythical_items SET stack_position=CASE WHEN id=$2 THEN 2 ELSE 1 END, state=CASE WHEN id=$2 THEN 'proposing' ELSE state END WHERE repository_id=$1`, f.repoID, first.ID)
 	require.NoError(t, err)
 	for range 5 {

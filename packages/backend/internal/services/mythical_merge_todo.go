@@ -44,6 +44,10 @@ type mythicalLand struct {
 	// Request is the Idempotency-Key of the press that recorded it.
 	Request string                `json:"request,omitempty"`
 	Refused *mythicalMergeRefusal `json:"refused,omitempty"`
+	// Unanswered allows one lookup-authorized recovery after the process
+	// dies between its claim and a returned request. Legacy approvals and
+	// returned delayed requests remain read-only; a recovery claim consumes it.
+	Unanswered bool `json:"unanswered_dispatch,omitempty"`
 }
 
 // mythicalMergeRequest is one accepted press's identity (§6.2.1), kept on
@@ -947,14 +951,10 @@ func mythicalMergeUnfinished() *TodoControlError {
 	return mythicalGitHubBlock("The merge did not complete within 10 minutes; press Merge again")
 }
 
-// recoverMerge is recoverOutbound for a merge (§10.6.2b, §12.4.1b), after
-// its lookup. A merge whose request was sent (the slot is unknown, recorded
-// by claimMerge before the request left) is never sent again, never ended
-// by mythicalMergeExpiry or by a refusal of its approver: only what GitHub
-// shows settles it (merged; closed; another head, which the sha-bound
-// request can no longer merge). A merge never sent is decided afresh,
-// bounded by mythicalMergeExpiry against the time now, prepared up to its
-// request, and claimed atomically with every fact it rests on.
+// recoverMerge reconciles the bound PR before dispatch. Confirmed merges
+// settle by reads. A new unanswered claim permits one recovery attempt under
+// fresh authority and readiness; a returned request or consumed recovery
+// remains read-only until GitHub establishes its outcome.
 func (st *mythicalItemStep) recoverMerge(ctx context.Context, item db.MythicalItem, op MythicalOutboundOp, observed string, lookup error) (*db.MythicalItem, error) {
 	p := st.s.outbound
 	sent := op.State == "unknown"
@@ -976,22 +976,34 @@ func (st *mythicalItemStep) recoverMerge(ctx context.Context, item db.MythicalIt
 	case sent && strings.HasPrefix(observed, mythicalMergeMoved):
 		return st.refuseMerge(ctx, item, op, mythicalMergeConflict("stale_head", "the pull request changed since you saw it"), false)
 	case sent:
-		// Still open at the reviewed head: the request may yet complete.
-		return &item, nil
+		land := mythicalChecksOf(item).Land
+		if land == nil || !land.Unanswered {
+			return &item, nil
+		}
 	}
-	op.State = "intended"
+	// A recovery refusal cannot recall an earlier possibly sent request.
+	// Preserve the slot/fence so a later confirmed merge can still settle.
+	refuse := func(err error) (*db.MythicalItem, error) {
+		if sent {
+			return nil, err
+		}
+		return st.refuseMerge(ctx, item, op, err, true)
+	}
 	if mythicalMergeExpired(item, st.s.now) {
-		return st.refuseMerge(ctx, item, op, mythicalMergeUnfinished(), true)
+		if sent {
+			return &item, nil
+		}
+		return refuse(mythicalMergeUnfinished())
 	}
 	if err := st.s.outboundReady(ctx, item, op.Kind); err != nil {
-		return st.refuseMerge(ctx, item, op, err, true)
+		return refuse(err)
 	}
 	if p.MergeDecision == nil {
 		return nil, errors.New("Waiting for merge readiness integration")
 	}
 	decided, err := p.MergeDecision(ctx, item, op)
 	if err != nil {
-		return st.refuseMerge(ctx, item, op, err, true)
+		return refuse(err)
 	}
 	if p.PrepareMerge == nil {
 		return nil, errors.New("Waiting for GitHub dispatch integration")
@@ -1003,14 +1015,24 @@ func (st *mythicalItemStep) recoverMerge(ctx context.Context, item db.MythicalIt
 	// send, so a failed lookup or mint leaves it never sent.
 	dispatch, err := p.PrepareMerge(st, ctx, item, op)
 	if err != nil {
-		return st.refuseMerge(ctx, item, op, err, true)
+		return refuse(err)
 	}
 	claimed, err := st.claimMerge(ctx, item, op, decided, dispatch.binding)
 	if err != nil {
-		return st.refuseMerge(ctx, item, op, err, true)
+		return refuse(err)
 	}
 	op.State = "unknown"
-	if err := dispatch.send(ctx, claimed); err != nil {
+	sendErr := dispatch.send(ctx, claimed)
+	// This receipt distinguishes a returned delayed request from a killed
+	// process. Commit it before another pass can consider recovery dispatch.
+	checks := mythicalChecksOf(claimed)
+	checks.Land.Unanswered = false
+	claimed.Checks = checks.encode()
+	claimed, err = st.q.SaveMythicalItemUnderLease(ctx, claimed, st.r.row.Claim)
+	if err != nil {
+		return nil, err
+	}
+	if err := sendErr; err != nil {
 		// Sent: only GitHub's definitive refusal ends the fence now;
 		// anything else is settled by lookup.
 		return st.refuseMerge(ctx, claimed, op, err, false)
@@ -1083,8 +1105,11 @@ func (st *mythicalItemStep) claimMerge(ctx context.Context, item db.MythicalItem
 		case now.Sub(decided.read) > mythicalMergeFactsBound:
 			return errMythicalMergeFactsAged
 		}
-		op.State = "unknown"
 		next := item
+		checks := mythicalChecksOf(next)
+		checks.Land.Unanswered = op.State != "unknown"
+		next.Checks = checks.encode()
+		op.State = "unknown"
 		next.PendingOp, _ = json.Marshal(op)
 		claimed, err = q.SaveMythicalItemUnderLease(ctx, next, st.r.row.Claim)
 		return err

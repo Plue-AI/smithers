@@ -2714,7 +2714,6 @@ func (st *mythicalItemStep) propose(ctx context.Context, item db.MythicalItem) (
 	if err := s.pin(ctx, r, commit); err != nil {
 		return mythicalInfraOutage(item, "github", err.Error(), st.now), nil
 	}
-	op := mythicalProposalOp{Branch: branch, Expected: item.PRHead, Head: commit}
 	pending, _ := json.Marshal(MythicalOutboundOp{Kind: "push", Target: branch, Desired: commit, Precondition: item.PRHead, State: "intended"})
 	next.PendingOp = pending
 	// The first intent records the slug branch: the TODO's GitHub identity
@@ -2726,27 +2725,32 @@ func (st *mythicalItemStep) propose(ctx context.Context, item db.MythicalItem) (
 	if err != nil {
 		return nil, err
 	}
-	next = saved
-	pending, _ = json.Marshal(MythicalOutboundOp{Kind: "push", Target: branch, Desired: commit, Precondition: item.PRHead, State: "unknown"})
-	next.PendingOp = pending
-	next, err = st.q.SaveMythicalItemUnderLease(ctx, next, r.row.Claim)
-	if err != nil {
-		return nil, err
+	// Fresh dispatch follows the same lookup/send/settle path as restart.
+	// A successful transport response alone never clears the durable slot.
+	sent, err := st.recoverOutbound(ctx, saved)
+	if err == nil && sent != nil && len(sent.PendingOp) > 0 {
+		sent, err = st.recoverOutbound(ctx, *sent)
 	}
-	if err := st.pushProposal(ctx, next, gh, op); err != nil {
+	if err != nil {
+		// Recovery may have committed the potentially-sent version before
+		// the error. Never project a retry using the earlier intended version.
+		latest, loadErr := st.q.GetMythicalItem(ctx, saved.ID)
+		if loadErr != nil {
+			return nil, loadErr
+		}
+		if latest.State == "cancelled" || latest.State == "dropped" {
+			return &latest, nil
+		}
 		var foreign *mythicalForeignHead
 		if errors.As(err, &foreign) {
-			return st.holdForeignHead(next, foreign), nil
+			return st.holdForeignHead(latest, foreign), nil
 		}
-		// The slot stays unknown: a response lost after GitHub applied the
-		// push is settled by lookup on the next pass, never by a second push.
-		return mythicalInfraOutage(next, "github", "the proposal push did not finish; retrying", st.now), nil
+		return mythicalInfraOutage(latest, "github", "the proposal push did not finish; retrying", st.now), nil
 	}
-	next.PRHead, next.PendingOp = commit, nil
-	next, err = st.q.SaveMythicalItemUnderLease(ctx, next, r.row.Claim)
-	if err != nil {
-		return nil, err
+	if sent == nil || len(sent.PendingOp) > 0 {
+		return sent, nil
 	}
+	next = *sent
 	return st.openPull(ctx, next, gh, branch)
 }
 
@@ -3143,19 +3147,22 @@ func (st *mythicalItemStep) openPull(ctx context.Context, item db.MythicalItem, 
 		if err != nil {
 			return nil, err
 		}
-		op.State = "unknown"
-		next.PendingOp, _ = json.Marshal(op)
-		next, err = st.q.SaveMythicalItemUnderLease(ctx, next, r.row.Claim)
+		// The first dispatch and a restarted dispatch use the same slot worker.
+		sent, err := st.recoverOutbound(ctx, next)
+		if err == nil && sent != nil && len(sent.PendingOp) > 0 {
+			sent, err = st.recoverOutbound(ctx, *sent)
+		}
 		if err != nil {
-			return nil, err
+			latest, loadErr := st.q.GetMythicalItem(ctx, next.ID)
+			if loadErr != nil {
+				return nil, loadErr
+			}
+			if latest.State == "cancelled" || latest.State == "dropped" {
+				return &latest, nil
+			}
+			return mythicalInfraOutage(latest, "github", "the pull request could not be opened: "+err.Error(), st.now), nil
 		}
-
-		if err := st.createPull(ctx, next, gh, branch); err != nil {
-			return mythicalInfraOutage(next, "github", "the pull request could not be opened: "+err.Error(), st.now), nil
-		}
-		// Even a successful response reconciles the durable slot. Projection
-		// must retain any Drop that committed while CreatePull was in flight.
-		return st.recoverOutbound(ctx, next)
+		return sent, nil
 	}
 	bound, err := st.bindPull(ctx, next, gh, branch, *pull)
 	if err != nil {
