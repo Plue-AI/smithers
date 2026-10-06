@@ -196,4 +196,65 @@ func TestExternalImportCommitReplay(t *testing.T) {
 	require.ErrorIs(t, err, machined.ErrUnauthorized)
 	require.NoError(t, pool.QueryRow(ctx, `SELECT count(*) FROM machine_event_receipts`).Scan(&receipts))
 	require.Equal(t, 2, receipts)
+	// Bookkeeping records commit their adapter state even with no visible draft.
+	bindingLive := true
+	sessionBinding.Live = bindingLive
+	adapter := &checkpointTestAdapter{}
+	writer.Normalize = nil
+	writer.Host = adapter
+	sessionBinding.Source = [16]byte{7}
+	record := wire.Transcript{Version: 1, Session: 1, Participant: participant, Source: sessionBinding.Source, Profile: "claude-code/2.1.0", Generation: 1, End: 16, Record: `{"type":"user"}`}
+	payload, err = wire.EncodeTranscript(record)
+	require.NoError(t, err)
+	event = machined.Event{Seq: 30, EventID: [16]byte{30}, Payload: payload}
+	_, err = ingestor.Commit(ctx, connection, branch.ID, event)
+	require.NoError(t, err)
+	require.Equal(t, 1, adapter.calls)
+	event.Seq++
+	event.EventID[0]++
+	_, err = ingestor.Commit(ctx, connection, branch.ID, event)
+	require.NoError(t, err)
+	require.Equal(t, 1, adapter.calls)
+	record.Start = 16
+	record.End = 32
+	payload, err = wire.EncodeTranscript(record)
+	require.NoError(t, err)
+	event.Payload = payload
+	event.Seq++
+	event.EventID[0]++
+	_, err = ingestor.Commit(ctx, connection, branch.ID, event)
+	require.NoError(t, err)
+	require.Equal(t, 2, adapter.calls)
+	require.JSONEq(t, `{"offset":16,"pending":"","calls":{"tool1":{"name":"read","input":{"path":"a.ts"}}}}`, string(adapter.previous))
+	require.NoError(t, pool.QueryRow(ctx, `SELECT count(*) FROM machine_event_receipts WHERE transcript_checkpoint IS NOT NULL`).Scan(&receipts))
+	require.Equal(t, 3, receipts)
+	require.NoError(t, pool.QueryRow(ctx, `SELECT count(*) FROM chat_turns`).Scan(&entries))
+	require.Equal(t, 1, entries)
+	// A changed record at an already committed range never re-normalizes.
+	record.Start = 0
+	record.End = 16
+	record.Record = `{"type":"edit"}`
+	payload, err = wire.EncodeTranscript(record)
+	require.NoError(t, err)
+	event.Payload = payload
+	event.Seq++
+	event.EventID[0]++
+	_, err = ingestor.Commit(ctx, connection, branch.ID, event)
+	require.ErrorIs(t, err, chat.ErrConflict)
+	require.Equal(t, 2, adapter.calls)
+
+}
+
+// Test-only adapter provider. Packaged HTTP tests exercise the real TS decoder;
+// this provider isolates the receipt transaction from parser semantics.
+type checkpointTestAdapter struct {
+	calls    int
+	previous json.RawMessage
+}
+
+func (a *checkpointTestAdapter) NormalizeExternalTranscript(_ context.Context, input chat.ExternalNormalizeInput) (chat.ExternalNormalized, error) {
+	a.calls++
+	a.previous = append(json.RawMessage(nil), input.State...)
+	state := json.RawMessage(fmt.Sprintf(`{"offset":%d,"pending":"","calls":{"tool1":{"name":"read","input":{"path":"a.ts"}}}}`, input.End))
+	return chat.ExternalNormalized{Entries: []chat.ExternalDraft{}, State: state}, nil
 }
