@@ -43,10 +43,22 @@ const contextInput = {
   tokenBudget: 24000,
   wikiOnly: false
 }
+const contextResponse = (input: typeof contextInput = contextInput): Response => {
+  const { recent, candidates, ...value } = input
+  const records = [
+    { type: "input", version: 1, value },
+    ...recent.map((value) => ({ type: "recent", value })),
+    ...candidates.map((value) => ({ type: "candidate", value })),
+    { type: "end", recent: recent.length, candidates: candidates.length }
+  ]
+  return new Response(records.map((record) => JSON.stringify(record) + "\n").join(""), {
+    headers: { "content-type": "application/x-ndjson" }
+  })
+}
 const sharedGrant = { ...grant, request: { ...grant.request, sharedConversation: true } }
 
 test.each([false, true])("resolves shared context from the authenticated host callback (%s)", async (global) => {
-  const fetchImpl = vi.fn<typeof fetch>().mockResolvedValue(Response.json(contextInput))
+  const fetchImpl = vi.fn<typeof fetch>().mockResolvedValue(contextResponse())
   vi.stubGlobal("fetch", fetchImpl)
   const resolved = await Effect.runPromise(
     environmentModelResolver({ binding, env, ...(global ? {} : { fetchImpl }) })(sharedGrant)
@@ -252,28 +264,32 @@ test("refuses a request model on another credential or origin than the configure
   expect(fetchImpl).not.toHaveBeenCalled()
 })
 
-test.each(["declared", "streamed"])("cancels oversized context bodies (%s)", async (mode) => {
-  const cancelled = vi.fn()
-  const response = new Response(
-    new ReadableStream({
-      start(controller) {
-        if (mode === "streamed") controller.enqueue(new Uint8Array(2097153))
-      },
-      cancel: cancelled
-    }),
-    mode === "declared" ? { headers: { "content-length": "2097153" } } : {}
-  )
-  const fetchImpl = vi.fn<typeof fetch>().mockResolvedValue(response)
-  await expect(Effect.runPromise(environmentModelResolver({ binding, env, fetchImpl })(sharedGrant))).rejects.toThrow()
-  expect(cancelled).toHaveBeenCalledTimes(1)
-})
+test.each(["declared", "streamed"])(
+  "cancels unsupported content type or oversized context records (%s)",
+  async (mode) => {
+    const cancelled = vi.fn()
+    const response = new Response(
+      new ReadableStream({
+        start(controller) {
+          if (mode === "streamed") controller.enqueue(new Uint8Array(2097153))
+        },
+        cancel: cancelled
+      }),
+      { headers: { "content-type": mode === "declared" ? "application/json" : "application/x-ndjson" } }
+    )
+    const fetchImpl = vi.fn<typeof fetch>().mockResolvedValue(response)
+    await expect(Effect.runPromise(environmentModelResolver({ binding, env, fetchImpl })(sharedGrant))).rejects
+      .toThrow()
+    expect(cancelled).toHaveBeenCalledTimes(1)
+  }
+)
 
 const fastBinding = { ...binding, baseUrl: "https://fast.test", modelId: "owner-fast", credential: "FAST" }
 const fastEnv = { ...env, SMITHERS_MODEL_KEY_FAST: "fast-key", SMITHERS_MODEL_KEY_FAST_ORIGIN: "https://fast.test" }
 
 test("the owner fast role uses its own credential and origin independently of the answer model", async () => {
   const fetchImpl = vi.fn<typeof fetch>().mockImplementation(async (url, init) => {
-    if (String(url) === "https://callback.test/internal/chat/context") return Response.json(contextInput)
+    if (String(url) === "https://callback.test/internal/chat/context") return contextResponse()
     expect(String(url)).toBe("https://fast.test/v1/chat/completions")
     expect(new Headers(init?.headers).get("authorization")).toBe("Bearer fast-key")
     expect(new TextDecoder().decode(init?.body as Uint8Array)).toContain("\"model\":\"owner-fast\"")
@@ -304,7 +320,7 @@ test.each([{}, null, { ...fastBinding, baseUrl: "https://attacker.test" }, {
 }])(
   "an invalid owner fast role refuses without falling back to an answer call",
   async (preflightBinding) => {
-    const fetchImpl = vi.fn<typeof fetch>().mockResolvedValue(Response.json(contextInput))
+    const fetchImpl = vi.fn<typeof fetch>().mockResolvedValue(contextResponse())
     await expect(
       Effect.runPromise(environmentModelResolver({ binding, preflightBinding, env: fastEnv, fetchImpl })(sharedGrant))
     ).rejects.toThrow("configured model route is unavailable")
@@ -320,7 +336,7 @@ test.each([undefined, " "])("fast credentials removed during resolution refuse (
       return ++reads === 1 ? "fast-key" : removed
     }
   }
-  const fetchImpl = vi.fn<typeof fetch>().mockResolvedValue(Response.json(contextInput))
+  const fetchImpl = vi.fn<typeof fetch>().mockResolvedValue(contextResponse())
   await expect(
     Effect.runPromise(
       environmentModelResolver({ binding, preflightBinding: fastBinding, env: changingEnv, fetchImpl })(sharedGrant)

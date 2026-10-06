@@ -159,6 +159,7 @@ func TestLocalSharedPreflightUsesFastRoleThenCodingFallback(t *testing.T) {
 		require.Equal(t, "Bearer app-private-key", recorded[1].key)
 		require.Contains(t, recorded[1].body, "export const retries = 3")
 		require.NotContains(t, recorded[1].body, "unselected-content-canary")
+		require.NotContains(t, recorded[1].body, "background-content-canary")
 		require.NotContains(t, recorded[1].body, "Public wiki context")
 		require.NotContains(t, recorded[1].body, "private-wiki-canary")
 		require.NotContains(t, recorded[1].body, "canary-C")
@@ -209,6 +210,7 @@ func TestLocalSharedPreflightUsesFastRoleThenCodingFallback(t *testing.T) {
 		require.NoError(t, json.Unmarshal(journal, &steps))
 		require.Len(t, steps, 2)
 		require.NotContains(t, string(journal), "canary-C")
+		require.Contains(t, string(journal), "background-2.txt", "large catalog must not be silently truncated")
 		require.NotContains(t, string(journal), "private-wiki-canary")
 		require.Equal(t, "started", steps[0].Phase)
 		require.Equal(t, "completed", steps[1].Phase)
@@ -359,6 +361,11 @@ func composedContextSources(t *testing.T, local *localChat) (services.InstallCon
 		require.NoError(t, os.MkdirAll(filepath.Dir(path), 0755))
 		require.NoError(t, os.WriteFile(path, []byte(content), 0644))
 	}
+	// The native catalog exceeds the former 2 MiB aggregate callback bound.
+	// Unrelated files remain candidates without entering the answer.
+	for i := 0; i < 3; i++ {
+		require.NoError(t, os.WriteFile(filepath.Join(repoPath, fmt.Sprintf("background-%d.txt", i)), []byte(strings.Repeat("background-content-canary ", 32000)), 0644))
+	}
 	outside := filepath.Join(t.TempDir(), "outside")
 	require.NoError(t, os.WriteFile(outside, []byte("outside-symlink-canary"), 0644))
 	require.NoError(t, os.Symlink(outside, filepath.Join(repoPath, "outside-link")))
@@ -394,7 +401,7 @@ func composedContextSources(t *testing.T, local *localChat) (services.InstallCon
 	require.NoError(t, err)
 	t.Cleanup(func() { require.NoError(t, content.Close()) })
 	wiki := services.NewWikiService(q, nil, services.WithWikiContent(content))
-	_, err = wiki.CreateWikiPage(local.ctx, local.actor, "chatowner", "chatrepo", services.CreateWikiPageInput{Title: "Public page", Slug: "public", Body: "Public wiki context"})
+	_, err = wiki.CreateWikiPage(local.ctx, local.actor, "chatowner", "chatrepo", services.CreateWikiPageInput{Title: "Webhooks", Slug: "public", Body: "Public wiki context"})
 	require.NoError(t, err)
 	private, err := services.WithWikiVisibility(local.ctx, "private")
 	require.NoError(t, err)

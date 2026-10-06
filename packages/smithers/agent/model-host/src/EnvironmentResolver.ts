@@ -7,12 +7,11 @@
 import * as RequestExecutor from "@smthrs/model/RequestExecutor"
 import { hostModelCredentials, modelCredentialEnvName, planModelBinding } from "@smthrs/rpc/ConfiguredModel"
 import type { ModelCredentialEnv } from "@smthrs/rpc/ConfiguredModel"
-import { ContextPreflightInputSchema } from "@smthrs/rpc/ContextPreflight"
 import { Effect, Layer, Redacted } from "effect"
 import * as FetchHttpClient from "effect/unstable/http/FetchHttpClient"
 import { toModel } from "./ConfiguredModelRoute.ts"
 import type { ModelTurnResolver } from "./HostServer.ts"
-import { boundedJson } from "./internal/BoundedJson.ts"
+import { readContextStream } from "./internal/ContextStream.ts"
 import { ResolveFailed } from "./ModelHostError.ts"
 
 /**
@@ -103,7 +102,7 @@ export const environmentModelResolver = (options: EnvironmentModelResolverOption
               await response.body?.cancel()
               throw new Error("context unavailable")
             }
-            return ContextPreflightInputSchema.parse(await boundedJson(response))
+            return readContextStream(response)
           },
           catch: () => new ResolveFailed({ message: "shared conversation context is unavailable" })
         })

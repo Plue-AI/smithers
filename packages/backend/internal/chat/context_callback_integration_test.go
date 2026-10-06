@@ -131,6 +131,46 @@ func (f contextFixture) context(t *testing.T, grant ProducerGrant, extra map[str
 	defer response.Body.Close()
 	raw, err := io.ReadAll(response.Body)
 	require.NoError(t, err)
+	if response.StatusCode != http.StatusOK {
+		return response.StatusCode, string(raw)
+	}
+	require.Equal(t, "application/x-ndjson", response.Header.Get("Content-Type"))
+	require.Equal(t, "no-store", response.Header.Get("Cache-Control"))
+	decoder := json.NewDecoder(strings.NewReader(string(raw)))
+	var header struct {
+		Type    string
+		Version int
+		Value   map[string]any
+	}
+	require.NoError(t, decoder.Decode(&header))
+	require.Equal(t, "input", header.Type)
+	require.Equal(t, 1, header.Version)
+	recent, candidates := []any{}, []any{}
+	for {
+		var record struct {
+			Type               string
+			Value              any
+			Recent, Candidates int
+		}
+		require.NoError(t, decoder.Decode(&record))
+		if record.Type == "end" {
+			require.Equal(t, len(recent), record.Recent)
+			require.Equal(t, len(candidates), record.Candidates)
+			require.ErrorIs(t, decoder.Decode(&record), io.EOF)
+			break
+		}
+		switch record.Type {
+		case "recent":
+			recent = append(recent, record.Value)
+		case "candidate":
+			candidates = append(candidates, record.Value)
+		default:
+			t.Fatalf("unexpected context record %q", record.Type)
+		}
+	}
+	header.Value["recent"], header.Value["candidates"] = recent, candidates
+	raw, err = json.Marshal(header.Value)
+	require.NoError(t, err)
 	return response.StatusCode, string(raw)
 }
 
@@ -156,9 +196,21 @@ func TestContextCallbackReadsOnlyAdmittedSharedHistory(t *testing.T) {
 }
 
 func TestContextCallbackRefusesUnavailableOrRevokedInputs(t *testing.T) {
-	for _, mode := range []string{"missing-provider", "missing-branch", "wrong-branch", "private-turn", "missing-credential", "revoked-before", "provider-error", "invalid-repository", "oversized-repository", "oversized-response", "cancel-during-read", "suspend-during-read", "revoke-during-read", "branch-revoked-during-read"} {
+	for _, mode := range []string{"missing-provider", "missing-branch", "wrong-branch", "private-turn", "missing-credential", "revoked-before", "provider-error", "invalid-repository", "oversized-repository", "oversized-response", "oversized-candidate", "oversized-entry", "null-candidates", "cancel-during-read", "suspend-during-read", "revoke-during-read", "branch-revoked-during-read"} {
 		t.Run(mode, func(t *testing.T) {
 			f := newContextFixture(t)
+			if mode == "oversized-entry" {
+				history := f.admit(t, "large-history", "Large answer", true, true, false)
+				for i := 0; i < 40; i++ {
+					frames := []json.RawMessage{frame(history.RunID, strings.Repeat("h", 60000))}
+					if i == 39 {
+						frames = append(frames, done(history.RunID, "stop"))
+					}
+					ack, err := f.handler.Store.Commit(t.Context(), CommitInput{TurnID: history.TurnID, Generation: history.Generation, Token: history.Token, Expected: history.Cursor, Frames: frames})
+					require.NoError(t, err)
+					history.Cursor = ack.Cursor
+				}
+			}
 			current := f.admit(t, "current", "Where do we retry?", mode != "private-turn", true, false)
 			want := 503
 			switch mode {
@@ -187,6 +239,11 @@ func TestContextCallbackRefusesUnavailableOrRevokedInputs(t *testing.T) {
 						return json.RawMessage(`{"state":"ready","candidates":[]}`), nil
 					case "oversized-repository":
 						return json.RawMessage(strings.Repeat(" ", maxPayloadBytes+1)), nil
+					case "null-candidates":
+						return json.RawMessage(`{"state":"ready","candidates":null,"tokenBudget":24000}`), nil
+					case "oversized-candidate":
+						raw, err := json.Marshal(map[string]any{"state": "ready", "candidates": []any{map[string]any{"item": map[string]string{"kind": "file", "label": "big", "ref": "big", "revision": "abc123"}, "text": strings.Repeat("x", maxPayloadBytes)}}, "tokenBudget": 24000})
+						return raw, err
 					case "oversized-response":
 						raw, err := json.Marshal(map[string]any{"state": strings.Repeat("a", maxPayloadBytes-70), "candidates": []any{}, "tokenBudget": 24000})
 						return raw, err

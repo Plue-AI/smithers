@@ -183,15 +183,46 @@ func (h *Handler) Context(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	var data map[string]json.RawMessage
-	if len(repository) > maxPayloadBytes || json.Unmarshal(repository, &data) != nil || len(data) != 3 || data["state"] == nil || data["candidates"] == nil || data["tokenBudget"] == nil {
+	if json.Unmarshal(repository, &data) != nil || len(data) != 3 || data["state"] == nil || data["candidates"] == nil || data["tokenBudget"] == nil {
 		writeProblem(w, http.StatusServiceUnavailable, "context_unavailable")
 		return
 	}
-	response, err := json.Marshal(map[string]any{"prompt": admitted.Messages[0].Content, "author": author, "branch": branch, "state": data["state"], "recent": recent, "candidates": data["candidates"], "tokenBudget": data["tokenBudget"], "wikiOnly": false})
-	if err != nil || len(response)+1 > maxPayloadBytes {
+	var candidates []json.RawMessage
+	if json.Unmarshal(data["candidates"], &candidates) != nil || candidates == nil {
 		writeProblem(w, http.StatusServiceUnavailable, "context_unavailable")
 		return
 	}
+	// Each record keeps the existing callback byte bound. The catalog itself
+	// has no transport-imposed candidate cap; selection stays in TypeScript.
+	records := make([][]byte, 0, len(recent)+len(candidates)+2)
+	appendRecord := func(value any) bool {
+		raw, e := json.Marshal(value)
+		if e != nil || len(raw)+1 > maxPayloadBytes {
+			return false
+		}
+		records = append(records, append(raw, '\n'))
+		return true
+	}
+	if !appendRecord(map[string]any{"type": "input", "version": 1, "value": map[string]any{
+		"prompt": admitted.Messages[0].Content, "author": author, "branch": branch,
+		"state": data["state"], "tokenBudget": data["tokenBudget"], "wikiOnly": false,
+	}}) {
+		writeProblem(w, http.StatusServiceUnavailable, "context_unavailable")
+		return
+	}
+	for _, entry := range recent {
+		if !appendRecord(map[string]any{"type": "recent", "value": entry}) {
+			writeProblem(w, http.StatusServiceUnavailable, "context_unavailable")
+			return
+		}
+	}
+	for _, candidate := range candidates {
+		if !appendRecord(map[string]any{"type": "candidate", "value": candidate}) {
+			writeProblem(w, http.StatusServiceUnavailable, "context_unavailable")
+			return
+		}
+	}
+	_ = appendRecord(map[string]any{"type": "end", "recent": len(recent), "candidates": len(candidates)})
 	// Revalidate after slow source reads so a revoked/cancelled producer cannot
 	// receive the captured conversation or repository bytes.
 	if _, ok = h.liveProducer(w, r, request.TurnID, request.Generation); !ok {
@@ -205,5 +236,12 @@ func (h *Handler) Context(w http.ResponseWriter, r *http.Request) {
 		writeProblem(w, http.StatusForbidden, "forbidden")
 		return
 	}
-	writeJSON(w, http.StatusOK, json.RawMessage(response))
+	w.Header().Set("Content-Type", "application/x-ndjson")
+	w.Header().Set("Cache-Control", "no-store")
+	w.WriteHeader(http.StatusOK)
+	for _, record := range records {
+		if _, err := w.Write(record); err != nil {
+			return
+		}
+	}
 }
