@@ -186,7 +186,7 @@ export interface CardCommandInput {
   readonly "todo": { readonly n: number }
   readonly "todo.answer": { readonly n: number; readonly answer: string; readonly wait?: string }
   readonly "todo.steer": { readonly n: number; readonly text: string }
-  readonly "todo.amend": { readonly n: number; readonly text: string }
+  readonly "todo.amend": { readonly n: number; readonly text: string; readonly acceptance?: readonly string[] }
   readonly "todo.stop": { readonly n: number }
   readonly "todo.resume": { readonly n: number }
   readonly "todo.retry": { readonly n: number }
@@ -210,7 +210,7 @@ export interface CardCommandInput {
   readonly "issue.comment": { readonly number: number; readonly body: string }
   readonly "wiki": undefined
   readonly "wiki.page": { readonly name: string }
-  readonly "wiki.save": { readonly name: string }
+  readonly "wiki.save": { readonly name?: string; readonly text?: string }
   readonly "flows": undefined
   readonly "flow": { readonly name: string }
   readonly "flow.edit": { readonly name: string }
@@ -253,6 +253,7 @@ export interface CardCommandInput {
   readonly "learning.dismiss": { readonly id: string }
   readonly "terminal.watch": { readonly id: string }
   readonly "notifications.allow": undefined
+  readonly "image.add": { readonly name: string }
   readonly "todo.takeover": { readonly n: number }
   readonly "merge.confirm": { readonly n: number; readonly revision: string }
   readonly "order.ok": { readonly n: number }

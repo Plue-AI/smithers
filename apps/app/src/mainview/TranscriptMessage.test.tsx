@@ -5,7 +5,7 @@ import { createRoot, type Root } from "react-dom/client"
 import { ControllerTestProvider } from "./ControllerContext"
 import { createAppController, type AppController } from "./state/AppController"
 import { createAppStore } from "./state/AppStore"
-import { memoryStorage, silentAgent } from "./state/TestFixtures"
+import { memoryStorage, silentAgent, waitFor } from "./state/TestFixtures"
 import { TranscriptMessage } from "./TranscriptMessage"
 
 GlobalRegistrator.register()
@@ -142,5 +142,25 @@ test("an older confirmation timer cannot clear a newer confirmation", async () =
     expect(button.getAttribute("aria-label")).toBe("Copy message")
   } finally {
     window.setTimeout = originalSetTimeout
+  }
+})
+
+test("an answer offers Make TODO and Save to wiki through the shared flows", async () => {
+  const h = await mount()
+  const make = document.querySelector<HTMLButtonElement>('[data-flow="todo.new"]')!
+  const save = document.querySelector<HTMLButtonElement>('[data-flow="wiki.save"]')!
+  expect(make.textContent).toBe("Make TODO")
+  expect(save.textContent).toBe("Save to wiki")
+  act(() => make.click())
+  await settle()
+  await waitFor(() => [...h.store.collections.cards.values()].some(card => card.kind === "draft" && card.payload.prompt === "A message to copy"))
+  act(() => save.click())
+  await settle()
+  await waitFor(() => [...h.store.collections.cards.values()].some(card => card.kind === "flow-form"))
+  const form = [...h.store.collections.cards.values()].find(card => card.kind === "flow-form")!
+  expect(form.kind).toBe("flow-form")
+  if (form.kind === "flow-form") {
+    expect(form.payload.given.text).toBe("A message to copy")
+    expect(form.payload.fields.map(field => field.name)).toEqual(["name"])
   }
 })

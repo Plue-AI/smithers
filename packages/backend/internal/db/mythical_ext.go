@@ -742,7 +742,7 @@ func (q *Queries) GetMythicalRequest(ctx context.Context, repositoryID int64, cr
 		  OR checks->'mergeRequests' @> jsonb_build_array(jsonb_build_object('session', $2::text, 'request', $3::text))
 		  OR checks->'steers' @> jsonb_build_array(jsonb_build_object('credential', $2::text, 'request', $3::text))
 		  OR EXISTS (SELECT 1 FROM product_job_requests r
-		    WHERE r.operation IN ('todo.retried', 'todo.dropped', 'todo.moved')
+		    WHERE r.operation IN ('todo.retried', 'todo.dropped', 'todo.moved', 'todo.owner_changed')
 		    AND r.payload->>'item'=mythical_items.id::text
 		    AND r.authorization_context->>'credential'=$2 AND r.authorization_context->>'request'=$3))
 		ORDER BY id LIMIT 1`, repositoryID, credential, request))

@@ -58,9 +58,9 @@ C-UI-12 Members (T-UI-09): [install roster and keyboard Add/Role/Remove](C-UI-12
 | C-J11-02 | [C-J11-02.spec.ts](C-J11-02.spec.ts) | fixme-before-implementation | T-APP-05, T-FLW-04, T-FLW-05, T-FLW-07 |
 | C-J11-03 | [C-J11-03.spec.ts](C-J11-03.spec.ts) | fixme-before-implementation | T-FLW-08 |
 | C-J11-04 | [C-J11-04.spec.ts](C-J11-04.spec.ts) | fixme-before-implementation | T-FLW-07, T-REL-02 |
-| C-APP-01 | [C-APP-01.spec.ts](C-APP-01.spec.ts) | fixme-before-implementation | T-APP-02 |
-| C-APP-02 | [C-APP-02.spec.ts](C-APP-02.spec.ts) | fixme-before-implementation | T-APP-02 |
-| C-APP-03 | [C-APP-03.spec.ts](C-APP-03.spec.ts) | fixme-before-implementation | T-APP-02, T-APP-03 |
+| C-APP-01 | [C-APP-01.spec.ts](C-APP-01.spec.ts) | browser-pass (Take over; PostgreSQL role/idempotency receipt; live toast qualification pending) | T-APP-02 |
+| C-APP-02 | [C-APP-02.spec.ts](C-APP-02.spec.ts) | browser-pass (Edit, deduplication, reload, person Drop confirm; planner/multiplayer pending) | T-APP-02 |
+| C-APP-03 | [C-APP-03.spec.ts](C-APP-03.spec.ts) | browser-pass (failure/slash Draft, main recipe, reload; Settings/guest qualification pending) | T-APP-02, T-APP-03 |
 | C-APP-04 | [C-APP-04.spec.ts](C-APP-04.spec.ts) | fixme-before-implementation | T-APP-16 |
 | C-APP-05 | [C-APP-05.spec.ts](C-APP-05.spec.ts) | fixme-before-implementation | T-APP-16 |
 | C-ACC-01 | [C-ACC-01.spec.ts](C-ACC-01.spec.ts) | fixme-before-implementation | T-ACC-02, T-ACC-03, T-ACC-04, T-APP-04, T-INS-08, T-TRM-02, T-CUT-03, T-STK-06 |
@@ -136,7 +136,7 @@ Machine-kill recovery and retry version pinning remain fixme.
 | C-INS-03 | [C-INS-03.spec.ts](C-INS-03.spec.ts) | fixme-before-implementation | T-INS-04 |
 | C-INS-05 | [C-INS-05.spec.ts](C-INS-05.spec.ts) | fixme-before-implementation | T-INS-01, T-INS-02 |
 | C-INS-06 | [C-INS-06.spec.ts](C-INS-06.spec.ts) | fixme-before-implementation | T-INS-08 |
-| C-J9-01 | [C-J9-01.spec.ts](C-J9-01.spec.ts) | fixme-before-implementation | T-APP-02 |
+| C-J9-01 | [C-J9-01.spec.ts](C-J9-01.spec.ts) | browser-pass (Make TODO, literal answer save; live citations/SQL journey pending) | T-APP-02 |
 | C-MCH-01 | [C-MCH-01.spec.ts](C-MCH-01.spec.ts) | fixme-before-implementation | T-MCH-04 |
 | C-MCH-02 | [C-MCH-02.spec.ts](C-MCH-02.spec.ts) | fixme-before-implementation | T-MCH-06 |
 | C-MCH-03 | [C-MCH-03.spec.ts](C-MCH-03.spec.ts) | fixme-before-implementation | T-MCH-07 |
@@ -288,7 +288,7 @@ Cycle 29: file co-editing, live file lists and diffs, teammate PR review, PR evi
 | A-ISSUE-COMMENT | [A-ISSUE-COMMENT.spec.ts](A-ISSUE-COMMENT.spec.ts) | fixme-before-implementation | T-GH-09 |
 | A-WIKI | [A-WIKI.spec.ts](A-WIKI.spec.ts) | fixme-before-implementation | T-COL-09 |
 | A-WIKI-PAGE | [A-WIKI-PAGE.spec.ts](A-WIKI-PAGE.spec.ts) | fixme-before-implementation | T-COL-09 |
-| A-WIKI-SAVE | [A-WIKI-SAVE.spec.ts](A-WIKI-SAVE.spec.ts) | fixme-before-implementation | T-APP-02 |
+| A-WIKI-SAVE | [A-WIKI-SAVE.spec.ts](A-WIKI-SAVE.spec.ts) | browser-pass (literal slash save, reload deduplication, missing-answer refusal) | T-APP-02 |
 
 Cycle 30: issue reads, creation and comments await live GitHub qualification; wiki reads and page creation await durable shared storage. Saving an answer still refuses because its page-write operation is absent. The filled issue form did not create an issue; its full regression remains pending with T-GH-09 and T-APP-02. Six mounted tests cover form cancellation, direct command projections and the honest save refusal.
 

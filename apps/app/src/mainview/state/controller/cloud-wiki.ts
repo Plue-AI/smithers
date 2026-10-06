@@ -807,7 +807,7 @@ export const createCloudWikiController = (ctx: ControllerContext, nextOrdinal: (
   }
 
   /** `wiki.cloud.new <title> [owner/repo]`: a Markdown page in the space, then opened. */
-  const createCloudWikiPage = async (title: string, repoArg?: string): Promise<string | void | { value: string }> => {
+  const createCloudWikiPage = async (title: string, repoArg?: string, body?: string): Promise<string | void | { value: string }> => {
     const repo = targetRepo(repoArg)
     if (typeof repo !== "string") return repo.error
     if (shared.login() === null) return `Sign in to write the repository ${WIKI_DISPLAY_NAME}.`
@@ -817,7 +817,7 @@ export const createCloudWikiController = (ctx: ControllerContext, nextOrdinal: (
     const outcome = await ctx.withToast(`wiki.new.${repo}.${space}`, `Creating ${name}…`, `${name} created`, async () => {
       const answer = await shared.run(Effect.gen(function*() {
         const api = yield* CloudWikiTransport
-        return yield* api.create(repo, space, { title: name, body: `# ${name}\n\n` })
+        return yield* api.create(repo, space, { title: name, body: body ?? `# ${name}\n\n` })
       }).pipe(Effect.catch((error: CloudWikiError) => Effect.succeed(error.sentence)))).catch(refusal)
       if (typeof answer === "string") return answer
       if (shared.disposed()) return "The app closed while the page was being created."
@@ -827,6 +827,68 @@ export const createCloudWikiController = (ctx: ControllerContext, nextOrdinal: (
     })
     if (typeof outcome === "string") return outcome
     return { value: `Created ${outcome.path ?? `${outcome.slug}.md`} in the ${space} ${WIKI_DISPLAY_NAME} of ${repo}.` }
+  }
+
+  type WikiSave = NonNullable<ReturnType<typeof ctx.store.session>["wikiSaves"]>[number]
+  const saving = actorSharedState(ctx, "wikiAnswerSaves", () => new Set<string>())
+  const saveRequest = (request: WikiSave) => ctx.store.dispatch({ type: "wiki.saves.changed", actor: "system",
+    requests: [...(ctx.store.session().wikiSaves ?? []).filter(row => row.id !== request.id), request] }).isPersisted.promise
+  const sendWikiSave = (request: WikiSave): void => {
+    if (saving.has(request.id) || shared.disposed() || shared.login() !== request.owner || shared.branch() !== request.branch) return
+    saving.add(request.id)
+    const epoch = ctx.accountEpoch
+    const current = () => !shared.disposed() && ctx.accountEpoch === epoch && shared.login() === request.owner && shared.branch() === request.branch
+    void ctx.withToast(`wiki.save.${request.id}`, `Saving ${request.name}…`, `${request.name} saved`, async () => {
+      const slug = `answer-${request.id}`
+      try {
+        const page = await shared.run(Effect.gen(function*() {
+          const api = yield* CloudWikiTransport
+          // A replay uses the same unique slug. A lost acknowledgement can be
+          // recovered only from this request's page, never somebody else's title.
+          return yield* api.create(request.repo, request.space, { title: request.name, body: request.text, slug,
+            path: request.name.endsWith(".md") ? request.name : `${request.name}.md` }).pipe(Effect.catch(error => {
+              if (error.status !== 409) return Effect.fail(error)
+              return api.read(request.repo, slug, request.space).pipe(Effect.flatMap(document =>
+                document.page.body === request.text && document.page.author.login === request.owner
+                  ? Effect.succeed(document.page) : Effect.fail(error)))
+            }))
+        }))
+        if (!current()) return "The Wiki save belongs to an earlier session."
+        await saveRequest({ ...request, state: "completed" })
+        void loadWikiIndex(request.repo, request.space)
+        const opened = await openOutcome(request.repo, page.slug, page.id, request.space)
+        return "refusal" in opened ? opened.refusal : { value: "Saved" }
+      } catch (error) {
+        if (!current()) return "The Wiki save belongs to an earlier session."
+        const message = error instanceof CloudWikiError ? error.sentence : "Could not save to Wiki."
+        await saveRequest({ ...request, state: "failed", error: message })
+        return message
+      }
+    }, false, current).catch(error => ctx.failures.report("wiki.save", error)).finally(() => saving.delete(request.id))
+  }
+  const resumeWikiSaves = () => {
+    void ctx.store.settled().then(() => {
+      for (const request of ctx.store.session().wikiSaves ?? []) if (request.state === "requested") sendWikiSave(request)
+    }).catch(error => ctx.failures.report("wiki.save.recover", error))
+  }
+  const wikiSaveIdentity = ctx.store.collections.identitySessions.subscribeChanges(resumeWikiSaves)
+  const wikiSaveSession = ctx.store.collections.sessions.subscribeChanges(resumeWikiSaves)
+  ctx.onDispose(() => { wikiSaveIdentity.unsubscribe(); wikiSaveSession.unsubscribe() })
+  queueMicrotask(resumeWikiSaves)
+  const saveWikiAnswer = async (name: string, text?: string) => {
+    const answer = text ?? [...ctx.store.collections.messages.values()].reverse().find(message => message.role === "smithers" && message.status === "complete" && !message.action)?.text
+    if (!answer?.trim()) return "Choose an answer to save."
+    const repo = targetRepo(undefined), owner = shared.login()
+    if (typeof repo !== "string") return repo.error
+    if (owner === null) return "Sign in to save to Wiki."
+    if (!name.trim()) return "A page needs a title."
+    const prior = (ctx.store.session().wikiSaves ?? []).find(row => row.owner === owner && row.repo === repo && row.space === shared.space()
+      && row.branch === shared.branch() && row.name === name.trim() && row.text === answer)
+    if (prior?.state === "completed") return { value: "Saved" }
+    const request: WikiSave = { id: prior?.id ?? randomUuid(), owner, repo, branch: shared.branch(), space: shared.space(), name: name.trim(), text: answer, state: "requested" }
+    await saveRequest(request)
+    sendWikiSave(request)
+    return { value: "Requested" }
   }
 
   /** `wiki.cloud.rename <slug> <path> [owner/repo]`: the path, checked against the revision the person saw; a stale revision is refused, never overwritten. */
@@ -942,6 +1004,6 @@ export const createCloudWikiController = (ctx: ControllerContext, nextOrdinal: (
     return false
   }
   return { listCloudWiki, openCloudWiki, editCloudWiki, prepareCloudWiki, retryCloudWiki, attachWorldEditor, scrollEditor,
-    loadWikiIndex, readWikiForPane, setWikiSpace, setWikiPageView, showWikiHistory, createCloudWikiPage, renameCloudWikiPage, deleteCloudWikiPage, attachCloudWiki,
+    loadWikiIndex, readWikiForPane, setWikiSpace, setWikiPageView, showWikiHistory, createCloudWikiPage, saveWikiAnswer, renameCloudWikiPage, deleteCloudWikiPage, attachCloudWiki,
     wikiIndexes: shared.wikiIndexes, hasIndexedPage, invalidatePaneRead }
 }

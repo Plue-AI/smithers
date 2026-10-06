@@ -786,6 +786,10 @@ export const ChatUsageSchema = z.object({
 export type ChatUsage = z.infer<typeof ChatUsageSchema>
 
 export const SessionSchema = z.object({
+  wikiSaves: z.array(z.object({
+    id: z.string(), owner: z.string(), branch: z.string(), repo: z.string(), space: z.enum(["public", "private"]),
+    name: z.string(), text: z.string(), state: z.enum(["requested", "completed", "failed"]), error: z.string().optional()
+  })).optional(),
   installRequests: z.array(z.object({
     id: z.string(), step: SetupStepIdSchema, origin: z.string(), body: z.record(z.string(), z.unknown()),
     state: z.enum(["requested", "running", "completed", "failed"]),
@@ -1278,6 +1282,7 @@ export type AppTransition =
   | { type: "librarian.launches.changed"; actor: Actor; launches: ReadonlyArray<unknown> }
   | { type: "coding.provider.requests.changed"; actor: Actor; requests: NonNullable<Session["codingProviderRequests"]> }
   | { type: "stack.wiki.requests.changed"; actor: Actor; requests: NonNullable<Session["wikiRequests"]> }
+  | { type: "wiki.saves.changed"; actor: Actor; requests: NonNullable<Session["wikiSaves"]> }
   | { type: "install.requests.changed"; actor: Actor; requests: NonNullable<Session["installRequests"]> }
   | { type: "secret.requests.changed"; actor: Actor; requests: NonNullable<Session["secretRequests"]> }
   | { type: "egress.requests.changed"; actor: Actor; requests: NonNullable<Session["egressRequests"]> }

@@ -240,7 +240,7 @@ func (h *TodoHandler) Merge(w http.ResponseWriter, r *http.Request) {
 
 // todoControlCommands is each TODO control's command (§6.15: members steer,
 // stop, resume, retry, drop and move TODOs). A steer has no op.
-var todoControlCommands = map[string]string{"": "todo.steer", "stop": "todo.stop", "resume": "todo.resume", "retry": "todo.retry", "retry-current-flow": "todo.retry", "drop": "todo.drop", "move": "stack.move"}
+var todoControlCommands = map[string]string{"": "todo.steer", "stop": "todo.stop", "resume": "todo.resume", "retry": "todo.retry", "retry-current-flow": "todo.retry", "drop": "todo.drop", "takeover": "todo.takeover", "move": "stack.move"}
 
 // Control is POST /api/todos/{n}: steer the coding agent, or stop, resume,
 // retry (with an optional steer), drop or move (with a direction, up or down)

@@ -17,7 +17,7 @@ export const TodoNewInput = Schema.Struct({
   before: Schema.optional(N), cardId: Schema.optional(Schema.String), idempotencyKey: Schema.optional(Text)
 })
 export const TodoAmendInput = Schema.Struct({
-  n: N, text: Text, cardId: Schema.optional(Schema.String), idempotencyKey: Schema.optional(Text)
+  n: N, text: Text, acceptance: Schema.optional(Schema.Array(Schema.String)), cardId: Schema.optional(Schema.String), idempotencyKey: Schema.optional(Text)
 })
 
 const form = (submitLabel: string) => ({ submitLabel,
@@ -53,6 +53,9 @@ export const todoFlows = (actions: CommandActions): ReadonlyArray<FlowEntry> => 
   flow({ name: "todo.retry-current-flow", summary: "Retry with the current flow", hidden: true, discloseToAgent: true,
     input: Schema.Struct({ n: N, text: Schema.optional(Schema.String) }), grammar: parseTodoArgs("text"), form: form("Retry"),
     handler: ({ n, text }) => actions.controlTodo(n, "retry-current-flow", text) }),
+  flow({ name: "todo.takeover", summary: "Take over a removed owner's TODO", args: "<Tn>", input: Target,
+    userOnly: true, userOnlyReason: "TODO ownership belongs to a person; agents never take over",
+    grammar: parseTodoArgs(), form: form("Take over"), handler: ({ n }) => actions.controlTodo(n, "takeover") }),
   flow({ name: "todo.drop", summary: "Abandon an unmerged TODO", args: "<Tn>", input: Target,
     grammar: parseTodoArgs(), form: form("Drop"), confirm: "drop this TODO",
     handler: ({ n }) => actions.controlTodo(n, "drop") })

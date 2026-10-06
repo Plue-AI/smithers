@@ -220,6 +220,7 @@ test("on a mounted TODO card, Steer and Amend open Chat on the flow's line inste
   const emptyInstall = {}
   const store = await createAppStore({ kind: "localStorage", storage: memoryStorage() })
   const stub = { design, store, installSnapshots: { get: () => emptyInstall, subscribe: () => () => {} },
+    requestFlowConfirmation: (name: string) => calls.push(`confirm ${name}`),
     changeDraft: (draft: string) => { calls.push(`draft ${draft}`) },
     runCommand: (name: string) => { calls.push(`run ${name}`); return true },
     commands: { submit: (submission: { name: string }) => { calls.push(`submit ${submission.name}`); return Promise.resolve({ status: "executed" }) } } }
@@ -230,7 +231,7 @@ test("on a mounted TODO card, Steer and Amend open Chat on the flow's line inste
     await act(async () => root.render(<ControllerTestProvider controller={stub as unknown as AppController}>{todoCardFamily.todo.render(card, { presentation: "embedded" } as never)}</ControllerTestProvider>))
     expect(host.querySelectorAll("form textarea, form input")).toHaveLength(1)
     for (const flow of ["todo.steer", "todo.amend", "todo.drop"]) await act(async () => host.querySelector<HTMLElement>(`.todo-actions > button[data-flow="${flow}"]`)!.click())
-    expect(calls).toEqual(["draft /todo.steer T9 ", "run chat.open", "draft /todo.amend T9 ", "run chat.open", "submit todo.drop"])
+    expect(calls).toEqual(["draft /todo.steer T9 ", "run chat.open", "draft /todo.amend T9 ", "run chat.open", "confirm todo.drop"])
   } finally { await act(async () => root.unmount()); host.remove() }
 })
 test("an install's TODO in review: the served ready enables Merge though evidence names the candidate, and the press sends the PR head", () => {
@@ -276,4 +277,40 @@ test("a row the seed opened (no projection, no request) renders the seeded TODO;
   expect(seeded).toContain(seededTitle)
   const requested = render({ n: 9, requests: [{ key: "k", owner: "ben", operation: "steer", n: 9, body: { text: "x" }, state: "failed", error: "Stack unavailable" }] })
   expect(requested).not.toContain(seededTitle)
+})
+
+ test("Queued Edit is prefilled from revision 2 and saves acceptance through the amendment flow", () => {
+  const model = { ...fixtures.queued.model, prompt_revisions: [fixtures.queued.model.prompt_revisions[0]!,
+    { ...fixtures.queued.model.prompt_revisions[0]!, text: "PROMPT-B", acceptance: ["Keep the regression"] }] }
+  const h = mount(model)
+  const edit = h.props.actions.find(action => action.tag === "todo.amend")!
+  expect(edit.input?.map(field => field.value)).toEqual(["PROMPT-B", "Keep the regression"])
+  const html = renderToStaticMarkup(<TodoView {...h.props} />)
+  expect(html).toContain("<summary>Edit</summary>")
+  expect(html).toContain("PROMPT-B")
+  const amendments = html.slice(html.indexOf("<summary>+1</summary>"), html.indexOf("</details>"))
+  expect(amendments).toContain("PROMPT-B")
+  expect(amendments).not.toContain(fixtures.queued.model.prompt_revisions[0]!.text)
+  h.props.onAction("todo.amend", { text: "PROMPT-C", acceptance: "First check\nSecond check" })
+  expect(h.dispatches).toEqual([{ tag: "todo.amend", input: { n: model.n, text: "PROMPT-C", acceptance: ["First check", "Second check"] } }])
+  expect(renderToStaticMarkup(<TodoView {...mount(fixtures.working.model).props} />)).not.toContain("<summary>Edit</summary>")
+ })
+
+test("only a maintainer or owner can Take over a removed owner's live TODO", () => {
+ for (const role of ["owner", "maintainer", "member"] as const) for (const removed of [true, false]) {
+  const h = mount({ ...fixtures.queued.model, owner_removed: removed }, role)
+  expect(h.props.actions.some(action => action.tag === "todo.takeover")).toBe(removed && role !== "member")
+  if (removed && role !== "member") {
+   h.props.onAction("todo.takeover")
+   expect(h.dispatches).toEqual([{ tag: "todo.takeover", input: { n: fixtures.queued.model.n } }])
+  }
+ }
+ expect(mount({ ...fixtures.merged.model, owner_removed: true }).props.actions.some(action => action.tag === "todo.takeover")).toBe(false)
+})
+test("only a verified missing-tool failure offers the shared machine-image Draft flow", () => {
+ const failure = { ...fixtures.failed.model.failure!, missing_tool: { name: "figlet", file: ".smithers/machine.json" } }
+ const h = mount({ ...fixtures.failed.model, failure })
+ h.props.onAction("image.add")
+ expect(h.dispatches).toEqual([{ tag: "image.add", input: { name: "figlet" } }])
+ expect(mount({ ...fixtures.failed.model, failure: { ...failure, missing_tool: undefined } }).props.actions.some(action => action.tag === "image.add")).toBe(false)
 })

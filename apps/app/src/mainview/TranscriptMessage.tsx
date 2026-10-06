@@ -1,3 +1,6 @@
+import { flowArgs } from "./flows/FlowArgs"
+import { answerActions } from "./flows/AnswerActions"
+import { DiffAction } from "./cards/views/DiffAction"
 import { dynamicFlowAction, flowAction, flowProps } from "./flows/FlowAction"
 import { Button, ChatMessage, Markdown, Marker, Reasoning } from "@smthrs/ui"
 import { CheckCircle2, Copy, RotateCcw } from "lucide-react"
@@ -130,6 +133,10 @@ export function TranscriptMessage({ entry, streamingMessageId }: { entry: { kind
           />
         ) :
         null}
+      {entry.kind === "message" && entry.message.role === "smithers" && entry.message.status === "complete" && entry.message.id !== streamingMessageId && !entry.message.action && scrubToolEcho(entry.message.text).trim() ? (() => {
+        const bindings = answerActions((name, input) => controller.commands.submit({ name, payload: (input ?? {}) as Record<string, unknown>, actor: "user", ...(name === "wiki.save" ? { display: flowArgs("wiki.save", input as { name?: string; text?: string }) } : {}) }), scrubToolEcho(entry.message.text))
+        return <div className="message-answer-actions">{bindings.actions.map(action => <DiffAction key={action.tag} action={action} onAction={bindings.onAction} />)}</div>
+      })() : null}
       {entry.kind === "message" && entry.message.context !== undefined && entry.message.context.length > 0 ? <AnswerContext items={entry.message.context} /> : null}
       {/* The synthetic auth message has no clock time to tell. */}
       {entry.message.answeredAction && <p role="status">{entry.message.answeredAction.answer}</p>}

@@ -7,6 +7,7 @@ import type { ConfirmCard } from "@smthrs/rpc/ConfirmCard"
 import type { PersonRef } from "@smthrs/rpc/CardPrimitives"
 import type { CardProps, CatalogTag } from "@smthrs/rpc/CardAction"
 import { cardActions, type CardActionDefinition, type CardCommandDispatch } from "../flows/cardActions"
+import { flowArgs } from "../flows/FlowArgs"
 import type { TodoEntry } from "../state/seams/TodoSeam"
 import { useController } from "../ControllerContext"
 import { useDesignTodoCard } from "../state/seams/DesignWorld/todo"
@@ -41,7 +42,9 @@ export const todoActionDefinitions = (model: TodoCard, role: TodoContainerProps[
   const live = !["merged", "dropped"].includes(model.state)
   const definitions: CardActionDefinition[] = model.branch ? [{ tag: "branch", label: "Open branch", args: { name: model.branch.name, wait: "" }, command_input: { name: model.branch.name } }] : []
   if (model.run) definitions.push({ tag: "run.inspect", label: "Inspect", command_input: { id: model.run.id } })
+  if (model.failure?.missing_tool) definitions.push({ tag: "image.add", label: "Add to machine image", command_input: { name: model.failure.missing_tool.name } })
   if (!live) return definitions
+  if (model.owner_removed && role !== "member") definitions.push({ tag: "todo.takeover", label: "Take over", command_input: { n } })
   const waitsFrom = definitions.length
   for (const wait of model.waits) {
     for (const action of wait.actions) {
@@ -54,7 +57,7 @@ export const todoActionDefinitions = (model: TodoCard, role: TodoContainerProps[
         case "branch":
           if (model.branch) definitions.push({ ...action, tag: "branch", args: { ...action.args, wait: wait.id }, command_input: { name: model.branch.name } }); break
         case "branch.bring-in": case "branch.discard-foreign":
-          if (wait.kind === "foreign_push" && wait.id && wait.sha && model.branch) definitions.push({ ...action, tag: action.tag, args: { ...action.args, wait: wait.id }, command_input: { branch: model.branch.name, id: wait.id, revision: wait.sha } })
+          if ((action.tag !== "branch.discard-foreign" || role !== "member") && wait.kind === "foreign_push" && wait.id && wait.sha && model.branch) definitions.push({ ...action, tag: action.tag, args: { ...action.args, wait: wait.id }, command_input: { branch: model.branch.name, id: wait.id, revision: wait.sha } })
           break
         case "todo.return-to-item": case "todo.keep-moved":
           definitions.push({ ...action, tag: action.tag, args: { ...action.args, wait: wait.id }, command_input: { n } }); break
@@ -70,7 +73,14 @@ export const todoActionDefinitions = (model: TodoCard, role: TodoContainerProps[
   if (model.state === "failed" && model.failure?.retryable) definitions.push({ tag: "todo.retry", label: "Retry", command_input: { n },
     input: [{ name: "text", label: "Steer", kind: "text", required: false, multiline: true }],
     resolve_input: input => ({ n, text: input.text }) })
-  definitions.push({ tag: "todo.amend", label: "Amend", command_input: { n, text: "" } }, { tag: "todo.drop", label: "Drop", command_input: { n } })
+  if (model.state === "queued") {
+    const revision = model.prompt_revisions.at(-1)
+    definitions.push({ tag: "todo.amend", label: "Save", command_input: { n, text: revision?.text ?? "", acceptance: revision?.acceptance ?? [] },
+      input: [{ name: "text", label: "Prompt", kind: "text", required: true, multiline: true, value: revision?.text ?? "" },
+        { name: "acceptance", label: "Acceptance", kind: "text", required: false, multiline: true, value: revision?.acceptance.join("\n") ?? "" }],
+      resolve_input: input => ({ n, text: input.text ?? revision?.text ?? "", acceptance: (input.acceptance ?? revision?.acceptance.join("\n") ?? "").split("\n").filter(line => line.trim().length > 0) }) })
+  } else definitions.push({ tag: "todo.amend", label: "Amend", command_input: { n, text: "" } })
+  definitions.push({ tag: "todo.drop", label: "Drop", command_input: { n } })
   if (model.pr && model.state === "in_review") {
     // The served merge block is the one readiness rule; dispatch reads GitHub's head, checks, reviews and draft again.
     // Evidence names the verified candidate, and the PR head is its publication: another commit with the same tree.
@@ -121,7 +131,9 @@ export const useTodoRole = (): TodoContainerProps["role"] => {
 }
 export const TodoContainer =({ card, role, dispatch, View, view, onView, availableActions, conflictTerminal }: TodoContainerProps) => {
   if (!card.payload.model) return null
-  const model = TodoCardSchema.parse(card.payload.model)
+  const parsed = TodoCardSchema.parse(card.payload.model)
+  const model = role === "member" ? { ...parsed, waits: parsed.waits.map(wait => ({ ...wait,
+    actions: wait.actions.filter(action => action.tag !== "branch.discard-foreign") })) } : parsed
   const lateWait = [...card.payload.requests].reverse().find(request => request.operation === "answer" && request.state === "failed")?.body.wait
   const definitions = todoActionDefinitions(model, role, card.payload.answeredBy ? card.payload.answerDraft : undefined,
     typeof lateWait === "string" ? lateWait : undefined).filter(action => availableActions === undefined || availableActions.includes(action.tag))
@@ -144,6 +156,7 @@ const TodoBody = ({ card, maximized }: { readonly card: CardOf<"todo">; readonly
   const role = useTodoRole()
   const dispatch: CardCommandDispatch = (tag, input) => {
     const payload = (input ?? {}) as Record<string, unknown>
+    if (tag === "todo.drop") return controller.requestFlowConfirmation(tag, flowArgs("todo.drop", { n: card.payload.n }), "drop this TODO", `Drop T${card.payload.n}?`)
     if ((tag === "todo.steer" || tag === "todo.amend") && !payload.text) {
       controller.changeDraft(`/${tag} T${card.payload.n} `)
       return controller.runCommand("chat.open")

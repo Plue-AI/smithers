@@ -33,6 +33,7 @@ import { WIKI_ATTACH_USER_ONLY_REASON, WIKI_HEADING_USER_ONLY_REASON } from "@sm
  * no longer user-only fails it too.
  */
 const USER_ONLY_ALLOWLIST: Readonly<Record<string, string>> = {
+  "todo.takeover": "TODO ownership belongs to a person; agents never take over",
   "notifications.allow": "browser permission requires the person’s in-card gesture",
   "debug.api": "raw API bypasses flow typing and approvals; agents use flows",
   "debug-api": "raw API bypasses flow typing and approvals; agents use flows",

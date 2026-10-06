@@ -36,9 +36,9 @@ test("all TODO commands register slash, button and agent doors; amend/drop and c
   const h = await boot()
   try {
     const entries = h.controller.commands.entries().filter(entry => nameOf(entry) === "todo" || nameOf(entry).startsWith("todo."))
-    expect(entries.map(nameOf).sort()).toEqual(["todo", "todo.amend", "todo.answer", "todo.drop", "todo.from-issue", "todo.new", "todo.resume", "todo.retry", "todo.retry-current-flow", "todo.steer", "todo.stop"])
+    expect(entries.map(nameOf).sort()).toEqual(["todo", "todo.amend", "todo.answer", "todo.drop", "todo.from-issue", "todo.new", "todo.resume", "todo.retry", "todo.retry-current-flow", "todo.steer", "todo.stop", "todo.takeover"])
     for (const entry of entries) {
-      expect(modelInvocable(entry)).toBe(true)
+      expect(modelInvocable(entry)).toBe(nameOf(entry) !== "todo.takeover")
       expect(entry.metadata.grammar).toBeDefined()
       expect(entry.metadata.form).toBeDefined()
     }
@@ -140,7 +140,7 @@ test("J9 answer actions dispatch its exact text and expose a page-name form", ()
   expect(calls).toEqual([{ tag: "todo.new", input: { text } }, { tag: "wiki.save", input: { name: "Findings", text } }])
 })
 
-test("wiki.save reports the absent page-write operation without refreshing the wiki", async () => {
+test("wiki.save without an answer refuses before any wiki write", async () => {
   const h = await boot()
   try {
     const result = await h.controller.runCommandForResult("wiki.save", "Findings")
@@ -374,4 +374,21 @@ test("on an install, a Commit pressed before its Draft's title save rendered com
     await waitFor(() => posts.length === 1)
     expect(posts[0]).toMatchObject({ title: "First local TODO", prompt: "Add a greeting", place: { mode: "append" } })
   } finally { await controller.dispose() }
+})
+
+test("image.add opens a private machine.json-only Draft through the production flow and real TODO seam", async () => {
+ const h = await boot()
+ try {
+  await h.store.dispatch({ type: "repositories.loaded", actor: "system", repositories: [{ id: "ben/app", org: "ben", ownerKind: "user", name: "app", head: { bookmark: "main", changeId: "main", commitId: "main" } }] }).isPersisted.promise
+  const result = await h.controller.submitCommand({ name: "image.add", payload: { name: "figlet" }, actor: "user" })
+  expect(result).toMatchObject({ status: "executed", value: "Requested" })
+  await waitFor(() => [...h.store.collections.cards.values()].some(card => card.kind === "draft" && card.payload.imagePreparation?.state === "ready"))
+  const draft = [...h.store.collections.cards.values()].find(card => card.kind === "draft") as DraftEntry
+  expect(draft.audience_member_id).toBe("ben")
+  expect(draft.payload.seed).toMatchObject({ files: [".smithers/machine.json"], diff: expect.stringContaining("+++ b/.smithers/machine.json") })
+  expect(draft.payload.prompt).toContain("+++ b/.smithers/machine.json")
+  expect(draft.payload.prompt).toContain("figlet")
+  expect(h.mutations).toEqual([])
+  expect(await h.controller.submitCommand({ name: "image.add", payload: { name: "Fig Let" }, actor: "user" })).toMatchObject({ status: "failed" })
+ } finally { h.controller.dispose() }
 })

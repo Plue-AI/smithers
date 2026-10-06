@@ -838,3 +838,73 @@ test("served TODO rail and edge actions reach Retry and private Review & merge",
     expect(read()[0]!.action).toBeUndefined()
   } finally { h.close() }
 })
+
+test("Queued Edit sends one idempotent PATCH with prompt and acceptance while launch is unresolved", async () => {
+  const launch = deferred<Response>()
+  const calls: RequestInit[] = []
+  const h = await harness(async (_url, init) => { if (init?.method === "PATCH") calls.push(init); return launch.promise })
+  try {
+    const input = { n: 12, text: "PROMPT-B", acceptance: ["One acceptance line"] }
+    expect(await h.seam.amendTodo(input)).toEqual({ value: "Requested" })
+    expect(await h.seam.amendTodo(input)).toEqual({ value: "Requested" })
+    expect(calls.length).toBe(1)
+    expect(calls[0]!.method).toBe("PATCH")
+    expect(JSON.parse(String(calls[0]!.body))).toEqual({ prompt: "PROMPT-B", acceptance: ["One acceptance line"] })
+    expect(new Headers(calls[0]!.headers).get("Idempotency-Key")).toBeTruthy()
+    expect(h.todo().payload.requests).toHaveLength(1)
+    expect(h.outcomes).toEqual([])
+  } finally { launch.resolve(json({ state: "accepted", n: 12, rev: 2 })); h.close() }
+})
+
+test("image.add acknowledges unresolved main reads once, persists recovery and disables early Commit", async () => {
+ const read = deferred<Response>()
+ const urls: string[] = []
+ const h = await harness(async (url) => { urls.push(url); return read.promise })
+ try {
+  await h.store.dispatch({ type: "repositories.loaded", actor: "system", repositories: [{ id: "ben/app", org: "ben", ownerKind: "user", name: "app", head: { bookmark: "main", changeId: "main", commitId: "main" } }] }).isPersisted.promise
+  expect(await h.seam.draftImagePackage("figlet")).toEqual({ value: "Requested" })
+  expect(await h.seam.draftImagePackage("figlet")).toEqual({ value: "Requested" })
+  expect(urls).toEqual(["https://install.test/api/repos/ben/app/contents/.smithers/machine.json?ref=main"])
+  expect(h.draft().payload.imagePreparation?.state).toBe("requested")
+  expect(await h.seam.newTodo({ cardId: h.draft().id })).toBe("Machine image draft is not ready.")
+  expect(h.outcomes).toEqual([])
+  read.resolve(json({ content: '{"packages":["git"]}', encoding: "utf-8" }, 200))
+  await waitFor(() => h.draft().payload.imagePreparation?.state === "ready")
+  expect(h.draft().payload.seed?.diff).toContain('+    "figlet"')
+  expect(h.draft().audience_member_id).toBe("ben")
+  expect(h.outcomes).toEqual([expect.objectContaining({ status: "ok", detail: "Drafted" })])
+ } finally { read.resolve(json({}, 404)); h.close() }
+})
+
+test("image Draft failures stay visible, refuse Commit and retry the same private Draft", async () => {
+ let reads = 0
+ const h = await harness(async () => ++reads === 1 ? json({}, 503) : json({}, 404))
+ try {
+  await h.store.dispatch({ type: "repositories.loaded", actor: "system", repositories: [{ id: "ben/app", org: "ben", ownerKind: "user", name: "app", head: { bookmark: "main", changeId: "main", commitId: "main" } }] }).isPersisted.promise
+  await h.seam.draftImagePackage("figlet")
+  await waitFor(() => h.draft().payload.imagePreparation?.state === "failed")
+  const id = h.draft().id
+  expect(h.draft().payload.imagePreparation?.error).toBe("Could not read machine.json.")
+  expect(await h.seam.newTodo({ cardId: id })).toBe("Machine image draft is not ready.")
+  await h.seam.draftImagePackage("figlet")
+  await waitFor(() => h.draft().payload.imagePreparation?.state === "ready")
+  expect(h.draft().id).toBe(id)
+  expect([...h.store.collections.cards.values()].filter(card => card.kind === "draft")).toHaveLength(1)
+  expect(h.draft().payload.seed?.diff).toContain("--- /dev/null")
+ } finally { h.close() }
+})
+
+test("Edit toast waits for the exact admitted revision, then settles from the real TODO projection", async () => {
+ const h = await harness(async () => json({ state: "accepted", n: 12, rev: 2 }))
+ try {
+  await h.seam.amendTodo({ n: 12, text: "PROMPT-B", acceptance: ["Keep the check"] })
+  await waitFor(() => h.todo().payload.requests[0]?.state === "accepted")
+  await h.seam.applyTodoProjection(12, fixtures.queued.model)
+  expect(h.outcomes).toEqual([])
+  const model = { ...fixtures.queued.model, prompt_revisions: [fixtures.queued.model.prompt_revisions[0]!,
+    { ...fixtures.queued.model.prompt_revisions[0]!, text: "PROMPT-B", acceptance: ["Keep the check"] }] }
+  await h.seam.applyTodoProjection(12, model)
+  expect(h.outcomes).toEqual([expect.objectContaining({ status: "ok", detail: "Amended" })])
+  expect(h.todo().payload.requests).toEqual([])
+ } finally { h.close() }
+})

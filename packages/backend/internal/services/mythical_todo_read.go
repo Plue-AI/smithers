@@ -107,6 +107,15 @@ func (s *MythicalService) todoCard(ctx context.Context, item db.MythicalItem, it
 		"owner":            map[string]any{"login": owner.Username, "name": owner.DisplayName, "avatar_url": todoAvatar(owner)},
 		"prompt_revisions": revisions, "steps": todoSteps(item), "waits": waits, "steers": todoSteers(item), "evidence": []any{},
 		"present": []any{}}
+	if item.OwnerID.Valid {
+		role, roleErr := InstallRoleOf(ctx, s.queries(), item.OwnerID.Int64)
+		if roleErr != nil {
+			return nil, roleErr
+		}
+		if role == "" {
+			card["owner_removed"] = true
+		}
+	}
 	if answer := todoFirstAnswer(item); answer != nil {
 		card["first_answer"] = answer
 	}

@@ -203,6 +203,60 @@ const commandsFor = (f: Awaited<ReturnType<typeof fixture>>) => {
   return { controller, admissions }
 }
 
+test("Save to wiki persists before launch, acknowledges a held write once and recovers a lost acknowledgement", async () => {
+  const storage = memory(), store = await createAppStore({ kind: "localStorage", storage })
+  await signIn(store)
+  await store.dispatch({ type: "repositories.loaded", actor: "system", repositories: [{ id: repo, org: "owner", name: "repo", ownerKind: "user", head: null }] }).isPersisted.promise
+  await store.dispatch({ type: "repo.selected", actor: "user", id: repo }).isPersisted.promise
+  const markdown = "Use `redeliver` in [retry.ts](src/webhooks/retry.ts).\n\nKeep the retry bounded."
+  const held = Promise.withResolvers<Response>()
+  const writes: Array<{ title: string; body: string; slug: string; path: string }> = []
+  let persisted: typeof writes[number] | undefined
+  const settlements: unknown[] = []
+  const page = () => ({ id: 42, slug: persisted!.slug, title: "Retry", path: "Retry.md", revision: 1,
+    author: { id: 1, login: "will" }, created_at: "2026-10-05T00:00:00Z", updated_at: "2026-10-05T00:00:00Z" })
+  const services: AppServices = { fetchImpl: async (input, init) => {
+    const path = new URL(String(input), "http://test").pathname
+    if (init?.method === "POST" && path.endsWith("/wiki")) {
+      writes.push(JSON.parse(String(init.body)))
+      expect(store.session().wikiSaves?.[0]?.state).toBe("requested")
+      if (writes.length === 1) return held.promise
+      return Response.json({ message: "wiki page already exists" }, { status: 409 })
+    }
+    if (path.endsWith("/document")) {
+      const doc = new Y.Doc(); doc.getText("markdown").insert(0, persisted!.body)
+      return Response.json({ page: { ...page(), body: persisted!.body }, state: encodeWikiState(Y.encodeStateAsUpdate(doc)), state_vector: encodeWikiState(Y.encodeStateVector(doc)) })
+    }
+    if (path.endsWith("/navigation/index")) return Response.json({ pages: [], folders: [], tags: [] })
+    return new Response(new ReadableStream({ start(controller) { controller.enqueue(new TextEncoder().encode(": connected\n\n")) } }), { headers: { "content-type": "text/event-stream" } })
+  } }
+  const connect = (appStore: AppStore) => {
+    const ctx = createControllerContext(appStore, silentAgent, services)
+    ctx.withToast = async (_key, _title, _done, work) => { const result = await work(); settlements.push(result); return result }
+    ctx.resolveToast = () => {}
+    cleanup.push(() => ctx.dispose())
+    return { ctx, wiki: createCloudWikiController(ctx, () => 1) }
+  }
+  const first = connect(store)
+  expect(await first.wiki.saveWikiAnswer("Retry", markdown)).toEqual({ value: "Requested" })
+  expect(await first.wiki.saveWikiAnswer("Retry", markdown)).toEqual({ value: "Requested" })
+  await until(() => writes.length === 1)
+  expect(settlements).toEqual([])
+  expect(writes[0]).toMatchObject({ title: "Retry", body: markdown, path: "Retry.md" })
+  persisted = writes[0]
+  // The server writes the page but this browser loses its acknowledgement.
+  first.ctx.dispose()
+  held.resolve(Response.json(page()))
+  const reopened = await createAppStore({ kind: "localStorage", storage })
+  const second = connect(reopened)
+  await until(() => reopened.session().wikiSaves?.[0]?.state === "completed")
+  expect(writes).toHaveLength(2)
+  expect(writes[1]).toEqual(writes[0])
+  expect(await second.wiki.saveWikiAnswer("Retry", markdown)).toEqual({ value: "Saved" })
+  expect(writes).toHaveLength(2)
+  expect(reopened.collections.worldDocuments.get(id)?.body).toBe(markdown)
+})
+
 describe("cloud Wiki controller", () => {
   test("a store with unadmitted Wiki input refuses version-14 writers without changing its bytes", async () => {
     const f = await fixture()
@@ -688,6 +742,15 @@ describe("wiki spaces", () => {
     expect(publicPage?.body).toBe("# Home\n\n[[Guides/Start]]")
     expect(f.requests.filter((request) => request.url.includes("/document")).map((request) => request.url))
       .toEqual(["/api/repos/owner/repo/wiki/home/document?visibility=public", "/api/repos/owner/repo/wiki/home/document?visibility=private"])
+  })
+
+  test("Save to wiki creates one page with the literal answer Markdown", async () => {
+    const f = await space()
+    const markdown = "Use `redeliver` in [retry.ts](src/webhooks/retry.ts).\n\nKeep the retry bounded."
+    await f.wiki.createCloudWikiPage("Retry", repo, markdown)
+    const creates = f.requests.filter(request => request.method === "POST")
+    expect(creates).toHaveLength(1)
+    expect(JSON.parse(creates[0]!.body!)).toEqual({ title: "Retry", body: markdown })
   })
 
   test("a page's history is a card of its revisions, renames included, each a link to that revision's own bytes", async () => {

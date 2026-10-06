@@ -229,7 +229,7 @@ export class CloudWikiTransport extends Context.Service<CloudWikiTransport, {
   /** One page's history, newest first, renames and the deletion included. */
   readonly history: (repo: string, space: WikiSpace, pageId: number, page: number) => Effect.Effect<ReadonlyArray<CloudWikiHistoryRevision>, CloudWikiError>
   /** Create a Markdown page in the space. */
-  readonly create: (repo: string, space: WikiSpace, input: { readonly title: string; readonly body: string; readonly path?: string }) => Effect.Effect<z.infer<typeof CloudWikiPage>, CloudWikiError>
+  readonly create: (repo: string, space: WikiSpace, input: { readonly title: string; readonly body: string; readonly path?: string; readonly slug?: string }) => Effect.Effect<z.infer<typeof CloudWikiPage>, CloudWikiError>
   /** Rename or retitle a page against the revision the person saw; a stale revision is a 409 refusal. */
   readonly patch: (repo: string, space: WikiSpace, slug: string, input: { readonly title?: string; readonly path?: string; readonly expected_revision: number }) => Effect.Effect<z.infer<typeof CloudWikiPage>, CloudWikiError>
   readonly remove: (repo: string, space: WikiSpace, slug: string) => Effect.Effect<void, CloudWikiError>

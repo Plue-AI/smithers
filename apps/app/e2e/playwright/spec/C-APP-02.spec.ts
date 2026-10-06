@@ -1,30 +1,66 @@
 import { expect, test } from "../browserTest"
 import { owner, say } from "./j1-fixtures"
+import { fixtures } from "../../../../../packages/rpc/test/fixtures/Todo"
 
-// UI projection of .specs/engineering/checks/C-APP-02.md.
-// Written before implementation: mvp.md §6.6 TODO card; lands with T-APP-02
-test("C-APP-02: a queued prompt saves once and an agent amendment requires confirmation", async ({ page }) => {
-  test.fixme(true, "Written before implementation: mvp.md §6.6 TODO card; lands with T-APP-02")
+// Browser proof of the production dispatcher, TODO seam, card and View.
+// Planner delivery and multiplayer attribution are qualified on the install.
+test("C-APP-02: Queued Edit saves prompt and acceptance once and survives reload", async ({ page }) => {
   await owner(page)
+  const model = structuredClone(fixtures.queued.model)
+  model.n = 2
+  model.prompt_revisions = [{ ...model.prompt_revisions[0]!, text: "PROMPT-A", acceptance: [] }]
+  const writes: { key: string; body: { prompt: string; acceptance: string[] } }[] = []
+  await page.route("**/api/todos", route => route.fulfill({ json: [model] }))
+  await page.route("**/api/todos/2", async route => {
+    const request = route.request()
+    if (request.method() === "PATCH") {
+      const body = request.postDataJSON() as { prompt: string; acceptance: string[] }
+      const key = request.headers()["idempotency-key"]!
+      writes.push({ key, body })
+      if (model.prompt_revisions.length === 1) model.prompt_revisions.push({ ...model.prompt_revisions[0]!, text: body.prompt, acceptance: body.acceptance })
+      await route.fulfill({ status: 202, json: { state: "accepted", n: 2, rev: 2 } })
+    } else await route.fulfill({ json: model })
+  })
   await page.goto("/smithers-mvp-canary/node")
-  // Seed parallel 1, T1 Working, T2 Queued with PROMPT-A.
-  // The planner later receives PROMPT-B; revision uniqueness needs host receipts.
-  await say(page, '/todo T2')
-  await page.getByRole('button', { name: 'Edit', exact: true }).last().press('Enter')
-  await expect(page.getByLabel('Prompt', { exact: true }).last()).toHaveValue('PROMPT-A')
-  await page.getByLabel('Prompt', { exact: true }).last().fill('PROMPT-B')
-  await page.getByLabel('Acceptance', { exact: true }).last().fill('The greeting is visible')
-  const save = page.getByRole('button', { name: 'Save', exact: true }).last()
-  await save.press('Enter')
-  await page.keyboard.press('Enter')
-  await expect(page.getByRole('region', { name: /T2/ }).last()).toContainText('PROMPT-B')
-  await expect(page.getByText('+1', { exact: true }).last()).toBeVisible()
-  await say(page, "Change T2's prompt to PROMPT-C")
-  await expect(page.getByRole('button', { name: 'Confirm', exact: true }).last()).toBeVisible()
-  await say(page, '/todo T2')
-  await expect(page.getByRole('region', { name: /T2/ }).last()).toContainText('PROMPT-B')
-  await expect(page.getByRole('region', { name: /T2/ }).last()).not.toContainText('PROMPT-C')
+  await say(page, "/todo T2")
+  const card = page.getByRole("article", { name: "TODO T2" }).last()
+  await card.getByText("Edit", { exact: true }).press("Enter")
+  await expect(card.getByLabel("Prompt", { exact: true })).toHaveValue("PROMPT-A")
+  await card.getByLabel("Prompt", { exact: true }).fill("PROMPT-B")
+  await card.getByLabel("Acceptance", { exact: true }).fill("The greeting is visible")
+  await card.getByRole("button", { name: "Save", exact: true }).press("Enter")
+  await page.keyboard.press("Enter")
+  await expect.poll(() => writes.length).toBe(1)
+  expect(writes[0]!.body).toEqual({ prompt: "PROMPT-B", acceptance: ["The greeting is visible"] })
+  expect(writes[0]!.key).toBeTruthy()
+  await expect(card.locator(".todo-prompt")).toHaveText("PROMPT-B")
+  await expect(card.getByText("+1", { exact: true })).toBeVisible()
   await page.reload()
-  await say(page, '/todo T2')
-  await expect(page.getByRole('region', { name: /T2/ }).last()).toContainText('PROMPT-B')
+  await say(page, "/todo T2")
+  await expect(page.getByRole("article", { name: "TODO T2" }).last().locator(".todo-prompt")).toHaveText("PROMPT-B")
+})
+
+test("a person's Drop sends no control before confirmation", async ({ page }) => {
+  await owner(page)
+  const model = structuredClone(fixtures.queued.model)
+  model.n = 2
+  const writes: unknown[] = []
+  await page.route("**/api/todos", route => route.fulfill({ json: [model] }))
+  await page.route("**/api/todos/2", async route => {
+    if (route.request().method() === "POST") {
+      writes.push(route.request().postDataJSON())
+      model.state = "dropped"
+      await route.fulfill({ status: 202, json: { state: "accepted", n: 2 } })
+    } else await route.fulfill({ json: model })
+  })
+  await page.goto("/")
+  await say(page, "/todo T2")
+  const card = page.getByRole("article", { name: "TODO T2" }).last()
+  await card.getByRole("button", { name: "Drop", exact: true }).press("Enter")
+  await expect(page.getByTestId("transcript").getByText("Drop T2?", { exact: true })).toBeVisible()
+  expect(writes).toEqual([])
+  await page.getByRole("button", { name: "Confirm: drop this TODO", exact: true }).last().press("Enter")
+  await expect.poll(() => writes.length).toBe(1)
+  expect(writes).toEqual([{ op: "drop" }])
+  await expect(card).toContainText("Dropped")
 })

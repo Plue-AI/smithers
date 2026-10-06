@@ -709,13 +709,14 @@ const IssueLastCommentSchema = z.object({
 const TodoRequestSchema = z.object({
   key: z.string(),
   owner: z.string(),
-  operation: z.enum(["create", "amend", "answer", "steer", "stop", "resume", "retry", "retry-current-flow", "drop", "merge", "move"]),
+  operation: z.enum(["create", "amend", "answer", "steer", "stop", "resume", "retry", "retry-current-flow", "drop", "merge", "move", "takeover"]),
   body: z.record(z.string(), z.unknown()),
   n: z.number().int().positive().optional(),
   state: z.enum(["requested", "accepted", "failed"]),
   error: z.string().optional(),
   /* The attempt an accepted retry starts, from its receipt: the retry settles once that attempt runs. */
   attempt: z.number().int().positive().optional(),
+  revision: z.number().int().positive().optional(),
   /* The place an accepted move took, from its receipt: the move settles once the card shows it. */
   place: z.number().int().positive().optional()
 })
@@ -727,12 +728,14 @@ const DraftPayloadSchema: z.ZodType<
   DraftCard & {
     idempotencyKey: string
     request?: TodoRequest | undefined
+    imagePreparation?: { name: string; repo: string; state: "requested" | "ready" | "failed"; error?: string | undefined } | undefined
     optionsFailure?: string | undefined
     issueDigest?: string | undefined
   }
 > = DraftCardSchema.extend({
   idempotencyKey: z.string(),
   request: TodoRequestSchema.optional(),
+  imagePreparation: z.object({ name: z.string(), repo: z.string(), state: z.enum(["requested", "ready", "failed"]), error: z.string().optional() }).optional(),
   optionsFailure: z.string().optional(),
   /* Make TODO: the digest of the issue text the Draft was made from, sent as `issue_digest` on Commit. */
   issueDigest: z.string().regex(/^[0-9a-f]{64}$/).optional()

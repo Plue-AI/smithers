@@ -221,7 +221,8 @@ export interface AppController extends IssueFlowsController {
   readonly setWikiPageView: (view: string) => Promise<string | void>
   readonly loadWikiIndex: (repo?: string, space?: WikiSpace, quiet?: boolean) => Promise<string | { value: string }>
   readonly showWikiHistory: (slug: string, repo?: string, page?: number, space?: WikiSpace) => Promise<string | void | { value: string }>
-  readonly createCloudWikiPage: (title: string, repo?: string) => Promise<string | void | { value: string }>
+  readonly saveWikiAnswer: (name: string, text?: string) => Promise<string | void | { value: string }>
+  readonly createCloudWikiPage: (title: string, repo?: string, body?: string) => Promise<string | void | { value: string }>
   readonly renameCloudWikiPage: (slug: string, path: string, repo?: string) => Promise<string | void>
   readonly deleteCloudWikiPage: (slug: string, repo?: string) => Promise<string | void>
   readonly attachCloudWiki: (path: string, repo: string | undefined, gesture?: CommandGesture) => Promise<string | void | { value: string }>
@@ -500,6 +501,7 @@ export interface AppController extends IssueFlowsController {
   readonly answerTodo: TodoSeam["answerTodo"]
   readonly steerTodo: TodoSeam["steerTodo"]
   readonly amendTodo: TodoSeam["amendTodo"]
+  readonly draftImagePackage: TodoSeam["draftImagePackage"]
   readonly controlTodo: TodoSeam["controlTodo"]
   /** Move up or Move down on Tn: the seed's, or this host's POST /api/todos/{n} {op: move}. */
   readonly moveTodo: TodoSeam["moveTodo"]
@@ -1240,7 +1242,7 @@ export const createAppController = (
   const { enqueuePrompt, removeQueuedPrompt, restoreQueuedPrompts, resumePromptQueue } = promptQueue
   const cloudWiki = actors.pair(ctx, (context) => createCloudWikiController(context, store.nextOrdinal))
   const { listCloudWiki, openCloudWiki, retryCloudWiki, attachWorldEditor,
-    setWikiSpace, setWikiPageView, loadWikiIndex, readWikiForPane, showWikiHistory, createCloudWikiPage, renameCloudWikiPage, deleteCloudWikiPage, attachCloudWiki, wikiIndexes } = cloudWiki
+    setWikiSpace, setWikiPageView, loadWikiIndex, readWikiForPane, showWikiHistory, createCloudWikiPage, saveWikiAnswer, renameCloudWikiPage, deleteCloudWikiPage, attachCloudWiki, wikiIndexes } = cloudWiki
   const selectRepo: TabsController["selectRepo"] = async (key) => {
     const result = await selectRepoOnly(key)
     if (result === undefined && store.session().surface === "world") void readWikiForPane()
@@ -1779,6 +1781,7 @@ export const createAppController = (
     loadWikiIndex,
     showWikiHistory,
     createCloudWikiPage,
+    saveWikiAnswer,
     renameCloudWikiPage,
     deleteCloudWikiPage,
     attachCloudWiki,
@@ -1925,6 +1928,7 @@ export const createAppController = (
     answerTodo: todoSeam.answerTodo,
     steerTodo: todoSeam.steerTodo,
     amendTodo: todoSeam.amendTodo,
+    draftImagePackage: todoSeam.draftImagePackage,
     controlTodo: todoSeam.controlTodo,
     moveTodo: todoSeam.moveTodo,
     refreshWiki: stackSeam.refreshWiki,

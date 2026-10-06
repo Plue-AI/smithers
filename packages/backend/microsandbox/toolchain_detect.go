@@ -15,11 +15,17 @@ import (
 const DetectorVersion = "smithers.toolchain-detect/v2"
 
 // RecipeError is an actionable machine preparation or command failure.
+type MissingTool struct {
+	Name string `json:"name"`
+	File string `json:"file"`
+}
+
 type RecipeError struct {
-	Code    string `json:"code"`
-	Class   string `json:"class"`
-	Message string `json:"message"`
-	Fix     string `json:"fix,omitempty"`
+	MissingTool *MissingTool `json:"missing_tool,omitempty"`
+	Code        string       `json:"code"`
+	Class       string       `json:"class"`
+	Message     string       `json:"message"`
+	Fix         string       `json:"fix,omitempty"`
 }
 
 func (e *RecipeError) Error() string { return e.Message }

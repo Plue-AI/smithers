@@ -116,7 +116,10 @@ export function TodoView({ model: todo, actions, onAction, conflictTerminal }: T
         </p>
       )}
       {todo.rebase_pending && <p className="todo-meta">Rebase pending onto {todo.rebase_pending.onto} ↶ Verify</p>}
-      {todo.prompt_revisions[0] && <p className="todo-prompt">{todo.prompt_revisions[0].text}</p>}
+      {["queued", "dropped"].includes(todo.state) && todo.prompt_revisions.at(-1) && <>
+        <p className="todo-prompt">{todo.prompt_revisions.at(-1)!.text}</p>
+        <ul>{todo.prompt_revisions.at(-1)!.acceptance.map(text => <li key={text}>{text}</li>)}</ul>
+      </>}
       {todo.prompt_revisions.length > 1 && (
         <details>
           <summary>+{todo.prompt_revisions.length - 1}</summary>
@@ -133,7 +136,7 @@ export function TodoView({ model: todo, actions, onAction, conflictTerminal }: T
           ))}
         </details>
       )}
-      <ol className="todo-steps" aria-label="Flow steps">
+      {!["queued", "dropped"].includes(todo.state) && <ol className="todo-steps" aria-label="Flow steps">
         {todo.steps.map((step, index) => {
           const phase = currentIndex < 0 ? step.state
             : index < currentIndex ? "done"
@@ -152,7 +155,7 @@ export function TodoView({ model: todo, actions, onAction, conflictTerminal }: T
           </li>
           );
         })}
-      </ol>
+      </ol>}
       {todo.run?.indicators.map((flag, index) => (
         <p className="todo-meta" key={index}>
           {flag.text}
@@ -275,7 +278,10 @@ export function TodoView({ model: todo, actions, onAction, conflictTerminal }: T
       <div className="todo-actions">
         {actions.map((action, index) =>
           action.tag === "merge" && (todo.merge.state !== "ready" || action.disabled) ? null : (
-            <TodoActionView
+            action.tag === "todo.amend" && todo.state === "queued" ? <details key={`${action.tag}-${index}`}>
+              <summary>Edit</summary>
+              <TodoActionView action={action} onAction={onAction} drafts={drafts} onView={setDrafts} />
+            </details> : <TodoActionView
               key={`${action.tag}-${index}`}
               action={action}
               onAction={onAction}

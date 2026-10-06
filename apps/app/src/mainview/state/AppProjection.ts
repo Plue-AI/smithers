@@ -224,6 +224,7 @@ export const APP_TRANSITION_TYPES = {
   "librarian.launches.changed": true,
   "coding.provider.requests.changed": true,
   "stack.wiki.requests.changed": true,
+  "wiki.saves.changed": true,
   "install.requests.changed": true,
   "secret.requests.changed": true,
   "egress.requests.changed": true,
@@ -2130,6 +2131,10 @@ export const projectAppEvent = (previous: AppProjectionSnapshot, context: AppPro
         }
         case "stack.wiki.requests.changed": {
           collections.sessions.update(SESSION_ID, draft => { draft.wikiRequests = transition.requests })
+          break
+        }
+        case "wiki.saves.changed": {
+          collections.sessions.update(SESSION_ID, draft => { draft.wikiSaves = transition.requests })
           break
         }
         case "theme.changed":

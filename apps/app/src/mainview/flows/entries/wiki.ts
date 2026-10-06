@@ -70,7 +70,5 @@ export const wikiFlows = (actions: CommandActions): ReadonlyArray<FlowEntry> =>
       } catch { return { error: "Invalid page input" } }
     },
     form: { submitLabel: "Save", fields: { text: { hidden: true } }, args: payload => JSON.stringify(payload) },
-    // Keep the existing shared operation as the authority. Its current contract is a refresh;
-    // T-APP-02 cannot manufacture a page write when wiki.create accepts only a repository.
-    handler: () => "Saving answers is unavailable."
+    handler: ({ name, text }) => actions.saveWikiAnswer(name, text)
   })]
