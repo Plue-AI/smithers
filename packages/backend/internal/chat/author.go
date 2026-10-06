@@ -12,7 +12,7 @@ import (
 // The installed repository is the authority for host-owned branch turns.
 // Legacy journals outside that binding retain their account-only audience.
 func inactiveInstallAuthor(repositoryParameter string) string {
-	return `t.repository_id=` + repositoryParameter + `
+	return repositoryParameter + `>0 AND t.repository_id=` + repositoryParameter + `
  AND NOT EXISTS(SELECT 1 FROM collaborators c JOIN users u ON u.id=c.user_id
  WHERE c.repository_id=t.repository_id AND c.user_id=t.user_id
  AND c.suspended_at IS NULL AND NOT u.prohibit_login)`

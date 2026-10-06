@@ -10,6 +10,31 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+func TestAccountOnlyProducerRemainsLiveWithoutInstallBinding(t *testing.T) {
+	store := needStore(t)
+	ctx, scope := t.Context(), testScope()
+	scope.RepositoryID = 0
+	runID, journal := uuid.NewString(), testJournal()
+	accepted := admit(t, store, scope, runID, journal)
+	grant, err := store.Claim(ctx, scope, accepted.TurnID, time.Minute)
+	require.NoError(t, err)
+	require.NoError(t, store.MarkProviderStarted(ctx, grant))
+	_, err = store.Producer(ctx, grant.TurnID, grant.Generation, grant.Token)
+	require.NoError(t, err)
+	_, err = store.RenewProducer(ctx, grant, time.Minute)
+	require.NoError(t, err)
+	committed, err := store.Commit(ctx, CommitInput{
+		TurnID: grant.TurnID, Generation: grant.Generation, Token: grant.Token,
+		Expected: grant.Cursor, Frames: []json.RawMessage{frame(runID, "retained history"), done(runID, "stop")},
+	})
+	require.NoError(t, err)
+	require.Equal(t, "committed", committed.Status)
+	page, err := store.Replay(ctx, ReplayInput{Scope: scope, RunID: runID, Journal: journal})
+	require.NoError(t, err)
+	require.True(t, page.Terminal)
+	require.Len(t, page.Batches, 1)
+}
+
 func TestProducerRenewalRechecksExpiryAfterRowLockWait(t *testing.T) {
 	store, clock := clockedStore(needStore(t))
 	ctx, cancel := context.WithTimeout(t.Context(), dbWait)
