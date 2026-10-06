@@ -1,3 +1,5 @@
+import { fixtures } from "@smthrs/rpc/fixtures/Confirm"
+import type { MemberConfirmation } from "@smthrs/rpc/ConfirmCard"
 import { createWebAgent } from "../native/WebAgent"
 import historyFixture from "./testdata/earlier-history.json"
 import { GlobalRegistrator } from "@happy-dom/global-registrator"
@@ -110,4 +112,38 @@ test("Earlier combines two browser archives with private journal replay without 
   flushSync(() => host.querySelector<HTMLButtonElement>('[data-node="earlier"]')!.click())
   await waitFor(() => host.querySelector('[aria-label="Earlier"]') !== null)
   expect(host.querySelectorAll("[data-archive]")).toHaveLength(0)
+})
+
+
+test("Earlier hides live confirmation actions and returning restores the same pending request", async () => {
+  const store = await createAppStore({ kind: "localStorage", storage: memoryStorage() })
+  const pending: MemberConfirmation = { id: "10000000-0000-4000-8000-000000000001", state: "pending", command: "todo.drop", revision: "item:2", expires_at: "2099-01-01T00:00:00Z",
+    payload: { input: { op: "drop" }, card: { ...fixtures.one_click.model, action: { tag: "todo.drop", verb: "Drop" }, subject: { kind: "todo", ref: "T12", revision: "item:2" } } } }
+  const snapshot = { topic: "confirmations:17", data: [pending] }
+  const writes: string[] = []
+  const controller = controllerFor(store, silentAgent, {
+    bootstrap: { apiVersion: 1, host: "local", version: "test", buildSha: "test", capabilities: ["install"], authFlow: "redirect", sandbox: null },
+    live: { subscribe: () => () => {}, getSnapshot: topic => topic === snapshot.topic ? snapshot : undefined },
+    fetchImpl: async (input, init) => {
+      const path = String(input)
+      if (init?.method && init.method !== "GET") writes.push(path)
+      return path.includes("/api/branches?") ? Response.json([]) : new Response("{}", { status: 404 })
+    }
+  })
+  await store.dispatch({ type: "identity.session.loaded", actor: "system", state: "signed-in", login: "ben", memberId: 17, admin: false, scopesPlain: null }).isPersisted.promise
+  const host = mount(controller)
+  const confirmation = () => host.querySelector(`[data-message-id="confirmation:${pending.id}"]`)
+  await waitFor(() => confirmation()?.querySelector("button") !== null && confirmation() !== null)
+  expect(confirmation()?.textContent).toContain("Drop")
+  await controller.submitCommand({ name: "branches", payload: {}, actor: "user" })
+  await waitFor(() => host.querySelector('[data-node="earlier"]') !== null)
+  flushSync(() => host.querySelector<HTMLButtonElement>('[data-node="earlier"]')!.click())
+  await waitFor(() => host.querySelector('[aria-label="Earlier"]') !== null)
+  expect(confirmation() === null).toBe(true)
+  flushSync(() => host.querySelector<HTMLButtonElement>('[data-node="earlier"]')!.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true })))
+  await waitFor(() => host.querySelector('[aria-label="Earlier"]') === null)
+  await waitFor(() => confirmation() !== null)
+  expect(confirmation()?.textContent).toContain("Drop")
+  expect(pending.state).toBe("pending")
+  expect(writes).toEqual([])
 })

@@ -506,7 +506,7 @@ function AppContent() {
                 ) :
                 <TranscriptMessage key={entry.message.id} entry={entry} streamingMessageId={streamingMessageId} />}
             </MessageScrollerItem>)}
-            {privateConfirms.map(row => <MessageScrollerItem key={`confirmation:${row.id}`} messageId={`confirmation:${row.id}`}>
+            {!earlier && privateConfirms.map(row => <MessageScrollerItem key={`confirmation:${row.id}`} messageId={`confirmation:${row.id}`}>
               {renderConfirmCard(memberConfirmCardProps(row, (tag, input) => {
                 if ((tag === "approval.approve" || tag === "approval.deny") && input && "cardId" in input) {
                   controller.runCommand(tag, flowArgs(tag, { cardId: String(input.cardId) }))
