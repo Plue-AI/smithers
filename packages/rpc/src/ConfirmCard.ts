@@ -20,7 +20,7 @@ export const ConfirmRevisionSchema = z.string()
 
 /**
  * Confirm projection fields from spec §14.3 and ui-components.md T-UI-05. Members, secrets and settings are
- * agent: never and have no confirmation, so the subject is a TODO, branch, flow, agent or wiki page.
+ * agent: never and have no confirmation, so the subject is a TODO, branch, flow, agent, wiki page or Learning proposal.
  * @since 1.0.0
  * @category schemas
  */
@@ -29,7 +29,7 @@ export const ConfirmCardSchema = z.object({
   action: z.object({ tag: CatalogTagSchema, verb: z.string() }),
   summary: z.string(),
   subject: z.object({
-    kind: z.enum(["todo", "branch", "flow", "agent", "wiki"]),
+    kind: z.enum(["todo", "branch", "flow", "agent", "wiki", "proposal"]),
     ref: z.string(),
     revision: ConfirmRevisionSchema.optional()
   }),
@@ -72,7 +72,11 @@ export const MemberConfirmationSchema = z.object({
   payload: z.object({
     card: ConfirmCardSchema,
     input: z.record(z.string(), z.unknown()),
-    effect: z.object({ todo: z.number().int().positive().max(Number.MAX_SAFE_INTEGER), request: z.string().min(1), revision: z.number().int().positive().max(Number.MAX_SAFE_INTEGER).optional() }).optional()
+    effect: z.object({
+      todo: z.number().int().positive().max(Number.MAX_SAFE_INTEGER),
+      request: z.string().min(1),
+      revision: z.number().int().positive().max(Number.MAX_SAFE_INTEGER).optional()
+    }).optional()
   })
 })
 

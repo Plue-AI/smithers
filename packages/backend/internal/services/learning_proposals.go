@@ -7,8 +7,11 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 	"github.com/smithersai/smithers/packages/backend/internal/db"
+	"github.com/smithersai/smithers/packages/backend/internal/middleware"
+	"github.com/smithersai/smithers/packages/backend/jobs"
 )
 
 // LearningProposalCard is the retained ProposalCard wire contract. Provenance
@@ -118,9 +121,24 @@ func (s *MythicalService) ResolveLearningProposal(ctx context.Context, repositor
 	expected := owner + "/" + repo.Name
 	var card LearningProposalCard
 	err = pgx.BeginFunc(ctx, s.store, func(tx pgx.Tx) error {
+		bound, current, err := lockInstallWriteCredential(ctx, tx, middleware.AuthInfoFromContext(ctx))
+		if err != nil {
+			return err
+		}
+		if current != repository {
+			return confirmationPermission()
+		}
+		fresh, err := Authorize(bound, db.New(tx), command)
+		if err != nil {
+			return err
+		}
+		if fresh.UserID != user {
+			return confirmationPermission()
+		}
+		ctx = bound
 		var status, raw string
 		var accepted *string
-		err := tx.QueryRow(ctx, `SELECT status,provenance_json,accepted_todo FROM memory_notes WHERE id=$1 AND namespace_kind='flow' AND namespace_id=$2 FOR UPDATE`, id, learningNamespace(repository)).Scan(&status, &raw, &accepted)
+		err = tx.QueryRow(ctx, `SELECT status,provenance_json,accepted_todo FROM memory_notes WHERE id=$1 AND namespace_kind='flow' AND namespace_id=$2 FOR UPDATE`, id, learningNamespace(repository)).Scan(&status, &raw, &accepted)
 		if errors.Is(err, pgx.ErrNoRows) {
 			return proposalError(404, "proposal_not_found", "Proposal not found")
 		}
@@ -162,6 +180,10 @@ func (s *MythicalService) ResolveLearningProposal(ctx context.Context, repositor
 		if err = enrichLearningProposal(ctx, db.New(tx), repository, note, &card); err != nil {
 			return err
 		}
+		data, _ := json.Marshal(map[string]any{"id": id, "state": card.State, "topics": []string{"proposals", "home"}})
+		if _, err = jobs.RecordFactInTx(ctx, tx, jobs.Scope{TenantID: "repository:" + strconv.FormatInt(repository, 10), PrincipalID: "user:" + strconv.FormatInt(user, 10)}, uuid.NewSHA1(uuid.NameSpaceOID, []byte("learning.proposal:"+strconv.FormatInt(repository, 10)+":"+id+":"+next)).String(), "learning.proposal", next, data); err != nil {
+			return err
+		}
 		_, err = tx.Exec(ctx, `SELECT pg_notify($1,'')`, "mythical_"+strconv.FormatInt(repository, 10))
 		return err
 	})
@@ -201,4 +223,17 @@ func enrichLearningProposal(ctx context.Context, q *db.Queries, repository int64
 // Refuse mismatched or unbound persisted output before any note or TODO effect.
 func learningNoteBound(note LearningProposalNote, repository string) bool {
 	return strings.EqualFold(note.Repository, repository) && strings.TrimSpace(note.Run) != "" && strings.TrimSpace(note.Signature) != ""
+}
+
+// LearningProposalsSnapshot binds a durable event cursor to the existing notes.
+// Read the cursor first: a concurrent commit may appear early in the data, but
+// its later cursor still forces a refresh; no committed change is skipped.
+func (s *MythicalService) LearningProposalsSnapshot(ctx context.Context, repository int64) (int64, []LearningProposalCard, error) {
+	var cursor int64
+	err := s.store.QueryRow(ctx, `SELECT COALESCE(MAX(sequence),0) FROM product_job_events WHERE tenant_id=$1 AND event_type IN ('learning.receipt','learning.proposal')`, "repository:"+strconv.FormatInt(repository, 10)).Scan(&cursor)
+	if err != nil {
+		return 0, nil, err
+	}
+	cards, err := s.LearningProposals(ctx, repository)
+	return cursor, cards, err
 }

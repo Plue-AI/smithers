@@ -6,6 +6,7 @@ import (
 	stdErrors "errors"
 	"io"
 	"net/http"
+	"net/url"
 	"regexp"
 	"strconv"
 	"strings"
@@ -192,6 +193,20 @@ func dispatchConfirmation(w http.ResponseWriter, r *http.Request, command string
 			delete(body, "op")
 			input.Payload, _ = json.Marshal(body)
 		}
+	}
+	if command == "learning.accept" || command == "learning.dismiss" {
+		part := strings.TrimPrefix(r.URL.EscapedPath(), "/api/proposals/")
+		ref, _, ok := strings.Cut(part, "/")
+		if !ok || ref == "" {
+			writeConfirmationDispatchError(w, &services.AccessError{Status: 400, Class: "user", Code: "invalid_confirmation", Message: "Invalid proposal"})
+			return true
+		}
+		decoded, decodeErr := url.PathUnescape(ref)
+		if decodeErr != nil {
+			writeConfirmationDispatchError(w, &services.AccessError{Status: 400, Class: "user", Code: "invalid_confirmation", Message: "Invalid proposal"})
+			return true
+		}
+		input.Subject, _ = json.Marshal(map[string]string{"kind": "proposal", "ref": decoded})
 	}
 	receipt, err := service.RequestConfirmation(r.Context(), input)
 	if err != nil {

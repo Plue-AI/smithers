@@ -314,6 +314,33 @@ func (s *MythicalService) prepareConfirmation(ctx context.Context, tx pgx.Tx, re
 	}
 	text, verb := "", ""
 	switch input.Command {
+	case "learning.accept", "learning.dismiss":
+		var empty struct{}
+		if subject.Kind != "proposal" || subject.Ref == "" || len(subject.Ref) > 512 || confirmationJSON(input.Payload, &empty) != nil {
+			return p, invalidConfirmation()
+		}
+		p.input = json.RawMessage(`{}`)
+		var status, raw string
+		if err := tx.QueryRow(ctx, `SELECT status,provenance_json FROM memory_notes WHERE id=$1 AND namespace_kind='flow' AND namespace_id=$2 FOR UPDATE`, subject.Ref, learningNamespace(repository)).Scan(&status, &raw); err != nil {
+			if errors.Is(err, pgx.ErrNoRows) {
+				return p, proposalError(409, "proposal_resolved", "Proposal changed")
+			}
+			return p, err
+		}
+		var note LearningProposalNote
+		repo, owner, err := s.repository(ctx, repository)
+		if err != nil {
+			return p, err
+		}
+		if inspect && status != "pending" || json.Unmarshal([]byte(raw), &note) != nil || !learningNoteBound(note, owner+"/"+repo.Name) {
+			return p, proposalError(409, "proposal_resolved", "Proposal changed")
+		}
+		sum := sha256.Sum256([]byte(raw))
+		p.revision = hex.EncodeToString(sum[:])
+		p.title, text, verb = note.Title, note.Prompt, "Make TODO"
+		if input.Command == "learning.dismiss" {
+			verb = "Dismiss"
+		}
 	case "todo.new":
 		var request MythicalTodoInput
 		if err := confirmationJSON(input.Payload, &request); err != nil {
@@ -571,6 +598,18 @@ func (s *ApprovalsService) DecideConfirmation(ctx context.Context, id, decision,
 			var number int64
 			var amendedRevision int
 			switch command {
+			case "learning.accept", "learning.dismiss":
+				var subject struct {
+					Ref string `json:"ref"`
+				}
+				if err = json.Unmarshal(prepared.subject, &subject); err != nil {
+					return err
+				}
+				var card LearningProposalCard
+				card, err = consumer.ResolveLearningProposal(bound, repository, info.User.ID, subject.Ref, command == "learning.accept")
+				if card.Todo != nil {
+					number = card.Todo.N
+				}
 			case "todo.new":
 				var request MythicalTodoInput
 				if err = json.Unmarshal(prepared.input, &request); err != nil {
@@ -631,16 +670,18 @@ func (s *ApprovalsService) DecideConfirmation(ctx context.Context, id, decision,
 			}
 			// The private projection retains the admitted subject across a lost
 			// response/reload. This is an admission receipt, never execution success.
-			effectInput := map[string]any{"todo": number, "request": input.Key}
-			if amendedRevision > 0 {
-				effectInput["revision"] = amendedRevision
-			}
-			effect, err := json.Marshal(effectInput)
-			if err != nil {
-				return err
-			}
-			if _, err = tx.Exec(bound, `UPDATE approvals SET payload=jsonb_set(payload,'{effect}',$2::jsonb) WHERE id=$1`, id, effect); err != nil {
-				return err
+			if number > 0 {
+				effectInput := map[string]any{"todo": number, "request": input.Key}
+				if amendedRevision > 0 {
+					effectInput["revision"] = amendedRevision
+				}
+				effect, err := json.Marshal(effectInput)
+				if err != nil {
+					return err
+				}
+				if _, err = tx.Exec(bound, `UPDATE approvals SET payload=jsonb_set(payload,'{effect}',$2::jsonb) WHERE id=$1`, id, effect); err != nil {
+					return err
+				}
 			}
 		}
 		changed, err := q.DecideMemberConfirmation(bound, id, info.User.ID, info.SessionHash, key, want)
