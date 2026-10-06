@@ -504,9 +504,6 @@ func Authorize(ctx context.Context, q *db.Queries, command string) (InstallAutho
 		default:
 			return InstallAuthorization{}, &AccessError{Status: 403, Class: "never", Code: "never", Message: "Only a person can do this"}
 		}
-		if command == "todo.drop" && role.rank() < InstallMaintainer.rank() {
-			return InstallAuthorization{}, &AccessError{Status: 403, Class: "permission", Code: "permission", Message: "Only a maintainer can do this"}
-		}
 	}
 	if fullDelegated && (command == "todo.amend" || command == "merge" || command == "todo.drop" || command == "review") {
 		return InstallAuthorization{}, &AccessError{Status: 503, Class: "infra", Code: "confirmation_unavailable", Message: "Confirmation unavailable"}
