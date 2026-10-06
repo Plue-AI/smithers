@@ -155,7 +155,7 @@ export const fit = (cases: ReadonlyArray<CorpusCase>, method: Fit["method"] = "c
   const { train, heldOut } = split(cases)
   const { pooled, strata } = fitAnchors(train)
   const vector = (entry: CorpusCase) => normalize(entry, strata, pooled)
-  const rows = train.filter((entry) => entry.label !== "hybrid").map((entry) => ({
+  const rows = train.filter((entry) => entry.label !== "hybrid").map<{ x: ReadonlyArray<number>; y: 0 | 1 }>((entry) => ({
     x: vector(entry),
     y: (entry.label === "agent" ? 1 : 0)
   }))
