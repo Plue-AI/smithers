@@ -44,7 +44,20 @@ pub fn local(cx: &mut LockCx, repository: &mut impl Repository) -> Result<Captur
 pub trait Delivery {
     fn wait_empty(&self) -> Result<()>;
 }
-pub fn finish(captured: Captured, delivery: &impl Delivery) -> Result<Captured> {
+/// The transport starts this on its request worker, never on the lock thread.
+/// Local work is FIFO; waiting for host receipts does not block later mutations.
+pub fn request(
+    lock: &crate::lock::Lock,
+    snapshot: impl FnOnce(&mut LockCx) -> Result<Captured> + Send + 'static,
+    delivery: &impl Delivery,
+) -> Result<Captured> {
+    let captured = lock
+        .run_blocking("capture", snapshot)
+        .map_err(|_| crate::hooks::Error {
+            code: 12,
+            detail: Some("capture executor failed".into()),
+            ..crate::hooks::Error::unsupported()
+        })??;
     delivery.wait_empty()?;
     Ok(captured)
 }

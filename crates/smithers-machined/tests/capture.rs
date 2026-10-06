@@ -135,3 +135,56 @@ fn cadence_boundaries_and_failed_attempt_remain_due() {
     c.captured(now + Duration::from_secs(6));
     assert!(!c.due(now + Duration::from_secs(7)));
 }
+
+#[test]
+fn capture_waits_for_receipt_without_holding_mutation_lock() {
+    use std::sync::mpsc;
+    struct Drain {
+        waiting: mpsc::Sender<()>,
+        receipt: Mutex<mpsc::Receiver<()>>,
+    }
+    impl capture::Delivery for Drain {
+        fn wait_empty(&self) -> Result<()> {
+            self.waiting.send(()).unwrap();
+            self.receipt.lock().unwrap().recv().unwrap();
+            Ok(())
+        }
+    }
+    let executor = smithers_machined::lock::Executor::start(Hooks::default()).unwrap();
+    let lock = executor.lock.clone();
+    let (waiting, wait) = mpsc::channel();
+    let (receipt, received) = mpsc::channel();
+    let (finished, result) = mpsc::channel();
+    let worker = std::thread::spawn(move || {
+        let output = capture::request(
+            &lock,
+            |_| {
+                Ok(Captured {
+                    head: [1; 20],
+                    tree: [2; 20],
+                    flushed: 1,
+                })
+            },
+            &Drain {
+                waiting,
+                receipt: Mutex::new(received),
+            },
+        );
+        finished.send(output).unwrap();
+    });
+    wait.recv_timeout(Duration::from_secs(2)).unwrap();
+    let writer = executor.lock.enqueue("next writer", |_| 71).unwrap();
+    assert_eq!(writer.wait().unwrap(), 71);
+    assert!(result.try_recv().is_err());
+    receipt.send(()).unwrap();
+    assert_eq!(
+        result
+            .recv_timeout(Duration::from_secs(2))
+            .unwrap()
+            .unwrap()
+            .head,
+        [1; 20]
+    );
+    worker.join().unwrap();
+    executor.shutdown().unwrap();
+}
