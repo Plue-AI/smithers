@@ -30,6 +30,11 @@ import (
 	pkgerrors "github.com/smithersai/smithers/packages/backend/internal/pkg/errors"
 )
 
+// The minter and shared admission use the same stream identity.
+func gitHubInstallationTokenPath(installationID int64) string {
+	return fmt.Sprintf("/app/installations/%d/access_tokens", installationID)
+}
+
 // connectedGitHubRepositorySQL reads the repository id a verified connect
 // persisted for owner/repo, by the connecting user ($1) or a member of the
 // owning org ($4), and the installation covering that id. Names only select
@@ -499,7 +504,7 @@ func (s *RepoConnectionService) CreateGitHubInstallationToken(
 	}
 	key := scope.cacheKey(installationID)
 	if cached, ok := getCachedInstallationToken(key); ok {
-		s.gitHubBudgetTracker.registerToken(cached.token, installationID)
+		s.gitHubBudgetTracker.registerToken(cached.token, installationID, cached.expiresAt)
 		return GitHubInstallationToken{InstallationID: installationID, Token: cached.token, ExpiresAt: cached.expiresAt}, nil
 	}
 	requestBody, err := json.Marshal(scope)
@@ -512,11 +517,7 @@ func (s *RepoConnectionService) CreateGitHubInstallationToken(
 		return GitHubInstallationToken{}, pkgerrors.Internal("failed to create github app jwt").WithCause(err)
 	}
 
-	endpoint := fmt.Sprintf(
-		"%s/app/installations/%d/access_tokens",
-		strings.TrimRight(githubAPIBaseURL(), "/"),
-		installationID,
-	)
+	endpoint := strings.TrimRight(githubAPIBaseURL(), "/") + gitHubInstallationTokenPath(installationID)
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, endpoint, bytes.NewReader(requestBody))
 	if err != nil {
 		return GitHubInstallationToken{}, pkgerrors.Internal("failed to build github token request").WithCause(err)
@@ -530,34 +531,38 @@ func (s *RepoConnectionService) CreateGitHubInstallationToken(
 	httpClient := s.gitHubBudgetTracker.WrapClient(observability.NewHTTPClient(10 * time.Second))
 	resp, err := httpClient.Do(req)
 	if err != nil {
-		return GitHubInstallationToken{}, pkgerrors.Internal("github installation token request failed").WithCause(err)
+		return GitHubInstallationToken{}, GitHubRequestFailure(ctx, "GitHub installation token request failed")
 	}
 	defer func() { _ = resp.Body.Close() }()
 
-	bodyBytes, _ := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
+	if resp.StatusCode == http.StatusNotFound {
+		return GitHubInstallationToken{}, pkgerrors.New(pkgerrors.CodeGitHubNotInstalled, "GitHub App installation not found")
+	}
+	if err := GitHubResponseFailure(resp.StatusCode, resp.Header, time.Now()); err != nil {
+		return GitHubInstallationToken{}, err
+	}
+
+	bodyBytes, readErr := io.ReadAll(io.LimitReader(resp.Body, (1<<20)+1))
+	if readErr != nil || len(bodyBytes) > 1<<20 {
+		return GitHubInstallationToken{}, GitHubRequestFailure(ctx, "GitHub returned an incomplete token response")
+	}
 
 	var payload struct {
 		Token     string `json:"token"`
 		ExpiresAt string `json:"expires_at"`
 	}
-	_ = json.Unmarshal(bodyBytes, &payload)
+	if err := json.Unmarshal(bodyBytes, &payload); err != nil {
+		return GitHubInstallationToken{}, GitHubRequestFailure(ctx, "GitHub installation token response was invalid")
+	}
 
-	// Errors are fixed text: an upstream message or expiry never reaches a
-	// caller or a log.
-	if resp.StatusCode == http.StatusUnauthorized || resp.StatusCode == http.StatusForbidden {
-		return GitHubInstallationToken{}, pkgerrors.Forbidden("github refused the installation token request")
-	}
-	if resp.StatusCode < http.StatusOK || resp.StatusCode >= http.StatusMultipleChoices {
-		return GitHubInstallationToken{}, pkgerrors.Internal("github installation token request was rejected")
-	}
 	token := strings.TrimSpace(payload.Token)
 	expiresAt, err := time.Parse(time.RFC3339, strings.TrimSpace(payload.ExpiresAt))
 	if token == "" || err != nil || time.Until(expiresAt) < installationTokenEarlyExpiry {
-		return GitHubInstallationToken{}, pkgerrors.Internal("github installation token response was invalid")
+		return GitHubInstallationToken{}, GitHubRequestFailure(ctx, "GitHub installation token response was invalid")
 	}
 
 	storeCachedInstallationToken(key, installationID, token, expiresAt)
-	s.gitHubBudgetTracker.registerToken(token, installationID)
+	s.gitHubBudgetTracker.registerToken(token, installationID, expiresAt)
 	return GitHubInstallationToken{
 		InstallationID: installationID,
 		Token:          token,
@@ -894,19 +899,22 @@ func (s *RepoConnectionService) listGitHubAppInstallations(ctx context.Context, 
 
 		resp, err := httpClient.Do(req)
 		if err != nil {
-			return nil, pkgerrors.Internal("github installations request failed").WithCause(err)
+			return nil, GitHubRequestFailure(ctx, "GitHub installations request failed")
 		}
-		bodyBytes, _ := io.ReadAll(io.LimitReader(resp.Body, 8<<20))
+		if failure := GitHubResponseFailure(resp.StatusCode, resp.Header, time.Now()); failure != nil {
+			_ = resp.Body.Close()
+			return nil, failure
+		}
+		bodyBytes, readErr := io.ReadAll(io.LimitReader(resp.Body, (8<<20)+1))
 		nextURL := parseGitHubNextLink(resp.Header.Get("Link"))
 		_ = resp.Body.Close()
-
-		if resp.StatusCode < http.StatusOK || resp.StatusCode >= http.StatusMultipleChoices {
-			return nil, pkgerrors.Internal("github installations request was rejected")
+		if readErr != nil || len(bodyBytes) > 8<<20 {
+			return nil, GitHubRequestFailure(ctx, "GitHub returned an incomplete installation listing")
 		}
 
 		var page []reconcileInstallation
 		if err := json.Unmarshal(bodyBytes, &page); err != nil {
-			return nil, pkgerrors.Internal("github installations response was invalid").WithCause(err)
+			return nil, GitHubRequestFailure(ctx, "GitHub installations response was invalid")
 		}
 		all = append(all, page...)
 		endpoint = nextURL
@@ -932,21 +940,24 @@ func (s *RepoConnectionService) listGitHubInstallationRepositories(ctx context.C
 
 		resp, err := httpClient.Do(req)
 		if err != nil {
-			return nil, pkgerrors.Internal("github repositories request failed").WithCause(err)
+			return nil, GitHubRequestFailure(ctx, "GitHub repositories request failed")
 		}
-		bodyBytes, _ := io.ReadAll(io.LimitReader(resp.Body, 8<<20))
+		if failure := GitHubResponseFailure(resp.StatusCode, resp.Header, time.Now()); failure != nil {
+			_ = resp.Body.Close()
+			return nil, failure
+		}
+		bodyBytes, readErr := io.ReadAll(io.LimitReader(resp.Body, (8<<20)+1))
 		nextURL := parseGitHubNextLink(resp.Header.Get("Link"))
 		_ = resp.Body.Close()
-
-		if resp.StatusCode < http.StatusOK || resp.StatusCode >= http.StatusMultipleChoices {
-			return nil, pkgerrors.Internal("github repositories request was rejected")
+		if readErr != nil || len(bodyBytes) > 8<<20 {
+			return nil, GitHubRequestFailure(ctx, "GitHub returned an incomplete installation listing")
 		}
 
 		var page struct {
 			Repositories []reconcileRepository `json:"repositories"`
 		}
 		if err := json.Unmarshal(bodyBytes, &page); err != nil {
-			return nil, pkgerrors.Internal("github repositories response was invalid").WithCause(err)
+			return nil, GitHubRequestFailure(ctx, "GitHub repositories response was invalid")
 		}
 		all = append(all, page.Repositories...)
 		endpoint = nextURL
@@ -1024,6 +1035,8 @@ func parseGitHubAppPrivateKey(value string) (*rsa.PrivateKey, error) {
 	return key, nil
 }
 
+const gitHubAppJWTValidity = 9 * time.Minute
+
 var createGitHubAppJWTFunc = createGitHubAppJWT
 
 func createGitHubAppJWT(appID int64, privateKey *rsa.PrivateKey, now time.Time) (string, error) {
@@ -1034,7 +1047,7 @@ func createGitHubAppJWT(appID int64, privateKey *rsa.PrivateKey, now time.Time) 
 
 	claims := mustBase64URLEncodeJSON(map[string]any{
 		"iat": now.Add(-30 * time.Second).Unix(),
-		"exp": now.Add(9 * time.Minute).Unix(),
+		"exp": now.Add(gitHubAppJWTValidity).Unix(),
 		"iss": appID,
 	})
 

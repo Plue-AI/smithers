@@ -85,7 +85,8 @@ func TestGitHubPullDiff_NotFoundMaps(t *testing.T) {
 	require.Error(t, err)
 	apiErr, ok := err.(*pkgerrors.APIError)
 	require.True(t, ok)
-	assert.Equal(t, http.StatusNotFound, apiErr.Status)
+	assert.Equal(t, http.StatusBadGateway, apiErr.Status)
+	assert.Equal(t, pkgerrors.CodeGitHubPermission, apiErr.Code)
 }
 
 func TestGitHubPullDiff_RefreshesExpiredTokenOnce(t *testing.T) {

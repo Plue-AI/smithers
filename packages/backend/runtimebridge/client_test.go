@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"io"
+	"maps"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -175,6 +176,48 @@ func TestClientMutationsUseOneVersionedContract(t *testing.T) {
 	want := []string{"approve", "deny", "signal", "steer", "steer", "steer", "steer", "cancel", "resume"}
 	if strings.Join(operations, ",") != strings.Join(want, ",") {
 		t.Fatalf("operations = %v", operations)
+	}
+}
+
+func TestClientSteerCarriesAttributionWithoutReplacingAuthentication(t *testing.T) {
+	for _, attributed := range []bool{false, true} {
+		name := "legacy"
+		var attribution map[string]string
+		if attributed {
+			name = "attributed"
+			attribution = map[string]string{"person": "ben", "via": "codex", "session": "terminal-1"}
+		}
+		t.Run(name, func(t *testing.T) {
+			client, _ := runtimeClient(t, http.HandlerFunc(func(response http.ResponseWriter, request *http.Request) {
+				if request.Header.Get("Authorization") != "Bearer secret" {
+					t.Error("steer lost transport authentication")
+				}
+				var command map[string]json.RawMessage
+				if err := json.NewDecoder(request.Body).Decode(&command); err != nil {
+					t.Error(err)
+					return
+				}
+				if _, present := command["principal"]; present {
+					t.Error("steer supplied a principal instead of using transport authentication")
+				}
+				if raw, present := command["attribution"]; attributed {
+					var got map[string]string
+					if err := json.Unmarshal(raw, &got); err != nil || !maps.Equal(got, attribution) {
+						t.Errorf("attribution = %s, error = %v", raw, err)
+					}
+				} else if present {
+					t.Errorf("legacy steer included attribution: %s", raw)
+				}
+				writeCommand(t, response, "steer", "member-feedback")
+			}))
+			_, err := client.Steer(context.Background(), flowruntime.FlowRuntimeSteer{
+				ApplicationRequestID: "member-feedback", OwnerGeneration: 7, RunID: "run-1",
+				MessageID: "message-1", Kind: "Message", Body: "Check cancellation.", Attribution: attribution,
+			})
+			if err != nil {
+				t.Fatal(err)
+			}
+		})
 	}
 }
 

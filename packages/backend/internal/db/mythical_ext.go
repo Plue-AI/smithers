@@ -378,11 +378,29 @@ func (q *Queries) ListMythicalItemsInStates(ctx context.Context, repositoryID in
 	return scanMythicalItems(rows, err)
 }
 
+// ListMythicalOpenPullItems includes all unsettled items with a pull request,
+// including those beyond the display limit. The existing follow loop owns them.
+func (q *Queries) ListMythicalOpenPullItems(ctx context.Context, repositoryID int64) ([]MythicalItem, error) {
+	rows, err := q.db.Query(ctx, `SELECT `+mythicalItemColumns+` FROM mythical_items
+ WHERE repository_id = $1 AND pr_number > 0
+ AND state NOT IN ('skipped', 'declined', 'cancelled', 'landed', 'rejected', 'blocked')`, repositoryID)
+	return scanMythicalItems(rows, err)
+}
+
 // ListMythicalPendingOperations includes dropped and old items beyond the
 // display limit, so restart cannot lose an outbound reconciliation obligation.
 func (q *Queries) ListMythicalPendingOperations(ctx context.Context, repositoryID int64) ([]MythicalItem, error) {
 	rows, err := q.db.Query(ctx, `SELECT `+mythicalItemColumns+` FROM mythical_items
  WHERE repository_id = $1 AND pending_op IS NOT NULL ORDER BY created_at`, repositoryID)
+	return scanMythicalItems(rows, err)
+}
+
+// ListMythicalGitHubBranchItems is the uncapped source-observation selection.
+// Failed and terminal items are included: the shared fact decision, not a
+// display or worker-state filter, decides whether an observation changes them.
+func (q *Queries) ListMythicalGitHubBranchItems(ctx context.Context, repositoryID int64) ([]MythicalItem, error) {
+	rows, err := q.db.Query(ctx, `SELECT `+mythicalItemColumns+` FROM mythical_items
+ WHERE repository_id=$1 AND checks ? 'branch' ORDER BY id`, repositoryID)
 	return scanMythicalItems(rows, err)
 }
 
@@ -715,14 +733,19 @@ func (q *Queries) GetMythicalItemByNumber(ctx context.Context, repositoryID, num
 	return scanMythicalItem(q.db.QueryRow(ctx, `SELECT `+mythicalItemColumns+` FROM mythical_items WHERE repository_id=$1 AND number=$2`, repositoryID, number))
 }
 
-// GetMythicalRequest is the item a browser session's request with this
-// Idempotency-Key made (a filed TODO) or approved (a Review & merge), the
-// one record of the repository's request identities.
-func (q *Queries) GetMythicalRequest(ctx context.Context, repositoryID int64, session, request string) (MythicalItem, error) {
+// GetMythicalRequest finds a credential's request in the existing TODO
+// records: creation, Review & merge, feedback, and control facts. Browser credentials use
+// their server-side session identity; feedback also supports bound tokens.
+func (q *Queries) GetMythicalRequest(ctx context.Context, repositoryID int64, credential, request string) (MythicalItem, error) {
 	return scanMythicalItem(q.db.QueryRow(ctx, `SELECT `+mythicalItemColumns+` FROM mythical_items WHERE repository_id=$1
 		AND (checks->>'creation_session'=$2 AND checks->>'filedRequest'=$3
-		  OR checks->'mergeRequests' @> jsonb_build_array(jsonb_build_object('session', $2::text, 'request', $3::text)))
-		ORDER BY id LIMIT 1`, repositoryID, session, request))
+		  OR checks->'mergeRequests' @> jsonb_build_array(jsonb_build_object('session', $2::text, 'request', $3::text))
+		  OR checks->'steers' @> jsonb_build_array(jsonb_build_object('credential', $2::text, 'request', $3::text))
+		  OR EXISTS (SELECT 1 FROM product_job_requests r
+		    WHERE r.operation IN ('todo.retried', 'todo.dropped', 'todo.moved')
+		    AND r.payload->>'item'=mythical_items.id::text
+		    AND r.authorization_context->>'credential'=$2 AND r.authorization_context->>'request'=$3))
+		ORDER BY id LIMIT 1`, repositoryID, credential, request))
 }
 func (q *Queries) InsertMythicalTodo(ctx context.Context, repositoryID, userID int64, title, prompt string, revisions, checks json.RawMessage) (MythicalItem, error) {
 	return q.InsertMythicalIssueTodo(ctx, repositoryID, userID, title, prompt, revisions, checks, nil)

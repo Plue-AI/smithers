@@ -24110,6 +24110,250 @@
       },
       {
         "kind": "file",
+        "path": "packages/backend/internal/services/github_synced_repos.go"
+      },
+      {
+        "kind": "file",
+        "path": "packages/backend/internal/services/github_synced_delivery.go"
+      },
+      {
+        "kind": "file",
+        "path": "packages/backend/internal/services/github_synced_refs.go"
+      },
+      {
+        "kind": "file",
+        "path": "packages/backend/internal/services/github_synced_events.go"
+      },
+      {
+        "kind": "file",
+        "path": "packages/backend/internal/services/github_synced_conditional.go"
+      },
+      {
+        "kind": "file",
+        "path": "packages/backend/internal/services/github_synced_cursor.go"
+      },
+      {
+        "kind": "file",
+        "path": "packages/backend/internal/services/github_synced_poll.go"
+      },
+      {
+        "kind": "file",
+        "path": "packages/backend/internal/services/github_sync.go"
+      },
+      {
+        "kind": "file",
+        "path": "packages/backend/internal/services/github_main_pull.go"
+      },
+      {
+        "kind": "file",
+        "path": "packages/backend/internal/services/github_synced_pull.go"
+      },
+      {
+        "kind": "file",
+        "path": "packages/backend/internal/services/github_synced_comments.go"
+      },
+      {
+        "kind": "file",
+        "path": "packages/backend/internal/services/mythical_github_poll.go"
+      },
+      {
+        "kind": "file",
+        "path": "packages/backend/internal/db/mythical_ext.go"
+      },
+      {
+        "kind": "file",
+        "path": "packages/backend/internal/services/mythical_items.go"
+      },
+      {
+        "kind": "file",
+        "path": "packages/backend/internal/services/mythical_outbound.go"
+      },
+      {
+        "kind": "file",
+        "path": "packages/backend/internal/services/flow_catalog.go"
+      },
+      {
+        "kind": "file",
+        "path": "packages/backend/internal/services/flow_versions.go"
+      },
+      {
+        "kind": "file",
+        "path": "packages/backend/internal/services/approvals.go"
+      },
+      {
+        "kind": "file",
+        "path": "packages/backend/internal/db/approvals_ext.go"
+      },
+      {
+        "kind": "file",
+        "path": "packages/backend/db/product/queries/approvals.sql"
+      },
+      {
+        "kind": "file",
+        "path": "packages/backend/db/product/migrations/pending/approvals_confirmations.sql"
+      },
+      {
+        "kind": "file",
+        "path": "packages/backend/db/product/sqlc.yaml"
+      },
+      {
+        "kind": "file",
+        "path": "packages/backend/internal/services/mythical_pr.go"
+      },
+      {
+        "kind": "file",
+        "path": "packages/backend/internal/services/mythical_todo_state.go"
+      },
+      {
+        "kind": "file",
+        "path": "packages/backend/internal/services/mythical_todo_read.go"
+      },
+      {
+        "kind": "file",
+        "path": "packages/backend/internal/repohost/refs.go"
+      },
+      {
+        "kind": "file",
+        "path": "packages/backend/internal/services/mythical.go"
+      },
+      {
+        "kind": "file",
+        "path": "packages/backend/internal/services/landing_github_pull.go"
+      },
+      {
+        "kind": "file",
+        "path": "packages/backend/internal/services/github_issue_text_writer.go"
+      },
+      {
+        "kind": "file",
+        "path": "packages/backend/internal/services/mythical_issue_events.go"
+      },
+      {
+        "kind": "file",
+        "path": "packages/backend/internal/services/mythical_github.go"
+      },
+      {
+        "kind": "file",
+        "path": "packages/backend/internal/services/github_budget.go"
+      },
+      {
+        "kind": "file",
+        "path": "packages/backend/internal/services/github_response.go"
+      },
+      {
+        "kind": "file",
+        "path": "packages/backend/internal/pkg/errors/registry.go"
+      },
+      {
+        "kind": "file",
+        "path": "packages/backend/internal/services/github_access_diagnosis.go"
+      },
+      {
+        "kind": "file",
+        "path": "packages/backend/internal/services/github_app_installations.go"
+      },
+      {
+        "kind": "file",
+        "path": "packages/backend/internal/services/github_repo_metadata.go"
+      },
+      {
+        "kind": "file",
+        "path": "packages/backend/internal/services/github_repo_list.go"
+      },
+      {
+        "kind": "file",
+        "path": "packages/backend/internal/services/github_user_repos.go"
+      },
+      {
+        "kind": "file",
+        "path": "packages/backend/internal/services/auth.go"
+      },
+      {
+        "kind": "file",
+        "path": "packages/backend/internal/services/github_pull_diff.go"
+      },
+      {
+        "kind": "file",
+        "path": "packages/backend/internal/services/github_issue_comments.go"
+      },
+      {
+        "kind": "file",
+        "path": "packages/backend/internal/services/github_repo_read_access.go"
+      },
+      {
+        "kind": "file",
+        "path": "packages/backend/internal/services/github_repo_push_access.go"
+      },
+      {
+        "kind": "file",
+        "path": "packages/backend/internal/services/github_import.go"
+      },
+      {
+        "kind": "file",
+        "path": "packages/backend/internal/services/member_roster.go"
+      },
+      {
+        "kind": "file",
+        "path": "packages/backend/internal/services/members.go"
+      },
+      {
+        "kind": "file",
+        "path": "packages/backend/internal/services/member_recheck.go"
+      },
+      {
+        "kind": "file",
+        "path": "packages/backend/internal/services/member_poll.go"
+      },
+      {
+        "kind": "file",
+        "path": "packages/backend/internal/cleanup/periodic.go"
+      },
+      {
+        "kind": "file",
+        "path": "packages/backend/internal/cleanup/export.go"
+      },
+      {
+        "kind": "file",
+        "path": "packages/backend/internal/services/install_machine_ready.go"
+      },
+      {
+        "kind": "file",
+        "path": "packages/backend/internal/services/install_setup.go"
+      },
+      {
+        "kind": "file",
+        "path": "packages/backend/internal/pkg/errors/errors.go"
+      },
+      {
+        "kind": "file",
+        "path": "packages/backend/internal/routes/members.go"
+      },
+      {
+        "kind": "file",
+        "path": "packages/backend/internal/services/repo_connection_github_app.go"
+      },
+      {
+        "kind": "file",
+        "path": "packages/backend/internal/compose/main.go"
+      },
+      {
+        "kind": "file",
+        "path": "packages/backend/internal/compose/github_sync.go"
+      },
+      {
+        "kind": "file",
+        "path": "packages/backend/internal/compose/runtime_helpers.go"
+      },
+      {
+        "kind": "file",
+        "path": "packages/backend/internal/auth/github.go"
+      },
+      {
+        "kind": "file",
+        "path": "packages/backend/internal/auth/github_oauth_error.go"
+      },
+      {
+        "kind": "file",
         "path": "packages/backend/internal/services/install_setup_session.go"
       },
       {

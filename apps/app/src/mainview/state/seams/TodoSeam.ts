@@ -225,9 +225,14 @@ export const createTodoSeam = (ctx: SeamContext, options: TodoSeamOptions = {}) 
     void (async () => {
       let response: Response
       try {
+        // Drafts (including restored requests) also retain creation metadata.
+        // PATCH changes only the existing TODO's prompt and acceptance.
+        const body = request.operation === "amend"
+          ? { prompt: request.body.prompt, ...(request.body.acceptance === undefined ? {} : { acceptance: request.body.acceptance }) }
+          : control ? { op: request.operation, ...request.body } : request.body
         response = await ctx.http(`${ctx.baseUrl}${route}`, {
           method: request.operation === "amend" ? "PATCH" : "POST", credentials: "include", signal: abort.signal,
-          headers: { "Content-Type": "application/json", "Idempotency-Key": request.key, ...(ctx.actor() === "smithers" ? { "Smithers-Via": "smithers" } : {}) }, body: JSON.stringify(control ? { op: request.operation, ...request.body } : request.body)
+          headers: { "Content-Type": "application/json", "Idempotency-Key": request.key, ...(ctx.actor() === "smithers" ? { "Smithers-Via": "smithers" } : {}) }, body: JSON.stringify(body)
         })
       } catch (error) {
         if (current(login, revision)) await fail(unreachableSentence("TODOs", error))

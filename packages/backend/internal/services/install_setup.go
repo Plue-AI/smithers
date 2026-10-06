@@ -433,8 +433,11 @@ func (s *InstallSetupService) Handle(ctx context.Context, lease *jobs.Lease) err
 		state = InstallFailed
 		failure = &InstallReadinessError{Code: "install_setup_failed", Class: "infra", Message: "Setup failed"}
 		var typed *InstallReadinessError
+		var upstream *pkgerrors.APIError
 		if errors.As(err, &typed) {
 			failure = typed
+		} else if errors.As(err, &upstream) && upstream.Class == pkgerrors.ClassGitHub {
+			failure = &InstallReadinessError{Code: string(upstream.Code), Class: "github", Message: upstream.Message, RetryAt: upstream.RetryAt}
 		}
 	}
 	step, writeErr := s.readStep(ctx, db.New(tx), id)

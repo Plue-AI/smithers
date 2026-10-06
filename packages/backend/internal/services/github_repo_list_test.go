@@ -106,7 +106,7 @@ func TestGitHubRepoListService_EvictsCachedTokenOn401(t *testing.T) {
 
 	_, err := svc.ListInstallationRepositories(context.Background(), 42, url.Values{})
 	require.Error(t, err)
-	assert.Equal(t, http.StatusUnauthorized, apiStatus(t, err))
+	assert.Equal(t, http.StatusBadGateway, apiStatus(t, err))
 	_, ok := getCachedInstallationToken(testTokenKey(instID))
 	assert.False(t, ok, "the cached installation token must be evicted on 401")
 }
@@ -130,8 +130,8 @@ func TestGitHubRepoListService_PreservesCachedTokenOnGeneric403(t *testing.T) {
 
 	_, err := svc.ListInstallationRepositories(context.Background(), 42, url.Values{})
 	require.Error(t, err)
-	assert.Equal(t, http.StatusForbidden, apiStatus(t, err))
-	assert.Contains(t, err.Error(), "secondary rate limit")
+	assert.Equal(t, http.StatusBadGateway, apiStatus(t, err))
+	assert.Equal(t, "GitHub access denied", err.Error())
 	_, ok := getCachedInstallationToken(testTokenKey(instID))
 	assert.True(t, ok, "the cached installation token must be preserved on generic 403")
 }

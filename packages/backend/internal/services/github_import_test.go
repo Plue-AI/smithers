@@ -326,7 +326,7 @@ func TestGitHubImportService_ClassifiesForbiddenRateLimitsAsRetryable(t *testing
 			assert.Equal(t, 0, refresher.callCount(), "403 responses must never rotate the GitHub token")
 			if tt.wantRateLimit {
 				assert.Equal(t, http.StatusTooManyRequests, apiErr.Status)
-				assert.Equal(t, pkgerrors.CodeRateLimitExceeded, apiErr.Code)
+				assert.Equal(t, pkgerrors.CodeGitHubRateLimited, apiErr.Code)
 				assert.GreaterOrEqual(t, apiErr.RetryAfter, tt.wantRetryAfter)
 				assert.GreaterOrEqual(t, githubImportRetryDelaySeconds(err), int32(tt.wantRetryAfter))
 				assert.False(t, isTerminalGitHubImportFailure(err))

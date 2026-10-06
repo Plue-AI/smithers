@@ -94,7 +94,7 @@ func allowWorkspaceRestrictedToken(w http.ResponseWriter, r *http.Request, info 
 // (TerminalProfileS1, spec §8.11.1) may call: its person's identity, the
 // eligible reads, wiki reads, and the TODO doors whose handlers authorize
 // the rest (services.Authorize): answer and steer on its own branch's TODO
-// only, and todo.new, which a delegated credential confirms in the app.
+// only, and new/amend requests, which require confirmation in the app.
 // Every other route refuses it with 403 permission before any handler runs.
 var terminalProfileRoutes = []struct {
 	method string
@@ -104,6 +104,7 @@ var terminalProfileRoutes = []struct {
 	{http.MethodGet, regexp.MustCompile(`^/api/user/repos$`)},
 	{http.MethodGet, regexp.MustCompile(`^/api/todos(/[0-9]+)?$`)},
 	{http.MethodPost, regexp.MustCompile(`^/api/todos(/[0-9]+(/answer)?)?$`)},
+	{http.MethodPatch, regexp.MustCompile(`^/api/todos/[0-9]+$`)},
 	{http.MethodGet, regexp.MustCompile(`^/api/repos/[^/]+/[^/]+$`)},
 	{http.MethodGet, regexp.MustCompile(`^/api/repos/[^/]+/[^/]+/mythical(/events|/items/[^/]+)?$`)},
 	{http.MethodGet, wikiReadPath},
@@ -413,6 +414,7 @@ var installMemberRoutes = []struct {
 	{http.MethodGet, "todo.read", regexp.MustCompile(`^/api/todos/[0-9]+$`)},
 	{http.MethodPost, "todo.new", regexp.MustCompile(`^/api/todos$`)},
 	{http.MethodPost, "todo.control", regexp.MustCompile(`^/api/todos/[0-9]+$`)},
+	{http.MethodPatch, "todo.amend", regexp.MustCompile(`^/api/todos/[0-9]+$`)},
 	{http.MethodPost, "todo.answer", regexp.MustCompile(`^/api/todos/[0-9]+/answer$`)},
 	{http.MethodPost, "merge", regexp.MustCompile(`^/api/todos/[0-9]+/merge$`)},
 	{http.MethodGet, "flows.read", regexp.MustCompile(`^/api/flows$`)},

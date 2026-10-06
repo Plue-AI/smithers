@@ -54,6 +54,8 @@ func newTodoAdmission(t *testing.T) (*mythicalOrchestration, context.Context) {
 	ctx := context.Background()
 	_, err := o.pool.Exec(ctx, `INSERT INTO self_host_owners(singleton,user_id) VALUES(true,$1)`, o.userID)
 	require.NoError(t, err)
+	binding := fmt.Sprintf(`{"owner_login":"smithers-canary","repository_name":"smithers","repository_id":%d}`, o.repoID)
+	require.NoError(t, db.New(o.pool).UpsertInstallSetting(ctx, db.UpsertInstallSettingParams{Key: "github.repository", Value: []byte(binding)}))
 	return o, middleware.ContextWithAuthInfo(ctx, &middleware.AuthInfo{User: &db.User{ID: o.userID}, SessionHash: "owner-session"})
 }
 
@@ -92,7 +94,7 @@ func (o *mythicalOrchestration) runDispatcher(t *testing.T, resolver flowruntime
 	pool = o.pool.(*pgxpool.Pool)
 	store, err := jobs.NewStore(pool)
 	require.NoError(t, err)
-	dispatcher, err := flowdispatch.New(flowdispatch.Config{Store: store, Projector: o.service, ObservationDelay: time.Millisecond, MaxObservationDelay: 5 * time.Millisecond,
+	dispatcher, err := flowdispatch.New(flowdispatch.Config{Store: store, Projector: o.service, SteerAuthorizer: o.service, ObservationDelay: time.Millisecond, MaxObservationDelay: 5 * time.Millisecond,
 		Resolver: resolver})
 	require.NoError(t, err)
 	o.service.SetLauncher(dispatcher)
@@ -382,6 +384,7 @@ func TestTodoDarkAdmissionOwnerProviders(t *testing.T) {
 type todoRuntimeHost struct {
 	mu       sync.Mutex
 	launches []map[string]any
+	steers   []map[string]any
 	// cancels and denials are the runs and plans the dispatcher stopped.
 	cancels, denials []string
 	cancelled        map[string]bool
@@ -434,6 +437,9 @@ func (h *todoRuntimeHost) serve(t *testing.T) *httptest.Server {
 			runID := "todo-run"
 			receipt := flowruntime.Receipt{Tag: "Accepted", RunID: runID}
 			switch operation {
+			case "steer":
+				h.steers = append(h.steers, input)
+				receipt.RunID, _ = input["runId"].(string)
 			case "launch":
 				h.launches = append(h.launches, input)
 				if input["flowId"] == mythicalReviewFlow {

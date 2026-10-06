@@ -72,6 +72,13 @@ type Write struct {
 	Permissions map[string]string `json:"permissions,omitempty"`
 }
 
+// Read records a repository REST read without retaining credentials.
+type Read struct {
+	Path        string
+	IfNoneMatch string
+	Status      int
+}
+
 type Server struct {
 	*httptest.Server
 	URL       string
@@ -92,6 +99,7 @@ type Server struct {
 	// (SignInAs) rather than the owner, by code.
 	signIns map[string]int64
 	writes  []Write
+	reads   []Read
 	tokens  map[string]int64
 	pulls   map[string]Pull
 	// grants are each installation token's permissions: those requested
@@ -111,10 +119,10 @@ type Server struct {
 	labels map[string][]string
 	// opened are the issues people opened (OpenIssue), with each issue's
 	// or pull request's timeline events and comments, by repo/number.
-	opened               map[string]*issue
-	events               map[string][]IssueEvent
-	comments             map[string][]IssueComment
-	eventIDs, commentIDs int64
+	opened                         map[string]*issue
+	events                         map[string][]IssueEvent
+	comments                       map[string][]IssueComment
+	eventIDs, commentIDs, issueIDs int64
 	// main holds the squash commits GitHub's main contains; held are merged
 	// commits main has not reached yet (HoldMain). In a repository the Git
 	// fixture hosts, heldTip is the newest held squash commit: the next one
@@ -259,6 +267,7 @@ func (s *Server) UpdatePull(repo string, number int64, change func(*Pull)) {
 	defer s.mu.Unlock()
 	key := repo + "/" + strconv.FormatInt(number, 10)
 	p := s.pulls[key]
+	p.UpdatedAt = time.Now().UTC()
 	change(&p)
 	s.pulls[key] = p
 }
@@ -387,6 +396,7 @@ func (s *Server) merge(key string, p Pull, title, message string) (Pull, bool) {
 	now := time.Now().UTC()
 	p.Merged = true
 	p.MergedAt = &now
+	p.UpdatedAt = now
 	p.State = "closed"
 	p.MergeCommitSHA = commit
 	s.pulls[key] = p
@@ -640,6 +650,12 @@ func (s *Server) Writes() []Write {
 	return writes
 }
 
+func (s *Server) Reads() []Read {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return append([]Read(nil), s.reads...)
+}
+
 func (s *Server) serveHTTP(w http.ResponseWriter, r *http.Request) {
 	s.mu.Lock()
 	hook := s.hooks[r.Method+" "+r.URL.Path]
@@ -684,9 +700,26 @@ func (s *Server) serveHTTP(w http.ResponseWriter, r *http.Request) {
 		s.writes = append(s.writes, Write{Sequence: uint64(len(s.writes) + 1), Method: r.Method, Path: r.URL.Path, Body: append(json.RawMessage(nil), body...), Status: status,
 			Permissions: s.grants[strings.TrimPrefix(r.Header.Get("Authorization"), "Bearer ")]})
 	}
+	if r.Method == http.MethodGet && strings.HasPrefix(r.URL.Path, "/repos/") {
+		if status == http.StatusOK {
+			raw, err := json.Marshal(response)
+			if err != nil {
+				status, response = failure(http.StatusInternalServerError, "invalid fixture response")
+			} else {
+				etag := fmt.Sprintf(`"%x"`, sha256.Sum256(raw))
+				w.Header().Set("ETag", etag)
+				if r.Header.Get("If-None-Match") == etag {
+					status = http.StatusNotModified
+				}
+			}
+		}
+		s.reads = append(s.reads, Read{Path: r.URL.RequestURI(), IfNoneMatch: r.Header.Get("If-None-Match"), Status: status})
+	}
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(status)
-	_ = json.NewEncoder(w).Encode(response)
+	if status != http.StatusNotModified {
+		_ = json.NewEncoder(w).Encode(response)
+	}
 }
 
 func (s *Server) respond(r *http.Request, body []byte) (int, any) {
@@ -1022,6 +1055,9 @@ func (s *Server) validJWT(token string) bool {
 // Pull is a fixture PR receipt; all writes still pass through the App token
 // boundary and permanent write log. The fake previously served no PR API.
 type Pull struct {
+	ID             int64      `json:"id"`
+	CreatedAt      time.Time  `json:"created_at"`
+	UpdatedAt      time.Time  `json:"updated_at"`
 	Repository     string     `json:"-"`
 	Number         int64      `json:"number"`
 	NodeID         string     `json:"node_id"`
@@ -1091,6 +1127,20 @@ func (s *Server) pullRequest(r *http.Request, repo string, path []string, body [
 	if len(path) == 3 && path[0] == "issues" && r.Method == http.MethodPost && (path[2] == "labels" || path[2] == "comments") {
 		return s.issueWrite(repo, path[1], path[2], body)
 	}
+	if len(path) == 4 && path[0] == "issues" && path[2] == "labels" && r.Method == http.MethodDelete {
+		if status, response, ok := s.accessible(r, "issues", "write"); !ok {
+			return status, response
+		}
+		key := repo + "/" + path[1]
+		for i, label := range s.labels[key] {
+			if strings.EqualFold(label, path[3]) {
+				s.labels[key] = append(s.labels[key][:i], s.labels[key][i+1:]...)
+				s.event(key, "unlabeled", "", true, label)
+				return http.StatusOK, labelsOf(s.labels[key])
+			}
+		}
+		return failure(http.StatusNotFound, "label not found")
+	}
 	if status, response, ok := s.issueRequest(r, repo, path, body); ok {
 		return status, response
 	}
@@ -1137,7 +1187,9 @@ func (s *Server) pullRequest(r *http.Request, repo string, path []string, body [
 			}
 		}
 		number := s.nextNumber(repo)
-		p := Pull{Repository: repo, Number: number, NodeID: fmt.Sprintf("PR_%s_%d", repo, number), Title: input.Title, Body: input.Body, State: "open", Draft: input.Draft, HTMLURL: fmt.Sprintf("https://github.com/%s/pull/%d", repo, number)}
+		s.issueIDs++
+		now := time.Now().UTC()
+		p := Pull{ID: s.issueIDs, CreatedAt: now, UpdatedAt: now, Repository: repo, Number: number, NodeID: fmt.Sprintf("PR_%s_%d", repo, number), Title: input.Title, Body: input.Body, State: "open", Draft: input.Draft, HTMLURL: fmt.Sprintf("https://github.com/%s/pull/%d", repo, number)}
 		p.Head.Ref = input.Head
 		digest := sha256.Sum256([]byte(repo + "/" + input.Head))
 		p.Head.SHA = fmt.Sprintf("%x", digest)[:40]
@@ -1162,7 +1214,15 @@ func (s *Server) pullRequest(r *http.Request, repo string, path []string, body [
 				result = append(result, s.view(s.current(key)))
 			}
 		}
-		sort.Slice(result, func(i, j int) bool { return result[i].Number < result[j].Number })
+		sort.Slice(result, func(i, j int) bool {
+			if r.URL.Query().Get("sort") == "updated" && !result[i].UpdatedAt.Equal(result[j].UpdatedAt) {
+				if r.URL.Query().Get("direction") == "asc" {
+					return result[i].UpdatedAt.Before(result[j].UpdatedAt)
+				}
+				return result[i].UpdatedAt.After(result[j].UpdatedAt)
+			}
+			return result[i].Number < result[j].Number
+		})
 		start, end := pageBounds(r, len(result))
 		return 200, result[start:end]
 	}
@@ -1255,6 +1315,7 @@ func (s *Server) pullRequest(r *http.Request, repo string, path []string, body [
 				}
 				p.State = *input.State
 			}
+			p.UpdatedAt = time.Now().UTC()
 			s.pulls[key] = p
 			return 200, s.view(p)
 		}
@@ -1341,6 +1402,7 @@ func (s *Server) current(key string) Pull {
 	if p.State == "open" {
 		if head, hosted, exists := s.branchHead(p.Repository, p.Head.Ref); hosted && exists && head != p.Head.SHA {
 			p.Head.SHA = head
+			p.UpdatedAt = time.Now().UTC()
 			s.pulls[key] = p
 		}
 	}
@@ -1408,6 +1470,7 @@ func (s *Server) pullMutation(installationID int64, body []byte) (int, any) {
 			return 200, map[string]any{"errors": []map[string]string{{"message": "Pull request is closed"}}}
 		}
 		p.Draft = mutation == "convertPullRequestToDraft"
+		p.UpdatedAt = time.Now().UTC()
 		s.pulls[key] = p
 		return 200, map[string]any{"data": map[string]any{mutation: map[string]any{"pullRequest": map[string]any{"id": p.NodeID, "isDraft": p.Draft}}}}
 	}

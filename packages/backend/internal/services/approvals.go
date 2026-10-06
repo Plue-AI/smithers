@@ -209,6 +209,9 @@ func (s *ApprovalsService) Create(ctx context.Context, input CreateApprovalInput
 	if input.Kind == "" {
 		return ApprovalResponse{}, pkgerrors.BadRequest("kind is required")
 	}
+	if input.Kind == "one_click" || input.Kind == "review_merge" {
+		return ApprovalResponse{}, pkgerrors.Forbidden("Person confirmations require command authorization")
+	}
 	if input.Title == "" {
 		return ApprovalResponse{}, pkgerrors.BadRequest("title is required")
 	}

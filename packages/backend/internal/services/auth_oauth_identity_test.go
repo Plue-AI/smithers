@@ -193,5 +193,7 @@ func TestAuthService_ExchangeGitHubToken_GitHubOutageKeepsCause(t *testing.T) {
 	var apiErr *pkgerrors.APIError
 	require.ErrorAs(t, err, &apiErr)
 	assert.Equal(t, 500, apiErr.Status)
-	assert.Contains(t, apiErr.Message, "status 502", "the logged 500 must say what GitHub answered")
+	require.NotNil(t, apiErr.Cause())
+	assert.Contains(t, apiErr.Cause().Error(), "status 502")
+	assert.NotContains(t, apiErr.Message, "status 502", "raw upstream details stay private")
 }

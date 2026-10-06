@@ -517,12 +517,13 @@ func runWithOptions(ctx context.Context, args []string, stdout, stderr io.Writer
 		slog.Error("failed to initialize webhook secret codec", "error", err)
 		return err
 	}
-	gitHubAppStore := services.NewGitHubAppCredentialStore(pool, webhookSecretCodec)
+	gitHubBudgetTracker := newGitHubBudget(options.topology)
+	gitHubAppStore := services.NewGitHubAppCredentialStore(pool, webhookSecretCodec, services.WithGitHubAppCredentialBudget(gitHubBudgetTracker))
 	gitHubAppCredentials, err := selectGitHubAppCredentials(config.IsSingleOwner(cfg.Auth), options.EnvGitHubAppCredentials, gitHubAppStore)
 	if err != nil {
 		return err
 	}
-	keyAuthVerifier, githubClient, err := buildAuthProviders(cfg.Auth, gitHubAppCredentials)
+	keyAuthVerifier, githubClient, err := buildAuthProviders(cfg.Auth, gitHubAppCredentials, gitHubBudgetTracker)
 	if err != nil {
 		slog.Error("invalid auth provider configuration", "error", err)
 		return err
@@ -618,37 +619,15 @@ func runWithOptions(ctx context.Context, args []string, stdout, stderr io.Writer
 
 	mentionService := services.NewMentionService(queries, notificationService, services.WithMentionEmailSender(emailService))
 	commitStatusService := services.NewCommitStatusService(queries, services.WithCommitStatusWebhookDispatcher(webhookDispatcher))
-	gitHubBudgetTracker := services.NewBudgetTracker()
-	repoConnectionService := services.NewRepoConnectionService(pool, gitHubAppCredentials)
-	repoConnectionService.SetGitHubBudgetTracker(gitHubBudgetTracker)
-	gitHubRepoListService := services.NewGitHubRepoListService(pool, repoConnectionService,
-		services.WithGitHubRepoListHTTPClient(gitHubBudgetTracker.WrapClient(observability.NewHTTPClient(15*time.Second))))
-	// The continuously-synced GitHub mirror: registry + issue/PR/comment store.
-	// The metadata proxy serves from it (live GitHub is the fallback), the App
-	// webhooks keep it fresh, and github-sync reads its registry feed instead of
-	// a static mapping. Its ref mirrorer is attached once the import service —
-	// which owns the clone → repo-host → ImportRefs path — has been built.
-	gitHubSyncedRepoService := services.NewGitHubSyncedRepoService(queries,
-		// R5: sync draws from the same per-installation budget as the proxy.
-		services.WithGitHubSyncedRepoBudget(gitHubBudgetTracker),
-	)
-	gitHubUserReposService := services.NewGitHubUserReposService(queries, authService,
-		services.WithGitHubUserReposTokenRefresher(authService),
-		services.WithGitHubUserReposHTTPClient(gitHubBudgetTracker.WrapClient(observability.NewHTTPClient(15*time.Second))),
-		services.WithGitHubUserReposCredentialStore(gitHubAppCredentials),
-		services.WithGitHubUserReposSyncedStore(gitHubSyncedRepoService),
-	)
-	repoConnectionService.SetGitHubRepoAccessVerifier(gitHubUserReposService)
-	// github-sync writes to GitHub with the platform token; a mirror is bound
-	// and advertised only while its binding user can push with their own
-	// GitHub credential.
-	gitHubSyncedRepoService.SetPushAccess(gitHubUserReposService)
+	githubServices, err := composeGitHubSync(pool, gitHubAppCredentials, authService, options.topology, gitHubBudgetTracker)
+	if err != nil {
+		return err
+	}
+	repoConnectionService := githubServices.connections
+	gitHubRepoListService := githubServices.repositories
+	gitHubSyncedRepoService := githubServices.synced
+	gitHubUserReposService := githubServices.userRepositories
 	gitHubSyncedRepoService.SetMirrorFailureObserver(smithersMetrics)
-	// R2: backfills and the reconciliation sweep fetch with cached App
-	// installation tokens whenever the registry row has an installation;
-	// request-bound user tokens remain only the fallback for rows without one.
-	gitHubSyncedRepoService.SetFetcherFactory(
-		gitHubUserReposService.SyncedRepoInstallationFetcherFactory(repoConnectionService))
 	gitHubCheckRunService := services.NewGitHubCheckRunService(repoConnectionService)
 	agentEnvironmentService := services.NewAgentEnvironmentService(
 		queries,
@@ -1055,6 +1034,7 @@ func runWithOptions(ctx context.Context, args []string, stdout, stderr io.Writer
 	// The mythical stack folds every main the pull brings in, admits every
 	// issue, works it on lane workspaces and proposes it to GitHub.
 	mythicalService := services.NewMythicalService(pool, repoHostClient)
+	composeGitHubTodoPolling(mythicalService, gitHubMainPullService, gitHubSyncedRepoService, options.topology)
 	mythicalService.SetPublicURL(publicBaseURL)
 	// Every main move loads the repository's flows (spec §11.3.1).
 	mythicalService.SetFlowLoad(cfg.FeatureFlags.FlowLoad)
@@ -1070,10 +1050,9 @@ func runWithOptions(ctx context.Context, args []string, stdout, stderr io.Writer
 				slog.WarnContext(ctx, "github.main_pull.request_failed", "repository_id", repositoryID, "error", err)
 			}
 		})
-		// No webhook reaches an install (M-03): the sync reads each
-		// repository's issue events, so a member's todo label on GitHub
-		// commits a TODO (J2 step 2).
-		gitHubMainPullService.SetIssueEvents(mythicalService.ReadIssueEvents, options.GitHubIssueEventsEvery)
+		// Issue events are fetched and delivered by GitHubSyncedRepoService.
+		// Direct poll-to-TODO admission bypasses its qualification and atomic
+		// cursor/effect receipts, so it is not registered on the main-ref loop.
 	}
 	gitHubMainPullService.SetSynced(services.NewLandingGitHubMergeService(queries, repoHostClient, repoConnectionService, webhookDispatcher).Reconcile)
 	gitHubWebhookEventWorker.SetMythical(mythicalService)
@@ -1153,7 +1132,7 @@ func runWithOptions(ctx context.Context, args []string, stdout, stderr io.Writer
 	buildCacheHandler := &routes.BuildCacheHandler{Service: buildCacheService}
 	buildCacheCleaner := cleanup.NewPeriodic("build_cache", time.Minute, time.Minute)
 	// The roster's hourly GitHub recheck (M-05): losing write access suspends a member.
-	memberRecheck := cleanup.NewPeriodic("members", services.MemberRecheckInterval, services.MemberRecheckInterval)
+	memberRecheck := cleanup.NewPeriodic("members", services.MemberRecheckTick, services.MemberRecheckTick)
 	stackHandler := &routes.StackHandler{
 		Service: stackService,
 	}
@@ -1555,6 +1534,7 @@ func runWithOptions(ctx context.Context, args []string, stdout, stderr io.Writer
 		mythicalService.SetPublicOrigin(installAddress.Public)
 		authService.InstallSetup = &services.InstallSetupSessions{Pool: pool}
 		authService.Members = &services.Members{Pool: pool, Credentials: gitHubAppCredentials, Minter: repoConnectionService, Budget: gitHubBudgetTracker}
+		composeGitHubPermissionPolling(authService.Members, gitHubSyncedRepoService, gitHubMainPullService, memberRecheck.Trigger)
 		authHandler.InstallSetup = authService.InstallSetup
 		setupOutput := stdout
 		if *setupHandoff == "socket" {
@@ -1590,7 +1570,7 @@ func runWithOptions(ctx context.Context, args []string, stdout, stderr io.Writer
 		}
 		gitHubAppSetup = &routes.GitHubAppSetupHandler{
 			Setup:   installSetup,
-			Service: services.NewGitHubAppManifestService(pool, gitHubAppStore, os.Getenv("SMITHERS_GITHUB_APP_API_BASE_URL"), installAddress.Origins),
+			Service: services.NewGitHubAppManifestService(pool, gitHubAppStore, os.Getenv("SMITHERS_GITHUB_APP_API_BASE_URL"), installAddress.Origins, services.WithGitHubAppManifestBudget(gitHubBudgetTracker)),
 			Store:   gitHubAppStore, Owners: queries, Roster: queries,
 			Origins:  installAddress.Origins,
 			Sessions: authService.InstallSetup,
@@ -1930,7 +1910,7 @@ func runWithOptions(ctx context.Context, args []string, stdout, stderr io.Writer
 		authCleaner.Start(workerCtx)
 		buildCacheCleaner.Start(workerCtx, buildCacheService.Cleanup)
 		if authService.Members != nil {
-			memberRecheck.Start(workerCtx, authService.Members.Recheck)
+			memberRecheck.Start(workerCtx, authService.Members.PollPermissions)
 		}
 		workflowCacheCleaner.Start(workerCtx)
 		workflowArtifactCleaner.Start(workerCtx)

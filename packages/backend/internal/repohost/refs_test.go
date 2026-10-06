@@ -97,6 +97,39 @@ func TestBranchHeadRefRejectsMemberPush(t *testing.T) {
 
 // The mythical stack's refs belong to the stack service: only a control-plane
 // push writes them, and a control-plane push writes nothing else.
+func TestKeptCommitRefsAreImmutableAndControlPlaneOwned(t *testing.T) {
+	head, other, zero := strings.Repeat("a", 40), strings.Repeat("b", 40), strings.Repeat("0", 40)
+	for _, tc := range []struct {
+		name, ref, old, next, workspace string
+		control, allowed                bool
+	}{
+		{"create", KeptCommitRefPrefix + head, zero, head, "", true, true},
+		{"replay", KeptCommitRefPrefix + head, head, head, "", true, true},
+		{"user", KeptCommitRefPrefix + head, zero, head, "", false, false},
+		{"workspace", KeptCommitRefPrefix + head, zero, head, "workspace", true, false},
+		{"delete", KeptCommitRefPrefix + head, head, zero, "", true, false},
+		{"replace", KeptCommitRefPrefix + head, head, other, "", true, false},
+		{"wrong initial head", KeptCommitRefPrefix + head, zero, other, "", true, false},
+		{"corrupt prior head", KeptCommitRefPrefix + head, other, head, "", true, false},
+		{"uppercase prefix", "refs/Smithers/kept/" + head, zero, head, "", true, false},
+		{"uppercase sha", KeptCommitRefPrefix + strings.ToUpper(head), zero, strings.ToUpper(head), "", true, false},
+		{"short sha", KeptCommitRefPrefix + "abc", zero, "abc", "", true, false},
+		{"zero sha", KeptCommitRefPrefix + zero, zero, zero, "", true, false},
+		{"extra path", KeptCommitRefPrefix + head + "/extra", zero, head, "", true, false},
+		{"main", "refs/heads/main", zero, head, "", true, false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			failure := ControlPlaneRefViolation([]ReceivePackCommand{{RefName: tc.ref, OldOID: tc.old, NewOID: tc.next}}, tc.workspace, 7, tc.control)
+			if (failure == "") != tc.allowed {
+				t.Fatalf("allowed=%v failure=%q", tc.allowed, failure)
+			}
+		})
+	}
+	if !IsMythicalRef(KeptCommitRefPrefix + head) {
+		t.Fatal("retention must remain a control-plane ref, never a user push event")
+	}
+}
+
 func TestControlPlaneRefViolation(t *testing.T) {
 	mine := "0f8fad5b-d9cb-469f-a165-70867728950e"
 	cases := []struct {

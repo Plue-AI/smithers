@@ -83,6 +83,8 @@ func newMergeHarness(t *testing.T) *mergeHarness {
 	h.session = hex.EncodeToString(digest[:])
 	h.exec(`INSERT INTO auth_sessions(session_key,user_id,username,expires_at) VALUES ($1,$2,'smithers-canary',NOW() + interval '1 hour')`, h.session, f.userID)
 	h.ctx = h.as(&middleware.AuthInfo{User: &db.User{ID: f.userID, Username: "smithers-canary"}, SessionHash: h.session})
+	binding := fmt.Sprintf(`{"owner_login":"smithers-canary","repository_name":"smithers","repository_id":%d}`, h.repoID)
+	require.NoError(t, h.q.UpsertInstallSetting(h.ctx, db.UpsertInstallSettingParams{Key: "github.repository", Value: []byte(binding)}))
 	return h
 }
 

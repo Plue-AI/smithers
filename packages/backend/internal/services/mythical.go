@@ -69,13 +69,16 @@ type MythicalService struct {
 	outbound MythicalOutboundProviders
 	// Accepted publication facts and the install's App publication
 	// (EnableTodoPublication); absent, every TODO-branch write is held.
-	prFacts          func(context.Context, db.MythicalItem) (mythicalPRShape, error)
-	publication      *mythicalPublication
-	github           mythicalGitHub
-	launcher         mythicalLauncher
-	lanes            mythicalLanes
-	wikiStore        mythicalWikiStore
-	reconcileFactory func(context.Context, int64, string, FactoryProjection) error
+	prFacts              func(context.Context, db.MythicalItem) (mythicalPRShape, error)
+	publication          *mythicalPublication
+	github               mythicalGitHub
+	installGitHubPolling bool
+	installGitHubSync    *GitHubSyncedRepoService
+	installPullHints     *mythicalPullHints
+	launcher             mythicalLauncher
+	lanes                mythicalLanes
+	wikiStore            mythicalWikiStore
+	reconcileFactory     func(context.Context, int64, string, FactoryProjection) error
 	// policy reads the default bookmark's committed factory policy
 	// (maintainers, todoSince, dailyTokens); stackPolicy.
 	policy repositoryPolicyHost
@@ -94,6 +97,9 @@ type MythicalService struct {
 	// (EnableTodoAdmission): a fresh attempt launches coding/request on a new
 	// lane. Only the install's composition sets it; hosted leaves it off.
 	todoAdmission bool
+	// todoSteering stays off until ordered input consumption, held delivery,
+	// current-member revalidation and the pinned guest runtime are qualified.
+	todoSteering bool
 	// followMain asks the GitHub sync to read GitHub's main now
 	// (SetMainFollower): a merge the stack sent moved it. Unset, the sync's
 	// own poll finds the move.
@@ -189,6 +195,10 @@ func (s *MythicalService) Start(ctx context.Context) {
 	if sweepEvery <= 0 {
 		sweepEvery = mythicalSweepInterval
 	}
+	var pullWake <-chan struct{}
+	if s.installPullHints != nil {
+		pullWake = s.installPullHints.wake
+	}
 	lastSweep := time.Time{}
 	for {
 		if s.now().Sub(lastSweep) >= sweepEvery {
@@ -203,6 +213,7 @@ func (s *MythicalService) Start(ctx context.Context) {
 		select {
 		case <-ctx.Done():
 			return
+		case <-pullWake:
 		case <-time.After(mythicalPollInterval):
 		}
 	}

@@ -234,51 +234,37 @@ func (s *GitHubTextStamper) forgetMaintainers(eventType string, payload []byte) 
 // retried; one it will not list, or an issue with more events than are
 // read, is not the person's.
 func (g *gitHubIssueTextAPI) LabelAppliedByPerson(ctx context.Context, token, owner, repo string, number int64, label, login string, appliedAt time.Time) (bool, error) {
-	const pages, skew = 10, 5 * time.Second
-	var found *bool
-	for page := 1; ; page++ {
-		if page > pages {
-			slog.Warn("github.label_events_unread", "owner", owner, "repo", repo, "issue", number)
-			return false, nil
-		}
-		var events []struct {
-			Event string `json:"event"`
-			Actor *struct {
-				Login string `json:"login"`
-			} `json:"actor"`
-			Label *struct {
-				Name string `json:"name"`
-			} `json:"label"`
-			CreatedAt time.Time        `json:"created_at"`
-			ViaApp    *json.RawMessage `json:"performed_via_github_app"`
-		}
-		query := url.Values{"per_page": {"100"}, "page": {strconv.Itoa(page)}}
-		status, err := g.api.request(ctx, token, http.MethodGet,
-			landingGitHubRepoPath(owner, repo)+"/issues/"+strconv.FormatInt(number, 10)+"/events?"+query.Encode(), nil, &events)
-		if err != nil || gitHubTransient(status) {
-			return false, errGitHubIssueTextUnavailable
-		}
-		if status != http.StatusOK {
-			slog.Warn("github.label_events_unreadable", "owner", owner, "repo", repo, "issue", number, "status", status)
-			return false, nil
-		}
-		for _, event := range events {
-			if event.Event == "labeled" && event.Actor != nil && event.Label != nil &&
-				strings.EqualFold(event.Actor.Login, login) && strings.EqualFold(strings.TrimSpace(event.Label.Name), strings.TrimSpace(label)) &&
-				!event.CreatedAt.Before(appliedAt.Add(-skew)) && !event.CreatedAt.After(appliedAt.Add(skew)) {
-				person := event.ViaApp == nil || string(*event.ViaApp) == "null"
-				found = &person
-			}
-		}
-		if len(events) < 100 {
-			break
-		}
-	}
-	if found == nil {
-		// GitHub's list can trail the webhook.
+	const skew = 5 * time.Second
+	objects, _, err := readGitHubIssueEvents(ctx, 0, g.api.issueEventPages(token, owner, repo))
+	if err != nil {
 		return false, errGitHubIssueTextUnavailable
 	}
-	return *found, nil
+	found := false
+	for _, object := range objects {
+		var event gitHubFetchedEvent
+		if json.Unmarshal(object, &event) != nil {
+			return false, errGitHubIssueTextUnavailable
+		}
+		var issue gitHubIssueHeader
+		if json.Unmarshal(event.Issue, &issue) != nil || issue.Number <= 0 {
+			return false, errGitHubIssueTextUnavailable
+		}
+		if issue.Number != number || event.Event != "labeled" ||
+			!strings.EqualFold(event.Actor.Login, login) || !strings.EqualFold(strings.TrimSpace(event.Label.Name), strings.TrimSpace(label)) ||
+			event.CreatedAt.Before(appliedAt.Add(-skew)) || event.CreatedAt.After(appliedAt.Add(skew)) {
+			continue
+		}
+		// A time-window match is ambiguous if any matching application came
+		// through an App. Never attribute that action to the person.
+		if event.ViaApp != nil && string(*event.ViaApp) != "null" {
+			return false, nil
+		}
+		found = true
+	}
+	if !found {
+		return false, errGitHubIssueTextUnavailable
+	}
+	return true, nil
 }
 
 // PullCreatedViaApp reads whether a pull request was created through a

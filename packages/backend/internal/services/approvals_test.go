@@ -4,10 +4,12 @@ import (
 	"context"
 	"encoding/json"
 	stdErrors "errors"
+	"os"
 	"strings"
 	"testing"
 	"time"
 
+	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/stretchr/testify/assert"
@@ -15,6 +17,7 @@ import (
 
 	"github.com/smithersai/smithers/packages/backend/internal/db"
 	pkgerrors "github.com/smithersai/smithers/packages/backend/internal/pkg/errors"
+	"github.com/smithersai/smithers/packages/backend/testkit/postgresfixture"
 )
 
 // fakeApprovalsQuerier is an in-memory stub for ApprovalsQuerier. Tests
@@ -858,3 +861,235 @@ const (
 	httpStatusNotFound   = 404
 	httpStatusConflict   = 409
 )
+
+// Exercise the unnumbered migration against the actual product baseline. Its
+// final migration number and registration belong to landing; install command
+// execution stays unavailable until authorization and consumers are composed.
+func TestConfirmationApprovalStoreBindsAudienceRevisionAndRequest(t *testing.T) {
+	pool, _ := postgresfixture.NewProductDatabase(t)
+	ctx := t.Context()
+	q := db.New(pool)
+	repoID := createWorkflowRunIntegrationRepo(t, pool)
+	repo, err := q.GetRepoByID(ctx, repoID)
+	require.NoError(t, err)
+	member := repo.UserID.Int64
+	session := uuid.NewString()
+	_, err = q.CreateAgentSession(ctx, db.CreateAgentSessionParams{ID: session, RepositoryID: repoID, UserID: member, Title: "legacy", Status: "active"})
+	require.NoError(t, err)
+	legacy, err := q.CreateApproval(ctx, db.CreateApprovalParams{ID: uuid.NewString(), SessionID: session, RepositoryID: repoID, Kind: "tool", Title: "legacy", Payload: json.RawMessage(`{}`)})
+	require.NoError(t, err)
+	migration, err := os.ReadFile("../../db/product/migrations/pending/approvals_confirmations.sql")
+	require.NoError(t, err)
+	_, err = pool.Exec(ctx, string(migration))
+	require.NoError(t, err)
+	old, err := q.GetApproval(ctx, legacy.ID)
+	require.NoError(t, err)
+	require.Equal(t, legacy, old, "upgrade preserves the existing guest approval")
+	input := func(kind string) db.ConfirmationApproval {
+		a := db.ConfirmationApproval{Approval: db.Approval{ID: uuid.NewString(), RepositoryID: repoID, Kind: kind, Title: "Discard", Payload: json.RawMessage(`{"id":"foreign-1","revision":"1111111111111111111111111111111111111111"}`)}, MemberID: member, CredentialID: 17, Command: "branch.discard-foreign", Subject: json.RawMessage(`{"kind":"branch","ref":"smithers/retry"}`), Revision: strings.Repeat("1", 40), RequestKey: uuid.NewString()}
+		if kind == "review_merge" {
+			a.Command, a.Subject = "merge", json.RawMessage(`{"kind":"todo","ref":"T4"}`)
+			a.Generation = pgtype.Int8{Int64: 3, Valid: true}
+			a.ReviewedHeadSHA = pgtype.Text{String: strings.Repeat("2", 40), Valid: true}
+		}
+		return a
+	}
+	for _, kind := range []string{"one_click", "review_merge"} {
+		t.Run(kind, func(t *testing.T) {
+			a, err := q.CreateConfirmationApproval(ctx, input(kind))
+			require.NoError(t, err)
+			require.Equal(t, "pending", a.State)
+			require.Empty(t, a.SessionID)
+			require.Equal(t, 24*time.Hour, a.ExpiresAt.Time.Sub(a.CreatedAt))
+			_, err = q.CreateConfirmationApproval(ctx, a)
+			require.ErrorIs(t, err, pgx.ErrNoRows, "same issuer/key cannot insert again")
+			changed := a
+			changed.ID, changed.Command, changed.Payload = uuid.NewString(), "todo.drop", json.RawMessage(`{"n":9}`)
+			_, err = q.CreateConfirmationApproval(ctx, changed)
+			require.ErrorIs(t, err, pgx.ErrNoRows, "collision never overwrites original input")
+			replay, err := q.GetConfirmationApprovalByRequest(ctx, repoID, member, 17, a.RequestKey)
+			require.NoError(t, err)
+			require.Equal(t, a, replay)
+			_, err = q.GetConfirmationApprovalByRequest(ctx, repoID, member+1, 17, a.RequestKey)
+			require.ErrorIs(t, err, pgx.ErrNoRows)
+			_, err = q.LockConfirmationApproval(ctx, repoID, member+1, a.ID)
+			require.ErrorIs(t, err, pgx.ErrNoRows)
+			_, err = q.LockConfirmationApproval(ctx, repoID+1, member, a.ID)
+			require.ErrorIs(t, err, pgx.ErrNoRows)
+			another := a
+			another.ID, another.CredentialID = uuid.NewString(), 18
+			_, err = q.CreateConfirmationApproval(ctx, another)
+			require.NoError(t, err, "a different issuer has a separate request identity")
+			// Legacy endpoints cannot expose the private payload or decide it.
+			_, err = q.GetApproval(ctx, a.ID)
+			require.ErrorIs(t, err, pgx.ErrNoRows)
+			_, err = q.DecideApproval(ctx, db.DecideApprovalParams{ID: a.ID, RepositoryID: repoID, State: "approved", DecidedBy: pgtype.Int8{Int64: member, Valid: true}})
+			require.ErrorIs(t, err, pgx.ErrNoRows)
+			_, err = q.ExpireApproval(ctx, db.ExpireApprovalParams{ID: a.ID, RepositoryID: repoID, ExpiresAt: pgtype.Timestamptz{Time: time.Now().Add(48 * time.Hour), Valid: true}})
+			require.ErrorIs(t, err, pgx.ErrNoRows)
+			listed, err := NewApprovalsService(q).ListForRepo(ctx, repoID, "", 1, 100)
+			require.NoError(t, err)
+			require.Len(t, listed, 1)
+			require.Equal(t, legacy.ID, listed[0].ID)
+			for name, change := range map[string]func(*db.ConfirmationApproval){
+				"revision":   func(x *db.ConfirmationApproval) { x.Revision = "changed" },
+				"generation": func(x *db.ConfirmationApproval) { x.Generation = pgtype.Int8{Int64: 9, Valid: true} },
+				"head": func(x *db.ConfirmationApproval) {
+					x.ReviewedHeadSHA = pgtype.Text{String: strings.Repeat("3", 40), Valid: true}
+				},
+				"credential": func(x *db.ConfirmationApproval) { x.CredentialID++ },
+				"member":     func(x *db.ConfirmationApproval) { x.MemberID++ },
+			} {
+				t.Run(name, func(t *testing.T) {
+					wrong := a
+					change(&wrong)
+					_, err := q.DecideConfirmationApproval(ctx, wrong, "approved")
+					require.ErrorIs(t, err, pgx.ErrNoRows)
+				})
+			}
+			for _, update := range []string{"id='00000000-0000-4000-8000-000000000099'", "revision='changed'", "credential_id=99", "member_id=NULL", "payload='{}'::jsonb", "generation=9", "expires_at=expires_at+interval '1 hour'"} {
+				_, err = pool.Exec(ctx, "UPDATE approvals SET "+update+" WHERE id=$1", a.ID)
+				require.Error(t, err, update)
+			}
+			// The caller's subject transaction owns the decision too.
+			tx, err := pool.Begin(ctx)
+			require.NoError(t, err)
+			locked, err := db.New(tx).LockConfirmationApproval(ctx, repoID, member, a.ID)
+			require.NoError(t, err)
+			_, err = tx.Exec(ctx, `UPDATE repositories SET description='confirmation effect' WHERE id=$1`, repoID)
+			require.NoError(t, err)
+			_, err = db.New(tx).DecideConfirmationApproval(ctx, locked, "approved")
+			require.NoError(t, err)
+			require.NoError(t, tx.Rollback(ctx))
+			restored, err := q.GetRepoByID(ctx, repoID)
+			require.NoError(t, err)
+			require.Equal(t, repo.Description, restored.Description)
+			got, err := q.GetConfirmationApprovalByRequest(ctx, repoID, member, 17, a.RequestKey)
+			require.NoError(t, err)
+			require.Equal(t, "pending", got.State)
+			// Racing opposite presses have one winner and one unchanged refusal.
+			results := make(chan error, 2)
+			for _, state := range []string{"approved", "rejected"} {
+				go func() { _, err := q.DecideConfirmationApproval(ctx, a, state); results <- err }()
+			}
+			wins := 0
+			for range 2 {
+				if err := <-results; err == nil {
+					wins++
+				} else {
+					require.ErrorIs(t, err, pgx.ErrNoRows)
+				}
+			}
+			require.Equal(t, 1, wins)
+			got, err = q.GetConfirmationApprovalByRequest(ctx, repoID, member, 17, a.RequestKey)
+			require.NoError(t, err)
+			require.Equal(t, member, got.DecidedBy.Int64)
+			_, err = pool.Exec(ctx, `UPDATE approvals SET state='pending',decided_at=NULL,decided_by=NULL WHERE id=$1`, a.ID)
+			require.Error(t, err, "a decided confirmation cannot be reopened")
+			_, err = q.DecideConfirmationApproval(ctx, a, "approved")
+			require.ErrorIs(t, err, pgx.ErrNoRows)
+			// An expired persisted request cannot be approved or rejected; only
+			// expiry settles it. This also covers an unchanged head/generation.
+			expired := a
+			expired.ID, expired.RequestKey = uuid.NewString(), a.RequestKey+"-expired"
+			_, err = pool.Exec(ctx, `INSERT INTO approvals
+(id,repository_id,state,kind,title,payload,member_id,credential_id,command,subject,
+ revision,generation,reviewed_head_sha,request_key,created_at,expires_at)
+SELECT $1,repository_id,'pending',kind,title,payload,member_id,credential_id,command,subject,
+ revision,generation,reviewed_head_sha,$2,statement_timestamp()-interval '25 hours',statement_timestamp()-interval '1 hour'
+FROM approvals WHERE id=$3`, expired.ID, expired.RequestKey, a.ID)
+			require.NoError(t, err)
+			for _, decision := range []string{"approved", "rejected", "pending", "unknown"} {
+				_, err = q.DecideConfirmationApproval(ctx, expired, decision)
+				require.ErrorIs(t, err, pgx.ErrNoRows)
+			}
+			ended, err := q.DecideConfirmationApproval(ctx, expired, "expired")
+			require.NoError(t, err)
+			require.Equal(t, "expired", ended.State)
+			require.False(t, ended.DecidedBy.Valid, "expiry is not a person's approval")
+			_, err = q.DecideConfirmationApproval(ctx, expired, "approved")
+			require.ErrorIs(t, err, pgx.ErrNoRows)
+		})
+	}
+	for name, change := range map[string]func(*db.ConfirmationApproval){
+		"empty revision":                  func(a *db.ConfirmationApproval) { a.Revision = "" },
+		"missing subject ref":             func(a *db.ConfirmationApproval) { a.Subject = json.RawMessage(`{"kind":"branch"}`) },
+		"wrong subject kind":              func(a *db.ConfirmationApproval) { a.Subject = json.RawMessage(`{"kind":"settings","ref":"x"}`) },
+		"missing issuer":                  func(a *db.ConfirmationApproval) { a.CredentialID = 0 },
+		"empty key":                       func(a *db.ConfirmationApproval) { a.RequestKey = "" },
+		"one click with merge generation": func(a *db.ConfirmationApproval) { a.Generation = pgtype.Int8{Int64: 1, Valid: true} },
+		"unknown kind":                    func(a *db.ConfirmationApproval) { a.Kind = "other" },
+	} {
+		t.Run(name, func(t *testing.T) {
+			a := input("one_click")
+			change(&a)
+			_, err := q.CreateConfirmationApproval(ctx, a)
+			require.Error(t, err)
+		})
+	}
+	for name, change := range map[string]func(*db.ConfirmationApproval){
+		"missing generation":  func(a *db.ConfirmationApproval) { a.Generation = pgtype.Int8{} },
+		"negative generation": func(a *db.ConfirmationApproval) { a.Generation.Int64 = -1 },
+		"missing head":        func(a *db.ConfirmationApproval) { a.ReviewedHeadSHA = pgtype.Text{} },
+		"zero head":           func(a *db.ConfirmationApproval) { a.ReviewedHeadSHA.String = strings.Repeat("0", 40) },
+		"non TODO merge": func(a *db.ConfirmationApproval) {
+			a.Subject = json.RawMessage(`{"kind":"branch","ref":"smithers/retry"}`)
+		},
+	} {
+		t.Run(name, func(t *testing.T) {
+			a := input("review_merge")
+			change(&a)
+			_, err := q.CreateConfirmationApproval(ctx, a)
+			require.Error(t, err)
+		})
+	}
+	t.Run("member deletion preserves legacy approval semantics", func(t *testing.T) {
+		var otherMember int64
+		name := "confirmation_" + strings.ReplaceAll(uuid.NewString(), "-", "")
+		err := pool.QueryRow(ctx, `INSERT INTO users (username,lower_username,email,lower_email,display_name)
+VALUES ($1,$2,$3,$4,$5) RETURNING id`, name, name, name+"@example.com", name+"@example.com", "Confirmation member").Scan(&otherMember)
+		require.NoError(t, err)
+		// Keep the approvals in another member's surviving repository so its
+		// cascade cannot hide a broken decided_by/member_id interaction.
+		guest, err := q.CreateApproval(ctx, db.CreateApprovalParams{ID: uuid.NewString(), SessionID: session, RepositoryID: repoID, Kind: "tool", Title: "legacy decision", Payload: json.RawMessage(`{}`)})
+		require.NoError(t, err)
+		_, err = q.DecideApproval(ctx, db.DecideApprovalParams{ID: guest.ID, RepositoryID: repoID, State: "approved", DecidedBy: pgtype.Int8{Int64: otherMember, Valid: true}})
+		require.NoError(t, err)
+		var removed []string
+		for _, kind := range []string{"one_click", "review_merge"} {
+			for _, state := range []string{"pending", "approved", "rejected", "expired"} {
+				a := input(kind)
+				a.MemberID = otherMember
+				a, err = q.CreateConfirmationApproval(ctx, a)
+				require.NoError(t, err)
+				if state != "pending" {
+					_, err = q.DecideConfirmationApproval(ctx, a, state)
+					require.NoError(t, err)
+				}
+				removed = append(removed, a.ID)
+			}
+		}
+		_, err = pool.Exec(ctx, `DELETE FROM users WHERE id=$1`, otherMember)
+		require.NoError(t, err)
+		for _, id := range removed {
+			var count int
+			require.NoError(t, pool.QueryRow(ctx, `SELECT count(*) FROM approvals WHERE id=$1`, id).Scan(&count))
+			require.Zero(t, count, "member-owned confirmation is erased")
+		}
+		kept, err := q.GetApproval(ctx, guest.ID)
+		require.NoError(t, err)
+		require.Equal(t, "approved", kept.State)
+		require.False(t, kept.DecidedBy.Valid, "legacy decision survives with its deleted actor cleared")
+		_, err = q.GetRepoByID(ctx, repoID)
+		require.NoError(t, err)
+	})
+}
+
+func TestApprovalsGuestCannotCreatePersonConfirmation(t *testing.T) {
+	for _, kind := range []string{"one_click", "review_merge"} {
+		_, err := NewApprovalsService(nil).Create(t.Context(), CreateApprovalInput{SessionID: "session", Kind: kind, Title: "Do it"})
+		var refused *pkgerrors.APIError
+		require.ErrorAs(t, err, &refused)
+		require.Equal(t, 403, refused.Status, "refusal precedes even the session lookup")
+	}
+}

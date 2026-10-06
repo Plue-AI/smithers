@@ -9,7 +9,6 @@ import (
 	"strconv"
 	"time"
 
-	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgtype"
 
@@ -22,9 +21,10 @@ import (
 // Idempotency-Key, the person's login, which the pull request's closing
 // comment names, and when.
 type todoDrop struct {
-	Request string    `json:"request"`
-	By      string    `json:"by"`
-	At      time.Time `json:"at"`
+	Request    string    `json:"request"`
+	Credential string    `json:"credential,omitempty"`
+	By         string    `json:"by"`
+	At         time.Time `json:"at"`
 }
 
 // mythicalAttemptPhases are the launches one attempt admits (commit's phase):
@@ -61,16 +61,13 @@ func (s *MythicalService) dropTodo(ctx context.Context, number int64, input Todo
 	if err := middleware.RequirePerson(ctx, "drop a TODO"); err != nil {
 		return TodoControlReceipt{}, &TodoControlError{http.StatusForbidden, "permission", "permission", "Only a person drops a TODO"}
 	}
-	person, err := s.queries().GetUserByID(ctx, input.Actor)
-	if err != nil {
-		return TodoControlReceipt{}, err
-	}
 	var receipt TodoControlReceipt
-	err = pgx.BeginFunc(ctx, s.store, func(tx pgx.Tx) error {
-		if _, err := tx.Exec(ctx, `SELECT 1 FROM mythical_stacks WHERE repository_id = $1 FOR UPDATE`, input.Repository); err != nil {
+	err := pgx.BeginFunc(ctx, s.store, func(tx pgx.Tx) error {
+		q := db.New(tx)
+		person, credential, err := lockTodoRequest(ctx, tx, q, "todo.drop", input)
+		if err != nil {
 			return err
 		}
-		q := db.New(tx)
 		stack, err := q.GetMythicalStack(ctx, input.Repository)
 		if err != nil && !errors.Is(err, pgx.ErrNoRows) {
 			return err
@@ -83,9 +80,12 @@ func (s *MythicalService) dropTodo(ctx context.Context, number int64, input Todo
 			if err != nil {
 				return err
 			}
-			if dropped := mythicalChecksOf(item).Dropped; dropped != nil && input.Request != "" && dropped.Request == input.Request {
-				receipt = TodoControlReceipt{State: "accepted"}
-				return nil
+			if prior, found, err := todoControlReplay(ctx, tx, q, item, input, credential, "todo.dropped"); found || err != nil {
+				receipt = prior
+				return err
+			}
+			if dropped := mythicalChecksOf(item).Dropped; dropped != nil && dropped.Request == input.Request && dropped.Credential == "" {
+				return todoControlUnavailable()
 			}
 			if err := todoControlGuard(item, input, todoControlFacts{}); err != nil {
 				return err
@@ -96,7 +96,7 @@ func (s *MythicalService) dropTodo(ctx context.Context, number int64, input Todo
 			if err := s.cancelAttempt(ctx, tx, stack, item); err != nil {
 				return err
 			}
-			next := mythicalDropped(item, todoDrop{Request: input.Request, By: person.Username, At: s.now().UTC()})
+			next := mythicalDropped(item, todoDrop{Request: input.Request, Credential: credential, By: person.Username, At: s.now().UTC()})
 			saved, err := q.SaveMythicalItem(ctx, next)
 			if errors.Is(err, pgx.ErrNoRows) {
 				continue
@@ -104,15 +104,16 @@ func (s *MythicalService) dropTodo(ctx context.Context, number int64, input Todo
 			if err != nil {
 				return err
 			}
-			fact, _ := json.Marshal(map[string]any{"item": uuidString(saved.ID), "n": saved.Number.Int64, "attempt": saved.Attempt, "pr": len(saved.PendingOp) > 0,
-				"actor": map[string]any{"kind": "person", "id": person.ID, "login": person.Username}, "from": todoState(item), "to": todoState(saved)})
-			if _, err := jobs.RecordFactInTx(ctx, tx, todoOperationScope(saved), uuid.NewString(), "todo.dropped", todoState(saved), fact); err != nil {
+			receipt = TodoControlReceipt{State: "accepted"}
+			if err := recordTodoControl(ctx, tx, saved, input, credential, "todo.dropped", receipt, map[string]any{
+				"item": uuidString(saved.ID), "n": saved.Number.Int64, "attempt": saved.Attempt, "pr": len(saved.PendingOp) > 0,
+				"actor": map[string]any{"kind": "person", "id": person.ID, "login": person.Username}, "from": todoState(item), "to": todoState(saved),
+			}); err != nil {
 				return err
 			}
 			if stack.RepositoryID == input.Repository {
 				s.itemChanged(ctx, q, stack, saved.ID)
 			}
-			receipt = TodoControlReceipt{State: "accepted"}
 			return nil
 		}
 		return &TodoControlError{http.StatusConflict, "conflict", "conflict", "TODO is busy; drop it again"}

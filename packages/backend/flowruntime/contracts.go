@@ -145,6 +145,7 @@ type Steer struct {
 	CreatedAt            float64
 	Kind                 string
 	Body                 string
+	Attribution          map[string]string
 	Seat                 string
 	Thinking             string
 	ToolNames            []string

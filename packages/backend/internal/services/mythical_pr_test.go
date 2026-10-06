@@ -76,6 +76,12 @@ func TestTODOPrLifecycleDecision(t *testing.T) {
 		{"foreign push", mythicalGitHubFact{Kind: "push", Head: "new"}, mythicalGitHubFactItem{State: "paused", Head: "old"}, mythicalGitHubFactDecision{Attention: "foreign_push"}},
 		{"terminal push", mythicalGitHubFact{Kind: "push", Head: "new"}, mythicalGitHubFactItem{State: "dropped", Head: "old"}, mythicalGitHubFactDecision{Noop: "terminal"}},
 		{"same head", mythicalGitHubFact{Kind: "push", Head: "old"}, mythicalGitHubFactItem{State: "working", Head: "old"}, mythicalGitHubFactDecision{Noop: "unchanged"}},
+		{"unacknowledged own push", mythicalGitHubFact{Kind: "push", Head: "new"}, mythicalGitHubFactItem{State: "working", Head: "old", PendingHead: "new"}, mythicalGitHubFactDecision{Noop: "own_push"}},
+		{"different pending head", mythicalGitHubFact{Kind: "push", Head: "foreign"}, mythicalGitHubFactItem{State: "working", Head: "old", PendingHead: "new"}, mythicalGitHubFactDecision{Attention: "foreign_push"}},
+		{"cancelled absorbs push", mythicalGitHubFact{Kind: "push", Head: "new"}, mythicalGitHubFactItem{State: "cancelled", Head: "old"}, mythicalGitHubFactDecision{Noop: "terminal"}},
+		{"declined absorbs push", mythicalGitHubFact{Kind: "push", Head: "new"}, mythicalGitHubFactItem{State: "declined", Head: "old"}, mythicalGitHubFactDecision{Noop: "terminal"}},
+		{"terminal same head", mythicalGitHubFact{Kind: "push", Head: "old"}, mythicalGitHubFactItem{State: "dropped", Head: "old"}, mythicalGitHubFactDecision{Noop: "terminal"}},
+		{"terminal absent head", mythicalGitHubFact{Kind: "push"}, mythicalGitHubFactItem{State: "cancelled", Head: "old"}, mythicalGitHubFactDecision{Noop: "terminal"}},
 	} {
 		t.Run(tc.name, func(t *testing.T) { require.Equal(t, tc.want, decideGitHubFact(tc.fact, tc.item, now)) })
 	}
@@ -296,4 +302,32 @@ func TestTODOPrBodyNeutralizesAllClosingReferences(t *testing.T) {
 	require.Contains(t, body, "Refs #13")
 	require.Contains(t, body, "Refs #14")
 	require.NotRegexp(t, mythicalClosingKeyword, body)
+}
+
+func TestGitHubPushDecisionBeforePR(t *testing.T) {
+	for _, tc := range []struct {
+		name, state, head, pending string
+		noPR, starting             bool
+		event, attention, noop     string
+	}{
+		{name: "queued", state: "queued", noPR: true, event: "push_recorded"},
+		{name: "starting", state: "running", noPR: true, starting: true, event: "push_recorded"},
+		{name: "skipped projects queued", state: "skipped", noPR: true, event: "push_recorded"},
+		{name: "open PR queued", state: "queued", attention: "foreign_push"},
+		{name: "open PR starting", state: "running", starting: true, attention: "foreign_push"},
+		{name: "unqualified working without PR", state: "running", noPR: true, attention: "foreign_push"},
+		{name: "failed with stale launch facts", state: "blocked", noPR: true, starting: true, attention: "foreign_push"},
+		{name: "in review with stale launch facts", state: "proposed", noPR: true, starting: true, attention: "foreign_push"},
+		{name: "recorded head", state: "queued", head: "outside", noPR: true, noop: "unchanged"},
+		{name: "own pending head", state: "queued", pending: "outside", noPR: true, noop: "own_push"},
+		{name: "dropped", state: "cancelled", noPR: true, starting: true, noop: "terminal"},
+		{name: "merged", state: "landed", noPR: true, starting: true, noop: "terminal"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			got := decideGitHubFact(mythicalGitHubFact{Kind: "push", Head: "outside"}, mythicalGitHubFactItem{State: tc.state, Head: tc.head, PendingHead: tc.pending, NoPR: tc.noPR, Starting: tc.starting}, time.Unix(100, 0))
+			require.Equal(t, tc.event, got.Event)
+			require.Equal(t, tc.attention, got.Attention)
+			require.Equal(t, tc.noop, got.Noop)
+		})
+	}
 }

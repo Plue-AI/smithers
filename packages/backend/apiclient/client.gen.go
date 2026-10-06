@@ -1289,10 +1289,11 @@ type GitHubAppSetupRequest struct {
 
 // InstallSetupError is generated from docs/api/openapi.yaml.
 type InstallSetupError struct {
-	Code    string  `json:"code"`
-	Class   string  `json:"class"`
-	Message string  `json:"message"`
-	Fix     *string `json:"fix,omitempty"`
+	Code    string     `json:"code"`
+	Class   string     `json:"class"`
+	Message string     `json:"message"`
+	Fix     *string    `json:"fix,omitempty"`
+	RetryAt *time.Time `json:"retry_at,omitempty"`
 }
 
 // InstallSetupAddress is generated from docs/api/openapi.yaml.
@@ -1865,6 +1866,20 @@ type PostAPITodosNResponse struct {
 	State   string `json:"state"`
 	Attempt *int64 `json:"attempt,omitempty"`
 	Place   *int64 `json:"place,omitempty"`
+}
+
+// PatchAPITodosNBody is generated from docs/api/openapi.yaml.
+type PatchAPITodosNBody struct {
+	Prompt     string   `json:"prompt"`
+	Acceptance []string `json:"acceptance,omitempty"`
+}
+
+// PatchAPITodosNResponse is generated from docs/api/openapi.yaml.
+type PatchAPITodosNResponse struct {
+	State   string `json:"state"`
+	N       int64  `json:"n"`
+	Rev     int64  `json:"rev"`
+	Attempt *int64 `json:"attempt,omitempty"`
 }
 
 // PostAPITodosNMergeBody is generated from docs/api/openapi.yaml.
@@ -5183,6 +5198,13 @@ func (c *Client) GetAPITodosN(ctx context.Context, n int64) (TodoCard, error) {
 func (c *Client) PostAPITodosN(ctx context.Context, n int64, idempotencyKey string, body PostAPITodosNBody) (PostAPITodosNResponse, error) {
 	var out PostAPITodosNResponse
 	err := c.withHeader("Idempotency-Key", idempotencyKey).do(ctx, "POST", "/api/todos/"+url.PathEscape(strconv.FormatInt(n, 10)), nil, body, &out)
+	return out, err
+}
+
+// PatchAPITodosN calls PATCH /api/todos/{n}.
+func (c *Client) PatchAPITodosN(ctx context.Context, n int64, idempotencyKey string, body PatchAPITodosNBody) (PatchAPITodosNResponse, error) {
+	var out PatchAPITodosNResponse
+	err := c.withHeader("Idempotency-Key", idempotencyKey).do(ctx, "PATCH", "/api/todos/"+url.PathEscape(strconv.FormatInt(n, 10)), nil, body, &out)
 	return out, err
 }
 

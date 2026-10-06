@@ -74,12 +74,15 @@ func (m *Members) installationAccess(ctx context.Context, repo memberRepository)
 		ID int64 `json:"id"`
 	}
 	status, err := api.request(ctx, jwt, http.MethodGet, landingGitHubRepoPath(repo.Owner, repo.Name)+"/installation", nil, &installation)
-	if err != nil || status != http.StatusOK || installation.ID <= 0 {
+	if err != nil {
+		return "", err
+	}
+	if status != http.StatusOK || installation.ID <= 0 {
 		return "", memberError(http.StatusServiceUnavailable, "infra", "github_unavailable", "GitHub unavailable")
 	}
 	token, err := m.memberToken(ctx, installation.ID)
 	if err != nil {
-		return "", memberError(http.StatusServiceUnavailable, "infra", "github_unavailable", "GitHub unavailable")
+		return "", err
 	}
 	return token, nil
 }
@@ -98,15 +101,34 @@ func githubMemberRole(permission, role string) string {
 }
 
 func (m *Members) permission(ctx context.Context, token string, repo memberRepository, login string) (string, error) {
+	role, _, _, err := m.readPermission(ctx, token, repo, login, "")
+	return role, err
+}
+
+func (m *Members) readPermission(ctx context.Context, token string, repo memberRepository, login, etag string) (string, string, bool, error) {
 	var out struct {
 		Permission string `json:"permission"`
 		Role       string `json:"role_name"`
 	}
-	status, err := m.api(15*time.Second).request(ctx, token, http.MethodGet, landingGitHubRepoPath(repo.Owner, repo.Name)+"/collaborators/"+login+"/permission", nil, &out)
-	if err != nil || (status != http.StatusOK && status != http.StatusNotFound) {
-		return "", memberError(http.StatusServiceUnavailable, "infra", "github_unavailable", "GitHub unavailable")
+	status, headers, err := m.api(15*time.Second).requestHeaders(ctx, token, http.MethodGet, landingGitHubRepoPath(repo.Owner, repo.Name)+"/collaborators/"+login+"/permission", etag, nil, &out)
+	if err != nil {
+		return "", "", false, err
 	}
-	return githubMemberRole(out.Permission, out.Role), nil
+	if status == http.StatusNotModified && etag != "" {
+		return "", etag, true, nil
+	}
+	if status != http.StatusOK {
+		if failure := GitHubResponseFailure(status, headers, time.Now()); failure != nil {
+			return "", "", false, failure
+		}
+		return "", "", false, GitHubRequestFailure(ctx, "GitHub returned an invalid permission response")
+	}
+	switch out.Permission {
+	case "admin", "write", "read", "none":
+	default:
+		return "", "", false, GitHubRequestFailure(ctx, "GitHub returned an invalid permission response")
+	}
+	return githubMemberRole(out.Permission, out.Role), headers.Get("ETag"), false, nil
 }
 
 // AdmitGitHub runs before a sign-in writes any identity: the GitHub account
@@ -190,7 +212,10 @@ func (m *Members) Add(ctx context.Context, login string) error {
 		Login string `json:"login"`
 	}
 	status, err := m.api(15*time.Second).request(ctx, token, http.MethodGet, "/users/"+login, nil, &user)
-	if err != nil || (status != http.StatusOK && status != http.StatusNotFound) {
+	if err != nil {
+		return err
+	}
+	if status != http.StatusOK && status != http.StatusNotFound {
 		return memberError(http.StatusServiceUnavailable, "infra", "github_unavailable", "GitHub unavailable")
 	}
 	if status == http.StatusNotFound || user.ID <= 0 || !ValidMemberLogin(user.Login) {

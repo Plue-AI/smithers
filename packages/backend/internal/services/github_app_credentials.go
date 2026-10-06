@@ -52,14 +52,25 @@ type githubAppCredentialQuerier interface {
 // GitHubAppCredentialStore is the single credential source for App callers.
 // Every read loads PostgreSQL again so changes take effect without restarting.
 type GitHubAppCredentialStore struct {
-	q     githubAppCredentialQuerier
-	codec webhook.SecretCodec
+	q      githubAppCredentialQuerier
+	codec  webhook.SecretCodec
+	budget *BudgetTracker
 }
 
-func NewGitHubAppCredentialStore(pool *pgxpool.Pool, codec webhook.SecretCodec) *GitHubAppCredentialStore {
+type GitHubAppCredentialOption func(*GitHubAppCredentialStore)
+
+// WithGitHubAppCredentialBudget registers signed JWTs with the install budget.
+func WithGitHubAppCredentialBudget(budget *BudgetTracker) GitHubAppCredentialOption {
+	return func(s *GitHubAppCredentialStore) { s.budget = budget }
+}
+
+func NewGitHubAppCredentialStore(pool *pgxpool.Pool, codec webhook.SecretCodec, options ...GitHubAppCredentialOption) *GitHubAppCredentialStore {
 	store := &GitHubAppCredentialStore{codec: codec}
 	if pool != nil {
 		store.q = db.New(pool)
+	}
+	for _, option := range options {
+		option(store)
 	}
 	return store
 }
@@ -184,7 +195,12 @@ func (s *GitHubAppCredentialStore) AppJWT(ctx context.Context) (string, error) {
 	if err != nil {
 		return "", fmt.Errorf("parse GitHub App private key: %w", err)
 	}
-	return createGitHubAppJWT(c.ID, key, time.Now())
+	now := time.Now()
+	token, err := createGitHubAppJWT(c.ID, key, now)
+	if err == nil {
+		s.budget.registerAppToken(token, c.ID, time.Unix(now.Add(gitHubAppJWTValidity).Unix(), 0))
+	}
+	return token, err
 }
 
 func (s *GitHubAppCredentialStore) WebhookSecret(ctx context.Context) (string, error) {

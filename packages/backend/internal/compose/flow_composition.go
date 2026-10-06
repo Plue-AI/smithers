@@ -177,7 +177,7 @@ func newFlowComposition(options runOptions, cfg *config.Config, pool *pgxpool.Po
 	if err != nil {
 		return nil, fmt.Errorf("Flow host resolver: %w", err)
 	}
-	dispatcher, err := flowdispatch.New(flowdispatch.Config{Store: store, Resolver: resolver, Projector: flowProjector(projectors...), RelayPlans: relayPlanStore{db.New(pool)}})
+	dispatcher, err := flowdispatch.New(flowdispatch.Config{Store: store, Resolver: resolver, Projector: flowProjector(projectors...), SteerAuthorizer: mythical, RelayPlans: relayPlanStore{db.New(pool)}})
 	if err != nil {
 		return nil, fmt.Errorf("Flow dispatcher: %w", err)
 	}
@@ -215,7 +215,7 @@ func codingHostEnvironment(_ topology) map[string]string {
 
 func (flow *flowComposition) recover(ctx context.Context) error {
 	if _, err := flow.jobs.RecoverExpiredForOperations(ctx,
-		[]string{flowdispatch.OperationLaunch, flowdispatch.OperationApprove, flowdispatch.OperationSignal}, 100); err != nil {
+		[]string{flowdispatch.OperationLaunch, flowdispatch.OperationApprove, flowdispatch.OperationSignal, flowdispatch.OperationSteer}, 100); err != nil {
 		return fmt.Errorf("recover Flow operations: %w", err)
 	}
 	if err := flow.bindings.ReconcileRetired(ctx, flow.stopper, 100); err != nil {

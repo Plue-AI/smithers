@@ -147,6 +147,11 @@ func TestTodoPublicationHeldByForeignHead(t *testing.T) {
 			assert.Equal(t, item.Checks, next.Checks)
 			assert.Equal(t, time.Unix(100, 0).Add(mythicalPullPollEvery), next.NextAttemptAt.Time)
 			assert.False(t, called)
+			// Reconciliation can call the push boundary directly, without propose.
+			// It must honor the same hold before reading or writing the repository.
+			err = st.pushProposal(t.Context(), item, mythicalGitHubRepo{}, mythicalProposalOp{Branch: "smithers/retry", Expected: strings.Repeat("a", 40), Head: strings.Repeat("b", 40)})
+			require.ErrorContains(t, err, tc.held)
+			assert.False(t, called)
 		})
 	}
 }

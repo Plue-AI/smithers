@@ -147,6 +147,85 @@ type mythicalGitHubAPI struct {
 	gitBase     func() string
 }
 
+// mythicalPushReader reads an authorized immutable installation source. It
+// never asks for push permission or uses a member credential for observation.
+type mythicalPushReader interface {
+	ReadPushSource(context.Context, db.GithubSyncedRepo) (mythicalGitHubRepo, error)
+	PushBranchHasPull(context.Context, db.GithubSyncedRepo, string) (bool, error)
+	PushActor(context.Context, mythicalGitHubRepo, string, string) (gitHubActor, error)
+}
+
+func (g *mythicalGitHubAPI) pushReadToken(ctx context.Context, source db.GithubSyncedRepo, permission string) (string, error) {
+	if g == nil || !source.InstallationID.Valid || source.InstallationID.Int64 <= 0 || !source.GithubRepositoryID.Valid || source.GithubRepositoryID.Int64 <= 0 {
+		return "", gitHubFetchUnavailable()
+	}
+	minter, ok := g.tokens.(GitHubInstallationTokenMinter)
+	if !ok {
+		return "", gitHubFetchUnavailable()
+	}
+	token, err := minter.CreateGitHubInstallationToken(ctx, source.InstallationID.Int64, GitHubTokenScope{RepositoryIDs: []int64{source.GithubRepositoryID.Int64}, Permissions: map[string]string{permission: "read"}})
+	if err != nil {
+		return "", err
+	}
+	if token.InstallationID != source.InstallationID.Int64 || strings.TrimSpace(token.Token) == "" {
+		return "", gitHubFetchUnavailable()
+	}
+	return token.Token, nil
+}
+
+func (g *mythicalGitHubAPI) ReadPushSource(ctx context.Context, source db.GithubSyncedRepo) (mythicalGitHubRepo, error) {
+	if g == nil || g.gitBase == nil {
+		return mythicalGitHubRepo{}, gitHubFetchUnavailable()
+	}
+	token, err := g.pushReadToken(ctx, source, "contents")
+	if err != nil {
+		return mythicalGitHubRepo{}, err
+	}
+	remote, err := gitMirrorURL(g.gitBase(), token, source.OwnerLogin, source.RepoName)
+	if err != nil {
+		return mythicalGitHubRepo{}, err
+	}
+	return mythicalGitHubRepo{Owner: source.OwnerLogin, Name: source.RepoName, Token: token, GitURL: remote}, nil
+}
+
+// A missing local PR number is not proof of remote absence. One matching PR
+// suffices to refuse a pre-PR lease; only a complete empty filtered response
+// proves absence. This consumes the existing transport, never another poller.
+func (g *mythicalGitHubAPI) PushBranchHasPull(ctx context.Context, source db.GithubSyncedRepo, branch string) (bool, error) {
+	if g == nil || g.api == nil || !mythicalTodoBranchValid(branch) {
+		return false, gitHubFetchUnavailable()
+	}
+	token, err := g.pushReadToken(ctx, source, "pull_requests")
+	if err != nil {
+		return false, err
+	}
+	query := url.Values{"head": {source.OwnerLogin + ":" + branch}, "state": {"all"}, "per_page": {"1"}}
+	var raw json.RawMessage
+	status, headers, err := g.api.requestHeaders(ctx, token, http.MethodGet, landingGitHubRepoPath(source.OwnerLogin, source.RepoName)+"/pulls?"+query.Encode(), "", nil, &raw)
+	if err != nil {
+		return false, err
+	}
+	if status != http.StatusOK {
+		return false, landingGitHubStatusError(status, source.OwnerLogin, source.RepoName, "read pull requests")
+	}
+	var pulls []landingGitHubPullRequest
+	if !strings.HasPrefix(strings.TrimSpace(string(raw)), "[") || json.Unmarshal(raw, &pulls) != nil {
+		return false, GitHubRequestFailure(ctx, "GitHub returned an unreadable pull request listing")
+	}
+	if len(pulls) == 0 {
+		if headers.Get("Link") != "" {
+			return false, GitHubRequestFailure(ctx, "GitHub returned an incomplete pull request listing")
+		}
+		return false, nil
+	}
+	for _, pull := range pulls {
+		if pull.Number <= 0 || pull.Head.Ref != branch || pull.Head.Repo == nil || !strings.EqualFold(pull.Head.Repo.FullName, source.OwnerLogin+"/"+source.RepoName) {
+			return false, GitHubRequestFailure(ctx, "GitHub returned an unbound pull request listing")
+		}
+	}
+	return true, nil
+}
+
 // NewMythicalGitHub resolves the repository owner's App installation token at
 // dispatch and proves the stack actor's own push access before any write, the
 // credential policy of landing pull requests.
@@ -318,6 +397,96 @@ func (g *mythicalGitHubAPI) Pull(ctx context.Context, gh mythicalGitHubRepo, num
 	return pull.pull(), nil
 }
 
+// PushActor resolves attribution for an already-observed TODO branch head.
+// Activity is matched by both ref and resulting SHA, never by the most recent
+// actor alone. If activity has no pusher, the exact commit's GitHub author is
+// the fallback. This read does not classify a push as Smithers' own or grant
+// the actor permission to answer a wait.
+func (g *mythicalGitHubAPI) PushActor(ctx context.Context, gh mythicalGitHubRepo, branch, head string) (gitHubActor, error) {
+	if !mythicalTodoBranchValid(branch) || !mythicalSHA.MatchString(head) || strings.Trim(head, "0") == "" {
+		return gitHubActor{}, errors.New("invalid GitHub push attribution binding")
+	}
+	path := landingGitHubRepoPath(gh.Owner, gh.Name) + "/activity"
+	ref := "refs/heads/" + branch
+	query := url.Values{"ref": {ref}, "direction": {"desc"}, "per_page": {"100"}}
+	seen := map[string]bool{}
+	for {
+		if err := ctx.Err(); err != nil {
+			return gitHubActor{}, err
+		}
+		key := query.Encode()
+		if seen[key] {
+			return gitHubActor{}, errors.New("GitHub activity cursor repeated")
+		}
+		seen[key] = true
+		var activity []struct {
+			Ref, After string
+			Pusher     gitHubActor
+		}
+		status, headers, err := g.api.requestHeaders(ctx, gh.Token, http.MethodGet, path+"?"+key, "", nil, &activity)
+		if err != nil {
+			return gitHubActor{}, err
+		}
+		if status != http.StatusOK {
+			return gitHubActor{}, landingGitHubStatusError(status, gh.Owner, gh.Name, "read push activity")
+		}
+		if activity == nil {
+			return gitHubActor{}, GitHubRequestFailure(ctx, "GitHub returned incomplete push activity")
+		}
+		matched := false
+		for _, event := range activity {
+			if event.Ref == ref && event.After == head {
+				if event.Pusher.ID > 0 && strings.TrimSpace(event.Pusher.Login) != "" {
+					return event.Pusher, nil
+				}
+				// An older push of the same SHA is not the current pusher.
+				matched = true
+				break
+			}
+		}
+		next := parseGitHubNextLink(headers.Get("Link"))
+		if matched || next == "" {
+			break
+		}
+		base, baseErr := url.Parse(strings.TrimRight(g.api.baseURL(), "/") + path)
+		page, pageErr := url.Parse(next)
+		if baseErr != nil || pageErr != nil {
+			return gitHubActor{}, errors.New("invalid GitHub activity pagination")
+		}
+		page = base.ResolveReference(page)
+		if page.Scheme != base.Scheme || page.Host != base.Host || page.Path != base.Path || page.User != nil || page.Fragment != "" {
+			return gitHubActor{}, errors.New("GitHub activity pagination changed source")
+		}
+		cursor, err := url.ParseQuery(page.RawQuery)
+		if err != nil || (cursor.Get("after") == "") == (cursor.Get("before") == "") ||
+			(cursor.Get("ref") != "" && cursor.Get("ref") != ref) || (cursor.Get("direction") != "" && cursor.Get("direction") != "desc") {
+			return gitHubActor{}, errors.New("invalid GitHub activity cursor")
+		}
+		query.Del("after")
+		query.Del("before")
+		if after := cursor.Get("after"); after != "" {
+			query.Set("after", after)
+		} else {
+			query.Set("before", cursor.Get("before"))
+		}
+	}
+	var commit struct {
+		SHA    string      `json:"sha"`
+		Author gitHubActor `json:"author"`
+	}
+	status, err := g.api.request(ctx, gh.Token, http.MethodGet, landingGitHubRepoPath(gh.Owner, gh.Name)+"/commits/"+head, nil, &commit)
+	if err != nil {
+		return gitHubActor{}, err
+	}
+	if status != http.StatusOK {
+		return gitHubActor{}, landingGitHubStatusError(status, gh.Owner, gh.Name, "read pushed commit author")
+	}
+	if commit.SHA != head || commit.Author.ID <= 0 || strings.TrimSpace(commit.Author.Login) == "" {
+		return gitHubActor{}, GitHubRequestFailure(ctx, "GitHub push attribution is unavailable")
+	}
+	return commit.Author, nil
+}
+
 // ClosePull is the Drop write primitive. Its caller must first persist the
 // outbound intent and reconcile uncertain results through Pull (T-GH-09):
 // appSend sends it only for a dropped TODO's close pending_op, which Drop
@@ -461,8 +630,8 @@ type mythicalLabelApplier struct {
 func (a *mythicalLabelApplier) present() bool { return a != nil && !a.Removed }
 
 // LabelApplier reads who last applied or removed label (nil: never), from
-// the issue's whole event history (at most 10 pages of
-// 100); a longer history is refused rather than read in part.
+// the repository's complete event history. An interrupted history read is
+// refused rather than used as partial evidence.
 func (g *mythicalGitHubAPI) LabelApplier(ctx context.Context, gh mythicalGitHubRepo, number int64, label string) (*mythicalLabelApplier, error) {
 	// The issue's labels as they are now decide; the history only names who
 	// applied or removed one. When the two disagree the history trails the
@@ -494,43 +663,23 @@ func (g *mythicalGitHubAPI) LabelApplier(ctx context.Context, gh mythicalGitHubR
 // labelHistory answers the last application or removal of label in the
 // issue's event history, nil when there is none.
 func (g *mythicalGitHubAPI) labelHistory(ctx context.Context, gh mythicalGitHubRepo, number int64, label string) (*mythicalLabelApplier, error) {
+	events, _, err := g.IssueEvents(ctx, gh, 0)
+	if err != nil {
+		return nil, err
+	}
 	var applier *mythicalLabelApplier
-	for page := 1; ; page++ {
-		if page > 10 {
-			return nil, errors.New("the issue's label history is too long to read whole")
+	for _, event := range events {
+		if event.Issue != number || !strings.EqualFold(event.Label, label) {
+			continue
 		}
-		var events []struct {
-			ID     int64            `json:"id"`
-			Event  string           `json:"event"`
-			Actor  gitHubActor      `json:"actor"`
-			ViaApp *json.RawMessage `json:"performed_via_github_app"`
-			Label  struct {
-				Name string `json:"name"`
-			} `json:"label"`
-		}
-		path := landingGitHubRepoPath(gh.Owner, gh.Name) + "/issues/" + strconv.FormatInt(number, 10) + "/events?per_page=100&page=" + strconv.Itoa(page)
-		status, err := g.api.request(ctx, gh.Token, http.MethodGet, path, nil, &events)
-		if err != nil {
-			return nil, err
-		}
-		if status != http.StatusOK {
-			return nil, landingGitHubStatusError(status, gh.Owner, gh.Name, "read issue events")
-		}
-		for _, event := range events {
-			if !strings.EqualFold(event.Label.Name, label) {
-				continue
-			}
-			switch event.Event {
-			case "labeled":
-				applier = &mythicalLabelApplier{Actor: event.Actor, ViaApp: event.ViaApp != nil && string(*event.ViaApp) != "null", EventID: event.ID}
-			case "unlabeled":
-				applier = &mythicalLabelApplier{Actor: event.Actor, EventID: event.ID, Removed: true}
-			}
-		}
-		if len(events) < 100 {
-			return applier, nil
+		switch event.Event {
+		case "labeled":
+			applier = &mythicalLabelApplier{Actor: event.Actor, ViaApp: event.ViaApp, EventID: event.ID}
+		case "unlabeled":
+			applier = &mythicalLabelApplier{Actor: event.Actor, EventID: event.ID, Removed: true}
 		}
 	}
+	return applier, nil
 }
 
 // mythicalCommentMarker is the hidden mark a keyed comment carries, so a

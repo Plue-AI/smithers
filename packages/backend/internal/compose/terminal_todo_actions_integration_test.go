@@ -65,6 +65,11 @@ func (c *todoCalls) ControlTodo(_ context.Context, n int64, input services.TodoC
 	return services.TodoControlReceipt{State: "requested"}, nil
 }
 
+func (c *todoCalls) AmendTodo(_ context.Context, n int64, input services.TodoAmendInput) (services.TodoControlReceipt, error) {
+	c.record("amend %d T%d %s %q", input.Actor, n, input.Prompt, input.Acceptance)
+	return services.TodoControlReceipt{State: "accepted", Number: n, Revision: 2}, nil
+}
+
 // J6 3b and the scope refusals (T-ACC-04, spec §5.3.2a and §8.11.1) through
 // the production auth loader, member boundary, memberCommands and TODO
 // handler on real PostgreSQL: a stage-1 terminal's delegated credential, the
@@ -135,6 +140,7 @@ func TestTerminalCredentialTodoActionsPostgres(t *testing.T) {
 	router.Post("/api/todos", todos.Create)
 	router.Get("/api/todos/{n}", todos.Get)
 	router.Post("/api/todos/{n}", todos.Control)
+	router.Patch("/api/todos/{n}", todos.Amend)
 	router.Post("/api/todos/{n}/answer", todos.Answer)
 	router.Post("/api/todos/{n}/merge", todos.Merge)
 	served := func(w http.ResponseWriter, _ *http.Request) { w.WriteHeader(http.StatusOK) }
@@ -164,6 +170,10 @@ func TestTerminalCredentialTodoActionsPostgres(t *testing.T) {
 		t.Run(holder.Username, func(t *testing.T) {
 			// The terminal is on T2's branch.
 			header := bearer(terminal(holder, branches[1]))
+			status, envelope := call("PATCH", "/api/todos/2", `{"prompt":"Revised","acceptance":[]}`, header)
+			require.Equal(t, http.StatusServiceUnavailable, status)
+			require.Equal(t, "confirmation_unavailable", envelope["code"])
+			require.Empty(t, calls.take(), "delegated amendment must not reach the service")
 			for _, admitted := range []struct{ method, path, body, call string }{
 				{"GET", "/api/user", "", ""},
 				{"GET", "/api/todos/1", "", ""},
@@ -224,14 +234,23 @@ func TestTerminalCredentialTodoActionsPostgres(t *testing.T) {
 	}
 	// The person's own browser session files a TODO directly; only the
 	// delegated credential confirms in the app.
+	benSession := session(ben)
 	status, envelope := call("POST", "/api/todos", `{"title":"Follow-up","prompt":"Add a farewell","place":{"mode":"append"}}`,
-		http.Header{"Cookie": {"session=" + session(ben)}, "Idempotency-Key": {"ben-browser"}})
+		http.Header{"Cookie": {"session=" + benSession}, "Idempotency-Key": {"ben-browser"}})
 	require.Equal(t, http.StatusAccepted, status, "%v", envelope)
 	require.Equal(t, []string{fmt.Sprintf("file %d Follow-up", ben.ID)}, calls.take())
+	status, envelope = call("PATCH", "/api/todos/2", `{"prompt":"Revised","acceptance":["A check"]}`,
+		http.Header{"Cookie": {"session=" + benSession}, "Idempotency-Key": {"ben-amend"}})
+	require.Equal(t, http.StatusAccepted, status, "%v", envelope)
+	require.Equal(t, map[string]any{"state": "accepted", "n": float64(2), "rev": float64(2)}, envelope)
+	require.Equal(t, []string{fmt.Sprintf(`amend %d T2 Revised ["A check"]`, ben.ID)}, calls.take())
 	// A suspended member's terminal is refused like their browser.
 	_, err = pool.Exec(ctx, `UPDATE collaborators SET suspended_at=now() WHERE user_id=$1`, alice.ID)
 	require.NoError(t, err)
 	status, _ = call("POST", "/api/todos/2/answer", answer, bearer(terminal(alice, branches[1])))
+	require.Equal(t, http.StatusForbidden, status)
+	require.Empty(t, calls.take())
+	status, _ = call("PATCH", "/api/todos/2", `{"prompt":"Revised"}`, bearer(terminal(alice, branches[1])))
 	require.Equal(t, http.StatusForbidden, status)
 	require.Empty(t, calls.take())
 }

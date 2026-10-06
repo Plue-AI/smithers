@@ -86,11 +86,11 @@ func newFakeIssueTextGitHub(t *testing.T) (*fakeIssueTextGitHub, *GitHubTextStam
 			return
 		}
 		app := map[string]any{"id": 1, "slug": "some-app"}
-		if r.URL.Path == "/repos/Acme/demo/issues/24/events" {
+		if r.URL.Path == "/repos/Acme/demo/issues/events" {
 			events := []map[string]any{}
 			for _, login := range []string{"contributor", "maintainer", "triager", "user7", "user922"} {
 				for _, label := range []string{"smithers", "invalid"} {
-					event := map[string]any{"event": "labeled", "actor": map[string]string{"login": login},
+					event := map[string]any{"id": 100 - len(events), "issue": map[string]int{"number": 24}, "event": "labeled", "actor": map[string]string{"login": login},
 						"label": map[string]string{"name": label}, "performed_via_github_app": nil}
 					if fake.labelsViaApp[login] {
 						event["performed_via_github_app"] = app

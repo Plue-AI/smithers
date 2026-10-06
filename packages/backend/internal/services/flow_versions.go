@@ -126,6 +126,11 @@ func persistFlowVersions(ctx context.Context, q *db.Queries, repositoryID int64,
 // ActiveFlowDigest answers the digest of a flow's Active version: the
 // repository's Active row, else the built-in version the install ships.
 func ActiveFlowDigest(ctx context.Context, q *db.Queries, repositoryID int64, name string) (string, error) {
+	// A historical repository row cannot supply an install command, even
+	// before the next flow-load deactivates a formerly accepted override.
+	if !Overridable(name) {
+		return "", fmt.Errorf("flow %q is install-owned", name)
+	}
 	rows, err := q.ListFlowVersions(ctx, repositoryID)
 	if err != nil {
 		return "", err

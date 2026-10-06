@@ -2,7 +2,6 @@ package services
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"net/http"
@@ -14,20 +13,11 @@ import (
 
 	"github.com/smithersai/smithers/packages/backend/internal/db"
 	"github.com/smithersai/smithers/packages/backend/internal/middleware"
-	"github.com/smithersai/smithers/packages/backend/jobs"
 )
 
-// todoMoveNamespace derives a move's operation id from the TODO and the
-// press's Idempotency-Key, so the same press again finds the move it made.
+// todoMoveNamespace identifies historical unscoped move receipts. They remain
+// readable, but cannot authorize replay for an unknown credential.
 var todoMoveNamespace = uuid.MustParse("5b0d6a3e-8f43-4c1e-9d7a-2e61c4b8f0a9")
-
-// todoMove is the part of a recorded todo.moved fact a repeated press
-// answers from: the direction and the places the TODO left and took.
-type todoMove struct {
-	Direction string `json:"direction"`
-	From      int64  `json:"from"`
-	To        int64  `json:"to"`
-}
 
 // moveTodo is Move up or Move down on TODO n (spec §6.3, mvp.md §4.2
 // Merging): n trades places with the nearest item still on the stack above
@@ -45,17 +35,11 @@ func (s *MythicalService) moveTodo(ctx context.Context, number int64, input Todo
 	if err := middleware.RequirePerson(ctx, "move a TODO"); err != nil {
 		return TodoControlReceipt{}, &TodoControlError{http.StatusForbidden, "permission", "permission", "Only a person moves a TODO"}
 	}
-	person, err := s.queries().GetUserByID(ctx, input.Actor)
-	if err != nil {
-		return TodoControlReceipt{}, err
-	}
 	var receipt TodoControlReceipt
-	err = pgx.BeginFunc(ctx, s.store, func(tx pgx.Tx) error {
+	err := pgx.BeginFunc(ctx, s.store, func(tx pgx.Tx) error {
 		q := db.New(tx)
-		if _, err := tx.Exec(ctx, `SELECT pg_advisory_xact_lock($1)`, input.Repository); err != nil {
-			return err
-		}
-		if _, err := tx.Exec(ctx, `SELECT 1 FROM mythical_stacks WHERE repository_id = $1 FOR UPDATE`, input.Repository); err != nil {
+		person, credential, err := lockTodoRequest(ctx, tx, q, "stack.move", input)
+		if err != nil {
 			return err
 		}
 		stack, err := q.GetMythicalStack(ctx, input.Repository)
@@ -69,24 +53,17 @@ func (s *MythicalService) moveTodo(ctx context.Context, number int64, input Todo
 		if err != nil {
 			return err
 		}
-		operation := uuid.NewString()
-		if input.Request != "" {
-			operation = uuid.NewSHA1(todoMoveNamespace, []byte(uuidString(item.ID)+"\x00"+input.Request)).String()
-		}
-		var recorded []byte
-		switch err := tx.QueryRow(ctx, `SELECT payload FROM product_job_requests WHERE id = $1`, operation).Scan(&recorded); {
-		case err == nil:
-			var done todoMove
-			if err := json.Unmarshal(recorded, &done); err != nil {
-				return err
-			}
-			if done.Direction != input.Direction {
-				return &TodoControlError{http.StatusConflict, "idempotency_mismatch", "conflict", "Idempotency-Key was already used for a different request"}
-			}
-			receipt = TodoControlReceipt{State: "accepted", Place: done.To}
-			return nil
-		case !errors.Is(err, pgx.ErrNoRows):
+		if prior, found, err := todoControlReplay(ctx, tx, q, item, input, credential, "todo.moved"); found || err != nil {
+			receipt = prior
 			return err
+		}
+		legacy := uuid.NewSHA1(todoMoveNamespace, []byte(uuidString(item.ID)+"\x00"+input.Request)).String()
+		var recorded bool
+		if err := tx.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM product_job_requests WHERE id=$1)`, legacy).Scan(&recorded); err != nil {
+			return err
+		}
+		if recorded {
+			return todoControlUnavailable()
 		}
 		order, err := q.LockMythicalStackOrder(ctx, input.Repository)
 		if err != nil {
@@ -125,15 +102,16 @@ func (s *MythicalService) moveTodo(ctx context.Context, number int64, input Todo
 		if err != nil {
 			return err
 		}
-		fact, _ := json.Marshal(map[string]any{"item": uuidString(item.ID), "n": number, "direction": input.Direction, "from": from, "to": place,
-			"past": neighbor.Number.Int64, "rebase": len(rebased), "actor": map[string]any{"kind": "person", "id": person.ID, "login": person.Username}})
-		if _, err := jobs.RecordFactInTx(ctx, tx, todoOperationScope(item), operation, "todo.moved", todoState(moved[to]), fact); err != nil {
+		receipt = TodoControlReceipt{State: "accepted", Place: place}
+		if err := recordTodoControl(ctx, tx, moved[to], input, credential, "todo.moved", receipt, map[string]any{
+			"item": uuidString(item.ID), "n": number, "direction": input.Direction, "from": from, "to": place,
+			"past": neighbor.Number.Int64, "rebase": len(rebased), "actor": map[string]any{"kind": "person", "id": person.ID, "login": person.Username},
+		}); err != nil {
 			return err
 		}
 		for _, changed := range append([]db.MythicalItem{moved[to], moved[at]}, rebased...) {
 			s.itemChanged(ctx, q, stack, changed.ID)
 		}
-		receipt = TodoControlReceipt{State: "accepted", Place: place}
 		return nil
 	})
 	return receipt, err

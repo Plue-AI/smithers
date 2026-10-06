@@ -34,7 +34,14 @@ const (
 	githubAPIVersion          = "2022-11-28"
 )
 
-func NewGitHubClient(credentials GitHubOAuthCredentialSource, redirectURL, oauthBaseURL, apiBaseURL string) *GitHubClient {
+type GitHubClientOption func(*GitHubClient)
+
+// WithGitHubBudget shares admission with the install's other GitHub callers.
+func WithGitHubBudget(budget *services.BudgetTracker) GitHubClientOption {
+	return func(c *GitHubClient) { c.httpClient = budget.WrapClient(c.httpClient) }
+}
+
+func NewGitHubClient(credentials GitHubOAuthCredentialSource, redirectURL, oauthBaseURL, apiBaseURL string, options ...GitHubClientOption) *GitHubClient {
 	oauthBaseURL = strings.TrimSpace(oauthBaseURL)
 	if oauthBaseURL == "" {
 		oauthBaseURL = defaultGitHubOAuthBaseURL
@@ -44,13 +51,17 @@ func NewGitHubClient(credentials GitHubOAuthCredentialSource, redirectURL, oauth
 		apiBaseURL = defaultGitHubAPIBaseURL
 	}
 
-	return &GitHubClient{
+	c := &GitHubClient{
 		credentials:  credentials,
 		httpClient:   observability.NewHTTPClient(10 * time.Second),
 		oauthBaseURL: oauthBaseURL,
 		apiBaseURL:   apiBaseURL,
 		redirectURL:  strings.TrimSpace(redirectURL),
 	}
+	for _, option := range options {
+		option(c)
+	}
+	return c
 }
 
 func (c *GitHubClient) oauthClient(ctx context.Context) (string, string, error) {
@@ -114,8 +125,11 @@ func (c *GitHubClient) ExchangeCode(ctx context.Context, code string) (services.
 		return services.GitHubTokenResult{}, fmt.Errorf("github oauth exchange request failed: %w", err)
 	}
 	defer func() { _ = resp.Body.Close() }()
+	if limited := services.GitHubRateLimitError(resp.StatusCode, resp.Header, time.Now()); limited != nil {
+		return services.GitHubTokenResult{}, limited
+	}
 
-	body, err := io.ReadAll(io.LimitReader(resp.Body, githubOAuthResponseLimit))
+	body, err := readGitHubBody(resp.Body)
 	if err != nil {
 		return services.GitHubTokenResult{}, fmt.Errorf("read github oauth exchange response: %w", err)
 	}
@@ -185,6 +199,9 @@ func (c *GitHubClient) RefreshToken(ctx context.Context, refreshToken string) (s
 		return services.GitHubTokenResult{}, fmt.Errorf("github oauth refresh request failed: %w", err)
 	}
 	defer func() { _ = resp.Body.Close() }()
+	if limited := services.GitHubRateLimitError(resp.StatusCode, resp.Header, time.Now()); limited != nil {
+		return services.GitHubTokenResult{}, limited
+	}
 
 	var payload struct {
 		AccessToken           string `json:"access_token"`
@@ -194,7 +211,11 @@ func (c *GitHubClient) RefreshToken(ctx context.Context, refreshToken string) (s
 		Error                 string `json:"error"`
 		ErrorDescription      string `json:"error_description"`
 	}
-	if err := json.NewDecoder(resp.Body).Decode(&payload); err != nil {
+	body, err := readGitHubBody(resp.Body)
+	if err != nil {
+		return services.GitHubTokenResult{}, fmt.Errorf("read github oauth refresh response: %w", err)
+	}
+	if err := json.Unmarshal(body, &payload); err != nil {
 		return services.GitHubTokenResult{}, fmt.Errorf("decode github oauth refresh response: %w", err)
 	}
 
@@ -247,20 +268,27 @@ func (c *GitHubClient) FetchUser(ctx context.Context, accessToken string) (servi
 
 	resp, err := c.httpClient.Do(req)
 	if err != nil {
-		return services.GitHubUserProfile{}, fmt.Errorf("github user request failed: %w", err)
+		return services.GitHubUserProfile{}, services.GitHubRequestFailure(ctx, "GitHub profile request failed")
 	}
 	defer func() { _ = resp.Body.Close() }()
+	if limited := services.GitHubRateLimitError(resp.StatusCode, resp.Header, time.Now()); limited != nil {
+		return services.GitHubUserProfile{}, limited
+	}
 
 	if resp.StatusCode < http.StatusOK || resp.StatusCode >= http.StatusMultipleChoices {
 		return services.GitHubUserProfile{}, githubStatusError("github user request", resp.StatusCode)
 	}
 
 	var profile services.GitHubUserProfile
-	if err := json.NewDecoder(resp.Body).Decode(&profile); err != nil {
-		return services.GitHubUserProfile{}, fmt.Errorf("decode github user response: %w", err)
+	body, err := readGitHubBody(resp.Body)
+	if err != nil {
+		return services.GitHubUserProfile{}, services.GitHubRequestFailure(ctx, "GitHub returned an incomplete profile response")
+	}
+	if err := json.Unmarshal(body, &profile); err != nil {
+		return services.GitHubUserProfile{}, services.GitHubRequestFailure(ctx, "GitHub returned an unreadable profile response")
 	}
 	if profile.ID == 0 || strings.TrimSpace(profile.Login) == "" {
-		return services.GitHubUserProfile{}, fmt.Errorf("github user response missing required fields")
+		return services.GitHubUserProfile{}, services.GitHubRequestFailure(ctx, "GitHub profile response is missing required fields")
 	}
 
 	return profile, nil
@@ -275,29 +303,39 @@ func (c *GitHubClient) FetchEmails(ctx context.Context, accessToken string) ([]s
 
 	resp, err := c.httpClient.Do(req)
 	if err != nil {
-		return nil, fmt.Errorf("github emails request failed: %w", err)
+		return nil, services.GitHubRequestFailure(ctx, "GitHub email request failed")
 	}
 	defer func() { _ = resp.Body.Close() }()
+	if limited := services.GitHubRateLimitError(resp.StatusCode, resp.Header, time.Now()); limited != nil {
+		return nil, limited
+	}
 
 	if resp.StatusCode < http.StatusOK || resp.StatusCode >= http.StatusMultipleChoices {
 		return nil, githubStatusError("github emails request", resp.StatusCode)
 	}
 
 	var emails []services.GitHubEmail
-	if err := json.NewDecoder(resp.Body).Decode(&emails); err != nil {
-		return nil, fmt.Errorf("decode github emails response: %w", err)
+	body, err := readGitHubBody(resp.Body)
+	if err != nil {
+		return nil, services.GitHubRequestFailure(ctx, "GitHub returned an incomplete email response")
+	}
+	if err := json.Unmarshal(body, &emails); err != nil {
+		return nil, services.GitHubRequestFailure(ctx, "GitHub returned an unreadable email response")
 	}
 
 	return emails, nil
 }
 
-// githubStatusError wraps services.ErrGitHubTokenRejected for 401 and 403 so
-// callers can tell a bad credential from a GitHub failure.
+// A rejected user token can be repaired by reconnecting. Other GitHub failures
+// retain their dependency class without blaming the local login.
 func githubStatusError(label string, status int) error {
-	if status == http.StatusUnauthorized || status == http.StatusForbidden {
+	if status == http.StatusUnauthorized {
 		return fmt.Errorf("%s failed with status %d: %w", label, status, services.ErrGitHubTokenRejected)
 	}
-	return fmt.Errorf("%s failed with status %d", label, status)
+	if failure := services.GitHubResponseFailure(status, nil, time.Now()); failure != nil {
+		return failure
+	}
+	return services.GitHubRequestFailure(context.Background(), "GitHub returned an unexpected identity response")
 }
 
 func setGitHubAPIHeaders(req *http.Request, accessToken string) {
@@ -305,4 +343,17 @@ func setGitHubAPIHeaders(req *http.Request, accessToken string) {
 	req.Header.Set("Authorization", "Bearer "+strings.TrimSpace(accessToken))
 	req.Header.Set("User-Agent", githubUserAgent)
 	req.Header.Set("X-GitHub-Api-Version", githubAPIVersion)
+}
+
+// Read to EOF within the limit before trusting tokens or identity fields.
+// A valid JSON prefix on a truncated connection is not an authoritative response.
+func readGitHubBody(body io.Reader) ([]byte, error) {
+	data, err := io.ReadAll(io.LimitReader(body, githubResponseLimit+1))
+	if err != nil {
+		return nil, err
+	}
+	if len(data) > githubResponseLimit {
+		return nil, fmt.Errorf("github response exceeds size limit")
+	}
+	return data, nil
 }

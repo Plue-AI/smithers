@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"math"
 	"strings"
 	"time"
 
@@ -20,6 +21,7 @@ type Service struct {
 	store               *jobs.Store
 	resolver            flowruntime.FlowRuntimeResolver
 	projector           Projector
+	steerAuthorizer     SteerAuthorizer
 	observationDelay    time.Duration
 	maxObservationDelay time.Duration
 	observationLimit    int
@@ -59,6 +61,7 @@ func New(config Config) (*Service, error) {
 	}
 	return &Service{
 		store: config.Store, resolver: config.Resolver, projector: config.Projector,
+		steerAuthorizer:  config.SteerAuthorizer,
 		observationDelay: config.ObservationDelay, maxObservationDelay: config.MaxObservationDelay,
 		observationLimit: config.ObservationLimit,
 		observationPages: config.ObservationPages, runtimeCallTimeout: config.RuntimeCallTimeout,
@@ -139,6 +142,60 @@ func signalAdmission(request SignalRequest) (jobs.Admission, error) {
 		Payload: payload, AuthorizationContext: request.AuthorizationContext,
 		EffectPolicy: jobs.EffectReconcile,
 		EffectKey:    "flow-runtime-signal:" + request.RequestID,
+	}, nil
+}
+
+// Steer admits feedback without contacting the runtime. A named Signal settles
+// a wait; Steer instead queues a Message and leaves open questions untouched.
+func (service *Service) Steer(ctx context.Context, request SteerRequest) (jobs.RequestReceipt, error) {
+	admission, err := steerAdmission(request)
+	if err != nil {
+		return jobs.RequestReceipt{}, err
+	}
+	return service.store.Admit(ctx, admission)
+}
+
+// SteerInTx commits feedback intent atomically with its product revision/event.
+func (service *Service) SteerInTx(ctx context.Context, tx pgx.Tx, request SteerRequest) (jobs.RequestReceipt, error) {
+	if tx == nil {
+		return jobs.RequestReceipt{}, errors.New("flow dispatch: transaction is required")
+	}
+	admission, err := steerAdmission(request)
+	if err != nil {
+		return jobs.RequestReceipt{}, err
+	}
+	return service.store.AdmitInTx(ctx, tx, admission)
+}
+
+func validSteerInput(messageID string, createdAt float64, body string) bool {
+	return strings.TrimSpace(messageID) != "" && strings.TrimSpace(body) != "" &&
+		createdAt >= 0 && !math.IsNaN(createdAt) && !math.IsInf(createdAt, 0)
+}
+
+func steerAdmission(request SteerRequest) (jobs.Admission, error) {
+	if strings.TrimSpace(request.RequestID) == "" || strings.TrimSpace(request.FlowID) == "" ||
+		strings.TrimSpace(request.RunID) == "" || !validSteerInput(request.MessageID, request.CreatedAt, request.Body) {
+		return jobs.Admission{}, errors.New("flow dispatch: steer requires request, flow, run, message, body, and a finite nonnegative timestamp")
+	}
+	request.Target = scopedTarget(request.Scope, request.Target)
+	if err := validateTarget(request.Scope, request.Target); err != nil {
+		return jobs.Admission{}, err
+	}
+	if len(request.Projection) == 0 {
+		request.Projection = json.RawMessage(`{}`)
+	}
+	payload, err := json.Marshal(steerPayload{
+		runMutationPayload: runMutationPayload{Target: request.Target, FlowID: request.FlowID, RunID: request.RunID, Projection: request.Projection},
+		MessageID:          request.MessageID, CreatedAt: request.CreatedAt, Body: request.Body,
+		Attribution: request.Attribution,
+	})
+	if err != nil {
+		return jobs.Admission{}, fmt.Errorf("flow dispatch: encode steer: %w", err)
+	}
+	return jobs.Admission{
+		Scope: request.Scope, Operation: OperationSteer, RequestID: request.RequestID,
+		Payload: payload, AuthorizationContext: request.AuthorizationContext,
+		EffectPolicy: jobs.EffectReconcile, EffectKey: "flow-runtime-steer:" + request.RequestID,
 	}, nil
 }
 
@@ -353,7 +410,7 @@ func (service *Service) StartHost(ctx context.Context, target flowruntime.Target
 
 // RunWorker consumes only Flow bridge operations from the shared jobs table.
 func (service *Service) RunWorker(ctx context.Context, config jobs.WorkerConfig) error {
-	config.Operations = []string{OperationLaunch, OperationApprove, OperationSignal}
+	config.Operations = []string{OperationLaunch, OperationApprove, OperationSignal, OperationSteer}
 	return service.store.RunWorker(ctx, config, service.Handle)
 }
 

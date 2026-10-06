@@ -274,3 +274,86 @@ func TestRepositoryIssueEventsListNewestFirstWithTheirIssues(t *testing.T) {
 	status, _ = request(t, server, "GET", "/repos/acme/app/issues/events", "", nil)
 	require.Equal(t, 401, status, "the list is read with a token")
 }
+
+func TestRemoveIssueLabelRetainsItsEventAndChecksPermission(t *testing.T) {
+	server, cfg, key := fixture(t)
+	number := server.OpenIssue("acme/app", "ben", "One", "Body")
+	server.LabelIssue("acme/app", number, "ben", "todo")
+	mint := func(body []byte) string {
+		status, raw := request(t, server, "POST", "/app/installations/91/access_tokens", jwt(t, key, cfg.AppID, time.Now().Add(time.Minute)), body)
+		require.Equal(t, 201, status)
+		var access struct{ Token string }
+		require.NoError(t, json.Unmarshal(raw, &access))
+		return access.Token
+	}
+	read := mint([]byte(`{"permissions":{"issues":"read"}}`))
+	write := mint([]byte(`{"permissions":{"issues":"write"}}`))
+	path := "/repos/acme/app/issues/" + itoa(number) + "/labels/todo"
+	status, _ := request(t, server, "DELETE", path, read, nil)
+	require.Equal(t, 403, status)
+	server.FailNextWrites(path, 1)
+	status, _ = request(t, server, "DELETE", path, write, nil)
+	require.Equal(t, 502, status)
+	before, ok := server.Issue("acme/app", number)
+	require.True(t, ok)
+	require.Equal(t, []string{"todo"}, before.Labels)
+	require.Len(t, before.Events, 1)
+	status, body := request(t, server, "DELETE", path, write, nil)
+	require.Equal(t, 200, status)
+	require.JSONEq(t, `[]`, string(body))
+	status, _ = request(t, server, "DELETE", path, write, nil)
+	require.Equal(t, 404, status)
+	server.LabelIssue("acme/app", number, "ben", "todo")
+	after, ok := server.Issue("acme/app", number)
+	require.True(t, ok)
+	require.Len(t, after.Events, 3)
+	require.Equal(t, "labeled", after.Events[0].Event)
+	require.Equal(t, "unlabeled", after.Events[1].Event)
+	require.True(t, after.Events[1].ViaApp)
+	require.Equal(t, "labeled", after.Events[2].Event)
+}
+
+func TestRepositoryIssueCommentsFilterSortAndPage(t *testing.T) {
+	server, cfg, key := fixture(t)
+	issue := server.OpenIssue("acme/app", "ben", "First", "body")
+	other := server.OpenIssue("acme/app", "ben", "Second", "body")
+	first := server.CommentIssue("acme/app", issue, "ben", "first")
+	second := server.CommentIssue("acme/app", other, "carol", "second")
+	old := time.Date(2026, 10, 5, 10, 0, 0, 0, time.UTC)
+	require.True(t, server.UpdateComment("acme/app", first, "first edit", old))
+	require.True(t, server.UpdateComment("acme/app", second, "second edit", old.Add(time.Second)))
+	status, body := request(t, server, "POST", "/app/installations/91/access_tokens", jwt(t, key, cfg.AppID, time.Now().Add(time.Minute)), nil)
+	require.Equal(t, 201, status)
+	var access struct{ Token string }
+	require.NoError(t, json.Unmarshal(body, &access))
+	status, body = request(t, server, "GET", "/repos/acme/app/issues/comments?sort=updated&direction=desc&per_page=1", access.Token, nil)
+	require.Equal(t, 200, status)
+	var rows []struct {
+		ID       int64
+		Body     string
+		IssueURL string `json:"issue_url"`
+	}
+	require.NoError(t, json.Unmarshal(body, &rows))
+	require.Len(t, rows, 1)
+	require.Equal(t, second, rows[0].ID)
+	require.Equal(t, "second edit", rows[0].Body)
+	require.Equal(t, server.URL+"/repos/acme/app/issues/"+itoa(other), rows[0].IssueURL)
+	status, body = request(t, server, "GET", "/repos/acme/app/issues/comments?sort=updated&direction=desc&per_page=1&page=2", access.Token, nil)
+	require.Equal(t, 200, status)
+	require.NoError(t, json.Unmarshal(body, &rows))
+	require.Len(t, rows, 1)
+	require.Equal(t, first, rows[0].ID)
+	status, body = request(t, server, "GET", "/repos/acme/app/issues/comments?since=2026-10-05T10:00:00Z", access.Token, nil)
+	require.Equal(t, 200, status)
+	require.NoError(t, json.Unmarshal(body, &rows))
+	require.Len(t, rows, 1)
+	require.Equal(t, second, rows[0].ID)
+	status, _ = request(t, server, "GET", "/repos/acme/app/issues/comments", "", nil)
+	require.Equal(t, 401, status)
+	status, body = request(t, server, "GET", "/repos/acme/app/issues/comments?direction=desc&per_page=1", access.Token, nil)
+	require.Equal(t, 200, status)
+	require.NoError(t, json.Unmarshal(body, &rows))
+	require.Len(t, rows, 1)
+	require.Equal(t, first, rows[0].ID, "direction is ignored without sort")
+	require.False(t, server.UpdateComment("elsewhere/app", first, "wrong", old))
+}

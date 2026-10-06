@@ -165,11 +165,23 @@ type GitHubAppManifestService struct {
 	client  *http.Client
 }
 
-func NewGitHubAppManifestService(pool *pgxpool.Pool, store *GitHubAppCredentialStore, apiBaseURL string, origins func() []string) *GitHubAppManifestService {
+type GitHubAppManifestOption func(*GitHubAppManifestService)
+
+// WithGitHubAppManifestBudget preserves setup's redirect policy while sharing
+// admission with other GitHub clients in this installation.
+func WithGitHubAppManifestBudget(budget *BudgetTracker) GitHubAppManifestOption {
+	return func(s *GitHubAppManifestService) { s.client = budget.WrapClient(s.client) }
+}
+
+func NewGitHubAppManifestService(pool *pgxpool.Pool, store *GitHubAppCredentialStore, apiBaseURL string, origins func() []string, options ...GitHubAppManifestOption) *GitHubAppManifestService {
 	if apiBaseURL == "" {
 		apiBaseURL = "https://api.github.com"
 	}
-	return &GitHubAppManifestService{pool: pool, store: store, apiBaseURL: strings.TrimRight(apiBaseURL, "/"), origins: origins, client: &http.Client{Timeout: 30 * time.Second, CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}}
+	s := &GitHubAppManifestService{pool: pool, store: store, apiBaseURL: strings.TrimRight(apiBaseURL, "/"), origins: origins, client: &http.Client{Timeout: 30 * time.Second, CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}}
+	for _, option := range options {
+		option(s)
+	}
+	return s
 }
 
 func (s *GitHubAppManifestService) knownOrigins() []string {
@@ -526,6 +538,10 @@ func (s *GitHubAppManifestService) request(ctx context.Context, method, path, to
 		return pkgerrors.New(pkgerrors.CodeGitHubUnavailable, "GitHub App request failed")
 	}
 	defer resp.Body.Close()
+	if limited := GitHubRateLimitError(resp.StatusCode, resp.Header, setupNow(s.Now)); limited != nil {
+		return limited
+	}
+
 	if resp.StatusCode == http.StatusNotFound && method == http.MethodGet && strings.HasPrefix(path, "/users/") {
 		return pkgerrors.BadRequest("GitHub owner not found")
 	}

@@ -56,8 +56,8 @@ func todoActor(ctx context.Context, person db.User) json.RawMessage {
 // todoActorRef is the same actor as a TODO's facts record it: the person,
 // and for a delegated credential the via it acted through and its terminal
 // session ({person, via?, session?}, apps/app ProductActor's notation).
-func todoActorRef(ctx context.Context, person db.User) map[string]any {
-	ref := map[string]any{"person": person.Username}
+func todoActorRef(ctx context.Context, person db.User) map[string]string {
+	ref := map[string]string{"person": person.Username}
 	info := middleware.AuthInfoFromContext(ctx)
 	if delegation, delegated := info.Delegation(); delegated {
 		ref["via"] = info.ActingVia()

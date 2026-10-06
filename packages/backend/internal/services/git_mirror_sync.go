@@ -867,6 +867,9 @@ func parseRemoteRefs(output string) (map[string]string, error) {
 		if len(fields) != 2 || !strings.HasPrefix(fields[1], "refs/") {
 			return nil, fmt.Errorf("invalid git ls-remote output")
 		}
+		if previous, exists := refs[fields[1]]; exists && previous != fields[0] {
+			return nil, fmt.Errorf("conflicting git ls-remote output")
+		}
 		refs[fields[1]] = fields[0]
 	}
 	if err := scanner.Err(); err != nil {

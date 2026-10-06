@@ -3,8 +3,6 @@ title: "GitHub App setup"
 description: "Create the install's GitHub App and keep its credentials sealed on the host."
 ---
 
-# GitHub App setup
-
 Open the terminal's `/setup?token=…` URL on a configured origin. It exchanges the token for a durable setup session. Before claim, `GET /api/install` and `POST /api/install/setup/app_manifest` require that session; a raw bootstrap header cannot start a step. Afterwards they require the owner's browser session. Setup POSTs require the same origin and CSRF cookie/header.
 Post `{ "owner_login": "your-login", "owner_kind": "user", "repository": "your-repo" }` to `/api/install/setup/app_manifest`. In the same browser, submit the returned `manifest` as a JSON string in a form field named `manifest` to `action_url`, using `POST`. Organization repositories use `https://github.com/organizations/<org>/settings/apps/new`; an organization owner must create the App there. Hand that URL to an owner if needed.
 
@@ -16,14 +14,299 @@ One App belongs to each install. Its PEM, webhook secret, and OAuth client secre
 
 ## Pushes from outside
 
-TODO branch publication is held while the current GitHub facts, own-push reconciliation and independent wait providers are unavailable. A previously observed foreign head remains held even if a later poll reports the recorded Smithers head or a PR behind main. Polling does not answer a person's wait.
+TODO branch publication is held while the current GitHub facts, own-push reconciliation and independent wait providers are unavailable. With an open PR, a previously observed foreign head remains held even if a later poll reports the recorded Smithers head or a PR behind main. Polling does not answer a person's wait. Both proposal preparation and the
+direct push boundary enforce this hold, including replayed outbound pushes.
 
-Bring in and Discard remain unavailable until the shared authorization, confirmation, catalog and checkpoint contracts pass their production boundary tests. No repository code runs on the host to bring in a commit. The eventual branch answer input is `{id, revision}`: the foreign wait id and its displayed `sha`, with an `Idempotency-Key`; a newer head requires a new decision.
+The shared inbound decision recognizes the intended head of a recoverable push
+bound to the TODO's recorded branch. Seeing that head does not open a foreign
+hold or acknowledge the outbound operation; reconciliation still owns settlement.
+Malformed or unbound pending push evidence refuses classification. The existing
+pull follower honors both this decision and terminal no-ops, preserving earlier
+holds, independent waits, pause and failure facts. The install's transactional
+ref consumer and bound foreign-push answers remain unqualified.
+
+Persisted foreign-push waits retain their `sha` and `by` in both TODO card
+reads and unrelated question settlement. Historical waits without these fields
+remain readable. Foreign-push actions stay absent until their providers qualify.
+
+The GitHub transport resolves a pushed head's attribution from repository
+activity, matching both the TODO ref and resulting SHA across cursor pages.
+When no matching pusher is available, it reads the exact commit's GitHub author.
+Failed reads, changed pagination sources and unlinked authors leave attribution
+unavailable. The TODO ref consumer uses an installation token restricted to the immutable
+repository id and `contents: read`; it requests no member credential or push
+permission. Production registration remains disabled.
+
+Outside-commit retention uses the existing restricted smart-HTTP bridge to
+create `refs/smithers/kept/<sha>` in the host store. Only a control-plane write
+may create or identically replay the named SHA; deletion and replacement are
+refused. The transport verifies the commit object and the stored ref, and a
+retry can recover from the host pin after the source commit disappears. The TODO ref consumer retains the observed commit before recording a wait,
+rechecks current authority after the reads, and commits the wait, activity and
+delivery acknowledgement together. A failed acknowledgement rolls back those
+records while leaving the host pin available for retry after restart. A newer
+push updates the same wait and keeps both commits. Other waits, pause, failure
+and candidate facts remain intact. Selection includes failed TODOs without a
+display limit; the shared decision skips recorded heads, recoverable own pushes
+and terminal items before reading GitHub or the host.
+
+Before a PR exists, a queued or starting TODO records the retained outside
+head as the next proposal's lease, without adding a foreign-push wait. The
+consumer retains the commit before further reads, then requires a complete empty GitHub PR listing filtered to that
+exact branch, using a separate repository-scoped `pull_requests: read` token.
+An existing PR, unreadable or incomplete listing, or failed read leaves the
+observation pending. Other waits remain intact. An unreconciled PR-open request
+cannot establish that no PR exists, so that observation waits for recovery. An uncertain push intent keeps its original desired
+head and precondition. Recovery looks up that branch again: only a match with
+the recorded outside head releases the old push as a conflict, with a durable
+receipt and slot release in one transaction under the live stack lease. It
+never repeats that conflicted intent. A changed branch waits for a fresh refs
+observation, even if it moved back to the old precondition. The next verified
+proposal uses the newly recorded head as its force-with-lease precondition.
+
+This consumer remains unregistered in production. Main-ref effects and the
+complete refs consumer still require qualification.
+
+Bring in and Discard remain unavailable until the shared authorization, confirmation, catalog and checkpoint contracts pass their production boundary tests. Their exact command names, `branch.bring-in` and `branch.discard-foreign`, are reserved to the install. Repository versions cannot activate or resolve under those names, including historical Active rows; flow-load retires those rows while retaining their history. No repository code runs on the host to bring in a commit. The eventual branch answer input is `{id, revision}`: the foreign wait id and its displayed `sha`, with an `Idempotency-Key`; a newer head requires a new decision.
+
+The confirmation storage candidate extends `approvals`, retaining guest approvals
+and their history. It binds person confirmations to a member, issuing credential,
+command, subject revision and request key; merge confirmations additionally bind
+generation and reviewed head. The binding and terminal decision are immutable.
+Legacy guest approval reads and decisions exclude both person-confirmation kinds,
+and a guest cannot create them through the approval emission service.
+Deleting a member removes their confirmations before legacy decision-author
+cleanup; legacy approvals retain their existing history and null-author behavior.
+The candidate migration under `migrations/pending` is tested against the product
+schema but is unnumbered and unregistered until landing. These store primitives
+do not authorize or execute commands; confirmation routes remain unavailable
+until shared descriptor, authorization, subject and action consumers qualify.
 
 ## Polling transport
 
-The existing GitHub callers have shared client wiring for response-header budget admission, including repository lists, visibility checks, installation-token minting and stack decoration. Header-based accounting remains unmounted until the install's production guards and delivery checks qualify it. Scoped tokens for the same installation share its resource budget. GitHub's limit, remaining and reset headers supply capacity; no local hourly request-count cap or linear refill applies. Production compositions retain their existing worker and budget policy until that qualification.
+The install's production service assembly selects shared response-header budget admission for repository lists, visibility checks, installation-token minting and stack decoration. Scoped tokens for the same installation share its resource budget; a person's own credential has separate headroom shared by their repository-list and access-check clients. GitHub's limit, remaining and reset headers supply capacity; no local hourly request-count cap or linear refill applies. Hosted compositions retain their existing worker and budget policy. Selecting the install budget does not enable unqualified metadata workers or consumers: the install metadata reconciler uses the guarded fetched-state path described below.
 
 A 403 or 429 with `Retry-After` pauses only its stream. Exhausted primary capacity pauses the resource until its reset. Below 20 percent remaining, the cadence helper doubles issues, issue events and permission reads until reset. Conditional 304 responses consume no local debit. The existing request API also exposes `If-None-Match`, 304 status and response headers without replacing a cached fact.
 
-The install polling integration remains incomplete. Required cadences are refs every 30 seconds; pulls, PR checks and comment streams every 45 seconds; issues and repository issue events every 120 seconds; permissions every hour. Stream ETags and health belong in memory. Repository issue events require an `install_settings` cursor and an atomic cache/cursor/pending-delivery commit, followed by consumer receipt/effect commit and acknowledgement. These delivery and worker contracts are not activated by the transport increment; it does not establish freshness or recovery acceptance.
+Startup creates this budget before auth and setup. Manifest owner discovery, conversion and installation discovery, OAuth exchange and refresh, and profile/email reads use it too. Profile, email and repository reads with the same user token share headroom; a temporary OAuth pause does not invalidate a stored refresh token. Setup retains its refusal to follow redirects.
+
+The sealed credential source registers each JWT under the App ID it signed for. Renewing that JWT retains the App's resource limits and stream pauses across setup, access diagnosis, member checks and installation reconciliation. App and installation-token budgets remain distinct. Registrations expire with their credentials; removing an expired registration does not clear the principal's rate-limit history. Incoming JWT claims never establish an accounting identity.
+
+Rate-limit refusals retain the `github` class, `github_rate_limited` code and absolute `retry_at` through the shared request helper, installation minting/discovery, metadata/import callers and install setup/member envelopes. `Retry-After` remains available for existing clients. HTTP 403 is a rate limit only with retry or exhausted-budget headers; ordinary permission denials remain distinct. The shared parser keeps GitHub's full retry interval, including HTTP dates and pauses longer than an hour. Local budget refusals carry the same typed deadline as upstream refusals.
+
+Non-rate-limit GitHub failures use HTTP 502 with class `github`, keeping local 401/403 authorization failures distinct. Required App reads report `github_permission` for inaccessible resources and `github_unavailable` for transport, incomplete-body or decoding failures. Only an upstream 404 from the installation-token endpoint maps to `github_not_installed`; an absent optional discovery result still returns no installation. The shared HTTP transport preserves cancellation, and the transport never retries an uncertain write. Token and installation-list responses must be complete and within their size limits before decoding or caching; failed stream reads retain the previously committed cache, cursor and pending deliveries. Direct user repository listings, installation repository listings and push-permission reads apply the same bounded, complete-response requirement. A rejected installation token is evicted without treating it as a local sign-in failure. Rejected user tokens retain the one-refresh/reconnect path; failed refreshes keep their own error and retry deadline, so a temporary refresh pause neither invalidates the last-good listing nor reports a broken credential. Missing installation bindings report `github_not_installed`. OAuth exchange/refresh and profile/email reads classify rate-limit headers before interpreting credential errors. Exchange and refresh credentials are accepted only from a complete response within 1 MiB; malformed or interrupted refreshes leave the stored credential unchanged. Profile and email identity reads also require a complete response within 1 MiB. Sign-in preserves typed GitHub failures and rate-limit deadlines; failed identity reads cannot create an account or issue a token. Required repository metadata and diff reads use the shared failure classification, and diff rate-limit headers take precedence over unreadable bodies. Optional discovery and missing-access verdicts remain explicit at their callers. Installation verification retains dependency failures and their absolute retry deadline; an App access failure does not become an empty successful inventory.
+
+The install polling integration remains incomplete. Required cadences are refs every 30 seconds; pulls, PR checks and comment streams every 45 seconds; issues and repository issue events every 120 seconds; permissions every hour. Stream ETags and health belong in memory. Repository issue events use an `install_settings` cursor and an atomic cache/cursor/pending-delivery commit, followed by consumer receipt/effect commit and acknowledgement. Full production stream and freshness contracts remain unqualified.
+
+Main-ref reads and transfers run from the system root directory, outside the
+backend's checkout. Transfers name their scratch repository explicitly. The
+packaged Git command and controlled environment remain shared with the existing
+mirror transport; the backend's current checkout supplies no local Git config.
+
+The install's main worker reads the followed branch and `refs/heads/smithers/*`
+in one ref listing. Before continuing the pull, it records that complete
+observation as a pending delivery in the existing product jobs store. Admission
+rechecks the source captured before the read, the current repository binding
+and the worker's live claim, checked again after lock waits. Unchanged listings
+reuse the latest delivery. Poll claims order changed observations, including
+changes back to an earlier SHA and empty listings. They are delivery records,
+not a second current-state cache. Missing ref consumers retain them across
+restart; consumer effects and acknowledgement share one transaction. Production
+ref consumers and full stream qualification remain outstanding.
+
+## Fetched-state delivery
+
+On installs, issue, pull-request and comment webhooks wake the existing metadata
+reconciler. Their payloads cannot update cached objects, rename the registry row
+or establish freshness. Hosted webhook/cache behavior is unchanged.
+
+Fetched issue and pull-request batches commit their cache rows and consumer
+requests together in the existing product jobs store. Each request identifies
+the installation, immutable GitHub repository, stream and object version.
+Repeated polls reuse the request; stale object versions do not replace newer
+cache rows. A malformed object or failed delivery write rolls back the batch.
+Absence from a fetched page does not silently delete a cached object; deletion
+still needs an authoritative tombstone and its consumer delivery.
+
+Repository issue events are paged newest first back to the durable cursor.
+Every new event is retained by its GitHub event id, including separate label
+removal and reapplication events. Cache updates, event deliveries and the cursor
+commit together; interrupted paging and failed writes leave the cursor intact.
+The cursor is scoped to the installation and immutable repository id. It marks
+durable admission; pending consumer work survives its advancement and restart.
+Delivery follows numeric event order, independently of database timestamps.
+Embedded issue text is cached data; downstream label admission must still check
+its authorship and current membership.
+
+The shared jobs worker retains requests when no consumer is registered. A
+consumer writes through the same PostgreSQL transaction that acknowledges its
+request. Failure rolls back both, and a later version in the stream waits for
+earlier pending work. Delivery rechecks current repository/installation binding
+and provider authority. No separate delivery table or scheduler is introduced.
+
+Production provider qualification and downstream handlers are not registered
+yet. Install metadata fetching and per-issue comment baselines remain disabled;
+last-good cached data stays visibly stale. Main-ref polling is separate and
+continues through its existing service. Transactional TODO consumer integration, review and comment streams,
+cadence integration and the full production recovery/freshness checks remain
+required before activation.
+
+Issue, pull-request and repository-event pages use conditional install reads
+through the shared HTTP transport and scoped token minter. In-memory ETags are
+bound to the registry row, installation, immutable repository, owner/name,
+resource and complete query. A stream retains new validators only after its
+whole fetched interval commits with its pending deliveries. Failed paging,
+revoked authority or failed database writes leave the prior validators intact.
+A 304 can end a walk only for a page from a previously committed interval;
+an unsolicited 304 is an error. Response bodies are never a second object cache.
+Restart drops ETags and rereads GitHub; durable event and object identities
+prevent duplicate deliveries. Install issue and pull walks no longer stop at
+ten pages, and incomplete HTTP bodies cannot be accepted as valid snapshots.
+Issue and pull cursors retain the newest committed `updated_at` in poller
+memory. Issue reads use a stable `since` URL with a one-second overlap because
+[GitHub excludes the boundary timestamp](https://docs.github.com/en/rest/issues/issues#list-repository-issues).
+Pull reads use the same overlap when stopping their newest-first page walk.
+Objects in that second are compared through their existing canonical versions,
+so a later same-second edit is retained without replaying identical effects.
+Unordered or invalid timestamps, failed reads and failed commits cannot advance
+the cursor. Old issue-query validators are discarded when its cursor advances.
+
+A page validator also retains its row count and oldest timestamp, not its
+objects. An unchanged full page inside the overlap window still leads to the
+next page: a page-two edit can share the cursor timestamp without changing
+page one. Short pages or pages reaching older timestamps end the walk. Restart
+loses cursors and validators together and repeats a full read; durable delivery
+identities preserve deduplication.
+
+The existing install metadata reconciler runs pulls every 45 seconds and issues
+and repository events every 120 seconds, using separate in-memory schedules.
+Issue and PR webhook hints request their corresponding streams without moving
+the next regular poll. Repeated hints coalesce, and a busy database claim leaves
+them pending. Final synchronization status rechecks the current binding and
+provider authority under the registry lock; an intervening disable or rebind
+cannot be overwritten by a successful read. Each due stream commits independently; an issue-stream refusal
+does not prevent a due pull read or erase its last successful state. The install
+reads all eligible registry entries rather than sharing the hosted batch limit.
+Pull requests use 50 rows per page; issues and events use 100.
+
+When response-header budget accounting is qualified and enabled, metadata
+scheduling consults its shared pauses before token minting. Issues and events
+double to 240 seconds below 20 percent remaining, returning to 120 at reset;
+pulls remain at 45. A 403 or 429 with Retry-After holds only that stream, including
+pending hints, until its retry time. Restart forgets these schedules and starts
+with a fresh read. Hosted scheduling remains unchanged. PR check, review/comment
+and permission stream scheduling, health projection and full production
+qualification remain incomplete.
+
+Label provenance readers use the same repository event pager. They isolate the
+requested issue, read complete history, and retain the check against its current
+labels. Failed pages cannot supply partial approval evidence. A matching GitHub
+App action within the attribution window prevents attribution to a person.
+The former main-ref-loop registration that directly admitted TODOs is removed;
+TODO admission must join the shared fetched-event transaction before activation.
+
+The existing TODO follow loop selects a 45-second pull-state interval on installs;
+hosted workers retain five minutes. Install reads use the shared conditional
+transport, scoped token minter and fetched-state qualification. Missing providers
+refuse before token minting. Pull detail updates and their pending deliveries
+commit to the same store as pull list updates. The loop does not apply fetched
+PR state or run the legacy review/merge gate: those effects belong to the
+transactional consumer, which remains unregistered.
+
+Detail ETags retain the canonical version of their committed cache row. If a
+list read, concurrent detail read or deletion changes that row, the next detail
+read fetches a body again. An intervening cache change during a 304, a failed
+commit or revoked binding cannot validate a different representation. Restart
+forgets ETags and retains pending delivery identities. Shared pull-stream pauses
+are checked before minting and retain their absolute retry deadline. Check and
+review reads and complete freshness acceptance remain outstanding.
+
+Pull webhook hints also wake the existing stack worker for every unsettled TODO
+with a PR, including items beyond the display limit. During a scheduled wait,
+the worker fetches the hinted PR without moving its regular deadline. Repeated
+hints coalesce; a hint arriving during a fetch survives for the next pass. Both
+shared budget pauses and failed-read backoff remain in force after another hint.
+The worker rechecks the effective repository destination before fetching. Missing
+provider qualification leaves this path disabled.
+
+The install's existing sync service now requires every stream owner: refs,
+repository metadata and per-TODO reads, checks, reviews and permissions. A main
+receipt alone cannot qualify polling, aggregate health or Retry. The production
+assembly leaves the absent check and review owners unregistered;
+main polling and the sync actions report unavailable until the complete provider
+boundary is qualified.
+
+Retry checks all owners before scheduling their existing workers. Repository
+reads and per-TODO reads use the same hints as webhooks; main pulls use their
+existing durable request generations and wake channel. Retry returns before
+HTTP, preserves cadence and shared budget state, and propagates scheduling
+failures instead of claiming completion. Repository health includes missing
+per-TODO observations rather than inferring them from the pull list.
+
+Successful install main-pull requests wake the same worker immediately instead
+of waiting for its five-second drain timer. Requests committed before a later
+repository fails still wake it; failed or unmatched requests do not. Repeated
+hints coalesce while an active read finishes. Hosted scheduling is unchanged.
+
+The main reader checks shared admission before token minting or ref reads.
+Install token refusals and empty credentials stop the read instead of falling
+back to anonymous GitHub access. Rate-limit failures retain their absolute retry
+deadline in the worker's existing backoff. Hosted anonymous public reads retain
+their previous behavior. Full stream, main-move/attention, live-health and
+production acceptance evidence remain outstanding.
+
+Main-read permission refusals and rate-limit deadlines now contribute to
+aggregate health after their pull receipt commits. The in-memory classification
+is bound to that receipt's read time, source, branch and error. A Retry request
+does not clear it; a successful read does. A restart or changed receipt requires
+an unclassified failure to be read again before reporting fresh. Ordinary
+transient failures retain the last success until the stale boundary.
+
+Permission polling uses the existing member-recheck worker. Its one-second
+driver checks an hourly read deadline; low shared budget doubles that deadline
+until reset. Retry wakes this same worker, preserves the regular deadline and
+coalesces requests during an active read. Shared permission and token-mint
+pauses apply before minting. The qualified registry supplies the installation,
+avoiding a second installation-discovery request.
+
+Permission ETags are held in memory and tied to the committed roster row
+version. A changed row or repository binding invalidates an in-flight response,
+including 304. Suspension, credential revocation and restoration commit before
+an ETag is retained; restart performs a fresh read. Confirmed read/none access
+suspends a member, while installation refusals, malformed responses and
+transient failures preserve access. Restoring write access never restores old
+credentials. This worker remains disabled without fetched-state qualification;
+its integration tests do not establish live transport or guest revocation
+acceptance.
+
+AuthService identifies stored and refreshed GitHub user credentials to the
+shared HTTP transport. A user-token 401 or non-rate-limit 403 requests an
+immediate permission recheck through the existing worker, without waiting for
+it or changing roster state in the failed request. App and installation-token
+failures, unknown credentials and rate limits do not trigger this hint. The
+worker still respects shared admission and requires a confirmed permission
+response before revoking access.
+
+Conversation comments use the repository-wide `issues/comments` stream every
+45 seconds. The existing pager requests `sort=updated&direction=desc` with
+100 comments per page and the same exclusive-since overlap as issues, following
+[GitHub's repository comment parameters](https://docs.github.com/en/rest/issues/comments#list-issue-comments-for-a-repository).
+It continues past unchanged full pages to retain equal-timestamp edits on later
+pages. The cursor and ETags advance only after the complete interval commits.
+
+Comment payloads and versioned delivery requests commit together in the existing
+comment cache and product jobs. The fetched issue URL must match the configured
+API origin and repository; it is parsed only as identity data. Initial batches
+are admitted oldest first, with a stable comment-id tie break. Older responses
+cannot replace newer cached comments, and a comment id cannot move to another
+issue. Edits retain their object identity for the eventual consumer to decide
+whether held input may still change.
+
+Signed issue-comment webhooks request an immediate comment fetch without
+postponing the regular cadence or applying their payload. Low remaining budget
+does not stretch this stream; its own rate-limit pause still applies. Restart
+rereads the stream and reuses durable delivery identities. Consumer effects and
+acknowledgements use the shared transaction boundary. Effective TODO steering
+remains disabled until its providers qualify. Incremental absence does not prove
+a deletion; authoritative comment tombstones and review-comment storage remain
+outstanding.

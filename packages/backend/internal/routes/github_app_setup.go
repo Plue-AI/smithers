@@ -8,6 +8,7 @@ import (
 	"io"
 	"log/slog"
 	"net/http"
+	"strconv"
 	"strings"
 	"time"
 
@@ -480,6 +481,9 @@ func WriteInstallSetupError(w http.ResponseWriter, r *http.Request, err error) {
 	writeInstallAPIError(w, pkgerrors.Internal("install setup unavailable"))
 }
 func writeInstallAPIError(w http.ResponseWriter, err *pkgerrors.APIError) {
+	if err.RetryAfter > 0 && w.Header().Get("Retry-After") == "" {
+		w.Header().Set("Retry-After", strconv.Itoa(err.RetryAfter))
+	}
 	pkgerrors.WriteJSON(w, err.Status, installSetupFailure(err))
 }
 
@@ -493,6 +497,9 @@ func installSetupFailure(err error) *services.InstallReadinessError {
 	var api *pkgerrors.APIError
 	if !errors.As(err, &api) {
 		api = pkgerrors.Internal("install setup unavailable")
+	}
+	if api.Class == pkgerrors.ClassGitHub {
+		return &services.InstallReadinessError{Code: string(api.Code), Class: "github", Message: api.Message, RetryAt: api.RetryAt}
 	}
 	code, class, message := string(api.Code), "user", api.Message
 	switch api.Status {

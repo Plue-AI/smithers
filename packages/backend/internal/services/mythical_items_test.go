@@ -12,6 +12,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -28,6 +29,7 @@ import (
 	pkgerrors "github.com/smithersai/smithers/packages/backend/internal/pkg/errors"
 	"github.com/smithersai/smithers/packages/backend/internal/repohost"
 	"github.com/smithersai/smithers/packages/backend/jobs"
+	"github.com/smithersai/smithers/packages/backend/repository"
 )
 
 // fakeMythicalGitHub is GitHub for the stack: a real bare repository the
@@ -1204,6 +1206,762 @@ func TestForeignPushPollCannotSettleHold(t *testing.T) {
 			assert.Equal(t, "a4", mythicalChecksOf(*next).ForeignHead)
 			assert.NotNil(t, mythicalChecksOf(*next).Fault)
 			assert.Equal(t, "proposed", next.State)
+		})
+	}
+}
+
+// foreignPushReaderFixture supplies GitHub source credentials, PR absence and attribution;
+// retention, database binding, decisions, waits and job acknowledgements use
+// their production implementations. Transport attribution has its own HTTP suite.
+type foreignPushReaderFixture struct {
+	*fakeMythicalGitHub
+	source    string
+	calls     atomic.Int32
+	reads     atomic.Int32
+	afterRead func()
+	hasPull   bool
+	pullErr   error
+	pullReads atomic.Int32
+}
+
+func (f *foreignPushReaderFixture) PushBranchHasPull(context.Context, db.GithubSyncedRepo, string) (bool, error) {
+	f.pullReads.Add(1)
+	return f.hasPull, f.pullErr
+}
+
+func (f *foreignPushReaderFixture) ReadPushSource(context.Context, db.GithubSyncedRepo) (mythicalGitHubRepo, error) {
+	f.reads.Add(1)
+	return mythicalGitHubRepo{Owner: "factory", Name: "app", GitURL: f.source}, nil
+}
+func (f *foreignPushReaderFixture) PushActor(context.Context, mythicalGitHubRepo, string, string) (gitHubActor, error) {
+	f.calls.Add(1)
+	if f.afterRead != nil {
+		f.afterRead()
+	}
+	return gitHubActor{ID: 14, Login: "alice", Type: "User"}, nil
+}
+
+// These cases must finish before any host or GitHub read. The host's nil
+// resolver deliberately makes accidental transport use fail; successful
+// retention itself is tested through the native repository below.
+func TestForeignPushFetchedDecisionAndUnavailablePaths(t *testing.T) {
+	synced, pool, source, claim := newRefFixture(t)
+	allowFetched(synced)
+	ctx, q := t.Context(), db.New(pool)
+	repo, err := q.GetRepoByID(ctx, claim.RepositoryID)
+	require.NoError(t, err)
+	_, err = q.RequestMythicalBootstrap(ctx, repo.ID, repo.UserID.Int64, 1, false)
+	require.NoError(t, err)
+	reader := &foreignPushReaderFixture{fakeMythicalGitHub: &fakeMythicalGitHub{}}
+	service := NewMythicalService(pool, repohost.NewClient(nil, "test"))
+	service.github = reader
+	service.UseInstallGitHubPolling(synced)
+	head := strings.Repeat("a", 40)
+	object, err := json.Marshal(gitHubRefSnapshot{Branch: "main", Refs: map[string]string{"refs/heads/main": strings.Repeat("b", 40), "refs/heads/smithers/retry": head}})
+	require.NoError(t, err)
+	fact := gitHubFetchedObject{Repo: source.ID, Installation: source.InstallationID.Int64, GitHubRepository: source.GithubRepositoryID.Int64, Resource: gitHubRefs, RefRepositoryID: repo.ID, RefClaim: claim.Claim, Object: object}
+	for _, tc := range []struct {
+		name, state, pending, kind string
+		same, noPR, unavailable    bool
+	}{
+		{name: "recorded head", state: "running", same: true},
+		{name: "pending intended", state: "running", pending: "intended"},
+		{name: "pending unknown", state: "proposed", pending: "unknown"},
+		{name: "pending done", state: "blocked", pending: "done"},
+		{name: "landed", state: "landed"},
+		{name: "cancelled", state: "cancelled"},
+		{name: "rejected", state: "rejected"},
+		{name: "working without PR", state: "running", noPR: true, unavailable: true},
+		{name: "unreconciled PR open", state: "queued", kind: "open", pending: "unknown", noPR: true, unavailable: true},
+		{name: "unknown pending state", state: "proposed", pending: "invalid", unavailable: true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			tx, err := pool.Begin(ctx)
+			require.NoError(t, err)
+			defer tx.Rollback(ctx)
+			tq := db.New(tx)
+			checks := mythicalChecks{Todo: true, Branch: "smithers/retry", ForeignHead: "earlier", Waits: []TodoWait{{ID: "question", Kind: "question"}}}
+			item, _, err := tq.InsertMythicalItem(ctx, db.MythicalItem{RepositoryID: repo.ID, State: tc.state, Checks: checks.encode()})
+			require.NoError(t, err)
+			item.PRHead = strings.Repeat("c", 40)
+			if tc.same {
+				item.PRHead = head
+			}
+			if !tc.noPR {
+				item.PRNumber = pgtype.Int8{Int64: 4, Valid: true}
+				item.PRState = "open"
+			}
+			if tc.pending != "" {
+				kind := tc.kind
+				if kind == "" {
+					kind = "push"
+				}
+				item.PendingOp = []byte(fmt.Sprintf(`{"kind":%q,"target":"smithers/retry","desired":%q,"state":%q}`, kind, head, tc.pending))
+			}
+			item, err = tq.SaveMythicalItem(ctx, item)
+			require.NoError(t, err)
+			receipt, err := service.consumeGitHubRefTodos(ctx, tx, fact)
+			if tc.unavailable {
+				require.Error(t, err)
+				require.Nil(t, receipt)
+			} else {
+				require.NoError(t, err)
+				require.JSONEq(t, `{"todos":0}`, string(receipt))
+			}
+			observed, err := tq.GetMythicalItem(ctx, item.ID)
+			require.NoError(t, err)
+			require.Equal(t, item, observed)
+			require.Zero(t, reader.reads.Load())
+			require.Zero(t, reader.calls.Load())
+			var count int
+			require.NoError(t, tx.QueryRow(ctx, `SELECT count(*) FROM product_job_events`).Scan(&count))
+			require.Zero(t, count)
+		})
+	}
+	// The source selection is not capped by the UI's display limit and includes
+	// blocked TODOs whose independent failure does not exclude outside pushes.
+	_, err = pool.Exec(ctx, `INSERT INTO mythical_items(repository_id,state,checks) SELECT $1,'blocked','{"todo":true,"branch":"smithers/retry"}'::jsonb FROM generate_series(1,1001)`, repo.ID)
+	require.NoError(t, err)
+	items, err := q.ListMythicalGitHubBranchItems(ctx, repo.ID)
+	require.NoError(t, err)
+	require.Len(t, items, 1001)
+}
+
+func TestForeignPushFetchedWaitAndAcknowledgementAreAtomic(t *testing.T) {
+	ffi := os.Getenv("SMITHERS_FFI_LIBRARY_PATH")
+	if ffi == "" {
+		t.Skip("SMITHERS_FFI_LIBRARY_PATH is required for the native repository engine")
+	}
+	synced, pool, _, claim := newRefFixture(t)
+	allowFetched(synced)
+	ctx, q := t.Context(), db.New(pool)
+	repo, err := q.GetRepoByID(ctx, claim.RepositoryID)
+	require.NoError(t, err)
+	_, err = q.RequestMythicalBootstrap(ctx, repo.ID, repo.UserID.Int64, 1, false)
+	require.NoError(t, err)
+	local, err := repository.OpenLocal(repository.Config{StoragePath: t.TempDir(), AuthToken: "foreign-consumer-test", FFILibraryPath: ffi, InstallMainMirror: true})
+	require.NoError(t, err)
+	t.Cleanup(func() { require.NoError(t, local.Shutdown(context.Background())) })
+	require.NoError(t, local.Client().InitRepo(ctx, "ref-owner", "ref-repo", "main", false))
+	sourceDir := filepath.Join(t.TempDir(), "source")
+	jj := func(args ...string) string {
+		t.Helper()
+		out, err := exec.CommandContext(ctx, "jj", args...).CombinedOutput()
+		require.NoError(t, err, "%s", out)
+		return strings.TrimSpace(string(out))
+	}
+	jj("git", "init", "--colocate", sourceDir)
+	commitOutside := func(text string) string {
+		t.Helper()
+		jj("-R", sourceDir, "new", "-m", "outside")
+		require.NoError(t, os.WriteFile(filepath.Join(sourceDir, "outside.txt"), []byte(text), 0600))
+		jj("-R", sourceDir, "describe", "-m", "outside")
+		jj("-R", sourceDir, "bookmark", "set", "smithers/retry", "-r", "@")
+		return jj("-R", sourceDir, "log", "-r", "@", "--no-graph", "-T", "commit_id")
+	}
+	first := commitOutside("first")
+	reader := &foreignPushReaderFixture{fakeMythicalGitHub: &fakeMythicalGitHub{}, source: filepath.Join(sourceDir, ".git")}
+	service := NewMythicalService(pool, local.Client())
+	service.github = reader
+	service.UseInstallGitHubPolling(synced)
+	consume := func(ctx context.Context, tx pgx.Tx, fact gitHubFetchedObject) (json.RawMessage, error) {
+		receipt, err := service.consumeGitHubRefTodos(ctx, tx, fact)
+		if err != nil {
+			t.Logf("TODO ref consumer: %v", err)
+		}
+		return receipt, err
+	}
+	synced.install.consumers[gitHubRefs] = consume
+	checks := mythicalChecks{Todo: true, Branch: "smithers/retry", Fault: &mythicalFault{}, Waits: []TodoWait{{ID: "question", Kind: "question", Prompt: "Keep this?", Since: time.Unix(10, 0).UTC()}}}
+	item, inserted, err := q.InsertMythicalItem(ctx, db.MythicalItem{RepositoryID: repo.ID, State: "blocked", Checks: checks.encode(), IssueNumber: pgtype.Int8{Int64: 4, Valid: true}})
+	require.NoError(t, err)
+	require.True(t, inserted)
+	item.PRNumber, item.PRState, item.PRHead = pgtype.Int8{Int64: 4, Valid: true}, "open", strings.Repeat("a", 40)
+	item.CandidateHead, item.CandidateVerified, item.Reason = strings.Repeat("b", 40), true, "retain failure reason"
+	item.PausedAt = pgtype.Timestamptz{Time: time.Unix(11, 0).UTC(), Valid: true}
+	item, err = q.SaveMythicalItem(ctx, item)
+	require.NoError(t, err)
+	admit := func(head, main string) {
+		t.Helper()
+		commit, err := synced.prepareRefRead(ctx, claim)
+		require.NoError(t, err)
+		require.NoError(t, commit(ctx, "factory", "app", "main", map[string]string{"refs/heads/main": main, "refs/heads/smithers/retry": head}))
+	}
+	admit(first, strings.Repeat("c", 40))
+	_, err = pool.Exec(ctx, `CREATE SEQUENCE foreign_ack_attempt; CREATE FUNCTION reject_foreign_ack() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN IF NEW.event_type='operation.completed' THEN PERFORM nextval('foreign_ack_attempt'); RAISE EXCEPTION 'foreign ack refused'; END IF; RETURN NEW; END $$; CREATE TRIGGER reject_foreign_ack BEFORE INSERT ON product_job_events FOR EACH ROW EXECUTE FUNCTION reject_foreign_ack()`)
+	require.NoError(t, err)
+	stop := runFetchedFixture(t, synced)
+	require.Eventually(t, func() bool {
+		var called bool
+		require.NoError(t, pool.QueryRow(ctx, `SELECT is_called FROM foreign_ack_attempt`).Scan(&called))
+		return called
+	}, 15*time.Second, 20*time.Millisecond)
+	stop()
+	unchanged, err := q.GetMythicalItem(ctx, item.ID)
+	require.NoError(t, err)
+	require.JSONEq(t, string(item.Checks), string(unchanged.Checks))
+	require.Zero(t, fetchedCount(t, pool, `SELECT count(*) FROM product_job_events WHERE event_type='todo.foreign_push'`))
+	require.Zero(t, fetchedCount(t, pool, `SELECT count(*) FROM product_job_requests WHERE operation='github.fetched.consume' AND state='completed'`))
+	// Retention is irreversible and survives rollback, but the wait and its
+	// activity must not be visible without the delivery acknowledgement.
+	bridge, err := startMythicalBridge(ctx, local.Client(), "ref-owner", "ref-repo", RepositoryStillAt(q, repo.ID, "ref-owner", "ref-repo"))
+	require.NoError(t, err)
+	defer bridge.Close()
+	refs, err := (mythicalGit{}).lsRemote(ctx, bridge.URL())
+	require.NoError(t, err)
+	require.Equal(t, first, refs["refs/smithers/kept/"+first])
+	_, err = pool.Exec(ctx, `DROP TRIGGER reject_foreign_ack ON product_job_events`)
+	require.NoError(t, err)
+	// Recreate the delivery service against the same database.
+	synced = NewGitHubSyncedRepoService(q)
+	require.NoError(t, synced.ConfigureInstallSync(pool))
+	allowFetched(synced)
+	service.UseInstallGitHubPolling(synced)
+	synced.install.consumers[gitHubRefs] = consume
+	deliver := func(completed int) {
+		t.Helper()
+		stop = runFetchedFixture(t, synced)
+		require.Eventually(t, func() bool {
+			return fetchedCount(t, pool, `SELECT count(*) FROM product_job_requests WHERE operation='github.fetched.consume' AND state='completed'`) == completed
+		}, 15*time.Second, 20*time.Millisecond)
+		stop()
+	}
+	deliver(1)
+	observed, err := q.GetMythicalItem(ctx, item.ID)
+	require.NoError(t, err)
+	after := mythicalChecksOf(observed)
+	require.Equal(t, "needs_you", todoState(observed))
+	require.Len(t, after.Waits, 2)
+	require.Equal(t, checks.Waits[0], after.Waits[0])
+	require.NotNil(t, after.Fault)
+	require.Equal(t, item.PausedAt, observed.PausedAt)
+	require.Equal(t, item.Reason, observed.Reason)
+	require.Equal(t, item.PRHead, observed.PRHead)
+	require.Equal(t, item.CandidateHead, observed.CandidateHead)
+	require.True(t, observed.CandidateVerified)
+	wait := after.Waits[1]
+	require.Equal(t, first, wait.SHA)
+	require.Equal(t, first, after.ForeignHead)
+	require.JSONEq(t, `{"kind":"github","login":"alice","color_index":7}`, string(wait.By))
+	claim = nextRefClaim(t, pool, claim)
+	admit(first, strings.Repeat("d", 40))
+	deliver(2)
+	require.Equal(t, 1, fetchedCount(t, pool, `SELECT count(*) FROM product_job_events WHERE event_type='todo.foreign_push'`))
+	second := commitOutside("second")
+	claim = nextRefClaim(t, pool, claim)
+	admit(second, strings.Repeat("d", 40))
+	deliver(3)
+	observed, err = q.GetMythicalItem(ctx, item.ID)
+	require.NoError(t, err)
+	after = mythicalChecksOf(observed)
+	require.Len(t, after.Waits, 2)
+	require.Equal(t, wait.ID, after.Waits[1].ID)
+	require.Equal(t, wait.Since, after.Waits[1].Since)
+	require.Equal(t, second, after.Waits[1].SHA)
+	require.Equal(t, checks.Waits[0], after.Waits[0])
+	require.Equal(t, 2, fetchedCount(t, pool, `SELECT count(*) FROM product_job_events WHERE event_type='todo.foreign_push'`))
+	refs, err = (mythicalGit{}).lsRemote(ctx, bridge.URL())
+	require.NoError(t, err)
+	require.Equal(t, first, refs["refs/smithers/kept/"+first])
+	require.Equal(t, second, refs["refs/smithers/kept/"+second])
+	// Revocation after host retention/attribution must still roll back the wait
+	// and acknowledgement. The retained data survives for authorized replay.
+	third := commitOutside("third")
+	claim = nextRefClaim(t, pool, claim)
+	admit(third, strings.Repeat("d", 40))
+	var revoked atomic.Bool
+	synced.install.authorize = func(context.Context, db.GithubSyncedRepo) error {
+		if revoked.Load() {
+			return errors.New("authority revoked during attribution")
+		}
+		return nil
+	}
+	reader.afterRead = func() { revoked.Store(true) }
+	stop = runFetchedFixture(t, synced)
+	require.Eventually(t, func() bool { return revoked.Load() }, 15*time.Second, 20*time.Millisecond)
+	stop()
+	unchanged, err = q.GetMythicalItem(ctx, item.ID)
+	require.NoError(t, err)
+	require.JSONEq(t, string(observed.Checks), string(unchanged.Checks))
+	require.Equal(t, 3, fetchedCount(t, pool, `SELECT count(*) FROM product_job_requests WHERE operation='github.fetched.consume' AND state='completed'`))
+	require.Equal(t, 2, fetchedCount(t, pool, `SELECT count(*) FROM product_job_events WHERE event_type='todo.foreign_push'`))
+	refs, err = (mythicalGit{}).lsRemote(ctx, bridge.URL())
+	require.NoError(t, err)
+	require.Equal(t, third, refs["refs/smithers/kept/"+third])
+	reader.afterRead = nil
+	revoked.Store(false)
+	deliver(4)
+	observed, err = q.GetMythicalItem(ctx, item.ID)
+	require.NoError(t, err)
+	after = mythicalChecksOf(observed)
+	require.Len(t, after.Waits, 2)
+	require.Equal(t, wait.ID, after.Waits[1].ID)
+	require.Equal(t, third, after.Waits[1].SHA)
+	require.Equal(t, 3, fetchedCount(t, pool, `SELECT count(*) FROM product_job_events WHERE event_type='todo.foreign_push'`))
+
+}
+
+// Source attribution, remote PR absence and accepted publication guards are explicit fixtures;
+// the delivery transaction, native retention, outbound lookup/conflict receipt,
+// proposal construction and leased Git transport are real implementations.
+func TestForeignPushBeforePRRecordsLeaseWithoutReplacingIntent(t *testing.T) {
+	ffi := os.Getenv("SMITHERS_FFI_LIBRARY_PATH")
+	if ffi == "" {
+		t.Skip("SMITHERS_FFI_LIBRARY_PATH is required for the native repository engine")
+	}
+	for _, starting := range []bool{false, true} {
+		for _, pending := range []string{"", "intended", "unknown", "done", "conflict"} {
+			t.Run(fmt.Sprintf("starting=%v/pending=%s", starting, pending), func(t *testing.T) {
+				synced, pool, _, refClaim := newRefFixture(t)
+				allowFetched(synced)
+				ctx, q := t.Context(), db.New(pool)
+				repo, err := q.GetRepoByID(ctx, refClaim.RepositoryID)
+				require.NoError(t, err)
+				_, err = q.RequestMythicalBootstrap(ctx, repo.ID, repo.UserID.Int64, 1, false)
+				require.NoError(t, err)
+				local, err := repository.OpenLocal(repository.Config{StoragePath: t.TempDir(), AuthToken: "no-pr-test", FFILibraryPath: ffi, InstallMainMirror: true})
+				require.NoError(t, err)
+				t.Cleanup(func() { require.NoError(t, local.Shutdown(context.Background())) })
+				require.NoError(t, local.Client().InitRepo(ctx, "ref-owner", "ref-repo", "main", false))
+				source := filepath.Join(t.TempDir(), "source")
+				jj := func(args ...string) string {
+					t.Helper()
+					out, err := exec.CommandContext(ctx, "jj", args...).CombinedOutput()
+					require.NoError(t, err, "%s", out)
+					return strings.TrimSpace(string(out))
+				}
+				jj("git", "init", "--colocate", source)
+				require.NoError(t, os.WriteFile(filepath.Join(source, "greeting.txt"), []byte("base"), 0600))
+				jj("-R", source, "describe", "-m", "base")
+				jj("-R", source, "bookmark", "set", "main", "-r", "@")
+				base := jj("-R", source, "log", "-r", "@", "--no-graph", "-T", "commit_id")
+				makeCommit := func(content string) string {
+					t.Helper()
+					jj("-R", source, "new", "main", "-m", content)
+					require.NoError(t, os.WriteFile(filepath.Join(source, "greeting.txt"), []byte(content), 0600))
+					jj("-R", source, "describe", "-m", content)
+					return jj("-R", source, "log", "-r", "@", "--no-graph", "-T", "commit_id")
+				}
+				foreign := makeCommit("outside")
+				jj("-R", source, "bookmark", "set", "smithers/retry", "-r", foreign)
+				candidate := makeCommit("verified candidate")
+				remote := filepath.Join(source, ".git")
+				reader := &foreignPushReaderFixture{fakeMythicalGitHub: &fakeMythicalGitHub{}, source: remote}
+				service := NewMythicalService(pool, local.Client())
+				service.github = reader
+				service.UseInstallGitHubPolling(synced)
+				synced.install.consumers[gitHubRefs] = service.consumeGitHubRefTodos
+				checks := mythicalChecks{Todo: true, Branch: "smithers/retry", RunLaunched: starting}
+				state := "queued"
+				if starting {
+					state = "running"
+				}
+				item, _, err := q.InsertMythicalItem(ctx, db.MythicalItem{RepositoryID: repo.ID, State: state, Checks: checks.encode()})
+				require.NoError(t, err)
+				item.PRHead, item.CandidateBase, item.CandidateHead, item.CandidateVerified = base, base, candidate, true
+				if pending != "" {
+					item.PendingOp, _ = json.Marshal(MythicalOutboundOp{Kind: "push", Target: "smithers/retry", Desired: candidate, Precondition: base, State: pending})
+				}
+				item, err = q.SaveMythicalItem(ctx, item)
+				require.NoError(t, err)
+				admit, err := synced.prepareRefRead(ctx, refClaim)
+				require.NoError(t, err)
+				require.NoError(t, admit(ctx, "factory", "app", "main", map[string]string{"refs/heads/main": base, "refs/heads/smithers/retry": foreign}))
+				if !starting && pending == "" {
+					// Neither an incomplete read nor an already-existing PR
+					// may turn its branch into an automatically replaceable lease.
+					for _, present := range []bool{false, true} {
+						reader.hasPull = present
+						reader.pullErr = nil
+						if !present {
+							reader.pullErr = errors.New("PR read unavailable")
+						}
+						before := reader.pullReads.Load()
+						stop := runFetchedFixture(t, synced)
+						require.Eventually(t, func() bool { return reader.pullReads.Load() > before }, 15*time.Second, 20*time.Millisecond)
+						stop()
+						unchanged, err := q.GetMythicalItem(ctx, item.ID)
+						require.NoError(t, err)
+						require.Equal(t, item, unchanged)
+						require.Zero(t, fetchedCount(t, pool, `SELECT count(*) FROM product_job_requests WHERE state='completed'`))
+						pinBridge, err := startMythicalBridge(ctx, local.Client(), "ref-owner", "ref-repo", RepositoryStillAt(q, repo.ID, "ref-owner", "ref-repo"))
+						require.NoError(t, err)
+						kept, err := (mythicalGit{}).lsRemote(ctx, pinBridge.URL())
+						pinBridge.Close()
+						require.NoError(t, err)
+						require.Equal(t, foreign, kept["refs/smithers/kept/"+foreign], "unavailable PR facts cannot lose an observed commit")
+					}
+					reader.hasPull, reader.pullErr = false, nil
+				}
+				stop := runFetchedFixture(t, synced)
+				require.Eventually(t, func() bool {
+					return fetchedCount(t, pool, `SELECT count(*) FROM product_job_requests WHERE operation='github.fetched.consume' AND state='completed'`) == 1
+				}, 15*time.Second, 20*time.Millisecond)
+				stop()
+				recorded, err := q.GetMythicalItem(ctx, item.ID)
+				require.NoError(t, err)
+				require.Equal(t, foreign, recorded.PRHead)
+				require.Equal(t, item.PendingOp, recorded.PendingOp)
+				require.JSONEq(t, string(item.Checks), string(recorded.Checks))
+				require.Equal(t, checks.Waits, mythicalChecksOf(recorded).Waits)
+				require.Empty(t, mythicalChecksOf(recorded).ForeignHead)
+				require.Equal(t, item.State, recorded.State)
+				var event []byte
+				require.NoError(t, pool.QueryRow(ctx, `SELECT data FROM product_job_events WHERE event_type='todo.foreign_push'`).Scan(&event))
+				require.Equal(t, true, decodeJSON(t, event)["lease"])
+				require.Equal(t, foreign, decodeJSON(t, event)["sha"])
+
+				claims, err := q.ClaimMythicalStacks(ctx, 1, 600)
+				require.NoError(t, err)
+				require.Len(t, claims, 1)
+				scratch := mythicalGit{dir: filepath.Join(t.TempDir(), "scratch.git")}
+				require.NoError(t, scratch.init(ctx))
+				_, err = scratch.git(ctx, "fetch", "--quiet", "--", remote, candidate)
+				require.NoError(t, err)
+				bridge, err := startMythicalBridge(ctx, local.Client(), "ref-owner", "ref-repo", RepositoryStillAt(q, repo.ID, "ref-owner", "ref-repo"))
+				require.NoError(t, err)
+				defer bridge.Close()
+				row := claims[0]
+				row.LandedMain = base
+				makeStep := func() *mythicalItemStep {
+					restarted := NewMythicalService(pool, local.Client())
+					restarted.github = reader
+					restarted.outbound.Lookup = (*mythicalItemStep).appLookup
+					restarted.outbound.Send = func(*mythicalItemStep, context.Context, db.MythicalItem, MythicalOutboundOp) error {
+						t.Error("conflicted intent was repeated")
+						return errors.New("unexpected send")
+					}
+					return &mythicalItemStep{s: restarted, q: q, r: &mythicalRun{row: row, g: scratch, bridge: bridge, mainTip: base}, gh: &mythicalGitHubRepo{Owner: "factory", Name: "app", GitURL: remote}, now: time.Now()}
+				}
+				step := makeStep()
+				recovered := &recorded
+				if pending != "" {
+					// Even a move back to the old precondition is a newer observation;
+					// it cannot authorize replay of the older lease.
+					jj("-R", source, "bookmark", "set", "smithers/retry", "-r", base, "--allow-backwards")
+					_, err = step.recoverOutbound(ctx, recorded)
+					require.ErrorContains(t, err, "waiting for fetched refs")
+					unchangedAfterMove, err := q.GetMythicalItem(ctx, item.ID)
+					require.NoError(t, err)
+					require.Equal(t, recorded, unchangedAfterMove)
+					jj("-R", source, "bookmark", "set", "smithers/retry", "-r", foreign)
+
+					_, err = pool.Exec(ctx, `CREATE FUNCTION refuse_push_conflict() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN IF NEW.event_type='todo.github_operation_conflict' THEN RAISE EXCEPTION 'conflict receipt refused'; END IF; RETURN NEW; END $$; CREATE TRIGGER refuse_push_conflict BEFORE INSERT ON product_job_events FOR EACH ROW EXECUTE FUNCTION refuse_push_conflict()`)
+					require.NoError(t, err)
+					_, err = step.recoverOutbound(ctx, recorded)
+					require.ErrorContains(t, err, "conflict receipt refused")
+					unchanged, err := q.GetMythicalItem(ctx, item.ID)
+					require.NoError(t, err)
+					require.Equal(t, recorded, unchanged)
+					require.Zero(t, fetchedCount(t, pool, `SELECT count(*) FROM product_job_events WHERE event_type='todo.github_operation_conflict'`))
+					_, err = pool.Exec(ctx, `DROP TRIGGER refuse_push_conflict ON product_job_events`)
+					require.NoError(t, err)
+					// Expiry after the slot save and receipt insertion must roll both back.
+					_, err = pool.Exec(ctx, `CREATE FUNCTION expire_push_conflict() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN IF NEW.event_type='todo.github_operation_conflict' THEN UPDATE mythical_stacks SET lease_expires_at=clock_timestamp()-interval '1 second'; END IF; RETURN NEW; END $$; CREATE TRIGGER expire_push_conflict AFTER INSERT ON product_job_events FOR EACH ROW EXECUTE FUNCTION expire_push_conflict()`)
+					require.NoError(t, err)
+					_, err = step.recoverOutbound(ctx, recorded)
+					require.ErrorIs(t, err, db.ErrMythicalLeaseLost)
+					unchanged, err = q.GetMythicalItem(ctx, item.ID)
+					require.NoError(t, err)
+					require.Equal(t, recorded, unchanged)
+					require.Zero(t, fetchedCount(t, pool, `SELECT count(*) FROM product_job_events WHERE event_type='todo.github_operation_conflict'`))
+					_, err = pool.Exec(ctx, `DROP TRIGGER expire_push_conflict ON product_job_events`)
+					require.NoError(t, err)
+					step = makeStep()
+					recovered, err = step.recoverOutbound(ctx, recorded)
+					require.NoError(t, err)
+					require.Empty(t, recovered.PendingOp)
+					require.Equal(t, foreign, recovered.PRHead)
+					require.Equal(t, recorded.Checks, recovered.Checks)
+					require.Equal(t, 1, fetchedCount(t, pool, `SELECT count(*) FROM product_job_events WHERE event_type='todo.github_operation_conflict'`))
+					_, err = step.recoverOutbound(ctx, recorded)
+					require.ErrorIs(t, err, db.ErrMythicalItemMoved)
+					refs, err := scratch.lsRemote(ctx, remote)
+					require.NoError(t, err)
+					require.Equal(t, foreign, refs["refs/heads/smithers/retry"])
+
+				}
+
+				// Existing accepted-fact/authority seams are fixtures here. The proposal
+				// derives its lease from the recorded item and uses the real push transport.
+				// The candidate fixture becomes accepted after its startup completes.
+				recovered.State = "proposing"
+				readyChecks := mythicalChecksOf(*recovered)
+				readyChecks.RunAttached = true
+				recovered.Checks = readyChecks.encode()
+				ready, err := q.SaveMythicalItemUnderLease(ctx, *recovered, row.Claim)
+				require.NoError(t, err)
+				recovered = &ready
+				allow := func(context.Context, db.MythicalItem, string) error { return nil }
+				step.s.publication = &mythicalPublication{}
+				step.s.prFacts = func(context.Context, db.MythicalItem) (mythicalPRShape, error) {
+					return mythicalPRShape{Branch: "smithers/retry", Title: "Greeting", Owner: "owner", URL: "https://smithers.test/todo/1"}, nil
+				}
+				step.s.outbound.CanonicalApp, step.s.outbound.StackLease, step.s.outbound.Budget = allow, allow, allow
+				step.s.outbound.Membership, step.s.outbound.Authorization, step.s.outbound.AcceptedGeneration = allow, allow, allow
+				_, err = step.propose(ctx, *recovered)
+				require.ErrorContains(t, err, "settlement integration", "the fixture stops after the real push, before opening a PR")
+				published, err := q.GetMythicalItem(ctx, item.ID)
+				require.NoError(t, err)
+				require.Empty(t, published.PendingOp)
+				require.NotEqual(t, foreign, published.PRHead)
+				refs, err := scratch.lsRemote(ctx, remote)
+				require.NoError(t, err)
+				require.Equal(t, published.PRHead, refs["refs/heads/smithers/retry"])
+				actual, err := scratch.readCommit(ctx, published.PRHead)
+				require.NoError(t, err)
+				expected, err := scratch.readCommit(ctx, candidate)
+				require.NoError(t, err)
+				require.Equal(t, expected.Tree, actual.Tree)
+				require.Equal(t, []string{base}, actual.Parents)
+				refs, err = scratch.lsRemote(ctx, bridge.URL())
+				require.NoError(t, err)
+				require.Equal(t, foreign, refs["refs/smithers/kept/"+foreign])
+			})
+		}
+	}
+}
+
+func TestForeignPushRetainsCommitThroughNativeRepository(t *testing.T) {
+	ffi := os.Getenv("SMITHERS_FFI_LIBRARY_PATH")
+	if ffi == "" {
+		t.Skip("SMITHERS_FFI_LIBRARY_PATH is required for the native repository engine")
+	}
+	ctx, cancel := context.WithTimeout(t.Context(), time.Minute)
+	defer cancel()
+	source := filepath.Join(t.TempDir(), "source")
+	jj := func(args ...string) string {
+		t.Helper()
+		cmd := exec.CommandContext(ctx, "jj", args...)
+		out, err := cmd.CombinedOutput()
+		require.NoError(t, err, "%s", out)
+		return strings.TrimSpace(string(out))
+	}
+	jj("git", "init", "--colocate", source)
+	require.NoError(t, os.WriteFile(filepath.Join(source, "outside.txt"), []byte("Alice's change\n"), 0600))
+	jj("-R", source, "describe", "-m", "outside commit")
+	jj("-R", source, "bookmark", "create", "smithers/retry", "-r", "@")
+	head := jj("-R", source, "log", "-r", "@", "--no-graph", "-T", "commit_id")
+	local, err := repository.OpenLocal(repository.Config{StoragePath: t.TempDir(), AuthToken: "retention-test", FFILibraryPath: ffi, InstallMainMirror: true})
+	require.NoError(t, err)
+	t.Cleanup(func() { require.NoError(t, local.Shutdown(context.Background())) })
+	client := local.Client()
+	require.NoError(t, client.InitRepo(ctx, "owner", "repo", "main", false))
+	var verified atomic.Int32
+	var replaced atomic.Bool
+	bridge, err := startMythicalBridge(ctx, client, "owner", "repo", func(context.Context) error {
+		verified.Add(1)
+		if replaced.Load() {
+			return repohost.ErrRepositoryReplaced
+		}
+		return nil
+	})
+	require.NoError(t, err)
+	defer bridge.Close()
+	g := mythicalGit{dir: filepath.Join(t.TempDir(), "scratch.git")}
+	ref := "refs/smithers/kept/" + head
+	require.NoError(t, g.retainGitHubPush(ctx, bridge, 19, filepath.Join(source, ".git"), head))
+	require.GreaterOrEqual(t, verified.Load(), int32(3), "binding checked before transport, under the host write lock and after confirmation")
+	refs, err := g.lsRemote(ctx, bridge.URL())
+	require.NoError(t, err)
+	require.Equal(t, head, refs[ref])
+	require.Empty(t, refs["refs/heads/main"])
+	require.Empty(t, refs["refs/heads/mythical"])
+	require.Empty(t, refs["refs/heads/smithers/retry"])
+	// A fresh scratch directory can recover from the durable pin when GitHub
+	// no longer serves the original commit. No source fetch is needed.
+	fresh := mythicalGit{dir: filepath.Join(t.TempDir(), "restart.git")}
+	require.NoError(t, fresh.retainGitHubPush(ctx, bridge, 19, filepath.Join(t.TempDir(), "gone.git"), head))
+	contents, err := fresh.git(ctx, "show", head+":outside.txt")
+	require.NoError(t, err)
+	require.Equal(t, "Alice's change", contents)
+
+	// Even an exactly prepared control-plane command cannot delete the pin.
+	bridge.permit([]mythicalRefUpdate{{Ref: ref, Old: head, New: strings.Repeat("0", 40)}}, repohost.ReceivePackMetadata{ControlPlane: true, RepositoryID: 19})
+	_, err = fresh.git(ctx, "push", "--porcelain", bridge.URL(), ":"+ref)
+	require.Error(t, err)
+	refs, err = fresh.lsRemote(ctx, bridge.URL())
+	require.NoError(t, err)
+	require.Equal(t, head, refs[ref])
+
+	// A newer outside commit is retained separately. If the destination is
+	// replaced after preparation, its verification under the write lock refuses
+	// the pack; a later attempt must resolve and verify the repository again.
+	jj("-R", source, "new", "-m", "second outside commit")
+	require.NoError(t, os.WriteFile(filepath.Join(source, "outside.txt"), []byte("Alice's newer change\n"), 0600))
+	jj("-R", source, "describe", "-m", "second outside commit")
+	second := jj("-R", source, "log", "-r", "@", "--no-graph", "-T", "commit_id")
+	var checks atomic.Int32
+	changedBridge, err := startMythicalBridge(ctx, client, "owner", "repo", func(context.Context) error {
+		if checks.Add(1) > 1 {
+			return repohost.ErrRepositoryReplaced
+		}
+		return nil
+	})
+	require.NoError(t, err)
+	require.Error(t, fresh.retainGitHubPush(ctx, changedBridge, 19, filepath.Join(source, ".git"), second))
+	changedBridge.Close()
+	require.EqualValues(t, 2, checks.Load())
+	refs, err = fresh.lsRemote(ctx, bridge.URL())
+	require.NoError(t, err)
+	require.Empty(t, refs["refs/smithers/kept/"+second])
+	require.NoError(t, fresh.retainGitHubPush(ctx, bridge, 19, filepath.Join(source, ".git"), second))
+	bridge.permit([]mythicalRefUpdate{{Ref: ref, Old: head, New: second}}, repohost.ReceivePackMetadata{ControlPlane: true, RepositoryID: 19})
+	_, err = fresh.git(ctx, "push", "--porcelain", "--force", bridge.URL(), second+":"+ref)
+	require.Error(t, err)
+	refs, err = fresh.lsRemote(ctx, bridge.URL())
+	require.NoError(t, err)
+	require.Equal(t, head, refs[ref])
+	require.Equal(t, second, refs["refs/smithers/kept/"+second])
+	// Fetchable objects that are not commits cannot become retention pins.
+	tree, err := fresh.git(ctx, "rev-parse", second+"^{tree}")
+	require.NoError(t, err)
+	require.Error(t, fresh.retainGitHubPush(ctx, bridge, 19, filepath.Join(source, ".git"), tree))
+	refs, err = fresh.lsRemote(ctx, bridge.URL())
+	require.NoError(t, err)
+	require.Empty(t, refs["refs/smithers/kept/"+tree])
+
+	replaced.Store(true)
+	require.ErrorIs(t, fresh.retainGitHubPush(ctx, bridge, 19, "", head), repohost.ErrRepositoryReplaced)
+	require.Error(t, fresh.retainGitHubPush(ctx, nil, 19, "", head))
+	require.Error(t, fresh.retainGitHubPush(ctx, bridge, 19, "", "main"))
+}
+
+func TestForeignPushWaitCardSurvivesIndependentQuestionSettlement(t *testing.T) {
+	o, session, launcher, item, launch := newAskingTodo(t)
+	ctx := context.Background()
+	o.projectAsking(launch, jobs.StateWaiting, "todo-run-1", humanAsk("question-token", "clarify", "Keep the log?"))
+	item = o.byID(uuidString(item.ID))
+	question := todoOpenWaits(item)[0]
+	// Seed the persisted wire representation independently. Reading the card
+	// and answering a different wait must retain its source actor and SHA.
+	checks := decodeJSON(t, item.Checks)
+	foreign := decodeJSON(t, []byte(`{"id":"foreign-1","kind":"foreign_push","prompt":"Alice pushed to smithers/retry-webhooks on GitHub","since":"2026-10-05T12:00:00Z","sha":"1111111111111111111111111111111111111111","by":{"kind":"github","login":"alice","color_index":7}}`))
+	checks["waits"] = append(checks["waits"].([]any), foreign)
+	raw, err := json.Marshal(checks)
+	require.NoError(t, err)
+	_, err = o.pool.Exec(ctx, `UPDATE mythical_items SET checks=$2 WHERE id=$1`, item.ID, raw)
+	require.NoError(t, err)
+	want := map[string]any{"id": "foreign-1", "kind": "foreign_push", "prompt": "Alice pushed to smithers/retry-webhooks on GitHub",
+		"since": "2026-10-05T12:00:00Z", "sha": "1111111111111111111111111111111111111111",
+		"by": map[string]any{"kind": "github", "login": "alice", "color_index": float64(7)}, "actions": []any{}}
+	card := o.todoCard(item.Number.Int64)
+	waits := card["waits"].([]any)
+	require.Len(t, waits, 2)
+	require.Equal(t, want, waits[0])
+	require.NotContains(t, waits[1], "sha", "historical questions have no commit binding")
+	require.NotContains(t, waits[1], "by")
+	require.NotContains(t, card, "first_answer")
+
+	// The question door cannot be used to answer the foreign wait.
+	var refusal *TodoControlError
+	require.ErrorAs(t, o.service.AnswerTodo(session, o.repoID, o.userID, item.Number.Int64,
+		TodoAnswerInput{Wait: "foreign-1", Answer: "discard"}), &refusal)
+	require.Equal(t, "wait_not_found", refusal.Code)
+	require.Empty(t, launcher.sent())
+	require.NoError(t, o.service.AnswerTodo(session, o.repoID, o.userID, item.Number.Int64,
+		TodoAnswerInput{Wait: question.ID, Answer: "Keep it"}))
+	card = o.todoCard(item.Number.Int64)
+	require.Equal(t, "needs_you", card["state"])
+	require.Equal(t, []any{want}, card["waits"])
+	require.Equal(t, "Keep it", card["first_answer"].(map[string]any)["text"])
+	require.Len(t, launcher.sent(), 1)
+	stored := o.byID(uuidString(item.ID))
+	storedWaits := decodeJSON(t, stored.Checks)["waits"].([]any)
+	require.Equal(t, foreign, storedWaits[1], "an unrelated answer cannot erase the displayed revision or change attribution")
+
+	// Both collection and detail reads use the same persisted wait contract.
+	cards, err := o.service.Todos(ctx, o.repoID)
+	require.NoError(t, err)
+	require.Len(t, cards, 1)
+	encoded, err := json.Marshal(cards[0])
+	require.NoError(t, err)
+	require.Equal(t, card["waits"], decodeJSON(t, encoded)["waits"])
+}
+
+func TestForeignPushPollRetainsTerminalCandidateWhenPrefixMoves(t *testing.T) {
+	for _, state := range []string{"dropped", "rejected", "cancelled", "declined", "landed", "merged"} {
+		t.Run(state, func(t *testing.T) {
+			gh := &fakeMythicalGitHub{dir: t.TempDir(), pulls: map[int64]*mythicalPull{4: {
+				State: "open", HeadSHA: "recorded", HeadRef: "smithers/retry-webhooks",
+			}}}
+			st := &mythicalItemStep{s: &MythicalService{github: gh}, r: &mythicalRun{row: db.MythicalStack{
+				ActorUserID: pgtype.Int8{Int64: 1, Valid: true}, TipCommit: "new-prefix"}}, gh: &mythicalGitHubRepo{}, now: time.Unix(100, 0)}
+			checks := mythicalChecks{Branch: "smithers/retry-webhooks", Fault: &mythicalFault{},
+				Waits: []TodoWait{{ID: "question", Kind: "question", Prompt: "Keep the question"}}}
+			item := db.MythicalItem{State: state, PRNumber: pgtype.Int8{Int64: 4, Valid: true}, PRState: "open", PRHead: "recorded",
+				CandidateBase: "old-prefix", CandidateHead: "candidate", CandidateVerified: true,
+				Checks: checks.encode(), Reason: "retained reason", PendingOp: json.RawMessage(`{`),
+				PausedAt: pgtype.Timestamptz{Time: time.Unix(10, 0), Valid: true}}
+			next, err := st.follow(context.Background(), item)
+			require.NoError(t, err)
+			require.NotNil(t, next)
+			want := item
+			want.NextAttemptAt = pgtype.Timestamptz{Time: time.Unix(100, 0).Add(st.s.pullPollEvery()), Valid: true}
+			require.Equal(t, want, *next, "terminal polls may schedule another read, but cannot rebuild the candidate or clear its facts")
+		})
+	}
+}
+
+func TestForeignPushPollUsesPendingIntentAndTerminalDecision(t *testing.T) {
+	const branch = "smithers/retry-webhooks"
+	for _, tc := range []struct {
+		name, state, pending, recordedBranch, fetchedBranch string
+		foreign, unavailable                                bool
+	}{
+		{"intended", "running", `{"kind":"push","target":"smithers/retry-webhooks","desired":"own","state":"intended"}`, branch, branch, false, false},
+		{"unknown", "proposed", `{"kind":"push","target":"smithers/retry-webhooks","desired":"own","state":"unknown"}`, branch, branch, false, false},
+		{"done awaiting settlement", "blocked", `{"kind":"push","target":"smithers/retry-webhooks","desired":"own","state":"done"}`, branch, branch, false, false},
+		{"legacy", "queued", `{"branch":"smithers/retry-webhooks","expected":"old","head":"own"}`, branch, branch, false, false},
+		{"conflicting intent", "proposed", `{"kind":"push","target":"smithers/retry-webhooks","desired":"own","state":"conflict"}`, branch, branch, true, false},
+		{"another operation", "proposed", `{"kind":"open","target":"smithers/retry-webhooks","desired":"own","state":"unknown"}`, branch, branch, true, false},
+		{"another intended branch", "proposed", `{"kind":"push","target":"smithers/other","desired":"own","state":"unknown"}`, branch, branch, true, false},
+		{"another fetched branch", "proposed", `{"kind":"push","target":"smithers/retry-webhooks","desired":"own","state":"unknown"}`, branch, "smithers/other", false, true},
+		{"unbound historical branch", "proposed", `{"kind":"push","target":"smithers/retry-webhooks","desired":"own","state":"unknown"}`, "", branch, false, true},
+		{"malformed intent", "proposed", `{`, branch, branch, false, true},
+		{"unknown intent state", "proposed", `{"kind":"push","target":"smithers/retry-webhooks","desired":"own","state":"unexpected"}`, branch, branch, false, true},
+		{"dropped", "dropped", `{`, branch, branch, false, false},
+		{"rejected", "rejected", `{`, branch, branch, false, false},
+		{"cancelled", "cancelled", `{`, branch, branch, false, false},
+		{"declined", "declined", `{`, branch, branch, false, false},
+		{"landed", "landed", `{`, branch, branch, false, false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			gh := &fakeMythicalGitHub{dir: t.TempDir(), pulls: map[int64]*mythicalPull{4: {
+				State: "open", HeadSHA: "own", HeadRef: tc.fetchedBranch,
+			}}}
+			st := &mythicalItemStep{s: &MythicalService{github: gh}, r: &mythicalRun{row: db.MythicalStack{
+				ActorUserID: pgtype.Int8{Int64: 1, Valid: true}, TipCommit: "prefix"}}, gh: &mythicalGitHubRepo{}, now: time.Unix(100, 0)}
+			checks := mythicalChecks{Branch: tc.recordedBranch, ForeignHead: "earlier-foreign", Fault: &mythicalFault{},
+				Waits: []TodoWait{{ID: "question", Kind: "question", Prompt: "Keep the question"}}}
+			item := db.MythicalItem{State: tc.state, PRNumber: pgtype.Int8{Int64: 4, Valid: true}, PRState: "open", PRHead: "old",
+				CandidateBase: "prefix", CandidateHead: "candidate", CandidateVerified: true,
+				PendingOp: json.RawMessage(tc.pending), Checks: checks.encode(), Reason: "earlier hold",
+				PausedAt: pgtype.Timestamptz{Time: time.Unix(10, 0), Valid: true}}
+			next, err := st.follow(context.Background(), item)
+			if tc.unavailable {
+				require.ErrorContains(t, err, "read pending GitHub push")
+				require.Nil(t, next)
+				return
+			}
+			require.NoError(t, err)
+			require.Equal(t, item.State, next.State)
+			require.Equal(t, item.PendingOp, next.PendingOp, "polling cannot acknowledge an outbound intent")
+			require.Equal(t, item.PRHead, next.PRHead)
+			require.Equal(t, item.CandidateHead, next.CandidateHead)
+			require.Equal(t, item.CandidateVerified, next.CandidateVerified)
+			require.Equal(t, item.PausedAt, next.PausedAt)
+			after := mythicalChecksOf(*next)
+			require.Equal(t, checks.Waits, after.Waits)
+			require.NotNil(t, after.Fault)
+			if tc.foreign {
+				require.Equal(t, "own", after.ForeignHead)
+				require.NotNil(t, after.Notice)
+			} else {
+				require.Equal(t, "earlier-foreign", after.ForeignHead, "matching own push and terminal facts cannot settle an earlier hold")
+				require.Nil(t, after.Notice)
+				require.Equal(t, item.Reason, next.Reason)
+			}
 		})
 	}
 }

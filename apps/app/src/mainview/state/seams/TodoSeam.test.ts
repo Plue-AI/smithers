@@ -205,8 +205,37 @@ describe("TodoSeam — admission and live completion", () => {
       expect(await h.seam.amendTodo({ n: 12, text: "An amendment", cardId: id })).toEqual({ value: "Requested" })
       await waitFor(() => calls.length === 1)
       expect(calls[0]!.method).toBe("PATCH")
-      expect(JSON.parse(String(calls[0]!.body))).toEqual({ title: "An amendment", prompt: "An amendment", acceptance: [] })
+      expect(JSON.parse(String(calls[0]!.body))).toEqual({ prompt: "An amendment", acceptance: [] })
     } finally { h.close() }
+  })
+  test("restored amendment sends only revision fields with its original key and waits for completion", async () => {
+    const storage = memoryStorage()
+    const h = await harness(async () => { throw new Error("restoring must not send before resume") }, storage)
+    const card = draftCard({ id: "draft:amend-restored", author: "ben", text: "Revised prompt", options: [], idempotencyKey: "amend-restored" }, 1, 1)
+    await h.store.dispatch({ type: "card.upsert", actor: "user", card: { ...card, payload: { ...card.payload,
+      request: { key: "amend-restored", owner: "ben", operation: "amend", n: 12, state: "requested",
+        body: { title: "Legacy creation metadata", prompt: "Revised prompt", acceptance: ["Preserve this check"], issue: 7, fixes: true, issue_digest: "old" } }
+    } } }).isPersisted.promise
+    h.close()
+    await h.store.dispose?.()
+    const response = deferred<Response>()
+    const calls: { url: string; init?: RequestInit }[] = []
+    const restored = await harness((url, init) => { calls.push({ url, init }); return response.promise }, storage)
+    try {
+      restored.seam.resumeTodos()
+      await waitFor(() => calls.length === 1)
+      restored.seam.resumeTodos()
+      expect(calls).toHaveLength(1)
+      expect(calls[0]!.url).toBe("https://install.test/api/todos/12")
+      expect(calls[0]!.init?.method).toBe("PATCH")
+      expect(new Headers(calls[0]!.init?.headers).get("Idempotency-Key")).toBe("amend-restored")
+      expect(JSON.parse(String(calls[0]!.init?.body))).toEqual({ prompt: "Revised prompt", acceptance: ["Preserve this check"] })
+      expect(restored.outcomes).toEqual([])
+      response.resolve(json({ state: "accepted", n: 12, rev: 2 }))
+      await waitFor(() => restored.draft().payload.request?.state === "accepted")
+      expect(restored.outcomes).toEqual([])
+      expect(restored.draft().payload.committed).toBeUndefined()
+    } finally { restored.close() }
   })
   test("sign-out fences HTTP and topic replies and disposes subscriptions", async () => {
     const response = deferred<Response>()

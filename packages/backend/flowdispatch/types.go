@@ -19,6 +19,7 @@ const (
 	OperationLaunch  = "flow.runtime.launch"
 	OperationApprove = "flow.runtime.approve"
 	OperationSignal  = "flow.runtime.signal"
+	OperationSteer   = "flow.runtime.steer"
 )
 
 var (
@@ -106,6 +107,33 @@ type SignalRequest struct {
 	Projection           json.RawMessage
 }
 
+// SteerRequest delivers model feedback through Control's notification queue.
+// MessageID and CreatedAt are fixed at product admission and survive retries.
+// The caller authorizes the input; dispatch resolves the fenced runtime owner.
+type SteerRequest struct {
+	Scope                jobs.Scope
+	RequestID            string
+	Target               flowruntime.FlowRuntimeTarget
+	FlowID               string
+	RunID                string
+	MessageID            string
+	CreatedAt            float64
+	Body                 string
+	Attribution          map[string]string
+	AuthorizationContext json.RawMessage
+	Projection           json.RawMessage
+}
+
+// SteerAuthorizer rechecks the committed input's current authority before a
+// worker wakes its host and again immediately before runtime delivery.
+// Admission authorization alone cannot authorize an input held across removal
+// of its author from the repository. TODO delivery requires this provider.
+// A product implementation may also commit a held input's one-time release;
+// it must keep that transition atomic and must not claim runtime consumption.
+type SteerAuthorizer interface {
+	AuthorizeFlowSteer(context.Context, SteerRequest) error
+}
+
 type RuntimeCheckpoint struct {
 	Version             int                             `json:"version"`
 	Target              flowruntime.FlowRuntimeTarget   `json:"target"`
@@ -161,9 +189,10 @@ func (project ProjectorFunc) ProjectFlowRuntime(ctx context.Context, update Proj
 }
 
 type Config struct {
-	Store     *jobs.Store
-	Resolver  flowruntime.FlowRuntimeResolver
-	Projector Projector
+	Store           *jobs.Store
+	Resolver        flowruntime.FlowRuntimeResolver
+	Projector       Projector
+	SteerAuthorizer SteerAuthorizer
 	// ObservationDelay is the first wait before re-polling a parked or running
 	// launch. Each poll that finds no progress doubles it, up to
 	// MaxObservationDelay.
@@ -200,6 +229,21 @@ type signalPayload struct {
 	Name       string                        `json:"name"`
 	Payload    json.RawMessage               `json:"payload"`
 	Projection json.RawMessage               `json:"projection"`
+}
+
+type runMutationPayload struct {
+	Target     flowruntime.FlowRuntimeTarget `json:"target"`
+	FlowID     string                        `json:"flowId"`
+	RunID      string                        `json:"runId"`
+	Projection json.RawMessage               `json:"projection"`
+}
+
+type steerPayload struct {
+	runMutationPayload
+	MessageID   string            `json:"messageId"`
+	CreatedAt   float64           `json:"createdAt"`
+	Body        string            `json:"body"`
+	Attribution map[string]string `json:"attribution,omitempty"`
 }
 
 type terminalReceipt struct {
