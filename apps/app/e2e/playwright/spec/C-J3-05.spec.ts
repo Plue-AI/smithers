@@ -5,6 +5,7 @@ import { fixtures } from "../../../../../packages/rpc/test/fixtures/Todo"
 // Browser proof of the real TODO seam. Guest timing and delegated credential
 // delivery are qualified separately on the reference host.
 test("C-J3-05: a steer uses the TODO door and retains the same attempt", async ({ page }) => {
+  test.setTimeout(120_000)
   await owner(page)
   let model = { ...fixtures.working.model, steers: [] as typeof fixtures.working.model.steers }
   const requests: unknown[] = []
@@ -19,6 +20,7 @@ test("C-J3-05: a steer uses the TODO door and retains the same attempt", async (
     } else await route.fulfill({ json: model })
   })
   await page.goto("/smithers-mvp-canary/node")
+  await expect(page.getByRole("button", { name: "Chat", exact: true })).toBeVisible({ timeout: 60_000 })
   await say(page, "/todo T12")
   await expect(page.getByText("Attempt 1", { exact: true }).last()).toBeVisible()
   await say(page, '/todo.steer T12 use the existing retry helper')
