@@ -293,11 +293,11 @@ impl<'a> Cursor<'a> {
                 self.take(16)?;
                 return Ok(());
             }
-            "str" | "str1024" | "content" | "bytes1024" => {
+            "str" | "str1024" | "content" | "bytes1024" | "record" => {
                 let (width, limit) = match typ {
                     "str" => (2, 4096),
                     "str1024" => (2, 1024),
-                    "content" => (4, 1048576),
+                    "content" | "record" => (4, 1048576),
                     _ => (4, 1024),
                 };
                 let n = self.number(width)? as usize;
@@ -305,6 +305,9 @@ impl<'a> Cursor<'a> {
                     return Err(BadValue);
                 };
                 let bytes = self.take(n)?;
+                if typ == "record" && (std::str::from_utf8(bytes).is_err() || bytes.is_empty() || bytes.contains(&0) || bytes.contains(&b'\n')) {
+                    return Err(BadUtf8);
+                }
                 if width == 2 && (std::str::from_utf8(bytes).is_err() || bytes.contains(&0)) {
                     return Err(BadUtf8);
                 };

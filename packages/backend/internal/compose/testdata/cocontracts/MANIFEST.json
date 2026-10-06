@@ -493,7 +493,7 @@
     {
       "name": "ev_reserved_transcript",
       "direction": "daemon-to-host",
-      "expected": "ok",
+      "expected": "missing_field",
       "local": false,
       "sha256": "c2014403c4f063ec7fe76c37d983a85002a4a25644c13c4010fa48ff28b1dbac"
     },
@@ -503,6 +503,27 @@
       "expected": "ok",
       "local": false,
       "sha256": "4aa388b4a80e47b4cbd4c405face753dfac6a16a56a821c9b3d8991e68dd4760"
+    },
+    {
+      "name": "ev_transcript",
+      "direction": "daemon-to-host",
+      "expected": "ok",
+      "local": false,
+      "sha256": "4901ef746fa542db9df41a5e2c96fbbfbac656f2bdf8a1ffa8c172be6c1ef18a"
+    },
+    {
+      "name": "ev_transcript_bad_utf8",
+      "direction": "daemon-to-host",
+      "expected": "bad_utf8",
+      "local": false,
+      "sha256": "9feb505dfd064f97694c4604d783b63ae3298fbbaa82922dab869fb4ee1d20bb"
+    },
+    {
+      "name": "ev_transcript_partial",
+      "direction": "daemon-to-host",
+      "expected": "bad_utf8",
+      "local": false,
+      "sha256": "fe2cb02ffa75adb389946cd30037433690ca549657a479ff62aa2d0e96e79bbf"
     },
     {
       "name": "hint_file_written",
