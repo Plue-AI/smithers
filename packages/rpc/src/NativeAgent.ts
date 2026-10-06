@@ -242,7 +242,7 @@ export const AgentTurnFrameSchema = z.discriminatedUnion("type", [
     runId: z.string(),
     type: z.literal("done"),
     reason: AgentTurnDoneReasonSchema.optional(),
-    code: z.literal("credential_missing").optional(),
+    code: z.enum(["credential_missing", "author_revoked"]).optional(),
     error: z.string().optional(),
     usage: AgentTurnUsageSchema.optional()
   }),
