@@ -184,7 +184,7 @@ func newRehearsal(t *testing.T, enable, check, keyPrefix string, poolCapacity ..
 	if os.Getenv("REHEARSAL_TEST_ONLY_REPOSITORY") == "1" {
 		makefile = "test:\n\tgrep -q . JOURNEY.md\n"
 	}
-	// The declaration-free Node/Go fixtures have only their own checks. The
+	// The declaration-free fixtures have only their own checks. The
 	// generic journey's Makefile would add a build and shadow Go's test ID.
 	if os.Getenv("REHEARSAL_CONFIG_FIXTURE") == "" {
 		require.NoError(t, os.WriteFile(filepath.Join(seed, "Makefile"), []byte(makefile), 0600))
@@ -194,8 +194,26 @@ func newRehearsal(t *testing.T, enable, check, keyPrefix string, poolCapacity ..
 	case "node", "node-packages":
 		require.NoError(t, os.WriteFile(filepath.Join(seed, "package.json"), []byte(`{"packageManager":"pnpm@9.15.4","scripts":{"test":"vitest run","lint":"eslint ."}}`), 0600))
 		require.NoError(t, os.WriteFile(filepath.Join(seed, "pnpm-lock.yaml"), []byte("lockfileVersion: '9.0'\n"), 0600))
+	case "node-all":
+		require.NoError(t, os.WriteFile(filepath.Join(seed, "package.json"), []byte(`{"packageManager":"pnpm@9.15.4","scripts":{"test":"vitest run","lint":"eslint .","typecheck":"tsc --noEmit","build":"tsc -b"}}`), 0600))
+		require.NoError(t, os.WriteFile(filepath.Join(seed, "pnpm-lock.yaml"), []byte("lockfileVersion: '9.0'\n"), 0600))
 	case "go":
 		require.NoError(t, os.WriteFile(filepath.Join(seed, "go.mod"), []byte("module example.test/app\n\ngo 1.23\n"), 0600))
+	case "rust":
+		require.NoError(t, os.WriteFile(filepath.Join(seed, "Cargo.toml"), []byte(`[package]
+name = "app"
+version = "0.1.0"
+edition = "2021"
+[lib]
+path = "lib.rs"
+`), 0600))
+		require.NoError(t, os.WriteFile(filepath.Join(seed, "lib.rs"), []byte("#[test] fn smoke() { assert_eq!(1 + 1, 2); }\n"), 0600))
+	case "python":
+		require.NoError(t, os.WriteFile(filepath.Join(seed, "pytest.ini"), []byte("[pytest]\ntestpaths = .\n"), 0600))
+		require.NoError(t, os.WriteFile(filepath.Join(seed, "requirements.txt"), []byte("pytest==8.3.5\n"), 0600))
+		require.NoError(t, os.WriteFile(filepath.Join(seed, "test_smoke.py"), []byte("def test_smoke():\n    assert 1 + 1 == 2\n"), 0600))
+	case "no-checks":
+		// JOURNEY.md alone has neither a detected check nor a build command.
 	}
 	if os.Getenv("REHEARSAL_CONFIG_FIXTURE") == "node-packages" {
 		// Reverse insertion order proves the inventory is ordered by package
