@@ -13,6 +13,7 @@ pub mod msg;
 pub mod outbox_store;
 pub mod rpc;
 pub mod session_stream;
+pub mod moved_off;
 pub mod stream;
 
 pub mod attrib;
