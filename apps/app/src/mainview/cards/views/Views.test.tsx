@@ -837,7 +837,7 @@ test("shell text is inert; private, empty and disabled boundaries", async () => 
     expect(row.host.querySelector("script")).toBeNull()
     expect(row.host.querySelector("button")).toBeNull()
   } finally { await row.close() }
-  const context = await mounted({ name: "empty", expect: [], render: ({ onView }) => <ContextLine count={0} items={[]} expanded={false} onView={onView} /> })
+  const context = await mounted({ name: "empty", expect: [], render: ({ onView, onAction }) => <ContextLine count={0} items={[]} actions={[]} onAction={onAction} expanded={false} onView={onView} /> })
   try {
     expect(context.host.textContent).toBe("Context · 0")
     expect(context.host.querySelector(".mvp-context-chip")).toBeNull()
@@ -2569,4 +2569,45 @@ describe("ActLine disclosure", () => {
     expect(m.onView).not.toHaveBeenCalled()
     await m.close()
   })
+})
+
+test.each([false, true])("ContextLine item and Inspect actions expanded=%s", async expanded => {
+  const { ContextLine } = await import("../../ContextLine")
+  const context = await mounted({ name: "context actions", expect: [], render: ({ onAction, onView }) => <ContextLine count={2} expanded={expanded}
+    items={[{ kind: "file", label: "flow.ts", ref: "flows/todo/flow.ts", revision: "abc123", action: { tag: "file", label: "Open", args: { path: "flows/todo/flow.ts" } } }, { kind: "page", label: "Decisions", ref: "decisions" }]}
+    actions={[{ tag: "context.inspect", label: "Inspect" }]} onAction={onAction} onView={onView} /> })
+  try {
+    expect(context.host.querySelector('[data-flow="context.inspect"]') !== null).toBe(expanded)
+    expect(context.host.querySelectorAll(".mvp-context-chip").length).toBe(expanded ? 2 : 0)
+    if (expanded) {
+      const item = context.host.querySelector<HTMLButtonElement>('[data-flow="file"]')!
+      expect(item.tagName).toBe("BUTTON")
+      expect(item.textContent).toBe("flow.tsabc123")
+      expect(item.querySelector("svg")).not.toBeNull()
+      expect(context.host.querySelector('[data-kind="page"]')!.tagName).toBe("SPAN")
+      await act(async () => item.click())
+      await act(async () => context.host.querySelector<HTMLButtonElement>('[data-flow="context.inspect"]')!.click())
+      expect(context.onAction.mock.calls).toEqual([["file", { path: "flows/todo/flow.ts" }], ["context.inspect", {}]])
+      expect(context.onView.mock.calls).toEqual([])
+    }
+    await act(async () => context.host.querySelector<HTMLButtonElement>(".mvp-context-toggle")!.click())
+    expect(context.onView.mock.calls).toEqual([[{ expanded: !expanded }]])
+  } finally { await context.close() }
+})
+
+test("ContextLine disabled actions show reasons and do not dispatch", async () => {
+  const { ContextLine } = await import("../../ContextLine")
+  const context = await mounted({ name: "disabled context", expect: [], render: ({ onAction, onView }) => <ContextLine count={1} expanded
+    items={[{ kind: "run", label: "Implement", ref: "run-12", action: { tag: "run", label: "Open", disabled: { reason: "Run unavailable" } } }]}
+    actions={[{ tag: "context.inspect", label: "Inspect", disabled: { reason: "Access refused" } }]} onAction={onAction} onView={onView} /> })
+  try {
+    expect(context.host.textContent).toContain("Run unavailable")
+    expect(context.host.textContent).toContain("Access refused")
+    for (const button of context.host.querySelectorAll<HTMLButtonElement>("[data-flow]")) {
+      expect(button.disabled).toBe(true)
+      await act(async () => button.click())
+    }
+    expect(context.onAction.mock.calls).toEqual([])
+    expect(context.onView.mock.calls).toEqual([])
+  } finally { await context.close() }
 })

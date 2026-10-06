@@ -8,10 +8,17 @@ const items: ContextLineCard["items"] = [
   { kind: "todo", label: "T12", ref: "12" },
   { kind: "run", label: "Implement", ref: "run-12-1" }
 ]
+const actionableItems: ContextLineCard["items"] = items.map((item, index) => index === 0
+  ? { ...item, action: { tag: "file", label: "flow.ts", args: { path: "flows/todo/flow.ts" } } }
+  : item)
+const actions: ContextLineCard["actions"] = [
+  { tag: "context.inspect", label: "Inspect", args: { branch: "T12", answer: "answer-12" } }
+]
+
 export const fixtures = {
-  collapsed: story("Five items, collapsed", { count: 5, items, expanded: false }, { expect: ["5"] }),
-  expanded: story("Five items, expanded", { count: 5, items, expanded: true }, {
+  collapsed: story("Five items, collapsed", { count: 5, items, actions: [], expanded: false }, { expect: ["5"] }),
+  expanded: story("Five items, expanded", { count: 5, items: actionableItems, actions, expanded: true }, {
     expect: ["flow.ts", "Factory decisions", "#3474", "T12", "Implement"]
   }),
-  one: story("One file, expanded", { count: 1, items: [items[0]!], expanded: true }, { expect: ["flow.ts"] })
+  one: story("One file, expanded", { count: 1, items: [items[0]!], actions: [], expanded: true }, { expect: ["flow.ts"] })
 } satisfies Record<string, Story<ContextLineCard>>

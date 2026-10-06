@@ -4,6 +4,7 @@
  */
 
 import { z } from "zod"
+import { ActionSchema, type CardProps } from "./CardAction.ts"
 import { ContextItemSchema } from "./CardPrimitives.ts"
 
 /**
@@ -14,7 +15,8 @@ import { ContextItemSchema } from "./CardPrimitives.ts"
  */
 export const ContextLineCardSchema = z.object({
   count: z.number().int().nonnegative(),
-  items: z.array(ContextItemSchema),
+  items: z.array(ContextItemSchema.extend({ action: ActionSchema.optional() })),
+  actions: z.array(ActionSchema),
   expanded: z.boolean()
 })
 
@@ -30,4 +32,7 @@ export type ContextLineCard = z.infer<typeof ContextLineCardSchema>
  * @since 1.0.0
  * @category models
  */
-export type ContextLineProps = ContextLineCard & { readonly onView: (patch: { readonly expanded: boolean }) => void }
+export type ContextLineProps = ContextLineCard & {
+  readonly onAction: CardProps<unknown>["onAction"]
+  readonly onView: (patch: { readonly expanded: boolean }) => void
+}

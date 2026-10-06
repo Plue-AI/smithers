@@ -3422,3 +3422,9 @@ button.mvp-node:focus-visible { outline: 2px solid var(--ring-border); outline-o
 @media (prefers-reduced-motion: reduce) {
   .mvp-timeline li[data-fresh] { animation: none; }
 }
+
+/* ContextLine (T-UI-07): item actions and Inspect. */
+.mvp-context .mvp-context-item { display: inline-flex; align-items: center; gap: 6px; max-width: 100%; }
+.mvp-context .mvp-context-chip { display: inline-flex; align-items: center; gap: 5px; background: transparent; }
+.mvp-context button.mvp-context-chip { cursor: pointer; }
+.mvp-context button:disabled { cursor: default; opacity: .5; }

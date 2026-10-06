@@ -22,7 +22,7 @@ export function EntryRow({ kind, author, title, summary, tone, state, context, a
     </header>
     <div className="mvp-entry-title">{title}
     </div>{summary ? <p className="mvp-entry-summary">{summary}
-    </p> : null}{card}{context ? <ContextLine count={context.count} items={context.items} expanded={expanded} onView={patch => setExpanded(patch.expanded)} /> : null}{action ? <div className="mvp-entry-action">
+    </p> : null}{card}{context ? <ContextLine count={context.count} items={context.items} actions={[]} onAction={onAction} expanded={expanded} onView={patch => setExpanded(patch.expanded)} /> : null}{action ? <div className="mvp-entry-action">
     <button type="button" data-flow={action.tag} disabled={Boolean(action.disabled)} onClick={() => onAction(action.tag, action.args ?? {})}>{action.label}
     </button>{action.disabled ? <span className="mvp-disabled-reason">{action.disabled.reason}
     </span> : null}

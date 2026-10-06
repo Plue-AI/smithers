@@ -72,12 +72,14 @@ const registrySources = (): string => {
  * surface added with a command-less button has to fail this gate, and a
  * hand-maintained list would silently exempt it.
  */
+const conversationShellFiles = ["BranchTree.tsx", "EntryRow.tsx", "ContextLine.tsx", "EarlierArchive.tsx"]
+
 const surfaceFiles = (): Array<string> => {
   const root = fileURLToPath(new URL("..", import.meta.url))
   return readdirSync(root, { recursive: true, encoding: "utf8" })
     .filter((entry) => entry.endsWith(".tsx") && !entry.endsWith(".test.tsx"))
     // Design-owned Views have their own AST seam rule below, not legacy pins.
-    .filter((entry) => !entry.split("\\").join("/").startsWith("cards/views/") && !["BranchTree.tsx", "EntryRow.tsx", "ContextLine.tsx", "EarlierArchive.tsx"].includes(entry))
+    .filter((entry) => !entry.split("\\").join("/").startsWith("cards/views/") && !conversationShellFiles.includes(entry))
     .map((entry) => `../${entry.split("\\").join("/")}`)
     .sort()
 }
@@ -262,7 +264,10 @@ const viewSeamViolations = (source: string, sourceUrl = new URL("../cards/views/
       node.moduleSpecifier.text.startsWith(".") && !node.importClause?.isTypeOnly) {
       const childUrl = new URL(node.moduleSpecifier.text, sourceUrl)
       const viewsUrl = new URL("../cards/views/", import.meta.url)
-      if (new URL(".", childUrl).href === viewsUrl.href && !/\.(test|stories)(?:\.tsx?)?$/.test(childUrl.pathname) &&
+      // Forwarding is valid only to Views covered by this gate, including the audited shell.
+      const scannedShell = conversationShellFiles.some(name =>
+        ["", ".tsx"].some(ext => new URL(childUrl.href + ext).href === new URL(`../${name}`, import.meta.url).href))
+      if ((new URL(".", childUrl).href === viewsUrl.href || scannedShell) && !/\.(test|stories)(?:\.tsx?)?$/.test(childUrl.pathname) &&
         ["", ".tsx", ".ts"].some(ext => /\.tsx?$/.test(childUrl.pathname + ext) && existsSync(fileURLToPath(new URL(childUrl.href + ext))))) {
         const bindings = node.importClause?.namedBindings
         if (bindings && ts.isNamedImports(bindings)) for (const element of bindings.elements) {
@@ -832,7 +837,7 @@ describe("View and Container catalog seam (C-UI-08)", () => {
   })
 
   test("conversation shell paths enforce the seam and reject file-specific seeds (C-UI-08)", () => {
-    for (const name of ["BranchTree.tsx", "EntryRow.tsx", "ContextLine.tsx", "EarlierArchive.tsx"]) {
+    for (const name of conversationShellFiles) {
       const url = new URL(`../${name}`, import.meta.url)
       expect(existsSync(fileURLToPath(url))).toBe(true)
       expect(viewSeamViolations(readFileSync(url, "utf8"), url)).toEqual([])
@@ -872,6 +877,8 @@ describe("View and Container catalog seam (C-UI-08)", () => {
       'function Child({ onAction }) { return <button onClick={() => localStorage.clear()} /> } function View({ onAction }) { return <Child onAction={onAction} /> }',
       'function Child({ action, onAction }) { return <button data-flow={action.tag} onClick={() => onAction(action.tag)} /> } function View() { const onAction = () => localStorage.clear(); return <Child onAction={onAction} /> }',
     ]) expect(viewSeamViolations(source).length).toBeGreaterThan(0)
+    expect(viewSeamViolations('import { ContextLine } from "./ContextLine"; function View({ onAction }) { return <ContextLine onAction={onAction} /> }', new URL("../EntryRow.tsx", import.meta.url))).toEqual([])
+    expect(viewSeamViolations('import { ContextLine } from "./ContextLine"; function View() { const onAction = () => fetch("/api"); return <ContextLine onAction={onAction} /> }', new URL("../EntryRow.tsx", import.meta.url)).length).toBeGreaterThan(0)
     expect(viewSeamViolations('import { ActorChip } from "./ActorChip"; function View({ onAction, onView, gestures }) { return <ActorChip onAction={onAction} onView={onView} gestures={gestures} /> }')).toEqual([])
     for (const source of [
       '<button onClick={event => { event.preventDefault(); runCommand("run") }} />',
