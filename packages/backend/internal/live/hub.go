@@ -17,6 +17,7 @@ import (
 type Source struct {
 	// RefreshSnapshot retains committed non-journal provider updates at the source cursor.
 	RefreshSnapshot func(json.RawMessage) json.RawMessage
+	RefreshDelta    func(json.RawMessage, json.RawMessage) json.RawMessage
 	RefreshEvery    time.Duration
 	Log             *LogSource
 	Document        *DocumentSource
