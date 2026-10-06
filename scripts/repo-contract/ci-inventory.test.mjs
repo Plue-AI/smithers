@@ -327,3 +327,17 @@ test("CI discovery preserves a generated results path and rejects repeated flags
   assert.deepEqual(targetInvocation(run), { verb: "test", pattern: "//scripts:packageDocs", jobs: undefined, verbose: true, resultsFile: "$RUNNER_TEMP/smthrs-results/$GITHUB_ACTION.json" })
   assert.throws(() => targetInvocation(`${run} --results-file "other"`), /Unrecognized CI target option/)
 })
+
+test("the published documentation gate resolves through the public CLI with matching metadata", async () => {
+  const index = await openPackageIndex({ workspace: root })
+  const metadata = await PackageExec.plan({ index, verb: "test", patterns: ["//scripts:packageDocs"], cacheDirectory: index.workspace.cache.directory })
+  const cli = planned("test", "//scripts:packageDocs")
+  const target = cli.targets.find(({ label }) => label === "//scripts:packageDocs")
+  const node = metadata.nodes.get("//scripts:packageDocs")
+  assert.ok(target)
+  assert.ok(node)
+  assert.equal(target.key ?? target.keyPreview, node.key ?? node.keyPreview)
+  const runner = runnerFor(node, index.workspace)
+  assert.deepEqual(runner.slice(1), ["--test", "scripts/package-docs.test.mjs", "scripts/package-docs-redirect.test.mjs"])
+  assert.equal(node.attrs.cache, false)
+})
