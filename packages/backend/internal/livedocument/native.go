@@ -9,14 +9,14 @@ package livedocument
 #include <dlfcn.h>
 #include <stdlib.h>
 #include "../../../../crates/smithers-ffi/live_document.h"
-typedef struct { void *lib; void *fn[10]; } ld_library;
+typedef struct { void *lib; void *fn[11]; } ld_library;
 static ld_library *ld_load(const char *path) {
- const char *names[] = {"ld_open", "ld_apply", "ld_sync1", "ld_sync2", "ld_awareness", "ld_set_author", "ld_state", "ld_text", "ld_close", "ld_free"};
+ const char *names[] = {"ld_open", "ld_apply", "ld_sync1", "ld_sync2", "ld_awareness", "ld_set_author", "ld_state", "ld_text", "ld_close", "ld_free", "ld_peer"};
  ld_library *l = calloc(1, sizeof(*l));
  if (!l) return NULL;
  l->lib = dlopen(path, RTLD_NOW | RTLD_LOCAL);
  if (!l->lib) { free(l); return NULL; }
- for (int i=0; i<10; i++) { l->fn[i] = dlsym(l->lib, names[i]); if (!l->fn[i]) { dlclose(l->lib); free(l); return NULL; } }
+ for (int i=0; i<11; i++) { l->fn[i] = dlsym(l->lib, names[i]); if (!l->fn[i]) { dlclose(l->lib); free(l); return NULL; } }
  return l;
 }
 static void ld_unload(ld_library *l) { dlclose(l->lib); free(l); }
@@ -148,3 +148,6 @@ func (d *Document) Close() error {
 	}
 	return nil
 }
+
+// Peer applies an update from the authenticated daemon, never from a browser.
+func (d *Document) Peer(update []byte) ([]byte, error) { return d.call(10, 0, update) }

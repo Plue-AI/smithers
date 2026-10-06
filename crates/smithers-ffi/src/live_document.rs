@@ -34,6 +34,15 @@ pub struct LdResult {
 fn boundary(f: impl FnOnce() -> Result<Vec<u8>>) -> LdResult {
     match catch_unwind(AssertUnwindSafe(f)) {
         Ok(Ok(bytes)) => {
+            // Rust's empty Box pointer is 0x1, which is not a valid C/Go
+            // pointer. Never expose that sentinel across the ABI.
+            if bytes.is_empty() {
+                return LdResult {
+                    data: std::ptr::null_mut(),
+                    len: 0,
+                    status: 0,
+                };
+            }
             let bytes = bytes.into_boxed_slice();
             let len = bytes.len();
             LdResult {
@@ -178,6 +187,24 @@ pub unsafe extern "C" fn ld_apply(h: u64, client: u64, data: *const u8, len: usi
         })
     })
 }
+/// Only the authenticated daemon peer may call this entry. Browser updates
+/// must use ld_apply; the peer owns epochs and durable authors metadata.
+#[no_mangle]
+pub unsafe extern "C" fn ld_peer(h: u64, data: *const u8, len: usize) -> LdResult {
+    boundary(|| {
+        with(h, |entry| {
+            let bytes = unsafe { input(data, len)? };
+            let scratch = restore(entry.root, &core::state(&entry.doc))?;
+            core::apply(&scratch, decode(bytes).map_err(|_| 2u32)?).map_err(|_| 2u32)?;
+            // Validate atomically before admitting daemon data too.
+            let _ = restore(entry.root, &core::state(&scratch))?;
+            let mut txn = entry.doc.transact_mut();
+            txn.apply_update(decode(bytes).map_err(|_| 2u32)?)
+                .map_err(|_| 2u32)?;
+            Ok(txn.encode_update_v1())
+        })
+    })
+}
 #[no_mangle]
 pub extern "C" fn ld_sync1(h: u64) -> LdResult {
     boundary(|| with(h, |e| Ok(e.doc.transact().state_vector().encode_v1())))
@@ -295,7 +322,7 @@ mod tests {
     use yrs::{Text, WriteTxn};
     fn take(result: LdResult) -> Result<Vec<u8>> {
         let status = result.status;
-        let bytes = if status == 0 {
+        let bytes = if status == 0 && result.len != 0 {
             unsafe { std::slice::from_raw_parts(result.data, result.len) }.to_vec()
         } else {
             vec![]
@@ -307,6 +334,15 @@ mod tests {
             Err(status)
         }
     }
+    #[test]
+    fn empty_result_is_a_null_c_pointer() {
+        let result = boundary(|| Ok(Vec::new()));
+        assert_eq!(result.status, 0);
+        assert_eq!(result.len, 0);
+        assert!(result.data.is_null());
+        unsafe { ld_free(result) };
+    }
+
     fn open() -> u64 {
         let h = unsafe { ld_open(0, std::ptr::null(), 0) };
         assert_ne!(h, 0);

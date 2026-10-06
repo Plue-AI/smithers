@@ -187,3 +187,38 @@ func FuzzNativeBoundary(f *testing.F) {
 		d.Awareness(b)
 	})
 }
+
+func TestNativePeerAdmission(t *testing.T) {
+	l := library(t)
+	source, e := l.Open(Code, nil)
+	if e != nil {
+		t.Fatal(e)
+	}
+	defer source.Close()
+	target, e := l.Open(Code, nil)
+	if e != nil {
+		t.Fatal(e)
+	}
+	defer target.Close()
+	update, e := source.SetAuthor(42, "alice")
+	if e != nil {
+		t.Fatal(e)
+	}
+	if _, e = target.Apply(42, update); !errors.Is(e, ErrRefused) {
+		t.Fatalf("browser changed authors: %v", e)
+	}
+	if _, e = target.Peer(update); e != nil {
+		t.Fatal(e)
+	}
+	if _, e = target.Apply(42, []byte{0, 0}); e != nil {
+		t.Fatalf("peer author missing: %v", e)
+	}
+	before, _ := target.State()
+	if _, e = target.Peer([]byte{255}); e == nil {
+		t.Fatal("malformed peer accepted")
+	}
+	after, _ := target.State()
+	if !bytes.Equal(before, after) {
+		t.Fatal("invalid peer mutated state")
+	}
+}

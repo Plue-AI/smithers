@@ -14,6 +14,8 @@
 typedef struct { uint8_t *data; size_t len; uint32_t status; } LdResult;
 uint64_t ld_open(uint32_t kind, const uint8_t *state, size_t len);
 LdResult ld_apply(uint64_t h, uint64_t client, const uint8_t *update, size_t len);
+/* Authenticated daemon only; never browser-controlled admission. */
+LdResult ld_peer(uint64_t h, const uint8_t *update, size_t len);
 LdResult ld_sync1(uint64_t h);
 LdResult ld_sync2(uint64_t h, const uint8_t *sv, size_t len);
 LdResult ld_awareness(uint64_t h, const uint8_t *bytes, size_t len);

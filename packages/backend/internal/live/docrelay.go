@@ -3,6 +3,7 @@
 package live
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"github.com/smithersai/smithers/packages/backend/internal/machined"
@@ -55,10 +56,9 @@ type DocumentSource struct {
 	Ready func() error
 }
 
-// DocRelay selects only an explicitly accepted relay topology. Mirror activation
-// belongs to the shared Yrs binding; absent adapters remain unsupported.
+// DocRelay admits code documents to the shared host mirror.
 type DocRelay struct {
-	Topology   string
+	Host       *CodeDocuments
 	Authorize  func(context.Context, DocumentTopic, int64, int64) ([]byte, string)
 	Connection func(context.Context, string) (*machined.Connection, DocumentRPC)
 }
@@ -68,7 +68,7 @@ func (r *DocRelay) Resolve(ctx context.Context, topic string, repository, member
 	if !ok {
 		return Source{}, UnknownTopic
 	}
-	if r == nil || r.Topology != "relay" || doc.Kind != "code" || r.Authorize == nil || r.Connection == nil {
+	if r == nil || r.Host == nil || r.Host.Library == nil || doc.Kind != "code" || r.Authorize == nil || r.Connection == nil {
 		return Source{}, Unsupported
 	}
 	actor, refusal := r.Authorize(ctx, doc, repository, member)
@@ -82,7 +82,13 @@ func (r *DocRelay) Resolve(ctx context.Context, topic string, repository, member
 	if connection == nil || rpc == nil {
 		return Source{}, Unsupported
 	}
-	ready := func() error { return connection.RequireReady(doc.Branch) }
+	ready := func() error {
+		current, code := r.Authorize(ctx, doc, repository, member)
+		if code != "" || !bytes.Equal(current, actor) || ctx.Err() != nil {
+			return machined.ErrUnauthorized
+		}
+		return connection.RequireReady(doc.Branch)
+	}
 	if err := ready(); err != nil {
 		if errors.Is(err, machined.ErrNotReady) {
 			return Source{}, Unsupported
@@ -94,7 +100,9 @@ func (r *DocRelay) Resolve(ctx context.Context, topic string, repository, member
 		if err := ready(); err != nil {
 			return nil, err
 		}
-		return rpc.OpenDocument(ctx, doc.Path, actor)
+		return r.Host.open(ctx, topic, func(peer context.Context) (DocumentStream, error) {
+			return rpc.OpenDocument(peer, doc.Path, []byte("host"))
+		}, actor)
 	}}}, ""
 }
 

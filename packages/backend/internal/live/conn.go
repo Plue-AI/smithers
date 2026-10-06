@@ -6,6 +6,7 @@ import (
 	"encoding/binary"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"github.com/smithersai/smithers/packages/backend/internal/machined/wire"
 	"sync"
 	"sync/atomic"
@@ -333,7 +334,21 @@ func (s *subscription) gap(out *outbox, id uint32) {
 func (s *subscription) relay(ctx context.Context, out *outbox, id uint32, refuse func(uint32, string)) {
 	hasEpoch := false
 	for {
-		raw, err := s.document.Receive(ctx)
+		poll, cancel := context.WithTimeout(ctx, time.Second)
+		raw, err := s.document.Receive(poll)
+		cancel()
+		if errors.Is(err, context.DeadlineExceeded) && ctx.Err() == nil {
+			if s.source.Ready() != nil {
+				s.close()
+				refuse(id, Forbidden)
+				return
+			}
+			continue
+		}
+		if errors.Is(err, errDocumentGap) {
+			s.gap(out, id)
+			return
+		}
 		if ctx.Err() != nil {
 			return
 		}
@@ -347,7 +362,7 @@ func (s *subscription) relay(ctx context.Context, out *outbox, id uint32, refuse
 			refuse(id, Forbidden)
 			return
 		}
-		d, err := wire.DecodeDocument(raw)
+		d, err := wire.DecodeDocumentV2(raw)
 		if err != nil {
 			s.close()
 			refuse(id, Unsupported)
@@ -393,11 +408,11 @@ func (s *subscription) relay(ctx context.Context, out *outbox, id uint32, refuse
 				return
 			}
 			b, _ = json.Marshal(struct {
-				T  string `json:"t"`
-				ID uint32 `json:"id"`
-				SV string `json:"sv"`
-				At string `json:"at"`
-			}{"saved", id, base64.StdEncoding.EncodeToString(d.Data), time.UnixMilli(int64(d.AtMS)).UTC().Format(time.RFC3339Nano)})
+				T   string `json:"t"`
+				ID  uint32 `json:"id"`
+				SV  string `json:"sv"`
+				Seq uint64 `json:"seq"`
+			}{"saved", id, base64.StdEncoding.EncodeToString(d.Data), d.ThroughSeq})
 		case wire.DocumentGone:
 			var data []byte
 			if d.GoneKind == 1 {

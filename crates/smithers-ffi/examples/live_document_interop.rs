@@ -4,7 +4,11 @@ use smithers_ffi::live_document::*;
 use std::io::{self, Read};
 fn take(r: LdResult) -> Vec<u8> {
     assert_eq!(r.status, 0);
-    let bytes = unsafe { std::slice::from_raw_parts(r.data, r.len) }.to_vec();
+    let bytes = if r.len == 0 {
+        vec![]
+    } else {
+        unsafe { std::slice::from_raw_parts(r.data, r.len) }.to_vec()
+    };
     unsafe { ld_free(r) };
     bytes
 }
