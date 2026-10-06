@@ -17,6 +17,7 @@ import (
 	"net/url"
 	"strconv"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -439,14 +440,16 @@ func TestTodoMergeComposedRouteBoundaryPostgres(t *testing.T) {
 					expectedStatus := tc.status
 					// The numbered door uses the install command gate: a person's
 					// API credential requires app confirmation before reading a TODO.
-					if tc.name == "the owner's personal access token" && door.name == "numbered" {
+					if tc.name == "the owner's personal access token" && door.name == "numbered" && (target == door.valid || target == door.unknown) {
 						expectedStatus = http.StatusServiceUnavailable
 					}
 					require.Equal(t, expectedStatus, status, "%s %s: %v", door.name, target, envelope)
 					if tc.envelope != nil {
 						expected := tc.envelope
-						if tc.name == "the owner's personal access token" && door.name == "numbered" {
+						if tc.name == "the owner's personal access token" && door.name == "numbered" && (target == door.valid || target == door.unknown) {
 							expected = map[string]any{"code": "confirmation_unavailable", "class": "infra", "message": "Confirmation unavailable"}
+						} else if tc.name == "the owner's personal access token" {
+							expected = map[string]any{"code": "permission", "class": "permission", "message": "Not available"}
 						}
 						require.Equal(t, expected, envelope, "%s %s", door.name, target)
 					}
@@ -719,6 +722,45 @@ func TestTodoMergeComposedRouteBoundaryPostgres(t *testing.T) {
 		}}
 		before, cardBefore, factsBefore := read()
 		require.Equal(t, "needs_you", cardBefore["state"])
+		// Literal identities are independent of the production projection. A
+		// checkpoint from the wrong attempt, run or pin cannot change the
+		// stored TODO, its HTTP card or its event stream.
+		for _, generation := range []int64{1, 3} {
+			for _, invalid := range []string{"prior attempt", "missing attempt", "wrong run", "empty run", "wrong nested run", "wrong digest", "wrong source", "missing digest"} {
+				t.Run(fmt.Sprintf("attachment refuses %s generation %d", invalid, generation), func(t *testing.T) {
+					attempt := int32(2)
+					flowDigest, flowSource := digest, source
+					bad := update
+					nested := *update.Checkpoint.Run
+					bad.Checkpoint.Run = &nested
+					switch invalid {
+					case "prior attempt":
+						attempt = 1
+					case "missing attempt":
+						attempt = 0
+					case "wrong run":
+						bad.Checkpoint.RunID, nested.RunID = "retired-run", "retired-run"
+					case "empty run":
+						bad.Checkpoint.RunID, nested.RunID = "", ""
+					case "wrong nested run":
+						nested.RunID = "retired-run"
+					case "wrong digest":
+						flowDigest = strings.Repeat("e", 64)
+					case "wrong source":
+						flowSource = strings.Repeat("f", 40)
+					case "missing digest":
+						flowDigest = ""
+					}
+					bad.Checkpoint.Projection, err = json.Marshal(map[string]any{"kind": "mythical-item", "itemId": itemID, "generation": generation, "attempt": attempt, "phase": "todo", "flowDigest": flowDigest, "flowSource": flowSource})
+					require.NoError(t, err)
+					require.NoError(t, mythical.ProjectFlowRuntime(ctx, bad))
+					stored, card, facts := read()
+					require.Equal(t, before, stored)
+					require.Equal(t, cardBefore, card)
+					require.Equal(t, factsBefore, facts)
+				})
+			}
+		}
 		// Failure between the versioned item save and its fact rolls back
 		// both; the HTTP card must still expose the original stored facts.
 		_, err = pool.Exec(ctx, `CREATE FUNCTION refuse_attach_fact() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN IF NEW.event_type='todo.run_updated' THEN RAISE EXCEPTION 'injected attachment failure'; END IF; RETURN NEW; END $$;
@@ -734,7 +776,22 @@ func TestTodoMergeComposedRouteBoundaryPostgres(t *testing.T) {
 		require.Equal(t, factsBefore, factsRolledBack)
 		_, err = pool.Exec(ctx, `DROP TRIGGER refuse_attach_fact ON product_job_events; DROP FUNCTION refuse_attach_fact()`)
 		require.NoError(t, err)
-		require.NoError(t, mythical.ProjectFlowRuntime(ctx, update))
+		// Reconnects may replay attachment concurrently. The versioned writer
+		// must publish one fact, preserving the person's pause and branch wait.
+		var replay sync.WaitGroup
+		errors := make(chan error, 20)
+		for range 20 {
+			replay.Add(1)
+			go func() {
+				defer replay.Done()
+				errors <- mythical.ProjectFlowRuntime(ctx, update)
+			}()
+		}
+		replay.Wait()
+		close(errors)
+		for err := range errors {
+			require.NoError(t, err)
+		}
 		after, cardAfter, factsAfter := read()
 		require.Equal(t, before.Version+1, after.Version)
 		require.Equal(t, before.PausedAt, after.PausedAt)
