@@ -45,3 +45,15 @@ test("member callbacks have no write authority", () => {
   props.onAction("secrets.delete", { name: "OPEN" }); expect(calls).toEqual([])
   expect(props.actions).toEqual([]); expect(props.model.secrets[0]?.actions).toEqual([])
 })
+
+test("Secrets card action copy uses product words", async () => {
+  const { lintText } = await import("./productWords")
+  let props!: SecretsViewProps
+  renderToStaticMarkup(<SecretsCardBody card={card} role="owner" dispatch={() => {}} View={value => { props = value; return null }} />)
+  const actions = [...props.actions, ...props.model.secrets.flatMap(secret => secret.actions)]
+  expect(actions.map(action => action.label)).toEqual(["Add", "Replace", "main only", "Delete", "Replace", "all branches", "Delete"])
+  for (const action of actions) {
+    expect(lintText(action.label)).toEqual([])
+    if (action.disabled) expect(lintText(action.disabled.reason)).toEqual([])
+  }
+})

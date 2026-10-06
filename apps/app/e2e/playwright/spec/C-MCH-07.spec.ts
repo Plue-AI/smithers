@@ -110,6 +110,7 @@ test("C-MCH-07 card: write-only Add, Replace, scope, live member rows and Delete
   expect(await card.innerHTML()).not.toContain("replacement-canary")
   role = "owner"; notices.get("members")!()
   await page.reload()
+  await expect(page.getByTestId("composer-input")).toBeAttached({ timeout: 120_000 })
   await expect(card).toContainText("CANARY_TOKEN")
   await expect(card.getByLabel("Value", { exact: true }).last()).toHaveValue("")
   page.once("dialog", dialog => { void dialog.accept() })
