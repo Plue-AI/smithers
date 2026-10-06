@@ -16132,17 +16132,44 @@ paths:
           required: true
           schema:
             type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [flow]
+              properties:
+                flow:
+                  type: string
+                input:
+                  type: object
+                  additionalProperties: true
       security:
         - tokenAuth: []
         - bearerAuth: []
         - sessionCookie: []
       responses:
-        '200':
-          description: Successful response
+        '201':
+          description: Queued flow run
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/AnyJSON'
+                type: object
+                required: [id, run_id, workflow_definition_id, flow, path, status]
+                properties:
+                  id:
+                    type: integer
+                  run_id:
+                    type: integer
+                  workflow_definition_id:
+                    type: integer
+                  flow:
+                    type: string
+                  path:
+                    type: string
+                  status:
+                    type: string
         '400':
           $ref: '#/components/responses/BadRequest'
         '401':
@@ -16157,6 +16184,12 @@ paths:
           $ref: '#/components/responses/RateLimited'
         '500':
           $ref: '#/components/responses/InternalError'
+        '503':
+          description: Isolated Flow runtime unavailable
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
   /api/repos/{owner}/{repo}/landings/{number}/review-requests:
     post:
       summary: POST /api/repos/{owner}/{repo}/landings/{number}/review-requests
