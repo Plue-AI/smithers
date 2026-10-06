@@ -1360,7 +1360,9 @@ func buildRouter(
 				r.With(append(writeRepo, repoStackQuota)...).Put("/landings/requests/{request_uuid}", landingHandler.PutLandingRequest)
 				r.With(writeRepo...).Post("/landings/append/prepare", landingHandler.PrepareLandingAppend)
 				r.With(writeRepo...).Patch("/landings/{number}", landingHandler.PatchLandingRequest)
-				r.With(writeRepo...).Put("/landings/{number}/land", landingHandler.LandLandingRequest)
+				if !config.IsSingleOwner(cfg.Auth) {
+					r.With(writeRepo...).Put("/landings/{number}/land", landingHandler.LandLandingRequest)
+				}
 				r.With(writeRepo...).Put("/landings/{number}/land/append", landingHandler.AppendLandingRequest)
 				r.With(writeRepo...).Put("/landings/{number}/github/pull", landingHandler.OpenLandingGitHubPull)
 				r.With(writeRepo...).Post("/landings/{number}/auto-land", landingHandler.SetLandingRequestAutoLand)

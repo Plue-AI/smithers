@@ -232,7 +232,6 @@ export const FLOW_NAMES = [
   "palette.open",
   "palette.recent",
   "prs",
-  "prs.land",
   "prs.list",
   "prs.review",
   "prs.tab",

@@ -481,7 +481,6 @@ export interface AppController extends IssueFlowsController {
   readonly listLandings: LandingsSeam["listLandings"]
   readonly viewLanding: LandingsSeam["viewLanding"]
   readonly setLandingTab: LandingsSeam["setTab"]
-  readonly landLanding: LandingsSeam["landLanding"]
   readonly reviewLanding: LandingsSeam["reviewLanding"]
   readonly showBillingPlans: BillingSeam["showBillingPlans"]
   readonly startCheckout: BillingSeam["startCheckout"]
@@ -2171,7 +2170,6 @@ export const createAppController = (
     listLandings: landingsSeam.listLandings,
     viewLanding: landingsSeam.viewLanding,
     setLandingTab: landingsSeam.setTab,
-    landLanding: landingsSeam.landLanding,
     reviewLanding: landingsSeam.reviewLanding,
     showBillingPlans: billingSeam.showBillingPlans,
     startCheckout: billingSeam.startCheckout,

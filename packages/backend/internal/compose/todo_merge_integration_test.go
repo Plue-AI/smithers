@@ -677,6 +677,19 @@ func testTodoMergeComposedRouteBoundaryPostgres(t *testing.T, confirmations bool
 	require.Equal(t, inherited.Checks, afterDisable.Checks)
 	unchanged(t)
 
+	t.Run("install has no legacy PR landing route", func(t *testing.T) {
+		request, err := http.NewRequest(http.MethodPut, origin+"/api/repos/merge-owner/app/landings/1/land", strings.NewReader(`{"commit_id":"legacy"}`))
+		require.NoError(t, err)
+		request.Header.Set("Origin", origin)
+		request.Header.Set("Content-Type", "application/json")
+		browser("owner-browser-session", true, "legacy-land")(request)
+		response, err := http.DefaultClient.Do(request)
+		require.NoError(t, err)
+		defer response.Body.Close()
+		require.Equal(t, http.StatusNotFound, response.StatusCode)
+		unchanged(t)
+	})
+
 	status, envelope := post(numbered(strconv.FormatInt(filed.Number, 10)), browser("owner-browser-session", true, "owner-press"))
 	require.Equal(t, http.StatusAccepted, status, envelope)
 	require.Equal(t, map[string]any{"state": "accepted"}, envelope)

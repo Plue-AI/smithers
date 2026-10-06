@@ -18,14 +18,15 @@ test("review is a confirmable command and both review doors refuse browser execu
     const review = controller.commands.find("review")!
     expect(modelInvocable(review)).toBe(true)
     expect(review.metadata.confirm).toBe("review the pull request")
-    expect(review.metadata.workflow).toBeUndefined()
+    expect(review.metadata.workflow).toBe("review")
+    expect(controller.commands.find("prs.land")).toBeUndefined()
     expect(controller.commands.find("prs.triage")!.metadata.hidden).toBe(true)
     for (const name of ["review", "prs.triage"]) {
       const result = await controller.runCommandForResult(name, "50 owner/repo")
       expect(result).toEqual({ status: "failed", error: "Review is unavailable on this host." })
       await controller.commands.submit({ name, payload: { number: 51, repo: "owner/repo" }, actor: "user" })
     }
-    expect(await controller.commands.executeForAgent({ name: "commands", arguments: JSON.stringify({ action: "execute", name: "review", args: "50 owner/repo" }) })).toContain("asked the user to confirm")
+    expect(await controller.commands.executeForAgent({ name: "commands", arguments: JSON.stringify({ action: "execute", name: "review", args: "50 owner/repo" }) })).toBe("failed: this command runs on the conversation host")
     expect(requests).toEqual([])
     expect([...store.collections.cards.values()].some(card => card.kind === "run-trace" || card.kind === "change")).toBe(false)
   } finally { await controller.dispose() }

@@ -701,7 +701,6 @@ const GRAMMAR: Readonly<Record<string, Grammar>> = {
     return cardId && tab && rest.length === 0 && ["conversation", "commits", "checks", "files"].includes(tab)
       ? ok({ cardId, tab }) : no("Choose a pull request card and tab")
   },
-  "prs.land": (args, known) => numbered(args, "prs.land needs a pull request number", known),
   "prs.review": (args, known) => {
     const structured = structuredFields("prs.review", args, ["number", "verdict", "text", "repo"])
     if (structured !== undefined) {

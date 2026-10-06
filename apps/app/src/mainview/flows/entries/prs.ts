@@ -55,21 +55,6 @@ export const prsFlows = (actions: CommandActions): ReadonlyArray<FlowEntry> => [
     handler: ({ cardId, tab }) => actions.setLandingTab(cardId, tab)
   }),
   flow({
-    /*
-     * Landing is consequential (it queues a merge), so the model may ASK for
-     * it but never perform it: `confirm` turns an agent invocation into a
-     * confirmation message whose button runs the land as the user.
-     */
-    name: "prs.land",
-    summary: "Land a pull request (queues the merge)",
-    runtime: ["cloud"],
-    confirm: "land the pull request",
-    args: "<number> [owner/repo]",
-    requires: ["signed-in"],
-    input: NumberedTarget,
-    handler: ({ number, repo }) => actions.landLanding(number, repo)
-  }),
-  flow({
     // Retain the old button/form door for persisted cards; it shares /review's refusal.
     name: "prs.triage",
     hidden: true,

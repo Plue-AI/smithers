@@ -7281,61 +7281,6 @@
       }
     },
     {
-      "name": "prs.land",
-      "slash": null,
-      "cli": null,
-      "journey": [],
-      "group": "",
-      "visibility": "in-card",
-      "actors": [
-        "person",
-        "app_agent"
-      ],
-      "minimumRole": "member",
-      "credentialScope": "write:repository",
-      "agent": "confirm",
-      "summary": "Land a pull request (queues the merge)",
-      "http": null,
-      "payload": {
-        "dialect": "draft-2020-12",
-        "schema": {
-          "type": "object",
-          "properties": {
-            "number": {
-              "anyOf": [
-                {
-                  "type": "number"
-                },
-                {
-                  "type": "string",
-                  "enum": [
-                    "Infinity",
-                    "-Infinity",
-                    "NaN"
-                  ]
-                }
-              ]
-            },
-            "repo": {
-              "anyOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "null"
-                }
-              ]
-            }
-          },
-          "required": [
-            "number"
-          ],
-          "additionalProperties": true
-        },
-        "definitions": {}
-      }
-    },
-    {
       "name": "prs.list",
       "slash": null,
       "cli": null,
