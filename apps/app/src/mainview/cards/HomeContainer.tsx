@@ -11,6 +11,7 @@ import { useDesignHome, useDesignHomeView } from "../state/seams/DesignWorld/hom
 import type { InstallModel } from "../state/seams/InstallModel"
 import type { InstallSnapshots } from "../state/seams/InstallSeam"
 import type { TodoListSnapshots } from "../state/seams/TodoSeam"
+import { actionFor } from "../flows/rowAction"
 import { homeFromTodos } from "../state/seams/HomeFromTodos"
 import type { GitHubSyncHealth, GitHubSyncSnapshots } from "../state/seams/GitHubSyncSeam"
 import { useTodoRole } from "./TodoCard"
@@ -52,25 +53,24 @@ export const HomeContainer = ({ model: source, role, allowed, dispatch, View = H
     return { ...row, start, end: definitions.length }
   })
   const first = parsed.items.find(row => !["merged", "dropped"].includes(row.state))
-  let mergeOffered = false
   const items = parsed.items.map(row => {
     const start = definitions.length
-    for (const action of row.actions) {
+    const primary = actionFor({ ...row, first_in_order: row === first }, { role })
+    const rowActions = [...row.actions.filter(action => !["merge", "todo.answer", "todo.retry", "todo.resume"].includes(action.tag)
+      && !(action.tag === "todo" && action.label === "Review" && action.args?.door !== "title") && !(action.tag === "branch" && action.label === "Resolve")), ...(primary ? [primary] : [])]
+    for (const action of rowActions) {
       const args = { ...action.args, n: String(row.n) }
       if (["merged", "dropped"].includes(row.state) && action.tag !== "branch" && action.tag !== "todo") continue
       switch (action.tag) {
         case "todo": case "todo.retry": case "todo.resume": case "todo.drop":
           admitted({ ...action, tag: action.tag, args, command_input: { n: row.n } }); break
         case "merge":
-          if (!mergeOffered && row === first && row.state === "in_review" && row.place === 1 && row.merge.state === "ready" && row.pr && !row.pr.draft) {
-            admitted({ ...action, tag: "merge", args, command_input: { n: row.n } })
-            mergeOffered = true
-          }
+          admitted({ ...action, tag: "merge", args, command_input: { n: row.n } })
           break
         case "todo.answer":
           admitted({ ...action, tag: "todo.answer", args, command_input: { n: row.n, answer: "" }, resolve_input: input => ({ n: row.n, answer: input.answer ?? "" }) }); break
         case "branch":
-          admitted({ ...action, tag: "branch", args, command_input: { name: row.branch.name } }); break
+          admitted({ ...action, tag: "branch", args, command_input: { name: action.args?.name ?? row.branch.name } }); break
         case "stack.move":
           if (!["merged", "dropped"].includes(row.state) && (action.args?.direction === "up" || action.args?.direction === "down"))
             admitted({ ...action, tag: "stack.move", args, command_input: { n: row.n, direction: action.args.direction } })
@@ -190,7 +190,7 @@ export const useHome = (active = true): HomeAnswer | undefined => {
   const sync = useSyncExternalStore(syncs.subscribe, syncs.get, syncs.get)
   const repository = install?.repository ? `${install.repository.owner}/${install.repository.name}` : seeded.model.repository
   const source = answer.kind !== "seed" || controller.design.enabled !== false ? answer
-    : list.todos !== undefined ? { kind: "served" as const, model: homeFromTodos(repository, list.todos) }
+    : list.todos !== undefined ? { kind: "served" as const, model: homeFromTodos(repository, list.todos, session) }
     : { kind: "failed" as const, code: list.error ?? (listed === NO_TODO_LIST ? "unsupported" : "loading") }
   if (source.kind === "failed" && source.code === "loading") return undefined
   const home = source.kind === "served" ? source.model : source.kind === "failed" ? homeFailureModel(repository, source.code) : seeded.model
