@@ -22,6 +22,8 @@
  * @since 1.0.0
  */
 
+import type { ControlSchema } from "@smthrs/control"
+import { Effect } from "effect"
 import { spawn } from "node:child_process"
 import type { ChildProcess } from "node:child_process"
 import { closeSync, existsSync, fstatSync, mkdirSync, openSync, readSync, renameSync, unlinkSync } from "node:fs"
@@ -78,6 +80,18 @@ const pollIntervalMs = 50
  */
 export const admissionLine = (nonce: string, runId: string): string =>
   `SMITHERS_DETACHED_ADMISSION=run:${nonce} runId=${runId}`
+
+/**
+ * Announces durable admission to the detached parent through its nonce-bound log.
+ * @category constructors
+ * @since 1.0.0
+ */
+export const announceAdmission = (receipt: ControlSchema.Receipt) =>
+  Effect.sync(() => {
+    const nonce = process.env[admissionVariable]
+    if (nonce === undefined || nonce === "" || receipt._tag !== "Accepted" || receipt.runId === undefined) return
+    process.stderr.write(`${admissionLine(nonce, receipt.runId)}\n`)
+  })
 
 /**
  * The run-id shapes admitted onto a log filename.
@@ -360,7 +374,7 @@ export const launch = async (options: Options): Promise<Launched | Rejected> => 
   try {
     child = spawn(
       options.execPath ?? process.execPath,
-      [options.entry ?? process.argv[1]!, "run", options.payload, ...(options.passthrough ?? [])],
+      [options.entry ?? process.argv[1]!, "flow", "execute", options.payload, ...(options.passthrough ?? [])],
       {
         cwd: options.root,
         detached: true,

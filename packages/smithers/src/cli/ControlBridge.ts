@@ -274,12 +274,33 @@ export const invoke = async (
  * flow listing, a run diagnosis, a pending-approval listing and a bulk cancel
  * all work in a project that has never had one. An operation that starts or
  * resumes a run does not belong here and its launch would die on the observing
- * executor; route one through {@link invoke}, whose verb declares the
- * capability.
+ * executor; route one through {@link launch}.
  * @category constructors
  * @since 1.0.0
  */
 export const query = async <A, E>(
+  operation: Effect.Effect<A, E, Control.Control | Ui.Ui>,
+  options: ConnectionOptions,
+  runtime: Runtime = {},
+  hostOptions: { readonly plansFlows?: boolean } = {}
+): Promise<A> =>
+  settle(
+    provideServices(
+      operation.pipe(
+        Effect.provide(NodeControl.layer({ ...configuration(options, runtime), startsRuns: false, ...hostOptions }))
+      ),
+      options,
+      runtime
+    ),
+    runtime
+  )
+
+/**
+ * Runs a typed launch with an executor and host-owned settlement status.
+ * @category constructors
+ * @since 1.0.0
+ */
+export const launch = async <A, E>(
   operation: Effect.Effect<A, E, Control.Control | Ui.Ui>,
   options: ConnectionOptions,
   runtime: Runtime = {}
@@ -287,7 +308,8 @@ export const query = async <A, E>(
   settle(
     provideServices(
       operation.pipe(
-        Effect.provide(NodeControl.layer({ ...configuration(options, runtime), startsRuns: false }))
+        Effect.provideService(CommandStatus.CommandStatus, (code) => runtime.exit?.(code)),
+        Effect.provide(NodeControl.layer({ ...configuration(options, runtime), startsRuns: true }))
       ),
       options,
       runtime
@@ -301,7 +323,7 @@ export const query = async <A, E>(
  * Nothing is created, migrated, recovered or reaped, and the reads answer
  * while another process holds the writer. Only a verb that changes nothing
  * belongs here; one that cancels, signals or decides goes through
- * {@link query} or {@link invoke}.
+ * {@link query} or {@link launch}.
  * @category constructors
  * @since 1.0.0
  */

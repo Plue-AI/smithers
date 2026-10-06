@@ -1,5 +1,6 @@
 import * as Audience from "@smthrs/build-cli/Audience"
 import { ApprovalAuthority, Control } from "@smthrs/control"
+import * as TestControl from "@smthrs/control/test/TestControl"
 import { Unavailable } from "@smthrs/control/ControlError"
 import { Console, Effect, Layer, Logger, References, Stream } from "effect"
 import { getEventListeners } from "node:events"
@@ -132,6 +133,63 @@ beforeEach(async () => {
 afterEach(() => {
   vi.restoreAllMocks()
   vi.unstubAllEnvs()
+})
+
+describe("typed control hosts", () => {
+ it("provides a run-capable host and reports settlement through Incur", async () => {
+  const exit = vi.fn()
+  const document = { _tag: "Accepted", runId: "failed-run", status: "failed" }
+  const result = await Bridge.launch(Effect.gen(function*() {
+   expect(yield* Control.Control).toBe(service)
+   yield* CommandStatus.set(1)
+   return document
+  }), local, { ...runtime, exit })
+  expect(result).toEqual(document)
+  expect(exit).toHaveBeenCalledExactlyOnceWith(1)
+  expect(ports.control).toHaveBeenCalledExactlyOnceWith(expect.objectContaining({ startsRuns: true }))
+  expect(ports.runWith).not.toHaveBeenCalled()
+  expect(lifecycle).toEqual(["control:open", "control:close"])
+ })
+ it.each(["failed", "cancelled", "waiting-approval", "completed"] as const)("flow start --wait renders %s and exits through Incur", async status => {
+  const exit = vi.fn()
+  const calls: string[] = []
+  const envelope = { capabilities: [], flows: [], budget: {} }
+  const card = await Effect.runPromise(Effect.flatMap(Control.Control, control => control.plan({ flowId: "demo", input: {} })).pipe(
+    Effect.provide(TestControl.layer({ now: () => 0, flows: [{ flowId: "demo", description: "fixture", deployClass: false, envelope }] }))
+  ))
+  service = { ...service,
+   plan: vi.fn(() => { calls.push("plan"); return Effect.succeed(card) }),
+   approve: vi.fn(input => { calls.push("approve"); expect(input.scope).toBe("run"); return Effect.succeed({ _tag: "Accepted", receiptId: "approval" } as const) }),
+   run: vi.fn(() => { calls.push("run"); return Effect.succeed({ _tag: "Accepted", receiptId: "launch", runId: "run-1" } as const) }),
+   watch: vi.fn(() => Stream.make({ sequence: 1, runId: "run-1", occurredAt: 1, kind: `control.run.${status}` as const, payload: { cause: "fixture failure" } }))
+  }
+  const result = { stdout: "", codes: [] as number[] }
+  await makeCli({ ...runtime, exit, stdout: { isTTY: false, write: text => { result.stdout += text } } }).serve(
+   ["flow", "start", "demo", "--wait", "--remote", "https://fixture.invalid", "--json"],
+   { stdout: text => { result.stdout += text }, exit: code => { result.codes.push(code) } }
+  )
+  const document = JSON.parse(result.stdout)
+  expect(document).toMatchObject({ _tag: "Accepted", runId: "run-1" })
+  if (status === "failed") expect(document).toMatchObject({ status: "failed", cause: "fixture failure" })
+  expect(calls).toEqual(["plan", "approve", "run"])
+  expect(exit).toHaveBeenCalledExactlyOnceWith(status === "completed" ? 0 : status === "failed" ? 1 : status === "cancelled" ? 130 : 3)
+  expect(result.codes).toEqual([])
+  expect(ports.control).toHaveBeenCalledWith(expect.objectContaining({ startsRuns: true }))
+  expect(ports.runWith).not.toHaveBeenCalled()
+ })
+ it("enables flow planning on an observing host only when requested", async () => {
+  await Bridge.query(Effect.succeed({ planId: "plan" }), local, runtime, { plansFlows: true })
+  expect(ports.control).toHaveBeenLastCalledWith(expect.objectContaining({ startsRuns: false, plansFlows: true }))
+  await Bridge.query(Effect.void, local, runtime)
+  expect(ports.control).toHaveBeenLastCalledWith(expect.objectContaining({ startsRuns: false }))
+  expect(ports.control.mock.calls[1]![0].plansFlows).toBeUndefined()
+  expect(ports.runWith).not.toHaveBeenCalled()
+ })
+ it("closes a typed launch host after failure without invoking the legacy parser", async () => {
+  await expect(Bridge.launch(Effect.fail(new Error("launch failed")), local, runtime)).rejects.toThrow("launch failed")
+  expect(lifecycle).toEqual(["control:open", "control:close"])
+  expect(ports.runWith).not.toHaveBeenCalled()
+ })
 })
 
 describe("control bridge configuration and routing", () => {

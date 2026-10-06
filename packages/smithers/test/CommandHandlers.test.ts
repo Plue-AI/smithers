@@ -872,8 +872,8 @@ describe("up", () => {
       expect(error).toBeInstanceOf(CliError.UnsupportedError)
       expect((error as CliError.UnsupportedError).message).toContain("announced run-detached-test")
       const argv = JSON.parse(readFileSync(marker, "utf8")) as ReadonlyArray<string>
-      expect(argv[0]).toBe("run")
-      expect(argv.slice(2)).toEqual(["--mcp-config", mcpConfig, "--root", root])
+      expect(argv.slice(0, 2)).toEqual(["flow", "execute"])
+      expect(argv.slice(3)).toEqual(["--mcp-config", mcpConfig, "--root", root])
     } finally {
       process.argv = originalArgv
       if (previousMarker === undefined) delete process.env["SMITHERS_TEST_DETACHED_ARGV"]

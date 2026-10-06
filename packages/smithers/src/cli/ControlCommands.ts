@@ -10,13 +10,15 @@ import * as RunDevTools from "@smthrs/gateway/RunDevTools"
 import * as RunTrace from "@smthrs/gateway/RunTrace"
 import * as Redaction from "@smthrs/journal/Redaction"
 import { BudgetOnExceeded } from "@smthrs/registry/Descriptor"
-import { Clock, Effect, Schema } from "effect"
+import { Clock, Effect, Option, Schema } from "effect"
 import { Cli, z } from "incur"
 import { existsSync } from "node:fs"
 import { readFile } from "node:fs/promises"
 import { dirname, join } from "node:path"
 import * as CliError from "../CliError.ts"
 import { cancelAll, unexpectedRunList } from "../commands/CancelAll.ts"
+import * as Launch from "../commands/Launch.ts"
+import * as RunControl from "../commands/RunControl.ts"
 import * as FlowCatalog from "../commands/FlowCatalog.ts"
 import * as Globals from "../commands/Globals.ts"
 import * as Forensics from "../Forensics.ts"
@@ -101,7 +103,6 @@ const afterDecision = Presentation.runs({
   otherwise: [{ command: "runs list", description: "Check the run after the decision" }]
 })
 
-const dataArgs = (data: string | undefined) => data === undefined ? [] : ["--data", data]
 
 /** The notices and backend refusal every local verb applies before it reads. */
 const checks = (connection: Bridge.ConnectionOptions, runtime: Bridge.Runtime) =>
@@ -182,7 +183,7 @@ export const createFlowCli = (runtime: Bridge.Runtime = {}) =>
           c,
           () =>
             Bridge.isRemote(c.options, runtime)
-              ? Bridge.invoke(["ls"], c.options, runtime)
+              ? Bridge.query(Effect.andThen(checks(c.options, runtime), RunControl.listFlows), c.options, runtime)
               : Bridge.local(
                 Effect.gen(function*() {
                   return FlowCatalog.listing((yield* discovered(c.options, runtime)).items, yield* Project.ProjectRoot)
@@ -244,7 +245,7 @@ export const createFlowCli = (runtime: Bridge.Runtime = {}) =>
       options: options.extend({ data: z.string().optional().describe("JSON input object") }),
       run: (c) =>
         guard(c, () =>
-          Bridge.invoke(["plan", c.args.flow, ...c.args.input, ...dataArgs(c.options.data)], c.options, runtime), {
+          Bridge.query(Effect.andThen(checks(c.options, runtime), RunControl.plan(c.args.flow, c.args.input, Option.fromUndefinedOr(c.options.data))), c.options, runtime, { plansFlows: true }), {
           next: [
             {
               command: "approvals approve --help",
@@ -282,22 +283,18 @@ export const createFlowCli = (runtime: Bridge.Runtime = {}) =>
               throw new CliError.Refused({ fault: "user", code: "no_flows", message: `No flows found in ${root}` })
             }
           }
-          return Bridge.invoke(
-            [
-              "up",
-              c.args.flow,
-              ...dataArgs(c.options.data),
-              ...(c.options.wait ? ["--wait"] : []),
-              ...(c.options.detached ? ["--detached"] : []),
-              ...(c.options.budgetTokens === undefined ? [] : ["--budget-tokens", String(c.options.budgetTokens)]),
-              ...(c.options.budgetMs === undefined ? [] : ["--budget-ms", String(c.options.budgetMs)]),
-              ...(c.options.budgetUsd === undefined ? [] : ["--budget-usd", String(c.options.budgetUsd)]),
-              ...(c.options.onExceeded === undefined ? [] : ["--on-exceeded", c.options.onExceeded]),
-              ...(c.options.deadline === undefined ? [] : ["--deadline", c.options.deadline])
-            ],
-            c.options,
-            runtime
-          )
+          return Bridge.launch(Effect.andThen(checks(c.options, runtime), Launch.start({
+            ...c.options, flow: c.args.flow,
+            data: Option.fromUndefinedOr(c.options.data),
+            remote: Option.fromUndefinedOr(Bridge.configuration(c.options, runtime).remote),
+            root: Option.fromUndefinedOr(c.options.root),
+            mcpConfig: Option.fromUndefinedOr(c.options.mcpConfig),
+            budgetTokens: Option.fromUndefinedOr(c.options.budgetTokens),
+            budgetMs: Option.fromUndefinedOr(c.options.budgetMs),
+            budgetUsd: Option.fromUndefinedOr(c.options.budgetUsd),
+            onExceeded: Option.fromUndefinedOr(c.options.onExceeded),
+            deadline: Option.fromUndefinedOr(c.options.deadline)
+          })), c.options, runtime)
         })
     })
     .command("execute", {
@@ -307,7 +304,7 @@ export const createFlowCli = (runtime: Bridge.Runtime = {}) =>
       options,
       run: (c) =>
         guard(c, async () =>
-          Bridge.invoke(["run", await payload(c.args.approval)], c.options, runtime))
+          Bridge.launch(Effect.andThen(checks(c.options, runtime), Launch.execute(await payload(c.args.approval), c.options.quiet)), c.options, runtime))
     })
 
 /**
@@ -557,14 +554,14 @@ export const createRunsCli = (runtime: Bridge.Runtime = {}) =>
       args: runArgs.extend({ node: z.string().optional() }),
       options,
       run: (c) =>
-        guard(c, () => Bridge.invoke(["output", c.args.run, ...(c.args.node ? [c.args.node] : [])], c.options, runtime))
+        guard(c, () => Bridge.read(Effect.andThen(checks(c.options, runtime), RunControl.output(c.args.run, c.args.node)), c.options, runtime))
     })
     .command("cancel", {
       description: "Cancel one durable run",
       mcp: { annotations: { readOnlyHint: false } },
       args: runArgs,
       options,
-      run: (c) => guard(c, () => Bridge.invoke(["cancel", c.args.run], c.options, runtime))
+      run: (c) => guard(c, async () => Bridge.query(Effect.andThen(checks(c.options, runtime), RunControl.cancel(c.args.run)), c.options, { ...runtime, ...await prepareHistoryRun(c.args.run, c.options, runtime) }))
     })
     .command("cancel-all", {
       description: "Cancel every nonterminal run in this project",
@@ -589,7 +586,7 @@ export const createRunsCli = (runtime: Bridge.Runtime = {}) =>
       run: (c) => {
         const { allowCodeDrift, ...connection } = c.options
         return guard(c, async () =>
-          Bridge.invoke(["resume", c.args.run, ...(allowCodeDrift ? ["--allow-code-drift"] : [])], connection, {
+          Bridge.launch(Effect.andThen(checks(connection, runtime), Launch.resume(c.args.run, allowCodeDrift, connection.quiet)), connection, {
             ...runtime,
             ...await prepareHistoryRun(c.args.run, connection, runtime)
           }))
@@ -616,7 +613,7 @@ export const createRunsCli = (runtime: Bridge.Runtime = {}) =>
       mcp: { annotations: { readOnlyHint: false } },
       args: runArgs.extend({ payload: z.string() }),
       options,
-      run: (c) => guard(c, () => Bridge.invoke(["signal", c.args.run, c.args.payload], c.options, runtime))
+      run: (c) => guard(c, async () => Bridge.query(Effect.andThen(checks(c.options, runtime), RunControl.deliverSignal(c.args.run, c.args.payload)), c.options, { ...runtime, ...await prepareHistoryRun(c.args.run, c.options, runtime) }))
     })
     .command("steer", {
       description: "Send an attributed operator message",
@@ -624,7 +621,7 @@ export const createRunsCli = (runtime: Bridge.Runtime = {}) =>
       args: runArgs,
       options: options.extend({ message: z.string().min(1) }),
       run: (c) =>
-        guard(c, () => Bridge.invoke(["steer", c.args.run, "--message", c.options.message], c.options, runtime))
+        guard(c, async () => Bridge.query(Effect.andThen(checks(c.options, runtime), RunControl.steer(c.args.run, c.options.message)), c.options, { ...runtime, ...await prepareHistoryRun(c.args.run, c.options, runtime) }))
     })
 
 const isIncident = Schema.is(ControlFacts.GuardIncident)
@@ -684,10 +681,10 @@ const decideIncident = async (
   const wanted = decision === "continue" ? "approved" : "denied"
   if (row.status === "pending") {
     const approval = JSON.stringify(row.payload)
-    return Bridge.invoke(
-      decision === "continue" ? ["approve", approval, "--scope", row.payload.scope] : ["deny", approval],
+    return Bridge.launch(
+      Effect.andThen(checks(connection, runtime), decision === "continue" ? Launch.approve(approval, row.payload.scope, connection.quiet) : Launch.deny(approval, connection.quiet)),
       connection,
-      runtime
+      { ...runtime, ...await prepareHistoryRun(runId, connection, runtime) }
     )
   }
   if (row.status !== wanted) {
@@ -697,10 +694,27 @@ const decideIncident = async (
       message: `Run ${runId} was already ${row.status === "approved" ? "continued" : "stopped"} on ${row.requestId}.`
     })
   }
-  return Bridge.invoke(["resume", runId], connection, {
+  return Bridge.launch(Effect.andThen(checks(connection, runtime), Launch.resume(runId, false, connection.quiet)), connection, {
     ...runtime,
     ...await prepareHistoryRun(runId, connection, runtime)
   })
+}
+
+const decide = async (
+  decision: "approve" | "deny",
+  serialized: string,
+  scope: ControlSchema.ApprovalPayload["scope"] | undefined,
+  connection: Bridge.ConnectionOptions,
+  runtime: Bridge.Runtime
+) => {
+  const decoded = await Effect.runPromise(RunControl.approval(serialized))
+  const binding = decoded.target._tag === "Node"
+    ? await prepareHistoryRun(decoded.target.runId, connection, runtime)
+    : {}
+  const operation = decision === "approve"
+    ? Launch.approve(serialized, scope, connection.quiet)
+    : Launch.deny(serialized, connection.quiet)
+  return Bridge.launch(Effect.andThen(checks(connection, runtime), operation), connection, { ...runtime, ...binding })
 }
 
 const payload = async (value: string): Promise<string> => {
@@ -838,7 +852,7 @@ export const createApprovalsCli = (runtime: Bridge.Runtime = {}) =>
         guard(
           c,
           async () =>
-            Bridge.invoke(["approve", await payload(c.args.approval), "--scope", c.options.scope], c.options, runtime),
+            decide("approve", await payload(c.args.approval), c.options.scope, c.options, runtime),
           { next: afterDecision }
         )
     })
@@ -848,7 +862,7 @@ export const createApprovalsCli = (runtime: Bridge.Runtime = {}) =>
       args: z.object({ approval: z.string() }),
       options,
       run: (c) =>
-        guard(c, async () => Bridge.invoke(["deny", await payload(c.args.approval)], c.options, runtime), {
+        guard(c, async () => decide("deny", await payload(c.args.approval), undefined, c.options, runtime), {
           next: afterDecision
         })
     })

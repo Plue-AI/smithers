@@ -1,7 +1,7 @@
 /**
- * Retained Effect handlers and migration refusals for the unified CLI.
+ * Compatibility command shims and migration refusals for the unified CLI.
  *
- * Cli.ts owns the public command tree. Its control commands delegate here,
+ * Cli.ts owns the public command tree. Both trees delegate to shared Effects,
  * and Compatibility.ts retains old spellings with their output contracts.
  * Local init, suggest, memory, MCP registration, and gateway hosting belong
  * exclusively to the Incur tree.
@@ -9,23 +9,18 @@
  * @since 1.0.0
  */
 
-import * as Canonical from "@smthrs/canonical/Canonical"
-import { Control as ControlService, ControlSchema } from "@smthrs/control"
-import * as Sha256 from "@smthrs/crypto/Sha256"
+import { Control as ControlService } from "@smthrs/control"
 import * as MigrateCommand from "@smthrs/migrate/flow/Command"
-import { BudgetOnExceeded, deadlineMillis } from "@smthrs/registry/Descriptor"
-import { Clock, Console, Effect, Option, Schema, SchemaIssue, Stream } from "effect"
+import { BudgetOnExceeded } from "@smthrs/registry/Descriptor"
+import { Clock, Console, Effect, Option, Stream } from "effect"
 import { Argument, CliError as ParserError, Command, Flag, Prompt } from "effect/unstable/cli"
-import { randomUUID } from "node:crypto"
-import { readFile } from "node:fs/promises"
-import { resolve } from "node:path"
-import { text } from "node:stream/consumers"
 import * as CliError from "./CliError.ts"
+import * as Launch from "./commands/Launch.ts"
+import * as RunControl from "./commands/RunControl.ts"
 import * as BugCmd from "./commands/Bug.ts"
 import { cancelAll } from "./commands/CancelAll.ts"
 import * as ClaudeCmd from "./commands/Claude.ts"
 import * as DoctorCmd from "./commands/Doctor.ts"
-import * as FlowCatalog from "./commands/FlowCatalog.ts"
 import * as GcCmd from "./commands/Gc.ts"
 import * as Globals from "./commands/Globals.ts"
 import * as MigrateCmd from "./commands/Migrate.ts"
@@ -33,7 +28,6 @@ import * as Removed from "./commands/Removed.ts"
 import * as RunReads from "./commands/RunReads.ts"
 import * as Settlement from "./commands/Settlement.ts"
 import * as UpdateCmd from "./commands/Update.ts"
-import * as Detached from "./Detached.ts"
 import * as Doctor from "./Doctor.ts"
 import * as Environment from "./Environment.ts"
 import * as Forensics from "./Forensics.ts"
@@ -123,114 +117,12 @@ const inputPrompt = (name: string, pickFlow = false) =>
 const requiredArgument = (name: string, pickFlow = false) =>
   Argument.String(name).pipe(Argument.withFallbackPrompt(inputPrompt(name, pickFlow)))
 
-const selectedFlow = (value: string) =>
-  Effect.gen(function*() {
-    if (value !== "") return value
-    const ui = yield* Ui.prompting
-    const control = yield* ControlService.Control
-    const catalog = yield* flowCatalog(control)
-    const flows = catalog.items.filter((item) => !Unsupported.isReservedFlow(item.flowId))
-    if (flows.length === 0) {
-      return yield* Effect.fail(
-        new CliError.UsageError({ message: "No flows discovered; run smthrs init to create one" })
-      )
-    }
-    const selected = yield* ui.pickSuggestion(flows, {
-      message: "Choose a flow",
-      label: (flow) => flow.flowId,
-      hint: (flow) => flow.description
-    })
-    if (Option.isNone(selected)) return yield* Effect.interrupt
-    return selected.value.flowId
-  })
-
 const globalsOf = Effect.map(rootCommand, (root): Globals.Options => ({
   backend: Option.getOrUndefined(root.backend),
   environment: process.env
 }))
 
 const guardGlobals = Effect.flatMap(globalsOf, Globals.guard)
-
-const malformedJson = (label: string): CliError.UsageError =>
-  new CliError.UsageError({ message: `${label} must be valid JSON` })
-
-const formatSchemaIssue = SchemaIssue.makeFormatterDefault()
-
-const schemaMismatch = (label: string, issue: SchemaIssue.Issue): CliError.UsageError => {
-  // Approval payloads can carry capability material. Input reporting stays
-  // disabled at the decoder, and this bounded formatter keeps only the path
-  // and expectation an operator needs to repair one field.
-  const detail = formatSchemaIssue(issue).split("\n").slice(0, 4).join("\n").slice(0, 800)
-  return new CliError.UsageError({
-    message: `${label} must match the expected payload schema:\n${detail}`
-  })
-}
-
-const decodeJson = <A>(
-  label: string,
-  serialized: string,
-  decode: (value: unknown) => Effect.Effect<A, Schema.SchemaError>
-): Effect.Effect<A, CliError.UsageError> =>
-  Effect.try({
-    try: () => JSON.parse(serialized) as unknown,
-    catch: () => malformedJson(label)
-  }).pipe(
-    Effect.flatMap((decoded) =>
-      decode(decoded).pipe(
-        Effect.mapError((error) => schemaMismatch(label, error.issue))
-      )
-    )
-  )
-
-const decodeInput = (
-  entries: ReadonlyArray<string>,
-  raw: Option.Option<string>
-): Effect.Effect<unknown, CliError.UsageError> => {
-  const pairs = Object.fromEntries(entries.map((entry) => {
-    const separator = entry.indexOf("=")
-    return separator < 1 ? [entry, true] : [entry.slice(0, separator), entry.slice(separator + 1)]
-  }))
-  if (Option.isNone(raw)) return Effect.succeed(pairs)
-  const source = raw.value
-  const serialized = source === "-"
-    ? Effect.tryPromise({
-      try: () => text(process.stdin),
-      catch: () => new CliError.UsageError({ message: "Could not read --data from stdin" })
-    })
-    : source.startsWith("@")
-    ? Effect.tryPromise({
-      try: () => readFile(source.slice(1), "utf8"),
-      catch: () => new CliError.UsageError({ message: `Could not read --data file ${source.slice(1)}` })
-    })
-    : Effect.succeed(source)
-  return serialized.pipe(
-    Effect.flatMap((value) =>
-      Effect.try({
-        try: () => JSON.parse(value) as unknown,
-        catch: () => malformedJson("--data")
-      })
-    ),
-    Effect.map((decoded) =>
-      decoded !== null && typeof decoded === "object" && !Array.isArray(decoded)
-        ? { ...pairs, ...(decoded as Record<string, unknown>) }
-        : { ...pairs, data: decoded }
-    )
-  )
-}
-
-const approval = (serialized: string): Effect.Effect<ControlService.ApprovalInput, CliError.UsageError> =>
-  decodeJson(
-    "approval",
-    serialized,
-    Schema.decodeUnknownEffect(ControlSchema.ApprovalPayload, { reportInput: false })
-  )
-
-const signal = (serialized: string): Effect.Effect<ControlSchema.SignalPayload, CliError.UsageError> =>
-  decodeJson(
-    "signal-json",
-    serialized,
-    Schema.decodeUnknownEffect(ControlSchema.SignalPayload, { reportInput: false })
-  )
 
 const render = (value: unknown) =>
   Effect.gen(function*() {
@@ -251,13 +143,6 @@ const renderJson = (value: unknown) =>
 /** Whether this invocation suppresses progress on stderr. */
 const quiet = Effect.map(rootCommand, (globals) => globals.silent || globals.quiet)
 
-/** Waits for a run this process's executor owns; see `Settlement.awaitOwnedRun`. */
-const awaitOwnedRun = (
-  control: ControlService.Service,
-  receipt: ControlSchema.Receipt,
-  afterSequence: number | undefined
-) => Effect.flatMap(quiet, (suppressed) => Settlement.awaitOwnedRun(control, receipt, afterSequence, suppressed))
-
 /**
  * Finds the greatest sequence in a stream without retaining its history.
  *
@@ -270,20 +155,6 @@ const awaitOwnedRun = (
  */
 export const latestSequence = Settlement.latestSequence
 
-/**
- * Renders what the control plane knows about a declined launch, and returns
- * the refusal the verb exits with.
- */
-const declinedLaunch = (control: ControlService.Service, runId: string) =>
-  Effect.gen(function*() {
-    const summary = yield* RunReads.summary(control, runId)
-    if (summary !== undefined) yield* render(summary)
-    return Settlement.declined(runId, summary)
-  })
-
-const renderReceipt = (receipt: ControlSchema.Receipt, settlement: Settlement.Settlement | undefined) =>
-  render(Settlement.receiptDocument(receipt, settlement))
-
 // == the shipped-command contract verbs
 
 const plan = Command.make(
@@ -292,13 +163,7 @@ const plan = Command.make(
   (config) =>
     Effect.gen(function*() {
       yield* guardGlobals
-      const decodedInput = yield* decodeInput(config.input, config.data)
-      const flowId = yield* selectedFlow(config.flowId)
-      if (Unsupported.isReservedFlow(flowId)) {
-        return yield* Effect.fail(Unsupported.reservedFlowError("flow plan", flowId))
-      }
-      const control = yield* ControlService.Control
-      yield* render(yield* control.plan({ flowId, input: decodedInput }))
+      yield* render(yield* RunControl.plan(config.flowId, config.input, config.data))
     })
 ).pipe(Command.withDescription(Verb.find("plan")!.help))
 
@@ -307,73 +172,7 @@ const allowCodeDriftFlag = Flag.Boolean("allow-code-drift").pipe(
   Flag.withDescription("Resume even though the run's flow changed since it started")
 )
 
-const runResume = (planOrRunId: string, allowCodeDrift: boolean) =>
-  Effect.gen(function*() {
-    const control = yield* ControlService.Control
-    const parkSequence = yield* Settlement.latestResumablePark(control, planOrRunId)
-    const key = parkSequence === undefined ? `cli:resume:${planOrRunId}` : `cli:resume:${planOrRunId}:${parkSequence}`
-    const receipt = yield* control.resume({
-      runId: planOrRunId,
-      // A refused resume records no receipt, so the retry with the override
-      // takes a key of its own rather than colliding with the refused one.
-      idempotencyKey: allowCodeDrift ? `${key}:allow-code-drift` : key,
-      ...(allowCodeDrift ? { allowCodeDrift } : {})
-    })
-    // The live host that parked the run drives it. This process waits only
-    // for that host to take the resume up, then reports the run's status.
-    if (receipt._tag === "Accepted" && receipt.handedTo !== undefined) {
-      const run = yield* Settlement.awaitHandOff(control, planOrRunId, receipt.handedTo, parkSequence)
-      return yield* render({
-        ...receipt,
-        status: run.status,
-        ...(run.waitingReason === undefined ? {} : { waitingReason: run.waitingReason })
-      })
-    }
-    const settlement = yield* awaitOwnedRun(control, receipt, parkSequence)
-    if (Settlement.wasDeclined(settlement) && receipt._tag === "Accepted" && receipt.runId !== undefined) {
-      return yield* Effect.fail(yield* declinedLaunch(control, receipt.runId))
-    }
-    yield* renderReceipt(receipt, settlement)
-    return yield* Settlement.report(settlement)
-  })
-
-/**
- * Announces a detached run's admission to its own log, as soon as the run row
- * is durable. The launcher in the parent process waits for exactly this line.
- */
-const announceAdmission = (receipt: ControlSchema.Receipt) =>
-  Effect.sync(() => {
-    const nonce = process.env[Detached.admissionVariable]
-    if (nonce === undefined || nonce === "") return
-    if (receipt._tag !== "Accepted" || receipt.runId === undefined) return
-    process.stderr.write(`${Detached.admissionLine(nonce, receipt.runId)}\n`)
-  })
-
-const runLaunch = (payload: ControlService.ApprovalInput, wait = false) =>
-  Effect.gen(function*() {
-    const target = payload.target
-    if (target._tag !== "Plan") {
-      return yield* Effect.fail(new CliError.UsageError({ message: "run requires a plan approval payload" }))
-    }
-    const control = yield* ControlService.Control
-    const receipt = yield* control.run({
-      _tag: "Plan",
-      planId: target.planId,
-      digest: target.digest,
-      envelope: target.envelope,
-      idempotencyKey: payload.idempotencyKey
-    })
-    yield* announceAdmission(receipt)
-    const owned = yield* awaitOwnedRun(control, receipt, undefined)
-    const settlement = wait && owned === undefined && receipt._tag === "Accepted" && receipt.runId !== undefined
-      ? yield* Settlement.awaitRun(control, receipt.runId, undefined, yield* quiet)
-      : owned
-    if (Settlement.wasDeclined(settlement) && receipt._tag === "Accepted" && receipt.runId !== undefined) {
-      return yield* Effect.fail(yield* declinedLaunch(control, receipt.runId))
-    }
-    yield* renderReceipt(receipt, settlement)
-    yield* Settlement.report(settlement)
-  })
+const runResume = (id: string, drift: boolean) => Effect.flatMap(quiet, suppressed => Effect.flatMap(Launch.resume(id, drift, suppressed), render))
 
 const run = Command.make("run", {
   plan: requiredArgument("plan-payload"),
@@ -386,7 +185,7 @@ const run = Command.make("run", {
   Effect.gen(function*() {
     yield* guardGlobals
     if (config.resume) return yield* runResume(config.plan, config.allowCodeDrift)
-    yield* runLaunch(yield* approval(config.plan))
+    yield* render(yield* Launch.execute(config.plan, yield* quiet))
   })).pipe(Command.withDescription(Verb.find("run")!.help))
 
 const resume = Command.make("resume", {
@@ -445,49 +244,6 @@ const upFlags = {
   )
 }
 
-/** The budget fields `up` lays over the flow's declared ones, or none. */
-const plannedBudget = (config: {
-  readonly budgetTokens: Option.Option<number>
-  readonly budgetMs: Option.Option<number>
-  readonly budgetUsd: Option.Option<number>
-  readonly onExceeded: Option.Option<BudgetOnExceeded>
-  readonly deadline: Option.Option<string>
-}): Effect.Effect<ControlSchema.Envelope["budget"] | undefined, CliError.UsageError> =>
-  Effect.gen(function*() {
-    const ceiling = (flag: string, value: Option.Option<number>) =>
-      Option.isSome(value) && !(Number.isSafeInteger(value.value) && value.value > 0)
-        ? Effect.fail(new CliError.UsageError({ message: `--${flag} must be a positive integer` }))
-        : Effect.succeed(Option.getOrUndefined(value))
-    const tokens = yield* ceiling("budget-tokens", config.budgetTokens)
-    const milliseconds = yield* ceiling("budget-ms", config.budgetMs)
-    const usd = Option.getOrUndefined(config.budgetUsd)
-    if (usd !== undefined && !(Number.isFinite(usd) && usd > 0)) {
-      return yield* Effect.fail(new CliError.UsageError({ message: "--budget-usd must be a positive dollar amount" }))
-    }
-    const onExceeded = Option.getOrUndefined(config.onExceeded)
-    const deadline = Option.isNone(config.deadline) ? undefined : deadlineMillis(config.deadline.value)
-    if (Option.isSome(config.deadline) && deadline === undefined) {
-      return yield* Effect.fail(
-        new CliError.UsageError({
-          message: "--deadline must be a positive duration such as 30 minutes, or whole milliseconds"
-        })
-      )
-    }
-    if (
-      tokens === undefined && milliseconds === undefined && usd === undefined && onExceeded === undefined &&
-      deadline === undefined
-    ) {
-      return undefined
-    }
-    return {
-      ...(tokens === undefined ? {} : { tokens }),
-      ...(milliseconds === undefined ? {} : { milliseconds }),
-      ...(usd === undefined ? {} : { usd }),
-      ...(onExceeded === undefined ? {} : { onExceeded }),
-      ...(deadline === undefined ? {} : { deadline })
-    }
-  })
-
 const up = Command.make("up", upFlags, (config) =>
   Effect.gen(function*() {
     yield* guardGlobals
@@ -507,88 +263,7 @@ const up = Command.make("up", upFlags, (config) =>
       "max-concurrency": config["max-concurrency"]
     })
     const globals = yield* rootCommand
-    const remote = Option.getOrUndefined(globals.remote) ?? Environment.read(process.env, "SMITHERS_REMOTE")
-    if (config.detached && remote !== undefined) {
-      return yield* Effect.fail(
-        new CliError.UnsupportedError({
-          message: "flow start -d spawns a local executor; run `smthrs flow start` attached against --remote"
-        })
-      )
-    }
-    if (config.detached && config.wait) {
-      return yield* Effect.fail(new CliError.UsageError({ message: "--wait and --detached cannot be combined" }))
-    }
-    const flowId = yield* selectedFlow(config.flow)
-    if (Unsupported.isReservedFlow(flowId)) {
-      return yield* Effect.fail(Unsupported.reservedFlowError("flow start", flowId))
-    }
-    const decodedInput = yield* decodeInput([], config.data)
-    const budget = yield* plannedBudget(config)
-    const control = yield* ControlService.Control
-    const card = yield* control.plan({ flowId, input: decodedInput, ...(budget === undefined ? {} : { budget }) })
-    // The bare `*` envelope grants every capability, and markdown discovery
-    // substitutes it for a flow that declares none, so `up` never approves it
-    // unseen. The operator reviews the card with `plan` and signs it with
-    // `approve`.
-    if (card.envelope.capabilities.includes("*")) {
-      return yield* Effect.fail(
-        new CliError.UsageError({
-          message: `flow start will not approve ${flowId}: its envelope grants every capability ("*"). `
-            + (card.warnings === undefined ? "" : `${card.warnings.map((warning) => warning.message).join("; ")}. `)
-            + `Declare capabilities in the flow, or review it with \`smthrs flow plan ${flowId}\` and approve it with \`smthrs approvals approve\``
-        })
-      )
-    }
-    // Scope `run`: the approval authorizes this launch and its whole run, not
-    // every future launch of the flow.
-    yield* control.approve({ ...card.approval, scope: "run" })
-    if (!config.detached) return yield* runLaunch({ ...card.approval, scope: "run" }, config.wait)
-
-    const projectRoot = yield* Project.ProjectRoot
-    const timeoutMs = Environment.readInteger(process.env, "SMITHERS_DETACHED_ADMISSION_TIMEOUT_MS")
-    const passthrough = [
-      // The child runs with the project root as its cwd. An absolute MCP path
-      // preserves the file the parent parsed when the flag was relative.
-      ...(Option.isNone(globals.mcpConfig)
-        ? []
-        : ["--mcp-config", resolve(process.cwd(), globals.mcpConfig.value)]),
-      ...(Option.isNone(globals.root) ? [] : ["--root", projectRoot])
-    ]
-    // Each `up` plans afresh, so the plan id is this launch's alone. An id the
-    // child's log announces is trusted only when this process's own control
-    // store holds that run under this plan: the log is shared with every tool
-    // the run spawns, and they inherit the admission nonce.
-    const planId = card.approval.target._tag === "Plan" ? card.approval.target.planId : undefined
-    const admission = (runId: string) =>
-      Effect.runPromise(
-        RunReads.summary(control, runId).pipe(
-          Effect.map((summary) => planId !== undefined && summary !== undefined && summary.planId === planId)
-        )
-      )
-    const launched = yield* Effect.callback<Detached.Launched | Detached.Rejected>((resume, signal) => {
-      const pending = Detached.launch({
-        root: projectRoot,
-        payload: JSON.stringify({ ...card.approval, scope: "run" }),
-        passthrough,
-        signal,
-        admission,
-        ...(timeoutMs === undefined ? {} : { timeoutMs })
-      })
-      pending.then((result) => resume(Effect.succeed(result)), (error) => resume(Effect.die(error)))
-      // Interruption aborts the signal first. Wait for termination and reaping
-      // before the CLI scope can close and the process can exit.
-      return Effect.promise(() => pending.then(() => undefined, () => undefined))
-    })
-    if (!Detached.isLaunched(launched)) {
-      return yield* Effect.fail(
-        new CliError.UnsupportedError({
-          message: `${launched.reason}\nLog: ${launched.logFile}${launched.tail === "" ? "" : `\n${launched.tail}`}`
-        })
-      )
-    }
-    // The receipt's own field, never an operator-supplied id: rc.0 has no
-    // `--run-id`, and a caller reads the run id from here.
-    yield* render({ runId: launched.runId, logFile: launched.logFile, detached: true })
+    yield* render(yield* Launch.start({ ...config, quiet: yield* quiet, remote: Option.fromUndefinedOr(Option.getOrUndefined(globals.remote) ?? Environment.read(process.env, "SMITHERS_REMOTE")), root: globals.root, mcpConfig: globals.mcpConfig }))
   })).pipe(Command.withDescription(Verb.find("up")!.help))
 
 const approve = Command.make("approve", {
@@ -604,36 +279,19 @@ const approve = Command.make("approve", {
 }, (config) =>
   Effect.gen(function*() {
     yield* guardGlobals
-    const payload = yield* approval(config.approval)
-    const control = yield* ControlService.Control
-    const parkSequence = yield* Settlement.decisionPark(control, payload.target)
-    const receipt = yield* control.approve({ ...payload, scope: config.scope })
-    // A decision restarts the run it answers, in this call, on this process's
-    // own executor. The decision therefore ends with
-    // a settled run, and the shell that ran `smthrs approve` is entitled to
-    // read that run's status from `$?` exactly as `up` and `run` promise it.
-    const settlement = yield* awaitOwnedRun(control, receipt, parkSequence)
-    yield* renderReceipt(receipt, settlement)
-    yield* Settlement.report(settlement)
+    yield* render(yield* Launch.approve(config.approval, config.scope, yield* quiet))
   })).pipe(Command.withDescription(Verb.find("approve")!.help))
 
 const deny = Command.make("deny", { approval: requiredArgument("approval") }, (config) =>
   Effect.gen(function*() {
     yield* guardGlobals
-    const payload = yield* approval(config.approval)
-    const control = yield* ControlService.Control
-    const parkSequence = yield* Settlement.decisionPark(control, payload.target)
-    const receipt = yield* control.deny(payload)
-    const settlement = yield* awaitOwnedRun(control, receipt, parkSequence)
-    yield* renderReceipt(receipt, settlement)
-    yield* Settlement.report(settlement)
+    yield* render(yield* Launch.deny(config.approval, yield* quiet))
   })).pipe(Command.withDescription(Verb.find("deny")!.help))
 
 const cancel = Command.make("cancel", { runId: requiredArgument("run-id") }, (config) =>
   Effect.gen(function*() {
     yield* guardGlobals
-    const control = yield* ControlService.Control
-    yield* render(yield* control.cancel({ runId: config.runId, idempotencyKey: `cli:cancel:${config.runId}` }))
+    yield* render(yield* RunControl.cancel(config.runId))
   })).pipe(Command.withDescription(Verb.find("cancel")!.help))
 
 /**
@@ -647,11 +305,7 @@ const cancel = Command.make("cancel", { runId: requiredArgument("run-id") }, (co
  * @category constructors
  * @since 1.0.0
  */
-export const signalKey = (runId: string, payload: ControlSchema.SignalPayload): string => {
-  const encoded = Schema.encodeSync(ControlSchema.SignalPayload)(payload)
-  const canonical = Schema.decodeUnknownSync(Canonical.Canonical)(encoded)
-  return `cli:signal:${runId}:${Sha256.digestSync(canonical)}`
-}
+export const signalKey = RunControl.signalKey
 
 const signalCommand = Command.make("signal", {
   runId: requiredArgument("run-id"),
@@ -659,15 +313,7 @@ const signalCommand = Command.make("signal", {
 }, (config) =>
   Effect.gen(function*() {
     yield* guardGlobals
-    const payload = yield* signal(config.payload)
-    const control = yield* ControlService.Control
-    yield* render(
-      yield* control.signal({
-        runId: config.runId,
-        signal: payload,
-        idempotencyKey: signalKey(config.runId, payload)
-      })
-    )
+    yield* render(yield* RunControl.deliverSignal(config.runId, config.payload))
   })).pipe(Command.withDescription(Verb.find("signal")!.help))
 
 const steer = Command.make("steer", {
@@ -681,47 +327,14 @@ const steer = Command.make("steer", {
   Effect.gen(function*() {
     yield* guardGlobals
     yield* Removed.refuse("steer", { takeover: config.takeover })
-    const control = yield* ControlService.Control
-    const stamp = Date.now()
-    const messageId = `cli:steer:${config.runId}:${randomUUID()}`
-    yield* render(
-      yield* control.steer({
-        runId: config.runId,
-        message: {
-          kind: "Message",
-          messageId,
-          runId: config.runId,
-          principal: { kind: "operator", id: "cli", stampedAt: stamp },
-          createdAt: stamp,
-          body: config.message
-        },
-        idempotencyKey: messageId
-      })
-    )
+    yield* render(yield* RunControl.steer(config.runId, config.message))
   })).pipe(Command.withDescription(Verb.find("steer")!.help))
-
-const flowCatalog = FlowCatalog.read
 
 const listFlows = Effect.gen(function*() {
   yield* guardGlobals
-  const control = yield* ControlService.Control
-  const catalog = yield* flowCatalog(control)
-  // The reserved catalog is the control plane's projection surface, not this
-  // project's flows. Listing it invited `up system/release`, which planned,
-  // launched, and then sat at `accepted` with nothing to run. Discovery
-  // warnings belong to `doctor`, so the stable `ls` document remains a plain
-  // flow page even though both commands read the same paged catalog.
-  // The featured set and the one-line summaries come from the project's
-  // generated .smithers/factory.json when it is checked in; a project without
-  // one lists exactly the discovered page. A person at a terminal reads one line
-  // per flow with the featured rows starred; `--json` keeps the document.
-  const { items, apps } = FlowCatalog.listing(catalog.items, yield* Project.ProjectRoot)
+  const document = yield* RunControl.listFlows
   const root = yield* rootCommand
-  yield* render(
-    root.json
-      ? { _tag: "flows", items, ...(apps === undefined ? {} : { apps }) }
-      : FeaturedFlows.human(items, apps).replace(/\n$/, "")
-  )
+  yield* render(root.json ? document : FeaturedFlows.human(document.items, document.apps).replace(/\n$/, ""))
 })
 
 const ls = Command.make("ls", {}, () => listFlows).pipe(Command.withDescription(Verb.find("ls")!.help))
@@ -902,20 +515,9 @@ const output = Command.make("output", {
 }, (config) =>
   Effect.gen(function*() {
     yield* guardGlobals
-    const control = yield* ControlService.Control
-    yield* RunReads.existing(control, config.runId)
-    const collected = yield* RunReads.events(control, config.runId)
-    const nodes = NodeOutput.project(collected)
-    const requested = Option.getOrUndefined(config.nodeId)
-    if (requested === undefined) return yield* render(renderValue(nodes))
-    const node = nodes.find((candidate) => candidate.nodeId === requested)
-    if (node === undefined) {
-      return yield* Effect.fail(
-        new CliError.UsageError({ message: NodeOutput.notFound(config.runId, requested, nodes) })
-      )
-    }
+    const document = yield* RunControl.output(config.runId, Option.getOrUndefined(config.nodeId))
     const root = yield* rootCommand
-    yield* render(renderValue(root.json ? node : NodeOutput.render(node)))
+    yield* render(renderValue(root.json || !("nodeId" in document) ? document : NodeOutput.render(document)))
   })).pipe(Command.withDescription(Verb.find("output")!.help))
 
 const down = Command.make("down", {}, () =>

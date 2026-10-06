@@ -1,7 +1,7 @@
 import * as Audience from "@smthrs/build-cli/Audience"
 import { Control, ControlSchema } from "@smthrs/control"
 import * as NodeDatabase from "@smthrs/database/node/NodeDatabase"
-import { Effect, Stream } from "effect"
+import { Effect, Option, Stream } from "effect"
 import { mkdtemp, rm, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
@@ -13,6 +13,17 @@ import * as Presentation from "../src/cli/Presentation.ts"
 
 const ports = vi.hoisted(() => ({
   invoke: vi.fn(),
+  launch: vi.fn(),
+  start: vi.fn(),
+  execute: vi.fn(),
+  resume: vi.fn(),
+  approve: vi.fn(),
+  deny: vi.fn(),
+  plan: vi.fn(),
+  output: vi.fn(),
+  deliverSignal: vi.fn(),
+  steer: vi.fn(),
+  listFlows: vi.fn(),
   query: vi.fn(),
   read: vi.fn(),
   local: vi.fn(),
@@ -31,11 +42,22 @@ const ports = vi.hoisted(() => ({
 vi.mock("../src/cli/ControlBridge.ts", async (load) => ({
   ...await load<typeof import("../src/cli/ControlBridge.ts")>(),
   invoke: ports.invoke,
+  launch: ports.launch,
   query: ports.query,
   read: ports.read,
   local: ports.local,
   events: ports.events,
   hasRecords: ports.hasRecords
+}))
+// Routing doubles return Effects; handler behavior is covered independently by CommandHandlers.
+vi.mock("../src/commands/Launch.ts", async (load) => ({
+ ...await load<typeof import("../src/commands/Launch.ts")>(),
+ start: ports.start, execute: ports.execute, resume: ports.resume, approve: ports.approve, deny: ports.deny
+}))
+vi.mock("../src/commands/RunControl.ts", async (load) => ({
+ ...await load<typeof import("../src/commands/RunControl.ts")>(),
+ plan: ports.plan, output: ports.output, deliverSignal: ports.deliverSignal, steer: ports.steer,
+ get listFlows() { return ports.listFlows() }
 }))
 vi.mock("../src/history/History.ts", async (load) => ({
   ...await load<typeof import("../src/history/History.ts")>(),
@@ -52,13 +74,51 @@ vi.mock("../src/Project.ts", async (load) => ({
   localRoot: ports.localRoot
 }))
 
+const dispatched = (argv: ReadonlyArray<string>) => {
+ const [verb, value, ...rest] = argv
+ switch (verb) {
+ case "ls": expect(ports.listFlows).toHaveBeenCalledOnce(); break
+ case "plan": {
+  const dataAt = rest.indexOf("--data")
+  expect(ports.plan).toHaveBeenCalledExactlyOnceWith(value, dataAt < 0 ? rest : rest.slice(0, dataAt), Option.fromUndefinedOr(dataAt < 0 ? undefined : rest[dataAt + 1]))
+  expect(ports.query.mock.calls[0]![3]).toEqual({ plansFlows: true })
+  break
+ }
+ case "up": {
+  const flag = (key: string) => { const i = rest.indexOf(key); return i < 0 ? undefined : rest[i + 1] }
+  expect(ports.start).toHaveBeenCalledExactlyOnceWith(expect.objectContaining({
+   flow: value, wait: rest.includes("--wait"), detached: rest.includes("--detached"),
+   data: Option.fromUndefinedOr(flag("--data")),
+   budgetTokens: Option.fromUndefinedOr(flag("--budget-tokens") === undefined ? undefined : Number(flag("--budget-tokens"))),
+   budgetMs: Option.fromUndefinedOr(flag("--budget-ms") === undefined ? undefined : Number(flag("--budget-ms"))),
+   budgetUsd: Option.fromUndefinedOr(flag("--budget-usd") === undefined ? undefined : Number(flag("--budget-usd"))),
+   onExceeded: Option.fromUndefinedOr(flag("--on-exceeded")), deadline: Option.fromUndefinedOr(flag("--deadline"))
+  }))
+  break
+ }
+ case "run": expect(ports.execute).toHaveBeenCalledExactlyOnceWith(value, false); break
+ case "resume": expect(ports.resume).toHaveBeenCalledExactlyOnceWith(value, rest.includes("--allow-code-drift"), false); break
+ case "approve": expect(ports.approve).toHaveBeenCalledExactlyOnceWith(value, rest[1], false); break
+ case "deny": expect(ports.deny).toHaveBeenCalledExactlyOnceWith(value, false); break
+ case "output": expect(ports.output).toHaveBeenCalledExactlyOnceWith(value, rest[0]); break
+ case "signal": expect(ports.deliverSignal).toHaveBeenCalledExactlyOnceWith(value, rest[0]); break
+ case "steer": expect(ports.steer).toHaveBeenCalledExactlyOnceWith(value, rest[1]); break
+ case "cancel": break // the real cancel Effect is asserted through its service below
+ default: throw new Error(`Missing dispatch assertion: ${verb}`)
+ }
+ expect(ports.invoke).not.toHaveBeenCalled()
+ return ["up", "run", "resume", "approve", "deny"].includes(verb!) ? ports.launch : verb === "output" ? ports.read : ports.query
+}
+
 const directories: Array<string> = []
 afterEach(async () => {
   await Promise.all(directories.splice(0).map((directory) => rm(directory, { recursive: true, force: true })))
 })
 beforeEach(() => {
   for (const port of Object.values(ports)) port.mockReset()
-  ports.invoke.mockImplementation(async (args: Array<string>) => ({ receipt: args.join(" ") }))
+  for (const name of ["start", "execute", "resume", "approve", "deny", "plan", "output", "deliverSignal", "steer", "listFlows"] as const) {
+    ports[name].mockImplementation(() => Effect.succeed({ handler: name }))
+  }
   const control = (effect: Effect.Effect<unknown, unknown, Control.Control>) =>
     Effect.runPromise(
       Effect.gen(function*() {
@@ -72,6 +132,7 @@ beforeEach(() => {
       }).pipe(Effect.provide(Control.layerNoop))
     )
 
+  ports.launch.mockImplementation(control)
   ports.query.mockImplementation(control)
   ports.read.mockImplementation(control)
   ports.list.mockReturnValue(Effect.succeed({ _tag: "runs", items: [] }))
@@ -142,7 +203,7 @@ const event = (
   occurredAt: sequence,
   payload: payload as ControlSchema.ControlEvent["payload"]
 })
-const approval = { idempotencyKey: "approval:one", target: { _tag: "Run", runId: "run-1", sequence: 3 } }
+const approval = { scope: "run", idempotencyKey: "approval:one", target: { _tag: "Node", runId: "run-1", requestId: "request-3", digest: "digest", envelope: { capabilities: [], flows: [], budget: {} } } }
 const approvalEvents = [
   event(2, "control.approval.requested", { question: "Ship this change?", payload: approval }),
   event(3, "control.run.waiting-approval", { runId: "run-1", status: "waiting-approval" })
@@ -220,14 +281,15 @@ describe("unified control dispatch", () => {
       "https://control.invalid",
       "--json"
     ])
-    expect(ports.invoke).toHaveBeenCalledExactlyOnceWith(
-      expected,
+    expect(dispatched(expected)).toHaveBeenCalledExactlyOnceWith(
+      expect.anything(),
       expect.objectContaining({
         root: "/fixture",
         remote: "https://control.invalid",
         quiet: false
       }),
-      result.config
+      result.config,
+      ...(expected[0] === "plan" ? [{ plansFlows: true }] : [])
     )
     expect(result.codes).toEqual([])
     expect(result.stdout + result.stderr).not.toContain("private-fixture")
@@ -246,11 +308,7 @@ describe("unified control dispatch", () => {
       ...(command === "approve" ? ["--scope", "run"] : []),
       "--json"
     ])
-    expect(ports.invoke.mock.calls[0]![0]).toEqual(
-      command === "approve"
-        ? ["approve", contents, "--scope", "run"]
-        : [command === "execute" ? "run" : "deny", contents]
-    )
+    dispatched(command === "approve" ? ["approve", contents, "--scope", "run"] : [command === "execute" ? "run" : "deny", contents])
   })
 
   it("does not dispatch a payload file that cannot be read", async () => {
@@ -746,7 +804,7 @@ describe("unified control dispatch", () => {
       executionRoot: "/stale-child"
     })
     expect(ports.prepare).toHaveBeenCalledExactlyOnceWith("/fixture", "child")
-    expect(ports.invoke).toHaveBeenCalledExactlyOnceWith(["resume", "child"], {
+    expect(dispatched(["resume", "child"])).toHaveBeenCalledExactlyOnceWith(expect.anything(), {
       root: "/fixture",
       quiet: false,
       verbose: false
@@ -758,8 +816,8 @@ describe("unified control dispatch", () => {
 
   it("forwards --allow-code-drift to the resume handler and not to the connection", async () => {
     const result = await invoke(["runs", "resume", "child", "--allow-code-drift", "--root", "/fixture", "--json"])
-    expect(ports.invoke).toHaveBeenCalledExactlyOnceWith(
-      ["resume", "child", "--allow-code-drift"],
+    expect(dispatched(["resume", "child", "--allow-code-drift"])).toHaveBeenCalledExactlyOnceWith(
+      expect.anything(),
       { root: "/fixture", quiet: false, verbose: false },
       { ...result.config, executionRoot: "/isolated-child" }
     )
@@ -769,7 +827,7 @@ describe("unified control dispatch", () => {
     const args = source === "flag" ? ["--remote", "https://control.invalid"] : []
     const environment = source === "environment" ? { SMITHERS_REMOTE: "https://control.invalid" } : {}
     const result = await invoke(["runs", "resume", "run-1", ...args, "--json"], { environment })
-    expect(ports.invoke.mock.calls[0]![2]).toEqual(result.config)
+    expect(ports.launch.mock.calls[0]![2]).toEqual(result.config)
     await invoke(["runs", "list", ...args, "--json"], { environment })
     expect(ports.prepare).not.toHaveBeenCalled()
     expect(ports.reconcile).not.toHaveBeenCalled()
@@ -860,8 +918,8 @@ describe("unified control dispatch", () => {
       const result = await invoke(["runs", verb, "run-1", "--json"])
       expect(result.codes).toEqual([])
       expect(ports.watch).toHaveBeenCalledExactlyOnceWith({ runId: "run-1", follow: false })
-      expect(ports.invoke).toHaveBeenCalledExactlyOnceWith(argv, { quiet: false, verbose: false }, result.config)
-      expect(ports.prepare).not.toHaveBeenCalled()
+      expect(dispatched(argv)).toHaveBeenCalledExactlyOnceWith(expect.anything(), { quiet: false, verbose: false }, { ...result.config, executionRoot: "/isolated-child" })
+      expect(ports.prepare).toHaveBeenCalledOnce()
     })
 
     it("answers the latest incident when the run parked again after a Continue", async () => {
@@ -871,8 +929,8 @@ describe("unified control dispatch", () => {
         parked(5, "timeout/run-1/cell", { classification: "Stuck", source: "cell", message: "slow", max: 1000 })
       ]))
       await invoke(["runs", "stop", "run-1", "--json"])
-      expect(ports.invoke).toHaveBeenCalledExactlyOnceWith(
-        ["deny", JSON.stringify(guardPayload("timeout/run-1/cell"))],
+      expect(dispatched(["deny", JSON.stringify(guardPayload("timeout/run-1/cell"))])).toHaveBeenCalledExactlyOnceWith(
+        expect.anything(),
         { quiet: false, verbose: false },
         expect.anything()
       )
@@ -888,7 +946,7 @@ describe("unified control dispatch", () => {
         const result = await invoke(["runs", verb, "run-1", "--root", "/fixture", "--json"])
         expect(result.codes).toEqual([])
         expect(ports.prepare).toHaveBeenCalledExactlyOnceWith("/fixture", "run-1")
-        expect(ports.invoke).toHaveBeenCalledExactlyOnceWith(["resume", "run-1"], {
+        expect(dispatched(["resume", "run-1"])).toHaveBeenCalledExactlyOnceWith(expect.anything(), {
           root: "/fixture",
           quiet: false,
           verbose: false
@@ -1044,7 +1102,7 @@ describe("runs wait status exits", () => {
   })
 
   it("waits for a remotely launched flow", async () => {
-    ports.invoke.mockResolvedValue({ _tag: "Accepted", runId: "run-1" })
+    ports.launch.mockResolvedValue({ _tag: "Accepted", runId: "run-1" })
     ports.list.mockReturnValue(Effect.succeed({ _tag: "runs", items: [row("run-1", "completed")] }))
     const result = await invoke([
       "flow",
@@ -1056,7 +1114,7 @@ describe("runs wait status exits", () => {
       "--json"
     ])
     expect(result.codes).toEqual([])
-    expect(ports.invoke.mock.calls[0]![0]).toEqual(["up", "demo/ship", "--wait"])
+    dispatched(["up", "demo/ship", "--wait"])
   })
 })
 

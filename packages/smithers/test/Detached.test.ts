@@ -450,7 +450,7 @@ describe("launching", () => {
     })
 
     const launched = result as Detached.Launched
-    expect(readFileSync(launched.logFile, "utf8")).toContain("run {\"plan\":1} --remote https://control.test")
+    expect(readFileSync(launched.logFile, "utf8")).toContain("flow execute {\"plan\":1} --remote https://control.test")
   }, 30_000)
 
   it("supersedes a previous run's log instead of destroying it when the run id collides", async () => {
