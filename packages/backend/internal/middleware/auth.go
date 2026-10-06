@@ -414,6 +414,7 @@ var installMemberRoutes = []struct {
 	{http.MethodPost, "agent.turn", regexp.MustCompile(`^/api/agent/conversations/replay$`)},
 	// The issue list card and the issue card (J2 1 and 2).
 	{http.MethodGet, "issue.read", regexp.MustCompile(`^/api/issues$`)},
+	{http.MethodPost, "review", regexp.MustCompile(`^/api/reviews$`)},
 	{http.MethodGet, "issue.read", regexp.MustCompile(`^/api/issues/[0-9]+$`)},
 	{http.MethodGet, "todo.read", regexp.MustCompile(`^/api/todos$`)},
 	{http.MethodGet, "todo.read", regexp.MustCompile(`^/api/todos/[0-9]+(/events|/attempts/[0-9]+/logs/[0-9a-f]{64})?$`)},

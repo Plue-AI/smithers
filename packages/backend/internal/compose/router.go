@@ -976,6 +976,9 @@ func buildRouter(
 			issues := &routes.InstallIssuesHandler{Queries: queries, Service: issueService}
 			r.Get("/issues", issues.List)
 			r.Get("/issues/{n}", issues.Get)
+			reviewService, _ := extras.Mythical.Service.(routes.InstallReviewRouteService)
+			reviews := &routes.InstallReviewHandler{Queries: queries, Service: reviewService}
+			r.Post("/reviews", reviews.Request)
 		}
 		if config.IsSingleOwner(cfg.Auth) && extras.Members != nil {
 			r.Get("/members", extras.Members.List)

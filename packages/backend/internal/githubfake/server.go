@@ -1052,23 +1052,31 @@ func (s *Server) validJWT(token string) bool {
 	return rsa.VerifyPKCS1v15(s.key, crypto.SHA256, digest[:], signature) == nil
 }
 
+// PullAuthor is the numeric GitHub account identity on a fixture PR.
+type PullAuthor struct {
+	ID    int64  `json:"id"`
+	Login string `json:"login"`
+	Type  string `json:"type"`
+}
+
 // Pull is a fixture PR receipt; all writes still pass through the App token
-// boundary and permanent write log. The fake previously served no PR API.
+// boundary and permanent write log.
 type Pull struct {
-	ID             int64      `json:"id"`
-	CreatedAt      time.Time  `json:"created_at"`
-	UpdatedAt      time.Time  `json:"updated_at"`
-	Repository     string     `json:"-"`
-	Number         int64      `json:"number"`
-	NodeID         string     `json:"node_id"`
-	Title          string     `json:"title"`
-	Body           string     `json:"body"`
-	State          string     `json:"state"`
-	Draft          bool       `json:"draft"`
-	Merged         bool       `json:"merged"`
-	MergedAt       *time.Time `json:"merged_at"`
-	MergeCommitSHA string     `json:"merge_commit_sha"`
-	HTMLURL        string     `json:"html_url"`
+	User           *PullAuthor `json:"user,omitempty"`
+	ID             int64       `json:"id"`
+	CreatedAt      time.Time   `json:"created_at"`
+	UpdatedAt      time.Time   `json:"updated_at"`
+	Repository     string      `json:"-"`
+	Number         int64       `json:"number"`
+	NodeID         string      `json:"node_id"`
+	Title          string      `json:"title"`
+	Body           string      `json:"body"`
+	State          string      `json:"state"`
+	Draft          bool        `json:"draft"`
+	Merged         bool        `json:"merged"`
+	MergedAt       *time.Time  `json:"merged_at"`
+	MergeCommitSHA string      `json:"merge_commit_sha"`
+	HTMLURL        string      `json:"html_url"`
 	// Mergeable and MergeableState are GitHub's computed mergeability. An
 	// empty MergeableState answers what GitHub computes for the PR as it is;
 	// UpdatePull sets one to answer it instead (unknown, dirty, blocked).

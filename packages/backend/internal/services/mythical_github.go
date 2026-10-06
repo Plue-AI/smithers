@@ -43,6 +43,7 @@ type mythicalIssue struct {
 
 // mythicalPull is one GitHub pull request as the stack follows it.
 type mythicalPull struct {
+	Author      gitHubActor
 	Draft       bool
 	NodeID      string
 	Number      int64
@@ -353,6 +354,7 @@ func (g *mythicalGitHubAPI) OpenIssues(ctx context.Context, gh mythicalGitHubRep
 }
 
 type mythicalGitHubPull struct {
+	Author gitHubActor `json:"user"`
 	landingGitHubPullRequest
 	MergeableState string `json:"mergeable_state"`
 	// Body is null when the description is empty.
@@ -360,7 +362,7 @@ type mythicalGitHubPull struct {
 }
 
 func (p mythicalGitHubPull) pull() mythicalPull {
-	out := mythicalPull{Draft: p.Draft, NodeID: p.NodeID, Number: p.Number, URL: p.HTMLURL, State: p.State, Merged: p.MergedAt != nil,
+	out := mythicalPull{Author: p.Author, Draft: p.Draft, NodeID: p.NodeID, Number: p.Number, URL: p.HTMLURL, State: p.State, Merged: p.MergedAt != nil,
 		HeadRef: p.Head.Ref, HeadSHA: p.Head.SHA, BaseRef: p.Base.Ref, MergeableState: p.MergeableState}
 	if p.Body != nil {
 		out.Body = *p.Body

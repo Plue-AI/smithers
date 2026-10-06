@@ -17,6 +17,8 @@ func TestInstallMemberCommandRoutes(t *testing.T) {
 		{http.MethodGet, "/api/branches/main/files/.smithers/machine.json", "files.read"},
 		{http.MethodPost, "/api/auth/logout", "self"},
 		{http.MethodGet, "/api/install", "install.read"},
+		{http.MethodPost, "/api/reviews", "review"},
+		{http.MethodGet, "/api/reviews", ""},
 		{http.MethodGet, "/api/user/repos", "repo.read"},
 		{http.MethodGet, "/api/repos/local-owner/demo/mythical", "repo.read"},
 		{http.MethodGet, "/api/repos/local-owner/demo/mythical/events", "repo.read"},
