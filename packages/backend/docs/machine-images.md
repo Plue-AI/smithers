@@ -13,6 +13,9 @@ Without an index, `microsandbox.DetectRecipe` adapts mirror data to the single
 `go generate ./microsandbox` regenerates it. The installed bundle's verified
 Node interprets this trusted code with no inherited credentials or Node options.
 Repository bytes enter only as JSON data. The compiled detector hash keys layers.
+The same evidence provides check inventory independently of machine validation:
+an invalid tool version cannot stop Source ready while the mirror holds `main`.
+Makefile and legacy Python check declarations contribute checks, not image tools.
 It reads only:
 
 | Files                                                                       | Recipe                                        |

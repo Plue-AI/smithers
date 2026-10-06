@@ -304,7 +304,7 @@ func (e *environments) resolve(ctx context.Context, source workspaceapi.Workspac
 			}
 			node = program.Path()
 		}
-		detected, err = detectRecipe(ctx, read, node)
+		detected, err = detectRecipe(ctx, read, node, false)
 		if err == nil {
 			toolchain, err = toolchainRecipe(e.config.Image, nil, detected)
 		}

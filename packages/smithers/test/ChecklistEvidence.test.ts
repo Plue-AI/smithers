@@ -295,3 +295,15 @@ describe("shared detected check inventory", () => {
     expect(machine({ "package.json": "{\"scripts\":{\"test\":\"echo no test specified\"}}" }).checks).toBeUndefined()
   })
 })
+
+it("retains checks while a machine version is invalid", () => {
+  const facts = Checklist.evidence(
+    Checklist.memoryRepository("/invalid-version", {
+      ".node-version": "22;id",
+      "package.json": "{\"packageManager\":\"pnpm@9\",\"scripts\":{\"test\":\"vitest\",\"lint\":\"eslint .\"}}"
+    })
+  )
+  expect(facts.machine).toBeInstanceOf(Checklist.MachineRecipeError)
+  expect(facts.packageManager).toBe("pnpm")
+  expect(facts.checks).toEqual([{ id: "test", argv: ["pnpm", "test"] }, { id: "lint", argv: ["pnpm", "lint"] }])
+})

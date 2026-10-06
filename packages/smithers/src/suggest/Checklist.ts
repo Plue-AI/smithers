@@ -93,6 +93,7 @@ export const followUps: Readonly<Record<FollowUp["id"], FollowUp>> = {
  */
 export interface Evidence {
   readonly machine: MachineRecipe | MachineRecipeError
+  readonly checks: Array<{ id: string; argv: Array<string> }>
   readonly packageManager: string | undefined
   readonly scripts: Readonly<Record<string, string>>
   readonly testRunner: string | undefined
@@ -211,6 +212,71 @@ export const machineFiles = [
   "requirements.txt"
 ] as const
 
+const managerEvidence = (repository: Repository) => {
+  const has = (file: string) => repository.exists(file)
+  const fail = (file: string, message: string): never => {
+    throw new MachineRecipeError(file, message)
+  }
+  let manager = "", managerVersion = "", managerFile = "package.json"
+  const value = manifestField(repository.read("package.json"), "packageManager")
+  if (value !== undefined && typeof value !== "string") fail("package.json", "expected a string")
+  const declared = typeof value === "string" ? value : ""
+  if (declared !== "") {
+    const at = declared.indexOf("@")
+    manager = at < 0 ? declared : declared.slice(0, at)
+    managerVersion = at < 0 ? "" : declared.slice(at + 1).split("+sha")[0]!
+  }
+  const chosen: Array<string> = []
+  for (const [lock, name] of lockfiles) {
+    if (!has(lock)) continue
+    if (declared === "" && manager !== "" && manager !== name) {
+      fail([...chosen, lock].join(" and "), "conflicting package-manager lockfiles; set package.json#packageManager")
+    }
+    if (manager === "") {
+      manager = name
+      managerFile = lock
+    }
+    if (manager === name) chosen.push(lock)
+  }
+  if (manager === "" && has("package.json")) manager = "npm"
+
+  if (manager !== "" && !["npm", "pnpm", "yarn", "bun"].includes(manager)) {
+    fail(managerFile, `unsupported package manager ${manager}`)
+  }
+  return { manager, managerVersion, managerFile, chosen }
+}
+
+const checksEvidence = (
+  repository: Repository,
+  packageManager: string | undefined,
+  scripts: Readonly<Record<string, string>>
+) => {
+  const checks: Array<{ id: string; argv: Array<string> }> = []
+  const has = (file: string) => repository.exists(file)
+  const text = (file: string) => repository.read(file) ?? ""
+  // Check inventory shares the manager and language facts. Makefile and legacy
+  // Python check declarations contribute commands, never image tool versions.
+  const addCheck = (id: string, argv: Array<string>) => {
+    if (checks.some((check) => check.id === id)) return
+    checks.push({ id, argv })
+  }
+  for (const name of ["test", "lint", "typecheck", "build"]) {
+    const script = scripts[name]
+    if (packageManager !== undefined && script?.trim() && !script.includes("no test specified")) {
+      const manager = packageManager
+      addCheck(name, manager === "npm" ? ["npm", "run", name] : [manager, name])
+    }
+  }
+  for (const name of ["test", "lint", "typecheck", "format", "build"]) {
+    if (new RegExp(`^${name}\\s*:`, "m").test(text("Makefile"))) addCheck(name, ["make", name])
+  }
+  if (has("go.mod")) addCheck("test", ["go", "test", "./..."])
+  if (has("Cargo.toml")) addCheck("test", ["cargo", "test"])
+  if (has("pyproject.toml") || has("setup.py") || has("pytest.ini")) addCheck("test", ["pytest"])
+
+  return checks
+}
+
 const machineEvidence = (repository: Repository): MachineRecipe => {
   const r: MachineRecipe = { detectorVersion: "smithers.toolchain-detect/v4", tools: {}, installs: [] }
   const has = (file: string) => repository.exists(file)
@@ -270,28 +336,8 @@ const machineEvidence = (repository: Repository): MachineRecipe => {
   }
   if (file !== "package.json" && !numeric(version)) fail(file, "expected one numeric version")
   if (has("package.json") || version !== "") tool("node", version, file, file === "package.json")
-  let manager = "", managerVersion = "", managerFile = "package.json"
-  const declared = manifest.packageManager ?? ""
-  if (declared !== "") {
-    const at = declared.indexOf("@")
-    manager = at < 0 ? declared : declared.slice(0, at)
-    managerVersion = at < 0 ? "" : declared.slice(at + 1).split("+sha")[0]!
-  }
-  const chosen: Array<string> = []
-  for (const [lock, name] of lockfiles) {
-    if (!has(lock)) continue
-    if (declared === "" && manager !== "" && manager !== name) {
-      fail([...chosen, lock].join(" and "), "conflicting package-manager lockfiles; set package.json#packageManager")
-    }
-    if (manager === "") {
-      manager = name
-      managerFile = lock
-    }
-    if (manager === name) chosen.push(lock)
-  }
-  if (manager === "" && has("package.json")) manager = "npm"
+  const { manager, managerVersion, managerFile, chosen } = managerEvidence(repository)
   if (manager !== "") {
-    if (!["npm", "pnpm", "yarn", "bun"].includes(manager)) fail(managerFile, `unsupported package manager ${manager}`)
     if (r.tools.node === undefined) tool("node", "", managerFile)
     tool(manager, managerVersion, managerFile)
     r.packageManager = manager
@@ -370,26 +416,6 @@ const machineEvidence = (repository: Repository): MachineRecipe => {
       )
     }
   }
-  // Check inventory shares the manager and language facts. Makefile and legacy
-  // Python check declarations contribute commands, never image tool versions.
-  const addCheck = (id: string, argv: Array<string>) => {
-    if (r.checks?.some((check) => check.id === id)) return
-    ;(r.checks ??= []).push({ id, argv })
-  }
-  const scripts = scriptsOf(repository.read("package.json"))
-  for (const name of ["test", "lint", "typecheck", "build"]) {
-    const script = scripts[name]
-    if (script?.trim() && !script.includes("no test specified")) {
-      const manager = r.packageManager ?? "npm"
-      addCheck(name, manager === "npm" ? ["npm", "run", name] : [manager, name])
-    }
-  }
-  for (const name of ["test", "lint", "typecheck", "format", "build"]) {
-    if (new RegExp(`^${name}\\s*:`, "m").test(text("Makefile"))) addCheck(name, ["make", name])
-  }
-  if (has("go.mod")) addCheck("test", ["go", "test", "./..."])
-  if (has("Cargo.toml")) addCheck("test", ["cargo", "test"])
-  if (has("pyproject.toml") || has("setup.py") || has("pytest.ini")) addCheck("test", ["pytest"])
 
   return r
 }
@@ -410,7 +436,14 @@ export const evidence = (repository: Repository): Evidence => {
     if (!(error instanceof MachineRecipeError)) throw error
     machine = error
   }
-  const packageManager = machine instanceof MachineRecipeError ? undefined : machine.packageManager
+  let packageManager: string | undefined
+  try {
+    packageManager = managerEvidence(repository).manager || undefined
+  } catch (error) {
+    if (!(error instanceof MachineRecipeError)) throw error
+  }
+  const checks = checksEvidence(repository, packageManager, scripts)
+  if (!(machine instanceof MachineRecipeError) && checks.length > 0) machine.checks = checks
   const testScript = scripts["test"]
   const runnerFile = runnerFiles.find(([file]) => repository.exists(file))
   const testRunner = testScript !== undefined
@@ -451,6 +484,7 @@ export const evidence = (repository: Repository): Evidence => {
   ]
   return {
     machine,
+    checks,
     packageManager,
     scripts,
     testRunner,

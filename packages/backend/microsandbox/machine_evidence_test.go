@@ -312,7 +312,7 @@ func fmtQuoted(value string) string { data, _ := json.Marshal(value); return str
 func TestMachineEvidencePreservesCancellation(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
-	_, err := detectRecipe(ctx, detectedFixture(map[string]string{".node-version": "22"}), "")
+	_, err := detectRecipe(ctx, detectedFixture(map[string]string{".node-version": "22"}), "", false)
 	if !errors.Is(err, context.Canceled) {
 		t.Fatalf("got %v; want canceled", err)
 	}

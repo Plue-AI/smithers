@@ -71,10 +71,16 @@ type Recipe struct {
 // The installed runtime uses its approved bundle's Node; standalone callers
 // (unit tests and development) use Node from PATH. Repository code is never loaded.
 func DetectRecipe(read func(string) ([]byte, bool, error)) (Recipe, error) {
-	return detectRecipe(context.Background(), read, "")
+	return detectRecipe(context.Background(), read, "", false)
 }
 
-func detectRecipe(ctx context.Context, read func(string) ([]byte, bool, error), node string) (Recipe, error) {
+// DetectCheckRecipe shares evidence with machine detection, but a bad machine
+// declaration cannot block Source ready while the mirror already holds main.
+func DetectCheckRecipe(read func(string) ([]byte, bool, error)) (Recipe, error) {
+	return detectRecipe(context.Background(), read, "", true)
+}
+
+func detectRecipe(ctx context.Context, read func(string) ([]byte, bool, error), node string, checksOnly bool) (Recipe, error) {
 	r := Recipe{DetectorVersion: DetectorVersion, Tools: map[string]DetectedTool{}}
 	files := map[string]string{}
 	// The reader is revision-bound. Enumeration is data, never a host glob.
@@ -124,7 +130,11 @@ func detectRecipe(ctx context.Context, read func(string) ([]byte, bool, error), 
 	}
 	ctx, cancel := context.WithTimeout(ctx, 30*time.Second)
 	defer cancel()
-	command := exec.CommandContext(ctx, node, "--input-type=module", "--eval", machineEvidenceJS)
+	argv := []string{"--input-type=module", "--eval", machineEvidenceJS}
+	if checksOnly {
+		argv = append(argv, "--", "checks")
+	}
+	command := exec.CommandContext(ctx, node, argv...)
 	command.Env = []string{"PATH=/usr/bin:/bin", "LANG=C.UTF-8"}
 	command.Stdin = bytes.NewReader(input)
 	output, err := command.Output()
