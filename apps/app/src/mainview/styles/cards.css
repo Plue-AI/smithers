@@ -2787,6 +2787,7 @@
 .branch-view .branch-ref { display: inline-flex; gap: 8px; min-width: 0; }
 .branch-view .branch-location { display: inline-flex; align-items: center; gap: 4px; }
 .branch-view .branch-location svg { flex: none; }
+.branch-view .branch-location > .branch-muted { flex: none; }
 .branch-view .branch-live-dot { box-shadow: 0 0 0 3px var(--brand-soft-strong); }
 .branch-view .branch-spin { width: 11px; height: 11px; border: 1.5px solid var(--border-strong); border-top-color: var(--brand); border-radius: 50%; animation: branch-turn .8s linear infinite; }
 @keyframes branch-turn { to { transform: rotate(360deg); } }

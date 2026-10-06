@@ -630,8 +630,11 @@ Buttons render supplied actions in order; activity actions retain burst ids.
 Scratch Done carries conflict_change and onto_revision in its supplied args
 (§8.5.2b). Sleep/Wake/Retry use the retained box.suspend/box.resume controls.
 Copy SSH uses the shared clipboard helper. Presence has no local state.
-The existing DesignWorld mount keeps its seeded data. Live integration remains
-pending T-APP-10/T-COL-05; this View adds no subscriptions or execution.
+The existing DesignWorld mount keeps its seeded data. T-APP-10's production
+container reads live Branch topics on installs; the View adds no subscriptions
+or execution. File presence reads editing; running terminal presence includes
+its command. Moved-off copy reads "<actor> moved this branch off Tn".
+Activity distinguishes Steer, Answer, Asked and Asks in the retained mock.
 Named gestures are `item`, `file` and `terminal`. Each optional supplied action
 opens the TODO, file (path and optional line) or terminal (id); bound args are
 retained. No gesture means plain text. Renamed files open renamed_to.

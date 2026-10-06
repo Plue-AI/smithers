@@ -726,7 +726,7 @@ test("DebugApiView hostile body and failure render as text", async ({ page }) =>
   expect(await page.evaluate(() => Reflect.get(window, "__pwned"))).toBeUndefined()
 })
 
-test("T-UI-15 keyboard controls preserve supplied arguments once", async ({ page }) => {
+for (const key of ["Enter", "Space"]) test(`T-UI-15 keyboard ${key} controls preserve supplied arguments once`, async ({ page }) => {
   const cases = [
     ["awake", "Sleep", "box.suspend", { branch: "todo/12" }],
     ["asleep", "Wake", "box.resume", { branch: "todo/12" }],
@@ -749,7 +749,7 @@ test("T-UI-15 keyboard controls preserve supplied arguments once", async ({ page
     const button = page.getByRole("button", { name: label, exact: true })
     await expect(button).toHaveAttribute("data-flow", tag)
     await button.focus()
-    await page.keyboard.press("Enter")
+    await page.keyboard.press(key)
     expect(await page.evaluate(() => (window as unknown as { branchCalls: unknown[] }).branchCalls)).toEqual([
       { kind: "action", value: { tag, args } },
     ])
@@ -758,6 +758,63 @@ test("T-UI-15 keyboard controls preserve supplied arguments once", async ({ page
   await expect(page.getByRole("button", { name: "Done", exact: true })).toBeDisabled()
   await page.goto("/view-stories.html?story=BranchView/branch-waking-activity")
   await expect(page.locator("button[data-flow]")).toHaveCount(0)
+})
+
+test("T-UI-15 tabs and SSH use only their supplied View and clipboard seams", async ({ page }) => {
+  await page.addInitScript(() => {
+    Object.assign(window, { branchCalls: [], branchCopied: [] })
+    window.addEventListener("story-callback", event =>
+      (window as unknown as { branchCalls: unknown[] }).branchCalls.push((event as CustomEvent).detail))
+    Object.defineProperty(navigator, "clipboard", { configurable: true, value: { writeText: async (text: string) => {
+      (window as unknown as { branchCopied: string[] }).branchCopied.push(text)
+    } } })
+  })
+  await page.goto("/view-stories.html?story=BranchView/branch-active-activity")
+  await page.getByRole("tab", { name: "Files", exact: false }).press("Enter")
+  await page.getByRole("button", { name: "Copy SSH line", exact: true }).press("Space")
+  expect(await page.evaluate(() => Reflect.get(window, "branchCalls"))).toEqual([{ kind: "view", value: { tab: "files" } }])
+  expect(await page.evaluate(() => Reflect.get(window, "branchCopied"))).toEqual(["ssh -p 2222 todo-12@mac-mini.local"])
+})
+
+test("T-UI-15 missing and disabled actions refuse callbacks; hostile text opens no connection", async ({ page }) => {
+  await page.addInitScript(() => {
+    Object.assign(window, { branchCalls: [], branchConnections: [] })
+    window.addEventListener("story-callback", event =>
+      (window as unknown as { branchCalls: unknown[] }).branchCalls.push((event as CustomEvent).detail))
+    window.fetch = ((...args: unknown[]) => {
+      (window as unknown as { branchConnections: unknown[] }).branchConnections.push(args)
+      throw new Error("BranchView opened a fetch")
+    }) as unknown as typeof fetch
+    window.WebSocket = class {
+      constructor(...args: unknown[]) {
+        (window as unknown as { branchConnections: unknown[] }).branchConnections.push(args)
+        throw new Error("BranchView opened a socket")
+      }
+    } as unknown as typeof WebSocket
+  })
+  for (const story of ["branch-no-actions", "branch-disabled-gestures", "branch-hostile", "branch-scratch_conflict-activity"]) {
+    await page.goto(`/view-stories.html?story=BranchView/${story}`)
+    await expect(page.locator("[data-story]")).toBeVisible()
+    if (story === "branch-no-actions" || story === "branch-hostile") await expect(page.locator("button[data-flow]")).toHaveCount(0)
+    if (story === "branch-disabled-gestures") {
+      for (const button of await page.locator("button[data-flow]").all()) {
+        await expect(button).toBeDisabled()
+        await button.evaluate(node => (node as HTMLButtonElement).click())
+      }
+    }
+    if (story === "branch-scratch_conflict-activity") {
+      const done = page.getByRole("button", { name: "Done", exact: true })
+      await expect(done).toBeDisabled()
+      await done.evaluate(node => (node as HTMLButtonElement).click())
+    }
+    if (story === "branch-hostile") {
+      await expect(page.locator("[data-story]")).toContainText('<script>window.__branchPwned=1</script>')
+      await expect(page.locator("[data-story] script, [data-story] img[src=x]")).toHaveCount(0)
+      expect(await page.evaluate(() => Reflect.get(window, "__branchPwned"))).toBeUndefined()
+    }
+    expect(await page.evaluate(() => Reflect.get(window, "branchCalls"))).toEqual([])
+    expect(await page.evaluate(() => Reflect.get(window, "branchConnections"))).toEqual([])
+  }
 })
 
 // T-UI-16 uses the existing production story runner; no live route is enabled.

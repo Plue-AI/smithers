@@ -20,12 +20,22 @@ test("registry reads the three real topics, never seed data, and clears a refuse
     socket.readyState = 1; socket.onopen?.()
     expect(frames).toEqual([{ t: "sub", id: 1, topic: "branch:b-retry" }, { t: "sub", id: 2, topic: "branch:b-retry:activity" }, { t: "sub", id: 3, topic: "branch:b-retry:files" }])
     const snap = async (id: number, data: unknown) => act(async () => socket.onmessage?.({ data: JSON.stringify({ t: "snap", id, cursor: 1, data }) }))
-    await snap(1, { id: "b-retry", name: "Captured live branch", machine: { state: "asleep" }, terminals: [], presence: [], ssh_line: "ssh -p 2222 live@localhost" })
+    const maya = { kind: "person", login: "maya", name: "Maya", avatar_url: "https://github.com/identicons/placeholder.png", color_index: 1, via: "ssh" }
+    await snap(1, { id: "b-retry", name: "Captured live branch", machine: { state: "asleep" },
+      item: { n: 12, title: "Retained branch work", state: "needs_you", place: 2 },
+      moved_off: { by: maya, item: 12 },
+      terminals: [{ id: "checks", title: "Checks", owner: maya, agents: [], watchers: [], command: "pnpm check", frozen: false }],
+      presence: [{ actor: maya, where: { kind: "file", path: "retry.ts", line: 12 } },
+        { actor: { ...maya, login: "ben", name: "Ben", via: undefined }, where: { kind: "terminal", id: "checks" } }],
+      ssh_line: "ssh -p 2222 live@localhost" })
     await snap(2, [])
     expect(host.textContent).toBe("")
     await snap(3, [])
     expect(host.textContent).toContain("Captured live branch")
     expect(host.textContent).toContain("Asleep")
+    expect(host.textContent).toContain("Maya via SSH moved this branch off T12")
+    expect(host.querySelectorAll(".branch-location")[0]!.textContent).toBe("editingretry.ts:12")
+    expect(host.querySelectorAll(".branch-location")[1]!.textContent).toBe("runningChecks · pnpm check")
     expect(host.textContent).not.toContain("Retry failed webhooks")
     expect(host.querySelector("[data-flow]")).toBeNull()
     await act(async () => socket.onmessage?.({ data: JSON.stringify({ t: "err", id: 1, code: "permission" }) }))

@@ -267,6 +267,40 @@ test("C-UI-12: primitive actors, states and tones render in both Paper themes", 
   }
 })
 
+test("C-UI-12: Branch states and recovery controls render in both themes and widths", async ({ page }) => {
+  test.setTimeout(180_000)
+  const cases = [
+    ["branch-awake-activity", "Awake", "Sleep"],
+    ["branch-asleep-activity", "Asleep", "Wake"],
+    ["branch-waking-activity", "Waking", null],
+    ["branch-waiting-activity", "Waiting for a machine · #2", null],
+    ["branch-closed-activity", "Closed", null],
+    ["branch-failed-activity", "Image build failed", "Retry"],
+    ["branch-rebase_pending-activity", "Rebase pending onto T8", "Rebase now"],
+    ["branch-rebase_waiting_for-activity", "Waiting for Ben · Checks", null],
+    ["branch-rebasing-activity", "Rebasing… onto T8", null],
+    ["branch-scratch_conflict-activity", "packages/rpc/src/HomeCard.ts", "Resolve"],
+    ["branch-scratch_ready-activity", "Rebase conflict onto main", "Done"],
+    ["branch-moved_off-activity", "Ben moved this branch off T15", "Return to T15"],
+    ["branch-scratch_item-activity", "Forked from T12 Card model contracts", "Add to stack"],
+    ["branch-active-files", "flows/todo/prompt.md → flows/todo/instructions/implementer.md", null],
+    ["branch-active-terminals", "pnpm check", null],
+    ["branch-active-maximized", "Asked · Coding agent for Ben", null],
+    ["branch-asking", "Asks · Coding agent for Ben", null],
+  ] as const
+  for (const theme of ["light", "dark"]) for (const width of [1440, 390]) {
+    await page.setViewportSize({ width, height: 844 })
+    for (const [story, text, control] of cases) {
+      await page.goto(`/view-stories.html?story=BranchView/${story}&theme=${theme}`)
+      const card = page.locator('[data-kind="branch"]')
+      await expect(card).toBeVisible()
+      await expect(card).toContainText(text)
+      if (control) await expect(card.getByRole("button", { name: control, exact: true })).toBeEnabled()
+      expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true)
+    }
+  }
+})
+
 test("File co-editing uses CodeMirror attribution and line flags in both themes and widths", async ({ page }) => {
   for (const theme of ["light", "dark"]) for (const width of [1440, 390]) {
     await page.setViewportSize({ width, height: 844 })

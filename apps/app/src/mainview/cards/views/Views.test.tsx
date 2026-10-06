@@ -2351,18 +2351,35 @@ test("Branch disabled location and watcher gestures refuse activation", async ()
   } finally { await item.close() }
 })
 
-for (const key of ["awake", "asleep", "waking", "waiting", "closed", "failed", "moved_off", "rebase_pending", "scratch_conflict"] as const)
+for (const key of Object.keys(branchFixtures) as (keyof typeof branchFixtures)[])
   test(`Branch ${key} copy blocks use product words`, async () => {
     const item = await mounted({ name: key, expect: [], render: callbacks => <BranchView {...branchFixtures[key]} {...callbacks} /> })
     try {
-      const banned = /\b(workflows?|threads?|tasks?|lanes?|boxes?|workspaces?|mythicals?|sandboxes?|VMs?|seats?|profiles?|Jev|forges?)\b/i
-      for (const block of item.host.querySelectorAll("h2, button, label, .branch-machine, .branch-notice > span, .branch-notice > b, .branch-item > span")) {
+      const banned = /\b(workflow|thread|task|lane|box|workspace|mythical|sandbox|VM|seat|profile|Jev|forge)(?:s|es)?\b/i
+      for (const block of item.host.querySelectorAll("h2, button, label, .branch-machine, .branch-notice > span, .branch-notice > b, .branch-item > span, .branch-presence > li, .branch-list > li")) {
         expect(block.textContent).not.toMatch(banned)
         expect(block.textContent!.trim().split(/\s+/).length).toBeLessThanOrEqual(12)
         expect((block.textContent!.match(/[!?]|\.(?:\s|$)/g) ?? []).length).toBeLessThanOrEqual(1)
       }
     } finally { await item.close() }
   })
+
+test("Branch copy identifies editing, running, settled questions and moved-off work", async () => {
+  const item = await mounted({ name: "copy", expect: [], render: callbacks => <BranchView {...branchFixtures.active}
+    {...callbacks} view={{ maximized: true, tab: "activity" }} /> })
+  try {
+    const rows = [...item.host.querySelectorAll(".branch-presence li")].map(row => row.textContent)
+    expect(rows[0]).toContain("editingflows/todo/flow.ts:12")
+    expect(rows[2]).toContain("editingpackages/rpc/src/TodoCard.ts")
+    expect(rows[3]).toContain("runningChecks · pnpm check")
+    expect(item.host.querySelector('[data-kind="steer"]')!.textContent).toContain("Steer · Ben")
+    expect(item.host.querySelector('[data-kind="question"]')!.textContent).toContain("Asked · Coding agent for Ben")
+    expect(item.host.querySelector('[data-kind="answer"]')!.textContent).toContain("Answer · Ben")
+    await act(async () => item.root.render(<BranchView {...branchFixtures.moved_off} onAction={item.onAction} onView={item.onView} />))
+    expect(item.host.querySelector('[data-tone="attention"]')!.textContent).toContain("Ben moved this branch off T15")
+    expect(item.onAction).toHaveBeenCalledTimes(0)
+  } finally { await item.close() }
+})
 
 // Literal oracles for T-UI-18; no fixture expectations or schemas supply these cases.
 describe("SecretsView write-only controls", () => {
