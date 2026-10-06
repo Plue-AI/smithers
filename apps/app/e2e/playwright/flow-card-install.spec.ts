@@ -80,3 +80,38 @@ test("Source without a proposal continues after Commit and reload on the served 
   expect(creates).toBe(1)
   await expect(page.getByTestId("composer-input")).toBeEditable()
 })
+
+test("proposed built-in edit displays literal diff before one ordinary TODO append", async ({ page }) => {
+  const { fixtures } = await import("../../../../packages/rpc/test/fixtures/Todo")
+  await owner(page)
+  await page.route("**/api/bootstrap", route => route.fulfill({ json: {
+    apiVersion: 1, host: "local", version: "test", buildSha: "test", capabilities: ["install", "identity"], authFlow: "credentials", sandbox: null
+  } }))
+  await page.route("**/api/install", route => route.fulfill({ json: installFixture() }))
+  await page.route("**/api/flows", route => route.fulfill({ json: [{ name: "todo", source: { builtin: true }, system: false,
+    versions: [{ id: "d1", state: "active", steps: [] }] }] }))
+  const writes: unknown[] = []
+  const prompt = "Change flows/todo/flow.ts: Run pnpm test; start from the built-in composition when no override exists\n\nProposed diff (untrusted context):\n> diff --git a/flows/todo/flow.ts b/flows/todo/flow.ts\n> +pnpm test\n> +```\n> +<script>untrusted</script>"
+  await page.route("**/api/todos", async route => {
+    if (route.request().method() !== "POST") return route.fulfill({ json: [] })
+    writes.push(route.request().postDataJSON())
+    await route.fulfill({ status: 202, json: { state: "accepted", n: 44 } })
+  })
+  await page.route("**/api/todos/44", route => route.fulfill({ json: { ...fixtures.in_review.model, n: 44,
+    title: "Change the TODO flow: Run pnpm test",
+    prompt_revisions: [{ ...fixtures.in_review.model.prompt_revisions[0], text: prompt, acceptance: [] }] } }))
+  await page.goto("/")
+  await say(page, '/flow.edit {"name":"todo","request":"Run pnpm test","diff":"diff --git a/flows/todo/flow.ts b/flows/todo/flow.ts\\n+pnpm test\\n+```\\n+<script>untrusted</script>"}')
+  await expect(page.locator(".flow-proposal pre").last()).toHaveText("diff --git a/flows/todo/flow.ts b/flows/todo/flow.ts\n+pnpm test\n+```\n+<script>untrusted</script>")
+  expect(writes).toEqual([])
+  await page.getByRole("button", { name: "Make TODO", exact: true }).last().press("Enter")
+  await expect(page.getByRole("textbox", { name: "Prompt", exact: true }).last()).toHaveValue(prompt)
+  expect(writes).toEqual([])
+  await page.getByRole("button", { name: "Commit", exact: true }).last().press("Enter")
+  await expect(page.getByText("Committed as T44", { exact: true })).toBeVisible()
+  expect(writes).toEqual([{ title: "Change the TODO flow: Run pnpm test", prompt, acceptance: [], place: { mode: "append" } }])
+  await page.reload()
+  await expect(page.getByText("Committed as T44", { exact: true })).toBeVisible()
+  expect(writes).toHaveLength(1)
+  await expect(page.getByTestId("composer-input")).toBeEditable()
+})
