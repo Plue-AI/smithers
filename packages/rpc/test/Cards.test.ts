@@ -3290,7 +3290,6 @@ test("deferred billing, repository and trigger cards retain live decoding", () =
     { kind: "repository-choice", payload: { cutoff: "2026-10-03T00:00:00Z", partial: false,
       error: null, selected: null, created: null, repositories: [] } },
     { kind: "trigger-list", payload: { repo: "will/app", triggers: [] } },
-    { kind: "workflow-repo", payload: { intent: "create", description: "A flow", repos: [], chosen: null } },
     { kind: "anonymous-ceiling", payload: { message: "Saved", retryAt: null } },
     { kind: "billing-plans", payload: { planKey: null, sandbox: null, plans: [], checkout: false } },
     { kind: "balance", payload: { totalUsd: "0.00", state: "empty", allowedToStartWork: false,

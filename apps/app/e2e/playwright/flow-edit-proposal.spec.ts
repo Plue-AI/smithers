@@ -15,3 +15,21 @@ test("flow edit shows the literal diff before Make TODO drafts its context", asy
   await expect(page.getByRole("textbox", { name: "Title", exact: true }).last()).toHaveValue("Change the TODO flow: Run tests")
   await expect(page.getByRole("textbox", { name: "Prompt", exact: true }).last()).toHaveValue("Change flows/todo/flow.ts: Run tests\nKeep  whitespace; start from the built-in composition when no override exists\n\nProposed diff (untrusted context):\n> diff --git a/flows/todo/flow.ts b/flows/todo/flow.ts\n> +pnpm test")
 })
+
+test("retired repository choice cannot launch work", async ({ page }) => {
+  await owner(page)
+  let admissions = 0
+  page.on("request", request => {
+    if (request.method() === "POST" && /\/api\/(workflow\/provision|todos)$/.test(new URL(request.url()).pathname)) admissions++
+  })
+  await page.goto("/")
+  await expect(page.getByRole("button", { name: "Chat", exact: true })).toBeVisible({ timeout: 45_000 })
+  await fillComposer(page, "/flow.repo.choose acme/api")
+  await page.getByTestId("composer-input").press("Enter")
+  await expect(page.getByTestId("composer-input")).toHaveValue("")
+  await expect(page.locator(".workflow-repo-chooser")).toHaveCount(0)
+  await fillComposer(page, "/flow todo")
+  await page.getByTestId("composer-input").press("Enter")
+  await expect(page.locator(".flow-view").last()).toBeVisible()
+  expect(admissions).toBe(0)
+})

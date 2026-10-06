@@ -125,17 +125,6 @@ describe("CardRenderers", () => {
     expect(pillStatus({ ...halfway, payload: { progress: 1 } })).toBe("done")
   })
 
-  test("a kind without a family rule is done once acted on and pending until then", () => {
-    const chooser: Card = {
-      ...base,
-      kind: "workflow-repo",
-      status: "active",
-      payload: { intent: "create", description: "Which repository?", repos: ["o/r"], chosen: null }
-    }
-    expect(pillStatus(chooser)).toBe("pending")
-    expect(pillStatus({ ...chooser, status: "acted" })).toBe("done")
-  })
-
   /*
    * The fallback is the one pill rule no family chose, so a kind reaching it
    * by omission wears Pending forever (§28.3: a settled read badged PENDING is
@@ -148,7 +137,7 @@ describe("CardRenderers", () => {
       .filter(([, entry]) => entry.pill === defaultPill)
       .map(([kind]) => kind)
       .sort()
-    expect(onDefault).toEqual(["workflow-repo"])
+    expect(onDefault).toEqual([])
   })
 
   test("a settled environment-images listing is done, not pending", () => {
@@ -260,25 +249,14 @@ describe("wiki history card (#1922)", () => {
   })
 })
 
-test("repository chooser exposes one keyboard stop and the highlighted repository", async () => {
-  GlobalRegistrator.register()
-  const host = document.createElement("div"); document.body.append(host)
-  const root = createRoot(host)
-  const selected: string[] = []
-  const card: Card = { ...base, kind: "workflow-repo", status: "active", payload: { intent: "create", repos: ["a/one", "b/two"], chosen: null, description: "Choose a repository" } }
-  try {
-    await act(async () => root.render(<CardView card={card} {...handlers} onChooseWorkflowRepo={repo => selected.push(repo)} />))
-    const list = host.querySelector<HTMLElement>('[role="listbox"]')!
-    const options = [...host.querySelectorAll<HTMLElement>('[role="option"]')]
-    expect(options.map(option => option.tabIndex)).toEqual([-1, -1])
-    list.focus()
-    expect(list.getAttribute("aria-activedescendant")).toBe(options[0]!.id)
-    await act(async () => { list.dispatchEvent(new KeyboardEvent("keydown", { key: "ArrowDown", bubbles: true, cancelable: true })) })
-    expect(document.activeElement).toBe(list)
-    expect(list.getAttribute("aria-activedescendant")).toBe(options[1]!.id)
-    await act(async () => { list.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true, cancelable: true })) })
-    expect(selected).toEqual(["b/two"])
-  } finally { await act(async () => root.unmount()); host.remove(); await GlobalRegistrator.unregister() }
+test("retained repository choices render their title without a live chooser", () => {
+  const card = CardSchema.parse({ ...base, kind: "workflow-repo", status: "active",
+    payload: { intent: "create", repos: ["a/one", "b/two"], chosen: null, description: "Choose a repository" } })
+  const markup = renderToStaticMarkup(<CardView card={card} {...handlers} />)
+  expect(card.kind).toBe("retired")
+  expect(markup).toContain("Card")
+  expect(markup).not.toContain('role="listbox"')
+  expect(markup).not.toContain('data-flow="flow.repo.choose"')
 })
 
 /*

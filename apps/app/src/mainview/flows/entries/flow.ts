@@ -103,7 +103,7 @@ export const flowVersionFlows = (actions: CommandActions): ReadonlyArray<FlowEnt
   ]
 }
 
-/** The `flow.*` flows: create, choose a repository, list, run, and the run controls. */
+/** The `flow.*` flows: create, list, run, and the run controls. */
 export const flowFlows = (actions: CommandActions): ReadonlyArray<FlowEntry> => [
   flow({
     /*
@@ -112,7 +112,7 @@ export const flowFlows = (actions: CommandActions): ReadonlyArray<FlowEntry> => 
      * the relay event stream (THE EMBED LAW).
      *
      * Wave 12 §2: a trailing `owner/repo` names the target. Without one and
-     * with more than one loaded repository, the chooser-among-loaded asks —
+     * with more than one loaded repository, the ordinary input form asks —
      * the target is a genuine user choice, not a guess.
      */
     name: "flow.new", slash: "/flow.new", cli: ["flow","new"], journey: [], group: "Flows", visibility: "core", actors: ["person","app_agent","external_agent"], minimumRole: "member", agent: "confirm", http: {"method":"POST","path":"/api/flows"},
@@ -125,25 +125,6 @@ export const flowFlows = (actions: CommandActions): ReadonlyArray<FlowEntry> => 
       repo: Schema.optional(Schema.String)
     }),
     handler: ({ description, repo }) => actions.createWorkflow(description, repo)
-  }),
-  flow({
-    /*
-     * The answer to the which-repo question — one act, from the card.
-     *
-     * `userOnly` is load-bearing, not decoration. §2 exists because the target
-     * is a GENUINE user choice and nothing may be provisioned on a guess; a
-     * model that can execute this by name answers the human's question for
-     * them and provisions on ITS guess. Hidden keeps it out of the catalog;
-     * user-only keeps it un-executable even by a model that guesses the name.
-     */
-    name: "flow.repo.choose", visibility: "in-card", hidden: true, discloseToAgent: false,
-    summary: "Choose which loaded repository a flow belongs to",
-    runtime: ["cloud"],
-    agent: "never" as const,
-    agentReason: "the answer to the which-repository card is the human's choice; a model must not provision on its guess",
-    args: "<owner/repo>",
-    input: Schema.Struct({ repo: Schema.String }),
-    handler: ({ repo }) => actions.chooseWorkflowRepo(repo)
   }),
   flow({
     /*

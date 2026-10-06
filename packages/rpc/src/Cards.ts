@@ -1502,23 +1502,6 @@ const CurrentCardSchema = z.discriminatedUnion("kind", [
     })
   }),
   /*
-   * Wave 12 §2 — which loaded repository. With more than one loaded repo and
-   * no `owner/repo` argument, the target is a genuine user choice (the
-   * ≤3-questions law permits it), so it is asked as an embedded card among the
-   * loaded set — never guessed, never a takeover. One act answers it.
-   */
-  z.object({
-    ...cardBaseShape,
-    kind: z.literal("workflow-repo"),
-    payload: z.object({
-      /** The pending intent this choice completes. */
-      intent: z.literal("create"),
-      description: z.string(),
-      repos: z.array(z.string()),
-      chosen: z.string().nullable()
-    })
-  }),
-  /*
    * The multi-parity domain cards (MULTI-ACTIONS-GAP.md Tier 1/2): issues,
    * landings ("PRs" — landing is QUEUED, never "merged"),
    * notifications, the agent environment, and the repo import job. Payloads
@@ -2715,6 +2698,7 @@ const CurrentCardSchema = z.discriminatedUnion("kind", [
  * @category constants
  */
 export const LEGACY_CARD_KINDS = [
+  "workflow-repo",
   "explain",
   "repository-setup",
   "agent",
@@ -2748,6 +2732,7 @@ export const LEGACY_CARD_KINDS = [
 const retiredKinds = new Set<string>(LEGACY_CARD_KINDS)
 
 const retiredFlows = new Set<string>([
+  "flow.repo.choose",
   "chat.clear",
   "tab.card",
   "tab.close",

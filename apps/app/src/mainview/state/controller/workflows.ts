@@ -685,65 +685,8 @@ export const createWorkflowController = (
     return { runId }
   }
 
-  /*
-   * Wave 12 §2 — the which-repo question, embedded. It renders only when the
-   * answer is genuinely the user's (more than one loaded repository, no
-   * argument); one act answers it, and the create resumes with the repo they
-   * named.
-   */
-  const WORKFLOW_REPO_CARD_ID = "workflow-repo"
-
-  const askWhichRepo = (
-    description: string,
-    repos: ReadonlyArray<string>
-  ): { readonly value: string } => {
-    const existing = store.collections.cards.get(WORKFLOW_REPO_CARD_ID)
-    store.dispatch({
-      type: "card.upsert",
-      actor: ctx.commandActor,
-      card: {
-        id: WORKFLOW_REPO_CARD_ID,
-        kind: "workflow-repo",
-        title: "Which repository?",
-        status: "active",
-        createdAt: existing?.createdAt ?? Date.now(),
-        ordinal: nextTranscriptOrdinal(),
-        payload: { intent: "create", description, repos: [...repos], chosen: null }
-      }
-    })
-    /*
-     * A QUESTION is not a failure. A bare string result marks the outcome
-     * `failed`, and live on canary the transcript read "Smithers tried
-     * /flow.new — failed: You have 3 repositories loaded…" beside the card
-     * that had just asked them, correctly, which one. The command did exactly
-     * what it should; the value carries the question to the model, and the
-     * card carries it to the human (§2b — values never render raw).
-     */
-    return { value: `You have ${repos.length} repositories loaded. Choose the one this flow belongs to.` }
-  }
-
-  const chooseWorkflowRepo = async (fullName: string): Promise<string | void | { readonly value: string }> => {
-    const card = store.collections.cards.get(WORKFLOW_REPO_CARD_ID)
-    if (card === undefined || card.kind !== "workflow-repo") {
-      return "There's no repository question open right now."
-    }
-    if (card.payload.chosen !== null) {
-      // A question is answered once. Two clicks landing before the card's
-      // state came back would otherwise launch the same workflow twice, on
-      // a seam where a launch is real work on the user's workspace.
-      return `That question is already answered — I'm creating it on ${card.payload.chosen}.`
-    }
-    if (!card.payload.repos.includes(fullName)) {
-      return `${fullName} isn't one of the repositories in that question.`
-    }
-    store.dispatch({
-      type: "card.updated",
-      actor: "user",
-      id: WORKFLOW_REPO_CARD_ID,
-      patch: { payload: { ...card.payload, chosen: fullName }, status: "acted" }
-    })
-    return createWorkflow(card.payload.description, fullName)
-  }
+  // Retained command callers cannot resume a retired multi-repository chooser.
+  const chooseWorkflowRepo = async (_fullName: string): Promise<string> => "This repository choice is retired."
 
   /*
    * A refused authoring attempt, said where it stays.
@@ -779,7 +722,11 @@ export const createWorkflowController = (
     if (description === "") return refuseCreate("flow.new needs a description of what the flow should do")
     const target = workflowTargetRepoOrAsk(split.repo)
     if ("error" in target) return refuseCreate(target.error)
-    if ("ask" in target) return askWhichRepo(description, target.ask)
+    if ("ask" in target) {
+      const rendered = renderFlowForm?.({ name: "flow.new", args: description,
+        via: ctx.commandActor === "smithers" ? "agent" : "user" })
+      return rendered === undefined ? refuseCreate("Choose a repository.") : { value: "Prepared the repository form." }
+    }
     const repo = target.repo
     const binding = flowAuthoringBinding(store, repo)
     if ("error" in binding) {

@@ -1173,9 +1173,9 @@ export const legacyCards = [
         "chosen": "smithersai/smithers"
       }
     },
-    "expectedKind": "workflow-repo",
+    "expectedKind": "retired",
     "expectedTitle": "Aomi",
-    "expectedWas": null
+    "expectedWas": "workflow-repo"
   },
   {
     "row": {

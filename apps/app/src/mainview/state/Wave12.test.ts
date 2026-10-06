@@ -489,103 +489,19 @@ describe("wave 12 §2 — flow.new asks WHICH loaded repo", () => {
     expect(store.collections.cards.get("workflow-repo")).toBeUndefined()
   })
 
-  test("more than one loaded repo and no argument: the chooser-among-loaded, then one act creates it", async () => {
+  test("ambiguous authoring opens the ordinary form without a repository chooser or launch", async () => {
     const store = await webStore()
     const double = relay()
     const controller = createAppController(store, silentAgent, double.services)
     await signIn(store, [REPO, OTHER_REPO])
-
-    const asked = await controller.commands.run("flow.new", "summarize my open issues")
-    expect(said(asked)).toContain("2 repositories")
-    /*
-     * Review pass: a QUESTION is not a failure. Live on canary the transcript
-     * read "Smithers tried /flow.new — failed: You have 3
-     * repositories…" beside the card that had just asked, correctly, which one.
-     */
-    expect(asked.status).toBe("executed")
-    // EMBED LAW: the question is a card in the transcript, the surface stays.
-    const card = store.collections.cards.get("workflow-repo")
-    expect(card?.kind).toBe("workflow-repo")
-    expect(card?.kind === "workflow-repo" && [...card.payload.repos].sort()).toEqual([OTHER_REPO, REPO].sort())
-    expect(store.collections.sessions.get("main")?.surface).toBe("chat")
-    // Nothing was provisioned on a guess.
-    expect(double.calls.some((call) => call.path === "/api/workflow/provision")).toBe(false)
-
-    // ONE confirm: choosing IS the answer, and the create resumes with it.
-    const chosen = await controller.commands.run("flow.repo.choose", OTHER_REPO)
-    expect(said(chosen)).toContain(`repo=${OTHER_REPO}`)
-    await waitFor(() => double.state.launched.length > 0)
-    expect(double.state.launched[0]).toMatchObject({
-      repo: OTHER_REPO,
-      input: { args: "summarize my open issues" }
-    })
-    const answered = store.collections.cards.get("workflow-repo")
-    expect(answered?.kind === "workflow-repo" && answered.payload.chosen).toBe(OTHER_REPO)
-    expect(answered?.status).toBe("acted")
-
-    // Review pass: a question is answered ONCE. A second act on the same card
-    // (two clicks racing the state) may not launch the same workflow twice —
-    // a launch is real work on the user's workspace.
-    const again = await controller.commands.run("flow.repo.choose", OTHER_REPO)
-    expect(said(again)).toContain("already answered")
-    expect(double.state.launched).toHaveLength(1)
-  })
-
-  test("the model may not answer the human's question for them (review)", async () => {
-    /*
-     * Review pass: the card bindings were `hidden` but not `trigger:
-     * "user"`, and hidden only keeps a command out of the tool CATALOG — the
-     * commands tool executes anything by name that is not user-only. So the
-     * model could have picked the repository itself, provisioning on ITS guess
-     * against the very thing §2 exists for (wave 10 §2a: a deterministic
-     * affordance must not route through the model). The trigger axis is what
-     * makes that structural.
-     *
-     * Lane runs changed flow.run.stop's stance deliberately: stopping a run
-     * is consequential rather than browser mechanics, so the model may ASK
-     * (confirm turns its invocation into a confirmation message; nothing runs
-     * until the human clicks). The three-door law (.specs/engineering/spec.md §6.1) moved
-     * flow.run.retry to the same stance — a retry spends, so it confirms —
-     * while flow.repo.choose stays user-only: it is the human's ANSWER.
-     */
-    const store = await webStore()
-    const double = relay()
-    const controller = createAppController(store, silentAgent, double.services)
-    await signIn(store, [REPO, OTHER_REPO])
-
-    await controller.commands.run("flow.new", "summarize my open issues")
-    expect(store.collections.cards.get("workflow-repo")).toBeDefined()
-
-    const refused = await controller.commands.executeForAgent({
-      name: "commands",
-      arguments: JSON.stringify({ action: "execute", name: "flow.repo.choose", args: OTHER_REPO })
-    })
-    expect(refused).toContain("user-only")
-    expect(refused).toContain("the human's choice")
-    const retryAsked = await controller.commands.executeForAgent({
-      name: "commands",
-      arguments: JSON.stringify({ action: "execute", name: "flow.run.retry", args: OTHER_REPO })
-    })
-    expect(retryAsked).toContain("asked the user to confirm")
-    // A stop the model asks for is a question, never an act: nothing was cancelled.
-    const asked = await controller.commands.executeForAgent({
-      name: "commands",
-      arguments: JSON.stringify({ action: "execute", name: "flow.run.stop", args: "flow-run-run-1" })
-    })
-    expect(asked).toContain("confirm")
-    expect(double.profileReads).toEqual([])
-    expect(double.calls.some((call) => JSON.stringify(call.body).includes("\"Cancel\""))).toBe(false)
-    // The question is still open and nothing was provisioned on the model's say-so.
-    const card = store.collections.cards.get("workflow-repo")
-    expect(card?.kind === "workflow-repo" && card.payload.chosen).toBeNull()
-    expect(double.calls.some((call) => call.path === "/api/workflow/provision")).toBe(false)
-    // The catalog never listed them either.
-    const listed = await controller.commands.executeForAgent({
-      name: "commands",
-      arguments: JSON.stringify({ action: "list" })
-    })
-    expect(listed).not.toContain("flow.repo.choose")
-    expect(listed).toContain("flow.run.stop")
+    const outcome = await controller.commands.run("flow.new", "summarize my open issues")
+    expect(outcome.status).toBe("executed")
+    expect(store.collections.cards.get("workflow-repo")).toBeUndefined()
+    expect([...store.collections.cards.values()].some(card => card.kind === "flow-form" && card.payload.flow === "flow.new")).toBe(true)
+    expect(double.state.launched).toEqual([])
+    expect(double.calls.some(call => call.path === "/api/workflow/provision")).toBe(false)
+    expect(await controller.chooseWorkflowRepo(OTHER_REPO)).toBe("This repository choice is retired.")
+    expect(double.state.launched).toEqual([])
   })
 })
 

@@ -912,40 +912,6 @@
 	flex: 1;
 	min-width: 0;
 }
-.workflow-repo-chooser {
-	display: flex;
-	flex-direction: column;
-	gap: 0.5rem;
-}
-.workflow-repo-list {
-	list-style: none;
-	margin: 0;
-	padding: 0;
-	display: flex;
-	flex-direction: column;
-	gap: 2px;
-}
-.workflow-repo-list:focus-visible {
-	outline: 2px solid var(--ring-border);
-	outline-offset: 2px;
-	border-radius: 8px;
-}
-.workflow-repo-row {
-	display: flex;
-	align-items: center;
-	width: 100%;
-	padding: 0.4375rem 0.5rem;
-	border: none;
-	border-radius: 8px;
-	background: transparent;
-	font: inherit;
-	font-weight: 600;
-	text-align: left;
-	cursor: pointer;
-}
-.workflow-repo-row[data-highlighted="true"] {
-	background: var(--hover);
-}
 
 /* Service health: status rows, not a bulleted list. */
 

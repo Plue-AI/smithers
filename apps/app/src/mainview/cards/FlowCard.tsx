@@ -4,11 +4,10 @@ import { ViewSkeleton } from "../ViewSkeleton"
 import { flowAction, flowProps } from "../flows/FlowAction"
 import { runSourceCommand } from "@smthrs/ui/run-command"
 import { Button, Markdown } from "@smthrs/ui"
-import { useId, useState, useSyncExternalStore, type KeyboardEvent } from "react"
+import { useSyncExternalStore } from "react"
 import type { Card } from "../state/AppState"
-import { rovingKeyDown } from "../RovingKeyDown"
 import type { CardFamily, CardOf, RunCommand } from "./CardFamily"
-import { defaultPill, settledPill } from "./CardFamily"
+import { settledPill } from "./CardFamily"
 import { flowArgs } from "../flows/FlowArgs"
 import type { ComponentType } from "react"
 import { type FlowCard as FlowModel, type FlowViewProps } from "@smthrs/rpc/FlowCard"
@@ -45,73 +44,6 @@ export const FlowCard = ({ model: source, allowed, dispatch, View = FlowView, vi
   const bindings = cardActions<"agent">(dispatch, definitions)
   return <View model={model} actions={bindings.actions} gestures={bindings.gestures} onAction={bindings.onAction} view={view} onView={onView} />
 }
-
-/*
- * Wave 12 §2 — which loaded repository. Embedded, keyboard-complete (arrows
- * move, Enter chooses), and one act: choosing IS the confirm, so the create
- * resumes immediately on the repo the human named.
- */
-const WorkflowRepoCardBody = ({
-  card,
-  onChooseWorkflowRepo
-}: {
-  readonly card: Extract<Card, { kind: "workflow-repo" }>
-  readonly onChooseWorkflowRepo: (fullName: string) => void
-}) => {
-  const optionId = useId()
-  const { repos, chosen, description } = card.payload
-  const [highlighted, setHighlighted] = useState(0)
-  const index = Math.min(highlighted, Math.max(repos.length - 1, 0))
-  if (chosen !== null) {
-    return <p className="smithers-card-note">Creating it on {chosen}.</p>
-  }
-  const onKeyDown = (event: KeyboardEvent<HTMLUListElement>): void => {
-    const move = rovingKeyDown(event.key, { count: repos.length, current: index })
-    if (move.kind === "move") {
-      event.preventDefault()
-      setHighlighted(move.index)
-      return
-    }
-    if (event.key === "Enter" || event.key === " ") {
-      event.preventDefault()
-      const repo = repos[index]
-      if (repo !== undefined) onChooseWorkflowRepo(repo)
-    }
-  }
-  return (
-    <div className="workflow-repo-chooser">
-      <p className="smithers-card-note">{description}</p>
-      <ul
-        className="workflow-repo-list"
-        role="listbox"
-        aria-label="Your loaded repositories"
-        aria-activedescendant={repos.length ? `${optionId}-${index}` : undefined}
-        tabIndex={0}
-        onKeyDown={onKeyDown}
-      >
-        {repos.map((repo, position) => (
-          <li key={repo}>
-            <button
-              type="button"
-              role="option"
-              id={`${optionId}-${position}`}
-              tabIndex={-1}
-              aria-selected={position === index}
-              data-highlighted={position === index}
-              className="workflow-repo-row"
-              {...flowProps("flow.repo.choose")}
-              onMouseEnter={() => setHighlighted(position)}
-              onClick={() => onChooseWorkflowRepo(repo)}
-            >
-              {repo}
-            </button>
-          </li>
-        ))}
-      </ul>
-    </div>
-  )
-}
-
 
 /*
  * The workspace's workflows (flow.list) — each row's Run is a command binding.
@@ -154,11 +86,7 @@ export const WorkflowListCardBody = ({
   )
 }
 
-export const workflowCardFamily: CardFamily<"workflow-repo" | "workflow-list"> = {
-  "workflow-repo": {
-    render: (card, actions) => <WorkflowRepoCardBody card={card} onChooseWorkflowRepo={actions.onChooseWorkflowRepo} />,
-    pill: defaultPill
-  },
+export const workflowCardFamily: CardFamily<"workflow-list"> = {
   "workflow-list": {
     render: (card, actions) => <WorkflowListCardBody card={card} onRunCommand={actions.onRunCommand} />,
     pill: settledPill

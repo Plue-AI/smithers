@@ -59,7 +59,6 @@ const USER_ONLY_ALLOWLIST: Readonly<Record<string, string>> = {
   "stop": "stopping the model's own turn is the human's Escape key",
   "chat.copy-message": "the clipboard write is the human's browser gesture",
   "wiki.pane": "a surface switch; the model reads the wiki with wiki and wiki.cloud, which answer as embedded cards",
-  "flow.repo.choose": "the answer to the which-repository card is the human's choice; a model must not provision on its guess",
   "card.maximize": "maximizing a card is the human's explicit act (THE EMBED LAW)",
   "card.minimize": "minimizing a card is the human's explicit act",
   "frame.back": "frame navigation is the human's browser gesture",
