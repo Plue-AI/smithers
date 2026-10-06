@@ -5,4 +5,5 @@ pub mod burst;
 pub mod credit;
 pub mod doc;
 pub mod outbox_store;
+pub mod moved_off;
 pub mod stream;
