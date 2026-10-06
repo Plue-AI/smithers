@@ -45,7 +45,7 @@ func TestMembersMakeTodosFromIssuesThroughTheApp(t *testing.T) {
 		require.NoError(t, err)
 		_, err = q.CreateAuthSession(ctx, db.CreateAuthSessionParams{SessionKey: login + "-session", UserID: id, Username: login, ExpiresAt: time.Now().Add(time.Hour)})
 		require.NoError(t, err)
-		return middleware.ContextWithAuthInfo(ctx, &middleware.AuthInfo{User: &db.User{ID: id}, SessionHash: login + "-session"})
+		return registerTestInstallCredential(t, f.pool, middleware.ContextWithAuthInfo(ctx, &middleware.AuthInfo{User: &db.User{ID: id}, SessionHash: login + "-session"}), f.repoID)
 	}
 	alice, ben := person("alice", "write"), person("ben", "admin")
 	commit := func(as context.Context, number int64, title, body, key string) (MythicalItemView, error) {
