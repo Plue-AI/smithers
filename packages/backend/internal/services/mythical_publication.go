@@ -730,14 +730,18 @@ func (st *mythicalItemStep) appSettle(ctx context.Context, item db.MythicalItem,
 		return next, nil
 	}
 	if op.Kind == "body" {
-		// Lookup found the body written: it is the one Smithers last wrote,
-		// and it carries the current head's verdict.
+		// Lookup confirms the old digest, even if a newer verdict arrived
+		// while its response was held. Only that matching verdict is posted.
 		next := item
 		checks := mythicalChecksOf(next)
 		checks.PRBody = op.Desired
 		checks.PRBodyDeclined = ""
 		if checks.Review != nil && checks.Review.Head == next.PRHead {
-			checks.Review.Posted = true
+			shape, err := st.acceptedShape(ctx, item, checks.Branch)
+			if err == nil {
+				_, body, renderErr := shape.render()
+				checks.Review.Posted = renderErr == nil && mythicalBodyDigest(body) == op.Desired
+			}
 		}
 		next.Checks = checks.encode()
 		return next, nil

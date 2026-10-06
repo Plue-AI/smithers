@@ -2591,6 +2591,70 @@ paths:
           description: No such branch
         '503':
           description: Branch machines unavailable
+    post:
+      x-composition: install
+      summary: Answer an outside push to a TODO branch
+      operationId: post_api_branches_b
+      tags:
+        - Branches
+      description: Discard requires a maintainer browser session. Bring in retains the hold until the machine checkpoint provider is available. The wait id and revision bind the answer to the displayed commit. Repeated identical requests return the durable receipt.
+      security:
+        - sessionCookie: []
+      parameters:
+        - in: path
+          name: b
+          required: true
+          schema:
+            type: string
+        - in: header
+          name: Idempotency-Key
+          required: true
+          schema:
+            type: string
+            minLength: 1
+            maxLength: 256
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [op, id, revision]
+              properties:
+                op:
+                  type: string
+                  enum: [bring-in, discard-foreign]
+                id:
+                  type: string
+                revision:
+                  type: string
+                  pattern: '^[a-f0-9]{40}$'
+      responses:
+        '202':
+          description: Decision recorded
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  state:
+                    type: string
+                    enum: [accepted]
+                  n:
+                    type: integer
+        '400':
+          description: Invalid answer or missing Idempotency-Key
+        '401':
+          description: No person session
+        '403':
+          description: Not permitted
+        '404':
+          description: No TODO on this branch
+        '409':
+          description: Stale or settled wait, changed request, or publication recovering
+        '503':
+          description: Checkpoint rebase or required provider unavailable
   /api/branches/{b}/diff:
     get:
       x-composition: install

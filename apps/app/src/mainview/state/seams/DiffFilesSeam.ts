@@ -10,12 +10,12 @@ import { encodeRepoPath,unsafePath } from "./FilesSeam"
 import type { SeamContext } from "./SeamContext"
 import { readErrorMessage,readResult } from "./SeamContext"
 
-export const createDiffFilesSeam = (ctx: SeamContext, options?: BranchFileOptions, files?: BranchFileOperations, scratchDiff?: (branch: string) => Promise<string | undefined>) => {
+export const createDiffFilesSeam = (ctx: SeamContext, options?: BranchFileOptions, files?: BranchFileOperations, installDiff?: (branch: string) => Promise<string | undefined>) => {
   let generation = 0
   const watches = new Map<string, () => void>()
   options?.onDispose?.(() => { for (const stop of watches.values()) stop(); watches.clear(); generation++ })
   const branchDiff = async (branch = options?.scope()?.branch) => {
-    if (scratchDiff && branch?.startsWith("scratch/")) return scratchDiff(branch)
+    if (installDiff && branch && (!options || branch.startsWith("scratch/"))) return installDiff(branch)
     if (!options || BRANCH_FILE_PROVIDERS.some(provider => !options.ready(provider))) return "Branch files are unavailable."
     const scope = options.scope()
     if (!scope || !branch || scope.branch !== branch || !scope.member) return "Branch access was removed."
@@ -91,23 +91,26 @@ export const createDiffFilesSeam = (ctx: SeamContext, options?: BranchFileOption
 const Result = z.object({ files: z.array(DiffCardSchema) })
 
 /** One persisted request owns the read, its card and its debounced toast. */
-export const createScratchDiffReader = (ctx: ControllerContext) => {
+export const createBranchDiffReader = (ctx: ControllerContext) => {
   const running = new Set<string>()
-  const current = (id: string, request: string) => {
+  const watches = new Map<string, () => void>()
+  const changed = new Set<string>()
+  const current = (id: string, request: string, epoch: number) => {
     const card = ctx.store.collections.cards.get(id)
-    return !ctx.disposed && card?.kind === "diff" && card.payload.branchDiffRequest === request ? card : undefined
+    return !ctx.disposed && ctx.accountEpoch === epoch && card?.kind === "diff" && card.payload.branchDiffRequest === request ? card : undefined
   }
   const launch = (card: Extract<Card, { kind: "diff" }>) => {
     const request = card.payload.branchDiffRequest, branch = card.payload.branchDiffSource
     if (!request || !branch || !card.payload.branchDiffPending || running.has(request)) return
     running.add(request)
-    void ctx.withToast(`scratch-diff.${request}`, card.title, card.title, async () => {
+    const epoch = ctx.accountEpoch
+    void ctx.withToast(`branch-diff.${request}`, card.title, card.title, async () => {
       let failure = "Diff unavailable"
       try {
         const response = await ctx.http(`${ctx.baseUrl.replace(/\/$/, "")}/api/branches/${encodeURIComponent(branch)}/diff`, { credentials: "same-origin" })
         const body: unknown = await response.json()
         const parsed = response.ok ? Result.safeParse(body) : undefined
-        const latest = current(card.id, request)
+        const latest = current(card.id, request, epoch)
         if (!latest) return true
         if (parsed?.success && parsed.data.files.every(file => file.branch === branch && !unsafePath(file.path) && (!file.renamed_to || !unsafePath(file.renamed_to)))) {
           await ctx.store.dispatch({ type: "card.upsert", actor: "system", card: { ...latest, status: "active",
@@ -116,32 +119,50 @@ export const createScratchDiffReader = (ctx: ControllerContext) => {
         }
         if (body && typeof body === "object" && "message" in body && typeof body.message === "string") failure = body.message
       } catch { /* The persisted request retains a retryable failure. */ }
-      const latest = current(card.id, request)
+      const latest = current(card.id, request, epoch)
       if (latest) await ctx.store.dispatch({ type: "card.upsert", actor: "system", card: { ...latest, status: "error",
         payload: { ...latest.payload, branchDiffPending: false, error: failure } } }).isPersisted.promise
       return failure
-    }, false, () => current(card.id, request) !== undefined, card.id).finally(() => running.delete(request))
+    }, false, () => current(card.id, request, epoch) !== undefined, card.id).finally(() => {
+      running.delete(request)
+      if (current(card.id, request, epoch) && changed.delete(branch)) void readBranchDiff(branch)
+    })
   }
   const resume = () => {
     if (ctx.disposed || ctx.store.collections.identitySessions.get("identity")?.state !== "signed-in") return
     for (const card of ctx.store.collections.cards.values()) if (card.kind === "diff") launch(card)
   }
   const subscription = ctx.store.collections.identitySessions.subscribeChanges(() => queueMicrotask(resume))
-  ctx.onDispose(() => { subscription.unsubscribe() })
+  ctx.onDispose(() => { subscription.unsubscribe(); for (const stop of watches.values()) stop(); watches.clear() })
   queueMicrotask(resume)
-  return {
-    readScratchDiff: async (branch: string): Promise<string | undefined> => {
-      branch = branch.trim()
-      if (!branch.startsWith("scratch/")) return "Choose a scratch branch"
-      const id = `diff-branch-${branch}`
-      const existing = ctx.store.collections.cards.get(id)
-      if (existing?.kind === "diff" && existing.payload.branchDiffPending) { launch(existing); return }
-      const card: Extract<Card, { kind: "diff" }> = { id, kind: "diff", title: `Diff · ${branch}`, status: "active",
-        createdAt: existing?.createdAt ?? Date.now(), ordinal: existing?.ordinal ?? ctx.store.nextOrdinal(),
-        payload: { repo: "", changeId: branch, from: "fork", to: "current", pin: { changeId: branch, seq: null, commitId: null }, files: [], branchFiles: [],
-          branchDiffSource: branch, branchDiffRequest: randomUuid(), branchDiffPending: true } }
-      await ctx.store.dispatch({ type: "card.upsert", actor: ctx.commandActor, card }).isPersisted.promise
-      launch(card)
+  const readBranchDiff = async (branch: string): Promise<string | undefined> => {
+    branch = branch.trim()
+    if (!branch || unsafePath(branch) || branch.startsWith("/") || branch.endsWith("/")) return "Choose a branch"
+    if (ctx.services.live && !watches.has(branch)) {
+      const topics = ctx.services.live
+      const topic = `branch:${branch}:files`
+      topics.registerProjection?.(topic, projectBranchFiles)
+      let cursor = topics.getSnapshot(topic)?.cursor
+      watches.set(branch, topics.subscribe(topic, () => {
+        const snapshot = topics.getSnapshot(topic)
+        if (!snapshot || snapshot.error || snapshot.cursor === cursor) return
+        cursor = snapshot.cursor
+        if (ctx.store.collections.identitySessions.get("identity")?.state !== "signed-in") return
+        const existing = ctx.store.collections.cards.get(`diff-branch-${branch}`)
+        if (existing?.kind !== "diff") return
+        if (existing.payload.branchDiffPending) changed.add(branch)
+        else void readBranchDiff(branch)
+      }))
     }
+    const id = `diff-branch-${branch}`
+    const existing = ctx.store.collections.cards.get(id)
+    if (existing?.kind === "diff" && existing.payload.branchDiffPending) { launch(existing); return }
+    const card: Extract<Card, { kind: "diff" }> = { id, kind: "diff", title: `Diff · ${branch}`, status: "active",
+      createdAt: existing?.createdAt ?? Date.now(), ordinal: existing?.ordinal ?? ctx.store.nextOrdinal(),
+      payload: { repo: "", changeId: branch, from: branch.startsWith("scratch/") ? "fork" : "item", to: "current", pin: { changeId: branch, seq: null, commitId: null }, files: [], branchFiles: existing?.kind === "diff" ? existing.payload.branchFiles ?? [] : [],
+        branchDiffSource: branch, branchDiffRequest: randomUuid(), branchDiffPending: true } }
+    await ctx.store.dispatch({ type: "card.upsert", actor: ctx.commandActor, card }).isPersisted.promise
+    launch(card)
   }
+  return { readBranchDiff }
 }

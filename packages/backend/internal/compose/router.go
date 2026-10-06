@@ -1014,6 +1014,7 @@ func buildRouter(
 			}
 			if extras.Mythical != nil {
 				branches.Forks, _ = extras.Mythical.Service.(routes.BranchForkService)
+				branches.Answers, _ = extras.Mythical.Service.(routes.BranchAnswerService)
 			}
 			routes.RegisterBranchRoutes(r, branches)
 			files := &routes.BranchFileHandler{Branches: branches.Reads}

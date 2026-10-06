@@ -22,8 +22,7 @@ bound to the TODO's recorded branch. Seeing that head does not open a foreign
 hold or acknowledge the outbound operation; reconciliation still owns settlement.
 Malformed or unbound pending push evidence refuses classification. The existing
 pull follower honors both this decision and terminal no-ops, preserving earlier
-holds, independent waits, pause and failure facts. The install's transactional
-ref consumer and bound foreign-push answers remain unqualified.
+holds, independent waits, pause and failure facts. The install registers its transactional TODO ref consumer on the shared fetched delivery boundary.
 
 Persisted foreign-push waits retain their `sha` and `by` in both TODO card
 reads and unrelated question settlement. Historical waits without these fields
@@ -35,7 +34,7 @@ When no matching pusher is available, it reads the exact commit's GitHub author.
 Failed reads, changed pagination sources and unlinked authors leave attribution
 unavailable. The TODO ref consumer uses an installation token restricted to the immutable
 repository id and `contents: read`; it requests no member credential or push
-permission. Production registration remains disabled.
+permission. The install polling composition registers this consumer; unavailable credentials or repository providers retain the observation for retry.
 
 Outside-commit retention uses the existing restricted smart-HTTP bridge to
 create `refs/smithers/kept/<sha>` in the host store. Only a control-plane write
@@ -64,10 +63,9 @@ never repeats that conflicted intent. A changed branch waits for a fresh refs
 observation, even if it moved back to the old precondition. The next verified
 proposal uses the newly recorded head as its force-with-lease precondition.
 
-This consumer remains unregistered in production. Main-ref effects and the
-complete refs consumer still require qualification.
+Main-ref effects remain owned by the existing main-sync integration.
 
-Bring in and Discard remain unavailable until the shared authorization, confirmation, catalog and checkpoint contracts pass their production boundary tests. Their exact command names, `branch.bring-in` and `branch.discard-foreign`, are reserved to the install. Repository versions cannot activate or resolve under those names, including historical Active rows; flow-load retires those rows while retaining their history. No repository code runs on the host to bring in a commit. The eventual branch answer input is `{id, revision}`: the foreign wait id and its displayed `sha`, with an `Idempotency-Key`; a newer head requires a new decision.
+A maintainer can Discard through `POST /api/branches/{b}` with `{"op":"discard-foreign","id":"<wait id>","revision":"<displayed sha>"}` and `Idempotency-Key`. The install rechecks roster authority in the transaction, rejects stale or settled waits, preserves other waits, pause and failure, and records the observed head as the next verified push's force-with-lease precondition. Retention happened before the wait became visible; the decision activity links its immutable kept ref. Repeating the same request returns its receipt. A pending ambiguous publication must recover before Discard can settle. Bring in remains held until the machine checkpoint rebase provider is available; it never uses host-side integration. Agent answer requests remain refused until the shared confirmation/catalog dispatch is composed. Their exact command names, `branch.bring-in` and `branch.discard-foreign`, are reserved to the install. Repository versions cannot activate or resolve under those names, including historical Active rows; flow-load retires those rows while retaining their history. No repository code runs on the host to bring in a commit. The branch answer input is `{id, revision}`: the foreign wait id and its displayed `sha`, with an `Idempotency-Key`; a newer head requires a new decision.
 
 ## Polling transport
 

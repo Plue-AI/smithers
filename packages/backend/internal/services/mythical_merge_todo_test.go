@@ -1967,3 +1967,75 @@ func TestMythicalMergeTodoProjectionDuringTheClaimDoesNotDeadlock(t *testing.T) 
 	require.Len(t, h.merges(), 1, "the claim is not ended as a deadlock: one merge")
 	assert.Equal(t, "run-projected", h.item(n).RequestRunID, "the projection's write is kept")
 }
+
+// The only unknown dispatch eligible for one fresh decision is a new claim
+// whose process never recorded a returned request. Current authority, the
+// reviewed head, the approval and the live stack lease still gate that retry.
+func TestMythicalMergeTodoUnansweredRecoveryGuards(t *testing.T) {
+	for _, changed := range []string{"revoked", "missing approval", "stale head", "competing lease", "missing decision"} {
+		t.Run(changed, func(t *testing.T) {
+			h := newMergeHarness(t)
+			n, head, _ := h.first("Unanswered guard")
+			require.NoError(t, h.press(h.ctx, n, head))
+			item := h.item(n)
+			op := h.operation(n)
+			op.State = "unknown"
+			item.PendingOp, _ = json.Marshal(op)
+			checks := mythicalChecksOf(item)
+			checks.Land.Unanswered = true
+			item.Checks = checks.encode()
+			_, err := h.q.SaveMythicalItem(context.Background(), item)
+			require.NoError(t, err)
+			switch changed {
+			case "revoked":
+				h.exec(`DELETE FROM auth_sessions WHERE session_key=$1`, h.session)
+			case "missing approval":
+				h.exec(`UPDATE mythical_items SET checks=checks-'land' WHERE id=$1`, item.ID)
+			case "stale head":
+				h.push(n, "a person's new head\n")
+			case "competing lease":
+				claims, err := h.q.ClaimMythicalStacks(context.Background(), 1, 600)
+				require.NoError(t, err)
+				require.Len(t, claims, 1)
+			case "missing decision":
+				h.service.outbound.MergeDecision = nil
+			}
+			h.pass()
+			h.pass()
+			require.Empty(t, h.merges(), "an unanswered claim grants no fresh merge authority")
+			if changed != "stale head" {
+				require.Equal(t, "unknown", h.operation(n).State, "uncertainty and fence survive refusal")
+			} else {
+				require.Empty(t, h.item(n).PendingOp, "the old head can no longer merge")
+			}
+		})
+	}
+}
+
+func TestMythicalMergeTodoUnansweredRecoveryIsBounded(t *testing.T) {
+	h := newMergeHarness(t)
+	n, head, pr := h.first("Bounded recovery")
+	require.NoError(t, h.press(h.ctx, n, head))
+	item := h.item(n)
+	op := h.operation(n)
+	op.State = "unknown"
+	item.PendingOp, _ = json.Marshal(op)
+	checks := mythicalChecksOf(item)
+	checks.Land.Unanswered = true
+	item.Checks = checks.encode()
+	_, err := h.q.SaveMythicalItem(context.Background(), item)
+	require.NoError(t, err)
+	h.fake.DelayNextMerge("rehearsal-owner/app", pr)
+	h.pass()
+	require.Len(t, h.merges(), 1, "one freshly decided recovery request")
+	require.False(t, mythicalChecksOf(h.item(n)).Land.Unanswered, "the recovery claim consumes its allowance")
+	h.pass()
+	h.pass()
+	require.Len(t, h.merges(), 1, "a delayed recovery is never repeated")
+	require.Equal(t, "unknown", h.operation(n).State)
+	h.fake.CompleteDelayedMerges()
+	h.pass()
+	require.Empty(t, h.item(n).PendingOp)
+	require.Equal(t, "landed", h.item(n).State)
+	require.Len(t, h.merges(), 1)
+}

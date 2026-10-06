@@ -2746,7 +2746,6 @@ func (st *mythicalItemStep) propose(ctx context.Context, item db.MythicalItem) (
 	if err := s.pin(ctx, r, commit); err != nil {
 		return mythicalInfraOutage(item, "github", err.Error(), st.now), nil
 	}
-	op := mythicalProposalOp{Branch: branch, Expected: item.PRHead, Head: commit}
 	pending, _ := json.Marshal(MythicalOutboundOp{Kind: "push", Target: branch, Desired: commit, Precondition: item.PRHead, State: "intended"})
 	next.PendingOp = pending
 	// The first intent records the slug branch: the TODO's GitHub identity
@@ -2758,27 +2757,32 @@ func (st *mythicalItemStep) propose(ctx context.Context, item db.MythicalItem) (
 	if err != nil {
 		return nil, err
 	}
-	next = saved
-	pending, _ = json.Marshal(MythicalOutboundOp{Kind: "push", Target: branch, Desired: commit, Precondition: item.PRHead, State: "unknown"})
-	next.PendingOp = pending
-	next, err = st.q.SaveMythicalItemUnderLease(ctx, next, r.row.Claim)
-	if err != nil {
-		return nil, err
+	// Fresh dispatch follows the same lookup/send/settle path as restart.
+	// A successful transport response alone never clears the durable slot.
+	sent, err := st.recoverOutbound(ctx, saved)
+	if err == nil && sent != nil && len(sent.PendingOp) > 0 {
+		sent, err = st.recoverOutbound(ctx, *sent)
 	}
-	if err := st.pushProposal(ctx, next, gh, op); err != nil {
+	if err != nil {
+		// Recovery may have committed the potentially-sent version before
+		// the error. Never project a retry using the earlier intended version.
+		latest, loadErr := st.q.GetMythicalItem(ctx, saved.ID)
+		if loadErr != nil {
+			return nil, loadErr
+		}
+		if latest.State == "cancelled" || latest.State == "dropped" {
+			return &latest, nil
+		}
 		var foreign *mythicalForeignHead
 		if errors.As(err, &foreign) {
-			return st.holdForeignHead(next, foreign), nil
+			return st.holdForeignHead(latest, foreign), nil
 		}
-		// The slot stays unknown: a response lost after GitHub applied the
-		// push is settled by lookup on the next pass, never by a second push.
-		return mythicalInfraOutage(next, "github", "the proposal push did not finish; retrying", st.now), nil
+		return mythicalInfraOutage(latest, "github", "the proposal push did not finish; retrying", st.now), nil
 	}
-	next.PRHead, next.PendingOp = commit, nil
-	next, err = st.q.SaveMythicalItemUnderLease(ctx, next, r.row.Claim)
-	if err != nil {
-		return nil, err
+	if sent == nil || len(sent.PendingOp) > 0 {
+		return sent, nil
 	}
+	next = *sent
 	return st.openPull(ctx, next, gh, branch)
 }
 
@@ -2810,8 +2814,9 @@ type mythicalForeignHead struct {
 }
 
 // consumeGitHubRefTodos is the TODO portion of the existing refs delivery.
-// It remains unregistered until the complete refs consumer and its providers
-// qualify. Its caller commits these effects with the fetched acknowledgement.
+// Install polling registers it on the shared fetched delivery boundary. Its
+// caller commits these effects with the fetched acknowledgement; unavailable
+// providers leave the observation pending for recovery.
 // Main observations continue to belong to the main-sync integration.
 func (s *MythicalService) consumeGitHubRefTodos(ctx context.Context, tx pgx.Tx, fact gitHubFetchedObject) (json.RawMessage, error) {
 	if s == nil || !s.installGitHubPolling || s.installGitHubSync == nil || s.host == nil || fact.Resource != gitHubRefs {
@@ -3064,6 +3069,103 @@ func (e *mythicalForeignHead) Error() string {
 	return "the pull request branch " + e.Branch + " moved outside Smithers"
 }
 
+// AnswerBranch binds a person's decision to the foreign wait displayed on the
+// card. Detection already retained that exact commit at its immutable kept ref.
+// Discard changes only the publication lease, never the candidate or other waits.
+func (s *MythicalService) AnswerBranch(ctx context.Context, branch string, input TodoControlInput) (TodoControlReceipt, error) {
+	if err := middleware.RequirePerson(ctx, "answer an outside push"); err != nil {
+		return TodoControlReceipt{}, err
+	}
+	if input.Op != "bring-in" && input.Op != "discard-foreign" || !mythicalTodoBranchValid(branch) || input.Wait == "" || len(input.Wait) > 128 || !mythicalSHA.MatchString(input.Revision) || strings.Trim(input.Revision, "0") == "" {
+		return TodoControlReceipt{}, &TodoControlError{400, "invalid_branch_answer", "user", "Invalid branch answer"}
+	}
+	if s == nil || s.store == nil {
+		return TodoControlReceipt{}, todoControlUnavailable()
+	}
+	var receipt TodoControlReceipt
+	err := pgx.BeginFunc(ctx, s.store, func(tx pgx.Tx) error {
+		q := db.New(tx)
+		person, credential, err := lockTodoRequest(ctx, tx, q, "branch."+input.Op, input)
+		if err != nil {
+			return err
+		}
+		items, err := q.ListMythicalGitHubBranchItems(ctx, input.Repository)
+		if err != nil {
+			return err
+		}
+		var item db.MythicalItem
+		for _, candidate := range items {
+			if mythicalChecksOf(candidate).Todo && mythicalChecksOf(candidate).Branch == branch {
+				if item.ID.Valid {
+					return todoControlConflict("Branch has more than one TODO")
+				}
+				item = candidate
+			}
+		}
+		if !item.ID.Valid {
+			return &TodoControlError{404, "todo_not_found", "user", "TODO not found"}
+		}
+		operation := "todo.foreign_" + input.Op
+		if prior, found, err := todoControlReplay(ctx, tx, q, item, input, credential, operation); found || err != nil {
+			receipt = prior
+			return err
+		}
+		if item.State == "landed" || item.State == "cancelled" || item.State == "rejected" || item.State == "declined" || mythicalMergeFenced(item) {
+			return todoControlConflict("TODO is settled or merging")
+		}
+		checks := mythicalChecksOf(item)
+		index := -1
+		for i, wait := range checks.Waits {
+			if wait.ID == input.Wait && wait.Kind == "foreign_push" {
+				index = i
+			}
+		}
+		if index < 0 {
+			return todoControlConflict("Outside push changed; refresh the TODO")
+		}
+		wait := &checks.Waits[index]
+		if wait.SettledAt != nil || wait.SHA != input.Revision || checks.ForeignHead != input.Revision {
+			return todoControlConflict("Outside push changed; refresh the TODO")
+		}
+		if input.Op == "bring-in" {
+			// No host integrate/rebaseCandidate fallback. The checkpoint provider
+			// must deliver the pinned commit to the current machine-bound run.
+			return &TodoControlError{503, "checkpoint_rebase_unavailable", "infra", "Checkpoint rebase unavailable"}
+		}
+		if len(item.PendingOp) > 0 {
+			pending, err := decodeMythicalOutbound(item.PendingOp)
+			if err != nil {
+				return err
+			}
+			if pending.State != "done" && pending.State != "conflict" {
+				return todoControlConflict("Publication is recovering; try again")
+			}
+		}
+		now := s.now().UTC()
+		wait.SettledAt, wait.AnsweredBy, wait.Answer = &now, person.Username, input.Op
+		checks.ForeignHead = ""
+		next := item
+		next.PRHead, next.PendingOp, next.Checks = input.Revision, nil, checks.encode()
+		saved, err := q.SaveMythicalItem(ctx, next)
+		if err != nil {
+			return err
+		}
+		receipt = TodoControlReceipt{State: "accepted", Number: saved.Number.Int64}
+		fact := map[string]any{"item": uuidString(item.ID), "n": item.Number.Int64, "wait": input.Wait,
+			"sha": input.Revision, "by": wait.By, "kept": repohost.KeptCommitRefPrefix + input.Revision,
+			"actor": map[string]any{"kind": "person", "id": person.ID, "login": person.Username}, "from": todoState(item), "to": todoState(saved)}
+		if err := recordTodoControl(ctx, tx, saved, input, credential, operation, receipt, fact); err != nil {
+			return err
+		}
+		if _, err := q.RequestMythicalStack(ctx, input.Repository); err != nil {
+			return err
+		}
+		notification, _ := json.Marshal(map[string]any{"kind": "item", "itemId": uuidString(item.ID)})
+		return q.NotifyMythical(ctx, input.Repository, string(notification))
+	})
+	return receipt, err
+}
+
 // pendingGitHubPushHead supplies the shared fact decision with the head of
 // this branch's recoverable push. A malformed intent is unavailable evidence,
 // not proof that a fetched head belongs to someone else.
@@ -3175,19 +3277,22 @@ func (st *mythicalItemStep) openPull(ctx context.Context, item db.MythicalItem, 
 		if err != nil {
 			return nil, err
 		}
-		op.State = "unknown"
-		next.PendingOp, _ = json.Marshal(op)
-		next, err = st.q.SaveMythicalItemUnderLease(ctx, next, r.row.Claim)
+		// The first dispatch and a restarted dispatch use the same slot worker.
+		sent, err := st.recoverOutbound(ctx, next)
+		if err == nil && sent != nil && len(sent.PendingOp) > 0 {
+			sent, err = st.recoverOutbound(ctx, *sent)
+		}
 		if err != nil {
-			return nil, err
+			latest, loadErr := st.q.GetMythicalItem(ctx, next.ID)
+			if loadErr != nil {
+				return nil, loadErr
+			}
+			if latest.State == "cancelled" || latest.State == "dropped" {
+				return &latest, nil
+			}
+			return mythicalInfraOutage(latest, "github", "the pull request could not be opened: "+err.Error(), st.now), nil
 		}
-
-		if err := st.createPull(ctx, next, gh, branch); err != nil {
-			return mythicalInfraOutage(next, "github", "the pull request could not be opened: "+err.Error(), st.now), nil
-		}
-		// Even a successful response reconciles the durable slot. Projection
-		// must retain any Drop that committed while CreatePull was in flight.
-		return st.recoverOutbound(ctx, next)
+		return sent, nil
 	}
 	bound, err := st.bindPull(ctx, next, gh, branch, *pull)
 	if err != nil {
@@ -3379,7 +3484,9 @@ func (st *mythicalItemStep) follow(ctx context.Context, item db.MythicalItem) (*
 	answered := mythicalChecksOf(next)
 	if mythicalDroppedPull(item) && answered.GitHubClosedAt == nil {
 		at := mythicalGitHubClosedAt(item)
-		answered.GitHubClosedAt = &at
+		if !at.IsZero() {
+			answered.GitHubClosedAt = &at
+		}
 	}
 	// A person may mark a later PR ready or draft on GitHub: the card shows
 	// GitHub's flag as read, with no corrective write (§12.5.1).
@@ -3437,7 +3544,7 @@ func (st *mythicalItemStep) follow(ctx context.Context, item db.MythicalItem) (*
 		next.PRState, next.State, next.Reason = "open", "proposed", ""
 		answered.GitHubClosedAt = nil
 		next.Checks = answered.encode()
-	case decision.Noop == "terminal" || decision.Noop == "own_push" || mythicalSettledStates[item.State]:
+	case decision.Noop == "terminal" || decision.Noop == "own_push" || decision.Noop == "reopen_window_expired" || mythicalSettledStates[item.State]:
 		// Only outbound reconciliation records an acknowledged own push.
 		// A matching read cannot settle an existing foreign-push hold, and a
 		// settled item cannot rebuild after Drop removes its old position.

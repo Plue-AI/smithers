@@ -23,6 +23,8 @@ type TodoControlInput struct {
 	Op        string  `json:"op"`
 	Steer     *string `json:"steer,omitempty"`
 	Direction string  `json:"direction,omitempty"`
+	Wait      string  `json:"id,omitempty"`
+	Revision  string  `json:"revision,omitempty"`
 	// Repository, Actor and Request are never read from the body.
 	Repository int64  `json:"-"`
 	Actor      int64  `json:"-"`
