@@ -20,7 +20,7 @@ export const Output = Schema.Struct({
   repository: Text, todo: Todo, run: Text,
   pages: Schema.Array(Schema.Struct({ title: Text, body: Text })),
   proposals: Schema.Array(Schema.Struct({
-    signature: Text, title: Text, evidence: Schema.Array(Text), todos: Schema.Array(Todo), prompt: Text
+    signature: Text, title: Text, evidence: Schema.Array(Text), todos: Schema.Array(Todo), prompt: Text, diff: Schema.optional(Schema.String)
   }))
 })
 export type Output = typeof Output.Type

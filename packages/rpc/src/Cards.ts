@@ -1,3 +1,4 @@
+import { ProposalCardSchema } from "./ProposalCard.ts"
 import { LegacySecretMetadataSchema, SecretsCardSchema } from "./SecretsCard.ts"
 /**
  * Cards rendered from agent, code-intelligence, and repository events.
@@ -834,6 +835,11 @@ const CurrentCardSchema = z.discriminatedUnion("kind", [
   /* Confirm (card-kinds.md Confirm, T-APP-04): A✓ or Review & merge, private to the person who presses it; the card file reads its subject. */
   z.object({ ...cardBaseShape, kind: z.literal("confirm"), audience_member_id: z.string().nullable(), payload: z.object({ id: z.string() }) }),
   /* L5 subject references: the Run card (T-FLW-07) names its run; the Flow card (T-APP-05) its flow and chosen version. */
+  z.object({ ...cardBaseShape, kind: z.literal("proposal"), payload: z.object({
+    id: z.string(), model: ProposalCardSchema.optional(),
+    request: z.object({ action: z.enum(["accept", "dismiss"]), owner: z.string(),
+      state: z.enum(["pending", "failed"]), error: z.string().optional() }).optional()
+  }) }),
   z.object({ ...cardBaseShape, kind: z.literal("run"), payload: z.object({ id: z.string() }) }),
   z.object({ ...cardBaseShape, kind: z.literal("flow"), payload: z.object({ name: z.string(), version: z.string().optional(), memberVersions: z.record(z.string(), z.string()).optional(), proposal: z.object({ request: z.string(), diff: z.string() }).optional() }) }),
   /* card-kinds.md L5: subject-only kinds; the card file reads its data (T-APP-03, T-APP-06, T-UI-14). */

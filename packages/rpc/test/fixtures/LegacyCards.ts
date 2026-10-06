@@ -2,6 +2,8 @@
  * @since 1.0.0
  */
 export const legacyCards = [
+  { row: { id: "proposal:lint", title: "Run lint", status: "active", createdAt: 0, ordinal: 0, kind: "proposal", payload: { id: "lint" } },
+    expectedKind: "proposal", expectedTitle: "Run lint", expectedWas: null },
   {
     row: { id: "saved-setup", title: "Set up Smithers", status: "active", createdAt: 0, ordinal: 0, kind: "setup", payload: {} },
     expectedKind: "setup", expectedTitle: "Set up Smithers", expectedWas: null

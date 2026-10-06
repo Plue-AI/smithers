@@ -1,5 +1,7 @@
 import { contextMonitor } from "./ContextMonitor"
 import type { MonitorCard } from "@smthrs/rpc/MonitorCard"
+import { designProposalCard } from "./seams/DesignWorld/proposal"
+import { createProposalSeam, type ProposalSeam } from "./seams/ProposalSeam"
 import { FileDocuments } from "../runtime/FileDocuments"
 import type { DocumentPrerequisites } from "../runtime/LiveDocProvider"
 import type { LiveChannel } from "../runtime/LiveChannel"
@@ -508,6 +510,7 @@ export interface AppController extends IssueFlowsController {
   readonly draftImagePackage: TodoSeam["draftImagePackage"]
   readonly discardForeign: TodoSeam["discardForeign"]
   readonly controlTodo: TodoSeam["controlTodo"]
+  readonly resolveProposal: ProposalSeam["resolveProposal"]
   /** Move up or Move down on Tn: the seed's, or this host's POST /api/todos/{n} {op: move}. */
   readonly moveTodo: TodoSeam["moveTodo"]
   readonly refreshWiki: StackSeam["refreshWiki"]
@@ -1011,6 +1014,25 @@ export const createAppController = (
     return !model.success || model.data.n !== n || !model.data.branch
       ? { error: "Branch files are unavailable." } as const : { branch: model.data.branch.id } as const
   }
+  const proposalSource = installHost ? todoSource : todoSourceProbe(seamCtx, services.bootstrap !== undefined, "/api/proposals")
+  const proposalSeam = actors.pair(seamCtx, context => {
+    const real = createProposalSeam(context)
+    return { ...real, resolveProposal: async (id: string, action: "accept" | "dismiss") => {
+      if (design.enabled && await proposalSource.ask() === "seed") {
+        const before = design.world(), seed = before.proposals.find(row => row.id === id)
+        const result = action === "accept" ? design.proposalTodo(id, design.viewer()) : design.dismissProposal(id)
+        const card = store.collections.cards.get(`proposal:${id}`)
+        if (result.ok && seed && card?.kind === "proposal") {
+          const after = design.world(), current = after.proposals.find(row => row.id === id)
+          const model = action === "dismiss" ? { ...designProposalCard(before, seed), state: "dismissed" as const }
+            : designProposalCard(after, current ?? seed)
+          await context.dispatch({ type: "card.upsert", actor: context.actor(), card: { ...card, payload: { ...card.payload, model } } }).isPersisted.promise
+        }
+        return result.ok ? { value: result.ack } : result.refusal
+      }
+      return real.resolveProposal(id, action)
+    } }
+  })
   const todoSeam = actors.pair(seamCtx, context => withDesignTodos(createTodoSeam(context, { sourceAvailable: async path => {
     try {
       const response = await context.http(`${baseUrl.replace(/\/$/, "")}/api/branches/main/files/${path.split("/").map(encodeURIComponent).join("/")}`, { credentials: "include" })
@@ -2014,6 +2036,7 @@ export const createAppController = (
     draftImagePackage: todoSeam.draftImagePackage,
     discardForeign: todoSeam.discardForeign,
     controlTodo: todoSeam.controlTodo,
+    resolveProposal: proposalSeam.resolveProposal,
     moveTodo: todoSeam.moveTodo,
     refreshWiki: stackSeam.refreshWiki,
     registerTrigger,
@@ -2193,6 +2216,7 @@ export const createAppController = (
   repoImportSeam.resume()
   secretsSeam.resumeSecretRequests()
   egressSeam.resumeEgressRequests()
+  proposalSeam.resumeProposals()
   todoSeam.resumeTodos()
   stackSeam.resumeStacks()
   workflowController.resumeWorkflowRequests()
@@ -2203,7 +2227,7 @@ export const createAppController = (
    */
   const setupIdentitySubscription = store.collections.identitySessions.subscribeChanges(() => {
     queueMicrotask(() => { if (!ctx.disposed) { conversationHistory.resume(); triggersSeam.resumePauses(); triggersSeam.resumePreparations() } })
-    queueMicrotask(() => { if (!ctx.disposed) { secretsSeam.resumeSecretRequests(); egressSeam.resumeEgressRequests() } })
+    queueMicrotask(() => { if (!ctx.disposed) { secretsSeam.resumeSecretRequests(); egressSeam.resumeEgressRequests(); proposalSeam.resumeProposals() } })
     workflowController.resumeWorkflowRequests()
     // Catalog recovery writes a card; leave the identity projection before dispatching it.
     repositoryReadiness.resume()
@@ -2217,7 +2241,7 @@ export const createAppController = (
   ctx.onDispose(() => setupIdentitySubscription.unsubscribe())
   const importCloudSubscription = store.collections.cloudSessions.subscribeChanges(() => {
     repoImportSeam.resume()
-    queueMicrotask(() => { if (!ctx.disposed) { secretsSeam.resumeSecretRequests(); egressSeam.resumeEgressRequests() } })
+    queueMicrotask(() => { if (!ctx.disposed) { secretsSeam.resumeSecretRequests(); egressSeam.resumeEgressRequests(); proposalSeam.resumeProposals() } })
   })
   ctx.onDispose(() => importCloudSubscription.unsubscribe())
   subscribeToAgent()
