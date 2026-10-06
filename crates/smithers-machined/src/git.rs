@@ -62,6 +62,33 @@ impl Repository {
         {
             return Err(io::ErrorKind::PermissionDenied.into());
         }
+        // Composition opens this provider once, before accepting streams.
+        // Validate the complete inventory before deleting anything: this is a
+        // private scratch directory, never repository data or durable events.
+        let mut abandoned = Vec::new();
+        for entry in fs::read_dir(spool)? {
+            let entry = entry?;
+            let name = entry.file_name();
+            let name = name.to_str().ok_or_else(invalid)?;
+            if name.len() != 32
+                || !name.bytes().all(|b| b.is_ascii_digit() || (b'a'..=b'f').contains(&b))
+            {
+                return Err(invalid());
+            }
+            let metadata = fs::symlink_metadata(entry.path())?;
+            if !metadata.is_file()
+                || metadata.uid() != rustix::process::geteuid().as_raw()
+                || metadata.mode() & 0o7777 != 0o600
+                || metadata.nlink() != 1
+            {
+                return Err(invalid());
+            }
+            abandoned.push(entry.path());
+        }
+        for path in abandoned {
+            fs::remove_file(path)?;
+        }
+        File::open(spool)?.sync_all()?;
         let repository = Self {
             git: git.into(),
             directory: directory.into(),
@@ -72,7 +99,8 @@ impl Repository {
     }
     fn command(&self, arguments: &[&str]) -> io::Result<Vec<u8>> {
         let output = self.temporary()?;
-        let mut child = Command::new(&self.git)
+        let mut command = Command::new(&self.git);
+        command
             .env_clear()
             .env("PATH", "/usr/bin:/bin")
             .env("GIT_CONFIG_NOSYSTEM", "1")
@@ -85,8 +113,17 @@ impl Repository {
             .stdin(Stdio::null())
             .stdout(output.file.try_clone()?)
             .stderr(Stdio::null())
-            .process_group(0)
-            .spawn()?;
+            .process_group(0);
+        // Shared repository metadata is group-writable. Bundle scratch files
+        // stay private even when Git replaces our reserved pathname.
+        let mask = if arguments.starts_with(&["bundle", "create"]) { 0o077 } else { 0o002 };
+        unsafe {
+            command.pre_exec(move || {
+                rustix::process::umask(rustix::fs::Mode::from_raw_mode(mask));
+                Ok(())
+            });
+        }
+        let mut child = command.spawn()?;
         let deadline = Instant::now() + Duration::from_secs(60);
         let status = loop {
             if let Some(status) = child.try_wait()? {
@@ -375,6 +412,66 @@ mod tests {
     }
 
     #[test]
+    fn restart_removes_interrupted_transfer_without_touching_repository_refs() {
+        let fixture = Fixture::new();
+        let head = fixture.commit();
+        let mut outbox = fixture.outbox();
+        let (_, event) = outbox
+            .append(&outbox::captured(head, [2; 20], [3; 20]), Some(head))
+            .unwrap();
+        let spool = fixture.repository.receive(&b"interrupted"[..], 100).unwrap();
+        let path = spool.path.clone();
+        drop(spool);
+        // Seed the file left by abrupt death, which skips Spool::drop.
+        let mut abandoned = OpenOptions::new().write(true).create_new(true)
+            .mode(0o600).open(&path).unwrap();
+        abandoned.write_all(b"interrupted").unwrap();
+        abandoned.sync_all().unwrap();
+        drop(abandoned);
+        assert!(path.exists());
+        let mut reopened = Repository::checked(
+            &fixture.repository.git,
+            &fixture.repository.directory,
+            &fixture.repository.spool,
+        ).unwrap();
+        assert!(!path.exists());
+        assert_eq!(reopened.pending().unwrap(), [event]);
+        assert_eq!(outbox.front().unwrap().unwrap().captured_head(), Some(head));
+    }
+
+    #[test]
+    fn restart_refuses_symlinks_hardlinks_and_unexpected_spool_entries() {
+        for kind in ["symlink", "hardlink", "directory", "mode", "name"] {
+            let fixture = Fixture::new();
+            let target = fixture.root.join("retained");
+            fs::write(&target, b"keep").unwrap();
+            fs::set_permissions(&target, fs::Permissions::from_mode(0o600)).unwrap();
+            let valid = fixture.repository.spool.join("b".repeat(32));
+            let mut abandoned = OpenOptions::new().write(true).create_new(true)
+                .mode(0o600).open(&valid).unwrap();
+            abandoned.write_all(b"not removed on failed startup").unwrap();
+            drop(abandoned);
+            let path = fixture.repository.spool.join(if kind == "name" {
+                "unrecognized".to_owned()
+            } else { "a".repeat(32) });
+            match kind {
+                "symlink" => std::os::unix::fs::symlink(&target, &path).unwrap(),
+                "hardlink" => fs::hard_link(&target, &path).unwrap(),
+                "directory" => fs::create_dir(&path).unwrap(),
+                _ => fs::write(&path, b"keep").unwrap(),
+            }
+            assert!(Repository::checked(
+                &fixture.repository.git,
+                &fixture.repository.directory,
+                &fixture.repository.spool,
+            ).is_err(), "{kind}");
+            assert_eq!(fs::read(&target).unwrap(), b"keep");
+            assert!(fs::symlink_metadata(&path).is_ok());
+            assert_eq!(fs::read(&valid).unwrap(), b"not removed on failed startup");
+        }
+    }
+
+    #[test]
     fn bundle_verified_import_does_not_publish_advertised_pending_ref() {
         let source = Fixture::new();
         let destination = Fixture::new();
@@ -388,6 +485,7 @@ mod tests {
         let mut repo = source.repository.clone();
         for haves in [vec![], vec![head], vec![[99; 20]]] {
             let bundle = repo.export(&event, &haves).unwrap();
+            assert_eq!(bundle.file.metadata().unwrap().mode() & 0o7777, 0o600);
             assert!(bundle.file.metadata().unwrap().len() > 256 * 1024);
             let incoming = destination
                 .repository

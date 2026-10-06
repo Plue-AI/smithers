@@ -44,6 +44,8 @@ func TestRealMicroVMMachinedW2Objects(t *testing.T) {
 		"bundle_verified_import_does_not_publish_advertised_pending_ref",
 		"invalid_or_oversized_incoming_never_advances_a_ref_and_removes_spool",
 		"restart_retains_pin_and_stale_receipt_preserves_acknowledged_head",
+		"restart_removes_interrupted_transfer_without_touching_repository_refs",
+		"restart_refuses_symlinks_hardlinks_and_unexpected_spool_entries",
 	} {
 		require.Contains(t, result.Stdout, "test git::tests::"+name+" ... ok")
 	}
