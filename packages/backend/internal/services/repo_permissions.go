@@ -415,7 +415,7 @@ func Authorize(ctx context.Context, q *db.Queries, command string) (InstallAutho
 		if !terminalCommands[command] {
 			return InstallAuthorization{}, &AccessError{Status: http.StatusForbidden, Class: "permission", Code: "permission", Message: "A terminal's credential cannot do this"}
 		}
-	} else if info.IsTokenAuth || info.IsAgent() || info.SessionHash == "" {
+	} else if (info.IsTokenAuth || info.IsAgent() || info.SessionHash == "") && !(command == "agent.turn" && info.IsTokenAuth && !info.IsAgent()) {
 		return InstallAuthorization{}, &AccessError{Status: http.StatusForbidden, Class: "permission", Code: "permission", Message: "Sign in with a browser session"}
 	}
 	role, err := InstallRoleOf(ctx, q, info.User.ID)
@@ -424,6 +424,11 @@ func Authorize(ctx context.Context, q *db.Queries, command string) (InstallAutho
 	}
 	if role == "" {
 		return InstallAuthorization{}, &AccessError{Status: http.StatusForbidden, Class: "permission", Code: "permission", Message: "Not a member"}
+	}
+	// Owner API tokens may ask questions; the chat host enforces token scopes
+	// on every offered capability. Roster members still use browser sessions.
+	if info.IsTokenAuth && !terminal && role != InstallOwner {
+		return InstallAuthorization{}, &AccessError{Status: http.StatusForbidden, Class: "permission", Code: "permission", Message: "Sign in with a browser session"}
 	}
 	if role.rank() < need.role.rank() {
 		return InstallAuthorization{}, &AccessError{Status: http.StatusForbidden, Class: "permission", Code: "permission", Message: "Only a maintainer can do this"}

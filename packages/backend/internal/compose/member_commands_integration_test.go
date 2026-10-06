@@ -150,6 +150,9 @@ func TestMemberRoutesAuthorizeByRolePostgres(t *testing.T) {
 	status, envelope := call("GET", "/api/todos", "", ownerToken)
 	require.Equal(t, http.StatusForbidden, status)
 	require.Equal(t, "permission", envelope["class"])
+	// Scoped owner questions reach the chat host, which gates capabilities.
+	status, _ = call("POST", "/api/agent/turn", "", ownerToken)
+	require.Equal(t, http.StatusOK, status)
 	// Suspending Ben refuses his very next request.
 	_, err = pool.Exec(ctx, `UPDATE collaborators SET suspended_at=now() WHERE user_id=$1`, ben.ID)
 	require.NoError(t, err)
