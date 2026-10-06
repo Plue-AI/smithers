@@ -58,7 +58,7 @@ describe("finding a session", () => {
     for (const bad of ["", "019", "../etc", "0199AAAA", "a".repeat(37)]) expect(await findSession("codex", bad, [codexRoot()])).toMatchObject({ refusal: { status: 400 } })
   })
 
-  test("symlinked transcripts, directories and roots are never read", async () => {
+  test("symlinked transcripts and directories beneath roots are never read", async () => {
     const seat = join(home, ".smithers", "accounts", "codex-2", "sessions")
     const links = join(home, "links", "sessions")
     await mkdir(links, { recursive: true })
@@ -73,17 +73,49 @@ describe("finding a session", () => {
     expect(await findSession("claude-code", CLAUDE, [join(home, "linked-claude", "projects")])).toMatchObject({ refusal: { status: 404 } })
   })
 
-  test("a linked default or configured home exposes no sessions", async () => {
+  test("linked default and configured agent homes inside the real user home expose sessions", async () => {
     const dotfiles = join(home, "dotfiles")
     await mkdir(dotfiles)
     await symlink(join(home, ".codex"), join(dotfiles, ".codex"))
     await symlink(join(home, ".claude"), join(dotfiles, ".claude"))
+    const linkedHome = join(home, "home-link")
+    await symlink(home, linkedHome)
     for (const env of [{}, { CODEX_HOME: join(dotfiles, ".codex"), CLAUDE_CONFIG_DIR: join(dotfiles, ".claude") }]) {
-      const read = externalSessions(agent => sessionRoots(agent, dotfiles, env))
-      expect(await read("codex", ID, 0)).toEqual({ refusal: { status: 404, code: "source_not_found", message: `No Codex session ${ID} on this machine.` } })
-      expect(await read("claude-code", CLAUDE, 0)).toMatchObject({ refusal: { status: 404 } })
+      const read = externalSessions(agent => sessionRoots(agent, dotfiles, env), { home: linkedHome })
+      expect(await read("codex", ID, 0)).toMatchObject({ text: "own\n" })
+      expect(await read("claude-code", CLAUDE, 0)).toMatchObject({ text: "own claude\n" })
     }
   })
+
+  for (const agent of ["codex", "claude-code"] as const) {
+    test(`${agent} root links stay inside the real home, exclude accounts and re-resolve cached reads`, async () => {
+      const fixture = await realpath(await mkdtemp(join(home, "root-links-")))
+      const outside = await realpath(await mkdtemp(join(tmpdir(), "outside-home-")))
+      const id = agent === "codex" ? ID : CLAUDE
+      const file = (root: string) => agent === "codex" ? rolloutPath(root, id) : join(root, "-repo", `${id}.jsonl`)
+      const first = join(fixture, "first")
+      const second = join(fixture, "second")
+      const seat = join(fixture, ".smithers", "accounts", "codex-2", "sessions")
+      const link = join(fixture, "root")
+      try {
+        for (const [root, text] of [[first, "first\n"], [second, "second\n"], [seat, "seat\n"], [outside, "outside\n"]] as const) await write(file(root), text)
+        await symlink(first, link)
+        const read = externalSessions(async () => [link], { home: fixture })
+        expect(await read(agent, id, 0)).toMatchObject({ session_id: id, text: "first\n" })
+        for (const [target, text] of [[second, "second\n"], [outside, undefined], [seat, undefined], [first, "first\n"]] as const) {
+          await rm(link)
+          await symlink(target, link)
+          const answer = await read(agent, id, 0)
+          if (text === undefined) expect(answer).toMatchObject({ refusal: { status: 404, code: "source_not_found" } })
+          else expect(answer).toMatchObject({ text })
+        }
+        // No link beneath an admitted root may be followed, even to an own-home file.
+        await symlink(file(second), join(first, agent === "codex" ? `rollout-2026-10-05T11-45-26-${OTHER}.jsonl` : join("-repo", `${OTHER}.jsonl`)))
+        expect(await read(agent, OTHER, 0)).toMatchObject({ refusal: { status: 404 } })
+      } finally { await rm(outside, { recursive: true, force: true }) }
+    })
+  }
+
 })
 
 describe("reading a session", () => {

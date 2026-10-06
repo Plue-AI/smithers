@@ -205,6 +205,33 @@ describe("starting an agent", () => {
     expect(await launcher.launch("claude-code", "hello")).toEqual({ error: "Claude Code exited with 2 before it wrote a session.", reason: "exited" })
   })
 
+  test("discovery follows only own-home root links and re-resolves them", async () => {
+    for (const agent of ["codex", "claude-code"] as const) {
+      const home = join(scratch, `root-home-${agent}`)
+      const root = join(home, "sessions")
+      const link = join(home, "linked-root")
+      const now = Date.now()
+      const date = new Date(now)
+      const day = join(String(date.getUTCFullYear()), String(date.getUTCMonth() + 1).padStart(2, "0"), String(date.getUTCDate()).padStart(2, "0"))
+      const directory = join(root, agent === "codex" ? day : "project")
+      await mkdir(directory, { recursive: true })
+      const name = agent === "codex" ? "rollout-own.jsonl" : "own.jsonl"
+      const payload = agent === "codex" ? { type: "session_meta", payload: { id: "own", cwd: "/repo", timestamp: date.toISOString() } }
+        : { sessionId: "own", cwd: "/repo", timestamp: date.toISOString() }
+      await writeFile(join(directory, name), `${JSON.stringify(payload)}\n`)
+      await symlink(root, link)
+      expect(await sessionStartsSince(agent, [link], now - 100, now, home)).toEqual([{ session: "own", cwd: "/repo", startedAt: now }])
+      for (const target of [join(scratch, `foreign-${agent}`), join(home, ".smithers", "accounts", "codex-2", "sessions")]) {
+        const targetDirectory = join(target, agent === "codex" ? day : "project")
+        await mkdir(targetDirectory, { recursive: true })
+        await writeFile(join(targetDirectory, name), `${JSON.stringify(payload)}\n`)
+        await rm(link)
+        await symlink(target, link)
+        expect(await sessionStartsSince(agent, [link], now - 100, now, home)).toEqual([])
+      }
+    }
+  })
+
   test("discovery refuses symlink files and directories carrying a forged launch (#3736)", async () => {
     for (const agent of ["codex", "claude-code"] as const) {
       const base = join(scratch, `links-${agent}`)
