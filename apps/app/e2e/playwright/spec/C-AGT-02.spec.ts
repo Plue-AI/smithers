@@ -10,12 +10,18 @@ for (const width of [1280, 390]) for (const theme of ["light", "dark"]) {
     await page.setViewportSize({ width, height: 900 })
     await installCloudFixture(page, { capabilities: ["install", "identity", "agent"] })
     let entries: unknown[] = imported
-    let writes = 0
-    await page.route("**/api/conversations/main", route => route.fulfill({ json: { id: "main", entries } }))
+    let available = true
+    const admitted = new Map<string, string>()
+    await page.route("**/api/conversations/main", route => available ? route.fulfill({ json: { id: "main", entries } }) : route.fulfill({ status: 503, json: { code: "unavailable", class: "infra", message: "Conversation unavailable" } }))
     await page.route("**/api/conversations/main/view-state", route => route.fulfill({ json: { queue: [] } }))
     await page.route("**/api/conversations/main/prompt", route => {
-      writes++
-      return route.fulfill({ status: 202, json: { turnId: "ordinary", terminal: false } })
+      const request = route.request().postDataJSON() as { idempotencyKey: string; prompt: string }
+      expect(request.idempotencyKey).toEqual(expect.any(String))
+      // Admission may replay across reload before its response is persisted.
+      // The production host deduplicates by this durable key.
+      if (admitted.has(request.idempotencyKey)) expect(admitted.get(request.idempotencyKey)).toBe(request.prompt)
+      admitted.set(request.idempotencyKey, request.prompt)
+      return route.fulfill({ status: 202, json: { turnId: request.idempotencyKey, terminal: false } })
     })
     await page.goto("/")
     await say(page, `/theme ${theme}`)
@@ -26,14 +32,14 @@ for (const width of [1280, 390]) for (const theme of ["light", "dark"]) {
     for (const label of ["Run the webhook tests", "Tests failed"]) await expect(page.getByText(label, { exact: true }).last()).toBeVisible()
     expect(await rows.evaluateAll(nodes => nodes.map(node => node.getAttribute("data-participant-id")))).toEqual(["participant-claude", "participant-claude", "participant-claude", "participant-codex"])
     for (const name of ["Edit", "Resend", "Answer", "Approve", "Retry", "Stop", "Steer"]) await expect(rows.getByRole("button", { name, exact: true })).toHaveCount(0)
-    expect(writes).toBe(0)
+    expect(admitted.size).toBe(0)
     await page.context().setOffline(true)
     await page.context().setOffline(false)
     await page.reload()
     await expect(rows).toHaveCount(4)
     await expect(page.getByText("Run the webhook tests", { exact: true })).toHaveCount(1)
     await say(page, "Hello Smithers")
-    await expect.poll(() => writes).toBe(1)
+    await expect.poll(() => admitted.size).toBe(1)
     for (const field of ["origin", "agent_kind", "format_version", "source_id", "session_id", "participant_id", "actor", "read_only"]) {
       const invalid = { ...imported[0] } as Record<string, unknown>; delete invalid[field]
       entries = [invalid]
@@ -44,6 +50,15 @@ for (const width of [1280, 390]) for (const theme of ["light", "dark"]) {
     entries = imported
     await page.reload()
     await expect(rows).toHaveCount(4)
-    expect(writes).toBe(1)
+    available = false
+    await page.reload()
+    await expect(rows).toHaveCount(0)
+    await expect(page.getByText("Conversation unavailable", { exact: true })).toBeVisible()
+    await say(page, "Ordinary prompt while import delivery is unavailable")
+    await expect.poll(() => admitted.size).toBe(2)
+    available = true
+    await page.reload()
+    await expect(rows).toHaveCount(4)
+    expect([...admitted.values()]).toEqual(["Hello Smithers", "Ordinary prompt while import delivery is unavailable"])
   })
 }

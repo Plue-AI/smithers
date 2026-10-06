@@ -276,6 +276,7 @@ test("install conversation binds imported snapshots through the shared renderer 
   writeLegacyCollection(storage, "app-messages", imported)
   const store = await createAppStore({ kind: "localStorage", storage })
   let entries: unknown[] = imported
+  let available = true
   let reads = 0
   const topics = new Map<string, Set<() => void>>()
   const live = { getSnapshot: () => undefined, subscribe: (topic: string, notify: () => void) => {
@@ -287,7 +288,7 @@ test("install conversation binds imported snapshots through the shared renderer 
     bootstrap: { apiVersion: 1, host: "local", version: "test", buildSha: "test", capabilities: ["install"], authFlow: "redirect", sandbox: null },
     live,
     fetchImpl: async input => {
-      if (String(input) === "/api/conversations/main") { reads++; return Response.json({ id: "main", entries }) }
+      if (String(input) === "/api/conversations/main") { reads++; return available ? Response.json({ id: "main", entries }) : Response.json({ code: "unavailable", class: "infra", message: "Conversation unavailable" }, { status: 503 }) }
       return Response.json({})
     }
   })
@@ -320,6 +321,14 @@ test("install conversation binds imported snapshots through the shared renderer 
     await waitFor(() => host.querySelectorAll('[data-shared-turn]').length === 0)
     expect(host.textContent).toContain("Conversation unavailable")
     entries = [ben, ...imported]
+    await controller.sharedConversation!.read()
+    await waitFor(() => host.querySelectorAll('article[data-origin="external"]').length === 4)
+    available = false
+    await controller.sharedConversation!.read()
+    await waitFor(() => host.querySelectorAll('article[data-origin="external"]').length === 0)
+    expect(host.textContent).toContain("Conversation unavailable")
+    expect(store.session().queuedPrompts ?? []).toHaveLength(0)
+    available = true
     await controller.sharedConversation!.read()
     await waitFor(() => host.querySelectorAll('article[data-origin="external"]').length === 4)
     expect(host.textContent).toContain("One changed test")
