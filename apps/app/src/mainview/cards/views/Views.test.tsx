@@ -285,7 +285,6 @@ for (const styleCase of ["starting", "in_review", "merged", "harness"]) test(`pr
 import { fixtures } from "@smthrs/rpc/fixtures/Confirm"
 import type { ConfirmViewProps } from "@smthrs/rpc/ConfirmCard"
 import { ConfirmView } from "./ConfirmView"
-import { actorName } from "./ActorChip"
 import { confirmStories } from "./ConfirmView.stories"
 
 describe("ConfirmView named cases", () => {
@@ -322,15 +321,44 @@ for (const key of Object.keys(expectedActions) as Array<keyof typeof expectedAct
     expect(calls).toEqual([...expectedActions[key]])
   })
 }
+// Independent labels: fixtures supply inputs, never the rendered-label oracle.
+const expectedAskers: Record<string, string> = {
+  one_click: "Claude Code for Ben",
+  drop: "Smithers for Ben",
+  branch: "Claude Code for Ben",
+  flow: "Claude Code for Ben",
+  agent: "Claude Code for Ben",
+  wiki: "Claude Code for Ben",
+  no_actions: "Claude Code for Ben",
+  disabled: "Claude Code for Ben",
+  actor_person: "Ben",
+  actor_person_medium: "Ben",
+  actor_ssh: "Ben via SSH",
+  actor_terminal: "Ben's terminal",
+  actor_cli: "Ben via CLI",
+  actor_smithers_for_ben: "Smithers for Ben",
+  actor_claude_code_for_ben: "Claude Code for Ben",
+  actor_codex_for_ben: "Codex for Ben",
+  actor_codex_for_will: "Codex for Will",
+  actor_external_for_ben: "Aider for Ben",
+  actor_coding_agent_for_ben: "Coding agent for Ben",
+  actor_reviewer_for_ben: "Reviewer for Ben",
+  actor_undelegated_agent: "Aider",
+  actor_undelegated_smithers: "Smithers",
+  actor_system: "Install event",
+  actor_github_user: "@octocat",
+  actor_outside: "Changed outside Smithers"
+}
 for (const [name, story] of Object.entries(confirmStories)) {
   test(`renders ${name}`, () => {
     const host = render({ ...story, ...callbacks })
     expect(host.querySelector("h2")).not.toBeNull()
     for (const text of story.expect) expect(host.textContent).toContain(text)
     if (story.model.kind === "one_click" && !story.model.receipt) {
-      const label = actorName(story.model.asked_by)
+      const label = expectedAskers[name]
+      expect(label).toBeDefined()
       expect(host.querySelector(".avatar")?.getAttribute("aria-label")).toBe(label)
-      expect(host.querySelector(".confirm-asker")?.textContent).toContain(label)
+      expect(host.querySelector(".confirm-asker > span:last-child")?.textContent).toBe(label)
     }
   })
 }
