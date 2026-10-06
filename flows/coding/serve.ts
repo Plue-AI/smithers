@@ -167,7 +167,7 @@ if (parsed.values.version) {
   const run = (platform: NativeControl.Platform, http: Layer.Layer<HttpClient.HttpClient>) =>
     loadLanding(root, process.env, process.env.SMITHERS_WORKSPACE_CODING_CONFIG).pipe(
       Effect.flatMap((landing) => {
-        const serveSource = (flowSourceRoot: string) =>
+        const serveSource = (flowSourceRoot: string, flowSourceRevision?: string) =>
           Effect.all([
             loadProject(flowSourceRoot, process.env.SMITHERS_CODING_PROJECT).pipe(
               Effect.mapError((error) =>
@@ -185,6 +185,7 @@ if (parsed.values.version) {
               Serve.host(bind, root).pipe(Effect.provide(layer(platform, {
                 ...options,
                 flowSourceRoot,
+                flowSourceRevision,
                 ...models,
                 planning,
                 ...(landing === undefined ? {} : {
@@ -221,8 +222,10 @@ if (parsed.values.version) {
             return yield* withImmutableCommit(
               sourceOptions,
               options.runtimeSourceRevision ?? "",
-              (_tree, sourceRoot) =>
-                prepareFlowDependencies(sourceOptions, sourceRoot).pipe(Effect.andThen(serveSource(sourceRoot)))
+              (tree, sourceRoot) =>
+                prepareFlowDependencies(sourceOptions, sourceRoot).pipe(
+                  Effect.andThen(serveSource(sourceRoot, tree.commitId))
+                )
             )
           })
           : serveSource(root))

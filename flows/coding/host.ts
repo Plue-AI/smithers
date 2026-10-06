@@ -87,6 +87,8 @@ export interface Options extends NativeOptions {
   readonly systemFlows: ReadonlyArray<string>
   /** Machine-local immutable export of the server-authorized source commit. */
   readonly flowSourceRoot?: string | undefined
+  /** Commit identity returned by the verified native source export, never copied from the launch envelope. */
+  readonly flowSourceRevision?: string | undefined
   readonly todoExecutionDigest?: string | undefined
   /** Same operator credential used by Serve; enables the existing native gateway delegation. */
   readonly credential?: string | undefined
@@ -247,7 +249,8 @@ const configured = (options: Options) => {
   if (
     options.todoExecutionDigest !== undefined && (
       !/^[a-f0-9]{64}$/.test(options.todoExecutionDigest) || options.flowSourceRoot === undefined ||
-      resolve(options.flowSourceRoot) === resolve(options.repositoryPath)
+      resolve(options.flowSourceRoot) === resolve(options.repositoryPath) ||
+      options.flowSourceRevision !== options.runtimeSourceRevision
     )
   ) throw new Error("A pinned TODO host requires a separate source checkout and its admitted digest")
   if (!validSystemFlows(options.systemFlows)) {
@@ -787,6 +790,9 @@ export const layer = (platform: NativeControl.Platform, options: Options, suppli
             stateRoot,
             credential: options.credential,
             expectedSourceRevision: options.runtimeSourceRevision,
+            catalogRevision: options.flowSourceRevision === undefined
+              ? undefined
+              : () => Effect.succeed(options.flowSourceRevision),
             approvalChannel: true,
             approvalAuthority: options.approvalAuthority ?? native.gatewayApprovalAuthority
           },

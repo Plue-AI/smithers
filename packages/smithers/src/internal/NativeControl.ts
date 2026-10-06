@@ -271,6 +271,8 @@ export type ModuleRegistration = Layer.Layer<
 export interface ExecutorOptions {
   /** Product-host binding: require this exact catalog snapshot before admission. */
   readonly expectedSourceRevision?: string | undefined
+  /** Trusted source materialization receipt reader; independent of the editable execution root. */
+  readonly catalogRevision?: (() => Effect.Effect<string | undefined>) | undefined
   /** An explicit host judge, including an evidence-based offline script. */
   readonly evaluator?: Layer.Layer<Evaluator.Evaluator> | undefined
   /** Where seat credentials and the host's test declaration are read from. */
@@ -1204,6 +1206,7 @@ export const make = (
     // and the project root otherwise. `root` still names the project: its
     // databases, its routing table, and the mount a container knows it by.
     const workspaceRoot = resolve(options.executionRoot ?? root)
+    const readCatalogRevision = options.catalogRevision ?? (() => SourceRevision.read(workspaceRoot))
     // Startup sweepers may ask before final registration captures the native SQL
     // client. They refuse until that existing final phase installs the reader.
     let admission: ((runId: string) => Effect.Effect<boolean>) | undefined
@@ -1320,7 +1323,7 @@ export const make = (
       Effect.gen(function*() {
         // Read immediately before loading the configured module catalog, inside
         // the native registration scope that owns this host's engine lifecycle.
-        const revisionBefore = yield* SourceRevision.read(workspaceRoot)
+        const revisionBefore = yield* readCatalogRevision()
         // Picked, never the whole registration context: see `toolServices`.
         const { filesystem: capturedFilesystem, judge, shell: shellServices } = yield* toolServices
         const filesystemServices = native.filesystem === undefined ? capturedFilesystem : Context.add(
@@ -1452,7 +1455,7 @@ export const make = (
         // Product hosts must establish their pinned source before any run
         // admission or gateway readiness. Generic native/library compositions
         // omit this requirement and may continue to report no source revision.
-        const revisionAfter = yield* SourceRevision.read(workspaceRoot)
+        const revisionAfter = yield* readCatalogRevision()
         const capturedRevision =
           catalog === undefined || revisionBefore === undefined || revisionBefore !== revisionAfter
             ? undefined
@@ -1840,7 +1843,9 @@ export const make = (
   }
 
   const layerControlFromEngine = (
-    config: Application.Config & Pick<ExecutorOptions, "expectedSourceRevision" | "approvalChannel" | "plansFlows">,
+    config:
+      & Application.Config
+      & Pick<ExecutorOptions, "expectedSourceRevision" | "catalogRevision" | "approvalChannel" | "plansFlows">,
     registry: Layer.Layer<Registry.Registry>,
     engine: EngineDurable,
     modules?: ModuleRegistration
@@ -1855,6 +1860,7 @@ export const make = (
         startsRuns: config.startsRuns,
         plansFlows: config.plansFlows,
         expectedSourceRevision: config.expectedSourceRevision,
+        catalogRevision: config.catalogRevision,
         approvalChannel: config.approvalChannel,
         mcpServers: config.mcpServers ?? [],
         executionRoot: config.executionRoot ?? root,
@@ -1950,7 +1956,9 @@ export const make = (
       MemoryStore.layer.pipe(Layer.provide([engine.stores, native.crypto]), Layer.orDie)
     )
   const layerHost = (
-    config: Application.Config & Pick<ExecutorOptions, "expectedSourceRevision" | "approvalChannel">,
+    config:
+      & Application.Config
+      & Pick<ExecutorOptions, "expectedSourceRevision" | "catalogRevision" | "approvalChannel">,
     modules?: ModuleRegistration,
     suppliedRegistry?: Layer.Layer<Registry.Registry>
   ) => {
