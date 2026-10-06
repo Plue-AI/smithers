@@ -33,6 +33,15 @@ import { WIKI_ATTACH_USER_ONLY_REASON, WIKI_HEADING_USER_ONLY_REASON } from "@sm
  * no longer user-only fails it too.
  */
 const USER_ONLY_ALLOWLIST: Readonly<Record<string, string>> = {
+  "settings.model.set": "Only the owner’s browser session changes models",
+  "agent.model": "Only the owner’s browser session changes models",
+  "model.new": "Only the owner’s browser session configures models",
+  "model.edit": "Only the owner’s browser session configures models",
+  "model.save": "Only the owner’s browser session configures models",
+  "model.remove": "Only the owner’s browser session configures models",
+  "model.test": "Only the owner’s browser session configures models",
+  "model.assign": "Only the owner’s browser session configures models",
+
   "secrets": "Secret names and values are person-only",
   "secrets.list": "Secret names and values are person-only",
   "secrets.set": "Secret names and values are person-only",
@@ -376,7 +385,7 @@ describe("the three-door law", () => {
     }
     // And listed: the slash menu and the prompt's catalog show them.
     const disclosed = new Set(controller.commands.disclosed().map((descriptor) => descriptor.name))
-    for (const name of ["flow.create", "agent.list"]) {
+    for (const name of ["flow.create", "agents"]) {
       expect(disclosed.has(name)).toBe(true)
     }
     expect(disclosed.has("cloud.prompt")).toBe(false)

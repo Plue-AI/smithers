@@ -74,6 +74,8 @@ test("C-MCH-07 card: write-only Add, Replace, scope, live member rows and Delete
   await expect(card).toBeVisible()
   await card.getByLabel("NAME", { exact: true }).fill("CANARY_TOKEN")
   await card.getByLabel("Value", { exact: true }).last().fill("private-canary")
+  await expect(card.getByLabel("Value", { exact: true }).last()).toHaveAttribute("value", "")
+  expect(await card.innerHTML()).not.toContain("private-canary")
   await card.getByRole("button", { name: "Add", exact: true }).press("Enter")
   await expect.poll(() => writes.length).toBe(1)
   await card.getByRole("button", { name: "Add", exact: true }).press("Enter")
