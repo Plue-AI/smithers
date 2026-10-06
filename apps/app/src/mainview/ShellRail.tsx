@@ -126,7 +126,7 @@ export const railNotices = (toasts: ReadonlyArray<Toast>, lines: readonly Timeli
     const entryAction = toast.action?.flow === "notifications.allow" ? undefined : entry?.action
     const todoNotice = toast.action?.flow !== "notifications.allow" && toast.sourceCard?.startsWith("todo:")
     return {
-      id: toast.id, title: toast.title, ...(toast.detail === "" ? {} : { detail: toast.detail }), tone: toast.audience ? toast.audience.kind === "needs_you" ? "attention" : toast.audience.kind === "failed" ? "failed" : "quiet" : TOAST_TONE[toast.status],
+      id: toast.id, title: toast.title, ...(toast.detail === "" ? {} : { detail: toast.detail }), tone: toast.audience ? toast.audience.kind === "needs_you" ? "attention" : toast.audience.kind === "failed" ? "failed" : toast.audience.kind === "merged" ? "done" : "quiet" : TOAST_TONE[toast.status],
       entry_id: toast.audience?.entryId ?? toast.sourceCard ?? toast.id,
       kind: toast.action?.flow === "notifications.allow" ? "allow_notifications" : toast.audience?.kind ?? (toast.status === "failed" ? "failed" : toast.status === "running" ? "progress" : "merged"),
       ...(entryAction

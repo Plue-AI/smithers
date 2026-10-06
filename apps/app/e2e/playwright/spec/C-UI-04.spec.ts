@@ -60,3 +60,31 @@ test("C-UI-04: served failure has one rail action and keyboard Retry uses the pr
   await page.setViewportSize({ width: 900, height: 1000 })
   await expect(page.getByRole("navigation", { name: "Timeline", exact: true })).toBeHidden()
 })
+
+test("C-UI-04: the owner's served merge raises a terminal notice and Hide preserves its timeline entry", async ({ page }) => {
+  await owner(page)
+  await page.setViewportSize({ width: 1440, height: 1000 })
+  let state = "in_review"
+  const model = () => ({
+    n: 24, title: "Merge notice from the install", state,
+    owner: { login: "canary-owner", name: "Ben", avatar_url: "https://example.test/avatar.png" },
+    prompt_revisions: [], steps: [], steers: [], evidence: [], present: [], waits: [],
+    merge: { state: "waiting", reason: "state", on_github: false }
+  })
+  await page.route("**/api/todos", route => route.fulfill({ json: [model()] }))
+  await page.route("**/api/todos/24", route => route.fulfill({ json: model() }))
+  await page.goto("/")
+  await say(page, "/todo T24")
+  const line = page.getByRole("navigation", { name: "Timeline", exact: true }).locator('[data-entry="todo:24"]')
+  await expect(line).toContainText("Merge notice from the install")
+  state = "merged"
+  const notice = page.locator('[data-notice="toast-todo.merged.24.no-run.0"]')
+  await expect(notice).toBeVisible()
+  await expect(notice).toHaveAttribute("data-tone", "done")
+  await expect(notice).toContainText("Merged")
+  await expect(notice.locator("[data-flow]")).toHaveCount(0)
+  await notice.getByRole("button", { name: "Hide Merge notice from the install", exact: true }).press("Enter")
+  await expect(notice).toHaveCount(0)
+  await expect(line).toHaveAttribute("data-tone", "done")
+  await expect(page.getByTestId("composer-input")).toBeEditable()
+})

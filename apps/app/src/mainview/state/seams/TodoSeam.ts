@@ -192,6 +192,14 @@ export const createTodoSeam = (ctx: SeamContext, options: TodoSeamOptions = {}) 
         audience: { member: owner()!, entryId: key, kind: model.state, actorLabel, target: { flow: "todo", n } },
         action: { flow: "todo", args: `T${n}`, label: model.state === "in_review" ? "Review" : "Open" } })
     }
+    // A historical merged item is not a new event. Only the served terminal
+    // transition notifies its owner; presence does not subscribe to others' merges.
+    if (previous && previous.state !== "merged" && model.state === "merged" && model.owner.login === owner() && live()) {
+      const key = `todo.merged.${n}.${model.run?.id ?? "no-run"}.${model.run?.attempt ?? 0}`
+      ctx.dispatch({ type: "toast.shown", actor: "system", key, title: model.title, sourceCard: `todo:${n}`,
+        audience: { member: owner()!, entryId: key, kind: "merged", actorLabel, target: { flow: "todo", n } } })
+      ctx.resolveToast?.(key, { status: "ok", detail: "Merged" })
+    }
     for (const id of before) if (!after.has(id) && live()) ctx.resolveToast?.(needsYouKey(n, id), { status: "ok", detail: "Answered" })
   }
   const applyModel = async (n: number, model: TodoCard, receipts: readonly TodoReceipt[], live: () => boolean) => {

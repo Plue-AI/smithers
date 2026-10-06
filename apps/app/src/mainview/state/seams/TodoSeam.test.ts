@@ -625,9 +625,14 @@ test("session Merge persists one reviewed head request and waits for the merged 
     await waitFor(() => h.todo().payload.requests[0]?.state === "accepted")
     expect(h.todo().payload.model?.state).toBe("in_review")
     expect(h.outcomes).toEqual([])
+    const requestKey = h.todo().payload.requests[0]!.key
     await h.seam.applyTodoProjection(12, fixtures.merged.model)
     expect(h.todo().payload.requests).toEqual([])
-    expect(h.outcomes).toHaveLength(1)
+    expect(h.outcomes).toEqual(expect.arrayContaining([
+      { key: `todo.request.${requestKey}`, status: "ok", detail: "Merged" },
+      { key: "todo.merged.12.run-41.1", status: "ok", detail: "Merged" }
+    ]))
+    expect(h.outcomes).toHaveLength(2)
   } finally { h.close() }
 })
 
@@ -1047,3 +1052,31 @@ for (const status of [202, 409] as const) {
     } finally { h.close() }
   })
 }
+
+
+test("the served merge transition notifies only its owner once, already terminal, without replaying historical merges", async () => {
+  const h = await harness(async () => json(fixtures.in_review.model, 200))
+  try {
+    const merged = () => [...h.store.collections.toasts.values()].filter(toast => toast.audience?.kind === "merged")
+    await h.seam.showTodo(12)
+    expect(merged()).toEqual([])
+    h.observed.get("todo:12")!(fixtures.merged.model)
+    await waitFor(() => merged().length === 1)
+    expect(merged()[0]).toMatchObject({ sourceCard: "todo:12", status: "ok", detail: "Merged",
+      audience: { member: "ben", kind: "merged", target: { flow: "todo", n: 12 } } })
+    expect(merged()[0]!.action).toBeUndefined()
+    h.observed.get("todo:12")!(fixtures.merged.model)
+    await h.seam.applyTodoProjection(12, fixtures.merged.model)
+    expect(merged()).toHaveLength(1)
+    // Being present on another owner's branch grants no merge notice.
+    const owner = { ...fixtures.in_review.model.owner, login: "maya" }
+    await h.seam.applyTodoProjection(12, { ...fixtures.in_review.model, owner })
+    await h.seam.applyTodoProjection(12, { ...fixtures.merged.model, owner })
+    expect(merged()).toHaveLength(1)
+  } finally { h.close() }
+  const history = await harness(async () => json(fixtures.merged.model, 200))
+  try {
+    await history.seam.showTodo(12)
+    expect([...history.store.collections.toasts.values()].filter(toast => toast.audience?.kind === "merged")).toEqual([])
+  } finally { history.close() }
+})
