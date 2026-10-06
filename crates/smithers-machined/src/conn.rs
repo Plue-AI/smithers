@@ -550,3 +550,84 @@ pub fn roster_args(bytes: &[u8]) -> Result<Vec<crate::broker::sessions::User>, P
     }
     Ok(members)
 }
+
+/// Validated durable envelope used by disk replay and acknowledgement handling.
+#[derive(Clone, Debug)]
+pub struct Durable {
+    pub seq: u64,
+    pub id: [u8; 16],
+    pub event: Vec<u8>,
+}
+impl Durable {
+    pub fn frame(&self) -> Frame {
+        Frame {
+            kind: 2,
+            stream: 0,
+            payload: tagged(
+                1,
+                &[
+                    field(1, self.seq.to_be_bytes()),
+                    field(2, self.id),
+                    field(3, &self.event),
+                ],
+            ),
+        }
+    }
+    pub fn decode(payload: &[u8]) -> Result<Self, ProtocolError> {
+        let frame = Frame {
+            kind: 2,
+            stream: 0,
+            payload: payload.into(),
+        };
+        frame.validate(false)?;
+        if payload[0] != 1 {
+            return Err(BadValue);
+        }
+        Ok(Self {
+            seq: u64::from_be_bytes(payload[6..14].try_into().unwrap()),
+            id: payload[15..31].try_into().unwrap(),
+            event: payload[32..].into(),
+        })
+    }
+    pub fn captured_head(&self) -> Option<crate::hooks::Oid> {
+        (self.event[0] == 2).then(|| self.event[6..26].try_into().unwrap())
+    }
+}
+#[derive(Debug)]
+pub struct Acknowledgement {
+    pub seq: u64,
+    pub outcome: u8,
+    pub haves: Vec<crate::hooks::Oid>,
+}
+impl Acknowledgement {
+    pub fn decode(frame: &Frame) -> Result<Self, ProtocolError> {
+        frame.validate(false)?;
+        if frame.kind != 2 || frame.payload[0] != 3 {
+            return Err(BadValue);
+        }
+        let mut c = Cursor(&frame.payload[5..]);
+        c.take(1)?;
+        let seq = c.number(8)?;
+        c.take(1)?;
+        let outcome = c.number(1)? as u8;
+        let mut haves = vec![];
+        while !c.0.is_empty() {
+            match c.number(1)? {
+                3 => c.value("list:oid")?,
+                4 => c.value("error")?,
+                5 => {
+                    let count = c.number(2)?;
+                    for _ in 0..count {
+                        haves.push(c.take(20)?.try_into().unwrap());
+                    }
+                }
+                _ => return Err(UnknownField),
+            }
+        }
+        Ok(Self {
+            seq,
+            outcome,
+            haves,
+        })
+    }
+}

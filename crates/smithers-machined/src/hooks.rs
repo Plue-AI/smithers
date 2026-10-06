@@ -184,6 +184,11 @@ pub trait Core: Send + Sync {
     fn capture_local(&self, _cx: &mut LockCx) -> Result<()> {
         Err(Error::unsupported())
     }
+    /// Restore the operation retained by capture_local after an interrupted rewrite.
+    /// Success means the working tree is fully restored, not merely requested.
+    fn restore_rewrite(&self, _cx: &mut LockCx) -> Result<()> {
+        Err(Error::unsupported())
+    }
     /// Native jj rewrite only. RPC owns freeze/capture/reconcile/thaw.
     fn rebase(&self, _cx: &mut LockCx, _onto: Oid) -> Result<Oid> {
         Err(Error::unsupported())

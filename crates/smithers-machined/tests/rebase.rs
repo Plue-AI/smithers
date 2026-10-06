@@ -65,6 +65,10 @@ impl Core for Fixture {
     }
 }
 impl Documents for Fixture {
+    fn flush_all(&self, _: &mut LockCx) -> Result<u16> {
+        self.step("flush")?;
+        Ok(0)
+    }
     fn reconcile_all(&self, _: &mut LockCx, actor: &Actor) -> Result<()> {
         assert_eq!(actor, &Actor::Principal(b"principal".to_vec()));
         self.step("reconcile")
@@ -114,6 +118,7 @@ fn rebase_captures_before_rewrite_and_thaws_before_next_writer() {
         [
             "validate",
             "freeze",
+            "flush",
             "drain",
             "close",
             "capture",
@@ -126,7 +131,7 @@ fn rebase_captures_before_rewrite_and_thaws_before_next_writer() {
     executor.shutdown().unwrap();
 }
 #[test]
-fn rebase_thaws_on_each_failure_and_preserves_busy_session() {
+fn rebase_thaws_only_before_rewrite_and_preserves_busy_session() {
     for fail in [
         "freeze",
         "busy",
@@ -144,7 +149,11 @@ fn rebase_thaws_on_each_failure_and_preserves_busy_session() {
             .unwrap()
             .unwrap();
         assert_eq!(response.payload[11], 255, "{fail}");
-        assert_eq!(f.calls().last(), Some(&"thaw"), "{fail}");
+        if ["rebase", "reconcile"].contains(&fail) {
+            assert!(!f.calls().contains(&"thaw"), "{fail}");
+        } else {
+            assert_eq!(f.calls().last(), Some(&"thaw"), "{fail}");
+        }
         if fail == "busy" {
             assert_eq!(
                 response.payload,
@@ -159,7 +168,7 @@ fn rebase_thaws_on_each_failure_and_preserves_busy_session() {
     }
 }
 #[test]
-fn provider_panic_thaws_before_queue_resumes() {
+fn provider_panic_keeps_tree_frozen() {
     let (f, executor) = fixture("panic");
     assert_eq!(
         executor
@@ -178,11 +187,11 @@ fn provider_panic_thaws_before_queue_resumes() {
         [
             "validate",
             "freeze",
+            "flush",
             "drain",
             "close",
             "capture",
             "rebase",
-            "thaw",
             "next writer"
         ]
     );
