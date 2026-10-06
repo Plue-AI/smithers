@@ -203,3 +203,66 @@ test("does not call the model after a refused provider-start acknowledgment", as
   ).rejects.toThrow("chat provider start refused (403)")
   expect(streamed).toBe(false)
 })
+
+test("wiki-only preflight journals and supplies only the chosen pinned page", async () => {
+  const frames: AgentTurnFrame[] = [], requests: unknown[] = []
+  let expected = cursor
+  const wiki = {
+    item: { kind: "page" as const, label: "Retries", ref: "retries", revision: "4" },
+    text: "Retry three times"
+  }
+  const model = Model.make({
+    stream: () =>
+      Stream.fromIterable([
+        { type: "text-delta" as const, id: "s", text: "[{\"index\":0,\"reason\":\"Policy\"}]" },
+        { type: "settle" as const, stopReason: "stop" as const }
+      ])
+  })
+  const answer = Model.make({
+    stream: (request) => {
+      requests.push(request)
+      return Stream.fromIterable([
+        { type: "text-delta" as const, id: "a", text: "Three times." },
+        { type: "settle" as const, stopReason: "stop" as const }
+      ])
+    }
+  })
+  const fetchImpl: FetchLike = async (url, init) => {
+    if (String(url).includes("provider-started")) return new Response(null, { status: 204 })
+    const body = JSON.parse(String(init?.body))
+    frames.push(...body.frames)
+    const response = reply(expected, body.frames[0])
+    expected = response.cursor
+    return Response.json(response)
+  }
+  await Effect.runPromise(runDurableChatTurn(answer, grant, { modelId: "coding" }, grant.producerBaseUrl, fetchImpl, {
+    model,
+    options: { modelId: "fast" },
+    input: {
+      prompt: "Retry?",
+      author: "ben",
+      branch: "main",
+      state: "synced",
+      recent: [],
+      tokenBudget: 24000,
+      wikiOnly: true,
+      candidates: [
+        { item: { kind: "file", label: "Excluded", ref: "retry.ts", revision: "abc" }, text: "unselected-file-canary" },
+        wiki
+      ]
+    }
+  }))
+  expect(frames[0]).toMatchObject({
+    type: "context.preflight",
+    phase: "started",
+    result: { candidates: [wiki.item], context: [] }
+  })
+  expect(frames[1]).toMatchObject({
+    type: "context.preflight",
+    phase: "completed",
+    result: { candidates: [wiki.item], context: [{ ...wiki.item, reason: "Policy" }] }
+  })
+  expect(requests).toHaveLength(1)
+  expect(JSON.stringify(requests)).toContain("Retry three times")
+  expect(JSON.stringify(requests)).not.toContain("unselected-file-canary")
+})

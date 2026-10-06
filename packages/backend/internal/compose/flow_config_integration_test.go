@@ -18,12 +18,17 @@ func TestInstallStoredConfigSourceReadyThroughRouter(t *testing.T) {
 	for _, fixture := range []struct {
 		name        string
 		argv        [][]string
+		checks      []string
 		pages       []string
 		directories []string
 	}{
-		{"node", [][]string{{"pnpm", "test"}, {"pnpm", "lint"}}, []string{"overview", "architecture"}, []string{".", "."}},
-		{"node-packages", [][]string{{"pnpm", "test"}, {"pnpm", "lint"}}, []string{"overview", "architecture", "package-pkg00", "package-pkg01", "package-pkg02", "package-pkg03", "package-pkg04", "package-pkg05", "package-pkg06", "package-pkg07"}, []string{".", ".", "pkg00", "pkg01", "pkg02", "pkg03", "pkg04", "pkg05", "pkg06", "pkg07"}},
-		{"go", [][]string{{"go", "test", "./..."}}, []string{"overview", "architecture"}, []string{".", "."}},
+		{"node", [][]string{{"pnpm", "test"}, {"pnpm", "lint"}}, []string{"test", "lint"}, []string{"overview", "architecture"}, []string{".", "."}},
+		{"node-packages", [][]string{{"pnpm", "test"}, {"pnpm", "lint"}}, []string{"test", "lint"}, []string{"overview", "architecture", "package-pkg00", "package-pkg01", "package-pkg02", "package-pkg03", "package-pkg04", "package-pkg05", "package-pkg06", "package-pkg07"}, []string{".", ".", "pkg00", "pkg01", "pkg02", "pkg03", "pkg04", "pkg05", "pkg06", "pkg07"}},
+		{"go", [][]string{{"go", "test", "./..."}}, []string{"test"}, []string{"overview", "architecture"}, []string{".", "."}},
+		{"node-all", [][]string{{"pnpm", "test"}, {"pnpm", "lint"}, {"pnpm", "typecheck"}, {"pnpm", "build"}}, []string{"test", "lint", "typecheck", "build"}, []string{"overview", "architecture"}, []string{".", "."}},
+		{"rust", [][]string{{"cargo", "test"}}, []string{"test"}, []string{"overview", "architecture"}, []string{".", "."}},
+		{"python", [][]string{{"pytest"}}, []string{"test"}, []string{"overview", "architecture"}, []string{".", "."}},
+		{"no-checks", [][]string{{}}, []string{"build-only"}, []string{"overview", "architecture"}, []string{".", "."}},
 	} {
 		t.Run(fixture.name, func(t *testing.T) {
 			t.Setenv("REHEARSAL_CONFIG_FIXTURE", fixture.name)
@@ -37,8 +42,15 @@ func TestInstallStoredConfigSourceReadyThroughRouter(t *testing.T) {
 				ConflictAttempts int               `json:"conflictAttempts"`
 				Wiki             bool              `json:"wiki"`
 				Seats            map[string]string `json:"seats"`
-				Detected         []struct {
-					Argv []string `json:"argv"`
+				Checks           []struct {
+					ID       string `json:"id"`
+					Flow     string `json:"flow"`
+					Required bool   `json:"required"`
+				} `json:"checks"`
+				Detected []struct {
+					Argv      []string `json:"argv"`
+					Flow      string   `json:"flow"`
+					TimeoutMs int      `json:"timeoutMs"`
 				} `json:"detected"`
 				Pages []struct {
 					ID              string `json:"id"`
@@ -47,8 +59,18 @@ func TestInstallStoredConfigSourceReadyThroughRouter(t *testing.T) {
 			}
 			require.NoError(t, json.Unmarshal(raw, &project))
 			argv := [][]string{}
-			for _, check := range project.Detected {
+			checkIDs := []string{}
+			for _, check := range project.Checks {
+				checkIDs = append(checkIDs, check.ID)
+				require.Equal(t, "checks/"+check.ID, check.Flow)
+				require.True(t, check.Required)
+			}
+			require.Equal(t, fixture.checks, checkIDs)
+			require.Len(t, project.Detected, len(fixture.checks))
+			for i, check := range project.Detected {
 				argv = append(argv, check.Argv)
+				require.Equal(t, "checks/"+fixture.checks[i], check.Flow)
+				require.Equal(t, 1800000, check.TimeoutMs)
 			}
 			require.Equal(t, fixture.argv, argv)
 			require.Equal(t, map[string]string{"coding/implement": "auto", "coding/plan": "auto", "coding/poc": "auto", "coding/review": "auto", "wiki/reviewer": "auto", "coding/dispatch": "auto", "repository/research": "auto", "repository/evaluator": "auto", "repository/author": "auto", "flow/author": "auto"}, project.Seats)

@@ -8,6 +8,7 @@ import (
 	"crypto/x509"
 	"encoding/json"
 	"encoding/pem"
+	"fmt"
 	"net/http"
 	"net/url"
 	"os/exec"
@@ -626,11 +627,8 @@ func mustPublicationRepository(t *testing.T, f *publicationFixture) db.Repositor
 // Detection is seeded here; the composed install HTTP test independently proves
 // permission, wait/revision binding and the same AnswerBranch transaction.
 func TestForeignPushDiscardPublishesAgainstObservedLease(t *testing.T) {
-	for _, moved := range []bool{false, true} {
-		name := "discard"
-		if moved {
-			name = "newer-push"
-		}
+	for _, name := range []string{"discard", "newer-push", "receive-pack-race"} {
+		moved := name != "discard"
 		t.Run(name, func(t *testing.T) {
 			f := newPublicationFixture(t, false)
 			ctx := t.Context()
@@ -675,12 +673,35 @@ func TestForeignPushDiscardPublishesAgainstObservedLease(t *testing.T) {
 			require.Equal(t, "accepted", receipt.State)
 			require.Equal(t, alice, f.hostRef(repohost.KeptCommitRefPrefix+alice))
 			expected := alice
+			var raced chan error
 			if moved {
 				expected = f.commit("Alice pushes again", "LAPTOP.md", "Alice again\n")
-				f.git(f.work, "push", "-q", f.github, expected+":refs/heads/"+branch)
+				if name == "receive-pack-race" {
+					// Git has already advertised the old head when receive-pack
+					// starts. A laptop push now must fail the server's atomic
+					// old-object comparison, not merely the client's ls-remote.
+					raced = make(chan error, 1)
+					f.fake.OnNextRequest(http.MethodPost, "/rehearsal-owner/app.git/git-receive-pack", func() {
+						out, err := exec.Command("git", "-C", f.work, "push", "-q", f.github, expected+":refs/heads/"+branch).CombinedOutput()
+						if err != nil {
+							err = fmt.Errorf("laptop push: %w: %s", err, out)
+						}
+						raced <- err
+					})
+				} else {
+					f.git(f.work, "push", "-q", f.github, expected+":refs/heads/"+branch)
+				}
 			}
 			for range 3 {
 				f.wake()
+			}
+			if raced != nil {
+				select {
+				case err := <-raced:
+					require.NoError(t, err)
+				case <-time.After(5 * time.Second):
+					t.Fatal("publication did not reach receive-pack")
+				}
 			}
 			after := f.item(first.Number.Int64)
 			require.Equal(t, originalPR, after.PRNumber, "the answer retains the pull request")
