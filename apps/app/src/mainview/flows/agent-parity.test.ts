@@ -268,6 +268,25 @@ describe("the three-door law", () => {
       controller.dispose()
     }
   })
+  test("automatic calls of every confirmation-gated flow refuse before any act (#3736)", async () => {
+    for (const bootstrap of [EVERYTHING, WEB]) {
+      const { store, controller } = await boot(bootstrap)
+      try {
+        const gated = controller.commands.entries().filter(entry => entry.metadata.confirm !== undefined)
+        expect(gated.length).toBeGreaterThan(0)
+        for (const entry of gated) {
+          const name = nameOf(entry)
+          const args = AGENT_ROWS.find(row => row.name === name)?.args
+          const before = messages(store).length
+          expect(await controller.commands.run(name, args, "automatic")).toEqual({
+            status: "failed", error: `/${name} requires a person's confirmation.`
+          })
+          expect(messages(store).length).toBe(before)
+        }
+      } finally { controller.dispose() }
+    }
+  })
+
   test("the two automatic callers' flows stay invocable automatically", async () => {
     const { controller } = await boot()
     for (const name of ["flow.plan", "triggers.list"]) {

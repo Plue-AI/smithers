@@ -583,6 +583,11 @@ export const createCommandRegistry = (actions: CommandActions, agentActions: Com
 
     }
     let target = invoker === "agent" ? agentEntry(nameOf(entry)) ?? entry : entry
+    // Automatic callers carry no person's authorization (#3736), including
+    // incomplete inputs which would otherwise open a form or defer execution.
+    if (invoker !== "user" && invoker !== "agent" && target.metadata.confirm !== undefined) {
+      return { status: "failed", error: `/${nameOf(target)} requires a person's confirmation.` }
+    }
     if (invoker === "agent" && !modelInvocable(target)) {
       return { status: "failed", error: userOnlyError(nameOf(target), target.metadata.userOnlyReason) }
     }
