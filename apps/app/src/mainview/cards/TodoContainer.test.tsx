@@ -396,3 +396,12 @@ test("merged TODO mounts the design lessons receipt with wiki and Proposal doors
     expect(calls).toEqual([{ tag: "wiki.page", input: { name: "retry-helper" } }, { tag: "proposal", input: { id: "lint" } }])
   } finally { await act(async () => root.unmount()) }
 })
+
+test("a branch wait preserves Resume for a paused run and a question refuses Stop", () => {
+  const paused = mount({ ...fixtures.foreign_push.model, pause: fixtures.paused.model.pause })
+  expect(paused.props.actions.some(action => action.tag === "todo.resume")).toBe(true)
+  expect(paused.props.actions.some(action => action.tag === "todo.stop")).toBe(false)
+  const mixed = mount({ ...fixtures.foreign_push.model, waits: [...fixtures.foreign_push.model.waits, ...fixtures.needs_you.model.waits] })
+  expect(mixed.props.actions.some(action => action.tag === "todo.stop")).toBe(false)
+  expect(mixed.props.model.waits).toHaveLength(2)
+})

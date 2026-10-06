@@ -71,8 +71,9 @@ export const todoActionDefinitions = (model: TodoCard, role: TodoContainerProps[
   for (let index = waitsFrom; index < definitions.length; index++) definitions[index] = { ...definitions[index]!, gesture: `wait:${index}` }
   // Steer and Amend are plain buttons: an empty text opens Chat on the flow's line (TodoBody); a late answer sends as is.
   definitions.push({ tag: "todo.steer", label: lateAnswer ? "Send as steer" : "Steer", command_input: { n, text: lateAnswer ?? "" } })
-  if (model.state === "paused") definitions.push({ tag: "todo.resume", label: "Resume", command_input: { n } })
-  if (["starting", "working"].includes(model.state) || model.state === "needs_you" && model.waits.some(wait => !["question", "approval"].includes(wait.kind))) definitions.push({ tag: "todo.stop", label: "Stop", command_input: { n } })
+  if (model.state === "paused" || model.pause) definitions.push({ tag: "todo.resume", label: "Resume", command_input: { n } })
+  if (!model.pause && model.state !== "paused" && model.waits.every(wait => !["question", "approval"].includes(wait.kind))
+    && (["starting", "working"].includes(model.state) || model.state === "needs_you" && model.waits.length > 0)) definitions.push({ tag: "todo.stop", label: "Stop", command_input: { n } })
   if (model.state === "failed" && model.failure?.retryable) definitions.push({ tag: "todo.retry", label: "Retry", command_input: { n },
     input: [{ name: "text", label: "Steer", kind: "text", required: false, multiline: true }],
     resolve_input: input => ({ n, text: input.text }) })

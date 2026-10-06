@@ -20,7 +20,7 @@ C-UI-12 Members (T-UI-09): [install roster and keyboard Add/Role/Remove](C-UI-12
 | C-J2-04 | [C-J2-04.spec.ts](C-J2-04.spec.ts) | fixme-before-implementation | T-STK-01 |
 | C-J2-05 | [C-J2-05.spec.ts](C-J2-05.spec.ts), [receipt navigation](../learning-receipt.spec.ts) | Partial: mounted merged-TODO receipt navigation passes in Chromium; merge/background-learning journey remains fixme | T-STK-04 |
 | C-J4-01 | [C-J4-01.spec.ts](C-J4-01.spec.ts) | fixme-before-implementation | T-APP-01 |
-| C-J4-02 | [C-J4-02.spec.ts](C-J4-02.spec.ts) | passing app HTTP-seam proof: Answer, head-bound Merge (acceptance stays In review until terminal projection), Move, Retry, displayed-wait/head Bring in and pending execution; checkpoint backend, real flow/GitHub and reference-host timing remain pending | T-STK-02, T-STK-05, T-APP-02 |
+| C-J4-02 | [C-J4-02.spec.ts](C-J4-02.spec.ts) | passing app HTTP-seam proof: Answer, head-bound Merge (acceptance stays In review until terminal projection), Move, Retry, displayed-wait/head Bring in, durable pause/resume projections and pending execution; runtime pause/checkpoint backend, real flow/GitHub and reference-host timing remain pending | T-STK-02, T-STK-05, T-APP-02 |
 | C-J4-03 | [C-J4-03.spec.ts](C-J4-03.spec.ts) | fixme-before-implementation | T-STK-04, T-REL-02 |
 | C-J10-01 | [C-J10-01.spec.ts](C-J10-01.spec.ts) | fixme-before-implementation | T-GH-03, T-REL-02 |
 | C-J10-02 | [C-J10-02.spec.ts](C-J10-02.spec.ts) | fixme-before-implementation | T-GH-04 |
@@ -60,7 +60,7 @@ C-UI-12 Members (T-UI-09): [install roster and keyboard Add/Role/Remove](C-UI-12
 | C-J11-04 | [C-J11-04.spec.ts](C-J11-04.spec.ts) | fixme-before-implementation | T-FLW-07, T-REL-02 |
 | C-APP-01 | [C-APP-01.spec.ts](C-APP-01.spec.ts) | browser-pass (Take over; PostgreSQL role/idempotency receipt; live toast qualification pending) | T-APP-02 |
 | C-APP-02 | [C-APP-02.spec.ts](C-APP-02.spec.ts) | browser-pass (Edit, deduplication, reload, person Drop confirm, working step, daily admission limit, budget pause owner, outside-push Discard binding/deduplication/role gate; planner/multiplayer pending) | T-APP-02 |
-| C-APP-03 | [C-APP-03.spec.ts](C-APP-03.spec.ts) | browser-pass (failure/slash Draft, main recipe, reload; Settings name refusal and Draft passed with the design seed disabled in settings-install.spec.ts; guest qualification pending) | T-APP-02, T-APP-03 |
+| C-APP-03 | [C-APP-03.spec.ts](C-APP-03.spec.ts) | browser-pass (failure/slash Draft, main recipe, reload with seed fallback and on the install; Settings name refusal and Draft passed with the design seed disabled in settings-install.spec.ts; guest qualification pending) | T-APP-02, T-APP-03 |
 | C-APP-04 | [C-APP-04.spec.ts](C-APP-04.spec.ts) | browser-pass: composer host admission, reload and read-only Earlier; authenticated packaged-host ordering, privacy, revocation and retired-route receipts | T-APP-16 |
 | C-APP-05 | [C-APP-05.spec.ts](C-APP-05.spec.ts) | browser-pass: real composed install, two members, author tab closes, host completes and both replay; author-only UI instructions use the typed flow | T-APP-16 |
 | C-ACC-01 | [C-ACC-01.spec.ts](C-ACC-01.spec.ts) | fixme-before-implementation | T-ACC-02, T-ACC-03, T-ACC-04, T-APP-04, T-INS-08, T-TRM-02, T-CUT-03, T-STK-06 |

@@ -1228,3 +1228,86 @@ test("served approval and conflict waits notify branch recipients once and settl
     expect(notices()[2]?.audience).toMatchObject({ kind: "conflict", member: "ben" })
   } finally { h.close() }
 })
+
+for (const operation of ["stop", "resume"] as const) for (const branchWait of [false, true]) {
+  test(`${operation} waits for the same attempt's durable pause projection with branch wait ${branchWait}`, async () => {
+    const admission = deferred<Response>()
+    const calls: { url: string; init?: RequestInit }[] = []
+    const h = await harness((url, init) => { calls.push({ url, init }); return admission.promise })
+    try {
+      const base = structuredClone(fixtures.working.model)
+      const pause = { reason: "person" as const, since: "2026-10-06T00:00:00Z" }
+      const model = { ...base, state: branchWait ? "needs_you" as const : operation === "resume" ? "paused" as const : "working" as const,
+        waits: branchWait ? fixtures.foreign_push.model.waits : [], ...(operation === "resume" ? { pause } : {}) }
+      await h.seam.applyTodoProjection(12, model)
+      for (let press = 0; press < 2; press++) expect(await h.seam.controlTodo(12, operation)).toEqual({ value: "Requested" })
+      expect(calls).toHaveLength(1)
+      expect(calls[0]!.url).toBe("https://install.test/api/todos/12")
+      expect(JSON.parse(String(calls[0]!.init?.body))).toEqual({ op: operation })
+      const pending = h.todo().payload.requests[0]!
+      expect(pending.attempt).toBe(base.run!.attempt)
+      admission.resolve(json({ state: "accepted", n: 12 }))
+      await waitFor(() => h.todo().payload.requests[0]?.state === "accepted")
+      await h.seam.applyTodoProjection(12, model)
+      expect(h.outcomes).toEqual([])
+      const completed = { ...model, state: branchWait ? "needs_you" as const : operation === "stop" ? "paused" as const : "queued" as const,
+        pause: operation === "stop" ? pause : undefined }
+      await h.seam.applyTodoProjection(12, { ...completed, run: { ...base.run!, attempt: base.run!.attempt + 1 } })
+      expect(h.outcomes).toEqual([])
+      if (operation === "stop") {
+        await h.seam.applyTodoProjection(12, { ...completed, pause: { reason: "daily_token_budget", since: pause.since } })
+        expect(h.outcomes).toEqual([])
+      }
+      await h.seam.applyTodoProjection(12, completed)
+      expect(h.todo().payload.requests).toEqual([])
+      expect(h.todo().payload.model?.waits).toEqual(model.waits)
+      expect(h.todo().payload.model?.evidence).toEqual(model.evidence)
+      expect(h.outcomes).toEqual([{ key: `todo.request.${pending.key}`, status: "ok", detail: operation === "stop" ? "Paused" : "Resumed" }])
+    } finally { h.close() }
+  })
+}
+
+for (const operation of ["stop", "resume"] as const) {
+  test(`${operation} reports provider refusal and terminal settlement without claiming a pause`, async () => {
+    let unavailable = true
+    const h = await harness(async () => unavailable
+      ? json({ code: "todo_control_unavailable", class: "infra", message: "TODO controls are unavailable" }, 503)
+      : json({ state: "accepted", n: 12 }))
+    try {
+      await h.seam.applyTodoProjection(12, fixtures.working.model)
+      await h.seam.controlTodo(12, operation)
+      await waitFor(() => h.todo().payload.requests[0]?.state === "failed")
+      expect(h.outcomes.at(-1)).toMatchObject({ status: "failed", detail: "TODO controls are unavailable Not your fault." })
+      expect(h.todo().payload.model?.state).toBe("working")
+      unavailable = false
+      await h.seam.controlTodo(12, operation)
+      await waitFor(() => h.todo().payload.requests[0]?.state === "accepted")
+      await h.seam.applyTodoProjection(12, fixtures.failed.model)
+      expect(h.outcomes.at(-1)).toMatchObject({ status: "failed", detail: fixtures.failed.model.failure!.message })
+      expect(h.todo().payload.requests).toEqual([])
+      expect(h.todo().payload.model?.evidence).toEqual(fixtures.failed.model.evidence)
+    } finally { h.close() }
+  })
+}
+
+for (const operation of ["stop", "resume"] as const) test(`${operation} without an open card acknowledges before its attempt read and sends no control until it binds`, async () => {
+  const snapshot = deferred<Response>()
+  const calls: { url: string; method?: string }[] = []
+  const h = await harness(async (url, init) => {
+    calls.push({ url, method: init?.method })
+    return init?.method === "POST" ? json({ state: "accepted", n: 12 }) : snapshot.promise
+  })
+  try {
+    expect(await h.seam.controlTodo(12, operation)).toEqual({ value: "Requested" })
+    expect(calls).toEqual([{ url: "https://install.test/api/todos/12", method: undefined }])
+    expect(h.todo().payload.requests[0]?.state).toBe("requested")
+    const initial = operation === "stop" ? fixtures.working.model : fixtures.paused.model
+    snapshot.resolve(json(initial, 200))
+    await waitFor(() => h.todo().payload.requests[0]?.state === "accepted")
+    expect(calls.filter(call => call.method === "POST")).toHaveLength(1)
+    expect(h.todo().payload.requests[0]?.attempt).toBe(initial.run!.attempt)
+    await h.seam.applyTodoProjection(12, operation === "stop" ? { ...initial, state: "paused", pause: fixtures.paused.model.pause }
+      : { ...initial, state: "queued", pause: undefined })
+    expect(h.outcomes.at(-1)).toMatchObject({ status: "ok", detail: operation === "stop" ? "Paused" : "Resumed" })
+  } finally { h.close() }
+})

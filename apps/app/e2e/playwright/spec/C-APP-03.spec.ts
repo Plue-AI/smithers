@@ -1,12 +1,14 @@
 import { expect, test } from "../browserTest"
 import { owner, say } from "./j1-fixtures"
+import { ISSUE_REPO, issueTodoInstall } from "./issue-todo-fixture"
 import type { TodoCard } from "@smthrs/rpc/TodoCard"
 import { fixtures } from "../../../../../packages/rpc/test/fixtures/Todo"
 
 // The shared failure/slash command. Settings binds the same command in T-APP-03;
 // guest rebuild and certified TODO failure ingestion need install qualification.
-test("C-APP-03: a missing package drafts only the main machine recipe", async ({ page }) => {
-  await owner(page)
+for (const installed of [false, true]) test(`C-APP-03: a missing package drafts only the main machine recipe (${installed ? "install" : "seed fallback"})`, async ({ page }) => {
+  if (installed) await issueTodoInstall(page)
+  else await owner(page)
   const failed: TodoCard = structuredClone(fixtures.failed.model)
   failed.n = 1
   failed.failure!.missing_tool = { name: "figlet", file: ".smithers/machine.json" }
@@ -17,7 +19,7 @@ test("C-APP-03: a missing package drafts only the main machine recipe", async ({
     reads.push(route.request().url())
     return route.fulfill({ json: { content: '{"packages":["jq"]}', encoding: "utf-8" } })
   })
-  await page.goto("/")
+  await page.goto(installed ? `/${ISSUE_REPO}` : "/")
   await say(page, "/todo T1")
   await page.getByRole("button", { name: "Add to machine image", exact: true }).last().click()
   const draft = page.locator('[data-kind="draft"]').last()

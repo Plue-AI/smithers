@@ -233,6 +233,17 @@ export const createTodoSeam = (ctx: SeamContext, options: TodoSeamOptions = {}) 
         ? [] : [{ key: request.key, outcome: { status: "ok" as const, detail: request.operation === "bring-in" ? "Brought in" : "Discarded" } }]
       if (request.operation === "takeover") return model.owner.login === request.owner
         ? [{ key: request.key, outcome: { status: "ok" as const, detail: "Taken over" } }] : []
+      // Admission is not a pause receipt. Branch waits rank above Paused, so
+      // the durable pause projection, rather than only the state word, settles Stop.
+      if (request.operation === "stop" || request.operation === "resume") {
+        if (["failed", "dropped", "merged"].includes(model.state)) return [{ key: request.key,
+          outcome: { status: "failed" as const, detail: model.failure?.message ?? (model.state === "merged" ? "Merged" : model.state === "failed" ? "Failed" : "Dropped") } }]
+        if (request.attempt === undefined || model.run?.attempt !== request.attempt) return []
+        const completed = request.operation === "stop" ? model.pause?.reason === "person"
+          : model.pause === undefined && model.state !== "paused"
+        return completed ? [{ key: request.key, outcome: { status: "ok" as const,
+          detail: request.operation === "stop" ? "Paused" : "Resumed" } }] : []
+      }
       // A drop settles once the TODO is dropped.
       if (request.operation === "drop") return model.state === "dropped"
         ? [{ key: request.key, outcome: { status: "ok" as const, detail: "Dropped" } }] : []
@@ -308,6 +319,18 @@ export const createTodoSeam = (ctx: SeamContext, options: TodoSeamOptions = {}) 
     void (async () => {
       let response: Response
       try {
+        // A slash can address a TODO before its card has loaded. Bind its
+        // attempt in the background before sending the mutation, keeping the
+        // persisted request and immediate acknowledgment intact.
+        if (["stop", "resume"].includes(request.operation) && request.attempt === undefined) {
+          const snapshot = await ctx.http(`${ctx.baseUrl}${todoPath(request.n!)}`, { credentials: "include", signal: abort.signal })
+          if (!current(login, revision)) return
+          const parsed = TodoCardSchema.safeParse(snapshot.ok ? await snapshot.json().catch(() => null) : null)
+          if (!current(login, revision)) return
+          if (!parsed.success || parsed.data.n !== request.n || !parsed.data.run) { await fail("Could not open the TODO."); return }
+          request = { ...request, attempt: parsed.data.run.attempt }
+          await updateRequest(cardId, request)
+        }
         // Drafts (including restored requests) also retain creation metadata.
         // PATCH changes only the existing TODO's prompt and acceptance.
         const body = request.operation === "amend"
@@ -372,7 +395,8 @@ export const createTodoSeam = (ctx: SeamContext, options: TodoSeamOptions = {}) 
     const refusal = signedIn(); if (refusal) return refusal
     const row = entry(n) ?? blank(n)
     const existing = row.payload.requests.find(old => old.owner === owner() && old.operation === operation && canonicalize(old.body) === canonicalize(body))
-    const pending = existing ?? { key: key ?? randomUuid(), owner: owner()!, operation, n, body, state: "requested" as const }
+    const pending = existing ?? { key: key ?? randomUuid(), owner: owner()!, operation, n, body, state: "requested" as const,
+      ...(["stop", "resume"].includes(operation) && row.payload.model?.run ? { attempt: row.payload.model.run.attempt } : {}) }
     await updateOrCreate(row, pending)
     watch(n)
     if (pending.state !== "accepted" || !shared.sending.has(pending.key)) send(row.id, pending)
