@@ -1,49 +1,8 @@
-import { expect, test, type Page } from "../browserTest"
-import { owner } from "./j1-fixtures"
-import { installFixture } from "../../../src/mainview/state/seams/InstallFixtures.test-support"
+import { expect, test } from "../browserTest"
 import { fixtures as confirms } from "../../../../../packages/rpc/test/fixtures/Confirm"
 import { fixtures as todos } from "../../../../../packages/rpc/test/fixtures/Todo"
-import type { MemberConfirmation } from "@smthrs/rpc/ConfirmCard"
 import type { TodoCard } from "@smthrs/rpc/TodoCard"
-
-const id = "10000000-0000-4000-8000-000000000001"
-const privateRow = (merge = false): MemberConfirmation => ({ id, state: "pending", command: merge ? "merge" : "todo.new", revision: "generation-2:h2", expires_at: "2099-01-01T00:00:00Z",
-  payload: { input: merge ? {} : { title: "Card model contracts", prompt: "Publish card projections" }, card: merge ? confirms.review_merge.model : { ...confirms.one_click.model, action: { tag: "todo.new", verb: "Commit" } } } })
-
-// Contract fixtures exercise the real live transport, card, typed flows and TODO
-// observer. TestConfirmationsBrowserPostgres separately proves real API effects.
-const fixture = async (page: Page, data: (topic: string) => unknown) => {
-  await owner(page)
-  await page.route("**/api/bootstrap", route => route.fulfill({ json: {
-    apiVersion: 1, host: "local", version: "test", buildSha: "test", capabilities: ["install", "identity"], authFlow: "credentials", sandbox: null
-  } }))
-  await page.route("**/api/install", route => route.fulfill({ json: installFixture() }))
-  await page.route("**/api/members", route => route.fulfill({ json: data("members") }))
-  const topics = new Map<string, { id: number; cursor: number; send: (value: string) => void }>()
-  const publish = (name: string) => {
-    const topic = topics.get(name)
-    if (topic) topic.send(JSON.stringify({ t: "snap", id: topic.id, cursor: ++topic.cursor, data: data(name) }))
-  }
-  await page.routeWebSocket("**/api/live", socket => socket.onMessage(raw => {
-    if (typeof raw !== "string") return
-    const frame = JSON.parse(raw)
-    if (frame.t !== "sub") return
-    if (data(frame.topic) === undefined) { socket.send(JSON.stringify({ t: "err", id: frame.id, code: "unsupported" })); return }
-    topics.set(frame.topic, { id: frame.id, cursor: 0, send: value => socket.send(value) })
-    publish(frame.topic)
-  }))
-  return publish
-}
-const roster = (role: "owner" | "member") => ({ members: [{ login: "canary-owner", name: "Owner", avatar_url: "https://github.com/canary-owner.png", color_index: 0, role, needs_access: false, suspended: false, actions: [] }], access_url: "https://github.com/acme/api/settings/access" })
-const open = async (page: Page) => {
-  await page.goto("/", { waitUntil: "domcontentloaded" })
-  const confirm = page.locator('[data-kind="confirm"]')
-  const takeover = page.getByRole("button", { name: "Use Smithers here", exact: true })
-  await expect(confirm.or(takeover)).toBeVisible({ timeout: 60_000 })
-  if (await takeover.isVisible()) await takeover.press("Enter")
-  await expect(confirm).toBeVisible({ timeout: 60_000 })
-  return confirm
-}
+import { id, privateRow, fixture, roster, open } from "./confirmation-fixtures"
 
 for (const verb of ["Commit", "Amend", "Bring in", "Discard"] as const) test(`C-UI-13 Confirm: ${verb} keeps progress through the running subject`, async ({ page }) => {
   test.setTimeout(120_000)
@@ -81,7 +40,7 @@ for (const verb of ["Commit", "Amend", "Bring in", "Discard"] as const) test(`C-
 test("C-UI-13 Confirm: Review & merge follows role and required checks", async ({ page }) => {
   test.setTimeout(120_000)
   let row = privateRow(true), role: "owner" | "member" = "member", denials = 0
-  row = { ...row, payload: { ...row.payload, card: { ...row.payload.card, review: { ...row.payload.card.review!, approved_revision: "h1", evidence: {
+  row = { ...row, payload: { ...row.payload, card: { ...row.payload.card, subject: { ...row.payload.card.subject, revision: "h2" }, review: { ...row.payload.card.review!, approved_revision: "h1", evidence: {
     attempt: 2, revision: "h2", items: [
       { kind: "github_check", name: "required-ci", required: true, state: "pending", url: "https://github.com/acme/api/actions/runs/1" },
       { kind: "github_check", name: "optional-ci", required: false, state: "failed", url: "https://github.com/acme/api/actions/runs/2" }

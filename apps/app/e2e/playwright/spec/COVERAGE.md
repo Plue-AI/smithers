@@ -50,7 +50,7 @@ C-UI-12 Members (T-UI-09): [install roster and keyboard Add/Role/Remove](C-UI-12
 | C-J5-02 | [C-J5-02.spec.ts](C-J5-02.spec.ts) | fixme-before-implementation | T-FLW-03, T-FLW-04, T-FLW-11 |
 | C-J5-03 | [C-J5-03.spec.ts](C-J5-03.spec.ts), [receipt navigation](../learning-receipt.spec.ts) | Partial: receipt → Proposal → Make TODO → reload passes in Chromium; automatic learning, flow activation and sixth-TODO journey remain fixme | T-FLW-06, T-REL-02 |
 | C-J6-01 | [C-J6-01.spec.ts](C-J6-01.spec.ts) | browser-pass (served delegated answer/steer/presence, member color, independent coding participant, reload and person replacement); full installed terminal/skill/confirmation journey fixme, reference-host pending | T-TRM-02, T-APP-09, T-REL-02 |
-| C-J6-02 | [C-J6-02.spec.ts](C-J6-02.spec.ts) | fixme-before-implementation | T-ACC-04, T-APP-04, T-REL-02 |
+| C-J6-02 | [C-J6-02.spec.ts](C-J6-02.spec.ts) | partial: install confirmation seam, member press, reload and issuer attribution; composed CLI login/Merge covered separately; reference-host journey pending | T-ACC-04, T-APP-04, T-REL-02 |
 | C-J7-01 | [C-J7-01.spec.ts](C-J7-01.spec.ts) | app HTTP-seam proof: private Before draft, stack order, Amend, retained identity and reload; guest steer/ancestry and reference-host receipts pending | T-STK-02, T-STK-06, T-REL-02 |
 | C-J7-02 | [C-J7-02.spec.ts](C-J7-02.spec.ts) | fixme-before-implementation | T-MCH-08, T-STK-05 |
 | C-J7-03 | [C-J7-03.spec.ts](C-J7-03.spec.ts) | fixme-before-implementation | T-STK-08, T-REL-02 |
@@ -70,7 +70,7 @@ C-UI-12 Members (T-UI-09): [install roster and keyboard Add/Role/Remove](C-UI-12
 | C-APP-04 | [C-APP-04.spec.ts](C-APP-04.spec.ts) | browser-pass: composer host admission, reload and read-only Earlier; authenticated packaged-host ordering, privacy, revocation and retired-route receipts | T-APP-16 |
 | C-APP-05 | [C-APP-05.spec.ts](C-APP-05.spec.ts) | browser-pass: real composed install, two members, author tab closes, host completes and both replay; author-only UI instructions use the typed flow | T-APP-16 |
 | C-ACC-01 | [C-ACC-01.spec.ts](C-ACC-01.spec.ts) | fixme-before-implementation | T-ACC-02, T-ACC-03, T-ACC-04, T-APP-04, T-INS-08, T-TRM-02, T-CUT-03, T-STK-06 |
-| C-ACC-02 | [C-ACC-02.spec.ts](C-ACC-02.spec.ts) | partial: composed PostgreSQL/browser one-click journey passed; merge recovery pending | T-ACC-04, T-APP-04, T-STK-04 |
+| C-ACC-02 | [C-ACC-02.spec.ts](C-ACC-02.spec.ts) | partial: stale expiry/fresh review browser journey; composed PostgreSQL/GitHub-fake admission and settlement; reference-host recovery pending | T-ACC-04, T-APP-04, T-STK-04 |
 | C-ACC-03 | [C-ACC-03.spec.ts](C-ACC-03.spec.ts) | passing: removal, owner protection, retained TODO history | T-ACC-02 |
 | C-ACC-04 | [C-ACC-04.spec.ts](C-ACC-04.spec.ts) | roster and sign-in refusal HTTP projections pass; composed OAuth qualification separate | T-ACC-01, T-ACC-02 |
 | C-STK-01 | [C-STK-01.spec.ts](C-STK-01.spec.ts) | fixme-before-implementation | T-STK-01 |
@@ -410,3 +410,5 @@ T-APP-03 rerun: C-UI-13 now runs each card door independently without fixme. Flo
 T-APP-03 pass 3: the image Draft uses the ticket title “Add figlet to the machine image”. C-APP-03 asserts the literal one-file recipe diff and private browser isolation, including independent Settings refusal, creation and discard. Settings retains a saved daily allowance when an older GET completes during its PUT; the seam regression also retains newer live-frame fencing. These are app-boundary receipts with test-only HTTP providers, not guest, merge, OAuth or reference-install qualification.
 
 T-APP-04 merge admission additionally passes the Confirm browser contract: a person press receives 202 pending, disables repeated presses while merging, survives reload without another merge request, and ends only from the confirmed TODO/private approval projection. PostgreSQL/GitHub-fake service tests and composed install HTTP tests cover the separate admission and settlement boundaries; reference-host recovery and the full C-ACC-02 browser journey remain pending.
+
+T-ACC-04 removes the C-ACC-02 and C-J6-02 browser fixmes using the install live confirmation seam. The browser contracts cover stale expiry, a fresh revision held by required checks, a person press, pending admission, reload, settlement and issuer attribution. These mocked transport projections supplement the composed PostgreSQL/CLI/GitHub-fake boundaries; they do not replace a real-host journey or the full C-ACC-01 command ledger.

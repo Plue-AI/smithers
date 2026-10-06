@@ -248,6 +248,25 @@ func testTodoMergeComposedRouteBoundaryPostgres(t *testing.T, confirmations bool
 		require.Equal(t, 403, status, receipt)
 		status, receipt = call("POST", "/api/confirmations/"+id+"/approve", "member-browser-session", "", "foreign-press", `{}`)
 		require.Equal(t, 403, status, receipt)
+		// A new generation invalidates the exact revision the agent requested.
+		// The person's stale press must expire it without admitting a merge.
+		_, err = pool.Exec(ctx, `UPDATE mythical_items SET generation=generation+1 WHERE id=$1`, before.ID)
+		require.NoError(t, err)
+		status, receipt = call("POST", "/api/confirmations/"+id+"/approve", "owner-browser-session", "", "stale-person-press", `{}`)
+		require.Equal(t, 409, status, receipt)
+		require.Equal(t, "conflict", receipt["class"])
+		require.Equal(t, "confirmation_resolved", receipt["code"])
+		staleRow, err := q.GetMemberConfirmation(ctx, id, owner.ID)
+		require.NoError(t, err)
+		require.Equal(t, "expired", staleRow.State)
+		require.Empty(t, item().PendingOp)
+		for _, write := range fake.Writes() {
+			require.False(t, write.Method == "PUT" && strings.HasSuffix(write.Path, "/merge"))
+		}
+		argv[len(argv)-1] = "confirm-current-generation"
+		code, receipt = invoke(argv...)
+		require.Equal(t, 3, code, receipt)
+		id = receipt["confirmation"].(string)
 		status, receipt = call("POST", "/api/confirmations/"+id+"/approve", "owner-browser-session", "", "person-press", `{}`)
 		require.Equal(t, 202, status, receipt)
 		require.Equal(t, "pending", receipt["state"])
