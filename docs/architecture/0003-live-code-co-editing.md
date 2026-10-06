@@ -36,3 +36,24 @@ receipts and outside-replacement race evidence. The wiki retains Yjs
 ## Topology
 
 Decided by T-COL-11.
+
+## S1 candidate qualification
+
+The current guest exchange candidate is **not qualified**. Run the supplemental
+Linux probe as an unprivileged user from `packages/backend/microsandbox`:
+
+```sh
+python3 -I -B testdata/compare_write_races.py guest/smithers-guest.py
+```
+
+At `11e3daf4`, both cases fail on real Linux disk. An outside replacement during
+rollback is exchanged into the temporary path and then deleted; the older
+outside bytes replace the latest save. Moving an opened parent directory outside
+the workspace before exchange also lets the candidate modify that outside file
+and report success. Descriptor-relative lookup alone does not preserve the
+parent's continued membership in the workspace.
+
+The probe injects only these scheduling boundaries around real `renameat2` calls;
+it does not replace the file operations or expected bytes. A corrected provider
+must pass both cases in addition to fresh/retained-machine privilege and startup
+qualification. The production command and coding-tool write gates stay closed.
