@@ -1779,6 +1779,13 @@ func TestForeignPushBeforePRRecordsLeaseWithoutReplacingIntent(t *testing.T) {
 				}
 				step.s.outbound.CanonicalApp, step.s.outbound.StackLease, step.s.outbound.Budget = allow, allow, allow
 				step.s.outbound.Membership, step.s.outbound.Authorization, step.s.outbound.AcceptedGeneration = allow, allow, allow
+				// The recovery guard above refuses replay of the old intent. This
+				// freshly verified proposal is a new intent, authorized against the
+				// observed lease, and exercises the real publication transport.
+				step.s.outbound.Send = func(st *mythicalItemStep, ctx context.Context, item db.MythicalItem, op MythicalOutboundOp) error {
+					require.Equal(t, "push", op.Kind)
+					return st.pushProposal(ctx, item, *st.gh, mythicalProposalOp{Branch: op.Target, Expected: op.Precondition, Head: op.Desired})
+				}
 				_, err = step.propose(ctx, *recovered)
 				require.ErrorContains(t, err, "settlement integration", "the fixture stops after the real push, before opening a PR")
 				published, err := q.GetMythicalItem(ctx, item.ID)
