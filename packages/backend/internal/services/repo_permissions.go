@@ -443,7 +443,6 @@ func Authorize(ctx context.Context, q *db.Queries, command string) (InstallAutho
 			return InstallAuthorization{}, &AccessError{Status: http.StatusForbidden, Class: "permission", Code: "permission", Message: "A terminal's credential cannot do this"}
 		}
 	} else if !fullDelegated && (info.IsTokenAuth || info.IsAgent() || info.SessionHash == "") &&
-		!(info.IsTokenAuth && (command == "repo.read" || command == "agent.turn" && !info.IsAgent())) &&
 		!(command == "branch.read" && info.CredentialKind() == middleware.CredentialDelegated) {
 		message := "Sign in with a browser session"
 		if command == "merge" {
@@ -457,12 +456,6 @@ func Authorize(ctx context.Context, q *db.Queries, command string) (InstallAutho
 	}
 	if role == "" {
 		return InstallAuthorization{}, &AccessError{Status: http.StatusForbidden, Class: "permission", Code: "permission", Message: "Not a member"}
-	}
-	// Owner repository credentials may read the stack before delivering a lane.
-	// Route scopes and repository restrictions still apply. Person API tokens
-	// may ask scoped questions; roster members still use browser sessions.
-	if info.IsTokenAuth && !terminal && !fullDelegated && role != InstallOwner {
-		return InstallAuthorization{}, &AccessError{Status: http.StatusForbidden, Class: "permission", Code: "permission", Message: "Sign in with a browser session"}
 	}
 	if role.rank() < InstallRole(policy.MinimumRole).rank() {
 		return InstallAuthorization{}, &AccessError{Status: http.StatusForbidden, Class: "permission", Code: "permission", Message: "Only a maintainer can do this"}

@@ -205,9 +205,11 @@ func (s *MythicalService) forkBranch(ctx context.Context, repositoryID, actorID 
 // a different payload cannot reuse its key. Authorization still runs on every
 // HTTP request before this receipt is read.
 func (s *MythicalService) ForkBranch(ctx context.Context, repositoryID, actorID int64, input BranchForkInput) (BranchMachineResponse, error) {
-	if err := middleware.RequirePerson(ctx, "fork a branch"); err != nil {
+	decision, err := Authorize(ctx, s.queries(), "branch.fork")
+	if err != nil {
 		return BranchMachineResponse{}, err
 	}
+	ctx = WithInstallAuthorization(ctx, "branch.fork", decision)
 	info := middleware.AuthInfoFromContext(ctx)
 	if info == nil || info.User == nil || info.User.ID != actorID {
 		return BranchMachineResponse{}, &BranchError{403, "permission", "permission", "Access denied"}

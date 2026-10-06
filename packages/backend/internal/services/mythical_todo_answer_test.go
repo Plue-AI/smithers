@@ -71,6 +71,8 @@ func (o *mythicalOrchestration) person(login string) (int64, context.Context) {
 	o.t.Helper()
 	var id int64
 	require.NoError(o.t, o.pool.QueryRow(context.Background(), `INSERT INTO users(username, lower_username, display_name) VALUES ($1, $1, $1) RETURNING id`, login).Scan(&id))
+	_, err := o.pool.Exec(context.Background(), `INSERT INTO collaborators(repository_id,user_id,permission) VALUES($1,$2,'write')`, o.repoID, id)
+	require.NoError(o.t, err)
 	return id, middleware.ContextWithAuthInfo(context.Background(), &middleware.AuthInfo{User: &db.User{ID: id}, SessionHash: login + "-session"})
 }
 

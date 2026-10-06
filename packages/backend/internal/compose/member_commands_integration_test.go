@@ -171,16 +171,16 @@ func TestMemberRoutesAuthorizeByRolePostgres(t *testing.T) {
 	// Give the owner token explicit repository scope before repository reads.
 	_, err = pool.Exec(ctx, `UPDATE access_tokens SET scopes='read:user,read:repository' WHERE user_id=$1`, owner.ID)
 	require.NoError(t, err)
-	// Scoped owner questions reach the chat host, which gates capabilities.
+	// The credential binder normalizes a scoped legacy CLI token to delegation.
 	status, _ = call("POST", "/api/agent/turn", "", ownerToken)
 	require.Equal(t, http.StatusOK, status)
 	status, _ = call("GET", "/api/repos/maya/demo/mythical", "", ownerToken)
 	require.Equal(t, http.StatusOK, status)
-	// Provisioned run credentials read repository state, never chat or merge.
+	// Unbound system-issued credentials inherit no owner read authority.
 	_, err = pool.Exec(ctx, `UPDATE access_tokens SET system_issued=true WHERE user_id=$1`, owner.ID)
 	require.NoError(t, err)
 	status, _ = call("GET", "/api/repos/maya/demo/mythical", "", ownerToken)
-	require.Equal(t, http.StatusOK, status)
+	require.Equal(t, http.StatusForbidden, status)
 	for _, path := range []string{"/api/agent/turn", "/api/todos/1/merge"} {
 		status, _ = call("POST", path, "", ownerToken)
 		require.Equal(t, http.StatusForbidden, status, path)

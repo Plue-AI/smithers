@@ -17,7 +17,6 @@ import (
 	"github.com/smithersai/smithers/packages/backend/flowdispatch"
 	"github.com/smithersai/smithers/packages/backend/flowruntime"
 	"github.com/smithersai/smithers/packages/backend/internal/db"
-	"github.com/smithersai/smithers/packages/backend/internal/middleware"
 	"github.com/smithersai/smithers/packages/backend/jobs"
 )
 
@@ -236,11 +235,6 @@ type mythicalSignaler interface {
 // credential answers for its member only on its own branch's TODO, and the
 // answer is by that terminal or the agent working in it (todoActor).
 func (s *MythicalService) AnswerTodo(ctx context.Context, repositoryID, userID, number int64, input TodoAnswerInput) error {
-	if _, delegated := middleware.AuthInfoFromContext(ctx).Delegation(); !delegated {
-		if err := middleware.RequirePerson(ctx, "answer a TODO"); err != nil {
-			return err
-		}
-	}
 	if number <= 0 {
 		return &TodoControlError{http.StatusBadRequest, "invalid_todo", "user", "Invalid TODO number"}
 	}
@@ -255,6 +249,14 @@ func (s *MythicalService) AnswerTodo(ctx context.Context, repositoryID, userID, 
 	if s == nil || s.store == nil || signaler == nil {
 		return &TodoControlError{http.StatusServiceUnavailable, "todo_unavailable", "infra", "Answers are unavailable"}
 	}
+	decision, err := Authorize(ctx, s.queries(), "todo.answer")
+	if err != nil {
+		return err
+	}
+	if decision.UserID != userID {
+		return &AccessError{Status: 403, Class: "permission", Code: "permission", Message: "Invalid TODO authority"}
+	}
+	ctx = WithInstallAuthorization(ctx, "todo.answer", decision)
 	person, err := s.queries().GetUserByID(ctx, userID)
 	if err != nil {
 		return err

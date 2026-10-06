@@ -1985,8 +1985,18 @@ export const createAppController = (
     stopAllRuns: runs.stopAllRuns,
     listApprovals: runs.listApprovals,
     openApproval: runs.openApproval,
-    maximizeCard,
-    minimizeCard,
+    maximizeCard: id => {
+      const shared = sharedConversation?.get()
+      if (shared?.conversation?.entries.some(turn => turn.frames.some(frame => frame.type === "card" && frame.card.id === id))) {
+        void sharedConversation!.saveView({ card_view: { [id]: "maximized" } })
+        return
+      }
+      return maximizeCard(id)
+    },
+    minimizeCard: () => {
+      if (sharedConversation?.get().view?.card_view) void sharedConversation.saveView({ card_view: {} })
+      minimizeCard()
+    },
     frameBack,
     frameForward,
     selectRepo,
