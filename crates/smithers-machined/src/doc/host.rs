@@ -212,14 +212,33 @@ impl<D: Disk> Host<D> {
         }
         if before == after {
             authors::checked_actor_update(&doc.doc, bytes, actor)?;
-        } else if text
-            != doc
-                .doc
-                .get_or_insert_text("content")
-                .get_string(&doc.doc.transact())
-        {
-            // Registration and edits are separate messages, as in the host.
-            return Err(Error::Forged);
+        } else {
+            // Registration is exactly one map item per new author, not a
+            // channel for hidden text structs or unresolved future deletes.
+            let update = core::decode(bytes).map_err(|_| Error::Invalid)?;
+            let sv = doc.doc.transact().state_vector();
+            let introduced: u64 = update
+                .insertions(true)
+                .iter()
+                .map(|(id, ranges)| {
+                    ranges
+                        .iter()
+                        .map(|r| u64::from(r.end.saturating_sub(r.start.max(sv.get(id)))))
+                        .sum::<u64>()
+                })
+                .sum();
+            let txn = scratch.transact();
+            if introduced != (after.len() - before.len()) as u64
+                || txn.store().pending_update().is_some()
+                || txn.store().pending_ds().is_some()
+                || text
+                    != doc
+                        .doc
+                        .get_or_insert_text("content")
+                        .get_string(&doc.doc.transact())
+            {
+                return Err(Error::Forged);
+            }
         }
         let old = core::state(&doc.doc);
         core::apply(&doc.doc, core::decode(bytes).map_err(|_| Error::Invalid)?)

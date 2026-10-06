@@ -1151,3 +1151,34 @@ fn stale_write_does_not_modify_document_record_or_file() {
     assert_eq!(h.disk.records, records);
     assert_eq!(h.disk.log, log);
 }
+
+#[test]
+fn host_author_registration_cannot_smuggle_deleted_foreign_text_or_reassign_authors() {
+    use yrs::ReadTxn;
+    let (mut h, stream) = host("original");
+    let client = h.client(stream, "host", 0).unwrap();
+    let initial = h.state(stream).unwrap();
+    let peer = editor(&initial, client);
+    let before = peer.transact().state_vector();
+    peer.get_or_insert_map("authors")
+        .insert(&mut peer.transact_mut(), "4242", "alice");
+    // Visible text is unchanged, but the update introduces a hidden clock.
+    let text = peer.get_or_insert_text("content");
+    text.insert(&mut peer.transact_mut(), 0, "hidden");
+    text.remove_range(&mut peer.transact_mut(), 0, 6);
+    let mixed = peer.transact().encode_state_as_update_v1(&before);
+    assert_eq!(
+        h.peer_update(stream, "alice", &mixed, 1),
+        Err(Error::Forged)
+    );
+    assert_eq!(h.state(stream).unwrap(), initial);
+    let peer = editor(&initial, client);
+    peer.get_or_insert_map("authors")
+        .insert(&mut peer.transact_mut(), client.to_string(), "alice");
+    let changed = peer.transact().encode_state_as_update_v1(&before);
+    assert_eq!(
+        h.peer_update(stream, "alice", &changed, 1),
+        Err(Error::Forged)
+    );
+    assert_eq!(h.state(stream).unwrap(), initial);
+}
