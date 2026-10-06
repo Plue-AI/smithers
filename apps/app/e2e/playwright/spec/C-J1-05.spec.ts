@@ -22,7 +22,7 @@ test("C-J1-05: keyboard membership, committed rows, live refresh, confirmation a
   } }))
   const row = (login: string, role: string) => ({ login, name: login, role, avatar_url: `https://github.com/${login}.png`, color_index: 0, needs_access: false, suspended: false, actions: [] })
   let rows = [row("canary-owner", "owner")]
-  let outage = false, deletes = 0
+  let outage = false, deletes = 0, adds = 0
   let commitRole!: () => void
   const roleCommit = new Promise<void>(resolve => { commitRole = resolve })
   const access = "https://github.com/canary/repository/settings/access"
@@ -32,7 +32,9 @@ test("C-J1-05: keyboard membership, committed rows, live refresh, confirmation a
     if (method === "GET") return route.fulfill({ json: { members: rows, access_url: access } })
     expect(request.headers()["idempotency-key"]).toBeTruthy()
     if (method === "POST") {
+      adds++
       const { login } = request.postDataJSON()
+      if (login === "canary-unknown") return route.fulfill({ status: 404, json: { class: "user", code: "unknown_github_user", message: "GitHub user not found" } })
       if (login === "canary-no-access") return route.fulfill({ status: 403, json: { class: "user", code: "needs_github_access", message: "Needs access on GitHub", fix: access } })
       rows = [...rows, row(login, login === "canary-maintainer" ? "maintainer" : "member")]
     } else {
@@ -63,6 +65,18 @@ test("C-J1-05: keyboard membership, committed rows, live refresh, confirmation a
   await say(page, "/members")
   const card = page.getByRole("region", { name: "Members", exact: true }).last()
   await expect(card).toBeVisible()
+  const username = card.getByLabel("GitHub username", { exact: true })
+  for (const login of ["", "bad/name", "-invalid", "a".repeat(40)]) {
+    await username.fill(login)
+    await card.getByRole("button", { name: "Add", exact: true }).press("Enter")
+    await expect(card.locator("li")).toHaveCount(1)
+    expect(adds).toBe(0)
+  }
+  await username.fill("canary-unknown")
+  await card.getByRole("button", { name: "Add", exact: true }).press("Enter")
+  await expect(card).toContainText("GitHub user not found")
+  await expect(card.locator('[data-login="canary-unknown"]')).toHaveCount(0)
+  expect(adds).toBe(1)
   for (const login of ["canary-maintainer", "canary-member"]) {
     await card.getByLabel("GitHub username", { exact: true }).fill(login)
     await page.keyboard.press("Tab")
