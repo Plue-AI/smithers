@@ -6,7 +6,7 @@ Spec: spec.md §8.13.2, §8.13.3, §5.2, §14.3 (Settings) · Product: #3706 Pro
 Added 2026-10-04 by smithers-8a for Will's sandbox-placement ruling (#3706). Behind `remoteSandboxes`, off by default.
 
 
-**ON HOLD (2026-10-04, Will via smithers-56, #3706):** remote machines reuse the Plue Cloud controller and `microsandbox-worker`; this ticket's SSH mechanism is superseded until spec §8.13 is reconciled (§8.13.0). Do not start.
+**ON HOLD (2026-10-04; gate updated 2026-10-06 for M-40):** remote machines reuse the Plue controller (hosted by the install) and `microsandbox-worker` per computer (§8.13.0). This ticket's SSH mechanism is superseded. It is re-cut after T-RMT-01 boots a guest on a computer and answers §8.13.0's two open questions. Do not start.
 
 ## Goal
 The owner registers a Linux KVM host by SSH in Settings behind the off-by-default `remoteSandboxes` flag; the install pins its host key, probes its profile and refuses a host without KVM.
