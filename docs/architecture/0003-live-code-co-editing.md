@@ -182,8 +182,18 @@ authorization and write permissions. No production provider is installed yet;
 recording-provider tests exercise the standard dispatcher, not guest security
 or authenticated HTTP acceptance.
 
+The private coding HTTP transport uses this same PUT route. It pins the
+operator's repository/workspace/root binding and the complete batch before
+looking up a run grant. Grant acquisition is scoped to one commit and released
+on success, refusal, cancellation or timeout. Mismatched or expired grants are
+refused before network dispatch; credentials never follow redirects, and an
+ambiguous write is never retried automatically. Bounded responses must contain
+exactly the expected paths and full digests. Real HTTP tests cover standard
+tools, binary bytes, moves, revocation refusals and interrupted requests, using
+a fixture issuer/server; production run-grant issuance remains uncomposed.
+
 The production CLI/runtime gate still refuses new mutations. Coding run-bound
-authentication and transport, the actual working-copy filesystem
+credential issuance and transport composition, the actual working-copy filesystem
 and path-alias behavior, external-service/kernel-I/O exclusion, and fresh/retained
 security receipts remain outstanding. The old failing exchange candidate is
 retained only for diagnostic counterexamples until repair cutover; neither
