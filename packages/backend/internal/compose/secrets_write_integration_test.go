@@ -1,6 +1,7 @@
 package compose
 
 import (
+	"context"
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
@@ -18,6 +19,7 @@ import (
 	"github.com/smithersai/smithers/packages/backend/internal/db"
 	"github.com/smithersai/smithers/packages/backend/internal/live"
 	"github.com/smithersai/smithers/packages/backend/internal/middleware"
+	"github.com/smithersai/smithers/packages/backend/internal/revocation"
 	"github.com/smithersai/smithers/packages/backend/internal/routes"
 	"github.com/smithersai/smithers/packages/backend/internal/services"
 	"github.com/smithersai/smithers/packages/backend/testkit/postgresfixture"
@@ -38,6 +40,14 @@ func testSecretsComposed(t *testing.T, install bool) {
 	pool, _ := postgresfixture.NewProductDatabase(t)
 	q := db.New(pool)
 	ctx := t.Context()
+	// Match the install composition: Live refuses upgrades without the
+	// durable revocation listener, even when the requested topic is Secrets.
+	busContext, stopBus := context.WithCancel(ctx)
+	defer stopBus()
+	bus := revocation.NewBus(pool, q)
+	require.NoError(t, bus.Start(busContext))
+	routes.SetRevocationSource(bus)
+	defer routes.SetRevocationSource(nil)
 	user := func(name string) db.User {
 		created, err := q.CreateUser(ctx, db.CreateUserParams{Username: name, LowerUsername: name, DisplayName: name})
 		require.NoError(t, err)
