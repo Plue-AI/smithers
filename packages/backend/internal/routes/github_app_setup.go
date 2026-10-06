@@ -3,6 +3,7 @@ package routes
 import (
 	"context"
 	"crypto/subtle"
+	"encoding/json"
 	"errors"
 	"github.com/smithersai/smithers/packages/backend/microsandbox"
 	"io"
@@ -415,7 +416,7 @@ func (h *GitHubAppSetupHandler) Step(w http.ResponseWriter, r *http.Request) {
 	pkgerrors.WriteJSON(w, http.StatusAccepted, receipt)
 }
 
-func (h *GitHubAppSetupHandler) SetCapacity(w http.ResponseWriter, r *http.Request) {
+func (h *GitHubAppSetupHandler) SetSettings(w http.ResponseWriter, r *http.Request) {
 	origin, ok := h.requestOrigin(r)
 	if !ok {
 		writeGitHubAppOriginError(w, origin)
@@ -434,29 +435,56 @@ func (h *GitHubAppSetupHandler) SetCapacity(w http.ResponseWriter, r *http.Reque
 		writeInstallAPIError(w, pkgerrors.Forbidden("setup origin and CSRF token required"))
 		return
 	}
+	var rawInput struct {
+		Capacity json.RawMessage `json:"capacity"`
+		ChatGPT  json.RawMessage `json:"chatgpt"`
+	}
+	if !decodeStrictJSONBody(w, r, &rawInput) {
+		return
+	}
 	var input struct {
-		Capacity *int `json:"capacity"`
+		Capacity *int
+		ChatGPT  *bool
 	}
-	if !decodeStrictJSONBody(w, r, &input) {
+	if len(rawInput.Capacity) > 0 {
+		if json.Unmarshal(rawInput.Capacity, &input.Capacity) != nil || input.Capacity == nil {
+			writeInstallAPIError(w, pkgerrors.BadRequest("capacity must be an integer"))
+			return
+		}
+	}
+	if len(rawInput.ChatGPT) > 0 {
+		if json.Unmarshal(rawInput.ChatGPT, &input.ChatGPT) != nil || input.ChatGPT == nil {
+			writeInstallAPIError(w, pkgerrors.BadRequest("chatgpt must be a boolean"))
+			return
+		}
+	}
+	if input.Capacity == nil && input.ChatGPT == nil {
+		writeInstallAPIError(w, pkgerrors.BadRequest("install setting required"))
 		return
 	}
-	if input.Capacity == nil {
-		writeInstallAPIError(w, pkgerrors.BadRequest("capacity required"))
-		return
-	}
-	if h.Setup == nil || h.Setup.Capacity == nil {
+	if h.Setup == nil || (input.Capacity != nil && h.Setup.Capacity == nil) {
 		writeInstallAPIError(w, pkgerrors.New(pkgerrors.CodeServiceUnavailable, "install capacity unavailable"))
 		return
 	}
-	if err = h.Setup.Capacity.Set(r.Context(), info.User.ID, *input.Capacity); err != nil {
-		var capacity *microsandbox.CapacityError
-		if errors.As(err, &capacity) {
-			pkgerrors.WriteJSON(w, http.StatusUnprocessableEntity, capacity)
-		} else {
-			writeInstallAPIError(w, pkgerrors.New(pkgerrors.CodeServiceUnavailable, "install capacity unavailable"))
+	if input.Capacity != nil {
+		if err = h.Setup.Capacity.Set(r.Context(), info.User.ID, *input.Capacity); err != nil {
+			var capacity *microsandbox.CapacityError
+			if errors.As(err, &capacity) {
+				pkgerrors.WriteJSON(w, http.StatusUnprocessableEntity, capacity)
+			} else {
+				writeInstallAPIError(w, pkgerrors.New(pkgerrors.CodeServiceUnavailable, "install capacity unavailable"))
+			}
+			return
 		}
-		return
 	}
+	if input.ChatGPT != nil {
+		raw, _ := json.Marshal(*input.ChatGPT)
+		if err = db.New(h.Setup.Pool).UpsertInstallSetting(r.Context(), db.UpsertInstallSettingParams{Key: "models.chatgpt", Value: raw}); err != nil {
+			writeInstallAPIError(w, pkgerrors.New(pkgerrors.CodeServiceUnavailable, "install setting unavailable"))
+			return
+		}
+	}
+
 	h.Status(w, r)
 }
 

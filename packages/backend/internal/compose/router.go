@@ -1,6 +1,7 @@
 package compose
 
 import (
+	"context"
 	"log/slog"
 	"net/http"
 	"os"
@@ -194,7 +195,29 @@ func buildRouter(
 	gateNotifications := middleware.FeatureFlagGate(func() bool { return cfg.FeatureFlags.Notifications })
 	// Stored Claude/ChatGPT subscription logins: self-host only, off in the
 	// hosted product. Covers every /provider-connections route and the pool.
-	gateSubscriptionConnections := middleware.FeatureFlagGate(func() bool { return cfg.FeatureFlags.SubscriptionConnections })
+	subscriptionConnectionsFeature := middleware.FeatureFlagGate(func() bool {
+		if config.IsSingleOwner(cfg.Auth) {
+			ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+			defer cancel()
+			if queries == nil {
+				return false
+			}
+			enabled, err := services.InstallChatGPTEnabled(ctx, queries)
+			return err == nil && enabled
+		}
+		return cfg.FeatureFlags.SubscriptionConnections
+	})
+	gateSubscriptionConnections := func(next http.Handler) http.Handler {
+		gated := subscriptionConnectionsFeature(next)
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			if queries != nil && config.IsSingleOwner(cfg.Auth) && strings.HasPrefix(r.URL.Path, "/api/") {
+				installModelOwner(queries)(gated).ServeHTTP(w, r)
+				return
+			}
+			gated.ServeHTTP(w, r)
+		})
+	}
+
 	gateProtectedBookmarks := middleware.FeatureFlagGate(func() bool { return cfg.FeatureFlags.ProtectedBookmarks })
 	gateWebhooksUser := middleware.FeatureFlagGate(func() bool { return cfg.FeatureFlags.WebhooksUser })
 	gateWorkflows := middleware.FeatureFlagGate(func() bool { return cfg.FeatureFlags.Workflows })
@@ -977,7 +1000,7 @@ func buildRouter(
 		}
 		if extras.GitHubAppSetup != nil {
 			r.Get("/install", extras.GitHubAppSetup.Status)
-			r.Put("/install", extras.GitHubAppSetup.SetCapacity)
+			r.Put("/install", extras.GitHubAppSetup.SetSettings)
 			for _, step := range []string{"address", "app", "sign_in", "repository", "models", "source", "machine"} {
 				r.Post("/install/setup/"+step, extras.GitHubAppSetup.Step)
 			}

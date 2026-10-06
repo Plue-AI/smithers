@@ -1,8 +1,10 @@
 package compose
 
 import (
+	"fmt"
 	"testing"
 
+	"github.com/smithersai/smithers/packages/backend/internal/config"
 	"github.com/smithersai/smithers/packages/backend/internal/services"
 )
 
@@ -62,6 +64,28 @@ func TestFlowHostProductAPIURLUsesRuntimeReachableOrigin(t *testing.T) {
 			got, err := flowHostProductAPIURL(test.options, test.listen)
 			if (err != nil) != test.fail || got != test.want {
 				t.Fatalf("origin = %q, error = %v; want %q, fail %v", got, err, test.want, test.fail)
+			}
+		})
+	}
+}
+
+func TestCodingHostPoolUsesInstallSettingGateInsteadOfStartupFlag(t *testing.T) {
+	for _, test := range []struct {
+		mode string
+		flag bool
+		want string
+	}{
+		{"selfhost", false, "http://install/provider-pool"},
+		{"selfhost", true, "http://install/provider-pool"},
+		{"plue", false, ""},
+		{"plue", true, "http://install/provider-pool"},
+	} {
+		t.Run(test.mode+fmt.Sprint(test.flag), func(t *testing.T) {
+			cfg := &config.Config{}
+			cfg.Auth.Mode = test.mode
+			cfg.FeatureFlags.SubscriptionConnections = test.flag
+			if got := codingHostAccountPoolURL(cfg, "http://install"); got != test.want {
+				t.Fatalf("pool URL = %q; want %q", got, test.want)
 			}
 		})
 	}

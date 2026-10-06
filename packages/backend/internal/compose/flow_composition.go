@@ -65,10 +65,7 @@ func newFlowComposition(options runOptions, cfg *config.Config, pool *pgxpool.Po
 	// reach the account pool: the binding user's connected Codex (ChatGPT)
 	// accounts and Anthropic API keys, per request. A Claude subscription is
 	// never pooled (#2777).
-	accountPoolURL := ""
-	if cfg.FeatureFlags.SubscriptionConnections {
-		accountPoolURL = productAPIURL + services.ProviderPoolPath
-	}
+	accountPoolURL := codingHostAccountPoolURL(cfg, productAPIURL)
 	environment := codingHostEnvironment(options.topology)
 	readyTimeout := time.Duration(0)
 	if options.FlowHostConfig.AllowTrustedProcessForTests && options.Workspace.Isolation() == workspace.IsolationTrustedProcess {
@@ -211,6 +208,15 @@ func (store relayPlanStore) RelayPlanFlow(ctx context.Context, target flowruntim
 // catalog's metered proxy with a per-binding credential (#2187).
 func codingHostEnvironment(_ topology) map[string]string {
 	return map[string]string{"SMITHERS_WORKSPACE_JJ_EXPORT_BINARY": services.WorkspaceJJExportGuestPath}
+}
+
+// The install checks the durable owner setting on each pool request, so
+// changing it also applies to coding hosts that are already running.
+func codingHostAccountPoolURL(cfg *config.Config, productAPIURL string) string {
+	if config.IsSingleOwner(cfg.Auth) || cfg.FeatureFlags.SubscriptionConnections {
+		return productAPIURL + services.ProviderPoolPath
+	}
+	return ""
 }
 
 func (flow *flowComposition) recover(ctx context.Context) error {

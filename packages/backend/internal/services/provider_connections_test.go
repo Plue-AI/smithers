@@ -646,3 +646,40 @@ func resolveForRun(svc *ProviderConnectionService, ctx context.Context, userID, 
 	pick, err := svc.PickForModelCall(ctx, userID, repositoryID, provider, nil)
 	return pick.Connection, err
 }
+
+// Settings changes gate existing sign-ins immediately, including after service reconstruction.
+func TestProviderConnectionOwnerSettingGatesExistingSignIn(t *testing.T) {
+	ctx := context.Background()
+	q := newFakePCQ()
+	q.repos[2] = db.Repository{ID: 2, UserID: pgtype.Int8{Int64: 7, Valid: true}}
+	enabled := false
+	makeService := func() *ProviderConnectionService {
+		return NewProviderConnectionService(q, plainCodec{}, nil, WithSubscriptionConnectionsEnabled(true), WithSubscriptionConnectionsSetting(func() bool { return enabled }))
+	}
+	svc := makeService()
+	actor := &db.User{ID: 7}
+	expires := time.Now().Add(time.Hour)
+	input := ConnectProviderInput{Provider: "codex", AccessToken: "owner-access", RefreshToken: "owner-refresh", AccountID: "owner-account", AccessExpiresAt: &expires}
+	_, err := svc.ConnectForUser(ctx, actor, input)
+	require.Error(t, err)
+	require.Empty(t, q.rows)
+	enabled = true
+	_, err = svc.ConnectForUser(ctx, actor, input)
+	require.NoError(t, err)
+	resolved, err := resolveForRun(svc, ctx, 7, 2, "codex")
+	require.NoError(t, err)
+	require.NotNil(t, resolved)
+	WithProviderPoolOwner(func(context.Context) (int64, error) { return 7, nil })(svc)
+	resolved, err = resolveForRun(svc, ctx, 99, 2, "codex")
+	require.NoError(t, err)
+	require.NotNil(t, resolved, "member coding calls use the install owner sign-in")
+
+	enabled = false
+	resolved, err = resolveForRun(svc, ctx, 7, 2, "codex")
+	require.NoError(t, err)
+	require.Nil(t, resolved)
+	enabled = true
+	resolved, err = resolveForRun(makeService(), ctx, 7, 2, "codex")
+	require.NoError(t, err)
+	require.NotNil(t, resolved)
+}

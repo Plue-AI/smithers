@@ -49,7 +49,9 @@ func TestInstallStatusOwnerHTTPModelPostgres(t *testing.T) {
 	cfg.Server.PublicURL = "http://localhost:4000"
 	cfg.Server.AllowedOrigins = []string{"http://localhost:4000"}
 	handler := &routes.GitHubAppSetupHandler{Owners: q, Origins: middleware.FixedOrigins("http://localhost:4000"), Setup: &services.InstallSetupService{Pool: pool, Capacity: capacity}}
-	router := githubAppSetupComposeRouter(cfg, pool, handler)
+	cfg.FeatureFlags.SubscriptionConnections = false
+	connections := &routes.ProviderConnectionHandler{Service: routerProviderConnectionStub{}, Pool: &routes.ProviderPoolHandler{}}
+	router := githubAppSetupComposeRouter(cfg, pool, handler, connections)
 	request := func(method, path, credential, body string) *httptest.ResponseRecorder {
 		r := httptest.NewRequest(method, "http://localhost:4000"+path, strings.NewReader(body))
 		r.RemoteAddr = "127.0.0.1:1234"
@@ -94,6 +96,36 @@ func TestInstallStatusOwnerHTTPModelPostgres(t *testing.T) {
 	require.Nil(t, status.Mac.Limit, "a host that fits a machine names no limiting term")
 	require.Len(t, status.Steps, 7)
 	require.Equal(t, "app_manifest", status.Steps[1].ID)
+	require.Contains(t, response.Body.String(), `"chatgpt":false`)
+	poolURL := codingHostAccountPoolURL(cfg, "http://localhost:4000")
+	require.Equal(t, "http://localhost:4000/provider-pool", poolURL)
+	require.Equal(t, 403, request("GET", "/api/user/provider-connections", good, "").Code)
+	require.Equal(t, 403, request("POST", "/provider-pool/chatgpt/codex/responses", good, `{}`).Code)
+	for _, body := range []string{`{"chatgpt":true}`, `{"chatgpt":false}`} {
+		denied := request("PUT", "/api/install", other, body)
+		require.Equal(t, 403, denied.Code)
+		updated := request("PUT", "/api/install", good, body)
+		require.Equal(t, 200, updated.Code, updated.Body.String())
+		require.Contains(t, updated.Body.String(), body[1:len(body)-1])
+		// Toggle through Settings without rebuilding the router or host catalog.
+		connectionResponse := request("GET", "/api/user/provider-connections", good, "")
+		poolResponse := request("POST", "/provider-pool/chatgpt/codex/responses", "", `{}`)
+		if strings.Contains(body, "true") {
+			require.Equal(t, 200, connectionResponse.Code, connectionResponse.Body.String())
+			require.Equal(t, 401, poolResponse.Code, "enabled pool still requires a bound credential")
+		} else {
+			require.Equal(t, 403, connectionResponse.Code)
+			require.Equal(t, 403, poolResponse.Code)
+		}
+		require.Equal(t, poolURL, codingHostAccountPoolURL(cfg, "http://localhost:4000"))
+		restarted := &services.InstallSetupService{Pool: pool, Capacity: capacity}
+		projection, err := restarted.Status(ctx)
+		require.NoError(t, err)
+		require.Equal(t, strings.Contains(body, "true"), projection["chatgpt"])
+	}
+	for _, body := range []string{`{"chatgpt":"true"}`, `{"chatgpt":null}`, `{"chatgpt":true,"unknown":1}`, `{"chatgpt":null,"capacity":2}`, `{"chatgpt":true,"capacity":null}`} {
+		require.Equal(t, 400, request("PUT", "/api/install", good, body).Code)
+	}
 	for _, test := range []struct {
 		credential, body string
 		want             int
