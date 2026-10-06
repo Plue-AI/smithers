@@ -1,7 +1,7 @@
 import { execFileSync, spawn } from 'node:child_process'
 import { mkdir, lstat, readFile, writeFile } from 'node:fs/promises'
 import { statfsSync } from 'node:fs'
-import { cpus, homedir, platform, release, totalmem } from 'node:os'
+import { cpus, platform, release, totalmem } from 'node:os'
 import { join, resolve } from 'node:path'
 import { pathToFileURL } from 'node:url'
 
@@ -74,7 +74,7 @@ const metadata = () => ({
 export function boundaryEnvironment(config, ambient = process.env) {
   if (typeof config?.databaseUrl !== 'string' || typeof config?.libraryPath !== 'string') throw new Error('invalid fixture')
   return { ...ambient, SMITHERS_TEST_DATABASE_URL: config.databaseUrl, SMITHERS_FFI_LIBRARY_PATH: config.libraryPath,
-    SMITHERS_REQUIRE_DATABASE_TESTS: '1', GOCACHE: ambient.GOCACHE || join(homedir(), '.cache/go-build-shared'),
+    SMITHERS_REQUIRE_DATABASE_TESTS: '1', GOCACHE: ambient.GOCACHE || execFileSync('go', ['env', 'GOCACHE'], { encoding: 'utf8' }).trim(),
     LANE: config.lane || ambient.LANE || 'working-together-boundary' }
 }
 export async function run({ root = process.cwd(), componentsOnly = false, wikiOnly = false, codeOnly = false } = {}) {
