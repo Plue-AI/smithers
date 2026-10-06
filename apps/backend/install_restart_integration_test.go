@@ -29,6 +29,8 @@ import (
 	"github.com/smithersai/smithers/packages/backend/testkit"
 	"github.com/smithersai/smithers/packages/backend/testkit/postgresfixture"
 	"github.com/stretchr/testify/require"
+	collectortrace "go.opentelemetry.io/proto/otlp/collector/trace/v1"
+	"google.golang.org/protobuf/proto"
 )
 
 // Uses the existing compiled test-backend entry and real production composition.
@@ -93,6 +95,7 @@ func testInstallSetupCompiledHostRestart(t *testing.T, boundary string) {
 		environment["SMITHERS_GITHUB_APP_API_BASE_URL"] = github.URL
 	}
 	var traces setupProcessBuffer
+	var tracedPaths sync.Map
 	collector := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		var reader io.Reader = r.Body
 		if r.Header.Get("Content-Encoding") == "gzip" {
@@ -112,6 +115,26 @@ func testInstallSetupCompiledHostRestart(t *testing.T, boundary string) {
 			return
 		}
 		traces.Write(payload)
+		var batch collectortrace.ExportTraceServiceRequest
+		if err := proto.Unmarshal(payload, &batch); err != nil {
+			t.Error("invalid exported trace batch")
+			w.WriteHeader(400)
+			return
+		}
+		for _, resource := range batch.ResourceSpans {
+			for _, scope := range resource.ScopeSpans {
+				for _, span := range scope.Spans {
+					for _, attribute := range span.Attributes {
+						switch attribute.Key {
+						case "url.path", "url.full", "http.target", "http.url":
+							if parsed, err := url.Parse(attribute.Value.GetStringValue()); err == nil {
+								tracedPaths.Store(parsed.Path, true)
+							}
+						}
+					}
+				}
+			}
+		}
 		w.Header().Set("Content-Type", "application/x-protobuf")
 		w.WriteHeader(200)
 	}))
@@ -485,7 +508,17 @@ func testInstallSetupCompiledHostRestart(t *testing.T, boundary string) {
 		// The earlier process deaths remain abrupt crash-recovery checks.
 		require.NoError(t, command.Process.Signal(syscall.SIGTERM))
 		require.NoError(t, command.Wait())
-		require.True(t, strings.Contains(traces.String(), "/api/install/setup/machine"), "mounted setup routes must export traces")
+		// A clean secret scan of an empty or partial export is not evidence.
+		// Require each exercised setup/status surface in the flushed capture.
+		for _, path := range []string{
+			"/api/install", "/api/status", "/api/auth/github", "/api/auth/github/callback",
+			"/api/install/setup/address", "/api/install/setup/app", "/api/install/setup/sign_in",
+			"/api/install/setup/repository", "/api/install/setup/models",
+			"/api/install/setup/source", "/api/install/setup/machine",
+		} {
+			_, exported := tracedPaths.Load(path)
+			require.True(t, exported, "missing exported trace for %s", path)
+		}
 		return
 	}
 	// Exchange once, then use only the setup-session cookie, including after restart.
