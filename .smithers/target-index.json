@@ -6493,19 +6493,8 @@
         "path": "package.json"
       },
       {
-        "kind": "glob",
-        "pattern": "packages/**/package.json",
-        "exclude": []
-      },
-      {
-        "kind": "glob",
-        "pattern": "apps/**/package.json",
-        "exclude": []
-      },
-      {
-        "kind": "glob",
-        "pattern": "evals/**/package.json",
-        "exclude": []
+        "kind": "pnpm-workspace",
+        "path": "pnpm-workspace.yaml"
       },
       {
         "kind": "file",
@@ -6553,19 +6542,8 @@
         "path": "package.json"
       },
       {
-        "kind": "glob",
-        "pattern": "packages/**/package.json",
-        "exclude": []
-      },
-      {
-        "kind": "glob",
-        "pattern": "apps/**/package.json",
-        "exclude": []
-      },
-      {
-        "kind": "glob",
-        "pattern": "evals/**/package.json",
-        "exclude": []
+        "kind": "pnpm-workspace",
+        "path": "pnpm-workspace.yaml"
       },
       {
         "kind": "file",
@@ -6605,6 +6583,26 @@
       {
         "kind": "glob",
         "pattern": "evals/harbor/fixtures/**",
+        "exclude": []
+      }
+    ],
+    "outputs": [],
+    "dependencies": [],
+    "source": {
+      "file": "evals/harbor/PACKAGE.ts"
+    }
+  },
+  {
+    "label": "//evals/harbor:pythonInputs",
+    "package": "evals/harbor",
+    "name": "pythonInputs",
+    "rule": "Filegroup",
+    "kinds": [],
+    "cacheable": true,
+    "inputs": [
+      {
+        "kind": "glob",
+        "pattern": "evals/harbor/*.py",
         "exclude": []
       }
     ],
@@ -7250,11 +7248,6 @@
         "exclude": []
       },
       {
-        "kind": "glob",
-        "pattern": "evals/harbor/*.py",
-        "exclude": []
-      },
-      {
         "kind": "file",
         "path": "packages/smithers/agent/harness/test/fixtures/wave10Journals.json"
       },
@@ -7280,7 +7273,9 @@
       }
     ],
     "outputs": [],
-    "dependencies": [],
+    "dependencies": [
+      "//evals/harbor:pythonInputs"
+    ],
     "source": {
       "file": "evals/swebench/PACKAGE.ts"
     }
@@ -7321,11 +7316,6 @@
         "exclude": []
       },
       {
-        "kind": "glob",
-        "pattern": "evals/harbor/*.py",
-        "exclude": []
-      },
-      {
         "kind": "file",
         "path": "packages/smithers/agent/harness/test/fixtures/wave10Journals.json"
       },
@@ -7351,7 +7341,9 @@
       }
     ],
     "outputs": [],
-    "dependencies": [],
+    "dependencies": [
+      "//evals/harbor:pythonInputs"
+    ],
     "source": {
       "file": "evals/swebench/PACKAGE.ts"
     }
@@ -17242,7 +17234,8 @@
     ],
     "outputs": [],
     "dependencies": [
-      "//packages/smithers/agent/registry:lib"
+      "//packages/smithers/agent/registry:lib",
+      "//packages/smithers/agent/registry:migratedFixture"
     ],
     "source": {
       "file": "packages/smithers/agent/registry/PACKAGE.ts"
@@ -17410,7 +17403,9 @@
       "packages/smithers/agent/registry/dist/cjs",
       "packages/smithers/agent/registry/dist/esm"
     ],
-    "dependencies": [],
+    "dependencies": [
+      "//packages/smithers/agent/registry:migratedFixture"
+    ],
     "source": {
       "file": "packages/smithers/agent/registry/PACKAGE.ts"
     }
@@ -17437,6 +17432,25 @@
       {
         "kind": "file",
         "path": "eslint.jsdoc.js"
+      }
+    ],
+    "outputs": [],
+    "dependencies": [],
+    "source": {
+      "file": "packages/smithers/agent/registry/PACKAGE.ts"
+    }
+  },
+  {
+    "label": "//packages/smithers/agent/registry:migratedFixture",
+    "package": "packages/smithers/agent/registry",
+    "name": "migratedFixture",
+    "rule": "Filegroup",
+    "kinds": [],
+    "cacheable": true,
+    "inputs": [
+      {
+        "kind": "file",
+        "path": "packages/smithers/migrate/test/fixtures/jsx-single.migrated/flows/simple-workflow/flow.ts"
       }
     ],
     "outputs": [],
@@ -17536,18 +17550,14 @@
         "path": "packages/repo-targets/test-utils/effect-property.d.mts"
       },
       {
-        "kind": "glob",
-        "pattern": "packages/smithers/migrate/test/fixtures/jsx-single.migrated/flows/simple-workflow/flow.ts",
-        "exclude": []
-      },
-      {
         "kind": "file",
         "path": "packages/smithers/agent/registry/vitest.config.ts"
       }
     ],
     "outputs": [],
     "dependencies": [
-      "//packages/smithers/agent/registry:lib"
+      "//packages/smithers/agent/registry:lib",
+      "//packages/smithers/agent/registry:migratedFixture"
     ],
     "source": {
       "file": "packages/smithers/agent/registry/PACKAGE.ts"
@@ -25208,10 +25218,8 @@
       },
       {
         "kind": "glob",
-        "pattern": "packages/smithers/flows/jj/test/faults/**/*",
-        "exclude": [
-          "packages/smithers/flows/jj/test/faults/**/*.test.ts"
-        ]
+        "pattern": "packages/smithers/flows/jj/vitest.faults.config.ts",
+        "exclude": []
       },
       {
         "kind": "file",
@@ -35531,11 +35539,6 @@
         "exclude": []
       },
       {
-        "kind": "glob",
-        "pattern": "packages/backend/**/*.go",
-        "exclude": []
-      },
-      {
         "kind": "file",
         "path": "go.mod"
       },
@@ -35545,7 +35548,9 @@
       }
     ],
     "outputs": [],
-    "dependencies": [],
+    "dependencies": [
+      "//packages/backend:buildInputs"
+    ],
     "hosts": [
       "darwin"
     ],
@@ -35570,11 +35575,6 @@
         "exclude": []
       },
       {
-        "kind": "glob",
-        "pattern": "packages/backend/**/*.go",
-        "exclude": []
-      },
-      {
         "kind": "file",
         "path": "go.mod"
       },
@@ -35584,7 +35584,9 @@
       }
     ],
     "outputs": [],
-    "dependencies": [],
+    "dependencies": [
+      "//packages/backend:buildInputs"
+    ],
     "hosts": [
       "darwin"
     ],
@@ -35609,11 +35611,6 @@
         "exclude": []
       },
       {
-        "kind": "glob",
-        "pattern": "packages/backend/**/*.go",
-        "exclude": []
-      },
-      {
         "kind": "file",
         "path": "go.mod"
       },
@@ -35623,7 +35620,9 @@
       }
     ],
     "outputs": [],
-    "dependencies": [],
+    "dependencies": [
+      "//packages/backend:buildInputs"
+    ],
     "hosts": [
       "darwin"
     ],
@@ -35648,11 +35647,6 @@
         "exclude": []
       },
       {
-        "kind": "glob",
-        "pattern": "packages/backend/**/*.go",
-        "exclude": []
-      },
-      {
         "kind": "file",
         "path": "go.mod"
       },
@@ -35662,7 +35656,9 @@
       }
     ],
     "outputs": [],
-    "dependencies": [],
+    "dependencies": [
+      "//packages/backend:buildInputs"
+    ],
     "hosts": [
       "darwin",
       "linux"
