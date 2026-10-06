@@ -21,9 +21,10 @@ type Confirmation struct {
 	ReviewedHeadSHA pgtype.Text     `json:"reviewed_head_sha,omitempty"`
 	Payload         json.RawMessage `json:"payload"`
 	ExpiresAt       time.Time       `json:"expires_at"`
+	DecidedAt       *time.Time      `json:"decided_at,omitempty"`
 }
 
-const confirmationColumns = `id, member_id, kind, state, command, subject, revision, generation, reviewed_head_sha, payload, expires_at`
+const confirmationColumns = `id, member_id, kind, state, command, subject, revision, generation, reviewed_head_sha, payload, expires_at, decided_at`
 
 func (q *Queries) ListMemberConfirmations(ctx context.Context, member int64) ([]Confirmation, error) {
 	// Expiry is durable even if nobody presses the card. The same projection
@@ -42,7 +43,7 @@ func (q *Queries) ListMemberConfirmations(ctx context.Context, member int64) ([]
 	result := make([]Confirmation, 0)
 	for rows.Next() {
 		var row Confirmation
-		if err := rows.Scan(&row.ID, &row.MemberID, &row.Kind, &row.State, &row.Command, &row.Subject, &row.Revision, &row.Generation, &row.ReviewedHeadSHA, &row.Payload, &row.ExpiresAt); err != nil {
+		if err := rows.Scan(&row.ID, &row.MemberID, &row.Kind, &row.State, &row.Command, &row.Subject, &row.Revision, &row.Generation, &row.ReviewedHeadSHA, &row.Payload, &row.ExpiresAt, &row.DecidedAt); err != nil {
 			return nil, err
 		}
 		result = append(result, row)
@@ -52,7 +53,7 @@ func (q *Queries) ListMemberConfirmations(ctx context.Context, member int64) ([]
 
 func (q *Queries) GetMemberConfirmation(ctx context.Context, id string, member int64) (Confirmation, error) {
 	var row Confirmation
-	err := q.db.QueryRow(ctx, `SELECT `+confirmationColumns+` FROM approvals WHERE id=$1 AND member_id=$2`, id, member).Scan(&row.ID, &row.MemberID, &row.Kind, &row.State, &row.Command, &row.Subject, &row.Revision, &row.Generation, &row.ReviewedHeadSHA, &row.Payload, &row.ExpiresAt)
+	err := q.db.QueryRow(ctx, `SELECT `+confirmationColumns+` FROM approvals WHERE id=$1 AND member_id=$2`, id, member).Scan(&row.ID, &row.MemberID, &row.Kind, &row.State, &row.Command, &row.Subject, &row.Revision, &row.Generation, &row.ReviewedHeadSHA, &row.Payload, &row.ExpiresAt, &row.DecidedAt)
 	return row, err
 }
 

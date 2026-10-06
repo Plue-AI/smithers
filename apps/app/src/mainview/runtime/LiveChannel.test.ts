@@ -27,6 +27,21 @@ const harness = (project?: (topic: string, previous: unknown, delta: unknown) =>
 }
 
 describe("live channel", () => {
+  test("private confirmations disappear on disconnect and await a fresh authorized snapshot", () => {
+    const { channel, sockets, timers } = harness()
+    const release = channel.subscribe("confirmations:17", () => {})
+    sockets[0]!.open()
+    sockets[0]!.receive({ t: "snap", id: 1, cursor: 8, data: [{ id: "private", state: "pending" }] })
+    expect(channel.getSnapshot("confirmations:17")?.data).toEqual([{ id: "private", state: "pending" }])
+    sockets[0]!.drop()
+    expect(channel.getSnapshot("confirmations:17")).toEqual({ topic: "confirmations:17" })
+    expect(channel.collection.get("confirmations:17")?.data).toBeUndefined()
+    timers[0]!.run(); sockets[1]!.open()
+    expect(sockets[1]!.frames[0]).toEqual({ t: "sub", id: 1, topic: "confirmations:17" })
+    sockets[1]!.receive({ t: "err", id: 1, code: "forbidden" })
+    expect(channel.getSnapshot("confirmations:17")?.data).toBeUndefined()
+    release(); channel.dispose()
+  })
   // T-COL-08 Scope In: unavailable real-stack providers must fail closed.
   test("dark code documents refuse without opening a socket or sending a subscription", () => {
     const { channel, sockets, timers } = harness()

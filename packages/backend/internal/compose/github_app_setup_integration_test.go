@@ -42,9 +42,15 @@ func githubAppSetupComposeRouter(cfg *config.Config, pool *pgxpool.Pool, h *rout
 	// uses real PostgreSQL, AuthLoader, credential store, and githubfake.
 	options := []any{routerExtras{GitHubAppSetup: h}}
 	options = append(options, extras...)
+	userHandler := &routes.UserHandler{}
+	for _, extra := range extras {
+		if user, ok := extra.(*routes.UserHandler); ok {
+			userHandler = user
+		}
+	}
 	return buildRouterCompat(
 		cfg, db.New(pool), pool,
-		&routes.RepoHandler{}, &routes.AuthHandler{}, &routes.UserHandler{}, &routes.SSHKeyHandler{}, &routes.LabelHandler{},
+		&routes.RepoHandler{}, &routes.AuthHandler{}, userHandler, &routes.SSHKeyHandler{}, &routes.LabelHandler{},
 		&routes.OrgHandler{}, &routes.LandingHandler{}, &routes.SearchHandler{Service: &mockRouterSearchService{}}, &routes.IssueHandler{},
 		nil, &routes.GitSmartHandler{Service: &mockRouterGitService{}},
 		nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil,

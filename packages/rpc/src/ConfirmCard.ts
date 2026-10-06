@@ -58,6 +58,27 @@ export const ConfirmCardSchema = z.object({
  */
 export type ConfirmCard = z.infer<typeof ConfirmCardSchema>
 
+/** Private approvals projection. This wire value must never enter model context.
+ * @since 1.0.0
+ * @category schemas
+ */
+export const MemberConfirmationSchema = z.object({
+  id: z.string().uuid(),
+  state: z.enum(["pending", "approved", "rejected", "expired"]),
+  command: CatalogTagSchema,
+  revision: z.string().min(1),
+  expires_at: z.string().datetime({ offset: true }),
+  decided_at: z.string().datetime({ offset: true }).optional(),
+  payload: z.object({
+    card: ConfirmCardSchema,
+    input: z.record(z.string(), z.unknown()),
+    effect: z.object({ todo: z.number().int().positive().max(Number.MAX_SAFE_INTEGER), request: z.string().min(1) }).optional()
+  })
+})
+
+/** @since 1.0.0 @category models */
+export type MemberConfirmation = z.infer<typeof MemberConfirmationSchema>
+
 /**
  * The Confirm View's props (ui-components.md T-UI-05).
  * @since 1.0.0
@@ -71,6 +92,8 @@ export type ConfirmViewProps = CardProps<ConfirmCard>
  * @category models
  */
 export type ConfirmCardCallbacks = CardCallbacks<
+  | "approval.approve"
+  | "approval.deny"
   | "merge"
   | "merge.confirm"
   | "pr"

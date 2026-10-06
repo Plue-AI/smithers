@@ -33,6 +33,14 @@ import { WIKI_ATTACH_USER_ONLY_REASON, WIKI_HEADING_USER_ONLY_REASON } from "@sm
  * no longer user-only fails it too.
  */
 const USER_ONLY_ALLOWLIST: Readonly<Record<string, string>> = {
+  "account.show": "Install status requires the owner’s person session",
+  "env.remove-token": "Install controls require the owner’s person session",
+  "env.set": "Install controls require the owner’s person session",
+  "env.view": "Install controls require the owner’s person session",
+  "github.app": "Install controls require the owner’s person session",
+  "repo.choose": "Install setup requires the owner’s person session",
+  "repo.create": "Install setup requires the owner’s person session",
+  "settings.daily-admissions": "Install controls require the owner’s person session",
   "agent.model": "Only the owner’s browser session changes models",
   "model.new": "Only the owner’s browser session configures models",
   "model.edit": "Only the owner’s browser session configures models",
@@ -103,12 +111,12 @@ const USER_ONLY_ALLOWLIST: Readonly<Record<string, string>> = {
   "order.ok": "Only a person can do this",
   "secrets": "Only a person can do this",
   "secrets.bind": "Only a person can do this",
-  "secrets.connect": "Only a person can do this",
-  "secrets.connect.codex": "Only a person can do this",
-  "secrets.connections": "Only a person can do this",
+  "secrets.connect": "Install controls require the owner’s person session",
+  "secrets.connect.codex": "Install controls require the owner’s person session",
+  "secrets.connections": "Install controls require the owner’s person session",
   "secrets.delete": "Only a person can do this",
-  "secrets.move": "Only a person can do this",
-  "secrets.revoke": "Only a person can do this",
+  "secrets.move": "Install controls require the owner’s person session",
+  "secrets.revoke": "Install controls require the owner’s person session",
   "secrets.scope": "Only a person can do this",
   "secrets.set": "Only a person can do this",
   "settings.model.set": "Only a person can do this",
@@ -121,7 +129,7 @@ const USER_ONLY_ALLOWLIST: Readonly<Record<string, string>> = {
 }
 
 /** The policy table's agent rows (.specs/engineering/spec.md §6.1): the args exercised and whether the act confirms. */
-const AGENT_ROWS: ReadonlyArray<{ readonly name: string; readonly args?: string; readonly confirm: boolean }> = [
+const AGENT_ROWS: ReadonlyArray<{ readonly name: string; readonly args?: string; readonly confirm: boolean; readonly confirmedArgs?: string }> = [
   { name: "todo", args: "T12", confirm: false },
   { name: "todo.new", args: "A TODO", confirm: false },
   { name: "todo.answer", args: "T12 Yes", confirm: false },
@@ -130,7 +138,7 @@ const AGENT_ROWS: ReadonlyArray<{ readonly name: string; readonly args?: string;
   { name: "todo.stop", args: "T12", confirm: false },
   { name: "todo.resume", args: "T12", confirm: false },
   { name: "todo.retry", args: "T12", confirm: false },
-  { name: "todo.drop", args: "T12", confirm: true },
+  { name: "todo.drop", args: "T12", confirm: true, confirmedArgs: '{"n":12}' },
   /* A bare Merge only opens the person's Review & merge; a head-bound one asks the person first (mvp.md Appendix B A✓). */
   { name: "merge", args: "T8", confirm: false },
   { name: "runs.trace.filter", args: "run-1 failed", confirm: false },
@@ -311,7 +319,7 @@ describe("the three-door law", () => {
       expect(`${row.name}: ${result}`).toContain("asked the user to confirm")
       const confirmation = confirmationFor(store, row.name)
       expect(`${row.name} confirmation`).toBe(`${row.name} ${confirmation === undefined ? "missing" : "confirmation"}`)
-      expect(confirmation?.action?.args).toBe(row.args)
+      expect(confirmation?.action?.args).toBe(row.confirmedArgs ?? row.args)
     }
   })
 

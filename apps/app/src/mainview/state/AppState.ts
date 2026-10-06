@@ -1173,6 +1173,7 @@ export type ConnectorOperation = z.infer<typeof ConnectorOperationSchema>
  * available action) — never which page exists.
  */
 export const IdentitySessionSchema = z.object({
+  memberId: z.number().int().positive().max(Number.MAX_SAFE_INTEGER).optional(),
   /** Present on provider-aware session observations; absent only in legacy journal history. */
   provider: z.enum(["github", "local"]).optional(),
   id: z.literal("identity"),
@@ -1628,6 +1629,7 @@ export type AppTransition =
   }
   | {
     type: "identity.session.loaded"
+    memberId?: number
     provider?: "github" | "local"
     actor: "system"
     state: "signed-out" | "signed-in" | "unavailable"

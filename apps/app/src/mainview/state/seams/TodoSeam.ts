@@ -3,6 +3,7 @@ import { resolveTargetRepo } from "../RepoContext"
 import { canonicalize } from "@smthrs/canonical"
 import { todoActors, type ActorContext } from "../ProductActor"
 import { TodoCardSchema, type TodoCard } from "@smthrs/rpc/TodoCard"
+import type { MemberConfirmation } from "@smthrs/rpc/ConfirmCard"
 import { DraftCardSchema, type DraftCard } from "@smthrs/rpc/DraftCard"
 import type { Card } from "@smthrs/rpc/Cards"
 /* The routes and cards the model host's TODO commands share (@smthrs/rpc/TodoCommands). */
@@ -287,7 +288,7 @@ export const createTodoSeam = (ctx: SeamContext, options: TodoSeamOptions = {}) 
   const send = (cardId: string, request: Request): void => {
     if (shared.sending.has(request.key) || request.owner !== owner() || signedIn()) return
     // A durable admission already names its TODO; recover its receipt through GET, never POST again.
-    if (request.operation === "create" && request.state === "accepted" && request.n) {
+    if (request.state === "accepted" && request.n) {
       showNotice(request, ctx.store.collections.cards.get(cardId)?.title ?? "TODO")
       watch(request.n)
       return
@@ -663,7 +664,26 @@ export const createTodoSeam = (ctx: SeamContext, options: TodoSeamOptions = {}) 
   }
   const subscription = ctx.store.collections.identitySessions.subscribeChanges(() => queueMicrotask(resumeTodos))
   options.onDispose?.(() => { subscription.unsubscribe(); shared.list.disposed = true; stop() })
-  return { list, discardForeign: async (branch: string, id: string, revision: string) => {
+  const observingConfirmations = new Set<string>()
+  const observeConfirmation = async (confirmation: MemberConfirmation): Promise<void> => {
+    const effect = confirmation.payload.effect
+    if (ctx.actor() !== "user" || signedIn() || confirmation.state !== "approved" || !effect ||
+      !["todo.new", "todo.drop"].includes(confirmation.command) || observingConfirmations.has(confirmation.id)) return
+    const row = entry(effect.todo) ?? blank(effect.todo)
+    if (row.payload.observedConfirmations?.includes(confirmation.id)) return
+    observingConfirmations.add(confirmation.id)
+    const login = owner()!, revision = identity()?.ownerRevision ?? identity()?.revision
+    try {
+      const request: Request = { key: effect.request, owner: login,
+        operation: confirmation.command === "todo.new" ? "create" : "drop",
+        body: confirmation.payload.input, n: effect.todo, state: "accepted" }
+      await write({ ...row, title: confirmation.payload.card.summary, payload: { ...row.payload,
+        observedConfirmations: [...row.payload.observedConfirmations ?? [], confirmation.id],
+        requests: [...row.payload.requests.filter(old => old.key !== request.key), request] } }, "system")
+      if (current(login, revision)) { showNotice(request, row.title); watch(effect.todo) }
+    } finally { observingConfirmations.delete(confirmation.id) }
+  }
+  return { list, observeConfirmation, discardForeign: async (branch: string, id: string, revision: string) => {
     const refusal = signedIn(); if (refusal) return refusal
     // Resolve only served projections already on this screen or in the stack.
     // Persist the request before network admission; the route rechecks authority

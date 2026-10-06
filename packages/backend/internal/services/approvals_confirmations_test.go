@@ -158,6 +158,33 @@ func TestConfirmationCreatePressReplayPostgres(t *testing.T) {
 	var author string
 	require.NoError(t, f.pool.QueryRow(t.Context(), `SELECT revisions->0->'by'->>'login' FROM mythical_items`).Scan(&author))
 	require.Equal(t, "ben", author)
+	rows, err := f.q.ListMemberConfirmations(t.Context(), f.member.ID)
+	require.NoError(t, err)
+	require.Len(t, rows, 1)
+	var projection struct {
+		Effect struct {
+			Todo    int64  `json:"todo"`
+			Request string `json:"request"`
+		} `json:"effect"`
+		Card struct {
+			Receipt struct {
+				By struct {
+					Login string `json:"login"`
+				} `json:"by"`
+				Text   string `json:"text"`
+				Result string `json:"result"`
+				At     string `json:"at"`
+			} `json:"receipt"`
+		} `json:"card"`
+	}
+	require.NoError(t, json.Unmarshal(rows[0].Payload, &projection))
+	require.Equal(t, int64(1), projection.Effect.Todo)
+	require.Equal(t, "confirmation:"+r.ID, projection.Effect.Request)
+	require.Equal(t, "ben", projection.Card.Receipt.By.Login)
+	require.Equal(t, "Approved", projection.Card.Receipt.Text)
+	require.Equal(t, "done", projection.Card.Receipt.Result)
+	_, err = time.Parse(time.RFC3339Nano, projection.Card.Receipt.At)
+	require.NoError(t, err)
 }
 
 func TestConfirmationConcurrentCreateAndApprovePostgres(t *testing.T) {

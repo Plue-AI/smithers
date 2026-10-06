@@ -1,4 +1,7 @@
-import { renderHomeCard } from "./cards/CardRenderers"
+import { renderHomeCard, renderConfirmCard } from "./cards/CardRenderers"
+import { memberConfirmations, memberConfirmCardProps } from "./cards/ApprovalCard"
+import { useTopic } from "./state/useTopic"
+import { flowArgs } from "./flows/FlowArgs"
 import { shownInTranscript } from "./state/ApprovalDeciders"
 import {
 Button,
@@ -139,6 +142,9 @@ function AppContent() {
   const typing = session.phase === "responding"
   const streamingMessageId = typing ? messages[messages.length - 1]?.id : undefined
   const identity = identityRows[0]
+  const confirmations = useTopic(identity?.state === "signed-in" && identity.memberId && controller.live
+    ? `confirmations:${identity.memberId}` : undefined, controller.live)
+  const privateConfirms = confirmations?.error ? [] : memberConfirmations(confirmations?.data)
 
   // The door is already mounted. Restore focus in this gesture, before the
   // user's next focus choice can be overwritten by a delayed frame.
@@ -475,6 +481,13 @@ function AppContent() {
                   />
                 ) :
                 <TranscriptMessage key={entry.message.id} entry={entry} streamingMessageId={streamingMessageId} />}
+            </MessageScrollerItem>)}
+            {privateConfirms.map(row => <MessageScrollerItem key={`confirmation:${row.id}`} messageId={`confirmation:${row.id}`}>
+              {renderConfirmCard(memberConfirmCardProps(row, (tag, input) => {
+                if ((tag === "approval.approve" || tag === "approval.deny") && input && "cardId" in input) {
+                  controller.runCommand(tag, flowArgs(tag, { cardId: String(input.cardId) }))
+                }
+              }))}
             </MessageScrollerItem>)}
             {typing && <ChatMessage role="assistant" pending pendingLabel="Smithers is responding" />}
             </MessageScrollerContent>
