@@ -19,6 +19,10 @@ Each tool runs every ten minutes, including observations at the start and at
 24 hours. Guest `timeout` must exist. A wrong UID, missing tool, late observation
 or missing version refuses the capture. The script never uses sudo or root,
 installs tools, copies credentials, or executes the canary's code on the host.
+The recorder requires all three versions and all 435 calls, in order, including
+the 24-hour endpoint. A missing, repeated or late call, a mismatched guest UID,
+or a record after completion fails capture even when the terminal exits zero.
+`capture.json` retains the call count and first failure without raw tool output.
 
 Record B's sleep and wake every four hours through the install, with UTC times
 and owner-signed evidence. Also retain the candidate commit/version, host
