@@ -550,6 +550,12 @@ func TestGitHubAppManualFallbackThroughInstallRouterPostgres(t *testing.T) {
 				raw, err := json.Marshal(body)
 				require.NoError(t, err)
 				req := httptest.NewRequest("POST", origin+path, bytes.NewReader(raw))
+				// Match the socket peer to the listener: remote clients cannot
+				// claim localhost through their Host or Origin headers.
+				req.RemoteAddr = "192.0.2.1:12345"
+				if origin == "http://localhost:4000" {
+					req.RemoteAddr = "127.0.0.1:12345"
+				}
 				req.Header.Set("Origin", origin)
 				req.Header.Set("Content-Type", "application/json")
 				req.Header.Set("X-CSRF-Token", "csrf")
