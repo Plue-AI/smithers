@@ -88,6 +88,25 @@ impl Cgroups {
             groups: BTreeMap::new(),
         })
     }
+    /// Read retained session groups, including closed sessions with surviving
+    /// children. No pathname or PID comes from an RPC request.
+    pub fn activity(&self) -> io::Result<Vec<(u32, u64, bool)>> {
+        self.groups
+            .iter()
+            .map(|(id, group)| {
+                let mut bytes = Vec::new();
+                leaf(&group.directory, "cpu.stat", false)?
+                    .take(4097)
+                    .read_to_end(&mut bytes)?;
+                Ok((
+                    *id,
+                    crate::attrib::usage(&bytes)?,
+                    read_events(&group.directory)?,
+                ))
+            })
+            .collect()
+    }
+
     /// Before forking, create the child cgroup and retain cgroup.procs. The
     /// trusted spawn path writes its own pid to this fd before dropping uid.
     pub fn create(&mut self, id: u32) -> io::Result<File> {

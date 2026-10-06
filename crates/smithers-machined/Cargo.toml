@@ -6,6 +6,7 @@ publish = false
 [features]
 default = []
 testing = []
+# Fault hooks are stripped even if a release build enables this feature.
 killpoints = []
 [dependencies]
 yrs = { version = "=0.27.4", features = ["small-client"] }

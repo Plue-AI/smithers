@@ -112,10 +112,10 @@ impl<I: Ignore> Inotify<I> {
         if !recursive {
             return Ok(());
         }
+        let mut entries = vec![];
         while let Some(entry) = dir.read() {
             let entry = entry?;
-            let name = entry.file_name();
-            let Ok(name) = name.to_str() else {
+            let Ok(name) = entry.file_name().to_str() else {
                 continue;
             };
             if name == "." || name == ".." {
@@ -126,11 +126,25 @@ impl<I: Ignore> Inotify<I> {
             } else {
                 path.join(name)
             };
-            match entry.file_type() {
+            entries.push((child, entry.file_type()));
+        }
+        let ignored = if metadata {
+            vec![false; entries.len()]
+        } else {
+            self.ignore.batch(
+                &entries
+                    .iter()
+                    .map(|(p, t)| (p.clone(), *t == fs::FileType::Directory))
+                    .collect::<Vec<_>>(),
+            )?
+        };
+        for ((child, kind), ignored) in entries.into_iter().zip(ignored) {
+            if ignored {
+                continue;
+            }
+            match kind {
                 fs::FileType::Directory => self.scan(&child, metadata, true, files)?,
-                fs::FileType::RegularFile
-                    if !metadata && !self.ignore.ignored(&child, false)? =>
-                {
+                fs::FileType::RegularFile if !metadata => {
                     files.push(child.to_str().unwrap().into())
                 }
                 _ => (),
@@ -191,6 +205,21 @@ impl<I: Ignore> Inotify<I> {
             }
         }
         drop(reader);
+        let mut candidates = Vec::new();
+        for (wd, flags, _, name) in &raw {
+            if let Some(d) = self.dirs.get(wd).filter(|d| !d.metadata) {
+                if let Some(name) = name.as_ref().and_then(|n| std::str::from_utf8(n).ok()) {
+                    let path = if d.path == Path::new(".") {
+                        PathBuf::from(name)
+                    } else {
+                        d.path.join(name)
+                    };
+                    candidates.push((path, flags.contains(inotify::ReadFlags::ISDIR)));
+                }
+            }
+        }
+        let ignored = self.ignore.batch(&candidates)?;
+        let filtered: BTreeMap<_, _> = candidates.into_iter().zip(ignored).collect();
         let mut out = vec![];
         for (wd, flags, cookie, name) in raw {
             if flags.contains(inotify::ReadFlags::QUEUE_OVERFLOW) {
@@ -235,9 +264,10 @@ impl<I: Ignore> Inotify<I> {
             if name == ".gitignore" {
                 return Ok(vec![Event::Overflow]);
             }
-            if self
-                .ignore
-                .ignored(&path, flags.contains(inotify::ReadFlags::ISDIR))?
+            if filtered
+                .get(&(path.clone(), flags.contains(inotify::ReadFlags::ISDIR)))
+                .copied()
+                .unwrap_or(false)
             {
                 continue;
             }
@@ -274,5 +304,152 @@ impl<I: Ignore> Inotify<I> {
             }
         }
         Ok(out)
+    }
+}
+
+/// Dispatcher adapter. This mutex protects hook interior state while the
+/// existing FIFO LockCx owns working-copy mutation ordering; no executor or
+/// second mutation queue is created by the watcher.
+pub struct InotifyWatcher<I, P> {
+    state: std::sync::Mutex<(
+        crate::resync::WatchLoop<I, crate::hooks::Actor, crate::hooks::Oid>,
+        P,
+    )>,
+    origin: std::time::Instant,
+}
+fn hook_error(error: io::Error) -> crate::hooks::Error {
+    let mut result = crate::hooks::Error::unsupported();
+    result.code = match error.kind() {
+        io::ErrorKind::Unsupported => 2,
+        io::ErrorKind::PermissionDenied => 11,
+        io::ErrorKind::InvalidInput => 6,
+        _ => 3,
+    };
+    result.detail = Some(error.to_string());
+    result
+}
+impl<I: Ignore, P: crate::events::Provider<crate::hooks::Actor, Blob = crate::hooks::Oid>>
+    InotifyWatcher<I, P>
+{
+    pub fn activate(
+        watch: Inotify<I>,
+        provider: P,
+        checkpoint: crate::events::Checkpoint<crate::hooks::Actor, crate::hooks::Oid>,
+        cx: &mut crate::lock::LockCx,
+    ) -> crate::hooks::Result<Self> {
+        if rustix::process::getuid().as_raw() != 19998
+            || rustix::process::geteuid().as_raw() != 19998
+        {
+            return Err(hook_error(io::ErrorKind::PermissionDenied.into()));
+        }
+        Self::mount(watch, provider, checkpoint, cx)
+    }
+    #[cfg(feature = "testing")]
+    pub fn fixture(
+        watch: Inotify<I>,
+        provider: P,
+        checkpoint: crate::events::Checkpoint<crate::hooks::Actor, crate::hooks::Oid>,
+        cx: &mut crate::lock::LockCx,
+    ) -> crate::hooks::Result<Self> {
+        if rustix::process::geteuid().is_root() {
+            return Err(hook_error(io::ErrorKind::PermissionDenied.into()));
+        }
+        Self::mount(watch, provider, checkpoint, cx)
+    }
+    fn mount(
+        watch: Inotify<I>,
+        mut provider: P,
+        checkpoint: crate::events::Checkpoint<crate::hooks::Actor, crate::hooks::Oid>,
+        cx: &mut crate::lock::LockCx,
+    ) -> crate::hooks::Result<Self> {
+        let mut watcher =
+            crate::resync::WatchLoop::new(watch, crate::events::Changes::new(checkpoint));
+        watcher.resync(&mut provider, 0).map_err(hook_error)?;
+        Ok(Self {
+            state: std::sync::Mutex::new((watcher, provider)),
+            origin: cx.hooks.clock.mono(),
+        })
+    }
+    fn job<T>(
+        &self,
+        cx: &mut crate::lock::LockCx,
+        f: impl FnOnce(
+            &mut crate::resync::WatchLoop<I, crate::hooks::Actor, crate::hooks::Oid>,
+            &mut P,
+            u64,
+        ) -> io::Result<T>,
+    ) -> crate::hooks::Result<T> {
+        let now = cx
+            .hooks
+            .clock
+            .mono()
+            .saturating_duration_since(self.origin)
+            .as_millis()
+            .try_into()
+            .unwrap_or(u64::MAX);
+        let mut state = self
+            .state
+            .lock()
+            .map_err(|_| hook_error(io::Error::other("watcher state poisoned")))?;
+        let (watcher, provider) = &mut *state;
+        f(watcher, provider, now).map_err(hook_error)
+    }
+}
+impl<
+        I: Ignore + Send,
+        P: crate::events::Provider<crate::hooks::Actor, Blob = crate::hooks::Oid> + Send,
+    > crate::hooks::Watcher for InotifyWatcher<I, P>
+{
+    fn drain(&self, cx: &mut crate::lock::LockCx) -> crate::hooks::Result<()> {
+        self.job(cx, |w, p, now| w.drain(p, now))
+    }
+    fn before_write(
+        &self,
+        cx: &mut crate::lock::LockCx,
+        path: &str,
+        actor: &crate::hooks::Actor,
+    ) -> crate::hooks::Result<()> {
+        self.job(cx, |w, p, now| {
+            w.drain(p, now)?;
+            w.changes.before_write(p, now, path, actor)
+        })
+    }
+    fn after_write(
+        &self,
+        cx: &mut crate::lock::LockCx,
+        write: &crate::hooks::WriteRecord,
+    ) -> crate::hooks::Result<()> {
+        self.job(cx, |w, p, now| {
+            let mode = p
+                .read(&write.path)?
+                .map(|(_, mode)| mode)
+                .ok_or(io::ErrorKind::NotFound)?;
+            w.changes.own_write(
+                p,
+                now,
+                &write.path,
+                &write.actor,
+                crate::versions::Version {
+                    blob: write.after,
+                    post_digest: write.post_digest,
+                    mode,
+                },
+            )
+        })
+    }
+    fn close_bursts(&self, cx: &mut crate::lock::LockCx) -> crate::hooks::Result<()> {
+        self.job(cx, |w, p, now| {
+            w.drain(p, now)?;
+            w.changes.close_all(p)
+        })
+    }
+    fn resync(&self, cx: &mut crate::lock::LockCx) -> crate::hooks::Result<()> {
+        self.job(cx, |w, p, now| w.resync(p, now))
+    }
+    fn burst_open(&self) -> bool {
+        self.state
+            .lock()
+            .map(|s| s.0.changes.state.bursts.is_open())
+            .unwrap_or(true)
     }
 }

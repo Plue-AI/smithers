@@ -8,14 +8,14 @@ use std::{
 #[derive(Clone, Debug)]
 pub struct Sample<A> {
     pub session: u32,
-    pub actor: A,
+    pub actor: Option<A>,
     pub usage_usec: u64,
     pub populated: bool,
 }
 #[derive(Clone, Debug)]
 pub struct Window<A> {
     baseline: BTreeMap<u32, u64>,
-    active: BTreeMap<u32, A>,
+    active: BTreeMap<u32, Option<A>>,
     uncertain: bool,
 }
 impl<A: Clone + Eq> Window<A> {
@@ -53,7 +53,10 @@ impl<A: Clone + Eq> Window<A> {
         if self.uncertain || self.active.len() != 1 {
             return None;
         }
-        self.active.iter().next().map(|(id, a)| (*id, a.clone()))
+        self.active
+            .iter()
+            .next()
+            .and_then(|(id, a)| a.clone().map(|a| (*id, a)))
     }
 }
 /// Parse bounded reads from broker-held cgroup descriptors, including closed
@@ -80,7 +83,7 @@ mod tests {
     fn s(id: u32, cpu: u64) -> Sample<&'static str> {
         Sample {
             session: id,
-            actor: if id == 1 { "maya" } else { "ben" },
+            actor: Some(if id == 1 { "maya" } else { "ben" }),
             usage_usec: cpu,
             populated: true,
         }

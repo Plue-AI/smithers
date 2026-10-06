@@ -386,3 +386,99 @@ pub fn verify_host_mac(secret: &[u8], boot: &[u8; 16], nonce: &[u8; 32], proof: 
     mac.update(nonce);
     mac.verify_slice(proof).is_ok()
 }
+
+/// Typed extraction uses the same schema validator as Frame, so hook owners
+/// never add parsers or relax unknown-field / length refusals.
+pub struct WriteArgs {
+    pub path: String,
+    pub base: crate::hooks::Base,
+    pub content: Vec<u8>,
+    pub actor: crate::hooks::Actor,
+}
+pub fn write_args(bytes: &[u8]) -> Result<WriteArgs, ProtocolError> {
+    let mut check = Cursor(bytes);
+    check.value("args3")?;
+    if !check.0.is_empty() {
+        return Err(TrailingBytes);
+    }
+    let mut c = Cursor(bytes);
+    c.take(5)?;
+    let n = c.number(2)? as usize;
+    let path = std::str::from_utf8(c.take(n)?)
+        .map_err(|_| BadUtf8)?
+        .to_owned();
+    c.take(1)?;
+    let variant = c.number(1)?;
+    c.take(4)?;
+    let base = if variant == 1 {
+        c.take(1)?;
+        crate::hooks::Base::Digest(c.take(32)?.try_into().unwrap())
+    } else {
+        crate::hooks::Base::Absent
+    };
+    c.take(1)?;
+    let n = c.number(4)? as usize;
+    let content = c.take(n)?.to_vec();
+    c.take(7)?;
+    let n = c.number(4)? as usize;
+    let actor = crate::hooks::Actor::Principal(c.take(n)?.to_vec());
+    Ok(WriteArgs {
+        path,
+        base,
+        content,
+        actor,
+    })
+}
+pub fn register_run_args(bytes: &[u8]) -> Result<(String, u32), ProtocolError> {
+    let mut check = Cursor(bytes);
+    check.value("args10")?;
+    if !check.0.is_empty() {
+        return Err(TrailingBytes);
+    }
+    let mut c = Cursor(bytes);
+    c.take(5)?;
+    let n = c.number(2)? as usize;
+    let run = std::str::from_utf8(c.take(n)?)
+        .map_err(|_| BadUtf8)?
+        .to_owned();
+    c.take(1)?;
+    let session = c.number(4)? as u32;
+    Ok((run, session))
+}
+pub fn actor_bytes(actor: &crate::hooks::Actor) -> Vec<u8> {
+    use crate::hooks::Actor;
+    match actor {
+        Actor::Principal(p) => {
+            let mut bytes = (p.len() as u32).to_be_bytes().to_vec();
+            bytes.extend(p);
+            tagged(1, &[field(1, bytes)])
+        }
+        Actor::Session(s) => tagged(2, &[field(1, s.to_be_bytes())]),
+        Actor::Run(r) => {
+            let mut bytes = (r.len() as u16).to_be_bytes().to_vec();
+            bytes.extend(r.as_bytes());
+            tagged(3, &[field(1, bytes)])
+        }
+        Actor::Outside => tagged(4, &[]),
+    }
+}
+pub fn file_written(
+    path: &str,
+    actor: &crate::hooks::Actor,
+    digest: Option<[u8; 32]>,
+) -> Result<Vec<u8>, ProtocolError> {
+    let mut text = (path.len() as u16).to_be_bytes().to_vec();
+    text.extend(path.as_bytes());
+    let mut fields = vec![field(1, text), field(2, actor_bytes(actor))];
+    if let Some(d) = digest {
+        fields.push(field(3, d));
+    }
+    let hint = tagged(1, &fields);
+    let frame = Frame {
+        kind: 2,
+        stream: 0,
+        payload: tagged(2, &[field(1, &hint)]),
+    };
+    frame.encode()?;
+    Ok(hint)
+}
