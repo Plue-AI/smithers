@@ -6,6 +6,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"github.com/jackc/pgx/v5/pgtype"
 	"io"
 	"net"
@@ -215,3 +216,44 @@ func TestGitHubOwnerMigrationPreservesOwner(t *testing.T) {
 	require.NoError(t, pool.QueryRow(ctx, `SELECT to_regclass('local_credentials') IS NULL`).Scan(&removed))
 	require.True(t, removed)
 }
+
+// Database commit and output failures must never leave usable uncommitted
+// authority. Faults live in this test database and writer, not production hooks.
+func TestSetupMintFailureRecoveryPostgres(t *testing.T) {
+	pool, _ := postgresfixture.NewProductDatabase(t)
+	ctx := t.Context()
+	setup := &InstallSetupSessions{Pool: pool}
+	_, err := pool.Exec(ctx, `CREATE FUNCTION refuse_setup_commit() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN IF NEW.key='setup.token' THEN RAISE EXCEPTION 'fixture refuses commit'; END IF; RETURN NEW; END $$; CREATE CONSTRAINT TRIGGER refuse_setup_commit AFTER INSERT OR UPDATE ON install_settings DEFERRABLE INITIALLY DEFERRED FOR EACH ROW EXECUTE FUNCTION refuse_setup_commit()`)
+	require.NoError(t, err)
+	var output bytes.Buffer
+	require.ErrorContains(t, setup.Mint(ctx, nil, &output), "fixture refuses commit")
+	require.Empty(t, output.String())
+	var count int
+	require.NoError(t, pool.QueryRow(ctx, `SELECT count(*) FROM install_settings WHERE key='setup.token'`).Scan(&count))
+	require.Zero(t, count)
+	_, err = pool.Exec(ctx, `DROP TRIGGER refuse_setup_commit ON install_settings; DROP FUNCTION refuse_setup_commit()`)
+	require.NoError(t, err)
+	require.ErrorContains(t, setup.Mint(ctx, nil, setupRefusingWriter{}), "fixture output failure")
+	var committed string
+	require.NoError(t, pool.QueryRow(ctx, `SELECT value #>> '{}' FROM install_settings WHERE key='setup.token'`).Scan(&committed))
+	require.Len(t, committed, 64)
+	restarted := &InstallSetupSessions{Pool: pool}
+	require.NoError(t, restarted.Mint(ctx, nil, &output))
+	var replacement string
+	require.NoError(t, pool.QueryRow(ctx, `SELECT value #>> '{}' FROM install_settings WHERE key='setup.token'`).Scan(&replacement))
+	require.NotEqual(t, committed, replacement)
+	var line struct {
+		URLs []string `json:"setup_urls"`
+	}
+	require.NoError(t, json.Unmarshal(output.Bytes(), &line))
+	parsed, err := url.Parse(line.URLs[0])
+	require.NoError(t, err)
+	digest := sha256.Sum256([]byte(parsed.Query().Get("token")))
+	require.Equal(t, hex.EncodeToString(digest[:]), replacement)
+	_, err = restarted.Exchange(ctx, parsed.Query().Get("token"))
+	require.NoError(t, err)
+}
+
+type setupRefusingWriter struct{}
+
+func (setupRefusingWriter) Write([]byte) (int, error) { return 0, errors.New("fixture output failure") }

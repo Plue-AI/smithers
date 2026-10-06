@@ -10,6 +10,7 @@ import (
 	"net/http/httptest"
 	"net/url"
 	"strings"
+	"sync"
 	"testing"
 
 	"github.com/jackc/pgx/v5"
@@ -74,6 +75,8 @@ func TestOwnerSignInHTTPPostgres(t *testing.T) {
 			// still returns to the address the browser started it from.
 			cfg.GitHubRedirectURL = "http://localhost:4000/api/auth/github/callback"
 			svc.InstallSetup = setup
+			svc.Members = &services.Members{Pool: pool}
+			t.Setenv("SMITHERS_GITHUB_APP_API_BASE_URL", provider.URL)
 			handler := &routes.AuthHandler{Service: svc, AuthConfig: cfg, Origins: middleware.FixedOrigins(tc.saved), InstallSetup: setup}
 			installConfig := testConfigAllFlagsOn()
 			installConfig.Auth = cfg
@@ -134,30 +137,83 @@ func TestOwnerSignInHTTPPostgres(t *testing.T) {
 			denied := httptest.NewRecorder()
 			router.ServeHTTP(denied, request("/api/auth/github"))
 			require.Equal(t, 401, denied.Code)
-			start := httptest.NewRecorder()
-			router.ServeHTTP(start, request("/api/auth/github", &http.Cookie{Name: routes.GitHubAppSetupSessionCookie, Value: credential}))
-			require.Equal(t, 302, start.Code)
-			redirect, err := url.Parse(start.Header().Get("Location"))
-			require.NoError(t, err)
-			require.Equal(t, origin+"/api/auth/github/callback", redirect.Query().Get("redirect_uri"))
-			cookies := start.Result().Cookies()
-			cookies = append(cookies, &http.Cookie{Name: routes.GitHubAppSetupSessionCookie, Value: credential})
-			response, err = http.Get(redirect.String())
-			require.NoError(t, err)
-			page, err := io.ReadAll(response.Body)
-			response.Body.Close()
-			require.NoError(t, err)
-			target := html.UnescapeString(strings.Split(strings.Split(string(page), `href="`)[1], `"`)[0])
-			callbackURL, err := url.Parse(target)
-			require.NoError(t, err)
-			callback := request(callbackURL.RequestURI(), cookies...)
-			result := httptest.NewRecorder()
-			router.ServeHTTP(result, callback)
-			require.Equal(t, 302, result.Code, result.Body.String())
-			require.Equal(t, origin+"/", result.Header().Get("Location"), "the sign-in returns to the origin that started it")
+			prepareCallback := func(session, code string, id int64) *http.Request {
+				t.Helper()
+				start := httptest.NewRecorder()
+				router.ServeHTTP(start, request("/api/auth/github", &http.Cookie{Name: routes.GitHubAppSetupSessionCookie, Value: session}))
+				require.Equal(t, 302, start.Code, start.Body.String())
+				redirect, err := url.Parse(start.Header().Get("Location"))
+				require.NoError(t, err)
+				require.Equal(t, origin+"/api/auth/github/callback", redirect.Query().Get("redirect_uri"))
+				require.NotContains(t, redirect.String(), u.Query().Get("token"))
+				require.NotContains(t, redirect.String(), session)
+				cookies := append(start.Result().Cookies(), &http.Cookie{Name: routes.GitHubAppSetupSessionCookie, Value: session})
+				response, err := http.Get(redirect.String())
+				require.NoError(t, err)
+				page, err := io.ReadAll(response.Body)
+				response.Body.Close()
+				require.NoError(t, err)
+				target := html.UnescapeString(strings.Split(strings.Split(string(page), `href="`)[1], `"`)[0])
+				callbackURL, err := url.Parse(target)
+				require.NoError(t, err)
+				provider.SignInAs(code, id)
+				query := callbackURL.Query()
+				query.Set("code", code)
+				callbackURL.RawQuery = query.Encode()
+				return request(callbackURL.RequestURI(), cookies...)
+			}
+			// Two browsers exchange the same printed link before either claims.
+			otherExchange := httptest.NewRecorder()
+			router.ServeHTTP(otherExchange, request("/setup?token="+url.QueryEscape(u.Query().Get("token"))))
+			require.Equal(t, http.StatusSeeOther, otherExchange.Code)
+			var otherSession string
+			for _, cookie := range otherExchange.Result().Cookies() {
+				if cookie.Name == routes.GitHubAppSetupSessionCookie {
+					otherSession = cookie.Value
+				}
+			}
+			require.NotEmpty(t, otherSession)
+			require.NotEqual(t, credential, otherSession)
+			provider.SetCollaborator(7, "local-owner", "admin")
+			provider.SetCollaborator(8, "other-owner", "admin")
+			callbacks := []*http.Request{prepareCallback(credential, "owner-a-code", 7), prepareCallback(otherSession, "owner-b-code", 8)}
+			results := []*httptest.ResponseRecorder{httptest.NewRecorder(), httptest.NewRecorder()}
+			barrier := make(chan struct{})
+			var wg sync.WaitGroup
+			for i := range callbacks {
+				wg.Add(1)
+				go func(i int) { defer wg.Done(); <-barrier; router.ServeHTTP(results[i], callbacks[i]) }(i)
+			}
+			close(barrier)
+			wg.Wait()
+			winner, loser := 0, 1
+			if results[0].Code == http.StatusUnauthorized {
+				winner, loser = 1, 0
+			}
+			result, callback := results[winner], callbacks[winner]
+			require.Equal(t, http.StatusFound, result.Code, result.Body.String())
+			require.Equal(t, origin+"/", result.Header().Get("Location"))
+			require.Equal(t, http.StatusUnauthorized, results[loser].Code, results[loser].Body.String())
+			require.Contains(t, results[loser].Body.String(), `"code":"setup_closed"`)
+			for _, cookie := range results[loser].Result().Cookies() {
+				require.False(t, cookie.Name == "session" && cookie.Value != "" && cookie.MaxAge >= 0, "refusal must not mint a person session")
+			}
+			var remainingAuthority int
+			require.NoError(t, pool.QueryRow(ctx, `SELECT count(*) FROM install_settings WHERE key='setup.token' OR key LIKE 'setup.session.%'`).Scan(&remainingAuthority))
+			require.Zero(t, remainingAuthority)
+			for _, session := range []string{credential, otherSession} {
+				closed := httptest.NewRecorder()
+				router.ServeHTTP(closed, request("/api/auth/github", &http.Cookie{Name: routes.GitHubAppSetupSessionCookie, Value: session}))
+				require.Equal(t, http.StatusUnauthorized, closed.Code)
+				require.Contains(t, closed.Body.String(), `"code":"setup_closed"`)
+			}
+			oldToken := httptest.NewRecorder()
+			router.ServeHTTP(oldToken, request("/setup?token="+url.QueryEscape(u.Query().Get("token"))))
+			require.Equal(t, http.StatusUnauthorized, oldToken.Code)
+			require.Contains(t, oldToken.Body.String(), `"code":"setup_closed"`)
 			owner, err := q.GetSelfHostOwner(ctx)
 			require.NoError(t, err)
-			require.Equal(t, "local-owner", owner.Username)
+			require.Equal(t, []string{"local-owner", "other-owner"}[winner], owner.Username)
 			boundary := identity.NewMemberBoundary(q)
 			require.Equal(t, 403, boundary.AuthorizeMember(ctx, owner.ID).Status)
 			require.Equal(t, "owner_unverified", string(boundary.AuthorizeMember(ctx, owner.ID).Code))
@@ -219,6 +275,8 @@ func TestOwnerSignInRefusalLandsOnSetupCardPostgres(t *testing.T) {
 	cfg := config.AuthConfig{Mode: "selfhost", SessionSecret: "test-secret", SessionCookieName: "session", SessionDuration: "24h"}
 	svc := services.NewAuthService(q, cfg, nil, auth.NewGitHubClient(ownerOAuthCredentials{seed.ClientID, seed.ClientSecret}, "", provider.URL, provider.URL))
 	svc.InstallSetup = setup
+	svc.Members = &services.Members{Pool: pool}
+	t.Setenv("SMITHERS_GITHUB_APP_API_BASE_URL", provider.URL)
 	handler := &routes.AuthHandler{Service: svc, AuthConfig: cfg, Origins: middleware.FixedOrigins(origin), InstallSetup: setup}
 	steps := &services.InstallSetupService{Pool: pool}
 	signIn := func(callbackQuery func(url.Values)) *httptest.ResponseRecorder {

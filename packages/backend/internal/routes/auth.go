@@ -423,6 +423,18 @@ func (h *AuthHandler) GetGitHubOAuthCallback(w http.ResponseWriter, r *http.Requ
 	}
 	result, err := h.Service.CompleteGitHubOAuth(ctx, code, state, stateVerifier)
 	if err != nil {
+		// Another setup callback may claim while this callback is fetching
+		// identity or keys. Its consumed setup authority takes precedence over
+		// any intermediate roster/provider refusal from that race.
+		if h.InstallSetup != nil {
+			if cookie, cookieErr := r.Cookie(GitHubAppSetupSessionCookie); cookieErr == nil {
+				authorityErr := h.InstallSetup.AdmitOAuth(ctx, cookie.Value)
+				var closed *errors.APIError
+				if stdErrors.As(authorityErr, &closed) && closed.Code == errors.CodeSetupClosed {
+					err = authorityErr
+				}
+			}
+		}
 		clearOAuthStateCookie(w, h.cookieSecure(r))
 		if h.setupSignInFailed(w, r, err) {
 			return
