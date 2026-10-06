@@ -1,6 +1,10 @@
 package services
 
 import (
+	"context"
+	"github.com/smithersai/smithers/packages/backend/internal/db"
+	"github.com/smithersai/smithers/packages/backend/internal/middleware"
+	"net/http"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -83,4 +87,28 @@ func TestHighestRepoPermission_MixedCase(t *testing.T) {
 	t.Parallel()
 
 	assert.Equal(t, "admin", highestRepoPermission("READ", "Admin", "write"))
+}
+
+func TestBoundInstallAuthorization(t *testing.T) {
+	info := &middleware.AuthInfo{User: &db.User{ID: 7}, SessionHash: "session"}
+	ctx := middleware.ContextWithAuthInfo(context.Background(), info)
+	decision := InstallAuthorization{UserID: 7, Role: InstallMember}
+	ctx = WithInstallAuthorization(ctx, "todo.read", decision)
+	got, err := Authorize(ctx, nil, "todo.read")
+	assert.NoError(t, err)
+	assert.Equal(t, decision, got)
+	// A dispatcher must not reuse read authority for another command.
+	_, err = Authorize(ctx, nil, "secrets.write")
+	assert.Error(t, err)
+	// A replacement credential for the same person gets a fresh decision.
+	replacement := &middleware.AuthInfo{User: &db.User{ID: 7}, SessionHash: "replacement"}
+	_, err = Authorize(middleware.ContextWithAuthInfo(ctx, replacement), nil, "todo.read")
+	assert.Error(t, err)
+	// Changing principal also prevents decision reuse.
+	_, err = Authorize(middleware.ContextWithAuthInfo(ctx, &middleware.AuthInfo{User: &db.User{ID: 8}}), nil, "todo.read")
+	assert.Error(t, err)
+	_, err = Authorize(ctx, nil, "unmapped")
+	var refusal *AccessError
+	assert.ErrorAs(t, err, &refusal)
+	assert.Equal(t, http.StatusForbidden, refusal.Status)
 }

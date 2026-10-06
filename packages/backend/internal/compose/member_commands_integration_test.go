@@ -15,6 +15,8 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/smithersai/smithers/packages/backend/internal/db"
+	"github.com/smithersai/smithers/packages/backend/internal/middleware"
+	"github.com/smithersai/smithers/packages/backend/internal/services"
 	"github.com/smithersai/smithers/packages/backend/testkit/postgresfixture"
 )
 
@@ -57,19 +59,33 @@ func TestMemberRoutesAuthorizeByRolePostgres(t *testing.T) {
 		require.NoError(t, err)
 		return key
 	}
-	raw := fmt.Sprintf("smithers_%040x", alice.ID)
-	sum := sha256.Sum256([]byte(raw))
-	hash := hex.EncodeToString(sum[:])
-	_, err = q.CreateAccessToken(ctx, db.CreateAccessTokenParams{UserID: alice.ID, Name: "cli", TokenHash: hash, TokenLastEight: hash[len(hash)-8:],
-		Scopes: "read:user", ExpiresAt: pgtype.Timestamptz{Time: time.Now().Add(time.Hour), Valid: true}})
-	require.NoError(t, err)
+	mintToken := func(u db.User) string {
+		raw := fmt.Sprintf("smithers_%040x", u.ID)
+		sum := sha256.Sum256([]byte(raw))
+		hash := hex.EncodeToString(sum[:])
+		_, err = q.CreateAccessToken(ctx, db.CreateAccessTokenParams{UserID: u.ID, Name: "cli", TokenHash: hash, TokenLastEight: hash[len(hash)-8:],
+			Scopes: "read:user", ExpiresAt: pgtype.Timestamptz{Time: time.Now().Add(time.Hour), Valid: true}})
+		require.NoError(t, err)
+		return raw
+	}
+	raw := mintToken(alice)
+	ownerToken := mintToken(owner)
 	cfg := testConfigAllFlagsOn()
 	cfg.Auth.Mode = "selfhost"
 	cfg.Auth.SessionCookieName = "session"
 	router := chi.NewRouter()
 	router.Use(authLoader(q, cfg.Auth))
 	router.Use(memberCommands(q))
-	served := func(w http.ResponseWriter, _ *http.Request) { w.WriteHeader(http.StatusOK) }
+	served := func(w http.ResponseWriter, r *http.Request) {
+		command := middleware.InstallMemberCommand(r.Method, r.URL.Path)
+		if command != "" && command != "self" {
+			// A same-command service entry reuses the middleware decision even
+			// without a second database lookup.
+			_, err := services.Authorize(r.Context(), nil, command)
+			require.NoError(t, err)
+		}
+		w.WriteHeader(http.StatusOK)
+	}
 	routes := []struct{ method, path string }{
 		{"GET", "/api/install"}, {"GET", "/api/user/repos"},
 		{"GET", "/api/repos/maya/demo/mythical"}, {"GET", "/api/repos/maya/demo/mythical/events"}, {"GET", "/api/repos/maya/demo/mythical/items/T1"},
@@ -130,9 +146,13 @@ func TestMemberRoutesAuthorizeByRolePostgres(t *testing.T) {
 			}
 		}
 	}
+	// Owner tokens cannot bypass authorization on a mapped command.
+	status, envelope := call("GET", "/api/todos", "", ownerToken)
+	require.Equal(t, http.StatusForbidden, status)
+	require.Equal(t, "permission", envelope["class"])
 	// Suspending Ben refuses his very next request.
 	_, err = pool.Exec(ctx, `UPDATE collaborators SET suspended_at=now() WHERE user_id=$1`, ben.ID)
 	require.NoError(t, err)
-	status, _ := call("GET", "/api/install", cookies["maintainer"], "")
+	status, _ = call("GET", "/api/install", cookies["maintainer"], "")
 	require.Equal(t, http.StatusForbidden, status)
 }

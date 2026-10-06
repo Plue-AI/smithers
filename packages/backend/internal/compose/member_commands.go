@@ -11,13 +11,9 @@ import (
 	"github.com/smithersai/smithers/packages/backend/internal/services"
 )
 
-// memberCommands authorizes a roster member's request by the command its
-// route runs (middleware.InstallMemberCommand) through the install's one
-// authorizer, services.Authorize: the member boundary admitted the person to
-// the route, and this checks their role now and that a browser session, not
-// a token, made the request. The owner's requests pass unchanged except on
-// a person-only command, which refuses the owner's delegated credentials
-// too; handlers that need the decision authorize their command again.
+// memberCommands binds one install command decision before the handler runs.
+// Owners use the same authorizer as every other member. A handler resolving
+// the same command reuses the decision; a different command is checked anew.
 func memberCommands(queries *db.Queries) func(http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -27,14 +23,7 @@ func memberCommands(queries *db.Queries) func(http.Handler) http.Handler {
 				next.ServeHTTP(w, r)
 				return
 			}
-			role, err := services.InstallRoleOf(r.Context(), queries, info.User.ID)
-			if err == nil && role == services.InstallOwner && !services.PersonOnlyCommand(command) {
-				next.ServeHTTP(w, r)
-				return
-			}
-			if err == nil {
-				_, err = services.Authorize(r.Context(), queries, command)
-			}
+			decision, err := services.Authorize(r.Context(), queries, command)
 			if err != nil {
 				var access *services.AccessError
 				if !stdErrors.As(err, &access) {
@@ -46,7 +35,7 @@ func memberCommands(queries *db.Queries) func(http.Handler) http.Handler {
 				_ = json.NewEncoder(w).Encode(access)
 				return
 			}
-			next.ServeHTTP(w, r)
+			next.ServeHTTP(w, r.WithContext(services.WithInstallAuthorization(r.Context(), command, decision)))
 		})
 	}
 }

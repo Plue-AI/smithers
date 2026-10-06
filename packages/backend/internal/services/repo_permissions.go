@@ -365,6 +365,20 @@ type InstallAuthorization struct {
 	Role   InstallRole
 }
 
+type installAuthorizationKey struct{}
+
+type boundInstallAuthorization struct {
+	command    string
+	credential *middleware.AuthInfo
+	decision   InstallAuthorization
+}
+
+// WithInstallAuthorization carries the decision made before dispatch. Binding
+// both command and principal prevents reuse after a dispatcher changes either.
+func WithInstallAuthorization(ctx context.Context, command string, decision InstallAuthorization) context.Context {
+	return context.WithValue(ctx, installAuthorizationKey{}, boundInstallAuthorization{command: command, credential: middleware.AuthInfoFromContext(ctx), decision: decision})
+}
+
 // Authorize is the install's one command authorizer (T-ACC-03): the
 // request's credential, the command and the person's role, read from
 // committed roster state on every call, so a removal or suspension refuses
@@ -376,6 +390,12 @@ type InstallAuthorization struct {
 // eligible delegated caller is told never and an ineligible one permission
 // (§5.2.1).
 func Authorize(ctx context.Context, q *db.Queries, command string) (InstallAuthorization, error) {
+	if bound, ok := ctx.Value(installAuthorizationKey{}).(boundInstallAuthorization); ok {
+		info := middleware.AuthInfoFromContext(ctx)
+		if info != nil && info.User != nil && info == bound.credential && info.User.ID == bound.decision.UserID && command == bound.command {
+			return bound.decision, nil
+		}
+	}
 	need, ok := installCommands[command]
 	if !ok {
 		return InstallAuthorization{}, &AccessError{Status: http.StatusForbidden, Class: "permission", Code: "permission", Message: "Not available"}
@@ -442,12 +462,6 @@ func authorizePersonOnly(ctx context.Context, q *db.Queries, info *middleware.Au
 		return InstallAuthorization{}, &AccessError{Status: http.StatusForbidden, Class: "never", Code: "never", Message: "Only a person can do this"}
 	}
 	return InstallAuthorization{}, &AccessError{Status: http.StatusForbidden, Class: "permission", Code: "permission", Message: "Sign in with a browser session"}
-}
-
-// PersonOnlyCommand reports whether command refuses every credential but a
-// person's own browser session, the install owner's included.
-func PersonOnlyCommand(command string) bool {
-	return installCommands[command].personOnly
 }
 
 // AuthorizeTodoBranch admits a stage-1 terminal credential's answer or steer

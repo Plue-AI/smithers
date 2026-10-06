@@ -137,6 +137,23 @@ func TestMembersComposedInstallPostgres(t *testing.T) {
 	server.Config.Handler = buildRouterCompat(cfg, q, pool, &routes.RepoHandler{}, handler, &routes.UserHandler{}, &routes.SSHKeyHandler{}, &routes.LabelHandler{}, &routes.OrgHandler{}, &routes.LandingHandler{}, &routes.SearchHandler{Service: &mockRouterSearchService{}}, &routes.IssueHandler{}, nil, &routes.GitSmartHandler{Service: &mockRouterGitService{}}, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, &routes.WorkspaceHandler{}, nil, nil, nil, nil, nil, nil, routerExtras{Members: &routes.MembersHandler{Service: members}})
 	server.Start()
 	defer server.Close()
+	// Even the owner's token must pass command authorization before the
+	// composed TODO handler can run. Owner admission alone is insufficient.
+	rawOwnerToken := fmt.Sprintf("smithers_%040x", owner.ID)
+	tokenSum := sha256.Sum256([]byte(rawOwnerToken))
+	tokenHash := hex.EncodeToString(tokenSum[:])
+	_, err = q.CreateAccessToken(ctx, db.CreateAccessTokenParams{UserID: owner.ID, Name: "owner-cli", TokenHash: tokenHash, TokenLastEight: tokenHash[len(tokenHash)-8:], Scopes: "read:user", ExpiresAt: pgtype.Timestamptz{Time: time.Now().Add(time.Hour), Valid: true}})
+	require.NoError(t, err)
+	tokenRequest, err := http.NewRequest(http.MethodGet, origin+"/api/todos", nil)
+	require.NoError(t, err)
+	tokenRequest.Header.Set("Authorization", "Bearer "+rawOwnerToken)
+	tokenResponse, err := http.DefaultClient.Do(tokenRequest)
+	require.NoError(t, err)
+	tokenBody, err := io.ReadAll(tokenResponse.Body)
+	tokenResponse.Body.Close()
+	require.NoError(t, err)
+	require.Equal(t, http.StatusForbidden, tokenResponse.StatusCode, string(tokenBody))
+	require.JSONEq(t, `{"class":"permission","code":"permission","message":"Sign in with a browser session"}`, string(tokenBody))
 	createSession := func(user db.User, key string) {
 		digest := sha256.Sum256([]byte(key))
 		_, err := q.CreateAuthSession(ctx, db.CreateAuthSessionParams{UserID: user.ID, Username: user.Username, SessionKey: hex.EncodeToString(digest[:]), ExpiresAt: time.Now().Add(time.Hour)})
