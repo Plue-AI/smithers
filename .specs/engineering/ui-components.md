@@ -638,7 +638,7 @@ retained. No gesture means plain text. Renamed files open renamed_to.
 
 ### T-UI-16 File live states (S2)
 
-`CodeEditorView` reuses the File props and restored CodeMirror adapter. Gone keeps the last content with a Snapshot caption; Restore and Follow are supplied actions. Outside shows Changed outside Smithers with the supplied Compare action. Compare needs the outside text; contract pending (T-UI-16 report: Issues to file). `DiffCardSurface` retains renamed and burst Restore states. Check: C-UI-12.
+`CodeEditorView` reuses the File props and restored CodeMirror adapter. Gone keeps the last content with a Snapshot caption; Restore and Follow are supplied actions. Outside shows Changed outside Smithers with the supplied Compare action. The app-only `comparison?: { version: string; text: string }` prop carries snapshot bytes loaded by T-APP-11. With `view.compare`, text content and a matching `outside.version`, the retained current editor and the snapshot editor form a read-only comparison. Missing or mismatched bytes show no comparison. The two columns stack on narrow screens; neither snapshot gestures nor snapshot cursor changes dispatch actions. `DiffCardSurface` retains renamed and burst Restore states. Check: C-UI-12.
 
 ### T-UI-18 Secrets
 

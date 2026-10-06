@@ -334,7 +334,7 @@ test("legacy File and Diff render with live controls dark", async () => {
         expect(host.querySelector(".cm-content")).not.toBeNull()
         expect(host.querySelector(".cm-content")?.getAttribute("aria-readonly")).toBe("true")
       }
-      expect(host.querySelector(".code-file-notice")).toBeNull()
+      expect(host.querySelector(".code-file-notice, .code-compare")).toBeNull()
       expect(host.querySelector('button[data-flow^="file."]')).toBeNull()
       const region = host.querySelector(".cm-content") ?? host
       await act(async () => {

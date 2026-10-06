@@ -2757,3 +2757,70 @@ describe("Timeline glyphs and actions", () => {
     await view.close()
   })
 })
+
+// T-UI-16 comparison bytes belong to the supplied revision, never a host fallback.
+test("File Compare shows literal revisions and bytes without remounting the current editor", async () => {
+  const { EditorView } = await import("@codemirror/view")
+  const host = document.createElement("div"); document.body.append(host)
+  const root = createRoot(host), onAction = mock(() => {}), onView = mock(() => {})
+  const model = { ...liveFileFixtures.text.model, digest: "sha256:current-1",
+    content: { kind: "text" as const, text: "const first = 1\nconst second = 2\n" },
+    outside: { version: "git:snapshot-7", at: "2026-10-05T10:00:00Z" } }
+  const props = { model, view: { compare: false, maximized: false }, actions: [], gestures: {}, onAction, onView }
+  const comparison = { version: "git:snapshot-7", text: '<script>window.__pwned=1</script>\n' }
+  try {
+    await act(async () => root.render(<CodeSurface {...props} />))
+    const dom = host.querySelector<HTMLElement>(".code-file-current .cm-editor")!
+    const editor = EditorView.findFromDOM(dom)!
+    await act(async () => editor.dispatch({ selection: { anchor: 16 } }))
+    const scroller = editor.scrollDOM; scroller.scrollTop = 40
+    onView.mockClear()
+    await act(async () => root.render(<CodeSurface {...props} view={{ maximized: false, compare: true }} comparison={comparison} />))
+    expect(host.querySelector(".code-file-current .cm-editor")).toBe(dom)
+    expect(editor.state.doc.lineAt(editor.state.selection.main.head).number).toBe(2)
+    expect(scroller.scrollTop).toBe(40)
+    expect([...host.querySelectorAll(".code-compare-cap")].map(node => node.textContent)).toEqual(["Currentsha256:current-1", "Snapshotgit:snapshot-7"])
+    expect(host.querySelector(".code-file-current .cm-content")!.textContent).toBe("const first = 1const second = 2")
+    expect(host.querySelector(".code-file-outside .cm-content")!.textContent).toBe('<script>window.__pwned=1</script>')
+    expect(host.querySelector("script, img, [contenteditable=true]")).toBeNull()
+    expect([...host.querySelectorAll('.cm-content')].map(node => node.getAttribute('aria-readonly'))).toEqual(["true", "true"])
+    const snapshotDom = host.querySelector<HTMLElement>(".code-file-outside .cm-editor")!
+    const snapshot = EditorView.findFromDOM(snapshotDom)!
+    await act(async () => snapshot.dispatch({ selection: { anchor: 4 } }))
+    expect(onView).not.toHaveBeenCalled()
+    expect(onAction).not.toHaveBeenCalled()
+    await act(async () => root.render(<CodeSurface {...props} view={{ maximized: false, compare: true }}
+      model={{ ...model, digest: "sha256:current-2", content: { kind: "text", text: "const first = 1\nconst second = 3\n" } }}
+      comparison={{ ...comparison, text: "const snapshot = 7\n" }} />))
+    expect(host.querySelector(".code-file-current .cm-editor")).toBe(dom)
+    expect(host.querySelector(".code-file-outside .cm-editor")).toBe(snapshotDom)
+    expect(editor.state.doc.lineAt(editor.state.selection.main.head).number).toBe(2)
+    expect(scroller.scrollTop).toBe(40)
+    expect(editor.state.doc.toString()).toBe("const first = 1\nconst second = 3\n")
+    expect(snapshot.state.doc.toString()).toBe("const snapshot = 7\n")
+    const labels = [...host.querySelectorAll('.code-compare-cap > span, .code-notice[data-tone="outside"] > span:first-of-type')].map(node => node.textContent!)
+    expect(labels).toEqual(["Changed outside Smithers", "Current", "Snapshot"])
+    for (const copy of labels) {
+      expect(copy.split(/\s+/).length).toBeLessThanOrEqual(12)
+      expect(copy).not.toMatch(/\b(workflows?|threads?|tasks?|lanes?|boxes?|workspaces?|mythical|sandboxes?|VMs?|seats?|profiles?|Jev|forges?)\b/i)
+    }
+  } finally { await act(async () => root.unmount()); host.remove() }
+})
+
+for (const state of ["missing", "stale", "closed", "gone", "binary", "no_outside", "empty"] as const) test(`File Compare gates unavailable versions (${state})`, async () => {
+  const host = document.createElement("div"); document.body.append(host)
+  const root = createRoot(host), onAction = mock(() => {})
+  try {
+    const model = { ...liveFileFixtures.comparing.model,
+      ...(state === "gone" ? { gone: liveFileFixtures.deleted.model.gone } : {}),
+      ...(state === "binary" ? { content: { kind: "binary" as const, bytes: 7 } } : {}),
+      ...(state === "no_outside" ? { outside: undefined } : {}) }
+    await act(async () => root.render(<CodeSurface model={model} view={{ maximized: false, compare: state !== "closed" }} actions={[]} gestures={{}}
+      comparison={state === "missing" ? undefined : { version: state === "stale" ? "git:wrong" : "git:7d1e0c2", text: state === "empty" ? "" : "snapshot" }}
+      onAction={onAction} onView={() => {}} />))
+    expect(host.querySelectorAll(".code-compare")).toHaveLength(state === "empty" ? 1 : 0)
+    if (state === "empty") expect(host.querySelector(".code-file-outside .cm-content")!.textContent).toBe("")
+    expect(host.querySelector('button[data-flow]')).toBeNull()
+    expect(onAction).not.toHaveBeenCalled()
+  } finally { await act(async () => root.unmount()); host.remove() }
+})

@@ -3439,3 +3439,10 @@ button.mvp-node:focus-visible { outline: 2px solid var(--ring-border); outline-o
 @media (prefers-reduced-motion: reduce) {
   .mvp-timeline li[data-fresh] { animation: none; }
 }
+
+/* Keep both read-only versions within the embedded File card. */
+.code-file-view .code-compare { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: var(--sp-2); }
+.code-file-view .code-file-current, .code-file-view .code-file-outside { min-width: 0; }
+.code-file-view .code-compare-cap { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 4px; color: var(--text-muted); font-size: var(--fs-caption); }
+.code-file-view .code-compare-cap code { overflow-wrap: anywhere; }
+@media (max-width: 640px) { .code-file-view .code-compare { grid-template-columns: minmax(0, 1fr); } }

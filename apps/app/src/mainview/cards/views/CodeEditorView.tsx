@@ -8,9 +8,14 @@ import { DiffAction } from "./DiffAction"
 import { FileX, FileSymlink, FolderSync, History, TriangleAlert, Check } from "lucide-react"
 import { formatBytes } from "./formatBytes"
 
+/** App-only snapshot bytes; the container loads and binds the named revision. */
+export type FileComparison = { readonly version: string; readonly text: string }
+export type CodeEditorViewProps = FileEditorProps & { readonly binding?: EditorBinding; readonly comparison?: FileComparison }
+
 /** File presentation. The card supplies authority; content changes keep the same CodeMirror instance. */
-export const CodeEditorView = ({ model, view, actions, gestures, onAction, onView, binding }: FileEditorProps & { readonly binding?: EditorBinding }) => {
-  const live = !!binding && model.mode === "live" && model.content.kind === "text" && !model.gone
+export const CodeEditorView = ({ model, view, actions, gestures, onAction, onView, binding, comparison }: CodeEditorViewProps) => {
+  const comparing = !!view.compare && !model.gone && model.content.kind === "text" && !!model.outside && comparison?.version === model.outside.version
+  const live = !comparing && !!binding && model.mode === "live" && model.content.kind === "text" && !model.gone
   const visualBinding = useMemo<EditorBinding | undefined>(() => live && binding ? {
     get text() { return binding.text }, extensions: [binding.extensions, coEditingVisuals(model.authors, model.editors)]
   } : undefined, [live, binding, model.authors, model.editors])
@@ -30,12 +35,22 @@ export const CodeEditorView = ({ model, view, actions, gestures, onAction, onVie
       </> : model.outside ? <div className="code-file-notice code-notice" data-tone="outside"><FolderSync size={14} aria-hidden="true" /><span>Changed outside Smithers</span>{!model.unsaved && actions.length ? <span className="code-notice-actions">{buttons}</span> : null}</div> : null}
       {model.unsaved ? <div className="code-notice" data-tone="attention"><span>{model.unsaved.count} {model.unsaved.count === 1 ? "edit wasn't" : "edits weren't"} saved</span><span className="code-notice-actions"><button type="button" onClick={async () => { const result = await copyText(model.unsaved!.text); setCopyFailed(!result.ok) }}>Copy</button>{!model.gone ? buttons : null}</span><pre>{model.unsaved.text}</pre>{copyFailed ? <span role="status">Copy failed</span> : null}</div> : null}
       {!model.gone && !model.outside && !model.unsaved ? controls : null}
+      <div className={comparing ? "code-compare" : undefined}>
+      <div className="code-file-current">
+      {comparing ? <div className="code-compare-cap"><span>Current</span><code>{model.digest}</code></div> : null}
       <div className="code-file-editor" data-snapshot={model.gone ? "" : undefined}>
       {model.content.kind !== "text" ? <p className="code-file-size">{model.content.kind === "binary" ? "Binary file" : "Too large to co-edit"} · {formatBytes(model.content.bytes, "decimal")} {model.github_url ? <a href={model.github_url} target="_blank" rel="noreferrer">on GitHub ↗</a> : null}</p> :
         <Editor binding={visualBinding} path={model.path} text={model.content.text} language={model.language}
           diagnostics={model.diagnostics} hover={model.hover} reveal={model.reveal ?? (view.line ? { line: view.line } : undefined)}
           gestures={gestures} onAction={onAction} onView={onView} />}
 
+      </div>
+      </div>
+      {comparing ? <div className="code-file-outside" data-version={comparison!.version}>
+        <div className="code-compare-cap"><span>Snapshot</span><code>{comparison!.version}</code></div>
+        <Editor path={`${model.path} · Snapshot`} text={comparison!.text} language={model.language}
+          diagnostics={[]} onAction={() => {}} onView={() => {}} />
+      </div> : null}
       </div>
     </div>
   </section>

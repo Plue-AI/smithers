@@ -161,3 +161,70 @@ test("File co-editing uses CodeMirror attribution and line flags in both themes 
     await expect(page.locator('.code-author,.code-name-flag,.code-saved,.code-avatar-stack')).toHaveCount(0)
   }
 })
+
+// T-UI-16's File comparison phase uses the retained production story boundary.
+test("C-UI-12: File Compare is read-only and keyboard accessible in both themes and widths", async ({ page }) => {
+  for (const theme of ["light", "dark"]) for (const width of [1440, 390]) {
+    await page.setViewportSize({ width, height: 844 })
+    await page.goto(`/view-stories.html?story=CodeSurface/comparing&theme=${theme}`)
+    await expect(page.locator('.code-compare')).toBeVisible()
+    await expect(page.locator('.code-compare-cap')).toHaveText(["Currentsha256:9f2c41", "Snapshotgit:7d1e0c2"])
+    await expect(page.locator('.code-file-current .cm-content')).toContainText('description: "Complete one TODO"')
+    await expect(page.locator('.code-file-outside .cm-content')).toContainText('description: "Build"')
+    await expect(page.locator('.code-compare [contenteditable=true]')).toHaveCount(0)
+    await page.evaluate(() => {
+      Object.assign(window, { compareReceipts: [] })
+      window.addEventListener("story-callback", event => (window as unknown as { compareReceipts: unknown[] }).compareReceipts.push((event as CustomEvent).detail))
+    })
+    const button = page.getByRole('button', { name: 'Compare', exact: true })
+    await button.focus()
+    await button.press('Enter')
+    expect(await page.evaluate(() => (window as unknown as { compareReceipts: unknown[] }).compareReceipts)).toEqual([
+      { kind: "action", value: { tag: "file.compare", args: { path: "flows/todo/flow.ts" } } },
+    ])
+    await page.keyboard.press('Tab')
+    await expect(page.locator('.code-file-current .cm-content')).toBeFocused()
+    await page.keyboard.press('Tab')
+    const snapshot = page.locator('.code-file-outside .cm-content')
+    await expect(snapshot).toBeFocused()
+    await page.keyboard.type('cannot write')
+    await expect(snapshot).toContainText('description: "Build"')
+    await expect(snapshot).not.toContainText('cannot write')
+    await snapshot.press('F12')
+    await snapshot.press('Control+Space')
+    expect(await page.evaluate(() => (window as unknown as { compareReceipts: { kind: string }[] }).compareReceipts.filter(call => call.kind === 'action'))).toHaveLength(1)
+    const boxes = await page.locator('.code-file-current, .code-file-outside').evaluateAll(nodes => nodes.map(node => ({ x: node.getBoundingClientRect().x, y: node.getBoundingClientRect().y })))
+    if (width === 390) expect(boxes[1]!.y).toBeGreaterThan(boxes[0]!.y)
+    else expect(boxes[1]!.x).toBeGreaterThan(boxes[0]!.x)
+    expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true)
+    await page.goto(`/view-stories.html?story=CodeSurface/comparing_hostile&theme=${theme}`)
+    await expect(page.locator('.code-file-current .cm-content')).toContainText('<img src=x onerror="window.__pwned=1">')
+    await expect(page.locator('.code-file-outside .cm-content')).toContainText('<script>window.__pwned=1</script>')
+    await expect(page.locator('.code-file-view img,.code-file-view script')).toHaveCount(0)
+    expect(await page.evaluate(() => Reflect.get(window, '__pwned'))).toBeUndefined()
+    await page.goto(`/view-stories.html?story=CodeSurface/comparing_empty&theme=${theme}`)
+    await expect(page.locator('.code-compare')).toBeVisible()
+    await expect(page.locator('.code-file-outside .cm-content')).toHaveText('')
+  }
+})
+
+
+test("C-UI-12: File text reload retains comparison DOM, scroll and selected line", async ({ page }) => {
+  await page.goto('/view-stories.html?story=CodeSurface/comparing_reload')
+  const current = page.locator('.code-file-current .cm-content')
+  await current.focus()
+  for (let line = 0; line < 25; line++) await page.keyboard.press('ArrowDown')
+  await page.locator('.code-file-current .cm-scroller').evaluate(node => { node.scrollTop = 200 })
+  const line = await page.locator('.code-file-current .cm-activeLine').textContent()
+  const before = await page.locator('.code-file-current .cm-scroller').evaluate(node => node.scrollTop)
+  expect(before).toBeGreaterThan(0)
+  await page.evaluate(() => {
+    Object.assign(window, { reloadEditor: document.querySelector('.code-file-current .cm-editor'), reloadSnapshot: document.querySelector('.code-file-outside .cm-editor') })
+    window.dispatchEvent(new Event('story-reload'))
+  })
+  await expect(page.locator('.code-file-current .code-compare-cap')).toHaveText('Currentsha256:next')
+  await expect(page.locator('.code-file-current .cm-activeLine')).toHaveText(line!)
+  expect(await page.locator('.code-file-current .cm-scroller').evaluate(node => node.scrollTop)).toBe(before)
+  expect(await page.evaluate(() => Reflect.get(window, 'reloadEditor') === document.querySelector('.code-file-current .cm-editor'))).toBe(true)
+  expect(await page.evaluate(() => Reflect.get(window, 'reloadSnapshot') === document.querySelector('.code-file-outside .cm-editor'))).toBe(true)
+})
