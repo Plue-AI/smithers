@@ -42,7 +42,6 @@ const PRE_SPLIT_BASE: ReadonlyArray<string> = [
   "runs.continue",
   "runs.rerun",
   "runs.signal",
-  "runs.steer",
   "runs.logs",
   "runs.steps",
   "runs.trace.filter",
@@ -148,6 +147,12 @@ const PRE_SPLIT_ADMIN: ReadonlyArray<string> = [
 ]
 
 describe("Flows.ts aggregator order", () => {
+  test("TODO steering replaces the generic run steering door", () => {
+    const names = baseFlows(inertActions).map(nameOf)
+    expect(names).toContain("todo.steer")
+    expect(names).not.toContain("runs.steer")
+  })
+
   test("baseFlows registers every pre-split flow in the pre-split order", () => {
     const names = baseFlows(inertActions).map(nameOf)
     expect(names.filter((name) => PRE_SPLIT_BASE.includes(name))).toEqual([...PRE_SPLIT_BASE])

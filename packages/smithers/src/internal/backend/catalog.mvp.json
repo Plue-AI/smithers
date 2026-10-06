@@ -3487,6 +3487,16 @@
                   "type": "null"
                 }
               ]
+            },
+            "revision": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ]
             }
           },
           "required": [
@@ -8595,52 +8605,6 @@
       }
     },
     {
-      "name": "runs.steer",
-      "slash": null,
-      "cli": null,
-      "journey": [],
-      "group": "",
-      "visibility": "in-card",
-      "actors": [
-        "person",
-        "app_agent"
-      ],
-      "minimumRole": "member",
-      "agent": "confirm",
-      "summary": "Send an operator message into a running run",
-      "http": null,
-      "payload": {
-        "dialect": "draft-2020-12",
-        "schema": {
-          "type": "object",
-          "properties": {
-            "sourceCard": {
-              "anyOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "null"
-                }
-              ]
-            },
-            "runId": {
-              "type": "string"
-            },
-            "body": {
-              "type": "string"
-            }
-          },
-          "required": [
-            "runId",
-            "body"
-          ],
-          "additionalProperties": true
-        },
-        "definitions": {}
-      }
-    },
-    {
       "name": "runs.steps",
       "slash": null,
       "cli": null,
@@ -9224,7 +9188,7 @@
       "actors": [
         "person"
       ],
-      "minimumRole": "maintainer",
+      "minimumRole": "member",
       "agent": "never",
       "summary": "Set secrets machines can use",
       "http": null,
@@ -9504,7 +9468,7 @@
       ],
       "minimumRole": "maintainer",
       "agent": "never",
-      "summary": "Limit a repository secret to trusted runs on main, or give it to every run",
+      "summary": "Limit a repository secret to trusted runs on main, or give it to all branches",
       "http": null,
       "payload": {
         "dialect": "draft-2020-12",
@@ -9567,6 +9531,20 @@
               "anyOf": [
                 {
                   "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "scope": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "enum": [
+                    "all_branches",
+                    "main_only"
+                  ]
                 },
                 {
                   "type": "null"
@@ -11121,8 +11099,8 @@
       "http": {
         "method": "POST",
         "path": "/api/todos/{n}",
-        "defaults": {
-          "op": "steer"
+        "body": {
+          "steer": "text"
         }
       },
       "payload": {

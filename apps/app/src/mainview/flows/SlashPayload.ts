@@ -427,13 +427,6 @@ const GRAMMAR: Readonly<Record<string, Grammar>> = {
     const payload = trimmed(args).slice(runId.length).trim().slice(name.length).trim()
     return ok(payload === "" ? { runId, name } : { runId, name, payload })
   },
-  "runs.steer": (args) => {
-    const [runId, ...rest] = tokensOf(args)
-    if (runId === undefined) return no("runs.steer needs a run id")
-    const body = rest.join(" ").trim()
-    if (body === "") return no("runs.steer needs the message to deliver")
-    return ok({ runId, body })
-  },
   "runs.logs": (args) => {
     const tokens = tokensOf(args)
     const follow = tokens.includes("--follow")

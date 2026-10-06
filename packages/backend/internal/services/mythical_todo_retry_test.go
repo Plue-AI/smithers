@@ -242,3 +242,11 @@ func TestTodoRetryCurrentFlowPinsAtAcceptance(t *testing.T) {
 	require.EqualValues(t, 2, o.byID(id).Attempt)
 	require.Equal(t, earlier, mythicalChecksOf(o.byID(id)).Attempts[0])
 }
+
+func TestTodoFirstInputRetainsAttribution(t *testing.T) {
+	item := db.MythicalItem{Checks: (mythicalChecks{Steers: []todoSteer{
+		{ID: "first", Text: "Use the retry helper", Attempt: 1, Attribution: map[string]string{"person": "ben", "via": "claude-code"}},
+		{ID: "second", Text: "Cap retries at five", Attempt: 1, Attribution: map[string]string{"person": "will"}},
+	}}).encode()}
+	require.Equal(t, "[TODO input first by {\"person\":\"ben\",\"via\":\"claude-code\"}]\nUse the retry helper\n\n[TODO input second by {\"person\":\"will\"}]\nCap retries at five", todoFeedback(item, 1))
+}

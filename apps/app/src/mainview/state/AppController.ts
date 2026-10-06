@@ -309,7 +309,6 @@ export interface AppController extends IssueFlowsController {
   readonly continueRun: RunsController["continueRun"]
   readonly rerunRun: RunsController["rerunRun"]
   readonly signalRun: RunsController["signalRun"]
-  readonly steerRun: RunsController["steerRun"]
   readonly showRunLogs: RunsController["showRunLogs"]
   readonly showRunSteps: RunsController["showRunSteps"]
   readonly showRunEvents: RunsController["showRunEvents"]
@@ -1877,7 +1876,6 @@ export const createAppController = (
     continueRun: runs.continueRun,
     rerunRun: runs.rerunRun,
     signalRun: runs.signalRun,
-    steerRun: runs.steerRun,
     showRunLogs: runs.showRunLogs,
     showRunSteps: runs.showRunSteps,
     showRunEvents: runs.showRunEvents,

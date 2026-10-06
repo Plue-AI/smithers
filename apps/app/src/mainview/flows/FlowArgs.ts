@@ -131,7 +131,6 @@ export interface FlowInput {
   /** `<cardId> <field> [value]` — a blank value clears the field (THE FORM LAW). */
   readonly "form.set": { readonly cardId: string; readonly field: string; readonly value: string }
   /** `<runId> <body>` — the body is the rest of the line. */
-  readonly "runs.steer": { readonly runId: string; readonly body: string }
 
 }
 
@@ -275,7 +274,6 @@ const ENCODERS: { readonly [N in FlowWithInput]: (payload: Payload) => string } 
   "change.facet": (payload) => line(token(payload, "changeId"), token(payload, "facet")),
   "change.resolve": (payload) => line(token(payload, "changeId"), token(payload, "path")),
   "form.set": (payload) => line(token(payload, "cardId"), token(payload, "field"), token(payload, "value")),
-  "runs.steer": (payload) => line(token(payload, "runId"), token(payload, "body")),
   "triggers.register": payload => JSON.stringify({ ...payload,
     ...(payload.tokens === undefined ? {} : { tokens: String(payload.tokens) }),
     ...(payload.minutes === undefined ? {} : { minutes: String(payload.minutes) }) }),

@@ -240,6 +240,7 @@ export const createTodoSeam = (ctx: SeamContext, options: TodoSeamOptions = {}) 
         // PATCH changes only the existing TODO's prompt and acceptance.
         const body = request.operation === "amend"
           ? { prompt: request.body.prompt, ...(request.body.acceptance === undefined ? {} : { acceptance: request.body.acceptance }) }
+          : request.operation === "steer" ? { steer: request.body.steer ?? request.body.text }
           : control ? { op: request.operation, ...request.body } : request.body
         response = await ctx.http(`${ctx.baseUrl}${route}`, {
           method: request.operation === "amend" ? "PATCH" : "POST", credentials: "include", signal: abort.signal,

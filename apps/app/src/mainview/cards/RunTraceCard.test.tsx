@@ -322,18 +322,18 @@ describe("the run card as a trace", () => {
     expect([...host.querySelectorAll("[role='tablist'] button")].map((tab) => tab.textContent)).toEqual(["Trace", "Transcript"])
   })
 
-  test("every other run is the same trace with the shared filters and the steer row while live; an implement run needs no banner", () => {
+  test("every other run is the same trace with the shared filters; an implement run needs no banner", () => {
     const { host } = renderRun({ workflow: "review", steps: ["1 turn · 2 calls"], events: JOURNAL })
     expect(host.querySelector("[data-testid='run-trace-run-1']")).not.toBeNull()
     expect(host.textContent).toContain("2 turns · 2 calls")
     expect(chips(host)).toEqual(["all", "running", "failed", "model", "flow"])
-    expect(host.querySelector("[data-testid='flow-run-steer-run-1']")).not.toBeNull()
+    expect(host.querySelector("[data-testid='flow-run-steer-run-1']")).toBeNull()
     expect(host.querySelector("[data-testid='run-trace-banner-run-1']")).toBeNull()
 
     const implement = renderRun({ workflow: "implement", kind: "implement", events: JOURNAL })
     expect(implement.host.querySelector("[data-testid='run-trace-run-1']")).not.toBeNull()
     expect(implement.host.querySelector("[data-testid='run-trace-banner-run-1']")).toBeNull()
-    expect(implement.host.querySelector("[data-testid='flow-run-steer-run-1']")).not.toBeNull()
+    expect(implement.host.querySelector("[data-testid='flow-run-steer-run-1']")).toBeNull()
   })
 
   test("the tree nests the journal, the waterfall has one bar per span, and the payload's selection fills the pane", () => {
@@ -638,17 +638,16 @@ describe("predicted coding Changes in the same run card", () => {
 
 
 describe("retained prototype card", () => {
-  test("real child source, findings and steering use the same embedded native card", () => {
+  test("real child source and findings use the same embedded native card", () => {
     const { host, dispatched } = renderTrace({ events: CODING_POC_HOST_EVENTS, lastSeq: 263 })
     const poc = host.querySelector('[aria-label="Disposable prototype"]')!
     expect(poc.textContent).toContain("Drafted and discarded. No build or tests ran.")
     expect(poc.textContent).toContain("prototype greeting")
     const buttons = [...poc.querySelectorAll("button")]
     buttons.find(button => button.textContent?.includes("Inspect prototype execution"))!.click()
-    buttons.find(button => button.textContent?.includes("Give prototype feedback"))!.click()
+    expect(buttons.find(button => button.textContent?.includes("Give prototype feedback"))).toBeUndefined()
     expect(dispatched).toEqual([
-      { name: "runs.trace.select", args: "sourceCard=flow-run-run-1 run-1 engine:a4392ed73b6ef7680ecd9a7068f3804e19d4e7de0358944469d54ebe8f4368fa:0" },
-      { name: "runs.steer", args: "sourceCard=flow-run-run-1 run-1" }
+      { name: "runs.trace.select", args: "sourceCard=flow-run-run-1 run-1 engine:a4392ed73b6ef7680ecd9a7068f3804e19d4e7de0358944469d54ebe8f4368fa:0" }
     ])
     const completed = renderTrace({ events: CODING_POC_HOST_EVENTS, lastSeq: 263, phase: "completed" }).host
     expect(completed.querySelector('[aria-label="Disposable prototype"]')).not.toBeNull()

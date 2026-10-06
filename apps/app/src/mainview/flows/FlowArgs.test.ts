@@ -54,12 +54,6 @@ describe("flowArgs — one serialisation, and the grammar gives the values back"
     }
   })
 
-  test("runs.steer carries a message that holds spaces", () => {
-    roundTrip("runs.steer", { runId: "run-1", body: "focus on the failing test" }, "run-1 focus on the failing test", {
-      runId: "run-1",
-      body: "focus on the failing test"
-    })
-  })
 
   test("change.pins carries both pins", () => {
     roundTrip("change.pins", { changeId: "ch-1", from: "parent", to: "current" }, "ch-1 parent current", {
@@ -112,7 +106,6 @@ describe("FlowName — the seam's names are the registry's names", () => {
       "change.pins",
       "change.resolve",
       "form.set",
-      "runs.steer",
     ]
     expect(named.filter((name) => !declared.has(name))).toEqual([])
   })

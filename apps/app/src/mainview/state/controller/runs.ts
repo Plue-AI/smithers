@@ -67,7 +67,6 @@ export interface RunsController {
   readonly continueRun: (runId: string, requestId: string, sourceCard?: string) => Promise<CommandResult>
   readonly rerunRun: (runId: string, sourceCard?: string) => Promise<CommandResult>
   readonly signalRun: (runId: string, name: string, payload?: string, sourceCard?: string) => Promise<CommandResult>
-  readonly steerRun: (runId: string, body: string, sourceCard?: string) => Promise<CommandResult>
   readonly showRunLogs: (runId: string, follow?: boolean, sourceCard?: string) => Promise<CommandResult>
   readonly showRunSteps: (runId: string, sourceCard?: string) => Promise<CommandResult>
   readonly showRunEvents: (runId: string, sourceCard?: string) => Promise<CommandResult>
@@ -138,11 +137,6 @@ export const createRunsController = (
     const source = sourceCard === undefined ? undefined : store.collections.cards.get(sourceCard)
     if (source?.kind === "run-trace") return sameRunScope(source.payload, scope) ? source : undefined
     return runCardInScope(store, scope)
-  }
-  const patchRunCard = (scope: RunScope, patch: Partial<Extract<Card, { kind: "run-trace" }>["payload"]>): void => {
-    const card = runCardFor(scope)
-    if (card === undefined) return
-    store.dispatch({ type: "card.updated", actor: "system", id: card.id, patch: { payload: { ...card.payload, ...patch } } })
   }
   const pokeRun = (scope: RunScope): void => {
     const card = runCardFor(scope)
@@ -608,31 +602,6 @@ export const createRunsController = (
       }
     }, () => {})
   }
-
-  const steer = async (
-    runId: string,
-    item:
-      | { readonly kind: "Message"; readonly body: string }
-      | { readonly kind: "Seat"; readonly seat: string }
-      | { readonly kind: "Thinking"; readonly thinking: string }
-      | { readonly kind: "Tools"; readonly toolNames: ReadonlyArray<string> },
-    sourceCard?: string
-  ): Promise<CommandResult> => {
-    const guard = workflows.workflowIdentityGuard()
-    if (guard !== undefined) return guard
-    const target = resolveRun(runId, sourceCard)
-    if ("error" in target) return target.error
-    const steered = await gateway.steer(target.repo, runId, item, { workspaceId: target.workspaceId })
-    if (steered.status !== "ok") return steered.message
-    patchRunCard(target, { steeringPending: true })
-    pokeRun(target)
-    return { value: `steered run=${runId}` }
-  }
-
-  const steerRun = (runId: string, body: string, sourceCard?: string): Promise<CommandResult> =>
-    body.trim() === ""
-      ? Promise.resolve("runs.steer needs the message to deliver.")
-      : steer(runId, { kind: "Message", body }, sourceCard)
 
   type RunCard = Extract<Card, { kind: "run-trace" }>
   type FacetRequest = NonNullable<RunCard["payload"]["facetRequest"]>
@@ -1296,7 +1265,6 @@ export const createRunsController = (
     continueRun,
     rerunRun,
     signalRun,
-    steerRun,
     showRunLogs,
     showRunSteps,
     showRunEvents,

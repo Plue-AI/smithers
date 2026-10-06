@@ -8,7 +8,7 @@ import { makeCli } from "../src/Cli.ts"
 
 // Literal requests are independent of descriptors and generated artifacts.
 const cases = [
-  { argv: ["todo", "steer", "T1", "Use backoff"], method: "POST", path: "/api/todos/1", body: { op: "steer", text: "Use backoff" } },
+  { argv: ["todo", "steer", "T1", "Use backoff"], method: "POST", path: "/api/todos/1", body: { steer: "Use backoff" } },
   { argv: ["todo", "stop", "T1"], method: "POST", path: "/api/todos/1", body: { op: "stop" } },
   { argv: ["todo", "resume", "T1"], method: "POST", path: "/api/todos/1", body: { op: "resume" } },
   { argv: ["todo", "show", "T1"], method: "GET", path: "/api/todos/1", body: undefined },

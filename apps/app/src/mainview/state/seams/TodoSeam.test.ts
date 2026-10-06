@@ -156,7 +156,7 @@ describe("TodoSeam — admission and live completion", () => {
       expect(h.outcomes).toHaveLength(1)
       expect(await h.seam.steerTodo(12, h.todo().payload.answerDraft!)).toEqual({ value: "Requested" })
       await waitFor(() => requests.length === 2)
-      expect(requests[1]).toEqual({ url: "https://install.test/api/todos/12", body: { op: "steer", text: "Keep my late text\nverbatim" } })
+      expect(requests[1]).toEqual({ url: "https://install.test/api/todos/12", body: { steer: "Keep my late text\nverbatim" } })
       const key = h.todo().payload.requests.find(request => request.operation === "steer")!.key
       await h.seam.applyTodoProjection(12, fixtures.working.model, [{ key, outcome: { status: "ok", detail: "Sent" } }])
       expect(h.todo().payload.answerDraft).toBeUndefined()

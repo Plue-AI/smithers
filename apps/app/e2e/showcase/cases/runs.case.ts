@@ -27,7 +27,7 @@ export default showcase({
   order: 100,
   title: "Runs",
   summary: "The run inbox; a run's trace and transcript; steer, re-seat and stop a live run.",
-  flows: ["runs.list", "runs.open", "runs.trace.select", "runs.trace.view", "runs.logs", "runs.steps", "flow.run.retry", "runs.steer", "flow.run.stop"],
+  flows: ["runs.list", "runs.open", "runs.trace.select", "runs.trace.view", "runs.logs", "runs.steps", "flow.run.retry", "flow.run.stop"],
   run: async ({ page, app, backend }) => {
     const now = Date.now()
     const steers: Array<{ kind: string; body?: string }> = []
@@ -221,16 +221,12 @@ export default showcase({
     await expect.poll(() => summaries.get(CODING) ?? 0).toBeGreaterThan(reads)
     await app.beat(500)
 
-    // A live run takes a steer, stops from its toast.
+    // A live run stops from its toast.
     await app.show(inbox)
     await app.click(inbox.getByTestId(`runs-open-${REVIEW}`))
     const review = page.getByTestId(`card-${boxRunCardId(REPO, REVIEW)}`)
     await expect(review).toContainText("Running")
     await app.show(review)
-    await app.type(review.getByTestId(`flow-run-steer-input-${REVIEW}`), "smaller diff")
-    await app.click(review.getByRole("button", { name: "Steer" }))
-    await expect(review).toContainText("steering pending")
-    await app.beat(900)
     const toast = page.locator('.notify .notice[data-tone="live"]').filter({ hasText: "review-pr" })
     await app.click(toast.getByRole("button", { name: "Stop" }))
     await expect(review.getByTestId(`run-outcome-${REVIEW}`)).toHaveAttribute("data-phase", "cancelled")
