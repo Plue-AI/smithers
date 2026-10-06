@@ -37,7 +37,10 @@ const bunPaths = (command: string | undefined): string[] => command?.startsWith(
 // The package now delegates to the target runner; read that authority once.
 const unitPaths: string[] = scripts.test === "smthrs test //apps/app:unitTests"
   ? inspectTarget('console.log(JSON.stringify(unit.attrs.runner.paths))') : bunPaths(scripts.test)
-const selected = (path: string, paths: readonly string[]) => paths.some((entry) => path === entry || path.startsWith(`${entry}/`))
+const selected = (path: string, paths: readonly string[]) => paths.some((entry) => {
+  const directory = entry.replace(/^\.\//, "")
+  return path === directory || path.startsWith(`${directory}/`)
+})
 
 // The real lane is a directly executable script; `test:e2e:real` only names it.
 // Admit only its actual Playwright invocation, never a comment/config mention.
