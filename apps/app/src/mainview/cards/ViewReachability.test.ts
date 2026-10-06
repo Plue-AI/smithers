@@ -126,3 +126,11 @@ test("BranchView replaces the commit families and their producers", () => {
   expect(reachable.has(join(root, "cards/views", BRANCH_COMMIT_WIRING.view))).toBe(true)
   for (const file of BRANCH_COMMIT_WIRING.legacy) expect(() => statSync(join(root, file))).toThrow()
 })
+
+// T-APP-17: the install conversation mounts the same Context disclosure.
+test("T-APP-17 reaches shared Context and Inspect through the app shell", () => {
+  visit(join(root, "App.tsx"))
+  for (const file of ["SharedConversation.tsx", "EntryRow.tsx", "ContextLine.tsx", "cards/RunContainer.tsx"]) {
+    expect(reachable.has(join(root, file))).toBe(true)
+  }
+})
