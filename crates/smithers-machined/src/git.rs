@@ -71,7 +71,9 @@ impl Repository {
             let name = entry.file_name();
             let name = name.to_str().ok_or_else(invalid)?;
             if name.len() != 32
-                || !name.bytes().all(|b| b.is_ascii_digit() || (b'a'..=b'f').contains(&b))
+                || !name
+                    .bytes()
+                    .all(|b| b.is_ascii_digit() || (b'a'..=b'f').contains(&b))
             {
                 return Err(invalid());
             }
@@ -116,7 +118,11 @@ impl Repository {
             .process_group(0);
         // Shared repository metadata is group-writable. Bundle scratch files
         // stay private even when Git replaces our reserved pathname.
-        let mask = if arguments.starts_with(&["bundle", "create"]) { 0o077 } else { 0o002 };
+        let mask = if arguments.starts_with(&["bundle", "create"]) {
+            0o077
+        } else {
+            0o002
+        };
         unsafe {
             command.pre_exec(move || {
                 rustix::process::umask(rustix::fs::Mode::from_raw_mode(mask));
@@ -234,6 +240,8 @@ impl Refs for Repository {
             "update-ref",
             &format!("refs/smithers/pending/{}", hex(&event)),
             &hex(&oid),
+            // A collision must never replace another durable event's pin.
+            "0000000000000000000000000000000000000000",
         ])?;
         self.sync()
     }
@@ -412,6 +420,31 @@ mod tests {
     }
 
     #[test]
+    fn colliding_pending_id_preserves_the_original_objects() {
+        let fixture = Fixture::new();
+        let first = fixture.commit();
+        let second = fixture.commit();
+        assert_ne!(first, second);
+        let mut repository = fixture.repository.clone();
+        let event = [17; 16];
+        repository.pin_and_sync(event, first).unwrap();
+        for head in [first, second] {
+            assert!(repository.pin_and_sync(event, head).is_err());
+            assert_eq!(
+                repository
+                    .command(&[
+                        "rev-parse",
+                        "refs/smithers/pending/11111111111111111111111111111111",
+                    ])
+                    .unwrap(),
+                format!("{}\n", hex(&first)).as_bytes(),
+            );
+        }
+        assert_eq!(repository.pending().unwrap(), [event]);
+        assert_eq!(repository.acknowledged().unwrap(), None);
+    }
+
+    #[test]
     fn restart_removes_interrupted_transfer_without_touching_repository_refs() {
         let fixture = Fixture::new();
         let head = fixture.commit();
@@ -419,12 +452,19 @@ mod tests {
         let (_, event) = outbox
             .append(&outbox::captured(head, [2; 20], [3; 20]), Some(head))
             .unwrap();
-        let spool = fixture.repository.receive(&b"interrupted"[..], 100).unwrap();
+        let spool = fixture
+            .repository
+            .receive(&b"interrupted"[..], 100)
+            .unwrap();
         let path = spool.path.clone();
         drop(spool);
         // Seed the file left by abrupt death, which skips Spool::drop.
-        let mut abandoned = OpenOptions::new().write(true).create_new(true)
-            .mode(0o600).open(&path).unwrap();
+        let mut abandoned = OpenOptions::new()
+            .write(true)
+            .create_new(true)
+            .mode(0o600)
+            .open(&path)
+            .unwrap();
         abandoned.write_all(b"interrupted").unwrap();
         abandoned.sync_all().unwrap();
         drop(abandoned);
@@ -433,7 +473,8 @@ mod tests {
             &fixture.repository.git,
             &fixture.repository.directory,
             &fixture.repository.spool,
-        ).unwrap();
+        )
+        .unwrap();
         assert!(!path.exists());
         assert_eq!(reopened.pending().unwrap(), [event]);
         assert_eq!(outbox.front().unwrap().unwrap().captured_head(), Some(head));
@@ -447,24 +488,36 @@ mod tests {
             fs::write(&target, b"keep").unwrap();
             fs::set_permissions(&target, fs::Permissions::from_mode(0o600)).unwrap();
             let valid = fixture.repository.spool.join("b".repeat(32));
-            let mut abandoned = OpenOptions::new().write(true).create_new(true)
-                .mode(0o600).open(&valid).unwrap();
-            abandoned.write_all(b"not removed on failed startup").unwrap();
+            let mut abandoned = OpenOptions::new()
+                .write(true)
+                .create_new(true)
+                .mode(0o600)
+                .open(&valid)
+                .unwrap();
+            abandoned
+                .write_all(b"not removed on failed startup")
+                .unwrap();
             drop(abandoned);
             let path = fixture.repository.spool.join(if kind == "name" {
                 "unrecognized".to_owned()
-            } else { "a".repeat(32) });
+            } else {
+                "a".repeat(32)
+            });
             match kind {
                 "symlink" => std::os::unix::fs::symlink(&target, &path).unwrap(),
                 "hardlink" => fs::hard_link(&target, &path).unwrap(),
                 "directory" => fs::create_dir(&path).unwrap(),
                 _ => fs::write(&path, b"keep").unwrap(),
             }
-            assert!(Repository::checked(
-                &fixture.repository.git,
-                &fixture.repository.directory,
-                &fixture.repository.spool,
-            ).is_err(), "{kind}");
+            assert!(
+                Repository::checked(
+                    &fixture.repository.git,
+                    &fixture.repository.directory,
+                    &fixture.repository.spool,
+                )
+                .is_err(),
+                "{kind}"
+            );
             assert_eq!(fs::read(&target).unwrap(), b"keep");
             assert!(fs::symlink_metadata(&path).is_ok());
             assert_eq!(fs::read(&valid).unwrap(), b"not removed on failed startup");
