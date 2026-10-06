@@ -138,7 +138,7 @@ func TestRouterOrganizationReadsRespectTokenScopePostgres(t *testing.T) {
 			}
 			missing := request("/api/orgs/missing")
 			require.Equal(t, http.StatusNotFound, missing.Code, missing.Body.String())
-			require.JSONEq(t, `{"code":"not_found","fault":"user","message":"organization not found"}`, missing.Body.String())
+			require.JSONEq(t, `{"class":"user","code":"not_found","fault":"user","message":"organization not found"}`, missing.Body.String())
 			rec := request("/api/orgs/private")
 			if tc.canReadPrivate {
 				require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
@@ -168,7 +168,7 @@ func TestRouterOrganizationReadsRespectTokenScopePostgres(t *testing.T) {
 				case sub == "/repos" || tc.name == "outsider-org-reader" || tc.name == "outsider-session":
 					// The service answers: the exact missing-organization 404.
 					require.Equal(t, http.StatusNotFound, rec.Code, sub+": "+rec.Body.String())
-					require.JSONEq(t, `{"code":"not_found","fault":"user","message":"organization not found"}`, rec.Body.String(), sub)
+					require.JSONEq(t, `{"class":"user","code":"not_found","fault":"user","message":"organization not found"}`, rec.Body.String(), sub)
 				case tc.name == "anonymous":
 					require.Equal(t, http.StatusUnauthorized, rec.Code, sub+": "+rec.Body.String())
 				default:
@@ -223,6 +223,6 @@ func TestRouterOrganizationReadsRespectTokenScopePostgres(t *testing.T) {
 		anonymous := httptest.NewRecorder()
 		router.ServeHTTP(anonymous, httptest.NewRequest(http.MethodGet, "/api/orgs/default-private", nil))
 		require.Equal(t, http.StatusNotFound, anonymous.Code, anonymous.Body.String())
-		require.JSONEq(t, `{"code":"not_found","fault":"user","message":"organization not found"}`, anonymous.Body.String())
+		require.JSONEq(t, `{"class":"user","code":"not_found","fault":"user","message":"organization not found"}`, anonymous.Body.String())
 	})
 }

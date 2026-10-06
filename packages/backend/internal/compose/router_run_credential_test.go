@@ -14,6 +14,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/smithersai/smithers/packages/backend/internal/config"
 	"github.com/smithersai/smithers/packages/backend/internal/db"
 	"github.com/smithersai/smithers/packages/backend/internal/middleware"
 	"github.com/smithersai/smithers/packages/backend/internal/routes"
@@ -99,8 +100,10 @@ func TestServerRouter_RepositoryJobPauseRequiresPerson(t *testing.T) {
 	} {
 		t.Run(credential.name, func(t *testing.T) {
 			spy := &pauseRepositoryJobSpy{}
+			cfg := testConfigAllFlagsOn()
+			cfg.Auth.Mode = config.AuthModeMultitenant
 			router := buildRouter(
-				testConfigAllFlagsOn(), nil, nil,
+				cfg, nil, nil,
 				&routes.RepoHandler{}, nil, &routes.AuthHandler{}, &routes.UserHandler{}, &routes.SSHKeyHandler{}, nil,
 				&routes.LabelHandler{}, &routes.OrgHandler{}, &routes.LandingHandler{},
 				nil, nil, &routes.SearchHandler{Service: &mockRouterSearchService{}}, &routes.IssueHandler{},

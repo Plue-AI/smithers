@@ -18,6 +18,7 @@ import (
 	"github.com/smithersai/smithers/packages/backend/flowruntime"
 	"github.com/smithersai/smithers/packages/backend/internal/config"
 	"github.com/smithersai/smithers/packages/backend/internal/db"
+	"github.com/smithersai/smithers/packages/backend/internal/services"
 	"github.com/smithersai/smithers/packages/backend/jobs"
 	workspaceapi "github.com/smithersai/smithers/packages/backend/workspace"
 	"github.com/stretchr/testify/require"
@@ -85,7 +86,7 @@ func TestFlowWorkerRechecksMeteredAdmissionBeforeHostLaunch(t *testing.T) {
 			return flowhost.Authority{}, errors.New("unexpected target")
 		}
 		return flowhost.Authority{Target: target, RepositoryID: repo, UserID: owner, WorkspaceID: workspace, CatalogKey: flowhost.CatalogCoding, Repository: "worker/repo", SourceRevision: strings.Repeat("a", 40)}, nil
-	}), Catalogs: []flowhost.Catalog{{Key: flowhost.CatalogCoding, Family: flowhost.CatalogCoding, Executable: "/unavailable/test-host", ArtifactDigest: strings.Repeat("b", 64), ServiceName: "coding-host"}}})
+	}), Catalogs: []flowhost.Catalog{{Key: flowhost.CatalogCoding, Family: flowhost.CatalogCoding, Executable: "/unavailable/test-host", ArtifactDigest: strings.Repeat("b", 64), ServiceName: "coding-host", SystemFlows: services.SystemFlows}}})
 	require.NoError(t, err)
 	store, err := jobs.NewStore(pool)
 	require.NoError(t, err)

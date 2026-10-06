@@ -97,6 +97,10 @@ func TestAPIStaysResponsiveWhileChatWorkersAreSaturated(t *testing.T) {
 	repo, err := q.CreateRepo(ctx, db.CreateRepoParams{UserID: pgtype.Int8{Int64: owner.ID, Valid: true}, Name: "busy", LowerName: "busy", DefaultBookmark: "main"})
 	require.NoError(t, err)
 
+	binding := fmt.Sprintf(`{"owner_login":"acme","repository_name":"busy","repository_id":%d}`, repo.ID)
+	require.NoError(t, q.UpsertInstallSetting(ctx, db.UpsertInstallSettingParams{Key: "github.repository", Value: []byte(binding)}))
+	require.NoError(t, q.UpsertInstallSetting(ctx, db.UpsertInstallSettingParams{Key: "owner.access", Value: []byte(strings.TrimSuffix(binding, "}") + `,"last_access_check_at":"2026-10-04T22:00:00Z"}`)}))
+
 	call := func(method, path string, body any) (int, []byte, time.Duration) {
 		var reader io.Reader
 		if body != nil {

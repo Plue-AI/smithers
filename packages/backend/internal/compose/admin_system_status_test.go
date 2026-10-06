@@ -31,7 +31,7 @@ func routerWithExtras(extras routerExtras) http.Handler {
 	for i := range args[:len(args)-1] {
 		args[i] = reflect.Zero(fnType.In(i))
 	}
-	args[0] = reflect.ValueOf(&config.Config{})
+	args[0] = reflect.ValueOf(&config.Config{Auth: config.AuthConfig{Mode: config.AuthModeMultitenant}})
 	args[len(args)-1] = reflect.ValueOf([]any{extras})
 	return fn.CallSlice(args)[0].Interface().(http.Handler)
 }

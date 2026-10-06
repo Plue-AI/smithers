@@ -16,6 +16,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/smithersai/smithers/packages/backend/internal/config"
 	"github.com/smithersai/smithers/packages/backend/internal/db"
 	"github.com/smithersai/smithers/packages/backend/internal/middleware"
 	"github.com/smithersai/smithers/packages/backend/internal/repohost"
@@ -88,8 +89,10 @@ func TestRunCredentialReviewIsNeverAHumanApprovalPostgres(t *testing.T) {
 	unboundRun := token("review-unbound", write, true)
 	person := token("review-person", write, false)
 
+	cfg := testConfigAllFlagsOn()
+	cfg.Auth.Mode = config.AuthModeMultitenant
 	router := buildRouter(
-		testConfigAllFlagsOn(), q, pool,
+		cfg, q, pool,
 		&routes.RepoHandler{Service: services.NewRepoService(q, nil, "")},
 		nil,
 		&routes.AuthHandler{}, &routes.UserHandler{}, &routes.SSHKeyHandler{},
