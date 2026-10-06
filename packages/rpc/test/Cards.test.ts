@@ -2451,7 +2451,7 @@ const FIXTURES: Record<
       links: [{ source: "wiki/bounded-reads.md", target: "wiki/caps.md" }]
     }
   },
-  /* A wiki page's history (#1922): every field is required but a revision's attachment; the full one carries a rename and the deletion. */
+  /* A wiki page's history (#1922): the full row includes pinned content, a rename and deletion. */
   "wiki-history": {
     minimal: {
       repo: "smithersai/smithers",
@@ -2465,6 +2465,7 @@ const FIXTURES: Record<
       hasNext: false
     },
     full: {
+      content: { revision: 1, markdown: "# Saved revision" },
       repo: "smithersai/smithers",
       space: "private",
       pageId: 3,
