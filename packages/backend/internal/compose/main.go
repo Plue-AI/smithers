@@ -39,11 +39,13 @@ import (
 	"github.com/smithersai/smithers/packages/backend/internal/identity"
 	"github.com/smithersai/smithers/packages/backend/internal/lfsauth"
 	"github.com/smithersai/smithers/packages/backend/internal/live"
+	"github.com/smithersai/smithers/packages/backend/internal/livedocument"
 	"github.com/smithersai/smithers/packages/backend/internal/machined"
 	"github.com/smithersai/smithers/packages/backend/internal/middleware"
 	"github.com/smithersai/smithers/packages/backend/internal/observability"
 	"github.com/smithersai/smithers/packages/backend/internal/pkg/background"
 	"github.com/smithersai/smithers/packages/backend/internal/repohost"
+	"github.com/smithersai/smithers/packages/backend/internal/repohostserver"
 	"github.com/smithersai/smithers/packages/backend/internal/revocation"
 	"github.com/smithersai/smithers/packages/backend/internal/routes"
 	"github.com/smithersai/smithers/packages/backend/internal/services"
@@ -1757,6 +1759,17 @@ func runWithOptions(ctx context.Context, args []string, stdout, stderr io.Writer
 		}
 
 		topics.documents = options.DocumentRelay
+		ffiPath, ffiErr := repohostserver.FFILibraryPath()
+		if ffiErr != nil {
+			return fmt.Errorf("wiki native library configuration: %w", ffiErr)
+		}
+		wikiLibrary, ffiErr := livedocument.Load(ffiPath)
+		if ffiErr != nil {
+			return ffiErr
+		}
+		defer wikiLibrary.Close()
+		topics.wikiDocuments = composeWikiHost(ctx, wikiLibrary, queries, wikiService)
+		defer topics.wikiDocuments.Close()
 		liveHandler = &routes.LiveHandler{Hub: live.NewHub(ctx, live.BrokerHints{Broker: sseBroker}), Queries: queries, Origins: installAddress.Origins, Topics: topics.resolver, Presence: presence.session}
 	}
 	router := buildRouter(

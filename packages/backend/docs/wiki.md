@@ -21,7 +21,7 @@ A viewer who can read a repository but not its private space gets 403 with code 
 
 ## Pages and navigation
 
-List/search (`GET /wiki?q=...`), create (`POST /wiki`), read/PATCH/DELETE (`/wiki/{slug}`), revisions and document snapshots remain. The page-level `/updates` and `/stream` routes return 404 and are absent from OpenAPI. Live editing requires the shared `/api/live` document transport; until composed, subscriptions and editing refuse without an HTTP fallback. Page DTO:
+List/search (`GET /wiki?q=...`), create (`POST /wiki`), read/PATCH/DELETE (`/wiki/{slug}`), revisions and document snapshots remain. The page-level `/updates` and `/stream` routes return 404 and are absent from OpenAPI. Live editing uses `doc:wiki:<page-id>` on the shared `/api/live` channel. The composed install owns one native Yrs handle per page, persists at 2 seconds idle or 10 seconds continuous editing, and emits `saved{sv,seq}` only after the revision-checked database commit. A PostgreSQL advisory lease refuses a second page owner. The browser retains admitted updates in `worldDocuments` until both the vector and sequence are covered; reconnect reuses the assigned client id within the page epoch. Wiki visibility, repository write gates, authors-map validation and revocation remain enforced. There is no HTTP synchronization fallback. Page DTO:
 
 ```json
 {

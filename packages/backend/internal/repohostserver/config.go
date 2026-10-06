@@ -360,3 +360,11 @@ func (c Config) maxGitRequestBytes() int64 {
 	}
 	return c.MaxGitRequestBytes
 }
+
+// FFILibraryPath resolves the install-shipped library without sidecar settings.
+func FFILibraryPath() (string, error) {
+	if value := strings.TrimSpace(os.Getenv("SMITHERS_FFI_LIBRARY_PATH")); value != "" {
+		return value, nil
+	}
+	return detectFFILibraryPath()
+}

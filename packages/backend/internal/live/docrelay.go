@@ -51,9 +51,11 @@ type DocumentStream = machined.DocumentStream
 type DocumentRPC = machined.DocumentRPC
 
 type DocumentSource struct {
-	Open  func(context.Context) (DocumentStream, error)
-	Actor []byte
-	Ready func() error
+	OpenClient func(context.Context, uint32) (DocumentStream, error)
+	Open       func(context.Context) (DocumentStream, error)
+	Actor      []byte
+	Sequenced  bool
+	Ready      func() error
 }
 
 // DocRelay admits code documents to the shared host mirror.

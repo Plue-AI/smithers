@@ -35,18 +35,19 @@ type liveSync interface {
 // person: home, todo:<n>, flows and members. Every topic serves shared facts only,
 // so one stream serves every member byte for byte.
 type liveTopics struct {
-	changePool   *pgxpool.Pool
-	queries      *db.Queries
-	todos        liveTodos
-	sync         liveSync
-	install      *services.InstallSetupService
-	members      *services.Members
-	documents    *live.DocRelay
-	capacity     *services.InstallCapacityService
-	presence     *branchPresence
-	conversation func(context.Context, int64, string) (json.RawMessage, error)
-	viewState    func(context.Context, int64, string) (json.RawMessage, error)
-	secrets      *services.SecretService
+	changePool    *pgxpool.Pool
+	queries       *db.Queries
+	todos         liveTodos
+	sync          liveSync
+	install       *services.InstallSetupService
+	members       *services.Members
+	documents     *live.DocRelay
+	wikiDocuments *live.WikiHost
+	capacity      *services.InstallCapacityService
+	presence      *branchPresence
+	conversation  func(context.Context, int64, string) (json.RawMessage, error)
+	viewState     func(context.Context, int64, string) (json.RawMessage, error)
+	secrets       *services.SecretService
 }
 
 // liveRefreshEvery bounds how stale a topic is when its facts change without
@@ -188,6 +189,9 @@ func (t *liveTopics) resolve(ctx context.Context, topic string, repository int64
 			return json.Marshal(status)
 		}}, ""
 	case "doc":
+		if strings.HasPrefix(topic, "doc:wiki:") {
+			return t.wikiDocuments.Resolve(ctx, topic, repository, member)
+		}
 		return t.documents.Resolve(ctx, topic, repository, member)
 	case "conversation":
 		if repository <= 0 || member <= 0 || rest == "" || t.conversation == nil {

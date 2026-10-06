@@ -128,6 +128,7 @@ type conformanceServices struct {
 	jobs     *routes.RepositoryJobHandler
 	terminal *routes.WorkspaceTerminalHandler
 	live     *routes.LiveHandler
+	wiki     *services.WikiService
 }
 
 func hostStatusProductionRouter(cfg *config.Config, queries *db.Queries, host *services.InstallCapacityService, supplied ...conformanceServices) chi.Router {
@@ -142,7 +143,10 @@ func hostStatusProductionRouter(cfg *config.Config, queries *db.Queries, host *s
 	workspaceHandler := &routes.WorkspaceHandler{
 		EnvironmentImages: &routes.SandboxEnvironmentImageHandler{},
 	}
-	wiki := services.NewWikiService(nil, nil, services.WithWikiCollaboration(nil, nil), services.WithWikiContent(nil))
+	wiki := deps.wiki
+	if wiki == nil {
+		wiki = services.NewWikiService(nil, nil, services.WithWikiCollaboration(nil, nil), services.WithWikiContent(nil))
+	}
 	router := buildRouter(cfg, queries, deps.pool,
 		&routes.RepoHandler{}, &routes.GitMirrorSyncHandler{}, authHandler, &routes.UserHandler{}, &routes.SSHKeyHandler{}, &routes.DeployKeyHandler{}, &routes.LabelHandler{},
 		&routes.OrgHandler{}, &routes.LandingHandler{}, &routes.BuildCacheHandler{}, &routes.StackHandler{}, &routes.SearchHandler{}, &routes.IssueHandler{},

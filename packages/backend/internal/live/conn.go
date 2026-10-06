@@ -35,13 +35,14 @@ type Resolver func(ctx context.Context, topic string) (Source, string)
 
 // frame is one text frame (spec §7.1).
 type frame struct {
-	T      string          `json:"t"`
-	ID     uint32          `json:"id"`
-	Topic  string          `json:"topic,omitempty"`
-	Cursor *int64          `json:"cursor,omitempty"`
-	Data   json.RawMessage `json:"data,omitempty"`
-	Where  json.RawMessage `json:"where,omitempty"`
-	Code   string          `json:"code,omitempty"`
+	ClientID uint32          `json:"client_id,omitempty"`
+	T        string          `json:"t"`
+	ID       uint32          `json:"id"`
+	Topic    string          `json:"topic,omitempty"`
+	Cursor   *int64          `json:"cursor,omitempty"`
+	Data     json.RawMessage `json:"data,omitempty"`
+	Where    json.RawMessage `json:"where,omitempty"`
+	Code     string          `json:"code,omitempty"`
 }
 
 var connections atomic.Int64
@@ -109,6 +110,7 @@ type subscription struct {
 	leave    func()
 	document DocumentStream
 	source   *DocumentSource
+	seq      uint64
 }
 
 func (s *subscription) close() {
@@ -223,7 +225,18 @@ func (h *Hub) Serve(ctx context.Context, conn *websocket.Conn, resolve Resolver,
 				refuse(id, Forbidden)
 				continue
 			}
-			payload, err := documentInput(raw[0], sub.source.Actor, raw[5:])
+			var payload []byte
+			if sub.source.Sequenced {
+				msg := wire.DocumentInput
+				if raw[0] == 2 {
+					msg = wire.DocumentAwarenessInput
+				} else if len(raw) > 5 && raw[5] == 2 {
+					sub.seq++
+				}
+				payload, err = wire.EncodeDocumentV2(wire.Document{Msg: msg, Actor: sub.source.Actor, Seq: sub.seq, Data: raw[5:]})
+			} else {
+				payload, err = documentInput(raw[0], sub.source.Actor, raw[5:])
+			}
 			if err != nil || sub.document.Send(ctx, payload) != nil {
 				sub.close()
 				refuse(id, Unsupported)
@@ -260,12 +273,18 @@ func (h *Hub) Serve(ctx context.Context, conn *websocket.Conn, resolve Resolver,
 				continue
 			}
 			if source.Document != nil {
-				if source.Document.Open == nil || source.Document.Ready == nil || len(source.Document.Actor) == 0 || len(source.Document.Actor) > 1024 {
+				if (source.Document.Open == nil && source.Document.OpenClient == nil) || source.Document.Ready == nil || len(source.Document.Actor) == 0 || len(source.Document.Actor) > 1024 {
 					refuse(in.ID, Unsupported)
 					continue
 				}
 				subctx, stop := context.WithCancel(ctx)
-				stream, err := source.Document.Open(subctx)
+				var stream DocumentStream
+				var err error
+				if source.Document.OpenClient != nil {
+					stream, err = source.Document.OpenClient(subctx, in.ClientID)
+				} else {
+					stream, err = source.Document.Open(subctx)
+				}
 				if err != nil || stream == nil {
 					stop()
 					refuse(in.ID, Unsupported)
