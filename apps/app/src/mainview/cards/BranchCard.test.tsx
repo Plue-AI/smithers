@@ -286,10 +286,18 @@ test("registered live terminal links dispatch Watch and disappear with unavailab
   const render = () => act(async () => root.render(<ControllerTestProvider controller={controller}>{CARD_RENDERERS.branch.render(card, actions)}</ControllerTestProvider>))
   try {
     await render(); socket.onopen?.()
-    for (const [topic, data] of [["branch:b1", metadata], ["branch:b1:activity", []], ["branch:b1:files", []]] as const) {
+    for (const [topic, data] of [["branch:b1", metadata], ["branch:b1:activity", [{ id: "outside-burst", at: "2026-10-06T12:00:00Z", kind: "burst",
+      actor: { id: "outside", kind: "outside", via: "tool" }, files: [{ path: "src/retry.ts", change: "modified" }] }]],
+      ["branch:b1:files", { changed: [{ path: "src/retry.ts", change: "modified", last_writer: { id: "outside", kind: "outside", via: "tool" } }], open: [] }]] as const) {
       const frame = frames.find(frame => frame.topic === topic)!
       await act(async () => socket.onmessage?.({ data: JSON.stringify({ t: "snap", id: frame.id, cursor: 1, data }) }))
     }
+    expect(host.textContent).toContain("changed outside Smithers")
+    const subscriptions = frames.filter(frame => frame.topic === "branch:b1:activity").length
+    const activityFrame = frames.find(frame => frame.topic === "branch:b1:activity")!
+    await act(async () => socket.onmessage?.({ data: JSON.stringify({ t: "delta", id: activityFrame.id, cursor: 2, data: [{ id: "second-burst", at: "2026-10-06T12:01:00Z", kind: "burst", actor: { id: "outside", kind: "outside", via: "tool" }, files: [] }] }) }))
+    expect(live.getSnapshot("branch:b1:activity")?.data).toHaveLength(2)
+    expect(frames.filter(frame => frame.topic === "branch:b1:activity")).toHaveLength(subscriptions)
     expect(provider.source.branch("t-ben")).toBe("b1")
     const link = host.querySelector<HTMLButtonElement>('[data-flow="terminal.watch"]')!
     expect(link.textContent).toBe("Ben's shell")
