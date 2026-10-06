@@ -394,3 +394,17 @@ describe("box.open recovery grammar", () => {
     ]) expect(payloadFor("box.open", args)).toHaveProperty("error")
   })
 })
+
+
+describe("custom JSON grammar at the slash boundary", () => {
+  const grammar = baseFlows(stubCommandActions()).find(entry => nameOf(entry) === "confirm.cancel")!.metadata.grammar!
+  for (const args of ["7", "0", "500000", '"hello world"', "null", "true", "[]", "[{}]"]) {
+    test(`confirmation scalar ${args} supplies no named fields`, () => {
+      expect(payloadFor("confirm.cancel", args, grammar)).toEqual({ payload: {} })
+    })
+  }
+  test("a confirmation object retains both identity fields", () => {
+    expect(payloadFor("confirm.cancel", '{"confirmation":"act-1","revision":"rev-1"}', grammar))
+      .toEqual({ payload: { confirmation: "act-1", revision: "rev-1" } })
+  })
+})

@@ -1113,12 +1113,13 @@ export const payloadFor = (
 ): Parsed => {
   const parse = GRAMMAR[name] ?? grammar
   if (parse === undefined) return NONE
-  if (takesRunSource(name)) {
-    const source = splitRunSource(args)
-    const parsed = parse(source.args, known)
-    return "payload" in parsed && source.sourceCard !== undefined ? ok({ ...parsed.payload, sourceCard: source.sourceCard }) : parsed
-  }
-  return parse(args, known)
+  const source = takesRunSource(name) ? splitRunSource(args) : { args }
+  const parsed = parse(source.args, known)
+  // Custom grammars can decode JSON scalars despite their object return type.
+  // They supply no named fields: the ordinary missing-input form handles them.
+  if ("payload" in parsed && (parsed.payload === null || typeof parsed.payload !== "object" || Array.isArray(parsed.payload))) return NONE
+  return "payload" in parsed && "sourceCard" in source && source.sourceCard !== undefined
+    ? ok({ ...parsed.payload, sourceCard: source.sourceCard }) : parsed
 }
 
 /**
