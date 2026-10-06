@@ -263,3 +263,21 @@ func lockFetchedRepo(ctx context.Context, tx pgx.Tx, id int64) (db.GithubSyncedR
 	}
 	return db.New(tx).GetGitHubSyncedRepoByGitHubID(ctx, pgtype.Int8{Int64: githubID, Valid: true})
 }
+
+// BindInstallAuthority activates reads only for the sealed installation on an
+// unprivileged install runtime with the real storage and credential providers.
+func (s *GitHubSyncedRepoService) BindInstallAuthority(credentials GitHubAppCredentialReader, runtimeReady bool) {
+	if s == nil || s.install == nil || credentials == nil || !runtimeReady {
+		return
+	}
+	s.install.authorize = func(ctx context.Context, row db.GithubSyncedRepo) error {
+		sealed, err := credentials.Load(ctx)
+		if err != nil {
+			return err
+		}
+		if sealed.InstallationID <= 0 || sealed.InstallationID != row.InstallationID.Int64 {
+			return gitHubFetchUnavailable()
+		}
+		return nil
+	}
+}

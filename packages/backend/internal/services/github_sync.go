@@ -202,8 +202,7 @@ func (s *GitHubMainPullService) readIssueEvents(ctx context.Context) {
 func (s *GitHubMainPullService) UseInstallPolicy() { s.install = true }
 
 // SetInstallSyncStreams composes the existing readers, not another scheduler.
-// Checks, review streams and permissions remain absent until their owners are
-// qualified. No subset (including a successful main pull) establishes readiness.
+// Missing check/review owners remain stale without blocking qualified readers.
 func (s *GitHubMainPullService) SetInstallSyncStreams(repository, checks, reviews, permissions GitHubSyncStreams) {
 	receipts, ok := s.store.(gitHubMainPullReceipts)
 	if !s.install || !ok {
@@ -226,23 +225,19 @@ type requiredGitHubSyncStreams struct {
 	refs, repository, checks, reviews, permissions GitHubSyncStreams
 }
 
-func (g requiredGitHubSyncStreams) providers() ([]GitHubSyncStreams, error) {
-	providers := []GitHubSyncStreams{g.refs, g.repository, g.checks, g.reviews, g.permissions}
-	for _, p := range providers {
-		if p == nil {
-			return nil, githubSyncUnavailable()
-		}
-	}
-	return providers, nil
+func (g requiredGitHubSyncStreams) providers() []GitHubSyncStreams {
+	return []GitHubSyncStreams{g.refs, g.repository, g.checks, g.reviews, g.permissions}
 }
 
 func (g requiredGitHubSyncStreams) RequiredStreams(ctx context.Context) ([]GitHubSyncStream, error) {
-	providers, err := g.providers()
-	if err != nil {
-		return nil, err
-	}
 	var result []GitHubSyncStream
-	for _, p := range providers {
+	for _, p := range g.providers() {
+		if p == nil {
+			// Missing downstream owners are stale observations, not admission gates
+			// for independently qualified streams.
+			result = append(result, GitHubSyncStream{})
+			continue
+		}
 		observations, err := p.RequiredStreams(ctx)
 		if err != nil {
 			return nil, err
@@ -253,14 +248,15 @@ func (g requiredGitHubSyncStreams) RequiredStreams(ctx context.Context) ([]GitHu
 }
 
 func (g requiredGitHubSyncStreams) RetryStreams(ctx context.Context) error {
-	// Readiness is checked for all owners before any scheduling. Failed scheduling
-	// remains an error; retrying coalesces the already-requested work.
-	if _, err := g.RequiredStreams(ctx); err != nil {
-		return err
-	}
-	providers, _ := g.providers()
 	var failures []error
-	for _, p := range providers {
+	for _, p := range g.providers() {
+		if p == nil {
+			continue
+		}
+		if _, err := p.RequiredStreams(ctx); err != nil {
+			failures = append(failures, err)
+			continue
+		}
 		if err := p.RetryStreams(ctx); err != nil {
 			failures = append(failures, err)
 		}
@@ -274,6 +270,13 @@ func (s *GitHubMainPullService) installSyncReady(ctx context.Context) error {
 	}
 	if s.syncStreams == nil || s.refReadAdmission == nil {
 		return githubSyncUnavailable()
+	}
+	if streams, ok := s.syncStreams.(requiredGitHubSyncStreams); ok {
+		if streams.repository == nil {
+			return githubSyncUnavailable()
+		}
+		_, err := streams.repository.RequiredStreams(ctx)
+		return err
 	}
 	_, err := s.syncStreams.RequiredStreams(ctx)
 	return err
@@ -301,6 +304,11 @@ func (s *GitHubMainPullService) SyncHealth(ctx context.Context) (GitHubSyncHealt
 }
 
 func (s *GitHubMainPullService) RetrySync(ctx context.Context) error {
+	if s != nil {
+		if err := s.installSyncReady(ctx); err != nil {
+			return err
+		}
+	}
 	if s == nil || s.syncStreams == nil {
 		return githubSyncUnavailable()
 	}

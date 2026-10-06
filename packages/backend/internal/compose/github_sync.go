@@ -58,14 +58,18 @@ func composeGitHubSync(pool *pgxpool.Pool, credentials services.GitHubAppCredent
 func composeGitHubTodoPolling(stack *services.MythicalService, main *services.GitHubMainPullService, synced *services.GitHubSyncedRepoService, topology topology) {
 	if !topology.hosted() {
 		stack.UseInstallGitHubPolling(synced)
-		// Absent stream owners keep aggregate Retry, health and main polling dark.
+		// Missing downstream streams remain stale while configured readers run.
 		main.SetInstallSyncStreams(synced, nil, nil, nil)
 	}
 }
 
 // The existing roster worker supplies the permission stream. Check/review
-// owners remain absent, and install qualification still gates every read.
+// owners remain absent until their existing readers are composed.
 func composeGitHubPermissionPolling(members *services.Members, synced *services.GitHubSyncedRepoService, main *services.GitHubMainPullService, wake func()) {
 	members.UseInstallPermissionPolling(synced, wake)
 	main.SetInstallSyncStreams(synced, nil, nil, members)
+}
+
+func composeGitHubInstallAuthority(synced *services.GitHubSyncedRepoService, credentials services.GitHubAppCredentialReader, runtimeReady bool) {
+	synced.BindInstallAuthority(credentials, runtimeReady)
 }

@@ -36,14 +36,12 @@ import (
 	"github.com/smithersai/smithers/packages/backend/testkit/postgresfixture"
 )
 
-func githubAppSetupComposeRouter(cfg *config.Config, pool *pgxpool.Pool, h *routes.GitHubAppSetupHandler, webhookHandlers ...*routes.GitHubWebhookHandler) http.Handler {
+func githubAppSetupComposeRouter(cfg *config.Config, pool *pgxpool.Pool, h *routes.GitHubAppSetupHandler, extras ...any) http.Handler {
 	// Repo/search/Git placeholders are unused by setup requests. The router's
 	// broad constructor requires them to mount unrelated routes; setup itself
 	// uses real PostgreSQL, AuthLoader, credential store, and githubfake.
 	options := []any{routerExtras{GitHubAppSetup: h}}
-	if len(webhookHandlers) > 0 {
-		options = append(options, webhookHandlers[0])
-	}
+	options = append(options, extras...)
 	return buildRouterCompat(
 		cfg, db.New(pool), pool,
 		&routes.RepoHandler{}, &routes.AuthHandler{}, &routes.UserHandler{}, &routes.SSHKeyHandler{}, &routes.LabelHandler{},

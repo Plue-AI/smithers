@@ -324,9 +324,9 @@ func TestGitHubRetrySchedulesExistingReadersAndPreservesPauses(t *testing.T) {
 	main.UseInstallPolicy()
 	checks, reviews, permissions := &syncStreamFixture{}, &syncStreamFixture{}, &syncStreamFixture{}
 	main.SetInstallSyncStreams(s, checks, reviews, nil)
-	require.Error(t, main.RetrySync(ctx))
-	require.Equal(t, 0, fetchedCount(t, f.pool, `SELECT count(*) FROM github_main_pulls`))
-	require.Empty(t, stack.installPullHints.pending)
+	require.NoError(t, main.RetrySync(ctx))
+	require.Equal(t, 1, fetchedCount(t, f.pool, `SELECT count(*) FROM github_main_pulls`))
+	require.Len(t, stack.installPullHints.pending, 1)
 	main.SetInstallSyncStreams(s, checks, reviews, permissions)
 	started := time.Now()
 	require.NoError(t, main.RetrySync(ctx))
@@ -351,9 +351,9 @@ func TestGitHubRetrySchedulesExistingReadersAndPreservesPauses(t *testing.T) {
 	default:
 		t.Fatal("repository worker not woken")
 	}
-	for _, owner := range []*syncStreamFixture{checks, reviews, permissions} {
-		require.Equal(t, 1, owner.retries)
-	}
+	require.Equal(t, 2, checks.retries)
+	require.Equal(t, 2, reviews.retries)
+	require.Equal(t, 1, permissions.retries)
 	f.poll(0, "issues", "pulls", "issues/events", "issues/comments")
 	streams, err := s.RequiredStreams(ctx)
 	require.NoError(t, err)

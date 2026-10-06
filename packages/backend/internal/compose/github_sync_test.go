@@ -21,8 +21,10 @@ import (
 	"github.com/smithersai/smithers/packages/backend/internal/config"
 	"github.com/smithersai/smithers/packages/backend/internal/db"
 	"github.com/smithersai/smithers/packages/backend/internal/githubfake"
+	"github.com/smithersai/smithers/packages/backend/internal/middleware"
 	smitherscrypto "github.com/smithersai/smithers/packages/backend/internal/pkg/crypto"
 	pkgerrors "github.com/smithersai/smithers/packages/backend/internal/pkg/errors"
+	"github.com/smithersai/smithers/packages/backend/internal/routes"
 	"github.com/smithersai/smithers/packages/backend/internal/services"
 	"github.com/smithersai/smithers/packages/backend/internal/webhook"
 	"github.com/smithersai/smithers/packages/backend/testkit/postgresfixture"
@@ -384,4 +386,56 @@ func TestInstallSyncCompositionDoesNotActivatePartialStreamOwners(t *testing.T) 
 	var count int
 	require.NoError(t, pool.QueryRow(t.Context(), `SELECT count(*) FROM github_main_pulls`).Scan(&count))
 	require.Zero(t, count)
+}
+
+func TestInstallMainRetryWithMissingCheckReviewOwners(t *testing.T) {
+	pool, _ := postgresfixture.NewProductDatabase(t)
+	q := db.New(pool)
+	key, err := rsa.GenerateKey(rand.Reader, 2048)
+	require.NoError(t, err)
+	codec, err := webhook.NewSecretCodec("polling-key")
+	require.NoError(t, err)
+	credentials := services.NewGitHubAppCredentialStore(pool, codec)
+	require.NoError(t, credentials.Save(t.Context(), services.GitHubAppCredentials{ID: 710, Slug: "polling", OwnerLogin: "acme", OwnerKind: "org", ClientID: "client", ClientSecret: "secret", WebhookSecret: "hook", InstallationID: 91, PEM: string(pem.EncodeToMemory(&pem.Block{Type: "RSA PRIVATE KEY", Bytes: x509.MarshalPKCS1PrivateKey(key)}))}))
+	assembled, err := composeGitHubSync(pool, credentials, nil, topology{}, newGitHubBudget(topology{}))
+	require.NoError(t, err)
+	main := services.NewGitHubMainPullService(q, nil, nil, nil)
+	main.UseInstallPolicy()
+	stack := services.NewMythicalService(pool, nil)
+	composeGitHubTodoPolling(stack, main, assembled.synced, topology{})
+	composeGitHubInstallAuthority(assembled.synced, credentials, true)
+	_, err = assembled.synced.EnrollGitHubRepo(t.Context(), services.EnrollGitHubRepoInput{Owner: "acme", Repo: "app", InstallationID: 91, GitHubRepositoryID: 100, MetadataOnly: true})
+	require.NoError(t, err)
+	user, err := q.CreateUser(t.Context(), db.CreateUserParams{Username: "poll-owner", LowerUsername: "poll-owner"})
+	require.NoError(t, err)
+	repo, err := q.CreateRepo(t.Context(), db.CreateRepoParams{UserID: pgtype.Int8{Int64: user.ID, Valid: true}, Name: "app", LowerName: "app", DefaultBookmark: "main"})
+	require.NoError(t, err)
+	_, err = pool.Exec(t.Context(), `UPDATE repositories SET mirror_destination='acme/app' WHERE id=$1`, repo.ID)
+	require.NoError(t, err)
+	_, err = pool.Exec(t.Context(), `INSERT INTO self_host_owners(user_id) VALUES($1)`, user.ID)
+	require.NoError(t, err)
+	cfg := testConfigAllFlagsOn()
+	cfg.Auth.Mode = "selfhost"
+	router := githubAppSetupComposeRouter(cfg, pool, &routes.GitHubAppSetupHandler{}, routerExtras{GitHubSync: main})
+	for _, method := range []string{http.MethodGet, http.MethodPost} {
+		request := httptest.NewRequest(method, "/api/github/sync", nil)
+		request.Header.Set("X-CSRF-Token", "poll-csrf")
+		request.AddCookie(&http.Cookie{Name: middleware.CSRFCookieName, Value: "poll-csrf"})
+		request = request.WithContext(middleware.ContextWithAuthInfo(request.Context(), &middleware.AuthInfo{User: &user, SessionHash: "poll-session"}))
+		response := httptest.NewRecorder()
+		router.ServeHTTP(response, request)
+		expected := 200
+		if method == http.MethodPost {
+			expected = 202
+		}
+		require.Equal(t, expected, response.Code, response.Body.String())
+		if method == http.MethodGet {
+			require.Contains(t, response.Body.String(), `"state":"stale"`)
+		}
+	}
+	var count int
+	require.NoError(t, pool.QueryRow(t.Context(), `SELECT count(*) FROM github_main_pulls WHERE repository_id=$1 AND requested_generation>synced_generation`, repo.ID).Scan(&count))
+	require.Equal(t, 1, count)
+	main.Sweep(t.Context())
+	require.NoError(t, main.PollOnce(t.Context()), "missing owners cannot reject the independently admitted main worker")
 }

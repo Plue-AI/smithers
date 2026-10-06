@@ -322,7 +322,7 @@ func (allowRefFixture) prepareRefRead(context.Context, db.GithubMainPull) (gitHu
 	return func(context.Context, string, string, string, map[string]string) error { return nil }, nil
 }
 
-func TestRequiredGitHubStreamsRejectIncompleteProvidersBeforeScheduling(t *testing.T) {
+func TestRequiredGitHubStreamsRetryConfiguredOwners(t *testing.T) {
 	for missing := 0; missing < 5; missing++ {
 		t.Run(fmt.Sprint(missing), func(t *testing.T) {
 			owners := make([]*syncStreamFixture, 5)
@@ -333,25 +333,26 @@ func TestRequiredGitHubStreamsRejectIncompleteProvidersBeforeScheduling(t *testi
 			}
 			providers[missing] = nil
 			aggregate := requiredGitHubSyncStreams{providers[0], providers[1], providers[2], providers[3], providers[4]}
-			_, err := aggregate.RequiredStreams(t.Context())
-			require.Error(t, err)
-			require.Error(t, aggregate.RetryStreams(t.Context()))
-			for _, owner := range owners {
-				require.Zero(t, owner.retries)
+			streams, err := aggregate.RequiredStreams(t.Context())
+			require.NoError(t, err)
+			require.Equal(t, "stale", aggregateGitHubSyncHealth(streams, time.Now()).State)
+			require.NoError(t, aggregate.RetryStreams(t.Context()))
+			for i, owner := range owners {
+				expected := 1
+				if i == missing {
+					expected = 0
+				}
+				require.Equal(t, expected, owner.retries)
 			}
 		})
 	}
 	owners := []*syncStreamFixture{{}, {}, {}, {}, {err: errors.New("permission provider is not ready")}}
 	aggregate := requiredGitHubSyncStreams{owners[0], owners[1], owners[2], owners[3], owners[4]}
 	require.ErrorContains(t, aggregate.RetryStreams(t.Context()), "not ready")
-	for _, owner := range owners {
-		require.Zero(t, owner.retries)
-	}
-	owners[4].err = nil
-	require.NoError(t, aggregate.RetryStreams(t.Context()))
-	for _, owner := range owners {
+	for _, owner := range owners[:4] {
 		require.Equal(t, 1, owner.retries)
 	}
+	require.Zero(t, owners[4].retries)
 }
 
 func TestInstallMainSyncRemainsDarkWithoutAllStreamOwners(t *testing.T) {
