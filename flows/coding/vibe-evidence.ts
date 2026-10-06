@@ -147,6 +147,7 @@ const readRequestEvidence = (input: typeof VibeInput.Type, expectedRequest?: typ
     }
     const visited = new Set<string>()
     let id = selected, bridged = false
+    let compositionInput: typeof RequestInput.Type | undefined
     let root: { controlRunId: string; planId: string; planDigest: string } | undefined
     while (root === undefined) {
       if (visited.has(id) || visited.size >= 1024) {
@@ -161,9 +162,19 @@ const readRequestEvidence = (input: typeof VibeInput.Type, expectedRequest?: typ
         const bridgeInput = Schema.decodeUnknownOption(RequestInput)(invocation?.input)
         if (
           bridged || (composed && entry.state.flowName !== todoTag) || Option.isNone(bridgeInput) ||
-          Digest.canonical(bridgeInput.value) !== Digest.canonical(payload.value)
+          (!composed && Digest.canonical(bridgeInput.value) !== Digest.canonical(payload.value))
         ) {
           return yield* invalid("The registered request bridge does not match its native request input")
+        }
+        if (composed) {
+          // The pinned composition may add requirements to its request (J5).
+          // Its outer invocation still matches the approved plan, and its
+          // child must keep the attempt's admitted source and workspace ref.
+          if (
+            bridgeInput.value.base === undefined ||
+            Digest.canonical(bridgeInput.value.base) !== Digest.canonical(payload.value.base)
+          ) return yield* invalid("The customized request changed its attempt's admitted source")
+          compositionInput = bridgeInput.value
         }
         bridged = true
       }
@@ -176,7 +187,13 @@ const readRequestEvidence = (input: typeof VibeInput.Type, expectedRequest?: typ
         const nativePayload = entry.state.payload as { readonly planId?: unknown } | null
         if (
           !bridged || (composed ? id !== owner.rootId : id === owner.rootId) ||
-          run.value.status !== (composed ? "running" : "completed") || run.value.planId === undefined ||
+          // A resumed control claim is accepted while its native execution
+          // is already running. read() requires the current uncancelled
+          // native root and adapter to be running, not merely admitted.
+          (composed
+            ? run.value.status !== "running" && run.value.status !== "accepted"
+            : run.value.status !== "completed") ||
+          run.value.planId === undefined ||
           entry.state.flowName !== "agent/run" || nativePayload?.planId !== run.value.planId ||
           parents.length !== 0 || entry.state.parentExecutionId !== undefined
         ) {
@@ -193,7 +210,8 @@ const readRequestEvidence = (input: typeof VibeInput.Type, expectedRequest?: typ
           // delegate. An envelope that names one was approved for a descriptor
           // that handed this work to code the descriptor does not measure.
           plan.card.envelope.flows.length !== 0 ||
-          Option.isNone(approvedInput) || Digest.canonical(approvedInput.value) !== Digest.canonical(payload.value)
+          Option.isNone(approvedInput) ||
+          Digest.canonical(approvedInput.value) !== Digest.canonical(compositionInput ?? payload.value)
         ) {
           return yield* invalid("The native request does not match its retained approved input and delegate")
         }

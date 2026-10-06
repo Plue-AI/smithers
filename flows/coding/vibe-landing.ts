@@ -364,7 +364,8 @@ export const landingLayers = Layer.mergeAll(
         base: original.parentCommitIds[0]!,
         source: cleanup.head.commitId,
         requestRunId: cleanup.admission.requestExecutionId || instance.executionId,
-        summary: cleanup.summary
+        summary: cleanup.summary,
+        ...(cleanup.admission.fromStack === true ? { plan: cleanup.admission.request.plan } : {})
       })
       return { cleanup, cleanedSource, lane }
     })

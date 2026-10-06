@@ -286,11 +286,12 @@ func (s *MythicalService) repository(ctx context.Context, repositoryID int64) (d
 
 // MythicalLaneSubmission is a coding host's validated, cleaned result.
 type MythicalLaneSubmission struct {
-	WorkspaceID  string `json:"workspaceId"`
-	Base         string `json:"base"`
-	Source       string `json:"source"`
-	RequestRunID string `json:"requestRunId"`
-	Summary      string `json:"summary"`
+	WorkspaceID  string          `json:"workspaceId"`
+	Base         string          `json:"base"`
+	Source       string          `json:"source"`
+	RequestRunID string          `json:"requestRunId"`
+	Summary      string          `json:"summary"`
+	Plan         json.RawMessage `json:"plan,omitempty"`
 }
 
 // MythicalLaneReceipt names the item that carries a submitted result.
@@ -307,7 +308,7 @@ type MythicalLaneReceipt struct {
 // result to the stack only as the stack's own account. Replays are idempotent.
 func (s *MythicalService) SubmitLane(ctx context.Context, repositoryID, userID int64, input MythicalLaneSubmission) (MythicalLaneReceipt, error) {
 	if !mythicalSHA.MatchString(input.Base) || !mythicalSHA.MatchString(input.Source) || !mythicalWorkspaceID.MatchString(input.WorkspaceID) ||
-		strings.TrimSpace(input.Summary) == "" || len(input.Summary) > 16<<10 || strings.TrimSpace(input.RequestRunID) == "" {
+		strings.TrimSpace(input.Summary) == "" || len(input.Summary) > 16<<10 || strings.TrimSpace(input.RequestRunID) == "" || len(input.Plan) > 1<<20 {
 		return MythicalLaneReceipt{}, pkgerrors.BadRequest("a lane submission needs exact commits, the workspace, the run and a summary")
 	}
 	q := s.queries()
@@ -393,6 +394,23 @@ func (s *MythicalService) SubmitLane(ctx context.Context, repositoryID, userID i
 			return MythicalLaneReceipt{}, pkgerrors.Conflict("the result does not come from this lane's current request on its tip")
 		}
 		next := item
+		if len(input.Plan) > 0 {
+			// Persist the validated request's plan with its candidate: a TODO
+			// composition submits before its root ends, and rebase can begin
+			// immediately. Waiting for the root's terminal projection loses
+			// these checks (and would deadlock a flow waiting for merge).
+			encoded, err := json.Marshal(map[string]json.RawMessage{"plan": input.Plan})
+			if err != nil {
+				return MythicalLaneReceipt{}, pkgerrors.BadRequest("the submitted plan is invalid")
+			}
+			next.Plan = mythicalPlanSummaryJSON(encoded)
+			if len(next.Plan) == 0 {
+				return MythicalLaneReceipt{}, pkgerrors.BadRequest("the submitted plan has no changes")
+			}
+		}
+		if composed && len(next.Plan) == 0 {
+			return MythicalLaneReceipt{}, pkgerrors.BadRequest("a TODO result must retain its validated check plan")
+		}
 		next.CandidateBase, next.CandidateHead, next.CandidateVerified = input.Base, input.Source, true
 		next.Summary, next.VibeOutcome, next.State, next.Reason = strings.TrimSpace(input.Summary), "submitted", "integrating", ""
 		saved, err := q.SaveMythicalItem(ctx, next)
@@ -917,6 +935,10 @@ func mythicalPlanSummary(update flowdispatch.ProjectionUpdate) json.RawMessage {
 	if update.Checkpoint.Run == nil || update.Checkpoint.Run.FinalOutput == nil {
 		return nil
 	}
+	return mythicalPlanSummaryJSON([]byte(*update.Checkpoint.Run.FinalOutput))
+}
+
+func mythicalPlanSummaryJSON(output []byte) json.RawMessage {
 	var result struct {
 		Plan struct {
 			WikiCitations []planWikiCitation `json:"wikiCitations,omitempty"`
@@ -930,7 +952,7 @@ func mythicalPlanSummary(update flowdispatch.ProjectionUpdate) json.RawMessage {
 			} `json:"changes"`
 		} `json:"plan"`
 	}
-	if json.Unmarshal([]byte(*update.Checkpoint.Run.FinalOutput), &result) != nil || len(result.Plan.Changes) == 0 {
+	if json.Unmarshal(output, &result) != nil || len(result.Plan.Changes) == 0 {
 		return nil
 	}
 	type insert struct {

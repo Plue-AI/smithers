@@ -16,6 +16,7 @@ import {
   CodingError,
   type Implementation,
   type Plan,
+  type RequestInput,
   RequestResult,
   type Revision
 } from "../coding/schema.ts"
@@ -548,9 +549,13 @@ for (const mode of stackModes) {
 const todoAdapter = "registry/entry/dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd/todo"
 const todoModes = [
   "valid",
+  "customized-request",
+  "customized-wrong-base",
+  "customized-wrong-source-ref",
   "no-owner",
   "unavailable",
   "recovered",
+  "resumed-root",
   "bug",
   "feature",
   "wrong-route-feedback",
@@ -562,6 +567,7 @@ const todoModes = [
   "request-cancelled",
   "root-completed",
   "root-paused",
+  "root-suspended",
   "root-cancelled",
   "bridge-completed",
   "bridge-cancelled",
@@ -584,6 +590,22 @@ const todoModes = [
 for (const mode of todoModes) {
   test(`current TODO delivery evidence: ${mode}`, async () => {
     const stackInput = mode === "missing-base" ? input : { ...input, base: stackBase }
+    const customized = mode.startsWith("customized-")
+    const childInput: typeof RequestInput.Type = customized ?
+      {
+        ...stackInput,
+        prompt: `${input.prompt}\n\n[CHANGELOG] Add a changelog entry.`,
+        feedback: "Run the repository checks before proposing.",
+        base: mode === "customized-wrong-base" ?
+          { ...stackBase, commitId: "f".repeat(40) }
+          : mode === "customized-wrong-source-ref" ?
+          {
+            ...stackBase,
+            ref: stackBase.ref.replace("0f8fad5b", "1f8fad5b")
+          } :
+          stackBase
+      } :
+      stackInput
     const program = Effect.gen(function*() {
       const control = yield* ControlRuntime.ControlRuntime, graph = yield* DurableEngineState.DurableEngineState
       const { card } = yield* control.plan({
@@ -600,7 +622,13 @@ for (const mode of todoModes) {
       yield* control.writeStatus(
         root,
         fence,
-        mode === "root-completed" ? "completed" : mode === "root-paused" ? "parked" : "running"
+        mode === "root-completed"
+          ? "completed"
+          : mode === "root-paused"
+          ? "parked"
+          : mode === "resumed-root" || mode === "root-suspended"
+          ? "accepted"
+          : "running"
       )
       const retained = structuredClone(request)
       if (mode === "blocked-result") Object.assign(retained.outcome, { status: "blocked" })
@@ -609,7 +637,11 @@ for (const mode of todoModes) {
       }
       const prepared = Schema.encodeSync(
         Schema.toCodecJson(Flow.Result({ success: PrepareRequest.successSchema, error: PrepareRequest.errorSchema }))
-      )(new Flow.Complete({ exit: Exit.succeed({ ...plan, base: original, observedHead: original }) }))
+      )(
+        new Flow.Complete({
+          exit: Exit.succeed({ ...plan, prompt: childInput.prompt, base: original, observedHead: original })
+        })
+      )
       const rows = new Map([
         [root, { ...row(root, "agent/run", { planId: card.planId }), status: "running" as const }],
         ["todo-bridge", {
@@ -624,23 +656,24 @@ for (const mode of todoModes) {
           ),
           status: "running" as const
         }],
-        ["request", row("request", Request._tag, stackInput, requestResult(retained), "todo-bridge")],
+        ["request", row("request", Request._tag, childInput, requestResult(retained), "todo-bridge")],
         [
           "preparation",
           row(
             "preparation",
             PrepareRequest._tag,
             {
-              prompt: input.prompt,
+              prompt: childInput.prompt,
               feedback: retained.route === undefined || mode === "wrong-route-feedback"
-                ? ""
-                : leafFeedback(retained.route, "")
+                ? childInput.feedback ?? ""
+                : leafFeedback(retained.route, childInput.feedback ?? "")
             },
             prepared,
             "request"
           )
         ]
       ])
+      if (mode === "root-suspended") rows.set(root, { ...rows.get(root)!, status: "suspended" })
       if (mode === "request-running") rows.set("request", { ...rows.get("request")!, status: "running" })
       if (mode === "bridge-completed") rows.set("todo-bridge", { ...rows.get("todo-bridge")!, status: "completed" })
       if (mode.endsWith("-cancelled")) {
@@ -740,7 +773,10 @@ for (const mode of todoModes) {
       }).pipe(Layer.provide(NodeServices.layer))
     )))
     const outcome = await Effect.runPromise(program)
-    if (mode === "valid" || mode === "recovered" || mode === "bug" || mode === "feature") {
+    if (
+      mode === "resumed-root" || mode === "customized-request" || mode === "valid" || mode === "recovered" ||
+      mode === "bug" || mode === "feature"
+    ) {
       assert.equal(outcome._tag, "Success")
     } else {
       assert.equal(outcome._tag, "Failure", mode)

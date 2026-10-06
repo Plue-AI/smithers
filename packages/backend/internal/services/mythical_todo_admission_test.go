@@ -595,6 +595,12 @@ func todoPinnedEngineLaunches(t *testing.T, review string) {
 	other.RequestRunID = "another-run"
 	_, err = o.service.SubmitLane(ctx, o.repoID, o.userID, other)
 	require.ErrorContains(t, err, "does not come from this lane's current request", "only the attempt's composition run hands its result over")
+	_, err = o.service.SubmitLane(ctx, o.repoID, o.userID, submission)
+	require.ErrorContains(t, err, "validated check plan")
+	submission.Plan = json.RawMessage(`{"changes":[]}`)
+	_, err = o.service.SubmitLane(ctx, o.repoID, o.userID, submission)
+	require.ErrorContains(t, err, "no changes")
+	submission.Plan = json.RawMessage(`{"changes":[{"title":"Greet","atoms":[{"changeId":null,"message":"Greet"}],"checks":[{"id":"test","target":"test","flow":"checks/test","flowDigest":"dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd","tier":"fast","required":true}]}]}`)
 	receipt, err := o.service.SubmitLane(ctx, o.repoID, o.userID, submission)
 	require.NoError(t, err)
 	require.Equal(t, "integrating", receipt.State)
@@ -603,6 +609,14 @@ func todoPinnedEngineLaunches(t *testing.T, review string) {
 	require.Equal(t, candidate, item.CandidateHead)
 	require.True(t, item.CandidateVerified, "the request child's checks verified it")
 	require.Equal(t, "submitted", item.VibeOutcome)
+	var retainedPlan struct {
+		Checks []struct {
+			ID string `json:"id"`
+		} `json:"checks"`
+	}
+	require.NoError(t, json.Unmarshal(item.Plan, &retainedPlan))
+	require.Len(t, retainedPlan.Checks, 1)
+	require.Equal(t, "test", retainedPlan.Checks[0].ID, "candidate and rebase checks persist in the same write")
 	require.Equal(t, todoPinOne, item.FlowDigest.String, "the pin stays the attempt's")
 	o.wake()
 	require.Equal(t, "proposing", o.byID(id).State)

@@ -20,8 +20,8 @@ import (
 // ([FLOWEDIT]): its PR changes exactly flows/todo/flow.ts, the built-in
 // composition plus a changelog step. Ben merges B; flow-load runs on every
 // main move (spec §11.3.1) and makes B's flow Active; a broken flow merged on
-// GitHub leaves it Active. Pinning the flow waits on its lane and is listed
-// as pending.
+// GitHub leaves it Active. A resumes its original D1 while new C executes
+// the changelog requirement from D2; ordinary Retry remains pending.
 func TestJ5Rehearsal(t *testing.T) {
 	// The install loads its flows after every main move.
 	t.Setenv("SMITHERS_FEATURE_FLAGS_FLOW_LOAD", "true")
@@ -195,6 +195,15 @@ func TestJ5Rehearsal(t *testing.T) {
 				return err
 			}
 			if id := card.version("merged-syncing"); id != "" && syncing == "" {
+				// Pending metadata measures the entry file. Only the guest load
+				// can measure its complete execution closure; correlate by main.
+				var commit string
+				if err := r.pool.QueryRow(r.ctx, `SELECT commit_id FROM flow_loads`).Scan(&commit); err != nil {
+					return err
+				}
+				if commit != squash || card.version("active") != d1 {
+					return fmt.Errorf("pending flow at %s with Active %s, want squash %s and D1 %s", commit, card.version("active"), squash, d1)
+				}
 				syncing = id
 			}
 			if active := card.version("active"); active != "" && active != d1 {
@@ -210,7 +219,7 @@ func TestJ5Rehearsal(t *testing.T) {
 				if status != "loaded" || source != squash || !isActive {
 					return fmt.Errorf("todo@%s is %s at %s (active %t), want loaded at %s and Active", active, status, source, isActive, squash)
 				}
-				if card.Source.Path != "flows/todo/flow.ts" || card.version("previous") != d1 || syncing != active {
+				if card.Source.Path != "flows/todo/flow.ts" || card.version("previous") != d1 {
 					return fmt.Errorf("todo's card: source %+v, previous %q, merged-syncing %q, Active %q", card.Source, card.version("previous"), syncing, active)
 				}
 				d2 = active
@@ -283,9 +292,97 @@ func TestJ5Rehearsal(t *testing.T) {
 			}
 		}
 	})
-	r.pending("13 TODO A pinned D1", "GET /api/todos/{A}", "A's evidence pins D1", "T-FLW-11", "pinned-todo-flow")
-	r.pending("14 TODO C pins D2", "POST /api/todos; GET /api/todos/{C}", "C pins D2 at Starting; its evidence shows the changelog step", "T-FLW-11", "pinned-todo-flow")
-	r.pending("15 TODO A keeps D1", "answer A; GET /api/todos/{A}", "A continues on D1 with no changelog step", "T-FLW-11", "pinned-todo-flow")
+	checkPin := func(number int64, digest, source string) error {
+		v, err := r.todo(number)
+		if err != nil {
+			return err
+		}
+		if v.FlowVersion == nil || v.FlowVersion.Digest != digest || v.FlowVersion.SourceCommit != source {
+			return fmt.Errorf("T%d pin %+v, want %s at %s", number, v.FlowVersion, digest, source)
+		}
+		if len(v.Evidence) != 1 || v.Evidence[0].FlowDigest != digest || v.Evidence[0].SourceCommit != source {
+			return fmt.Errorf("T%d evidence does not retain its one admitted pin: %+v", number, v.Evidence)
+		}
+		return nil
+	}
+	r.step("13 TODO A pinned D1", "GET /api/todos/{A}", "A's card and evidence keep D1 at original main", "T-FLW-11", func() error {
+		return checkPin(a, d1, r.mainCommit)
+	})
+	var c int64
+	r.step("14 TODO C pins D2", "POST /api/todos; GET /api/todos/{C}", "C starts on Active D2 at the flow-edit merge, despite the later broken main", "T-FLW-11", func() error {
+		if d2 == "" {
+			return fmt.Errorf("blocked by Active after load: no D2")
+		}
+		var err error
+		c, err = r.file("C uses the new flow", "[FILE c.md] Add a greeting to c.md")
+		if err != nil {
+			return err
+		}
+		if _, err = r.waitTodoWithin(c, 2*time.Minute, "working", "in_review"); err != nil {
+			return err
+		}
+		return checkPin(c, d2, squash)
+	})
+	r.step("15 TODO A keeps D1", "answer A; GET /api/todos/{A}; PR files", "A resumes D1 and adds only a.md, without the new changelog requirement", "T-FLW-11", func() error {
+		v, err := r.todo(a)
+		if err != nil {
+			return err
+		}
+		if len(v.Waits) != 1 {
+			return fmt.Errorf("A has %d waits", len(v.Waits))
+		}
+		code, data, err := r.answer(a, v.Waits[0].ID, "Add a greeting to a.md")
+		if err != nil || code != 202 {
+			return fmt.Errorf("answer A: HTTP %d %s: %v", code, data, err)
+		}
+		v, err = r.waitTodoWithin(a, 3*time.Minute, "in_review")
+		if err != nil {
+			return err
+		}
+		if err = checkPin(a, d1, r.mainCommit); err != nil {
+			return err
+		}
+		pr, err := r.checkPull(v.PR.Number, v.PR.Head)
+		if err != nil {
+			return err
+		}
+		files, err := r.prFiles(pr)
+		if err != nil {
+			return err
+		}
+		if !slices.Equal(files, []string{"a.md"}) {
+			return fmt.Errorf("A changes %v, want only a.md", files)
+		}
+		return nil
+	})
+	r.step("15b TODO C applies D2", "GET /api/todos/{C}; PR files and changelog", "C's new flow adds c.md and a changelog entry", "T-FLW-11", func() error {
+		v, err := r.waitTodoWithin(c, 3*time.Minute, "in_review")
+		if err != nil {
+			return err
+		}
+		if err = checkPin(c, d2, squash); err != nil {
+			return err
+		}
+		pr, err := r.checkPull(v.PR.Number, v.PR.Head)
+		if err != nil {
+			return err
+		}
+		files, err := r.prFiles(pr)
+		if err != nil {
+			return err
+		}
+		if !slices.Contains(files, "c.md") || !slices.Contains(files, "CHANGELOG.md") {
+			return fmt.Errorf("C changes %v, missing c.md or CHANGELOG.md", files)
+		}
+		content, err := r.githubGit("show", v.PR.Head+":CHANGELOG.md")
+		if err != nil {
+			return err
+		}
+		if strings.TrimSpace(content) == "" {
+			return fmt.Errorf("C produced an empty changelog")
+		}
+		return nil
+	})
 	r.pending("16 Retry keeps the pin", "POST /api/todos/{A} {op: retry}", "the retry attempt pins D1", "T-FLW-11, T-STK-05", "pinned-todo-flow")
 }
 

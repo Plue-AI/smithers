@@ -855,9 +855,15 @@ type rehearsalTodo struct {
 		Fixes  bool   `json:"fixes"`
 	} `json:"issue"`
 	// Evidence is each attempt's: its checks, its review and its flow.
+	FlowVersion *struct {
+		Digest       string `json:"digest"`
+		SourceCommit string `json:"source_commit"`
+	} `json:"flow_version"`
 	Evidence []struct {
-		Attempt int32            `json:"attempt"`
-		Items   []map[string]any `json:"items"`
+		FlowDigest   string           `json:"flow_digest"`
+		SourceCommit string           `json:"source_commit"`
+		Attempt      int32            `json:"attempt"`
+		Items        []map[string]any `json:"items"`
 	} `json:"evidence"`
 }
 
