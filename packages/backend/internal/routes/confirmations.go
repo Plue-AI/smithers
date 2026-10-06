@@ -104,6 +104,12 @@ func (h *ConfirmationsHandler) Create(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		// Eligible TODO creation still requires the private dispatch consumer.
+	} else {
+		// An immediately runnable command has no confirmation to create.
+		// Keep this classification tied to the existing authorization decision;
+		// explicit create must not introduce a second command-policy table.
+		confirmationError(w, 403, "permission", "permission", "This command does not request confirmation")
+		return
 	}
 	confirmationError(w, 503, "infra", "confirmation_unavailable", "Confirmation dispatch unavailable")
 }
