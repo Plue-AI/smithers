@@ -1,3 +1,4 @@
+import { useSharedConversation } from "./state/useSharedConversation"
 import { useTodoRole } from "./cards/TodoCard"
 import { SharedConversation } from "./SharedConversation"
 import { accountOwnerOf } from "./state/AccountOwner"
@@ -145,7 +146,8 @@ function AppContent() {
    */
   useLiveQuery(collections.repositoryFlows)
   const flows = controller.commands.all()
-  const typing = session.phase === "responding"
+  const sharedConversation = useSharedConversation(controller.sharedConversation)
+  const typing = controller.sharedConversation ? sharedConversation.conversation?.entries.some(row => row.authorLogin === identityRows[0]?.login && (row.state === "running" || row.state === "accepted")) === true : session.phase === "responding"
   const streamingMessageId = typing ? messages[messages.length - 1]?.id : undefined
   const identity = identityRows[0]
   const confirmations = useTopic(identity?.state === "signed-in" && identity.memberId && controller.live
