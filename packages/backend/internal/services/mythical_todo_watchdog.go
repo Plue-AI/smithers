@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/smithersai/smithers/packages/backend/flowdispatch"
+	"github.com/smithersai/smithers/packages/backend/flowruntime"
 	"github.com/smithersai/smithers/packages/backend/internal/db"
 )
 
@@ -88,29 +89,64 @@ func projectTodoWatchdog(item *db.MythicalItem, update flowdispatch.ProjectionUp
 		w.ActiveSince = 0
 	}
 	for _, event := range update.Events {
-		if event.Kind != "flows.engine.v2.attempt-lifecycle" || len(w.Steps) >= 1024 {
-			continue
+		if len(w.Steps) >= 1024 {
+			break
 		}
-		var step struct {
-			Version       int    `json:"version"`
-			ExecutionID   string `json:"executionId"`
-			StepKeyDigest string `json:"stepKeyDigest"`
-			Attempt       int64  `json:"attempt"`
-			Lifecycle     struct {
-				State string `json:"state"`
-			} `json:"lifecycle"`
-		}
-		if json.Unmarshal(event.Payload, &step) != nil || step.Version != 2 || step.ExecutionID == "" || len(step.ExecutionID) > 1024 || step.StepKeyDigest == "" || len(step.StepKeyDigest) > 1024 || step.Attempt < 0 ||
-			(step.Lifecycle.State != "succeeded" && step.Lifecycle.State != "failed") {
-			continue
-		}
-		encoded, _ := json.Marshal([]any{step.ExecutionID, step.StepKeyDigest, step.Attempt})
-		identity := string(encoded)
-		if !slices.Contains(w.Steps, identity) {
+		if identity, ok := todoCompletedStep(event); ok && !slices.Contains(w.Steps, identity) {
 			w.Steps = append(w.Steps, identity)
 		}
 	}
 	item.Checks = checks.encode()
+}
+
+// The native host projects journal envelopes through control.engine.event.
+// Retained v2 lifecycle records decode to the same instance identity; transport
+// cursors and event ids never spend an additional step on replay.
+func todoCompletedStep(event flowruntime.Event) (string, bool) {
+	var execution, digest, state string
+	var attempt *int64
+	switch event.Kind {
+	case "control.engine.event":
+		var envelope struct {
+			Version     int    `json:"version"`
+			EventType   string `json:"eventType"`
+			ExecutionID string `json:"executionId"`
+			Payload     struct {
+				RunID         string `json:"runId"`
+				StepKeyDigest string `json:"stepKeyDigest"`
+				Attempt       *int64 `json:"attempt"`
+				State         string `json:"state"`
+			} `json:"payload"`
+		}
+		if json.Unmarshal(event.Payload, &envelope) != nil || envelope.Version != 1 ||
+			envelope.EventType != "flows.engine.attempt-finished" || envelope.ExecutionID != envelope.Payload.RunID ||
+			envelope.Payload.Attempt == nil || *envelope.Payload.Attempt < 1 {
+			return "", false
+		}
+		execution, digest, state, attempt = envelope.ExecutionID, envelope.Payload.StepKeyDigest, envelope.Payload.State, envelope.Payload.Attempt
+	case "flows.engine.v2.attempt-lifecycle":
+		var step struct {
+			Version       int    `json:"version"`
+			ExecutionID   string `json:"executionId"`
+			StepKeyDigest string `json:"stepKeyDigest"`
+			Attempt       *int64 `json:"attempt"`
+			Lifecycle     struct {
+				State string `json:"state"`
+			} `json:"lifecycle"`
+		}
+		if json.Unmarshal(event.Payload, &step) != nil || step.Version != 2 || step.Attempt == nil || *step.Attempt < 0 {
+			return "", false
+		}
+		execution, digest, state, attempt = step.ExecutionID, step.StepKeyDigest, step.Lifecycle.State, step.Attempt
+	default:
+		return "", false
+	}
+	if execution == "" || len(execution) > 1024 || digest == "" || len(digest) > 1024 ||
+		(state != "succeeded" && state != "failed") {
+		return "", false
+	}
+	encoded, _ := json.Marshal([]any{execution, digest, *attempt})
+	return string(encoded), true
 }
 
 // This timer runs in the install's stack worker, outside the guest event loop.

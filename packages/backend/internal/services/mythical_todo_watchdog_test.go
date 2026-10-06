@@ -2,7 +2,10 @@ package services
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
+	"os"
+	"strings"
 	"testing"
 	"time"
 
@@ -15,7 +18,7 @@ import (
 )
 
 func watchdogStep(i int) flowruntime.Event {
-	return flowruntime.Event{Kind: "flows.engine.v2.attempt-lifecycle", Payload: []byte(fmt.Sprintf(`{"version":2,"executionId":"child","stepKeyDigest":"step-%d","attempt":0,"lifecycle":{"state":"succeeded"}}`, i))}
+	return flowruntime.Event{Kind: "control.engine.event", Payload: []byte(fmt.Sprintf(`{"version":1,"eventType":"flows.engine.attempt-finished","executionId":"child","payload":{"runId":"child","stepKeyDigest":"step-%d","attempt":1,"state":"succeeded"}}`, i))}
 }
 
 func TestTodoWatchdogRetainsStepsAndExcludesWaits(t *testing.T) {
@@ -115,4 +118,86 @@ func TestTodoRetainsPinnedSourceAlongsideEditingBase(t *testing.T) {
 	require.NotEqual(t, item.BaseCommit, source, "the stack prefix and admitted main source are distinct objects")
 	require.Equal(t, item.BaseCommit, o.hostRef("refs/smithers/workspaces/"+item.WorkspaceID+"/sources/"+item.BaseCommit))
 	require.Equal(t, source, o.hostRef("refs/smithers/workspaces/"+item.WorkspaceID+"/sources/"+source))
+}
+
+// This envelope is from the actual bundled-host J5 control journal. ControlLive
+// exports its kind/payload unchanged; v2-only fixtures missed every real step.
+func TestTodoWatchdogCountsNativeControlEvents(t *testing.T) {
+	raw, err := os.ReadFile("testdata/todo-watchdog-native-completion.json")
+	require.NoError(t, err)
+	now := time.Now()
+	item := db.MythicalItem{State: "running", Attempt: 1, FlowDigest: pgtype.Text{String: todoPinOne, Valid: true}}
+	event := flowruntime.Event{Kind: "control.engine.event", Payload: raw}
+	update := flowdispatch.ProjectionUpdate{Events: []flowruntime.Event{event}, Checkpoint: flowdispatch.RuntimeCheckpoint{Run: &flowruntime.Run{Status: "running"}}}
+	projectTodoWatchdog(&item, update, now)
+	require.Len(t, mythicalChecksOf(item).Watchdog.Steps, 1, "the real host's completed step must spend the allowance")
+	// A replayed page has a different transport cursor, but the same instance.
+	update.Events[0].Sequence = 1234
+	projectTodoWatchdog(&item, update, now.Add(time.Minute))
+	require.Len(t, mythicalChecksOf(item).Watchdog.Steps, 1)
+	var envelope map[string]any
+	require.NoError(t, json.Unmarshal(raw, &envelope))
+	envelope["payload"].(map[string]any)["attempt"] = 2
+	second, err := json.Marshal(envelope)
+	require.NoError(t, err)
+	update.Events[0].Payload = second
+	projectTodoWatchdog(&item, update, now)
+	require.Len(t, mythicalChecksOf(item).Watchdog.Steps, 2, "another completed attempt is a distinct instance")
+	for name, mutate := range map[string]func(map[string]any){
+		"unknown-version":    func(e map[string]any) { e["version"] = 99 },
+		"started":            func(e map[string]any) { e["eventType"] = "flows.engine.attempt-started" },
+		"nonterminal":        func(e map[string]any) { e["payload"].(map[string]any)["state"] = "running" },
+		"missing-attempt":    func(e map[string]any) { delete(e["payload"].(map[string]any), "attempt") },
+		"zero-attempt":       func(e map[string]any) { e["payload"].(map[string]any)["attempt"] = 0 },
+		"wrong-execution":    func(e map[string]any) { e["payload"].(map[string]any)["runId"] = "unrelated" },
+		"missing-digest":     func(e map[string]any) { delete(e["payload"].(map[string]any), "stepKeyDigest") },
+		"negative-attempt":   func(e map[string]any) { e["payload"].(map[string]any)["attempt"] = -1 },
+		"fractional-attempt": func(e map[string]any) { e["payload"].(map[string]any)["attempt"] = 1.5 },
+		"empty-execution":    func(e map[string]any) { e["executionId"] = ""; e["payload"].(map[string]any)["runId"] = "" },
+		"oversized-execution": func(e map[string]any) {
+			e["executionId"] = strings.Repeat("e", 1025)
+			e["payload"].(map[string]any)["runId"] = e["executionId"]
+		},
+		"oversized-digest": func(e map[string]any) { e["payload"].(map[string]any)["stepKeyDigest"] = strings.Repeat("d", 1025) },
+	} {
+		t.Run(name, func(t *testing.T) {
+			var bad map[string]any
+			require.NoError(t, json.Unmarshal(raw, &bad))
+			mutate(bad)
+			encoded, err := json.Marshal(bad)
+			require.NoError(t, err)
+			current := db.MythicalItem{State: "running", Attempt: 1, FlowDigest: item.FlowDigest}
+			projectTodoWatchdog(&current, flowdispatch.ProjectionUpdate{Events: []flowruntime.Event{{Kind: "control.engine.event", Payload: encoded}}}, now)
+			require.Empty(t, mythicalChecksOf(current).Watchdog.Steps)
+		})
+	}
+}
+
+func TestTodoWatchdogRetainedLifecycleIdentity(t *testing.T) {
+	native := watchdogStep(1)
+	legacy := flowruntime.Event{Kind: "flows.engine.v2.attempt-lifecycle", Payload: []byte(`{"version":2,"executionId":"child","stepKeyDigest":"step-1","attempt":1,"lifecycle":{"state":"failed"}}`)}
+	first, ok := todoCompletedStep(native)
+	require.True(t, ok)
+	second, ok := todoCompletedStep(legacy)
+	require.True(t, ok)
+	require.Equal(t, first, second, "one instance cannot be charged twice across retained event encodings")
+	for _, raw := range []string{`{`, `null`, `{"version":2}`, `{"version":2,"executionId":"child","stepKeyDigest":"step-1","attempt":-1,"lifecycle":{"state":"failed"}}`} {
+		_, ok := todoCompletedStep(flowruntime.Event{Kind: legacy.Kind, Payload: []byte(raw)})
+		require.False(t, ok)
+	}
+	_, ok = todoCompletedStep(flowruntime.Event{Kind: "unrecognized", Payload: native.Payload})
+	require.False(t, ok)
+}
+
+func TestTodoWatchdogBoundsNativeEvidence(t *testing.T) {
+	item := db.MythicalItem{State: "running", Attempt: 1, FlowDigest: pgtype.Text{String: todoPinOne, Valid: true}}
+	update := flowdispatch.ProjectionUpdate{}
+	for i := range 1030 {
+		update.Events = append(update.Events, watchdogStep(i))
+	}
+	projectTodoWatchdog(&item, update, time.Now())
+	require.Len(t, mythicalChecksOf(item).Watchdog.Steps, 1024, "the persisted allowance stays bounded even when a page crosses it")
+	before := append([]byte(nil), item.Checks...)
+	projectTodoWatchdog(&item, update, time.Now())
+	require.JSONEq(t, string(before), string(item.Checks), "a replayed oversized page cannot grow evidence")
 }
