@@ -3,6 +3,7 @@ from pathlib import Path
 import unittest
 import tempfile
 import os
+import subprocess
 from unittest.mock import patch
 
 spec = importlib.util.spec_from_file_location("capture", Path(__file__).with_name("credential-soak-capture.py"))
@@ -58,6 +59,40 @@ class CaptureBoundary(unittest.TestCase):
 
     def test_failed_terminal_preserves_transport_status(self):
         self.assertEqual(self.run_terminal(["end:86401:0"], 7)[0], 7)
+
+class GuestAdmission(unittest.TestCase):
+    def invoke(self, uid, expected=20001, credentials=None):
+        with tempfile.TemporaryDirectory(dir=Path.cwd()) as directory:
+            root = Path(directory)
+            for name, text in {"id": f"#!/bin/sh\nprintf '%s\\n' {uid}\n", "date": "#!/bin/sh\nprintf '1\\n'\n"}.items():
+                path = root / name
+                path.write_text(text)
+                path.chmod(0o700)
+            env = {"PATH": str(root), "expected_uid": str(expected), "nonce": "test"}
+            env.update(credentials or {})
+            return subprocess.run(["/bin/bash", str(Path(__file__).with_name("credential-soak-guest.sh"))],
+                                  env=env, text=True, capture_output=True, timeout=5)
+
+    def test_root_and_agent_uids_refuse_before_tools(self):
+        for uid in [0, 19999]:
+            result = self.invoke(uid, uid)
+            self.assertEqual(result.returncode, 78)
+            self.assertIn("refused:1:1", result.stdout)
+
+    def test_wrong_person_refuses_before_tools(self):
+        self.assertEqual(self.invoke(20002).returncode, 78)
+
+    def test_environment_keys_cannot_substitute_for_independent_logins(self):
+        for name in ["ANTHROPIC_API_KEY", "OPENAI_API_KEY", "GH_TOKEN", "GITHUB_TOKEN"]:
+            result = self.invoke(20001, credentials={name: "secret-fixture"})
+            self.assertEqual(result.returncode, 78)
+            self.assertIn("refused:1:5", result.stdout)
+            self.assertNotIn("secret-fixture", result.stdout + result.stderr)
+
+    def test_missing_guest_timeout_refuses(self):
+        result = self.invoke(20001)
+        self.assertEqual(result.returncode, 69)
+        self.assertIn("refused:1:2", result.stdout)
 
 if __name__ == "__main__":
     unittest.main()
