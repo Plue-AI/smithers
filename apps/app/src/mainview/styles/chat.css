@@ -680,7 +680,7 @@
 
 /* Beside the activity rail (1,180 px and wider) the transcript keeps the rail's 272 px clear and stays centered when the viewport allows. */
 @media (min-width: 1180px) {
-	.app-shell .chat-frame:has(> .mvp-rail) .smithers-transcript .sui-chat-messages {
+	.app-shell .chat-frame:has(> .rail) .smithers-transcript .sui-chat-messages {
 		width: min(var(--chat-max-width), calc(100% - 320px));
 		margin-left: max(296px, calc((100% - var(--chat-max-width)) / 2));
 		align-self: flex-start;

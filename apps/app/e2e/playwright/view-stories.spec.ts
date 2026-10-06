@@ -7,6 +7,75 @@ const require = createRequire(resolve(process.cwd(), "package.json"))
 const axePath = require.resolve("axe-core/axe.min.js")
 const diffExpected: Record<string, string> = { item_base: 'description: "Complete one TODO"', fork: "export const repro = true", deleted: "export const legacy = true", burst: 'description: "Build"', multiple_hunks: "same", hostile: '<script>alert("diff")</script>' }
 const shots = process.env.SMITHERS_VIEW_SHOTS ?? resolve(process.cwd(), "../../.artifacts/checks/C-UI-12", new Date().toISOString().replace(/[:.]/g, "-"))
+test("Shell breakpoint and keyboard controls", async ({ page }) => {
+  await page.addInitScript(() => {
+    Object.assign(window, { shellReceipts: [] })
+    window.addEventListener("story-callback", event =>
+      (window as unknown as { shellReceipts: unknown[] }).shellReceipts.push((event as CustomEvent).detail))
+  })
+  for (const theme of ["light", "dark"]) for (const width of [1179, 1180]) for (const input of ["pointer", "Enter", "Space"]) {
+    await page.setViewportSize({ width, height: 1000 })
+    await page.goto(`/view-stories.html?story=Shell/Breakpoint%20and%20controls&theme=${theme}`)
+    const timeline = page.getByRole("navigation", { name: "Timeline", includeHidden: true })
+    await expect(timeline).toHaveCSS("display", width === 1179 ? "none" : "block")
+    for (const direction of ["above", "below"]) {
+      const edge = page.locator(`.edge[data-edge="${direction}"]`)
+      if (width === 1179) {
+        await expect(edge.locator(".edge-pill")).toBeVisible()
+        await expect(edge.locator(".tl-edge")).toBeHidden()
+      } else {
+        await expect(edge.locator(".edge-pill")).toBeHidden()
+        await expect(edge.locator(".tl-edge")).toBeVisible()
+        await expect(edge.locator(".tl-row")).toHaveCount(2)
+        await expect(edge.locator(".tl-more")).toHaveText(`+1 ${direction}`)
+      }
+    }
+    expect(await timeline.locator("li[data-in-view]").evaluateAll(rows => rows.map(row => row.getAttribute("data-entry")))).toEqual(["line-2", "line-3"])
+    await expect.poll(() => page.evaluate(() => Reflect.get(window, "shellReceipts"))).toEqual([
+      { kind: "view", value: { timeline_visible: width === 1180 } },
+    ])
+    await page.evaluate(() => { Reflect.get(window, "shellReceipts").length = 0 })
+    const expected: unknown[] = []
+    const activate = async (selector: string, receipt: unknown) => {
+      const control = page.locator(selector)
+      if (input === "pointer") await control.click()
+      else {
+        await control.focus()
+        await page.keyboard.press("Shift+Tab")
+        await page.keyboard.press("Tab")
+        await expect(control).toBeFocused()
+        expect(await control.evaluate(node => getComputedStyle(node).outlineStyle)).not.toBe("none")
+        await page.keyboard.press(input)
+      }
+      if (receipt) expected.push(receipt)
+      await expect.poll(() => page.evaluate(() => Reflect.get(window, "shellReceipts"))).toEqual(expected)
+    }
+    await expect(page.locator(".notice")).toHaveCount(3)
+    await expect(page.locator(".notice-more")).toHaveText("+2 more")
+    await activate(".notice-more", undefined)
+    await expect(page.locator(".notice")).toHaveCount(5)
+    await expect(page.locator(".notice-more")).toHaveCount(0)
+    await activate('[aria-label="Hide Needs you"]', { kind: "view", value: { toast_hidden: "notice-2" } })
+    await expect(page.locator(".notice")).toHaveCount(5)
+    await expect(timeline.locator("li")).toHaveCount(4)
+    await expect(page.locator(".edge .tl-row")).toHaveCount(4)
+    await activate('[data-flow="notifications.allow"]', { kind: "action", value: { tag: "notifications.allow", args: {} } })
+    if (width === 1179) {
+      await activate('[data-edge="above"] .edge-pill', { kind: "view", value: { jump_to: "above-3" } })
+      await activate('[data-edge="below"] .edge-pill', { kind: "view", value: { jump_to: "below-1" } })
+    } else {
+      await activate('[data-edge="above"] .tl-row >> nth=0', { kind: "view", value: { jump_to: "above-1" } })
+      await activate('[data-edge="below"] .tl-row >> nth=0', { kind: "view", value: { jump_to: "below-1" } })
+      await activate('[data-edge="above"] .tl-more', { kind: "view", value: { jump_to: "above-3" } })
+      await activate('[data-edge="below"] .tl-more', { kind: "view", value: { jump_to: "below-3" } })
+      await activate('[data-entry="line-2"] > button', { kind: "view", value: { jump_to: "line-2" } })
+      await activate('[data-entry="line-3"] > button', { kind: "view", value: { jump_to: "line-3" } })
+      expect(await timeline.locator('[data-entry="line-2"] > button').evaluate(node => getComputedStyle(node).boxShadow)).not.toBe("none")
+    }
+    expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true)
+  }
+})
+
 test("every View story: light/dark, desktop/mobile, axe and overflow", async ({ page, browserName }) => {
   test.skip(browserName !== "chromium", "C-UI-12 requires Chromium")
   test.setTimeout(1_800_000) // ~360 stories × 2 themes × 3 widths with axe takes ~11 min on the mini

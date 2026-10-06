@@ -13,16 +13,16 @@ function Line({ line, inView, onView, onAction }: { line: TimelineLine; inView: 
   const { glyph, action } = line
   const jump = () => onView({ jump_to: line.entry_id })
   return <li data-entry={line.entry_id} data-kind={line.kind} data-tone={line.tone} data-in-view={inView || undefined} data-fresh={line.fresh || undefined}>
-    <button type="button" onClick={jump}><span className="mvp-tl-node">
+    <button type="button" onClick={jump}><span className="tl-node">
       {"state" in glyph ? <StateGlyph state={glyph.state} /> : "actor" in glyph ? <ActorChip actor={glyph.actor} size="s" />
         : glyph.event === "running" ? <Spinner size="sm" aria-label="Working" />
-        : glyph.event === "ok" ? <Check size={13} className="mvp-tl-ok" aria-hidden="true" />
-        : glyph.event === "attention" ? <CircleAlert size={13} className="mvp-toast-attention" aria-hidden="true" />
-        : <X size={13} className="mvp-tl-failed" aria-hidden="true" />}
+        : glyph.event === "ok" ? <Check size={13} className="tl-ok" aria-hidden="true" />
+        : glyph.event === "attention" ? <CircleAlert size={13} className="toast-attention" aria-hidden="true" />
+        : <X size={13} className="tl-failed" aria-hidden="true" />}
     </span>
-      <span className="mvp-tl-text"><b>{line.title}</b>{line.summary === undefined ? null : <span>{line.summary}</span>}</span>
+      <span className="tl-text"><b>{line.title}</b>{line.summary === undefined ? null : <span>{line.summary}</span>}</span>
     </button>
-    {action ? <span className="mvp-tl-actions"><Button size="sm" variant="outline" data-flow={action.tag} disabled={Boolean(action.disabled)} onClick={event => { event.stopPropagation(); onAction(action.tag, action.args ?? {}) }}>{action.label}</Button>
+    {action ? <span className="tl-actions"><Button size="sm" variant="outline" data-flow={action.tag} disabled={Boolean(action.disabled)} onClick={event => { event.stopPropagation(); onAction(action.tag, action.args ?? {}) }}>{action.label}</Button>
       {action.disabled ? <span>{action.disabled.reason}</span> : null}</span> : null}
   </li>
 }
@@ -49,6 +49,6 @@ export function Timeline({ lines, on_screen, onView, onAction }: TimelineProps) 
   useSyncExternalStore(subscribe, () => window.matchMedia(WIDE).matches, () => false)
   const first = lines.findIndex(line => line.entry_id === on_screen[0])
   const last = lines.findIndex(line => line.entry_id === on_screen[1])
-  return <nav className="mvp-timeline" aria-label="Timeline"><ol>{lines.map((line, index) =>
+  return <nav className="timeline" aria-label="Timeline"><ol>{lines.map((line, index) =>
     <Line key={line.entry_id} line={line} inView={first >= 0 && last >= first && index >= first && index <= last} onView={onView} onAction={onAction} />)}</ol></nav>
 }

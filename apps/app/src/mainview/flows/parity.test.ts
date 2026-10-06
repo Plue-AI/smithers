@@ -236,6 +236,7 @@ const viewSeamViolations = (source: string, sourceUrl = new URL("../cards/views/
   // `copyText` from @smthrs/ui is the one clipboard effect a View handler may call (ui-components.md Rules 3).
   const clipboard = new Set<string>()
   const viewChildren = new Set<ts.Identifier>()
+  const codeEditors = new Set<ts.Identifier>()
   const collect = (node: ts.Node): void => {
     if (ts.isVariableDeclaration(node) && ts.isIdentifier(node.name) && node.initializer) {
       declarations.set(node.name.text, node.initializer)
@@ -254,6 +255,12 @@ const viewSeamViolations = (source: string, sourceUrl = new URL("../cards/views/
         for (const element of bindings.elements) {
           if (!element.isTypeOnly && (element.propertyName?.text ?? element.name.text) === "copyText") {
             clipboard.add(element.name.text)
+          }
+          // The shipped editor owns gesture dispatch; its File View only forwards the supplied seams.
+          if (!element.isTypeOnly && node.moduleSpecifier.text === "@smthrs/ui/adapters/code-editor" &&
+            (element.propertyName?.text ?? element.name.text) === "CodeEditorView") {
+            viewChildren.add(element.name)
+            codeEditors.add(element.name)
           }
         }
       }
@@ -609,6 +616,15 @@ const viewSeamViolations = (source: string, sourceUrl = new URL("../cards/views/
         const expression = attribute.initializer && ts.isJsxExpression(attribute.initializer)
           ? attribute.initializer.expression
           : undefined
+        // A comparison snapshot has no binding or gestures and intentionally discards cursor updates.
+        if (["onAction", "onView"].includes(name) && expression && ts.isArrowFunction(expression) &&
+          expression.parameters.length === 0 && !expression.modifiers?.length &&
+          ts.isBlock(expression.body) && expression.body.statements.length === 0 && ts.isIdentifier(node.tagName)) {
+          const child = resolveName(node.tagName, node.tagName.text)
+          if (child && codeEditors.has(child) && !attributes.some(attribute =>
+            ts.isJsxSpreadAttribute(attribute) || (ts.isJsxAttribute(attribute) &&
+              ["binding", "gestures"].includes(attribute.name.getText(tree))))) continue
+        }
         if (["onAction", "onView", "gestures"].includes(name) && expression && ts.isIdentifier(expression) &&
           expression.text === name && ts.isIdentifier(node.tagName)) {
           const callback = resolveName(expression, name)?.parent
@@ -891,6 +907,23 @@ describe("View and Container catalog seam (C-UI-08)", () => {
   test("nested row callbacks resolve the enclosing View prop without accepting shadows", () => {
     expect(viewSeamViolations('import { ActorChip } from "./ActorChip"; function View({ onAction }) { return items.map(item => item.rows.map(row => <ActorChip onAction={onAction} />)) }')).toEqual([])
     expect(viewSeamViolations('import { ActorChip } from "./ActorChip"; function View({ onAction }) { return items.map(onAction => <ActorChip onAction={onAction} />) }').length).toBeGreaterThan(0)
+  })
+
+  test("the shipped code editor accepts only unshadowed forwarding of the supplied seams", () => {
+    const imported = 'import { CodeEditorView as Editor } from "@smthrs/ui/adapters/code-editor"; '
+    expect(viewSeamViolations(imported + 'function View({ onAction, onView, gestures }) { return <Editor onAction={onAction} onView={onView} gestures={gestures} /> }')).toEqual([])
+    expect(viewSeamViolations(imported + 'function View() { return <Editor onAction={() => {}} onView={() => {}} /> }')).toEqual([])
+    for (const source of [
+      imported + 'function View() { return <Editor binding={binding} onAction={() => {}} onView={() => {}} /> }',
+      imported + 'function View() { return <Editor gestures={gestures} onAction={() => {}} onView={() => {}} /> }',
+      imported + 'function View() { return <Editor {...props} onAction={() => {}} onView={() => {}} /> }',
+      imported + 'function View() { return <Editor onAction={() => localStorage.clear()} onView={() => {}} /> }',
+      imported + 'function View({ onAction }) { const Editor = () => <button />; return <Editor onAction={onAction} /> }',
+      imported + 'function View() { const onAction = () => localStorage.clear(); return <Editor onAction={onAction} /> }',
+      imported + 'function View({ onAction }) { return <Editor onAction={() => onAction("run")} /> }',
+      'import { OtherView as Editor } from "@smthrs/ui/adapters/code-editor"; function View({ onAction }) { return <Editor onAction={onAction} /> }',
+      'import type { CodeEditorView as Editor } from "@smthrs/ui/adapters/code-editor"; function View({ onAction }) { return <Editor onAction={onAction} /> }',
+    ]) expect(viewSeamViolations(source).length).toBeGreaterThan(0)
   })
 
   test("onAction forwards the action's opaque tag and optional form input", () => {

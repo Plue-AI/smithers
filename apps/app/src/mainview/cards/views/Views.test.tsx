@@ -1,4 +1,8 @@
 import { SetupAction } from "./SetupAction"
+import { EdgeMap } from "../../EdgeMap"
+import { Timeline } from "../../Timeline"
+import { ToastStack } from "../../ToastStackView"
+import type { ToastCard } from "@smthrs/rpc/ToastCard"
 import type { Action } from "@smthrs/rpc/CardAction"
 import { stories as secretsStories } from "./SecretsView.stories"
 import { SecretsView } from "./SecretsView"
@@ -2971,7 +2975,7 @@ describe("Timeline glyphs and actions", () => {
   }
   test("state uses the shared failed glyph", async () => {
     const view = await renderLine({ state: "failed" })
-    expect(view.host.querySelector(".mvp-tl-node .lucide-x.glyph")).not.toBeNull()
+    expect(view.host.querySelector(".tl-node .lucide-x.glyph")).not.toBeNull()
     await view.close()
   })
   test("actor uses the author's avatar", async () => {
@@ -2982,7 +2986,7 @@ describe("Timeline glyphs and actions", () => {
   for (const [event, selector] of [["running", '[data-slot="spinner"][aria-label="Working"]'], ["ok", ".lucide-check"], ["attention", ".lucide-circle-alert"], ["failed", ".lucide-x"]] as const) {
     test(`event ${event} renders its glyph`, async () => {
       const view = await renderLine({ event }, { fresh: true })
-      expect(view.host.querySelector(`.mvp-tl-node ${selector}`)).not.toBeNull()
+      expect(view.host.querySelector(`.tl-node ${selector}`)).not.toBeNull()
       expect(view.host.querySelector("li[data-fresh]")).not.toBeNull()
       await view.close()
     })
@@ -3072,3 +3076,94 @@ for (const state of ["missing", "stale", "closed", "gone", "binary", "no_outside
     expect(onAction).not.toHaveBeenCalled()
   } finally { await act(async () => root.unmount()); host.remove() }
 })
+
+// T-UI-08: the mounted production shell refuses unavailable actions and keeps text inert.
+describe("Shell controls and viewport subscription", () => {
+  const notices: ToastCard[] = [
+    { id: "allow", entry_id: "answer", title: "Notifications", kind: "allow_notifications", tone: "attention", action: { tag: "notifications.allow", label: "Allow" } },
+    { id: "absent", entry_id: "answer", title: '<img src=x onerror="window.__shellPwned=1">', detail: '<script>window.__shellPwned=1</script>', kind: "allow_notifications", tone: "quiet" },
+    { id: "disabled", entry_id: "failed", title: "Retry", kind: "failed", tone: "failed", action: { tag: "todo.retry", label: "Retry", disabled: { reason: "Not yours" } } },
+  ]
+  test("Allow forwards its supplied action without asking permission; absent and disabled acts do nothing", async () => {
+    const permission = mock(() => Promise.resolve("granted"))
+    const original = Object.getOwnPropertyDescriptor(window, "Notification")
+    Object.defineProperty(window, "Notification", { configurable: true, value: { requestPermission: permission } })
+    const view = await mounted({ name: "Notices", expect: [], render: callbacks => <ToastStack toasts={notices} more={0} onAction={callbacks.onAction} onView={patch => callbacks.onView({ ...patch })} /> })
+    try {
+      expect(view.host.querySelectorAll('[data-flow="notifications.allow"]')).toHaveLength(1)
+      expect(view.host.querySelector('[data-notice="absent"] [data-flow]')).toBeNull()
+      expect(view.host.querySelector("img,script")).toBeNull()
+      expect(view.host.textContent).toContain('<img src=x onerror="window.__shellPwned=1">')
+      expect(view.host.textContent).toContain('<script>window.__shellPwned=1</script>')
+      await act(async () => view.host.querySelector<HTMLButtonElement>('[data-flow="notifications.allow"]')!.click())
+      await act(async () => view.host.querySelector<HTMLButtonElement>('[data-flow="todo.retry"]')!.click())
+      expect(view.onAction.mock.calls).toEqual([["notifications.allow", {}]])
+      expect(permission).toHaveBeenCalledTimes(0)
+      expect(Reflect.get(window, "__shellPwned")).toBeUndefined()
+    } finally {
+      await view.close()
+      if (original) Object.defineProperty(window, "Notification", original)
+      else Reflect.deleteProperty(window, "Notification")
+    }
+  })
+  test("Hide preserves timeline and edge entries; empty arrays provide no controls", async () => {
+    const view = await mounted({ name: "Shell", expect: [], render: callbacks => <>
+      <ToastStack toasts={[notices[2]!]} more={0} onAction={callbacks.onAction} onView={patch => callbacks.onView({ ...patch })} />
+      <EdgeMap above={[notices[2]!]} below={[]} narrow={false} onAction={callbacks.onAction} onView={patch => callbacks.onView({ ...patch })} />
+      <Timeline lines={[{ entry_id: "failed", kind: "event", title: "Failed", tone: "failed", glyph: { event: "failed" } }]} on_screen={["failed", "failed"]} onAction={callbacks.onAction} onView={patch => callbacks.onView({ ...patch })} />
+    </> })
+    view.onView.mockClear()
+    await act(async () => view.host.querySelector<HTMLButtonElement>('[aria-label="Hide Retry"]')!.click())
+    expect(view.onView.mock.calls).toEqual([[{ toast_hidden: "disabled" }]])
+    expect(view.host.querySelectorAll(".edge .tl-row")).toHaveLength(1)
+    expect(view.host.querySelectorAll(".timeline li")).toHaveLength(1)
+    await act(async () => view.host.querySelector<HTMLButtonElement>('.edge [data-flow="todo.retry"]')!.click())
+    expect(view.onAction.mock.calls).toEqual([])
+    await view.close()
+    const empty = await mounted({ name: "Empty", expect: [], render: callbacks => <>
+      <EdgeMap above={[]} below={[]} narrow={true} onAction={callbacks.onAction} onView={patch => callbacks.onView({ ...patch })} />
+      <ToastStack toasts={[]} more={0} onAction={callbacks.onAction} onView={patch => callbacks.onView({ ...patch })} />
+    </> })
+    expect(empty.host.querySelectorAll("button")).toHaveLength(0)
+    await empty.close()
+  })
+  test("hostile edge and timeline text stays inert; missing actions render only jumps", async () => {
+    const view = await mounted({ name: "Hostile", expect: [], render: callbacks => <>
+      <EdgeMap above={[notices[1]!]} below={[]} narrow={false} onAction={callbacks.onAction} onView={patch => callbacks.onView({ ...patch })} />
+      <Timeline lines={[{ entry_id: "answer", kind: "answer", title: '<img src=x onerror="window.__shellPwned=1">', summary: '<script>window.__shellPwned=1</script>', tone: "quiet", glyph: { state: "queued" } }]} on_screen={["answer", "answer"]} onAction={callbacks.onAction} onView={patch => callbacks.onView({ ...patch })} />
+    </> })
+    expect(view.host.querySelector("img,script,[data-flow]")).toBeNull()
+    expect(view.host.querySelector(".tl-text")!.textContent).toContain('<script>window.__shellPwned=1</script>')
+    view.onView.mockClear()
+    await act(async () => view.host.querySelector<HTMLButtonElement>('.timeline li > button')!.click())
+    expect(view.onView.mock.calls).toEqual([[{ jump_to: "answer" }]])
+    expect(view.onAction.mock.calls).toEqual([])
+    expect(Reflect.get(window, "__shellPwned")).toBeUndefined()
+    await view.close()
+  })
+  test("visibility reports once per transition, rerenders do not report, and unmount removes the listener", async () => {
+    const original = window.matchMedia
+    const listeners = new Set<() => void>()
+    let matches = false
+    const media = { get matches() { return matches }, addEventListener: (_: string, fn: () => void) => listeners.add(fn), removeEventListener: (_: string, fn: () => void) => listeners.delete(fn) }
+    window.matchMedia = mock(query => { expect(query).toBe("(min-width: 1180px)"); return media as unknown as MediaQueryList })
+    const old = mock((_patch: Record<string, unknown>) => {})
+    const latest = mock((_patch: Record<string, unknown>) => {})
+    const render = (onView: typeof old) => <Timeline lines={[]} on_screen={["", ""]} onAction={() => {}} onView={patch => onView({ ...patch })} />
+    const view = await mounted({ name: "Viewport", expect: [], render: () => render(old) })
+    try {
+      expect(old.mock.calls).toEqual([[{ timeline_visible: false }]])
+      expect(listeners.size).toBe(1)
+      await act(async () => view.root.render(render(latest)))
+      expect(latest.mock.calls).toEqual([])
+      await act(async () => { matches = true; for (const notify of listeners) notify() })
+      await act(async () => { for (const notify of listeners) notify() })
+      await act(async () => { matches = false; for (const notify of listeners) notify() })
+      expect(latest.mock.calls).toEqual([[{ timeline_visible: true }], [{ timeline_visible: false }]])
+      expect(old.mock.calls).toEqual([[{ timeline_visible: false }]])
+      await view.close()
+      expect(listeners.size).toBe(0)
+    } finally { window.matchMedia = original }
+  })
+})
+

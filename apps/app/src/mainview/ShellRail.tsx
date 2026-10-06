@@ -150,7 +150,7 @@ export function ShellRail({ entries, home }: { readonly entries: ReadonlyArray<R
   }
   const onEdgeAction = (tag: CatalogTag, args?: Record<string, string>): void => { controller.commands.submit({ name: tag, payload: args ?? {}, actor: "user" }) }
   const last = lines.at(-1)?.entry_id ?? ""
-  return <aside className="mvp-rail" aria-label="Activity" data-keyboard-pane="Timeline" data-wide={wide || undefined}>
+  return <aside className="rail" aria-label="Activity" data-keyboard-pane="Timeline" data-wide={wide || undefined}>
     <EdgeMap above={edges.above} below={edges.below} narrow={!wide} onAction={onEdgeAction} onView={onView} />
     <Timeline lines={lines} on_screen={band === undefined ? [last, last] : [band[0], band[1]]} onView={onView} onAction={timeline.onAction} />
     <ToastStack toasts={notices} more={Math.max(0, notices.length - 3)} onAction={onToastAction} onView={onView} />

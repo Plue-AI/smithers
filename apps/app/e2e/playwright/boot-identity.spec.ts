@@ -54,7 +54,7 @@ for (const command of ["/flow.run review smithersai/smithers", "/secrets.list", 
       : "Sign in with GitHub to read pull requests on smithersai/smithers.")
     await expect(prompt.getByRole("button", { name: "Sign in with GitHub", exact: true })).toBeVisible()
     await expect(page.getByText(/0 Open|No open issues in/)).toHaveCount(0)
-    await expect(page.locator(".mvp-notice")).toHaveCount(0)
+    await expect(page.locator(".notice")).toHaveCount(0)
     expect(new URL(page.url()).pathname).toMatch(/^\/smithersai\/smithers\/?$/)
     expect(redirects).toEqual([])
     if (command === "/secrets.list") {

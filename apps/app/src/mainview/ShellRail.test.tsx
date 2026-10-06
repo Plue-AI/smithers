@@ -1,3 +1,4 @@
+import { scopedControllers } from "./state/ControllerTestScope"
 import { PlaceholderAvatarUrl } from "@smthrs/rpc/CardPrimitives"
 /*
  * The activity rail (T-APP-07): the card file's mapping from transcript
@@ -12,7 +13,13 @@ import { createRoot } from "react-dom/client"
 import type { ShellView, ToastCard } from "@smthrs/rpc/ToastCard"
 import type { TimelineLine } from "@smthrs/rpc/TimelineCard"
 import { EdgeMap } from "./EdgeMap"
-import { homeLine, railEdges, railLines, railNotices, timelineActions, type RailEntry } from "./ShellRail"
+import { ShellRail, homeLine, railEdges, railLines, railNotices, timelineActions, type RailEntry } from "./ShellRail"
+import { MessageScrollerProvider } from "@smthrs/ui"
+import { ControllerTestProvider } from "./ControllerContext"
+import { createAppStore } from "./state/AppStore"
+import { memoryStorage, silentAgent, waitFor } from "./state/TestFixtures"
+import { installFixture } from "./state/seams/InstallFixtures.test-support"
+import { fixtures as todoFixtures } from "@smthrs/rpc/fixtures/Todo"
 import type { Card, Message, Toast } from "./state/AppState"
 import { homeFailureModel } from "./cards/HomeContainer"
 import { Timeline } from "./Timeline"
@@ -25,6 +32,7 @@ afterAll(async () => {
 })
 const cleanups: Array<() => void> = []
 afterEach(() => { while (cleanups.length) cleanups.pop()?.() })
+const createAppController = scopedControllers()
 
 const mount = (node: ReactNode): HTMLElement => {
   const host = document.createElement("div")
@@ -44,6 +52,37 @@ const card = (id: string, status: Card["status"], title = "Build"): RailEntry =>
 const line = (entry_id: string, tone: TimelineLine["tone"]): TimelineLine => ({ entry_id, kind: "card", title: entry_id, tone, glyph: { state: "queued" } })
 const toast = (id: string, status: Toast["status"], createdAt: number, extra: Partial<Toast> = {}): Toast =>
   ({ id, key: id, title: `Toast ${id}`, detail: "", status, createdAt, updatedAt: createdAt, ...extra })
+
+test("the mounted install rail reads the real seams and Hide runs toast.dismiss without removing the transcript", async () => {
+  const store = await createAppStore({ kind: "localStorage", storage: memoryStorage() })
+  await store.dispatch({ type: "identity.session.loaded", actor: "system", state: "signed-in", login: "smithersai", admin: false, scopesPlain: null }).isPersisted.promise
+  const reads: string[] = []
+  const controller = createAppController(store, silentAgent, {
+    bootstrap: { apiVersion: 1, host: "local", version: "test", buildSha: "test", capabilities: ["install"], authFlow: "none", sandbox: null },
+    fetchImpl: async input => {
+      const path = new URL(String(input), "https://install.test").pathname
+      reads.push(path)
+      return path === "/api/install" ? Response.json(installFixture())
+        : path === "/api/todos" ? Response.json([todoFixtures.working.model, todoFixtures.needs_you.model])
+        : new Response("", { status: 404 })
+    },
+  })
+  await store.dispatch({ type: "toast.shown", actor: "system", key: "checks", title: "Checks failed", sourceCard: "checks-entry" }).isPersisted.promise
+  await store.dispatch({ type: "toast.resolved", actor: "system", key: "checks", title: "Checks failed", detail: "TestRetry failed", status: "failed" }).isPersisted.promise
+  const host = mount(<ControllerTestProvider controller={controller}><MessageScrollerProvider>
+    <ShellRail home={true} entries={[card("checks-entry", "error", "Checks failed")]} />
+  </MessageScrollerProvider></ControllerTestProvider>)
+  await waitFor(() => host.querySelector('[data-entry="home"] .tl-text b')?.textContent === "smithersai/smithers")
+  expect(controller.design.enabled).toBe(false)
+  expect(reads).toContain("/api/install")
+  expect(reads).toContain("/api/todos")
+  expect(host.querySelector('[data-entry="home"] .tl-text')?.textContent).toBe("smithersai/smithers1 need you · 1 working")
+  expect(host.querySelectorAll(".notice")).toHaveLength(1)
+  click(host.querySelector('[aria-label="Hide Checks failed"]'))
+  await waitFor(() => host.querySelectorAll(".notice").length === 0)
+  expect(store.collections.toasts.get("toast-checks")).toBeUndefined()
+  expect(host.querySelector('[data-entry="checks-entry"] .tl-text b')?.textContent).toBe("Checks failed")
+})
 
 describe("ShellRail maps the conversation to the rail", () => {
   test("home prioritizes attention, includes starting work, and keeps failed reads count-free", () => {
@@ -118,19 +157,19 @@ describe("the rail's Views at their callback seam", () => {
     const actions: Array<[string, Record<string, string> | undefined]> = []
     const toasts = [notice("1", "failed", { action: { tag: "background.retry", label: "Retry", args: { toast: "1" } } }), notice("2", "live"), notice("3", "done"), notice("4", "quiet"), notice("5", "attention")]
     const host = mount(<ToastStack toasts={toasts} more={2} onAction={(tag, args) => actions.push([tag, args])} onView={patch => views.push(patch)} />)
-    expect(host.querySelectorAll(".mvp-notice").length).toBe(3)
-    expect(host.querySelectorAll('.mvp-notice[role="alert"]').length).toBe(1)
-    expect(host.querySelectorAll('.mvp-notice[role="status"]').length).toBe(2)
-    const more = host.querySelector(".mvp-notice-more")!
+    expect(host.querySelectorAll(".notice").length).toBe(3)
+    expect(host.querySelectorAll('.notice[role="alert"]').length).toBe(1)
+    expect(host.querySelectorAll('.notice[role="status"]').length).toBe(2)
+    const more = host.querySelector(".notice-more")!
     expect(more.textContent).toBe("+2 more")
     click(more)
-    expect(host.querySelectorAll(".mvp-notice").length).toBe(5)
-    expect(host.querySelector(".mvp-notice-more")).toBeNull()
+    expect(host.querySelectorAll(".notice").length).toBe(5)
+    expect(host.querySelector(".notice-more")).toBeNull()
     click(host.querySelector('[aria-label="Hide Notice 2"]'))
     expect(views).toEqual([{ toast_hidden: "2" }])
     click(host.querySelector('[data-flow="background.retry"]'))
     expect(actions).toEqual([["background.retry", { toast: "1" }]])
-    expect(host.querySelectorAll(".mvp-notice").length).toBe(5)
+    expect(host.querySelectorAll(".notice").length).toBe(5)
   })
 
   test("an edge shows two rows and +N, its pill jumps to the nearest live entry, a disabled action emits nothing", () => {
@@ -138,19 +177,19 @@ describe("the rail's Views at their callback seam", () => {
     const actions: string[] = []
     const above = [notice("a", "attention", { action: { tag: "todo.answer", label: "Answer", args: { todo: "9" } } }), notice("b", "failed", { action: { tag: "todo.retry", label: "Retry", disabled: { reason: "Not yours" } } }), notice("c", "live")]
     const host = mount(<EdgeMap above={above} below={[]} narrow={false} onAction={tag => actions.push(tag)} onView={patch => views.push(patch)} />)
-    expect(host.querySelectorAll(".mvp-edge").length).toBe(1)
-    expect(host.querySelector(".mvp-edge-pill")?.textContent).toBe("↑ 3 live above")
-    expect(host.querySelector(".mvp-edge-pill")?.getAttribute("data-tone")).toBe("attention")
-    expect(host.querySelectorAll(".mvp-tl-edge > li").length).toBe(3)
-    expect(host.querySelector(".mvp-tl-more")?.textContent).toBe("+1 above")
-    click(host.querySelector(".mvp-edge-pill"))
-    click(host.querySelector(".mvp-tl-more"))
-    click(host.querySelector(".mvp-tl-row"))
+    expect(host.querySelectorAll(".edge").length).toBe(1)
+    expect(host.querySelector(".edge-pill")?.textContent).toBe("↑ 3 live above")
+    expect(host.querySelector(".edge-pill")?.getAttribute("data-tone")).toBe("attention")
+    expect(host.querySelectorAll(".tl-edge > li").length).toBe(3)
+    expect(host.querySelector(".tl-more")?.textContent).toBe("+1 above")
+    click(host.querySelector(".edge-pill"))
+    click(host.querySelector(".tl-more"))
+    click(host.querySelector(".tl-row"))
     expect(views).toEqual([{ jump_to: "c" }, { jump_to: "c" }, { jump_to: "a" }])
     click(host.querySelector('[data-flow="todo.answer"]'))
     click(host.querySelector('[data-flow="todo.retry"]'))
     expect(actions).toEqual(["todo.answer"])
-    expect(host.querySelector(".mvp-tl-actions span")?.textContent).toBe("Not yours")
+    expect(host.querySelector(".tl-actions span")?.textContent).toBe("Not yours")
   })
 
   test("the timeline marks the band inclusively, a line click jumps, and visibility is reported once", () => {
