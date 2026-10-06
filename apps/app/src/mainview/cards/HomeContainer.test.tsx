@@ -273,6 +273,9 @@ test("a host with no home provider keeps the seed; a provider that fails shows m
   const b = browser()
   try {
     await act(async () => b.root.render(<ControllerTestProvider controller={seeded(MAYA, true).controller}><HomeCard /></ControllerTestProvider>))
+    // Unsupported topics retain the seed; provider failures stay visible.
+    await b.answer({ t: "err", code: "unsupported" })
+    for (const title of SEEDED_TITLES) expect(b.host.textContent).toContain(title)
     await b.answer({ t: "err", code: "unknown_topic" })
     for (const title of SEEDED_TITLES) expect(b.host.textContent).toContain(title)
   } finally { await b.close() }
