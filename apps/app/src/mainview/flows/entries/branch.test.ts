@@ -437,3 +437,36 @@ test("SSH clipboard completion waits for the copy and reports its failure", asyn
     })))).toMatchObject({ outcome: "failure", message: "Flow ssh failed: Copy failed" })
   } finally { complete(); h.controller.dispose() }
 })
+
+
+test("standalone install SSH owns a read subscription and releases it on success, refusal, identity change and disposal", async () => {
+  for (const outcome of ["success", "forbidden", "malformed", "identity", "dispose"] as const) {
+    const store = await createAppStore({ kind: "localStorage", storage: memoryStorage() })
+    let snapshot: import("../../runtime/LiveChannel").TopicSnapshot | undefined
+    let notify = () => {}
+    let subscribed = 0, released = 0
+    const profile = signupProfileFetch(async input => new URL(String(input), "https://install.test").pathname === "/api/branches/scratch%2Fben%2Fretry"
+      ? Response.json({ name: "scratch/ben/retry", machine: { id: "b-ssh" } }) : new Response("{}", { status: 404 }))
+    const controller = createAppController(store, unavailableAgent, { fetchImpl: profile.fetchImpl,
+      live: { subscribe: (topic, listener) => { if (topic === "branch:b-ssh") { subscribed++; notify = listener; return () => { released++ } } return () => {} }, getSnapshot: topic => topic === "branch:b-ssh" ? snapshot : undefined },
+      bootstrap: { apiVersion: 1, host: "local", version: "test", buildSha: "test", capabilities: ["install"], authFlow: "redirect", sandbox: null } })
+    await store.dispatch({ type: "identity.session.loaded", actor: "system", state: "signed-in", login: "ben", admin: false, scopesPlain: null }).isPersisted.promise
+    try {
+      let settled = false
+      const request = controller.submitCommand({ name: "ssh", payload: { branch: "scratch/ben/retry" }, actor: "user" }).then(value => { settled = true; return value })
+      for (let i = 0; i < 100 && subscribed === 0; i++) await new Promise(resolve => setTimeout(resolve, 1))
+      expect(subscribed).toBe(1)
+      expect(settled).toBe(false)
+      expect(store.collections.cards.get("branch:b-ssh")).toBeUndefined()
+      if (outcome === "identity") await store.dispatch({ type: "identity.session.loaded", actor: "system", state: "signed-out", login: null, admin: false, scopesPlain: null }).isPersisted.promise
+      else if (outcome === "dispose") controller.dispose()
+      else {
+        snapshot = outcome === "forbidden" ? { topic: "branch:b-ssh", error: "forbidden" }
+          : { topic: "branch:b-ssh", data: { id: outcome === "malformed" ? "another-branch" : "b-ssh", ssh_line: "ssh -p 2222 scratch/ben/retry@localhost" } }
+        notify()
+      }
+      expect(await request).toMatchObject(outcome === "success" ? { status: "executed", value: "ssh -p 2222 scratch/ben/retry@localhost" } : { status: "failed" })
+      expect(released).toBe(1)
+    } finally { controller.dispose() }
+  }
+})
