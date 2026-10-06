@@ -341,7 +341,7 @@ func (s *MythicalService) prepareConfirmation(ctx context.Context, tx pgx.Tx, re
 		if input.Command == "learning.dismiss" {
 			verb = "Dismiss"
 		}
-	case "todo.new":
+	case "todo.new", "todo.from-issue":
 		var request MythicalTodoInput
 		if err := confirmationJSON(input.Payload, &request); err != nil {
 			return p, err
@@ -356,8 +356,17 @@ func (s *MythicalService) prepareConfirmation(ctx context.Context, tx pgx.Tx, re
 		if err != nil {
 			return p, err
 		}
+		if input.Command == "todo.new" && request.Issue != nil || input.Command == "todo.from-issue" && request.Issue == nil {
+			return p, invalidConfirmation()
+		}
 		if request.Issue != nil {
-			return p, confirmationUnavailable()
+			role, err := InstallRoleOf(ctx, db.New(tx), info.User.ID)
+			if err != nil {
+				return p, err
+			}
+			if _, err = s.readTodoIssue(ctx, repository, role, *request.Issue, request.IssueDigest); err != nil {
+				return p, err
+			}
 		}
 		if (subject.Kind != "" || subject.Ref != "") && (subject.Kind != "todo" || subject.Ref != "new") {
 			return p, invalidConfirmation()
@@ -610,7 +619,7 @@ func (s *ApprovalsService) DecideConfirmation(ctx context.Context, id, decision,
 				if card.Todo != nil {
 					number = card.Todo.N
 				}
-			case "todo.new":
+			case "todo.new", "todo.from-issue":
 				var request MythicalTodoInput
 				if err = json.Unmarshal(prepared.input, &request); err != nil {
 					return err
