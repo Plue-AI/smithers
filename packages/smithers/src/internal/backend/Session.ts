@@ -4,7 +4,7 @@
  */
 
 import { createHash } from "node:crypto"
-import { chmodSync, mkdirSync, readFileSync, renameSync, rmSync, statSync, writeFileSync } from "node:fs"
+import { chmodSync, closeSync, constants, fstatSync, mkdirSync, openSync, readFileSync, readSync, renameSync, rmSync, statSync, writeFileSync } from "node:fs"
 import { homedir } from "node:os"
 import { dirname, join, resolve as resolvePath } from "node:path"
 import { parse, stringify } from "yaml"
@@ -119,11 +119,13 @@ export class Session {
   readonly authPath: string
   readonly env: Readonly<Record<string, string | undefined>>
   private readonly tokenFile: string | undefined
+  private readonly managedFile: boolean
   private readonly fileEpochs = new Map<string, CredentialEpoch>()
   private readonly nativeEpochs = new Map<string, CredentialEpoch>()
   constructor(env: Readonly<Record<string, string | undefined>>) {
     this.env = env
     this.tokenFile = env.SMITHERS_TOKEN_FILE ? resolvePath(env.SMITHERS_TOKEN_FILE) : undefined
+    this.managedFile = !!(env.SMITHERS_TOKEN_FILE?.startsWith("/run/smithers/") || this.tokenFile?.startsWith("/run/smithers/"))
     this.home = env.HOME || homedir()
     this.configPath = join(
       env.XDG_CONFIG_HOME ||
@@ -179,18 +181,61 @@ export class Session {
   // A managed terminal's session file (/run/smithers/...) is its only
   // credential: an environment token cannot switch its identity (#3537).
   private managedTokenFile(): boolean {
-    return !!this.tokenFile?.startsWith("/run/smithers/")
+    return this.managedFile
   }
   invalidateCredential(origin: string, expected: string): void {
     if (this.tokenFile && this.credentialIdentity(origin) === expected) this.fileEpoch(this.tokenFile).revision++
   }
   private readTokenFile(): string {
     try {
-      const stat = statSync(this.tokenFile!)
-      if (!stat.isFile() || stat.size > 16384) throw invalidToken()
-      const token = readFileSync(this.tokenFile!, "utf8").trim()
-      if (!tokenPattern.test(token)) throw invalidToken()
-      return token
+      if (this.managedFile) {
+        // Bind the literal issuer path before normalization. Traversal must
+        // never turn a managed terminal into an ordinary credential source.
+        if (this.env.SMITHERS_TOKEN_FILE !== this.tokenFile ||
+          !/^\/run\/smithers\/(?:[1-9][0-9]*\/token\/)?sessions\/[A-Za-z0-9_-]+\/token$/.test(this.tokenFile!)) {
+          throw invalidToken()
+        }
+      }
+      // Managed files live in Linux guests. Walk through held directory
+      // descriptors so replacing an ancestor cannot redirect the read.
+      let parent: number | undefined
+      let descriptor: number
+      try {
+        if (this.managedFile) {
+          parent = openSync("/", constants.O_RDONLY | constants.O_DIRECTORY)
+          const parts = this.tokenFile!.split("/").filter(Boolean)
+          for (const part of parts.slice(0, -1)) {
+            const next = openSync(`/proc/self/fd/${parent}/${part}`,
+              constants.O_RDONLY | constants.O_DIRECTORY | constants.O_NOFOLLOW)
+            closeSync(parent)
+            parent = next
+          }
+          descriptor = openSync(`/proc/self/fd/${parent}/token`,
+            constants.O_RDONLY | constants.O_NOFOLLOW | constants.O_NONBLOCK)
+        } else {
+          descriptor = openSync(this.tokenFile!, constants.O_RDONLY | constants.O_NOFOLLOW | constants.O_NONBLOCK)
+        }
+      } finally {
+        if (parent !== undefined) closeSync(parent)
+      }
+      try {
+        const stat = fstatSync(descriptor)
+        if (!stat.isFile() || stat.size > 16384 || (stat.mode & 0o444) === 0) throw invalidToken()
+        if (this.managedFile && ((stat.mode & 0o777) !== 0o600 || stat.uid !== process.getuid?.())) throw invalidToken()
+        const bytes = Buffer.alloc(16385)
+        let length = 0
+        while (length < bytes.length) {
+          const count = readSync(descriptor, bytes, length, bytes.length - length, null)
+          if (count === 0) break
+          length += count
+        }
+        if (length > 16384) throw invalidToken()
+        const token = bytes.subarray(0, length).toString("utf8").trim()
+        if (!tokenPattern.test(token)) throw invalidToken()
+        return token
+      } finally {
+        closeSync(descriptor)
+      }
     } catch {
       throw new Refused({
         fault: "user",

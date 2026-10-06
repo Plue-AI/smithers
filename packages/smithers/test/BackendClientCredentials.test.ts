@@ -1,4 +1,4 @@
-import { chmod, mkdtemp, readFile, rename, rm, writeFile } from "node:fs/promises"
+import { chmod, mkdtemp, readFile, rename, rm, symlink, writeFile } from "node:fs/promises"
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from "node:http"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
@@ -708,6 +708,35 @@ describe("terminal credential files (#3537)", () => {
     expect(session.credentialIdentity(f.origin)).toBe(
       new Session({ ...f.environment, SMITHERS_TOKEN_FILE: "/run/smithers/sessions/a/token" }).credentialIdentity(f.origin)
     )
+    expect(spawn).not.toHaveBeenCalled()
+  })
+
+  it("refuses a foreign session symlink after 401 without sending another mutation", async () => {
+    const f = await fixture()
+    const pathA = join(f.home, "A"), pathB = join(f.home, "B")
+    await writeFile(pathA, "synthetic-A")
+    await writeFile(pathB, "synthetic-B")
+    f.allow("synthetic-A")
+    f.allow("synthetic-B")
+    const a = new Client({ environment: { ...f.environment, SMITHERS_TOKEN_FILE: pathA } })
+    await a.response("GET", "/probe")
+    f.disallow("synthetic-A")
+    await expect(a.response("POST", "/probe", {})).rejects.toMatchObject({ status: 401 })
+    await rm(pathA)
+    await symlink(pathB, pathA)
+    const before = f.received.length
+    await expect(a.response("POST", "/probe", {})).rejects.toMatchObject({ code: "token_file_unavailable" })
+    expect(f.received.length).toBe(before)
+    expect(f.received.filter(({ method }) => method === "POST")).toHaveLength(1)
+    expect(spawn).not.toHaveBeenCalled()
+  })
+
+  it("keeps malformed managed paths bound and refuses environment identity overrides", async () => {
+    const f = await fixture()
+    for (const path of ["/run/smithers/../../tmp/token", "/run/smithers/token", "/run//smithers/sessions/a/token", "/run/smithers/sessions/a/../b/token"]) {
+      const session = new Session({ ...f.environment, SMITHERS_TOKEN_FILE: path, SMITHERS_TOKEN: "synthetic-env-value" })
+      await expect(session.require()).rejects.toMatchObject({ code: "token_file_unavailable" })
+    }
     expect(spawn).not.toHaveBeenCalled()
   })
 
