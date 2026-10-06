@@ -19,7 +19,6 @@ export const canDecide = (flowOrTask: string | undefined, admin: boolean): boole
  * registration card, and an approval nobody here can decide is not shown.
  */
 export const shownInTranscript = (card: Card, admin: boolean): boolean => {
-  if (card.kind === "repo-import") return card.payload.registration !== true
   if (card.kind === "run-trace") return card.payload.workflow !== "register-repository"
   if (card.kind === "approval") return canDecide(card.payload.question?.name, admin)
   return true

@@ -71,6 +71,7 @@ func TestSettingsHealthInstallHTTPPostgres(t *testing.T) {
 	stored, err := q.GetInstallSetting(t.Context(), "todo_daily_admissions")
 	require.NoError(t, err)
 	require.JSONEq(t, "24", string(stored.Value), "invalid owner writes preserve the allowance")
+	require.Equal(t, owner.ID, stored.UpdatedBy.Int64)
 	retry := time.Date(2026, 10, 6, 12, 0, 0, 0, time.UTC)
 	for _, test := range []struct {
 		name, state, cause, process string

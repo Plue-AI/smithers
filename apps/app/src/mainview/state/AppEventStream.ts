@@ -1,3 +1,4 @@
+import { RepositoryImportRequestSchema } from "@smthrs/rpc/Cards"
 import { Data } from "effect"
 import { digest } from "@smthrs/core/Digest"
 import { makeDigestPartsSync } from "@smthrs/crypto"
@@ -47,7 +48,7 @@ export const APP_EVENT_FORMAT_VERSION = 1
 // 32: account-scoped committed conversation replay adds conversation.restored (#3197).
 // 33: MVP Cut retires card kinds/forms and chrome transitions; rotate pre-Cut streams
 // from decoded materialized rows instead of replaying old sealed bytes with new semantics.
-export const APP_PROJECTOR_VERSION = 33
+export const APP_PROJECTOR_VERSION = 34
 
 const JsonSchema: z.ZodType<EventJson> = z.lazy(() => z.union([
   z.null(), z.boolean(), z.number().finite(), z.string(), z.array(JsonSchema), z.record(z.string(), JsonSchema)
@@ -154,7 +155,18 @@ const rowJson = (row: unknown): unknown => {
 export const normalizeAppProjection = (input: unknown): AppProjectionSnapshot => {
   encodeEventValue(input)
   if (typeof input !== "object" || input === null || Array.isArray(input)) return fail("projection")
-  const names = Object.keys(input)
+  const saved = input as Record<string, unknown>
+  const imports = Array.isArray(saved.cards) ? saved.cards.flatMap(row => {
+    if (typeof row !== "object" || row === null || !("kind" in row) || row.kind !== "repo-import") return []
+    const decoded = RepositoryImportRequestSchema.safeParse(row)
+    return decoded.success ? [decoded.data] : []
+  }) : []
+  if (imports.length && Array.isArray(saved.sessions)) input = { ...saved, sessions: saved.sessions.map(row => {
+    if (typeof row !== "object" || row === null || !("id" in row) || row.id !== "main") return row
+    const current = "repositoryImports" in row && Array.isArray(row.repositoryImports) ? row.repositoryImports : []
+    return { ...row, repositoryImports: [...current, ...imports.filter(request => !current.some((existing: unknown) => typeof existing === "object" && existing !== null && "id" in existing && existing.id === request.id))] }
+  }) }
+  const names = Object.keys(input as object)
   if (names.length !== APP_PROJECTION_COLLECTION_NAMES.length || names.some(name => !Object.hasOwn(APP_PROJECTION_SCHEMAS, name))) return fail("projection")
   const entries = APP_PROJECTION_COLLECTION_NAMES.map(name => {
     const rows = (input as Record<string, unknown>)[name]

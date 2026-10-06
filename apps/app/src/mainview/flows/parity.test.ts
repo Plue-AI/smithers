@@ -1289,20 +1289,14 @@ describe("launch-law parity: every affordance is a command", () => {
       "../cards/IssueCards.tsx": 12, // + the detail's comment box submit (issues.comment), the thread rows, the kind chips, the saved view toggles and Make TODO (todo.from-issue)
       "../cards/IssueThread.tsx": 3, // The chat body: composer submit and send, reaction toggles, Retry, Resolve an unknown delivery, the parent link, the state acts.
       "../cards/LandingCards.tsx": 5, // Includes the durable PR tab flow.
-      "../cards/FileCards.tsx": 3,
+      "../cards/FileCards.tsx": 2,
+      "../cards/ModelCards.tsx": 6, // Restored model-assignment controls in Settings.
       /* A row's Test, Edit, Remove and select; New; and the attention row's Assign, Test or Edit. */
       /* Mark-all-read. */
-      "../cards/EnvCard.tsx": 3,
-      /* The account card's Sign out door (sign-out through onRunCommand). */
-      "../cards/AccountCard.tsx": 1, // The permissions read's Retry (account.show) is a FailureNotice action.
-      /* 2 = Try again + the done state's Open the workspace (lane sync). */
-      "../cards/RepoImportCard.tsx": 2,
-      // The tutorial's ranked chooser: one row button plus Skip.
-      "../cards/RepositoryChoiceCard.tsx": 2,
       // The login screen (Will, 2026-10-03): the GitHub door and the email form's submit.
       "../cards/LoginScreen.tsx": 2,
 
-      "../cards/SyncCards.tsx": 5,
+      "../cards/SyncCards.tsx": 2,
       /* The /theme picker: nine swatches, one shared handler through onRunCommand. */
       /*
        * Lane citc: the workspace card's five facet tabs, the terminal facet's
@@ -1331,7 +1325,6 @@ describe("launch-law parity: every affordance is a command", () => {
        */
       "../cards/RunsCards.tsx": 15, // Retained run references and question-answer controls.
       "../cards/SearchResultsCard.tsx": 2,
-      "../cards/SecretsCard.tsx": 10,
       /* Local Open tab, cloud session Stop, and inventory Open/Stop. */
       "../cards/AgentCards.tsx": 1, // + each profile row's Runs door (runs.list flow=<profile>).
       "../cards/AnonymousCeilingCard.tsx": 1,
@@ -1387,7 +1380,7 @@ describe("launch-law parity: every affordance is a command", () => {
        * available flows (flow.list), the predicted Change rows
        * (runs.coding.select) — all through onRunCommand with data-flow set.
        */
-      "../cards/CodingPlanCard.tsx": 4,
+      "../cards/CodingPlanCard.tsx": 2,
       "../cards/CodingPocCard.tsx": 2, // Native execution inspection and existing steering form.
       /* The commits cards: a row's and a parent's commits.read, and the sha chip's chat.copy-message — all through onRunCommand. */
       "../cards/CommitCards.tsx": 3,

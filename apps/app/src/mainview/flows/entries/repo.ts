@@ -5,7 +5,7 @@
  */
 import { Schema } from "effect"
 import { text } from "@smthrs/ui/flow-form"
-import { flow, RepoTarget } from "./Declare"
+import { flow, RepoTarget, NoPayload } from "./Declare"
 import type { FlowEntry, FlowRequirement, Namespace } from "../registry"
 import type { CommandActions } from "./Declare"
 
@@ -62,20 +62,12 @@ export const repoFlows = (actions: CommandActions): ReadonlyArray<FlowEntry> => 
   })
 ]
 
-/** Root composes these after wiring the repository lane controller. */
-export const tutorialRepositoryFlows = (actions: import("../../state/controller/repositoryChoice").TutorialRepositoryActions): ReadonlyArray<FlowEntry> => [
-  flow({
-    name: "repo.choose", hidden: true, discloseToAgent: false,
-    summary: "Choose a recently pushed GitHub repository",
-    args: "[owner/repo]", input: Schema.Struct({ repo: Schema.optional(Schema.String) }),
-    handler: ({ repo }) => actions.chooseTutorialRepository(repo)
-  }),
-  flow({
-    name: "repo.create", hidden: true, discloseToAgent: false,
-    summary: "Create repository",
-    args: "<name>", input: Schema.Struct({ name: Schema.String }),
-    form: { fields: { name: { kind: "text" } } },
-    confirm: "create repository",
-    handler: ({ name }) => actions.createTutorialRepository(name)
-  })
+/** Recorded first-run doors now use the install Setup card. */
+export const tutorialRepositoryFlows = (actions: CommandActions): ReadonlyArray<FlowEntry> => [
+  ...["repo.choose", "repo.create"].map(name => flow({
+    name, hidden: true, discloseToAgent: false, minimumRole: "owner", actors: ["person"], agent: "never",
+    agentReason: "Install setup requires the owner’s person session", summary: "Setup", input: NoPayload,
+    grammar: () => ({ payload: {} }),
+    handler: async () => { await actions.presentCard("setup", "Set up Smithers"); return actions.showSetup() }
+  }))
 ]

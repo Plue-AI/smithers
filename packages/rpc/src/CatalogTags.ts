@@ -3,6 +3,7 @@ import { z } from "zod"
 export const CATALOG_TAGS = [
   "settings.address",
   "settings.capacity",
+  "settings.daily-admissions",
   "settings.obsidian",
   "settings.parallel",
   "settings.model-key",

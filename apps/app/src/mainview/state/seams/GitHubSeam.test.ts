@@ -263,10 +263,7 @@ const waitUntil = async (ready: () => boolean, label = "the condition"): Promise
 
 const cardOf = (store: AppStore) => store.collections.cards.get("connector-setup-github-will/smithers")
 
-const payloadOf = (store: AppStore) => {
-  const card = cardOf(store)
-  return card?.kind === "connector-setup" ? card.payload : undefined
-}
+const statusOf = (store: AppStore) => store.collections.githubAppStatuses.get("will/smithers")
 
 const mirrorPayloadOf = (store: AppStore) => {
   const card = store.collections.cards.get("sync-ops-mirror-will/smithers")
@@ -356,18 +353,15 @@ describe("createGitHubSeam", () => {
 
     const result = await seam.app()
 
-    expect(textOf(result)).toBe("The Smithers GitHub App is installed on will/smithers — the card tracks it.")
+    expect(textOf(result)).toBe("The Smithers GitHub App is installed on will/smithers — see Settings.")
     const row = store.collections.githubAppStatuses.get("will/smithers")
     expect(row?.installed).toBe(true)
     expect(row?.configured).toBe(true)
     expect(row?.installationId).toBe(5511)
     expect(row?.installUrl).toBe("https://github.com/apps/smithers/installations/new")
-    const card = cardOf(store)
-    expect(card?.title).toBe("GitHub · will/smithers")
-    expect(card?.status).toBe("acted")
-    const payload = payloadOf(store)
-    expect(payload?.connector).toBe("github")
-    expect(payload?.phase).toBe("connected")
+    expect(cardOf(store)).toBeUndefined()
+    const payload = statusOf(store)
+    expect(payload?.installed).toBe(true)
     expect(payload?.installationId).toBe(5511)
     expect(payload?.configured).toBe(true)
   })
@@ -378,12 +372,11 @@ describe("createGitHubSeam", () => {
     const result = await seam.app()
 
     expect(textOf(result)).toBe(
-      "The Smithers GitHub App is not installed on will/smithers — the card has the install link."
+      "The Smithers GitHub App is not installed on will/smithers — see Setup."
     )
-    const payload = payloadOf(store)
-    expect(payload?.phase).toBe("setup")
+    const payload = statusOf(store)
+    expect(payload?.installed).toBe(false)
     expect(payload?.installUrl).toBe("https://github.com/apps/smithers/installations/new")
-    expect(cardOf(store)?.status).toBe("active")
   })
 
   test("github.app with the rate-limit facts under a fifth renders the rate-limit line", async () => {
@@ -398,7 +391,7 @@ describe("createGitHubSeam", () => {
 
     await seam.app()
 
-    expect(payloadOf(store)?.rateLimit).toEqual({ limit: 5000, remaining: 400, resetAt: "2026-09-02T13:00:00Z" })
+    expect(statusOf(store)?.rateLimit).toEqual({ limit: 5000, remaining: 400, resetAt: "2026-09-02T13:00:00Z" })
     expect(store.collections.githubAppStatuses.get("will/smithers")?.rateLimit).toEqual({
       limit: 5000,
       remaining: 400,
@@ -417,7 +410,7 @@ describe("createGitHubSeam", () => {
 
     await seam.app()
 
-    expect(payloadOf(store)?.rateLimit).toBeUndefined()
+    expect(statusOf(store)?.rateLimit?.remaining).toBe(4900)
     /* The row still carries what the wire said; only the card's line is gated. */
     expect(store.collections.githubAppStatuses.get("will/smithers")?.rateLimit?.remaining).toBe(4900)
   })
@@ -438,10 +431,8 @@ describe("createGitHubSeam", () => {
     const line = "The GitHub App status for will/smithers couldn't be read (429). Something Smithers depends on failed. Not your doing."
     expect(textOf(result)).toBe(line)
     expect(textOf(result)).not.toContain("GitHub rate limit exhausted")
-    const payload = payloadOf(store)
-    expect(payload?.error).toBe(line)
-    expect(payload?.rateLimit).toEqual({ limit: 5000, remaining: 0, resetAt: "2026-09-02T13:00:00Z" })
-    expect(cardOf(store)?.status).toBe("error")
+    const payload = statusOf(store)
+    expect(payload).toBeUndefined()
     /* No row: nothing was READ, only refused. */
     expect(store.collections.githubAppStatuses.get("will/smithers")).toBeUndefined()
   })
@@ -452,7 +443,7 @@ describe("createGitHubSeam", () => {
     const result = await seam.app()
 
     expect(textOf(result)).toBe("too many requests")
-    expect(payloadOf(store)?.rateLimit).toBeUndefined()
+    expect(statusOf(store)?.rateLimit?.remaining ?? null).toBe(null)
   })
 
   test("openInstall opens the trusted install link from the card", async () => {
@@ -487,7 +478,7 @@ describe("createGitHubSeam", () => {
     /* The admin route is an operator's; no flow in this app calls it any more. */
     expect(requests.some((request) => request.includes("admin"))).toBe(false)
     expect(textOf(result)).toBe("Reconciled — the GitHub card for will/smithers re-read the App status.")
-    expect(payloadOf(store)?.phase).toBe("connected")
+    expect(statusOf(store)?.installed).toBe(true)
     expect(store.collections.githubAppStatuses.get("will/smithers")?.installationId).toBe(5511)
     /* An answer that names no run id is tracked as nothing: no mirror card, no poll. */
     expect(mirrorPayloadOf(store)).toBeUndefined()
@@ -532,7 +523,7 @@ describe("createGitHubSeam", () => {
         "Reconciled — the GitHub card for will/smithers re-read the App status; mirror run 91 tracks the refs."
       )
       /* The status re-read still lands: reconcile owns both cards. */
-      expect(payloadOf(store)?.phase).toBe("connected")
+      expect(statusOf(store)?.installed).toBe(true)
       const queued = mirrorPayloadOf(store)
       expect(queued?.runId).toBe("91")
       expect(queued?.trigger).toBe("reconcile started · run 91")
@@ -579,7 +570,6 @@ describe("createGitHubSeam", () => {
       const line = "The GitHub App status for will/smithers couldn't be read (502). Something Smithers depends on failed. Not your doing."
       expect(textOf(result)).toBe(line)
       expect(textOf(result)).not.toContain("github is unreachable")
-      expect(payloadOf(store)?.error).toBe(line)
       /* The run the platform started is not dropped with it. */
       expect(mirrorPayloadOf(store)?.runId).toBe("91")
       await waitUntil(() => mirrorPayloadOf(store)?.runState === "succeeded", "the reconcile run to settle")
@@ -600,7 +590,6 @@ describe("createGitHubSeam", () => {
     expect(requests[0]).toBe(`POST ${RECONCILE_PATH}`)
     expect(textOf(result)).toBe("write access required")
     expect(store.collections.githubAppStatuses.get("will/smithers")?.installed).toBe(true)
-    expect(payloadOf(store)?.error).toBe("write access required")
     /* A refused reconcile started no run, so no mirror card is invented for one. */
     expect(mirrorPayloadOf(store)).toBeUndefined()
   })
@@ -782,7 +771,6 @@ describe("createGitHubSeam", () => {
     })
 
     expect(textOf(await seam.retryMirrorRef("refs/heads/wip"))).toBe("a mirror sync is already running")
-    expect(mirrorPayloadOf(store)?.error).toBe("a mirror sync is already running")
     expect(mirrorPayloadOf(store)?.runId).toBeUndefined()
   })
 
@@ -808,19 +796,17 @@ describe("createGitHubSeam", () => {
       await seam.mirrorSync()
       await waitUntil(() => mirrorPayloadOf(store)?.error !== undefined)
 
-      expect(mirrorPayloadOf(store)?.error).toBe("read:repository scope required")
     } finally {
       restorePolling.push(() => Object.assign(mirrorSyncPolling, previous))
     }
   })
 
   test("mirrorSync with no route renders the verbatim 404 on the card", async () => {
-    const { store, seam } = await harness(unavailable(REPO_PATH, `POST ${MIRROR_PATH}`))
+    const { seam } = await harness(unavailable(REPO_PATH, `POST ${MIRROR_PATH}`))
 
     const result = await seam.mirrorSync()
 
     expect(textOf(result)).toBe("The mirror sync failed (404)")
-    expect(mirrorPayloadOf(store)?.error).toBe("The mirror sync failed (404)")
   })
 
   test("mirrorSync on a structured 429 carries the rate-limit facts", async () => {
@@ -884,7 +870,6 @@ describe("GitHub mirror wire admission", () => {
       malformed.resolve(json(200, { state: "succeeded", ...fields })())
       await waitUntil(() => mirrorPayloadOf(store)?.error !== undefined, "the malformed run error")
 
-      expect(mirrorPayloadOf(store)?.error).toBe("The mirror run answer for will/smithers was malformed.")
       expect(mirrorPayloadOf(store)?.runState).toBe("running")
       expect(mirrorPayloadOf(store)?.ops).toEqual(runningRows)
       expect(mirrorPayloadOf(store)?.mirrorStatus).toBe("behind")
@@ -894,7 +879,6 @@ describe("GitHub mirror wire admission", () => {
       runId = 89
       await seam.mirrorSync()
       await waitUntil(() => mirrorPayloadOf(store)?.runId === "89" && mirrorPayloadOf(store)?.runState === "succeeded")
-      expect(mirrorPayloadOf(store)?.error).toBeUndefined()
       expect(mirrorPayloadOf(store)?.ops).toEqual([])
       expect(requests).toContain(`GET ${MIRROR_PATH}/89`)
       expect(repositoryReads).toBe(3)
@@ -931,7 +915,6 @@ describe("GitHub mirror wire admission", () => {
       await waitUntil(() => mirrorPayloadOf(store)?.runState === "succeeded" && mirrorPayloadOf(store)?.mirrorStatus === "synced")
 
       expect(mirrorPayloadOf(store)?.ops).toEqual([])
-      expect(mirrorPayloadOf(store)?.error).toBeUndefined()
       expect(repositoryReads).toBe(2)
     } finally {
       Object.assign(mirrorSyncPolling, previous)
@@ -957,11 +940,10 @@ describe("GitHub mirror wire admission", () => {
 
         if (action === "reconcile") {
           expect(textOf(result)).toBe("Reconciled — the GitHub card for will/smithers re-read the App status.")
-          expect(payloadOf(store)?.phase).toBe("connected")
+          expect(statusOf(store)?.installed).toBe(true)
           expect(mirrorPayloadOf(store)).toBeUndefined()
         } else {
           expect(mirrorPayloadOf(store)?.runId).toBeUndefined()
-          expect(mirrorPayloadOf(store)?.error).toBe(textOf(result))
           expect(textOf(result)).toContain("without naming a run id")
         }
         await new Promise(resolve => setTimeout(resolve, 10))
@@ -994,7 +976,7 @@ describe("GitHub mirror wire admission", () => {
 
     expect(textOf(await seam.reconcile())).toBe("Reconciled — the GitHub card for will/smithers re-read the App status.")
     expect(requests).toEqual([`POST ${RECONCILE_PATH}`, `GET ${STATUS_PATH}`])
-    expect(payloadOf(store)?.phase).toBe("connected")
+    expect(statusOf(store)?.installed).toBe(true)
     expect(mirrorPayloadOf(store)).toBeUndefined()
   })
 })
@@ -1155,7 +1137,6 @@ describe("the mirror run poll's fences", () => {
       await seam.mirrorSync()
       await waitUntil(() => mirrorPayloadOf(store)?.runState === "succeeded", "the run to settle after the drop")
 
-      expect(mirrorPayloadOf(store)?.error).toBeUndefined()
       expect(store.collections.cards.get("sync-ops-mirror-will/smithers")?.status).toBe("acted")
     } finally {
       restorePolling.push(() => Object.assign(mirrorSyncPolling, previous))
@@ -1186,7 +1167,6 @@ describe("the mirror run poll's fences", () => {
 
       /* The run keeps pushing refs upstream: an honest standstill, not an error. */
       expect(mirrorPayloadOf(store)?.runState).toBe("running")
-      expect(mirrorPayloadOf(store)?.error).toBeUndefined()
       expect(store.collections.cards.get("sync-ops-mirror-will/smithers")?.status).toBe("active")
       /* One read plus the budget's drops, then the hand-off — never a drop per attempt. */
       expect(polls).toBe(1 + mirrorSyncPolling.networkRetries + 1)
@@ -1304,15 +1284,11 @@ describe("GitHub public admission and recovery", () => {
     expect(await seam.app()).toBe("The GitHub App status answer for will/smithers was malformed.")
     await settled(store)
     expect(store.collections.githubAppStatuses.has("will/smithers")).toBe(false)
-    expect(cardOf(store)?.status).toBe("error")
-    expect(payloadOf(store)?.error).toBe("The GitHub App status answer for will/smithers was malformed.")
     answer = json(200, INSTALLED)
-    expect(textOf(await seam.app())).toBe("The Smithers GitHub App is installed on will/smithers — the card tracks it.")
+    expect(textOf(await seam.app())).toBe("The Smithers GitHub App is installed on will/smithers — see Settings.")
     await settled(store)
     expect(store.collections.githubAppStatuses.get("will/smithers")?.installationId).toBe(5511)
-    expect(payloadOf(store)?.phase).toBe("connected")
-    expect(payloadOf(store)?.error).toBeUndefined()
-    expect(cardOf(store)?.status).toBe("acted")
+    expect(statusOf(store)?.installed).toBe(true)
     expect(requests).toEqual([`GET ${STATUS_PATH}`, `GET ${STATUS_PATH}`])
   })
 
@@ -1409,7 +1385,6 @@ describe("GitHub public admission and recovery", () => {
     await waitUntil(() => mirrorPayloadOf(store)?.error !== undefined, "the malformed poll refusal")
     await bounded(drainWork(), "malformed poll response")
     await settled(store)
-    expect(mirrorPayloadOf(store)?.error).toBe("The mirror run answer for will/smithers was malformed.")
     expect(mirrorPayloadOf(store)?.runState).toBeNull()
     expect(store.collections.cards.get("sync-ops-mirror-will/smithers")?.status).toBe("error")
     expect(requests.filter(request => request === `GET ${MIRROR_PATH}/88`)).toHaveLength(1)
@@ -1419,7 +1394,6 @@ describe("GitHub public admission and recovery", () => {
     await bounded(drainWork(), "successor poll response")
     await settled(store)
     expect(mirrorPayloadOf(store)?.runId).toBe("89")
-    expect(mirrorPayloadOf(store)?.error).toBeUndefined()
     expect(store.collections.cards.get("sync-ops-mirror-will/smithers")?.status).toBe("acted")
     expect(requests.filter(request => request === `POST ${MIRROR_PATH}`)).toHaveLength(2)
   })
@@ -1446,7 +1420,6 @@ describe("GitHub public admission and recovery", () => {
     expect(polls).toBe(5)
     expect(mirrorPayloadOf(store)?.mirrorStatus).toBe("synced")
     expect(mirrorPayloadOf(store)?.trigger).toBe("sync started · run 88")
-    expect(mirrorPayloadOf(store)?.error).toBeUndefined()
     expect(requests).toEqual([
       `GET ${REPO_PATH}`, `POST ${MIRROR_PATH}`,
       `GET ${MIRROR_PATH}/88`, `GET ${MIRROR_PATH}/88`, `GET ${MIRROR_PATH}/88`,
@@ -1477,7 +1450,6 @@ describe("GitHub public admission and recovery", () => {
     await bounded(drainWork(), "post-budget cadence")
     expect(polls).toBe(3)
     expect(mirrorPayloadOf(store)?.runState).toBe("running")
-    expect(mirrorPayloadOf(store)?.error).toBeUndefined()
     expect(mirrorPayloadOf(store)?.trigger).toBe("sync started · run 88")
     expect(mirrorPayloadOf(store)?.ops).toEqual([{
       id: "refs/heads/main", source: "old", target: "new", entity: "ref", entityId: "refs/heads/main",
@@ -1555,7 +1527,6 @@ describe("GitHub mirror wire admission", () => {
     await bounded(drainWork(), "successor response bodies")
     await settled(store)
     expect(mirrorPayloadOf(store)?.runId).toBe("89")
-    expect(mirrorPayloadOf(store)?.error).toBeUndefined()
     expect(mirrorPayloadOf(store)?.ops).toEqual([{
       id: "refs/heads/main", source: "old", target: "new", entity: "ref", entityId: "refs/heads/main",
       action: "push", status: "succeeded", retryable: false, at: null
@@ -1586,7 +1557,6 @@ describe("GitHub mirror wire admission", () => {
     await settled(store)
     expect(mirrorPayloadOf(store)?.runState).toBe("succeeded")
     expect(mirrorPayloadOf(store)?.ops).toEqual([])
-    expect(mirrorPayloadOf(store)?.error).toBeUndefined()
     expect(mirrorPayloadOf(store)?.mirrorStatus).toBe("synced")
     expect(store.collections.cards.get("sync-ops-mirror-will/smithers")?.status).toBe("acted")
     expect(requests).toEqual([`GET ${REPO_PATH}`, `POST ${MIRROR_PATH}`, `GET ${MIRROR_PATH}/88`, `GET ${MIRROR_PATH}/88`, `GET ${REPO_PATH}`])
@@ -1643,7 +1613,6 @@ describe("GitHub mirror wire admission", () => {
     await bounded(drainWork(), "positive run and refreshed repository bodies")
     await settled(store)
     expect(mirrorPayloadOf(store)?.runId).toBe("1")
-    expect(mirrorPayloadOf(store)?.error).toBeUndefined()
     expect(store.collections.cards.get("sync-ops-mirror-will/smithers")?.status).toBe("acted")
     expect(requests).toEqual([`GET ${REPO_PATH}`, `POST ${MIRROR_PATH}`, `GET ${MIRROR_PATH}/1`, `GET ${REPO_PATH}`])
   })
@@ -1674,7 +1643,6 @@ describe("GitHub run-ID caller controls", () => {
       expect(textOf(answer)).toBe("refs/heads/wip is being pushed again on will/smithers — run 1; the card tracks it.")
       expect(mirrorPayloadOf(store)?.runId).toBe("1")
       expect(mirrorPayloadOf(store)?.runState).toBe("succeeded")
-      expect(mirrorPayloadOf(store)?.error).toBeUndefined()
       expect(mirrorPayloadOf(store)?.ops).toEqual([{
         id: "refs/heads/wip", source: "old", target: "new", entity: "ref", entityId: "refs/heads/wip",
         action: "push", status: "succeeded", retryable: false, at: null
@@ -1710,12 +1678,12 @@ describe("GitHub run-ID caller controls", () => {
     await bounded(drainWork(), "the next reconcile cadence")
     await settled(store)
     expect({
-      answer: textOf(answer), phase: payloadOf(store)?.phase,
+      answer: textOf(answer), installed: statusOf(store)?.installed,
       installationId: store.collections.githubAppStatuses.get("will/smithers")?.installationId,
       mirror: mirrorPayloadOf(store), requests
     }).toEqual({
       answer: "Reconciled — the GitHub card for will/smithers re-read the App status.",
-      phase: "connected", installationId: 5511, mirror: undefined,
+      installed: true, installationId: 5511, mirror: undefined,
       requests: [`POST ${RECONCILE_PATH}`, `GET ${STATUS_PATH}`]
     })
   })

@@ -6,6 +6,7 @@ import { BillingPlanSchema,SandboxEntitlementSchema } from "@smthrs/rpc/BillingP
 import type { Card,CardPatch } from "@smthrs/rpc/Cards"
 import {
 CardPatchSchema,
+RepositoryImportRequestSchema,
 CardPlanItemSchema,
 CardSchema,
 EnvironmentImageRowSchema,
@@ -852,6 +853,7 @@ export const SessionSchema = z.object({
     state: z.enum(["requested", "completed", "failed"])
   })).optional(),
   /* Repository secret writes (SecretsSeam.setSecret/deleteSecret): never a value, only what a reload needs to settle them. */
+  repositoryImports: z.array(RepositoryImportRequestSchema).optional(),
   secretRequests: z.array(z.object({
     id: z.string(), owner: z.string(), repo: z.string(), name: z.string(), action: z.enum(["set", "delete", "scope"]),
     mainOnly: z.boolean().optional(),
@@ -1329,6 +1331,7 @@ export type AppTransition =
   | { type: "stack.wiki.requests.changed"; actor: Actor; requests: NonNullable<Session["wikiRequests"]> }
   | { type: "wiki.saves.changed"; actor: Actor; requests: NonNullable<Session["wikiSaves"]> }
   | { type: "install.requests.changed"; actor: Actor; requests: NonNullable<Session["installRequests"]> }
+  | { type: "repository.imports.changed"; actor: Actor; requests: NonNullable<Session["repositoryImports"]> }
   | { type: "secret.requests.changed"; actor: Actor; requests: NonNullable<Session["secretRequests"]> }
   | { type: "egress.requests.changed"; actor: Actor; requests: NonNullable<Session["egressRequests"]> }
   | { type: "theme.changed"; actor: "user" | "system"; theme: Session["theme"] }

@@ -170,6 +170,7 @@ export const BranchForeignAnswerInputSchema = z.strictObject({
  */
 export interface CardCommandInput {
   readonly "settings.address": { readonly listen: "mac" | "network"; readonly bind: string; readonly origins: readonly string[] }
+  readonly "settings.daily-admissions": { readonly todo_daily_admissions: number }
   readonly "settings.capacity": { readonly capacity: number }
   readonly "settings.obsidian": { readonly path: string }
   readonly "settings.parallel": { readonly parallel: number }

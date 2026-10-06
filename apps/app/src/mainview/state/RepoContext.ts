@@ -30,8 +30,8 @@ export const knownRepositories = (store: AppStore): KnownRepositories => {
   const known = new Set<string>(store.collections.repositories.keys())
   // A completed import is authoritative before the repository inventory refreshes.
   // Use the returned repository, never the name of a pending import request.
-  for (const card of store.collections.cards.values()) {
-    if (card.kind !== "repo-import" || card.payload.phase !== "done" || card.payload.repository == null) continue
+  for (const card of store.session().repositoryImports ?? []) {
+    if (card.payload.phase !== "done" || card.payload.repository == null) continue
     const repo = `${card.payload.repository.owner}/${card.payload.repository.name}`
     if (REPO_TOKEN.test(repo)) known.add(repo)
   }

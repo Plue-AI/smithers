@@ -8,8 +8,6 @@ const approval = (name?: string): Card => ({ id: "a", kind: "approval", title: "
   payload: { capability: "Review", detail: "Review repository registration", runId: "run-1", requestId: "review",
     approval: { target: { _tag: "Node", runId: "run-1", requestId: "review" }, scope: "run", idempotencyKey: "review" },
     ...(name === undefined ? {} : { question: { kind: "select", prompt: "Register?", name, options: ["Approve", "Reject"] } }) } })
-const imported = (registration?: boolean): Card => ({ id: "import", kind: "repo-import", title: "Import", status: "active", createdAt: 0, ordinal: 0,
-  payload: { repo: "acme/widgets", jobId: "import-1", phase: "running", detail: null, ...(registration === undefined ? {} : { registration }) } })
 
 test("a registration's review is the admin's; every other wait is the run owner's", () => {
   expect(adminDecided("register-repository")).toBe(true)
@@ -27,10 +25,5 @@ test("the transcript shows no registration run or import, and no approval its vi
   expect(shownInTranscript(approval("register-repository/review"), false)).toBe(false)
   expect(shownInTranscript(approval("register-repository/review"), true)).toBe(true)
   expect(shownInTranscript(approval(), false)).toBe(true)
-  for (const admin of [false, true]) {
-    expect(shownInTranscript(imported(true), admin)).toBe(false)
-    expect(shownInTranscript(imported(false), admin)).toBe(true)
-    expect(shownInTranscript(imported(), admin)).toBe(true)
-  }
   expect(shownInTranscript({ id: "notice", kind: "status", title: "Notice", status: "acted", createdAt: 0, ordinal: 0, payload: { note: "Ready" } }, false)).toBe(true)
 })

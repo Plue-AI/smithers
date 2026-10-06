@@ -1,3 +1,4 @@
+import { CardSchema } from "@smthrs/rpc/Cards"
 import type { AgentTurnFrame } from "@smthrs/rpc/NativeAgent"
 import { describe,expect,test } from "bun:test"
 import { SCHEMA_VERSION_STORAGE_KEY } from "../chain/SchemaVersion"
@@ -567,7 +568,7 @@ describe("persisted account ownership", () => {
   }
 })
 
-test("card updates merge partial payloads, refuse kind changes, and persist redacted env values", async () => {
+test("card updates merge partial payloads, refuse kind changes, and retain legacy environment titles", async () => {
   const storage = memoryStorage()
   const store = await createAppStore({ kind: "localStorage", storage })
   const card: Card = { id: "patch-file", kind: "file", title: "File", status: "active", createdAt: 1, ordinal: 1,
@@ -577,18 +578,14 @@ test("card updates merge partial payloads, refuse kind changes, and persist reda
     patch: { kind: "file", payload: { line: 2 } } }).isPersisted.promise
   expect(store.collections.cards.get(card.id)?.payload).toEqual({ ...card.payload, line: 2 })
   await store.dispatch({ type: "card.updated", actor: "smithers", id: card.id,
-    patch: { kind: "env", payload: { repo: "smithers", vars: [], setupScript: null } } }).isPersisted.promise
+    patch: { kind: "status", payload: { progress: 0 } } }).isPersisted.promise
   expect(store.collections.cards.get(card.id)?.kind).toBe("file")
-  await store.dispatch({ type: "card.upsert", actor: "system", card: {
-    id: "patch-env", kind: "env", title: "Env", status: "active", createdAt: 1, ordinal: 2,
-    payload: { repo: "smithers", vars: [{ name: "TOKEN", value: "token-secret-value" }], setupScript: null }
-  } }).isPersisted.promise
-  await store.dispatch({ type: "card.updated", actor: "system", id: "patch-env",
-    patch: { payload: { vars: [{ name: "TOKEN", value: "updated-secret-value" }] } } }).isPersisted.promise
+  const legacy = CardSchema.parse({ id: "patch-env", kind: "env", title: "Env", status: "active", createdAt: 1, ordinal: 2,
+    payload: { repo: "smithers", vars: [{ name: "TOKEN", value: "token-secret-value" }], setupScript: null } })
+  await store.dispatch({ type: "card.upsert", actor: "system", card: legacy }).isPersisted.promise
   expect(JSON.stringify([...store.collections.transitions.values()])).not.toContain("token-secret-value")
-  expect(JSON.stringify([...store.collections.transitions.values()])).not.toContain("updated-secret-value")
   const reloaded = await createAppStore({ kind: "localStorage", storage })
-  expect(reloaded.collections.cards.get("patch-env")?.payload).toMatchObject({ vars: [{ name: "TOKEN", value: "upd…" }] })
+  expect(reloaded.collections.cards.get("patch-env")).toMatchObject({ kind: "retired", title: "Env", payload: { was: "env" } })
 })
 
 test("card updates never rewrite the conversation a maximized frame recorded", async () => {

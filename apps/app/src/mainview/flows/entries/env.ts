@@ -16,29 +16,28 @@ export const envFlows = (actions: CommandActions): ReadonlyArray<FlowEntry> => [
   flow({
     name: "env.view",
     summary: "Show a repository's agent environment",
-    runtime: ["cloud"],
+    hidden: true, minimumRole: "owner", actors: ["person"], agent: "never", agentReason: "Install controls require the owner’s person session",
     args: "[owner/repo]",
     requires: ["signed-in"],
     input: RepoTarget,
-    prepare: ({ repo }) => actions.viewEnvironment.preload?.(repo),
-    handler: ({ repo }) => actions.viewEnvironment(repo)
+    handler: async ({ repo }) => { await actions.presentCard("settings", "Settings"); return actions.viewEnvironment(repo) }
   }),
   flow({
     name: "env.set",
     summary: "Set an agent-environment variable",
-    runtime: ["cloud"],
+    hidden: true, minimumRole: "owner", actors: ["person"], agent: "never", agentReason: "Install controls require the owner’s person session",
     args: "<NAME=value> [owner/repo]",
     requires: ["signed-in"],
     input: Schema.Struct({ assignment: Schema.String, repo: Schema.optional(Schema.String) }),
-    handler: ({ assignment, repo }) => actions.setEnvironmentVar(assignment, repo)
+    handler: async ({ assignment, repo }) => { await actions.presentCard("settings", "Settings"); return actions.setEnvironmentVar(assignment, repo) }
   }),
   flow({
     name: "env.remove-token",
     summary: "Remove a refused subscription token from a repository's agent environment",
-    runtime: ["cloud"],
+    hidden: true, minimumRole: "owner", actors: ["person"], agent: "never", agentReason: "Install controls require the owner’s person session",
     args: "[owner/repo]",
     requires: ["signed-in"],
     input: RepoTarget,
-    handler: ({ repo }) => actions.removeSubscriptionToken(repo)
+    handler: async ({ repo }) => { await actions.presentCard("settings", "Settings"); return actions.removeSubscriptionToken(repo) }
   })
 ]

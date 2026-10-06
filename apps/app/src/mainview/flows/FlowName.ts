@@ -73,6 +73,7 @@ export const FLOW_NAMES = [
   "settings.address",
   "settings.capacity",
   "settings.parallel",
+  "settings.daily-admissions",
   "settings.obsidian",
   "settings.model-key",
   "settings.setup",

@@ -744,6 +744,40 @@ const DraftPayloadSchema: z.ZodType<
   issueDigest: z.string().regex(/^[0-9a-f]{64}$/).optional()
 })
 
+export const RepositoryImportRequestSchema = z.object({
+    ...cardBaseShape,
+    payload: z.object({
+      repo: z.string(),
+      jobId: z.string().nullable(),
+      phase: z.enum(["starting", "running", "done", "failed"]),
+      detail: z.string().nullable(),
+      /** The job's raw stage word (`provisioning_workspace`); optional — older answers carry none. */
+      stage: z.string().nullable().optional(),
+      /** Progress counts (`refs 214 of 214 · objects … · issues …`); absent until plue#471's wire fields. */
+      counts: z.object({
+        refs: z.object({ done: z.number().int().nonnegative(), total: z.number().int().nonnegative() }),
+        objects: z.object({ done: z.number().int().nonnegative(), total: z.number().int().nonnegative() }),
+        issues: z.object({ done: z.number().int().nonnegative(), total: z.number().int().nonnegative() })
+      }).optional(),
+      /** The job's error verbatim; the failed phase renders it with Retry. */
+      error: z.string().nullable().optional(),
+      /** The imported repository, when the job's answer names it (the done state links it). */
+      repository: z.object({ owner: z.string(), name: z.string() }).nullable().optional(),
+      /** The workspace the import created, when it created one (the done state links its card). */
+      workspaceId: z.string().nullable().optional(),
+      /** A refused GitHub call's rate-limit line (lane sync; GitHubRateLimitSchema above). */
+      rateLimit: GitHubRateLimitSchema.optional(),
+      /** Persisted launch identity: fences stale answers and reconnects the exact operation after reload. */
+      requestId: z.string().optional(),
+      requestKind: z.enum(["start", "retry"]).optional(),
+      retryMode: z.enum(["reconnect", "restart"]).optional(),
+      accountOwner: z.string().nullable().optional(),
+      /** A registration's import: its step shows on the registration card, so this card is not shown. */
+      registration: z.boolean().optional()
+    })
+  })
+export type RepositoryImportRequest = z.infer<typeof RepositoryImportRequestSchema>
+
 const CurrentCardSchema = z.discriminatedUnion("kind", [
   z.object({
     ...cardBaseShape,
@@ -842,26 +876,6 @@ const CurrentCardSchema = z.discriminatedUnion("kind", [
       )
     })
   }),
-  /* The tutorial's ranked repository chooser and its shared-backend creation receipt. */
-  z.object({
-    ...cardBaseShape,
-    kind: z.literal("repository-choice"),
-    payload: z.object({
-      cutoff: z.string(),
-      partial: z.boolean(),
-      error: z.string().nullable(),
-      selected: z.string().nullable(),
-      created: z.object({ fullName: z.string() }).nullable(),
-      repositories: z.array(z.object({
-        fullName: z.string(),
-        count: z.number().nullable(),
-        latest: z.string().nullable(),
-        coverage: z.enum(["default-branch", "unknown"]),
-        error: z.string().nullable()
-      }))
-    })
-  }),
-  /* The Library as an embedded card: the agent's browse door onto the same shelf. */
   z.object({
     ...cardBaseShape,
     kind: z.literal("plan"),
@@ -1714,25 +1728,6 @@ const CurrentCardSchema = z.discriminatedUnion("kind", [
     })
   }),
 
-  z.object({
-    ...cardBaseShape,
-    kind: z.literal("env"),
-    payload: z.object({
-      repo: z.string(),
-      /**
-       * Display-only values: decoding keeps at most three leading characters
-       * and replaces the rest with an ellipsis. Short values are fully masked.
-       * Raw values must be re-read upstream; never persist them in a card.
-       */
-      vars: z.array(z.object({
-        name: z.string(),
-        value: z.string().transform((value) => value.length > 3 ? `${value.slice(0, 3)}…` : "…")
-      })),
-      setupScript: z.string().nullable(),
-      /** The environment held a subscription token the platform refuses; it is redacted and unused. */
-      reconnect: z.boolean().optional()
-    })
-  }),
   /*
    * A repository's CI secrets (Secrets L1): METADATA only. plue's workflow
    * secret list has no value field; `mainOnly` limits a secret to trusted runs
@@ -1750,37 +1745,6 @@ const CurrentCardSchema = z.discriminatedUnion("kind", [
     })
   }),
   /*
-   * The account's coding-provider pool (GET /api/user/provider-connections):
-   * non-revoked connections in pool order, metadata only. `limitedUntil` is
-   * the RFC3339 time a usage limit parks the account until; `pending` is a
-   * Codex device sign-in awaiting the person (its code and where to enter it).
-   * `unavailable` marks a deployment that does not offer coding accounts
-   * (plue's feature-gated 403; hosted smithers.sh stores no subscription
-   * logins): the card shows no connect buttons.
-   */
-  z.object({
-    ...cardBaseShape,
-    kind: z.literal("provider-accounts"),
-    payload: z.object({
-      accounts: z.array(z.object({
-        id: z.string(),
-        provider: z.enum(["claude", "codex"]),
-        label: z.string(),
-        email: z.string().nullable(),
-        state: z.string(),
-        limitedUntil: z.string().nullable()
-      })),
-      pending: z.object({ userCode: z.string(), verificationUri: z.string() }).optional(),
-      unavailable: z.literal(true).optional()
-    })
-  }),
-  /*
-   * The configured models and the seats they answer for (ConfiguredModel.ts).
-   * A credential is a NAME with its presence and origins; no value exists on
-   * this payload, and a test's failure is codes and numbers, never a
-   * provider's words.
-   */
-  /*
    * The composer for one configured model (ConfiguredModel.ts): the request a
    * person edits, the typed answer it got, and whether one is out. The
    * request is fields and questions, the answer is numbers and option names
@@ -1788,35 +1752,6 @@ const CurrentCardSchema = z.discriminatedUnion("kind", [
    */
 
 
-  /*
-   * The account card (factory mock 21, design session §6c): who is signed in
-   * and what the identity seam knows about them. Every row is a seam fact:
-   * the GitHub login, the scopes the identity worker states (GET
-   * /api/auth/scopes) and the boxes the workspaces
-   * seam has listed across repositories. Billing and usage rows live on the
-   * balance card, which the billing seam answers; seat rows stay absent
-   * because no seam holds them — a row with no seam is absent, never
-   * invented.
-   */
-  z.object({
-    ...cardBaseShape,
-    kind: z.literal("account"),
-    payload: z.object({
-      login: z.string(),
-      /** Absent on legacy cards, which cannot prove a provider or OAuth grant. */
-      provider: z.enum(["github", "local"]).optional(),
-      /** GET /api/auth/scopes rows, one plain sentence per scope; empty when the seam did not answer, and the section is then absent. */
-      scopes: z.array(z.object({ scope: z.string(), plain: z.string() })),
-      /** Permission reads survive reload; legacy cards have no pending request. */
-      refresh: z.discriminatedUnion("state", [
-        z.object({ id: z.string(), state: z.literal("requested") }),
-        z.object({ id: z.string(), state: z.literal("complete") }),
-        z.object({ id: z.string(), state: z.literal("failed"), error: z.string() })
-      ]).optional(),
-      /** The cloudWorkspaces rows at render time: the person's boxes across every repository this app has listed. */
-      boxes: z.array(z.object({ id: z.string(), repoId: z.string(), name: z.string(), status: z.string() }))
-    })
-  }),
   /*
    * The Register repository app (docs/mvp/REGISTRATION.md, #2153): the
    * analysis one link starts. `repo` is the canonical GitHub owner/repo; the
@@ -1826,82 +1761,6 @@ const CurrentCardSchema = z.discriminatedUnion("kind", [
    * without launching anything.
    */
 
-  /*
-   * Lane sync (ADR 0005): the import becomes a job card. `stage`, `counts`,
-   * `error`, `repository`, and `workspaceId` are the progress fields of
-   * plue#471 — all optional, parsed only when the wire carries them, never
-   * invented (today's answer carries stage and error only).
-   */
-  z.object({
-    ...cardBaseShape,
-    kind: z.literal("repo-import"),
-    payload: z.object({
-      repo: z.string(),
-      jobId: z.string().nullable(),
-      phase: z.enum(["starting", "running", "done", "failed"]),
-      detail: z.string().nullable(),
-      /** The job's raw stage word (`provisioning_workspace`); optional — older answers carry none. */
-      stage: z.string().nullable().optional(),
-      /** Progress counts (`refs 214 of 214 · objects … · issues …`); absent until plue#471's wire fields. */
-      counts: z.object({
-        refs: z.object({ done: z.number().int().nonnegative(), total: z.number().int().nonnegative() }),
-        objects: z.object({ done: z.number().int().nonnegative(), total: z.number().int().nonnegative() }),
-        issues: z.object({ done: z.number().int().nonnegative(), total: z.number().int().nonnegative() })
-      }).optional(),
-      /** The job's error verbatim; the failed phase renders it with Retry. */
-      error: z.string().nullable().optional(),
-      /** The imported repository, when the job's answer names it (the done state links it). */
-      repository: z.object({ owner: z.string(), name: z.string() }).nullable().optional(),
-      /** The workspace the import created, when it created one (the done state links its card). */
-      workspaceId: z.string().nullable().optional(),
-      /** A refused GitHub call's rate-limit line (lane sync; GitHubRateLimitSchema above). */
-      rateLimit: GitHubRateLimitSchema.optional(),
-      /** Persisted launch identity: fences stale answers and reconnects the exact operation after reload. */
-      requestId: z.string().optional(),
-      requestKind: z.enum(["start", "retry"]).optional(),
-      retryMode: z.enum(["reconnect", "restart"]).optional(),
-      accountOwner: z.string().nullable().optional(),
-      /** A registration's import: its step shows on the registration card, so this card is not shown. */
-      registration: z.boolean().optional()
-    })
-  }),
-  /*
-   * Lane sync (ADR 0005): the connector-setup card for the GitHub handoff.
-   * The steps are the wizard (install → reconcile), rendered as rows that
-   * fill in; a failed step reads the server error verbatim on its own line.
-   * On confirm the SAME card turns into the connected state (`phase:
-   * "connected"`), which carries the installation.
-   */
-  z.object({
-    ...cardBaseShape,
-    kind: z.literal("connector-setup"),
-    payload: z.object({
-      connector: z.literal("github"),
-      /** `org/repo` — the repository being connected. */
-      repo: z.string(),
-      phase: z.enum(["setup", "connected"]),
-      steps: z.array(
-        z.object({
-          id: z.string(),
-          label: z.string(),
-          state: z.enum(["pending", "active", "done", "error"]),
-          /** The row's filled-in value (`authorized as <actor>`, `ENG · Engineering`); null while unset. */
-          detail: z.string().nullable(),
-          /** The server error verbatim, under the step that failed. */
-          error: z.string().optional()
-        })
-      ),
-      /** The GitHub App installation (the connected state's `installation <id> · configured`). */
-      installationId: z.number().int().nullable().optional(),
-      configured: z.boolean().optional(),
-      /** The trusted install URL (https://github.com only) step 1 opens. */
-      installUrl: HttpUrlSchema.optional(),
-      /** The rate-limit line: below 20% remaining, and always on a card whose call was refused. */
-      rateLimit: GitHubRateLimitSchema.optional(),
-      /** The last act's honest refusal, kept on the card. */
-      error: z.string().optional()
-    })
-  }),
   /*
    * Lane sync (ADR 0005): the sync-ops card for GitHub mirror syncs. Rows
    * are the durable ops, newest first, a failed row carrying the server's
@@ -2699,6 +2558,10 @@ const CurrentCardSchema = z.discriminatedUnion("kind", [
  */
 export const LEGACY_CARD_KINDS = [
   "workflow-repo",
+  "repository-choice",
+  "provider-accounts", "repo-import", "connector-setup",
+  "env",
+  "account",
   "explain",
   "repository-setup",
   "agent",
@@ -2948,12 +2811,7 @@ export const CardSchema: z.ZodType<z.infer<typeof CurrentCardSchema>, unknown> &
     if (row.kind === "workspace" && payload?.facet === "snapshots") {
       return { ...row, payload: { ...payload, facet: "terminal" } }
     }
-    if (row.kind === "repository-choice" && typeof payload?.created === "object" && payload.created !== null) {
-      const created = payload.created as Record<string, unknown>
-      if (typeof created.fullName !== "string" && typeof created.name === "string") {
-        return { ...row, payload: { ...payload, created: { fullName: created.name } } }
-      }
-    }
+
     return value
   }, CurrentCardSchema),
   { options: CurrentCardSchema.options }
