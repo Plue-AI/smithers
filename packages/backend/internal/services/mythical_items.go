@@ -1629,6 +1629,36 @@ func (st *mythicalItemStep) commitWith(ctx context.Context, item db.MythicalItem
 	// Every admitted run counts toward the item's launch bound; the failure
 	// it retries after is behind it.
 	launched := mythicalChecksOf(item)
+	if flowID == flowdispatch.TodoFlow {
+		retained := make([]todoSteer, 0, len(launched.Steers))
+		for _, feedback := range launched.Steers {
+			if feedback.GitHubAuthor > 0 && feedback.ReleasePending && feedback.Attempt <= item.Attempt {
+				active, err := currentGitHubFeedbackAuthor(ctx, tx, item.RepositoryID, feedback)
+				if err != nil {
+					return db.MythicalItem{}, err
+				}
+				if !active {
+					continue
+				}
+				feedback.ReleasePending = false
+			}
+			retained = append(retained, feedback)
+		}
+		launched.Steers = retained
+		item.Checks = launched.encode()
+		var request map[string]json.RawMessage
+		if err := json.Unmarshal(payload, &request); err != nil {
+			return db.MythicalItem{}, err
+		}
+		delete(request, "feedback")
+		if feedback := todoFeedback(item, item.Attempt); feedback != "" {
+			request["feedback"], _ = json.Marshal(feedback)
+		}
+		payload, err = json.Marshal(request)
+		if err != nil {
+			return db.MythicalItem{}, err
+		}
+	}
 	launched.Launches++
 	if launched.Fault != nil {
 		// The reason was the failure's diagnostic; the launch is past it.
@@ -3992,7 +4022,18 @@ func (s *MythicalService) ObserveGitHubEvent(ctx context.Context, eventType stri
 	case "issues", "issue_comment":
 		return issueTodoUnavailable()
 	case "pull_request_review", "pull_request_review_comment":
-		return gitHubReviewUnavailable()
+		if s.installGitHubSync == nil || s.installGitHubSync.install == nil {
+			return gitHubReviewUnavailable()
+		}
+		var hint struct {
+			Repository struct {
+				ID int64 `json:"id"`
+			} `json:"repository"`
+		}
+		if json.Unmarshal(payload, &hint) != nil || hint.Repository.ID <= 0 {
+			return gitHubReviewUnavailable()
+		}
+		return s.installGitHubSync.requestInstallFetch(ctx, hint.Repository.ID, GitHubRepoMetadataPulls)
 	default:
 		return nil
 	}
@@ -4326,6 +4367,7 @@ func appliedByMaintainer(applied gitHubLabelApplication, label string) bool {
 // request's head.
 type mythicalChecks struct {
 	IssueContext         json.RawMessage       `json:"issue_context,omitempty"`
+	GitHubInputs         []todoGitHubInput     `json:"githubInputs,omitempty"`
 	PRBodyDeclined       string                `json:"prBodyDeclined,omitempty"`
 	GitHubClosedPosition int64                 `json:"githubClosedPosition,omitempty"`
 	GitHubClosedAt       *time.Time            `json:"githubClosedAt,omitempty"`

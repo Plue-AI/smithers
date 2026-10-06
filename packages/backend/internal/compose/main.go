@@ -1340,6 +1340,9 @@ func runWithOptions(ctx context.Context, args []string, stdout, stderr io.Writer
 		repositorySetupService.SetFlowDispatcher(flow.dispatcher)
 		invokedFlowService.SetFlowDispatcher(flow.dispatcher)
 		mythicalService.SetLauncher(flow.dispatcher)
+		if config.IsSingleOwner(cfg.Auth) {
+			mythicalService.EnableTodoSteering()
+		}
 		if options.topology.workers() {
 			flowWorker = newCriticalWorker()
 		}
