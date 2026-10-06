@@ -1,6 +1,6 @@
 import { expect, test } from "bun:test"
 import { renderToStaticMarkup } from "react-dom/server"
-import { HomeCardSchema, type HomeViewProps } from "@smthrs/rpc/HomeCard"
+import { HomeCardSchema, type HomeViewProps, type HomeItem } from "@smthrs/rpc/HomeCard"
 import type { CatalogTag } from "@smthrs/rpc/CardAction"
 import { fixtures } from "@smthrs/rpc/fixtures/Home"
 import { GlobalRegistrator } from "@happy-dom/global-registrator"
@@ -718,4 +718,23 @@ test("served Home rows bind order controls once and exclude completed rows from 
   h.props.onAction("stack.move", { n: "2", direction: "down" })
   h.props.onAction("todo.drop", { n: "3" })
   expect(h.calls).toEqual([{ tag: "stack.move", input: { n: 2, direction: "down" } }, { tag: "todo.drop", input: { n: 3 } }])
+})
+
+
+test("served Home waits use the shared Resolve and Review policy and keep the branch door", () => {
+  const base = fixtures.active.model
+  for (const [kind, tag, label] of [["conflict", "branch", "Resolve"], ["moved_off", "branch", "Resolve"], ["foreign_push", "todo", "Review"], ["question", "todo.answer", "Answer"]] as const) {
+    const row: HomeItem = { ...base.items[0]!, state: "needs_you" as const, needs_you: { kind, prompt: "Waiting" },
+      branch: { id: "branch-8", name: "fix-api" }, actions: [
+        { tag: "todo" as const, label: "Fix API", args: { n: "8", door: "title" } },
+        { tag: "todo.answer" as const, label: "Answer", args: { n: "8" } }
+      ] }
+    const h = mount(withHomeRowControls({ ...base, items: [row] }), "member")
+    const actions = h.props.model.items[0]!.actions
+    expect(actions.filter(action => action.label === label)).toHaveLength(1)
+    if (label !== "Answer") expect(actions.some(action => action.label === "Answer")).toBe(false)
+    expect(actions.find(action => action.args?.door === "branch")).toEqual({ tag: "branch", label: "fix-api", args: { name: "fix-api", door: "branch", n: String(row.n) } })
+    h.props.onAction(tag, actions.find(action => action.label === label)!.args)
+    expect(h.calls).toEqual([{ tag, input: tag === "branch" ? { name: "fix-api" } : tag === "todo.answer" ? { n: row.n, answer: "" } : { n: row.n } }])
+  }
 })

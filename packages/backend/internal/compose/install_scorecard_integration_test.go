@@ -238,4 +238,85 @@ func TestInstallScorecardOwnerReadsRealCreationReceipts(t *testing.T) {
 	require.Equal(t, []string{"T-GH-02"}, mergedCard.Measures["outside_work"].MissingTickets)
 	require.Equal(t, "source_missing", mergedCard.Measures["dogfood"].Verdict)
 
+	// Real T-COL-06 visit writer, including two sockets for one person. A
+	// socket is not another session; a removed member's historical row stays
+	// attributed to that person without consulting the current roster.
+	var ben int64
+	require.NoError(t, pool.QueryRow(ctx, `INSERT INTO users(username,lower_username) VALUES('scorecard-ben','scorecard-ben') RETURNING id`).Scan(&ben))
+	clock := time.Date(2026, 10, 5, 8, 0, 0, 0, time.UTC)
+	visits := &presenceVisits{audit: services.NewAuditService(q), now: func() time.Time { return clock }}
+	for _, day := range []int{5, 6, 12, 13} {
+		start := time.Date(2026, 10, day, 8, 0, 0, 0, time.UTC)
+		for elapsed := time.Duration(0); elapsed <= 2*time.Minute; elapsed += 20 * time.Second {
+			clock = start.Add(elapsed)
+			visits.heartbeat("app:todo-1", owner, "scorecard-owner", "alice-one")
+			visits.heartbeat("app:todo-1", owner, "scorecard-owner", "alice-two")
+			visits.heartbeat("app:todo-1", ben, "scorecard-ben", "ben")
+		}
+		visits.leave("app:todo-1", owner, "alice-one")
+		visits.leave("app:todo-1", owner, "alice-two")
+		visits.leave("app:todo-1", ben, "ben")
+	}
+	multiplayer := readState()
+	require.Equal(t, map[string]any{"sessions": float64(8), "per_week": []any{float64(4), float64(4)}}, multiplayer.Measures["multiplayer"].Value)
+	require.Equal(t, "pass", multiplayer.Measures["multiplayer"].Verdict)
+	require.Empty(t, multiplayer.Measures["multiplayer"].MissingTickets)
+	require.Equal(t, mergedCard.Measures["merged"], multiplayer.Measures["merged"])
+	// Producer evidence outside the requested window establishes a measured
+	// zero, while still distinguishing an empty, uninstrumented audit table.
+	emptyRequest := httptest.NewRequest("GET", "http://localhost:4000/api/install/scorecard?from=2026-11-01T00:00:00Z&to=2026-11-15T00:00:00Z", nil)
+	emptyRequest.RemoteAddr = "127.0.0.1:61000"
+	emptyRequest.AddCookie(&http.Cookie{Name: "session", Value: "scorecard-cookie"})
+	emptyResponse := httptest.NewRecorder()
+	router.ServeHTTP(emptyResponse, emptyRequest)
+	require.Equal(t, 200, emptyResponse.Code, emptyResponse.Body.String())
+	var emptyCard services.Scorecard
+	require.NoError(t, json.Unmarshal(emptyResponse.Body.Bytes(), &emptyCard))
+	require.Equal(t, map[string]any{"sessions": float64(0), "per_week": []any{float64(0), float64(0)}}, emptyCard.Measures["multiplayer"].Value)
+	require.Equal(t, "kill", emptyCard.Measures["multiplayer"].Verdict)
+	_, err = pool.Exec(ctx, `DELETE FROM audit_log WHERE event_type='presence' AND metadata->>'start'='2026-10-13T08:00:00Z'`)
+	require.NoError(t, err)
+	twoSessions := readState()
+	require.Equal(t, map[string]any{"sessions": float64(6), "per_week": []any{float64(4), float64(2)}}, twoSessions.Measures["multiplayer"].Value)
+	require.Equal(t, "between", twoSessions.Measures["multiplayer"].Verdict)
+	_, err = pool.Exec(ctx, `DELETE FROM audit_log WHERE event_type='presence' AND metadata->>'start'='2026-10-12T08:00:00Z'`)
+	require.NoError(t, err)
+	zeroWeekTwo := readState()
+	require.Equal(t, map[string]any{"sessions": float64(4), "per_week": []any{float64(4), float64(0)}}, zeroWeekTwo.Measures["multiplayer"].Value)
+	require.Equal(t, "kill", zeroWeekTwo.Measures["multiplayer"].Verdict)
+	// Malformed timestamps are data, never SQL casts that abort other reads.
+	_, err = pool.Exec(ctx, `INSERT INTO audit_log(event_type,actor_id,actor_name,target_type,target_name,action,metadata,ip_address) VALUES('presence',$1,'scorecard-ben','branch','app:todo-1','visit','{"branch":"app:todo-1","member":0,"via":"app","start":"bad","end":"bad"}','')`, ben)
+	require.NoError(t, err)
+	incompletePresence := readState()
+	require.Equal(t, "source_missing", incompletePresence.Measures["multiplayer"].Verdict)
+	require.Equal(t, []string{"T-COL-06"}, incompletePresence.Measures["multiplayer"].MissingTickets)
+	require.Equal(t, mergedCard.Measures["merged"], incompletePresence.Measures["merged"])
+	require.Equal(t, services.ScorecardPersonMinutes{Source: "sampled_alpha_sessions", Verdict: "manual"}, incompletePresence.PersonMinutes)
+
+	setup := &services.InstallSetupService{Pool: pool, Now: func() time.Time {
+		return time.Date(2026, 10, 4, 7, 16, 0, 0, time.UTC)
+	}}
+	require.NoError(t, setup.Initialize(ctx))
+	startedCard := readState()
+	require.Equal(t, "2026-10-04T07:16:00Z", startedCard.Measures["install_start"].Value)
+	require.Equal(t, float64(48), startedCard.Measures["activation"].Value)
+	require.Equal(t, "pass", startedCard.Measures["activation"].Verdict)
+	setup.Now = func() time.Time { return time.Date(2026, 11, 1, 0, 0, 0, 0, time.UTC) }
+	require.NoError(t, setup.Initialize(ctx))
+	restartedCard := readState()
+	require.Equal(t, startedCard.Measures["install_start"], restartedCard.Measures["install_start"])
+	require.Equal(t, startedCard.Measures["activation"], restartedCard.Measures["activation"])
+	// Missing legacy receipts are never backfilled from a restart. Malformed
+	// receipts refuse just their measures and preserve available TODO counts.
+	_, err = pool.Exec(ctx, `DELETE FROM install_settings WHERE key='setup.started_at'`)
+	require.NoError(t, err)
+	require.NoError(t, setup.Initialize(ctx))
+	legacyCard := readState()
+	require.Equal(t, "source_missing", legacyCard.Measures["install_start"].Verdict)
+	require.Equal(t, []string{"T-INS-06"}, legacyCard.Measures["activation"].MissingTickets)
+	_, err = pool.Exec(ctx, `INSERT INTO install_settings(key,value) VALUES('setup.started_at','"malformed"')`)
+	require.NoError(t, err)
+	malformedStart := readState()
+	require.Equal(t, "source_missing", malformedStart.Measures["install_start"].Verdict)
+	require.Equal(t, mergedCard.Measures["merged"], malformedStart.Measures["merged"])
 }

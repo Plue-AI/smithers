@@ -78,3 +78,13 @@ database tests. The reference entry remains refused before branch execution.
 The Go wrapper prints stdout and stderr before checking process errors, signals
 and exit status, retaining partial JSON on failed or timed-out cases. These
 logs are diagnostic output, not passing check receipts.
+
+The additional route cases must cover these exact marker tokens, in passing
+leaf cases: `start`, `stop`, `resume`; `postgres-transition`;
+`merge-pre-land`, `merge-post-land`, `merge-post-call`; and
+`rebase-post-capture`, `rebase-mid`, `rebase-post-apply`. These extend the
+shared vocabulary above. The runner checks the full point inventory, so
+omitting a boundary cannot pass even when every executed leaf has a marker.
+Repeated markers and parent-only markers do not satisfy a missing boundary.
+The rebase harness must still cover both presence contexts and retain their
+observations; point inventory alone does not prove that coverage.

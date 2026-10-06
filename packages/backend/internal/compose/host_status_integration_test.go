@@ -1,6 +1,7 @@
 package compose
 
 import (
+	"context"
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
@@ -11,7 +12,9 @@ import (
 	"testing"
 	"time"
 
+	"github.com/coder/websocket"
 	"github.com/smithersai/smithers/packages/backend/internal/db"
+	"github.com/smithersai/smithers/packages/backend/internal/live"
 	"github.com/smithersai/smithers/packages/backend/internal/middleware"
 	"github.com/smithersai/smithers/packages/backend/internal/routes"
 	"github.com/smithersai/smithers/packages/backend/internal/services"
@@ -30,9 +33,13 @@ func TestInstallStatusOwnerHTTPModelPostgres(t *testing.T) {
 	require.NoError(t, err)
 	_, err = pool.Exec(ctx, `INSERT INTO self_host_owners(user_id) VALUES($1)`, owner.ID)
 	require.NoError(t, err)
+	var repository int64
+	require.NoError(t, pool.QueryRow(ctx, `INSERT INTO repositories(user_id,name,lower_name) VALUES($1,'fixture','fixture') RETURNING id`, owner.ID).Scan(&repository))
+	_, err = pool.Exec(ctx, `INSERT INTO collaborators(repository_id,user_id,permission) VALUES($1,$2,'admin')`, repository, owner.ID)
+	require.NoError(t, err)
 	// The member boundary (#3443) admits only a verified owner outside setup scope, so the retired /api/host reaches the router's 404.
-	verified := fmt.Sprintf(`{"owner_login":"hostowner","repository_name":"fixture","repository_id":0,"last_access_check_at":%q}`, time.Now().UTC().Format(time.RFC3339Nano))
-	require.NoError(t, q.UpsertInstallSetting(ctx, db.UpsertInstallSettingParams{Key: "github.repository", Value: []byte(`{"owner_login":"hostowner","repository_name":"fixture","repository_id":0}`)}))
+	verified := fmt.Sprintf(`{"owner_login":"hostowner","repository_name":"fixture","repository_id":%d,"last_access_check_at":%q}`, repository, time.Now().UTC().Format(time.RFC3339Nano))
+	require.NoError(t, q.UpsertInstallSetting(ctx, db.UpsertInstallSettingParams{Key: "github.repository", Value: []byte(fmt.Sprintf(`{"owner_login":"hostowner","repository_name":"fixture","repository_id":%d}`, repository))}))
 	require.NoError(t, q.UpsertInstallSetting(ctx, db.UpsertInstallSettingParams{Key: "owner.access", Value: []byte(verified)}))
 	session := func(user db.User, value string) string {
 		hash := sha256.Sum256([]byte(value))
@@ -130,6 +137,59 @@ func TestInstallStatusOwnerHTTPModelPostgres(t *testing.T) {
 	for _, body := range []string{`{"chatgpt":"true"}`, `{"chatgpt":null}`, `{"chatgpt":true,"unknown":1}`} {
 		require.Equal(t, 400, request("PUT", "/api/install", good, body).Code)
 	}
+	// A real authenticated Home socket shares the production capacity reader
+	// with Settings. Keep it open across owner writes to prove refresh, rather
+	// than checking only a separately seeded Home model.
+	openHome := func() (func(int), func()) {
+		server := httptest.NewUnstartedServer(nil)
+		origin := "http://" + server.Listener.Addr().String()
+		cfg.Server.AllowedOrigins = append(cfg.Server.AllowedOrigins, origin)
+		hubCtx, cancelHub := context.WithCancel(ctx)
+		topics := &liveTopics{queries: q, todos: services.NewMythicalService(pool, nil), capacity: capacity, install: handler.Setup}
+		liveHandler := &routes.LiveHandler{Queries: q, Hub: live.NewHub(hubCtx, nil), Origins: middleware.FixedOrigins(origin), Topics: topics.resolver}
+		server.Config.Handler = githubAppSetupComposeRouter(cfg, pool, handler, routerExtras{Live: liveHandler})
+		server.Start()
+		t.Cleanup(server.Close)
+		readCtx, cancelRead := context.WithTimeout(ctx, 15*time.Second)
+		conn, _, err := websocket.Dial(readCtx, "ws"+strings.TrimPrefix(origin, "http")+"/api/live", &websocket.DialOptions{
+			Subprotocols: []string{"smithers.live.v1"}, HTTPHeader: http.Header{"Origin": {origin}, "Cookie": {"smithers_session=" + good}},
+		})
+		require.NoError(t, err)
+		require.NoError(t, conn.Write(readCtx, websocket.MessageText, []byte(`{"t":"sub","id":1,"topic":"home"}`)))
+		awaitHomeCapacity := func(want int) {
+			t.Helper()
+			for {
+				_, raw, err := conn.Read(readCtx)
+				require.NoError(t, err)
+				var frame liveFrame
+				require.NoError(t, json.Unmarshal(raw, &frame))
+				require.NotEqual(t, "err", frame.T, string(raw))
+				if frame.T != "snap" {
+					continue
+				}
+				var home struct {
+					Machines struct {
+						Capacity *int `json:"capacity"`
+					} `json:"machines"`
+				}
+				require.NoError(t, json.Unmarshal(frame.Data, &home))
+				require.NotNil(t, home.Machines.Capacity, string(raw))
+				if *home.Machines.Capacity == want {
+					return
+				}
+			}
+		}
+		stop := func() {
+			conn.CloseNow()
+			cancelRead()
+			cancelHub()
+			server.Close()
+		}
+		t.Cleanup(stop)
+		return awaitHomeCapacity, stop
+	}
+	awaitHomeCapacity, stopHome := openHome()
+	awaitHomeCapacity(2)
 	for _, test := range []struct {
 		credential, body string
 		want             int
@@ -152,6 +212,9 @@ func TestInstallStatusOwnerHTTPModelPostgres(t *testing.T) {
 			require.Equal(t, 2, status.Capacity)
 		}
 	}
+	awaitHomeCapacity(1)
+	// Stop the subscription before replacing the detected startup profile.
+	stopHome()
 	// A restarted composition on a smaller host preserves the owner's saved 1.
 	capacity = &services.InstallCapacityService{Queries: q, Profile: microsandbox.HostProfile{MemoryBytes: 24 << 30, PerfCores: 8, PhysicalCores: 10, DiskFreeBytes: 200 << 30, MacOSVersion: "15.6", Hypervisor: true}}
 	handler.Setup.Capacity = capacity
@@ -163,6 +226,9 @@ func TestInstallStatusOwnerHTTPModelPostgres(t *testing.T) {
 	require.Equal(t, 8, status.Mac.PerfCores)
 	require.Equal(t, 2, status.Mac.Capacity)
 	require.Equal(t, 1, status.Capacity)
+	awaitHomeCapacity, stopHome = openHome()
+	awaitHomeCapacity(1)
+	stopHome()
 	capacity.Profile.DiskFreeBytes = 60 << 30
 	response = request("GET", "/api/install", good, "")
 	require.Equal(t, 200, response.Code)
@@ -173,4 +239,7 @@ func TestInstallStatusOwnerHTTPModelPostgres(t *testing.T) {
 	require.NotNil(t, status.Mac.Limit, response.Body.String())
 	require.Equal(t, "disk", status.Mac.Limit.Term)
 	require.Equal(t, "free 12 GiB on the state volume", status.Mac.Limit.Fix)
+	awaitHomeCapacity, stopHome = openHome()
+	awaitHomeCapacity(0)
+	stopHome()
 }

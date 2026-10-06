@@ -38,6 +38,31 @@ func (q *Queries) ScorecardFirstAnswer(ctx context.Context) (ScorecardFirstAnswe
 	return i, err
 }
 
+const scorecardInstallStart = `-- name: ScorecardInstallStart :many
+SELECT value FROM install_settings WHERE key = 'setup.started_at'
+`
+
+// Immutable setup initialization receipt; never install_settings.updated_at.
+func (q *Queries) ScorecardInstallStart(ctx context.Context) ([]json.RawMessage, error) {
+	rows, err := q.db.Query(ctx, scorecardInstallStart)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []json.RawMessage{}
+	for rows.Next() {
+		var value json.RawMessage
+		if err := rows.Scan(&value); err != nil {
+			return nil, err
+		}
+		items = append(items, value)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const scorecardMergeCoverage = `-- name: ScorecardMergeCoverage :one
 SELECT (count(*) > 0 AND bool_and(COALESCE(
   receipt.event_type = 'todo.github_merged' AND receipt.data->>'source' = 'github', false)))::boolean AS covered
@@ -62,6 +87,47 @@ func (q *Queries) ScorecardMergeCoverage(ctx context.Context) (bool, error) {
 	var covered bool
 	err := row.Scan(&covered)
 	return covered, err
+}
+
+const scorecardPresence = `-- name: ScorecardPresence :many
+SELECT id::text AS id, actor_id, target_name, metadata
+FROM audit_log
+WHERE event_type = 'presence' AND target_type = 'branch' AND action = 'visit'
+`
+
+type ScorecardPresenceRow struct {
+	ID         string          `json:"id"`
+	ActorID    pgtype.Int8     `json:"actor_id"`
+	TargetName string          `json:"target_name"`
+	Metadata   json.RawMessage `json:"metadata"`
+}
+
+// T-COL-06's completed continuous visits. Keep metadata as data: parsing in
+// the reader lets malformed legacy receipts fail coverage without aborting
+// the snapshot. An audit row is the session identity, not a socket identity.
+func (q *Queries) ScorecardPresence(ctx context.Context) ([]ScorecardPresenceRow, error) {
+	rows, err := q.db.Query(ctx, scorecardPresence)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []ScorecardPresenceRow{}
+	for rows.Next() {
+		var i ScorecardPresenceRow
+		if err := rows.Scan(
+			&i.ID,
+			&i.ActorID,
+			&i.TargetName,
+			&i.Metadata,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
 }
 
 const scorecardSourceRelations = `-- name: ScorecardSourceRelations :many

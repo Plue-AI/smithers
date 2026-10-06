@@ -54,4 +54,29 @@ describe("Go fault evidence cannot pass vacuously", () => {
       expect(() => requireReachedGoFault(`${leaf("before", marker)}\n${passed}`, name)).toThrow()
     }
   )
+  it("refuses a passing matrix that omits a required boundary", () => {
+    const log = `${leaf("start", "CRASH-POINT start\n")}\n${passed}`
+    expect(() => requireReachedGoFault(log, name, ["start", "stop", "resume"]))
+      .toThrow(`${name}/stop`)
+  })
+  it("accepts a complete boundary inventory", () => {
+    const log = [leaf("start", "CRASH-POINT start subject todo-1\n"),
+      leaf("stop", "CRASH-POINT stop\n"), leaf("resume", "CRASH-POINT resume\n"), passed].join("\n")
+    expect(() => requireReachedGoFault(log, name, ["start", "stop", "resume"])).not.toThrow()
+  })
+  it("does not count repeated points as coverage of a missing point", () => {
+    const log = [leaf("first", "CRASH-POINT start\n"),
+      leaf("second", "CRASH-POINT start\n"), passed].join("\n")
+    expect(() => requireReachedGoFault(log, name, ["start", "stop"])).toThrow(`${name}/stop`)
+  })
+  it("does not borrow a required boundary from parent output", () => {
+    const log = [event("output", name, "CRASH-POINT stop\n"),
+      leaf("start", "CRASH-POINT start\n"), passed].join("\n")
+    expect(() => requireReachedGoFault(log, name, ["start", "stop"])).toThrow(`${name}/stop`)
+  })
+  it("matches required point tokens exactly", () => {
+    const log = `${leaf("stop", "CRASH-POINT stop-extra\n")}\n${passed}`
+    expect(() => requireReachedGoFault(log, name, ["stop"])).toThrow(`${name}/stop`)
+  })
+
 })

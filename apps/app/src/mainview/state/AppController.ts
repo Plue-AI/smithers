@@ -1,3 +1,4 @@
+import { createHomeViewSeam, type HomeViewSeam } from "./seams/HomeViewSeam"
 import { contextMonitor } from "./ContextMonitor"
 import type { MonitorCard } from "@smthrs/rpc/MonitorCard"
 import { designProposalCard } from "./seams/DesignWorld/proposal"
@@ -532,6 +533,7 @@ export interface AppController extends IssueFlowsController {
   /** members.add, members.role and members.remove: the install's routes, or the seeded roster off an install. A string is the refusal. */
   readonly changeMembers: (tag: "members.add" | "members.role" | "members.remove", input: { readonly login: string; readonly role?: "maintainer" | "member" }) => Promise<string | { readonly value: string }>
   /** GET /api/todos, read while Home is open on a host with no `home` topic (T-APP-01). */
+  readonly homeView?: HomeViewSeam
   readonly todoList: TodoSeam["list"]
   /** The install's GitHub sync health, which Home's `main` row shows (GET /api/github/sync); none on other hosts. */
   readonly githubSyncSnapshots: GitHubSyncSeam["snapshots"]
@@ -897,6 +899,19 @@ export const createAppController = (
   ctx.onDispose(design.dispose)
   const gitHubSyncSeam = createGitHubSyncSeam({ http: installHost ? (path, init) => seamCtx.http(`${baseUrl.replace(/\/$/, "")}${path}`, init) : undefined })
   ctx.onDispose(gitHubSyncSeam.dispose)
+  const homeView = installHost ? createHomeViewSeam({
+    http: (path, init) => seamCtx.http(`${baseUrl.replace(/\/$/, "")}${path}`, init),
+    owner: () => {
+      const identity = store.collections.identitySessions.get("identity")
+      return identity?.state === "signed-in" ? `${identity.login}:${identity.ownerRevision ?? identity.revision}` : undefined
+    },
+    subscribeOwner: notify => {
+      const subscription = store.collections.identitySessions.subscribeChanges(notify)
+      return () => subscription.unsubscribe()
+    },
+    report: error => seamCtx.report?.("Home view", error)
+  }) : undefined
+  if (homeView) ctx.onDispose(homeView.dispose)
   /* Members (T-ACC-02): an install reads and changes its roster through /api/members; the seeded roster stands in only off an install. */
   const membersSeam = createMembersSeam({ ready: installHost, http: (path, init) => seamCtx.http(`${baseUrl.replace(/\/$/, "")}${path}`, init),
     live: services.live ?? { subscribe: () => () => {}, getSnapshot: () => undefined } })
@@ -2333,6 +2348,7 @@ export const createAppController = (
     membersRoster,
     membersRole,
     flowCatalog: installHost ? flowsSeam.snapshots : undefined,
+    homeView,
     todoList: todoSeam.list,
     githubSyncSnapshots: gitHubSyncSeam.snapshots,
     design,
