@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5/pgtype"
+	dto "github.com/prometheus/client_model/go"
 
 	"github.com/smithersai/smithers/packages/backend/internal/db"
 	"github.com/smithersai/smithers/packages/backend/internal/middleware"
@@ -72,6 +73,15 @@ func TestInstallMetricsOwnerBoundary(t *testing.T) {
 	metrics := routes.NewSmithersMetrics()
 	metrics.RequestDurationSeconds().WithLabelValues("POST", "/api/todos/{n}").Observe(.125)
 	metrics.SetLandingQueueDepth(3)
+	runtime := new(microsandbox.Runtime)
+	metrics.MustRegister(runtime.MachineMetrics())
+	_, err = runtime.Request("todo", "workspace:A", "todo:5", "machine")
+	require.NoError(t, err)
+	_, err = runtime.Request("person", "workspace:A", "Alice", "terminal")
+	require.NoError(t, err)
+	_, err = runtime.Request("background", "review:50", "review:50", "review")
+	require.NoError(t, err)
+
 	// Invoke the production composition with real auth storage and collectors;
 	// unrelated handlers are absent, not substituted implementations.
 	fn := reflect.ValueOf(buildRouter)
@@ -124,6 +134,23 @@ func TestInstallMetricsOwnerBoundary(t *testing.T) {
 				require.Contains(t, w.Body.String(), `"perf_cores":10`)
 				require.Contains(t, w.Body.String(), `"macos_version":"15.7"`)
 				require.Contains(t, w.Body.String(), `"live_connections":0`)
+				var data struct {
+					Metrics []*dto.MetricFamily `json:"metrics"`
+				}
+				require.NoError(t, json.Unmarshal(w.Body.Bytes(), &data))
+				depths := map[string]float64{}
+				for _, family := range data.Metrics {
+					if family.GetName() != "smithers_machine_queue_depth" {
+						continue
+					}
+					for _, sample := range family.Metric {
+						require.Len(t, sample.Label, 1)
+						require.Equal(t, "class", sample.Label[0].GetName())
+						depths[sample.Label[0].GetValue()] = sample.GetGauge().GetValue()
+					}
+				}
+				require.Equal(t, map[string]float64{"person": 1, "todo": 0, "background": 1}, depths)
+
 			}
 		})
 	}

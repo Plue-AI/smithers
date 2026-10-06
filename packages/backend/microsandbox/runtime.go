@@ -172,6 +172,7 @@ type Runtime struct {
 	admissionSequence uint64
 	admissionChanged  chan struct{}
 	admissionCancel   context.CancelFunc
+	metrics           *machineMetrics
 }
 
 // New qualifies Microsandbox, loads persisted workspaces, reaps this
@@ -559,6 +560,7 @@ func (r *Runtime) CreateWorkspace(ctx context.Context, spec workspaceapi.Workspa
 	if existing, err := r.InspectWorkspace(ctx, spec.ID); err == nil {
 		return existing, nil
 	}
+	ctx = context.WithValue(ctx, machineWakeStarted{}, time.Now())
 	if r.environments != nil {
 		if err := r.environments.admit(ctx); err != nil {
 			return workspaceapi.Workspace{}, err
@@ -572,7 +574,17 @@ func (r *Runtime) CreateWorkspace(ctx context.Context, spec workspaceapi.Workspa
 	return r.createFrom(ctx, spec, layer)
 }
 
-func (r *Runtime) createFrom(ctx context.Context, spec workspaceapi.WorkspaceSpec, layer Layer) (workspaceapi.Workspace, error) {
+func (r *Runtime) createFrom(ctx context.Context, spec workspaceapi.WorkspaceSpec, layer Layer) (result workspaceapi.Workspace, resultErr error) {
+	started, _ := ctx.Value(machineWakeStarted{}).(time.Time)
+	if started.IsZero() {
+		started = time.Now()
+	}
+	attempted := false
+	defer func() {
+		if attempted {
+			r.observeMachineWake("cold", started, resultErr)
+		}
+	}()
 	id, err := validWorkspaceID(spec.ID)
 	if err != nil {
 		return workspaceapi.Workspace{}, err
@@ -594,6 +606,7 @@ func (r *Runtime) createFrom(ctx context.Context, spec workspaceapi.WorkspaceSpe
 		r.mu.Unlock()
 		return workspaceapi.Workspace{}, err
 	}
+	attempted = true
 	directory := filepath.Join(r.root, "workspaces", digest(id))
 	if err := os.Mkdir(directory, 0o700); err != nil {
 		r.detachAdmissionMachineLocked(r.machineName(id), false)
@@ -795,7 +808,15 @@ func (r *Runtime) runningWorkspace(id string) (*workspace, error) {
 }
 
 // StartWorkspace boots a stopped workspace VM on its own disk.
-func (r *Runtime) StartWorkspace(ctx context.Context, id string) (workspaceapi.Workspace, error) {
+func (r *Runtime) StartWorkspace(ctx context.Context, id string) (result workspaceapi.Workspace, resultErr error) {
+	started := time.Now()
+	attempted := false
+	kind := "warm"
+	defer func() {
+		if attempted {
+			r.observeMachineWake(kind, started, resultErr)
+		}
+	}()
 	r.mu.Lock()
 	ws, err := r.workspaceLocked(id)
 	if err != nil {
@@ -840,6 +861,7 @@ func (r *Runtime) StartWorkspace(ctx context.Context, id string) (workspaceapi.W
 		r.mu.Unlock()
 		return workspaceapi.Workspace{}, err
 	}
+	attempted = true
 	ws.State = string(workspaceapi.WorkspaceStarting)
 	ws.booting = true
 	r.mu.Unlock()
@@ -847,6 +869,7 @@ func (r *Runtime) StartWorkspace(ctx context.Context, id string) (workspaceapi.W
 
 	var startErr error
 	if ws.Reclaimed {
+		kind = "cold"
 		startErr = r.recreateMachine(ctx, ws)
 	} else {
 		startErr = r.startMachine(ctx, ws)

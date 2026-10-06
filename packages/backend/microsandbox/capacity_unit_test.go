@@ -12,6 +12,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/prometheus/client_golang/prometheus"
 	workspaceapi "github.com/smithersai/smithers/packages/backend/workspace"
 	"github.com/stretchr/testify/require"
 )
@@ -642,6 +643,30 @@ func TestFailedBootRetainsCapacityUntilConfirmedStop(t *testing.T) {
 				_, err := r.StartWorkspace(t.Context(), "A")
 				require.Error(t, err)
 			}
+			registry := prometheus.NewRegistry()
+			require.NoError(t, registry.Register(r.MachineMetrics()))
+			families, err := registry.Gather()
+			require.NoError(t, err)
+			found := false
+			for _, family := range families {
+				if family.GetName() != "smithers_machine_wake_total" {
+					continue
+				}
+				require.Len(t, family.Metric, 1)
+				labels := map[string]string{}
+				for _, label := range family.Metric[0].Label {
+					labels[label.GetName()] = label.GetValue()
+				}
+				kind := "warm"
+				if mode == "create" {
+					kind = "cold"
+				}
+				require.Equal(t, map[string]string{"kind": kind, "outcome": "failure"}, labels)
+				require.Equal(t, float64(1), family.Metric[0].GetCounter().GetValue())
+				found = true
+			}
+			require.True(t, found)
+
 			require.Equal(t, 1, r.InUse())
 			require.Error(t, r.reserveAuxVM(t.Context(), "next"))
 			require.NoError(t, os.WriteFile(binary, []byte("#!/bin/sh\ncase \"$1\" in list) echo '[]';; esac\nexit 0\n"), 0700))
@@ -1000,4 +1025,90 @@ func TestAdmissionAuxiliaryRemovalRequiresRuntimeObservation(t *testing.T) {
 	require.NoError(t, r.finishAuxVM("prepare"))
 	require.Equal(t, 1, r.InUse(), "confirmed prepare removal retains branch grant")
 	require.NoError(t, r.BindAdmissionMachine("workspace:A", "branch"))
+}
+
+func TestAdmissionMachineMetricsFollowRuntimeQueueAndBoots(t *testing.T) {
+	r, p := admissionFixture()
+	registry := prometheus.NewRegistry()
+	require.NoError(t, registry.Register(r.MachineMetrics()))
+	require.Same(t, r.MachineMetrics(), r.MachineMetrics())
+	depths := func() map[string]float64 {
+		families, err := registry.Gather()
+		require.NoError(t, err)
+		got := map[string]float64{}
+		for _, f := range families {
+			if f.GetName() == "smithers_machine_queue_depth" {
+				for _, sample := range f.Metric {
+					got[sample.Label[0].GetValue()] = sample.GetGauge().GetValue()
+				}
+			}
+		}
+		return got
+	}
+	require.Equal(t, map[string]float64{"person": 0, "todo": 0, "background": 0}, depths())
+	for _, row := range []struct{ class, holder, actor string }{
+		{"todo", "workspace:A", "T1"}, {"person", "workspace:A", "Alice"},
+		{"person", "workspace:A", "Ben"}, {"todo", "workspace:B", "T2"},
+		{"background", "review:50", "review"},
+	} {
+		_, err := r.Request(row.class, row.holder, row.actor, "wake")
+		require.NoError(t, err)
+	}
+	require.Equal(t, map[string]float64{"person": 1, "todo": 1, "background": 1}, depths())
+	grant, err := r.GrantNext(t.Context(), p)
+	require.NoError(t, err)
+	require.Equal(t, "workspace:A", grant.Holder)
+	require.Equal(t, map[string]float64{"person": 0, "todo": 1, "background": 1}, depths())
+	r.CancelAdmission("workspace:B", "T2", time.Now())
+	require.Equal(t, map[string]float64{"person": 0, "todo": 0, "background": 1}, depths())
+	// A failed retained boot passes through the production runtime lifecycle.
+	// Transport observations are conformance fixtures, not real-VM receipts.
+	root := t.TempDir()
+	binary := filepath.Join(root, "msb")
+	require.NoError(t, os.WriteFile(binary, []byte("#!/bin/sh\ncase \"$1\" in\nlist) echo '[{\"name\":\"vm-a\",\"status\":\"stopped\"}]';;\nstart) exit 1;;\nstop) exit 0;;\nesac\n"), 0700))
+	r.cli = &cli{binary: binary, home: root}
+	ws := newWorkspace(metadata{ID: "A", Machine: "vm-a", State: "stopped"}, root)
+	r.workspaces["A"] = ws
+	_, err = r.StartWorkspace(WithAdmissionHolder(t.Context(), "workspace:A"), "A")
+	require.Error(t, err)
+	families, err := registry.Gather()
+	require.NoError(t, err)
+	seenCounter, seenDuration := false, false
+	for _, f := range families {
+		if f.GetName() != "smithers_machine_wake_total" && f.GetName() != "smithers_machine_wake_duration_seconds" {
+			continue
+		}
+		require.Len(t, f.Metric, 1)
+		labels := map[string]string{}
+		for _, label := range f.Metric[0].Label {
+			labels[label.GetName()] = label.GetValue()
+		}
+		require.Equal(t, map[string]string{"kind": "warm", "outcome": "failure"}, labels)
+		if f.GetName() == "smithers_machine_wake_total" {
+			require.Equal(t, float64(1), f.Metric[0].GetCounter().GetValue())
+			seenCounter = true
+		} else {
+			require.Equal(t, uint64(1), f.Metric[0].GetHistogram().GetSampleCount())
+			require.Greater(t, f.Metric[0].GetHistogram().GetSampleSum(), float64(0))
+			seenDuration = true
+		}
+	}
+	require.True(t, seenCounter)
+	require.True(t, seenDuration)
+	// Already awake and invalid requests do not count as boot attempts.
+	ws.State = "running"
+	_, err = r.StartWorkspace(t.Context(), "A")
+	require.NoError(t, err)
+	_, err = r.CreateWorkspace(t.Context(), workspaceapi.WorkspaceSpec{ID: "A"})
+	require.NoError(t, err)
+	_, err = r.StartWorkspace(t.Context(), "missing")
+	require.Error(t, err)
+	families, err = registry.Gather()
+	require.NoError(t, err)
+	for _, f := range families {
+		if f.GetName() == "smithers_machine_wake_total" {
+			require.Len(t, f.Metric, 1)
+			require.Equal(t, float64(1), f.Metric[0].GetCounter().GetValue())
+		}
+	}
 }
