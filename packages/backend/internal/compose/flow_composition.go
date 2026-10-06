@@ -122,7 +122,7 @@ func newFlowComposition(options runOptions, cfg *config.Config, pool *pgxpool.Po
 		// flow-load runs on its own short-lived workspace after every main move.
 		flowLoad := services.NewFlowLoadRuntime(mythical)
 		targets = withMythicalTargets(targets, services.NewMythicalFlowHostTargetResolver(mythical), flowLoad)
-		projectors = append(projectors, mythical, flowLoad)
+		projectors = append(projectors, mythical, flowLoad, mythical.LearningRuntime())
 	}
 	workspaceHosts, ok := launcher.(boxHostBase)
 	if !ok {

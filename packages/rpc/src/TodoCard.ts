@@ -4,6 +4,7 @@
  */
 
 import { z } from "zod"
+import { LessonsReceiptSchema } from "./ProposalCard.ts"
 import { ActionSchema } from "./CardAction.ts"
 import type { CardCallbacks, CardProps } from "./CardAction.ts"
 import {
@@ -120,6 +121,7 @@ export const TodoCardSchema = z.object({
   merged_via: z.number().int().positive().optional(),
   merge: MergeSchema,
   lessons: z.number().int().nonnegative().optional(),
+  lessons_receipt: LessonsReceiptSchema.optional(),
   approval_cleared: z.boolean().optional(),
   present: z.array(ActorSchema)
 })

@@ -1116,6 +1116,7 @@ func runWithOptions(ctx context.Context, args []string, stdout, stderr io.Writer
 	gitHubMainPullService.SetSynced(services.NewLandingGitHubMergeService(queries, repoHostClient, repoConnectionService, webhookDispatcher).Reconcile)
 	gitHubWebhookEventWorker.SetMythical(mythicalService)
 	mythicalService.SetWiki(wikiService)
+	mythicalService.SetLearningWiki(wikiService)
 	mythicalService.SetOrchestration(services.NewMythicalGitHub(queries, repoConnectionService, gitHubUserReposService, repoConnectionService),
 		nil, services.NewWorkspaceMythicalLanes(workspaceService))
 	if config.IsSingleOwner(cfg.Auth) {

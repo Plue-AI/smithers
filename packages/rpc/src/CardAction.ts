@@ -252,6 +252,7 @@ export interface CardCommandInput {
   readonly "box.suspend": { readonly branch: string }
   readonly "box.resume": { readonly branch: string }
   readonly "branch.rebase-now": { readonly branch: string }
+  readonly "proposal": { readonly id: string }
   readonly "learning.accept": { readonly id: string }
   readonly "learning.dismiss": { readonly id: string }
   readonly "terminal.watch": { readonly id: string }

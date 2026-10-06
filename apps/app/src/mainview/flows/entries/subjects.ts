@@ -49,6 +49,9 @@ export const subjectFlows = (actions: CommandActions): ReadonlyArray<FlowEntry> 
   const install = () => actions.bootstrap?.capabilities.includes("install") === true
   const realFiles = () => install() || actions.branchFiles.available()
   return [
+    flow({ name: "proposal", slash: "/proposal", cli: ["proposal"], journey: ["J5","J8"], group: "Wiki", visibility: "in-card", actors: ["person","app_agent","external_agent"], minimumRole: "member", http: null, summary: "Open a proposal", args: "<id>", discloseToAgent: true,
+      grammar: positional("id"), agent: "run", input: Schema.Struct({ id: Schema.NonEmptyString }),
+      handler: ({ id }) => actions.openProposal(id) }),
     flow({ name: "issue",   slash: "/issue", cli: ["issue","show"], journey: ["J2"], group: "Issues", visibility: "core", actors: ["person","app_agent","external_agent"], minimumRole: "member", http: {"method":"GET","path":"/api/issues/{number}"}, summary: "Open an issue's card", args: "#n", discloseToAgent: true,
       grammar: numbered(), agent: "run", input: Schema.Struct({ number: Schema.Number }),
       handler: ({ number }) => {

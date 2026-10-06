@@ -18,7 +18,7 @@ C-UI-12 Members (T-UI-09): [install roster and keyboard Add/Role/Remove](C-UI-12
 | C-J2-02 | [C-J2-02.spec.ts](C-J2-02.spec.ts) | implemented — Chromium passed 2026-10-05 (mounted install seam; composed router proof separate) | T-STK-09 |
 | C-J2-03 | [C-J2-03.spec.ts](C-J2-03.spec.ts) | fixme-before-implementation | T-STK-01 |
 | C-J2-04 | [C-J2-04.spec.ts](C-J2-04.spec.ts) | fixme-before-implementation | T-STK-01 |
-| C-J2-05 | [C-J2-05.spec.ts](C-J2-05.spec.ts) | fixme-before-implementation | T-STK-04 |
+| C-J2-05 | [C-J2-05.spec.ts](C-J2-05.spec.ts), [receipt navigation](../learning-receipt.spec.ts) | Partial: mounted merged-TODO receipt navigation passes in Chromium; merge/background-learning journey remains fixme | T-STK-04 |
 | C-J4-01 | [C-J4-01.spec.ts](C-J4-01.spec.ts) | fixme-before-implementation | T-APP-01 |
 | C-J4-02 | [C-J4-02.spec.ts](C-J4-02.spec.ts) | passing app HTTP-seam proof: Answer, head-bound Merge (acceptance stays In review until terminal projection), Move, Retry and pending execution; real flow/GitHub and reference-host timing remain pending | T-STK-02, T-STK-05, T-APP-02 |
 | C-J4-03 | [C-J4-03.spec.ts](C-J4-03.spec.ts) | fixme-before-implementation | T-STK-04, T-REL-02 |
@@ -42,7 +42,7 @@ C-UI-12 Members (T-UI-09): [install roster and keyboard Add/Role/Remove](C-UI-12
 | C-J3-10 | [C-J3-10.spec.ts](C-J3-10.spec.ts) | fixme-before-implementation | T-TRM-05, T-REL-02 |
 | C-J5-01 | [C-J5-01.spec.ts](C-J5-01.spec.ts), [proposal → Draft](../flow-edit-proposal.spec.ts), [install versions](../flow-card-install.spec.ts) | proposal-to-Draft, install selection/reload and live Proposed → syncing → Active/failed-load projection pass; joint real merge/load/pinning pending | T-FLW-03, T-FLW-04, T-FLW-05, T-FLW-11, T-APP-05, T-REL-02 |
 | C-J5-02 | [C-J5-02.spec.ts](C-J5-02.spec.ts) | fixme-before-implementation | T-FLW-03, T-FLW-04, T-FLW-11 |
-| C-J5-03 | [C-J5-03.spec.ts](C-J5-03.spec.ts) | fixme-before-implementation | T-FLW-06, T-REL-02 |
+| C-J5-03 | [C-J5-03.spec.ts](C-J5-03.spec.ts), [receipt navigation](../learning-receipt.spec.ts) | Partial: receipt → Proposal → Make TODO → reload passes in Chromium; automatic learning, flow activation and sixth-TODO journey remain fixme | T-FLW-06, T-REL-02 |
 | C-J6-01 | [C-J6-01.spec.ts](C-J6-01.spec.ts) | fixme-before-implementation | T-TRM-02, T-APP-09, T-REL-02 |
 | C-J6-02 | [C-J6-02.spec.ts](C-J6-02.spec.ts) | fixme-before-implementation | T-ACC-04, T-APP-04, T-REL-02 |
 | C-J7-01 | [C-J7-01.spec.ts](C-J7-01.spec.ts) | app HTTP-seam proof: private Before draft, stack order, Amend, retained identity and reload; guest steer/ancestry and reference-host receipts pending | T-STK-02, T-STK-06, T-REL-02 |
