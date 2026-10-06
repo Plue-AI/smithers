@@ -2,9 +2,13 @@ package services
 
 import (
 	"context"
+	"errors"
 	"net/http"
+	"strconv"
 	"strings"
 	"time"
+
+	"github.com/jackc/pgx/v5"
 
 	"github.com/smithersai/smithers/packages/backend/internal/config"
 	"github.com/smithersai/smithers/packages/backend/internal/db"
@@ -43,11 +47,26 @@ func (s *AuthService) requireDelegatedMember(ctx context.Context, userID int64) 
 // MintForTurn is host-only: no route accepts its subject or returns its bearer.
 // The runner owns the turn subject and revokes the token with DeleteToken on
 // completion or cancellation; every replacement rechecks active membership.
-func (s *AuthService) MintForTurn(ctx context.Context, userID int64, turnID string) (CreateTokenResult, error) {
-	if strings.TrimSpace(turnID) == "" {
+// Authentication fences the bearer against this producer generation and lease
+// on every lookup, including after a host crash that skipped token deletion.
+func (s *AuthService) MintForTurn(ctx context.Context, userID int64, turnID string, generation int64) (CreateTokenResult, error) {
+	if strings.TrimSpace(turnID) == "" || generation <= 0 {
 		return CreateTokenResult{}, pkgerrors.BadRequest("turn subject is required")
 	}
-	return s.mintForSubject(ctx, userID, "app-turn-"+turnID, middleware.Delegation{Via: "smithers", Session: turnID}, []string{"repo", "user", "workspace", "agent"})
+	if err := s.requireDelegatedMember(ctx, userID); err != nil {
+		return CreateTokenResult{}, err
+	}
+	_, err := db.New(s.Members.Pool).GetChatTurnCredentialSubject(ctx, db.GetChatTurnCredentialSubjectParams{
+		TurnID: turnID, UserID: userID, Generation: generation,
+	})
+	if errors.Is(err, pgx.ErrNoRows) {
+		return CreateTokenResult{}, &AccessError{Status: 401, Class: "permission", Code: "unauthenticated", Message: "Turn subject is not active"}
+	}
+	if err != nil {
+		return CreateTokenResult{}, err
+	}
+	subject := turnID + "/" + strconv.FormatInt(generation, 10)
+	return s.mintForSubject(ctx, userID, "app-turn-"+subject, middleware.Delegation{Via: "smithers", Session: subject}, []string{"repo", "user", "workspace", "agent"})
 }
 
 // MintForTerminal binds a host-issued terminal token to its immutable session

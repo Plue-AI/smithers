@@ -68,7 +68,7 @@ func TestBranchConversationMemberViewStateInstall(t *testing.T) {
 	tokenDigest := hex.EncodeToString(tokenHash[:])
 	_, err = q.CreateAccessToken(ctx, db.CreateAccessTokenParams{UserID: ben.ID, Name: "private-view-delegation",
 		TokenHash: tokenDigest, TokenLastEight: tokenDigest[len(tokenDigest)-8:], SystemIssued: true,
-		Scopes:    "write:user,read:user," + strings.Join(middleware.DelegationScopes(middleware.Delegation{Via: "smithers"}), ","),
+		Scopes:    "write:user,read:user," + strings.Join(middleware.DelegationScopes(middleware.Delegation{Via: "smithers", Session: liveAppTurnCredentialFixture(t, pool, ben.ID) + "/1"}), ","),
 		ExpiresAt: pgtype.Timestamptz{Time: time.Now().Add(time.Hour), Valid: true}})
 	require.NoError(t, err)
 	runtime, err := process.New(process.Config{Root: t.TempDir()})

@@ -6,7 +6,9 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgtype"
+	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/smithersai/smithers/packages/backend/flowdispatch"
 	"github.com/smithersai/smithers/packages/backend/flowruntime"
 	"github.com/smithersai/smithers/packages/backend/internal/auth"
@@ -250,12 +252,99 @@ func TestDelegatedCredentialComposedInstallPostgres(t *testing.T) {
 	}
 	_, err = pool.Exec(ctx, `UPDATE access_tokens SET scopes=$2 WHERE id=$1`, row.TokenID, row.TokenScopes)
 	require.NoError(t, err)
-	turn, err := svc.MintForTurn(ctx, owner.ID, "turn-1")
+	turnID := liveAppTurnCredentialFixture(t, pool, owner.ID)
+	turn, err := svc.MintForTurn(ctx, owner.ID, turnID, 1)
 	require.NoError(t, err)
 	require.Equal(t, "smithers", turn.Via)
 	require.WithinDuration(t, time.Now().Add(time.Hour), *turn.ExpiresAt, 10*time.Second)
 	status, body = call("GET", "/api/user", "", turn.Token)
 	require.Equal(t, 200, status, body)
+
+	t.Run("turn-credential-scope-separators", func(t *testing.T) {
+		digest := sha256.Sum256([]byte(turn.Token))
+		held := middleware.Credential{TokenHash: hex.EncodeToString(digest[:])}
+		for _, separator := range []string{",", " ", "\t", "\n", "\v", "\f", "\r", "\u0085", "\u00a0", "\u1680", "\u2000", "\u2001", "\u2002", "\u2003", "\u2004", "\u2005", "\u2006", "\u2007", "\u2008", "\u2009", "\u200a", "\u2028", "\u2029", "\u202f", "\u205f", "\u3000"} {
+			scopes := strings.Join(turn.Scopes, separator)
+			_, err := pool.Exec(ctx, `UPDATE access_tokens SET scopes=$2 WHERE id=$1`, turn.ID, scopes)
+			require.NoError(t, err)
+			info, err := middleware.ReloadCredential(ctx, q, held, time.Now())
+			require.NoError(t, err, "%q", separator)
+			require.Equal(t, "smithers", info.ActingVia())
+			// The same separators must not hide an unbound app-agent grant.
+			_, err = pool.Exec(ctx, `UPDATE access_tokens SET scopes=$2 WHERE id=$1`, turn.ID, "repo"+separator+"via:smithers")
+			require.NoError(t, err)
+			_, err = middleware.ReloadCredential(ctx, q, held, time.Now())
+			require.ErrorIs(t, err, middleware.ErrCredentialGone, "%q", separator)
+		}
+		_, err := pool.Exec(ctx, `UPDATE access_tokens SET scopes=$2 WHERE id=$1`, turn.ID, strings.Join(turn.Scopes, ","))
+		require.NoError(t, err)
+	})
+
+	// The public API and background credential reload both fence every kind
+	// of lost producer authority, without needing the old host's cleanup.
+	for _, test := range []struct{ name, update string }{
+		{"queued", "state='queued'"}, {"accepted", "state='accepted'"},
+		{"completed", "state='completed'"}, {"failed", "state='failed'"},
+		{"cancelled", "state='cancelled'"}, {"uncertain", "state='uncertain'"},
+		{"retired", "state='retired'"}, {"terminal", "terminal=true"},
+		{"cancellation-requested", "cancel_requested_at=NOW()"},
+		{"lease-expired", "producer_lease_expires_at=NOW()-interval '1 second'"},
+		{"lease-missing", "producer_lease_expires_at=NULL"},
+		{"producer-missing", "producer_token_hash=NULL"},
+		{"replacement", "producer_generation=2"}, {"foreign-author", "user_id=0"},
+	} {
+		t.Run("turn-credential-"+test.name, func(t *testing.T) {
+			id := liveAppTurnCredentialFixture(t, pool, owner.ID)
+			credential, err := svc.MintForTurn(ctx, owner.ID, id, 1)
+			require.NoError(t, err)
+			status, body := call("GET", "/api/user", "", credential.Token)
+			require.Equal(t, 200, status, body)
+			digest := sha256.Sum256([]byte(credential.Token))
+			held := middleware.Credential{TokenHash: hex.EncodeToString(digest[:])}
+			_, err = middleware.ReloadCredential(ctx, q, held, time.Now())
+			require.NoError(t, err)
+			_, err = pool.Exec(ctx, "UPDATE chat_turns SET "+test.update+" WHERE id=$1", id)
+			require.NoError(t, err)
+			status, body = call("GET", "/api/user", "", credential.Token)
+			require.Equal(t, 401, status, body)
+			_, err = middleware.ReloadCredential(ctx, q, held, time.Now())
+			require.ErrorIs(t, err, middleware.ErrCredentialGone)
+			var before, after int
+			require.NoError(t, pool.QueryRow(ctx, `SELECT count(*) FROM access_tokens`).Scan(&before))
+			_, err = svc.MintForTurn(ctx, owner.ID, id, 1)
+			require.Error(t, err)
+			require.NoError(t, pool.QueryRow(ctx, `SELECT count(*) FROM access_tokens`).Scan(&after))
+			require.Equal(t, before, after, "refused issuance must not create a token")
+			if test.name == "replacement" {
+				replacement, err := svc.MintForTurn(ctx, owner.ID, id, 2)
+				require.NoError(t, err)
+				status, body = call("GET", "/api/user", "", replacement.Token)
+				require.Equal(t, 200, status, body)
+				status, body = call("GET", "/api/user", "", credential.Token)
+				require.Equal(t, 401, status, body)
+			}
+		})
+	}
+	t.Run("turn-credential-unclaimed", func(t *testing.T) {
+		var before, after int
+		require.NoError(t, pool.QueryRow(ctx, `SELECT count(*) FROM access_tokens`).Scan(&before))
+		for _, generation := range []int64{-1, 0, 1} {
+			_, err := svc.MintForTurn(ctx, owner.ID, "unclaimed", generation)
+			require.Error(t, err)
+		}
+		_, err := svc.MintForTurn(ctx, owner.ID, "", 1)
+		require.Error(t, err)
+		require.NoError(t, pool.QueryRow(ctx, `SELECT count(*) FROM access_tokens`).Scan(&after))
+		require.Equal(t, before, after)
+	})
+	t.Run("turn-credential-binding-required", func(t *testing.T) {
+		for _, scopes := range []string{"repo,user,via:smithers", " repo, user , VIA:SMITHERS ", "repo user via:smithers", "repo\tuser\nvia:smithers", "repo\u00a0user\u2003via:smithers", "repo,user,via:smithers,terminal-session:missing/1"} {
+			_, err := pool.Exec(ctx, `UPDATE access_tokens SET scopes=$2 WHERE id=$1`, turn.ID, scopes)
+			require.NoError(t, err)
+			status, body := call("GET", "/api/user", "", turn.Token)
+			require.Equal(t, 401, status, body)
+		}
+	})
 	require.NoError(t, svc.DeleteToken(ctx, owner.ID, turn.ID))
 	status, body = call("GET", "/api/user", "", turn.Token)
 	require.Equal(t, 401, status, body)
@@ -286,7 +375,7 @@ func TestDelegatedCredentialComposedInstallPostgres(t *testing.T) {
 	require.NoError(t, err)
 	status, body = call("GET", "/api/user", "", raw)
 	require.Equal(t, 401, status, body)
-	_, err = svc.MintForTurn(ctx, owner.ID, "dead-turn")
+	_, err = svc.MintForTurn(ctx, owner.ID, "dead-turn", 1)
 	require.Error(t, err)
 	_, err = pool.Exec(ctx, `UPDATE users SET prohibit_login=false WHERE id=$1`, owner.ID)
 	require.NoError(t, err)
@@ -386,4 +475,17 @@ if(settled.status!==200) throw Error(await settled.text());
 	require.Empty(t, res.Cookies())
 	status, body = call("POST", "/api/user/tokens", `{"name":"refused","scopes":["repo"]}`, raw)
 	require.Equal(t, 503, status, body)
+}
+
+// These policy fixtures need an authenticated app agent. The production
+// authentication query requires a live database-backed producer subject even
+// when the test is about a different API's permission decision.
+func liveAppTurnCredentialFixture(t *testing.T, pool *pgxpool.Pool, userID int64) string {
+	t.Helper()
+	id := uuid.NewString()
+	_, err := pool.Exec(t.Context(), `INSERT INTO chat_turns
+ (id,user_id,run_id,leg_id,request_hash,access_hash,state,producer_generation,producer_token_hash,producer_lease_expires_at)
+ VALUES($1,$2,$1,'fixture','fixture','fixture','running',1,'fixture',NOW()+interval '1 hour')`, id, userID)
+	require.NoError(t, err)
+	return id
 }

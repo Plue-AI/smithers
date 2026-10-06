@@ -52,8 +52,9 @@ const (
 const TerminalProfileS1 = "terminal_s1"
 
 // Delegation is what the issuer stored on a delegated credential: the tool
-// it was minted for (via), and for a terminal's, its branch, profile and
-// terminal session.
+// it was minted for (via), and its subject. Session names a terminal session
+// for terminals, or turn ID/producer generation for an app-agent turn.
+// Branch and Profile restrict terminal credentials further.
 type Delegation struct {
 	Via     string
 	Branch  string
@@ -62,7 +63,7 @@ type Delegation struct {
 }
 
 // DelegationScopes are the scopes-list entries that bind a delegated
-// credential to its via, branch, profile and terminal session. Empty fields
+// credential to its via, branch, profile and subject. Empty fields
 // are left out; via is required.
 func DelegationScopes(d Delegation) []string {
 	entries := []string{delegationViaScopePrefix + strings.ToLower(strings.TrimSpace(d.Via))}

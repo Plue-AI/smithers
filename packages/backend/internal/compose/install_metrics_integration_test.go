@@ -60,7 +60,7 @@ func TestInstallMetricsOwnerBoundary(t *testing.T) {
 	digest = sha256.Sum256([]byte(delegated))
 	hash = hex.EncodeToString(digest[:])
 	scopes := "read:repository"
-	for _, scope := range middleware.DelegationScopes(middleware.Delegation{Via: "smithers"}) {
+	for _, scope := range middleware.DelegationScopes(middleware.Delegation{Via: "smithers", Session: liveAppTurnCredentialFixture(t, pool, users[0].ID) + "/1"}) {
 		scopes += "," + scope
 	}
 	_, err = q.CreateAccessToken(ctx, db.CreateAccessTokenParams{UserID: users[0].ID, Name: "metrics-delegated", TokenHash: hash, TokenLastEight: hash[len(hash)-8:], SystemIssued: true, Scopes: scopes, ExpiresAt: pgtype.Timestamptz{Time: time.Now().Add(time.Hour), Valid: true}})

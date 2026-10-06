@@ -408,3 +408,10 @@ DELETE FROM access_tokens
 WHERE user_id = sqlc.arg(user_id)
   AND name = sqlc.arg(name)
   AND system_issued;
+-- name: GetChatTurnCredentialSubject :one
+-- The issuer can mint only after the existing chat dispatcher claims a turn.
+SELECT id FROM chat_turns
+WHERE id = sqlc.arg(turn_id) AND user_id = sqlc.arg(user_id)
+  AND producer_generation = sqlc.arg(generation)
+  AND state = 'running' AND NOT terminal AND cancel_requested_at IS NULL
+  AND producer_token_hash IS NOT NULL AND producer_lease_expires_at > NOW();

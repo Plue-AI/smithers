@@ -277,7 +277,7 @@ func TestBranchConversationQueueMutationInstall(t *testing.T) {
 	rawAgentToken := "smithers_" + strings.Repeat("a", 40)
 	agentHash := sha256.Sum256([]byte(rawAgentToken))
 	agentDigest := hex.EncodeToString(agentHash[:])
-	_, err = q.CreateAccessToken(ctx, db.CreateAccessTokenParams{UserID: ben.ID, Name: "queue-agent-refusal", TokenHash: agentDigest, TokenLastEight: agentDigest[len(agentDigest)-8:], SystemIssued: true, Scopes: "repo,user,agent,via:smithers", ExpiresAt: pgtype.Timestamptz{Time: time.Now().Add(time.Hour), Valid: true}})
+	_, err = q.CreateAccessToken(ctx, db.CreateAccessTokenParams{UserID: ben.ID, Name: "queue-agent-refusal", TokenHash: agentDigest, TokenLastEight: agentDigest[len(agentDigest)-8:], SystemIssued: true, Scopes: "repo,user,agent,via:smithers,terminal-session:" + liveAppTurnCredentialFixture(t, pool, ben.ID) + "/1", ExpiresAt: pgtype.Timestamptz{Time: time.Now().Add(time.Hour), Valid: true}})
 	require.NoError(t, err)
 	agentRequest, err := http.NewRequest("POST", server.URL+"/api/conversations/main/prompt", strings.NewReader(`{"prompt":"agent cannot queue","idempotencyKey":"agent"}`))
 	require.NoError(t, err)

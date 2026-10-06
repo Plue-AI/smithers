@@ -97,7 +97,7 @@ func TestForeignPushAnswersComposedInstall(t *testing.T) {
 		token := "smithers_" + strings.Repeat(digit, 40)
 		digest := sha256.Sum256([]byte(token))
 		hash := hex.EncodeToString(digest[:])
-		_, err := q.CreateAccessToken(ctx, db.CreateAccessTokenParams{UserID: user.ID, Name: "foreign-answer", TokenHash: hash, TokenLastEight: hash[len(hash)-8:], Scopes: "read:repository,write:repository,via:smithers", SystemIssued: true, ExpiresAt: pgtype.Timestamptz{Time: time.Now().Add(time.Hour), Valid: true}})
+		_, err := q.CreateAccessToken(ctx, db.CreateAccessTokenParams{UserID: user.ID, Name: "foreign-answer", TokenHash: hash, TokenLastEight: hash[len(hash)-8:], Scopes: "read:repository,write:repository,via:smithers,terminal-session:" + liveAppTurnCredentialFixture(t, pool, user.ID) + "/1", SystemIssued: true, ExpiresAt: pgtype.Timestamptz{Time: time.Now().Add(time.Hour), Valid: true}})
 		require.NoError(t, err)
 		return token
 	}
@@ -142,12 +142,12 @@ func TestForeignPushAnswersComposedInstall(t *testing.T) {
 		})
 	}
 	// A downgraded/read-only delegation cannot acquire confirmation authority.
-	_, err = pool.Exec(ctx, `UPDATE access_tokens SET scopes='read:repository,via:smithers' WHERE user_id=$1`, owner.ID)
+	_, err = pool.Exec(ctx, `UPDATE access_tokens SET scopes=replace(scopes,'write:repository,','') WHERE user_id=$1`, owner.ID)
 	require.NoError(t, err)
 	for _, command := range []string{"branch.bring-in", "branch.discard-foreign"} {
 		confirmationCall("/api/confirmations", ownerToken, "", fmt.Sprintf(`{"command":%q}`, command), "read-only-"+command, 403, "permission")
 	}
-	_, err = pool.Exec(ctx, `UPDATE access_tokens SET scopes='read:repository,write:repository,via:smithers' WHERE user_id=$1`, owner.ID)
+	_, err = pool.Exec(ctx, `UPDATE access_tokens SET scopes='write:repository,' || scopes WHERE user_id=$1`, owner.ID)
 	require.NoError(t, err)
 	for _, answer := range []string{"bring-in", "discard-foreign"} {
 		confirmationCall("/api/branches/smithers%2Fretry", ownerToken, "", fmt.Sprintf(`{"op":%q,"id":"foreign","revision":%q}`, answer, head), "direct-"+answer, 403, "confirm_in_app")

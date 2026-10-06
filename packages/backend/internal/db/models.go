@@ -1603,6 +1603,8 @@ type MythicalItem struct {
 	FlowDigest        pgtype.Text        `json:"flow_digest"`
 	Revisions         json.RawMessage    `json:"revisions"`
 	FixesIssue        bool               `json:"fixes_issue"`
+	Lessons           pgtype.Int4        `json:"lessons"`
+	LearningReceipt   []byte             `json:"learning_receipt"`
 }
 
 type MythicalLane struct {
@@ -2664,6 +2666,7 @@ type WikiPageRevision struct {
 	CrdtVector      []byte      `json:"crdt_vector"`
 	TitleSource     string      `json:"title_source"`
 	SourceCommit    string      `json:"source_commit"`
+	LearningAuthor  []byte      `json:"learning_author"`
 }
 
 type WikiSpace struct {
