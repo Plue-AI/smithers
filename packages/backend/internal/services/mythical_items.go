@@ -1517,11 +1517,12 @@ func mythicalStepFailedDue(err error, now time.Time) time.Time {
 // pinned, so nothing depends on it. A failed release is retried next claim.
 // It answers the item as saved, so a step that follows works on it.
 func (s *MythicalService) releaseLane(ctx context.Context, r *mythicalRun, item db.MythicalItem) db.MythicalItem {
-	// On the install, review is a retained branch machine. Only the runtime's
-	// safe-idle observer may sleep it; publication is not a safety observation.
+	// Keep interrupted work for its person. Finished review lanes use the
+	// qualified retirement path until #3572 composes safe-idle release; retaining
+	// them without that observer exhausts capacity and blocks the next TODO.
 	if s.installParallelRequired {
 		state := todoState(item)
-		if !mythicalSettledStates[item.State] || state == "paused" || state == "needs_you" || state == "in_review" {
+		if state == "paused" || state == "needs_you" {
 			return item
 		}
 	}

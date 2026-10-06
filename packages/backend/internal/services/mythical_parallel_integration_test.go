@@ -81,16 +81,6 @@ func TestParallelRetainedMachineRelease(t *testing.T) {
 	first = o.byID(uuidString(first.ID))
 	require.Equal(t, "running", first.State)
 	require.Equal(t, "queued", o.byID(uuidString(second.ID)).State)
-	// Publishing for review does not itself establish safe-idle.
-	first.State, first.PRState = "proposed", "open"
-	lanes.held[first.WorkspaceID] = true
-	_, err := db.New(o.pool).SaveMythicalItem(t.Context(), first)
-	require.NoError(t, err)
-	o.wake()
-	first = o.byID(uuidString(first.ID))
-	require.NotEmpty(t, first.WorkspaceID)
-	require.Empty(t, o.lanes.deleted)
-	require.Equal(t, "queued", o.byID(uuidString(second.ID)).State)
 	// A stopped run needs a person; its machine still owns the only TODO slot.
 	first.State, first.PRState = "blocked", ""
 	first.RequestOutcome = "failed"
@@ -99,9 +89,11 @@ func TestParallelRetainedMachineRelease(t *testing.T) {
 	first.Checks = waiting.encode()
 	require.Equal(t, "needs_you", todoState(first))
 	lanes.held[first.WorkspaceID] = true
-	_, err = db.New(o.pool).SaveMythicalItem(t.Context(), first)
+	_, err := db.New(o.pool).SaveMythicalItem(t.Context(), first)
 	require.NoError(t, err)
 	o.wake()
+	require.NotEmpty(t, o.byID(uuidString(first.ID)).WorkspaceID)
+	require.Empty(t, o.lanes.deleted)
 	require.Equal(t, "queued", o.byID(uuidString(second.ID)).State)
 	// A later-created TODO placed before T2 wins the next released slot.
 	number := second.Number.Int64
@@ -145,4 +137,29 @@ func (l *fakeMythicalLanes) MachineHeld(_ context.Context, id string) (bool, err
 		}
 	}
 	return false, nil
+}
+
+// J5 covers this through the composed HTTP install: a reviewed flow edit must
+// not hold the only free machine while another TODO waits for an answer.
+func TestParallelFinishedReviewRetiresBeforeNextAdmission(t *testing.T) {
+	o, session := newTodoAdmission(t)
+	capacity := &InstallCapacityService{Queries: db.New(o.pool), Profile: microsandbox.HostProfile{MemoryBytes: 32 << 30, PerfCores: 10, DiskFreeBytes: 400 << 30}}
+	o.service.SetInstallParallel(capacity)
+	require.NoError(t, db.New(o.pool).UpsertInstallSetting(t.Context(), db.UpsertInstallSettingParams{Key: "parallel", Value: []byte(`1`)}))
+	first := o.fileTodo(session, "T1")
+	second := o.fileTodo(session, "T2")
+	o.wake()
+	first = o.byID(uuidString(first.ID))
+	workspace := first.WorkspaceID
+	require.NotEmpty(t, workspace)
+	require.Equal(t, "queued", o.byID(uuidString(second.ID)).State)
+	first.State, first.PRState = "proposed", "open"
+	_, err := db.New(o.pool).SaveMythicalItem(t.Context(), first)
+	require.NoError(t, err)
+	o.wake()
+	require.Empty(t, o.byID(uuidString(first.ID)).WorkspaceID)
+	require.Contains(t, o.lanes.deleted, workspace)
+	// The current pass kept its ownership snapshot; the next observes release.
+	o.wake()
+	require.Equal(t, "running", o.byID(uuidString(second.ID)).State)
 }
