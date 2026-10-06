@@ -1,13 +1,18 @@
 package compose
 
 import (
+	"context"
 	"crypto/sha256"
 	"encoding/hex"
+	"encoding/json"
 	"fmt"
+	"github.com/smithersai/smithers/packages/backend/jobs"
+	"github.com/smithersai/smithers/packages/backend/workspace"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -283,4 +288,182 @@ func TestInstallReviewHTTPAdmissionWithoutRuntime(t *testing.T) {
 		require.NoError(t, pool.QueryRow(ctx, "SELECT count(*) FROM "+table).Scan(&count))
 		require.Zero(t, count, table)
 	}
+	t.Run("durable admission and worker recovery", func(t *testing.T) {
+		upstream.UpdatePull("review-owner/app", 50, func(p *githubfake.Pull) { p.User = &githubfake.PullAuthor{ID: 4242, Login: "alice", Type: "User"} })
+		machine := &reviewMachineFixture{runs: map[string]string{}}
+		delivery := &reviewDeliveryFixture{}
+		background, err := services.NewReviewBackground(pool, service, machine, delivery)
+		require.NoError(t, err)
+		service.SetReviewBackground(background)
+		call := func(body, key string) *httptest.ResponseRecorder {
+			req := httptest.NewRequest("POST", "http://localhost:4000/api/reviews", strings.NewReader(body))
+			req.RemoteAddr = "127.0.0.1:61000"
+			req.Header.Set("Content-Type", "application/json")
+			req.Header.Set("Origin", "http://localhost:4000")
+			req.Header.Set("Idempotency-Key", key)
+			req.Header.Set("X-CSRF-Token", "review-csrf")
+			req.AddCookie(&http.Cookie{Name: "session", Value: "review-cookie"})
+			req.AddCookie(&http.Cookie{Name: "__csrf", Value: "review-csrf"})
+			answer := httptest.NewRecorder()
+			router.ServeHTTP(answer, req)
+			return answer
+		}
+		body := `{"number":50,"conversation":"ben"}`
+		// Every preflight refusal remains before acceptance and allocation.
+		for _, code := range []string{"review_binding_unavailable", "review_source_unavailable", "review_digest_mismatch", "review_runtime_unavailable", "review_root_boundary_unavailable"} {
+			machine.refusal = code
+			answer := call(body, "gate-"+code)
+			require.Equal(t, 503, answer.Code, answer.Body.String())
+			require.Contains(t, answer.Body.String(), `"code":"`+code+`"`)
+		}
+		machine.refusal = ""
+		answer := call(body, "durable-member-review")
+		require.Equal(t, 202, answer.Code, answer.Body.String())
+		var selected services.ReviewAdmission
+		require.NoError(t, json.Unmarshal(answer.Body.Bytes(), &selected))
+		require.NotEmpty(t, selected.OperationID)
+		require.Equal(t, jobs.StateAccepted, selected.State)
+		require.Equal(t, "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", selected.Head)
+		require.Equal(t, "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb", selected.Pin.SourceCommit)
+		require.Equal(t, strings.Repeat("c", 64), selected.Pin.ExecutionDigest)
+		require.Empty(t, machine.runs, "HTTP acceptance never calls a machine")
+		upstream.UpdatePull("review-owner/app", 50, func(p *githubfake.Pull) { p.Head.SHA = strings.Repeat("d", 40) })
+		_, err = q.InsertFlowVersion(ctx, repo.ID, "review", "flows/review/flow.ts", strings.Repeat("e", 40), strings.Repeat("f", 64), "loaded", "", []byte(`{}`))
+		require.NoError(t, err)
+		_, err = q.ActivateFlowVersion(ctx, repo.ID, "review", strings.Repeat("f", 64))
+		require.NoError(t, err)
+		repeated := call(body, "durable-member-review")
+		require.Equal(t, 202, repeated.Code, repeated.Body.String())
+		var replay services.ReviewAdmission
+		require.NoError(t, json.Unmarshal(repeated.Body.Bytes(), &replay))
+		require.Equal(t, selected, replay)
+		conflict := call(`{"number":50,"conversation":"another"}`, "durable-member-review")
+		require.Equal(t, 409, conflict.Code, conflict.Body.String())
+		require.Contains(t, conflict.Body.String(), `"code":"idempotency_mismatch"`)
+		// Simulate a lost Start reply and a delivery failure. Both recovery passes
+		// must keep the original head/pin and reconcile the same operation ID.
+		machine.loseStart = true
+		delivery.failOnce = true
+		workerCtx, cancel := context.WithCancel(ctx)
+		done := make(chan error, 1)
+		go func() {
+			done <- background.RunWorker(workerCtx, jobs.WorkerConfig{WorkerID: "review-recovery", Capacity: 1, Lease: time.Second, PollInterval: time.Millisecond, RetryDelay: time.Millisecond})
+		}()
+		store, err := jobs.NewStore(pool)
+		require.NoError(t, err)
+		scope := jobs.Scope{TenantID: fmt.Sprintf("repository:%d", repo.ID), PrincipalID: fmt.Sprintf("user:%d", owner.ID)}
+		require.Eventually(t, func() bool {
+			op, e := store.Get(ctx, scope, selected.OperationID)
+			return e == nil && op.State == jobs.StateCompleted
+		}, 5*time.Second, 10*time.Millisecond)
+		cancel()
+		require.NoError(t, <-done)
+		machine.mu.Lock()
+		require.Len(t, machine.runs, 1)
+		require.Equal(t, selected.Head, machine.selected.Head)
+		require.Equal(t, selected.Pin, machine.selected.Pin)
+		require.GreaterOrEqual(t, machine.retired, 1)
+		machine.mu.Unlock()
+		delivery.mu.Lock()
+		require.Equal(t, selected.OperationID, delivery.id)
+		require.Equal(t, "ben", delivery.conversation)
+		require.JSONEq(t, `{"findings":[{"path":"cache.ts","line":20,"severity":"fix","body":"Off by one"}]}`, string(delivery.change))
+		delivery.mu.Unlock()
+		// Read the persisted findings through the same install router.
+		readReview := func(id, cookie string) *httptest.ResponseRecorder {
+			req := httptest.NewRequest("GET", "http://localhost:4000/api/reviews/"+id, nil)
+			req.RemoteAddr = "127.0.0.1:61000"
+			if cookie != "" {
+				req.AddCookie(&http.Cookie{Name: "session", Value: cookie})
+			}
+			response := httptest.NewRecorder()
+			router.ServeHTTP(response, req)
+			return response
+		}
+		require.Equal(t, 401, readReview(selected.OperationID, "").Code)
+		status := readReview(selected.OperationID, "review-cookie")
+		require.Equal(t, 200, status.Code, status.Body.String())
+		require.Contains(t, status.Body.String(), `"state":"completed"`)
+		require.Contains(t, status.Body.String(), `"path":"cache.ts"`)
+		require.NotContains(t, status.Body.String(), "SessionHash")
+		require.Equal(t, 404, readReview("00000000-0000-4000-8000-000000000001", "review-cookie").Code)
+		_, err = pool.Exec(ctx, `INSERT INTO oauth_accounts(id,user_id,provider,provider_user_id) VALUES(361201,$1,'workos','4242')`, member.ID)
+		require.NoError(t, err)
+		memberSession := sha256.Sum256([]byte("alice-review-cookie"))
+		_, err = q.CreateAuthSession(ctx, db.CreateAuthSessionParams{UserID: member.ID, Username: member.Username, SessionKey: hex.EncodeToString(memberSession[:]), ExpiresAt: time.Now().Add(time.Hour)})
+		require.NoError(t, err)
+		require.Equal(t, 404, readReview(selected.OperationID, "alice-review-cookie").Code)
+		// Membership revocation also prevents reconnection to a private result.
+		_, err = pool.Exec(ctx, `UPDATE collaborators SET suspended_at=now() WHERE user_id=$1`, member.ID)
+		require.NoError(t, err)
+		require.Equal(t, 403, call(body, "durable-member-review").Code)
+		for _, table := range []string{"workspaces", "mythical_items", "mythical_stacks"} {
+			require.NoError(t, pool.QueryRow(ctx, "SELECT count(*) FROM "+table).Scan(&count))
+			require.Zero(t, count, table)
+		}
+		require.Len(t, upstream.Writes()[writes:], 1, "review has no repository write authority")
+	})
+
+}
+
+// Test-only machine and delivery contracts. This is boundary/recovery evidence,
+// not C-J10-09 reference-host microVM qualification.
+type reviewMachineFixture struct {
+	mu        sync.Mutex
+	runs      map[string]string
+	selected  services.ReviewAdmission
+	refusal   string
+	loseStart bool
+	retired   int
+}
+
+func (*reviewMachineFixture) Isolation() workspace.IsolationLevel {
+	return workspace.IsolationSandboxed
+}
+func (m *reviewMachineFixture) Prepare(context.Context, services.ReviewAdmission) error {
+	if m.refusal != "" {
+		return &services.TodoControlError{Status: 503, Class: "infra", Code: m.refusal, Message: "Review unavailable"}
+	}
+	return nil
+}
+func (m *reviewMachineFixture) Start(_ context.Context, id string, a services.ReviewAdmission) (string, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.selected = a
+	if m.runs[id] == "" {
+		m.runs[id] = "review-run"
+	}
+	if m.loseStart {
+		m.loseStart = false
+		return "", fmt.Errorf("lost Start reply")
+	}
+	return m.runs[id], nil
+}
+func (*reviewMachineFixture) Observe(context.Context, string, services.ReviewAdmission) (services.ReviewObservation, error) {
+	return services.ReviewObservation{State: jobs.StateCompleted, Change: json.RawMessage(`{"findings":[{"path":"cache.ts","line":20,"severity":"fix","body":"Off by one"}]}`)}, nil
+}
+func (m *reviewMachineFixture) Retire(context.Context, string, services.ReviewAdmission) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.retired++
+	return nil
+}
+
+type reviewDeliveryFixture struct {
+	mu               sync.Mutex
+	failOnce         bool
+	id, conversation string
+	change           json.RawMessage
+}
+
+func (*reviewDeliveryFixture) Ready(context.Context, services.ReviewAdmission) error { return nil }
+func (d *reviewDeliveryFixture) Deliver(_ context.Context, id string, a services.ReviewAdmission, change json.RawMessage) error {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	if d.failOnce {
+		d.failOnce = false
+		return fmt.Errorf("delivery unavailable")
+	}
+	d.id, d.conversation, d.change = id, a.Conversation, change
+	return nil
 }

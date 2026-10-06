@@ -998,6 +998,7 @@ func buildRouter(
 			reviewService, _ := extras.Mythical.Service.(routes.InstallReviewRouteService)
 			reviews := &routes.InstallReviewHandler{Queries: queries, Service: reviewService}
 			r.Post("/reviews", reviews.Request)
+			r.Get("/reviews/{id}", reviews.Get)
 		}
 		if config.IsSingleOwner(cfg.Auth) {
 			routes.RegisterConfirmationRoutes(r, &routes.ConfirmationsHandler{Queries: queries, Service: confirmations})

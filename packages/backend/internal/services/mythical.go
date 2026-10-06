@@ -115,6 +115,7 @@ type MythicalService struct {
 	sweepEvery time.Duration
 	// flowLoad runs flow-load after every main move (SetFlowLoad, flow_load.go).
 	flowLoad bool
+	reviews  *ReviewBackground
 }
 
 // SetMainFollower registers the GitHub sync's request for an immediate read
