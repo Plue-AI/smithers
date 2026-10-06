@@ -278,3 +278,26 @@ func TestHostLinkInvalidPresenceSnapshot(t *testing.T) {
 	_, err = link.ReceivePresence(ctx, "a")
 	require.True(t, errors.Is(err, io.ErrClosedPipe) || errors.Is(err, ErrUnauthorized), "invalid snapshot must fence the connection: %v", err)
 }
+
+// Boot authority must be complete before closing the predecessor, whose
+// transport teardown can run concurrently with reconnect and host shutdown.
+type closingObserver struct{ observe func() }
+
+func (c closingObserver) Close() error { c.observe(); return nil }
+func TestMintBootPublishesSecretAtomically(t *testing.T) {
+	r := new(Registry)
+	old, err := r.MintBoot("a", "vm")
+	require.NoError(t, err)
+	_, err = r.Admit(old.ID, []byte(old.Credential), closingObserver{observe: func() {
+		r.mu.Lock()
+		next := *r.branches["a"]
+		r.mu.Unlock()
+		require.NotEqual(t, old.ID, next.id)
+		require.NotEqual(t, [32]byte{}, next.secret, "new boot is visible before its secret")
+	}})
+	require.NoError(t, err)
+	next, err := r.MintBoot("a", "vm")
+	require.NoError(t, err)
+	link, _ := connectTest(t, r, "a", next)
+	require.NoError(t, link.Reconciled())
+}

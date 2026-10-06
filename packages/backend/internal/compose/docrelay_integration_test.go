@@ -24,6 +24,7 @@ import (
 	"github.com/smithersai/smithers/packages/backend/internal/machined"
 	"github.com/smithersai/smithers/packages/backend/internal/machined/machinedfake"
 	"github.com/smithersai/smithers/packages/backend/internal/machined/wire"
+	"github.com/smithersai/smithers/packages/backend/internal/revocation"
 	"github.com/smithersai/smithers/packages/backend/internal/routes"
 	"github.com/smithersai/smithers/packages/backend/testkit/postgresfixture"
 	"github.com/stretchr/testify/require"
@@ -36,6 +37,7 @@ type docFixture struct {
 	relay   *live.DocRelay
 	daemon  *machinedfake.Documents
 	binding *machined.Connection
+	bus     *revocation.Bus
 }
 
 func docGolden(t *testing.T, name string) []byte {
@@ -51,6 +53,10 @@ func newDocFixture(t *testing.T, script ...[]byte) *docFixture {
 	pool := docDatabase(t)
 	q := db.New(pool)
 	ctx := t.Context()
+	bus := revocation.NewBus(pool, q)
+	require.NoError(t, bus.Start(ctx))
+	routes.SetRevocationSource(bus)
+	t.Cleanup(func() { routes.SetRevocationSource(nil) })
 	owner, err := q.CreateUser(ctx, db.CreateUserParams{Username: "doc-owner", LowerUsername: "doc-owner"})
 	require.NoError(t, err)
 	_, err = pool.Exec(ctx, `INSERT INTO self_host_owners(user_id) VALUES($1)`, owner.ID)
@@ -118,7 +124,7 @@ func newDocFixture(t *testing.T, script ...[]byte) *docFixture {
 	require.NoError(t, err)
 	conn.SetReadLimit(4 << 20)
 	t.Cleanup(func() { conn.CloseNow() })
-	return &docFixture{server, conn, relay, daemon, connection}
+	return &docFixture{server, conn, relay, daemon, connection, bus}
 }
 func (f *docFixture) sub(t *testing.T, topic string) {
 	t.Helper()

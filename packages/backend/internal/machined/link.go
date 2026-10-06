@@ -32,12 +32,9 @@ func (r *Registry) MintBoot(branch, machine string) (BootAuthority, error) {
 		}
 	}
 	a.Credential = hex.EncodeToString(credential[:])
-	if err := r.BindBoot(branch, machine, a.ID, []byte(a.Credential)); err != nil {
+	if err := r.bindBoot(branch, machine, a.ID, []byte(a.Credential), a.Secret); err != nil {
 		return BootAuthority{}, err
 	}
-	r.mu.Lock()
-	r.boots[a.ID].secret = a.Secret
-	r.mu.Unlock()
 	return a, nil
 }
 

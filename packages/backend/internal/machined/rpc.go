@@ -1,7 +1,9 @@
 package machined
 
 import (
+	"bytes"
 	"context"
+	"crypto/sha256"
 	"encoding/binary"
 	"encoding/hex"
 	"fmt"
@@ -77,7 +79,13 @@ func (r *Registry) ReadFile(ctx context.Context, branch, path, at string) (File,
 	if err != nil {
 		return File{}, err
 	}
-	return File{Content: append([]byte(nil), fields[1][4:]...), Digest: hex.EncodeToString(fields[2]), Mode: binary.BigEndian.Uint32(fields[3])}, nil
+	content := fields[1][4:]
+	digest := sha256.Sum256(content)
+	if !bytes.Equal(digest[:], fields[2]) {
+		_ = l.Close()
+		return File{}, wire.BadValue
+	}
+	return File{Content: append([]byte(nil), content...), Digest: hex.EncodeToString(fields[2]), Mode: binary.BigEndian.Uint32(fields[3])}, nil
 }
 func (r *Registry) WriteFiles(ctx context.Context, branch string, actor []byte, changes []FileChange) (WriteResult, error) {
 	var result WriteResult
@@ -115,6 +123,11 @@ func (r *Registry) WriteFiles(ctx context.Context, branch string, actor []byte, 
 				return result, nil
 			}
 			return result, err
+		}
+		digest := sha256.Sum256(change.Content)
+		if !bytes.Equal(digest[:], fields[1]) {
+			_ = l.Close()
+			return result, wire.BadValue
 		}
 		result.Applied = append(result.Applied, AppliedFile{change.Path, hex.EncodeToString(fields[1])})
 		if bytes := fields[2]; bytes != nil {
