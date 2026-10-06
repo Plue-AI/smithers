@@ -202,3 +202,55 @@ async fn waiting_for_fifo_does_not_block_io_runtime() {
     drop(first);
     executor.shutdown().unwrap();
 }
+
+struct AuthenticatedDocuments {
+    opens: Mutex<Vec<(String, Vec<u8>)>>,
+}
+impl Documents for AuthenticatedDocuments {
+    fn open_authenticated(&self, path: &str, actor: &[u8]) -> Result<u32> {
+        self.opens.lock().unwrap().push((path.into(), actor.into()));
+        Ok(9)
+    }
+}
+#[test]
+fn document_dispatch_requires_and_preserves_host_principal() {
+    let documents = Arc::new(AuthenticatedDocuments {
+        opens: Mutex::new(vec![]),
+    });
+    let mut cx = LockCx::new(Hooks {
+        documents: documents.clone(),
+        ..Hooks::default()
+    });
+    // Independent ADR request: id 1, method 13, path a.rs, principal bytes Be.
+    let request = [
+        0, 0, 0, 36, 1, 0, 0, 0, 0, 1, 0, 0, 0, 31, 1, 0, 0, 0, 1, 2, 13, 0, 0, 0, 20, 1, 0, 4,
+        b'a', b'.', b'r', b's', 2, 1, 0, 0, 0, 7, 1, 0, 0, 0, 2, b'B', b'e',
+    ];
+    let mut out = vec![];
+    rpc::serve_one(&mut Cursor::new(request), &mut out, &mut cx).unwrap();
+    assert_eq!(
+        *documents.opens.lock().unwrap(),
+        vec![("a.rs".into(), b"Be".to_vec())]
+    );
+    assert_eq!(
+        out,
+        [
+            0, 0, 0, 21, 1, 0, 0, 0, 0, 2, 0, 0, 0, 16, 1, 0, 0, 0, 1, 2, 13, 0, 0, 0, 5, 1, 0, 0,
+            0, 9
+        ]
+    );
+    let mut out = vec![];
+    rpc::serve_one(&mut Cursor::new(fixture("req_open_doc")), &mut out, &mut cx).unwrap();
+    assert_eq!(out, fixture("res_unsupported_open_doc"));
+    assert_eq!(documents.opens.lock().unwrap().len(), 1);
+    // A canonical principal with an empty blob is not an authenticated actor.
+    let empty = [
+        0, 0, 0, 34, 1, 0, 0, 0, 0, 1, 0, 0, 0, 29, 1, 0, 0, 0, 1, 2, 13, 0, 0, 0, 18, 1, 0, 4,
+        b'a', b'.', b'r', b's', 2, 1, 0, 0, 0, 5, 1, 0, 0, 0, 0,
+    ];
+    assert_eq!(
+        rpc::serve_one(&mut Cursor::new(empty), &mut vec![], &mut cx),
+        Err(smithers_machined::conn::ProtocolError::BadValue)
+    );
+    assert_eq!(documents.opens.lock().unwrap().len(), 1);
+}

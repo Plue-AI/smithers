@@ -482,3 +482,30 @@ pub fn file_written(
     frame.encode()?;
     Ok(hint)
 }
+
+/// Extract open_doc using the shared schema. Legacy S2 path-only requests remain
+/// decodable, but cannot activate an S3 document provider.
+pub fn open_doc_args(bytes: &[u8]) -> Result<(String, Option<Vec<u8>>), ProtocolError> {
+    let mut check = Cursor(bytes);
+    check.value("args13")?;
+    if !check.0.is_empty() {
+        return Err(TrailingBytes);
+    }
+    let mut c = Cursor(bytes);
+    c.take(5)?;
+    let n = c.number(2)? as usize;
+    let path = std::str::from_utf8(c.take(n)?)
+        .map_err(|_| BadUtf8)?
+        .to_owned();
+    let actor = if c.0.is_empty() {
+        None
+    } else {
+        c.take(7)?;
+        let n = c.number(4)? as usize;
+        if n == 0 {
+            return Err(BadValue);
+        }
+        Some(c.take(n)?.to_vec())
+    };
+    Ok((path, actor))
+}

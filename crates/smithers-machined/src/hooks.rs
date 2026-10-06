@@ -84,7 +84,9 @@ pub trait Documents: Send + Sync {
     fn reconcile_all(&self, _cx: &mut LockCx, _actor: &Actor) -> Result<()> {
         Err(Error::unsupported())
     }
-    fn open(&self, _path: &str) -> Result<u32> {
+    /// S3 opens bind the host-resolved principal before accepting stream updates.
+    /// A legacy path-only implementation cannot activate authenticated documents.
+    fn open_authenticated(&self, _path: &str, _actor: &[u8]) -> Result<u32> {
         Err(Error::unsupported())
     }
     fn close(&self, _stream: u32) -> Result<()> {
