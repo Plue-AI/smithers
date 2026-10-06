@@ -69,7 +69,7 @@ func TestSecretsWriteComposedInstallPostgres(t *testing.T) {
 	origin := "http://" + server.Listener.Addr().String()
 	cfg.Server.PublicURL = origin
 	cfg.Server.AllowedOrigins = []string{origin}
-	secrets := &routes.SecretHandler{Service: services.NewSecretService(q, nil, services.WithSecretInstallAuthorization(true, pool))}
+	secrets := &routes.SecretHandler{Service: services.NewSecretService(q, nil, services.WithSecretInstallAuthorization(true, pool)), AgentEnvironment: services.NewAgentEnvironmentService(q, nil)}
 	server.Config.Handler = buildRouterCompat(cfg, q, pool, &routes.RepoHandler{}, &routes.AuthHandler{}, &routes.UserHandler{}, &routes.SSHKeyHandler{}, &routes.LabelHandler{}, &routes.OrgHandler{}, &routes.LandingHandler{}, &routes.SearchHandler{Service: &mockRouterSearchService{}}, &routes.IssueHandler{}, nil, &routes.GitSmartHandler{Service: &mockRouterGitService{}}, nil, nil, nil, nil, nil, nil, nil, secrets, nil, nil, nil, nil, nil, nil, nil, nil, nil, &routes.WorkspaceHandler{}, nil, nil, nil, nil, nil, nil, routerExtras{Members: &routes.MembersHandler{Service: members}})
 	server.Start()
 	defer server.Close()
@@ -140,13 +140,19 @@ func TestSecretsWriteComposedInstallPostgres(t *testing.T) {
 		require.NoError(t, err)
 		return key
 	}
+	minted := map[string]string{}
 	token := func(u db.User, name, scopes string, systemIssued bool) string {
+		key := u.Username + "-" + name
+		if raw, ok := minted[key]; ok {
+			return raw
+		}
 		seed := sha256.Sum256([]byte(u.Username + "-" + name))
 		raw := "smithers_" + hex.EncodeToString(seed[:])[:40]
 		hash := sha256.Sum256([]byte(raw))
 		_, err := q.CreateAccessToken(ctx, db.CreateAccessTokenParams{UserID: u.ID, Name: name, TokenHash: hex.EncodeToString(hash[:]),
 			TokenLastEight: hex.EncodeToString(hash[:])[56:], Scopes: scopes, ExpiresAt: pgtype.Timestamptz{Time: time.Now().Add(time.Hour), Valid: true}, SystemIssued: systemIssued})
 		require.NoError(t, err)
+		minted[key] = raw
 		return raw
 	}
 	type credential struct{ cookie, bearer string }
@@ -176,9 +182,17 @@ func TestSecretsWriteComposedInstallPostgres(t *testing.T) {
 		defer res.Body.Close()
 		raw, err := io.ReadAll(res.Body)
 		require.NoError(t, err)
+		require.NotContains(t, string(raw), "machine-env-canary-value")
+		require.NotContains(t, string(raw), "main-only-canary-value")
 		envelope := map[string]any{}
 		if len(raw) > 0 {
-			require.NoError(t, json.Unmarshal(raw, &envelope), string(raw))
+			if strings.HasPrefix(strings.TrimSpace(string(raw)), "[") {
+				var entries []map[string]any
+				require.NoError(t, json.Unmarshal(raw, &entries), string(raw))
+				envelope["entries"] = entries
+			} else {
+				require.NoError(t, json.Unmarshal(raw, &envelope), string(raw))
+			}
 		}
 		return res.StatusCode, envelope
 	}
@@ -222,6 +236,50 @@ func TestSecretsWriteComposedInstallPostgres(t *testing.T) {
 	require.Equal(t, 204, status, body)
 	require.Equal(t, []string{"OWNER_KEY"}, stored())
 
+	// All active member sessions read metadata, including main-only names.
+	status, body = request(ownerSession, "POST", "/secrets", `{"name":"CANARY_TOKEN","value":"machine-env-canary-value"}`)
+	require.Equal(t, 201, status, body)
+	status, body = request(ownerSession, "POST", "/secrets", `{"name":"DEPLOY_KEY","value":"main-only-canary-value","main_only":true}`)
+	require.Equal(t, 201, status, body)
+	for _, who := range []credential{ownerSession, maintainerSession, writerSession} {
+		status, body = request(who, "GET", "/secrets", "")
+		require.Equal(t, 200, status, body)
+		entries := body["entries"].([]map[string]any)
+		require.Len(t, entries, 3)
+		names := map[string]bool{}
+		for _, entry := range entries {
+			require.NotContains(t, entry, "value")
+			names[entry["name"].(string)] = entry["main_only"].(bool)
+		}
+		require.Equal(t, map[string]bool{"CANARY_TOKEN": false, "DEPLOY_KEY": true, "OWNER_KEY": true}, names)
+		status, body = request(who, "GET", "/agent-environment", "")
+		require.Equal(t, 200, status, body)
+	}
+	for _, who := range []credential{ownerSession, maintainerSession} {
+		status, body = request(who, "PUT", "/agent-environment", `{ "setup_script":"echo fixture", "env":[] }`)
+		require.Equal(t, 200, status, body)
+		status, body = request(who, "PUT", "/agent-environment/secrets/SETUP_TOKEN", `{"value":"machine-env-canary-value"}`)
+		require.Equal(t, 201, status, body)
+		require.NotContains(t, body, "value")
+		for _, reader := range []credential{ownerSession, maintainerSession, writerSession} {
+			status, body = request(reader, "GET", "/agent-environment", "")
+			require.Equal(t, 200, status, body)
+			require.Contains(t, body, "secrets")
+		}
+		status, body = request(who, "DELETE", "/agent-environment/secrets/SETUP_TOKEN", "")
+		require.Equal(t, 204, status, body)
+	}
+	for _, who := range []credential{delegated(owner), delegated(maintainer), delegated(writer), run, ownerPAT} {
+		for _, path := range []string{"/secrets", "/agent-environment"} {
+			status, body = request(who, "GET", path, "")
+			require.Equal(t, 403, status, body)
+		}
+	}
+	for _, name := range []string{"CANARY_TOKEN", "DEPLOY_KEY"} {
+		status, body = request(ownerSession, "DELETE", "/secrets/"+name, "")
+		require.Equal(t, 204, status, body)
+	}
+
 	permission := map[string]any{"class": "permission", "code": "permission", "message": "Only a maintainer can do this"}
 	never := map[string]any{"class": "never", "code": "never", "message": "Only a person can do this"}
 	for _, tc := range []struct {
@@ -245,6 +303,9 @@ func TestSecretsWriteComposedInstallPostgres(t *testing.T) {
 				{"POST", "/secrets", `{"name":"OWNER_KEY","value":"overwritten"}`},
 				{"PATCH", "/secrets/OWNER_KEY", `{"main_only":false}`},
 				{"DELETE", "/secrets/OWNER_KEY", ""},
+				{"PUT", "/agent-environment", `{"setup_script":"echo refused", "env":[]}`},
+				{"PUT", "/agent-environment/secrets/REFUSED", `{"value":"machine-env-canary-value"}`},
+				{"DELETE", "/agent-environment/secrets/REFUSED", ""},
 			} {
 				status, body := request(tc.who, call.method, call.path, call.body)
 				require.Equal(t, tc.status, status, "%s %s: %v", call.method, call.path, body)
@@ -254,6 +315,12 @@ func TestSecretsWriteComposedInstallPostgres(t *testing.T) {
 					require.Equal(t, tc.code, body["code"], "%s %s: %v", call.method, call.path, body)
 				}
 				require.Equal(t, []string{"OWNER_KEY"}, stored(), "a refusal writes nothing")
+				var setupCount int
+				require.NoError(t, pool.QueryRow(ctx, `SELECT count(*) FROM repository_agent_environment_secrets WHERE repository_id=$1`, repo.ID).Scan(&setupCount))
+				require.Zero(t, setupCount)
+				setup, err := q.GetRepositoryAgentEnvironment(ctx, repo.ID)
+				require.NoError(t, err)
+				require.Equal(t, "echo fixture", setup.SetupScript)
 			}
 		})
 	}
@@ -309,6 +376,9 @@ func TestSecretsWriteComposedInstallPostgres(t *testing.T) {
 			{"POST", "/secrets", `{"name":"DEAD","value":"v"}`},
 			{"PATCH", "/secrets/OWNER_KEY", `{"main_only":false}`},
 			{"DELETE", "/secrets/OWNER_KEY", ""},
+			{"PUT", "/agent-environment", `{"setup_script":"echo refused", "env":[]}`},
+			{"PUT", "/agent-environment/secrets/REFUSED", `{"value":"machine-env-canary-value"}`},
+			{"DELETE", "/agent-environment/secrets/REFUSED", ""},
 		} {
 			status, body = request(who, write.method, write.path, write.body)
 			require.Equal(t, 401, status, "%s %s: %v", write.method, write.path, body)

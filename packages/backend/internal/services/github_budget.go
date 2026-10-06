@@ -507,6 +507,8 @@ func gitHubBudgetStream(path string) string {
 			return "permissions"
 		case parts[3] == "issues":
 			return "issues"
+		case len(parts) == 6 && parts[3] == "pulls" && (parts[5] == "reviews" || parts[5] == "comments"):
+			return "reviews"
 		case parts[3] == "pulls":
 			return "pulls"
 		case parts[3] == "commits":

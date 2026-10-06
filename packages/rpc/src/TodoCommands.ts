@@ -160,8 +160,8 @@ export interface DraftSeed {
 }
 
 /**
- * The digest of a GitHub issue's text that Make TODO commits with (`issue_digest`): SHA-256 hex of the title, a NUL
- * and the body, as the install computes it. The install refuses a commit whose issue no longer has this text.
+ * Fallback digest for seeded and non-install issue cards: SHA-256 of title, NUL and body.
+ * Install cards use the server-issued digest bound to the author's full discussion snapshot.
  * @since 1.0.0
  * @category constructors
  */

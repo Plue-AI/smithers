@@ -13,6 +13,11 @@ pub mod rpc;
 pub mod stream;
 
 pub mod attrib;
+pub mod events;
 pub mod ignore;
+#[cfg(target_os = "linux")]
+pub mod resync;
+pub mod session;
+pub mod versions;
 #[cfg(target_os = "linux")]
 pub mod watch;

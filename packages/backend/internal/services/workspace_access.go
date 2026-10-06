@@ -49,6 +49,9 @@ func (s *WorkspaceService) requireWorkspaceAccess(ctx context.Context, workspace
 		if err != nil {
 			return err
 		}
+		if minLevel == WorkspaceAccessRead {
+			return s.authorizeBranchFileRead(ctx, row, requesterUserID)
+		}
 		if err := s.preflightBranchMachine(ctx, row.RepositoryID, requesterUserID, row.TargetBookmark, row.ID); err != nil {
 			return err
 		}

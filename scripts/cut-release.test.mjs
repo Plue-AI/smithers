@@ -51,8 +51,6 @@ const write = (root, path, contents) => {
  * row's text under the wrong file.
  */
 const seededSources = {
-  "distribution/README.md": "```sh\nexport SMITHERS_IMAGE=ghcr.io/smithersai/smithers:0.1.0\numask 077\n```\n",
-  "distribution/Dockerfile": "ARG SMITHERS_DISTRIBUTION_VERSION=0.1.0\nRUN test -n \"$SMITHERS_DISTRIBUTION_VERSION\"\n",
   "packages/smithers/flows/observability/src/Otlp.ts": "export const defaultServiceVersion = \"0.1.0\"\n",
   "packages/smithers/migrate/src/flow/Cli.ts": "export const version = \"0.1.0\"\n",
   "packages/smithers/migrate/src/Report.ts":

@@ -15,8 +15,6 @@ func TestShippedCreditGrantCommandsParse(t *testing.T) {
 	grant := regexp.MustCompile(`credits grant ([^\n|>&]*)`)
 	found := 0
 	for _, path := range []string{
-		"../../../distribution/README.md",
-		"../../../distribution/test-image.sh",
 		"README.md",
 	} {
 		data, err := os.ReadFile(path)
@@ -32,8 +30,8 @@ func TestShippedCreditGrantCommandsParse(t *testing.T) {
 			}
 		}
 	}
-	if found < 3 {
-		t.Fatalf("found %d credits grant commands, want at least 3", found)
+	if found < 1 {
+		t.Fatalf("found %d credits grant commands, want at least 1", found)
 	}
 }
 

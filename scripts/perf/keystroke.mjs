@@ -25,7 +25,7 @@ export function configuration(env) {
   if (!env.SMITHERS_PERF_PAGE || page.origin !== origin) throw new Error('same-origin repository page required')
   const argv = JSON.parse(env.SMITHERS_PERF_READ_ARGV || 'null')
   if (!Array.isArray(argv) || !argv.length || argv.some(v => typeof v !== 'string' || !v || v.includes('\0'))) throw new Error('machine read argv required')
-  for (const key of ['SMITHERS_PERF_MEMBER_A', 'SMITHERS_PERF_MEMBER_C', 'SMITHERS_PERF_TOKEN', 'SMITHERS_PERF_INSTALL_VERSION']) {
+  for (const key of ['SMITHERS_PERF_MEMBER_A', 'SMITHERS_PERF_MEMBER_C', 'SMITHERS_PERF_OWNER_COOKIE', 'SMITHERS_PERF_INSTALL_VERSION']) {
     if (!env[key]) throw new Error(`${key} required`)
   }
   if (env.SMITHERS_PERF_MEMBER_A === env.SMITHERS_PERF_MEMBER_C) throw new Error('distinct member storage states required')
@@ -48,7 +48,7 @@ export async function run(env = process.env) {
   try {
     const config = configuration(env)
     result.origin = config.origin
-    result.host = await readHost(config.origin, env.SMITHERS_PERF_TOKEN)
+    result.host = await readHost(config.origin, { cookie: env.SMITHERS_PERF_OWNER_COOKIE })
     result.commit = execFileSync('git', ['rev-parse', 'HEAD'], { encoding: 'utf8' }).trim()
     result.installVersion = env.SMITHERS_PERF_INSTALL_VERSION
     const require = createRequire(resolve('apps/app/package.json'))

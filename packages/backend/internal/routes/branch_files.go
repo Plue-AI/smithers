@@ -1,6 +1,7 @@
 package routes
 
 import (
+	"context"
 	"crypto/sha256"
 	"encoding/base64"
 	"errors"
@@ -83,4 +84,27 @@ func (h *BranchFileHandler) Read(w http.ResponseWriter, r *http.Request) {
 		"path": filePath, "branch": branch, "language": "", "digest": fmt.Sprintf("sha256:%x", sha256.Sum256(bytes)),
 		"content": projection, "mode": "read_only", "diagnostics": []any{}, "authors": []any{}, "editors": []any{},
 	})
+}
+
+type BranchFileReadService interface {
+	ListBranchFiles(context.Context, string, int64, int64, string) ([]services.WorkspaceFileEntry, error)
+}
+
+func (h *BranchHandler) ListFiles(w http.ResponseWriter, r *http.Request) {
+	repository, user, err := h.authorize(r, "branch.read", h.Files != nil)
+	if err != nil {
+		writeBranchError(w, r, err)
+		return
+	}
+	branch, err := url.PathUnescape(chi.URLParam(r, "b"))
+	if err != nil {
+		writeBranchError(w, r, pkgerrors.BadRequest("invalid branch name"))
+		return
+	}
+	entries, err := h.Files.ListBranchFiles(r.Context(), branch, repository, user, r.URL.Query().Get("path"))
+	if err != nil {
+		writeBranchError(w, r, err)
+		return
+	}
+	pkgerrors.WriteJSON(w, http.StatusOK, entries)
 }

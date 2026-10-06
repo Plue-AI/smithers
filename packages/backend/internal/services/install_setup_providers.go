@@ -52,6 +52,7 @@ func (s *InstallSetupService) BindRepositoryProviders(access *GitHubUserReposSer
 			return err
 		}
 		var repository struct {
+			ID            int64  `json:"id"`
 			Squash        *bool  `json:"allow_squash_merge"`
 			DefaultBranch string `json:"default_branch"`
 		}
@@ -69,6 +70,16 @@ func (s *InstallSetupService) BindRepositoryProviders(access *GitHubUserReposSer
 		}
 		if err = recordInstallRepositoryInstallation(ctx, connections, owner.ID, o, n, diagnosis.InstallationID); err != nil {
 			return err
+		}
+		// Local installs have no public webhook to bind the fetched-state registry.
+		if stacks != nil && stacks.installGitHubSync != nil {
+			if repository.ID <= 0 {
+				return pkgerrors.New(pkgerrors.CodeGitHubUnavailable, "GitHub repository identity unavailable")
+			}
+			_, err = stacks.installGitHubSync.EnrollGitHubRepo(ctx, EnrollGitHubRepoInput{Owner: o, Repo: n, InstallationID: diagnosis.InstallationID, GitHubRepositoryID: repository.ID, EnrolledVia: GitHubSyncedRepoEnrolledViaInstallation, MetadataOnly: true})
+			if err != nil {
+				return err
+			}
 		}
 		raw, _ := json.Marshal(input.Repository)
 		return db.New(s.Pool).UpsertInstallSetting(ctx, db.UpsertInstallSettingParams{Key: "repository", Value: raw})

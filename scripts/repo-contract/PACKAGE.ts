@@ -126,22 +126,10 @@ const reliabilityWorkflow = Smithers.NodeTest({
   deps: []
 })
 
-/**
- * A release version bump retags every distribution image declaration.
- *
- * @since 1.0.0
- * @category test
- */
-const distributionImageTag = Smithers.NodeTest({
-  runner: Smithers.testRunner([Smithers.file("//scripts/repo-contract/distribution-image-tag.test.mjs")]),
-  srcs: [
-    sources,
-    Smithers.file("//scripts/set-release-version.mjs"),
-    Smithers.file("//scripts/workspace-packages.mjs"),
-    Smithers.file("//packages/smithers/package.json"),
-    Smithers.file("//distribution/README.md"),
-    Smithers.file("//distribution/Dockerfile")
-  ],
+/** Mac distribution deletion and lifecycle handoff contract. */
+const macDistribution = Smithers.NodeTest({
+  runner: Smithers.testRunner([Smithers.file("//scripts/repo-contract/mac-distribution.test.mjs")]),
+  srcs: [sources, Smithers.glob("//distribution/*"), Smithers.glob("//.github/workflows/*.yml"), Smithers.glob("//apps/app/scripts/mode-matrix/*.ts")],
   deps: []
 })
 
@@ -351,5 +339,5 @@ const securityReview = Smithers.SecurityReview({
 })
 
 export const Package = Smithers.Package({
-  targets: { barrels, cliVerbs, distributionImageTag, egressHttpClient, faultSkips, machinePaths, packageContract, scratchArtifacts, smithersLinks, testScriptWiring, uiCiTier, reliabilityWorkflow, ciInventory, publicExportMaps, ...securityReview }
+  targets: { barrels, cliVerbs, macDistribution, egressHttpClient, faultSkips, machinePaths, packageContract, scratchArtifacts, smithersLinks, testScriptWiring, uiCiTier, reliabilityWorkflow, ciInventory, publicExportMaps, ...securityReview }
 })

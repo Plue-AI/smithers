@@ -63,7 +63,11 @@ func (s *GitHubSyncedRepoService) dueInstallStreams(row db.GithubSyncedRepo) []g
 		if pause.After(now) {
 			continue // Leave fetch hints pending until shared admission permits them.
 		}
-		cadence := s.budget.StreamCadence(row.InstallationID.Int64, stream, metadataStreamCadence(resource))
+		base := metadataStreamCadence(resource)
+		if resource == gitHubIssueEvents && s.install.issueEventsEvery > 0 {
+			base = s.install.issueEventsEvery
+		}
+		cadence := s.budget.StreamCadence(row.InstallationID.Int64, stream, base)
 		scheduled := state.cadenceAt.IsZero() || !now.Before(state.cadenceAt.Add(cadence))
 		if scheduled || s.install.requested[key] || (!state.retryAt.IsZero() && !now.Before(state.retryAt)) {
 			plans = append(plans, gitHubStreamPlan{resource: resource, scheduled: scheduled})

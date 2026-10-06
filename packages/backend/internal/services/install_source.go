@@ -158,7 +158,7 @@ func (s InstallSource) ListSource(ctx context.Context, credential middleware.Cre
 // readable resolves the install's mirror for one turn: Source ready, the
 // mirrored repository, the turn's credential and member now, the member's
 // read permission now, and a turn scoped to no repository or to this one.
-func (s InstallSource) readable(ctx context.Context, credential middleware.Credential, userID, repositoryID int64) (string, db.Repository, *db.User, error) {
+func (s InstallSource) readable(ctx context.Context, credential middleware.Credential, userID, repositoryID int64, may ...func(*middleware.AuthInfo) bool) (string, db.Repository, *db.User, error) {
 	q := db.New(s.Pool)
 	step, err := (&InstallSetupService{}).readStep(ctx, q, "source")
 	if err != nil {
@@ -175,7 +175,7 @@ func (s InstallSource) readable(ctx context.Context, credential middleware.Crede
 	if err != nil {
 		return "", db.Repository{}, nil, err
 	}
-	member, err := s.member(ctx, q, credential, userID)
+	member, err := s.member(ctx, q, credential, userID, may...)
 	if err != nil {
 		return "", db.Repository{}, nil, err
 	}
@@ -199,8 +199,12 @@ func (s InstallSource) readable(ctx context.Context, credential middleware.Crede
 // member is the turn's author as the turn's credential authenticates them
 // now. A credential that is gone, names another account, does not read
 // repositories as a person, or fails the member boundary reads nothing.
-func (s InstallSource) member(ctx context.Context, q *db.Queries, credential middleware.Credential, userID int64) (*db.User, error) {
-	info, err := turnAuthor(ctx, q, s.Members, credential, userID, (*middleware.AuthInfo).ReadsRepositoriesAsPerson)
+func (s InstallSource) member(ctx context.Context, q *db.Queries, credential middleware.Credential, userID int64, may ...func(*middleware.AuthInfo) bool) (*db.User, error) {
+	predicate := (*middleware.AuthInfo).ReadsRepositoriesAsPerson
+	if len(may) == 1 {
+		predicate = may[0]
+	}
+	info, err := turnAuthor(ctx, q, s.Members, credential, userID, predicate)
 	if errors.Is(err, errNotTheAuthor) {
 		return nil, ErrSourceForbidden
 	}
@@ -257,7 +261,13 @@ func (s InstallSource) ReadBranchFile(ctx context.Context, credential middleware
 	if ValidateRepositoryPath(filePath) != nil {
 		return repohost.FileContent{}, "", ErrSourcePathRefused
 	}
-	owner, repository, _, err := s.readable(ctx, credential, userID, 0)
+	owner, repository, _, err := s.readable(ctx, credential, userID, 0, func(info *middleware.AuthInfo) bool {
+		if info.ReadsRepositoriesAsPerson() {
+			return true
+		}
+		delegation, ok := info.Delegation()
+		return ok && branch != "main" && delegation.Branch != "" && info.Scopes.Has(middleware.ScopeReadRepository)
+	})
 	if err != nil {
 		return repohost.FileContent{}, "", err
 	}
@@ -273,6 +283,10 @@ func (s InstallSource) ReadBranchFile(ctx context.Context, credential middleware
 		row, err := branches.GetBranch(ctx, branch, repository.ID, userID)
 		if err != nil {
 			return repohost.FileContent{}, "", err
+		}
+		if delegation, ok := middleware.AuthInfoFromContext(ctx).Delegation(); ok &&
+			(!strings.EqualFold(delegation.Branch, row.Machine.ID) || at != "" && at != row.Head) {
+			return repohost.FileContent{}, "", ErrSourceForbidden
 		}
 		if revision == "" {
 			revision = row.Head

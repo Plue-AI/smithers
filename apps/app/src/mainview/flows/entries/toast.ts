@@ -13,8 +13,6 @@ export const namespace: Namespace = { id: "toast", label: "Toasts", summary: "No
 
 /** The `toast` flows registered as one aggregator block. */
 export const toastFlows = (actions: CommandActions): ReadonlyArray<FlowEntry> => [
-  // T-APP-18: the routed-entry and synchronous catalog providers are not mounted.
-  // Keep the person-only door registered, but refuse without touching browser APIs.
   flow({
     name: "notifications.allow",
     summary: "Allow notifications",
@@ -22,7 +20,10 @@ export const toastFlows = (actions: CommandActions): ReadonlyArray<FlowEntry> =>
     userOnly: true,
     userOnlyReason: "browser permission requires the person’s in-card gesture",
     input: NoPayload,
-    handler: () => "Browser notifications are unavailable."
+    handler: async (_payload, _signal, _call, gesture) => {
+      if (!gesture?.notificationPermission) return "Browser notifications are unavailable."
+      try { await gesture.notificationPermission } catch { return "Browser notifications are unavailable." }
+    }
   }),
   flow({
     name: "toast.dismiss",

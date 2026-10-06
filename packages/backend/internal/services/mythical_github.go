@@ -27,6 +27,7 @@ type mythicalGitHubRepo struct {
 
 // mythicalIssue is what admission reads of one GitHub issue.
 type mythicalIssue struct {
+	Context          json.RawMessage
 	Number           int64
 	Title, Body, URL string
 	State            string // open | closed

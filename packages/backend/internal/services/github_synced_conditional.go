@@ -141,11 +141,11 @@ func (s *GitHubUserReposService) SyncedRepoConditionalFetcherFactory(issuer GitH
 			switch resource {
 			case GitHubRepoMetadataIssues, GitHubRepoMetadataPulls, gitHubIssueEvents, gitHubConversationComments:
 			default:
-				if !gitHubIndividualPullResource(resource) {
+				if !gitHubIndividualPullResource(resource) && !gitHubPullFactResource(resource) {
 					return page, errors.New("unsupported GitHub install stream")
 				}
 			}
-			token, err := issuer.CreateGitHubInstallationToken(ctx, row.InstallationID.Int64, GitHubTokenScope{RepositoryIDs: []int64{row.GithubRepositoryID.Int64}, Permissions: gitHubRepoMetadataPermissions})
+			token, err := issuer.CreateGitHubInstallationToken(ctx, row.InstallationID.Int64, GitHubTokenScope{RepositoryIDs: []int64{row.GithubRepositoryID.Int64}, Permissions: gitHubPullFactPermissions(resource)})
 			if err != nil {
 				return page, err
 			}

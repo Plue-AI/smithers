@@ -1205,7 +1205,7 @@ const securityReview = Smithers.SecurityReview({
         "pnpm-workspace.yaml allowBuilds admitting a package that has no documented need for an install script, or .npmrc adding a registry or auth line.",
         "flake.nix or the Dockerfile fetching a source without a pinned hash."
       ],
-      paths: [".pnpmfile.mjs", ".npmrc", "pnpm-workspace.yaml", "patches/*.patch", "flake.nix", "distribution/Dockerfile"]
+      paths: [".pnpmfile.mjs", ".npmrc", "pnpm-workspace.yaml", "patches/*.patch", "flake.nix"]
     },
     {
       id: "root-tool-targets",

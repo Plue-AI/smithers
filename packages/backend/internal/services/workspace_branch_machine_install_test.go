@@ -3,6 +3,7 @@ package services
 import (
 	"context"
 	"errors"
+	"fmt"
 	"testing"
 
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -146,6 +147,14 @@ func TestInstallBranchMachineMembership(t *testing.T) {
 	require.NoError(t, check(owner))
 	requireBranchStatus(t, check(other), 403)
 	requireBranchStatus(t, check(0), 403)
+	require.NoError(t, db.New(pool).UpsertInstallSetting(ctx, db.UpsertInstallSettingParams{Key: "github.repository", Value: []byte(fmt.Sprintf(`{"repository_id":%d}`, repo))}))
+	_, err := pool.Exec(ctx, `INSERT INTO collaborators(repository_id,user_id,permission) VALUES($1,$2,'write')`, repo, other)
+	require.NoError(t, err)
+	require.NoError(t, check(other))
+	_, err = pool.Exec(ctx, `UPDATE collaborators SET suspended_at=NOW() WHERE repository_id=$1 AND user_id=$2`, repo, other)
+	require.NoError(t, err)
+	requireBranchStatus(t, check(other), 403)
+
 	for _, change := range []string{`is_active=false`, `prohibit_login=true`, `deleted_at=NOW()`} {
 		t.Run(change, func(t *testing.T) {
 			tx, err := pool.Begin(ctx)

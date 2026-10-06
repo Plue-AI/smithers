@@ -1,4 +1,45 @@
 paths:
+  /api/install/metrics:
+    get:
+      summary: Read in-process install metrics
+      operationId: get_api_install_metrics
+      tags: [Install]
+      description: Owner browser session only. Cumulative Prometheus metric families are cross-checks, never client benchmark pass values. Missing producers are absent.
+      security:
+        - sessionCookie: []
+      responses:
+        '200':
+          description: Cumulative in-process collector snapshot
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [collected_at, clock, metrics]
+                properties:
+                  collected_at:
+                    type: string
+                    format: date-time
+                  clock:
+                    type: string
+                  metrics:
+                    type: array
+                    items:
+                      type: object
+                      additionalProperties: true
+                  live_connections:
+                    type: integer
+                    minimum: 0
+                  host:
+                    type: object
+                    nullable: true
+                    description: Existing Go host profile and derived limits; null when host profile detection is unavailable.
+                    additionalProperties: true
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '500':
+          $ref: '#/components/responses/InternalError'
   /api/install/scorecard:
     get:
       summary: Read the alpha scorecard

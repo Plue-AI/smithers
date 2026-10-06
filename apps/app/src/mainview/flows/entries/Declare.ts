@@ -133,6 +133,7 @@ export type Handler<I extends OperationPayload> = (payload: I["Type"], signal: A
  * enumerates them.
  */
 export interface Declaration<I extends OperationPayload> extends AppOperation<I>, FlowMetadata {
+  readonly preflight?: (payload: I["Type"]) => string | undefined
   /** The call identity is available for destination-side idempotency. */
   readonly prepare?: (payload: I["Type"]) => void | Promise<void>
   readonly handler: Handler<I>
@@ -145,10 +146,11 @@ export interface Declaration<I extends OperationPayload> extends AppOperation<I>
  * carries the argument hint; `metadata.summary` stays the human's catalog copy.
  */
 export const flow = <I extends OperationPayload>(declaration: Declaration<I>): FlowEntry => {
-  const { name, input, handler, prepare, userOnly, ...metadata } = declaration
+  const { name, input, handler, prepare, preflight, userOnly, ...metadata } = declaration
   const described = metadata.args === undefined ? metadata.summary : `${metadata.summary} (args: ${metadata.args})`
   let binding: FlowEntry["binding"] | undefined
   return {
+    preflight: preflight === undefined ? undefined : payload => preflight(Schema.decodeUnknownSync(input)(payload)),
     prepare: prepare === undefined ? undefined : async (payload) => {
       const decoded = Schema.decodeUnknownSync(input)(payload)
       await prepare(decoded)

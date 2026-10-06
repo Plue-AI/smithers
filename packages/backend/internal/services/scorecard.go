@@ -2,6 +2,7 @@ package services
 
 import (
 	"context"
+	"fmt"
 	"time"
 
 	"github.com/jackc/pgx/v5"
@@ -71,12 +72,44 @@ func (s *ScorecardService) Summary(ctx context.Context, from, to time.Time) (Sco
 	if err := queries.AnalyticsStatementTimeout(ctx); err != nil {
 		return Scorecard{}, err
 	}
-	// No source SELECT is issued before its relation and producer coverage are
-	// established. Currently no provider is integrated, including present tables.
-	if _, err := queries.ScorecardSourceRelations(ctx); err != nil {
+	relations, err := queries.ScorecardSourceRelations(ctx)
+	if err != nil {
 		return Scorecard{}, err
 	}
-	out := aggregateScorecard(window, scorecardFacts{})
+	present := make(map[string]bool)
+	for _, relation := range relations {
+		present[relation.Name] = relation.Present
+	}
+	facts := scorecardFacts{Coverage: make(map[string]bool)}
+	if present["mythical_items"] && present["product_job_events"] {
+		rows, err := queries.ScorecardTODOs(ctx)
+		if err != nil {
+			return Scorecard{}, err
+		}
+		// Legacy TODOs without a creation receipt cannot be silently counted
+		// as accepted. Empty installs likewise have no producer evidence yet.
+		complete := len(rows) > 0
+		for _, row := range rows {
+			if !row.Covered {
+				complete = false
+				continue
+			}
+			state := todoState(db.MythicalItem{State: row.State, Checks: row.Checks, PausedAt: row.PausedAt})
+			facts.TODOs = append(facts.TODOs, scorecardTODO{ID: row.ID, Owner: fmt.Sprint(row.Owner), Accepted: row.Accepted, State: state, StateAt: row.StateAt.Time})
+		}
+		facts.Coverage["T-STK-01"] = complete
+	}
+	if present["chat_turns"] && present["chat_turn_batches"] {
+		answer, err := queries.ScorecardFirstAnswer(ctx)
+		if err != nil {
+			return Scorecard{}, err
+		}
+		if answer.Covered {
+			facts.Coverage["T-APP-16"] = true
+			facts.FirstAnswer = &answer.AnsweredAt
+		}
+	}
+	out := aggregateScorecard(window, facts)
 	if err := tx.Commit(ctx); err != nil {
 		return Scorecard{}, err
 	}

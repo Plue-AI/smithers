@@ -30,6 +30,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -85,6 +86,8 @@ func (h offlineGatewayHost) RunModelTest(ctx context.Context, owner int64, reque
 }
 
 // rehearsal is one composed install a journey rehearsal walks.
+var rehearsalInstallations atomic.Int64
+
 type rehearsal struct {
 	// stepBudget overrides readiness polling for non-latency checks under contention.
 	stepBudget     time.Duration
@@ -199,9 +202,9 @@ func newRehearsal(t *testing.T, enable, check, keyPrefix string) *rehearsal {
 	key, err := rsa.GenerateKey(rand.Reader, 2048)
 	require.NoError(t, err)
 	// trunk-app's default branch is not main: the repository step refuses it.
-	installationID := int64(91)
+	installationID := 91000 + rehearsalInstallations.Add(1)
 	if os.Getenv("REHEARSAL_CONFIG_FIXTURE") == "go" {
-		installationID = 92
+		installationID = 92000 + rehearsalInstallations.Add(1)
 	}
 	if configured := os.Getenv("REHEARSAL_INSTALLATION_ID"); configured != "" {
 		installationID, err = strconv.ParseInt(configured, 10, 64)

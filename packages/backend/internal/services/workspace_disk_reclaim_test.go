@@ -113,3 +113,42 @@ func TestCleanupRetainsAgentWithoutLaneBinding(t *testing.T) {
 		})
 	}
 }
+
+type cleanupBranchStore struct {
+	*cleanupLaneStore
+	owner    int64
+	ownerErr error
+}
+
+func (s *cleanupBranchStore) GetBranchMachineOwner(context.Context) (int64, error) {
+	return s.owner, s.ownerErr
+}
+
+func TestCleanupRetainsScratchMachineWithoutLane(t *testing.T) {
+	for _, kind := range []string{"vm", "container", "agent"} {
+		t.Run(kind, func(t *testing.T) {
+			row := db.Workspace{ID: "scratch", UserID: 42, Kind: kind, Status: "suspended"}
+			q := &cleanupBranchStore{cleanupLaneStore: &cleanupLaneStore{
+				mockWorkspaceQuerier: &mockWorkspaceQuerier{}, laneErr: pgx.ErrNoRows,
+			}, owner: 42}
+			svc := newWorkspaceServiceForTests(q)
+			keep, err := svc.keepTodoWorkspace(context.Background(), row)
+			require.NoError(t, err)
+			require.True(t, keep)
+			require.ErrorIs(t, svc.destroyWorkspace(context.Background(), row), errTodoWorkspaceRetained)
+			require.ErrorIs(t, svc.deleteWorkspaceRefs(context.Background(), row), errTodoWorkspaceRetained)
+		})
+	}
+}
+
+func TestCleanupRetainsMachineWhenOwnerLookupFails(t *testing.T) {
+	failed := errors.New("owner inventory unavailable")
+	q := &cleanupBranchStore{cleanupLaneStore: &cleanupLaneStore{mockWorkspaceQuerier: &mockWorkspaceQuerier{}, laneErr: pgx.ErrNoRows}, ownerErr: failed}
+	svc := newWorkspaceServiceForTests(q)
+	row := db.Workspace{ID: "scratch", UserID: 42, Kind: "vm"}
+	keep, err := svc.keepTodoWorkspace(context.Background(), row)
+	require.True(t, keep)
+	require.ErrorIs(t, err, failed)
+	require.ErrorIs(t, svc.destroyWorkspace(context.Background(), row), failed)
+	require.ErrorIs(t, svc.deleteWorkspaceRefs(context.Background(), row), failed)
+}

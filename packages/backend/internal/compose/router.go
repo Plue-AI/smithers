@@ -991,8 +991,15 @@ func buildRouter(
 		}
 		if config.IsSingleOwner(cfg.Auth) {
 			mountFlowReads(r, &routes.FlowsHandler{Queries: queries})
+			if smithersMetrics != nil && queries != nil {
+				h := &routes.InstallMetricsHandler{Metrics: smithersMetrics}
+				if extras.GitHubAppSetup != nil && extras.GitHubAppSetup.Setup != nil {
+					h.Capacity = extras.GitHubAppSetup.Setup.Capacity
+				}
+				r.With(middleware.RequireAuth, installModelOwner(queries)).Get("/install/metrics", h.Read)
+			}
 		}
-		// Unmounted until T-ACC-03 supplies the qualified owner-person authorizer.
+		// Mounted only with the shared owner-person-session authorizer.
 		if extras.InstallScorecard.Available() {
 			r.Get("/install/scorecard", extras.InstallScorecard.Summary)
 		}
@@ -1011,6 +1018,7 @@ func buildRouter(
 			branches := &routes.BranchHandler{Authorize: routes.InstallBranchAuthorizer(queries)}
 			if workspaceHandler != nil {
 				branches.Reads, _ = workspaceHandler.Service.(routes.BranchReadService)
+				branches.Files, _ = workspaceHandler.Service.(routes.BranchFileReadService)
 			}
 			if extras.Mythical != nil {
 				branches.Forks, _ = extras.Mythical.Service.(routes.BranchForkService)

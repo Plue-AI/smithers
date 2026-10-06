@@ -549,7 +549,12 @@ export const createIssuesSeam = (ctx: SeamContext, renderRepositoryForm?: Reposi
     if (!response.ok) return readErrorMessage(response, `Loading issue #${number} in ${repo} failed (${response.status})`)
     const body: unknown = await response.json().catch(() => null)
     if (!isRecord(body) || !isRecord(body.issue) || !Array.isArray(body.comments)) return `The backend answered issue #${number} in ${repo} with an unreadable payload`
-    return githubIssueCard(repo, number, body.issue, body.comments.flatMap(githubCommentOf))
+    const result = githubIssueCard(repo, number, body.issue, body.comments.flatMap(githubCommentOf))
+    if (typeof result !== "string" && result.card?.kind === "issue") {
+      if (typeof body.issue_digest === "string") result.card.payload.issueDigest = body.issue_digest
+      if (typeof body.make_todo_allowed === "boolean") result.card.payload.makeTodoAllowed = body.make_todo_allowed
+    }
+    return result
   }
 
   /** Fetches the issue AND its comments, then upserts the detail card. */

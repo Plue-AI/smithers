@@ -9,6 +9,7 @@ import type { TodoSeam } from "../seams/TodoSeam"
 import { flowArgs } from "../../flows/FlowArgs"
 
 export interface IssueFlowsController {
+  readonly issueTodoRefusal: (number: number, repo?: string) => string | undefined
   readonly inspectIssueFlows: (number: number, repo?: string, humanDoor?: boolean) => Promise<string | { readonly value: string }>
   readonly runIssueFlow: (name: "repro" | "poc", number: number, repo?: string, humanDoor?: boolean) => Promise<string | void | { readonly value: string }>
   readonly runIssueImplementation: (number: number, repo?: string, humanDoor?: boolean) => Promise<string | void | { readonly value: string }>
@@ -56,6 +57,12 @@ export const createIssueFlowsController = (
     return readResult(catalog.payload.workflows.map(flow => `${flow.key}: ${flow.description ?? ""}${flow.prompt ? `\n${flow.prompt}` : ""}`).join("\n") || "No issue flows are installed on this workspace.")
   }
   return {
+    issueTodoRefusal: (number, explicit) => {
+      const resolved = resolveTargetRepo(ctx.store, explicit)
+      if ("error" in resolved) return resolved.error
+      const issue = cards().find(card => card.kind === "issue" && card.payload.source === "github" && card.payload.repo === resolved.repo && card.payload.number === number)
+      return issue?.kind === "issue" && issue.payload.makeTodoAllowed === false ? "Only a maintainer can make a TODO from this issue." : undefined
+    },
     inspectIssueFlows,
     // Make TODO: a private Draft of the GitHub issue the card shows, its text
     // and discussion, committed through POST /api/todos like any Draft. It
@@ -67,7 +74,8 @@ export const createIssueFlowsController = (
         && card.payload.repo === resolved.repo && card.payload.number === number)?.payload
       if (issue === undefined) return `Open GitHub issue #${number} before making a TODO.`
       if (issue.state === "closed") return `Issue #${number} is closed.`
-      return todos.draftFromIssue({ number, title: issue.title, body: issue.issueBody, url: issue.htmlUrl ?? `https://github.com/${resolved.repo}/issues/${number}`,
+      if (issue.makeTodoAllowed === false) return "Only a maintainer can make a TODO from this issue."
+      return todos.draftFromIssue({ number, ...(issue.issueDigest ? { digest: issue.issueDigest } : {}), title: issue.title, body: issue.issueBody, url: issue.htmlUrl ?? `https://github.com/${resolved.repo}/issues/${number}`,
         comments: issue.comments.map(comment => ({ author: comment.author, body: comment.commentBody })) })
     },
     // No browser launch can establish host-bound authorization, membership,

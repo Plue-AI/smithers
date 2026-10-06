@@ -4,7 +4,16 @@ import type { RealHost } from "./e2e/real/coverage/types"
 import { DEPLOYMENT_MODES } from "./e2e/real/coverage/types"
 import { MATRIX_SCENARIO_IDS, MODE_DESCRIPTORS } from "./e2e/real/coverage/matrix"
 import { MODEL_CREDENTIAL_ENV_PREFIX } from "@smthrs/rpc/ConfiguredModel"
+import { requireJ1Preconditions } from "./e2e/real/support/j1-preconditions"
 import { ignoredJourneys } from "./e2e/real/journeys"
+
+// The direct Playwright door must enforce the same admission as run-real-e2e.
+// Otherwise selecting activation directly can start a development host before
+// the test fixture checks whether a fresh reference install was supplied.
+const activationSelected = process.env.SMITHERS_JOURNEY === "j1-activation.spec.ts" ||
+  process.env.SMITHERS_J1_ACTIVATION === "1" ||
+  process.argv.some(arg => /(?:^|\/)j1-activation\.spec\.ts$/.test(arg))
+if (activationSelected) requireJ1Preconditions()
 
 const PORT = Number(process.env.SMITHERS_REAL_PORT ?? "47321")
 if (!Number.isInteger(PORT) || PORT < 1 || PORT > 65535) throw new Error(`Invalid SMITHERS_REAL_PORT: ${process.env.SMITHERS_REAL_PORT}`)

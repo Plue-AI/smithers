@@ -1052,6 +1052,7 @@ func runWithOptions(ctx context.Context, args []string, stdout, stderr io.Writer
 	mythicalService := services.NewMythicalService(pool, repoHostClient)
 	mythicalService.SetTodoLogStore(blobStore)
 	composeGitHubTodoPolling(mythicalService, gitHubMainPullService, gitHubSyncedRepoService, options.topology)
+	gitHubSyncedRepoService.SetIssueEventsEvery(options.GitHubIssueEventsEvery)
 	if installSync {
 		composeGitHubInstallAuthority(gitHubSyncedRepoService, gitHubAppCredentials, os.Geteuid() != 0)
 	}
@@ -1716,7 +1717,7 @@ func runWithOptions(ctx context.Context, args []string, stdout, stderr io.Writer
 		oauth2Handler,
 		gitHubWebhookHandler,
 		smithersMetrics,
-		routerExtras{Members: &routes.MembersHandler{Service: authService.Members}, GitHubAppSetup: gitHubAppSetup, CanaryRuns: options.CanaryRuns, Admission: billingPolicy, BillingCapabilities: billingCapabilities, Catalog: publicCatalog, Recommender: recommendationHandler, ModelStream: modelStreamHandler,
+		routerExtras{InstallScorecard: composeInstallScorecard(cfg, queries, pool), Members: &routes.MembersHandler{Service: authService.Members}, GitHubAppSetup: gitHubAppSetup, CanaryRuns: options.CanaryRuns, Admission: billingPolicy, BillingCapabilities: billingCapabilities, Catalog: publicCatalog, Recommender: recommendationHandler, ModelStream: modelStreamHandler,
 			Mythical: mythicalHandler, UserRefs: userRefHandler, ModelProxy: modelProxyHandler, AdminSystemStatus: adminSystemStatusHandler,
 			AdminSystemHealth: adminSystemHealthHandler, AdminGrant: adminGrantHandler, AdminAnalytics: adminAnalyticsHandler,
 			AdminAgentSessions: &routes.AdminAgentSessionHandler{Service: adminManageService},

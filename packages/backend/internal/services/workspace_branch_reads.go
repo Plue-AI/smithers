@@ -6,6 +6,7 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 	"github.com/smithersai/smithers/packages/backend/internal/db"
 	pkgerrors "github.com/smithersai/smithers/packages/backend/internal/pkg/errors"
@@ -113,7 +114,7 @@ func (s *WorkspaceService) ListBranches(ctx context.Context, repositoryID, userI
 }
 
 func (s *WorkspaceService) GetBranch(ctx context.Context, branch string, repositoryID, userID int64) (BranchMachineResponse, error) {
-	if err := s.preflightBranchMachine(ctx, repositoryID, userID, branch, ""); err != nil {
+	if err := s.requireBranchMachineProviders(); err != nil {
 		return BranchMachineResponse{}, err
 	}
 	tx, err := s.transactions.Begin(ctx)
@@ -122,11 +123,23 @@ func (s *WorkspaceService) GetBranch(ctx context.Context, branch string, reposit
 	}
 	defer func() { _ = tx.Rollback(context.WithoutCancel(ctx)) }()
 	q := db.New(tx)
-	row, err := q.GetBranchWorkspace(ctx, db.GetBranchWorkspaceParams{RepositoryID: repositoryID, TargetBookmark: branch})
+	var row db.Workspace
+	if _, parseErr := uuid.Parse(branch); parseErr == nil {
+		row, err = q.GetWorkspaceByRepo(ctx, db.GetWorkspaceByRepoParams{ID: branch, RepositoryID: repositoryID})
+	} else {
+		row, err = q.GetBranchWorkspace(ctx, db.GetBranchWorkspaceParams{RepositoryID: repositoryID, TargetBookmark: branch})
+	}
+
 	if errors.Is(err, pgx.ErrNoRows) {
 		return BranchMachineResponse{}, pkgerrors.NotFound("branch not found")
 	}
 	if err != nil {
+		return BranchMachineResponse{}, err
+	}
+	if err := s.authorizeBranchFileRead(ctx, row, userID); err != nil {
+		return BranchMachineResponse{}, err
+	}
+	if _, _, _, _, _, err := s.workspaceSnapshotTarget(ctx, row.ID, repositoryID, userID); err != nil {
 		return BranchMachineResponse{}, err
 	}
 	projected, err := s.GetWorkspace(ctx, row.ID, repositoryID, userID)
@@ -153,7 +166,7 @@ func (s *WorkspaceService) projectBranch(ctx context.Context, q *db.Queries, row
 		}
 		branch.ForkedFrom = from
 	}
-	if branch.Kind == "scratch" {
+	if branch.Kind == "scratch" && row.Status != "suspended" && row.Status != "stopped" {
 		head, err := s.branchRefHead(ctx, row)
 		if err != nil {
 			return BranchMachineResponse{}, err

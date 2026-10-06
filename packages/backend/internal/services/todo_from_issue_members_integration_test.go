@@ -2,8 +2,6 @@ package services
 
 import (
 	"context"
-	"crypto/sha256"
-	"encoding/hex"
 	"fmt"
 	"net/http"
 	"testing"
@@ -38,18 +36,28 @@ func TestMembersMakeTodosFromIssuesThroughTheApp(t *testing.T) {
 		require.NoError(t, f.pool.QueryRow(ctx, `INSERT INTO users(username,lower_username,display_name) VALUES($1,$1,$1) RETURNING id`, login).Scan(&id))
 		_, err := f.pool.Exec(ctx, `INSERT INTO collaborators(repository_id,user_id,permission) VALUES($1,$2,$3)`, f.repoID, id, permission)
 		require.NoError(t, err)
+		githubID := int64(8)
+		if login == "alice" {
+			githubID = 9
+		}
+		_, err = f.pool.Exec(ctx, `UPDATE collaborators SET github_id=$3,github_login=$4 WHERE repository_id=$1 AND user_id=$2`, f.repoID, id, githubID, login)
+		require.NoError(t, err)
 		return middleware.ContextWithAuthInfo(ctx, &middleware.AuthInfo{User: &db.User{ID: id}, SessionHash: login + "-session"})
 	}
 	alice, ben := person("alice", "write"), person("ben", "admin")
-	digest := func(title, body string) string {
-		sum := sha256.Sum256([]byte(title + "\x00" + body))
-		return hex.EncodeToString(sum[:])
-	}
 	commit := func(as context.Context, number int64, title, body, key string) (MythicalItemView, error) {
+		snapshot, err := f.service.InstallIssue(as, f.repoID, number)
+		require.NoError(t, err)
 		return f.service.FileTodo(as, f.repoID, middleware.AuthInfoFromContext(as).User.ID, MythicalTodoInput{Title: title, Prompt: body,
-			Issue: &number, IssueDigest: digest(title, body), Request: key})
+			Issue: &number, IssueDigest: snapshot.IssueDigest, Request: key})
 	}
 
+	aliceRead, err := f.service.InstallIssue(alice, f.repoID, team)
+	require.NoError(t, err)
+	_, err = f.service.FileTodo(ben, f.repoID, middleware.AuthInfoFromContext(ben).User.ID, MythicalTodoInput{Title: "Someone else's snapshot", Prompt: "Do not admit", Issue: &team, IssueDigest: aliceRead.IssueDigest, Request: "foreign-digest"})
+	var unknown *TodoControlError
+	require.ErrorAs(t, err, &unknown)
+	require.Equal(t, "issue_snapshot_unknown", unknown.Code)
 	made, err := commit(alice, team, "Say goodbye", "JOURNEY.md should end with a farewell.", "alice-team")
 	require.NoError(t, err)
 	item, err := q.GetMythicalItemByNumber(ctx, f.repoID, made.Number)

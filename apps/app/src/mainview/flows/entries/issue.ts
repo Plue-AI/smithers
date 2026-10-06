@@ -16,9 +16,11 @@ export const issueFlows = (actions: CommandActions): ReadonlyArray<FlowEntry> =>
   // Retained cards/history decode issue.implement; both names enter one dark
   // handler. Only todo.from-issue is offered for new commands.
   flow({ name: "issue.implement", hidden: true, summary: "Make TODO", input: NumberedTarget,
+    preflight: ({ number, repo }) => actions.issueTodoRefusal(number, repo),
     confirm: "make a TODO from the issue", handler: ({ number, repo }) => actions.runIssueImplementation(number, repo, true) }),
   flow({ name: "todo.from-issue", summary: "Make TODO", args: "#n", input: NumberedTarget, grammar: numbered(),
     form: { fields: { number: { label: "Issue", placeholder: "#212" } } },
+    preflight: ({ number, repo }) => actions.issueTodoRefusal(number, repo),
     confirm: "make a TODO from the issue", handler: ({ number, repo }) => actions.runIssueImplementation(number, repo, true) }),
   flow({ name: "issue.add-flow", hidden: true, discloseToAgent: false, summary: "Add a flow to an issue", runtimeAny: ["cloud"],
     form: { args: payload => JSON.stringify(payload), fields: { description: { label: "What should this issue flow do?", placeholder: "Describe the flow to add" } } },

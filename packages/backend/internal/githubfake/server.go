@@ -745,7 +745,7 @@ func (s *Server) respond(r *http.Request, body []byte) (int, any) {
 		if s.config.OwnerKind == "org" {
 			kind = "Organization"
 		}
-		return http.StatusOK, map[string]string{"login": s.config.OwnerLogin, "type": kind}
+		return http.StatusOK, map[string]any{"id": int64(7), "login": s.config.OwnerLogin, "type": kind}
 	}
 	if r.Method == http.MethodGet && len(path) == 3 && path[0] == "users" && path[2] == "keys" {
 		known := path[1] == s.config.OwnerLogin

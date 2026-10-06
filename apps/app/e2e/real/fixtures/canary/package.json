@@ -1,0 +1,5 @@
+{
+  "name": "smithers-mvp-canary",
+  "private": true,
+  "scripts": { "test": "node --test" }
+}

@@ -110,7 +110,7 @@ import type { CodeIntelSeam } from "./seams/CodeIntelSeam"
 import { createCodeIntelSeam } from "./seams/CodeIntelSeam"
 import type { CommitsSeam } from "./seams/CommitsSeam"
 import { createCommitsSeam } from "./seams/CommitsSeam"
-import { createDiffFilesSeam } from "./seams/DiffFilesSeam"
+import { createDiffFilesSeam, createScratchDiffReader } from "./seams/DiffFilesSeam"
 import type { EgressSeam } from "./seams/EgressSeam"
 import { createEgressSeam } from "./seams/EgressSeam"
 import type { EnvironmentSeam } from "./seams/EnvironmentSeam"
@@ -1042,7 +1042,8 @@ export const createAppController = (
   const bookmarksSeam = actors.pair(seamCtx, (context) => createBookmarksSeam(context))
   const commitsSeam = actors.pair(seamCtx, (context) => createCommitsSeam(context))
   const filesSeam = actors.pair(seamCtx, (context) => createFilesSeam(context, services.branchOptions ? { ...services.branchOptions, topics: services.live, onDispose: ctx.onDispose } : undefined, installHost))
-  const diffFilesSeam = actors.pair(seamCtx, context => createDiffFilesSeam(context, services.branchOptions ? { ...services.branchOptions, topics: services.live, onDispose: ctx.onDispose } : undefined, filesSeam.branchFiles))
+  const scratchDiffReader = installHost ? createScratchDiffReader(ctx).readScratchDiff : undefined
+  const diffFilesSeam = actors.pair(seamCtx, context => createDiffFilesSeam(context, services.branchOptions ? { ...services.branchOptions, topics: services.live, onDispose: ctx.onDispose } : undefined, filesSeam.branchFiles, scratchDiffReader))
   const fileDocuments = services.documentOptions && services.live === services.documentOptions.channel ? new FileDocuments(services.documentOptions.channel, services.documentOptions.prerequisites, filesSeam.branchFiles) : undefined
   ctx.onDispose(() => fileDocuments?.dispose())
   const { recoverFile } = actors.pair(seamCtx, context => ({

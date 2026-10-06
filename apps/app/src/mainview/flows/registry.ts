@@ -116,6 +116,8 @@ export interface CatalogItem extends FlowMetadata {
  * what the catalog needs in order to render and rank it.
  */
 export interface FlowEntry<R = never> {
+  /** Permission refusal before a delegated confirmation is published. */
+  readonly preflight?: (payload: Record<string, unknown>) => string | undefined
   /** Data preparation only; never executes the flow or publishes a view. */
   readonly prepare?: (payload: Record<string, unknown>) => Promise<void>
   /** Copied from the same declaration; avoids projecting schemas for a name lookup. */

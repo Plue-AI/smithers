@@ -100,6 +100,8 @@ var terminalProfileRoutes = []struct {
 	method string
 	path   *regexp.Regexp
 }{
+	// The person-only scorecard policy supplies the typed never/permission refusal.
+	{http.MethodGet, regexp.MustCompile(`^/api/install/scorecard$`)},
 	{http.MethodGet, regexp.MustCompile(`^/api/user$`)},
 	{http.MethodGet, regexp.MustCompile(`^/api/user/repos$`)},
 	{http.MethodGet, regexp.MustCompile(`^/api/todos(/[0-9]+(/events|/attempts/[0-9]+/logs/[0-9a-f]{64})?)?$`)},
@@ -108,6 +110,9 @@ var terminalProfileRoutes = []struct {
 	{http.MethodGet, regexp.MustCompile(`^/api/repos/[^/]+/[^/]+$`)},
 	{http.MethodGet, regexp.MustCompile(`^/api/repos/[^/]+/[^/]+/mythical(/events|/items/[^/]+)?$`)},
 	{http.MethodGet, wikiReadPath},
+	{http.MethodGet, regexp.MustCompile(`^/api/branches/[^/]+/files(/.*)?$`)},
+	{http.MethodGet, regexp.MustCompile(`^/api/branches/[^/]+$`)},
+	{http.MethodGet, regexp.MustCompile(`^/api/repos/[^/]+/[^/]+/workspaces/[^/]+/files(/content)?$`)},
 }
 
 // wikiReadPath is every wiki read: the page list, search, navigation, a
@@ -274,7 +279,8 @@ func AuthLoader(queries AuthLoaderQuerier, cfg config.AuthConfig, boundaries ...
 				if _, delegated := authInfo.Delegation(); delegated {
 					authInfo.ViaHint = r.Header.Get("Smithers-Via")
 				}
-				if authInfo.TokenSource == TokenSourcePersonalAccessToken {
+				// Scorecard is person-session only; rejected reads mutate no token row.
+				if authInfo.TokenSource == TokenSourcePersonalAccessToken && InstallMemberCommand(r.Method, r.URL.Path) != "install.scorecard" {
 					if err := queries.UpdateAccessTokenLastUsed(ctx, authInfo.TokenID); err != nil {
 						recordAuthLoaderFailure(r, "token_last_used", err)
 					}
@@ -293,7 +299,13 @@ func AuthLoader(queries AuthLoaderQuerier, cfg config.AuthConfig, boundaries ...
 					if !authorizeInstallationOwner(w, r, authInfo, ownerBoundary) {
 						return
 					}
-					refreshedSession, sessionExpiresAt, refreshErr := refreshLoadedSession(ctx, queries, session, now, sessionDuration, sessionRefreshWindow)
+					// Scorecard reads (including policy refusals) never renew a session.
+					var refreshedSession *db.AuthSession
+					sessionExpiresAt := session.ExpiresAt
+					var refreshErr error
+					if InstallMemberCommand(r.Method, r.URL.Path) != "install.scorecard" {
+						refreshedSession, sessionExpiresAt, refreshErr = refreshLoadedSession(ctx, queries, session, now, sessionDuration, sessionRefreshWindow)
+					}
 					if refreshErr != nil {
 						recordAuthLoaderFailure(r, "session_refresh", refreshErr)
 					}
@@ -400,6 +412,7 @@ var installMemberRoutes = []struct {
 	// workspaces, the repository and its stack, the GitHub sync, the live
 	// channel and the app's error reports.
 	{http.MethodGet, "install.read", regexp.MustCompile(`^/api/install$`)},
+	{http.MethodGet, "install.scorecard", regexp.MustCompile(`^/api/install/scorecard$`)},
 	{http.MethodGet, "agents.read", regexp.MustCompile(`^/api/agents$`)},
 	{http.MethodGet, "agents.read", regexp.MustCompile(`^/api/model/(catalog|default)$`)},
 	{http.MethodPut, "agent.model", regexp.MustCompile(`^/api/agents/[^/]+/model$`)},
@@ -430,8 +443,11 @@ var installMemberRoutes = []struct {
 	{http.MethodPost, "todo.answer", regexp.MustCompile(`^/api/todos/[0-9]+/answer$`)},
 	{http.MethodPost, "merge", regexp.MustCompile(`^/api/todos/[0-9]+/merge$`)},
 	{http.MethodGet, "flows.read", regexp.MustCompile(`^/api/flows$`)},
-	{http.MethodGet, "files.read", regexp.MustCompile(`^/api/branches/[^/]+/files/.+$`)},
-	{http.MethodGet, "branches.read", regexp.MustCompile(`^/api/branches(/[^/]+)?$`)},
+	{http.MethodGet, "branch.read", regexp.MustCompile(`^/api/branches/[^/]+/files/.+$`)},
+	{http.MethodGet, "branches.read", regexp.MustCompile(`^/api/branches$`)},
+	{http.MethodGet, "branch.read", regexp.MustCompile(`^/api/branches/[^/]+$`)},
+	{http.MethodGet, "branch.read", regexp.MustCompile(`^/api/branches/[^/]+/files$`)},
+	{http.MethodGet, "branch.read", regexp.MustCompile(`^/api/repos/[^/]+/[^/]+/workspaces/[^/]+/files(/content)?$`)},
 	{http.MethodPost, "branch.fork", regexp.MustCompile(`^/api/branches$`)},
 	{http.MethodGet, "members.list", regexp.MustCompile(`^/api/members$`)},
 	{http.MethodPost, "members.write", regexp.MustCompile(`^/api/members$`)},
@@ -441,6 +457,9 @@ var installMemberRoutes = []struct {
 	// (mvp.md §6.15, M-05; spec §5.2): a person-only command, so the
 	// owner's delegated credentials are refused here too. Org secrets stay
 	// the owner's.
+	{http.MethodGet, "secrets.read", regexp.MustCompile(`^/api/repos/[^/]+/[^/]+/(secrets|agent-environment)$`)},
+	{http.MethodPut, "secrets.write", regexp.MustCompile(`^/api/repos/[^/]+/[^/]+/agent-environment(?:/secrets/[^/]+)?$`)},
+	{http.MethodDelete, "secrets.write", regexp.MustCompile(`^/api/repos/[^/]+/[^/]+/agent-environment/secrets/[^/]+$`)},
 	{http.MethodPost, "secrets.write", regexp.MustCompile(`^/api/repos/[^/]+/[^/]+/secrets$`)},
 	{http.MethodPatch, "secrets.write", regexp.MustCompile(`^/api/repos/[^/]+/[^/]+/secrets/[^/]+$`)},
 	{http.MethodDelete, "secrets.write", regexp.MustCompile(`^/api/repos/[^/]+/[^/]+/secrets/[^/]+$`)},

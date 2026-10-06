@@ -7,6 +7,9 @@ use std::process::{Command, Stdio};
 
 pub trait Ignore {
     fn ignored(&mut self, path: &Path, directory: bool) -> io::Result<bool>;
+    fn batch(&mut self, paths: &[(PathBuf, bool)]) -> io::Result<Vec<bool>> {
+        paths.iter().map(|(p, d)| self.ignored(p, *d)).collect()
+    }
 }
 
 /// Uses the installed trusted git binary, not PATH or a repository executable.
@@ -35,16 +38,47 @@ pub fn relative(path: &Path) -> bool {
 }
 impl Ignore for GitIgnore {
     fn ignored(&mut self, path: &Path, directory: bool) -> io::Result<bool> {
-        use std::os::unix::ffi::OsStrExt;
-        if !relative(path) {
-            return Err(io::ErrorKind::InvalidInput.into());
+        Ok(self.batch(&[(path.into(), directory)])?[0])
+    }
+    fn batch(&mut self, paths: &[(PathBuf, bool)]) -> io::Result<Vec<bool>> {
+        use std::io::Read;
+        use std::os::unix::ffi::{OsStrExt, OsStringExt};
+        let mut result = vec![false; paths.len()];
+        let mut pending = vec![];
+        let mut input = vec![];
+        for (i, (path, directory)) in paths.iter().enumerate() {
+            if !relative(path)
+                || path.as_os_str().as_bytes().len() > 4096
+                || path.as_os_str().as_bytes().contains(&0)
+            {
+                return Err(io::ErrorKind::InvalidInput.into());
+            }
+            if path
+                .components()
+                .any(|p| p.as_os_str() == ".git" || p.as_os_str() == ".jj")
+                || self.toolchain.iter().any(|p| path.starts_with(p))
+            {
+                result[i] = true;
+                continue;
+            }
+            input.extend(path.as_os_str().as_bytes());
+            if *directory {
+                input.push(b'/');
+            }
+            input.push(0);
+            pending.push(i);
         }
-        if path
-            .components()
-            .any(|p| p.as_os_str() == ".git" || p.as_os_str() == ".jj")
-            || self.toolchain.iter().any(|p| path.starts_with(p))
-        {
-            return Ok(true);
+        if pending.is_empty() {
+            return Ok(result);
+        }
+        // Avoid stdin/stdout pipe deadlock for large scans by chunking. Each
+        // chunk is bounded, and one trusted git process checks many paths.
+        if input.len() > 8192 {
+            let mut out = vec![];
+            for chunk in paths.chunks((paths.len() / 2).max(1)) {
+                out.extend(self.batch(chunk)?);
+            }
+            return Ok(out);
         }
         let mut child = Command::new(&self.git)
             .current_dir(&self.workspace)
@@ -56,20 +90,30 @@ impl Ignore for GitIgnore {
                 "--stdin",
             ])
             .stdin(Stdio::piped())
-            .stdout(Stdio::null())
+            .stdout(Stdio::piped())
             .stderr(Stdio::null())
             .spawn()?;
-        let mut input = path.as_os_str().as_bytes().to_vec();
-        if directory {
-            input.push(b'/');
-        }
-        input.push(0);
         child.stdin.take().unwrap().write_all(&input)?;
-        match child.wait()?.code() {
-            Some(0) => Ok(true),
-            Some(1) => Ok(false),
-            _ => Err(io::Error::other("ignore provider failed")),
+        let mut output = vec![];
+        child
+            .stdout
+            .take()
+            .unwrap()
+            .take(8193)
+            .read_to_end(&mut output)?;
+        let status = child.wait()?;
+        if output.len() > 8192 || !matches!(status.code(), Some(0) | Some(1)) {
+            return Err(io::Error::other("ignore provider failed"));
         }
+        let ignored: std::collections::BTreeSet<PathBuf> = output
+            .split(|b| *b == 0)
+            .filter(|b| !b.is_empty())
+            .map(|b| PathBuf::from(std::ffi::OsString::from_vec(b.to_vec())))
+            .collect();
+        for i in pending {
+            result[i] = ignored.contains(&paths[i].0);
+        }
+        Ok(result)
     }
 }
 

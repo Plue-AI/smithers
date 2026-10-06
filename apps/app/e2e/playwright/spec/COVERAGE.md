@@ -14,8 +14,8 @@ C-UI-12 Members (T-UI-09): [install roster and keyboard Add/Role/Remove](C-UI-12
 | C-J1-04 | [C-J1-04.spec.ts](C-J1-04.spec.ts) | fixme-before-implementation | T-APP-02 |
 | C-J1-05 | [C-J1-05.spec.ts](C-J1-05.spec.ts) | passing: install seam, keyboard, live refresh, confirmation, reconnect; reference-host GitHub/LAN evidence pending | T-APP-06 |
 | C-J1-06 | [C-J1-06.spec.ts](C-J1-06.spec.ts) | fixme-before-implementation | T-MCH-10 |
-| C-J2-01 | [C-J2-01.spec.ts](C-J2-01.spec.ts) | fixme-before-implementation | T-STK-09 |
-| C-J2-02 | [C-J2-02.spec.ts](C-J2-02.spec.ts) | fixme-before-implementation | T-STK-09 |
+| C-J2-01 | [C-J2-01.spec.ts](C-J2-01.spec.ts) | implemented — Chromium passed 2026-10-05 (mounted install seam; composed router proof separate) | T-STK-09 |
+| C-J2-02 | [C-J2-02.spec.ts](C-J2-02.spec.ts) | implemented — Chromium passed 2026-10-05 (mounted install seam; composed router proof separate) | T-STK-09 |
 | C-J2-03 | [C-J2-03.spec.ts](C-J2-03.spec.ts) | fixme-before-implementation | T-STK-01 |
 | C-J2-04 | [C-J2-04.spec.ts](C-J2-04.spec.ts) | fixme-before-implementation | T-STK-01 |
 | C-J2-05 | [C-J2-05.spec.ts](C-J2-05.spec.ts) | fixme-before-implementation | T-STK-04 |
@@ -65,7 +65,7 @@ C-UI-12 Members (T-UI-09): [install roster and keyboard Add/Role/Remove](C-UI-12
 | C-APP-05 | [C-APP-05.spec.ts](C-APP-05.spec.ts) | fixme-before-implementation | T-APP-16 |
 | C-ACC-01 | [C-ACC-01.spec.ts](C-ACC-01.spec.ts) | fixme-before-implementation | T-ACC-02, T-ACC-03, T-ACC-04, T-APP-04, T-INS-08, T-TRM-02, T-CUT-03, T-STK-06 |
 | C-ACC-02 | [C-ACC-02.spec.ts](C-ACC-02.spec.ts) | fixme-before-implementation | T-ACC-04, T-APP-04, T-STK-04 |
-| C-ACC-03 | [C-ACC-03.spec.ts](C-ACC-03.spec.ts) | fixme-before-implementation | T-ACC-02 |
+| C-ACC-03 | [C-ACC-03.spec.ts](C-ACC-03.spec.ts) | passing: removal, owner protection, retained TODO history | T-ACC-02 |
 | C-ACC-04 | [C-ACC-04.spec.ts](C-ACC-04.spec.ts) | fixme-before-implementation | T-ACC-01, T-ACC-02 |
 | C-STK-01 | [C-STK-01.spec.ts](C-STK-01.spec.ts) | fixme-before-implementation | T-STK-01 |
 | C-STK-02 | [C-STK-02.spec.ts](C-STK-02.spec.ts) | fixme-before-implementation | T-STK-03 |
@@ -371,3 +371,5 @@ The broad C-UI-12/13 fixmes still await the other Views and their wiring tickets
 | C-UI-12 Docs | [Docs stories](../view-stories.spec.ts) | passed: 8 stories, light/dark, 1280/1440/390px, axe/overflow, keyboard focus, anchors, inert HTML/unsafe links and missing/disabled gestures; rendered links reach the real flow seam in DocsCard.test.tsx; install activation remains T-APP-20 | T-UI-21 |
 | C-UI-12 Secrets | [Secrets stories](../view-stories.spec.ts) | passed: 11 stories, light/dark, 1440/390, axe/overflow; Add/Replace/Cancel clear Value, redacted callbacks, absent/disabled actions, optional Hosts, inert names, keyboard Delete | T-UI-18 |
 | C-UI-12 · TODO install | [TODO install case](C-UI-12-todo-install.spec.ts) | Keyboard Open branch from REST TODO through the composed app provider to the live Branch card; 1 passed | T-UI-04 |
+
+T-MCH-08 scratch Diff has a passing install HTTP contract and browser projection in [scratch-diff.spec.ts](../scratch-diff.spec.ts): fork revision, unresolved read, duplicate input and reload. C-J7-02 remains pending for Add to stack/Confirm/Drop; C-MCH-08 remains pending for real capture and source boot continuity.

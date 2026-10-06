@@ -1593,6 +1593,8 @@ const CurrentCardSchema = z.discriminatedUnion("kind", [
       state: z.enum(["open", "fixed", "verified", "closed"]),
       author: z.string().nullable(),
       issueBody: z.string(),
+      issueDigest: z.string().regex(/^[0-9a-f]{64}$/).optional(),
+      makeTodoAllowed: z.boolean().optional(),
       source: z.enum(["smithers-cloud", "github"]).optional(),
       htmlUrl: HttpUrlSchema.optional(),
       conversation: z.object({ branchId: z.string(), owner: z.string(), creationKey: z.string() }).optional(),
@@ -2317,6 +2319,9 @@ const CurrentCardSchema = z.discriminatedUnion("kind", [
       pin: RevisionPinSchema,
       files: ChangeDiffSchema.shape.files,
       branchFiles: z.array(DiffCardSchema).optional(),
+      branchDiffSource: z.string().optional(),
+      branchDiffRequest: z.string().optional(),
+      branchDiffPending: z.boolean().optional(),
       /** The one file this card was cut at, when the flow named one. */
       path: z.string().optional(),
       error: z.string().optional()
