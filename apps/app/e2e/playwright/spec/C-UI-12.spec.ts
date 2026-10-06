@@ -1,6 +1,49 @@
 import { expect, test } from "../browserTest"
 import { owner, say } from "./j1-fixtures"
 
+// T-UI-02 phase: production Views, supplied callbacks; model writes belong to T-FLW-08.
+test("C-UI-12: Settings model slot is empty or supplied once with no duplicate actions", async ({ page }) => {
+  await page.addInitScript(() => {
+    Object.assign(window, { slotCalls: [] })
+    window.addEventListener("story-callback", event => (window as unknown as { slotCalls: unknown[] }).slotCalls.push((event as CustomEvent).detail))
+  })
+  for (const theme of ["light", "dark"]) for (const width of [1440, 390]) {
+    await page.setViewportSize({ width, height: 844 })
+    await page.goto(`/view-stories.html?story=SettingsView/Settings%20for%20the%20owner&theme=${theme}`)
+    await expect(page.locator('[data-flow="settings.model.set"],[data-flow="settings.model-key"],input[type="password"]')).toHaveCount(0)
+    await expect(page.locator('[data-kind="settings"]')).not.toContainText("Fast model")
+    expect(await page.evaluate(() => (window as unknown as { slotCalls: unknown[] }).slotCalls)).toEqual([])
+    await page.goto(`/view-stories.html?story=SettingsView/Supplied%20model%20slot&theme=${theme}`)
+    await expect(page.locator(".setup-settings dt").filter({ hasText: "Fast model" })).toHaveCount(1)
+    await expect(page.locator('[data-flow="settings.model.set"],[data-flow="settings.model-key"]')).toHaveCount(0)
+    const button = page.getByRole("button", { name: "Change model", exact: true })
+    await expect(button).toHaveCount(1)
+    await button.focus()
+    await page.keyboard.press("Enter")
+    expect(await page.evaluate(() => (window as unknown as { slotCalls: unknown[] }).slotCalls)).toEqual([
+      { kind: "action", value: { tag: "settings.model.set", args: { role: "fast", model: "llama-4-scout" } } }
+    ])
+    expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true)
+  }
+})
+
+test("C-UI-12: Setup zero capacity stays on one line at 390 px", async ({ page }) => {
+  await page.setViewportSize({ width: 390, height: 844 })
+  await page.goto("/view-stories.html?story=SetupView/This%20Mac%20has%20no%20room%20for%20a%20machine")
+  const line = page.locator(".setup-capacity")
+  await expect(line).toHaveText("No machine fits · memory · Close apps to free 6 GB")
+  const lines = await line.evaluate(node => {
+    const range = document.createRange()
+    range.selectNodeContents(node)
+    const rects = [...range.getClientRects()]
+    return rects.every(rect => rect.top < rects[0]!.bottom && rect.bottom > rects[0]!.top)
+  })
+  expect(lines).toBe(true)
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true)
+})
+
+
+
 
 test("C-UI-12: Flow versions, actions and Paper focus remain usable in both themes and widths", async ({ page }) => {
   for (const theme of ["light", "dark"]) for (const width of [1440, 390]) {

@@ -7,12 +7,12 @@ import { installFixture } from "../state/seams/InstallFixtures.test-support"
 import type { InstallModel } from "../state/seams/InstallModel"
 import type { InstallCardDispatch } from "./installKeyAction"
 
-async function mount(model: InstallModel, dispatch: InstallCardDispatch = () => {}, tab?: "mac" | "network") {
+async function mount(model: InstallModel, dispatch: InstallCardDispatch = () => {}, tab?: "mac" | "network", modelSlot?: import("react").ReactNode) {
   const host = document.createElement("div")
   document.body.append(host)
   const snapshot = { model }
   const root = createRoot(host)
-  const render = () => root.render(<SettingsContainer View={SettingsView} owner install={{ get: () => snapshot, subscribe: () => () => {} }} dispatch={dispatch}
+  const render = () => root.render(<SettingsContainer View={SettingsView} modelSlot={modelSlot} owner install={{ get: () => snapshot, subscribe: () => () => {} }} dispatch={dispatch}
     origin="http://mini.local:4000" view={{ maximized: false, tab }} onView={patch => {
       if (patch.tab === "mac" || patch.tab === "network") tab = patch.tab
       render()
@@ -72,28 +72,16 @@ test("Address keeps all origins and the bind input; LAN HTTP is marked per origi
   } }])
 })
 
-test("Each model key stays on its role row, clears on submission and carries only a transient gesture", async () => {
+test("Live Settings without a restored model slot exposes no key controls or dispatch", async () => {
   const model = installFixture()
   model.models[1] = { role: "coding", provider: "OpenAI", key: "failed", error: "Key is invalid" }
-  const commands: unknown[] = [], secrets: string[] = []
-  const host = await mount(model, (tag, input, gesture) => {
-    commands.push({ tag, input }); secrets.push(gesture!.takeWriteOnly!("value")!); gesture!.release()
-  })
-  const rows = host.querySelectorAll<HTMLElement>(".settings-model-row")
-  expect(rows).toHaveLength(3)
-  for (const [index, row] of [...rows].entries()) {
-    const input = row.querySelector<HTMLInputElement>('input[type="password"]')!
-    const nativeSet = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, "value")!.set!
-    await act(async () => { nativeSet.call(input, `sentinel-${index}`); input.dispatchEvent(new Event("input", { bubbles: true })) })
-    await act(async () => input.closest("form")!.dispatchEvent(new Event("submit", { bubbles: true, cancelable: true })))
-    expect(input.value).toBe("")
-    expect(row.querySelector("button")!.textContent).toBe("Save")
-  }
-  expect(commands).toEqual(model.models.map(role => ({ tag: "settings.model-key", input: { role: role.role, provider: role.provider } })))
-  expect(secrets).toEqual(["sentinel-0", "sentinel-1", "sentinel-2"])
-  expect(host.innerHTML).not.toContain("sentinel")
-  expect(JSON.stringify(commands)).not.toContain("sentinel")
-  expect(rows[1]!.textContent).toContain("Key is invalid")
+  const commands: unknown[] = []
+  const host = await mount(model, (tag, input) => { commands.push({ tag, input }) })
+  expect(host.querySelectorAll(".settings-model-row,input[type=password]")).toHaveLength(0)
+  expect(host.querySelectorAll('[data-flow="settings.model-key"],[data-flow="settings.model.set"]')).toHaveLength(0)
+  expect(host.textContent).toContain("Machines")
+  expect(host.textContent).not.toContain("Key is invalid")
+  expect(commands).toEqual([])
 })
 
 test("Zero formula disables both Machines buttons; At once keeps its 1-8 request apart from capacity", async () => {
@@ -113,4 +101,18 @@ test("Zero formula disables both Machines buttons; At once keeps its 1-8 request
     await act(async () => button.click())
   }
   expect(commands).toEqual([{ tag: "settings.parallel", input: { parallel: 1 } }, { tag: "settings.parallel", input: { parallel: 3 } }])
+})
+
+test("Live Settings passes the app-local model slot once and preserves Machines actions", async () => {
+  const commands: unknown[] = [], slotCalls: string[] = []
+  const host = await mount(installFixture(), (tag, input) => { commands.push({ tag, input }) }, undefined,
+    <><dt>Fast model</dt><dd><button type="button" onClick={() => slotCalls.push("change")}>Change model</button></dd></>)
+  const buttons = [...host.querySelectorAll<HTMLButtonElement>("button")].filter(button => button.textContent === "Change model")
+  expect(buttons).toHaveLength(1)
+  expect(host.querySelectorAll('[data-flow="settings.model-key"],[data-flow="settings.model.set"]')).toHaveLength(0)
+  await act(async () => buttons[0]!.click())
+  expect(slotCalls).toEqual(["change"])
+  expect(commands).toEqual([])
+  await act(async () => host.querySelector<HTMLButtonElement>('[aria-label="Fewer Machines"]')!.click())
+  expect(commands).toEqual([{ tag: "settings.capacity", input: { capacity: 1 } }])
 })

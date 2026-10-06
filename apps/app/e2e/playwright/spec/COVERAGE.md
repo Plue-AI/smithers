@@ -5,6 +5,7 @@ Fixmes await the seeded DesignWorld and complete journey controls; standalone ca
 
 | id | spec file | status | ticket |
 | --- | --- | --- | --- |
+| C-UI-12 · Setup/Settings | [C-UI-12.spec.ts](C-UI-12.spec.ts) | Empty/supplied model slot, zero dispatch, keyboard; 390px capacity line passed | T-UI-02 |
 | C-J1-01 | [C-J1-01.spec.ts](C-J1-01.spec.ts) | fixme-before-implementation | T-INS-08 |
 | C-J1-02 | [C-J1-02.spec.ts](C-J1-02.spec.ts) | fixme-before-implementation | T-APP-03 |
 | C-J1-03 | [C-J1-03.spec.ts](C-J1-03.spec.ts) | fixme-before-implementation | T-APP-15 |

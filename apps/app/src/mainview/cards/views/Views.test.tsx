@@ -96,6 +96,13 @@ for (const path of paths) {
           }
           return
         }
+        if (path === "SettingsView.stories.tsx" && story.name === "Supplied model slot") {
+          const button = host.querySelector<HTMLButtonElement>(".setup-settings dd button")!
+          expect(button.textContent).toBe("Change model")
+          await act(async () => button.click())
+          expect(onAction.mock.calls).toEqual([["settings.model.set", { role: "fast", model: "llama-4-scout" }]])
+          return
+        }
         if (path === "SetupView.stories.tsx" || path === "SettingsView.stories.tsx") {
           // Form actions project one submit or two stepper controls, with draft fields.
           const fixture = Object.values(path.startsWith("Setup") ? { ...setup, ...personOnlyFixtures } : settings).find(item => item.name === story.name)!
@@ -104,6 +111,7 @@ for (const path of paths) {
             const order = ["machine", "address", "fast", "coding", "jev", "capacity", "parallel", "todo_daily_admissions", "health", "notifications", "obsidian"]
             const rank = (action: import("@smthrs/rpc/CardAction").Action) => order.indexOf(action.tag === "github" ? "health" : action.tag === "docs" ? "notifications" : action.args?.role ?? action.args?.field ?? action.args?.step ?? "")
             supplied.sort((a, b) => rank(a) - rank(b))
+            for (let i = supplied.length - 1; i >= 0; i--) if (["settings.model.set", "settings.model-key"].includes(supplied[i]!.tag)) supplied.splice(i, 1)
             for (const action of supplied) for (const field of action.input ?? []) {
               const model = fixture.model as import("@smthrs/rpc/SettingsCard").SettingsCard
               const value = action.args?.field === "capacity" ? model.capacity : action.args?.field === "parallel" ? model.parallel : action.args?.field === "todo_daily_admissions" ? model.todo_daily_admissions : action.args?.field === "obsidian" ? model.obsidian?.path : undefined
@@ -781,7 +789,7 @@ test("a question holds the named step, not the first unfinished step", () => {
   view.close();
 });
 import { fixtures as setup, personOnlyFixtures } from "@smthrs/rpc/fixtures/Setup"
-import { fixtures as settings } from "@smthrs/rpc/fixtures/Settings"
+import { fixtures as settings } from "./SettingsView.stories"
 import { SetupView } from "./SetupView"
 import { SettingsView } from "./SettingsView"
 let root: import("react-dom/client").Root | undefined
@@ -863,15 +871,44 @@ test("Settings shows literal sync health and Obsidian receipts", () => {
   expect(host.textContent).toContain("Disk free · 412 GB")
   expect(host.textContent).toContain("Process · ok")
 })
-test("Owner action forms retain literal order and model arguments", () => {
+test("Settings without a model slot renders no model controls or dispatch", () => {
+  const calls: unknown[] = []
+  const actions: Action[] = [
+    ...settings.ready.actions.filter(action => action.tag === "settings.model.set"),
+    { tag: "settings.model.set", label: "Change", args: { role: "unknown" } },
+    { tag: "settings.model-key", label: "Save", args: { role: "fast" }, input: [{ name: "value", label: "Cerebras key", kind: "secret", required: true }] },
+    { tag: "settings.model-key", label: "Retry" },
+    { tag: "settings.model.set", label: "Misplaced model action", args: { field: "capacity" } },
+    { tag: "settings.model-key", label: "Misplaced key action", args: { step: "address" } }
+  ]
+  const host = render(<SettingsView {...settings.ready} actions={actions} onAction={(...args) => calls.push(args)} onView={() => {}} />)
+  expect(host.querySelector('button[data-flow],form,input,select')).toBeNull()
+  expect(host.textContent).not.toMatch(/Fast model|Coding model|Decisions|AI Gateway key|Cerebras/)
+  expect(calls).toEqual([])
+})
+test("Settings renders the supplied model slot once without duplicate actions", () => {
+  const calls: unknown[] = []
+  const host = render(<SettingsView {...settings.ready} modelSlot={<><dt>Fast model</dt><dd><button type="button" onClick={() => calls.push("slot")}>Change model</button></dd></>}
+    onAction={(...args) => calls.push(args)} onView={() => {}} />)
+  expect([...host.querySelectorAll("dt")].map(row => row.textContent)).toEqual([
+    "This Mac", "Fast model", "GitHub", "Machines", "TODOs per day", "Laptop agent", "Health", "Obsidian folder"
+  ])
+  expect(host.querySelectorAll('button')).not.toHaveLength(0)
+  expect(host.querySelectorAll('button[data-flow="settings.model.set"],button[data-flow="settings.model-key"]')).toHaveLength(0)
+  const slot = [...host.querySelectorAll<HTMLButtonElement>("button")].filter(button => button.textContent === "Change model")
+  expect(slot).toHaveLength(1)
+  act(() => slot[0]!.click())
+  expect(calls).toEqual(["slot"])
+  act(() => root!.render(<SettingsView {...settings.ready} onAction={(...args) => calls.push(args)} onView={() => {}} />))
+  expect(host.textContent).not.toContain("Fast model")
+  expect(calls).toEqual(["slot"])
+})
+test("Owner action forms retain literal order without duplicate model arguments", () => {
   const calls: unknown[] = []
   const host = render(<SettingsView {...settings.ready} onAction={(...args) => calls.push(args)} onView={() => {}} />)
-  expect([...host.querySelectorAll('.setup-action')].map(form => form.getAttribute('data-flow'))).toEqual(['settings.model.set', 'settings.model.set', 'settings.model.set', 'settings', 'settings', 'github', 'settings'])
+  expect([...host.querySelectorAll('.setup-action')].map(form => form.getAttribute('data-flow'))).toEqual(['settings', 'settings', 'github', 'settings'])
   for (const button of host.querySelectorAll<HTMLButtonElement>('.setup-action button[type="submit"]')) act(() => button.click())
   expect(calls).toEqual([
-    ['settings.model.set', { role: 'fast', model: 'llama-4-scout' }],
-    ['settings.model.set', { role: 'coding', model: 'gpt-6.1-sol' }],
-    ['settings.model.set', { role: 'jev', model: 'typesafe-ai/jev' }],
     ['github', {}],
     ['settings', { field: 'obsidian', path: '' }]
   ])
@@ -983,7 +1020,7 @@ test("Settings actions live in their rows and unassigned actions retain order", 
   const row = (label: string) => [...host.querySelectorAll("dt")].find(dt => dt.textContent === label)!.nextElementSibling!
   expect(row("Machines").textContent).toBe("−2+")
   expect(row("TODOs per day").textContent).toBe("−12+")
-  expect(row("Decisions").textContent).toBe("AI GatewaySavedChange")
+  expect([...host.querySelectorAll("dt")].map(row => row.textContent)).not.toContain("Decisions")
   expect(row("Health").querySelector('button[data-flow="github"]')!.textContent).toBe("Repair")
   expect(row("Obsidian folder").querySelector("button")!.textContent).toBe("Change")
   expect([...host.querySelectorAll(".setup-view > .setup-actions button")].map(button => button.textContent)).toEqual(["Add", "Docs"])

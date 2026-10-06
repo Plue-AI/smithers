@@ -106,7 +106,9 @@ test("without install capability the seeded Setup and Settings remain usable (#3
   const install = designInstall(controller.design, controller.installSnapshots)
   const props = { install, dispatch: () => {}, view: { maximized: false }, onView: () => {} }
   expect(renderToStaticMarkup(renderSetupCard({ ...props, allowed: true }))).toContain("Cerebras")
-  expect(renderToStaticMarkup(<SettingsContainer {...props} View={SettingsView} owner origin="http://localhost:4000" />)).toContain("Cerebras")
+  const settings = renderToStaticMarkup(<SettingsContainer {...props} View={SettingsView} owner origin="http://localhost:4000" />)
+  expect(settings).toContain("Machines")
+  expect(settings).not.toContain("Cerebras")
   expect(controller.installSnapshots.get().model).toBeUndefined()
   expect(install.get().seed).toBe(true)
 })

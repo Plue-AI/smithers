@@ -1,7 +1,7 @@
 import { useMemo, useSyncExternalStore, type ComponentType } from "react"
 import { useController } from "../ControllerContext"
 import type { CardActions, CardFamily } from "./CardFamily"
-import { SettingsView } from "./views/SettingsView"
+import { SettingsView, type SettingsViewProps } from "./views/SettingsView"
 // MOCK SEAM: the seeded install until GET /api/install serves a model (InstallSeam.snapshots replaces it).
 import { designInstall, designViewerRole, setSettingsView, settingsViewsOf } from "../state/seams/DesignWorld/settings"
 import { useLiveQuery } from "@tanstack/react-db"
@@ -14,7 +14,8 @@ import type { InstallAddress, InstallSnapshots } from "../state/seams/InstallSea
 import { addressPort as port, parseOrigins as origins, roleKeyActions } from "./SetupCard"
 
 export interface SettingsContainerProps {
-  readonly View: ComponentType<CardProps<SettingsCard>>
+  readonly View: ComponentType<SettingsViewProps>
+  readonly modelSlot?: SettingsViewProps["modelSlot"]
   readonly install: InstallSnapshots
   readonly dispatch: InstallCardDispatch
   readonly docsAvailable?: () => boolean
@@ -42,7 +43,7 @@ export const addressActions = (address: InstallAddress): CardActionDefinition<"s
   ]
 }
 
-export const SettingsContainer = ({ View, install, dispatch, owner, origin, view, onView, docsAvailable = () => false }: SettingsContainerProps) => {
+export const SettingsContainer = ({ View, install, dispatch, owner, origin, view, onView, modelSlot, docsAvailable = () => false }: SettingsContainerProps) => {
   const snapshot = useSyncExternalStore(install.subscribe, install.get, install.get)
   const model = snapshot.model
   // The viewer origin alone decides this; parsing the whole Settings card here would throw before the health guard below.
@@ -74,7 +75,7 @@ export const SettingsContainer = ({ View, install, dispatch, owner, origin, view
   const listed = cardActions(key?.dispatch ?? dispatchAvailable, definitions)
   const bindings = cardActions(key?.dispatch ?? dispatchAvailable, [...definitions, ...fix])
   if (!owner || !model?.health) return null
-  return <View model={settingsCardModel(model, origin)} actions={listed.actions} gestures={bindings.gestures} onAction={bindings.onAction} view={view} onView={onView} />
+  return <View modelSlot={modelSlot} model={settingsCardModel(model, origin)} actions={listed.actions} gestures={bindings.gestures} onAction={bindings.onAction} view={view} onView={onView} />
 }
 
 /* The settings card (card-kinds.md L5): subject only; the body reads the install and binds through cardActions. */
