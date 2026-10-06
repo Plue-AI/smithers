@@ -60,7 +60,7 @@ const SecretsBody = ({ card }: { card: StoredSecrets }) => {
       name: secret.name, mainOnly: secret.scope === "main_only", hosts: secret.hosts ?? [], matchHeaders: [], updatedAt: null
     })) } } : card
   return <SecretsCardBody card={projected} role={controller.membersRole()} dispatch={(name, input) => {
-    const payload: Record<string, unknown> = { ...(input ?? {}), repo: card.payload.repo }
+    const payload: Record<string, unknown> = { ...(input ?? {}), repo: card.payload.repo || undefined }
     if (name === "secrets.scope") payload.scope = payload.scope === "main_only" ? "main-only" : "all"
     const gesture = name === "secrets.set" ? writeOnlyGesture(name, { value: String(payload.value ?? "") }) : undefined
     if (payload.hosts) payload.headers = "authorization"

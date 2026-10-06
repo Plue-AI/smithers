@@ -723,7 +723,8 @@ export const createSecretsSeam = (ctx: SeamContext, withToast: FailureController
       const headers = listOf(input.headers)
       if ((hosts.length === 0) !== (headers.length === 0)) return "Give both hosts and headers, or neither."
       if (source === "seed" && options.fallback) {
-        options.fallback.set(name, input.scope ?? (options.fallback.rows().find(row => row.name === name)?.mainOnly === true ? "main_only" : "all_branches"))
+        const answer = options.fallback.set(name, input.scope ?? (options.fallback.rows().find(row => row.name === name)?.mainOnly === true ? "main_only" : "all_branches"))
+        if (typeof answer === "string") return answer
         await refreshSecrets(target.repo, current)
         return { value: "Requested" }
       }
@@ -763,7 +764,7 @@ export const createSecretsSeam = (ctx: SeamContext, withToast: FailureController
     if ("error" in target) return target.error
     const name = input.trim()
     if (!SECRET_NAME.test(name)) return "Use letters, digits and _ for the name."
-    if (source === "seed" && options.fallback) { options.fallback.remove(name); await refreshSecrets(target.repo, current); return { value: "Requested" } }
+    if (source === "seed" && options.fallback) { const answer = options.fallback.remove(name); if (typeof answer === "string") return answer; await refreshSecrets(target.repo, current); return { value: "Requested" } }
     const row: SecretRequest = { id: randomUuid(), owner: login, repo: target.repo, name, action: "delete", state: "requested" }
     const admitted = await admitSecret(row, current)
     if (typeof admitted === "string") return admitted
@@ -821,7 +822,9 @@ export const createSecretsSeam = (ctx: SeamContext, withToast: FailureController
     const target = resolveTargetRepo(ctx.store, repo)
     if ("error" in target) return target.error
     if (source === "seed" && options.fallback) {
-      options.fallback.set(name, scope === "main-only" ? "main_only" : "all_branches")
+      if (!options.fallback.rows().some(row => row.name === name)) return "Secret not found"
+      const answer = options.fallback.set(name, scope === "main-only" ? "main_only" : "all_branches")
+      if (typeof answer === "string") return answer
       await refreshSecrets(target.repo, captureCloudOwner(ctx, false)); return { value: "Requested" }
     }
     if (options.install) {
