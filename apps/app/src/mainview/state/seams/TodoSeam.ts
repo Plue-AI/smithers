@@ -151,7 +151,7 @@ export const createTodoSeam = (ctx: SeamContext, options: TodoSeamOptions = {}) 
         ? [{ key: request.key, outcome: { status: "ok" as const, detail: "Merged" } }] : []
       if (request.operation === "amend") {
         const changed = request.revision === undefined ? undefined : model.prompt_revisions[request.revision - 1]
-        return changed?.text === request.body.prompt && canonicalize(changed.acceptance) === canonicalize(request.body.acceptance ?? [])
+        return changed !== undefined && changed.text === request.body.prompt && canonicalize(changed.acceptance) === canonicalize(request.body.acceptance ?? [])
           ? [{ key: request.key, committed: { n, rev: request.revision! }, outcome: { status: "ok" as const, detail: "Amended" } }] : []
       }
       // An accepted answer is done once its question is no longer open.
@@ -445,8 +445,8 @@ export const createTodoSeam = (ctx: SeamContext, options: TodoSeamOptions = {}) 
     try { addImagePackage(undefined, name) } catch { return "Invalid Debian package name" }
     const target = resolveTargetRepo(ctx.store, undefined)
     if ("error" in target) return target.error
-    const prior = [...ctx.store.collections.cards.values()].find((card): card is DraftEntry => card.kind === "draft"
-      && card.audience_member_id === owner() && !card.payload.committed && card.payload.imagePreparation?.name === name && card.payload.imagePreparation.repo === target.repo)
+    const prior = [...ctx.store.collections.cards.values()].filter(card => card.kind === "draft").find(card =>
+      card.audience_member_id === owner() && !card.payload.committed && card.payload.imagePreparation?.name === name && card.payload.imagePreparation.repo === target.repo)
     const id = prior?.id ?? `draft:${randomUuid()}`
     if (!prior) {
       const card = draftCard({ id, author: owner()!, title: `Add ${name} to machine image`, text: "", options: [], idempotencyKey: randomUuid() }, ctx.nextOrdinal(), Date.now())

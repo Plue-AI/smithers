@@ -82,6 +82,7 @@ export const APPENDIX_A_TAGS = [
  * replaces this placeholder at the same import path with catalog inference.
  */
 export const IN_CARD_TAGS = [
+  "image.add",
   "github.retry",
   "settings.address",
   "settings.capacity",

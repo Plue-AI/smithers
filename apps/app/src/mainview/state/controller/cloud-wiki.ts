@@ -20,6 +20,7 @@ import { actorSharedState } from "../ActorBindings"
 import type { Card, WikiIndexRow, WorldDocument } from "../AppState"
 import { DEFAULT_BRANCH_ID, WIKI_DISPLAY_NAME, wikiIndexRowId } from "../AppState"
 import { resolveTargetRepo } from "../RepoContext"
+import { scrubToolEcho } from "../MessageScrub"
 import type { ControllerContext } from "./context"
 import { randomUuid } from "../../runtime/RandomUuid"
 
@@ -867,7 +868,7 @@ export const createCloudWikiController = (ctx: ControllerContext, nextOrdinal: (
     }, false, current).catch(error => ctx.failures.report("wiki.save", error)).finally(() => saving.delete(request.id))
   }
   const resumeWikiSaves = () => {
-    void ctx.store.settled().then(() => {
+    void Promise.resolve(ctx.store.settled?.()).then(() => {
       for (const request of ctx.store.session().wikiSaves ?? []) if (request.state === "requested") sendWikiSave(request)
     }).catch(error => ctx.failures.report("wiki.save.recover", error))
   }
@@ -876,7 +877,11 @@ export const createCloudWikiController = (ctx: ControllerContext, nextOrdinal: (
   ctx.onDispose(() => { wikiSaveIdentity.unsubscribe(); wikiSaveSession.unsubscribe() })
   queueMicrotask(resumeWikiSaves)
   const saveWikiAnswer = async (name: string, text?: string) => {
-    const answer = text ?? [...ctx.store.collections.messages.values()].reverse().find(message => message.role === "smithers" && message.status === "complete" && !message.action)?.text
+    const answer = text ?? [...ctx.store.collections.messages.values()]
+      .filter(message => message.role === "smithers" && message.status === "complete" && !message.action && message.act === undefined)
+      .sort((a, b) => b.ordinal - a.ordinal)
+      .map(message => scrubToolEcho(message.text))
+      .find(answer => answer.trim() !== "")
     if (!answer?.trim()) return "Choose an answer to save."
     const repo = targetRepo(undefined), owner = shared.login()
     if (typeof repo !== "string") return repo.error

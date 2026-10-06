@@ -1,12 +1,13 @@
 import { expect, test } from "../browserTest"
 import { owner, say } from "./j1-fixtures"
 import { fixtures } from "../../../../../packages/rpc/test/fixtures/Todo"
+import type { TodoCard } from "@smthrs/rpc/TodoCard"
 
 // The shared failure/slash command. Settings binds the same command in T-APP-03;
 // guest rebuild and certified TODO failure ingestion need install qualification.
 test("C-APP-03: a missing package drafts only the main machine recipe", async ({ page }) => {
   await owner(page)
-  const failed = structuredClone(fixtures.failed.model)
+  const failed: TodoCard = structuredClone(fixtures.failed.model)
   failed.n = 1
   failed.failure!.missing_tool = { name: "figlet", file: ".smithers/machine.json" }
   await page.route("**/api/todos", route => route.fulfill({ json: [failed] }))
