@@ -123,9 +123,25 @@ func (s *MythicalService) SetMainFollower(follow func(ctx context.Context, repos
 	s.followMain = follow
 }
 
-func NewMythicalService(store MythicalStore, host mythicalRepoHost) *MythicalService {
-	return &MythicalService{store: store, host: host, scratchRoot: filepath.Join(os.TempDir(), "smithers-mythical"),
+// MythicalServiceOption configures dependencies of the existing stack worker.
+type MythicalServiceOption func(*MythicalService)
+
+// WithMythicalNow shares a deterministic clock with composed polling providers.
+func WithMythicalNow(now func() time.Time) MythicalServiceOption {
+	return func(s *MythicalService) {
+		if now != nil {
+			s.now = now
+		}
+	}
+}
+
+func NewMythicalService(store MythicalStore, host mythicalRepoHost, options ...MythicalServiceOption) *MythicalService {
+	s := &MythicalService{store: store, host: host, scratchRoot: filepath.Join(os.TempDir(), "smithers-mythical"),
 		logger: slog.Default(), now: time.Now, sweepEvery: mythicalSweepInterval}
+	for _, option := range options {
+		option(s)
+	}
+	return s
 }
 
 // SetPolicyReader wires the repo host the stack reads the owner's

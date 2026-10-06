@@ -5,7 +5,7 @@
     "path": "packages/backend/docs/github-app.md",
     "digest": "4989ca8e6eb0af5a992659730ed84fc89473768f027c672825bb11dc5ee4fcec"
   },
-  "closure": "1d5316ff03c1cbe68839ea5010419d9dd615c2c883c4b78236f452421368f73a",
+  "closure": "c3f0393659a337c8899f26e6a1593325776c17869c3fb7748e6e0c54ff01af7c",
   "inputs": [
     {
       "path": "docs/api/openapi/install.yaml",
@@ -49,7 +49,7 @@
     },
     {
       "path": "packages/backend/internal/compose/main.go",
-      "digest": "e17ca0d78560d0517beac4a42b588abf1ffb0f43ccb5e7fa27779a5bba0cc5a0"
+      "digest": "e429b50a123185be157fdc2ddd81fc3f431f7fc30ba717f99e6fabf07594e29d"
     },
     {
       "path": "packages/backend/internal/compose/runtime_helpers.go",
@@ -93,7 +93,7 @@
     },
     {
       "path": "packages/backend/internal/services/flow_versions.go",
-      "digest": "1e85d0887391efacd9a114357e43e44abe7f4f0322effea1f2f3a33a1857254e"
+      "digest": "696a61776799c45bd6ab4957bfa83b9f03ea1e892387510ff9ea8777eb4e36b1"
     },
     {
       "path": "packages/backend/internal/services/github_access_diagnosis.go",
@@ -109,7 +109,7 @@
     },
     {
       "path": "packages/backend/internal/services/github_app_manifest.go",
-      "digest": "c52d391ab7fb64e5d3acf05511430fce4238f20febdf619e342eaf4697368678"
+      "digest": "c252b168aafe937376f309ea66e9886a5505c094adecdf53fdff68c2dd83b0c6"
     },
     {
       "path": "packages/backend/internal/services/github_budget.go",
@@ -209,7 +209,7 @@
     },
     {
       "path": "packages/backend/internal/services/install_setup.go",
-      "digest": "2570e89021b7d61d551e327058f006a6efa1237ab8558a9f52acbf2e0ef0a57e"
+      "digest": "40365a1b3d49ac4cba53b8c5bac0f44e4d041edb3f5a0c473c3537644e8f45ff"
     },
     {
       "path": "packages/backend/internal/services/install_setup_session.go",
@@ -237,7 +237,7 @@
     },
     {
       "path": "packages/backend/internal/services/mythical.go",
-      "digest": "ad49bfdcaf8d4b8a6276aefbdac60deec9b6384d677c3d5af08e9b9082eb26bc"
+      "digest": "1844f4a0a6d5d365b57fb940af14fc0063068bfbe0134aeeb2873e3f474f5dce"
     },
     {
       "path": "packages/backend/internal/services/mythical_github.go",
@@ -253,7 +253,7 @@
     },
     {
       "path": "packages/backend/internal/services/mythical_items.go",
-      "digest": "6ebc3bc3c98381a8b28b18fdc8ec3be80706fcf02951a0ce00f97c19e964bf82"
+      "digest": "4de06794be4e37a8cd392b9b87660c265b33c4de9ab7e5ac5d2273f9ee08ed9c"
     },
     {
       "path": "packages/backend/internal/services/mythical_outbound.go",
