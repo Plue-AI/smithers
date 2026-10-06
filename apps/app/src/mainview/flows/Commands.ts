@@ -311,7 +311,7 @@ export const createCommandRegistry = (actions: CommandActions, agentActions: Com
     if (leafCache !== undefined && leafCache.repo === catalog.repo && leafCache.loadedAt === catalog.loadedAt) return leafCache.leaves
     // A declared flow that stands in for the repository's leaf (`workflow` is its own name) yields to that leaf.
     const taken = new Set([...base, ...guide, ...admin].filter((entry) => !standsIn(entry)).map(nameOf))
-    const built = repositoryFlowLeaves(actions, catalog.repo, catalog.flows).filter((entry) => !taken.has(nameOf(entry)))
+    const built = repositoryFlowLeaves(actions, catalog.repo, catalog.flows, base).filter((entry) => !taken.has(nameOf(entry)))
     leafCache = { repo: catalog.repo, loadedAt: catalog.loadedAt, leaves: built }
     return built
   }
@@ -324,7 +324,7 @@ export const createCommandRegistry = (actions: CommandActions, agentActions: Com
     const catalog = agentActions.repositoryFlows()
     return (catalog === undefined
       ? undefined
-      : repositoryFlowLeaves(agentActions, catalog.repo, catalog.flows).find((candidate) => nameOf(candidate) === name)) ?? declared
+      : repositoryFlowLeaves(agentActions, catalog.repo, catalog.flows, agentEntries).find((candidate) => nameOf(candidate) === name)) ?? declared
   }
 
   const available = (entry: FlowEntry): boolean => {
@@ -597,13 +597,13 @@ export const createCommandRegistry = (actions: CommandActions, agentActions: Com
     }
     let target = invoker === "agent" ? agentEntry(nameOf(entry)) ?? entry : entry
     if (invoker === "agent" && !modelInvocable(target)) {
-      return { status: "failed", error: userOnlyError(nameOf(target), target.metadata.userOnlyReason) }
+      return { status: "failed", error: userOnlyError(nameOf(target), target.metadata.agentReason) }
     }
     // A user-only flow refuses every non-person actor, automatic `system` calls
     // included (#3717): a future automatic caller that forwards a name from data
     // must not bypass the person gate.
-    if (invoker !== "user" && !modelInvocable(target)) {
-      return { status: "failed", error: userOnlyError(nameOf(target), target.metadata.userOnlyReason) }
+    if (invoker !== "user" && target.metadata.agent === "never") {
+      return { status: "failed", error: userOnlyError(nameOf(target), target.metadata.agentReason) }
     }
     const acting = invoker === "agent" ? agentActions : actions
     /*
@@ -851,7 +851,7 @@ export const createCommandRegistry = (actions: CommandActions, agentActions: Com
       if (early !== undefined) return early
       const target = find(clean)
       if (target !== undefined && !modelInvocable(target)) {
-        return { status: "failed", error: userOnlyError(clean, target.metadata.userOnlyReason) }
+        return { status: "failed", error: userOnlyError(clean, target.metadata.agentReason) }
       }
       return runAs("agent", clean, args, new Set(), {
         ...(invocation ?? unscopedInvocation),
@@ -865,7 +865,7 @@ export const createCommandRegistry = (actions: CommandActions, agentActions: Com
       if (early !== undefined) return early
       const target = find(clean)
       if (target !== undefined && !modelInvocable(target)) {
-        return { status: "failed", error: userOnlyError(clean, target.metadata.userOnlyReason) }
+        return { status: "failed", error: userOnlyError(clean, target.metadata.agentReason) }
       }
       return runAs("agent", clean, display, new Set(), { ...(invocation ?? unscopedInvocation) }, payload)
     },

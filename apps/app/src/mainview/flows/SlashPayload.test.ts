@@ -394,3 +394,10 @@ describe("box.open recovery grammar", () => {
     ]) expect(payloadFor("box.open", args)).toHaveProperty("error")
   })
 })
+
+ test("confirmation cancellation refuses scalar JSON before form dispatch", () => {
+  const entry = baseFlows({} as CommandActions).find(row => nameOf(row) === "confirm.cancel")!
+  for (const value of ["7", "0", '"hello world"', "500000", "null", "[]"]) {
+    expect(payloadFor("confirm.cancel", value, entry.metadata.grammar)).toEqual({ error: "Invalid confirmation input" })
+  }
+})

@@ -35,8 +35,8 @@ export const branchFlows = (actions: CommandActions): ReadonlyArray<FlowEntry> =
     await actions.presentBranchCard("terminal", terminal.id, terminal.title)
   }
   return [
-    flow({ name: "branch.fork", summary: "Fork a scratch branch", args: "<branch>", hidden: true, discloseToAgent: true,
-      grammar: field("from"), input: Schema.Struct({ from: Schema.NonEmptyString, name: Schema.optional(Schema.NonEmptyString) }),
+    flow({ name: "branch.fork", slash: "/branch.fork", cli: ["branch","fork"], journey: ["J7"], group: "Branches and machines", visibility: "core", actors: ["person","app_agent","external_agent"], minimumRole: "member", http: {"method":"POST","path":"/api/branches"}, summary: "Fork a scratch branch", args: "<branch>", hidden: true, discloseToAgent: true,
+      grammar: field("from"), agent: "run", input: Schema.Struct({ from: Schema.NonEmptyString, name: Schema.optional(Schema.NonEmptyString) }),
       handler: async ({ from, name }) => {
         // An install forks through the stack service: {from: "main" | "T2", name?}; a bare `/branch.fork T2` names the source.
         if (actions.forkBranch) {
@@ -51,8 +51,8 @@ export const branchFlows = (actions: CommandActions): ReadonlyArray<FlowEntry> =
         if (!result.ok) return result.refusal
         return result.id === undefined ? undefined : openBranch(result.id)
       } }),
-    flow({ name: "branch.add-to-stack", summary: "Add a scratch branch as a TODO", args: "<branch>", hidden: true, discloseToAgent: true,
-      grammar: field("branch"), input: Schema.Struct({ branch: Schema.String, text: Schema.optional(Schema.String) }),
+    flow({ name: "branch.add-to-stack",   slash: "/branch.add-to-stack", cli: ["branch","add-to-stack"], journey: ["J7"], group: "Branches and machines", visibility: "core", actors: ["person","app_agent","external_agent"], minimumRole: "member", http: {"method":"POST","path":"/api/branches/{branch}/add-to-stack"}, summary: "Add a scratch branch as a TODO", args: "<branch>", hidden: true, discloseToAgent: true,
+      grammar: field("branch"), agent: "confirm", input: Schema.Struct({ branch: Schema.String, text: Schema.optional(Schema.String) }),
       // A✓ (mvp.md Appendix B): the agent asks; only the person's press commits the TODO. The confirmation carries the branch it named.
       confirm: payload => `add ${String(payload.branch)} to the stack`,
       confirmArgs: payload => payload.text === undefined ? String(payload.branch) : JSON.stringify(payload),
@@ -63,8 +63,8 @@ export const branchFlows = (actions: CommandActions): ReadonlyArray<FlowEntry> =
         const result = design.addToStack(target.id, design.viewer())
         return result.ok ? undefined : result.refusal
       } }),
-    flow({ name: "branch.rebase", summary: "Rebase this branch now", args: "<branch>", hidden: true, discloseToAgent: true,
-      grammar: field("branch"), input: BranchInput,
+    flow({ name: "branch.rebase",   slash: "/branch.rebase", cli: ["branch","rebase"], journey: ["J7"], group: "Branches and machines", visibility: "core", actors: ["person","app_agent","external_agent"], minimumRole: "member", http: {"method":"POST","path":"/api/branches/{branch}/rebase"}, summary: "Rebase this branch now", args: "<branch>", hidden: true, discloseToAgent: true,
+      grammar: field("branch"), agent: "run", input: BranchInput,
       handler: ({ branch }) => {
         if (actions.design.enabled === false) return "Branch unavailable"
         const target = branchOf(branch)
@@ -72,8 +72,8 @@ export const branchFlows = (actions: CommandActions): ReadonlyArray<FlowEntry> =
         const result = design.rebaseNow(target.id, design.viewer())
         return result.ok ? undefined : result.refusal
       } }),
-    flow({ name: "terminal", summary: "Open a terminal on a branch", args: "<branch>", hidden: true, discloseToAgent: true,
-      grammar: field("branch"), input: BranchInput,
+    flow({ name: "terminal",   slash: "/terminal", cli: null, journey: ["J3","J6"], group: "Branches and machines", visibility: "core", actors: ["person","app_agent"], minimumRole: "member", http: null, summary: "Open a terminal on a branch", args: "<branch>", hidden: true, discloseToAgent: true,
+      grammar: field("branch"), agent: "run", input: BranchInput,
       handler: async ({ branch }) => {
         if (actions.bootstrap?.capabilities.includes("install") || (!actions.bootstrap && actions.live)) return "Terminal unavailable"
         const target = branchOf(branch)
@@ -82,7 +82,7 @@ export const branchFlows = (actions: CommandActions): ReadonlyArray<FlowEntry> =
         if (!result.ok) return result.refusal
         return result.id === undefined ? undefined : openTerminal(result.id)
       } }),
-    flow({ name: "terminal.watch", summary: "Watch a terminal", args: "<terminal>", hidden: true,
+    flow({ name: "terminal.watch", agent: "never", actors: ["person"], minimumRole: "member", visibility: "in-card", summary: "Watch a terminal", args: "<terminal>", hidden: true,
       grammar: field("id"), input: Schema.Struct({ id: Schema.String }),
       handler: ({ id }) => {
         if (actions.bootstrap?.capabilities.includes("install") || (!actions.bootstrap && actions.live)) return "Terminal unavailable"
@@ -97,7 +97,7 @@ export const branchFlows = (actions: CommandActions): ReadonlyArray<FlowEntry> =
         const result = design.typeTerminal(id, command, design.viewer())
         return result.ok ? undefined : result.refusal
       } }),
-    flow({ name: "ssh", summary: "Copy the SSH line for a branch", args: "<branch>", hidden: true, discloseToAgent: true,
+    flow({ name: "ssh", agent: "never",   slash: "/ssh", cli: null, journey: ["J3"], group: "Account and settings", visibility: "core", actors: ["person"], minimumRole: "member", http: null, summary: "Copy the SSH line for a branch", args: "<branch>", hidden: true, discloseToAgent: true,
       grammar: field("branch"), input: BranchInput,
       handler: ({ branch }) => {
         if (actions.design.enabled === false) return "Branch unavailable"

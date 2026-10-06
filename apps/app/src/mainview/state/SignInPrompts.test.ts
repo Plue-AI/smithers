@@ -47,14 +47,14 @@ for (const producer of producers) {
     else if (producer === "required identity") h.controller.promptSignIn(true, { summary: "Read issues" })
     else if (producer === "OAuth retry") h.controller.handleAuthReturn("?auth=failed")
     else if (producer === "chat gate") h.controller.send("Keep this draft")
-    else if (producer === "requirement") await h.controller.commands.run("secrets.list", "smithersai/smithers")
+    else if (producer === "requirement") await h.controller.commands.run("secrets", "smithersai/smithers")
     await settle()
     const prompt = [...h.store.collections.messages.values()].find(row => row.action?.flow === "sign-in")
     expect(prompt).toBeDefined()
     // The transcript prompt owns sign-in; parking a command adds no duplicate toast.
     expect(h.store.collections.toasts.get("toast-command.requirement")).toBeUndefined()
     if (producer === "requirement") expect(h.store.session().pendingCommand).toMatchObject({
-      name: "secrets.list", args: "smithersai/smithers", requirement: "signed-in"
+      name: "secrets", args: "smithersai/smithers", requirement: "signed-in"
     })
     await h.signIn()
     const answered = h.store.collections.messages.get(prompt!.id)
@@ -64,7 +64,7 @@ for (const producer of producers) {
     expect(h.store.collections.toasts.get("toast-command.requirement")).toBeUndefined()
     if (producer === "requirement") {
       // Continuing the parked act has its own observation; the original prompt keeps its answer.
-      expect(h.store.collections.toasts.get("toast-command.resume.secrets.list")).toBeDefined()
+      expect(h.store.collections.toasts.get("toast-command.resume.secrets")).toBeDefined()
     }
     if (producer === "chat gate") expect(h.store.session().draft).toBe("Keep this draft")
     // A later outage never reopens a completed step (explicit account removal
@@ -77,7 +77,7 @@ for (const producer of producers) {
 for (const web of [true, false]) {
   test(`${web ? "web" : "native"} Cloud prompt follows the selected user and later Cloud access changes`, async () => {
     const h = await setup(web)
-    await h.controller.commands.runForAgent("cloud.prompt")
+    await h.controller.commands.run("cloud.prompt")
     const prompt = [...h.store.collections.messages.values()].at(-1)!
     expect(prompt.action?.flow).toBe(web ? "sign-in" : "cloud.sign-in")
     await h.signIn()
@@ -280,7 +280,7 @@ test("a signed-out Cloud session on web still offers reauthentication when GitHu
   const h = await setup()
   await h.signIn()
   await h.cloud("signed-out")
-  await h.controller.commands.runForAgent("cloud.prompt")
+  await h.controller.commands.run("cloud.prompt")
   const prompt = [...h.store.collections.messages.values()].find(row => row.action?.flow === "sign-in")
   expect(prompt).toBeDefined()
   await h.cloud("signed-in")
@@ -305,7 +305,7 @@ test("unavailable identity and unrelated fulfilled requirements cannot answer a 
 
 test("all outstanding steps answer even when the pending command has been superseded", async () => {
   const h = await setup()
-  h.controller.deferCommand("secrets.list", "smithersai/smithers", "signed-in")
+  h.controller.deferCommand("secrets", "smithersai/smithers", "signed-in")
   h.controller.promptSignIn(true)
   h.controller.promptSignIn(true, { summary: "Read issues" })
   // Deferral and transcript have distinct lifetimes: cancelling a parked act
@@ -319,7 +319,7 @@ test("all outstanding steps answer even when the pending command has been supers
     expect(h.store.collections.messages.get(prompt.id)?.answeredAction?.answer).toContain("@codeplanesmithers")
   }
   expect(h.store.collections.toasts.get("toast-command.requirement")).toBeUndefined()
-  expect(h.store.collections.toasts.get("toast-command.resume.secrets.list")).toBeUndefined()
+  expect(h.store.collections.toasts.get("toast-command.resume.secrets")).toBeUndefined()
 })
 
 test("Cloud sign-out does not reopen an answered historical Cloud step", async () => {

@@ -9,20 +9,20 @@ export const namespace: Namespace = { id: "admin", label: "Admin", summary: "Ope
 /** The reset confirm dialog's ask and cancel. */
 export const adminResetFlows = (actions: CommandActions): ReadonlyArray<FlowEntry> => [
   flow({
-    name: "admin.reset.ask",
+    name: "admin.reset.ask", visibility: "hidden" as const,
     summary: "Ask before discarding the conversation",
     hidden: true,
-    userOnly: true,
-    userOnlyReason: "opens the human's confirm dialog for the reset",
+    agent: "never" as const,
+    agentReason: "opens the human's confirm dialog for the reset",
     input: NoPayload,
     handler: () => actions.askReset()
   }),
   flow({
-    name: "admin.reset.cancel",
+    name: "admin.reset.cancel", visibility: "hidden" as const,
     summary: "Keep the current conversation",
     hidden: true,
-    userOnly: true,
-    userOnlyReason: "a confirm-dialog answer is the human's",
+    agent: "never" as const,
+    agentReason: "a confirm-dialog answer is the human's",
     input: NoPayload,
     handler: () => actions.cancelReset()
   })
@@ -31,10 +31,10 @@ export const adminResetFlows = (actions: CommandActions): ReadonlyArray<FlowEntr
 /** The bare reset and the dev-tools panel, registered after the billing plan flows. */
 export const adminToolFlows = (actions: CommandActions): ReadonlyArray<FlowEntry> => {
   const RESET = {
-    name: "admin.reset",
+    name: "admin.reset", visibility: "hidden" as const,
     summary: "Start a fresh conversation (dev tooling — nothing is kept)",
-    userOnly: true,
-    userOnlyReason: "destroys the whole store with no undo; the confirm dialog is the only door",
+    agent: "never" as const,
+    agentReason: "destroys the whole store with no undo; the confirm dialog is the only door",
     input: NoPayload,
     handler: () => actions.reset()
   }
@@ -45,10 +45,10 @@ export const adminToolFlows = (actions: CommandActions): ReadonlyArray<FlowEntry
   flow(RESET),
   flow({
     /* The admin dev-tools panel (§2b/§2d): the machinery, visible. */
-    name: "admin.devtools",
+    name: "admin.devtools", visibility: "hidden" as const,
     summary: "Toggle the dev-tools panel",
-    userOnly: true,
-    userOnlyReason: "the admin panel's presentation toggle",
+    agent: "never" as const,
+    agentReason: "the admin panel's presentation toggle",
     input: NoPayload,
     handler: () => actions.toggleDevtools()
   })

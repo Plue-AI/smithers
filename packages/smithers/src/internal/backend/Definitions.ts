@@ -524,20 +524,6 @@ export const definitions = {
     args: z.object({ "lanes": z.coerce.number().describe("Lanes, 1 to 8") }),
     options: z.object({ "repo": z.string().describe("Repository (OWNER/REPO)").optional() })
   },
-  "history show": {
-    description: "Show the history: each issue's lane, checks and pull request",
-    args: z.object({}),
-    options: z.object({ "repo": z.string().describe("Repository (OWNER/REPO)").optional() })
-  },
-  "history todo": {
-    description: "File a TODO for the factory",
-    args: z.object({ "title": z.string().describe("TODO title") }),
-    options: z.object({
-      "body": z.string().describe("TODO body").default(""),
-      "request": z.string().describe("Request id: sending it again returns the TODO already filed").optional(),
-      "repo": z.string().describe("Repository (OWNER/REPO)").optional()
-    })
-  },
   "history watch": {
     description: "Follow one issue until its pull request is open or it stops",
     args: z.object({ "issue": z.string().describe("Issue number (12 or #12) or item id") }),
@@ -1089,16 +1075,6 @@ export const definitions = {
     })
   },
   "status": { description: "Show working copy status", args: z.object({}), options: z.object({}) },
-  "todo answer": {
-    description: "Answer the question a TODO's agent asked",
-    args: z.object({
-      "todo": z.string().describe("TODO number (3 or T3)"),
-      "answer": z.string().describe("Your answer")
-    }),
-    options: z.object({
-      "wait": z.string().describe("The question's id, when the TODO asks more than one").optional()
-    })
-  },
   "variable delete": {
     description: "Delete a variable",
     args: z.object({ "name": z.string().describe("Variable name") }),

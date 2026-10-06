@@ -1,6 +1,6 @@
 /*
  * The one target-repo resolution rule for repo-scoped commands (issues, PRs,
- * environment, import), following the flow.create precedent (Wave 12 §2):
+ * environment, import), following the flow.new precedent (Wave 12 §2):
  * a known trailing `owner/repo` token wins; otherwise the active row
  * (lane piper: the active working copy's repository, else the selected
  * repository's head); otherwise the answer is an honest error naming the

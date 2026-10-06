@@ -1,3 +1,5 @@
+import appendixA from "./fixtures/AppendixA.json"
+const SURFACE_FLOWS: readonly string[] = appendixA.map(row => row.name)
 import type { AppBootstrap } from "@smthrs/rpc/AppBootstrap"
 import type { StorageApi } from "@tanstack/db"
 import { describe,expect,test } from "bun:test"
@@ -16,8 +18,8 @@ parseSubmit,
 recommendedNames,
 SLASH_MENU_CAP,
 slashItems,
-slashTree,
-SURFACE_FLOWS
+visible,
+slashTree
 } from "./registry"
 
 const memoryStorage = (): StorageApi => {
@@ -199,7 +201,7 @@ describe("command registry pure model", () => {
     const { controller } = await freshController()
     const visibleNames = visibleItems(controller.commands).map((command) => command.name)
     expect(visibleNames).toContain("wiki")
-    expect(visibleNames).toContain("wiki.new-note")
+    expect(visibleNames).not.toContain("wiki.new-note")
     expect(visibleNames.filter((name) => name === "world" || name.startsWith("world."))).toEqual([])
     for (const name of ["world", "world.new-note", "world.select", "world.delete", "world.delete.confirm", "world.delete.cancel"]) {
       const alias = controller.commands.find(name)
@@ -207,7 +209,7 @@ describe("command registry pure model", () => {
     }
     const rows = controller.slashTree("wi").map((row) => (row.kind === "flow" ? row.flow.name : row.kind === "namespace" ? `${row.namespace.id}/` : row.text))
     expect(rows).toContain("wiki")
-    expect(rows).toContain("wiki.new-note")
+    expect(rows).not.toContain("wiki.new-note")
     expect(rows.some((row) => row === "world" || row.startsWith("world"))).toBe(false)
     expect(controller.slashTree("world").filter((row) => row.kind === "flow").map((row) => row.kind === "flow" ? row.flow.name : "")).toEqual([])
     expect(parseSubmit("/world", controller.commands.all())).toEqual({ kind: "unknown-command", name: "world" })
@@ -307,7 +309,7 @@ describe("command registry pure model", () => {
     const listed = visibleItems(controller.commands).map((command) => command.name)
     const hidden = controller.commands
       .all()
-      .filter((command) => command.hidden === true)
+      .filter((command) => command.visibility !== "core" && command.visibility !== "advanced")
       .map((command) => command.name)
     expect(hidden.length).toBeGreaterThan(0)
     expect(listed).toEqual(manifest.filter((name) => !hidden.includes(name)))
@@ -337,7 +339,7 @@ describe("command registry pure model", () => {
   test("typed issue flows accept slash payloads without display argument hints", async () => {
     const { controller } = await freshController()
     const commands = controller.commands.all()
-    for (const name of ["issue.flows", "issue.repro", "issue.poc", "issue.implement"]) {
+    for (const name of ["issue.flows", "issue.repro", "issue.poc"]) {
       const command = commands.find(command => command.name === name)!
       expect(command.args).toBeUndefined()
       expect(command.acceptsArgs).toBe(true)
@@ -610,7 +612,7 @@ describe("command registry bindings", () => {
    */
   test("every registered flow leads its own name's listing", async () => {
     const { controller } = await freshController()
-    const listed = controller.commands.all().filter((command) => command.hidden !== true)
+    const listed = visible(controller.commands.all())
     // Not a vacuous pass: the whole registered catalog is under test.
     expect(listed.length).toBeGreaterThan(40)
     const misdirected = listed

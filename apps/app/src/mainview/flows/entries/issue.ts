@@ -13,12 +13,7 @@ export const issueFlows = (actions: CommandActions): ReadonlyArray<FlowEntry> =>
     handler: ({ number, repo }) => actions.runIssueFlow("repro", number, repo, true) }),
   flow({ name: "issue.poc", hidden: true, discloseToAgent: false, summary: "Build a proof of concept for an issue", runtimeAny: ["cloud"], input: NumberedTarget,
     confirm: "ask an agent to build a proof of concept", handler: ({ number, repo }) => actions.runIssueFlow("poc", number, repo, true) }),
-  // Retained cards/history decode issue.implement; both names enter one dark
-  // handler. Only todo.from-issue is offered for new commands.
-  flow({ name: "issue.implement", hidden: true, summary: "Make TODO", input: NumberedTarget,
-    preflight: ({ number, repo }) => actions.issueTodoRefusal(number, repo),
-    confirm: "make a TODO from the issue", handler: ({ number, repo }) => actions.runIssueImplementation(number, repo, true) }),
-  flow({ name: "todo.from-issue", summary: "Make TODO", args: "#n", input: NumberedTarget, grammar: numbered(),
+  flow({ name: "todo.from-issue",   slash: "/todo.from-issue", cli: ["todo","from-issue"], journey: ["J2"], group: "TODOs and the stack", visibility: "core", actors: ["person","app_agent","external_agent"], minimumRole: "member", http: null, summary: "Draft a TODO from an issue", args: "#n", agent: "confirm", input: NumberedTarget, grammar: numbered(),
     form: { fields: { number: { label: "Issue", placeholder: "#212" } } },
     preflight: ({ number, repo }) => actions.issueTodoRefusal(number, repo),
     confirm: "make a TODO from the issue", handler: ({ number, repo }) => actions.runIssueImplementation(number, repo, true) }),

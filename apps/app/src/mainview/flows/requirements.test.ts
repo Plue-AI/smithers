@@ -221,7 +221,7 @@ describe("requirement axis — the run path", () => {
   test("requirements resolve against live state: sign-in parks, the resume runs the command", async () => {
     const { store, controller } = await freshController()
     await signedOut(store)
-    await controller.commands.run("flow.create", "nightly test triage")
+    await controller.commands.run("flow.new", "nightly test triage")
     await settled()
     expect(store.session().pendingCommand?.requirement).toBe("signed-in")
     expect(store.session().pendingCommand?.args).toBe("nightly test triage")

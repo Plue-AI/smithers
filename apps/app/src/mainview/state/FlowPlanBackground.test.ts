@@ -227,7 +227,7 @@ test("an authoring plan never borrows a prior listing's schema, including after 
   await first.store.dispatch({ type: "card.upsert", actor: "system", card: {
     id: sourceCard, kind: "run-trace", title: "Authored flow", status: "active", createdAt: 2, ordinal: 2,
     payload: { repo: REPO, workspaceId: TEST_BOX, gatewayBindingVersion: 1, runId: "author-1",
-      workflow: "flow.create", phase: "quiet", steps: [], result: null, lastSeq: 0 }
+      workflow: "flow.new", phase: "quiet", steps: [], result: null, lastSeq: 0 }
   } }).isPersisted.promise
   expect((await first.controller.commands.run("flow.plan", `sourceCard=${sourceCard} ${FLOW} ${REPO} {"pr":1}`)).status).toBe("executed")
   await waitFor(() => firstRelay.plans.length === 1)

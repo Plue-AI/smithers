@@ -48,6 +48,8 @@ const bootProgram = (options: ControllerBootOptions = {}) =>
     // The entry URL's query, read before frame history rewrites the address bar: the OAuth and
     // GitHub App setup-URL returns ride on it, and by the end of boot it is gone.
     const entrySearch = yield* Effect.sync(() => window.location.search)
+    const requestedCard = new URLSearchParams(entrySearch).get("card")
+    const card = requestedCard === "settings" || requestedCard === "members" || requestedCard === "secrets" ? requestedCard : undefined
     const client = yield* promiseEffect("resolve application backend", loadRuntimeApplicationClient)
     const http = client.fetch
     const bootstrapRead = warmBootstrap(http)
@@ -118,7 +120,7 @@ const bootProgram = (options: ControllerBootOptions = {}) =>
         login: null,
         admin: false
       }))
-    } else if (canPaintAppBeforeIdentity({
+    } else if (card === undefined && canPaintAppBeforeIdentity({
       requestedRepo: requested,
       hasTranscript: store.collections.cards.size > 0 || store.collections.messages.size > 0,
       identityState: store.collections.identitySessions.get("identity")?.state,
@@ -171,6 +173,17 @@ const bootProgram = (options: ControllerBootOptions = {}) =>
       if (window.location.search !== "") {
         window.history.replaceState(window.history.state, "", withoutRepoParam(window.location))
       }
+    }
+    // CLI card doors carry no credential or mutation; the browser uses its own identity.
+    if (card !== undefined) {
+      yield* Effect.sync(() => void controller.runCommandForResult(card).then(result => {
+        if (result.status !== "executed") return
+        const opened = [...store.collections.cards.values()].filter(row => row.kind === card).sort((a, b) => b.ordinal - a.ordinal)[0]
+        if (opened !== undefined) controller.maximizeCard(opened.id)
+      }))
+      const url = new URL(window.location.href)
+      url.searchParams.delete("card")
+      window.history.replaceState(window.history.state, "", url.pathname + url.search + url.hash)
     }
     return controller
   })

@@ -27,7 +27,7 @@ export const AgentMark = ({ persona, size = 20, onRunCommand, nameless = false }
   if (persona.agentId !== undefined && onRunCommand !== undefined) {
     return (
       <button type="button" className="agent-mark-door" data-agent={persona.agentId} aria-label={nameless ? persona.name : undefined}
-        {...flowAction(onRunCommand, "agent.list")}>
+        {...flowAction(onRunCommand, "agents")}>
         <Monogram persona={persona} size={size} />
         {label}
       </button>

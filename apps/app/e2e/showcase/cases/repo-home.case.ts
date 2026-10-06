@@ -41,7 +41,7 @@ export default showcase({
   order: 60,
   title: "Repository",
   summary: "Open owner/name: its homepage, files, branches and commits, in chat.",
-  flows: ["files.list", "files.read", "branches.list", "commits.list", "commits.read"],
+  flows: ["files.list", "files.read", "branches", "commits.list", "commits.read"],
   run: async ({ page, app, backend }) => {
     await backend.cloud()
     await backend.json(`${API}/home`, {
@@ -86,7 +86,7 @@ export default showcase({
     await app.show(file)
     await app.beat(1500)
 
-    await app.slash(`/branches.list ${REPO}`)
+    await app.slash(`/branches ${REPO}`)
     const branches = page.locator('[data-kind="branches"]').last()
     await expect(branches).toContainText("main")
     await app.closeComposer()

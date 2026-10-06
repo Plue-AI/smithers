@@ -17,7 +17,7 @@ test("environment actions open the form and the card's repository secrets", () =
     click(node.props.children)
   }
   click(body)
-  expect(calls).toEqual([["env.set", undefined], ["secrets.list", "ada/repo"]])
+  expect(calls).toEqual([["env.set", undefined], ["secrets", "ada/repo"]])
   const html = renderToStaticMarkup(body)
   expect(html).toContain("Add variable")
   expect(html).not.toContain("/env.set")

@@ -367,7 +367,7 @@ const GRAMMAR: Readonly<Record<string, Grammar>> = {
    * repo-shaped word as the description. Splitting here would change which
    * inputs name a target.
    */
-  "flow.create": (args) => structuredFields("flow.create", args, ["description", "repo"]) ?? ok({ description: trimmed(args) }),
+  "flow.new": (args) => structuredFields("flow.new", args, ["description", "repo"]) ?? ok({ description: trimmed(args) }),
   "flow.repo.choose": (args) => required("repo", args, "flow.repo.choose needs a repository name"),
   "flow.run.stop": (args) => {
     const [cardId, ...rest] = tokensOf(args)
@@ -754,7 +754,7 @@ const GRAMMAR: Readonly<Record<string, Grammar>> = {
     }
     return ok(repo === undefined ? { name, scope } : { name, scope, repo })
   },
-  "secrets.list": (args) => repoOnly("secrets.list", args),
+  "secrets": (args) => repoOnly("secrets", args),
   "secrets.bind": (args, known) => structuredFields("secrets.bind", args, ["name", "hosts", "headers", "repo"]) ?? secretName("secrets.bind", args, known, false),
   /* The value is never on a line: it arrives only through the form's write-only field. */
   "secrets.set": (args, known) => structuredFields("secrets.set", args, ["name", "hosts", "headers", "repo"]) ?? secretName("secrets.set", args, known, false),
@@ -795,7 +795,7 @@ const GRAMMAR: Readonly<Record<string, Grammar>> = {
    */
   "wiki.create": (args) => trimmed(args) === "" ? no("Choose a repository.") : repoOnly("wiki.create", args),
   "history.bootstrap": (args) => trimmed(args) === "" ? no("Choose a repository.") : repoOnly("history.bootstrap", args),
-  "branches.list": (args) => repoOnly("branches.list", args),
+  "branches": (args) => repoOnly("branches", args),
   /* A lone token with a slash is the repository; name both to list a branch whose name has one. */
   "commits.list": (args) => {
     const { rest, repo } = splitTrailingRepo(args)
@@ -1028,7 +1028,7 @@ const GRAMMAR: Readonly<Record<string, Grammar>> = {
     return ok({ path, ...(repo === undefined ? {} : { repo }) })
   },
   "repos.app": (args) => repoOnly("repos.app", args),
-  
+
   "github.app": (args) => repoOnly("github.app", args),
   "github.app.choose": (args) => required("installationId", args, "Choose a GitHub App installation."),
   "github.app.open": (args) => repoOnly("github.app.open", args),
@@ -1108,7 +1108,7 @@ export const payloadFor = (
   grammar?: Grammar,
   known?: KnownRepositories
 ): Parsed => {
-  const parse = GRAMMAR[name] ?? grammar
+  const parse = grammar ?? GRAMMAR[name]
   if (parse === undefined) return NONE
   if (takesRunSource(name)) {
     const source = splitRunSource(args)

@@ -355,12 +355,12 @@ export const OPEN_FLOWS: Readonly<Record<SearchItemKind, ReadonlyArray<string>>>
   target: [],
   wiki: ["wiki.open", "wiki.select"],
   note: ["wiki.select"],
-  history: ["history.show"],
+  history: ["stack"],
   run: ["runs.open"],
   change: ["change.view"],
   issue: ["issues.view"],
   box: ["box.view"],
-  "secret-name": ["secrets.list"],
+  "secret-name": ["secrets"],
   person: []
 }
 

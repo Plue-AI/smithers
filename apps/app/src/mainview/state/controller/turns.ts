@@ -340,7 +340,7 @@ export const createTurnController = (
         "Hold a streaming conversation in this chat and read its visible transcript.",
         "Run app commands through the \"commands\" tool — the same code path as the UI buttons and slash commands.",
         "Render structured cards (plans, approvals, statuses, recommendations) in the transcript.",
-        "Create, list, and run Smithers flows on the user's loaded repositories (flow.create, flow.list, flow.run). Runs report live as embedded cards in this chat.",
+        "Create, list, and run Smithers flows on the user's loaded repositories (flow.new, flow.list, flow.run). Runs report live as embedded cards in this chat.",
         ...(exploring === null
           ? []
           : [
@@ -630,7 +630,10 @@ export const createTurnController = (
      * there is no run for the model to misdescribe and its prose stands.
      */
     const launched = runLaunchCommandOf(call.name, call.args)
-    if (launched !== undefined && toolResultLaunchedRun(result)) turn.runLaunch = launched
+    if (launched !== undefined) {
+      if (toolResultLaunchedRun(result)) turn.runLaunch = launched
+      else if (result.includes("asked the user to confirm")) turn.runLaunch = `confirm:${launched}`
+    }
     store.dispatch({
       type: "toolcall.recorded",
       actor: "smithers",

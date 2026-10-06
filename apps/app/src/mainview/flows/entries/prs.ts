@@ -81,12 +81,12 @@ export const prsFlows = (actions: CommandActions): ReadonlyArray<FlowEntry> => [
     handler: ({ number, repo }) => actions.triagePullRequest(number, repo, true)
   }),
   flow({
-    name: "review", hidden: true, discloseToAgent: false,
-    summary: "Review a pull request",
+    name: "review", workflow: "review", slash: "/review", cli: ["review"], journey: ["J2"], group: "Review", visibility: "core", actors: ["person","app_agent","external_agent"], minimumRole: "member", http: null, hidden: true, discloseToAgent: false,
+    summary: "Review a change, return findings",
     confirm: "review the pull request",
     args: "<number> [owner/repo]",
     form: { submitLabel: "Review", fields: { number: { label: "PR", optionsFrom: "pull-requests", kind: "number" }, repo: { hidden: true } } },
-    input: NumberedTarget,
+    agent: "confirm", input: NumberedTarget,
     handler: ({ number, repo }) => actions.triagePullRequest(number, repo, true)
   }),
   flow({

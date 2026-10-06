@@ -26,6 +26,15 @@ export type OperationPayload = Schema.Top & Schema.ConstraintDecoder<unknown, ne
  */
 export interface OperationMetadata<Capability extends string = string, Host extends string = string> {
   readonly summary: string
+  readonly agent?: "run" | "confirm" | "never"
+  readonly visibility?: "core" | "advanced" | "in-card" | "hidden"
+  readonly actors?: ReadonlyArray<"person" | "app_agent" | "external_agent">
+  readonly minimumRole?: "member" | "maintainer" | "owner"
+  readonly slash?: string | null
+  readonly cli?: ReadonlyArray<string> | null
+  readonly journey?: ReadonlyArray<string>
+  readonly group?: string
+  readonly http?: { readonly method: "GET" | "POST" | "PATCH" | "PUT" | "DELETE"; readonly path: string; readonly body?: Readonly<Record<string, string>>; readonly defaults?: Readonly<Record<string, unknown>>; readonly query?: Readonly<Record<string, string>> } | null
   /** Not listed in the slash menu (id-scoped button actions); still invocable. */
   readonly hidden?: boolean
   /** Teach a hidden control to the model without adding it to the human menu. */
@@ -90,7 +99,7 @@ export interface OperationMetadata<Capability extends string = string, Host exte
    * Why a user-only operation is the human's alone: the gesture is physically
    * theirs, or the answer is theirs to give. The model's refusal quotes it.
    */
-  readonly userOnlyReason?: string
+  readonly agentReason?: string
   /**
    * THE FORM LAW: what the operation says about the form a missing-input
    * invocation renders. The fields derive from the input schema
@@ -111,16 +120,24 @@ export interface Operation<
    * The human's alone: never disclosed to, or callable by, a model or a
    * robot. Reserved for a gesture that is physically the human's or an
    * answer only they may give, never for an act that is merely consequential
-   * (that is `confirm`). Every user-only operation states `userOnlyReason`.
+   * (that is `confirm`). Every user-only operation states `agentReason`.
    */
-  readonly userOnly?: boolean
 }
 
 /**
  * Declares one operation. The literal type is kept, so a host binding reads
  * the exact input schema and only the rules the declaration states.
  */
-export const operation = <const O extends Operation>(declared: O): O => declared
+export const operation = <const O extends Operation>(declared: O) => {
+  const agent = declared.agent ?? (declared.confirm === undefined ? "run" : "confirm")
+  const defaults = {
+    slash: null, cli: null, http: null, journey: [] as ReadonlyArray<string>, group: "",
+    visibility: declared.hidden === true && declared.discloseToAgent !== true ? "hidden" as const : "in-card" as const,
+    actors: agent === "never" ? ["person"] as const : ["person", "app_agent"] as const,
+    minimumRole: "member" as const
+  }
+  return { ...defaults, ...declared, agent, ...(agent === "never" && declared.agentReason === undefined ? { agentReason: "Only a person can do this" } : {}) } as Omit<typeof defaults, keyof O> & O & { readonly agent: "run" | "confirm" | "never" }
+}
 
 /** The input of an operation that takes nothing. */
 export const NoInput = Schema.Record(Schema.String, Schema.Never)
@@ -135,8 +152,7 @@ export const debugApiOperation = operation({
   agent: "never",
   summary: "Call the documented API",
   args: "[operationId]",
-  userOnly: true,
-  userOnlyReason: "raw API bypasses flow typing and approvals; agents use flows",
+  agentReason: "raw API bypasses flow typing and approvals; agents use flows",
   input: Schema.Struct({
     operationId: Schema.optional(Schema.String),
     intent: Schema.optional(Schema.Literals(["open", "send", "confirm"])),

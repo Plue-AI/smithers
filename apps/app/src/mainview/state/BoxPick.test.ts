@@ -10,7 +10,7 @@ import { describe, expect, test } from "bun:test"
 import type { AppStore } from "./AppStore"
 import { createAppStore } from "./AppStore"
 import { scopedControllers } from "./ControllerTestScope"
-import { json, loadBox, memoryStorage, silentAgent, waitFor } from "./TestFixtures"
+import { json, loadBox, memoryStorage, silentAgent } from "./TestFixtures"
 
 const createAppController = scopedControllers()
 
@@ -73,7 +73,7 @@ test("submitting the Inbox prerequisite opens one box and never silently reads I
       return json(404, { status: "error" })
     }
   })
-  await controller.commands.run("flow.create", `Review the repo ${REPO}`)
+  await controller.commands.run("flow.new", `Review the repo ${REPO}`)
   await controller.commands.run("approvals.list", REPO)
   const formId = "form-box.open-approvals.list"
   expect(calls.filter(call => call.method === "POST" || call.path.startsWith("/api/workflow/") || call.path.includes("/approvals"))).toEqual([])
@@ -93,72 +93,22 @@ test("submitting the Inbox prerequisite opens one box and never silently reads I
   await controller.dispose()
 })
 
-test("fresh-box Review a PR retains its act across reload and admits it only once on the created box", async () => {
-  const storage = memoryStorage()
-  const store = await createAppStore({ kind: "localStorage", storage })
-  await store.dispatch({ type: "identity.session.loaded", actor: "system", state: "signed-in", login: "will", admin: false, scopesPlain: null }).isPersisted.promise
-  await store.dispatch({ type: "cloud.session.loaded", actor: "system", state: "signed-in", username: "will", expiresAt: null, scopes: null }).isPersisted.promise
+test("retired browser PR review refuses without creating a machine or fetching PR code", async () => {
+  const store = await signedIn()
   await store.dispatch({ type: "workspaces.loaded", actor: "system", repoId: REPO, workspaces: [] }).isPersisted.promise
-  await store.dispatch({ type: "repositories.loaded", actor: "system", repositories: [{ id: REPO, org: "will", ownerKind: "user", name: "flows", head: null }] }).isPersisted.promise
   await store.dispatch({ type: "repo.selected", actor: "user", id: REPO }).isPersisted.promise
   const calls: string[] = []
-  const services = { toastDebounceMs: 0, workflowPollMs: 1, fetchImpl: async (input: RequestInfo | URL, init?: RequestInit) => {
-    const path = new URL(String(input), "https://app.test").pathname
-    const method = init?.method ?? "GET"
-    calls.push(`${method} ${path}`)
-    if (method === "POST" && path === `/api/repos/${REPO}/workspaces`) return json(201, {
-      id: BOX_A, repository_id: 7, repo_full_name: REPO, name: "review", slug: "review", target_bookmark: "main",
-      status: "running", provisioning_stage: null, suspended_at: null, created_at: "2026-09-01T00:00:00Z"
-    })
-    if (path.endsWith("/bookmarks")) return json(200, { items: [], next_cursor: "" })
-    if (path.endsWith("/workspace/sessions")) return json(200, [])
-    if (path === `/api/repos/${REPO}`) return json(200, { full_name: REPO, github_source: { owner: "upstream", repo: "project" } })
-    if (path === "/api/user/github-repos/upstream/project/pulls/17") return json(200,
-      { number: 17, title: "Upstream PR", body: "Review", state: "open", user: { login: "writer" } })
-    if (path === "/api/user/github-repos/upstream/project/pulls/17/diff") return new Response("diff --git a/a b/a\n+new code\n", { status: 200 })
-    if (path.startsWith("/api/workflow/") && path.endsWith("/provision")) return json(200, { status: "ready", repo: REPO, gatewayId: "gateway" })
-    return json(503, { code: "unavailable", message: "test gateway stopped after admission" })
-  } }
-  const controller = createAppController(store, silentAgent, services)
-  expect((await controller.commands.run("prs.triage", `17 ${REPO}`)).status).toBe("executed")
-  const form = [...store.collections.cards.values()].find(card => card.kind === "flow-form" && card.payload.afterBox?.kind === "prs.triage")
-  expect(form?.kind).toBe("flow-form")
-  if (form?.kind !== "flow-form") throw Error("Review prerequisite form missing")
-  expect(form.payload.afterBox).toMatchObject({ repo: REPO, kind: "prs.triage", number: 17, owner: "will" })
-  expect(calls.filter(call => call.includes("pulls/17") || call.startsWith("POST "))).toEqual([])
-  expect((await controller.commands.run("form.submit", form.id)).status).toBe("executed")
-  expect(store.collections.cards.get(form.id)).toMatchObject({ status: "acted", payload: { afterBox: { workspaceId: BOX_A } } })
-  expect(calls.filter(call => call.includes("pulls/17"))).toEqual([])
+  const controller = createAppController(store, silentAgent, { fetchImpl: async (input: RequestInfo | URL) => {
+    calls.push(new URL(String(input), "https://app.test").pathname)
+    return json(503, { code: "unavailable", message: "Review unavailable" })
+  } })
+  expect((await controller.commands.run("prs.triage", `17 ${REPO}`)).status).toBe("failed")
+  expect((await controller.commands.runForAgent("prs.triage", `17 ${REPO}`)).status).toBe("failed")
+  expect([...store.collections.messages.values()].some(message => message.action?.flow === "prs.triage")).toBe(false)
+  expect(calls.filter(path => path.includes("/workspaces") || path.includes("/pulls/") || path.startsWith("/api/workflow/"))).toEqual([])
+  expect([...store.collections.cards.values()].filter(card => card.kind === "flow-form" && card.payload.afterBox?.kind === "prs.triage")).toEqual([])
   await controller.dispose()
   await store.dispose?.()
-
-  const restored = await createAppStore({ kind: "localStorage", storage })
-  const resumed = createAppController(restored, silentAgent, services)
-  expect(restored.collections.cards.get(form.id)).toMatchObject({ payload: { afterBox: { workspaceId: BOX_A } } })
-  expect((await resumed.commands.runForAgent("form.submit", form.id)).status).toBe("failed")
-  await restored.dispatch({ type: "repo.selected", actor: "user", id: REPO }).isPersisted.promise
-  expect((await resumed.commands.run("form.submit", form.id)).status).toBe("failed")
-  await restored.dispatch({ type: "repo.selected", actor: "user", id: `${REPO}#workspace:${BOX_A}` }).isPersisted.promise
-  await loadBox(restored, REPO, BOX_A, "starting")
-  expect((await resumed.commands.run("form.submit", form.id)).status).toBe("failed")
-  expect(calls.filter(call => call.includes("pulls/17"))).toEqual([])
-  expect(restored.collections.cards.get(form.id)).not.toMatchObject({ payload: { afterBox: { consumed: true } } })
-  await loadBox(restored, REPO, BOX_A, "running")
-  const concurrent = await Promise.all([resumed.commands.run("form.submit", form.id), resumed.commands.run("form.submit", form.id)])
-  expect(concurrent.map(outcome => outcome.status).sort()).toEqual(["executed", "failed"])
-  await waitFor(() => calls.some(call => call.includes("pulls/17/diff")))
-  await waitFor(() => [...restored.collections.cards.values()].some(card => card.kind === "run-trace" && card.payload.workflow === "pr-triage"))
-  expect(calls.filter(call => call.includes("pulls/17"))).toEqual([
-    "GET /api/user/github-repos/upstream/project/pulls/17",
-    "GET /api/user/github-repos/upstream/project/pulls/17/diff"
-  ])
-  expect(restored.collections.cards.get(form.id)).toMatchObject({ payload: { afterBox: { consumed: true } } })
-  expect((await resumed.commands.run("form.submit", form.id)).status).toBe("failed")
-  expect(calls.filter(call => call.includes("pulls/17"))).toHaveLength(2)
-  expect([...restored.collections.cards.values()].filter(card => card.kind === "run-trace" && card.payload.workflow === "pr-triage")).toHaveLength(1)
-  expect(calls.filter(call => call === `POST /api/repos/${REPO}/workspaces`)).toHaveLength(1)
-  await resumed.dispose()
-  await restored.dispose?.()
 })
 
 test("a refused retained PR review stays visible and consumed instead of offering a duplicate launch", async () => {
@@ -180,7 +130,7 @@ test("a refused retained PR review stays visible and consumed instead of offerin
   expect(store.collections.cards.get(formId)).toMatchObject({ status: "acted", payload: {
     afterBox: { consumed: true }, errorKind: "run" } })
   expect((await controller.commands.run("form.submit", formId)).status).toBe("failed")
-  expect(calls.filter(path => path === `/api/repos/${REPO}`)).toHaveLength(1)
+  expect(calls.filter(path => path === `/api/repos/${REPO}`)).toHaveLength(0)
   await controller.dispose()
   await store.dispose?.()
 })
@@ -202,7 +152,7 @@ test("a recorded run list without a box binding keeps its bound refusal", async 
 })
 
 for (const [flow, args] of [
-  ["flow.create", `Create a lint flow ${REPO}`],
+  ["flow.new", `Create a lint flow ${REPO}`],
   ["triggers.register", `${REPO} --flow checks/fast`]
 ] as const) test(`${flow} keeps the agent on the refusal path`, async () => {
   const store = await signedIn()
@@ -211,8 +161,12 @@ for (const [flow, args] of [
   const relay = boxCalls()
   const controller = createAppController(store, silentAgent, relay.services)
   const outcome = await controller.commands.runForAgent(flow, args)
-  expect(outcome.status).toBe("failed")
-  if (outcome.status === "failed") expect(outcome.error).toContain(`Select a box of ${REPO}`)
+  if (flow === "flow.new") {
+    expect(outcome.status).toBe("executed")
+    expect("value" in outcome ? outcome.value : "").toContain("asked the user to confirm")
+  } else {
+    expect(outcome.status).toBe("failed")
+  }
   expect(pickForm(store)).toBeUndefined()
   expect(relay.calls).toEqual([])
   await controller.dispose()
@@ -224,7 +178,7 @@ for (const flow of ["triggers.run", "triggers.resume"] as const) test(`${flow} a
   await loadBox(store, REPO, BOX_B)
   const relay = boxCalls()
   const controller = createAppController(store, silentAgent, relay.services)
-  expect((await controller.commands.runForAgent(flow, `daily ${REPO}`)).status).toBe("executed")
+  expect((await controller.commands.runForAgent(flow, `daily ${REPO}`)).status).toBe("failed")
   expect(pickForm(store)).toBeUndefined()
   expect(relay.calls).toEqual([])
   await controller.dispose()
@@ -234,7 +188,7 @@ test("flow authoring with no box opens the prerequisite form before creating a r
   const store = await signedIn()
   const relay = boxCalls()
   const controller = createAppController(store, silentAgent, relay.services)
-  expect((await controller.commands.run("flow.create", `Review the repo ${REPO}`)).status).toBe("executed")
+  expect((await controller.commands.run("flow.new", `Review the repo ${REPO}`)).status).toBe("executed")
   expect(store.collections.cards.get("form-box.open")).toMatchObject({ kind: "flow-form", payload: { draft: { repo: REPO } } })
   expect([...store.collections.cards.values()].filter(card => card.kind === "run-trace")).toEqual([])
   expect(relay.calls).toEqual([])

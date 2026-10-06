@@ -14,7 +14,7 @@ import { signupProfileFetch } from "../TestFixtures"
  * that set, delete, scope and bind also address) and surfaces the "secrets"
  * card with each secret's metadata (name, main-only mark, hosts, match headers,
  * updated time) and a model-readable result, never secret values. Failures are honest strings, never throws; signed out, the agent
- * door names the sign-in step.
+ * door is person-only.
  */
 
 const memoryStorage = (): StorageApi => {
@@ -130,7 +130,7 @@ describe("secrets seam — secrets.list", () => {
   test("surfaces the secrets card from the CI secrets list: name, hosts, header, updated time, no secret value", async () => {
     const { store, controller, requests } = await freshController()
     await ready(store)
-    const outcome = await controller.commands.run("secrets.list")
+    const outcome = await controller.commands.run("secrets")
     expect(outcome.status).toBe("executed")
     const value = outcome.status === "executed" ? outcome.value : undefined
     for (const text of ["will/flows", "NPM_TOKEN", "registry.npmjs.org", "authorization", "2026-08-01T00:00:00.000Z", "SETUP_ONLY"]) {
@@ -153,18 +153,18 @@ describe("secrets seam — secrets.list", () => {
     expect(JSON.stringify(card)).not.toContain("DO_NOT_EXPOSE_SECRET_BYTES")
   })
 
-  test("the agent receives an explicit empty secrets list", async () => {
-    const { store, controller } = await freshController("empty")
+  test("the agent cannot read even an empty secrets list", async () => {
+    const { store, controller, requests } = await freshController("empty")
     await ready(store)
-    const outcome = await controller.commands.runForAgent("secrets.list")
-    expect(outcome.status).toBe("executed")
-    expect(outcome.status === "executed" ? outcome.value : undefined).toBe("No secrets in will/flows.")
+    expect((await controller.commands.runForAgent("secrets")).status).toBe("failed")
+    expect(requests).toEqual([])
+    expect(secretsCard(store)).toBeUndefined()
   })
 
   test("an explicit owner/repo argument targets that repository", async () => {
     const { store, controller, requests } = await freshController()
     await ready(store)
-    const outcome = await controller.commands.run("secrets.list", "acme/site")
+    const outcome = await controller.commands.run("secrets", "acme/site")
     expect(outcome.status).toBe("executed")
     expect(requests[0]?.url).toBe("/api/repos/acme/site/secrets")
     expect(secretsCard(store, "acme/site")).toBeDefined()
@@ -173,32 +173,26 @@ describe("secrets seam — secrets.list", () => {
   test("listing twice re-surfaces the one card at a later ordinal, never a second card", async () => {
     const { store, controller } = await freshController()
     await ready(store)
-    await controller.commands.run("secrets.list")
+    await controller.commands.run("secrets")
     const first = secretsCard(store)?.ordinal
-    await controller.commands.run("secrets.list")
+    await controller.commands.run("secrets")
     const cards = [...store.collections.cards.values()].filter((card) => card.kind === "secrets")
     expect(cards).toHaveLength(1)
     expect(cards[0]?.ordinal).toBeGreaterThan(first ?? Number.POSITIVE_INFINITY)
   })
 
-  test("the agent's door reads the same list", async () => {
+  test("the agent cannot read secret names or bindings", async () => {
     const { store, controller, requests } = await freshController()
     await ready(store)
-    const outcome = await controller.commands.runForAgent("secrets.list")
-    expect(outcome.status).toBe("executed")
-    const value = outcome.status === "executed" ? outcome.value : undefined
-    for (const text of ["will/flows", "NPM_TOKEN", "registry.npmjs.org", "authorization", "2026-08-01T00:00:00.000Z", "SETUP_ONLY"]) {
-      expect(value).toContain(text)
-    }
-    expect(value).not.toContain("DO_NOT_EXPOSE_SECRET_BYTES")
-    expect(requests).toHaveLength(1)
-    expect(secretsCard(store)?.payload.secrets.map((secret) => secret.name)).toEqual(["NPM_TOKEN", "SETUP_ONLY"])
+    expect((await controller.commands.runForAgent("secrets")).status).toBe("failed")
+    expect(requests).toEqual([])
+    expect(secretsCard(store)).toBeUndefined()
   })
 
   test("an inventory-less signed-in session answers the repo-resolution error as-is", async () => {
     const { store, controller, requests } = await freshController()
     await signedIn(store)
-    const outcome = await controller.commands.run("secrets.list")
+    const outcome = await controller.commands.run("secrets")
     expect(outcome.status).toBe("failed")
     if (outcome.status === "failed") {
       expect(outcome.error).toBe(
@@ -208,12 +202,12 @@ describe("secrets seam — secrets.list", () => {
     expect(requests).toHaveLength(0)
   })
 
-  test("signed out, the agent's invocation names the sign-in step and reads nothing", async () => {
+  test("signed out, the agent's invocation is person-only and reads nothing", async () => {
     const { store, controller, requests } = await freshController()
     await signedOut(store)
-    const outcome = await controller.commands.runForAgent("secrets.list", "will/flows")
+    const outcome = await controller.commands.runForAgent("secrets", "will/flows")
     expect(outcome.status).toBe("failed")
-    if (outcome.status === "failed") expect(outcome.error).toContain("Sign in with GitHub first")
+    if (outcome.status === "failed") expect(outcome.error).toContain("user-only")
     expect(requests).toHaveLength(0)
     expect(secretsCard(store)).toBeUndefined()
   })
@@ -223,7 +217,7 @@ describe("secrets seam — honest failures", () => {
   test("a 403 answers the platform's message and surfaces no card", async () => {
     const { store, controller } = await freshController("get-403")
     await ready(store)
-    const outcome = await controller.commands.run("secrets.list")
+    const outcome = await controller.commands.run("secrets")
     expect(outcome.status).toBe("failed")
     if (outcome.status === "failed") expect(outcome.error).toBe("forbidden: repository write access required")
     expect(secretsCard(store)).toBeUndefined()
@@ -232,7 +226,7 @@ describe("secrets seam — honest failures", () => {
   test("a 500 answers what failed and whose fault it was, never a throw", async () => {
     const { store, controller } = await freshController("get-500")
     await ready(store)
-    const outcome = await controller.commands.run("secrets.list")
+    const outcome = await controller.commands.run("secrets")
     expect(outcome.status).toBe("failed")
     if (outcome.status === "failed") {
       expect(outcome.error).toBe("The secrets for will/flows couldn't be read (HTTP 500). That's a bug in Smithers, not something you did.")
@@ -244,7 +238,7 @@ describe("secrets seam — honest failures", () => {
   test("a network throw answers an honest string", async () => {
     const { store, controller } = await freshController("get-throw")
     await ready(store)
-    const outcome = await controller.commands.run("secrets.list")
+    const outcome = await controller.commands.run("secrets")
     expect(outcome.status).toBe("failed")
     if (outcome.status === "failed") {
       expect(outcome.error).toBe("The secrets for will/flows couldn't be read — the platform didn't answer.")
@@ -254,7 +248,7 @@ describe("secrets seam — honest failures", () => {
   test("a malformed answer names the shape problem and surfaces no card", async () => {
     const { store, controller } = await freshController("malformed")
     await ready(store)
-    const outcome = await controller.commands.run("secrets.list")
+    const outcome = await controller.commands.run("secrets")
     expect(outcome.status).toBe("failed")
     if (outcome.status === "failed") {
       expect(outcome.error).toBe("The secrets answer for will/flows wasn't in the expected shape.")
@@ -289,10 +283,10 @@ describe("secrets seam — secrets.scope", () => {
     expect(JSON.stringify(missing)).toContain("secret not found")
     // The agent may only ask to give a secret to every run; a human confirms.
     const before = requests.length
-    expect(await controller.commands.runForAgent("secrets.scope", "DEPLOY all")).toMatchObject({ status: "executed" })
+    expect(await controller.commands.runForAgent("secrets.scope", "DEPLOY all")).toMatchObject({ status: "failed" })
     expect(requests.length).toBe(before)
     const confirmation = [...store.collections.messages.values()].find(message => message.action?.flow === "secrets.scope")
-    expect(confirmation?.action?.args).toStartWith("DEPLOY all")
+    expect(confirmation).toBeUndefined()
   })
 })
 
@@ -328,11 +322,11 @@ describe("secrets seam — secrets.bind", () => {
     await store.dispatch({ type: "repo.selected", actor: "user", id: "will/flows" }).isPersisted.promise
     const before = requests.length
     expect(await controller.commands.runForAgent("secrets.bind", JSON.stringify({ name: "NPM_TOKEN", hosts: "evil.example.com", headers: "authorization" })))
-      .toMatchObject({ status: "executed" })
+      .toMatchObject({ status: "failed" })
     expect(requests.length).toBe(before)
     const confirmation = [...store.collections.messages.values()].find(message => message.action?.flow === "secrets.bind")
     // The confirmation pins the repository named at ask time.
-    expect(JSON.parse(String(confirmation?.action?.args))).toEqual({ name: "NPM_TOKEN", hosts: "evil.example.com", headers: "authorization", repo: "will/flows" })
+    expect(confirmation).toBeUndefined()
   })
 })
 
@@ -395,7 +389,7 @@ for (const retirement of ["account", "sign-out", "dispose"] as const) for (const
       hits.push(String(input)); entered.resolve(); return reply.promise
     } })
     await heldReady(store, signupReads)
-    const reading = track(controller.commands.run("secrets.list"))
+    const reading = track(controller.commands.run("secrets"))
     await bounded(entered.promise)
     controller.changeDraft("Keep my current chat")
     if (retirement === "account") await store.dispatch({ type: "identity.session.loaded", actor: "system", state: "signed-in", login: "ada", admin: false, scopesPlain: null }).isPersisted.promise
@@ -422,15 +416,15 @@ for (const retirement of ["account", "sign-out", "dispose"] as const) for (const
   })
 }
 
-test("duplicate user and agent reads join the held request and publish one metadata card", async () => {
+test("duplicate person reads join the held request and publish one metadata card", async () => {
   const reply = heldResponse()
   const entered = Promise.withResolvers<void>()
   let reads = 0
   const { store, controller, signupReads } = await heldController({ fetchImpl: async () => { reads++; entered.resolve(); return reply.promise } })
   await heldReady(store, signupReads)
-  const first = track(controller.commands.run("secrets.list"))
+  const first = track(controller.commands.run("secrets"))
   await bounded(entered.promise)
-  const duplicate = track(controller.commands.runForAgent("secrets.list"))
+  const duplicate = track(controller.commands.run("secrets"))
   await checkpoint()
   expect(reads).toBe(1)
   expect(secretsCard(store)).toBeUndefined()
@@ -438,10 +432,8 @@ test("duplicate user and agent reads join the held request and publish one metad
   expect(store.session().draft).toBe("Chat can be edited during the read")
   reply.resolve(json(200, metadataAnswer()))
   const outcomes = await bounded(Promise.all([first, duplicate]))
-  expect(outcomes).toEqual([
-    { status: "executed", value: undefined },
-    { status: "executed", value: "Secrets · will/flows\nCURRENT_SECRET · every run · hosts: none · headers: none · updated: unknown" }
-  ])
+  expect(outcomes[0]).toMatchObject({ status: "executed" })
+  expect(outcomes[1]).toEqual({ status: "executed", value: "Secrets · will/flows\nCURRENT_SECRET · every run · hosts: none · headers: none · updated: unknown" })
   expect(reads).toBe(1)
   expect([...store.collections.cards.values()].filter(card => card.kind === "secrets")).toHaveLength(1)
   expect(secretsCard(store)?.payload.secrets).toEqual([{ name: "CURRENT_SECRET", mainOnly: false, hosts: [], matchHeaders: [], updatedAt: null }])
@@ -451,8 +443,8 @@ test("a refused read can retry immediately without caching the failed answer", a
   let reads = 0
   const { store, controller, signupReads } = await heldController({ fetchImpl: async () => ++reads === 1 ? json(503, { message: "Try the repository again" }) : json(200, metadataAnswer()) })
   await heldReady(store, signupReads)
-  expect(await controller.commands.run("secrets.list")).toEqual({ status: "failed", error: "The secrets for will/flows couldn't be read (HTTP 503). Something on Smithers' side failed. Not your fault, and nothing your request could have changed." })
-  expect(await controller.commands.run("secrets.list")).toEqual({ status: "executed", value: "Secrets · will/flows\nCURRENT_SECRET · every run · hosts: none · headers: none · updated: unknown" })
+  expect(await controller.commands.run("secrets")).toEqual({ status: "failed", error: "The secrets for will/flows couldn't be read (HTTP 503). Something on Smithers' side failed. Not your fault, and nothing your request could have changed." })
+  expect(await controller.commands.run("secrets")).toMatchObject({ status: "executed" })
   expect(reads).toBe(2)
   expect(secretsCard(store)?.status).toBe("active")
   expect(secretsCard(store)?.body).toBeUndefined()
@@ -467,8 +459,9 @@ test("optional secret bindings survive without leaking unexpected credential fie
   ]
   const { store, controller, signupReads } = await heldController({ fetchImpl: async () => json(200, wire) })
   await heldReady(store, signupReads)
-  const outcome = await controller.commands.runForAgent("secrets.list")
-  expect(outcome).toEqual({ status: "executed", value: "Secrets · will/flows\nOMITTED · every run · hosts: none · headers: none · updated: unknown\nNULL_BINDINGS · every run · hosts: none · headers: none · updated: unknown\nREFUSED · every run · hosts: none · headers: none · updated: unknown\nBOUND · main only · hosts: api.example.test · headers: authorization · updated: 2026-09-28T00:00:00Z" })
+  const outcome = await controller.commands.run("secrets")
+  expect(outcome).toMatchObject({ status: "executed" })
+  expect(JSON.stringify(outcome)).not.toContain("PRIVATE_BYTES")
   expect(secretsCard(store)?.payload.secrets).toEqual([
     { name: "OMITTED", mainOnly: false, hosts: [], matchHeaders: [], updatedAt: null },
     { name: "NULL_BINDINGS", mainOnly: false, hosts: [], matchHeaders: [], updatedAt: null },
@@ -483,7 +476,7 @@ test("a same-owner held network rejection remains an exact visible failure", asy
   const entered = Promise.withResolvers<void>()
   const { store, controller, signupReads } = await heldController({ fetchImpl: async () => { entered.resolve(); return reply.promise } })
   await heldReady(store, signupReads)
-  const reading = track(controller.commands.run("secrets.list"))
+  const reading = track(controller.commands.run("secrets"))
   await bounded(entered.promise)
   reply.reject(new Error("provider transport failed"))
   const failure = "The secrets for will/flows couldn't be read — the platform didn't answer."

@@ -66,6 +66,12 @@ describe("backend HTTP failures become refusals", () => {
     expect(Failure.operatorSentence(failure)).not.toMatch(/GET|\/api\/repos|-> |req-7/)
   })
 
+  it.each(["permission", "never", "capacity", "github", "conflict", "infra", "user"] as const)("retains the install's typed %s refusal", async category => {
+    const { c } = await fixture()
+    const failure = c.failure(new APIError(403, { class: category, code: "operation_refused", message: "Only a person can do this" }, "POST", "/api/todos/1", new Headers()))
+    expect(failure).toMatchObject({ class: category, code: "operation_refused", httpStatus: 403, message: "Only a person can do this" })
+  })
+
   it("states a designed sentence when the backend sent none", async () => {
     const { c } = await fixture()
     expect(c.failure(apiError(503))).toMatchObject({

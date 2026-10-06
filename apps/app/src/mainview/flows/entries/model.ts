@@ -6,7 +6,7 @@ import type { FlowEntry } from "../registry"
 
 const target = Schema.Struct({ id: Schema.String })
 const targetGrammar = (args?: string) => ({ payload: args?.trim() ? { id: args.trim() } : {} })
-const owner = { hidden: true, userOnly: true, userOnlyReason: "Only the owner’s browser session configures models" } as const
+const owner = { hidden: true, visibility: "in-card", agent: "never", actors: ["person"], minimumRole: "owner", agentReason: "Only the owner’s browser session configures models" } as const
 export const modelFlows = (actions: CommandActions): ReadonlyArray<FlowEntry> => [
  flow({ name: "model", summary: "Models", hidden: true, input: NoPayload, handler: () => actions.listAgents() }),
  flow({ name: "model.list", summary: "Models", hidden: true, input: NoPayload, handler: () => actions.listAgents() }),

@@ -118,7 +118,7 @@ describe("Cut app surfaces", () => {
         expect(controller.slashItems(name).map(row => row.flow.name)).not.toContain(name)
       }
       for (const name of ["admin.devtools", "admin.reset", "issue.poc", "issue.repro", "review.request",
-        "billing.plans", "cloud.prompt", "repo.overview", "triggers.list", "box.services", "branches.list", "commits.list"]) {
+        "billing.plans", "cloud.prompt", "repo.overview", "triggers.list", "box.services", "branches", "commits.list"]) {
         expect(controller.commands.find(name)).toBeDefined()
       }
       await controller.dispose()

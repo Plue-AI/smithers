@@ -1,8 +1,8 @@
-/** Temporary catalog reject cases; Appendix parity belongs to T-CAT-01. */
+/** Generated card command reject cases; app fixtures prove Appendix parity. */
 import { describe, expect, test } from "vitest"
-import { CatalogTagSchema } from "../../src/catalog/index.ts"
+import { CatalogTagSchema } from "../../src/CatalogTags.ts"
 
-describe("temporary catalog tags", () => {
+describe("generated catalog tags", () => {
   // MVP Appendix A and B.4, frozen lead ruling 2026-10-02.
   test.each([
     "docs",

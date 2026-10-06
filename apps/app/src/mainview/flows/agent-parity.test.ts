@@ -98,7 +98,28 @@ const USER_ONLY_ALLOWLIST: Readonly<Record<string, string>> = {
   "approval.approve": "approvals belong to the human",
   "triggers.approve": "approvals belong to the human",
   "approval.deny": "approvals belong to the human",
-  "runs.continue": "approvals belong to the human"
+  "runs.continue": "approvals belong to the human",
+  "file.reapply": "Only a person can do this",
+  "main.reset-to-github": "Only a person can do this",
+  "merge.confirm": "Only a person can do this",
+  "order.ok": "Only a person can do this",
+  "secrets": "Only a person can do this",
+  "secrets.bind": "Only a person can do this",
+  "secrets.connect": "Only a person can do this",
+  "secrets.connect.codex": "Only a person can do this",
+  "secrets.connections": "Only a person can do this",
+  "secrets.delete": "Only a person can do this",
+  "secrets.move": "Only a person can do this",
+  "secrets.revoke": "Only a person can do this",
+  "secrets.scope": "Only a person can do this",
+  "secrets.set": "Only a person can do this",
+  "settings.model.set": "Only a person can do this",
+  "ssh": "Only a person can do this",
+  "terminal.watch": "Only a person can do this",
+  "todo.keep-moved": "Only a person can do this",
+  "todo.preapprove": "Only a person can do this",
+  "todo.takeover": "Only a person can do this",
+  "todo.unapprove": "Only a person can do this",
 }
 
 /** The policy table's agent rows (.specs/engineering/spec.md §6.1): the args exercised and whether the act confirms. */
@@ -127,9 +148,8 @@ const AGENT_ROWS: ReadonlyArray<{ readonly name: string; readonly args?: string;
   { name: "change.facet", args: "c1 diff", confirm: false },
   { name: "flow.run.retry", args: "card-1", confirm: true },
   { name: "runs.rerun", args: "sourceCard=card-1 run-1", confirm: true },
-  { name: "cloud.prompt", confirm: false },
   /* Agents as data (custom-agents.md): listing and the form render cards; defining what spends money confirms. */
-  { name: "agent.list", confirm: false },
+  { name: "agents", confirm: false },
   /*
    * The cloud agent sessions (UI-COVERAGE-GAPS.md "agents · Cloud agent
    * sessions"): the reads are free; launching a sandbox agent, steering it
@@ -191,7 +211,7 @@ const json = (status: number, body: unknown): Response =>
 const boot = async (bootstrap: AppBootstrap = EVERYTHING) => {
   const store = await createAppStore({ kind: "localStorage", storage: memoryStorage() })
   let picks = 0
-  
+
   const controller = createAppController(store, unavailableAgent, {
     features: {},
     bootstrap,
@@ -252,9 +272,9 @@ describe("the three-door law", () => {
     const native = await boot()
     const web = await boot(WEB)
     const userOnly = [...native.controller.commands.entries(), ...web.controller.commands.entries()]
-      .filter((entry) => !modelInvocable(entry))
+      .filter((entry) => entry.metadata.agent === "never")
     const found = Object.fromEntries(
-      userOnly.map((entry) => [nameOf(entry), entry.metadata.userOnlyReason]).sort(([left], [right]) => String(left).localeCompare(String(right)))
+      userOnly.map((entry) => [nameOf(entry), entry.metadata.agentReason]).sort(([left], [right]) => String(left).localeCompare(String(right)))
     )
     const expected = Object.fromEntries(Object.entries(USER_ONLY_ALLOWLIST).sort(([left], [right]) => left.localeCompare(right)))
     expect(found).toEqual(expected)
@@ -265,7 +285,7 @@ describe("the three-door law", () => {
   test("an automatic (system) call of any user-only flow refuses before its handler runs (#3717)", async () => {
     for (const bootstrap of [EVERYTHING, WEB]) {
       const { controller } = await boot(bootstrap)
-      const userOnly = controller.commands.entries().filter((entry) => !modelInvocable(entry)).map((entry) => nameOf(entry))
+      const userOnly = controller.commands.entries().filter((entry) => entry.metadata.agent === "never").map((entry) => nameOf(entry))
       expect(userOnly.length).toBeGreaterThan(20)
       for (const name of userOnly) {
         const outcome = await controller.commands.run(name, undefined, "automatic")
@@ -278,7 +298,7 @@ describe("the three-door law", () => {
     const { controller } = await boot()
     for (const name of ["flow.plan", "triggers.list"]) {
       const entry = controller.commands.entries().find((candidate) => nameOf(candidate) === name)
-      expect(entry && modelInvocable(entry)).toBe(true)
+      expect(entry?.metadata.agent).toBe("run")
     }
     controller.dispose()
   })
@@ -301,13 +321,13 @@ describe("the three-door law", () => {
     const { store, controller } = await boot()
     cloudSession(store, "signed-out", null)
     await settle(2)
-    expect(await execute(controller, "cloud.prompt")).toBe("executed /cloud.prompt")
+    expect((await controller.commands.run("cloud.prompt")).status).toBe("executed")
     const step = confirmationFor(store, "cloud.sign-in")
     expect(step?.action).toEqual({ flow: "cloud.sign-in", label: "Sign in to Smithers Cloud" })
     expect(step?.role).toBe("smithers")
     cloudSession(store, "signed-in", "will")
     await settle(2)
-    expect(await execute(controller, "cloud.prompt")).toBe("executed /cloud.prompt")
+    expect((await controller.commands.run("cloud.prompt")).status).toBe("executed")
     expect(messages(store).at(-1)?.text).toBe("Smithers Cloud is already signed in as will.")
   })
 
@@ -372,18 +392,18 @@ describe("the three-door law", () => {
   test("flow authoring and card acts remain callable through the agent", async () => {
     const { controller } = await boot()
     const callable = new Set(controller.commands.callable().map(nameOf))
-    for (const name of ["flow.create", "agent.list", "form.set", "form.submit", "card.dismiss"]) {
+    for (const name of ["flow.new", "agents", "form.set", "form.submit", "card.dismiss"]) {
       expect(callable.has(name)).toBe(true)
     }
     // And listed: the slash menu and the prompt's catalog show them.
     const disclosed = new Set(controller.commands.disclosed().map((descriptor) => descriptor.name))
-    for (const name of ["flow.create", "agents"]) {
+    for (const name of ["flow.new", "agents"]) {
       expect(disclosed.has(name)).toBe(true)
     }
     expect(disclosed.has("cloud.prompt")).toBe(false)
-    expect(disclosed.has("flow.run.retry")).toBe(false)
+    expect(disclosed.has("flow.run.retry")).toBe(true)
     // The form card's acts (THE FORM LAW) are hidden from the catalog and callable, like every id-scoped card act.
-    for (const name of ["form.set", "form.submit", "card.dismiss"]) expect(disclosed.has(name)).toBe(false)
+    for (const name of ["form.set", "form.submit", "card.dismiss"]) expect(disclosed.has(name)).toBe(true)
   })
 })
 

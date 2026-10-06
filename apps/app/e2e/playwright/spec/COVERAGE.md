@@ -101,8 +101,8 @@ C-UI-01 also exercises the mounted Home order menu and composer by keyboard.
 
 | C-UI-12 | [C-UI-12.spec.ts](C-UI-12.spec.ts), [Draft and shell cases](../view-stories.spec.ts) | T-UI-01 primitives, T-UI-07 shell, T-UI-10 Flow, T-UI-15 Branch states/recovery, T-UI-16 read-only Compare, T-UI-17 terminal states and T-UI-19 co-editing active; Draft passed (light/dark, 1440/390, keyboard); T-UI-04 TODO conflict/mobile/keyboard, Fork/Add to stack and real-seam question active; T-UI-08 shell passes light/dark at 1,179/1,180 px with pointer/Tab + Enter/Space; remaining View matrix fixme | T-UI-01..T-UI-17, T-UI-19 |
 | C-UI-13 | [C-UI-13.spec.ts](C-UI-13.spec.ts) | fixme-before-implementation | T-APP-01, T-APP-02, T-APP-03, T-APP-04, T-APP-05, T-APP-06, T-APP-07, T-APP-16, T-APP-15, T-FLW-07, T-FLW-08, T-UI-14 |
-| C-CAT-01 | [C-CAT-01.spec.ts](C-CAT-01.spec.ts) | fixme-before-implementation | T-CAT-01 |
-| C-CAT-02 | [C-CAT-02.spec.ts](C-CAT-02.spec.ts) | fixme-before-implementation | T-CAT-01 |
+| C-CAT-01 | [C-CAT-01.spec.ts](C-CAT-01.spec.ts) | passing | T-CAT-01 |
+| C-CAT-02 | [C-CAT-02.spec.ts](C-CAT-02.spec.ts) | 3 card doors pass; delegated confirmation still pending | T-CAT-01 |
 | C-CAT-03 | [C-CAT-03.spec.ts](C-CAT-03.spec.ts) | fixme-before-implementation | T-CAT-01 |
 | C-UI-12 · Home | [Home cases](../home.spec.ts) | passing: sync health, keyboard menu, absent/disabled actions and hostile text in light/dark at 1440/390 | T-UI-06 |
 | C-AGT-01 | [C-AGT-01.spec.ts](C-AGT-01.spec.ts) | fixme-before-implementation | T-AGT-01 |

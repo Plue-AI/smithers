@@ -18,36 +18,36 @@ const scopeRepo = (actions: CommandActions, payload: Record<string, unknown>): s
 /** The `secrets` flows registered as one aggregator block. */
 export const secretsFlows = (actions: CommandActions): ReadonlyArray<FlowEntry> => [
   flow({
-    name: "secrets.connect", summary: "Connect Claude for coding in your repositories", runtime: ["cloud"],
+    name: "secrets.connect", agent: "never", minimumRole: "owner", actors: ["person"], visibility: "in-card",  summary: "Connect Claude for coding in your repositories", runtime: ["cloud"],
     requires: ["signed-in"], input: Schema.Struct({ value: Schema.optional(Schema.String) }),
     form: { submitLabel: "Connect", fields: { value: { label: "Claude token", kind: "write-only", required: true } } },
     confirm: () => "connect Claude for coding",
     handler: (_input, _signal, _call, gesture) => actions.connectCodingProvider(gesture)
   }),
   flow({
-    name: "secrets.connect.codex", summary: "Connect Codex for coding in your repositories", runtime: ["cloud"],
+    name: "secrets.connect.codex", agent: "never", minimumRole: "owner", actors: ["person"], visibility: "in-card",  summary: "Connect Codex for coding in your repositories", runtime: ["cloud"],
     requires: ["signed-in"], input: Schema.Struct({}),
     handler: () => actions.connectCodex()
   }),
   flow({
-    name: "secrets.connections", summary: "Show coding accounts", runtime: ["cloud"],
+    name: "secrets.connections", agent: "never", minimumRole: "owner", actors: ["person"], visibility: "in-card",  summary: "Show coding accounts", runtime: ["cloud"],
     requires: ["signed-in"], input: Schema.Struct({}),
     handler: () => actions.listCodingProviders()
   }),
   flow({
-    name: "secrets.move", summary: "Move a coding account up or down its provider's order", runtime: ["cloud"],
+    name: "secrets.move", agent: "never", minimumRole: "owner", actors: ["person"], visibility: "in-card",  summary: "Move a coding account up or down its provider's order", runtime: ["cloud"],
     requires: ["signed-in"], args: "<id> <up|down>",
     input: Schema.Struct({ id: Schema.String, direction: Schema.Literals(["up", "down"]) }),
     handler: ({ id, direction }) => actions.moveCodingProvider(id, direction)
   }),
   flow({
-    name: "secrets.revoke", summary: "Revoke coding connection", runtime: ["cloud"],
+    name: "secrets.revoke", agent: "never", minimumRole: "owner", actors: ["person"], visibility: "in-card",  summary: "Revoke coding connection", runtime: ["cloud"],
     requires: ["signed-in"], args: "<id>", input: Schema.Struct({ id: Schema.String }),
     confirm: payload => `revoke coding connection ${String(payload["id"])}`,
     handler: ({ id }) => actions.revokeCodingProvider(id)
   }),
   flow({
-    name: "secrets.scope",
+    name: "secrets.scope", agent: "never", minimumRole: "maintainer", actors: ["person"], visibility: "in-card",
     summary: "Limit a repository secret to trusted runs on main, or give it to every run",
     runtime: ["cloud"],
     args: "<name> <main-only|all> [owner/repo]",
@@ -68,7 +68,7 @@ export const secretsFlows = (actions: CommandActions): ReadonlyArray<FlowEntry> 
     handler: ({ name, scope, repo }) => actions.scopeSecret(name, scope, repo)
   }),
   flow({
-    name: "secrets.bind",
+    name: "secrets.bind", agent: "never", minimumRole: "maintainer", actors: ["person"], visibility: "in-card",
     summary: "Set the hosts and headers a repository secret may be sent to",
     runtime: ["cloud"],
     args: "<NAME> [owner/repo]",
@@ -97,7 +97,7 @@ export const secretsFlows = (actions: CommandActions): ReadonlyArray<FlowEntry> 
     handler: ({ name, hosts, headers, repo }) => actions.bindSecret({ name, hosts, headers, repo })
   }),
   flow({
-    name: "secrets.set",
+    name: "secrets.set", agent: "never", minimumRole: "maintainer", actors: ["person"], visibility: "in-card",
     summary: "Add a repository secret or replace its value",
     runtime: ["cloud"],
     args: "<NAME> [owner/repo]",
@@ -123,7 +123,7 @@ export const secretsFlows = (actions: CommandActions): ReadonlyArray<FlowEntry> 
     handler: ({ name, hosts, headers, repo }, _signal, _call, gesture) => actions.setSecret({ name, hosts, headers, repo }, gesture)
   }),
   flow({
-    name: "secrets.delete",
+    name: "secrets.delete", agent: "never", minimumRole: "maintainer", actors: ["person"], visibility: "in-card",
     summary: "Delete a repository secret",
     runtime: ["cloud"],
     args: "<NAME> [owner/repo]",
@@ -137,8 +137,8 @@ export const secretsFlows = (actions: CommandActions): ReadonlyArray<FlowEntry> 
     handler: ({ name, repo }) => actions.deleteSecret(name, repo)
   }),
   flow({
-    name: "secrets.list",
-    summary: "Show the secrets a repository's sessions may use: names and bindings, never values",
+    name: "secrets", slash: "/secrets", cli: null, journey: ["J1"], group: "Account and settings", visibility: "core", actors: ["person"], minimumRole: "maintainer", agent: "never", http: null,
+    summary: "Set secrets machines can use",
     runtime: ["cloud"],
     args: "[owner/repo]",
     requires: ["signed-in"],

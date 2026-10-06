@@ -3,6 +3,8 @@
  * @since 1.0.0
  */
 
+import { mountCardDoors } from "./CardDoors.ts"
+import { mountCatalog } from "./Catalog.ts"
 import { Cli, Completions, z } from "incur"
 import type { Runtime } from "../../cli/ControlBridge.ts"
 import * as Presentation from "../../cli/Presentation.ts"
@@ -23,7 +25,6 @@ import { repositories } from "./Repositories.ts"
 import { type Handler, resources } from "./Resources.ts"
 import { runs } from "./Runs.ts"
 import { stacks } from "./Stack.ts"
-import { humans as todoHumans, todos } from "./Todos.ts"
 import { workspaceChildren } from "./WorkspaceChildren.ts"
 import { workspaces } from "./Workspaces.ts"
 
@@ -46,7 +47,6 @@ export const handlers: Record<string, Handler> = {
   ...stacks,
   ...egress,
   ...history,
-  ...todos,
   "agent ask": ask,
   "workspace cp": copy,
   completion: async (_c, a) => Completions.register(a.shell as "bash" | "zsh" | "fish", "smithers")
@@ -179,7 +179,7 @@ export const mount = (cli: Cli.Cli<any, any, any, any>, runtime: Runtime) => {
       }
       : name === "repo home"
       ? repoHome
-      : humans[name] ?? todoHumans[name]
+      : humans[name]
     const command = {
       ...previous,
       mcp: interactive ? false as const : previous?.mcp ?? {
@@ -254,7 +254,13 @@ export const mount = (cli: Cli.Cli<any, any, any, any>, runtime: Runtime) => {
     const temporary = Cli.create("root").command(leaf, command)
     parent.set(leaf, Cli.toCommands.get(temporary)!.get(leaf)!)
   }
+  mountCatalog(cli, runtime)
+  mountCardDoors(cli, runtime)
+  const workspace = tree.get("workspace")
+  if (workspace && "_group" in workspace) for (const name of ["shell", "exec", "cp"]) {
+    const door = workspace.commands.get(name)
+    if (door) tree.set(name, door)
+  }
   const authGroup = tree.get("auth")!
   if ("_group" in authGroup) tree.set("login", authGroup.commands.get("login")!)
-  tree.set("issues", { _alias: true, target: "issue" } as never)
 }

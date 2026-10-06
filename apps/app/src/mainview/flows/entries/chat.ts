@@ -29,11 +29,10 @@ export const chatFlows = (actions: CommandActions): ReadonlyArray<FlowEntry> => 
   }
   const SEND = {
     name: "chat.send",
-    summary: "Submit the composer",
-    userOnly: true,
-    userOnlyReason: "the composer is the human's; the model is already the turn, and sending would nest one",
+     slash: null, cli: null, journey: [], group: "Ask", visibility: "core" as const, actors: ["person"] as const, minimumRole: "member" as const, http: null, summary: "Ask or tell Smithers anything",
+    agentReason: "the composer is the human's; the model is already the turn, and sending would nest one",
     args: "<text>",
-    input: Schema.Struct({ text: Schema.String }),
+    agent: "never" as const, input: Schema.Struct({ text: Schema.String }),
     handler: ({ text }: { readonly text: string }, _signal: AbortSignal, _call: unknown, gesture?: CommandGesture) => {
       actions.send(text, undefined, gesture?.composerDraftCurrent)
     }
@@ -50,40 +49,39 @@ export const chatFlows = (actions: CommandActions): ReadonlyArray<FlowEntry> => 
     handler: () => actions.showChat()
   }),
   flow({ name: "chat.open", summary: "Open Chat using the selected input mode (C)", input: NoPayload,
-    userOnly: true, userOnlyReason: "opening Chat and starting the selected microphone mode is the human's gesture",
+    agent: "never" as const, agentReason: "opening Chat and starting the selected microphone mode is the human's gesture",
     handler: (_payload, _signal, _call, gesture) => gesture?.chatInputCurrent?.() === false ? undefined : actions.openChat() }),
   flow({
     name: "chat.dictate",
     summary: "Start or stop dictation into the chat draft (⌘D)",
-    userOnly: true,
-    userOnlyReason: "microphone capture is the human's explicit gesture",
+    agent: "never" as const,
+    agentReason: "microphone capture is the human's explicit gesture",
     input: NoPayload,
     handler: () => actions.toggleDictation()
   }),
   flow(RETRY),
   flow({
     name: "stop",
-    summary: "Stop the current response",
-    userOnly: true,
-    userOnlyReason: "stopping the model's own turn is the human's Escape key",
-    input: NoPayload,
+     slash: "/stop", cli: null, journey: [], group: "Ask", visibility: "core" as const, actors: ["person"] as const, minimumRole: "member" as const, http: null, summary: "Stop the current answer",
+    agentReason: "stopping the model's own turn is the human's Escape key",
+    agent: "never", input: NoPayload,
     handler: () => actions.stop()
   }),
   flow(SEND),
   flow({ name: "chat.queue", summary: "Queue a follow-up", args: "<text>",
-    userOnly: true, userOnlyReason: "the prompt queue is the human's composer",
+    agent: "never" as const, agentReason: "the prompt queue is the human's composer",
     input: Schema.Struct({ text: Schema.String }), handler: ({ text }, _signal, _call, gesture) => actions.enqueuePrompt(text, gesture?.composerDraftCurrent) }),
-  flow({ name: "chat.queue.edit", summary: "Edit a queued prompt", args: "<id>", hidden: true,
-    userOnly: true, userOnlyReason: "the prompt queue is the human's composer",
+  flow({ name: "chat.queue.edit", visibility: "in-card" as const, summary: "Edit a queued prompt", args: "<id>", hidden: true,
+    agent: "never" as const, agentReason: "the prompt queue is the human's composer",
     input: Schema.Struct({ id: Schema.String }), handler: ({ id }) => actions.removeQueuedPrompt(id, true) }),
-  flow({ name: "chat.queue.remove", summary: "Remove a queued prompt", args: "<id>", hidden: true,
-    userOnly: true, userOnlyReason: "the prompt queue is the human's composer",
+  flow({ name: "chat.queue.remove", visibility: "in-card" as const, summary: "Remove a queued prompt", args: "<id>", hidden: true,
+    agent: "never" as const, agentReason: "the prompt queue is the human's composer",
     input: Schema.Struct({ id: Schema.String }), handler: ({ id }) => actions.removeQueuedPrompt(id) }),
-  flow({ name: "chat.queue.restore", summary: "Restore queued prompts to Chat", hidden: true,
-    userOnly: true, userOnlyReason: "the prompt queue is the human's composer",
+  flow({ name: "chat.queue.restore", visibility: "in-card" as const, summary: "Restore queued prompts to Chat", hidden: true,
+    agent: "never" as const, agentReason: "the prompt queue is the human's composer",
     input: NoPayload, handler: () => actions.restoreQueuedPrompts() }),
-  flow({ name: "chat.queue.resume", summary: "Resume queued prompts", hidden: true,
-    userOnly: true, userOnlyReason: "the prompt queue is the human's composer",
+  flow({ name: "chat.queue.resume", visibility: "in-card" as const, summary: "Resume queued prompts", hidden: true,
+    agent: "never" as const, agentReason: "the prompt queue is the human's composer",
     input: NoPayload, handler: () => actions.resumePromptQueue() })
   ]
 }
@@ -91,11 +89,11 @@ export const chatFlows = (actions: CommandActions): ReadonlyArray<FlowEntry> => 
 /** The clipboard copy: a browser gesture that needs no controller call, so the block keeps the uniform signature. Registered after the frame flows. */
 export const chatCopyFlows = (_actions: CommandActions): ReadonlyArray<FlowEntry> => {
   const COPY_MESSAGE = {
-    name: "chat.copy-message",
+    name: "chat.copy-message", visibility: "in-card" as const,
     summary: "Copy a message to the clipboard",
     hidden: true,
-    userOnly: true,
-    userOnlyReason: "the clipboard write is the human's browser gesture",
+    agent: "never" as const,
+    agentReason: "the clipboard write is the human's browser gesture",
     args: "<text>",
     input: Schema.Struct({ text: Schema.String }),
     /*

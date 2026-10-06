@@ -22,7 +22,7 @@ export const CommandsContainer = ({ catalog, dispatch, view, onView }: CommandsC
       (entry.agent !== "run" && entry.agent !== "confirm" && entry.agent !== "never")) continue
     const id = entry.visibility === "advanced" ? "advanced" : entry.group
     const group = groups.get(id) ?? { label: id === "advanced" ? "Advanced" : namespace(id).label, advanced: id === "advanced", commands: [] }
-    group.commands.push({ tag: entry.name, synopsis: `/${entry.name}${entry.args ? ` ${entry.args}` : ""}`, description: entry.summary, agent: entry.agent })
+    group.commands.push({ tag: entry.name, synopsis: entry.slash === null ? "⌘K (no slash)" : `${entry.slash ?? `/${entry.name}`}${entry.args ? ` ${entry.args}` : ""}`, description: entry.summary, agent: entry.agent })
     groups.set(id, group)
   }
   const rank = (id: string) => { const index = NAMESPACES.findIndex(row => row.id === id); return index < 0 ? NAMESPACES.length : index }

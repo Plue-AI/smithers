@@ -25,6 +25,27 @@ interface Session {
   readonly stderr: Writable
 }
 const sessions = new AsyncLocalStorage<Session>()
+// Incur's formatter retains code/message only. Preserve the install envelope
+// around a single CLI invocation; server/MCP transports own their own errors.
+const errorEnvelopes = new AsyncLocalStorage<{ code?: string; category?: string }>()
+export const withErrorEnvelope = <A>(write: (text: string) => unknown,
+  run: (output: (text: string) => void) => Promise<A>): Promise<A> => {
+  const state: { code?: string; category?: string } = {}
+  return errorEnvelopes.run(state, () => run(text => {
+    if (state.category !== undefined) {
+      try {
+        const document = JSON.parse(text)
+        const error = document?.error?.code === state.code ? document.error : document?.code === state.code ? document : undefined
+        if (error && typeof error.message === "string") {
+          error.class = state.category
+          write(JSON.stringify(document, null, 2) + "\n")
+          return
+        }
+      } catch { /* Human output and streams retain their existing renderer. */ }
+    }
+    write(text)
+  }))
+}
 const stream = (terminal: RuntimeConfig["stdout"], fallback: Writable): Writable =>
   terminal === undefined ?
     fallback :
@@ -294,6 +315,11 @@ export interface Refusal {
  */
 export const fail = (context: Failing, cause: unknown, refusal: Refusal = {}): never => {
   const tag = Failure.tagOf(cause)
+  const envelope = errorEnvelopes.getStore()
+  if (envelope !== undefined && cause instanceof CliError.Refused && cause.class !== undefined) {
+    envelope.code = cause.code
+    envelope.category = cause.class
+  }
   return context.error({
     code: NodeDatabase.isUnsupportedDatabase(cause) ?
       cause.code :

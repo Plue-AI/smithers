@@ -1,5 +1,5 @@
 /*
- * L106: `/flow.create` launched a flow no 1.0 composition has ever registered.
+ * L106: `/flow.new` launched a flow no 1.0 composition has ever registered.
  *
  * `create-workflow` was the 0.x JSX workflow `.smithers/workflows/
  * create-workflow.tsx`, deleted with the reconciler architecture in
@@ -108,7 +108,7 @@ const signedInStore = async () => {
 const said = (outcome: { status: string; value?: string; error?: string }): string =>
   outcome.status === "failed" ? (outcome.error ?? "") : (outcome.value ?? "")
 
-/** The durable card `flow.create` mints: where a background refusal is stated and retried. */
+/** The durable card `flow.new` mints: where a background refusal is stated and retried. */
 const authoringCard = (store: Awaited<ReturnType<typeof createAppStore>>) => {
   const card = [...store.collections.cards.values()].find((entry) => entry.kind === "run-trace" && entry.payload.authoring !== undefined)
   return card?.kind === "run-trace" ? card : undefined
@@ -125,7 +125,7 @@ test("the flow-authoring door launches the id the workspace host provisions", as
   const double = relay()
   const controller = createAppController(store, silentAgent, double.services)
   try {
-    const outcome = await controller.commands.run("flow.create", `summarise my issues ${REPO}`)
+    const outcome = await controller.commands.run("flow.new", `summarise my issues ${REPO}`)
     /* The door SAVES the request and answers; the launch rides the background. */
     expect(said(outcome)).toBe(`flow-requested repo=${REPO}`)
     await until(() => double.launched.length > 0)
@@ -142,14 +142,14 @@ test("a workspace without the authoring flow is told what to do, not handed an i
   const double = relay({ registered: false })
   const controller = createAppController(store, silentAgent, double.services)
   try {
-    await controller.commands.run("flow.create", `summarise my issues ${REPO}`)
+    await controller.commands.run("flow.new", `summarise my issues ${REPO}`)
     await until(() => authoringCard(store)?.payload.authoring?.launchError !== undefined)
     const answer = authoringCard(store)?.payload.authoring?.launchError ?? ""
     expect(answer).not.toContain(controlPlaneRefusal(FLOW_AUTHORING_ENTRY))
     expect(answer).not.toContain("is registered on this workspace")
     expect(answer).toContain(REPO)
     expect(answer).toContain("flow-authoring flow")
-    expect(answer).toContain("/flow.create")
+    expect(answer).toContain("/flow.new")
     /* A toast dismisses in four seconds; the durable card is what is still there. */
     expect(authoringCard(store)?.status).toBe("error")
     expect(authoringCard(store)?.payload.observationError).toBe(answer)
@@ -164,7 +164,7 @@ test("a flow-authoring form honors its named repository instead of the loaded de
   const target = "codeplanesmithers/other-repository"
   await loadBox(store, target, "0b0c0d0e-0000-4000-8000-000000000002")
   try {
-    const outcome = await controller.commands.submit({ name: "flow.create", actor: "user",
+    const outcome = await controller.commands.submit({ name: "flow.new", actor: "user",
       payload: { description: "summarise my issues", repo: target } })
     expect(said(outcome)).toContain(`repo=${target}`)
     await until(() => double.launched.length === 1)

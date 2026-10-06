@@ -12,9 +12,9 @@ import type { CommandActions } from "./Declare"
 export const themeFlows = (actions: CommandActions): ReadonlyArray<FlowEntry> => [
   flow({
     name: "theme",
-    summary: "Switch light or dark; bare toggles",
+     slash: "/theme", cli: null, journey: [], group: "Account and settings", visibility: "core", actors: ["person","app_agent"], minimumRole: "member", http: null, summary: "Switch light or dark",
     args: "[light|dark]",
-    input: Schema.Struct({ mode: Schema.optional(Schema.Literals(["light", "dark"])) }),
+    agent: "run", input: Schema.Struct({ mode: Schema.optional(Schema.Literals(["light", "dark"])) }),
     handler: ({ mode }: { readonly mode?: "light" | "dark" }) => actions.setTheme(mode)
   })
 ]

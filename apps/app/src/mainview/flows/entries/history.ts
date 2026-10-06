@@ -8,7 +8,7 @@
  * One module per namespace: Flows.ts registers the block.
  */
 import { Schema } from "effect"
-import { flow, RepoTarget } from "./Declare"
+import { flow } from "./Declare"
 import type { FlowEntry, Namespace } from "../registry"
 import type { CommandActions } from "./Declare"
 import { openDesignHome } from "../../state/seams/DesignWorld/home"
@@ -19,19 +19,7 @@ export const namespace: Namespace = { id: "history", label: "History", summary: 
 /** The `history` flows registered as one aggregator block. */
 export const historyFlows = (actions: CommandActions): ReadonlyArray<FlowEntry> => [
   flow({
-    name: "history.show",
-    summary: "Show the stack and background runs",
-    hidden: true,
-    args: "[owner/repo]",
-    input: RepoTarget,
-    handler: () => {
-      const result = openDesignHome(actions.design, actions.design.viewer())
-      return result.ok ? { value: result.ack } : result.refusal
-    }
-  }),
-  flow({
-    name: "history.bootstrap",
-    hidden: true,
+    name: "history.bootstrap", visibility: "hidden",
     summary: "Create the history from main's commits",
     runtime: ["cloud"],
     args: "<owner/repo>",

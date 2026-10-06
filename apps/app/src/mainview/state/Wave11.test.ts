@@ -291,7 +291,7 @@ const runCard = (store: Awaited<ReturnType<typeof webStore>>): Extract<Card, { k
   return card?.kind === "run-trace" ? card : undefined
 }
 
-/** The durable card `flow.create` mints: where a background refusal is stated and retried. */
+/** The durable card `flow.new` mints: where a background refusal is stated and retried. */
 const authoringCard = (store: Awaited<ReturnType<typeof webStore>>): Extract<Card, { kind: "run-trace" }> | undefined => {
   const card = [...store.collections.cards.values()].find(card => card.kind === "run-trace" && card.payload.authoring !== undefined)
   return card?.kind === "run-trace" ? card : undefined
@@ -312,7 +312,7 @@ describe("wave 11 — the full journey: make me a workflow", () => {
 
     double.advance(1, 1)
     const outcome = await controller.commands.run(
-      "flow.create",
+      "flow.new",
       "a workflow that summarizes my open issues"
     )
     expect(outcome.status).toBe("executed")
@@ -392,7 +392,7 @@ describe("wave 11 — the full journey: make me a workflow", () => {
       )
   })
 
-  test("the agent invoking flow.create from the conversation renders the card, never a surface", async () => {
+  test("the agent invoking flow.new from the conversation renders the card, never a surface", async () => {
     const store = await webStore()
     const double = relay()
     const { agent, requests } = scriptedToolAgent([
@@ -403,7 +403,7 @@ describe("wave 11 — the full journey: make me a workflow", () => {
           name: "commands",
           arguments: JSON.stringify({
             action: "execute",
-            name: "flow.create",
+            name: "flow.new",
             args: "a workflow that summarizes my open issues"
           })
         },
@@ -420,13 +420,19 @@ describe("wave 11 — the full journey: make me a workflow", () => {
     controller.send("can you make me a smithers workflow that summarizes my open issues?")
     await settle(30)
 
+    expect(double.state.launched).toEqual([])
+    const confirmation = [...store.collections.messages.values()].find(message => message.action?.flow === "flow.new")
+    expect(confirmation).toBeDefined()
+    expect(JSON.stringify(requests[1]?.messages)).toContain("asked the user to confirm")
+    await controller.commands.run("flow.new", confirmation!.action!.args ?? undefined)
+    await settle(30)
     expect(double.state.launched[0]?.workflow).toBe("create-flow")
     expect(runCard(store)).toBeDefined()
     expect(store.collections.sessions.get("main")?.surface).toBe("chat")
     // The tool result the model saw states the REQUEST, so it cannot claim
     // something the seam did not do.
     const secondTurn = requests[1]
-    expect(JSON.stringify(secondTurn?.messages)).toContain(`flow-requested repo=${REPO}`)
+    expect(JSON.stringify(secondTurn?.messages)).toContain("asked the user to confirm")
     // The transcript act line is compact — no raw tool payload.
     expect([...store.collections.messages.values()].map((message) => message.text).join("\n")).not.toContain(
       "{\"state\""
@@ -441,7 +447,7 @@ describe("wave 11 — the loaded repositories are the universe", () => {
     const controller = createAppController(store, silentAgent, double.services)
     await signIn(store, null)
 
-    const outcome = await controller.commands.run("flow.create", "summarize my issues")
+    const outcome = await controller.commands.run("flow.new", "summarize my issues")
     expect(said(outcome)).toContain("No repository is loaded yet")
     expect(double.calls.some((call) => call.path === "/api/workflow/provision")).toBe(false)
   })
@@ -451,7 +457,7 @@ describe("wave 11 — the loaded repositories are the universe", () => {
     const double = relay()
     const controller = createAppController(store, silentAgent, double.services)
 
-    for (const command of ["flow.create", "flow.list", "flow.run"]) {
+    for (const command of ["flow.new", "flow.list", "flow.run"]) {
       const outcome = await controller.commands.run(command, command === "flow.list" ? undefined : "x")
       expect(said(outcome)).toContain("Sign in")
     }
@@ -729,7 +735,7 @@ describe("wave 11 — the run card never silently stalls", () => {
     })
     await signIn(store)
 
-    expect(said(await controller.commands.run("flow.create", "summarize my issues"))).toBe(`flow-requested repo=${REPO}`)
+    expect(said(await controller.commands.run("flow.new", "summarize my issues"))).toBe(`flow-requested repo=${REPO}`)
     /* The refusal is the durable card's, where the retry door stands beside it. */
     await waitFor(() => authoringCard(store)?.payload.authoring?.launchError !== undefined)
     expect(authoringCard(store)?.payload.authoring?.launchError).toContain("no free workspace capacity")
@@ -802,7 +808,7 @@ describe("wave 11 — workflows are presented", () => {
     const controller = createAppController(store, silentAgent, double.services)
     await signIn(store)
 
-    expect(said(await controller.commands.run("flow.create", "summarize my issues"))).toBe(`flow-requested repo=${REPO}`)
+    expect(said(await controller.commands.run("flow.new", "summarize my issues"))).toBe(`flow-requested repo=${REPO}`)
     await waitFor(() => authoringCard(store)?.payload.authoring?.launchError !== undefined)
     const refusal = authoringCard(store)?.payload.authoring?.launchError ?? ""
     expect(refusal).not.toContain("is registered on this workspace")
@@ -840,7 +846,7 @@ describe("wave 11 — workflows are presented", () => {
     })
     await signIn(store)
 
-    expect(said(await controller.commands.run("flow.create", "summarize my issues"))).toBe(`flow-requested repo=${REPO}`)
+    expect(said(await controller.commands.run("flow.new", "summarize my issues"))).toBe(`flow-requested repo=${REPO}`)
     await waitFor(() => double.state.launched.length > 0)
     expect(double.state.launched[0]?.workflow).toBe("create-flow")
   })
@@ -857,7 +863,7 @@ describe("wave 11 — workflows are presented", () => {
     const controller = createAppController(store, silentAgent, double.services)
     await signIn(store)
 
-    const created = said(await controller.commands.run("flow.create", "summarize my open issues"))
+    const created = said(await controller.commands.run("flow.new", "summarize my open issues"))
     expect(created).toBe(`flow-requested repo=${REPO}`)
 
     const ran = said(await controller.commands.run("flow.run", "review-pr"))
@@ -874,7 +880,7 @@ describe("wave 11 — workflows are presented", () => {
       name: "commands",
       arguments: JSON.stringify({ action: "list" })
     })
-    for (const name of ["flow.create", "flow.list", "flow.run"]) {
+    for (const name of ["flow.new", "flow.list", "flow.run"]) {
       expect(listed).toContain(name)
     }
     /*
@@ -894,7 +900,7 @@ describe("wave 11 — workflows are presented", () => {
         .all()
         .filter((command) => command.name.startsWith("flow.") && command.hidden !== true)
         .map((command) => command.name)
-    ).toEqual(["flow.create", "flow.list", "flow.run", "flow.plan", "flow.edit", "flow.source"])
+    ).toEqual(["flow.new", "flow.list", "flow.run", "flow.plan", "flow.edit", "flow.source"])
   })
 })
 

@@ -155,7 +155,7 @@ describe("a flow typed into the composer states its refusal", () => {
   })
 
   /*
-   * Canary D-4: `/flow.create <description>` answered `POST
+   * Canary D-4: `/flow.new <description>` answered `POST
    * /api/workflow/provision 200` and one `POST /api/workflow/rpc 200`, and
    * then nothing — no line, no toast, no card, no flow. One rpc is the
    * shape of a refused `Plan`: the gateway's launch plans, approves and runs,
@@ -189,7 +189,7 @@ describe("a flow typed into the composer states its refusal", () => {
       }
     })
     await loadBox(store, "codeplanesmithers/canary-sandbox")
-    controller.send("/flow.create a nightly lint flow codeplanesmithers/canary-sandbox")
+    controller.send("/flow.new a nightly lint flow codeplanesmithers/canary-sandbox")
     const refused = () => {
       const card = [...store.collections.cards.values()].find((entry) => entry.kind === "run-trace" && entry.payload.authoring !== undefined)
       return card?.kind === "run-trace" ? card.payload.authoring?.launchError : undefined

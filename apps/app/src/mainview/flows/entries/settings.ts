@@ -27,27 +27,24 @@ const key: Grammar = args => {
 /* The inputs each setup step needs (InstallSeam.setupStep's bodies); THE FORM LAW asks for the missing ones. */
 const SETUP_REQUIRES: Readonly<Record<string, ReadonlyArray<string>>> = { address: ["bind", "origins"], app_manifest: ["owner"], repository: ["repository"] }
 export const settingsFlows = (actions: CommandActions): ReadonlyArray<FlowEntry> => [
-  flow({ name: "settings.model.set", summary: "Change model", hidden: true, userOnly: true, userOnlyReason: "Only the owner’s browser session changes models",
-    grammar: object, input: Schema.Struct({ role: Schema.Literals(["fast", "coding", "jev"]), model: Schema.String }),
-    form: { submitLabel: "Save", args: payload => JSON.stringify(payload) }, handler: input => actions.assignAgentModel(input.role, input.model) }),
-  flow({ name: "settings", summary: "Settings", userOnly: true, userOnlyReason: "Install status requires the owner’s person session", input: NoPayload,
+  flow({ name: "settings",   slash: "/settings", cli: null, journey: ["J1"], group: "Account and settings", visibility: "core", actors: ["person"], minimumRole: "owner", http: null, summary: "Model access, machines, GitHub (owner)", agentReason: "Install status requires the owner’s person session", agent: "never", input: NoPayload,
     /* MOCK SEAM (DesignWorld/settings.ts designInstall): the card shows the seeded install now; the live read replaces it once /api/install serves a model. */
     handler: async () => { await actions.presentCard("settings", "Settings"); return actions.showSettings() } }),
-  flow({ name: "settings.address", summary: "Change Address", hidden: true, userOnly: true, userOnlyReason: "Install controls require the owner’s person session",
+  flow({ name: "settings.address", agent: "never", minimumRole: "owner", actors: ["person"], visibility: "in-card",  summary: "Change Address", hidden: true, agentReason: "Install controls require the owner’s person session",
     grammar: object, args: "<address>", input: Schema.Struct({ listen: Schema.Literals(["mac", "network"]), bind: Schema.String, origins: Schema.Array(Schema.String) }),
     form: { args: payload => JSON.stringify(payload) },
     handler: input => actions.setInstallAddress(input) }),
-  flow({ name: "settings.capacity", summary: "Change Machines", hidden: true, userOnly: true, userOnlyReason: "Install controls require the owner’s person session",
+  flow({ name: "settings.capacity", agent: "never", minimumRole: "owner", actors: ["person"], visibility: "in-card",  summary: "Change Machines", hidden: true, agentReason: "Install controls require the owner’s person session",
     grammar: count("capacity"), args: "<capacity>", input: Schema.Struct({ capacity: Schema.Number }),
     handler: ({ capacity }) => actions.setInstallCapacity(capacity) }),
-  flow({ name: "settings.parallel", summary: "Change At once", hidden: true, userOnly: true, userOnlyReason: "Install controls require the owner’s person session",
+  flow({ name: "settings.parallel", agent: "never", minimumRole: "owner", actors: ["person"], visibility: "in-card",  summary: "Change At once", hidden: true, agentReason: "Install controls require the owner’s person session",
     grammar: count("parallel"), args: "<parallel>", input: Schema.Struct({ parallel: Schema.Number }),
     handler: ({ parallel }) => actions.setInstallParallel(parallel) }),
-  flow({ name: "settings.obsidian", summary: "Change Obsidian folder", hidden: true, userOnly: true, userOnlyReason: "Install controls require the owner’s person session",
+  flow({ name: "settings.obsidian", agent: "never", minimumRole: "owner", actors: ["person"], visibility: "in-card",  summary: "Change Obsidian folder", hidden: true, agentReason: "Install controls require the owner’s person session",
     grammar: object, args: "<path>", input: Schema.Struct({ path: Schema.String }),
     form: { args: payload => JSON.stringify(payload) },
     handler: ({ path }) => actions.setInstallObsidian(path) }),
-  flow({ name: "settings.model-key", summary: "Change model key", hidden: true, userOnly: true, userOnlyReason: "Install controls require the owner’s person session",
+  flow({ name: "settings.model-key", agent: "never", minimumRole: "owner", actors: ["person"], visibility: "in-card",  summary: "Change model key", hidden: true, agentReason: "Install controls require the owner’s person session",
     grammar: key, args: "<role> <provider>",
     input: Schema.Struct({ role: Schema.Literals(["fast", "coding", "jev"]), provider: Schema.String, model: Schema.optional(Schema.String), value: Schema.optional(Schema.String) }),
     form: { submitLabel: "Save", args: input => JSON.stringify({ role: input.role, provider: input.provider }), fields: {
@@ -55,7 +52,7 @@ export const settingsFlows = (actions: CommandActions): ReadonlyArray<FlowEntry>
       value: { label: "Key", kind: "write-only", required: true }
     } },
     handler: ({ role, provider, model }, _signal, _call, gesture) => actions.saveInstallModelKey({ role, provider, ...(model ? { model } : {}) }, gesture) }),
-  flow({ name: "settings.setup", summary: "Continue setup", hidden: true, userOnly: true, userOnlyReason: "Install controls require the owner’s person session",
+  flow({ name: "settings.setup", agent: "never", minimumRole: "owner", actors: ["person"], visibility: "in-card",  summary: "Continue setup", hidden: true, agentReason: "Install controls require the owner’s person session",
     grammar: object, args: "<step>", input: Schema.Struct({ step: Schema.Literals(SETUP_STEP_IDS),
       owner: Schema.optional(Schema.String), repository: Schema.optional(Schema.String), bind: Schema.optional(Schema.String), origins: Schema.optional(Schema.Array(Schema.String)) }),
     form: { submitLabel: "Continue", args: input => JSON.stringify(input),
