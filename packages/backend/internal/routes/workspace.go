@@ -783,8 +783,14 @@ func (h *WorkspaceHandler) ForkWorkspace(w http.ResponseWriter, r *http.Request)
 		UserID:       user.ID,
 		WorkspaceID:  workspaceID,
 		Name:         req.Name,
+		Request:      r.Header.Get("Idempotency-Key"),
 	})
 	if svcErr != nil {
+		var branchErr *services.BranchError
+		if errors.As(svcErr, &branchErr) {
+			writeBranchError(w, r, svcErr)
+			return
+		}
 		writeRouteError(w, r, svcErr)
 		return
 	}

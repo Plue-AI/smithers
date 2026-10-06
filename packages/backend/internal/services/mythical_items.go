@@ -120,6 +120,9 @@ type mythicalLanes interface {
 // lane workspaces. Without it the stack still bootstraps and folds.
 func (s *MythicalService) SetOrchestration(github mythicalGitHub, launcher mythicalLauncher, lanes mythicalLanes) {
 	s.github, s.launcher, s.lanes = github, launcher, lanes
+	if adapter, ok := lanes.(*workspaceMythicalLanes); ok && adapter.workspaces != nil {
+		adapter.workspaces.revisionFork = s.forkWorkspaceRevision
+	}
 }
 
 // SetLauncher completes the construction cycle with the Flow dispatcher.

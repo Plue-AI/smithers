@@ -890,7 +890,7 @@ func (s *WorkspaceService) ForkWorkspace(ctx context.Context, input ForkWorkspac
 	if s.q == nil {
 		return WorkspaceResponse{}, pkgerrors.Internal("workspace store unavailable")
 	}
-	if s.runtime != nil {
+	if s.runtime != nil || s.revisionFork != nil {
 		return s.forkRuntimeWorkspace(ctx, input)
 	}
 	if s.sandbox == nil {
