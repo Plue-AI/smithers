@@ -160,3 +160,14 @@ C-SPK-03 retains `growth-samples.csv`, `versions-samples.csv`, `growth-summary.j
 `growth-abandon.log`, `growth-gc.log`, `kernel-probes.json` and failure evidence.
 The reference-host rerun, second-device browser results and signed ADR topology
 are still required. No topology decision is inferred from missing observations.
+
+Completed snapshot or growth observations that miss their budget exit **3**.
+The launcher verifies the complete summary before continuing to the remaining
+follow-up measurements, and retains the budget failure in its final exit.
+Execution, security, corruption, cancellation and incomplete-summary failures
+still stop dependent work. This allows slow snapshot runs to collect growth,
+versions and filesystem evidence without turning a latency miss into a pass.
+The final report requires the 1,000 consecutive growth samples, 100 versions
+samples, abandon/GC logs, evaluated growth budget, and complete guest kernel
+observations. A blocked privileged probe cannot be reported as a measured no
+or a passing C-SPK-03 receipt.

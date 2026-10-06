@@ -166,6 +166,8 @@ def parser():
 
 def main(argv=None):
     args = parser().parse_args(argv)
+    if os.geteuid() != 19999 or platform.system() != "Linux":
+        raise ValueError("snapshot measurement requires Linux guest agent uid 19999")
     if args.samples < 100 or args.busy_workers <= 0:
         raise ValueError("at least 100 samples/cell and positive busy workers are required")
     repo, output = args.repo.resolve(), args.output.resolve()
@@ -231,7 +233,7 @@ def main(argv=None):
                   "gate": "idle 12 changed files, >=100 samples, p95 <500ms", "env": metadata}
         (output / "summary.json").write_text(json.dumps(result, indent=2) + "\n")
         print(json.dumps(result))
-        return 0 if result["idle_12_file_gate_passed"] else 1
+        return 0 if result["idle_12_file_gate_passed"] else 3
     except BaseException as error:
         failure = {"status": "failed", "error": str(error), "completed_cells": cells}
         if isinstance(error, subprocess.CalledProcessError):

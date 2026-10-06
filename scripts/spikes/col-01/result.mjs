@@ -12,6 +12,32 @@ const read = async (p, required = false) => {
 };
 const rtt = await read(join(dir03,"summary.json"), requested("rtt"));
 const snapshot = await read(join(snapshotDir,"snapshot-summary.json"), requested("snapshot"));
+const growth = await read(join(snapshotDir, "growth-summary.json"), requested("snapshot"));
+const kernel = await read(join(snapshotDir, "kernel-probes.json"), requested("snapshot"));
+if (requested("snapshot")) {
+  if (growth?.uid !== 19999 || growth?.captures !== 1000 || growth?.versions?.n < 100 ||
+      !Number.isFinite(growth?.versions?.p95_ns) || growth.versions.p95_ns <= 0 ||
+      !Number.isSafeInteger(growth?.projected_14_day_bytes) || growth.projected_14_day_bytes < 0 ||
+      growth?.growth_budget_passed !== (growth?.projected_14_day_bytes < 2147483648)) {
+    failures.push("growth: expected 1000 guest captures, >=100 versions samples and evaluated 2 GiB budget");
+  }
+  for (const [file, count] of [["growth-samples.csv", 1000], ["versions-samples.csv", 100]]) {
+    try {
+      const lines = (await readFile(join(snapshotDir, file), "utf8")).trim().split("\n");
+      if (lines.length !== count + 1 || lines.slice(1).some((line, i) => Number(line.split(",")[0]) !== i + 1)) {
+        failures.push(`${file}: expected ${count} consecutive raw samples`);
+      }
+    } catch (error) { failures.push(`${file}: ${error.message}`); }
+  }
+  for (const file of ["growth-abandon.log", "growth-gc.log"]) {
+    try { await readFile(join(snapshotDir, file)); }
+    catch (error) { failures.push(`${file}: ${error.message}`); }
+  }
+  if (kernel?.uid !== 19999 || kernel?.complete !== true ||
+      ["renameat2_exchange", "renameat2_noreplace", "openat2_beneath", "cgroup.freeze", "cgroup.kill"].some(name => typeof kernel?.probes?.[name]?.yes !== "boolean")) {
+    failures.push("kernel: incomplete guest syscall/cgroup observations; blocked is not a measured no");
+  }
+}
 const browser = [];
 for (const transport of ["relay","bridge"]) {
   for (const run of await readdir(join(dir07,transport)).catch(()=>[])) {
@@ -48,6 +74,8 @@ for(const name of ["control","one-exec-control"]) {
 }
 for(const {transport,data:d} of measuredRuns)rows.push(`| ${transport} keystrokes ${d.workload.name}${d.local_assertions!=="passed"?" FAILED":""}, actual ${Object.entries(d.editors).map(([editor,s])=>`${editor} ${s.achieved_hz.value.toFixed(3)}/s`).join(", ")} | ${d.sample_count.value} | ${d.p50_ms.value.toFixed(3)} | ${d.p95_ms.value.toFixed(3)} | ${d.p99_ms.value.toFixed(3)} | Two headless tabs on this Mac via LAN IPv4; second Mac not run |`);
 for(const c of snapshot?.cells??[]) rows.push(`| jj snapshot ${c.load}, ${c.changed_files} files | ${c.stats.n} | ${fmt(c.stats.p50_ns)} | ${fmt(c.stats.p95_ns)} | ${fmt(c.stats.p99_ns)} | Disposable VM; shallow main clone, installed ignored dependencies; 128-byte fixture edits |`);
+if (growth?.versions) rows.push(`| versions commit | ${growth.versions.n} | ${fmt(growth.versions.p50_ns)} | ${fmt(growth.versions.p95_ns)} | ${fmt(growth.versions.p99_ns)} | Guest; synthetic 12-blob flat tree; warm caches |`);
+const followup = growth ? `Capture growth: ${growth.captures} captures; projected 14-day allocated growth ${growth.projected_14_day_bytes} bytes (${growth.growth_budget_passed ? "within" : "FAILED"} 2 GiB budget); GC reclaimed ${growth.reclaimed_bytes} bytes. Retention remains unapproved. Kernel probes: ${JSON.stringify(kernel?.probes ?? {})}.` : "Follow-up capture growth, versions and kernel evidence unavailable.";
 const text=`${failures.length ? `Incomplete requested measurements:\n${failures.map(f => `- ${f}`).join("\n")}\n\n` : ""}Transport: **${chosen==="undetermined" ? `none qualifies; ${candidate??"no"} candidate requires the lead's scheduling decision` : chosen}**. Host mirror fallback: **${fallback}**.
 
 Disposable T-COL-01 observations on this Mac; C-SPK-03 acceptance requires an isolated reference-host run, and C-SPK-07 is partial because there is no second Mac. Every raw sample, including the first, is retained; no warm-up subset is removed. Guest saves use 200 ms idle / 1 s maximum, fsync and rename.
@@ -65,6 +93,8 @@ ${measuredRuns.map(({transport,data:d})=>`${transport} ${d.workload.name}: at th
 ${snapshot ? `Snapshot idle 12-file gate: ${snapshot.idle_12_file_gate_passed ? "passed locally" : "FAILED"}. Every sample includes jj process startup and full repository scan. Preparation/validation are untimed and warm caches. No-change p95 ≥500 ms requires the lead's fsmonitor decision before T-COL-04. See snapshot preparation/env receipts for the exact public main revision and tool/dependency versions.` : "Snapshot measurements were not requested, or are incomplete as recorded above."}
 
 
+${followup}
+
 Reference-host findings (lead ruling 10-03):
 - Astra1/Fable1: **moved to T-COL-11 (lead ruling 10-03)**. Prepare a populated Linux ARM64 pnpm 11 store archive for the measured revision, then run the snapshot target on the reference host with \`SPIKE_SNAPSHOT_STORE_ARCHIVE\`; retain all eight 0/1/12/200-file idle/busy cells (100 samples each), dependency identities and the 12-file idle budget result.
 - Astra2/Fable3: **moved to T-COL-11 (lead ruling 10-03)**. Run the complete isolated reference-host RTT matrix with no competing VM (both transports, 64 B/4 KiB, idle/busy, 1,000 samples per cell and 20 setup samples), then obtain the second-Mac plain-LAN browser receipt for all three workloads with convergence and disk hashes. Retain the bridge delayed ACK/Nagle confounder and resolve it in the ADR 0003 topology decision; this harness landing claims neither reference-host acceptance nor a second-Mac pass.
@@ -75,4 +105,4 @@ Evidence: ${dir03}, ${dir07}. Strict second-Mac steps: **not run: needs second M
 `;
 await Promise.all([writeFile(join(dir03,"result.md"),text),writeFile(join(dir07,"result.md"),text)]);
 process.stdout.write(text);
-if(failures.length || snapshot?.idle_12_file_gate_passed===false || rtt?.local_gate_passed===false || browser.some(x=>x.data.local_assertions!=="passed")) process.exitCode=2;
+if(failures.length || growth?.growth_budget_passed===false || snapshot?.idle_12_file_gate_passed===false || rtt?.local_gate_passed===false || browser.some(x=>x.data.local_assertions!=="passed")) process.exitCode=2;

@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"net/http"
@@ -114,16 +115,70 @@ func (h *harness) snapshots(dir string, cpus int) (retErr error) {
 		_ = os.WriteFile(filepath.Join(dir, fmt.Sprintf("snapshot-command-%d.log", i)), []byte(result.Stdout+"\n"+result.Stderr), 0600)
 		select {
 		case e := <-spaceErr:
-			return e
+			return errors.Join(retErr, e)
 		default:
 		}
 		if err != nil {
-			return err
+			return errors.Join(retErr, err)
 		}
 		if result.ExitCode != 0 {
-			return fmt.Errorf("snapshot command %d exit %d: %s", i, result.ExitCode, result.Stderr)
+			failure := fmt.Errorf("snapshot command %d exit %d: %s", i, result.ExitCode, result.Stderr)
+			// Only a completed, byte-verified budget miss may continue. An
+			// execution/security/correctness failure stops dependent work.
+			summaryPath := map[int]string{1: "jj-snapshot-output/summary.json", 2: "jj-growth-output/summary.json"}[i]
+			if summaryPath == "" || result.ExitCode != 3 {
+				return errors.Join(retErr, failure)
+			}
+			data, readErr := h.runtime.ReadFile(ctx, h.id, summaryPath)
+			if readErr != nil || !completedBudgetMiss(i, data) {
+				return errors.Join(retErr, failure, readErr)
+			}
+			retErr = errors.Join(retErr, failure)
 		}
 		fmt.Println(result.Stdout)
 	}
-	return nil
+	return retErr
+}
+
+// Exit 3 is reserved by the guest drivers for completed observations whose
+// budget failed. Verify the corresponding summary before continuing.
+func completedBudgetMiss(index int, data []byte) bool {
+	var result struct {
+		SnapshotPassed *bool `json:"idle_12_file_gate_passed"`
+		GrowthPassed   *bool `json:"growth_budget_passed"`
+		Captures       int   `json:"captures"`
+		Versions       struct {
+			N   int   `json:"n"`
+			P95 int64 `json:"p95_ns"`
+		} `json:"versions"`
+		Cells []struct {
+			Load  string `json:"load"`
+			Count int    `json:"changed_files"`
+			Stats struct {
+				N   int   `json:"n"`
+				P95 int64 `json:"p95_ns"`
+			} `json:"stats"`
+		} `json:"cells"`
+	}
+	if json.Unmarshal(data, &result) != nil {
+		return false
+	}
+	if index == 2 {
+		return result.GrowthPassed != nil && !*result.GrowthPassed && result.Captures == 1000 && result.Versions.N >= 100 && result.Versions.P95 > 0
+	}
+	if index != 1 || result.SnapshotPassed == nil || *result.SnapshotPassed || len(result.Cells) != 8 {
+		return false
+	}
+	seen := map[string]bool{}
+	for _, cell := range result.Cells {
+		if (cell.Load != "idle" && cell.Load != "busy") || (cell.Count != 0 && cell.Count != 1 && cell.Count != 12 && cell.Count != 200) || cell.Stats.N < 100 || cell.Stats.P95 <= 0 {
+			return false
+		}
+		key := fmt.Sprintf("%s/%d", cell.Load, cell.Count)
+		if seen[key] {
+			return false
+		}
+		seen[key] = true
+	}
+	return true
 }

@@ -5,6 +5,19 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { spawnSync } from 'node:child_process';
 
+async function followup(dir) {
+  await writeFile(join(dir, 'growth-summary.json'), JSON.stringify({ uid: 19999, captures: 1000, versions: { n: 100, p50_ns: 1, p95_ns: 2, p99_ns: 3 }, projected_14_day_bytes: 1000, growth_budget_passed: true, reclaimed_bytes: 42 }));
+  await writeFile(join(dir, 'kernel-probes.json'), JSON.stringify({ uid: 19999, complete: true, probes: Object.fromEntries(['renameat2_exchange', 'renameat2_noreplace', 'openat2_beneath', 'cgroup.freeze', 'cgroup.kill'].map(name => [name, { yes: false }])) }));
+  for (const [file, count] of [['growth-samples.csv', 1000], ['versions-samples.csv', 100]]) {
+    await writeFile(join(dir, file), 'seq,value\n' + Array.from({ length: count }, (_, i) => `${i + 1},1`).join('\n') + '\n');
+  }
+  for (const file of ['growth-abandon.log', 'growth-gc.log']) await writeFile(join(dir, file), '');
+}
+async function snapshot(dir) {
+  const cells = ['idle', 'busy'].flatMap(load => [0, 1, 12, 200].map(changed_files => ({ load, changed_files, stats: { n: 100, p50_ns: 1, p95_ns: 2, p99_ns: 3 } })));
+  await writeFile(join(dir, 'snapshot-summary.json'), JSON.stringify({ cells, idle_12_file_gate_passed: true }));
+}
+
 for (const [name, content] of [['missing', undefined], ['invalid', '{'], ['incomplete', '{}']]) {
   test(`requested snapshot ${name} fails with retained reason`, async () => {
     const dir = await mkdtemp(join(tmpdir(), 'col01-result-'));
@@ -20,8 +33,8 @@ for (const [name, content] of [['missing', undefined], ['invalid', '{'], ['incom
 test('explicit snapshot-only mode does not require RTT or browsers', async () => {
   const dir = await mkdtemp(join(tmpdir(), 'col01-result-'));
   try {
-    const cells = ['idle', 'busy'].flatMap(load => [0, 1, 12, 200].map(changed_files => ({ load, changed_files, stats: { n: 100, p50_ns: 1, p95_ns: 2, p99_ns: 3 } })));
-    await writeFile(join(dir, 'snapshot-summary.json'), JSON.stringify({ cells, idle_12_file_gate_passed: true }));
+    await snapshot(dir);
+    await followup(dir);
     const result = spawnSync(process.execPath, ['scripts/spikes/col-01/result.mjs', dir, dir, dir, 'snapshot'], { encoding: 'utf8' });
     assert.equal(result.status, 0, result.stderr);
     assert.doesNotMatch(result.stdout, /Incomplete requested measurements/);
@@ -50,6 +63,22 @@ for (const [name, n, verified, status] of [['complete', 100, true, 0], ['short',
       assert.match(result.stdout, /control writes/);
       if (status) assert.match(result.stdout, /expected 100 verified writes/);
       else assert.doesNotMatch(result.stdout, /Incomplete requested measurements/);
+    } finally { await rm(dir, { recursive: true, force: true }); }
+  });
+}
+
+for (const scenario of ['missing', 'blocked', 'short', 'budget', 'stale-gate']) {
+  test(`snapshot report rejects ${scenario} follow-up evidence`, async () => {
+    const dir = await mkdtemp(join(tmpdir(), 'col11-result-'));
+    try {
+      await snapshot(dir);
+      if (scenario !== 'missing') await followup(dir);
+      if (scenario === 'blocked') await writeFile(join(dir, 'kernel-probes.json'), JSON.stringify({ uid: 19999, complete: false, probes: { 'cgroup.kill': { status: 'blocked' } } }));
+      if (scenario === 'short') await writeFile(join(dir, 'growth-samples.csv'), 'seq,value\n1,1\n');
+      if (scenario === 'budget' || scenario === 'stale-gate') await writeFile(join(dir, 'growth-summary.json'), JSON.stringify({ uid: 19999, captures: 1000, versions: { n: 100, p95_ns: 2 }, projected_14_day_bytes: 2147483648, growth_budget_passed: scenario === 'stale-gate' }));
+      const result = spawnSync(process.execPath, ['scripts/spikes/col-01/result.mjs', dir, dir, dir, 'snapshot'], { encoding: 'utf8' });
+      assert.equal(result.status, 2, result.stderr);
+      assert.match(result.stdout, /growth|kernel/);
     } finally { await rm(dir, { recursive: true, force: true }); }
   });
 }
