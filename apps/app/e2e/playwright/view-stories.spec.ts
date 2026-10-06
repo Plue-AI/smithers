@@ -796,6 +796,40 @@ test("DebugApiView hostile body and failure render as text", async ({ page }) =>
   expect(await page.evaluate(() => Reflect.get(window, "__pwned"))).toBeUndefined()
 })
 
+test("DebugApiView supplied confirmations and unavailable actions obey the keyboard seam", async ({ page }) => {
+  const cases = [
+    ["pending_mutation", "Confirm POST /api/todos/12/drop", "dropTodo"],
+    ["pending_put", "Confirm PUT /api/secrets/key", "putSecret"],
+    ["pending_patch", "Confirm PATCH /api/settings", "patchSettings"],
+    ["pending_delete", "Confirm DELETE /api/secrets/key", "deleteSecret"],
+  ] as const
+  for (const theme of ["light", "dark"]) for (const width of [1440, 390]) {
+    await page.setViewportSize({ width, height: 844 })
+    for (const [story, label, operation] of cases) {
+      await page.goto(`/view-stories.html?story=DebugApiView/${story}&theme=${theme}`)
+      await page.evaluate(() => {
+        Object.assign(window, { debugApiCalls: [] })
+        window.addEventListener("story-callback", event =>
+          (window as unknown as { debugApiCalls: unknown[] }).debugApiCalls.push((event as CustomEvent).detail))
+      })
+      const control = page.getByRole("button", { name: label, exact: true })
+      await expect(page.locator(".mvp-debug-api button[data-flow]")).toHaveCount(1)
+      await expect(page.getByRole("button", { name: "Send", exact: true })).toHaveCount(0)
+      expect(await page.evaluate(() => Reflect.get(window, "debugApiCalls"))).toEqual([])
+      await control.focus()
+      await control.press("Enter")
+      expect(await page.evaluate(() => Reflect.get(window, "debugApiCalls"))).toEqual([
+        { kind: "action", value: { tag: "debug-api", args: { operation, confirm: "true" } } },
+      ])
+    }
+    await page.goto(`/view-stories.html?story=DebugApiView/disabled&theme=${theme}`)
+    await expect(page.getByRole("button", { name: "Send", exact: true })).toBeDisabled()
+    await expect(page.getByRole("textbox", { name: "n", exact: true })).toBeDisabled()
+    await page.goto(`/view-stories.html?story=DebugApiView/operations&theme=${theme}`)
+    await expect(page.locator(".mvp-debug-api button[data-flow]")).toHaveCount(0)
+  }
+})
+
 for (const key of ["Enter", "Space"]) test(`T-UI-15 keyboard ${key} controls preserve supplied arguments once`, async ({ page }) => {
   const cases = [
     ["awake", "Sleep", "box.suspend", { branch: "todo/12" }],
