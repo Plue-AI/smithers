@@ -1075,6 +1075,7 @@ type mythicalItemStep struct {
 	// maxParallel: every launch that takes a new lane asks slot first.
 	busy        int
 	maxParallel int
+	machineHeld map[[16]byte]bool
 	// inFlight names the items with a run in flight, each holding
 	// mythicalRunTokenReserve of the daily budget: those found running when
 	// the pass began and those it launched.
@@ -1176,12 +1177,21 @@ func mythicalRunInFlight(item db.MythicalItem) bool {
 // freeLane supplies identity only; people use runtime admission, not a lane reserve.
 func (st *mythicalItemStep) slot(item db.MythicalItem) bool {
 	busy := st.busy
-	if mythicalHoldsLane(item) || item.State == "proposed" && item.WorkspaceID != "" {
+	if st.holdsMachine(item) {
 		// The item gives up the workspace it holds (its coding workspace,
 		// counted while it was proposed) for the new one.
 		busy--
 	}
 	return busy < st.maxParallel && st.launches < mythicalLaunchesPerRun
+}
+
+// holdsMachine uses runtime ownership on the install. Legacy drains retain
+// their historical accounting when no install provider is required.
+func (st *mythicalItemStep) holdsMachine(item db.MythicalItem) bool {
+	if st.machineHeld != nil {
+		return st.machineHeld[item.ID.Bytes]
+	}
+	return mythicalHoldsLane(item) || item.State == "proposed" && item.WorkspaceID != ""
 }
 
 // freeLane answers the lowest lane index no other unsettled item holds, so
@@ -1282,10 +1292,34 @@ func (s *MythicalService) advanceItems(ctx context.Context, r *mythicalRun) {
 			step.issues = append(step.issues, fmt.Sprintf("#%d %s", item.IssueNumber.Int64, item.IssueTitle))
 		}
 	}
+	if s.installParallelRequired {
+		ownership, ok := s.lanes.(interface {
+			MachineHeld(context.Context, string) (bool, error)
+		})
+		step.machineHeld = map[[16]byte]bool{}
+		if !ok {
+			step.maxParallel = 0
+			s.logger.Warn("mythical.machine_ownership_unavailable")
+		}
+		for _, item := range items {
+			if item.WorkspaceID == "" {
+				continue
+			}
+			held := true
+			var err error
+			if ok {
+				held, err = ownership.MachineHeld(ctx, item.WorkspaceID)
+			}
+			if err != nil {
+				held = true
+				step.maxParallel = 0
+				s.logger.Warn("mythical.machine_ownership_failed", "error", err)
+			}
+			step.machineHeld[item.ID.Bytes] = held
+		}
+	}
 	for _, item := range items {
-		// Every workspace a phase occupies counts, so reviews, retained
-		// coding workspaces and new requests together stay within the cap.
-		if mythicalHoldsLane(item) {
+		if step.holdsMachine(item) {
 			step.busy++
 		}
 	}
@@ -1357,8 +1391,11 @@ func (s *MythicalService) advanceItems(ctx context.Context, r *mythicalRun) {
 		if next == nil {
 			continue
 		}
-		if !mythicalHoldsLane(item) && mythicalHoldsLane(*next) {
+		if !step.holdsMachine(item) && mythicalHoldsLane(*next) {
 			step.busy++
+			if step.machineHeld != nil {
+				step.machineHeld[item.ID.Bytes] = true
+			}
 		}
 		result := *next
 		if !saved {
@@ -1479,6 +1516,11 @@ func mythicalStepFailedDue(err error, now time.Time) time.Time {
 // pinned, so nothing depends on it. A failed release is retried next claim.
 // It answers the item as saved, so a step that follows works on it.
 func (s *MythicalService) releaseLane(ctx context.Context, r *mythicalRun, item db.MythicalItem) db.MythicalItem {
+	// On the install, review is a retained branch machine. Only the runtime's
+	// safe-idle observer may sleep it; publication is not a safety observation.
+	if s.installParallelRequired && !mythicalSettledStates[item.State] {
+		return item
+	}
 	if s.lanes == nil || item.WorkspaceID == "" || !r.row.ActorUserID.Valid {
 		return item
 	}

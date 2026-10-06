@@ -247,3 +247,27 @@ func (s *WorkspaceService) admitWorkspaceOperation(ctx context.Context, row db.W
 	s.setWorkspaceProvisioningStageBestEffort(ctx, row.ID, "")
 	return granted, nil
 }
+
+// MachineHeld counts the bound machine until runtime-confirmed release. A lane
+// being provisioned holds its launch reservation before asynchronous boot starts.
+func (l *workspaceMythicalLanes) MachineHeld(ctx context.Context, id string) (bool, error) {
+	if l == nil || l.workspaces == nil {
+		return true, errors.New("machine ownership unavailable")
+	}
+	runtime, ok := l.workspaces.runtime.(interface{ AdmissionOwnership(string) (bool, bool) })
+	if !ok {
+		return true, errors.New("machine ownership unavailable")
+	}
+	row, err := l.workspaces.q.GetWorkspace(ctx, id)
+	if err != nil {
+		return true, err
+	}
+	held, known := runtime.AdmissionOwnership(machineQueueHolder(id))
+	if held || row.Status == "pending" || row.Status == "starting" {
+		return true, nil
+	}
+	if !known && row.Status != "stopped" {
+		return true, errors.New("machine release unconfirmed")
+	}
+	return false, nil
+}

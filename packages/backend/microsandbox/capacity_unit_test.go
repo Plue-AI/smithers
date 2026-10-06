@@ -1315,3 +1315,24 @@ func TestAdmissionIdleConcurrentPreparationDoesNotBlockCancellation(t *testing.T
 	require.ErrorContains(t, <-done, "capture failed")
 	require.Equal(t, 1, r.InUse())
 }
+
+func TestAdmissionHeldUntilObservedStop(t *testing.T) {
+	r, p := admissionFixture()
+	require.False(t, r.AdmissionHeld("workspace:T1"))
+	_, err := r.Request("todo", "workspace:T1", "T1", "machine")
+	require.NoError(t, err)
+	require.False(t, r.AdmissionHeld("workspace:T1"))
+	_, err = r.GrantNext(t.Context(), p)
+	require.NoError(t, err)
+	require.True(t, r.AdmissionHeld("workspace:T1"))
+	require.True(t, r.CancelAdmission("workspace:T1", "T1", time.Now()))
+	require.True(t, r.AdmissionHeld("workspace:T1"), "cancellation is not observed release")
+	r.ConfirmAdmissionStop("workspace:T1", false)
+	require.False(t, r.AdmissionHeld("workspace:T1"))
+	r.workspaces["recovered"] = &workspace{metadata: metadata{Machine: "vm", State: "running"}}
+	require.True(t, r.AdmissionHeld("workspace:recovered"))
+	r.workspaces["recovered"].State = "stopping"
+	require.True(t, r.AdmissionHeld("workspace:recovered"))
+	r.workspaces["recovered"].State = "stopped"
+	require.False(t, r.AdmissionHeld("workspace:recovered"))
+}

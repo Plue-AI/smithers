@@ -138,6 +138,36 @@ func (r *Runtime) rankAdmissionLocked() []*AdmissionRequest {
 	return heads
 }
 
+// AdmissionHeld reports ownership, including cancelled grants awaiting an
+// observed stop. Request state alone cannot establish that capacity is free.
+func (r *Runtime) AdmissionHeld(holder string) bool {
+	held, _ := r.AdmissionOwnership(holder)
+	return held
+}
+
+// AdmissionOwnership distinguishes confirmed release from unknown ownership
+// after recovery. Missing runtime metadata is not a stop receipt.
+func (r *Runtime) AdmissionOwnership(holder string) (held, known bool) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if h := r.admission[holder]; h != nil && h.held {
+		return true, true
+	}
+	if id, ok := strings.CutPrefix(holder, "workspace:"); ok {
+		if ws := r.workspaces[id]; ws != nil {
+			return ws.Machine != "" && ws.State != "stopped" && ws.State != "recovery_required", true
+		}
+	}
+	if h := r.admission[holder]; h != nil {
+		for _, row := range h.rows {
+			if row.State == "released" {
+				return false, true
+			}
+		}
+	}
+	return false, false
+}
+
 // AdmissionSnapshot copies rows so callers cannot mutate runtime ownership.
 func (r *Runtime) AdmissionSnapshot() []AdmissionRequest {
 	r.mu.Lock()
