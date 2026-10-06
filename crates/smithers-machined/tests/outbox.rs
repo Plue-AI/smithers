@@ -182,3 +182,132 @@ fn bundle_larger_than_credit_requires_windows_and_peer_close() {
     .unwrap();
     assert!(s.verified());
 }
+
+struct Bundles(Vec<([u8; 16], Vec<Oid>)>);
+impl smithers_machined::objects::Bundles for Bundles {
+    type Source = Cursor<Vec<u8>>;
+    fn export(&mut self, event: &conn::Durable, haves: &[Oid]) -> io::Result<Self::Source> {
+        self.0.push((event.id, haves.to_vec()));
+        Ok(Cursor::new(vec![19; 300_001]))
+    }
+}
+
+// Pass both directions through the production codec, including the bundle's
+// flow-control windows. Dropping a receipt must never lose the event or its pin.
+#[test]
+fn delivery_waits_for_import_and_replays_after_disconnect_ten_times() {
+    use smithers_machined::objects::Delivery;
+    for _ in 0..10 {
+        let f = Fixture::new();
+        let mut outbox = f.open();
+        let (seq, id) = outbox
+            .append(&outbox::captured([1; 20], [2; 20], [3; 20]), Some([1; 20]))
+            .unwrap();
+        let mut pump = Delivery::new(Bundles(vec![]));
+        assert!(pump.begin(&outbox, 0x8000_0000).is_err());
+        for stream in [1, 2] {
+            assert!(pump.begin(&outbox, stream).unwrap());
+            assert!(pump.begin(&outbox, stream + 1).is_err());
+            assert!(pump.receive(&mut outbox, &ack(seq, 1)).is_err());
+            let mut bytes = vec![];
+            loop {
+                let frame = pump.next_frame().unwrap().unwrap();
+                let frame = Frame::decode(&frame.encode().unwrap()).unwrap();
+                assert_eq!(frame.kind, 6);
+                if frame.payload[0] == 2 {
+                    break;
+                }
+                bytes.extend_from_slice(&frame.payload[2..]);
+                let mut window = vec![6];
+                window.extend(((frame.payload.len() - 2) as u32).to_be_bytes());
+                assert!(pump
+                    .receive(
+                        &mut outbox,
+                        &Frame {
+                            kind: 6,
+                            stream,
+                            payload: window
+                        }
+                    )
+                    .unwrap()
+                    .is_none());
+            }
+            assert_eq!(bytes, vec![19; 300_001]);
+            assert!(pump.next_frame().unwrap().is_none());
+            let event = pump
+                .receive(
+                    &mut outbox,
+                    &Frame {
+                        kind: 6,
+                        stream,
+                        payload: vec![7],
+                    },
+                )
+                .unwrap()
+                .unwrap();
+            let event = Frame::decode(&event.encode().unwrap()).unwrap();
+            assert_eq!(conn::Durable::decode(&event.payload).unwrap().id, id);
+            assert!(pump.next_frame().unwrap().is_none());
+            if stream == 1 {
+                pump.reconnect(&mut outbox);
+                assert_eq!(f.repo.0.lock().unwrap().pins.len(), 1);
+            } else {
+                pump.receive(&mut outbox, &ack(seq, 2)).unwrap();
+            }
+        }
+        assert!(!pump.begin(&outbox, 3).unwrap());
+        assert!(outbox.front().unwrap().is_none());
+        assert_eq!(f.repo.0.lock().unwrap().ack, Some([1; 20]));
+    }
+}
+
+#[test]
+fn delivery_rebuilds_missing_objects_against_peer_haves() {
+    use smithers_machined::objects::{Bundles, Delivery};
+    struct Export(Arc<Mutex<Vec<Vec<Oid>>>>);
+    impl Bundles for Export {
+        type Source = Cursor<Vec<u8>>;
+        fn export(&mut self, _: &conn::Durable, haves: &[Oid]) -> io::Result<Self::Source> {
+            self.0.lock().unwrap().push(haves.to_vec());
+            Ok(Cursor::new(vec![]))
+        }
+    }
+    let f = Fixture::new();
+    let mut outbox = f.open();
+    let (seq, id) = outbox
+        .append(&outbox::captured([1; 20], [2; 20], [3; 20]), Some([1; 20]))
+        .unwrap();
+    let exports = Arc::new(Mutex::new(vec![]));
+    let mut pump = Delivery::new(Export(exports.clone()));
+    let mut missing = ack(seq, 3);
+    let mut haves = 1u16.to_be_bytes().to_vec();
+    haves.extend([7; 20]);
+    missing.payload = conn::tagged(
+        3,
+        &[
+            conn::field(1, seq.to_be_bytes()),
+            conn::field(2, [3]),
+            conn::field(5, haves),
+        ],
+    );
+    for stream in [1, 2] {
+        assert!(pump.begin(&outbox, stream).unwrap());
+        assert_eq!(pump.next_frame().unwrap().unwrap().payload, [2, 0]);
+        let event = pump
+            .receive(
+                &mut outbox,
+                &Frame {
+                    kind: 6,
+                    stream,
+                    payload: vec![7],
+                },
+            )
+            .unwrap()
+            .unwrap();
+        assert_eq!(conn::Durable::decode(&event.payload).unwrap().id, id);
+        let receipt = if stream == 1 { &missing } else { &ack(seq, 1) };
+        pump.receive(&mut outbox, receipt).unwrap();
+    }
+    assert_eq!(*exports.lock().unwrap(), vec![vec![], vec![[7; 20]]]);
+    assert!(outbox.front().unwrap().is_none());
+}
