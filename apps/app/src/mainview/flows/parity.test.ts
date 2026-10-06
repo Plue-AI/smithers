@@ -442,6 +442,16 @@ const viewSeamViolations = (source: string, sourceUrl = new URL("../cards/views/
             !/^(?:preventDefault|stopPropagation)$/.test(call.expression.name.text)) break
           statements.shift()
         }
+        // Write-only forms must clear their draft even when the supplied action throws.
+        if (statements.length === 1 && ts.isTryStatement(statements[0]!)) {
+          const attempt = statements[0] as ts.TryStatement
+          if (attempt.catchClause || !attempt.finallyBlock) return undefined
+          const cleanup = ts.factory.createArrowFunction(undefined, undefined, [], undefined,
+            ts.factory.createToken(ts.SyntaxKind.EqualsGreaterThanToken), attempt.finallyBlock)
+          if (!presentationHandler(cleanup)) return undefined
+          return calledTag(ts.factory.createArrowFunction(undefined, undefined, [], undefined,
+            ts.factory.createToken(ts.SyntaxKind.EqualsGreaterThanToken), attempt.tryBlock), seen)
+        }
         // A submitted action may also clear transient form state.
         if (statements.length > 1) {
           const cleanup = ts.factory.createArrowFunction(undefined, undefined, [], undefined,
@@ -549,6 +559,10 @@ const viewSeamViolations = (source: string, sourceUrl = new URL("../cards/views/
           // Copy: its arguments are inspected below like any other call's.
         } else if (ts.isIdentifier(callee) && presentationHandler(callee, new Set(seen))) {
           // A local helper must itself contain only presentation effects.
+        } else if (ts.isPropertyAccessExpression(callee) && callee.name.text === "reset" &&
+          /^(?:event|e)\.currentTarget(?:\.form)?$/.test(callee.expression.getText(tree)) &&
+          node.arguments.length === 0) {
+          // Native form reset clears uncontrolled write-only inputs without projecting their values.
         } else if (
           ts.isPropertyAccessExpression(callee) && /^(?:focus|preventDefault|stopPropagation)$/.test(callee.name.text)
         ) {
@@ -1077,6 +1091,15 @@ describe("View and Container catalog seam (C-UI-08)", () => {
         "const [open, setOpen] = useState(false); const view = <button onClick={() => setOpen(previous => { onRetry(); return previous })} />"
       ]
     ) expect(viewSeamViolations(source).length).toBeGreaterThan(0)
+  })
+
+  test("Secrets handlers preserve the action seam and guaranteed write-only cleanup", () => {
+    expect(viewSeamViolations(read("../cards/views/SecretsView.tsx"))).toEqual([])
+    const prefix = 'const [input, setInput] = useState({}); '
+    expect(viewSeamViolations(prefix + '<form data-flow={action.tag} onSubmit={event => { event.preventDefault(); try { onAction(action.tag, values) } finally { setInput({}) } }} />')).toEqual([])
+    for (const cleanup of ['mutate()', 'setInput(() => mutate())', 'onAction(other.tag)', 'model.value = "changed"', 'other.reset()', 'event.currentTarget.reset(mutate())']) {
+      expect(viewSeamViolations(prefix + `<form data-flow={action.tag} onSubmit={() => { try { onAction(action.tag) } finally { ${cleanup} } }} />`).length).toBeGreaterThan(0)
+    }
   })
 
   test("an action may clear transient input without hiding extra commands", () => {
