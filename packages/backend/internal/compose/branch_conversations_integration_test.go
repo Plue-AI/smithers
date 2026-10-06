@@ -338,10 +338,11 @@ func TestBranchConversationPrivateViewLiveInstall(t *testing.T) {
 	server := httptest.NewUnstartedServer(nil)
 	origin := "http://" + server.Listener.Addr().String()
 	t.Setenv("SMITHERS_PUBLIC_URL", origin)
-	server.Config.Handler = startSplitProcess(t, Options{ChatHost: unusedChatHost{}})
+	host := revokedAuthorHost{started: make(chan ports.ChatTurnGrant, 8), stopped: make(chan string, 8)}
+	server.Config.Handler = startSplitProcess(t, Options{ChatHost: host})
 	server.Start()
 	defer server.Close()
-	call := func(method, path, body, cookie string, expected int) {
+	call := func(method, path, body, cookie string, expected int) string {
 		req, err := http.NewRequest(method, origin+path, strings.NewReader(body))
 		require.NoError(t, err)
 		req.Header.Set("Content-Type", "application/json")
@@ -355,6 +356,7 @@ func TestBranchConversationPrivateViewLiveInstall(t *testing.T) {
 		res.Body.Close()
 		require.NoError(t, err)
 		require.Equal(t, expected, res.StatusCode, string(raw))
+		return string(raw)
 	}
 	open := func(cookie string) *websocket.Conn {
 		ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
@@ -400,6 +402,60 @@ func TestBranchConversationPrivateViewLiveInstall(t *testing.T) {
 	require.Empty(t, refusal.Data)
 	send(aliceSocket, 3, aliceTopic)
 	require.JSONEq(t, `{"toasts_hidden":false}`, string(receive(aliceSocket, 3, "snap").Data))
+	// Queued prompts reconnect through the same private projection. They
+	// never enter another member's view, even on the same branch.
+	var held struct {
+		TurnID string `json:"turnId"`
+	}
+	require.NoError(t, json.Unmarshal([]byte(call("POST", "/api/conversations/main/prompt", `{"prompt":"held","idempotencyKey":"held"}`, benCookie, 202)), &held))
+	select {
+	case <-host.started:
+	case <-time.After(5 * time.Second):
+		t.Fatal("host did not start")
+	}
+	var queued struct {
+		TurnID string `json:"turnId"`
+	}
+	require.NoError(t, json.Unmarshal([]byte(call("POST", "/api/conversations/main/prompt", `{"prompt":"Ben queue canary","idempotencyKey":"private-queue"}`, benCookie, 202)), &queued))
+	until := func(conn *websocket.Conn, id uint32, contains string) string {
+		for range 10 {
+			data := string(receive(conn, id, "snap").Data)
+			if strings.Contains(data, contains) {
+				return data
+			}
+		}
+		t.Fatal("private queue snapshot did not arrive")
+		return ""
+	}
+	benQueue := until(benSocket, 1, "Ben queue canary")
+	require.Contains(t, benQueue, queued.TurnID)
+	require.NotContains(t, benQueue, "held")
+	require.NotContains(t, call("GET", "/api/conversations/main/view-state", "", aliceCookie, 200), "Ben queue canary")
+	require.Contains(t, call("GET", "/api/conversations/main/view-state", "", benCookie, 200), "Ben queue canary")
+	call("PUT", "/api/conversations/main/view-state", `{"queue":[{"prompt":"forged"}]}`, benCookie, 400)
+	var aliceQueued struct {
+		TurnID string `json:"turnId"`
+	}
+	require.NoError(t, json.Unmarshal([]byte(call("POST", "/api/conversations/main/prompt", `{"prompt":"Alice queue canary","idempotencyKey":"private-queue"}`, aliceCookie, 202)), &aliceQueued))
+	aliceQueue := until(aliceSocket, 1, "Alice queue canary")
+	require.NotContains(t, aliceQueue, "Ben queue canary")
+	require.NotContains(t, call("GET", "/api/conversations/main/view-state", "", benCookie, 200), "Alice queue canary")
+	// A fresh socket restores the durable queue without the original tab.
+	reconnected := open(benCookie)
+	send(reconnected, 1, benTopic)
+	require.Contains(t, string(receive(reconnected, 1, "snap").Data), "Ben queue canary")
+	call("PATCH", "/api/conversations/main/turns/"+queued.TurnID, `{"prompt":"Ben edited queue"}`, benCookie, 200)
+	editedQueue := until(benSocket, 1, "Ben edited queue")
+	require.NotContains(t, editedQueue, "Ben queue canary")
+	call("DELETE", "/api/conversations/main/turns/"+queued.TurnID, "", benCookie, 200)
+	for range 10 {
+		if !strings.Contains(string(receive(benSocket, 1, "snap").Data), `"queue"`) {
+			break
+		}
+	}
+	require.NotContains(t, call("GET", "/api/conversations/main/view-state", "", benCookie, 200), `"queue"`)
+	call("DELETE", "/api/conversations/main/turns/"+aliceQueued.TurnID, "", aliceCookie, 200)
+	call("POST", "/api/conversations/main/turns/"+held.TurnID+"/stop", "", benCookie, 200)
 	// Removal commits through the member route and closes the private delivery.
 	call("DELETE", "/api/members/ben", "", ownerCookie, 204)
 	closeCtx, cancel := context.WithTimeout(ctx, 5*time.Second)

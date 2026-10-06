@@ -474,6 +474,9 @@ func (s *Store) Admit(ctx context.Context, input AdmitInput) (AdmitResult, error
 		}
 		return AdmitResult{Status: "existing", Cursor: existing, Terminal: turn.Terminal, TurnID: turn.ID}, nil
 	}
+	if err = notifyTx(ctx, tx, turnID); err != nil {
+		return AdmitResult{}, err
+	}
 	if err = tx.Commit(ctx); err != nil {
 		return AdmitResult{}, err
 	}
@@ -568,6 +571,9 @@ func (s *Store) Claim(ctx context.Context, scope Scope, turnID string, lease tim
 	generation := turn.ProducerGeneration + 1
 	expiresAt := now.Add(lease)
 	if _, err = tx.Exec(ctx, `UPDATE chat_turns SET state='running',producer_generation=$2,producer_token_hash=$3,producer_lease_expires_at=$4,producer_started_at=NULL,updated_at=$5 WHERE id=$1`, turn.ID, generation, tokenHash, expiresAt, now); err != nil {
+		return ProducerGrant{}, err
+	}
+	if err = notifyTx(ctx, tx, turn.ID); err != nil {
 		return ProducerGrant{}, err
 	}
 	if err = tx.Commit(ctx); err != nil {

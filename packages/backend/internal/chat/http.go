@@ -139,6 +139,12 @@ func readTurnRequest(w http.ResponseWriter, r *http.Request) (string, JournalReq
 		writeProblem(w, http.StatusBadRequest, "request_invalid")
 		return "", JournalRequest{}, nil, false
 	}
+	// Only canonical prompt admission may declare a future shared audience.
+	// Legacy browser history remains private even if a client forges this field.
+	if _, supplied := object["sharedConversation"]; supplied {
+		writeProblem(w, http.StatusBadRequest, "request_invalid")
+		return "", JournalRequest{}, nil, false
+	}
 	runID, ok := object["runId"].(string)
 	if !ok || !validIdentity(runID) {
 		writeProblem(w, http.StatusBadRequest, "request_invalid")
@@ -315,13 +321,7 @@ func (h *Handler) Turn(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	// The credential is recorded before the turn exists, so no dispatcher can
-	// claim the turn without it; an admission that accepts nothing new forgets it.
-	release := h.credentials.admit(turnKey{userID: scope.UserID, runID: runID, legID: journal.LegID}, middleware.CredentialOf(auth))
-	accepted, err := h.Store.Admit(r.Context(), AdmitInput{Scope: scope, RunID: runID, Journal: journal, Request: request})
-	if err != nil || accepted.Status != "accepted" {
-		release()
-	}
+	accepted, err := h.admit(r, scope, runID, journal, request)
 	if err != nil {
 		publicError(w, err)
 		return
@@ -574,6 +574,7 @@ func (h *Handler) ProviderStarted(w http.ResponseWriter, r *http.Request) {
 // MountAuthenticated contains the routes that need an active account scope.
 func (h *Handler) MountAuthenticated(router chi.Router) {
 	router.Post(TurnPath, h.Turn)
+	router.Post("/api/conversations/{b}/prompt", h.Prompt)
 	router.Post(CancelPath, h.Cancel)
 	router.Post(ReplayPath, h.Replay)
 	router.Post(RetirePath, h.Retire)

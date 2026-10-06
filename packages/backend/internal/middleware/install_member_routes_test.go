@@ -31,6 +31,7 @@ func TestInstallMemberCommandRoutes(t *testing.T) {
 		{http.MethodPost, "/api/agent/turn/replay", "agent.turn"},
 		{http.MethodPost, "/api/agent/turn/retire", "agent.turn"},
 		{http.MethodGet, "/api/agent/conversations", "agent.turn"},
+		{http.MethodPost, "/api/conversations/main/prompt", "agent.turn"},
 		{http.MethodGet, "/api/conversations/main/view-state", "agent.turn"},
 		{http.MethodPost, "/api/conversations/main/turns/turn-1/stop", "agent.turn"},
 		{http.MethodPatch, "/api/conversations/main/turns/turn-1", "agent.turn"},

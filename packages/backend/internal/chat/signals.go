@@ -56,7 +56,9 @@ func (s *Store) watch(turnID string) (<-chan struct{}, func()) { return s.signal
 
 // notifyTx publishes a turn change to other replicas when tx commits.
 func notifyTx(ctx context.Context, tx pgx.Tx, turnID string) error {
-	_, err := tx.Exec(ctx, `SELECT pg_notify($1,$2)`, turnChangedChannel, turnID)
+	_, err := tx.Exec(ctx, `SELECT pg_notify($1,$2),
+ pg_notify('view_' || repository_id::text || '_' || user_id::text,'{"type":"queue"}')
+ FROM chat_turns WHERE id=$2`, turnChangedChannel, turnID)
 	return err
 }
 
