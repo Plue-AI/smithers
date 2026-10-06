@@ -81,3 +81,41 @@ test("C-J4-02: served TODO cards answer, merge, move and retry while Chat stays 
   expect(new Set(writes.map(write => write.key)).size).toBe(4)
   expect(writes.every(write => write.key.length > 0)).toBe(true)
 })
+
+// Test-only neighbor contract: the checkpoint backend remains separately qualified.
+test("C-J4-02: Bring in binds the displayed push and stays pending until its wait settles", async ({ page }) => {
+  const { issueTodoInstall } = await import("./issue-todo-fixture")
+  await issueTodoInstall(page)
+  const model = structuredClone(fixtures.foreign_push.model)
+  model.n = 1
+  const foreign = model.waits[0]!
+  const writes: { body: unknown; key: string }[] = []
+  await page.route("**/api/todos", route => route.fulfill({ json: [model] }))
+  await page.route("**/api/todos/1", route => route.fulfill({ json: model }))
+  let admit!: () => void
+  const admission = new Promise<void>(resolve => { admit = resolve })
+  await page.route(url => url.pathname.startsWith("/api/branches/"), async route => {
+    writes.push({ body: route.request().postDataJSON(), key: route.request().headers()["idempotency-key"]! })
+    expect(decodeURIComponent(new URL(route.request().url()).pathname)).toBe(`/api/branches/${model.branch!.name}`)
+    await admission
+    await route.fulfill({ status: 202, json: { state: "accepted", n: 1 } })
+  })
+  await page.goto("/")
+  await say(page, "/todo T1")
+  const line = `/branch.bring-in ${JSON.stringify({ branch: model.branch!.name, id: foreign.id, revision: foreign.sha })}`
+  await say(page, line)
+  await expect.poll(() => writes.length).toBe(1)
+  await say(page, line)
+  await say(page, "/todo T1")
+  await expect(page.getByTestId("composer-input")).toBeEditable()
+  expect(writes).toHaveLength(1)
+  expect(writes[0]!.body).toEqual({ op: "bring-in", id: foreign.id, revision: foreign.sha })
+  expect(writes[0]!.key).toBeTruthy()
+  admit()
+  const notice = page.locator('.notice[data-tone="live"]').filter({ hasText: model.title })
+  await expect(notice).toBeVisible()
+  model.waits = []
+  model.state = "working"
+  await expect(notice).toHaveCount(0)
+  await expect(page.getByRole("article", { name: "TODO T1" }).last().locator("header .state")).toContainText("Working")
+})

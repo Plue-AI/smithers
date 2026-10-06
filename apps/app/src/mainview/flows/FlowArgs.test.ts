@@ -299,9 +299,9 @@ test("a run-open retry round-trips its durable request and rejects duplicate or 
   expect(payloadFor("runs.open", "requestId=a requestId=b run-1")).toHaveProperty("error")
 })
 
-test("Discard confirmation retains an outside push's exact branch, wait and head", () => {
+for (const tag of ["branch.bring-in", "branch.discard-foreign"] as const) test(`${tag} confirmation retains an outside push's exact branch, wait and head`, () => {
   const input = { branch: "smithers/retry webhooks", id: "foreign-1", revision: "1111111111111111111111111111111111111111" }
-  const entry = pendingControlFlows({} as unknown as CommandActions).find(flow => nameOf(flow) === "branch.discard-foreign")
+  const entry = pendingControlFlows({} as unknown as CommandActions).find(flow => nameOf(flow) === tag)
   expect(entry).toBeDefined()
-  expect(payloadFor("branch.discard-foreign", flowArgs("branch.discard-foreign", input), entry!.metadata.grammar)).toEqual({ payload: input })
+  expect(payloadFor(tag, flowArgs(tag, input), entry!.metadata.grammar)).toEqual({ payload: input })
 })

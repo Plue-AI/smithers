@@ -359,6 +359,11 @@ export const withDesignTodos = (real: TodoSeam, ctx: SeamContext, design: Design
   }
   return {
     ...real,
+    bringIn: (branch: string, id: string, revision: string) => route(`branch:${branch}`, ["bring-in", id, revision], () => {
+      const target = design.world().branches.find(each => each.id === branch || each.name === branch)
+      const todo = design.world().todos.find(each => each.branch === target?.id)
+      return todo ? result(design.bringIn(todo.id, me())) : "No such TODO"
+    }, () => real.bringIn(branch, id, revision), REQUESTED),
     discardForeign: (branch: string, id: string, revision: string) => route(`branch:${branch}`, ["discard-foreign", id, revision], () => {
       const target = design.world().branches.find(each => each.id === branch || each.name === branch)
       const todo = design.world().todos.find(each => each.branch === target?.id)

@@ -1068,8 +1068,8 @@ test("a server snapshot recovers Source after the TODO receipt cleared before it
   } finally { h.close() }
 })
 
-for (const status of [202, 409] as const) {
-  test(`Discard binds its branch/wait/head, persists once before HTTP and handles ${status}`, async () => {
+for (const operation of ["bring-in", "discard-foreign"] as const) for (const status of [202, 409] as const) {
+  test(`${operation} binds its branch/wait/head, persists once before HTTP and handles ${status}`, async () => {
     const admission = deferred<Response>()
     const calls: { url: string; init?: RequestInit }[] = []
     const h = await harness((url, init) => { calls.push({ url, init }); return admission.promise })
@@ -1077,14 +1077,14 @@ for (const status of [202, 409] as const) {
       const foreign = fixtures.foreign_push.model.waits[0]!
       const model = { ...fixtures.foreign_push.model, waits: [foreign, fixtures.needs_you.model.waits[0]!] }
       await h.seam.applyTodoProjection(12, model)
-      expect(await h.seam.discardForeign("unserved/branch", foreign.id, foreign.sha!)).toBe("Could not open the TODO.")
+      expect(await h.seam[operation === "bring-in" ? "bringIn" : "discardForeign"]("unserved/branch", foreign.id, foreign.sha!)).toBe("Could not open the TODO.")
       expect(calls).toEqual([])
       for (let press = 0; press < 2; press++) {
-        expect(await h.seam.discardForeign(model.branch!.name, foreign.id, foreign.sha!)).toEqual({ value: "Requested" })
+        expect(await h.seam[operation === "bring-in" ? "bringIn" : "discardForeign"](model.branch!.name, foreign.id, foreign.sha!)).toEqual({ value: "Requested" })
       }
       expect(calls).toHaveLength(1)
       expect(calls[0]!.url).toBe("https://install.test/api/branches/todo%2F12")
-      expect(JSON.parse(String(calls[0]!.init?.body))).toEqual({ op: "discard-foreign", id: foreign.id, revision: foreign.sha })
+      expect(JSON.parse(String(calls[0]!.init?.body))).toEqual({ op: operation, id: foreign.id, revision: foreign.sha })
       const pending = h.todo().payload.requests[0]!
       expect(new Headers(calls[0]!.init?.headers).get("Idempotency-Key")).toBe(pending.key)
       expect(CardSchema.parse(h.todo()).payload).toEqual(h.todo().payload)
@@ -1105,7 +1105,7 @@ for (const status of [202, 409] as const) {
         expect(h.todo().payload.model?.evidence).toEqual(model.evidence)
         expect(h.outcomes).toEqual([
           { key: `todo.needs-you.12.${foreign.id}`, status: "ok", detail: "" },
-          { key: `todo.request.${pending.key}`, status: "ok", detail: "Discarded" }
+          { key: `todo.request.${pending.key}`, status: "ok", detail: operation === "bring-in" ? "Brought in" : "Discarded" }
         ])
       }
     } finally { h.close() }

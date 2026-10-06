@@ -6,7 +6,9 @@ import type { Refusal } from "@smthrs/rpc/Refusal"
 const unavailable: Refusal = { code: null, rawCode: "not_available", fault: "infra", status: 503,
   origin: "client", retryAfter: null, message: "Not available yet" }
 export const pendingControlFlows = (actions: CommandActions) => bind(pendingControls.map(operation => operation.name === "todo.takeover"
-  ? { ...operation, grammar: parseTodoArgs(), form: { submitLabel: "Take over", args: (payload: Readonly<Record<string, unknown>>) => JSON.stringify(payload) } } : operation.name === "branch.discard-foreign"
+  ? { ...operation, grammar: parseTodoArgs(), form: { submitLabel: "Take over", args: (payload: Readonly<Record<string, unknown>>) => JSON.stringify(payload) } } : operation.name === "branch.bring-in"
+  ? { ...operation, grammar: (args: string | undefined) => args?.trim() ? carriedPayload(operation.name)(args) : { payload: {} }, confirm: "bring in this outside push", confirmArgs: (payload: Readonly<Record<string, unknown>>) => JSON.stringify(payload) }
+  : operation.name === "branch.discard-foreign"
   ? { ...operation, grammar: (args: string | undefined) => args?.trim() ? carriedPayload(operation.name)(args) : { payload: {} },
       confirm: "discard this outside push", confirmArgs: (payload: Readonly<Record<string, unknown>>) => JSON.stringify(payload) }
     : operation.name === "learning.accept" || operation.name === "learning.dismiss"
@@ -15,6 +17,7 @@ export const pendingControlFlows = (actions: CommandActions) => bind(pendingCont
         preflight: (_payload: unknown, invoker?: "user" | "agent" | "system") => invoker === "agent" || invoker === "system" ? "Confirmation execution unavailable." : undefined }
     : operation),
   Object.fromEntries(pendingControls.map(operation => [operation.name, operation.name === "todo.takeover" ? (input: { n: number }) => actions.controlTodo(input.n, "takeover")
+    : operation.name === "branch.bring-in" ? (input: { branch: string; id: string; revision: string }) => actions.bringIn(input.branch, input.id, input.revision)
     : operation.name === "branch.discard-foreign" ? (input: { branch: string; id: string; revision: string }) => actions.discardForeign(input.branch, input.id, input.revision)
     : operation.name === "learning.accept" ? (input: { id: string }) => actions.resolveProposal(input.id, "accept")
     : operation.name === "learning.dismiss" ? (input: { id: string }) => actions.resolveProposal(input.id, "dismiss")

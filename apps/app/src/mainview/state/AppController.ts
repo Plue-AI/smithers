@@ -511,6 +511,7 @@ export interface AppController extends IssueFlowsController {
   readonly steerTodo: TodoSeam["steerTodo"]
   readonly amendTodo: TodoSeam["amendTodo"]
   readonly draftImagePackage: TodoSeam["draftImagePackage"]
+  readonly bringIn: TodoSeam["bringIn"]
   readonly discardForeign: TodoSeam["discardForeign"]
   readonly controlTodo: TodoSeam["controlTodo"]
   readonly openProposal: ProposalSeam["openProposal"]
@@ -2133,6 +2134,7 @@ export const createAppController = (
     steerTodo: todoSeam.steerTodo,
     amendTodo: todoSeam.amendTodo,
     draftImagePackage: todoSeam.draftImagePackage,
+    bringIn: todoSeam.bringIn,
     discardForeign: todoSeam.discardForeign,
     controlTodo: todoSeam.controlTodo,
     openProposal: proposalSeam.openProposal,

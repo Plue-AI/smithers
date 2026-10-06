@@ -229,8 +229,8 @@ export const createTodoSeam = (ctx: SeamContext, options: TodoSeamOptions = {}) 
       // An accepted answer is done once its question is no longer open.
       if (request.operation === "answer") return model.waits.some(wait => wait.id === request.body.wait)
         ? [] : [{ key: request.key, outcome: { status: "ok" as const, detail: "Answered" } }]
-      if (request.operation === "discard-foreign") return model.waits.some(wait => wait.id === request.body.id)
-        ? [] : [{ key: request.key, outcome: { status: "ok" as const, detail: "Discarded" } }]
+      if (request.operation === "discard-foreign" || request.operation === "bring-in") return model.waits.some(wait => wait.id === request.body.id)
+        ? [] : [{ key: request.key, outcome: { status: "ok" as const, detail: request.operation === "bring-in" ? "Brought in" : "Discarded" } }]
       if (request.operation === "takeover") return model.owner.login === request.owner
         ? [{ key: request.key, outcome: { status: "ok" as const, detail: "Taken over" } }] : []
       // A drop settles once the TODO is dropped.
@@ -302,7 +302,7 @@ export const createTodoSeam = (ctx: SeamContext, options: TodoSeamOptions = {}) 
     showNotice(request, title)
     // An answer has its own route (POST /api/todos/{n}/answer); the other controls share the TODO's.
     const control = ["steer", "stop", "resume", "retry", "retry-current-flow", "drop", "move", "takeover"].includes(request.operation)
-    const route = request.operation === "discard-foreign" ? `/api/branches/${encodeURIComponent(String(request.body.branch))}`
+    const route = ["discard-foreign", "bring-in"].includes(request.operation) ? `/api/branches/${encodeURIComponent(String(request.body.branch))}`
       : request.operation === "create" ? TODOS_PATH
       : `${todoPath(request.n!)}${request.operation === "amend" || control ? "" : `/${request.operation}`}`
     void (async () => {
@@ -312,7 +312,7 @@ export const createTodoSeam = (ctx: SeamContext, options: TodoSeamOptions = {}) 
         // PATCH changes only the existing TODO's prompt and acceptance.
         const body = request.operation === "amend"
           ? { prompt: request.body.prompt, ...(request.body.acceptance === undefined ? {} : { acceptance: request.body.acceptance }) }
-          : request.operation === "discard-foreign" ? { op: request.operation, id: request.body.id, revision: request.body.revision }
+          : ["discard-foreign", "bring-in"].includes(request.operation) ? { op: request.operation, id: request.body.id, revision: request.body.revision }
           : request.operation === "steer" ? { steer: request.body.steer ?? request.body.text }
           : control ? { op: request.operation, ...request.body } : request.body
         response = await ctx.http(`${ctx.baseUrl}${route}`, {
@@ -337,7 +337,7 @@ export const createTodoSeam = (ctx: SeamContext, options: TodoSeamOptions = {}) 
         await fail(fault)
         // A later push can race the displayed answer. Keep the refusal visible,
         // but reload its bound wait instead of waiting for a live notification.
-        if (response.status === 409 && request.operation === "discard-foreign" && current(login, revision)) await showTodo(request.n!)
+        if (response.status === 409 && ["discard-foreign", "bring-in"].includes(request.operation) && current(login, revision)) await showTodo(request.n!)
         return
       }
       if (result.state !== "requested" && result.state !== "accepted") {
@@ -684,7 +684,7 @@ export const createTodoSeam = (ctx: SeamContext, options: TodoSeamOptions = {}) 
       if (current(login, revision)) { showNotice(request, row.title); watch(effect.todo) }
     } finally { observingConfirmations.delete(confirmation.id) }
   }
-  return { list, observeConfirmation, discardForeign: async (branch: string, id: string, revision: string) => {
+  const answerForeign = async (operation: "bring-in" | "discard-foreign", branch: string, id: string, revision: string) => {
     const refusal = signedIn(); if (refusal) return refusal
     // Resolve only served projections already on this screen or in the stack.
     // Persist the request before network admission; the route rechecks authority
@@ -695,8 +695,11 @@ export const createTodoSeam = (ctx: SeamContext, options: TodoSeamOptions = {}) 
     }
     const matches = [...models.values()].filter(model => model.branch?.name === branch)
     if (matches.length !== 1) return "Could not open the TODO."
-    return request(matches[0]!.n, "discard-foreign", { branch, id, revision })
-  }, mergeTodo: (n: number, head: string) => request(n, "merge", { reviewed_head_sha: head }), reviewMerge, showTodo, newTodo, newFlowSourceTodo: async (input: Schema.Schema.Type<typeof TodoNewInput>, path: string) => {
+    return request(matches[0]!.n, operation, { branch, id, revision })
+  }
+  return { list, observeConfirmation,
+    bringIn: (branch: string, id: string, revision: string) => answerForeign("bring-in", branch, id, revision),
+    discardForeign: (branch: string, id: string, revision: string) => answerForeign("discard-foreign", branch, id, revision), mergeTodo: (n: number, head: string) => request(n, "merge", { reviewed_head_sha: head }), reviewMerge, showTodo, newTodo, newFlowSourceTodo: async (input: Schema.Schema.Type<typeof TodoNewInput>, path: string) => {
       const refusal = signedIn(); if (refusal) return refusal
       const login = owner(), revision = identity()?.ownerRevision ?? identity()?.revision
       if (!options.openSource || options.sourceAvailable && !await options.sourceAvailable(path)) return "Branch files are unavailable."

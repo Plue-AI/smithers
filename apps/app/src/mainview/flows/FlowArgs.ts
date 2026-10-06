@@ -7,6 +7,7 @@ export interface FlowInput {
   readonly "flow": { readonly name: string }
   readonly "wiki.save": { readonly name?: string; readonly text?: string }
   readonly "todo.drop": { readonly n: number }
+  readonly "branch.bring-in": { readonly branch: string; readonly id: string; readonly revision: string }
   readonly "branch.discard-foreign": { readonly branch: string; readonly id: string; readonly revision: string }
   readonly "file": { readonly path: string; readonly branch?: string; readonly line?: number; readonly revision?: string }
 
@@ -181,6 +182,7 @@ const ENCODERS: { readonly [N in FlowWithInput]: (payload: Payload) => string } 
   "approval.approve": payload => token(payload, "cardId")!,
   "approval.deny": payload => token(payload, "cardId")!,
   "flow": payload => JSON.stringify(payload),
+  "branch.bring-in": payload => JSON.stringify(payload),
   "branch.discard-foreign": payload => JSON.stringify(payload),
   "todo.drop": payload => JSON.stringify(payload),
   "wiki.save": payload => JSON.stringify(payload),

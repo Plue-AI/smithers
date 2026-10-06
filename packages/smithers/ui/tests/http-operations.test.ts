@@ -25,3 +25,15 @@ test("credential scopes are literal catalog inputs", () => {
     expect(rows.find(row => row.name === name)).toMatchObject({ name, credentialScope })
   }
 })
+
+test("Bring in requires the displayed wait and head on the shared branch route", async () => {
+  const { pendingControls } = await import("../src/app-operations/controls")
+  const { Schema } = await import("effect")
+  const bring = pendingControls.find(row => row.name === "branch.bring-in")!
+  expect(bring.http).toEqual({ method: "POST", path: "/api/branches/{branch}", defaults: { op: "bring-in" } })
+  expect(bring.agent).toBe("confirm")
+  const decode = Schema.decodeUnknownSync(bring.input)
+  const input = { branch: "todo/12", id: "foreign-12", revision: "a".repeat(40) }
+  expect(decode(input)).toEqual(input)
+  expect(() => decode({ branch: input.branch, revision: input.revision })).toThrow()
+})

@@ -1368,13 +1368,23 @@
       "credentialScope": "write:repository",
       "agent": "confirm",
       "summary": "Bring in",
-      "http": null,
+      "http": {
+        "method": "POST",
+        "path": "/api/branches/{branch}",
+        "defaults": {
+          "op": "bring-in"
+        }
+      },
       "payload": {
         "dialect": "draft-2020-12",
         "schema": {
           "type": "object",
           "properties": {
             "branch": {
+              "type": "string",
+              "minLength": 1
+            },
+            "id": {
               "type": "string",
               "minLength": 1
             },
@@ -1385,6 +1395,7 @@
           },
           "required": [
             "branch",
+            "id",
             "revision"
           ],
           "additionalProperties": true
