@@ -450,7 +450,8 @@ func startRootLayerHarness(t *testing.T) *rootLayerHarness {
 	h.runtime = newRootLayerRuntime(t, h.msb.binary, true)
 	// Model access (step 5) needs the composed chat host, as in the J1
 	// rehearsal: the trusted model host runs on a process runtime, never in
-	// the workspace microVM runtime under test.
+	// the workspace microVM runtime under test. Reuse the rehearsal Gateway
+	// adapter: R4 tests root inputs, not a live provider accepting a fixture key.
 	node, err := exec.LookPath("node")
 	require.NoError(t, err)
 	node, err = filepath.EvalSymlinks(node)
@@ -474,7 +475,7 @@ func startRootLayerHarness(t *testing.T) *rootLayerHarness {
 	done := make(chan error, 1)
 	go func() {
 		// No MachineImages: step 6 binds the microVM runtime's own builder.
-		done <- StartWithOptions(ctx, nil, h.stdout, h.logs, Options{Repository: h.repoClient, Workspace: h.runtime, ComputeProvider: sandboxfake.New(), ChatHost: chatHost, FlowHostProductAPIURL: h.origin}, func(handler http.Handler) { ready <- handler })
+		done <- StartWithOptions(ctx, nil, h.stdout, h.logs, Options{Repository: h.repoClient, Workspace: h.runtime, ComputeProvider: sandboxfake.New(), ChatHost: offlineGatewayHost{chatHost}, FlowHostProductAPIURL: h.origin}, func(handler http.Handler) { ready <- handler })
 	}()
 	select {
 	case handler := <-ready:
