@@ -446,31 +446,56 @@ test("T-UI-11 Pierre renders supplied hunks with line numbers and burst Restore"
 
 // T-UI-03 named Draft cases share the same fixture harness and Chromium runner.
 import { fixtures as draftFixtures } from "@smthrs/rpc/fixtures/Draft"
-for (const [name, fixture] of Object.entries(draftFixtures)) test(`Draft ${name}: supplied actions and keyboard`, async ({ page }) => {
-  await page.goto(`/view-stories.html?story=${encodeURIComponent(`DraftView/${fixture.name}`)}`)
-  await expect(page.getByRole("region", { name: "Draft", exact: true })).toBeVisible()
-  await page.evaluate(() => {
-    (window as unknown as { draftCalls: unknown[] }).draftCalls = []
-    window.addEventListener("story-callback", event => {
-      const detail = (event as CustomEvent).detail
-      ;(window as unknown as { draftCalls: unknown[] }).draftCalls.push(detail)
+const draftActionCalls = {
+  append: [{ tag: "todo.new", args: {} }, { tag: "draft.discard", args: { draft: "entry-draft-1" } }],
+  before: [{ tag: "todo.new", args: { before: "8" } }, { tag: "draft.discard", args: { draft: "entry-draft-1" } }],
+  amend: [{ tag: "todo.amend", args: { n: "9" } }, { tag: "draft.discard", args: { draft: "entry-draft-1" } }],
+  issue_fixes: [{ tag: "todo.new", args: {} }, { tag: "draft.discard", args: { draft: "entry-draft-1" } }],
+  issue_without_fixes: [{ tag: "todo.new", args: {} }, { tag: "draft.discard", args: { draft: "entry-draft-1" } }],
+  seed: [{ tag: "todo.new", args: {} }, { tag: "draft.discard", args: { draft: "entry-draft-1" } }],
+  committed: [],
+  committed_amendment: [],
+  empty_stack: [{ tag: "draft.discard", args: { draft: "entry-draft-1" } }],
+} as const
+for (const name of Object.keys(draftActionCalls) as (keyof typeof draftActionCalls)[]) test(`Draft ${name}: supplied actions and keyboard`, async ({ page }) => {
+  const fixture = draftFixtures[name]
+  for (const theme of ["light", "dark"]) for (const width of [1440, 390]) {
+    await page.setViewportSize({ width, height: 1000 })
+    await page.goto(`/view-stories.html?story=${encodeURIComponent(`DraftView/${fixture.name}`)}&theme=${theme}`)
+    await expect(page.getByRole("region", { name: "Draft", exact: true })).toBeVisible()
+    await page.evaluate(() => {
+      (window as unknown as { draftCalls: unknown[] }).draftCalls = []
+      window.addEventListener("story-callback", event => {
+        ;(window as unknown as { draftCalls: unknown[] }).draftCalls.push((event as CustomEvent).detail)
+      })
     })
-  })
-  if (fixture.model.committed) {
-    await expect(page.locator(".draft-actions button")).toHaveCount(0)
-    await expect(page.locator(".draft-private")).toHaveCount(0)
-  } else {
-    await expect(page.locator(".draft-private")).toHaveText("Only you")
-    for (const action of fixture.actions) {
-      const control = page.locator(`button[data-flow="${action.tag}"]`)
-      if (action.disabled) await expect(control).toBeDisabled()
-      else { await control.focus(); await page.keyboard.press("Enter") }
+    if (name === "committed" || name === "committed_amendment") {
+      await expect(page.locator(".draft-actions button")).toHaveCount(0)
+      await expect(page.locator(".draft-private")).toHaveCount(0)
+      await expect(page.locator(".draft-receipt")).toContainText(name === "committed" ? "Committed as T12" : "Committed as T9+1")
+    } else {
+      await expect(page.locator(".draft-private")).toHaveText("Only you")
+      await page.keyboard.press("Tab")
+      await expect(page.getByRole("textbox", { name: "Title", exact: true })).toBeFocused()
+      await expect(page.getByRole("textbox", { name: "Title", exact: true })).toHaveCSS("outline-width", "2px")
+      await expect(page.getByRole("textbox", { name: "Title", exact: true })).toHaveCSS("outline-style", "solid")
+      if (name === "empty_stack") await expect(page.locator('button[data-flow="todo.new"]')).toBeDisabled()
+      if (name === "seed") {
+        await expect(page.locator(".draft-seed")).toContainText("Seed · Read-only")
+        await expect(page.locator(".draft-seed button,.draft-seed input,.draft-seed textarea")).toHaveCount(0)
+      }
+      for (const action of draftActionCalls[name]) {
+        const control = page.locator(`button[data-flow="${action.tag}"]`)
+        await control.focus(); await page.keyboard.press("Enter")
+      }
+      expect(await page.evaluate(() => (window as unknown as { draftCalls: unknown[] }).draftCalls)).toEqual(
+        draftActionCalls[name].map(value => ({ kind: "action", value })))
+      await page.goto(`/view-stories.html?story=${encodeURIComponent(`DraftView/${fixture.name}`)}&removeFirst&theme=${theme}`)
+      await expect(page.getByRole("button", { name: "Commit", exact: true })).toHaveCount(0)
+      await expect(page.locator('button[data-flow="draft.discard"]')).toHaveCount(1)
+      continue
     }
-    expect(await page.evaluate(() => (window as unknown as { draftCalls: unknown[] }).draftCalls)).toEqual(
-      fixture.actions.filter(action => !action.disabled).map(action => ({ kind: "action", value: { tag: action.tag, args: action.args ?? {} } })))
-    await page.goto(`/view-stories.html?story=${encodeURIComponent(`DraftView/${fixture.name}`)}&removeFirst`)
-    await expect(page.locator(`button[data-flow="${fixture.actions[0]!.tag}"]`)).toHaveCount(0)
-    await expect(page.locator('button[data-flow="draft.discard"]')).toHaveCount(1)
+    expect(await page.evaluate(() => (window as unknown as { draftCalls: unknown[] }).draftCalls)).toEqual([])
   }
 })
 
@@ -491,12 +516,33 @@ test("Draft field edits forward literal payloads once and unchanged blur is sile
   await place.selectOption('{"mode":"before","n":8}'); await place.blur()
   const fixes = page.getByRole("checkbox")
   await fixes.uncheck(); await fixes.blur()
+  // Switch to the unchecked fixture so true changes the supplied model value.
+
   expect(await page.evaluate(() => (window as unknown as { draftCalls: unknown[] }).draftCalls)).toEqual([
     { kind: "action", value: { tag: "form.set", args: { entry: "entry-draft-1", field: "title", value: "Browser title" } } },
     { kind: "action", value: { tag: "form.set", args: { entry: "entry-draft-1", field: "prompt", value: "Browser\nprompt" } } },
     { kind: "action", value: { tag: "form.set", args: { entry: "entry-draft-1", field: "acceptance", value: '["First","Second"]' } } },
     { kind: "action", value: { tag: "form.set", args: { entry: "entry-draft-1", field: "place", value: '{"mode":"before","n":8}' } } },
     { kind: "action", value: { tag: "form.set", args: { entry: "entry-draft-1", field: "fixes", value: "false" } } }
+  ])
+  await page.goto("/view-stories.html?story=DraftView/From%20an%20issue%20it%20does%20not%20close")
+  await page.evaluate(() => {
+    (window as unknown as { draftCalls: unknown[] }).draftCalls = []
+    window.addEventListener("story-callback", event => (window as unknown as { draftCalls: unknown[] }).draftCalls.push((event as CustomEvent).detail))
+  })
+  await page.getByRole("checkbox").check(); await page.getByRole("checkbox").blur()
+  expect(await page.evaluate(() => (window as unknown as { draftCalls: unknown[] }).draftCalls)).toEqual([
+    { kind: "action", value: { tag: "form.set", args: { entry: "entry-draft-1", field: "fixes", value: "true" } } }
+  ])
+  await page.goto("/view-stories.html?story=DraftView/Place%20before%20T8")
+  await page.evaluate(() => {
+    (window as unknown as { draftCalls: unknown[] }).draftCalls = []
+    window.addEventListener("story-callback", event => (window as unknown as { draftCalls: unknown[] }).draftCalls.push((event as CustomEvent).detail))
+  })
+  await page.getByRole("combobox", { name: "Place", exact: true }).selectOption('{"mode":"append"}')
+  await page.getByRole("combobox", { name: "Place", exact: true }).blur()
+  expect(await page.evaluate(() => (window as unknown as { draftCalls: unknown[] }).draftCalls)).toEqual([
+    { kind: "action", value: { tag: "form.set", args: { entry: "entry-draft-1", field: "place", value: '{"mode":"append"}' } } }
   ])
 })
 

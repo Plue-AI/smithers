@@ -96,7 +96,7 @@ ordered steps, Address admission, product words and reload. The full install che
 
 C-UI-01 also exercises the mounted Home order menu and composer by keyboard.
 
-| C-UI-12 | [C-UI-12.spec.ts](C-UI-12.spec.ts) | T-UI-01 primitives and T-UI-19 co-editing active; remaining View matrix fixme | T-UI-01..T-UI-14, T-UI-19 |
+| C-UI-12 | [C-UI-12.spec.ts](C-UI-12.spec.ts), [Draft cases](../view-stories.spec.ts) | T-UI-01 primitives and T-UI-19 co-editing active; Draft passed (light/dark, 1440/390, keyboard); remaining View matrix fixme | T-UI-01..T-UI-14, T-UI-19 |
 | C-UI-13 | [C-UI-13.spec.ts](C-UI-13.spec.ts) | fixme-before-implementation | T-APP-01, T-APP-02, T-APP-03, T-APP-04, T-APP-05, T-APP-06, T-APP-07, T-APP-16, T-APP-15, T-FLW-07, T-FLW-08, T-UI-14 |
 | C-CAT-01 | [C-CAT-01.spec.ts](C-CAT-01.spec.ts) | fixme-before-implementation | T-CAT-01 |
 | C-CAT-02 | [C-CAT-02.spec.ts](C-CAT-02.spec.ts) | fixme-before-implementation | T-CAT-01 |

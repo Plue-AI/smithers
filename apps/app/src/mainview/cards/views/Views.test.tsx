@@ -1210,14 +1210,24 @@ const change = (element: HTMLInputElement | HTMLTextAreaElement | HTMLSelectElem
 })
 const press = (element: HTMLElement) => act(() => element.click())
 
-for (const [name, fixture] of Object.entries(fixtures)) {
+// C-UI-12: the oracle is committed here, independently of fixture.expect and model values.
+for (const [name, texts, privateChip, controls] of [
+  ["append", ["New TODO", "Card models", "Publish typed card models", "Fixtures parse\nUnknown states fail"], true, ["todo.new", "draft.discard"]],
+  ["before", ["New TODO", "Before T8 Persist merge requests"], true, ["todo.new", "draft.discard"]],
+  ["amend", ["Amend T9", "Amend T9 Wire Home"], true, ["todo.amend", "draft.discard"]],
+  ["issue_fixes", ["#3474 Card model contracts", "Closes #3474 when merged"], true, ["todo.new", "draft.discard"]],
+  ["issue_without_fixes", ["#3474 Card model contracts", "Closes #3474 when merged"], true, ["todo.new", "draft.discard"]],
+  ["seed", ["Seed · Read-only", "packages/rpc/src/TodoCard.ts", "packages/rpc/test/fixtures/Todo.ts"], true, ["todo.new", "draft.discard"]],
+  ["committed", ["Committed as T12", "Card models"], false, []],
+  ["committed_amendment", ["Amend T9", "Committed as T9", "+1", "Card models"], false, []],
+  ["empty_stack", ["Publish typed card models", "Append", "Add a title"], true, ["todo.new", "draft.discard"]],
+] as const) {
   test(`Draft fixture ${name} renders`, () => {
-    const host = renderDraft(fixture)
-    for (const expected of fixture.expect) {
-      const contents = host.textContent + Array.from(host.querySelectorAll("input,textarea")).map(element => (element as HTMLInputElement).value).join(" ")
-      expect(contents).toContain(expected)
-    }
-    expect(host.querySelector(".draft-private") !== null).toBe(!fixture.model.committed && fixture.model.private)
+    const host = renderDraft(fixtures[name])
+    const contents = host.textContent + Array.from(host.querySelectorAll("input,textarea")).map(element => (element as HTMLInputElement).value).join(" ")
+    for (const text of texts) expect(contents).toContain(text)
+    expect(host.querySelector(".draft-private")?.textContent ?? null).toBe(privateChip ? "Only you" : null)
+    expect([...host.querySelectorAll<HTMLButtonElement>("button")].map(button => button.dataset.flow)).toEqual([...controls])
   })
 }
 test("DraftView submits fields and renders private and committed drafts", () => {
@@ -1303,26 +1313,35 @@ test("hostile seed text is literal, with no executable surface", () => {
 })
 
 test("unavailable placement stays selected and focus/blur never appends", () => {
-  for (const mode of ["before", "amend"] as const) {
+  for (const [mode, label, value] of [["before", "Before T99 (unavailable)", '{"mode":"before","n":99}'], ["amend", "Amend T99 (unavailable)", '{"mode":"amend","n":99}']] as const) {
     const host = renderDraft({ model: { ...fixtures.append.model, place: { mode, n: 99, options: [] } } })
     const select = host.querySelector("select")!
-    expect(select.selectedOptions[0]!.textContent).toBe(`${mode === "before" ? "Before" : "Amend"} T99 (unavailable)`)
-    expect(select.value).toBe(JSON.stringify({ mode, n: 99 }))
+    expect(select.selectedOptions[0]!.textContent).toBe(label)
+    expect(select.value).toBe(value)
     act(() => select.focus()); blur(select)
     expect(calls).toEqual([])
     act(() => draftRoot.unmount()); host.remove(); draftRoot = undefined!
   }
 })
-test("checkbox and select dispatch once on change without focus or blur", () => {
-  const host = renderDraft(fixtures.issue_fixes)
+test("fixes true and false and Append forward literal strings once without blur", () => {
+  const host = renderDraft({ model: { ...fixtures.issue_without_fixes.model, place: { mode: "before", n: 8, options: fixtures.before.model.place.options } } })
   const fixes = host.querySelector<HTMLInputElement>('input[type="checkbox"]')!
-  const initial = fixes.checked
-  press(fixes)
-  expect(calls).toEqual([["form.set", { entry: "entry-draft-1", field: "fixes", value: String(!initial) }]])
-  blur(fixes)
-  expect(calls.length).toBe(1)
-  change(host.querySelector("select")!, '{"mode":"append"}')
-  expect(calls.length).toBe(1)
+  expect(fixes.checked).toBe(false)
+  press(fixes); blur(fixes)
+  press(fixes); blur(fixes)
+  change(host.querySelector("select")!, '{"mode":"append"}'); blur(host.querySelector("select")!)
+  expect(calls).toEqual([
+    ["form.set", { entry: "entry-draft-1", field: "fixes", value: "true" }],
+    ["form.set", { entry: "entry-draft-1", field: "place", value: '{"mode":"append"}' }]
+  ])
+  // After the saved model changes, clearing fixes emits false (unchanged input is silent).
+  act(() => draftRoot.render(<DraftView {...fixtures.issue_fixes} onAction={(...args) => calls.push(args)} onView={() => {}} />))
+  press(host.querySelector<HTMLInputElement>('input[type="checkbox"]')!); blur(host.querySelector<HTMLInputElement>('input[type="checkbox"]')!)
+  expect(calls).toEqual([
+    ["form.set", { entry: "entry-draft-1", field: "fixes", value: "true" }],
+    ["form.set", { entry: "entry-draft-1", field: "place", value: '{"mode":"append"}' }],
+    ["form.set", { entry: "entry-draft-1", field: "fixes", value: "false" }]
+  ])
 })
 test("Commit has no unsupported Enter hint", () => {
   const host = renderDraft()
@@ -1351,7 +1370,7 @@ test("agent model updates resync every field and unchanged blur never dispatches
 test("issue arrow requires the model GitHub href", () => {
   const host = renderDraft(fixtures.issue_fixes)
   const issue = host.querySelector(".draft-issue")!
-  expect(issue.getAttribute("href")).toBe(fixtures.issue_fixes.model.issue!.url!)
+  expect(issue.getAttribute("href")).toBe("https://github.com/smithersai/smithers/issues/3474")
   expect(issue.textContent).toContain("↗")
   act(() => draftRoot.render(<DraftView {...fixtures.issue_fixes} model={{ ...fixtures.issue_fixes.model, issue: { ...fixtures.issue_fixes.model.issue!, url: undefined as unknown as string } }} onAction={() => {}} onView={() => {}} />))
   expect(host.querySelector(".draft-issue")!.textContent).not.toContain("↗")
@@ -1370,10 +1389,10 @@ test("one model field update preserves other unsubmitted edits", () => {
 
 test("unchanged acceptance is silent for empty entries and embedded newlines", () => {
   const host = renderDraft()
-  for (const acceptance of [[], [""], ["First\nSecond"]]) {
-    act(() => draftRoot.render(<DraftView {...fixtures.append} model={{ ...fixtures.append.model, acceptance }} onAction={(...args) => calls.push(args)} onView={() => {}} />))
+  for (const [acceptance, value] of [[[], ""], [[""], ""], [["First\nSecond"], "First\nSecond"]] as const) {
+    act(() => draftRoot.render(<DraftView {...fixtures.append} model={{ ...fixtures.append.model, acceptance: [...acceptance] }} onAction={(...args) => calls.push(args)} onView={() => {}} />))
     const field = host.querySelectorAll("textarea")[1]!
-    expect(field.value).toBe(acceptance.join("\n")); blur(field)
+    expect(field.value).toBe(value); blur(field)
     expect(calls).toEqual([])
   }
 })
