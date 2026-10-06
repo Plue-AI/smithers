@@ -11,10 +11,12 @@ import (
 	"testing"
 	"time"
 
+	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/smithersai/smithers/packages/backend/internal/db"
 	"github.com/smithersai/smithers/packages/backend/internal/routes"
 	"github.com/smithersai/smithers/packages/backend/internal/services"
+	"github.com/smithersai/smithers/packages/backend/jobs"
 	"github.com/smithersai/smithers/packages/backend/testkit/postgresfixture"
 	"github.com/stretchr/testify/require"
 )
@@ -159,6 +161,87 @@ func TestAccessMatrixConfirmationDispatchComposedInstall(t *testing.T) {
 			require.Equal(t, tc.codes[i], result["code"])
 		}
 	}
+	// Issue filing consumes the same person-bound immutable read receipt as
+	// direct Make TODO. This adapter performs no network IO for that receipt.
+	todos.SetOrchestration(services.NewMythicalGitHub(q, nil, nil, nil), nil, nil)
+	for i := range users {
+		for _, number := range []int64{23, 24} {
+			thread := services.InstallIssueThread{Issue: services.InstallIssue{Number: number, Title: "Keep issue context", Body: "Exact issue body", State: "open", HTMLURL: "https://github.com/maya/demo/issues/23"}}
+			read, err := json.Marshal(map[string]any{"issue": number, "digest": strings.Repeat("a", 64), "thread": thread, "outsider": number == 23})
+			require.NoError(t, err)
+			tx, err := pool.Begin(ctx)
+			require.NoError(t, err)
+			_, err = jobs.RecordFactInTx(ctx, tx, jobs.Scope{TenantID: fmt.Sprint(repo.ID), PrincipalID: fmt.Sprintf("issue-read:%d", users[i].ID)}, uuid.NewString(), "issue.read", "completed", read)
+			require.NoError(t, err)
+			require.NoError(t, tx.Commit(ctx))
+		}
+	}
+	payloadIssue := func(number int) string {
+		return fmt.Sprintf(`{"title":"From issue","prompt":"Resolve issue","issue":%d,"issue_digest":"%s"}`, number, strings.Repeat("a", 64))
+	}
+	status, mismatched := call(1, false, "/api/confirmations", "issue-mismatch", fmt.Sprintf(`{"command":"todo.new","payload":%s}`, payloadIssue(23)))
+	require.Equal(t, 400, status, mismatched)
+	require.Equal(t, "invalid_confirmation", mismatched["code"])
+	status, mismatched = call(1, false, "/api/confirmations", "missing-issue", `{"command":"todo.from-issue","payload":{"title":"No issue","prompt":"No issue"}}`)
+	require.Equal(t, 400, status, mismatched)
+	require.Equal(t, "invalid_confirmation", mismatched["code"])
+	require.Equal(t, 3, count("approvals"))
+	status, deniedIssue := call(2, false, "/api/todos", "outsider-alice", payloadIssue(23))
+	require.Equal(t, 403, status, deniedIssue)
+	require.Equal(t, "permission", deniedIssue["code"])
+	require.Equal(t, 3, count("approvals"))
+	status, unknownIssue := call(1, false, "/api/todos", "unknown-issue", payloadIssue(25))
+	require.Equal(t, 409, status, unknownIssue)
+	require.Equal(t, "issue_snapshot_unknown", unknownIssue["code"])
+	for _, tc := range []struct {
+		member, number int
+		key            string
+	}{{1, 23, "outsider-ben"}, {2, 24, "team-alice"}} {
+		before := count("mythical_items")
+		status, requested := call(tc.member, false, "/api/todos", tc.key, payloadIssue(tc.number))
+		require.Equal(t, 202, status, requested)
+		require.Equal(t, "pending", requested["state"])
+		require.Equal(t, before, count("mythical_items"))
+		id := requested["confirmation"].(string)
+		status, replay := call(tc.member, false, "/api/todos", tc.key, payloadIssue(tc.number))
+		require.Equal(t, 202, status, replay)
+		require.Equal(t, requested, replay)
+		status, changed := call(tc.member, false, "/api/todos", tc.key, strings.Replace(payloadIssue(tc.number), "Resolve issue", "Other prompt", 1))
+		require.Equal(t, 409, status, changed)
+		require.Equal(t, "idempotency_mismatch", changed["code"])
+		status, wrong := call(0, true, "/api/confirmations/"+id+"/approve", tc.key, "{}")
+		require.Equal(t, 403, status, wrong)
+		if tc.number == 23 {
+			_, err = pool.Exec(ctx, `UPDATE collaborators SET permission='write' WHERE user_id=$1`, users[tc.member].ID)
+			require.NoError(t, err)
+			status, refused := call(tc.member, true, "/api/confirmations/"+id+"/approve", tc.key, "{}")
+			require.Equal(t, 403, status, refused)
+			require.Equal(t, before, count("mythical_items"))
+			_, err = pool.Exec(ctx, `UPDATE collaborators SET permission='admin' WHERE user_id=$1`, users[tc.member].ID)
+			require.NoError(t, err)
+		}
+		status, approved := call(tc.member, true, "/api/confirmations/"+id+"/approve", tc.key, "{}")
+		require.Equal(t, 200, status, approved)
+		require.Equal(t, "approved", approved["state"])
+		status, approved = call(tc.member, true, "/api/confirmations/"+id+"/approve", tc.key, "{}")
+		require.Equal(t, 200, status, approved)
+		require.Equal(t, before+1, count("mythical_items"))
+		var source, digest, revisions string
+		require.NoError(t, pool.QueryRow(ctx, `SELECT source,issue_digest,revisions::text FROM mythical_items WHERE issue_number=$1`, tc.number).Scan(&source, &digest, &revisions))
+		require.Equal(t, "issue", source)
+		require.Equal(t, strings.Repeat("a", 64), digest)
+		require.Contains(t, revisions, `"reason": "from-issue"`)
+		if tc.number == 23 {
+			_, err = pool.Exec(ctx, `UPDATE collaborators SET permission='write' WHERE user_id=$1`, users[tc.member].ID)
+			require.NoError(t, err)
+			status, refused := call(tc.member, false, "/api/todos", tc.key, payloadIssue(tc.number))
+			require.Equal(t, 403, status, refused)
+			require.Equal(t, "permission", refused["code"])
+			require.NotContains(t, refused, "confirmation")
+			_, err = pool.Exec(ctx, `UPDATE collaborators SET permission='admin' WHERE user_id=$1`, users[tc.member].ID)
+			require.NoError(t, err)
+		}
+	}
 	// Revoke the exact credential after router admission, while its replay
 	// waits on the stack lock. The bound decision cannot disclose its receipt.
 	locked, err := pool.Begin(ctx)
@@ -196,13 +279,13 @@ func TestAccessMatrixConfirmationDispatchComposedInstall(t *testing.T) {
 	status, unknown := call(0, false, "/api/todos", "unknown-actor", `{"title":"No new TODO","prompt":"No new TODO"}`)
 	require.Equal(t, 403, status, unknown)
 	require.Equal(t, "permission", unknown["code"])
-	require.Equal(t, 3, count("approvals"))
-	require.Equal(t, 3, count("mythical_items"))
+	require.Equal(t, 5, count("approvals"))
+	require.Equal(t, 5, count("mythical_items"))
 	_, err = pool.Exec(ctx, `DELETE FROM access_tokens WHERE token_hash=$1`, hashes[2])
 	require.NoError(t, err)
 	status, result := call(2, false, "/api/todos", "new-alice", `{"title":"Keep greeting","prompt":"Keep greeting","acceptance":[]}`)
 	require.Equal(t, 401, status, result)
 	require.Equal(t, "unauthenticated", result["code"])
-	require.Equal(t, 3, count("approvals"))
-	require.Equal(t, 3, count("mythical_items"))
+	require.Equal(t, 5, count("approvals"))
+	require.Equal(t, 5, count("mythical_items"))
 }
