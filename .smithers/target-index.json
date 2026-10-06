@@ -1518,6 +1518,49 @@
     }
   },
   {
+    "label": "//apps/app:crateInputs",
+    "package": "apps/app",
+    "name": "crateInputs",
+    "rule": "Filegroup",
+    "kinds": [],
+    "cacheable": true,
+    "inputs": [
+      {
+        "kind": "glob",
+        "pattern": "crates/**/*",
+        "exclude": []
+      }
+    ],
+    "outputs": [],
+    "dependencies": [
+      "//crates/flows-jj:nativeSources",
+      "//crates/smithers-machined:buildInputs"
+    ],
+    "source": {
+      "file": "apps/app/PACKAGE.ts"
+    }
+  },
+  {
+    "label": "//apps/app:distributionInputs",
+    "package": "apps/app",
+    "name": "distributionInputs",
+    "rule": "Filegroup",
+    "kinds": [],
+    "cacheable": true,
+    "inputs": [
+      {
+        "kind": "glob",
+        "pattern": "distribution/**/*",
+        "exclude": []
+      }
+    ],
+    "outputs": [],
+    "dependencies": [],
+    "source": {
+      "file": "apps/app/PACKAGE.ts"
+    }
+  },
+  {
     "label": "//apps/app:journeyJ1Activation",
     "package": "apps/app",
     "name": "journeyJ1Activation",
@@ -1710,6 +1753,26 @@
     }
   },
   {
+    "label": "//apps/app:proofMockInputs",
+    "package": "apps/app",
+    "name": "proofMockInputs",
+    "rule": "Filegroup",
+    "kinds": [],
+    "cacheable": true,
+    "inputs": [
+      {
+        "kind": "glob",
+        "pattern": ".specs/design/mock/src/**/*",
+        "exclude": []
+      }
+    ],
+    "outputs": [],
+    "dependencies": [],
+    "source": {
+      "file": "apps/app/PACKAGE.ts"
+    }
+  },
+  {
     "label": "//apps/app:proofPage",
     "package": "apps/app",
     "name": "proofPage",
@@ -1728,15 +1791,12 @@
         "kind": "glob",
         "pattern": ".specs/product/*.json",
         "exclude": []
-      },
-      {
-        "kind": "glob",
-        "pattern": ".specs/design/mock/src/**/*",
-        "exclude": []
       }
     ],
     "outputs": [],
-    "dependencies": [],
+    "dependencies": [
+      "//apps/app:proofMockInputs"
+    ],
     "source": {
       "file": "apps/app/PACKAGE.ts"
     }
@@ -1882,21 +1942,6 @@
         "path": "packages/smithers/src/internal/backend/HostService.ts"
       },
       {
-        "kind": "glob",
-        "pattern": "distribution/**/*",
-        "exclude": []
-      },
-      {
-        "kind": "glob",
-        "pattern": "crates/**/*",
-        "exclude": []
-      },
-      {
-        "kind": "glob",
-        "pattern": "packages/backend/microsandbox/**/*",
-        "exclude": []
-      },
-      {
         "kind": "file",
         "path": "scripts/build-backend.sh"
       },
@@ -1914,7 +1959,11 @@
       }
     ],
     "outputs": [],
-    "dependencies": [],
+    "dependencies": [
+      "//apps/app:crateInputs",
+      "//apps/app:distributionInputs",
+      "//packages/backend:buildInputs"
+    ],
     "source": {
       "file": "apps/app/PACKAGE.ts"
     }
@@ -5927,6 +5976,26 @@
     "dependencies": [],
     "source": {
       "file": "crates/flows-jj/PACKAGE.ts"
+    }
+  },
+  {
+    "label": "//crates/smithers-machined:buildInputs",
+    "package": "crates/smithers-machined",
+    "name": "buildInputs",
+    "rule": "Filegroup",
+    "kinds": [],
+    "cacheable": true,
+    "inputs": [
+      {
+        "kind": "glob",
+        "pattern": "crates/smithers-machined/**/*",
+        "exclude": []
+      }
+    ],
+    "outputs": [],
+    "dependencies": [],
+    "source": {
+      "file": "crates/smithers-machined/PACKAGE.ts"
     }
   },
   {
@@ -33747,7 +33816,8 @@
     ],
     "outputs": [],
     "dependencies": [
-      "//packages/smithers:lib"
+      "//packages/smithers:lib",
+      "//packages/smithers:tuiSources"
     ],
     "source": {
       "file": "packages/smithers/PACKAGE.ts"
@@ -33988,16 +34058,6 @@
       },
       {
         "kind": "glob",
-        "pattern": "apps/tui/src/**/*.ts",
-        "exclude": []
-      },
-      {
-        "kind": "glob",
-        "pattern": "apps/tui/src/**/*.tsx",
-        "exclude": []
-      },
-      {
-        "kind": "glob",
         "pattern": "packages/smithers/vendor/opentui-native/**",
         "exclude": []
       },
@@ -34026,7 +34086,9 @@
       "packages/smithers/dist/cjs",
       "packages/smithers/dist/esm"
     ],
-    "dependencies": [],
+    "dependencies": [
+      "//packages/smithers:tuiSources"
+    ],
     "source": {
       "file": "packages/smithers/PACKAGE.ts"
     }
@@ -34202,11 +34264,6 @@
         "path": "packages/repo-targets/test-utils/effect-property.d.mts"
       },
       {
-        "kind": "glob",
-        "pattern": "evals/**/*.eval.ts",
-        "exclude": []
-      },
-      {
         "kind": "file",
         "path": "docs/api/openapi.yaml"
       }
@@ -34214,11 +34271,37 @@
     "outputs": [],
     "dependencies": [
       "//packages/smithers:historyPostgresDatabase",
-      "//packages/smithers:lib"
+      "//packages/smithers:lib",
+      "//scripts:repositoryInputs"
     ],
     "hosts": [
       "linux"
     ],
+    "source": {
+      "file": "packages/smithers/PACKAGE.ts"
+    }
+  },
+  {
+    "label": "//packages/smithers:tuiSources",
+    "package": "packages/smithers",
+    "name": "tuiSources",
+    "rule": "Filegroup",
+    "kinds": [],
+    "cacheable": true,
+    "inputs": [
+      {
+        "kind": "glob",
+        "pattern": "apps/tui/src/**/*.ts",
+        "exclude": []
+      },
+      {
+        "kind": "glob",
+        "pattern": "apps/tui/src/**/*.tsx",
+        "exclude": []
+      }
+    ],
+    "outputs": [],
+    "dependencies": [],
     "source": {
       "file": "packages/smithers/PACKAGE.ts"
     }

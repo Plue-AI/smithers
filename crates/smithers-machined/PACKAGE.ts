@@ -1,6 +1,8 @@
 import { Smithers } from "@smthrs/targets"
 import { Package as backendPackage } from "../../packages/backend/PACKAGE.ts"
 
+const buildInputs = Smithers.Filegroup({ cwd: "crates/smithers-machined", srcs: [Smithers.glob("**/*")] })
+
 const sources = [
   Smithers.glob("//crates/smithers-machined/**/*.rs"),
   Smithers.file("//crates/smithers-machined/Cargo.toml"),
@@ -16,4 +18,4 @@ const cargoClippy = Smithers.Cargo.Clippy({
   package: "smithers-machined", allTargets: true, locked: true,
   denyWarnings: true, data: sources, destinations
 })
-export const Package = Smithers.Package({ targets: { cargoTest, cargoClippy } })
+export const Package = Smithers.Package({ targets: { buildInputs, cargoTest, cargoClippy } })
