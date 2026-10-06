@@ -14,6 +14,8 @@
 import { Smithers } from "@smthrs/targets"
 import { existsSync, readdirSync } from "node:fs"
 import { libraryPackages, repoRoot } from "./workspace-packages.mjs"
+import { Package as backendPackage } from "../packages/backend/PACKAGE.ts"
+import { Package as appPackage } from "../apps/app/PACKAGE.ts"
 
 /**
  * Everything under `scripts/`, digested as the input of every gate here.
@@ -350,6 +352,19 @@ const trackedHygieneUnit = Smithers.NodeTest({
   runner: Smithers.testRunner([Smithers.file("//scripts/check-tracked-hygiene.test.mjs")]),
   srcs: sources,
   deps: []
+})
+
+/** Hosting drift gate and CLI fixtures, required by the script CI tier. */
+const gates = Smithers.NodeTest({
+  runner: Smithers.testRunner([Smithers.file("//scripts/check-deployment-branches.test.mjs")]),
+  srcs: [
+    ...sources,
+    Smithers.file("//scripts/deployment-composition-baseline.json"),
+    ...readdirSync(`${repoRoot}/docs/api/openapi`).filter((name) => name.endsWith(".yaml"))
+      .map((name) => Smithers.file(`//docs/api/openapi/${name}`)),
+    Smithers.file("//docs/api/openapi.yaml")
+  ],
+  deps: [backendPackage.buildInputs, appPackage.solidCodegenInputs]
 })
 
 /**
@@ -1036,6 +1051,7 @@ const packageDocs = Smithers.NodeTest({
 
 export const Package = Smithers.Package({
   targets: {
+    gates,
     apiBaseline,
     conflictMarkers,
     conflictMarkersUnit,

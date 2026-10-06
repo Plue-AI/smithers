@@ -36173,6 +36173,221 @@
     }
   },
   {
+    "label": "//scripts:gates",
+    "package": "scripts",
+    "name": "gates",
+    "rule": "NodeTest",
+    "kinds": [
+      "test"
+    ],
+    "cacheable": false,
+    "inputs": [
+      {
+        "kind": "file",
+        "path": "scripts/check-deployment-branches.test.mjs"
+      },
+      {
+        "kind": "glob",
+        "pattern": "scripts/**/*.mjs",
+        "exclude": []
+      },
+      {
+        "kind": "glob",
+        "pattern": "scripts/**/*.ts",
+        "exclude": []
+      },
+      {
+        "kind": "glob",
+        "pattern": "scripts/fixtures/**/*.json",
+        "exclude": []
+      },
+      {
+        "kind": "file",
+        "path": "scripts/deployment-composition-baseline.json"
+      },
+      {
+        "kind": "file",
+        "path": "docs/api/openapi/_root.yaml"
+      },
+      {
+        "kind": "file",
+        "path": "docs/api/openapi/admin.yaml"
+      },
+      {
+        "kind": "file",
+        "path": "docs/api/openapi/agent.yaml"
+      },
+      {
+        "kind": "file",
+        "path": "docs/api/openapi/app-timelines.yaml"
+      },
+      {
+        "kind": "file",
+        "path": "docs/api/openapi/authentication.yaml"
+      },
+      {
+        "kind": "file",
+        "path": "docs/api/openapi/billing.yaml"
+      },
+      {
+        "kind": "file",
+        "path": "docs/api/openapi/bootstrap.yaml"
+      },
+      {
+        "kind": "file",
+        "path": "docs/api/openapi/branches.yaml"
+      },
+      {
+        "kind": "file",
+        "path": "docs/api/openapi/build-cache.yaml"
+      },
+      {
+        "kind": "file",
+        "path": "docs/api/openapi/commands.yaml"
+      },
+      {
+        "kind": "file",
+        "path": "docs/api/openapi/confirmations.yaml"
+      },
+      {
+        "kind": "file",
+        "path": "docs/api/openapi/feature-flags.yaml"
+      },
+      {
+        "kind": "file",
+        "path": "docs/api/openapi/flows.yaml"
+      },
+      {
+        "kind": "file",
+        "path": "docs/api/openapi/gateways.yaml"
+      },
+      {
+        "kind": "file",
+        "path": "docs/api/openapi/github.yaml"
+      },
+      {
+        "kind": "file",
+        "path": "docs/api/openapi/health.yaml"
+      },
+      {
+        "kind": "file",
+        "path": "docs/api/openapi/inbound-webhooks.yaml"
+      },
+      {
+        "kind": "file",
+        "path": "docs/api/openapi/install.yaml"
+      },
+      {
+        "kind": "file",
+        "path": "docs/api/openapi/integrations.yaml"
+      },
+      {
+        "kind": "file",
+        "path": "docs/api/openapi/issue-views.yaml"
+      },
+      {
+        "kind": "file",
+        "path": "docs/api/openapi/issues.yaml"
+      },
+      {
+        "kind": "file",
+        "path": "docs/api/openapi/live.yaml"
+      },
+      {
+        "kind": "file",
+        "path": "docs/api/openapi/members.yaml"
+      },
+      {
+        "kind": "file",
+        "path": "docs/api/openapi/meta.yaml"
+      },
+      {
+        "kind": "file",
+        "path": "docs/api/openapi/model.yaml"
+      },
+      {
+        "kind": "file",
+        "path": "docs/api/openapi/notifications.yaml"
+      },
+      {
+        "kind": "file",
+        "path": "docs/api/openapi/oauth2.yaml"
+      },
+      {
+        "kind": "file",
+        "path": "docs/api/openapi/organizations.yaml"
+      },
+      {
+        "kind": "file",
+        "path": "docs/api/openapi/proposals.yaml"
+      },
+      {
+        "kind": "file",
+        "path": "docs/api/openapi/public.yaml"
+      },
+      {
+        "kind": "file",
+        "path": "docs/api/openapi/repositories.yaml"
+      },
+      {
+        "kind": "file",
+        "path": "docs/api/openapi/repository-connections.yaml"
+      },
+      {
+        "kind": "file",
+        "path": "docs/api/openapi/reviews.yaml"
+      },
+      {
+        "kind": "file",
+        "path": "docs/api/openapi/search.yaml"
+      },
+      {
+        "kind": "file",
+        "path": "docs/api/openapi/secrets.yaml"
+      },
+      {
+        "kind": "file",
+        "path": "docs/api/openapi/telemetry.yaml"
+      },
+      {
+        "kind": "file",
+        "path": "docs/api/openapi/terminals.yaml"
+      },
+      {
+        "kind": "file",
+        "path": "docs/api/openapi/todos.yaml"
+      },
+      {
+        "kind": "file",
+        "path": "docs/api/openapi/user.yaml"
+      },
+      {
+        "kind": "file",
+        "path": "docs/api/openapi/users.yaml"
+      },
+      {
+        "kind": "file",
+        "path": "docs/api/openapi/v1.yaml"
+      },
+      {
+        "kind": "file",
+        "path": "docs/api/openapi/workflow.yaml"
+      },
+      {
+        "kind": "file",
+        "path": "docs/api/openapi.yaml"
+      }
+    ],
+    "outputs": [],
+    "dependencies": [
+      "//apps/app:solidCodegenInputs",
+      "//packages/backend:buildInputs"
+    ],
+    "source": {
+      "file": "scripts/PACKAGE.ts"
+    }
+  },
+  {
     "label": "//scripts:githubTriage",
     "package": "scripts",
     "name": "githubTriage",
