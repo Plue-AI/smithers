@@ -9,7 +9,9 @@ import (
 
 	"github.com/jackc/pgx/v5"
 	"github.com/smithersai/smithers/packages/backend/internal/db"
+	"github.com/smithersai/smithers/packages/backend/internal/identity"
 	pkgerrors "github.com/smithersai/smithers/packages/backend/internal/pkg/errors"
+	workspaceapi "github.com/smithersai/smithers/packages/backend/workspace"
 	"github.com/stretchr/testify/require"
 )
 
@@ -39,7 +41,15 @@ func TestCreateWorkspaceConcurrentNamedIdentity(t *testing.T) {
 	defer cancel()
 	var ben int64
 	require.NoError(t, pool.QueryRow(ctx, `INSERT INTO users(username,lower_username) VALUES('ben-branch','ben-branch') RETURNING id`).Scan(&ben))
-	svc := NewWorkspaceService(db.New(pool), WithWorkspaceTransactions(pool), WithBranchMachineProviders(branchMachineTestProviders()))
+	installBranchOwner(t, pool, alice)
+	binding := fmt.Sprintf(`{"owner_login":"alice","repository_name":"demo","repository_id":%d,"last_access_check_at":"2026-10-05T00:00:00Z"}`, repo)
+	for _, key := range []string{"github.repository", "owner.access"} {
+		require.NoError(t, db.New(pool).UpsertInstallSetting(ctx, db.UpsertInstallSettingParams{Key: key, Value: []byte(binding)}))
+	}
+	_, err := pool.Exec(ctx, `INSERT INTO collaborators(repository_id,user_id,permission) VALUES($1,$2,'write')`, repo, ben)
+	require.NoError(t, err)
+	providers := InstallBranchMachineProviders(identity.NewMemberBoundary(db.New(pool)), guestRuntime{installRuntime{level: workspaceapi.IsolationSandboxed}, "agent", 19999})
+	svc := NewWorkspaceService(db.New(pool), WithWorkspaceTransactions(pool), WithBranchMachineProviders(providers))
 	rows := make([]db.Workspace, 60)
 	errs := make([]error, 60)
 	start := make(chan struct{})
@@ -147,7 +157,7 @@ func TestBranchMachineRevocation(t *testing.T) {
 	}
 	tx, err := pool.Begin(ctx)
 	require.NoError(t, err)
-	require.NoError(t, svc.RevokeBranchMachineShare(ctx, tx, row.ID, actor))
+	require.NoError(t, RevokeBranchMachineShare(ctx, tx, row.ID, actor))
 	require.Equal(t, 0, countEvents())
 	require.NoError(t, tx.Rollback(ctx))
 	require.Equal(t, 0, countEvents())
@@ -155,7 +165,7 @@ func TestBranchMachineRevocation(t *testing.T) {
 	require.NoError(t, err)
 	tx, err = pool.Begin(ctx)
 	require.NoError(t, err)
-	require.NoError(t, svc.RevokeBranchMachineShare(ctx, tx, row.ID, actor))
+	require.NoError(t, RevokeBranchMachineShare(ctx, tx, row.ID, actor))
 	require.NoError(t, tx.Commit(ctx))
 	require.Equal(t, 1, countEvents())
 	// A stale request can still have live membership but no mutation grant.

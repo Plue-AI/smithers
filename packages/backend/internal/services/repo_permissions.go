@@ -335,6 +335,7 @@ var installCommands = map[string]installCommand{
 	// branch (§15.1.5: fork is run).
 	"branches.read": {role: InstallMember},
 	"branch.read":   {role: InstallMember},
+	"branch.join":   {role: InstallMember},
 	"branch.fork":   {role: InstallMember},
 	"members.list":  {role: InstallMember, personOnly: true},
 	"members.write": {role: InstallMaintainer, personOnly: true},

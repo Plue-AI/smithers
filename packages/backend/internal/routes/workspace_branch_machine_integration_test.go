@@ -29,10 +29,14 @@ func TestBranchMachineUnavailableProvidersHTTP(t *testing.T) {
 	q := db.New(pool)
 	user := routesIntegrationCreateUser(t, pool, "branch_dark")
 	repo := routesIntegrationCreateRepo(t, pool, user, "branch_dark", false)
+	owner, err := q.GetBranchMachineOwner(t.Context())
+	require.NoError(t, err)
+	source, err := q.CreateWorkspace(t.Context(), db.CreateWorkspaceParams{RepositoryID: repo.ID, UserID: owner, Kind: "container", Status: "running", TargetBookmark: "main", EnvironmentSource: "repository"})
+	require.NoError(t, err)
 	complete := services.BranchMachineProviders{
 		Membership:  func(context.Context, pgx.Tx, int64, int64) error { return nil },
 		Authorize:   func(context.Context, pgx.Tx, string, int64, string, int64) error { return nil },
-		LaneBinding: func(context.Context, pgx.Tx, int64, string) error { return nil },
+		LaneBinding: func(context.Context, pgx.Tx, int64, string, string) error { return nil },
 		MicroVM:     func(context.Context) error { return nil }, SessionIdentity: func(context.Context) error { return nil },
 	}
 	for _, missing := range []string{"membership", "authorizer", "lane", "microvm", "identity", "transaction"} {
@@ -67,7 +71,7 @@ func TestBranchMachineUnavailableProvidersHTTP(t *testing.T) {
 			server := httptest.NewServer(router)
 			defer server.Close()
 			client := routesIntegrationAuthenticatedClient(t, server, routesIntegrationCreateSessionCookie(t, q, user))
-			for _, suffix := range []string{"", "/11111111-1111-4111-8111-111111111111/fork"} {
+			for _, suffix := range []string{"", "/" + source.ID + "/fork"} {
 				url := server.URL + fmt.Sprintf("/api/repos/%s/%s/workspaces", repo.Owner, repo.Name) + suffix
 				response, err := client.Post(url, "application/json", strings.NewReader(`{"name":"scratch/member/shared"}`))
 				require.NoError(t, err)
@@ -78,7 +82,7 @@ func TestBranchMachineUnavailableProvidersHTTP(t *testing.T) {
 			}
 			var count int
 			require.NoError(t, pool.QueryRow(t.Context(), `SELECT count(*) FROM workspaces WHERE repository_id=$1`, repo.ID).Scan(&count))
-			require.Equal(t, 0, count)
+			require.Equal(t, 1, count, "the seeded source is the only machine")
 			require.NoError(t, pool.QueryRow(t.Context(), `SELECT count(*) FROM workspace_shares`).Scan(&count))
 			require.Equal(t, 0, count)
 			creates, forks := sentinel.requests()
