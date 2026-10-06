@@ -2786,7 +2786,10 @@
     {
       "name": "debug.api",
       "slash": null,
-      "cli": null,
+      "cli": [
+        "debug",
+        "api"
+      ],
       "journey": [],
       "group": "Advanced",
       "visibility": "hidden",
@@ -8692,7 +8695,7 @@
       ],
       "minimumRole": "member",
       "agent": "run",
-      "summary": "Filter a run's trace: all, running, failed, model, flow, forks or messages",
+      "summary": "Filter a run's trace: all, running, failed, model, flow or messages",
       "http": null,
       "payload": {
         "dialect": "draft-2020-12",
@@ -8720,7 +8723,6 @@
                 "failed",
                 "model",
                 "flow",
-                "forks",
                 "messages"
               ]
             }

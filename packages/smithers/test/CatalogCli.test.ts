@@ -45,6 +45,16 @@ async function fixture(status = 200, response: unknown = { state: "accepted" }) 
 }
 
 describe("C-CAT-02 installed parser and descriptor dispatcher", () => {
+  it.each([[], ["--operationId", "get_api_todos"], ["--intent", "send"], ["--intent", "confirm", "--confirmation", "stale"]])("refuses raw API invocation before transport: %s", async (...args) => {
+    const f = await fixture()
+    try {
+      const result = await f.invoke(["debug", "api", ...args])
+      expect(result.exitCode).toBe(1)
+      expect(JSON.parse(result.stdout)).toMatchObject({ class: "never", code: "never" })
+      expect(f.seen).toEqual([])
+      expect(result.stdout).not.toContain("test-delegated-token")
+    } finally { await f.close() }
+  })
   it.each(cases)("dispatches literal $argv once", async row => {
     const f = await fixture()
     try {
