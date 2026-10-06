@@ -291,5 +291,5 @@ func (l *Link) Ack(ctx context.Context, branch string, ack Acknowledgement) erro
 		fields = append(fields, wire.Field(4, wire.Struct(detail...)))
 	}
 	sort.Slice(fields, func(a, b int) bool { return fields[a][0] < fields[b][0] })
-	return l.send(wire.Frame{Kind: wire.Events, Payload: wire.Union(3, fields...)})
+	return l.sendContext(ctx, wire.Frame{Kind: wire.Events, Payload: wire.Union(3, fields...)})
 }

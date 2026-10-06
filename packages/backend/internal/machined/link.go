@@ -168,6 +168,23 @@ func (l *Link) send(f wire.Frame) error {
 	}
 	return wire.Write(l.stream, f)
 }
+
+// A blocked pipe writer must observe caller cancellation as well as its bounded
+// transport deadline. Closing this link leaves unacknowledged guest work queued
+// for replay; it never cancels a different boot's connection.
+func (l *Link) sendContext(ctx context.Context, frame wire.Frame) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	stop := context.AfterFunc(ctx, func() { _ = l.Close() })
+	defer stop()
+	err := l.send(frame)
+	if cancelled := ctx.Err(); cancelled != nil {
+		return cancelled
+	}
+	return err
+}
+
 func (l *Link) read() {
 	defer l.Close()
 	for {
@@ -269,7 +286,7 @@ func (l *Link) Request(ctx context.Context, branch string, method wire.Method, a
 	if err != nil {
 		return wire.Frame{}, err
 	}
-	if err = l.send(frame); err != nil {
+	if err = l.sendContext(ctx, frame); err != nil {
 		_ = l.Close()
 		return wire.Frame{}, err
 	}

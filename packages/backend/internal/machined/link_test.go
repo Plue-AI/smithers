@@ -179,3 +179,23 @@ func TestHostLinkHandshakeCancellation(t *testing.T) {
 	_, err := new(Registry).Connect(ctx, "a", host)
 	require.Error(t, err)
 }
+
+func TestHostLinkBlockedWriterCancellation(t *testing.T) {
+	r := new(Registry)
+	a, err := r.MintBoot("a", "vm")
+	require.NoError(t, err)
+	link, _ := connectTest(t, r, "a", a)
+	require.NoError(t, link.Reconciled())
+	ctx, cancel := context.WithCancel(t.Context())
+	done := make(chan error, 1)
+	go func() { _, err := link.Request(ctx, "a", wire.Capture); done <- err }()
+	// The peer deliberately never reads the request, so net.Pipe blocks in Write.
+	require.Eventually(t, func() bool { link.mu.Lock(); defer link.mu.Unlock(); return len(link.pending) == 1 }, time.Second, time.Millisecond)
+	cancel()
+	select {
+	case err := <-done:
+		require.ErrorIs(t, err, context.Canceled)
+	case <-time.After(time.Second):
+		t.Fatal("cancellation did not interrupt blocked transport write")
+	}
+}

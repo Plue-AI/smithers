@@ -70,7 +70,7 @@ func (d *documentPeer) Send(ctx context.Context, bytes []byte) error {
 		return io.ErrClosedPipe
 	default:
 	}
-	return d.link.send(wire.Frame{Kind: wire.Documents, Stream: d.id, Payload: append([]byte(nil), bytes...)})
+	return d.link.sendContext(ctx, wire.Frame{Kind: wire.Documents, Stream: d.id, Payload: append([]byte(nil), bytes...)})
 }
 func (d *documentPeer) Receive(ctx context.Context) ([]byte, error) {
 	select {
