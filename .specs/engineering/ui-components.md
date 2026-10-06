@@ -458,7 +458,7 @@ type FlowModel = {
 
 ### T-APP-15 File (read-only) and Diff
 
-The File card renders through the existing `CodeFileView` (`@smthrs/ui` `adapters/code-view`) via `cards/CodeSurface.tsx`. Revert the CodeMirror adapter, `CodeEditorView` and the `@codemirror/*` and `y-codemirror.next` pins from 4a36b0cfb; T-APP-14 restores them in S3. Fold `DiffView` into `cards/DiffSurface.tsx`. Check: C-UI-13.
+The File card renders through `CodeEditorView` and the restored CodeMirror adapter (`@smthrs/ui/adapters/code-editor`) via `cards/CodeEditorSurface.tsx`. Fold `DiffView` into `cards/DiffSurface.tsx`. Check: C-UI-13.
 
 Binary and too-large content render one muted line with a formatted size (fixtures: "Binary file · 1.2 MB" and "Too large to co-edit · 4.1 MB") plus the supplied "on GitHub ↗" link. They render no editor. Keyboard equivalents of Ctrl-hover tooltip and F12 definition emit the supplied gestures without moving the text cursor.
 
@@ -476,9 +476,18 @@ type FileBase = {                                 // `branch:<id>:files` (§14.3
   hover?: { line: number; col: number; markdown: string }   // the result of the last hover gesture
   reveal?: { line: number; col?: number; to_line?: number } // a same-file definition, or a cited range
 }
+type CoEdit = {
+  authors: Actor[]
+  editors: { actor: Actor; line: number }[]  // supplied awareness / BranchPresence file location, people and agents
+  saved?: "saving" | "saved"
+  unsaved?: { count: number; text: string }
+}
 type FileView = { line?: number; compare?: boolean }         // the viewer's cursor line feeds presence {path, line} (§7.6)
-type FileProps = CardProps<FileModel, FileView, "hover" | "definition">   // rendered by CodeSurface over CodeFileView;
-                                                                         // the live binding arrives with T-APP-14 (S3)
+type FileProps = CardProps<FileModel, FileView, "hover" | "definition">
+// App-local CodeEditorView also accepts binding?: EditorBinding; this nonserializable prop stays outside RPC.
+// A supplied live binding mounts sync, authorRanges colours and editor gutter flags. Without it, the
+// editor stays read-only and shows no inferred presence or Saved state. Recovery keeps literal text
+// for Copy and renders only supplied Reapply actions. No carets or remote selections.
 // Gestures: hover raises onAction(gestures.hover.tag, { path, line, col }); the container answers through
 // `hover`. Definition raises onAction(gestures.definition.tag, { path, line, col }); the container opens the
 // target's File card, or sets `reveal` when the target is in this file. line is 1-based; col counts UTF-16 units.
@@ -629,7 +638,7 @@ retained. No gesture means plain text. Renamed files open renamed_to.
 
 ### T-UI-16 File live states (S2)
 
-`CodeSurface` reuses the File props and existing CodeFileView. Gone keeps the last content with a Snapshot caption; Restore and Follow are supplied actions. Outside shows Changed outside Smithers with the supplied Compare action. Compare needs the outside text; contract pending (T-UI-16 report: Issues to file). `DiffCardSurface` retains renamed and burst Restore states. Check: C-UI-12.
+`CodeEditorView` reuses the File props and restored CodeMirror adapter. Gone keeps the last content with a Snapshot caption; Restore and Follow are supplied actions. Outside shows Changed outside Smithers with the supplied Compare action. Compare needs the outside text; contract pending (T-UI-16 report: Issues to file). `DiffCardSurface` retains renamed and burst Restore states. Check: C-UI-12.
 
 ### T-UI-18 Secrets
 

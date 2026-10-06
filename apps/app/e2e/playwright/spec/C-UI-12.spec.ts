@@ -71,3 +71,21 @@ test("C-UI-12: primitive actors, states and tones render in both Paper themes", 
     }
   }
 })
+
+test("File co-editing uses CodeMirror attribution and line flags in both themes and widths", async ({ page }) => {
+  for (const theme of ["light", "dark"]) for (const width of [1440, 390]) {
+    await page.setViewportSize({ width, height: 844 })
+    await page.goto(`/view-stories.html?story=CodeEditorView/live_separate&theme=${theme}`)
+    await expect(page.locator('.code-file-view[data-mode="live"] .cm-editor')).toBeVisible()
+    await expect(page.locator('.cm-gutter.code-presence-gutter .code-name-flag')).toHaveText(["Ben", "Will", "Claude Code for Ben"])
+    await expect(page.locator('.code-name-flag[data-kind="agent"]')).toHaveText("Claude Code for Ben")
+    await expect(page.locator('.code-author')).toHaveText(["const one = 1", "const two = 2", "const three = 3"])
+    await expect(page.locator('.cm-ySelection, .cm-ySelectionCaret')).toHaveCount(0)
+    expect(await page.locator('.code-author').first().evaluate(node => getComputedStyle(node).color)).not.toBe(await page.locator('.cm-content').evaluate(node => getComputedStyle(node).color))
+    await page.goto(`/view-stories.html?story=CodeEditorView/saved&theme=${theme}`)
+    await expect(page.locator('.code-saved')).toHaveText("Saved to the machine")
+    await page.goto(`/view-stories.html?story=CodeEditorView/no_binding&theme=${theme}`)
+    await expect(page.locator('.code-file-view[data-mode="read_only"]')).toBeVisible()
+    await expect(page.locator('.code-author,.code-name-flag,.code-saved,.code-avatar-stack')).toHaveCount(0)
+  }
+})

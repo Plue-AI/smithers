@@ -2,15 +2,12 @@ import { createContext } from "react"
 import * as Y from "yjs"
 import { yCollab, yUndoManagerKeymap, ySyncAnnotation } from "y-codemirror.next"
 import { keymap, ViewPlugin } from "@codemirror/view"
-import { EditorState, Facet, StateEffect, StateField } from "@codemirror/state"
+import { EditorState, StateEffect, StateField } from "@codemirror/state"
 import type { EditorBinding } from "@smthrs/ui/adapters/code-editor"
 import { LiveFileMaxBytes } from "@smthrs/rpc/FileCard"
-import type { Actor } from "@smthrs/rpc/CardPrimitives"
+import { authorRanges, type AuthorRange } from "./liveAttribution"
+export { authorRanges, type AuthorRange } from "./liveAttribution"
 import { toActor, type ActorContext } from "../state/ProductActor"
-
-export interface AuthorRange { readonly from: number; readonly to: number; readonly actor: Actor }
-/** Presentation consumes this facet; attribution is never used as write authority. */
-export const authorRanges = Facet.define<readonly AuthorRange[], readonly AuthorRange[]>({ combine: values => values.flat() })
 
 /** The pinned Yjs item traversal is isolated here; deleted and formatting items contribute no characters. */
 export function documentAuthors(doc: Y.Doc, context: ActorContext = {}): AuthorRange[] {

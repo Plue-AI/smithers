@@ -6,7 +6,6 @@ import { fileURLToPath } from "node:url"
 // T-UI-16: CodeSurface is already reachable; T-APP-11 wires its live props. No new View.
 // Views built dark await their owning wiring tickets. Wiring removes its row.
 const PENDING_WIRING: Record<string, string> = {
-  "FilePresenceView.tsx": "T-APP-14",
   "SecretsView.tsx": "T-APP-13",
 }
 

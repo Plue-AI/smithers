@@ -67,8 +67,8 @@ test("every View story: light/dark, desktop/mobile, axe and overflow", async ({ 
     }
     await page.evaluate(() => document.fonts.ready)
     // Worker highlighting can replace an entering annotation. Audit its settled projection.
-    const flagCount = story.name === "FilePresenceView/live_separate" ? 3
-      : /^FilePresenceView\/(live|no_binding|five_editors)$/.test(story.name) ? 1 : 0
+    const flagCount = story.name === "CodeEditorView/live_separate" ? 3
+      : /^CodeEditorView\/(live|five_editors)$/.test(story.name) ? 1 : 0
     await expect.poll(() => page.locator(".code-name-flag").evaluateAll(flags =>
       flags.map(flag => getComputedStyle(flag).opacity))).toEqual(Array(flagCount).fill("1"))
     await expect.poll(() => page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true)
@@ -615,10 +615,11 @@ test("Secrets Replace keyboard form keeps values write-only", async ({ page }) =
 })
 
 test("File recovery Copy and Reapply remain keyboard accessible", async ({ page }) => {
-  await page.goto("/view-stories.html?story=FilePresenceView/unsaved")
+  await page.goto("/view-stories.html?story=CodeEditorView/unsaved")
   await page.evaluate(() => {
     const calls: unknown[] = []
-    Object.assign(window, { fileRecoveryCalls: calls })
+    Object.assign(window, { fileRecoveryCalls: calls, copiedRecovery: [] })
+    Object.defineProperty(navigator, "clipboard", { configurable: true, value: { writeText: async (text: string) => { (window as unknown as { copiedRecovery: string[] }).copiedRecovery.push(text) } } })
     window.addEventListener("story-callback", event => calls.push((event as CustomEvent).detail))
   })
   const notice = page.locator('.code-notice[data-tone="attention"]')
@@ -626,6 +627,8 @@ test("File recovery Copy and Reapply remain keyboard accessible", async ({ page 
   const reapply = notice.getByRole("button", { name: "Reapply", exact: true })
   await page.keyboard.press("Tab")
   await expect(copy).toBeFocused()
+  await page.keyboard.press("Enter")
+  expect(await page.evaluate(() => (window as unknown as { copiedRecovery: string[] }).copiedRecovery)).toEqual(['  description: "Build",\n'])
   await page.keyboard.press("Tab")
   await expect(reapply).toBeFocused()
   await page.keyboard.press("Enter")
@@ -636,7 +639,7 @@ test("File recovery Copy and Reapply remain keyboard accessible", async ({ page 
 })
 
 test("File Copy failure remains visible and retains recovered text", async ({ page }) => {
-  await page.goto("/view-stories.html?story=FilePresenceView/unsaved")
+  await page.goto("/view-stories.html?story=CodeEditorView/unsaved")
   await page.evaluate(() => {
     Object.defineProperty(navigator, "clipboard", { configurable: true, value: { writeText: async () => { throw new Error("unavailable") } } })
     document.execCommand = () => false

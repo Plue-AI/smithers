@@ -1594,7 +1594,7 @@ test("File live notices, snapshot and Compare use supplied data", async () => {
     await act(async () => host.querySelector<HTMLButtonElement>("button[data-flow]")!.click())
     expect(onAction.mock.calls[1]).toEqual(["file.follow-rename", { path: "flows/todo/flow.ts" }])
     await render(liveFileFixtures.comparing)
-    expect(host.querySelector(".code-file-notice > span")!.textContent).toBe("Changed outside Smithers")
+    expect(host.querySelector('.code-notice[data-tone="outside"] > span')!.textContent).toBe("Changed outside Smithers")
     expect(host.querySelector(".code-compare")).toBeNull()
     expect(host.querySelector(".code-snapshot-cap")).toBeNull()
     await act(async () => host.querySelector<HTMLButtonElement>("button[data-flow]")!.click())
@@ -1629,7 +1629,7 @@ test("File disabled and unavailable controls cannot dispatch", async () => {
   } finally { await act(async () => root.unmount()); host.remove() }
 })
 // T-APP-14a: the restored editor stays read-only without live authority.
-for (const saved of ["saving", "saved"] as const) test(`File production ignores unwired co-editing fields (${saved})`, async () => {
+for (const saved of ["saving", "saved"] as const) test(`File without authority hides live indicators and retains recovery (${saved})`, async () => {
   const { CodeEditorSurface: CodeSurface } = await import("../CodeEditorSurface")
   const { fixtures } = await import("@smthrs/rpc/fixtures/File")
   const host = document.createElement("div"); document.body.append(host)
@@ -1642,15 +1642,18 @@ for (const saved of ["saving", "saved"] as const) test(`File production ignores 
     expect(host.querySelector('[data-mode="read_only"]')).not.toBeNull()
     expect(host.querySelector(".cm-editor")).not.toBeNull()
     expect(host.querySelector(".cm-ySelection, .code-name-flag, .code-avatar-stack, .code-saved")).toBeNull()
-    expect(host.querySelector("button, [contenteditable=true]")).toBeNull()
-    expect(host.textContent).not.toMatch(/Saving|Saved to the machine|weren't saved|retained edit/)
+    expect(host.querySelector("[contenteditable=true], [data-flow=\"file.reapply\"]")).toBeNull()
+    expect(host.querySelector("button")?.textContent).toBe("Copy")
+    expect(host.textContent).not.toMatch(/Saving|Saved to the machine/)
+    expect(host.textContent).toContain("2 edits weren't saved")
+    expect(host.querySelector("pre")?.textContent).toBe("retained edit")
     expect(host.querySelector("diffs-container")).toBeNull()
     expect(onAction).not.toHaveBeenCalled()
   } finally { await act(async () => root.unmount()); host.remove() }
 })
 
 test("File recovery renders hostile text inert and copies the literal buffer", async () => {
-  const { FilePresenceView } = await import("./FilePresenceView")
+  const { CodeEditorView } = await import("./CodeEditorView")
   const { fixtures } = await import("@smthrs/rpc/fixtures/File")
   const previous = Object.getOwnPropertyDescriptor(navigator, "clipboard")
   const writeText = mock(async (_text: string) => {})
@@ -1659,7 +1662,7 @@ test("File recovery renders hostile text inert and copies the literal buffer", a
   const root = createRoot(host)
   const onAction = mock((_tag: string, _args?: Record<string, string>) => {})
   try {
-    await act(async () => root.render(<FilePresenceView {...fixtures.unsaved}
+    await act(async () => root.render(<CodeEditorView {...fixtures.unsaved}
       model={{ ...fixtures.unsaved.model, path: "<script>throw 1</script>",
         unsaved: { count: 2, text: '<img src=x onerror="throw 2">\n<script>throw 3</script>' } }}
       actions={[{ tag: "file.reapply", label: "Reapply", args: { path: "<script>throw 1</script>" } }]}
@@ -1686,11 +1689,11 @@ test("File Copy writes the recovered edit, with singular recovery copy", async (
   Object.defineProperty(navigator, 'clipboard', { configurable: true, value: { writeText } })
   try {
     const onAction = mock(() => {})
-    const { FilePresenceView } = await import("./FilePresenceView")
-    const { fileStories } = await import("./FilePresenceView.stories")
+    const { CodeEditorView } = await import("./CodeEditorView")
+    const { fileStories } = await import("./CodeEditorView.stories")
     const host = document.createElement("div"); document.body.append(host)
     const root = createRoot(host)
-    await act(async () => root.render(<FilePresenceView {...fileStories.unsaved_one} onAction={onAction} onView={() => {}} />))
+    await act(async () => root.render(<CodeEditorView {...fileStories.unsaved_one} onAction={onAction} onView={() => {}} />))
     expect(host.textContent).toContain("1 edit wasn't saved")
     await act(async () => host.querySelector<HTMLButtonElement>('.code-notice button')!.click())
     expect(writeText).toHaveBeenCalledTimes(1)
@@ -1703,23 +1706,23 @@ test("File Copy writes the recovered edit, with singular recovery copy", async (
 })
 
 describe("File presence review regressions", () => {
-  test("presence without binding shares undelegated agent colour with avatar", async () => {
-    const { FilePresenceView } = await import("./FilePresenceView")
+  test("binding shares undelegated agent colour with avatar", async () => {
+    const { CodeEditorView } = await import("./CodeEditorView")
     const { fixtures } = await import("@smthrs/rpc/fixtures/File")
     const agent = { kind: "agent" as const, agent: "coding" as const, id: "agent-1", avatar_url: "", name: "Agent", color_index: 2 as const }
     const host = document.createElement("div"); document.body.append(host)
     const root = createRoot(host)
-    await act(async () => root.render(<FilePresenceView {...fixtures.live} model={{ ...fixtures.live.model, editors: [{ actor: agent, line: 1 }] }} onAction={() => {}} onView={() => {}} />))
+    await act(async () => root.render(<CodeEditorView {...fixtures.live} binding={{ text: fixtures.live.model.content.kind === "text" ? fixtures.live.model.content.text : "", extensions: [] }} model={{ ...fixtures.live.model, editors: [{ actor: agent, line: 1 }] }} onAction={() => {}} onView={() => {}} />))
     expect(host.querySelector(".code-name-flag")).not.toBeNull()
     const flag = host.querySelector<HTMLElement>(".code-name-flag")!
     const avatar = host.querySelector<HTMLElement>(".code-avatar-stack .avatar")!
     expect(flag.style.getPropertyValue("--who")).toBe("var(--lane-6)")
     expect(flag.style.getPropertyValue("--who")).toBe(avatar.style.getPropertyValue("--who"))
-    expect(host.querySelector(".cm-editor")).toBeNull()
+    expect(host.querySelector(".cm-editor")).not.toBeNull()
     await act(async () => root.unmount())
   })
   test("recovery notice owns primary Reapply and reports Copy failure", async () => {
-    const { stories } = await import("./FilePresenceView.stories")
+    const { stories } = await import("./CodeEditorView.stories")
     const { host, onAction, close } = await mounted(stories.find(story => story.name === "unsaved")!)
     const action = host.querySelector<HTMLButtonElement>('.code-notice [data-flow="file.reapply"]')!
     expect(action.dataset.primary).toBe("true")
@@ -1740,7 +1743,7 @@ describe("File presence review regressions", () => {
     }
   })
   test("outside notice owns Compare", async () => {
-    const { stories } = await import("./FilePresenceView.stories")
+    const { stories } = await import("./CodeEditorView.stories")
     const { host, close } = await mounted(stories.find(story => story.name === "outside")!)
     expect(host.querySelector('.code-notice[data-tone="outside"] [data-flow="file.compare"]')?.textContent).toBe("Compare")
     expect(host.querySelector(".code-actions")).toBeNull()
@@ -1748,7 +1751,7 @@ describe("File presence review regressions", () => {
   })
 })
 test("File editor avatars overlap and cap at four", async () => {
-  const { stories } = await import("./FilePresenceView.stories")
+  const { stories } = await import("./CodeEditorView.stories")
   const { host, close } = await mounted(stories.find(story => story.name === "five_editors")!)
   expect(host.querySelectorAll(".code-avatar-stack .avatar")).toHaveLength(4)
   expect(host.querySelector(".code-avatar-stack")?.textContent).toContain("+1")
@@ -1756,7 +1759,7 @@ test("File editor avatars overlap and cap at four", async () => {
   await close()
 })
 test("File over-limit text uses the co-editing limit copy", async () => {
-  const { stories } = await import("./FilePresenceView.stories")
+  const { stories } = await import("./CodeEditorView.stories")
   const { host, close } = await mounted(stories.find(story => story.name === "too_large")!)
   expect(host.querySelector(".code-file-size")?.textContent).toContain("Too large to co-edit · 2.4 MB")
   expect(host.querySelector('[data-slot="code-view"]')).toBeNull()

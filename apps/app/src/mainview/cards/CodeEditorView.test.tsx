@@ -4,6 +4,10 @@ import { flushSync } from "react-dom"
 import { createRoot, type Root } from "react-dom/client"
 import type { FileCard } from "@smthrs/rpc/FileCard"
 import { CodeEditorSurface } from "./CodeEditorSurface"
+import type { EditorBinding } from "@smthrs/ui/adapters/code-editor"
+import { EditorView } from "@codemirror/view"
+import { Compartment } from "@codemirror/state"
+import { authorRanges } from "./liveDoc"
 import { cardActions } from "../flows/cardActions"
 
 GlobalRegistrator.register()
@@ -12,7 +16,7 @@ afterEach(() => { for (const root of roots.splice(0)) flushSync(() => root.unmou
 afterAll(async () => { for (let i = 0; i < 3; i++) await new Promise(resolve => setTimeout(resolve, 0)); await GlobalRegistrator.unregister() })
 const model: FileCard = { path: "src/b.ts", branch: "T1", language: "typescript", digest: "fixture-sha",
   content: { kind: "text", text: '\n\n\n\nadd(1, "2")\n' }, mode: "read_only", diagnostics: [], authors: [], editors: [], reveal: { line: 5, col: 3 } }
-const render = (file: FileCard, gestures = false) => {
+const render = (file: FileCard, gestures = false, initialBinding?: EditorBinding) => {
   const calls: unknown[] = []
   const bindings = cardActions<"hover" | "definition">((tag, input) => calls.push([tag, input]), gestures ? [
     { tag: "code.hover", label: "", gesture: "hover", command_input: { path: file.path, line: 5, col: 3 }, resolve_input: input => ({ path: input.path!, line: Number(input.line), col: Number(input.col) }) },
@@ -20,7 +24,7 @@ const render = (file: FileCard, gestures = false) => {
   ] : [])
   const host = document.createElement("div"); document.body.append(host)
   const root = createRoot(host); roots.push(root)
-  const update = (next: FileCard) => flushSync(() => root.render(<CodeEditorSurface model={next} view={{ maximized: false }} {...bindings} onView={() => {}} />))
+  const update = (next: FileCard, binding = initialBinding) => flushSync(() => root.render(<CodeEditorSurface binding={binding} model={next} view={{ maximized: false }} {...bindings} onView={() => {}} />))
   update(file)
   return { host, calls, update }
 }
@@ -70,4 +74,57 @@ test("changing text updates the same view and preserves the scrolling panel", ()
   expect(host.querySelector('.cm-editor')).toBe(view)
   expect(host.querySelector(".cm-content")?.textContent).toBe("changed bytes")
   expect(body.scrollTop).toBe(40)
+})
+
+const alice = { kind: "person" as const, login: "alice", name: "Alice", avatar_url: "", color_index: 2 as const }
+const agent = { kind: "agent" as const, agent: "coding" as const, id: "coding-7", avatar_url: "", color_index: 6 as const }
+const live: FileCard = { ...model, mode: "live", content: { kind: "text", text: "alpha\nbeta\n" },
+  authors: [alice, agent], editors: [{ actor: alice, line: 1 }, { actor: agent, line: 2 }], saved: "saving", reveal: undefined }
+
+test("live editor renders author ranges and person/agent line flags, then updates the same editor", () => {
+  const attribution = new Compartment()
+  const binding = { text: "alpha\nbeta\n", extensions: attribution.of(authorRanges.of([
+    { from: 0, to: 5, actor: alice }, { from: 6, to: 10, actor: agent }
+  ])) }
+  const { host, update } = render(live, false, binding)
+  expect([...host.querySelectorAll(".code-author")].map(node => [node.textContent, (node as HTMLElement).style.getPropertyValue("--who")])).toEqual([
+    ["alpha", "var(--lane-2)"], ["beta", "var(--lane-6)"]
+  ])
+  expect([...host.querySelectorAll(".code-name-flag")].map(node => [node.textContent, node.getAttribute("data-kind")])).toEqual([
+    ["Alice", "person"], ["Coding agent", "agent"]
+  ])
+  expect(host.querySelector(".cm-ySelection, .cm-ySelectionCaret")).toBeNull()
+  expect(host.querySelector(".code-saved")?.textContent).toBe("Saving…")
+  const dom = host.querySelector<HTMLElement>(".cm-editor")!
+  const editor = EditorView.findFromDOM(dom)!
+  editor.dispatch({ effects: attribution.reconfigure(authorRanges.of([{ from: 6, to: 10, actor: alice }])) })
+  expect([...host.querySelectorAll(".code-author")].map(node => node.textContent)).toEqual(["beta"])
+  update({ ...live, saved: "saved", editors: [{ actor: agent, line: 1 }] })
+  expect(host.querySelector(".cm-editor")).toBe(dom)
+  expect(host.querySelector(".code-saved")?.textContent).toBe("Saved to the machine")
+  expect(host.querySelectorAll(".code-name-flag")).toHaveLength(1)
+  expect(host.querySelector(".code-name-flag")?.textContent).toBe("Coding agent")
+  update({ ...live, mode: "read_only" })
+  expect(host.querySelector(".cm-editor")).toBe(dom)
+  expect(host.querySelector(".code-author, .code-name-flag, .code-saved, .code-avatar-stack")).toBeNull()
+  expect(host.querySelector(".cm-content")?.getAttribute("aria-readonly")).toBe("true")
+})
+
+test("absent binding never infers live indicators from persisted props", () => {
+  const { host } = render(live)
+  expect(host.querySelector('[data-mode="read_only"]')).not.toBeNull()
+  expect(host.querySelector(".code-author, .code-name-flag, .code-saved, .code-avatar-stack, button[data-flow]")).toBeNull()
+})
+
+test("unknown authors and out-of-document presence stay absent; hostile actor labels stay inert", () => {
+  const hostile = { ...alice, name: '<script>alert(1)</script>' }
+  const binding = { text: "alpha\nbeta\n", extensions: authorRanges.of([
+    { from: -5, to: 5, actor: hostile }, { from: 6, to: 100, actor: agent }, { from: 100, to: 110, actor: hostile }
+  ]) }
+  const { host } = render({ ...live, authors: [hostile], editors: [{ actor: hostile, line: 1 }, { actor: agent, line: 99 }], saved: undefined }, false, binding)
+  expect(host.querySelectorAll(".code-author")).toHaveLength(1)
+  expect(host.querySelector(".code-author")?.textContent).toBe("alpha")
+  expect(host.querySelectorAll(".code-name-flag")).toHaveLength(1)
+  expect(host.querySelector(".code-name-flag")?.textContent).toBe('<script>alert(1)</script>')
+  expect(host.querySelector("script, .code-saved")).toBeNull()
 })
