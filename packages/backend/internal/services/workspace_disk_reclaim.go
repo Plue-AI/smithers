@@ -6,17 +6,108 @@ import (
 
 	"github.com/jackc/pgx/v5"
 	"github.com/smithersai/smithers/packages/backend/internal/db"
+	workspaceapi "github.com/smithersai/smithers/packages/backend/workspace"
 )
 
-// CleanupStoppedAgentWorkspaceDisks remains on the shared five-minute cleaner.
-// The branch service owner identifies machines, but the workspace contract
-// still lacks scratch archive and settlement timestamps, verified final
-// capture and fresh broker inventory.
-// An old suspension and an absent lane binding prove none of those facts.
-// Keep every disk until all four contracts can be checked atomically with
-// admission and writers; never fall back to age-only runtime removal.
+// WorkspaceDiskReclaimAuthority is supplied by the final-capture lifecycle.
+// Candidates are hints only. WithFinalCapture must re-read settlement, lane
+// binding, retained objects and terminal/service inventory, and fence admission
+// and all writers until remove returns. No authority means no disk deletion.
+// Scratch workspaces are deliberately excluded from this S1 TODO contract.
+type WorkspaceDiskReclaimAuthority interface {
+	Candidates(context.Context) ([]string, error)
+	WithFinalCapture(context.Context, db.Workspace, func(WorkspaceDiskReclaimCapture) error) error
+}
+
+// WorkspaceDiskReclaimCapture names the verified, complete retained capture.
+// The authority verifies the host ref through the head report, including the
+// working-copy files needed by reopen, before invoking the callback.
+type WorkspaceDiskReclaimCapture struct {
+	WorkspaceID   string
+	CandidateHead string
+	RetainedHead  string
+	CaptureID     string
+	Settled       bool
+	Quiet         bool
+}
+
+func WithWorkspaceDiskReclaimAuthority(authority WorkspaceDiskReclaimAuthority) WorkspaceServiceOption {
+	return func(s *WorkspaceService) { s.diskReclaimAuthority = authority }
+}
+
+// CleanupStoppedAgentWorkspaceDisks shares the five-minute cleaner. It never
+// infers settlement or capture from age, retirement or an absent lane binding.
 func (s *WorkspaceService) CleanupStoppedAgentWorkspaceDisks(ctx context.Context) error {
-	return ctx.Err()
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	if s.diskReclaimAuthority == nil {
+		return nil
+	}
+	if _, ok := s.runtime.(workspaceapi.WorkspaceDiskReclaimer); !ok {
+		return nil
+	}
+	candidates, err := s.diskReclaimAuthority.Candidates(ctx)
+	if err != nil {
+		return err
+	}
+	var failures []error
+	for _, id := range candidates {
+		if err := ctx.Err(); err != nil {
+			return errors.Join(append(failures, err)...)
+		}
+		if err := s.reclaimAgentWorkspaceDisk(ctx, id); err != nil {
+			failures = append(failures, err)
+		}
+	}
+	return errors.Join(failures...)
+}
+
+func (s *WorkspaceService) reclaimAgentWorkspaceDisk(ctx context.Context, id string) error {
+	unlock := s.lockRuntimeWorkspace(id)
+	defer unlock()
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	row, err := s.q.GetWorkspace(ctx, id)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return nil
+	}
+	if err != nil {
+		return err
+	}
+	if row.DeletedAt.Valid || (row.Status != "suspended" && row.Status != "stopped") {
+		return nil
+	}
+	if s.diskReclaimAuthority == nil {
+		return nil
+	}
+	reclaimer, ok := s.runtime.(workspaceapi.WorkspaceDiskReclaimer)
+	if !ok {
+		return nil
+	}
+	return s.diskReclaimAuthority.WithFinalCapture(ctx, row, func(capture WorkspaceDiskReclaimCapture) error {
+		// The lifecycle lock covers this re-read and runtime removal; the authority
+		// keeps settlement/binding and quiet inventory fenced across the callback.
+		current, err := s.q.GetWorkspace(ctx, id)
+		if errors.Is(err, pgx.ErrNoRows) {
+			return nil
+		}
+		if err != nil {
+			return err
+		}
+		if current.DeletedAt.Valid || (current.Status != "suspended" && current.Status != "stopped") {
+			return nil
+		}
+		if current.VmID != row.VmID || current.RepositoryID != row.RepositoryID || current.UserID != row.UserID {
+			return nil
+		}
+		if !capture.Settled || !capture.Quiet || capture.WorkspaceID != id || capture.CaptureID == "" ||
+			capture.CandidateHead == "" || capture.CandidateHead != current.HeadCommitID || capture.RetainedHead != capture.CandidateHead {
+			return nil
+		}
+		return reclaimer.ReclaimWorkspaceDisk(ctx, id)
+	})
 }
 
 // keepTodoWorkspace is called under the runtime lock, after re-reading the

@@ -584,6 +584,7 @@ type WorkspaceService struct {
 	runtime                      workspaceapi.WorkspaceRuntime
 	runtimeIdentity              WorkspaceRuntimeIdentityResolver
 	runtimeLocks                 *workspaceRuntimeLockRegistry
+	diskReclaimAuthority         WorkspaceDiskReclaimAuthority
 	sandboxMetrics               SandboxMetricsRecorder
 	gitBaseURL                   string
 	sshHost                      string
