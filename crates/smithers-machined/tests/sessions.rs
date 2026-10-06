@@ -380,3 +380,59 @@ fn production_socketpair_session_calls_and_roster() {
     drop(bridge);
     assert_eq!(worker.join().unwrap().len(), 2);
 }
+
+#[test]
+fn one_gib_output_stalls_at_credit_then_resumes_without_loss() {
+    use smithers_machined::{credit::ReadOutcome, stream::SessionSender};
+    use std::io::Read;
+    struct Source {
+        offset: usize,
+    }
+    impl Read for Source {
+        fn read(&mut self, bytes: &mut [u8]) -> io::Result<usize> {
+            if self.offset == 1_073_741_824 {
+                return Ok(0);
+            }
+            assert_eq!(bytes.len(), 65_536);
+            bytes.fill(((self.offset / 65_536) % 251) as u8);
+            self.offset += bytes.len();
+            Ok(bytes.len())
+        }
+    }
+    let mut source = Source { offset: 0 };
+    let mut sender = SessionSender::default();
+    for _ in 0..4 {
+        assert!(matches!(
+            sender.read(&mut source).unwrap(),
+            ReadOutcome::Data(_)
+        ));
+    }
+    for _ in 0..1000 {
+        assert_eq!(sender.read(&mut source).unwrap(), ReadOutcome::Blocked);
+    }
+    assert_eq!(
+        source.offset, 262_144,
+        "stalled peer must not cause more source reads"
+    );
+    let replay = sender.attach(0).unwrap();
+    assert_eq!(replay.len(), 262_144);
+    for (n, chunk) in replay.chunks(65_536).enumerate() {
+        assert_eq!(chunk, vec![n as u8; 65_536]);
+    }
+    drop(replay);
+    sender.window(262_144).unwrap();
+    let mut received = 262_144;
+    loop {
+        match sender.read(&mut source).unwrap() {
+            ReadOutcome::Data(bytes) => {
+                assert_eq!(bytes, vec![((received / 65_536) % 251) as u8; 65_536]);
+                received += bytes.len();
+                sender.window(bytes.len() as u32).unwrap();
+            }
+            ReadOutcome::Eof => break,
+            ReadOutcome::Blocked => panic!("returned credit did not unblock output"),
+        }
+    }
+    assert_eq!(received, 1_073_741_824);
+    assert!(sender.attach(received as u64).unwrap().is_empty());
+}

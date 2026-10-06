@@ -61,6 +61,14 @@ mod tests {
     #[test]
     fn registered_run_and_closed_surviving_session_use_the_broker_registry() {
         let mut s = Sessions::new(Control);
+        s.set_roster(
+            &[User {
+                login: "maya".into(),
+                uid: 20000,
+            }],
+            Instant::now(),
+        )
+        .unwrap();
         s.insert(
             1,
             User {
