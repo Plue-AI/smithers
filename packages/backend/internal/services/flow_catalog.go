@@ -37,8 +37,8 @@ var SystemFlows = []string{
 	"flow-load", "summarizer",
 	"repository/setup", "repository/trigger",
 	"repository-jobs/issues", "repository-jobs/review", "repository-jobs/ci", "repository-jobs/feature", "repository-jobs/chores",
-	// Packaged execution delegates remain install-owned until the TODO
-	// composition replaces their separately dispatched runs (T-FLW-11).
+	// Packaged execution delegates remain reserved for retained checkpoints
+	// and engine launches; request/vibe are not public command doors.
 	// Reservation is unconditional: missing optional project configuration
 	// disables a packaged route; it never transfers its name to repository code.
 	"coding", "coding/dispatch", "coding/implementation", "coding/request", "coding/vibe", "coding/verify", "coding/wiki",
@@ -103,7 +103,7 @@ type FlowSignal struct {
 }
 
 // builtinFlowsJSON holds the digest of each built-in version the install
-// ships: the composition's content digest, as the flow registry measures the
+// ships: the composition's execution digest, as the flow registry measures the
 // descriptor Executable.catalog binds. flows/test/coding-builtin-routes.test.ts
 // fails when a built-in composition changes without this file.
 //

@@ -60,7 +60,7 @@ func TestTodoLegacyDrain(t *testing.T) {
 	ctx := context.Background()
 	legacy := o.fileTodo(session, "legacy-drain")
 	q := db.New(o.pool)
-	for _, state := range []string{"running", "delivering", "integrating", "verifying", "proposing"} {
+	for _, state := range []string{"queued", "retrying", "running", "delivering", "integrating", "verifying", "proposing", "waiting", "blocked"} {
 		_, err := o.pool.Exec(ctx, `UPDATE mythical_items SET attempt=1,state=$2 WHERE id=$1`, legacy.ID, state)
 		require.NoError(t, err)
 		drained, err := todoLegacyDrained(ctx, o.pool, o.repoID)
@@ -97,4 +97,19 @@ func TestTodoLegacyDrain(t *testing.T) {
 	require.EqualValues(t, 1, retained.Attempt)
 	require.Equal(t, "landed", retained.State)
 	require.False(t, retained.FlowDigest.Valid, "drain never reinterprets old checkpoints as pinned attempts")
+}
+
+func TestTodoLegacyRetryKeepsExecutor(t *testing.T) {
+	o, session := newTodoAdmission(t)
+	activeReads := 0
+	o.service.SetTodoFlow(func(context.Context, int64, string) (string, error) { activeReads++; return todoPinOne, nil })
+	legacy := o.fileTodo(session, "legacy-retry")
+	_, err := o.pool.Exec(t.Context(), `UPDATE mythical_items SET attempt=1,state='retrying' WHERE id=$1`, legacy.ID)
+	require.NoError(t, err)
+	o.wake()
+	retained := o.byID(uuidString(legacy.ID))
+	require.Equal(t, 0, activeReads, "an old checkpoint is never reinterpreted at the current Active version")
+	require.False(t, retained.FlowDigest.Valid)
+	require.Equal(t, "running", retained.State, retained.Reason)
+	require.Equal(t, "coding/request", o.launcher.last("coding/request").FlowID)
 }

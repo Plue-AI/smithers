@@ -2059,7 +2059,7 @@ func (st *mythicalItemStep) start(ctx context.Context, item db.MythicalItem) (*d
 		next.State, next.Reason = "blocked", "a chat result that no longer applies to the tip must be requested again"
 		return &next, false, nil
 	}
-	if item.Source == "todo" && s != nil && (s.todoFlow != nil || item.FlowDigest.Valid) {
+	if item.Source == "todo" && s != nil && (item.FlowDigest.Valid || (s.todoFlow != nil && item.Attempt == 0)) {
 		return st.startPinned(ctx, item)
 	}
 	if s == nil || r == nil || s.launcher == nil || s.lanes == nil || !r.row.ActorUserID.Valid || !s.todoAdmission {

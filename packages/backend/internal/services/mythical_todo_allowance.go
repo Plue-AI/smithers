@@ -23,7 +23,7 @@ func todoLegacyDrained(ctx context.Context, store db.DBTX, repository int64) (bo
 	err := store.QueryRow(ctx, `SELECT
 		EXISTS(SELECT 1 FROM mythical_items WHERE repository_id=$1
 			AND source IN ('todo','issue') AND flow_digest IS NULL AND attempt>0
-			AND (state IN ('running','delivering','integrating','verifying','proposing')
+			AND (state IN ('queued','retrying','running','delivering','integrating','verifying','proposing','waiting','blocked')
 				OR (pending_op IS NOT NULL AND pending_op <> '{}'::jsonb)))
 		OR EXISTS(SELECT 1 FROM product_job_requests
 			WHERE tenant_id='repository:' || $1::bigint::text
