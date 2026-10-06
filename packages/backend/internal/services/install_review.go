@@ -36,6 +36,7 @@ type ReviewAdmission struct {
 
 type ReviewRequest struct {
 	Number       int64  `json:"number"`
+	Repo         string `json:"repo,omitempty"`
 	Conversation string `json:"conversation"`
 }
 
@@ -119,6 +120,13 @@ func (s *MythicalService) prepareReview(ctx context.Context, repositoryID, reque
 	if decision.UserID != requesterID {
 		return ReviewAdmission{}, &AccessError{Status: 403, Class: "permission", Code: "permission", Message: "Not available"}
 	}
+	return s.prepareReviewSubject(ctx, repositoryID, requesterID, request, key)
+}
+
+// prepareReviewSubject is called only after person authorization or the shared
+// confirmation policy has authorized inspecting a delegated request. It never
+// grants execution authority.
+func (s *MythicalService) prepareReviewSubject(ctx context.Context, repositoryID, requesterID int64, request ReviewRequest, key string) (ReviewAdmission, error) {
 	if request.Number <= 0 || request.Conversation == "" || len(request.Conversation) > 256 || key == "" || len(key) > 256 {
 		return ReviewAdmission{}, &TodoControlError{Status: 400, Class: "user", Code: "invalid_review", Message: "PR, conversation and Idempotency-Key are required"}
 	}
@@ -141,6 +149,9 @@ func (s *MythicalService) prepareReview(ctx context.Context, repositoryID, reque
 	repository, owner, err := s.repository(ctx, repositoryID)
 	if err != nil {
 		return ReviewAdmission{}, reviewUnavailable("repository_unavailable")
+	}
+	if request.Repo != "" && request.Repo != owner+"/"+repository.Name {
+		return ReviewAdmission{}, &AccessError{Status: 403, Class: "permission", Code: "permission", Message: "Not the installed repository"}
 	}
 	gh, err := reader.ResolvePullRead(ctx, repository, owner, requesterID)
 	if err != nil {
@@ -242,8 +253,11 @@ func (s *MythicalService) GetReview(ctx context.Context, repositoryID, requester
 	if json.Unmarshal(operation.Payload, &job) != nil {
 		return ReviewStatus{}, reviewUnavailable("review_record_invalid")
 	}
-	if err := s.reviewMembers(ctx, job.Admission); err != nil {
-		return ReviewStatus{}, err
+	// Reading an already authorized job grants no launch authority. Keep its
+	// real cleanup state and retained findings readable to the requester when
+	// the author leaves; admission/start still require current membership.
+	if job.Admission.RepositoryID != repositoryID || job.Admission.RequesterID != requesterID {
+		return ReviewStatus{}, &TodoControlError{Status: 404, Class: "user", Code: "review_not_found", Message: "Review not found"}
 	}
 	result := ReviewStatus{Admission: job.Admission, State: operation.State}
 	result.Admission.OperationID, result.Admission.State = operation.ID, operation.State
