@@ -322,6 +322,10 @@ func serveChannels(channels <-chan ssh.NewChannel, requests <-chan *ssh.Request,
 		}
 	}()
 	for incoming := range channels {
+		if openGuest == nil {
+			incoming.Reject(ssh.ConnectionFailed, "guest unavailable")
+			continue
+		}
 		switch incoming.ChannelType() {
 		case "session":
 			if len(incoming.ExtraData()) != 0 {

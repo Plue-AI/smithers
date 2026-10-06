@@ -44,10 +44,14 @@ startup registration.
   and stderr remain separate, and exit status/signals use SSH messages. Input
   credit is capped at 256 KiB; output credit is returned only after the SSH
   channel write finishes. Unknown/malformed guest envelopes refuse. Channel
-  dispatch supports session and loopback direct-tcpip only. An installed
+  dispatch supports session and loopback direct-tcpip only. Missing session
+  authority rejects both channel kinds before acceptance. PTY open requests
+  retain the terminal name and encoded modes alongside dimensions. An installed
   authenticated session opener must supply each stream; entrypoints still refuse.
   A real loopback SSH test exercises binary stdin, EOF, split output, returned
-  credit and exit 7 against a synthetic guest stream, not the production relay.
+  credit and exit 7 against a synthetic guest stream, not the production relay. Another real SSH
+  boundary test preserves PTY settings and refuses session/direct-tcpip without
+  an opener; it does not start a guest PTY or establish installed authority.
 - Go maps shell/exec/PTY/SFTP/direct-tcpip and resize/signal/exit requests, refuses
   agent and remote forwarding, restricts TCP to literal guest loopback targets,
   and returns fixed fresh-only `DefaultImage` configuration with nil environments

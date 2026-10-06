@@ -38,6 +38,8 @@ func freshConfig() microsandbox.Config {
 type open struct {
 	Kind       string
 	Argv       []string
+	Term       string
+	Modes      []byte
 	Cols, Rows uint16
 	Port       uint16
 }
@@ -46,6 +48,8 @@ type requestMapper struct {
 	started    bool
 	pty        bool
 	cols, rows uint16
+	term       string
+	modes      []byte
 }
 
 // SSH authentication supplies the fixed Ben identity, never request payloads.
@@ -65,6 +69,7 @@ func (m *requestMapper) request(kind string, payload []byte) (*open, []byte, err
 			return nil, nil, errors.New("invalid pty")
 		}
 		m.pty, m.cols, m.rows = true, uint16(p.Cols), uint16(p.Rows)
+		m.term, m.modes = p.Term, []byte(p.Modes)
 		return nil, nil, nil
 	case "shell", "exec", "subsystem":
 		if m.started {
@@ -92,6 +97,7 @@ func (m *requestMapper) request(kind string, payload []byte) (*open, []byte, err
 		}
 		if m.pty {
 			o.Kind = "pty"
+			o.Term, o.Modes = m.term, append([]byte(nil), m.modes...)
 		}
 		m.started = true
 		m.kind = o.Kind
