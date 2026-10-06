@@ -1,0 +1,23 @@
+{
+  "uid": 1000,
+  "kernel": "7.0.0-38-generic",
+  "results": [
+    {
+      "case": "filesystem",
+      "held_before_thaw": true,
+      "finished_after_thaw": true
+    },
+    {
+      "case": "home",
+      "held_before_thaw": true,
+      "finished_after_thaw": true
+    },
+    {
+      "case": "cancellation",
+      "detached_writer_stopped": true,
+      "exit_code": 143
+    }
+  ],
+  "helper_sha256": "e63d2009e318d1d367603af02c23e163778e2363003d84d0918d61d4973259a1",
+  "qualification": "supplemental delegated-user cgroup lifecycle only; privileged guest and atomic mutation remain unqualified"
+}

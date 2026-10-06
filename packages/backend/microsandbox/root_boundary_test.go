@@ -237,8 +237,15 @@ with tempfile.TemporaryDirectory() as directory:
   assert state[0]==19999, 'branch output read as root'
   calls.append('branch-read'); return listdir(fd)
  g.os.listdir=read
- g.main(['setup','agent','19999'])
- assert calls==['root-fixed-setup','drop','branch-read'],calls
+ def admitted(identity, action):
+  assert identity.startswith('setup-'); calls.append('admitted')
+  action(g.drop_to('agent'))
+  return 0
+ g.run_managed_child=admitted
+ try:g.main(['setup','agent','19999'])
+ except SystemExit as result:assert result.code==0,result.code
+ else:raise AssertionError('setup did not return child status')
+ assert calls==['root-fixed-setup','admitted','drop','branch-read'],calls
  assert os.readlink(home+'/branch-created')==tools+'/branch-created'
 `)
 }

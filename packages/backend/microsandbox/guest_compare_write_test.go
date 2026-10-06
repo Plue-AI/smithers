@@ -1,10 +1,16 @@
 package microsandbox
 
-import "testing"
+import (
+	"runtime"
+	"testing"
+)
 
 // Linux disk and renameat2 candidate evidence only. This does not qualify the
 // real-machine privilege/ancestor boundary or enable WorkspaceCompareWriter.
 func TestGuestCompareWriteCandidate(t *testing.T) {
+	if runtime.GOOS != "linux" {
+		t.Skip("candidate requires Linux renameat2; qualification runs on Linux")
+	}
 	boundaryPython(t, `
 import io,json,pathlib,contextlib
 old='25718360e05d3c2d0963d1381e9dd4dae5fca789244ee4b9f861adcc0cc96218'

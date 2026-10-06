@@ -368,63 +368,52 @@ def drop_to(user, uid=None):
     return entry
 
 
-def run_exec(request):
-    if not isinstance(request, dict) or set(request) - {"id", "user", "argv", "env", "cwd", "root", "stdin", "payload"}:
-        fail(125, "invalid exec envelope")
-    exec_id = request.get("id", "")
-    if not valid_id(exec_id) or request.get("user") != "agent":
-        fail(125, "invalid exec envelope")
-    user = "agent"
+def run_managed_child(exec_id, action):
+    """Admit every workspace-writing child before it consumes branch operands.
+
+    The parent remains outside the command tree for cancellation and collection.
+    This admission is necessary for guest-wide exclusion; it does not itself
+    freeze writers, drain outstanding kernel I/O, or qualify compare-and-write.
+    """
+    if not valid_id(exec_id):
+        fail(125, "invalid exec identity")
     group = os.path.join(CGROUP_ROOT, exec_id)
     group_fd = safe_directory(group, trusted=True)
-
-    child = os.fork()
+    try:
+        child = os.fork()
+    except BaseException:
+        os.close(group_fd)
+        raise
     if child == 0:
+        code = 0
         try:
             fd = os.open("cgroup.procs", os.O_WRONLY | os.O_NOFOLLOW, dir_fd=group_fd)
             with os.fdopen(fd, "w") as handle:
                 handle.write(str(os.getpid()))
             os.close(group_fd)
-            drop_to(user)
+            entry = drop_to("agent")
             os.umask(0o002)
-            if "payload" in request:
-                request = read_request(request["payload"])
-                if not isinstance(request, dict) or set(request) - {"id", "user", "argv", "env", "cwd", "root", "stdin"} or request.get("id") != exec_id or request.get("user") != user:
-                    fail(125, "invalid exec payload")
-            if request.get("stdin") != "inherit":
-                null = os.open(os.devnull, os.O_RDONLY)
-                os.dup2(null, 0)
-                os.close(null)
-            argv = request.get("argv") or []
-            if not argv or not all(isinstance(a, str) for a in argv):
-                fail(125, "invalid exec request")
-            env = base_environment()
-            env.update(load_secret_environment())
-            for key, value in (request.get("env") or {}).items():
-                if not key or "=" in key or "\x00" in key or "\x00" in str(value):
-                    fail(125, "invalid environment variable %r" % key)
-                env[key] = str(value)
-            cwd = request.get("cwd") or "/"
-            root = request.get("root")
-            if root:
-                real_root = os.path.realpath(root)
-                resolved = os.path.realpath(cwd)
-                if resolved != real_root and not resolved.startswith(real_root + "/"):
-                    fail(125, "command directory resolves outside the workspace root")
-                if not os.path.isdir(resolved):
-                    fail(125, "command directory is not a directory")
-                cwd = resolved
-            os.chdir(cwd)
-            os.execvpe(argv[0], argv, env)
+            action(entry)
+        except SystemExit as error:
+            code = 0 if error.code is None else error.code if type(error.code) is int and 0 <= error.code <= 255 else 125
         except FileNotFoundError as error:
             sys.stderr.write("smithers-guest: %s\n" % error)
-            os._exit(127)
+            code = 127
         except PermissionError as error:
             sys.stderr.write("smithers-guest: %s\n" % error)
-            os._exit(126)
+            code = 126
         except BaseException as error:  # noqa: BLE001 - the child must never return
             sys.stderr.write("smithers-guest: %s\n" % error)
-            os._exit(126)
+            code = 126
+        finally:
+            try:
+                sys.stdout.flush()
+                sys.stderr.flush()
+            except OSError:
+                # A broken reply stream is not a successful helper response.
+                code = 126
+            finally:
+                os._exit(code)
 
     os.close(group_fd)
 
@@ -432,18 +421,81 @@ def run_exec(request):
         cgroup_kill(group)
         os._exit(128 + signum)
 
-    for signum in (signal.SIGTERM, signal.SIGHUP, signal.SIGINT):
-        signal.signal(signum, terminate)
-    _, status = os.waitpid(child, 0)
-    code = os.waitstatus_to_exitcode(status)
-    if code < 0:
-        code = 128 - code
-    # Descendants may outlive the command or hold its pipes. The process
-    # adapter reaps its process group after exit; a cgroup reaps escapees too.
-    cgroup_kill(group)
+    signals = (signal.SIGTERM, signal.SIGHUP, signal.SIGINT)
+    previous = {signum: signal.signal(signum, terminate) for signum in signals}
+    try:
+        _, status = os.waitpid(child, 0)
+        code = os.waitstatus_to_exitcode(status)
+        # Descendants may outlive the direct child or hold its pipes. Reap the
+        # entire admitted group before returning to any helper caller.
+        cgroup_kill(group)
+        return 128 - code if code < 0 else code
+    finally:
+        for signum, handler in previous.items():
+            signal.signal(signum, handler)
+
+
+def run_exec(request):
+    if not isinstance(request, dict) or set(request) - {"id", "user", "argv", "env", "cwd", "root", "stdin", "payload"}:
+        fail(125, "invalid exec envelope")
+    exec_id = request.get("id", "")
+    if not valid_id(exec_id) or request.get("user") != "agent":
+        fail(125, "invalid exec envelope")
+
+    def execute(_entry):
+        payload = request
+        if "payload" in payload:
+            payload = read_request(payload["payload"])
+            if not isinstance(payload, dict) or set(payload) - {"id", "user", "argv", "env", "cwd", "root", "stdin"} or payload.get("id") != exec_id or payload.get("user") != "agent":
+                fail(125, "invalid exec payload")
+        if payload.get("stdin") != "inherit":
+            null = os.open(os.devnull, os.O_RDONLY)
+            os.dup2(null, 0)
+            os.close(null)
+        argv = payload.get("argv") or []
+        if not argv or not all(isinstance(a, str) for a in argv):
+            fail(125, "invalid exec request")
+        env = base_environment()
+        env.update(load_secret_environment())
+        for key, value in (payload.get("env") or {}).items():
+            if not key or "=" in key or "\x00" in key or "\x00" in str(value):
+                fail(125, "invalid environment variable %r" % key)
+            env[key] = str(value)
+        cwd = payload.get("cwd") or "/"
+        root = payload.get("root")
+        if root:
+            real_root = os.path.realpath(root)
+            resolved = os.path.realpath(cwd)
+            if resolved != real_root and not resolved.startswith(real_root + "/"):
+                fail(125, "command directory resolves outside the workspace root")
+            if not os.path.isdir(resolved):
+                fail(125, "command directory is not a directory")
+            cwd = resolved
+        os.chdir(cwd)
+        os.execvpe(argv[0], argv, env)
+
+    code = run_managed_child(exec_id, execute)
     sys.stdout.flush()
     os.write(2, EXIT_TRAILER % code)
     return code
+
+
+def run_fs(args):
+    # Called only after admission/drop (or by a process already unprivileged).
+    operation, root, path = args[2], args[3], args[4]
+    if operation == "read":
+        fs_read(root, path, int(args[5]))
+    elif operation == "write":
+        fs_write(root, path, int(args[5], 8))
+    elif operation == "compare-write" and len(args) == 8:
+        # No branch argument or environment can open this qualification gate.
+        fail(125, "compare-write provider is not qualified")
+    elif operation == "list":
+        fs_list(root, path)
+    elif operation == "remove":
+        fs_remove(root, path)
+    else:
+        fail(125, "unknown fs operation")
 
 
 def run_root_recipe(digest, request):
@@ -1444,26 +1496,13 @@ def main(args):
             os.close(parent)
         return
     if command == "fs" and len(args) >= 5:
-        user = args[1]
-        if user != "agent":
+        if args[1] != "agent":
             fail(125, "invalid fs identity")
         if os.geteuid() == 0:
-            drop_to(user)
-        operation, root, path = args[2], args[3], args[4]
-        if operation == "read":
-            fs_read(root, path, int(args[5]))
-        elif operation == "write":
-            fs_write(root, path, int(args[5], 8))
-        elif operation == "compare-write" and len(args) == 8:
-            # T-SEC-01 has not qualified this candidate on fresh and retained
-            # machines. No branch argument or environment can open the gate.
-            fail(125, "compare-write provider is not qualified")
-        elif operation == "list":
-            fs_list(root, path)
-        elif operation == "remove":
-            fs_remove(root, path)
-        else:
-            fail(125, "unknown fs operation")
+            # Operand lookup and stdin consumption happen only in the admitted
+            # unprivileged child, including read/remove and unavailable writes.
+            sys.exit(run_managed_child("fs-" + secrets.token_hex(16), lambda _entry: run_fs(args)))
+        run_fs(args)
         return
     if command == "relay" and len(args) == 2:
         relay(int(args[1]))
@@ -1478,10 +1517,9 @@ def main(args):
         if args[1] != "agent":
             fail(3, "member provisioning requires approved roster and broker")
         setup(args[1], int(args[2]), args[3:])
-        entry = drop_to(args[1])
-        os.umask(0o002)
-        home_defaults(entry)
-        return
+        # Setup's fixed root metadata work is separate from branch-produced
+        # home/cache reads and writes, which must join the managed writer tree.
+        sys.exit(run_managed_child("setup-" + secrets.token_hex(16), home_defaults))
     fail(125, "unknown subcommand %r" % command)
 
 
