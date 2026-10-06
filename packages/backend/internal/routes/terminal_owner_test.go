@@ -72,6 +72,11 @@ func TestTerminalOwnerOnlyInput(t *testing.T) {
 		require.NoError(t, owner.Write(ctx, websocket.MessageBinary, []byte(input)))
 	}
 	require.NoError(t, owner.Write(ctx, websocket.MessageText, []byte(`{"type":"resize","rows":30,"cols":90}`)))
+	// Session dimensions are u16 on the broker boundary. Invalid controls
+	// must not wrap into a different valid size or clamp an owner's request.
+	for _, size := range []string{`{"type":"resize","rows":65536,"cols":90}`, `{"type":"resize","rows":30,"cols":4294967295}`, `{"type":"resize","rows":0,"cols":90}`} {
+		require.NoError(t, owner.Write(ctx, websocket.MessageText, []byte(size)))
+	}
 	require.NoError(t, owner.Close(websocket.StatusNormalClosure, "done"))
 	<-done
 	require.Equal(t, "onetwothree", ssh.stdin.String())
@@ -147,5 +152,54 @@ func TestTerminalOpenFailsClosedWithoutS2Providers(t *testing.T) {
 		handler.OpenTerminal(recorder, httptest.NewRequest(http.MethodPost, "/api/terminals", bytes.NewBufferString(body)))
 		require.Equal(t, http.StatusServiceUnavailable, recorder.Code)
 		require.JSONEq(t, `{"code":"terminal_unavailable","class":"infra","message":"Terminal is unavailable"}`, recorder.Body.String())
+	}
+}
+
+// Exercise Close through the retained HTTP/WebSocket handler, including its
+// authentication preflight, manager attachment and owner control dispatch.
+func TestTerminalOwnerCloseThroughRetainedSocket(t *testing.T) {
+	fake := newFakeTerminalSSH()
+	manager := NewTerminalSessionManager(func(context.Context, services.WorkspaceSSHConnectionInfo, int32, int32) (terminalSSHClient, terminalSSHSession, error) {
+		return fake.client, fake.session, nil
+	})
+	manager.keepaliveInterval = 0
+	defer manager.Close()
+	handler := &WorkspaceTerminalHandler{Service: workspaceTerminalZService{}, AllowedOrigins: []string{"https://smithers.sh"}, TerminalSessions: manager}
+	returned := make(chan struct{})
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		workspaceTerminalZRouter(handler).ServeHTTP(w, r)
+		close(returned)
+	}))
+	defer server.Close()
+	ctx, cancel := context.WithTimeout(t.Context(), 5*time.Second)
+	defer cancel()
+	ws, _, err := websocket.Dial(ctx, "ws"+server.URL[4:]+"/repos/alice/demo/workspace/sessions/sess-z/terminal", &websocket.DialOptions{HTTPHeader: http.Header{"Origin": []string{"https://smithers.sh"}}, Subprotocols: []string{"terminal"}})
+	require.NoError(t, err)
+	defer ws.CloseNow()
+	_, _, err = ws.Read(ctx)
+	require.NoError(t, err)
+	require.NoError(t, ws.Write(ctx, websocket.MessageText, []byte(`{"type":"close","owner":12345}`)))
+	_, _, err = ws.Read(ctx)
+	require.Equal(t, websocket.StatusNormalClosure, websocket.CloseStatus(err))
+	select {
+	case <-returned:
+	case <-ctx.Done():
+		t.Fatal("owner Close did not end the handler")
+	}
+	manager.mu.Lock()
+	_, retained := manager.sessions["sess-z"]
+	manager.mu.Unlock()
+	require.False(t, retained, "closed terminals must release the manager's active-session hold")
+}
+
+func TestAgentTerminalAttachmentsNeverOwnInput(t *testing.T) {
+	sess := newTerminalSession("agent-run", nil, nil, nil, nil, nil, 512*1024, time.Hour, 0, nil)
+	sess.principal = revocation.Principal{RepositoryID: 3}
+	for _, viewer := range []int64{0, 7, 8} {
+		ws := &websocket.Conn{}
+		sink := newTerminalSink(ws, 8, time.Second)
+		sink.principal = revocation.Principal{UserID: viewer, RepositoryID: 3}
+		sess.sinks[sink] = struct{}{}
+		require.False(t, sess.ownsInput(ws), "agent terminal must remain watch-only for viewer %d", viewer)
 	}
 }

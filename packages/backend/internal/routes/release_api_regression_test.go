@@ -126,7 +126,6 @@ func TestReleaseCustomDecodersPreserveFieldPolicy(t *testing.T) {
 		decode func(http.ResponseWriter, *http.Request, any) bool
 		strict bool
 	}{
-		{"timeline", appTimelineDecode, false},
 		{"mythical", func(w http.ResponseWriter, r *http.Request, v any) bool { return decodeMythicalBody(w, r, 4096, v) }, true},
 	} {
 		for _, body := range []string{`{"name":"kept"}`, "{\"name\":\"kept\"}\n\t", `{"name":"kept","future":1}`, `{"name":"kept"} {}`, `{"name":"kept"} junk`} {

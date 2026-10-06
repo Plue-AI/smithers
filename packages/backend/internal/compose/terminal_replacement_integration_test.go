@@ -177,6 +177,15 @@ func TestTerminalReplacementThroughInstallHTTPPostgres(t *testing.T) {
 	}, time.Second, 10*time.Millisecond)
 	require.Never(t, func() bool { return runtime.current() != second }, 200*time.Millisecond, 10*time.Millisecond,
 		"late detach must preserve the replacement file")
+	// Close is an owner control on the retained socket, rather than a browser
+	// disconnect: it ends the PTY and releases the delegated sign-in.
+	typ, replay, replayErr := b.Read(ctx)
+	require.NoError(t, replayErr)
+	require.Equal(t, websocket.MessageText, typ)
+	require.JSONEq(t, `{"type":"replay-complete"}`, string(replay))
+	require.NoError(t, b.Write(ctx, websocket.MessageText, []byte(`{"type":"close","owner":0}`)))
+	_, _, closeErr := b.Read(ctx)
+	require.Equal(t, websocket.StatusNormalClosure, websocket.CloseStatus(closeErr))
 	_ = b.CloseNow()
 	require.Eventually(t, func() bool { return runtime.current() == "" }, 5*time.Second, 10*time.Millisecond)
 	var remaining int
