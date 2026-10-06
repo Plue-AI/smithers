@@ -89,7 +89,8 @@ func TestScratchDiffUsesForkRevisionInstall(t *testing.T) {
 	client := repohost.NewClient(&repohost.StaticStorageSetResolver{URL: remote.URL}, "split-process-repo")
 	handler := startSplitProcess(t, Options{Repository: client, ChatHost: unusedChatHost{}})
 	call := func(name, session string) *httptest.ResponseRecorder {
-		request := httptest.NewRequest("GET", "/api/branches/"+url.PathEscape(name)+"/diff", nil)
+		request := httptest.NewRequest("GET", "http://127.0.0.1:4000/api/branches/"+url.PathEscape(name)+"/diff", nil)
+		request.RemoteAddr = "127.0.0.1:12345"
 		if session != "" {
 			request.AddCookie(&http.Cookie{Name: "smithers_session", Value: session})
 		}
