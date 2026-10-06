@@ -476,16 +476,17 @@ const installQueued: TodoCard = {
   branch: undefined, run: undefined, steps: [], waits: [], present: [], pr: undefined, merge: { state: "waiting", reason: "state", on_github: false }
 }
 
-test("Home from GET /api/todos: one row per unmerged TODO in served order, every state counted, a machine per awake or waking branch", () => {
+test("Home from GET /api/todos: one row per unmerged TODO in served order, only open states counted, a machine per awake or waking branch", () => {
   const working = { ...todoFixtures.in_review.model, n: 2, title: "Working", state: "working" as const, place: 2, pr: undefined,
     branch: { id: "b2", name: "todo-2", machine: { state: "awake" as const } } }
   const review = { ...todoFixtures.in_review.model, n: 3, place: 1, merge: { state: "ready" as const, on_github: false }, pr: { ...todoFixtures.in_review.model.pr!, draft: false } }
   const merged = { ...todoFixtures.merged.model, n: 4 }
-  const home = homeFromTodos("local-owner/demo", [installQueued, working, review, merged])
+  const dropped = { ...todoFixtures.dropped.model, n: 5 }
+  const home = homeFromTodos("local-owner/demo", [installQueued, working, review, merged, dropped])
   expect(HomeCardSchema.parse(home)).toEqual(home)
   expect(home.repository).toBe("local-owner/demo")
   expect(home.items.map(item => [item.n, item.state])).toEqual([[1, "queued"], [2, "working"], [3, "in_review"]])
-  expect(home.counts).toEqual({ queued: 1, starting: 0, working: 1, needs_you: 0, paused: 0, failed: 0, in_review: 1, merged: 1, dropped: 0 })
+  expect(home.counts).toEqual({ queued: 1, starting: 0, working: 1, needs_you: 0, paused: 0, failed: 0, in_review: 1, merged: 0, dropped: 0 })
   expect(home.items[0]).toMatchObject({ queue: { reason: "machine", position: 1 }, branch: { id: "", name: "" }, place: 1 })
   expect(home.items[0]!.actions).toEqual([{ tag: "todo", label: "First local TODO", args: { n: "1", door: "title" } }])
   expect(home.items[2]!.actions.map(action => [action.tag, action.label])).toEqual([["todo", review.title]])
@@ -648,8 +649,11 @@ const answered = (home: HomeAnswer | undefined): HomeAnswer => {
 }
 
 test("the rail's home line on an install names the repository and counts GET /api/todos, never the seed", () => {
-  const owner = rehearsalHost("rehearsal-owner")
+  const owner = rehearsalHost("rehearsal-owner", [
+    ...rehearsalTodos, { ...todoFixtures.merged.model, n: 2 }, { ...todoFixtures.dropped.model, n: 3 }
+  ])
   const home = answered(probeHome(owner.controller))
+  expect(home.model.counts).toEqual({ queued: 0, starting: 0, working: 0, needs_you: 0, paused: 0, failed: 0, in_review: 1, merged: 0, dropped: 0 })
   expect(home).toMatchObject({ kind: "served", role: "owner", model: { repository: "rehearsal-owner/app" } })
   expect(homeLine(home)).toEqual({ entry_id: "home", kind: "card", title: "rehearsal-owner/app", summary: "0 need you · 0 working", tone: "quiet", glyph: { state: "queued" } })
   owner.controller.design.dispose()

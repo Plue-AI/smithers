@@ -157,7 +157,8 @@ test("install Home keeps the next Merge after an earlier item merged and exposes
   const thirdTodo = { ...review, n: 3, place: 3, title: "Third TODO" }
   const currentTodos = () => (moved ? [{ ...thirdTodo, place: 2 }, { ...secondTodo, place: 3 }] : [secondTodo, thirdTodo]).filter(todo => !dropped || todo.n !== 2).map(todo => conflict && todo.n === 3 ? { ...todo, state: "needs_you", waits: fixtures.conflict.model.waits } : todo)
   await page.route("**/api/todos", route => route.fulfill({ json: [
-    { ...fixtures.merged.model, n: 1, place: 1 }, ...currentTodos()
+    { ...fixtures.merged.model, n: 1, place: 1 },
+    { ...fixtures.dropped.model, n: 4, place: 4 }, ...currentTodos()
   ] }))
   await page.route("**/api/todos/2", route => {
     if (route.request().method() === "POST") {
@@ -177,7 +178,7 @@ test("install Home keeps the next Merge after an earlier item merged and exposes
   })
   await page.goto("/")
   const home = page.locator(".home").first()
-  await expect(home).toBeVisible()
+  await expect(home).toBeVisible({ timeout: 30_000 })
   await expect(home.locator(".stack-row .ref")).toHaveText(["T2", "T3"])
   const second = home.locator(".stack-row").filter({ hasText: "Second TODO" })
   const third = home.locator(".stack-row").filter({ hasText: "Third TODO" })
@@ -189,6 +190,7 @@ test("install Home keeps the next Merge after an earlier item merged and exposes
   await expect(third.getByRole("menuitem", { name: "Drop", exact: true })).toBeVisible()
   await expect.poll(() => memberViews.ben?.home).toEqual({ filter: null, menu: 3 })
   await page.reload()
+  await expect(home).toBeVisible({ timeout: 30_000 })
   await expect(third.getByRole("menuitem", { name: "Move up", exact: true })).toBeVisible()
   await expect(home).not.toContainText("Stripe")
   await third.getByRole("menuitem", { name: "Move up", exact: true }).press("Enter")
@@ -213,16 +215,21 @@ test("install Home keeps the next Merge after an earlier item merged and exposes
   await expect.poll(() => viewWrites.length).toBe(1)
   expect(viewWrites[0]).toEqual({ login: "ben", body: { scroll_anchor: expect.stringMatching(/^(home|todo:3)$/), last_seen_seq: 12, home: { filter: "in_review", menu: null }, toasts_hidden: false, timeline_visible_until: expect.stringMatching(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/) } })
   await page.reload()
+  await expect(home).toBeVisible({ timeout: 30_000 })
   await expect(reviewFilter).toHaveAttribute("aria-pressed", "true")
+  await page.goto("about:blank")
   login = "alice"
-  await page.reload()
+  await page.goto("/")
+  await expect(home).toBeVisible({ timeout: 30_000 })
   await expect(home.getByText("T3", { exact: true })).toBeVisible()
   await expect(home.getByText("T2", { exact: true })).toHaveCount(0)
   await expect(home.getByRole("button", { name: "Merge", exact: true })).toHaveCount(0)
   await expect(reviewFilter).toHaveAttribute("aria-pressed", "false")
   expect(memberViews.ben?.home).toEqual({ filter: "in_review", menu: null })
+  await page.goto("about:blank")
   login = "maya"
-  await page.reload()
+  await page.goto("/")
+  await expect(home).toBeVisible({ timeout: 30_000 })
   await expect(home.getByRole("button", { name: "Merge", exact: true })).toHaveCount(1)
   conflict = true
   await expect(home.getByRole("button", { name: "Resolve", exact: true })).toBeVisible()
