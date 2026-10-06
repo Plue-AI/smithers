@@ -136,6 +136,14 @@ pub trait EventSink: Send + Sync {
     }
 }
 pub trait Core: Send + Sync {
+    /// Production lifecycle providers admit file methods only after this boot's
+    /// authenticated wake reconciliation. Missing lifecycle authority refuses.
+    fn admit_files(&self) -> Result<()> {
+        Err(Error {
+            code: 3,
+            ..Error::unsupported()
+        })
+    }
     fn call(&self, _cx: &mut LockCx, _method: u8, _arguments: &[u8]) -> Result<Vec<u8>> {
         Err(Error::unsupported())
     }

@@ -64,6 +64,26 @@ fn wait(child: &mut Child, timeout: Duration) -> io::Result<ExitStatus> {
         }
     }
 }
+fn anonymous_file() -> io::Result<File> {
+    use std::{
+        fs::{self, OpenOptions},
+        os::unix::fs::OpenOptionsExt,
+    };
+    let mut nonce = [0; 16];
+    getrandom::fill(&mut nonce).map_err(|_| invalid("random source unavailable"))?;
+    let hex: String = nonce.iter().map(|b| format!("{b:02x}")).collect();
+    let path = std::env::temp_dir().join(format!("machined-git-{hex}"));
+    let file = OpenOptions::new()
+        .read(true)
+        .write(true)
+        .create_new(true)
+        .mode(0o600)
+        .open(&path)?;
+    // Unlink before child execution: no branch writer can substitute either
+    // spool, and pipe capacity cannot block the command's deadline/reaping.
+    fs::remove_file(path)?;
+    Ok(file)
+}
 impl GitObjects {
     pub fn new(git: &Path, workspace: &Path) -> io::Result<Self> {
         // Never let a root broker execute a repository command.
@@ -96,28 +116,18 @@ impl GitObjects {
         cmd
     }
     fn run(&self, args: &[&str]) -> io::Result<Vec<u8>> {
-        use std::{
-            fs::{self, OpenOptions},
-            io::{Read, Seek, SeekFrom},
-            os::unix::fs::OpenOptionsExt,
-        };
-        let mut nonce = [0; 16];
-        getrandom::fill(&mut nonce).map_err(|_| invalid("random source unavailable"))?;
-        let hex: String = nonce.iter().map(|b| format!("{b:02x}")).collect();
-        let path = std::env::temp_dir().join(format!("machined-git-{hex}"));
-        let mut output = OpenOptions::new()
-            .read(true)
-            .write(true)
-            .create_new(true)
-            .mode(0o600)
-            .open(&path)?;
-        // An unlinked descriptor cannot be replaced by a path writer. Spooling
-        // avoids pipe backpressure and leaves no reader thread after a timeout.
-        fs::remove_file(path)?;
+        self.run_input(args, &[])
+    }
+    pub(crate) fn run_input(&self, args: &[&str], input: &[u8]) -> io::Result<Vec<u8>> {
+        use std::io::{Read, Seek, SeekFrom, Write};
+        let mut output = anonymous_file()?;
+        let mut source = anonymous_file()?;
+        source.write_all(input)?;
+        source.seek(SeekFrom::Start(0))?;
         let mut child = self
             .command()
             .args(args)
-            .stdin(Stdio::null())
+            .stdin(source)
             .stdout(output.try_clone()?)
             .stderr(Stdio::null())
             .spawn()?;

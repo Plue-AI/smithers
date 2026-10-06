@@ -32,3 +32,6 @@ pub mod outbox;
 
 #[cfg(target_os = "linux")]
 pub mod confine;
+
+#[cfg(target_os = "linux")]
+pub mod files;
