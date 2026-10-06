@@ -416,9 +416,12 @@ func TestInstallMainRetryWithMissingCheckReviewOwners(t *testing.T) {
 	require.NoError(t, err)
 	cfg := testConfigAllFlagsOn()
 	cfg.Auth.Mode = "selfhost"
+	cfg.Server.PublicURL = "http://example.com"
+	cfg.Server.AllowedOrigins = []string{"http://example.com"}
 	router := githubAppSetupComposeRouter(cfg, pool, &routes.GitHubAppSetupHandler{}, routerExtras{GitHubSync: main})
 	for _, method := range []string{http.MethodGet, http.MethodPost} {
 		request := httptest.NewRequest(method, "/api/github/sync", nil)
+		request.Header.Set("Origin", "http://example.com")
 		request.Header.Set("X-CSRF-Token", "poll-csrf")
 		request.AddCookie(&http.Cookie{Name: middleware.CSRFCookieName, Value: "poll-csrf"})
 		request = request.WithContext(middleware.ContextWithAuthInfo(request.Context(), &middleware.AuthInfo{User: &user, SessionHash: "poll-session"}))

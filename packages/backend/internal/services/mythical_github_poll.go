@@ -19,8 +19,10 @@ func (s *MythicalService) UseInstallGitHubPolling(synced *GitHubSyncedRepoServic
 	s.installPullHints = &mythicalPullHints{pending: make(map[pgtype.UUID]mythicalPullHint), wake: make(chan struct{}, 1)}
 	if synced != nil && synced.install != nil {
 		synced.install.consumers[gitHubIssueEvents] = s.consumeGitHubTodoLabels
+		synced.install.pullFacts = true
 		synced.install.requestPulls = s.requestInstallPulls
 		synced.install.requiredPulls = s.requiredInstallPulls
+		synced.install.requiredPullFacts = s.requiredInstallPullResources
 		if synced.install.consumers != nil {
 			synced.install.consumers[GitHubRepoMetadataPulls] = s.consumeGitHubPullTodos
 		}
@@ -188,6 +190,10 @@ func (s *MythicalService) fetchInstallPullHint(ctx context.Context, item db.Myth
 // requiredInstallPulls reports the same uncapped per-TODO working set that the
 // existing follow loop reads, including a missing observation before first fetch.
 func (s *MythicalService) requiredInstallPulls(ctx context.Context, row db.GithubSyncedRepo) ([]GitHubSyncStream, error) {
+	return s.requiredInstallPullResources(ctx, row, "pulls")
+}
+
+func (s *MythicalService) requiredInstallPullResources(ctx context.Context, row db.GithubSyncedRepo, resource string) ([]GitHubSyncStream, error) {
 	ids, err := s.queries().ListRepositoryIDsForGitHubSource(ctx, row.OwnerLogin, row.RepoName)
 	if err != nil {
 		return nil, err
@@ -206,7 +212,7 @@ func (s *MythicalService) requiredInstallPulls(ctx context.Context, row db.Githu
 			return nil, err
 		}
 		for _, item := range items {
-			streams = append(streams, s.installGitHubSync.syncStreamObservation(row, "pulls/"+strconv.FormatInt(item.PRNumber.Int64, 10), "pulls"))
+			streams = append(streams, s.installGitHubSync.syncStreamObservation(row, resource+"/"+strconv.FormatInt(item.PRNumber.Int64, 10), resource))
 		}
 	}
 	return streams, nil

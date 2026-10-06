@@ -201,9 +201,15 @@ func TestGitHubIndividualPullUsesExistingFollowWithoutEffects(t *testing.T) {
 	require.NoError(t, err)
 	calls := 0
 	s.SetConditionalFetcherFactory(func(db.GithubSyncedRepo) GitHubSyncedRepoConditionalFetcher {
-		return func(context.Context, string, url.Values, string) (GitHubSyncedRepoConditionalPage, error) {
+		return func(_ context.Context, resource string, _ url.Values, _ string) (GitHubSyncedRepoConditionalPage, error) {
 			calls++
-			return GitHubSyncedRepoConditionalPage{Body: json.RawMessage(fetchedPullDetail), ETag: `"pull"`}, nil
+			if strings.HasSuffix(resource, "check-runs") {
+				return GitHubSyncedRepoConditionalPage{Body: json.RawMessage(`{"check_runs":[]}`)}, nil
+			}
+			if resource != "pulls/7" {
+				return GitHubSyncedRepoConditionalPage{Body: json.RawMessage(`[]`)}, nil
+			}
+			return GitHubSyncedRepoConditionalPage{Body: json.RawMessage(strings.Replace(fetchedPullDetail, "head-1", strings.Repeat("a", 40), 1)), ETag: `"pull"`}, nil
 		}
 	})
 	stack := NewMythicalService(pool, nil)
@@ -219,7 +225,7 @@ func TestGitHubIndividualPullUsesExistingFollowWithoutEffects(t *testing.T) {
 		next.NextAttemptAt = item.NextAttemptAt
 		require.Equal(t, item, *next, "fetch alone cannot apply a head, review, merge or other product effect")
 	}
-	require.Equal(t, 2, calls)
+	require.Equal(t, 10, calls, "each follow reads the PR, checks, statuses, reviews and line comments")
 	require.Equal(t, 1, fetchedCount(t, pool, `SELECT count(*) FROM product_job_requests`))
 	require.Equal(t, 1, fetchedCount(t, pool, `SELECT count(*) FROM github_synced_issues WHERE synced_repo_id=`+strconv.FormatInt(row.ID, 10)))
 }
@@ -297,12 +303,18 @@ func TestGitHubPullHintsWakeExistingStackAndKeepCadence(t *testing.T) {
 	failure := false
 	s.SetConditionalFetcherFactory(func(db.GithubSyncedRepo) GitHubSyncedRepoConditionalFetcher {
 		return func(ctx context.Context, resource string, _ url.Values, etag string) (GitHubSyncedRepoConditionalPage, error) {
+			if strings.HasSuffix(resource, "check-runs") {
+				return GitHubSyncedRepoConditionalPage{Body: json.RawMessage(`{"check_runs":[]}`)}, nil
+			}
+			if resource != "pulls/7" {
+				return GitHubSyncedRepoConditionalPage{Body: json.RawMessage(`[]`)}, nil
+			}
 			calls = append(calls, resource)
 			during()
 			if failure {
 				return GitHubSyncedRepoConditionalPage{}, errors.New("temporary network failure")
 			}
-			return GitHubSyncedRepoConditionalPage{Body: json.RawMessage(fetchedPullDetail), ETag: `"hint"`}, nil
+			return GitHubSyncedRepoConditionalPage{Body: json.RawMessage(strings.Replace(fetchedPullDetail, "head-1", strings.Repeat("a", 40), 1)), ETag: `"hint"`}, nil
 		}
 	})
 	hint := func() {
