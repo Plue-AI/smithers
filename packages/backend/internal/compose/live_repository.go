@@ -17,16 +17,7 @@ func liveRepositoryTodosSource(source live.Source, store *jobs.Store, repository
 	source.Hints = append(source.Hints, "smithers_product_jobs")
 	source.Every = 250 * time.Millisecond
 	source.RefreshEvery = time.Second
-	source.RefreshSnapshot = func(data json.RawMessage) json.RawMessage {
-		var fields map[string]json.RawMessage
-		if json.Unmarshal(data, &fields) != nil {
-			return nil
-		}
-		delete(fields, "items")
-		delete(fields, "counts")
-		key, _ := json.Marshal(fields)
-		return key
-	}
+	source = liveCardRefresh(source, "home")
 	source.Durable = &sse.DurableStream{
 		Head: func(ctx context.Context) (int64, error) { return store.Head(ctx, scope) },
 		Validate: func(ctx context.Context, cursor int64) error {

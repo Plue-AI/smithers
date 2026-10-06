@@ -352,10 +352,8 @@ func (t *liveTopics) resolve(ctx context.Context, topic string, repository int64
 		}}
 		if t.jobs != nil {
 			scope := jobs.Scope{TenantID: strconv.FormatInt(repository, 10), PrincipalID: "todo:" + uuid.UUID(item.ID.Bytes).String()}
-			source = liveJobSource(source, t.jobs, scope)
-			// Machine positions change without a TODO journal event, for example
-			// when a person cancels a wake. Refresh the same card at its journal cursor.
-			source.RefreshSnapshot = func(data json.RawMessage) json.RawMessage { return data }
+			source = liveCardRefresh(liveJobSource(source, t.jobs, scope), "card")
+			// Machine positions can change without a TODO journal event.
 			source.RefreshEvery = liveRefreshEvery
 		}
 
