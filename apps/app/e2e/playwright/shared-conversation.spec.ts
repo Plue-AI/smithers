@@ -21,6 +21,7 @@ test("install reads the shared conversation with author attribution after reload
   await page.reload()
   await expect(transcript).toContainText("One changed test")
   expect(writes).toBe(0)
+  await expect(page.locator('[data-flow="chat.queue.resume"]')).toHaveCount(0)
 })
 
 test("composer admits in the background and reconnects the same host turn after reload", async ({ page }) => {

@@ -159,7 +159,6 @@ export const FLOW_NAMES = [
   "chat.queue.edit",
   "chat.queue.remove",
   "chat.queue.restore",
-  "chat.queue.resume",
   "chat.reload",
   "chat.retry",
   "chat.send",

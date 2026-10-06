@@ -363,7 +363,6 @@ export function Composer({
       />
       {queued.length > 0 && <section className="prompt-queue" aria-label="Queued prompts">
         <div className="prompt-queue-heading"><span>{queuePaused ? "Paused" : "Queued"} · {queued.length}</span>
-          {queuePaused && <button type="button" {...flowAction(controller.runCommand, "chat.queue.resume")}>Resume</button>}
         </div>
         <ol>{queued.map(prompt => <li key={prompt.id}>
           <span className="prompt-queue-text">{prompt.text}</span>

@@ -45,6 +45,8 @@ test("install shell reads shared authors and clears stale output across branch a
     finish(Response.json({ id: "feature", entries: [ben] }))
     await new Promise(resolve => setTimeout(resolve, 30))
     expect(host.querySelector("[data-shared-turn]")).toBeNull()
+    expect(controller.commands.find("chat.queue.resume")).toBeUndefined()
+    expect(host.querySelector('[data-flow="chat.queue.resume"]')).toBeNull()
     expect(starts).toBe(0)
     expect(requests.some(path => /\/api\/(agent|chat)\/turn$/.test(path))).toBe(false)
   } finally { flushSync(() => root.unmount()); host.remove(); await controller.dispose() }

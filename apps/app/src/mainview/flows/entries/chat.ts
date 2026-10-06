@@ -79,10 +79,7 @@ export const chatFlows = (actions: CommandActions): ReadonlyArray<FlowEntry> => 
     input: Schema.Struct({ id: Schema.String }), handler: ({ id }) => actions.removeQueuedPrompt(id) }),
   flow({ name: "chat.queue.restore", visibility: "in-card" as const, summary: "Restore queued prompts to Chat", hidden: true,
     agent: "never" as const, agentReason: "the prompt queue is the human's composer",
-    input: NoPayload, handler: () => actions.restoreQueuedPrompts() }),
-  flow({ name: "chat.queue.resume", visibility: "in-card" as const, summary: "Resume queued prompts", hidden: true,
-    agent: "never" as const, agentReason: "the prompt queue is the human's composer",
-    input: NoPayload, handler: () => actions.resumePromptQueue() })
+    input: NoPayload, handler: () => actions.restoreQueuedPrompts() })
   ]
 }
 
