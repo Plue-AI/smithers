@@ -511,13 +511,17 @@ func (s *MythicalService) ProjectFlowRuntime(ctx context.Context, update flowdis
 			} else if !mythicalProjectRun(&next, item, projection, update, runID, pinned) {
 				return nil
 			}
+			// An unknown outside effect stops this attempt until a person retries.
+			if mythicalRunOutcome(projection.Phase, update) == mythicalInterrupted && mythicalTodo(item) && (todoState(item) == "starting" || todoState(item) == "working") {
+				next = *mythicalStop(next, mythicalFault{Class: "interrupted", Tag: "interrupted", Kind: mythicalFailRuntime}, "interrupted")
+			}
 			// Only the attempt's bound run opens or withdraws its questions.
 			mythicalProjectWaits(&next, projection, update, runID, s.now().UTC())
 			if err := s.persistTodoLogs(ctx, &next); err != nil {
 				return err
 			}
 			next = retainTodoAttemptEvidence(next)
-			if next.RequestRunID == item.RequestRunID && next.VibeRunID == item.VibeRunID && next.VerifyRunID == item.VerifyRunID &&
+			if next.State == item.State && next.RequestRunID == item.RequestRunID && next.VibeRunID == item.VibeRunID && next.VerifyRunID == item.VerifyRunID &&
 				next.RequestOutcome == item.RequestOutcome && next.VibeOutcome == item.VibeOutcome && next.VerifyOutcome == item.VerifyOutcome &&
 				sameMythicalChecks(next, item) {
 				return nil
@@ -689,6 +693,8 @@ func mythicalRunOutcome(phase string, update flowdispatch.ProjectionUpdate) stri
 	case jobs.StateCompleted:
 	case jobs.StateCancelled:
 		return mythicalCancelled
+	case jobs.StateUncertain:
+		return mythicalInterrupted
 	case jobs.StateFailed:
 		return mythicalFailedOutcome(update)
 	default:
@@ -780,6 +786,8 @@ const mythicalCancelled = "cancelled"
 // person's (user), a cap's (policy) or a defect (bug).
 const mythicalStopped = "stopped: "
 
+const mythicalInterrupted = "stopped: interrupted: interrupted"
+
 // mythicalFailedOutcome reads a failed run by the fault its typed error was
 // registered with (flowruntime.Run.FailureFault) and never by its prose: a
 // decline is the planner's close; a factory fault is the plan's failure and
@@ -787,6 +795,9 @@ const mythicalStopped = "stopped: "
 // refused, and a failure no registered error names are outages that spend
 // none; user, policy and bug faults stop the item for a person.
 func mythicalFailedOutcome(update flowdispatch.ProjectionUpdate) string {
+	if run := update.Checkpoint.Run; run != nil && (run.Status == "interrupted" || run.Status == "uncertain" || run.FailureTag == "@smthrs/flow/IrreversibleRetryRequiresIdempotencyKey") {
+		return mythicalInterrupted
+	}
 	if code := strings.TrimSpace(update.Checkpoint.FailureCode); code == placementToolsMissing {
 		// The lane's box lacks a tool the repository declares: no machine
 		// here matches it until the owner fixes the environment.

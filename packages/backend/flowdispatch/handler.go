@@ -827,7 +827,7 @@ func runtimeCode(err error) string {
 }
 
 func terminalStatus(status string) bool {
-	return status == "completed" || status == "failed" || status == "cancelled"
+	return status == "completed" || status == "failed" || status == "cancelled" || status == "interrupted" || status == "uncertain"
 }
 
 func validLaunchResult(result flowruntime.FlowRuntimeLaunchResult, identity flowruntime.FlowRuntimeIdentity, operationID string) bool {
