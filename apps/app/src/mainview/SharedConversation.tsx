@@ -29,12 +29,12 @@ export function SharedConversation({ source }: { source: SharedConversationSeam 
       const color = (turn.author % 6) as 0 | 1 | 2 | 3 | 4 | 5
       const answer = { kind: "agent" as const, id: turn.runId, agent: "smithers" as const, for_member: person, avatar_url: PlaceholderAvatarUrl, color_index: color }
       return <div key={turn.id} data-shared-turn={turn.id} data-state={turn.state}>
-        <MessageScrollerItem messageId={`${turn.id}:prompt`}><EntryRow kind="prompt" author={{ kind: "person", ...person, color_index: color }} title="" tone="quiet" card={<Markdown content={turn.prompt} />} onAction={() => {}} /></MessageScrollerItem>
-        <MessageScrollerItem messageId={`${turn.id}:answer`}><EntryRow kind="answer" author={answer} title="" tone="quiet" context={turn.context ? { count: turn.context.length, items: turn.context } : undefined} card={<><Markdown content={text} />{failure?.type === "done" && failure.error ? <p role="status">{failure.error}</p> : null}</>} onAction={() => {}} /></MessageScrollerItem>
+        <MessageScrollerItem style={{ contentVisibility: "visible" }} messageId={`${turn.id}:prompt`}><EntryRow kind="prompt" author={{ kind: "person", ...person, color_index: color }} title="" tone="quiet" card={<Markdown content={turn.prompt} />} onAction={() => {}} /></MessageScrollerItem>
+        <MessageScrollerItem style={{ contentVisibility: "visible" }} messageId={`${turn.id}:answer`}><EntryRow kind="answer" author={answer} title="" tone="quiet" context={turn.context ? { count: turn.context.length, items: turn.context } : undefined} card={<><Markdown content={text} />{failure?.type === "done" && failure.error ? <p role="status">{failure.error}</p> : null}</>} onAction={() => {}} /></MessageScrollerItem>
         {frames.flatMap((frame) => {
           if (frame.type !== "card") return []
           const card = frame.card
-          return [<MessageScrollerItem key={card.id} messageId={card.id}><CardView card={card} worldDocuments={[]} maximized={controller.store.session().maximizedCardId === card.id} {...controllerCardActions(controller, card)} /></MessageScrollerItem>]
+          return [<MessageScrollerItem style={{ contentVisibility: "visible" }} key={card.id} messageId={card.id}><CardView card={card} worldDocuments={[]} maximized={snapshot.view?.card_view?.[card.id] === "maximized"} {...controllerCardActions(controller, card)} /></MessageScrollerItem>]
         })}
       </div>
     })}

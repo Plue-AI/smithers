@@ -1,34 +1,63 @@
-import { expect, test } from "../browserTest"
+import { expect, test, type Page } from "../browserTest"
 import { owner, say } from "./j1-fixtures"
+import { installFixture } from "../../../src/mainview/state/seams/InstallFixtures.test-support"
 
-// UI projection of C-UI-06; acceptance now lives in T-APP-16.
-// Reference-host and integration evidence remains required separately.
-// Written before implementation: mvp.md §6.4, M-08; lands with T-APP-16
+// UI contract proof with two browser identities and the real HTTP/live seams.
+// PostgreSQL membership/audience enforcement is covered by T-APP-16's compose tests.
 test("C-UI-06: Shared branch entries keep personal views", async ({ page, browser }) => {
-  test.fixme(true, "Written before implementation: mvp.md §6.4, M-08; lands with T-APP-16")
-  // Required seed: Ben and Alice in separate authenticated contexts on one branch;
-  // shared ordered entries and independent persisted view-state collections.
-  await owner(page)
-  const alice = await browser.newContext()
-  const peer = await alice.newPage()
-  await owner(peer)
-  await peer.route("**/api/user", route => route.fulfill({ json: { id: 2, username: "alice", is_admin: false } }))
-  await page.goto("/")
-  await peer.goto("/")
-  await say(page, "/branch retry-webhooks")
-  await say(peer, "/branch retry-webhooks")
-  await say(page, "List the changed tests")
-  await expect(peer.getByText("List the changed tests", { exact: true })).toBeVisible()
-  await expect(peer.getByText("Smithers for Ben", { exact: true }).last()).toBeVisible()
-  await say(page, "/todo T9")
-  await expect(peer.getByText("T9", { exact: true }).last()).toBeVisible()
-  await page.getByRole("button", { name: "Maximize card", exact: true }).last().press("Enter")
-  await expect(page.getByRole("button", { name: "Restore", exact: true })).toBeVisible()
-  await expect(peer.getByRole("button", { name: "Restore", exact: true })).toHaveCount(0)
-  await peer.reload()
-  await expect(peer.getByText("List the changed tests", { exact: true })).toBeVisible()
-  await expect(peer.getByRole("button", { name: "Restore", exact: true })).toHaveCount(0)
-  await page.reload()
-  await expect(page.getByRole("button", { name: "Restore", exact: true })).toBeVisible()
-  await alice.close()
+  const alice = await browser.newContext(), peer = await alice.newPage()
+  let entries: unknown[] = []
+  const views: Record<string, Record<string, unknown>> = { ben: {}, alice: {} }
+  const publishers: Array<() => void> = []
+  const file = { id: "shared-file", kind: "file", title: "README.md", status: "active", ordinal: 1, createdAt: 1,
+    payload: { repo: "owner/repo", path: "README.md", content: "Shared file bytes", truncated: false } }
+  const fixture = async (target: Page, login: string, id: number) => {
+    await owner(target)
+    await target.route("**/api/user", route => route.fulfill({ json: { id, username: login, is_admin: false } }))
+    await target.route("**/api/bootstrap", route => route.fulfill({ json: { apiVersion: 1, host: "local", version: "test", buildSha: "test", capabilities: ["install", "identity"], authFlow: "redirect", sandbox: null } }))
+    await target.route("**/api/install", route => route.fulfill({ json: installFixture() }))
+    await target.route("**/api/conversations/main", route => route.fulfill({ json: { id: "main", entries } }))
+    await target.route("**/api/conversations/main/view-state", async route => {
+      if (route.request().method() === "PUT") views[login] = route.request().postDataJSON()
+      await route.fulfill({ json: views[login] })
+    })
+    await target.route("**/api/conversations/main/prompt", async route => {
+      expect(login).toBe("ben")
+      expect(route.request().postDataJSON().prompt).toBe("List the changed tests")
+      entries = [{ id: "host-turn", author: 1, authorLogin: "ben", runId: "host-run", prompt: "List the changed tests", state: "completed", frames: [
+        { type: "delta", runId: "host-run", kind: "text", text: "One changed test" },
+        { type: "card", runId: "host-run", card: file }, { type: "done", runId: "host-run", reason: "stop" }
+      ] }]
+      await route.fulfill({ status: 202, json: { turnId: "host-turn", terminal: true } })
+      for (const publish of publishers) publish()
+    })
+    await target.routeWebSocket("**/api/live", socket => socket.onMessage(raw => {
+      if (typeof raw !== "string") return
+      const frame = JSON.parse(raw)
+      if (frame.t !== "sub") return
+      if (frame.topic !== "conversation:main") { socket.send(JSON.stringify({ t: "err", id: frame.id, code: "unsupported" })); return }
+      let cursor = 0
+      const publish = () => socket.send(JSON.stringify({ t: "snap", id: frame.id, cursor: ++cursor, data: { id: "main", entries } }))
+      publishers.push(publish); publish()
+    }))
+  }
+  try {
+    await fixture(page, "ben", 1); await fixture(peer, "alice", 2)
+    await page.goto("/"); await peer.goto("/")
+    await expect.poll(() => publishers.length).toBe(2)
+    await say(page, "List the changed tests")
+    const mine = page.getByTestId("card-shared-file"), theirs = peer.getByTestId("card-shared-file")
+    await expect(theirs).toBeVisible()
+    await expect(peer.locator('[data-shared-conversation="main"]')).toContainText("Smithers for ben")
+    await expect(peer.locator('[data-shared-conversation="main"]')).toContainText("List the changed tests")
+    await mine.locator('[data-flow="card.maximize"]').press("Enter")
+    await expect(mine).toHaveAttribute("data-maximized", "true")
+    await expect(theirs).toHaveAttribute("data-maximized", "false")
+    await peer.reload()
+    await expect(theirs).toHaveAttribute("data-maximized", "false")
+    await page.reload()
+    await expect(mine).toHaveAttribute("data-maximized", "true")
+    expect(views.ben.card_view).toEqual({ "shared-file": "maximized" })
+    expect(views.alice.card_view).toBeUndefined()
+  } finally { await alice.close() }
 })

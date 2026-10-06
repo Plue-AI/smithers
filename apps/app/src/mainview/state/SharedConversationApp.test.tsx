@@ -201,3 +201,41 @@ test("Stop targets the author's running turn and queue restore preserves FIFO dr
     await waitFor(() => controller.sharedConversation?.get().queue?.length === 0)
   } finally { await controller.dispose() }
 })
+
+test("shared card maximization persists only in its member view and restores on return", async () => {
+  const store = await createAppStore({ kind: "localStorage", storage: memoryStorage() })
+  const views: Record<string, Record<string, unknown>> = { ben: { scroll_anchor: "turn-ben:prompt", home: { filter: "working" }, toasts_hidden: true }, alice: { scroll_anchor: "turn-ben:answer" } }
+  const writes: unknown[] = []
+  const card = { id: "shared-file", kind: "file", title: "README.md", status: "active", ordinal: 1, createdAt: 1, payload: { repo: "owner/repo", path: "README.md", content: "Shared file bytes", truncated: false } }
+  const controller = createAppController(store, silentAgent, {
+    bootstrap: { apiVersion: 1, host: "local", version: "test", buildSha: "test", capabilities: ["install"], authFlow: "redirect", sandbox: null },
+    fetchImpl: async (input, init) => {
+      const path = String(input), login = store.collections.identitySessions.get("identity")?.login ?? "ben"
+      if (path === "/api/conversations/main") return Response.json({ id: "main", entries: [{ ...ben, frames: [...ben.frames, { type: "card", runId: "run-ben", card }] }] })
+      if (path.endsWith("/view-state")) {
+        if (init?.method === "PUT") { views[login] = JSON.parse(String(init.body)); writes.push(views[login]) }
+        return Response.json({ ...views[login], queue: [{ id: "private", prompt: "Private queue" }] })
+      }
+      return new Response("{}", { status: 404 })
+    }
+  })
+  const host = document.createElement("div"); document.body.append(host); const root = createRoot(host)
+  const identity = async (login: string) => store.dispatch({ type: "identity.session.loaded", actor: "system", state: "signed-in", login, admin: false, scopesPlain: null }).isPersisted.promise
+  try {
+    await identity("ben")
+    flushSync(() => root.render(<ControllerTestProvider controller={controller}><App /></ControllerTestProvider>))
+    await waitFor(() => host.querySelector('[data-testid="card-shared-file"]') !== null)
+    const button = host.querySelector<HTMLButtonElement>('[data-testid="card-shared-file"] [data-flow="card.maximize"]')!
+    expect(button).not.toBeNull()
+    flushSync(() => button.click())
+    await waitFor(() => host.querySelector('[data-testid="card-shared-file"]')?.getAttribute("data-maximized") === "true")
+    expect(writes).toEqual([{ scroll_anchor: "turn-ben:prompt", home: { filter: "working" }, toasts_hidden: true, card_view: { "shared-file": "maximized" } }])
+    await identity("alice")
+    await waitFor(() => controller.sharedConversation?.get().view?.scroll_anchor === "turn-ben:answer")
+    expect(host.querySelector('[data-testid="card-shared-file"]')?.getAttribute("data-maximized")).toBe("false")
+    expect(views.alice).toEqual({ scroll_anchor: "turn-ben:answer" })
+    await identity("ben")
+    await waitFor(() => host.querySelector('[data-testid="card-shared-file"]')?.getAttribute("data-maximized") === "true")
+    expect(writes).toHaveLength(1)
+  } finally { flushSync(() => root.unmount()); host.remove(); await controller.dispose() }
+})

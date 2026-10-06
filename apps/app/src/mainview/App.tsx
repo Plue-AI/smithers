@@ -330,7 +330,9 @@ function AppContent() {
     return entryCreatedAt(left) - entryCreatedAt(right)
   })
   // Batches before the newest ten fold into one row; opening it is transient chrome for this conversation only.
-  const transcriptKey = `${conversationTabId ?? "main"}:${session.activeRepoKey ?? ""}`
+  const transcriptKey = controller.sharedConversation
+    ? `${identity?.login ?? ""}:${session.branchNavigation?.selected_branch ?? "main"}:${sharedConversation.view ? "ready" : "loading"}`
+    : `${conversationTabId ?? "main"}:${session.activeRepoKey ?? ""}`
 
   const entries = mainEntries
   const latestEntry = entries.at(-1)
@@ -355,7 +357,7 @@ function AppContent() {
     // data-flow binding against exactly this surface.
     <div
       className="app-shell"
-      data-frame-maximized={session.maximizedCardId !== null}
+      data-frame-maximized={session.maximizedCardId !== null || Object.values(sharedConversation.view?.card_view ?? {}).includes("maximized")}
       data-flows={flows.map((command) => command.name).join(" ")}
       onPointerDownCapture={onShellPointerDownCapture}
       onClickCapture={event => {
@@ -428,8 +430,8 @@ function AppContent() {
         data-testid="tab-body-main"
       >
       <MessageScrollerProvider key={transcriptKey} scrollAnchor="bottom"
-            initialMessageId={initialReadId}
-            readAnchor={{ messageId: latestReadId ?? "",
+            initialMessageId={sharedConversation.view?.scroll_anchor ?? initialReadId}
+            readAnchor={controller.sharedConversation ? undefined : { messageId: latestReadId ?? "",
               targetId: latestEntry?.kind === "card" && latestEntry.card.kind === "docs" ? latestEntry.card.payload.anchor : undefined,
               actor: latestEntry?.kind === "message" && latestEntry.message.role === "user" ? "user" : "output",
               requestId: readRequestRef.current,
@@ -470,7 +472,13 @@ function AppContent() {
             data-login={loginScreen || undefined}
             data-testid="transcript" data-keyboard-pane="Conversation" role="log" aria-label="Conversation" aria-busy={typing}>
             <div data-slot="message-scroller" className="sui-msg-scroller" data-streaming={typing ? "true" : "false"}>
-            <MessageScrollerViewport fade>
+            <MessageScrollerViewport fade onScrollCapture={event => {
+              if (!controller.sharedConversation || !sharedConversation.view) return
+              const viewport = event.currentTarget, top = viewport.getBoundingClientRect().top
+              const first = [...viewport.querySelectorAll<HTMLElement>("[data-message-id]")].find(row => row.getBoundingClientRect().bottom > top + 1)
+              const anchor = first?.dataset.messageId
+              if (anchor && anchor !== sharedConversation.view.scroll_anchor) controller.sharedConversation.rememberScroll(anchor)
+            }}>
             <MessageScrollerContent className="sui-chat-messages">
             {loginScreen && <MessageScrollerItem messageId="login" style={{ contentVisibility: "visible" }}>
               <LoginScreen onRunCommand={controller.runCommand} />
