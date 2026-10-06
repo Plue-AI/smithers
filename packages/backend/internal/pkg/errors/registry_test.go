@@ -292,11 +292,11 @@ func TestWriteErrorRetryAfterGuard(t *testing.T) {
 	t.Run("a registered wait writes its own pacing", func(t *testing.T) {
 		rec := httptest.NewRecorder()
 		WriteError(rec, New(CodeGuestNotReady, "still starting"))
-		assert.Equal(t, "2", rec.Header().Get("Retry-After"))
+		assert.Equal(t, "3", rec.Header().Get("Retry-After"))
 
 		var body APIError
 		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &body))
-		assert.Equal(t, 2, body.RetryAfter,
+		assert.Equal(t, 3, body.RetryAfter,
 			"the header does not survive every hop in front of plue, so the body carries it too")
 	})
 
