@@ -1,45 +1,47 @@
 import { expect, test } from "../browserTest"
 import { owner, say } from "./j1-fixtures"
+import { installFixture } from "../../../src/mainview/state/seams/InstallFixtures.test-support"
 
-// UI projection of .specs/engineering/checks/C-J8-03.md.
-// Written before implementation: mvp.md §6.11 Obsidian, J8; lands with T-FLW-12
-test("C-J8-03: owner configures two-way Obsidian sync and members cannot", async ({ page }) => {
-  test.fixme(true, "Written before implementation: mvp.md §6.11 Obsidian, J8; lands with T-FLW-12")
-// Seed retry.md and an owner branch terminal on the install Mac, with ~/Vault empty.
-// Disk bytes, attachments and frontmatter need the reference-host folder receipts.
+// Browser proof of the Settings → production dispatcher → install seam door.
+// Real PostgreSQL/folder reconciliation is covered by the composed-router Go test;
+// reference-host timing and screenshots remain C-J8-03 release evidence.
+test("C-J8-03: owner changes the folder and sees sync status and refusals", async ({ page }) => {
   await owner(page)
-  await page.goto('/smithers-mvp-canary/node')
-  await say(page, '/settings')
-  await page.getByLabel(/Obsidian.*folder|Vault folder/i).fill('~/Vault')
-  await page.getByLabel(/Obsidian.*folder|Vault folder/i).locator('xpath=ancestor::form').getByRole('button', { name: 'Change', exact: true }).press('Enter')
-  await say(page, '/branch main')
-  await page.getByRole('button', { name: 'Terminal', exact: true }).last().press('Enter')
-  const terminal = page.getByRole('region', { name: /output/ }).last()
-  await terminal.locator('.xterm-helper-textarea').focus()
-  await page.keyboard.type("cat ~/Vault/decisions/retry.md")
-  await page.keyboard.press('Enter')
-  await expect(terminal).toContainText('---')
-  await page.keyboard.type("printf '\nDisk retry decision\n' >> ~/Vault/decisions/retry.md")
-  await page.keyboard.press('Enter')
-  await say(page, '/wiki.page decisions/retry')
-  await expect(page.getByText('Disk retry decision', { exact: true }).last()).toBeVisible()
-  await expect(page.getByTitle('r2 by canary-owner', { exact: true }).last()).toBeVisible()
-  const document = page.getByRole('textbox', { name: /Retry/ }).last()
-  await document.press('Control+End')
-  await page.keyboard.type(' App retry decision')
-  await expect(page.getByText('Saving…', { exact: true })).toHaveCount(0)
-  await say(page, '/branch main')
-  await page.getByRole('button', { name: 'Terminal', exact: true }).last().press('Enter')
-  await terminal.locator('.xterm-helper-textarea').focus()
-  await page.keyboard.type('cat ~/Vault/decisions/retry.md')
-  await page.keyboard.press('Enter')
-  await expect(terminal).toContainText('App retry decision')
-  await say(page, '/settings')
-  await page.getByLabel(/Obsidian.*folder|Vault folder/i).fill('~/.smithers')
-  await page.getByLabel(/Obsidian.*folder|Vault folder/i).locator('xpath=ancestor::form').getByRole('button', { name: 'Change', exact: true }).press('Enter')
-  await expect(page.getByRole('alert').last()).toContainText(/state directory/i)
-  await page.route('**/api/user', route => route.fulfill({ json: { id: 2, username: 'alice', is_admin: false } }))
-  await page.reload()
-  await say(page, '/settings')
-  await expect(page.getByLabel(/Obsidian.*folder|Vault folder/i)).toHaveCount(0)
+  let model = { ...installFixture(), wiki_sync: { obsidian: { path: "/Users/owner/Vault", last_sync_at: "2026-10-04T12:00:00Z", error: "" } } }
+  const writes: unknown[] = []
+  await page.route("**/api/install", async route => {
+    if (route.request().method() === "PUT") {
+      const body = route.request().postDataJSON()
+      writes.push(body)
+      if (body["wiki_sync.obsidian"].path === "/state") {
+        await route.fulfill({ status: 400, json: { code: "folder_refused", class: "user", message: "Obsidian folder refused" } }); return
+      }
+      model = { ...model, wiki_sync: { obsidian: { ...model.wiki_sync.obsidian, path: body["wiki_sync.obsidian"].path } } }
+    }
+    await route.fulfill({ json: model })
+  })
+  await page.goto("/")
+  await say(page, "/settings")
+  const card = page.getByTestId("card-settings")
+  const folder = card.getByLabel("Obsidian folder", { exact: true })
+  await expect(folder).toHaveValue("/Users/owner/Vault")
+  await expect(card).toContainText("2026-10-04T12:00:00Z")
+  await folder.fill("/Users/owner/Notes")
+  await folder.locator("xpath=ancestor::form").getByRole("button", { name: "Change", exact: true }).press("Enter")
+  await expect.poll(() => writes).toEqual([{ "wiki_sync.obsidian": { path: "/Users/owner/Notes" } }])
+  await expect(folder).toHaveValue("/Users/owner/Notes")
+  await folder.fill("/state")
+  await folder.locator("xpath=ancestor::form").getByRole("button", { name: "Change", exact: true }).press("Enter")
+  await expect(card.getByRole("alert")).toContainText("Obsidian folder refused")
+  await expect(page.getByTestId("composer-input")).toBeEditable()
+})
+
+test("C-J8-03: a refused install provider exposes no folder control", async ({ page }) => {
+  await owner(page)
+  await page.route("**/api/install", route => route.fulfill({ status: 403, json: { code: "permission", class: "permission", message: "Only the owner can do this" } }))
+  await page.goto("/")
+  await say(page, "/settings")
+  await expect(page.getByTestId("card-settings")).toHaveCount(0)
+  await expect(page.getByLabel("Obsidian folder", { exact: true })).toHaveCount(0)
+  await expect(page.getByTestId("composer-input")).toBeEditable()
 })

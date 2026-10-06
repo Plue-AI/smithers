@@ -110,7 +110,6 @@ export const WorldCardBody = ({
               {...flowAction(onRunCommand, "wiki.sync", document.id)}>Refresh</Button>}
             <Button size="sm" variant="ghost" data-testid="wiki-card-history"
               {...flowAction(onRunCommand, "wiki.history", flowArgs("wiki.history", { slug: cloud.slug, repo: cloud.repo }))}>History</Button>
-            {cloud.phase === "cached" ? <p>This is a saved copy. Refresh to resume collaboration.</p> : null}
             {pageFailure === null ? null : <FailureNotice failure={pageFailure} role="status" data-testid="wiki-card-failure" />}
           </div>}
           {view === "outline" ? <div className="wiki-card-outline">

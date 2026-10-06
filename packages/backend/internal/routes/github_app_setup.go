@@ -494,6 +494,9 @@ func (h *GitHubAppSetupHandler) SetSettings(w http.ResponseWriter, r *http.Reque
 		return
 	}
 	var input struct {
+		Obsidian *struct {
+			Path string `json:"path"`
+		} `json:"wiki_sync.obsidian"`
 		ChatGPT  *bool     `json:"chatgpt"`
 		Capacity *int      `json:"capacity"`
 		Parallel *int      `json:"parallel"`
@@ -501,6 +504,22 @@ func (h *GitHubAppSetupHandler) SetSettings(w http.ResponseWriter, r *http.Reque
 		Origins  *[]string `json:"origins"`
 	}
 	if !decodeStrictJSONBody(w, r, &input) {
+		return
+	}
+	if input.Obsidian != nil {
+		if input.Bind != nil || input.Origins != nil || input.Capacity != nil || input.ChatGPT != nil || input.Parallel != nil {
+			writeInstallAPIError(w, pkgerrors.BadRequest("Obsidian must be set separately"))
+			return
+		}
+		if h.Setup == nil || h.Setup.Obsidian == nil {
+			writeInstallAPIError(w, pkgerrors.New(pkgerrors.CodeServiceUnavailable, "install Obsidian unavailable"))
+			return
+		}
+		if err = h.Setup.Obsidian.Set(r.Context(), input.Obsidian.Path); err != nil {
+			WriteInstallSetupError(w, r, err)
+			return
+		}
+		h.Status(w, r)
 		return
 	}
 	if input.Bind != nil || input.Origins != nil {

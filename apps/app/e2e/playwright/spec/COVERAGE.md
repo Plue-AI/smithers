@@ -50,7 +50,7 @@ C-UI-12 Members (T-UI-09): [install roster and keyboard Add/Role/Remove](C-UI-12
 | C-J7-03 | [C-J7-03.spec.ts](C-J7-03.spec.ts) | fixme-before-implementation | T-STK-08, T-REL-02 |
 | C-J8-01 | [C-J8-01.spec.ts](C-J8-01.spec.ts) | fixme-before-implementation | T-FLW-06, T-REL-02 |
 | C-J8-02 | [C-J8-02.spec.ts](C-J8-02.spec.ts) | fixme-before-implementation | T-COL-09 |
-| C-J8-03 | [C-J8-03.spec.ts](C-J8-03.spec.ts) | fixme-before-implementation | T-FLW-12 |
+| C-J8-03 | [C-J8-03.spec.ts](C-J8-03.spec.ts) | passing: owner folder PUT, sync status, refusal retained, unavailable control absent; composed PostgreSQL worker proof separate; Mac timing pending | T-FLW-12 |
 | C-J8-04 | [C-J8-04.spec.ts](C-J8-04.spec.ts) | fixme-before-implementation | T-FLW-10 |
 | C-J8-05 | [C-J8-05.spec.ts](C-J8-05.spec.ts) | fixme-before-implementation | T-FLW-10, T-COL-09 |
 | C-J8-06 | [C-J8-06.spec.ts](C-J8-06.spec.ts) | fixme-before-implementation | T-FLW-02, T-APP-01, T-REL-02 |
@@ -90,7 +90,7 @@ C-UI-12 Members (T-UI-09): [install roster and keyboard Add/Role/Remove](C-UI-12
 | C-UI-06 | [C-UI-06.spec.ts](C-UI-06.spec.ts) | fixme-before-implementation | T-APP-16 |
 | C-UI-07 | [C-UI-07.spec.ts](C-UI-07.spec.ts) | fixme-before-implementation | T-APP-17 |
 | C-UI-08 | [C-UI-08.spec.ts](C-UI-08.spec.ts) | fixme-before-implementation | T-APP-22 |
-| C-UI-09 | [C-UI-09.spec.ts](C-UI-09.spec.ts), [docs.spec.ts](../docs.spec.ts) | Settings phase passing Chromium: HTTP click/Enter/Space, HTTPS/loopback hidden hint, non-owner, bundled heading; missing dependencies covered through real dispatcher integration. Full C-UI-09 passes on isolated retry (2026-10-06), including agent docs.read. | T-APP-20, T-APP-24 |
+| C-UI-09 | [C-UI-09.spec.ts](C-UI-09.spec.ts), [docs.spec.ts](../docs.spec.ts) | Settings phase passing Chromium: HTTP click/Enter/Space, HTTPS/loopback hidden hint, non-owner, bundled heading; missing dependencies covered through real dispatcher integration. Full C-UI-09 passes on isolated retry (2026-10-06), including agent docs.read; combined docs run: 8 pass, 1 HTTP-turn recovery failure. Anchor navigation now uses the shared transcript read target. | T-APP-20, T-APP-24 |
 | C-UI-10 | [C-UI-10.spec.ts](C-UI-10.spec.ts) | browser projection; reference-install role effects separate | T-APP-21 |
 | C-UI-11 | [C-UI-11.spec.ts](C-UI-11.spec.ts) | fixme-before-implementation | T-APP-15 |
 

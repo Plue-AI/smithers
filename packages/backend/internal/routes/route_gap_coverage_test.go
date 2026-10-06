@@ -7,7 +7,6 @@ package routes
 
 import (
 	"context"
-	"encoding/json"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -228,10 +227,6 @@ func (f *failingWikiService) GetWikiDocument(context.Context, *db.User, string, 
 	return services.WikiDocumentResponse{}, f.err
 }
 
-func (f *failingWikiService) ListWikiUpdates(context.Context, *db.User, string, string, string, int64, int64) ([]services.WikiUpdateEvent, error) {
-	return nil, f.err
-}
-
 func TestWikiCollaborationDocument_Route(t *testing.T) {
 	t.Parallel()
 
@@ -256,68 +251,6 @@ func TestWikiCollaborationDocument_Route(t *testing.T) {
 		assert.Equal(t, http.StatusBadRequest, rec.Code)
 	})
 }
-
-func TestWikiCollaborationUpdates_Route(t *testing.T) {
-	t.Parallel()
-
-	t.Run("lists updates after the cursor", func(t *testing.T) {
-		f := &wikiRoutesFixture{events: []services.WikiUpdateEvent{{Revision: 1}, {Revision: 2}, {Revision: 3}}}
-		rec := httptest.NewRecorder()
-		(&WikiCollaborationHandler{Service: f}).Updates(rec, wikiRequest(http.MethodGet, "/?page_id=42&after=1", ""))
-		require.Equal(t, http.StatusOK, rec.Code)
-		var got []services.WikiUpdateEvent
-		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &got))
-		require.Len(t, got, 2)
-		assert.Equal(t, int64(2), got[0].Revision)
-		assert.Equal(t, "no-store", rec.Header().Get("Cache-Control"))
-	})
-
-	t.Run("rejects a missing page id", func(t *testing.T) {
-		rec := httptest.NewRecorder()
-		(&WikiCollaborationHandler{Service: &wikiRoutesFixture{}}).Updates(rec, wikiRequest(http.MethodGet, "/", ""))
-		assert.Equal(t, http.StatusBadRequest, rec.Code)
-	})
-
-	t.Run("keeps service error status", func(t *testing.T) {
-		rec := httptest.NewRecorder()
-		(&WikiCollaborationHandler{Service: &failingWikiService{err: pkgerrors.Forbidden("read access required")}}).Updates(rec, wikiRequest(http.MethodGet, "/?page_id=42", ""))
-		assert.Equal(t, http.StatusForbidden, rec.Code)
-	})
-}
-
-// The live path needs a Postgres broker and is covered by
-// TestWikiCollaborationSSEReplayLiveAndRevocation; these are the refusals
-// that must happen before any subscription opens.
-func TestWikiCollaborationStream_RefusesBeforeSubscribing(t *testing.T) {
-	t.Parallel()
-
-	t.Run("requires auth", func(t *testing.T) {
-		req := withRouteParams(httptest.NewRequest(http.MethodGet, "/?page_id=42", nil), map[string]string{"owner": "alice", "repo": "demo", "slug": "home"})
-		rec := httptest.NewRecorder()
-		(&WikiCollaborationHandler{Service: &wikiRoutesFixture{}}).Stream(rec, req)
-		assert.Equal(t, http.StatusUnauthorized, rec.Code)
-	})
-
-	t.Run("rejects an invalid cursor", func(t *testing.T) {
-		rec := httptest.NewRecorder()
-		(&WikiCollaborationHandler{Service: &wikiRoutesFixture{}}).Stream(rec, wikiRequest(http.MethodGet, "/?page_id=42&after=-1", ""))
-		assert.Equal(t, http.StatusBadRequest, rec.Code)
-	})
-
-	t.Run("checks read access through the service", func(t *testing.T) {
-		rec := httptest.NewRecorder()
-		(&WikiCollaborationHandler{Service: &failingWikiService{err: pkgerrors.Forbidden("read access required")}}).Stream(rec, wikiRequest(http.MethodGet, "/?page_id=42", ""))
-		assert.Equal(t, http.StatusForbidden, rec.Code)
-	})
-
-	t.Run("fails closed without a broker", func(t *testing.T) {
-		rec := httptest.NewRecorder()
-		(&WikiCollaborationHandler{Service: &wikiRoutesFixture{}}).Stream(rec, wikiRequest(http.MethodGet, "/?page_id=42", ""))
-		assert.Equal(t, http.StatusInternalServerError, rec.Code)
-	})
-}
-
-// ---- workflow run status stream ----
 
 func TestWorkflowRunStatusStream_Route(t *testing.T) {
 	statusRequest := func(id string) *http.Request {

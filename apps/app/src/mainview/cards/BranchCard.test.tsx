@@ -230,3 +230,23 @@ test("opening a Branch announces its authorized scope while child topics are unr
     expect(released).toEqual([{ branch: "actual-branch" }])
   } finally { design.dispose() }
 })
+
+
+test("branch action copy passes the catalog text lint", async () => {
+  const { lintText } = await import("./productWords")
+  const design = make()
+  design.setBranch("b-checkout", { rebasePending: "main" })
+  const forked = design.fork("b-retry", MAYA)
+  if (!forked.ok || !forked.id) throw new Error("fork refused")
+  for (const id of ["b-retry", "b-checkout", "b-stripe", forked.id]) {
+    const { definitions, model } = definitionsOf(design, id)
+    const all = [...definitions, ...liveBranchActionDefinitions(model, new Set(["branch.fork", "todo.answer", "todo.steer"])), ...changeActionDefinitions(model)]
+    // Item titles are user content; every emitted action label is product copy.
+    const productActions = all.filter(action => !("gesture" in action) || action.gesture !== "item")
+    for (const action of productActions) expect(lintText(action.label)).toEqual([])
+    for (const action of productActions.flatMap(definition => cardActions(() => {}, [definition]).actions)) {
+      expect(lintText(action.label)).toEqual([])
+      if (action.disabled) expect(lintText(action.disabled.reason)).toEqual([])
+    }
+  }
+})

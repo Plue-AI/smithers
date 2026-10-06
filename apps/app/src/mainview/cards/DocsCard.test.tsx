@@ -43,7 +43,7 @@ test("Docs rendered links dispatch the bundled page and anchor through the real 
     await act(async () => { link.dispatchEvent(event); await pending })
     expect(event.defaultPrevented).toBe(true)
     expect(store.collections.cards.get("docs-flows")?.payload).toMatchObject({
-      page: "flows", anchor: "find-a-command"
+      page: "flows", anchor: "change-a-flow"
     })
     await render("docs-flows")
     expect(host.querySelector("h2")?.textContent).toBe("Flows reference")

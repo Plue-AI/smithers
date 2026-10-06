@@ -100,8 +100,13 @@ export const LiveBranchBody = ({ card, actions }: { readonly card: CardOf<"branc
   const branch = useTopic(topic, controller.live)
   const activity = useTopic(topic && `${topic}:activity`, controller.live)
   const files = useTopic(topic && `${topic}:files`, controller.live)
-  const model = branch?.error || activity?.error || files?.error ? undefined
-    : branchModel(branch?.data, activity?.data, files?.data, card.payload.id)
+  // An unserved optional stream must not hide the composed branch roster.
+  // Permission failures and malformed snapshots still refuse the projection;
+  // no seed rows stand in for unavailable activity or changed files.
+  const optionalData = (snapshot: typeof activity) => snapshot?.error === "unsupported" ? [] : snapshot?.data
+  const refused = (snapshot: typeof activity) => snapshot?.error !== undefined && snapshot.error !== "unsupported"
+  const model = branch?.error || refused(activity) || refused(files) ? undefined
+    : branchModel(branch?.data, optionalData(activity), optionalData(files), card.payload.id)
   useBranchPresence(card.payload.id, controller.live)
   // Outside an install, an unanswered or absent provider keeps the existing seed visible.
   if (controller.design.enabled !== false && branch?.data === undefined

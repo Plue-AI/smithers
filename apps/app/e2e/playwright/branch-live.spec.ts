@@ -3,7 +3,7 @@ import { fillComposer } from "./composer"
 import { installCloudFixture } from "./cloudFixture"
 
 // Browser contract proof. The PostgreSQL/SSH/lease journey remains reference-host evidence.
-test("install /branch T2 renders captured facts and forks through its card without waking", async ({ page }) => {
+for (const optionalStreams of ["served", "unsupported"] as const) test(`install /branch T2 renders captured facts with ${optionalStreams} streams and forks without waking`, async ({ page }) => {
   await installCloudFixture(page, { capabilities: ["identity", "install"] })
   const posts: unknown[] = []
   const presence: unknown[] = []
@@ -23,7 +23,7 @@ test("install /branch T2 renders captured facts and forks through its card witho
       item: { n: 2, title: "Retry webhooks", state: "working", place: 2 },
       presence: [{ actor: { kind: "person", login: "maya", name: "Maya", avatar_url: "https://github.com/identicons/placeholder.png", color_index: 1, via: "ssh" }, where: { kind: "file", path: "retry.ts", line: 12 } }],
       terminals: [], ssh_line: "ssh -p 2222 retry-webhooks@localhost"
-    } : frame.topic === "branch:b-live:activity" || frame.topic === "branch:b-live:files" ? [] : undefined
+    } : (frame.topic === "branch:b-live:activity" || frame.topic === "branch:b-live:files") && optionalStreams === "served" ? [] : undefined
     socket.send(JSON.stringify(data === undefined ? { t: "err", id: frame.id, code: "unsupported" } : { t: "snap", id: frame.id, cursor: 1, data }))
   }))
   await page.goto("/")

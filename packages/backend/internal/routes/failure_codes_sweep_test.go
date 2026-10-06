@@ -2,7 +2,6 @@ package routes
 
 import (
 	"encoding/json"
-	stdErrors "errors"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -12,7 +11,6 @@ import (
 	"github.com/stretchr/testify/require"
 
 	pkgerrors "github.com/smithersai/smithers/packages/backend/internal/pkg/errors"
-	"github.com/smithersai/smithers/packages/backend/internal/sse"
 )
 
 // decodeAPIError reads what actually went on the wire, not what the handler
@@ -53,21 +51,4 @@ func TestMissingTableDegradesToFeatureNotEnabled(t *testing.T) {
 			assert.NotEmpty(t, body.Message, "the sentence names which feature is off")
 		})
 	}
-}
-
-// TestSSEStreamCapIsARateLimit pins the per-user live-stream cap onto the
-// budget code it has always been. It answered 429 with no code, so WriteError
-// backfilled rate_limit_exceeded from the status; naming it at the call site
-// makes the backfill unnecessary here and survives any later change to the
-// status.
-func TestSSEStreamCapIsARateLimit(t *testing.T) {
-	capped := wikiSubscribeError(&sse.ErrTooManyStreams{UserID: 7, Max: 8})
-	assert.Equal(t, pkgerrors.CodeRateLimitExceeded, capped.Code)
-	assert.Equal(t, pkgerrors.FaultUser, capped.Fault)
-	assert.Equal(t, http.StatusTooManyRequests, capped.Status)
-
-	// Everything else behind a refused subscription is still plue's defect.
-	other := wikiSubscribeError(stdErrors.New("listener died"))
-	assert.Equal(t, pkgerrors.CodeInternal, other.Code)
-	assert.Equal(t, pkgerrors.FaultBug, other.Fault)
 }

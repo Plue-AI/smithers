@@ -1660,6 +1660,8 @@ func runWithOptions(ctx context.Context, args []string, stdout, stderr io.Writer
 			installSetup.BindMachineProvider(repositorySourceFiles{client: repoHostClient}, machineImages)
 		}
 		installSetup.Capacity = installCapacity
+		installSetup.Obsidian = &services.InstallObsidianSettings{Queries: queries, StateDirectory: cfg.Install.StateDir, CheckOwner: authService.Members.VerifyOwner}
+		options.InstallWikiSync = installSetup.Obsidian
 		// Model access tests each key on the host POST /api/model/test uses.
 		if tester, ok := options.ChatHost.(services.InstallModelTester); ok {
 			installSetup.Models = tester

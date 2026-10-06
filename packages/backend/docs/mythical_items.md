@@ -401,7 +401,7 @@ capacity service projects requested and effective values separately; effective
 is `min(requested, capacity)`, including zero. Capacity refreshes free disk
 from the runtime state volume while keeping startup memory and core measurements.
 A failed disk read refuses admission. Only an absent saved value uses
-`max(1, capacity − 1)`. The forward migration preserves a single legacy stack's
+`max(1, capacity − 1)`, bounded by the setting’s maximum of eight. The forward migration preserves a single legacy stack's
 value and never overwrites an install value. Multiple legacy stacks are not a
 single-repository install and are not arbitrarily selected by the migration.
 

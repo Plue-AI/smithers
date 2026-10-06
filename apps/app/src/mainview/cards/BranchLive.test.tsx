@@ -7,7 +7,7 @@ import type { AppController } from "../state/AppController"
 import { ControllerTestProvider } from "../ControllerContext"
 import { CARD_RENDERERS } from "./CardRenderers"
 const actions = { onDecideApproval: () => {}, onConnectGitHub: () => {}, onRunWorkflow: () => {}, onStopRun: () => {}, onRetryRun: () => {}, onChooseWorkflowRepo: () => {}, worldDocuments: [], onChangeWorldDocument: () => {}, onRunCommand: () => {} }
-test("registry reads the three real topics, never seed data, and clears a refused subscription", async () => {
+for (const unavailable of [[], [2], [3], [2, 3]]) test(`registry renders real branch facts with unsupported streams ${unavailable.join(",")} and clears a refused subscription`, async () => {
   const frames: unknown[] = []
   const socket: LiveSocket = { readyState: 0, onopen: null, onclose: null, onmessage: null, send: frame => frames.push(JSON.parse(String(frame))), close: () => {} }
   const timers: { callback: () => void; cancelled: boolean }[] = []
@@ -19,7 +19,7 @@ test("registry reads the three real topics, never seed data, and clears a refuse
     await act(async () => root.render(<ControllerTestProvider controller={controller}>{CARD_RENDERERS.branch.render(card, actions)}</ControllerTestProvider>))
     expect(host.textContent).toBe("")
     socket.readyState = 1; socket.onopen?.()
-    expect(frames).toEqual([{ t: "sub", id: 1, topic: "branch:b-retry" }, { t: "sub", id: 2, topic: "branch:b-retry:activity" }, { t: "sub", id: 3, topic: "branch:b-retry:files" }])
+    expect(frames).toEqual([{ t: "sub", id: 1, topic: "branch:b-retry" }, { t: "sub", id: 2, topic: "branch:b-retry:activity" }, { t: "sub", id: 3, topic: "branch:b-retry:files" }, { t: "presence", id: 4, where: { branch: "b-retry" } }])
     const snap = async (id: number, data: unknown) => act(async () => socket.onmessage?.({ data: JSON.stringify({ t: "snap", id, cursor: 1, data }) }))
     const maya = { kind: "person", login: "maya", name: "Maya", avatar_url: "https://github.com/identicons/placeholder.png", color_index: 1, via: "ssh" }
     await snap(1, { id: "b-retry", name: "Captured live branch", machine: { state: "asleep" },
@@ -29,9 +29,12 @@ test("registry reads the three real topics, never seed data, and clears a refuse
       presence: [{ actor: maya, where: { kind: "file", path: "retry.ts", line: 12 } },
         { actor: { ...maya, login: "ben", name: "Ben", via: undefined }, where: { kind: "terminal", id: "checks" } }],
       ssh_line: "ssh -p 2222 live@localhost" })
-    await snap(2, [])
+    const optional = async (id: number) => unavailable.includes(id)
+      ? act(async () => socket.onmessage?.({ data: JSON.stringify({ t: "err", id, code: "unsupported" }) }))
+      : snap(id, [])
+    await optional(2)
     expect(host.textContent).toBe("")
-    await snap(3, [])
+    await optional(3)
     expect(host.textContent).toContain("Captured live branch")
     expect(host.textContent).toContain("Asleep")
     expect(host.textContent).toContain("Maya via SSH moved this branch off T12")
@@ -40,8 +43,10 @@ test("registry reads the three real topics, never seed data, and clears a refuse
     expect(host.textContent).not.toContain("Retry failed webhooks")
     expect(host.querySelector("[data-flow]")).toBeNull()
     expect(frames.at(-1)).toEqual({ t: "presence", id: 4, where: { branch: "b-retry" } })
+    // Authorization failures remain fatal even with unavailable optional streams.
     await act(async () => socket.onmessage?.({ data: JSON.stringify({ t: "err", id: 1, code: "permission" }) }))
     expect(host.textContent).toBe("")
+    await act(async () => root.unmount())
     expect(timers.at(-1)?.cancelled).toBe(true)
   } finally { await act(async () => root.unmount()); live.dispose() }
 })

@@ -1448,3 +1448,27 @@ test("late Home hydration respects a scroll-up after Welcome was painted", async
   await act(async () => root!.render(view("home")));
   expect(getViewport().scrollTop).toBe(400);
 });
+
+test("an in-card heading remains the read destination across layout and repeated navigation", async () => {
+  const view = (version: number, targetId = "https") => <MessageScrollerProvider scrollAnchor="bottom"
+    readAnchor={{ messageId: "docs", targetId, version, requestId: version }}>
+    <MessageScrollerViewport><MessageScrollerContent>
+      <MessageScrollerItem messageId="docs"><div id="https" data-message-id="heading">HTTPS</div></MessageScrollerItem>
+    </MessageScrollerContent></MessageScrollerViewport>
+  </MessageScrollerProvider>;
+  geometryByMessageId.set("docs", { top: 20, height: 1800 });
+  geometryByMessageId.set("heading", { top: 1200, height: 30 });
+  await render(view(1), { scrollHeight: 1820, clientHeight: 600, scrollTop: 0 });
+  expect(getViewport().scrollTop).toBe(1190);
+  const content = container!.querySelector('[data-slot="message-scroller-content"]')!;
+  await act(async () => resizeCallbacks.get(content)!([], {} as ResizeObserver));
+  expect(getViewport().scrollTop).toBe(1190);
+  metrics().scrollTop = 0;
+  await scroll();
+  await act(async () => resizeCallbacks.get(content)!([], {} as ResizeObserver));
+  expect(getViewport().scrollTop).toBe(0);
+  await act(async () => root!.render(view(2)));
+  expect(getViewport().scrollTop).toBe(1190);
+  await act(async () => root!.render(view(3, "missing")));
+  expect(getViewport().scrollTop).toBe(10);
+});

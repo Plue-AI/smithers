@@ -46,8 +46,6 @@ func TestWikiProduct_PostgresScopesAndGraph(t *testing.T) {
 		require.Equal(t, 403, apiStatus(t, err))
 		_, err = s.GetWikiDocument(private, viewer, actor.Username, repo.Name, "home")
 		require.Equal(t, 403, apiStatus(t, err))
-		_, err = s.ListWikiUpdates(private, viewer, actor.Username, repo.Name, "home", secret.ID, 0)
-		require.Equal(t, 403, apiStatus(t, err))
 	}
 	got, err := s.GetWikiPage(ctx, nil, actor.Username, repo.Name, "home")
 	require.NoError(t, err)
@@ -60,7 +58,7 @@ func TestWikiProduct_PostgresScopesAndGraph(t *testing.T) {
 	require.Empty(t, pages)
 	require.Zero(t, total)
 	// A public scope cursor cannot smuggle a private identity, even for the owner.
-	_, err = s.ListWikiUpdates(ctx, &actor, actor.Username, repo.Name, "home", secret.ID, 0)
+	_, err = s.GetWikiRevisionContent(ctx, &actor, actor.Username, repo.Name, secret.ID, 1)
 	require.Equal(t, 404, apiStatus(t, err))
 	index, err := s.GetWikiIndex(ctx, nil, actor.Username, repo.Name)
 	require.NoError(t, err)
@@ -84,10 +82,11 @@ func TestWikiProduct_PostgresScopesAndGraph(t *testing.T) {
 	publicDispatches := len(dispatcher.calls)
 	require.NoError(t, s.DeleteWikiPage(private, &actor, actor.Username, repo.Name, secret.Slug))
 	require.Len(t, dispatcher.calls, publicDispatches, "private deletion must not dispatch repository webhooks")
-	events, err := s.ListWikiUpdates(private, &actor, actor.Username, repo.Name, secret.Slug, secret.ID, 0)
+	events, total, err := s.ListWikiPageHistory(private, &actor, actor.Username, repo.Name, secret.ID, 1, 100)
 	require.NoError(t, err)
 	require.Len(t, events, 2)
-	require.True(t, events[1].Deleted)
+	require.Equal(t, int64(2), total)
+	require.True(t, events[0].Deleted)
 	recovery, err := q.ListWikiHistoryRecovery(ctx, 1000)
 	require.NoError(t, err)
 	for _, row := range recovery {

@@ -817,7 +817,7 @@ const FIXTURES: Record<
   branch: { minimal: { id: "b-retry" }, full: { id: "b-retry" } },
   terminal: { minimal: { id: "term-1" }, full: { id: "term-1" } },
   run: { minimal: { id: "run-1" }, full: { id: "run-1" } },
-  flow: { minimal: { name: "todo" }, full: { name: "todo", version: "v3" } },
+  flow: { minimal: { name: "todo" }, full: { name: "todo", version: "v3", proposal: { request: "request-1", diff: "diff-1" } } },
   settings: { minimal: {}, full: {} },
   members: { minimal: {}, full: {} },
   commands: { minimal: {}, full: {} },
@@ -3296,4 +3296,18 @@ test("deferred billing, repository and trigger cards retain live decoding", () =
   ]) {
     expect(CardSchema.parse({ ...base, ...card }).kind).toBe(card.kind)
   }
+})
+
+test("persisted fork filters decode as all without dropping the old journal", () => {
+  const original = card("run-trace", {
+    ...FIXTURES["run-trace"].full,
+    filter: "forks",
+    events: [{ seq: 1, type: "fork", executionId: "historical" }]
+  })
+  const decoded = CardSchema.parse(original)
+  expect(decoded.payload).toMatchObject({
+    filter: "all",
+    events: [{ seq: 1, type: "fork", executionId: "historical" }]
+  })
+  expect(CardSchema.parse(JSON.parse(JSON.stringify(decoded)))).toEqual(decoded)
 })

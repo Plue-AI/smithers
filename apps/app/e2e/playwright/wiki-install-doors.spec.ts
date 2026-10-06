@@ -24,11 +24,10 @@ test("install wiki doors embed repository pages by vault path", async ({ page })
   await page.route("**/api/repos/smithersai/smithers/wiki/retries/document?*", route => route.fulfill({ json: {
     page: row, state: Buffer.from(Y.encodeStateAsUpdate(doc)).toString("base64"), state_vector: Buffer.from(Y.encodeStateVector(doc)).toString("base64")
   } }))
-  await page.route("**/api/repos/smithersai/smithers/wiki/retries/stream?*", route => route.fulfill({ contentType: "text/event-stream", body: ": connected\n\n" }))
   try {
     await page.goto("/")
     await fillComposer(page, "/wiki")
-    await page.getByRole("option", { name: /^\/wiki / }).click()
+    await page.getByTestId("composer-send").click()
     await expect(page.getByTestId("card-wiki-index-smithersai/smithers-public")).toContainText("Retry decision", { timeout: 10_000 })
     await fillComposer(page, "/wiki.page decisions/retries")
     await page.getByTestId("composer-send").click()

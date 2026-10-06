@@ -842,6 +842,13 @@ export type InstallSetupStatus = {
     key: "none" | "validating" | "saved" | "failed"
     error?: string
   }>
+  wiki_sync?: {
+    obsidian?: {
+      path: string
+      last_sync_at?: string
+      error?: string
+    }
+  }
   chatgpt: boolean
   capacity: number
   parallel?: number
@@ -1830,7 +1837,7 @@ export type GetApiInstallResponse = InstallSetupStatus
 export const getApiInstall = (transport: Transport): Promise<GetApiInstallResponse> =>
   transport.request("GET", `/api/install`) as Promise<GetApiInstallResponse>
 
-export type PutApiInstallBody = (unknown | unknown | unknown) | (unknown | unknown)
+export type PutApiInstallBody = (unknown | unknown | unknown) | (unknown | unknown) | unknown
 
 export type PutApiInstallResponse = InstallSetupStatus
 
@@ -4008,34 +4015,6 @@ export interface GetApiReposOwnerRepoWikiSlugRevisionsInput {
 /** GET /api/repos/{owner}/{repo}/wiki/{slug}/revisions */
 export const getApiReposOwnerRepoWikiSlugRevisions = (transport: Transport, input: GetApiReposOwnerRepoWikiSlugRevisionsInput): Promise<GetApiReposOwnerRepoWikiSlugRevisionsResponse> =>
   transport.request("GET", `/api/repos/${segment(input.path.owner)}/${segment(input.path.repo)}/wiki/${segment(input.path.slug)}/revisions`) as Promise<GetApiReposOwnerRepoWikiSlugRevisionsResponse>
-
-export interface GetApiReposOwnerRepoWikiSlugStreamInput {
-  readonly path: { readonly owner: string; readonly repo: string; readonly slug: string }
-}
-
-/** GET /api/repos/{owner}/{repo}/wiki/{slug}/stream */
-export const getApiReposOwnerRepoWikiSlugStream = (transport: Transport, input: GetApiReposOwnerRepoWikiSlugStreamInput): Promise<Response> =>
-  transport.response("GET", `/api/repos/${segment(input.path.owner)}/${segment(input.path.repo)}/wiki/${segment(input.path.slug)}/stream`)
-
-export type GetApiReposOwnerRepoWikiSlugUpdatesResponse = AnyJSON
-
-export interface GetApiReposOwnerRepoWikiSlugUpdatesInput {
-  readonly path: { readonly owner: string; readonly repo: string; readonly slug: string }
-}
-
-/** GET /api/repos/{owner}/{repo}/wiki/{slug}/updates */
-export const getApiReposOwnerRepoWikiSlugUpdates = (transport: Transport, input: GetApiReposOwnerRepoWikiSlugUpdatesInput): Promise<GetApiReposOwnerRepoWikiSlugUpdatesResponse> =>
-  transport.request("GET", `/api/repos/${segment(input.path.owner)}/${segment(input.path.repo)}/wiki/${segment(input.path.slug)}/updates`) as Promise<GetApiReposOwnerRepoWikiSlugUpdatesResponse>
-
-export type PostApiReposOwnerRepoWikiSlugUpdatesResponse = AnyJSON
-
-export interface PostApiReposOwnerRepoWikiSlugUpdatesInput {
-  readonly path: { readonly owner: string; readonly repo: string; readonly slug: string }
-}
-
-/** POST /api/repos/{owner}/{repo}/wiki/{slug}/updates */
-export const postApiReposOwnerRepoWikiSlugUpdates = (transport: Transport, input: PostApiReposOwnerRepoWikiSlugUpdatesInput): Promise<PostApiReposOwnerRepoWikiSlugUpdatesResponse> =>
-  transport.request("POST", `/api/repos/${segment(input.path.owner)}/${segment(input.path.repo)}/wiki/${segment(input.path.slug)}/updates`) as Promise<PostApiReposOwnerRepoWikiSlugUpdatesResponse>
 
 export type GetApiReposOwnerRepoWikiSearchResponse = AnyJSON
 

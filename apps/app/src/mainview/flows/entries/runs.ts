@@ -202,13 +202,13 @@ export const runsFlows = (actions: CommandActions): ReadonlyArray<FlowEntry> => 
    */
   flow({
     name: "runs.trace.filter", visibility: "in-card",
-    summary: "Filter a run's trace: all, running, failed, model, flow, forks or messages",
+    summary: "Filter a run's trace: all, running, failed, model, flow or messages",
     runtimeAny: ["cloud"],
     hidden: true,
-    args: "[sourceCard=id] <runId> <all|running|failed|model|flow|forks|messages>",
+    args: "[sourceCard=id] <runId> <all|running|failed|model|flow|messages>",
     input: Schema.Struct({
       sourceCard: Schema.optional(Schema.String), runId: Schema.String,
-      filter: Schema.Literals(["all", "running", "failed", "model", "flow", "forks", "messages"])
+      filter: Schema.Literals(["all", "running", "failed", "model", "flow", "messages"])
     }),
     handler: ({ runId, filter, sourceCard }) => actions.traceFilter(runId, filter, sourceCard)
   }),
