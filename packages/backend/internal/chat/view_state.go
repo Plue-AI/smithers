@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"net/http"
 
 	"github.com/jackc/pgx/v5"
@@ -78,6 +79,17 @@ func (s *Store) readMemberView(ctx context.Context, userID int64, conversation s
 	}
 	// Saved browser input never supplies a queue. Only committed rows do.
 	delete(view, "queue")
+	delete(view, "instructions")
+	instructions, err := s.privateUIInstructions(ctx, tx, repositoryID, userID, conversation)
+	if err != nil {
+		return nil, err
+	}
+	if len(instructions) > 0 {
+		view["instructions"], err = json.Marshal(instructions)
+		if err != nil {
+			return nil, err
+		}
+	}
 	if len(queue) > 0 {
 		view["queue"], err = json.Marshal(queue)
 		if err != nil {
@@ -111,6 +123,9 @@ func (s *Store) memberViewState(ctx context.Context, userID int64, conversation 
 		}
 		state, ok := object.(map[string]any)
 		if !ok {
+			return nil, ErrInvalidRequest
+		}
+		if _, supplied := state["instructions"]; supplied {
 			return nil, ErrInvalidRequest
 		}
 		if _, supplied := state["queue"]; supplied {
@@ -172,4 +187,62 @@ func (h *Handler) ViewState(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, result)
+}
+
+// This projection reads only the authenticated author's host-owned turns, and
+// verifies their retained journal before any instruction can reach a browser.
+func (s *Store) privateUIInstructions(ctx context.Context, tx pgx.Tx, repositoryID, userID int64, conversation string) ([]map[string]any, error) {
+	rows, err := tx.Query(ctx, `SELECT `+turnColumns+` FROM chat_turns WHERE repository_id=$1 AND user_id=$2 AND conversation_id=$3 AND producer_generation>0 AND state NOT IN ('queued','retired') AND request_payload->>'sharedConversation'='true' ORDER BY created_at,id`, repositoryID, userID, conversation)
+	if err != nil {
+		return nil, err
+	}
+	turns := []turnRecord{}
+	for rows.Next() {
+		turn, e := scanTurn(rows)
+		if e != nil {
+			rows.Close()
+			return nil, e
+		}
+		turns = append(turns, turn)
+	}
+	rows.Close()
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	instructions := []map[string]any{}
+	for _, turn := range turns {
+		acceptance, _, err := checkHead(turn)
+		if err != nil {
+			return nil, err
+		}
+		cursor := initialCursor(acceptance)
+		for {
+			page, err := s.replayVerified(ctx, tx, turn, cursor, maxReplayBatches)
+			if err != nil {
+				return nil, err
+			}
+			for _, batch := range page.Batches {
+				for index, raw := range batch.Frames {
+					var frame struct {
+						Type string `json:"type"`
+						UI   *struct {
+							Command string `json:"command"`
+							Mode    string `json:"mode"`
+						} `json:"ui"`
+					}
+					if err := json.Unmarshal(raw, &frame); err != nil {
+						return nil, ErrCorrupt
+					}
+					if frame.Type == "call.settled" && frame.UI != nil {
+						instructions = append(instructions, map[string]any{"id": fmt.Sprintf("%s:%d:%d", turn.ID, batch.Batch, index), "command": frame.UI.Command, "mode": frame.UI.Mode})
+					}
+				}
+			}
+			if !page.More {
+				break
+			}
+			cursor = page.Next
+		}
+	}
+	return instructions, nil
 }

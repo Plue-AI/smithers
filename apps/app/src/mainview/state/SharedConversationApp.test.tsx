@@ -239,3 +239,31 @@ test("shared card maximization persists only in its member view and restores on 
     expect(writes).toHaveLength(1)
   } finally { flushSync(() => root.unmount()); host.remove(); await controller.dispose() }
 })
+
+test("private host theme instructions use the typed flow once and never cross members", async () => {
+  const store = await createAppStore({ kind: "localStorage", storage: memoryStorage() })
+  const writes: string[] = []
+  const controller = createAppController(store, silentAgent, {
+    bootstrap: { apiVersion: 1, host: "local", version: "test", buildSha: "test", capabilities: ["install"], authFlow: "redirect", sandbox: null },
+    fetchImpl: async (input, init) => {
+      const path = String(input)
+      if (init?.method && init.method !== "GET") writes.push(path)
+      if (path === "/api/conversations/main") return Response.json({ id: "main", entries: [ben] })
+      if (path.endsWith("/view-state")) return Response.json({ instructions: store.collections.identitySessions.get("identity")?.login === "ben" ? [{ id: "turn-ben:1:4", command: "theme", mode: "dark" }] : [] })
+      return new Response("{}", { status: 404 })
+    }
+  })
+  try {
+    await store.dispatch({ type: "theme.changed", actor: "user", theme: "light" }).isPersisted.promise
+    await store.dispatch({ type: "identity.session.loaded", actor: "system", state: "signed-in", login: "alice", admin: false, scopesPlain: null }).isPersisted.promise
+    await controller.sharedConversation!.read()
+    expect(store.session().theme).toBe("light")
+    await store.dispatch({ type: "identity.session.loaded", actor: "system", state: "signed-in", login: "ben", admin: false, scopesPlain: null }).isPersisted.promise
+    await waitFor(() => store.session().uiInstructionsSeen?.length === 1)
+    expect(store.session().theme).toBe("dark")
+    await controller.submitCommand({ name: "theme", payload: { mode: "light" }, actor: "user" })
+    await controller.sharedConversation!.read()
+    expect(store.session().theme).toBe("light")
+    expect(writes).toEqual([])
+  } finally { await controller.dispose() }
+})

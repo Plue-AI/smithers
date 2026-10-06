@@ -328,7 +328,7 @@ const refusalText = (path: string, code: string): string => {
 }
 
 /** What one command answered: the cards it shows and the model's copy, or the refusal both are told. */
-type Outcome = { readonly cards: ReadonlyArray<Card>; readonly value: string } | { readonly refusal: string }
+type Outcome = { readonly cards: ReadonlyArray<Card>; readonly value: string; readonly ui?: { readonly command: "theme"; readonly mode: "light" | "dark" } } | { readonly refusal: string }
 
 /** One command bound to this turn: it runs with the call's argument text and ordinal. */
 type BoundRun = (args: string | undefined, ordinal: number) => Effect.Effect<Outcome>
@@ -470,6 +470,15 @@ const commandPayload = (row: CatalogDescriptor, args: string | undefined): Recor
   ).parse(input) as Record<string, unknown>
 }
 
+/** UI instructions share the committed journal, but only the author's private view projects them. */
+const themeCommand = (row: CatalogDescriptor): Bind => grant => grant.api === undefined ? undefined : args => Effect.sync(() => {
+  try {
+    const payload = commandPayload(row, args)
+    if (payload.mode !== "light" && payload.mode !== "dark") throw new Error("Explicit mode required")
+    return { cards: [], value: `Requested /theme ${payload.mode} on the author's screen.`, ui: { command: "theme" as const, mode: payload.mode } }
+  } catch { return { refusal: "Invalid arguments for theme; use light or dark." } }
+})
+
 /** The one descriptor-to-HTTP dispatch path; policy/confirmations stay on the server. */
 const catalogCommand = (row: CatalogDescriptor): Bind => (grant, { api }) => {
   if (grant.api === undefined || row.http === null) return undefined
@@ -535,7 +544,7 @@ const offeredCommands = (grant: DurableChatGrant, transport: HostTransport): Rea
       !row.actors.includes("app_agent") || row.visibility === "hidden" ||
       (row.agent !== "run" && row.agent !== "confirm")
     ) return []
-    const bind = row.name === "files.list" ? filesList : row.name === "files.read" ? filesRead : catalogCommand(row)
+    const bind = row.name === "files.list" ? filesList : row.name === "files.read" ? filesRead : row.name === "theme" ? themeCommand(row) : catalogCommand(row)
     const run = bind(grant, transport)
     const command: Offered["command"] = {
       name: row.name,
@@ -642,7 +651,7 @@ const runCommand = <E>(
       return `failed: ${outcome.refusal}`
     }
     for (const card of outcome.cards) yield* write({ runId, type: "card", card })
-    yield* write({ runId, type: "call.settled", link, ordinal, name, verdict: "run" })
+    yield* write({ runId, type: "call.settled", link, ordinal, name, verdict: "run", ...(outcome.ui ? { ui: outcome.ui } : {}) })
     return boundToolResult(outcome.value).modelOutput
   })
 
