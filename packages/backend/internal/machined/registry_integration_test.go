@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"sync/atomic"
 	"testing"
+	"time"
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -32,7 +33,7 @@ func machineReceiptDatabase(t *testing.T) (*pgxpool.Pool, string, string) {
 	return pool, a, b
 }
 func capturedEvent(seq uint64, id [16]byte) Event {
-	return Event{Seq: seq, EventID: id, Payload: wire.Union(1, wire.Field(1, wire.U64(seq)), wire.Field(2, id[:]), wire.Field(3, wire.Union(2, wire.Field(1, make([]byte, 20)), wire.Field(2, make([]byte, 20)), wire.Field(3, make([]byte, 20)))))}
+	return Event{Seq: seq, EventID: id, Payload: wire.Union(2, wire.Field(1, make([]byte, 20)), wire.Field(2, make([]byte, 20)), wire.Field(3, make([]byte, 20)))}
 }
 func TestRegistryIntegration(t *testing.T) {
 	pool, a, b := machineReceiptDatabase(t)
@@ -138,11 +139,12 @@ func TestMachinedCaptureDispatchDurability(t *testing.T) {
 	mode = AckApplied
 	event.EventID[0] ^= 0xff
 	event = capturedEvent(43, event.EventID)
-	ctx, cancel := context.WithCancel(t.Context())
+	ctx, cancel := context.WithTimeout(t.Context(), 5*time.Second)
 	defer cancel()
 	done := make(chan error, 1)
 	go func() { done <- ingestor.Dispatch(ctx, link, branch) }()
-	require.NoError(t, wire.Write(daemon, wire.Frame{Kind: wire.Events, Payload: event.Payload}))
+	require.NoError(t, wire.Write(daemon, wire.Frame{Kind: wire.Events, Payload: wire.Union(1, wire.Field(1, wire.U64(event.Seq)), wire.Field(2, event.EventID[:]), wire.Field(3, event.Payload))}))
+	require.NoError(t, daemon.SetReadDeadline(time.Now().Add(5*time.Second)))
 	frame, err := wire.Read(daemon)
 	require.NoError(t, err)
 	require.Equal(t, byte(wire.Events), frame.Kind)

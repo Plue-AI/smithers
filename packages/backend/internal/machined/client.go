@@ -112,7 +112,7 @@ type EventStream interface {
 type Event struct {
 	Seq     uint64
 	EventID [16]byte
-	Payload []byte
+	Payload []byte // inner event/hint union; sequence and ID come from the authenticated envelope
 }
 type AckOutcome uint8
 

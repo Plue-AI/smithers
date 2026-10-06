@@ -2,7 +2,6 @@ package machined
 
 import (
 	"context"
-	"encoding/binary"
 	"errors"
 	"fmt"
 	"time"
@@ -34,24 +33,19 @@ func (i *Ingestor) Commit(ctx context.Context, connection *Connection, branch st
 	if connection == nil || connection.registry == nil {
 		return ack, ErrUnauthorized
 	}
-	// Revalidate the canonical envelope rather than trusting a caller's duplicate
-	// EventID/Seq fields. A receipt is scoped only by authenticated host authority.
-	f := wire.Frame{Kind: wire.Events, Payload: event.Payload}
+	// Payload is the inner event union supplied by the authenticated link.
+	// Rebuild the canonical envelope through the shared codec, so direct
+	// callers get the same validation without a second wire representation.
+	if event.Seq == 0 || event.EventID == ([16]byte{}) {
+		return ack, wire.BadValue
+	}
+	f := wire.Frame{Kind: wire.Events, Payload: wire.Union(1,
+		wire.Field(1, wire.U64(event.Seq)), wire.Field(2, event.EventID[:]),
+		wire.Field(3, event.Payload))}
 	if _, err := wire.Encode(f); err != nil {
 		return ack, err
 	}
-	if len(event.Payload) == 0 || event.Payload[0] != 1 {
-		return ack, wire.BadValue
-	}
-	fields, err := wire.Fields("durable", event.Payload[1:])
-	if err != nil {
-		return ack, err
-	}
-	var id [16]byte
-	copy(id[:], fields[2])
-	if event.Seq == 0 || id == ([16]byte{}) || id != event.EventID || binary.BigEndian.Uint64(fields[1]) != event.Seq {
-		return ack, wire.BadValue
-	}
+	id := event.EventID
 	// Fence replacement through commit, including a newer boot arriving while
 	// objects are verified. Network acknowledgement runs after releasing the lock.
 	r := connection.registry
