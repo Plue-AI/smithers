@@ -22,6 +22,7 @@ export const SettingsCardSchema = SetupCardSchema.extend({
     origins_unencrypted: z.array(z.string()).optional()
   }),
   capacity: z.number().int().nonnegative(),
+  new_todos_preapproved: z.boolean().optional(),
   parallel: z.number().int().nonnegative().optional(),
   todo_daily_admissions: z.number().int().positive().optional(),
   laptop_lines: z.array(z.string()),

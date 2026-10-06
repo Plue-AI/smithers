@@ -148,6 +148,8 @@ export const createTodoSeam = (ctx: SeamContext, options: TodoSeamOptions = {}) 
     // REST snapshots are durable source facts too: admission alone never clears a Draft or a toast.
     const observed: TodoReceipt[] = card.payload.requests.flatMap<TodoReceipt>(request => {
       if (request.state !== "accepted" || receipts.some(receipt => receipt.key === request.key)) return []
+      if (request.operation === "preapprove" || request.operation === "unapprove") return Boolean(model.preapproval) === (request.operation === "preapprove")
+        ? [{ key: request.key, outcome: { status: "ok" as const, detail: request.operation === "preapprove" ? "Pre-approved" : "Pre-approval removed" } }] : []
       if (request.operation === "merge") return model.state === "merged"
         ? [{ key: request.key, outcome: { status: "ok" as const, detail: "Merged" } }] : []
       if (request.operation === "amend") {
@@ -231,8 +233,9 @@ export const createTodoSeam = (ctx: SeamContext, options: TodoSeamOptions = {}) 
     showNotice(request, title)
     // An answer has its own route (POST /api/todos/{n}/answer); the other controls share the TODO's.
     const control = ["steer", "stop", "resume", "retry", "retry-current-flow", "drop", "move", "takeover"].includes(request.operation)
+    const preapproval = request.operation === "preapprove" || request.operation === "unapprove"
     const route = request.operation === "create" ? TODOS_PATH
-      : `${todoPath(request.n!)}${request.operation === "amend" || control ? "" : `/${request.operation}`}`
+      : `${todoPath(request.n!)}${request.operation === "amend" || control ? "" : `/${preapproval ? "preapproval" : request.operation}`}`
     void (async () => {
       let response: Response
       try {
@@ -242,7 +245,7 @@ export const createTodoSeam = (ctx: SeamContext, options: TodoSeamOptions = {}) 
           ? { prompt: request.body.prompt, ...(request.body.acceptance === undefined ? {} : { acceptance: request.body.acceptance }) }
           : control ? { op: request.operation, ...request.body } : request.body
         response = await ctx.http(`${ctx.baseUrl}${route}`, {
-          method: request.operation === "amend" ? "PATCH" : "POST", credentials: "include", signal: abort.signal,
+          method: request.operation === "unapprove" ? "DELETE" : request.operation === "amend" ? "PATCH" : "POST", credentials: "include", signal: abort.signal,
           headers: { "Content-Type": "application/json", "Idempotency-Key": request.key, ...(ctx.actor() === "smithers" ? { "Smithers-Via": "smithers" } : {}) }, body: JSON.stringify(body)
         })
       } catch (error) {
@@ -568,7 +571,7 @@ export const createTodoSeam = (ctx: SeamContext, options: TodoSeamOptions = {}) 
   }
   const subscription = ctx.store.collections.identitySessions.subscribeChanges(() => queueMicrotask(resumeTodos))
   options.onDispose?.(() => { subscription.unsubscribe(); shared.list.disposed = true; stop() })
-  return { list, mergeTodo: (n: number, head: string) => request(n, "merge", { reviewed_head_sha: head }), reviewMerge, showTodo, newTodo, draftImagePackage, draftFromIssue, amendTodo, setTodoFormField, dismissTodoDraft, resumeTodos, applyTodoProjection: applyProjection,
+  return { list, preapproveTodo: (n: number, approved: boolean) => request(n, approved ? "preapprove" : "unapprove", {}), mergeTodo: (n: number, head: string) => request(n, "merge", { reviewed_head_sha: head }), reviewMerge, showTodo, newTodo, draftImagePackage, draftFromIssue, amendTodo, setTodoFormField, dismissTodoDraft, resumeTodos, applyTodoProjection: applyProjection,
     answerTodo: (n: number, answer: string, wait?: string) => {
       const waits = entry(n)?.payload.model?.waits.filter(row => row.actions.some(action => action.tag === "todo.answer")) ?? []
       const id = wait ?? (waits.length === 1 ? waits[0]!.id : undefined)

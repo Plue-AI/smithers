@@ -328,6 +328,7 @@ export const createInstallSeam = (ctx: SeamContext, withToast: FailureController
     if (!Number.isInteger(capacity) || capacity < 1 || (model && capacity > model.this_mac.capacity)) return "Machines exceed this Mac"
     return write("capacity", "/install", { capacity })
   }
+  const setInstallPreapproval = (enabled: boolean) => write("preapproval", "/install", { new_todos_preapproved: enabled })
   const setInstallParallel = (parallel: number) => {
     if (!Number.isInteger(parallel) || parallel < 1 || parallel > 8) return "Choose 1 to 8 TODOs at once"
     return write("parallel", "/install", { parallel })
@@ -412,7 +413,7 @@ export const createInstallSeam = (ctx: SeamContext, withToast: FailureController
   return {
     snapshots, readInstall, showSetup: () => open("setup"), showSettings: () => open("settings"),
     setupStep, setInstallAddress: (input: InstallAddress) => write("address", "/install", { address: input }),
-    setInstallCapacity, setInstallParallel, setInstallObsidian, saveInstallModelKey,
+    setInstallCapacity, setInstallPreapproval, setInstallParallel, setInstallObsidian, saveInstallModelKey,
     dispose: () => { shared.disposed = true; shared.generation++; shared.stop?.(); shared.stop = undefined
       if (shared.installPoll !== undefined) clearTimeout(shared.installPoll)
       shared.installPoll = undefined

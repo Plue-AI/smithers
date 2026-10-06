@@ -73,9 +73,9 @@ C-UI-12 Members (T-UI-09): [install roster and keyboard Add/Role/Remove](C-UI-12
 | C-STK-04 | [C-STK-04.spec.ts](C-STK-04.spec.ts) | fixme-before-implementation | T-GH-03 |
 | C-STK-05 | [C-STK-05.spec.ts](C-STK-05.spec.ts) | fixme-before-implementation | T-MCH-14 |
 | C-STK-06 | [C-STK-06.spec.ts](C-STK-06.spec.ts) | fixme-before-implementation | T-STK-12, T-FLW-11, T-STK-01, T-GH-09, T-MCH-14 |
-| C-STK-07 | [C-STK-07.spec.ts](C-STK-07.spec.ts) | fixme-before-implementation | T-STK-04 |
+| C-STK-07 | [C-STK-07.spec.ts](C-STK-07.spec.ts) | passing UI seam: shared readiness block, displayed PR head and real completion; folded backend and delegated-confirmation check remains incomplete | T-STK-04 |
 | C-STK-08 | [C-STK-08.spec.ts](C-STK-08.spec.ts) | fixme-before-implementation | T-STK-01 |
-| C-STK-13 | [C-STK-13.spec.ts](C-STK-13.spec.ts) | fixme-before-implementation | T-STK-04 |
+| C-STK-13 | [C-STK-13.spec.ts](C-STK-13.spec.ts) | passing UI seam: attributed add/remove, reload, readiness block and merged attribution; PostgreSQL/GitHub recovery proved separately; full folded check remains incomplete | T-STK-04 |
 | C-GH-01 | [C-GH-01.spec.ts](C-GH-01.spec.ts) | fixme-before-implementation | T-GH-01 |
 | C-GH-07 | [C-GH-07.spec.ts](C-GH-07.spec.ts) | fixme-before-implementation | T-GH-02 |
 | C-GH-08 | [C-GH-08.spec.ts](C-GH-08.spec.ts) | fixme-before-implementation | T-GH-02 |

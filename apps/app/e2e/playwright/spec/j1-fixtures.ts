@@ -24,3 +24,26 @@ export async function firstTodo(page: Page, prompt: string) {
   await page.getByRole("button", { name: "Commit", exact: true }).press("Enter")
   await expect(page.getByText("In review", { exact: true }).first()).toBeVisible()
 }
+
+/** Browser session and served install identity for owner-only TODO controls. */
+export async function mergeOwner(page: Page, defaultWrites: boolean[] = []) {
+  await owner(page)
+  let preapproved = false
+  // This action requires a maintainer; the shared browser identity has no roster role.
+  await page.route("**/api/user", route => route.fulfill({ json: { id: 1, username: "benortiz", is_admin: false } }))
+  await page.route("**/api/install", route => {
+    if (route.request().method() === "PUT") {
+      preapproved = route.request().postDataJSON().new_todos_preapproved
+      defaultWrites.push(preapproved)
+    }
+    return route.fulfill({ json: {
+    address: { listen: "mac", bind: "127.0.0.1", origins: ["http://localhost:4000"] },
+    steps: ["address", "app_manifest", "sign_in", "repository", "models", "source", "machine"].map(id => ({ id, state: "done" })),
+    this_mac: { memory_gb: 64, disk_free_gb: 200, capacity: 4 },
+    github: { owner: "benortiz", signed_in: true, app_installed: true },
+    health: { process: "ok", postgres_bytes: 1024, disk_free_gb: 200,
+      github: { health: "fresh", rate_remaining: 4900, rate_limit: 5000 } },
+    models: ["fast", "coding", "jev"].map(role => ({ role, provider: "OpenAI", key: "saved" })),
+    chatgpt: false, capacity: 4, new_todos_preapproved: preapproved
+  } }) })
+}

@@ -1960,3 +1960,126 @@ func TestMythicalMergeTodoProjectionDuringTheClaimDoesNotDeadlock(t *testing.T) 
 	require.Len(t, h.merges(), 1, "the claim is not ended as a deadlock: one merge")
 	assert.Equal(t, "run-projected", h.item(n).RequestRunID, "the projection's write is kept")
 }
+
+// These cases test approval/readiness/recovery, with a fixed service clock;
+// the separate claim tests exercise elapsed-time bounds with advancing clocks.
+func newStandingMergeHarness(t *testing.T) *mergeHarness {
+	h := newMergeHarness(t)
+	now := time.Now()
+	h.service.now = func() time.Time { return now }
+	return h
+}
+
+func TestMythicalStandingPreapprovalUsesGuardedMerge(t *testing.T) {
+	h := newStandingMergeHarness(t)
+	n, head, _ := h.first("Standing approval")
+	h.fake.RequireCheck("unit")
+	h.fake.SetCheck("rehearsal-owner/app", head, "unit", "in_progress", "")
+	_, err := h.service.PreapproveTodo(h.ctx, h.repoID, h.userID, n, true)
+	require.NoError(t, err)
+	approval := *mythicalChecksOf(h.item(n)).Preapproval
+	h.pass()
+	require.Empty(t, h.merges())
+	require.Nil(t, h.land(n), "a standing approval never fabricates a reviewed-head press")
+	// A standing approval survives its original browser session expiring.
+	h.exec(`UPDATE auth_sessions SET expires_at = NOW() - interval '1 hour' WHERE session_key = $1`, h.session)
+	h.fake.SetCheck("rehearsal-owner/app", head, "unit", "completed", "success")
+	for i := 0; i < 5; i++ {
+		h.pass()
+	}
+	require.Len(t, h.merges(), 1)
+	var sent struct {
+		SHA    string `json:"sha"`
+		Method string `json:"merge_method"`
+	}
+	require.NoError(t, json.Unmarshal(h.merges()[0].Body, &sent))
+	require.Equal(t, head, sent.SHA)
+	require.Equal(t, "squash", sent.Method)
+	require.Equal(t, approval, *mythicalChecksOf(h.item(n)).Preapproval)
+	require.Nil(t, h.land(n))
+	require.Equal(t, "landed", h.item(n).State)
+	h.unfenced(n)
+}
+
+func TestMythicalStandingPreapprovalRemovalAndRevocation(t *testing.T) {
+	for _, revoked := range []bool{false, true} {
+		t.Run(fmt.Sprintf("revoked=%t", revoked), func(t *testing.T) {
+			h := newStandingMergeHarness(t)
+			n, _, _ := h.first("Remove approval")
+			_, err := h.service.PreapproveTodo(h.ctx, h.repoID, h.userID, n, true)
+			require.NoError(t, err)
+			if revoked {
+				h.exec(`UPDATE users SET prohibit_login = true WHERE id = $1`, h.userID)
+			} else {
+				_, err = h.service.PreapproveTodo(h.ctx, h.repoID, h.userID, n, false)
+				require.NoError(t, err)
+				events := mythicalChecksOf(h.item(n)).PreapprovalEvents
+				require.Len(t, events, 2)
+				require.False(t, events[1].Approved)
+				require.Equal(t, h.userID, events[1].User)
+			}
+			for i := 0; i < 3; i++ {
+				h.pass()
+			}
+			require.Empty(t, h.merges())
+			require.Empty(t, h.item(n).PendingOp)
+		})
+	}
+}
+
+func TestMythicalStandingPreapprovalRemovalBeforeSend(t *testing.T) {
+	h := newStandingMergeHarness(t)
+	n, _, _ := h.first("Cancel unsent")
+	_, err := h.service.PreapproveTodo(h.ctx, h.repoID, h.userID, n, true)
+	require.NoError(t, err)
+	h.pass() // Persist the ready intent; only the next recovery pass may send.
+	require.Equal(t, "merge", h.operation(n).Kind)
+	require.Empty(t, h.merges())
+	_, err = h.service.PreapproveTodo(h.ctx, h.repoID, h.userID, n, false)
+	require.NoError(t, err)
+	h.pass()
+	h.pass()
+	require.Empty(t, h.merges())
+	h.unfenced(n)
+	require.False(t, mythicalChecksOf(h.item(n)).Automerge)
+}
+
+func TestMythicalStandingPreapprovalManualMergeKeepsItsAttribution(t *testing.T) {
+	h := newStandingMergeHarness(t)
+	n, head, _ := h.first("A person's Merge")
+	_, err := h.service.PreapproveTodo(h.ctx, h.repoID, h.userID, n, true)
+	require.NoError(t, err)
+	require.NoError(t, h.press(h.ctx, n, head))
+	for i := 0; i < 4; i++ {
+		h.pass()
+	}
+	require.Len(t, h.merges(), 1)
+	require.Equal(t, "landed", h.item(n).State)
+	require.NotNil(t, h.land(n))
+	card, err := h.service.Todo(h.ctx, h.repoID, n)
+	require.NoError(t, err)
+	require.NotContains(t, card, "preapproval", "the standing grant did not send this Merge")
+}
+
+func TestMythicalStandingPreapprovalLostAnswerDoesNotRepeat(t *testing.T) {
+	h := newStandingMergeHarness(t)
+	n, _, pr := h.first("Lost standing merge")
+	_, err := h.service.PreapproveTodo(h.ctx, h.repoID, h.userID, n, true)
+	require.NoError(t, err)
+	path := fmt.Sprintf("/repos/rehearsal-owner/app/pulls/%d/merge", pr)
+	h.fake.LoseNextResponses(path, 1)
+	h.pass()
+	h.pass()
+	require.Len(t, h.merges(), 1)
+	require.Equal(t, "unknown", h.operation(n).State)
+	_, err = h.service.PreapproveTodo(h.ctx, h.repoID, h.userID, n, false)
+	require.NoError(t, err)
+	h.pass()
+	h.pass()
+	require.Len(t, h.merges(), 1)
+	require.Equal(t, "landed", h.item(n).State)
+	require.Nil(t, h.land(n))
+	card, err := h.service.Todo(h.ctx, h.repoID, n)
+	require.NoError(t, err)
+	require.Equal(t, "rehearsal-owner", card["preapproval"].(map[string]any)["by"])
+}

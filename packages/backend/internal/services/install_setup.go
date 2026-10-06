@@ -862,6 +862,16 @@ func (s *InstallSetupService) Status(ctx context.Context) (map[string]any, error
 		}
 	}
 	result := map[string]any{"ssh_host": sshHost, "ssh_line": "ssh -p 2222 <branch>@" + sshHost, "address": map[string]any{"listen": listen, "bind": bind, "origins": origins}, "steps": projected, "this_mac": thisMac, "github": github, "models": models, "chatgpt": chatgpt, "capacity": capacity}
+	result["new_todos_preapproved"] = false
+	if setting, err := q.GetInstallSetting(ctx, todoPreapprovalDefaultKey); err == nil {
+		var approval *mythicalLand
+		if err := json.Unmarshal(setting.Value, &approval); err != nil {
+			return nil, err
+		}
+		result["new_todos_preapproved"] = approval != nil
+	} else if !errors.Is(err, pgx.ErrNoRows) {
+		return nil, err
+	}
 	repository, err := q.GetInstallSetting(ctx, "repository")
 	if err == nil {
 		var slug string

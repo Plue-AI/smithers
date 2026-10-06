@@ -443,6 +443,8 @@ var installMemberRoutes = []struct {
 	{http.MethodPatch, "todo.amend", regexp.MustCompile(`^/api/todos/[0-9]+$`)},
 	{http.MethodPost, "todo.answer", regexp.MustCompile(`^/api/todos/[0-9]+/answer$`)},
 	{http.MethodPost, "merge", regexp.MustCompile(`^/api/todos/[0-9]+/merge$`)},
+	{http.MethodPost, "todo.preapprove", regexp.MustCompile(`^/api/todos/[0-9]+/preapproval$`)},
+	{http.MethodDelete, "todo.unapprove", regexp.MustCompile(`^/api/todos/[0-9]+/preapproval$`)},
 	{http.MethodGet, "flows.read", regexp.MustCompile(`^/api/flows$`)},
 	{http.MethodGet, "branch.read", regexp.MustCompile(`^/api/branches/[^/]+/files/.+$`)},
 	{http.MethodGet, "branches.read", regexp.MustCompile(`^/api/branches$`)},

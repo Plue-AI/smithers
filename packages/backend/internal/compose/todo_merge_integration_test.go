@@ -434,6 +434,111 @@ func TestTodoMergeComposedRouteBoundaryPostgres(t *testing.T) {
 		})
 	}
 
+	// Pre-approval uses the real composed person route and persists attribution;
+	// credentials and members cannot grant or remove it, even with forged via.
+	for _, operation := range []string{"preapprove", "unapprove"} {
+		path := "/api/todos/" + strconv.FormatInt(filed.Number, 10) + "/preapproval"
+		apply := func(set func(*http.Request)) func(*http.Request) {
+			return func(r *http.Request) {
+				set(r)
+				if operation == "unapprove" {
+					r.Method = http.MethodDelete
+				}
+			}
+		}
+		for _, credential := range []func(*http.Request){
+			browser("member-browser-session", true, "member-approval"),
+			func(r *http.Request) { r.Header.Set("Authorization", "Bearer "+pat) },
+		} {
+			status, _ := post(path, apply(credential))
+			require.Equal(t, http.StatusForbidden, status)
+			unchanged(t)
+		}
+		status, response := post(path, apply(browser("owner-browser-session", true, operation)))
+		require.Equal(t, http.StatusAccepted, status, response)
+		var approval struct {
+			Automerge   bool `json:"automerge"`
+			Preapproval *struct {
+				By   string `json:"by"`
+				User int64  `json:"standing_user"`
+			} `json:"preapproval"`
+			Events []struct {
+				Approved bool   `json:"approved"`
+				User     int64  `json:"user"`
+				Via      string `json:"via"`
+			} `json:"preapproval_events"`
+		}
+		require.NoError(t, json.Unmarshal(item().Checks, &approval))
+		require.Equal(t, operation == "preapprove", approval.Automerge)
+		require.Equal(t, operation == "preapprove", approval.Preapproval != nil)
+		if approval.Preapproval != nil {
+			require.Equal(t, owner.ID, approval.Preapproval.User)
+			require.Equal(t, "rehearsal-owner", approval.Preapproval.By)
+		}
+		require.Equal(t, owner.ID, approval.Events[len(approval.Events)-1].User)
+		require.Equal(t, "session", approval.Events[len(approval.Events)-1].Via)
+		require.Empty(t, item().PendingOp, "approval alone does not dispatch")
+		before = item()
+	}
+
+	// The owner default is exercised through PUT /api/install and TODO creation
+	// through POST /api/todos; no existing item is rewritten.
+	putDefault := func(enabled bool, credential func(*http.Request)) int {
+		request, err := http.NewRequest(http.MethodPut, origin+"/api/install", strings.NewReader(fmt.Sprintf(`{"new_todos_preapproved":%t}`, enabled)))
+		require.NoError(t, err)
+		request.Header.Set("Content-Type", "application/json")
+		request.Header.Set("Origin", origin)
+		credential(request)
+		response, err := http.DefaultClient.Do(request)
+		require.NoError(t, err)
+		require.NoError(t, response.Body.Close())
+		return response.StatusCode
+	}
+	for _, credential := range []func(*http.Request){browser("member-browser-session", true, "default-member"), func(r *http.Request) { r.Header.Set("Authorization", "Bearer "+pat) }} {
+		require.Equal(t, 403, putDefault(true, credential))
+	}
+	require.Equal(t, 200, putDefault(true, browser("owner-browser-session", true, "default-on")))
+	create := func(title string, expectedApproval bool) db.MythicalItem {
+		request, err := http.NewRequest(http.MethodPost, origin+"/api/todos", strings.NewReader(fmt.Sprintf(`{"title":%q,"prompt":"Do it","place":{"mode":"append"}}`, title)))
+		require.NoError(t, err)
+		request.Header.Set("Content-Type", "application/json")
+		request.Header.Set("Origin", origin)
+		browser("owner-browser-session", true, title)(request)
+		response, err := http.DefaultClient.Do(request)
+		require.NoError(t, err)
+		defer response.Body.Close()
+		var receipt struct {
+			N int64 `json:"n"`
+		}
+		require.NoError(t, json.NewDecoder(response.Body).Decode(&receipt))
+		require.Equal(t, 202, response.StatusCode)
+		created, err := q.GetMythicalItemByNumber(ctx, repo.ID, receipt.N)
+		require.NoError(t, err)
+		var checks struct {
+			Automerge   bool `json:"automerge"`
+			Preapproval *struct {
+				User int64 `json:"standing_user"`
+			} `json:"preapproval"`
+		}
+		require.NoError(t, json.Unmarshal(created.Checks, &checks))
+		require.Equal(t, expectedApproval, checks.Automerge)
+		if expectedApproval {
+			require.NotNil(t, checks.Preapproval)
+			require.Equal(t, owner.ID, checks.Preapproval.User)
+		} else {
+			require.Nil(t, checks.Preapproval)
+		}
+		return created
+	}
+	inherited := create("Inherits approval", true)
+	unchanged(t)
+	require.Equal(t, 200, putDefault(false, browser("owner-browser-session", true, "default-off")))
+	create("Human gated", false)
+	afterDisable, err := q.GetMythicalItem(ctx, inherited.ID)
+	require.NoError(t, err)
+	require.Equal(t, inherited.Checks, afterDisable.Checks)
+	unchanged(t)
+
 	status, envelope := post(numbered(strconv.FormatInt(filed.Number, 10)), browser("owner-browser-session", true, "owner-press"))
 	require.Equal(t, http.StatusAccepted, status, envelope)
 	require.Equal(t, map[string]any{"state": "accepted"}, envelope)
@@ -535,6 +640,12 @@ func todoMergeComposeRouter(cfg *config.Config, q *db.Queries, pool *pgxpool.Poo
 	if len(proxy) > 0 {
 		proxyHandler = proxy[0]
 	}
+	setup := &routes.GitHubAppSetupHandler{Setup: &services.InstallSetupService{Pool: pool}, Owners: q, Roster: q, Origins: func() []string { return cfg.Server.AllowedOrigins }}
+	if service, ok := mythical.Service.(interface {
+		SetTodoPreapprovalDefault(context.Context, int64, bool) error
+	}); ok {
+		setup.SetTodoPreapprovalDefault = service.SetTodoPreapprovalDefault
+	}
 	return buildRouterCompat(
 		cfg, q, pool,
 		&routes.RepoHandler{}, &routes.AuthHandler{}, &routes.UserHandler{}, &routes.SSHKeyHandler{}, &routes.LabelHandler{},
@@ -543,7 +654,7 @@ func todoMergeComposeRouter(cfg *config.Config, q *db.Queries, pool *pgxpool.Poo
 		nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil,
 		nil, nil, nil, nil, nil, nil,
 		&routes.WorkspaceHandler{}, nil, nil, nil, nil, nil, nil,
-		routerExtras{Mythical: mythical}, proxyHandler,
+		routerExtras{Mythical: mythical, GitHubAppSetup: setup}, proxyHandler,
 	)
 }
 

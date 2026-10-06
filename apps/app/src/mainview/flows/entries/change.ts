@@ -44,17 +44,6 @@ export const changeFlows = (actions: CommandActions): ReadonlyArray<FlowEntry> =
     handler: ({ changeId, from, to, path }) => actions.diffChange(changeId, from, to, path)
   }),
   flow({
-    name: "change.land",
-    summary: "Land a change (its landing request, or its changeset atomically)",
-    runtime: ["cloud"],
-    /* The scope is the whole unit: a landing request lands 1 → N (its stack, from its top change), a changeset every member; the card's button and the seam's line name N. */
-    confirm: "land the change — the whole landing request 1 → N, or the whole changeset",
-    args: "<changeId>",
-    requires: ["signed-in"],
-    input: Schema.Struct({ changeId: Schema.String }),
-    handler: ({ changeId }) => actions.landChange(changeId)
-  }),
-  flow({
     name: "change.resolve",
     summary: "Dispatch an agent to resolve a change's conflict",
     runtime: ["cloud"],

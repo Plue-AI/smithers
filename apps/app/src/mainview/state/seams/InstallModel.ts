@@ -27,7 +27,7 @@ export const InstallModelSchema = z.object({
     squash_allowed: z.boolean().optional(), app_error: z.string().optional() }),
   repository: z.object({ owner: z.string(), name: z.string() }).optional(),
   repositories: z.array(z.string()).optional(), models: z.array(role), chatgpt: z.boolean(),
-  capacity: z.number().int().nonnegative(), parallel: z.number().int().min(1).max(8).optional(),
+  capacity: z.number().int().nonnegative(), new_todos_preapproved: z.boolean().optional(), parallel: z.number().int().min(1).max(8).optional(),
   wiki_sync: z.object({ obsidian: SettingsCardSchema.shape.obsidian }).optional(),
   health: z.object({ process: z.enum(["ok", "degraded"]), postgres_bytes: z.number().nonnegative(),
     disk_free_gb: z.number().nonnegative(), github: z.object({ health: z.enum(["fresh", "stale", "limited", "refused"]),
@@ -64,7 +64,7 @@ export const settingsCardModel = (model: InstallModel, origin: string): Settings
   return SettingsCardSchema.parse({ ...setup,
     address: { ...setup.address, origins_unencrypted: model.address.origins.filter(plainHttpOffLoopback), ...(refused ? { failed: { from: refused.from, to: refused.to,
       reason: { class: "user", message: refused.reason } } } : {}) },
-    capacity: model.capacity, parallel: model.parallel, health: model.health, obsidian: model.wiki_sync?.obsidian,
+    capacity: model.capacity, new_todos_preapproved: model.new_todos_preapproved, parallel: model.parallel, health: model.health, obsidian: model.wiki_sync?.obsidian,
     laptop_lines: model.address.origins.map(origin => `smthrs login ${origin}`),
     notifications_need_https: plainHttpOffLoopback(origin)
   })

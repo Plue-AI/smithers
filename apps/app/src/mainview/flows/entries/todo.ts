@@ -56,6 +56,12 @@ export const todoFlows = (actions: CommandActions): ReadonlyArray<FlowEntry> => 
   flow({ name: "todo.takeover", summary: "Take over a removed owner's TODO", args: "<Tn>", input: Target,
     userOnly: true, userOnlyReason: "TODO ownership belongs to a person; agents never take over",
     grammar: parseTodoArgs(), form: form("Take over"), handler: ({ n }) => actions.controlTodo(n, "takeover") }),
+  flow({ name: "todo.preapprove", summary: "Pre-approve a TODO", args: "<Tn>", input: Target,
+    userOnly: true, userOnlyReason: "approvals belong to the human", grammar: parseTodoArgs(), form: form("Pre-approve"),
+    handler: ({ n }) => actions.preapproveTodo(n, true) }),
+  flow({ name: "todo.unapprove", summary: "Remove a TODO's pre-approval", args: "<Tn>", input: Target,
+    userOnly: true, userOnlyReason: "approvals belong to the human", grammar: parseTodoArgs(), form: form("Remove pre-approval"),
+    handler: ({ n }) => actions.preapproveTodo(n, false) }),
   flow({ name: "todo.drop", summary: "Abandon an unmerged TODO", args: "<Tn>", input: Target,
     grammar: parseTodoArgs(), form: form("Drop"), confirm: "drop this TODO",
     handler: ({ n }) => actions.controlTodo(n, "drop") })

@@ -204,7 +204,7 @@ test("a supplied conflict terminal and Done retain their wait through the Contai
 test("one actions row: Open branch, Inspect, Steer and Amend as plain buttons, Drop; the only form is the wait's Answer", () => {
   const model = { ...fixtures.needs_you.model, first_answer: undefined }
   const h = mount(model)
-  expect(h.props.actions.map(action => action.tag)).toEqual(["branch", "run.inspect", "todo.steer", "todo.amend", "todo.drop"])
+  expect(h.props.actions.map(action => action.tag)).toEqual(["branch", "run.inspect", "todo.steer", "todo.amend", "todo.drop", "todo.preapprove"])
   expect(h.props.actions.every(action => action.input === undefined)).toBe(true)
   h.props.onAction("todo.steer")
   h.props.onAction("todo.amend")
@@ -352,3 +352,14 @@ test("served TODO evidence opens each captured wiki revision after the page chan
     { ...model.evidence[0]!.items[0], digest: "bad" }
   ] }] }).success).toBe(false)
 })
+ test("only a maintainer grants or removes standing approval, including before review", () => {
+   for (const role of ["owner", "maintainer", "member"] as const) for (const approved of [false, true]) {
+     const model = { ...fixtures.queued.model, ...(approved ? { preapproval: { by: "ben", at: "2026-10-05T17:00:00Z" } } : {}) }
+     const h = mount(model, role)
+     const tag = approved ? "todo.unapprove" : "todo.preapprove"
+     expect(h.props.actions.some(action => action.tag === tag)).toBe(role !== "member")
+     h.props.onAction(tag)
+     expect(h.dispatches).toEqual(role === "member" ? [] : [{ tag, input: { n: model.n } }])
+   }
+   expect(mount({ ...fixtures.merged.model, preapproval: { by: "ben", at: "2026-10-05T17:00:00Z" } }).props.actions.some(action => action.tag === "todo.unapprove")).toBe(false)
+ })

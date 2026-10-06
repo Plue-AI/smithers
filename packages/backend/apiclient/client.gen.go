@@ -1494,6 +1494,7 @@ type TodoCard struct {
 	Waits                []map[string]json.RawMessage  `json:"waits"`
 	Steers               []map[string]json.RawMessage  `json:"steers"`
 	Evidence             []map[string]json.RawMessage  `json:"evidence"`
+	Preapproval          *TodoCardPreapproval          `json:"preapproval,omitempty"`
 	Merge                TodoCardMerge                 `json:"merge"`
 	Present              []map[string]json.RawMessage  `json:"present"`
 	AdditionalProperties map[string]json.RawMessage    `json:"-"`
@@ -1505,7 +1506,7 @@ func (v *TodoCard) UnmarshalJSON(data []byte) error {
 	if err := json.Unmarshal(data, (*plain)(v)); err != nil {
 		return err
 	}
-	return splitAdditional(data, &v.AdditionalProperties, "n", "title", "state", "owner", "place", "prompt_revisions", "issue", "branch", "run", "pr", "steps", "waits", "steers", "evidence", "merge", "present")
+	return splitAdditional(data, &v.AdditionalProperties, "n", "title", "state", "owner", "place", "prompt_revisions", "issue", "branch", "run", "pr", "steps", "waits", "steers", "evidence", "preapproval", "merge", "present")
 }
 
 // MarshalJSON writes AdditionalProperties beside the declared members of TodoCard.
@@ -1560,6 +1561,12 @@ type TodoCardPr struct {
 	Draft         bool    `json:"draft"`
 	DraftAfter    *int64  `json:"draft_after,omitempty"`
 	IncludedItems []int64 `json:"included_items"`
+}
+
+// TodoCardPreapproval is generated from docs/api/openapi.yaml.
+type TodoCardPreapproval struct {
+	By string    `json:"by"`
+	At time.Time `json:"at"`
 }
 
 // TodoCardMerge is generated from docs/api/openapi.yaml.
@@ -5304,6 +5311,16 @@ func (c *Client) PostAPITodosNAnswer(ctx context.Context, n int64, body PostAPIT
 	var out PostAPITodosNAnswerResponse
 	err := c.do(ctx, "POST", "/api/todos/"+url.PathEscape(strconv.FormatInt(n, 10))+"/answer", nil, body, &out)
 	return out, err
+}
+
+// PostAPITodosNPreapproval calls POST /api/todos/{n}/preapproval.
+func (c *Client) PostAPITodosNPreapproval(ctx context.Context, n int64) error {
+	return c.do(ctx, "POST", "/api/todos/"+url.PathEscape(strconv.FormatInt(n, 10))+"/preapproval", nil, nil, nil)
+}
+
+// DeleteAPITodosNPreapproval calls DELETE /api/todos/{n}/preapproval.
+func (c *Client) DeleteAPITodosNPreapproval(ctx context.Context, n int64) error {
+	return c.do(ctx, "DELETE", "/api/todos/"+url.PathEscape(strconv.FormatInt(n, 10))+"/preapproval", nil, nil, nil)
 }
 
 // DeleteAPIUserConnectionsID calls DELETE /api/user/connections/{id}.

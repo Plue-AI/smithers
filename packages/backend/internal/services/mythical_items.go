@@ -1572,6 +1572,9 @@ func (st *mythicalItemStep) advance(ctx context.Context, item db.MythicalItem) (
 		}
 	case "proposing", "waiting":
 		next, err := st.propose(ctx, item)
+		if err == nil && next != nil && next.State == "proposed" && mythicalChecksOf(*next).Preapproval != nil {
+			return st.merge(ctx, *next), false, nil
+		}
 		if err != nil || next == nil || next.State != "proposed" || st.s.installGitHubPolling {
 			return next, false, err
 		}
@@ -1587,6 +1590,9 @@ func (st *mythicalItemStep) advance(ctx context.Context, item db.MythicalItem) (
 			// The pull request was not read: its outage and back-off stand,
 			// and nothing gates on what GitHub did not say.
 			return next, false, nil
+		}
+		if err == nil && next != nil && next.State == "proposed" && mythicalChecksOf(*next).Preapproval != nil {
+			return st.merge(ctx, *next), false, nil
 		}
 		if err != nil || next == nil || next.State != "proposed" || st.s.installGitHubPolling {
 			return next, false, err
@@ -3667,33 +3673,27 @@ func (st *mythicalItemStep) proposalDiff(ctx context.Context, item db.MythicalIt
 	return r.g.git(ctx, "diff", "--no-color", "--no-ext-diff", "--no-textconv", item.CandidateBase, item.PRHead)
 }
 
-// merge merges an automerge TODO's pull request at exactly the approved
-// head, once GitHub CI on that head is green: the Change's affected checks
-// are fast feedback, not proof, and GitHub itself may require nothing. It
-// waits while CI runs and never merges on red. A refusal (the branch moved)
-// is retried later; the pull request stays open for a person meanwhile.
+// merge prepares a standing person's approval through the same fenced outbound path.
 func (st *mythicalItemStep) merge(ctx context.Context, item db.MythicalItem) *db.MythicalItem {
-	// Review & merge dispatches through the outbound merge (MergeDecision).
-	// Pre-approval does not reach this shared decision through gate() yet
-	// (§10.6.2d), so only reads may settle an already-applied merge here.
-	// Old labels cannot authorize one.
-	if st.s.github == nil || st.gh == nil {
-		return mythicalLater(item, "merge recovery is unavailable", st.now)
+	checks := mythicalChecksOf(item)
+	if !checks.Automerge || checks.Preapproval == nil || len(item.PendingOp) != 0 || checks.PreapprovalFailure != nil && checks.PreapprovalFailure.Head == item.PRHead && checks.PreapprovalFailure.Generation == item.Generation {
+		return &item
 	}
-	pull, err := st.s.github.Pull(ctx, *st.gh, item.PRNumber.Int64)
-	if err != nil {
-		return mythicalLater(item, "GitHub did not answer for merge recovery", st.now)
+	before, err := mythicalMergeAfter(ctx, st.s.store, item)
+	if err != nil || mythicalMergeReady(item, before, item.PRHead, false) != nil {
+		return &item
 	}
-	if pull.Merged {
-		// Reuse follow’s GitHub fact and OnMain containment decision. A PR
-		// merge receipt alone must never project Merged.
-		next, err := st.follow(ctx, item)
-		if err != nil {
-			return mythicalLater(item, "GitHub did not answer for merge containment", st.now)
-		}
-		return next
+	op := MythicalOutboundOp{Kind: "merge", Target: strconv.FormatInt(item.PRNumber.Int64, 10), Desired: item.PRHead, Precondition: "preapproved", State: "intended"}
+	candidate := item
+	candidate.PendingOp, _ = json.Marshal(op)
+	if st.s.mergeDispatchReady(ctx, candidate) != nil {
+		return &item
 	}
-	return mythicalLater(item, "Waiting for merge readiness integration", st.now)
+	if _, err := st.s.MergeDecision(ctx, candidate, op); err != nil {
+		return &item
+	}
+	candidate.NextAttemptAt = pgtype.Timestamptz{}
+	return &candidate
 }
 
 // pin keeps a commit reachable from the control plane's own namespace.
@@ -4389,9 +4389,13 @@ type mythicalChecks struct {
 	// AutoTodo is why the factory made the issue a TODO without the label;
 	// OptedOut records a maintainer taking todo off such an issue, after
 	// which the factory never makes it one again on its own.
-	AutoTodo  string `json:"autoTodo,omitempty"`
-	OptedOut  bool   `json:"optedOut,omitempty"`
-	Automerge bool   `json:"automerge,omitempty"`
+	AutoTodo           string                     `json:"autoTodo,omitempty"`
+	OptedOut           bool                       `json:"optedOut,omitempty"`
+	Automerge          bool                       `json:"automerge,omitempty"`
+	PreapprovalSent    *mythicalLand              `json:"preapproval_sent,omitempty"`
+	PreapprovalFailure *mythicalLand              `json:"preapproval_failure,omitempty"`
+	Preapproval        *mythicalLand              `json:"preapproval,omitempty"`
+	PreapprovalEvents  []mythicalPreapprovalEvent `json:"preapproval_events,omitempty"`
 	// Land is the current Review & merge approval (§10.6.2c);
 	// MergeRequests are the identities of every press that recorded one,
 	// so a repeated request answers its receipt (§6.2.1).

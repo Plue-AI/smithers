@@ -947,3 +947,27 @@ test("Edit toast waits for the exact admitted revision, then settles from the re
   expect(h.todo().payload.requests).toEqual([])
  } finally { h.close() }
 })
+test("pre-approval persists its press, deduplicates unresolved launch, and settles only from the real projection", async () => {
+  const admission = deferred<Response>()
+  const writes: Array<{ url: string; body: unknown }> = []
+  const h = await harness((url, init) => {
+    if (!init?.method) return Promise.resolve(json(fixtures.in_review.model, 200))
+    writes.push({ url, body: JSON.parse(String(init.body)) })
+    return admission.promise
+  })
+  try {
+    await h.seam.showTodo(12)
+    expect(await h.seam.preapproveTodo(12, true)).toEqual({ value: "Requested" })
+    expect(await h.seam.preapproveTodo(12, true)).toEqual({ value: "Requested" })
+    await waitFor(() => writes.length === 1)
+    expect(writes[0]).toEqual({ url: "https://install.test/api/todos/12/preapproval", body: {} })
+    expect(h.todo().payload.requests[0]?.operation).toBe("preapprove")
+    expect(h.outcomes).toHaveLength(0)
+    admission.resolve(json({ state: "accepted" }))
+    await waitFor(() => h.todo().payload.requests[0]?.state === "accepted")
+    expect(h.outcomes).toHaveLength(0)
+    h.observed.get("todo:12")?.({ ...fixtures.in_review.model, preapproval: { by: "ben", at: "2026-10-05T17:00:00Z" } })
+    await waitFor(() => h.outcomes.length === 1)
+    expect(h.outcomes[0]).toMatchObject({ status: "ok", detail: "Pre-approved" })
+  } finally { h.close() }
+})

@@ -17,12 +17,12 @@ export function SettingsView({ model, actions: suppliedActions, onAction, view, 
   const rowFor = (action: Action) => action.tag === "github" ? "health"
     : action.tag === "docs" && action.args?.page === "quickstart#put-https-in-front" ? "notifications"
     : action.tag === "settings" ? action.args?.step === "address" ? "address" : action.args?.field
-    : action.tag === "settings.address" || action.tag === "settings.capacity" || action.tag === "settings.parallel" || action.tag === "settings.obsidian" ? action.args?.field : undefined
+    : action.tag === "settings.address" || action.tag === "settings.capacity" || action.tag === "settings.parallel" || action.tag === "settings.preapproval" || action.tag === "settings.obsidian" ? action.args?.field : undefined
   const rowActions = (row: string, value?: number | string) => actions.filter(action => rowFor(action) === row).map(action => ({
     ...action, label: row === "obsidian" ? "Change" : action.label,
     input: action.input?.map(field => value === undefined ? field : { ...field, value: String(value) })
   }))
-  const hasRow = (action: Action) => ["address", "health", "capacity", "obsidian",
+  const hasRow = (action: Action) => ["address", "health", "capacity", "obsidian", "preapproval",
     ...(model.parallel !== undefined ? ["parallel"] : []), ...(model.todo_daily_admissions !== undefined ? ["todo_daily_admissions"] : []),
     ...(model.notifications_need_https ? ["notifications"] : [])].includes(rowFor(action) ?? "")
   /* mvp.md J1 2.1 / §6.15: This Mac only, or Network with the bind and the addresses teammates use. The choice is member view state. */
@@ -37,6 +37,7 @@ export function SettingsView({ model, actions: suppliedActions, onAction, view, 
       {modelSlot}
       <dt>GitHub</dt><dd><span>{model.github.app_installed ? "App installed" : "App uninstalled"}</span>{model.repository && <code>{model.repository.owner}/{model.repository.name}</code>}{repositoryBlocker && <a href={repositoryBlocker.fix_url} target="_blank" rel="noreferrer">{repositoryBlocker.line}</a>}</dd>
       <dt>Machines</dt><dd>{rowActions("capacity", model.capacity).length ? <SetupActions inline actions={rowActions("capacity", model.capacity)} onAction={onAction} /> : model.capacity}</dd>
+      {model.new_todos_preapproved !== undefined && <><dt>New TODOs start pre-approved</dt><dd><input type="checkbox" aria-label="New TODOs start pre-approved" checked={model.new_todos_preapproved} disabled={!rowActions("preapproval").length} onChange={() => onAction("settings.preapproval")} /></dd></>}
       {model.parallel !== undefined && <><dt>TODOs at once</dt><dd>{rowActions("parallel", model.parallel).length ? <SetupActions inline actions={rowActions("parallel", model.parallel)} onAction={onAction} /> : model.parallel}</dd></>}
       {model.todo_daily_admissions !== undefined && <><dt>TODOs per day</dt><dd>{rowActions("todo_daily_admissions", model.todo_daily_admissions).length ? <SetupActions inline actions={rowActions("todo_daily_admissions", model.todo_daily_admissions)} onAction={onAction} /> : model.todo_daily_admissions}</dd></>}
       <dt>Laptop agent</dt><dd>{model.laptop_lines.map(line => <div className="setup-copy" key={line}><code>{line}</code><button type="button" aria-label={`Copy ${line}`} onClick={() => { void copyText(line) }}>Copy</button></div>)}</dd>

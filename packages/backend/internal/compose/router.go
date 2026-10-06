@@ -969,6 +969,8 @@ func buildRouter(
 			r.Post("/todos/{n}", todos.Control)
 			r.Patch("/todos/{n}", todos.Amend)
 			r.Post("/todos/{n}/merge", todos.Merge)
+			r.Post("/todos/{n}/preapproval", todos.Preapprove)
+			r.Delete("/todos/{n}/preapproval", todos.Unapprove)
 			r.Post("/todos/{n}/answer", todos.Answer)
 			// The issue list card and the issue card read the install
 			// repository's GitHub issues through the install's App.

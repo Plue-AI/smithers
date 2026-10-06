@@ -137,6 +137,7 @@ paths:
                 - anyOf:
                     - required: [bind]
                     - required: [origins]
+                - required: [new_todos_preapproved]
               properties:
                 chatgpt:
                   type: boolean
@@ -152,6 +153,9 @@ paths:
                     type: string
                     format: uri
                   description: HTTP or HTTPS origins with distinct hosts and ports.
+                new_todos_preapproved:
+                  type: boolean
+                  description: Owner-attributed creation default; existing TODO approvals are unchanged.
                 capacity:
                   type: integer
                   minimum: 1

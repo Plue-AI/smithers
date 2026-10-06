@@ -80,6 +80,7 @@ export function TodoView({ model: todo, actions, onAction, conflictTerminal }: T
           <span className="todo-ref">T{todo.n}</span> {todo.title}
         </h2>
         <StateWord state={todo.state} />
+        {todo.state === "merged" && todo.preapproval && <span> · pre-approved by {todo.preapproval.by}</span>}
         {todo.place && <span className="todo-title-meta">{todo.place === 1 ? "Next to merge" : `#${todo.place} in stack`}</span>}
         {todo.branch && <span className="todo-title-meta">{todo.branch.name}</span>}
         <span className="todo-owner-chip"><ActorChip actor={{ kind: "person", login: todo.owner.login, name: todo.owner.name, avatar_url: todo.owner.avatar_url,

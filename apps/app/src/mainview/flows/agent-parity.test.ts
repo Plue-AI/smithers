@@ -72,6 +72,7 @@ const USER_ONLY_ALLOWLIST: Readonly<Record<string, string>> = {
   "settings": "Install status requires the owner’s person session",
   "settings.address": "Install controls require the owner’s person session",
   "settings.capacity": "Install controls require the owner’s person session",
+  "settings.preapproval": "Install controls require the owner’s person session",
   "settings.parallel": "Install controls require the owner’s person session",
   "settings.obsidian": "Install controls require the owner’s person session",
   "settings.model-key": "Install controls require the owner’s person session",
@@ -98,6 +99,8 @@ const USER_ONLY_ALLOWLIST: Readonly<Record<string, string>> = {
   "approval.approve": "approvals belong to the human",
   "triggers.approve": "approvals belong to the human",
   "approval.deny": "approvals belong to the human",
+  "todo.preapprove": "approvals belong to the human",
+  "todo.unapprove": "approvals belong to the human",
   "runs.continue": "approvals belong to the human"
 }
 

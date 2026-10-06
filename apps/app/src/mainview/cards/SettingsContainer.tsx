@@ -62,6 +62,7 @@ export const SettingsContainer = ({ View, install, dispatch, owner, origin, view
     { tag: "settings.capacity", label: "Machines", args: { field: "capacity", min: "1", max: String(model.this_mac.capacity) }, command_input: { capacity: model.capacity },
       input: [{ name: "value", label: "Machines", kind: "text", required: true, value: String(model.capacity) }],
       resolve_input: input => ({ capacity: Number(input.value ?? input.capacity ?? model.capacity) }) },
+    ...(model.new_todos_preapproved === undefined ? [] : [{ tag: "settings.preapproval" as const, label: "New TODOs start pre-approved", args: { field: "preapproval" }, command_input: { enabled: !model.new_todos_preapproved } }]),
     ...(model.parallel === undefined ? [] : [{ tag: "settings.parallel" as const, label: "At once", args: { field: "parallel", min: "1", max: "8" }, command_input: { parallel: model.parallel },
       input: [{ name: "value", label: "TODOs at once", kind: "text" as const, required: true, value: String(model.parallel) }],
       resolve_input: (input: Record<string, string>) => ({ parallel: Number(input.value ?? input.parallel ?? model.parallel) }) }]),

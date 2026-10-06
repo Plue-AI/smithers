@@ -46,11 +46,12 @@ type InstallSetupSessionAuthority interface {
 }
 
 type GitHubAppSetupHandler struct {
-	Setup    *services.InstallSetupService
-	Sessions InstallSetupSessionAuthority
-	Service  GitHubAppSetupService
-	Store    GitHubAppSetupCredentials
-	Owners   GitHubAppSetupOwners
+	SetTodoPreapprovalDefault func(context.Context, int64, bool) error
+	Setup                     *services.InstallSetupService
+	Sessions                  InstallSetupSessionAuthority
+	Service                   GitHubAppSetupService
+	Store                     GitHubAppSetupCredentials
+	Owners                    GitHubAppSetupOwners
 	// Installations lists the App's installations and repositories when
 	// GitHub returns the owner after an install or a repository change: an
 	// install whose address is not public https gets no installation webhook.
@@ -494,12 +495,33 @@ func (h *GitHubAppSetupHandler) SetSettings(w http.ResponseWriter, r *http.Reque
 		return
 	}
 	var input struct {
-		ChatGPT  *bool     `json:"chatgpt"`
-		Capacity *int      `json:"capacity"`
-		Bind     *string   `json:"bind"`
-		Origins  *[]string `json:"origins"`
+		ChatGPT             *bool     `json:"chatgpt"`
+		Capacity            *int      `json:"capacity"`
+		Bind                *string   `json:"bind"`
+		Origins             *[]string `json:"origins"`
+		NewTodosPreapproved *bool     `json:"new_todos_preapproved"`
 	}
 	if !decodeStrictJSONBody(w, r, &input) {
+		return
+	}
+	if input.NewTodosPreapproved != nil {
+		if err := services.MergeCredential(r.Context(), r.Header.Get("Smithers-Via")); err != nil {
+			todoRouteError(w, err)
+			return
+		}
+		if input.Capacity != nil || input.ChatGPT != nil || input.Bind != nil || input.Origins != nil {
+			writeInstallAPIError(w, pkgerrors.BadRequest("Change one setting at a time"))
+			return
+		}
+		if h.SetTodoPreapprovalDefault == nil {
+			writeInstallAPIError(w, pkgerrors.New(pkgerrors.CodeServiceUnavailable, "TODO pre-approval unavailable"))
+			return
+		}
+		if err := h.SetTodoPreapprovalDefault(r.Context(), info.User.ID, *input.NewTodosPreapproved); err != nil {
+			todoRouteError(w, err)
+			return
+		}
+		h.Status(w, r)
 		return
 	}
 	if input.Bind != nil || input.Origins != nil {

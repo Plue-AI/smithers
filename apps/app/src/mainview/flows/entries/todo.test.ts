@@ -36,9 +36,9 @@ test("all TODO commands register slash, button and agent doors; amend/drop and c
   const h = await boot()
   try {
     const entries = h.controller.commands.entries().filter(entry => nameOf(entry) === "todo" || nameOf(entry).startsWith("todo."))
-    expect(entries.map(nameOf).sort()).toEqual(["todo", "todo.amend", "todo.answer", "todo.drop", "todo.from-issue", "todo.new", "todo.resume", "todo.retry", "todo.retry-current-flow", "todo.steer", "todo.stop", "todo.takeover"])
+    expect(entries.map(nameOf).sort()).toEqual(["todo", "todo.amend", "todo.answer", "todo.drop", "todo.from-issue", "todo.new", "todo.preapprove", "todo.resume", "todo.retry", "todo.retry-current-flow", "todo.steer", "todo.stop", "todo.takeover", "todo.unapprove"])
     for (const entry of entries) {
-      expect(modelInvocable(entry)).toBe(nameOf(entry) !== "todo.takeover")
+      expect(modelInvocable(entry)).toBe(!["todo.takeover", "todo.preapprove", "todo.unapprove"].includes(nameOf(entry)))
       expect(entry.metadata.grammar).toBeDefined()
       expect(entry.metadata.form).toBeDefined()
     }
@@ -168,7 +168,7 @@ test("Retry with the current flow is an agent-invocable card control with its st
     const entry = h.controller.commands.entries().find(row => nameOf(row) === "todo.retry-current-flow")!
     expect(entry.metadata.hidden).toBe(true)
     expect(entry.metadata.discloseToAgent).toBe(true)
-    expect(modelInvocable(entry)).toBe(true)
+    expect(modelInvocable(entry)).toBe(!["todo.preapprove", "todo.unapprove"].includes(nameOf(entry)))
     /* MOCK SEAM: while the design seed is mounted the control lands on its T10, stopped first, not on /api/todos. */
     await h.controller.runCommandForResult("todo.stop", "T10")
     expect(await h.controller.runCommandForResult("todo.retry-current-flow", JSON.stringify({ n: 10, text: " First\nmessage " })))

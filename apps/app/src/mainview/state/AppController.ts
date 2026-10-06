@@ -505,6 +505,7 @@ export interface AppController extends IssueFlowsController {
   readonly setStackParallel: StackSeam["setStackParallel"]
   readonly retryStackItem: StackSeam["retryStackItem"]
   readonly newTodo: TodoSeam["newTodo"]
+  readonly preapproveTodo: TodoSeam["preapproveTodo"]
   readonly mergeTodo: TodoSeam["mergeTodo"]
   /** Review & merge for this host's TODO Tn: the person's private Confirm card bound to the PR head (T-APP-04). */
   readonly reviewTodoMerge: TodoSeam["reviewMerge"]
@@ -562,6 +563,7 @@ export interface AppController extends IssueFlowsController {
   readonly setInstallAddress: InstallSeam["setInstallAddress"]
   readonly setInstallCapacity: InstallSeam["setInstallCapacity"]
   readonly setInstallObsidian: InstallSeam["setInstallObsidian"]
+  readonly setInstallPreapproval: InstallSeam["setInstallPreapproval"]
   readonly setInstallParallel: InstallSeam["setInstallParallel"]
   readonly saveInstallModelKey: InstallSeam["saveInstallModelKey"]
   readonly stackSnapshots: StackSeam["snapshots"]
@@ -632,7 +634,6 @@ export interface AppController extends IssueFlowsController {
    */
   readonly viewChange: ChangeSeam["viewChange"]
   readonly diffChange: ChangeSeam["diffChange"]
-  readonly landChange: ChangeSeam["landChange"]
   readonly resolveChangeConflict: ChangeSeam["resolveConflict"]
   readonly setChangeFacet: ChangeSeam["setFacet"]
   /* Lane L1: the live plue routes — pins, checks per revision, threads, findings, the snapshot fork. */
@@ -1766,6 +1767,7 @@ export const createAppController = (
     /* MOCK SEAM (DesignWorld/settings.ts designInstall): the Settings card shows the live install once it has a model, so the write goes there; the seed takes it only until then. */
     setInstallCapacity: capacity => !installHost && installSeam.snapshots.get().model === undefined ? designSettings(design).capacity(capacity) : installSeam.setInstallCapacity(capacity),
     setInstallObsidian: installSeam.setInstallObsidian,
+    setInstallPreapproval: installSeam.setInstallPreapproval,
     setInstallParallel: parallel => !installHost && installSeam.snapshots.get().model === undefined ? designSettings(design).parallel(parallel) : installSeam.setInstallParallel(parallel),
     saveInstallModelKey: installSeam.saveInstallModelKey,
     showMembers,
@@ -1973,6 +1975,7 @@ export const createAppController = (
     newTodo: todoSeam.newTodo,
     showTodo: todoSeam.showTodo,
     readFlowSource,
+    preapproveTodo: todoSeam.preapproveTodo,
     mergeTodo: todoSeam.mergeTodo,
     reviewTodoMerge: todoSeam.reviewMerge,
     todoRoute: todoSeam.todoRoute,
@@ -2033,7 +2036,6 @@ export const createAppController = (
     allowEgressHost: egressSeam.allowEgressHost,
     viewChange: changeSeam.viewChange,
     diffChange: installHost ? branch => diffFilesSeam.branchDiff(branch) : changeSeam.diffChange,
-    landChange: changeSeam.landChange,
     resolveChangeConflict: changeSeam.resolveConflict,
     setChangeFacet: changeSeam.setFacet,
     setChangePins: changeSeam.setPins,

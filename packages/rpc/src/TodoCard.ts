@@ -112,6 +112,7 @@ export const TodoCardSchema = z.object({
     draft_after: z.number().int().positive().optional(),
     included_items: z.array(z.number().int().positive())
   }).optional(),
+  preapproval: z.object({ by: z.string(), at: z.string() }).optional(),
   merged_via: z.number().int().positive().optional(),
   merge: MergeSchema,
   lessons: z.number().int().nonnegative().optional(),
@@ -144,6 +145,8 @@ export type TodoCardCallbacks = CardCallbacks<
   | "todo.stop"
   | "todo.resume"
   | "todo.retry"
+  | "todo.preapprove"
+  | "todo.unapprove"
   | "todo.drop"
   | "todo.amend"
   | "merge"

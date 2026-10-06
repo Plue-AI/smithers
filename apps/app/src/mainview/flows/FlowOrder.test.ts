@@ -17,7 +17,8 @@ import { nameOf } from "./registry"
 
 /** Every controller call answers with nothing: registration never invokes a handler. */
 const inertActions = new Proxy({}, {
-  get: (_, key) => key === "snapshot" ? () => ({}) : () => undefined
+  get: (_, key) => key === "debugApi" ? { available: () => false }
+    : key === "snapshot" ? () => ({}) : () => undefined
 }) as CommandActions
 
 /** baseFlows at the split, in registration order. */
@@ -79,7 +80,7 @@ const PRE_SPLIT_BASE: ReadonlyArray<string> = [
   "prs.view",
   "prs.tab",
   "prs.land",
-  "prs.review",
+  "prs.triage",
   "env.view",
   "env.set",
   "branches.list",
@@ -113,7 +114,6 @@ const PRE_SPLIT_BASE: ReadonlyArray<string> = [
   "egress.session",
   "change.view",
   "change.diff",
-  "change.land",
   "change.resolve",
   "change.facet",
   "change.pins",

@@ -14,7 +14,8 @@ const reasons: Record<NonNullable<Merge["reason"]>, string> = {
 export function ConfirmView({ model, actions, onAction }: ConfirmViewProps) {
   const { review, receipt } = model
   const evidence = review?.evidence
-  const stale = review?.approved_revision !== undefined && review.approved_revision !== evidence?.revision
+  const revision = model.subject.revision ?? evidence?.revision
+  const stale = review?.approved_revision !== undefined && review.approved_revision !== revision
   const title = receipt?.text ?? (model.kind === "review_merge" ? `Merge ${model.subject.ref} into main?` : `${model.summary}?`)
   return <section className="smithers-card confirm-view" data-kind="confirm" data-keyboard-pane="Confirmation" aria-label={title}>
     <header className="smithers-card-header"><h2 className="smithers-card-title">{title}</h2></header>
@@ -25,13 +26,13 @@ export function ConfirmView({ model, actions, onAction }: ConfirmViewProps) {
           <div className="confirm-meta"><b>{review.title}</b><span>#{review.place} in stack</span></div>
           <div className="confirm-facts">
             <a href={review.pr.url} target="_blank" rel="noreferrer">#{review.pr.number} ↗</a>
-            <span className="confirm-mono">rev {evidence.revision}</span>
+            <span className="confirm-mono">rev {revision}</span>
             {evidence.items.map((item, i) => item.kind === "check" || item.kind === "github_check" ? <span key={i} className="confirm-check" data-state={item.state}>
               {item.state === "passed" ? <Check size={13} aria-hidden="true" /> : item.state === "failed" ? <X size={13} aria-hidden="true" /> : <Loader size={13} aria-hidden="true" />}{item.name}<span className="confirm-check-state">{item.state}</span>
             </span> : item.kind === "review" && !evidence.reviewing && !evidence.previous ? <span key={i}>{item.summary}</span> : null)}
             {evidence.reviewing ? <span>Review running on <span className="confirm-mono">{evidence.revision}</span></span> : evidence.previous ? <span className="confirm-previous">Reviewed <span className="confirm-mono">{evidence.previous.revision}</span> · same change</span> : null}
           </div>
-          {stale ? <p className="confirm-stale">You approved {review.approved_revision}. Review {evidence.revision}.</p> : null}
+          {stale ? <p className="confirm-stale">You approved {review.approved_revision}. Review {revision}.</p> : null}
           {review.merge.state !== "ready" ? <p className="confirm-merge-reason" data-state={review.merge.state}>{review.merge.reason === "order" && review.merge.detail ? `Merges after ${review.merge.detail}` : review.merge.detail ?? (review.merge.reason ? reasons[review.merge.reason] : review.merge.state === "done" ? "Merged into main" : "Merging")}</p> : null}
         </> : null}
       </>}
