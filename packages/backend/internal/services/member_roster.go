@@ -8,6 +8,7 @@ import (
 	"os"
 	"regexp"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/jackc/pgx/v5"
@@ -103,10 +104,43 @@ func (m *Members) permission(ctx context.Context, token string, repo memberRepos
 		Role       string `json:"role_name"`
 	}
 	status, err := m.api(15*time.Second).request(ctx, token, http.MethodGet, landingGitHubRepoPath(repo.Owner, repo.Name)+"/collaborators/"+login+"/permission", nil, &out)
-	if err != nil || (status != http.StatusOK && status != http.StatusNotFound) {
+	unavailable := func() (string, error) {
 		return "", memberError(http.StatusServiceUnavailable, "infra", "github_unavailable", "GitHub unavailable")
 	}
-	return githubMemberRole(out.Permission, out.Role), nil
+	if err != nil {
+		return unavailable()
+	}
+	if status == http.StatusNotFound {
+		// A permission 404 can hide an installation refusal. Confirm both
+		// the account and this token's repository access before revoking.
+		var user struct {
+			ID    int64  `json:"id"`
+			Login string `json:"login"`
+		}
+		api := m.api(15 * time.Second)
+		status, err = api.request(ctx, token, http.MethodGet, "/users/"+login, nil, &user)
+		if err != nil || status != http.StatusOK || user.ID <= 0 || !strings.EqualFold(user.Login, login) {
+			return unavailable()
+		}
+		var repository struct {
+			FullName string `json:"full_name"`
+		}
+		status, err = api.request(ctx, token, http.MethodGet, landingGitHubRepoPath(repo.Owner, repo.Name), nil, &repository)
+		if err != nil || status != http.StatusOK || !strings.EqualFold(repository.FullName, repo.Owner+"/"+repo.Name) {
+			return unavailable()
+		}
+		return "", nil
+	}
+	if status != http.StatusOK {
+		return unavailable()
+	}
+	// An empty, truncated or unfamiliar response is not confirmed loss.
+	switch out.Permission {
+	case "admin", "write", "read", "none":
+		return githubMemberRole(out.Permission, out.Role), nil
+	default:
+		return unavailable()
+	}
 }
 
 // AdmitGitHub runs before a sign-in writes any identity: the GitHub account

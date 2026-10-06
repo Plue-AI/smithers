@@ -38,6 +38,9 @@ type rosterGitHub struct {
 	roles              map[string]string
 	login              string
 	installationStatus int
+	permissionStatus   int
+	permissionBody     string
+	repositoryStatus   int
 }
 
 func (g *rosterGitHub) serve(w http.ResponseWriter, r *http.Request) {
@@ -54,7 +57,18 @@ func (g *rosterGitHub) serve(w http.ResponseWriter, r *http.Request) {
 	case r.URL.Path == "/app/installations/91/access_tokens":
 		w.WriteHeader(201)
 		fmt.Fprint(w, `{"token":"installation-token","expires_at":"2099-01-01T00:00:00Z"}`)
+	case r.URL.Path == "/repos/acme/app":
+		if g.repositoryStatus != 0 {
+			w.WriteHeader(g.repositoryStatus)
+			return
+		}
+		fmt.Fprint(w, `{"full_name":"acme/app"}`)
 	case strings.HasPrefix(r.URL.Path, "/repos/acme/app/collaborators/"):
+		if g.permissionStatus != 0 {
+			w.WriteHeader(g.permissionStatus)
+			fmt.Fprint(w, g.permissionBody)
+			return
+		}
 		login := strings.Split(r.URL.Path, "/")[5]
 		role, ok := g.roles[login]
 		if !ok {
@@ -259,6 +273,27 @@ func TestMembersComposedInstallPostgres(t *testing.T) {
 	require.Equal(t, 200, status, "an installation failure suspends nobody")
 	github.mu.Lock()
 	github.installationStatus = 0
+	github.mu.Unlock()
+	for _, failure := range []struct {
+		status     int
+		body       string
+		repoStatus int
+	}{
+		{404, `{}`, 404}, {404, `{}`, 403}, {200, `{}`, 0}, {200, `{"permission":"future"}`, 0},
+	} {
+		github.mu.Lock()
+		github.permissionStatus, github.permissionBody, github.repositoryStatus = failure.status, failure.body, failure.repoStatus
+		github.mu.Unlock()
+		require.Error(t, members.Recheck(ctx))
+		status, body = request("GET", "/api/members", "", "writer-cookie-2")
+		require.Equal(t, 200, status, body)
+		var suspended bool
+		require.NoError(t, pool.QueryRow(ctx, `SELECT suspended_at IS NOT NULL FROM collaborators WHERE github_id=102`).Scan(&suspended))
+		require.False(t, suspended, "ambiguous GitHub failures preserve membership")
+		login("writer", 503)
+	}
+	github.mu.Lock()
+	github.permissionStatus, github.permissionBody, github.repositoryStatus = 0, "", 0
 	github.roles["writer"] = "read"
 	github.mu.Unlock()
 	require.NoError(t, members.Recheck(ctx))

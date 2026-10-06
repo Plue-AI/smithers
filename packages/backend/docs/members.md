@@ -107,3 +107,8 @@ below write is suspended with the same revocation as removal; the Members
 card shows them suspended. Write access again clears the suspension, and the
 person signs in again. An installation failure or a failed lookup changes
 nothing.
+
+A permission-endpoint 404 is confirmed as loss only after the account lookup
+and the same installation token's repository read succeed. Unresolved 404s,
+malformed replies and unknown permission values preserve member state and
+refuse sign-in.
