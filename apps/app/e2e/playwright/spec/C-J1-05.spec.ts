@@ -23,6 +23,8 @@ test("C-J1-05: keyboard membership, committed rows, live refresh, confirmation a
   const row = (login: string, role: string) => ({ login, name: login, role, avatar_url: `https://github.com/${login}.png`, color_index: 0, needs_access: false, suspended: false, actions: [] })
   let rows = [row("canary-owner", "owner")]
   let outage = false, deletes = 0
+  let commitRole!: () => void
+  const roleCommit = new Promise<void>(resolve => { commitRole = resolve })
   const access = "https://github.com/canary/repository/settings/access"
   await page.route("**/api/members{,/**}", async route => {
     const request = route.request(), method = request.method()
@@ -35,7 +37,10 @@ test("C-J1-05: keyboard membership, committed rows, live refresh, confirmation a
       rows = [...rows, row(login, login === "canary-maintainer" ? "maintainer" : "member")]
     } else {
       const login = new URL(request.url()).pathname.split("/").at(-1)
-      if (method === "PATCH") rows = rows.map(member => member.login === login ? { ...member, role: request.postDataJSON().role } : member)
+      if (method === "PATCH") {
+        await roleCommit
+        rows = rows.map(member => member.login === login ? { ...member, role: request.postDataJSON().role } : member)
+      }
       if (method === "DELETE") { deletes++; rows = rows.filter(member => member.login !== login) }
     }
     await route.fulfill({ status: 204 })
@@ -74,6 +79,9 @@ test("C-J1-05: keyboard membership, committed rows, live refresh, confirmation a
   await expect(card.locator('[data-login="canary-no-access"]')).toHaveCount(0)
   await member.getByRole("combobox").selectOption("maintainer")
   await member.getByRole("button", { name: "Role", exact: true }).press("Enter")
+  // A submitted draft must yield to the committed role while the write is pending.
+  await expect(member.getByRole("combobox")).toHaveValue("member")
+  commitRole()
   await expect.poll(() => rows.find(row => row.login === "canary-member")?.role).toBe("maintainer")
   // Another viewer changes the authoritative roster; an open card rereads on the notice.
   rows = rows.map(row => row.login === "canary-member" ? { ...row, role: "member" } : row)

@@ -50,6 +50,7 @@ function MemberAction({ action, onAction }: { action: Action; onAction: MembersV
     event.preventDefault()
     if (action.tag === "members.remove" && !window.confirm(`Remove @${action.args?.login}?`)) return
     onAction(action.tag, input)
+    if (action.tag === "members.role") setDraft({ signature, values: {} })
   }
   return <span className="member-action">
     <form data-flow={action.tag} onSubmit={submit}>
