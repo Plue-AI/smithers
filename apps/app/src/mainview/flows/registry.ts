@@ -526,6 +526,7 @@ export const viewerAdmitted = (state: CommandState, commands: ReadonlyArray<Cata
   const role = state.viewerRole
   if (role === undefined) return []
   return commands.filter(command =>
+    command.hidden !== true &&
     (command.visibility === "core" || command.visibility === "advanced") &&
     command.actors?.includes("person") === true &&
     command.minimumRole !== undefined && roles[command.minimumRole] !== undefined &&
