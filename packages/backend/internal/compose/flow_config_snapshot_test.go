@@ -86,3 +86,61 @@ func TestInstallCodingProjectPinsRestartAndNextBindingPostgres(t *testing.T) {
 	require.NotEqual(t, attemptOne, attemptTwo)
 	require.Contains(t, string(attemptTwo), `"wiki": true`)
 }
+
+func TestBrowserFlowReadsPinnedTodoConfigurationPostgres(t *testing.T) {
+	b := newRelayBoxes(t)
+	ctx := t.Context()
+	box := b.box(b.repo, b.machines, "running", b.owner)
+	_, err := b.RequestMythicalBootstrap(ctx, b.repo.ID, b.owner, 100, false)
+	require.NoError(t, err)
+	var itemID string
+	source, digest := strings.Repeat("a", 40), strings.Repeat("b", 64)
+	require.NoError(t, b.pool.QueryRow(ctx, `INSERT INTO mythical_items(repository_id,issue_number,issue_title,state,attempt,workspace_id,flow_digest,checks) VALUES($1,1,'Pinned read','queued',1,$2,$3,jsonb_build_object('flowSource',$4::text)) RETURNING id::text`, b.repo.ID, box, digest, source).Scan(&itemID))
+	b.exec(`INSERT INTO mythical_lanes(workspace_id,repository_id,item_id,name) VALUES($1,$2,$3,'attempt-one')`, box, b.repo.ID, itemID)
+	target := b.target(b.repo, b.owner, box)
+	authority, err := (browserFlowTarget{queries: b}).ResolveFlowHostTarget(ctx, target)
+	require.NoError(t, err)
+	require.Equal(t, &flowruntime.Pin{Flow: "todo", SourceCommit: source, ExecutionDigest: digest}, authority.ExecutionPin)
+	require.Equal(t, source, authority.SourceRevision)
+	require.Equal(t, target, authority.Target, "browser identity must not become a stack launch")
+	require.NoError(t, b.UpsertInstallSetting(ctx, db.UpsertInstallSettingParams{Key: services.InstallCodingProjectKey, Value: []byte(`{"checks":[],"seats":{"coding/implement":"auto","coding/review":"auto"},"wiki":true}`)}))
+	sources := &configSnapshotSource{config: `{"wiki":false}`}
+	load := installCodingProject(b.pool, sources)
+	launch := flowhost.HostLaunch{Binding: flowhost.Binding{ID: "pinned-read", RepositoryID: b.repo.ID, WorkspaceID: box}, Authority: authority}
+	_, err = load(ctx, launch)
+	require.ErrorContains(t, err, "configuration snapshot is unavailable", "a browser read cannot pin current settings for an existing run")
+	require.Zero(t, sources.reads)
+	stackLaunch := launch
+	stackLaunch.Authority.Target = flowruntime.Target{BindingKind: flowdispatch.StackBindingKind, BindingID: itemID}
+	first, err := load(ctx, stackLaunch)
+	require.NoError(t, err)
+	sources.config = `{"wiki":true}`
+	current, err := load(ctx, launch)
+	require.NoError(t, err)
+	require.Equal(t, first, current, "read must reuse the launch snapshot after configuration changes")
+	require.Equal(t, 1, sources.reads)
+	var count int
+	require.NoError(t, b.pool.QueryRow(ctx, `SELECT count(*) FROM install_settings WHERE key='coding.snapshot:pinned-read'`).Scan(&count))
+	require.Zero(t, count, "no parallel browser snapshot")
+	for _, change := range []func(*flowhost.Authority){
+		func(a *flowhost.Authority) { a.ExecutionPin = nil },
+		func(a *flowhost.Authority) {
+			pin := *a.ExecutionPin
+			pin.ExecutionDigest = strings.Repeat("c", 64)
+			a.ExecutionPin = &pin
+		},
+		func(a *flowhost.Authority) { a.SourceRevision = strings.Repeat("c", 40) },
+	} {
+		launch.Authority = authority
+		change(&launch.Authority)
+		_, err = load(ctx, launch)
+		require.ErrorContains(t, err, "execution changed")
+	}
+	launch.Authority = authority
+	b.exec(`UPDATE mythical_items SET workspace_id='replacement' WHERE id=$1`, itemID)
+	_, err = (browserFlowTarget{queries: b}).ResolveFlowHostTarget(ctx, target)
+	require.Error(t, err, "an old lane cannot inherit the next attempt pin")
+	_, err = load(ctx, launch)
+	require.Error(t, err)
+	require.Equal(t, 1, sources.reads)
+}
