@@ -90,3 +90,19 @@ func TestRejectTenantProvisioningAllowsOnlyAccountErasure(t *testing.T) {
 		})
 	}
 }
+
+func TestRejectLocalAuthBeforeCredentialLookup(t *testing.T) {
+	next := http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) { w.WriteHeader(http.StatusNoContent) })
+	for _, method := range []string{http.MethodGet, http.MethodPost, http.MethodPut, http.MethodDelete} {
+		for _, path := range []string{"/api/auth/local", "/api/auth/local/", "/api/auth/local/status", "/api/auth/local/bootstrap", "/api/auth/local/login", "/api/auth/local/token", "/api/auth/local/password"} {
+			rec := httptest.NewRecorder()
+			RejectLocalAuth(next).ServeHTTP(rec, httptest.NewRequest(method, path, nil))
+			assert.Equal(t, http.StatusNotFound, rec.Code, "%s %s", method, path)
+		}
+	}
+	for _, path := range []string{"/api/auth/github", "/api/auth/locality", "/api/user"} {
+		rec := httptest.NewRecorder()
+		RejectLocalAuth(next).ServeHTTP(rec, httptest.NewRequest(http.MethodGet, path, nil))
+		assert.Equal(t, http.StatusNoContent, rec.Code, path)
+	}
+}

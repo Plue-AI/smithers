@@ -148,6 +148,7 @@ func buildRouter(
 	r := chi.NewRouter()
 	if config.IsSingleOwner(cfg.Auth) {
 		r.Use(middleware.RejectTenantProvisioning)
+		r.Use(middleware.RejectLocalAuth)
 		if extras.BillingCapabilities == (services.BillingCapabilities{}) {
 			r.Use(middleware.RejectDeferredCommerce)
 		}

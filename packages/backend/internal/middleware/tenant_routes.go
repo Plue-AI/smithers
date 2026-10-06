@@ -64,3 +64,16 @@ func RejectDeferredCommerce(next http.Handler) http.Handler {
 		next.ServeHTTP(w, r)
 	})
 }
+
+// RejectLocalAuth keeps the removed password door absent before credential
+// lookup, including when the browser holds a provisional owner session.
+func RejectLocalAuth(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		path := strings.TrimSuffix(r.URL.Path, "/")
+		if path == "/api/auth/local" || strings.HasPrefix(path, "/api/auth/local/") {
+			pkgerrors.WriteError(w, pkgerrors.NotFound("not found"))
+			return
+		}
+		next.ServeHTTP(w, r)
+	})
+}

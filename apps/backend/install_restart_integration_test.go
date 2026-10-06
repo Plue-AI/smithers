@@ -6,6 +6,8 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"html"
+	"io"
 	"net"
 	"net/http"
 	"net/http/cookiejar"
@@ -14,10 +16,12 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
 	"github.com/smithersai/smithers/packages/backend/jobs"
+	"github.com/smithersai/smithers/packages/backend/testkit"
 	"github.com/smithersai/smithers/packages/backend/testkit/postgresfixture"
 	"github.com/stretchr/testify/require"
 )
@@ -25,7 +29,7 @@ import (
 // Uses the existing compiled test-backend entry and real production composition.
 // The process runtime is tests-only; this never qualifies VM recipe isolation.
 func TestInstallSetupCompiledHostRestart(t *testing.T) {
-	for _, boundary := range []string{"running admission", "address effect"} {
+	for _, boundary := range []string{"running admission", "address effect", "owner claim", "owner claim configured origins"} {
 		t.Run(boundary, func(t *testing.T) { testInstallSetupCompiledHostRestart(t, boundary) })
 	}
 }
@@ -54,24 +58,51 @@ func testInstallSetupCompiledHostRestart(t *testing.T, boundary string) {
 	require.NoError(t, listener.Close())
 	origin := "http://" + addr
 	state := filepath.Join(root, "state")
+	nodeFixture, err := filepath.EvalSymlinks("/bin/sh")
+	require.NoError(t, err)
 	environment := map[string]string{
 		testBackendServe: "1", "SMITHERS_WORKSPACE_ISOLATION": "process",
 		"SMITHERS_DATABASE_URL": databaseURL, "SMITHERS_DATA_ROOT": state,
 		"SMITHERS_NATIVE_POSTGRES_BIN": "", "SMITHERS_NATIVE_STATE_DIR": state,
-		"SMITHERS_BLOB_DATA_DIR": filepath.Join(state, "blobs"),
-		"SMITHERS_AUTH_MODE":     "selfhost", "SMITHERS_AUTH_BOOTSTRAP_TOKEN": "restart-bootstrap",
+		"SMITHERS_BLOB_DATA_DIR":       filepath.Join(state, "blobs"),
+		"SMITHERS_AUTH_MODE":           "selfhost",
 		"SMITHERS_AUTH_SESSION_SECRET": "restart-session-secret", "SMITHERS_LFS_SIGNING_SECRET": "restart-lfs-secret",
 		"SMITHERS_WEBHOOK_SECRET_ENCRYPTION_KEY": "restart-encryption-secret",
 		"SMITHERS_REPO_HOST_AUTH_TOKEN":          "restart-repo-token", "SMITHERS_PUSH_HOOK_CALLBACK_TOKEN": "restart-push-token",
 		"SMITHERS_SERVER_ADDR": addr, "SMITHERS_PUBLIC_URL": origin,
 		"SMITHERS_FLOW_HOST_MANIFEST": filepath.Join(root, "flow-hosts.json"),
-		"SMITHERS_MODEL_HOST_BUNDLE":  filepath.Join(root, "model-host"), "SMITHERS_NODE_BINARY": "/bin/sh",
+		"SMITHERS_MODEL_HOST_BUNDLE":  filepath.Join(root, "model-host"), "SMITHERS_NODE_BINARY": nodeFixture,
 		"SMITHERS_FEATURE_FLAGS_WORKFLOWS": "false", "SMITHERS_FEATURE_FLAGS_SANDBOXES": "true",
 		"SMITHERS_WORKSPACE_JJ_EXPORT_BINARY": filepath.Join(filepath.Dir(os.Getenv("SMITHERS_FFI_LIBRARY_PATH")), "smithers-jj-export"),
+	}
+	ownerClaim := strings.HasPrefix(boundary, "owner claim")
+	if ownerClaim {
+		environment["SMITHERS_PUBLIC_URL"] = "http://localhost:4000"
+		githubURL := testkit.InstallOwnerOAuth(t, pool, "http://localhost:4000", "restart-encryption-secret")
+		for _, key := range []string{"SMITHERS_AUTH_GITHUB_API_BASE_URL", "SMITHERS_AUTH_GITHUB_OAUTH_BASE_URL", "SMITHERS_GITHUB_APP_API_BASE_URL"} {
+			environment[key] = githubURL
+		}
+		if boundary == "owner claim configured origins" {
+			_, err = pool.Exec(ctx, `INSERT INTO install_settings(key,value) VALUES('public_origins','["http://lan-a:4000","https://box.example"]')`)
+			require.NoError(t, err)
+		}
 	}
 	jar, err := cookiejar.New(nil)
 	require.NoError(t, err)
 	client := &http.Client{Jar: jar, Timeout: 3 * time.Second}
+	var captures []*setupProcessCapture
+	secrets := []string{}
+	t.Cleanup(func() {
+		for _, capture := range captures {
+			// The only permitted plaintext copy is the complete mint line.
+			for _, output := range []string{capture.logs.String(), capture.ordinary.String()} {
+				for _, secret := range secrets {
+					require.NotContains(t, output, secret, "credential leaked outside the mint line")
+					require.NotContains(t, output, url.QueryEscape(secret))
+				}
+			}
+		}
+	})
 	start := func() (*exec.Cmd, <-chan []string) {
 		command := exec.Command(os.Args[0], "-test.run=^TestServeTrustedProcessBackend$", "-test.count=1", "-test.timeout=0")
 		command.Env = os.Environ()
@@ -81,8 +112,9 @@ func testInstallSetupCompiledHostRestart(t *testing.T, boundary string) {
 		stdout, err := command.StdoutPipe()
 		require.NoError(t, err)
 		// Captures stay local: setup tokens must never enter test logs.
-		stderr := &bytes.Buffer{}
-		command.Stderr = stderr
+		capture := &setupProcessCapture{}
+		captures = append(captures, capture)
+		command.Stderr = &capture.logs
 		bootFailure := make(chan string, 1)
 		minted := make(chan []string, 1)
 		require.NoError(t, command.Start())
@@ -96,10 +128,16 @@ func testInstallSetupCompiledHostRestart(t *testing.T, boundary string) {
 					URLs []string `json:"setup_urls"`
 				}
 				if json.Unmarshal(scanner.Bytes(), &line) == nil && len(line.URLs) > 0 {
+					var fields map[string]json.RawMessage
+					if json.Unmarshal(scanner.Bytes(), &fields) != nil || len(fields) != 1 {
+						bootFailure <- "mint line must have the sole key setup_urls"
+					}
 					select {
 					case minted <- line.URLs:
 					default:
 					}
+				} else {
+					_, _ = capture.ordinary.Write(append(scanner.Bytes(), '\n'))
 				}
 			}
 		}()
@@ -125,6 +163,139 @@ func testInstallSetupCompiledHostRestart(t *testing.T, boundary string) {
 	case setupURLs = <-minted:
 	case <-time.After(5 * time.Second):
 		t.Fatal("setup URL was not emitted")
+	}
+	if ownerClaim {
+		readMint := func(lines <-chan []string) []string {
+			t.Helper()
+			select {
+			case urls := <-lines:
+				return urls
+			case <-time.After(5 * time.Second):
+				t.Fatal("missing mint output")
+				return nil
+			}
+		}
+		tokenOf := func(urls []string) string {
+			t.Helper()
+			expected := []string{"http://localhost:4000/setup?token="}
+			if boundary == "owner claim configured origins" {
+				expected = append(expected, "http://lan-a:4000/setup?token=", "https://box.example/setup?token=")
+			}
+			require.Len(t, urls, len(expected))
+			var token string
+			for i, raw := range urls {
+				require.True(t, strings.HasPrefix(raw, expected[i]), "unexpected setup origin")
+				parsed, err := url.Parse(raw)
+				require.NoError(t, err)
+				if i == 0 {
+					token = parsed.Query().Get("token")
+					require.Len(t, token, 64)
+				}
+				require.Equal(t, token, parsed.Query().Get("token"))
+			}
+			sum := sha256.Sum256([]byte(token))
+			var stored string
+			require.NoError(t, pool.QueryRow(ctx, `SELECT value #>> '{}' FROM install_settings WHERE key='setup.token'`).Scan(&stored))
+			require.Equal(t, hex.EncodeToString(sum[:]), stored)
+			return token
+		}
+		oldToken := tokenOf(setupURLs)
+		secrets = append(secrets, oldToken)
+		require.NoError(t, command.Process.Kill())
+		require.Error(t, command.Wait())
+		command, minted = start()
+		token := tokenOf(readMint(minted))
+		secrets = append(secrets, token)
+		require.NotEqual(t, oldToken, token)
+		client.CheckRedirect = func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }
+		get := func(path string, status int) *http.Response {
+			t.Helper()
+			request, err := http.NewRequest("GET", origin+path, nil)
+			require.NoError(t, err)
+			request.Header.Set("X-Forwarded-Host", "localhost:4000")
+			response, err := client.Do(request)
+			require.NoError(t, err)
+			if response.StatusCode != status {
+				responseBody, _ := io.ReadAll(response.Body)
+				response.Body.Close()
+				diagnostic := string(responseBody) + "\n" + captures[len(captures)-1].logs.String()
+				for _, secret := range secrets {
+					diagnostic = strings.ReplaceAll(diagnostic, secret, "<redacted>")
+				}
+				t.Fatalf("%s: wanted %d, got %d; host logs: %s", request.URL.Path, status, response.StatusCode, diagnostic)
+			}
+			return response
+		}
+		get("/setup?token="+oldToken, 401).Body.Close()
+		get("/api/auth/github", 401).Body.Close()
+		get("/setup?token="+token, 303).Body.Close()
+		started := get("/api/auth/github", 302)
+		target := started.Header.Get("Location")
+		started.Body.Close()
+		require.NotContains(t, target, token)
+		response, err := http.Get(target)
+		require.NoError(t, err)
+		page, err := io.ReadAll(response.Body)
+		response.Body.Close()
+		require.NoError(t, err)
+		callback, err := url.Parse(html.UnescapeString(strings.Split(strings.Split(string(page), `href="`)[1], `"`)[0]))
+		require.NoError(t, err)
+		get(callback.RequestURI(), 302).Body.Close()
+		var owners, sessions int
+		require.NoError(t, pool.QueryRow(ctx, `SELECT count(*) FROM self_host_owners`).Scan(&owners))
+		require.Equal(t, 1, owners)
+		require.NoError(t, pool.QueryRow(ctx, `SELECT count(*) FROM install_settings WHERE key='setup.token' OR key LIKE 'setup.session.%'`).Scan(&sessions))
+		require.Zero(t, sessions)
+		// Crash before repository verification: the owner remains provisional,
+		// their real browser session and setup projection survive restart.
+		before := get("/api/install", 200)
+		beforeBody, err := io.ReadAll(before.Body)
+		before.Body.Close()
+		require.NoError(t, err)
+		require.NoError(t, command.Process.Kill())
+		require.Error(t, command.Wait())
+		_, minted = start()
+		select {
+		case <-minted:
+			t.Fatal("claimed install emitted setup authority")
+		case <-time.After(250 * time.Millisecond):
+		}
+		after := get("/api/install", 200)
+		afterBody, err := io.ReadAll(after.Body)
+		after.Body.Close()
+		require.NoError(t, err)
+		var beforeModel, afterModel map[string]json.RawMessage
+		require.NoError(t, json.Unmarshal(beforeBody, &beforeModel))
+		require.NoError(t, json.Unmarshal(afterBody, &afterModel))
+		require.JSONEq(t, string(beforeModel["steps"]), string(afterModel["steps"]))
+		refused := get("/api/todos", 403)
+		body, err := io.ReadAll(refused.Body)
+		refused.Body.Close()
+		require.NoError(t, err)
+		require.JSONEq(t, `{"class":"permission","code":"owner_unverified","fault":"user","message":"owner_unverified"}`, string(body))
+		get("/api/members", 403).Body.Close()
+		post, err := http.NewRequest("POST", origin+"/api/todos", strings.NewReader(`{"title":"must not exist"}`))
+		require.NoError(t, err)
+		post.Header.Set("X-Forwarded-Host", "localhost:4000")
+		post.Header.Set("Origin", "http://localhost:4000")
+		post.Header.Set("Content-Type", "application/json")
+		for _, cookie := range jar.Cookies(post.URL) {
+			if cookie.Name == "__csrf" {
+				post.Header.Set("X-CSRF-Token", cookie.Value)
+			}
+		}
+		refusedPost, err := client.Do(post)
+		require.NoError(t, err)
+		postBody, err := io.ReadAll(refusedPost.Body)
+		refusedPost.Body.Close()
+		require.NoError(t, err)
+		require.Equal(t, 403, refusedPost.StatusCode)
+		require.JSONEq(t, `{"class":"permission","code":"owner_unverified","fault":"user","message":"owner_unverified"}`, string(postBody))
+		get("/setup?token="+token, 401).Body.Close()
+		for _, route := range []string{"status", "bootstrap", "login", "token", "password"} {
+			get("/api/auth/local/"+route, 404).Body.Close()
+		}
+		return
 	}
 	// Exchange once, then use only the setup-session cookie, including after restart.
 	setupURL, err := url.Parse(setupURLs[0])
@@ -212,4 +383,23 @@ func testInstallSetupCompiledHostRestart(t *testing.T, boundary string) {
 	require.Equal(t, admitted.OperationID, operation)
 	require.NoError(t, pool.QueryRow(ctx, `SELECT count(*) FROM product_job_events WHERE operation_id=$1 AND event_type='operation.completed'`, operation).Scan(&completions))
 	require.Equal(t, 1, completions)
+}
+
+// Captures are read while the restarted process is serving. Synchronize writes
+// rather than making credential scans race with ordinary request logging.
+type setupProcessCapture struct{ logs, ordinary setupProcessBuffer }
+type setupProcessBuffer struct {
+	mu sync.Mutex
+	bytes.Buffer
+}
+
+func (b *setupProcessBuffer) Write(p []byte) (int, error) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	return b.Buffer.Write(p)
+}
+func (b *setupProcessBuffer) String() string {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	return b.Buffer.String()
 }
