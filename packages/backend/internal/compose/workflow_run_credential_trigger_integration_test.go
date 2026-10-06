@@ -212,6 +212,19 @@ func (h invokeTestSources) GetBookmark(ctx context.Context, owner, repo, name st
 
 // Deferred trigger management is absent even when its real service and database
 // are composed. Refusal must not create or change trigger state.
+// The host-binding contract alone grants no install callback authority. This
+// test double deliberately accepts its coarse binding, so the composed router
+// must reject missing hidden system authority before consulting it.
+type deferredCallbackHost struct {
+	calls  int
+	target services.BoxHostTarget
+}
+
+func (h *deferredCallbackHost) AuthorizeHostCallback(context.Context, string, string) (services.BoxHostTarget, error) {
+	h.calls++
+	return h.target, nil
+}
+
 func TestDeferredTriggerManagementHTTPPostgres(t *testing.T) {
 	pool, _ := postgresfixture.NewProductDatabase(t)
 	q := db.New(pool)
@@ -242,7 +255,8 @@ func TestDeferredTriggerManagementHTTPPostgres(t *testing.T) {
 	cfg := testConfigAllFlagsOn()
 	cfg.Auth.Mode = config.AuthModeSelfHosted
 	cfg.Auth.WorkerExchangeToken = "deferred-worker"
-	router := hostStatusProductionRouter(cfg, q, &services.InstallCapacityService{}, conformanceServices{pool: pool, billing: &routes.BillingHandler{Service: services.NewBillingService(q, nil, services.BillingServiceConfig{})}, jobs: &routes.RepositoryJobHandler{RepositoryJobs: services.NewRepositoryJobService(q, nil, pool)}})
+	hosts := &deferredCallbackHost{target: services.BoxHostTarget{HostID: "host", UserID: owner.ID, RepositoryID: repoID, WorkspaceID: workspace}}
+	router := hostStatusProductionRouter(cfg, q, &services.InstallCapacityService{}, conformanceServices{pool: pool, billing: &routes.BillingHandler{Service: services.NewBillingService(q, nil, services.BillingServiceConfig{})}, jobs: &routes.RepositoryJobHandler{RepositoryJobs: services.NewRepositoryJobService(q, hosts, pool)}})
 	// Seed credentials through canonical credential queries; OAuth/token minting
 	// is covered separately. Route absence must precede credential admission.
 	credentials := []struct{ name, cookie, bearer string }{{name: "anonymous"}, {name: "worker", bearer: cfg.Auth.WorkerExchangeToken}}
@@ -315,6 +329,29 @@ func TestDeferredTriggerManagementHTTPPostgres(t *testing.T) {
 				require.Equal(t, http.StatusNotFound, rec.Code, "%s %s: %s", tc.method, tc.path, rec.Body.String())
 				require.Equal(t, before, snapshot(), "%s %s changed trigger state", tc.method, tc.path)
 			}
+			// A syntactically valid retained reply still has no hidden system
+			// grant. Every credential class must refuse before host lookup and
+			// before the repository-job service opens its transaction.
+			body, err := json.Marshal(services.RepositoryJobCommentInput{
+				Repo: "deferredowner/app", WorkspaceID: workspace, Revision: 1,
+				Digest: strings.Repeat("a", 64), DeliveryKey: "admitted-event",
+				Source: "smithers-cloud", IssueNumber: 1, Body: "reply",
+			})
+			require.NoError(t, err)
+			req := httptest.NewRequest("PUT", "/api/gateways/host/repository-jobs/ci/comments/step", bytes.NewReader(body))
+			req.Header.Set("Content-Type", "application/json")
+			if credential.cookie != "" {
+				req.AddCookie(&http.Cookie{Name: "smithers_session", Value: credential.cookie})
+			}
+			if credential.bearer != "" {
+				req.Header.Set("Authorization", "Bearer "+credential.bearer)
+			}
+			rec := httptest.NewRecorder()
+			router.ServeHTTP(rec, req)
+			require.Equal(t, http.StatusForbidden, rec.Code, rec.Body.String())
+			require.Contains(t, rec.Body.String(), "system authority is unavailable")
+			require.Zero(t, hosts.calls, "a coarse host binding cannot substitute for the missing system grant")
+			require.Equal(t, before, snapshot(), "a refused callback changed trigger state")
 		})
 	}
 }
