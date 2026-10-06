@@ -95,6 +95,16 @@ test("/branch T2 mounts live facts and its Fork enters the production dispatcher
     await snap("branch:b-live:activity", [])
     await snap("branch:b-live:files", [])
     expect(host.textContent).toContain("Asleep")
+    for (const tab of ["files", "terminals", "activity"] as const) {
+      await act(async () => {
+        (host.querySelector(`[data-tab="${tab}"]`) as HTMLButtonElement).click()
+      })
+      const saved = store.collections.cards.get(card.id)!
+      if (saved.kind !== "branch") throw new Error("Expected Branch")
+      expect(saved.payload.tab).toBe(tab)
+      await act(async () => root.render(<ControllerTestProvider controller={controller}>{CARD_RENDERERS.branch.render(saved, actions)}</ControllerTestProvider>))
+      expect(host.querySelector(`[data-tab="${tab}"]`)?.getAttribute("aria-selected")).toBe("true")
+    }
     expect(host.querySelector('[data-flow="box.resume"]')).toBeNull()
     await act(async () => {
       (host.querySelector('[data-flow="branch.fork"]') as HTMLButtonElement).click()

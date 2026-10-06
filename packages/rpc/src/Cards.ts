@@ -777,7 +777,7 @@ const CurrentCardSchema = z.discriminatedUnion("kind", [
       view: z.enum(["issues", "metrics"]).optional()
     })
   }),
-  z.object({ ...cardBaseShape, kind: z.literal("branch"), payload: z.object({ id: z.string() }) }),
+  z.object({ ...cardBaseShape, kind: z.literal("branch"), payload: z.object({ id: z.string(), tab: z.enum(["activity", "files", "terminals"]).optional() }) }),
   z.object({ ...cardBaseShape, kind: z.literal("terminal"), payload: z.object({ id: z.string() }) }),
   z.object({
     ...cardBaseShape,

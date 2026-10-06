@@ -1,5 +1,4 @@
 /* T-APP-10: live topics map to BranchView; demo projections remain isolated. */
-import { useState } from "react"
 import type { CatalogTag } from "@smthrs/rpc/CardAction"
 import type { BranchCard as BranchModel } from "@smthrs/rpc/BranchCard"
 import { useBranchPresence, useTopic } from "../state/useTopic"
@@ -69,10 +68,19 @@ export const changeActionDefinitions = (model: BranchModel): CardActionDefinitio
   model.activity.filter(entry => entry.kind === "change")
     .map(entry => ({ tag: "diff", label: "Diff", args: { burst: entry.id }, command_input: undefined }))
 
+/** View selections use the same durable card transition on installs and demos. */
+function persistBranchView(controller: ReturnType<typeof useController>, card: CardOf<"branch">, patch: { tab?: string }) {
+  if (patch.tab !== "activity" && patch.tab !== "files" && patch.tab !== "terminals") return
+  const current = controller.store.collections.cards.get(card.id)
+  if (current?.kind !== "branch") return
+  controller.store.dispatch({ type: "card.upsert", actor: "user", card: {
+    ...current, payload: { ...current.payload, tab: patch.tab }
+  } })
+}
+
 const DesignBranchBody = ({ card, actions }: { readonly card: CardOf<"branch">; readonly actions: CardActions }) => {
   const controller = useController()
   const world = useDesignWorld()
-  const [tab, setTab] = useState<string | undefined>(undefined)
   const branch = branchOf(world, card.payload.id)
   if (branch === undefined) return null
   const item = branch.item === undefined ? undefined : todoOf(world, branch.item)
@@ -89,8 +97,8 @@ const DesignBranchBody = ({ card, actions }: { readonly card: CardOf<"branch">; 
     : { ...entry, actions: changes.actions.filter(action => action.args?.burst === entry.id) }) }
   return <BranchView model={model} actions={bindings.actions} gestures={bindings.gestures}
     onAction={(tag, input) => (tag === "diff" ? changes : bindings).onAction(tag, input)}
-    view={{ maximized: actions.presentation === "maximized", ...(tab === undefined ? {} : { tab }) }}
-    onView={patch => { if ("tab" in patch) setTab(patch.tab) }} />
+    view={{ maximized: actions.presentation === "maximized", ...(card.payload.tab === undefined ? {} : { tab: card.payload.tab }) }}
+    onView={patch => persistBranchView(controller, card, patch)} />
 }
 
 /** Live facts never inherit seed rows or server-supplied command authority. Dependent actions stay dark. */
@@ -121,7 +129,8 @@ export const LiveBranchBody = ({ card, actions }: { readonly card: CardOf<"branc
   const bindings = cardActions<Gesture>(dispatch, model ? liveBranchActionDefinitions(model, providers) : [])
   if (!model) return null
   return <BranchView model={model} actions={bindings.actions} gestures={bindings.gestures}
-    onAction={bindings.onAction} view={{ maximized: actions.presentation === "maximized" }} onView={() => {}} />
+    onAction={bindings.onAction} view={{ maximized: actions.presentation === "maximized", tab: card.payload.tab }}
+    onView={patch => persistBranchView(controller, card, patch)} />
 }
 
 const BranchBody = (props: { readonly card: CardOf<"branch">; readonly actions: CardActions }) => {
