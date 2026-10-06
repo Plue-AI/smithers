@@ -209,7 +209,7 @@ func testSecretsComposed(t *testing.T, install bool) {
 	}
 	request := func(c credential, method, path, body string) (int, map[string]any) {
 		t.Helper()
-		if install {
+		if install && strings.HasPrefix(path, "/secrets") {
 			if method == "POST" {
 				method = "PUT"
 			}
