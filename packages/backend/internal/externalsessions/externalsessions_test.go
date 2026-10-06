@@ -42,16 +42,14 @@ func TestRootsAreEachAgentsOwnHomesOnly(t *testing.T) {
 	for _, account := range []string{"codex-2", "claude-1", "claude-acct-3", "gemini"} {
 		require.NoError(t, os.MkdirAll(filepath.Join(home, ".smithers", "accounts", account), 0o700))
 	}
-	// A file named like an account is not a home.
-	write(t, filepath.Join(home, ".smithers", "accounts", "codex-file"), "", time.Now())
 	env := map[string]string{"CODEX_HOME": "/custom/codex", "CLAUDE_CONFIG_DIR": "/custom/claude"}
 	finder := &Finder{Home: home, Getenv: func(name string) string { return env[name] }}
-	require.Equal(t, []string{"/custom/codex/sessions", filepath.Join(home, ".codex", "sessions"), filepath.Join(home, ".smithers", "accounts", "codex-2", "sessions")}, finder.Roots(Codex))
-	require.Equal(t, []string{"/custom/claude/projects", filepath.Join(home, ".claude", "projects"),
-		filepath.Join(home, ".smithers", "accounts", "claude-1", "projects"), filepath.Join(home, ".smithers", "accounts", "claude-acct-3", "projects")}, finder.Roots(ClaudeCode))
+	// Homes a person keeps per subscription (~/.smithers/accounts/*) are local operations, never read.
+	require.Equal(t, []string{"/custom/codex/sessions", filepath.Join(home, ".codex", "sessions")}, finder.Roots(Codex))
+	require.Equal(t, []string{"/custom/claude/projects", filepath.Join(home, ".claude", "projects")}, finder.Roots(ClaudeCode))
 	// The configured home that is the default home is listed once; no home lists only the configured one.
 	env["CODEX_HOME"] = filepath.Join(home, ".codex")
-	require.Equal(t, []string{filepath.Join(home, ".codex", "sessions"), filepath.Join(home, ".smithers", "accounts", "codex-2", "sessions")}, finder.Roots(Codex))
+	require.Equal(t, []string{filepath.Join(home, ".codex", "sessions")}, finder.Roots(Codex))
 	require.Equal(t, []string{"/custom/claude/projects"}, (&Finder{Getenv: func(name string) string { return env[name] }}).Roots(ClaudeCode))
 	require.Empty(t, (&Finder{}).Roots(Codex))
 }
@@ -59,13 +57,21 @@ func TestRootsAreEachAgentsOwnHomesOnly(t *testing.T) {
 func TestFindReadsTheNewestCopyAndRefusesUnknownOrAmbiguous(t *testing.T) {
 	home := t.TempDir()
 	old := time.Date(2026, 10, 1, 0, 0, 0, 0, time.UTC)
+	configured := filepath.Join(home, "codex-home")
 	write(t, rollout(filepath.Join(home, ".codex", "sessions"), id), "stale\n", old)
-	live := write(t, rollout(filepath.Join(home, ".smithers", "accounts", "codex-2", "sessions"), id), "live\n", old.Add(time.Hour))
-	write(t, rollout(filepath.Join(home, ".smithers", "accounts", "codex-2", "sessions"), other), "other\n", old)
+	live := write(t, rollout(filepath.Join(configured, "sessions"), id), "live\n", old.Add(time.Hour))
+	write(t, rollout(filepath.Join(configured, "sessions"), other), "other\n", old)
+	// A copy under a per-subscription home is never read, however new.
+	write(t, rollout(filepath.Join(home, ".smithers", "accounts", "codex-2", "sessions"), id), "account\n", old.Add(2*time.Hour))
 	// Neither another agent's file nor a file that is not a rollout is a Codex session.
 	write(t, filepath.Join(home, ".codex", "sessions", "2026", "notes-"+id+".jsonl"), "", old)
 	write(t, filepath.Join(home, ".claude", "projects", "-repo", id+".jsonl"), "", old)
-	finder := &Finder{Home: home}
+	finder := &Finder{Home: home, Getenv: func(name string) string {
+		if name == "CODEX_HOME" {
+			return configured
+		}
+		return ""
+	}}
 
 	for _, prefix := range []string{id, "0199aaaa"} {
 		found, err := finder.Find(Codex, prefix)
@@ -86,11 +92,16 @@ func TestFindClaudeCodeSessionsInProjectDirectories(t *testing.T) {
 	home := t.TempDir()
 	old := time.Date(2026, 10, 1, 0, 0, 0, 0, time.UTC)
 	write(t, filepath.Join(home, ".claude", "projects", "-Users-ben-repo", claud+".jsonl"), "stale\n", old)
-	live := write(t, filepath.Join(home, ".smithers", "accounts", "claude-2", "projects", "-Users-ben-repo", claud+".jsonl"), "live\n", old.Add(time.Minute))
+	live := write(t, filepath.Join(home, "claude-home", "projects", "-Users-ben-repo", claud+".jsonl"), "live\n", old.Add(time.Minute))
 	// A subagent's transcript under the session's directory is not the session; a Codex rollout is not Claude Code's.
 	write(t, filepath.Join(home, ".claude", "projects", "-Users-ben-repo", claud, "subagents", "agent-"+claud+".jsonl"), "", old)
 	write(t, rollout(filepath.Join(home, ".codex", "sessions"), "5b2c0000-0000-0000-0000-000000000000"), "", old)
-	finder := &Finder{Home: home}
+	finder := &Finder{Home: home, Getenv: func(name string) string {
+		if name == "CLAUDE_CONFIG_DIR" {
+			return filepath.Join(home, "claude-home")
+		}
+		return ""
+	}}
 	found, err := finder.Find(ClaudeCode, "5b2c")
 	require.NoError(t, err)
 	require.Equal(t, Session{Agent: ClaudeCode, ID: claud, Path: live}, found)
@@ -218,11 +229,14 @@ func TestFindRemembersAFoundSessionWhileItsFileIsThere(t *testing.T) {
 	old := time.Date(2026, 10, 1, 0, 0, 0, 0, time.UTC)
 	first := write(t, rollout(root, id), "first\n", old)
 	clock := old
-	finder := &Finder{Home: home, Remember: 10 * time.Second, Now: func() time.Time { return clock }}
+	finder := &Finder{Home: home, Remember: 10 * time.Second, Now: func() time.Time { return clock },
+		Getenv: func(name string) string {
+			return map[string]string{"CODEX_HOME": filepath.Join(home, "codex-home")}[name]
+		}}
 	_, err := finder.Find(Codex, "0199aaaa")
 	require.NoError(t, err)
 	// A newer copy within the window is not looked for; after it, it wins.
-	second := write(t, rollout(filepath.Join(home, ".smithers", "accounts", "codex-1", "sessions"), id), "second\n", old.Add(time.Hour))
+	second := write(t, rollout(filepath.Join(home, "codex-home", "sessions"), id), "second\n", old.Add(time.Hour))
 	found, err := finder.Find(Codex, "0199aaaa")
 	require.NoError(t, err)
 	require.Equal(t, first, found.Path)

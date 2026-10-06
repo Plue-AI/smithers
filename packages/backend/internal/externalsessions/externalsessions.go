@@ -97,14 +97,14 @@ type remembered struct {
 	until   time.Time
 }
 
-// Roots are the directories agent writes sessions under, its configured
-// home first, then its default home, then each Smithers account home of
-// that agent. Account homes are listed on every call, so one added later
-// is found.
+// Roots are the directories agent writes sessions under: its configured
+// home first, then its default home. Nothing else on the machine is read;
+// other homes a person keeps for the same agent (one per subscription, say)
+// are theirs to point CODEX_HOME or CLAUDE_CONFIG_DIR at.
 func (f *Finder) Roots(agent Agent) []string {
-	env, defaultHome, sessions, account := "CODEX_HOME", ".codex", "sessions", "codex"
+	env, defaultHome, sessions := "CODEX_HOME", ".codex", "sessions"
 	if agent == ClaudeCode {
-		env, defaultHome, sessions, account = "CLAUDE_CONFIG_DIR", ".claude", "projects", "claude"
+		env, defaultHome, sessions = "CLAUDE_CONFIG_DIR", ".claude", "projects"
 	}
 	var roots []string
 	if f.Getenv != nil {
@@ -116,14 +116,6 @@ func (f *Finder) Roots(agent Agent) []string {
 		return roots
 	}
 	roots = append(roots, filepath.Join(f.Home, defaultHome, sessions))
-	accounts := filepath.Join(f.Home, ".smithers", "accounts")
-	if entries, err := os.ReadDir(accounts); err == nil {
-		for _, entry := range entries {
-			if entry.IsDir() && strings.HasPrefix(entry.Name(), account) {
-				roots = append(roots, filepath.Join(accounts, entry.Name(), sessions))
-			}
-		}
-	}
 	unique := roots[:0]
 	seen := map[string]bool{}
 	for _, root := range roots {

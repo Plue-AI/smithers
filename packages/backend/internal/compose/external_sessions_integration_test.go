@@ -66,7 +66,7 @@ func TestExternalSessionsComposedInstallPostgres(t *testing.T) {
 	defer provider.Close()
 	t.Setenv("SMITHERS_GITHUB_APP_API_BASE_URL", provider.URL)
 
-	// The install runs as Ben: his Codex home and a Smithers Claude account.
+	// The install runs as Ben: his Codex home and his Claude Code home.
 	home := t.TempDir()
 	const codexID = "0199e2e0-0000-7000-8000-00000000c0de"
 	const claudeID = "5b2c9e10-4d3a-4f6e-9a1b-7c8d9e0f1a2b"
@@ -75,7 +75,7 @@ func TestExternalSessionsComposedInstallPostgres(t *testing.T) {
 	prompt := `{"timestamp":"2026-10-05T18:00:01.000Z","type":"event_msg","payload":{"type":"item_completed","turn_id":"t1","item":{"type":"UserMessage","content":[{"type":"text","text":"Make the reset link expire · naïve"}]}}}` + "\n"
 	require.NoError(t, os.MkdirAll(filepath.Dir(rollout), 0o700))
 	require.NoError(t, os.WriteFile(rollout, []byte(meta+prompt+`{"partial":`), 0o600))
-	transcript := filepath.Join(home, ".smithers", "accounts", "claude-2", "projects", "-Users-ben-repo", claudeID+".jsonl")
+	transcript := filepath.Join(home, ".claude", "projects", "-Users-ben-repo", claudeID+".jsonl")
 	require.NoError(t, os.MkdirAll(filepath.Dir(transcript), 0o700))
 	require.NoError(t, os.WriteFile(transcript, []byte(`{"type":"user","sessionId":"`+claudeID+`"}`+"\n"), 0o600))
 	// A file beside the homes is never a session, whatever a request names.
