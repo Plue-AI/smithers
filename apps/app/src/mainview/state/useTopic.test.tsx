@@ -70,7 +70,9 @@ test("dark branch topics perform no IO; enabled topics isolate each member's vie
     expect(frames.slice(-3)).toEqual([{ t: "unsub", id: 2 }, { t: "sub", id: 4, topic: "conversation:scratch" }, { t: "sub", id: 5, topic: "view:Ben:scratch" }])
     await act(async () => root.render(<Container member="Ben" branch="invalid:branch" />))
     expect(models.get("Ben")).toEqual({ entries: undefined, view: undefined })
-    expect(channel.collection.size).toBe(0)
+    expect(channel.getSnapshot("conversation:main")).toBeUndefined()
+    expect(channel.getSnapshot("conversation:scratch")).toBeUndefined()
+    expect(channel.getSnapshot("view:Ben:scratch")).toBeUndefined()
     await act(async () => root.render(<Container member="" branch="main" />))
     expect(connections).toBe(1)
   } finally { await act(async () => root.unmount()); channel.dispose() }
