@@ -194,13 +194,17 @@ func (t *liveTopics) resolve(ctx context.Context, topic string, repository int64
 		if topic != "install" || t.install == nil {
 			return live.Source{}, live.Unsupported
 		}
-		return live.Source{Key: "install", Hints: []string{"install"}, Every: liveRefreshEvery, Build: func(ctx context.Context) (json.RawMessage, error) {
+		source := live.Source{Key: "install", Hints: []string{"install"}, Every: liveRefreshEvery, Build: func(ctx context.Context) (json.RawMessage, error) {
 			status, err := t.install.Status(ctx)
 			if err != nil {
 				return nil, err
 			}
 			return json.Marshal(status)
-		}}, ""
+		}}
+		if t.jobs != nil {
+			source = liveJobSource(source, t.jobs, jobs.Scope{TenantID: "install", PrincipalID: "owner"})
+		}
+		return source, ""
 	case "doc":
 		if strings.HasPrefix(topic, "doc:wiki:") {
 			return t.wikiDocuments.Resolve(ctx, topic, repository, member)
@@ -507,7 +511,7 @@ func liveJobSource(source live.Source, store *jobs.Store, scope jobs.Scope) live
 				return after, data, nil
 			}
 		}
-		return 0, nil, fmt.Errorf("TODO changed throughout snapshot read")
+		return 0, nil, fmt.Errorf("source changed throughout snapshot read")
 	}
 	return source
 }
@@ -517,7 +521,7 @@ func liveJobSource(source live.Source, store *jobs.Store, scope jobs.Scope) live
 func liveReplayError(err error) error {
 	var expired *jobs.CursorExpiredError
 	if errors.As(err, &expired) || errors.Is(err, jobs.ErrCursorAhead) {
-		return pkgerrors.UnknownCursor("TODO cursor is outside retained source facts")
+		return pkgerrors.UnknownCursor("cursor is outside retained source facts")
 	}
 	return err
 }
