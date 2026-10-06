@@ -6,6 +6,7 @@ import (
 	"errors"
 	"net/http"
 	"net/url"
+	"strings"
 
 	"github.com/go-chi/chi/v5"
 	"github.com/smithersai/smithers/packages/backend/internal/db"
@@ -168,9 +169,14 @@ func (h *BranchHandler) Fork(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	var input services.BranchForkInput
-	decoder := json.NewDecoder(r.Body)
+	decoder := json.NewDecoder(http.MaxBytesReader(w, r.Body, 64<<10))
 	decoder.DisallowUnknownFields()
-	if err := decoder.Decode(&input); err != nil {
+	if err := decodeSingleJSONDocument(decoder, &input); err != nil || strings.TrimSpace(input.From) == "" {
+		writeBranchError(w, r, pkgerrors.BadRequest("invalid fork request"))
+		return
+	}
+	input.Request = r.Header.Get("Idempotency-Key")
+	if len(input.Request) > 256 {
 		writeBranchError(w, r, pkgerrors.BadRequest("invalid fork request"))
 		return
 	}

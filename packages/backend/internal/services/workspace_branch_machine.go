@@ -86,7 +86,7 @@ func (s *WorkspaceService) authorizeBranchMachine(ctx context.Context, tx pgx.Tx
 	// and coding runtime) act as it.
 	if tx != nil {
 		if owner, err := db.New(tx).GetBranchMachineOwner(ctx); err == nil && owner == actorID {
-			return nil
+			return s.requireBranchMachineRuntime(ctx)
 		}
 	}
 	p := s.branchMachineProviders

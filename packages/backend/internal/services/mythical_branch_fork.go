@@ -2,8 +2,11 @@ package services
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/binary"
 	"encoding/json"
 	"errors"
+	"github.com/google/uuid"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -23,8 +26,9 @@ import (
 // BranchForkInput is POST /api/branches fork{from, name?} (spec §6.3):
 // from is main or a TODO (T2); name defaults to fork-<from>.
 type BranchForkInput struct {
-	From string `json:"from"`
-	Name string `json:"name,omitempty"`
+	From    string `json:"from"`
+	Name    string `json:"name,omitempty"`
+	Request string `json:"-"`
 }
 
 // BranchError is a branch command's refusal on the §6.2.3 envelope.
@@ -68,7 +72,7 @@ type branchForkSource struct {
 // workspace records forked_from, then the branch is published in the
 // install's repository and nowhere else: a scratch branch never reaches
 // GitHub (M-22). Forking a scratch branch waits for stage 2's capture.
-func (s *MythicalService) ForkBranch(ctx context.Context, repositoryID, actorID int64, input BranchForkInput) (BranchMachineResponse, error) {
+func (s *MythicalService) forkBranch(ctx context.Context, repositoryID, actorID int64, input BranchForkInput) (BranchMachineResponse, error) {
 	if s == nil || s.store == nil || s.host == nil {
 		return BranchMachineResponse{}, branchForkUnavailable("fork unavailable")
 	}
@@ -151,6 +155,70 @@ func (s *MythicalService) ForkBranch(ctx context.Context, repositoryID, actorID 
 		branchRow.Head = source.commit
 	}
 	return branchRow, nil
+}
+
+// ForkBranch serializes a session's request through the existing operation
+// store. A completed retry returns the original branch even after main moves;
+// a different payload cannot reuse its key. Authorization still runs on every
+// HTTP request before this receipt is read.
+func (s *MythicalService) ForkBranch(ctx context.Context, repositoryID, actorID int64, input BranchForkInput) (BranchMachineResponse, error) {
+	if err := middleware.RequirePerson(ctx, "fork a branch"); err != nil {
+		return BranchMachineResponse{}, err
+	}
+	info := middleware.AuthInfoFromContext(ctx)
+	if info == nil || info.User == nil || info.User.ID != actorID {
+		return BranchMachineResponse{}, &BranchError{403, "permission", "permission", "Access denied"}
+	}
+	if input.Request == "" {
+		return s.forkBranch(ctx, repositoryID, actorID, input)
+	}
+	if len(input.Request) > 256 {
+		return BranchMachineResponse{}, &BranchError{400, "bad_request", "user", "Invalid Idempotency-Key"}
+	}
+	if s == nil || s.store == nil {
+		return BranchMachineResponse{}, branchForkUnavailable("fork unavailable")
+	}
+	credential, err := todoRequestCredential(ctx, actorID)
+	if err != nil {
+		return BranchMachineResponse{}, err
+	}
+	scope := jobs.Scope{TenantID: strconv.FormatInt(repositoryID, 10), PrincipalID: "branch-request:" + credential}
+	id := uuid.NewSHA1(confirmationNamespace, []byte(scope.TenantID+"\x00"+scope.PrincipalID+"\x00branch.fork\x00"+input.Request)).String()
+	canonical, _ := json.Marshal(input)
+	var branch BranchMachineResponse
+	err = pgx.BeginFunc(ctx, s.store, func(tx pgx.Tx) error {
+		digest := sha256.Sum256([]byte(id))
+		if _, err := tx.Exec(ctx, `SELECT pg_advisory_xact_lock($1)`, int64(binary.BigEndian.Uint64(digest[:8]))); err != nil {
+			return err
+		}
+		var raw []byte
+		err := tx.QueryRow(ctx, `SELECT data FROM product_job_events WHERE tenant_id=$1 AND principal_id=$2 AND operation_id=$3 AND event_type='branch.fork.completed'`, scope.TenantID, scope.PrincipalID, id).Scan(&raw)
+		if err == nil {
+			var receipt struct {
+				Input  json.RawMessage       `json:"input"`
+				Branch BranchMachineResponse `json:"branch"`
+			}
+			if err := json.Unmarshal(raw, &receipt); err != nil {
+				return err
+			}
+			if !jsonEqual(receipt.Input, canonical) {
+				return &BranchError{409, "idempotency_mismatch", "conflict", "Idempotency-Key was already used for a different request"}
+			}
+			branch = receipt.Branch
+			return nil
+		}
+		if !errors.Is(err, pgx.ErrNoRows) {
+			return err
+		}
+		branch, err = s.forkBranch(ctx, repositoryID, actorID, input)
+		if err != nil {
+			return err
+		}
+		fact, _ := json.Marshal(map[string]any{"input": json.RawMessage(canonical), "branch": branch})
+		_, err = jobs.RecordFactInTx(ctx, tx, scope, id, "branch.fork.completed", "completed", fact)
+		return err
+	})
+	return branch, err
 }
 
 // forkSource resolves from to its revision (spec §8.5.0, §8.5.3): main is
