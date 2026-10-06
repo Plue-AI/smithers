@@ -320,3 +320,13 @@ test("live item gestures open only the supplied TODO and require its provider", 
   expect(liveBranchActionDefinitions({ ...model, item: undefined }, new Set(["todo"]))).toEqual([])
   expect(liveBranchActionDefinitions({ ...model, machine: { state: "closed" } }, new Set(["todo"]))[0]?.gesture).toBe("item")
 })
+
+test("recorded commit cards decode without reviving their retired renderers", async () => {
+  const { CardSchema } = await import("@smthrs/rpc/Cards")
+  for (const kind of ["commit", "commit-list"]) {
+    const saved = { id: "saved-commit", kind, title: "Retry webhooks", status: "active", createdAt: 1, ordinal: 1, payload: { repo: "o/r", commit: { commitId: "old" } } }
+    expect(CardSchema.parse(saved)).toEqual({ ...saved, kind: "retired", status: "acted", loading: false, payload: { was: kind } })
+    expect(Object.keys(CARD_RENDERERS)).not.toContain(kind)
+    expect(CardSchema.options.some(option => option.shape.kind.value === kind)).toBe(false)
+  }
+})

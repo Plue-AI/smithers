@@ -167,8 +167,6 @@ export const FLOW_NAMES = [
   "cloud.prompt",
   "cloud.sign-in",
   "cloud.sign-out",
-  "commits.list",
-  "commits.read",
   "debug.backend",
   "debug.errors",
   "debug.events",

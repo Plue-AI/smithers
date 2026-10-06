@@ -115,8 +115,6 @@ import type { CloudSeam } from "./seams/CloudSeam"
 import { createCloudSeam } from "./seams/CloudSeam"
 import type { CodeIntelSeam } from "./seams/CodeIntelSeam"
 import { createCodeIntelSeam } from "./seams/CodeIntelSeam"
-import type { CommitsSeam } from "./seams/CommitsSeam"
-import { createCommitsSeam } from "./seams/CommitsSeam"
 import { createDiffFilesSeam, createBranchDiffReader } from "./seams/DiffFilesSeam"
 import type { EgressSeam } from "./seams/EgressSeam"
 import { createEgressSeam } from "./seams/EgressSeam"
@@ -581,9 +579,6 @@ export interface AppController extends IssueFlowsController {
   readonly importRepository: RepoImportSeam["importRepository"]
   readonly retryImport: RepoImportSeam["retryImport"]
   readonly listBookmarks: ReturnType<typeof createBranchNavigationSeam>["listBookmarks"]
-  /** A branch's commits and one commit (seams/CommitsSeam.ts). */
-  readonly listCommits: CommitsSeam["listCommits"]
-  readonly readCommit: CommitsSeam["readCommit"]
   readonly fileDocuments: FileDocuments | undefined
   readonly recoverFile: (tag: "file.compare" | "file.restore-deleted" | "file.follow-rename" | "file.reapply", path: string, branch?: string) => Promise<string | { value: string } | undefined>
   readonly branchFiles: FilesSeam["branchFiles"]
@@ -1226,7 +1221,6 @@ export const createAppController = (
   }))
   const repoImportSeam = actors.pair(seamCtx, (context) => createRepoImportSeam(context))
   const bookmarksSeam = actors.pair(seamCtx, (context) => createBranchNavigationSeam(context, design, { live: services.live, onDispose: ctx.onDispose }))
-  const commitsSeam = actors.pair(seamCtx, (context) => createCommitsSeam(context))
   const branchFileOptions = services.branchOptions ?? (installHost ? {
     ready: () => true,
     scope: (branch = "main") => {
@@ -2216,8 +2210,6 @@ export const createAppController = (
     importRepository: repoImportSeam.importRepository,
     retryImport: repoImportSeam.retryImport,
     listBookmarks: async () => { earlierHistory.load(); return bookmarksSeam.listBookmarks() },
-    listCommits: commitsSeam.listCommits,
-    readCommit: commitsSeam.readCommit,
     branchFiles: filesSeam.branchFiles,
     listFiles: filesSeam.listFiles,
     ...diffFilesSeam,

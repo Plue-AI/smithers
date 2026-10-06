@@ -16,7 +16,7 @@ export const DiffSurface = viewModule(() => import("./cards/DiffSurface").then(m
 /** Load the same chunk that Suspense will consume when this destination opens. */
 export async function preloadViewModule(name: string, payload: Record<string, unknown>) {
   const module = name === "wiki.graph" ? KnowledgeGraphSurface
-    : ["prs.view", "prs.tab", "commits.read", "change.view", "change.facet", "files.implementation-diff"].includes(name) ? DiffSurface
+    : ["prs.view", "prs.tab", "change.view", "change.facet", "files.implementation-diff"].includes(name) ? DiffSurface
     : name === "files.read" ? (/\.mdx?$/i.test(String(payload.path)) ? MarkdownEditorSurface : CodeSurface)
     : ["wiki", "wiki.open", "wiki.edit", "wiki.card.view", "conversation.edit"].includes(name) ? MarkdownEditorSurface
     : undefined

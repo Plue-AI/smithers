@@ -30,7 +30,6 @@ import * as approvals from "./entries/approvals"
 import * as auth from "./entries/auth"
 import * as billing from "./entries/billing"
 import * as branches from "./entries/branches"
-import * as commits from "./entries/commits"
 import * as browser from "./entries/browser"
 import * as card from "./entries/card"
 import * as change from "./entries/change"
@@ -375,7 +374,6 @@ export const NAMESPACES: ReadonlyArray<Namespace> = [
   palette.namespace,
   sync.namespace,
   branches.namespace,
-  commits.namespace,
   env.namespace,
   secrets.namespace,
   history.namespace,

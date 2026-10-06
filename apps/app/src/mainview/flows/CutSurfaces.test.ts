@@ -14,6 +14,7 @@ const createAppController = scopedControllers()
 
 // Literal oracle: mvp.md §8 and Appendix B Cut rows (2026-10-02), independent of the registry.
 const CUT_NAMES = [
+  "commits.list", "commits.read",
   "chat.clear",
   "tab.card",
   "tab.close",
@@ -118,7 +119,7 @@ describe("Cut app surfaces", () => {
         expect(controller.slashItems(name).map(row => row.flow.name)).not.toContain(name)
       }
       for (const name of ["admin.devtools", "admin.reset", "issue.poc", "issue.repro", "review.request",
-        "billing.plans", "cloud.prompt", "repo.overview", "triggers.list", "box.services", "branches", "commits.list"]) {
+        "billing.plans", "cloud.prompt", "repo.overview", "triggers.list", "box.services", "branches"]) {
         expect(controller.commands.find(name)).toBeDefined()
       }
       await controller.dispose()
@@ -146,7 +147,7 @@ describe("Cut app surfaces", () => {
     const result = await controller.commands.run("debug.seams", "")
     expect(result).toMatchObject({ status: "executed", value: JSON.stringify(health) })
     // Signing in refreshes install status and members independently of the probe.
-    expect(requests.filter(path => path !== "/api/install")).toEqual(["/api/admin/system/health"])
+    expect(requests.filter(path => path !== "/api/install")).toEqual(["/api/conversations/main", "/api/admin/system/health"])
     expect([...store.collections.cards.values()].some(card => String(card.kind) === "admin-health")).toBe(false)
     expect([...store.collections.messages.values()].some(message => message.text.includes("Seam health"))).toBe(true)
     await controller.dispose()
@@ -189,7 +190,7 @@ describe("Cut app surfaces", () => {
     expect(cloud.kind).toBe("retired")
     const factory = CardSchema.parse({ ...base, kind: "agents", payload: { native: true, agents: [] } })
     expect(factory.kind).toBe("agents")
-    for (const kind of ["agents", "approval", "branches", "commit-list",
+    for (const kind of ["agents", "approval",
       "environment-images", "trigger-list", "world"]) expect(Object.keys(CARD_RENDERERS)).toContain(kind)
     for (const kind of ["grant-confirm", "balance", "billing-plans"] as const) {
       expect(Object.keys(CARD_RENDERERS)).not.toContain(kind)

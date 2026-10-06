@@ -110,3 +110,10 @@ test("T-APP-16 mounts branch navigation and Earlier from App", () => {
   for (const view of BRANCH_WIRING.views) expect(reachable.has(join(root, view))).toBe(true)
   for (const path of BRANCH_WIRING.legacy) expect(() => statSync(join(root, path))).toThrow()
 })
+
+const BRANCH_COMMIT_WIRING = { view: "BranchView.tsx", legacy: ["cards/CommitCards.tsx", "cards/CommitCards.test.tsx", "state/seams/CommitsSeam.ts", "state/seams/CommitsSeam.test.ts", "flows/entries/commits.ts"] }
+test("BranchView replaces the commit families and their producers", () => {
+  visit(join(root, "cards/CardRenderers.tsx"))
+  expect(reachable.has(join(root, "cards/views", BRANCH_COMMIT_WIRING.view))).toBe(true)
+  for (const file of BRANCH_COMMIT_WIRING.legacy) expect(() => statSync(join(root, file))).toThrow()
+})

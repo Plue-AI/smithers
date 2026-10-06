@@ -579,30 +579,6 @@ export const SearchItemSchema = z.object({
  */
 export type SearchItem = z.infer<typeof SearchItemSchema>
 
-/** A commit's author or committer as the source stated them; login and avatar only when derivable. */
-const CommitPersonSchema = z.object({
-  name: z.string().nullable(),
-  email: z.string().nullable(),
-  login: z.string().optional(),
-  avatarUrl: HttpUrlSchema.optional()
-})
-
-/** One commit row: the commits list's row and the commit card's head. */
-const CommitSummarySchema = z.object({
-  commitId: z.string(),
-  /** The jj change id; null when the source is plain git. */
-  changeId: z.string().nullable(),
-  /** The description's first line. */
-  title: z.string(),
-  author: CommitPersonSchema,
-  /** ISO time the author wrote it; null when the source did not say. */
-  authoredAt: z.string().nullable(),
-  /** The combined commit status (newest per context) when it was read. */
-  status: z.enum(["success", "failure", "pending"]).optional(),
-  /** Signature verification, only when the source reported it. */
-  verified: z.boolean().optional()
-})
-
 /**
  * Validates card values at the RPC boundary.
  *
@@ -1610,50 +1586,6 @@ const CurrentCardSchema = z.discriminatedUnion("kind", [
     })
   }),
   /*
-   * A repository's commits (commits.list): one branch's first-parent history,
-   * newest first, the way GitHub's Commits page lists them. Fields the source
-   * did not state stay null or absent; nothing is invented (plue names an
-   * author by name and email, never by login, and carries no signature).
-   */
-  z.object({
-    ...cardBaseShape,
-    kind: z.literal("commit-list"),
-    payload: z.object({
-      repo: z.string(),
-      /** The branch (bookmark) the history was walked from; null when the repository has none. */
-      branch: z.string().nullable(),
-      commits: z.array(CommitSummarySchema),
-      /** True when the walk stopped at its cap before the root commit. */
-      truncated: z.boolean().optional(),
-      error: z.string().optional()
-    })
-  }),
-  /* One commit (commits.read): the full message, its people, its parents and its diff. */
-  z.object({
-    ...cardBaseShape,
-    kind: z.literal("commit"),
-    payload: z.object({
-      repo: z.string(),
-      commit: CommitSummarySchema,
-      /** The full description, title line included. */
-      message: z.string(),
-      committer: CommitPersonSchema.nullable().optional(),
-      parents: z.array(z.object({ changeId: z.string().nullable(), commitId: z.string().nullable() })),
-      files: z.array(z.object({
-        path: z.string(),
-        oldPath: z.string().optional(),
-        changeType: z.string(),
-        isBinary: z.boolean(),
-        additions: z.number().int().nonnegative(),
-        deletions: z.number().int().nonnegative(),
-        patch: z.string().optional()
-      })),
-      /** Why the diff is missing, when it could not be read; the commit itself still renders. */
-      diffError: z.string().optional(),
-      error: z.string().optional()
-    })
-  }),
-  /*
    * Lane piper (ADR 0001): file cards carry the GLOBAL path
    * (`/org/repo/path`) and the position they were read at. `readAt.commitId`
    * is what "head moved" compares — a change id survives a rebase, a commit
@@ -2312,6 +2244,7 @@ const CurrentCardSchema = z.discriminatedUnion("kind", [
  * @category constants
  */
 export const LEGACY_CARD_KINDS = [
+  "commit", "commit-list",
   "branches",
   "workflow-repo",
   "provider-accounts", "repo-import", "connector-setup",
@@ -2350,6 +2283,7 @@ export const LEGACY_CARD_KINDS = [
 const retiredKinds = new Set<string>(LEGACY_CARD_KINDS)
 
 const retiredFlows = new Set<string>([
+  "commits.list", "commits.read",
   "flow.repo.choose",
   "chat.clear",
   "tab.card",
