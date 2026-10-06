@@ -63,3 +63,19 @@ test("T-APP-13 mounts SecretsView and deletes the legacy table", () => {
   expect(source).not.toContain("<table")
   expect(source).not.toContain("secrets-table")
 })
+
+// T-APP-12 moves the terminal facet to the single Terminal card mount.
+const TERMINAL_WIRING = { view: "TerminalView.tsx", ticket: "T-APP-12" }
+test("T-APP-12 mounts TerminalView and removes the Workspace terminal facet", () => {
+  visit(join(root, "cards/CardRenderers.tsx"))
+  expect(reachable.has(join(root, "cards/views", TERMINAL_WIRING.view))).toBe(true)
+  const renderer = readFileSync(join(root, "cards/CardRenderers.tsx"), "utf8")
+  expect(renderer).toContain("terminalCardFamily")
+  const workspace = join(root, "cards/WorkspaceCard.tsx")
+  // T-APP-10 may have removed the remaining Workspace card altogether.
+  try { statSync(workspace) } catch { return }
+  const source = readFileSync(workspace, "utf8")
+  expect(source).not.toContain("CloudTerminal")
+  expect(source).not.toContain("<Terminal")
+  expect(source).not.toContain('case "terminal"')
+})

@@ -1,7 +1,7 @@
 import { FileDocuments } from "../runtime/FileDocuments"
 import type { DocumentPrerequisites } from "../runtime/LiveDocProvider"
 import type { LiveChannel } from "../runtime/LiveChannel"
-import type { TerminalCardSource } from "./seams/TerminalSeam"
+import { createTerminalSource, type TerminalCardSource } from "./seams/TerminalSeam"
 import { debugApiOperation } from "@smthrs/ui/app-operations"
 import { bundledOpenApi } from "../../debugApi/bundled"
 import { createDebugApiSeam, debugApiFailureCopy, type DebugApiSeam, type DebugApiInput, type DebugApiGates, type OpenApiDocument } from "./seams/DebugApiSeam"
@@ -1259,6 +1259,22 @@ export const createAppController = (
       : { authorizeSocket: services.authorizeSocket })
   })
   ctx.onDispose(cloudTerminal.dispose)
+  const terminalProvider = installHost && services.live ? createTerminalSource({
+    live: services.live,
+    knownBranches: () => [...store.collections.cards.values()].flatMap(card => card.kind === "branch" ? [card.payload.id] : []),
+    subscribeViewer: listener => {
+      const subscription = store.collections.identitySessions.subscribeChanges(listener)
+      return () => subscription.unsubscribe()
+    },
+    repo: () => store.session().repositoryEntry?.repo ?? "",
+    viewer: () => {
+      const identity = store.collections.identitySessions.get("identity")
+      return identity?.state === "signed-in" ? identity.login ?? undefined : undefined
+    },
+    http: (path, init) => seamCtx.http(`${baseUrl.replace(/\/$/, "")}${path}`, init)
+  }) : undefined
+  if (terminalProvider) ctx.onDispose(terminalProvider.dispose)
+
   /*
    * Lane L6: the workspace language-server transport (plue #505), one socket
    * per (workspace, language) through the same tunnel the cloud terminal
@@ -1935,6 +1951,7 @@ export const createAppController = (
     submitForm,
     dismissCard,
     cloudTerminal,
+    terminalCards: terminalProvider?.source,
     toggleDevtools,
     moveCardHistory: (id, delta) => { store.dispatch({ type: "card.history.moved", actor: ctx.commandActor, id, delta }) },
     toggleDictation,

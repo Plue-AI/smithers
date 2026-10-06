@@ -40,3 +40,55 @@ test("missing provider or malformed metadata never attaches or writes", () => {
     binding.input("bad"); binding.resize({ cols: 80, rows: 24 })
   }
 })
+
+test("discovery ignores unavailable, malformed, stale identity and disposed branch reads", async () => {
+  const { createTerminalSource } = await import("./TerminalSeam")
+  for (const response of [new Response("denied", { status: 403 }), Response.json({ branches: [{ id: "b1" }] }), Response.json([{ id: "" }])]) {
+    let subscriptions = 0
+    const provider = createTerminalSource({ repo: () => "o/r", viewer: () => "ben", http: async () => response,
+      live: { subscribe: () => { subscriptions++; return () => {} }, getSnapshot: () => undefined } })
+    await provider.read()
+    expect(subscriptions).toBe(0)
+    expect(provider.source.branch("term-1")).toBeUndefined()
+    provider.dispose()
+  }
+  let identityChanged = () => {}
+  let viewer: string | undefined = "ben"
+  let complete!: (value: Response) => void
+  const pending = new Promise<Response>(resolve => { complete = resolve })
+  const subscriptions: string[] = []
+  const provider = createTerminalSource({ repo: () => "o/r", viewer: () => viewer, http: () => pending,
+    subscribeViewer: callback => { identityChanged = callback; return () => {} },
+    live: { subscribe: topic => { subscriptions.push(topic); return () => {} }, getSnapshot: () => undefined } })
+  const reading = provider.read()
+  viewer = undefined; identityChanged()
+  complete(Response.json([{ id: "b1" }]))
+  await reading
+  expect(subscriptions).toEqual([])
+  expect(provider.source.available()).toBe(false)
+  provider.dispose()
+  viewer = "ben"
+  await provider.read()
+  expect(provider.source.available()).toBe(false)
+  expect(subscriptions).toEqual([])
+})
+
+test("branch-list discovery accepts current names and legacy ids, deduplicates pages and stops cyclic cursors", async () => {
+  const { createTerminalSource } = await import("./TerminalSeam")
+  const requests: string[] = [], subscribed: string[] = [], detached: string[] = []
+  const provider = createTerminalSource({ repo: () => "o/r", viewer: () => "ben",
+    http: async path => {
+      requests.push(path)
+      return Response.json(path === "/api/branches" ? [{ id: "legacy" }] : [{ name: "b1" }, { name: "b1" }],
+        { headers: { link: '</api/branches?cursor=page-two>; rel="next"' } })
+    },
+    live: { subscribe: topic => { subscribed.push(topic); return () => { detached.push(topic) } },
+      getSnapshot: topic => ({ topic, data: topic === "branch:b1" ? metadata : { terminals: [] } }) } })
+  await provider.read()
+  expect(requests).toEqual(["/api/branches", "/api/branches?cursor=page-two"])
+  expect(subscribed).toEqual(["branch:legacy", "branch:b1"])
+  expect(provider.source.branch("term-1")).toBe("b1")
+  provider.dispose()
+  expect(detached).toEqual(["branch:legacy", "branch:b1"])
+  expect(provider.source.branch("term-1")).toBeUndefined()
+})

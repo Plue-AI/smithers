@@ -1,5 +1,5 @@
 /* Live metadata and bytes take over the design fallback; installs never seed terminals. */
-import { useMemo, useRef, type ReactNode } from "react"
+import { useMemo, useRef, useSyncExternalStore, type ReactNode } from "react"
 import { Terminal, type TerminalStream, type TerminalWriter } from "@smthrs/ui/adapters/terminal"
 import { useController } from "../ControllerContext"
 import { useTopic } from "../state/useTopic"
@@ -19,11 +19,15 @@ export const terminalSlot = (model: TerminalCard, stream: TerminalStream | undef
     palette="paper" fontSize={12.5} cursorBlink={!readOnly} aria-label={`${model.title} terminal`} />
 }
 
+const noSubscription = () => () => {}
+
 export const TerminalCardBody = ({ card, actions }: { readonly card: CardOf<"terminal">; readonly actions: CardActions }) => {
   const controller = useController()
   const source = controller.terminalCards
   const id = card.payload.id
-  const branch = source?.available() ? source.branch(id) : undefined
+  useSyncExternalStore(source?.subscribe ?? noSubscription, () => source?.viewer(), () => undefined)
+  const branch = useSyncExternalStore(source?.subscribe ?? noSubscription,
+    () => source?.available() ? source.branch(id) : undefined, () => undefined)
   const topic = branch === undefined ? undefined : `branch:${branch}`
   const snapshot = useTopic(topic, controller.live)
   const binding = useMemo(() => source && branch && controller.live ? createTerminalBinding({

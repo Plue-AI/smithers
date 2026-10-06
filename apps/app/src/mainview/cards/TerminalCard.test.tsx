@@ -7,6 +7,7 @@ import type { AppController } from "../state/AppController"
 import { ControllerTestProvider } from "../ControllerContext"
 import { CARD_RENDERERS } from "./CardRenderers"
 import { createDesignWorld } from "../state/seams/DesignWorld"
+import { createTerminalSource } from "../state/seams/TerminalSeam"
 import { terminalSlot } from "./TerminalCard"
 import { LiveChannel, type LiveSocket } from "../runtime/LiveChannel"
 const actions = { onDecideApproval: () => {}, onConnectGitHub: () => {}, onRunWorkflow: () => {}, onStopRun: () => {}, onRetryRun: () => {}, onChooseWorkflowRepo: () => {}, worldDocuments: [], onChangeWorldDocument: () => {}, onRunCommand: () => {} }
@@ -46,8 +47,19 @@ test("mounted registry takes live metadata over the seed and gates owner keys du
   const live = new LiveChannel({ socket: () => socket })
   const inputs: string[] = [], attached: string[] = [], detached: string[] = []
   let viewer = "ben"
+  let identityChanged = () => {}
+  const requests: string[] = []
+  const provider = createTerminalSource({ repo: () => "o/r", viewer: () => viewer, live, knownBranches: () => ["b1"],
+    subscribeViewer: callback => { identityChanged = callback; return () => {} },
+    // HTTP and machine-byte doubles: this Linux VM has neither PostgreSQL nor microVMs.
+    http: async path => {
+      requests.push(path)
+      return path === "/api/branches"
+        ? Response.json([{ id: "b0" }], { headers: { link: '</api/branches?cursor=next-page>; rel="next"' } })
+        : Response.json([{ name: "b1", kind: "item", state: "awake", machine: { id: "m1" } }])
+    } })
   const controller = { design: design(), live,
-    terminalCards: { repo: "o/r", branch: () => "b1", available: () => true, viewer: () => viewer },
+    terminalCards: provider.source,
     commands: { submit: () => { throw new Error("live input must use the byte seam") } },
     // A byte transport double is required on this laptop, which has no machine runtime.
     // The registry, live decoder, binding, View and xterm adapter are production code.
@@ -58,11 +70,11 @@ test("mounted registry takes live metadata over the seed and gates owner keys du
   const host = document.createElement("div"); document.body.append(host); const root = createRoot(host)
   const owner = { kind: "person", login: "ben", name: "Ben", avatar_url: "https://github.com/ben.png", color_index: 0 }
   let cursor = 0
-  const snapshot = async (frozen: boolean, id = card.payload.id) => {
+  const snapshot = async (frozen: boolean, id = card.payload.id, command: string | null = "pnpm check", actor: unknown = owner) => {
     const sub = frames.find(frame => frame.t === "sub" && frame.topic === "branch:b1")!
     expect(sub).toBeDefined()
     await act(async () => socket.onmessage?.({ data: JSON.stringify({ t: "snap", id: sub.id, cursor: ++cursor,
-      data: { terminals: [{ id, title: "Live shell", owner, agents: [], watchers: [], command: "pnpm check", frozen }] } }) }))
+      data: { terminals: [{ id, title: "Live shell", owner: actor, agents: [], watchers: [], ...(command === null ? {} : { command }), frozen }] } }) }))
   }
   const render = async (id = card.payload.id) => act(async () => root.render(<ControllerTestProvider controller={controller}>
     {CARD_RENDERERS.terminal.render({ ...card, payload: { id } }, actions)}</ControllerTestProvider>))
@@ -90,13 +102,33 @@ test("mounted registry takes live metadata over the seed and gates owner keys du
       expect(host.textContent!.includes("Watching")).toBe(who === "alice")
       expect(host.textContent!.includes("Rebasing…")).toBe(frozen)
     }
+    viewer = "alice"
+    await act(async () => identityChanged())
+    expect(host.querySelector(".terminal-output > div")!.hasAttribute("inert")).toBe(true)
+    expect(host.textContent).toContain("Watching")
+    inputs.length = 0
+    await act(async () => (await input()).dispatchEvent(new KeyboardEvent("keypress", { key: "a", charCode: 97, keyCode: 97, bubbles: true })))
+    expect(inputs).toEqual([])
+    viewer = "ben"
+    await act(async () => identityChanged())
+    expect(host.querySelector(".terminal-output > div")!.hasAttribute("inert")).toBe(false)
+    await snapshot(false, card.payload.id, null)
+    expect(host.querySelector(".terminal-command")).toBeNull()
+    await snapshot(false, card.payload.id, null, { kind: "agent", id: "coding-b1", agent: "coding", avatar_url: "https://github.com/smithers.png", color_index: 0, for_member: owner })
+    expect(host.querySelector(".terminal-person")?.getAttribute("title")).toBe("Coding agent for Ben\'s terminal")
+    expect(host.textContent).toContain("Watching")
+    inputs.length = 0
+    await act(async () => (await input()).dispatchEvent(new KeyboardEvent("keypress", { key: "a", charCode: 97, keyCode: 97, bubbles: true })))
+    expect(inputs).toEqual([])
     await snapshot(false, "term-next")
     await render("term-next")
     await input()
     expect(attached).toContain("term-next")
     expect(detached).toContain(card.payload.id)
   } finally {
-    await act(async () => root.unmount()); host.remove(); live.dispose()
+    await act(async () => root.unmount()); host.remove(); provider.dispose(); live.dispose()
   }
+  expect(requests).toContain("/api/branches")
+  expect(requests).toContain("/api/branches?cursor=next-page")
   expect(detached).toContain("term-next")
 })
