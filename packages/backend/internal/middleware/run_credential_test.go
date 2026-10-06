@@ -60,3 +60,41 @@ func TestRequirePersonRefusesAgentAccounts(t *testing.T) {
 	assert.ErrorContains(t, err, "an agent account cannot decide")
 	assert.NoError(t, RequirePerson(ContextWithAuthInfo(context.Background(), &AuthInfo{User: &db.User{ID: 8, UserType: "user"}, IsTokenAuth: true}), "decide"))
 }
+
+func TestMachineCredentialClassification(t *testing.T) {
+	for _, tc := range []struct {
+		issued bool
+		scopes string
+		want   CredentialKind
+	}{
+		{true, "write:repository,workspace:box-1", CredentialMachine},
+		{true, "write:workspace,workspace:box-1,credential:workspace-children", CredentialMachine},
+		{true, "write:repository,landing-workspace:box-1", CredentialAgentRun},
+		{false, "write:repository,workspace:box-1", CredentialPerson},
+		{true, "write:repository,via:cli,branch:box-1", CredentialDelegated},
+	} {
+		assert.Equal(t, tc.want, TokenCredentialKind(tc.issued, tc.scopes, "user"))
+	}
+	assert.Equal(t, CredentialMachine, ParseCredentialKind("machine"))
+	assert.Equal(t, CredentialAgentRun, ParseCredentialKind("setup"), "unhandled kinds remain restricted")
+	assert.True(t, CredentialMachine.Agent())
+	assert.False(t, CredentialMachine.Reviewed())
+	info := &AuthInfo{User: &db.User{ID: 1}, IsTokenAuth: true, TokenSystemIssued: true, RawScopes: "workspace:box-1"}
+	assert.Equal(t, CredentialMachine, info.CredentialKind())
+	assert.Error(t, RequirePerson(ContextWithAuthInfo(context.Background(), info), "approve"))
+}
+
+func TestMachineAndSyncDoNotInheritTerminalDelegation(t *testing.T) {
+	for _, scopes := range []string{
+		"workspace:box-1,via:terminal,branch:box-1,profile:terminal_s1",
+		"credential:sync,via:terminal,branch:box-1,profile:terminal_s1",
+	} {
+		info := &AuthInfo{User: &db.User{ID: 1}, IsTokenAuth: true, TokenSystemIssued: true, RawScopes: scopes, ViaHint: "codex"}
+		_, delegated := info.Delegation()
+		assert.False(t, delegated)
+		_, terminal := info.TerminalDelegation()
+		assert.False(t, terminal)
+		assert.Empty(t, info.ActingVia())
+		assert.Error(t, RequirePerson(ContextWithAuthInfo(context.Background(), info), "approve"))
+	}
+}

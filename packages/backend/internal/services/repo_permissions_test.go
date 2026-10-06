@@ -112,3 +112,15 @@ func TestBoundInstallAuthorization(t *testing.T) {
 	assert.ErrorAs(t, err, &refusal)
 	assert.Equal(t, http.StatusForbidden, refusal.Status)
 }
+
+func TestSystemCredentialsCannotInheritTerminalCommandAuthority(t *testing.T) {
+	for _, binding := range []string{"workspace:box-1", "credential:sync"} {
+		info := &middleware.AuthInfo{User: &db.User{ID: 7}, IsTokenAuth: true, TokenSystemIssued: true, RawScopes: binding + ",via:terminal,branch:box-1,profile:terminal_s1"}
+		ctx := middleware.ContextWithAuthInfo(context.Background(), info)
+		_, err := Authorize(ctx, nil, "todo.steer")
+		var access *AccessError
+		assert.ErrorAs(t, err, &access)
+		assert.Equal(t, http.StatusForbidden, access.Status)
+		assert.Equal(t, "permission", access.Code)
+	}
+}

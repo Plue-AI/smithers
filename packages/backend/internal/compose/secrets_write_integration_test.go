@@ -15,6 +15,7 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/smithersai/smithers/packages/backend/internal/db"
+	"github.com/smithersai/smithers/packages/backend/internal/middleware"
 	"github.com/smithersai/smithers/packages/backend/internal/routes"
 	"github.com/smithersai/smithers/packages/backend/internal/services"
 	"github.com/smithersai/smithers/packages/backend/testkit/postgresfixture"
@@ -68,11 +69,70 @@ func TestSecretsWriteComposedInstallPostgres(t *testing.T) {
 	origin := "http://" + server.Listener.Addr().String()
 	cfg.Server.PublicURL = origin
 	cfg.Server.AllowedOrigins = []string{origin}
-	secrets := &routes.SecretHandler{Service: services.NewSecretService(q, nil)}
+	secrets := &routes.SecretHandler{Service: services.NewSecretService(q, nil, services.WithSecretInstallAuthorization(true, pool))}
 	server.Config.Handler = buildRouterCompat(cfg, q, pool, &routes.RepoHandler{}, &routes.AuthHandler{}, &routes.UserHandler{}, &routes.SSHKeyHandler{}, &routes.LabelHandler{}, &routes.OrgHandler{}, &routes.LandingHandler{}, &routes.SearchHandler{Service: &mockRouterSearchService{}}, &routes.IssueHandler{}, nil, &routes.GitSmartHandler{Service: &mockRouterGitService{}}, nil, nil, nil, nil, nil, nil, nil, secrets, nil, nil, nil, nil, nil, nil, nil, nil, nil, &routes.WorkspaceHandler{}, nil, nil, nil, nil, nil, nil, routerExtras{Members: &routes.MembersHandler{Service: members}})
 	server.Start()
 	defer server.Close()
 
+	// Direct service calls must obtain the same decision before writes,
+	// even when router middleware is absent.
+	service := services.NewSecretService(q, nil, services.WithSecretInstallAuthorization(true, pool))
+	for _, who := range []db.User{owner, maintainer, writer} {
+		directHash := sha256.Sum256([]byte("direct-" + who.Username))
+		directKey := hex.EncodeToString(directHash[:])
+		_, err = q.CreateAuthSession(ctx, db.CreateAuthSessionParams{UserID: who.ID, Username: who.Username, SessionKey: directKey, ExpiresAt: time.Now().Add(time.Hour)})
+		require.NoError(t, err)
+		directCtx := middleware.ContextWithAuthInfo(ctx, &middleware.AuthInfo{User: &who, SessionHash: directKey})
+		_, directErr := service.SetSecret(directCtx, &who, "owner", "app", "DIRECT_KEY", "value", nil, nil)
+		if who.ID == writer.ID {
+			var access *services.AccessError
+			require.ErrorAs(t, directErr, &access)
+			require.Equal(t, "permission", access.Code)
+		} else {
+			require.NoError(t, directErr)
+			require.NoError(t, service.DeleteSecret(directCtx, &who, "owner", "app", "DIRECT_KEY"))
+		}
+	}
+	delegatedCtx := middleware.ContextWithAuthInfo(ctx, &middleware.AuthInfo{User: &owner, IsTokenAuth: true, TokenSystemIssued: true, RawScopes: "write:repository,via:cli"})
+	_, directErr := service.SetSecret(delegatedCtx, &owner, "owner", "app", "DENIED_KEY", "value", nil, nil)
+	var access *services.AccessError
+	require.ErrorAs(t, directErr, &access)
+	require.Equal(t, "never", access.Code)
+	// An allowed command is still confined to the persisted install repo.
+	otherRepo, err := q.CreateRepo(ctx, db.CreateRepoParams{UserID: pgtype.Int8{Int64: owner.ID, Valid: true}, Name: "other", LowerName: "other", DefaultBookmark: "main"})
+	require.NoError(t, err)
+	ownerHash := sha256.Sum256([]byte("direct-" + owner.Username))
+	ownerCtx := middleware.ContextWithAuthInfo(ctx, &middleware.AuthInfo{User: &owner, SessionHash: hex.EncodeToString(ownerHash[:])})
+	_, directErr = service.SetSecret(ownerCtx, &owner, "owner", "other", "CROSS_KEY", "value", nil, nil)
+	require.ErrorAs(t, directErr, &access)
+	require.Equal(t, "permission", access.Code)
+	var otherSecrets int
+	require.NoError(t, pool.QueryRow(ctx, `SELECT count(*) FROM repository_secrets WHERE repository_id=$1`, otherRepo.ID).Scan(&otherSecrets))
+	require.Zero(t, otherSecrets)
+	// A downgrade preserves the bound command decision, but logout does not.
+	maintHash := sha256.Sum256([]byte("direct-" + maintainer.Username))
+	maintKey := hex.EncodeToString(maintHash[:])
+	maintCtx := middleware.ContextWithAuthInfo(ctx, &middleware.AuthInfo{User: &maintainer, SessionHash: maintKey})
+	boundDecision, err := services.Authorize(maintCtx, q, "secrets.write")
+	require.NoError(t, err)
+	boundCtx := services.WithInstallAuthorization(maintCtx, "secrets.write", boundDecision)
+	require.NoError(t, members.ChangeRole(ownerCtx, maintainer.Username, "member"))
+	_, err = service.SetSecret(boundCtx, &maintainer, "owner", "app", "BOUND_DOWNGRADE", "value", nil, nil)
+	require.NoError(t, err)
+	require.NoError(t, service.DeleteSecret(boundCtx, &maintainer, "owner", "app", "BOUND_DOWNGRADE"))
+	_, err = service.SetSecret(maintCtx, &maintainer, "owner", "app", "FRESH_DENIED", "value", nil, nil)
+	require.ErrorAs(t, err, &access)
+	require.Equal(t, "permission", access.Code)
+	require.NoError(t, members.ChangeRole(ownerCtx, maintainer.Username, "maintainer"))
+	boundDecision, err = services.Authorize(maintCtx, q, "secrets.write")
+	require.NoError(t, err)
+	boundCtx = services.WithInstallAuthorization(maintCtx, "secrets.write", boundDecision)
+	_, err = pool.Exec(ctx, `DELETE FROM auth_sessions WHERE session_key=$1`, maintKey)
+	require.NoError(t, err)
+	_, err = service.SetSecret(boundCtx, &maintainer, "owner", "app", "LOGOUT_SECRET", "value", nil, nil)
+	require.ErrorAs(t, err, &access)
+	require.Equal(t, 401, access.Status)
+	require.Equal(t, "unauthenticated", access.Code)
 	session := func(u db.User) string {
 		key := u.Username + "-cookie"
 		digest := sha256.Sum256([]byte(key))
@@ -196,6 +256,19 @@ func TestSecretsWriteComposedInstallPostgres(t *testing.T) {
 				require.Equal(t, []string{"OWNER_KEY"}, stored(), "a refusal writes nothing")
 			}
 		})
+	}
+	// A workspace-scoped system credential never takes person authority,
+	// including when it belongs to the install owner.
+	machine := credential{bearer: token(owner, "machine", "write:repository,workspace:box-1", true)}
+	for _, call := range []struct{ method, path, body string }{
+		{"POST", "/secrets", `{"name":"MACHINE_KEY","value":"v"}`},
+		{"PATCH", "/secrets/OWNER_KEY", `{"main_only":false}`},
+		{"DELETE", "/secrets/OWNER_KEY", ""},
+	} {
+		status, body := request(machine, call.method, call.path, call.body)
+		require.Equal(t, http.StatusForbidden, status, body)
+		require.Equal(t, "permission", body["class"], body)
+		require.Equal(t, []string{"OWNER_KEY"}, stored())
 	}
 	var value []byte
 	require.NoError(t, pool.QueryRow(ctx, `SELECT value_encrypted FROM repository_secrets WHERE repository_id=$1 AND name='OWNER_KEY'`, repo.ID).Scan(&value))

@@ -76,7 +76,12 @@ func TestMemberRoutesAuthorizeByRolePostgres(t *testing.T) {
 	router := chi.NewRouter()
 	router.Use(authLoader(q, cfg.Auth))
 	router.Use(memberCommands(q))
+	downgradeAfterDecision := false
 	served := func(w http.ResponseWriter, r *http.Request) {
+		if downgradeAfterDecision {
+			_, err := pool.Exec(ctx, `UPDATE collaborators SET permission='write' WHERE user_id=$1`, ben.ID)
+			require.NoError(t, err)
+		}
 		command := middleware.InstallMemberCommand(r.Method, r.URL.Path)
 		if command != "" && command != "self" {
 			// A same-command service entry reuses the middleware decision even
@@ -142,7 +147,11 @@ func TestMemberRoutesAuthorizeByRolePostgres(t *testing.T) {
 				require.Equal(t, map[string]any{"class": "permission", "code": "permission", "message": "Only a maintainer can do this"}, envelope, key)
 			}
 			if want == http.StatusForbidden && who == "member token" && !ownerOnly[key] {
-				require.Equal(t, "Sign in with a browser session", envelope["message"], key)
+				message := "Sign in with a browser session"
+				if key == "POST /api/todos/1/merge" {
+					message = "Merge requires an owner or maintainer browser session"
+				}
+				require.Equal(t, message, envelope["message"], key)
 			}
 		}
 	}
@@ -164,6 +173,17 @@ func TestMemberRoutesAuthorizeByRolePostgres(t *testing.T) {
 		status, _ = call("POST", path, "", ownerToken)
 		require.Equal(t, http.StatusForbidden, status, path)
 	}
+	// An ordinary role downgrade after the request's bound decision does
+	// not change that in-flight decision. The next request sees the new role.
+	downgradeAfterDecision = true
+	status, _ = call("POST", "/api/members", cookies["maintainer"], "")
+	require.Equal(t, http.StatusOK, status)
+	downgradeAfterDecision = false
+	status, envelope = call("POST", "/api/members", cookies["maintainer"], "")
+	require.Equal(t, http.StatusForbidden, status)
+	require.Equal(t, "permission", envelope["code"])
+	_, err = pool.Exec(ctx, `UPDATE collaborators SET permission='admin' WHERE user_id=$1`, ben.ID)
+	require.NoError(t, err)
 	// Suspending Ben refuses his very next request.
 	_, err = pool.Exec(ctx, `UPDATE collaborators SET suspended_at=now() WHERE user_id=$1`, ben.ID)
 	require.NoError(t, err)

@@ -88,25 +88,12 @@ func authorizeInstallRepository(w http.ResponseWriter, r *http.Request, queries 
 		todoRouteError(w, err)
 		return 0, 0, false
 	}
-	setting, err := queries.GetInstallSetting(r.Context(), "github.repository")
+	repositoryID, err := services.InstallRepositoryID(r.Context(), queries)
 	if err != nil {
 		todoRouteError(w, err)
 		return 0, 0, false
 	}
-	var binding struct {
-		Owner string `json:"owner_login"`
-		Name  string `json:"repository_name"`
-	}
-	if err = json.Unmarshal(setting.Value, &binding); err != nil || binding.Owner == "" || binding.Name == "" {
-		todoRouteError(w, err)
-		return 0, 0, false
-	}
-	repo, err := queries.GetRepoByOwnerAndName(r.Context(), db.GetRepoByOwnerAndNameParams{Owner: binding.Owner, Name: binding.Name})
-	if err != nil {
-		todoRouteError(w, err)
-		return 0, 0, false
-	}
-	return repo.ID, decision.UserID, true
+	return repositoryID, decision.UserID, true
 }
 func (h *TodoHandler) Create(w http.ResponseWriter, r *http.Request) {
 	repo, user, ok := h.authorize(w, r, "todo.new")

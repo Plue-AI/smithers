@@ -9,8 +9,11 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgtype"
+	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/smithersai/smithers/packages/backend/internal/db"
+	"github.com/smithersai/smithers/packages/backend/internal/identity"
+	"github.com/smithersai/smithers/packages/backend/internal/middleware"
 	pkgerrors "github.com/smithersai/smithers/packages/backend/internal/pkg/errors"
 	"github.com/smithersai/smithers/packages/backend/internal/webhook"
 )
@@ -50,10 +53,18 @@ type SecretService struct {
 	secretCodec    webhook.SecretCodec
 	ownershipGuard RepoOwnershipGuard
 	// subscriptionTokens mirrors feature_flags.subscription_connections.
-	subscriptionTokens bool
+	subscriptionTokens   bool
+	installAuthorization bool
+	installPool          *pgxpool.Pool
 }
 
 type SecretServiceOption func(*SecretService)
+
+// WithSecretInstallAuthorization selects the install command policy instead
+// of the multitenant repository ACL for repository secret writes.
+func WithSecretInstallAuthorization(enabled bool, pool *pgxpool.Pool) SecretServiceOption {
+	return func(s *SecretService) { s.installAuthorization, s.installPool = enabled, pool }
+}
 
 // WithSecretSubscriptionTokens lets a self-hosted deployment store Claude or
 // ChatGPT subscription tokens as secrets. Off by default (hosted).
@@ -186,7 +197,7 @@ func (s *SecretService) SetSecret(ctx context.Context, actor *db.User, owner, re
 	}
 
 	var created db.RepositorySecret
-	if err := guardedRepoWrite(ctx, s.ownershipGuard, repository, func() error {
+	if err := s.guardedSecretWrite(ctx, repository, actor.ID, func(queries SecretQuerier) error {
 		var werr error
 		params := db.CreateOrUpdateSecretParams{
 			RepositoryID:   repository.ID,
@@ -199,7 +210,7 @@ func (s *SecretService) SetSecret(ctx context.Context, actor *db.User, owner, re
 		if stored != nil {
 			params.Hosts, params.MatchHeaders = stored.Hosts, stored.MatchHeaders
 		}
-		created, werr = s.queries.CreateOrUpdateSecret(ctx, params)
+		created, werr = queries.CreateOrUpdateSecret(ctx, params)
 		if isSecretCapViolation(werr, "repository_secrets_repo_cap") {
 			return repoSecretQuotaExceeded()
 		}
@@ -264,9 +275,9 @@ func (s *SecretService) UpdateSecret(ctx context.Context, actor *db.User, owner,
 	}
 	params.RepositoryID = repository.ID
 	var updated db.RepositorySecret
-	if err := guardedRepoWrite(ctx, s.ownershipGuard, repository, func() error {
+	if err := s.guardedSecretWrite(ctx, repository, actor.ID, func(queries SecretQuerier) error {
 		var werr error
-		updated, werr = s.queries.UpdateSecretSettings(ctx, params)
+		updated, werr = queries.UpdateSecretSettings(ctx, params)
 		if stdErrors.Is(werr, pgx.ErrNoRows) {
 			return pkgerrors.NotFound("secret not found")
 		}
@@ -362,8 +373,8 @@ func (s *SecretService) DeleteSecret(ctx context.Context, actor *db.User, owner,
 		return err
 	}
 
-	return guardedRepoWrite(ctx, s.ownershipGuard, repository, func() error {
-		if err := s.queries.DeleteSecret(ctx, db.DeleteSecretParams{
+	return s.guardedSecretWrite(ctx, repository, actor.ID, func(queries SecretQuerier) error {
+		if err := queries.DeleteSecret(ctx, db.DeleteSecretParams{
 			RepositoryID: repository.ID,
 			Name:         trimmedName,
 		}); err != nil {
@@ -579,9 +590,119 @@ func (s *SecretService) requireOrgOwner(ctx context.Context, actor *db.User, org
 	return org, nil
 }
 
+// guardedSecretWrite orders install writes with roster transitions and
+// session revocation. It checks liveness, not the minimum role again: an
+// ordinary downgrade does not replace the request's bound decision.
+func (s *SecretService) guardedSecretWrite(ctx context.Context, repository db.Repository, actorID int64, write func(SecretQuerier) error) error {
+	return guardedRepoWrite(ctx, s.ownershipGuard, repository, func() error {
+		if !s.installAuthorization {
+			return write(s.queries)
+		}
+		if s.installPool == nil {
+			return &AccessError{Status: 503, Class: "infra", Code: "unavailable", Message: "Members unavailable"}
+		}
+		tx, err := s.installPool.Begin(ctx)
+		if err != nil {
+			return err
+		}
+		defer tx.Rollback(ctx)
+		// Members.lockRoster takes FOR UPDATE on this same row.
+		if _, err = tx.Exec(ctx, `SELECT user_id FROM self_host_owners FOR SHARE`); err != nil {
+			return err
+		}
+		if _, err = tx.Exec(ctx, `SELECT key FROM install_settings WHERE key='github.repository' FOR SHARE`); err != nil {
+			return err
+		}
+		info := middleware.AuthInfoFromContext(ctx)
+		dead := func() error {
+			return &AccessError{Status: 401, Class: "permission", Code: "unauthenticated", Message: "Sign in again"}
+		}
+		if info == nil || info.User == nil || info.User.ID != actorID || info.IsTokenAuth || info.SessionHash == "" {
+			return dead()
+		}
+		// Find the stored key without locking unrelated sessions. Earlier rows
+		// stored the raw cookie; the live principal still carries its digest.
+		rows, err := tx.Query(ctx, `SELECT session_key FROM auth_sessions WHERE user_id=$1 AND expires_at>now()`, actorID)
+		if err != nil {
+			return err
+		}
+		key := ""
+		for rows.Next() {
+			var stored string
+			if err = rows.Scan(&stored); err != nil {
+				rows.Close()
+				return err
+			}
+			if stored == info.SessionHash || (middleware.LegacyRawSessionKey(stored) && sessionStorageKey(stored) == info.SessionHash) {
+				key = stored
+				break
+			}
+		}
+		err = rows.Err()
+		rows.Close()
+		if err != nil {
+			return err
+		}
+		if key == "" {
+			return dead()
+		}
+		// Logout deletes this row, so exactly this credential is serialized too.
+		err = tx.QueryRow(ctx, `SELECT session_key FROM auth_sessions WHERE session_key=$1 AND user_id=$2 AND expires_at>clock_timestamp() FOR SHARE`, key, actorID).Scan(&key)
+		if stdErrors.Is(err, pgx.ErrNoRows) {
+			return dead()
+		}
+		if err != nil {
+			return err
+		}
+		queries := db.New(tx)
+		role, err := InstallRoleOf(ctx, queries, actorID)
+		if err != nil {
+			return err
+		}
+		if role == "" {
+			return dead()
+		}
+		if err := identity.NewMemberBoundary(queries).AuthorizeMember(identity.WithMemberRoute(ctx), actorID); err != nil {
+			return err
+		}
+		current, err := InstallRepositoryID(ctx, queries)
+		if err != nil {
+			return err
+		}
+		if current != repository.ID {
+			return &AccessError{Status: 403, Class: "permission", Code: "permission", Message: "Not available"}
+		}
+		if err = write(queries); err != nil {
+			return err
+		}
+		return tx.Commit(ctx)
+	})
+}
+
 func (s *SecretService) requireAdminAccess(ctx context.Context, repository db.Repository, actor *db.User) error {
 	if actor == nil {
 		return pkgerrors.Unauthorized("authentication required")
+	}
+	if s.installAuthorization {
+		queries, _ := s.queries.(*db.Queries)
+		decision, err := Authorize(ctx, queries, "secrets.write")
+		if err != nil {
+			return err
+		}
+		if decision.UserID != actor.ID {
+			return &AccessError{Status: 403, Class: "permission", Code: "permission", Message: "Not available"}
+		}
+		if queries == nil {
+			return &AccessError{Status: 503, Class: "infra", Code: "unavailable", Message: "Repository unavailable"}
+		}
+		repositoryID, err := InstallRepositoryID(ctx, queries)
+		if err != nil {
+			return err
+		}
+		if repositoryID != repository.ID {
+			return &AccessError{Status: 403, Class: "permission", Code: "permission", Message: "Not available"}
+		}
+		return nil
 	}
 	isAdmin, err := s.isRepoAdmin(ctx, repository, actor.ID)
 	if err != nil {

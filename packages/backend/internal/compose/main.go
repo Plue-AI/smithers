@@ -690,7 +690,7 @@ func runWithOptions(ctx context.Context, args []string, stdout, stderr io.Writer
 		slog.Error("invalid github-sync webhook configuration", "error", err)
 		return err
 	}
-	secretService := services.NewSecretService(queries, webhookSecretCodec, services.WithSecretOwnershipGuard(repoOwnershipFence), services.WithSecretSubscriptionTokens(cfg.FeatureFlags.SubscriptionConnections))
+	secretService := services.NewSecretService(queries, webhookSecretCodec, services.WithSecretInstallAuthorization(config.IsSingleOwner(cfg.Auth), pool), services.WithSecretOwnershipGuard(repoOwnershipFence), services.WithSecretSubscriptionTokens(cfg.FeatureFlags.SubscriptionConnections))
 	variableService := services.NewVariableService(queries, services.WithVariableOwnershipGuard(repoOwnershipFence), services.WithVariableSubscriptionTokens(cfg.FeatureFlags.SubscriptionConnections))
 
 	blobConfig := cfg.Blob

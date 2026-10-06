@@ -430,7 +430,11 @@ func Authorize(ctx context.Context, q *db.Queries, command string) (InstallAutho
 			return InstallAuthorization{}, &AccessError{Status: http.StatusForbidden, Class: "permission", Code: "permission", Message: "A terminal's credential cannot do this"}
 		}
 	} else if (info.IsTokenAuth || info.IsAgent() || info.SessionHash == "") && !(info.IsTokenAuth && (command == "repo.read" || command == "agent.turn" && !info.IsAgent())) {
-		return InstallAuthorization{}, &AccessError{Status: http.StatusForbidden, Class: "permission", Code: "permission", Message: "Sign in with a browser session"}
+		message := "Sign in with a browser session"
+		if command == "merge" {
+			message = "Merge requires an owner or maintainer browser session"
+		}
+		return InstallAuthorization{}, &AccessError{Status: http.StatusForbidden, Class: "permission", Code: "permission", Message: message}
 	}
 	role, err := InstallRoleOf(ctx, q, info.User.ID)
 	if err != nil {
@@ -526,9 +530,20 @@ func InstallRepositoryID(ctx context.Context, q *db.Queries) (int64, error) {
 	var binding struct {
 		Owner string `json:"owner_login"`
 		Name  string `json:"repository_name"`
+		ID    int64  `json:"repository_id"`
 	}
 	if err = json.Unmarshal(setting.Value, &binding); err != nil || binding.Owner == "" || binding.Name == "" {
 		return 0, &AccessError{Status: http.StatusServiceUnavailable, Class: "infra", Code: "unavailable", Message: "Repository unavailable"}
+	}
+	// The setup binding records the local repository identity separately
+	// from its GitHub owner, which need not be a local member's login.
+	if binding.ID > 0 {
+		row, err := q.GetRepoByID(ctx, binding.ID)
+		if !stdErrors.Is(err, pgx.ErrNoRows) {
+			return row.ID, err
+		}
+		// Earlier setup versions retained a GitHub id here. Preserve their
+		// persisted slug binding when it does not name a local repository.
 	}
 	row, err := q.GetRepoByOwnerAndName(ctx, db.GetRepoByOwnerAndNameParams{Owner: binding.Owner, Name: binding.Name})
 	return row.ID, err

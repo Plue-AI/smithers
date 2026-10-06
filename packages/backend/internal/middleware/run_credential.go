@@ -20,6 +20,8 @@ const (
 	// workspace, a workflow job, a gateway. It is the kind every
 	// system-issued token has unless it is issued as CredentialSync.
 	CredentialAgentRun CredentialKind = "run"
+	// CredentialMachine is a system token restricted to one workspace.
+	CredentialMachine CredentialKind = "machine"
 	// CredentialSync is a system-issued token only the platform's own
 	// sync workers hold on the server (repository mirroring and document
 	// synchronization). No agent or workflow ever receives one.
@@ -93,7 +95,7 @@ func ParseTokenDelegation(systemIssued bool, raw string) (Delegation, bool) {
 // Delegation is the request credential's stored delegation, if it is a
 // delegated token.
 func (a *AuthInfo) Delegation() (Delegation, bool) {
-	if a == nil || !a.IsTokenAuth {
+	if a == nil || !a.IsTokenAuth || a.CredentialKind() != CredentialDelegated {
 		return Delegation{}, false
 	}
 	return ParseTokenDelegation(a.TokenSystemIssued, a.RawScopes)
@@ -131,9 +133,9 @@ func EffectiveVia(stored, hint string) string {
 }
 
 // Agent reports whether a credential of this kind is an agent's: an agent
-// run's or a delegated one. Neither writes the default bookmark directly.
+// run's, machine's or a delegated one. None writes the default bookmark directly.
 func (k CredentialKind) Agent() bool {
-	return k == CredentialAgentRun || k == CredentialDelegated
+	return k == CredentialAgentRun || k == CredentialDelegated || k == CredentialMachine
 }
 
 // syncCredentialScope marks a system-issued token as CredentialSync. Like the
@@ -182,6 +184,9 @@ func TokenCredentialKind(systemIssued bool, rawScopes, userType string) Credenti
 			return CredentialSync
 		}
 	}
+	if ParseTokenWorkspaceRestriction(rawScopes) != "" {
+		return CredentialMachine
+	}
 	if _, ok := ParseTokenDelegation(systemIssued, rawScopes); ok {
 		return CredentialDelegated
 	}
@@ -193,7 +198,7 @@ func TokenCredentialKind(systemIssued bool, rawScopes, userType string) Credenti
 // restricted kind.
 func ParseCredentialKind(raw string) CredentialKind {
 	switch kind := CredentialKind(strings.TrimSpace(raw)); kind {
-	case "", CredentialPerson, CredentialAgentRun, CredentialSync, CredentialPlatform, CredentialDelegated:
+	case "", CredentialPerson, CredentialAgentRun, CredentialSync, CredentialPlatform, CredentialDelegated, CredentialMachine:
 		return kind
 	default:
 		return CredentialAgentRun
