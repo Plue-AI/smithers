@@ -1360,7 +1360,13 @@ func runWithOptions(ctx context.Context, args []string, stdout, stderr io.Writer
 		return errors.New("workflow run service cannot cancel invoked Flow runs")
 	}
 	options.Repository = repoHostClient
-	flow, err := newFlowComposition(options, cfg, pool, webhookSecretCodec, agentService, repositoryJobService, billingPolicy, mythicalService, workspaceService, invokedFlowService)
+	var presence *branchPresence
+	if config.IsSingleOwner(cfg.Auth) {
+		visits := &presenceVisits{audit: auditService, now: time.Now}
+		go visits.run(ctx)
+		presence = &branchPresence{startedAt: time.Now(), visits: visits, queries: queries, branches: workspaceService, members: authService.Members}
+	}
+	flow, err := newFlowComposition(options, cfg, pool, webhookSecretCodec, agentService, repositoryJobService, billingPolicy, mythicalService, workspaceService, invokedFlowService, presence)
 	if err != nil {
 		return err
 	}
@@ -1401,7 +1407,7 @@ func runWithOptions(ctx context.Context, args []string, stdout, stderr io.Writer
 		chatSizing.ContextRepository = services.InstallContext{Source: source, Wiki: wikiService, Branches: workspaceService}.Read
 		chatSizing.API = services.InstallAPI{Auth: authService}
 	}
-	chatService, err := newChatComposition(options, pool, chatSizing)
+	chatService, err := newChatComposition(options, pool, chatSizing, presence)
 	if err != nil {
 		return fmt.Errorf("initialize chat runtime: %w", err)
 	}
@@ -1699,9 +1705,7 @@ func runWithOptions(ctx context.Context, args []string, stdout, stderr io.Writer
 	var liveHandler *routes.LiveHandler
 	if config.IsSingleOwner(cfg.Auth) {
 
-		visits := &presenceVisits{audit: auditService, now: time.Now}
-		go visits.run(ctx)
-		presence := &branchPresence{publicOrigin: installAddress.Public, visits: visits, queries: queries, branches: workspaceService, members: authService.Members}
+		presence.publicOrigin = installAddress.Public
 		if flow != nil {
 			presence.dispatcher = flow.dispatcher
 		}

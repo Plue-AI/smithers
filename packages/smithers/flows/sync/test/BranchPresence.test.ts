@@ -698,3 +698,41 @@ describe("PresenceOn host readiness", () => {
       expect((yield* Effect.flip(presence.presenceOn({ capability: foreign, branchId }))).code).toBe("unauthorized")
     })))
 })
+
+describe("host participant metadata", () => {
+  it.effect("keeps agents independent of sponsors and detaches session metadata", () =>
+    run(Effect.gen(function*() {
+      const presence = yield* BranchPresence.BranchPresence
+      const capability = yield* capabilityFor(branchId, "write")
+      const request = {
+        capability,
+        branchId,
+        participantId: participant("run:codex"),
+        sessionId: "session:1",
+        displayName: "Codex",
+        kind: "agent" as const,
+        agentKind: "codex" as const,
+        for_member: "member:1",
+        via: "terminal" as const,
+        runId: "run:1",
+        cursor: null,
+        where: { kind: "file" as const, path: "retry.ts", line: 12 }
+      }
+      yield* presence.announce(request)
+      request.where.line = 40
+      const rows = yield* presence.list({ capability, branchId })
+      expect(rows).toHaveLength(1)
+      expect(rows[0]).toMatchObject({
+        participantId: "run:codex",
+        agentKind: "codex",
+        for_member: "member:1",
+        via: "terminal",
+        runId: "run:1",
+        where: { line: 12 }
+      })
+      yield* TestClock.adjust(29_900)
+      expect(yield* presence.list({ capability, branchId })).toHaveLength(1)
+      yield* TestClock.adjust(100)
+      expect(yield* presence.list({ capability, branchId })).toHaveLength(0)
+    })))
+})

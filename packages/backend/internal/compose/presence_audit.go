@@ -15,6 +15,7 @@ type presenceVisit struct {
 	branch      string
 	member      int64
 	name        string
+	via         string
 	start, last time.Time
 	sessions    map[string]time.Time
 }
@@ -26,6 +27,9 @@ type presenceVisits struct {
 }
 
 func (v *presenceVisits) heartbeat(branch string, member int64, name, session string) {
+	v.heartbeatVia(branch, member, name, session, "app")
+}
+func (v *presenceVisits) heartbeatVia(branch string, member int64, name, session, via string) {
 	if v == nil {
 		return
 	}
@@ -42,7 +46,7 @@ func (v *presenceVisits) heartbeat(branch string, member int64, name, session st
 		visit = nil
 	}
 	if visit == nil {
-		visit = &presenceVisit{branch: branch, member: member, name: name, start: now, sessions: map[string]time.Time{}}
+		visit = &presenceVisit{branch: branch, member: member, name: name, via: via, start: now, sessions: map[string]time.Time{}}
 		v.visits[key] = visit
 	}
 	visit.last = now
@@ -79,7 +83,7 @@ func (v *presenceVisits) finish(visit *presenceVisit, end time.Time) {
 	if end.Sub(visit.start) < 2*time.Minute || v.audit == nil {
 		return
 	}
-	v.audit.Log(context.Background(), services.AuditEvent{EventType: "presence", ActorID: &visit.member, ActorName: visit.name, TargetType: "branch", TargetName: visit.branch, Action: "visit", Metadata: map[string]any{"branch": visit.branch, "member": visit.member, "via": "app", "start": visit.start.UTC().Format(time.RFC3339Nano), "end": end.UTC().Format(time.RFC3339Nano)}})
+	v.audit.Log(context.Background(), services.AuditEvent{EventType: "presence", ActorID: &visit.member, ActorName: visit.name, TargetType: "branch", TargetName: visit.branch, Action: "visit", Metadata: map[string]any{"branch": visit.branch, "member": visit.member, "via": visit.via, "start": visit.start.UTC().Format(time.RFC3339Nano), "end": end.UTC().Format(time.RFC3339Nano)}})
 }
 func (v *presenceVisits) run(ctx context.Context) {
 	ticker := time.NewTicker(time.Second)

@@ -159,3 +159,28 @@ func TestRegistryConcurrentReplacement(t *testing.T) {
 		}
 	}
 }
+
+func TestPresenceScopeRequiresAdmittedConnection(t *testing.T) {
+	var missing *Connection
+	expectError(t, missing.RequireReady("branch"), ErrUnauthorized)
+	_, err := new(Connection).PresenceScope("branch")
+	expectError(t, err, ErrUnauthorized)
+	var registry Registry
+	id := [16]byte{1}
+	expectError(t, registry.BindBoot("branch", "machine", id, []byte("secret")), nil)
+	connection, err := registry.Admit(id, []byte("secret"), new(testStream))
+	expectError(t, err, nil)
+	_, err = connection.PresenceScope("branch")
+	expectError(t, err, ErrNotReady)
+	expectError(t, connection.Reconciled(), nil)
+	scope, err := connection.PresenceScope("branch")
+	expectError(t, err, nil)
+	if scope != "01000000000000000000000000000000" {
+		t.Fatalf("boot scope = %q", scope)
+	}
+	_, err = connection.PresenceScope("other")
+	expectError(t, err, ErrUnauthorized)
+	expectError(t, connection.Close(), nil)
+	_, err = connection.PresenceScope("branch")
+	expectError(t, err, ErrUnauthorized)
+}

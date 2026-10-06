@@ -26,11 +26,20 @@ type branchPresence struct {
 	members      *services.Members
 	visits       *presenceVisits
 	publicOrigin func() string
+	// Composed registry, attribution and revocation providers must all report
+	// ready. A missing callback keeps safe-idle and rebases unknown.
+	sourcesReady func(context.Context, db.Workspace) bool
+	startedAt    time.Time
+	now          func() time.Time
 }
 
 type leaseParticipant struct {
 	ParticipantID    string          `json:"participantId"`
 	SessionID        string          `json:"sessionId"`
+	AgentKind        string          `json:"agentKind"`
+	Via              string          `json:"via"`
+	RunID            string          `json:"runId"`
+	ForMember        string          `json:"for_member"`
 	Kind             string          `json:"kind"`
 	DisplayName      string          `json:"displayName"`
 	Where            json.RawMessage `json:"where"`
@@ -46,6 +55,9 @@ func (p *branchPresence) call(ctx context.Context, row db.Workspace, slug, proce
 	// access to the caller or start a machine for a heartbeat.
 	target := flowruntime.Target{TenantID: "repository:" + strconv.FormatInt(row.RepositoryID, 10), PrincipalID: "user:" + strconv.FormatInt(row.UserID, 10), WorkspaceID: row.ID, BindingKind: "browser-flow", BindingID: slug}
 	fields["branchId"] = row.ID
+	if procedure == "Branch.PresenceOn" {
+		fields["sourcesReady"] = p.sourcesReady != nil && p.sourcesReady(ctx, row)
+	}
 	// Existing BranchProtocol requires this envelope. The host adapter discards
 	// it and mints its own signed scope after authenticating the runtime bearer.
 	fields["capability"] = map[string]any{"signature": "", "claims": map[string]any{"kid": "host", "branchId": row.ID, "capabilityId": "host", "access": "write", "issuedAtMs": 0, "expiresAtMs": 0}}
@@ -69,7 +81,7 @@ func (p *branchPresence) call(ctx context.Context, row db.Workspace, slug, proce
 
 func (p *branchPresence) session(r *http.Request, repository int64) live.PresenceSession {
 	user := middleware.UserFromContext(r.Context())
-	if p == nil || p.dispatcher == nil || p.branches == nil || user == nil || repository == 0 {
+	if p == nil || p.dispatcher == nil || p.branches == nil || p.queries == nil || user == nil || repository == 0 {
 		return live.PresenceSession{}
 	}
 	_, slug, err := installRepository(r.Context(), p.queries)
@@ -119,13 +131,8 @@ func (p *branchPresence) session(r *http.Request, repository int64) live.Presenc
 		}
 		location := map[string]any{"kind": "branch"}
 		if where.Path != "" {
-			if strings.HasPrefix(where.Path, "/") || strings.Contains(where.Path, "\\") || len(where.Path) > 4096 {
+			if !presencePath(where.Path) {
 				return live.Forbidden
-			}
-			for _, part := range strings.Split(where.Path, "/") {
-				if part == ".." || part == "" {
-					return live.Forbidden
-				}
 			}
 			location = map[string]any{"kind": "file", "path": where.Path}
 			if where.Line != nil {
@@ -160,7 +167,7 @@ func (p *branchPresence) session(r *http.Request, repository int64) live.Presenc
 }
 
 func (p *branchPresence) source(ctx context.Context, branch string, repository, member int64, slug string) (live.Source, string) {
-	if p == nil || p.dispatcher == nil || p.branches == nil {
+	if p == nil || p.dispatcher == nil || p.branches == nil || p.queries == nil {
 		return live.Source{}, live.Unsupported
 	}
 	row, err := p.branches.PresenceBranch(ctx, branch, repository, member)
@@ -209,6 +216,37 @@ func (p *branchPresence) source(ctx context.Context, branch string, repository, 
 		for _, id := range order {
 			lease := latest[id]
 			memberID, err := strconv.ParseInt(strings.TrimPrefix(id, "member:"), 10, 64)
+			if lease.Kind == "agent" {
+				actor := map[string]any{"kind": "agent", "id": id, "agent": lease.AgentKind, "name": lease.DisplayName, "avatar_url": placeholderAvatar, "color_index": 6, "session_id": lease.SessionID}
+				if lease.RunID != "" {
+					actor["run_id"] = lease.RunID
+				}
+				if lease.ForMember != "" {
+					sponsorID, parseErr := strconv.ParseInt(strings.TrimPrefix(lease.ForMember, "member:"), 10, 64)
+					if parseErr != nil {
+						return nil, parseErr
+					}
+					sponsor, lookupErr := p.queries.GetUserByID(ctx, sponsorID)
+					if lookupErr != nil {
+						return nil, lookupErr
+					}
+					avatar := sponsor.AvatarUrl
+					if avatar == "" {
+						avatar = placeholderAvatar
+					}
+					name := sponsor.DisplayName
+					if name == "" {
+						name = sponsor.Username
+					}
+					actor["for_member"] = map[string]any{"login": sponsor.Username, "name": name, "avatar_url": avatar}
+					actor["color_index"] = colors[sponsor.Username]
+				}
+				if lease.AgentKind == "" {
+					actor["agent"] = "external"
+				}
+				presence = append(presence, presenceEntry(actor, lease, leases))
+				continue
+			}
 			if err != nil || lease.Kind != "person" {
 				continue
 			}
@@ -225,11 +263,10 @@ func (p *branchPresence) source(ctx context.Context, branch string, repository, 
 				name = person.Username
 			}
 			actor := map[string]any{"kind": "person", "login": person.Username, "name": name, "avatar_url": avatar, "color_index": colors[person.Username]}
-			location := lease.Where
-			if len(location) == 0 {
-				location = json.RawMessage(`{"kind":"branch"}`)
+			if lease.Via != "" {
+				actor["via"] = lease.Via
 			}
-			presence = append(presence, map[string]any{"actor": actor, "where": location})
+			presence = append(presence, presenceEntry(actor, lease, leases))
 		}
 		origin := ""
 		if p.publicOrigin != nil {
@@ -269,6 +306,11 @@ func branchPresenceModel(row db.Workspace, presence []any, origin string) map[st
 // starts a host, or treats a failed roster request as an empty branch.
 func (p *branchPresence) rebasePresence(ctx context.Context, repository int64, workspace string) (services.RebasePresence, error) {
 	if p == nil || p.queries == nil || p.dispatcher == nil {
+		return services.RebasePresenceUnknown, nil
+	}
+	// The TS host can survive a Go host restart; its older startup clock must
+	// never shorten this host's own reconstruction window.
+	if p.startupUnknown() {
 		return services.RebasePresenceUnknown, nil
 	}
 	row, err := p.queries.GetWorkspace(ctx, workspace)
@@ -321,4 +363,35 @@ func (p *branchPresence) rebasePresence(ctx context.Context, repository int64, w
 		}
 	}
 	return state, nil
+}
+
+// Keep session locations available for hover while rendering each participant once.
+func presenceEntry(actor map[string]any, lease leaseParticipant, leases []leaseParticipant) map[string]any {
+	location := lease.Where
+	if len(location) == 0 {
+		location = json.RawMessage(`{"kind":"branch"}`)
+	}
+	entry := map[string]any{"actor": actor, "where": location}
+	sessions := []any{}
+	for _, session := range leases {
+		if session.ParticipantID == lease.ParticipantID {
+			sessions = append(sessions, map[string]any{"id": session.SessionID, "where": session.Where, "via": session.Via})
+		}
+	}
+	entry["sessions"] = sessions
+	if lease.Watching != "" {
+		entry["watching"] = lease.Watching
+	}
+	return entry
+}
+
+func (p *branchPresence) startupUnknown() bool {
+	if p.startedAt.IsZero() {
+		return false
+	}
+	now := time.Now
+	if p.now != nil {
+		now = p.now
+	}
+	return now().Before(p.startedAt.Add(30 * time.Second))
 }

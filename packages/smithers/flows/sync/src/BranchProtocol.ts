@@ -231,7 +231,12 @@ const presenceFields = {
   kind: Schema.optionalKey(Schema.Literals(["person", "agent"])),
   where: Schema.optionalKey(PresenceWhere),
   watching: Schema.optionalKey(Schema.NonEmptyString),
-  for_member: Schema.optionalKey(Schema.NonEmptyString)
+  for_member: Schema.optionalKey(Schema.NonEmptyString),
+  agentKind: Schema.optionalKey(
+    Schema.Literals(["smithers", "coding", "reviewer", "claude-code", "codex", "external"])
+  ),
+  via: Schema.optionalKey(Schema.Literals(["ssh", "terminal", "cli"])),
+  runId: Schema.optionalKey(Schema.NonEmptyString)
 }
 
 export class Participant extends Schema.Class<Participant>("@smthrs/sync/BranchProtocol/Participant")({
@@ -249,7 +254,12 @@ export class Participant extends Schema.Class<Participant>("@smthrs/sync/BranchP
  * @category schemas
  * @since 0.1.0
  */
-export const RosterRequest = Schema.Struct({ capability: ShareCapability, branchId: BranchId })
+export const RosterRequest = Schema.Struct({
+  capability: ShareCapability,
+  branchId: BranchId,
+  /** Only the authenticated host adapter consumes this readiness assertion. */
+  sourcesReady: Schema.optionalKey(Schema.Boolean)
+})
 
 /**
  * A capability-bearing request for one branch's roster.

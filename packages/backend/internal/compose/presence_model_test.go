@@ -5,6 +5,7 @@ import (
 	"github.com/smithersai/smithers/packages/backend/internal/db"
 	"github.com/stretchr/testify/require"
 	"testing"
+	"time"
 )
 
 func TestBranchPresenceModelMachineAndSSH(t *testing.T) {
@@ -53,4 +54,15 @@ func TestBranchItemProjection(t *testing.T) {
 	require.JSONEq(t, string(raw), string(projected))
 	_, err = branchItemProjection(json.RawMessage(`invalid`), todos)
 	require.Error(t, err)
+}
+
+func TestPresenceHostRestartWindow(t *testing.T) {
+	start := time.Date(2026, 10, 6, 12, 0, 0, 0, time.UTC)
+	now := start
+	presence := &branchPresence{startedAt: start, now: func() time.Time { return now }}
+	require.True(t, presence.startupUnknown())
+	now = start.Add(29900 * time.Millisecond)
+	require.True(t, presence.startupUnknown())
+	now = start.Add(30 * time.Second)
+	require.False(t, presence.startupUnknown())
 }

@@ -5,6 +5,7 @@ package machined
 import (
 	"crypto/sha256"
 	"crypto/subtle"
+	"encoding/hex"
 	"errors"
 	"io"
 	"sync"
@@ -116,6 +117,9 @@ func (c *Connection) Reconciled() error {
 // RequireReady fences reads, writes, captures and sessions to the authenticated
 // branch. Request authorization remains the production authorizer's job.
 func (c *Connection) RequireReady(branch string) error {
+	if c == nil || c.registry == nil || c.boot == nil {
+		return ErrUnauthorized
+	}
 	r := c.registry
 	r.mu.Lock()
 	defer r.mu.Unlock()
@@ -147,4 +151,13 @@ func (c *Connection) Close() error {
 func (c *Connection) closeStream() error {
 	c.closeOnce.Do(func() { c.closeErr = c.stream.Close() })
 	return c.closeErr
+}
+
+// PresenceScope is a host-minted boot identity for session lease fencing.
+// It exposes no credential and refuses stale or unreconciled connections.
+func (c *Connection) PresenceScope(branch string) (string, error) {
+	if err := c.RequireReady(branch); err != nil {
+		return "", err
+	}
+	return hex.EncodeToString(c.boot.id[:]), nil
 }

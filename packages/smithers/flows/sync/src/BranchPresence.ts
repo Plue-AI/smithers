@@ -355,7 +355,10 @@ const makeResolved = (
         ...(request.kind === undefined ? {} : { kind: request.kind }),
         ...(request.where === undefined ? {} : { where: copyWhere(request.where) }),
         ...(request.watching === undefined ? {} : { watching: request.watching }),
-        ...(request.for_member === undefined ? {} : { for_member: request.for_member })
+        ...(request.for_member === undefined ? {} : { for_member: request.for_member }),
+        ...(request.agentKind === undefined ? {} : { agentKind: request.agentKind }),
+        ...(request.via === undefined ? {} : { via: request.via }),
+        ...(request.runId === undefined ? {} : { runId: request.runId })
       }
     }
 
@@ -432,6 +435,9 @@ const makeResolved = (
         ...(announcement.where === undefined ? {} : { where: announcement.where }),
         ...(announcement.watching === undefined ? {} : { watching: announcement.watching }),
         ...(announcement.for_member === undefined ? {} : { for_member: announcement.for_member }),
+        ...(announcement.agentKind === undefined ? {} : { agentKind: announcement.agentKind }),
+        ...(announcement.via === undefined ? {} : { via: announcement.via }),
+        ...(announcement.runId === undefined ? {} : { runId: announcement.runId }),
         leaseExpiresAtMs: nowMs + leaseMs
       })
       branch.set(seatKey(announcement), { participant, capabilityId: claims.capabilityId })

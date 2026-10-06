@@ -19,7 +19,12 @@ export const layer = (config: Config) =>
       activeKid: "host",
       keys: [{ kid: "host", secret: Redacted.make(crypto.randomUUID() + crypto.randomUUID()) }]
     })
-    const presence = yield* BranchPresence.makeMemory().pipe(Effect.provideService(BranchShare.BranchShare, share))
+    // The authorizing Go host re-checks all source readiness on every health
+    // call. The handler below refuses missing assertions before the lease
+    // registry, whose own startup window still applies. No readiness cache.
+    const presence = yield* BranchPresence.makeMemory({
+      sourcesReady: () => Effect.succeed(true)
+    }).pipe(Effect.provideService(BranchShare.BranchShare, share))
     // Capability fields on this host-only mount are transport metadata, replaced
     // with an internal signed capability after the runtime bearer is verified.
     const authorize = <A extends RosterRequest>(request: A, actor = "roster") =>
@@ -39,8 +44,12 @@ export const layer = (config: Config) =>
       "Branch.Leave": (request: LeaveRequest) =>
         authorize(request, request.participantId).pipe(Effect.flatMap(presence.leave), Effect.as(null)),
       "Branch.Roster": (request) => authorize(request).pipe(Effect.flatMap(presence.list)),
-      "Branch.PresenceOn": (request) => authorize(request).pipe(Effect.flatMap(presence.presenceOn)),
-      "Branch.WatchRoster": () => Stream.fail(unsupported)
+      "Branch.PresenceOn": (request) =>
+        authorize(request).pipe(Effect.flatMap((authorized) =>
+          request.sourcesReady === true ? presence.presenceOn(authorized) : Effect.succeed("unknown" as const)
+        )),
+      "Branch.WatchRoster": () =>
+        Stream.fail(unsupported)
     })))
     const auth = Layer.succeed(SyncAuth)((effect, options) =>
       Effect.gen(function*() {

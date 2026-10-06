@@ -34,7 +34,7 @@ type flowComposition struct {
 	stopper    flowhost.RetirementStopper
 }
 
-func newFlowComposition(options runOptions, cfg *config.Config, pool *pgxpool.Pool, codec flowhost.SecretCodec, agents *services.AgentService, repositoryJobs *services.RepositoryJobService, policy admission.Policy, mythical *services.MythicalService, boxes boxHostPreparer, invoked *services.InvokedFlowService) (*flowComposition, error) {
+func newFlowComposition(options runOptions, cfg *config.Config, pool *pgxpool.Pool, codec flowhost.SecretCodec, agents *services.AgentService, repositoryJobs *services.RepositoryJobService, policy admission.Policy, mythical *services.MythicalService, boxes boxHostPreparer, invoked *services.InvokedFlowService, presence ...*branchPresence) (*flowComposition, error) {
 	if options.FlowHostRegistry == nil {
 		return nil, nil
 	}
@@ -111,6 +111,11 @@ func newFlowComposition(options runOptions, cfg *config.Config, pool *pgxpool.Po
 	}
 	additionalTargets := []flowhost.TargetResolver{browserFlowTarget{queries: db.New(pool)}}
 	projectors := []flowdispatch.Projector{agents, repositoryJobs}
+	maxObservationDelay := time.Duration(0)
+	if len(presence) > 0 && presence[0] != nil {
+		projectors = append(projectors, presence[0])
+		maxObservationDelay = 10 * time.Second
+	}
 	targets := flowTargetResolver(agentTargets, repositoryJobTargets, additionalTargets...)
 	if invoked != nil {
 		targets = withInvokedFlowTargets(targets, invoked)
@@ -173,7 +178,7 @@ func newFlowComposition(options runOptions, cfg *config.Config, pool *pgxpool.Po
 	if err != nil {
 		return nil, fmt.Errorf("Flow host resolver: %w", err)
 	}
-	dispatcher, err := flowdispatch.New(flowdispatch.Config{Store: store, Resolver: resolver, Projector: flowProjector(projectors...), SteerAuthorizer: mythical, RelayPlans: relayPlanStore{db.New(pool)}})
+	dispatcher, err := flowdispatch.New(flowdispatch.Config{Store: store, Resolver: resolver, Projector: flowProjector(projectors...), MaxObservationDelay: maxObservationDelay, SteerAuthorizer: mythical, RelayPlans: relayPlanStore{db.New(pool)}})
 	if err != nil {
 		return nil, fmt.Errorf("Flow dispatcher: %w", err)
 	}
