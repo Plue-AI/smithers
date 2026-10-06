@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -57,6 +58,10 @@ func newPermissionPollFixture(t *testing.T, handler http.HandlerFunc, userHandle
 	_, err = q.CreateAuthSession(ctx, db.CreateAuthSessionParams{SessionKey: "before-poll", UserID: user.ID, Username: "writer", ExpiresAt: time.Now().Add(24 * time.Hour)})
 	require.NoError(t, err)
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if strings.HasSuffix(r.URL.Path, "/keys") {
+			fmt.Fprint(w, "[]")
+			return
+		}
 		if r.URL.Path != "/repos/factory/app/collaborators/writer/permission" && len(userHandler) == 1 {
 			userHandler[0](w, r)
 			return

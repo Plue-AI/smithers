@@ -23754,8 +23754,11 @@ components:
       additionalProperties: true
     SSHKey:
       type: object
-      required: [id, name, fingerprint, key_type, created_at]
+      required: [id, name, fingerprint, key_type, created_at, source]
       properties:
+        source:
+          type: string
+          enum: [manual, github]
         id:
           type: integer
           format: int64

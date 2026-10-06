@@ -2,10 +2,13 @@ package compose
 
 import (
 	"context"
+	"crypto/ed25519"
+	"crypto/rand"
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"golang.org/x/crypto/ssh"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -41,6 +44,12 @@ type rosterGitHub struct {
 	roles              map[string]string
 	login              string
 	installationStatus int
+	keys               map[string][]string
+	keyETag            string
+	keyReads           int
+	keyNotModified     int
+	keyPages           map[string][]string
+	keyStatus          int
 }
 
 func (g *rosterGitHub) serve(w http.ResponseWriter, r *http.Request) {
@@ -69,6 +78,30 @@ func (g *rosterGitHub) serve(w http.ResponseWriter, r *http.Request) {
 			permission = "write"
 		}
 		json.NewEncoder(w).Encode(map[string]string{"permission": permission, "role_name": role})
+	case strings.HasPrefix(r.URL.Path, "/users/") && strings.HasSuffix(r.URL.Path, "/keys"):
+		g.keyReads++
+		if g.keyStatus != 0 {
+			w.WriteHeader(g.keyStatus)
+			return
+		}
+		w.Header().Set("ETag", g.keyETag)
+		if g.keyETag != "" && r.Header.Get("If-None-Match") == g.keyETag {
+			g.keyNotModified++
+			w.WriteHeader(304)
+			return
+		}
+		login := strings.TrimSuffix(strings.TrimPrefix(r.URL.Path, "/users/"), "/keys")
+		keys := []map[string]any{}
+		pageKeys := g.keys[login]
+		if r.URL.Query().Get("page") == "2" {
+			pageKeys = g.keyPages[login]
+		} else if len(g.keyPages[login]) > 0 {
+			w.Header().Set("Link", `<https://api.github.com/users/`+login+`/keys?per_page=100&page=2>; rel="next"`)
+		}
+		for i, key := range pageKeys {
+			keys = append(keys, map[string]any{"id": i + 1, "key": key})
+		}
+		json.NewEncoder(w).Encode(keys)
 	case strings.HasPrefix(r.URL.Path, "/users/"):
 		login := strings.TrimPrefix(r.URL.Path, "/users/")
 		if _, ok := g.roles[login]; !ok {
@@ -145,7 +178,7 @@ func TestMembersComposedInstallPostgres(t *testing.T) {
 	cfg.Server.AllowedOrigins = []string{origin}
 	topics := &liveTopics{queries: q, members: members}
 	liveHandler := &routes.LiveHandler{Hub: live.NewHub(ctx, nil), Queries: q, Origins: func() []string { return []string{origin} }, Topics: topics.resolver}
-	server.Config.Handler = buildRouterCompat(cfg, q, pool, &routes.RepoHandler{}, handler, &routes.UserHandler{}, &routes.SSHKeyHandler{}, &routes.LabelHandler{}, &routes.OrgHandler{}, &routes.LandingHandler{}, &routes.SearchHandler{Service: &mockRouterSearchService{}}, &routes.IssueHandler{}, nil, &routes.GitSmartHandler{Service: &mockRouterGitService{}}, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, &routes.WorkspaceHandler{}, nil, nil, nil, nil, nil, nil, routerExtras{Members: &routes.MembersHandler{Service: members}, Live: liveHandler})
+	server.Config.Handler = buildRouterCompat(cfg, q, pool, &routes.RepoHandler{}, handler, &routes.UserHandler{}, &routes.SSHKeyHandler{Service: services.NewSSHKeyService(q)}, &routes.LabelHandler{}, &routes.OrgHandler{}, &routes.LandingHandler{}, &routes.SearchHandler{Service: &mockRouterSearchService{}}, &routes.IssueHandler{}, nil, &routes.GitSmartHandler{Service: &mockRouterGitService{}}, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, &routes.WorkspaceHandler{}, nil, nil, nil, nil, nil, nil, routerExtras{Members: &routes.MembersHandler{Service: members}, Live: liveHandler})
 	server.Start()
 	defer server.Close()
 	// Even the owner's token must pass command authorization before the
@@ -294,12 +327,92 @@ func TestMembersComposedInstallPostgres(t *testing.T) {
 			}
 		}
 	}
+	keyFixture := func() string {
+		pub, _, err := ed25519.GenerateKey(rand.Reader)
+		require.NoError(t, err)
+		key, err := ssh.NewPublicKey(pub)
+		require.NoError(t, err)
+		return strings.TrimSpace(string(ssh.MarshalAuthorizedKey(key)))
+	}
+	imported, manual, other := keyFixture(), keyFixture(), keyFixture()
+	github.mu.Lock()
+	github.keys = map[string][]string{"writer": {imported}}
+	github.keyETag = `"keys-v1"`
+	github.mu.Unlock()
 	login("reader", 403)
 	login("writer", 302)
 	login("writer", 302)
 	writer, err := q.GetUserByLowerUsername(ctx, "writer")
 	require.NoError(t, err)
 	createSession(writer, "writer-cookie")
+	statusKeys, bodyKeys := request("GET", "/api/user/keys", "", "writer-cookie")
+	require.Equal(t, 200, statusKeys, bodyKeys)
+	require.Contains(t, bodyKeys, `"source":"github"`)
+	github.mu.Lock()
+	require.Equal(t, 1, github.keyNotModified)
+	github.mu.Unlock()
+	manualKey, err := services.NewSSHKeyService(q).CreateKey(ctx, writer.ID, services.CreateSSHKeyRequest{Title: "manual", Key: manual})
+	require.NoError(t, err)
+	otherKey, err := services.NewSSHKeyService(q).CreateKey(ctx, owner.ID, services.CreateSSHKeyRequest{Title: "other", Key: other})
+	require.NoError(t, err)
+	github.mu.Lock()
+	github.keys["writer"] = []string{manual, other}
+	github.keyETag = `"keys-v2"`
+	github.mu.Unlock()
+	require.Error(t, members.SyncGitHubKeys(ctx, writer.ID, "writer"), "another person's key rolls back the diff")
+	require.NoError(t, pool.QueryRow(ctx, `SELECT count(*) FROM ssh_keys WHERE user_id=$1 AND source='github'`, writer.ID).Scan(&count))
+	require.Equal(t, 1, count)
+	_, err = q.GetSSHKeyByID(ctx, otherKey.ID)
+	require.NoError(t, err)
+	github.mu.Lock()
+	github.keys["writer"] = []string{manual}
+	github.mu.Unlock()
+
+	_, err = pool.Exec(ctx, `CREATE FUNCTION reject_key_event() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN IF NEW.kind='ssh_key_revoked' THEN RAISE EXCEPTION 'key event failed'; END IF; RETURN NEW; END $$; CREATE TRIGGER reject_key_event BEFORE INSERT ON revocation_events FOR EACH ROW EXECUTE FUNCTION reject_key_event()`)
+	require.NoError(t, err)
+	require.ErrorContains(t, members.Recheck(ctx), "key event failed")
+	require.NoError(t, pool.QueryRow(ctx, `SELECT count(*) FROM ssh_keys WHERE user_id=$1 AND source='github'`, writer.ID).Scan(&count))
+	require.Equal(t, 1, count)
+	require.NoError(t, pool.QueryRow(ctx, `SELECT count(*) FROM revocation_events WHERE user_id=$1 AND kind='ssh_key_revoked'`, writer.ID).Scan(&count))
+	require.Zero(t, count)
+	_, err = pool.Exec(ctx, `DROP TRIGGER reject_key_event ON revocation_events`)
+	require.NoError(t, err)
+	require.NoError(t, members.Recheck(ctx))
+	statusKeys, bodyKeys = request("GET", "/api/user/keys", "", "writer-cookie")
+	require.Equal(t, 200, statusKeys, bodyKeys)
+	require.Contains(t, bodyKeys, manualKey.Fingerprint)
+	require.Contains(t, bodyKeys, `"source":"manual"`)
+	require.NotContains(t, bodyKeys, `"source":"github"`)
+	require.NoError(t, pool.QueryRow(ctx, `SELECT count(*) FROM revocation_events WHERE user_id=$1 AND kind='ssh_key_revoked'`, writer.ID).Scan(&count))
+	require.Equal(t, 1, count)
+	secondImported := keyFixture()
+	github.mu.Lock()
+	github.keys["writer"] = []string{imported}
+	github.keyPages = map[string][]string{"writer": {secondImported}}
+	github.keyETag = `"keys-paged"`
+	github.mu.Unlock()
+	require.NoError(t, members.SyncGitHubKeys(ctx, writer.ID, "writer"))
+	require.NoError(t, pool.QueryRow(ctx, `SELECT count(*) FROM ssh_keys WHERE user_id=$1 AND source='github'`, writer.ID).Scan(&count))
+	require.Equal(t, 2, count)
+	github.mu.Lock()
+	github.keys["writer"] = []string{"malformed"}
+	github.keyPages = nil
+	github.keyETag = `"keys-malformed"`
+	github.mu.Unlock()
+	require.Error(t, members.SyncGitHubKeys(ctx, writer.ID, "writer"))
+	require.NoError(t, pool.QueryRow(ctx, `SELECT count(*) FROM ssh_keys WHERE user_id=$1 AND source='github'`, writer.ID).Scan(&count))
+	require.Equal(t, 2, count)
+	github.mu.Lock()
+	github.keyStatus = 502
+	github.mu.Unlock()
+	login("writer", 502)
+	github.mu.Lock()
+	github.keyStatus = 0
+	github.keys["writer"] = []string{}
+	github.keyETag = `"keys-empty"`
+	github.mu.Unlock()
+	require.NoError(t, members.SyncGitHubKeys(ctx, writer.ID, "writer"))
+
 	require.NoError(t, pool.QueryRow(ctx, `SELECT user_id IS NULL,unix_uid,unix_login FROM collaborators WHERE github_id=102`).Scan(&pending, &uid, &unixLogin))
 	require.False(t, pending)
 	require.Equal(t, "writer", unixLogin)

@@ -54,6 +54,7 @@ type Account struct {
 type Config struct {
 	// OwnerStatus injects a GitHub outage at the public account lookup boundary.
 	OwnerStatus                                          int
+	SSHKeys                                              map[string][]string
 	AppID                                                int64
 	Slug, OwnerLogin, OwnerKind                          string
 	PrivateKeyPEM, ClientID, ClientSecret, WebhookSecret string
@@ -745,6 +746,20 @@ func (s *Server) respond(r *http.Request, body []byte) (int, any) {
 			kind = "Organization"
 		}
 		return http.StatusOK, map[string]string{"login": s.config.OwnerLogin, "type": kind}
+	}
+	if r.Method == http.MethodGet && len(path) == 3 && path[0] == "users" && path[2] == "keys" {
+		known := path[1] == s.config.OwnerLogin
+		for _, login := range s.accounts {
+			known = known || strings.EqualFold(login, path[1])
+		}
+		if !known {
+			return failure(http.StatusNotFound, "GitHub user not found")
+		}
+		keys := []map[string]any{}
+		for i, key := range s.config.SSHKeys[path[1]] {
+			keys = append(keys, map[string]any{"id": i + 1, "key": key})
+		}
+		return http.StatusOK, keys
 	}
 	if r.Method == http.MethodGet && len(path) == 2 && path[0] == "users" {
 		for id, login := range s.accounts {

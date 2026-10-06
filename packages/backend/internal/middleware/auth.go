@@ -391,6 +391,7 @@ var installMemberRoutes = []struct {
 	path            *regexp.Regexp
 }{
 	{http.MethodGet, "self", regexp.MustCompile(`^/api/user$`)},
+	{http.MethodGet, "self.read", regexp.MustCompile(`^/api/user/keys(?:/[0-9]+)?$`)},
 	{http.MethodPost, "self", regexp.MustCompile(`^/api/auth/logout$`)},
 	// The app's reads on an install, as a member's browser makes them on
 	// J1 8, J2 and J4: setup state, the person's own organizations and

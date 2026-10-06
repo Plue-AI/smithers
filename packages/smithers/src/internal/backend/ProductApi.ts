@@ -472,6 +472,7 @@ export type Error = {
 }
 
 export type SSHKey = {
+  source: "manual" | "github"
   id: number
   name: string
   fingerprint: string

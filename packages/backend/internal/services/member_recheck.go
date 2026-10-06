@@ -68,6 +68,15 @@ func (m *Members) recheckRepository(ctx context.Context, repo memberRepository, 
 		poll.mu.Unlock()
 	}
 	var failed []error
+	var ownerID int64
+	var ownerLogin string
+	if err := m.Pool.QueryRow(ctx, `SELECT u.id,u.username FROM self_host_owners o JOIN users u ON u.id=o.user_id`).Scan(&ownerID, &ownerLogin); err == nil {
+		if err := m.SyncGitHubKeys(ctx, ownerID, ownerLogin); err != nil {
+			failed = append(failed, err)
+		}
+	} else {
+		failed = append(failed, err)
+	}
 	for _, member := range members {
 		etag := ""
 		if poll != nil {
@@ -87,6 +96,11 @@ func (m *Members) recheckRepository(ctx context.Context, repo memberRepository, 
 		if err != nil {
 			failed = append(failed, fmt.Errorf("%s: %w", member.login, err))
 			continue
+		}
+		if member.user != nil && (role != "" || (unchanged && !member.suspended)) {
+			if err := m.SyncGitHubKeys(ctx, *member.user, member.login); err != nil {
+				failed = append(failed, fmt.Errorf("%s keys: %w", member.login, err))
+			}
 		}
 		if poll != nil {
 			poll.mu.Lock()

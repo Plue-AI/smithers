@@ -138,19 +138,11 @@ _sync_queue,retired,excluded from product baseline; historical Plue data retaine
 _id_remap,retired,excluded from product baseline; historical Plue data retained
 devtools_snapshots,product,product baseline
 approvals,product,product baseline
-pair_state,product,product baseline
-pair_share_links,product,product baseline
 alert_incidents,private,Plue private migration 000001; dropped by Plue private migration 000023
 alert_incident_deliveries,private,Plue private migration 000001; dropped by Plue private migration 000023
 alert_remediation_jobs,private,Plue private migration 000001; dropped by Plue private migration 000023
 repo_gateways,private,Plue private migration 000001
 github_repo_listings,product,product baseline
-pair_sessions,product,product baseline
-pair_session_members,product,product baseline
-pair_prompt_queue,product,product baseline
-pair_session_invites,product,product baseline
-pair_session_draft,product,product baseline
-pair_session_links,product,product baseline
 sandbox_golden_snapshots,private,Plue private migration 000001
 sandbox_environment_images,private,Plue private migration 000001
 file_drafts,product,product baseline
@@ -191,8 +183,6 @@ github_synced_issues,product,product baseline
 github_synced_issue_comments,product,product baseline
 github_mirror_sync_runs,product,product baseline
 github_mirror_sync_ref_results,product,product baseline
-share_listings,product,product baseline
-share_listing_event_cooldowns,product,product baseline
 changesets,product,product baseline
 changeset_members,product,product baseline
 build_cache_entries,product,product baseline

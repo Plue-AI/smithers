@@ -588,6 +588,10 @@ func (s *AuthService) completeOAuthWithClient(ctx context.Context, client GitHub
 	}
 
 	if claimingOwner && s.Members != nil {
+		if err := s.Members.SyncGitHubKeys(ctx, user.ID, user.Username); err != nil {
+			cleanupErr := s.queries.DeleteAuthSession(ctx, session.SessionKey)
+			return OAuthCallbackResult{}, stdErrors.Join(err, cleanupErr)
+		}
 		_ = s.Members.VerifyOwner(ctx, user)
 	}
 	return OAuthCallbackResult{
@@ -740,6 +744,9 @@ func (s *AuthService) resolveOAuthUser(ctx context.Context, client GitHubClient,
 
 	if config.IsSingleOwner(s.cfg) && s.Members != nil {
 		if err := s.Members.LinkGitHub(ctx, profile.ID, user.ID, profile.Login); err != nil {
+			return db.User{}, err
+		}
+		if err := s.Members.SyncGitHubKeys(ctx, user.ID, profile.Login); err != nil {
 			return db.User{}, err
 		}
 	}

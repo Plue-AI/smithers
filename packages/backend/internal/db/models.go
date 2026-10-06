@@ -458,6 +458,7 @@ type ChatTurn struct {
 	Retirement             []byte             `json:"retirement"`
 	CreatedAt              time.Time          `json:"created_at"`
 	UpdatedAt              time.Time          `json:"updated_at"`
+	ConversationID         pgtype.Text        `json:"conversation_id"`
 }
 
 type ChatTurnBatch struct {
@@ -503,6 +504,10 @@ type Collaborator struct {
 	GithubLogin  pgtype.Text        `json:"github_login"`
 	UnixUid      int32              `json:"unix_uid"`
 	SuspendedAt  pgtype.Timestamptz `json:"suspended_at"`
+	ViewState    json.RawMessage    `json:"view_state"`
+	ToastsHidden bool               `json:"toasts_hidden"`
+	UnixLogin    pgtype.Text        `json:"unix_login"`
+	UnixGithubID pgtype.Int8        `json:"unix_github_id"`
 }
 
 type CommitStatus struct {
@@ -1823,98 +1828,6 @@ type OwnerNamespace struct {
 	CreatedAt time.Time   `json:"created_at"`
 }
 
-type PairPromptQueue struct {
-	ID               string             `json:"id"`
-	SessionID        string             `json:"session_id"`
-	Seq              int64              `json:"seq"`
-	AuthorUserID     int64              `json:"author_user_id"`
-	Source           string             `json:"source"`
-	Body             string             `json:"body"`
-	Status           string             `json:"status"`
-	ExecutorClientID pgtype.Text        `json:"executor_client_id"`
-	ClaimExpiresAt   pgtype.Timestamptz `json:"claim_expires_at"`
-	RunID            pgtype.Text        `json:"run_id"`
-	CanceledBy       pgtype.Int8        `json:"canceled_by"`
-	CreatedAt        time.Time          `json:"created_at"`
-	StartedAt        pgtype.Timestamptz `json:"started_at"`
-	FinishedAt       pgtype.Timestamptz `json:"finished_at"`
-}
-
-type PairSession struct {
-	ID                string             `json:"id"`
-	OwnerUserID       int64              `json:"owner_user_id"`
-	SourceWorkspaceID string             `json:"source_workspace_id"`
-	WorkspaceID       pgtype.UUID        `json:"workspace_id"`
-	AccessMode        string             `json:"access_mode"`
-	Status            string             `json:"status"`
-	CreatedAt         time.Time          `json:"created_at"`
-	UpdatedAt         time.Time          `json:"updated_at"`
-	EndedAt           pgtype.Timestamptz `json:"ended_at"`
-}
-
-type PairSessionDraft struct {
-	SessionID string      `json:"session_id"`
-	Content   string      `json:"content"`
-	Version   int64       `json:"version"`
-	UpdatedBy pgtype.Int8 `json:"updated_by"`
-	UpdatedAt time.Time   `json:"updated_at"`
-}
-
-type PairSessionInvite struct {
-	ID                  string             `json:"id"`
-	SessionID           string             `json:"session_id"`
-	LowerEmail          pgtype.Text        `json:"lower_email"`
-	LowerGithubUsername pgtype.Text        `json:"lower_github_username"`
-	Role                string             `json:"role"`
-	TokenHash           string             `json:"token_hash"`
-	InvitedBy           int64              `json:"invited_by"`
-	ExpiresAt           time.Time          `json:"expires_at"`
-	AcceptedByUserID    pgtype.Int8        `json:"accepted_by_user_id"`
-	AcceptedAt          pgtype.Timestamptz `json:"accepted_at"`
-	RevokedAt           pgtype.Timestamptz `json:"revoked_at"`
-	CreatedAt           time.Time          `json:"created_at"`
-}
-
-type PairSessionLink struct {
-	ID        string             `json:"id"`
-	SessionID string             `json:"session_id"`
-	Slug      string             `json:"slug"`
-	Role      string             `json:"role"`
-	CreatedBy int64              `json:"created_by"`
-	RevokedAt pgtype.Timestamptz `json:"revoked_at"`
-	CreatedAt time.Time          `json:"created_at"`
-}
-
-type PairSessionMember struct {
-	SessionID          string             `json:"session_id"`
-	UserID             int64              `json:"user_id"`
-	Role               string             `json:"role"`
-	InvitedViaInviteID pgtype.UUID        `json:"invited_via_invite_id"`
-	Presence           json.RawMessage    `json:"presence"`
-	PresenceUpdatedAt  pgtype.Timestamptz `json:"presence_updated_at"`
-	LastSeenAt         pgtype.Timestamptz `json:"last_seen_at"`
-	JoinedAt           time.Time          `json:"joined_at"`
-	RemovedAt          pgtype.Timestamptz `json:"removed_at"`
-}
-
-type PairShareLink struct {
-	ID        int64              `json:"id"`
-	TokenHash string             `json:"token_hash"`
-	RoomID    string             `json:"room_id"`
-	Level     string             `json:"level"`
-	CreatedBy int64              `json:"created_by"`
-	ExpiresAt pgtype.Timestamptz `json:"expires_at"`
-	RevokedAt pgtype.Timestamptz `json:"revoked_at"`
-	CreatedAt time.Time          `json:"created_at"`
-}
-
-type PairState struct {
-	RoomID    string          `json:"room_id"`
-	State     json.RawMessage `json:"state"`
-	Version   int64           `json:"version"`
-	UpdatedAt time.Time       `json:"updated_at"`
-}
-
 type PinnedIssue struct {
 	RepositoryID int64       `json:"repository_id"`
 	IssueID      int64       `json:"issue_id"`
@@ -2503,31 +2416,6 @@ type SelfHostOwner struct {
 	CreatedAt time.Time `json:"created_at"`
 }
 
-type ShareListing struct {
-	ID              string             `json:"id"`
-	Kind            string             `json:"kind"`
-	Name            string             `json:"name"`
-	Slug            string             `json:"slug"`
-	Description     string             `json:"description"`
-	OwnerUserID     int64              `json:"owner_user_id"`
-	SourceRepoOwner string             `json:"source_repo_owner"`
-	SourceRepoName  string             `json:"source_repo_name"`
-	SourcePath      string             `json:"source_path"`
-	ContentSnapshot string             `json:"content_snapshot"`
-	UseCount        int64              `json:"use_count"`
-	InstallCount    int64              `json:"install_count"`
-	PublishedAt     time.Time          `json:"published_at"`
-	UpdatedAt       time.Time          `json:"updated_at"`
-	UnpublishedAt   pgtype.Timestamptz `json:"unpublished_at"`
-}
-
-type ShareListingEventCooldown struct {
-	ListingID     string    `json:"listing_id"`
-	UserID        int64     `json:"user_id"`
-	EventType     string    `json:"event_type"`
-	LastCountedAt time.Time `json:"last_counted_at"`
-}
-
 type SseTicket struct {
 	TicketHash string             `json:"ticket_hash"`
 	UserID     int64              `json:"user_id"`
@@ -2545,6 +2433,7 @@ type SshKey struct {
 	KeyType     string    `json:"key_type"`
 	CreatedAt   time.Time `json:"created_at"`
 	UpdatedAt   time.Time `json:"updated_at"`
+	Source      string    `json:"source"`
 }
 
 type Stack struct {

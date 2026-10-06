@@ -929,6 +929,7 @@ func (v Error) MarshalJSON() ([]byte, error) {
 
 // SSHKey is generated from docs/api/openapi.yaml.
 type SSHKey struct {
+	Source      string    `json:"source"`
 	ID          int64     `json:"id"`
 	Name        string    `json:"name"`
 	Fingerprint string    `json:"fingerprint"`
