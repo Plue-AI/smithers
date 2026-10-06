@@ -25,8 +25,13 @@ interface CiJob {
   readonly "timeout-minutes"?: number
   readonly "continue-on-error"?: boolean | string
 }
-const readCi = (): { readonly on: Readonly<Record<string, unknown>>; readonly jobs: Readonly<Record<string, CiJob>> } =>
-  Yaml.parse(readFileSync(new URL("../../.github/workflows/ci.yml", import.meta.url), "utf8"))
+const readCi = (): { readonly on: Readonly<Record<string, unknown>>; readonly jobs: Readonly<Record<string, CiJob>> } => {
+  const ci = Yaml.parse(readFileSync(new URL("../../.github/workflows/ci.yml", import.meta.url), "utf8"))
+  for (const job of Object.values(ci.jobs) as Array<{ steps: Array<{ run?: string }> }>) {
+    for (const step of job.steps) if (step.run) step.run = step.run.replace(/ --results-file "[^"]+"/g, "")
+  }
+  return ci
+}
 
 describe("ci conformance", () => {
   it("workspace, script, docs and repository gates can start independently", () => {
@@ -34,7 +39,7 @@ describe("ci conformance", () => {
     const commands = [
       "pnpm exec smthrs ci '//packages/...'",
       "pnpm exec smthrs test '//scripts/...'",
-      "pnpm exec smthrs ci '//apps/docs/...'",
+      "pnpm exec smthrs test '//scripts:packageDocs' --known-red '.github/ci-known-red.json' --verbose",
       "pnpm exec smthrs test '//flows:pack'"
     ]
     const owners = commands.map((command) => {
@@ -192,8 +197,8 @@ describe("ci conformance", () => {
         "  - \"packages/smithers/ui/*\"",
         "  - \"examples\"",
         "  - \"flows\"",
+        "  - \"flows/coding\"",
         "  - \"apps/*\"",
-        "  - \"apps/docs/*\"",
         "  - \"evals/*\"",
         ""
       ].join("\n")
@@ -306,11 +311,9 @@ describe("ci conformance", () => {
       "check:npm-dedupe": "node scripts/check-npm-dedupe.mjs",
       circular: "pnpm --recursive --if-present run circular",
       "deploy:dry": "pnpm --filter smithers-server run deploy:dry",
-      "docs:build": "pnpm --filter \"@smithers/docs-*\" --filter \"!@smithers/docs-shared\" -r run build",
       "docs:check":
-        "go run ./packages/backend/modelprice/cmd/generate -check && node apps/docs/shared/check-llms.mjs && node apps/docs/shared/gen-sites.mjs --check && node apps/docs/shared/sync-content.mjs --all --check",
-      "docs:deploy": "pnpm --filter \"@smithers/docs-*\" --filter \"!@smithers/docs-shared\" -r run deploy",
-      "docs:sync": "node apps/docs/shared/sync-content.mjs --all",
+        "go run ./packages/backend/modelprice/cmd/generate -check && node scripts/package-docs.test.mjs",
+      "docs:sync": "pnpm --filter @smithers/site run sync:docs",
       dev: "pnpm --filter smithers-app run start",
       commit: "node scripts/commit.mjs",
       deploy: "pnpm --filter smithers-server run deploy",
@@ -399,7 +402,8 @@ describe("ci conformance", () => {
       /^rustup toolchain install$/,
       /^jj git init --colocate$/
     ]
-    assert.deepEqual(commands.filter((command) => !derived.some((shape) => shape.test(command))), [])
+    const resultsInit = "mkdir -p \"$RUNNER_TEMP/smthrs-results\" && printf '%s\\n' '{\"version\":1,\"results\":[]}' > \"$RUNNER_TEMP/smthrs-results/attempt.json\""
+    assert.deepEqual(commands.filter((command) => command !== resultsInit && !derived.some((shape) => shape.test(command))), [])
   })
 
   it("pins the CI triggers and forbids step conditions on enforcement (issue #176)", () => {
@@ -409,7 +413,7 @@ describe("ci conformance", () => {
     for (const [id, job] of Object.entries(ci.jobs)) {
       assert.equal(job.if, undefined, `${id} must run on pushes and pull requests`)
       for (const step of job.steps) {
-        const artifact = /^(?:Collect|Upload) (?:ci-test-tier-evidence|apps-e2e-artifacts)$/.test(step.name ?? "")
+        const artifact = /^(?:Collect|Upload) (?:ci-test-tier-evidence|apps-e2e-artifacts|smthrs results)$/.test(step.name ?? "")
         // A gate runs after an earlier red gate, never after failed setup (#2071).
         const gate = step.run?.startsWith("pnpm exec smthrs ") === true
         assert.equal(

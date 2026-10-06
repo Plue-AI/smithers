@@ -105,7 +105,6 @@ export const releaseGates = [
   { name: "Bug worker", verb: "ci", target: "//apps/bug-worker/..." },
   { name: "Project copy drift", verb: "lint", target: "//:projectCopy" },
   { name: "Site", verb: "ci", target: "//apps/site/..." },
-  { name: "Package docs sites", verb: "ci", target: "//apps/docs/..." },
   { name: "Review eval suite (offline, baseline-gated)", verb: "test", target: "//evals/review-seeded-bugs/..." },
   { name: "Review eval typecheck", verb: "build", target: "//evals/review-seeded-bugs:check" },
   { name: "Recommend eval suite (offline, baseline-gated)", verb: "test", target: "//evals/recommend/..." },

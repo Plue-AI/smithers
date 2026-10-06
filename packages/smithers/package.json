@@ -127,7 +127,6 @@
   "files": [
     "bin/**/*.mjs",
     "src/**/*.ts",
-    "docs/**",
     "skills/**",
     "dist/**/*.js",
     "dist/**/*.js.map",
@@ -138,7 +137,8 @@
     "README.md",
     "CHANGELOG.md",
     "vendor/opentui-native/**",
-    "dist/vendor/**"
+    "dist/vendor/**",
+    "docs/"
   ],
   "publishConfig": {
     "access": "public",

@@ -26,7 +26,6 @@ const circular = standard.circular
 /**
  * The package's documentation as a file group (`docs/**`, the README, and
  * package.json), exported so the docs-site content sync in
- * `apps/docs/build/PACKAGE.ts` depends on it by label.
  */
 const docsFiles = standard.docsFiles
 

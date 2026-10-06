@@ -60,7 +60,8 @@
     "LICENSE",
     "THIRD_PARTY_NOTICES.md",
     "README.md",
-    "CHANGELOG.md"
+    "CHANGELOG.md",
+    "docs/"
   ],
   "publishConfig": {
     "access": "public",

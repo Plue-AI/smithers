@@ -44,7 +44,6 @@
   },
   "files": [
     "src/**/*.ts",
-    "docs/**",
     "dist/**/*.js",
     "dist/**/*.js.map",
     "dist/**/*.d.ts",
@@ -54,7 +53,8 @@
     "DESIGN.md",
     "WIRING.md",
     "LICENSE",
-    "CHANGELOG.md"
+    "CHANGELOG.md",
+    "docs/"
   ],
   "publishConfig": {
     "access": "public",

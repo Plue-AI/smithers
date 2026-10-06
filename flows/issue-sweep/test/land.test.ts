@@ -134,7 +134,7 @@ test("blocking keeps only the reds main does not share", () => {
 test("isDocsSource picks package docs that docs:sync generates from, never the generated mirrors", () => {
   assert.equal(isDocsSource("packages/smithers/agent/registry/docs/api.md"), true)
   assert.equal(isDocsSource("docs/blog/building-burndown-notes.md"), true)
-  assert.equal(isDocsSource("apps/docs/registry/src/content/docs/reference/api.md"), false)
+  assert.equal(isDocsSource("apps/site/src/content/docs/docs/reference/api/registry.mdx"), false)
   assert.equal(isDocsSource("packages/smithers/src/Docs.ts"), false)
 })
 

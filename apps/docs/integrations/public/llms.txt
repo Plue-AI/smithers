@@ -1,6 +1,0 @@
-# @smthrs/integrations
-
-> GitHub adapters over the Smithers control plane
-
-- [@smthrs/integrations documentation](https://integrations.smithers.sh/): Package documentation.
-- [Smithers documentation](https://smithers.sh/llms.txt): Main documentation index.
