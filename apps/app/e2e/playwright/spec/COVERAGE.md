@@ -356,7 +356,7 @@ Cycle 33: plan preview, factory agent configuration, install settings, secrets a
 
 | id | spec file | status | ticket |
 | --- | --- | --- | --- |
-| A-SSH | [A-SSH.spec.ts](A-SSH.spec.ts) | fixme-before-implementation | T-TRM-03, T-APP-10 |
+| A-SSH | [A-SSH.spec.ts](A-SSH.spec.ts) | passing | T-TRM-03, T-APP-10 |
 | A-SIGN-IN | [A-SIGN-IN.spec.ts](A-SIGN-IN.spec.ts) | fixme-before-implementation | T-ACC-02, T-REL-02 |
 | A-SIGN-OUT | [A-SIGN-OUT.spec.ts](A-SIGN-OUT.spec.ts) | fixme-before-implementation | T-ACC-02, T-REL-02 |
 | A-THEME | [A-THEME.spec.ts](A-THEME.spec.ts) | passing | T-REL-02 |
