@@ -148,3 +148,20 @@ func TestReadsRepositoriesForTurnRetainsEveryDelegationRestriction(t *testing.T)
 		t.Run(name, func(t *testing.T) { require.False(t, credential.ReadsRepositoriesForTurn()) })
 	}
 }
+
+func TestDelegatedRepositoryReaderForTurn(t *testing.T) {
+	t.Parallel()
+	for _, via := range []string{"cli", "codex", "claude-code"} {
+		scopes := "read:repository,write:user,via:" + via
+		base := AuthInfo{User: &db.User{ID: 7, UserType: "individual"}, IsTokenAuth: true, TokenSystemIssued: true, RawScopes: scopes, Scopes: ParseTokenScopes(scopes)}
+		require.True(t, base.ReadsRepositoriesForTurn())
+		require.True(t, base.IsAgent(), "reading source must not grant person authority")
+		for _, suffix := range []string{",repo:3", ",workspace:w1", ",path:docs", ",branch:b", ",profile:terminal_s1", ",terminal-session:turn/1"} {
+			restricted := base
+			restricted.RawScopes += suffix
+			require.False(t, restricted.ReadsRepositoriesForTurn(), suffix)
+		}
+		base.Scopes = ParseTokenScopes("write:user")
+		require.False(t, base.ReadsRepositoriesForTurn())
+	}
+}
