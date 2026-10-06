@@ -13,7 +13,7 @@ import { answerActions } from "../AnswerActions"
 import { designTodoCard } from "../../state/seams/DesignWorld/todo"
 
 const unavailable: AgentPort = { available: false, startTurn: async () => ({ status: "error", message: "unavailable" }), cancelTurn: async () => {}, subscribe: () => () => {} }
-const boot = async () => {
+const boot = async (install = false) => {
   const store = await createAppStore({ kind: "localStorage", storage: memoryStorage() })
   const mutations: { path: string; body: unknown }[] = []
   const profile = signupProfileFetch(async (input, init) => {
@@ -25,7 +25,7 @@ const boot = async () => {
     }
     return new Response("{}", { status: 404 })
   })
-  const controller = createAppController(store, unavailable, { fetchImpl: profile.fetchImpl })
+  const controller = createAppController(store, unavailable, { fetchImpl: profile.fetchImpl, ...(install ? { bootstrap: { apiVersion: 1 as const, host: "local" as const, version: "test", buildSha: "test", capabilities: ["install" as const], authFlow: "redirect" as const, sandbox: null } } : {}) })
   await store.dispatch({ type: "identity.session.loaded", actor: "system", state: "signed-in", login: "ben", admin: false, scopesPlain: null }).isPersisted.promise
   return { store, controller, mutations }
 }
@@ -260,7 +260,10 @@ test("signed out on a configured host with no TODO provider, every TODO, Draft a
     const pr = designTodoCard(controller.design.world(), seeded("T8")).pr!
     expect(await controller.submitCommand({ name: "merge", actor: "user", payload: { n: 8, reviewed_head_sha: pr.head } })).toMatchObject({ status: "executed", value: `Merged #${pr.number}` })
     expect(seeded("T8").state).toBe("merged")
-    expect(await controller.runCommandForResult("todo.drop", "T11")).toMatchObject({ status: "executed", value: "Dropped T11" })
+    expect(await controller.runCommandForResult("todo.drop", "T11")).toMatchObject({ status: "executed" })
+    expect(seeded("T11").state).not.toBe("dropped")
+    const drop = [...store.collections.messages.values()].find(message => message.action?.flow === "todo.drop")!
+    expect(await controller.commands.confirm(drop.id, drop.action!.revision!)).toMatchObject({ status: "executed", value: "Dropped T11" })
     expect(h.calls).toEqual([{ path: "/api/todos", method: "GET" }])
   } finally { await controller.dispose() }
 })
@@ -410,4 +413,40 @@ test("install flow edit refuses an unavailable catalog before creating context",
     expect([...store.collections.cards.values()].filter(card => card.kind === "draft" || card.kind === "flow")).toHaveLength(0)
     expect(writes).toEqual([])
   } finally { await controller.dispose() }
+})
+
+
+test("on an install, person's slash and card Drop wait for confirmation and only the bound press posts", async () => {
+  const h = await boot(true)
+  try {
+    await h.controller.runCommandForResult("todo.drop", "T12")
+    expect(h.mutations).toEqual([])
+    const pending = [...h.store.collections.messages.values()].find(message => message.action?.flow === "todo.drop")!
+    expect(pending.action).toMatchObject({ args: '{"n":12}', label: "Confirm: drop this TODO" })
+    expect(await h.controller.commands.confirm(pending.id, "stale")).toMatchObject({ status: "failed" })
+    expect(h.mutations).toEqual([])
+    await h.controller.cancelConfirmation(pending.id, pending.action!.revision!)
+    expect(await h.controller.commands.confirm(pending.id, pending.action!.revision!)).toMatchObject({ status: "failed" })
+    expect(h.mutations).toEqual([])
+    await h.controller.submitCommand({ name: "todo.drop", actor: "user", payload: { n: 12 } })
+    const cardRequest = [...h.store.collections.messages.values()].find(message => message.action?.flow === "todo.drop")!
+    expect(h.mutations).toEqual([])
+    expect(await h.controller.commands.confirm(cardRequest.id, cardRequest.action!.revision!)).toMatchObject({ status: "executed" })
+    await waitFor(() => h.mutations.length === 1)
+    expect(h.mutations).toEqual([{ path: "/api/todos/12", body: { op: "drop" } }])
+    expect([...h.store.collections.messages.values()].filter(message => message.action?.flow === "todo.drop")).toHaveLength(1)
+  } finally { h.controller.dispose() }
+})
+
+test("on an install, an agent Drop needs exactly one person's confirmation", async () => {
+  const h = await boot(true)
+  try {
+    await agent(h.controller, "todo.drop", "T12")
+    const pending = [...h.store.collections.messages.values()].find(message => message.action?.flow === "todo.drop")!
+    expect(h.mutations).toEqual([])
+    await h.controller.commands.confirm(pending.id, pending.action!.revision!)
+    await waitFor(() => h.mutations.length === 1)
+    expect(h.mutations[0]).toEqual({ path: "/api/todos/12", body: { op: "drop" } })
+    expect([...h.store.collections.messages.values()].filter(message => message.action?.flow === "todo.drop")).toHaveLength(1)
+  } finally { h.controller.dispose() }
 })

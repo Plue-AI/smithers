@@ -172,6 +172,36 @@ func TestParallelOwnerOnlyInstallBoundary(t *testing.T) {
 	raw, err := q.GetInstallParallel(ctx)
 	require.NoError(t, err)
 	require.JSONEq(t, `8`, string(raw))
+	// The served owner setting preserves the request as detected free disk
+	// changes. Startup memory/core measurements are not refreshed with disk.
+	w = request("PUT", "/api/install", "quiesceowner-session", `{"capacity":3}`)
+	require.Equal(t, 200, w.Code, w.Body.String())
+	for _, disk := range []struct {
+		free     int64
+		capacity int
+	}{
+		{400 << 30, 3},
+		{104 << 30, 2},
+	} {
+		capacity.FreeDisk = func(context.Context) (int64, error) { return disk.free, nil }
+		w = request("GET", "/api/install", "quiesceowner-session", "")
+		require.Equal(t, 200, w.Code, w.Body.String())
+		var snapshot struct {
+			Parallel int `json:"parallel"`
+			Capacity int `json:"capacity"`
+		}
+		require.NoError(t, json.Unmarshal(w.Body.Bytes(), &snapshot))
+		require.Equal(t, 8, snapshot.Parallel)
+		require.Equal(t, disk.capacity, snapshot.Capacity)
+		effective, err := capacity.Parallel(ctx)
+		require.NoError(t, err)
+		require.Equal(t, services.InstallParallel{Requested: 8, Effective: disk.capacity}, effective)
+		saved, err := q.GetInstallParallel(ctx)
+		require.NoError(t, err)
+		require.JSONEq(t, `8`, string(saved))
+		require.EqualValues(t, 32<<30, capacity.Profile.MemoryBytes)
+		require.Equal(t, 10, capacity.Profile.PerfCores)
+	}
 	capacity.FreeDisk = func(context.Context) (int64, error) { return 60 << 30, nil }
 	w = request("GET", "/api/install", "quiesceowner-session", "")
 	require.Equal(t, 200, w.Code, w.Body.String())

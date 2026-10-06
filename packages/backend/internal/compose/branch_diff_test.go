@@ -5,6 +5,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/smithersai/smithers/packages/backend/internal/config"
 	"github.com/smithersai/smithers/packages/backend/internal/db"
@@ -89,6 +90,81 @@ func TestForeignPushAnswersComposedInstall(t *testing.T) {
 		require.NoError(t, err)
 		require.Equal(t, status, res.StatusCode, string(raw))
 		return string(raw)
+	}
+	// Agent requests cross the same installed authorization/confirmation doors.
+	// Missing dispatch cannot consume the foreign wait or mint an approval.
+	tokenFor := func(user db.User, digit string) string {
+		token := "smithers_" + strings.Repeat(digit, 40)
+		digest := sha256.Sum256([]byte(token))
+		hash := hex.EncodeToString(digest[:])
+		_, err := q.CreateAccessToken(ctx, db.CreateAccessTokenParams{UserID: user.ID, Name: "foreign-answer", TokenHash: hash, TokenLastEight: hash[len(hash)-8:], Scopes: "read:repository,write:repository,via:smithers", SystemIssued: true, ExpiresAt: pgtype.Timestamptz{Time: time.Now().Add(time.Hour), Valid: true}})
+		require.NoError(t, err)
+		return token
+	}
+	ownerToken, memberToken := tokenFor(owner, "e"), tokenFor(member, "f")
+	confirmationCall := func(path, token, cookie, body, key string, status int, code string) {
+		req, err := http.NewRequest("POST", server.URL+path, strings.NewReader(body))
+		require.NoError(t, err)
+		req.Host = "127.0.0.1:4000"
+		req.Header.Set("Origin", "http://127.0.0.1:4000")
+		req.Header.Set("Content-Type", "application/json")
+		req.Header.Set("Idempotency-Key", key)
+		if token != "" {
+			req.Header.Set("Authorization", "Bearer "+token)
+		} else {
+			req.AddCookie(&http.Cookie{Name: "smithers_session", Value: cookie})
+			req.AddCookie(&http.Cookie{Name: "__csrf", Value: "csrf-fixture"})
+			req.Header.Set("X-CSRF-Token", "csrf-fixture")
+		}
+		res, err := server.Client().Do(req)
+		require.NoError(t, err)
+		defer res.Body.Close()
+		raw, err := io.ReadAll(res.Body)
+		require.NoError(t, err)
+		require.Equal(t, status, res.StatusCode, string(raw))
+		require.Contains(t, string(raw), `"code":"`+code+`"`)
+		unchanged, err := q.GetMythicalItem(ctx, item.ID)
+		require.NoError(t, err)
+		require.Equal(t, before, unchanged)
+	}
+	for _, test := range []struct {
+		name, command, token, code string
+		status                     int
+	}{
+		{"member-discard", "branch.discard-foreign", memberToken, "permission", 403},
+		{"member-bring", "branch.bring-in", memberToken, "confirmation_unavailable", 503},
+		{"owner-discard", "branch.discard-foreign", ownerToken, "confirmation_unavailable", 503},
+		{"owner-bring", "branch.bring-in", ownerToken, "confirmation_unavailable", 503},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			payload := fmt.Sprintf(`{"command":%q,"subject":{"kind":"branch","ref":"smithers/retry"},"payload":{"id":"foreign","revision":%q}}`, test.command, head)
+			confirmationCall("/api/confirmations", test.token, "", payload, test.name, test.status, test.code)
+		})
+	}
+	// A downgraded/read-only delegation cannot acquire confirmation authority.
+	_, err = pool.Exec(ctx, `UPDATE access_tokens SET scopes='read:repository,via:smithers' WHERE user_id=$1`, owner.ID)
+	require.NoError(t, err)
+	for _, command := range []string{"branch.bring-in", "branch.discard-foreign"} {
+		confirmationCall("/api/confirmations", ownerToken, "", fmt.Sprintf(`{"command":%q}`, command), "read-only-"+command, 403, "permission")
+	}
+	_, err = pool.Exec(ctx, `UPDATE access_tokens SET scopes='read:repository,write:repository,via:smithers' WHERE user_id=$1`, owner.ID)
+	require.NoError(t, err)
+	for _, answer := range []string{"bring-in", "discard-foreign"} {
+		confirmationCall("/api/branches/smithers%2Fretry", ownerToken, "", fmt.Sprintf(`{"op":%q,"id":"foreign","revision":%q}`, answer, head), "direct-"+answer, 403, "confirm_in_app")
+	}
+	var confirmations int
+	require.NoError(t, pool.QueryRow(ctx, `SELECT count(*) FROM approvals`).Scan(&confirmations))
+	require.Zero(t, confirmations)
+	for _, command := range []string{"branch.bring-in", "branch.discard-foreign"} {
+		id := uuid.NewString()
+		_, err := pool.Exec(ctx, `INSERT INTO approvals(id,repository_id,state,kind,title,member_id,credential_id,command,subject,revision,payload,expires_at) VALUES($1,$2,'pending','one_click','Outside push',$3,'requesting-agent',$4,'{"kind":"branch","ref":"smithers/retry"}',$5,'{"id":"foreign"}',now()+interval '1 hour')`, id, repo.ID, owner.ID, command, head)
+		require.NoError(t, err)
+		confirmationCall("/api/confirmations/"+id+"/approve", "", ownerCookie, `{}`, "press-"+command, 503, "confirmation_unavailable")
+		var state string
+		var decisionKey *string
+		require.NoError(t, pool.QueryRow(ctx, `SELECT state,decision_key FROM approvals WHERE id=$1`, id).Scan(&state, &decisionKey))
+		require.Equal(t, "pending", state)
+		require.Nil(t, decisionKey)
 	}
 	body := fmt.Sprintf(`{"op":"discard-foreign","id":"foreign","revision":"%s"}`, head)
 	require.Contains(t, call(memberCookie, body, "member", 403), `"class":"permission"`)

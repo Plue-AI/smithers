@@ -55,6 +55,18 @@ func TestBranchFilesBeforeMachineReady(t *testing.T) {
 		require.Equal(t, "text", file.Content.Kind)
 		require.Equal(t, item.text, file.Content.Text)
 	}
+	// These requests must not fall back to the now-readable mirror. No live
+	// digest or burst snapshot provider exists in the install composition.
+	for _, selector := range []string{"digest=sha256:abc", "digest=", "compare=burst-before", "compare=", "at=" + r.mainCommit + "&digest=sha256:abc"} {
+		body, err := r.expect("GET", "/api/branches/main/files/JOURNEY.md?"+selector, "", 503)
+		require.NoError(t, err)
+		require.Contains(t, string(body), `"code":"service_unavailable"`)
+		require.NotContains(t, string(body), "Add a greeting")
+	}
+	// Captured immutable reads keep their existing route and never wake.
+	body, err := r.expect("GET", "/api/branches/main/files/JOURNEY.md?at="+r.mainCommit, "", 200)
+	require.NoError(t, err)
+	require.Contains(t, string(body), "Add a greeting")
 	_, err = r.expect("GET", "/api/branches/main/files/absent.ts", "", 404)
 	require.NoError(t, err)
 	_, err = r.expect("GET", "/api/branches/main/files/%2e%2e/etc/passwd", "", 400)
@@ -66,7 +78,7 @@ func TestBranchFilesBeforeMachineReady(t *testing.T) {
 	// With source authority removed, a previously readable path gives no bytes.
 	_, err = r.pool.Exec(r.ctx, `DELETE FROM install_settings WHERE key = 'setup.source.repository'`)
 	require.NoError(t, err)
-	body, err := r.expect("GET", "/api/branches/main/files/JOURNEY.md", "", 503)
+	body, err = r.expect("GET", "/api/branches/main/files/JOURNEY.md", "", 503)
 	require.NoError(t, err)
 	require.NotContains(t, string(body), "Add a greeting")
 	var after, queuedAfter int

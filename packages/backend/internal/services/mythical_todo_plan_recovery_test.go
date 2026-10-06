@@ -6,6 +6,8 @@ import (
 	"fmt"
 	"testing"
 
+	"github.com/smithersai/smithers/packages/backend/flowdispatch"
+	"github.com/smithersai/smithers/packages/backend/flowruntime"
 	"github.com/smithersai/smithers/packages/backend/jobs"
 	"github.com/stretchr/testify/require"
 )
@@ -28,7 +30,7 @@ func TestTodoRetainsPlanThroughVeryHardRecovery(t *testing.T) {
 		} else {
 			require.JSONEq(t, plan, string(item.Plan))
 		}
-		o.projectTodo(o.launcher.last("todo"), jobs.StateCompleted, fmt.Sprintf("plan-run-%d", i), todoPinOne, `{}`)
+		projectTodoPlanFailure(t, o, fmt.Sprintf("plan-run-%d", i))
 		o.wake()
 	}
 	item := o.byID(id)
@@ -37,6 +39,17 @@ func TestTodoRetainsPlanThroughVeryHardRecovery(t *testing.T) {
 	require.True(t, mythicalChecksOf(item).VeryHard)
 	require.JSONEq(t, plan, string(item.Plan))
 	require.Len(t, o.launcher.byFlow("todo"), mythicalAttempts+1)
+}
+
+// A normal failed implementation exercises the bounded replan policy.
+// Successful return without a proposal is a typed stop requiring a person.
+func projectTodoPlanFailure(t *testing.T, o *mythicalOrchestration, runID string) {
+	t.Helper()
+	launch := o.launcher.last("todo")
+	require.NoError(t, o.service.ProjectFlowRuntime(t.Context(), flowdispatch.ProjectionUpdate{
+		State: jobs.StateFailed, Checkpoint: flowdispatch.RuntimeCheckpoint{
+			Projection: launch.Projection, FlowID: "todo", RunID: runID, ExecutionDigest: todoPinOne,
+			Run: &flowruntime.Run{RunID: runID, Status: "failed", FailureFault: "factory", FailureTag: "coding/Error/stalled"}}}))
 }
 
 func TestTodoRetainedPlanCannotValidateNewCandidate(t *testing.T) {

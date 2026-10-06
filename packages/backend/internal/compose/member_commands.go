@@ -18,7 +18,7 @@ func memberCommands(queries *db.Queries) func(http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			info := middleware.AuthInfoFromContext(r.Context())
-			command := middleware.InstallMemberCommand(r.Method, r.URL.Path)
+			command := middleware.InstallMemberCommand(r.Method, r.URL.EscapedPath())
 			if info == nil || info.User == nil || command == "" || command == "self" {
 				next.ServeHTTP(w, r)
 				return

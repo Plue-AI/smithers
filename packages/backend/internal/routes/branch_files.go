@@ -48,6 +48,14 @@ func (h *BranchFileHandler) Read(w http.ResponseWriter, r *http.Request) {
 		writeRouteError(w, r, pkgerrors.BadRequest("invalid file path"))
 		return
 	}
+	// A mirror revision cannot answer a working-copy digest or a burst
+	// comparison. Refuse these selectors until their provider is composed;
+	// silently dropping them would present unrelated bytes as a live reload.
+	query := r.URL.Query()
+	if query.Has("digest") || query.Has("compare") {
+		writeRouteError(w, r, pkgerrors.New(pkgerrors.CodeServiceUnavailable, "live file provider unavailable"))
+		return
+	}
 	content, commit, err := h.Source.ReadBranchFile(r.Context(), middleware.CredentialOf(info), info.User.ID, branch, filePath, r.URL.Query().Get("at"), h.Branches)
 	if err != nil {
 		switch {

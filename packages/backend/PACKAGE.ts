@@ -6,6 +6,12 @@ const buildInputs = Smithers.Filegroup({
   cwd: "packages/backend"
 })
 
+/** Backend-owned machine protocol fixtures used by the daemon crate. */
+const machineContractInputs = Smithers.Filegroup({
+  cwd: "packages/backend",
+  srcs: [Smithers.glob("internal/compose/testdata/cocontracts/**")]
+})
+
 /** Checks the App setup guide against the source it documents.
  * Refresh the receipt with `smthrs docs //packages/backend:docs --write`.
  * @since 1.0.0
@@ -94,4 +100,4 @@ const journeyTodoLabel = Smithers.NodeTest({
  * @since 1.0.0
  * @category packages
  */
-export const Package = Smithers.Package({ targets: { buildInputs, docs, journeyTodoLabel } })
+export const Package = Smithers.Package({ targets: { machineContractInputs, buildInputs, docs, journeyTodoLabel } })

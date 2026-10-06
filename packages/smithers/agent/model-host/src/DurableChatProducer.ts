@@ -194,6 +194,11 @@ export const runDurableChatTurn = (
   const producer = new DurableChatProducer(callbackBaseUrl, grant, fetchImpl)
   const write = (frame: AgentTurnFrame) => producer.write(frame)
   return Effect.gen(function*() {
+    // Shared prompt admission must never degrade to a transcript-only answer
+    // while the authorized host context provider is unavailable.
+    if (grant.request.sharedConversation === true && preflight === undefined) {
+      return yield* Effect.fail(new ModelError({ code: "invalid_provider_output", message: "shared conversation preflight is unavailable" }))
+    }
     // Selected content is only supplied by the trusted provider; a renderer
     // cannot pass its own selection or private transcript through this path.
     const { selectedContext: _untrustedSelection, ...request } = grant.request

@@ -21,6 +21,12 @@ func TestBranchFileRefusesWithoutSourceAuthority(t *testing.T) {
 		{"no source", "JOURNEY.md", true, 503},
 		{"escaped traversal", "%2e%2e/etc/passwd", true, 400},
 		{"backslash traversal", "..%5Cetc%5Cpasswd", true, 400},
+		{"digest", "JOURNEY.md?digest=sha256:abc", true, 503},
+		{"empty digest", "JOURNEY.md?digest=", true, 503},
+		{"comparison", "JOURNEY.md?compare=burst-before", true, 503},
+		{"empty comparison", "JOURNEY.md?compare=", true, 503},
+		{"revision does not override digest", "JOURNEY.md?at=main&digest=sha256:abc", true, 503},
+		{"anonymous digest", "JOURNEY.md?digest=sha256:abc", false, 401},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			router := chi.NewRouter()
@@ -33,6 +39,9 @@ func TestBranchFileRefusesWithoutSourceAuthority(t *testing.T) {
 			router.ServeHTTP(response, request)
 			require.Equal(t, tc.status, response.Code)
 			require.NotContains(t, response.Body.String(), "Add a greeting")
+			if tc.signed && (tc.name == "digest" || tc.name == "comparison") {
+				require.Contains(t, response.Body.String(), `"code":"service_unavailable"`)
+			}
 		})
 	}
 }

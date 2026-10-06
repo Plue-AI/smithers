@@ -69,6 +69,8 @@ export interface StartAgentTurnRequest {
   readonly runId: string
   /** Existing durable conversation branch; older hosts/turns remain per-run. */
   readonly conversationId?: string
+  /** Host prompt admission requires authorized SharedEntries preflight. Browser admission refuses this marker. */
+  readonly sharedConversation?: boolean
   /** Stable per-leg identity and private replay capability, written locally before the POST. */
   readonly journal?: import("./AgentTurnJournal.ts").AgentTurnJournalRequest
   readonly messages: ReadonlyArray<AgentChatMessage>

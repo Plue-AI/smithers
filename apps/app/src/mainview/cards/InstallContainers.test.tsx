@@ -50,12 +50,14 @@ describe("T-APP-03 Containers with recording Views", () => {
     expect(props.gestures).toEqual({}); expect(props.view).toBe(h.view); props.onView({ tab: "github" }); expect(h.patches).toEqual([{ tab: "github" }])
     expect(props.actions.map(action => [action.tag, action.args])).toEqual([
       ["settings.address", { field: "address", listen: "mac" }], ["settings.address", { field: "address", listen: "network" }],
-      ["settings.capacity", { field: "capacity", min: "1", max: "3" }], ["settings.parallel", { field: "parallel", min: "1", max: "8" }],
+      ["image.add", undefined],
+      ["settings.capacity", { field: "capacity", min: "0", max: "3" }], ["settings.parallel", { field: "parallel", min: "1", max: "8" }],
       ["settings.model-key", { field: "key", role: "fast" }], ["settings.model-key", { field: "key", role: "coding" }], ["settings.model-key", { field: "key", role: "jev" }],
       ["settings.model.set", { role: "fast" }], ["settings.model.set", { role: "coding" }], ["settings.model.set", { role: "jev" }]
     ])
-    props.onAction("settings.capacity", { capacity: "3" }); props.onAction("settings.parallel", { parallel: "1" })
-    expect(h.commands).toEqual([{ tag: "settings.capacity", input: { capacity: 3 } }, { tag: "settings.parallel", input: { parallel: 1 } }])
+    props.onAction("settings.capacity", { capacity: "0" }); props.onAction("settings.parallel", { parallel: "1" })
+    props.onAction("image.add", { name: "figlet" })
+    expect(h.commands).toEqual([{ tag: "settings.capacity", input: { capacity: 0 } }, { tag: "settings.parallel", input: { parallel: 1 } }, { tag: "image.add", input: { name: "figlet" } }])
   })
   test("Address sends bind and origins; refused origins remain outside the active list", () => {
     const model = installFixture(); model.address.change_failed = { from: "http://mini.local:4000", to: "http://refused.test", reason: "Address in use" }

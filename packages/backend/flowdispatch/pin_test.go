@@ -152,11 +152,13 @@ func TestPinnedReconnectValidatesDigestBeforeResolution(t *testing.T) {
 	for _, test := range []struct {
 		name, runID, digest string
 		valid               bool
+		failure             string
 	}{
-		{"wrong launch digest", "", otherDigest, false},
-		{"wrong reconnect digest", "run-1", otherDigest, false},
-		{"missing reconnect digest", "run-1", "", false},
-		{"admitted reconnect", "run-1", todoPin.ExecutionDigest, true},
+		{"wrong launch digest", "", otherDigest, false, ""},
+		{"wrong reconnect digest", "run-1", otherDigest, false, ""},
+		{"missing reconnect digest", "run-1", "", false, ""},
+		{"admitted reconnect", "run-1", todoPin.ExecutionDigest, true, ""},
+		{"rejected host reconnect", "run-1", todoPin.ExecutionDigest, true, "pin_mismatch"},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			store, pool := newFlowDispatchStore(t)
@@ -175,12 +177,16 @@ func TestPinnedReconnectValidatesDigestBeforeResolution(t *testing.T) {
 			require.NoError(t, err)
 			target := stackTarget
 			target.TenantID, target.PrincipalID = stackScope.TenantID, stackScope.PrincipalID
-			checkpoint := RuntimeCheckpoint{Version: 1, Target: target, FlowID: "todo", RunID: test.runID, ExecutionDigest: test.digest}
+			checkpoint := RuntimeCheckpoint{Version: 1, Target: target, FlowID: "todo", RunID: test.runID, ExecutionDigest: test.digest, FailureCode: test.failure}
 			_, err = pool.Exec(t.Context(), `UPDATE product_job_dispatches SET external_receipt=$2::jsonb WHERE operation_id=$1`, receipt.OperationID, mustJSON(checkpoint))
 			require.NoError(t, err)
 			startTestWorker(t, service, "reconnect-pin-worker")
 			operation := waitOperation(t, store, stackScope, receipt.OperationID, func(operation jobs.Operation) bool { return operation.State.Terminal() })
-			if test.valid {
+			if test.failure == "pin_mismatch" {
+				require.Equal(t, jobs.StateFailed, operation.State)
+				require.Contains(t, string(operation.TerminalReceipt), "pin_mismatch")
+				require.Positive(t, resolved.Load())
+			} else if test.valid {
 				require.Equal(t, jobs.StateCompleted, operation.State, string(operation.TerminalReceipt))
 				require.Positive(t, resolved.Load())
 			} else {
@@ -191,7 +197,11 @@ func TestPinnedReconnectValidatesDigestBeforeResolution(t *testing.T) {
 			runtime.mu.Lock()
 			defer runtime.mu.Unlock()
 			require.Empty(t, runtime.launches, "reconnect never launches another run")
-			require.Zero(t, runtime.cancels, "an invalid checkpoint cannot cancel its named run")
+			if test.failure == "pin_mismatch" {
+				require.Equal(t, 1, runtime.cancels, "a rejected host remains cancelled after reconnect")
+			} else {
+				require.Zero(t, runtime.cancels, "an invalid checkpoint cannot cancel its named run")
+			}
 		})
 	}
 }

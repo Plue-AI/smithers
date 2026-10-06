@@ -495,7 +495,7 @@ func Authorize(ctx context.Context, q *db.Queries, command string) (InstallAutho
 			if !info.Scopes.Has(middleware.ScopeReadRepository) {
 				return InstallAuthorization{}, &AccessError{Status: 403, Class: "permission", Code: "permission", Message: "Sign in with a browser session"}
 			}
-		case "todo.control", "todo.answer", "todo.steer", "todo.amend", "todo.stop", "todo.resume", "todo.retry", "todo.drop", "stack.move", "merge", "todo.new", "branch.fork", "review":
+		case "todo.control", "todo.answer", "todo.steer", "todo.amend", "todo.stop", "todo.resume", "todo.retry", "todo.drop", "stack.move", "merge", "todo.new", "branch.fork", "branch.bring-in", "branch.discard-foreign", "review":
 			if !info.Scopes.Has(middleware.ScopeWriteRepository) {
 				return InstallAuthorization{}, &AccessError{Status: 403, Class: "permission", Code: "permission", Message: "Insufficient credential scope"}
 			}
@@ -535,10 +535,16 @@ func Authorize(ctx context.Context, q *db.Queries, command string) (InstallAutho
 	}
 	if fullDelegated {
 		switch command {
-		case "self.read", "telemetry.report", "repo.read", "wiki.read", "issue.read", "todo.read", "agent.turn", "todo.control", "todo.new", "todo.answer", "todo.steer", "todo.amend", "todo.stop", "todo.resume", "todo.retry", "todo.drop", "stack.move", "merge", "flows.read", "branches.read", "branch.read", "branch.fork", "review":
+		case "self.read", "telemetry.report", "repo.read", "wiki.read", "issue.read", "todo.read", "agent.turn", "todo.control", "todo.new", "todo.answer", "todo.steer", "todo.amend", "todo.stop", "todo.resume", "todo.retry", "todo.drop", "stack.move", "merge", "flows.read", "branches.read", "branch.read", "branch.fork", "branch.bring-in", "branch.discard-foreign", "review":
 		default:
 			return InstallAuthorization{}, &AccessError{Status: 403, Class: "never", Code: "never", Message: "Only a person can do this"}
 		}
+	}
+	// Outside-push decisions are in-card confirmations, never delegated writes.
+	// Check membership and the Discard maintainer role above before admitting
+	// a confirmation request; execution still requires a person's press.
+	if fullDelegated && (command == "branch.bring-in" || command == "branch.discard-foreign") {
+		return InstallAuthorization{}, &AccessError{Status: 403, Class: "permission", Code: "confirm_in_app", Message: "Confirm in the app"}
 	}
 	if fullDelegated && (command == "todo.amend" || command == "merge" || command == "todo.drop" || command == "review") {
 		return InstallAuthorization{}, &AccessError{Status: 503, Class: "infra", Code: "confirmation_unavailable", Message: "Confirmation unavailable"}

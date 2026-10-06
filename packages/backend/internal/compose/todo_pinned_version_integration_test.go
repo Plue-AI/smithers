@@ -116,6 +116,16 @@ func TestTodoPinnedVersionComposedInstall(t *testing.T) {
 		require.NoError(t, err)
 		require.Equal(t, before, after, "unavailable controls cannot mutate a pinned attempt")
 	}
+	// A watchdog/early-return no_proposal is a person-retryable failure,
+	// and its public card keeps the attempt pin until Retry is admitted.
+	_, err = pool.Exec(ctx, `UPDATE mythical_items SET checks=jsonb_set(checks, '{fault}', '{"class":"factory","tag":"no_proposal","kind":"plan"}'::jsonb) WHERE id=$1`, item.ID)
+	require.NoError(t, err)
+	failed := read()
+	require.Equal(t, "failed", failed["state"])
+	require.Equal(t, card["flow_version"], failed["flow_version"])
+	require.Equal(t, "factory", failed["failure"].(map[string]any)["class"])
+	require.Equal(t, "plan", failed["failure"].(map[string]any)["step"])
+	require.Equal(t, true, failed["failure"].(map[string]any)["retryable"])
 	first := control("retry", "same-pin", http.StatusAccepted)
 	require.EqualValues(t, 2, first["attempt"])
 	require.Equal(t, first, control("retry", "same-pin", http.StatusAccepted))
@@ -158,6 +168,25 @@ func TestTodoPinnedVersionComposedInstall(t *testing.T) {
 	queuedCard := read()
 	require.Equal(t, "queued", queuedCard["state"])
 	require.Equal(t, "daily_limit", queuedCard["queue"].(map[string]any)["reason"], "the install card exposes the admission hold")
+	t.Run("mismatched host never becomes Working", func(t *testing.T) {
+		_, err = pool.Exec(ctx, `UPDATE mythical_items SET state='running',attempt=1,request_run_id='',request_outcome='',checks=$2 WHERE id=$1`, item.ID, []byte(fmt.Sprintf(`{"flowSource":"%s","run_launched":true}`, source)))
+		require.NoError(t, err)
+		binding, err := json.Marshal(map[string]any{"kind": flowdispatch.StackBindingKind, "itemId": uuid.UUID(item.ID.Bytes).String(), "generation": 0, "attempt": 1, "phase": "todo", "flowDigest": digest, "flowSource": source})
+		require.NoError(t, err)
+		update := flowdispatch.ProjectionUpdate{State: jobs.StateWaiting, Checkpoint: flowdispatch.RuntimeCheckpoint{FlowID: "todo", RunID: "wrong-code", ExecutionDigest: digest, FailureCode: "pin_mismatch", Projection: binding, Run: &flowruntime.Run{RunID: "wrong-code", Status: "running"}}}
+		require.NoError(t, service.ProjectFlowRuntime(ctx, update))
+		require.Equal(t, "starting", read()["state"])
+		update.State = jobs.StateFailed
+		update.Checkpoint.Run.Status = "cancelled"
+		require.NoError(t, service.ProjectFlowRuntime(ctx, update))
+		current, err := q.GetMythicalItem(ctx, item.ID)
+		require.NoError(t, err)
+		require.Empty(t, current.RequestRunID)
+		require.Equal(t, "outage: infra: pin_mismatch", current.RequestOutcome)
+		require.NotContains(t, string(current.Checks), "watchdog", "rejected host output cannot spend the attempt allowance")
+		require.Equal(t, "starting", read()["state"])
+		require.Equal(t, card["flow_version"], read()["flow_version"])
+	})
 	// Exercise the engine verdict projection and the person-facing card,
 	// rather than treating the parser's helper output as publication proof.
 	for _, tc := range []struct{ name, output, verdict string }{

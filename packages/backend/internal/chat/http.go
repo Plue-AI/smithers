@@ -47,9 +47,11 @@ type RevocationSource interface {
 }
 
 type Handler struct {
-	Revocations RevocationSource
-	Store       *Store
-	Dispatcher  *Dispatcher
+	// ResolveBranch authorizes and resolves branch aliases at the install boundary.
+	ResolveBranch func(context.Context, Scope, string) (string, error)
+	Revocations   RevocationSource
+	Store         *Store
+	Dispatcher    *Dispatcher
 	// Sources serves the source read and list callbacks; nil refuses them.
 	Sources SourceReader
 	// API serves the API read callback; nil refuses it.

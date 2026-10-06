@@ -6,7 +6,6 @@ import (
 	"os"
 	"path/filepath"
 	"strconv"
-	"strings"
 	"syscall"
 	"testing"
 	"time"
@@ -41,11 +40,12 @@ export default Flow.make("todo", {
 	number, err := r.file("A successful return needs a proposal", "Return immediately without proposing anything.")
 	require.NoError(t, err)
 	var checks json.RawMessage
-	var runID, outcome, reason string
+	var runID, outcome, reason, fault, state string
 	require.EventuallyWithT(t, func(c *assert.CollectT) {
-		require.NoError(c, r.pool.QueryRow(r.ctx, `SELECT request_run_id,request_outcome,reason,checks FROM mythical_items WHERE number=$1`, number).Scan(&runID, &outcome, &reason, &checks))
+		require.NoError(c, r.pool.QueryRow(r.ctx, `SELECT request_run_id,request_outcome,reason,checks,COALESCE(checks->'fault'->>'tag',''),state FROM mythical_items WHERE number=$1`, number).Scan(&runID, &outcome, &reason, &checks, &fault, &state))
 		require.NotEmpty(c, runID, "a real host must accept this attempt")
-		require.True(c, strings.Contains(reason, "no_proposal"), "reason: %s; outcome: %s", reason, outcome)
+		require.Equal(c, "no_proposal", fault, "reason: %s; outcome: %s", reason, outcome)
+		require.Equal(c, "blocked", state, "a person must Retry this typed stop")
 	}, 4*time.Minute, 500*time.Millisecond)
 	var evidence struct {
 		Fault struct {
@@ -95,9 +95,9 @@ export default Flow.make("todo", {
 	number, err := r.file("The step allowance stops execution", "Run steps without proposing anything.")
 	require.NoError(t, err)
 	var checks json.RawMessage
-	var runID, outcome, workspaceID string
+	var runID, outcome string
 	require.EventuallyWithT(t, func(c *assert.CollectT) {
-		require.NoError(c, r.pool.QueryRow(r.ctx, `SELECT request_run_id,request_outcome,workspace_id,checks FROM mythical_items WHERE number=$1`, number).Scan(&runID, &outcome, &workspaceID, &checks))
+		require.NoError(c, r.pool.QueryRow(r.ctx, `SELECT request_run_id,request_outcome,checks FROM mythical_items WHERE number=$1`, number).Scan(&runID, &outcome, &checks))
 		require.NotEmpty(c, runID)
 		require.Equal(c, "failed: no_proposal", outcome)
 	}, 5*time.Minute, 500*time.Millisecond)
@@ -118,7 +118,11 @@ export default Flow.make("todo", {
 	require.Equal(t, "no_proposal", evidence.Fault.Tag)
 	require.EventuallyWithT(t, func(c *assert.CollectT) {
 		var retired bool
-		require.NoError(c, r.pool.QueryRow(r.ctx, `SELECT retired_at IS NOT NULL FROM mythical_lanes WHERE workspace_id=$1`, workspaceID).Scan(&retired))
+		var lanes int
+		// Terminal settlement clears the item's current workspace. The
+		// immutable lane binding still proves its executing machine retired.
+		require.NoError(c, r.pool.QueryRow(r.ctx, `SELECT count(*),COALESCE(bool_and(retired_at IS NOT NULL),false) FROM mythical_lanes WHERE item_id=(SELECT id FROM mythical_items WHERE number=$1)`, number).Scan(&lanes, &retired))
+		require.Equal(c, 1, lanes, "a typed stop must not launch another machine")
 		require.True(c, retired, "the watchdog must retire the executing machine")
 	}, time.Minute, 250*time.Millisecond)
 	card, err := r.todo(number)

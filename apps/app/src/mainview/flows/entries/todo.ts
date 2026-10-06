@@ -54,6 +54,6 @@ export const todoFlows = (actions: CommandActions): ReadonlyArray<FlowEntry> => 
     input: Schema.Struct({ n: N, text: Schema.optional(Schema.String) }), grammar: parseTodoArgs("text"), form: form("Retry"),
     handler: ({ n, text }) => actions.controlTodo(n, "retry-current-flow", text) }),
   flow({ name: "todo.drop",   slash: "/todo.drop", cli: ["todo","drop"], journey: ["J4","J7"], group: "TODOs and the stack", visibility: "core", actors: ["person","app_agent","external_agent"], minimumRole: "member", http: {"method":"POST","path":"/api/todos/{n}",defaults:{op:"drop"}}, summary: "Abandon an unmerged TODO", args: "<Tn>", agent: "confirm", input: Target,
-    grammar: parseTodoArgs(), form: form("Drop"), confirm: "drop this TODO",
+    grammar: parseTodoArgs(), form: form("Drop"), confirm: "drop this TODO", confirmPerson: true, confirmArgs: ({ n }) => JSON.stringify({ n }),
     handler: ({ n }) => actions.controlTodo(n, "drop") })
 ]

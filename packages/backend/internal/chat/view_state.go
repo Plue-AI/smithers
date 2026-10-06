@@ -6,7 +6,6 @@ import (
 	"errors"
 	"net/http"
 
-	"github.com/go-chi/chi/v5"
 	"github.com/jackc/pgx/v5"
 	"github.com/smithersai/smithers/packages/backend/internal/middleware"
 )
@@ -157,13 +156,17 @@ func (h *Handler) ViewState(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
+	branch, err := h.branch(w, r, scope)
+	if err != nil {
+		return
+	}
 	var value json.RawMessage
 	if r.Method == http.MethodPut {
 		if !decodeBounded(w, r, &value) {
 			return
 		}
 	}
-	result, err := h.Store.memberViewState(r.Context(), scope.UserID, chi.URLParam(r, "b"), value)
+	result, err := h.Store.memberViewState(r.Context(), scope.UserID, branch, value)
 	if err != nil {
 		publicError(w, err)
 		return

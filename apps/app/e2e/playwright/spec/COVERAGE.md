@@ -84,7 +84,7 @@ C-UI-12 Members (T-UI-09): [install roster and keyboard Add/Role/Remove](C-UI-12
 | C-UI-01 | [C-UI-01.spec.ts](C-UI-01.spec.ts) | fixme-before-implementation | T-REL-02 |
 | C-UI-02 | [C-UI-02.spec.ts](C-UI-02.spec.ts) | passing | T-CAT-01 |
 | C-UI-03 | [notifications.spec.ts](../notifications.spec.ts) | passing: Chromium + WebKit, loopback/plain HTTP, live owned TODOs, gesture, hidden/visible, dedupe, click/focus, no console errors; Notification API recorded | T-APP-18 |
-| C-UI-04 | [C-UI-04.spec.ts](C-UI-04.spec.ts) | partial: served TODO rail keyboard Retry, approval/conflict notices and owner merge notice/Hide covered; shared entries, preference hiding and summaries remain fixme | T-APP-07 |
+| C-UI-04 | [C-UI-04.spec.ts](C-UI-04.spec.ts) | partial: served TODO rail keyboard Retry, Answer with bound TODO and Resolve with bound branch, approval/conflict notices and owner merge notice/Hide covered; shared entries, preference hiding and summaries remain fixme | T-APP-07 |
 | C-UI-05 | [C-UI-05.spec.ts](C-UI-05.spec.ts) | fixme-before-implementation | T-COL-02 |
 
 | C-UI-06 | [C-UI-06.spec.ts](C-UI-06.spec.ts) | fixme-before-implementation | T-APP-16 |
@@ -248,7 +248,7 @@ Cycle 26: production TODO admission, issue drafts, question answers, steers and 
 | A-TODO-STOP | [A-TODO-STOP.spec.ts](A-TODO-STOP.spec.ts) | fixme-before-implementation | T-STK-05 |
 | A-TODO-RESUME | [A-TODO-RESUME.spec.ts](A-TODO-RESUME.spec.ts) | fixme-before-implementation | T-STK-05 |
 | A-TODO-RETRY | [A-TODO-RETRY.spec.ts](A-TODO-RETRY.spec.ts) | fixme-before-implementation | T-STK-05 |
-| A-TODO-DROP | [A-TODO-DROP.spec.ts](A-TODO-DROP.spec.ts) | fixme-before-implementation | T-STK-05 |
+| A-TODO-DROP | [A-TODO-DROP.spec.ts](A-TODO-DROP.spec.ts) | partial: mounted Drop confirms; durable capture/fold journey remains fixme | T-STK-05 |
 | A-STACK-MOVE | [A-STACK-MOVE.spec.ts](A-STACK-MOVE.spec.ts) | fixme-before-implementation | T-STK-02 |
 | A-MERGE | [A-MERGE.spec.ts](A-MERGE.spec.ts) | fixme-before-implementation | T-STK-04 |
 

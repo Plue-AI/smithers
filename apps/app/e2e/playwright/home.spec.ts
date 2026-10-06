@@ -183,13 +183,16 @@ test("install Home keeps the next Merge after an earlier item merged and exposes
   await expect(second.getByRole("button", { name: "Merge", exact: true })).toHaveCount(0)
   await second.getByRole("button", { name: "Order Second TODO", exact: true }).press("Enter")
   await second.getByRole("menuitem", { name: "Drop", exact: true }).press("Enter")
+  expect(drops).toEqual([])
+  await page.getByRole("button", { name: "Confirm: drop this TODO", exact: true }).press("Enter")
   await expect.poll(() => drops.length).toBe(1)
   expect(drops[0]!.body).toEqual({ op: "drop" })
   expect(drops[0]!.key).toMatch(/^[0-9a-f-]{36}$/)
   await expect(home.locator(".stack-row .ref")).toHaveText(["T3"])
   login = "alice"
   await page.reload()
-  await expect(home.locator(".stack-row .ref")).toHaveText(["T3"])
+  await expect(home.getByText("T3", { exact: true })).toBeVisible()
+  await expect(home.getByText("T2", { exact: true })).toHaveCount(0)
   await expect(home.getByRole("button", { name: "Merge", exact: true })).toHaveCount(0)
   login = "maya"
   await page.reload()

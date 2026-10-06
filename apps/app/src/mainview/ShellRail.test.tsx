@@ -290,3 +290,42 @@ test("the install shell keeps a missing TODO entry's notice visible without its 
   expect(host.querySelector('[data-entry="current-entry"] .tl-text b')?.textContent).toBe("Current conversation")
   expect(writes).toEqual([])
 })
+
+test("served wait rail actions retain the TODO and the actual branch through catalog dispatch", async () => {
+  const store = await createAppStore({ kind: "localStorage", storage: memoryStorage() })
+  await store.dispatch({ type: "identity.session.loaded", actor: "system", state: "signed-in", login: "smithersai", admin: false, scopesPlain: null }).isPersisted.promise
+  const model = {
+    ...todoFixtures.needs_you.model,
+    n: 24,
+    branch: { id: "branch-24", name: "smithers/fix-retry", machine: { state: "awake" as const } },
+    waits: [{ id: "conflict-24", kind: "conflict" as const, prompt: "Resolve", since: "2026-10-06T00:00:00Z", actions: [{ tag: "branch" as const, label: "Resolve" }] }]
+  }
+  const reads: string[] = []
+  const controller = createAppController(store, silentAgent, {
+    bootstrap: { apiVersion: 1, host: "local", version: "test", buildSha: "test", capabilities: ["install"], authFlow: "none", sandbox: null },
+    fetchImpl: async input => {
+      const path = new URL(String(input), "https://install.test").pathname
+      reads.push(path)
+      return path === "/api/install" ? Response.json(installFixture())
+        : path === "/api/todos" ? Response.json([model])
+        : path === "/api/todos/24" ? Response.json(model) : new Response("", { status: 404 })
+    }
+  })
+  await controller.showTodo(24)
+  const entry = store.collections.cards.get("todo:24")!
+  if (entry?.kind !== "todo") throw new Error("Expected served TODO")
+  expect(entry).toBeDefined()
+  const host = mount(<ControllerTestProvider controller={controller}><MessageScrollerProvider>
+    <ShellRail home={false} entries={[{ kind: "card", card: entry }]} />
+  </MessageScrollerProvider></ControllerTestProvider>)
+  await waitFor(() => host.querySelector('[data-entry="todo:24"] [data-flow="branch"]') !== null)
+  click(host.querySelector('[data-entry="todo:24"] [data-flow="branch"]'))
+  await waitFor(() => reads.includes("/api/branches/smithers%2Ffix-retry"))
+  expect(reads).not.toContain("/api/branches/undefined")
+  const answerModel = { ...model, waits: [{ id: "ask-24", kind: "question" as const, prompt: "Choose", since: "2026-10-06T00:00:00Z", actions: [{ tag: "todo.answer" as const, label: "Answer" }] }] }
+  const answerLine = railLines([{ kind: "card", card: { ...entry, payload: { ...entry.payload, model: answerModel } } }])[0]!
+  expect(answerLine.action).toEqual({ tag: "todo.answer", label: "Answer", args: { n: "24", wait: "ask-24" } })
+  const calls: unknown[] = []
+  timelineActions([answerLine], (tag, input) => calls.push([tag, input])).onAction("todo.answer", answerLine.action!.args)
+  expect(calls).toEqual([["todo.answer", { n: 24, answer: "", wait: "ask-24" }]])
+})

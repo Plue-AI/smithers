@@ -93,11 +93,14 @@ func TestTodoWatchdogAndAccounting(t *testing.T) {
 			require.NoError(t, err)
 			require.True(t, saved)
 			stopped := o.byID(uuidString(item.ID))
-			require.Equal(t, "retrying", stopped.State, stopped.Reason)
+			require.Equal(t, "blocked", stopped.State, stopped.Reason)
 			require.Equal(t, &mythicalFault{Class: "factory", Tag: "no_proposal", Kind: mythicalFailPlan}, mythicalChecksOf(stopped).Fault)
 			require.EqualValues(t, 1, mythicalChecksOf(stopped).Launches)
 			require.Equal(t, mythicalChecksOf(stopped).AdmissionDay, mythicalChecksOf(o.byID(uuidString(item.ID))).AdmissionDay)
 			require.Len(t, o.launcher.byFlow("todo"), 1, "watchdog adds no model launch or daily charge")
+			o.wake()
+			require.Equal(t, "blocked", o.byID(uuidString(item.ID)).State)
+			require.Len(t, o.launcher.byFlow("todo"), 1, "an expired attempt waits for person Retry")
 		})
 	}
 }
@@ -160,8 +163,7 @@ func TestTodoWatchdogSurvivesSameAttemptRecovery(t *testing.T) {
 
 	// A factory failure spends the attempt: the next attempt gets a new
 	// allowance, while daily admission is still charged only once.
-	update.State, update.Checkpoint.Run.Status = jobs.StateCompleted, "completed"
-	require.NoError(t, o.service.ProjectFlowRuntime(t.Context(), update))
+	projectTodoPlanFailure(t, o, "after-outage")
 	o.wake()
 	o.wake()
 	fresh := o.byID(id)
@@ -179,25 +181,24 @@ func TestTodoWatchdogExhaustedVeryHardContinuationDoesNotLaunch(t *testing.T) {
 		o.wake()
 		item := o.byID(id)
 		require.EqualValues(t, attempt, item.Attempt)
-		launch := o.launcher.last("todo")
 		runID := fmt.Sprintf("attempt-%d", attempt)
-		if attempt < mythicalAttempts {
-			o.projectTodo(launch, jobs.StateCompleted, runID, todoPinOne, `{}`)
-		} else {
-			update := flowdispatch.ProjectionUpdate{State: jobs.StateWaiting, Checkpoint: flowdispatch.RuntimeCheckpoint{
-				Projection: launch.Projection, FlowID: "todo", RunID: runID, ExecutionDigest: todoPinOne,
-				Run: &flowruntime.Run{RunID: runID, Status: "running"}}}
-			for i := range 1024 {
-				update.Events = append(update.Events, watchdogStep(i))
-			}
-			require.NoError(t, o.service.ProjectFlowRuntime(t.Context(), update))
-		}
+		projectTodoPlanFailure(t, o, runID)
 		o.wake()
 		require.Equal(t, "retrying", o.byID(id).State)
 	}
 	item := o.byID(id)
 	require.True(t, mythicalChecksOf(item).VeryHard)
 	require.EqualValues(t, mythicalAttempts-1, item.Attempt, "the final continuation reuses the last logical attempt")
+	// An older checkpoint may already have queued a continuation at the
+	// watchdog bound. Upgrading must refuse its launch rather than reset it.
+	checks := mythicalChecksOf(item)
+	checks.Watchdog = &todoWatchdog{}
+	for i := range 1024 {
+		checks.Watchdog.Steps = append(checks.Watchdog.Steps, fmt.Sprintf("spent-%d", i))
+	}
+	item.Checks = checks.encode()
+	_, err := o.service.queries().SaveMythicalItem(t.Context(), item)
+	require.NoError(t, err)
 	o.wake()
 	item = o.byID(id)
 	require.Equal(t, "blocked", item.State, item.Reason)
@@ -205,7 +206,7 @@ func TestTodoWatchdogExhaustedVeryHardContinuationDoesNotLaunch(t *testing.T) {
 	require.Len(t, o.launcher.byFlow("todo"), mythicalAttempts, "an exhausted attempt cannot launch a fresh guest")
 	require.EqualValues(t, mythicalAttempts, mythicalChecksOf(item).Launches)
 	require.Len(t, mythicalChecksOf(item).Watchdog.Steps, 1024)
-	require.Contains(t, item.Reason, "no_proposal")
+	require.Equal(t, "no_proposal", mythicalChecksOf(item).Fault.Tag)
 }
 
 func TestTodoRetainsPinnedSourceAlongsideEditingBase(t *testing.T) {
@@ -306,4 +307,49 @@ func TestTodoWatchdogBoundsNativeEvidence(t *testing.T) {
 	before := append([]byte(nil), item.Checks...)
 	projectTodoWatchdog(&item, update, time.Now())
 	require.JSONEq(t, string(before), string(item.Checks), "a replayed oversized page cannot grow evidence")
+}
+
+// The worker's snapshot can expire while a person or proposal commits.
+// Re-read under the stack lock before spending cancellations or retiring lanes.
+func TestTodoWatchdogKeepsConcurrentSettlement(t *testing.T) {
+	for _, change := range []string{"proposal", "drop", "pause", "new attempt", "step progress"} {
+		t.Run(change, func(t *testing.T) {
+			o, session := newTodoAdmission(t)
+			o.service.SetTodoFlow(func(context.Context, int64, string) (string, error) { return todoPinOne, nil })
+			item := o.fileTodo(session, "race-watchdog")
+			o.wake()
+			item = o.byID(uuidString(item.ID))
+			checks := mythicalChecksOf(item)
+			checks.Watchdog = &todoWatchdog{ActiveMillis: (4 * time.Hour).Milliseconds()}
+			item.Checks = checks.encode()
+			item, err := db.New(o.pool).SaveMythicalItem(t.Context(), item)
+			require.NoError(t, err)
+			current := item
+			switch change {
+			case "proposal":
+				acceptTodoWatchdog(&current, time.Now())
+			case "drop":
+				current.State = "cancelled"
+			case "pause":
+				current.PausedAt = pgtype.Timestamptz{Time: time.Now(), Valid: true}
+			case "new attempt":
+				current.Attempt++
+				current.RequestRunID = "next-run"
+			case "step progress":
+				current.Summary = "new evidence"
+			}
+			current, err = db.New(o.pool).SaveMythicalItem(t.Context(), current)
+			require.NoError(t, err)
+			stack, err := db.New(o.pool).GetMythicalStack(t.Context(), o.repoID)
+			require.NoError(t, err)
+			st := &mythicalItemStep{s: o.service, r: &mythicalRun{row: stack}, now: time.Now()}
+			next, saved, err := st.enforceTodoWatchdog(t.Context(), item)
+			require.NoError(t, err)
+			require.True(t, saved, "the caller must not advance its stale snapshot")
+			require.Equal(t, current, *next)
+			require.Equal(t, current, o.byID(uuidString(item.ID)))
+			require.Empty(t, o.lanes.deleted, "a stale timer never retires a lane")
+			require.Len(t, o.launcher.byFlow("todo"), 1)
+		})
+	}
 }

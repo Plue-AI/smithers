@@ -1111,6 +1111,11 @@ test("the served merge transition notifies only its owner once, already terminal
     await h.seam.applyTodoProjection(12, { ...fixtures.in_review.model, owner })
     await h.seam.applyTodoProjection(12, { ...fixtures.merged.model, owner })
     expect(merged()).toHaveLength(1)
+    await h.store.dispatch({ type: "toast.dismissed", actor: "user", id: merged()[0]!.id }).isPersisted.promise
+    // A delayed pre-merge response followed by a terminal replay cannot undo Hide.
+    await h.seam.applyTodoProjection(12, fixtures.in_review.model)
+    await h.seam.applyTodoProjection(12, fixtures.merged.model)
+    expect(merged()).toEqual([])
   } finally { h.close() }
   const history = await harness(async () => json(fixtures.merged.model, 200))
   try {
