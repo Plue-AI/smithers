@@ -21,6 +21,7 @@ type ReviewAdmission struct {
 	RequesterID    int64           `json:"requester_id"`
 	AuthorID       int64           `json:"author_id"`
 	Number         int64           `json:"number"`
+	Base           string          `json:"base"`
 	Head           string          `json:"head"`
 	URL            string          `json:"url"`
 	Pin            flowruntime.Pin `json:"pin"`
@@ -109,6 +110,11 @@ func (s *MythicalService) prepareReview(ctx context.Context, repositoryID, reque
 	if pull.Number != request.Number || (!flowCommitPattern.MatchString(pull.HeadSHA) || strings.Trim(pull.HeadSHA, "0") == "") {
 		return ReviewAdmission{}, reviewUnavailable("pr_head_unavailable")
 	}
+	// Both ends of the comparison are selected from the same GitHub read.
+	// A branch name would silently follow a later base move during execution.
+	if !flowCommitPattern.MatchString(pull.BaseSHA) || strings.Trim(pull.BaseSHA, "0") == "" {
+		return ReviewAdmission{}, reviewUnavailable("pr_base_unavailable")
+	}
 	versions, err := db.New(s.store).ListFlowVersions(ctx, repositoryID)
 	if err != nil {
 		return ReviewAdmission{}, reviewUnavailable("active_flow_unavailable")
@@ -123,7 +129,7 @@ func (s *MythicalService) prepareReview(ctx context.Context, repositoryID, reque
 	if !pin.Valid() {
 		return ReviewAdmission{}, reviewUnavailable("active_flow_unavailable")
 	}
-	return ReviewAdmission{RepositoryID: repositoryID, RequesterID: requesterID, AuthorID: authorID, Number: request.Number, Head: pull.HeadSHA, URL: fmt.Sprintf("https://github.com/%s/%s/pull/%d", gh.Owner, gh.Name, request.Number), Pin: pin, IdempotencyKey: key, Conversation: request.Conversation}, nil
+	return ReviewAdmission{RepositoryID: repositoryID, RequesterID: requesterID, AuthorID: authorID, Number: request.Number, Base: pull.BaseSHA, Head: pull.HeadSHA, URL: fmt.Sprintf("https://github.com/%s/%s/pull/%d", gh.Owner, gh.Name, request.Number), Pin: pin, IdempotencyKey: key, Conversation: request.Conversation}, nil
 }
 
 func reviewUnavailable(code string) error {
