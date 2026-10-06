@@ -42,7 +42,7 @@ pub fn wake(cx: &mut LockCx, repo: &mut impl Repository, head: Oid) -> Result<Ou
     }
     let old = old.unwrap();
     // Wake admission remains closed until the journaled rewrite and event settle.
-    cx.rewrite_pending = true;
+    cx.begin_rewrite()?;
     let outcome = if repo.tree(snapshot)? == repo.tree(old)? {
         Outcome::Moved(repo.move_to(head, snapshot, old)?)
     } else {
@@ -65,6 +65,6 @@ pub fn wake(cx: &mut LockCx, repo: &mut impl Repository, head: Oid) -> Result<Ou
         Outcome::Unchanged => return Err(Error::unsupported()),
     }
     repo.settle(head, Some(&tagged(3, &fields)))?;
-    cx.rewrite_pending = false;
+    cx.settle_rewrite()?;
     Ok(outcome)
 }
