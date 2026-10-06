@@ -121,15 +121,19 @@ func openAPIConformanceRouter(cfg *config.Config) chi.Router {
 
 // Shared production-router fixture: host HTTP tests use real PostgreSQL queries.
 type conformanceServices struct {
-	pool    *pgxpool.Pool
-	billing *routes.BillingHandler
-	jobs    *routes.RepositoryJobHandler
+	pool     *pgxpool.Pool
+	billing  *routes.BillingHandler
+	jobs     *routes.RepositoryJobHandler
+	terminal *routes.WorkspaceTerminalHandler
 }
 
 func hostStatusProductionRouter(cfg *config.Config, queries *db.Queries, host *services.InstallCapacityService, supplied ...conformanceServices) chi.Router {
 	deps := conformanceServices{billing: &routes.BillingHandler{}, jobs: &routes.RepositoryJobHandler{}}
 	if len(supplied) > 0 {
 		deps = supplied[0]
+	}
+	if deps.terminal == nil {
+		deps.terminal = &routes.WorkspaceTerminalHandler{}
 	}
 	authHandler := &routes.AuthHandler{}
 	workspaceHandler := &routes.WorkspaceHandler{
@@ -146,7 +150,7 @@ func hostStatusProductionRouter(cfg *config.Config, queries *db.Queries, host *s
 		&routes.WorkflowHandler{}, &routes.WorkflowCacheHandler{}, &routes.WorkflowArtifactHandler{},
 		&routes.IssueEventHandler{}, workspaceHandler, &routes.WorkspaceInternalHandler{}, deps.jobs, &routes.GitHubProxyHandler{},
 		&routes.GitHubRepoListHandler{}, &routes.GitHubUserReposHandler{}, &routes.GitHubSyncedReposHandler{}, &routes.GitHubImportHandler{},
-		&routes.WorkspaceTerminalHandler{}, &routes.TelemetryHandler{}, &routes.FeatureFlagHandler{}, &routes.OAuth2Handler{},
+		deps.terminal, &routes.TelemetryHandler{}, &routes.FeatureFlagHandler{}, &routes.OAuth2Handler{},
 		&routes.GitHubWebhookHandler{}, routes.NewSmithersMetrics(),
 		routerExtras{
 			InstallScorecard:    &routes.InstallScorecardHandler{Authorize: func(*http.Request) error { return nil }, Service: &services.ScorecardService{}},

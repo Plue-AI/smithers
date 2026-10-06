@@ -616,11 +616,12 @@ type WorkspaceService struct {
 	headReporterRetryAt *sync.Map
 	// terminalCredentials are the signed-in terminals' delegated credentials
 	// by workspace session id (T-TRM-02).
-	terminalCredentials *sync.Map
-	providerConnections ProviderPoolOffer
-	providerBootstrap   bool
-	platformSeats       []modelproxy.Seat
-	codingDefaultModel  string
+	terminalCredentials  *sync.Map
+	terminalCredentialMu *sync.Mutex
+	providerConnections  ProviderPoolOffer
+	providerBootstrap    bool
+	platformSeats        []modelproxy.Seat
+	codingDefaultModel   string
 	// environmentImages resolves the NixOS closure image kind=vm/desktop
 	// workspaces boot (nil → those kinds cannot be created).
 	environmentImages WorkspaceEnvironmentImageResolver
@@ -817,6 +818,7 @@ func NewWorkspaceService(q WorkspaceQuerier, opts ...WorkspaceServiceOption) *Wo
 		boxHostActivity:              &sync.Map{},
 		headReporterRetryAt:          &sync.Map{},
 		terminalCredentials:          &sync.Map{},
+		terminalCredentialMu:         &sync.Mutex{},
 		launchSessionCleanup:         SafeGo,
 		sessionProvisionGrace:        workspaceSessionProvisionGrace,
 		q:                            q,
