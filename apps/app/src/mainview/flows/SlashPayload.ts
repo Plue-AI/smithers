@@ -680,6 +680,7 @@ const GRAMMAR: Readonly<Record<string, Grammar>> = {
     return ok(parts)
   },
   "issues.create": (args, known) => {
+    if (trimmed(args).startsWith("{")) return carriedPayload("issues.create")(args)
     // `--kind conversation` starts an owner-private conversation (smithers-ui-DESIGN.md §3.1); the title is everything else.
     const kindMatch = /(?:^|\s)--kind(?:\s+|=)(\S+)\s*$/.exec(args ?? "")
     const kind = kindMatch?.[1]
@@ -688,8 +689,10 @@ const GRAMMAR: Readonly<Record<string, Grammar>> = {
     if (rest === "") return no("issues.create needs a title")
     return ok({ title: rest, ...(repo === undefined ? {} : { repo }), ...(kind === undefined ? {} : { kind }) })
   },
-  "issues.close": (args, known) => numbered(args, "issues.close needs an issue number", known),
-  "issues.reopen": (args, known) => numbered(args, "issues.reopen needs an issue number", known),
+  "issues.close": (args, known) => trimmed(args).startsWith("{")
+    ? carriedPayload("issues.close")(args) : numbered(args, "issues.close needs an issue number", known),
+  "issues.reopen": (args, known) => trimmed(args).startsWith("{")
+    ? carriedPayload("issues.reopen")(args) : numbered(args, "issues.reopen needs an issue number", known),
   "issues.comment": (args, known) => issueComment(args, known),
   "prs.list": (args) => repoOnly("prs.list", args),
   "prs.view": (args, known) => numbered(args, "prs.view needs a pull request number", known),
