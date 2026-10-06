@@ -1300,7 +1300,8 @@ func TestForeignPushFetchedDecisionAndUnavailablePaths(t *testing.T) {
 			}
 			item, err = tq.SaveMythicalItem(ctx, item)
 			require.NoError(t, err)
-			receipt, err := service.consumeGitHubRefTodos(ctx, tx, fact)
+			require.NotNil(t, synced.install.consumers[gitHubRefs])
+			receipt, err := synced.install.consumers[gitHubRefs](ctx, tx, fact)
 			if tc.unavailable {
 				require.Error(t, err)
 				require.Nil(t, receipt)
@@ -1364,14 +1365,7 @@ func TestForeignPushFetchedWaitAndAcknowledgementAreAtomic(t *testing.T) {
 	service := NewMythicalService(pool, local.Client())
 	service.github = reader
 	service.UseInstallGitHubPolling(synced)
-	consume := func(ctx context.Context, tx pgx.Tx, fact gitHubFetchedObject) (json.RawMessage, error) {
-		receipt, err := service.consumeGitHubRefTodos(ctx, tx, fact)
-		if err != nil {
-			t.Logf("TODO ref consumer: %v", err)
-		}
-		return receipt, err
-	}
-	synced.install.consumers[gitHubRefs] = consume
+	require.NotNil(t, synced.install.consumers[gitHubRefs])
 	checks := mythicalChecks{Todo: true, Branch: "smithers/retry", Fault: &mythicalFault{}, Waits: []TodoWait{{ID: "question", Kind: "question", Prompt: "Keep this?", Since: time.Unix(10, 0).UTC()}}}
 	item, inserted, err := q.InsertMythicalItem(ctx, db.MythicalItem{RepositoryID: repo.ID, State: "blocked", Checks: checks.encode(), IssueNumber: pgtype.Int8{Int64: 4, Valid: true}})
 	require.NoError(t, err)
@@ -1417,7 +1411,7 @@ func TestForeignPushFetchedWaitAndAcknowledgementAreAtomic(t *testing.T) {
 	require.NoError(t, synced.ConfigureInstallSync(pool))
 	allowFetched(synced)
 	service.UseInstallGitHubPolling(synced)
-	synced.install.consumers[gitHubRefs] = consume
+	require.NotNil(t, synced.install.consumers[gitHubRefs])
 	deliver := func(completed int) {
 		t.Helper()
 		stop = runFetchedFixture(t, synced)
@@ -1550,7 +1544,6 @@ func TestForeignPushBeforePRRecordsLeaseWithoutReplacingIntent(t *testing.T) {
 				service := NewMythicalService(pool, local.Client())
 				service.github = reader
 				service.UseInstallGitHubPolling(synced)
-				synced.install.consumers[gitHubRefs] = service.consumeGitHubRefTodos
 				checks := mythicalChecks{Todo: true, Branch: "smithers/retry", RunLaunched: starting}
 				state := "queued"
 				if starting {

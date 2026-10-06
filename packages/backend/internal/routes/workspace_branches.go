@@ -25,6 +25,10 @@ type BranchForkService interface {
 	ForkBranch(context.Context, int64, int64, services.BranchForkInput) (services.BranchMachineResponse, error)
 }
 
+type BranchAnswerService interface {
+	AnswerBranch(context.Context, string, services.TodoControlInput) (services.TodoControlReceipt, error)
+}
+
 // BranchHandler serves the install's branches (spec §6.3 /api/branches):
 // reads of the workspace projection and Fork, which the stack service
 // performs. Authorize decides the command for the request's person and
@@ -34,6 +38,7 @@ type BranchHandler struct {
 	Reads     BranchReadService
 	Forks     BranchForkService
 	Files     BranchFileReadService
+	Answers   BranchAnswerService
 }
 
 // RegisterBranchRoutes mounts /branches under the install's /api router;
@@ -46,7 +51,45 @@ func RegisterBranchRoutes(r chi.Router, h *BranchHandler) {
 	r.Get("/branches", h.ListBranches)
 	r.Get("/branches/{b}", h.GetBranch)
 	r.Post("/branches", h.Fork)
+	r.Post("/branches/{b}", h.Answer)
 	r.Get("/branches/{b}/files", h.ListFiles)
+}
+
+func (h *BranchHandler) Answer(w http.ResponseWriter, r *http.Request) {
+	var body struct {
+		Op       string `json:"op"`
+		ID       string `json:"id"`
+		Revision string `json:"revision"`
+	}
+	decoder := json.NewDecoder(http.MaxBytesReader(w, r.Body, 64<<10))
+	decoder.DisallowUnknownFields()
+	if err := decodeSingleJSONDocument(decoder, &body); err != nil {
+		writeBranchError(w, r, pkgerrors.BadRequest("Invalid branch answer"))
+		return
+	}
+	if body.Op != "bring-in" && body.Op != "discard-foreign" {
+		writeBranchError(w, r, pkgerrors.BadRequest("Invalid branch answer"))
+		return
+	}
+	repository, user, err := h.authorize(r, "branch."+body.Op, h.Answers != nil)
+	if err != nil {
+		writeBranchError(w, r, err)
+		return
+	}
+	branch, err := url.PathUnescape(chi.URLParam(r, "b"))
+	if err != nil {
+		writeBranchError(w, r, pkgerrors.BadRequest("Invalid branch"))
+		return
+	}
+	receipt, err := h.Answers.AnswerBranch(r.Context(), branch, services.TodoControlInput{
+		Op: body.Op, Wait: body.ID, Revision: body.Revision,
+		Repository: repository, Actor: user, Request: r.Header.Get("Idempotency-Key"),
+	})
+	if err != nil {
+		todoRouteError(w, err)
+		return
+	}
+	pkgerrors.WriteJSON(w, http.StatusAccepted, receipt)
 }
 
 // authorize decides command once the route's service is composed.

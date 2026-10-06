@@ -2782,8 +2782,9 @@ type mythicalForeignHead struct {
 }
 
 // consumeGitHubRefTodos is the TODO portion of the existing refs delivery.
-// It remains unregistered until the complete refs consumer and its providers
-// qualify. Its caller commits these effects with the fetched acknowledgement.
+// Install polling registers it on the shared fetched delivery boundary. Its
+// caller commits these effects with the fetched acknowledgement; unavailable
+// providers leave the observation pending for recovery.
 // Main observations continue to belong to the main-sync integration.
 func (s *MythicalService) consumeGitHubRefTodos(ctx context.Context, tx pgx.Tx, fact gitHubFetchedObject) (json.RawMessage, error) {
 	if s == nil || !s.installGitHubPolling || s.installGitHubSync == nil || s.host == nil || fact.Resource != gitHubRefs {
@@ -3034,6 +3035,103 @@ func (g mythicalGit) retainGitHubPush(ctx context.Context, bridge *mythicalBridg
 
 func (e *mythicalForeignHead) Error() string {
 	return "the pull request branch " + e.Branch + " moved outside Smithers"
+}
+
+// AnswerBranch binds a person's decision to the foreign wait displayed on the
+// card. Detection already retained that exact commit at its immutable kept ref.
+// Discard changes only the publication lease, never the candidate or other waits.
+func (s *MythicalService) AnswerBranch(ctx context.Context, branch string, input TodoControlInput) (TodoControlReceipt, error) {
+	if err := middleware.RequirePerson(ctx, "answer an outside push"); err != nil {
+		return TodoControlReceipt{}, err
+	}
+	if input.Op != "bring-in" && input.Op != "discard-foreign" || !mythicalTodoBranchValid(branch) || input.Wait == "" || len(input.Wait) > 128 || !mythicalSHA.MatchString(input.Revision) || strings.Trim(input.Revision, "0") == "" {
+		return TodoControlReceipt{}, &TodoControlError{400, "invalid_branch_answer", "user", "Invalid branch answer"}
+	}
+	if s == nil || s.store == nil {
+		return TodoControlReceipt{}, todoControlUnavailable()
+	}
+	var receipt TodoControlReceipt
+	err := pgx.BeginFunc(ctx, s.store, func(tx pgx.Tx) error {
+		q := db.New(tx)
+		person, credential, err := lockTodoRequest(ctx, tx, q, "branch."+input.Op, input)
+		if err != nil {
+			return err
+		}
+		items, err := q.ListMythicalGitHubBranchItems(ctx, input.Repository)
+		if err != nil {
+			return err
+		}
+		var item db.MythicalItem
+		for _, candidate := range items {
+			if mythicalChecksOf(candidate).Todo && mythicalChecksOf(candidate).Branch == branch {
+				if item.ID.Valid {
+					return todoControlConflict("Branch has more than one TODO")
+				}
+				item = candidate
+			}
+		}
+		if !item.ID.Valid {
+			return &TodoControlError{404, "todo_not_found", "user", "TODO not found"}
+		}
+		operation := "todo.foreign_" + input.Op
+		if prior, found, err := todoControlReplay(ctx, tx, q, item, input, credential, operation); found || err != nil {
+			receipt = prior
+			return err
+		}
+		if item.State == "landed" || item.State == "cancelled" || item.State == "rejected" || item.State == "declined" || mythicalMergeFenced(item) {
+			return todoControlConflict("TODO is settled or merging")
+		}
+		checks := mythicalChecksOf(item)
+		index := -1
+		for i, wait := range checks.Waits {
+			if wait.ID == input.Wait && wait.Kind == "foreign_push" {
+				index = i
+			}
+		}
+		if index < 0 {
+			return todoControlConflict("Outside push changed; refresh the TODO")
+		}
+		wait := &checks.Waits[index]
+		if wait.SettledAt != nil || wait.SHA != input.Revision || checks.ForeignHead != input.Revision {
+			return todoControlConflict("Outside push changed; refresh the TODO")
+		}
+		if input.Op == "bring-in" {
+			// No host integrate/rebaseCandidate fallback. The checkpoint provider
+			// must deliver the pinned commit to the current machine-bound run.
+			return &TodoControlError{503, "checkpoint_rebase_unavailable", "infra", "Checkpoint rebase unavailable"}
+		}
+		if len(item.PendingOp) > 0 {
+			pending, err := decodeMythicalOutbound(item.PendingOp)
+			if err != nil {
+				return err
+			}
+			if pending.State != "done" && pending.State != "conflict" {
+				return todoControlConflict("Publication is recovering; try again")
+			}
+		}
+		now := s.now().UTC()
+		wait.SettledAt, wait.AnsweredBy, wait.Answer = &now, person.Username, input.Op
+		checks.ForeignHead = ""
+		next := item
+		next.PRHead, next.PendingOp, next.Checks = input.Revision, nil, checks.encode()
+		saved, err := q.SaveMythicalItem(ctx, next)
+		if err != nil {
+			return err
+		}
+		receipt = TodoControlReceipt{State: "accepted", Number: saved.Number.Int64}
+		fact := map[string]any{"item": uuidString(item.ID), "n": item.Number.Int64, "wait": input.Wait,
+			"sha": input.Revision, "by": wait.By, "kept": repohost.KeptCommitRefPrefix + input.Revision,
+			"actor": map[string]any{"kind": "person", "id": person.ID, "login": person.Username}, "from": todoState(item), "to": todoState(saved)}
+		if err := recordTodoControl(ctx, tx, saved, input, credential, operation, receipt, fact); err != nil {
+			return err
+		}
+		if _, err := q.RequestMythicalStack(ctx, input.Repository); err != nil {
+			return err
+		}
+		notification, _ := json.Marshal(map[string]any{"kind": "item", "itemId": uuidString(item.ID)})
+		return q.NotifyMythical(ctx, input.Repository, string(notification))
+	})
+	return receipt, err
 }
 
 // pendingGitHubPushHead supplies the shared fact decision with the head of
@@ -3354,7 +3452,9 @@ func (st *mythicalItemStep) follow(ctx context.Context, item db.MythicalItem) (*
 	answered := mythicalChecksOf(next)
 	if item.State == "rejected" && answered.GitHubClosedAt == nil {
 		at := mythicalGitHubClosedAt(item)
-		answered.GitHubClosedAt = &at
+		if !at.IsZero() {
+			answered.GitHubClosedAt = &at
+		}
 	}
 	// A person may mark a later PR ready or draft on GitHub: the card shows
 	// GitHub's flag as read, with no corrective write (§12.5.1).
@@ -3409,7 +3509,7 @@ func (st *mythicalItemStep) follow(ctx context.Context, item db.MythicalItem) (*
 		next.PRState, next.State, next.Reason = "open", "proposed", ""
 		answered.GitHubClosedAt = nil
 		next.Checks = answered.encode()
-	case decision.Noop == "terminal" || decision.Noop == "own_push":
+	case decision.Noop == "terminal" || decision.Noop == "own_push" || decision.Noop == "reopen_window_expired":
 		// Only outbound reconciliation records an acknowledged own push.
 		// A matching read cannot settle an existing foreign-push hold, and a
 		// terminal no-op cannot fall through to the foreign-head mutation.
