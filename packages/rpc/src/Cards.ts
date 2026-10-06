@@ -656,6 +656,7 @@ const DraftPayloadSchema: z.ZodType<
   issueDigest: z.string().regex(/^[0-9a-f]{64}$/).optional()
 })
 
+/** @since 1.0.0 */
 export const RepositoryImportRequestSchema = z.object({
     ...cardBaseShape,
     payload: z.object({
@@ -688,6 +689,7 @@ export const RepositoryImportRequestSchema = z.object({
       registration: z.boolean().optional()
     })
   })
+/** @since 1.0.0 */
 export type RepositoryImportRequest = z.infer<typeof RepositoryImportRequestSchema>
 
 const CurrentCardSchema = z.discriminatedUnion("kind", [

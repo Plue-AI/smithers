@@ -116,16 +116,16 @@ export type FileCardCallbacks = CardCallbacks<
   | "code.definition"
 >
 
-/** The immediate disk-write hint on branch:<id>:files. */
+/** The immediate disk-write hint on branch:<id>:files. @since 1.0.0 */
 export const FileWrittenSchema = z.object({
   kind: z.literal("file_written"), path: z.string(), post_digest: z.string(), actor: ActorSchema
 })
 
-/** The Branch card and File cards consume the same topic, including its changed-file rows. */
+/** The Branch card and File cards consume the same topic, including its changed-file rows. @since 1.0.0 */
 export const branchFileRows = (value: unknown): unknown =>
   value !== null && typeof value === "object" && "rows" in value ? value.rows : value
 
-/** Keep the latest hint beside the row projection, without appending an event log. */
+/** Keep the latest hint beside the row projection, without appending an event log. @since 1.0.0 */
 export const projectBranchFiles = (previous: unknown, delta: unknown): unknown => {
   if (Array.isArray(delta)) return { rows: delta }
   if (delta !== null && typeof delta === "object" && "kind" in delta) {
