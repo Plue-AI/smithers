@@ -22,14 +22,14 @@ import * as NodeRuntime from "@smthrs/flows/NodeRuntime"
 import * as Effect from "effect/Effect"
 import * as Exit from "effect/Exit"
 import * as Layer from "effect/Layer"
-import { host, KillResume } from "../harness/killResumeFlow.ts"
+import { host, KillResume, type FlowOptions } from "../harness/killResumeFlow.ts"
 
 const fail = (message: string): never => {
   process.stderr.write(`engineChild: ${message}\n`)
   process.exit(2)
 }
 
-const [filename, executionId, mode, markerDir, counterFile, sleepArg, nonce, hostId] = process.argv.slice(2)
+const [filename, executionId, mode, markerDir, counterFile, sleepArg, nonce, hostId, crossing] = process.argv.slice(2)
 
 if (
   filename === undefined || executionId === undefined || markerDir === undefined ||
@@ -40,13 +40,15 @@ if (
   )
 }
 if (mode !== "probe" && mode !== "execute") fail(`invalid mode ${String(mode)}`)
+if (crossing !== undefined && crossing !== "default" && crossing !== "keyed-write" && crossing !== "sealed-check" && crossing !== "keyless-shell") fail(`invalid crossing ${crossing}`)
 
-const options = {
+const options: FlowOptions = {
   filename: filename as string,
   markerDir: markerDir as string,
   counterFile: counterFile as string,
   secondSleepMs: Number(sleepArg),
-  hostId: hostId as string
+  hostId: hostId as string,
+  ...(crossing === "keyed-write" || crossing === "sealed-check" || crossing === "keyless-shell" ? { crossing } : {})
 }
 
 const probe = Effect.void.pipe(
