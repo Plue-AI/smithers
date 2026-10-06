@@ -376,3 +376,143 @@ fn retained_v1_decode_does_not_negotiate_unsequenced_live_documents() {
     assert_eq!(socket.read(&mut byte).unwrap(), 0);
     worker.join().unwrap();
 }
+
+#[test]
+fn authenticated_session_output_pump_waits_for_roster_and_stops_on_revocation_failure() {
+    use smithers_machined::{
+        hooks::{self, Hooks},
+        session_stream::{Input, Pipe},
+    };
+    use std::{
+        io::{self, Write},
+        process::{Command, Stdio},
+        sync::{
+            atomic::{AtomicUsize, Ordering},
+            Mutex,
+        },
+    };
+    struct ClosedInput;
+    impl Write for ClosedInput {
+        fn write(&mut self, _: &[u8]) -> io::Result<usize> {
+            Err(io::ErrorKind::BrokenPipe.into())
+        }
+        fn flush(&mut self) -> io::Result<()> {
+            Ok(())
+        }
+    }
+    impl Input for ClosedInput {
+        fn eof(&mut self) -> io::Result<()> {
+            Ok(())
+        }
+        fn close(&mut self) -> io::Result<()> {
+            Ok(())
+        }
+        fn resize(&mut self, _: u16, _: u16) -> io::Result<()> {
+            Err(io::ErrorKind::Unsupported.into())
+        }
+        fn signal(&mut self, _: u8) -> io::Result<()> {
+            Err(io::ErrorKind::Unsupported.into())
+        }
+    }
+    // Test-only admission; the stream source is a real pipe of a process this
+    // test started as its own unprivileged user, never an approved root broker.
+    struct Descriptor {
+        pipe: Mutex<(Pipe<ClosedInput>, std::process::ChildStdout)>,
+        polls: AtomicUsize,
+        fail_poll: std::sync::atomic::AtomicBool,
+    }
+    impl hooks::Sessions for Descriptor {
+        fn ready(&self) -> hooks::Result<()> {
+            Ok(())
+        }
+        fn poll(&self) -> hooks::Result<Vec<Frame>> {
+            self.polls.fetch_add(1, Ordering::SeqCst);
+            if self.fail_poll.load(Ordering::SeqCst) {
+                return Err(hooks::Error::unsupported());
+            }
+            let mut state = self.pipe.lock().unwrap();
+            let (pipe, stdout) = &mut *state;
+            pipe.poll(1, stdout)
+                .map(|frame| frame.into_iter().collect())
+                .map_err(|_| hooks::Error::unsupported())
+        }
+    }
+    let mut child = Command::new("/bin/sh")
+        .args(["-c", "printf live-session"])
+        .stdout(Stdio::piped())
+        .spawn()
+        .unwrap();
+    let stdout = child.stdout.take().unwrap();
+    rustix::fs::fcntl_setfl(&stdout, rustix::fs::OFlags::NONBLOCK).unwrap();
+    let descriptor = Arc::new(Descriptor {
+        pipe: Mutex::new((Pipe::new(17, ClosedInput, false).unwrap(), stdout)),
+        polls: AtomicUsize::new(0),
+        fail_poll: std::sync::atomic::AtomicBool::new(false),
+    });
+    let roster = Arc::new(Roster(std::sync::atomic::AtomicBool::new(false)));
+    let daemon = Arc::new(
+        smithers_machined::daemon::Daemon::new(Hooks {
+            core: Arc::new(Reconciler),
+            broker: roster.clone(),
+            watcher: Arc::new(Ready),
+            documents: Arc::new(Ready),
+            sessions: descriptor.clone(),
+            events: Arc::new(Ready),
+            ..Hooks::default()
+        })
+        .unwrap(),
+    );
+    let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+    let address = listener.local_addr().unwrap();
+    let worker = thread::spawn(move || {
+        let (socket, _) = listener.accept().unwrap();
+        let identity = Identity::new([4; 16], [9; 32], b"fixture-machine-token".to_vec()).unwrap();
+        let auth = link::authenticate(socket, &identity, 7, &[]).unwrap();
+        let _ = daemon.serve(auth);
+    });
+    let mut stream = TcpStream::connect(address).unwrap();
+    host(&mut stream, &[9; 32], true);
+    thread::sleep(Duration::from_millis(75));
+    assert_eq!(descriptor.polls.load(Ordering::SeqCst), 0);
+    call(&mut stream, 1, 5, &[conn::field(1, [1; 20])]);
+    thread::sleep(Duration::from_millis(75));
+    assert_eq!(
+        descriptor.polls.load(Ordering::SeqCst),
+        0,
+        "reconcile alone cannot read session output"
+    );
+    call(&mut stream, 2, 16, &[conn::field(1, 0u16.to_be_bytes())]);
+    let data = Frame::read(&mut stream).unwrap();
+    assert_eq!(data.kind, 5);
+    assert_eq!(data.stream, 17);
+    assert_eq!(data.payload, b"\x01\x01live-session");
+    assert_eq!(Frame::read(&mut stream).unwrap().payload, [2, 1]);
+    roster.0.store(true, Ordering::SeqCst);
+    let failure = call(&mut stream, 3, 16, &[conn::field(1, 0u16.to_be_bytes())]);
+    assert_eq!(
+        conn::fields("response", &failure.payload[1..]).unwrap()[1].1[0],
+        255
+    );
+    let before = descriptor.polls.load(Ordering::SeqCst);
+    thread::sleep(Duration::from_millis(75));
+    assert_eq!(
+        descriptor.polls.load(Ordering::SeqCst),
+        before,
+        "failed cleanup must fence output polling"
+    );
+    roster.0.store(false, Ordering::SeqCst);
+    call(&mut stream, 4, 16, &[conn::field(1, 0u16.to_be_bytes())]);
+    thread::sleep(Duration::from_millis(75));
+    assert!(descriptor.polls.load(Ordering::SeqCst) > before);
+    descriptor.fail_poll.store(true, Ordering::SeqCst);
+    let failed_at = Instant::now();
+    let mut byte = [0];
+    assert_eq!(
+        stream.read(&mut byte).unwrap(),
+        0,
+        "pump failure must interrupt the reader too"
+    );
+    assert!(failed_at.elapsed() < Duration::from_secs(1));
+    worker.join().unwrap();
+    assert!(child.wait().unwrap().success());
+}
