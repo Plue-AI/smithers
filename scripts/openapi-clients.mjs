@@ -77,6 +77,25 @@ const refName = (ref) => {
 }
 
 /** The document's operations in path order, each with its resolved success and body shapes. */
+// Success status codes share one client result. Preserve common object fields
+// (including enum variants); use the existing union encoding for other shapes.
+const joinSuccessSchemas = (left, right) => {
+  if (JSON.stringify(left) === JSON.stringify(right)) return left
+  const { enum: leftEnum, properties: leftProperties, ...leftBase } = left
+  const { enum: rightEnum, properties: rightProperties, ...rightBase } = right
+  if (JSON.stringify(leftBase) === JSON.stringify(rightBase)) {
+    if (Array.isArray(leftEnum) && Array.isArray(rightEnum) && leftProperties === undefined && rightProperties === undefined) {
+      return { ...leftBase, enum: [...new Set([...leftEnum, ...rightEnum])] }
+    }
+    if (leftEnum === undefined && rightEnum === undefined && leftProperties !== undefined && rightProperties !== undefined &&
+        JSON.stringify(Object.keys(leftProperties).sort()) === JSON.stringify(Object.keys(rightProperties).sort())) {
+      return { ...leftBase, properties: Object.fromEntries(Object.keys(leftProperties).map(name =>
+        [name, joinSuccessSchemas(leftProperties[name], rightProperties[name])])) }
+    }
+  }
+  return { anyOf: [left, right] }
+}
+
 export const operations = (document) => {
   const result = []
   const seen = new Set()
@@ -112,8 +131,8 @@ export const operations = (document) => {
         }
         if (types.includes("application/json")) {
           if (success.kind === "raw") fail(`${id} mixes JSON and non-JSON success responses`)
-          if (success.kind === "json") fail(`${id} declares more than one JSON success response`)
-          success = { kind: "json", schema: content["application/json"].schema ?? {} }
+          const schema = content["application/json"].schema ?? {}
+          success = { kind: "json", schema: success.kind === "json" ? joinSuccessSchemas(success.schema, schema) : schema }
         } else {
           if (success.kind === "json") fail(`${id} mixes JSON and non-JSON success responses`)
           success = { kind: "raw", accept: types.join(", ") }

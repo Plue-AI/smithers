@@ -906,6 +906,36 @@ export type InstallIssueThread = {
   }>
 }
 
+export type LiveSubscription = {
+  t: "sub"
+  id: number
+  topic: string
+  cursor?: number
+}
+
+export type LiveUnsubscribe = {
+  t: "unsub"
+  id: number
+}
+
+export type LiveProjection = {
+  t: "snap" | "delta"
+  id: number
+  cursor: number
+  data: unknown
+}
+
+export type LiveGap = {
+  t: "gap"
+  id: number
+}
+
+export type LiveError = {
+  t: "err"
+  id: number
+  code: "unknown_topic" | "forbidden" | "unsupported"
+}
+
 /** An authorization or roster refusal (spec §6.2.3). */
 export type AccessError = {
   class: "user" | "permission" | "capacity" | "github" | "infra" | "conflict" | "never"
@@ -1781,7 +1811,7 @@ export const postApiConfirmations = (transport: Transport, input: PostApiConfirm
 
 export type PostApiConfirmationsIdApproveResponse = {
   id: string
-  state: "approved"
+  state: "approved" | "pending"
 }
 
 export interface PostApiConfirmationsIdApproveInput {
@@ -4709,15 +4739,28 @@ export interface PostApiReposOwnerRepoHooksIdTestsInput {
 export const postApiReposOwnerRepoHooksIdTests = (transport: Transport, input: PostApiReposOwnerRepoHooksIdTestsInput): Promise<PostApiReposOwnerRepoHooksIdTestsResponse> =>
   transport.request("POST", `/api/repos/${segment(input.path.owner)}/${segment(input.path.repo)}/hooks/${segment(input.path.id)}/tests`) as Promise<PostApiReposOwnerRepoHooksIdTestsResponse>
 
-export type PostApiReposOwnerRepoInvokeResponse = AnyJSON
+export type PostApiReposOwnerRepoInvokeBody = {
+  flow: string
+  input?: Record<string, unknown>
+}
+
+export type PostApiReposOwnerRepoInvokeResponse = {
+  id: number
+  run_id: number
+  workflow_definition_id: number
+  flow: string
+  path: string
+  status: string
+}
 
 export interface PostApiReposOwnerRepoInvokeInput {
   readonly path: { readonly owner: string; readonly repo: string }
+  readonly body: PostApiReposOwnerRepoInvokeBody
 }
 
 /** POST /api/repos/{owner}/{repo}/invoke */
 export const postApiReposOwnerRepoInvoke = (transport: Transport, input: PostApiReposOwnerRepoInvokeInput): Promise<PostApiReposOwnerRepoInvokeResponse> =>
-  transport.request("POST", `/api/repos/${segment(input.path.owner)}/${segment(input.path.repo)}/invoke`) as Promise<PostApiReposOwnerRepoInvokeResponse>
+  transport.request("POST", `/api/repos/${segment(input.path.owner)}/${segment(input.path.repo)}/invoke`, input.body) as Promise<PostApiReposOwnerRepoInvokeResponse>
 
 export type PostApiReposOwnerRepoLandingsNumberReviewRequestsResponse = AnyJSON
 

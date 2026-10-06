@@ -1495,6 +1495,41 @@ type InstallIssueThreadCommentsItem struct {
 	CreatedAt *time.Time      `json:"created_at,omitempty"`
 }
 
+// LiveSubscription is generated from docs/api/openapi.yaml.
+type LiveSubscription struct {
+	T      string `json:"t"`
+	ID     int64  `json:"id"`
+	Topic  string `json:"topic"`
+	Cursor *int64 `json:"cursor,omitempty"`
+}
+
+// LiveUnsubscribe is generated from docs/api/openapi.yaml.
+type LiveUnsubscribe struct {
+	T  string `json:"t"`
+	ID int64  `json:"id"`
+}
+
+// LiveProjection is generated from docs/api/openapi.yaml.
+type LiveProjection struct {
+	T      string          `json:"t"`
+	ID     int64           `json:"id"`
+	Cursor int64           `json:"cursor"`
+	Data   json.RawMessage `json:"data"`
+}
+
+// LiveGap is generated from docs/api/openapi.yaml.
+type LiveGap struct {
+	T  string `json:"t"`
+	ID int64  `json:"id"`
+}
+
+// LiveError is generated from docs/api/openapi.yaml.
+type LiveError struct {
+	T    string `json:"t"`
+	ID   int64  `json:"id"`
+	Code string `json:"code"`
+}
+
 // AccessError — An authorization or roster refusal (spec §6.2.3).
 type AccessError struct {
 	Class   string  `json:"class"`
@@ -2044,6 +2079,22 @@ type PutAPIReposOwnerRepoWorkspacesIDFilesContentResponsePathsItem struct {
 type PutAPIReposOwnerRepoWorkspacesIDFilesContentResponseRacedItem struct {
 	Path    string `json:"path"`
 	Version string `json:"version"`
+}
+
+// PostAPIReposOwnerRepoInvokeBody is generated from docs/api/openapi.yaml.
+type PostAPIReposOwnerRepoInvokeBody struct {
+	Flow  string                     `json:"flow"`
+	Input map[string]json.RawMessage `json:"input,omitempty"`
+}
+
+// PostAPIReposOwnerRepoInvokeResponse is generated from docs/api/openapi.yaml.
+type PostAPIReposOwnerRepoInvokeResponse struct {
+	ID                   int64  `json:"id"`
+	RunID                int64  `json:"run_id"`
+	WorkflowDefinitionID int64  `json:"workflow_definition_id"`
+	Flow                 string `json:"flow"`
+	Path                 string `json:"path"`
+	Status               string `json:"status"`
 }
 
 // PostAPIReposOwnerRepoMythicalItemsIDMergeBody is generated from docs/api/openapi.yaml.
@@ -5033,9 +5084,9 @@ func (c *Client) PostAPIReposOwnerRepoHooksIDTests(ctx context.Context, owner st
 }
 
 // PostAPIReposOwnerRepoInvoke calls POST /api/repos/{owner}/{repo}/invoke.
-func (c *Client) PostAPIReposOwnerRepoInvoke(ctx context.Context, owner string, repo string) (AnyJSON, error) {
-	var out AnyJSON
-	err := c.do(ctx, "POST", "/api/repos/"+url.PathEscape(owner)+"/"+url.PathEscape(repo)+"/invoke", nil, nil, &out)
+func (c *Client) PostAPIReposOwnerRepoInvoke(ctx context.Context, owner string, repo string, body PostAPIReposOwnerRepoInvokeBody) (PostAPIReposOwnerRepoInvokeResponse, error) {
+	var out PostAPIReposOwnerRepoInvokeResponse
+	err := c.do(ctx, "POST", "/api/repos/"+url.PathEscape(owner)+"/"+url.PathEscape(repo)+"/invoke", nil, body, &out)
 	return out, err
 }
 
