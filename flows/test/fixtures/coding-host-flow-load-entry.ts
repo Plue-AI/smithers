@@ -11,7 +11,7 @@ import { systemFlows } from "./system-flows.ts"
 // per root (the catalog's own warnings share stdout).
 share()
 for (const repository of process.argv.slice(2)) {
-  const versions = await loadRepositoryFlows(repository, systemFlows).pipe(
+  const versions = await loadRepositoryFlows(repository, systemFlows, { PATH: process.env.CODING_TEST_MANAGER_PATH ?? "/usr/bin:/bin" }).pipe(
     Effect.provide(NodeServices.layer),
     Effect.runPromise
   )

@@ -110,7 +110,7 @@ func TestInstallAPIReadsTodosThroughTheirOwnRoutes(t *testing.T) {
 	require.NoError(t, err)
 	load.CommitID, load.LoadedCommit = strings.Repeat("2", 40), strings.Repeat("2", 40)
 	load.Versions = json.RawMessage(`[{"name":"todo","path":"flows/todo/flow.ts","digest":"` + failedDigest + `","status":"failed","error":"flows/todo/flow.ts:12: invalid type"}]`)
-	_, err = q.SaveFlowLoad(ctx, load)
+	load, err = q.SaveFlowLoad(ctx, load)
 	require.NoError(t, err)
 	status, _, flows = read(ownerSession, owner.ID, "/api/flows")
 	require.Equal(t, http.StatusOK, status)
@@ -121,6 +121,21 @@ func TestInstallAPIReadsTodosThroughTheirOwnRoutes(t *testing.T) {
 	require.Equal(t, "merged-failed", versions[1].(map[string]any)["state"])
 	require.Equal(t, "flows/todo/flow.ts:12: invalid type", versions[1].(map[string]any)["error"])
 	require.Equal(t, "previous", versions[2].(map[string]any)["state"])
+
+	// Dependency preparation failures use the same person-facing failure state
+	// as an import refusal; the last loaded version remains Active.
+	dependencyError := "flows/todo/flow.ts: Pinned flow dependencies could not be resolved"
+	load.Versions, err = json.Marshal([]services.FlowLoadVersion{{Name: "todo", Path: "flows/todo/flow.ts", Digest: strings.Repeat("c", 64), Status: "failed", Error: dependencyError}})
+	require.NoError(t, err)
+	load, err = q.SaveFlowLoad(ctx, load)
+	require.NoError(t, err)
+	status, _, flows = read(ownerSession, owner.ID, "/api/flows")
+	require.Equal(t, http.StatusOK, status)
+	versions = flows[0]["versions"].([]any)
+	require.Equal(t, loadedDigest, versions[0].(map[string]any)["id"])
+	require.Equal(t, "active", versions[0].(map[string]any)["state"])
+	require.Equal(t, "merged-failed", versions[1].(map[string]any)["state"])
+	require.Equal(t, dependencyError, versions[1].(map[string]any)["error"])
 
 	status, refusal, _ := read(ownerSession, owner.ID, "/api/todos/2")
 	require.Equal(t, http.StatusNotFound, status)

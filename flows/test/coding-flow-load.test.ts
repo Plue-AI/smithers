@@ -66,6 +66,38 @@ test("flow-load answers each overridable flow's version and whether it loaded", 
   })
   const lockA = await tree("lock-a", { "flows/todo/flow.ts": source, "pnpm-lock.yaml": "lockfileVersion: 9\n# a\n" })
   const lockB = await tree("lock-b", { "flows/todo/flow.ts": source, "pnpm-lock.yaml": "lockfileVersion: 9\n# b\n" })
+  const manager = await tree("bin", {
+    "pnpm": `#!/bin/sh
+case "$PWD" in
+  */install-failed) exit 1 ;;
+  */lock-mutated) printf changed > pnpm-lock.yaml ;;
+  */other-lock-mutated) printf changed > package-lock.json ;;
+esac
+printf '%s' "$*" > installed
+`
+  })
+  await (await import("node:fs/promises")).chmod(join(manager, "pnpm"), 0o700)
+  const importCanary = (name: string) =>
+    `import { writeFileSync } from "node:fs"\nwriteFileSync(${
+      JSON.stringify(join(temporary, "import-" + name))
+    }, "evaluated")\n${source}`
+  const canaryLoaded = await tree("canary-loaded", {
+    "flows/todo/flow.ts": importCanary("loaded"),
+    "pnpm-lock.yaml": "lockfileVersion: 9\n"
+  })
+  const installFailed = await tree("install-failed", {
+    "flows/todo/flow.ts": importCanary("failed"),
+    "pnpm-lock.yaml": "lockfileVersion: 9\n"
+  })
+  const lockMutated = await tree("lock-mutated", {
+    "flows/todo/flow.ts": importCanary("mutated"),
+    "pnpm-lock.yaml": "lockfileVersion: 9\n"
+  })
+  const otherLockMutated = await tree("other-lock-mutated", {
+    "flows/todo/flow.ts": source,
+    "pnpm-lock.yaml": "lockfileVersion: 9\n",
+    "package-lock.json": "{}\n"
+  })
   const none = await tree("none", { "README.md": "No flows here.\n" })
 
   const output = join(temporary, "host.mjs")
@@ -83,13 +115,33 @@ test("flow-load answers each overridable flow's version and whether it loaded", 
     lockA,
     lockB,
     outsideA,
-    outsideB
+    outsideB,
+    installFailed,
+    lockMutated,
+    otherLockMutated,
+    canaryLoaded
   ], {
+    env: { ...process.env, CODING_TEST_MANAGER_PATH: manager + ":/usr/bin:/bin" },
     encoding: "utf8",
     timeout: 240_000,
     stdio: ["ignore", "pipe", "pipe"]
   }).split("\n").filter((line) => line.startsWith("versions ")).map((line) => JSON.parse(line.slice(9)))
-  const [atCopy, atEdited, atBroken, atHelperA, atHelperB, atNone, atLockA, atLockB, atOutsideA, atOutsideB] = lines
+  const [
+    atCopy,
+    atEdited,
+    atBroken,
+    atHelperA,
+    atHelperB,
+    atNone,
+    atLockA,
+    atLockB,
+    atOutsideA,
+    atOutsideB,
+    atInstallFailed,
+    atLockMutated,
+    atOtherLockMutated,
+    atCanaryLoaded
+  ] = lines
 
   // The copy is the built-in version: the digest GET /api/flows serves as D1.
   assert.deepEqual(atCopy, [{ name: "todo", path: "flows/todo/flow.ts", digest: served.todo, status: "loaded" }])
@@ -122,4 +174,17 @@ test("flow-load answers each overridable flow's version and whether it loaded", 
   assert.equal(atOutsideB[0].status, "loaded", atOutsideB[0].error)
   assert.deepEqual(atOutsideA[0].dependencies, ["lib/label.ts"])
   assert.notEqual(atOutsideA[0].digest, atOutsideB[0].digest)
+  assert.equal(await readFile(join(lockA, "installed"), "utf8"), "install --frozen-lockfile")
+  assert.equal(await readFile(join(lockB, "installed"), "utf8"), "install --frozen-lockfile")
+  assert.equal(atInstallFailed[0].status, "failed")
+  assert.match(atInstallFailed[0].error, /Pinned flow dependencies could not be resolved/)
+  assert.doesNotMatch(atInstallFailed[0].error, /repository evaluated/)
+  assert.equal(atLockMutated[0].status, "failed")
+  assert.match(atLockMutated[0].error, /installation changed its lockfile/)
+  assert.equal(atOtherLockMutated[0].status, "failed")
+  assert.match(atOtherLockMutated[0].error, /installation changed its lockfiles/)
+  await assert.rejects(readFile(join(temporary, "import-failed")), { code: "ENOENT" })
+  await assert.rejects(readFile(join(temporary, "import-mutated")), { code: "ENOENT" })
+  assert.equal(atCanaryLoaded[0].status, "loaded", atCanaryLoaded[0].error)
+  assert.equal(await readFile(join(temporary, "import-loaded"), "utf8"), "evaluated")
 })

@@ -16,6 +16,7 @@ import * as Executable from "@smthrs/registry/Executable"
 import * as ExecutionSnapshot from "@smthrs/registry/ExecutionSnapshot"
 import * as Registry from "@smthrs/registry/Registry"
 import { Effect, FileSystem, Layer, Path, Schema } from "effect"
+import { prepareFlowDependencies } from "./immutable-source.ts"
 import { CodingError, StackBase } from "./schema.ts"
 
 const Hex64 = Schema.String.check(Schema.isPattern(/^[0-9a-f]{64}$/))
@@ -88,7 +89,11 @@ const loadError = (failure: Executable.ExecutableError, relative: string): strin
  * Loads every overridable flow under `<repositoryPath>/flows` and answers its
  * version, sorted by name. A repository without `flows/` declares none.
  */
-export const loadRepositoryFlows = (repositoryPath: string, systemFlows: ReadonlyArray<string>) =>
+export const loadRepositoryFlows = (
+  repositoryPath: string,
+  systemFlows: ReadonlyArray<string>,
+  environment?: Readonly<Record<string, string>>
+) =>
   Effect.gen(function*() {
     const fs = yield* FileSystem.FileSystem, path = yield* Path.Path
     const root = path.join(repositoryPath, "flows")
@@ -99,9 +104,24 @@ export const loadRepositoryFlows = (repositoryPath: string, systemFlows: Readonl
     )
     const descriptors = (yield* discovered.list()).filter((entry) => !system.has(entry.name))
     const only = Registry.Registry.of({ ...discovered, list: () => Effect.succeed(descriptors) })
-    const built = yield* Executable.catalog({ delegates: [] }).pipe(Effect.provideService(Registry.Registry, only))
+    // Measure before installing: a failed or lockfile-mutating installer must
+    // never turn its output into an accepted source identity.
     // Use the snapshot store's dependency identity; lockfile reads stay in the guest.
     const lockfileDigest = yield* ExecutionSnapshot.measureLockfiles(repositoryPath)
+    const dependenciesReady = yield* prepareFlowDependencies({ repositoryPath, fs, environment }, repositoryPath).pipe(
+      Effect.andThen(Effect.gen(function*() {
+        if ((yield* ExecutionSnapshot.measureLockfiles(repositoryPath)) !== lockfileDigest) {
+          return yield* new CodingError({
+            code: "invalid_receipt",
+            message: "Pinned flow dependency installation changed its lockfiles"
+          })
+        }
+      })),
+      Effect.result
+    )
+    const built = dependenciesReady._tag === "Failure" ?
+      undefined :
+      yield* Executable.catalog({ delegates: [] }).pipe(Effect.provideService(Registry.Registry, only))
     const versions: Array<FlowVersion> = []
     for (const descriptor of descriptors) {
       const sourceDigest = versionDigest(descriptor)
@@ -111,7 +131,7 @@ export const loadRepositoryFlows = (repositoryPath: string, systemFlows: Readonl
         sourceDigest :
         Digest.digest(Digest.canonical({ sourceDigest, lockfileDigest }))
       const relative = path.relative(repositoryPath, descriptor.path).split(path.sep).join("/")
-      const failure = built.refused.find((entry) => entry.flow === descriptor.name && !hostRefusals.has(entry.code))
+      const failure = built?.refused.find((entry) => entry.flow === descriptor.name && !hostRefusals.has(entry.code))
       if (digest === undefined) {
         versions.push({
           name: descriptor.name,
@@ -128,7 +148,16 @@ export const loadRepositoryFlows = (repositoryPath: string, systemFlows: Readonl
       )
       const metadata = dependencies.length === 0 ? {} : { dependencies }
       versions.push(
-        failure === undefined ?
+        dependenciesReady._tag === "Failure" ?
+          {
+            name: descriptor.name,
+            path: relative,
+            digest,
+            status: "failed",
+            error: `${relative}: ${dependenciesReady.failure.message}`,
+            ...metadata
+          } :
+          failure === undefined ?
           { name: descriptor.name, path: relative, digest, status: "loaded", ...metadata } :
           {
             name: descriptor.name,
@@ -147,12 +176,16 @@ export const loadRepositoryFlows = (repositoryPath: string, systemFlows: Readonl
  * The handler of {@link LoadFlows}: the working copy stands on `base` (the
  * flow admitted it first), so the flows it reads are that commit's.
  */
-export const loadFlowsLayer = (repositoryPath: string, systemFlows: ReadonlyArray<string>) =>
+export const loadFlowsLayer = (
+  repositoryPath: string,
+  systemFlows: ReadonlyArray<string>,
+  environment?: Readonly<Record<string, string>>
+) =>
   Layer.unwrap(Effect.gen(function*() {
     const fs = yield* FileSystem.FileSystem, path = yield* Path.Path
     return LoadFlows.toLayer(({ base }) =>
       Effect.gen(function*() {
-        const flows = yield* loadRepositoryFlows(repositoryPath, systemFlows).pipe(
+        const flows = yield* loadRepositoryFlows(repositoryPath, systemFlows, environment).pipe(
           Effect.provideService(FileSystem.FileSystem, fs),
           Effect.provideService(Path.Path, path)
         )

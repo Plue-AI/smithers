@@ -603,7 +603,14 @@ export const layer = (platform: NativeControl.Platform, options: Options, suppli
           todoLayers(evaluator),
           feedbackLayer,
           verifyRegistration,
-          Layer.mergeAll(Interpreter.layer(FlowLoad), loadFlowsLayer(options.flowSourceRoot ?? options.repositoryPath, options.systemFlows)),
+          Layer.mergeAll(
+            Interpreter.layer(FlowLoad),
+            loadFlowsLayer(
+              options.flowSourceRoot ?? options.repositoryPath,
+              options.systemFlows,
+              options.checkEnvironment
+            )
+          ),
           pocPolicy,
           pocModels,
           pocSource({ ...options, fs }),
