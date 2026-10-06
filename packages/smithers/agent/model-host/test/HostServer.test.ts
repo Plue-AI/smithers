@@ -564,3 +564,52 @@ test("unavailable durable preflight writes refuse before either model or provide
   expect(starts).toBe(0)
   expect(calls).toBe(0)
 })
+
+
+test.each([24000, 68000, 80000])("preflight budgets the whole pinned snapshot, not recall's shortened preview (%i)", async tokenBudget => {
+  const requests: any[] = [], frames: any[] = []
+  // This literal snapshot exceeds recall's independent 64 KiB byte ceiling.
+  const snapshot = "retry webhook\n".repeat(5000)
+  const model = Model.make({ stream: request => {
+    requests.push(request)
+    return Stream.fromIterable([
+      { type: "text-delta" as const, id: "t", text: requests.length === 1 ? '[{"index":0,"reason":"Retry code"}]' : "Retries three times." },
+      { type: "settle" as const, stopReason: "stop" as const }
+    ])
+  } })
+  const handler = createModelTurnHandler({
+    authorization: "host-token", callbackBaseUrl: "http://callback.test",
+    resolve: () => Effect.succeed({ model, options: { modelId: "coding" }, preflight: {
+      model, options: { modelId: "owner-fast" }, input: {
+        prompt: "where do we retry webhooks?", author: "ben", branch: "main", state: "synced",
+        recent: [], tokenBudget, wikiOnly: false,
+        candidates: [{ item: { kind: "file", label: "retry.ts", ref: "src/webhooks/retry.ts", revision: "abc123" }, text: snapshot }]
+      }
+    } }),
+    fetchImpl: async (url, init) => {
+      if (String(url).includes("provider-started")) return new Response(null, { status: 204 })
+      const body = JSON.parse(String(init?.body)); frames.push(...body.frames)
+      return Response.json(committed(body))
+    }
+  })
+  const response = await handler(post(JSON.stringify({
+    ...grant, request: { ...grant.request, sharedConversation: true }
+  })))
+  expect(response.status).toBe(204)
+  expect(requests).toHaveLength(2)
+  const preview = JSON.parse(requests[0].messages[0].content[0].text).candidates[0].text
+  expect(preview.length).toBeLessThan(snapshot.length)
+  const selected = JSON.parse(requests[1].system[0].text.split("Selected context:\n")[1])
+  if (tokenBudget < 80000) {
+    expect(selected).toEqual([])
+    expect(frames[1].result.context).toEqual([])
+  } else {
+    expect(selected).toEqual([{ item: {
+      kind: "file", label: "retry.ts", ref: "src/webhooks/retry.ts", revision: "abc123", reason: "Retry code"
+    }, text: snapshot }])
+    expect(frames[1].result.context).toEqual([{
+      kind: "file", label: "retry.ts", ref: "src/webhooks/retry.ts", revision: "abc123", reason: "Retry code"
+    }])
+  }
+  expect(new TextEncoder().encode(JSON.stringify(selected)).byteLength).toBeLessThanOrEqual(tokenBudget)
+})

@@ -85,7 +85,10 @@ export const runContextPreflight = (
     }),
     row => {
       const index = recalledRows.findIndex(candidate => candidate.key === row.key)
-      return 1 + bytes({ item: { ...candidates[Number(row.key)]!.item, reason: reasons.get(index) }, text: row.text })
+      // Recall may shorten its preview to its public byte ceiling. The answer
+      // receives the original pinned snapshot, so charge that full content.
+      const candidate = candidates[Number(row.key)]!
+      return 1 + bytes({ item: { ...candidate.item, reason: reasons.get(index) }, text: candidate.text })
     },
     Math.max(0, input.tokenBudget - 2)
   ).pipe(Effect.provide(snapshot), Effect.mapError(error => error._tag === "flows/memory/MemoryError" ? invalid() : error))
@@ -93,7 +96,7 @@ export const runContextPreflight = (
   const recalled = recalledRows
   const selectedContext = selected.map(row => ({
     item: { ...candidates[Number(row.key)]!.item, reason: reasons.get(recalled.findIndex(candidate => candidate.key === row.key))! },
-    text: row.text
+    text: candidates[Number(row.key)]!.text
   }))
   return {
     result: ContextPreflightResultSchema.parse({
