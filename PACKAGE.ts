@@ -48,7 +48,6 @@ const tsconfig = Smithers.Tsconfig({
     Smithers.glob("scripts/*/PACKAGE.ts"),
     Smithers.file("flows/PACKAGE.ts"),
     Smithers.file("examples/PACKAGE.ts"),
-    Smithers.glob("apps/docs/*/PACKAGE.ts"),
     // One entry per nesting depth, spelled out. Packages nest: a granular
     // package lives inside the product package it belongs to, so
     // `@smthrs/canonical` is `packages/smithers/flows/canonical` and
@@ -682,14 +681,12 @@ const ci = Smithers.GithubCiGen({
       steps: [{ name: "Script gates", verb: Smithers.Verb.Test, pattern: "//scripts/..." }]
     },
     {
-      // Source parity and site builds stay together in the independent docs gate.
       id: "docs",
-      name: "package documentation sites",
+      name: "published package documentation",
       runsOn: ubuntu,
-      // Run 36369423415: 14m19s; leave room for uncached site builds.
       timeoutMinutes: 45,
       toolchain: Smithers.CiToolchain.Needs({ runtimes: [node, bun], apt: bubblewrap }),
-      steps: [{ name: "Package docs sites", verb: Smithers.Verb.Ci, pattern: "//apps/docs/..." }]
+      steps: [{ name: "Package documentation tarballs", verb: Smithers.Verb.Test, pattern: "//scripts:packageDocs" }]
     },
     {
       id: "apps-e2e",

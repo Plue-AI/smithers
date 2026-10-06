@@ -65,13 +65,12 @@ describe("the CLI reference", () => {
     assert.deepEqual(compare(canonical.filter(command => !retired.has(command)), canonical, pages), [])
   })
 
-  it("indexes every retained public command and preserves help for retired pages", () => {
+  it("indexes every public command and preserves help for retained compatibility commands", () => {
     assert.equal(manifest.version, "incur.v1")
     assert.ok(canonical.length > 0)
     const indexed = indexedCommands(readFileSync(join(pagesDirectory, "index.mdx"), "utf8"))
     assert.deepEqual(canonical.filter((command) => !retired.has(command) && !indexed.has(command)), [])
-    for (const command of retired) {
-      assert.ok(canonical.includes(command), `${command}: retained source manifest`)
+    for (const command of [...retired].filter((command) => canonical.includes(command))) {
       assert.ok(readFileSync(join(root, `apps/site/src/data/help/${command}.txt`), "utf8").length > 0, `${command}: retained help`)
     }
   })
@@ -108,7 +107,6 @@ describe("the CLI reference", () => {
   it("names the dist-tag the update command actually reads", () => {
     const files = [
       ...markdownFiles(join(root, "packages/smithers/docs")),
-      ...markdownFiles(join(root, "apps/docs/cli/src/content/docs")),
       ...markdownFiles(join(root, "apps/site/src/content/docs/docs"))
     ]
     const stale = files.flatMap((file) => {

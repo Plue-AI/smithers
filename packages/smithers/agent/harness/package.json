@@ -73,7 +73,6 @@
     "./index": "./src/index.ts"
   },
   "files": [
-    "docs/**/*.md",
     "src/**/*.ts",
     "dist/**/*.js",
     "dist/**/*.js.map",
@@ -82,7 +81,8 @@
     "dist/**/package.json",
     "LICENSE",
     "README.md",
-    "CHANGELOG.md"
+    "CHANGELOG.md",
+    "docs/"
   ],
   "publishConfig": {
     "access": "public",

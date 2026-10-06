@@ -1,6 +1,0 @@
-# @smthrs/core
-
-> Flow metadata and Markdown lowering over @smthrs/flow
-
-- [@smthrs/core documentation](https://core.smithers.sh/): Package documentation.
-- [Smithers documentation](https://smithers.sh/llms.txt): Main documentation index.

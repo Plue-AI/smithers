@@ -4,8 +4,6 @@ import { readFileSync } from "node:fs"
 const pages = [
   "../docs/concepts/retries.md",
   "../docs/troubleshooting.md",
-  "../../../../../apps/docs/engine/src/content/docs/concepts/retries.md",
-  "../../../../../apps/docs/engine/src/content/docs/troubleshooting.md",
   "../../../../../apps/site/src/content/docs/docs/concepts/retries.mdx",
   "../../../../../apps/site/src/content/docs/docs/tutorials/retry-policy.mdx",
   "../../../../../apps/site/src/content/docs/docs/reference/errors.mdx"

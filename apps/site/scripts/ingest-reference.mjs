@@ -25,7 +25,7 @@
 import { mkdir, readdir, readFile, rm, stat, writeFile } from "node:fs/promises"
 import { dirname, join, posix, relative, resolve } from "node:path"
 import { fileURLToPath } from "node:url"
-import { sites } from "../../docs/shared/manifest.mjs"
+import { sites } from "../../../scripts/package-docs.mjs"
 
 /** Package roots whose relative documentation links can be resolved. */
 const slugByPackageDir = new Map(sites.map((site) => [site.dir, site.slug]))
@@ -134,7 +134,7 @@ const toMdx = (body) => {
  * Rewrites the cross-package link forms a colocated page is written in.
  *
  * A colocated page uses `/api/<slug>` because that is the contract the
- * per-package sites are authored against (apps/docs/shared/AUTHORING.md).
+ * per-package sites are authored against (CONTRIBUTING.md).
  * smithers.sh has no `/api/` route, so copying one here verbatim publishes a
  * dead link: `check-docs.mjs` calls it "link to nowhere". The aggregate
  * reference lives under `/docs/reference/api/<slug>/`, so that is where the
