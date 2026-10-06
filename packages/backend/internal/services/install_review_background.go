@@ -6,6 +6,7 @@ import (
 	"errors"
 	"time"
 
+	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/smithersai/smithers/packages/backend/internal/db"
 	"github.com/smithersai/smithers/packages/backend/internal/middleware"
@@ -54,8 +55,9 @@ type reviewJob struct {
 	Admission ReviewAdmission `json:"admission"`
 }
 type reviewCheckpoint struct {
-	Run    string             `json:"run,omitempty"`
-	Result *ReviewObservation `json:"result,omitempty"`
+	Started bool               `json:"started,omitempty"`
+	Run     string             `json:"run,omitempty"`
+	Result  *ReviewObservation `json:"result,omitempty"`
 }
 
 func NewReviewBackground(pool *pgxpool.Pool, service *MythicalService, machine ReviewMachine, delivery ReviewDelivery) (*ReviewBackground, error) {
@@ -87,6 +89,19 @@ func (b *ReviewBackground) admit(ctx context.Context, admission ReviewAdmission,
 		return ReviewAdmission{}, err
 	}
 	defer func() { _ = tx.Rollback(context.WithoutCancel(ctx)) }()
+	result, err := b.admitInTx(ctx, tx, admission, request)
+	if err != nil {
+		return ReviewAdmission{}, err
+	}
+	if err = tx.Commit(ctx); err != nil {
+		return ReviewAdmission{}, err
+	}
+	return result, nil
+}
+
+// admitInTx shares the person's confirmation transaction: a job and an
+// approved card either both commit, or neither does.
+func (b *ReviewBackground) admitInTx(ctx context.Context, tx pgx.Tx, admission ReviewAdmission, request ReviewRequest) (ReviewAdmission, error) {
 	bound, repository, err := lockInstallWriteCredential(ctx, tx, middleware.AuthInfoFromContext(ctx))
 	if err != nil {
 		return ReviewAdmission{}, err
@@ -125,7 +140,9 @@ func (b *ReviewBackground) admit(ctx context.Context, admission ReviewAdmission,
 	if _, err = tx.Exec(ctx, `SELECT 1 FROM collaborators WHERE repository_id=$1 AND user_id=$2 FOR SHARE`, repository, admission.AuthorID); err != nil {
 		return ReviewAdmission{}, err
 	}
-	if err = b.service.reviewMembers(ctx, admission); err != nil {
+	consumer := *b.service
+	consumer.store = tx
+	if err = consumer.reviewMembers(ctx, admission); err != nil {
 		return ReviewAdmission{}, err
 	}
 	payload, _ := json.Marshal(reviewJob{Request: request, Admission: admission})
@@ -135,9 +152,6 @@ func (b *ReviewBackground) admit(ctx context.Context, admission ReviewAdmission,
 		return ReviewAdmission{}, todoRequestMismatch()
 	}
 	if err != nil {
-		return ReviewAdmission{}, err
-	}
-	if err = tx.Commit(ctx); err != nil {
 		return ReviewAdmission{}, err
 	}
 	admission.OperationID, admission.State = receipt.OperationID, receipt.State
@@ -162,6 +176,26 @@ func (b *ReviewBackground) handle(ctx context.Context, lease *jobs.Lease) error 
 		}
 	}
 	admission := job.Admission
+	// Existing journals recorded the old start marker before the run ID.
+	// Keep that history recoverable without writing the old marker again.
+	if !checkpoint.Started && len(claim.ExternalReceipt) > 0 {
+		var legacy struct {
+			Kind string `json:"kind"`
+		}
+		if json.Unmarshal(claim.ExternalReceipt, &legacy) == nil && legacy.Kind == "review" {
+			checkpoint.Started = true
+		}
+	}
+	refuse := func() error {
+		// Start may have succeeded even though its response was lost. Cleanup
+		// uses the stable operation ID; revocation grants no new launch authority.
+		if checkpoint.Started || checkpoint.Run != "" {
+			if err := b.machine.Retire(ctx, claim.OperationID, admission); err != nil {
+				return err
+			}
+		}
+		return lease.Fail(ctx, json.RawMessage(`{"class":"permission","code":"permission"}`))
+	}
 	if checkpoint.Run == "" {
 		var credential middleware.Credential
 		if err := json.Unmarshal(claim.AuthorizationContext, &credential); err != nil {
@@ -172,16 +206,20 @@ func (b *ReviewBackground) handle(ctx context.Context, lease *jobs.Lease) error 
 			return err
 		}
 		if errors.Is(err, middleware.ErrCredentialGone) || !middleware.BindInstallCredential(info) || info.User.ID != admission.RequesterID {
-			return lease.Fail(ctx, json.RawMessage(`{"class":"permission","code":"permission"}`))
+			return refuse()
 		}
 		bound := middleware.ContextWithAuthInfo(ctx, info)
 		if _, err := Authorize(bound, b.service.queries(), "review"); err != nil {
-			return lease.Fail(ctx, json.RawMessage(`{"class":"permission","code":"permission"}`))
+			var access *AccessError
+			if errors.As(err, &access) && access.Class == "infra" {
+				return err
+			}
+			return refuse()
 		}
 		if err := b.service.reviewMembers(ctx, admission); err != nil {
 			var refusal *TodoControlError
 			if errors.As(err, &refusal) && refusal.Class == "permission" {
-				return lease.Fail(ctx, json.RawMessage(`{"class":"permission","code":"permission"}`))
+				return refuse()
 			}
 			return err
 		}
@@ -191,7 +229,9 @@ func (b *ReviewBackground) handle(ctx context.Context, lease *jobs.Lease) error 
 		if err := b.delivery.Ready(ctx, admission); err != nil {
 			return err
 		}
-		if err := lease.StartExternal(ctx, json.RawMessage(`{"kind":"review"}`)); err != nil {
+		checkpoint.Started = true
+		start, _ := json.Marshal(checkpoint)
+		if err := lease.StartExternal(ctx, start); err != nil {
 			return err
 		}
 		run, err := b.machine.Start(ctx, claim.OperationID, admission)

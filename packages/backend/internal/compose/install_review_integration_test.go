@@ -26,9 +26,9 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// Production install composition and auth, real PostgreSQL; no stub review
-// consumer or fabricated successful execution. Missing integrations allocate
-// nothing and the old workspace invocation remains closed.
+// Production install router/auth with real PostgreSQL and GitHub fake. Missing
+// integrations allocate nothing. The success/recovery portion uses explicitly
+// test-only machine and delivery ports; it does not qualify a real microVM.
 func TestInstallReviewHTTPAdmissionWithoutRuntime(t *testing.T) {
 	pool, _ := postgresfixture.NewProductDatabase(t)
 	q := db.New(pool)
@@ -309,6 +309,8 @@ func TestInstallReviewHTTPAdmissionWithoutRuntime(t *testing.T) {
 			return answer
 		}
 		body := `{"number":50,"conversation":"ben"}`
+		wrongRepository := call(`{"number":50,"repo":"other/app","conversation":"ben"}`, "wrong-repository")
+		require.Equal(t, 403, wrongRepository.Code, wrongRepository.Body.String())
 		// Every preflight refusal remains before acceptance and allocation.
 		for _, code := range []string{"review_binding_unavailable", "review_source_unavailable", "review_digest_mismatch", "review_runtime_unavailable", "review_root_boundary_unavailable"} {
 			machine.refusal = code
@@ -367,7 +369,7 @@ func TestInstallReviewHTTPAdmissionWithoutRuntime(t *testing.T) {
 		delivery.mu.Lock()
 		require.Equal(t, selected.OperationID, delivery.id)
 		require.Equal(t, "ben", delivery.conversation)
-		require.JSONEq(t, `{"findings":[{"path":"cache.ts","line":20,"severity":"fix","body":"Off by one"}]}`, string(delivery.change))
+		require.JSONEq(t, `{"repo":"review-owner/app","changeId":"review-50","description":"Review","commitId":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","currentSeq":null,"revisionCount":null,"revisions":[],"authorName":null,"timestamp":null,"repos":[],"diff":null,"checks":null,"findings":[{"analyzer":"review","severity":"fix","path":"cache.ts","line":20,"summary":"Off by one","raisedAtSeq":null}],"reviews":null,"threads":null,"conflicts":null,"stack":null,"changeset":null}`, string(delivery.change))
 		delivery.mu.Unlock()
 		// Read the persisted findings through the same install router.
 		readReview := func(id, cookie string) *httptest.ResponseRecorder {
@@ -393,10 +395,156 @@ func TestInstallReviewHTTPAdmissionWithoutRuntime(t *testing.T) {
 		_, err = q.CreateAuthSession(ctx, db.CreateAuthSessionParams{UserID: member.ID, Username: member.Username, SessionKey: hex.EncodeToString(memberSession[:]), ExpiresAt: time.Now().Add(time.Hour)})
 		require.NoError(t, err)
 		require.Equal(t, 404, readReview(selected.OperationID, "alice-review-cookie").Code)
+		// Delegated requests persist Confirm only; the person's session is the
+		// sole credential that can atomically approve and admit a review job.
+		token := "smithers_" + strings.Repeat("c", 40)
+		tokenSum := sha256.Sum256([]byte(token))
+		tokenHash := hex.EncodeToString(tokenSum[:])
+		_, err = q.CreateAccessToken(ctx, db.CreateAccessTokenParams{UserID: owner.ID, Name: "review-confirm", TokenHash: tokenHash, TokenLastEight: tokenHash[len(tokenHash)-8:], Scopes: "read:repository,write:repository,via:codex", SystemIssued: true, ExpiresAt: pgtype.Timestamptz{Time: time.Now().Add(time.Hour), Valid: true}})
+		require.NoError(t, err)
+		confirmCall := func(path, key, cookie string, delegated bool) *httptest.ResponseRecorder {
+			req := httptest.NewRequest("POST", "http://localhost:4000"+path, strings.NewReader(body))
+			req.RemoteAddr = "127.0.0.1:61000"
+			req.Header.Set("Content-Type", "application/json")
+			req.Header.Set("Origin", "http://localhost:4000")
+			req.Header.Set("Idempotency-Key", key)
+			req.Header.Set("X-CSRF-Token", "review-csrf")
+			req.AddCookie(&http.Cookie{Name: "__csrf", Value: "review-csrf"})
+			if delegated {
+				req.Header.Set("Authorization", "Bearer "+token)
+			} else {
+				req.AddCookie(&http.Cookie{Name: "session", Value: cookie})
+			}
+			answer := httptest.NewRecorder()
+			router.ServeHTTP(answer, req)
+			return answer
+		}
+		requestConfirm := func(key string) services.ConfirmationReceipt {
+			answer := confirmCall("/api/reviews", key, "", true)
+			require.Equal(t, 202, answer.Code, answer.Body.String())
+			var receipt services.ConfirmationReceipt
+			require.NoError(t, json.Unmarshal(answer.Body.Bytes(), &receipt))
+			require.Equal(t, "pending", receipt.State)
+			return receipt
+		}
+		pending := requestConfirm("delegated-review")
+		require.Equal(t, pending, requestConfirm("delegated-review"))
+		var jobCount int
+		require.NoError(t, pool.QueryRow(ctx, `SELECT count(*) FROM product_job_requests WHERE operation='install.review'`).Scan(&jobCount))
+		require.Equal(t, 1, jobCount)
+		require.Equal(t, 403, confirmCall("/api/confirmations/"+pending.ID+"/approve", "agent-review-press", "", true).Code)
+		require.Equal(t, 403, confirmCall("/api/confirmations/"+pending.ID+"/approve", "other-review-press", "alice-review-cookie", false).Code)
+		for range 2 {
+			approved := confirmCall("/api/confirmations/"+pending.ID+"/approve", "person-review-press", "review-cookie", false)
+			require.Equal(t, 200, approved.Code, approved.Body.String())
+		}
+		require.NoError(t, pool.QueryRow(ctx, `SELECT count(*) FROM product_job_requests WHERE operation='install.review'`).Scan(&jobCount))
+		require.Equal(t, 2, jobCount)
+		var confirmedID string
+		require.NoError(t, pool.QueryRow(ctx, `SELECT payload->'effect'->>'review' FROM approvals WHERE id=$1`, pending.ID).Scan(&confirmedID))
+		require.Equal(t, 200, readReview(confirmedID, "review-cookie").Code)
+		// The live app-agent turn follows the same Confirm consumer as the CLI.
+		cliToken := token
+		turn := liveAppTurnCredentialFixture(t, pool, owner.ID)
+		token = "smithers_" + strings.Repeat("e", 40)
+		appTokenSum := sha256.Sum256([]byte(token))
+		appTokenHash := hex.EncodeToString(appTokenSum[:])
+		_, err = q.CreateAccessToken(ctx, db.CreateAccessTokenParams{UserID: owner.ID, Name: "app-review-confirm", TokenHash: appTokenHash, TokenLastEight: appTokenHash[len(appTokenHash)-8:], Scopes: "read:repository,write:repository,via:smithers,terminal-session:" + turn + "/1", SystemIssued: true, ExpiresAt: pgtype.Timestamptz{Time: time.Now().Add(time.Hour), Valid: true}})
+		require.NoError(t, err)
+		appPending := requestConfirm("app-agent-review")
+		require.Equal(t, 403, confirmCall("/api/confirmations/"+appPending.ID+"/approve", "app-agent-review-press", "", true).Code)
+		require.NoError(t, pool.QueryRow(ctx, `SELECT count(*) FROM product_job_requests WHERE operation='install.review'`).Scan(&jobCount))
+		require.Equal(t, 2, jobCount)
+		appApproved := confirmCall("/api/confirmations/"+appPending.ID+"/approve", "person-app-review-press", "review-cookie", false)
+		require.Equal(t, 200, appApproved.Code, appApproved.Body.String())
+		token = cliToken
+		// A changed PR head invalidates the selected confirmation snapshot.
+		stale := requestConfirm("stale-review-confirm")
+		upstream.UpdatePull("review-owner/app", 50, func(p *githubfake.Pull) { p.Head.SHA = strings.Repeat("8", 40) })
+		require.Equal(t, 409, confirmCall("/api/confirmations/"+stale.ID+"/approve", "stale-review-press", "review-cookie", false).Code)
+		require.NoError(t, pool.QueryRow(ctx, `SELECT count(*) FROM product_job_requests WHERE operation='install.review'`).Scan(&jobCount))
+		require.Equal(t, 3, jobCount)
+		cancelled := requestConfirm("cancel-review-confirm")
+		denied := confirmCall("/api/confirmations/"+cancelled.ID+"/deny", "person-cancel-review", "review-cookie", false)
+		require.Equal(t, 200, denied.Code, denied.Body.String())
+		require.NoError(t, pool.QueryRow(ctx, `SELECT count(*) FROM product_job_requests WHERE operation='install.review'`).Scan(&jobCount))
+		require.Equal(t, 3, jobCount)
+		machine.mu.Lock()
+		require.Len(t, machine.runs, 1)
+		machine.mu.Unlock()
 		// Membership revocation also prevents reconnection to a private result.
 		_, err = pool.Exec(ctx, `UPDATE collaborators SET suspended_at=now() WHERE user_id=$1`, member.ID)
 		require.NoError(t, err)
 		require.Equal(t, 403, call(body, "durable-member-review").Code)
+		// An accepted but unstarted job rechecks the author's live membership.
+		workerCtx, cancel = context.WithCancel(ctx)
+		done = make(chan error, 1)
+		go func() {
+			done <- background.RunWorker(workerCtx, jobs.WorkerConfig{WorkerID: "review-revoked", Capacity: 1, Lease: time.Second, PollInterval: time.Millisecond})
+		}()
+		require.Eventually(t, func() bool {
+			op, e := store.Get(ctx, scope, confirmedID)
+			return e == nil && op.State == jobs.StateFailed
+		}, 5*time.Second, 10*time.Millisecond)
+		cancel()
+		require.NoError(t, <-done)
+		machine.mu.Lock()
+		require.Len(t, machine.runs, 1)
+		machine.mu.Unlock()
+		// A lost launch reply must not leak the allocated machine if membership
+		// is revoked before the next recovery pass can learn its run ID.
+		_, err = pool.Exec(ctx, `UPDATE collaborators SET suspended_at=NULL WHERE user_id=$1`, member.ID)
+		require.NoError(t, err)
+		lostMachine := &reviewMachineFixture{runs: map[string]string{}, loseStart: true}
+		lostBackground, err := services.NewReviewBackground(pool, service, lostMachine, &reviewDeliveryFixture{})
+		require.NoError(t, err)
+		service.SetReviewBackground(lostBackground)
+		lostAnswer := call(body, "lost-launch-revoked")
+		require.Equal(t, 202, lostAnswer.Code, lostAnswer.Body.String())
+		var lostAdmission services.ReviewAdmission
+		require.NoError(t, json.Unmarshal(lostAnswer.Body.Bytes(), &lostAdmission))
+		retireGate := make(chan struct{})
+		retireEntered := make(chan struct{}, 1)
+		var retireRelease sync.Once
+		releaseRetire := func() { retireRelease.Do(func() { close(retireGate) }) }
+		t.Cleanup(releaseRetire)
+		lostMachine.retireGateID, lostMachine.retireGate, lostMachine.retireEntered = lostAdmission.OperationID, retireGate, retireEntered
+		lostMachine.retireFailID = lostAdmission.OperationID
+		lostMachine.loseStartID = lostAdmission.OperationID
+		lostMachine.onLost = func() error {
+			_, e := pool.Exec(ctx, `UPDATE collaborators SET suspended_at=now() WHERE user_id=$1`, member.ID)
+			return e
+		}
+		workerCtx, cancel = context.WithCancel(ctx)
+		done = make(chan error, 1)
+		go func() {
+			done <- lostBackground.RunWorker(workerCtx, jobs.WorkerConfig{WorkerID: "review-lost-revoked", Capacity: 1, Lease: time.Second, PollInterval: time.Millisecond, RetryDelay: time.Millisecond})
+		}()
+		select {
+		case <-retireEntered:
+		case <-time.After(5 * time.Second):
+			t.Fatal("uncertain launch never reached retirement")
+		}
+		pendingStatus := readReview(lostAdmission.OperationID, "review-cookie")
+		require.Equal(t, 200, pendingStatus.Code, pendingStatus.Body.String())
+		var retiring services.ReviewStatus
+		require.NoError(t, json.Unmarshal(pendingStatus.Body.Bytes(), &retiring))
+		require.Contains(t, []jobs.State{jobs.StateAccepted, jobs.StateDispatching, jobs.StateRunning, jobs.StateWaiting}, retiring.State)
+		history := readReview(selected.OperationID, "review-cookie")
+		require.Equal(t, 200, history.Code, history.Body.String())
+		require.Contains(t, history.Body.String(), `"path":"cache.ts"`)
+		releaseRetire()
+		require.Eventually(t, func() bool {
+			op, e := store.Get(ctx, scope, lostAdmission.OperationID)
+			return e == nil && op.State == jobs.StateFailed
+		}, 5*time.Second, 10*time.Millisecond)
+		cancel()
+		require.NoError(t, <-done)
+		lostMachine.mu.Lock()
+		require.Contains(t, lostMachine.runs, lostAdmission.OperationID)
+		require.True(t, lostMachine.retiredOperations[lostAdmission.OperationID], "retire an uncertain launch before terminal refusal")
+		require.GreaterOrEqual(t, lostMachine.retireAttempts[lostAdmission.OperationID], 2, "failed cleanup must remain retryable")
+		lostMachine.mu.Unlock()
 		for _, table := range []string{"workspaces", "mythical_items", "mythical_stacks"} {
 			require.NoError(t, pool.QueryRow(ctx, "SELECT count(*) FROM "+table).Scan(&count))
 			require.Zero(t, count, table)
@@ -409,12 +557,19 @@ func TestInstallReviewHTTPAdmissionWithoutRuntime(t *testing.T) {
 // Test-only machine and delivery contracts. This is boundary/recovery evidence,
 // not C-J10-09 reference-host microVM qualification.
 type reviewMachineFixture struct {
-	mu        sync.Mutex
-	runs      map[string]string
-	selected  services.ReviewAdmission
-	refusal   string
-	loseStart bool
-	retired   int
+	mu                         sync.Mutex
+	runs                       map[string]string
+	selected                   services.ReviewAdmission
+	refusal                    string
+	loseStart                  bool
+	loseStartID                string
+	onLost                     func() error
+	retiredOperations          map[string]bool
+	retireAttempts             map[string]int
+	retireGateID, retireFailID string
+	retireGate                 <-chan struct{}
+	retireEntered              chan<- struct{}
+	retired                    int
 }
 
 func (*reviewMachineFixture) Isolation() workspace.IsolationLevel {
@@ -433,19 +588,43 @@ func (m *reviewMachineFixture) Start(_ context.Context, id string, a services.Re
 	if m.runs[id] == "" {
 		m.runs[id] = "review-run"
 	}
-	if m.loseStart {
+	if m.loseStart && (m.loseStartID == "" || m.loseStartID == id) {
 		m.loseStart = false
+		if m.onLost != nil {
+			if err := m.onLost(); err != nil {
+				return "", err
+			}
+		}
 		return "", fmt.Errorf("lost Start reply")
 	}
 	return m.runs[id], nil
 }
 func (*reviewMachineFixture) Observe(context.Context, string, services.ReviewAdmission) (services.ReviewObservation, error) {
-	return services.ReviewObservation{State: jobs.StateCompleted, Change: json.RawMessage(`{"findings":[{"path":"cache.ts","line":20,"severity":"fix","body":"Off by one"}]}`)}, nil
+	return services.ReviewObservation{State: jobs.StateCompleted, Change: json.RawMessage(`{"repo":"review-owner/app","changeId":"review-50","description":"Review","commitId":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","currentSeq":null,"revisionCount":null,"revisions":[],"authorName":null,"timestamp":null,"repos":[],"diff":null,"checks":null,"findings":[{"analyzer":"review","severity":"fix","path":"cache.ts","line":20,"summary":"Off by one","raisedAtSeq":null}],"reviews":null,"threads":null,"conflicts":null,"stack":null,"changeset":null}`)}, nil
 }
-func (m *reviewMachineFixture) Retire(context.Context, string, services.ReviewAdmission) error {
+func (m *reviewMachineFixture) Retire(_ context.Context, id string, _ services.ReviewAdmission) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
+	if m.retireAttempts == nil {
+		m.retireAttempts = map[string]int{}
+	}
+	m.retireAttempts[id]++
+	if m.retireGateID == id && m.retireGate != nil {
+		select {
+		case m.retireEntered <- struct{}{}:
+		default:
+		}
+		<-m.retireGate
+	}
+	if m.retireFailID == id {
+		m.retireFailID = ""
+		return fmt.Errorf("retirement retry")
+	}
 	m.retired++
+	if m.retiredOperations == nil {
+		m.retiredOperations = map[string]bool{}
+	}
+	m.retiredOperations[id] = true
 	return nil
 }
 
