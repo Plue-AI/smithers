@@ -32778,11 +32778,6 @@
         "path": "packages/repo-targets/test-utils/effect-property.d.mts"
       },
       {
-        "kind": "glob",
-        "pattern": "packages/repo-targets/scripts/private-effect-adapters.mjs",
-        "exclude": []
-      },
-      {
         "kind": "file",
         "path": "packages/smithers/migrate/vitest.config.ts"
       }
