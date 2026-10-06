@@ -1918,13 +1918,15 @@ func TestForeignPushWaitCardSurvivesIndependentQuestionSettlement(t *testing.T) 
 	checks := decodeJSON(t, item.Checks)
 	foreign := decodeJSON(t, []byte(`{"id":"foreign-1","kind":"foreign_push","prompt":"Alice pushed to smithers/retry-webhooks on GitHub","since":"2026-10-05T12:00:00Z","sha":"1111111111111111111111111111111111111111","by":{"kind":"github","login":"alice","color_index":7}}`))
 	checks["waits"] = append(checks["waits"].([]any), foreign)
+	checks["foreignHead"] = "1111111111111111111111111111111111111111"
+	checks["branch"] = "smithers/retry-webhooks"
 	raw, err := json.Marshal(checks)
 	require.NoError(t, err)
 	_, err = o.pool.Exec(ctx, `UPDATE mythical_items SET checks=$2 WHERE id=$1`, item.ID, raw)
 	require.NoError(t, err)
 	want := map[string]any{"id": "foreign-1", "kind": "foreign_push", "prompt": "Alice pushed to smithers/retry-webhooks on GitHub",
 		"since": "2026-10-05T12:00:00Z", "sha": "1111111111111111111111111111111111111111",
-		"by": map[string]any{"kind": "github", "login": "alice", "color_index": float64(7)}, "actions": []any{}}
+		"by": map[string]any{"kind": "github", "login": "alice", "color_index": float64(7)}, "actions": []any{map[string]any{"tag": "branch.discard-foreign", "label": "Discard"}}}
 	card := o.todoCard(item.Number.Int64)
 	waits := card["waits"].([]any)
 	require.Len(t, waits, 2)
@@ -1957,6 +1959,18 @@ func TestForeignPushWaitCardSurvivesIndependentQuestionSettlement(t *testing.T) 
 	encoded, err := json.Marshal(cards[0])
 	require.NoError(t, err)
 	require.Equal(t, card["waits"], decodeJSON(t, encoded)["waits"])
+	// Missing or changed retained-head facts must withdraw the executable door.
+	for _, head := range []string{"", "2222222222222222222222222222222222222222"} {
+		checks := decodeJSON(t, stored.Checks)
+		checks["foreignHead"] = head
+		raw, err := json.Marshal(checks)
+		require.NoError(t, err)
+		_, err = o.pool.Exec(ctx, `UPDATE mythical_items SET checks=$2 WHERE id=$1`, item.ID, raw)
+		require.NoError(t, err)
+		wait := o.todoCard(item.Number.Int64)["waits"].([]any)[0].(map[string]any)
+		require.Empty(t, wait["actions"])
+		require.Equal(t, foreign["sha"], wait["sha"])
+	}
 }
 
 func TestForeignPushPollRetainsTerminalCandidateWhenPrefixMoves(t *testing.T) {

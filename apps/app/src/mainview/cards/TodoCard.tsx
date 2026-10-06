@@ -8,7 +8,7 @@ import type { ConfirmCard } from "@smthrs/rpc/ConfirmCard"
 import type { PersonRef } from "@smthrs/rpc/CardPrimitives"
 import type { CardProps, CatalogTag } from "@smthrs/rpc/CardAction"
 import { cardActions, type CardActionDefinition, type CardCommandDispatch } from "../flows/cardActions"
-import { flowArgs } from "../flows/FlowArgs"
+import { flowArgs, type FlowInput } from "../flows/FlowArgs"
 import type { TodoEntry } from "../state/seams/TodoSeam"
 import { useController } from "../ControllerContext"
 import { useDesignTodoCard } from "../state/seams/DesignWorld/todo"
@@ -171,6 +171,7 @@ const TodoBody = ({ card, maximized }: { readonly card: CardOf<"todo">; readonly
   const role = useTodoRole()
   const dispatch: CardCommandDispatch = (tag, input) => {
     const payload = (input ?? {}) as Record<string, unknown>
+    if (tag === "branch.discard-foreign") return controller.requestFlowConfirmation(tag, flowArgs(tag, payload as FlowInput["branch.discard-foreign"]), "discard this outside push", "Discard this outside push?")
     if (tag === "todo.drop") return controller.requestFlowConfirmation(tag, flowArgs("todo.drop", { n: card.payload.n }), "drop this TODO", `Drop T${card.payload.n}?`)
     if ((tag === "todo.steer" || tag === "todo.amend") && !payload.text) {
       controller.changeDraft(`/${tag} T${card.payload.n} `)

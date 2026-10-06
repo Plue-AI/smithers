@@ -59,3 +59,55 @@ test("C-UI-12 TODO: Open branch reaches the install provider from a REST-served 
   expect(reads).toEqual(["GET"])
   await expect(page.getByTestId("composer-input")).toBeEnabled()
 })
+
+
+test("C-UI-12 TODO: Discard confirms the displayed outside push before the real seam submits", async ({ page }) => {
+  await installCloudFixture(page, { capabilities: ["identity", "install"] })
+  // Discard is a maintainer decision; the shared fixture remains a member.
+  await page.route("**/api/user", route => route.fulfill({ json: { id: 1, username: "canary-owner", is_admin: false } }))
+  await page.route("**/api/members", route => route.fulfill({ json: {
+    members: [{ login: "canary-owner", name: "Ben", avatar_url: "https://example.test/avatar.png", role: "owner",
+      color_index: 0, needs_access: false, suspended: false, actions: [] }],
+    access_url: "https://github.com/acme/app/settings/access"
+  } }))
+  const model = {
+    n: 24, title: "Retry from the install", state: "needs_you",
+    owner: { login: "canary-owner", name: "Ben", avatar_url: "https://example.test/avatar.png" },
+    branch: { id: "b-live", name: "smithers/retry-webhooks", machine: { state: "asleep" } },
+    prompt_revisions: [], steps: [], steers: [], evidence: [], present: [],
+    waits: [{ id: "foreign-1", kind: "foreign_push", prompt: "Alice pushed", since: "2026-10-05T12:00:00Z",
+      sha: "1111111111111111111111111111111111111111", by: { kind: "github", login: "alice", color_index: 7 },
+      actions: [{ tag: "branch.discard-foreign", label: "Discard" }] }],
+    merge: { state: "waiting", reason: "attention", on_github: false }
+  }
+  await page.route("**/api/todos", route => route.fulfill({ json: [model] }))
+  await page.route("**/api/todos/24", route => route.fulfill({ json: model }))
+  const requests: { body: unknown; key: string | undefined }[] = []
+  let finish: (() => void) | undefined
+  await page.route("**/api/branches/smithers%2Fretry-webhooks", async route => {
+    requests.push({ body: route.request().postDataJSON(), key: route.request().headers()["idempotency-key"] })
+    await new Promise<void>(resolve => { finish = resolve })
+    model.waits = []
+    model.state = "working"
+    await route.fulfill({ status: 202, json: { state: "accepted", n: 24 } })
+  })
+  await page.goto("/")
+  await expect(page.getByRole("button", { name: "Chat", exact: true })).toBeVisible({ timeout: 120_000 })
+  await say(page, "/todo T24")
+  const todo = page.getByRole("article", { name: "TODO T24", exact: true })
+  await expect(todo).toContainText("Alice pushed")
+  await expect(todo.getByRole("button", { name: "Bring in", exact: true })).toHaveCount(0)
+  await todo.getByRole("button", { name: "Discard", exact: true }).press("Enter")
+  const confirm = page.getByRole("button", { name: "Confirm: discard this outside push", exact: true }).last()
+  await expect(confirm).toBeVisible()
+  expect(requests).toEqual([])
+  await confirm.press("Enter")
+  await expect.poll(() => requests.length).toBe(1)
+  expect(requests[0]!.body).toEqual({ op: "discard-foreign", id: "foreign-1", revision: "1111111111111111111111111111111111111111" })
+  expect(requests[0]!.key).toBeTruthy()
+  await expect(page.getByTestId("composer-input")).toBeEnabled()
+  await expect(todo).toContainText("Alice pushed")
+  finish!()
+  await expect(todo).not.toContainText("Alice pushed")
+  await expect(todo.getByRole("button", { name: "Discard", exact: true })).toHaveCount(0)
+})

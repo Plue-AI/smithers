@@ -91,12 +91,19 @@ func (s *MythicalService) todoCard(ctx context.Context, item db.MythicalItem, it
 		revisions = []byte(`[]`)
 	}
 	waits := []map[string]any{}
+	checks := mythicalChecksOf(item)
 	for _, wait := range todoOpenWaits(item) {
 		actions := []any{}
 		if wait.Kind == "question" && wait.Signal != nil {
 			// The seeded card's Answer: one text field, sent as todo.answer.
 			actions = append(actions, map[string]any{"tag": "todo.answer", "label": "Answer",
 				"input": []any{map[string]any{"name": "answer", "label": "Answer", "kind": "text", "required": true}}})
+		}
+		// Only offer the composed person-decision door for the retained head.
+		// Bring in still requires the machine checkpoint provider.
+		if wait.Kind == "foreign_push" && wait.ID != "" && mythicalSHA.MatchString(wait.SHA) && strings.Trim(wait.SHA, "0") != "" &&
+			checks.ForeignHead == wait.SHA && mythicalTodoBranchValid(checks.Branch) {
+			actions = append(actions, map[string]any{"tag": "branch.discard-foreign", "label": "Discard"})
 		}
 		projected := map[string]any{"id": wait.ID, "kind": wait.Kind, "prompt": wait.Prompt, "since": wait.Since, "actions": actions}
 		if wait.SHA != "" {

@@ -5,6 +5,7 @@ export interface FlowInput {
   readonly "flow": { readonly name: string }
   readonly "wiki.save": { readonly name?: string; readonly text?: string }
   readonly "todo.drop": { readonly n: number }
+  readonly "branch.discard-foreign": { readonly branch: string; readonly id: string; readonly revision: string }
   readonly "file": { readonly path: string; readonly branch?: string; readonly line?: number; readonly revision?: string }
 
  readonly "agent.model": { readonly role: string; readonly model?: string }
@@ -177,6 +178,7 @@ const graphLine = (payload: Payload, target: string, value: string): string => {
  */
 const ENCODERS: { readonly [N in FlowWithInput]: (payload: Payload) => string } = {
   "flow": payload => JSON.stringify(payload),
+  "branch.discard-foreign": payload => JSON.stringify(payload),
   "todo.drop": payload => JSON.stringify(payload),
   "wiki.save": payload => JSON.stringify(payload),
   "file": payload => JSON.stringify(payload),

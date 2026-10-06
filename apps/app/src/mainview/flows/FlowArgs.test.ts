@@ -4,6 +4,7 @@ import type { FlowInput, FlowWithInput } from "./FlowArgs"
 import { FLOW_NAMES } from "./FlowName"
 import type { FlowName } from "./FlowName"
 import { payloadFor } from "./SlashPayload"
+import { pendingControlFlows } from "./entries/controls"
 import { triggersFlows } from "./entries/triggers"
 import type { CommandActions } from "./Flows"
 import { nameOf } from "./registry"
@@ -303,4 +304,11 @@ test("a run-open retry round-trips its durable request and rejects duplicate or 
   expect(payloadFor("runs.open", flowArgs("runs.open", input))).toEqual({ payload: input })
   expect(payloadFor("runs.open", "requestId= run-1")).toHaveProperty("error")
   expect(payloadFor("runs.open", "requestId=a requestId=b run-1")).toHaveProperty("error")
+})
+
+test("Discard confirmation retains an outside push's exact branch, wait and head", () => {
+  const input = { branch: "smithers/retry webhooks", id: "foreign-1", revision: "1111111111111111111111111111111111111111" }
+  const entry = pendingControlFlows({} as unknown as CommandActions).find(flow => nameOf(flow) === "branch.discard-foreign")
+  expect(entry).toBeDefined()
+  expect(payloadFor("branch.discard-foreign", flowArgs("branch.discard-foreign", input), entry!.metadata.grammar)).toEqual({ payload: input })
 })
