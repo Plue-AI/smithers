@@ -20,16 +20,15 @@ type GuestIdentityRuntime interface {
 
 // branchMachineCommands are the commands the install's one member may run on
 // a branch: join it, or read the branch list.
-var branchMachineCommands = map[string]bool{"branch.join": true, "branches.read": true}
+var branchMachineCommands = map[string]bool{"branch.join": true, "branches.read": true, "branch.read": true}
 
 // InstallBranchMachineProviders are a self-hosted install's branch machine
 // providers (T-MCH-04, #3565), composed only on its microVM runtime:
-//   - Membership is the install's roster: its owner (M-17 adds members), an
+//   - Membership is the install's roster: its owner and repository collaborators, an
 //     active account that may sign in, held FOR SHARE until the transaction
 //     ends so a suspension waits for the admitted write.
 //   - Authorize is the one member authorizer every transport uses
-//     (identity.MemberBoundary): the verified owner, for branch.join and
-//     branches.read only.
+//     (identity.MemberBoundary), for branch.join and branch reads.
 //   - LaneBinding: see installLaneBinding.
 //   - MicroVM admits only an isolated runtime; there is no host fallback.
 //   - SessionIdentity admits only a runtime that runs repository code as one
@@ -45,11 +44,22 @@ func InstallBranchMachineProviders(members identity.MemberAuthorizer, runtime wo
 	}
 }
 
-func installBranchMembership(ctx context.Context, tx pgx.Tx, _, actorID int64) error {
+func installBranchMembership(ctx context.Context, tx pgx.Tx, repositoryID, actorID int64) error {
 	var id int64
 	err := tx.QueryRow(ctx, `SELECT u.id FROM self_host_owners o JOIN users u ON u.id = o.user_id
-        WHERE o.singleton AND u.id = $1 AND u.is_active AND u.deleted_at IS NULL AND NOT u.prohibit_login
-        FOR SHARE OF u`, actorID).Scan(&id)
+ WHERE o.singleton AND u.id=$1 AND u.is_active AND u.deleted_at IS NULL AND NOT u.prohibit_login
+ FOR SHARE OF u`, actorID).Scan(&id)
+	if err == nil {
+		return nil
+	}
+	if !errors.Is(err, pgx.ErrNoRows) {
+		return err
+	}
+	err = tx.QueryRow(ctx, `SELECT u.id FROM collaborators c JOIN users u ON u.id=c.user_id
+ JOIN install_settings s ON s.key='github.repository' AND c.repository_id=(s.value->>'repository_id')::bigint
+ WHERE c.repository_id=$1 AND c.user_id=$2 AND c.permission IN ('write','admin') AND c.suspended_at IS NULL
+ AND u.is_active AND u.deleted_at IS NULL AND NOT u.prohibit_login
+ FOR SHARE OF u,c`, repositoryID, actorID).Scan(&id)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return pkgerrors.Forbidden("not a member of this install")
 	}
@@ -63,6 +73,9 @@ func installBranchAuthorizer(members identity.MemberAuthorizer) func(context.Con
 		}
 		if members == nil {
 			return pkgerrors.New(pkgerrors.CodeServiceUnavailable, "branch authorizer unavailable")
+		}
+		if command == "branch.read" {
+			ctx = identity.WithMemberRoute(ctx)
 		}
 		if err := members.AuthorizeMember(ctx, actorID); err != nil {
 			return err

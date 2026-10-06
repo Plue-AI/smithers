@@ -33,6 +33,7 @@ type BranchHandler struct {
 	Authorize func(r *http.Request, command string) (repositoryID, userID int64, err error)
 	Reads     BranchReadService
 	Forks     BranchForkService
+	Files     BranchFileReadService
 }
 
 // RegisterBranchRoutes mounts /branches under the install's /api router;
@@ -45,6 +46,7 @@ func RegisterBranchRoutes(r chi.Router, h *BranchHandler) {
 	r.Get("/branches", h.ListBranches)
 	r.Get("/branches/{b}", h.GetBranch)
 	r.Post("/branches", h.Fork)
+	r.Get("/branches/{b}/files", h.ListFiles)
 }
 
 // authorize decides command once the route's service is composed.
@@ -96,7 +98,7 @@ func (h *BranchHandler) ListBranches(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *BranchHandler) GetBranch(w http.ResponseWriter, r *http.Request) {
-	repository, user, err := h.authorize(r, "branches.read", h.Reads != nil)
+	repository, user, err := h.authorize(r, "branch.read", h.Reads != nil)
 	if err != nil {
 		writeBranchError(w, r, err)
 		return

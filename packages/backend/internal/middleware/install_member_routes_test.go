@@ -13,8 +13,8 @@ import (
 func TestInstallMemberCommandRoutes(t *testing.T) {
 	for _, tc := range []struct{ method, path, command string }{
 		{http.MethodGet, "/api/user", "self"},
-		{http.MethodGet, "/api/branches/main/files/src/b.ts", "files.read"},
-		{http.MethodGet, "/api/branches/main/files/.smithers/machine.json", "files.read"},
+		{http.MethodGet, "/api/branches/main/files/src/b.ts", "branch.read"},
+		{http.MethodGet, "/api/branches/main/files/.smithers/machine.json", "branch.read"},
 		{http.MethodPost, "/api/auth/logout", "self"},
 		{http.MethodGet, "/api/install", "install.read"},
 		{http.MethodPost, "/api/reviews", "review"},
@@ -52,6 +52,12 @@ func TestInstallMemberCommandRoutes(t *testing.T) {
 		{http.MethodPost, "/api/todos/12/answer", "todo.answer"},
 		{http.MethodPost, "/api/todos/12/merge", "merge"},
 		{http.MethodGet, "/api/flows", "flows.read"},
+		{http.MethodGet, "/api/branches/branch-id/files", "branch.read"},
+		{http.MethodGet, "/api/branches/branch-id", "branch.read"},
+		{http.MethodGet, "/api/branches", "branches.read"},
+		{http.MethodGet, "/api/branches/branch-id/files/src/retry.ts", "branch.read"},
+		{http.MethodPost, "/api/branches/branch-id/files/src/retry.ts", ""},
+		{http.MethodGet, "/api/repos/acme/app/workspaces/branch-id/files/content", "branch.read"},
 		{http.MethodPost, "/api/flows", ""},
 		{http.MethodGet, "/api/flows/todo", ""},
 		{http.MethodGet, "/api/members", "members.list"},

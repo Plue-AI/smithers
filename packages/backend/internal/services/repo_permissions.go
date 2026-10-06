@@ -334,6 +334,7 @@ var installCommands = map[string]installCommand{
 	// Branches (spec §6.3): any member reads them and forks a scratch
 	// branch (§15.1.5: fork is run).
 	"branches.read": {role: InstallMember},
+	"branch.read":   {role: InstallMember},
 	"branch.fork":   {role: InstallMember},
 	"members.list":  {role: InstallMember, personOnly: true},
 	"members.write": {role: InstallMaintainer, personOnly: true},
@@ -350,7 +351,7 @@ var installCommands = map[string]installCommand{
 // todo.control, the steer door, whose handler authorizes the op again; and
 // todo.new, which a delegated credential confirms in the app.
 var terminalCommands = map[string]bool{"self.read": true, "repo.read": true, "todo.read": true, "wiki.read": true,
-	"todo.answer": true, "todo.steer": true, "todo.control": true, "todo.new": true, "todo.amend": true}
+	"todo.answer": true, "todo.steer": true, "todo.control": true, "todo.new": true, "todo.amend": true, "branch.read": true}
 
 // AccessError is Authorize's refusal (spec §6.2.3 error envelope).
 type AccessError struct {
@@ -431,7 +432,9 @@ func Authorize(ctx context.Context, q *db.Queries, command string) (InstallAutho
 		if !terminalCommands[command] {
 			return InstallAuthorization{}, &AccessError{Status: http.StatusForbidden, Class: "permission", Code: "permission", Message: "A terminal's credential cannot do this"}
 		}
-	} else if (info.IsTokenAuth || info.IsAgent() || info.SessionHash == "") && !(info.IsTokenAuth && (command == "repo.read" || command == "agent.turn" && !info.IsAgent())) {
+	} else if (info.IsTokenAuth || info.IsAgent() || info.SessionHash == "") &&
+		!(info.IsTokenAuth && (command == "repo.read" || command == "agent.turn" && !info.IsAgent())) &&
+		!(command == "branch.read" && info.CredentialKind() == middleware.CredentialDelegated) {
 		message := "Sign in with a browser session"
 		if command == "merge" {
 			message = "Merge requires an owner or maintainer browser session"

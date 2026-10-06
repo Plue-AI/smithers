@@ -47,7 +47,7 @@ type WorkspaceFileEntry struct {
 	Name string `json:"name"`
 	Path string `json:"path"`
 	Type string `json:"type"`
-	Size int64  `json:"size"`
+	Size int64  `json:"size,omitempty"`
 }
 
 // WorkspaceFileContent is file data read from or written to a workspace.
@@ -91,6 +91,11 @@ func (s *WorkspaceService) ListWorkspaceFiles(ctx context.Context, workspaceID s
 	relativePath, absolutePath, err := workspaceFilePath(filePath, true)
 	if err != nil {
 		return nil, err
+	}
+	if row, owner, repo, head, asleep, err := s.workspaceSnapshotTarget(ctx, workspaceID, repositoryID, userID); err != nil {
+		return nil, err
+	} else if asleep {
+		return s.listWorkspaceSnapshot(ctx, row, owner, repo, head, relativePath)
 	}
 	if s.runtime != nil {
 		row, runtimeCtx, targetErr := s.workspaceRuntimeFacetTarget(ctx, workspaceID, repositoryID, userID, WorkspaceAccessRead, "")
@@ -188,6 +193,11 @@ func (s *WorkspaceService) ReadWorkspaceFile(ctx context.Context, workspaceID st
 	relativePath, absolutePath, err := workspaceFilePath(filePath, false)
 	if err != nil {
 		return WorkspaceFileContent{}, err
+	}
+	if _, owner, repo, head, asleep, err := s.workspaceSnapshotTarget(ctx, workspaceID, repositoryID, userID); err != nil {
+		return WorkspaceFileContent{}, err
+	} else if asleep {
+		return s.readWorkspaceSnapshot(ctx, owner, repo, head, relativePath)
 	}
 	if s.runtime != nil {
 		row, runtimeCtx, targetErr := s.workspaceRuntimeFacetTarget(ctx, workspaceID, repositoryID, userID, WorkspaceAccessRead, "")

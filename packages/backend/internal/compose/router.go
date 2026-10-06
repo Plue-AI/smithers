@@ -1018,6 +1018,7 @@ func buildRouter(
 			branches := &routes.BranchHandler{Authorize: routes.InstallBranchAuthorizer(queries)}
 			if workspaceHandler != nil {
 				branches.Reads, _ = workspaceHandler.Service.(routes.BranchReadService)
+				branches.Files, _ = workspaceHandler.Service.(routes.BranchFileReadService)
 			}
 			if extras.Mythical != nil {
 				branches.Forks, _ = extras.Mythical.Service.(routes.BranchForkService)

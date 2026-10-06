@@ -110,6 +110,9 @@ var terminalProfileRoutes = []struct {
 	{http.MethodGet, regexp.MustCompile(`^/api/repos/[^/]+/[^/]+$`)},
 	{http.MethodGet, regexp.MustCompile(`^/api/repos/[^/]+/[^/]+/mythical(/events|/items/[^/]+)?$`)},
 	{http.MethodGet, wikiReadPath},
+	{http.MethodGet, regexp.MustCompile(`^/api/branches/[^/]+/files(/.*)?$`)},
+	{http.MethodGet, regexp.MustCompile(`^/api/branches/[^/]+$`)},
+	{http.MethodGet, regexp.MustCompile(`^/api/repos/[^/]+/[^/]+/workspaces/[^/]+/files(/content)?$`)},
 }
 
 // wikiReadPath is every wiki read: the page list, search, navigation, a
@@ -434,8 +437,11 @@ var installMemberRoutes = []struct {
 	{http.MethodPost, "todo.answer", regexp.MustCompile(`^/api/todos/[0-9]+/answer$`)},
 	{http.MethodPost, "merge", regexp.MustCompile(`^/api/todos/[0-9]+/merge$`)},
 	{http.MethodGet, "flows.read", regexp.MustCompile(`^/api/flows$`)},
-	{http.MethodGet, "files.read", regexp.MustCompile(`^/api/branches/[^/]+/files/.+$`)},
-	{http.MethodGet, "branches.read", regexp.MustCompile(`^/api/branches(/[^/]+)?$`)},
+	{http.MethodGet, "branch.read", regexp.MustCompile(`^/api/branches/[^/]+/files/.+$`)},
+	{http.MethodGet, "branches.read", regexp.MustCompile(`^/api/branches$`)},
+	{http.MethodGet, "branch.read", regexp.MustCompile(`^/api/branches/[^/]+$`)},
+	{http.MethodGet, "branch.read", regexp.MustCompile(`^/api/branches/[^/]+/files$`)},
+	{http.MethodGet, "branch.read", regexp.MustCompile(`^/api/repos/[^/]+/[^/]+/workspaces/[^/]+/files(/content)?$`)},
 	{http.MethodPost, "branch.fork", regexp.MustCompile(`^/api/branches$`)},
 	{http.MethodGet, "members.list", regexp.MustCompile(`^/api/members$`)},
 	{http.MethodPost, "members.write", regexp.MustCompile(`^/api/members$`)},
