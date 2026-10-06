@@ -1761,6 +1761,34 @@ test("Terminal gives the working agent its own avatar and acting-for label", asy
   } finally { await item.close() }
 })
 
+test("Branch tab navigation wraps and delegates selection without invoking actions", async () => {
+  const host = document.createElement("div"); document.body.append(host); const root = createRoot(host)
+  const onAction = mock(() => {}), onView = mock((_patch: unknown) => {})
+  try {
+    await act(async () => root.render(<BranchView {...branchFixtures.active} onAction={onAction} onView={onView} />))
+    for (const [from, key, to] of [
+      ["activity", "ArrowRight", "files"], ["files", "ArrowRight", "terminals"],
+      ["terminals", "ArrowRight", "activity"], ["activity", "ArrowLeft", "terminals"],
+      ["terminals", "ArrowLeft", "files"], ["files", "ArrowLeft", "activity"],
+      ["files", "Home", "activity"], ["activity", "End", "terminals"],
+    ]) {
+      const button = host.querySelector<HTMLButtonElement>(`[data-tab="${from}"]`)!
+      button.focus(); onView.mockClear()
+      const event = new KeyboardEvent("keydown", { key, bubbles: true, cancelable: true })
+      await act(async () => { button.dispatchEvent(event) })
+      expect(event.defaultPrevented).toBe(true)
+      expect(document.activeElement).toBe(host.querySelector(`[data-tab="${to}"]`))
+      expect(onView.mock.calls).toEqual([[{ tab: to }]])
+    }
+    onView.mockClear()
+    const event = new KeyboardEvent("keydown", { key: "Escape", bubbles: true, cancelable: true })
+    await act(async () => { host.querySelector('[data-tab="files"]')!.dispatchEvent(event) })
+    expect(event.defaultPrevented).toBe(false)
+    expect(onView.mock.calls).toEqual([])
+    expect(onAction.mock.calls).toEqual([])
+  } finally { await act(async () => root.unmount()); host.remove() }
+})
+
 test("Branch actions retain burst identities, forms, omissions and supplied order", async () => {
   const host = document.createElement("div"); document.body.append(host); const root = createRoot(host)
   const onAction = mock((_tag: string, _args?: Record<string, string>) => {}), onView = mock(() => {})
