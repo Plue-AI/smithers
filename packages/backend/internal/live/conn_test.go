@@ -304,3 +304,38 @@ func (f *fakeHints) Listen(context.Context, []string) (<-chan sse.Event, func(),
 }
 
 func (f *fakeHints) notify() { f.out <- sse.Event{Data: `{"kind":"item"}`} }
+
+func TestLivePresenceDoesNotUnsubscribeExistingID(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	facts := &fakeFacts{value: `{"state":"queued"}`}
+	c := dial(t, serve(t, NewHub(ctx, nil), map[string]*fakeFacts{"home": facts}))
+	c.send(`{"t":"sub","id":7,"topic":"home"}`)
+	require.Equal(t, "snap", c.next().T)
+	c.send(`{"t":"presence","id":7}`)
+	require.Equal(t, received{T: "err", ID: 7, Code: Unsupported}, c.next())
+	facts.set(`{"state":"working"}`, nil)
+	require.JSONEq(t, `{"state":"working"}`, string(c.next().Data))
+}
+
+func TestLiveOutboxReservesGapAndBoundsControlFloods(t *testing.T) {
+	out := &outbox{ready: make(chan struct{}, 1)}
+	require.True(t, out.push(make([]byte, SendBudget-256), false))
+	require.False(t, out.push(make([]byte, 257), false))
+	require.True(t, out.push(encode(frame{T: "gap", ID: 7}), true))
+	require.False(t, out.push(make([]byte, 256), true))
+	require.LessOrEqual(t, out.bytes, SendBudget)
+}
+
+func TestLiveMalformedReservedBinaryIDCloses(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	c := dial(t, serve(t, NewHub(ctx, nil), nil))
+	require.NoError(t, c.conn.Write(ctx, websocket.MessageBinary, []byte{1, 0, 0, 0, 0}))
+	select {
+	case err := <-c.closed:
+		require.Equal(t, websocket.StatusInvalidFramePayloadData, websocket.CloseStatus(err))
+	case <-time.After(3 * time.Second):
+		t.Fatal("malformed binary id stayed open")
+	}
+}

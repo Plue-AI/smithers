@@ -2,8 +2,11 @@ package compose
 
 import (
 	"encoding/json"
+	"fmt"
+	"math/rand"
 	"os"
 	"path/filepath"
+	"slices"
 	"testing"
 	"time"
 
@@ -91,5 +94,94 @@ func TestLiveHomeMainRowFollowsTheSync(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			require.Equal(t, tc.want, homeModel("o/r", nil, tc.sync)["main"])
 		})
+	}
+}
+
+// Property: for any served cards, Home lists every TODO that is not merged
+// or dropped, in the served order, counts each known state, offers Merge
+// only on a ready in_review row, counts one machine per awake or waking
+// branch, and encodes the same bytes every time.
+func TestLiveHomeInvariantsOverRandomCards(t *testing.T) {
+	states := append(slices.Clone(homeStates), "archived")
+	machines := []string{"awake", "waking", "asleep", ""}
+	for seed := int64(1); seed <= 300; seed++ {
+		random := rand.New(rand.NewSource(seed))
+		var cards []map[string]any
+		for i := range random.Intn(12) {
+			n := float64(i + 1)
+			state := states[random.Intn(len(states))]
+			revisions := make([]any, random.Intn(3))
+			for r := range revisions {
+				revisions[r] = map[string]any{"text": fmt.Sprint("prompt ", r)}
+			}
+			card := map[string]any{"n": n, "title": fmt.Sprint("T", i+1), "state": state, "present": []any{}, "waits": []any{},
+				"owner":            map[string]any{"kind": "person", "login": "owner", "name": "Owner", "avatar_url": placeholderAvatar, "color_index": 0},
+				"merge":            map[string]any{"state": []string{"ready", "waiting"}[random.Intn(2)]},
+				"prompt_revisions": revisions}
+			if random.Intn(2) == 0 {
+				card["place"] = n
+			}
+			if machine := machines[random.Intn(len(machines))]; machine != "" {
+				card["branch"] = map[string]any{"id": fmt.Sprint("b", i), "name": fmt.Sprint("TODO ", i+1), "machine": map[string]any{"state": machine}}
+			}
+			if random.Intn(2) == 0 {
+				card["waits"] = []any{map[string]any{"id": "q", "kind": "question", "prompt": "Which?"}}
+			}
+			cards = append(cards, card)
+		}
+		model := homeModel("o/r", cards, nil)
+		encoded, err := json.Marshal(model)
+		require.NoError(t, err)
+		again, _ := json.Marshal(homeModel("o/r", cards, nil))
+		require.Equal(t, string(encoded), string(again), "seed %d: Home encodes the same bytes", seed)
+		var home struct {
+			Items []struct {
+				N          float64          `json:"n"`
+				State      string           `json:"state"`
+				Amendments int              `json:"amendments"`
+				NeedsYou   map[string]any   `json:"needs_you"`
+				Actions    []map[string]any `json:"actions"`
+			} `json:"items"`
+			Counts   map[string]int `json:"counts"`
+			Machines struct {
+				InUse int   `json:"in_use"`
+				Slots []any `json:"slots"`
+			} `json:"machines"`
+		}
+		require.NoError(t, json.Unmarshal(encoded, &home))
+		var open []map[string]any
+		counts, inUse := map[string]int{}, 0
+		for _, card := range cards {
+			state := card["state"].(string)
+			if slices.Contains(homeStates, state) {
+				counts[state]++
+			}
+			if state == "merged" || state == "dropped" {
+				continue
+			}
+			open = append(open, card)
+			if branch, ok := card["branch"].(map[string]any); ok {
+				if machine := branch["machine"].(map[string]any)["state"]; machine == "awake" || machine == "waking" {
+					inUse++
+				}
+			}
+		}
+		for _, state := range homeStates {
+			require.Equal(t, counts[state], home.Counts[state], "seed %d: %s counted", seed, state)
+		}
+		require.Len(t, home.Counts, len(homeStates))
+		require.Len(t, home.Items, len(open), "seed %d", seed)
+		require.Equal(t, inUse, home.Machines.InUse, "seed %d", seed)
+		require.Len(t, home.Machines.Slots, inUse)
+		for i, item := range home.Items {
+			card := open[i]
+			require.Equal(t, card["n"], item.N, "seed %d: served order", seed)
+			require.Equal(t, "todo", item.Actions[0]["tag"])
+			require.Equal(t, "title", item.Actions[0]["args"].(map[string]any)["door"])
+			merge := slices.ContainsFunc(item.Actions, func(action map[string]any) bool { return action["tag"] == "merge" })
+			require.Equal(t, item.State == "in_review" && card["merge"].(map[string]any)["state"] == "ready", merge, "seed %d: Merge on T%v", seed, item.N)
+			require.Equal(t, max(0, len(card["prompt_revisions"].([]any))-1), item.Amendments)
+			require.Equal(t, len(card["waits"].([]any)) > 0, item.NeedsYou != nil)
+		}
 	}
 }
