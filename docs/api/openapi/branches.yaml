@@ -151,46 +151,6 @@ paths:
                     const: infra
                   message:
                     type: string
-  /api/branches/{b}/files:
-    get:
-      x-composition: install
-      summary: List branch directory entries
-      operationId: get_api_branch_files
-      tags:
-        - Branches
-      security:
-        - sessionCookie: []
-      parameters:
-        - name: b
-          in: path
-          required: true
-          schema: {type: string}
-        - name: path
-          in: query
-          schema: {type: string}
-      responses:
-        '200':
-          description: Directory entries
-          content:
-            application/json:
-              schema:
-                type: array
-                items:
-                  type: object
-                  required: [name, path, type]
-                  properties:
-                    name: {type: string}
-                    path: {type: string}
-                    type: {type: string}
-                    size: {type: integer, format: int64}
-        '401':
-          description: Not signed in
-        '403':
-          description: Repository read authority required
-        '404':
-          description: Directory or branch not found
-        '503':
-          description: Branch files unavailable
   /api/branches/{b}/files/{path}:
     get:
       x-composition: install
