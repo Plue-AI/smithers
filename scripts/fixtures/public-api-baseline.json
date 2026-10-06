@@ -4945,7 +4945,7 @@
         "CompletionClaim.d.ts": "14bdb552c4a5308760495113575f2b465018252f1b1e3818a9259ae81cc8f371",
         "ContextWindow.d.ts": "e164c32b0671b3c8914d96da226ee84bdb46b3c3a8ae89ab04c0c1a85e7f7a8d",
         "EngineLike.d.ts": "4e01844fc72d2ed8fc12c48eea97e3e98c2237d48f3a5cee207269ee170c02eb",
-        "ExternalTranscript.d.ts": "b271fab5ac51d0d317b071144b6604b589c8fe13fb969989f26edca348d04fd7",
+        "ExternalTranscript.d.ts": "6a5bccbde60b5dbaf7e80b4585fabd22e0fd1faeca66d4c392d8c01464b86102",
         "FailedCall.d.ts": "706c4e6c7bf8e33afeb30e28392a8f46ef7278689c455bd5b303bdcfacb11b29",
         "FlowBinding.d.ts": "d87be84066fe42b870e341f2415dff3d96201d69d457403d60452155f4ef4d31",
         "HarnessError.d.ts": "7b589521353d9b3e2f0685df187303c8f19e80a864cbcc2cfd412411801deacb",
