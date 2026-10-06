@@ -16,6 +16,7 @@ import (
 	"github.com/coder/websocket"
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgtype"
+	"github.com/smithersai/smithers/packages/backend/internal/chat"
 	"github.com/smithersai/smithers/packages/backend/internal/db"
 	"github.com/smithersai/smithers/packages/backend/internal/live"
 	"github.com/smithersai/smithers/packages/backend/internal/middleware"
@@ -73,6 +74,9 @@ func TestLiveTodoCommittedCardsRollbackAndReplay(t *testing.T) {
 	service := services.NewMythicalService(pool, nil)
 	capacity := &services.InstallCapacityService{Queries: q, Profile: microsandbox.HostProfile{MemoryBytes: 32 << 30, PerfCores: 10, DiskFreeBytes: 400 << 30}}
 	topics := &liveTopics{queries: q, todos: service, jobs: store, install: &services.InstallSetupService{Capacity: capacity}}
+	chatStore, err := chat.NewStore(pool)
+	require.NoError(t, err)
+	topics.viewState = conversationLiveViewState(q, chatStore, nil)
 	server := httptest.NewUnstartedServer(nil)
 	origin := "http://" + server.Listener.Addr().String()
 	cfg := testConfigAllFlagsOn()
@@ -123,6 +127,26 @@ func TestLiveTodoCommittedCardsRollbackAndReplay(t *testing.T) {
 	require.NoError(t, memberSocket.Write(ctx, websocket.MessageText, []byte(`{"t":"sub","id":1,"topic":"home"}`)))
 	memberHome := read(memberSocket)
 	require.JSONEq(t, string(homeInitial.Data), string(memberHome.Data))
+	_, err = pool.Exec(ctx, `UPDATE collaborators SET view_state=jsonb_build_object('main',jsonb_build_object('last_seen_seq',9,'toasts_hidden',true)) WHERE repository_id=$1 AND user_id=$2`, repo.ID, member.ID)
+	require.NoError(t, err)
+	memberViewTopic := "view:" + strconv.FormatInt(member.ID, 10) + ":main"
+	require.NoError(t, memberSocket.Write(ctx, websocket.MessageText, []byte(fmt.Sprintf(`{"t":"sub","id":2,"topic":%q}`, memberViewTopic))))
+	privateView := read(memberSocket)
+	require.Equal(t, "snap", privateView.T)
+	require.EqualValues(t, 2, privateView.ID)
+	require.JSONEq(t, `{"global_toasts_hidden":false,"last_seen_seq":9,"toasts_hidden":true}`, string(privateView.Data))
+	require.NoError(t, homeSocket.Write(ctx, websocket.MessageText, []byte(fmt.Sprintf(`{"t":"sub","id":2,"topic":%q}`, memberViewTopic))))
+	forbidden := read(homeSocket)
+	require.Equal(t, "err", forbidden.T)
+	require.Equal(t, "forbidden", forbidden.Code)
+	require.NoError(t, memberSocket.Write(ctx, websocket.MessageText, []byte(`{"t":"unsub","id":2}`)))
+	memberReload, _, err := websocket.Dial(ctx, "ws"+strings.TrimPrefix(origin, "http")+"/api/live", &websocket.DialOptions{Subprotocols: []string{live.Protocol}, HTTPHeader: http.Header{"Cookie": {"smithers_session=" + memberToken}, "Origin": {origin}}})
+	require.NoError(t, err)
+	defer memberReload.CloseNow()
+	require.NoError(t, memberReload.Write(ctx, websocket.MessageText, []byte(fmt.Sprintf(`{"t":"sub","id":1,"topic":%q}`, memberViewTopic))))
+	reloadedView := read(memberReload)
+	require.Equal(t, "snap", reloadedView.T)
+	require.JSONEq(t, string(privateView.Data), string(reloadedView.Data))
 	call := func(n int64, key string) int {
 		request, err := http.NewRequest("POST", origin+"/api/todos/"+strconv.FormatInt(n, 10), strings.NewReader(`{"op":"drop"}`))
 		require.NoError(t, err)
@@ -212,6 +236,21 @@ func TestLiveTodoCommittedCardsRollbackAndReplay(t *testing.T) {
 	require.Equal(t, 1, firstHome.Data.Home.Counts["queued"])
 	require.Len(t, firstHome.Data.Home.Items, 1)
 	require.EqualValues(t, 2, firstHome.Data.Home.Items[0].N)
+	// A committed member profile change has no TODO fact. Both cards refresh at
+	// their existing cursors, while the next TODO mutation still arrives as delta.
+	secondSocket := dial()
+	require.NoError(t, secondSocket.Write(ctx, websocket.MessageText, []byte(`{"t":"sub","id":1,"topic":"todo:2"}`)))
+	require.Equal(t, "snap", read(secondSocket).T)
+	_, err = pool.Exec(ctx, `UPDATE users SET display_name='Updated owner' WHERE id=$1`, owner.ID)
+	require.NoError(t, err)
+	profileHome := read(homeSocket)
+	require.Equal(t, "snap", profileHome.T)
+	require.EqualValues(t, 1, *profileHome.Cursor)
+	require.Contains(t, string(profileHome.Data), "Updated owner")
+	profileTodo := read(secondSocket)
+	require.Equal(t, "snap", profileTodo.T)
+	require.EqualValues(t, 0, *profileTodo.Cursor)
+	require.Contains(t, string(profileTodo.Data), "Updated owner")
 	require.Equal(t, 202, call(2, "second-item-drop"))
 	secondHome := read(homeSocket)
 	require.Equal(t, "delta", secondHome.T)
