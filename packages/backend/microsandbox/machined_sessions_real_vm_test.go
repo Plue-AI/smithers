@@ -10,7 +10,9 @@ import (
 
 // The branch-built test runs only as the workspace user. Its broker dependency
 // is a test-only kernel fake: this proves the real Linux socketpair transport,
-// not root spawn, cgroup enforcement, or install activation.
+// not root spawn, cgroup enforcement, or install activation. Even these
+// unprivileged tests boot through the approved-helper gate: the generic VM
+// fixture self-pins checkout bytes and is insufficient root provenance.
 func TestRealMicroVMMachinedSessionTransport(t *testing.T) {
 	binary := os.Getenv("SMITHERS_MACHINED_SESSION_TEST_BIN")
 	if binary == "" {
@@ -21,7 +23,7 @@ func TestRealMicroVMMachinedSessionTransport(t *testing.T) {
 	}
 	body, err := os.ReadFile(binary)
 	require.NoError(t, err)
-	runtime := realRuntime(t, t.TempDir())
+	runtime, _ := approvedRootBoundaryRuntime(t)
 	ctx := operation("machined-session-transport")
 	const id = "machined-session-transport"
 	_, err = runtime.CreateWorkspace(ctx, workspaceapi.WorkspaceSpec{ID: id})
