@@ -859,6 +859,10 @@ export const SessionSchema = z.object({
     id: z.string(), origin: z.string(), owner: z.string(), revision: z.number().int().positive(),
     state: z.enum(["requested", "completed", "failed"]), error: z.string().optional()
   })).optional(),
+  reviewRequests: z.array(z.object({
+    id: z.string(), origin: z.string(), owner: z.string(), repo: z.string(), number: z.number().int().positive(),
+    conversation: z.string(), tabId: z.string().optional(), operationId: z.string().optional(), terminal: z.boolean().optional(), state: z.enum(["requested", "running", "completed", "failed"])
+  })).optional(),
   installRequests: z.array(z.object({
     id: z.string(), step: SetupStepIdSchema, origin: z.string(), body: z.record(z.string(), z.unknown()),
     state: z.enum(["requested", "running", "completed", "failed"]),
@@ -1362,6 +1366,7 @@ export type AppTransition =
   | { type: "terminal.requests.changed"; actor: Actor; requests: NonNullable<Session["terminalRequests"]> }
   | { type: "wiki.saves.changed"; actor: Actor; requests: NonNullable<Session["wikiSaves"]> }
   | { type: "order.requests.changed"; actor: Actor; requests: NonNullable<Session["orderRequests"]> }
+  | { type: "review.requests.changed"; actor: Actor; requests: NonNullable<Session["reviewRequests"]> }
   | { type: "install.requests.changed"; actor: Actor; requests: NonNullable<Session["installRequests"]> }
   | { type: "repository.imports.changed"; actor: Actor; requests: NonNullable<Session["repositoryImports"]> }
   | { type: "secret.requests.changed"; actor: Actor; requests: NonNullable<Session["secretRequests"]> }
