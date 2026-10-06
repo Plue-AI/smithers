@@ -107,6 +107,34 @@ func TestMachinedComposedDocumentBoundary(t *testing.T) {
 	git("-C", store, "gc", "--prune=now")
 	require.Equal(t, "captured bytes", git("-C", store, "show", head+":retry.ts"))
 	require.Equal(t, base, git("-C", store, "rev-parse", "refs/heads/main"))
+	// Verify capture retention on the authenticated link used below by the
+	// composed browser document route. A host rewrite wins over replay, while
+	// the displaced snapshot remains readable. This does not activate ingest.
+	branch := "11111111-1111-4111-8111-111111111111"
+	headRef := "refs/smithers/branches/" + branch + "/head"
+	git("-C", store, "update-ref", headRef, base)
+	captures := machined.GitCaptureObjects{Resolve: func(_ context.Context, id string) (string, error) {
+		if id != branch {
+			return "", machined.ErrUnauthorized
+		}
+		return store, nil
+	}}
+	capture := wire.Captured{Head: head, Tree: git("-C", store, "rev-parse", head+"^{tree}"), Base: base}
+	missing, err := captures.VerifyCapture(t.Context(), branch, capture)
+	require.NoError(t, err)
+	require.Empty(t, missing)
+	applied, err := captures.PublishCapture(t.Context(), branch, capture)
+	require.NoError(t, err)
+	require.True(t, applied)
+	git("-C", store, "update-ref", headRef, base)
+	capture.Base = head
+	applied, err = captures.PublishCapture(t.Context(), branch, capture)
+	require.NoError(t, err)
+	require.False(t, applied)
+	git("-C", store, "update-ref", "-d", "refs/smithers/branches/"+branch+"/incoming/"+head)
+	git("-C", store, "gc", "--prune=now")
+	require.Equal(t, base, git("-C", store, "rev-parse", headRef))
+	require.Equal(t, "captured bytes", git("-C", store, "show", "refs/smithers/branches/"+branch+"/captures/"+head+":retry.ts"))
 	// Dependency readiness is separate from the transport. A fresh authenticated
 	// link is refused by the public subscription before reconciliation completes.
 	f.relay.Connection = func(_ context.Context, branch string) (*machined.Connection, live.DocumentRPC) {
