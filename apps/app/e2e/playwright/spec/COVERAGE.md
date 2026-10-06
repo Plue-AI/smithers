@@ -79,7 +79,7 @@ C-UI-12 Members (T-UI-09): [install roster and keyboard Add/Role/Remove](C-UI-12
 | C-GH-01 | [C-GH-01.spec.ts](C-GH-01.spec.ts) | passing mounted install seam; explicit writer recovery on reload; real GitHub/LAN/reference-host receipts pending | T-GH-01 |
 | C-GH-07 | [C-GH-07.spec.ts](C-GH-07.spec.ts) | fixme-before-implementation | T-GH-02 |
 | C-GH-08 | [C-GH-08.spec.ts](C-GH-08.spec.ts) | HTTP seam: ten PRs, automatic refresh, responsive Chat; backend/native receipts separate | T-GH-02 |
-| C-GH-09 | [C-GH-09.spec.ts](C-GH-09.spec.ts) | fixme-before-implementation | T-GH-09, T-GH-01 |
+| C-GH-09 | [C-GH-09.spec.ts](C-GH-09.spec.ts) | passing install REST/live seam: confirmed Drop, 202 stays working, late PR link, terminal reload; production-dispatcher crash receipt separate | T-GH-09, T-GH-01 |
 | C-GH-13 | [C-GH-13.spec.ts](C-GH-13.spec.ts) | fixme-before-implementation | T-GH-04 |
 | C-UI-01 | [C-UI-01.spec.ts](C-UI-01.spec.ts) | fixme-before-implementation | T-REL-02 |
 | C-UI-02 | [C-UI-02.spec.ts](C-UI-02.spec.ts) | passing | T-CAT-01 |
@@ -125,7 +125,7 @@ by keyboard and retains it across reload. Watcher faults remain fixme.
 | C-CUT-02 | [C-CUT-02.spec.ts](C-CUT-02.spec.ts) | fixme-before-implementation | T-APP-22 |
 | C-DUR-01 | [C-DUR-01.spec.ts](C-DUR-01.spec.ts) | fixme-before-implementation | T-FLW-09, T-REL-04 |
 | C-DUR-02 | [C-DUR-02.spec.ts](C-DUR-02.spec.ts) | fixme-before-implementation | T-FLW-09, T-REL-04 |
-| C-DUR-03 | [C-DUR-03.spec.ts](C-DUR-03.spec.ts) | fixme-before-implementation | T-GH-09, T-FLW-09, T-REL-04 |
+| C-DUR-03 | [C-DUR-03.spec.ts](C-DUR-03.spec.ts) | passing install REST/live seam: foreign push after reload, confirmed Drop, late PR link remains terminal; worker/microVM crash receipt separate | T-GH-09, T-FLW-09, T-REL-04 |
 | C-DUR-04 | [C-DUR-04.spec.ts](C-DUR-04.spec.ts) | fixme-before-implementation | T-COL-03, T-COL-08, T-COL-09, T-REL-04, T-COL-03a, T-COL-04a, T-COL-04, T-COL-08a, T-COL-08b |
 
 C-DUR-02 also has a passing projection for the mounted recorded interrupted run:

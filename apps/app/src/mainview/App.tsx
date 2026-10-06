@@ -486,7 +486,7 @@ function AppContent() {
             {!earlier && !repositoryNotice && home && <MessageScrollerItem messageId={HOME_ENTRY_ID}>{homeCard}</MessageScrollerItem>}
             {!loginScreen && !repositoryNotice && <BranchNavigation />}
             {!earlier && controller.sharedConversation && <SharedConversation source={controller.sharedConversation} />}
-            {!earlier && entries.filter(entry => !controller.sharedConversation || entry.kind !== "message" || entry.message.origin === "external").map((entry) => <MessageScrollerItem key={entryId(entry)} messageId={entryId(entry)} style={{ contentVisibility: "visible" }}>
+            {!earlier && entries.filter(entry => !controller.sharedConversation || entry.kind !== "message" || entry.message.origin === "external" || entry.message.action !== undefined).map((entry) => <MessageScrollerItem key={entryId(entry)} messageId={entryId(entry)} style={{ contentVisibility: "visible" }}>
               {entry.kind === "card" ?
                 (
                   <CardView
