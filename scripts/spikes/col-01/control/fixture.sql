@@ -158,3 +158,5 @@ ALTER TABLE workspaces ADD COLUMN rebuild_required_at timestamptz, ADD COLUMN cl
 
 CREATE UNIQUE INDEX sandbox_usage_open ON sandbox_usage_intervals (sandbox_kind,sandbox_id) WHERE ended_at IS NULL;
 
+-- Workspace reads include branch lineage from product migration 0119.
+ALTER TABLE workspaces ADD COLUMN forked_from_item uuid, ADD COLUMN forked_from_base text NOT NULL DEFAULT '';
