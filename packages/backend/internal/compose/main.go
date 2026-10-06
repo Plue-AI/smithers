@@ -428,6 +428,11 @@ func runWithOptions(ctx context.Context, args []string, stdout, stderr io.Writer
 			_, err := services.Authorize(ctx, queries, "settings.parallel")
 			return err
 		}}
+		if disk, ok := options.Workspace.(interface {
+			FreeDisk(context.Context) (int64, error)
+		}); ok {
+			capacity.FreeDisk = disk.FreeDisk
+		}
 		if counter, ok := options.Workspace.(interface{ InUse() int }); ok {
 			capacity.InUse = counter.InUse
 		}

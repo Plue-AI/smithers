@@ -104,10 +104,12 @@ func TestParallelOwnerOnlyInstallBoundary(t *testing.T) {
 	raw, err := q.GetInstallParallel(ctx)
 	require.NoError(t, err)
 	require.JSONEq(t, `8`, string(raw))
-	capacity.Profile.DiskFreeBytes = 60 << 30
+	capacity.FreeDisk = func(context.Context) (int64, error) { return 60 << 30, nil }
 	w = request("GET", "/api/install", "quiesceowner-session", "")
 	require.Equal(t, 200, w.Code, w.Body.String())
 	require.Contains(t, w.Body.String(), `"parallel":8`)
+	require.Contains(t, w.Body.String(), `"capacity":0`)
+	require.EqualValues(t, 400<<30, capacity.Profile.DiskFreeBytes, "startup measurements stay fixed")
 	setting, err := capacity.Parallel(ctx)
 	require.NoError(t, err)
 	require.Equal(t, services.InstallParallel{Requested: 8, Effective: 0}, setting)

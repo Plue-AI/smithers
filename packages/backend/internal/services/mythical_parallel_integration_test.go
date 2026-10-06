@@ -1,6 +1,7 @@
 package services
 
 import (
+	"context"
 	"github.com/smithersai/smithers/packages/backend/internal/db"
 	"github.com/smithersai/smithers/packages/backend/microsandbox"
 	"github.com/stretchr/testify/require"
@@ -34,7 +35,8 @@ func TestParallelAdmissionEngine(t *testing.T) {
 	require.NoError(t, db.New(o.pool).UpsertInstallSetting(t.Context(), db.UpsertInstallSettingParams{Key: "parallel", Value: []byte(`8`)}))
 	o.wake()
 	require.Equal(t, "running", o.byID(ids[2]).State)
-	capacity.Profile.DiskFreeBytes = 104 << 30
+	freeDisk := int64(104 << 30)
+	capacity.FreeDisk = func(context.Context) (int64, error) { return freeDisk, nil }
 	o.wake()
 	for _, id := range ids[:3] {
 		require.Equal(t, "running", o.byID(id).State)
@@ -42,7 +44,7 @@ func TestParallelAdmissionEngine(t *testing.T) {
 	for _, id := range ids[3:] {
 		require.Equal(t, "queued", o.byID(id).State)
 	}
-	capacity.Profile.DiskFreeBytes = 60 << 30
+	freeDisk = 60 << 30
 	o.wake()
 	for _, id := range ids[:3] {
 		require.Equal(t, "running", o.byID(id).State)
