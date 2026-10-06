@@ -21,6 +21,8 @@ import (
 
 type WorkspaceAccess = transport.WorkspaceAccess
 type WorkspaceBridge = transport.WorkspaceBridge
+type WorkspaceTCPBridge = transport.WorkspaceTCPBridge
+type WorkspaceTCPConnection = transport.WorkspaceTCPConnection
 type BranchResolver = transport.BranchResolver
 type AmbiguousBranchError = transport.AmbiguousBranchError
 

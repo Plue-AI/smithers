@@ -192,6 +192,10 @@ func (s *Server) ListenAndServe() error {
 		PublicKeyHandler: s.publicKeyHandler,
 		PasswordHandler:  s.passwordHandler,
 		Handler:          s.sessionHandler,
+		ChannelHandlers: map[string]ssh.ChannelHandler{
+			"session":      s.filteredSessionHandler,
+			"direct-tcpip": s.directTCPIPHandler,
+		},
 		// sftp is accepted only for workspace sessions (sessionHandler refuses
 		// it for git principals); the bridge relays it to the guest's server.
 		SubsystemHandlers: map[string]ssh.SubsystemHandler{"sftp": s.sessionHandler},

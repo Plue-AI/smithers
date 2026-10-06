@@ -1,7 +1,9 @@
 package ssh
 
 import (
+	"context"
 	"fmt"
+	"io"
 	"sync"
 
 	"github.com/gliderlabs/ssh"
@@ -23,6 +25,7 @@ type RevocationSource interface {
 type sessionRegistry struct {
 	mu       sync.Mutex
 	sessions map[ssh.Session]revocation.Principal
+	channels map[io.Closer]revocation.Principal
 	unsub    func()
 }
 
@@ -54,10 +57,24 @@ func (r *sessionRegistry) remove(sess ssh.Session) {
 	r.mu.Unlock()
 }
 
+func (r *sessionRegistry) addChannel(channel io.Closer, principal revocation.Principal) func() {
+	r.mu.Lock()
+	if r.channels == nil {
+		r.channels = make(map[io.Closer]revocation.Principal)
+	}
+	r.channels[channel] = principal
+	r.mu.Unlock()
+	return func() {
+		r.mu.Lock()
+		delete(r.channels, channel)
+		r.mu.Unlock()
+	}
+}
+
 func (r *sessionRegistry) count() int {
 	r.mu.Lock()
 	defer r.mu.Unlock()
-	return len(r.sessions)
+	return len(r.sessions) + len(r.channels)
 }
 
 // handle closes every live session the event revokes, telling the client why
@@ -65,6 +82,13 @@ func (r *sessionRegistry) count() int {
 func (r *sessionRegistry) handle(event revocation.Event) {
 	r.mu.Lock()
 	var doomed []ssh.Session
+	var channels []io.Closer
+	for channel, principal := range r.channels {
+		if event.Affects(principal) {
+			channels = append(channels, channel)
+			delete(r.channels, channel)
+		}
+	}
 	for sess, principal := range r.sessions {
 		if event.Affects(principal) {
 			doomed = append(doomed, sess)
@@ -72,6 +96,9 @@ func (r *sessionRegistry) handle(event revocation.Event) {
 		}
 	}
 	r.mu.Unlock()
+	for _, channel := range channels {
+		_ = channel.Close()
+	}
 	for _, sess := range doomed {
 		reason := "access revoked"
 		if event.Reason != "" {
@@ -86,11 +113,18 @@ func (r *sessionRegistry) handle(event revocation.Event) {
 // sessionPrincipal describes what a session was authorized as: the key's
 // user for git and LFS sessions, the sandbox for workspace logins.
 func sessionPrincipal(sess ssh.Session) revocation.Principal {
+	return contextPrincipal(sess.Context())
+}
+
+func contextPrincipal(ctx context.Context) revocation.Principal {
 	var principal revocation.Principal
-	if p, ok := sess.Context().Value(principalKey).(sshPrincipal); ok && !p.IsDeployKey {
-		principal.UserID = p.UserID
+	if p, ok := ctx.Value(principalKey).(sshPrincipal); ok {
+		principal.KeyFingerprint = p.Fingerprint
+		if !p.IsDeployKey {
+			principal.UserID = p.UserID
+		}
 	}
-	if workspace, ok := sess.Context().Value(workspaceAccessKey).(WorkspaceAccess); ok {
+	if workspace, ok := ctx.Value(workspaceAccessKey).(WorkspaceAccess); ok {
 		principal.SandboxID = workspace.SandboxID
 	}
 	return principal
