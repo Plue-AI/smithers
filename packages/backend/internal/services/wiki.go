@@ -2,6 +2,7 @@ package services
 
 import (
 	"context"
+	"encoding/json"
 	stdErrors "errors"
 	"log/slog"
 	"strings"
@@ -25,20 +26,27 @@ type WikiAuthorSummary struct {
 	Login string `json:"login"`
 }
 
+type WikiGeneratedSource struct {
+	ID             string `json:"id"`
+	InputDigest    string `json:"inputDigest"`
+	SourceRevision string `json:"sourceRevision"`
+}
+
 type WikiPageResponse struct {
-	TitleSource   string            `json:"title_source,omitempty"`
-	Attachment    *WikiAttachment   `json:"attachment,omitempty"`
-	Visibility    string            `json:"visibility"`
-	Path          string            `json:"path"`
-	ContentDigest string            `json:"content_digest"`
-	Revision      int64             `json:"revision"`
-	ID            int64             `json:"id"`
-	Slug          string            `json:"slug"`
-	Title         string            `json:"title"`
-	Body          string            `json:"body,omitempty"`
-	Author        WikiAuthorSummary `json:"author"`
-	CreatedAt     time.Time         `json:"created_at"`
-	UpdatedAt     time.Time         `json:"updated_at"`
+	Generated     *WikiGeneratedSource `json:"generated,omitempty"`
+	TitleSource   string               `json:"title_source,omitempty"`
+	Attachment    *WikiAttachment      `json:"attachment,omitempty"`
+	Visibility    string               `json:"visibility"`
+	Path          string               `json:"path"`
+	ContentDigest string               `json:"content_digest"`
+	Revision      int64                `json:"revision"`
+	ID            int64                `json:"id"`
+	Slug          string               `json:"slug"`
+	Title         string               `json:"title"`
+	Body          string               `json:"body,omitempty"`
+	Author        WikiAuthorSummary    `json:"author"`
+	CreatedAt     time.Time            `json:"created_at"`
+	UpdatedAt     time.Time            `json:"updated_at"`
 }
 
 // WikiRevisionResponse represents a single historical revision of a wiki page.
@@ -197,10 +205,40 @@ func (s *WikiService) GetWikiPage(ctx context.Context, viewer *db.User, owner, r
 			return WikiPageResponse{}, err
 		}
 	}
+	response := mapWikiPage(page)
+	// Freshness metadata belongs to the stack's published revision. Never attach
+	// a receipt to different bytes or to a page subsequently edited by a person.
+	if strings.HasPrefix(page.Slug, mythicalWikiSlugPrefix) {
+		if receipts, ok := s.queries.(interface {
+			GetMythicalWiki(context.Context, int64) (db.MythicalWiki, error)
+		}); ok {
+			receipt, readErr := receipts.GetMythicalWiki(ctx, repository.ID)
+			if readErr != nil && !stdErrors.Is(readErr, pgx.ErrNoRows) {
+				return WikiPageResponse{}, pkgerrors.Internal("failed to load wiki freshness").WithCause(readErr)
+			}
+			if readErr == nil {
+				var pages []mythicalWikiPage
+				if json.Unmarshal(receipt.Pages, &pages) != nil {
+					return WikiPageResponse{}, pkgerrors.Internal("invalid wiki freshness receipt")
+				}
+				for _, published := range pages {
+					sourceRevision := published.Ref
+					if sourceRevision == "" {
+						sourceRevision = receipt.PublishedCommit
+					}
+					if published.Slug == page.Slug && !published.Edited && published.Revision == page.Revision &&
+						published.BodyDigest == page.ContentDigest && published.InputDigest != "" && sourceRevision != "" {
+						response.Generated = &WikiGeneratedSource{ID: published.ID, InputDigest: published.InputDigest, SourceRevision: sourceRevision}
+						break
+					}
+				}
+			}
+		}
+	}
 	if err = s.wikiReadStillAuthorized(ctx, viewer, owner, repo, repository.ID); err != nil {
 		return WikiPageResponse{}, err
 	}
-	return mapWikiPage(page), nil
+	return response, nil
 }
 
 func (s *WikiService) CreateWikiPage(ctx context.Context, actor *db.User, owner, repo string, input CreateWikiPageInput) (WikiPageResponse, error) {

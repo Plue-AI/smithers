@@ -84,6 +84,9 @@ func TestLearningProposalsComposedInstall(t *testing.T) {
 	var noteStatus string
 	require.NoError(t, pool.QueryRow(ctx, `SELECT status FROM memory_notes WHERE id='fail'`).Scan(&noteStatus))
 	require.Equal(t, "pending", noteStatus)
+	var partialEvents int
+	require.NoError(t, pool.QueryRow(ctx, `SELECT count(*) FROM product_job_events WHERE event_type='learning.proposal'`).Scan(&partialEvents))
+	require.Zero(t, partialEvents)
 	_, err = pool.Exec(ctx, `UPDATE mythical_stacks SET state='active' WHERE repository_id=$1`, repo)
 	require.NoError(t, err)
 	code, body := call("POST", "/api/proposals/lint/accept", "{}", "accept")
@@ -116,7 +119,8 @@ func TestLearningProposalsComposedInstall(t *testing.T) {
 	require.Equal(t, 404, code, body)
 	source, refusal := (&liveTopics{todos: service}).resolve(ctx, "proposals", repo, "maya/app", owner.ID)
 	require.Empty(t, refusal)
-	payload, err := source.Build(ctx)
+	page, err := source.Log.Page(ctx, nil)
+	payload := page.Data
 	require.NoError(t, err)
 	var cards []map[string]any
 	require.NoError(t, json.Unmarshal(payload, &cards))

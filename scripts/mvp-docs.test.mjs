@@ -363,3 +363,12 @@ test("reference-free cut document may be removed", (t) => {
   const directory = fixture(t, { "docs/index.md": "# Index\n" })
   assert.deepEqual(retirementErrors(directory, "docs/mvp/REGISTRATION.md", scanFiles(directory), {}), [])
 })
+
+// Runtime decoding and decision rules remain; only obsolete documentation
+// references are retired by this ticket.
+test("retained card and approval sources no longer cite cut registration docs", () => {
+  for (const source of [
+    "packages/rpc/src/Cards.ts",
+    "apps/app/src/mainview/state/ApprovalDeciders.ts"
+  ]) assert.ok(!readFileSync(join(root, source), "utf8").includes("docs/mvp/REGISTRATION.md"), source)
+})

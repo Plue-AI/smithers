@@ -27,6 +27,33 @@ paths:
         '403': {$ref: '#/components/responses/AuthorizationForbidden'}
         '503':
           description: Flows unavailable
+  /api/flows/{name}:
+    get:
+      summary: Read one flow
+      description: Resolves an overridable flow from the install catalog, or an install-owned system name as built in. This read never loads repository code.
+      operationId: get_api_flows_name
+      tags:
+        - Flows
+      security:
+        - sessionCookie: []
+      parameters:
+        - name: name
+          in: path
+          required: true
+          schema: {type: string}
+      responses:
+        '200':
+          description: Flow card model
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/FlowCard'}
+        '401':
+          description: Not signed in
+        '403': {$ref: '#/components/responses/AuthorizationForbidden'}
+        '404':
+          description: No such flow
+        '503':
+          description: Flows unavailable
 components:
   schemas:
     FlowCard:

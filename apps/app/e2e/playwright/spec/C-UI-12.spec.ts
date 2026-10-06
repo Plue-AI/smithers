@@ -445,6 +445,14 @@ test("C-UI-12: File text reload retains comparison DOM, scroll and selected line
 
 test("C-UI-12: Terminal states keep literal actors and keyboard permissions in both themes and widths", async ({ page }) => {
   test.setTimeout(180_000)
+  await page.addInitScript(() => {
+    Object.assign(window, { terminalInputs: [] })
+    window.addEventListener("story-callback", event => {
+      const detail = (event as CustomEvent).detail
+      if (detail.kind === "view" && typeof detail.value.input === "string")
+        (window as unknown as { terminalInputs: string[] }).terminalInputs.push(detail.value.input)
+    })
+  })
   const states = [
     ["Owner's idle terminal", "Ben", false, false],
     ["Running a command with a watcher", "Ben", false, false],
@@ -475,6 +483,14 @@ test("C-UI-12: Terminal states keep literal actors and keyboard permissions in b
       } else {
         await field.focus()
         await expect(field).toBeFocused()
+      }
+      await page.keyboard.type("pwd")
+      await page.keyboard.press("Enter")
+      expect(await page.evaluate(() => (window as unknown as { terminalInputs: string[] }).terminalInputs.join(""))).toBe(watching || frozen ? "" : "pwd\r")
+      // Even programmatically dispatched input cannot bypass the adapter's read-only state.
+      if (watching || frozen) {
+        await field.dispatchEvent("keypress", { key: "a", charCode: 97, keyCode: 97, bubbles: true })
+        expect(await page.evaluate(() => (window as unknown as { terminalInputs: string[] }).terminalInputs)).toEqual([])
       }
       await expect(card.getByRole("button", { name: /Ask to type|Allow|Let others type|Add to machine image/ })).toHaveCount(0)
       expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true)

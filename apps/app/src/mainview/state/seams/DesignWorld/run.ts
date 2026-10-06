@@ -36,7 +36,7 @@ const refNumber = (ref: string | undefined): number | undefined => {
 }
 
 /** A flow's card title in product words. */
-export const flowTitle = (name: string): string => name === "todo" ? "TODO flow" : name === "merge" ? "Merge flow" : `${name} flow`
+export { flowTitle } from "@smthrs/rpc/FlowEdit"
 
 /** A run keeps the flow version it started with: its TODO's pinned steps, else the active flow. */
 const flowOf = (world: DesignWorldRows, trace: DesignTrace): ReadonlyArray<DesignFlowStep> =>

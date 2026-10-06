@@ -3,6 +3,7 @@ package compose
 import (
 	"context"
 	"crypto/sha256"
+	"encoding/binary"
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
@@ -22,6 +23,7 @@ import (
 // This fixture supplies the remote burst; it does not claim a real watcher run.
 func TestBranchChangesProductionLiveBoundary(t *testing.T) {
 	f := presenceInstall(t)
+	require.Equal(t, int64(2), f.user.ID)
 	registry := &machined.Registry{}
 	boot := [16]byte{1}
 	secret := []byte("changes-boot")
@@ -61,7 +63,7 @@ func TestBranchChangesProductionLiveBoundary(t *testing.T) {
 		}
 		return store, nil
 	}}, ResolveActor: func(context.Context, string, wire.Actor) (json.RawMessage, error) {
-		return json.RawMessage(`{"id":"member:1","kind":"person","member_id":"1","via":"ssh"}`), nil
+		return json.RawMessage(`{"id":"member:2","kind":"person","member_id":"2","via":"ssh"}`), nil
 	}}
 	list := wire.U16(12)
 	for i := 0; i < 12; i++ {
@@ -71,6 +73,32 @@ func TestBranchChangesProductionLiveBoundary(t *testing.T) {
 	payload := wire.Union(1, wire.Field(1, id[:]), wire.Field(2, wire.Union(2, wire.Field(1, wire.U32(1)))), wire.Field(3, list), wire.Field(4, bytesOf(versions)))
 	event := machined.Event{Seq: 1, EventID: [16]byte{3}, Payload: payload}
 	scope := jobs.Scope{TenantID: fmt.Sprint(f.row.RepositoryID), PrincipalID: "branch:" + f.row.ID}
+	// Split the same real versions tree into two transport parts. The
+	// mounted live topic must expose nothing until all parts are durable.
+	filesFields, decodeErr := wire.Fields("burst", payload[1:])
+	require.NoError(t, decodeErr)
+	encodedFiles := filesFields[3][2:]
+	midpoint := 0
+	partPayload := func(part uint16, body []byte) []byte {
+		return wire.Union(1, wire.Field(1, id[:]), wire.Field(2, filesFields[2]), wire.Field(3, append(wire.U16(6), body...)), wire.Field(4, filesFields[4]), wire.Field(5, wire.U16(part)), wire.Field(6, wire.U16(2)))
+	}
+	// Split at the length-prefixed file record boundary.
+	for i := 0; i < 6; i++ {
+		size := int(binary.BigEndian.Uint32(encodedFiles[midpoint:]))
+		midpoint += 4 + size
+	}
+	partial := event
+	partial.EventID = [16]byte{33}
+	partial.Payload = partPayload(1, encodedFiles[:midpoint])
+	partialAck, partialErr := ingest.Apply(t.Context(), c, scope, partial)
+	require.NoError(t, partialErr)
+	require.Equal(t, machined.AckApplied, partialAck.Outcome)
+	partialSocket := f.dial(t)
+	sendPresenceFrame(t, partialSocket, fmt.Sprintf(`{"t":"sub","id":1,"topic":"branch:%s:activity"}`, f.row.ID))
+	empty := readPresenceFrame(t, partialSocket)
+	require.JSONEq(t, `[]`, string(empty.Data))
+	partialSocket.CloseNow()
+	event.Payload = partPayload(2, encodedFiles[midpoint:])
 	ack, err := ingest.Apply(t.Context(), c, scope, event)
 	require.NoError(t, err)
 	require.Equal(t, machined.AckApplied, ack.Outcome)
@@ -94,7 +122,10 @@ func TestBranchChangesProductionLiveBoundary(t *testing.T) {
 	require.NoError(t, json.Unmarshal(activity.Data, &entries))
 	require.Len(t, entries, 1)
 	require.Equal(t, "burst", entries[0].Kind)
-	require.Equal(t, "member:1", entries[0].Actor["id"])
+	require.Equal(t, "member:2", entries[0].Actor["id"])
+	require.Equal(t, "presence-owner", entries[0].Actor["login"])
+	require.Equal(t, "Alice", entries[0].Actor["name"])
+	require.Equal(t, "ssh", entries[0].Actor["via"])
 	require.Len(t, entries[0].Files, 12)
 	require.Equal(t, before, entries[0].Files[0]["before_blob"])
 	sendPresenceFrame(t, socket, fmt.Sprintf(`{"t":"sub","id":2,"topic":"branch:%s:files"}`, f.row.ID))
@@ -109,9 +140,10 @@ func TestBranchChangesProductionLiveBoundary(t *testing.T) {
 	}
 	require.NoError(t, json.Unmarshal(files.Data, &snapshot))
 	require.Len(t, snapshot.Changed, 12)
+	require.Equal(t, "presence-owner", snapshot.Changed[0].Writer["login"])
 	require.Empty(t, snapshot.Open)
 	require.Equal(t, "modified", snapshot.Changed[0].Change)
-	require.Equal(t, "member:1", snapshot.Changed[0].Writer["id"])
+	require.Equal(t, "member:2", snapshot.Changed[0].Writer["id"])
 	require.NotNil(t, activity.Cursor)
 	require.Equal(t, int64(1), *activity.Cursor)
 	nextID := [16]byte{5}
@@ -131,8 +163,10 @@ func TestBranchChangesProductionLiveBoundary(t *testing.T) {
 	require.Equal(t, "05000000-0000-0000-0000-000000000000", entries[0].ID)
 	resumed.CloseNow()
 	// Cross-repository IDs cannot leak retained versions through the live door.
-	sendPresenceFrame(t, socket, `{"t":"sub","id":3,"topic":"branch:11111111-1111-4111-8111-111111111111:activity"}`)
-	refused := readPresenceFrame(t, socket)
+	authorizationSocket := f.dial(t)
+	sendPresenceFrame(t, authorizationSocket, `{"t":"sub","id":3,"topic":"branch:11111111-1111-4111-8111-111111111111:activity"}`)
+	refused := readPresenceFrame(t, authorizationSocket)
+	authorizationSocket.CloseNow()
 	require.Equal(t, "err", refused.T)
 	socket.CloseNow()
 	// A committed replay window of 201 entries must force resubscription.

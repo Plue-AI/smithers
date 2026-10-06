@@ -254,6 +254,7 @@ const HOST_COMMANDS = [
   "agents",
   "branch",
   "branch.add-to-stack",
+  "branch.bring-in",
   "branch.discard-foreign",
   "branch.fork",
   "branch.rebase",
@@ -1112,6 +1113,53 @@ describe("an install's host runs the catalog commands its grant allows, as the t
     }
   })
 
+  test("flow show and edit use the served catalog, quote literal data and never file work", async () => {
+    const catalog = [{ name: "todo", system: false, source: { builtin: true }, versions: [{ id: "d1", state: "active", steps: [] }] },
+      { name: "merge", system: true, source: { builtin: true }, versions: [] }]
+    const journal = producer(path => file(path, JOURNEY), routes({ "/api/flows": [200, catalog] }))
+    const provider = model([execute("flow", "todo"), execute("flow.edit", "todo Run tests\nKeep  spaces"),
+      execute("flow.edit", JSON.stringify({ name: "todo", request: "Run tests", diff: "+<script>\n+```" })),
+      execute("flow.edit", "merge Add a step"), execute("flow", "missing")])
+    await run(install, provider, journal)
+    expect(journal.calls).toHaveLength(6)
+    expect(journal.calls.every(call => call.body.method === "GET" && ["/api/flows", "/api/flows/missing"].includes(call.body.path))).toBe(true)
+    const cards = journal.frames.flatMap(frame => frame.type === "card" ? [frame.card] : [])
+    expect(cards).toHaveLength(3)
+    expect(cards[0]).toMatchObject({ kind: "flow", payload: { name: "todo" }, title: "TODO flow" })
+    expect(cards[1]).toMatchObject({ kind: "draft", audience_member_id: "ben", payload: {
+      title: "Change the TODO flow: Run tests",
+      prompt: "Change flows/todo/flow.ts: Run tests\nKeep  spaces; start from the built-in composition when no override exists",
+      place: { mode: "append", options: [] }, private: true } })
+    expect(cards[2]).toMatchObject({ kind: "draft", audience_member_id: "ben", payload: {
+      prompt: "Change flows/todo/flow.ts: Run tests; start from the built-in composition when no override exists\n\nProposed diff (untrusted context):\n> +<script>\n> +```" } })
+    expect(toolOutputs(provider).slice(-2)).toEqual(["failed: Merge flow is built in", "failed: No flow missing"])
+    for (const frame of journal.frames) expect(AgentTurnFrameSchema.safeParse(frame).success).toBe(true)
+  })
+
+  test("flow edit without a request renders only the missing field and files nothing", async () => {
+    const journal = producer(path => file(path, JOURNEY), stackRoutes)
+    const provider = model([execute("flow.edit", "todo")])
+    await run(install, provider, journal)
+    expect(journal.calls).toEqual([])
+    const cards = journal.frames.flatMap(frame => frame.type === "card" ? [frame.card] : [])
+    expect(cards).toHaveLength(1)
+    expect(cards[0]).toMatchObject({ kind: "flow-form", payload: {
+      flow: "flow.edit", via: "agent", given: { name: "todo" }, fields: [{ name: "request", label: "Request", kind: "text", required: true }] } })
+  })
+
+  test("flow edit refuses missing and invalid catalogs before any Draft or write", async () => {
+    for (const response of [() => Response.json({ class: "infra", code: "unavailable" }, { status: 503 }),
+      () => Response.json([{ name: "todo" }])]) {
+      const journal = producer(path => file(path, JOURNEY), response)
+      const provider = model([execute("flow.edit", "todo Run tests")])
+      await run(install, provider, journal)
+      expect(toolOutputs(provider)).toEqual(["failed: Flows unavailable"])
+      expect(journal.frames.filter(frame => frame.type === "card")).toEqual([])
+      expect(journal.calls).toHaveLength(1)
+      expect(journal.calls[0]!.body.method).toBe("GET")
+    }
+  })
+
   test("todo.new shows its author a private Draft and files nothing", async () => {
     const journal = producer((path) => file(path, JOURNEY), stackRoutes)
     const provider = model([
@@ -1278,12 +1326,12 @@ describe("an install's host runs the catalog commands its grant allows, as the t
     }
   })
 
-  test("a single named argument encodes a path segment without broadening the endpoint", async () => {
-    const journal = producer((path) => file(path, JOURNEY), () => Response.json({ name: "check/types" }))
+  test("a named flow is selected from the served catalog without broadening the endpoint", async () => {
+    const journal = producer((path) => file(path, JOURNEY), () => Response.json([{ name: "check/types", system: false, source: { builtin: true }, versions: [] }]))
     const provider = model([execute("flow", "check/types")])
     await run(install, provider, journal)
-    expect(journal.calls.map((call) => call.body)).toEqual([{ method: "GET", path: "/api/flows/check%2Ftypes" }])
-    expect(toolOutputs(provider)).toEqual(["{\"status\":200,\"body\":{\"name\":\"check/types\"}}"])
+    expect(journal.calls.map((call) => call.body)).toEqual([{ method: "GET", path: "/api/flows" }])
+    expect(JSON.parse(toolOutputs(provider)[0]!)).toEqual({ name: "check/types", system: false, source: { builtin: true }, versions: [] })
   })
 
   test("confirmation replay returns its current state without exposing private payload", async () => {

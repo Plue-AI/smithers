@@ -41,6 +41,7 @@ test("install /flow mounts the served versions through the production card rende
     if (path === "/api/todos/42" && sourceUnavailable) return Response.json({ class: "infra", code: "unavailable" }, { status: 503 })
     if (path === "/api/todos/42") return Response.json({ ...todoFixtures.in_review.model, n: 42, branch: { id: "branch-42", name: "flow-edit-42", machine: { state: "awake" } } })
     if (path === "/api/branches/branch-42/files/flows/todo/flow.ts") return Response.json({ branch: "branch-42", path: "flows/todo/flow.ts", language: "typescript", digest: "file-42", content: { kind: "text", text: "export default pinnedComposition\n" }, mode: "read_only", diagnostics: [], authors: [], editors: [] })
+    if (path === "/api/flows/merge") return Response.json({ name: "merge", system: true, source: { builtin: true }, versions: [] })
     if (path === "/api/flows") return catalogUnavailable ? Response.json({ class: "infra", code: "unavailable" }, { status: 503 }) : Response.json(catalog)
     if (path === "/api/install") return Response.json(installFixture())
     if (path === "/api/user") return Response.json({ id: 1, username: "will", is_admin: false })
@@ -58,6 +59,10 @@ test("install /flow mounts the served versions through the production card rende
     const bootstrap: AppBootstrap = { apiVersion: 1, host: "local", version: "test", buildSha: "test",
       capabilities: ["install", "identity"], authFlow: "credentials", sandbox: null }
     controller = createController(store, silentAgent, { bootstrap, baseUrl: server.url.origin, fetchImpl: fetch })
+    expect(await controller.commands.submit({ name: "flow.edit", actor: "user", payload: { name: "merge", request: "Change merge" } })).toMatchObject({ status: "failed", error: expect.stringContaining("Merge flow is built in") })
+    expect(await controller.commands.submit({ name: "flow.source", actor: "user", payload: { name: "merge" } })).toMatchObject({ status: "failed", error: expect.stringContaining("Merge flow is built in") })
+    expect(writes).toEqual([])
+    expect([...store.collections.cards.values()].filter(card => card.kind === "draft" || card.kind === "flow")).toHaveLength(0)
     const outcome = await controller.commands.submit({ name: "flow", payload: { name: "todo" }, actor: "user" })
     expect(outcome).toMatchObject({ status: "executed" })
     const card = [...store.collections.cards.values()].find(card => card.kind === "flow")!

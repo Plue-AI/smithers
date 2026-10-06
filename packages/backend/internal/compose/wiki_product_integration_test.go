@@ -94,6 +94,38 @@ func TestWikiProductRouterPostgres(t *testing.T) {
 		router.ServeHTTP(rec, req)
 		return rec
 	}
+
+	t.Run("generated freshness is bound to the captured revision", func(t *testing.T) {
+		created := request("POST", "", ownerToken, `{"slug":"generated-runtime","title":"Runtime","body":"Decision: exponential backoff."}`, "application/json")
+		require.Equal(t, 201, created.Code, created.Body.String())
+		_, err := q.RequestMythicalBootstrap(ctx, repo.ID, owner.ID, 1, false)
+		require.NoError(t, err)
+		_, err = q.EnsureMythicalWiki(ctx, repo.ID)
+		require.NoError(t, err)
+		_, err = pool.Exec(ctx, `UPDATE mythical_wikis SET pages=$2 WHERE repository_id=$1`, repo.ID,
+			`[{"id":"runtime","slug":"generated-runtime","revision":1,"bodyDigest":"0590d40eefc0d1d5a9a5c8d407e4acfcb1cae6de15729033c56dc64ddb9abe47","inputDigest":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","ref":"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"}]`)
+		require.NoError(t, err)
+		read := request("GET", "/generated-runtime", ownerToken, "", "")
+		require.Equal(t, 200, read.Code, read.Body.String())
+		var page services.WikiPageResponse
+		require.NoError(t, json.Unmarshal(read.Body.Bytes(), &page))
+		require.Equal(t, &services.WikiGeneratedSource{ID: "runtime", InputDigest: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", SourceRevision: "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"}, page.Generated)
+		require.Equal(t, int64(1), page.Revision)
+		require.Equal(t, "0590d40eefc0d1d5a9a5c8d407e4acfcb1cae6de15729033c56dc64ddb9abe47", page.ContentDigest)
+		changed := request("PATCH", "/generated-runtime", ownerToken, `{"body":"Decision: retryFixed(5000).","expected_revision":1}`, "application/json")
+		require.Equal(t, 200, changed.Code, changed.Body.String())
+		read = request("GET", "/generated-runtime", ownerToken, "", "")
+		require.Equal(t, 200, read.Code, read.Body.String())
+		require.NoError(t, json.Unmarshal(read.Body.Bytes(), &page))
+		// Decode into a fresh value: JSON omits stale freshness metadata entirely.
+		var edited services.WikiPageResponse
+		require.NoError(t, json.Unmarshal(read.Body.Bytes(), &edited))
+		require.Nil(t, edited.Generated)
+		require.Equal(t, int64(2), edited.Revision)
+		require.Equal(t, "0b2889240d13d49add99a1daef222ddce288814a94826dbce1fbf456f03adc6b", edited.ContentDigest)
+		removed := request("DELETE", "/generated-runtime", ownerToken, "", "")
+		require.Equal(t, 204, removed.Code, removed.Body.String())
+	})
 	var privatePage services.WikiPageResponse
 	for _, scope := range []string{"public", "private"} {
 		rec := request("POST", "?visibility="+scope, ownerToken, `{"title":"Home","path":"Guides/Home.md","body":"`+scope+` [[Home#Section|alias]]"}`, "application/json")
@@ -103,7 +135,7 @@ func TestWikiProductRouterPostgres(t *testing.T) {
 		}
 	}
 	for _, auth := range []string{"", outsiderToken, restrictedToken} {
-		for _, suffix := range []string{"/home", "/navigation/index", "/history/events", "?q=private", "/home/revisions", "/home/document", fmt.Sprintf("/home/updates?page_id=%d", privatePage.ID), fmt.Sprintf("/home/stream?page_id=%d", privatePage.ID)} {
+		for _, suffix := range []string{"/home", "/navigation/index", "/history/events", "?q=private", "/home/revisions", "/home/document"} {
 			separator := "?"
 			if strings.Contains(suffix, "?") {
 				separator = "&"

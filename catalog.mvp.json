@@ -3430,7 +3430,7 @@
       "cli": null,
       "journey": [],
       "group": "chat",
-      "visibility": "hidden",
+      "visibility": "in-card",
       "actors": [
         "person",
         "app_agent"

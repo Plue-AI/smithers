@@ -4,7 +4,12 @@
  */
 
 import { describe, expect, test } from "vitest"
-import { confirmCancelRefusal, type ConfirmCard, ConfirmCardSchema } from "../../src/ConfirmCard.ts"
+import {
+  confirmCancelRefusal,
+  type ConfirmCard,
+  ConfirmCardSchema,
+  MemberConfirmationSchema
+} from "../../src/ConfirmCard.ts"
 import { cardContract } from "../cardContract.ts"
 import { fixtures } from "../fixtures/Confirm.ts"
 
@@ -12,7 +17,7 @@ cardContract("Confirm", ConfirmCardSchema, fixtures)
 
 // Literal oracles from ui-components.md T-UI-05; never read from the schema.
 const KINDS = ["one_click", "review_merge"] as const
-const SUBJECTS = ["todo", "branch", "flow", "agent", "wiki"] as const
+const SUBJECTS = ["todo", "branch", "flow", "agent", "wiki", "proposal"] as const
 const RESULTS = ["done", "cancelled", "expired"] as const
 const models: ConfirmCard[] = Object.values(fixtures).map((story) => story.model)
 const review = () => ConfirmCardSchema.parse(fixtures.review_merge.model)
@@ -111,4 +116,27 @@ describe("confirmation cancellation", () => {
   test("permits the pending revision", () => {
     expect(confirmCancelRefusal("old", { revision: "old" })).toBeUndefined()
   })
+})
+
+test("Learning confirmation retains its proposal identity; Dismiss creates no TODO effect", () => {
+  const row = {
+    id: "10000000-0000-4000-8000-000000000006",
+    state: "approved",
+    command: "learning.dismiss",
+    revision: "proposal-1",
+    expires_at: "2026-10-07T00:00:00Z",
+    payload: { card: { ...fixtures.learning.model, action: { tag: "learning.dismiss", verb: "Dismiss" } }, input: {} }
+  }
+  expect(MemberConfirmationSchema.parse(row).payload.card.subject).toEqual({
+    kind: "proposal",
+    ref: "check:lint@review",
+    revision: "proposal-1"
+  })
+  expect(MemberConfirmationSchema.parse(row).payload).not.toHaveProperty("effect")
+  expect(
+    MemberConfirmationSchema.safeParse({
+      ...row,
+      payload: { ...row.payload, effect: { todo: 0, request: "confirmation:learning" } }
+    }).success
+  ).toBe(false)
 })

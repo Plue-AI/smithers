@@ -70,3 +70,13 @@ test("activity replay deduplicates, caps at 200, and refuses malformed deltas", 
   expect(() => projectBranchActivity([], [{}])).toThrow("Invalid activity entry")
   expect(() => projectBranchActivity(undefined, [])).toThrow("Invalid activity delta")
 })
+
+test("server-resolved numeric authors render without inventing a roster identity", () => {
+  const author = { kind: "person", id: "member:1", member_id: "1", login: "ben", name: "Ben", avatar_url: "https://github.com/ben.png", color_index: 0, via: "ssh" }
+  const model = branchModel(branch,
+    [{ id: "owned-burst", kind: "burst", at: "2026-10-06T12:00:00Z", actor: author, files: [{ path: "src/retry.ts", change: "modified" }] }],
+    { changed: [{ path: "src/retry.ts", change: "modified", last_writer: author }], open: [] }, "b1")!
+  expect(model.activity[0]?.actor).toEqual({ kind: "person", login: "ben", name: "Ben", avatar_url: "https://github.com/ben.png", color_index: 0, via: "ssh" })
+  expect(model.activity[0]?.text).toBe("changed 1 file")
+  expect(model.changed_files[0]?.authors).toEqual([model.activity[0]!.actor])
+})

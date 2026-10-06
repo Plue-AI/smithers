@@ -247,6 +247,21 @@ func (t *liveTopics) resolve(ctx context.Context, topic string, repository int64
 			return json.Marshal(map[string]any{"secrets": secrets})
 		}}, ""
 	case topic == "proposals":
+		if provider, ok := t.todos.(interface {
+			LearningProposalsSnapshot(context.Context, int64) (int64, []services.LearningProposalCard, error)
+		}); ok {
+			return live.Source{Key: topic, Hints: hints, Every: liveRefreshEvery, Log: &live.LogSource{Page: func(ctx context.Context, after *int64) (live.LogPage, error) {
+				cursor, cards, err := provider.LearningProposalsSnapshot(ctx, repository)
+				if err != nil {
+					return live.LogPage{}, err
+				}
+				if after != nil && *after != cursor {
+					return live.LogPage{Gap: true}, nil
+				}
+				data, err := json.Marshal(cards)
+				return live.LogPage{Cursor: cursor, Data: data}, err
+			}}}, ""
+		}
 		provider, ok := t.todos.(routes.LearningProposalRoutes)
 		if !ok {
 			return live.Source{}, live.Unsupported

@@ -3,6 +3,7 @@ package compose
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"strconv"
 	"strings"
 	"time"
@@ -43,9 +44,22 @@ func (t *liveTopics) branchChanges(ctx context.Context, topic string, repository
 		}
 		defer rows.Close()
 		changed := []json.RawMessage{}
+		actor := t.changeActorResolver(ctx)
 		for rows.Next() {
 			var data json.RawMessage
 			if err := rows.Scan(&data); err != nil {
+				return nil, err
+			}
+			var file map[string]json.RawMessage
+			if err := json.Unmarshal(data, &file); err != nil {
+				return nil, err
+			}
+			file["last_writer"], err = actor(file["last_writer"])
+			if err != nil {
+				return nil, err
+			}
+			data, err = json.Marshal(file)
+			if err != nil {
 				return nil, err
 			}
 			changed = append(changed, data)
@@ -86,6 +100,7 @@ func (t *liveTopics) branchActivityPage(ctx context.Context, repository int64, b
 	}
 	defer rows.Close()
 	entries := []json.RawMessage{}
+	actor := t.changeActorResolver(ctx)
 	for rows.Next() {
 		var seq int64
 		var data json.RawMessage
@@ -94,6 +109,18 @@ func (t *liveTopics) branchActivityPage(ctx context.Context, repository int64, b
 		}
 		if seq > cursor {
 			cursor = seq
+		}
+		var entry map[string]json.RawMessage
+		if err := json.Unmarshal(data, &entry); err != nil {
+			return live.LogPage{}, err
+		}
+		entry["actor"], err = actor(entry["actor"])
+		if err != nil {
+			return live.LogPage{}, err
+		}
+		data, err = json.Marshal(entry)
+		if err != nil {
+			return live.LogPage{}, err
 		}
 		entries = append(entries, data)
 	}
@@ -110,4 +137,65 @@ func (t *liveTopics) branchActivityPage(ctx context.Context, repository int64, b
 	}
 	data, err := json.Marshal(entries)
 	return live.LogPage{Cursor: cursor, Data: data}, err
+}
+
+// Resolve durable numeric member IDs through the existing identity and roster
+// providers. This is attribution only; branch authority precedes every read.
+func (t *liveTopics) changeActorResolver(ctx context.Context) func(json.RawMessage) (json.RawMessage, error) {
+	cache := map[string]json.RawMessage{}
+	colors := map[string]int{}
+	loaded := false
+	return func(raw json.RawMessage) (json.RawMessage, error) {
+		if cached, ok := cache[string(raw)]; ok {
+			return cached, nil
+		}
+		var participant struct {
+			Kind   string `json:"kind"`
+			ID     string `json:"id"`
+			Member string `json:"member_id"`
+			Via    string `json:"via"`
+			Login  string `json:"login"`
+		}
+		if err := json.Unmarshal(raw, &participant); err != nil {
+			return nil, err
+		}
+		if participant.Kind != "person" || participant.Login != "" {
+			return raw, nil
+		}
+		if t.presence == nil || t.presence.queries == nil {
+			return nil, errors.New("branch actors unavailable")
+		}
+		id := participant.Member
+		if id == "" {
+			id = participant.ID
+		}
+		member, err := strconv.ParseInt(strings.TrimPrefix(id, "member:"), 10, 64)
+		if err != nil {
+			return nil, err
+		}
+		person, err := t.presence.queries.GetUserByID(ctx, member)
+		if err != nil {
+			return nil, err
+		}
+		if !loaded && t.presence.members != nil {
+			roster, err := t.presence.members.SharedRoster(ctx)
+			if err != nil {
+				return nil, err
+			}
+			for _, row := range roster.Members {
+				colors[row.Login] = row.ColorIndex
+			}
+			loaded = true
+		}
+		actor := branchPersonActor(person, colors[person.Username])
+		actor["id"], actor["member_id"] = participant.ID, participant.Member
+		if participant.Via == "ssh" || participant.Via == "terminal" || participant.Via == "cli" {
+			actor["via"] = participant.Via
+		}
+		rendered, err := json.Marshal(actor)
+		if err == nil {
+			cache[string(raw)] = rendered
+		}
+		return rendered, err
+	}
 }

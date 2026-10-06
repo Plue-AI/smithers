@@ -539,7 +539,7 @@ export interface AppController extends IssueFlowsController {
   /** The flow catalog the Flow card reads on an install (GET /api/flows); undefined elsewhere, where the seeded flows answer. */
   readonly flowCatalog: FlowsSnapshots | undefined
   /** The flows /flow, /flows and /flow.edit read: GET /api/flows on an install (undefined when it is not served); elsewhere the seeded flows (MOCK SEAM, DesignWorld/run.ts). */
-  readonly flowCards: () => Promise<ReadonlyArray<import("@smthrs/rpc/FlowCard").FlowCard> | undefined>
+  readonly flowCards: (name?: string) => Promise<ReadonlyArray<import("@smthrs/rpc/FlowCard").FlowCard> | undefined>
   /** branch.fork on an install: POST /api/branches {from, name?} (spec §8.5); its value is the new scratch branch. A string is the refusal. Absent off an install, where the flow acts on the seeded world. */
   readonly selectConversationBranch: (name: string) => Promise<void>
   readonly setBranchNavigationView: (patch: { selected_branch?: string; selected_archive?: string; previous_branch?: string; open?: boolean }) => Promise<void>
@@ -1032,7 +1032,7 @@ export const createAppController = (
       return typeof body?.message === "string" ? body.message : "Branch unavailable"
     } catch { return "Branch unavailable" }
   } : undefined
-  const flowCards: AppController["flowCards"] = async () => installHost ? flowsSeam.read()
+  const flowCards: AppController["flowCards"] = async (name) => installHost ? flowsSeam.read(name)
     : flowNames(design.world()).flatMap(name => flowCardOf(design.world(), name) ?? [])
   const changeMembers: AppController["changeMembers"] = async (tag, { login, role }) => {
     if (!installHost) {

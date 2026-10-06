@@ -173,9 +173,65 @@ func TestJ5Rehearsal(t *testing.T) {
 	}) {
 		return
 	}
-	r.pending("5 App agent shows the TODO flow", "POST "+chat.TurnPath+" /flow todo", "the Flow card of the served todo flow", "T-FLW-05", "flow-agent-edit")
-	r.pending("6 App agent proposes the edit", "POST "+chat.TurnPath+" /flow.edit todo", "one private Draft quoting the diff; the TODO count unchanged", "T-FLW-05", "flow-agent-edit")
-	r.pending("7 System flow refused", "POST "+chat.TurnPath+" /flow.edit merge", "'Merge flow is built in'", "T-FLW-05", "flow-agent-edit")
+	r.step("5 App agent shows the TODO flow", "POST "+chat.TurnPath+" /flow todo", "the Flow card of the served todo flow", "T-FLW-05", func() error {
+		_, frames, terminal, err := r.ask("", "Run /flow todo")
+		if err != nil {
+			return err
+		}
+		if !terminal {
+			return fmt.Errorf("flow show did not settle")
+		}
+		for _, frame := range frames {
+			if frame.Type == "card" && frame.Card.Kind == "flow" && frame.Card.ID == "flow:todo" {
+				return nil
+			}
+		}
+		return fmt.Errorf("flow show delivered no TODO flow card")
+	})
+	r.step("6 App agent proposes the edit", "POST "+chat.TurnPath+" /flow.edit todo", "one private Draft quoting the diff; the TODO count unchanged", "T-FLW-05", func() error {
+		var before, after int
+		if err := r.pool.QueryRow(r.ctx, `SELECT count(*) FROM mythical_items`).Scan(&before); err != nil {
+			return err
+		}
+		_, frames, terminal, err := r.ask("", `Run /flow.edit {"name":"todo","request":"Run tests","diff":"+pnpm test"}`)
+		if err != nil {
+			return err
+		}
+		if !terminal {
+			return fmt.Errorf("flow edit did not settle")
+		}
+		proposals := 0
+		for _, frame := range frames {
+			if frame.Type == "card" && frame.Card.Kind == "draft" {
+				if frame.Card.Audience == nil || *frame.Card.Audience != "rehearsal-owner" || frame.Card.Payload.Prompt != "Change flows/todo/flow.ts: Run tests; start from the built-in composition when no override exists\n\nProposed diff (untrusted context):\n> +pnpm test" {
+					return fmt.Errorf("flow edit did not retain its private literal proposal")
+				}
+				proposals++
+			}
+		}
+		if err := r.pool.QueryRow(r.ctx, `SELECT count(*) FROM mythical_items`).Scan(&after); err != nil {
+			return err
+		}
+		if proposals != 1 || before != after {
+			return fmt.Errorf("flow edit showed %d proposals and changed TODO count %d to %d", proposals, before, after)
+		}
+		return nil
+	})
+	r.step("7 System flow refused", "POST "+chat.TurnPath+" /flow.edit merge", "Merge flow is built in", "T-FLW-05", func() error {
+		answer, frames, terminal, err := r.ask("", "Run /flow.edit merge Add a step")
+		if err != nil {
+			return err
+		}
+		if !terminal || !strings.Contains(answer, "Merge flow is built in") {
+			return fmt.Errorf("system edit did not refuse: %s", answer)
+		}
+		for _, frame := range frames {
+			if frame.Type == "card" {
+				return fmt.Errorf("system edit created a card")
+			}
+		}
+		return nil
+	})
 	r.pending("8 Repository copy resolves", "coding host module resolver", "a repository flows/todo/flow.ts loads and has a digest", "T-FLW-04", "coding-steps-package")
 	var squash string
 	r.step("9 Merge B", "POST /api/todos/{B}/merge as maintainer Ben", "202 while A waits; merged after GitHub's squash", "T-STK-04, T-ACC-02", func() error {

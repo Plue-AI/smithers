@@ -36233,10 +36233,6 @@
       },
       {
         "kind": "file",
-        "path": "docs/api/openapi/app-timelines.yaml"
-      },
-      {
-        "kind": "file",
         "path": "docs/api/openapi/authentication.yaml"
       },
       {

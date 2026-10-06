@@ -165,3 +165,112 @@ func TestBurstIngestProductionBoundary(t *testing.T) {
 	require.ErrorIs(t, err, ErrUnauthorized)
 	counts(1, 2, 1)
 }
+
+func TestBurstMultipartProductionBoundary(t *testing.T) {
+	pool, _ := postgresfixture.NewProductDatabase(t)
+	ctx := t.Context()
+	var user, repo int64
+	var branch string
+	require.NoError(t, pool.QueryRow(ctx, `INSERT INTO users(username,lower_username) VALUES('multipart','multipart') RETURNING id`).Scan(&user))
+	require.NoError(t, pool.QueryRow(ctx, `INSERT INTO repositories(user_id,name,lower_name) VALUES($1,'app','app') RETURNING id`, user).Scan(&repo))
+	require.NoError(t, pool.QueryRow(ctx, `INSERT INTO workspaces(repository_id,user_id,name) VALUES($1,$2,'watch') RETURNING id`, repo, user).Scan(&branch))
+	registry := &Registry{}
+	authority, err := registry.MintBoot(branch, "vm")
+	require.NoError(t, err)
+	link, daemon := connectTest(t, registry, branch, authority)
+	objects := &burstObjectFixture{}
+	service := func() *BurstIngest {
+		return &BurstIngest{Pool: pool, Objects: objects, ResolveActor: func(context.Context, string, wire.Actor) (json.RawMessage, error) {
+			return json.RawMessage(`{"id":"member:1","kind":"person","member_id":"1","via":"terminal"}`), nil
+		}}
+	}
+	scope := jobs.Scope{TenantID: fmt.Sprint(repo), PrincipalID: "branch:" + branch}
+	payload := func(part uint16, paths ...string) []byte {
+		base := burstPayload([16]byte{88}, paths...)
+		fields, err := wire.Fields("burst", base[1:])
+		require.NoError(t, err)
+		return wire.Union(1, wire.Field(1, fields[1]), wire.Field(2, fields[2]), wire.Field(3, fields[3]), wire.Field(4, fields[4]), wire.Field(5, wire.U16(part)), wire.Field(6, wire.U16(2)))
+	}
+	first := Event{Seq: 1, EventID: [16]byte{89}, Payload: payload(1, "a.ts")}
+	second := Event{Seq: 2, EventID: [16]byte{90}, Payload: payload(2, "b.ts")}
+	counts := func(entries, files, receipts int) {
+		t.Helper()
+		for table, want := range map[string]int{"product_job_events": entries, "burst_files": files, "machine_event_receipts": receipts} {
+			var n int
+			require.NoError(t, pool.QueryRow(ctx, "SELECT count(*) FROM "+table).Scan(&n))
+			require.Equal(t, want, n, table)
+		}
+	}
+	// Exercise the authenticated wire dispatcher, including acknowledgement of
+	// durable staging so the serial daemon outbox can send its next frame.
+	done := make(chan error, 1)
+	go func() {
+		if err := wire.Write(daemon, wire.Frame{Kind: wire.Events, Payload: wire.Union(1, wire.Field(1, wire.U64(1)), wire.Field(2, first.EventID[:]), wire.Field(3, first.Payload))}); err != nil {
+			done <- err
+			return
+		}
+		frame, err := wire.Read(daemon)
+		if err == nil {
+			fields, e := wire.Fields("ack", frame.Payload[1:])
+			err = e
+			if err == nil && fields[2][0] != byte(AckApplied) {
+				err = fmt.Errorf("staging not acknowledged")
+			}
+		}
+		done <- err
+	}()
+	received, err := link.Receive(ctx)
+	require.NoError(t, err)
+	require.NoError(t, service().DispatchBurst(ctx, link, scope, received))
+	require.NoError(t, <-done)
+	counts(0, 0, 1)
+	require.Zero(t, objects.publications)
+	_, err = service().Apply(ctx, link.Connection, jobs.Scope{TenantID: "wrong", PrincipalID: scope.PrincipalID}, second)
+	require.ErrorIs(t, err, ErrUnauthorized)
+	counts(0, 0, 1)
+	remapped := service()
+	remapped.ResolveActor = func(context.Context, string, wire.Actor) (json.RawMessage, error) {
+		return json.RawMessage(`{"id":"member:2","kind":"person","member_id":"2","via":"terminal"}`), nil
+	}
+	_, err = remapped.Apply(ctx, link.Connection, scope, second)
+	require.ErrorIs(t, err, ErrUnauthorized)
+	counts(0, 0, 1)
+	changed := first
+	changed.Payload = payload(1, "substituted.ts")
+	_, err = service().Apply(ctx, link.Connection, scope, changed)
+	require.ErrorIs(t, err, wire.BadValue)
+	counts(0, 0, 1)
+	duplicatePath := second
+	duplicatePath.Payload = payload(2, "a.ts")
+	_, err = service().Apply(ctx, link.Connection, scope, duplicatePath)
+	require.ErrorIs(t, err, wire.BadValue)
+	counts(0, 0, 1)
+	objects.missing = []string{strings.Repeat("61", 20)}
+	ack, err := service().Apply(ctx, link.Connection, scope, second)
+	require.NoError(t, err)
+	require.Equal(t, AckMissingObjects, ack.Outcome)
+	counts(0, 0, 1)
+	objects.missing = nil
+	_, err = pool.Exec(ctx, `ALTER TABLE burst_files ADD CONSTRAINT multipart_fail CHECK(path<>'b.ts')`)
+	require.NoError(t, err)
+	_, err = service().Apply(ctx, link.Connection, scope, second)
+	require.Error(t, err)
+	counts(0, 0, 1)
+	_, err = pool.Exec(ctx, `ALTER TABLE burst_files DROP CONSTRAINT multipart_fail`)
+	require.NoError(t, err)
+	// A new service and a new admitted boot recover from database staging.
+	authority, err = registry.MintBoot(branch, "restarted")
+	require.NoError(t, err)
+	recovered, _ := connectTest(t, registry, branch, authority)
+	ack, err = service().Apply(ctx, recovered.Connection, scope, second)
+	require.NoError(t, err)
+	require.Equal(t, AckApplied, ack.Outcome)
+	counts(1, 2, 2)
+	ack, err = service().Apply(ctx, recovered.Connection, scope, second)
+	require.NoError(t, err)
+	require.Equal(t, AckDuplicate, ack.Outcome)
+	counts(1, 2, 2)
+	_, err = service().Apply(ctx, recovered.Connection, scope, first)
+	require.NoError(t, err)
+	counts(1, 2, 2)
+}

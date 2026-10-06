@@ -128,7 +128,7 @@ describe("the docs doors", () => {
     expect(listed).not.toContain("docs.read")
     for (const name of ["docs", "docs.read"]) {
       const entry = controller.commands.entries().find((candidate) => candidate.declaredName === name)!
-      expect(entry.metadata).toMatchObject({ visibility: name === "docs" ? "core" : "hidden", minimumRole: "member", agent: "run" })
+      expect(entry.metadata).toMatchObject({ visibility: name === "docs" ? "core" : "in-card", minimumRole: "member", agent: "run" })
       expect({ name, invocable: modelInvocable(entry), disclosed: disclosedToAgent(entry.metadata) })
         .toEqual({ name, invocable: true, disclosed: true })
     }

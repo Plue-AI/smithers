@@ -53,7 +53,7 @@ for (const secure of [true, false]) test(`C-UI-03 notifications: ${secure ? "loc
   test.setTimeout(120_000)
   const errors: string[] = []
   page.on("pageerror", error => errors.push(error.message))
-  page.on("console", message => { if (message.type() === "error") errors.push(message.text()) })
+  page.on("console", message => { if (message.type() === "error") errors.push(`${message.text()} (${message.location().url})`) })
   const origin = secure ? baseURL! : baseURL!.replace("127.0.0.1", "smithers-lan.test")
   if (!secure) await context.route("http://smithers-lan.test:**/**", async route => {
     const response = await route.fetch({ url: route.request().url().replace("smithers-lan.test", "127.0.0.1") })
@@ -76,6 +76,12 @@ for (const secure of [true, false]) test(`C-UI-03 notifications: ${secure ? "loc
     Object.defineProperty(window, "Notification", { configurable: true, value: RecordedNotification })
   })
   await installCloudFixture(page, { capabilities: ["agent", "identity", "install"] })
+  await page.route("**/api/conversations/main", route => route.fulfill({ json: { id: "main", entries: [] } }))
+  let viewState: unknown = {}
+  await page.route("**/api/conversations/main/view-state", route => {
+    if (route.request().method() === "PUT") viewState = route.request().postDataJSON()
+    return route.fulfill({ json: viewState })
+  })
   await page.route("**/api/members", route => route.fulfill({ json: { members: [{ ...fixtures.working.model.owner,
     color_index: 3, role: "member", needs_access: false, suspended: false, actions: [] }], access_url: "https://github.com/smithersai/smithers/settings/access" } }))
   await page.route("**/api/install", route => route.fulfill({ json: installFixture() }))

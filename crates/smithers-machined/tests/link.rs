@@ -516,3 +516,55 @@ fn authenticated_session_output_pump_waits_for_roster_and_stops_on_revocation_fa
     worker.join().unwrap();
     assert!(child.wait().unwrap().success());
 }
+
+#[test]
+fn authenticated_session_frame_write_failure_interrupts_idle_reader() {
+    use smithers_machined::hooks::{self, Hooks};
+    struct InvalidOutput;
+    impl hooks::Sessions for InvalidOutput {
+        fn ready(&self) -> hooks::Result<()> {
+            Ok(())
+        }
+        fn poll(&self) -> hooks::Result<Vec<Frame>> {
+            // Exercise the writer failure rather than the poll-error path:
+            // a provider bug must not leave the authenticated reader hanging.
+            Ok(vec![Frame {
+                kind: 5,
+                stream: 17,
+                payload: vec![1],
+            }])
+        }
+    }
+    let daemon = smithers_machined::daemon::Daemon::new(Hooks {
+        core: Arc::new(Reconciler),
+        broker: Arc::new(Roster(std::sync::atomic::AtomicBool::new(false))),
+        watcher: Arc::new(Ready),
+        documents: Arc::new(Ready),
+        sessions: Arc::new(InvalidOutput),
+        events: Arc::new(Ready),
+        ..Hooks::default()
+    })
+    .unwrap();
+    let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+    let address = listener.local_addr().unwrap();
+    let (completed, completion) = std::sync::mpsc::channel();
+    let worker = thread::spawn(move || {
+        let (socket, _) = listener.accept().unwrap();
+        let identity = Identity::new([4; 16], [9; 32], b"fixture-machine-token".to_vec()).unwrap();
+        let auth = link::authenticate(socket, &identity, 7, &[]).unwrap();
+        let result = daemon.serve(auth);
+        completed.send(result.is_err()).unwrap();
+    });
+    let mut stream = TcpStream::connect(address).unwrap();
+    host(&mut stream, &[9; 32], true);
+    call(&mut stream, 1, 5, &[conn::field(1, [1; 20])]);
+    call(&mut stream, 2, 16, &[conn::field(1, 0u16.to_be_bytes())]);
+    // Keep the host's sending half open and send no further request. Completion
+    // must be caused by responder shutdown, not by peer EOF.
+    let result = completion.recv_timeout(Duration::from_secs(2));
+    let _ = stream.shutdown(std::net::Shutdown::Both);
+    worker.join().unwrap();
+    assert_eq!(result, Ok(true));
+    let mut byte = [0];
+    assert_eq!(stream.read(&mut byte).unwrap(), 0);
+}

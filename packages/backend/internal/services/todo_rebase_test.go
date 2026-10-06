@@ -3,6 +3,7 @@ package services
 import (
 	"context"
 	"errors"
+	"fmt"
 	"testing"
 	"time"
 
@@ -104,6 +105,66 @@ func withTodo(item db.MythicalItem) db.MythicalItem {
 	checks.Todo = true
 	item.Checks = checks.encode()
 	return item
+}
+
+func TestRebuiltTodoStaysInReviewThroughMetadataSettlement(t *testing.T) {
+	// Unit-test publication's projection: guards are accepted here, while nil
+	// transports prove scheduling metadata never sends a GitHub write itself.
+	for _, rebasing := range []bool{false, true} {
+		t.Run(fmt.Sprint(rebasing), func(t *testing.T) {
+			guardCalls := 0
+			guard := func(context.Context, db.MythicalItem, string) error { guardCalls++; return nil }
+			s := &MythicalService{outbound: MythicalOutboundProviders{CanonicalApp: guard, StackLease: guard, Budget: guard,
+				Membership: guard, Authorization: guard, AcceptedGeneration: guard}}
+			shape := &mythicalPRShape{Branch: "smithers/example", Title: "Example", Prompt: "Example", Acceptance: "Works",
+				Evidence: "Checks passed", DiffStat: "1 file changed", Review: "Reviewed", URL: "http://localhost/todos/1", Owner: "ben", First: true, DraftsAvailable: true}
+			_, body, err := shape.render()
+			require.NoError(t, err)
+			first := false
+			checks := mythicalChecks{Todo: true, PRFirst: &first, PRBody: "old-body", ApprovalCleared: "old-head"}
+			if rebasing {
+				checks.Rebase = &mythicalRebase{Onto: "new-main", Name: "main", Rebased: true}
+			}
+			item := db.MythicalItem{State: "proposing", CandidateVerified: true, PRNumber: pgtype.Int8{Int64: 9, Valid: true},
+				PRHead: "new-head", PRState: "open", Checks: checks.encode()}
+			pull := mythicalPull{Number: 9, State: "open", HeadSHA: "new-head", Draft: true}
+			step := &mythicalItemStep{s: s, prShape: shape}
+			for _, kind := range []string{"body", "draft"} {
+				next, err := step.bindPull(t.Context(), item, mythicalGitHubRepo{}, shape.Branch, pull)
+				require.NoError(t, err)
+				op, err := decodeMythicalOutbound(next.PendingOp)
+				require.NoError(t, err)
+				require.Equal(t, kind, op.Kind)
+				require.Equal(t, "proposing", next.State)
+				require.Equal(t, checks.Rebase, mythicalChecksOf(*next).Rebase)
+				want := "working"
+				if rebasing {
+					want = "in_review"
+				}
+				require.Equal(t, want, todoState(*next))
+				require.Error(t, mythicalMergeReady(*next, 0, "new-head", false), "metadata publication must settle before merge")
+				// Feed the next confirmed provider observation to the binding;
+				// outbound delivery/recovery has its own real-provider tests.
+				item = *next
+				item.PendingOp = nil
+				if kind == "body" {
+					settled := mythicalChecksOf(item)
+					settled.PRBody = mythicalBodyDigest(body)
+					item.Checks = settled.encode()
+				} else {
+					pull.Draft = false
+				}
+			}
+			next, err := step.bindPull(t.Context(), item, mythicalGitHubRepo{}, shape.Branch, pull)
+			require.NoError(t, err)
+			require.Equal(t, "proposed", next.State)
+			require.Empty(t, next.PendingOp)
+			require.Nil(t, mythicalChecksOf(*next).Rebase)
+			require.Equal(t, "old-head", mythicalChecksOf(*next).ApprovalCleared)
+			require.Equal(t, "in_review", todoState(*next))
+			require.Equal(t, 12, guardCalls)
+		})
+	}
 }
 
 func TestCandidateAvailablePrefix(t *testing.T) {

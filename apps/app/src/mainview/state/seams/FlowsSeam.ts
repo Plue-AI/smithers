@@ -48,5 +48,14 @@ export function createFlowsSeam(options: {
     return () => { listeners.delete(listener) }
   } }
   const dispose = () => { disposed = true; ++generation; stop?.(); listeners.clear() }
-  return { snapshots, read, dispose }
+  const resolve = async (name?: string): Promise<ReadonlyArray<FlowCard> | undefined> => {
+    const cards = await read()
+    if (cards === undefined || name === undefined || cards.some(card => card.name === name)) return cards
+    try {
+      const response = await options.http(`/api/flows/${encodeURIComponent(name)}`, { credentials: "same-origin" })
+      const parsed = response.ok ? FlowCardSchema.safeParse(await response.json()) : undefined
+      return !disposed && parsed?.success && parsed.data.name === name ? [...cards, parsed.data] : cards
+    } catch { return cards }
+  }
+  return { snapshots, read: resolve, dispose }
 }

@@ -1503,15 +1503,6 @@ const CurrentCardSchema = z.discriminatedUnion("kind", [
    */
 
   /*
-   * The Register repository app (docs/mvp/REGISTRATION.md, #2153): the
-   * analysis one link starts. `repo` is the canonical GitHub owner/repo; the
-   * run itself is the run-trace card of
-   * `register-repository` for that link, found by its launch record. `replay`
-   * counts replays of a recorded run, so the card re-animates from the start
-   * without launching anything.
-   */
-
-  /*
    * Lane sync (ADR 0005): the sync-ops card for GitHub mirror syncs. Rows
    * are the durable ops, newest first, a failed row carrying the server's
    * error verbatim with a Retry act
