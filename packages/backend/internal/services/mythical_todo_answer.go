@@ -225,7 +225,7 @@ type mythicalSignaler interface {
 // credential answers for its member only on its own branch's TODO, and the
 // answer is by that terminal or the agent working in it (todoActor).
 func (s *MythicalService) AnswerTodo(ctx context.Context, repositoryID, userID, number int64, input TodoAnswerInput) error {
-	if _, terminal := middleware.AuthInfoFromContext(ctx).TerminalDelegation(); !terminal {
+	if _, delegated := middleware.AuthInfoFromContext(ctx).Delegation(); !delegated {
 		if err := middleware.RequirePerson(ctx, "answer a TODO"); err != nil {
 			return err
 		}

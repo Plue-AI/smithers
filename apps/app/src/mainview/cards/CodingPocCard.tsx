@@ -24,12 +24,6 @@ export const CodingPocBody = ({ card, onRunCommand: sendRunCommand }: {
         {...flowAction(onRunCommand, "runs.trace.select", flowArgs("runs.trace.select", { runId: card.payload.runId, nodeId: poc.spanId }))}>
         Inspect prototype execution
       </button>
-      {card.payload.kind !== "prototype" && ["launching", "running", "waiting-approval", "reconnecting"].includes(card.payload.phase) ? (
-        <button type="button" className="run-trace-filter" 
-          {...flowAction(onRunCommand, "runs.steer", card.payload.runId)}>
-          Give prototype feedback
-        </button>
-      ) : null}
       <details><summary>Review findings</summary><ul>{result.findings.map((finding, index) => <li key={index}>{finding}</li>)}</ul></details>
       <details>
         <summary>Retained source preview</summary>

@@ -5,12 +5,10 @@ description: "The install's TODO feedback routes, transaction boundaries, delive
 
 ## Availability
 
-The install mounts both routes below. Steering and amendment execution remain
-disabled by `MythicalService.todoSteering` until ordered input consumption and
-pinned guest execution have passing acceptance evidence. A valid authorized
-request currently returns `503 infra/todo_control_unavailable` without a
-revision, activity event or delivery intent. Binding a launcher alone does not
-enable either operation.
+The single-owner install enables steering with its durable dispatcher and
+selects the TODO digest through the existing Active flow-version store. Missing
+launcher, source pin or guest providers refuse before delivery; there is no host
+execution fallback. Hosted composition leaves these providers disabled.
 
 Activation requires T-STK-01/02/05/12, T-FLW-11, T-MCH-14, T-INS-02,
 T-FLW-01, T-SEC-01, T-CAT-01 and T-ACC-03. Delegation also requires T-ACC-04;
@@ -87,7 +85,7 @@ acknowledgment; it does not allocate a second input ID.
 | Paused or still attaching            | Retain the intent; delivery waits for the lifecycle hold to clear.             |
 | Merge fence                          | Hold Steer; refuse a new Amend with `409 merging`.                             |
 | Merged or dropped                    | Refuse new admission with `409 todo_closed`; do not deliver retained feedback. |
-| Queued or next attempt without a run | Persist feedback; ordered attachment handoff remains unqualified.              |
+| Queued or next attempt without a run | Persist feedback in the launch payload; later arrivals acquire an intent on run attachment.              |
 
 Delivery rechecks the stored input, attempt, working copy, stack owner and
 author's current membership before wake and again before sending. Releasing a
@@ -98,8 +96,8 @@ runtime's authenticated principal.
 
 ## Remaining acceptance work
 
-The production gate must remain closed until all of these are proved through
-the served routes and canonical command dispatcher:
+The following acceptance evidence remains required beyond the composed-router,
+PostgreSQL dispatcher and browser-seam tests:
 
 - The shared catalog and confirmation path preserve authority, exact payload,
   request identity and the person's approval before a delegated amendment.

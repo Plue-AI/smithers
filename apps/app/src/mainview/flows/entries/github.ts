@@ -19,12 +19,16 @@ export const githubFlows = (actions: CommandActions): ReadonlyArray<FlowEntry> =
 
   flow({
     name: "github.app",
-    summary: "Check the Smithers GitHub App on a repository",
-    runtime: ["cloud"],
+    summary: "Open Settings",
+    hidden: true,
+    minimumRole: "owner",
+    actors: ["person"],
+    agent: "never",
+    agentReason: "Install controls require the owner’s person session",
     args: "[owner/repo]",
     requires: ["signed-in"],
     input: RepoTarget,
-    handler: ({ repo }) => actions.githubApp(repo)
+    handler: async () => { await actions.presentCard("settings", "Settings"); return actions.showSettings() }
   }),
   flow({
     /* The card's Install button — browser mechanics the human clicks. */

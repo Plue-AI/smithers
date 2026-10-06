@@ -164,6 +164,25 @@ func TestConfirmationsInstallBoundaryPostgres(t *testing.T) {
 	require.Empty(t, legacy)
 	_, err = q.GetApproval(ctx, id)
 	require.Error(t, err)
+	// The store CAS must enforce the deadline too: a request can read a live
+	// row and then wait until its deadline before committing the decision.
+	// An elapsed row cannot acquire a rejection or consume a press key.
+	for _, kind := range []string{"one_click", "review_merge"} {
+		elapsed := seed(kind, "todo.drop", true)
+		changed, err := q.DenyMemberConfirmation(ctx, elapsed, owner.ID, "deadline-session", "deadline-"+kind)
+		require.NoError(t, err)
+		require.False(t, changed)
+		var decisionKey *string
+		require.NoError(t, pool.QueryRow(ctx, `SELECT state, decision_key FROM approvals WHERE id=$1`, elapsed).Scan(&state, &decisionKey))
+		require.Equal(t, "pending", state)
+		require.Nil(t, decisionKey)
+		w = call("POST", "/api/confirmations/"+elapsed+"/deny", ownerCookie, "", "deadline-"+kind)
+		require.Equal(t, 409, w.Code, w.Body.String())
+		require.Contains(t, w.Body.String(), `"code":"confirmation_resolved"`)
+		require.NoError(t, pool.QueryRow(ctx, `SELECT state, decision_key FROM approvals WHERE id=$1`, elapsed).Scan(&state, &decisionKey))
+		require.Equal(t, "expired", state)
+		require.Nil(t, decisionKey)
+	}
 	liveExpired := seed("one_click", "todo.drop", true)
 	topics := &liveTopics{queries: q}
 	source, status := topics.resolve(ctx, fmt.Sprintf("confirmations:%d", owner.ID), repo.ID, "maya/demo", owner.ID)

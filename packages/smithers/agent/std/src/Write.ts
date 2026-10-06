@@ -148,6 +148,7 @@ export const run = Effect.fn("Write.run")(function*(
 ): Effect.fn.Return<typeof Output.Type, StdError.StdError, FileSystem.FileSystem | Path.Path> {
   const fileSystem = yield* FileSystem.FileSystem
   const path = yield* Path.Path
+  yield* FileMutation.validate(fileSystem, [input.path])
   yield* fileSystem.makeDirectory(path.dirname(input.path), { recursive: true }).pipe(
     Effect.mapError(
       FsFailure.denied(

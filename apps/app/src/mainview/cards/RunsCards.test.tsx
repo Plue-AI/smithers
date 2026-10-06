@@ -428,10 +428,10 @@ describe("the run card, per phase and waiting reason", () => {
     }
   })
 
-  test("a live phase offers Stop and the steer row", () => {
+  test("a live phase offers Stop", () => {
     const { host } = renderRun({ phase: "running" })
     expect(host.querySelector("[data-testid='flow-run-stop-run-1']")).not.toBeNull()
-    expect(host.querySelector("[data-testid='flow-run-steer-run-1']")).not.toBeNull()
+    expect(host.querySelector("[data-testid='flow-run-steer-run-1']")).toBeNull()
     expect(host.querySelector("[data-testid='flow-run-rerun-run-1']")).toBeNull()
   })
 
@@ -475,20 +475,10 @@ describe("the run card, per phase and waiting reason", () => {
     expect(host.textContent).toContain("steering pending · delivered at the next turn")
   })
 
-  test("the steer row dispatches runs.steer with the message", () => {
-    const { host, dispatched } = renderRun({ phase: "running" })
-    const input = host.querySelector("[data-testid='flow-run-steer-input-run-1']") as HTMLInputElement
-    flushSync(() => {
-      // React tracks the value through the native setter — assign through it or onChange never fires.
-      Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")?.set?.call(input, "use the smaller diff")
-      input.dispatchEvent(new Event("input", { bubbles: true }))
-    })
-    const send = [...host.querySelectorAll("button")].find((button) => button.textContent === "Steer")
-    expect((send as HTMLButtonElement | undefined)?.disabled).toBe(false)
-    flushSync(() => {
-      send?.click()
-    })
-    expect(dispatched[0]).toEqual({ name: "runs.steer", args: "sourceCard=flow-run-run-1 run-1 use the smaller diff" })
+  test("generic run cards have no steer door", () => {
+    const { host } = renderRun({ phase: "running" })
+    expect(host.querySelector("[data-testid='flow-run-steer-input-run-1']")).toBeNull()
+    expect([...host.querySelectorAll("button")].find(button => button.textContent === "Steer")).toBeUndefined()
   })
 
   test("the transcript facet renders its rows; the steps tab is the way back", () => {

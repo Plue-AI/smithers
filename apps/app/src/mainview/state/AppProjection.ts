@@ -226,6 +226,7 @@ export const APP_TRANSITION_TYPES = {
   "stack.wiki.requests.changed": true,
   "wiki.saves.changed": true,
   "install.requests.changed": true,
+  "repository.imports.changed": true,
   "secret.requests.changed": true,
   "egress.requests.changed": true,
   "theme.changed": true,
@@ -760,6 +761,7 @@ const forgetAccountState = (collections: ProjectionCollections, createdAt: numbe
     delete draft.approvalsInboxRequests
     delete draft.runOpenRequests
     delete draft.codingProviderRequests
+    delete draft.repositoryImports
     delete draft.secretRequests
     delete draft.egressRequests
     draft.phase = "idle"
@@ -1091,12 +1093,6 @@ export const projectAppEvent = (previous: AppProjectionSnapshot, context: AppPro
   const approvalRequest = (id: string): ApprovalRequest | undefined => {
     const request = collections.approvalRequests.get(id)
     return isApprovalRequest(request) ? freezeRequest(structuredClone(CardSchema.parse(request)) as ApprovalRequest) : undefined
-  }
-  if ((transition.type === "card.upsert" || transition.type === "card.view.loaded") && transition.card.kind === "env") {
-    transition = { ...transition, card: CardSchema.parse(transition.card) }
-  } else if (transition.type === "card.updated" &&
-    (transition.patch.kind ?? collections.cards.get(transition.id)?.kind) === "env") {
-    transition = { ...transition, patch: CardPatchSchema.parse({ ...transition.patch, kind: "env" }) }
   }
   let applied = false
   // A transport batch uses the same primitive cases as ordinary dispatch.
@@ -2121,6 +2117,10 @@ export const projectAppEvent = (previous: AppProjectionSnapshot, context: AppPro
           collections.sessions.update(SESSION_ID, draft => { draft.installRequests = transition.requests })
           break
         }
+        case "repository.imports.changed": {
+          collections.sessions.update(SESSION_ID, draft => { draft.repositoryImports = transition.requests })
+          break
+        }
         case "secret.requests.changed": {
           collections.sessions.update(SESSION_ID, draft => { draft.secretRequests = transition.requests })
           break
@@ -2388,7 +2388,7 @@ export const projectAppEvent = (previous: AppProjectionSnapshot, context: AppPro
         case "card.recovered": {
           // A recovered composer's ask resumes with the session (`resumeModelCalls`); an entry of its history holds none.
           const card = transition.card === null ? null : transition.card
-          const protectedCard = (row: Card): boolean => row.kind === "env" || row.kind === "approval" || row.kind === "approvals-inbox" ||
+          const protectedCard = (row: Card): boolean => row.kind === "approval" || row.kind === "approvals-inbox" ||
             (row.kind === "flow-form" && row.payload.flow === "env.set")
           if ((card !== null && (card.id !== transition.id || protectedCard(card))) || approvalRequest(transition.id)) return
           const history = transition.history

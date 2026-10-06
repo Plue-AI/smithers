@@ -10,6 +10,9 @@ import fixtures from "./role-cases.fixture.json"
 import operations from "../../../src/debugApi/install-operations.fixture.json"
 import { chromium, expect } from "@playwright/test"
 import { fillComposer } from "../composer"
+import { createAppController } from "../../../src/mainview/state/AppController"
+import { createAppStore } from "../../../src/mainview/state/AppStore"
+import { memoryStorage, silentAgent } from "../../../src/mainview/state/TestFixtures"
 
 const outputDir = process.argv[2]!
 const rootDir = resolve("../..")
@@ -60,9 +63,10 @@ try {
   let activeCookie = cookie
   const csrf = createHash("sha256").update("c-ui-10-csrf").digest("hex")
   const origin = session.modeConfig.origin
+  const releaseDocument = () => parse(readFileSync(resolve("../../docs/api/openapi.yaml"), "utf8")) as OpenApiDocument
   let requests = 0
   const sentCookies: string[] = []
-  const seam = createDebugApiSeam({ origin, document: async () => parse(readFileSync(resolve("../../docs/api/openapi.yaml"), "utf8")) as OpenApiDocument,
+  const seam = createDebugApiSeam({ origin, document: async () => releaseDocument(),
     gates: () => ({ view: true, catalog: true, authorizer: true }),
     fetch: (url, init) => { requests++; const headers = new Headers(init.headers); headers.set("cookie", `${activeCookie ? `smithers_session=${activeCookie}; ` : ""}__csrf=${csrf}`); headers.set("X-CSRF-Token", csrf); headers.set("Origin", origin); sentCookies.push(headers.get("cookie")!); return fetch(url, { ...init, headers }) } })
   try {
@@ -129,6 +133,60 @@ try {
           console.log("C-UI-10 REAL BROWSER PASS")
         } finally { await browser.close() }
       }
+    } else if (selectedCase.startsWith("guard-")) {
+      const missing = selectedCase.slice(6)
+      assert.ok(missing === "catalog" || missing === "authorizer" || missing === "view")
+      const gates = { catalog: true, authorizer: true, view: true }
+      const store = await createAppStore({ kind: "localStorage", storage: memoryStorage() })
+      let playgroundRequests = 0
+      activeCookie = miaCookie
+      const controller = createAppController(store, silentAgent, {
+        openApi: async () => releaseDocument(), debugApiOrigin: origin, debugApiGates: () => gates,
+        fetchImpl: (url, init) => {
+          if (init?.redirect === "error") playgroundRequests++
+          const headers = new Headers(init?.headers)
+          headers.set("cookie", `smithers_session=${activeCookie}; __csrf=${csrf}`)
+          headers.set("X-CSRF-Token", csrf); headers.set("Origin", origin)
+          return fetch(new URL(String(url), origin), { ...init, headers })
+        }
+      })
+      const values = { body: JSON.stringify(fixtures.write.body) }
+      const send = JSON.stringify({ intent: "send", operationId: fixtures.write.operationId, values })
+      const count = () => sql(`SELECT count(*) FROM repository_secrets WHERE repository_id=${repo.id}`)
+      const settle = async (ready: () => boolean) => {
+        for (let n = 0; n < 200 && !ready(); n++) await Bun.sleep(10)
+        assert.ok(ready(), "controller background action settled")
+      }
+      try {
+        assert.equal(count(), "0")
+        gates[missing] = false
+        assert.deepEqual(Object.entries(gates).filter(([, available]) => !available).map(([name]) => name), [missing])
+        assert.equal((await controller.runCommandForResult("debug-api", fixtures.write.operationId)).status, "failed")
+        assert.equal(store.collections.cards.has("debug-api"), false)
+        assert.equal((await controller.runCommandForResult("debug.api", send)).status, "failed")
+        assert.equal(playgroundRequests, 0)
+        assert.equal(count(), "0")
+        gates[missing] = true
+        assert.equal((await controller.runCommandForResult("debug-api", fixtures.write.operationId)).status, "executed")
+        await settle(() => store.collections.cards.has("debug-api"))
+        assert.equal((await controller.runCommandForResult("debug.api", send)).status, "executed")
+        await settle(() => !!controller.debugApi.get().confirmation)
+        const confirmation = controller.debugApi.get().confirmation
+        gates[missing] = false
+        assert.equal((await controller.runCommandForResult("debug.api", JSON.stringify({ intent: "confirm", operationId: fixtures.write.operationId, values, confirmation }))).status, "failed")
+        assert.equal(playgroundRequests, 0)
+        assert.equal(count(), "0", "revoked dependency blocks an already mounted card and pending mutation")
+        gates[missing] = true
+        await controller.runCommandForResult("debug.api", send)
+        await settle(() => !!controller.debugApi.get().confirmation)
+        await controller.runCommandForResult("debug.api", JSON.stringify({ intent: "confirm", operationId: fixtures.write.operationId, values, confirmation: controller.debugApi.get().confirmation }))
+        await settle(() => !!controller.debugApi.get().model.exchange && !controller.debugApi.get().busy)
+        assert.equal(controller.debugApi.get().model.exchange?.response?.status, 201)
+        assert.equal(playgroundRequests, 1)
+        assert.equal(count(), "1", "positive control proves the same live transport can mutate SQL")
+        writeFileSync(join(outputDir, "guard.role-receipt.json"), `${JSON.stringify({ revision, layer: "production app dispatcher and DebugApiSeam against real install HTTP and PostgreSQL", missing, refusedRequests: 0, refusedRows: 0, positiveControlStatus: 201, positiveControlRows: 1 }, null, 2)}\n`)
+        console.log(`C-UI-10 REAL GUARD PASS: ${missing}`)
+      } finally { await controller.dispose() }
     } else if (selectedCase === "signout") {
       await seam.open(fixtures.signout.operationId)
       assert.equal(requests, 0, "Opening and selecting sends nothing")

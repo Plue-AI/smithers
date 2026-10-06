@@ -12,8 +12,6 @@ interface Child {
 export interface NativeBackend {
   readonly mode: NativeBackendMode
   readonly origin: string | undefined
-  /** Trusted main-process handoff for first-owner setup; never sent over HTTP. */
-  readonly bootstrapToken: string | undefined
   readonly failure: Promise<Error | undefined> | undefined
   readonly stop: () => Promise<void>
 }
@@ -407,7 +405,7 @@ export const startNativeBackend = async (
       if (exitCode !== undefined) {
         throw new Error(`Owned backend exited before readiness with code ${exitCode}.`)
       }
-      if (response?.ok) return { mode, origin, bootstrapToken: undefined, failure, stop }
+      if (response?.ok) return { mode, origin, failure, stop }
       if (response?.step !== undefined && response.step !== step) {
         step = response.step
         deadline = Date.now() + idleMs

@@ -357,9 +357,8 @@ func TestTodoMergeComposedRouteBoundaryPostgres(t *testing.T) {
 		require.Empty(t, refused.PendingOp)
 	}
 
-	// Every credential but the owner's browser session is refused the same
-	// way through both doors, whatever the target names, before any
-	// repository or TODO is read.
+	// Non-browser credentials cannot merge through either door. The numbered
+	// door retains the install command gate's pending-confirmation refusal.
 	for _, tc := range []struct {
 		name     string
 		set      func(*http.Request)
@@ -385,11 +384,17 @@ func TestTodoMergeComposedRouteBoundaryPostgres(t *testing.T) {
 				first = nil
 				for _, target := range []string{door.valid, door.unknown, door.malformed, door.encoded} {
 					status, envelope := post(door.path(target), tc.set)
-					require.Equal(t, tc.status, status, "%s %s: %v", door.name, target, envelope)
+					expectedStatus := tc.status
+					// The numbered door uses the install command gate: a person's
+					// API credential requires app confirmation before reading a TODO.
+					if tc.name == "the owner's personal access token" && door.name == "numbered" {
+						expectedStatus = http.StatusServiceUnavailable
+					}
+					require.Equal(t, expectedStatus, status, "%s %s: %v", door.name, target, envelope)
 					if tc.envelope != nil {
 						expected := tc.envelope
-						if tc.name == "the owner's personal access token" && door.name == "numbered" && (target == door.valid || target == door.unknown) {
-							expected = map[string]any{"code": "permission", "class": "permission", "message": "Merge requires an owner or maintainer browser session"}
+						if tc.name == "the owner's personal access token" && door.name == "numbered" {
+							expected = map[string]any{"code": "confirmation_unavailable", "class": "infra", "message": "Confirmation unavailable"}
 						}
 						require.Equal(t, expected, envelope, "%s %s", door.name, target)
 					}

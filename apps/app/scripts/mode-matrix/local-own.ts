@@ -138,9 +138,7 @@ export const startLocalOwn = async (rootDir: string, revision: string, outputDir
     const webPort = await availablePort()
     const backendOrigin = `http://127.0.0.1:${backendPort}`
     const origin = `http://127.0.0.1:${webPort}`
-    const bootstrapToken = randomUUID()
     const username = `matrix${randomUUID().replaceAll("-", "").slice(0, 12)}`
-    const password = `${randomUUID()}-Aa1!`
     const gatewayApiKey = fixtureProtocolId(`matrix-flow-${randomUUID()}`)
     const backendEnv = {
       ...process.env,
@@ -221,7 +219,7 @@ export const startLocalOwn = async (rootDir: string, revision: string, outputDir
     const authEnvironment = "SMITHERS_LOCAL_OWNER_SESSION"
     return {
       modeConfig: { mode: "local-own", origin, endpoint: origin, auth: { kind: "owner-session", environment: authEnvironment }, executionReceipt: receiptPath },
-      runtimeEnvironment: { [authEnvironment]: JSON.stringify({ username, password, bootstrapToken, sessionCookie }), SMITHERS_LOCAL_GIT_ORIGIN: backendOrigin }, close
+      runtimeEnvironment: { [authEnvironment]: JSON.stringify({ username, sessionCookie }), SMITHERS_LOCAL_GIT_ORIGIN: backendOrigin }, close
     }
   } catch (error) {
     await close()

@@ -332,20 +332,20 @@ test("identical repository-import polls do not grow the committed journal or SQL
     const held = fixture.pauseNextWrite()
     reads[11]!.resolve(answer("pushing_mirror"))
     await held.entered
-    expect(store.committedCard("repo-import-owner/repo")).toMatchObject({ payload: { stage: "cloning_github" } })
+    expect(store.committedRepositoryImport("repo-import-owner/repo")).toMatchObject({ payload: { stage: "cloning_github" } })
     expect(reads).toHaveLength(12)
     held.release()
     await waitFor(() => reads.length === 13)
     expect((await store.eventHistory()).head.sequence).toBe(before.head.sequence + 1)
     reads[12]!.resolve(answer("provisioning_workspace", "ready"))
     await waitFor(() => {
-      const card = store.collections.cards.get("repo-import-owner/repo")
-      return card?.kind === "repo-import" && card.payload.phase === "done"
+      const card = store.session().repositoryImports?.find(row => row.id === "repo-import-owner/repo")
+      return card?.payload.phase === "done"
     })
     await store.settled?.()
     expect((await store.eventHistory()).head.sequence).toBe(before.head.sequence + 2)
     const reopened = await open(fixture.path)
-    expect(reopened.store.collections.cards.get("repo-import-owner/repo")).toMatchObject({ payload: { phase: "done", stage: "provisioning_workspace" } })
+    expect(reopened.store.session().repositoryImports?.find(row => row.id === "repo-import-owner/repo")).toMatchObject({ payload: { phase: "done", stage: "provisioning_workspace" } })
     expect((await reopened.store.verifyState()).valid).toBe(true)
   } finally {
     disposed = true

@@ -156,7 +156,7 @@ describe("TodoSeam — admission and live completion", () => {
       expect(h.outcomes).toHaveLength(1)
       expect(await h.seam.steerTodo(12, h.todo().payload.answerDraft!)).toEqual({ value: "Requested" })
       await waitFor(() => requests.length === 2)
-      expect(requests[1]).toEqual({ url: "https://install.test/api/todos/12", body: { op: "steer", text: "Keep my late text\nverbatim" } })
+      expect(requests[1]).toEqual({ url: "https://install.test/api/todos/12", body: { steer: "Keep my late text\nverbatim" } })
       const key = h.todo().payload.requests.find(request => request.operation === "steer")!.key
       await h.seam.applyTodoProjection(12, fixtures.working.model, [{ key, outcome: { status: "ok", detail: "Sent" } }])
       expect(h.todo().payload.answerDraft).toBeUndefined()
@@ -625,9 +625,14 @@ test("session Merge persists one reviewed head request and waits for the merged 
     await waitFor(() => h.todo().payload.requests[0]?.state === "accepted")
     expect(h.todo().payload.model?.state).toBe("in_review")
     expect(h.outcomes).toEqual([])
+    const requestKey = h.todo().payload.requests[0]!.key
     await h.seam.applyTodoProjection(12, fixtures.merged.model)
     expect(h.todo().payload.requests).toEqual([])
-    expect(h.outcomes).toHaveLength(1)
+    expect(h.outcomes).toEqual(expect.arrayContaining([
+      { key: `todo.request.${requestKey}`, status: "ok", detail: "Merged" },
+      { key: "todo.merged.12.run-41.1", status: "ok", detail: "Merged" }
+    ]))
+    expect(h.outcomes).toHaveLength(2)
   } finally { h.close() }
 })
 
@@ -1047,3 +1052,84 @@ for (const status of [202, 409] as const) {
     } finally { h.close() }
   })
 }
+
+
+test("a refused Discard refreshes the served wait and the next press binds the newer head", async () => {
+  const foreign = fixtures.foreign_push.model.waits[0]!
+  const newer = { ...fixtures.foreign_push.model, waits: [{ ...foreign, sha: "e".repeat(40) }, fixtures.needs_you.model.waits[0]!] }
+  const refresh = deferred<Response>()
+  const posts: RequestInit[] = []
+  let reads = 0
+  const h = await harness(async (url, init) => {
+    if (!init?.method) {
+      expect(url).toBe("https://install.test/api/todos/12")
+      reads++
+      return refresh.promise
+    }
+    posts.push(init)
+    return posts.length === 1
+      ? json({ class: "conflict", message: "Outside push changed; refresh the TODO" }, 409)
+      : json({ state: "accepted", n: 12 })
+  })
+  try {
+    await h.seam.applyTodoProjection(12, fixtures.foreign_push.model)
+    expect(await h.seam.discardForeign(newer.branch!.name, foreign.id, foreign.sha!)).toEqual({ value: "Requested" })
+    await waitFor(() => reads === 1)
+    expect(h.todo().payload.requests[0]?.state).toBe("failed")
+    expect(h.todo().payload.model?.waits[0]?.sha).toBe(foreign.sha)
+    expect(h.outcomes).toEqual([{ key: `todo.request.${h.todo().payload.requests[0]!.key}`, status: "failed", detail: "Outside push changed; refresh the TODO" }])
+    refresh.resolve(json(newer, 200))
+    await waitFor(() => h.todo().payload.model?.waits[0]?.sha === newer.waits[0]!.sha)
+    expect(h.todo().payload.model?.waits).toEqual(newer.waits)
+    expect(posts).toHaveLength(1)
+    expect(await h.seam.discardForeign(newer.branch!.name, foreign.id, newer.waits[0]!.sha!)).toEqual({ value: "Requested" })
+    await waitFor(() => posts.length === 2)
+    expect(JSON.parse(String(posts[1]!.body))).toEqual({ op: "discard-foreign", id: foreign.id, revision: newer.waits[0]!.sha })
+    expect(new Headers(posts[1]!.headers).get("Idempotency-Key")).not.toBe(new Headers(posts[0]!.headers).get("Idempotency-Key"))
+  } finally { h.close() }
+})
+
+test("the served merge transition notifies only its owner once, already terminal, without replaying historical merges", async () => {
+  const h = await harness(async () => json(fixtures.in_review.model, 200))
+  try {
+    const merged = () => [...h.store.collections.toasts.values()].filter(toast => toast.audience?.kind === "merged")
+    await h.seam.showTodo(12)
+    expect(merged()).toEqual([])
+    h.observed.get("todo:12")!(fixtures.merged.model)
+    await waitFor(() => merged().length === 1)
+    expect(merged()[0]).toMatchObject({ sourceCard: "todo:12", status: "ok", detail: "Merged",
+      audience: { member: "ben", kind: "merged", target: { flow: "todo", n: 12 } } })
+    expect(merged()[0]!.action).toBeUndefined()
+    h.observed.get("todo:12")!(fixtures.merged.model)
+    await h.seam.applyTodoProjection(12, fixtures.merged.model)
+    expect(merged()).toHaveLength(1)
+    // Being present on another owner's branch grants no merge notice.
+    const owner = { ...fixtures.in_review.model.owner, login: "maya" }
+    await h.seam.applyTodoProjection(12, { ...fixtures.in_review.model, owner })
+    await h.seam.applyTodoProjection(12, { ...fixtures.merged.model, owner })
+    expect(merged()).toHaveLength(1)
+  } finally { h.close() }
+  const history = await harness(async () => json(fixtures.merged.model, 200))
+  try {
+    await history.seam.showTodo(12)
+    expect([...history.store.collections.toasts.values()].filter(toast => toast.audience?.kind === "merged")).toEqual([])
+  } finally { history.close() }
+})
+
+ test("prompt-only amendment settles with preserved acceptance and never replays on recovery", async () => {
+  const calls: RequestInit[] = []
+  const h = await harness(async (_url, init) => { if (init?.method === "PATCH") calls.push(init); return json({ state: "accepted", n: 12, rev: 2 }) })
+  try {
+    await h.seam.amendTodo({ n: 12, text: "PROMPT-B" })
+    await waitFor(() => h.todo().payload.requests[0]?.state === "accepted")
+    const before = { ...fixtures.queued.model.prompt_revisions[0]!, acceptance: ["Keep the check"] }
+    await h.seam.applyTodoProjection(12, { ...fixtures.queued.model, prompt_revisions: [before] })
+    expect(h.outcomes).toEqual([])
+    await h.seam.applyTodoProjection(12, { ...fixtures.queued.model, prompt_revisions: [before, { ...before, text: "PROMPT-B" }] })
+    expect(h.outcomes).toEqual([expect.objectContaining({ status: "ok", detail: "Amended" })])
+    expect(h.todo().payload.requests).toEqual([])
+    h.seam.resumeTodos()
+    expect(calls).toHaveLength(1)
+    expect(JSON.parse(String(calls[0]!.body))).toEqual({ prompt: "PROMPT-B" })
+  } finally { h.close() }
+})

@@ -72,6 +72,6 @@ func (q *Queries) ConfirmationPress(ctx context.Context, credential, key string)
 }
 
 func (q *Queries) DenyMemberConfirmation(ctx context.Context, id string, member int64, credential, key string) (bool, error) {
-	tag, err := q.db.Exec(ctx, `UPDATE approvals SET state='rejected', decided_at=now(),decided_by=$2,decision_credential=$3,decision_key=$4 WHERE id=$1 AND member_id=$2 AND state='pending'`, id, member, credential, key)
+	tag, err := q.db.Exec(ctx, `UPDATE approvals SET state='rejected', decided_at=now(),decided_by=$2,decision_credential=$3,decision_key=$4 WHERE id=$1 AND member_id=$2 AND state='pending' AND expires_at > clock_timestamp()`, id, member, credential, key)
 	return tag.RowsAffected() == 1, err
 }

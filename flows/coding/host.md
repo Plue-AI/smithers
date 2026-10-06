@@ -156,30 +156,17 @@ create or describe another planned JJ change. Privileged snapshot subprocesses
 use the existing contained spawner and Control journal process ledger. Standard
 agent tools keep their existing guarded spawner and native journal process ledger.
 
-`filesystem.ts` adds native JJ eligibility to the existing guarded standard file
-tools. New ignored files, metadata/symlink paths, native snapshot exclusions and
-oversized files are refused before final mutation. Existing tracked ignored files
-remain editable. Write/Edit/ApplyPatch retain their own parsing and atomic sibling
-replacement. A transient Set tracks only exclusive Preserve siblings until final
-rename/cleanup; final destinations always receive the native prospective-byte
-check. It is not persistent file ownership or memory. As with Preserve itself,
-process death can leave an operational sibling; this never makes an ignored user
-file an accepted output. Direct streaming/writable handles, recursive mutations,
-links and independent permission/timestamp changes are explicitly unsupported in
-this coding configuration. Shell commands remain irreversible and are never
-advertised as fully compensated file tools. The guard recognizes the provisioned
-root and the canonical root returned by the existing guarded filesystem, allowing
-Preserve's atomic replacements under OS aliases such as `/var` to `/private/var`.
-It never resolves child symlinks independently or relaxes the filesystem boundary.
-Native eligibility requests retain the exact provisioned repository path.
+`filesystem.ts` holds full-file read digests separately for each authenticated
+standard-flow session. Only a successful model-facing `read` refreshes a base;
+internal mutation reads cannot authorize overwriting a changed or unread file.
+The standard mutation policy validates every affected path before any patch hunk.
+Stale bases return `stale_read` with the path and both digests.
 
-The native acceptance test rejects an ignored Write, writes through a `*.tmp`
-ignore rule, edits the resulting file, verifies both immutable check tiers, and
-asserts one planned JJ atom and matching health identity. Run the same bundle
-proof with `node flows/test/coding-host-bundle.mjs` or
-`bun flows/test/coding-host-bundle.mjs`, with `PLUE_CODING_ADAPTER_SOURCE` and
-`PLUE_JJ_EXPORT_BINARY` pointing to the actual Plue artifacts. It exercises bundled
-QuickJS, builtin SQLite and contained processes; `--version` alone is insufficient.
+The authenticated atomic daemon writer is not yet composed. Fresh mutations
+return `provider_unavailable`; direct filesystem mutations also refuse. The
+previous native JJ eligibility check followed by unconditional write/rename is
+removed because eligibility does not provide a compare-and-write boundary.
+An unavailable provider refuses before even creating mutation lock directories.
 
 Explicitly enabled Wiki planning also registers the private `coding/WikiCheck` delegate.
 Projects opt into continuous semantic backpressure by declaring `checks/wiki`

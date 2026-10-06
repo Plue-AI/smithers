@@ -745,3 +745,57 @@ test("TODO messages reach the shared root harness at every step and model bounda
     assert.equal((yield* native.pending(owner.runId)).length, 0)
   }))
 })
+
+
+test("TODO feedback actions consume messages admitted through the control door", { timeout: 60_000 }, async (t) => {
+  const root = await mkdtemp(join(tmpdir(), "todo-feedback-action-"))
+  t.after(() => rm(root, { recursive: true, force: true }))
+  const journal = await journalLayer(join(root, "control.db"))
+  let routedQueue: NotificationQueue.Service | undefined
+  const parent = ManagedRuntime.make(LocalControl.layer(
+    Registry.layerNoop(), { runtime: controlLayer, journal: journal.pipe(Layer.orDie) },
+    Layer.succeed(ControlExecutor.ControlExecutor, ControlExecutor.makeNoop()),
+    (queue, control, journal) => {
+      routedQueue = routeMessages(queue, control, journal)
+      return routedQueue
+    }
+  ).pipe(Layer.provideMerge(controlLayer)))
+  t.after(() => parent.dispose())
+  const { owner, queue } = await parent.runPromise(Effect.gen(function*() {
+    return {
+      owner: yield* launch(yield* ControlRuntime.ControlRuntime, "todo"),
+      queue: routedQueue!
+    }
+  }))
+  const Probe = Flow.make("test/TodoFeedback", {
+    payload: ReceiveFeedback.payloadSchema,
+    success: FeedbackReceipt,
+    error: ReceiveFeedback.errorSchema,
+    body: (input) => ReceiveFeedback.call(input)
+  })
+  const runtime = ManagedRuntime.make(Layer.mergeAll(Interpreter.layer(Probe), feedbackLayer).pipe(
+    Layer.provideMerge(Action.layerImplementations),
+    Layer.provideMerge(FlowEngine.layerMemory),
+    Layer.provide(Layer.succeed(NotificationQueue.NotificationQueue, queue)),
+    Layer.provide(Layer.succeed(ModuleOwner, { rootId: owner.runId, flowId: "todo" })),
+    Layer.provideMerge(NodeCrypto.layer)
+  ))
+  t.after(() => runtime.dispose())
+  for (const boundary of ["route", "plan", "poc", "implement", "correct", "deliver"] as const) {
+    await parent.runPromise(Effect.gen(function*() {
+      const control = yield* ControlRuntime.ControlRuntime
+      const door = yield* Control.Control
+      const input = {
+        runId: owner.runId, idempotencyKey: boundary,
+        message: { runId: owner.runId, messageId: boundary, createdAt: 0,
+          principal: yield* control.stampPrincipal(), body: `Ben: ${boundary}` }
+      }
+      yield* door.steer(input)
+      yield* door.steer(input)
+    }))
+    const receipt = await runtime.runPromise(Probe.execute({ boundary, revision: 0 }).pipe(Effect.scoped))
+    assert.deepEqual(receipt.messages.map((message) => message.id), [boundary])
+    assert.match(JSON.stringify(receipt.messages[0]), new RegExp(`Ben: ${boundary}`))
+    assert.equal((await parent.runPromise(queue.pending(owner.runId))).length, 0)
+  }
+})

@@ -43,7 +43,8 @@ const test = Smithers.Shell.Test({
     Smithers.glob("test/**/*.ts"),
     Smithers.file("package.json"),
     Smithers.file("vitest.config.ts"),
-    Smithers.glob("//packages/repo-targets/test-utils/effect-property.*")
+    Smithers.file("//packages/repo-targets/test-utils/effect-property.mjs"),
+    Smithers.file("//packages/repo-targets/test-utils/effect-property.d.mts")
   ],
   timeout: "20m",
   hosts: ["linux"],

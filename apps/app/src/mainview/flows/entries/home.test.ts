@@ -34,6 +34,7 @@ test("the Home doors register, and every one has an agent door (a merge only eve
   const h = await boot()
   try {
     const entries = h.controller.commands.entries().filter(entry => ["stack", "stack.move", "merge", "background.retry", "background.dismiss", "github", "github.retry"].includes(nameOf(entry)))
+    expect(entries.find(entry => nameOf(entry) === "github.retry")?.metadata).toMatchObject({ agent: "run", minimumRole: "member", visibility: "in-card", http: { method: "POST", path: "/api/github/sync" } })
     expect(entries.map(nameOf).sort()).toEqual(["background.dismiss", "background.retry", "github", "github.retry", "merge", "stack", "stack.move"])
     expect(Object.fromEntries(entries.map(entry => [nameOf(entry), modelInvocable(entry)]))).toEqual({
       "stack": true, "stack.move": true, "merge": true, "background.retry": true, "background.dismiss": true, "github": true, "github.retry": true
@@ -228,14 +229,14 @@ test("on an install, a bare Merge opens the person's Review & merge for the serv
 })
 
 
-test("legacy history.show opens Home and bootstrap stays out of the slash catalog", async () => {
+test("removed history.show stays out of the slash catalog and bootstrap stays hidden", async () => {
   const h = await boot()
   try {
     await slash(h, "branch", "retry-webhooks")
     expect(shellViewsOf(h.controller.design).get(h.controller.design.viewer())?.at).toBe("b-retry")
-    expect(await slash(h, "history.show")).toEqual({ status: "executed", value: "Opened the stack" })
-    expect(shellViewsOf(h.controller.design).get(h.controller.design.viewer())?.at).toBe("main")
-    expect(h.controller.commands.entries().find(entry => nameOf(entry) === "history.bootstrap")?.metadata.hidden).toBe(true)
+    expect(await slash(h, "history.show")).toEqual({ status: "unknown-command" })
+    expect(shellViewsOf(h.controller.design).get(h.controller.design.viewer())?.at).toBe("b-retry")
+    expect(h.controller.commands.entries().find(entry => nameOf(entry) === "history.bootstrap")?.metadata.visibility).toBe("hidden")
     expect(h.requests.some(request => request.includes("mythical"))).toBe(false)
   } finally { await h.controller.dispose() }
 })

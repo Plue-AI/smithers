@@ -4,6 +4,7 @@ import type { FlowInput, FlowWithInput } from "./FlowArgs"
 import { FLOW_NAMES } from "./FlowName"
 import type { FlowName } from "./FlowName"
 import { payloadFor } from "./SlashPayload"
+import { pendingControlFlows } from "./entries/controls"
 import { triggersFlows } from "./entries/triggers"
 import type { CommandActions } from "./Flows"
 import { nameOf } from "./registry"
@@ -54,12 +55,6 @@ describe("flowArgs — one serialisation, and the grammar gives the values back"
     }
   })
 
-  test("runs.steer carries a message that holds spaces", () => {
-    roundTrip("runs.steer", { runId: "run-1", body: "focus on the failing test" }, "run-1 focus on the failing test", {
-      runId: "run-1",
-      body: "focus on the failing test"
-    })
-  })
 
   test("change.pins carries both pins", () => {
     roundTrip("change.pins", { changeId: "ch-1", from: "parent", to: "current" }, "ch-1 parent current", {
@@ -112,7 +107,6 @@ describe("FlowName — the seam's names are the registry's names", () => {
       "change.pins",
       "change.resolve",
       "form.set",
-      "runs.steer",
     ]
     expect(named.filter((name) => !declared.has(name))).toEqual([])
   })
@@ -303,4 +297,11 @@ test("a run-open retry round-trips its durable request and rejects duplicate or 
   expect(payloadFor("runs.open", flowArgs("runs.open", input))).toEqual({ payload: input })
   expect(payloadFor("runs.open", "requestId= run-1")).toHaveProperty("error")
   expect(payloadFor("runs.open", "requestId=a requestId=b run-1")).toHaveProperty("error")
+})
+
+test("Discard confirmation retains an outside push's exact branch, wait and head", () => {
+  const input = { branch: "smithers/retry webhooks", id: "foreign-1", revision: "1111111111111111111111111111111111111111" }
+  const entry = pendingControlFlows({} as unknown as CommandActions).find(flow => nameOf(flow) === "branch.discard-foreign")
+  expect(entry).toBeDefined()
+  expect(payloadFor("branch.discard-foreign", flowArgs("branch.discard-foreign", input), entry!.metadata.grammar)).toEqual({ payload: input })
 })

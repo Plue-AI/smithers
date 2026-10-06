@@ -1,6 +1,16 @@
 import { expect, test } from "./browserTest"
 import { installFixture } from "../../src/mainview/state/seams/InstallFixtures.test-support"
-import { owner, say } from "./spec/j1-fixtures"
+import { owner as signedInOwner, say } from "./spec/j1-fixtures"
+
+// Native install hosts disable DesignWorld: every Settings row below must
+// come from InstallSeam's HTTP projection, including the image.add door.
+async function owner(page: import("@playwright/test").Page) {
+  await signedInOwner(page)
+  await page.route("**/api/bootstrap", route => route.fulfill({ json: {
+    apiVersion: 1, host: "local", version: "test", buildSha: "test",
+    capabilities: ["identity", "install"], authFlow: "redirect", sandbox: null
+  } }))
+}
 
 test("Settings Address saves the install contract without blocking Chat", async ({ page }) => {
   await owner(page)
@@ -65,4 +75,35 @@ test("Settings Add to machine image opens the shared read-only Draft", async ({ 
   await form.getByRole("button", { name: "Add to machine image", exact: true }).press("Enter")
   await expect(page.getByRole("region", { name: "Draft", exact: true })).toHaveCount(1)
   expect(reads).toBe(1)
+})
+
+test("Settings TODOs per day persists through reload and keeps Chat usable", async ({ page }) => {
+  await owner(page)
+  let allowance = 12
+  await page.route("**/api/install", async route => {
+    if (route.request().method() === "PUT") allowance = route.request().postDataJSON().todo_daily_admissions
+    await route.fulfill({ json: { ...installFixture(), todo_daily_admissions: allowance } })
+  })
+  await page.goto("/")
+  await say(page, "/settings")
+  const card = page.getByTestId("card-settings")
+  const form = card.locator('form[data-flow="settings.daily-admissions"]')
+  await expect(form.locator("output")).toHaveText("12")
+  await form.getByRole("button", { name: "More TODOs per day", exact: true }).press("Enter")
+  await expect(form.locator("output")).toHaveText("13")
+  await expect(page.getByTestId("composer-input")).toBeEditable()
+  await page.reload()
+  await say(page, "/settings")
+  await expect(card.locator('form[data-flow="settings.daily-admissions"] output')).toHaveText("13")
+})
+
+test("recorded Account and Environment doors open the Settings card", async ({ page }) => {
+  await owner(page)
+  await page.route("**/api/install", route => route.fulfill({ json: { ...installFixture(), todo_daily_admissions: 12 } }))
+  await page.goto("/")
+  for (const line of ["/account.show", "/env.view", "/secrets.connections"]) {
+    await say(page, line)
+    await expect(page.getByTestId("card-settings")).toBeVisible()
+    await expect(page.locator('[data-kind="account"], [data-kind="env"], [data-kind="provider-accounts"]')).toHaveCount(0)
+  }
 })

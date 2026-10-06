@@ -282,7 +282,7 @@ export function TodoView({ model: todo, actions, onAction, conflictTerminal }: T
           action.tag === "merge" && (todo.merge.state !== "ready" || action.disabled) ? null : (
             action.tag === "todo.amend" && todo.state === "queued" ? <details key={`${action.tag}-${index}`}>
               <summary>Edit</summary>
-              <TodoActionView action={action} onAction={onAction} drafts={drafts} onView={setDrafts} />
+              <TodoActionView action={action} onAction={onAction} drafts={drafts} onView={(next) => setDrafts(next)} />
             </details> : <TodoActionView
               key={`${action.tag}-${index}`}
               action={action}

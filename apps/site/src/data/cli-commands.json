@@ -557,6 +557,12 @@
                 }
               ]
             },
+            "revision": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
             "verbose": {
               "default": false,
               "description": "Show redacted diagnostic details",
@@ -1242,7 +1248,12 @@
       "schema": {
         "args": {
           "type": "object",
-          "properties": {},
+          "properties": {
+            "origin": {
+              "type": "string",
+              "description": "Install origin"
+            }
+          },
           "additionalProperties": false
         },
         "options": {
@@ -1265,6 +1276,11 @@
               "default": false,
               "type": "boolean",
               "description": "Sign in as an administrator and open Observe already authenticated"
+            },
+            "agent": {
+              "type": "string",
+              "pattern": "^[a-z0-9-]{1,32}$",
+              "description": "External agent name"
             },
             "ttl": {
               "type": "string",

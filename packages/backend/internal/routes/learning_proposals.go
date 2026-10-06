@@ -7,6 +7,7 @@ import (
 	"github.com/smithersai/smithers/packages/backend/internal/db"
 	"github.com/smithersai/smithers/packages/backend/internal/services"
 	"net/http"
+	"net/url"
 )
 
 type LearningProposalRoutes interface {
@@ -55,7 +56,18 @@ func (h *LearningProposalsHandler) resolve(w http.ResponseWriter, r *http.Reques
 	if !ok {
 		return
 	}
-	card, err := h.Service.ResolveLearningProposal(r.Context(), repository, user, chi.URLParam(r, "id"), accept)
+	id := chi.URLParam(r, "id")
+	// Chi routes RawPath when present. Decode once, preserving literal percent
+	// sequences in note identities when the URL was already decoded.
+	if r.URL.RawPath != "" {
+		decoded, err := url.PathUnescape(id)
+		if err != nil {
+			todoRouteError(w, &services.TodoControlError{Status: http.StatusBadRequest, Code: "invalid_proposal", Class: "user", Message: "Invalid proposal."})
+			return
+		}
+		id = decoded
+	}
+	card, err := h.Service.ResolveLearningProposal(r.Context(), repository, user, id, accept)
 	if err != nil {
 		todoRouteError(w, err)
 		return

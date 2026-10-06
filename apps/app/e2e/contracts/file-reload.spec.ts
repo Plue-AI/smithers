@@ -89,6 +89,65 @@ test("/file dispatch loads branch bytes; live writes, gone states and Follow kee
   } finally { flushSync(() => root.unmount()); host.remove(); await app.dispose(); channel.dispose() }
 })
 
+test("live reload keeps the newest File after an older response arrives late", async () => {
+  const store = await createAppStore({ kind: "localStorage", storage: memoryStorage() })
+  const socket = new Socket()
+  const channel = new LiveChannel({ socket: () => socket })
+  const requests: string[] = []
+  let releaseOld!: () => void
+  let oldBodyRequested = false
+  let oldBodyReturned = false
+  const oldBody = new Promise<void>(resolve => { releaseOld = resolve })
+  const app = controller(store, agent, { bootstrap: { ...bootstrap, capabilities: ["install"] },
+    branchOptions: { ready: () => true, scope: () => ({ branch: "b12", member: "ben", revision: 1, sleeping: false }) },
+    live: channel,
+    fetchImpl: async input => {
+      const url = String(input)
+      if (!url.includes("/branches/b12/files/")) return json({}, 404)
+      requests.push(url)
+      if (url.endsWith("?digest=two")) {
+        oldBodyRequested = true
+        await oldBody
+        oldBodyReturned = true
+        return json({ ...first, digest: "two", content: { kind: "text", text: "old response\n" }, last_writer: maya })
+      }
+      if (url.endsWith("?digest=three")) return json({ ...first, digest: "three", content: { kind: "text", text: "new response\n" } })
+      return json(first)
+    }
+  })
+  const host = document.createElement("div"); document.body.append(host); const root = createRoot(host)
+  const id = "file-branch-b12-retry.ts"
+  const render = () => flushSync(() => root.render(createElement(ControllerContext.Provider, { value: app }, renderCardBody(store.collections.cards.get(id)!, noActions))))
+  try {
+    expect((await app.commands.submit({ name: "file", payload: { path: "retry.ts", branch: "b12" }, actor: "user" })).status).toBe("executed")
+    render(); await wait(() => !!host.querySelector('[data-kind="file"]'))
+    const surface = host.querySelector('[data-kind="file"]')
+    socket.open()
+    const subscription = socket.frames.map(frame => JSON.parse(frame)).find(frame => frame.t === "sub" && frame.topic === "branch:b12:files")
+    socket.receive({ t: "snap", id: subscription.id, cursor: 0, data: [] })
+    socket.receive({ t: "delta", id: subscription.id, cursor: 1, data: { kind: "file_written", path: "retry.ts", post_digest: "two", actor: maya } })
+    await wait(() => oldBodyRequested)
+    const ben = { ...maya, login: "ben", name: "Ben", via: "terminal" } as const
+    socket.receive({ t: "delta", id: subscription.id, cursor: 2, data: { kind: "file_written", path: "retry.ts", post_digest: "three", actor: ben } })
+    await wait(() => (store.collections.cards.get(id) as any).payload.digest === "three")
+    render(); expect(host.querySelector('[data-kind="file"]')).toBe(surface)
+    expect(host.textContent).toContain("new response")
+    releaseOld()
+    await wait(() => oldBodyReturned)
+    // Allow the stale read and its subscription continuation to settle.
+    await new Promise(resolve => setTimeout(resolve, 0))
+    const card = store.collections.cards.get(id)
+    if (card?.kind !== "file") throw new Error("Missing File card")
+    expect(card.payload.content).toBe("new response\n")
+    expect(card.payload.digest).toBe("three")
+    expect(card.payload.file?.last_writer).toEqual(ben)
+    render(); expect(host.querySelector('[data-kind="file"]')).toBe(surface)
+    expect(host.querySelector('[data-digest="three"]')).not.toBeNull()
+    expect(host.textContent).not.toContain("old response")
+    expect(requests).toEqual(["/api/branches/b12/files/retry.ts", "/api/branches/b12/files/retry.ts?digest=two", "/api/branches/b12/files/retry.ts?digest=three"])
+  } finally { releaseOld(); flushSync(() => root.unmount()); host.remove(); await app.dispose(); channel.dispose() }
+})
+
 test("/files and /diff use branch routes and preserve literal item-prefix and scratch-fork bases", async () => {
   const store = await createAppStore({ kind: "localStorage", storage: memoryStorage() })
   let sleeping = false
@@ -180,4 +239,40 @@ test("deleted Restore uses absent and a recreated file is read without a second 
     { path: "/api/branches/b12/files/retry.ts" }
   ])
   await app.dispose()
+})
+
+
+test.each(["read_only", "live", "large"] as const)("install files.read retains a %s projection as read-only through CardRenderers without execution providers", async variant => {
+  const store = await createAppStore({ kind: "localStorage", storage: memoryStorage() })
+  const requests: string[] = []
+  const text = variant === "large" ? "// retained line\n".repeat(1100) + "export const retry = 1\n" : "export const retry = 1\n"
+  const model: FileCard = { ...first, branch: "main", last_writer: maya, mode: variant === "live" ? "live" : "read_only", content: { kind: "text", text } }
+  const app = controller(store, agent, { bootstrap: { ...bootstrap, capabilities: ["install", "identity"] },
+    fetchImpl: async input => {
+      const url = String(input); requests.push(url)
+      if (url === "/api/members") return json({ members: [{ login: "ben", name: "Ben", avatar_url: "https://example.com/ben.png", color_index: 0, role: "owner", needs_access: false, suspended: false, actions: [] }], access_url: "https://github.com/will/flows/settings/access" })
+      if (url === "/api/branches/main/files/retry.ts") return json(model)
+      return json({}, 404)
+    }
+  })
+  const host = document.createElement("div"); document.body.append(host); const root = createRoot(host)
+  try {
+    await store.dispatch({ type: "identity.session.loaded", actor: "system", state: "signed-in", login: "ben", admin: false, scopesPlain: null }).isPersisted.promise
+    await store.dispatch({ type: "repositories.loaded", actor: "system", repositories: [{ id: "will/flows", org: "will", ownerKind: "user", name: "flows", head: { bookmark: "main", changeId: "change123", commitId: "commit123" } }] }).isPersisted.promise
+    expect((await app.commands.run("files.read", "retry.ts:1:2")).status).toBe("executed")
+    const card = [...store.collections.cards.values()].find(card => card.kind === "file")
+    if (card?.kind !== "file") throw new Error("Missing install File card")
+    expect(card.payload.file).toEqual({ ...model, mode: "read_only", reveal: { line: 1, col: 1 } })
+    expect(card.payload.digest).toBe("one")
+    expect(card.payload.content).toBe(text)
+    expect(card.payload.truncated).toBe(false)
+    flushSync(() => root.render(createElement(ControllerContext.Provider, { value: app }, renderCardBody(card, noActions))))
+    await wait(() => !!host.querySelector('[data-digest="one"]'))
+    expect(host.textContent).toContain(variant === "large" ? "retained line" : "export const retry = 1")
+    expect(host.querySelector('[role="img"][aria-label="Maya via SSH"]')).not.toBeNull()
+    expect(host.querySelector('[data-mode="read_only"]')).not.toBeNull()
+    expect(requests.filter(url => url.includes("retry.ts"))).toEqual(["/api/branches/main/files/retry.ts"])
+    expect(requests.some(url => url.includes("sessions") || url.includes("wake"))).toBe(false)
+    expect(app.commands.find("code.hover")).toBeUndefined()
+  } finally { flushSync(() => root.unmount()); host.remove(); await app.dispose() }
 })

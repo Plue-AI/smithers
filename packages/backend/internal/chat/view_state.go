@@ -18,24 +18,103 @@ func (s *Store) ReadMemberViewState(ctx context.Context, userID int64, conversat
 	return s.memberViewState(ctx, userID, conversation, nil)
 }
 
+// readMemberView takes one database snapshot of the member's view and private
+// queue. No browser Draft, confirmation, other author's prompt or started turn
+// enters this projection. Empty queues retain the existing view-state shape.
+func (s *Store) readMemberView(ctx context.Context, userID int64, conversation string) (json.RawMessage, error) {
+	tx, err := s.pool.BeginTx(ctx, pgx.TxOptions{IsoLevel: pgx.RepeatableRead, AccessMode: pgx.ReadOnly})
+	if err != nil {
+		return nil, err
+	}
+	defer func() { _ = tx.Rollback(context.WithoutCancel(ctx)) }()
+	var result json.RawMessage
+	var repositoryID int64
+	err = tx.QueryRow(ctx, `SELECT c.repository_id, coalesce(c.view_state->$2,'{}'::jsonb) || jsonb_build_object('toasts_hidden',c.toasts_hidden)
+ FROM collaborators c JOIN users u ON u.id=c.user_id
+ JOIN install_settings i ON i.key='github.repository' AND (i.value->>'repository_id')::bigint=c.repository_id
+ WHERE c.user_id=$1 AND c.suspended_at IS NULL AND NOT u.prohibit_login`, userID, conversation).Scan(&repositoryID, &result)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return nil, ErrForbidden
+	}
+	if err != nil {
+		return nil, err
+	}
+	rows, err := tx.Query(ctx, `SELECT `+turnColumns+` FROM chat_turns WHERE repository_id=$1 AND user_id=$2 AND conversation_id=$3 AND state='queued' AND NOT terminal ORDER BY created_at,id`, repositoryID, userID, conversation)
+	if err != nil {
+		return nil, err
+	}
+	type queuedPrompt struct {
+		ID     string `json:"id"`
+		RunID  string `json:"runId"`
+		LegID  string `json:"legId"`
+		Prompt string `json:"prompt"`
+		Cursor Cursor `json:"cursor"`
+	}
+	queue := []queuedPrompt{}
+	for rows.Next() {
+		turn, scanErr := scanTurn(rows)
+		if scanErr != nil {
+			rows.Close()
+			return nil, scanErr
+		}
+		_, cursor, checkErr := checkHead(turn)
+		if checkErr != nil {
+			rows.Close()
+			return nil, checkErr
+		}
+		_, prompt, metadataErr := conversationMetadata(turn)
+		if metadataErr != nil {
+			rows.Close()
+			return nil, metadataErr
+		}
+		queue = append(queue, queuedPrompt{ID: turn.ID, RunID: turn.RunID, LegID: turn.LegID, Prompt: prompt, Cursor: cursor})
+	}
+	rows.Close()
+	if err = rows.Err(); err != nil {
+		return nil, err
+	}
+	var view map[string]json.RawMessage
+	if err = json.Unmarshal(result, &view); err != nil {
+		return nil, ErrCorrupt
+	}
+	// Saved browser input never supplies a queue. Only committed rows do.
+	delete(view, "queue")
+	if len(queue) > 0 {
+		view["queue"], err = json.Marshal(queue)
+		if err != nil {
+			return nil, err
+		}
+	}
+	result, err = json.Marshal(view)
+	if err != nil {
+		return nil, err
+	}
+	if err = tx.Commit(ctx); err != nil {
+		return nil, err
+	}
+	return result, nil
+}
+
 // View state belongs to the authenticated member, never to a shared entry.
 // Resolve the single installed repository and recheck suspension on each write.
 func (s *Store) memberViewState(ctx context.Context, userID int64, conversation string, value json.RawMessage) (json.RawMessage, error) {
 	if !validIdentity(conversation) || userID <= 0 {
 		return nil, ErrInvalidRequest
 	}
-	var row pgx.Row
 	if value == nil {
-		row = s.pool.QueryRow(ctx, `SELECT coalesce(c.view_state->$2,'{}'::jsonb) || jsonb_build_object('toasts_hidden',c.toasts_hidden) FROM collaborators c
-   JOIN install_settings i ON i.key='github.repository' AND (i.value->>'repository_id')::bigint=c.repository_id
-   WHERE c.user_id=$1 AND c.suspended_at IS NULL`, userID, conversation)
-	} else {
+		return s.readMemberView(ctx, userID, conversation)
+	}
+	var row pgx.Row
+	{
 		object, canonical, err := parseCanonical(value)
 		if err != nil {
 			return nil, err
 		}
 		state, ok := object.(map[string]any)
 		if !ok {
+			return nil, ErrInvalidRequest
+		}
+		if _, supplied := state["queue"]; supplied {
 			return nil, ErrInvalidRequest
 		}
 		var hidden *bool
@@ -56,9 +135,7 @@ func (s *Store) memberViewState(ctx context.Context, userID int64, conversation 
 	}
 	var result json.RawMessage
 	var err error
-	if value == nil {
-		err = row.Scan(&result)
-	} else {
+	{
 		// PostgreSQL emits the hint only when the update commits. It carries
 		// no private state; authorized subscribers reread the saved projection.
 		var hint any

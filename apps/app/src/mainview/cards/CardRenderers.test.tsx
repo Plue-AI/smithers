@@ -12,6 +12,7 @@ import { renderCardBody, CARD_FAMILIES, CARD_RENDERERS, cardRenderer, pillStatus
 import { ControllerTestProvider } from "../ControllerContext"
 import type { AppController } from "../state/AppController"
 import { createDesignWorld } from "../state/seams/DesignWorld"
+import { cardAvailable } from "../state/CardAvailability"
 import { BEN, MAYA } from "../state/seams/DesignWorld/world"
 import { designMembersRoster, designViewerRole } from "../state/seams/DesignWorld/settings"
 
@@ -24,7 +25,7 @@ import { designMembersRoster, designViewerRole } from "../state/seams/DesignWorl
 
 /** Every card kind the wire declares, read off the discriminated union itself. */
 const wireKinds = (): ReadonlyArray<string> =>
-  CardSchema.options.map((option) => option.shape.kind.value).filter(kind => !["retired", "balance", "billing-plans", "stack", "factory.home"].includes(kind))
+  CardSchema.options.map((option) => option.shape.kind.value).filter(kind => !["repository-choice", "retired", "balance", "billing-plans", "stack", "factory.home"].includes(kind))
 
 const base = { id: "card-x", title: "Card", createdAt: 1, ordinal: 1 } as const
 
@@ -125,17 +126,6 @@ describe("CardRenderers", () => {
     expect(pillStatus({ ...halfway, payload: { progress: 1 } })).toBe("done")
   })
 
-  test("a kind without a family rule is done once acted on and pending until then", () => {
-    const chooser: Card = {
-      ...base,
-      kind: "workflow-repo",
-      status: "active",
-      payload: { intent: "create", description: "Which repository?", repos: ["o/r"], chosen: null }
-    }
-    expect(pillStatus(chooser)).toBe("pending")
-    expect(pillStatus({ ...chooser, status: "acted" })).toBe("done")
-  })
-
   /*
    * The fallback is the one pill rule no family chose, so a kind reaching it
    * by omission wears Pending forever (§28.3: a settled read badged PENDING is
@@ -148,7 +138,7 @@ describe("CardRenderers", () => {
       .filter(([, entry]) => entry.pill === defaultPill)
       .map(([kind]) => kind)
       .sort()
-    expect(onDefault).toEqual(["workflow-repo"])
+    expect(onDefault).toEqual([])
   })
 
   test("a settled environment-images listing is done, not pending", () => {
@@ -260,25 +250,14 @@ describe("wiki history card (#1922)", () => {
   })
 })
 
-test("repository chooser exposes one keyboard stop and the highlighted repository", async () => {
-  GlobalRegistrator.register()
-  const host = document.createElement("div"); document.body.append(host)
-  const root = createRoot(host)
-  const selected: string[] = []
-  const card: Card = { ...base, kind: "workflow-repo", status: "active", payload: { intent: "create", repos: ["a/one", "b/two"], chosen: null, description: "Choose a repository" } }
-  try {
-    await act(async () => root.render(<CardView card={card} {...handlers} onChooseWorkflowRepo={repo => selected.push(repo)} />))
-    const list = host.querySelector<HTMLElement>('[role="listbox"]')!
-    const options = [...host.querySelectorAll<HTMLElement>('[role="option"]')]
-    expect(options.map(option => option.tabIndex)).toEqual([-1, -1])
-    list.focus()
-    expect(list.getAttribute("aria-activedescendant")).toBe(options[0]!.id)
-    await act(async () => { list.dispatchEvent(new KeyboardEvent("keydown", { key: "ArrowDown", bubbles: true, cancelable: true })) })
-    expect(document.activeElement).toBe(list)
-    expect(list.getAttribute("aria-activedescendant")).toBe(options[1]!.id)
-    await act(async () => { list.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true, cancelable: true })) })
-    expect(selected).toEqual(["b/two"])
-  } finally { await act(async () => root.unmount()); host.remove(); await GlobalRegistrator.unregister() }
+test("retained repository choices render their title without a live chooser", () => {
+  const card = CardSchema.parse({ ...base, kind: "workflow-repo", status: "active",
+    payload: { intent: "create", repos: ["a/one", "b/two"], chosen: null, description: "Choose a repository" } })
+  const markup = renderToStaticMarkup(<CardView card={card} {...handlers} />)
+  expect(card.kind).toBe("retired")
+  expect(markup).toContain("Card")
+  expect(markup).not.toContain('role="listbox"')
+  expect(markup).not.toContain('data-flow="flow.repo.choose"')
 })
 
 /*
@@ -345,4 +324,17 @@ test("legacy File and Diff render with live controls dark", async () => {
       expect(calls).toEqual([])
     }
   } finally { await act(async () => root.unmount()); host.remove(); await GlobalRegistrator.unregister() }
+})
+
+
+test("deferred repository choices retain their payload without a member renderer", () => {
+  const payload: CardOf<"repository-choice">["payload"] = { cutoff: "2026-10-06T00:00:00Z", partial: false, error: null,
+    selected: "owner/repo", created: null, repositories: [{ fullName: "owner/repo",
+      count: 1, latest: null, coverage: "default-branch", error: null }] }
+  const card = CardSchema.parse({ ...base, kind: "repository-choice", status: "active", payload })
+  expect(card.kind).toBe("repository-choice")
+  expect(card.payload).toEqual(payload)
+  expect(cardAvailable(card.kind)).toBe(false)
+  expect(Object.keys(CARD_RENDERERS)).not.toContain(card.kind)
+  expect(renderToStaticMarkup(<CardView card={card} {...handlers} />)).not.toContain("owner/repo")
 })

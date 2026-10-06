@@ -1,5 +1,9 @@
 import { expect, test } from "../browserTest"
 import { owner, say } from "./j1-fixtures"
+import { createRequire } from "node:module"
+import { resolve } from "node:path"
+
+const axePath = createRequire(resolve(process.cwd(), "package.json")).resolve("axe-core/axe.min.js")
 
 // T-UI-02 phase: production Views, supplied callbacks; model writes belong to T-FLW-08.
 test("C-UI-12: Settings model slot is empty or supplied once with no duplicate actions", async ({ page }) => {
@@ -311,7 +315,7 @@ test("C-UI-12: primitive actors, states and tones render in both Paper themes", 
   }
 })
 
-test("C-UI-12: Branch states and recovery controls render in both themes and widths", async ({ page }) => {
+test("C-UI-12: Branch states and recovery controls render in both themes and widths", async ({ page }, testInfo) => {
   test.setTimeout(180_000)
   const cases = [
     ["branch-awake-activity", "Awake", "Sleep"],
@@ -341,6 +345,15 @@ test("C-UI-12: Branch states and recovery controls render in both themes and wid
       await expect(card).toContainText(text)
       if (control) await expect(card.getByRole("button", { name: control, exact: true })).toBeEnabled()
       expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true)
+      await page.addScriptTag({ path: axePath })
+      const violations = await page.evaluate(async () => {
+        const axe = (window as unknown as { axe: { run: () => Promise<{ violations: { id: string; impact: string | null }[] }> } }).axe
+        return (await axe.run()).violations.filter(row => row.impact === "serious" || row.impact === "critical")
+      })
+      expect(violations, `${story} ${theme} ${width}`).toEqual([])
+      const screenshot = testInfo.outputPath(`${story}-${theme}-${width}.png`)
+      await card.screenshot({ path: screenshot, animations: "disabled" })
+      await testInfo.attach(`${story}-${theme}-${width}`, { path: screenshot, contentType: "image/png" })
     }
   }
 })

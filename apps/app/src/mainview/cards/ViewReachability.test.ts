@@ -79,3 +79,20 @@ test("T-APP-12 mounts TerminalView and removes the Workspace terminal facet", ()
   expect(source).not.toContain("<Terminal")
   expect(source).not.toContain('case "terminal"')
 })
+
+// T-APP-03: Setup and Settings replace these families together. Recorded
+// legacy payloads remain decodable. The neighboring cut ticket retains the
+// deferred RepositoryChoice source for persisted history (mvp.md §8).
+const INSTALL_WIRING = [
+  { view: "SetupView.tsx", legacy: ["AccountCard.tsx", "EnvCard.tsx", "RepoImportCard.tsx"] },
+  { view: "SettingsView.tsx", legacy: ["ProviderAccountsCard.test.tsx", "CardActions.ts", "InstallCardActions.ts"] }
+]
+test("T-APP-03 mounts Setup and Settings and deletes their replaced families", () => {
+  visit(join(root, "cards/CardRenderers.tsx"))
+  for (const { view, legacy } of INSTALL_WIRING) {
+    expect(reachable.has(join(root, "cards/views", view))).toBe(true)
+    for (const file of legacy) expect(() => statSync(join(root, "cards", file))).toThrow()
+  }
+  expect(readFileSync(join(root, "cards/SecretsCard.tsx"), "utf8")).not.toContain("ProviderAccountsCardBody")
+  expect(readFileSync(join(root, "cards/SyncCards.tsx"), "utf8")).not.toContain('"connector-setup"')
+})

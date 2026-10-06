@@ -509,11 +509,12 @@ func (s *MythicalService) ProjectFlowRuntime(ctx context.Context, update flowdis
 			if (item.State == "landed" || item.State == "cancelled" || item.State == "rejected" || item.State == "declined") && !update.State.Terminal() {
 				return nil
 			}
-			// The failed composition is ended. A delayed live checkpoint cannot
-			// attach it again or open a run question while a person decides Retry.
-			// Final evidence still belongs to this attempt; a fresh admitted
-			// attempt leaves blocked before its host can report attachment.
-			if item.State == "blocked" && (projection.Phase == "todo" || projection.Phase == "request") && !update.State.Terminal() {
+			// The failed composition is ended, including after a person queues
+			// Retry but before its successor is admitted. A delayed live
+			// checkpoint cannot attach it again or reopen a run question.
+			// Final evidence still belongs to this attempt; fresh admission
+			// replaces the ended attempt before its host reports attachment.
+			if (item.State == "blocked" || todoRetryPending(item)) && (projection.Phase == "todo" || projection.Phase == "request") && !update.State.Terminal() {
 				return nil
 			}
 			// Candidate capture/rebase advances generation without replacing the
@@ -613,6 +614,11 @@ func (s *MythicalService) ProjectFlowRuntime(ctx context.Context, update flowdis
 					}
 				}
 				s.itemChanged(ctx, q, stack, saved.ID)
+			} else if s.todoSteering && projection.Phase == "todo" && pinned &&
+				!mythicalChecksOf(item).RunAttached && mythicalChecksOf(saved).RunAttached {
+				// Do not commit attachment without the authority needed to
+				// hand off its pending inputs; retry the whole projection.
+				return err
 			}
 			return nil
 		}
@@ -829,8 +835,9 @@ func mythicalReviewVerdict(output string) string {
 	if json.Unmarshal([]byte(output), &text) != nil {
 		text = output
 	}
-	first, _, _ := strings.Cut(strings.TrimLeft(text, " \t\r\n"), "\n")
-	switch verdict := strings.TrimSpace(first); verdict {
+	first, _, _ := strings.Cut(text, "\n")
+	// CRLF is a line ending; other whitespace is part of the verdict.
+	switch verdict := strings.TrimSuffix(first, "\r"); verdict {
 	case "approve", "request-changes":
 		return verdict
 	}
@@ -864,6 +871,13 @@ const mythicalInterrupted = "stopped: interrupted: interrupted"
 func mythicalFailedOutcome(update flowdispatch.ProjectionUpdate) string {
 	if run := update.Checkpoint.Run; run != nil && (run.Status == "interrupted" || run.Status == "uncertain" || run.FailureTag == "@smthrs/flow/IrreversibleRetryRequiresIdempotencyKey") {
 		return mythicalInterrupted
+	}
+	// Tree-writing checks require a person's Retry, even when a retained
+	// runtime classified the check as a factory fault or sent only its code.
+	// Replanning must not hide the check's preserved output (S13).
+	if update.Checkpoint.FailureCode == "check_modified_tree" ||
+		(update.Checkpoint.Run != nil && update.Checkpoint.Run.FailureTag == "coding/Error/check_modified_tree") {
+		return mythicalStopped + "user: coding/Error/check_modified_tree"
 	}
 	if code := strings.TrimSpace(update.Checkpoint.FailureCode); code == placementToolsMissing {
 		// The lane's box lacks a tool the repository declares: no machine
@@ -2160,7 +2174,8 @@ func (st *mythicalItemStep) start(ctx context.Context, item db.MythicalItem) (*d
 	}
 	next := item
 	next.Attempt, next.Generation = item.Attempt+1, item.Generation+1
-	next.Plan = nil
+	// Keep the latest retained plan across legacy recovery launches; the
+	// very-hard continuation needs it even if intervening runs return no plan.
 	next.RequestOutcome, next.VibeOutcome, next.VerifyOutcome = "", "", ""
 	next.RequestRunID, next.VibeRunID, next.VerifyRunID = "", "", ""
 	next.CandidateBase, next.CandidateHead, next.CandidateVerified = "", "", false
@@ -2582,6 +2597,12 @@ func (st *mythicalItemStep) protectedChanges(ctx context.Context, item db.Mythic
 // item's next verified head.
 func (st *mythicalItemStep) integrate(ctx context.Context, item db.MythicalItem) (*db.MythicalItem, bool, error) {
 	s, r := st.s, st.r
+	// Conflict dispatch needs the retained guest change and a continuation of
+	// this attempt's pinned TODO run. Until those providers are composed, keep
+	// the conflict pending; polling must never spend another coding attempt.
+	if item.Reason == "rebase_conflict_pending" {
+		return nil, false, nil
+	}
 	if item.CandidateHead == "" {
 		return nil, false, nil
 	}
@@ -2623,10 +2644,22 @@ func (st *mythicalItemStep) integrate(ctx context.Context, item db.MythicalItem)
 	case errors.Is(err, errMythicalRewrite):
 		return mythicalRetry(item, "the stack moved while this attempt amended or inserted changes; re-planning on the new tip", nil, st.now), false, nil
 	case errors.As(err, &conflict):
-		integration, _ := json.Marshal(map[string]any{"conflict": map[string]any{"paths": conflict.Paths, "onto": onto}})
-		retried := mythicalRetry(item, "rebasing onto the new tip conflicted in "+strings.Join(conflict.Paths, ", "), nil, st.now)
-		retried.Integration = integration
-		return retried, false, nil
+		if err := s.pin(ctx, r, conflict.Head); err != nil {
+			return mythicalInfraOutage(item, "launch", "the conflict could not be retained: "+err.Error(), st.now), false, nil
+		}
+		integration, _ := json.Marshal(map[string]any{"conflict": map[string]any{"paths": conflict.Paths, "onto": onto,
+			"head": conflict.Head, "tree": conflict.Tree, "base": item.CandidateBase, "pre_rebase_head": item.CandidateHead}})
+		next.Integration, next.Reason = integration, "rebase_conflict_pending"
+		checks := mythicalChecksOf(next)
+		if checks.Rebase == nil {
+			checks.Rebase = &mythicalRebase{Onto: onto, Name: st.ontoName(onto), Since: st.now}
+		}
+		checks.Land, checks.Fault = nil, nil
+		if item.PRHead != "" {
+			checks.ApprovalCleared = item.PRHead
+		}
+		next.Checks = checks.encode()
+		return &next, false, nil
 	case err != nil:
 		return mythicalInfraOutage(item, "launch", "the candidate could not be rebased: "+err.Error(), st.now), false, nil
 	}
@@ -3711,6 +3744,10 @@ func (st *mythicalItemStep) follow(ctx context.Context, item db.MythicalItem) (*
 		checks.ForeignHead = pull.HeadSHA
 		checks.notice("foreign_push:"+pull.HeadSHA, "Smithers is holding this TODO: "+next.Reason+".")
 		next.Checks = checks.encode()
+	case item.State == "rejected" && fact.Kind == "closed":
+		// A closed PR has no branch work to rebuild. Only an admitted reopen
+		// or a person's Retry may return its retained candidate to the stack.
+		next.PRState = pull.State
 	case mythicalChecksOf(item).ForeignHead == "" && item.CandidateBase != st.prefix(item):
 		// main or an earlier item published a new revision under this one
 		// (§10.5.1): its pull request rebuilds on the new prefix, whatever

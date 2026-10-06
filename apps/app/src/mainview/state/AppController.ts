@@ -1,3 +1,7 @@
+import { contextMonitor } from "./ContextMonitor"
+import type { MonitorCard } from "@smthrs/rpc/MonitorCard"
+import { designProposalCard } from "./seams/DesignWorld/proposal"
+import { createProposalSeam, type ProposalSeam } from "./seams/ProposalSeam"
 import { FileDocuments } from "../runtime/FileDocuments"
 import type { DocumentPrerequisites } from "../runtime/LiveDocProvider"
 import type { LiveChannel } from "../runtime/LiveChannel"
@@ -46,13 +50,11 @@ import { createCloudTerminalClient,pageCloudSocketUrl } from "./CloudTerminalCli
 import { selectFirstRunRepository } from "./BootRepositoryTarget"
 import type { InputMode } from "./InputMode"
 import { cardAvailable } from "./CardAvailability"
-import { disposePreparedViews,invalidatePreparedViews } from "./PreparedView"
+import { type ViewAction, disposePreparedViews,invalidatePreparedViews } from "./PreparedView"
 import type { KnownRepositories } from "./RepoContext"
 import { TodoCardSchema } from "@smthrs/rpc/TodoCard"
 import { activeCatalogRepositoryId,activeRepositoryId,knownRepositories,resolveTargetRepo } from "./RepoContext"
 import type { StorageRecoveryAction,StorageRecoveryHost } from "./StorageRecoveryAction"
-import type { AccountController } from "./controller/account"
-import { createAccountController } from "./controller/account"
 import type { AgentsController } from "./controller/agents"
 import { createModelsController } from "./controller/models"
 import { createAgentsController } from "./controller/agents"
@@ -90,7 +92,6 @@ import { createTabsController } from "./controller/tabs"
 import { observeBackgroundWork } from "./controller/backgroundWork"
 import { createPromptQueueController } from "./controller/promptQueue"
 import { createTurnController, type TurnController } from "./controller/turns"
-import { createTutorialRepositoryController,type TutorialRepositoryActions } from "./controller/repositoryChoice"
 import { createFlowDurationsReader } from "./controller/flowDurations"
 import { createWorkflowPumpController } from "./controller/workflow-pump"
 import { createWorkflowController,type WorkflowController } from "./controller/workflows"
@@ -114,8 +115,6 @@ import { createCommitsSeam } from "./seams/CommitsSeam"
 import { createDiffFilesSeam, createBranchDiffReader } from "./seams/DiffFilesSeam"
 import type { EgressSeam } from "./seams/EgressSeam"
 import { createEgressSeam } from "./seams/EgressSeam"
-import type { EnvironmentSeam } from "./seams/EnvironmentSeam"
-import { createEnvironmentSeam } from "./seams/EnvironmentSeam"
 import type { BranchFileOptions, FilesSeam } from "./seams/FilesSeam"
 import { createFilesSeam, resolveFileTarget } from "./seams/FilesSeam"
 import type { GitHubSeam } from "./seams/GitHubSeam"
@@ -309,7 +308,6 @@ export interface AppController extends IssueFlowsController {
   readonly continueRun: RunsController["continueRun"]
   readonly rerunRun: RunsController["rerunRun"]
   readonly signalRun: RunsController["signalRun"]
-  readonly steerRun: RunsController["steerRun"]
   readonly showRunLogs: RunsController["showRunLogs"]
   readonly showRunSteps: RunsController["showRunSteps"]
   readonly showRunEvents: RunsController["showRunEvents"]
@@ -334,8 +332,6 @@ export interface AppController extends IssueFlowsController {
   readonly frameBack: () => void
   readonly frameForward: () => void
   /* Tutorial stage 2: the ranked chooser and the local Skip. */
-  readonly chooseTutorialRepository: TutorialRepositoryActions["chooseTutorialRepository"]
-  readonly createTutorialRepository: TutorialRepositoryActions["createTutorialRepository"]
   readonly selectRepo: TabsController["selectRepo"]
   /* The sidebar's file tree and workspace heading; see controller/sidebar.ts. */
   readonly toggleRepoTree: SidebarController["toggleRepoTree"]
@@ -462,8 +458,6 @@ export interface AppController extends IssueFlowsController {
   readonly promptCloudSignIn: () => void
   /** Reload the app window — the /reload affordance (dev loop, stuck states). */
   readonly reloadApp: () => void
-  /** Render the account card, or the sign-in step signed out (account.show). */
-  readonly showAccount: AccountController["showAccount"]
   /*
    * The multi-parity domain seams (MULTI-ACTIONS-GAP.md Tier 1/2): issues,
    * PRs/landings, billing checkout, notifications, the agent
@@ -486,14 +480,9 @@ export interface AppController extends IssueFlowsController {
   readonly showBillingPlans: BillingSeam["showBillingPlans"]
   readonly startCheckout: BillingSeam["startCheckout"]
   readonly openBillingPortal: BillingSeam["openBillingPortal"]
-  readonly viewEnvironment: EnvironmentSeam["viewEnvironment"]
-  readonly setEnvironmentVar: EnvironmentSeam["setEnvironmentVar"]
-  readonly removeSubscriptionToken: EnvironmentSeam["removeSubscriptionToken"]
-  readonly connectCodingProvider: SecretsSeam["connectCodingProvider"]
-  readonly listCodingProviders: SecretsSeam["listCodingProviders"]
-  readonly revokeCodingProvider: SecretsSeam["revokeCodingProvider"]
-  readonly connectCodex: SecretsSeam["connectCodex"]
-  readonly moveCodingProvider: SecretsSeam["moveCodingProvider"]
+  readonly viewEnvironment: ViewAction<[repo?: string]>
+  readonly setEnvironmentVar: (assignment: string, repo?: string) => ReturnType<ViewAction<[repo?: string]>>
+  readonly removeSubscriptionToken: ViewAction<[repo?: string]>
   readonly listSecrets: SecretsSeam["listSecrets"]
   readonly scopeSecret: SecretsSeam["scopeSecret"]
   readonly bindSecret: SecretsSeam["bindSecret"]
@@ -520,6 +509,7 @@ export interface AppController extends IssueFlowsController {
   readonly draftImagePackage: TodoSeam["draftImagePackage"]
   readonly discardForeign: TodoSeam["discardForeign"]
   readonly controlTodo: TodoSeam["controlTodo"]
+  readonly resolveProposal: ProposalSeam["resolveProposal"]
   /** Move up or Move down on Tn: the seed's, or this host's POST /api/todos/{n} {op: move}. */
   readonly moveTodo: TodoSeam["moveTodo"]
   readonly refreshWiki: StackSeam["refreshWiki"]
@@ -551,6 +541,7 @@ export interface AppController extends IssueFlowsController {
   /** With a `subject` (Branch, Terminal: card-kinds.md L5) the card is `${kind}:${subject}` with payload `{ id: subject }`. */
   readonly presentCard: (kind: "setup" | "settings" | "members" | "commands" | "branch" | "terminal", title: string, subject?: string) => Promise<string>
   /** Opens (or reveals) the Run card for run `id`; `maximize` is Inspect. */
+  readonly contextRun: (id: string) => MonitorCard | undefined
   readonly presentRun: (id: string, title: string, maximize: boolean) => Promise<string>
   /** Opens (or reveals) the Flow card for flow `name`, at `version` when given. */
   readonly presentFlow: (name: string, title: string, version?: string) => Promise<string>
@@ -564,6 +555,7 @@ export interface AppController extends IssueFlowsController {
   readonly setInstallAddress: InstallSeam["setInstallAddress"]
   readonly setInstallCapacity: InstallSeam["setInstallCapacity"]
   readonly setInstallObsidian: InstallSeam["setInstallObsidian"]
+  readonly setInstallDailyAdmissions: InstallSeam["setInstallDailyAdmissions"]
   readonly setInstallParallel: InstallSeam["setInstallParallel"]
   readonly saveInstallModelKey: InstallSeam["saveInstallModelKey"]
   readonly stackSnapshots: StackSeam["snapshots"]
@@ -970,6 +962,11 @@ export const createAppController = (
     await store.dispatch({ type: "card.upsert", actor: ctx.commandActor, card }).isPersisted.promise
     return `Opened ${title}`
   }
+  const contextRun = (id: string): MonitorCard | undefined => {
+    const owner = ctx.accountOwner()
+    const turn = [...store.collections.httpTurns.values()].find(row => row.turnId === id && row.owner === owner)
+    return turn === undefined ? undefined : contextMonitor(turn)
+  }
   /* THE EMBED LAW: only a person's press maximizes; the agent's binding (ActorBindings) opens the Run card embedded. */
   const { presentRun } = actors.pair(ctx, context => ({ presentRun: async (runId: string, title: string, maximize: boolean): Promise<string> => {
     const id = `run:${runId}`
@@ -1016,6 +1013,25 @@ export const createAppController = (
     return !model.success || model.data.n !== n || !model.data.branch
       ? { error: "Branch files are unavailable." } as const : { branch: model.data.branch.id } as const
   }
+  const proposalSource = installHost ? todoSource : todoSourceProbe(seamCtx, services.bootstrap !== undefined, "/api/proposals")
+  const proposalSeam = actors.pair(seamCtx, context => {
+    const real = createProposalSeam(context)
+    return { ...real, resolveProposal: async (id: string, action: "accept" | "dismiss") => {
+      if (design.enabled && await proposalSource.ask() === "seed") {
+        const before = design.world(), seed = before.proposals.find(row => row.id === id)
+        const result = action === "accept" ? design.proposalTodo(id, design.viewer()) : design.dismissProposal(id)
+        const card = store.collections.cards.get(`proposal:${id}`)
+        if (result.ok && seed && card?.kind === "proposal") {
+          const after = design.world(), current = after.proposals.find(row => row.id === id)
+          const model = action === "dismiss" ? { ...designProposalCard(before, seed), state: "dismissed" as const }
+            : designProposalCard(after, current ?? seed)
+          await context.dispatch({ type: "card.upsert", actor: context.actor(), card: { ...card, payload: { ...card.payload, model } } }).isPersisted.promise
+        }
+        return result.ok ? { value: result.ack } : result.refusal
+      }
+      return real.resolveProposal(id, action)
+    } }
+  })
   const todoSeam = actors.pair(seamCtx, context => withDesignTodos(createTodoSeam(context, { sourceAvailable: async path => {
     try {
       const response = await context.http(`${baseUrl.replace(/\/$/, "")}/api/branches/main/files/${path.split("/").map(encodeURIComponent).join("/")}`, { credentials: "include" })
@@ -1055,18 +1071,6 @@ export const createAppController = (
   /* The services that sync with conversations, issues and the wiki (smithers-ui-DESIGN.md §3.6). */
   const landingsSeam = actors.pair(seamCtx, (context, select) => createLandingsSeam(context, request => select(renderFlowForm)(request)))
   const repositoriesSeam = actors.pair(seamCtx, (context) => createRepositoriesSeam(context))
-  const tutorialRepository = actors.pair(ctx, (context) => createTutorialRepositoryController(context, {
-    createRepository: repositoriesSeam.createRepository,
-    publish: async (payload) => {
-      const id = "repository-choice"
-      const existing = context.store.collections.cards.get(id)
-      await context.store.dispatch({ type: "card.upsert", actor: context.commandActor, card: {
-        id, kind: "repository-choice", title: "Repository", status: "active",
-        createdAt: existing?.createdAt ?? Date.now(), ordinal: existing?.ordinal ?? store.nextOrdinal(),
-        payload: { ...payload, repositories: [...payload.repositories] }
-      } }).isPersisted.promise
-    }
-  }))
   const billingSeam = actors.pair(seamCtx, context => createBillingSeam(context, {
     overview: services.bootstrap?.capabilities.includes("billing.overview") ?? false,
     plans: services.bootstrap?.capabilities.includes("billing.plans") ?? false,
@@ -1074,7 +1078,6 @@ export const createAppController = (
     portal: services.bootstrap?.capabilities.includes("billing.portal") ?? false
   }, () => ctx.disposed))
   const repositoryUpdate = actors.pair(seamCtx, context => createRepositoryUpdate(context, () => ctx.disposed))
-  const environmentSeam = actors.pair(seamCtx, (context) => createEnvironmentSeam(context))
   const secretsSeam = actors.pair(seamCtx, (context) => createSecretsSeam(context, withToast, { install: installHost, live: services.live, onDispose: ctx.onDispose,
     fallback: !installHost && services.bootstrap !== undefined ? {
       rows: () => designSecrets(design).rows().map(secret => ({ name: secret.name, mainOnly: secret.scope === "main only", hosts: [], matchHeaders: [], updatedAt: null, reconnect: false })),
@@ -1687,17 +1690,6 @@ export const createAppController = (
   }
   // A registration still importing or launching reconnects with the runs, after boot and sign-in.
 
-  /*
-   * The account card (mock 21): seam facts about the signed-in person, or the
-   * sign-in step when no one is, through auth.prompt's renderer.
-   */
-  const account = actors.pair(ctx, (context) =>
-    createAccountController(context, {
-      nextOrdinal: store.nextOrdinal, promptSignIn,
-      provider: identityProviderFor(services),
-      readsScopes: services.applicationIdentity === undefined
-    }))
-
   const reloadApp = (): void => {
     if (typeof window !== "undefined") window.location.reload()
   }
@@ -1819,6 +1811,7 @@ export const createAppController = (
     live: services.live,
     design,
     presentCard,
+    contextRun,
     presentRun,
     presentFlow,
     presentSubject,
@@ -1829,6 +1822,7 @@ export const createAppController = (
     /* MOCK SEAM (DesignWorld/settings.ts designInstall): the Settings card shows the live install once it has a model, so the write goes there; the seed takes it only until then. */
     setInstallCapacity: capacity => !installHost && installSeam.snapshots.get().model === undefined ? designSettings(design).capacity(capacity) : installSeam.setInstallCapacity(capacity),
     setInstallObsidian: installSeam.setInstallObsidian,
+    setInstallDailyAdmissions: value => installSeam.setInstallDailyAdmissions(value),
     setInstallParallel: parallel => !installHost && installSeam.snapshots.get().model === undefined ? designSettings(design).parallel(parallel) : installSeam.setInstallParallel(parallel),
     saveInstallModelKey: installSeam.saveInstallModelKey,
     showMembers,
@@ -1920,7 +1914,6 @@ export const createAppController = (
     continueRun: runs.continueRun,
     rerunRun: runs.rerunRun,
     signalRun: runs.signalRun,
-    steerRun: runs.steerRun,
     showRunLogs: runs.showRunLogs,
     showRunSteps: runs.showRunSteps,
     showRunEvents: runs.showRunEvents,
@@ -1942,7 +1935,6 @@ export const createAppController = (
     minimizeCard,
     frameBack,
     frameForward,
-    ...tutorialRepository,
     selectRepo,
     toggleRepoTree,
     newModel, editModel, saveModel, removeModel, testModel, showModel,
@@ -1999,7 +1991,6 @@ export const createAppController = (
       if (ctx.disposed || privacyActions.refuse(ctx.commandActor) !== undefined) return
       store.dispatch({ type: "hint.dismissed", actor: ctx.commandActor, id })
     },
-    showAccount: account.showAccount,
     listIssues: issuesSeam.listIssues,
     viewIssue: issuesSeam.viewIssue,
     createIssue: issuesSeam.createIssue,
@@ -2017,14 +2008,9 @@ export const createAppController = (
     startCheckout: billingSeam.startCheckout,
     openBillingPortal: billingSeam.openBillingPortal,
     ...repositoryUpdate,
-    viewEnvironment: environmentSeam.viewEnvironment,
-    setEnvironmentVar: environmentSeam.setEnvironmentVar,
-    removeSubscriptionToken: environmentSeam.removeSubscriptionToken,
-    connectCodingProvider: secretsSeam.connectCodingProvider,
-    listCodingProviders: secretsSeam.listCodingProviders,
-    revokeCodingProvider: secretsSeam.revokeCodingProvider,
-    connectCodex: secretsSeam.connectCodex,
-    moveCodingProvider: secretsSeam.moveCodingProvider,
+    viewEnvironment: async () => installSeam.showSettings(),
+    setEnvironmentVar: async () => installSeam.showSettings(),
+    removeSubscriptionToken: async () => installSeam.showSettings(),
     listSecrets: secretsSeam.listSecrets,
     scopeSecret: secretsSeam.scopeSecret,
     bindSecret: secretsSeam.bindSecret,
@@ -2048,6 +2034,7 @@ export const createAppController = (
     draftImagePackage: todoSeam.draftImagePackage,
     discardForeign: todoSeam.discardForeign,
     controlTodo: todoSeam.controlTodo,
+    resolveProposal: proposalSeam.resolveProposal,
     moveTodo: todoSeam.moveTodo,
     refreshWiki: stackSeam.refreshWiki,
     registerTrigger,
@@ -2225,9 +2212,9 @@ export const createAppController = (
   triggersSeam.resumePauses()
   triggersSeam.resumePreparations()
   repoImportSeam.resume()
-  secretsSeam.resumeCodingProviders()
   secretsSeam.resumeSecretRequests()
   egressSeam.resumeEgressRequests()
+  proposalSeam.resumeProposals()
   todoSeam.resumeTodos()
   stackSeam.resumeStacks()
   workflowController.resumeWorkflowRequests()
@@ -2238,10 +2225,9 @@ export const createAppController = (
    */
   const setupIdentitySubscription = store.collections.identitySessions.subscribeChanges(() => {
     queueMicrotask(() => { if (!ctx.disposed) { conversationHistory.resume(); triggersSeam.resumePauses(); triggersSeam.resumePreparations() } })
-    queueMicrotask(() => { if (!ctx.disposed) { secretsSeam.resumeCodingProviders(); secretsSeam.resumeSecretRequests(); egressSeam.resumeEgressRequests() } })
+    queueMicrotask(() => { if (!ctx.disposed) { secretsSeam.resumeSecretRequests(); egressSeam.resumeEgressRequests(); proposalSeam.resumeProposals() } })
     workflowController.resumeWorkflowRequests()
     // Catalog recovery writes a card; leave the identity projection before dispatching it.
-    queueMicrotask(() => { if (!ctx.disposed) { account.resumeAccount() } })
     repositoryReadiness.resume()
     repoImportSeam.resume()
     runs.resumeApprovalRequests()
@@ -2253,7 +2239,7 @@ export const createAppController = (
   ctx.onDispose(() => setupIdentitySubscription.unsubscribe())
   const importCloudSubscription = store.collections.cloudSessions.subscribeChanges(() => {
     repoImportSeam.resume()
-    queueMicrotask(() => { if (!ctx.disposed) { secretsSeam.resumeCodingProviders(); secretsSeam.resumeSecretRequests(); egressSeam.resumeEgressRequests() } })
+    queueMicrotask(() => { if (!ctx.disposed) { secretsSeam.resumeSecretRequests(); egressSeam.resumeEgressRequests(); proposalSeam.resumeProposals() } })
   })
   ctx.onDispose(() => importCloudSubscription.unsubscribe())
   subscribeToAgent()
@@ -2330,6 +2316,7 @@ export const createAppController = (
     design,
     live: services.live,
     presentCard,
+    contextRun,
     presentRun,
     presentFlow,
     presentBranchCard,

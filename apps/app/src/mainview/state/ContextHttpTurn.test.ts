@@ -5,6 +5,8 @@ import type { AgentTurnFrame } from "@smthrs/rpc/NativeAgent"
 import { emptyAppProjection, projectAppEvent, seedAppProjection } from "./AppProjection"
 import { appProjectionHash } from "./AppEventStream"
 import type { AppTransition } from "./AppState"
+import { contextMonitor } from "./ContextMonitor"
+import { MonitorCardSchema } from "@smthrs/rpc/MonitorCard"
 const initialCursor = () => ({ version: 1 as const, runId: "turn", legId: "leg", batch: 0, position: 0, hash: "0".repeat(64) })
 const batchOf = (cursor: ReturnType<typeof initialCursor>, frames: AgentTurnFrame[]) => {
   const body = { version: 1 as const, runId: "turn", legId: "leg", batch: 1, from: 1, previousHash: cursor.hash, frames }
@@ -29,6 +31,27 @@ test("durable preflight projects its pinned list on the answer and survives even
   const after = step(accepted(), event)
   expect(after.messages.find(message => message.role === "smithers")?.context).toEqual(result.context)
   expect(after.httpTurns[0]?.preflight).toEqual(result)
+  const monitor = MonitorCardSchema.parse(contextMonitor(after.httpTurns[0]!))
+  expect(monitor.attempts[0]?.graph).toEqual([{ id: "preflight", label: "Preflight", state: "done", deps: [] }])
+  expect(monitor.attempts[0]?.steps[0]?.output).toEqual({ candidates: result.candidates, choices: result.context, model: "owner-fast" })
+  expect(monitor.attempts[0]?.steps[0]?.took_s).toBe(0.012)
   expect(appProjectionHash(step(accepted(), event))).toBe(appProjectionHash(after))
   expect(step(after, event)).toBe(after)
+})
+
+test("Inspect never reports a started selection as completed and keeps old entries without preflight dark", () => {
+  const before = accepted()
+  expect(contextMonitor(before.httpTurns[0]!)).toBeUndefined()
+  const after = step(before, { type: "http.turn.batch.received", actor: "system", attemptId: "attempt", legId: "leg",
+    batch: batchOf(initialCursor(), [{ runId: "turn", type: "context.preflight", phase: "started",
+      result: { candidates: [{ kind: "todo", label: "T10", ref: "10" }], context: [], model: "owner-fast", durationMs: 0 } }]) })
+  expect(after.httpTurns[0]?.preflightPhase).toBe("started")
+  const monitor = MonitorCardSchema.parse(contextMonitor(after.httpTurns[0]!))
+  expect(monitor.attempts[0]?.graph[0]?.state).toBe("current")
+  expect(monitor.attempts[0]?.steps[0]?.output).toBeUndefined()
+  for (const status of ["failed", "cancelled", "ambiguous"] as const) {
+    const stopped = MonitorCardSchema.parse(contextMonitor({ ...after.httpTurns[0]!, status }))
+    expect(stopped.state).toBe(status === "failed" ? "failed" : "interrupted")
+    expect(stopped.attempts[0]?.graph[0]?.state).toBe("failed")
+  }
 })

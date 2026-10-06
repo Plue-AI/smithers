@@ -192,6 +192,14 @@ export const createTodoSeam = (ctx: SeamContext, options: TodoSeamOptions = {}) 
         audience: { member: owner()!, entryId: key, kind: model.state, actorLabel, target: { flow: "todo", n } },
         action: { flow: "todo", args: `T${n}`, label: model.state === "in_review" ? "Review" : "Open" } })
     }
+    // A historical merged item is not a new event. Only the served terminal
+    // transition notifies its owner; presence does not subscribe to others' merges.
+    if (previous && previous.state !== "merged" && model.state === "merged" && model.owner.login === owner() && live()) {
+      const key = `todo.merged.${n}.${model.run?.id ?? "no-run"}.${model.run?.attempt ?? 0}`
+      ctx.dispatch({ type: "toast.shown", actor: "system", key, title: model.title, sourceCard: `todo:${n}`,
+        audience: { member: owner()!, entryId: key, kind: "merged", actorLabel, target: { flow: "todo", n } } })
+      ctx.resolveToast?.(key, { status: "ok", detail: "Merged" })
+    }
     for (const id of before) if (!after.has(id) && live()) ctx.resolveToast?.(needsYouKey(n, id), { status: "ok", detail: "Answered" })
   }
   const applyModel = async (n: number, model: TodoCard, receipts: readonly TodoReceipt[], live: () => boolean) => {
@@ -208,7 +216,7 @@ export const createTodoSeam = (ctx: SeamContext, options: TodoSeamOptions = {}) 
         ? [{ key: request.key, outcome: { status: "ok" as const, detail: "Merged" } }] : []
       if (request.operation === "amend") {
         const changed = request.revision === undefined ? undefined : model.prompt_revisions[request.revision - 1]
-        return changed !== undefined && changed.text === request.body.prompt && canonicalize(changed.acceptance) === canonicalize(request.body.acceptance ?? [])
+        return changed !== undefined && changed.text === request.body.prompt && (request.body.acceptance === undefined || canonicalize(changed.acceptance) === canonicalize(request.body.acceptance))
           ? [{ key: request.key, committed: { n, rev: request.revision! }, outcome: { status: "ok" as const, detail: "Amended" } }] : []
       }
       // An accepted answer is done once its question is no longer open.
@@ -298,6 +306,7 @@ export const createTodoSeam = (ctx: SeamContext, options: TodoSeamOptions = {}) 
         const body = request.operation === "amend"
           ? { prompt: request.body.prompt, ...(request.body.acceptance === undefined ? {} : { acceptance: request.body.acceptance }) }
           : request.operation === "discard-foreign" ? { op: request.operation, id: request.body.id, revision: request.body.revision }
+          : request.operation === "steer" ? { steer: request.body.steer ?? request.body.text }
           : control ? { op: request.operation, ...request.body } : request.body
         response = await ctx.http(`${ctx.baseUrl}${route}`, {
           method: request.operation === "amend" ? "PATCH" : "POST", credentials: "include", signal: abort.signal,
@@ -319,6 +328,9 @@ export const createTodoSeam = (ctx: SeamContext, options: TodoSeamOptions = {}) 
         const message = typeof result.message === "string" ? result.message : "TODO request failed."
         const fault = result.class === "infra" || result.class === "capacity" ? `${message} Not your fault.` : message
         await fail(fault)
+        // A later push can race the displayed answer. Keep the refusal visible,
+        // but reload its bound wait instead of waiting for a live notification.
+        if (response.status === 409 && request.operation === "discard-foreign" && current(login, revision)) await showTodo(request.n!)
         return
       }
       if (result.state !== "requested" && result.state !== "accepted") {

@@ -441,11 +441,18 @@ test("an install's main row reads its GitHub sync over an unavailable stack: syn
   markup = render()
   expect(markup).toContain('data-health="refused"')
   expect(markup).toContain("GitHub App not installed")
-  // No success yet, or a host with no sync: the row is the stack's.
-  for (const none of [{ state: "stale", last_success_at: null } as const, undefined]) {
-    health = none
-    expect(render()).toContain("Stack unavailable")
+  // Initial failures still carry authoritative health and a Retry door.
+  for (const state of ["stale", "limited"] as const) {
+    health = { state, last_success_at: null, ...(state === "limited" ? { retry_at: new Date(Date.now() + 60_000).toISOString() } : {}) }
+    markup = render()
+    expect(markup).toContain(`data-health="${state}"`)
+    if (state === "stale") expect(markup).toContain('data-flow="github.retry"')
+    else expect(markup).toContain("retries at")
+    expect(markup).not.toContain("Stack unavailable")
+    expect(markup).not.toContain("synced")
   }
+  health = undefined
+  expect(render()).toContain("Stack unavailable")
   controller.design.dispose()
 })
 

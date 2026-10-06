@@ -1,3 +1,4 @@
+import { RepositoryImportRequestSchema } from "@smthrs/rpc/Cards"
 import { ConversationHistorySchema } from "./ConversationHistory"
 import { Data } from "effect"
 import { AgentTurnBatchSchema,AgentTurnCursorSchema,AgentTurnJournalRequestSchema } from "@smthrs/rpc/AgentTurnJournal"
@@ -71,6 +72,7 @@ export const APP_TRANSITION_SCHEMAS = {
   "librarian.launches.changed": z.object({ type: z.literal("librarian.launches.changed"), actor: ActorSchema, launches: z.array(z.unknown()) }).strict(),
   "coding.provider.requests.changed": z.object({ type: z.literal("coding.provider.requests.changed"), actor: ActorSchema, requests: SessionSchema.shape.codingProviderRequests.unwrap() }).strict(),
   "install.requests.changed": z.object({ type: z.literal("install.requests.changed"), actor: ActorSchema, requests: SessionSchema.shape.installRequests.unwrap() }).strict(),
+  "repository.imports.changed": z.object({ type: z.literal("repository.imports.changed"), actor: ActorSchema, requests: SessionSchema.shape.repositoryImports.unwrap() }).strict(),
   "secret.requests.changed": z.object({ type: z.literal("secret.requests.changed"), actor: ActorSchema, requests: SessionSchema.shape.secretRequests.unwrap() }).strict(),
   "egress.requests.changed": z.object({ type: z.literal("egress.requests.changed"), actor: ActorSchema, requests: SessionSchema.shape.egressRequests.unwrap() }).strict(),
   "stack.wiki.requests.changed": z.object({ type: z.literal("stack.wiki.requests.changed"), actor: ActorSchema, requests: SessionSchema.shape.wikiRequests.unwrap() }).strict(),
@@ -211,6 +213,14 @@ export class InvalidAppTransitionError extends Data.TaggedError("InvalidAppTrans
 export const validateAppTransition = (snapshot: AppProjectionSnapshot, value: unknown): AppTransition => {
   if (typeof value !== "object" || value === null || !("type" in value) || typeof value.type !== "string" ||
     !Object.hasOwn(APP_TRANSITION_SCHEMAS, value.type)) throw new InvalidAppTransitionError()
+  if (value.type === "card.upsert" && "card" in value && typeof value.card === "object" && value.card !== null &&
+    "kind" in value.card && value.card.kind === "repo-import") {
+    const request = RepositoryImportRequestSchema.safeParse(value.card)
+    const actor = ActorSchema.safeParse("actor" in value ? value.actor : undefined)
+    if (!request.success || !actor.success) throw new InvalidAppTransitionError()
+    const prior = snapshot.sessions.find(row => row.id === "main")?.repositoryImports ?? []
+    return { type: "repository.imports.changed", actor: actor.data, requests: [...prior.filter(row => row.id !== request.data.id), request.data] }
+  }
   const schema: z.ZodType<AppTransition> = APP_TRANSITION_SCHEMAS[value.type as AppTransition["type"]]
   const decoded = schema.safeParse(value)
   if (!decoded.success) throw new InvalidAppTransitionError()

@@ -13,6 +13,7 @@ import { Schema } from "effect"
  * @since 1.0.0
  */
 export const Code = Schema.Literals([
+  "stale_read",
   "not_found",
   "not_a_directory",
   "not_a_file",
@@ -59,6 +60,10 @@ export class StdError extends Schema.TaggedError<StdError>()("@smthrs/std/StdErr
   code: Code,
   message: Schema.String,
   path: Schema.optional(Schema.String),
+  /** Full-file base, or unread when this run has not read the existing file. */
+  base_digest: Schema.optional(Schema.String),
+  /** Full-file current SHA-256, or absent. */
+  current_digest: Schema.optional(Schema.String),
   /** Language-server request that failed. */
   method: Schema.optional(Schema.String),
   /** JSON-RPC diagnostics, bounded by the transport's maximum frame size. */

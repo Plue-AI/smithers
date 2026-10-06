@@ -5,6 +5,7 @@ export interface FlowInput {
   readonly "flow": { readonly name: string }
   readonly "wiki.save": { readonly name?: string; readonly text?: string }
   readonly "todo.drop": { readonly n: number }
+  readonly "branch.discard-foreign": { readonly branch: string; readonly id: string; readonly revision: string }
   readonly "file": { readonly path: string; readonly branch?: string; readonly line?: number; readonly revision?: string }
 
  readonly "agent.model": { readonly role: string; readonly model?: string }
@@ -131,7 +132,6 @@ export interface FlowInput {
   /** `<cardId> <field> [value]` — a blank value clears the field (THE FORM LAW). */
   readonly "form.set": { readonly cardId: string; readonly field: string; readonly value: string }
   /** `<runId> <body>` — the body is the rest of the line. */
-  readonly "runs.steer": { readonly runId: string; readonly body: string }
 
 }
 
@@ -177,6 +177,7 @@ const graphLine = (payload: Payload, target: string, value: string): string => {
  */
 const ENCODERS: { readonly [N in FlowWithInput]: (payload: Payload) => string } = {
   "flow": payload => JSON.stringify(payload),
+  "branch.discard-foreign": payload => JSON.stringify(payload),
   "todo.drop": payload => JSON.stringify(payload),
   "wiki.save": payload => JSON.stringify(payload),
   "file": payload => JSON.stringify(payload),
@@ -275,7 +276,6 @@ const ENCODERS: { readonly [N in FlowWithInput]: (payload: Payload) => string } 
   "change.facet": (payload) => line(token(payload, "changeId"), token(payload, "facet")),
   "change.resolve": (payload) => line(token(payload, "changeId"), token(payload, "path")),
   "form.set": (payload) => line(token(payload, "cardId"), token(payload, "field"), token(payload, "value")),
-  "runs.steer": (payload) => line(token(payload, "runId"), token(payload, "body")),
   "triggers.register": payload => JSON.stringify({ ...payload,
     ...(payload.tokens === undefined ? {} : { tokens: String(payload.tokens) }),
     ...(payload.minutes === undefined ? {} : { minutes: String(payload.minutes) }) }),

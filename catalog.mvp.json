@@ -7,14 +7,13 @@
       "cli": null,
       "journey": [],
       "group": "",
-      "visibility": "in-card",
+      "visibility": "hidden",
       "actors": [
-        "person",
-        "app_agent"
+        "person"
       ],
-      "minimumRole": "member",
-      "agent": "run",
-      "summary": "Show account",
+      "minimumRole": "owner",
+      "agent": "never",
+      "summary": "Settings",
       "http": null,
       "payload": {
         "dialect": "draft-2020-12",
@@ -1313,13 +1312,23 @@
       "minimumRole": "maintainer",
       "agent": "confirm",
       "summary": "Discard",
-      "http": null,
+      "http": {
+        "method": "POST",
+        "path": "/api/branches/{branch}",
+        "defaults": {
+          "op": "discard-foreign"
+        }
+      },
       "payload": {
         "dialect": "draft-2020-12",
         "schema": {
           "type": "object",
           "properties": {
             "branch": {
+              "type": "string",
+              "minLength": 1
+            },
+            "id": {
               "type": "string",
               "minLength": 1
             },
@@ -1330,6 +1339,7 @@
           },
           "required": [
             "branch",
+            "id",
             "revision"
           ],
           "additionalProperties": true
@@ -3319,13 +3329,12 @@
       "cli": null,
       "journey": [],
       "group": "",
-      "visibility": "in-card",
+      "visibility": "hidden",
       "actors": [
-        "person",
-        "app_agent"
+        "person"
       ],
-      "minimumRole": "member",
-      "agent": "run",
+      "minimumRole": "owner",
+      "agent": "never",
       "summary": "Remove a refused subscription token from a repository's agent environment",
       "http": null,
       "payload": {
@@ -3355,13 +3364,12 @@
       "cli": null,
       "journey": [],
       "group": "",
-      "visibility": "in-card",
+      "visibility": "hidden",
       "actors": [
-        "person",
-        "app_agent"
+        "person"
       ],
-      "minimumRole": "member",
-      "agent": "run",
+      "minimumRole": "owner",
+      "agent": "never",
       "summary": "Set an agent-environment variable",
       "http": null,
       "payload": {
@@ -3397,13 +3405,12 @@
       "cli": null,
       "journey": [],
       "group": "",
-      "visibility": "in-card",
+      "visibility": "hidden",
       "actors": [
-        "person",
-        "app_agent"
+        "person"
       ],
-      "minimumRole": "member",
-      "agent": "run",
+      "minimumRole": "owner",
+      "agent": "never",
       "summary": "Show a repository's agent environment",
       "http": null,
       "payload": {
@@ -4396,37 +4403,6 @@
       }
     },
     {
-      "name": "flow.repo.choose",
-      "slash": null,
-      "cli": null,
-      "journey": [],
-      "group": "",
-      "visibility": "in-card",
-      "actors": [
-        "person"
-      ],
-      "minimumRole": "member",
-      "agent": "never",
-      "summary": "Choose which loaded repository a flow belongs to",
-      "http": null,
-      "payload": {
-        "dialect": "draft-2020-12",
-        "schema": {
-          "type": "object",
-          "properties": {
-            "repo": {
-              "type": "string"
-            }
-          },
-          "required": [
-            "repo"
-          ],
-          "additionalProperties": true
-        },
-        "definitions": {}
-      }
-    },
-    {
       "name": "flow.run",
       "slash": "/flow.run",
       "cli": [
@@ -4843,14 +4819,13 @@
       "cli": null,
       "journey": [],
       "group": "",
-      "visibility": "in-card",
+      "visibility": "hidden",
       "actors": [
-        "person",
-        "app_agent"
+        "person"
       ],
-      "minimumRole": "member",
-      "agent": "run",
-      "summary": "Check the Smithers GitHub App on a repository",
+      "minimumRole": "owner",
+      "agent": "never",
+      "summary": "Open Settings",
       "http": null,
       "payload": {
         "dialect": "draft-2020-12",
@@ -5061,15 +5036,19 @@
       "cli": null,
       "journey": [],
       "group": "",
-      "visibility": "hidden",
+      "visibility": "in-card",
       "actors": [
         "person",
-        "app_agent"
+        "app_agent",
+        "external_agent"
       ],
       "minimumRole": "member",
       "agent": "run",
       "summary": "Retry GitHub sync",
-      "http": null,
+      "http": {
+        "method": "POST",
+        "path": "/api/github/sync"
+      },
       "payload": {
         "dialect": "draft-2020-12",
         "schema": {
@@ -7175,30 +7154,17 @@
       "group": "",
       "visibility": "hidden",
       "actors": [
-        "person",
-        "app_agent"
+        "person"
       ],
-      "minimumRole": "member",
-      "agent": "run",
-      "summary": "Choose a recently pushed GitHub repository",
+      "minimumRole": "owner",
+      "agent": "never",
+      "summary": "Setup",
       "http": null,
       "payload": {
         "dialect": "draft-2020-12",
         "schema": {
           "type": "object",
-          "properties": {
-            "repo": {
-              "anyOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "null"
-                }
-              ]
-            }
-          },
-          "additionalProperties": true
+          "additionalProperties": false
         },
         "definitions": {}
       }
@@ -7211,26 +7177,17 @@
       "group": "",
       "visibility": "hidden",
       "actors": [
-        "person",
-        "app_agent"
+        "person"
       ],
-      "minimumRole": "member",
-      "agent": "confirm",
-      "summary": "Create repository",
+      "minimumRole": "owner",
+      "agent": "never",
+      "summary": "Setup",
       "http": null,
       "payload": {
         "dialect": "draft-2020-12",
         "schema": {
           "type": "object",
-          "properties": {
-            "name": {
-              "type": "string"
-            }
-          },
-          "required": [
-            "name"
-          ],
-          "additionalProperties": true
+          "additionalProperties": false
         },
         "definitions": {}
       }
@@ -8611,52 +8568,6 @@
       }
     },
     {
-      "name": "runs.steer",
-      "slash": null,
-      "cli": null,
-      "journey": [],
-      "group": "",
-      "visibility": "in-card",
-      "actors": [
-        "person",
-        "app_agent"
-      ],
-      "minimumRole": "member",
-      "agent": "confirm",
-      "summary": "Send an operator message into a running run",
-      "http": null,
-      "payload": {
-        "dialect": "draft-2020-12",
-        "schema": {
-          "type": "object",
-          "properties": {
-            "sourceCard": {
-              "anyOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "null"
-                }
-              ]
-            },
-            "runId": {
-              "type": "string"
-            },
-            "body": {
-              "type": "string"
-            }
-          },
-          "required": [
-            "runId",
-            "body"
-          ],
-          "additionalProperties": true
-        },
-        "definitions": {}
-      }
-    },
-    {
       "name": "runs.steps",
       "slash": null,
       "cli": null,
@@ -9320,31 +9231,19 @@
       "cli": null,
       "journey": [],
       "group": "",
-      "visibility": "in-card",
+      "visibility": "hidden",
       "actors": [
         "person"
       ],
       "minimumRole": "owner",
       "agent": "never",
-      "summary": "Connect Claude for coding in your repositories",
+      "summary": "Settings",
       "http": null,
       "payload": {
         "dialect": "draft-2020-12",
         "schema": {
           "type": "object",
-          "properties": {
-            "value": {
-              "anyOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "null"
-                }
-              ]
-            }
-          },
-          "additionalProperties": true
+          "additionalProperties": false
         },
         "definitions": {}
       }
@@ -9355,20 +9254,19 @@
       "cli": null,
       "journey": [],
       "group": "",
-      "visibility": "in-card",
+      "visibility": "hidden",
       "actors": [
         "person"
       ],
       "minimumRole": "owner",
       "agent": "never",
-      "summary": "Connect Codex for coding in your repositories",
+      "summary": "Settings",
       "http": null,
       "payload": {
         "dialect": "draft-2020-12",
         "schema": {
-          "not": {
-            "type": "null"
-          }
+          "type": "object",
+          "additionalProperties": false
         },
         "definitions": {}
       }
@@ -9379,20 +9277,19 @@
       "cli": null,
       "journey": [],
       "group": "",
-      "visibility": "in-card",
+      "visibility": "hidden",
       "actors": [
         "person"
       ],
       "minimumRole": "owner",
       "agent": "never",
-      "summary": "Show coding accounts",
+      "summary": "Settings",
       "http": null,
       "payload": {
         "dialect": "draft-2020-12",
         "schema": {
-          "not": {
-            "type": "null"
-          }
+          "type": "object",
+          "additionalProperties": false
         },
         "definitions": {}
       }
@@ -9444,35 +9341,19 @@
       "cli": null,
       "journey": [],
       "group": "",
-      "visibility": "in-card",
+      "visibility": "hidden",
       "actors": [
         "person"
       ],
       "minimumRole": "owner",
       "agent": "never",
-      "summary": "Move a coding account up or down its provider's order",
+      "summary": "Settings",
       "http": null,
       "payload": {
         "dialect": "draft-2020-12",
         "schema": {
           "type": "object",
-          "properties": {
-            "id": {
-              "type": "string"
-            },
-            "direction": {
-              "type": "string",
-              "enum": [
-                "up",
-                "down"
-              ]
-            }
-          },
-          "required": [
-            "id",
-            "direction"
-          ],
-          "additionalProperties": true
+          "additionalProperties": false
         },
         "definitions": {}
       }
@@ -9483,27 +9364,19 @@
       "cli": null,
       "journey": [],
       "group": "",
-      "visibility": "in-card",
+      "visibility": "hidden",
       "actors": [
         "person"
       ],
       "minimumRole": "owner",
       "agent": "never",
-      "summary": "Revoke coding connection",
+      "summary": "Settings",
       "http": null,
       "payload": {
         "dialect": "draft-2020-12",
         "schema": {
           "type": "object",
-          "properties": {
-            "id": {
-              "type": "string"
-            }
-          },
-          "required": [
-            "id"
-          ],
-          "additionalProperties": true
+          "additionalProperties": false
         },
         "definitions": {}
       }
@@ -9750,6 +9623,49 @@
           },
           "required": [
             "capacity"
+          ],
+          "additionalProperties": true
+        },
+        "definitions": {}
+      }
+    },
+    {
+      "name": "settings.daily-admissions",
+      "slash": null,
+      "cli": null,
+      "journey": [],
+      "group": "",
+      "visibility": "in-card",
+      "actors": [
+        "person"
+      ],
+      "minimumRole": "owner",
+      "agent": "never",
+      "summary": "Change TODOs per day",
+      "http": null,
+      "payload": {
+        "dialect": "draft-2020-12",
+        "schema": {
+          "type": "object",
+          "properties": {
+            "todo_daily_admissions": {
+              "anyOf": [
+                {
+                  "type": "number"
+                },
+                {
+                  "type": "string",
+                  "enum": [
+                    "Infinity",
+                    "-Infinity",
+                    "NaN"
+                  ]
+                }
+              ]
+            }
+          },
+          "required": [
+            "todo_daily_admissions"
           ],
           "additionalProperties": true
         },
@@ -11151,8 +11067,8 @@
       "http": {
         "method": "POST",
         "path": "/api/todos/{n}",
-        "defaults": {
-          "op": "steer"
+        "body": {
+          "steer": "text"
         }
       },
       "payload": {

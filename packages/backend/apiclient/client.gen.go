@@ -1656,6 +1656,11 @@ type GetAPIAgentConversationsParams struct {
 	Limit *int64
 }
 
+// PatchAPIConversationTurnBody is generated from docs/api/openapi.yaml.
+type PatchAPIConversationTurnBody struct {
+	Prompt string `json:"prompt"`
+}
+
 // GetAPIConversationViewStateResponse is generated from docs/api/openapi.yaml.
 type GetAPIConversationViewStateResponse struct {
 	ToastsHidden         bool                       `json:"toasts_hidden"`
@@ -1721,6 +1726,7 @@ func (v PutAPIConversationViewStateResponse) MarshalJSON() ([]byte, error) {
 
 // GetAPIAuthGithubCliParams is the query of GET /api/auth/github/cli.
 type GetAPIAuthGithubCliParams struct {
+	Agent         *string
 	CallbackPort  int64
 	CallbackState *string
 	Scopes        *string
@@ -2534,6 +2540,27 @@ func (c *Client) PostAPIAgentConversationsReplay(ctx context.Context, body Saved
 	return out, err
 }
 
+// DeleteAPIConversationTurn calls DELETE /api/conversations/{b}/turns/{id}.
+func (c *Client) DeleteAPIConversationTurn(ctx context.Context, b string, id string) (AnyJSON, error) {
+	var out AnyJSON
+	err := c.do(ctx, "DELETE", "/api/conversations/"+url.PathEscape(b)+"/turns/"+url.PathEscape(id), nil, nil, &out)
+	return out, err
+}
+
+// PatchAPIConversationTurn calls PATCH /api/conversations/{b}/turns/{id}.
+func (c *Client) PatchAPIConversationTurn(ctx context.Context, b string, id string, body PatchAPIConversationTurnBody) (AnyJSON, error) {
+	var out AnyJSON
+	err := c.do(ctx, "PATCH", "/api/conversations/"+url.PathEscape(b)+"/turns/"+url.PathEscape(id), nil, body, &out)
+	return out, err
+}
+
+// PostAPIConversationTurnStop calls POST /api/conversations/{b}/turns/{id}/stop.
+func (c *Client) PostAPIConversationTurnStop(ctx context.Context, b string, id string) (AnyJSON, error) {
+	var out AnyJSON
+	err := c.do(ctx, "POST", "/api/conversations/"+url.PathEscape(b)+"/turns/"+url.PathEscape(id)+"/stop", nil, nil, &out)
+	return out, err
+}
+
 // GetAPIConversationViewState calls GET /api/conversations/{b}/view-state.
 func (c *Client) GetAPIConversationViewState(ctx context.Context, b string) (GetAPIConversationViewStateResponse, error) {
 	var out GetAPIConversationViewStateResponse
@@ -2649,6 +2676,9 @@ func (c *Client) GetAPIAuthGithubCallback(ctx context.Context) (AnyJSON, error) 
 // GetAPIAuthGithubCli calls GET /api/auth/github/cli.
 func (c *Client) GetAPIAuthGithubCli(ctx context.Context, params GetAPIAuthGithubCliParams) error {
 	query := url.Values{}
+	if params.Agent != nil {
+		query.Set("agent", *params.Agent)
+	}
 	query.Set("callback_port", strconv.FormatInt(params.CallbackPort, 10))
 	if params.CallbackState != nil {
 		query.Set("callback_state", *params.CallbackState)

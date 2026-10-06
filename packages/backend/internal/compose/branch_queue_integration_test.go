@@ -1,12 +1,10 @@
 package compose
 
 import (
-	"bufio"
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
-	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/smithersai/smithers/packages/backend/internal/chat"
 	"github.com/smithersai/smithers/packages/backend/internal/db"
@@ -79,19 +77,35 @@ func TestBranchConversationQueueMutationInstall(t *testing.T) {
 		return string(raw)
 	}
 	admit := func(name string) (string, string) {
-		run := name + "-" + uuid.NewString()
-		payload, err := json.Marshal(map[string]any{"runId": run, "conversationId": "main", "instructions": "Answer", "messages": []any{map[string]string{"role": "user", "content": "original"}}, "journal": map[string]any{"version": 1, "legId": uuid.NewString(), "token": strings.Repeat("c", 48)}})
+		payload, err := json.Marshal(map[string]string{"prompt": "original", "idempotencyKey": name})
 		require.NoError(t, err)
-		res := request("POST", chat.TurnPath, string(payload), benCookie)
-		defer res.Body.Close()
-		require.Equal(t, 200, res.StatusCode)
-		line, err := bufio.NewReader(res.Body).ReadString('\n')
-		require.NoError(t, err)
-		require.Contains(t, line, `"type":"accepted"`)
-		var id string
-		require.NoError(t, pool.QueryRow(ctx, `SELECT id FROM chat_turns WHERE run_id=$1`, run).Scan(&id))
-		return run, id
+		// The response is complete while the model host is deliberately held.
+		raw := call("POST", "/api/conversations/main/prompt", string(payload), benCookie, 202)
+		var accepted struct {
+			RunID  string `json:"runId"`
+			TurnID string `json:"turnId"`
+			LegID  string `json:"legId"`
+		}
+		require.NoError(t, json.Unmarshal([]byte(raw), &accepted))
+		require.NotEmpty(t, accepted.TurnID)
+		require.Contains(t, raw, `"status":"accepted"`)
+		// Public identities must not reveal the legacy journal capability.
+		call("POST", chat.ReplayPath, fmt.Sprintf(`{"runId":%q,"journal":{"version":1,"legId":%q,"token":%q}}`, accepted.RunID, accepted.LegID, strings.TrimPrefix(accepted.RunID, "prompt-")), benCookie, 403)
+
+		duplicate := call("POST", "/api/conversations/main/prompt", string(payload), benCookie, 202)
+		require.Contains(t, duplicate, `"status":"existing"`)
+		require.Contains(t, duplicate, accepted.TurnID)
+		call("POST", "/api/conversations/main/prompt", fmt.Sprintf(`{"prompt":"different","idempotencyKey":%q}`, name), benCookie, 409)
+		var count int
+		require.NoError(t, pool.QueryRow(ctx, `SELECT count(*) FROM chat_turns WHERE run_id=$1`, accepted.RunID).Scan(&count))
+		require.Equal(t, 1, count)
+		return accepted.RunID, accepted.TurnID
 	}
+	call("POST", "/api/conversations/main/prompt", `{"prompt":" ","idempotencyKey":"bad"}`, benCookie, 400)
+	call("POST", "/api/conversations/main/prompt", `{"prompt":"hello","idempotencyKey":"bad","instructions":"browser canary"}`, benCookie, 400)
+	call("POST", "/api/conversations/main/prompt", `{"prompt":"hello"}`, benCookie, 400)
+	call("POST", chat.TurnPath, `{"runId":"forged-shared","conversationId":"main","sharedConversation":true,"instructions":"private","messages":[{"role":"user","content":"private legacy canary"}],"journal":{"version":1,"legId":"forged-shared-leg","token":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"}}`, benCookie, 400)
+
 	first, firstID := admit("held")
 	select {
 	case grant := <-host.started:
@@ -99,8 +113,101 @@ func TestBranchConversationQueueMutationInstall(t *testing.T) {
 	case <-time.After(5 * time.Second):
 		t.Fatal("first turn did not start")
 	}
+	// Concurrent retries serialize through the production journal, while the
+	// first model execution remains unresolved.
+	type retryAnswer struct {
+		status int
+		body   string
+		err    error
+	}
+	answers := make(chan retryAnswer, 8)
+	for range 8 {
+		req, err := http.NewRequest("POST", server.URL+"/api/conversations/main/prompt", strings.NewReader(`{"prompt":"concurrent","idempotencyKey":"concurrent"}`))
+		require.NoError(t, err)
+		req.Host = "127.0.0.1:4000"
+		req.Header.Set("Origin", "http://127.0.0.1:4000")
+		req.Header.Set("Content-Type", "application/json")
+		req.Header.Set("X-CSRF-Token", "csrf-fixture")
+		req.AddCookie(&http.Cookie{Name: "__csrf", Value: "csrf-fixture"})
+		req.AddCookie(&http.Cookie{Name: "smithers_session", Value: benCookie})
+		go func() {
+			res, err := server.Client().Do(req)
+			if err != nil {
+				answers <- retryAnswer{err: err}
+				return
+			}
+			defer res.Body.Close()
+			raw, err := io.ReadAll(res.Body)
+			answers <- retryAnswer{status: res.StatusCode, body: string(raw), err: err}
+		}()
+	}
+	concurrentID := ""
+	acceptedCount := 0
+	for range 8 {
+		select {
+		case answer := <-answers:
+			require.NoError(t, answer.err)
+			require.Equal(t, 202, answer.status, answer.body)
+			var result struct {
+				TurnID string `json:"turnId"`
+				Status string `json:"status"`
+			}
+			require.NoError(t, json.Unmarshal([]byte(answer.body), &result))
+			if concurrentID == "" {
+				concurrentID = result.TurnID
+			}
+			require.Equal(t, concurrentID, result.TurnID)
+			if result.Status == "accepted" {
+				acceptedCount++
+			}
+		case <-time.After(5 * time.Second):
+			t.Fatal("admission waited for the held model")
+		}
+	}
+	require.Equal(t, 1, acceptedCount)
+	call("DELETE", "/api/conversations/main/turns/"+concurrentID, "", benCookie, 200)
 	edited, editedID := admit("edited")
 	_, removedID := admit("removed")
+	foreign := call("POST", "/api/conversations/main/prompt", `{"prompt":"Alice question","idempotencyKey":"edited"}`, aliceCookie, 202)
+	require.NotContains(t, foreign, editedID, "idempotency keys are scoped to the caller")
+	var alicePrompt struct {
+		TurnID string `json:"turnId"`
+	}
+	require.NoError(t, json.Unmarshal([]byte(foreign), &alicePrompt))
+	call("DELETE", "/api/conversations/main/turns/"+alicePrompt.TurnID, "", aliceCookie, 200)
+	// A second credential for the same person has its own key namespace.
+	secondCookie := "ben-second-cookie"
+	secondHash := sha256.Sum256([]byte(secondCookie))
+	_, err = q.CreateAuthSession(ctx, db.CreateAuthSessionParams{UserID: ben.ID, Username: ben.Username, SessionKey: hex.EncodeToString(secondHash[:]), ExpiresAt: time.Now().Add(time.Hour)})
+	require.NoError(t, err)
+	var secondQueued struct {
+		TurnID string `json:"turnId"`
+	}
+	require.NoError(t, json.Unmarshal([]byte(call("POST", "/api/conversations/main/prompt", `{"prompt":"original","idempotencyKey":"edited"}`, secondCookie, 202)), &secondQueued))
+	require.NotEqual(t, editedID, secondQueued.TurnID)
+	call("DELETE", "/api/conversations/main/turns/"+secondQueued.TurnID, "", secondCookie, 200)
+	rawAgentToken := "smithers_" + strings.Repeat("a", 40)
+	agentHash := sha256.Sum256([]byte(rawAgentToken))
+	agentDigest := hex.EncodeToString(agentHash[:])
+	_, err = q.CreateAccessToken(ctx, db.CreateAccessTokenParams{UserID: ben.ID, Name: "queue-agent-refusal", TokenHash: agentDigest, TokenLastEight: agentDigest[len(agentDigest)-8:], SystemIssued: true, Scopes: "repo,user,agent,via:smithers", ExpiresAt: pgtype.Timestamptz{Time: time.Now().Add(time.Hour), Valid: true}})
+	require.NoError(t, err)
+	agentRequest, err := http.NewRequest("POST", server.URL+"/api/conversations/main/prompt", strings.NewReader(`{"prompt":"agent cannot queue","idempotencyKey":"agent"}`))
+	require.NoError(t, err)
+	agentRequest.Host = "127.0.0.1:4000"
+	agentRequest.Header.Set("Authorization", "Bearer "+rawAgentToken)
+	agentRequest.Header.Set("Content-Type", "application/json")
+	agentResponse, err := server.Client().Do(agentRequest)
+	require.NoError(t, err)
+	agentBody, err := io.ReadAll(agentResponse.Body)
+	agentResponse.Body.Close()
+	require.NoError(t, err)
+	require.Equal(t, 403, agentResponse.StatusCode, string(agentBody))
+	var stored string
+	require.NoError(t, pool.QueryRow(ctx, `SELECT request_payload::text FROM chat_turns WHERE id=$1`, editedID).Scan(&stored))
+	require.NotContains(t, stored, "browser canary")
+	require.Contains(t, stored, "Smithers for the prompt author")
+	require.Contains(t, stored, `"sharedConversation": true`)
+
 	path := func(id string) string { return "/api/conversations/main/turns/" + id }
 	require.Contains(t, call("PATCH", path(editedID), `{"prompt":"foreign"}`, aliceCookie, 403), `"permission"`)
 	call("DELETE", path(removedID), "", aliceCookie, 403)
@@ -119,6 +226,9 @@ func TestBranchConversationQueueMutationInstall(t *testing.T) {
 	var retained string
 	require.NoError(t, pool.QueryRow(ctx, `SELECT request_payload->'messages'->0->>'content' FROM chat_turns WHERE id=$1`, editedID).Scan(&retained))
 	require.Equal(t, "original", retained)
+	privateView := call("GET", "/api/conversations/main/view-state", "", benCookie, 200)
+	require.Contains(t, privateView, "original")
+	require.NotContains(t, privateView, "force rollback")
 	call("PATCH", path(editedID), `{"prompt":"list changed tests"}`, benCookie, 200)
 	// Account recovery uses the same journal verifier after the acceptance was resealed.
 	var leg string
@@ -164,6 +274,7 @@ func TestBranchConversationQueueMutationInstall(t *testing.T) {
 	_, pendingID := admit("pending")
 	_, err = pool.Exec(ctx, `UPDATE collaborators SET suspended_at=now() WHERE user_id=$1`, ben.ID)
 	require.NoError(t, err)
+	call("POST", "/api/conversations/main/prompt", `{"prompt":"revoked","idempotencyKey":"revoked"}`, benCookie, 403)
 	call("PATCH", path(pendingID), `{"prompt":"revoked"}`, benCookie, 403)
 	call("POST", path(holdID)+"/stop", "", benCookie, 403)
 }

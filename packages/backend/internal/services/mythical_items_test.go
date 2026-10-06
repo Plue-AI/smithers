@@ -278,6 +278,9 @@ func (g *fakeMythicalGitHub) FindPull(_ context.Context, _ mythicalGitHubRepo, b
 	for _, pull := range g.pulls {
 		if pull.HeadRef == branch {
 			found := *pull
+			if out, err := exec.Command("git", "--git-dir", g.dir, "rev-parse", "refs/heads/"+pull.HeadRef).Output(); err == nil && !pull.Merged {
+				found.HeadSHA = strings.TrimSpace(string(out))
+			}
 			return &found, nil
 		}
 	}
@@ -479,7 +482,7 @@ func newMythicalOrchestration(t *testing.T) *mythicalOrchestration {
 	f.service.EnableTodoAdmission()
 	// Accepted publication fixtures stand in for the not-yet-installed provider.
 	f.service.prFacts = func(_ context.Context, item db.MythicalItem) (mythicalPRShape, error) {
-		return mythicalPRShape{Branch: fmt.Sprintf("smithers/todo-%d", item.IssueNumber.Int64), Title: item.IssueTitle, Prompt: item.IssueBody, Acceptance: "Fixture acceptance", Evidence: "Fixture evidence", DiffStat: "Fixture diff stat", Review: "Fixture review", URL: "http://localhost/todos/fixture", Owner: "ben", First: true, FixesIssue: true, DraftsAvailable: true}, nil
+		return mythicalPRShape{Branch: fmt.Sprintf("smithers/todo-%d", item.IssueNumber.Int64), Title: item.IssueTitle, Prompt: item.IssueBody, Acceptance: "Fixture acceptance", Evidence: fmt.Sprintf("Fixture evidence\nRefs #%d", item.IssueNumber.Int64), DiffStat: "Fixture diff stat", Review: "Fixture review", URL: "http://localhost/todos/fixture", Owner: "ben", First: true, FixesIssue: true, DraftsAvailable: true}, nil
 	}
 	// The owner's policy names roninjin10; no issue is a TODO on its own
 	// unless a test sets todoSince.
@@ -489,6 +492,87 @@ func newMythicalOrchestration(t *testing.T) *mythicalOrchestration {
 	row := f.poll()
 	require.Equal(t, "active", row.State, row.LastError)
 	return o
+}
+
+// composePublication supplies the protocol stand-ins these orchestration tests
+// already use. Transport/credential/security acceptance uses the real App and
+// githubfake in mythical_publication_integration_test.go; this fixture tests
+// lane ordering and recovery against real Git objects and PostgreSQL only.
+func (o *mythicalOrchestration) composePublication() {
+	s := o.service
+	s.publication = &mythicalPublication{}
+	allow := func(context.Context, db.MythicalItem, string) error { return nil }
+	s.outbound.CanonicalApp, s.outbound.Budget, s.outbound.Membership = allow, allow, allow
+	s.outbound.Authorization, s.outbound.AcceptedGeneration = allow, allow
+	s.outbound.StackLease = s.stackLease
+	s.outbound.Lookup = func(st *mythicalItemStep, ctx context.Context, item db.MythicalItem, op MythicalOutboundOp) (string, bool, error) {
+		switch op.Kind {
+		case "push":
+			refs, err := st.r.g.lsRemote(ctx, o.github.dir)
+			return refs["refs/heads/"+op.Target], false, err
+		case "open":
+			pull, err := o.github.FindPull(ctx, mythicalGitHubRepo{}, op.Target)
+			if err != nil || pull == nil {
+				return "", false, err
+			}
+			return pull.HeadSHA, false, nil
+		case "body":
+			number, err := strconv.ParseInt(op.Target, 10, 64)
+			if err != nil {
+				return "", false, err
+			}
+			pull, err := o.github.Pull(ctx, mythicalGitHubRepo{}, number)
+			return mythicalBodyDigest(pull.Body), false, err
+		default:
+			return "", false, fmt.Errorf("unsupported fixture operation %s", op.Kind)
+		}
+	}
+	s.outbound.Send = func(st *mythicalItemStep, ctx context.Context, item db.MythicalItem, op MythicalOutboundOp) error {
+		switch op.Kind {
+		case "push":
+			_, err := st.r.g.git(ctx, "push", "--no-verify", "--force-with-lease=refs/heads/"+op.Target+":"+op.Precondition,
+				o.github.dir, op.Desired+":refs/heads/"+op.Target)
+			return err
+		case "open":
+			return st.createPull(ctx, item, mythicalGitHubRepo{}, op.Target)
+		case "body":
+			number, err := strconv.ParseInt(op.Target, 10, 64)
+			if err != nil {
+				return err
+			}
+			shape, err := st.acceptedShape(ctx, item, mythicalChecksOf(item).Branch)
+			if err != nil {
+				return err
+			}
+			_, body, err := shape.render()
+			if err != nil {
+				return err
+			}
+			return o.github.UpdatePullBody(ctx, mythicalGitHubRepo{}, number, body)
+		default:
+			return fmt.Errorf("unsupported fixture operation %s", op.Kind)
+		}
+	}
+	s.outbound.Settle = func(st *mythicalItemStep, ctx context.Context, item db.MythicalItem, op MythicalOutboundOp) (db.MythicalItem, error) {
+		if op.Kind == "body" {
+			return st.appSettle(ctx, item, op)
+		}
+		if op.Kind != "open" {
+			return item, fmt.Errorf("unsupported fixture settlement %s", op.Kind)
+		}
+		pull, err := o.github.FindPull(ctx, mythicalGitHubRepo{}, op.Target)
+		if err != nil {
+			return item, err
+		}
+		if pull == nil || pull.HeadSHA != op.Desired {
+			return item, fmt.Errorf("fixture pull head did not settle")
+		}
+		next, err := st.bindPull(ctx, item, mythicalGitHubRepo{}, op.Target, *pull)
+		if err != nil {
+			return item, err
+		}
+		return *next, nil
+	}
 }
 
 func (o *mythicalOrchestration) item(number int64) db.MythicalItem {
@@ -614,6 +698,7 @@ func TestMythicalSnapshotPendingAndItemUpdatedAt(t *testing.T) {
 
 func TestMythicalItemsFlowFromIssueToLandedAndAdopted(t *testing.T) {
 	o := newMythicalOrchestration(t)
+	o.composePublication()
 	ctx := context.Background()
 	require.NoError(t, seedMythicalIssue(o.service, ctx, o.repoID, mythicalIssue{Number: 7, Title: "Add docs", URL: "https://github.com/smithersai/smithers/issues/7",
 		State: "open", TextByMaintainer: true, Body: "Please add a docs page.", Labels: []string{"todo"}}, maintainerTodo))
@@ -687,11 +772,13 @@ func TestMythicalItemsFlowFromIssueToLandedAndAdopted(t *testing.T) {
 	// Built on the tip: it is proposed as is, as one commit on main whose tree
 	// is exactly the candidate's.
 	o.wake()
-	require.Equal(t, "proposing", o.item(7).State)
+	require.Equal(t, "proposed", o.item(7).State)
 	assert.Equal(t, candidate, o.hostRef(repohost.MythicalReservedRefNS+"keep/"+candidate), "the candidate is pinned")
-	o.wake()
+	for pass := 0; pass < 4 && o.item(7).State != "proposed"; pass++ {
+		o.wake()
+	}
 	item = o.item(7)
-	require.Equal(t, "proposed", item.State, item.Reason)
+	require.Equal(t, "proposed", item.State, "reason=%s pending=%s checks=%s", item.Reason, item.PendingOp, item.Checks)
 	require.True(t, item.PRNumber.Valid)
 	branchHead := o.git(o.github.dir, "rev-parse", "refs/heads/smithers/todo-7")
 	assert.Equal(t, o.hostTree(candidate), o.git(o.github.dir, "rev-parse", branchHead+"^{tree}"))
@@ -719,7 +806,7 @@ func TestMythicalItemsFlowFromIssueToLandedAndAdopted(t *testing.T) {
 	assert.NotContains(t, o.lanes.deleted, reviewLane)
 	o.answerReviews(`"approve\n- docs.md reads well"`)
 	item = o.item(7)
-	assert.Equal(t, mythicalReview{Head: item.PRHead, Candidate: item.CandidateHead, RunID: "run-review-2", Verdict: "approve"}, *mythicalChecksOf(item).Review)
+	assert.Equal(t, mythicalReview{Head: item.PRHead, Candidate: item.CandidateHead, RunID: "run-review-2", Verdict: "approve", Posted: true, Lane: reviewLane}, *mythicalChecksOf(item).Review)
 	assert.Contains(t, currentTodoEvidence(item).Items, map[string]any{"kind": "review", "summary": "approve"}, "the evidence holds the review of the head that published the candidate")
 	assert.Contains(t, o.lanes.deleted, reviewLane, "the review lane is retired once it answers")
 	assert.Empty(t, o.github.merges, "an approved TODO without automerge waits for a person")
@@ -730,8 +817,13 @@ func TestMythicalItemsFlowFromIssueToLandedAndAdopted(t *testing.T) {
 	o.git(o.work, "fetch", "-q", o.github.dir, "refs/heads/smithers/todo-7")
 	o.git(o.work, "merge", "-q", "--squash", branchHead)
 	o.git(o.work, "commit", "-q", "-m", "📝 docs: add docs (#101)")
-	merged := o.publish()
+	merged := o.git(o.work, "rev-parse", "HEAD")
 	o.github.merge(item.PRNumber.Int64, merged)
+	assert.Empty(t, o.github.comments, "no evidence before GitHub main contains the merge")
+	assert.Empty(t, o.github.closed, "no close before GitHub main contains the merge")
+	o.git(o.work, "push", "-q", o.github.dir, "main:refs/heads/main")
+	o.github.closeErr = errors.New("GitHub is down")
+	require.Equal(t, merged, o.publish())
 	// A person took the item's run over for a while: the adopted change's note names them.
 	_, err = o.pool.Exec(ctx, `UPDATE mythical_items SET checks = COALESCE(checks, '{}'::jsonb) || '{"drivers":[{"by":"will","run":"run_7","from":"2026-09-28T14:02:00Z","to":"2026-09-28T14:09:00Z","messages":3}]}'::jsonb WHERE id = $1`, item.ID)
 	require.NoError(t, err)
@@ -747,16 +839,12 @@ func TestMythicalItemsFlowFromIssueToLandedAndAdopted(t *testing.T) {
 	require.NoError(t, err)
 	require.Len(t, changes, 1)
 	assert.Equal(t, "item", changes[0].Kind)
-	assert.Equal(t, "Add docs", changes[0].Title)
+	assert.Equal(t, "📝 docs: add docs", changes[0].Title)
 	assert.EqualValues(t, 7, changes[0].IssueNumber.Int64)
 	assert.Equal(t, merged, changes[0].FoldedFrom)
 
 	// The issue hears of the landing only once GitHub main carries the merge
 	// commit: the fold alone is not evidence.
-	assert.Empty(t, o.github.comments, "no evidence before the commit is on GitHub main")
-	assert.Empty(t, o.github.closed, "no close before the commit is on GitHub main")
-	o.git(o.work, "push", "-q", o.github.dir, "main:refs/heads/main")
-	o.github.closeErr = errors.New("GitHub is down")
 	o.wake()
 	require.Equal(t, []string{"#7 Landed on main: https://github.com/smithersai/smithers/commit/" + merged +
 		"\nChecks: CI green on " + short(item.PRHead) + "; review approve\nRun: run-request"}, o.github.comments, "built on the tip, the item was never re-verified")
@@ -854,15 +942,25 @@ func TestMythicalItemsRebaseVerifyRetryAndDecline(t *testing.T) {
 	assert.Contains(t, string(verify.Payload), `"checks/fast"`)
 	assert.Equal(t, item.CandidateHead, o.hostRef(repohost.WorkspaceSourceRef(ws11, item.CandidateHead)))
 
-	// #12 conflicts with main: it holds its lane, so it rebases at once
-	// (never idling against the cap) and goes back to a lane with the paths,
-	// attempt 2.
+	// #12 retains the conflict without spending another coding attempt.
+	// Guest conflict continuation is unavailable in this composition.
 	twelve := o.item(12)
-	require.Equal(t, "retrying", twelve.State)
-	assert.Contains(t, twelve.Reason, "b.txt")
+	require.Equal(t, "integrating", twelve.State)
+	assert.Equal(t, "rebase_conflict_pending", twelve.Reason)
 	assert.Contains(t, string(twelve.Integration), "b.txt")
 	assert.Contains(t, string(twelve.Integration), stack.LandedMain, "it rebased onto main's new tip")
 	assert.Len(t, o.launcher.all("coding/verify"), 1, "a conflict launches no verification")
+	var retainedConflict struct {
+		Conflict struct {
+			Head, Tree, Base string
+			PreRebaseHead    string `json:"pre_rebase_head"`
+		}
+	}
+	require.NoError(t, json.Unmarshal(twelve.Integration, &retainedConflict))
+	require.NotEmpty(t, retainedConflict.Conflict.Tree)
+	require.Equal(t, oldTip, retainedConflict.Conflict.Base)
+	require.Equal(t, conflicting, retainedConflict.Conflict.PreRebaseHead)
+	require.Equal(t, retainedConflict.Conflict.Head, o.hostRef(repohost.MythicalReservedRefNS+"keep/"+retainedConflict.Conflict.Head))
 
 	// A stale verify projection (an older generation) changes nothing.
 	o.project(requests[11], jobs.StateCompleted, "stale", `{"status":"failed","failed":["fast"]}`)
@@ -877,33 +975,21 @@ func TestMythicalItemsRebaseVerifyRetryAndDecline(t *testing.T) {
 	assert.True(t, item.CandidateVerified)
 	assert.Equal(t, stack.LandedMain, item.CandidateBase)
 
-	// #12's retries run out: one very hard continuation on the last
-	// attempt, then blocked, visibly, and a retry re-queues it.
-	for attempt := 2; attempt <= mythicalAttempts+1; attempt++ {
-		_, err := o.pool.Exec(ctx, `UPDATE mythical_items SET next_attempt_at = NOW() WHERE repository_id = $1`, o.repoID)
-		require.NoError(t, err)
+	// Polling and a restart of the step cannot silently relaunch the item.
+	requestCount := len(o.launcher.all("coding/request"))
+	retained := append([]byte(nil), twelve.Integration...)
+	for range 10 {
 		o.wake()
 		twelve = o.item(12)
-		require.Equal(t, "running", twelve.State, twelve.Reason)
-		require.EqualValues(t, min(attempt, mythicalAttempts), twelve.Attempt)
-		// A plan failure spends an attempt; an outage would not.
-		o.fail(o.launcher.last("coding/request"), fmt.Sprintf("run-12-%d", attempt), "factory", "coding/Error/fast_gate", "")
-		o.wake()
+		require.Equal(t, "integrating", twelve.State)
+		require.EqualValues(t, 1, twelve.Attempt)
+		require.Equal(t, retained, []byte(twelve.Integration))
+		require.Equal(t, conflicting, twelve.CandidateHead)
 	}
-	twelve = o.item(12)
-	assert.Equal(t, "blocked", twelve.State)
-	payload := string(o.launcher.last("coding/request").Payload)
-	assert.Contains(t, payload, "Append new changes at the head only", "the last attempt appends only")
-	// A block the very hard stop typed is a person's to lift, like a
-	// planner's decline: an agent's run can re-open neither.
-	_, err = o.service.retryItem(mythicalRunContext(ctx, o.userID), o.repoID, uuidString(twelve.ID))
-	requireRunCredentialRefused(t, err)
-	view, err := o.service.retryItem(ctx, o.repoID, uuidString(twelve.ID))
-	require.NoError(t, err)
-	assert.Equal(t, "queued", view.State)
+	require.Len(t, o.launcher.all("coding/request"), requestCount)
 	_, err = o.service.retryItem(mythicalRunContext(ctx, o.userID), o.repoID, uuidString(o.item(13).ID))
 	requireRunCredentialRefused(t, err)
-	assert.Equal(t, "blocked", o.item(13).State)
+	require.Equal(t, "blocked", o.item(13).State)
 
 	o.wake()
 	// The snapshot shows the items and their lanes.
@@ -913,7 +999,7 @@ func TestMythicalItemsRebaseVerifyRetryAndDecline(t *testing.T) {
 	for _, row := range snapshot.Items {
 		states[row.Issue.Title] = row.State
 	}
-	assert.Equal(t, map[string]string{"Issue 11": "proposing", "Issue 12": "running", "Issue 13": "blocked"}, states)
+	assert.Equal(t, map[string]string{"Issue 11": "proposing", "Issue 12": "integrating", "Issue 13": "blocked"}, states)
 	busy := map[string]string{}
 	for _, lane := range snapshot.Lanes {
 		if lane.State == "busy" {
@@ -930,6 +1016,7 @@ func TestMythicalItemsRebaseVerifyRetryAndDecline(t *testing.T) {
 // A failed plan stays blocked through backfill until a person retries it.
 func TestMythicalItemsSurviveFailuresAndStayBound(t *testing.T) {
 	o := newMythicalOrchestration(t)
+	o.composePublication()
 	ctx := context.Background()
 
 	// An outsider's issue is approved only by a maintainer's label on that
@@ -992,18 +1079,18 @@ func TestMythicalItemsSurviveFailuresAndStayBound(t *testing.T) {
 	require.Equal(t, "delivering", o.item(21).State)
 	stack, err := db.New(o.pool).GetMythicalStack(ctx, o.repoID)
 	require.NoError(t, err)
-	candidate := o.laneResult(item.WorkspaceID, stack.TipCommit, map[string]string{"x.txt": "x\n"}, "✨ feat: x")
-	_, err = o.service.SubmitLane(ctx, o.repoID, o.userID, MythicalLaneSubmission{WorkspaceID: item.WorkspaceID, Base: stack.TipCommit,
+	candidate := o.laneResult(item.WorkspaceID, item.BaseCommit, map[string]string{"x.txt": "x\n"}, "✨ feat: x")
+	_, err = o.service.SubmitLane(ctx, o.repoID, o.userID, MythicalLaneSubmission{WorkspaceID: item.WorkspaceID, Base: item.BaseCommit,
 		Source: candidate, RequestRunID: "some-other-run", Summary: "✨ feat: x"})
 	require.Error(t, err)
 	unretained := strings.Repeat("9", 40)
-	_, err = o.service.SubmitLane(ctx, o.repoID, o.userID, MythicalLaneSubmission{WorkspaceID: item.WorkspaceID, Base: stack.TipCommit,
+	_, err = o.service.SubmitLane(ctx, o.repoID, o.userID, MythicalLaneSubmission{WorkspaceID: item.WorkspaceID, Base: item.BaseCommit,
 		Source: unretained, RequestRunID: "run-21", Summary: "✨ feat: x"})
 	require.Error(t, err)
-	_, err = o.service.SubmitLane(ctx, o.repoID, o.userID+1, MythicalLaneSubmission{WorkspaceID: item.WorkspaceID, Base: stack.TipCommit,
+	_, err = o.service.SubmitLane(ctx, o.repoID, o.userID+1, MythicalLaneSubmission{WorkspaceID: item.WorkspaceID, Base: item.BaseCommit,
 		Source: candidate, RequestRunID: "run-21", Summary: "✨ feat: x"})
 	require.Error(t, err, "only the stack's account submits")
-	_, err = o.service.SubmitLane(ctx, o.repoID, o.userID, MythicalLaneSubmission{WorkspaceID: item.WorkspaceID, Base: stack.TipCommit,
+	_, err = o.service.SubmitLane(ctx, o.repoID, o.userID, MythicalLaneSubmission{WorkspaceID: item.WorkspaceID, Base: item.BaseCommit,
 		Source: candidate, RequestRunID: "run-21", Summary: "✨ feat: x"})
 	require.NoError(t, err)
 	lane := item.WorkspaceID
@@ -1029,28 +1116,28 @@ func TestMythicalItemsSurviveFailuresAndStayBound(t *testing.T) {
 
 	// A proposal push that landed on GitHub but was never recorded is settled
 	// from the branch, not pushed again or blocked.
-	o.wake() // integrating -> proposing
-	require.Equal(t, "proposing", o.item(21).State)
+	o.wake() // integrate and publish through the composed fixture adapters
+	require.Equal(t, "proposed", o.item(21).State)
 	item = o.item(21)
-	main := o.git(o.github.dir, "rev-parse", "refs/heads/main")
-	tree := o.hostTree(candidate)
-	head := o.git(o.hostDir, "commit-tree", tree, "-p", main, "-m", "✨ feat: x")
-	o.git(o.hostDir, "update-ref", repohost.MythicalReservedRefNS+"keep/"+head, head)
-	o.git(o.hostDir, "push", "-q", o.github.dir, head+":refs/heads/smithers/todo-21")
+	head := item.PRHead
+	require.Equal(t, head, o.git(o.github.dir, "rev-parse", "refs/heads/smithers/todo-21"))
+	// Retain GitHub's actual canonical result but lose the local push/open
+	// receipts, as a crash before their database settlement would.
+	item.PRHead, item.PRNumber, item.PRState, item.PRURL = "", pgtype.Int8{}, "", ""
 	pending, _ := json.Marshal(mythicalProposalOp{Branch: "smithers/todo-21", Expected: "", Head: head})
-	item.PendingOp = pending
+	item.PendingOp, item.State = pending, "proposing"
 	_, err = db.New(o.pool).SaveMythicalItem(ctx, item)
 	require.NoError(t, err)
 	o.wake()
 	item = o.item(21)
-	require.Equal(t, "proposed", item.State, item.Reason)
+	require.Equal(t, "proposed", item.State, "reason=%s pending=%s checks=%s", item.Reason, item.PendingOp, item.Checks)
 	assert.Equal(t, head, item.PRHead)
 	assert.Empty(t, item.PendingOp)
 
 	// A retired lane's results never reach the stack again, as a lane or as chat.
 	o.answerReviews(`"approve"`)
 	assert.Contains(t, o.lanes.deleted, lane)
-	_, err = o.service.SubmitLane(ctx, o.repoID, o.userID, MythicalLaneSubmission{WorkspaceID: lane, Base: stack.TipCommit,
+	_, err = o.service.SubmitLane(ctx, o.repoID, o.userID, MythicalLaneSubmission{WorkspaceID: lane, Base: item.BaseCommit,
 		Source: candidate, RequestRunID: "run-21", Summary: "✨ feat: x"})
 	require.Error(t, err)
 
@@ -1831,13 +1918,15 @@ func TestForeignPushWaitCardSurvivesIndependentQuestionSettlement(t *testing.T) 
 	checks := decodeJSON(t, item.Checks)
 	foreign := decodeJSON(t, []byte(`{"id":"foreign-1","kind":"foreign_push","prompt":"Alice pushed to smithers/retry-webhooks on GitHub","since":"2026-10-05T12:00:00Z","sha":"1111111111111111111111111111111111111111","by":{"kind":"github","login":"alice","color_index":7}}`))
 	checks["waits"] = append(checks["waits"].([]any), foreign)
+	checks["foreignHead"] = "1111111111111111111111111111111111111111"
+	checks["branch"] = "smithers/retry-webhooks"
 	raw, err := json.Marshal(checks)
 	require.NoError(t, err)
 	_, err = o.pool.Exec(ctx, `UPDATE mythical_items SET checks=$2 WHERE id=$1`, item.ID, raw)
 	require.NoError(t, err)
 	want := map[string]any{"id": "foreign-1", "kind": "foreign_push", "prompt": "Alice pushed to smithers/retry-webhooks on GitHub",
 		"since": "2026-10-05T12:00:00Z", "sha": "1111111111111111111111111111111111111111",
-		"by": map[string]any{"kind": "github", "login": "alice", "color_index": float64(7)}, "actions": []any{}}
+		"by": map[string]any{"kind": "github", "login": "alice", "color_index": float64(7)}, "actions": []any{map[string]any{"tag": "branch.discard-foreign", "label": "Discard"}}}
 	card := o.todoCard(item.Number.Int64)
 	waits := card["waits"].([]any)
 	require.Len(t, waits, 2)
@@ -1870,19 +1959,35 @@ func TestForeignPushWaitCardSurvivesIndependentQuestionSettlement(t *testing.T) 
 	encoded, err := json.Marshal(cards[0])
 	require.NoError(t, err)
 	require.Equal(t, card["waits"], decodeJSON(t, encoded)["waits"])
+	// Missing or changed retained-head facts must withdraw the executable door.
+	for _, head := range []string{"", "2222222222222222222222222222222222222222"} {
+		checks := decodeJSON(t, stored.Checks)
+		checks["foreignHead"] = head
+		raw, err := json.Marshal(checks)
+		require.NoError(t, err)
+		_, err = o.pool.Exec(ctx, `UPDATE mythical_items SET checks=$2 WHERE id=$1`, item.ID, raw)
+		require.NoError(t, err)
+		wait := o.todoCard(item.Number.Int64)["waits"].([]any)[0].(map[string]any)
+		require.Empty(t, wait["actions"])
+		require.Equal(t, foreign["sha"], wait["sha"])
+	}
 }
 
 func TestForeignPushPollRetainsTerminalCandidateWhenPrefixMoves(t *testing.T) {
 	for _, state := range []string{"dropped", "rejected", "cancelled", "declined", "landed", "merged"} {
 		t.Run(state, func(t *testing.T) {
+			pullState := "open"
+			if state == "rejected" {
+				pullState = "closed"
+			}
 			gh := &fakeMythicalGitHub{dir: t.TempDir(), pulls: map[int64]*mythicalPull{4: {
-				State: "open", HeadSHA: "recorded", HeadRef: "smithers/retry-webhooks",
+				State: pullState, HeadSHA: "recorded", HeadRef: "smithers/retry-webhooks",
 			}}}
 			st := &mythicalItemStep{s: &MythicalService{github: gh}, r: &mythicalRun{row: db.MythicalStack{
 				ActorUserID: pgtype.Int8{Int64: 1, Valid: true}, TipCommit: "new-prefix"}}, gh: &mythicalGitHubRepo{}, now: time.Unix(100, 0)}
 			checks := mythicalChecks{Branch: "smithers/retry-webhooks", Fault: &mythicalFault{},
 				Waits: []TodoWait{{ID: "question", Kind: "question", Prompt: "Keep the question"}}}
-			item := db.MythicalItem{State: state, PRNumber: pgtype.Int8{Int64: 4, Valid: true}, PRState: "open", PRHead: "recorded",
+			item := db.MythicalItem{State: state, PRNumber: pgtype.Int8{Int64: 4, Valid: true}, PRState: pullState, PRHead: "recorded",
 				CandidateBase: "old-prefix", CandidateHead: "candidate", CandidateVerified: true,
 				Checks: checks.encode(), Reason: "retained reason", PendingOp: json.RawMessage(`{`),
 				PausedAt: pgtype.Timestamptz{Time: time.Unix(10, 0), Valid: true}}

@@ -61,6 +61,15 @@ export const createChatStub = (publish: (frame: AgentTurnFrame) => void): CloudA
       const frames: ReadonlyArray<AgentTurnFrame> = call !== undefined
         ? [call, { runId: request.runId, type: "done", reason: "tool_call" }]
         : [
+          ...(lastUserMessage(request) === "stub-context-preflight" ? [
+            { runId: request.runId, type: "context.preflight" as const, phase: "completed" as const,
+              result: { context: [{ kind: "file" as const, label: "retry.ts", ref: "src/webhooks/retry.ts",
+                revision: "0123456789abcdef0123456789abcdef01234567", reason: "Retry implementation" }],
+                candidates: [{ kind: "file" as const, label: "retry.ts", ref: "src/webhooks/retry.ts", revision: "0123456789abcdef0123456789abcdef01234567" }],
+                model: "owner-fast", durationMs: 12 } },
+            { runId: request.runId, type: "card" as const, card: { id: `run:${request.runId}`, kind: "run" as const,
+              title: "App agent", status: "active" as const, createdAt: 1, ordinal: 1, payload: { id: request.runId } } }
+          ] : []),
           { runId: request.runId, type: "delta", kind: "reasoning", text: "stub: thinking" },
           { runId: request.runId, type: "delta", kind: "text", text: stubReply(request) },
           { runId: request.runId, type: "done", reason: "stop" }

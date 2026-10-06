@@ -369,8 +369,8 @@ func homeModel(repository string, todos []map[string]any, sync *services.GitHubS
 		items = append(items, item)
 	}
 	main := map[string]any{"sha": "", "title": "main", "last_success_at": time.Unix(0, 0).UTC().Format("2006-01-02T15:04:05.000Z"), "health": "limited"}
-	// A sync with no success yet leaves the row as it was.
-	if sync != nil && (sync.LastSuccessAt != nil || sync.State == "refused") {
+	// Health and pauses are authoritative even before the first successful read.
+	if sync != nil {
 		main["health"] = sync.State
 		if sync.LastSuccessAt != nil {
 			main["last_success_at"] = sync.LastSuccessAt.Format(time.RFC3339Nano)

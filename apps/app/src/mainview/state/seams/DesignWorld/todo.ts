@@ -198,13 +198,13 @@ const SEED_ONLY: TodoSourceProbe = { known: () => "seed", ask: () => Promise.res
  * declared JSON that does not decode or is not a list, an unreachable host): it answers real, so its failure
  * shows, and the next flow asks again.
  */
-export const todoSourceProbe = (ctx: SeamContext, configured: boolean): TodoSourceProbe => {
+export const todoSourceProbe = (ctx: SeamContext, configured: boolean, path: "/api/todos" | "/api/proposals" = "/api/todos"): TodoSourceProbe => {
   if (!configured) return SEED_ONLY
   let last: TodoSource | undefined
   let held: Promise<TodoSource> | undefined
   const read = async (): Promise<readonly [TodoSource, boolean]> => {
     try {
-      const response = await ctx.http(`${ctx.baseUrl}/api/todos`, { credentials: "include" })
+      const response = await ctx.http(`${ctx.baseUrl}${path}`, { credentials: "include" })
       if (response.status === 404) return ["seed", true]
       if (!response.ok) return ["real", false]
       if (!/\bjson\b/i.test(response.headers.get("Content-Type") ?? "")) return ["seed", true]

@@ -111,12 +111,6 @@ describe("the runs grammar", () => {
     })
   })
 
-  test("runs.steer keeps the whole message after the run id", () => {
-    expect(payloadFor("runs.steer", "run-1 use the smaller diff")).toEqual({
-      payload: { runId: "run-1", body: "use the smaller diff" }
-    })
-    expect(payloadFor("runs.steer", "run-1")).toEqual({ error: "runs.steer needs the message to deliver" })
-  })
 
   test("runs.logs takes --follow anywhere and nothing else", () => {
     expect(payloadFor("runs.logs", "run-1")).toEqual({ payload: { runId: "run-1" } })

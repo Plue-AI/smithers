@@ -388,6 +388,64 @@ paths:
                 anyOf:
                   - $ref: '#/components/schemas/SavedConversationProblem'
                   - $ref: '#/components/schemas/Error'
+  /api/conversations/{b}/prompt:
+    post:
+      summary: Queue my branch prompt
+      description: Persists before acknowledging; does not wait for the model host. Retrying the same credential-scoped key and prompt returns the same turn. Restore uses a new key. Browser history, instructions and author overrides are refused.
+      operationId: post_api_conversation_prompt
+      tags:
+        - Agent
+      security:
+        - sessionCookie: []
+      parameters:
+        - name: b
+          in: path
+          required: true
+          schema:
+            type: string
+            maxLength: 160
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [prompt, idempotencyKey]
+              properties:
+                prompt:
+                  type: string
+                  minLength: 1
+                  maxLength: 1048576
+                idempotencyKey:
+                  type: string
+                  minLength: 1
+                  maxLength: 160
+      responses:
+        '202':
+          description: Durable acceptance or existing turn, with turnId, runId, legId, cursor and terminal. No credential is returned.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AnyJSON'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '409':
+          description: The key was already used with another prompt.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '503':
+          description: Conversation admission is unavailable.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
   /api/conversations/{b}/turns/{id}:
     parameters:
       - name: b
@@ -525,7 +583,7 @@ paths:
         - bearerAuth: []
       responses:
         '200':
-          description: The authenticated member's conversation state and global toast preference.
+          description: The authenticated member's conversation state and global toast preference; GET also includes their committed queued prompts when nonempty. The queue is server-owned and cannot be saved through PUT.
           content:
             application/json:
               schema:

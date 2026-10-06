@@ -107,14 +107,15 @@ func (l *fakeMythicalLauncher) byFlow(flowID string) []flowdispatch.LaunchReques
 // review is running, and answers the review's launch.
 func (o *mythicalOrchestration) propose(number int64, file string) {
 	o.t.Helper()
+	o.composePublication()
 	ctx := context.Background()
-	stack := o.wake()
+	o.wake()
 	item := o.item(number)
 	require.Equal(o.t, "running", item.State, item.Reason)
 	o.project(o.launcher.last("coding/request"), jobs.StateCompleted, fmt.Sprintf("run-%d", number), validatedRequest)
 	o.wake()
-	candidate := o.laneResult(item.WorkspaceID, stack.TipCommit, map[string]string{file: "x\n"}, "📝 docs: add "+file)
-	_, err := o.service.SubmitLane(ctx, o.repoID, o.userID, MythicalLaneSubmission{WorkspaceID: item.WorkspaceID, Base: stack.TipCommit,
+	candidate := o.laneResult(item.WorkspaceID, item.BaseCommit, map[string]string{file: "x\n"}, "📝 docs: add "+file)
+	_, err := o.service.SubmitLane(ctx, o.repoID, o.userID, MythicalLaneSubmission{WorkspaceID: item.WorkspaceID, Base: item.BaseCommit,
 		Source: candidate, RequestRunID: fmt.Sprintf("run-%d", number), Summary: "📝 docs: add " + file})
 	require.NoError(o.t, err)
 	o.wake() // integrating -> proposing
@@ -138,7 +139,7 @@ func TestMythicalAutomergeRefusesAMovedHead(t *testing.T) {
 	o.propose(70, "seventy.md")
 	head := o.item(70).PRHead
 	moved := o.git(o.github.dir, "commit-tree", o.git(o.github.dir, "rev-parse", head+"^{tree}"), "-p", head, "-m", "outside push")
-	o.git(o.github.dir, "update-ref", "refs/heads/smithers/issue-70", moved)
+	o.git(o.github.dir, "update-ref", "refs/heads/smithers/todo-70", moved)
 	o.answerReviews(`"approve"`)
 	item := o.item(70)
 	assert.Equal(t, "proposed", item.State)
@@ -154,7 +155,12 @@ func TestMythicalReviewVerdict(t *testing.T) {
 	notVerdict := "failed: the review's first line was not a verdict"
 	for _, tc := range []struct{ output, want string }{
 		{`"approve"`, "approve"},
-		{`"\n  approve  \n- a.go:1: fine"`, "approve"},
+		{`"\n  approve  \n- a.go:1: fine"`, notVerdict},
+		{`" approve"`, notVerdict},
+		{`"approve "`, notVerdict},
+		{`"\trequest-changes"`, notVerdict},
+		{`"approve\r\n- a.go:1: fine"`, "approve"},
+		{"approve\n- fine", "approve"},
 		{`"request-changes\n- a.go:1: fix"`, "request-changes"},
 		// Only the first line is a verdict: a finding that quotes the word,
 		// fenced or not, never flips a rejection.
@@ -535,6 +541,9 @@ func TestMythicalRunOutcomeReadsTheTypedFault(t *testing.T) {
 	}{
 		{failed("factory", "coding/Error/fast_gate", "", ""), "failed: coding/Error/fast_gate"},
 		{failed("factory", "coding/Error/execution", "", ""), "failed: coding/Error/execution"},
+		{failed("factory", "coding/Error/check_modified_tree", "", ""), "stopped: user: coding/Error/check_modified_tree"},
+		{failed("", "", "", "check_modified_tree"), "stopped: user: coding/Error/check_modified_tree"},
+		{failed("user", "coding/Error/check_modified_tree", "", ""), "stopped: user: coding/Error/check_modified_tree"},
 		{failed("dependency", "coding/Error/unavailable", "", ""), "outage: dependency: coding/Error/unavailable"},
 		{failed("wait", "flows/model/ModelError/quota_exceeded", "", ""), "outage: wait: flows/model/ModelError/quota_exceeded"},
 		{failed("user", "flows/model/ModelError/authentication", "", ""), "stopped: user: flows/model/ModelError/authentication"},
@@ -623,50 +632,33 @@ func (o *mythicalOrchestration) opened(number int64, author string, byMaintainer
 	require.NoError(o.t, o.service.ObserveGitHubEvent(context.Background(), "issues", payload))
 }
 
-// An issue becomes a TODO without the label only when the maintainer the
-// policy names wrote it after the rule took effect. The factory then applies
-// the label, records why, and never reverts its own label; the item stays a
-// TODO when the label write fails. Nothing else, and never the backlog.
-func TestMythicalAutomergeWaitsForGreenCIOnTheApprovedHead(t *testing.T) {
+// Legacy labels remain readable but never supply a person's exact-head
+// approval, regardless of the CI result.
+func TestMythicalLegacyAutomergeLabelNeverAuthorizesMerge(t *testing.T) {
 	o := newMythicalOrchestration(t)
 	ctx := context.Background()
 	issue := mythicalIssue{Number: 75, Title: "CI", State: "open", TextByMaintainer: true, Labels: []string{"todo", "automerge"}}
 	require.NoError(t, seedMythicalIssue(o.service, ctx, o.repoID, issue, maintainerTodo))
 	require.NoError(t, seedMythicalIssue(o.service, ctx, o.repoID, issue, gitHubLabelApplication{Label: automergeLabel, ByMaintainer: true}))
 	o.propose(75, "seventy-five.md")
-	head := o.item(75).PRHead
-	o.github.mu.Lock()
-	o.github.ci = map[string]string{head: mythicalCIPending}
-	o.github.mu.Unlock()
+	head, main := o.item(75).PRHead, o.hostRef("refs/heads/main")
 	o.answerReviews(`"approve"`)
-	item := o.item(75)
-	assert.Equal(t, "proposed", item.State)
-	assert.Equal(t, "waiting for CI on the approved head", item.Reason)
-	assert.Empty(t, o.github.merges)
-
-	o.github.mu.Lock()
-	o.github.ci[head] = mythicalCIRed
-	o.github.mu.Unlock()
-	o.wake()
-	item = o.item(75)
-	assert.Equal(t, "proposed", item.State)
-	assert.Equal(t, "CI failed on the approved head", item.Reason)
-	assert.Empty(t, o.github.merges, "never on red")
-
-	o.github.mu.Lock()
-	o.github.ci[head] = mythicalCIGreen
-	o.github.mu.Unlock()
-	o.wake()
-	item = o.item(75)
-	require.Equal(t, "landed", item.State, item.Reason)
-	assert.Equal(t, map[int64]string{item.PRNumber.Int64: head}, o.github.merges, "merged at the head CI and the review passed")
+	for _, status := range []string{mythicalCIPending, mythicalCIRed, mythicalCIGreen} {
+		o.github.mu.Lock()
+		o.github.ci = map[string]string{head: status}
+		o.github.mu.Unlock()
+		o.wake()
+		item := o.item(75)
+		assert.Equal(t, "proposed", item.State, status)
+		assert.Equal(t, "Waiting for merge readiness integration", item.Reason, status)
+		assert.Empty(t, o.github.merges, "a legacy label is not a person's reviewed-head approval")
+		assert.Equal(t, main, o.hostRef("refs/heads/main"))
+	}
 }
 
-// Right before the merge the stack reads the pull request and the label
-// again: a head someone else pushed, or an automerge a maintainer took off,
-// stops it and holds the TODO visibly with one comment; a refused merge
-// holds it the same way, and a comment GitHub drops is posted later.
-func TestMythicalAutomergeRereadsEverythingItRestsOn(t *testing.T) {
+// Old labels grant no merge permission. Outside pushes retain their fence
+// and a failed hold notice is retried without a merge.
+func TestMythicalLegacyLabelsAndForeignPushFences(t *testing.T) {
 	o := newMythicalOrchestration(t)
 	ctx := context.Background()
 	start := func(number int64, file string) db.MythicalItem {
@@ -683,18 +675,18 @@ func TestMythicalAutomergeRereadsEverythingItRestsOn(t *testing.T) {
 	o.answerReviews(`"approve"`)
 	item = o.item(76)
 	assert.Equal(t, "proposed", item.State)
-	assert.Equal(t, "a maintainer's automerge label is no longer on the issue", item.Reason)
-	assert.False(t, mythicalChecksOf(item).Automerge)
+	assert.Empty(t, item.Reason, "an old label cannot create a merge approval")
+	assert.True(t, mythicalChecksOf(item).Automerge, "the old admission remains readable without granting merge authority")
 	assert.Empty(t, o.github.merges)
 	o.wake()
-	assert.Equal(t, []string{"#76 Smithers is holding this TODO: a maintainer's automerge label is no longer on the issue.\nRun: run-76"}, o.github.comments)
+	assert.Empty(t, o.github.comments, "no merge decision was admitted")
 	o.wake()
-	assert.Len(t, o.github.comments, 1, "said once")
+	assert.Empty(t, o.github.comments)
 
 	// Someone pushed to the pull request: its new head is theirs.
 	item = start(77, "seventy-seven.md")
 	head := item.PRHead
-	o.git(o.github.dir, "update-ref", "refs/heads/smithers/issue-77",
+	o.git(o.github.dir, "update-ref", "refs/heads/smithers/todo-77",
 		o.git(o.github.dir, "commit-tree", o.git(o.github.dir, "rev-parse", head+"^{tree}"), "-p", head, "-m", "a person's push"))
 	o.answerReviews(`"approve"`)
 	item = o.item(77)
@@ -708,17 +700,16 @@ func TestMythicalAutomergeRereadsEverythingItRestsOn(t *testing.T) {
 	o.github.commentErr = errors.New("GitHub is down")
 	o.github.mu.Unlock()
 	item = start(78, "seventy-eight.md")
-	o.github.mu.Lock()
-	o.github.ci = map[string]string{item.PRHead: mythicalCIRed}
-	o.github.mu.Unlock()
+	o.git(o.github.dir, "update-ref", "refs/heads/smithers/todo-78",
+		o.git(o.github.dir, "commit-tree", o.git(o.github.dir, "rev-parse", item.PRHead+"^{tree}"), "-p", item.PRHead, "-m", "outside push"))
 	o.answerReviews(`"approve"`)
-	assert.Equal(t, "CI failed on the approved head", o.item(78).Reason)
+	assert.Equal(t, "the pull request head moved outside Smithers; a person decides", o.item(78).Reason)
 	require.NotNil(t, mythicalChecksOf(o.item(78)).Notice, "the comment is owed")
 	o.github.mu.Lock()
 	o.github.commentErr = nil
 	o.github.mu.Unlock()
 	o.wake()
-	assert.Contains(t, o.github.comments, "#78 Smithers is holding this TODO: CI failed on the approved head.\nRun: run-78")
+	assert.Contains(t, o.github.comments, "#78 Smithers is holding this TODO: the pull request head moved outside Smithers; a person decides.\nRun: run-78")
 	assert.Nil(t, mythicalChecksOf(o.item(78)).Notice)
 }
 
@@ -934,9 +925,8 @@ func TestMythicalUntrustedEscapesDefaultIgnorablesInReview(t *testing.T) {
 	}
 }
 
-// Before a merge the issue must still be a TODO as it stands now: a
-// maintainer's todo taken off stops the merge.
-func TestMythicalAutomergeRereadsTheTodoLabel(t *testing.T) {
+// Removing the old TODO label cannot admit a merge decision.
+func TestMythicalRemovedLegacyTodoLabelDoesNotAuthorizeMerge(t *testing.T) {
 	o := newMythicalOrchestration(t)
 	ctx := context.Background()
 	issue := mythicalIssue{Number: 69, Title: "Still", State: "open", TextByMaintainer: true, Labels: []string{"todo", "automerge"}}
@@ -948,7 +938,7 @@ func TestMythicalAutomergeRereadsTheTodoLabel(t *testing.T) {
 	o.answerReviews(`"approve"`)
 	item := o.item(69)
 	assert.Equal(t, "proposed", item.State)
-	assert.Equal(t, "the issue is no longer a TODO", item.Reason)
+	assert.Empty(t, item.Reason, "removing a label does not admit a merge decision")
 	assert.Empty(t, o.github.merges)
 }
 
@@ -1033,9 +1023,8 @@ func TestMythicalPreAdmissionOutageParks(t *testing.T) {
 }
 
 // A review takes a lane like any launch: on a one-lane stack a review and a
-// new request never run together, and on a two-lane stack a review leaves
-// the lane kept for chat free (Opus r3 M3).
-func TestMythicalReviewWaitsForALane(t *testing.T) {
+// new request never run together; a second available lane admits both.
+func TestMythicalReviewUsesTheAvailableLane(t *testing.T) {
 	o := newMythicalOrchestration(t)
 	ctx := context.Background()
 	_, err := o.pool.Exec(ctx, `UPDATE mythical_stacks SET max_parallel = 1 WHERE repository_id = $1`, o.repoID)
@@ -1053,24 +1042,20 @@ func TestMythicalReviewWaitsForALane(t *testing.T) {
 	o.answerReviews(`"request-changes"`)
 	assert.Equal(t, "running", o.item(312).State, "the lane is free once the review answered")
 
-	// Two lanes, one kept for chat: 312's request holds the other, so a
-	// review of 311's next head waits.
+	// Two available lanes admit the request and review concurrently.
 	_, err = o.pool.Exec(ctx, `UPDATE mythical_stacks SET max_parallel = 2 WHERE repository_id = $1`, o.repoID)
 	require.NoError(t, err)
 	reviews := len(o.launcher.byFlow(mythicalReviewFlow))
 	_, err = o.pool.Exec(ctx, `UPDATE mythical_items SET checks = checks - 'review' WHERE repository_id = $1 AND issue_number = 311`, o.repoID)
 	require.NoError(t, err)
 	o.wake()
-	assert.Len(t, o.launcher.byFlow(mythicalReviewFlow), reviews, "no review takes the chat lane")
-	assert.Equal(t, "waiting for a free lane to review this change", o.item(311).Reason, "the wait is visible")
+	assert.Len(t, o.launcher.byFlow(mythicalReviewFlow), reviews+1, "the second available lane admits the review")
+	assert.Empty(t, o.item(311).Reason)
 	assert.Equal(t, "running", o.item(312).State)
 }
 
-// A delayed or replayed labeled todo counts only as the label stands now,
-// and each application acts once: a replay after the removal re-queues
-// nothing, and a replay onto a bounded stop lifts no bound (Astra r2 1,
-// Opus r3 L3).
-func TestMythicalAutomergeBoundsTheCIWait(t *testing.T) {
+// The legacy label path never starts a reviewed-head readiness wait.
+func TestMythicalLegacyAutomergeDoesNotOpenCIWait(t *testing.T) {
 	o := newMythicalOrchestration(t)
 	ctx := context.Background()
 	issue := mythicalIssue{Number: 351, Title: "Wait", State: "open", TextByMaintainer: true, Labels: []string{"todo", "automerge"}}
@@ -1082,26 +1067,14 @@ func TestMythicalAutomergeBoundsTheCIWait(t *testing.T) {
 	o.github.ci = map[string]string{head: mythicalCIPending}
 	o.github.mu.Unlock()
 	o.answerReviews(`"approve"`)
-	item := o.item(351)
-	assert.Equal(t, "waiting for CI on the approved head", item.Reason)
-	wait := mythicalChecksOf(item).CIWait
-	require.NotNil(t, wait)
-	assert.Equal(t, head, wait.Head)
-	wait.Since = wait.Since.Add(-mythicalCIWaitBound)
-	waited := mythicalChecksOf(item)
-	waited.CIWait = wait
-	item.Checks = waited.encode()
-	_, err := o.service.queries().SaveMythicalItem(ctx, item)
-	require.NoError(t, err)
-	o.wake()
-	assert.Equal(t, "CI on the approved head has not finished in 6h0m0s", o.item(351).Reason)
-	o.wake()
-	assert.Contains(t, withoutRunLines(o.github.comments), "#351 Smithers is holding this TODO: CI on the approved head has not finished in 6h0m0s.")
+	assert.Nil(t, mythicalChecksOf(o.item(351)).CIWait, "readiness needs a person's approval, not an old label")
 	o.github.mu.Lock()
 	o.github.ci = nil
 	o.github.mu.Unlock()
 	o.wake()
-	assert.Equal(t, "landed", o.item(351).State, "CI that finishes later still merges")
+	assert.Equal(t, "proposed", o.item(351).State)
+	assert.Nil(t, mythicalChecksOf(o.item(351)).CIWait)
+	assert.Empty(t, o.github.merges, "CI recovery cannot grant authority")
 }
 
 // A person's retry lifts the launch bound for every typed stop, not only a
@@ -1278,7 +1251,8 @@ func TestMythicalSnapshotShowsATodosMetrics(t *testing.T) {
 	}
 	assert.Contains(t, wire[383], `"route":{"as":"close","landed":"change"},"humanEdited":true,"costNanos":20000000`,
 		"a close that landed a change is a misroute")
-	assert.Contains(t, wire[384], `"route":{"as":"implement","landed":"close"}`, "an implement that closed is a misroute")
+	assert.Contains(t, wire[384], `"route":{"as":"implement"}`, "an unproposed decline retains the route")
+	assert.Contains(t, wire[384], `"tag":"no_proposal"`, "a decline cannot settle a TODO as a successful close")
 	assert.NotContains(t, wire[384], `humanEdited`)
 	assert.NotContains(t, wire[384], `costNanos`)
 	assert.NotContains(t, wire[383], `drivers`, "the drivers stay in the note and the service")
@@ -1448,7 +1422,7 @@ func TestMythicalResumeStartsGitHubOutagesOver(t *testing.T) {
 	assert.Equal(t, "proposing", next.State, "one failure backs off")
 	assert.WithinDuration(t, time.Now().Add(2*time.Minute), next.NextAttemptAt.Time, 30*time.Second)
 
-	// A maintainer re-applying todo.
+	// Replaying the original admission does not reopen the stopped item.
 	stopped := o.item(421)
 	checks := mythicalChecksOf(stopped)
 	checks.GitHubOutages, checks.Fault = mythicalOutageBound+1, &mythicalFault{Class: "policy", Tag: "outages"}
@@ -1456,8 +1430,8 @@ func TestMythicalResumeStartsGitHubOutagesOver(t *testing.T) {
 	_, err = o.service.queries().SaveMythicalItem(ctx, stopped)
 	require.NoError(t, err)
 	require.NoError(t, seedMythicalIssue(o.service, ctx, o.repoID, issue, maintainerTodo))
-	assert.Equal(t, "queued", o.item(421).State)
-	assert.Zero(t, mythicalChecksOf(o.item(421)).GitHubOutages)
+	assert.Equal(t, "blocked", o.item(421).State)
+	assert.Equal(t, mythicalOutageBound+1, mythicalChecksOf(o.item(421)).GitHubOutages)
 }
 
 // A verification on a kept workspace takes its lane under the cap as it

@@ -42,11 +42,11 @@ func OwnerToken(ctx context.Context, pool *pgxpool.Pool, username string) (strin
 	if err = q.UpsertInstallSetting(ctx, db.UpsertInstallSettingParams{Key: "owner.access", Value: value}); err != nil {
 		return "", err
 	}
-	random := make([]byte, 32)
+	random := make([]byte, 20)
 	if _, err = rand.Read(random); err != nil {
 		return "", err
 	}
-	token := hex.EncodeToString(random)
+	token := "smithers_" + hex.EncodeToString(random)
 	digest := sha256.Sum256([]byte(token))
 	if _, err = q.CreateAccessToken(ctx, db.CreateAccessTokenParams{UserID: userID, Name: "integration", TokenHash: hex.EncodeToString(digest[:]), TokenLastEight: token[len(token)-8:], Scopes: "all"}); err != nil {
 		return "", err

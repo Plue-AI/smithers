@@ -4,7 +4,7 @@
  * the aggregator order.
  */
 import { Schema } from "effect"
-import { flow, RepoTarget } from "./Declare"
+import { flow, RepoTarget, NoPayload } from "./Declare"
 import type { FlowEntry, Namespace } from "../registry"
 import type { CommandActions } from "./Declare"
 
@@ -17,35 +17,11 @@ const scopeRepo = (actions: CommandActions, payload: Record<string, unknown>): s
 
 /** The `secrets` flows registered as one aggregator block. */
 export const secretsFlows = (actions: CommandActions): ReadonlyArray<FlowEntry> => [
-  flow({
-    name: "secrets.connect", agent: "never", minimumRole: "owner", actors: ["person"], visibility: "in-card",  summary: "Connect Claude for coding in your repositories", runtime: ["cloud"],
-    requires: ["signed-in"], input: Schema.Struct({ value: Schema.optional(Schema.String) }),
-    form: { submitLabel: "Connect", fields: { value: { label: "Claude token", kind: "write-only", required: true } } },
-    confirm: () => "connect Claude for coding",
-    handler: (_input, _signal, _call, gesture) => actions.connectCodingProvider(gesture)
-  }),
-  flow({
-    name: "secrets.connect.codex", agent: "never", minimumRole: "owner", actors: ["person"], visibility: "in-card",  summary: "Connect Codex for coding in your repositories", runtime: ["cloud"],
-    requires: ["signed-in"], input: Schema.Struct({}),
-    handler: () => actions.connectCodex()
-  }),
-  flow({
-    name: "secrets.connections", agent: "never", minimumRole: "owner", actors: ["person"], visibility: "in-card",  summary: "Show coding accounts", runtime: ["cloud"],
-    requires: ["signed-in"], input: Schema.Struct({}),
-    handler: () => actions.listCodingProviders()
-  }),
-  flow({
-    name: "secrets.move", agent: "never", minimumRole: "owner", actors: ["person"], visibility: "in-card",  summary: "Move a coding account up or down its provider's order", runtime: ["cloud"],
-    requires: ["signed-in"], args: "<id> <up|down>",
-    input: Schema.Struct({ id: Schema.String, direction: Schema.Literals(["up", "down"]) }),
-    handler: ({ id, direction }) => actions.moveCodingProvider(id, direction)
-  }),
-  flow({
-    name: "secrets.revoke", agent: "never", minimumRole: "owner", actors: ["person"], visibility: "in-card",  summary: "Revoke coding connection", runtime: ["cloud"],
-    requires: ["signed-in"], args: "<id>", input: Schema.Struct({ id: Schema.String }),
-    confirm: payload => `revoke coding connection ${String(payload["id"])}`,
-    handler: ({ id }) => actions.revokeCodingProvider(id)
-  }),
+  ...["secrets.connect", "secrets.connect.codex", "secrets.connections", "secrets.move", "secrets.revoke"].map(name => flow({
+    name, hidden: true, agent: "never", minimumRole: "owner", actors: ["person"], summary: "Settings", input: NoPayload, grammar: () => ({ payload: {} }),
+    agentReason: "Install controls require the owner’s person session",
+    handler: async (_input, _signal, _call, gesture) => { gesture?.release(); await actions.presentCard("settings", "Settings"); return actions.showSettings() }
+  })),
   flow({
     name: "secrets.scope", agent: "never", minimumRole: "maintainer", actors: ["person"], visibility: "in-card",
     summary: "Limit a repository secret to trusted runs on main, or give it to all branches",

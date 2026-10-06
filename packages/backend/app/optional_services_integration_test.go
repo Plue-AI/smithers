@@ -66,8 +66,8 @@ func TestOptionalServicesDisabledRepositoryAndChatReplay(t *testing.T) {
 	configFile := filepath.Join(t.TempDir(), "config.json")
 	require.NoError(t, os.WriteFile(configFile, []byte(`{"email":{"smtp_host":"","smtp_user":"","smtp_pass":""},"auth":{"github_client_id":"","github_client_secret":""},"wiki_sync":{"obsidian":[]}}`), 0600))
 	for key, value := range map[string]string{
+		"SMITHERS_AUTH_MODE":    "selfhost",
 		"SMITHERS_DATABASE_URL": databaseURL, "SMITHERS_DATA_ROOT": t.TempDir(), "SMITHERS_BLOB_DATA_DIR": t.TempDir(),
-		"SMITHERS_AUTH_MODE": "selfhost", "SMITHERS_AUTH_BOOTSTRAP_TOKEN": "optional-bootstrap",
 		"SMITHERS_AUTH_SESSION_SECRET": "optional-session", "SMITHERS_LFS_SIGNING_SECRET": "optional-lfs",
 		"SMITHERS_WEBHOOK_SECRET_ENCRYPTION_KEY": "optional-webhook", "SMITHERS_REPO_HOST_AUTH_TOKEN": "optional-repo-token",
 		"SMITHERS_REPO_HOST_URL": "", "SMITHERS_PUSH_HOOK_CALLBACK_TOKEN": "optional-push-callback",
@@ -218,6 +218,7 @@ func TestOptionalServicesDisabledRepositoryAndChatReplay(t *testing.T) {
 		require.NoError(t, err)
 		req, err := http.NewRequestWithContext(ctx, method, server.URL+path, bytes.NewReader(raw))
 		require.NoError(t, err)
+		req.Host = "127.0.0.1:4000"
 		req.Header.Set("Content-Type", "application/json")
 		if token != "" {
 			req.Header.Set("Authorization", "token "+token)
@@ -236,7 +237,8 @@ func TestOptionalServicesDisabledRepositoryAndChatReplay(t *testing.T) {
 	}
 	require.NoError(t, json.Unmarshal(request("GET", "/api/bootstrap", "", nil, http.StatusOK), &bootstrap))
 	require.Contains(t, bootstrap.Capabilities, "agent")
-	require.NotContains(t, bootstrap.Capabilities, "github")
+	// GitHub setup is an install prerequisite, even before App credentials exist.
+	require.Contains(t, bootstrap.Capabilities, "github")
 	for _, capability := range bootstrap.Capabilities {
 		require.False(t, strings.HasPrefix(capability, "billing."), "unexpected optional capability %q", capability)
 	}
@@ -261,6 +263,15 @@ func TestOptionalServicesDisabledRepositoryAndChatReplay(t *testing.T) {
 	require.NoError(t, json.Unmarshal(request("POST", "/api/user/repos", auth.Token, map[string]any{"name": "optional-repo", "private": true, "auto_init": true, "default_bookmark": "main"}, 201), &repo))
 	require.Positive(t, repo.ID)
 	require.Equal(t, "optional-repo", repo.Name)
+	// Bind the install to its real repository, rather than the seed's
+	// pre-repository sentinel, before chat's live roster checks run.
+	_, err = pool.Exec(t.Context(), `UPDATE install_settings
+		SET value=jsonb_set(value,'{repository_id}',to_jsonb($1::bigint))
+		WHERE key IN ('github.repository','owner.access')`, repo.ID)
+	require.NoError(t, err)
+	_, err = pool.Exec(t.Context(), `INSERT INTO collaborators(repository_id,user_id,permission)
+		VALUES($1,$2,'admin')`, repo.ID, owner.ID)
+	require.NoError(t, err)
 	var readRepo struct {
 		ID int64 `json:"id"`
 	}
@@ -284,9 +295,8 @@ func TestOptionalServicesDisabledRepositoryAndChatReplay(t *testing.T) {
 	select {
 	case grant := <-grants:
 		require.Equal(t, owner.ID, grant.OwnerID)
-		// The public chat route is account-scoped. Repository context stays
-		// in the model request and does not authorize a repository scope.
-		require.Zero(t, grant.RepositoryID)
+		// Install chat is bound to the installed repository and its roster.
+		require.Equal(t, repo.ID, grant.RepositoryID)
 		var modelRequest struct {
 			RepositoryID int64 `json:"repositoryId"`
 		}

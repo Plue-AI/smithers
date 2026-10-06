@@ -889,6 +889,12 @@ func runWithOptions(ctx context.Context, args []string, stdout, stderr io.Writer
 		return fmt.Errorf("workspace commands: %w", err)
 	}
 	workspaceService := services.NewWorkspaceService(runtimeStores.Workspaces,
+		services.WithWorkspaceCredentialIssuer(func() *services.AuthService {
+			if config.IsSingleOwner(cfg.Auth) {
+				return authService
+			}
+			return nil
+		}()),
 		services.WithWorkspaceCommandJobs(commandJobs, webhookSecretCodec),
 		services.WithWorkspaceRuntime(options.Workspace),
 		services.WithWorkspaceTransactions(pool),
@@ -1688,7 +1694,7 @@ func runWithOptions(ctx context.Context, args []string, stdout, stderr io.Writer
 
 		visits := &presenceVisits{audit: auditService, now: time.Now}
 		go visits.run(ctx)
-		presence := &branchPresence{visits: visits, queries: queries, branches: workspaceService, members: authService.Members}
+		presence := &branchPresence{publicOrigin: installAddress.Public, visits: visits, queries: queries, branches: workspaceService, members: authService.Members}
 		if flow != nil {
 			presence.dispatcher = flow.dispatcher
 		}

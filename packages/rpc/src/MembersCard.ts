@@ -6,7 +6,7 @@
 import { z } from "zod"
 import { ActionSchema } from "./CardAction.ts"
 import type { CardCallbacks, CardProps } from "./CardAction.ts"
-import { MemberColorIndexSchema, PersonRefSchema } from "./CardPrimitives.ts"
+import { MemberColorIndexSchema, MemberRoleSchema, PersonRefSchema } from "./CardPrimitives.ts"
 import { HttpUrlSchema } from "./WebUrl.ts"
 
 /**
@@ -22,7 +22,7 @@ export const MembersCardSchema = z.object({
     z.object({
       ...PersonRefSchema.shape,
       color_index: MemberColorIndexSchema,
-      role: z.enum(["owner", "maintainer", "member"]),
+      role: MemberRoleSchema,
       needs_access: z.boolean(),
       suspended: z.boolean(),
       actions: z.array(ActionSchema)

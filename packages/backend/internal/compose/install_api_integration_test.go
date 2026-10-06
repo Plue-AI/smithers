@@ -97,12 +97,15 @@ func TestInstallAPIReadsTodosThroughTheirOwnRoutes(t *testing.T) {
 	require.Equal(t, digest, flows[0]["versions"].([]any)[0].(map[string]any)["id"])
 	// Guest-measured metadata reaches the same authenticated route. A failed
 	// merged version remains visible beside the last successfully loaded one.
+	previousDigest := strings.Repeat("9", 64)
+	_, err = q.InsertFlowVersion(ctx, repository, "todo", "flows/todo/flow.ts", strings.Repeat("0", 40), previousDigest, "loaded", "", json.RawMessage(`{"steps":[{"id":"old-check","label":"Old check"}]}`))
+	require.NoError(t, err)
 	loadedDigest, failedDigest := strings.Repeat("a", 64), strings.Repeat("b", 64)
-	_, err = q.InsertFlowVersion(ctx, repository, "todo", "flows/todo/flow.ts", strings.Repeat("1", 40), loadedDigest, "loaded", "", json.RawMessage(`{"steps":[]}`))
+	_, err = q.InsertFlowVersion(ctx, repository, "todo", "flows/todo/flow.ts", strings.Repeat("1", 40), loadedDigest, "loaded", "", json.RawMessage(`{"steps":[{"id":"custom-check","label":"Custom check"}]}`))
 	require.NoError(t, err)
 	_, err = q.ActivateFlowVersion(ctx, repository, "todo", loadedDigest)
 	require.NoError(t, err)
-	_, err = q.InsertFlowVersion(ctx, repository, "todo", "flows/todo/flow.ts", strings.Repeat("2", 40), failedDigest, "failed", "flows/todo/flow.ts:12: invalid type", json.RawMessage(`{"steps":[]}`))
+	_, err = q.InsertFlowVersion(ctx, repository, "todo", "flows/todo/flow.ts", strings.Repeat("2", 40), failedDigest, "failed", "flows/todo/flow.ts:12: invalid type", json.RawMessage(`{"steps":[{"id":"broken-check"}]}`))
 	require.NoError(t, err)
 	_, err = q.RequestMythicalBootstrap(ctx, repository, owner.ID, 100, false)
 	require.NoError(t, err)
@@ -121,6 +124,23 @@ func TestInstallAPIReadsTodosThroughTheirOwnRoutes(t *testing.T) {
 	require.Equal(t, "merged-failed", versions[1].(map[string]any)["state"])
 	require.Equal(t, "flows/todo/flow.ts:12: invalid type", versions[1].(map[string]any)["error"])
 	require.Equal(t, "previous", versions[2].(map[string]any)["state"])
+	require.Equal(t, []any{map[string]any{"id": "custom-check", "label": "Custom check"}}, versions[0].(map[string]any)["steps"])
+	require.Equal(t, []any{map[string]any{"id": "broken-check"}}, versions[1].(map[string]any)["steps"])
+	require.Equal(t, previousDigest, versions[2].(map[string]any)["id"])
+	require.Equal(t, []any{map[string]any{"id": "old-check", "label": "Old check"}}, versions[2].(map[string]any)["steps"])
+
+	// Explicit empty metadata must remain empty; legacy metadata without a
+	// steps field keeps the historical built-in display.
+	_, err = pool.Exec(ctx, `UPDATE workflow_definitions SET config='{"steps":[]}' WHERE repository_id=$1 AND digest=$2`, repository, loadedDigest)
+	require.NoError(t, err)
+	status, _, flows = read(ownerSession, owner.ID, "/api/flows")
+	require.Equal(t, http.StatusOK, status)
+	require.Equal(t, []any{}, flows[0]["versions"].([]any)[0].(map[string]any)["steps"])
+	_, err = pool.Exec(ctx, `UPDATE workflow_definitions SET config='{}' WHERE repository_id=$1 AND digest=$2`, repository, loadedDigest)
+	require.NoError(t, err)
+	status, _, flows = read(ownerSession, owner.ID, "/api/flows")
+	require.Equal(t, http.StatusOK, status)
+	require.NotEmpty(t, flows[0]["versions"].([]any)[0].(map[string]any)["steps"])
 
 	// Dependency preparation failures use the same person-facing failure state
 	// as an import refusal; the last loaded version remains Active.

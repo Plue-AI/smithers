@@ -569,22 +569,8 @@ func (h *GitHubAppSetupHandler) SetSettings(w http.ResponseWriter, r *http.Reque
 			writeInstallAPIError(w, pkgerrors.BadRequest("daily admissions must be positive"))
 			return
 		}
-		tx, err := h.Setup.Pool.Begin(r.Context())
-		if err != nil {
-			writeInstallAPIError(w, pkgerrors.New(pkgerrors.CodeServiceUnavailable, "install setting unavailable"))
-			return
-		}
-		defer tx.Rollback(context.WithoutCancel(r.Context()))
-		q := db.New(tx)
-		raw, _ := json.Marshal(*input.TodoDailyAdmissions)
-		if err = q.UpsertInstallSetting(r.Context(), db.UpsertInstallSettingParams{Key: "todo_daily_admissions", Value: raw}); err == nil {
-			_, err = tx.Exec(r.Context(), `UPDATE mythical_stacks SET requested_generation=requested_generation+1,next_attempt_at=LEAST(next_attempt_at,NOW()),updated_at=NOW() WHERE state='active'`)
-		}
-		if err == nil {
-			err = tx.Commit(r.Context())
-		}
-		if err != nil {
-			writeInstallAPIError(w, pkgerrors.New(pkgerrors.CodeServiceUnavailable, "install setting unavailable"))
+		if err = h.Setup.SetTodoDailyAdmissions(r.Context(), info.User.ID, *input.TodoDailyAdmissions); err != nil {
+			WriteInstallSetupError(w, r, err)
 			return
 		}
 	}

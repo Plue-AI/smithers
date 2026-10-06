@@ -603,6 +603,120 @@ def fs_write(root, path, mode):
         raise
 
 
+def exchange_file(parent, source, target, flags):
+    """Linux renameat2; unsupported kernels refuse rather than use rename."""
+    libc = ctypes.CDLL(None, use_errno=True)
+    rename = libc.renameat2
+    rename.argtypes = [ctypes.c_int, ctypes.c_char_p, ctypes.c_int, ctypes.c_char_p, ctypes.c_uint]
+    rename.restype = ctypes.c_int
+    if rename(parent, os.fsencode(source), parent, os.fsencode(target), flags) != 0:
+        code = ctypes.get_errno()
+        raise OSError(code, os.strerror(code))
+
+
+def file_digest_at(parent, name, limit):
+    try:
+        fd = os.open(name, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK, dir_fd=parent)
+    except FileNotFoundError:
+        return "absent"
+    try:
+        info = os.fstat(fd)
+        if not stat.S_ISREG(info.st_mode):
+            fail(3, "workspace mutation target is not a regular file")
+        value = hashlib.sha256()
+        count = 0
+        while True:
+            chunk = os.read(fd, 65536)
+            if not chunk:
+                return value.hexdigest()
+            count += len(chunk)
+            if count > limit:
+                fail(4, "workspace file exceeds compare limit")
+            value.update(chunk)
+    finally:
+        os.close(fd)
+
+
+def fs_compare_write(root, path, mode, base, limit):
+    """Candidate S1 exchange; NOT an enabled/qualified runtime capability.
+
+    The installed runtime deliberately does not expose WorkspaceCompareWriter
+    until fresh/retained-machine and concurrent ancestor/rollback qualification.
+    No lexical host read followed by an unconditional write is used here.
+    """
+    if os.geteuid() == 0:
+        fail(125, "compare-write requires unprivileged identity")
+    if base != "absent" and not re.fullmatch(r"[0-9a-f]{64}", base):
+        fail(3, "invalid base_digest")
+    if not 0 < limit <= 64 << 20:
+        fail(3, "invalid compare-write limit")
+    parts = path.split("/")
+    if not parts or any(p in ("", ".", "..") for p in parts) or "\x00" in path:
+        fail(3, "workspace mutation path escapes or replaces root")
+    # Reject symlinks in every ancestor and pin the directory used by all
+    # exchanges. Missing parents are refused without creating directories.
+    parent = safe_directory(root, create=False)
+    temporary = None
+    fd = None
+    preserve = False
+    try:
+        for part in parts[:-1]:
+            child = os.open(part, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW, dir_fd=parent)
+            os.close(parent)
+            parent = child
+        leaf = parts[-1]
+        current = file_digest_at(parent, leaf, limit)
+        if current != base:
+            fail(6, "stale:" + current)
+        data = sys.stdin.buffer.read(limit + 1)
+        if len(data) > limit:
+            fail(4, "workspace file exceeds write limit")
+        temporary = ".smithers-write-" + secrets.token_hex(16)
+        fd = os.open(temporary, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW,
+                     0o600, dir_fd=parent)
+        os.fchmod(fd, mode & 0o777)
+        view = memoryview(data)
+        while view:
+            view = view[os.write(fd, view):]
+        os.fsync(fd)
+        os.close(fd)
+        fd = None
+        try:
+            exchange_file(parent, temporary, leaf, 1 if base == "absent" else 2)
+        except FileExistsError:
+            fail(6, "stale:" + file_digest_at(parent, leaf, limit))
+        except FileNotFoundError:
+            fail(6, "stale:absent")
+        if base == "absent":
+            temporary = None
+        else:
+            # Keep displaced bytes on any failure, including a failed rollback.
+            preserve = True
+            try:
+                displaced = file_digest_at(parent, temporary, limit)
+            except BaseException:
+                exchange_file(parent, temporary, leaf, 2)
+                preserve = False
+                raise
+            if displaced != base:
+                exchange_file(parent, temporary, leaf, 2)
+                preserve = False
+                os.fsync(parent)
+                fail(6, "stale:" + displaced)
+            preserve = False
+        os.fsync(parent)
+        sys.stdout.write(json.dumps({"digest": hashlib.sha256(data).hexdigest()}))
+    finally:
+        if fd is not None:
+            os.close(fd)
+        if temporary is not None and not preserve:
+            try:
+                os.unlink(temporary, dir_fd=parent)
+            except FileNotFoundError:
+                pass
+        os.close(parent)
+
+
 def fs_list(root, path):
     _, _, resolved = resolve_inside(root, path, False)
     if not os.path.isdir(resolved):
@@ -1340,6 +1454,10 @@ def main(args):
             fs_read(root, path, int(args[5]))
         elif operation == "write":
             fs_write(root, path, int(args[5], 8))
+        elif operation == "compare-write" and len(args) == 8:
+            # T-SEC-01 has not qualified this candidate on fresh and retained
+            # machines. No branch argument or environment can open the gate.
+            fail(125, "compare-write provider is not qualified")
         elif operation == "list":
             fs_list(root, path)
         elif operation == "remove":

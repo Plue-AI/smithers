@@ -1,3 +1,4 @@
+import { proposalCardFamily } from "./ProposalContainer"
 import { SetupCard, setupCardFamily, type SetupCardProps } from "./SetupCard"
 import { SetupView } from "./views/SetupView"
 import { HomeCard } from "./HomeContainer"
@@ -17,7 +18,6 @@ import { projectRepositoryUpdate } from "../state/CardProjection"
  * is one import plus one spread line here.
  */
 import type { Card } from "../state/AppState"
-import { accountCardFamily } from "./AccountCard"
 import { agentCardFamily } from "./AgentCards"
 import { anonymousCeilingCardFamily } from "./AnonymousCeilingCard"
 import { approvalCardFamily } from "./ApprovalCard"
@@ -28,14 +28,11 @@ import { commitCardFamily } from "./CommitCards"
 import { conversationCardFamily } from "./ConversationCards"
 import { debugApiCardFamily } from "./DebugApiCard"
 import { docsCardFamily } from "./DocsCard"
-import { envCardFamily } from "./EnvCard"
 import { fileCardFamily } from "./FileCards"
 import { flowFormCardFamily } from "./FlowFormCards"
 import { flowPlanCardFamily } from "./FlowPlanCard"
 import { issueCardFamily } from "./IssueCards"
 import { landingCardFamily } from "./LandingCards"
-import { RepositoryChoiceCard } from "./RepositoryChoiceCard"
-import { repoImportCardFamily } from "./RepoImportCard"
 import { runsCardFamily } from "./RunsCards"
 import { searchResultsCardFamily } from "./SearchResultsCard"
 import { secretsCardFamily } from "./SecretsCard"
@@ -55,24 +52,16 @@ import { branchCardFamily } from "./BranchCard"
 import { terminalCardFamily } from "./TerminalCard"
 import { runCardFamily } from "./RunContainer"
 
-/* The tutorial's two embedded surfaces: the ranked repository chooser and the Library shelf. */
-const repositoryChoiceCardFamily: CardFamily<"repository-choice"> = {
-  "repository-choice": {
-    render: (card, actions) => <RepositoryChoiceCard payload={card.payload} onRunCommand={actions.onRunCommand}
-      signedIn={signedInFor(actions)} />,
-    pill: card => card.payload.created === null ? "" : "done"
-  }
-}
-
 /* MOCK SEAM (state/seams/DesignWorld): `design:` cards read the seeded world through their own bodies. */
 import { isDesignCard } from "../state/seams/DesignWorld/subjects"
 import { DesignSubjectBody } from "./SubjectCards"
-type RenderedCardKind = Exclude<Card["kind"], "retired" | "balance" | "billing-plans" | "stack" | "factory.home">
+type RenderedCardKind = Exclude<Card["kind"], "repository-choice" | "retired" | "balance" | "billing-plans" | "stack" | "factory.home">
 export const isRetiredCard = (card: Card): card is Extract<Card, { kind: "retired" }> =>
   card.kind === "retired"
 
 /** The families in registration order; the test reads this list to prove the slices are disjoint. */
 export const CARD_FAMILIES: ReadonlyArray<CardFamily<never>> = [
+  proposalCardFamily,
   setupCardFamily,
   settingsCardFamily,
   membersCardFamily,
@@ -89,10 +78,7 @@ export const CARD_FAMILIES: ReadonlyArray<CardFamily<never>> = [
   landingCardFamily,
   changeCardFamily,
   repositoryUpdateCardFamily,
-  envCardFamily,
   secretsCardFamily,
-  accountCardFamily,
-  repoImportCardFamily,
   syncCardFamily,
   branchesCardFamily,
   fileCardFamily,
@@ -101,7 +87,6 @@ export const CARD_FAMILIES: ReadonlyArray<CardFamily<never>> = [
   workspaceCardFamily,
   anonymousCeilingCardFamily,
   searchResultsCardFamily,
-  repositoryChoiceCardFamily,
   wikiCardFamily,
   commitCardFamily,
   todoCardFamily,
@@ -117,6 +102,7 @@ export const CARD_FAMILIES: ReadonlyArray<CardFamily<never>> = [
 
 /** One entry per card kind. Written as a literal so a missing kind fails to compile. */
 export const CARD_RENDERERS: CardFamily<RenderedCardKind> = {
+  ...proposalCardFamily,
   ...setupCardFamily,
   ...settingsCardFamily,
   ...membersCardFamily,
@@ -134,10 +120,7 @@ export const CARD_RENDERERS: CardFamily<RenderedCardKind> = {
   ...changeCardFamily,
   ...commitCardFamily,
   ...repositoryUpdateCardFamily,
-  ...envCardFamily,
   ...secretsCardFamily,
-  ...accountCardFamily,
-  ...repoImportCardFamily,
   ...syncCardFamily,
   ...branchesCardFamily,
   ...fileCardFamily,
@@ -146,7 +129,6 @@ export const CARD_RENDERERS: CardFamily<RenderedCardKind> = {
   ...workspaceCardFamily,
   ...anonymousCeilingCardFamily,
   ...searchResultsCardFamily,
-  ...repositoryChoiceCardFamily,
   ...wikiCardFamily,
   ...todoCardFamily,
   ...draftCardFamily,
@@ -167,20 +149,14 @@ export const cardRenderer = <K extends RenderedCardKind>(kind: K): CardFamilyEnt
  * otherwise the family that owns the kind answers.
  */
 export const pillStatus = (card: Card): string => {
-  if (isRetiredCard(card) || card.kind === "balance" || card.kind === "billing-plans" || card.kind === "stack" || card.kind === "factory.home" || isDesignCard(card)) return ""
+  if (isRetiredCard(card) || card.kind === "repository-choice" || card.kind === "balance" || card.kind === "billing-plans" || card.kind === "stack" || card.kind === "factory.home" || isDesignCard(card)) return ""
   if (card.status === "error" && card.kind !== "flow-form") return "failed"
   return cardRenderer(card.kind).pill(card)
 }
 
-/* The repository list reads GitHub only for a signed-in identity (repositoryChoice.ts); without a store, assume it did. */
-const signedInFor = (actions: CardActions): boolean => {
-  const identities = actions.projectionStore?.collections.identitySessions
-  return identities === undefined || identities.get("identity")?.state === "signed-in"
-}
-
 /** The card's body, from the family that owns its kind. */
 export const renderCardBody = (card: Card, actions: CardActions) =>
-  isRetiredCard(card) || card.kind === "balance" || card.kind === "billing-plans" || card.kind === "stack" || card.kind === "factory.home" ? null : isDesignCard(card) ? <DesignSubjectBody card={card} />
+  isRetiredCard(card) || card.kind === "repository-choice" || card.kind === "balance" || card.kind === "billing-plans" || card.kind === "stack" || card.kind === "factory.home" ? null : isDesignCard(card) ? <DesignSubjectBody card={card} />
     : card.kind === "repo-update" && actions.projectionStore !== undefined
     ? <ProjectedRepositoryUpdateBody card={card} actions={actions} store={actions.projectionStore} />
     : cardRenderer(card.kind).render(card, actions)

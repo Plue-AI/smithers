@@ -11,7 +11,7 @@ C-UI-12 Members (T-UI-09): [install roster and keyboard Add/Role/Remove](C-UI-12
 | C-J1-01 | [C-J1-01.spec.ts](C-J1-01.spec.ts) | fixme-before-implementation | T-INS-08 |
 | C-J1-02 | [C-J1-02.spec.ts](C-J1-02.spec.ts) | passing: mounted install seam, live readiness, reload, squash/image fixes; reference Mac/LAN/OAuth evidence pending | T-APP-03 |
 | C-J1-03 | [C-J1-03.spec.ts](C-J1-03.spec.ts) | fixme-before-implementation | T-APP-15 |
-| C-J1-04 | [C-J1-04.spec.ts](C-J1-04.spec.ts) | fixme-before-implementation | T-APP-02 |
+| C-J1-04 | [C-J1-04.spec.ts](C-J1-04.spec.ts) | browser-pass (private Draft, one Commit, served states, reviewed-head Merge/reload; fresh macOS install/real execution/GitHub/timing pending) | T-APP-02 |
 | C-J1-05 | [C-J1-05.spec.ts](C-J1-05.spec.ts) | passing: install seam, keyboard, live refresh, confirmation, reconnect; reference-host GitHub/LAN evidence pending | T-APP-06 |
 | C-J1-06 | [C-J1-06.spec.ts](C-J1-06.spec.ts) | mounted install seam: Node/Go readiness, failure, live completion, reload and check evidence; reference-host qualification separate | T-MCH-10 |
 | C-J2-01 | [C-J2-01.spec.ts](C-J2-01.spec.ts) | implemented — Chromium passed 2026-10-05 (mounted install seam; composed router proof separate) | T-STK-09 |
@@ -24,7 +24,7 @@ C-UI-12 Members (T-UI-09): [install roster and keyboard Add/Role/Remove](C-UI-12
 | C-J4-03 | [C-J4-03.spec.ts](C-J4-03.spec.ts) | fixme-before-implementation | T-STK-04, T-REL-02 |
 | C-J10-01 | [C-J10-01.spec.ts](C-J10-01.spec.ts) | fixme-before-implementation | T-GH-03, T-REL-02 |
 | C-J10-02 | [C-J10-02.spec.ts](C-J10-02.spec.ts) | fixme-before-implementation | T-GH-04 |
-| C-J10-03 | [C-J10-03.spec.ts](C-J10-03.spec.ts) | fixme-before-implementation | T-GH-06 |
+| C-J10-03 | [C-J10-03.spec.ts](C-J10-03.spec.ts), [install Discard cases](C-UI-12-todo-install.spec.ts) | Partial: confirmed Discard and stale-answer refresh/reconfirmation pass through the real app seam; full Bring in/remote publication/reference-host journey remains fixme | T-GH-06 |
 | C-J10-04 | [C-J10-04.spec.ts](C-J10-04.spec.ts) | fixme-before-implementation | T-STK-08 |
 | C-J10-05 | [C-J10-05.spec.ts](C-J10-05.spec.ts) | fixme-before-implementation | T-GH-03 |
 | C-J10-06 | [C-J10-06.spec.ts](C-J10-06.spec.ts) | fixme-before-implementation | T-GH-07 |
@@ -35,17 +35,17 @@ C-UI-12 Members (T-UI-09): [install roster and keyboard Add/Role/Remove](C-UI-12
 | C-J3-02 | [C-J3-02.spec.ts](C-J3-02.spec.ts) | fixme-before-implementation | T-TRM-01, T-APP-12 |
 | C-J3-03 | [C-J3-03.spec.ts](C-J3-03.spec.ts) | fixme-before-implementation | T-COL-04, T-COL-12, T-APP-10 |
 | C-J3-04 | [C-J3-04.spec.ts](C-J3-04.spec.ts) | fixme-before-implementation | T-COL-08, T-APP-14, T-APP-14a, T-COL-08a, T-COL-08b |
-| C-J3-05 | [C-J3-05.spec.ts](C-J3-05.spec.ts) | fixme-before-implementation | T-STK-06 |
+| C-J3-05 | [C-J3-05.spec.ts](C-J3-05.spec.ts) | real seam HTTP fixture; guest timing/delegation pending reference host | T-STK-06 |
 | C-J3-06 | [C-J3-06.spec.ts](C-J3-06.spec.ts) | fixme-before-implementation | T-TRM-03, T-ACC-02, T-TRM-07, T-COL-04, T-COL-06, T-REL-02 |
 | C-J3-08 | [C-J3-08.spec.ts](C-J3-08.spec.ts) | fixme-before-implementation | T-APP-11, T-REL-02 |
 | C-J3-09 | [C-J3-09.spec.ts](C-J3-09.spec.ts) | fixme-before-implementation | T-COL-05 |
 | C-J3-10 | [C-J3-10.spec.ts](C-J3-10.spec.ts) | fixme-before-implementation | T-TRM-05, T-REL-02 |
-| C-J5-01 | [C-J5-01.spec.ts](C-J5-01.spec.ts), [proposal → Draft](../flow-edit-proposal.spec.ts), [install versions](../flow-card-install.spec.ts) | proposal-to-Draft and install selection/reload/state projection pass; joint merge/Active pending | T-FLW-03, T-FLW-04, T-FLW-05, T-FLW-11, T-APP-05, T-REL-02 |
+| C-J5-01 | [C-J5-01.spec.ts](C-J5-01.spec.ts), [proposal → Draft](../flow-edit-proposal.spec.ts), [install versions](../flow-card-install.spec.ts) | proposal-to-Draft, install selection/reload and live Proposed → syncing → Active/failed-load projection pass; joint real merge/load/pinning pending | T-FLW-03, T-FLW-04, T-FLW-05, T-FLW-11, T-APP-05, T-REL-02 |
 | C-J5-02 | [C-J5-02.spec.ts](C-J5-02.spec.ts) | fixme-before-implementation | T-FLW-03, T-FLW-04, T-FLW-11 |
 | C-J5-03 | [C-J5-03.spec.ts](C-J5-03.spec.ts) | fixme-before-implementation | T-FLW-06, T-REL-02 |
 | C-J6-01 | [C-J6-01.spec.ts](C-J6-01.spec.ts) | fixme-before-implementation | T-TRM-02, T-APP-09, T-REL-02 |
 | C-J6-02 | [C-J6-02.spec.ts](C-J6-02.spec.ts) | fixme-before-implementation | T-ACC-04, T-APP-04, T-REL-02 |
-| C-J7-01 | [C-J7-01.spec.ts](C-J7-01.spec.ts) | fixme-before-implementation | T-STK-02, T-STK-06, T-REL-02 |
+| C-J7-01 | [C-J7-01.spec.ts](C-J7-01.spec.ts) | app HTTP-seam proof: private Before draft, stack order, Amend, retained identity and reload; guest steer/ancestry and reference-host receipts pending | T-STK-02, T-STK-06, T-REL-02 |
 | C-J7-02 | [C-J7-02.spec.ts](C-J7-02.spec.ts) | fixme-before-implementation | T-MCH-08, T-STK-05 |
 | C-J7-03 | [C-J7-03.spec.ts](C-J7-03.spec.ts) | fixme-before-implementation | T-STK-08, T-REL-02 |
 | C-J8-01 | [C-J8-01.spec.ts](C-J8-01.spec.ts) | fixme-before-implementation | T-FLW-06, T-REL-02 |
@@ -60,7 +60,7 @@ C-UI-12 Members (T-UI-09): [install roster and keyboard Add/Role/Remove](C-UI-12
 | C-J11-04 | [C-J11-04.spec.ts](C-J11-04.spec.ts) | fixme-before-implementation | T-FLW-07, T-REL-02 |
 | C-APP-01 | [C-APP-01.spec.ts](C-APP-01.spec.ts) | browser-pass (Take over; PostgreSQL role/idempotency receipt; live toast qualification pending) | T-APP-02 |
 | C-APP-02 | [C-APP-02.spec.ts](C-APP-02.spec.ts) | browser-pass (Edit, deduplication, reload, person Drop confirm, working step, daily admission limit, budget pause owner, outside-push Discard binding/deduplication/role gate; planner/multiplayer pending) | T-APP-02 |
-| C-APP-03 | [C-APP-03.spec.ts](C-APP-03.spec.ts) | browser-pass (failure/slash Draft, main recipe, reload; Settings/guest qualification pending) | T-APP-02, T-APP-03 |
+| C-APP-03 | [C-APP-03.spec.ts](C-APP-03.spec.ts) | browser-pass (failure/slash Draft, main recipe, reload; Settings name refusal and Draft passed with the design seed disabled in settings-install.spec.ts; guest qualification pending) | T-APP-02, T-APP-03 |
 | C-APP-04 | [C-APP-04.spec.ts](C-APP-04.spec.ts) | fixme-before-implementation | T-APP-16 |
 | C-APP-05 | [C-APP-05.spec.ts](C-APP-05.spec.ts) | fixme-before-implementation | T-APP-16 |
 | C-ACC-01 | [C-ACC-01.spec.ts](C-ACC-01.spec.ts) | fixme-before-implementation | T-ACC-02, T-ACC-03, T-ACC-04, T-APP-04, T-INS-08, T-TRM-02, T-CUT-03, T-STK-06 |
@@ -84,14 +84,14 @@ C-UI-12 Members (T-UI-09): [install roster and keyboard Add/Role/Remove](C-UI-12
 | C-UI-01 | [C-UI-01.spec.ts](C-UI-01.spec.ts) | fixme-before-implementation | T-REL-02 |
 | C-UI-02 | [C-UI-02.spec.ts](C-UI-02.spec.ts) | passing | T-CAT-01 |
 | C-UI-03 | [notifications.spec.ts](../notifications.spec.ts) | passing: Chromium + WebKit, loopback/plain HTTP, live owned TODOs, gesture, hidden/visible, dedupe, click/focus, no console errors; Notification API recorded | T-APP-18 |
-| C-UI-04 | [C-UI-04.spec.ts](C-UI-04.spec.ts) | partial: served TODO rail keyboard Retry passes; shared entries, hiding and summaries remain fixme | T-APP-07 |
+| C-UI-04 | [C-UI-04.spec.ts](C-UI-04.spec.ts) | partial: served TODO rail keyboard Retry and owner merge notice/Hide covered; shared entries, preference hiding and summaries remain fixme | T-APP-07 |
 | C-UI-05 | [C-UI-05.spec.ts](C-UI-05.spec.ts) | fixme-before-implementation | T-COL-02 |
 
 | C-UI-06 | [C-UI-06.spec.ts](C-UI-06.spec.ts) | fixme-before-implementation | T-APP-16 |
-| C-UI-07 | [C-UI-07.spec.ts](C-UI-07.spec.ts) | fixme-before-implementation | T-APP-17 |
+| C-UI-07 | [C-UI-07.spec.ts](C-UI-07.spec.ts), [durable Context/Inspect projection](../context-inspect.spec.ts) | projection and reload pass with journal fixture; authenticated branch prompt/SharedEntries acceptance remains fixme | T-APP-17 |
 | C-UI-08 | [C-UI-08.spec.ts](C-UI-08.spec.ts) | fixme-before-implementation | T-APP-22 |
 | C-UI-09 | [C-UI-09.spec.ts](C-UI-09.spec.ts), [docs.spec.ts](../docs.spec.ts) | Settings phase passing Chromium: HTTP click/Enter/Space, HTTPS/loopback hidden hint, non-owner, bundled heading; missing dependencies covered through real dispatcher integration. Full C-UI-09 passes on isolated retry (2026-10-06), including agent docs.read; combined docs run: 8 pass, 1 HTTP-turn recovery failure. Anchor navigation now uses the shared transcript read target. | T-APP-20, T-APP-24 |
-| C-UI-10 | [C-UI-10.spec.ts](C-UI-10.spec.ts) | browser projection and local-own real-backend browser/SQL roles; complete operation inventory and install PUT /api/secrets form; branch-machine evidence pending | T-APP-21 |
+| C-UI-10 | [C-UI-10.spec.ts](C-UI-10.spec.ts) | browser projection and local-own real-backend browser/SQL roles; complete operation inventory and install PUT /api/secrets form; independent production app dependency guards with zero transport/SQL effects and live 201 write controls; delegated and branch-machine evidence pending | T-APP-21 |
 | C-UI-11 | [C-UI-11.spec.ts](C-UI-11.spec.ts) | fixme-before-implementation | T-APP-15 |
 
 C-J1-01 also has a passing test for the mounted Setup card: detected capacity,
@@ -100,7 +100,7 @@ ordered steps, Address admission, product words and reload. The full install che
 C-UI-01 also exercises the mounted Home order menu and composer by keyboard.
 
 | C-UI-12 | [C-UI-12.spec.ts](C-UI-12.spec.ts), [Draft and shell cases](../view-stories.spec.ts) | T-UI-01 primitives, T-UI-07 shell, T-UI-10 Flow, T-UI-15 Branch states/recovery, T-UI-16 read-only Compare, T-UI-17 terminal states and T-UI-19 co-editing active; Draft passed (light/dark, 1440/390, keyboard); T-UI-04 TODO conflict/mobile/keyboard, Fork/Add to stack and real-seam question active; T-UI-08 shell passes light/dark at 1,179/1,180 px with pointer/Tab + Enter/Space; remaining View matrix fixme | T-UI-01..T-UI-17, T-UI-19 |
-| C-UI-13 | [C-UI-13.spec.ts](C-UI-13.spec.ts) | fixme-before-implementation | T-APP-01, T-APP-02, T-APP-03, T-APP-04, T-APP-05, T-APP-06, T-APP-07, T-APP-16, T-APP-15, T-FLW-07, T-FLW-08, T-UI-14 |
+| C-UI-13 | [C-UI-13.spec.ts](C-UI-13.spec.ts) | Setup and Settings browser projection passed (Settings with design seed disabled); other doors pending | T-APP-01, T-APP-02, T-APP-03, T-APP-04, T-APP-05, T-APP-06, T-APP-07, T-APP-16, T-APP-15, T-FLW-07, T-FLW-08, T-UI-14 |
 | C-CAT-01 | [C-CAT-01.spec.ts](C-CAT-01.spec.ts) | passing | T-CAT-01 |
 | C-CAT-02 | [C-CAT-02.spec.ts](C-CAT-02.spec.ts) | 3 card doors pass; delegated confirmation still pending | T-CAT-01 |
 | C-CAT-03 | [C-CAT-03.spec.ts](C-CAT-03.spec.ts) | fixme-before-implementation | T-CAT-01 |
@@ -184,7 +184,7 @@ into their implementing tickets; terminal projections require isolated live
 fixtures and do not qualify gate correctness or publication refusal.
 
 | C-PRC-03 | [C-PRC-03.spec.ts](C-PRC-03.spec.ts) | fixme-before-implementation | T-PRC-03 |
-| C-REL-01 | [C-REL-01.spec.ts](C-REL-01.spec.ts) | passing UI projection including LAN startup; reference-host qualification pending | T-DOC-01 |
+| C-REL-01 | [C-REL-01.spec.ts](C-REL-01.spec.ts) | passing UI projection including LAN startup and positional laptop login; reference-host qualification pending | T-DOC-01 |
 | C-REL-02 | [C-REL-02.spec.ts](C-REL-02.spec.ts) | fixme-before-implementation | T-INS-05, T-INS-08 |
 | C-REL-03 | [C-REL-03.spec.ts](C-REL-03.spec.ts) | fixme-before-implementation | T-INS-07 |
 | C-REL-04 | [C-REL-04.spec.ts](C-REL-04.spec.ts) | fixme-before-implementation | T-REL-03 |
@@ -370,9 +370,11 @@ The broad C-UI-12/13 fixmes still await the other Views and their wiring tickets
 | C-UI-12 Debug API | [Debug API stories](../view-stories.spec.ts) | passed: all 15 states, light/dark, 1280/1440/390, axe/overflow; Enter/Space selection and Send; POST/PUT/PATCH/DELETE confirmation, disabled/absent actions, inert response/failure text | T-UI-22 |
 | C-UI-12 Docs | [Docs stories](../view-stories.spec.ts) | passed: 8 stories, light/dark, 1280/1440/390px, axe/overflow, keyboard focus, anchors, inert HTML/unsafe links and missing/disabled gestures; rendered links reach the real flow seam in DocsCard.test.tsx; install activation remains T-APP-20 | T-UI-21 |
 | C-UI-12 Secrets | [Secrets stories](../view-stories.spec.ts) | passed: 11 stories, light/dark, 1440/390, axe/overflow; Add/Replace/Cancel clear Value, redacted callbacks, absent/disabled actions, optional Hosts, inert names, keyboard Delete | T-UI-18 |
-| C-UI-12 · TODO install | [TODO install case](C-UI-12-todo-install.spec.ts) | Keyboard Open branch from REST TODO through the composed app provider to the live Branch card; Branch tabs survive reload; keyboard item title returns through the real TODO flow/REST seam; 1 passed | T-UI-04 |
+| C-UI-12 · TODO install | [TODO install case](C-UI-12-todo-install.spec.ts) | Keyboard Open branch from REST TODO through the composed app provider to the live Branch card; Branch tabs survive reload; keyboard item title returns through the real TODO flow/REST seam; owner Discard confirms the displayed wait/head, persists an idempotent request while HTTP is unresolved and settles from the served projection; stale Discard refreshes the newer push and reconfirms with its SHA; 3 passed | T-UI-04, T-GH-06 |
 | C-UI-12 Proposal | [Proposal stories](../view-stories.spec.ts) | passed: open/accepted/dismissed/read-only, hostile refs, zero/one/multiple lessons, keyboard callbacks; light/dark, 1440/390, axe and overflow | T-UI-20; install mounting and lessons source await T-FLW-06 |
 
 T-MCH-08 scratch Diff has a passing install HTTP contract and browser projection in [scratch-diff.spec.ts](../scratch-diff.spec.ts): fork revision, unresolved read, duplicate input and reload. C-J7-02 remains pending for Add to stack/Confirm/Drop; C-MCH-08 remains pending for real capture and source boot continuity.
 
 T-UI-15 pass 3: Branch states pass at 1440/390 px in light/dark; Enter/Space controls, tabs/SSH and missing/disabled/hostile cases pass (5 browser tests). Live Branch tab selection also passes keyboard and reload through the install app fixture (1 browser test). These fixtures do not establish machine execution or design-owner acceptance.
+
+T-UI-15 pass 5: the Branch matrix checks serious/critical axe violations and saves named screenshot attachments for all 17 cases in light/dark at 1440/390 px (68 screens). Design-owner copy acceptance remains pending; screenshots and automated copy checks are engineering receipts, not approval.

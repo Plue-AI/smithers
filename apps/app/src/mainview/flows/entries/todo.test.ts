@@ -343,7 +343,7 @@ test("before the host answers, a press and a bare Merge acknowledge at once and 
     h.answer(Response.json([fixtures.queued.model]))
     const todo = () => h.store.collections.cards.get("todo:12") as TodoEntry | undefined
     await waitFor(() => todo()?.payload.model?.state === "in_review" && h.calls.some(call => call.method === "POST"))
-    expect(h.calls.filter(call => call.method === "POST")).toEqual([{ path: "/api/todos/12", method: "POST", body: { op: "steer", text: "Keep the old route" } }])
+    expect(h.calls.filter(call => call.method === "POST")).toEqual([{ path: "/api/todos/12", method: "POST", body: { steer: "Keep the old route" } }])
     expect(h.calls.some(call => call.path.endsWith("/merge"))).toBe(false)
     await waitFor(() => h.store.collections.cards.has("confirm:merge:todo:12"))
     expect([...h.store.collections.cards.values()].filter(card => card.kind === "confirm").map(card => [card.id, card.kind === "confirm" ? card.audience_member_id : null]))

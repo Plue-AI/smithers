@@ -13,7 +13,6 @@ import (
 	"github.com/smithersai/smithers/packages/backend/flowruntime"
 
 	"github.com/smithersai/smithers/packages/backend/internal/db"
-	"github.com/smithersai/smithers/packages/backend/internal/middleware"
 )
 
 // todoSteer is one steer a person gave a TODO (spec §10.7.3): its text, its
@@ -71,9 +70,6 @@ const todoFeedbackBytes = 32 << 10
 func (s *MythicalService) retryTodo(ctx context.Context, number int64, input TodoControlInput) (TodoControlReceipt, error) {
 	if s == nil || s.store == nil {
 		return TodoControlReceipt{}, todoControlUnavailable()
-	}
-	if err := middleware.RequirePerson(ctx, "retry a TODO"); err != nil {
-		return TodoControlReceipt{}, &TodoControlError{http.StatusForbidden, "permission", "permission", "Only a person retries a TODO"}
 	}
 	var receipt TodoControlReceipt
 	err := pgx.BeginFunc(ctx, s.store, func(tx pgx.Tx) error {
@@ -141,7 +137,7 @@ func (s *MythicalService) retryTodo(ctx context.Context, number int64, input Tod
 			receipt = TodoControlReceipt{State: "accepted", Attempt: attempt}
 			if err := recordTodoControl(ctx, tx, saved, input, credential, "todo.retried", receipt, map[string]any{
 				"item": uuidString(saved.ID), "n": saved.Number.Int64, "attempt": attempt, "steer": input.Steer != nil,
-				"actor": map[string]any{"kind": "person", "id": person.ID, "login": person.Username}, "from": todoState(item), "to": todoState(saved),
+				"actor": todoActor(ctx, person), "from": todoState(item), "to": todoState(saved),
 			}); err != nil {
 				return err
 			}
@@ -162,7 +158,12 @@ func todoFeedback(item db.MythicalItem, attempt int32) string {
 	var held []string
 	for _, steer := range mythicalChecksOf(item).Steers {
 		if steer.Attempt <= attempt {
-			held = append(held, steer.Text)
+			text := steer.Text
+			if steer.ID != "" {
+				by, _ := json.Marshal(steer.Attribution)
+				text = "[TODO input " + steer.ID + " by " + string(by) + "]\n" + text
+			}
+			held = append(held, text)
 		}
 	}
 	feedback := strings.Join(held, "\n\n")

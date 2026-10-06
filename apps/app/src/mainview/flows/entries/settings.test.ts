@@ -52,7 +52,7 @@ describe("T-APP-03 settings command doors", () => {
   test("hidden owner controls refuse agents and remain absent from slash suggestions", async () => {
     const h = await harness()
     try {
-      for (const name of ["settings.address", "settings.capacity", "settings.parallel", "settings.obsidian", "settings.model-key", "settings.setup"]) {
+      for (const name of ["settings.address", "settings.daily-admissions", "settings.capacity", "settings.parallel", "settings.obsidian", "settings.model-key", "settings.setup"]) {
         const entry = h.controller.commands.find(name)!
         expect(nameOf(entry)).toBe(name); expect(entry.metadata.hidden).toBe(true); expect(modelInvocable(entry)).toBe(false)
       }
@@ -111,6 +111,38 @@ describe("T-APP-03 settings command doors", () => {
       expect(writes.map(request => JSON.parse(request.body!))).toEqual([{ [field]: 1 }])
       expect(h.controller.design.world().repo[field]).toBe(seeded)
     } finally { await h.controller.dispose() }
+  })
+  test("T-STK-03 mounted Parallel control dispatches once and waits for the install receipt", async () => {
+    let resolve!: (response: Response) => void
+    const pending = new Promise<Response>(done => { resolve = done })
+    let reads = 0
+    const h = await harness(undefined, () => ++reads === 1 ? Response.json(installFixture()) : pending)
+    try {
+      await h.controller.commands.run("settings"); await tick()
+      const seeded = h.controller.design.world().repo.parallel
+      let props!: SettingsViewProps
+      const render = (owner = true) => renderToStaticMarkup(createElement(SettingsContainer, {
+        View: input => { props = input; return createElement(SettingsView, input) },
+        install: h.controller.installSnapshots, owner, origin: "http://localhost", view: { maximized: false }, onView: () => {},
+        dispatch: (name, payload, gesture) => h.controller.commands.submit({ name, payload: payload ?? {}, actor: "user", gesture })
+      }))
+      expect(render()).toContain('data-flow="settings.parallel"')
+      const onAction = props.onAction
+      onAction("settings.parallel", { value: "8" })
+      onAction("settings.parallel", { value: "8" }); await tick()
+      expect(h.requests.filter(request => request.method === "PUT")).toEqual([{ path: "/api/install", method: "PUT", body: '{"parallel":8}' }])
+      expect(h.controller.installSnapshots.get().model?.parallel).toBe(2)
+      // An unresolved setting write leaves unrelated chat commands usable.
+      expect((await h.controller.commands.run("settings")).status).toBe("executed")
+      resolve(Response.json({ ...installFixture(), parallel: 8 })); await tick()
+      render()
+      expect(h.controller.installSnapshots.get().model?.parallel).toBe(8)
+      expect(props.actions.find(action => action.tag === "settings.parallel")?.input?.[0]?.value).toBe("8")
+      expect(h.controller.design.world().repo.parallel).toBe(seeded)
+      expect(render(false)).toBe("")
+      await h.controller.commands.submit({ name: "settings.parallel", payload: { parallel: 1 }, actor: "agent" }); await tick()
+      expect(h.requests.filter(request => request.method === "PUT")).toHaveLength(1)
+    } finally { resolve(Response.json(installFixture())); await h.controller.dispose() }
   })
   test("settings.address writes the seed while no install serves a model; nothing reaches /api/install", async () => {
     const h = await harness(undefined, () => Response.json({ code: "unavailable", class: "infra", message: "Install unavailable" }, { status: 503 }))
@@ -245,4 +277,67 @@ describe("T-FLW-12 Obsidian control", () => {
       expect(h.controller.installSnapshots.get().model?.wiki_sync?.obsidian).toEqual({ path: "/Vault", error: "Obsidian folder refused" })
     } finally { await h.controller.dispose() }
   })
+})
+
+ test("daily allowance uses the person flow and rejects invalid counts before transport", async () => {
+    const h = await harness()
+    try {
+      await h.controller.commands.run("settings"); await tick()
+      for (const value of [0, -1, 1.5]) {
+        const result = await h.controller.commands.run("settings.daily-admissions", String(value))
+        expect(result.status).not.toBe("executed")
+      }
+      expect((await h.controller.commands.submit({ name: "settings.daily-admissions", payload: { todo_daily_admissions: 18 }, actor: "user" })).status).toBe("executed")
+      await tick()
+      expect(h.requests.filter(request => request.method === "PUT").map(request => JSON.parse(request.body!))).toEqual([{ todo_daily_admissions: 18 }])
+    } finally { await h.controller.dispose() }
+  })
+
+test("the recorded Account door opens Settings with the same owner authority", async () => {
+ const h = await harness()
+ try {
+   expect((await h.controller.commands.run("account.show")).status).toBe("executed"); await tick()
+   expect([...h.store.collections.cards.keys()]).toEqual(["settings"])
+   expect(h.controller.commands.find("account.show")!.metadata.minimumRole).toBe("owner")
+   expect(modelInvocable(h.controller.commands.find("account.show")!)).toBe(false)
+ } finally { await h.controller.dispose() }
+})
+
+test("recorded environment doors use Settings without an environment request", async () => {
+ const h = await harness()
+ try {
+   for (const [name, args] of [["env.view", ""], ["env.set", "NODE_ENV=production"], ["env.remove-token", ""]]) {
+     expect((await h.controller.commands.run(name!, args!)).status).toBe("executed"); await tick()
+     expect([...h.store.collections.cards.keys()]).toEqual(["settings"])
+   }
+   expect(h.requests.every(request => !request.path.includes("agent-environment"))).toBe(true)
+ } finally { await h.controller.dispose() }
+})
+
+test("recorded coding-account doors open Settings without enrolling or reordering accounts", async () => {
+  const h = await harness()
+  try {
+    for (const name of ["secrets.connect", "secrets.connect.codex", "secrets.connections", "secrets.move", "secrets.revoke"]) {
+      expect((await h.controller.commands.run(name)).status).toBe("executed"); await tick()
+      expect([...h.store.collections.cards.keys()]).toEqual(["settings"])
+      expect(h.controller.commands.find(name)!.metadata.hidden).toBe(true)
+      expect(modelInvocable(h.controller.commands.find(name)!)).toBe(false)
+    }
+    expect(h.requests.every(request => !request.path.includes("provider-connections"))).toBe(true)
+    expect(h.store.session().codingProviderRequests ?? []).toEqual([])
+  } finally { await h.controller.dispose() }
+})
+
+test("recorded GitHub and repository-choice doors use the install cards", async () => {
+  const h = await harness()
+  try {
+    expect((await h.controller.commands.run("github.app")).status).toBe("executed"); await tick()
+    expect(h.store.collections.cards.has("settings")).toBe(true)
+    for (const name of ["repo.choose", "repo.create"]) {
+      expect((await h.controller.commands.run(name)).status).toBe("executed"); await tick()
+      expect(h.store.collections.cards.has("setup")).toBe(true)
+      expect(modelInvocable(h.controller.commands.find(name)!)).toBe(false)
+    }
+    expect(h.requests.every(request => !request.path.includes("github-app") && !request.path.includes("user/repos"))).toBe(true)
+  } finally { await h.controller.dispose() }
 })

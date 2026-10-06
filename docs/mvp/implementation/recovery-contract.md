@@ -24,7 +24,7 @@ Historical candidate browsing, recovery of never-submitted local edits, and cros
 
 Plue stores `mode: "enabled"` plus `enabled: false` for a paused registration. A `mode: "trial"` row is never general activation. `configuration.input` holds the reviewed draft; recovery must parse it with the shared schema and verify its candidate digest before using it as an editable draft.
 
-Source: [backend route](https://github.com/smithersai/smithers/blob/0fba32cf5bdbdb33476aee7d4bae0ba361219390/packages/backend/internal/compose/repository_setup.go), [durable requests](../../../packages/backend/internal/services/repository_setup.go) (the Worker DO store is retired, #2198). Backend: `~/plue/cmd/server/router.go:1320`, `internal/services/repository_jobs.go:79,221,284`, `db/queries/repository_jobs.sql`.
+Source: [backend route](https://github.com/smithersai/smithers/blob/0fba32cf5bdbdb33476aee7d4bae0ba361219390/packages/backend/internal/compose/repository_setup.go), [durable requests](https://github.com/smithersai/smithers/blob/5055499a109a5fdb0c0bbf4456bc19bf4de5ed1e/packages/backend/internal/services/repository_setup.go) (the Worker DO store is retired, #2198). Backend: `~/plue/cmd/server/router.go:1320`, `internal/services/repository_jobs.go:79,221,284`, `db/queries/repository_jobs.sql`.
 
 ## Smallest new contract
 

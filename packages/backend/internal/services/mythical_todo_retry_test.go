@@ -48,9 +48,11 @@ func TestTodoRetryStartsTheNextAttemptWithItsSteer(t *testing.T) {
 	steer := "use the helper in lib/retry.ts"
 	press := TodoControlInput{Op: "retry", Steer: &steer, Repository: o.repoID, Actor: o.userID, Request: "retry-1"}
 	_, err = o.service.ControlTodo(mythicalRunContext(ctx, o.userID), n, press)
-	var refusal *TodoControlError
-	require.ErrorAs(t, err, &refusal)
-	require.Equal(t, http.StatusForbidden, refusal.Status, "a run's credential never lifts a typed stop")
+	var denied *AccessError
+	require.ErrorAs(t, err, &denied)
+	require.Equal(t, http.StatusForbidden, denied.Status, "a run's credential never lifts a typed stop")
+	require.Equal(t, "permission", denied.Class)
+	require.Equal(t, "permission", denied.Code)
 	require.Equal(t, "failed", todoState(o.byID(id)))
 
 	receipt, err := o.service.ControlTodo(session, n, press)
@@ -87,6 +89,7 @@ func TestTodoRetryStartsTheNextAttemptWithItsSteer(t *testing.T) {
 	other := press
 	other.Request = "retry-2"
 	_, err = o.service.ControlTodo(session, n, other)
+	var refusal *TodoControlError
 	require.ErrorAs(t, err, &refusal)
 	require.Equal(t, &TodoControlError{http.StatusConflict, "conflict", "conflict", "TODO has not failed"}, refusal)
 
@@ -253,4 +256,12 @@ func TestTodoRetryCurrentFlowPinsAtAcceptance(t *testing.T) {
 	require.Equal(t, active, launches[1].Pin.ExecutionDigest)
 	require.EqualValues(t, 2, o.byID(id).Attempt)
 	require.Equal(t, earlier, mythicalChecksOf(o.byID(id)).Attempts[0])
+}
+
+func TestTodoFirstInputRetainsAttribution(t *testing.T) {
+	item := db.MythicalItem{Checks: (mythicalChecks{Steers: []todoSteer{
+		{ID: "first", Text: "Use the retry helper", Attempt: 1, Attribution: map[string]string{"person": "ben", "via": "claude-code"}},
+		{ID: "second", Text: "Cap retries at five", Attempt: 1, Attribution: map[string]string{"person": "will"}},
+	}}).encode()}
+	require.Equal(t, "[TODO input first by {\"person\":\"ben\",\"via\":\"claude-code\"}]\nUse the retry helper\n\n[TODO input second by {\"person\":\"will\"}]\nCap retries at five", todoFeedback(item, 1))
 }

@@ -743,7 +743,7 @@ export const createCommandRegistry = (actions: CommandActions, agentActions: Com
      * posts a confirmation message whose button runs the flow as the user.
      * The label may depend on the payload (registry.ts `confirm`).
      */
-    const refusal = target.preflight?.(parsed.payload)
+    const refusal = target.preflight?.(parsed.payload, invoker)
     if (refusal !== undefined) return { status: "failed", error: refusal }
     const confirmation = invoker === "agent" ? confirmLabel(target.metadata, parsed.payload) : undefined
     if (confirmation !== undefined) {
