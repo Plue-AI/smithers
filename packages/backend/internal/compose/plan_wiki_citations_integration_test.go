@@ -44,7 +44,7 @@ func TestPlanWikiCitationsComposedTodoRoute(t *testing.T) {
 	require.NoError(t, q.UpsertInstallSetting(ctx, db.UpsertInstallSettingParams{Key: "github.repository", Value: []byte(`{"owner_login":"wiki-owner","repository_name":"app","repository_id":100}`)}))
 	require.NoError(t, q.UpsertInstallSetting(ctx, db.UpsertInstallSettingParams{Key: "owner.access", Value: []byte(`{"last_access_check_at":"` + time.Now().UTC().Format(time.RFC3339Nano) + `","owner_login":"wiki-owner","repository_name":"app","repository_id":100}`)}))
 	service := services.NewMythicalService(pool, nil)
-	filed, err := service.FileTodo(middleware.ContextWithAuthInfo(ctx, &middleware.AuthInfo{User: &owner, SessionHash: "wiki-browser"}), repo.ID, owner.ID, services.MythicalTodoInput{Title: "Retry deliveries", Prompt: "Retry failed webhook deliveries", Request: "wiki"})
+	filed, err := service.FileTodo(middleware.ContextWithAuthInfo(ctx, &middleware.AuthInfo{User: &owner, SessionHash: hex.EncodeToString(sum[:])}), repo.ID, owner.ID, services.MythicalTodoInput{Title: "Retry deliveries", Prompt: "Retry failed webhook deliveries", Request: "wiki"})
 	require.NoError(t, err)
 	_, err = pool.Exec(ctx, `UPDATE mythical_items SET attempt=2,candidate_head='second',plan=$2,checks=$3 WHERE repository_id=$1`, repo.ID,
 		`{"wikiCitations":[{"slug":"retry-policy","pageID":"42","revision":7,"digest":"0b2889240d13d49add99a1daef222ddce288814a94826dbce1fbf456f03adc6b"}]}`,
