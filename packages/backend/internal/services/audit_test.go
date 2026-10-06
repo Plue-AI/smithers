@@ -5,7 +5,9 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"github.com/smithersai/smithers/packages/backend/internal/middleware"
 	"log/slog"
+	"net/http/httptest"
 	"strings"
 	"sync"
 	"testing"
@@ -512,4 +514,26 @@ func BenchmarkAuditEvent_HighVolume(b *testing.B) {
 			svc.Log(ctx, event)
 		}
 	})
+}
+
+func TestAuditCredentialAttribution(t *testing.T) {
+	for _, token := range []bool{false, true} {
+		person := db.User{ID: 42, Username: "ben"}
+		info := &middleware.AuthInfo{User: &person, IsTokenAuth: token, TokenSystemIssued: true, RawScopes: "repo,via:claude-code", ViaHint: "codex"}
+		ctx := middleware.ContextWithAuthInfo(t.Context(), info)
+		request := httptest.NewRequest("POST", "/api/todos", nil).WithContext(ctx)
+		request.Header.Set("Smithers-Via", "codex")
+		event := FromRequest(request)
+		require.Equal(t, "ben", event.ActorName)
+		query := &mockAuditQuerier{}
+		original := map[string]any{"operation": "steer"}
+		event.Metadata = original
+		NewAuditService(query).Log(ctx, event)
+		require.NotContains(t, original, "via")
+		if token {
+			require.JSONEq(t, `{"operation":"steer","via":"claude-code"}`, string(query.lastInsertAuditLogArg.Metadata))
+		} else {
+			require.JSONEq(t, `{"operation":"steer"}`, string(query.lastInsertAuditLogArg.Metadata))
+		}
+	}
 }

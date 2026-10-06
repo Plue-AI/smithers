@@ -6,6 +6,7 @@ import { tmpdir } from "node:os"
 import { join } from "node:path"
 import ts from "typescript"
 import { afterEach, describe, expect, it, vi } from "vitest"
+import { makeCli } from "../src/Cli.ts"
 import { main } from "../src/cli/Entry.ts"
 import { type Host, repoFromRemote, resolveRepo } from "../src/commands/Open.ts"
 import { ask } from "../src/internal/backend/AgentDocs.ts"
@@ -1115,7 +1116,7 @@ describe("local host service commands", () => {
       expect(result.code).toBe(0)
       expect(result.output).toContain(url)
       expect(result.error).not.toContain("fixture-setup-secret")
-      expect(HostService.start).toHaveBeenCalledWith("/bundle")
+      expect(HostService.start).toHaveBeenCalledWith("/bundle", {})
     } finally { await f.close() }
   })
   it.each([
@@ -1138,5 +1139,40 @@ describe("local host service commands", () => {
       expect(result.code).toBe(1)
       expect(result.output + result.error).not.toContain("Already set up")
     } finally { await f.close() }
+  })
+})
+
+
+describe("delegated laptop login", () => {
+  it("runs the registered login --agent command and saves issuer metadata", async () => {
+    const { c, home } = await fixture({ SMITHERS_TOKEN: "" })
+    let submitted!: Promise<Response>
+    vi.spyOn(Client.prototype, "exec").mockImplementation(async (_command, args) => {
+      const launched = new URL(args.at(-1)!)
+      expect(launched.origin).toBe("https://install.example.test")
+      expect(launched.searchParams.get("agent")).toBe("claude-code")
+      const callback = `http://127.0.0.1:${launched.searchParams.get("callback_port")}/callback`
+      submitted = fetch(callback, {
+        method: "POST", headers: { "content-type": "application/json", origin: new URL(callback).origin },
+        body: JSON.stringify({ callback_state: launched.searchParams.get("callback_state"), token: "delegated-secret", kind: "delegated", via: "claude-code", username: "ben", expires_at: "2099-01-01T00:00:00Z" })
+      })
+      return ""
+    })
+    const exit = vi.fn(), write = vi.fn()
+    await makeCli({ environment: c.env, exit, stdout: { write, isTTY: false, columns: 80 } }).serve(
+      ["login", "https://install.example.test", "--agent", "claude-code", "--format", "json"],
+      { env: c.env, exit, stdout: write }
+    )
+    expect(exit).not.toHaveBeenCalledWith(1)
+    expect((await submitted).status).toBe(200)
+    const saved = JSON.parse(await readFile(join(home, "auth.json"), "utf8"))
+    expect(JSON.stringify(saved)).toContain("claude-code")
+    expect(JSON.stringify(saved)).toContain("delegated")
+    expect(write.mock.calls.flat().join("")).not.toContain("delegated-secret")
+  })
+  it.each(["smithers", "terminal", "Bad", "a_b"])("refuses reserved or invalid agent %s before opening a browser", async (agent) => {
+    const { c, exec } = await fixture()
+    await expect(auth["auth login"]!(c, {}, { agent })).rejects.toThrow("Invalid external agent")
+    expect(exec).not.toHaveBeenCalled()
   })
 })

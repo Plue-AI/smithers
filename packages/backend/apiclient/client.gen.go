@@ -1628,6 +1628,7 @@ type GetAPIAgentConversationsParams struct {
 
 // GetAPIAuthGithubCliParams is the query of GET /api/auth/github/cli.
 type GetAPIAuthGithubCliParams struct {
+	Agent         *string
 	CallbackPort  int64
 	CallbackState *string
 	Scopes        *string
@@ -2500,6 +2501,9 @@ func (c *Client) GetAPIAuthGithubCallback(ctx context.Context) (AnyJSON, error) 
 // GetAPIAuthGithubCli calls GET /api/auth/github/cli.
 func (c *Client) GetAPIAuthGithubCli(ctx context.Context, params GetAPIAuthGithubCliParams) error {
 	query := url.Values{}
+	if params.Agent != nil {
+		query.Set("agent", *params.Agent)
+	}
 	query.Set("callback_port", strconv.FormatInt(params.CallbackPort, 10))
 	if params.CallbackState != nil {
 		query.Set("callback_state", *params.CallbackState)

@@ -5,9 +5,11 @@ import (
 	"encoding/json"
 	"log/slog"
 	"net"
+	"net/http"
 	"net/netip"
 
 	"github.com/jackc/pgx/v5/pgtype"
+	"github.com/smithersai/smithers/packages/backend/internal/middleware"
 
 	"github.com/smithersai/smithers/packages/backend/internal/db"
 )
@@ -58,6 +60,14 @@ func NewAuditService(q AuditQueries) *AuditService {
 
 // Log records an audit event. Fire-and-forget — never blocks the caller.
 func (s *AuditService) Log(ctx context.Context, event AuditEvent) {
+	if info := middleware.AuthInfoFromContext(ctx); info != nil && info.ActingVia() != "" {
+		metadata := make(map[string]any, len(event.Metadata)+1)
+		for key, value := range event.Metadata {
+			metadata[key] = value
+		}
+		metadata["via"] = info.ActingVia()
+		event.Metadata = metadata
+	}
 	metadataJSON, err := json.Marshal(event.Metadata)
 	if err != nil {
 		slog.Warn("audit: failed to marshal metadata", "event_type", event.EventType, "error", err)
@@ -92,4 +102,17 @@ func (s *AuditService) Log(ctx context.Context, event AuditEvent) {
 			"error", err,
 		)
 	}
+}
+
+// FromRequest takes actor identity from the authenticated credential, never a header.
+func FromRequest(r *http.Request) AuditEvent {
+	event := AuditEvent{IPAddress: r.RemoteAddr}
+	if info := middleware.AuthInfoFromContext(r.Context()); info != nil && info.User != nil {
+		id := info.User.ID
+		event.ActorID, event.ActorName = &id, info.User.Username
+		if via := info.ActingVia(); via != "" {
+			event.Metadata = map[string]any{"via": via}
+		}
+	}
+	return event
 }

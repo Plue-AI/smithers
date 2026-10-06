@@ -271,6 +271,11 @@ func (h *AuthHandler) GetGitHubOAuthStart(w http.ResponseWriter, r *http.Request
 }
 
 func (h *AuthHandler) GetGitHubOAuthCLIStart(w http.ResponseWriter, r *http.Request) {
+	if config.IsSingleOwner(h.AuthConfig) && (h.InstallSetup == nil || h.Origins == nil) {
+		writeRouteError(w, r, &services.AccessError{Status: 503, Class: "infra", Code: "credential_issuer_unavailable", Message: "Credential issuer unavailable"})
+		return
+	}
+
 	if h.InstallSetup != nil {
 		origin, ok := middleware.ResolveEffectiveOrigin(r, h.knownOrigins())
 		if !ok {
@@ -288,6 +293,11 @@ func (h *AuthHandler) GetGitHubOAuthCLIStart(w http.ResponseWriter, r *http.Requ
 	port, err := strconv.Atoi(portStr)
 	if err != nil || port < 1024 || port > 65535 {
 		errors.WriteError(w, errors.BadRequest("callback_port must be a valid port (1024-65535)"))
+		return
+	}
+	agent := r.URL.Query().Get("agent")
+	if r.URL.Query().Has("agent") && !services.ValidExternalAgent(agent) {
+		writeRouteError(w, r, errors.BadRequest("invalid agent"))
 		return
 	}
 	callbackState := r.URL.Query().Get("callback_state")
@@ -334,7 +344,7 @@ func (h *AuthHandler) GetGitHubOAuthCLIStart(w http.ResponseWriter, r *http.Requ
 		// The durable admin request already binds the callback port and state.
 		clearCLICallbackCookie(w, h.cookieSecure(r))
 	} else {
-		setCLICallbackCookie(w, portStr, stateVerifier, expiry, h.cookieSecure(r), callbackState)
+		setCLICallbackCookie(w, portStr, stateVerifier, expiry, h.cookieSecure(r), callbackState, agent)
 	}
 
 	http.Redirect(w, r, redirectURL, http.StatusFound)
@@ -356,6 +366,11 @@ func (h *AuthHandler) setupSignInFailed(w http.ResponseWriter, r *http.Request, 
 }
 
 func (h *AuthHandler) GetGitHubOAuthCallback(w http.ResponseWriter, r *http.Request) {
+	if config.IsSingleOwner(h.AuthConfig) && (h.InstallSetup == nil || h.Origins == nil) {
+		writeRouteError(w, r, &services.AccessError{Status: 503, Class: "infra", Code: "credential_issuer_unavailable", Message: "Credential issuer unavailable"})
+		return
+	}
+
 	browserOrigin := h.githubBrowserOrigin()
 	if h.InstallSetup != nil {
 		origin, ok := middleware.ResolveEffectiveOrigin(r, h.knownOrigins())
@@ -608,6 +623,7 @@ func (h *AuthHandler) completeCLIOAuth(w http.ResponseWriter, r *http.Request, r
 	tokenResult, err := h.Service.CreateToken(r.Context(), result.User.ID, services.CreateTokenRequest{
 		Name:   "smithers-cli",
 		Scopes: result.TokenScopes,
+		Via:    cliAgentFromRequest(r),
 	})
 	if err != nil {
 		writeRouteError(w, r, err)
@@ -639,9 +655,11 @@ func (h *AuthHandler) completeCLIOAuth(w http.ResponseWriter, r *http.Request, r
 	if result.User.Email.Valid && strings.TrimSpace(result.User.Email.String) != "" {
 		callbackParams.Set("email", strings.TrimSpace(result.User.Email.String))
 	}
-	if !result.ExpiresAt.IsZero() {
-		callbackParams.Set("expires_at", result.ExpiresAt.UTC().Format(time.RFC3339))
+	if tokenResult.ExpiresAt != nil {
+		callbackParams.Set("expires_at", tokenResult.ExpiresAt.UTC().Format(time.RFC3339))
 	}
+	callbackParams.Set("kind", tokenResult.Kind)
+	callbackParams.Set("via", tokenResult.Via)
 	callbackURL := fmt.Sprintf("http://127.0.0.1:%d/callback#%s", port, callbackParams.Encode())
 	http.Redirect(w, r, callbackURL, http.StatusFound)
 }
@@ -845,8 +863,11 @@ func oauthStateVerifierFromRequest(r *http.Request) string {
 // the API origin and must honor its Secure setting, despite the loopback redirect.
 func setCLICallbackCookie(w http.ResponseWriter, portStr, stateVerifier string, expiresAt time.Time, secure bool, callbackState ...string) {
 	value := portStr + ":" + stateVerifier
-	if len(callbackState) > 0 && callbackState[0] != "" {
+	if len(callbackState) > 0 && (callbackState[0] != "" || len(callbackState) > 1 && callbackState[1] != "") {
 		value += ":" + callbackState[0]
+	}
+	if len(callbackState) > 1 && callbackState[1] != "" {
+		value += ":" + callbackState[1]
 	}
 	http.SetCookie(w, &http.Cookie{
 		Name:     cliCallbackCookieName,
@@ -907,7 +928,11 @@ func cliCallbackFromRequest(r *http.Request) (string, string, bool) {
 	if !found || portStr == "" || boundVerifier == "" {
 		return "", "", false
 	}
-	if hasCallbackState && !validCLICallbackState(callbackState) {
+	callbackState, agent, hasAgent := strings.Cut(callbackState, ":")
+	if hasAgent && !services.ValidExternalAgent(agent) {
+		return "", "", false
+	}
+	if hasCallbackState && !(hasAgent && callbackState == "") && !validCLICallbackState(callbackState) {
 		return "", "", false
 	}
 	stateVerifier := oauthStateVerifierFromRequest(r)
@@ -1034,4 +1059,16 @@ func (h *AuthHandler) csrfSameSite() http.SameSite {
 		return http.SameSiteLaxMode
 	}
 	return http.SameSiteStrictMode
+}
+
+func cliAgentFromRequest(r *http.Request) string {
+	if _, _, ok := cliCallbackFromRequest(r); !ok {
+		return "cli"
+	}
+	cookie, _ := r.Cookie(cliCallbackCookieName)
+	parts := strings.Split(cookie.Value, ":")
+	if len(parts) == 4 && services.ValidExternalAgent(parts[3]) {
+		return parts[3]
+	}
+	return "cli"
 }

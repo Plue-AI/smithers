@@ -1090,8 +1090,8 @@ func buildRouter(
 		// callback), so the strict 5/min "auth" scope locked out users who
 		// retried a few times within a minute.
 		r.With(middleware.InteractiveAuthRateLimit(queries)).Get("/auth/github", authHandler.GetGitHubOAuthStart)
-		r.With(middleware.InteractiveAuthRateLimit(queries)).Get("/auth/github/cli", authHandler.GetGitHubOAuthCLIStart)
-		r.With(middleware.InteractiveAuthRateLimit(queries)).Get("/auth/github/callback", authHandler.GetGitHubOAuthCallback)
+		r.With(installCredentialIssuer(cfg.Auth, queries, authHandler), middleware.InteractiveAuthRateLimit(queries)).Get("/auth/github/cli", authHandler.GetGitHubOAuthCLIStart)
+		r.With(installCredentialIssuer(cfg.Auth, queries, authHandler), middleware.InteractiveAuthRateLimit(queries)).Get("/auth/github/callback", authHandler.GetGitHubOAuthCallback)
 		r.With(middleware.InteractiveAuthRateLimit(queries)).Get("/auth/auth0/authorize", authHandler.GetAuth0Authorize)
 		r.With(middleware.InteractiveAuthRateLimit(queries)).Get("/auth/auth0/callback", authHandler.GetAuth0Callback)
 		// Worker-only GitHub-token → Plue-token exchange. Guarded by a shared
@@ -1105,6 +1105,7 @@ func buildRouter(
 		// else stays in the strict "auth" bucket. RequireSharedBearerToken
 		// after it remains the real auth gate.
 		r.With(
+			installCredentialIssuer(cfg.Auth, queries, authHandler),
 			middleware.SharedBearerAwareAuthRateLimit(queries, cfg.Auth.WorkerExchangeToken, 120, time.Minute),
 			middleware.RequireSharedBearerToken(cfg.Auth.WorkerExchangeToken),
 		).Post("/auth/github/token-exchange", authHandler.PostGitHubTokenExchange)
@@ -1706,7 +1707,7 @@ func buildRouter(
 			r.With(middleware.RequireAuth, middleware.RequireScope(middleware.ScopeWriteUser), gateSubscriptionConnections).Post("/user/provider-connections/{id}/grants", providerConnectionHandler.AddGrant)
 			r.With(middleware.RequireAuth, middleware.RequireScope(middleware.ScopeWriteUser), gateSubscriptionConnections).Delete("/user/provider-connections/{id}/grants/{grantID}", providerConnectionHandler.DeleteGrant)
 			r.With(middleware.SearchRateLimit(queries), middleware.RequireAuth, middleware.RequireFirstPartyAuth, middleware.RequireScope(middleware.ScopeReadUser)).Get("/user/tokens", userHandler.GetUserTokens)
-			r.With(middleware.SearchRateLimit(queries), middleware.RequireAuth, middleware.RequireFirstPartyAuth, middleware.RequireScope(middleware.ScopeWriteUser)).Post("/user/tokens", userHandler.PostUserToken)
+			r.With(installCredentialIssuer(cfg.Auth, queries, authHandler), middleware.SearchRateLimit(queries), middleware.RequireAuth, middleware.RequireFirstPartyAuth, middleware.RequireScope(middleware.ScopeWriteUser)).Post("/user/tokens", userHandler.PostUserToken)
 			r.With(middleware.SearchRateLimit(queries), middleware.RequireAuth, middleware.RequireFirstPartyAuth, middleware.RequireScope(middleware.ScopeWriteUser)).Delete("/user/tokens/{id}", userHandler.DeleteUserToken)
 			r.With(middleware.RequireAuth, middleware.RequireFirstPartyAuth, middleware.RequireScope(middleware.ScopeReadUser)).Get("/user/sessions", userHandler.GetUserSessions)
 			r.With(middleware.RequireAuth, middleware.RequireFirstPartyAuth, middleware.RequireScope(middleware.ScopeWriteUser)).Delete("/user/sessions/{id}", userHandler.DeleteUserSession)

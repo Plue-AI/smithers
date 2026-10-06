@@ -452,6 +452,20 @@ func Authorize(ctx context.Context, q *db.Queries, command string) (InstallAutho
 	if need.personOnly {
 		return authorizePersonOnly(ctx, q, info, need.role)
 	}
+	delegation, delegated := info.Delegation()
+	fullDelegated := delegated && info.CredentialKind() == middleware.CredentialDelegated && !middleware.IsAgentAccount(info.User.UserType) && delegation.Profile == "" && delegation.Branch == "" && (delegation.Via == "smithers" || ValidExternalAgent(delegation.Via))
+	if fullDelegated {
+		switch command {
+		case "todo.read", "repo.read", "wiki.read", "branches.read", "flows.read":
+			if !info.Scopes.Has(middleware.ScopeReadRepository) {
+				return InstallAuthorization{}, &AccessError{Status: 403, Class: "permission", Code: "permission", Message: "Sign in with a browser session"}
+			}
+		case "todo.control", "todo.answer", "todo.steer", "todo.amend", "todo.stop", "todo.resume", "todo.retry", "todo.drop", "stack.move", "merge", "todo.new", "branch.fork", "review":
+			if !info.Scopes.Has(middleware.ScopeWriteRepository) {
+				return InstallAuthorization{}, &AccessError{Status: 403, Class: "permission", Code: "permission", Message: "Insufficient credential scope"}
+			}
+		}
+	}
 	_, terminal := info.TerminalDelegation()
 	if terminal {
 		// A member's terminal credential acts as that member (spec §8.11.1);
@@ -459,7 +473,7 @@ func Authorize(ctx context.Context, q *db.Queries, command string) (InstallAutho
 		if !terminalCommands[command] {
 			return InstallAuthorization{}, &AccessError{Status: http.StatusForbidden, Class: "permission", Code: "permission", Message: "A terminal's credential cannot do this"}
 		}
-	} else if (info.IsTokenAuth || info.IsAgent() || info.SessionHash == "") &&
+	} else if !fullDelegated && (info.IsTokenAuth || info.IsAgent() || info.SessionHash == "") &&
 		!(info.IsTokenAuth && (command == "repo.read" || command == "agent.turn" && !info.IsAgent())) &&
 		!(command == "branch.read" && info.CredentialKind() == middleware.CredentialDelegated) {
 		message := "Sign in with a browser session"
@@ -478,16 +492,29 @@ func Authorize(ctx context.Context, q *db.Queries, command string) (InstallAutho
 	// Owner repository credentials may read the stack before delivering a lane.
 	// Route scopes and repository restrictions still apply. Person API tokens
 	// may ask scoped questions; roster members still use browser sessions.
-	if info.IsTokenAuth && !terminal && role != InstallOwner {
+	if info.IsTokenAuth && !terminal && !fullDelegated && role != InstallOwner {
 		return InstallAuthorization{}, &AccessError{Status: http.StatusForbidden, Class: "permission", Code: "permission", Message: "Sign in with a browser session"}
 	}
 	if role.rank() < need.role.rank() {
 		return InstallAuthorization{}, &AccessError{Status: http.StatusForbidden, Class: "permission", Code: "permission", Message: "Only a maintainer can do this"}
 	}
+	if fullDelegated {
+		switch command {
+		case "self.read", "telemetry.report", "repo.read", "wiki.read", "issue.read", "todo.read", "agent.turn", "todo.control", "todo.new", "todo.answer", "todo.steer", "todo.amend", "todo.stop", "todo.resume", "todo.retry", "todo.drop", "stack.move", "merge", "flows.read", "branches.read", "branch.read", "branch.fork", "review":
+		default:
+			return InstallAuthorization{}, &AccessError{Status: 403, Class: "never", Code: "never", Message: "Only a person can do this"}
+		}
+		if command == "todo.drop" && role.rank() < InstallMaintainer.rank() {
+			return InstallAuthorization{}, &AccessError{Status: 403, Class: "permission", Code: "permission", Message: "Only a maintainer can do this"}
+		}
+	}
+	if fullDelegated && (command == "todo.amend" || command == "merge" || command == "todo.drop" || command == "review") {
+		return InstallAuthorization{}, &AccessError{Status: 503, Class: "infra", Code: "confirmation_unavailable", Message: "Confirmation unavailable"}
+	}
 	if terminal && command == "todo.amend" {
 		return InstallAuthorization{}, &AccessError{Status: http.StatusServiceUnavailable, Class: "infra", Code: "confirmation_unavailable", Message: "Amendment confirmation is unavailable"}
 	}
-	if terminal && command == "todo.new" {
+	if (terminal || fullDelegated) && command == "todo.new" {
 		// A delegated TODO waits for its person's Confirm in the app, which
 		// stage 1 does not serve yet: nothing is filed (T-APP-04).
 		return InstallAuthorization{}, &AccessError{Status: http.StatusForbidden, Class: "permission", Code: "confirm_in_app", Message: "Confirm in the app"}

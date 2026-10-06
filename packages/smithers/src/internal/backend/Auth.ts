@@ -50,7 +50,8 @@ export const browserLogin = async (
   admin: boolean,
   ttl: string,
   launch = (url: string): void => void open(c, url),
-  timeout = 300_000
+  timeout = 300_000,
+  agent = ""
 ): Promise<Values> => {
   const state = randomBytes(32).toString("base64url")
   let finish!: (value: Values) => void, fail!: (error: Error) => void, finished = false, loopback = ""
@@ -121,6 +122,7 @@ export const browserLogin = async (
   const url = `${origin}/api/auth/github/cli?${new URLSearchParams({
     callback_port: String(port),
     callback_state: state,
+    ...(agent ? { agent } : {}),
     ...(admin ? { admin: "1", ttl: ttl || "1h" } : {})
   })}`
   const timer = setTimeout(() => fail(refused("user", "timed_out", "Timed out waiting for browser login")), timeout)
@@ -161,8 +163,10 @@ const providerLogin = (provider: string): Values => {
  * @since 1.0.0
  */
 export const auth: Record<string, Handler> = {}
-auth["auth login"] = async (c, _a, o) => {
-  const target = c.session.target(str(o.hostname || o.host)), admin = !!(o.admin || o.observe)
+auth["auth login"] = async (c, a, o) => {
+  const target = c.session.target(str(a.origin || o.hostname || o.host)), admin = !!(o.admin || o.observe)
+  const agent = str(o.agent)
+  if (agent && (admin || agent === "smithers" || agent === "terminal" || !/^[a-z0-9-]{1,32}$/.test(agent))) throw new UsageError({ message: "Invalid external agent name" })
   if (o.ttl && !admin) throw new UsageError({ message: "--ttl requires --admin" })
   if (admin && o["with-token"]) throw new UsageError({ message: "--admin requires browser consent" })
   if (o.ttl) {
@@ -175,7 +179,7 @@ auth["auth login"] = async (c, _a, o) => {
   if (o.observe) observeOrigin(str(c.session.config().observe_url))
   const value = o["with-token"]
     ? { token: await c.stdin("Login token") }
-    : await browserLogin(c, target.api_url, admin, str(o.ttl))
+    : await browserLogin(c, target.api_url, admin, str(o.ttl), undefined, undefined, agent)
   const { token, callback_state: _state, ...metadata } = value
   const saved = await c.session.save(target.api_url, str(token), { ...metadata, admin })
   if (o.observe) await openObserve(c, str(token))

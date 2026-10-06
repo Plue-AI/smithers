@@ -363,7 +363,7 @@ export const definitions = {
   },
   "auth login": {
     description: "Log in to Smithers",
-    args: z.object({}),
+    args: z.object({ origin: z.string().describe("Install origin").optional() }),
     options: z.object({
       "admin": z.boolean().describe("Request an expiring administrator token with browser consent").default(false),
       "host": z.string().describe("Hostname or API URL (alias for --hostname)").optional(),
@@ -371,6 +371,7 @@ export const definitions = {
       "observe": z.boolean().describe("Sign in as an administrator and open Observe already authenticated").default(
         false
       ),
+      "agent": z.string().regex(/^[a-z0-9-]{1,32}$/).describe("External agent name").optional(),
       "ttl": z.string().describe("Admin token lifetime (5m to 12h; default 1h)").optional(),
       "with-token": z.boolean().describe("Read token from stdin instead of browser flow").default(false)
     })

@@ -53,7 +53,16 @@ integrations, evaluations, and local maintenance reject remote access.
 ## Backend commands
 
 Set `SMITHERS_API_ORIGIN` or run `smithers config set api_origin https://your-api-host`,
-then `smithers auth login`. One saved login serves backend commands and remote
+then `smthrs login <install-origin>`. An external agent signs in with
+`smthrs login <install-origin> --agent claude-code` (or `--agent codex`).
+Agent labels use 1–32 lowercase letters, digits or hyphens; `smithers` and
+`terminal` are reserved for the host. Laptop credentials expire after 30 days.
+They act for the signed-in member, have no approval scope, and cannot approve,
+merge or move `main`. Re-run login to rotate the credential. Requests retain
+the stored agent's attribution even with a forged `Smithers-Via` header.
+A generic `cli` or branch `terminal` credential names Claude Code when
+`CLAUDECODE=1`, or Codex when a `CODEX_*` variable is present.
+One saved login serves backend commands and remote
 control-plane commands on that origin. `SMITHERS_TOKEN` overrides the saved login
 for automation. `SMITHERS_TOKEN_FILE` reads a token from a fixed file path after
 `SMITHERS_TOKEN` and before saved credentials. Missing or invalid files refuse

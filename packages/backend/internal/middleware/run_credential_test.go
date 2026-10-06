@@ -98,3 +98,23 @@ func TestMachineAndSyncDoNotInheritTerminalDelegation(t *testing.T) {
 		assert.Error(t, RequirePerson(ContextWithAuthInfo(context.Background(), info), "approve"))
 	}
 }
+
+func TestInstallPATClassificationHasNoBackfill(t *testing.T) {
+	for _, raw := range []string{"repo,user,write:approval", "repo,via:smithers,profile:terminal_s1"} {
+		if got := TokenCredentialKind(false, raw, "user", true); got != CredentialDelegated {
+			t.Fatalf("install PAT classified %s", got)
+		}
+		if got := TokenCredentialKind(false, raw, "user"); got != CredentialPerson {
+			t.Fatalf("Plue PAT classified %s", got)
+		}
+	}
+	if got := TokenCredentialKind(true, "repo,via:claude-code", "user", true); got != CredentialDelegated {
+		t.Fatalf("delegated classified %s", got)
+	}
+	if got := TokenCredentialKind(true, "repo,workspace:branch-1", "user", true); got != CredentialMachine {
+		t.Fatalf("workspace subject classified %s", got)
+	}
+	if got := TokenCredentialKind(false, "repo", "bot", true); got != CredentialAgentRun {
+		t.Fatalf("bot classified %s", got)
+	}
+}

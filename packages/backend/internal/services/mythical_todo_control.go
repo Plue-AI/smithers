@@ -170,8 +170,8 @@ func todoRequestCredential(ctx context.Context, actor int64) (string, error) {
 		if !info.IsTokenAuth && info.SessionHash != "" {
 			return info.SessionHash, nil
 		}
-		if binding, ok := info.TerminalDelegation(); ok && info.CredentialKind() == middleware.CredentialDelegated && info.TokenID > 0 && binding.Branch != "" {
-			identity, _ := json.Marshal([]any{"delegated", info.TokenID, actor, binding.Branch, binding.Profile, binding.Session})
+		if binding, ok := info.Delegation(); ok && info.CredentialKind() == middleware.CredentialDelegated && info.TokenID > 0 {
+			identity, _ := json.Marshal([]any{"delegated", info.TokenID, actor, binding.Via, binding.Branch, binding.Profile, binding.Session})
 			return string(identity), nil
 		}
 	}

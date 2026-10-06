@@ -256,6 +256,10 @@ func AuthLoader(queries AuthLoaderQuerier, cfg config.AuthConfig, boundaries ...
 				authInfo, err := loadTokenAuth(ctx, queries, token)
 				switch {
 				case stdErrors.Is(err, errAccountSuspended):
+					if config.IsSingleOwner(cfg) {
+						writeDeadCredential(w)
+						return
+					}
 					errors.WriteError(w, errors.Forbidden("account is suspended"))
 					return
 				case err != nil:
@@ -267,6 +271,20 @@ func AuthLoader(queries AuthLoaderQuerier, cfg config.AuthConfig, boundaries ...
 					// turns an expired token into 404s on private repositories.
 					writeDeadCredential(w)
 					return
+				}
+				// Existing install PATs derive delegated/cli authority without a backfill.
+				// Plue PATs and system subject bindings retain their original classification.
+				if config.IsSingleOwner(cfg) && !authInfo.TokenSystemIssued && !IsAgentAccount(authInfo.User.UserType) {
+					authInfo.TokenSystemIssued = true
+					entries := []string{}
+					for _, entry := range tokenScopeEntries(authInfo.RawScopes) {
+						entry = strings.ToLower(strings.TrimSpace(entry))
+						if strings.HasPrefix(entry, delegationViaScopePrefix) || strings.HasPrefix(entry, delegationProfileScopePrefix) || strings.HasPrefix(entry, delegationBranchScopePrefix) || strings.HasPrefix(entry, delegationSessionScopePrefix) {
+							continue
+						}
+						entries = append(entries, entry)
+					}
+					authInfo.RawScopes = strings.Join(append(entries, "via:cli"), ",")
 				}
 				if !authorizeInstallationOwner(w, r, authInfo, ownerBoundary) {
 					return
