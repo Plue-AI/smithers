@@ -802,7 +802,11 @@ func (s *InstallSetupService) Status(ctx context.Context) (map[string]any, error
 		}
 		models = append(models, value)
 	}
-	result := map[string]any{"address": map[string]any{"listen": listen, "bind": bind, "origins": origins}, "steps": projected, "this_mac": thisMac, "github": github, "models": models, "chatgpt": false, "capacity": capacity}
+	chatgpt, err := InstallChatGPTEnabled(ctx, q)
+	if err != nil {
+		return nil, err
+	}
+	result := map[string]any{"address": map[string]any{"listen": listen, "bind": bind, "origins": origins}, "steps": projected, "this_mac": thisMac, "github": github, "models": models, "chatgpt": chatgpt, "capacity": capacity}
 	repository, err := q.GetInstallSetting(ctx, "repository")
 	if err == nil {
 		var slug string
@@ -840,4 +844,20 @@ func (s *InstallSetupService) Status(ctx context.Context) (map[string]any, error
 		github["squash_allowed"] = true
 	}
 	return result, nil
+}
+
+// InstallChatGPTEnabled fails closed on a missing setting; unreadable state is an error.
+func InstallChatGPTEnabled(ctx context.Context, q *db.Queries) (bool, error) {
+	row, err := q.GetInstallSetting(ctx, "models.chatgpt")
+	if errors.Is(err, pgx.ErrNoRows) {
+		return false, nil
+	}
+	if err != nil {
+		return false, err
+	}
+	var enabled bool
+	if err = json.Unmarshal(row.Value, &enabled); err != nil {
+		return false, err
+	}
+	return enabled, nil
 }

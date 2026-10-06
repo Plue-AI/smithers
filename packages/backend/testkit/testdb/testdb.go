@@ -11,9 +11,7 @@ import (
 	"fmt"
 	"net/url"
 	"os"
-	"strconv"
 	"strings"
-	"sync"
 	"testing"
 	"time"
 
@@ -31,9 +29,6 @@ const (
 	namePrefix     = "smithers_test_"
 	connectBudget  = 30 * time.Second
 	connectAttempt = 5 * time.Second
-	// staleAge is when a database is an orphan: a panic or a killed test
-	// process skipped its drop. Names carry their creation time.
-	staleAge = 6 * time.Hour
 )
 
 // ServerURL returns the configured server URL, or "" when none is set.
@@ -91,7 +86,6 @@ func CreateFromTemplate(ctx context.Context, serverURL, template string) (*Datab
 		return nil, err
 	}
 	defer admin.Close(context.WithoutCancel(ctx))
-	sweepOnce.Do(func() { sweepStale(ctx, admin, time.Now()) })
 	if _, err := admin.Exec(ctx, "CREATE DATABASE "+pgx.Identifier{name}.Sanitize()+" TEMPLATE "+pgx.Identifier{template}.Sanitize()+" ENCODING 'UTF8'"); err != nil {
 		return nil, fmt.Errorf("create test database: %w", err)
 	}
@@ -151,44 +145,19 @@ func databaseName(now time.Time) (string, error) {
 	if _, err := rand.Read(suffix[:]); err != nil {
 		return "", err
 	}
-	return fmt.Sprintf("%s%d_%s", namePrefix, now.Unix(), hex.EncodeToString(suffix[:])), nil
-}
-
-func databaseCreated(name string) (time.Time, bool) {
-	rest, ok := strings.CutPrefix(name, namePrefix)
-	if !ok {
-		return time.Time{}, false
-	}
-	stamp, _, ok := strings.Cut(rest, "_")
-	if !ok {
-		return time.Time{}, false
-	}
-	seconds, err := strconv.ParseInt(stamp, 10, 64)
-	if err != nil {
-		return time.Time{}, false
-	}
-	return time.Unix(seconds, 0), true
-}
-
-var sweepOnce sync.Once
-
-// sweepStale drops orphaned test databases. Only names older than staleAge
-// are touched, so concurrent runs keep theirs. Failures are ignored: the
-// next run retries.
-func sweepStale(ctx context.Context, admin *pgx.Conn, now time.Time) {
-	rows, err := admin.Query(ctx, `SELECT datname FROM pg_database WHERE starts_with(datname, $1)`, namePrefix)
-	if err != nil {
-		return
-	}
-	names, err := pgx.CollectRows(rows, pgx.RowTo[string])
-	if err != nil {
-		return
-	}
-	for _, name := range names {
-		if created, ok := databaseCreated(name); ok && now.Sub(created) > staleAge {
-			_, _ = admin.Exec(ctx, "DROP DATABASE IF EXISTS "+pgx.Identifier{name}.Sanitize()+" WITH (FORCE)")
+	lane := strings.Map(func(r rune) rune {
+		if r >= 'a' && r <= 'z' || r >= '0' && r <= '9' {
+			return r
 		}
+		return '_'
+	}, os.Getenv("LANE"))
+	if len(lane) > 20 {
+		lane = lane[:20]
 	}
+	if lane != "" {
+		lane += "_"
+	}
+	return fmt.Sprintf("%s%d_%s%s", namePrefix, now.Unix(), lane, hex.EncodeToString(suffix[:])), nil
 }
 
 // connect retries briefly so a server that is still starting, or a port

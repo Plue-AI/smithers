@@ -1680,7 +1680,8 @@ export const getApiInstall = (transport: Transport): Promise<GetApiInstallRespon
   transport.request("GET", `/api/install`) as Promise<GetApiInstallResponse>
 
 export type PutApiInstallBody = {
-  capacity: number
+  chatgpt?: boolean
+  capacity?: number
 }
 
 export type PutApiInstallResponse = InstallSetupStatus
@@ -1689,7 +1690,7 @@ export interface PutApiInstallInput {
   readonly body: PutApiInstallBody
 }
 
-/** PUT /api/install: Set owner capacity */
+/** PUT /api/install: Set owner install settings */
 export const putApiInstall = (transport: Transport, input: PutApiInstallInput): Promise<PutApiInstallResponse> =>
   transport.request("PUT", `/api/install`, input.body) as Promise<PutApiInstallResponse>
 

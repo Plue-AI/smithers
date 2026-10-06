@@ -54,6 +54,13 @@ func (s *ProviderConnectionService) PickForModelCall(ctx context.Context, userID
 	if s == nil || repositoryID <= 0 || userID <= 0 {
 		return ProviderPoolPick{}, nil
 	}
+	if s.poolOwner != nil {
+		var err error
+		userID, err = s.poolOwner(ctx)
+		if err != nil {
+			return ProviderPoolPick{}, err
+		}
+	}
 	provider, err := normalizeProviderConnectionProvider(provider)
 	if err != nil {
 		return ProviderPoolPick{}, nil
@@ -129,6 +136,13 @@ func (s *ProviderConnectionService) ServesPool(ctx context.Context, userID, repo
 func (s *ProviderConnectionService) HasPool(ctx context.Context, userID, repositoryID int64, provider string) (bool, error) {
 	if s == nil || repositoryID <= 0 || userID <= 0 {
 		return false, nil
+	}
+	if s.poolOwner != nil {
+		var err error
+		userID, err = s.poolOwner(ctx)
+		if err != nil {
+			return false, err
+		}
 	}
 	provider, err := normalizeProviderConnectionProvider(provider)
 	if err != nil {
@@ -241,7 +255,7 @@ func (s *ProviderConnectionService) StartCodexDeviceLogin(ctx context.Context, a
 	if actor == nil {
 		return ProviderDeviceLoginResponse{}, pkgerrors.Unauthorized("authentication required")
 	}
-	if !s.enabled {
+	if !s.SubscriptionConnectionsEnabled() {
 		return ProviderDeviceLoginResponse{}, errSubscriptionConnectionsUnavailable()
 	}
 	if s.device == nil {
@@ -281,7 +295,7 @@ func (s *ProviderConnectionService) PollCodexDeviceLogin(ctx context.Context, ac
 	if actor == nil {
 		return ProviderDeviceLoginResponse{}, pkgerrors.Unauthorized("authentication required")
 	}
-	if !s.enabled {
+	if !s.SubscriptionConnectionsEnabled() {
 		return ProviderDeviceLoginResponse{}, errSubscriptionConnectionsUnavailable()
 	}
 	row, err := s.q.GetProviderConnectionDeviceLogin(ctx, db.GetProviderConnectionDeviceLoginParams{ID: strings.TrimSpace(id), UserID: actor.ID})

@@ -94,6 +94,21 @@ func TestInstallStatusOwnerHTTPModelPostgres(t *testing.T) {
 	require.Nil(t, status.Mac.Limit, "a host that fits a machine names no limiting term")
 	require.Len(t, status.Steps, 7)
 	require.Equal(t, "app_manifest", status.Steps[1].ID)
+	require.Contains(t, response.Body.String(), `"chatgpt":false`)
+	for _, body := range []string{`{"chatgpt":true}`, `{"chatgpt":false}`} {
+		denied := request("PUT", "/api/install", other, body)
+		require.Equal(t, 403, denied.Code)
+		updated := request("PUT", "/api/install", good, body)
+		require.Equal(t, 200, updated.Code, updated.Body.String())
+		require.Contains(t, updated.Body.String(), body[1:len(body)-1])
+		restarted := &services.InstallSetupService{Pool: pool, Capacity: capacity}
+		projection, err := restarted.Status(ctx)
+		require.NoError(t, err)
+		require.Equal(t, strings.Contains(body, "true"), projection["chatgpt"])
+	}
+	for _, body := range []string{`{"chatgpt":"true"}`, `{"chatgpt":null}`, `{"chatgpt":true,"unknown":1}`} {
+		require.Equal(t, 400, request("PUT", "/api/install", good, body).Code)
+	}
 	for _, test := range []struct {
 		credential, body string
 		want             int

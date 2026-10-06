@@ -1607,7 +1607,8 @@ type GetAPIInstallScorecardParams struct {
 
 // PutAPIInstallBody is generated from docs/api/openapi.yaml.
 type PutAPIInstallBody struct {
-	Capacity int64 `json:"capacity"`
+	Chatgpt  *bool  `json:"chatgpt,omitempty"`
+	Capacity *int64 `json:"capacity,omitempty"`
 }
 
 // PostAPIInstallQuiesceBody is generated from docs/api/openapi.yaml.

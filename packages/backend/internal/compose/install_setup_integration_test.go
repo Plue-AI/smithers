@@ -107,6 +107,37 @@ func TestInstallSetupCookieBoundaryPostgres(t *testing.T) {
 	require.NoError(t, json.NewDecoder(response.Body).Decode(&receipt))
 	response.Body.Close()
 	require.Equal(t, 202, response.StatusCode)
+	// A request admitted before a worker crash is retried through the same HTTP door.
+	old, err := store.ClaimForOperations(ctx, "interrupted-boundary-worker", time.Minute, []string{"install.setup.address"})
+	require.NoError(t, err)
+	_, err = store.BeginExternal(ctx, old, json.RawMessage(`{"phase":"setup"}`))
+	require.NoError(t, err)
+	_, err = pool.Exec(ctx, `UPDATE install_settings SET value=jsonb_set(value,'{expires_at}',to_jsonb(clock_timestamp()-interval '1 second')) WHERE key='setup.step.address'`)
+	require.NoError(t, err)
+	_, err = pool.Exec(ctx, `UPDATE product_job_dispatches SET lease_expires_at=clock_timestamp()-interval '1 second' WHERE operation_id=$1`, receipt.OperationID)
+	require.NoError(t, err)
+	// New request identity permits recovery; operation identity must stay fixed.
+	recoverRequest, err := http.NewRequestWithContext(ctx, "POST", origin+"/api/install/setup/address", strings.NewReader(`{"bind":"127.0.0.1:4000","origins":["http://localhost:4000"]}`))
+	require.NoError(t, err)
+	recoverRequest.Header.Set("Content-Type", "application/json")
+	recoverRequest.Header.Set("Origin", origin)
+	recoverRequest.Header.Set("Idempotency-Key", "setup-boundary-recovery")
+	for _, cookie := range jar.Cookies(recoverRequest.URL) {
+		if cookie.Name == "__csrf" {
+			recoverRequest.Header.Set("X-CSRF-Token", cookie.Value)
+		}
+	}
+	recoveredResponse, err := client.Do(recoverRequest)
+	require.NoError(t, err)
+	require.Equal(t, 202, recoveredResponse.StatusCode)
+	var recovered jobs.RequestReceipt
+	require.NoError(t, json.NewDecoder(recoveredResponse.Body).Decode(&recovered))
+	recoveredResponse.Body.Close()
+	require.Equal(t, receipt.OperationID, recovered.OperationID)
+	require.ErrorIs(t, store.Complete(ctx, old, json.RawMessage(`{"stale":true}`)), jobs.ErrClaimLost)
+	steps, err := setup.Steps(ctx)
+	require.NoError(t, err)
+	require.Greater(t, steps[0].Attempt, old.Attempt)
 	workerCtx, cancel := context.WithCancel(ctx)
 	defer cancel()
 	done := make(chan error, 1)

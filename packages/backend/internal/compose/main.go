@@ -800,13 +800,25 @@ func runWithOptions(ctx context.Context, args []string, stdout, stderr io.Writer
 		services.WithProviderConnectionAudit(auditService),
 		services.WithSubscriptionConnectionsEnabled(cfg.FeatureFlags.SubscriptionConnections),
 	)
+	if config.IsSingleOwner(cfg.Auth) {
+		services.WithProviderPoolOwner(func(ctx context.Context) (int64, error) {
+			owner, err := queries.GetSelfHostOwner(ctx)
+			return owner.ID, err
+		})(providerConnectionService)
+		services.WithSubscriptionConnectionsSetting(func() bool {
+			ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+			defer cancel()
+			enabled, err := services.InstallChatGPTEnabled(ctx, queries)
+			return err == nil && enabled
+		})(providerConnectionService)
+	}
 	providerConnectionRefreshWorker := services.NewProviderConnectionRefreshWorker(providerConnectionService, time.Minute, slog.Default())
 	// Self-host only: with feature_flags.subscription_connections off (the
 	// hosted product) no run or workspace is offered the pool, so a stored
 	// subscription token can never serve. Keep this a nil interface, not a
 	// typed nil pointer.
 	var subscriptionPool services.ProviderPoolOffer
-	if cfg.FeatureFlags.SubscriptionConnections {
+	if config.IsSingleOwner(cfg.Auth) || cfg.FeatureFlags.SubscriptionConnections {
 		subscriptionPool = providerConnectionService
 	}
 	neverStartedTimeout, _ := time.ParseDuration(cfg.Agents.NeverStartedTimeout)
@@ -1848,7 +1860,7 @@ func runWithOptions(ctx context.Context, args []string, stdout, stderr io.Writer
 		launchWorker(func() {
 			services.RunRuntimeMetricsCollector(workerCtx, queries, smithersMetrics, services.RuntimeMetricsInterval)
 		})
-		if cfg.FeatureFlags.SubscriptionConnections {
+		if config.IsSingleOwner(cfg.Auth) || cfg.FeatureFlags.SubscriptionConnections {
 			launchWorker(func() { providerConnectionRefreshWorker.Start(workerCtx) })
 		}
 		launchWorker(func() { workflowLogBudgetBackfiller.Start(workerCtx) })
@@ -1856,7 +1868,7 @@ func runWithOptions(ctx context.Context, args []string, stdout, stderr io.Writer
 		// every deployment; #2206: flag the ChatGPT ones a hosted deployment
 		// refuses, once per database. Both mark the workspaces built with them.
 		launchWorker(func() {
-			services.RunStoredSubscriptionTokenScan(workerCtx, pool, webhookSecretCodec, cfg.FeatureFlags.SubscriptionConnections)
+			services.RunStoredSubscriptionTokenScan(workerCtx, pool, webhookSecretCodec, config.IsSingleOwner(cfg.Auth) || cfg.FeatureFlags.SubscriptionConnections)
 		})
 		// #2237: case variants of reserved refs that predate their refusal
 		// block the canonical refs; the repair is idempotent.
