@@ -450,7 +450,8 @@ type mythicalProjection struct {
 }
 
 // ProjectFlowRuntime records a lane run's id and terminal outcome on its item
-// and wakes the worker. A projection of an older generation changes nothing.
+// and wakes the worker. Generation-scoped phase runs reject old generations;
+// the attempt-bound composition can continue across candidate generations.
 func (s *MythicalService) ProjectFlowRuntime(ctx context.Context, update flowdispatch.ProjectionUpdate) error {
 	var projection mythicalProjection
 	if json.Unmarshal(update.Checkpoint.Projection, &projection) != nil {
@@ -486,7 +487,15 @@ func (s *MythicalService) ProjectFlowRuntime(ctx context.Context, update flowdis
 			if (item.State == "landed" || item.State == "cancelled" || item.State == "rejected" || item.State == "declined") && !update.State.Terminal() {
 				return nil
 			}
-			if item.Generation != projection.Generation || (projection.Attempt != 0 && item.Attempt != projection.Attempt) || (item.Source == "todo" && (item.Attempt <= 0 || projection.Attempt <= 0)) {
+			// Candidate capture/rebase advances generation without replacing the
+			// attempt's composition. Its already-bound run can attach again
+			// without replaying a first step. Never use this exception to bind
+			// an unknown run or a prior attempt; engine phase runs stay scoped
+			// to the generation whose candidate they checked.
+			boundAttempt := mythicalTodo(item) && item.Attempt > 0 && projection.Attempt == item.Attempt &&
+				(projection.Phase == "todo" || projection.Phase == "request") && item.RequestRunID != "" &&
+				update.Checkpoint.RunID == item.RequestRunID
+			if (item.Generation != projection.Generation && !boundAttempt) || (projection.Attempt != 0 && item.Attempt != projection.Attempt) || (item.Source == "todo" && (item.Attempt <= 0 || projection.Attempt <= 0)) {
 				return nil
 			}
 			// A pinned attempt counts only launches of exactly its pin, and only
