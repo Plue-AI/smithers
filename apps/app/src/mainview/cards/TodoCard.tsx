@@ -165,11 +165,13 @@ const TodoBody = ({ card, maximized }: { readonly card: CardOf<"todo">; readonly
   }
   const entry: TodoEntry = seeded === undefined ? card : { ...card, payload: { ...card.payload, model: seeded.model } }
   return <TodoContainer card={entry} role={seeded?.role ?? role} dispatch={dispatch} View={TodoView}
-    view={{ maximized }} onView={() => {}} availableActions={seeded ? undefined : servedTodoActions} />
+    view={{ maximized }} onView={() => {}} availableActions={seeded ? undefined : [...servedTodoActions, ...(controller.openBranch ? ["branch" as const] : [])]} />
 }
 // POST/PATCH /api/todos/{n}, question answer and merge are composed on the install.
-// Branch repair/terminal providers remain gated until their composition lands.
-const servedTodoActions: readonly CatalogTag[] = ["run.inspect", "todo.answer", "todo.steer", "todo.amend", "todo.stop", "todo.resume", "todo.drop", "todo.retry", "todo.retry-current-flow", "todo.takeover", "image.add", "merge"]
+// Branch navigation is supplied when its install provider is composed.
+// Stop/Resume/current-flow retry and branch repair/terminal providers remain gated until their composition lands.
+const servedTodoActions: readonly CatalogTag[] = ["run.inspect", "todo.answer", "todo.steer", "todo.amend", "todo.drop", "todo.retry", "todo.takeover", "image.add", "merge"]
+
 export const todoCardFamily: CardFamily<"todo"> = {
   todo: { render: (card, { presentation }) => <TodoBody card={card} maximized={presentation === "maximized"} />, pill: () => "" }
 }
