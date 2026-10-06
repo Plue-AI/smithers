@@ -186,8 +186,12 @@ func TestInstallReviewHTTPAdmissionWithoutRuntime(t *testing.T) {
 	}
 	upstream.UpdatePull("review-owner/app", 50, func(p *githubfake.Pull) { p.Base.SHA = "9999999999999999999999999999999999999999" })
 	requestReview(503, "review_delivery_unavailable")
-	upstream.UpdatePull("review-owner/app", 50, func(p *githubfake.Pull) { p.Head.SHA = strings.Repeat("0", 40) })
-	requestReview(503, "pr_head_unavailable")
+	for _, head := range []string{"", "alice/cache", strings.Repeat("0", 40), strings.Repeat("A", 40), strings.Repeat("a", 39), strings.Repeat("a", 41)} {
+		upstream.UpdatePull("review-owner/app", 50, func(p *githubfake.Pull) { p.Head.SHA = head })
+		requestReview(503, "pr_head_unavailable")
+	}
+	upstream.UpdatePull("review-owner/app", 50, func(p *githubfake.Pull) { p.Head.SHA = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa" })
+	requestReview(503, "review_delivery_unavailable")
 	upstream.UpdatePull("review-owner/app", 50, func(p *githubfake.Pull) {
 		p.Head.SHA = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
 		p.User.Type = "Bot"
