@@ -66,7 +66,7 @@ export const browserTestOptions = (
       externalOwner: { login: "ben", name: "Ben Ito" }
     }),
     ...(launch.codex === undefined && launch["claude-code"] === undefined ? {} : { agentLauncher: agentLauncher({
-      cwd: launchDirectory(root),
+      cwd: launchDirectory(root), home: root,
       agents: Object.fromEntries((Object.keys(launch) as LaunchAgent[]).map(agent => [agent, {
         command: [process.execPath, launch[agent]!.cli],
         env: { [agent === "codex" ? "CODEX_HOME" : "CLAUDE_CONFIG_DIR"]: launch[agent]!.home },

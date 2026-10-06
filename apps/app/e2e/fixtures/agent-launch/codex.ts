@@ -7,7 +7,7 @@
 import { mkdirSync, writeFileSync } from "node:fs"
 import { join } from "node:path"
 
-const prompt = process.argv.at(-1) ?? ""
+const prompt = await Bun.stdin.text()
 const home = process.env.CODEX_HOME
 if (!home) throw new Error("The fixture Codex CLI needs CODEX_HOME.")
 const session = crypto.randomUUID()

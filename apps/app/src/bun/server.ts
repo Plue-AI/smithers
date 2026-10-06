@@ -805,7 +805,7 @@ export const startLocalServer = async (options: LocalServerOptions): Promise<Loc
     const agent = launcher.agents.find(each => each === body?.agent)
     if (agent === undefined || prompt === "") return jsonError("invalid_request", `Name an agent this host starts (${launcher.agents.join(", ")}) and give it a prompt.`)
     const launched = await launcher.launch(agent, prompt)!
-    // The reason is what the app words; the message, with the CLI's last stderr line, is for diagnosis.
+    // Only a typed, public failure crosses the HTTP boundary; stderr stays local.
     return "error" in launched ? jsonError("agent_unavailable", launched.error, { reason: launched.reason }) : json(launched)
   })
 

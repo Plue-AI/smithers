@@ -1,5 +1,5 @@
 import { afterAll, beforeAll, describe, expect, test } from "bun:test"
-import { mkdir, mkdtemp, realpath, rm, writeFile } from "node:fs/promises"
+import { mkdir, mkdtemp, realpath, rm, symlink, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { Result } from "effect"
@@ -90,9 +90,9 @@ describe("a session file's start", () => {
     expect(claudeSessionStart("c1", [])).toBeUndefined()
   })
 
-  test("each agent runs headless with the prompt as one argument after --", () => {
-    expect(launchArguments("codex", "/work", "--help; rm -rf /")).toEqual(["exec", "--sandbox", "workspace-write", "--skip-git-repo-check", "-C", "/work", "--", "--help; rm -rf /"])
-    expect(launchArguments("claude-code", "/work", "--help; rm -rf /")).toEqual(["-p", "--permission-mode", "acceptEdits", "--", "--help; rm -rf /"])
+  test("each agent preserves configured permissions and keeps an exploit prompt out of argv", () => {
+    expect(launchArguments("codex", "/work", "--help; rm -rf /")).toEqual(["exec", "--skip-git-repo-check", "-C", "/work", "-"])
+    expect(launchArguments("claude-code", "/work", "--help; rm -rf /")).toEqual(["-p"])
   })
 })
 
@@ -107,7 +107,7 @@ const fixtureLauncher = async (name: string, overrides: Partial<Parameters<typeo
   const home = (agent: LaunchAgent) => join(scratch, name, agent)
   const roots = async (agent: LaunchAgent) => [join(home(agent), SESSIONS[agent])]
   const cli = (agent: LaunchAgent) => ({ command: [process.execPath, FIXTURE_CLI[agent]], env: { [HOME_VARIABLE[agent]]: home(agent) }, roots: () => roots(agent) })
-  return { cwd, home, roots, launcher: agentLauncher({ cwd, agents: { codex: cli("codex"), "claude-code": cli("claude-code") }, pollMs: 20, ...overrides }) }
+  return { cwd, home, roots, launcher: agentLauncher({ cwd, home: join(scratch, name), agents: { codex: cli("codex"), "claude-code": cli("claude-code") }, pollMs: 20, ...overrides }) }
 }
 
 /** The session's entries as the browser decodes them, read through the host's own session reader. */
@@ -184,11 +184,70 @@ describe("starting an agent", () => {
     expect((await sessionStartsSince("codex", await roots("codex"), now - 1_000, now)).map(found => found.session).sort()).toEqual(["east", "west"])
   })
 
-  test("a CLI that exits before writing a session fails with the last line it wrote to stderr", async () => {
+  test("a CLI failure never returns secret stderr", async () => {
     const { launcher } = await fixtureLauncher("exits", {
-      spawn: () => ({ exited: Promise.resolve(2), kill: () => {}, stderr: () => "starting\nError: not logged in\n" })
+      spawn: () => ({ exited: Promise.resolve(2), kill: () => {}, stderr: () => "starting\nGITHUB_TOKEN=secret-exploit\n" })
     })
-    expect(await launcher.launch("claude-code", "hello")).toEqual({ error: "Claude Code exited with 2 before it wrote a session: Error: not logged in", reason: "exited" })
+    expect(await launcher.launch("claude-code", "hello")).toEqual({ error: "Claude Code exited with 2 before it wrote a session.", reason: "exited" })
+  })
+
+  test("discovery refuses symlink files and directories carrying a forged launch (#3736)", async () => {
+    for (const agent of ["codex", "claude-code"] as const) {
+      const base = join(scratch, `links-${agent}`)
+      const root = join(base, "root")
+      const outside = join(base, "outside")
+      const now = Date.now()
+      const date = new Date(now)
+      const day = join(String(date.getUTCFullYear()), String(date.getUTCMonth() + 1).padStart(2, "0"), String(date.getUTCDate()).padStart(2, "0"))
+      const directory = join(root, agent === "codex" ? day : "project")
+      await mkdir(directory, { recursive: true })
+      await mkdir(outside, { recursive: true })
+      const name = agent === "codex" ? "rollout-forged.jsonl" : "forged.jsonl"
+      const payload = agent === "codex" ? { type: "session_meta", payload: { id: "forged", cwd: "/repo", timestamp: date.toISOString() } }
+        : { sessionId: "forged", cwd: "/repo", timestamp: date.toISOString() }
+      await writeFile(join(outside, name), `${JSON.stringify(payload)}\n`)
+      await symlink(join(outside, name), join(directory, name))
+      expect(await sessionStartsSince(agent, [root], now - 100)).toEqual([])
+      await rm(directory, { recursive: true })
+      await symlink(outside, directory)
+      expect(await sessionStartsSince(agent, [root], now - 100)).toEqual([])
+      await symlink(root, join(base, "linked-root"))
+      expect(await sessionStartsSince(agent, [join(base, "linked-root")], now - 100)).toEqual([])
+    }
+  })
+
+  test("spawn receives stdin and only safe env with the running user's own home (#3736)", async () => {
+    const saved = { ...process.env }
+    const seen: Array<{ argv: ReadonlyArray<string>; options: unknown }> = []
+    const home = join(scratch, "own-home")
+    await mkdir(home, { recursive: true })
+    try {
+      Object.assign(process.env, { GITHUB_TOKEN: "host-secret", NODE_OPTIONS: "--require=/evil.js", HOME: "/other-owner", CODEX_HOME: "/other-owner/.smithers/accounts/codex-1" })
+      const launcher = agentLauncher({ cwd: home, home, agents: { codex: { command: ["codex"], roots: async () => [], env: { GITHUB_TOKEN: "override-secret" } } },
+        spawn: (argv, options) => { seen.push({ argv, options }); return { exited: Promise.resolve(1), kill: () => {}, stderr: () => "" } } })
+      await launcher.launch("codex", "--help; secret prompt")
+      expect(seen[0]?.argv).toEqual(["codex", "exec", "--skip-git-repo-check", "-C", home, "-"])
+      expect(seen[0]?.options).toMatchObject({ stdin: "--help; secret prompt", env: { HOME: home, CODEX_HOME: join(home, ".codex") } })
+      const env = (seen[0]?.options as { env: Record<string, string> }).env
+      for (const key of ["GITHUB_TOKEN", "NODE_OPTIONS", "CLAUDE_CONFIG_DIR"]) expect(env[key]).toBeUndefined()
+      await launcher.dispose()
+    } finally {
+      for (const key of Object.keys(process.env)) if (!(key in saved)) delete process.env[key]
+      Object.assign(process.env, saved)
+    }
+  })
+
+  test("an agent home symlink cannot grant another account's authority", async () => {
+    const home = join(scratch, "linked-home")
+    const other = join(scratch, "another-owner")
+    await mkdir(home, { recursive: true })
+    await mkdir(other, { recursive: true })
+    await symlink(other, join(home, ".codex"))
+    let spawned = false
+    const launcher = agentLauncher({ cwd: home, home, agents: { codex: { command: ["codex"], roots: async () => [] } },
+      spawn: () => { spawned = true; throw new Error("must not spawn") } })
+    expect(await launcher.launch("codex", "read someone else's credentials")).toEqual({ error: "Codex's home is unsafe.", reason: "unsafe_home" })
+    expect(spawned).toBe(false)
   })
 
   test("a CLI that writes no session in time is stopped", async () => {
@@ -217,7 +276,7 @@ describe("starting an agent", () => {
     const cwd = join(scratch, "argv")
     await mkdir(cwd, { recursive: true })
     const launcher = agentLauncher({
-      cwd,
+      cwd, home: cwd,
       agents: { codex: { command: ["codex"], env: { CODEX_HOME: "/codex-home" }, roots: async () => [] } },
       spawn: (argv, options) => {
         seen.push({ argv, cwd: options.cwd, home: options.env.CODEX_HOME })
@@ -227,7 +286,7 @@ describe("starting an agent", () => {
     expect(launcher.agents).toEqual(["codex"])
     expect(launcher.launch("claude-code", "hello")).toBeUndefined()
     expect(await launcher.launch("codex", "hello")).toEqual({ error: "Codex exited before it wrote a session.", reason: "exited" })
-    expect(seen).toEqual([{ argv: ["codex", ...launchArguments("codex", cwd, "hello")], cwd, home: "/codex-home" }])
+    expect(seen).toEqual([{ argv: ["codex", ...launchArguments("codex", cwd, "hello")], cwd, home: join(cwd, ".codex") }])
   })
 })
 
@@ -271,7 +330,7 @@ describe(`POST ${EXTERNAL_LAUNCH_PATH}`, () => {
   })
 
   test("refuses another agent, an empty prompt, a request without the local session and a failed start", async () => {
-    const { launcher } = await fixtureLauncher("refusals", { spawn: () => ({ exited: Promise.resolve(1), kill: () => {}, stderr: () => "" }) })
+    const { launcher } = await fixtureLauncher("refusals", { spawn: () => ({ exited: Promise.resolve(1), kill: () => {}, stderr: () => "GITHUB_TOKEN=secret-exploit" }) })
     const server = await serve({ launcher })
     expect((await post(server, { agent: "aider", prompt: "hi" })).status).toBe(400)
     expect((await post(server, { agent: "codex", prompt: "   " })).status).toBe(400)

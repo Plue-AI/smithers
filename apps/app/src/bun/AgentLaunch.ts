@@ -6,8 +6,10 @@
  * session through /api/external/sessions. Launches run one at a time, so two
  * launches in one directory never trade sessions.
  */
-import { open, readdir, realpath, stat } from "node:fs/promises"
-import { basename, join } from "node:path"
+import { lstat, readdir, realpath } from "node:fs/promises"
+import { homedir } from "node:os"
+import { readChunk, regularPath } from "./ExternalSessions"
+import { basename, dirname, join, relative, resolve, sep } from "node:path"
 
 export type LaunchAgent = "codex" | "claude-code"
 
@@ -70,19 +72,6 @@ export const claudeSessionStart = (session: string, lines: ReadonlyArray<string>
   return undefined
 }
 
-const HEAD_LIMIT = 1 << 20
-
-/** The complete lines in a file's first megabyte. */
-const headLines = async (path: string): Promise<string[]> => {
-  const file = await open(path)
-  try {
-    const bytes = new Uint8Array(HEAD_LIMIT)
-    const { bytesRead } = await file.read(bytes, 0, bytes.length, 0)
-    const text = new TextDecoder().decode(bytes.subarray(0, bytesRead))
-    return text.slice(0, text.lastIndexOf("\n") + 1).split("\n").filter(Boolean)
-  } finally { await file.close() }
-}
-
 /**
  * Codex files a session under sessions/YYYY/MM/DD of the day it started, in the CLI's own time zone; a launch reads
  * only the days any time zone (UTC-12 to UTC+14) can name for its window.
@@ -106,11 +95,16 @@ export async function sessionStartsSince(agent: LaunchAgent, roots: ReadonlyArra
     : (await Promise.all(roots.map(projectDirectories))).flat()
   const starts: SessionStart[] = []
   for (const directory of directories) {
+    const root = roots.find(root => !relative(resolve(root), resolve(directory)).startsWith(".."))
+    if (root === undefined || !(await regularPath(directory, root).catch(() => undefined))?.isDirectory()) continue
     for (const name of await readdir(directory).catch(() => [] as string[])) {
       if (!name.endsWith(".jsonl") || (agent === "codex" && !name.startsWith("rollout-"))) continue
       const path = join(directory, name)
-      if (!await stat(path).then(info => info.isFile() && info.mtimeMs >= since - START_SKEW_MS, () => false)) continue
-      const lines = await headLines(path).catch(() => [] as string[])
+      const info = await regularPath(path, root).catch(() => undefined)
+      if (!info?.isFile() || info.mtimeMs < since - START_SKEW_MS) continue
+      const chunk = await readChunk(path, root, 0, info)
+      if ("refusal" in chunk) continue
+      const lines = chunk.text.split("\n").filter(Boolean)
       const start = agent === "codex" ? codexSessionStart(lines[0] ?? "") : claudeSessionStart(basename(name, ".jsonl"), lines)
       if (start !== undefined) starts.push(start)
     }
@@ -118,10 +112,10 @@ export async function sessionStartsSince(agent: LaunchAgent, roots: ReadonlyArra
   return starts
 }
 
-/** How the host runs each agent headless: the CLI's own arguments around the prompt, which is one argument after `--`. */
-export const launchArguments = (agent: LaunchAgent, cwd: string, prompt: string): string[] =>
-  agent === "codex" ? ["exec", "--sandbox", "workspace-write", "--skip-git-repo-check", "-C", cwd, "--", prompt]
-    : ["-p", "--permission-mode", "acceptEdits", "--", prompt]
+/** Headless arguments preserve the user's configured sandbox and approvals; the prompt arrives on stdin. */
+export const launchArguments = (agent: LaunchAgent, cwd: string, _prompt?: string): string[] =>
+  agent === "codex" ? ["exec", "--skip-git-repo-check", "-C", cwd, "-"]
+    : ["-p"]
 
 export interface LaunchedChild {
   readonly exited: Promise<number>
@@ -130,12 +124,14 @@ export interface LaunchedChild {
   readonly stderr: () => string
 }
 
-export type Spawn = (argv: ReadonlyArray<string>, options: { readonly cwd: string; readonly env: Record<string, string | undefined> }) => LaunchedChild
+export type Spawn = (argv: ReadonlyArray<string>, options: { readonly cwd: string; readonly env: Record<string, string | undefined>; readonly stdin: string }) => LaunchedChild
 
 const STDERR_TAIL = 2_000
 
 const bunSpawn: Spawn = (argv, options) => {
-  const child = Bun.spawn([...argv], { cwd: options.cwd, env: options.env, stdin: "ignore", stdout: "ignore", stderr: "pipe" })
+  const child = Bun.spawn([...argv], { cwd: options.cwd, env: options.env, stdin: "pipe", stdout: "ignore", stderr: "pipe" })
+  child.stdin.write(options.stdin)
+  child.stdin.end()
   let tail = ""
   void (async () => {
     const reader = child.stderr.getReader()
@@ -143,6 +139,21 @@ const bunSpawn: Spawn = (argv, options) => {
     for (let read = await reader.read(); !read.done; read = await reader.read()) tail = (tail + decoder.decode(read.value, { stream: true })).slice(-STDERR_TAIL)
   })().catch(() => {})
   return { exited: child.exited, kill: () => child.kill(), stderr: () => tail }
+}
+
+/** Never inherit host credentials, runtime injection flags or another seat's home (#3736). */
+export const launchEnvironment = (agent: LaunchAgent, home: string, inherited: Readonly<Record<string, string | undefined>>, configured: Readonly<Record<string, string>> = {}): Record<string, string | undefined> => {
+  const env: Record<string, string | undefined> = { HOME: home }
+  for (const key of ["PATH", "LANG", "LC_ALL", "LC_CTYPE", "TZ", "TERM", "TMPDIR"]) {
+    const value = configured[key] ?? inherited[key]
+    if (value !== undefined) env[key] = value
+  }
+  const key = agent === "codex" ? "CODEX_HOME" : "CLAUDE_CONFIG_DIR"
+  const candidate = resolve(configured[key] ?? inherited[key] ?? join(home, agent === "codex" ? ".codex" : ".claude"))
+  const below = relative(home, candidate)
+  const otherSeat = candidate.split(sep).some((part, index, parts) => part === ".smithers" && parts[index + 1] === "accounts")
+  env[key] = below === ".." || below.startsWith(`..${sep}`) || otherSeat ? join(home, agent === "codex" ? ".codex" : ".claude") : candidate
+  return env
 }
 
 /** One agent this host can start. */
@@ -158,6 +169,8 @@ export interface LaunchableCli {
 export interface AgentLauncherOptions {
   /** The directory every agent runs in. */
   readonly cwd: string
+  /** OS user home; overridden only by isolated fixture hosts. */
+  readonly home?: string
   readonly agents: Partial<Readonly<Record<LaunchAgent, LaunchableCli>>>
   readonly spawn?: Spawn
   readonly now?: () => number
@@ -167,7 +180,7 @@ export interface AgentLauncherOptions {
 }
 
 /** Why a launch bound no session: the CLI exited first, wrote nothing in time, or the host is stopping. */
-export type LaunchFailure = "exited" | "timeout" | "stopping"
+export type LaunchFailure = "exited" | "timeout" | "stopping" | "unsafe_home"
 
 export type LaunchResult =
   | { readonly agent: LaunchAgent; readonly session: string }
@@ -191,7 +204,18 @@ export function agentLauncher(options: AgentLauncherOptions) {
     if (disposed) return { error: `${name} cannot start: this host is stopping.`, reason: "stopping" }
     const cwd = await realpath(options.cwd)
     const launch: Launch = { cwd, launchedAt: now() }
-    const child = spawn([...cli.command, ...launchArguments(agent, cwd, prompt)], { cwd, env: { ...process.env, ...cli.env } })
+    const home = await realpath(options.home ?? homedir())
+    const env = launchEnvironment(agent, home, process.env, cli.env)
+    const agentHome = env[agent === "codex" ? "CODEX_HOME" : "CLAUDE_CONFIG_DIR"]!
+    // Validate the nearest existing ancestor as well as an existing home:
+    // the CLI may create its default directory, but may never follow a link.
+    let ancestor = agentHome
+    while (ancestor !== home && !await lstat(ancestor).catch(() => undefined)) ancestor = dirname(ancestor)
+    if (!(await regularPath(ancestor, home).catch(() => undefined))?.isDirectory()) {
+      return { error: `${name}'s home is unsafe.`, reason: "unsafe_home" }
+    }
+    const roots = (await cli.roots()).filter(root => resolve(root) === join(agentHome, agent === "codex" ? "sessions" : "projects"))
+    const child = spawn([...cli.command, ...launchArguments(agent, cwd)], { cwd, env, stdin: prompt })
     children.add(child)
     let exit: number | undefined
     void child.exited.then(code => { exit = code; children.delete(child) }, () => { exit = -1; children.delete(child) })
@@ -199,14 +223,13 @@ export function agentLauncher(options: AgentLauncherOptions) {
     for (;;) {
       // An exit seen before the read means the read saw everything the CLI wrote.
       const exited = exit
-      const session = launchedSession(await sessionStartsSince(agent, await cli.roots(), launch.launchedAt, now()), launch, claimed)
+      const session = launchedSession(await sessionStartsSince(agent, roots, launch.launchedAt, now()), launch, claimed)
       if (session !== undefined) {
         claimed.add(session)
         return { agent, session }
       }
       if (exited !== undefined) {
-        const why = child.stderr().trim().split("\n").at(-1)
-        return { error: `${name} exited ${exited === 0 ? "" : `with ${exited} `}before it wrote a session${why ? `: ${why}` : "."}`, reason: "exited" }
+        return { error: `${name} exited ${exited === 0 ? "" : `with ${exited} `}before it wrote a session.`, reason: "exited" }
       }
       if (disposed || now() >= deadline) {
         child.kill()

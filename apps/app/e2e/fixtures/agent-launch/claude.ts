@@ -7,7 +7,7 @@
 import { mkdirSync, writeFileSync } from "node:fs"
 import { join } from "node:path"
 
-const prompt = process.argv.at(-1) ?? ""
+const prompt = await Bun.stdin.text()
 const home = process.env.CLAUDE_CONFIG_DIR
 if (!home) throw new Error("The fixture Claude Code CLI needs CLAUDE_CONFIG_DIR.")
 const session = crypto.randomUUID()

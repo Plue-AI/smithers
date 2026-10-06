@@ -35,7 +35,7 @@ export async function sessionRoots(agent: ExternalAgent, home = homedir(), env: 
 }
 
 /** `path`'s metadata, refusing a link in any of its components and a path outside `root`. */
-async function regularPath(path: string, root: string) {
+export async function regularPath(path: string, root: string) {
   const absolute = resolve(path)
   let component: string = sep
   for (const name of absolute.split(sep).filter(Boolean)) {

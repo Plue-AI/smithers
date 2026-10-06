@@ -18,7 +18,8 @@ const NAMES: Record<LaunchableAgent, string> = { codex: "Codex", "claude-code": 
 const FAILURES: Record<string, (name: string) => string> = {
   exited: name => `${name} exited before it started a session.`,
   timeout: name => `${name} started no session in time.`,
-  stopping: () => "This machine is stopping."
+  stopping: () => "This machine is stopping.",
+  unsafe_home: name => `${name} needs a safe home on this machine.`
 }
 const failureReason = (body: unknown): string | undefined => {
   const error = (body as { error?: { reason?: unknown } } | undefined)?.error
