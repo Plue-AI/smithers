@@ -1216,7 +1216,7 @@ func (s *MythicalService) advanceItems(ctx context.Context, r *mythicalRun) {
 		return
 	}
 	if s.installGitHubPolling {
-		pulls, err := q.ListMythicalOpenPullItems(ctx, r.row.RepositoryID)
+		pulls, err := q.ListMythicalOpenPullItems(ctx, r.row.RepositoryID, s.now())
 		if err != nil {
 			s.logger.Warn("mythical.pulls_failed", "repository_id", r.row.RepositoryID, "error", err)
 			return
@@ -1240,7 +1240,7 @@ func (s *MythicalService) advanceItems(ctx context.Context, r *mythicalRun) {
 	// Reopen polling is uncapped too: dropped PRs can sit behind a large
 	// active backlog, yet still owe the same seven-day follow window.
 	if s.installGitHubPolling {
-		followed, err := q.ListMythicalOpenPullItems(ctx, r.row.RepositoryID)
+		followed, err := q.ListMythicalOpenPullItems(ctx, r.row.RepositoryID, s.now())
 		if err != nil {
 			s.logger.Warn("mythical.pulls_failed", "error", err)
 			return
@@ -1470,7 +1470,12 @@ func mythicalReopenFollowed(item db.MythicalItem, now time.Time) bool {
 
 func mythicalDue(item db.MythicalItem, moved bool, now time.Time) time.Time {
 	switch {
-	case mythicalSettledStates[item.State] && moved && (len(item.PendingOp) > 0 || item.WorkspaceID != ""):
+	case moved && len(item.PendingOp) > 0:
+		// Successful outbound progress owes immediate reconciliation. A
+		// previous PR follow deadline must not strand the retained write.
+		// Failed sends keep their retry deadline in mythicalStepFailedDue.
+		return now
+	case mythicalSettledStates[item.State] && moved && item.WorkspaceID != "":
 		return now
 	case moved && item.State == "cancelled" && len(item.PendingOp) == 0 && mythicalReopenFollowed(item, now) && mythicalChecksOf(item).GitHubDropRead == nil:
 		// Close settlement must establish a fresh read before queued snapshots

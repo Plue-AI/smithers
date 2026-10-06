@@ -349,6 +349,9 @@ func TestMythicalDueAfterARecoveredOperation(t *testing.T) {
 	}{
 		{"a settled push opens its pull request at once", db.MythicalItem{State: "proposing", PRHead: "head"}, true, now},
 		{"a sent push is looked up at once", db.MythicalItem{State: "proposing", PendingOp: json.RawMessage(`{"state":"unknown"}`)}, true, now},
+		{"a reopened branch restore ignores its old follow deadline", db.MythicalItem{State: "proposed", PendingOp: json.RawMessage(`{"kind":"push","state":"unknown"}`), NextAttemptAt: later}, true, now},
+		{"a sent body update ignores its old follow deadline", db.MythicalItem{State: "proposed", PendingOp: json.RawMessage(`{"kind":"body","state":"unknown"}`), NextAttemptAt: later}, true, now},
+		{"an unchanged pending push preserves its retry deadline", db.MythicalItem{State: "proposed", PendingOp: json.RawMessage(`{"kind":"push","state":"unknown"}`), NextAttemptAt: later}, false, later.Time},
 		{"a person's push is held until the poll", db.MythicalItem{State: "proposing", NextAttemptAt: later}, true, later.Time},
 		{"a landed merge takes no step", db.MythicalItem{State: "landed"}, true, time.Time{}},
 		{"a dropped TODO's sent close is looked up at once", db.MythicalItem{State: "cancelled", PendingOp: json.RawMessage(`{"kind":"close","state":"unknown"}`), WorkspaceID: "w"}, true, now},

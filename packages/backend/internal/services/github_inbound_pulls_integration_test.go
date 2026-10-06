@@ -145,7 +145,7 @@ func testGitHubInboundCloseReopen(t *testing.T, mode string) {
 		require.Equal(t, "open", f.item(second.Number.Int64).PRState)
 	}
 	// Webhook hints and scheduled polling must retain the dropped PR.
-	followed, err := db.New(pool).ListMythicalOpenPullItems(ctx, f.repoID)
+	followed, err := db.New(pool).ListMythicalOpenPullItems(ctx, f.repoID, f.service.now())
 	require.NoError(t, err)
 	found := false
 	for _, item := range followed {
@@ -348,6 +348,93 @@ func TestGitHubInboundCloseReopenCommitRecovery(t *testing.T) {
 			require.Equal(t, committed, f.item(n), "postcommit redelivery changes nothing")
 			require.Len(t, f.writes(), writes)
 			require.Equal(t, 1, fetchedCount(t, pool, `SELECT count(*) FROM product_job_events WHERE event_type='`+step.event+`'`))
+		})
+	}
+}
+
+// Selection and ingestion must agree at the inclusive boundary, even when the
+// scheduler's clock differs from PostgreSQL's wall clock. A fresh row update
+// cannot extend the original close's lifetime.
+func TestGitHubInboundReopenWindowProductionPoll(t *testing.T) {
+	for _, tc := range []struct {
+		name    string
+		age     time.Duration
+		reopens bool
+	}{
+		{"day 6", 6 * 24 * time.Hour, true},
+		{"day 7 inclusive", 7 * 24 * time.Hour, true},
+		{"day 7 plus microsecond", 7*24*time.Hour + time.Microsecond, false},
+		{"day 8", 8 * 24 * time.Hour, false},
+		{"before close", -time.Microsecond, false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			h := newMergeHarness(t)
+			f := h.publicationFixture
+			n, _, pr := h.first("Reopen boundary")
+			synced, row := configureInboundPullPolling(t, f)
+			ctx := t.Context()
+			pool := f.pool.(*pgxpool.Pool)
+			// Deliberately far from the database clock; no wall-clock sleeps.
+			closed := time.Date(2030, 3, 9, 12, 0, 0, 0, time.UTC)
+			f.service.now = func() time.Time { return closed }
+			token, err := f.connections.CreateGitHubInstallationTokenForRepositoryOwner(ctx, f.userID, 0, "rehearsal-owner", "app", map[string]string{"pull_requests": "write"})
+			require.NoError(t, err)
+			patch := func(state string) {
+				req, err := http.NewRequest("PATCH", f.fake.URL+fmt.Sprintf("/repos/rehearsal-owner/app/pulls/%d", pr), strings.NewReader(fmt.Sprintf(`{"state":%q}`, state)))
+				require.NoError(t, err)
+				req.Header.Set("Authorization", "Bearer "+token.Token)
+				resp, err := f.fake.Client().Do(req)
+				require.NoError(t, err)
+				require.Equal(t, 200, resp.StatusCode)
+				require.NoError(t, resp.Body.Close())
+			}
+			patch("closed")
+			require.NoError(t, synced.pollInstallPull(ctx, row, pr))
+			stop := runFetchedFixture(t, synced)
+			require.Eventually(t, func() bool { return f.item(n).State == "rejected" }, 10*time.Second, 20*time.Millisecond)
+			stop()
+			dropped := f.item(n)
+			// GitHub's closed_at, when supplied, is the authoritative instant.
+			closed = mythicalGitHubClosedAt(dropped)
+			now := closed.Add(tc.age)
+			f.service.now = func() time.Time { return now }
+			_, err = pool.Exec(ctx, `UPDATE mythical_items SET updated_at=clock_timestamp() WHERE id=$1`, dropped.ID)
+			require.NoError(t, err)
+			followed, err := f.service.queries().ListMythicalOpenPullItems(ctx, f.repoID, now)
+			require.NoError(t, err)
+			require.Equal(t, tc.reopens, len(followed) == 1, "polling selection uses the lifecycle clock")
+			// Seven days means 168 elapsed hours, including across a database
+			// timezone's daylight-saving change.
+			tx, err := pool.Begin(ctx)
+			require.NoError(t, err)
+			_, err = tx.Exec(ctx, `SET LOCAL TIME ZONE 'America/Los_Angeles'`)
+			require.NoError(t, err)
+			zoned, err := db.New(tx).ListMythicalOpenPullItems(ctx, f.repoID, now)
+			require.NoError(t, err)
+			require.NoError(t, tx.Rollback(ctx))
+			require.Equal(t, len(followed), len(zoned), "database timezone cannot change the elapsed-hour window")
+			streams, err := f.service.requiredInstallPulls(ctx, row)
+			require.NoError(t, err)
+			require.Equal(t, len(followed), len(streams), "freshness projection follows the same window")
+			require.Equal(t, tc.reopens, mythicalReopenFollowed(dropped, now))
+			patch("open")
+			writes := len(f.writes())
+			require.NoError(t, synced.pollInstallPull(ctx, row, pr))
+			stop = runFetchedFixture(t, synced)
+			require.Eventually(t, func() bool {
+				return fetchedCount(t, pool, `SELECT count(*) FROM product_job_requests WHERE operation='github.fetched.consume' AND state <> 'completed'`) == 0
+			}, 10*time.Second, 20*time.Millisecond)
+			stop()
+			got := f.item(n)
+			state, events := "rejected", 0
+			if tc.reopens {
+				state, events = "proposed", 1
+			}
+			require.Equal(t, state, got.State)
+			require.Equal(t, events, fetchedCount(t, pool, `SELECT count(*) FROM product_job_events WHERE event_type='todo.github_in_review'`))
+			require.Equal(t, dropped.Attempt, got.Attempt)
+			require.Equal(t, dropped.CandidateHead, got.CandidateHead)
+			require.Len(t, f.writes(), writes, "fact ingestion performs no GitHub write")
 		})
 	}
 }
