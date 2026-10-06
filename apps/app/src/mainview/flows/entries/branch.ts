@@ -84,7 +84,11 @@ export const branchFlows = (actions: CommandActions): ReadonlyArray<FlowEntry> =
       } }),
     flow({ name: "terminal.watch", summary: "Watch a terminal", args: "<terminal>", hidden: true,
       grammar: field("id"), input: Schema.Struct({ id: Schema.String }),
-      handler: ({ id }) => {
+      handler: async ({ id }) => {
+        if (actions.terminalCards?.available() && actions.terminalCards.branch(id)) {
+          await actions.presentBranchCard("terminal", id, "Terminal")
+          return
+        }
         if (actions.bootstrap?.capabilities.includes("install") || (!actions.bootstrap && actions.live)) return "Terminal unavailable"
         const terminal = design.world().terminals.find(each => each.id === id)
         if (terminal !== undefined && terminal.owner !== design.viewer()) design.watchTerminal(id, design.viewer())

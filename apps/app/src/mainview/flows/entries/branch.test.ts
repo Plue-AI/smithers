@@ -203,3 +203,29 @@ test("non-install bootstrap keeps the design terminal doors while install bootst
     } finally { controller.dispose() }
   }
 })
+
+test("install Watch reaches the terminal card only for authenticated registered branch metadata", async () => {
+  const { LiveChannel } = await import("../../runtime/LiveChannel")
+  const frames: { t: string; id: number; topic?: string }[] = []
+  const socket = { readyState: 1, onopen: null, onclose: null, onmessage: null,
+    send: (frame: string | Uint8Array) => { if (typeof frame === "string") frames.push(JSON.parse(frame)) }, close: () => {} } as import("../../runtime/LiveChannel").LiveSocket
+  const live = new LiveChannel({ socket: () => socket })
+  const h = await boot(live, true)
+  const release = live.subscribe("branch:b1", () => {})
+  try {
+    await h.controller.presentBranchCard("branch", "b1", "Retry")
+    socket.onopen?.()
+    const subscription = frames.find(frame => frame.topic === "branch:b1")!
+    socket.onmessage?.({ data: JSON.stringify({ t: "snap", id: subscription.id, cursor: 1, data: {
+      terminals: [{ id: "t-ben", title: "Ben's shell", owner: { kind: "person", login: "ben", name: "Ben", avatar_url: "https://github.com/ben.png", color_index: 0 }, agents: [], watchers: [], frozen: false }]
+    } }) })
+    expect(h.controller.terminalCards?.branch("t-ben")).toBe("b1")
+    expect((await submit(h, "terminal.watch", { id: "t-ben" })).status).toBe("executed")
+    expect(h.store.collections.cards.get("terminal:t-ben")).toMatchObject({ kind: "terminal", payload: { id: "t-ben" } })
+    expect((await submit(h, "terminal.watch", { id: "missing" })).status).toBe("failed")
+    await h.store.dispatch({ type: "identity.session.loaded", actor: "system", state: "signed-out", login: null, admin: false, scopesPlain: null }).isPersisted.promise
+    expect(h.controller.terminalCards?.available()).toBe(false)
+    expect(h.controller.terminalCards?.branch("t-ben")).toBeUndefined()
+    expect((await submit(h, "terminal.watch", { id: "t-ben" })).status).toBe("failed")
+  } finally { release(); h.controller.dispose(); live.dispose() }
+})

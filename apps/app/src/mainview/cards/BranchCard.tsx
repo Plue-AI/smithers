@@ -47,6 +47,8 @@ export const branchActionDefinitions = (world: DesignWorldRows, branch: DesignBr
 /** Only composed providers bind live presses; topic payloads carry no command authority. */
 export const liveBranchActionDefinitions = (model: BranchModel, providers: ReadonlySet<CatalogTag>): Definition[] => {
   const definitions: Definition[] = []
+  if (model.terminals.length) definitions.push({ tag: "terminal.watch", label: "Watch", gesture: "terminal",
+    command_input: { id: "" }, resolve_input: input => ({ id: input.id ?? "" }) })
   const n = model.item?.n
   if (model.machine.state !== "closed" && n !== undefined) {
     const question = [...model.activity].reverse().find(entry => entry.kind === "question" || entry.kind === "answer")
@@ -107,6 +109,7 @@ export const LiveBranchBody = ({ card, actions }: { readonly card: CardOf<"branc
   if (controller.design.enabled !== false && branch?.data === undefined
     && (branch?.error === undefined || branch.error === "unknown_topic" || branch.error === "unsupported")) return <DesignBranchBody card={card} actions={actions} />
   const providers = new Set<CatalogTag>()
+  if (controller.terminalCards?.available()) providers.add("terminal.watch")
   if (controller.forkBranch) providers.add("branch.fork")
   if (typeof controller.answerTodo === "function") providers.add("todo.answer")
   if (typeof controller.steerTodo === "function") providers.add("todo.steer")
