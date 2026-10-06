@@ -12,6 +12,7 @@
         "person"
       ],
       "minimumRole": "owner",
+      "credentialScope": "write:repository",
       "agent": "never",
       "summary": "Settings",
       "http": null,
@@ -35,6 +36,7 @@
         "person"
       ],
       "minimumRole": "member",
+      "credentialScope": "write:repository",
       "agent": "never",
       "summary": "Toggle the dev-tools panel",
       "http": null,
@@ -58,6 +60,7 @@
         "person"
       ],
       "minimumRole": "member",
+      "credentialScope": "write:repository",
       "agent": "never",
       "summary": "Start a fresh conversation (dev tooling — nothing is kept)",
       "http": null,
@@ -81,6 +84,7 @@
         "person"
       ],
       "minimumRole": "member",
+      "credentialScope": "write:repository",
       "agent": "never",
       "summary": "Ask before discarding the conversation",
       "http": null,
@@ -104,6 +108,7 @@
         "person"
       ],
       "minimumRole": "member",
+      "credentialScope": "write:repository",
       "agent": "never",
       "summary": "Keep the current conversation",
       "http": null,
@@ -133,6 +138,7 @@
         "external_agent"
       ],
       "minimumRole": "member",
+      "credentialScope": "write:repository",
       "agent": "run",
       "summary": "Configure an agent",
       "http": {
@@ -168,6 +174,7 @@
         "person"
       ],
       "minimumRole": "owner",
+      "credentialScope": "write:repository",
       "agent": "never",
       "summary": "Change model",
       "http": null,
@@ -204,6 +211,7 @@
         "app_agent"
       ],
       "minimumRole": "member",
+      "credentialScope": "write:repository",
       "agent": "run",
       "summary": "Configure an agent",
       "http": null,
@@ -225,6 +233,35 @@
       }
     },
     {
+      "name": "agent.turn",
+      "slash": null,
+      "cli": null,
+      "journey": [],
+      "group": "",
+      "visibility": "hidden",
+      "actors": [
+        "person",
+        "app_agent",
+        "external_agent"
+      ],
+      "minimumRole": "member",
+      "credentialScope": "read:user",
+      "agent": "run",
+      "summary": "Ask agent",
+      "http": {
+        "method": "POST",
+        "path": "/api/agent/turn"
+      },
+      "payload": {
+        "dialect": "draft-2020-12",
+        "schema": {
+          "type": "object",
+          "additionalProperties": false
+        },
+        "definitions": {}
+      }
+    },
+    {
       "name": "agents",
       "slash": "/agents",
       "cli": [
@@ -241,6 +278,7 @@
         "external_agent"
       ],
       "minimumRole": "member",
+      "credentialScope": "write:repository",
       "agent": "run",
       "summary": "The factory's agents",
       "http": {
@@ -269,6 +307,7 @@
         "external_agent"
       ],
       "minimumRole": "member",
+      "credentialScope": "read:repository",
       "agent": "run",
       "summary": "agents.read",
       "http": {
@@ -296,6 +335,7 @@
         "app_agent"
       ],
       "minimumRole": "member",
+      "credentialScope": "write:repository",
       "agent": "run",
       "summary": "Dismiss a hint",
       "http": null,
@@ -327,6 +367,7 @@
         "person"
       ],
       "minimumRole": "member",
+      "credentialScope": "write:repository",
       "agent": "never",
       "summary": "Approve a pending approval card",
       "http": null,
@@ -358,6 +399,7 @@
         "person"
       ],
       "minimumRole": "member",
+      "credentialScope": "write:repository",
       "agent": "never",
       "summary": "Deny a pending approval card",
       "http": null,
@@ -390,6 +432,7 @@
         "app_agent"
       ],
       "minimumRole": "member",
+      "credentialScope": "write:repository",
       "agent": "run",
       "summary": "List the workspace's pending approvals",
       "http": null,
@@ -426,6 +469,7 @@
         "app_agent"
       ],
       "minimumRole": "member",
+      "credentialScope": "write:repository",
       "agent": "run",
       "summary": "Open a run's pending approvals as cards",
       "http": null,
@@ -468,6 +512,7 @@
         "app_agent"
       ],
       "minimumRole": "member",
+      "credentialScope": "write:repository",
       "agent": "run",
       "summary": "Continue with an email address",
       "http": null,
@@ -500,6 +545,7 @@
         "app_agent"
       ],
       "minimumRole": "member",
+      "credentialScope": "write:repository",
       "agent": "run",
       "summary": "Offer the GitHub sign-in step in the chat",
       "http": null,
@@ -524,6 +570,7 @@
         "app_agent"
       ],
       "minimumRole": "member",
+      "credentialScope": "write:repository",
       "agent": "run",
       "summary": "Dismiss a background run",
       "http": null,
@@ -557,6 +604,7 @@
         "app_agent"
       ],
       "minimumRole": "member",
+      "credentialScope": "write:repository",
       "agent": "run",
       "summary": "Retry a background run",
       "http": null,
@@ -590,6 +638,7 @@
         "app_agent"
       ],
       "minimumRole": "member",
+      "credentialScope": "write:repository",
       "agent": "confirm",
       "summary": "Delete a box",
       "http": null,
@@ -626,6 +675,7 @@
         "app_agent"
       ],
       "minimumRole": "member",
+      "credentialScope": "write:repository",
       "agent": "run",
       "summary": "List what a box called out to, and which secret names were swapped in",
       "http": null,
@@ -672,6 +722,7 @@
         "app_agent"
       ],
       "minimumRole": "member",
+      "credentialScope": "write:repository",
       "agent": "run",
       "summary": "Switch a box card's facet",
       "http": null,
@@ -714,6 +765,7 @@
         "app_agent"
       ],
       "minimumRole": "member",
+      "credentialScope": "write:repository",
       "agent": "run",
       "summary": "Read one file out of a box",
       "http": null,
@@ -756,6 +808,7 @@
         "app_agent"
       ],
       "minimumRole": "member",
+      "credentialScope": "write:repository",
       "agent": "run",
       "summary": "List a box's files under a directory",
       "http": null,
@@ -802,6 +855,7 @@
         "app_agent"
       ],
       "minimumRole": "member",
+      "credentialScope": "write:repository",
       "agent": "run",
       "summary": "List the environment images a repository has built for its boxes",
       "http": null,
@@ -838,6 +892,7 @@
         "app_agent"
       ],
       "minimumRole": "member",
+      "credentialScope": "write:repository",
       "agent": "run",
       "summary": "List your boxes",
       "http": null,
@@ -874,6 +929,7 @@
         "app_agent"
       ],
       "minimumRole": "member",
+      "credentialScope": "write:repository",
       "agent": "run",
       "summary": "Open (create or reuse) a Linux box in Smithers Cloud on a bookmark: a real machine with a terminal, files, and services the user can use",
       "http": null,
@@ -954,6 +1010,7 @@
         "app_agent"
       ],
       "minimumRole": "member",
+      "credentialScope": "write:repository",
       "agent": "run",
       "summary": "Resume a box",
       "http": null,
@@ -990,6 +1047,7 @@
         "app_agent"
       ],
       "minimumRole": "member",
+      "credentialScope": "write:repository",
       "agent": "run",
       "summary": "List a box's services",
       "http": null,
@@ -1026,6 +1084,7 @@
         "app_agent"
       ],
       "minimumRole": "member",
+      "credentialScope": "write:repository",
       "agent": "confirm",
       "summary": "Destroy a box session",
       "http": null,
@@ -1068,6 +1127,7 @@
         "app_agent"
       ],
       "minimumRole": "member",
+      "credentialScope": "write:repository",
       "agent": "run",
       "summary": "List a box's sessions",
       "http": null,
@@ -1104,6 +1164,7 @@
         "app_agent"
       ],
       "minimumRole": "member",
+      "credentialScope": "write:repository",
       "agent": "run",
       "summary": "Suspend a box",
       "http": null,
@@ -1140,6 +1201,7 @@
         "app_agent"
       ],
       "minimumRole": "member",
+      "credentialScope": "write:repository",
       "agent": "run",
       "summary": "Open a terminal on a box",
       "http": null,
@@ -1176,6 +1238,7 @@
         "app_agent"
       ],
       "minimumRole": "member",
+      "credentialScope": "write:repository",
       "agent": "run",
       "summary": "Open one box's card",
       "http": null,
@@ -1214,6 +1277,7 @@
         "external_agent"
       ],
       "minimumRole": "member",
+      "credentialScope": "write:repository",
       "agent": "run",
       "summary": "Open a branch's card",
       "http": {
@@ -1255,6 +1319,7 @@
         "external_agent"
       ],
       "minimumRole": "member",
+      "credentialScope": "write:repository",
       "agent": "confirm",
       "summary": "Add a scratch branch as a TODO",
       "http": {
@@ -1300,6 +1365,7 @@
         "app_agent"
       ],
       "minimumRole": "member",
+      "credentialScope": "write:repository",
       "agent": "confirm",
       "summary": "Bring in",
       "http": null,
@@ -1338,6 +1404,7 @@
         "app_agent"
       ],
       "minimumRole": "maintainer",
+      "credentialScope": "write:repository",
       "agent": "confirm",
       "summary": "Discard",
       "http": {
@@ -1393,6 +1460,7 @@
         "external_agent"
       ],
       "minimumRole": "member",
+      "credentialScope": "write:repository",
       "agent": "run",
       "summary": "Fork a scratch branch",
       "http": {
@@ -1441,6 +1509,7 @@
         "external_agent"
       ],
       "minimumRole": "member",
+      "credentialScope": "read:repository",
       "agent": "run",
       "summary": "branch.read",
       "http": {
@@ -1474,6 +1543,7 @@
         "external_agent"
       ],
       "minimumRole": "member",
+      "credentialScope": "write:repository",
       "agent": "run",
       "summary": "Rebase this branch now",
       "http": {
@@ -1509,6 +1579,7 @@
         "app_agent"
       ],
       "minimumRole": "member",
+      "credentialScope": "write:repository",
       "agent": "run",
       "summary": "Rebase now",
       "http": null,
@@ -1547,6 +1618,7 @@
         "external_agent"
       ],
       "minimumRole": "member",
+      "credentialScope": "write:repository",
       "agent": "run",
       "summary": "List branches with presence",
       "http": {
@@ -1587,6 +1659,7 @@
         "external_agent"
       ],
       "minimumRole": "member",
+      "credentialScope": "read:repository",
       "agent": "run",
       "summary": "branches.read",
       "http": {
@@ -1614,6 +1687,7 @@
         "app_agent"
       ],
       "minimumRole": "member",
+      "credentialScope": "write:repository",
       "agent": "run",
       "summary": "Open a web page as a card Smithers can read",
       "http": null,
@@ -1646,6 +1720,7 @@
         "app_agent"
       ],
       "minimumRole": "member",
+      "credentialScope": "write:repository",
       "agent": "run",
       "summary": "Dismiss a form card",
       "http": null,
@@ -1678,6 +1753,7 @@
         "app_agent"
       ],
       "minimumRole": "member",
+      "credentialScope": "write:repository",
       "agent": "run",
       "summary": "Go back inside an embedded frame",
       "http": null,
@@ -1710,6 +1786,7 @@
         "app_agent"
       ],
       "minimumRole": "member",
+      "credentialScope": "write:repository",
       "agent": "run",
       "summary": "Go forward inside an embedded frame",
       "http": null,
@@ -1741,6 +1818,7 @@
         "person"
       ],
       "minimumRole": "member",
+      "credentialScope": "write:repository",
       "agent": "never",
       "summary": "Maximize a card",
       "http": null,
@@ -1772,6 +1850,7 @@
         "person"
       ],
       "minimumRole": "member",
+      "credentialScope": "write:repository",
       "agent": "never",
       "summary": "Minimize the maximized card",
       "http": null,
@@ -1796,6 +1875,7 @@
         "app_agent"
       ],
       "minimumRole": "member",
+      "credentialScope": "write:repository",
       "agent": "run",
       "summary": "Read a change's checks at one revision",
       "http": null,
@@ -1844,6 +1924,7 @@
         "app_agent"
       ],
       "minimumRole": "member",
+      "credentialScope": "write:repository",
       "agent": "run",
       "summary": "Open a change's diff at two pins",
       "http": null,
@@ -1906,6 +1987,7 @@
         "app_agent"
       ],
       "minimumRole": "member",
+      "credentialScope": "write:repository",
       "agent": "run",
       "summary": "Switch a change card's facet",
       "http": null,
@@ -1951,6 +2033,7 @@
         "app_agent"
       ],
       "minimumRole": "member",
+      "credentialScope": "write:repository",
       "agent": "confirm",
       "summary": "Land a change (its landing request, or its changeset atomically)",
       "http": null,
@@ -1983,6 +2066,7 @@
         "app_agent"
       ],
       "minimumRole": "member",
+      "credentialScope": "write:repository",
       "agent": "run",
       "summary": "Pin a change card's diff between two revisions (parent|<rev> → <rev>|current)",
       "http": null,
@@ -2023,6 +2107,7 @@
         "app_agent"
       ],
       "minimumRole": "member",
+      "credentialScope": "write:repository",
       "agent": "confirm",
       "summary": "Dispatch an agent to resolve a change's conflict",
       "http": null,
@@ -2059,6 +2144,7 @@
         "app_agent"
       ],
       "minimumRole": "member",
+      "credentialScope": "write:repository",
       "agent": "run",
       "summary": "Open a change's card",
       "http": null,
@@ -2113,6 +2199,7 @@
         "app_agent"
       ],
       "minimumRole": "member",
+      "credentialScope": "write:repository",
       "agent": "run",
       "summary": "Back to the conversation",
       "http": null,
@@ -2136,6 +2223,7 @@
         "person"
       ],
       "minimumRole": "member",
+      "credentialScope": "write:repository",
       "agent": "never",
       "summary": "Copy a message to the clipboard",
       "http": null,
@@ -2167,6 +2255,7 @@
         "person"
       ],
       "minimumRole": "member",
+      "credentialScope": "write:repository",
       "agent": "never",
       "summary": "Start or stop dictation into the chat draft (⌘D)",
       "http": null,
@@ -2190,6 +2279,7 @@
         "person"
       ],
       "minimumRole": "member",
+      "credentialScope": "write:repository",
       "agent": "never",
       "summary": "Open Chat using the selected input mode (C)",
       "http": null,
@@ -2213,6 +2303,7 @@
         "person"
       ],
       "minimumRole": "member",
+      "credentialScope": "write:repository",
       "agent": "never",
       "summary": "Queue a follow-up",
       "http": null,
@@ -2244,6 +2335,7 @@
         "person"
       ],
       "minimumRole": "member",
+      "credentialScope": "write:repository",
       "agent": "never",
       "summary": "Edit a queued prompt",
       "http": null,
@@ -2275,6 +2367,7 @@
         "person"
       ],
       "minimumRole": "member",
+      "credentialScope": "write:repository",
       "agent": "never",
       "summary": "Remove a queued prompt",
       "http": null,
@@ -2306,6 +2399,7 @@
         "person"
       ],
       "minimumRole": "member",
+      "credentialScope": "write:repository",
       "agent": "never",
       "summary": "Restore queued prompts to Chat",
       "http": null,
@@ -2329,6 +2423,7 @@
         "person"
       ],
       "minimumRole": "member",
+      "credentialScope": "write:repository",
       "agent": "never",
       "summary": "Resume queued prompts",
       "http": null,
@@ -2353,6 +2448,7 @@
         "app_agent"
       ],
       "minimumRole": "member",
+      "credentialScope": "write:repository",
       "agent": "run",
       "summary": "Reload the app",
       "http": null,
@@ -2377,6 +2473,7 @@
         "app_agent"
       ],
       "minimumRole": "member",
+      "credentialScope": "write:repository",
       "agent": "run",
       "summary": "Retry the last turn",
       "http": null,
@@ -2400,6 +2497,7 @@
         "person"
       ],
       "minimumRole": "member",
+      "credentialScope": "write:repository",
       "agent": "never",
       "summary": "Ask or tell Smithers anything",
       "http": null,
@@ -2432,6 +2530,7 @@
         "app_agent"
       ],
       "minimumRole": "member",
+      "credentialScope": "write:repository",
       "agent": "run",
       "summary": "Offer the Smithers Cloud sign-in step in the chat",
       "http": null,
@@ -2455,6 +2554,7 @@
         "person"
       ],
       "minimumRole": "member",
+      "credentialScope": "write:repository",
       "agent": "never",
       "summary": "Sign in to Smithers Cloud",
       "http": null,
@@ -2478,6 +2578,7 @@
         "person"
       ],
       "minimumRole": "member",
+      "credentialScope": "write:repository",
       "agent": "never",
       "summary": "Sign out of Smithers Cloud",
       "http": null,
@@ -2502,6 +2603,7 @@
         "app_agent"
       ],
       "minimumRole": "member",
+      "credentialScope": "write:repository",
       "agent": "run",
       "summary": "Where the symbol at a position is defined; opens that file at the line",
       "http": null,
@@ -2576,6 +2678,7 @@
         "app_agent"
       ],
       "minimumRole": "member",
+      "credentialScope": "write:repository",
       "agent": "run",
       "summary": "The language server's errors and warnings for a file",
       "http": null,
@@ -2618,6 +2721,7 @@
         "app_agent"
       ],
       "minimumRole": "member",
+      "credentialScope": "write:repository",
       "agent": "run",
       "summary": "The type and docs of the symbol at a position",
       "http": null,
@@ -2692,6 +2796,7 @@
         "app_agent"
       ],
       "minimumRole": "member",
+      "credentialScope": "write:repository",
       "agent": "run",
       "summary": "List a branch's commits, newest first",
       "http": null,
@@ -2738,6 +2843,7 @@
         "app_agent"
       ],
       "minimumRole": "member",
+      "credentialScope": "write:repository",
       "agent": "run",
       "summary": "Show one commit: its message, parents and diff",
       "http": null,
@@ -2779,6 +2885,7 @@
         "person"
       ],
       "minimumRole": "member",
+      "credentialScope": "write:repository",
       "agent": "never",
       "summary": "Cancel a confirmation",
       "http": null,
@@ -2817,6 +2924,7 @@
         "external_agent"
       ],
       "minimumRole": "member",
+      "credentialScope": "read:repository",
       "agent": "run",
       "summary": "confirmations.read",
       "http": {
@@ -2843,6 +2951,7 @@
         "person"
       ],
       "minimumRole": "member",
+      "credentialScope": "write:repository",
       "agent": "never",
       "summary": "Call the documented API",
       "http": null,
@@ -2919,6 +3028,7 @@
         "person"
       ],
       "minimumRole": "member",
+      "credentialScope": "write:repository",
       "agent": "never",
       "summary": "Call the documented API",
       "http": null,
@@ -2992,6 +3102,7 @@
         "person"
       ],
       "minimumRole": "member",
+      "credentialScope": "write:repository",
       "agent": "never",
       "summary": "Report the agent backend",
       "http": null,
@@ -3024,6 +3135,7 @@
         "app_agent"
       ],
       "minimumRole": "member",
+      "credentialScope": "write:repository",
       "agent": "run",
       "summary": "Read recent app errors and toast history, including dismissed notifications; no repository or sign-in needed",
       "http": null,
@@ -3060,6 +3172,7 @@
         "app_agent"
       ],
       "minimumRole": "member",
+      "credentialScope": "write:repository",
       "agent": "run",
       "summary": "Read the transition journal tail",
       "http": null,
@@ -3084,6 +3197,7 @@
         "app_agent"
       ],
       "minimumRole": "member",
+      "credentialScope": "write:repository",
       "agent": "run",
       "summary": "Read the network tap",
       "http": null,
@@ -3108,6 +3222,7 @@
         "app_agent"
       ],
       "minimumRole": "member",
+      "credentialScope": "write:repository",
       "agent": "run",
       "summary": "Probe seam and upstream health",
       "http": null,
@@ -3132,6 +3247,7 @@
         "app_agent"
       ],
       "minimumRole": "member",
+      "credentialScope": "write:repository",
       "agent": "run",
       "summary": "Read the app state snapshot",
       "http": null,
@@ -3156,6 +3272,7 @@
         "app_agent"
       ],
       "minimumRole": "member",
+      "credentialScope": "write:repository",
       "agent": "run",
       "summary": "Show everything Smithers is doing",
       "http": null,
@@ -3186,6 +3303,7 @@
         "external_agent"
       ],
       "minimumRole": "member",
+      "credentialScope": "write:repository",
       "agent": "run",
       "summary": "Show a branch's changes",
       "http": null,
@@ -3252,6 +3370,7 @@
         "app_agent"
       ],
       "minimumRole": "member",
+      "credentialScope": "write:repository",
       "agent": "run",
       "summary": "Read the docs in the app",
       "http": null,
@@ -3288,6 +3407,7 @@
         "app_agent"
       ],
       "minimumRole": "member",
+      "credentialScope": "write:repository",
       "agent": "run",
       "summary": "Read a docs page's title, summary and Markdown",
       "http": null,
@@ -3320,6 +3440,7 @@
         "app_agent"
       ],
       "minimumRole": "member",
+      "credentialScope": "write:repository",
       "agent": "run",
       "summary": "Discard a private Draft",
       "http": null,
@@ -3353,6 +3474,7 @@
         "app_agent"
       ],
       "minimumRole": "member",
+      "credentialScope": "write:repository",
       "agent": "confirm",
       "summary": "Let a repository's sandboxes reach a host",
       "http": null,
@@ -3395,6 +3517,7 @@
         "app_agent"
       ],
       "minimumRole": "member",
+      "credentialScope": "write:repository",
       "agent": "run",
       "summary": "List what an agent session called out to, and which secret names were swapped in",
       "http": null,
@@ -3446,6 +3569,7 @@
         "person"
       ],
       "minimumRole": "owner",
+      "credentialScope": "write:repository",
       "agent": "never",
       "summary": "Remove a refused subscription token from a repository's agent environment",
       "http": null,
@@ -3481,6 +3605,7 @@
         "person"
       ],
       "minimumRole": "owner",
+      "credentialScope": "write:repository",
       "agent": "never",
       "summary": "Set an agent-environment variable",
       "http": null,
@@ -3522,6 +3647,7 @@
         "person"
       ],
       "minimumRole": "owner",
+      "credentialScope": "write:repository",
       "agent": "never",
       "summary": "Show a repository's agent environment",
       "http": null,
@@ -3564,6 +3690,7 @@
         "external_agent"
       ],
       "minimumRole": "member",
+      "credentialScope": "write:repository",
       "agent": "run",
       "summary": "Open and co-edit a file",
       "http": null,
@@ -3638,6 +3765,7 @@
         "app_agent"
       ],
       "minimumRole": "member",
+      "credentialScope": "write:repository",
       "agent": "run",
       "summary": "Compare",
       "http": null,
@@ -3680,6 +3808,7 @@
         "app_agent"
       ],
       "minimumRole": "member",
+      "credentialScope": "write:repository",
       "agent": "run",
       "summary": "Follow",
       "http": null,
@@ -3721,6 +3850,7 @@
         "person"
       ],
       "minimumRole": "member",
+      "credentialScope": "write:repository",
       "agent": "never",
       "summary": "Reapply unsaved edits",
       "http": null,
@@ -3753,6 +3883,7 @@
         "app_agent"
       ],
       "minimumRole": "member",
+      "credentialScope": "write:repository",
       "agent": "run",
       "summary": "Restore this file",
       "http": null,
@@ -3815,6 +3946,7 @@
         "app_agent"
       ],
       "minimumRole": "member",
+      "credentialScope": "write:repository",
       "agent": "run",
       "summary": "Restore",
       "http": null,
@@ -3862,6 +3994,7 @@
         "external_agent"
       ],
       "minimumRole": "member",
+      "credentialScope": "write:repository",
       "agent": "run",
       "summary": "Browse a branch's files",
       "http": null,
@@ -3898,6 +4031,7 @@
         "app_agent"
       ],
       "minimumRole": "member",
+      "credentialScope": "write:repository",
       "agent": "run",
       "summary": "List a repository directory",
       "http": null,
@@ -3940,6 +4074,7 @@
         "app_agent"
       ],
       "minimumRole": "member",
+      "credentialScope": "write:repository",
       "agent": "run",
       "summary": "Read a file at the diff revision in its frame",
       "http": null,
@@ -3976,6 +4111,7 @@
         "app_agent"
       ],
       "minimumRole": "member",
+      "credentialScope": "write:repository",
       "agent": "run",
       "summary": "Read a file from a repository",
       "http": null,
@@ -4072,6 +4208,7 @@
         "app_agent"
       ],
       "minimumRole": "member",
+      "credentialScope": "write:repository",
       "agent": "run",
       "summary": "Mark a finding not useful",
       "http": null,
@@ -4120,6 +4257,7 @@
         "app_agent"
       ],
       "minimumRole": "member",
+      "credentialScope": "write:repository",
       "agent": "confirm",
       "summary": "Dispatch the agent on one finding",
       "http": null,
@@ -4174,6 +4312,7 @@
         "external_agent"
       ],
       "minimumRole": "member",
+      "credentialScope": "write:repository",
       "agent": "run",
       "summary": "Show a flow's steps and versions",
       "http": {
@@ -4216,6 +4355,7 @@
         "external_agent"
       ],
       "minimumRole": "member",
+      "credentialScope": "write:repository",
       "agent": "confirm",
       "summary": "Propose a change to a flow",
       "http": {
@@ -4267,6 +4407,7 @@
         "app_agent"
       ],
       "minimumRole": "member",
+      "credentialScope": "write:repository",
       "agent": "run",
       "summary": "List the flows on your workspace",
       "http": null,
@@ -4317,6 +4458,7 @@
         "external_agent"
       ],
       "minimumRole": "member",
+      "credentialScope": "write:repository",
       "agent": "confirm",
       "summary": "Create a new flow",
       "http": {
@@ -4368,6 +4510,7 @@
         "external_agent"
       ],
       "minimumRole": "member",
+      "credentialScope": "write:repository",
       "agent": "run",
       "summary": "See what a flow would run",
       "http": null,
@@ -4440,6 +4583,7 @@
         "app_agent"
       ],
       "minimumRole": "member",
+      "credentialScope": "write:repository",
       "agent": "run",
       "summary": "Open one node of a plan's graph, or close the one that is open",
       "http": null,
@@ -4482,6 +4626,7 @@
         "app_agent"
       ],
       "minimumRole": "member",
+      "credentialScope": "write:repository",
       "agent": "run",
       "summary": "Show one tab of the node a plan's graph has open",
       "http": null,
@@ -4530,6 +4675,7 @@
         "external_agent"
       ],
       "minimumRole": "member",
+      "credentialScope": "write:repository",
       "agent": "run",
       "summary": "Run a flow with typed input",
       "http": {
@@ -4595,6 +4741,7 @@
         "app_agent"
       ],
       "minimumRole": "member",
+      "credentialScope": "write:repository",
       "agent": "confirm",
       "summary": "Check a run again",
       "http": null,
@@ -4627,6 +4774,7 @@
         "app_agent"
       ],
       "minimumRole": "member",
+      "credentialScope": "write:repository",
       "agent": "confirm",
       "summary": "Stop a run",
       "http": null,
@@ -4669,6 +4817,7 @@
         "app_agent"
       ],
       "minimumRole": "member",
+      "credentialScope": "write:repository",
       "agent": "confirm",
       "summary": "Stop every live run on your workspace",
       "http": null,
@@ -4721,6 +4870,7 @@
         "external_agent"
       ],
       "minimumRole": "member",
+      "credentialScope": "write:repository",
       "agent": "run",
       "summary": "Co-edit a flow's source",
       "http": null,
@@ -4759,6 +4909,7 @@
         "external_agent"
       ],
       "minimumRole": "member",
+      "credentialScope": "write:repository",
       "agent": "run",
       "summary": "List the repository's flows",
       "http": {
@@ -4788,6 +4939,7 @@
         "external_agent"
       ],
       "minimumRole": "member",
+      "credentialScope": "read:repository",
       "agent": "run",
       "summary": "flows.read",
       "http": {
@@ -4815,6 +4967,7 @@
         "app_agent"
       ],
       "minimumRole": "member",
+      "credentialScope": "write:repository",
       "agent": "run",
       "summary": "Set one field of a form card",
       "http": null,
@@ -4855,6 +5008,7 @@
         "app_agent"
       ],
       "minimumRole": "member",
+      "credentialScope": "write:repository",
       "agent": "run",
       "summary": "Submit a form card: run its flow with the fields filled in",
       "http": null,
@@ -4886,6 +5040,7 @@
         "person"
       ],
       "minimumRole": "member",
+      "credentialScope": "write:repository",
       "agent": "never",
       "summary": "Go to the previous frame",
       "http": null,
@@ -4909,6 +5064,7 @@
         "person"
       ],
       "minimumRole": "member",
+      "credentialScope": "write:repository",
       "agent": "never",
       "summary": "Go to the next frame",
       "http": null,
@@ -4938,6 +5094,7 @@
         "external_agent"
       ],
       "minimumRole": "member",
+      "credentialScope": "write:repository",
       "agent": "run",
       "summary": "Show sync status and retry",
       "http": {
@@ -4964,6 +5121,7 @@
         "person"
       ],
       "minimumRole": "owner",
+      "credentialScope": "write:repository",
       "agent": "never",
       "summary": "Open Settings",
       "http": null,
@@ -5000,6 +5158,7 @@
         "app_agent"
       ],
       "minimumRole": "member",
+      "credentialScope": "write:repository",
       "agent": "run",
       "summary": "Choose a GitHub App installation",
       "http": null,
@@ -5032,6 +5191,7 @@
         "app_agent"
       ],
       "minimumRole": "member",
+      "credentialScope": "write:repository",
       "agent": "run",
       "summary": "Open the GitHub App's install page",
       "http": null,
@@ -5068,6 +5228,7 @@
         "app_agent"
       ],
       "minimumRole": "member",
+      "credentialScope": "write:repository",
       "agent": "run",
       "summary": "Sync the repository to GitHub",
       "http": null,
@@ -5104,6 +5265,7 @@
         "app_agent"
       ],
       "minimumRole": "member",
+      "credentialScope": "write:repository",
       "agent": "run",
       "summary": "Retry one failed mirror ref",
       "http": null,
@@ -5146,6 +5308,7 @@
         "app_agent"
       ],
       "minimumRole": "member",
+      "credentialScope": "write:repository",
       "agent": "run",
       "summary": "Re-derive the GitHub App's wiring, then re-read the status",
       "http": null,
@@ -5183,6 +5346,7 @@
         "external_agent"
       ],
       "minimumRole": "member",
+      "credentialScope": "write:repository",
       "agent": "run",
       "summary": "Retry GitHub sync",
       "http": {
@@ -5210,6 +5374,7 @@
         "app_agent"
       ],
       "minimumRole": "member",
+      "credentialScope": "write:repository",
       "agent": "run",
       "summary": "List these commands",
       "http": null,
@@ -5234,6 +5399,7 @@
         "app_agent"
       ],
       "minimumRole": "member",
+      "credentialScope": "write:repository",
       "agent": "confirm",
       "summary": "Create the history from main's commits",
       "http": null,
@@ -5267,6 +5433,7 @@
         "app_agent"
       ],
       "minimumRole": "member",
+      "credentialScope": "write:repository",
       "agent": "run",
       "summary": "Add to machine image",
       "http": null,
@@ -5299,6 +5466,7 @@
         "person"
       ],
       "minimumRole": "owner",
+      "credentialScope": "read:repository",
       "agent": "never",
       "summary": "install.read",
       "http": {
@@ -5325,6 +5493,7 @@
         "person"
       ],
       "minimumRole": "owner",
+      "credentialScope": "read:repository",
       "agent": "never",
       "summary": "install.scorecard",
       "http": {
@@ -5358,6 +5527,7 @@
         "external_agent"
       ],
       "minimumRole": "member",
+      "credentialScope": "write:repository",
       "agent": "run",
       "summary": "Open an issue's card",
       "http": {
@@ -5405,6 +5575,7 @@
         "app_agent"
       ],
       "minimumRole": "member",
+      "credentialScope": "write:repository",
       "agent": "run",
       "summary": "Add a flow to an issue",
       "http": null,
@@ -5469,6 +5640,7 @@
         "external_agent"
       ],
       "minimumRole": "member",
+      "credentialScope": "write:repository",
       "agent": "confirm",
       "summary": "Comment on an issue",
       "http": {
@@ -5521,6 +5693,7 @@
         "app_agent"
       ],
       "minimumRole": "member",
+      "credentialScope": "write:repository",
       "agent": "run",
       "summary": "Inspect the flows available for an issue",
       "http": null,
@@ -5579,6 +5752,7 @@
         "external_agent"
       ],
       "minimumRole": "member",
+      "credentialScope": "write:repository",
       "agent": "confirm",
       "summary": "Open a GitHub issue",
       "http": {
@@ -5619,6 +5793,7 @@
         "app_agent"
       ],
       "minimumRole": "member",
+      "credentialScope": "write:repository",
       "agent": "confirm",
       "summary": "Build a proof of concept for an issue",
       "http": null,
@@ -5674,6 +5849,7 @@
         "external_agent"
       ],
       "minimumRole": "member",
+      "credentialScope": "read:repository",
       "agent": "run",
       "summary": "issue.read",
       "http": {
@@ -5701,6 +5877,7 @@
         "app_agent"
       ],
       "minimumRole": "member",
+      "credentialScope": "write:repository",
       "agent": "run",
       "summary": "Research and reproduce an issue before implementation",
       "http": null,
@@ -5760,6 +5937,7 @@
         "external_agent"
       ],
       "minimumRole": "member",
+      "credentialScope": "write:repository",
       "agent": "run",
       "summary": "List the repository's issues",
       "http": {
@@ -5788,6 +5966,7 @@
         "app_agent"
       ],
       "minimumRole": "member",
+      "credentialScope": "write:repository",
       "agent": "run",
       "summary": "Close an issue",
       "http": null,
@@ -5842,6 +6021,7 @@
         "app_agent"
       ],
       "minimumRole": "member",
+      "credentialScope": "write:repository",
       "agent": "run",
       "summary": "Comment on an issue",
       "http": null,
@@ -5900,6 +6080,7 @@
         "app_agent"
       ],
       "minimumRole": "member",
+      "credentialScope": "write:repository",
       "agent": "run",
       "summary": "Create an issue, or a private conversation with --kind conversation",
       "http": null,
@@ -5956,6 +6137,7 @@
         "app_agent"
       ],
       "minimumRole": "member",
+      "credentialScope": "write:repository",
       "agent": "run",
       "summary": "List a repository's issues and conversations, only one kind, or a saved view",
       "http": null,
@@ -6032,6 +6214,7 @@
         "app_agent"
       ],
       "minimumRole": "member",
+      "credentialScope": "write:repository",
       "agent": "run",
       "summary": "Reopen a closed issue",
       "http": null,
@@ -6086,6 +6269,7 @@
         "app_agent"
       ],
       "minimumRole": "member",
+      "credentialScope": "write:repository",
       "agent": "run",
       "summary": "Open an issue with its comments; use source github for GitHub rows",
       "http": null,
@@ -6154,6 +6338,7 @@
         "app_agent"
       ],
       "minimumRole": "member",
+      "credentialScope": "write:repository",
       "agent": "confirm",
       "summary": "Make TODO",
       "http": {
@@ -6190,6 +6375,7 @@
         "app_agent"
       ],
       "minimumRole": "member",
+      "credentialScope": "write:repository",
       "agent": "confirm",
       "summary": "Dismiss",
       "http": {
@@ -6227,6 +6413,7 @@
         "external_agent"
       ],
       "minimumRole": "member",
+      "credentialScope": "read:repository",
       "agent": "run",
       "summary": "live",
       "http": {
@@ -6253,6 +6440,7 @@
         "person"
       ],
       "minimumRole": "owner",
+      "credentialScope": "write:repository",
       "agent": "never",
       "summary": "Reset to GitHub main",
       "http": null,
@@ -6287,6 +6475,7 @@
         "person"
       ],
       "minimumRole": "member",
+      "credentialScope": "write:repository",
       "agent": "never",
       "summary": "Add people and manage roles",
       "http": null,
@@ -6310,6 +6499,7 @@
         "person"
       ],
       "minimumRole": "maintainer",
+      "credentialScope": "write:repository",
       "agent": "never",
       "summary": "Add",
       "http": null,
@@ -6355,6 +6545,7 @@
         "person"
       ],
       "minimumRole": "member",
+      "credentialScope": "read:repository",
       "agent": "never",
       "summary": "members.list",
       "http": {
@@ -6381,6 +6572,7 @@
         "person"
       ],
       "minimumRole": "maintainer",
+      "credentialScope": "write:repository",
       "agent": "never",
       "summary": "Remove",
       "http": null,
@@ -6426,6 +6618,7 @@
         "person"
       ],
       "minimumRole": "maintainer",
+      "credentialScope": "write:repository",
       "agent": "never",
       "summary": "Role",
       "http": null,
@@ -6479,6 +6672,7 @@
         "external_agent"
       ],
       "minimumRole": "maintainer",
+      "credentialScope": "write:repository",
       "agent": "confirm",
       "summary": "Review and merge the next item",
       "http": {
@@ -6524,6 +6718,7 @@
         "person"
       ],
       "minimumRole": "maintainer",
+      "credentialScope": "write:repository",
       "agent": "never",
       "summary": "Review & merge",
       "http": null,
@@ -6562,6 +6757,7 @@
         "app_agent"
       ],
       "minimumRole": "member",
+      "credentialScope": "write:repository",
       "agent": "run",
       "summary": "Models",
       "http": null,
@@ -6585,6 +6781,7 @@
         "person"
       ],
       "minimumRole": "owner",
+      "credentialScope": "write:repository",
       "agent": "never",
       "summary": "Assign model",
       "http": null,
@@ -6620,6 +6817,7 @@
         "person"
       ],
       "minimumRole": "owner",
+      "credentialScope": "write:repository",
       "agent": "never",
       "summary": "Edit model",
       "http": null,
@@ -6652,6 +6850,7 @@
         "app_agent"
       ],
       "minimumRole": "member",
+      "credentialScope": "write:repository",
       "agent": "run",
       "summary": "Models",
       "http": null,
@@ -6675,6 +6874,7 @@
         "person"
       ],
       "minimumRole": "owner",
+      "credentialScope": "write:repository",
       "agent": "never",
       "summary": "New model",
       "http": null,
@@ -6698,6 +6898,7 @@
         "person"
       ],
       "minimumRole": "owner",
+      "credentialScope": "write:repository",
       "agent": "never",
       "summary": "Remove model",
       "http": null,
@@ -6729,6 +6930,7 @@
         "person"
       ],
       "minimumRole": "owner",
+      "credentialScope": "write:repository",
       "agent": "never",
       "summary": "Save model",
       "http": null,
@@ -6799,6 +7001,7 @@
         "app_agent"
       ],
       "minimumRole": "member",
+      "credentialScope": "write:repository",
       "agent": "run",
       "summary": "Model",
       "http": null,
@@ -6830,6 +7033,7 @@
         "person"
       ],
       "minimumRole": "owner",
+      "credentialScope": "write:repository",
       "agent": "never",
       "summary": "Test model",
       "http": null,
@@ -6867,6 +7071,7 @@
         "external_agent"
       ],
       "minimumRole": "member",
+      "credentialScope": "write:repository",
       "agent": "run",
       "summary": "Every run, with its debug view",
       "http": {
@@ -6894,6 +7099,7 @@
         "person"
       ],
       "minimumRole": "member",
+      "credentialScope": "write:repository",
       "agent": "never",
       "summary": "Allow notifications",
       "http": null,
@@ -6917,6 +7123,7 @@
         "person"
       ],
       "minimumRole": "maintainer",
+      "credentialScope": "write:repository",
       "agent": "never",
       "summary": "OK",
       "http": null,
@@ -6949,6 +7156,7 @@
         "person"
       ],
       "minimumRole": "member",
+      "credentialScope": "write:repository",
       "agent": "never",
       "summary": "Open the actions panel for a palette item",
       "http": null,
@@ -6980,6 +7188,7 @@
         "person"
       ],
       "minimumRole": "member",
+      "credentialScope": "write:repository",
       "agent": "never",
       "summary": "Open the search palette (Cmd+K); a prefix opens it in that mode",
       "http": null,
@@ -7016,6 +7225,7 @@
         "app_agent"
       ],
       "minimumRole": "member",
+      "credentialScope": "write:repository",
       "agent": "run",
       "summary": "The palette's recent items as data: what was opened in the last seven days, most recent first",
       "http": null,
@@ -7045,6 +7255,7 @@
         "external_agent"
       ],
       "minimumRole": "member",
+      "credentialScope": "write:repository",
       "agent": "run",
       "summary": "Open a pull request's card",
       "http": null,
@@ -7095,6 +7306,7 @@
         "external_agent"
       ],
       "minimumRole": "member",
+      "credentialScope": "write:repository",
       "agent": "run",
       "summary": "Open a proposal",
       "http": null,
@@ -7129,6 +7341,7 @@
         "external_agent"
       ],
       "minimumRole": "member",
+      "credentialScope": "read:repository",
       "agent": "run",
       "summary": "proposals.read",
       "http": {
@@ -7156,6 +7369,7 @@
         "app_agent"
       ],
       "minimumRole": "member",
+      "credentialScope": "write:repository",
       "agent": "run",
       "summary": "List a repository's pull requests",
       "http": null,
@@ -7192,6 +7406,7 @@
         "app_agent"
       ],
       "minimumRole": "member",
+      "credentialScope": "write:repository",
       "agent": "confirm",
       "summary": "Land a pull request (queues the merge)",
       "http": null,
@@ -7246,6 +7461,7 @@
         "app_agent"
       ],
       "minimumRole": "member",
+      "credentialScope": "write:repository",
       "agent": "run",
       "summary": "List a repository's pull requests",
       "http": null,
@@ -7282,6 +7498,7 @@
         "app_agent"
       ],
       "minimumRole": "member",
+      "credentialScope": "write:repository",
       "agent": "run",
       "summary": "Review a pull request",
       "http": null,
@@ -7349,6 +7566,7 @@
         "app_agent"
       ],
       "minimumRole": "member",
+      "credentialScope": "write:repository",
       "agent": "run",
       "summary": "Show a pull request's conversation, commits, checks, or files",
       "http": null,
@@ -7391,6 +7609,7 @@
         "app_agent"
       ],
       "minimumRole": "member",
+      "credentialScope": "write:repository",
       "agent": "confirm",
       "summary": "Review a pull request",
       "http": null,
@@ -7445,6 +7664,7 @@
         "app_agent"
       ],
       "minimumRole": "member",
+      "credentialScope": "write:repository",
       "agent": "run",
       "summary": "Open a pull request with reviews and checks",
       "http": null,
@@ -7498,6 +7718,7 @@
         "person"
       ],
       "minimumRole": "owner",
+      "credentialScope": "write:repository",
       "agent": "never",
       "summary": "Setup",
       "http": null,
@@ -7521,6 +7742,7 @@
         "person"
       ],
       "minimumRole": "owner",
+      "credentialScope": "write:repository",
       "agent": "never",
       "summary": "Setup",
       "http": null,
@@ -7545,6 +7767,7 @@
         "app_agent"
       ],
       "minimumRole": "member",
+      "credentialScope": "write:repository",
       "agent": "run",
       "summary": "Show the repository update overview",
       "http": null,
@@ -7582,6 +7805,7 @@
         "external_agent"
       ],
       "minimumRole": "member",
+      "credentialScope": "read:repository",
       "agent": "run",
       "summary": "repo.read",
       "http": {
@@ -7608,6 +7832,7 @@
         "person"
       ],
       "minimumRole": "member",
+      "credentialScope": "write:repository",
       "agent": "never",
       "summary": "Make a pinned repository the active one",
       "http": null,
@@ -7640,6 +7865,7 @@
         "app_agent"
       ],
       "minimumRole": "member",
+      "credentialScope": "write:repository",
       "agent": "run",
       "summary": "Expand or collapse a directory of a working copy (a local checkout or a cloud workspace)",
       "http": null,
@@ -7682,6 +7908,7 @@
         "app_agent"
       ],
       "minimumRole": "member",
+      "credentialScope": "write:repository",
       "agent": "run",
       "summary": "Read repository activity into context without displaying an overview",
       "http": null,
@@ -7718,6 +7945,7 @@
         "app_agent"
       ],
       "minimumRole": "member",
+      "credentialScope": "write:repository",
       "agent": "run",
       "summary": "Import a GitHub repository into Smithers Cloud",
       "http": null,
@@ -7754,6 +7982,7 @@
         "app_agent"
       ],
       "minimumRole": "member",
+      "credentialScope": "write:repository",
       "agent": "run",
       "summary": "Retry a failed GitHub import job",
       "http": null,
@@ -7791,6 +8020,7 @@
         "external_agent"
       ],
       "minimumRole": "member",
+      "credentialScope": "write:repository",
       "agent": "confirm",
       "summary": "Review a change, return findings",
       "http": null,
@@ -7845,6 +8075,7 @@
         "app_agent"
       ],
       "minimumRole": "member",
+      "credentialScope": "write:repository",
       "agent": "run",
       "summary": "Acknowledge a done review comment: the reviewer accepts the author's work",
       "http": null,
@@ -7893,6 +8124,7 @@
         "app_agent"
       ],
       "minimumRole": "member",
+      "credentialScope": "write:repository",
       "agent": "run",
       "summary": "Mark a review comment done: the author addressed it at the current revision",
       "http": null,
@@ -7941,6 +8173,7 @@
         "app_agent"
       ],
       "minimumRole": "member",
+      "credentialScope": "write:repository",
       "agent": "run",
       "summary": "Reopen a done or resolved review comment",
       "http": null,
@@ -7989,6 +8222,7 @@
         "app_agent"
       ],
       "minimumRole": "member",
+      "credentialScope": "write:repository",
       "agent": "confirm",
       "summary": "Ask someone to review a change",
       "http": null,
@@ -8025,6 +8259,7 @@
         "app_agent"
       ],
       "minimumRole": "member",
+      "credentialScope": "write:repository",
       "agent": "run",
       "summary": "Open a change's diff since my last review",
       "http": null,
@@ -8057,6 +8292,7 @@
         "app_agent"
       ],
       "minimumRole": "member",
+      "credentialScope": "write:repository",
       "agent": "confirm",
       "summary": "Dismiss a review request on a change",
       "http": null,
@@ -8111,6 +8347,7 @@
         "external_agent"
       ],
       "minimumRole": "member",
+      "credentialScope": "write:repository",
       "agent": "run",
       "summary": "Open a run's card",
       "http": {
@@ -8152,6 +8389,7 @@
         "external_agent"
       ],
       "minimumRole": "member",
+      "credentialScope": "write:repository",
       "agent": "run",
       "summary": "Open a run's monitor",
       "http": {
@@ -8193,6 +8431,7 @@
         "external_agent"
       ],
       "minimumRole": "member",
+      "credentialScope": "write:repository",
       "agent": "run",
       "summary": "Active and attention-needing runs",
       "http": {
@@ -8221,6 +8460,7 @@
         "app_agent"
       ],
       "minimumRole": "member",
+      "credentialScope": "write:repository",
       "agent": "run",
       "summary": "Show pending approvals and parked or failed runs on this repository",
       "http": null,
@@ -8267,6 +8507,7 @@
         "app_agent"
       ],
       "minimumRole": "member",
+      "credentialScope": "write:repository",
       "agent": "run",
       "summary": "Inspect or collapse a predicted Change in a coding run",
       "http": null,
@@ -8312,6 +8553,7 @@
         "person"
       ],
       "minimumRole": "member",
+      "credentialScope": "write:repository",
       "agent": "never",
       "summary": "Approve a runaway guard's request, which resumes the run",
       "http": null,
@@ -8358,6 +8600,7 @@
         "app_agent"
       ],
       "minimumRole": "member",
+      "credentialScope": "write:repository",
       "agent": "run",
       "summary": "Show a run's raw events on its card (verbose)",
       "http": null,
@@ -8400,6 +8643,7 @@
         "app_agent"
       ],
       "minimumRole": "member",
+      "credentialScope": "write:repository",
       "agent": "run",
       "summary": "Draw one execution of a run's forest on its graph, or the run's own",
       "http": null,
@@ -8452,6 +8696,7 @@
         "app_agent"
       ],
       "minimumRole": "member",
+      "credentialScope": "write:repository",
       "agent": "run",
       "summary": "Keep a run graph's camera on the running node, or let it be",
       "http": null,
@@ -8502,6 +8747,7 @@
         "app_agent"
       ],
       "minimumRole": "member",
+      "credentialScope": "write:repository",
       "agent": "run",
       "summary": "Open one node of a run's graph, or close the one that is open",
       "http": null,
@@ -8554,6 +8800,7 @@
         "app_agent"
       ],
       "minimumRole": "member",
+      "credentialScope": "write:repository",
       "agent": "run",
       "summary": "Show one tab of the node a run's graph has open",
       "http": null,
@@ -8608,6 +8855,7 @@
         "app_agent"
       ],
       "minimumRole": "member",
+      "credentialScope": "write:repository",
       "agent": "run",
       "summary": "List the runs on your workspace",
       "http": null,
@@ -8694,6 +8942,7 @@
         "app_agent"
       ],
       "minimumRole": "member",
+      "credentialScope": "write:repository",
       "agent": "run",
       "summary": "Show a run's transcript on its card (--follow keeps it live)",
       "http": null,
@@ -8746,6 +8995,7 @@
         "app_agent"
       ],
       "minimumRole": "member",
+      "credentialScope": "write:repository",
       "agent": "run",
       "summary": "Open a run as a card that tracks it",
       "http": null,
@@ -8808,6 +9058,7 @@
         "app_agent"
       ],
       "minimumRole": "member",
+      "credentialScope": "write:repository",
       "agent": "confirm",
       "summary": "Run a run's flow again with the same input",
       "http": null,
@@ -8850,6 +9101,7 @@
         "app_agent"
       ],
       "minimumRole": "member",
+      "credentialScope": "write:repository",
       "agent": "confirm",
       "summary": "Resume a parked run",
       "http": null,
@@ -8892,6 +9144,7 @@
         "app_agent"
       ],
       "minimumRole": "member",
+      "credentialScope": "write:repository",
       "agent": "confirm",
       "summary": "Deliver a named signal to a waiting run",
       "http": null,
@@ -8948,6 +9201,7 @@
         "app_agent"
       ],
       "minimumRole": "member",
+      "credentialScope": "write:repository",
       "agent": "run",
       "summary": "Show a run's steps on its card",
       "http": null,
@@ -8990,6 +9244,7 @@
         "app_agent"
       ],
       "minimumRole": "member",
+      "credentialScope": "write:repository",
       "agent": "run",
       "summary": "Filter a run's trace: all, running, failed, model, flow or messages",
       "http": null,
@@ -9044,6 +9299,7 @@
         "app_agent"
       ],
       "minimumRole": "member",
+      "credentialScope": "write:repository",
       "agent": "run",
       "summary": "Return a run's trace to its latest recorded turn",
       "http": null,
@@ -9086,6 +9342,7 @@
         "app_agent"
       ],
       "minimumRole": "member",
+      "credentialScope": "write:repository",
       "agent": "run",
       "summary": "Select a node of a run's trace, optionally scrubbing to a journal seq",
       "http": null,
@@ -9154,6 +9411,7 @@
         "app_agent"
       ],
       "minimumRole": "member",
+      "credentialScope": "write:repository",
       "agent": "run",
       "summary": "Show a run's turn explanations, full execution timeline, graph, step list or DevTools in its embedded card",
       "http": null,
@@ -9212,6 +9470,7 @@
         "external_agent"
       ],
       "minimumRole": "member",
+      "credentialScope": "write:repository",
       "agent": "run",
       "summary": "Search code, wiki and runs",
       "http": {
@@ -9264,6 +9523,7 @@
         "app_agent"
       ],
       "minimumRole": "member",
+      "credentialScope": "write:repository",
       "agent": "run",
       "summary": "Find changes by id or title",
       "http": null,
@@ -9296,6 +9556,7 @@
         "app_agent"
       ],
       "minimumRole": "member",
+      "credentialScope": "write:repository",
       "agent": "run",
       "summary": "Find files by fuzzy path among the directories the app has listed",
       "http": null,
@@ -9328,6 +9589,7 @@
         "app_agent"
       ],
       "minimumRole": "member",
+      "credentialScope": "write:repository",
       "agent": "run",
       "summary": "The slash tree as data: every flow this session may run",
       "http": null,
@@ -9360,6 +9622,7 @@
         "app_agent"
       ],
       "minimumRole": "member",
+      "credentialScope": "write:repository",
       "agent": "run",
       "summary": "Find changes in the history",
       "http": null,
@@ -9392,6 +9655,7 @@
         "app_agent"
       ],
       "minimumRole": "member",
+      "credentialScope": "write:repository",
       "agent": "run",
       "summary": "Find issues by number or title",
       "http": null,
@@ -9424,6 +9688,7 @@
         "app_agent"
       ],
       "minimumRole": "member",
+      "credentialScope": "write:repository",
       "agent": "run",
       "summary": "Find runs by id, flow or status",
       "http": null,
@@ -9456,6 +9721,7 @@
         "app_agent"
       ],
       "minimumRole": "member",
+      "credentialScope": "write:repository",
       "agent": "run",
       "summary": "Find secret names and the hosts they bind to; values never exist on the wire",
       "http": null,
@@ -9488,6 +9754,7 @@
         "app_agent"
       ],
       "minimumRole": "member",
+      "credentialScope": "write:repository",
       "agent": "run",
       "summary": "Find wiki pages and notes by title",
       "http": null,
@@ -9521,6 +9788,7 @@
         "person"
       ],
       "minimumRole": "member",
+      "credentialScope": "write:repository",
       "agent": "never",
       "summary": "Set secrets machines can use",
       "http": null,
@@ -9556,6 +9824,7 @@
         "person"
       ],
       "minimumRole": "maintainer",
+      "credentialScope": "write:repository",
       "agent": "never",
       "summary": "Set the hosts and headers a repository secret may be sent to",
       "http": null,
@@ -9605,6 +9874,7 @@
         "person"
       ],
       "minimumRole": "owner",
+      "credentialScope": "write:repository",
       "agent": "never",
       "summary": "Settings",
       "http": null,
@@ -9628,6 +9898,7 @@
         "person"
       ],
       "minimumRole": "owner",
+      "credentialScope": "write:repository",
       "agent": "never",
       "summary": "Settings",
       "http": null,
@@ -9651,6 +9922,7 @@
         "person"
       ],
       "minimumRole": "owner",
+      "credentialScope": "write:repository",
       "agent": "never",
       "summary": "Settings",
       "http": null,
@@ -9674,6 +9946,7 @@
         "person"
       ],
       "minimumRole": "maintainer",
+      "credentialScope": "write:repository",
       "agent": "never",
       "summary": "Delete a repository secret",
       "http": null,
@@ -9715,6 +9988,7 @@
         "person"
       ],
       "minimumRole": "owner",
+      "credentialScope": "write:repository",
       "agent": "never",
       "summary": "Settings",
       "http": null,
@@ -9738,6 +10012,7 @@
         "person"
       ],
       "minimumRole": "member",
+      "credentialScope": "read:repository",
       "agent": "never",
       "summary": "secrets.read",
       "http": {
@@ -9764,6 +10039,7 @@
         "person"
       ],
       "minimumRole": "owner",
+      "credentialScope": "write:repository",
       "agent": "never",
       "summary": "Settings",
       "http": null,
@@ -9787,6 +10063,7 @@
         "person"
       ],
       "minimumRole": "maintainer",
+      "credentialScope": "write:repository",
       "agent": "never",
       "summary": "Limit a repository secret to trusted runs on main, or give it to all branches",
       "http": null,
@@ -9836,6 +10113,7 @@
         "person"
       ],
       "minimumRole": "maintainer",
+      "credentialScope": "write:repository",
       "agent": "never",
       "summary": "Add a repository secret or replace its value",
       "http": null,
@@ -9923,6 +10201,7 @@
         "external_agent"
       ],
       "minimumRole": "member",
+      "credentialScope": "read:user",
       "agent": "run",
       "summary": "self.read",
       "http": {
@@ -9951,6 +10230,7 @@
         "person"
       ],
       "minimumRole": "owner",
+      "credentialScope": "write:repository",
       "agent": "never",
       "summary": "Model access, machines, GitHub (owner)",
       "http": null,
@@ -9974,6 +10254,7 @@
         "person"
       ],
       "minimumRole": "owner",
+      "credentialScope": "write:repository",
       "agent": "never",
       "summary": "Change Address",
       "http": null,
@@ -10020,6 +10301,7 @@
         "person"
       ],
       "minimumRole": "owner",
+      "credentialScope": "write:repository",
       "agent": "never",
       "summary": "Change Machines",
       "http": null,
@@ -10063,6 +10345,7 @@
         "person"
       ],
       "minimumRole": "owner",
+      "credentialScope": "write:repository",
       "agent": "never",
       "summary": "Change TODOs per day",
       "http": null,
@@ -10106,6 +10389,7 @@
         "person"
       ],
       "minimumRole": "owner",
+      "credentialScope": "write:repository",
       "agent": "never",
       "summary": "Change model key",
       "http": null,
@@ -10166,6 +10450,7 @@
         "person"
       ],
       "minimumRole": "owner",
+      "credentialScope": "write:repository",
       "agent": "never",
       "summary": "Change model",
       "http": null,
@@ -10207,6 +10492,7 @@
         "person"
       ],
       "minimumRole": "owner",
+      "credentialScope": "write:repository",
       "agent": "never",
       "summary": "Change Obsidian folder",
       "http": null,
@@ -10238,6 +10524,7 @@
         "person"
       ],
       "minimumRole": "owner",
+      "credentialScope": "write:repository",
       "agent": "never",
       "summary": "Change At once",
       "http": null,
@@ -10281,6 +10568,7 @@
         "person"
       ],
       "minimumRole": "owner",
+      "credentialScope": "write:repository",
       "agent": "never",
       "summary": "Continue setup",
       "http": null,
@@ -10366,6 +10654,7 @@
         "person"
       ],
       "minimumRole": "member",
+      "credentialScope": "write:repository",
       "agent": "never",
       "summary": "Sign in with GitHub",
       "http": null,
@@ -10391,6 +10680,7 @@
         "person"
       ],
       "minimumRole": "member",
+      "credentialScope": "write:repository",
       "agent": "never",
       "summary": "Sign in with GitHub",
       "http": null,
@@ -10416,6 +10706,7 @@
         "person"
       ],
       "minimumRole": "member",
+      "credentialScope": "write:repository",
       "agent": "never",
       "summary": "Copy the SSH line for a branch",
       "http": null,
@@ -10453,6 +10744,7 @@
         "external_agent"
       ],
       "minimumRole": "member",
+      "credentialScope": "write:repository",
       "agent": "run",
       "summary": "Show the stack and background runs",
       "http": {
@@ -10486,6 +10778,7 @@
         "external_agent"
       ],
       "minimumRole": "member",
+      "credentialScope": "write:repository",
       "agent": "run",
       "summary": "Reorder an item",
       "http": {
@@ -10532,6 +10825,7 @@
         "person"
       ],
       "minimumRole": "member",
+      "credentialScope": "write:repository",
       "agent": "never",
       "summary": "Stop the current answer",
       "http": null,
@@ -10556,6 +10850,7 @@
         "app_agent"
       ],
       "minimumRole": "member",
+      "credentialScope": "write:repository",
       "agent": "run",
       "summary": "Offer a private local recovery download in the chat",
       "http": null,
@@ -10579,6 +10874,7 @@
         "person"
       ],
       "minimumRole": "member",
+      "credentialScope": "write:repository",
       "agent": "never",
       "summary": "Download a private local recovery file",
       "http": null,
@@ -10603,6 +10899,7 @@
         "person"
       ],
       "minimumRole": "member",
+      "credentialScope": "write:repository",
       "agent": "never",
       "summary": "Reset this browser's data",
       "http": null,
@@ -10628,6 +10925,7 @@
         "app_agent"
       ],
       "minimumRole": "member",
+      "credentialScope": "write:repository",
       "agent": "run",
       "summary": "Widen a sync card's ops window",
       "http": null,
@@ -10661,6 +10959,7 @@
         "external_agent"
       ],
       "minimumRole": "member",
+      "credentialScope": "read:repository",
       "agent": "run",
       "summary": "sync.read",
       "http": {
@@ -10688,6 +10987,7 @@
         "app_agent"
       ],
       "minimumRole": "member",
+      "credentialScope": "write:repository",
       "agent": "run",
       "summary": "Retry sync",
       "http": {
@@ -10716,6 +11016,7 @@
         "external_agent"
       ],
       "minimumRole": "member",
+      "credentialScope": "read:user",
       "agent": "run",
       "summary": "Report error",
       "http": {
@@ -10746,6 +11047,7 @@
         "app_agent"
       ],
       "minimumRole": "member",
+      "credentialScope": "write:repository",
       "agent": "run",
       "summary": "Open a terminal on a branch",
       "http": null,
@@ -10778,6 +11080,7 @@
         "app_agent"
       ],
       "minimumRole": "member",
+      "credentialScope": "write:repository",
       "agent": "run",
       "summary": "Run a command in your terminal",
       "http": null,
@@ -10813,6 +11116,7 @@
         "person"
       ],
       "minimumRole": "member",
+      "credentialScope": "write:repository",
       "agent": "never",
       "summary": "Watch a terminal",
       "http": null,
@@ -10845,6 +11149,7 @@
         "app_agent"
       ],
       "minimumRole": "member",
+      "credentialScope": "write:repository",
       "agent": "run",
       "summary": "Switch light or dark",
       "http": null,
@@ -10884,6 +11189,7 @@
         "person"
       ],
       "minimumRole": "member",
+      "credentialScope": "write:repository",
       "agent": "never",
       "summary": "Dismiss a toast notification",
       "http": null,
@@ -10923,6 +11229,7 @@
         "external_agent"
       ],
       "minimumRole": "member",
+      "credentialScope": "write:repository",
       "agent": "run",
       "summary": "Open a TODO",
       "http": {
@@ -10965,6 +11272,7 @@
         "external_agent"
       ],
       "minimumRole": "member",
+      "credentialScope": "write:repository",
       "agent": "confirm",
       "summary": "Change an unmerged TODO's prompt",
       "http": {
@@ -11052,6 +11360,7 @@
         "external_agent"
       ],
       "minimumRole": "member",
+      "credentialScope": "write:repository",
       "agent": "run",
       "summary": "Answer the agent's question",
       "http": {
@@ -11111,6 +11420,7 @@
         "external_agent"
       ],
       "minimumRole": "member",
+      "credentialScope": "write:repository",
       "agent": "confirm",
       "summary": "Abandon an unmerged TODO",
       "http": {
@@ -11156,6 +11466,7 @@
         "external_agent"
       ],
       "minimumRole": "member",
+      "credentialScope": "write:repository",
       "agent": "confirm",
       "summary": "Draft a TODO from an issue",
       "http": null,
@@ -11209,6 +11520,7 @@
         "person"
       ],
       "minimumRole": "member",
+      "credentialScope": "write:repository",
       "agent": "never",
       "summary": "Keep for now",
       "http": null,
@@ -11249,6 +11561,7 @@
         "external_agent"
       ],
       "minimumRole": "member",
+      "credentialScope": "write:repository",
       "agent": "confirm",
       "summary": "Write and place a TODO",
       "http": {
@@ -11364,6 +11677,7 @@
         "person"
       ],
       "minimumRole": "maintainer",
+      "credentialScope": "write:repository",
       "agent": "never",
       "summary": "Pre-approve",
       "http": null,
@@ -11398,6 +11712,7 @@
         "external_agent"
       ],
       "minimumRole": "member",
+      "credentialScope": "read:repository",
       "agent": "run",
       "summary": "todo.read",
       "http": {
@@ -11431,6 +11746,7 @@
         "external_agent"
       ],
       "minimumRole": "member",
+      "credentialScope": "write:repository",
       "agent": "run",
       "summary": "Resume a paused TODO",
       "http": {
@@ -11476,6 +11792,7 @@
         "external_agent"
       ],
       "minimumRole": "member",
+      "credentialScope": "write:repository",
       "agent": "run",
       "summary": "Retry a failed TODO",
       "http": {
@@ -11525,6 +11842,7 @@
         "app_agent"
       ],
       "minimumRole": "member",
+      "credentialScope": "write:repository",
       "agent": "run",
       "summary": "Retry with the current flow",
       "http": null,
@@ -11568,6 +11886,7 @@
         "app_agent"
       ],
       "minimumRole": "member",
+      "credentialScope": "write:repository",
       "agent": "run",
       "summary": "Return to this TODO",
       "http": null,
@@ -11608,6 +11927,7 @@
         "external_agent"
       ],
       "minimumRole": "member",
+      "credentialScope": "write:repository",
       "agent": "run",
       "summary": "Send the agent a correction",
       "http": {
@@ -11658,6 +11978,7 @@
         "external_agent"
       ],
       "minimumRole": "member",
+      "credentialScope": "write:repository",
       "agent": "run",
       "summary": "Pause a working TODO",
       "http": {
@@ -11696,6 +12017,7 @@
         "person"
       ],
       "minimumRole": "maintainer",
+      "credentialScope": "write:repository",
       "agent": "never",
       "summary": "Take over",
       "http": null,
@@ -11728,6 +12050,7 @@
         "person"
       ],
       "minimumRole": "maintainer",
+      "credentialScope": "write:repository",
       "agent": "never",
       "summary": "Remove pre-approval",
       "http": null,
@@ -11760,6 +12083,7 @@
         "person"
       ],
       "minimumRole": "member",
+      "credentialScope": "write:repository",
       "agent": "never",
       "summary": "Approve the previewed plan and register the schedule",
       "http": null,
@@ -11876,6 +12200,7 @@
         "app_agent"
       ],
       "minimumRole": "member",
+      "credentialScope": "write:repository",
       "agent": "run",
       "summary": "Show the dispatcher: the events the repository's rules wait for and the flows they start",
       "http": null,
@@ -11912,6 +12237,7 @@
         "app_agent"
       ],
       "minimumRole": "member",
+      "credentialScope": "write:repository",
       "agent": "confirm",
       "summary": "Pause a schedule",
       "http": null,
@@ -11954,6 +12280,7 @@
         "app_agent"
       ],
       "minimumRole": "member",
+      "credentialScope": "write:repository",
       "agent": "run",
       "summary": "Register a repository flow to run on a schedule",
       "http": null,
@@ -12046,6 +12373,7 @@
         "app_agent"
       ],
       "minimumRole": "member",
+      "credentialScope": "write:repository",
       "agent": "confirm",
       "summary": "Resume a paused schedule with its reviewed configuration",
       "http": null,
@@ -12088,6 +12416,7 @@
         "app_agent"
       ],
       "minimumRole": "member",
+      "credentialScope": "write:repository",
       "agent": "confirm",
       "summary": "Run a registered schedule now",
       "http": null,
@@ -12136,6 +12465,7 @@
         "external_agent"
       ],
       "minimumRole": "member",
+      "credentialScope": "write:repository",
       "agent": "run",
       "summary": "Open the wiki",
       "http": null,
@@ -12159,6 +12489,7 @@
         "person"
       ],
       "minimumRole": "member",
+      "credentialScope": "write:repository",
       "agent": "never",
       "summary": "Attach a file to the repository Wiki",
       "http": null,
@@ -12205,6 +12536,7 @@
         "app_agent"
       ],
       "minimumRole": "member",
+      "credentialScope": "write:repository",
       "agent": "run",
       "summary": "Notes that link to a note, and where it links out",
       "http": null,
@@ -12237,6 +12569,7 @@
         "app_agent"
       ],
       "minimumRole": "member",
+      "credentialScope": "write:repository",
       "agent": "run",
       "summary": "Select a page in an embedded Wiki card",
       "http": null,
@@ -12273,6 +12606,7 @@
         "app_agent"
       ],
       "minimumRole": "member",
+      "credentialScope": "write:repository",
       "agent": "run",
       "summary": "Show a Wiki page outline or its Markdown document",
       "http": null,
@@ -12314,6 +12648,7 @@
         "app_agent"
       ],
       "minimumRole": "member",
+      "credentialScope": "write:repository",
       "agent": "run",
       "summary": "Browse the repository Wiki",
       "http": null,
@@ -12382,6 +12717,7 @@
         "app_agent"
       ],
       "minimumRole": "member",
+      "credentialScope": "write:repository",
       "agent": "confirm",
       "summary": "Delete a Wiki page; its history stays",
       "http": null,
@@ -12424,6 +12760,7 @@
         "app_agent"
       ],
       "minimumRole": "member",
+      "credentialScope": "write:repository",
       "agent": "run",
       "summary": "Create a page in the repository Wiki",
       "http": null,
@@ -12466,6 +12803,7 @@
         "app_agent"
       ],
       "minimumRole": "member",
+      "credentialScope": "write:repository",
       "agent": "run",
       "summary": "Open a collaborative repository Wiki page in the conversation",
       "http": null,
@@ -12516,6 +12854,7 @@
         "app_agent"
       ],
       "minimumRole": "member",
+      "credentialScope": "write:repository",
       "agent": "run",
       "summary": "Move a Wiki page to another path",
       "http": null,
@@ -12568,6 +12907,7 @@
         "app_agent"
       ],
       "minimumRole": "member",
+      "credentialScope": "write:repository",
       "agent": "confirm",
       "summary": "Refresh the repository Wiki in the background",
       "http": null,
@@ -12601,6 +12941,7 @@
         "app_agent"
       ],
       "minimumRole": "member",
+      "credentialScope": "write:repository",
       "agent": "run",
       "summary": "Delete a Wiki note",
       "http": null,
@@ -12632,6 +12973,7 @@
         "person"
       ],
       "minimumRole": "member",
+      "credentialScope": "write:repository",
       "agent": "never",
       "summary": "Keep the note Smithers asked about",
       "http": null,
@@ -12655,6 +12997,7 @@
         "person"
       ],
       "minimumRole": "member",
+      "credentialScope": "write:repository",
       "agent": "never",
       "summary": "Delete the note Smithers asked about",
       "http": null,
@@ -12679,6 +13022,7 @@
         "app_agent"
       ],
       "minimumRole": "member",
+      "credentialScope": "write:repository",
       "agent": "run",
       "summary": "Edit a Wiki page as Markdown",
       "http": null,
@@ -12715,6 +13059,7 @@
         "app_agent"
       ],
       "minimumRole": "member",
+      "credentialScope": "write:repository",
       "agent": "run",
       "summary": "The Wiki link graph, whole or around one note",
       "http": null,
@@ -12750,6 +13095,7 @@
         "person"
       ],
       "minimumRole": "member",
+      "credentialScope": "write:repository",
       "agent": "never",
       "summary": "Scroll the open note to a heading",
       "http": null,
@@ -12792,6 +13138,7 @@
         "app_agent"
       ],
       "minimumRole": "member",
+      "credentialScope": "write:repository",
       "agent": "run",
       "summary": "Show a Wiki page's history: every revision, renames and the deletion included",
       "http": null,
@@ -12870,6 +13217,7 @@
         "app_agent"
       ],
       "minimumRole": "member",
+      "credentialScope": "write:repository",
       "agent": "run",
       "summary": "Create a Wiki note",
       "http": null,
@@ -12894,6 +13242,7 @@
         "app_agent"
       ],
       "minimumRole": "member",
+      "credentialScope": "write:repository",
       "agent": "run",
       "summary": "Open a Wiki note by path or title",
       "http": null,
@@ -12932,6 +13281,7 @@
         "external_agent"
       ],
       "minimumRole": "member",
+      "credentialScope": "write:repository",
       "agent": "run",
       "summary": "Open or create a page",
       "http": null,
@@ -12975,6 +13325,7 @@
         "person"
       ],
       "minimumRole": "member",
+      "credentialScope": "write:repository",
       "agent": "never",
       "summary": "Open the Wiki beside the chat",
       "http": null,
@@ -13000,6 +13351,7 @@
         "external_agent"
       ],
       "minimumRole": "member",
+      "credentialScope": "read:repository",
       "agent": "run",
       "summary": "wiki.read",
       "http": {
@@ -13033,6 +13385,7 @@
         "external_agent"
       ],
       "minimumRole": "member",
+      "credentialScope": "write:repository",
       "agent": "run",
       "summary": "Save this answer as a page",
       "http": null,
@@ -13076,6 +13429,7 @@
         "app_agent"
       ],
       "minimumRole": "member",
+      "credentialScope": "write:repository",
       "agent": "run",
       "summary": "Open a Wiki note",
       "http": null,
@@ -13108,6 +13462,7 @@
         "app_agent"
       ],
       "minimumRole": "member",
+      "credentialScope": "write:repository",
       "agent": "run",
       "summary": "Show the public or the private part of the repository Wiki",
       "http": null,
@@ -13154,6 +13509,7 @@
         "app_agent"
       ],
       "minimumRole": "member",
+      "credentialScope": "write:repository",
       "agent": "run",
       "summary": "Refresh a cloud Wiki page and retry its saved edits",
       "http": null,
@@ -13186,6 +13542,7 @@
         "app_agent"
       ],
       "minimumRole": "member",
+      "credentialScope": "write:repository",
       "agent": "run",
       "summary": "Show the Wiki page rendered, or its editor",
       "http": null,

@@ -166,3 +166,25 @@ func TestTerminalProfileCannotUsePersonOnlyCommands(t *testing.T) {
 		assert.Equal(t, "permission", refusal.Code, command)
 	}
 }
+
+func TestInstallCommandCatalogScopes(t *testing.T) {
+	for _, tt := range []struct{ command, scope string }{
+		{"todo.new", "write:repository"}, {"todo.read", "read:repository"}, {"members.list", "read:repository"},
+		{"secrets.write", "write:repository"}, {"self.read", "read:user"}, {"agent.turn", "read:user"}, {"telemetry.report", "read:user"},
+	} {
+		policy, ok := installCommandPolicy(tt.command)
+		assert.True(t, ok)
+		assert.Equal(t, tt.scope, policy.CredentialScope, tt.command)
+	}
+}
+
+func TestUnknownDelegatedActorCannotRequestPersonAuthority(t *testing.T) {
+	for _, command := range []string{"members.write", "secrets.write", "todo.new", "todo.read"} {
+		info := &middleware.AuthInfo{User: &db.User{ID: 7}, IsTokenAuth: true, TokenSystemIssued: true, RawScopes: "write:repository,via:unknown-tool", Scopes: middleware.ParseTokenScopes("write:repository")}
+		_, err := Authorize(middleware.ContextWithAuthInfo(context.Background(), info), nil, command)
+		var access *AccessError
+		assert.ErrorAs(t, err, &access)
+		assert.Equal(t, 403, access.Status)
+		assert.Equal(t, "permission", access.Code)
+	}
+}

@@ -23,10 +23,11 @@ import (
 // CatalogPolicy is generated from the same Operation descriptors the host and
 // CLI consume. It is not a second declaration of command policy.
 type CatalogPolicy struct {
-	Agent       string   `json:"agent"`
-	MinimumRole string   `json:"minimumRole"`
-	Actors      []string `json:"actors"`
-	Visibility  string   `json:"visibility"`
+	CredentialScope string   `json:"credentialScope"`
+	Agent           string   `json:"agent"`
+	MinimumRole     string   `json:"minimumRole"`
+	Actors          []string `json:"actors"`
+	Visibility      string   `json:"visibility"`
 }
 
 var operationCatalog = func() map[string]CatalogPolicy {

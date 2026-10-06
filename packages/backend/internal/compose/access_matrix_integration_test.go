@@ -159,6 +159,13 @@ func TestAccessMatrixConfirmationDispatchComposedInstall(t *testing.T) {
 			require.Equal(t, tc.codes[i], result["code"])
 		}
 	}
+	_, err = pool.Exec(ctx, `UPDATE access_tokens SET scopes='write:repository,read:user,via:unlisted-tool' WHERE token_hash=$1`, hashes[0])
+	require.NoError(t, err)
+	status, unknown := call(0, false, "/api/todos", "unknown-actor", `{"title":"No new TODO","prompt":"No new TODO"}`)
+	require.Equal(t, 403, status, unknown)
+	require.Equal(t, "permission", unknown["code"])
+	require.Equal(t, 3, count("approvals"))
+	require.Equal(t, 3, count("mythical_items"))
 	_, err = pool.Exec(ctx, `DELETE FROM access_tokens WHERE token_hash=$1`, hashes[2])
 	require.NoError(t, err)
 	status, result := call(2, false, "/api/todos", "new-alice", `{"title":"Keep greeting","prompt":"Keep greeting","acceptance":[]}`)

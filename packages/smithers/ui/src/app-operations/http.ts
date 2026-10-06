@@ -6,7 +6,7 @@ import { NoInput, operation } from "./index"
 
 const read = (name: string, path: string, agent: "run" | "never" = "run", minimumRole: "member" | "owner" = "member") =>
   operation({ name, input: NoInput, summary: name, hidden: true, visibility: "hidden", slash: null, cli: null,
-    http: { method: "GET", path }, minimumRole, agent,
+    http: { method: "GET", path }, minimumRole, agent, credentialScope: name === "self.read" ? "read:user" : "read:repository",
     actors: agent === "never" ? ["person"] : ["person", "app_agent", "external_agent"] })
 
 export const httpProjections = [
@@ -27,7 +27,9 @@ export const httpProjections = [
   read("confirmations.read", "/api/confirmations"),
   read("members.list", "/api/members", "never"),
   read("secrets.read", "/api/secrets", "never"),
-  operation({ name: "telemetry.report", input: NoInput, summary: "Report error", hidden: true, visibility: "hidden", agent: "run",
+  operation({ name: "agent.turn", input: NoInput, summary: "Ask agent", hidden: true, visibility: "hidden", agent: "run", credentialScope: "read:user",
+    actors: ["person", "app_agent", "external_agent"], minimumRole: "member", http: { method: "POST", path: "/api/agent/turn" } }),
+  operation({ name: "telemetry.report", credentialScope: "read:user", input: NoInput, summary: "Report error", hidden: true, visibility: "hidden", agent: "run",
     actors: ["person", "app_agent", "external_agent"], minimumRole: "member", http: { method: "POST", path: "/api/telemetry/errors" } }),
   operation({ name: "sync.retry", input: NoInput, summary: "Retry sync", hidden: true, visibility: "hidden", agent: "run",
     actors: ["person", "app_agent"], minimumRole: "member", http: { method: "POST", path: "/api/github/sync" } })
