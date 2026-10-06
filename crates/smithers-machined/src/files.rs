@@ -13,32 +13,6 @@ pub struct Files {
     next: Arc<dyn Core>,
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use std::sync::atomic::{AtomicBool, Ordering};
-    struct Restorer(AtomicBool);
-    impl Core for Restorer {
-        fn restore_rewrite(&self, _: &mut LockCx) -> hooks::Result<()> {
-            self.0.store(true, Ordering::Release);
-            Ok(())
-        }
-    }
-    #[test]
-    fn wrapper_delegates_rewrite_restore_to_native_core() {
-        let next = Arc::new(Restorer(AtomicBool::new(false)));
-        // No file operation occurs; the test exercises the wrapper's Core
-        // forwarding contract independently of privileged startup admission.
-        let files = Files {
-            workspace: File::open("/").unwrap(),
-            next: next.clone(),
-        };
-        files
-            .restore_rewrite(&mut LockCx::new(Default::default()))
-            .unwrap();
-        assert!(next.0.load(Ordering::Acquire));
-    }
-}
 fn error(code: u8) -> Error {
     Error {
         code,
@@ -137,5 +111,32 @@ impl Core for Files {
     }
     fn restore_rewrite(&self, cx: &mut LockCx) -> hooks::Result<()> {
         self.next.restore_rewrite(cx)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::sync::atomic::{AtomicBool, Ordering};
+    struct Restorer(AtomicBool);
+    impl Core for Restorer {
+        fn restore_rewrite(&self, _: &mut LockCx) -> hooks::Result<()> {
+            self.0.store(true, Ordering::Release);
+            Ok(())
+        }
+    }
+    #[test]
+    fn wrapper_delegates_rewrite_restore_to_native_core() {
+        let next = Arc::new(Restorer(AtomicBool::new(false)));
+        // No file operation occurs; the test exercises the wrapper's Core
+        // forwarding contract independently of privileged startup admission.
+        let files = Files {
+            workspace: File::open("/").unwrap(),
+            next: next.clone(),
+        };
+        files
+            .restore_rewrite(&mut LockCx::new(Default::default()))
+            .unwrap();
+        assert!(next.0.load(Ordering::Acquire));
     }
 }
