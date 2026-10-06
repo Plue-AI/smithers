@@ -335,7 +335,7 @@ const machineEvidence = (repository: Repository): MachineRecipe => {
     }
   }
   if (file !== "package.json" && !numeric(version)) fail(file, "expected one numeric version")
-  if (has("package.json") || version !== "") tool("node", version, file, file === "package.json")
+  if (has("package.json") || version !== "") tool("node", version.replace(/^v/, ""), file, file === "package.json")
   const { manager, managerVersion, managerFile, chosen } = managerEvidence(repository)
   if (manager !== "") {
     if (r.tools.node === undefined) tool("node", "", managerFile)
