@@ -44,7 +44,7 @@ func TestSharedConversationRetainsSelectedContext(t *testing.T) {
 	// Unknown producer data must not cross the shared selection projection.
 	selected = strings.Replace(selected, `"reason":"Retry code"`, `"reason":"Retry code","private":"canary-B"`, 1)
 	selected = strings.Replace(selected, `"type":"context.preflight"`, `"type":"context.preflight","phase":"completed"`, 1)
-	selected = strings.Replace(selected, `"candidates":[`, `"candidates":[{"kind":"file","label":"canary-C","ref":"private"},`, 1)
+	selected = strings.Replace(selected, `"candidates":[`, `"candidates":[{"kind":"todo","label":"T1","ref":"T1","text":"canary-C"},`, 1)
 	started := strings.Replace(selected, `"phase":"completed"`, `"phase":"started"`, 1)
 	started = strings.Replace(started, `"reason":"Retry code"`, `"reason":"canary-D"`, 1)
 	_, err = store.Commit(ctx, CommitInput{TurnID: grant.TurnID, Generation: grant.Generation, Token: grant.Token, Expected: grant.Cursor, Frames: []json.RawMessage{json.RawMessage(started), json.RawMessage(selected), frame("context-run", "Retries three times"), done("context-run", "stop")}})
@@ -70,7 +70,11 @@ func TestSharedConversationRetainsSelectedContext(t *testing.T) {
 		require.NotContains(t, string(raw), "canary-B")
 		require.NotContains(t, string(raw), "canary-C")
 		require.NotContains(t, string(raw), "canary-D")
-		require.NotContains(t, string(raw), "owner-fast")
+		require.NotNil(t, body.Entries[0].Preflight)
+		require.Equal(t, "owner-fast", body.Entries[0].Preflight.Model)
+		require.Equal(t, float64(12), body.Entries[0].Preflight.DurationMs)
+		require.Len(t, body.Entries[0].Preflight.Candidates, 2)
+		require.JSONEq(t, `{"kind":"todo","label":"T1","ref":"T1"}`, string(body.Entries[0].Preflight.Candidates[0]))
 		require.Len(t, body.Entries[0].Frames, 2)
 	}
 	_, err = pool.Exec(ctx, `UPDATE collaborators SET suspended_at=now() WHERE repository_id=$1 AND user_id=$2`, repo.ID, userID)
@@ -96,6 +100,7 @@ func TestSharedConversationAssemblesPreflightAcrossReplayPages(t *testing.T) {
 			shared, err := f.handler.Store.SharedEntries(t.Context(), f.scope, "main")
 			require.NoError(t, err)
 			require.Nil(t, shared.Entries[0].Context, "19 valid pages are not a completed selection")
+			require.Nil(t, shared.Entries[0].Preflight)
 		}
 	}
 	_, err := f.handler.Store.Commit(t.Context(), CommitInput{TurnID: grant.TurnID, Generation: grant.Generation, Token: grant.Token, Expected: grant.Cursor, Frames: []json.RawMessage{done(grant.RunID, "stop")}})
@@ -106,12 +111,15 @@ func TestSharedConversationAssemblesPreflightAcrossReplayPages(t *testing.T) {
 		shared, err := cold.SharedEntries(t.Context(), f.scope, "main")
 		require.NoError(t, err)
 		require.Len(t, *shared.Entries[0].Context, 20)
+		require.Len(t, shared.Entries[0].Preflight.Context, 20)
+		require.Empty(t, shared.Entries[0].Preflight.Candidates)
 		for i, raw := range *shared.Entries[0].Context {
 			require.JSONEq(t, fmt.Sprintf(`{"kind":"todo","label":"TODO","ref":"T%d","reason":"Selected"}`, i), string(raw))
 		}
 		raw, err := json.Marshal(shared)
 		require.NoError(t, err)
 		require.NotContains(t, string(raw), "canary")
+		require.Contains(t, string(raw), `"candidates":[]`)
 	}
 }
 
