@@ -238,10 +238,23 @@ func (m *Members) Add(ctx context.Context, login string) error {
 	githubID := strconv.FormatInt(user.ID, 10)
 	// A person already on the roster, by GitHub id or by account, keeps their
 	// row and role: adding again changes nothing.
-	tag, err := tx.Exec(ctx, `INSERT INTO collaborators(repository_id,github_id,github_login,user_id,permission)
- VALUES($1,$2,$3,(SELECT user_id FROM oauth_accounts WHERE provider='workos' AND provider_user_id=$4),$5)
- ON CONFLICT DO NOTHING`, repo.ID, user.ID, user.Login, githubID, role)
+	// Re-admission restores the same GitHub identity's original allocation.
+	// It grants no old session: those were revoked by Remove.
+	tag, err := tx.Exec(ctx, `UPDATE collaborators SET github_id=$2,github_login=$3,
+ user_id=(SELECT user_id FROM oauth_accounts WHERE provider='workos' AND provider_user_id=$4),
+ permission=$5,suspended_at=NULL WHERE repository_id=$1 AND unix_github_id=$2 AND github_id IS NULL`, repo.ID, user.ID, user.Login, githubID, role)
 	if err != nil {
+		return err
+	}
+	if tag.RowsAffected() == 0 {
+		tag, err = tx.Exec(ctx, `INSERT INTO collaborators(repository_id,github_id,github_login,unix_github_id,user_id,permission)
+ VALUES($1,$2,$3,$2,(SELECT user_id FROM oauth_accounts WHERE provider='workos' AND provider_user_id=$4),$5)
+ ON CONFLICT DO NOTHING`, repo.ID, user.ID, user.Login, githubID, role)
+		if err != nil {
+			return err
+		}
+	}
+	if err = allocateRosterLogins(ctx, tx); err != nil {
 		return err
 	}
 	// Removal barred the account from signing in; being added again lifts it.

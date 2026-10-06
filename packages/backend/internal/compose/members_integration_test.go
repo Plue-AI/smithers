@@ -95,6 +95,12 @@ func rosterGitHubID(login string) int64 {
 		return 104
 	case "reader":
 		return 105
+	case "root":
+		return 106
+	case strings.Repeat("b", 39):
+		return 107
+	case strings.Repeat("b", 38) + "c":
+		return 108
 	default:
 		return 199
 	}
@@ -202,8 +208,11 @@ func TestMembersComposedInstallPostgres(t *testing.T) {
 	require.Equal(t, 4, count)
 	var pending bool
 	var uid int
-	require.NoError(t, pool.QueryRow(ctx, `SELECT user_id IS NULL,unix_uid FROM collaborators WHERE github_id=102`).Scan(&pending, &uid))
+	var unixLogin string
+	require.NoError(t, pool.QueryRow(ctx, `SELECT user_id IS NULL,unix_uid,unix_login FROM collaborators WHERE github_id=102`).Scan(&pending, &uid, &unixLogin))
 	require.True(t, pending)
+	require.Equal(t, "writer", unixLogin)
+	firstUID := uid
 	require.GreaterOrEqual(t, uid, 20000)
 	// OAuth start/callback uses the composed router and production HTTP client.
 	login := func(name string, want int) {
@@ -239,8 +248,10 @@ func TestMembersComposedInstallPostgres(t *testing.T) {
 	writer, err := q.GetUserByLowerUsername(ctx, "writer")
 	require.NoError(t, err)
 	createSession(writer, "writer-cookie")
-	require.NoError(t, pool.QueryRow(ctx, `SELECT user_id IS NULL,unix_uid FROM collaborators WHERE github_id=102`).Scan(&pending, &uid))
+	require.NoError(t, pool.QueryRow(ctx, `SELECT user_id IS NULL,unix_uid,unix_login FROM collaborators WHERE github_id=102`).Scan(&pending, &uid, &unixLogin))
 	require.False(t, pending)
+	require.Equal(t, "writer", unixLogin)
+	require.Equal(t, firstUID, uid)
 	status, body := request("GET", "/api/members", "", "writer-cookie")
 	require.Equal(t, 200, status, body)
 	require.Contains(t, body, `"role":"maintainer"`)
@@ -260,10 +271,19 @@ func TestMembersComposedInstallPostgres(t *testing.T) {
 	status, body = request("DELETE", "/api/members/writer", "", "owner-cookie")
 	require.Equal(t, 204, status, body)
 
+	require.NoError(t, pool.QueryRow(ctx, `SELECT count(*) FROM collaborators WHERE unix_login='writer' AND user_id IS NULL AND github_id IS NULL AND suspended_at IS NOT NULL`).Scan(&count))
+	require.Equal(t, 1, count, "removal reserves the login without retaining access")
+	status, body = request("GET", "/api/members", "", "owner-cookie")
+	require.Equal(t, 200, status, body)
+	require.NotContains(t, body, `"login":"writer"`)
+
 	// Added again, the writer signs in again; the hourly recheck suspends
 	// them once GitHub confirms read, and restores them once it says write.
 	status, body = request("POST", "/api/members", `{"login":"writer"}`, "owner-cookie")
 	require.Equal(t, 204, status, body)
+	require.NoError(t, pool.QueryRow(ctx, `SELECT unix_uid,unix_login FROM collaborators WHERE github_id=102`).Scan(&uid, &unixLogin))
+	require.Equal(t, firstUID, uid, "the same GitHub identity retains its allocation")
+	require.Equal(t, "writer", unixLogin, "the same GitHub identity retains its login")
 	login("writer", 302)
 	createSession(writer, "writer-cookie-2")
 	status, body = request("GET", "/api/members", "", "writer-cookie-2")
@@ -297,4 +317,22 @@ func TestMembersComposedInstallPostgres(t *testing.T) {
 	status, _ = request("GET", "/api/members", "", "writer-cookie-2")
 	require.Equal(t, 401, status, "restoring never revives a revoked session")
 	login("writer", 302)
+	// Real additions allocate reserved names and truncate before collision suffixes.
+	for _, fixture := range []struct{ github, unix string }{
+		{"root", "root2"},
+		{strings.Repeat("b", 39), strings.Repeat("b", 32)},
+		{strings.Repeat("b", 38) + "c", strings.Repeat("b", 31) + "2"},
+	} {
+		github.mu.Lock()
+		github.roles[fixture.github] = "write"
+		github.mu.Unlock()
+		status, body = request("POST", "/api/members", fmt.Sprintf(`{"login":%q}`, fixture.github), "owner-cookie")
+		require.Equal(t, 204, status, body)
+		require.NoError(t, pool.QueryRow(ctx, `SELECT unix_login FROM collaborators WHERE github_id=$1`, rosterGitHubID(fixture.github)).Scan(&unixLogin))
+		require.Equal(t, fixture.unix, unixLogin)
+	}
+	// A GitHub rename changes display identity, never the allocated Unix login.
+	require.NoError(t, members.LinkGitHub(ctx, 102, writer.ID, "renamed-writer"))
+	require.NoError(t, pool.QueryRow(ctx, `SELECT unix_login FROM collaborators WHERE github_id=102`).Scan(&unixLogin))
+	require.Equal(t, "writer", unixLogin)
 }

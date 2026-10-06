@@ -306,6 +306,7 @@ with tempfile.TemporaryDirectory() as directory:
  for name in ('sudo','su','sshd','tool'):
   with open(usr+'/bin/'+name,'wb') as f: f.write(b'image fixture')
   os.chmod(usr+'/bin/'+name,0o6755)
+ plain=usr+'/bin/plain'; open(plain,'wb').write(b'lower layer fixture'); os.chmod(plain,0o755)
  outside=root+'/outside'; os.mkdir(outside)
  sentinel=outside+'/sentinel'; open(sentinel,'w').write('outside bytes'); os.chmod(sentinel,0o6755)
  os.symlink(outside,usr+'/symlink')
@@ -318,13 +319,21 @@ with tempfile.TemporaryDirectory() as directory:
   info=real_fstat(fd)
   return types.SimpleNamespace(st_uid=0,st_mode=info.st_mode)
  g.os.fstat=owned
- g.os.listxattr=lambda fd:['security.capability']
+ real_chmod=os.fchmod
+ chmods=[]
+ def changed(fd,mode):
+  chmods.append((os.readlink('/proc/self/fd/'+str(fd)) if os.path.exists('/proc/self/fd') else os.fstat(fd).st_mode,mode))
+  real_chmod(fd,mode)
+ g.os.fchmod=changed
+ g.os.listxattr=lambda fd:['security.capability'] if real_fstat(fd).st_mode & 0o111 and os.read(fd,64)==b'image fixture' else []
  removed=[];g.os.removexattr=lambda fd,name: removed.append(name)
  g.sanitize_system_image()
  assert not any(os.path.exists(usr+'/bin/'+name) for name in ('sudo','su','sshd'))
  assert os.stat(usr+'/bin/tool').st_mode & 0o7777 == 0o755
  assert os.stat(usr+'/shared').st_mode & 0o7777 == 0o2755
  assert removed==['security.capability']
+ assert len(chmods)==1, 'ordinary image files must not be copied up by chmod'
+ assert os.stat(plain).st_mode & 0o7777 == 0o755
  assert open(sentinel).read()=='outside bytes'
  assert os.stat(sentinel).st_mode & 0o7777 == 0o6755
  os.chmod(usr+'/bin',0o777)

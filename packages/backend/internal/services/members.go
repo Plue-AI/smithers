@@ -116,6 +116,9 @@ func (m *Members) VerifyOwner(ctx context.Context, user db.User) error {
 			return err
 		}
 	}
+	if err = allocateRosterLogins(ctx, tx); err != nil {
+		return err
+	}
 	value, _ := json.Marshal(map[string]any{"last_access_check_at": time.Now().UTC(), "installation_id": installation.ID, "repository_id": repo.ID, "owner_login": repo.Owner, "repository_name": repo.Name})
 	if err = db.New(tx).UpsertInstallSetting(ctx, db.UpsertInstallSettingParams{Key: "owner.access", Value: value}); err != nil {
 		return err
