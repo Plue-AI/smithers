@@ -23,6 +23,7 @@ import (
 	"github.com/smithersai/smithers/packages/backend/internal/routes"
 	"github.com/smithersai/smithers/packages/backend/internal/services"
 	"github.com/smithersai/smithers/packages/backend/jobs"
+	"github.com/smithersai/smithers/packages/backend/microsandbox"
 	"github.com/smithersai/smithers/packages/backend/testkit/postgresfixture"
 	"github.com/stretchr/testify/require"
 )
@@ -54,6 +55,9 @@ func TestLiveTodoCommittedCardsRollbackAndReplay(t *testing.T) {
 	item.Title = pgtype.Text{String: "Committed card", Valid: true}
 	item, err = q.SaveMythicalItem(ctx, item)
 	require.NoError(t, err)
+	second, _, err := q.InsertMythicalItem(ctx, db.MythicalItem{RepositoryID: repo.ID, State: "queued", OwnerID: pgtype.Int8{Int64: owner.ID, Valid: true}, Checks: []byte(`{"todo":true}`)})
+	require.NoError(t, err)
+	require.EqualValues(t, 2, second.Number.Int64)
 	token := "live-card-browser"
 	hash := sha256.Sum256([]byte(token))
 	_, err = q.CreateAuthSession(ctx, db.CreateAuthSessionParams{SessionKey: hex.EncodeToString(hash[:]), UserID: owner.ID, Username: owner.Username, ExpiresAt: time.Now().Add(time.Hour)})
@@ -67,7 +71,8 @@ func TestLiveTodoCommittedCardsRollbackAndReplay(t *testing.T) {
 	store, err := jobs.NewStore(pool)
 	require.NoError(t, err)
 	service := services.NewMythicalService(pool, nil)
-	topics := &liveTopics{queries: q, todos: service, jobs: store}
+	capacity := &services.InstallCapacityService{Queries: q, Profile: microsandbox.HostProfile{MemoryBytes: 32 << 30, PerfCores: 10, DiskFreeBytes: 400 << 30}}
+	topics := &liveTopics{queries: q, todos: service, jobs: store, install: &services.InstallSetupService{Capacity: capacity}}
 	server := httptest.NewUnstartedServer(nil)
 	origin := "http://" + server.Listener.Addr().String()
 	cfg := testConfigAllFlagsOn()
@@ -99,8 +104,27 @@ func TestLiveTodoCommittedCardsRollbackAndReplay(t *testing.T) {
 	require.Equal(t, "snap", initial.T)
 	require.EqualValues(t, 0, *initial.Cursor)
 	require.Contains(t, string(initial.Data), `"state":"queued"`)
-	call := func(key string) int {
-		request, err := http.NewRequest("POST", origin+"/api/todos/1", strings.NewReader(`{"op":"drop"}`))
+	homeSocket := dial()
+	require.NoError(t, homeSocket.Write(ctx, websocket.MessageText, []byte(`{"t":"sub","id":1,"topic":"home"}`)))
+	homeInitial := read(homeSocket)
+	require.Equal(t, "snap", homeInitial.T)
+	require.EqualValues(t, 0, *homeInitial.Cursor)
+	member, err := q.CreateUser(ctx, db.CreateUserParams{Username: "live-member", LowerUsername: "live-member", DisplayName: "Member"})
+	require.NoError(t, err)
+	_, err = pool.Exec(ctx, `INSERT INTO collaborators(repository_id,user_id,permission) VALUES($1,$2,'write')`, repo.ID, member.ID)
+	require.NoError(t, err)
+	memberToken := "live-member-session"
+	memberHash := sha256.Sum256([]byte(memberToken))
+	_, err = q.CreateAuthSession(ctx, db.CreateAuthSessionParams{SessionKey: hex.EncodeToString(memberHash[:]), UserID: member.ID, Username: member.Username, ExpiresAt: time.Now().Add(time.Hour)})
+	require.NoError(t, err)
+	memberSocket, _, err := websocket.Dial(ctx, "ws"+strings.TrimPrefix(origin, "http")+"/api/live", &websocket.DialOptions{Subprotocols: []string{live.Protocol}, HTTPHeader: http.Header{"Cookie": {"smithers_session=" + memberToken}, "Origin": {origin}}})
+	require.NoError(t, err)
+	defer memberSocket.CloseNow()
+	require.NoError(t, memberSocket.Write(ctx, websocket.MessageText, []byte(`{"t":"sub","id":1,"topic":"home"}`)))
+	memberHome := read(memberSocket)
+	require.JSONEq(t, string(homeInitial.Data), string(memberHome.Data))
+	call := func(n int64, key string) int {
+		request, err := http.NewRequest("POST", origin+"/api/todos/"+strconv.FormatInt(n, 10), strings.NewReader(`{"op":"drop"}`))
 		require.NoError(t, err)
 		request.Header.Set("Content-Type", "application/json")
 		request.Header.Set("Origin", origin)
@@ -116,7 +140,7 @@ func TestLiveTodoCommittedCardsRollbackAndReplay(t *testing.T) {
 	// Fail after the item update, before its fact can commit.
 	_, err = pool.Exec(ctx, `CREATE FUNCTION reject_live_card_fact() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN RAISE EXCEPTION 'injected source failure'; END $$; CREATE TRIGGER reject_live_card_fact BEFORE INSERT ON product_job_events FOR EACH ROW EXECUTE FUNCTION reject_live_card_fact()`)
 	require.NoError(t, err)
-	require.Equal(t, 503, call("rolled-back-drop"))
+	require.Equal(t, 503, call(1, "rolled-back-drop"))
 	var state string
 	require.NoError(t, pool.QueryRow(ctx, `SELECT state FROM mythical_items WHERE id=$1`, item.ID).Scan(&state))
 	require.Equal(t, "queued", state)
@@ -124,6 +148,9 @@ func TestLiveTodoCommittedCardsRollbackAndReplay(t *testing.T) {
 	head, err := store.Head(ctx, scope)
 	require.NoError(t, err)
 	require.Zero(t, head)
+	repoHead, err := store.Head(ctx, jobs.RepositoryTodosScope(strconv.FormatInt(repo.ID, 10)))
+	require.NoError(t, err)
+	require.Zero(t, repoHead)
 	// A concurrent reader stays alive across the absence assertion.
 	type pendingRead struct {
 		frame live.Frame
@@ -147,7 +174,7 @@ func TestLiveTodoCommittedCardsRollbackAndReplay(t *testing.T) {
 	}
 	_, err = pool.Exec(ctx, `DROP TRIGGER reject_live_card_fact ON product_job_events; DROP FUNCTION reject_live_card_fact()`)
 	require.NoError(t, err)
-	require.Equal(t, 202, call("committed-drop"))
+	require.Equal(t, 202, call(1, "committed-drop"))
 	var delta live.Frame
 	select {
 	case result := <-received:
@@ -169,6 +196,45 @@ func TestLiveTodoCommittedCardsRollbackAndReplay(t *testing.T) {
 	require.Contains(t, string(event.Data.Card), `"state":"dropped"`)
 	require.Contains(t, string(event.Data.Card), `"n":1`)
 	require.Contains(t, string(event.Data.Card), `"title":"Committed card"`)
+	homeDelta := read(homeSocket)
+	require.Equal(t, "delta", homeDelta.T)
+	require.EqualValues(t, 1, *homeDelta.Cursor)
+	var firstHome struct {
+		Data struct {
+			Home struct {
+				Items  []struct{ N int64 }
+				Counts map[string]int
+			}
+		}
+	}
+	require.NoError(t, json.Unmarshal(homeDelta.Data, &firstHome))
+	require.Equal(t, 1, firstHome.Data.Home.Counts["dropped"])
+	require.Equal(t, 1, firstHome.Data.Home.Counts["queued"])
+	require.Len(t, firstHome.Data.Home.Items, 1)
+	require.EqualValues(t, 2, firstHome.Data.Home.Items[0].N)
+	require.Equal(t, 202, call(2, "second-item-drop"))
+	secondHome := read(homeSocket)
+	require.Equal(t, "delta", secondHome.T)
+	require.EqualValues(t, 2, *secondHome.Cursor)
+	page, err := store.ReplayRepositoryTodos(ctx, strconv.FormatInt(repo.ID, 10), 0, 100)
+	require.NoError(t, err)
+	require.Len(t, page.Events, 2)
+	require.EqualValues(t, 1, page.Events[0].Sequence)
+	require.EqualValues(t, 1, page.Events[1].Sequence)
+	require.NotEqual(t, page.Events[0].Scope.PrincipalID, page.Events[1].Scope.PrincipalID)
+	require.EqualValues(t, 2, page.Head)
+	firstPage, err := store.ReplayRepositoryTodos(ctx, strconv.FormatInt(repo.ID, 10), 0, 1)
+	require.NoError(t, err)
+	require.True(t, firstPage.More)
+	require.EqualValues(t, 1, firstPage.Cursor)
+	_, err = store.ReplayRepositoryTodos(ctx, strconv.FormatInt(repo.ID, 10), 3, 1)
+	require.ErrorIs(t, err, jobs.ErrCursorAhead)
+	homeReplay := dial()
+	require.NoError(t, homeReplay.Write(ctx, websocket.MessageText, []byte(`{"t":"sub","id":1,"topic":"home","cursor":0}`)))
+	replayFirst := read(homeReplay)
+	replaySecond := read(homeReplay)
+	require.JSONEq(t, string(homeDelta.Data), string(replayFirst.Data))
+	require.JSONEq(t, string(secondHome.Data), string(replaySecond.Data))
 	replay := dial()
 	require.NoError(t, replay.Write(ctx, websocket.MessageText, []byte(`{"t":"sub","id":1,"topic":"todo:1","cursor":0}`)))
 	resumed := read(replay)
@@ -177,8 +243,25 @@ func TestLiveTodoCommittedCardsRollbackAndReplay(t *testing.T) {
 	require.EqualValues(t, 1, *resumed.Cursor)
 	require.NoError(t, store.ExpireEventsThrough(ctx, scope, 1))
 	require.NoError(t, replay.Write(ctx, websocket.MessageText, []byte(`{"t":"sub","id":1,"topic":"todo:1","cursor":0}`)))
+	require.NoError(t, homeReplay.Write(ctx, websocket.MessageText, []byte(`{"t":"sub","id":1,"topic":"home","cursor":0}`)))
+	retainedHome := read(homeReplay)
+	require.Equal(t, "snap", retainedHome.T)
+	require.EqualValues(t, 2, *retainedHome.Cursor)
+	require.Contains(t, string(retainedHome.Data), `"dropped":2`)
 	retained := read(replay)
 	require.Equal(t, "snap", retained.T)
 	require.EqualValues(t, 1, *retained.Cursor)
 	require.Contains(t, string(retained.Data), `"state":"dropped"`)
+	// A separately committed Settings source retains its snapshot refresh without
+	// consuming or coalescing a TODO journal position.
+	rows, err := q.SetInstallParallel(ctx, db.SetInstallParallelParams{Value: json.RawMessage(`1`), ActorID: owner.ID})
+	require.NoError(t, err)
+	require.EqualValues(t, 1, rows)
+	refreshed := read(homeReplay)
+	require.Equal(t, "snap", refreshed.T)
+	require.EqualValues(t, 2, *refreshed.Cursor)
+	require.Contains(t, string(refreshed.Data), `"parallel":1`)
+	unchanged, err := store.Head(ctx, jobs.RepositoryTodosScope(strconv.FormatInt(repo.ID, 10)))
+	require.NoError(t, err)
+	require.EqualValues(t, 2, unchanged)
 }
