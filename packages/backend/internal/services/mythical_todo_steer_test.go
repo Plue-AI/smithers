@@ -177,6 +177,10 @@ func TestTodoSteerCredentialReplay(t *testing.T) {
 	require.Equal(t, "person", first.Credential)
 	for _, info := range []*middleware.AuthInfo{
 		{User: &db.User{ID: 9}, SessionHash: "replacement"},
+		// Authenticated member tokens have their own receipt identity. A token
+		// never borrows the session or a terminal token with the same numeric id.
+		{User: &db.User{ID: 9}, IsTokenAuth: true, TokenID: 41},
+		{User: &db.User{ID: 9}, IsTokenAuth: true, TokenID: 42},
 		{User: &db.User{ID: 9}, IsTokenAuth: true, TokenSystemIssued: true, TokenID: 41,
 			RawScopes: "via:terminal,branch:same-workspace,profile:terminal_s1,terminal-session:terminal-one"},
 		{User: &db.User{ID: 9}, IsTokenAuth: true, TokenSystemIssued: true, TokenID: 42,
@@ -197,7 +201,7 @@ func TestTodoSteerCredentialReplay(t *testing.T) {
 		require.Equal(t, added, repeated)
 		require.Equal(t, next, again)
 	}
-	require.Len(t, mythicalChecksOf(next).Steers, 4)
+	require.Len(t, mythicalChecksOf(next).Steers, 6)
 	_, repeated, _, replay, err := prepareTodoSteer(session, next, input, by, nil, now)
 	require.NoError(t, err)
 	require.True(t, replay)
@@ -208,7 +212,7 @@ func TestTodoSteerCredentialReplay(t *testing.T) {
 		{User: &db.User{ID: 9, UserType: "bot"}, SessionHash: "person"},
 		{User: &db.User{ID: 9}, IsTokenAuth: true, TokenSystemIssued: true,
 			RawScopes: "via:terminal,branch:same-workspace,profile:terminal_s1"},
-		{User: &db.User{ID: 9}, IsTokenAuth: true, TokenID: 41},
+		{User: &db.User{ID: 9}, IsTokenAuth: true, TokenID: 0},
 	} {
 		ctx := middleware.ContextWithAuthInfo(context.Background(), info)
 		unchanged, _, _, _, err := prepareTodoSteer(ctx, next, input, by, nil, now)

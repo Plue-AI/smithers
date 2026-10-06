@@ -171,3 +171,15 @@ func TestTodoEvidenceKeepsOnlyMatchingCandidateAndAttempt(t *testing.T) {
 	legacy := db.MythicalItem{Source: "issue", Attempt: 1, Checks: json.RawMessage(`{"todo":true}`)}
 	require.Equal(t, legacy, retainTodoAttemptEvidence(legacy), "legacy decoding does not acquire new TODO facts")
 }
+
+func TestTodoReopenedAttemptEvidenceKeepsEndedRun(t *testing.T) {
+	item := db.MythicalItem{Source: "todo", Attempt: 1, RequestRunID: "ended-run", CandidateHead: "accepted-head"}
+	item = retainTodoAttemptEvidence(item)
+	item.RequestRunID = ""
+	item = retainTodoAttemptEvidence(item)
+	require.Equal(t, "ended-run", currentTodoEvidence(item).RunID)
+	require.Equal(t, "ended-run", mythicalChecksOf(item).Attempts[0].RunID)
+	// A later attempt must not inherit the ended attempt's identity.
+	item.Attempt = 2
+	require.Empty(t, currentTodoEvidence(item).RunID)
+}

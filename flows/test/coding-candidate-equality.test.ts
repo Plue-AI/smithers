@@ -28,6 +28,8 @@ for (
   const mode of [
     "read",
     "write",
+    "external-cache-read",
+    "external-cache-write",
     "delete",
     "chmod",
     "symlink",
@@ -70,6 +72,8 @@ printf '{"commitId":"${revision.commitId}","changeId":"${revision.changeId}","tr
     const commands = {
       read: "cat alias.txt; printf build > generated.txt",
       write: "printf formatted > source.txt",
+      "external-cache-read": "cat alias.txt; printf build > generated.txt",
+      "external-cache-write": "printf formatted > source.txt",
       delete: "rm source.txt",
       chmod: "chmod +x source.txt",
       symlink: `rm source.txt; ln -s '${outside}' source.txt`,
@@ -112,6 +116,7 @@ printf '{"commitId":"${revision.commitId}","changeId":"${revision.changeId}","tr
         }
       }
     }
+    const sourceDirectory = mode.startsWith("external-cache-") ? join(temporary, "install-source") : undefined
     const fs = await Effect.runPromise(FileSystem.FileSystem.pipe(Effect.provide(NodeServices.layer)))
     const outcome = await Effect.runPromise(
       checkDelegate.execute(invocation, { executionId: `equality-${mode}` }).pipe(
@@ -119,14 +124,17 @@ printf '{"commitId":"${revision.commitId}","changeId":"${revision.changeId}","tr
         Effect.scoped,
         Effect.provide(
           engineLayer(
-            checkLayers({ repositoryPath, exporterPath, fs, environment: { PATH: "/usr/bin:/bin" } })
+            checkLayers({ repositoryPath, exporterPath, sourceDirectory, fs, environment: { PATH: "/usr/bin:/bin" } })
               .pipe(Layer.provide(NodeServices.layer))
           ).pipe(Layer.provideMerge(NodeServices.layer))
         )
       )
     )
-    const cache = join(repositoryPath, ".jj", "smithers-checks")
-    if (mode === "read") {
+    const cache = sourceDirectory ?? join(repositoryPath, ".jj", "smithers-checks")
+    if (sourceDirectory !== undefined) {
+      assert.deepEqual(await readdir(repositoryPath), [], "retention must not depend on checkout storage")
+    }
+    if (mode === "read" || mode === "external-cache-read") {
       assert.equal(outcome._tag, "Success")
       if (outcome._tag === "Success") {
         assert.equal(outcome.success.status, "passed")
@@ -157,7 +165,10 @@ printf '{"commitId":"${revision.commitId}","changeId":"${revision.changeId}","tr
           : ["source.txt"]
       )
       if (mode === "remove-root") assert.deepEqual(await readdir(retained), [])
-      if (mode === "write" || mode === "nonzero-write" || mode === "timeout-write" || mode === "multiple-writes") {
+      if (
+        mode === "write" || mode === "external-cache-write" || mode === "nonzero-write" || mode === "timeout-write" ||
+        mode === "multiple-writes"
+      ) {
         assert.equal(await readFile(join(retained, "source.txt"), "utf8"), "formatted")
       }
       if (mode === "directory-symlink") {

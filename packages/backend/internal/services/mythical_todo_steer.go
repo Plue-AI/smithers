@@ -348,6 +348,11 @@ func prepareTodoSteer(ctx context.Context, item db.MythicalItem, input TodoContr
 	if state == "merged" || state == "dropped" {
 		return item, todoSteer{}, false, false, &TodoControlError{http.StatusConflict, "todo_closed", "conflict", "TODO is closed"}
 	}
+	// Only a recognized reopen can queue fresh work without a live destination.
+	// Unknown retained proposals must not consume input or lose their verified head.
+	if item.State == "proposed" && !checks.RunLaunched && item.RequestRunID == "" && len(checks.Attempts) > 0 && !todoReopenedAttempt(item) {
+		return item, todoSteer{}, false, false, todoControlUnavailable()
+	}
 	next, attempt := item, item.Attempt
 	fenced := mythicalMergeFenced(item)
 	deliver := todoSteerReady(item)

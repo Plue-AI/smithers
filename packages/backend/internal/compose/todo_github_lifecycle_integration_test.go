@@ -166,21 +166,69 @@ func TestTODOGitHubCloseReopenComposedInstall(t *testing.T) {
 	require.Equal(t, int64(93), source.Installation)
 	require.Equal(t, int64(100), source.Github)
 	require.True(t, source.Metadata)
-	fakeRequest("PATCH", "/repos/rehearsal-owner/app/pulls/1", `{"state":"closed"}`)
-	hint("closed")
-	require.Eventually(t, func() bool { return cardState("dropped") }, 20*time.Second, 50*time.Millisecond)
-	hint("closed")
-	fakeRequest("PATCH", "/repos/rehearsal-owner/app/pulls/1", `{"state":"open"}`)
-	hint("reopened")
-	require.Eventually(t, func() bool { return cardState("in_review") }, 20*time.Second, 50*time.Millisecond)
-	hint("reopened")
-	var attempt int
-	require.NoError(t, r.pool.QueryRow(r.ctx, `SELECT attempt FROM mythical_items WHERE number=$1`, filed.N).Scan(&attempt))
-	require.Equal(t, 1, attempt)
-	var dropped, reopened int
-	require.NoError(t, r.pool.QueryRow(r.ctx, `SELECT count(*) FILTER(WHERE event_type='todo.github_dropped'),count(*) FILTER(WHERE event_type='todo.github_in_review') FROM product_job_events`).Scan(&dropped, &reopened))
-	require.Equal(t, 1, dropped)
-	require.Equal(t, 1, reopened)
+	for _, smithersDrop := range []bool{false, true} {
+		// Reopen's durable branch-restoration intent must settle before the
+		// next control, just as any pending GitHub write must.
+		require.Eventually(t, func() bool {
+			var settled bool
+			err := r.pool.QueryRow(r.ctx, `SELECT pending_op IS NULL FROM mythical_items WHERE number=$1`, filed.N).Scan(&settled)
+			return err == nil && settled
+		}, 30*time.Second, 50*time.Millisecond)
+		// Completed run bindings must become historical on reopen, regardless
+		// of whether the person closes on GitHub or presses Drop in Smithers.
+		_, err = r.pool.Exec(r.ctx, `UPDATE mythical_items SET request_run_id='ended-todo-run',vibe_run_id='ended-delivery',verify_run_id='ended-verify',checks=checks || '{"run_launched":true,"run_attached":true}'::jsonb WHERE number=$1`, filed.N)
+		require.NoError(t, err)
+		if smithersDrop {
+			code, data, err := r.keyed("POST", fmt.Sprintf("/api/todos/%d", filed.N), `{"op":"drop"}`, "lifecycle-drop")
+			require.NoError(t, err)
+			require.Equal(t, 202, code, string(data))
+			require.Eventually(t, func() bool {
+				var settled bool
+				err := r.pool.QueryRow(r.ctx, `SELECT pr_state='closed' AND pending_op IS NULL FROM mythical_items WHERE number=$1`, filed.N).Scan(&settled)
+				return err == nil && settled
+			}, 20*time.Second, 50*time.Millisecond)
+		} else {
+			fakeRequest("PATCH", "/repos/rehearsal-owner/app/pulls/1", `{"state":"closed"}`)
+		}
+		hint("closed")
+		require.Eventually(t, func() bool { return cardState("dropped") }, 20*time.Second, 50*time.Millisecond)
+		hint("closed")
+		fakeRequest("PATCH", "/repos/rehearsal-owner/app/pulls/1", `{"state":"open"}`)
+		hint("reopened")
+		require.Eventually(t, func() bool { return cardState("in_review") }, 20*time.Second, 50*time.Millisecond)
+		hint("reopened")
+		var attempt int
+		require.NoError(t, r.pool.QueryRow(r.ctx, `SELECT attempt FROM mythical_items WHERE number=$1`, filed.N).Scan(&attempt))
+		require.Equal(t, 1, attempt)
+		var run, delivery, verification, candidate, evidenceRun string
+		var launched, attached bool
+		require.NoError(t, r.pool.QueryRow(r.ctx, `SELECT request_run_id,vibe_run_id,verify_run_id,candidate_head,COALESCE((checks->>'run_launched')::boolean,false),COALESCE((checks->>'run_attached')::boolean,false),checks->'attempts'->0->>'run_id' FROM mythical_items WHERE number=$1`, filed.N).Scan(&run, &delivery, &verification, &candidate, &launched, &attached, &evidenceRun))
+		require.Empty(t, run)
+		require.Empty(t, delivery)
+		require.Empty(t, verification)
+		require.False(t, launched)
+		require.False(t, attached)
+		require.Equal(t, "ended-todo-run", evidenceRun)
+		require.NotEmpty(t, candidate)
+		// A restored proposal cannot silently swallow input or invalidate its
+		// generation while retained-workspace restart admission is unavailable.
+		code, data, err := r.keyed("POST", fmt.Sprintf("/api/todos/%d", filed.N), `{"steer":"Address the reopened review"}`, fmt.Sprintf("reopened-input-%v", smithersDrop))
+		require.NoError(t, err)
+		require.Equal(t, 503, code, string(data))
+		var verified bool
+		var inputs int
+		require.NoError(t, r.pool.QueryRow(r.ctx, `SELECT candidate_verified,jsonb_array_length(COALESCE(checks->'steers','[]'::jsonb)) FROM mythical_items WHERE number=$1`, filed.N).Scan(&verified, &inputs))
+		require.True(t, verified)
+		require.Zero(t, inputs)
+		var dropped, reopened int
+		require.NoError(t, r.pool.QueryRow(r.ctx, `SELECT count(*) FILTER(WHERE event_type='todo.github_dropped'),count(*) FILTER(WHERE event_type='todo.github_in_review') FROM product_job_events`).Scan(&dropped, &reopened))
+		require.Equal(t, 1, dropped, "only GitHub Close emits a GitHub-dropped event")
+		if smithersDrop {
+			require.Equal(t, 2, reopened)
+		} else {
+			require.Equal(t, 1, reopened)
+		}
+	}
 	// A person's merge on GitHub is followed through the real mirror sync and
 	// fetched-PR worker, without an in-product approval or second merge call.
 	access, err = connections.CreateGitHubInstallationToken(r.ctx, 93, services.GitHubTokenScope{AllRepositories: true, Permissions: map[string]string{"pull_requests": "write", "contents": "write"}})

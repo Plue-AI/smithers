@@ -185,8 +185,23 @@ func (h *ConfirmationsHandler) decide(w http.ResponseWriter, r *http.Request, de
 		return
 	}
 	if !changed {
-		confirmationError(w, 409, "conflict", "confirmation_resolved", "Confirmation changed")
-		return
+		// A concurrent retry may have read pending before the identical
+		// press won the CAS. Only its immutable credential/key binding may
+		// replay the receipt; a different press still conflicts.
+		previous, err := h.Queries.ConfirmationPress(r.Context(), credential, key)
+		if err != nil && !errors.Is(err, pgx.ErrNoRows) {
+			todoRouteError(w, err)
+			return
+		}
+		current, err := h.Queries.GetMemberConfirmation(r.Context(), row.ID, member)
+		if err != nil {
+			todoRouteError(w, err)
+			return
+		}
+		if previous != row.ID || current.State != "rejected" {
+			confirmationError(w, 409, "conflict", "confirmation_resolved", "Confirmation changed")
+			return
+		}
 	}
 	w.Header().Set("Content-Type", "application/json")
 	_ = json.NewEncoder(w).Encode(map[string]string{"id": row.ID, "state": "rejected"})

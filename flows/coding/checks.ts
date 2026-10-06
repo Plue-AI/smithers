@@ -157,7 +157,7 @@ export const checkLayers = (options: CheckHostOptions) => {
               // Never restore tracked bytes or hand this failure to repair/replan.
               const retained = yield* fs.makeTempDirectory({
                 prefix: "modified-",
-                directory: path.join(options.repositoryPath, ".jj", "smithers-checks")
+                directory: options.sourceDirectory ?? path.join(options.repositoryPath, ".jj", "smithers-checks")
               })
               const evidence = path.join(retained, "source")
               const exists = yield* fs.exists(root)

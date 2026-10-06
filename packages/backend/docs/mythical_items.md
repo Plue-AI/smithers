@@ -156,8 +156,9 @@ The PR-close primitive uses a narrowly scoped installation
 token and must be called only through persisted outbound intent/recovery after
 cancellation, final capture and the merge fence settle.
 
-A GitHub reopen restores the accepted generation without reviving the dropped
-run. Its first Steer, Amend or member review input queues a new attempt on the
+A GitHub reopen within seven days restores the accepted generation without
+reviving the dropped run. Smithers Drop anchors that window to the committed
+Drop, not subsequent close or lane updates. Reopening alone starts no attempt. Its first Steer, Amend or member review input queues a new attempt on the
 same stored flow pin. A rebase also queues fresh work. Feedback is included in
 the new launch; nothing is sent to the closed run. Replays do not create another
 attempt, and late checkpoints from the dropped run cannot replace the restored

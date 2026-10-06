@@ -230,6 +230,48 @@ func TestConfirmationsInstallBoundaryPostgres(t *testing.T) {
 	require.Equal(t, live.Forbidden, status)
 	_, status = topics.resolve(ctx, fmt.Sprintf("confirmations:%d:extra", owner.ID), repo.ID, "maya/demo", owner.ID)
 	require.Equal(t, live.Forbidden, status)
+	for _, kind := range []string{"one_click", "review_merge"} {
+		// Hold the subject row until both identical browser retries have read
+		// pending and reached the CAS. The loser must return the same receipt.
+		concurrent := seed(kind, "todo.drop", false)
+		lock, err := pool.Begin(ctx)
+		require.NoError(t, err)
+		defer lock.Rollback(ctx)
+		_, err = lock.Exec(ctx, `SELECT id FROM approvals WHERE id=$1 FOR UPDATE`, concurrent)
+		require.NoError(t, err)
+		answers := make(chan *httptest.ResponseRecorder, 2)
+		for range 2 {
+			go func() {
+				answers <- call("POST", "/api/confirmations/"+concurrent+"/deny", ownerCookie, "", "concurrent-deny-"+kind)
+			}()
+		}
+		require.Eventually(t, func() bool {
+			var waiting int
+			err := pool.QueryRow(ctx, `SELECT count(*) FROM pg_stat_activity WHERE datname=current_database() AND wait_event_type='Lock' AND query LIKE 'UPDATE approvals SET state=''rejected''%'`).Scan(&waiting)
+			return err == nil && waiting == 2
+		}, 5*time.Second, 10*time.Millisecond)
+		require.NoError(t, lock.Commit(ctx))
+		for range 2 {
+			select {
+			case answer := <-answers:
+				require.Equal(t, 200, answer.Code, answer.Body.String())
+				require.JSONEq(t, fmt.Sprintf(`{"id":%q,"state":"rejected"}`, concurrent), answer.Body.String())
+			case <-time.After(5 * time.Second):
+				t.Fatal("denial retry did not finish")
+			}
+		}
+		var decidedBy int64
+		var recordedKey string
+		require.NoError(t, pool.QueryRow(ctx, `SELECT state,decided_by,decision_key FROM approvals WHERE id=$1`, concurrent).Scan(&state, &decidedBy, &recordedKey))
+		require.Equal(t, "rejected", state)
+		require.Equal(t, owner.ID, decidedBy)
+		require.Equal(t, "concurrent-deny-"+kind, recordedKey)
+		w = call("POST", "/api/confirmations/"+concurrent+"/deny", ownerCookie, "", "distinct-deny")
+		require.Equal(t, 409, w.Code, w.Body.String())
+		w = call("POST", "/api/confirmations/"+concurrent+"/approve", ownerCookie, "", "concurrent-deny-"+kind)
+		require.Equal(t, 409, w.Code, w.Body.String())
+		require.Contains(t, w.Body.String(), "idempotency_mismatch")
+	}
 	// A fresh bound-command role check precedes denial, even after listing.
 	merge := seed("review_merge", "merge", false)
 	_, err = pool.Exec(ctx, `DELETE FROM self_host_owners`)

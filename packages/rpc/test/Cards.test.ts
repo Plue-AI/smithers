@@ -808,6 +808,7 @@ const FIXTURES: Record<
   terminal: { minimal: { id: "term-1" }, full: { id: "term-1" } },
   proposal: { minimal: { id: "lint" }, full: { id: "lint", model: { id: "lint", title: "Run lint", evidence: ["3 of the last 5"],
     refs: [{ label: "T7", url: "https://github.com/smithers/canary/pull/41" }], state: "accepted", todo: { n: 12, title: "Run lint" } },
+    load: { owner: "ben", state: "failed", error: "Not available" },
     request: { action: "accept", owner: "ben", state: "failed", error: "Not available" } } },
   run: { minimal: { id: "run-1" }, full: { id: "run-1" } },
   flow: { minimal: { name: "todo" }, full: { name: "todo", version: "v3", memberVersions: { will: "v3", ben: "v2" }, proposal: { request: "request-1", diff: "diff-1" } } },

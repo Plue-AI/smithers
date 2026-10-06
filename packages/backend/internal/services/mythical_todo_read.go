@@ -360,6 +360,15 @@ func currentTodoEvidence(item db.MythicalItem) todoAttemptEvidence {
 	if item.FlowDigest.Valid {
 		evidence.FlowDigest = item.FlowDigest.String
 	}
+	// Legacy reopen snapshots may lack an outcome but still identify the ended run.
+	if evidence.RunID == "" {
+		for _, retained := range checks.Attempts {
+			if retained.Attempt == item.Attempt {
+				evidence.RunID = retained.RunID
+				break
+			}
+		}
+	}
 	for _, receipt := range mythicalReceiptsView(item) {
 		if receipt.Commit != item.CandidateHead {
 			continue

@@ -196,9 +196,16 @@ func (s *MythicalService) consumeGitHubPullTodos(ctx context.Context, tx pgx.Tx,
 					position = max + 1
 				}
 				next.StackPosition = pgtype.Int8{Int64: position, Valid: true}
+				// Restoration keeps the accepted generation and pin, never a live
+				// destination for input to the ended attempt. Retain its evidence
+				// before clearing the binding; restart admission owns the next run.
+				next.Checks = checks.encode()
+				next = retainTodoAttemptEvidence(next)
+				checks = mythicalChecksOf(next)
+				next.RequestRunID, next.VibeRunID, next.VerifyRunID = "", "", ""
+				checks.RunLaunched, checks.RunAttached = false, false
 				next.State, next.PRState, next.Reason = "proposed", "open", ""
 				checks.GitHubReopenedAttempt = item.Attempt
-				checks.RunLaunched, checks.RunAttached = false, false
 				checks.GitHubClosedAt = nil
 				// Missing branches are restored from the last verified proposal; a
 				// foreign branch is retained by the outbound push lease, never overwritten.
