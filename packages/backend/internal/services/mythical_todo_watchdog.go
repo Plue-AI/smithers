@@ -3,9 +3,11 @@ package services
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"slices"
 	"time"
 
+	"github.com/jackc/pgx/v5"
 	"github.com/smithersai/smithers/packages/backend/flowdispatch"
 	"github.com/smithersai/smithers/packages/backend/internal/db"
 )
@@ -121,8 +123,6 @@ func (st *mythicalItemStep) enforceTodoWatchdog(ctx context.Context, item db.Myt
 		(checks.Watchdog.elapsed(st.now) < (4*time.Hour).Milliseconds() && len(checks.Watchdog.Steps) < 1024) {
 		return nil, false, nil
 	}
-	next := *mythicalFailure(item, "the TODO allowance ended", mythicalFailPlan, "failed: no_proposal", st.now)
-	next.RequestOutcome = "failed: no_proposal"
 	tx, err := st.s.store.Begin(ctx)
 	if err != nil {
 		return nil, false, err
@@ -131,7 +131,21 @@ func (st *mythicalItemStep) enforceTodoWatchdog(ctx context.Context, item db.Myt
 	if _, err = tx.Exec(ctx, `SELECT 1 FROM mythical_stacks WHERE repository_id=$1 FOR UPDATE`, item.RepositoryID); err != nil {
 		return nil, false, err
 	}
-	if err = st.s.cancelAttempt(ctx, tx, st.r.row, item); err != nil {
+	// Re-read after serialization: a proposal, pause, Drop or Retry may
+	// have won while this worker waited. Do not cancel a newer attempt.
+	current, err := db.New(tx).GetMythicalItem(ctx, item.ID)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return nil, false, nil
+	}
+	if err != nil {
+		return nil, false, err
+	}
+	if current.Version != item.Version {
+		return &current, true, nil
+	}
+	next := *mythicalStop(current, mythicalFault{Class: "factory", Tag: "no_proposal", Kind: mythicalFailPlan}, "the TODO allowance ended")
+	next.RequestOutcome = "failed: no_proposal"
+	if err = st.s.cancelAttempt(ctx, tx, st.r.row, current); err != nil {
 		return nil, false, err
 	}
 	saved, err := db.New(tx).SaveMythicalItem(ctx, next)

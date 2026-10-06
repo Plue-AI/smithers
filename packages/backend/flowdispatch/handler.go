@@ -81,9 +81,13 @@ func (service *Service) handleLaunch(ctx context.Context, lease *jobs.Lease) err
 	if err != nil {
 		return service.runtimeError(lease, err, checkpoint)
 	}
-	checkpoint.FailureCode = ""
-	checkpoint.FailureClass = ""
-	checkpoint.FailureObservedAt = 0
+	// A pin rejection remains authoritative across a worker restart until
+	// its cancelled run settles. The admitted digest is not host evidence.
+	if checkpoint.FailureCode != pinMismatch {
+		checkpoint.FailureCode = ""
+		checkpoint.FailureClass = ""
+		checkpoint.FailureObservedAt = 0
+	}
 	checkpoint.Identity = identity
 	marker, err := json.Marshal(checkpoint)
 	if err != nil {
@@ -99,7 +103,7 @@ func (service *Service) handleLaunch(ctx context.Context, lease *jobs.Lease) err
 	// A durable run id means launch acceptance already happened. Reconnect only
 	// through Observe; never infer progress from product rows or host readiness.
 	if checkpoint.RunID != "" {
-		if !payload.Pin.Admits(payload.FlowID, checkpoint.ExecutionDigest) {
+		if checkpoint.FailureCode == pinMismatch || !payload.Pin.Admits(payload.FlowID, checkpoint.ExecutionDigest) {
 			return service.refusePin(ctx, runtime, lease, checkpoint)
 		}
 		if claim.CancellationRequested {

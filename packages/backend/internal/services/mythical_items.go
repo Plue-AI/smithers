@@ -532,7 +532,8 @@ func (s *MythicalService) ProjectFlowRuntime(ctx context.Context, update flowdis
 			if projection.Phase == "todo" {
 				flowID = flowdispatch.TodoFlow
 			}
-			if pinned && runID != "" && !pin.Admits(flowID, update.Checkpoint.ExecutionDigest) {
+			pinMismatch := pinned && runID != "" && (update.Checkpoint.FailureCode == mythicalPinMismatch || !pin.Admits(flowID, update.Checkpoint.ExecutionDigest))
+			if pinMismatch {
 				// Another flow, or one that names no identity, ran under this
 				// pin: the dispatcher cancels it, and it is never the attempt's
 				// run. Once it ended, its phase settles as an outage and runs
@@ -548,8 +549,10 @@ func (s *MythicalService) ProjectFlowRuntime(ctx context.Context, update flowdis
 				next = *mythicalStop(next, mythicalFault{Class: "interrupted", Tag: "interrupted", Kind: mythicalFailRuntime}, "interrupted")
 			}
 			// Only the attempt's bound run opens or withdraws its questions.
-			mythicalProjectWaits(&next, projection, update, runID, s.now().UTC())
-			projectTodoWatchdog(&next, update, s.now().UTC())
+			if !pinMismatch {
+				mythicalProjectWaits(&next, projection, update, runID, s.now().UTC())
+				projectTodoWatchdog(&next, update, s.now().UTC())
+			}
 			if err := s.persistTodoLogs(ctx, &next); err != nil {
 				return err
 			}
@@ -1668,7 +1671,7 @@ func mythicalComposedOutcome(item db.MythicalItem, now time.Time) *db.MythicalIt
 	case "":
 		return nil
 	case "completed":
-		return mythicalFailure(item, "the TODO flow ended", mythicalFailPlan, "failed: no_proposal", now)
+		return mythicalStop(item, mythicalFault{Class: "factory", Tag: "no_proposal", Kind: mythicalFailPlan}, "the TODO flow ended without an accepted proposal")
 	default:
 		return mythicalFailure(item, "the TODO flow ended", mythicalFailPlan, outcome, now)
 	}
