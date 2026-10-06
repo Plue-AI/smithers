@@ -41,9 +41,15 @@ func (r *Runtime) fileOperation(ctx context.Context, workspaceID, root string, s
 		return nil, fmt.Errorf("workspace file %s: %w", operation[1], fs.ErrNotExist)
 	case 3, 4, 5:
 		return nil, errors.New(message)
-	default:
-		return nil, fmt.Errorf("%w: guest file operation: %v", ErrUnavailable, err)
+	case 6:
+		// Only the existing compare-write protocol defines a stale result.
+		// Refuse malformed/mixed diagnostics instead of inventing a version.
+		digest, ok := strings.CutPrefix(strings.TrimSuffix(cliErr.stderr, "\n"), "smithers-guest: stale:")
+		if operation[0] == "compare-write" && ok && (digest == "absent" || sha256Pattern.MatchString(digest)) {
+			return nil, &workspaceapi.StaleFileError{CurrentDigest: digest}
+		}
 	}
+	return nil, fmt.Errorf("%w: guest file operation: %v", ErrUnavailable, err)
 }
 
 func (r *Runtime) ReadFile(ctx context.Context, workspaceID, path string) ([]byte, error) {

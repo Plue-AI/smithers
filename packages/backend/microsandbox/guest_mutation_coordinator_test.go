@@ -92,7 +92,7 @@ no_pending()
 
 func TestGuestMutationCoordinatorFailedInputRecoversWithoutCallingInputAgain(t *testing.T) {
 	boundaryPython(t, mutationCoordinatorFixture+`
-def invalid():raise ValueError('invalid request fixture')
+def invalid():os.kill(os.getpid(),signal.SIGKILL)
 try:g.coordinate_mutation(invalid,emit,4096)
 except SystemExit as error:assert error.code==125,error.code
 else:raise AssertionError('invalid input succeeded')
@@ -126,7 +126,7 @@ no_pending()
 
 func TestGuestMutationCoordinatorRecoversBeforeConsumingTheNextRequest(t *testing.T) {
 	boundaryPython(t, mutationCoordinatorFixture+`
-def invalid():raise ValueError('first input died')
+def invalid():os.kill(os.getpid(),signal.SIGKILL)
 try:g.coordinate_mutation(invalid,emit,4096)
 except SystemExit:pass
 assert pending().exists()

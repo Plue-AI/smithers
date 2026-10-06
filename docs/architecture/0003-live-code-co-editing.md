@@ -146,8 +146,17 @@ after-thaw recovers without the old supervisor. An outside save after thaw survi
 Root ownership and credential transitions are instrumented for ordinary-user
 delegation, so this does not qualify privileged journal isolation or machine reboot.
 
-There is still no CLI/runtime caller. Installed input/response adapters, startup
-recovery, authenticated app/coding transport, the actual working-copy filesystem
+The private single-file adapter now decodes the existing `fs compare-write`
+envelope after credential drop and submits it through the whole-batch coordinator.
+Root reads only the bounded size envelope. Rejected input settles an abort and
+cleans up the pending fence; a killed input worker still requires recovery.
+The host decodes only valid compare-write stale responses into the existing typed
+error. Malformed responses remain unavailable. Tests exercise exact binary bytes,
+absent creation, stale preservation, input rejection followed by retry, and the
+continued production gate.
+
+There is still no CLI/runtime mutation caller. Startup recovery, authenticated
+app/coding transport, the actual working-copy filesystem
 and path-alias behavior, external-service/kernel-I/O exclusion, and fresh/retained
 security receipts remain outstanding. The old failing exchange candidate is
 retained only for diagnostic counterexamples until repair cutover; neither

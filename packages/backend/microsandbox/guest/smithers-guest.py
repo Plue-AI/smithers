@@ -598,11 +598,19 @@ def coordinate_mutation(prepare, emit, limit, *, recover_only=False):
                         drop_mutation_identity(entry, gid)
                         # No branch path or bytes are consumed above this point.
                         root = safe_directory("/workspace", create=False)
-                        changes = None if recovery else prepare()
+                        changes, input_error = None, None
+                        if not recovery:
+                            try:
+                                changes = prepare()
+                            except BaseException as failure:
+                                # Installed prepare callbacks only decode bounded
+                                # input. A rejected request still follows durable
+                                # abort/cleanup, without leaving a needless fence.
+                                input_error = failure
                         os.write(state_w, b"R")
                         mutation_control(command_r, (b"G",))
-                        error, result = None, None
-                        if recovery:
+                        error, result = input_error, None
+                        if recovery or error is not None:
                             phase = recover_mutation(root, journal, limit)
                         else:
                             try:
@@ -679,6 +687,42 @@ def coordinate_mutation(prepare, emit, limit, *, recover_only=False):
                         if fd is not None:
                             os.close(fd)
         return 0
+
+
+def coordinated_compare_write(args):
+    """Adapter for the EXISTING fs compare-write envelope; still gated off.
+
+    Size is bounded host metadata. Root does not examine the relative path,
+    base digest, mode or payload. All request interpretation and output happen
+    in the dropped worker using the same batch/journal coordinator.
+    """
+    if len(args) != 8 or not isinstance(args[7], str) or not re.fullmatch(r"[0-9]{1,8}", args[7]):
+        fail(3, "invalid compare-write size envelope")
+    limit = int(args[7])
+    if not 0 < limit <= 64 << 20:
+        fail(3, "invalid compare-write limit")
+    prepared = {}
+
+    def prepare():
+        if args[:3] != ["fs", "agent", "compare-write"] or args[3] != "/workspace":
+            fail(3, "invalid compare-write envelope")
+        path, mode, base = args[4:7]
+        mutation_path(path)
+        if (not isinstance(mode, str) or not re.fullmatch(r"[0-7]{1,4}", mode)
+                or int(mode, 8) > 0o777):
+            fail(3, "invalid compare-write mode")
+        if base != "absent" and (not isinstance(base, str) or not re.fullmatch(r"[0-9a-f]{64}", base)):
+            fail(3, "invalid base_digest")
+        body = sys.stdin.buffer.read(limit + 1)
+        if len(body) > limit:
+            fail(4, "workspace file exceeds write limit")
+        prepared["path"] = path
+        return [(path, base, body, int(mode, 8))]
+
+    def emit(result):
+        sys.stdout.write(json.dumps({"digest": result[prepared["path"]]}, separators=(",", ":")))
+
+    return coordinate_mutation(prepare, emit, limit)
 
 
 def run_managed_child(exec_id, action, *, privileged=False):
