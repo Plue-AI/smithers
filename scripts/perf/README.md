@@ -58,3 +58,33 @@ Missing latency producers are absent, never fabricated zero measurements.
 
 The standalone keystroke driver uses the same artifact writer as the full runner,
 including symlink checks for evidence directories and refusal to overwrite runs.
+
+W20 targets: `smthrs test //scripts:perfUnit`,
+`//scripts:perfKeystroke` (C-PERF-03), `//scripts:perfDiskWrite`
+(C-PERF-04), and `//scripts:perf` (C-PERF-01–06 availability report).
+The latter remains exit 2 until all production drivers exist.
+
+`node scripts/perf/disk-write.mjs` opens `src/a.ts` in the installed File
+card and appends 200 fixed markers through a persistent, pinned batch SSH
+connection. Run on the second Mac with an authorized scratch branch and a
+newline-terminated file without `// m<number>` lines. Set the common origin,
+page, install version, owner cookie and member A storage-state variables above,
+plus `SMITHERS_PERF_SSH_DESTINATION` (the Branch card's `<branch>@<host>`),
+`SMITHERS_PERF_BRANCH` (branch id), and `SMITHERS_PERF_SSH_MEMBER` (member C id).
+The existing SSH identity must belong to C. No SSH options or remote command
+are accepted from configuration. The driver exits its own control master.
+
+It subscribes to the real branch files/activity topics before writing and refuses
+unsupported publishers. It checks every card's full clipboard text against SSH
+bytes and the file hint's SHA-256 and SSH attribution. Writes are spaced at
+least 3 seconds apart; all 200 must produce distinct single-file burst entries.
+The second Mac's Node monotonic clock measures SSH submission to receipt of a
+browser DOM observer binding, an upper bound that also includes browser IPC.
+The persistent master is checked before every write; fallback handshakes are
+refused. Raw samples, activity and the authenticated host profile are retained
+under both perf and C-PERF-04 check directories. No real-stack pass is claimed.
+
+`//scripts:perfProjection`, `//scripts:perfWarmWake` and
+`//scripts:perfRebaseHold` select C-PERF-02, 05 and 06 respectively. They are
+availability reports (exit 2), not measurements; their absent production
+measurement drivers remain explicitly listed in the evidence.

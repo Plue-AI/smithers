@@ -789,8 +789,49 @@ const perf = Smithers.NodeTest({
   timeout: "24h"
 })
 
+/** Installed two-member keystroke workload; never substitutes for a receipt. */
+const perfKeystroke = Smithers.NodeTest({
+  runner: Smithers.entrypoint(Smithers.file("//scripts/perf/keystroke.mjs")),
+  srcs: sources, deps: [], exclusive: true, timeout: "1h"
+})
+
+/** Persistent member SSH writes observed through the installed File card. */
+const perfDiskWrite = Smithers.NodeTest({
+  runner: Smithers.entrypoint(Smithers.file("//scripts/perf/disk-write.mjs")),
+  srcs: sources, deps: [], exclusive: true, timeout: "1h"
+})
+
+/** K1–K8 campaign keeps component evidence distinct from integrated proof. */
+const workingTogetherFaults = Smithers.Shell.Test({
+  shell: "node scripts/working-together/faults.mjs",
+  data: [...sources, Smithers.glob("//crates/smithers-machined/**"), Smithers.glob("//crates/smithers-ffi/src/**"), Smithers.file("//Cargo.toml"), Smithers.file("//Cargo.lock")],
+  exclusive: true, timeout: "1h"
+})
+const workingTogetherComponents = Smithers.Shell.Test({
+  shell: "node scripts/working-together/faults.mjs --components-only",
+  data: [...sources, Smithers.glob("//crates/smithers-machined/**"), Smithers.glob("//crates/smithers-ffi/src/**"), Smithers.file("//Cargo.toml"), Smithers.file("//Cargo.lock")],
+  exclusive: true, timeout: "1h"
+})
+
+/** Per-budget availability reports retain honest incomplete evidence. */
+const perfProjection = Smithers.NodeTest({
+  runner: Smithers.entrypoint(Smithers.file("//scripts/perf/run.mjs"), ["C-PERF-02"]),
+  srcs: sources, deps: [], exclusive: true, timeout: "1h"
+})
+const perfWarmWake = Smithers.NodeTest({
+  runner: Smithers.entrypoint(Smithers.file("//scripts/perf/run.mjs"), ["C-PERF-05"]),
+  srcs: sources, deps: [], exclusive: true, timeout: "1h"
+})
+const perfRebaseHold = Smithers.NodeTest({
+  runner: Smithers.entrypoint(Smithers.file("//scripts/perf/run.mjs"), ["C-PERF-06"]),
+  srcs: sources, deps: [], exclusive: true, timeout: "1h"
+})
+
 const perfUnit = Smithers.NodeTest({
   runner: Smithers.testRunner([
+    Smithers.file("//scripts/working-together/faults.test.mjs"),
+    Smithers.file("//scripts/perf/keystroke.test.mjs"),
+    Smithers.file("//scripts/perf/disk-write.test.mjs"),
     Smithers.file("//scripts/perf/lib/stats.test.mjs"),
     Smithers.file("//scripts/perf/lib/artifact.test.mjs")
   ]),
@@ -1074,6 +1115,13 @@ export const Package = Smithers.Package({
     benchmarkGate,
     perf,
     perfUnit,
+    perfKeystroke,
+    perfDiskWrite,
+    perfProjection,
+    perfWarmWake,
+    perfRebaseHold,
+    workingTogetherFaults,
+    workingTogetherComponents,
     tierContracts,
     releaseIntegrity,
     webBundleContract,

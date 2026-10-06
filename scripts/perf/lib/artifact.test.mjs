@@ -87,3 +87,15 @@ test('host schema and public origin reject incomplete or local metadata', () => 
   for (const value of ['http://127.0.0.2', 'http://[::1]', 'http://app.localhost', 'file:///tmp', 'http://user:pass@mini.lan', 'http://mini.lan/path']) assert.throws(() => publicOrigin(value))
   for (const value of [{}, { ...host, limits: {} }, { ...host, profile: { ...host.profile, hypervisor: undefined } }, { ...host, profile: { ...host.profile, perf_cores: -1 } }]) assert.throws(() => validateHost(value))
 })
+
+test('a named budget retains only that incomplete check; unknown names refuse', async () => {
+  const directory = await mkdtemp(join(tmpdir(), 'perf-selected-'))
+  try {
+    const result = await run({ ...options, root: directory, check: 'C-PERF-05' })
+    assert.equal(result.exit, 2)
+    assert.deepEqual(result.summary.budgets.map(budget => budget.check), ['C-PERF-05'])
+    assert.equal(result.summary.budgets[0].status, 'skipped')
+    assert.deepEqual(await readdir(join(directory, '.artifacts/checks')), ['C-PERF-05'])
+    await assert.rejects(run({ ...options, root: directory, check: 'C-PERF-99' }), /unknown performance check/)
+  } finally { await rm(directory, { recursive: true, force: true }) }
+})
