@@ -378,3 +378,91 @@ func checkSSHDispatchRefusal(t *testing.T, hostile, refusal string) {
 		t.Fatal("dispatch did not refuse")
 	}
 }
+
+// A closed SSH channel must release a silent guest stream without waiting for
+// guest output or confusing stdin EOF with channel CLOSE.
+func TestSSHCloseReleasesSilentGuestStream(t *testing.T) {
+	_, private, err := ed25519.GenerateKey(rand.Reader)
+	if err != nil {
+		t.Fatal(err)
+	}
+	signer, err := ssh.NewSignerFromKey(private)
+	if err != nil {
+		t.Fatal(err)
+	}
+	listener, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer listener.Close()
+	config := &ssh.ServerConfig{NoClientAuth: true}
+	config.AddHostKey(signer)
+	finished := make(chan error, 1)
+	guestClosed := make(chan struct{})
+	go func() {
+		conn, err := listener.Accept()
+		if err != nil {
+			finished <- err
+			return
+		}
+		defer conn.Close()
+		conn.SetDeadline(time.Now().Add(5 * time.Second))
+		server, channels, requests, err := ssh.NewServerConn(conn, config)
+		if err != nil {
+			finished <- err
+			return
+		}
+		defer server.Close()
+		go ssh.DiscardRequests(requests)
+		incoming := <-channels
+		ch, reqs, err := incoming.Accept()
+		if err != nil {
+			finished <- err
+			return
+		}
+		finished <- serveSession(ch, reqs, func(*open) (io.ReadWriteCloser, error) {
+			host, guest := net.Pipe()
+			go func() {
+				defer guest.Close()
+				defer close(guestClosed)
+				io.Copy(io.Discard, guest) // no output, even after stdin EOF
+			}()
+			return host, nil
+		})
+	}()
+	client, err := ssh.Dial("tcp", listener.Addr().String(), &ssh.ClientConfig{User: "ben", HostKeyCallback: ssh.FixedHostKey(signer.PublicKey()), Timeout: 5 * time.Second})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer client.Close()
+	ch, requests, err := client.OpenChannel("session", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer ch.Close()
+	go ssh.DiscardRequests(requests)
+	if ok, err := ch.SendRequest("exec", true, ssh.Marshal(struct{ Command string }{"sleep 100"})); err != nil || !ok {
+		t.Fatalf("exec: %v %v", ok, err)
+	}
+	if err := ch.CloseWrite(); err != nil {
+		t.Fatal(err)
+	}
+	select {
+	case err := <-finished:
+		t.Fatalf("stdin EOF closed session: %v", err)
+	case <-time.After(50 * time.Millisecond):
+	}
+	if err := ch.Close(); err != nil {
+		t.Fatal(err)
+	}
+	select {
+	case <-finished:
+	case <-time.After(time.Second):
+		t.Fatal("SSH CLOSE left silent guest stream attached")
+	}
+	select {
+	case <-guestClosed:
+	case <-time.After(time.Second):
+		t.Fatal("guest transport remained open")
+	}
+}

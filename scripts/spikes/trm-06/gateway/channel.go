@@ -274,6 +274,10 @@ func pumpSession(ch ssh.Channel, requests <-chan *ssh.Request, stream io.ReadWri
 				return
 			case request, ok := <-requests:
 				if !ok {
+					// SSH CLOSE (unlike EOF) ends the transport even when the
+					// guest produces no output. Leave lingering children to the
+					// broker; closing this stream must not mean kill_sessions.
+					stream.Close()
 					return
 				}
 				_, raw, err := mapper.request(request.Type, request.Payload)
