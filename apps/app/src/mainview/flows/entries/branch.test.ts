@@ -268,3 +268,24 @@ test("an agent's Discard asks the person with the exact wait/head and changes no
     expect([...h.store.collections.cards.values()].filter(each => each.kind === "todo" && each.payload.requests.length > 0)).toEqual([])
   } finally { h.controller.dispose() }
 })
+
+test("install SSH reads the authorized live branch without waking it or using the seed", async () => {
+  let snapshot: import("../../runtime/LiveChannel").TopicSnapshot | undefined
+  const live = { subscribe: () => () => {}, getSnapshot: (topic: string) => topic === "branch:b-real" ? snapshot : undefined }
+  const h = await boot(live, true)
+  try {
+    expect((await submit(h, "ssh", { branch: "b-real" })).status).toBe("failed")
+    snapshot = { topic: "branch:b-real", cursor: 1, data: { id: "b-real", ssh_line: "ssh -p 2222 scratch/ben/retry@factory.example", machine: { state: "asleep" } } }
+    expect(await submit(h, "ssh", { branch: "b-real" })).toEqual({ status: "executed", value: "ssh -p 2222 scratch/ben/retry@factory.example" })
+    snapshot = { ...snapshot, error: "forbidden" }
+    expect((await submit(h, "ssh", { branch: "b-real" })).status).toBe("failed")
+    expect((await submit(h, "ssh", { branch: "retry-webhooks" })).status).toBe("failed")
+  } finally { h.controller.dispose() }
+})
+
+test("an unanswered live SSH provider keeps the off-install seed available", async () => {
+  const h = await boot({ subscribe: () => () => {}, getSnapshot: () => undefined })
+  try {
+    expect(await submit(h, "ssh", { branch: "retry-webhooks" })).toEqual({ status: "executed", value: "ssh -p 2222 retry-webhooks@maya-mini.tail1234.ts.net" })
+  } finally { h.controller.dispose() }
+})

@@ -3531,9 +3531,9 @@ export const legacyCards = [
         "error": "the history read stopped at its cap"
       }
     },
-    "expectedKind": "commit-list",
+    "expectedKind": "retired",
     "expectedTitle": "Aomi",
-    "expectedWas": null
+    "expectedWas": "commit-list"
   },
   {
     "row": {
@@ -3581,9 +3581,9 @@ export const legacyCards = [
         "error": "the status read failed"
       }
     },
-    "expectedKind": "commit",
+    "expectedKind": "retired",
     "expectedTitle": "Aomi",
-    "expectedWas": null
+    "expectedWas": "commit"
   },
   {
     "row": {

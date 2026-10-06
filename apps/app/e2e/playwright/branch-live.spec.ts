@@ -24,7 +24,8 @@ for (const optionalStreams of ["served", "unsupported"] as const) test(`install 
       rebase: { state: "pending", onto: "main" },
       presence: [{ actor: { kind: "person", login: "maya", name: "Maya", avatar_url: "https://github.com/identicons/placeholder.png", color_index: 1, via: "ssh" }, where: { kind: "file", path: "retry.ts", line: 12 } }],
       terminals: [], ssh_line: "ssh -p 2222 retry-webhooks@localhost"
-    } : (frame.topic === "branch:b-live:activity" || frame.topic === "branch:b-live:files") && optionalStreams === "served" ? [] : undefined
+    } : frame.topic === "branch:b-live:activity" && optionalStreams === "served" ? [{ id: "outside-1", at: "2026-10-06T12:00:00Z", kind: "burst", actor: { id: "outside", kind: "outside", via: "tool" }, files: [{ path: "retry.ts", change: "modified" }] }]
+      : frame.topic === "branch:b-live:files" && optionalStreams === "served" ? { changed: [{ path: "retry.ts", change: "modified", last_writer: { id: "outside", kind: "outside", via: "tool" } }], open: [] } : undefined
     socket.send(JSON.stringify(data === undefined ? { t: "err", id: frame.id, code: "unsupported" } : { t: "snap", id: frame.id, cursor: 1, data }))
   }))
   await page.goto("/")
@@ -36,6 +37,13 @@ for (const optionalStreams of ["served", "unsupported"] as const) test(`install 
   await expect(card).toContainText("Retry webhooks")
   await expect(card).toContainText("Rebase pending")
   await expect(card.getByRole("button", { name: "Rebase now", exact: true })).toHaveCount(0)
+  if (optionalStreams === "served") {
+    await expect(card).toContainText("changed outside Smithers")
+    await card.getByRole("tab", { name: /Files\s*1/ }).press("Enter")
+    await expect(card.getByRole("tabpanel")).toContainText("retry.ts")
+    expect(posts).toEqual([])
+    await card.getByRole("tab", { name: "Activity", exact: true }).press("Enter")
+  }
   await expect(card).toContainText("Maya via SSH")
   await expect(card).toContainText("retry.ts:12")
   await expect(card).toContainText("ssh -p 2222 retry-webhooks@localhost")

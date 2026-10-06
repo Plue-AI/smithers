@@ -30,6 +30,27 @@ pub fn run_for_peer(uid: u32, cgroups: &str, sessions: &dyn Sessions) -> Result<
     }
     sessions.run_of_cgroup(path).ok_or_else(unauthorized)
 }
+/// The local wire keeps ADR 0004 args6, but the peer cannot select an identity
+/// or kind. Only an agent PTY can enter the dedicated broker-local operation.
+pub fn validate_open(args: &[u8]) -> Result<(), Error> {
+    use crate::broker::{request::Request, sessions::Kind};
+    match Request::decode(6, args) {
+        Ok(Request::Open {
+            user,
+            kind: Kind::Pty,
+            ..
+        }) if user.uid == 19999 && user.login == "agent" => Ok(()),
+        _ => Err(unauthorized()),
+    }
+}
+fn unified_cgroup(groups: &str) -> Option<&str> {
+    let mut paths = groups.lines().filter_map(|line| line.strip_prefix("0::"));
+    let path = paths.next()?;
+    if paths.next().is_some() {
+        return None;
+    }
+    Some(path)
+}
 pub fn serve(
     mut socket: UnixStream,
     ready: Arc<dyn Fn() -> bool + Send + Sync>,
@@ -59,6 +80,10 @@ pub fn serve(
             .write(&mut socket);
     }
     let (id, method, args) = frame.request().map_err(io::Error::other)?;
+    if method == 6 && validate_open(args).is_err() {
+        return daemon::refused(id, unauthorized()).write(&mut socket);
+    }
+    let open = (method == 6).then(|| args.to_vec());
     let write = if method == 3 {
         Some(conn::local_write_args(args, run.clone()).map_err(io::Error::other)?)
     } else {
@@ -84,6 +109,17 @@ pub fn serve(
                     Ok(body) => daemon::response(id, 3, body),
                     Err(e) => daemon::refused(id, e),
                 }),
+                6 => {
+                    if cx.rewrite_pending {
+                        return Ok(daemon::refused(id, crate::freeze::pending_error()));
+                    }
+                    let path =
+                        unified_cgroup(&groups).ok_or(crate::conn::ProtocolError::BadValue)?;
+                    Ok(match cx.hooks.sessions.open_local(path, &open.unwrap()) {
+                        Ok(body) => daemon::response(id, 6, body),
+                        Err(e) => daemon::refused(id, e),
+                    })
+                }
                 2 => crate::rpc::dispatch(&frame, cx),
                 _ => Ok(daemon::refused(id, Error::unsupported())),
             }

@@ -223,7 +223,6 @@ test("card configuration args round-trip through their production grammars", () 
     ["change.checks", { changeId: "c1", seq: 3 }],
     ["issues.close", { number: 3, repo: "owner/repo" }],
     ["issues.reopen", { number: 3, repo: "owner/repo" }],
-    ["commits.list", { branch: "feature/topic", repo: "owner/repo" }],
     ["box.facet", { workspaceId: "w1", facet: "files" }],
     ["secrets.move", { id: "conn-1", direction: "down" }],
     ["box.open", { repo: "owner/repo", kind: "vm" }],
@@ -256,8 +255,7 @@ test("wiki selection preserves paths with spaces", () => {
   expect(payloadFor("wiki.card.select", flowArgs("wiki.card.select", selection))).toEqual({ payload: selection })
 })
 
-test("structured commit, trace, wiki and landing actions match their grammars", () => {
-  roundTrip("commits.read", { ref: "abc123", repo: "team/project" }, "abc123 team/project", { ref: "abc123", repo: "team/project" })
+test("structured trace, wiki and landing actions match their grammars", () => {
   roundTrip("runs.trace.view", { runId: "run-1", view: "timeline" }, "run-1 timeline", { runId: "run-1", view: "timeline" })
   roundTrip("runs.graph.follow", { runId: "run-1", follow: false }, "run-1 off", { runId: "run-1", follow: "off" })
   roundTrip("runs.coding.select", { runId: "run-1", changeId: "change-1" }, "run-1 change-1", { runId: "run-1", changeId: "change-1" })

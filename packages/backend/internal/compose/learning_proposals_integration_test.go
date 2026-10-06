@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -213,7 +214,22 @@ func TestLearningProposalsComposedInstall(t *testing.T) {
 		var facts int
 		require.NoError(t, pool.QueryRow(ctx, `SELECT count(*) FROM product_job_events WHERE event_type='learning.receipt' AND data->>'itemId'=$1`, itemID).Scan(&facts))
 		require.Zero(t, facts)
-		require.NoError(t, runtime.ProjectFlowRuntime(ctx, update))
+		// Several completion deliveries race the same immutable dispatch
+		// receipt. Only one may create lessons, a wiki revision and a fact.
+		var deliveries sync.WaitGroup
+		results := make(chan error, 20)
+		for range 20 {
+			deliveries.Add(1)
+			go func() {
+				defer deliveries.Done()
+				results <- runtime.ProjectFlowRuntime(ctx, update)
+			}()
+		}
+		deliveries.Wait()
+		close(results)
+		for err := range results {
+			require.NoError(t, err)
+		}
 		require.NoError(t, runtime.ProjectFlowRuntime(ctx, update))
 		require.NoError(t, pool.QueryRow(ctx, `SELECT count(*) FROM product_job_events WHERE event_type='learning.receipt' AND data->>'itemId'=$1`, itemID).Scan(&facts))
 		require.Equal(t, 1, facts)

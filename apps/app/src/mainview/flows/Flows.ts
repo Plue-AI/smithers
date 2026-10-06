@@ -37,7 +37,6 @@ import { approvalsFlows } from "./entries/approvals"
 import { authFlows } from "./entries/auth"
 import { billingBalanceFlows, billingPlanFlows } from "./entries/billing"
 import { branchesFlows } from "./entries/branches"
-import { commitsFlows } from "./entries/commits"
 import { browserFlows } from "./entries/browser"
 import { contextFlows } from "./entries/context"
 import { cardFlows } from "./entries/card"
@@ -163,7 +162,6 @@ export const baseFlows = (actions: CommandActions): ReadonlyArray<FlowEntry> => 
   ...imageFlows(actions),
   ...homeFlows(actions),
   ...branchesFlows(actions),
-  ...commitsFlows(actions),
   ...filesFlows(actions),
   ...codeFlows(actions),
   ...githubFlows(actions),

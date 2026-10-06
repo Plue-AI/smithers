@@ -5,6 +5,7 @@
  * those routes and the card reads topic `branch:<id>`.
  */
 import { Schema } from "effect"
+import { z } from "zod"
 import { flow, type CommandActions, type CommandResult } from "./Declare"
 import type { FlowEntry } from "../registry"
 import type { Grammar } from "../SlashPayload"
@@ -105,6 +106,13 @@ export const branchFlows = (actions: CommandActions): ReadonlyArray<FlowEntry> =
     flow({ name: "ssh", agent: "never",   slash: "/ssh", cli: null, journey: ["J3"], group: "Account and settings", visibility: "core", actors: ["person"], minimumRole: "member", http: null, summary: "Copy the SSH line for a branch", args: "<branch>", hidden: true, discloseToAgent: true,
       grammar: field("branch"), input: BranchInput,
       handler: ({ branch }) => {
+        if (actions.live || actions.bootstrap?.capabilities.includes("install")) {
+          const snapshot = actions.live?.getSnapshot(`branch:${branch}`)
+          const decoded = !snapshot?.error && z.object({ id: z.literal(branch), ssh_line: z.string().min(1) }).safeParse(snapshot?.data)
+          if (decoded && decoded.success) return { value: decoded.data.ssh_line }
+          if (actions.design.enabled === false || actions.bootstrap?.capabilities.includes("install")
+            || (snapshot?.error && snapshot.error !== "unsupported" && snapshot.error !== "unknown_topic")) return "Branch unavailable"
+        }
         if (actions.design.enabled === false) return "Branch unavailable"
         const target = branchOf(branch)
         return target === undefined ? `No branch ${branch}` : { value: designSshLine(design.world(), target) }

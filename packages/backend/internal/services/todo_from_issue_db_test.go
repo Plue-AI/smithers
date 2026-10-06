@@ -26,10 +26,6 @@ func TestTodoFromIssueCommitsTheDraftAsTheIssueTodo(t *testing.T) {
 	_, err := pool.Exec(ctx, `INSERT INTO self_host_owners(singleton,user_id) VALUES(true,$1)`, userID)
 	require.NoError(t, err)
 	require.NoError(t, pool.QueryRow(ctx, `INSERT INTO repositories(user_id,name,lower_name) VALUES($1,'app','app') RETURNING id`, userID).Scan(&repoID))
-	_, err = pool.Exec(ctx, `INSERT INTO install_settings(key,value) VALUES('github.repository',jsonb_build_object('repository_id',$1::bigint,'owner_login','will','repository_name','app'))`, repoID)
-	require.NoError(t, err)
-	_, err = pool.Exec(ctx, `INSERT INTO auth_sessions(session_key,user_id,username,expires_at) VALUES('will-session',$1,'will',now()+interval '1 hour')`, userID)
-	require.NoError(t, err)
 	q := db.New(pool)
 	_, err = q.RequestMythicalBootstrap(ctx, repoID, userID, 1, false)
 	require.NoError(t, err)
@@ -44,6 +40,7 @@ func TestTodoFromIssueCommitsTheDraftAsTheIssueTodo(t *testing.T) {
 	s := NewMythicalService(pool, nil)
 	s.github = &snapshotIssueGitHub{gh}
 	ctx = middleware.ContextWithAuthInfo(ctx, &middleware.AuthInfo{User: &db.User{ID: userID}, SessionHash: "will-session"})
+	ctx = registerTestInstallCredential(t, pool, ctx, repoID)
 	refused := func(t *testing.T, input MythicalTodoInput, status int, code string) {
 		t.Helper()
 		_, err := s.FileTodo(ctx, repoID, userID, input)

@@ -1,8 +1,9 @@
+import { useSyncExternalStore } from "react"
 /* T-APP-10: live topics map to BranchView; demo projections remain isolated. */
 import type { CatalogTag } from "@smthrs/rpc/CardAction"
 import type { BranchCard as BranchModel } from "@smthrs/rpc/BranchCard"
 import { useBranchPresence, useTopic } from "../state/useTopic"
-import { branchModel, branchSeedAvailable } from "../state/seams/BranchSeam"
+import { branchModel, branchSeedAvailable, projectBranchActivity } from "../state/seams/BranchSeam"
 import { useController } from "../ControllerContext"
 import { cardActions, type CardActionDefinition, type CardCommandDispatch } from "../flows/cardActions"
 import type { CardActions, CardFamily, CardOf } from "./CardFamily"
@@ -109,6 +110,9 @@ const DesignBranchBody = ({ card, actions }: { readonly card: CardOf<"branch">; 
 export const LiveBranchBody = ({ card, actions }: { readonly card: CardOf<"branch">; readonly actions: CardActions }) => {
   const controller = useController()
   const topic = controller.live ? `branch:${card.payload.id}` : undefined
+  if (topic) controller.live?.registerProjection?.(`${topic}:activity`, projectBranchActivity)
+  const roster = useSyncExternalStore(controller.membersRoster?.subscribe ?? (() => () => {}),
+    controller.membersRoster?.get ?? (() => undefined), controller.membersRoster?.get ?? (() => undefined))
   const branch = useTopic(topic, controller.live)
   const activity = useTopic(topic && `${topic}:activity`, controller.live)
   const files = useTopic(topic && `${topic}:files`, controller.live)
@@ -118,7 +122,7 @@ export const LiveBranchBody = ({ card, actions }: { readonly card: CardOf<"branc
   const optionalData = (snapshot: typeof activity) => snapshot?.error === "unsupported" ? [] : snapshot?.data
   const refused = (snapshot: typeof activity) => snapshot?.error !== undefined && snapshot.error !== "unsupported"
   const model = branch?.error || refused(activity) || refused(files) ? undefined
-    : branchModel(branch?.data, optionalData(activity), optionalData(files), card.payload.id)
+    : branchModel(branch?.data, optionalData(activity), optionalData(files), card.payload.id, { roster: roster?.model?.members.map(member => ({ ...member, id: member.login })) })
   useBranchPresence(card.payload.id, controller.live)
   // Outside an install, an unanswered or absent provider keeps the existing seed visible.
   if (branchSeedAvailable(controller) && branch?.data === undefined

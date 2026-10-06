@@ -46,6 +46,8 @@ impl Daemon {
         let (tx, rx) = std::sync::mpsc::sync_channel(64);
         let output = writer.clone();
         let lock = self.executor.lock.clone();
+        let session_reconciled = self.reconciled.clone();
+        let session_roster = self.roster.clone();
         let responder = std::thread::spawn(move || loop {
             match rx.recv_timeout(std::time::Duration::from_millis(25)) {
                 Ok(receipt) => {
@@ -62,11 +64,26 @@ impl Daemon {
                 Err(std::sync::mpsc::RecvTimeoutError::Timeout) => (),
                 Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => break,
             }
-            let frames = match lock
-                .run_blocking("document_tick", |cx| cx.hooks.documents.clone().poll(cx))
-            {
+            let reconciled = session_reconciled.clone();
+            let roster = session_roster.clone();
+            let frames = match lock.run_blocking(
+                "stream_tick",
+                move |cx| -> crate::hooks::Result<Vec<Frame>> {
+                    let mut frames = cx.hooks.documents.clone().poll(cx)?;
+                    if reconciled.load(Ordering::Acquire) && roster.load(Ordering::Acquire) {
+                        cx.hooks.sessions.ready()?;
+                        frames.extend(cx.hooks.sessions.poll()?);
+                    }
+                    Ok(frames)
+                },
+            ) {
                 Ok(Ok(frames)) => frames,
-                _ => break,
+                _ => {
+                    if let Ok(socket) = output.lock() {
+                        let _ = socket.shutdown(std::net::Shutdown::Both);
+                    }
+                    break;
+                }
             };
             let Ok(mut socket) = output.lock() else { break };
             if frames.iter().any(|f| f.write(&mut *socket).is_err()) {

@@ -602,12 +602,11 @@
       "group": "",
       "visibility": "in-card",
       "actors": [
-        "person",
-        "app_agent"
+        "person"
       ],
       "minimumRole": "member",
       "credentialScope": "write:repository",
-      "agent": "run",
+      "agent": "never",
       "summary": "Continue with an email address",
       "http": null,
       "payload": {
@@ -2859,96 +2858,6 @@
             "path",
             "line",
             "column"
-          ],
-          "additionalProperties": true
-        },
-        "definitions": {}
-      }
-    },
-    {
-      "name": "commits.list",
-      "slash": null,
-      "cli": null,
-      "journey": [],
-      "group": "",
-      "visibility": "in-card",
-      "actors": [
-        "person",
-        "app_agent"
-      ],
-      "minimumRole": "member",
-      "credentialScope": "write:repository",
-      "agent": "run",
-      "summary": "List a branch's commits, newest first",
-      "http": null,
-      "payload": {
-        "dialect": "draft-2020-12",
-        "schema": {
-          "type": "object",
-          "properties": {
-            "branch": {
-              "anyOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "null"
-                }
-              ]
-            },
-            "repo": {
-              "anyOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "null"
-                }
-              ]
-            }
-          },
-          "additionalProperties": true
-        },
-        "definitions": {}
-      }
-    },
-    {
-      "name": "commits.read",
-      "slash": null,
-      "cli": null,
-      "journey": [],
-      "group": "",
-      "visibility": "in-card",
-      "actors": [
-        "person",
-        "app_agent"
-      ],
-      "minimumRole": "member",
-      "credentialScope": "write:repository",
-      "agent": "run",
-      "summary": "Show one commit: its message, parents and diff",
-      "http": null,
-      "payload": {
-        "dialect": "draft-2020-12",
-        "schema": {
-          "type": "object",
-          "properties": {
-            "ref": {
-              "type": "string"
-            },
-            "repo": {
-              "anyOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "null"
-                }
-              ]
-            }
-          },
-          "required": [
-            "ref"
           ],
           "additionalProperties": true
         },

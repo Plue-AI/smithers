@@ -45,10 +45,14 @@ const open = async (page: Page) => {
   return confirm
 }
 
-for (const verb of ["Commit", "Amend"] as const) test(`C-UI-13 Confirm: ${verb} keeps progress through the running subject`, async ({ page }) => {
+for (const verb of ["Commit", "Amend", "Discard"] as const) test(`C-UI-13 Confirm: ${verb} keeps progress through the running subject`, async ({ page }) => {
   test.setTimeout(120_000)
   let row = privateRow(), todo: TodoCard = todos.working.model, calls = 0
   if (verb === "Amend") row = { ...row, command: "todo.amend", payload: { ...row.payload, input: { prompt: "Publish card projections" }, card: { ...row.payload.card, action: { tag: "todo.amend", verb: "Amend" }, text: "Publish card projections" } } }
+  if (verb === "Discard") {
+    todo = todos.foreign_push.model
+    row = { ...row, command: "branch.discard-foreign", payload: { ...row.payload, input: { id: todo.waits[0]!.id, revision: todo.waits[0]!.sha }, card: { ...row.payload.card, action: { tag: "branch.discard-foreign", verb: "Discard" }, subject: { kind: "branch", ref: todo.branch!.name, revision: row.revision } } } }
+  }
   const publish = await fixture(page, topic => topic === "confirmations:1" ? [row] : topic === "members" ? roster("owner") : topic === "todo:12" ? todo : undefined)
   await page.route("**/api/todos", route => route.fulfill({ json: [todo] }))
   await page.route("**/api/todos/12", route => route.fulfill({ json: todo }))
@@ -69,6 +73,7 @@ for (const verb of ["Commit", "Amend"] as const) test(`C-UI-13 Confirm: ${verb} 
   await expect(confirm).toContainText("Approved")
   await expect(toast).toHaveAttribute("data-tone", "live")
   todo = verb === "Amend" ? { ...todos.in_review.model, prompt_revisions: [...todos.in_review.model.prompt_revisions.slice(0, 1), { ...todos.in_review.model.prompt_revisions[0]!, text: "Publish card projections" }] } : todos.in_review.model
+  if (verb === "Discard") todo = { ...todos.foreign_push.model, waits: [] }
   publish("todo:12")
   await expect(toast).toHaveAttribute("data-tone", "done")
 })

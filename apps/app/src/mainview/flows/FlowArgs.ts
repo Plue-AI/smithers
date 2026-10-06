@@ -24,7 +24,6 @@ export interface FlowInput {
   readonly "file.reapply": { readonly path: string }
   readonly "files.read": { readonly path: string; readonly repo?: string; readonly line?: number; readonly column?: number; readonly ref?: string }
   readonly "github.mirror.retry-ref": { readonly ref: string; readonly repo?: string }
-  readonly "commits.read": { readonly ref: string; readonly repo: string }
   readonly "runs.trace.view": { readonly runId: string; readonly view: "turns" | "timeline" | "graph" | "steps" | "devtools" }
   readonly "runs.trace.filter": { readonly runId: string; readonly filter: string }
   readonly "runs.signal": { readonly runId: string; readonly name: string; readonly payload?: string }
@@ -52,7 +51,6 @@ export interface FlowInput {
   readonly "box.delete": { readonly workspaceId: string; readonly confirmName: string }
   readonly "change.checks": { readonly changeId: string; readonly seq: number }
   readonly "flow.run.stop-all": { readonly sourceCard: string; readonly repo: string }
-  readonly "commits.list": { readonly branch: string; readonly repo: string }
   readonly "box.facet": { readonly workspaceId: string; readonly facet: string }
   readonly "secrets.move": { readonly id: string; readonly direction: "up" | "down" }
   /** Carried as JSON: the form opens with these and asks for the value. */
@@ -190,7 +188,6 @@ const ENCODERS: { readonly [N in FlowWithInput]: (payload: Payload) => string } 
   "file": payload => JSON.stringify(payload),
   "agent.model": payload => JSON.stringify(payload),
   "flow.new": payload => JSON.stringify(payload),
-  "commits.read": payload => line(token(payload, "ref"), token(payload, "repo")),
   "runs.trace.view": payload => line(token(payload, "runId"), token(payload, "view")),
   "runs.trace.filter": payload => line(token(payload, "runId"), token(payload, "filter")),
   "runs.signal": payload => line(token(payload, "runId"), token(payload, "name"), typeof payload.payload === "string" ? payload.payload : undefined),
@@ -220,7 +217,6 @@ const ENCODERS: { readonly [N in FlowWithInput]: (payload: Payload) => string } 
   "box.delete": payload => line(token(payload, "workspaceId"), token(payload, "confirmName")),
   "change.checks": payload => line(token(payload, "changeId"), token(payload, "seq")),
   "flow.run.stop-all": payload => line(keyed(payload, "sourceCard"), token(payload, "repo")),
-  "commits.list": payload => line(token(payload, "branch"), token(payload, "repo")),
   "box.facet": payload => line(token(payload, "workspaceId"), token(payload, "facet")),
   "secrets.move": payload => line(token(payload, "id"), token(payload, "direction")),
   "secrets.set": payload => JSON.stringify(payload),

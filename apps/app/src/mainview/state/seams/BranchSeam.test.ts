@@ -1,6 +1,6 @@
 import { projectBranchFiles } from "@smthrs/rpc/FileCard"
 import { expect, test } from "bun:test"
-import { branchModel, branchSeedAvailable, createBrowserPresence } from "./BranchSeam"
+import { branchModel, branchSeedAvailable, createBrowserPresence, projectBranchActivity } from "./BranchSeam"
 import type { AppBootstrap } from "@smthrs/rpc/AppBootstrap"
 
 test("branch fallback distinguishes a demo bootstrap from an install and a provider-only host", () => {
@@ -47,4 +47,26 @@ test("file reload hints preserve the Branch card's changed-file rows", () => {
   expect(branchModel(branch, [], topic, "b1")?.changed_files).toEqual(rows)
   const next = projectBranchFiles(topic, [])
   expect(branchModel(branch, [], next, "b1")?.changed_files).toEqual([])
+})
+
+test("durable burst and changed-file frames decode with roster attribution", () => {
+  const actor = { id: "member:ben", kind: "person", member_id: "ben", via: "ssh" }
+  const context = { roster: [{ id: "ben", login: "ben", name: "Ben", avatar_url: "https://github.com/ben.png", color_index: 0 }] }
+  const events = [{ id: "burst-1", at: "2026-10-06T12:00:00Z", kind: "burst", actor, files: [{ path: "src/retry.ts", change: "modified" }] }]
+  const files = { changed: [{ path: "src/retry.ts", change: "modified", last_writer: actor }], open: [] }
+  const model = branchModel(branch, events, files, "b1", context)!
+  expect(model.activity[0]).toEqual({ id: "burst-1", at: "2026-10-06T12:00:00Z", kind: "change", actor: { kind: "person", login: "ben", name: "Ben", avatar_url: "https://github.com/ben.png", color_index: 0, via: "ssh" }, text: "changed 1 file", files: 1, actions: [] })
+  expect(model.changed_files[0]?.authors).toEqual([model.activity[0]!.actor])
+  expect(branchModel(branch, events, files, "b1")).toBeUndefined()
+  expect(branchModel(branch, [{ ...events[0], files: [{ path: "../secret", change: "modified" }] }], files, "b1", context)).toBeUndefined()
+})
+
+test("activity replay deduplicates, caps at 200, and refuses malformed deltas", () => {
+  const before = Array.from({ length: 200 }, (_, n) => ({ id: String(n), text: "before" }))
+  const after = projectBranchActivity(before, [{ id: "199", text: "updated" }, { id: "200", text: "next" }]) as unknown[]
+  expect(after).toHaveLength(200)
+  expect(after[0]).toEqual({ id: "1", text: "before" })
+  expect(after.slice(-2)).toEqual([{ id: "199", text: "updated" }, { id: "200", text: "next" }])
+  expect(() => projectBranchActivity([], [{}])).toThrow("Invalid activity entry")
+  expect(() => projectBranchActivity(undefined, [])).toThrow("Invalid activity delta")
 })

@@ -1,3 +1,4 @@
+import { LiveChannel, type LiveSocket } from "../runtime/LiveChannel"
 import { fixtures } from "@smthrs/rpc/fixtures/Confirm"
 import type { MemberConfirmation } from "@smthrs/rpc/ConfirmCard"
 import { createConversationHistory } from "../native/ConversationHistory"
@@ -33,9 +34,15 @@ test("/branches mounts the install tree before an unresolved read, then shows re
   const store = await createAppStore({ kind: "localStorage", storage: memoryStorage() })
   let finish!: (value: Response) => void
   const read = new Promise<Response>(resolve => { finish = resolve })
+  const frames: { t: string; id: number; topic?: string }[] = []
+  const socket = { readyState: 1, onopen: null, onclose: null, onmessage: null,
+    send: (data: string | Uint8Array) => { if (typeof data === "string") frames.push(JSON.parse(data)) }, close: () => {} } as LiveSocket
+  const live = new LiveChannel({ socket: () => socket })
+  cleanups.push(() => live.dispose())
   let starts = 0
   const controller = controllerFor(store, { ...silentAgent, startTurn: async () => { starts++; return { status: "started" } } }, {
     bootstrap: { apiVersion: 1, host: "local", version: "test", buildSha: "test", capabilities: ["install"], authFlow: "redirect", sandbox: null },
+    live,
     fetchImpl: async input => String(input).includes("/api/branches?") ? read : new Response("{}", { status: 404 })
   })
   await store.dispatch({ type: "identity.session.loaded", actor: "system", state: "signed-in", login: "ben", admin: false, scopesPlain: null }).isPersisted.promise
@@ -48,6 +55,16 @@ test("/branches mounts the install tree before an unresolved read, then shows re
   expect(store.session().branchNavigation?.nodes).toEqual([])
   finish(Response.json([row("retry"), row("nested", "retry"), row("closed", "main", "closed")]))
   await waitFor(() => host.querySelector('[data-node="nested"]') !== null)
+  const subscription = frames.find(frame => frame.topic === "branch:retry")!
+  expect(subscription).toBeDefined()
+  const ben = { kind: "person", login: "ben", name: "Ben", avatar_url: "https://github.com/ben.png", color_index: 0 } as const
+  const agent = { kind: "agent", id: "coding-1", agent: "coding", avatar_url: "https://github.com/agent.png", color_index: 6 } as const
+  socket.onmessage?.({ data: JSON.stringify({ t: "snap", id: subscription.id, cursor: 1, data: { presence: [{ actor: agent }, { actor: ben }] } }) })
+  await waitFor(() => store.session().branchNavigation?.nodes[0]?.children[0]?.present.length === 2)
+  expect(store.session().branchNavigation?.nodes[0]?.children[0]?.present).toEqual([ben, agent])
+  await waitFor(() => host.querySelector('[data-node="retry"] [aria-label="Ben"]') !== null)
+  socket.onmessage?.({ data: JSON.stringify({ t: "err", id: subscription.id, code: "forbidden" }) })
+  await waitFor(() => store.session().branchNavigation?.nodes[0]?.children[0]?.present.length === 0)
   expect(host.querySelector('[data-node="closed"]')).toBeNull()
   expect(host.querySelector('[data-node="b-retry"]')).toBeNull()
   expect(host.querySelector('[data-node="nested"]')?.closest("li")?.getAttribute("data-depth")).toBe("2")

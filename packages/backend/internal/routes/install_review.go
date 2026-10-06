@@ -3,6 +3,7 @@ package routes
 import (
 	"context"
 	"encoding/json"
+	"github.com/go-chi/chi/v5"
 	"io"
 	"net/http"
 
@@ -48,4 +49,26 @@ func (h *InstallReviewHandler) Request(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Cache-Control", "no-store")
 	w.WriteHeader(http.StatusAccepted)
 	_ = json.NewEncoder(w).Encode(receipt)
+}
+
+func (h *InstallReviewHandler) Get(w http.ResponseWriter, r *http.Request) {
+	repo, requester, ok := authorizeInstallRepository(w, r, h.Queries, "repo.read")
+	if !ok {
+		return
+	}
+	reader, ok := h.Service.(interface {
+		GetReview(context.Context, int64, int64, string) (services.ReviewStatus, error)
+	})
+	if !ok {
+		todoRouteError(w, &services.TodoControlError{Status: 503, Class: "infra", Code: "review_delivery_unavailable", Message: "Review unavailable"})
+		return
+	}
+	result, err := reader.GetReview(r.Context(), repo, requester, chi.URLParam(r, "id"))
+	if err != nil {
+		todoRouteError(w, err)
+		return
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.Header().Set("Cache-Control", "no-store")
+	_ = json.NewEncoder(w).Encode(result)
 }

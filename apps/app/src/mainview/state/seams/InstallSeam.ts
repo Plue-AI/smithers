@@ -235,7 +235,8 @@ export const createInstallSeam = (ctx: SeamContext, withToast: FailureController
       try {
         await saved
         if (!current()) return false
-        const generation = shared.generation
+        // Fence GETs begun before this write; their old model cannot suppress its response.
+        const generation = ++shared.generation
         const result = await request(path, { method: path === "/install" ? "PUT" : "POST",
           headers: { "Idempotency-Key": row?.id ?? randomUuid() }, body: JSON.stringify(body) })
         if (!current()) return false

@@ -78,7 +78,7 @@ fn identity_registry_and_run_binding() {
     assert_eq!(s.entries().count(), 2);
     assert_eq!(
         s.entries().next().unwrap().cgroup(),
-        "/sys/fs/cgroup/smithers/sessions/1"
+        "/sys/fs/cgroup/smithers/sessions/s1"
     );
     assert_eq!(s.kill_run("r", Instant::now()).unwrap(), 1);
     assert_eq!(s.entries().count(), 1);
@@ -353,4 +353,63 @@ fn failed_cleanup_blocks_every_spawn_until_confirmed_retry() {
     s.authorize(&alice).unwrap();
     s.authorize(&agent).unwrap();
     assert!(s.authorize(&user()).is_err());
+}
+
+#[test]
+fn local_pty_inherits_only_the_authenticated_callers_run_atomically() {
+    let mut s = rostered(ControlsFixture::default());
+    s.insert(
+        1,
+        User {
+            login: "agent".into(),
+            uid: 19999,
+        },
+        Kind::Exec,
+    )
+    .unwrap();
+    for uid in [0, 19998, 20001] {
+        assert!(s.insert_local(2, uid, 1).is_err());
+    }
+    assert!(s.insert_local(2, 19999, 1).is_err()); // unregistered caller
+    assert_eq!(s.entries().count(), 1);
+    s.register_run(1, "run-a").unwrap();
+    assert!(s.insert_local(2, 19999, 99).is_err());
+    s.insert_local(2, 19999, 1).unwrap();
+    let local = s.entries().find(|e| e.id == 2).unwrap();
+    assert_eq!(local.kind, Kind::Pty);
+    assert_eq!(local.run.as_deref(), Some("run-a"));
+    assert_eq!(s.local_run(19999, 2).unwrap(), "run-a");
+    assert!(s.register_run(2, "forged-run").is_err());
+    assert!(s.insert_local(2, 19999, 1).is_err());
+    assert_eq!(s.entries().count(), 2);
+    assert_eq!(s.kill_run("run-a", Instant::now()).unwrap(), 2);
+    assert!(s.insert_local(3, 19999, 2).is_err());
+}
+
+#[test]
+fn cgroup_names_are_canonical_with_cleanup_compatibility() {
+    for (name, id) in [
+        ("s1", 1),
+        ("s2147483647", 2147483647),
+        ("1", 1),
+        ("2147483647", 2147483647),
+    ] {
+        assert_eq!(cgroup_id(name).unwrap(), id);
+    }
+    for name in [
+        "",
+        "s",
+        "s0",
+        "0",
+        "s01",
+        "01",
+        "s+1",
+        "+1",
+        "s2147483648",
+        "../1",
+        "s1/child",
+        "s1\0",
+    ] {
+        assert!(cgroup_id(name).is_err(), "{name}");
+    }
 }

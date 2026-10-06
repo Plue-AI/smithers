@@ -3,8 +3,12 @@ package compose
 import (
 	"context"
 	"fmt"
+	"github.com/smithersai/smithers/packages/backend/hostexec"
 	"github.com/smithersai/smithers/packages/backend/internal/livedocument"
 	"net"
+	"os"
+	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/coder/websocket"
@@ -20,7 +24,31 @@ import (
 func TestMachinedComposedDocumentBoundary(t *testing.T) {
 	f := newDocFixture(t)
 	registry := new(machined.Registry)
-	authority, err := registry.MintBoot("branch-a", "vm-a")
+	root := t.TempDir()
+	source, store, bundle := filepath.Join(root, "source"), filepath.Join(root, "store"), filepath.Join(root, "capture.bundle")
+	git := func(args ...string) string {
+		out, err := hostexec.Git(t.Context(), append([]string{"-c", "user.name=Test", "-c", "user.email=test@example.com", "-c", "core.hooksPath=/dev/null"}, args...)...).CombinedOutput()
+		require.NoError(t, err, "%s", out)
+		return strings.TrimSpace(string(out))
+	}
+	git("init", "--initial-branch=main", source)
+	require.NoError(t, os.WriteFile(filepath.Join(source, "retry.ts"), []byte("base\n"), 0600))
+	git("-C", source, "add", ".")
+	git("-C", source, "commit", "-m", "base")
+	base := git("-C", source, "rev-parse", "HEAD")
+	git("clone", "--bare", source, store)
+	require.NoError(t, os.WriteFile(filepath.Join(source, "retry.ts"), []byte("captured bytes\n"), 0600))
+	git("-C", source, "add", ".")
+	git("-C", source, "commit", "-m", "capture")
+	head := git("-C", source, "rev-parse", "HEAD")
+	git("-C", source, "bundle", "create", bundle, "--all")
+	registry.BindObjectImporter(machined.GitBundleImporter(func(_ context.Context, branch string) (string, error) {
+		if branch != "11111111-1111-4111-8111-111111111111" {
+			return "", machined.ErrUnauthorized
+		}
+		return store, nil
+	}))
+	authority, err := registry.MintBoot("11111111-1111-4111-8111-111111111111", "vm-a")
 	require.NoError(t, err)
 	host, guest := net.Pipe()
 	t.Cleanup(func() { host.Close(); guest.Close() })
@@ -56,10 +84,29 @@ func TestMachinedComposedDocumentBoundary(t *testing.T) {
 		}
 		peer <- err
 	}()
-	link, err := registry.Connect(t.Context(), "branch-a", host)
+	link, err := registry.Connect(t.Context(), "11111111-1111-4111-8111-111111111111", host)
 	require.NoError(t, err)
 	require.NoError(t, <-peer)
 	t.Cleanup(func() { link.Close() })
+	// Real object reception shares the authenticated link with the browser's
+	// document peer. A stream close certifies pinned, GC-surviving bytes.
+	bundleBytes, err := os.ReadFile(bundle)
+	require.NoError(t, err)
+	for offset := 0; offset < len(bundleBytes); {
+		n := min(65536, len(bundleBytes)-offset)
+		require.NoError(t, wire.Write(guest, wire.Frame{Kind: wire.Objects, Stream: 8, Payload: append([]byte{1, 0}, bundleBytes[offset:offset+n]...)}))
+		window, err := wire.Read(guest)
+		require.NoError(t, err)
+		require.Equal(t, append([]byte{6}, wire.U32(uint32(n))...), window.Payload)
+		offset += n
+	}
+	require.NoError(t, wire.Write(guest, wire.Frame{Kind: wire.Objects, Stream: 8, Payload: []byte{2, 0}}))
+	closed, err := wire.Read(guest)
+	require.NoError(t, err)
+	require.Equal(t, wire.Frame{Kind: wire.Objects, Stream: 8, Payload: []byte{7}}, closed)
+	git("-C", store, "gc", "--prune=now")
+	require.Equal(t, "captured bytes", git("-C", store, "show", head+":retry.ts"))
+	require.Equal(t, base, git("-C", store, "rev-parse", "refs/heads/main"))
 	// Dependency readiness is separate from the transport. A fresh authenticated
 	// link is refused by the public subscription before reconciliation completes.
 	f.relay.Connection = func(_ context.Context, branch string) (*machined.Connection, live.DocumentRPC) {
@@ -69,12 +116,12 @@ func TestMachinedComposedDocumentBoundary(t *testing.T) {
 		}
 		return current.Connection, machined.Documents(registry, branch)
 	}
-	f.sub(t, "doc:code:branch-a:retry.ts")
+	f.sub(t, "doc:code:11111111-1111-4111-8111-111111111111:retry.ts")
 	kind, body := f.read(t)
 	require.Equal(t, websocket.MessageText, kind)
 	require.Contains(t, string(body), "unsupported")
 	require.NoError(t, link.Reconciled())
-	f.sub(t, "doc:code:branch-a:retry.ts")
+	f.sub(t, "doc:code:11111111-1111-4111-8111-111111111111:retry.ts")
 	request, err := wire.Read(guest)
 	require.NoError(t, err)
 	id, method, args, err := request.Request()

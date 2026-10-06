@@ -83,6 +83,9 @@ impl SessionReceiver {
         self.received = next;
         Ok(window)
     }
+    pub fn reattach(&mut self, delivered_eof: bool) -> io::Result<()> {
+        self.pipe.reattach(delivered_eof)
+    }
     pub fn received(&self) -> u64 {
         self.received
     }

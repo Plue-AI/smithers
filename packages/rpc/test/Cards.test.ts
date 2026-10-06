@@ -2954,16 +2954,8 @@ const cloudAgentFixtures: KindFixtures = {
 
 describe("removed presentation compatibility", () => {
   // Pin the Cut contract independently of the schema and retirement registry.
-  const cutKinds = [
-    "admin-health",
-    "agent",
-    "connect",
-    "grant-confirm",
-    "notifications",
-    "registration",
-    "repository-setup"
-  ] as const
-  test("the cut manifest records exactly the seven removed card kinds", () => {
+  const cutKinds = ["admin-health", "agent", "commit", "commit-list", "connect", "grant-confirm", "notifications", "registration", "repository-setup"] as const
+  test("the cut manifest records exactly the removed card kinds", () => {
     const manifest = JSON.parse(readFileSync(new URL("../src/catalog/cuts.json", import.meta.url), "utf8")) as {
       rows: { disposition: string; cardKinds: string[] }[]
     }

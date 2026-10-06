@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"bytes"
 	"compress/gzip"
+	"context"
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
@@ -39,6 +40,23 @@ func TestInstallSetupCompiledHostRestart(t *testing.T) {
 	for _, boundary := range []string{"running admission", "address effect", "owner claim", "owner claim configured origins", "owner claim sealed Gateway", "app conversion consumed"} {
 		t.Run(boundary, func(t *testing.T) { testInstallSetupCompiledHostRestart(t, boundary) })
 	}
+}
+
+// A real child startup refusal must return through the parent test goroutine,
+// rather than strand Eventually's polling goroutine until the suite timeout.
+func TestInstallSetupStartupFailureReturns(t *testing.T) {
+	if os.Getenv("SMITHERS_TEST_DATABASE_URL") == "" {
+		t.Skip("SMITHERS_TEST_DATABASE_URL required for compiled startup refusal")
+	}
+	ctx, cancel := context.WithTimeout(t.Context(), 45*time.Second)
+	defer cancel()
+	command := exec.CommandContext(ctx, os.Args[0], "-test.run=^TestInstallSetupCompiledHostRestart$/^owner_claim$", "-test.count=1", "-test.timeout=40s")
+	command.Env = append(os.Environ(), "SMITHERS_FFI_LIBRARY_PATH="+filepath.Join(t.TempDir(), "missing.dylib"))
+	output, err := command.CombinedOutput()
+	require.Error(t, err, "a missing native library must refuse startup")
+	require.NoError(t, ctx.Err(), "startup refusal must not strand the harness")
+	require.Contains(t, string(output), "compiled host startup failed")
+	require.NotContains(t, string(output), "test timed out")
 }
 
 func testInstallSetupCompiledHostRestart(t *testing.T, boundary string) {
@@ -95,7 +113,7 @@ func testInstallSetupCompiledHostRestart(t *testing.T, boundary string) {
 		environment["SMITHERS_GITHUB_APP_API_BASE_URL"] = github.URL
 	}
 	var traces setupProcessBuffer
-	var tracedPaths sync.Map
+	var tracedRequests sync.Map
 	collector := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		var reader io.Reader = r.Body
 		if r.Header.Get("Content-Encoding") == "gzip" {
@@ -124,13 +142,19 @@ func testInstallSetupCompiledHostRestart(t *testing.T, boundary string) {
 		for _, resource := range batch.ResourceSpans {
 			for _, scope := range resource.ScopeSpans {
 				for _, span := range scope.Spans {
+					var method, path string
 					for _, attribute := range span.Attributes {
 						switch attribute.Key {
+						case "http.request.method", "http.method":
+							method = attribute.Value.GetStringValue()
 						case "url.path", "url.full", "http.target", "http.url":
 							if parsed, err := url.Parse(attribute.Value.GetStringValue()); err == nil {
-								tracedPaths.Store(parsed.Path, true)
+								path = parsed.Path
 							}
 						}
+					}
+					if method != "" && path != "" {
+						tracedRequests.Store(method+" "+path, true)
 					}
 				}
 			}
@@ -253,10 +277,14 @@ func testInstallSetupCompiledHostRestart(t *testing.T, boundary string) {
 				t.Error("stdout capture did not drain")
 			}
 		})
+		var startupFailure string
 		require.Eventually(t, func() bool {
 			select {
 			case failure := <-bootFailure:
-				t.Fatalf("compiled host startup: %s", failure)
+				// Eventually polls in another goroutine. Fatal there exits the
+				// poll without returning its result, stranding the harness.
+				startupFailure = failure
+				return true
 			default:
 			}
 			response, err := client.Get(origin + "/readyz")
@@ -266,6 +294,7 @@ func testInstallSetupCompiledHostRestart(t *testing.T, boundary string) {
 			response.Body.Close()
 			return response.StatusCode == 200
 		}, 60*time.Second, 100*time.Millisecond, "compiled host did not become ready")
+		require.Empty(t, startupFailure, "compiled host startup failed")
 		return command, minted
 	}
 	command, minted := start()
@@ -510,14 +539,15 @@ func testInstallSetupCompiledHostRestart(t *testing.T, boundary string) {
 		require.NoError(t, command.Wait())
 		// A clean secret scan of an empty or partial export is not evidence.
 		// Require each exercised setup/status surface in the flushed capture.
-		for _, path := range []string{
-			"/api/install", "/api/status", "/api/auth/github", "/api/auth/github/callback",
-			"/api/install/setup/address", "/api/install/setup/app", "/api/install/setup/sign_in",
-			"/api/install/setup/repository", "/api/install/setup/models",
-			"/api/install/setup/source", "/api/install/setup/machine",
+		for _, request := range []string{
+			"GET /api/install", "PUT /api/install", "GET /api/status",
+			"GET /api/auth/github", "GET /api/auth/github/callback",
+			"POST /api/install/setup/address", "POST /api/install/setup/app", "POST /api/install/setup/sign_in",
+			"POST /api/install/setup/repository", "POST /api/install/setup/models",
+			"POST /api/install/setup/source", "POST /api/install/setup/machine",
 		} {
-			_, exported := tracedPaths.Load(path)
-			require.True(t, exported, "missing exported trace for %s", path)
+			_, exported := tracedRequests.Load(request)
+			require.True(t, exported, "missing exported trace for %s", request)
 		}
 		return
 	}

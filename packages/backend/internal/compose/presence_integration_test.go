@@ -216,7 +216,20 @@ func TestPresenceSessionBinding(t *testing.T) {
 	require.Eventually(t, func() bool { return len(f.roster(t)) == 1 }, time.Second, 10*time.Millisecond)
 	// A move with the same ID did not unsubscribe the Branch card.
 	sendPresenceFrame(t, one, fmt.Sprintf(`{"t":"presence","id":1,"where":{"branch":%q,"path":"retry.ts","line":40}}`, f.row.ID))
-	require.Contains(t, string(readPresenceFrame(t, one).Data), `"line":40`)
+	// Join/leave snapshots can already be queued on this subscription. Read
+	// through them without treating an intermediate roster as the move receipt.
+	moveCtx, cancelMove := context.WithTimeout(t.Context(), time.Second)
+	defer cancelMove()
+	for {
+		_, raw, err := one.Read(moveCtx)
+		require.NoError(t, err, "last move was not delivered within 1 second")
+		var frame liveFrame
+		require.NoError(t, json.Unmarshal(raw, &frame))
+		require.Equal(t, "snap", frame.T)
+		if strings.Contains(string(frame.Data), `"line":40`) {
+			break
+		}
+	}
 	require.NoError(t, f.publish.Publish(t.Context(), revocation.Event{Kind: revocation.KindBrowserSessionRevoked, TokenHash: fmt.Sprintf("%x", sha256.Sum256([]byte(f.cookie)))}))
 	require.Eventually(t, func() bool { return len(f.roster(t)) == 0 }, time.Second, 10*time.Millisecond)
 }

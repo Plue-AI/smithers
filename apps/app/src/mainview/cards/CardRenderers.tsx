@@ -24,7 +24,6 @@ import { anonymousCeilingCardFamily } from "./AnonymousCeilingCard"
 import { approvalCardFamily } from "./ApprovalCard"
 import type { CardActions, CardFamily, CardFamilyEntry, CardProjectionAuthority } from "./CardFamily"
 import { changeCardFamily } from "./ChangeCards"
-import { commitCardFamily } from "./CommitCards"
 import { conversationCardFamily } from "./ConversationCards"
 import { debugApiCardFamily } from "./DebugApiCard"
 import { docsCardFamily } from "./DocsCard"
@@ -90,7 +89,6 @@ export const CARD_FAMILIES: ReadonlyArray<CardFamily<never>> = [
   anonymousCeilingCardFamily,
   searchResultsCardFamily,
   wikiCardFamily,
-  commitCardFamily,
   todoCardFamily,
   draftCardFamily,
   confirmCardFamily,
@@ -121,7 +119,6 @@ export const CARD_RENDERERS: CardFamily<RenderedCardKind> = {
   ...issueCardFamily,
   ...landingCardFamily,
   ...changeCardFamily,
-  ...commitCardFamily,
   ...repositoryUpdateCardFamily,
   ...secretsCardFamily,
   ...syncCardFamily,

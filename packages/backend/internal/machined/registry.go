@@ -25,6 +25,7 @@ type Registry struct {
 	branches   map[string]*boot
 	boots      map[[16]byte]*boot
 	rosterSync func(context.Context, string) error
+	objects    ObjectImporter
 }
 
 type boot struct {

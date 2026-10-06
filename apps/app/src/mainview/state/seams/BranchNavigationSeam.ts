@@ -1,3 +1,5 @@
+import { ActorSchema } from "@smthrs/rpc/CardPrimitives"
+import type { LiveTopics } from "../useTopic"
 import { z } from "zod"
 import type { BranchTreeNodeCard } from "@smthrs/rpc/BranchTreeNodeCard"
 import { accountOwnerOf } from "../AccountOwner"
@@ -33,8 +35,34 @@ export function branchTree(value: unknown): BranchTreeNodeCard[] {
   return [nodes.get("main")!]
 }
 
-export function createBranchNavigationSeam(ctx: SeamContext, design: DesignWorld) {
+export function createBranchNavigationSeam(ctx: SeamContext, design: DesignWorld, options?: { live?: LiveTopics; onDispose?: (dispose: () => void) => void }) {
   let pending: Promise<void> | undefined
+  const watches = new Map<string, () => void>()
+  const stop = () => { for (const unsubscribe of watches.values()) unsubscribe(); watches.clear() }
+  const identity = options?.onDispose ? ctx.store.collections.identitySessions.subscribeChanges(() => {
+    const view = ctx.store.session().branchNavigation
+    if (view && view.owner !== (accountOwnerOf(ctx.store.collections.identitySessions.get("identity")) ?? null)) stop()
+  }) : undefined
+  options?.onDispose?.(() => { stop(); identity?.unsubscribe() })
+  const Presence = z.object({ presence: z.array(z.object({ actor: ActorSchema })) })
+  const observe = (rows: unknown[], owner: string | null) => {
+    stop()
+    for (const row of Rows.parse(rows)) {
+      const topic = `branch:${row.machine.id}`
+      const update = () => {
+        const view = ctx.store.session().branchNavigation
+        if (ctx.isDisposed?.() || view?.owner !== owner || (accountOwnerOf(ctx.store.collections.identitySessions.get("identity")) ?? null) !== owner) return
+        const snapshot = options?.live?.getSnapshot(topic)
+        const parsed = !snapshot?.error ? Presence.safeParse(snapshot?.data) : undefined
+        const present = parsed?.success ? parsed.data.presence.map(entry => entry.actor)
+          .sort((a, b) => Number(a.kind !== "person") - Number(b.kind !== "person")) : []
+        const patch = (nodes: BranchTreeNodeCard[]): BranchTreeNodeCard[] => nodes.map(node => ({ ...node,
+          ...(node.id === row.name ? { present } : {}), children: patch(node.children) }))
+        void ctx.dispatch({ type: "branch.navigation.changed", actor: "system", navigation: { ...view, nodes: patch(view.nodes) } }).isPersisted.promise
+      }
+      if (options?.live) { watches.set(topic, options.live.subscribe(topic, update)); update() }
+    }
+  }
   return {
     listBookmarks: async () => {
       const owner = accountOwnerOf(ctx.store.collections.identitySessions.get("identity")) ?? null
@@ -46,6 +74,7 @@ export function createBranchNavigationSeam(ctx: SeamContext, design: DesignWorld
       const current = () => !ctx.isDisposed?.() && (accountOwnerOf(ctx.store.collections.identitySessions.get("identity")) ?? null) === owner
       const read = async () => {
         const rows: unknown[] = []
+        let real = true
         let nodes: BranchTreeNodeCard[] | undefined
         try {
           // The branch API uses offset cursors; never follow an arbitrary Link URL.
@@ -59,12 +88,14 @@ export function createBranchNavigationSeam(ctx: SeamContext, design: DesignWorld
           if (!nodes) throw new Error("Branches unavailable")
         } catch (error) {
           if (design.enabled === false) throw error
+          real = false
           nodes = designBranchTree(design.world(), "main")
         }
         if (!current()) return
         const view = ctx.store.session().branchNavigation
         if (view?.owner !== owner) return
         await ctx.dispatch({ type: "branch.navigation.changed", actor: "system", navigation: { ...view, nodes } }).isPersisted.promise
+        if (real) observe(rows, owner)
       }
       pending = (ctx.withToast ? ctx.withToast("branch-tree", "Branches", "Branches", read, true, current) : read())
         .then(() => {}).catch(error => { ctx.report?.("branches", error) }).finally(() => { pending = undefined })

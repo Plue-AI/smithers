@@ -2,11 +2,15 @@ package services
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/smithersai/smithers/packages/backend/jobs"
 	"net/http"
+	"strconv"
 	"strings"
 
+	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 	"github.com/smithersai/smithers/packages/backend/flowruntime"
 	"github.com/smithersai/smithers/packages/backend/internal/db"
@@ -25,6 +29,8 @@ type ReviewAdmission struct {
 	URL            string          `json:"url"`
 	Pin            flowruntime.Pin `json:"pin"`
 	IdempotencyKey string          `json:"-"`
+	OperationID    string          `json:"operationId,omitempty"`
+	State          jobs.State      `json:"state,omitempty"`
 	Conversation   string          `json:"conversation"`
 }
 
@@ -37,10 +43,69 @@ type ReviewRequest struct {
 // resolves the requester's persistent box and supplies write credentials.
 // This boundary admits only a current member's PR and a complete Active pin.
 func (s *MythicalService) RequestReview(ctx context.Context, repositoryID, requesterID int64, request ReviewRequest, key string) (ReviewAdmission, error) {
-	if _, err := s.prepareReview(ctx, repositoryID, requesterID, request, key); err != nil {
+	// Reconnect before reading mutable GitHub or Active state. Authorization is
+	// still current; a repeated key cannot select a different head or digest.
+	if s != nil && s.reviews != nil {
+		decision, err := Authorize(ctx, s.queries(), "review")
+		if err != nil {
+			return ReviewAdmission{}, err
+		}
+		if decision.UserID != requesterID {
+			return ReviewAdmission{}, reviewNonMember()
+		}
+		if request.Number <= 0 || request.Conversation == "" || len(request.Conversation) > 256 || key == "" || len(key) > 256 {
+			return ReviewAdmission{}, &TodoControlError{Status: 400, Class: "user", Code: "invalid_review", Message: "Invalid review request"}
+		}
+		existing, err := s.reviews.store.GetByRequest(ctx, reviewScope(repositoryID, requesterID), reviewOperation, key)
+		if err == nil {
+			var payload reviewJob
+			if json.Unmarshal(existing.Payload, &payload) != nil {
+				return ReviewAdmission{}, reviewUnavailable("review_record_invalid")
+			}
+			if payload.Request != request {
+				return ReviewAdmission{}, todoRequestMismatch()
+			}
+			if err := s.reviewMembers(ctx, payload.Admission); err != nil {
+				return ReviewAdmission{}, err
+			}
+			result := payload.Admission
+			result.OperationID, result.State = existing.ID, existing.State
+			return result, nil
+		}
+		if !errors.Is(err, jobs.ErrNotFound) {
+			return ReviewAdmission{}, err
+		}
+	}
+	admission, err := s.prepareReview(ctx, repositoryID, requesterID, request, key)
+	if err != nil {
 		return ReviewAdmission{}, err
 	}
-	return ReviewAdmission{}, reviewUnavailable("review_delivery_unavailable")
+	if s.reviews == nil {
+		return ReviewAdmission{}, reviewUnavailable("review_delivery_unavailable")
+	}
+	return s.reviews.admit(ctx, admission, request)
+}
+
+func reviewScope(repositoryID, userID int64) jobs.Scope {
+	return jobs.Scope{TenantID: "repository:" + strconv.FormatInt(repositoryID, 10), PrincipalID: "user:" + strconv.FormatInt(userID, 10)}
+}
+
+// reviewMembers is a local recheck of the admitted identities, never another
+// remote PR lookup that could silently replace the selected head.
+func (s *MythicalService) reviewMembers(ctx context.Context, admission ReviewAdmission) error {
+	for _, user := range []int64{admission.RequesterID, admission.AuthorID} {
+		var member bool
+		err := s.store.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM users u WHERE u.id=$2 AND u.is_active AND u.deleted_at IS NULL AND NOT u.prohibit_login AND
+   (EXISTS(SELECT 1 FROM self_host_owners o WHERE o.singleton AND o.user_id=u.id) OR
+    EXISTS(SELECT 1 FROM collaborators c WHERE c.repository_id=$1 AND c.user_id=u.id AND c.permission IN ('admin','write') AND c.suspended_at IS NULL)))`, admission.RepositoryID, user).Scan(&member)
+		if err != nil {
+			return reviewUnavailable("membership_unavailable")
+		}
+		if !member {
+			return reviewNonMember()
+		}
+	}
+	return nil
 }
 
 func (s *MythicalService) prepareReview(ctx context.Context, repositoryID, requesterID int64, request ReviewRequest, key string) (ReviewAdmission, error) {
@@ -138,4 +203,58 @@ func reviewUnavailable(code string) error {
 }
 func reviewNonMember() error {
 	return &TodoControlError{Status: http.StatusForbidden, Class: "permission", Code: "permission", Message: "PR author is not a member"}
+}
+
+// ReviewStatus is a requester-scoped projection. Credential identities and
+// private job checkpoints never cross the HTTP boundary.
+type ReviewStatus struct {
+	Admission ReviewAdmission `json:"admission"`
+	State     jobs.State      `json:"state"`
+	Change    json.RawMessage `json:"change,omitempty"`
+	Error     string          `json:"error,omitempty"`
+}
+
+func (s *MythicalService) GetReview(ctx context.Context, repositoryID, requesterID int64, id string) (ReviewStatus, error) {
+	if s == nil || s.store == nil {
+		return ReviewStatus{}, reviewUnavailable("review_unavailable")
+	}
+	decision, err := Authorize(ctx, s.queries(), "repo.read")
+	if err != nil {
+		return ReviewStatus{}, err
+	}
+	if decision.UserID != requesterID {
+		return ReviewStatus{}, reviewNonMember()
+	}
+	if s.reviews == nil {
+		return ReviewStatus{}, reviewUnavailable("review_delivery_unavailable")
+	}
+	if _, err := uuid.Parse(id); err != nil {
+		return ReviewStatus{}, &TodoControlError{Status: 404, Class: "user", Code: "review_not_found", Message: "Review not found"}
+	}
+	operation, err := s.reviews.store.Get(ctx, reviewScope(repositoryID, requesterID), id)
+	if errors.Is(err, jobs.ErrNotFound) || err == nil && operation.Operation != reviewOperation {
+		return ReviewStatus{}, &TodoControlError{Status: 404, Class: "user", Code: "review_not_found", Message: "Review not found"}
+	}
+	if err != nil {
+		return ReviewStatus{}, err
+	}
+	var job reviewJob
+	if json.Unmarshal(operation.Payload, &job) != nil {
+		return ReviewStatus{}, reviewUnavailable("review_record_invalid")
+	}
+	if err := s.reviewMembers(ctx, job.Admission); err != nil {
+		return ReviewStatus{}, err
+	}
+	result := ReviewStatus{Admission: job.Admission, State: operation.State}
+	result.Admission.OperationID, result.Admission.State = operation.ID, operation.State
+	if operation.State.Terminal() {
+		var observation ReviewObservation
+		if len(operation.TerminalReceipt) > 0 && json.Unmarshal(operation.TerminalReceipt, &observation) == nil {
+			result.Change, result.Error = observation.Change, observation.Error
+		}
+		if operation.State != jobs.StateCompleted && result.Error == "" {
+			result.Error = "Review failed"
+		}
+	}
+	return result, nil
 }

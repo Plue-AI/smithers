@@ -37,6 +37,28 @@ const harness = async (answer: (path: string, init?: RequestInit) => Promise<Res
 }
 
 describe("T-APP-03 install seam", () => {
+  test("a pre-save read cannot suppress the daily admission write", async () => {
+    const stale = deferred<Response>(), saved = deferred<Response>()
+    let reads = 0
+    const before = { ...installFixture(), todo_daily_admissions: 12 }
+    const after = { ...before, todo_daily_admissions: 13 }
+    const h = await harness((_path, init) => init?.method === "PUT" ? saved.promise
+      : ++reads === 2 ? stale.promise : Response.json(reads === 1 ? before : after))
+    await h.seam.readInstall()
+    const oldRead = h.seam.readInstall()
+    await tick()
+    expect(h.seam.setInstallDailyAdmissions(13)).toEqual({ value: "Requested" })
+    await tick()
+    expect(h.requests.at(-1)?.init?.body).toBe('{"todo_daily_admissions":13}')
+    stale.resolve(Response.json(before))
+    await oldRead
+    saved.resolve(Response.json(after))
+    await h.idle()
+    expect(h.seam.snapshots.get().model?.todo_daily_admissions).toBe(13)
+    expect(h.toasts.at(-1)?.outcome).toBe(true)
+    expect(reads).toBe(2)
+    h.seam.dispose()
+  })
   test("setup cookie authenticates reads; subscription begins after the claim", async () => {
     const model = installFixture(); model.github.signed_in = false
     const h = await harness(() => Response.json(model))

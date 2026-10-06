@@ -567,7 +567,7 @@ export const createTodoSeam = (ctx: SeamContext, options: TodoSeamOptions = {}) 
     const prior = match?.kind === "draft" ? match : undefined
     const id = prior?.id ?? `draft:${randomUuid()}`
     if (!prior) {
-      const card = draftCard({ id, author: owner()!, title: `Add ${name} to machine image`, text: "", options: [], idempotencyKey: randomUuid() }, ctx.nextOrdinal(), Date.now())
+      const card = draftCard({ id, author: owner()!, title: `Add ${name} to the machine image`, text: "", options: [], idempotencyKey: randomUuid() }, ctx.nextOrdinal(), Date.now())
       await write({ ...card, payload: { ...card.payload, seed: { files: [MACHINE_JSON_PATH] }, imagePreparation: { name, repo: target.repo, state: "requested" } } })
     } else if (prior.payload.imagePreparation?.state === "failed") {
       await write({ ...prior, payload: { ...prior.payload, imagePreparation: { name, repo: target.repo, state: "requested" } } })
@@ -692,16 +692,16 @@ export const createTodoSeam = (ctx: SeamContext, options: TodoSeamOptions = {}) 
   const observeConfirmation = async (confirmation: MemberConfirmation): Promise<void> => {
     const effect = confirmation.payload.effect
     if (ctx.actor() !== "user" || signedIn() || confirmation.state !== "approved" || !effect ||
-      !["todo.new", "todo.drop", "todo.amend"].includes(confirmation.command) || observingConfirmations.has(confirmation.id)) return
+      !["todo.new", "todo.drop", "todo.amend", "branch.discard-foreign"].includes(confirmation.command) || observingConfirmations.has(confirmation.id)) return
     const row = entry(effect.todo) ?? blank(effect.todo)
     if (row.payload.observedConfirmations?.includes(confirmation.id)) return
     observingConfirmations.add(confirmation.id)
     const login = owner()!, revision = identity()?.ownerRevision ?? identity()?.revision
     try {
       const request: Request = { key: effect.request, owner: login,
-        operation: confirmation.command === "todo.new" ? "create" : confirmation.command === "todo.amend" ? "amend" : "drop",
+        operation: confirmation.command === "branch.discard-foreign" ? "discard-foreign" : confirmation.command === "todo.new" ? "create" : confirmation.command === "todo.amend" ? "amend" : "drop",
         ...(effect.revision === undefined ? {} : { revision: effect.revision }),
-        body: confirmation.payload.input, n: effect.todo, state: "accepted" }
+        body: confirmation.command === "branch.discard-foreign" ? { ...confirmation.payload.input as object, branch: confirmation.payload.card.subject.ref } : confirmation.payload.input, n: effect.todo, state: "accepted" }
       await write({ ...row, title: confirmation.payload.card.summary, payload: { ...row.payload,
         observedConfirmations: [...row.payload.observedConfirmations ?? [], confirmation.id],
         requests: [...row.payload.requests.filter(old => old.key !== request.key), request] } }, "system")

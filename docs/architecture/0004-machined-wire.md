@@ -385,11 +385,12 @@ messages and `open_doc{path, actor}` are unchanged. The optional actor accepted
 by the envelope decoder exists only to retain S2 recordings; a live document
 handler still requires the authenticated actor.
 
-The currently advertised connection protocol remains 1 until W1/W3 and W14/W15
-compose a ready sequenced peer. They must negotiate protocol 2 before selecting
-these entry points and fail closed on mismatches; never fall back to a protocol 1
-save receipt for pending sequenced edits. I1 supplies the codec contract and
-golden proof, not a readiness claim for the document host or daemon process.
+The live connection now advertises protocol 2. The host and daemon require a
+matching protocol in the handshake before selecting these entry points and
+fail closed on mismatches; never fall back to a protocol 1 save receipt for
+pending sequenced edits. Protocol 1 remains available for decoding recordings.
+I1 supplies the codec contract and golden proof, not real-machine qualification
+of the document host or daemon process.
 Control method 16 and optional write-result tag 2 are additive; old frame bytes,
 old malformed-frame outcomes, and old document interpretations are unchanged.
 

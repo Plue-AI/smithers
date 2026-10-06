@@ -240,3 +240,33 @@ test("removed history.show stays out of the slash catalog and bootstrap stays hi
     expect(h.requests.some(request => request.includes("mythical"))).toBe(false)
   } finally { await h.controller.dispose() }
 })
+
+test("an install reconnects its persisted running Retry after controller restart without a second POST", async () => {
+  const storage = memoryStorage()
+  const first = await createAppStore({ kind: "localStorage", storage })
+  await first.dispatch({ type: "github.sync.request.changed", actor: "system", request: {
+    id: "recovered-sync", owner: "maya", phase: "running", lastSuccessAt: "2026-10-06T00:00:00Z"
+  } }).isPersisted.promise
+  const store = await createAppStore({ kind: "localStorage", storage })
+  expect(store.session().githubSyncRequest?.id).toBe("recovered-sync")
+  const calls: string[] = []
+  const fetchImpl = signupProfileFetch(async (input, init) => {
+    const url = typeof input === "string" ? input : input instanceof URL ? input.toString() : input.url
+    if (url.endsWith("/api/github/sync")) {
+      calls.push(init?.method ?? "GET")
+      return Response.json({ state: "fresh", last_success_at: "2026-10-06T00:01:00Z" })
+    }
+    return new Response("{}", { status: 404 })
+  }).fetchImpl
+  const bootstrap: AppBootstrap = { apiVersion: 1, host: "local", version: "test", buildSha: "test", capabilities: ["identity", "install"], authFlow: "redirect", sandbox: null }
+  const controller = createAppController(store, unavailableAgent, { fetchImpl, bootstrap })
+  try {
+    await store.dispatch({ type: "identity.session.loaded", actor: "system", state: "signed-in", login: "maya", admin: false, scopesPlain: null }).isPersisted.promise
+    await waitFor(() => store.session().githubSyncRequest === undefined)
+    expect(calls.length).toBeGreaterThan(0)
+    expect(calls.every(method => method === "GET")).toBe(true)
+    await store.settled?.()
+    const recovered = await createAppStore({ kind: "localStorage", storage })
+    expect(recovered.session().githubSyncRequest).toBeUndefined()
+  } finally { controller.dispose() }
+})

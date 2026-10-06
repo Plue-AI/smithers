@@ -132,6 +132,11 @@ pub trait Documents: Send + Sync {
     }
 }
 pub trait Sessions: Send + Sync {
+    /// Drain bounded nonblocking descriptor output on the mutation lock. A
+    /// missing supervisor emits nothing and retains unsupported readiness.
+    fn poll(&self) -> Result<Vec<Frame>> {
+        Ok(vec![])
+    }
     /// Report readiness only after this provider's real dependencies are ready.
     /// Implementing an operation alone must not activate a partial daemon.
     fn ready(&self) -> Result<()> {
@@ -141,6 +146,11 @@ pub trait Sessions: Send + Sync {
         Err(Error::unsupported())
     }
     fn frame(&self, _frame: &Frame) -> Result<Frame> {
+        Err(Error::unsupported())
+    }
+    /// Agent-local admission uses the kernel-observed cgroup, not request user
+    /// or run fields. The broker must inherit its registered run atomically.
+    fn open_local(&self, _caller_cgroup: &str, _arguments: &[u8]) -> Result<Vec<u8>> {
         Err(Error::unsupported())
     }
     fn run_of_cgroup(&self, _cgroup: &str) -> Option<String> {

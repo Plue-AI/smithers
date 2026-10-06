@@ -1,5 +1,9 @@
 # Spec UI coverage
 
+T-APP-10 wave 2 contract coverage: [Branch live](../branch-live.spec.ts) exercises the production `/branch T2` door with captured sleeping facts, durable burst and changed-file wire payloads, Files tab selection without mutation, missing optional streams, and the authorized Fork binding. [Branch tree](../branch-navigation.spec.ts) exercises live presence from `branch:<machine-id>` and persisted navigation. These are test-only HTTP/WebSocket contracts; C-J3-01/C-J3-03/C-J3-09/C-J7-03/C-J10-04 and the legacy renderer cutover remain pending their composed providers and reference-host receipts.
+
+T-APP-10 commit-family cutover: BranchView remains reachable while CommitCards.tsx, CommitsSeam.ts and their tests/commands are deleted. Recorded commit/commit-list cards and forms decode as titled retired history. The complete C-UI-13 replacement receipt still awaits WorkspaceCard cutover.
+
 These hermetic UI scenarios do not replace reference-host qualification or check receipts.
 Fixmes await the seeded DesignWorld and complete journey controls; standalone card components are insufficient.
 
@@ -10,9 +14,9 @@ C-UI-12 Members (T-UI-09): [install roster and keyboard Add/Role/Remove](C-UI-12
 | C-UI-12 · Setup/Settings | [C-UI-12.spec.ts](C-UI-12.spec.ts) | Empty/supplied model slot, zero dispatch, keyboard; 390px capacity line passed | T-UI-02 |
 | C-J1-01 | [C-J1-01.spec.ts](C-J1-01.spec.ts) | fixme-before-implementation | T-INS-08 |
 | C-J1-02 | [C-J1-02.spec.ts](C-J1-02.spec.ts) | passing: mounted install seam, live readiness, reload, squash/image fixes; reference Mac/LAN/OAuth evidence pending | T-APP-03 |
-| C-J1-03 | [C-J1-03.spec.ts](C-J1-03.spec.ts) | fixme-before-implementation | T-APP-15 |
-| C-J1-04 | [C-J1-04.spec.ts](C-J1-04.spec.ts) | browser-pass (private Draft, one Commit, served states, reviewed-head Merge/reload; fresh macOS install/real execution/GitHub/timing pending) | T-APP-02 |
-| C-J1-05 | [C-J1-05.spec.ts](C-J1-05.spec.ts) | passing: install seam, keyboard, live refresh, confirmation, reconnect; reference-host GitHub/LAN evidence pending | T-APP-06 |
+| C-J1-03 | [C-J1-03.spec.ts](C-J1-03.spec.ts) | partial: mirrored read-only File card during held machine build and reload; question journey pending | T-APP-15 |
+| C-J1-04 | [C-J1-04.spec.ts](C-J1-04.spec.ts) | regression 2026-10-06: Draft remains Commit pending after HTTP admission (line 60, reproduced twice); fresh macOS install/real execution/GitHub/timing pending | T-APP-02 |
+| C-J1-05 | [C-J1-05.spec.ts](C-J1-05.spec.ts) | passing: install seam, keyboard, invalid login sends nothing, typed unknown-user refusal, live refresh, confirmation, reconnect; reference-host GitHub/LAN evidence pending | T-APP-06 |
 | C-J1-06 | [C-J1-06.spec.ts](C-J1-06.spec.ts) | mounted install seam: Node/Go readiness, failure, live completion, reload and check evidence; reference-host qualification separate | T-MCH-10 |
 | C-J2-01 | [C-J2-01.spec.ts](C-J2-01.spec.ts) | implemented — Chromium passed 2026-10-05 (mounted install seam; composed router proof separate) | T-STK-09 |
 | C-J2-02 | [C-J2-02.spec.ts](C-J2-02.spec.ts) | implemented — Chromium passed 2026-10-05 (mounted install seam; composed router proof separate) | T-STK-09 |
@@ -24,10 +28,10 @@ C-UI-12 Members (T-UI-09): [install roster and keyboard Add/Role/Remove](C-UI-12
 | C-J4-03 | [C-J4-03.spec.ts](C-J4-03.spec.ts) | fixme-before-implementation | T-STK-04, T-REL-02 |
 | C-J10-01 | [C-J10-01.spec.ts](C-J10-01.spec.ts) | fixme-before-implementation | T-GH-03, T-REL-02 |
 | C-J10-02 | [C-J10-02.spec.ts](C-J10-02.spec.ts) | fixme-before-implementation | T-GH-04 |
-| C-J10-03 | [C-J10-03.spec.ts](C-J10-03.spec.ts), [install Discard cases](C-UI-12-todo-install.spec.ts) | Partial: confirmed Discard and stale-answer refresh/reconfirmation pass through the real app seam; full Bring in/remote publication/reference-host journey remains fixme | T-GH-06 |
+| C-J10-03 | [C-J10-03.spec.ts](C-J10-03.spec.ts), [install Discard cases](C-UI-12-todo-install.spec.ts) | Passing Chromium install HTTP seam: stale Discard refresh, displayed wait/SHA binding, person confirmation, independent question, pending toast, usable Chat and reload; machine Bring in ancestry and full reference-host journey pending | T-GH-06 |
 | C-J10-04 | [C-J10-04.spec.ts](C-J10-04.spec.ts) | fixme-before-implementation | T-STK-08 |
 | C-J10-05 | [C-J10-05.spec.ts](C-J10-05.spec.ts) | fixme-before-implementation | T-GH-03 |
-| C-J10-06 | [C-J10-06.spec.ts](C-J10-06.spec.ts) | fixme-before-implementation | T-GH-07 |
+| C-J10-06 | [C-J10-06.spec.ts](C-J10-06.spec.ts) | passed: install HTTP seam, 120 s boundary, pending/deduplicated Retry, usable Chat, recovery and installation refusal; backend/reference-host qualification separate | T-GH-07 |
 | C-J10-07 | [C-J10-07.spec.ts](C-J10-07.spec.ts) | fixme-before-implementation | T-GH-07, T-ACC-03 |
 | C-J10-08 | [C-J10-08.spec.ts](C-J10-08.spec.ts) | fixme-before-implementation | T-GH-03, T-STK-05, T-MCH-14 |
 | C-J10-09 | [C-J10-09.spec.ts](C-J10-09.spec.ts) | fixme-before-implementation | T-FLW-13, T-MCH-06, T-REL-02 |
@@ -60,7 +64,7 @@ C-UI-12 Members (T-UI-09): [install roster and keyboard Add/Role/Remove](C-UI-12
 | C-J11-04 | [C-J11-04.spec.ts](C-J11-04.spec.ts) | fixme-before-implementation | T-FLW-07, T-REL-02 |
 | C-APP-01 | [C-APP-01.spec.ts](C-APP-01.spec.ts) | browser-pass (Take over; PostgreSQL role/idempotency receipt; live toast qualification pending) | T-APP-02 |
 | C-APP-02 | [C-APP-02.spec.ts](C-APP-02.spec.ts) | browser-pass (Edit, deduplication, reload, person Drop confirm, working step, daily admission limit, budget pause owner, outside-push Discard binding/deduplication/role gate; planner/multiplayer pending) | T-APP-02 |
-| C-APP-03 | [C-APP-03.spec.ts](C-APP-03.spec.ts) | browser-pass (failure/slash Draft, main recipe, reload with seed fallback and on the install; Settings name refusal and Draft passed with the design seed disabled in settings-install.spec.ts; guest qualification pending) | T-APP-02, T-APP-03 |
+| C-APP-03 | [C-APP-03.spec.ts](C-APP-03.spec.ts) | browser-pass (failure/slash Draft, literal recipe diff and read-only seed; reload with seed fallback and on the install; two-browser private Draft isolation; Settings name refusal and Draft with the design seed disabled; guest qualification pending) | T-APP-02, T-APP-03 |
 | C-APP-04 | [C-APP-04.spec.ts](C-APP-04.spec.ts) | browser-pass: composer host admission, reload and read-only Earlier; authenticated packaged-host ordering, privacy, revocation and retired-route receipts | T-APP-16 |
 | C-APP-05 | [C-APP-05.spec.ts](C-APP-05.spec.ts) | browser-pass: real composed install, two members, author tab closes, host completes and both replay; author-only UI instructions use the typed flow | T-APP-16 |
 | C-ACC-01 | [C-ACC-01.spec.ts](C-ACC-01.spec.ts) | fixme-before-implementation | T-ACC-02, T-ACC-03, T-ACC-04, T-APP-04, T-INS-08, T-TRM-02, T-CUT-03, T-STK-06 |
@@ -104,6 +108,7 @@ C-UI-01 also exercises the mounted Home order menu and composer by keyboard.
 | C-CAT-01 | [C-CAT-01.spec.ts](C-CAT-01.spec.ts) | passing | T-CAT-01 |
 | C-CAT-02 | [C-CAT-02.spec.ts](C-CAT-02.spec.ts), [composed CLI/browser](../../real/confirm-merge.browser.ts) | 3 card doors pass; source CLI TODO create/read/Drop, named pending result, private keyboard approval and reload pass against real PostgreSQL; merge consumer remains fixme | T-CAT-01 |
 | C-CAT-03 | [C-CAT-03.spec.ts](C-CAT-03.spec.ts), [composed CLI/browser](../../real/confirm-merge.browser.ts) | installed generated skill and visible Commands pass; literal installed path/agent/excluded-group inventory passes in SkillsInstall.test.ts; real delegated TODO create/read/Drop and private approval pass | T-CAT-01 |
+| C-UI-12 · Flow | [Flow browser case](C-UI-12.spec.ts), `FlowCard.install.test.tsx`, `compose/flow_reserved_catalog_integration_test.go` | Passed locally: keyboard version selection and Source/Plan/Run/Edit callbacks, failure disclosure, absent/disabled actions, Paper focus and overflow in light/dark at 1440/390; install `/flow` uses the real HTTP seam and persists member selection; authenticated composed `/api/flows` serves built-in and failed repository versions. CI receipt at the landed SHA remains outstanding. | T-UI-10 |
 | C-UI-12 · Home | [Home cases](../home.spec.ts) | passing: sync health, keyboard menu, absent/disabled actions and hostile text in light/dark at 1440/390 | T-UI-06 |
 | C-AGT-01 | [C-AGT-01.spec.ts](C-AGT-01.spec.ts) | fixme-before-implementation | T-AGT-01 |
 
@@ -123,8 +128,8 @@ by keyboard and retains it across reload. Watcher faults remain fixme.
 
 | C-CUT-01 | [C-CUT-01.spec.ts](C-CUT-01.spec.ts) | passing UI projection (2026-10-06; isolated Chromium fixture); Appendix B Cut registry/catalog regression passes | T-CUT-01, T-CUT-03 |
 | C-CUT-02 | [C-CUT-02.spec.ts](C-CUT-02.spec.ts) | fixme-before-implementation | T-APP-22 |
-| C-DUR-01 | [C-DUR-01.spec.ts](C-DUR-01.spec.ts) | fixme-before-implementation | T-FLW-09, T-REL-04 |
-| C-DUR-02 | [C-DUR-02.spec.ts](C-DUR-02.spec.ts) | fixme-before-implementation | T-FLW-09, T-REL-04 |
+| C-DUR-01 | [C-DUR-01.spec.ts](C-DUR-01.spec.ts) | install REST/live seam: question and completed evidence survive reload, keyed Answer; host/database crash receipt separate | T-FLW-09, T-REL-04 |
+| C-DUR-02 | [C-DUR-02.spec.ts](C-DUR-02.spec.ts) | install REST/live seam: explicit TODO and Run Retry, reload retains interrupted evidence; reference microVM crash receipt separate | T-FLW-09, T-REL-04 |
 | C-DUR-03 | [C-DUR-03.spec.ts](C-DUR-03.spec.ts) | passing install REST/live seam: foreign push after reload, confirmed Drop, late PR link remains terminal; worker/microVM crash receipt separate | T-GH-09, T-FLW-09, T-REL-04 |
 | C-DUR-04 | [C-DUR-04.spec.ts](C-DUR-04.spec.ts) | fixme-before-implementation | T-COL-03, T-COL-08, T-COL-09, T-REL-04, T-COL-03a, T-COL-04a, T-COL-04, T-COL-08a, T-COL-08b |
 
@@ -143,7 +148,7 @@ Machine-kill recovery and retry version pinning remain fixme.
 | C-MCH-04 | [C-MCH-04.spec.ts](C-MCH-04.spec.ts) | Browser HTTP projection fixture; composed authenticated router + live Home covered by Go integration; combined built-bundle journey pending | T-MCH-01 |
 | C-MCH-05 | [C-MCH-05.spec.ts](C-MCH-05.spec.ts) | fixme-before-implementation | T-MCH-09 |
 | C-MCH-06 | [C-MCH-06.spec.ts](C-MCH-06.spec.ts) | fixme-before-implementation | T-MCH-11 |
-| C-MCH-07 | [C-MCH-07.spec.ts](C-MCH-07.spec.ts) | card phase active; machine phase fixme | T-APP-13 / T-MCH-12 |
+| C-MCH-07 | [C-MCH-07.spec.ts](C-MCH-07.spec.ts) | card phase passed: Add/Replace, scope confirmation/cancellation, Delete confirmation/cancellation, live member rows, held writes, failure, duplicate and reload; machine phase fixme (reference host) | T-APP-13 / T-MCH-12 |
 
 C-MCH-03 also has a passing mounted projection: reading Files and Activity
 keeps the sleeping branch Asleep across reload. Runtime capture and wake counts remain fixme.
@@ -382,7 +387,7 @@ T-UI-15 pass 5: the Branch matrix checks serious/critical axe violations and sav
 T-APP-16 wave 2 browser receipts: `entry-row.spec.ts` covers prompt/answer EntryRow rendering and reload; `branch-navigation.spec.ts` covers the served nested branch tree, retired Branches card removal, Earlier, durable view selection on reload, and a literal journal archive with no turn admission. These do not replace the full C-APP-04 shared-host acceptance.
 T-APP-04 Confirm proof: `TestConfirmationsBrowserPostgres` drives [the browser journey](../../real/confirm-merge.browser.ts) against PostgreSQL and the default install router, without browser API mocks. Passed 2026-10-06: private audience, Commit/Drop keyboard presses, admission toast through queued work and reload, other-member refusal, delegated id/state-only results. Review & merge remains pending its transactional consumer and recovery acceptance.
 
-T-APP-04 additional Confirm coverage: [install contract cases](C-UI-13-confirm-install.spec.ts) passed (4): keyboard Commit and Amend with a 202 keeps progress running until the subject settles, suppresses repeated presses, and leaves chat usable; Review & merge respects member role, current head, required checks and failed optional checks. Amend reconnects using the admitted prompt revision and settles only when its exact text is observed. Retry restores running progress after an unavailable response and remains deduplicated while a successful admission awaits private live delivery. These use test-only live/HTTP fixtures; the PostgreSQL browser journey above remains the production composition proof.
+T-APP-04 additional Confirm coverage: [install contract cases](C-UI-13-confirm-install.spec.ts) passed (5): keyboard Commit, Amend and Discard with a 202 keeps progress running until the subject settles, suppresses repeated presses, and leaves chat usable; Review & merge respects member role, current head, required checks and failed optional checks. Amend reconnects using the admitted prompt revision and settles only when its exact text is observed. Discard reconnects to the admitted branch wait and settles only when that wait disappears. Retry restores running progress after an unavailable response and remains deduplicated while a successful admission awaits private live delivery. These use test-only live/HTTP fixtures; the PostgreSQL browser journey above remains the production composition proof.
 T-APP-16 shared read receipt: `shared-conversation.spec.ts` renders the install HTTP projection with author attribution and reload. `SharedConversationApp.test.tsx` fences pending reads across account/branch changes; `TestBranchConversationQueueMutationInstall` verifies the additive author login through the authenticated PostgreSQL router. Composer cutover remains pending.
 
 T-APP-16 prompt receipt: install composer uses only the canonical prompt body, acknowledges persisted requests before unresolved admission, deduplicates, retains progress through host completion and reconnects after reload. Mounted tests cover server queue PATCH/DELETE/restore, own-turn Stop, and retry after refusal. The legacy non-install executor and Bun route deletion remain pending.
@@ -395,3 +400,6 @@ T-APP-03 wave 2 revalidated C-UI-13 Setup and Commands (2 passed, 1 unrelated al
 
 T-FLW-07 additional contract coverage: [install monitor](C-J11-01-monitor-install.spec.ts) exercises authenticated run snapshots through `/run.inspect`, native phases and interrupted state, journal tab reads/restoration, GET-only replay, an unresolved `/monitor` list read with usable chat, background runs, and topic refusal. This uses test-only HTTP/WebSocket contracts; native run ingest, host projections and the full C-J11-01/C-J11-04/C-UI-13 checks remain pending.
 T-APP-03 rerun: C-UI-13 now runs each card door independently without fixme. Flow and Agent doors use served HTTP fixtures; other doors retain the seed provider. This is app projection evidence, not production provider or reference-host qualification.
+
+| C-UI-12 Confirm | [Confirm stories](../view-stories.spec.ts) | Keyboard approval/Cancel forward supplied revision bindings; disabled/absent actions, stale approval and receipts; light/dark at 1440/390; View DOM tests pass. Install activation remains T-APP-04. | T-UI-05 |
+T-APP-03 pass 3: the image Draft uses the ticket title “Add figlet to the machine image”. C-APP-03 asserts the literal one-file recipe diff and private browser isolation, including independent Settings refusal, creation and discard. Settings retains a saved daily allowance when an older GET completes during its PUT; the seam regression also retains newer live-frame fencing. These are app-boundary receipts with test-only HTTP providers, not guest, merge, OAuth or reference-install qualification.
