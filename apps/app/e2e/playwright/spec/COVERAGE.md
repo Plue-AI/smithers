@@ -55,7 +55,7 @@ C-UI-12 Members (T-UI-09): [install roster and keyboard Add/Role/Remove](C-UI-12
 | C-J5-03 | [C-J5-03.spec.ts](C-J5-03.spec.ts), [receipt navigation](../learning-receipt.spec.ts) | Partial: receipt → Proposal → Make TODO → reload passes in Chromium; automatic learning, flow activation and sixth-TODO journey remain fixme | T-FLW-06, T-REL-02 |
 | C-J6-01 | [C-J6-01.spec.ts](C-J6-01.spec.ts) | browser-pass (served delegated answer/steer/presence, member color, independent coding participant, reload and person replacement); full installed terminal/skill/confirmation journey fixme, reference-host pending | T-TRM-02, T-APP-09, T-REL-02 |
 | C-J6-02 | [C-J6-02.spec.ts](C-J6-02.spec.ts) | partial: install confirmation seam, member press, reload and issuer attribution; composed CLI login/Merge covered separately; reference-host journey pending | T-ACC-04, T-APP-04, T-REL-02 |
-| C-J7-01 | [C-J7-01.spec.ts](C-J7-01.spec.ts) | app HTTP-seam proof: private Before draft, stack order, Amend, retained identity and reload; guest steer/ancestry and reference-host receipts pending | T-STK-02, T-STK-06, T-REL-02 |
+| C-J7-01 | [C-J7-01.spec.ts](C-J7-01.spec.ts) | app HTTP-seam proof: private Before draft, stack order, Amend, retained identity and reload; composed PostgreSQL/browser proof: delegated Before and author-only keyboard confirmation; guest steer/ancestry and reference-host receipts pending | T-STK-02, T-STK-06, T-REL-02 |
 | C-J7-02 | [C-J7-02.spec.ts](C-J7-02.spec.ts) | fixme-before-implementation | T-MCH-08, T-STK-05 |
 | C-J7-03 | [C-J7-03.spec.ts](C-J7-03.spec.ts) | fixme-before-implementation | T-STK-08, T-REL-02 |
 | C-J8-01 | [C-J8-01.spec.ts](C-J8-01.spec.ts) | fixme-before-implementation | T-FLW-06, T-REL-02 |
