@@ -232,3 +232,37 @@ func TestTodoRebaseWhenMainMoves(t *testing.T) {
 	assert.Equal(t, []string{"Rebased onto T1"}, f.rebasedActivity(t2))
 	assert.Nil(t, f.card(second.Number.Int64)["approval_cleared"], "T2 had no approval to clear")
 }
+
+// A moved prefix waits across polls while a person is editing, or the roster
+// cannot prove who is present. Departure permits exactly one verification.
+func TestTodoRebaseWaitsForPresence(t *testing.T) {
+	f := newRebaseFixture(t)
+	first := f.candidate("First", f.main, "FIRST.md", "first\n")
+	second := f.candidate("Second", f.main, "SECOND.md", "second\n")
+	presence := RebasePresenceUnknown
+	f.service.SetRebasePresence(func(ctx context.Context, repository int64, workspace string) (RebasePresence, error) {
+		require.Equal(t, f.repoID, repository)
+		require.Equal(t, second.WorkspaceID, workspace)
+		return presence, nil
+	})
+	for _, state := range []RebasePresence{RebasePresenceUnknown, RebasePresencePeople, RebasePresencePeople} {
+		presence = state
+		f.wake()
+		held := f.item(second.Number.Int64)
+		require.Equal(t, second.CandidateHead, held.CandidateHead)
+		require.Equal(t, second.Generation, held.Generation)
+		require.Equal(t, "rebase_pending", held.Reason)
+		require.Equal(t, map[string]any{"onto": "T1"}, f.card(second.Number.Int64)["rebase_pending"])
+		require.Zero(t, f.verifies(held))
+		require.Empty(t, f.rebasedActivity(held))
+	}
+	presence = RebasePresenceAgent
+	f.wake()
+	rebased := f.item(second.Number.Int64)
+	require.Equal(t, first.CandidateHead, rebased.CandidateBase)
+	require.NotEqual(t, second.CandidateHead, rebased.CandidateHead)
+	require.Equal(t, "verifying", rebased.State)
+	require.Equal(t, 1, f.verifies(rebased))
+	f.wake()
+	require.Equal(t, 1, f.verifies(rebased))
+}

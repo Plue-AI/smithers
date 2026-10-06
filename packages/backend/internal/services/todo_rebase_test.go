@@ -2,6 +2,7 @@ package services
 
 import (
 	"context"
+	"errors"
 	"testing"
 	"time"
 
@@ -164,5 +165,42 @@ func TestRetainedConflictPollDoesNotDispatch(t *testing.T) {
 		require.NoError(t, err)
 		require.Nil(t, next)
 		require.False(t, launched)
+	}
+}
+
+func TestRebasePresenceRefusesBeforeRepositoryEffects(t *testing.T) {
+	for _, name := range []string{"missing provider", "missing workspace", "unknown", "people", "invalid", "error"} {
+		t.Run(name, func(t *testing.T) {
+			service := &MythicalService{}
+			read := func(context.Context, int64, string) (RebasePresence, error) {
+				switch name {
+				case "missing workspace":
+					t.Fatal("must not query an unbound workspace")
+				case "people":
+					return RebasePresencePeople, nil
+				case "invalid":
+					return 255, nil
+				case "error":
+					return RebasePresenceEmpty, errors.New("host unavailable")
+				}
+				return RebasePresenceUnknown, nil
+			}
+			if name == "missing provider" {
+				read = nil
+			}
+			service.SetRebasePresence(read)
+			item := db.MythicalItem{State: "integrating", CandidateBase: "old-main", CandidateHead: "retained", WorkspaceID: "branch", Generation: 4}
+			if name == "missing workspace" {
+				item.WorkspaceID = ""
+			}
+			st := mythicalItemStep{s: service, r: &mythicalRun{mainTip: "new-main"}, items: []db.MythicalItem{item}, now: time.Unix(10, 0).UTC()}
+			next, launched, err := st.integrate(context.Background(), item)
+			require.NoError(t, err)
+			require.False(t, launched)
+			require.NotNil(t, next)
+			require.Equal(t, "rebase_pending", next.Reason)
+			require.Equal(t, "retained", next.CandidateHead)
+			require.Equal(t, int64(4), next.Generation)
+		})
 	}
 }

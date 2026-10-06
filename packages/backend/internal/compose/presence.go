@@ -263,3 +263,62 @@ func branchPresenceModel(row db.Workspace, presence []any, origin string) map[st
 	}
 	return map[string]any{"id": row.ID, "name": row.TargetBookmark, "machine": machine, "presence": presence, "terminals": []any{}, "ssh_line": "ssh -p 2222 " + row.TargetBookmark + "@" + host}
 }
+
+// rebasePresence reads authenticated leases afresh at the stack boundary. It
+// never uses the card projection (which intentionally omits unknown actors),
+// starts a host, or treats a failed roster request as an empty branch.
+func (p *branchPresence) rebasePresence(ctx context.Context, repository int64, workspace string) (services.RebasePresence, error) {
+	if p == nil || p.queries == nil || p.dispatcher == nil {
+		return services.RebasePresenceUnknown, nil
+	}
+	row, err := p.queries.GetWorkspace(ctx, workspace)
+	if err != nil {
+		return services.RebasePresenceUnknown, err
+	}
+	if row.RepositoryID != repository {
+		return services.RebasePresenceUnknown, nil
+	}
+	_, slug, err := installRepository(ctx, p.queries)
+	if err != nil {
+		return services.RebasePresenceUnknown, err
+	}
+	health, err := p.call(ctx, row, slug, "Branch.PresenceOn", map[string]any{})
+	if err != nil {
+		return services.RebasePresenceUnknown, err
+	}
+	var readiness string
+	if json.Unmarshal(health, &readiness) != nil || (readiness != "present" && readiness != "empty") {
+		return services.RebasePresenceUnknown, nil
+	}
+	raw, err := p.call(ctx, row, slug, "Branch.Roster", map[string]any{})
+	if err != nil {
+		return services.RebasePresenceUnknown, err
+	}
+	var leases []leaseParticipant
+	if err := json.Unmarshal(raw, &leases); err != nil {
+		return services.RebasePresenceUnknown, err
+	}
+	// null is not an authenticated empty roster.
+	if leases == nil {
+		return services.RebasePresenceUnknown, nil
+	}
+	state := services.RebasePresenceEmpty
+	now := time.Now().UnixMilli()
+	for _, lease := range leases {
+		if lease.ParticipantID == "" || lease.SessionID == "" || lease.LeaseExpiresAtMs <= 0 {
+			return services.RebasePresenceUnknown, nil
+		}
+		if lease.LeaseExpiresAtMs <= now {
+			continue
+		}
+		switch lease.Kind {
+		case "person":
+			return services.RebasePresencePeople, nil
+		case "agent":
+			state = services.RebasePresenceAgent
+		default:
+			return services.RebasePresenceUnknown, nil
+		}
+	}
+	return state, nil
+}
