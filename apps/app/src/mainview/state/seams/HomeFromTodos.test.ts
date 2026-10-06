@@ -14,3 +14,17 @@ test("the install's home topic serves the Home this browser builds from the same
   expect(served).toEqual(homeFromTodos("rehearsal-owner/app", todos))
   expect(served.items.map(item => item.n)).toEqual([1, 2, 3, 4, 6])
 })
+
+test("Home derives Answer, Resolve and Review from the same shared wait kind as the rail", () => {
+  const base = (read("home-todos.json") as unknown[]).map(todo => TodoCardSchema.parse(todo))[0]!
+  for (const [kind, tag, label] of [
+    ["question", "todo.answer", "Answer"], ["approval", "todo.answer", "Answer"],
+    ["conflict", "branch", "Resolve"], ["moved_off", "branch", "Resolve"], ["foreign_push", "todo", "Review"]
+  ] as const) {
+    const todo = { ...base, state: "needs_you" as const, branch: { id: "branch", name: "todo/24", machine: { state: "waiting" as const, position: 1 } },
+      waits: [{ id: "wait", kind, prompt: "Choose", since: "2026-10-05T10:00:00Z", actions: [] }] }
+    const item = homeFromTodos("owner/repo", [todo]).items[0]!
+    expect(item.actions.at(-1)).toEqual({ tag, label, args: tag === "branch" ? { name: "todo/24" } : { n: String(base.n) }, primary: true })
+  }
+  expect(homeFromTodos("owner/repo", [{ ...base, state: "needs_you", waits: [] }]).items[0]!.actions).toHaveLength(1)
+})

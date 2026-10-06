@@ -1,6 +1,6 @@
 import { useMemo, useSyncExternalStore, type ComponentType } from "react"
 import { HomeCardSchema, type HomeCard as HomeModel, type HomeViewProps } from "@smthrs/rpc/HomeCard"
-import type { CatalogTag } from "@smthrs/rpc/CardAction"
+import { actionFor, type CatalogTag } from "@smthrs/rpc/CardAction"
 import { cardActions, type CardActionDefinition, type CardCommandDispatch } from "../flows/cardActions"
 import { useController } from "../ControllerContext"
 import type { AppController } from "../state/AppController"
@@ -56,7 +56,9 @@ export const HomeContainer = ({ model: source, role, allowed, dispatch, View = H
   let mergeOffered = false
   const items = parsed.items.map(row => {
     const start = definitions.length
+    const primary = actionFor({ ...row, first_in_order: row === first && row.place === 1 }, { role })
     for (const action of row.actions) {
+      if ((action.tag === "merge" || action.tag === "todo.retry" || action.tag === "todo.answer" && row.needs_you !== undefined) && primary?.tag !== action.tag) continue
       const args = { ...action.args, n: String(row.n) }
       if (["merged", "dropped"].includes(row.state) && action.tag !== "branch" && action.tag !== "todo") continue
       switch (action.tag) {

@@ -1,5 +1,5 @@
 import type { HomeCard as HomeModel, HomeItem } from "@smthrs/rpc/HomeCard"
-import type { Action } from "@smthrs/rpc/CardAction"
+import { actionFor, type Action } from "@smthrs/rpc/CardAction"
 import { PlaceholderAvatarUrl, type TodoState } from "@smthrs/rpc/CardPrimitives"
 import type { TodoCard } from "@smthrs/rpc/TodoCard"
 
@@ -16,7 +16,11 @@ export const homeFromTodos = (repository: string, todos: ReadonlyArray<TodoCard>
   const items = open.map((todo): HomeItem => {
     const args = { n: String(todo.n) }
     const actions: Action[] = [{ tag: "todo", label: todo.title, args: { ...args, door: "title" } }]
-    if (todo.state === "needs_you") actions.push({ tag: "todo.answer", label: "Answer", args, primary: true })
+    if (todo.state === "needs_you") {
+      const wait = todo.waits[0]
+      const action = actionFor({ n: todo.n, state: todo.state, ...(wait ? { needs_you: { kind: wait.kind } } : {}) }, { role: "member" })
+      if (action) actions.push({ ...action, ...(action.tag === "branch" && todo.branch ? { args: { name: todo.branch.name } } : {}), primary: true })
+    }
     if (todo.state === "in_review") actions.push(todo.merge.state === "ready" ? { tag: "merge", label: "Merge", args, primary: true } : { tag: "todo", label: "Review", args })
     if (todo.state === "failed") actions.push({ tag: "todo.retry", label: "Retry", args })
     if (todo.state === "paused") actions.push({ tag: "todo.resume", label: "Resume", args })

@@ -8,7 +8,9 @@ import { PlaceholderAvatarUrl } from "@smthrs/rpc/CardPrimitives"
 import type { EntryRowCard } from "@smthrs/rpc/EntryRowCard"
 import { actionFor, type CatalogTag } from "@smthrs/rpc/CardAction"
 import { cardActions, type CardActionDefinition, type CardCommandDispatch } from "./flows/cardActions"
-import { useTodoRole } from "./cards/TodoCard"
+import { todoActionDefinitions, useTodoRole } from "./cards/TodoCard"
+import { TodoCardSchema } from "@smthrs/rpc/TodoCard"
+import { homeDispatch } from "./cards/HomeContainer"
 import type { ShellView, ToastCard } from "@smthrs/rpc/ToastCard"
 import type { TimelineLine } from "@smthrs/rpc/TimelineCard"
 import { useMessageBand, useMessageScroller } from "@smthrs/ui"
@@ -46,6 +48,22 @@ export const railLines = (entries: ReadonlyArray<RailEntry>, viewer: Parameters<
       ...(row.summary === undefined || row.tombstone ? {} : { summary: row.summary }) }]
   }
   if (entry.kind === "init") return []
+  if (entry.kind === "card" && entry.card.kind === "todo") {
+    const parsed = TodoCardSchema.safeParse((entry.card.payload as { model?: unknown }).model)
+    if (parsed.success) {
+      const model = parsed.data
+      const wait = model.waits[0]
+      const candidate = actionFor({ n: model.n, state: model.state, first_in_order: model.place === 1,
+        ...(wait ? { needs_you: { kind: wait.kind } } : {}) }, viewer)
+      // A state label alone cannot grant a command: the mounted TODO's provider
+      // must offer that command too (retryability, branch and merge readiness).
+      const definition = candidate && todoActionDefinitions(model, viewer.role).find(action => action.tag === candidate.tag && !action.disabled)
+      const action = definition ? { ...candidate!, args: definition.args ?? candidate!.args } : undefined
+      const tone: TimelineLine["tone"] = model.state === "needs_you" ? "attention" : model.state === "failed" ? "failed"
+        : model.state === "starting" || model.state === "working" ? "live" : model.state === "merged" || model.state === "dropped" ? "done" : "quiet"
+      return [{ entry_id: entry.card.id, kind: "card", title: model.title, tone, glyph: { state: model.state }, ...(action ? { action } : {}) }]
+    }
+  }
   if (entry.kind === "card") return [{ entry_id: entry.card.id, kind: "card", title: entry.card.title || entry.card.kind, tone: cardTone(entry.card), glyph: toneGlyph(cardTone(entry.card)) }]
   const { message } = entry
   const text = firstLine(message.text)
@@ -81,7 +99,8 @@ const RANK: Record<TimelineLine["tone"], number> = { attention: 0, failed: 1, li
 
 const edgeCard = (line: TimelineLine): ToastCard => ({
   id: line.entry_id, entry_id: line.entry_id, title: line.title, ...(line.summary === undefined ? {} : { detail: line.summary }), tone: line.tone,
-  kind: line.tone === "attention" ? "needs_you" : line.tone === "failed" ? "failed" : "progress"
+  kind: line.tone === "attention" ? "needs_you" : line.tone === "failed" ? "failed" : "progress",
+  ...(line.action === undefined ? {} : { action: line.action })
 })
 
 /** Live lines outside the band, attention first, then failed, then live. */
@@ -96,14 +115,21 @@ export const railEdges = (lines: ReadonlyArray<TimelineLine>, band: readonly [st
 const TOAST_TONE: Record<Toast["status"], ToastCard["tone"]> = { running: "live", ok: "done", failed: "failed", cancelled: "quiet" }
 
 /** Notices: newest first; a running toast with no action is the timeline's job, not a notice. */
-export const railNotices = (toasts: ReadonlyArray<Toast>): ToastCard[] => [...toasts]
+export const railNotices = (toasts: ReadonlyArray<Toast>, lines: readonly TimelineLine[] = []): ToastCard[] => [...toasts]
   .sort((left, right) => right.createdAt - left.createdAt)
-  .map(toast => ({
-    id: toast.id, title: toast.title, ...(toast.detail === "" ? {} : { detail: toast.detail }), tone: TOAST_TONE[toast.status],
-    entry_id: toast.sourceCard ?? toast.id,
-    kind: toast.status === "failed" ? "failed" : toast.status === "running" ? "progress" : "merged",
-    ...(toast.action === undefined ? {} : { action: { tag: toast.action.flow as CatalogTag, label: toast.action.label, args: { toast: toast.id } } })
-  }))
+  .map(toast => {
+    const entry = lines.find(line => line.entry_id === toast.sourceCard)
+    const entryAction = entry?.action
+    const todoNotice = entry !== undefined && toast.sourceCard?.startsWith("todo:")
+    return {
+      id: toast.id, title: toast.title, ...(toast.detail === "" ? {} : { detail: toast.detail }), tone: TOAST_TONE[toast.status],
+      entry_id: toast.sourceCard ?? toast.id,
+      kind: toast.status === "failed" ? "failed" : toast.status === "running" ? "progress" : "merged",
+      ...(entryAction
+        ? { action: entryAction }
+        : todoNotice || toast.action === undefined ? {} : { action: { tag: toast.action.flow as CatalogTag, label: toast.action.label, args: { toast: toast.id } } })
+    }
+  })
 
 /** The home line, pinned first in main's conversation. */
 export const HOME_ENTRY_ID = "home"
@@ -132,23 +158,24 @@ export function ShellRail({ entries, home }: { readonly entries: ReadonlyArray<R
     ...(home && homeAnswer !== undefined ? [homeLine(homeAnswer)] : []),
     ...railLines(entries, { role })
   ]
-  const timeline = timelineActions(lines, (tag, input) => controller.commands.submit({ name: tag, payload: input ?? {}, actor: "user" }))
+  const timeline = timelineActions(lines, homeDispatch(controller))
   const band = useMessageBand(lines.map(line => line.entry_id))
   const edges = railEdges(lines, band)
   const all = [...toasts, ...privacyNotices]
-  const notices = railNotices(all)
+  const notices = railNotices(all, lines)
   const onView = (patch: ShellView): void => {
     if (patch.toast_hidden !== undefined) controller.runCommand("toast.dismiss", patch.toast_hidden)
     if (patch.jump_to !== undefined) scroller.scrollToMessage(patch.jump_to, { behavior: "smooth" })
     if (patch.timeline_visible !== undefined) setWide(patch.timeline_visible)
   }
-  const onToastAction = (_tag: CatalogTag, args?: Record<string, string>): void => {
+  const onToastAction = (tag: CatalogTag, args?: Record<string, string>): void => {
+    if (args?.toast === undefined) return timeline.onAction(tag, args)
     const toast = all.find(each => each.id === args?.toast)
     if (toast?.action === undefined) return
     controller.runCommand(toast.action.flow, toast.action.args)
     if (toast.status !== "running") controller.runCommand("toast.dismiss", toast.id)
   }
-  const onEdgeAction = (tag: CatalogTag, args?: Record<string, string>): void => { controller.commands.submit({ name: tag, payload: args ?? {}, actor: "user" }) }
+  const onEdgeAction = timeline.onAction
   const last = lines.at(-1)?.entry_id ?? ""
   return <aside className="rail" aria-label="Activity" data-keyboard-pane="Timeline" data-wide={wide || undefined}>
     <EdgeMap above={edges.above} below={edges.below} narrow={!wide} onAction={onEdgeAction} onView={onView} />

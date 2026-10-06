@@ -29,3 +29,34 @@ test("C-UI-04: Edge map and timeline: shared entries, per-viewer actions, live s
   await page.reload()
   await expect(page.getByRole("button", { name: "Hide", exact: true })).toHaveCount(0)
 })
+
+// The served TODO path is independent of the pending shared-entry/summary journey.
+test("C-UI-04: served failure has one rail action and keyboard Retry uses the production seam", async ({ page }) => {
+  await owner(page)
+  await page.setViewportSize({ width: 1440, height: 1000 })
+  const model = {
+    n: 24, title: "Retry from the install", state: "failed",
+    owner: { login: "canary-owner", name: "Ben", avatar_url: "https://example.test/avatar.png" },
+    prompt_revisions: [], steps: [], steers: [], evidence: [], present: [], waits: [],
+    merge: { state: "waiting", reason: "state", on_github: false },
+    failure: { class: "checks", step: "Check", message: "Checks failed", retryable: true }
+  }
+  const requests: unknown[] = []
+  await page.route("**/api/todos", route => route.fulfill({ json: [model] }))
+  await page.route("**/api/todos/24", async route => {
+    if (route.request().method() === "POST") {
+      requests.push(route.request().postDataJSON())
+      await route.fulfill({ status: 202, json: { state: "accepted" } })
+    } else await route.fulfill({ json: model })
+  })
+  await page.goto("/")
+  await say(page, "/todo T24")
+  const line = page.getByRole("navigation", { name: "Timeline", exact: true }).locator('[data-entry="todo:24"]')
+  await expect(line).toContainText("Retry from the install")
+  await expect(line).toHaveAttribute("data-tone", "failed")
+  await line.getByRole("button", { name: "Retry", exact: true }).press("Enter")
+  await expect.poll(() => requests).toEqual([{ op: "retry" }])
+  await expect(page.getByTestId("composer-input")).toBeEditable()
+  await page.setViewportSize({ width: 900, height: 1000 })
+  await expect(page.getByRole("navigation", { name: "Timeline", exact: true })).toBeHidden()
+})

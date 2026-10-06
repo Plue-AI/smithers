@@ -84,7 +84,7 @@ C-UI-12 Members (T-UI-09): [install roster and keyboard Add/Role/Remove](C-UI-12
 | C-UI-01 | [C-UI-01.spec.ts](C-UI-01.spec.ts) | fixme-before-implementation | T-REL-02 |
 | C-UI-02 | [C-UI-02.spec.ts](C-UI-02.spec.ts) | fixme-before-implementation | T-CAT-01 |
 | C-UI-03 | [C-UI-03.spec.ts](C-UI-03.spec.ts) | fixme-before-implementation | T-APP-18 |
-| C-UI-04 | [C-UI-04.spec.ts](C-UI-04.spec.ts) | fixme-before-implementation | T-APP-07 |
+| C-UI-04 | [C-UI-04.spec.ts](C-UI-04.spec.ts) | partial: served TODO rail keyboard Retry passes; shared entries, hiding and summaries remain fixme | T-APP-07 |
 | C-UI-05 | [C-UI-05.spec.ts](C-UI-05.spec.ts) | fixme-before-implementation | T-COL-02 |
 
 | C-UI-06 | [C-UI-06.spec.ts](C-UI-06.spec.ts) | fixme-before-implementation | T-APP-16 |

@@ -245,3 +245,17 @@ describe("Timeline container actions", () => {
     expect(lines.every(line => line.fresh === undefined)).toBe(true)
   })
 })
+
+test("a TODO notice uses the same current action as its timeline and edge", () => {
+  const action = { tag: "todo.retry" as const, label: "Retry", args: { n: "12" } }
+  const lines = [{ ...line("todo:12", "failed"), action }, line("visible", "quiet")]
+  const notices = railNotices([toast("failed", "failed", 1, { sourceCard: "todo:12", action: { flow: "todo", args: "T12", label: "Open" } })], lines)
+  expect(notices[0]!.action).toEqual(action)
+  expect(railNotices([toast("settled", "ok", 1, { sourceCard: "todo:12", action: { flow: "todo.retry", args: "T12", label: "Retry" } })], [line("todo:12", "done")])[0]!.action).toBeUndefined()
+  expect(railEdges(lines, ["visible", "visible"]).above[0]!.action).toEqual(action)
+  const calls: unknown[] = []
+  const bindings = timelineActions(lines, (tag, input) => calls.push([tag, input]))
+  const host = mount(<ToastStack toasts={notices} more={0} onAction={bindings.onAction} onView={() => {}} />)
+  click(host.querySelector('[data-flow="todo.retry"]'))
+  expect(calls).toEqual([["todo.retry", { n: 12 }]])
+})

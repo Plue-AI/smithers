@@ -795,3 +795,46 @@ describe("TodoSeam — the TODO list Home reads where no `home` topic is served 
     } finally { out.close() }
   })
 })
+
+// T-APP-07: the real persisted TODO seam supplies the mounted rail, rather
+// than a seeded entry fixture or a second request path.
+test("served TODO rail and edge actions reach Retry and private Review & merge", async () => {
+  const { railLines, railEdges, timelineActions } = await import("../../ShellRail")
+  const calls: { url: string; init?: RequestInit }[] = []
+  const h = await harness(async (url, init) => {
+    calls.push({ url, init })
+    return init?.method ? json({ state: "accepted" }) : json(fixtures.in_review.model, 200)
+  })
+  try {
+    await h.store.dispatch({ type: "card.upsert", actor: "system", card: todoCard(12, undefined, 1, 1) }).isPersisted.promise
+    const failed = { ...fixtures.in_review.model, state: "failed" as const, failure: { class: "checks", step: "Check", message: "Checks failed", retryable: true } }
+    await h.seam.applyTodoProjection(12, failed)
+    const read = () => railLines([{ kind: "card", card: h.todo() }], { role: "owner" })
+    const retry = read()[0]!
+    expect([retry.title, retry.tone, retry.glyph, retry.action?.tag]).toEqual(["Card model contracts", "failed", { state: "failed" }, "todo.retry"])
+    const edges = railEdges([retry, { entry_id: "visible", kind: "answer", title: "Done", tone: "quiet", glyph: { state: "queued" } }], ["visible", "visible"])
+    expect(edges.above[0]!.action).toEqual({ tag: "todo.retry", label: "Retry", args: { n: "12" } })
+    const pending: Promise<unknown>[] = []
+    const bind = () => timelineActions(read(), (tag, input) => {
+      const n = (input as { n: number }).n
+      if (tag === "todo.retry") pending.push(h.seam.controlTodo(n, "retry"))
+      if (tag === "merge") pending.push(h.seam.reviewMerge(n))
+    })
+    bind().onAction("todo.retry", edges.above[0]!.action!.args)
+    await Promise.all(pending)
+    await waitFor(() => calls.some(call => call.init?.method === "POST"))
+    expect(calls.filter(call => call.init?.method === "POST").map(call => [call.url, JSON.parse(String(call.init?.body))])).toEqual([["https://install.test/api/todos/12", { op: "retry" }]])
+    await h.seam.applyTodoProjection(12, fixtures.in_review.model)
+    expect(read()[0]!.action?.tag).toBe("merge")
+    expect(railLines([{ kind: "card", card: h.todo() }], { role: "member" })[0]!.action).toBeUndefined()
+    bind().onAction("merge", { n: "12" })
+    await Promise.all(pending)
+    await waitFor(() => h.store.collections.cards.has("confirm:merge:todo:12"))
+    expect(h.store.collections.cards.get("confirm:merge:todo:12")).toMatchObject({ audience_member_id: "ben" })
+    expect(calls.some(call => call.url.endsWith("/merge"))).toBe(false)
+    await h.seam.applyTodoProjection(12, { ...fixtures.in_review.model, place: 2 })
+    expect(read()[0]!.action).toBeUndefined()
+    await h.seam.applyTodoProjection(12, { ...failed, failure: { ...failed.failure, retryable: false } })
+    expect(read()[0]!.action).toBeUndefined()
+  } finally { h.close() }
+})
