@@ -1367,29 +1367,14 @@
           "type": "object",
           "properties": {
             "from": {
-              "anyOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "null"
-                }
-              ]
+              "type": "string",
+              "minLength": 1
             },
             "name": {
               "anyOf": [
                 {
-                  "type": "string"
-                },
-                {
-                  "type": "null"
-                }
-              ]
-            },
-            "branch": {
-              "anyOf": [
-                {
-                  "type": "string"
+                  "type": "string",
+                  "minLength": 1
                 },
                 {
                   "type": "null"
@@ -1397,6 +1382,9 @@
               ]
             }
           },
+          "required": [
+            "from"
+          ],
           "additionalProperties": true
         },
         "definitions": {}
