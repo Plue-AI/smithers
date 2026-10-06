@@ -10,7 +10,7 @@ try {
     console.log(JSON.stringify(result.setup_urls ? { setup_urls: result.setup_urls } : { message: result.message }))
     process.exitCode = result.exitCode
   } else if (command === "stop" && args.length === 0) {
-    console.log(JSON.stringify(HostService.stop(HostService.launchd())))
+    console.log(JSON.stringify(await HostService.stop(HostService.launchd())))
   } else if (command === "status" && args.length === 0) {
     console.log(JSON.stringify(await HostService.status()))
   } else throw new Error("Use smthrs host start [--bundle <dir>]|stop|status")

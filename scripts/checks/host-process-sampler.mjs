@@ -3,7 +3,10 @@ import { parseArgs, promisify } from 'node:util'
 import { appendFile, mkdir } from 'node:fs/promises'
 import { join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
-const execute = promisify(execFile)
+const exec = promisify(execFile)
+// Parallel coding agents can put more than 1 MiB of argv in a ps snapshot.
+// Keep a finite bound, but retain the complete inventory on the reference host.
+const execute = (file, args) => exec(file, args, { maxBuffer: 16 * 1024 * 1024 })
 export function descendants(text, rootPid) {
   const rows = text.split('\n').flatMap(line => {
     const m = line.match(/^\s*(\d+)\s+(\d+)\s+(\d+)\s+(.+)$/)
