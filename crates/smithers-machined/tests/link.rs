@@ -221,7 +221,7 @@ impl smithers_machined::hooks::Core for Reconciler {
         }
     }
 }
-struct Roster;
+struct Roster(std::sync::atomic::AtomicBool);
 impl smithers_machined::hooks::Broker for Roster {
     fn ready(&self) -> smithers_machined::hooks::Result<()> {
         Ok(())
@@ -230,7 +230,14 @@ impl smithers_machined::hooks::Broker for Roster {
         &self,
         _: &[smithers_machined::broker::sessions::User],
     ) -> smithers_machined::hooks::Result<()> {
-        Ok(())
+        if self.0.load(std::sync::atomic::Ordering::Acquire) {
+            Err(smithers_machined::hooks::Error {
+                code: 9,
+                ..smithers_machined::hooks::Error::unsupported()
+            })
+        } else {
+            Ok(())
+        }
     }
 }
 struct Ready;
@@ -249,10 +256,11 @@ ready!(Sessions);
 ready!(EventSink);
 #[test]
 fn authenticated_dispatch_requires_reconcile_and_roster_on_every_link() {
+    let roster = Arc::new(Roster(std::sync::atomic::AtomicBool::new(false)));
     let daemon = Arc::new(
         smithers_machined::daemon::Daemon::new(smithers_machined::hooks::Hooks {
             core: Arc::new(Reconciler),
-            broker: Arc::new(Roster),
+            broker: roster.clone(),
             watcher: Arc::new(Ready),
             documents: Arc::new(Ready),
             sessions: Arc::new(Ready),
@@ -316,6 +324,16 @@ fn authenticated_dispatch_requires_reconcile_and_roster_on_every_link() {
         let result = conn::fields("response", &stale.payload[1..]).unwrap()[1].1;
         assert_eq!(result[0], 255);
         assert_eq!(conn::fields("error", &result[1..]).unwrap()[0].1, &[4]);
+        roster.0.store(true, std::sync::atomic::Ordering::Release);
+        let failed = call(&mut stream, 6, 16, &[conn::field(1, 0u16.to_be_bytes())]);
+        assert_eq!(
+            conn::fields("response", &failed.payload[1..]).unwrap()[1].1[0],
+            255
+        );
+        assert!(!daemon.ready(), "failed revocation must close admission");
+        roster.0.store(false, std::sync::atomic::Ordering::Release);
+        call(&mut stream, 7, 16, &[conn::field(1, 0u16.to_be_bytes())]);
+        assert!(daemon.ready());
         stream.shutdown(std::net::Shutdown::Both).unwrap();
     }
     worker.join().unwrap();
