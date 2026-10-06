@@ -759,7 +759,10 @@ const ci = Smithers.GithubCiGen({
         apt: bubblewrap,
         rust: Smithers.CiToolchain.Rust({ cache: false })
       }),
-      steps: [{ name: "Native FFI clippy and tests", verb: Smithers.Verb.Build, pattern: "//:nativeFfi" }]
+      steps: [
+        { name: "Native FFI clippy and tests", verb: Smithers.Verb.Build, pattern: "//:nativeFfi" },
+        { name: "Daemon document component tests", verb: Smithers.Verb.Test, pattern: "//crates/smithers-machined:documentComponents" }
+      ]
     },
     {
       id: "wasm-repro",
