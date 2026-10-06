@@ -9,6 +9,8 @@ pub mod hooks;
 pub mod lock;
 pub mod msg;
 pub mod outbox_store;
+pub mod outbox;
+pub mod objects;
 pub mod rpc;
 pub mod stream;
 
@@ -21,3 +23,4 @@ pub mod session;
 pub mod versions;
 #[cfg(target_os = "linux")]
 pub mod watch;
+pub mod freeze;
