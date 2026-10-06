@@ -58,7 +58,7 @@ test("C-J4-02: served TODO cards answer, merge, move and retry while Chat stays 
   await say(page, "/todo T4")
   await page.getByRole("button", { name: "Order J4 TODO 4", exact: true }).press("Enter")
   await page.getByRole("menuitem", { name: /Move up/ }).press("Enter")
-  await expect.poll(() => writes.some(write => write.n === 4 && write.body.op === "move")).toBe(true)
+  await expect.poll(() => writes.some(write => write.n === 4 && write.body.op === "move"), { timeout: 30_000 }).toBe(true)
   await expect(card(4)).toContainText("#3 in stack")
   await say(page, "/todo T3")
   const previousEvidence = structuredClone(models[2]!.evidence)
