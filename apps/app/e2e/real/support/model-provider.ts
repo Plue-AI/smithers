@@ -221,6 +221,13 @@ const serve = async (protocol: ProviderProtocol, request: Request): Promise<Resp
   const reply = modelId === PROVIDER_MODEL.echoes
     ? [`${PROVIDER_ECHO_LEAD}${presented.slice(0, cut).repeat(2)}`, presented.slice(cut), presented.slice(cut)] : PROVIDER_REPLY
   const includeUsage = isRecord(body.stream_options) && body.stream_options.include_usage === true
+  // The host asks its fast role to select context before the app-agent turn.
+  // No context is needed for the discovery journey; return valid choices so
+  // the production host can proceed to its actual command/tool disclosure.
+  const preflight = protocol === "openai-chat" && Array.isArray(body.messages) && body.messages.some(message =>
+    isRecord(message) && (message.role === "system" || message.role === "developer") &&
+    messageText(message.content).startsWith("Choose relevant context. Return only a JSON array of {index,reason}"))
+  if (preflight) return record(openaiStream(modelId, includeUsage, ["[]"]), "context/preflight")
   const coding = protocol === "openai-chat" && Array.isArray(body.messages) ? todoTurn(body.messages.filter(isRecord)) : undefined
   if (coding !== undefined) return record(openaiStream(modelId, includeUsage, [coding.content]), coding.step)
   if (protocol === "evaluation" && isTodoJudgement(questions)) return record(judgeTodo(questions ?? {}), "todo/judge")

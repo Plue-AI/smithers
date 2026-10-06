@@ -19,6 +19,7 @@ import {
   INSTALL_MODEL, PROVIDER_CONFIDENCE, PROVIDER_ECHO_LEAD, PROVIDER_MODEL, PROVIDER_PATHS, PROVIDER_READ_LEAD, PROVIDER_REPLY, PROVIDER_RETRY_AFTER_SECONDS,
   type ProviderProtocol
 } from "./model-provider-behaviors"
+import { runContextPreflight } from "@smthrs/model-host/ContextPreflight"
 import { launchModelProvider, type ModelProvider } from "./model-provider-process"
 
 // The provider is judged by the REAL client: every answer below is read by an
@@ -114,6 +115,21 @@ test("journals only the names actually disclosed by production model requests", 
       expect(JSON.stringify(receipt)).not.toContain(KEY)
     }
   }
+})
+
+test("context preflight reaches the real host as valid choices before the app-agent turn", async () => {
+  const answer = await Effect.runPromise(Effect.gen(function*() {
+    const model = yield* Route.toModel(yield* Effect.fromResult(chatRoute(KEY)))
+    return yield* runContextPreflight({
+      prompt: "What commands can you run here?", author: "owner", branch: "main", state: "synced", recent: [],
+      candidates: [{ item: { kind: "file", label: "README", ref: "README.md", revision: "abc123" }, text: "Repository commands" }],
+      tokenBudget: 24000, wikiOnly: false
+    }, model, { modelId: PROVIDER_MODEL.answers, credential: KEY })
+  }).pipe(Effect.provide(executor)))
+  expect(answer.result.context).toEqual([])
+  expect(answer.result.model).toBe(PROVIDER_MODEL.answers)
+  expect(answer.messages).toEqual([{ role: "user", content: "What commands can you run here?" }])
+  expect(await last()).toMatchObject({ step: "context/preflight", authorized: true, disclosedCommands: [], toolNames: [] })
 })
 
 describe("a streamed answer reaches the real client", () => {
