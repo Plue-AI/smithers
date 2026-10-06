@@ -10,6 +10,7 @@ import (
 	"github.com/jackc/pgx/v5"
 
 	"github.com/smithersai/smithers/packages/backend/admission"
+	"github.com/smithersai/smithers/packages/backend/flowdispatch"
 	"github.com/smithersai/smithers/packages/backend/flowhost"
 	"github.com/smithersai/smithers/packages/backend/internal/db"
 	"github.com/smithersai/smithers/packages/backend/modelproxy"
@@ -205,6 +206,10 @@ func (l *boxHostLauncher) InspectFlowHost(ctx context.Context, launch flowhost.H
 	if err == nil {
 		l.boxes.KeepBoxAwake(ctx, launch.Binding.WorkspaceID)
 	}
+	// A retained TODO wakes only in StartFlowHost, never during a read.
+	if errors.Is(err, workspaceapi.ErrWorkspaceStopped) && launch.Authority.Target.BindingKind == flowdispatch.StackBindingKind {
+		return flowhost.Connection{}, flowhost.ErrHostNotRunning
+	}
 	if (errors.Is(err, workspaceapi.ErrWorkspaceStopped) || errors.Is(err, workspaceapi.ErrWorkspaceNotFound)) &&
 		l.boxes.RestartLostBox(ctx, launch.Authority.WorkspaceID, launch.Authority.RepositoryID, launch.Authority.UserID) == nil {
 		return flowhost.Connection{}, flowhost.ErrHostNotRunning
@@ -223,6 +228,18 @@ func (staleRoleSource) FlowRuntimeCode() string    { return "runtime_source_revi
 func (staleRoleSource) FlowRuntimeRetryable() bool { return false }
 
 func (l *boxHostLauncher) StartFlowHost(ctx context.Context, launch flowhost.HostLaunch) (flowhost.Connection, error) {
+	if launch.Authority.Target.BindingKind == flowdispatch.StackBindingKind {
+		waker, ok := l.boxes.(interface {
+			WakeTodoWorkspace(context.Context, string, string, int64, int64) error
+		})
+		if !ok {
+			return flowhost.Connection{}, errors.New("TODO workspace wake authority unavailable")
+		}
+		if err := waker.WakeTodoWorkspace(ctx, launch.Authority.Target.BindingID, launch.Authority.WorkspaceID, launch.Authority.RepositoryID, launch.Authority.UserID); err != nil {
+			return flowhost.Connection{}, err
+		}
+	}
+
 	if launch.Authority.Target.BindingKind == "repository-job-dispatch" {
 		revision, err := l.SourceResolver.ResolveFlowHostSource(ctx, launch.Authority)
 		if err != nil {

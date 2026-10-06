@@ -3591,8 +3591,9 @@ func (resolver *MythicalFlowHostTargetResolver) ResolveFlowHostTarget(ctx contex
 	}
 	// The lane is provisioned in the background after its launch is admitted:
 	// a host bound before its checkout exists would pin a source revision the
-	// finished checkout no longer has.
-	if lane, err := q.GetWorkspace(ctx, item.WorkspaceID); err != nil || lane.Status != "running" {
+	// finished checkout no longer has. Retained stopped lanes already have
+	// that checkout; host start wakes them under the lifecycle lock.
+	if lane, err := q.GetWorkspace(ctx, item.WorkspaceID); err != nil || (lane.Status != "running" && lane.Status != "suspended" && lane.Status != "stopped") {
 		return flowhost.Authority{}, mythicalLaneNotRunning(lane, err)
 	}
 	return flowhost.Authority{Target: target, RepositoryID: repositoryID, UserID: userID, WorkspaceID: item.WorkspaceID,
