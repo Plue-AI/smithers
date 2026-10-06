@@ -84,6 +84,13 @@ export async function runFreshness(config, { fetch: request = fetch, now = Date.
     if (value.state !== 'open' || value.head?.sha !== pull.head) throw new Error('open pull head fixture changed')
     const statuses = (await api(`commits/${pull.head}/statuses?per_page=100`)).value
     if (statuses.find(s => s.context === 'freshness/hold')?.state !== 'pending') throw new Error('pending freshness/hold required')
+    for (const kind of ['pr', 'checks']) {
+      if (await observe({ kind, item: pull }) === undefined) throw new Error(`production ${kind} projection unavailable`)
+    }
+  }
+  for (const issue of config.issues) {
+    if ((await api(`issues/${issue}`)).value.state !== 'open') throw new Error('100 open issue fixtures required')
+    if (await observe({ kind: 'issue', item: issue }) === undefined) throw new Error('production issue projection unavailable')
   }
   const start = now()
   let next = start

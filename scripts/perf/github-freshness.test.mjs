@@ -36,7 +36,7 @@ test('freshness uses independent GitHub writes and install HTTP reads, retaining
       else if (req.url.endsWith('/reviews')) { visible.pr = [{ id: 701 }]; value = { id: 701 } }
       else if (req.url.endsWith(`/statuses/${head}`)) { visible.checks.push(input.context); value = {} }
       else if (req.method === 'PATCH') { if (!omitIssue) visible.issue = input.body; value = {} }
-      else value = { body: 'original' }
+      else value = { body: 'original', state: 'open' }
     }
     res.writeHead(200, { 'Content-Type': 'application/json' })
     res.end(JSON.stringify(value))
