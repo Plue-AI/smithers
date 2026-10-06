@@ -3,7 +3,6 @@
 # The only execution door is the production personal-terminal CLI. No tokens,
 # tool output, shell prompts or terminal escape sequences are retained.
 set -euo pipefail
-export LANE=fr-t-rel-02
 if [ "$#" -ne 4 ]; then
   echo 'Usage: credential-soak.sh OWNER/REPO MACHINE EXPECTED_GUEST_UID EVIDENCE_DIR' >&2
   exit 64
