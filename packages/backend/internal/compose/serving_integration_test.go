@@ -399,12 +399,51 @@ func TestInstallServingLiveOriginReconnectPostgres(t *testing.T) {
 	head, err := store.Head(ctx, jobs.Scope{TenantID: "install", PrincipalID: "owner"})
 	require.NoError(t, err)
 	require.Equal(t, head, *replay.Cursor)
-	require.NoError(t, conn.Write(ctx, websocket.MessageText, []byte(`{"t":"sub","id":3,"topic":"install"}`)))
-	_, raw, err = conn.Read(ctx)
+	// Lease expiry changes the derived install status without inventing a
+	// source fact. The shared snapshot refresh must preserve that behavior.
+	step, err := json.Marshal(services.InstallStep{ID: "models", Status: services.InstallRunning, ExpiresAt: time.Now().Add(1500 * time.Millisecond)})
 	require.NoError(t, err)
-	var fresh live.Frame
-	require.NoError(t, json.Unmarshal(raw, &fresh))
+	require.NoError(t, q.UpsertInstallSetting(ctx, db.UpsertInstallSettingParams{Key: "setup.step.models", Value: step}))
+	readSnapshot := func() live.Frame {
+		t.Helper()
+		for {
+			_, raw, err := conn.Read(ctx)
+			require.NoError(t, err)
+			var frame live.Frame
+			require.NoError(t, json.Unmarshal(raw, &frame))
+			if frame.ID == 3 {
+				return frame
+			}
+		}
+	}
+	require.NoError(t, conn.Write(ctx, websocket.MessageText, []byte(`{"t":"sub","id":3,"topic":"install"}`)))
+	fresh := readSnapshot()
 	require.Equal(t, "snap", fresh.T)
 	require.Equal(t, head, *fresh.Cursor)
 	require.Contains(t, string(fresh.Data), `"https://box.example"`)
+	modelState := func(frame live.Frame) string {
+		t.Helper()
+		var status struct {
+			Steps []struct {
+				ID    string
+				State string
+			}
+		}
+		require.NoError(t, json.Unmarshal(frame.Data, &status))
+		for _, step := range status.Steps {
+			if step.ID == "models" {
+				return step.State
+			}
+		}
+		t.Fatal("models step missing")
+		return ""
+	}
+	require.Equal(t, "running", modelState(fresh))
+	refreshed := readSnapshot()
+	require.Equal(t, "snap", refreshed.T)
+	require.Equal(t, head, *refreshed.Cursor)
+	require.Equal(t, "pending", modelState(refreshed))
+	unchanged, err := store.Head(ctx, jobs.Scope{TenantID: "install", PrincipalID: "owner"})
+	require.NoError(t, err)
+	require.Equal(t, head, unchanged, "derived refresh never allocates a source event")
 }

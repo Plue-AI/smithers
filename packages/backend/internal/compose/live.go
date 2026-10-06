@@ -203,6 +203,8 @@ func (t *liveTopics) resolve(ctx context.Context, topic string, repository int64
 		}}
 		if t.jobs != nil {
 			source = liveJobSource(source, t.jobs, jobs.Scope{TenantID: "install", PrincipalID: "owner"})
+			source.RefreshSnapshot = func(data json.RawMessage) json.RawMessage { return data }
+			source.RefreshEvery = liveRefreshEvery
 		}
 		return source, ""
 	case "doc":
