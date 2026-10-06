@@ -5,7 +5,7 @@
  */
 import { Schema } from "effect"
 import { issueFlows } from "./issue"
-import { issueViewParts } from "../SlashPayload"
+import { carriedPayload, issueViewParts, payloadFor, type Grammar } from "../SlashPayload"
 import { flag, line, text } from "@smthrs/ui/flow-form"
 import { flow, NumberedTarget } from "./Declare"
 import type { FlowEntry, Namespace } from "../registry"
@@ -13,6 +13,24 @@ import type { CommandActions } from "./Declare"
 
 /** The `issues` namespace row: the slash tree lists it in registry.ts NAMESPACES order. */
 export const namespace: Namespace = { id: "issues", label: "Issues", summary: "GitHub issues" }
+
+// Confirmation buttons carry structured input so repository navigation and
+// title/comment punctuation cannot reinterpret the approved action.
+const issueWriteGrammar = (name: string): Grammar => (args, known) =>
+  args?.trim().startsWith("{") ? carriedPayload(name)(args) : payloadFor(name, args, undefined, known)
+
+const issueWriteConfirmation = (actions: CommandActions) => ({
+  agent: "confirm" as const,
+  preflight: (payload: { readonly repo?: string }, invoker?: "user" | "agent" | "system") => {
+    if (invoker !== "agent") return undefined
+    const target = actions.issueWriteTarget(payload.repo)
+    return "error" in target ? target.error : undefined
+  },
+  confirmArgs: (payload: Record<string, unknown>) => {
+    const target = actions.issueWriteTarget(typeof payload.repo === "string" ? payload.repo : undefined)
+    return "repo" in target ? JSON.stringify({ ...payload, repo: target.repo }) : undefined
+  }
+})
 
 /** The `issues.*` flows: GitHub issues. */
 export const issuesFlows = (actions: CommandActions): ReadonlyArray<FlowEntry> => [
@@ -51,6 +69,8 @@ export const issuesFlows = (actions: CommandActions): ReadonlyArray<FlowEntry> =
   }),
   flow({
     name: "issues.create",
+    grammar: issueWriteGrammar("issues.create"),
+    ...issueWriteConfirmation(actions),
     form: { fields: { repo: { optionsFrom: "cloud-repos", kind: "text" } }, args: payload => line(text(payload, "title"), text(payload, "repo"), flag(payload, "kind")) },
     summary: "Create an issue, or a private conversation with --kind conversation",
     runtime: ["cloud"],
@@ -61,6 +81,8 @@ export const issuesFlows = (actions: CommandActions): ReadonlyArray<FlowEntry> =
   }),
   flow({
     name: "issues.close",
+    grammar: issueWriteGrammar("issues.close"),
+    ...issueWriteConfirmation(actions),
     summary: "Close an issue",
     runtimeAny: ["cloud"],
     args: "<number> [owner/repo]",
@@ -70,6 +92,8 @@ export const issuesFlows = (actions: CommandActions): ReadonlyArray<FlowEntry> =
   }),
   flow({
     name: "issues.reopen",
+    grammar: issueWriteGrammar("issues.reopen"),
+    ...issueWriteConfirmation(actions),
     summary: "Reopen a closed issue",
     runtimeAny: ["cloud"],
     args: "<number> [owner/repo]",
@@ -79,6 +103,8 @@ export const issuesFlows = (actions: CommandActions): ReadonlyArray<FlowEntry> =
   }),
   flow({
     name: "issues.comment",
+    grammar: issueWriteGrammar("issues.comment"),
+    ...issueWriteConfirmation(actions),
     form: { fields: { repo: { optionsFrom: "cloud-repos", kind: "text" } } },
     summary: "Comment on an issue",
     runtimeAny: ["cloud"],

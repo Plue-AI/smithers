@@ -19,6 +19,9 @@ export type IssueKindFilter = "all" | "conversation" | "issue"
 export type IssueState = "open" | "fixed" | "verified" | "closed"
 
 export interface IssuesSeam {
+  /** Resolve the same target as the write before publishing a delayed confirmation. */
+  readonly issueWriteTarget: (repo?: string) => { readonly repo: string } | { readonly error: string }
+
   readonly submitConversation: (text: string, turnId: string, repo: string, owner: string) => Promise<boolean>
 
   readonly draftIssueComment: (cardId: string, text: string) => Promise<string | void>
@@ -985,6 +988,7 @@ export const createIssuesSeam = (ctx: SeamContext, renderRepositoryForm?: Reposi
       return true
     },
     subscribe,
+    issueWriteTarget: repo => resolveTargetRepo(ctx.store, repo),
     draftIssueComment: async (cardId, text) => { await updateLocalIssue(cardId, payload => ({ ...payload, commentDraft: text })) },
     listIssues: Object.assign((filter: "open" | "closed" | "all", explicitRepo?: string, kind?: IssueKindFilter, view?: string) => repositoryListRead(ctx, "issues", repoOf(explicitRepo), filter, renderRepositoryForm, (repo) => listView(filter, repo, kind ?? "all", view),
       [filter, kind === undefined || kind === "all" ? undefined : `--kind ${kind}`, view === undefined || view === "" ? undefined : `--view ${view}`].filter((part) => part !== undefined).join(" ")), { preload: listView.preload }),
