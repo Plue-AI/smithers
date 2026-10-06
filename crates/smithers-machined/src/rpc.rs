@@ -1,0 +1,90 @@
+//! Skeleton dispatcher; default hooks answer unsupported without side effects.
+use crate::{
+    conn::{self, Frame, ProtocolError},
+    hooks::Hooks,
+    lock::LockCx,
+};
+pub fn dispatch(frame: &Frame, cx: &mut LockCx) -> Result<Frame, ProtocolError> {
+    frame.encode()?;
+    if frame.kind == 4 || frame.kind == 5 {
+        let hook = if frame.kind == 4 {
+            cx.hooks.documents.frame(frame)
+        } else {
+            cx.hooks.sessions.frame(frame)
+        };
+        return Ok(hook.unwrap_or_else(|e| Frame {
+            kind: frame.kind,
+            stream: frame.stream,
+            payload: conn::tagged(255, &e.fields()),
+        }));
+    }
+    let (id, method, args) = frame.request()?;
+    let hooks: Hooks = cx.hooks.clone();
+    let result = match method {
+        13 => {
+            // hook receives a schema-validated UTF-8 path
+            let n = u16::from_be_bytes(args[5..7].try_into().unwrap()) as usize;
+            hooks
+                .documents
+                .open(std::str::from_utf8(&args[7..7 + n]).map_err(|_| ProtocolError::BadUtf8)?)
+                .map(|s| conn::structure_bytes(&[conn::field(1, s.to_be_bytes())]))
+        }
+        14 => hooks
+            .documents
+            .close(u32::from_be_bytes(args[5..9].try_into().unwrap()))
+            .map(|()| conn::structure_bytes(&[])),
+        6..=10 | 15 => hooks.sessions.call(method, args),
+        _ => hooks.core.call(cx, method, args),
+    };
+    let value = match result {
+        Ok(body) => {
+            let mut b = vec![method];
+            b.extend(body);
+            b
+        }
+        Err(e) => conn::tagged(255, &e.fields()),
+    };
+    Ok(Frame {
+        kind: 1,
+        stream: 0,
+        payload: conn::tagged(
+            2,
+            &[conn::field(1, id.to_be_bytes()), conn::field(2, value)],
+        ),
+    })
+}
+pub fn serve_one(
+    reader: &mut impl std::io::Read,
+    writer: &mut impl std::io::Write,
+    cx: &mut LockCx,
+) -> Result<(), ProtocolError> {
+    let frame = Frame::read_envelope(reader)?;
+    let response = match frame.validate(false) {
+        Ok(()) => dispatch(&frame, cx)?,
+        Err(e)
+            if (5..=12).contains(&(e as u8))
+                && frame.kind == 1
+                && frame.payload.len() >= 10
+                && frame.payload[0] == 1
+                && frame.payload[5] == 1 =>
+        {
+            let id = u32::from_be_bytes(frame.payload[6..10].try_into().unwrap());
+            Frame {
+                kind: 1,
+                stream: 0,
+                payload: conn::tagged(
+                    2,
+                    &[
+                        conn::field(1, id.to_be_bytes()),
+                        conn::field(
+                            2,
+                            conn::tagged(255, &[conn::field(1, [1]), conn::field(6, [e as u8])]),
+                        ),
+                    ],
+                ),
+            }
+        }
+        Err(e) => return Err(e),
+    };
+    response.write(writer).map_err(|_| ProtocolError::Truncated)
+}

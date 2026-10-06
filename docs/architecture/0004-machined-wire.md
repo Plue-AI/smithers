@@ -1,12 +1,12 @@
 # ADR 0004: The machine daemon's wire contract
 
-Status: proposed (2026-10-03). Owner: T-COL-03r ([#3626](https://github.com/smithersai/smithers/issues/3626)). Accepted when the golden frames under `packages/backend/internal/compose/testdata/cocontracts/` pass against the Go codec (`packages/backend/internal/machined/wire/`) and the Rust codec (`crates/smithers-machined/src/conn.rs`, `src/msg.rs`).
+Status: proposed (2026-10-03); codecs and component evidence implemented 2026-10-05, pending smithers-8a acceptance and smithers-3f sign-off. Owner: T-COL-03r ([#3626](https://github.com/smithersai/smithers/issues/3626)). Accepted when the golden frames under `packages/backend/internal/compose/testdata/cocontracts/` pass against the Go codec (`packages/backend/internal/machined/wire/`) and the Rust codec (`crates/smithers-machined/src/conn.rs`, `src/msg.rs`).
 
 ## Context
 
 `smithers-machined` runs inside every branch machine and keeps one multiplexed connection to the host (spec §9.1.1). That connection carries control RPC, durable change events and their acknowledgements, presence, terminal and SSH sessions, git objects, and in stage 3 live-document frames. Two codecs speak it: Go on the host, Rust in the guest. Their first consumers are T-COL-03 (host registry), T-COL-03a (daemon core), T-COL-03f (Go fake daemon), T-COL-04 and T-COL-04a (watcher and events), T-TRM-07 (sessions) and T-COL-08a/08b (documents, S3).
 
-No daemon wire exists to reuse. The terminal WebSocket (`packages/backend/internal/routes/terminal_session_manager.go`) has no request correlation, acknowledgement or actor envelope. The guest helper's `relay` and `bridge` (`packages/backend/microsandbox/guest/smithers-guest.py:419`, `:441`) are byte pipes with no framing. Both stay the byte transport underneath this contract.
+No surviving daemon wire exists to reuse. The deleted Go guest protocol (`4a9e413dbd^:packages/backend/sandbox/guest/protocol.go`) used length-prefixed JSON RPC with `Hello` and `Authenticate`. It was a single stream without credit, object streams or outbox acknowledgements, so restoring its format would not meet this contract. The terminal WebSocket (`packages/backend/internal/routes/terminal_session_manager.go`) has no request correlation, acknowledgement or actor envelope. The guest helper's `relay` and `bridge` (`packages/backend/microsandbox/guest/smithers-guest.py:419`, `:441`) are byte pipes with no framing. Both stay the byte transport underneath this contract.
 
 T-COL-01 and T-COL-11 have not chosen between the two transports (C-SPK-03's first run decided nothing). This contract works over both.
 
@@ -286,7 +286,7 @@ Rejected: a TypeScript codec of these frames (a third codec to keep byte-equal);
 
 `packages/backend/internal/compose/testdata/cocontracts/` holds `<name>.bin`, `<name>.json` and `MANIFEST.json`. `gen.mjs` (Node, no dependencies) writes every `.bin` from byte tables of its own, never from either codec; `node gen.mjs --check` regenerates into a temporary directory and fails on any difference. `MANIFEST.json` records `protocol`, the `yrs` pin (`=0.27.4`), each frame's direction, SHA-256 and expected result (`ok` or a `ProtocolError` name), and named sequences of frames. T-COL-08b adds document frames and the `yjs` pin.
 
-Each codec's test, for every frame: decodes the `.bin` and compares the value with the `.json`; for `ok` frames, encodes the `.json` value and compares bytes; for refusal frames, asserts the exact error code. The Rust fake host and the Go fake daemon replay the sequences byte for byte.
+Each codec's test, for every frame: decodes the `.bin` and compares the kind, stream and canonical tagged payload with the `.json`; for `ok` frames, encodes the `.json` value and compares bytes; for refusal frames, asserts the exact error code. The Rust fake host and the Go fake daemon replay the sequences byte for byte.
 
 | group | frames |
 | --- | --- |
@@ -309,3 +309,22 @@ Each codec's test, for every frame: decodes the `.bin` and compares the value wi
 - Spec §9.1.4's "git push" is implemented as a bundle on an object stream. §9.5.3's "presents the secret" is implemented as an HMAC proof. Both need the spec edits listed at the end of the design document.
 - The transport decision (T-COL-11) changes the boot file and the host's `LinkSource`, nothing else.
 - The daemon stays identity-agnostic: it never parses a participant, so M-34 participant changes need no daemon release.
+
+## Implementation evidence (2026-10-05)
+
+The exported Go `Read`, `Decode`, `DecodeLocal`, `Encode`, `EncodeLocal` and
+`RequestFrame` and Rust `Frame::{read,decode,decode_local,encode,encode_local}`
+share the framing above. `msg` exposes method and error discriminants; tagged
+payload builders construct requests without a second framing implementation.
+The 113 literal frames include 1 MiB and 1 MiB + 1 content fixtures and preserve
+the browser document fixtures. The JSON companion records kind, stream and the
+canonical payload as hex; it never records JSON sent over the connection.
+`gen.mjs --check` verifies the independent byte tables and manifest hashes.
+
+The compiled executable exits 78 before opening a connection or invoking a
+hook. Fake-host tests feed literal frames through the production decoder and
+dispatcher, including correlated malformed replies and S2 document refusals.
+The FIFO executor supports asynchronous waiting, drains admitted mutations,
+retains jobs when a waiter disappears and continues after a job panics.
+These are component receipts, not C-DUR-04 or real-machine confinement evidence.
+No acceptance or security approval is inferred from passing tests.

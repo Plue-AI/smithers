@@ -198,8 +198,10 @@ mod tests {
         assert!(receiver.eof().is_err());
         receiver.received = u64::MAX;
         assert!(receiver.consumed(1).is_err());
-        let mut sender = SessionSender::default();
-        sender.acknowledged = u64::MAX;
+        let mut sender = SessionSender {
+            acknowledged: u64::MAX,
+            ..SessionSender::default()
+        };
         assert!(sender.window(1).is_err());
     }
 }

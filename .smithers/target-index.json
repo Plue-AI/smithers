@@ -17352,6 +17352,94 @@
     }
   },
   {
+    "label": "//crates/smithers-machined:cargoClippy",
+    "package": "crates/smithers-machined",
+    "name": "cargoClippy",
+    "rule": "Cargo.Clippy",
+    "kinds": [
+      "lint"
+    ],
+    "cacheable": false,
+    "inputs": [
+      {
+        "kind": "glob",
+        "pattern": "crates/smithers-machined/**/*.rs",
+        "exclude": []
+      },
+      {
+        "kind": "file",
+        "path": "crates/smithers-machined/Cargo.toml"
+      },
+      {
+        "kind": "file",
+        "path": "Cargo.toml"
+      },
+      {
+        "kind": "file",
+        "path": "Cargo.lock"
+      },
+      {
+        "kind": "glob",
+        "pattern": "packages/backend/internal/compose/testdata/cocontracts/**",
+        "exclude": []
+      }
+    ],
+    "outputs": [],
+    "dependencies": [],
+    "destinations": [
+      "github.com",
+      "index.crates.io",
+      "static.crates.io"
+    ],
+    "source": {
+      "file": "crates/smithers-machined/PACKAGE.ts"
+    }
+  },
+  {
+    "label": "//crates/smithers-machined:cargoTest",
+    "package": "crates/smithers-machined",
+    "name": "cargoTest",
+    "rule": "Cargo.Test",
+    "kinds": [
+      "test"
+    ],
+    "cacheable": false,
+    "inputs": [
+      {
+        "kind": "glob",
+        "pattern": "crates/smithers-machined/**/*.rs",
+        "exclude": []
+      },
+      {
+        "kind": "file",
+        "path": "crates/smithers-machined/Cargo.toml"
+      },
+      {
+        "kind": "file",
+        "path": "Cargo.toml"
+      },
+      {
+        "kind": "file",
+        "path": "Cargo.lock"
+      },
+      {
+        "kind": "glob",
+        "pattern": "packages/backend/internal/compose/testdata/cocontracts/**",
+        "exclude": []
+      }
+    ],
+    "outputs": [],
+    "dependencies": [],
+    "destinations": [
+      "github.com",
+      "index.crates.io",
+      "static.crates.io"
+    ],
+    "source": {
+      "file": "crates/smithers-machined/PACKAGE.ts"
+    }
+  },
+  {
     "label": "//evals/agent:character",
     "package": "evals/agent",
     "name": "character",

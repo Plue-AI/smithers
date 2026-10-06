@@ -80,21 +80,11 @@ impl Sender {
 }
 
 /// One receiving direction. Credit returns only after the consumer spools data.
-#[derive(Debug)]
+#[derive(Debug, Default)]
 pub struct Receiver {
     pending: usize,
     eof: bool,
     closed: bool,
-}
-
-impl Default for Receiver {
-    fn default() -> Self {
-        Self {
-            pending: 0,
-            eof: false,
-            closed: false,
-        }
-    }
 }
 
 impl Receiver {
