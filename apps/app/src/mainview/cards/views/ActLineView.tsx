@@ -1,4 +1,4 @@
-import { Marker } from "@smthrs/ui"
+import { Marker } from "@smthrs/ui/marker"
 
 export type ActStep = { text: string; status?: "running" | "ok" | "error"; output?: string; exit_code?: number }
 export type ActLineProps = { line: string; steps: ActStep[]; tone?: "failed" }

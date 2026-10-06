@@ -17,6 +17,10 @@
       "types": "./src/button.tsx",
       "default": "./src/button.tsx"
     },
+    "./marker": {
+      "types": "./src/chat/Marker.tsx",
+      "default": "./src/chat/Marker.tsx"
+    },
     ".": {
       "types": "./src/index.ts",
       "import": "./src/index.ts",
