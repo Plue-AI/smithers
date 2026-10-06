@@ -185,6 +185,9 @@ func (s *ApprovalsService) RequestConfirmation(ctx context.Context, input Confir
 		return ConfirmationReceipt{}, confirmationPermission()
 	}
 	if s == nil || s.confirmationStore == nil {
+		if _, terminal := info.TerminalDelegation(); terminal && input.Command == "todo.new" {
+			return ConfirmationReceipt{}, &AccessError{Status: 403, Class: "permission", Code: "confirm_in_app", Message: "Confirm in the app"}
+		}
 		return ConfirmationReceipt{}, confirmationUnavailable()
 	}
 	if input.Key == "" || len(input.Key) > 256 || len(input.Payload) > MaxApprovalPayloadBytes {
@@ -207,10 +210,20 @@ func (s *ApprovalsService) RequestConfirmation(ctx context.Context, input Confir
 		}
 		fresh := middleware.AuthInfoFromContext(bound)
 		delegation, ok := fresh.Delegation()
-		if !ok || delegation.Profile != "" || delegation.Branch != "" || fresh.WorkspaceRestriction() != "" || len(middleware.ParseTokenPathRestrictions(fresh.RawScopes)) != 0 || fresh.RepositoryRestriction() != 0 && fresh.RepositoryRestriction() != repository {
+		_, terminal := fresh.TerminalDelegation()
+		if terminal {
+			var request MythicalTodoInput
+			if input.Command != "todo.new" || confirmationJSON(input.Payload, &request) != nil || request.Issue != nil || request.Place.Mode != "" && request.Place.Mode != "append" {
+				return confirmationPermission()
+			}
+		}
+		if !ok || !terminal && (delegation.Profile != "" || delegation.Branch != "") || fresh.WorkspaceRestriction() != "" || len(middleware.ParseTokenPathRestrictions(fresh.RawScopes)) != 0 || fresh.RepositoryRestriction() != 0 && fresh.RepositoryRestriction() != repository {
 			return confirmationPermission()
 		}
 		if s.confirmationTodos == nil {
+			if terminal {
+				return required.Refusal
+			}
 			return confirmationUnavailable()
 		}
 		credential, err := todoRequestCredential(bound, fresh.User.ID)

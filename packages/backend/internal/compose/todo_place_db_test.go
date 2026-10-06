@@ -272,6 +272,37 @@ func TestTodoPlacementComposedInstall(t *testing.T) {
 	require.Equal(t, 202, code, body)
 	require.Equal(t, "pending", body["state"])
 	require.Equal(t, []int64{5, 4, 2, 3, 8, 7, 6}, order())
+	// A real restricted terminal credential can request Append, but cannot
+	// acquire Before or Move authority from the composed confirmation consumer.
+	branch := uuid.NewString()
+	_, err = pool.Exec(ctx, `INSERT INTO workspaces(id,repository_id,user_id,name) VALUES($1,$2,$3,'placement-terminal')`, branch, repo, member.ID)
+	require.NoError(t, err)
+	terminalSession, err := q.CreateWorkspaceSession(ctx, db.CreateWorkspaceSessionParams{WorkspaceID: branch, RepositoryID: repo, UserID: member.ID, Cols: 80, Rows: 24})
+	require.NoError(t, err)
+	terminal := mint("smithers_"+strings.Repeat("9", 40), strings.Join(append([]string{"read:repository", "read:user", middleware.RepositoryRestrictionScope(repo)}, middleware.DelegationScopes(middleware.Delegation{Via: "terminal", Branch: branch, Profile: middleware.TerminalProfileS1, Session: terminalSession.ID})...), ","), true)
+	bearerToken = terminal
+	code, body = call("POST", "/api/todos", `{"title":"Terminal","prompt":"Add a terminal line","place":{"mode":"append"}}`, "terminal-append")
+	require.Equal(t, 202, code, body)
+	require.Equal(t, "pending", body["state"])
+	terminalConfirmation := body["confirmation"].(string)
+	require.Equal(t, []int64{5, 4, 2, 3, 8, 7, 6}, order())
+	var beforeEvents, afterEvents, beforeApprovals, afterApprovals int
+	require.NoError(t, pool.QueryRow(ctx, `SELECT count(*) FROM product_job_events`).Scan(&beforeEvents))
+	require.NoError(t, pool.QueryRow(ctx, `SELECT count(*) FROM approvals`).Scan(&beforeApprovals))
+	code, body = call("POST", "/api/todos", `{"title":"Denied","prompt":"Add a line","place":{"mode":"before","n":7}}`, "terminal-before")
+	require.Equal(t, 403, code, body)
+	require.Equal(t, "permission", body["code"])
+	code, body = call("POST", "/api/todos/7", `{"op":"move","direction":"up"}`, "terminal-move")
+	require.Equal(t, 403, code, body)
+	require.Equal(t, "permission", body["code"])
+	require.NoError(t, pool.QueryRow(ctx, `SELECT count(*) FROM product_job_events`).Scan(&afterEvents))
+	require.NoError(t, pool.QueryRow(ctx, `SELECT count(*) FROM approvals`).Scan(&afterApprovals))
+	require.Equal(t, beforeEvents, afterEvents)
+	require.Equal(t, beforeApprovals, afterApprovals)
+	bearerToken = ""
+	code, body = call("POST", "/api/confirmations/"+terminalConfirmation+"/approve", `{}`, "terminal-author-confirm")
+	require.Equal(t, 200, code, body)
+	require.Equal(t, []int64{5, 4, 2, 3, 8, 7, 6, 9}, order())
 	for _, credential := range []string{
 		mint("smithers_"+strings.Repeat("f", 40), "read:repository,via:cli", true),
 		mint("smithers_"+strings.Repeat("a", 40), "write:repository", true),
@@ -284,13 +315,13 @@ func TestTodoPlacementComposedInstall(t *testing.T) {
 		require.NoError(t, pool.QueryRow(ctx, `SELECT count(*) FROM product_job_events`).Scan(&eventsBefore))
 		code, body = call("POST", "/api/todos/7", `{"op":"move","direction":"up"}`, "denied-move")
 		require.Equal(t, 403, code, "credential %s: %v", credential[len(credential)-8:], body)
-		require.Equal(t, []int64{5, 4, 2, 3, 8, 7, 6}, order())
+		require.Equal(t, []int64{5, 4, 2, 3, 8, 7, 6, 9}, order())
 		for _, place := range []string{`{"mode":"append"}`, `{"mode":"before","n":7}`} {
 			code, body = call("POST", "/api/todos", `{"title":"Denied","prompt":"Add a line","place":`+place+`}`, "denied-create-"+place)
 			require.Equal(t, 403, code, body)
 			require.Equal(t, "permission", body["class"])
 		}
-		require.Equal(t, []int64{5, 4, 2, 3, 8, 7, 6}, order())
+		require.Equal(t, []int64{5, 4, 2, 3, 8, 7, 6, 9}, order())
 		require.NoError(t, pool.QueryRow(ctx, `SELECT count(*) FROM product_job_events`).Scan(&eventsAfter))
 		require.Equal(t, eventsBefore, eventsAfter)
 	}
@@ -300,6 +331,6 @@ func TestTodoPlacementComposedInstall(t *testing.T) {
 	bearerToken = delegated
 	code, body = call("POST", "/api/todos/7", `{"op":"move","direction":"up"}`, "suspended-move")
 	require.Equal(t, 403, code, body)
-	require.Equal(t, []int64{5, 4, 2, 3, 8, 7, 6}, order())
+	require.Equal(t, []int64{5, 4, 2, 3, 8, 7, 6, 9}, order())
 
 }

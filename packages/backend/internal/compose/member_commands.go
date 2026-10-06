@@ -71,7 +71,8 @@ func memberCommands(queries *db.Queries, confirmations ...*services.ApprovalsSer
 			// Resolve the existing command body once, before its sole authority
 			// decision. Only a configured approval service owns confirmation.
 			delegation, delegated := info.Delegation()
-			if len(confirmations) > 0 && confirmations[0] != nil && delegated && delegation.Profile == "" && delegation.Branch == "" && info.CredentialKind() == middleware.CredentialDelegated {
+			_, terminal := info.TerminalDelegation()
+			if len(confirmations) > 0 && confirmations[0] != nil && delegated && (delegation.Profile == "" && delegation.Branch == "" || terminal && command == "todo.new") && info.CredentialKind() == middleware.CredentialDelegated {
 				if handled := dispatchConfirmation(w, r, command, confirmations[0]); handled {
 					return
 				}
@@ -118,6 +119,14 @@ func dispatchConfirmation(w http.ResponseWriter, r *http.Request, command string
 		return true
 	}
 	r.Body = io.NopCloser(bytes.NewReader(raw))
+	if info := middleware.AuthInfoFromContext(r.Context()); info != nil {
+		if _, terminal := info.TerminalDelegation(); terminal {
+			var input services.MythicalTodoInput
+			if command != "todo.new" || json.Unmarshal(raw, &input) != nil || input.Issue != nil || input.Place.Mode != "" && input.Place.Mode != "append" {
+				return false
+			}
+		}
+	}
 	if command == "todo.control" {
 		_, resolved, decodeErr := routes.DecodeTodoControl(bytes.NewReader(raw))
 		if decodeErr != nil {

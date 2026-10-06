@@ -97,7 +97,11 @@ func TestTodoMoveSwapsWithTheNearestItemOnTheStack(t *testing.T) {
 	requireTodoRefusal(t, err, http.StatusNotFound, "todo_not_found", "")
 	_, err = o.service.ControlTodo(mythicalRunContext(context.Background(), o.userID), n[2], TodoControlInput{Op: "move", Direction: "down",
 		Repository: o.repoID, Actor: o.userID, Request: "move-7"})
-	requireTodoRefusal(t, err, http.StatusForbidden, "permission", "Only a person moves a TODO")
+	var access *AccessError
+	require.ErrorAs(t, err, &access)
+	require.Equal(t, http.StatusForbidden, access.Status)
+	require.Equal(t, "permission", access.Class)
+	require.Equal(t, "permission", access.Code)
 	require.Equal(t, []int64{n[4], n[2], n[3]}, o.stackOrder(), "no refused move changed the order")
 
 	// A TODO moves down past a failed one too.
