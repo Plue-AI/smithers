@@ -10,6 +10,7 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/stretchr/testify/require"
 
+	"github.com/smithersai/smithers/packages/backend/internal/cleanup"
 	"github.com/smithersai/smithers/packages/backend/internal/db"
 	"github.com/smithersai/smithers/packages/backend/productstore"
 	"github.com/smithersai/smithers/packages/backend/sandbox"
@@ -19,8 +20,9 @@ import (
 // product contract. Lease capabilities must survive that interface boundary.
 type hostedLeaseWorkspaceStore struct{ productstore.Product }
 
-// A workspace whose client lease lapsed is suspended, then deleted after the
-// configured age; a renewed lease and a workspace without a lease are kept.
+// A legacy nonbranch workspace is deleted after the configured lease age;
+// before then, unavailable capture retains it awake. Renewed and leaseless
+// workspaces are kept. Branch machines are covered separately below.
 // Real PostgreSQL holds the rows and leases; only the VM is a test double.
 func TestAbandonReaperReclaimsOnlyLapsedLeases(t *testing.T) {
 	pool := newProductTestPool(t)
@@ -73,22 +75,22 @@ func TestAbandonReaperReclaimsOnlyLapsedLeases(t *testing.T) {
 	require.NotNil(t, resp.ClientLeaseExpiresAt)
 	require.True(t, resp.ClientLeaseExpiresAt.After(time.Now().Add(50*time.Second)), "a renew extends by the lease length")
 
-	require.NoError(t, svc.CleanupAbandonedWorkspaces(ctx))
+	require.ErrorContains(t, svc.CleanupAbandonedWorkspaces(ctx), "branch sleep requires verified capture")
 	get := func(id string) db.Workspace {
 		row, err := queries.GetWorkspaceIncludingDeleted(ctx, id)
 		require.NoError(t, err)
 		return row
 	}
-	require.Equal(t, "suspended", get(lapsed.ID).Status)
+	require.Equal(t, "running", get(lapsed.ID).Status)
 	require.False(t, get(lapsed.ID).DeletedAt.Valid)
 	require.True(t, get(expired.ID).DeletedAt.Valid, "a lease lapsed past the delete age is deleted")
 	require.Equal(t, "running", get(renewed.ID).Status)
 	require.Equal(t, "running", get(leaseless.ID).Status)
 	require.False(t, get(leaseless.ID).DeletedAt.Valid)
-	require.Equal(t, []string{"vm-lapsed"}, suspended)
+	require.Empty(t, suspended, "missing capture must not suspend")
 	require.Equal(t, []string{"vm-expired"}, deleted)
 
-	// Once the suspended workspace also passes the delete age it is deleted.
+	// The legacy nonbranch consumer still deletes once its lease age passes.
 	_, err = pool.Exec(ctx, `UPDATE workspaces SET client_lease_expires_at = NOW() - interval '2 hours' WHERE id = $1`, lapsed.ID)
 	require.NoError(t, err)
 	require.NoError(t, svc.CleanupAbandonedWorkspaces(ctx))
@@ -110,6 +112,56 @@ func TestWorkspaceClientLeaseBounds(t *testing.T) {
 	}
 	err := validateWorkspaceCreateMetadata(CreateWorkspaceInput{ClientLeaseSeconds: 30})
 	require.Equal(t, http.StatusBadRequest, apiErrorOf(t, err).Status)
+}
+
+func TestAbandonReaperRetainsBranchMachineRegardlessOfLeaseAge(t *testing.T) {
+	pool := newProductTestPool(t)
+	_, repo := setupTestUserAndRepo(t, pool)
+	ctx := context.Background()
+	q := db.New(pool)
+	owner, err := q.GetBranchMachineOwner(ctx)
+	require.NoError(t, err)
+	svc := NewWorkspaceService(q, WithWorkspaceSandboxClient(&mockWorkspaceSandboxVMClient{
+		suspendVMFn: func(context.Context, string) (sandbox.SuspendResult, error) {
+			t.Fatal("branch lease lapse suspended uncaptured work")
+			return sandbox.SuspendResult{}, nil
+		},
+		deleteVMFn: func(context.Context, string) error {
+			t.Fatal("branch lease lapse deleted retained work")
+			return nil
+		},
+	}))
+	for _, age := range []time.Duration{time.Minute, 30 * 24 * time.Hour} {
+		row, err := q.CreateWorkspace(ctx, db.CreateWorkspaceParams{RepositoryID: repo, UserID: owner,
+			Name: age.String(), TargetBookmark: age.String(), Kind: "vm", EnvironmentSource: defaultWorkspaceEnvironmentSource, Status: "running"})
+		require.NoError(t, err)
+		_, err = q.UpdateWorkspaceExecutionInfo(ctx, db.UpdateWorkspaceExecutionInfoParams{ID: row.ID, VmID: "vm-" + row.ID, Status: "running"})
+		require.NoError(t, err)
+		_, err = pool.Exec(ctx, `UPDATE workspaces SET client_lease_secs=60, client_lease_expires_at=NOW()-make_interval(secs=>$2) WHERE id=$1`, row.ID, age.Seconds())
+		require.NoError(t, err)
+		store := &branchLeaseCleanupStore{darkCleanupStore{WorkspaceService: svc, tick: make(chan struct{}, 1)}}
+		cleaner := cleanup.NewWorkspaceCleaner(store, time.Millisecond)
+		cleaner.Start(t.Context())
+		select {
+		case <-store.tick:
+		case <-time.After(time.Second):
+			cleaner.Stop()
+			t.Fatal("branch lease cleanup never completed a tick")
+		}
+		cleaner.Stop()
+		retained, err := q.GetWorkspaceIncludingDeleted(ctx, row.ID)
+		require.NoError(t, err)
+		require.Equal(t, "running", retained.Status)
+		require.False(t, retained.DeletedAt.Valid)
+	}
+}
+
+// Other steps are isolated; the production cleaner calls the actual branch
+// lease guard through WorkspaceService on each tick.
+type branchLeaseCleanupStore struct{ darkCleanupStore }
+
+func (s *branchLeaseCleanupStore) CleanupAbandonedWorkspaces(ctx context.Context) error {
+	return s.WorkspaceService.CleanupAbandonedWorkspaces(ctx)
 }
 
 // A create without a lease clears one a reused row still carries, so a
