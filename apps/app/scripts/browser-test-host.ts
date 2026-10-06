@@ -2,8 +2,6 @@ import { mkdtemp, rm } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { MODEL_CREDENTIAL_ENV_PREFIX } from "@smthrs/rpc/ConfiguredModel"
-import { createChatJournalFixture } from "../e2e/support/ChatJournalFixture"
-import { createChatStub } from "../e2e/support/ChatStub"
 import { DEFAULT_CLOUD_API, startLocalServer } from "../src/bun/server"
 import type { LocalServerOptions } from "../src/bun/server"
 
@@ -24,10 +22,9 @@ export const browserTestOptions = (
   return {
     port,
     distDir,
-    ...(realChat ? {} : { agent: createChatStub, fixtureJournal: createChatJournalFixture() }),
     cloudMode: realChat ? "hybrid" : "offline",
-    // Real chat is a backend turn (`/api/agent/turn`) as the Cloud user that
-    // SMITHERS_CLOUD_TOKEN names; the empty keychain never reads a stored login.
+    // The fixture may exercise the cloud tunnel; it never restores a stored login.
+    // Conversation execution belongs to the composed install backend.
     cloudApi: realChat ? env.SMITHERS_CLOUD_API ?? DEFAULT_CLOUD_API : null,
     cloudKeychain: {
       read: async () => null,

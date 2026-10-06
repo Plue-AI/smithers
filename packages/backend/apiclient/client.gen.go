@@ -2632,13 +2632,6 @@ func (c *Client) PostAPIAgentTurn(ctx context.Context, body any) (AnyJSON, error
 	return out, err
 }
 
-// PostAPIAgentTurnCancel calls POST /api/agent/turn/cancel.
-func (c *Client) PostAPIAgentTurnCancel(ctx context.Context, body any) (AnyJSON, error) {
-	var out AnyJSON
-	err := c.do(ctx, "POST", "/api/agent/turn/cancel", nil, body, &out)
-	return out, err
-}
-
 // PostAPIAgentTurnErase calls POST /api/agent/turn/erase.
 func (c *Client) PostAPIAgentTurnErase(ctx context.Context, body any) (AnyJSON, error) {
 	var out AnyJSON
@@ -2650,13 +2643,6 @@ func (c *Client) PostAPIAgentTurnErase(ctx context.Context, body any) (AnyJSON, 
 func (c *Client) PostAPIAgentTurnReplay(ctx context.Context, body any) (AnyJSON, error) {
 	var out AnyJSON
 	err := c.do(ctx, "POST", "/api/agent/turn/replay", nil, body, &out)
-	return out, err
-}
-
-// PostAPIAgentTurnRetire calls POST /api/agent/turn/retire.
-func (c *Client) PostAPIAgentTurnRetire(ctx context.Context, body any) (AnyJSON, error) {
-	var out AnyJSON
-	err := c.do(ctx, "POST", "/api/agent/turn/retire", nil, body, &out)
 	return out, err
 }
 
@@ -2741,62 +2727,6 @@ func (c *Client) GetAPIAgents(ctx context.Context) (AnyJSON, error) {
 func (c *Client) PutAPIAgentsRoleModel(ctx context.Context, role string, body any) (AnyJSON, error) {
 	var out AnyJSON
 	err := c.do(ctx, "PUT", "/api/agents/"+url.PathEscape(role)+"/model", nil, body, &out)
-	return out, err
-}
-
-// DeleteAPIAppTimelinesIDMembersUserD calls DELETE /api/app-timelines/{id}/members/{userId}.
-func (c *Client) DeleteAPIAppTimelinesIDMembersUserD(ctx context.Context, id string, userID string) (AnyJSON, error) {
-	var out AnyJSON
-	err := c.do(ctx, "DELETE", "/api/app-timelines/"+url.PathEscape(id)+"/members/"+url.PathEscape(userID), nil, nil, &out)
-	return out, err
-}
-
-// GetAPIAppTimelinesID calls GET /api/app-timelines/{id}.
-func (c *Client) GetAPIAppTimelinesID(ctx context.Context, id string) (AnyJSON, error) {
-	var out AnyJSON
-	err := c.do(ctx, "GET", "/api/app-timelines/"+url.PathEscape(id), nil, nil, &out)
-	return out, err
-}
-
-// GetAPIAppTimelinesIDMembers calls GET /api/app-timelines/{id}/members.
-func (c *Client) GetAPIAppTimelinesIDMembers(ctx context.Context, id string) (AnyJSON, error) {
-	var out AnyJSON
-	err := c.do(ctx, "GET", "/api/app-timelines/"+url.PathEscape(id)+"/members", nil, nil, &out)
-	return out, err
-}
-
-// PostAPIAppTimelinesIDMembers calls POST /api/app-timelines/{id}/members.
-func (c *Client) PostAPIAppTimelinesIDMembers(ctx context.Context, id string, body any) (AnyJSON, error) {
-	var out AnyJSON
-	err := c.do(ctx, "POST", "/api/app-timelines/"+url.PathEscape(id)+"/members", nil, body, &out)
-	return out, err
-}
-
-// PostAPIAppTimelines calls POST /api/app-timelines.
-func (c *Client) PostAPIAppTimelines(ctx context.Context, body any) (AnyJSON, error) {
-	var out AnyJSON
-	err := c.do(ctx, "POST", "/api/app-timelines", nil, body, &out)
-	return out, err
-}
-
-// PostAPIAppTimelinesIDEvents calls POST /api/app-timelines/{id}/events.
-func (c *Client) PostAPIAppTimelinesIDEvents(ctx context.Context, id string, body any) (AnyJSON, error) {
-	var out AnyJSON
-	err := c.do(ctx, "POST", "/api/app-timelines/"+url.PathEscape(id)+"/events", nil, body, &out)
-	return out, err
-}
-
-// PutAPIAppTimelinesIDSnapshots calls PUT /api/app-timelines/{id}/snapshots.
-func (c *Client) PutAPIAppTimelinesIDSnapshots(ctx context.Context, id string, body any) (AnyJSON, error) {
-	var out AnyJSON
-	err := c.do(ctx, "PUT", "/api/app-timelines/"+url.PathEscape(id)+"/snapshots", nil, body, &out)
-	return out, err
-}
-
-// PutAPIAppTimelinesIDState calls PUT /api/app-timelines/{id}/state.
-func (c *Client) PutAPIAppTimelinesIDState(ctx context.Context, id string, body any) (AnyJSON, error) {
-	var out AnyJSON
-	err := c.do(ctx, "PUT", "/api/app-timelines/"+url.PathEscape(id)+"/state", nil, body, &out)
 	return out, err
 }
 

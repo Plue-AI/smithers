@@ -5,7 +5,6 @@ import { join } from "node:path"
 import { APP_BOOTSTRAP_PATH, AppBootstrapSchema } from "@smthrs/rpc/AppBootstrap"
 import { localCapabilities } from "@smthrs/rpc/HostCapabilities"
 import { LOCAL_SESSION_HEADER, LOCAL_SESSION_META } from "@smthrs/rpc/LocalSession"
-import { createChatStub } from "../../e2e/support/ChatStub"
 import { defaultDistDir, describeCookie, rescopeCookie, startLocalServer } from "./server"
 import type { LocalServer } from "./server"
 import type { CloudAuth } from "./CloudAuth"
@@ -29,7 +28,6 @@ beforeAll(async () => {
   server = await startLocalServer({
     port: 0,
     distDir: dist,
-    agent: createChatStub,
     home: "/fake/home",
     log: (line) => logs.push(line)
   })
@@ -432,7 +430,6 @@ describe("the Smithers Cloud seam", () => {
       port: 0,
       distDir: dist,
       cloudMode: "hybrid",
-      agent: createChatStub,
       // This host is the cloud proxy alone; the identity seam has its own tests.
       identityUpstream: null,
       cloudApi: `http://127.0.0.1:${upstream.port}`,
@@ -496,7 +493,6 @@ describe("the Smithers Cloud seam", () => {
       port: 0,
       distDir: dist,
       cloudMode: "hybrid",
-      agent: createChatStub,
       // This host is the cloud proxy alone; the identity seam has its own tests.
       identityUpstream: null,
       cloudApi: `http://127.0.0.1:${upstream.port}`,

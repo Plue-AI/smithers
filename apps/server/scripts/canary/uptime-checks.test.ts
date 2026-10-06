@@ -577,7 +577,7 @@ describe("endpointPlan", () => {
     const gate = endpointPlan("run-1").find((endpoint) => endpoint.label === "turn-gate")!
     expect(gate.expectedStatus).toBe(401)
     expect(gate.method).toBe("POST")
-    expect(JSON.parse(gate.body!)).toMatchObject({ prompt: "Say the word ok and nothing else.", idempotencyKey: "run-1" })
+    expect(JSON.parse(gate.body!)).toMatchObject({ idempotencyKey: "run-1", prompt: "Say the word ok and nothing else." })
   })
 })
 
@@ -630,6 +630,7 @@ const bootstrap = { apiVersion: 1, host: "cloud", version: "1", buildSha: "a".re
 const healthy = (url: string): Response => {
   if (url.endsWith("/api/bootstrap")) return Response.json(bootstrap)
   if (url.endsWith("/api/conversations/main/prompt")) return new Response("Unauthorized", { status: 401 })
+  if (url.endsWith("/api/conversations/main")) return Response.json(output())
   if (url.endsWith("/api/user")) return new Response(SCOPED_SESSION, { status: 200 })
   return new Response("ok", { status: 200 })
 }
@@ -640,13 +641,8 @@ const meteredCalls = (calls: ReadonlyArray<{ url: string; init: RequestInit }>):
     call.url.endsWith("/api/conversations/main/prompt") && (call.init.headers as Record<string, string>).cookie !== undefined
   ).length
 
-const ndjson = (frames: ReadonlyArray<string>): ReadableStream<Uint8Array> =>
-  new ReadableStream({
-    start(controller) {
-      for (const frame of frames) controller.enqueue(new TextEncoder().encode(`${frame}\n`))
-      controller.close()
-    }
-  })
+const admission = () => Response.json({ turnId: "turn-1", runId: "run-1-metered" }, { status: 202 })
+const output = (frames: unknown[] = [{ runId: "run-1-metered", type: "delta", kind: "text", text: "ok" }]) => ({ id: "main", entries: [{ id: "turn-1", runId: "run-1-metered", state: "completed", frames }] })
 
 const chunked = (chunks: ReadonlyArray<string>): ReadableStream<Uint8Array> =>
   new ReadableStream({
@@ -725,10 +721,7 @@ describe("runUptimeProbe", () => {
   test("with a session cookie the probe takes exactly one metered turn and times its first frame", async () => {
     const { deps, calls } = makeDeps(3_000, (url, init) => {
       if (url.endsWith("/api/conversations/main/prompt") && (init.headers as Record<string, string>).cookie !== undefined) {
-        return new Response(
-          JSON.stringify({ turnId: "metered" }),
-          { status: 202 }
-        )
+        return admission()
       }
       return healthy(url)
     })
@@ -742,34 +735,23 @@ describe("runUptimeProbe", () => {
     expect(check.detail).toContain(`budget ${LATENCY_BUDGETS_MS.turnFirstFrame}ms`)
   })
 
-  test("the metered sample validates a complete split prompt admission", async () => {
-    const frame = JSON.stringify({ turnId: "metered" })
-    const { deps } = makeDeps(1, () => new Response(chunked([frame.slice(0, 12), frame.slice(12)]), { status: 202 }))
-    const result = await meteredTurnSample(deps, options(), "s=1")
-    expect(result.transportError).toBeUndefined()
+  test("the metered sample decodes a split shared conversation response", async () => {
+    const body = JSON.stringify(output())
+    const { deps } = makeDeps(1, url => url.endsWith("/prompt") ? admission() : new Response(chunked([body.slice(0, 12), body.slice(12)])))
+    expect((await meteredTurnSample(deps, options(), "s=1")).transportError).toBeUndefined()
   })
 
-  test("the metered sample rejects corrupt, foreign-run, and HTML first frames", async () => {
-    for (
-      const body of [
-        "{broken}\n",
-        "{\"runId\":\"other\",\"type\":\"delta\",\"kind\":\"text\",\"text\":\"ok\"}\n",
-        "<html>upstream error</html>\n"
-      ]
-    ) {
-      const { deps } = makeDeps(1, () => new Response(body, { status: 200 }))
-      const result = await meteredTurnSample(deps, options(), "s=1")
-      expect(result.transportError).toBeDefined()
+  test("the metered sample rejects corrupt, foreign-run and HTML shared output", async () => {
+    for (const body of ["{broken}", JSON.stringify(output([{ runId: "foreign", type: "delta", kind: "text", text: "secret" }])), "<html>error</html>"]) {
+      const { deps } = makeDeps(1, url => url.endsWith("/prompt") ? admission() : new Response(body))
+      expect((await meteredTurnSample(deps, options(), "s=1")).transportError).toBeDefined()
     }
   })
 
   test("a metered turn slower than the first-frame budget fails", async () => {
     const { deps } = makeDeps(LATENCY_BUDGETS_MS.turnFirstFrame + 1_000, (url, init) => {
       if (url.endsWith("/api/conversations/main/prompt") && (init.headers as Record<string, string>).cookie !== undefined) {
-        return new Response(
-          JSON.stringify({ turnId: "metered" }),
-          { status: 202 }
-        )
+        return admission()
       }
       return healthy(url)
     })
@@ -779,17 +761,17 @@ describe("runUptimeProbe", () => {
     expect(report.failed).toBe(true)
   })
 
-  test("a 200 that streams no frame is a failed turn, never a very fast one", async () => {
+  test("a completed conversation without an answer is a failed sample", async () => {
     const { deps } = makeDeps(10, (url, init) => {
       if (url.endsWith("/api/conversations/main/prompt") && (init.headers as Record<string, string>).cookie !== undefined) {
-        return new Response(ndjson([]), { status: 200 })
+        return admission()
       }
-      return healthy(url)
+      return url.endsWith("/api/conversations/main") ? Response.json(output([])) : healthy(url)
     })
     const report = await runUptimeProbe(deps, options({ samplesPerEndpoint: 5, sessionCookie: "s=1" }))
 
     const turn = report.samples.find((s) => s.label === "turn-first-frame")!
-    expect(turn.transportError).toBe("The host did not accept a prompt")
+    expect(turn.transportError).toBe("The conversation produced no answer frame")
     expect(byId(report.checks, "latency:turn-first-frame").status).toBe("fail")
     expect(byId(report.checks, "uptime").detail).toContain("turn-first-frame 0/1")
     expect(report.failed).toBe(true)
@@ -834,10 +816,7 @@ describe("runUptimeProbe", () => {
   test("the turn-seam verdict declares that it is a single sample, in the line a human reads", async () => {
     const { deps, calls } = makeDeps(3_000, (url, init) => {
       if (url.endsWith("/api/conversations/main/prompt") && (init.headers as Record<string, string>).cookie !== undefined) {
-        return new Response(
-          JSON.stringify({ turnId: "metered" }),
-          { status: 202 }
-        )
+        return admission()
       }
       return healthy(url)
     })
@@ -1020,7 +999,8 @@ describe("scopedIdentityVerdict", () => {
 
 describe("runUptimeProbe refuses to spend under a privileged cookie", () => {
   const adminDeployment = (url: string): Response => {
-    if (url.endsWith("/api/user")) {
+    if (url.endsWith("/api/conversations/main")) return Response.json(output())
+  if (url.endsWith("/api/user")) {
       return new Response("{\"username\":\"smithers-visitor\",\"is_admin\":true}", { status: 200 })
     }
     return healthy(url)
