@@ -75,12 +75,20 @@ func newDocFixture(t *testing.T, script ...[]byte) *docFixture {
 	require.NoError(t, err)
 	require.NoError(t, connection.Reconciled())
 	daemon := &machinedfake.Documents{Script: script}
+	client := &machinedfake.Client{OnOpenDocument: func(ctx context.Context, branch, path string, actor []byte) (machined.DocumentStream, error) {
+		if err := connection.RequireReady(branch); err != nil {
+			return nil, err
+		}
+		return daemon.OpenDocument(ctx, path, actor)
+	}}
 	relay := &live.DocRelay{Topology: "relay", Authorize: func(_ context.Context, topic live.DocumentTopic, repository, member int64) ([]byte, string) {
 		if member != owner.ID || repository != repo.ID || topic.Path == "secret" {
 			return nil, live.Forbidden
 		}
 		return []byte("Be"), ""
-	}, Connection: func(context.Context, string) (*machined.Connection, live.DocumentRPC) { return connection, daemon }}
+	}, Connection: func(context.Context, string) (*machined.Connection, live.DocumentRPC) {
+		return connection, machined.Documents(client, "branch-a")
+	}}
 	server := httptest.NewUnstartedServer(nil)
 	origin := "http://" + server.Listener.Addr().String()
 	cfg := testConfigAllFlagsOn()
@@ -242,7 +250,11 @@ func docDatabase(t *testing.T) *pgxpool.Pool {
 	require.NotEmpty(t, raw)
 	admin, err := pgx.Connect(t.Context(), raw)
 	require.NoError(t, err)
-	name := fmt.Sprintf("fr_t_col_08b_%d", time.Now().UnixNano())
+	lane := os.Getenv("LANE")
+	if lane == "" {
+		lane = "t_col_08b"
+	}
+	name := fmt.Sprintf("fr_%s_%d", lane, time.Now().UnixNano())
 	_, err = admin.Exec(t.Context(), "CREATE DATABASE "+pgx.Identifier{name}.Sanitize()+" TEMPLATE template0")
 	require.NoError(t, err)
 	t.Cleanup(func() {
