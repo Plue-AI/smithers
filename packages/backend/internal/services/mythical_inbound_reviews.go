@@ -12,7 +12,6 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/smithersai/smithers/packages/backend/internal/db"
-	"github.com/smithersai/smithers/packages/backend/jobs"
 )
 
 const gitHubReviews = "pulls/reviews"
@@ -258,7 +257,7 @@ func (s *MythicalService) consumeGitHubReviewTodos(ctx context.Context, tx pgx.T
 				return nil, err
 			}
 			data, _ := json.Marshal(map[string]any{"item": uuidString(item.ID), "n": mythicalItemNumber(item), "kind": "github", "object": key, "version": fetched.Version, "text": text, "by": json.RawMessage(actor), "hidden": input.Hidden, "from": todoState(item), "to": todoState(saved)})
-			if _, err := jobs.RecordFactInTx(ctx, tx, todoOperationScope(saved), uuid.NewString(), "todo.github_input", todoState(saved), data); err != nil {
+			if _, err := s.recordTodoFact(ctx, tx, saved, uuid.NewString(), "todo.github_input", todoState(saved), data); err != nil {
 				return nil, err
 			}
 			if feedback.ID != "" && effect.Input == "steer" && !reopened {

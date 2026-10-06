@@ -344,6 +344,11 @@ func (store *Store) ReplacePayload(ctx context.Context, operationID string, expe
 // RecordFactInTx records a completed product fact without enqueueing an external
 // effect. It shares the stream allocator with delivery; rollback publishes none.
 func RecordFactInTx(ctx context.Context, tx pgx.Tx, scope Scope, operationID, eventType, state string, data json.RawMessage) (Event, error) {
+	return RecordProjectedFactInTx(ctx, tx, scope, operationID, eventType, state, data, data)
+}
+
+// RecordProjectedFactInTx keeps request metadata separate from a committed source projection.
+func RecordProjectedFactInTx(ctx context.Context, tx pgx.Tx, scope Scope, operationID, eventType, state string, data, projection json.RawMessage) (Event, error) {
 	if err := scope.validate(); err != nil {
 		return Event{}, err
 	}
@@ -358,7 +363,7 @@ func RecordFactInTx(ctx context.Context, tx pgx.Tx, scope Scope, operationID, ev
 	if err != nil {
 		return Event{}, err
 	}
-	return appendEvent(ctx, tx, scope, operationID, eventType, State(state), canonical)
+	return appendEvent(ctx, tx, scope, operationID, eventType, State(state), projection)
 }
 
 // HasEarlierPending orders matching inputs by their committed admission event,
