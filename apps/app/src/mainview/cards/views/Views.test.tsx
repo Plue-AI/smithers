@@ -410,7 +410,7 @@ test("missing approval leaves only supplied controls", () => {
 })
 test("stale approval is distinct from an expired receipt", () => {
   const host = render({ ...fixtures.stale_approval, ...callbacks })
-  expect(host.textContent).toContain("You approved 1b2c3d4. Review 9e8f7a6.")
+  expect(host.textContent).toContain("Approved 1b2c3d4 · Review 9e8f7a6")
   expect(host.textContent).toContain("Reviewed 1b2c3d4 · same change")
   expect(host.textContent).not.toContain("Expired")
 })
