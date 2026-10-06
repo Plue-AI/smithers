@@ -1,7 +1,6 @@
 import { createRequire } from 'node:module'
-import { readFile, writeFile, mkdir } from 'node:fs/promises'
 import { execFileSync } from 'node:child_process'
-import { resolve, join } from 'node:path'
+import { resolve } from 'node:path'
 import { pathToFileURL } from 'node:url'
 import { publicOrigin, readHost } from './lib/host.mjs'
 import { summarize } from './lib/stats.mjs'
@@ -29,6 +28,15 @@ export function configuration(env) {
     if (!env[key]) throw new Error(`${key} required`)
   }
   if (env.SMITHERS_PERF_MEMBER_A === env.SMITHERS_PERF_MEMBER_C) throw new Error('distinct member storage states required')
+  // The read is a public, unprivileged machine action. Never execute an
+  // operator-supplied host program (including sudo or scratch code).
+  if (argv.length !== 10 || argv[0] !== '/usr/bin/ssh' ||
+      argv[1] !== '-p' || argv[2] !== '2222' || argv[3] !== '-o' || argv[4] !== 'BatchMode=yes' ||
+      argv[5] !== '-o' || argv[6] !== 'StrictHostKeyChecking=yes' || argv[7] !== '--' ||
+      !/^[A-Za-z0-9][A-Za-z0-9._-]*@[A-Za-z0-9][A-Za-z0-9.-]*$/.test(argv[8]) ||
+      argv[9] !== 'cat -- src/target.ts') {
+    throw new Error('machine read must use pinned batch SSH on port 2222 with cat -- src/target.ts')
+  }
   return { origin, page: page.href, argv }
 }
 
@@ -111,11 +119,11 @@ export async function run(env = process.env) {
   } finally {
     await browser?.close()
   }
-  const directory = await writeRun(process.cwd(), result)
-  await writeFile(join(directory, 'keystroke.json'), `${JSON.stringify(result, null, 2)}\n`, { flag: 'wx' })
-  const checkDirectory = resolve('.artifacts/checks/C-PERF-03', timestamp)
-  await mkdir(checkDirectory, { recursive: true })
-  for (const name of ['summary.json', 'keystroke.json']) await writeFile(join(checkDirectory, name), await readFile(join(directory, name)), { flag: 'wx' })
+  // Use the shared writer for both raw evidence and check copies. It refuses
+  // symlink parents and existing run directories on every path.
+  const directory = await writeRun(process.cwd(), {
+    ...result, budgets: [{ ...result, name: 'keystroke' }]
+  })
   console.log(`${result.status}: ${directory}${result.error ? ` (${result.error})` : ''}`)
   return result.status === 'passed' ? 0 : 1
 }

@@ -23,8 +23,10 @@ different boundaries.
 `node scripts/perf/keystroke.mjs` drives C-PERF-03 on the second Mac using
 the real File cards. Set `SMITHERS_PERF_PAGE` to the repository page,
 `SMITHERS_PERF_MEMBER_A` and `SMITHERS_PERF_MEMBER_C` to distinct authenticated
-Playwright storage-state files, and `SMITHERS_PERF_READ_ARGV` to a JSON argv
-array that reads `src/target.ts` inside the machine. The scratch file must have
+Playwright storage-state files, and `SMITHERS_PERF_READ_ARGV` to the JSON argv
+`["/usr/bin/ssh","-p","2222","-o","BatchMode=yes","-o","StrictHostKeyChecking=yes","--","<branch>@<host>","cat -- src/target.ts"]`,
+using the Branch card's SSH destination and the member's already trusted host
+key and login. Other host programs, SSH options and remote commands are refused. The scratch file must have
 400 lines and no `K00000`–`K00199` markers. The driver edits the first 200 lines;
 use only an authorized scratch branch. It requires the origin, token and install
 version variables above and the app's installed Playwright Chromium. Run on macOS
@@ -53,3 +55,6 @@ missing cards fail the run rather than dropping those questions.
 The composed install metrics route reuses the in-process Prometheus registry,
 reports actual live socket count and the existing host profile/derived limits.
 Missing latency producers are absent, never fabricated zero measurements.
+
+The standalone keystroke driver uses the same artifact writer as the full runner,
+including symlink checks for evidence directories and refusal to overwrite runs.
