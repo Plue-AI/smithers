@@ -562,7 +562,7 @@ func (e *environments) buildLayer(ctx context.Context, record layerRecord, value
 		}
 		args = append([]string{"create", e.config.Image, "--pull", pull, "--root-disk", strconv.Itoa(e.config.PrepareDiskMiB) + "M"}, args...)
 	} else {
-		args = append([]string{"run", "--from-snapshot", parent, "-d"}, args...)
+		args = snapshotBootArgs(parent, args)
 	}
 	if _, err := e.runtime.cli.run(buildCtx, nil, args...); err != nil {
 		return nil, fmt.Errorf("%w: boot prepare VM: %v", ErrUnavailable, err)
@@ -727,8 +727,8 @@ func (e *environments) verify(ctx context.Context, record layerRecord) (runErr e
 			runErr = errors.Join(runErr, &layerAdmissionError{err})
 		}
 	}()
-	args := []string{"run", "--from-snapshot", record.Name, "-d", "-n", machine, "-c", strconv.Itoa(e.runtime.config.CPUs), "-m", strconv.Itoa(e.runtime.config.MemoryMiB) + "M", "-q", "--no-net",
-		"--label", providerLabel + "=" + providerName, "--label", ownerLabel + "=" + e.runtime.owner, "--label", layerLabel + "=verify"}
+	args := snapshotBootArgs(record.Name, []string{"-n", machine, "-c", strconv.Itoa(e.runtime.config.CPUs), "-m", strconv.Itoa(e.runtime.config.MemoryMiB) + "M", "-q", "--no-net",
+		"--label", providerLabel + "=" + providerName, "--label", ownerLabel + "=" + e.runtime.owner, "--label", layerLabel + "=verify"})
 	verifyCtx, cancel := context.WithTimeout(ctx, 5*time.Minute)
 	defer cancel()
 	if _, err := e.runtime.cli.run(verifyCtx, nil, args...); err != nil {
