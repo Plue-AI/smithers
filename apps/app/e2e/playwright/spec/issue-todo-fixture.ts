@@ -16,6 +16,16 @@ export async function issueTodoInstall(page: Page, label = false) {
     access_url: `https://github.com/${ISSUE_REPO}/settings/access`
   } }))
   await page.route("**/api/public/repos", route => route.fulfill({ json: { repos: [{ name: ISSUE_REPO }] } }))
+  await page.route("**/api/model/stream", route => {
+    const request = route.request().postDataJSON()
+    if (!Array.isArray(request.tools) || request.tools.length !== 0) throw new Error("Issue drafting offered tools")
+    const source = JSON.parse(request.messages[0].content).quoted_issue_snapshot
+    const prompt = [source.body, ...source.comments.map((comment: { author: string; body: string }) => `@${comment.author}:\n> ${comment.body}`)].join("\n\n")
+    return route.fulfill({ contentType: "application/x-ndjson", body: [
+      JSON.stringify({ runId: "draft", type: "delta", kind: "text", text: JSON.stringify({ title: source.title, prompt, acceptance: ["Retry transient 502 responses"] }) }),
+      JSON.stringify({ runId: "draft", type: "done", reason: "stop" })
+    ].join("\n") })
+  })
   const make = (n: number, text: string): TodoCard => ({ ...fixtures.queued.model, n, title: n === 1 && label ? "Retry webhooks" : `Fixture ${n}`, place: n, issue: undefined, prompt_revisions: [{ ...fixtures.queued.model.prompt_revisions[0]!, text, acceptance: [] }] })
   let todos = label ? [make(1, "Retry webhooks\n\nB1")] : [make(1, "First"), make(2, "Second")]
   const commits: unknown[] = []

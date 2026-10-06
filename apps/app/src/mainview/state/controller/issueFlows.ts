@@ -21,7 +21,7 @@ export interface IssueFlowsController {
 export const createIssueFlowsController = (
   ctx: SeamContext,
   flows: Pick<WorkflowController, "listWorkspaceWorkflows" | "runWorkflow" | "requireBox">,
-  todos: Pick<TodoSeam, "draftFromIssue">
+  todos: Pick<TodoSeam, "draftFromIssue"> & Partial<Pick<TodoSeam, "draftIssueNumber">>
 ): IssueFlowsController => {
   const authorized = (issue: IssuePayload): boolean => issue.makeTodoAllowed === true
     && /^[0-9a-f]{64}$/.test(issue.issueDigest ?? "")
@@ -103,11 +103,11 @@ export const createIssueFlowsController = (
       if (refusal !== undefined) return refusal
       const issue = cards().find((card): card is Extract<Card, { kind: "issue" }> => card.kind === "issue" && card.payload.source === "github"
         && card.payload.repo === resolved.repo && card.payload.number === number)?.payload
-      if (issue === undefined) return `Open GitHub issue #${number} before making a TODO.`
+      if (issue === undefined) return todos.draftIssueNumber ? todos.draftIssueNumber(number, resolved.repo) : `Open GitHub issue #${number} before making a TODO.`
       if (issue.state === "closed") return `Issue #${number} is closed.`
       if (issue.makeTodoAllowed === false) return "Only a maintainer can make a TODO from this issue."
       if (!authorized(issue)) return "Open the issue again to check permission to make a TODO."
-      return todos.draftFromIssue({ number, ...(issue.issueDigest ? { digest: issue.issueDigest } : {}), title: issue.title, body: issue.issueBody, url: issue.htmlUrl ?? `https://github.com/${resolved.repo}/issues/${number}`,
+      return todos.draftFromIssue({ author: issue.author, number, ...(issue.issueDigest ? { digest: issue.issueDigest } : {}), title: issue.title, body: issue.issueBody, url: issue.htmlUrl ?? `https://github.com/${resolved.repo}/issues/${number}`,
         comments: issue.comments.map(comment => ({ author: comment.author, body: comment.commentBody })) })
     },
     // No browser launch can establish host-bound authorization, membership,

@@ -619,6 +619,7 @@ const DraftPayloadSchema: z.ZodType<
   DraftCard & {
     idempotencyKey: string
     request?: TodoRequest | undefined
+    issuePreparation?: { source: { author?: string | null | undefined; number: number; title: string; body: string; url: string; digest?: string | undefined; comments: Array<{ author: string | null; body: string }> }; state: "requested" | "ready" | "failed"; error?: string | undefined } | undefined
     imagePreparation?: { name: string; repo: string; state: "requested" | "ready" | "failed"; error?: string | undefined } | undefined
     optionsFailure?: string | undefined
     issueDigest?: string | undefined
@@ -626,6 +627,7 @@ const DraftPayloadSchema: z.ZodType<
 > = DraftCardSchema.extend({
   idempotencyKey: z.string(),
   request: TodoRequestSchema.optional(),
+  issuePreparation: z.object({ source: z.object({ author: z.string().nullable().optional(), number: z.number().int().positive(), title: z.string(), body: z.string(), url: z.string(), digest: z.string().optional(), comments: z.array(z.object({ author: z.string().nullable(), body: z.string() })) }), state: z.enum(["requested", "ready", "failed"]), error: z.string().optional() }).optional(),
   imagePreparation: z.object({ name: z.string(), repo: z.string(), state: z.enum(["requested", "ready", "failed"]), error: z.string().optional() }).optional(),
   optionsFailure: z.string().optional(),
   /* Make TODO: the digest of the issue text the Draft was made from, sent as `issue_digest` on Commit. */
