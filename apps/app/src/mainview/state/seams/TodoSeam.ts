@@ -219,6 +219,8 @@ export const createTodoSeam = (ctx: SeamContext, options: TodoSeamOptions = {}) 
         ? [row.payload.request] : [])].map(request => [request.key, request])).values()]
     const observed: TodoReceipt[] = pending.flatMap<TodoReceipt>(request => {
       if (request.state !== "accepted" || receipts.some(receipt => receipt.key === request.key)) return []
+      if (request.operation === "preapprove" || request.operation === "unapprove") return Boolean(model.preapproval) === (request.operation === "preapprove")
+        ? [{ key: request.key, outcome: { status: "ok" as const, detail: request.operation === "preapprove" ? "Pre-approved" : "Pre-approval removed" } }] : []
       if (request.operation === "merge") return model.state === "merged"
         ? [{ key: request.key, outcome: { status: "ok" as const, detail: "Merged" } }] : []
       if (request.operation === "amend") {
@@ -339,7 +341,7 @@ export const createTodoSeam = (ctx: SeamContext, options: TodoSeamOptions = {}) 
           : request.operation === "steer" ? { steer: request.body.steer ?? request.body.text }
           : control ? { op: request.operation, ...request.body } : request.body
         response = await ctx.http(`${ctx.baseUrl}${route}`, {
-          method: request.operation === "amend" ? "PATCH" : "POST", credentials: "include", signal: abort.signal,
+          method: request.operation === "unapprove" ? "DELETE" : request.operation === "amend" ? "PATCH" : "POST", credentials: "include", signal: abort.signal,
           headers: { "Content-Type": "application/json", "Idempotency-Key": request.key, ...(ctx.actor() === "smithers" ? { "Smithers-Via": "smithers" } : {}) }, body: JSON.stringify(body)
         })
       } catch (error) {
@@ -729,7 +731,7 @@ export const createTodoSeam = (ctx: SeamContext, options: TodoSeamOptions = {}) 
     if (matches.length !== 1) return "Could not open the TODO."
     return request(matches[0]!.n, operation, { branch, id, revision })
   }
-  return { list, observeConfirmation,
+  return { list, observeConfirmation, preapproveTodo: (n: number, approved: boolean) => request(n, approved ? "preapprove" : "unapprove", {}),
     bringIn: (branch: string, id: string, revision: string) => answerForeign("bring-in", branch, id, revision),
     discardForeign: (branch: string, id: string, revision: string) => answerForeign("discard-foreign", branch, id, revision), mergeTodo: (n: number, head: string) => request(n, "merge", { reviewed_head_sha: head }), reviewMerge, showTodo, newTodo, newFlowSourceTodo: async (input: Schema.Schema.Type<typeof TodoNewInput>, path: string) => {
       const refusal = signedIn(); if (refusal) return refusal

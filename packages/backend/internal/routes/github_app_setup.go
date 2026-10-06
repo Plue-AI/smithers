@@ -46,11 +46,12 @@ type InstallSetupSessionAuthority interface {
 }
 
 type GitHubAppSetupHandler struct {
-	Setup    *services.InstallSetupService
-	Sessions InstallSetupSessionAuthority
-	Service  GitHubAppSetupService
-	Store    GitHubAppSetupCredentials
-	Owners   GitHubAppSetupOwners
+	SetTodoPreapprovalDefault func(context.Context, int64, bool) error
+	Setup                     *services.InstallSetupService
+	Sessions                  InstallSetupSessionAuthority
+	Service                   GitHubAppSetupService
+	Store                     GitHubAppSetupCredentials
+	Owners                    GitHubAppSetupOwners
 	// Installations lists the App's installations and repositories when
 	// GitHub returns the owner after an install or a repository change: an
 	// install whose address is not public https gets no installation webhook.
@@ -497,14 +498,35 @@ func (h *GitHubAppSetupHandler) SetSettings(w http.ResponseWriter, r *http.Reque
 		Obsidian *struct {
 			Path string `json:"path"`
 		} `json:"wiki_sync.obsidian"`
-		ChatGPT             *bool           `json:"chatgpt"`
-		Capacity            *int            `json:"capacity"`
-		Parallel            *int            `json:"parallel"`
-		TodoDailyAdmissions *int64          `json:"todo_daily_admissions"`
-		Bind                json.RawMessage `json:"bind"`
-		Origins             json.RawMessage `json:"origins"`
+		ChatGPT               *bool           `json:"chatgpt"`
+		Capacity              *int            `json:"capacity"`
+		Parallel              *int            `json:"parallel"`
+		TodoDailyAdmissions   *int64          `json:"todo_daily_admissions"`
+		Bind                  json.RawMessage `json:"bind"`
+		Origins               json.RawMessage `json:"origins"`
+		TodoPreapproveDefault *bool           `json:"todo_preapprove_default"`
 	}
 	if !decodeStrictJSONBody(w, r, &input) {
+		return
+	}
+	if input.TodoPreapproveDefault != nil {
+		if err := services.MergeCredential(r.Context(), r.Header.Get("Smithers-Via")); err != nil {
+			todoRouteError(w, err)
+			return
+		}
+		if input.Obsidian != nil || input.Parallel != nil || input.TodoDailyAdmissions != nil || input.Capacity != nil || input.ChatGPT != nil || len(input.Bind) != 0 || len(input.Origins) != 0 {
+			writeInstallAPIError(w, pkgerrors.BadRequest("Change one setting at a time"))
+			return
+		}
+		if h.SetTodoPreapprovalDefault == nil {
+			writeInstallAPIError(w, pkgerrors.New(pkgerrors.CodeServiceUnavailable, "TODO pre-approval unavailable"))
+			return
+		}
+		if err := h.SetTodoPreapprovalDefault(r.Context(), info.User.ID, *input.TodoPreapproveDefault); err != nil {
+			todoRouteError(w, err)
+			return
+		}
+		h.Status(w, r)
 		return
 	}
 	if input.Obsidian != nil {

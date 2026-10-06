@@ -8,6 +8,7 @@ import (
 	"net/url"
 	"regexp"
 	"strings"
+	"time"
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -136,6 +137,13 @@ func (s *MythicalService) todoCard(ctx context.Context, item db.MythicalItem, it
 		if role == "" {
 			card["owner_removed"] = true
 		}
+	}
+	approval := mythicalChecksOf(item).Preapproval
+	if item.State == "landed" {
+		approval = mythicalChecksOf(item).PreapprovalSent
+	}
+	if approval != nil && (mythicalChecksOf(item).Automerge || item.State == "landed") {
+		card["preapproval"] = map[string]any{"by": approval.By, "at": approval.At.UTC().Format(time.RFC3339Nano)}
 	}
 	if todoState(item) == "merged" {
 		var count *int

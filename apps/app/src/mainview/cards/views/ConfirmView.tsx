@@ -29,7 +29,7 @@ export function ConfirmView({ model, actions, onAction }: ConfirmViewProps) {
           <div className="confirm-meta"><b>{review.title}</b><span>#{review.place} in stack</span></div>
           <div className="confirm-facts">
             <a href={review.pr.url} target="_blank" rel="noreferrer">#{review.pr.number} ↗</a>
-            <span className="confirm-mono">rev {evidence.revision}</span>
+            <span className="confirm-mono">rev {revision}</span>
             {evidence.items.map((item, i) => item.kind === "check" || item.kind === "github_check" ? <span key={i} className="confirm-check" data-state={item.state}>
               {item.state === "passed" ? <Check size={13} aria-hidden="true" /> : item.state === "failed" ? <X size={13} aria-hidden="true" /> : <Loader size={13} aria-hidden="true" />}{item.name}<span className="confirm-check-state">{item.state}</span>
             </span> : item.kind === "review" && !evidence.reviewing && !evidence.previous ? <span key={i}>{item.summary}</span> : null)}

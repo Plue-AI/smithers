@@ -88,6 +88,8 @@ export const todoActionDefinitions = (model: TodoCard, role: TodoContainerProps[
       resolve_input: input => ({ n, text: input.text ?? revision?.text ?? "", acceptance: (input.acceptance ?? revision?.acceptance.join("\n") ?? "").split("\n").filter(line => line.trim().length > 0) }) })
   } else definitions.push({ tag: "todo.amend", label: "Amend", command_input: { n, text: "" } })
   definitions.push({ tag: "todo.drop", label: "Drop", command_input: { n } })
+  if (live && role !== "member") definitions.push({ tag: model.preapproval ? "todo.unapprove" : "todo.preapprove",
+    label: model.preapproval ? "Remove pre-approval" : "Pre-approve", command_input: { n } })
   if (model.pr && model.state === "in_review") {
     // The served merge block is the one readiness rule; dispatch reads GitHub's head, checks, reviews and draft again.
     // Evidence names the verified candidate, and the PR head is its publication: another commit with the same tree.

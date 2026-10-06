@@ -477,3 +477,22 @@ winner; the stale press returns `409 conflict`. A merging target or neighbor
 returns `409 merging`. Restricted `terminal_s1` credentials cannot place Before
 or Move. Append returns `403 permission/confirm_in_app` while the delegated
 confirmation consumer is unavailable; no TODO is created by that refusal.
+## Standing pre-approval
+
+An owner or maintainer browser session uses `POST /api/todos/{n}/preapproval`
+and `DELETE /api/todos/{n}/preapproval`. These change `checks.Automerge` and its attributed standing
+approval, retaining add/remove history. Agent, run, machine and delegated
+credentials cannot change them. `checks.Land` remains the separate
+revision-bound Review & merge receipt.
+
+The existing stack worker evaluates standing approvals through MergeReady and
+the same sha-bound squash intent, claim, lookup and containment settlement as
+Review & merge. Required checks, reviews, order, pending work and current
+maintainer authority still apply. An expired granting browser session does not
+expire the standing approval. A definitive dispatch refusal is retained and
+requires removing and granting approval again at that head; recovery never
+blindly repeats an uncertain send.
+
+The owner sets `PUT /api/install {new_todos_preapproved: boolean}`. Only TODOs
+created afterwards inherit that owner's approval; disabling the default changes
+no existing TODO. Settings and TODO cards read these persisted projections.

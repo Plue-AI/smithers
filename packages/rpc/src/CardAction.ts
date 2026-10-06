@@ -176,6 +176,7 @@ export interface CardCommandInput {
   readonly "settings.daily-admissions": { readonly todo_daily_admissions: number }
   readonly "settings.capacity": { readonly capacity: number }
   readonly "settings.obsidian": { readonly path: string }
+  readonly "settings.preapproval": { readonly enabled: boolean }
   readonly "settings.parallel": { readonly parallel: number }
   readonly "settings.model-key": { readonly role: ModelRoleId; readonly provider: string; readonly model?: string }
   readonly "settings.setup": { readonly step: SetupStepId; readonly owner?: string; readonly repository?: string; readonly bind?: string; readonly origins?: readonly string[] }
@@ -196,6 +197,8 @@ export interface CardCommandInput {
   readonly "todo.stop": { readonly n: number }
   readonly "todo.resume": { readonly n: number }
   readonly "todo.retry": { readonly n: number }
+  readonly "todo.preapprove": { readonly n: number }
+  readonly "todo.unapprove": { readonly n: number }
   readonly "todo.drop": { readonly n: number }
   readonly "stack.move": { readonly n: number; readonly direction: "up" | "down" }
   readonly "merge": { readonly n: number }

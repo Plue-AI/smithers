@@ -20872,6 +20872,63 @@ paths:
                   answered_by: {type: string}
         '503':
           description: Install repository or run signalling unavailable
+  /api/todos/{n}/preapproval:
+    post:
+      x-composition: install
+      summary: Pre-approve a TODO
+      operationId: post_api_todos_n_preapproval
+      tags:
+        - Todos
+      security:
+        - sessionCookie: []
+      parameters:
+        - name: n
+          in: path
+          required: true
+          schema: {type: integer, minimum: 1}
+      responses:
+        '202':
+          description: Attributed standing approval changed; readiness and current authority still govern dispatch
+        '400':
+          description: Invalid TODO number
+        '401':
+          description: Browser session required
+        '403':
+          description: Only an owner or maintainer person session may change pre-approval
+        '404':
+          description: TODO not found
+        '409':
+          description: TODO is already merged or dropped
+        '503':
+          description: TODO service unavailable
+    delete:
+      x-composition: install
+      summary: Remove a TODO pre-approval
+      operationId: delete_api_todos_n_preapproval
+      tags:
+        - Todos
+      security:
+        - sessionCookie: []
+      parameters:
+        - name: n
+          in: path
+          required: true
+          schema: {type: integer, minimum: 1}
+      responses:
+        '202':
+          description: Attributed standing approval changed; readiness and current authority still govern dispatch
+        '400':
+          description: Invalid TODO number
+        '401':
+          description: Browser session required
+        '403':
+          description: Only an owner or maintainer person session may change pre-approval
+        '404':
+          description: TODO not found
+        '409':
+          description: TODO is already merged or dropped
+        '503':
+          description: TODO service unavailable
   /api/user/connections/{id}:
     delete:
       summary: DELETE /api/user/connections/{id}
@@ -25829,6 +25886,12 @@ components:
         evidence:
           type: array
           items: {type: object, additionalProperties: true}
+        preapproval:
+          type: object
+          required: [by, at]
+          properties:
+            by: {type: string}
+            at: {type: string, format: date-time}
         merge:
           type: object
           required: [state, on_github]

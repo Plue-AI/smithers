@@ -22,7 +22,7 @@ export function SettingsView({ model, actions: suppliedActions, onAction, view, 
     ...action, label: row === "obsidian" ? "Change" : action.label,
     input: action.input?.map(field => value === undefined ? field : { ...field, value: String(value) })
   }))
-  const hasRow = (action: Action) => ["address", "health", "capacity", "obsidian",
+  const hasRow = (action: Action) => ["address", "health", "capacity", "obsidian", "preapproval",
     ...(model.parallel !== undefined ? ["parallel"] : []), ...(model.todo_daily_admissions !== undefined ? ["todo_daily_admissions"] : []),
     ...(model.notifications_need_https ? ["notifications"] : [])].includes(rowFor(action) ?? "")
   /* mvp.md J1 2.1 / §6.15: This Mac only, or Network with the bind and the addresses teammates use. The choice is member view state. */
@@ -37,6 +37,7 @@ export function SettingsView({ model, actions: suppliedActions, onAction, view, 
       {modelSlot}
       <dt>GitHub</dt><dd>{model.callback_fixes?.map(fix => <span key={fix.add_url}><a href={fix.settings_url} target="_blank" rel="noreferrer">GitHub App callbacks ↗</a> · <code>{fix.add_url}</code></span>)}<span>{model.github.app_installed ? "App installed" : "App uninstalled"}</span>{model.repository && <code>{model.repository.owner}/{model.repository.name}</code>}{repositoryBlocker && <a href={repositoryBlocker.fix_url} target="_blank" rel="noreferrer">{repositoryBlocker.line}</a>}</dd>
       <dt>Machines</dt><dd>{rowActions("capacity", model.capacity).length ? <SetupActions inline actions={rowActions("capacity", model.capacity)} onAction={onAction} /> : model.capacity}</dd>
+      {model.new_todos_preapproved !== undefined && <><dt>New TODOs start pre-approved</dt><dd><input type="checkbox" aria-label="New TODOs start pre-approved" checked={model.new_todos_preapproved} disabled={!rowActions("preapproval").length} onChange={() => onAction("settings.preapproval")} /></dd></>}
       {model.parallel !== undefined && <><dt>TODOs at once</dt><dd>{rowActions("parallel", model.parallel).length ? <SetupActions inline actions={rowActions("parallel", model.parallel)} onAction={onAction} /> : model.parallel}</dd></>}
       {model.todo_daily_admissions !== undefined && <><dt>TODOs per day</dt><dd>{rowActions("todo_daily_admissions", model.todo_daily_admissions).length ? <SetupActions inline actions={rowActions("todo_daily_admissions", model.todo_daily_admissions)} onAction={onAction} /> : model.todo_daily_admissions}</dd></>}
       {model.todo_preapprove_default !== undefined && <><dt>New TODOs start pre-approved</dt><dd><input type="checkbox" aria-label="New TODOs start pre-approved" checked={model.todo_preapprove_default} onChange={event => onAction("settings.preapprove-default", { enabled: String(event.target.checked) })} /></dd></>}

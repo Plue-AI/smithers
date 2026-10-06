@@ -1008,6 +1008,10 @@ export type TodoCard = {
   waits: Array<Record<string, unknown>>
   steers: Array<Record<string, unknown>>
   evidence: Array<Record<string, unknown>>
+  preapproval?: {
+    by: string
+    at: string
+  }
   merge: {
     state: "ready" | "waiting" | "blocked" | "merging" | "done"
     reason?: string
@@ -5833,6 +5837,22 @@ export interface PostApiTodosNAnswerInput {
 /** POST /api/todos/{n}/answer: Answer the coding agent's open question; the first answer settles it and resumes the run */
 export const postApiTodosNAnswer = (transport: Transport, input: PostApiTodosNAnswerInput): Promise<PostApiTodosNAnswerResponse> =>
   transport.request("POST", `/api/todos/${segment(input.path.n)}/answer`, input.body) as Promise<PostApiTodosNAnswerResponse>
+
+export interface PostApiTodosNPreapprovalInput {
+  readonly path: { readonly n: number }
+}
+
+/** POST /api/todos/{n}/preapproval: Pre-approve a TODO */
+export const postApiTodosNPreapproval = (transport: Transport, input: PostApiTodosNPreapprovalInput): Promise<void> =>
+  transport.request("POST", `/api/todos/${segment(input.path.n)}/preapproval`).then(() => undefined)
+
+export interface DeleteApiTodosNPreapprovalInput {
+  readonly path: { readonly n: number }
+}
+
+/** DELETE /api/todos/{n}/preapproval: Remove a TODO pre-approval */
+export const deleteApiTodosNPreapproval = (transport: Transport, input: DeleteApiTodosNPreapprovalInput): Promise<void> =>
+  transport.request("DELETE", `/api/todos/${segment(input.path.n)}/preapproval`).then(() => undefined)
 
 export interface DeleteApiUserConnectionsIdInput {
   readonly path: { readonly id: string }

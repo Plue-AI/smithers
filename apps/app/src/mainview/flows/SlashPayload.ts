@@ -927,7 +927,6 @@ const GRAMMAR: Readonly<Record<string, Grammar>> = {
       ...(path === "" ? {} : { path })
     })
   },
-  "change.land": (args) => required("changeId", args, "change.land needs a change id"),
   "change.resolve": (args) => {
     const [changeId] = tokensOf(args)
     /* The conflicted file's path is the rest of the line, so a path with a space resolves too. */

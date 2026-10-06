@@ -500,6 +500,7 @@ export interface AppController extends IssueFlowsController {
   readonly setStackParallel: StackSeam["setStackParallel"]
   readonly retryStackItem: StackSeam["retryStackItem"]
   readonly newTodo: TodoSeam["newTodo"]
+  readonly preapproveTodo: TodoSeam["preapproveTodo"]
   readonly newFlowSourceTodo: TodoSeam["newFlowSourceTodo"]
   readonly mergeTodo: TodoSeam["mergeTodo"]
   /** Review & merge for this host's TODO Tn: the person's private Confirm card bound to the PR head (T-APP-04). */
@@ -641,7 +642,6 @@ export interface AppController extends IssueFlowsController {
    */
   readonly viewChange: ChangeSeam["viewChange"]
   readonly diffChange: ChangeSeam["diffChange"]
-  readonly landChange: ChangeSeam["landChange"]
   readonly resolveChangeConflict: ChangeSeam["resolveConflict"]
   readonly setChangeFacet: ChangeSeam["setFacet"]
   /* Lane L1: the live plue routes — pins, checks per revision, threads, findings, the snapshot fork. */
@@ -2193,6 +2193,7 @@ export const createAppController = (
     newFlowSourceTodo: todoSeam.newFlowSourceTodo,
     showTodo: todoSeam.showTodo,
     readFlowSource,
+    preapproveTodo: todoSeam.preapproveTodo,
     mergeTodo: todoSeam.mergeTodo,
     reviewTodoMerge: todoSeam.reviewMerge,
     todoRoute: todoSeam.todoRoute,
@@ -2257,7 +2258,6 @@ export const createAppController = (
     allowEgressHost: egressSeam.allowEgressHost,
     viewChange: changeSeam.viewChange,
     diffChange: installHost ? branch => diffFilesSeam.branchDiff(branch) : changeSeam.diffChange,
-    landChange: changeSeam.landChange,
     resolveChangeConflict: changeSeam.resolveConflict,
     setChangeFacet: changeSeam.setFacet,
     setChangePins: changeSeam.setPins,
