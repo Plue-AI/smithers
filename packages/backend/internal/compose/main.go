@@ -1364,6 +1364,9 @@ func runWithOptions(ctx context.Context, args []string, stdout, stderr io.Writer
 		invokedFlowService.SetFlowDispatcher(flow.dispatcher)
 		mythicalService.SetLauncher(flow.dispatcher)
 		if config.IsSingleOwner(cfg.Auth) {
+			mythicalService.SetTodoFlow(func(ctx context.Context, repositoryID int64, sourceCommit string) (string, error) {
+				return services.ActiveFlowDigest(ctx, queries, repositoryID, "todo")
+			})
 			mythicalService.EnableTodoSteering()
 		}
 		if options.topology.workers() {

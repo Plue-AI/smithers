@@ -132,14 +132,9 @@ func (s *MythicalService) SetLauncher(launcher mythicalLauncher) { s.launcher = 
 // it; hosted composition does not, so no fresh attempt starts there.
 func (s *MythicalService) EnableTodoAdmission() { s.todoAdmission = true }
 
-// SetTodoFlow supplies the Active todo flow's execution digest at a main
-// source commit, which a fresh TODO attempt pins with that commit (T-FLW-11,
-// spec §11.4.1), and so opens owner TODO admission. Production composition
-// leaves it unset, so admission stays dark (TestProductionCompositionLeaves
-// TodoAdmissionDark), until one joint change binds it with every provider the
-// composition needs: isolated guest dispatch (T-FLW-01), retained wake
-// (T-MCH-14), candidate authorization (T-STK-12), outbound recovery (T-GH-09),
-// validated root startup (T-SEC-01) and pinned-source loading (T-FLW-03/04).
+// SetTodoFlow supplies the Active todo execution digest for a fresh attempt.
+// Install composition binds the existing version store; dispatch still requires
+// the source pin and the isolated guest host, with no host execution fallback.
 func (s *MythicalService) SetTodoFlow(active func(ctx context.Context, repositoryID int64, sourceCommit string) (string, error)) {
 	s.todoFlow = active
 }
@@ -565,6 +560,19 @@ func (s *MythicalService) ProjectFlowRuntime(ctx context.Context, update flowdis
 				}
 			}
 			if stack, err := q.GetMythicalStack(ctx, saved.RepositoryID); err == nil {
+				// A message can commit after the launch payload but before its
+				// run ID is known. Attach its durable intent with that binding,
+				// in this transaction; replay uses the same message ID.
+				if s.todoSteering && projection.Phase == "todo" && pinned &&
+					!mythicalChecksOf(item).RunAttached && mythicalChecksOf(saved).RunAttached {
+					for _, feedback := range mythicalChecksOf(saved).Steers {
+						if feedback.ReleasePending && feedback.Attempt == saved.Attempt {
+							if err := s.admitTodoSteerIntent(ctx, tx, stack, saved, feedback); err != nil {
+								return err
+							}
+						}
+					}
+				}
 				s.itemChanged(ctx, q, stack, saved.ID)
 			}
 			return nil
@@ -1656,6 +1664,11 @@ func (st *mythicalItemStep) commitWith(ctx context.Context, item db.MythicalItem
 				if !active {
 					continue
 				}
+				feedback.ReleasePending = false
+			}
+			// Inputs included in this launch payload must not be sent again
+			// when the host attaches. Later arrivals remain release-pending.
+			if feedback.Attempt <= item.Attempt {
 				feedback.ReleasePending = false
 			}
 			retained = append(retained, feedback)
