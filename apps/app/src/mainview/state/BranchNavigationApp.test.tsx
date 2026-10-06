@@ -1,6 +1,6 @@
 import { CardSchema } from "@smthrs/rpc/Cards"
 import { verifyConversationHistoryPage } from "./ConversationHistory"
-import cutHistory from "./testdata/cut-history.json"
+import cutHistory from "./testdata/cut-history-mixed.json"
 import { LiveChannel, type LiveSocket } from "../runtime/LiveChannel"
 import { fixtures } from "@smthrs/rpc/fixtures/Confirm"
 import type { MemberConfirmation } from "@smthrs/rpc/ConfirmCard"
@@ -232,6 +232,9 @@ test("Earlier verifies seven historical cut cards before decoding, persists titl
   await waitFor(() => host.querySelector(".archive-entries") !== null)
   const entries = host.querySelector(".archive-entries")!
   for (const kind of ["admin-health", "agent", "connect", "grant-confirm", "notifications", "registration", "repository-setup"]) expect(entries.textContent).toContain(`Saved ${kind}`)
+  expect(entries.textContent).toContain("Saved File")
+  expect(entries.textContent).toContain("Saved Run")
+  expect(entries.textContent).not.toContain("retained-file-body-canary")
   expect(entries.textContent).toContain("<script>archiveCanary()</script>")
   expect(entries.querySelector("script,button,input,textarea")).toBeNull()
   expect(entries.textContent).not.toContain("private-body-canary")
@@ -239,8 +242,9 @@ test("Earlier verifies seven historical cut cards before decoding, persists titl
   expect(store.collections.cards.size).toBe(0)
   expect(requests).toHaveLength(0)
   const snapshot = store.collections.branches.get("earlier:journal:legacy-journal")!.snapshot!
-  expect(snapshot.cards).toHaveLength(8)
-  expect(snapshot.cards.every(card => card.kind === "retired" && !('body' in card))).toBe(true)
+  expect(snapshot.cards).toHaveLength(10)
+  expect(snapshot.cards.slice(8).map(card => card.kind)).toEqual(["file", "run"])
+  expect(snapshot.cards.slice(0, 8).every(card => card.kind === "retired" && !('body' in card))).toBe(true)
   expect(JSON.stringify(snapshot)).not.toContain("private-payload-canary")
   await controller.setBranchNavigationView({ selected_branch: "main" })
   controller.send("Current question")
