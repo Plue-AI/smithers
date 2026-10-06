@@ -86,7 +86,7 @@ var _ boxHostQuerier = (*db.Queries)(nil)
 // root-owned landing binding (/etc/smithers/workspace-coding.json) it needs,
 // plus SMITHERS_CACHE_URL and a read-only SMITHERS_CACHE_TOKEN for the
 // repository's remote target cache, which the host forwards to its checks.
-// A sandboxed self-host runtime installs the same binding through its narrow
+// A sandboxed runtime installs the same binding through its narrow
 // provisioning capability. A box with write shares gets no credential: a guest with the
 // owner's UID could read it.
 func (s *WorkspaceService) PrepareBoxHost(ctx context.Context, hostID, workspaceID string, repositoryID, userID int64) (map[string]string, error) {
@@ -99,19 +99,21 @@ func (s *WorkspaceService) PrepareBoxHost(ctx context.Context, hostID, workspace
 	}
 	base := strings.TrimRight(strings.TrimSpace(s.gitBaseURL), "/")
 	q, ok := s.q.(boxHostQuerier)
-	guest := s.runtime != nil && s.runtime.Isolation() == workspaceapi.IsolationSandboxed
-	// A trusted-process box is a host process, never a sandbox client's VM,
-	// even when the composition also holds a sandbox client. It binds its
-	// source as a runtime guest does only when its runtime installs a
+	// A runtime's box is its guest or host process, never a sandbox client's
+	// VM, even when the composition also holds a sandbox client for compute
+	// and chat (a hosted deployment). The runtime owns the box's checkout,
+	// user and publisher, so the runtime installs its binding. A
+	// trusted-process box binds its source only when its runtime installs a
 	// binding: no install composes one; a test runtime that publishes does.
+	guest := s.runtime != nil && s.runtime.Isolation() == workspaceapi.IsolationSandboxed
 	process := s.runtime != nil && s.runtime.Isolation() == workspaceapi.IsolationTrustedProcess
 	_, installs := s.runtime.(workspaceapi.WorkspaceCodingBindingInstaller)
-	runtimeBinding := (guest && s.sandbox == nil) || (process && installs)
-	if (s.sandbox == nil || process) && !guest && !runtimeBinding {
+	runtimeBinding := guest || (process && installs)
+	if (s.sandbox == nil || process) && !runtimeBinding {
 		return environment, nil
 	}
 	if base == "" || !ok {
-		if guest || runtimeBinding {
+		if runtimeBinding {
 			return nil, pkgerrors.Conflict("workspace coding source binding configuration is unavailable")
 		}
 		return environment, nil
