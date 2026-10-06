@@ -41,6 +41,8 @@ test("mounted conversation preserves external attribution, ordering and copy acr
   const { host, remove } = mount(controller)
   const imported = [...host.querySelectorAll<HTMLElement>('article[data-origin="external"]')]
   expect(imported).toHaveLength(4)
+  expect(imported.every(row => row.classList.contains("entry"))).toBe(true)
+  expect(imported.map(row => row.dataset.kind)).toEqual(["prompt", "event", "answer", "answer"])
   expect(imported[0]?.textContent).toContain("Ben")
   expect(imported[1]?.textContent).toContain("Claude Code for Ben")
   expect(imported[2]?.textContent).toContain("Tests failed")

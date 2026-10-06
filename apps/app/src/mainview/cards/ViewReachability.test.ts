@@ -96,3 +96,10 @@ test("T-APP-03 mounts Setup and Settings and deletes their replaced families", (
   expect(readFileSync(join(root, "cards/SecretsCard.tsx"), "utf8")).not.toContain("ProviderAccountsCardBody")
   expect(readFileSync(join(root, "cards/SyncCards.tsx"), "utf8")).not.toContain('"connector-setup"')
 })
+
+const ENTRY_WIRING = { view: "EntryRow.tsx", ticket: "T-APP-16", legacy: [] as string[] }
+test("T-APP-16 mounts EntryRow and removes the replaced transcript markup", () => {
+  visit(join(root, "App.tsx"))
+  expect(reachable.has(join(root, ENTRY_WIRING.view))).toBe(true)
+  expect(readFileSync(join(root, "TranscriptMessage.tsx"), "utf8")).not.toContain("<ChatMessage")
+})

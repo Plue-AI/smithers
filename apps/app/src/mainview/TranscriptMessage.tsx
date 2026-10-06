@@ -1,9 +1,10 @@
-import { ActorChip, actorName } from "./cards/views/ActorChip"
+import { EntryRow } from "./EntryRow"
+import { PlaceholderAvatarUrl, type Actor } from "@smthrs/rpc/CardPrimitives"
 import { flowArgs } from "./flows/FlowArgs"
 import { answerActions } from "./flows/AnswerActions"
 import { DiffAction } from "./cards/views/DiffAction"
 import { dynamicFlowAction, flowAction, flowProps } from "./flows/FlowAction"
-import { Button, ChatMessage, Markdown, Marker, Reasoning } from "@smthrs/ui"
+import { Button, Markdown, Marker, Reasoning } from "@smthrs/ui"
 import { CheckCircle2, Copy, RotateCcw } from "lucide-react"
 import { useRef, useState } from "react"
 import { useController } from "./ControllerContext"
@@ -69,35 +70,24 @@ function AnswerContext({ items }: { items: NonNullable<Message["context"]> }) {
 export function TranscriptMessage({ entry, streamingMessageId }: { entry: { kind: "message"; message: Message } | { kind: "init"; message: InitMessage }; streamingMessageId?: string }) {
   const controller = useController()
   const external = entry.kind === "message" && entry.message.origin === "external"
-  return !external && entry.message.act !== undefined ?
-  (
-    <Marker
-      key={entry.message.id}
-      variant="note"
-      className="bubble-system-note tool-act-line"
-    >
-      {entry.message.text}
-    </Marker>
-  ) :
-  (
-    <ChatMessage
-      className="smithers-chat-message"
-      key={entry.message.id}
-      data-origin={external ? "external" : undefined}
-      data-session-id={external ? entry.message.session_id : undefined}
-      data-correlation-id={external ? entry.message.correlation_id : undefined}
-      variant={external && entry.message.act ? "terminal" : "default"}
-      data-participant-id={external ? entry.message.participant_id : undefined}
-      label={external && entry.message.actor ? <><ActorChip actor={entry.message.actor} size="s" />{actorName(entry.message.actor)}</> : undefined}
-      role={entry.message.role === "user" ? "user" : "assistant"}
-      meta={entry.message.status !== "complete" ?
-        (
-          <Marker variant="note" live className="bubble-system-note">
-            {systemNoteLabel(entry.message)}
-          </Marker>
-        ) :
-        undefined}
-    >
+  const identity = controller.store.collections.identitySessions.get("identity")
+  const member = identity?.state === "signed-in" && identity.login ? { login: identity.login, name: identity.login, avatar_url: PlaceholderAvatarUrl } : undefined
+  const author: Actor = entry.message.actor ?? (entry.message.role === "user" && member
+    ? { kind: "person", ...member, color_index: 0 }
+    : entry.message.role === "smithers" ? { kind: "agent", id: "smithers", agent: "smithers", avatar_url: PlaceholderAvatarUrl, color_index: 6 }
+    : { kind: "system", color_index: 7 })
+  return <EntryRow
+    kind={entry.message.act ? "event" : entry.message.role === "user" ? "prompt" : "answer"}
+    author={author}
+    title=""
+    tone={entry.message.status === "failed" ? "failed" : entry.message.id === streamingMessageId ? "live" : "quiet"}
+    source={{ origin: external ? "external" : undefined,
+      session: external ? entry.message.session_id : undefined,
+      correlation: external ? entry.message.correlation_id : undefined,
+      participant: external ? entry.message.participant_id : undefined }}
+    onAction={(tag, args) => { controller.runCommand(tag, JSON.stringify(args)) }}
+    card={<>
+      {entry.message.status !== "complete" ? <Marker variant="note" live className="bubble-system-note">{systemNoteLabel(entry.message)}</Marker> : null}
       {entry.message.reasoning !== undefined && entry.message.reasoning !== "" ?
         (
           <Reasoning
@@ -202,6 +192,6 @@ export function TranscriptMessage({ entry, streamingMessageId }: { entry: { kind
           ) :
           null}
       </span>
-    </ChatMessage>
-  )
+    </>}
+  />
 }
