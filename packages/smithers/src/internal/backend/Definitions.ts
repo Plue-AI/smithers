@@ -7,6 +7,21 @@ import { z } from "incur"
  * @since 0.1.0
  */
 export const definitions = {
+  "host backup": {
+    description: "Back up the installation",
+    args: z.object({}),
+    options: z.object({})
+  },
+  "host upgrade": {
+    description: "Upgrade the installation after a verified backup",
+    args: z.object({}),
+    options: z.object({})
+  },
+  "host restore": {
+    description: "Restore the installation from a verified backup",
+    args: z.object({ directory: z.string() }),
+    options: z.object({})
+  },
   "host start": {
     description: "Start the bundled host service",
     args: z.object({}),

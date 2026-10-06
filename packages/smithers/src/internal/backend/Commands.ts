@@ -32,6 +32,9 @@ import { workspaces } from "./Workspaces.ts"
  * @since 1.0.0
  */
 export const handlers: Record<string, Handler> = {
+  "host backup": () => HostService.maintenance("backup"),
+  "host upgrade": () => HostService.maintenance("upgrade"),
+  "host restore": (_c, a) => HostService.maintenance("restore", String(a.directory)),
   "host start": (_c, _a, o) => HostService.start(typeof o.bundle === "string" ? o.bundle : undefined, { ...(typeof o.bind === "string" ? { bind: o.bind } : {}), ...(Array.isArray(o.origin) ? { origins: o.origin as string[] } : {}) }),
   "host stop": async () => HostService.stop(HostService.launchd()),
   "host status": () => HostService.status(),
@@ -164,7 +167,7 @@ export const mount = (cli: Cli.Cli<any, any, any, any>, runtime: Runtime) => {
     const args = name === "completion"
       ? z.object({ shell: z.enum(["bash", "zsh", "fish"]) })
       : previous?.args ?? definition.args
-    const interactive = name === "api" || name === "config set" || name === "completion" ||
+    const interactive = ["host backup", "host upgrade", "host restore"].includes(name) || name === "api" || name === "config set" || name === "completion" ||
       (name.startsWith("auth ") && !name.endsWith(" status") && name !== "auth token") ||
       ["workspace shell", "workspace ssh"].includes(name)
     const human = name === "host start"
