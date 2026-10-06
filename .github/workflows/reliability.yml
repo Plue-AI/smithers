@@ -271,6 +271,30 @@ jobs:
           throw new Error('Reference-host case refused: approved main-bundle provenance and authenticated host selection are not yet composed')
           JS
         shell: bash
+      - name: Build private-cluster PostgreSQL 18 binaries
+        if: matrix.host == 'linux'
+        shell: bash
+        run: |
+          set -euo pipefail
+          postgres_source="$RUNNER_TEMP/fault-postgres-source"
+          postgres_prefix="$RUNNER_TEMP/fault-postgres"
+          mkdir -p "$postgres_source" "$postgres_prefix"
+          curl --fail --location --retry 3 \
+            https://ftp.postgresql.org/pub/source/v18.0/postgresql-18.0.tar.bz2 \
+            --output "$postgres_source/postgresql-18.0.tar.bz2"
+          printf '%s  %s\n' \
+            '0d5b903b1e5fe361bca7aa9507519933773eb34266b1357c4e7780fdee6d6078' \
+            "$postgres_source/postgresql-18.0.tar.bz2" | shasum -a 256 -c
+          tar -xjf "$postgres_source/postgresql-18.0.tar.bz2" -C "$postgres_source"
+          cd "$postgres_source/postgresql-18.0"
+          ./configure --prefix="$postgres_prefix" --without-icu --without-readline --without-zlib --with-ssl=openssl
+          make -j2
+          make install
+          make -C contrib/pgcrypto -j2
+          make -C contrib/pgcrypto install
+          "$postgres_prefix/bin/postgres" --version
+          "$postgres_prefix/bin/initdb" --version
+          printf 'SMITHERS_FAULT_POSTGRES_BIN=%s\n' "$postgres_prefix/bin" >> "$GITHUB_ENV"
       - name: Install Go
         uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff
         with:

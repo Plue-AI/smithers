@@ -4,12 +4,13 @@ Run the existing serial matrix with `pnpm exec smthrs test
 '//packages/...:faults' --jobs 1`. `Smithers.FaultSuite` discovers TypeScript
 cases here; `durability-required.test.ts` now selects the named Go cases below. Missing
 case files, unmatched Go selectors, skipped cases and missing kill markers
-fail the matrix. The current production cases remain unavailable.
+fail the matrix. The PostgreSQL transition case is implemented; the other
+required production cases remain unavailable.
 Existing engine/library crash tests are not C-DUR acceptance evidence.
 
 | Check | Required production harness | Host |
 | --- | --- | --- |
-| C-DUR-01 | `host/case40-host-kill-todo-run.test.ts`; backend services `todo_pause_fault_test.go`, `postgres_kill_fault_test.go` | Linux CI and reference Mac |
+| C-DUR-01 | `host/case40-host-kill-todo-run.test.ts`; backend services `todo_pause_fault_test.go`; compose `postgres_kill_fault_test.go` | Linux CI and reference Mac |
 | C-DUR-02 | backend `flowhost/machine_kill_fault_test.go` | Approved reference Mac, microVM |
 | C-DUR-03 | backend compose `github_outbound_kill_test.go`; services `todo_merge_fault_test.go`; `github-step-kill.test.ts` | CI, PostgreSQL 18, fake GitHub |
 | C-DUR-04 | backend machined `fault_test.go`, `rebase_fault_test.go` | Linux CI (daemon), approved reference Mac (VM) |
@@ -108,3 +109,11 @@ integration database server. Restart is driven by the test controller; this
 case does not qualify the install supervisor, run recovery, live WebSocket
 projection, or all of C-DUR-01. The case lives in `compose` so it can reuse the
 production router harness without introducing a services/compose import cycle.
+
+The nightly Linux job builds checksum-pinned PostgreSQL 18.0 from the official
+source archive into its runner temporary directory as the harness user. It
+builds `pgcrypto` with OpenSSL for product migrations and exports
+`SMITHERS_FAULT_POSTGRES_BIN` for the private-cluster case; the Docker
+service remains the database for other integration cases. No system install,
+sudo, or shared-server stop is required. Source provisioning is separate from
+reference-host artifact approval and does not enable privileged cases.
