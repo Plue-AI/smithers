@@ -1,5 +1,6 @@
 import { decodeLiveDocBinary, encodeLiveDocBinary, LiveDocReply, parseLiveDocTopic } from "@smthrs/rpc/LiveDoc"
 import type { DocumentEvent } from "./LiveDocProvider"
+import { createCollection, localOnlyCollectionOptions } from "@tanstack/db"
 import { LiveReplySchema } from "@smthrs/rpc/Live"
 
 export interface TopicSnapshot<T = unknown> {
@@ -31,6 +32,9 @@ export interface LiveChannelOptions {
 
 /** One transport, reference-counted topics, and committed projection rows. */
 export class LiveChannel {
+  readonly collection = createCollection(localOnlyCollectionOptions({
+    id: "live-topics", getKey: (row: TopicSnapshot) => row.topic
+  }))
   private readonly topics = new Map<string, { id: number; listeners: Set<() => void>; snapshot: TopicSnapshot; awaitingSnapshot: boolean }>()
   private readonly projectors = new Map<string, (previous: unknown, delta: unknown) => unknown>()
   /** Register the publishing topic's decoder before its consumers subscribe. */
@@ -97,7 +101,7 @@ export class LiveChannel {
     // T-COL-08: no code-document transport until the real providers and checks
     // are connected. This replaces speculative subscription with a refusal.
     if (this.isDarkTopic(topic)) {
-      if (entry.snapshot.error !== "unsupported") this.publish(entry, { topic, error: "unsupported" })
+      if (entry.snapshot.error !== "unsupported") this.publish(topic, entry, { topic, error: "unsupported" })
     } else this.connect()
     let released = false
     return () => {
@@ -107,6 +111,7 @@ export class LiveChannel {
       if (entry.listeners.size) return
       if (!this.isDarkTopic(topic) && this.socket?.readyState === 1) this.send({ t: "unsub", id: entry.id })
       this.topics.delete(topic)
+      if (this.collection.has(topic)) this.collection.delete(topic)
       if (!this.hasTransportTopics()) this.disconnect()
     }
   }
@@ -183,13 +188,13 @@ export class LiveChannel {
     if (frame.t === "gap") {
       entry.awaitingSnapshot = true
       this.notifyContinuityLoss()
-      this.publish(entry, { topic, data: entry.snapshot.data })
+      this.publish(topic, entry, { topic, data: entry.snapshot.data })
       this.send({ t: "sub", id: entry.id, topic })
       return
     }
     if (frame.t === "err" && typeof frame.code === "string") {
       entry.awaitingSnapshot = true
-      this.publish(entry, { topic, error: frame.code })
+      this.publish(topic, entry, { topic, error: frame.code })
       return
     }
     if (frame.t !== "snap" && frame.t !== "delta") return
@@ -209,14 +214,16 @@ export class LiveChannel {
     try { data = frame.t === "snap" ? frame.data : project!(entry.snapshot.data, frame.data) }
     catch { entry.awaitingSnapshot = true; this.notifyContinuityLoss(); this.send({ t: "sub", id: entry.id, topic }); return }
     entry.awaitingSnapshot = false
-    this.publish(entry, { topic, cursor, data })
+    this.publish(topic, entry, { topic, cursor, data })
   }
   /** Topic observers must reauthorize retained actions after transport continuity is lost. */
   private notifyContinuityLoss() {
     for (const entry of this.topics.values()) for (const listener of entry.listeners) listener()
   }
-  private publish(entry: { snapshot: TopicSnapshot; listeners: Set<() => void> }, snapshot: TopicSnapshot) {
+  private publish(topic: string, entry: { snapshot: TopicSnapshot; listeners: Set<() => void> }, snapshot: TopicSnapshot) {
     entry.snapshot = snapshot
+    if (this.collection.has(topic)) this.collection.update(topic, row => { Object.assign(row, snapshot); if (!("data" in snapshot)) row.data = undefined; if (snapshot.cursor === undefined) row.cursor = undefined; if (!snapshot.error) row.error = undefined })
+    else this.collection.insert(snapshot)
     for (const listener of entry.listeners) listener()
   }
   private disconnect() {
@@ -227,7 +234,7 @@ export class LiveChannel {
     if (socket) { socket.onopen = null; socket.onclose = null; socket.onmessage = null; socket.close() }
     this.attempt = 0
   }
-  dispose() { this.disposed = true; for (const topic of this.documents.keys()) this.documentEvent(topic, { kind: "refused" }); this.disconnect(); this.topics.clear(); this.documents.clear() }
+  dispose() { this.disposed = true; for (const topic of this.documents.keys()) this.documentEvent(topic, { kind: "refused" }); this.disconnect(); this.topics.clear(); this.documents.clear(); this.collection.cleanup() }
 }
 
 /** Lazy module singleton: exactly one channel for the browser tab. */
