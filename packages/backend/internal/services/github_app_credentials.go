@@ -301,6 +301,10 @@ func (s *GitHubAppCredentialStore) CallbackFixes(ctx context.Context, origins []
 	if err != nil {
 		return nil, err
 	}
+	credentials, err := s.Load(ctx)
+	if err != nil {
+		return nil, err
+	}
 	registered, err := s.CallbackURLs(ctx)
 	if err != nil {
 		return nil, err
@@ -318,10 +322,6 @@ func (s *GitHubAppCredentialStore) CallbackFixes(ctx context.Context, origins []
 	}
 	if len(fixes) == 0 {
 		return fixes, nil
-	}
-	credentials, err := s.Load(ctx)
-	if err != nil {
-		return nil, err
 	}
 	settingsURL := "https://github.com/settings/apps/" + url.PathEscape(credentials.Slug)
 	if credentials.OwnerKind == "org" {

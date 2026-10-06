@@ -90,3 +90,11 @@ func TestGitHubAppCallbackSnapshotBoundariesAndUnavailableStore(t *testing.T) {
 	_, err = unavailable.CallbackURLs(context.Background())
 	require.Error(t, err)
 }
+
+func TestGitHubAppCallbackFixesBeforeAppSetup(t *testing.T) {
+	store, q := githubAppTestStore(t, githubAppTestCredentials(t))
+	q.err = pgx.ErrNoRows
+	q.settingError = pgx.ErrNoRows
+	_, err := store.CallbackFixes(context.Background(), []string{"http://localhost:4000"})
+	require.ErrorIs(t, err, ErrGitHubAppNotConfigured)
+}
