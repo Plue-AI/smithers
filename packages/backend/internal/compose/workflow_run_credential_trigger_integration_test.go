@@ -267,6 +267,28 @@ func TestDeferredTriggerManagementHTTPPostgres(t *testing.T) {
 	_, err = q.CreateAccessToken(ctx, db.CreateAccessTokenParams{UserID: owner.ID, Name: "deferred-delegated", TokenHash: hash, TokenLastEight: hash[56:], Scopes: "all"})
 	require.NoError(t, err)
 	credentials = append(credentials, struct{ name, cookie, bearer string }{name: "delegated", bearer: token})
+	// Issuer-marked execution credentials must not reopen management doors,
+	// even when they carry write scope and the seeded repository/workspace.
+	for _, execution := range []struct {
+		name, binding string
+		kind          middleware.CredentialKind
+	}{
+		{"run", middleware.AgentSessionRestrictionScope("deferred-run"), middleware.CredentialAgentRun},
+		{"machine", middleware.WorkspaceRestrictionScope(workspace), middleware.CredentialMachine},
+	} {
+		scopes := string(middleware.ScopeWriteRepository) + "," + middleware.RepositoryRestrictionScope(repoID) + "," + execution.binding
+		require.Equal(t, execution.kind, middleware.TokenCredentialKind(true, scopes, "user", true))
+		plaintext := "smithers_" + hex.EncodeToString([]byte("deferred-" + execution.name + "-token-padding-bytes"))[:40]
+		sum := sha256.Sum256([]byte(plaintext))
+		digest := hex.EncodeToString(sum[:])
+		_, err = q.CreateAccessToken(ctx, db.CreateAccessTokenParams{
+			UserID: owner.ID, Name: "deferred-" + execution.name, TokenHash: digest,
+			TokenLastEight: digest[56:], SystemIssued: true, Scopes: scopes,
+			ExpiresAt: pgtype.Timestamptz{Time: time.Now().Add(time.Hour), Valid: true},
+		})
+		require.NoError(t, err)
+		credentials = append(credentials, struct{ name, cookie, bearer string }{name: execution.name, bearer: plaintext})
+	}
 	snapshot := func() string {
 		var value string
 		require.NoError(t, pool.QueryRow(ctx, `SELECT jsonb_build_object('registrations',(SELECT jsonb_agg(to_jsonb(r)) FROM repository_job_registrations r),'approvals',(SELECT jsonb_agg(to_jsonb(a)) FROM repository_job_approvals a),'dispatches',(SELECT jsonb_agg(to_jsonb(d)) FROM repository_job_dispatches d))::text`).Scan(&value))
