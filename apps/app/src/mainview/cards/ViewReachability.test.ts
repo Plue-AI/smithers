@@ -8,6 +8,29 @@ import { fileURLToPath } from "node:url"
 const PENDING_WIRING: Record<string, string> = {
 }
 
+// Committed inventory: a new View needs its own wiring receipt, rather than
+// becoming accepted just because the import walker can discover it.
+const WIRED_VIEWS = {
+  "HomeView.tsx": { ticket: "T-APP-01", legacy: ["cards/StackCard.tsx", "cards/RepositoryHomeCard.tsx"] },
+  "TodoView.tsx": { ticket: "T-APP-02", legacy: [] },
+  "DraftView.tsx": { ticket: "T-APP-02", legacy: [] },
+  "SetupView.tsx": { ticket: "T-APP-03", legacy: ["cards/AccountCard.tsx", "cards/EnvCard.tsx", "cards/RepoImportCard.tsx"] },
+  "SettingsView.tsx": { ticket: "T-APP-03", legacy: [] },
+  "ConfirmView.tsx": { ticket: "T-APP-04", legacy: ["cards/ApprovalAnswer.tsx"] },
+  "FlowView.tsx": { ticket: "T-APP-05", legacy: ["cards/WorkflowCards.tsx", "cards/FlowContainer.tsx"] },
+  "FlowActionView.tsx": { ticket: "T-APP-05", legacy: [] },
+  "MembersView.tsx": { ticket: "T-APP-06", legacy: [] },
+  "BranchView.tsx": { ticket: "T-APP-10", legacy: [] },
+  "TerminalView.tsx": { ticket: "T-APP-12", legacy: [] },
+  "SecretsView.tsx": { ticket: "T-APP-13", legacy: [] },
+  "CodeEditorView.tsx": { ticket: "T-APP-14a", legacy: ["cards/CodeSurface.tsx"] },
+  "DocsView.tsx": { ticket: "T-APP-20", legacy: [] },
+  "DebugApiView.tsx": { ticket: "T-APP-21", legacy: [] },
+  "ProposalView.tsx": { ticket: "T-FLW-06", legacy: [] },
+  "RunView.tsx": { ticket: "T-FLW-07", legacy: [] },
+  "CommandsView.tsx": { ticket: "T-UI-14", legacy: [] }
+} as const
+
 const root = resolve(dirname(fileURLToPath(import.meta.url)), "..")
 const entries = [join(root, "App.tsx"), join(root, "cards/CardRenderers.tsx")]
 const reachable = new Set<string>()
@@ -29,6 +52,11 @@ test("every card and shell view is reachable from its renderer", () => {
   const views = readdirSync(join(root, "cards/views"), { withFileTypes: true })
     .filter(file => file.isFile() && file.name.endsWith("View.tsx"))
     .map(file => file.name)
+  expect(views.sort()).toEqual([...Object.keys(WIRED_VIEWS), ...Object.keys(PENDING_WIRING)].sort())
+  for (const [view, row] of Object.entries(WIRED_VIEWS)) {
+    expect(reachable.has(join(root, "cards/views", view)), row.ticket).toBe(true)
+    for (const path of row.legacy) expect(() => statSync(join(root, path)), row.ticket).toThrow()
+  }
   expect(views.filter(view => !reachable.has(join(root, "cards/views", view))).sort())
     .toEqual(Object.keys(PENDING_WIRING).sort())
 })
