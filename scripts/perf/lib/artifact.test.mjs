@@ -45,7 +45,16 @@ test('TestPerfRunnerMissingProvider: six skips retain host/origin and emit no pa
     for (const ticket of budget.tickets) assert.ok(budget.reason.includes(ticket))
   }
   assert.ok(!JSON.stringify(saved).includes(options.token))
-  assert.deepEqual(await readdir(join(root, '.artifacts')), ['perf'])
+  assert.deepEqual((await readdir(join(root, '.artifacts'))).sort(), ['checks', 'perf'])
+  for (const budget of saved.budgets) {
+    const check = join(root, '.artifacts/checks', budget.check, saved.timestamp)
+    const evidence = JSON.parse(await readFile(join(check, 'summary.json'), 'utf8'))
+    assert.deepEqual(evidence.budgets, [budget])
+    assert.deepEqual(evidence.host, host)
+    assert.equal(evidence.origin, options.origin)
+    assert.deepEqual((await readdir(check)).sort(), [`${budget.name}.json`, 'summary.json'].sort())
+    assert.equal(await readFile(join(check, `${budget.name}.json`), 'utf8'), await readFile(join(result.directory, `${budget.name}.json`), 'utf8'))
+  }
   await assert.rejects(run({ ...options, root }), { code: 'EEXIST' })
 }))
 test('origin preconditions refuse before any authenticated read', async () => temporary(async (root) => {
@@ -63,6 +72,13 @@ test('host failures remain incomplete; no fallback profile is invented', async (
 test('symlink artifact parents refuse and write nothing outside root', async () => temporary(async (root) => {
   await mkdir(join(root, 'outside'))
   await symlink(join(root, 'outside'), join(root, '.artifacts'))
+  await assert.rejects(run({ ...options, root }), /unsafe artifact/)
+  assert.deepEqual(await readdir(join(root, 'outside')), [])
+}))
+test('symlink check evidence parents refuse without writing into the target', async () => temporary(async (root) => {
+  await mkdir(join(root, '.artifacts'))
+  await mkdir(join(root, 'outside'))
+  await symlink(join(root, 'outside'), join(root, '.artifacts/checks'))
   await assert.rejects(run({ ...options, root }), /unsafe artifact/)
   assert.deepEqual(await readdir(join(root, 'outside')), [])
 }))

@@ -14,6 +14,9 @@ Fresh `.artifacts/perf/<UTC timestamp>/summary.json` records six skipped budgets
 their required tickets and activation preconditions. An absent production driver
 is named explicitly. This runner does not detect whether dependency tickets have
 landed, execute a benchmark, or emit check receipts. It adds no privileged step.
+Each budget also gets a JSON artifact and an identical summary/evidence copy in
+`.artifacts/checks/C-PERF-01` through `C-PERF-06`, including refusals. Evidence
+directories are fresh and symlink parents are refused.
 Existing library counter benchmarks remain unchanged because they measure
 different boundaries.
 
@@ -39,7 +42,7 @@ runner is the second Mac and the selected install is the reference Mac mini.
 Outstanding: five other public-boundary drivers, 20 fixed repository/wiki questions,
 browser and SSH fixtures, remaining §20.3 latency/wake/burst producers,
 qualified network/machine security evidence,
-raw-sample artifacts and per-check evidence copies, second-Mac runs, and
+real raw-sample artifacts, second-Mac runs, and
 C-PERF-01–06 results. Receipt approval remains with `scripts/check-run.mjs`;
 no check mapping is activated here. Keep #3592 open.
 
