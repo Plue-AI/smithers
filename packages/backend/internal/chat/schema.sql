@@ -68,9 +68,9 @@ ALTER TABLE chat_turn_erasures DROP CONSTRAINT chat_turn_erasures_pkey;
 ALTER TABLE chat_turn_erasures ADD PRIMARY KEY (run_id, leg_id, access_hash);
 
 -- Shared turns use the existing journal; legacy private history stays private.
+-- Only new admissions set conversation_id. Legacy payload names are private
+-- to each member and may already have concurrent producers (T-APP-16 Earlier).
 ALTER TABLE chat_turns ADD COLUMN conversation_id text;
-UPDATE chat_turns SET conversation_id=request_payload->>'conversationId'
- WHERE jsonb_typeof(request_payload->'conversationId')='string';
 ALTER TABLE chat_turns DROP CONSTRAINT chat_turns_state_check;
 ALTER TABLE chat_turns ADD CONSTRAINT chat_turns_state_check CHECK (state IN ('accepted','queued','running','completed','failed','cancelled','uncertain','retired'));
 CREATE INDEX chat_turns_conversation_idx ON chat_turns(repository_id,conversation_id,created_at,id) WHERE conversation_id IS NOT NULL;
