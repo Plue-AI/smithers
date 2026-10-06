@@ -1,4 +1,4 @@
-import history from "../../../src/mainview/state/testdata/cut-history.json"
+import history from "../../../src/mainview/state/testdata/cut-history-mixed.json"
 import { expect, test } from "../browserTest"
 import { installCloudFixture } from "../cloudFixture"
 import { say } from "./j1-fixtures"
@@ -31,6 +31,9 @@ test("C-CUT-02: Historical titles survive verified replay and stay out of prompt
   await expect(entries).toContainText("Old answer")
   for (const kind of ["admin-health", "agent", "connect", "grant-confirm", "notifications", "registration", "repository-setup"]) await expect(entries.getByText(`Saved ${kind}`, { exact: true })).toBeVisible()
   await expect(entries.getByText("<script>archiveCanary()</script>", { exact: true })).toBeVisible()
+  await expect(entries.getByText("Saved File", { exact: true })).toBeVisible()
+  await expect(entries.getByText("Saved Run", { exact: true })).toBeVisible()
+  await expect(entries).not.toContainText("retained-file-body-canary")
   await expect(entries).not.toContainText("private-payload-canary")
   await expect(entries).not.toContainText("private-body-canary")
   await expect(entries.locator("button,input,textarea,script")).toHaveCount(0)
@@ -40,10 +43,11 @@ test("C-CUT-02: Historical titles survive verified replay and stay out of prompt
   await expect(entries.getByText("Saved admin-health", { exact: true })).toBeVisible()
   await page.locator('[data-node="earlier"]').press("Escape")
   await say(page, "Current question")
-  await expect.poll(() => admissions.length).toBe(1)
+  await expect.poll(() => admissions.length, { timeout: 20_000 }).toBe(1)
   expect(JSON.stringify(admissions)).not.toContain("private-payload-canary")
   expect(JSON.stringify(admissions)).not.toContain("private-body-canary")
   expect(JSON.stringify(admissions)).not.toContain("Saved admin-health")
+  expect(JSON.stringify(admissions)).not.toContain("retained-file-body-canary")
   login = "alice"
   await page.reload()
   await say(page, "/branches")

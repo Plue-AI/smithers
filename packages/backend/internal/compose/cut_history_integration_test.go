@@ -21,7 +21,7 @@ import (
 // Historical output lives in the real journal; authentication and the install
 // router decide which member may read it. The app uses its shipped HTTP loader.
 func TestCutHistoryInstallEarlierMemberPrivacy(t *testing.T) {
-	t.Setenv("SMITHERS_TEST_DATABASE_NAMESPACE", "fr2_t_cut_04")
+	t.Setenv("SMITHERS_TEST_DATABASE_NAMESPACE", "fr2_t_cut_04_r2")
 	if _, err := repohostserver.FFILibraryPath(); err != nil {
 		t.Skipf("composed install requires the native wiki/repository library: %v", err)
 	}
@@ -40,7 +40,7 @@ func TestCutHistoryInstallEarlierMemberPrivacy(t *testing.T) {
 	require.NoError(t, err)
 	root, err := filepath.Abs("../../../..")
 	require.NoError(t, err)
-	raw, err := os.ReadFile(filepath.Join(root, "apps/app/src/mainview/state/testdata/cut-history.json"))
+	raw, err := os.ReadFile(filepath.Join(root, "apps/app/src/mainview/state/testdata/cut-history-mixed.json"))
 	require.NoError(t, err)
 	var fixture struct {
 		Replay struct {
