@@ -767,6 +767,15 @@ func TestGitHubAppManifestCallbackSnapshotIsCreationTimeAndAtomicPostgres(t *tes
 	var sealed bool
 	require.NoError(t, f.pool.QueryRow(ctx, `SELECT sealed FROM install_settings WHERE key='github.callback_urls'`).Scan(&sealed))
 	require.False(t, sealed)
+	legacy := `["http://plain.example:80/api/auth/github/callback","https://secure.example:443/api/auth/github/callback","http://localhost:4000/api/auth/github/callback"]`
+	_, err = f.pool.Exec(ctx, "UPDATE install_settings SET value=$1::jsonb WHERE key='github.callback_urls'", legacy)
+	require.NoError(t, err)
+	fixes, err := f.store.CallbackFixes(ctx, []string{"http://plain.example", "https://secure.example"})
+	require.NoError(t, err)
+	require.Empty(t, fixes, "equivalent default ports do not need another callback")
+	var saved string
+	require.NoError(t, f.pool.QueryRow(ctx, "SELECT value::text FROM install_settings WHERE key='github.callback_urls'").Scan(&saved))
+	require.JSONEq(t, legacy, saved, "reading an old snapshot never rewrites it")
 }
 
 func TestGitHubAppManifestCorruptCallbackSnapshotNeverExchangesPostgres(t *testing.T) {

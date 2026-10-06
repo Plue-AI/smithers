@@ -5470,6 +5470,15 @@
               "description": "Built server bundle directory",
               "type": "string"
             },
+            "bind": {
+              "type": "string"
+            },
+            "origin": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
             "verbose": {
               "default": false,
               "description": "Show redacted diagnostic details",

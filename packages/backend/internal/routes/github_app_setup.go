@@ -494,15 +494,15 @@ func (h *GitHubAppSetupHandler) SetSettings(w http.ResponseWriter, r *http.Reque
 		return
 	}
 	var input struct {
-		ChatGPT  *bool     `json:"chatgpt"`
-		Capacity *int      `json:"capacity"`
-		Bind     *string   `json:"bind"`
-		Origins  *[]string `json:"origins"`
+		ChatGPT  *bool           `json:"chatgpt"`
+		Capacity *int            `json:"capacity"`
+		Bind     json.RawMessage `json:"bind"`
+		Origins  json.RawMessage `json:"origins"`
 	}
 	if !decodeStrictJSONBody(w, r, &input) {
 		return
 	}
-	if input.Bind != nil || input.Origins != nil {
+	if len(input.Bind) != 0 || len(input.Origins) != 0 {
 		if input.Capacity != nil || input.ChatGPT != nil {
 			writeInstallAPIError(w, pkgerrors.BadRequest("other settings and address must be set separately"))
 			return
@@ -512,11 +512,17 @@ func (h *GitHubAppSetupHandler) SetSettings(w http.ResponseWriter, r *http.Reque
 			return
 		}
 		current := h.Setup.Address.Settings()
-		if input.Bind != nil {
-			current.Bind = *input.Bind
+		if len(input.Bind) != 0 {
+			if strings.TrimSpace(string(input.Bind)) == "null" || json.Unmarshal(input.Bind, &current.Bind) != nil {
+				writeInstallAPIError(w, pkgerrors.BadRequest("invalid bind address"))
+				return
+			}
 		}
-		if input.Origins != nil {
-			current.Origins = *input.Origins
+		if len(input.Origins) != 0 {
+			if json.Unmarshal(input.Origins, &current.Origins) != nil {
+				writeInstallAPIError(w, pkgerrors.BadRequest("invalid public origins"))
+				return
+			}
 		}
 		bind := current.Bind
 		if net.ParseIP(bind) != nil || strings.EqualFold(bind, "localhost") {

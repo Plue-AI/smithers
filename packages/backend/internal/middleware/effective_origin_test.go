@@ -111,3 +111,21 @@ func TestEffectiveOriginReadinessAndCachedRequest(t *testing.T) {
 		require.Equal(t, tc.want, recorder.Code)
 	}
 }
+
+func TestEffectiveOriginDefaultPorts(t *testing.T) {
+	for _, tc := range []struct{ host, want string }{
+		{"plain.example", "http://plain.example"}, {"plain.example:80", "http://plain.example"},
+		{"secure.example", "https://secure.example"}, {"secure.example:443", "https://secure.example"},
+		{"secure.example:80", ""},
+	} {
+		r := httptest.NewRequest("GET", "http://"+tc.host+"/", nil)
+		r.RemoteAddr = "192.0.2.2:1234"
+		r.Header.Set("X-Forwarded-Proto", "http")
+		origin, ok := ResolveEffectiveOrigin(r, []string{"http://plain.example:80", "https://secure.example:443"})
+		require.Equal(t, tc.want != "", ok)
+		require.Equal(t, tc.want, origin)
+	}
+	require.True(t, SameOrigin("https://secure.example:443", "https://secure.example"))
+	require.True(t, SameOrigin("http://plain.example:80", "http://plain.example"))
+	require.Equal(t, "http://[2001:db8::1]", CanonicalOrigin("http://[2001:db8::1]:80"))
+}

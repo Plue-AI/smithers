@@ -241,7 +241,7 @@ func AuthLoader(queries AuthLoaderQuerier, cfg config.AuthConfig, boundaries ...
 				return
 			}
 			cookieSecure := cfg.CookieSecure
-			if origin, ok := r.Context().Value(effectiveOriginKey{}).(string); ok {
+			if origin, ok := EffectiveOriginFromContext(r.Context()); ok {
 				cookieSecure = strings.HasPrefix(origin, "https://")
 			}
 			ctx := r.Context()
@@ -762,7 +762,7 @@ func authRowToUser(authRow db.GetAuthInfoByTokenHashRow) db.User {
 }
 
 func csrfSameSite(r *http.Request) http.SameSite {
-	if _, ok := r.Context().Value(effectiveOriginKey{}).(string); ok {
+	if _, ok := EffectiveOriginFromContext(r.Context()); ok {
 		return http.SameSiteLaxMode
 	}
 	return http.SameSiteStrictMode

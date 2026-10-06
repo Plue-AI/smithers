@@ -1,6 +1,7 @@
 package compose
 
 import (
+	"encoding/json"
 	"github.com/smithersai/smithers/packages/backend/internal/db"
 	"github.com/smithersai/smithers/packages/backend/internal/services"
 	"net"
@@ -104,7 +105,7 @@ func TestInstallServingOwnerAddressUpdatePostgres(t *testing.T) {
 		router.ServeHTTP(recorder, req)
 		return recorder
 	}
-	body := `{"bind":"0.0.0.0","origins":["http://lan-a:4000","https://box.example"]}`
+	body := `{"bind":"0.0.0.0","origins":["http://lan-a:4000","https://box.example","http://plain.example:80","https://secure.example:443"]}`
 	for _, tc := range []struct{ origin, csrf, code string }{
 		{"https://evil.example", "serving-csrf", "origin"},
 		{"http://localhost:4000", "", "csrf"},
@@ -114,11 +115,24 @@ func TestInstallServingOwnerAddressUpdatePostgres(t *testing.T) {
 		require.JSONEq(t, `{"class":"permission","code":"`+tc.code+`","message":"`+tc.code+`"}`, recorder.Body.String())
 		require.Empty(t, binds)
 	}
+	listener := address.Listen
+	address.Listen = nil
+	unavailable := request(body, "http://localhost:4000", "serving-csrf")
+	require.Equal(t, 503, unavailable.Code, unavailable.Body.String())
+	require.Contains(t, unavailable.Body.String(), `"code":"address_unavailable"`)
+	require.Empty(t, binds)
+	_, settingErr := q.GetInstallSetting(t.Context(), "bind")
+	require.Error(t, settingErr, "an unavailable listener must not persist settings")
+	address.Listen = listener
 	recorder := request(body, "http://localhost:4000", "serving-csrf")
 	require.Equal(t, 200, recorder.Code, recorder.Body.String())
 	require.Equal(t, []string{"0.0.0.0:4000"}, binds)
-	require.Equal(t, []string{"http://lan-a:4000", "https://box.example"}, address.Origins())
+	require.Equal(t, []string{"http://lan-a:4000", "https://box.example", "http://plain.example", "https://secure.example"}, address.Origins())
 	require.Contains(t, recorder.Body.String(), `"ssh_host":"lan-a"`)
+	var status map[string]json.RawMessage
+	require.NoError(t, json.Unmarshal(recorder.Body.Bytes(), &status))
+	require.JSONEq(t, `{"listen":"network","bind":"0.0.0.0:4000","origins":["http://lan-a:4000","https://box.example","http://plain.example","https://secure.example"]}`, string(status["address"]))
+	require.JSONEq(t, `"ssh -p 2222 <branch>@lan-a"`, string(status["ssh_line"]))
 	require.Len(t, opened, 1)
 	probe := func(target, host string) int {
 		req, err := http.NewRequest("GET", "http://"+target+"/health", nil)
@@ -131,12 +145,59 @@ func TestInstallServingOwnerAddressUpdatePostgres(t *testing.T) {
 	}
 	require.Equal(t, 200, probe(opened[0].Addr().String(), "lan-a:4000"))
 	require.Equal(t, 200, probe(server.Listener.Addr().String(), "localhost:4000"))
+	// Refresh real persisted sessions at each origin. Forwarded scheme never
+	// decides cookie security, even when a loopback proxy forwards the host.
+	for _, tc := range []struct {
+		host, peer, forwarded, proto string
+		secure                       bool
+	}{
+		{"localhost:4000", "127.0.0.1:1234", "", "https", false},
+		{"lan-a:4000", "192.0.2.2:1234", "box.example", "https", false},
+		{"internal", "127.0.0.1:1234", "box.example", "http", true},
+		{"plain.example", "192.0.2.2:1234", "", "https", false},
+		{"internal", "127.0.0.1:1234", "secure.example:443", "http", true},
+	} {
+		_, err = pool.Exec(t.Context(), "UPDATE auth_sessions SET expires_at = $1 WHERE user_id = $2", time.Now().Add(time.Minute), user.ID)
+		require.NoError(t, err)
+		req := httptest.NewRequest("GET", "http://"+tc.host+"/api/install", nil)
+		req.RemoteAddr = tc.peer
+		req.Header.Set("X-Forwarded-Host", tc.forwarded)
+		req.Header.Set("X-Forwarded-Proto", tc.proto)
+		req.AddCookie(&http.Cookie{Name: "smithers_session", Value: "serving-owner-session"})
+		rec := httptest.NewRecorder()
+		router.ServeHTTP(rec, req)
+		require.Equal(t, 200, rec.Code, rec.Body.String())
+		cookies := rec.Result().Cookies()
+		require.Len(t, cookies, 2)
+		for _, cookie := range cookies {
+			require.Empty(t, cookie.Domain)
+			require.Equal(t, http.SameSiteLaxMode, cookie.SameSite)
+			require.Equal(t, tc.secure, cookie.Secure, cookie.Name)
+		}
+	}
+	publicRequest := httptest.NewRequest("GET", "http://lan-a:4000/api/public/repos", nil)
+	publicRequest.RemoteAddr = "192.0.2.2:1234"
+	publicRequest.AddCookie(&http.Cookie{Name: "smithers_session", Value: "serving-owner-session"})
+	publicResponse := httptest.NewRecorder()
+	router.ServeHTTP(publicResponse, publicRequest)
+	require.Empty(t, publicResponse.Header().Get("Access-Control-Allow-Origin"))
+	require.Empty(t, publicResponse.Header().Get("Access-Control-Allow-Methods"))
 	for _, invalid := range []string{
+		`{"bind":null,"origins":["http://lan-a:4000"]}`,
+		`{"bind":"0.0.0.0","origins":null}`,
+		`{"bind":null}`,
+		`{"origins":null}`,
+		`{"bind":"0.0.0.0","origins":["http://box?"]}`,
+		`{"bind":"0.0.0.0","origins":["http://box#"]}`,
+		`{"bind":"0.0.0.0","origins":["http://box:80","https://box:443"]}`,
 		`{"bind":"bad","origins":["http://lan-a:4000"]}`,
 		`{"bind":"0.0.0.0","origins":["/relative"]}`,
 		`{"bind":"0.0.0.0","origins":["http://box/path"]}`,
 		`{"bind":"0.0.0.0","origins":["ftp://box"]}`,
 		`{"bind":"0.0.0.0","origins":["http://box","https://box"]}`,
+		`{"bind":"0.0.0.0","origins":["https://localhost:4000","http://lan-a:4000"]}`,
+		`{"bind":"0.0.0.0","origins":["https://127.0.0.1:4000","http://lan-a:4000"]}`,
+		`{"bind":"0.0.0.0","origins":["https://[::1]:4000","http://lan-a:4000"]}`,
 	} {
 		recorder = request(invalid, "http://localhost:4000", "serving-csrf")
 		require.Equal(t, 400, recorder.Code, recorder.Body.String())
@@ -145,6 +206,8 @@ func TestInstallServingOwnerAddressUpdatePostgres(t *testing.T) {
 	first := opened[0].Addr().String()
 	recorder = request(`{"bind":"","origins":["https://box.example"]}`, "http://localhost:4000", "serving-csrf")
 	require.Equal(t, 200, recorder.Code, recorder.Body.String())
+	require.NoError(t, json.Unmarshal(recorder.Body.Bytes(), &status))
+	require.JSONEq(t, `{"listen":"mac","bind":"","origins":["https://box.example"]}`, string(status["address"]))
 	_, dialErr := net.DialTimeout("tcp", first, time.Second)
 	require.Error(t, dialErr)
 	require.Equal(t, 200, probe(server.Listener.Addr().String(), "localhost:4000"))

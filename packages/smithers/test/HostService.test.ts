@@ -198,8 +198,9 @@ it("passes explicit network settings to the existing bundled launcher", () => {
 it("refuses invalid serving flags before host service effects", () => {
  for (const address of [
   {bind:"invalid"}, {bind:"0.0.0.0:4001"},
-  {origins:["/relative"]}, {origins:["ftp://box"]}, {origins:["http://box/path"]},
-  {origins:["http://box", "https://box"]}
+  {origins:["/relative"]}, {origins:["http://box?"]}, {origins:["http://box#"]}, {origins:["ftp://box"]}, {origins:["http://box/path"]},
+  {origins:["http://box", "https://box"]},
+  {origins:["https://localhost:4000"]}, {origins:["https://127.0.0.1:4000"]}, {origins:["https://[::1]:4000"]}
  ]) expect(() => Host.validateAddress(address)).toThrow();
  expect(() => Host.validateAddress({bind:"0.0.0.0",origins:["http://lan-a:4000", "https://box.example"]})).not.toThrow();
  expect(() => Host.validateAddress({bind:"[::]:4000"})).not.toThrow();
