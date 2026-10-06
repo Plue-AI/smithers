@@ -53,6 +53,7 @@ func TestDelegatedCredentialComposedInstallPostgres(t *testing.T) {
 	cfg := testConfigAllFlagsOn()
 	cfg.Auth.Mode = "selfhost"
 	cfg.Auth.SessionSecret = "fixture-secret"
+	cfg.Auth.WorkerExchangeToken = "fixture-worker-secret"
 	cfg.Auth.SessionCookieName = "session"
 	svc := services.NewAuthService(q, cfg.Auth, nil, auth.NewGitHubClient(ownerOAuthCredentials{"client", "secret"}, "", provider.URL, provider.URL))
 	svc.InstallSetup = &services.InstallSetupSessions{Pool: pool}
@@ -127,9 +128,30 @@ func TestDelegatedCredentialComposedInstallPostgres(t *testing.T) {
 		require.NoError(t, err)
 		return res.StatusCode, string(data)
 	}
-	status, body := call("GET", "/api/user", "", raw)
+	status, body := call("POST", "/api/auth/github/token-exchange", `{"github_access_token":"fixture-github-token","token_name":"laptop-exchange"}`, "fixture-worker-secret")
+	require.Equal(t, 200, status, body)
+	var exchanged struct {
+		Token string `json:"token"`
+	}
+	require.NoError(t, json.Unmarshal([]byte(body), &exchanged))
+	exchangeDigest := sha256.Sum256([]byte(exchanged.Token))
+	exchangeRow, err := q.GetAuthInfoByTokenHash(ctx, hex.EncodeToString(exchangeDigest[:]))
+	require.NoError(t, err)
+	require.True(t, exchangeRow.TokenSystemIssued)
+	require.Contains(t, exchangeRow.TokenScopes, "via:cli")
+	require.NotContains(t, exchangeRow.TokenScopes, "approval")
+	var exchangeExpiry time.Time
+	require.NoError(t, pool.QueryRow(ctx, `SELECT expires_at FROM access_tokens WHERE id=$1`, exchangeRow.TokenID).Scan(&exchangeExpiry))
+	require.WithinDuration(t, time.Now().Add(30*24*time.Hour), exchangeExpiry, 10*time.Second)
+	status, body = call("GET", "/api/user", "", raw)
 	require.Equal(t, 200, status, body)
 	require.Contains(t, body, `"via":"claude-code"`)
+	status, body = call("POST", "/api/todos/1/merge", `{"reviewed_head_sha":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"}`, raw)
+	require.Equal(t, 503, status, body)
+	require.Contains(t, body, `"code":"confirmation_unavailable"`)
+	status, body = call("POST", "/api/members", `{"github_login":"writer"}`, raw)
+	require.Equal(t, 403, status, body)
+	require.Contains(t, body, `"code":"never"`)
 	status, body = call("POST", "/api/todos/1", `{"op":"retry","steer":"Keep the retry guard"}`, raw)
 	require.Equal(t, 202, status, body)
 	var actor []byte
@@ -171,6 +193,14 @@ func TestDelegatedCredentialComposedInstallPostgres(t *testing.T) {
 	require.NoError(t, err)
 	require.False(t, row.TokenSystemIssued)
 	require.Equal(t, middleware.CredentialPerson, middleware.TokenCredentialKind(row.TokenSystemIssued, row.TokenScopes, "person"))
+	for _, binding := range []string{"CREDENTIAL:sync", "WORKSPACE:branch-1", "LANDING-WORKSPACE:branch-1"} {
+		_, err = pool.Exec(ctx, `UPDATE access_tokens SET scopes=$2 WHERE id=$1`, row.TokenID, "repo,user,"+binding)
+		require.NoError(t, err)
+		status, body = call("GET", "/api/user", "", legacyRaw)
+		require.Equal(t, 401, status, body)
+	}
+	_, err = pool.Exec(ctx, `UPDATE access_tokens SET scopes=$2 WHERE id=$1`, row.TokenID, row.TokenScopes)
+	require.NoError(t, err)
 	turn, err := svc.MintForTurn(ctx, owner.ID, "turn-1")
 	require.NoError(t, err)
 	require.Equal(t, "smithers", turn.Via)

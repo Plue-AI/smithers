@@ -9,6 +9,7 @@ import (
 
 	"github.com/go-chi/chi/v5"
 	"github.com/smithersai/smithers/packages/backend/internal/db"
+	"github.com/smithersai/smithers/packages/backend/internal/middleware"
 	"github.com/smithersai/smithers/packages/backend/internal/services"
 	"github.com/smithersai/smithers/packages/backend/jobs"
 )
@@ -195,6 +196,16 @@ func (h *TodoHandler) Answer(w http.ResponseWriter, r *http.Request) {
 // the same Idempotency-Key's earlier request again; the TODO is Merged only
 // once GitHub reports the merge and main contains it.
 func (h *TodoHandler) Merge(w http.ResponseWriter, r *http.Request) {
+	// A full delegated credential asks its member for confirmation; it never
+	// enters the browser-only merge implementation. The shared authorizer
+	// checks current role/scope and refuses an unavailable consumer first.
+	if info := middleware.AuthInfoFromContext(r.Context()); info != nil && info.CredentialKind() == middleware.CredentialDelegated {
+		if _, terminal := info.TerminalDelegation(); !terminal {
+			if _, _, ok := h.authorize(w, r, "merge"); !ok {
+				return
+			}
+		}
+	}
 	if err := services.MergeCredential(r.Context(), r.Header.Get("Smithers-Via")); err != nil {
 		todoRouteError(w, err)
 		return
