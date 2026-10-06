@@ -23,6 +23,7 @@
 
 import { existsSync, readdirSync, readFileSync, statSync } from "node:fs"
 import { join } from "node:path"
+import { parse as parseToml } from "smol-toml"
 
 /**
  * What the checks read.
@@ -91,6 +92,7 @@ export const followUps: Readonly<Record<FollowUp["id"], FollowUp>> = {
  * @since 1.0.0-rc.0
  */
 export interface Evidence {
+  readonly machine: MachineRecipe | MachineRecipeError
   readonly packageManager: string | undefined
   readonly scripts: Readonly<Record<string, string>>
   readonly testRunner: string | undefined
@@ -174,6 +176,224 @@ const runnerFiles: ReadonlyArray<readonly [file: string, runner: string]> = [
   ["go.mod", "go test"]
 ]
 
+export interface MachineRecipe {
+  readonly detectorVersion: string
+  readonly tools: Record<string, { version: string; file: string }>
+  packageManager?: string
+  checks?: Array<{ id: string; argv: Array<string> }>
+  readonly installs: Array<
+    { command: Array<string>; offline?: Array<string>; files: Array<string>; destinations: Array<string> }
+  >
+}
+
+export class MachineRecipeError extends Error {
+  readonly code = "invalid_machine_recipe"
+  readonly class = "user"
+  readonly fix: string
+  constructor(file: string, message: string) {
+    super(`${file}: ${message}`)
+    this.fix = `Change ${file}`
+  }
+}
+
+/** Standard repository files, interpreted as data; never load repository code. */
+export const machineFiles = [
+  ".node-version",
+  ".nvmrc",
+  "package.json",
+  ...lockfiles.map(([file]) => file),
+  "go.mod",
+  "rust-toolchain.toml",
+  "Cargo.toml",
+  ".python-version",
+  "pyproject.toml",
+  "uv.lock",
+  "requirements.txt"
+] as const
+
+const machineEvidence = (repository: Repository): MachineRecipe => {
+  const r: MachineRecipe = { detectorVersion: "smithers.toolchain-detect/v4", tools: {}, installs: [] }
+  const has = (file: string) => repository.exists(file)
+  const text = (file: string) => repository.read(file) ?? ""
+  const fail = (file: string, message: string): never => {
+    throw new MachineRecipeError(file, message)
+  }
+  const numeric = (version: string) => /^[0-9]+(?:\.[0-9]+){0,2}$/.test(version)
+  const range = (version: string) =>
+    version === "stable" || version.split("||").every((part) => {
+      const terms = part.replaceAll(",", " ").trim().split(/\s+/)
+      return terms.every((term) => /^(?:>=|<=|==|>|<|=|\^|~)?[0-9]+(?:\.[0-9]+){0,2}(?:\.[x*])?$/.test(term))
+    })
+  const tool = (name: string, version: string, file: string, allowRange = false) => {
+    version = version.trim()
+    if (
+      version !== "" && !(allowRange ? range(version) : numeric(version)) && !(name === "rust" && version === "stable")
+    ) {
+      fail(file, `invalid ${name} version ${version}`)
+    }
+    r.tools[name] = { version, file }
+  }
+  const install = (
+    command: Array<string>,
+    offline: Array<string> | undefined,
+    files: Array<string>,
+    destinations: Array<string>
+  ) => {
+    r.installs.push({
+      command,
+      ...(offline === undefined ? {} : { offline }),
+      files: files.sort(),
+      destinations: destinations.sort()
+    })
+  }
+  const parse = (file: string, toml = false): unknown => {
+    if (!has(file)) return {}
+    try {
+      return toml ? parseToml(text(file)) : JSON.parse(text(file))
+    } catch {
+      return fail(file, toml ? "invalid TOML" : "invalid JSON")
+    }
+  }
+  const manifest = parse("package.json") as { packageManager?: string; engines?: { node?: string } }
+  if (manifest === null || typeof manifest !== "object" || Array.isArray(manifest)) {
+    fail("package.json", "expected an object")
+  }
+  for (const value of [manifest.packageManager, manifest.engines?.node]) {
+    if (value !== undefined && typeof value !== "string") fail("package.json", "expected a string")
+  }
+  let version = manifest.engines?.node ?? "", file = "package.json"
+  for (const candidate of [".nvmrc", ".node-version"]) {
+    if (has(candidate)) {
+      version = text(candidate).trim().replace(/^v/, "")
+      file = candidate
+    }
+  }
+  if (file !== "package.json" && !numeric(version)) fail(file, "expected one numeric version")
+  if (has("package.json") || version !== "") tool("node", version, file, file === "package.json")
+  let manager = "", managerVersion = "", managerFile = "package.json"
+  const declared = manifest.packageManager ?? ""
+  if (declared !== "") {
+    const at = declared.indexOf("@")
+    manager = at < 0 ? declared : declared.slice(0, at)
+    managerVersion = at < 0 ? "" : declared.slice(at + 1).split("+sha")[0]!
+  }
+  const chosen: Array<string> = []
+  for (const [lock, name] of lockfiles) {
+    if (!has(lock)) continue
+    if (declared === "" && manager !== "" && manager !== name) {
+      fail([...chosen, lock].join(" and "), "conflicting package-manager lockfiles; set package.json#packageManager")
+    }
+    if (manager === "") {
+      manager = name
+      managerFile = lock
+    }
+    if (manager === name) chosen.push(lock)
+  }
+  if (manager === "" && has("package.json")) manager = "npm"
+  if (manager !== "") {
+    if (!["npm", "pnpm", "yarn", "bun"].includes(manager)) fail(managerFile, `unsupported package manager ${manager}`)
+    if (r.tools.node === undefined) tool("node", "", managerFile)
+    tool(manager, managerVersion, managerFile)
+    r.packageManager = manager
+    const command = manager === "npm" && chosen.length > 0
+      ? ["npm", "ci"]
+      : [manager, "install", ...(chosen.length > 0 && manager !== "npm" ? ["--frozen-lockfile"] : [])]
+    const offline = manager === "pnpm" && chosen.length > 0
+      ? ["pnpm", "install", "--offline", "--frozen-lockfile"]
+      : [...command, "--offline"]
+    install(command, offline, ["package.json", ...chosen], ["registry.npmjs.org", "registry.yarnpkg.com"])
+  }
+  if (has("go.mod")) {
+    let go = ""
+    const seen = new Set<string>()
+    for (const match of text("go.mod").matchAll(/^\s*(go|toolchain)\s+(\S+)\s*(?:\/\/[^\n]*)?$/gm)) {
+      const directive = match[1]!, value = match[2]!
+      if (seen.has(directive)) fail("go.mod", `duplicate ${directive} directive`)
+      seen.add(directive)
+      if (directive === "go" && go === "") go = value
+      if (directive === "toolchain" && value !== "default") go = value.replace(/^go/, "")
+    }
+    if (go === "") fail("go.mod", "missing go directive")
+    tool("go", go, "go.mod")
+    install(["go", "mod", "download"], undefined, ["go.mod"], [
+      "proxy.golang.org",
+      "sum.golang.org",
+      "storage.googleapis.com"
+    ])
+  }
+  const cargo = parse("Cargo.toml", true) as { package?: { "rust-version"?: string } }
+  const rust = parse("rust-toolchain.toml", true) as { toolchain?: { channel?: string } }
+  if (has("Cargo.toml") || has("rust-toolchain.toml")) {
+    let rustVersion = cargo.package?.["rust-version"] ?? "", rustFile = "Cargo.toml"
+    if (has("rust-toolchain.toml")) {
+      rustVersion = rust.toolchain?.channel ?? ""
+      rustFile = "rust-toolchain.toml"
+      if (rustVersion === "") fail(rustFile, "missing toolchain.channel")
+    } else if (rustVersion !== "") {
+      if (typeof rustVersion !== "string" || !numeric(rustVersion)) {
+        fail(rustFile, "expected one numeric minimum Rust version")
+      }
+      rustVersion = `>=${rustVersion}`
+    }
+    if (typeof rustVersion !== "string") fail(rustFile, "expected a string")
+    tool("rust", rustVersion || "stable", rustFile, rustFile === "Cargo.toml")
+    if (has("Cargo.toml")) {
+      install(["cargo", "fetch"], undefined, ["Cargo.toml", "rust-toolchain.toml"], [
+        "index.crates.io",
+        "static.crates.io"
+      ])
+    }
+  }
+  const project = parse("pyproject.toml", true) as { project?: { "requires-python"?: string } }
+  const requirements = repository.list("").filter((name) => /^requirements[^/\\\x00]*\.txt$/.test(name) && has(name))
+    .sort()
+  if (has("pyproject.toml") || has(".python-version") || has("uv.lock") || requirements.length > 0) {
+    let python = project.project?.["requires-python"] ?? "", pythonFile = "pyproject.toml"
+    if (has(".python-version")) {
+      python = text(".python-version").trim()
+      pythonFile = ".python-version"
+      if (!numeric(python)) fail(pythonFile, "expected one numeric version")
+    } else if (!has("pyproject.toml")) pythonFile = has("uv.lock") ? "uv.lock" : requirements[0] ?? "requirements.txt"
+    if (typeof python !== "string") fail(pythonFile, "expected a string")
+    tool("python", python, pythonFile, pythonFile === "pyproject.toml")
+    if (has("uv.lock") || (has("pyproject.toml") && requirements.length === 0)) {
+      tool("uv", "", "uv.lock")
+      const command = ["uv", "sync", ...(has("uv.lock") ? ["--frozen"] : [])]
+      install(command, [...command, "--offline"], ["pyproject.toml", "uv.lock"], ["pypi.org", "files.pythonhosted.org"])
+    } else if (requirements.length > 0) {
+      const args = requirements.flatMap((name) => ["-r", name])
+      install(
+        ["python", "-m", "pip", "install", ...args],
+        ["python", "-m", "pip", "install", "--no-index", ...args],
+        requirements,
+        ["pypi.org", "files.pythonhosted.org"]
+      )
+    }
+  }
+  // Check inventory shares the manager and language facts. Makefile and legacy
+  // Python check declarations contribute commands, never image tool versions.
+  const addCheck = (id: string, argv: Array<string>) => {
+    if (r.checks?.some((check) => check.id === id)) return
+    ;(r.checks ??= []).push({ id, argv })
+  }
+  const scripts = scriptsOf(repository.read("package.json"))
+  for (const name of ["test", "lint", "typecheck", "build"]) {
+    const script = scripts[name]
+    if (script?.trim() && !script.includes("no test specified")) {
+      const manager = r.packageManager ?? "npm"
+      addCheck(name, manager === "npm" ? ["npm", "run", name] : [manager, name])
+    }
+  }
+  for (const name of ["test", "lint", "typecheck", "format", "build"]) {
+    if (new RegExp(`^${name}\\s*:`, "m").test(text("Makefile"))) addCheck(name, ["make", name])
+  }
+  if (has("go.mod")) addCheck("test", ["go", "test", "./..."])
+  if (has("Cargo.toml")) addCheck("test", ["cargo", "test"])
+  if (has("pyproject.toml") || has("setup.py") || has("pytest.ini")) addCheck("test", ["pytest"])
+
+  return r
+}
+
 /**
  * Reads the facts every check consults, once.
  *
@@ -183,11 +403,14 @@ const runnerFiles: ReadonlyArray<readonly [file: string, runner: string]> = [
 export const evidence = (repository: Repository): Evidence => {
   const manifest = repository.read("package.json")
   const scripts = scriptsOf(manifest)
-  const declaredManager = manifestField(manifest, "packageManager")
-  const lock = lockfiles.find(([file]) => repository.exists(file))
-  const packageManager = typeof declaredManager === "string"
-    ? declaredManager.split("@")[0]
-    : lock?.[1] ?? (manifest === undefined ? undefined : "npm")
+  let machine: MachineRecipe | MachineRecipeError
+  try {
+    machine = machineEvidence(repository)
+  } catch (error) {
+    if (!(error instanceof MachineRecipeError)) throw error
+    machine = error
+  }
+  const packageManager = machine instanceof MachineRecipeError ? undefined : machine.packageManager
   const testScript = scripts["test"]
   const runnerFile = runnerFiles.find(([file]) => repository.exists(file))
   const testRunner = testScript !== undefined
@@ -227,6 +450,7 @@ export const evidence = (repository: Repository): Evidence => {
     ...(repository.exists("pyproject.toml") ? ["python"] : [])
   ]
   return {
+    machine,
     packageManager,
     scripts,
     testRunner,
@@ -494,7 +718,9 @@ export const memoryRepository = (root: string, files: Readonly<Record<string, st
     list: (path) =>
       [
         ...new Set(
-          paths.filter((file) => file.startsWith(`${path}/`)).map((file) => file.slice(path.length + 1).split("/")[0]!)
+          paths.filter((file) => path === "" || file.startsWith(`${path}/`)).map((file) =>
+            file.slice(path === "" ? 0 : path.length + 1).split("/")[0]!
+          )
         )
       ].sort()
   }

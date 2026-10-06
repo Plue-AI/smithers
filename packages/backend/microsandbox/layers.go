@@ -296,7 +296,15 @@ func (e *environments) resolve(ctx context.Context, source workspaceapi.Workspac
 	var detected Recipe
 	var toolchain toolchainLayer
 	if targets == nil {
-		detected, err = DetectRecipe(read)
+		node := ""
+		if bundle := e.runtime.config.Bundle; bundle != nil {
+			program := bundle.Program("bin/node")
+			if err := program.Check(); err != nil {
+				return Layer{}, err
+			}
+			node = program.Path()
+		}
+		detected, err = detectRecipe(ctx, read, node)
 		if err == nil {
 			toolchain, err = toolchainRecipe(e.config.Image, nil, detected)
 		}

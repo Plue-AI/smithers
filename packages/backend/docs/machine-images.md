@@ -8,7 +8,12 @@ description: "Detected toolchains, reviewed image packages, and Source ready and
 The machine layer builder uses main’s committed `.smithers/target-index.json` when
 present. An invalid index fails; it never silently switches to detection. Indexed and
 detected inputs share the toolchain and dependency recipe builders.
-Without an index, `microsandbox.DetectRecipe` reads only:
+Without an index, `microsandbox.DetectRecipe` adapts mirror data to the single
+`Checklist.evidence` detector. Its compiled code is embedded in the backend;
+`go generate ./microsandbox` regenerates it. The installed bundle's verified
+Node interprets this trusted code with no inherited credentials or Node options.
+Repository bytes enter only as JSON data. The compiled detector hash keys layers.
+It reads only:
 
 | Files                                                                       | Recipe                                        |
 | --------------------------------------------------------------------------- | --------------------------------------------- |
@@ -22,7 +27,7 @@ Without an index, `microsandbox.DetectRecipe` reads only:
 package managers fail with both filenames. `.node-version` wins over `.nvmrc`,
 which wins over `engines.node`. Go's `toolchain` directive wins over `go`.
 The recipe records tool versions, install argv and public registry destinations.
-Detection executes no code and reads no host environment configuration.
+Detection never executes repository code or reads host environment configuration.
 
 The file-reader callback represents a `requirements*.txt` listing as a JSON
 object of root filenames to their text. The product reader enumerates metadata
