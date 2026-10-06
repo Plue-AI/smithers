@@ -1,5 +1,6 @@
 /** Shared private immutable-source boundary for command and semantic checks. */
-import { Effect, type FileSystem, Path, Schema, Stream } from "effect"
+import * as Digest from "@smthrs/core/Digest"
+import { Effect, type FileSystem, Option, Path, Schema, Stream } from "effect"
 import { ChildProcess, ChildProcessSpawner } from "effect/unstable/process"
 import { CodingError, type Revision } from "./schema.ts"
 
@@ -135,6 +136,51 @@ export const contained = (root: string, candidate: string, path: Path.Path) => {
   const relative = path.relative(root, candidate)
   return relative !== ".." && !relative.startsWith(`..${path.sep}`) && !path.isAbsolute(relative)
 }
+/** Original exported entries only: build outputs are allowed, tracked edits are not. */
+export const sourceFileIdentities = (fs: FileSystem.FileSystem, root: string) =>
+  Effect.gen(function*() {
+    const path = yield* Path.Path
+    const identities = new Map<string, string>()
+    const pending = [root]
+    while (pending.length > 0) {
+      const directory = pending.pop()!
+      for (const name of yield* fs.readDirectory(directory)) {
+        const entry = path.join(directory, name)
+        const link = yield* fs.readLink(entry).pipe(Effect.option)
+        if (Option.isSome(link)) {
+          identities.set(path.relative(root, entry), `link:${link.value}`)
+          continue
+        }
+        const info = yield* fs.stat(entry)
+        if (info.type === "Directory") pending.push(entry)
+        else if (info.type === "File") {
+          identities.set(path.relative(root, entry), `${info.mode & 0o111}:${Digest.digest(yield* fs.readFile(entry))}`)
+        } else return yield* invalid("Exported source contains an unsupported file")
+      }
+    }
+    return identities
+  })
+
+/** Do not follow a path a check replaced with a symlink outside the export. */
+export const sourceFilesChanged = (fs: FileSystem.FileSystem, root: string, before: ReadonlyMap<string, string>) =>
+  Effect.gen(function*() {
+    const path = yield* Path.Path
+    for (const [relative, identity] of before) {
+      const entry = path.join(root, relative)
+      const current = yield* Effect.gen(function*() {
+        const resolved = yield* fs.realPath(entry)
+        if (!contained(root, resolved, path)) return "outside"
+        const link = yield* fs.readLink(entry).pipe(Effect.option)
+        if (Option.isSome(link)) return `link:${link.value}`
+        const info = yield* fs.stat(entry)
+        if (info.type !== "File") return "replaced"
+        return `${info.mode & 0o111}:${Digest.digest(yield* fs.readFile(entry))}`
+      }).pipe(Effect.orElseSucceed(() => "missing"))
+      if (current !== identity) return true
+    }
+    return false
+  })
+
 export const runSourceProcess = (
   options: ImmutableSourceOptions,
   argv: ReadonlyArray<string>,
