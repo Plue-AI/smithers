@@ -89,6 +89,65 @@ test("/file dispatch loads branch bytes; live writes, gone states and Follow kee
   } finally { flushSync(() => root.unmount()); host.remove(); await app.dispose(); channel.dispose() }
 })
 
+test("live reload keeps the newest File after an older response arrives late", async () => {
+  const store = await createAppStore({ kind: "localStorage", storage: memoryStorage() })
+  const socket = new Socket()
+  const channel = new LiveChannel({ socket: () => socket })
+  const requests: string[] = []
+  let releaseOld!: () => void
+  let oldBodyRequested = false
+  let oldBodyReturned = false
+  const oldBody = new Promise<void>(resolve => { releaseOld = resolve })
+  const app = controller(store, agent, { bootstrap: { ...bootstrap, capabilities: ["install"] },
+    branchOptions: { ready: () => true, scope: () => ({ branch: "b12", member: "ben", revision: 1, sleeping: false }) },
+    live: channel,
+    fetchImpl: async input => {
+      const url = String(input)
+      if (!url.includes("/branches/b12/files/")) return json({}, 404)
+      requests.push(url)
+      if (url.endsWith("?digest=two")) {
+        oldBodyRequested = true
+        await oldBody
+        oldBodyReturned = true
+        return json({ ...first, digest: "two", content: { kind: "text", text: "old response\n" }, last_writer: maya })
+      }
+      if (url.endsWith("?digest=three")) return json({ ...first, digest: "three", content: { kind: "text", text: "new response\n" } })
+      return json(first)
+    }
+  })
+  const host = document.createElement("div"); document.body.append(host); const root = createRoot(host)
+  const id = "file-branch-b12-retry.ts"
+  const render = () => flushSync(() => root.render(createElement(ControllerContext.Provider, { value: app }, renderCardBody(store.collections.cards.get(id)!, noActions))))
+  try {
+    expect((await app.commands.submit({ name: "file", payload: { path: "retry.ts", branch: "b12" }, actor: "user" })).status).toBe("executed")
+    render(); await wait(() => !!host.querySelector('[data-kind="file"]'))
+    const surface = host.querySelector('[data-kind="file"]')
+    socket.open()
+    const subscription = socket.frames.map(frame => JSON.parse(frame)).find(frame => frame.t === "sub" && frame.topic === "branch:b12:files")
+    socket.receive({ t: "snap", id: subscription.id, cursor: 0, data: [] })
+    socket.receive({ t: "delta", id: subscription.id, cursor: 1, data: { kind: "file_written", path: "retry.ts", post_digest: "two", actor: maya } })
+    await wait(() => oldBodyRequested)
+    const ben = { ...maya, login: "ben", name: "Ben", via: "terminal" } as const
+    socket.receive({ t: "delta", id: subscription.id, cursor: 2, data: { kind: "file_written", path: "retry.ts", post_digest: "three", actor: ben } })
+    await wait(() => (store.collections.cards.get(id) as any).payload.digest === "three")
+    render(); expect(host.querySelector('[data-kind="file"]')).toBe(surface)
+    expect(host.textContent).toContain("new response")
+    releaseOld()
+    await wait(() => oldBodyReturned)
+    // Allow the stale read and its subscription continuation to settle.
+    await new Promise(resolve => setTimeout(resolve, 0))
+    const card = store.collections.cards.get(id)
+    if (card?.kind !== "file") throw new Error("Missing File card")
+    expect(card.payload.content).toBe("new response\n")
+    expect(card.payload.digest).toBe("three")
+    expect(card.payload.file?.last_writer).toEqual(ben)
+    render(); expect(host.querySelector('[data-kind="file"]')).toBe(surface)
+    expect(host.querySelector('[data-digest="three"]')).not.toBeNull()
+    expect(host.textContent).not.toContain("old response")
+    expect(requests).toEqual(["/api/branches/b12/files/retry.ts", "/api/branches/b12/files/retry.ts?digest=two", "/api/branches/b12/files/retry.ts?digest=three"])
+  } finally { releaseOld(); flushSync(() => root.unmount()); host.remove(); await app.dispose(); channel.dispose() }
+})
+
 test("/files and /diff use branch routes and preserve literal item-prefix and scratch-fork bases", async () => {
   const store = await createAppStore({ kind: "localStorage", storage: memoryStorage() })
   let sleeping = false
