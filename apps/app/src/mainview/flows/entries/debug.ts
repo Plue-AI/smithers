@@ -89,7 +89,7 @@ export const debugApiFlows = (actions: CommandActions): ReadonlyArray<FlowEntry>
     values: Schema.optional(Schema.Record(Schema.String, Schema.String)), confirmation: Schema.optional(Schema.String) })
   return ["debug.api", "debug-api"].map(name => flow({ name,
     summary: "Call the documented API", args: "[operationId]", input,
-    hidden: name === "debug.api" || !actions.debugApi.available(),
+    hidden: name === "debug.api" || !actions.debugApi?.available?.(),
     userOnly: true, userOnlyReason: "raw API bypasses flow typing and approvals; agents use flows",
     handler: payload => actions.debugApiCommand(payload)
   }))
