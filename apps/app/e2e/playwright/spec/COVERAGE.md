@@ -50,7 +50,7 @@ C-UI-12 Members (T-UI-09): [install roster and keyboard Add/Role/Remove](C-UI-12
 | C-J7-03 | [C-J7-03.spec.ts](C-J7-03.spec.ts) | fixme-before-implementation | T-STK-08, T-REL-02 |
 | C-J8-01 | [C-J8-01.spec.ts](C-J8-01.spec.ts) | fixme-before-implementation | T-FLW-06, T-REL-02 |
 | C-J8-02 | [C-J8-02.spec.ts](C-J8-02.spec.ts) | fixme-before-implementation | T-COL-09 |
-| C-J8-03 | [C-J8-03.spec.ts](C-J8-03.spec.ts) | fixme-before-implementation | T-FLW-12 |
+| C-J8-03 | [C-J8-03.spec.ts](C-J8-03.spec.ts) | passing: owner folder PUT, sync status, refusal retained, unavailable control absent; composed PostgreSQL worker proof separate; Mac timing pending | T-FLW-12 |
 | C-J8-04 | [C-J8-04.spec.ts](C-J8-04.spec.ts) | fixme-before-implementation | T-FLW-10 |
 | C-J8-05 | [C-J8-05.spec.ts](C-J8-05.spec.ts) | fixme-before-implementation | T-FLW-10, T-COL-09 |
 | C-J8-06 | [C-J8-06.spec.ts](C-J8-06.spec.ts) | fixme-before-implementation | T-FLW-02, T-APP-01, T-REL-02 |

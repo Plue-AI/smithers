@@ -143,6 +143,7 @@ func installStepCanStart(step InstallStep, now time.Time) bool {
 }
 
 type InstallSetupService struct {
+	Obsidian         *InstallObsidianSettings
 	CodingDefaults   func(context.Context, string) error
 	Now              func() time.Time
 	Pool             *pgxpool.Pool
@@ -868,6 +869,13 @@ func (s *InstallSetupService) Status(ctx context.Context) (map[string]any, error
 			return nil, err
 		}
 		result["parallel"] = parallel.Requested
+	}
+	if s.Obsidian != nil {
+		snapshot, err := s.Obsidian.Snapshot(ctx)
+		if err != nil {
+			return nil, err
+		}
+		result["wiki_sync"] = snapshot
 	}
 	repository, err := q.GetInstallSetting(ctx, "repository")
 	if err == nil {

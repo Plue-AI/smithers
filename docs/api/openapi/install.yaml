@@ -138,7 +138,16 @@ paths:
                 - anyOf:
                     - required: [bind]
                     - required: [origins]
+                - required: [wiki_sync.obsidian]
               properties:
+                wiki_sync.obsidian:
+                  type: object
+                  additionalProperties: false
+                  required: [path]
+                  properties:
+                    path:
+                      type: string
+                      description: Existing absolute folder on the install Mac, owned by the install user and outside STATE.
                 chatgpt:
                   type: boolean
                   description: Enable the owner ChatGPT subscription pool; off by default.
@@ -997,6 +1006,20 @@ components:
                   - saved
                   - failed
               error: *a1
+        wiki_sync:
+          type: object
+          properties:
+            obsidian:
+              type: object
+              required: [path]
+              properties:
+                path:
+                  type: string
+                last_sync_at:
+                  type: string
+                  format: date-time
+                error:
+                  type: string
         chatgpt:
           type: boolean
         capacity:

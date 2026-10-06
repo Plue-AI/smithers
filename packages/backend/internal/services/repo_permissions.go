@@ -318,6 +318,7 @@ var installCommands = map[string]installCommand{
 	"todo.new":           {role: InstallMember},
 	"todo.answer":        {role: InstallMember},
 	"agents.read":        {role: InstallMember},
+	"settings.obsidian":  {role: InstallOwner, personOnly: true},
 	"agent.model":        {role: InstallOwner, personOnly: true},
 	// todo.control is POST /api/todos/{n}; its handler authorizes the
 	// control itself: steer, stop, resume, retry, drop or move.

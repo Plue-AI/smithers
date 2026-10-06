@@ -842,6 +842,13 @@ export type InstallSetupStatus = {
     key: "none" | "validating" | "saved" | "failed"
     error?: string
   }>
+  wiki_sync?: {
+    obsidian?: {
+      path: string
+      last_sync_at?: string
+      error?: string
+    }
+  }
   chatgpt: boolean
   capacity: number
   parallel?: number
@@ -1830,7 +1837,7 @@ export type GetApiInstallResponse = InstallSetupStatus
 export const getApiInstall = (transport: Transport): Promise<GetApiInstallResponse> =>
   transport.request("GET", `/api/install`) as Promise<GetApiInstallResponse>
 
-export type PutApiInstallBody = (unknown | unknown | unknown) | (unknown | unknown)
+export type PutApiInstallBody = (unknown | unknown | unknown) | (unknown | unknown) | unknown
 
 export type PutApiInstallResponse = InstallSetupStatus
 

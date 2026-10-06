@@ -1359,6 +1359,7 @@ type InstallSetupStatus struct {
 	Repositories    []string                              `json:"repositories,omitempty"`
 	CanAssignModels *bool                                 `json:"can_assign_models,omitempty"`
 	Models          []InstallSetupStatusModelsItem        `json:"models"`
+	WikiSync        *InstallSetupStatusWikiSync           `json:"wiki_sync,omitempty"`
 	Chatgpt         bool                                  `json:"chatgpt"`
 	Capacity        int64                                 `json:"capacity"`
 	Parallel        *int64                                `json:"parallel,omitempty"`
@@ -1428,6 +1429,18 @@ type InstallSetupStatusModelsItem struct {
 	Model    *string `json:"model,omitempty"`
 	Key      string  `json:"key"`
 	Error    *string `json:"error,omitempty"`
+}
+
+// InstallSetupStatusWikiSync is generated from docs/api/openapi.yaml.
+type InstallSetupStatusWikiSync struct {
+	Obsidian *InstallSetupStatusWikiSyncObsidian `json:"obsidian,omitempty"`
+}
+
+// InstallSetupStatusWikiSyncObsidian is generated from docs/api/openapi.yaml.
+type InstallSetupStatusWikiSyncObsidian struct {
+	Path       string     `json:"path"`
+	LastSyncAt *time.Time `json:"last_sync_at,omitempty"`
+	Error      *string    `json:"error,omitempty"`
 }
 
 // InstallIssuePerson — A GitHub account.

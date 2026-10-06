@@ -111,3 +111,7 @@ The [HTTP API reference](https://smithers.sh/docs/reference/http-api/) documents
 ## Open the wiki in Obsidian
 
 In Settings, set **Obsidian folder** to a folder on the install's Mac, then open that folder in Obsidian. Folder edits become wiki revisions; wiki edits return to the folder.
+
+## Open the wiki in Obsidian
+
+In Settings, set **Obsidian folder** to an existing folder on the install's Mac, using its absolute path (for example `/Users/will/Vault`). Open that folder as a vault in Obsidian. Wiki edits and folder edits sync both ways every minute; the folder must be owned by the install user and outside the install's state directory. Teammates use the wiki in the app.
