@@ -376,7 +376,7 @@ test("a retry posts its steer once and settles when the attempt its receipt name
     await h.seam.applyTodoProjection(12, { ...failed, run: { id: "run-44", attempt: 3, indicators: [] } })
     expect(h.outcomes).toHaveLength(1)
     await h.seam.applyTodoProjection(12, { ...failed, run: { id: "run-44", attempt: 4, indicators: [] } })
-    expect(h.outcomes[1]).toEqual({ key: `todo.request.${again}`, status: "failed", detail: failed.failure!.message })
+    expect(h.outcomes[1]).toEqual({ key: `todo.request.${again}`, status: "failed", detail: "The operation failed." })
   } finally { h.close() }
 })
 

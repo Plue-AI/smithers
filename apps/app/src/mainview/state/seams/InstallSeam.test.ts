@@ -82,7 +82,7 @@ describe("T-APP-03 install seam", () => {
     const offline = await open(() => { throw new Error("offline") })
     expect(offline.toasts.map(toast => toast.outcome)).toEqual(["Could not reach this install"])
     expect((await open(() => new Response("<!doctype html>", { status: 502 }))).toasts[0]?.outcome).toBe("Install request failed")
-    expect((await open(() => Response.json(failure("permission"), { status: 403 }))).toasts[0]?.outcome).toBe("Address refused")
+    expect((await open(() => Response.json(failure("permission"), { status: 403 }))).toasts[0]?.outcome).toBe("The operation failed.")
     const real = await open(() => Response.json(installFixture()))
     expect(real.presentations).toEqual(["setup"]); expect(real.toasts[0]?.outcome).toBe(true)
   })
@@ -102,8 +102,8 @@ describe("T-APP-03 install seam", () => {
     expect(offline.toasts.map(toast => toast.outcome)).toEqual(["Could not reach this install"]); expect(offline.presentations).toEqual([])
     expect(offline.seam.snapshots.get().error).toEqual({ code: "unreachable", class: "infra", message: "Could not reach this install" })
     expect((await open(() => new Response("Bad gateway", { status: 502 }))).toasts[0]?.outcome).toBe("Install request failed")
-    expect((await open(() => Response.json(failure("permission"), { status: 403 }))).toasts[0]?.outcome).toBe("Address refused")
-    expect((await open(() => Response.json({ code: "unavailable", class: "infra", message: "Install unavailable" }, { status: 503 }))).toasts[0]?.outcome).toBe("Install unavailable")
+    expect((await open(() => Response.json(failure("permission"), { status: 403 }))).toasts[0]?.outcome).toBe("The operation failed.")
+    expect((await open(() => Response.json({ code: "unavailable", class: "infra", message: "Install unavailable" }, { status: 503 }))).toasts[0]?.outcome).toBe("The operation failed.")
     const real = await open(() => Response.json(installFixture()))
     expect(real.presentations).toEqual(["setup"]); expect(real.toasts[0]?.outcome).toBe(true)
   })
@@ -111,7 +111,7 @@ describe("T-APP-03 install seam", () => {
     const h = await harness(() => Response.json(failure("permission"), { status: 403 }))
     expect(h.seam.showSettings()).toEqual({ value: "Requested" }); await h.idle()
     expect(h.seam.snapshots.get()).toEqual({ error: failure("permission") })
-    expect(h.presentations).toEqual([]); expect(h.toasts[0]?.outcome).toBe("Address refused")
+    expect(h.presentations).toEqual([]); expect(h.toasts[0]?.outcome).toBe("The operation failed.")
     expect([...h.store.collections.cards.values()]).toEqual([])
   })
   test("a setup session cannot open owner-only Settings even when GET succeeds", async () => {
@@ -212,7 +212,7 @@ describe("T-APP-03 install seam", () => {
     const kept = h.seam.snapshots.get().model
     expect(kept?.steps.find(step => step.id === "app_manifest")).toEqual({ id: "app_manifest", state: "failed", error: refusal })
     expect(kept?.steps.find(step => step.id === "address")?.state).toBe("done")
-    expect(h.toasts.at(-1)?.outcome).toBe("request origin differs from install origin")
+    expect(h.toasts.at(-1)?.outcome).toBe("The operation failed.")
     expect(h.stopped()).toBe(0)
   })
   test("a permission refusal of a key fails that role and keeps the card", async () => {
@@ -229,7 +229,7 @@ describe("T-APP-03 install seam", () => {
     await h.seam.readInstall(); h.seam.setInstallParallel(2); await h.idle()
     expect(h.seam.snapshots.get()).toEqual({ error: failure("permission") })
   })
-  test("keys are consumed once, never stored; a refusal keeps the provider reason", async () => {
+  test("keys are consumed once, never stored; provider detail stays out of the authored refusal", async () => {
     const secret = "test-private-key"
     const h = await harness(path => path === "/api/model/credential" ? Response.json({ ...failure(), message: "Provider refused key" }, { status: 422 }) : Response.json(installFixture()))
     await h.seam.readInstall(); const gesture = writeOnlyGesture("settings.model-key", { value: secret })
@@ -238,7 +238,8 @@ describe("T-APP-03 install seam", () => {
     expect(h.requests[1]?.init?.body).toContain(secret)
     expect(JSON.stringify(h.seam.snapshots.get())).not.toContain(secret)
     expect(JSON.stringify([...h.store.collections.cards.values()])).not.toContain(secret)
-    expect(h.seam.snapshots.get().model?.models[1]).toEqual({ role: "coding", provider: "OpenAI", key: "failed", error: "Provider refused key" })
+    expect(h.seam.snapshots.get().model?.models[1]).toEqual({ role: "coding", provider: "OpenAI", key: "failed", error: "The operation failed." })
+    expect(h.seam.snapshots.get().error?.message).toBe("Provider refused key")
   })
   test("a key is Validating while its request is in flight, then Failed with the provider's relayed reason", async () => {
     const gate = deferred<Response>()
@@ -249,8 +250,8 @@ describe("T-APP-03 install seam", () => {
     expect(h.seam.snapshots.get().model?.models[2]).toEqual({ role: "jev", provider: "AI Gateway", key: "validating" })
     expect(h.seam.snapshots.get().model?.models[0]).toEqual({ role: "fast", provider: "Cerebras", key: "saved" })
     gate.resolve(Response.json({ ok: false, failure: { code: "host_refused", status: 401, refusal: "401 invalid API key" }, fault: "user" })); await h.idle()
-    expect(h.seam.snapshots.get().model?.models[2]).toEqual({ role: "jev", provider: "AI Gateway", key: "failed", error: "401 invalid API key" })
-    expect(h.toasts[0]?.outcome).toBe("401 invalid API key")
+    expect(h.seam.snapshots.get().model?.models[2]).toEqual({ role: "jev", provider: "AI Gateway", key: "failed", error: "Key refused" })
+    expect(h.toasts[0]?.outcome).toBe("Key refused")
     expect(JSON.stringify(h.seam.snapshots.get())).not.toContain("private-key")
   })
   test("coding Save persists the chosen model after its sealed key and reports default failure (#3455)", async () => {
@@ -319,7 +320,7 @@ describe("T-APP-03 install seam", () => {
     await h.seam.readInstall()
     h.seam.saveInstallModelKey({ role: "coding", provider: "OpenAI" }, writeOnlyGesture("settings.model-key", { value: "private-key" }))
     await h.idle()
-    expect(h.toasts[0]?.outcome).toBe("Key refused")
+    expect(h.toasts[0]?.outcome).toBe("The operation failed.")
     expect(h.seam.snapshots.get().model?.models[1]?.key).toBe("failed")
   })
   test("reload during a machine build follows its durable step without relaunching", async () => {
@@ -469,7 +470,7 @@ test("a receipt followed by operation failure stays retryable with its real reas
   await h.seam.readInstall(); h.seam.setupStep({ step: "machine" }); await tick(); await tick()
   h.receive({ ...model, steps: model.steps.map(step => step.id === "machine" ? { id: "machine", state: "failed", error: failure() } : step) })
   await h.idle()
-  expect(h.toasts[0]?.outcome).toBe("Address refused")
+  expect(h.toasts[0]?.outcome).toBe("The operation failed.")
   expect(h.store.session().installRequests?.[0]?.state).toBe("failed")
   expect(h.seam.setupStep({ step: "machine" })).toEqual({ value: "Requested" })
   await tick(); await tick(); h.receive(installFixture()); await h.idle()

@@ -242,7 +242,8 @@ describe("T-FLW-12 Obsidian control", () => {
     try {
       await h.controller.commands.run("settings"); await tick()
       await h.controller.commands.submit({ name: "settings.obsidian", payload: { path: "/state" }, actor: "user" }); await tick()
-      expect(h.controller.installSnapshots.get().model?.wiki_sync?.obsidian).toEqual({ path: "/Vault", error: "Obsidian folder refused" })
+      expect(h.controller.installSnapshots.get().model?.wiki_sync?.obsidian).toEqual({ path: "/Vault", error: "The operation failed." })
+      expect(h.controller.installSnapshots.get().error?.message).toBe("Obsidian folder refused")
     } finally { await h.controller.dispose() }
   })
 })
