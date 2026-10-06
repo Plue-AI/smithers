@@ -4114,6 +4114,16 @@
             "request": {
               "type": "string",
               "minLength": 1
+            },
+            "diff": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ]
             }
           },
           "required": [
