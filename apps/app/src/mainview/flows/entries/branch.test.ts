@@ -40,7 +40,7 @@ test("a bootstrapped demo with a live channel opens branches through button, sla
     expect(h.store.collections.cards.get("branch:b-checkout")).toMatchObject({ kind: "branch", title: "fix-checkout-race", payload: { id: "b-checkout" } })
     expect((await h.controller.runCommandForResult("branch", "T9")).status).toBe("executed")
     expect(h.store.collections.cards.get("branch:b-retry")?.kind).toBe("branch")
-    expect(await h.controller.commands.executeForAgent({ name: "commands", arguments: JSON.stringify({ action: "execute", name: "branch", args: "b-stripe" }) })).toBe("Opened upgrade-stripe")
+    expect(await h.controller.commands.runAsAgent("branch", "b-stripe")).toMatchObject({ status: "executed", value: "Opened upgrade-stripe" })
     expect(h.store.collections.cards.get("branch:b-stripe")?.kind).toBe("branch")
   } finally { await h.controller.dispose() }
 })

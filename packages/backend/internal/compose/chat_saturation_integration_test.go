@@ -4,6 +4,8 @@ import (
 	"bufio"
 	"bytes"
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -20,6 +22,7 @@ import (
 
 	"github.com/smithersai/smithers/packages/backend/internal/chat"
 	"github.com/smithersai/smithers/packages/backend/internal/db"
+	"github.com/smithersai/smithers/packages/backend/internal/middleware"
 	"github.com/smithersai/smithers/packages/backend/ports"
 )
 
@@ -94,6 +97,10 @@ func TestAPIStaysResponsiveWhileChatWorkersAreSaturated(t *testing.T) {
 	_, err = pool.Exec(ctx, `INSERT INTO self_host_owners(user_id) VALUES ($1)`, owner.ID)
 	require.NoError(t, err)
 	token, _ := isolationToken(t, q, owner, "saturated-all")
+	session := "saturation-owner-session"
+	digest := sha256.Sum256([]byte(session))
+	_, err = q.CreateAuthSession(ctx, db.CreateAuthSessionParams{SessionKey: hex.EncodeToString(digest[:]), UserID: owner.ID, Username: owner.Username, ExpiresAt: time.Now().Add(time.Hour)})
+	require.NoError(t, err)
 	repo, err := q.CreateRepo(ctx, db.CreateRepoParams{UserID: pgtype.Int8{Int64: owner.ID, Valid: true}, Name: "busy", LowerName: "busy", DefaultBookmark: "main"})
 	require.NoError(t, err)
 
@@ -115,7 +122,10 @@ func TestAPIStaysResponsiveWhileChatWorkersAreSaturated(t *testing.T) {
 		defer cancel()
 		req, reqErr := http.NewRequestWithContext(requestCtx, method, server.URL+path, reader)
 		require.NoError(t, reqErr)
-		req.Header.Set("Authorization", "Bearer "+token)
+		req.AddCookie(&http.Cookie{Name: "smithers_session", Value: session})
+		req.AddCookie(&http.Cookie{Name: middleware.CSRFCookieName, Value: "saturation-csrf"})
+		req.Header.Set("Origin", "http://127.0.0.1:4000")
+		req.Header.Set("X-CSRF-Token", "saturation-csrf")
 		req.Host = "127.0.0.1:4000"
 		if body != nil {
 			req.Header.Set("Content-Type", "application/json")

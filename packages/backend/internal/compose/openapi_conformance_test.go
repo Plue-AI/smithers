@@ -571,6 +571,8 @@ func TestCutBackendHTTPPostgres(t *testing.T) {
 	hash := hex.EncodeToString(digest[:])
 	_, err = q.CreateAccessToken(t.Context(), db.CreateAccessTokenParams{UserID: u.ID, Name: "cuts", TokenHash: hash, TokenLastEight: hash[56:], Scopes: "read:repository,write:repository"})
 	require.NoError(t, err)
+	_, err = q.CreateAuthSession(t.Context(), db.CreateAuthSessionParams{SessionKey: hash, UserID: u.ID, Username: u.Username, ExpiresAt: time.Now().Add(time.Hour)})
+	require.NoError(t, err)
 	for _, mode := range []string{config.AuthModeSelfHosted, config.AuthModeMultitenant} {
 		t.Run(mode, func(t *testing.T) {
 			cfg := testConfigAllFlagsOn()
@@ -620,7 +622,14 @@ func TestCutBackendHTTPPostgres(t *testing.T) {
 				{"GET", "/api/health", 200, 200},
 			} {
 				req := httptest.NewRequest(tc.method, config.PublicOrigin(cfg)+tc.path, strings.NewReader(`{}`))
-				req.Header.Set("Authorization", "token "+token)
+				if mode == config.AuthModeSelfHosted {
+					req.AddCookie(&http.Cookie{Name: "smithers_session", Value: token})
+					req.AddCookie(&http.Cookie{Name: middleware.CSRFCookieName, Value: "cuts-csrf"})
+					req.Header.Set("Origin", config.PublicOrigin(cfg))
+					req.Header.Set("X-CSRF-Token", "cuts-csrf")
+				} else {
+					req.Header.Set("Authorization", "token "+token)
+				}
 				req.Header.Set("Content-Type", "application/json")
 				rec := httptest.NewRecorder()
 				router.ServeHTTP(rec, req)

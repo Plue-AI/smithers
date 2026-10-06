@@ -644,7 +644,7 @@ const readFrames = async (response: Response): Promise<Array<AgentTurnFrame>> =>
 
 test("an install model answer uses the authenticated shared backend without starting a fixture agent", async () => {
   const seen: Array<{ path: string; cookie: string | null; body: unknown }> = []
-  const frames = [{ runId: "title-install", type: "delta", kind: "text", text: "Shared title" }, { runId: "title-install", type: "done", reason: "stop" }]
+  const frames: AgentTurnFrame[] = [{ runId: "title-install", type: "delta", kind: "text", text: "Shared title" }, { runId: "title-install", type: "done", reason: "stop" }]
   const backend = Bun.serve({ hostname: "127.0.0.1", port: 0, async fetch(request) {
     seen.push({ path: new URL(request.url).pathname, cookie: request.headers.get("cookie"), body: await request.json() })
     return new Response(frames.map(frame => JSON.stringify(frame)).join("\n")+"\n", { headers: { "content-type": "application/x-ndjson" } })

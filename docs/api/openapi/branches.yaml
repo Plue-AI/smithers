@@ -244,6 +244,50 @@ paths:
           description: File or branch not found
         '503':
           description: Source or authority unavailable
+    post:
+      x-composition: install
+      summary: Restore a saved file version on a branch
+      operationId: post_api_branch_file
+      tags:
+        - Branches
+      security:
+        - sessionCookie: []
+      parameters:
+        - name: b
+          in: path
+          required: true
+          schema: {type: string}
+        - name: path
+          in: path
+          required: true
+          schema: {type: string}
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [action, version, base_digest]
+              properties:
+                action: {type: string, enum: [restore, restore-deleted]}
+                version: {type: string}
+                base_digest: {type: string}
+      responses:
+        '200':
+          description: File restored against its current digest
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/AnyJSON'}
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403': {$ref: '#/components/responses/AuthorizationForbidden'}
+        '409':
+          description: File changed since this version
+        '503':
+          description: File restore unavailable
   /api/branches/{b}/files:
     get:
       x-composition: install

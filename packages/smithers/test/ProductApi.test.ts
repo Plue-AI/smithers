@@ -95,7 +95,7 @@ describe("the generated product API client", () => {
     // GET /api/issues/{n} (#3457), were added.
     // Includes branch operations, live updates, TODO edits and conversation view state.
     // Exact parity above and the literal resource inventory below remain independent.
-    expect(expected).toHaveLength(514)
+    expect(expected).toHaveLength(531)
     expect(spec.paths).not.toHaveProperty("/api/repository-setup/{operation}")
     expect(
       operations.filter(({ path }) => path.startsWith("/api/install")).map(({ path, method }) =>
@@ -105,6 +105,7 @@ describe("the generated product API client", () => {
       // T-INS-06 setup steps in §16.2 order (9e9493943, #3455) plus the install read/write, scorecard and quiesce.
       "DELETE /api/install/quiesce",
       "GET /api/install",
+      "GET /api/install/metrics",
       "GET /api/install/scorecard",
       "POST /api/install/quiesce",
       "POST /api/install/setup/address",

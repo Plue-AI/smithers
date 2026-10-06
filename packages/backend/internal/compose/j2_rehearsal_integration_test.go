@@ -33,7 +33,9 @@ func TestJ2Rehearsal(t *testing.T) {
 	if !r.install("Install ready") {
 		return
 	}
-	if _, err := r.expect("POST", "/api/members", `{"login":"ben"}`, 204); err != nil {
+	// The writer is an active member, not only an invitation on the roster.
+	// Sign in through the same GitHub callback a person uses on the install.
+	if _, err := r.member("ben", 8, "write"); err != nil {
 		t.Fatal(err)
 	}
 	todos := func() ([]struct {
