@@ -64,6 +64,7 @@ func TestCutHistoryInstallEarlierMemberPrivacy(t *testing.T) {
 		r.Header.Set("Authorization", "Bearer "+token)
 		r.Header.Set("Content-Type", "application/json")
 		r.Host = "127.0.0.1:4000"
+		r.RemoteAddr = "127.0.0.1:1234"
 		w := httptest.NewRecorder()
 		server.Config.Handler.ServeHTTP(w, r)
 		return w
