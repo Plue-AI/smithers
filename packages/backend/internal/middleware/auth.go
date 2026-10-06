@@ -299,7 +299,13 @@ func AuthLoader(queries AuthLoaderQuerier, cfg config.AuthConfig, boundaries ...
 					if !authorizeInstallationOwner(w, r, authInfo, ownerBoundary) {
 						return
 					}
-					refreshedSession, sessionExpiresAt, refreshErr := refreshLoadedSession(ctx, queries, session, now, sessionDuration, sessionRefreshWindow)
+					// Scorecard reads (including policy refusals) never renew a session.
+					var refreshedSession *db.AuthSession
+					sessionExpiresAt := session.ExpiresAt
+					var refreshErr error
+					if InstallMemberCommand(r.Method, r.URL.Path) != "install.scorecard" {
+						refreshedSession, sessionExpiresAt, refreshErr = refreshLoadedSession(ctx, queries, session, now, sessionDuration, sessionRefreshWindow)
+					}
 					if refreshErr != nil {
 						recordAuthLoaderFailure(r, "session_refresh", refreshErr)
 					}

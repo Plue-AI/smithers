@@ -155,6 +155,8 @@ func TestInstallScorecardOwnerReadsRealCreationReceipts(t *testing.T) {
 			hash := sha256.Sum256([]byte(raw))
 			_, err = q.CreateAuthSession(ctx, db.CreateAuthSessionParams{UserID: user, Username: "scorecard-" + permission, SessionKey: hex.EncodeToString(hash[:]), ExpiresAt: time.Now().Add(time.Hour)})
 			require.NoError(t, err)
+			var sessionBefore string
+			require.NoError(t, pool.QueryRow(ctx, `SELECT row_to_json(s)::text FROM auth_sessions s WHERE session_key=$1`, hex.EncodeToString(hash[:])).Scan(&sessionBefore))
 			req := httptest.NewRequest("GET", "http://localhost:4000/api/install/scorecard?from=2026-10-01T00:00:00Z&to=2026-10-15T00:00:00Z", nil)
 			req.RemoteAddr = "127.0.0.1:61000"
 			req.AddCookie(&http.Cookie{Name: "session", Value: raw})
@@ -168,6 +170,9 @@ func TestInstallScorecardOwnerReadsRealCreationReceipts(t *testing.T) {
 			require.NoError(t, json.Unmarshal(w.Body.Bytes(), &refusal))
 			require.Equal(t, "permission", refusal.Code)
 			require.Equal(t, "permission", refusal.Class)
+			var sessionAfter string
+			require.NoError(t, pool.QueryRow(ctx, `SELECT row_to_json(s)::text FROM auth_sessions s WHERE session_key=$1`, hex.EncodeToString(hash[:])).Scan(&sessionAfter))
+			require.Equal(t, sessionBefore, sessionAfter)
 		})
 	}
 
