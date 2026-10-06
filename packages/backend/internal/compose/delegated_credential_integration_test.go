@@ -6,6 +6,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"github.com/coder/websocket"
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -15,6 +16,7 @@ import (
 	"github.com/smithersai/smithers/packages/backend/internal/db"
 	"github.com/smithersai/smithers/packages/backend/internal/live"
 	"github.com/smithersai/smithers/packages/backend/internal/middleware"
+	"github.com/smithersai/smithers/packages/backend/internal/revocation"
 	"github.com/smithersai/smithers/packages/backend/internal/routes"
 	"github.com/smithersai/smithers/packages/backend/internal/services"
 	"github.com/smithersai/smithers/packages/backend/jobs"
@@ -60,7 +62,13 @@ func TestDelegatedCredentialComposedInstallPostgres(t *testing.T) {
 	cfg.Auth.SessionSecret = "fixture-secret"
 	cfg.Auth.WorkerExchangeToken = "fixture-worker-secret"
 	cfg.Auth.SessionCookieName = "session"
-	svc := services.NewAuthService(q, cfg.Auth, nil, auth.NewGitHubClient(ownerOAuthCredentials{"client", "secret"}, "", provider.URL, provider.URL))
+	bus := revocation.NewBus(pool, q)
+	busContext, stopBus := context.WithCancel(ctx)
+	defer stopBus()
+	require.NoError(t, bus.Start(busContext))
+	routes.SetRevocationSource(bus)
+	defer routes.SetRevocationSource(nil)
+	svc := services.NewAuthService(q, cfg.Auth, nil, auth.NewGitHubClient(ownerOAuthCredentials{"client", "secret"}, "", provider.URL, provider.URL), services.WithAuthRevocationPublisher(revocation.NewDBPublisher(q, bus)))
 	svc.InstallSetup = &services.InstallSetupSessions{Pool: pool}
 	svc.Members = members
 	handler := &routes.AuthHandler{Service: svc, AuthConfig: cfg.Auth, InstallSetup: svc.InstallSetup}
@@ -78,6 +86,7 @@ func TestDelegatedCredentialComposedInstallPostgres(t *testing.T) {
 	})})
 	require.NoError(t, err)
 	stackService.SetLauncher(dispatcher)
+	topics.todos, topics.jobs = stackService, jobStore
 	server.Config.Handler = buildRouterCompat(cfg, q, pool, &routes.RepoHandler{}, handler, &routes.UserHandler{ProfileService: services.NewUserService(q), TokenService: svc, AuditService: services.NewAuditService(q)}, &routes.SSHKeyHandler{Service: services.NewSSHKeyService(q)}, &routes.LabelHandler{}, &routes.OrgHandler{}, &routes.LandingHandler{}, &routes.SearchHandler{Service: &mockRouterSearchService{}}, &routes.IssueHandler{}, nil, &routes.GitSmartHandler{Service: &mockRouterGitService{}}, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, &routes.WorkspaceHandler{}, nil, nil, nil, nil, nil, nil, routerExtras{Mythical: &routes.MythicalHandler{Service: stackService}, Members: &routes.MembersHandler{Service: members}, Live: liveHandler})
 	server.Start()
 	defer server.Close()
@@ -142,6 +151,68 @@ func TestDelegatedCredentialComposedInstallPostgres(t *testing.T) {
 		require.NoError(t, err)
 		return res.StatusCode, string(data)
 	}
+	t.Run("CLI-login-live-subscribe-and-token-revoke", func(t *testing.T) {
+		dial := func(credential string, headers http.Header) (*websocket.Conn, *http.Response, error) {
+			if headers == nil {
+				headers = http.Header{}
+			}
+			headers.Set("Authorization", "Bearer "+credential)
+			return websocket.Dial(ctx, "ws"+strings.TrimPrefix(origin, "http")+"/api/live", &websocket.DialOptions{Subprotocols: []string{live.Protocol}, HTTPHeader: headers})
+		}
+		socket, response, err := dial(raw, nil) // Actual CLI OAuth login, no Cookie or Origin.
+		require.NoError(t, err)
+		require.Equal(t, 101, response.StatusCode)
+		defer socket.CloseNow()
+		require.NoError(t, socket.Write(ctx, websocket.MessageText, []byte(`{"t":"sub","id":1,"topic":"todo:1"}`)))
+		readContext, stopRead := context.WithTimeout(ctx, 5*time.Second)
+		defer stopRead()
+		_, frame, err := socket.Read(readContext)
+		require.NoError(t, err)
+		require.Contains(t, string(frame), `"t":"snap"`)
+		require.Contains(t, string(frame), `"n":1`)
+		require.Contains(t, string(frame), `"state":"failed"`)
+		require.NoError(t, socket.Write(ctx, websocket.MessageText, []byte(fmt.Sprintf(`{"t":"sub","id":2,"topic":"confirmations:%d"}`, owner.ID))))
+		_, frame, err = socket.Read(readContext)
+		require.NoError(t, err)
+		require.JSONEq(t, `{"t":"err","id":2,"code":"forbidden"}`, string(frame))
+		mixed, refusal, err := dial(raw, http.Header{"Cookie": {"unrelated=1"}, "Origin": {"http://elsewhere.test"}})
+		require.Error(t, err)
+		require.Nil(t, mixed)
+		require.Equal(t, 403, refusal.StatusCode)
+		refusal.Body.Close()
+		status, body := call("POST", "/api/user/tokens", `{"name":"live-revocation","scopes":["repo","user"]}`, raw)
+		require.Equal(t, 201, status, body)
+		var credential services.CreateTokenResult
+		require.NoError(t, json.Unmarshal([]byte(body), &credential))
+		revoked, _, err := dial(credential.Token, nil)
+		require.NoError(t, err)
+		defer revoked.CloseNow()
+		start := time.Now()
+		browserKey := "live-revocation-browser"
+		browserHash := sha256.Sum256([]byte(browserKey))
+		_, err = q.CreateAuthSession(ctx, db.CreateAuthSessionParams{SessionKey: hex.EncodeToString(browserHash[:]), UserID: owner.ID, Username: owner.Username, ExpiresAt: time.Now().Add(time.Hour)})
+		require.NoError(t, err)
+		revokeRequest, err := http.NewRequest("DELETE", fmt.Sprintf("%s/api/user/tokens/%d", origin, credential.ID), nil)
+		require.NoError(t, err)
+		revokeRequest.Header.Set("Origin", origin)
+		revokeRequest.Header.Set("X-CSRF-Token", "csrf")
+		revokeRequest.AddCookie(&http.Cookie{Name: cfg.Auth.SessionCookieName, Value: browserKey})
+		revokeRequest.AddCookie(&http.Cookie{Name: middleware.CSRFCookieName, Value: "csrf"})
+		revokeResponse, err := client.Do(revokeRequest)
+		require.NoError(t, err)
+		require.Equal(t, 204, revokeResponse.StatusCode)
+		revokeResponse.Body.Close()
+		deadline, stop := context.WithTimeout(ctx, 5*time.Second)
+		defer stop()
+		_, _, err = revoked.Read(deadline)
+		require.Equal(t, websocket.StatusPolicyViolation, websocket.CloseStatus(err))
+		require.Less(t, time.Since(start), 5*time.Second)
+		dead, refusal, err := dial(credential.Token, nil)
+		require.Error(t, err)
+		require.Nil(t, dead)
+		require.Equal(t, 401, refusal.StatusCode)
+		refusal.Body.Close()
+	})
 	status, body := call("POST", "/api/auth/github/token-exchange", `{"github_access_token":"fixture-github-token","token_name":"laptop-exchange"}`, "fixture-worker-secret")
 	require.Equal(t, 200, status, body)
 	var exchanged struct {

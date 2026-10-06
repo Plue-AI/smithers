@@ -13,7 +13,7 @@ owner, as another account and anonymously through the composed backend.
 
 | Stream | Transport | Who may open it | Delivery | Test composition |
 | --- | --- | --- | --- | --- |
-| `GET /api/live` | WebSocket | install members with a browser session from the install's origin | shared snapshots (`home`, `flows`); `todo:<n>` snapshots and durable job-event deltas at source cursors; `smithers.live.v1` | refused 404: install-only; the J4 and J11 rehearsals open it on the install |
+| `GET /api/live` | WebSocket | install members with a browser session from the install's origin or a scoped delegated bearer | shared snapshots (`home`, `flows`); `todo:<n>` snapshots and durable job-event deltas at source cursors; `smithers.live.v1` | refused 404: install-only; the J4 and J11 rehearsals open it on the install |
 | `GET /api/notifications` | SSE | the signed-in account, its own notifications | live hints; no replay | opens |
 | `GET /api/notifications/events/stream` | SSE | the signed-in account, its own notifications | durable facts; `Last-Event-ID` cursor | opens |
 | `GET /api/github/import/{id}` | SSE with `Accept: text/event-stream` | the account that started the import | polled import snapshots until terminal | opens |
@@ -71,3 +71,7 @@ cursor returns a fresh committed snapshot. Broker notifications wake replay;
 a 250 ms repair poll recovers missed notifications. No transport event or
 retention table is created. Home and flows still serve snapshots; they do not
 have the TODO source's replay contract.
+
+Cookie-bearing upgrades require the effective Origin; cookie-free bearer upgrades
+use the same credential loader, scoped authorizer and durable revocation watcher,
+and require no Origin. Machine/run credentials cannot open member Live sockets.

@@ -8,7 +8,7 @@ paths:
         - Live
       description: >-
         WebSocket upgrade with subprotocol smithers.live.v1 (spec §7.1). A
-        member's browser session from the install's own origin subscribes to
+        member's browser session from the install's own origin, or a scoped delegated bearer without cookies, subscribes to
         shared topics (home, todo:<n>, flows) with text
         frames {"t":"sub","id","topic"} and {"t":"unsub","id"}; each topic
         answers {"t":"snap","id","cursor","data"} initially. TODO sources also
@@ -24,13 +24,14 @@ paths:
         with malformed_frame.
       security:
         - sessionCookie: []
+        - bearerAuth: []
       responses:
         '101':
           description: WebSocket upgrade
         '400':
           description: The smithers.live.v1 subprotocol is missing
         '401':
-          description: No browser session, or a token
+          description: Missing, expired or revoked credential, or a machine/run credential
         '403': {$ref: '#/components/responses/AuthorizationForbidden'}
         '421':
           description: Unknown host

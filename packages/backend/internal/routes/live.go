@@ -38,18 +38,6 @@ func liveRefusal(w http.ResponseWriter, status int, class, code, message string)
 	_ = json.NewEncoder(w).Encode(map[string]string{"class": class, "code": code, "message": message})
 }
 
-// LiveCredentialGate keeps legacy bearer credentials out of the session
-// loader's command decision until the live bearer capability is installed.
-func LiveCredentialGate(next http.Handler) http.Handler {
-	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if strings.TrimSpace(r.Header.Get("Authorization")) != "" {
-			liveRefusal(w, http.StatusUnauthorized, "permission", "unauthenticated", "Sign in again")
-			return
-		}
-		next.ServeHTTP(w, r)
-	})
-}
-
 func (h *LiveHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	if h == nil || h.Hub == nil || h.Queries == nil || h.Topics == nil || h.Origins == nil {
 		liveRefusal(w, http.StatusServiceUnavailable, "infra", "live_unavailable", "Live updates are unavailable")
@@ -61,13 +49,15 @@ func (h *LiveHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	info := middleware.AuthInfoFromContext(r.Context())
-	// Existing tokens are not live session credentials until T-ACC-04.
-	if info == nil || info.User == nil || info.IsTokenAuth || info.IsAgent() {
+	// The credential loader and shared authorizer decide delegated scopes.
+	// Machine and run credentials never become member Live sessions.
+	if info == nil || info.User == nil || middleware.IsAgentAccount(info.User.UserType) ||
+		(info.IsTokenAuth && info.CredentialKind() != middleware.CredentialDelegated && info.CredentialKind() != middleware.CredentialPerson) {
 		liveRefusal(w, http.StatusUnauthorized, "permission", "unauthenticated", middleware.UnauthenticatedMessage(r.Context()))
 		return
 	}
 	// A cookie upgrade comes from the install's own page.
-	if !middleware.SameOrigin(r.Header.Get("Origin"), origin) {
+	if (!info.IsTokenAuth || r.Header.Get("Cookie") != "") && !middleware.SameOrigin(r.Header.Get("Origin"), origin) {
 		liveRefusal(w, http.StatusForbidden, "permission", "origin", "origin")
 		return
 	}
