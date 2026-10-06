@@ -25,7 +25,7 @@ export const secretsFlows = (actions: CommandActions): ReadonlyArray<FlowEntry> 
   flow({
     name: "secrets.scope", agent: "never", minimumRole: "maintainer", actors: ["person"], visibility: "in-card",
     summary: "Limit a repository secret to trusted runs on main, or give it to all branches",
-    runtime: ["cloud"],
+    runtimeAny: ["cloud", "install"],
     args: "<name> <main-only|all> [owner/repo]",
     requires: ["signed-in"],
     input: Schema.Struct({ name: Schema.String, scope: Schema.Literals(["main-only", "all"]), repo: Schema.optional(Schema.String) }),
@@ -46,7 +46,7 @@ export const secretsFlows = (actions: CommandActions): ReadonlyArray<FlowEntry> 
   flow({
     name: "secrets.bind", agent: "never", minimumRole: "maintainer", actors: ["person"], visibility: "in-card",
     summary: "Set the hosts and headers a repository secret may be sent to",
-    runtime: ["cloud"],
+    runtimeAny: ["cloud", "install"],
     args: "<NAME> [owner/repo]",
     requires: ["signed-in"],
     input: Schema.Struct({
@@ -75,7 +75,7 @@ export const secretsFlows = (actions: CommandActions): ReadonlyArray<FlowEntry> 
   flow({
     name: "secrets.set", agent: "never", minimumRole: "maintainer", actors: ["person"], visibility: "in-card",
     summary: "Add a repository secret or replace its value",
-    runtime: ["cloud"],
+    runtimeAny: ["cloud", "install"],
     args: "<NAME> [owner/repo]",
     requires: ["signed-in"],
     input: Schema.Struct({
@@ -100,7 +100,7 @@ export const secretsFlows = (actions: CommandActions): ReadonlyArray<FlowEntry> 
   flow({
     name: "secrets.delete", agent: "never", minimumRole: "maintainer", actors: ["person"], visibility: "in-card",
     summary: "Delete a repository secret",
-    runtime: ["cloud"],
+    runtimeAny: ["cloud", "install"],
     args: "<NAME> [owner/repo]",
     requires: ["signed-in"],
     input: Schema.Struct({ name: Schema.String, repo: Schema.optional(Schema.String) }),
@@ -114,7 +114,7 @@ export const secretsFlows = (actions: CommandActions): ReadonlyArray<FlowEntry> 
   flow({
     name: "secrets", slash: "/secrets", cli: null, journey: ["J1"], group: "Account and settings", visibility: "core", actors: ["person"], minimumRole: "member", agent: "never", http: null,
     summary: "Set secrets machines can use",
-    runtime: ["cloud"],
+    runtimeAny: ["cloud", "install"],
     args: "[owner/repo]",
     requires: ["signed-in"],
     input: RepoTarget,
