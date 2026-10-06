@@ -334,3 +334,24 @@ test("an install snapshot loads literal command declarations without reading rep
   assert.deepEqual(Schema.decodeUnknownSync(Draft)(draft), draft)
   assert.throws(() => Schema.decodeUnknownSync(Draft)({ ...draft, changes: [{ ...draft.changes[0], checks: [] }] }))
 })
+
+test("the coding project still detects declared checks after registration is retired", async (t) => {
+  const root = await mkdtemp(join(tmpdir(), "coding-check-detection-"))
+  t.after(() => rm(root, { recursive: true, force: true }))
+  await writeFile(
+    join(root, "package.json"),
+    JSON.stringify({ scripts: { test: "vitest", lint: "eslint .", build: "tsc" } })
+  )
+  await writeFile(join(root, "pnpm-lock.yaml"), "")
+  await writeFile(join(root, "Makefile"), "test:\n\tgo test ./...\n")
+  const project = await Effect.runPromise(loadProject(root, undefined).pipe(Effect.provide(NodeServices.layer)))
+  assert.deepEqual(project.detected?.map((check) => check.argv), [
+    ["pnpm", "run", "test"],
+    ["pnpm", "run", "lint"],
+    ["pnpm", "run", "build"]
+  ])
+  // Malformed package metadata cannot invent commands; the real Make target remains.
+  await writeFile(join(root, "package.json"), "{broken")
+  const recovered = await Effect.runPromise(loadProject(root, undefined).pipe(Effect.provide(NodeServices.layer)))
+  assert.deepEqual(recovered.detected?.map((check) => check.argv), [["make", "test"]])
+})

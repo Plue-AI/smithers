@@ -25,7 +25,7 @@ import * as Discovery from "@smthrs/registry/Discovery"
 import * as Registry from "@smthrs/registry/Registry"
 import { Effect } from "effect"
 import assert from "node:assert/strict"
-import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises"
+import { access, mkdir, mkdtemp, rm, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { test, type TestContext } from "node:test"
@@ -231,4 +231,19 @@ test("the bodies the host installs are the bodies in this repository", async () 
       : "flow/author"
     assert.ok(text.includes(`model: ${seat}`), `${name} must declare the configured seat`)
   }
+})
+
+test("the composed host removes a persisted registration door before discovery", async (t) => {
+  const { repositoryPath, stateRoot } = await workspace(t)
+  const retired = join(stateRoot, "builtin-flows", "a".repeat(64), "register-repository")
+  await mkdir(retired, { recursive: true })
+  await writeFile(join(retired, "flow.mdx"), "---\nname: register-repository\n---\nRetired")
+  const listed = await run(
+    composedRegistry(repositoryPath, stateRoot).pipe(
+      Effect.flatMap((registry) => registry.list()),
+      Effect.provide(platform)
+    )
+  )
+  assert.ok(!listed.some((entry) => entry.name === "register-repository"))
+  await assert.rejects(access(retired), { code: "ENOENT" })
 })

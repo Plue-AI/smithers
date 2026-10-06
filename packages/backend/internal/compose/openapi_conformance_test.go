@@ -483,6 +483,9 @@ func TestCutBackendCompositionRoutes(t *testing.T) {
 			_, health := served["get /api/admin/system/health"]
 			require.Equal(t, mode != "unknown", health)
 			for _, key := range []string{
+				"post /api/recommend",
+				"post /api/recommend/outcome",
+				"post /api/repos/{owner}/{repo}/changes/{change_id}/split",
 				"post /api/repos/{owner}/{repo}/branch-locks/acquire",
 				"post /api/repos/{owner}/{repo}/branch-locks/heartbeat",
 				"post /api/repos/{owner}/{repo}/branch-locks/release",
@@ -522,7 +525,9 @@ func TestCutBackendCompositionRoutes(t *testing.T) {
 				require.Equal(t, 404, response.Code)
 			}
 			_, split := served["post /api/repos/{owner}/{repo}/changes/{change_id}/split"]
-			require.Equal(t, hosted, split)
+			require.False(t, split)
+			_, sessionEgress := served["get /api/repos/{owner}/{repo}/agent-sessions/{id}/egress"]
+			require.Equal(t, hosted, sessionEgress)
 			admins := 0
 			for _, route := range served {
 				require.NotContains(t, route.path, "/api/repository-setup/")
@@ -576,7 +581,7 @@ func TestCutBackendHTTPPostgres(t *testing.T) {
 				`{"repo":"cutowner/repo","workspaceId":"` + browserBoxID + `","procedure":"Signal","payload":{"signal":{"name":"register-repository/review#old"}}}`,
 				`{"repo":"cutowner/repo","workspaceId":"` + browserBoxID + `","procedure":"Approval.Submit","payload":{"target":{"requestId":"register-repository/decline-note#old"}}}`,
 			} {
-				req := httptest.NewRequest("POST", "/api/workflow/rpc", strings.NewReader(body))
+				req := httptest.NewRequest("POST", config.PublicOrigin(cfg)+"/api/workflow/rpc", strings.NewReader(body))
 				req.Header.Set("Authorization", "token "+token)
 				req.Header.Set("Content-Type", "application/json")
 				rec := httptest.NewRecorder()
@@ -603,9 +608,13 @@ func TestCutBackendHTTPPostgres(t *testing.T) {
 				{"PUT", "/api/gateways/host/repository-jobs/ci/check-receipts/request", 404, 503},
 				{"GET", "/api/admin/users", 404, 403},
 				{"GET", "/api/admin/system/health", 403, 403},
+				{"POST", "/api/recommend", 404, 404},
+				{"POST", "/api/recommend/outcome", 404, 404},
+				{"POST", "/api/repos/cutowner/repo/changes/change/split", 404, 404},
+				{"GET", "/api/repos/cutowner/repo/agent-sessions/session/egress", 404, 500},
 				{"GET", "/api/health", 200, 200},
 			} {
-				req := httptest.NewRequest(tc.method, tc.path, strings.NewReader(`{}`))
+				req := httptest.NewRequest(tc.method, config.PublicOrigin(cfg)+tc.path, strings.NewReader(`{}`))
 				req.Header.Set("Authorization", "token "+token)
 				req.Header.Set("Content-Type", "application/json")
 				rec := httptest.NewRecorder()

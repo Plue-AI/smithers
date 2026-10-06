@@ -3,7 +3,7 @@ import * as Seat from "@smthrs/agent/Seat"
 import * as SeatResolver from "@smthrs/agent/SeatResolver"
 import type * as SeatRouter from "@smthrs/agent/SeatRouter"
 import * as Digest from "@smthrs/core/Digest"
-import { HumanTask } from "@smthrs/flow"
+import { HumanTask, Interpreter } from "@smthrs/flow"
 import * as Executable from "@smthrs/registry/Executable"
 import * as Registry from "@smthrs/registry/Registry"
 import { Context, Effect, FileSystem, Layer } from "effect"
@@ -13,7 +13,6 @@ import * as NativeControl from "../../packages/smithers/src/internal/NativeContr
 import * as NativeEquipment from "../../packages/smithers/src/internal/NativeEquipment.ts"
 import { expandSeat, seatAliases, seatRefusal } from "../../packages/smithers/src/Providers.ts"
 import * as Serve from "../../packages/smithers/src/Serve.ts"
-import { registration as registerRepository } from "../register-repository/host.ts"
 import { activationLayers } from "../repository/activation.ts"
 import { changeLayers, changeModelLayers, changeModelNames } from "../repository/changes.ts"
 import { checkLayers as repositoryCheckLayers } from "../repository/checks.ts"
@@ -43,7 +42,8 @@ import { correctionLayers, SelectRepair } from "./correction.ts"
 import { dispatchModels } from "./dispatch.ts"
 import { dispatchRegistration } from "./dispatch/flow.ts"
 import * as CodingFileSystem from "./filesystem.ts"
-import { flowLoadRegistration } from "./flow-load/flow.ts"
+import { loadFlowsLayer } from "./flow-load.ts"
+import FlowLoad from "./flow-load/flow.ts"
 import { atomFlows } from "./implementation/flow.ts"
 import { jevCheckDelegate, jevCheckLayers } from "./jev-check.ts"
 import type { Landing } from "./landing.ts"
@@ -603,7 +603,7 @@ export const layer = (platform: NativeControl.Platform, options: Options, suppli
           todoLayers(evaluator),
           feedbackLayer,
           verifyRegistration,
-          flowLoadRegistration(options.flowSourceRoot ?? options.repositoryPath, options.systemFlows),
+          Layer.mergeAll(Interpreter.layer(FlowLoad), loadFlowsLayer(options.flowSourceRoot ?? options.repositoryPath, options.systemFlows)),
           pocPolicy,
           pocModels,
           pocSource({ ...options, fs }),
@@ -639,12 +639,6 @@ export const layer = (platform: NativeControl.Platform, options: Options, suppli
             fs,
             exporterPath: options.exporterPath,
             environment: options.checkEnvironment
-          }),
-          registerRepository({
-            repositoryPath: options.repositoryPath,
-            fs,
-            environment: options.checkEnvironment ?? {},
-            evaluator
           }),
           activationLayers,
           triggerLayers,
