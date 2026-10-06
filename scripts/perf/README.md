@@ -242,6 +242,7 @@ Run `node scripts/perf/projection-delta.mjs` from the repository root.
 It opens two Node live sockets plus three Chromium Home tabs, performs 200
 idempotent moves, and records same-process monotonic timings and source cursors.
 Any gap, coalescing, duplicate, refusal or unrelated delta fails the workload;
-it never resubscribes to turn missing delivery into a passing sample.
+it never resubscribes to turn missing delivery into a passing sample. Metadata
+snapshots may retain the current source cursor; a snapshot advancing it fails.
 The runner writes raw samples through the existing artifact writer. A Linux
 run cannot qualify the reference-host check.
