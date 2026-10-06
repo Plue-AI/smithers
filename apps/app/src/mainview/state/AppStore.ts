@@ -1564,6 +1564,7 @@ const initializeAppStore = async (
     recoveryRaw: string | undefined
   } | undefined
   let draftTimer: ReturnType<typeof setTimeout> | undefined
+  let updatingDraft = false
   const commitDraft = (): void => {
     clearTimeout(draftTimer)
     const pending = pendingDraft
@@ -1745,7 +1746,8 @@ const initializeAppStore = async (
       advanceComposerInput(transition, optimistic, next)
       pending.write = { state: next, event: next.event }
       optimistic = next
-      pending.transaction.mutate(() => writeStream(pending.write))
+      updatingDraft = true
+      try { pending.transaction.mutate(() => writeStream(pending.write)) } finally { updatingDraft = false }
       awaitTypingPause(pending.deadline)
       return pending.transaction
     }
@@ -2172,6 +2174,9 @@ const initializeAppStore = async (
       return true
     },
     settled: async () => {
+      // Subscribers can call settled while a coalesced draft is still mutating.
+      // Let that mutation finish before committing its final rows and head.
+      if (updatingDraft) await Promise.resolve()
       commitDraft()
       // A collection subscriber runs before its transaction reaches the durable
       // queue. Drain accepted transactions too, including their committed views.

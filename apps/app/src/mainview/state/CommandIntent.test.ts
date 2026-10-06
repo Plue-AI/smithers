@@ -10,7 +10,7 @@ import { createCommandIntentLifecycle } from "./controller/commandIntents"
 import { createControllerContext } from "./controller/context"
 import { scopedControllers } from "./ControllerTestScope"
 import { readEntityRecoveries } from "./EntityRecovery"
-import { memoryStorage, repositoryHttpFixture, silentAgent } from "./TestFixtures"
+import { memoryStorage, repositoryHttpFixture, silentAgent, waitFor } from "./TestFixtures"
 
 const createAppController = scopedControllers()
 
@@ -38,6 +38,23 @@ const controllerFor = (store: AppStore, services: AppServices = {}) => {
   controllers.push(controller)
   return controller
 }
+// Real admission seam with only its HTTP contract faked. No local model runner.
+const sharedControllerFor = async (store: AppStore) => {
+  const controller = controllerFor(store, {
+    applicationIdentity: undefined,
+    bootstrap: { apiVersion: 1, host: "local", version: "test", buildSha: "test", capabilities: ["install"], authFlow: "redirect", sandbox: null },
+    fetchImpl: async (input, init) => {
+      const path = String(input)
+      if (path === "/api/conversations/main/prompt" && init?.method === "POST") return Response.json({ turnId: "held-host-turn", terminal: false }, { status: 202 })
+      if (path === "/api/conversations/main") return Response.json({ id: "main", entries: [] })
+      if (path === "/api/conversations/main/view-state") return Response.json({ queue: [] })
+      return new Response("{}", { status: 404 })
+    }
+  })
+  await store.dispatch({ type: "identity.session.loaded", actor: "system", state: "signed-in", login: "ben", admin: false, scopesPlain: null }).isPersisted.promise
+  await store.settled?.()
+  return controller
+}
 const hold = (store: AppStore, type: string, held: ReturnType<typeof deferred>, entered: ReturnType<typeof deferred>): AppStore => ({
   ...store,
   dispatch: transition => {
@@ -60,7 +77,8 @@ describe("durable command intent at the active shared door", () => {
       test(`a delayed submission of ${line} preserves a newly entered draft: ${next}`, async () => {
         const store = await open()
         const held = deferred(), entered = deferred()
-        const controller = controllerFor(hold(store, "command.intent.accepted", held, entered))
+        const admittedStore = hold(store, "command.intent.accepted", held, entered)
+        const controller = line === "the original prompt" ? await sharedControllerFor(admittedStore) : controllerFor(admittedStore)
         controller.changeDraft(line)
         const pending = controller.commands.run("chat.send", line)
         await entered.promise
@@ -70,7 +88,8 @@ describe("durable command intent at the active shared door", () => {
         held.resolve()
         await pending
         if (line === "the original prompt") {
-          expect([...store.collections.messages.values()].filter(row => row.role === "user" && row.text === line)).toHaveLength(1)
+          await waitFor(() => store.session().sharedPrompts?.length === 1)
+          expect(store.session().sharedPrompts?.map(row => row.prompt)).toEqual([line])
         }
         expect(store.session().draft).toBe(next)
       })
@@ -142,8 +161,7 @@ describe("durable command intent at the active shared door", () => {
   test("a delayed queue submission preserves a freshly retyped identical draft", async () => {
     const store = await open()
     const held = deferred(), entered = deferred()
-    const controller = controllerFor(hold(store, "command.intent.accepted", held, entered))
-    store.dispatch({ type: "prompt.queue.paused", actor: "user", paused: true })
+    const controller = await sharedControllerFor(hold(store, "command.intent.accepted", held, entered))
     controller.changeDraft("queued prompt")
     const pending = controller.commands.run("chat.queue", "queued prompt")
     await entered.promise
@@ -151,7 +169,8 @@ describe("durable command intent at the active shared door", () => {
     controller.changeDraft("queued prompt")
     held.resolve()
     await pending
-    expect(store.session().queuedPrompts?.map(row => row.text)).toEqual(["queued prompt"])
+    await waitFor(() => store.session().sharedPrompts?.length === 1)
+    expect(store.session().sharedPrompts?.map(row => row.prompt)).toEqual(["queued prompt"])
     expect(store.session().draft).toBe("queued prompt")
   })
 
@@ -159,7 +178,7 @@ describe("durable command intent at the active shared door", () => {
     const bytes = memoryStorage()
     let fail = false
     const storage: StorageApi = { ...bytes, setItem: (key, value) => { if (fail) throw new Error("disk failed"); bytes.setItem(key, value) } }
-    const store = await open(storage), controller = controllerFor(store)
+    const store = await open(storage), controller = await sharedControllerFor(store)
     controller.changeDraft("My prompt")
     await store.settled?.()
     fail = true
@@ -168,16 +187,18 @@ describe("durable command intent at the active shared door", () => {
     expect([...store.collections.messages.values()].filter(row => row.role === "user" && row.text === "My prompt")).toHaveLength(0)
     fail = false
     expect((await controller.commands.run("chat.send", "My prompt")).status).toBe("executed")
+    await waitFor(() => store.session().sharedPrompts?.length === 1)
     expect(store.session().draft).toBe("")
-    expect([...store.collections.messages.values()].filter(row => row.role === "user" && row.text === "My prompt")).toHaveLength(1)
+    expect(store.session().sharedPrompts?.map(row => row.prompt)).toEqual(["My prompt"])
   })
 
   test("submitting a Chat form leaves an identical composer draft alone", async () => {
-    const store = await open(), controller = controllerFor(store)
+    const store = await open(), controller = await sharedControllerFor(store)
     controller.changeDraft("My prompt")
     controller.renderFlowForm({ name: "chat.send", args: "My prompt", via: "user" })
     expect((await controller.commands.run("form.submit", "form-chat.send")).status).toBe("executed")
-    expect([...store.collections.messages.values()].filter(row => row.role === "user" && row.text === "My prompt")).toHaveLength(1)
+    await waitFor(() => store.session().sharedPrompts?.length === 1)
+    expect(store.session().sharedPrompts?.map(row => row.prompt)).toEqual(["My prompt"])
     expect(store.session().draft).toBe("My prompt")
   })
 
@@ -315,18 +336,18 @@ describe("durable command intent at the active shared door", () => {
     expect(history).not.toContain('"authorize"')
   })
 
-  test("HTTP tool calls carry stable turn/call identity through executeForAgent", async () => {
+  test("browser tool identities cannot authorize host commands or persist their effects", async () => {
     const store = await open()
     await store.dispatch({ type: "message.submitted", actor: "user", turnId: "http-turn", text: "read" }).isPersisted.promise
-    const http = repositoryHttpFixture()
-    const controller = controllerFor(store, { fetchImpl: (url, init) => http(String(url), init) })
-    const call = { name: "commands", arguments: JSON.stringify({ action: "execute", name: "repo.update", args: "owner/repo" }), httpCall: { turnId: "http-turn", callId: "tool-1" } }
-    expect(await controller.commands.executeForAgent(call)).not.toContain("failed:")
-    expect([...store.collections.repositoryContexts.values()][0]?.data.repo).toBe("owner/repo")
-    expect(await controller.commands.executeForAgent(call)).toContain("saved outcome")
-    expect([...store.collections.commandIntents.values()].filter(row => row.name === "repo.update")).toMatchObject([{ actor: "smithers", status: "settled", invocationKey: expect.any(String) }])
-    await store.dispatch({ type: "message.response.cancelled", actor: "user", turnId: "http-turn" }).isPersisted.promise
-    expect(await controller.commands.executeForAgent({ ...call, httpCall: { ...call.httpCall, callId: "tool-2" } })).toContain("no longer active")
+    let reads = 0
+    const controller = controllerFor(store, { fetchImpl: async () => { reads++; return Response.json({}) } })
+    const call = { name: "commands", arguments: JSON.stringify({ action: "execute", name: "todo.drop", args: "T12" }), httpCall: { turnId: "http-turn", callId: "tool-1" } }
+    const before = reads
+    for (const callId of ["tool-1", "tool-1", "tool-2"]) {
+      expect(await controller.commands.executeForAgent({ ...call, httpCall: { ...call.httpCall, callId } })).toBe("failed: this command runs on the conversation host")
+    }
+    expect(reads).toBe(before)
+    expect([...store.collections.commandIntents.values()].filter(row => row.name === "todo.drop")).toEqual([])
   })
 
   test("automatic and named form doors preserve their attribution and drafts survive reload", async () => {
