@@ -98,7 +98,7 @@ mod tests {
         for i in 0..200 {
             let (path, expected) = match i % 5 {
                 0 => (format!("nested/{i}.log"), true),
-                1 => (format!("nested/keep.log"), false),
+                1 => ("nested/keep.log".to_owned(), false),
                 2 => (format!("nested/private{i}"), true),
                 3 => (format!("cache/{i}"), true),
                 _ => (format!("src/file {i}.rs"), false),

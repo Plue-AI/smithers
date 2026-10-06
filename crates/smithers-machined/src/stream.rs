@@ -1,6 +1,6 @@
 //! Session reattachment on the shared object/session credit pipe (ADR 0004).
 //! The one-shot helper cannot retain byte offsets across host disconnects.
-use crate::credit::{INITIAL_CREDIT, ReadOutcome, Receiver, Sender};
+use crate::credit::{ReadOutcome, Receiver, Sender, INITIAL_CREDIT};
 use std::collections::VecDeque;
 use std::io::{self, Read};
 
