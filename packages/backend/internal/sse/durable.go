@@ -92,11 +92,25 @@ func (s *DurableStream) catchUp(w http.ResponseWriter, r *http.Request, f http.F
 	if !s.initialized {
 		return nil
 	}
-	for {
-		if err := s.checkContext(r.Context()); err != nil {
+	return s.Replay(r.Context(), s.cursor, func(event Event) error {
+		_, err := fmt.Fprint(w, FormatEvent(event))
+		if err != nil {
 			return err
 		}
-		page, err := s.Load(r.Context(), s.cursor, durablePageSize)
+		f.Flush()
+		return nil
+	})
+}
+
+// Replay delivers complete ordered source pages to any transport. A failed
+// emission never advances past that event; numeric ID gaps are valid.
+func (s *DurableStream) Replay(ctx context.Context, after int64, emit func(Event) error) error {
+	s.cursor, s.initialized = after, true
+	for {
+		if err := s.checkContext(ctx); err != nil {
+			return err
+		}
+		page, err := s.Load(ctx, s.cursor, durablePageSize)
 		if err != nil {
 			return err
 		}
@@ -114,13 +128,12 @@ func (s *DurableStream) catchUp(w http.ResponseWriter, r *http.Request, f http.F
 			return errors.New("durable page did not advance")
 		}
 		for _, event := range page.Events {
-			if err := s.checkContext(r.Context()); err != nil {
+			if err := s.checkContext(ctx); err != nil {
 				return err
 			}
-			if _, err := fmt.Fprint(w, FormatEvent(event)); err != nil {
+			if err := emit(event); err != nil {
 				return err
 			}
-			f.Flush()
 			s.cursor, _ = strconv.ParseInt(event.ID, 10, 64)
 		}
 		// Invisible rows move only the server's scan cursor. They never disclose an

@@ -124,12 +124,17 @@ type conformanceServices struct {
 	pool    *pgxpool.Pool
 	billing *routes.BillingHandler
 	jobs    *routes.RepositoryJobHandler
+	live    *routes.LiveHandler
 }
 
 func hostStatusProductionRouter(cfg *config.Config, queries *db.Queries, host *services.InstallCapacityService, supplied ...conformanceServices) chi.Router {
 	deps := conformanceServices{billing: &routes.BillingHandler{}, jobs: &routes.RepositoryJobHandler{}}
 	if len(supplied) > 0 {
 		deps = supplied[0]
+	}
+	liveHandler := deps.live
+	if liveHandler == nil {
+		liveHandler = &routes.LiveHandler{}
 	}
 	authHandler := &routes.AuthHandler{}
 	workspaceHandler := &routes.WorkspaceHandler{
@@ -156,9 +161,9 @@ func hostStatusProductionRouter(cfg *config.Config, queries *db.Queries, host *s
 			AdminAnalytics: &routes.AdminAnalyticsHandler{}, AdminAgentSessions: &routes.AdminAgentSessionHandler{},
 			AdminWorkspaces: &routes.AdminWorkspaceHandler{}, AdminTokens: &routes.AdminTokenHandler{}, ModelProxy: http.NotFoundHandler(),
 			EgressPolicy:   &routes.RepositoryEgressPolicyHandler{},
-			GitHubAppSetup: &routes.GitHubAppSetupHandler{Owners: queries, Setup: &services.InstallSetupService{Capacity: host}},
+			GitHubAppSetup: &routes.GitHubAppSetupHandler{Owners: queries, Setup: &services.InstallSetupService{Capacity: host}, Origins: liveHandler.Origins},
 			Members:        &routes.MembersHandler{},
-			Live:           &routes.LiveHandler{},
+			Live:           liveHandler,
 		},
 	)
 	// The routes run() mounts beside buildRouter.
@@ -539,10 +544,15 @@ func TestCutBackendHTTPPostgres(t *testing.T) {
 	q := db.New(pool)
 	u, err := q.CreateUser(t.Context(), db.CreateUserParams{Username: "cutowner", LowerUsername: "cutowner"})
 	require.NoError(t, err)
-	_, err = q.CreateRepo(t.Context(), db.CreateRepoParams{UserID: pgtype.Int8{Int64: u.ID, Valid: true}, Name: "repo", LowerName: "repo", IsPublic: true, DefaultBookmark: "main"})
+	repo, err := q.CreateRepo(t.Context(), db.CreateRepoParams{UserID: pgtype.Int8{Int64: u.ID, Valid: true}, Name: "repo", LowerName: "repo", IsPublic: true, DefaultBookmark: "main"})
 	require.NoError(t, err)
 	_, err = pool.Exec(t.Context(), `INSERT INTO self_host_owners(user_id) VALUES ($1)`, u.ID)
 	require.NoError(t, err)
+	binding := fmt.Sprintf(`{"owner_login":"cutowner","repository_name":"repo","repository_id":%d}`, repo.ID)
+	access := strings.TrimSuffix(binding, "}") + `,"last_access_check_at":"2026-10-05T00:00:00Z"}`
+	for key, value := range map[string]string{"github.repository": binding, "owner.access": access} {
+		require.NoError(t, q.UpsertInstallSetting(t.Context(), db.UpsertInstallSettingParams{Key: key, Value: []byte(value)}))
+	}
 	token := "smithers_0123456789012345678901234567890123456789"
 	digest := sha256.Sum256([]byte(token))
 	hash := hex.EncodeToString(digest[:])
@@ -552,6 +562,7 @@ func TestCutBackendHTTPPostgres(t *testing.T) {
 		t.Run(mode, func(t *testing.T) {
 			cfg := testConfigAllFlagsOn()
 			cfg.Auth.Mode = mode
+			cfg.Server.AllowedOrigins = []string{"http://example.com"}
 			router := hostStatusProductionRouter(cfg, q, &services.InstallCapacityService{})
 			dispatcher := &browserFlowRecordingDispatcher{}
 			deps := &browserReadDependencies{canWrite: true, workspace: db.Workspace{ID: browserBoxID, Status: "running"}}

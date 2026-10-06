@@ -216,19 +216,19 @@ shared budget pauses and failed-read backoff remain in force after another hint.
 The worker rechecks the effective repository destination before fetching. Missing
 provider qualification leaves this path disabled.
 
-The install's existing sync service now requires every stream owner: refs,
-repository metadata and per-TODO reads, checks, reviews and permissions. A main
-receipt alone cannot qualify polling, aggregate health or Retry. The production
-assembly leaves the absent check and review owners unregistered;
-main polling and the sync actions report unavailable until the complete provider
-boundary is qualified.
+The install's sync service runs independently qualified readers while missing
+check and review owners remain stale observations. Main polling and Retry require
+the repository reader's sealed installation authority and unprivileged runtime.
+A revoked or changed installation refuses reads before scheduling. A main
+receipt alone cannot make aggregate health fresh.
 
-Retry checks all owners before scheduling their existing workers. Repository
-reads and per-TODO reads use the same hints as webhooks; main pulls use their
-existing durable request generations and wake channel. Retry returns before
-HTTP, preserves cadence and shared budget state, and propagates scheduling
-failures instead of claiming completion. Repository health includes missing
-per-TODO observations rather than inferring them from the pull list.
+Retry checks and schedules each available owner through its existing worker;
+missing owners remain stale. Repository reads and per-TODO reads use the same
+hints as webhooks; main pulls use their existing durable request generations and
+wake channel. Retry returns before HTTP, preserves cadence and shared budget
+state, and propagates scheduling failures instead of claiming completion.
+Repository health includes missing per-TODO observations rather than inferring
+them from the pull list.
 
 Successful install main-pull requests wake the same worker immediately instead
 of waiting for its five-second drain timer. Requests committed before a later

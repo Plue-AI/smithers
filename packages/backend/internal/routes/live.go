@@ -37,6 +37,18 @@ func liveRefusal(w http.ResponseWriter, status int, class, code, message string)
 	_ = json.NewEncoder(w).Encode(map[string]string{"class": class, "code": code, "message": message})
 }
 
+// LiveCredentialGate keeps legacy bearer credentials out of the session
+// loader's command decision until the live bearer capability is installed.
+func LiveCredentialGate(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if strings.TrimSpace(r.Header.Get("Authorization")) != "" {
+			liveRefusal(w, http.StatusUnauthorized, "permission", "unauthenticated", "Sign in again")
+			return
+		}
+		next.ServeHTTP(w, r)
+	})
+}
+
 func (h *LiveHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	if h == nil || h.Hub == nil || h.Queries == nil || h.Topics == nil || h.Origins == nil {
 		liveRefusal(w, http.StatusServiceUnavailable, "infra", "live_unavailable", "Live updates are unavailable")
@@ -58,14 +70,8 @@ func (h *LiveHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		liveRefusal(w, http.StatusForbidden, "permission", "forbidden", "request origin differs from install origin")
 		return
 	}
-	if _, err := services.Authorize(r.Context(), h.Queries, "live"); err != nil {
-		var access *services.AccessError
-		if errors.As(err, &access) {
-			w.Header().Set("Content-Type", "application/json")
-			w.WriteHeader(access.Status)
-			_ = json.NewEncoder(w).Encode(access)
-			return
-		}
+	source := currentRevocationSource()
+	if source == nil {
 		liveRefusal(w, http.StatusServiceUnavailable, "infra", "live_unavailable", "Live updates are unavailable")
 		return
 	}
@@ -78,19 +84,39 @@ func (h *LiveHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	resolve, repository := h.Topics(r)
+	if resolve == nil {
+		liveRefusal(w, http.StatusServiceUnavailable, "infra", "live_unavailable", "Live updates are unavailable")
+		return
+	}
 	// Revocation (a removed member, a signed-out session, a disabled
 	// person) closes the socket (§5.6).
 	ctx, cancel := context.WithCancel(r.Context())
 	defer cancel()
 	revoked := make(chan struct{})
-	var events <-chan revocation.Event
-	if source := currentRevocationSource(); source != nil {
-		principal := requestPrincipal(r, revocation.Principal{RepositoryID: repository})
-		if checker, ok := source.(revocation.Checker); ok && (checker.IsUserDisabled(principal.UserID) || (principal.TokenHash != "" && checker.IsTokenRevoked(principal.TokenHash))) {
-			liveRefusal(w, http.StatusUnauthorized, "permission", "unauthenticated", "Sign in again") // a revoked credential is dead (§5.2.1a)
+	principal := requestPrincipal(r, revocation.Principal{RepositoryID: repository})
+	events := source.Watch(ctx, principal)
+	if events == nil {
+		liveRefusal(w, http.StatusServiceUnavailable, "infra", "live_unavailable", "Live updates are unavailable")
+		return
+	}
+	if checker, ok := source.(revocation.Checker); ok {
+		if _, dead := revocation.Revoked(checker, principal); dead {
+			liveRefusal(w, http.StatusUnauthorized, "permission", "unauthenticated", "Sign in again")
 			return
 		}
-		events = source.Watch(ctx, principal)
+	}
+	// Register revocation before checking membership: removal cannot fall
+	// between the authorization read and the socket watcher.
+	if _, err := services.Authorize(r.Context(), h.Queries, "live"); err != nil {
+		var access *services.AccessError
+		if errors.As(err, &access) {
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(access.Status)
+			_ = json.NewEncoder(w).Encode(access)
+			return
+		}
+		liveRefusal(w, http.StatusServiceUnavailable, "infra", "live_unavailable", "Live updates are unavailable")
+		return
 	}
 	// The Origin was checked against the effective origin above, which a
 	// loopback proxy's X-Forwarded-Host may name instead of Host.

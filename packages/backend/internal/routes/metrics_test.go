@@ -544,3 +544,10 @@ func TestSmithersMetrics_MetricsEndpoint_ContainsHELPAndTYPELines(t *testing.T) 
 			"metric %q must have a # TYPE line", metricName)
 	}
 }
+
+func TestLiveConnectionMetric(t *testing.T) {
+	m := routes.NewSmithersMetrics()
+	response := httptest.NewRecorder()
+	m.Handler().ServeHTTP(response, httptest.NewRequest(http.MethodGet, "/metrics", nil))
+	assert.Contains(t, response.Body.String(), "smithers_live_connections 0")
+}

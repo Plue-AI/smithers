@@ -1653,7 +1653,7 @@ func runWithOptions(ctx context.Context, args []string, stdout, stderr io.Writer
 	}
 	var liveHandler *routes.LiveHandler
 	if config.IsSingleOwner(cfg.Auth) {
-		topics := &liveTopics{queries: queries, todos: mythicalService, sync: gitHubSyncRoute, install: installSetup, members: authService.Members}
+		topics := &liveTopics{queries: queries, todos: mythicalService, jobs: commandJobs, sync: gitHubSyncRoute, install: installSetup, members: authService.Members}
 		liveHandler = &routes.LiveHandler{Hub: live.NewHub(ctx, live.BrokerHints{Broker: sseBroker}), Queries: queries, Origins: installAddress.Origins, Topics: topics.resolver}
 	}
 	router := buildRouter(

@@ -3,16 +3,21 @@ package compose
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"strconv"
 	"strings"
 	"time"
 
+	"github.com/google/uuid"
 	"github.com/smithersai/smithers/packages/backend/internal/db"
 	"github.com/smithersai/smithers/packages/backend/internal/live"
 	"github.com/smithersai/smithers/packages/backend/internal/middleware"
+	pkgerrors "github.com/smithersai/smithers/packages/backend/internal/pkg/errors"
 	"github.com/smithersai/smithers/packages/backend/internal/services"
+	"github.com/smithersai/smithers/packages/backend/internal/sse"
+	"github.com/smithersai/smithers/packages/backend/jobs"
 )
 
 // liveTodos is what the home and todo:<n> topics read: the TODO cards GET
@@ -33,6 +38,7 @@ type liveSync interface {
 type liveTopics struct {
 	queries *db.Queries
 	todos   liveTodos
+	jobs    *jobs.Store
 	sync    liveSync
 	install *services.InstallSetupService
 	members *services.Members
@@ -172,16 +178,24 @@ func (t *liveTopics) resolve(ctx context.Context, topic string, repository int64
 		if err != nil || n <= 0 || strconv.FormatInt(n, 10) != rest {
 			return live.Source{}, live.UnknownTopic
 		}
-		if _, err = t.queries.GetMythicalItemByNumber(ctx, repository, n); err != nil {
+		item, err := t.queries.GetMythicalItemByNumber(ctx, repository, n)
+		if err != nil {
 			return live.Source{}, live.UnknownTopic
 		}
-		return live.Source{Key: topic, Hints: hints, Every: liveRefreshEvery, Build: func(ctx context.Context) (json.RawMessage, error) {
+		source := live.Source{Key: topic, Hints: hints, Every: liveRefreshEvery, Build: func(ctx context.Context) (json.RawMessage, error) {
 			card, err := t.todos.Todo(ctx, repository, n)
 			if err != nil {
 				return nil, err
 			}
 			return json.Marshal(card)
-		}}, ""
+		}}
+		if t.jobs != nil {
+			scope := jobs.Scope{TenantID: strconv.FormatInt(repository, 10), PrincipalID: "todo:" + uuid.UUID(item.ID.Bytes).String()}
+			source = liveJobSource(source, t.jobs, scope)
+		}
+
+		return source, ""
+
 	}
 	return live.Source{}, live.UnknownTopic
 }
@@ -305,4 +319,65 @@ func homeModel(repository string, todos []map[string]any, sync *services.GitHubS
 		"merged_since_last_look": []any{}, "machines": map[string]any{"in_use": len(slots), "capacity": 0, "slots": slots},
 		"background_runs": []any{},
 	}
+}
+
+// liveJobSource uses the existing job allocator, replay and retention. The
+// optimistic head check binds a snapshot to facts without taking a new lock.
+func liveJobSource(source live.Source, store *jobs.Store, scope jobs.Scope) live.Source {
+
+	source.Hints = append(source.Hints, "smithers_product_jobs")
+	source.Every = 250 * time.Millisecond
+	source.Durable = &sse.DurableStream{
+		Head: func(ctx context.Context) (int64, error) { return store.Head(ctx, scope) },
+		Validate: func(ctx context.Context, cursor int64) error {
+			_, err := store.Replay(ctx, scope, cursor, 1)
+			return liveReplayError(err)
+		},
+		Load: func(ctx context.Context, after int64, limit int) (sse.DurablePage, error) {
+			page, err := store.Replay(ctx, scope, after, limit)
+			if err != nil {
+				return sse.DurablePage{}, liveReplayError(err)
+			}
+			result := sse.DurablePage{Cursor: page.Cursor, More: page.More}
+			for _, event := range page.Events {
+				data, err := json.Marshal(event)
+				if err != nil {
+					return sse.DurablePage{}, err
+				}
+				result.Events = append(result.Events, sse.Event{ID: strconv.FormatInt(event.Sequence, 10), Data: string(data)})
+			}
+			return result, nil
+		},
+	}
+	source.Snapshot = func(ctx context.Context) (int64, json.RawMessage, error) {
+		for attempt := 0; attempt < 5; attempt++ {
+			before, err := store.Head(ctx, scope)
+			if err != nil {
+				return 0, nil, err
+			}
+			data, err := source.Build(ctx)
+			if err != nil {
+				return 0, nil, err
+			}
+			after, err := store.Head(ctx, scope)
+			if err != nil {
+				return 0, nil, err
+			}
+			if before == after {
+				return after, data, nil
+			}
+		}
+		return 0, nil, fmt.Errorf("TODO changed throughout snapshot read")
+	}
+	return source
+}
+
+// Translate only the source's retention/ahead refusals into the existing
+// cursor contract. Database errors retain the cursor and retry replay.
+func liveReplayError(err error) error {
+	var expired *jobs.CursorExpiredError
+	if errors.As(err, &expired) || errors.Is(err, jobs.ErrCursorAhead) {
+		return pkgerrors.UnknownCursor("TODO cursor is outside retained source facts")
+	}
+	return err
 }

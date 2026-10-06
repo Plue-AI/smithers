@@ -29,16 +29,6 @@ const (
 // the refusal code.
 type Resolver func(ctx context.Context, topic string) (Source, string)
 
-// frame is one text frame (spec §7.1).
-type frame struct {
-	T      string          `json:"t"`
-	ID     uint32          `json:"id"`
-	Topic  string          `json:"topic,omitempty"`
-	Cursor *int64          `json:"cursor,omitempty"`
-	Data   json.RawMessage `json:"data,omitempty"`
-	Code   string          `json:"code,omitempty"`
-}
-
 var connections atomic.Int64
 
 // Connections is the number of open live sockets in this process (§20.3).
@@ -52,10 +42,15 @@ type outbox struct {
 	ready  chan struct{}
 }
 
-// push queues b; forced frames (gap, err) ignore the budget, being tiny.
+// push reserves 256 bytes for a gap; control frames share the same hard
+// connection limit, so refused-subscription floods cannot grow the outbox.
 func (o *outbox) push(b []byte, force bool) bool {
 	o.mu.Lock()
-	if !force && o.bytes+len(b) > SendBudget {
+	limit := SendBudget
+	if !force {
+		limit -= 256
+	}
+	if o.bytes+len(b) > limit {
 		o.mu.Unlock()
 		return false
 	}
@@ -149,7 +144,11 @@ func (h *Hub) Serve(ctx context.Context, conn *websocket.Conn, resolve Resolver)
 		cancel()
 		writer.Wait()
 	}()
-	refuse := func(id uint32, code string) { out.push(encode(frame{T: "err", ID: id, Code: code}), true) }
+	refuse := func(id uint32, code string) {
+		if !out.push(encode(frame{T: "err", ID: id, Code: code}), true) {
+			cancel()
+		}
+	}
 	for {
 		kind, raw, err := conn.Read(ctx)
 		if err != nil {
@@ -158,16 +157,25 @@ func (h *Hub) Serve(ctx context.Context, conn *websocket.Conn, resolve Resolver)
 		if kind == websocket.MessageBinary {
 			// Document frames are dark until live documents land (§7.4).
 			if len(raw) >= 5 && (raw[0] == 1 || raw[0] == 2) {
-				refuse(binary.BigEndian.Uint32(raw[1:5]), Unsupported)
+				id := binary.BigEndian.Uint32(raw[1:5])
+				if id == 0 {
+					_ = conn.Close(websocket.StatusInvalidFramePayloadData, "malformed_frame")
+					return
+				}
+				refuse(id, Unsupported)
 				continue
 			}
 			_ = conn.Close(websocket.StatusUnsupportedData, "malformed_frame")
 			return
 		}
-		var in frame
-		if json.Unmarshal(raw, &in) != nil || in.ID == 0 || (in.Cursor != nil && *in.Cursor < 0) {
+		in, decodeErr := DecodeRequest(raw)
+		if decodeErr != nil {
 			_ = conn.Close(websocket.StatusInvalidFramePayloadData, "malformed_frame")
 			return
+		}
+		if in.T == "presence" {
+			refuse(in.ID, Unsupported)
+			continue
 		}
 		if previous := subscriptions[in.ID]; previous != nil {
 			previous.close()
@@ -175,8 +183,6 @@ func (h *Hub) Serve(ctx context.Context, conn *websocket.Conn, resolve Resolver)
 		}
 		switch in.T {
 		case "unsub":
-		case "presence":
-			refuse(in.ID, Unsupported)
 		case "sub":
 			if in.Topic == "" {
 				_ = conn.Close(websocket.StatusInvalidFramePayloadData, "malformed_frame")
@@ -185,6 +191,30 @@ func (h *Hub) Serve(ctx context.Context, conn *websocket.Conn, resolve Resolver)
 			source, code := resolve(ctx, in.Topic)
 			if code != "" {
 				refuse(in.ID, code)
+				continue
+			}
+			if source.Durable != nil && source.Snapshot != nil {
+				id := in.ID
+				sub := &subscription{}
+				streamCtx, stop := context.WithCancel(ctx)
+				sub.leave = stop
+				subscriptions[id] = sub
+				go h.serveDurable(streamCtx, source, in.Cursor, func(f frame) bool {
+					sub.mu.Lock()
+					defer sub.mu.Unlock()
+					if sub.closed || sub.gapped {
+						return false
+					}
+					f.ID = id
+					if out.push(encode(f), f.T == "err" || f.T == "gap") {
+						return true
+					}
+					sub.gapped = true
+					if !out.push(encode(frame{T: "gap", ID: id}), true) {
+						cancel()
+					}
+					return false
+				})
 				continue
 			}
 			if source.Build == nil || source.Key == "" {
@@ -205,7 +235,9 @@ func (h *Hub) Serve(ctx context.Context, conn *websocket.Conn, resolve Resolver)
 				if !out.push(encode(frame{T: "snap", ID: id, Cursor: &cursor, Data: data}), false) {
 					// Over budget: the client resubscribes for a fresh snapshot.
 					sub.gapped = true
-					out.push(encode(frame{T: "gap", ID: id}), true)
+					if !out.push(encode(frame{T: "gap", ID: id}), true) {
+						cancel()
+					}
 				}
 			})
 			sub.mu.Lock()
