@@ -164,16 +164,6 @@ export const runsFlows = (actions: CommandActions): ReadonlyArray<FlowEntry> => 
     handler: ({ runId, name, payload, sourceCard }) => actions.signalRun(runId, name, payload, sourceCard)
   }),
   flow({
-    name: "runs.steer",
-    confirm: "steer the running agent",
-    summary: "Send an operator message into a running run",
-    runtime: ["cloud"],
-    args: "[sourceCard=id] <runId> <message>",
-    requires: ["signed-in"],
-    input: Schema.Struct({ sourceCard: Schema.optional(Schema.String), runId: Schema.String, body: Schema.String }),
-    handler: ({ runId, body, sourceCard }) => actions.steerRun(runId, body, sourceCard)
-  }),
-  flow({
     name: "runs.logs",
     summary: "Show a run's transcript on its card (--follow keeps it live)",
     runtimeAny: ["cloud"],

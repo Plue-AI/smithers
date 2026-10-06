@@ -592,6 +592,11 @@ func (s *MythicalService) ProjectFlowRuntime(ctx context.Context, update flowdis
 					}
 				}
 				s.itemChanged(ctx, q, stack, saved.ID)
+			} else if s.todoSteering && projection.Phase == "todo" && pinned &&
+				!mythicalChecksOf(item).RunAttached && mythicalChecksOf(saved).RunAttached {
+				// Do not commit attachment without the authority needed to
+				// hand off its pending inputs; retry the whole projection.
+				return err
 			}
 			return nil
 		}

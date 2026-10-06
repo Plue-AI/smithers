@@ -269,7 +269,6 @@ export const FLOW_NAMES = [
   "runs.resume",
   "runs.continue",
   "runs.signal",
-  "runs.steer",
   "runs.steps",
   "runs.trace.filter",
   "runs.trace.live",

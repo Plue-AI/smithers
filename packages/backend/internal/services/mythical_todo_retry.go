@@ -158,7 +158,12 @@ func todoFeedback(item db.MythicalItem, attempt int32) string {
 	var held []string
 	for _, steer := range mythicalChecksOf(item).Steers {
 		if steer.Attempt <= attempt {
-			held = append(held, steer.Text)
+			text := steer.Text
+			if steer.ID != "" {
+				by, _ := json.Marshal(steer.Attribution)
+				text = "[TODO input " + steer.ID + " by " + string(by) + "]\n" + text
+			}
+			held = append(held, text)
 		}
 	}
 	feedback := strings.Join(held, "\n\n")

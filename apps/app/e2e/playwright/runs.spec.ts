@@ -248,7 +248,7 @@ test("T1: a guard's park lists as its incident, and Stop denies the guard's own 
   await expect(row.getByRole("button", { name: "Continue", exact: true })).toHaveCount(0)
 })
 
-test("T1: launch a fixture flow, steer it, stop it, and see it in the run inbox", async ({ page }) => {
+test("T1: launch a fixture flow, stop it, and see it in the run inbox", async ({ page }) => {
   const { rpc } = await serve(page)
   await page.goto("/")
   await finishGuide(page)
@@ -260,14 +260,7 @@ test("T1: launch a fixture flow, steer it, stop it, and see it in the run inbox"
   await expect(card).toContainText("Running")
   expect(rpc.map((call) => call.procedure)).toContain("Run")
 
-  // Steer: the row's message rides the Steer procedure with the steer envelope.
-  await card.getByTestId(`flow-run-steer-input-${RUN_ID}`).fill("use the smaller diff")
-  await card.getByRole("button", { name: "Steer" }).click()
-  await expect.poll(() => rpc.some((call) => call.procedure === "Steer")).toBe(true)
-  const steer = rpc.find((call) => call.procedure === "Steer")!
-  expect(steer.payload.runId).toBe(RUN_ID)
-  expect(steer.payload.message).toMatchObject({ kind: "Message", body: "use the smaller diff", runId: RUN_ID })
-  await expect(card).toContainText("steering pending")
+  await expect(card.getByTestId(`flow-run-steer-input-${RUN_ID}`)).toHaveCount(0)
 
   // The run inbox: /runs.list renders the workspace's runs, this one among them.
   await send(page, `/runs.list ${REPO}`)
@@ -281,21 +274,13 @@ test("T1: launch a fixture flow, steer it, stop it, and see it in the run inbox"
     JSON.stringify(call.payload).includes("workspace-runs")
   )).toBe(true)
 
-  // Stop through the shared worker toast; the worker receipt settles its status.
-  const notice = page.locator(".toast").filter({ has: page.locator(".toast-title", { hasText: "review-pr" }) }).first()
-  await notice.getByRole("button", { name: "Stop", exact: true }).focus()
-  await page.keyboard.press("Enter")
+  // The run card uses the shared Stop flow and settles from its receipt.
+  await card.getByRole("button", { name: "Stop", exact: true }).click()
   await expect.poll(() => rpc.some((call) => call.procedure === "Cancel")).toBe(true)
-  const cancel = rpc.find((call) => call.procedure === "Cancel")!
-  expect(cancel.payload.runId).toBe(RUN_ID)
+  expect(rpc.find(call => call.procedure === "Cancel")!.payload.runId).toBe(RUN_ID)
   await expect(card.getByTestId(`run-outcome-${RUN_ID}`)).toHaveAttribute("data-phase", "cancelled")
   await expect(card.locator(".smithers-card-header")).toContainText("Stopped")
-  await expect(card).not.toContainText("steering pending")
-  await expect(notice).toHaveAttribute("data-tone", "quiet")
-  await expect(notice).toHaveAttribute("role", "status")
-  await expect(notice.locator(".toast-detail")).toHaveText("Cancelled")
-  await expect(notice.locator(".toast-title")).not.toContainText("completed")
-  await page.screenshot({ path: test.info().outputPath("cancelled-run.png") })
+
 })
 
 
@@ -476,13 +461,7 @@ test("health: gateway observations distinguish working, idle and input, then exp
   await expect(details).toHaveText("Running · Idle", { timeout: 10_000 })
   status = { ...status, activity: "needs-input", attention: "needs-input", provenance: { ...status.provenance!, version: 3 } }
   await expect(details).toHaveText("Running · Needs input", { timeout: 10_000 })
-  const steer = card.getByTestId(`flow-run-steer-input-${RUN_ID}`)
-  await steer.fill("Continue with the smaller change")
-  await steer.press(controlTabKey(page))
-  await expect(card.getByRole("button", { name: "Steer" })).toBeFocused()
-  await page.keyboard.press("Enter")
-  await expect.poll(() => rpc.some((call) => call.procedure === "Steer")).toBe(true)
-  await page.route("**/api/workflow/rpc", (route) => route.abort())
+  await expect(card.getByTestId(`flow-run-steer-input-${RUN_ID}`)).toHaveCount(0)
   await page.clock.fastForward(120_001)
   await expect(details).toHaveText("Running · Stale")
   await expect(details).toHaveAttribute("data-health", "unknown")

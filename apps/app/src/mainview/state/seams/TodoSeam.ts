@@ -306,6 +306,7 @@ export const createTodoSeam = (ctx: SeamContext, options: TodoSeamOptions = {}) 
         const body = request.operation === "amend"
           ? { prompt: request.body.prompt, ...(request.body.acceptance === undefined ? {} : { acceptance: request.body.acceptance }) }
           : request.operation === "discard-foreign" ? { op: request.operation, id: request.body.id, revision: request.body.revision }
+          : request.operation === "steer" ? { steer: request.body.steer ?? request.body.text }
           : control ? { op: request.operation, ...request.body } : request.body
         response = await ctx.http(`${ctx.baseUrl}${route}`, {
           method: request.operation === "amend" ? "PATCH" : "POST", credentials: "include", signal: abort.signal,
