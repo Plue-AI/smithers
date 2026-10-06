@@ -1,3 +1,5 @@
+import cutHistory from "./testdata/cut-history.json"
+import { AgentConversationReplaySchema } from "@smthrs/rpc/AgentTurnJournal"
 import { digest } from "@smthrs/core/Digest"
 import { CONVERSATION_REPLAY_PATH, CONVERSATIONS_PATH } from "@smthrs/rpc/AgentApiRoutes"
 import {
@@ -659,4 +661,18 @@ test("saved continuation steering uses the same visible user bubble and claim co
   expect(step(signed(), restore([email])).messages.find((row) => row.id === "message-turn-smithers")?.text).toContain(
     "I can't send or draft email yet"
   )
+})
+
+
+test("saved cut-card hashes authenticate original payloads before retirement and reject tampered invisible bytes", () => {
+  const reply = AgentConversationReplaySchema.parse(cutHistory.replay)
+  expect(reply.page.batches[0]!.frames[1]!.card).toMatchObject({ kind: "admin-health", body: "private-body-canary" })
+  expect(() => verifyConversationHistoryPage("legacy-turn", "legacy-leg", reply.page)).not.toThrow()
+  for (const field of ["body", "title", "payload"] as const) {
+    const changed = structuredClone(cutHistory.replay)
+    const card = changed.page.batches[0]!.frames[1]!.card!
+    Object.assign(card, { [field]: field === "payload" ? { secret: "tampered" } : "tampered" })
+    const parsed = AgentConversationReplaySchema.parse(changed)
+    expect(() => verifyConversationHistoryPage("legacy-turn", "legacy-leg", parsed.page)).toThrow("integrity")
+  }
 })
