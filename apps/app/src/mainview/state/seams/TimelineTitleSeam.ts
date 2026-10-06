@@ -1,3 +1,4 @@
+import { Data } from "effect"
 import { MODEL_STREAM_PATH } from "@smthrs/rpc/AgentApiRoutes"
 import { decodeAgentTurnFrame } from "@smthrs/rpc/NativeAgent"
 import type { TimelineLine } from "@smthrs/rpc/TimelineCard"
@@ -81,13 +82,15 @@ export const cleanTitle = (answer: string): string | undefined => {
  * The host's model door: POST /api/model/stream with one user message and no tools, read to its `done` frame. Its
  * text deltas are the answer; a refused request, a `done` carrying an error or a stream with no `done` rejects.
  */
+class TimelineTitleUnavailable extends Data.TaggedError("TimelineTitleUnavailable")<{ readonly message: string }> {}
+
 export const modelStreamTitles = (http: (url: string, init?: RequestInit) => Promise<Response>, baseUrl: string): TitleWriter =>
   async (prompt, signal) => {
     const response = await http(`${baseUrl}${MODEL_STREAM_PATH}`, {
       method: "POST", signal, credentials: "same-origin", headers: { "content-type": "application/json" },
       body: JSON.stringify({ runId: `timeline-title-${randomUuid()}`, instructions: TITLE_INSTRUCTIONS, messages: [{ role: "user", content: prompt }] })
     })
-    if (!response.ok) throw new Error(`The model door answered ${response.status}.`)
+    if (!response.ok) throw new TimelineTitleUnavailable({ message: `The model door answered ${response.status}.` })
     let text = ""
     for (const row of (await response.text()).split("\n")) {
       let parsed: unknown
@@ -95,11 +98,11 @@ export const modelStreamTitles = (http: (url: string, init?: RequestInit) => Pro
       const frame = decodeAgentTurnFrame(parsed)
       if (frame?.type === "delta" && frame.kind === "text") text += frame.text
       if (frame?.type === "done") {
-        if (frame.error !== undefined) throw new Error(frame.error)
+        if (frame.error !== undefined) throw new TimelineTitleUnavailable({ message: frame.error })
         return text
       }
     }
-    throw new Error("The model stream ended before its answer.")
+    throw new TimelineTitleUnavailable({ message: "The model stream ended before its answer." })
   }
 
 const EMPTY: ReadonlyMap<string, string> = new Map()
