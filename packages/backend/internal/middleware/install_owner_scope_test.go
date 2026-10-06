@@ -24,6 +24,49 @@ func (unverifiedOwner) GetInstallSetting(context.Context, string) (db.InstallSet
 	return db.InstallSetting{}, pgx.ErrNoRows
 }
 
+type ownerBindingSettings struct {
+	unverifiedOwner
+	settings map[string]string
+}
+
+func (q ownerBindingSettings) GetInstallSetting(_ context.Context, key string) (db.InstallSetting, error) {
+	value, ok := q.settings[key]
+	if !ok {
+		return db.InstallSetting{}, pgx.ErrNoRows
+	}
+	return db.InstallSetting{Value: []byte(value)}, nil
+}
+
+func TestInstallationOwnerSettingsAdapterHTTPRequiresVerifiedBinding(t *testing.T) {
+	const binding = `{"owner_login":"maya","repository_name":"demo","repository_id":7}`
+	const verified = `{"owner_login":"maya","repository_name":"demo","repository_id":7,"last_access_check_at":"2026-10-05T10:00:00Z"}`
+	for _, tc := range []struct {
+		name, access, repository string
+		want                     int
+	}{
+		{"unverified", "", binding, http.StatusForbidden},
+		{"malformed binding", verified, "{", http.StatusForbidden},
+		{"different repository", verified, `{"owner_login":"maya","repository_name":"other","repository_id":7}`, http.StatusForbidden},
+		{"verified", verified, binding, http.StatusNoContent},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			boundary := identity.NewMemberBoundary(ownerBindingSettings{settings: map[string]string{
+				"owner.access": tc.access, "github.repository": tc.repository,
+			}})
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				if authorizeInstallationOwner(w, r, &AuthInfo{User: &db.User{ID: 7}}, boundary) {
+					w.WriteHeader(http.StatusNoContent)
+				}
+			}))
+			defer server.Close()
+			response, err := server.Client().Get(server.URL + "/api/todos")
+			require.NoError(t, err)
+			defer response.Body.Close()
+			require.Equal(t, tc.want, response.StatusCode)
+		})
+	}
+}
+
 // GitHub returns the owner's browser to /setup/github/callback and
 // /setup/github/installed during setup, before the repository step verifies
 // the owner; those returns are setup routes, not owner_unverified refusals.

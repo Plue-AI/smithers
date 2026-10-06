@@ -21,6 +21,13 @@ type InstallRepositoryBinding struct {
 
 // ReadInstallRepositoryBinding also serves setup before repository selection.
 func (q *Queries) ReadInstallRepositoryBinding(ctx context.Context) (InstallRepositoryBinding, error) {
+	return ReadInstallRepositoryBinding(ctx, q)
+}
+
+// ReadInstallRepositoryBinding decodes the binding for adapters that expose settings.
+func ReadInstallRepositoryBinding(ctx context.Context, q interface {
+	GetInstallSetting(context.Context, string) (InstallSetting, error)
+}) (InstallRepositoryBinding, error) {
 	setting, err := q.GetInstallSetting(ctx, "github.repository")
 	var binding InstallRepositoryBinding
 	if err == nil {
