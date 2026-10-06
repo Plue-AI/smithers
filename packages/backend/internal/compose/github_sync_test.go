@@ -12,15 +12,19 @@ import (
 	"net/http/httptest"
 	"net/url"
 	"strconv"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
 
+	"github.com/coder/websocket"
 	"github.com/jackc/pgx/v5/pgtype"
+	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/smithersai/smithers/packages/backend/internal/config"
 	"github.com/smithersai/smithers/packages/backend/internal/db"
 	"github.com/smithersai/smithers/packages/backend/internal/githubfake"
+	"github.com/smithersai/smithers/packages/backend/internal/live"
 	"github.com/smithersai/smithers/packages/backend/internal/middleware"
 	smitherscrypto "github.com/smithersai/smithers/packages/backend/internal/pkg/crypto"
 	pkgerrors "github.com/smithersai/smithers/packages/backend/internal/pkg/errors"
@@ -493,6 +497,7 @@ func TestInstallSyncRefHealthAndPauseSurviveRestart(t *testing.T) {
 		}
 	}
 
+	assertSyncHomeOverLive(t, pool, main, user, "stale", "")
 	require.NoError(t, main.PollOnce(t.Context()))
 	require.Equal(t, 1, tokens.calls)
 	row, err := q.GetGithubMainPull(t.Context(), repo.ID)
@@ -524,6 +529,7 @@ func TestInstallSyncRefHealthAndPauseSurviveRestart(t *testing.T) {
 		restarted.Sweep(t.Context())
 		require.NoError(t, restarted.PollOnce(t.Context()))
 	}
+	assertSyncHomeOverLive(t, pool, restarted, user, "limited", "")
 	require.Equal(t, 1, tokens.calls, "repeated served Retry cannot shorten the persisted pause")
 	claims, err := q.ClaimGithubMainPulls(t.Context(), 1, 900)
 	require.NoError(t, err)
@@ -544,6 +550,7 @@ func TestInstallSyncRefHealthAndPauseSurviveRestart(t *testing.T) {
 		require.Equal(t, 200, response.Code, response.Body.String())
 		require.Contains(t, response.Body.String(), `"state":"refused"`)
 		require.Contains(t, response.Body.String(), `"cause":"`+cause+`"`)
+		assertSyncHomeOverLive(t, pool, recovered, user, "refused", syncCauses[cause])
 	}
 }
 
@@ -564,4 +571,62 @@ func (p *pausedMainTokens) CreateGitHubInstallationTokenForRepositoryOwner(conte
 	fault := pkgerrors.New(pkgerrors.CodeGitHubRateLimited, "GitHub rate limited")
 	fault.RetryAt = &p.retryAt
 	return services.GitHubInstallationToken{}, fault
+}
+
+// The install Home subscribes to the production topic over its composed router;
+// health comes from the restarted polling service and real persisted receipts.
+func assertSyncHomeOverLive(t *testing.T, pool *pgxpool.Pool, sync *services.GitHubMainPullService, user db.User, state, cause string) {
+	t.Helper()
+	ctx := t.Context()
+	q := db.New(pool)
+	binding, err := json.Marshal(map[string]any{"owner_login": user.Username, "repository_name": "app"})
+	require.NoError(t, err)
+	require.NoError(t, q.UpsertInstallSetting(ctx, db.UpsertInstallSettingParams{Key: "github.repository", Value: binding}))
+	server := httptest.NewUnstartedServer(nil)
+	origin := "http://" + server.Listener.Addr().String()
+	cfg := testConfigAllFlagsOn()
+	cfg.Auth.Mode = "selfhost"
+	cfg.Server.PublicURL = origin
+	cfg.Server.AllowedOrigins = []string{origin}
+	hubCtx, cancel := context.WithCancel(ctx)
+	defer cancel()
+	topics := &liveTopics{queries: q, todos: &todoCalls{}, sync: sync}
+	handler := &routes.LiveHandler{Queries: q, Hub: live.NewHub(hubCtx, nil), Origins: func() []string { return []string{origin} }, Topics: topics.resolver}
+	router := githubAppSetupComposeRouter(cfg, pool, &routes.GitHubAppSetupHandler{}, routerExtras{GitHubSync: sync, Live: handler})
+	server.Config.Handler = http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		info := &middleware.AuthInfo{User: &user, SessionHash: "poll-session"}
+		router.ServeHTTP(w, r.WithContext(middleware.ContextWithAuthInfo(r.Context(), info)))
+	})
+	server.Start()
+	defer server.Close()
+	readCtx, done := context.WithTimeout(ctx, 5*time.Second)
+	defer done()
+	conn, _, err := websocket.Dial(readCtx, "ws"+strings.TrimPrefix(origin, "http")+"/api/live", &websocket.DialOptions{Subprotocols: []string{"smithers.live.v1"}, HTTPHeader: http.Header{"Origin": {origin}}})
+	require.NoError(t, err)
+	defer conn.CloseNow()
+	require.NoError(t, conn.Write(readCtx, websocket.MessageText, []byte(`{"t":"sub","id":1,"topic":"home"}`)))
+	for {
+		_, raw, err := conn.Read(readCtx)
+		require.NoError(t, err)
+		var frame liveFrame
+		require.NoError(t, json.Unmarshal(raw, &frame))
+		require.NotEqual(t, "err", frame.T, string(raw))
+		if frame.T != "snap" {
+			continue
+		}
+		var home struct {
+			Main struct {
+				Health  string `json:"health"`
+				Cause   string `json:"cause"`
+				RetryAt string `json:"retry_at"`
+			} `json:"main"`
+		}
+		require.NoError(t, json.Unmarshal(frame.Data, &home))
+		require.Equal(t, state, home.Main.Health)
+		require.Equal(t, cause, home.Main.Cause)
+		if state == "limited" {
+			require.NotEmpty(t, home.Main.RetryAt)
+		}
+		break
+	}
 }

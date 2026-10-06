@@ -86,7 +86,7 @@ export const homeFlows = (actions: CommandActions): ReadonlyArray<FlowEntry> => 
     handler: ({ id }) => result(actions.design.dismissRun(id)) }),
   flow({ name: "github",   slash: "/github", cli: ["github"], journey: ["J10"], group: "GitHub", visibility: "core", actors: ["person","app_agent","external_agent"], minimumRole: "member", http: {"method":"GET","path":"/api/github/sync"}, summary: "Show sync status and retry", agent: "run", input: NoPayload,
     handler: () => result(openDesignHome(actions.design, actions.design.viewer())) }),
-  flow({ name: "github.retry", summary: "Retry GitHub sync", hidden: true, input: NoPayload,
+  flow({ name: "github.retry", agent: "run", minimumRole: "member", actors: ["person", "app_agent", "external_agent"], visibility: "in-card", http: { method: "POST", path: "/api/github/sync" }, summary: "Retry GitHub sync", hidden: true, input: NoPayload,
     /*
      * The install's sync (POST /api/github/sync) where this host serves it, else the Cloud's door (GitHubSeam
      * `github.reconcile`); MOCK SEAM: the seed's sync otherwise.

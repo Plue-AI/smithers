@@ -84,6 +84,8 @@ func TestLiveHomeMainRowFollowsTheSync(t *testing.T) {
 	}{
 		{"no sync", nil, map[string]any{"sha": "", "title": "main", "last_success_at": "1970-01-01T00:00:00.000Z", "health": "limited"}},
 		{"never read", &services.GitHubSyncHealth{State: "limited"}, map[string]any{"sha": "", "title": "main", "last_success_at": "1970-01-01T00:00:00.000Z", "health": "limited"}},
+		{"unread stale", &services.GitHubSyncHealth{State: "stale"}, map[string]any{"sha": "", "title": "main", "last_success_at": "1970-01-01T00:00:00.000Z", "health": "stale"}},
+		{"unread paused", &services.GitHubSyncHealth{State: "limited", RetryAt: &retry}, map[string]any{"sha": "", "title": "main", "last_success_at": "1970-01-01T00:00:00.000Z", "health": "limited", "retry_at": "2026-10-05T15:01:00.123Z"}},
 		{"fresh", &services.GitHubSyncHealth{State: "fresh", LastSuccessAt: &at}, map[string]any{"sha": "", "title": "main", "last_success_at": "2026-10-05T15:00:00.123Z", "health": "fresh"}},
 		{"refused", &services.GitHubSyncHealth{State: "refused", Cause: "permission"}, map[string]any{"sha": "", "title": "main", "last_success_at": "1970-01-01T00:00:00.000Z", "health": "refused", "cause": "GitHub App permission missing"}},
 		{"stale, retrying", &services.GitHubSyncHealth{State: "stale", LastSuccessAt: &at, RetryAt: &retry}, map[string]any{"sha": "", "title": "main", "last_success_at": "2026-10-05T15:00:00.123Z", "health": "stale", "retry_at": "2026-10-05T15:01:00.123Z"}},
