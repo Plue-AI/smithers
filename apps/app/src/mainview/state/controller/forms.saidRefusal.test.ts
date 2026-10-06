@@ -1,6 +1,6 @@
+import { stubCommandActions } from "../../flows/StubCommandActions"
 import { expect, test } from "bun:test"
 import { createCommandRegistry } from "../../flows/Commands"
-import type { CommandActions } from "../../flows/Flows"
 import type { Card, Message } from "../AppState"
 import type { ControllerContext } from "./context"
 import { createFailureController } from "./failures"
@@ -56,14 +56,14 @@ const fixture = (submit: (door: Door) => string) => {
       return { isPersisted: { promise: Promise.resolve() } }
     }
   }
-  const actions = {
+  const actions = stubCommandActions({
     repositoryFlows: () => undefined,
     knownRepositories: () => new Set<string>(),
     noteCommandRun: () => {},
     traceFlow: () => {},
     snapshot: () => ({ surface: "chat", typing: false, hasConnectors: true, admin: false, signedOut: false })
-  } satisfies Partial<CommandActions>
-  const registry = createCommandRegistry(actions as unknown as CommandActions)
+  })
+  const registry = createCommandRegistry(actions)
   // Both acts were admitted before either settled, so they share one window.
   let surface: ((sentence: string, window: number) => void) | undefined
   const commands = { ...registry, submit: async () => {

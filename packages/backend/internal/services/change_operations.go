@@ -342,19 +342,19 @@ func (s *WorkspaceService) PreviewOperationUndo(ctx context.Context, workspaceID
 }
 
 func (s *WorkspaceService) previewOperationUndo(ctx context.Context, workspaceID string, repositoryID, userID int64, operationID string, changeIDs []string) (string, error) {
-	workspace, client, err := s.workspaceFacetTarget(ctx, workspaceID, repositoryID, userID, WorkspaceAccessWrite)
+	stdout, succeeded, execErr, err := s.runWorkspaceOperationScript(ctx, workspaceID, repositoryID, userID, func(repo string) string {
+		return buildWorkspaceUndoPreviewCommand(repo, operationID, changeIDs)
+	})
 	if err != nil {
 		return "", err
 	}
-	command := buildWorkspaceUndoPreviewCommand(operationID, changeIDs)
-	response, err := client.Execute(ctx, workspace.VmID, sandbox.ExecRequest{Command: command, TimeoutMS: workspaceOperationTimeoutPtr()})
-	if err != nil {
-		return "", pkgerrors.Internal("preview workspace operation undo").WithCause(err)
+	if execErr != nil {
+		return "", pkgerrors.Internal("preview workspace operation undo").WithCause(execErr)
 	}
-	if !successfulExecStatus(response) {
+	if !succeeded {
 		return "", pkgerrors.Conflict("operation can no longer be undone in this workspace")
 	}
-	state := strings.TrimSpace(response.Stdout)
+	state := strings.TrimSpace(stdout)
 	if state != "clean" && state != "conflicts" {
 		return "", pkgerrors.Internal("invalid workspace undo preview")
 	}
@@ -375,25 +375,52 @@ func (s *WorkspaceService) UndoOperation(ctx context.Context, workspaceID string
 }
 
 func (s *WorkspaceService) undoOperation(ctx context.Context, workspaceID string, repositoryID, userID int64, operationID string) (WorkspaceUndoResult, error) {
-	workspace, client, err := s.workspaceFacetTarget(ctx, workspaceID, repositoryID, userID, WorkspaceAccessWrite)
+	stdout, succeeded, execErr, err := s.runWorkspaceOperationScript(ctx, workspaceID, repositoryID, userID, func(repo string) string {
+		return buildWorkspaceUndoCommand(repo, operationID)
+	})
 	if err != nil {
 		return WorkspaceUndoResult{}, err
 	}
-	response, err := client.Execute(ctx, workspace.VmID, sandbox.ExecRequest{Command: buildWorkspaceUndoCommand(operationID), TimeoutMS: workspaceOperationTimeoutPtr()})
-	if err != nil {
-		return WorkspaceUndoResult{}, pkgerrors.Internal("undo workspace operation").WithCause(err)
+	if execErr != nil {
+		return WorkspaceUndoResult{}, pkgerrors.Internal("undo workspace operation").WithCause(execErr)
 	}
-	if !successfulExecStatus(response) {
+	if !succeeded {
 		return WorkspaceUndoResult{}, pkgerrors.Conflict("workspace operation undo failed")
 	}
-	lines := strings.Fields(response.Stdout)
+	lines := strings.Fields(stdout)
 	if len(lines) != 2 {
 		return WorkspaceUndoResult{}, pkgerrors.Internal("invalid workspace undo result")
 	}
 	return WorkspaceUndoResult{OperationID: lines[0], ParentOperationID: lines[1]}, nil
 }
 
-func buildWorkspaceUndoPreviewCommand(operationID string, changeIDs []string) string {
+// runWorkspaceOperationScript runs an operation-log script, built for the
+// workspace's checkout, in its owner's running workspace. A runtime guest
+// runs it through its runtime as the guest's account; this backend's own
+// guest runs it through the sandbox provider. err refuses the workspace;
+// execErr is a transport failure after which the script may have run.
+func (s *WorkspaceService) runWorkspaceOperationScript(ctx context.Context, workspaceID string, repositoryID, userID int64, build func(repo string) string) (stdout string, succeeded bool, execErr, err error) {
+	if s.runtimeGuest() {
+		workspace, _, err := s.workspaceRuntimeFacetTarget(ctx, workspaceID, repositoryID, userID, WorkspaceAccessWrite, "")
+		if err != nil {
+			return "", false, nil, err
+		}
+		layout, operationCtx, err := s.runtimeGuestPaths(ctx, workspace, userID)
+		if err != nil {
+			return "", false, nil, err
+		}
+		result, execErr := s.execRuntimeGuestScript(operationCtx, workspace.ID, build(layout.Root))
+		return result.Stdout, execErr == nil && result.ExitCode == 0 && !result.OutputTruncated, execErr, nil
+	}
+	workspace, client, err := s.workspaceFacetTarget(ctx, workspaceID, repositoryID, userID, WorkspaceAccessWrite)
+	if err != nil {
+		return "", false, nil, err
+	}
+	response, execErr := client.Execute(ctx, workspace.VmID, sandbox.ExecRequest{Command: build(defaultWorkspaceClonePath), TimeoutMS: workspaceOperationTimeoutPtr()})
+	return response.Stdout, execErr == nil && successfulExecStatus(response), execErr, nil
+}
+
+func buildWorkspaceUndoPreviewCommand(repo, operationID string, changeIDs []string) string {
 	changeRevsets := make([]string, 0, len(changeIDs))
 	for _, changeID := range changeIDs {
 		changeRevsets = append(changeRevsets, "change_id("+strconv.Quote(changeID)+")")
@@ -413,10 +440,10 @@ if [ -n "$(jj -R "$tmp" log -r %s --no-graph -T 'commit_id.short(1)')" ]; then
   printf conflicts
 else
   printf clean
-fi`, shellQuote(defaultWorkspaceClonePath), shellQuote(operationID), shellQuote(conflictRevset))
+fi`, shellQuote(repo), shellQuote(operationID), shellQuote(conflictRevset))
 }
 
-func buildWorkspaceUndoCommand(operationID string) string {
+func buildWorkspaceUndoCommand(repo, operationID string) string {
 	return fmt.Sprintf(`set -eu
 repo=%s
 target=%s
@@ -424,7 +451,7 @@ jj -R "$repo" op revert --what repo "$target" >/dev/null
 undo=$(jj -R "$repo" --at-operation @ op log -n 1 --no-graph -T 'self.id() ++ "\n"')
 parent=$(jj -R "$repo" --at-operation @ op log -n 1 --no-graph -T 'self.parents().first().id() ++ "\n"')
 jj -R "$repo" git push --all >/dev/null
-printf '%%s\n%%s\n' "$undo" "$parent"`, shellQuote(defaultWorkspaceClonePath), shellQuote(operationID))
+printf '%%s\n%%s\n' "$undo" "$parent"`, shellQuote(repo), shellQuote(operationID))
 }
 
 func workspaceOperationTimeoutPtr() *int64 {

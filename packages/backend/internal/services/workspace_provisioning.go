@@ -62,7 +62,9 @@ var newWorkspaceGzipWriter = func(w io.Writer) workspaceGzipWriteCloser {
 	return gzip.NewWriter(w)
 }
 
-func buildWorkspaceClaudeBootstrapScript() string {
+// buildWorkspaceClaudeBootstrapScript renders the container bootstrap for
+// layout's account and home.
+func buildWorkspaceClaudeBootstrapScript(layout workspaceGuestLayout) string {
 	downloadScript := base64.StdEncoding.EncodeToString([]byte(workspace_scripts.DownloadReleaseScript))
 
 	// These scripts are rendered into `bash -lc {{printf "%q" .Script}}`. Go's %q
@@ -74,23 +76,23 @@ func buildWorkspaceClaudeBootstrapScript() string {
 	// semantics are unchanged.
 	claudeInstallScript := strings.Join([]string{
 		"set -euo pipefail",
-		fmt.Sprintf("export PATH=%q", workspaceLocalBinDir+":/usr/local/bin:/usr/bin:/bin"),
-		fmt.Sprintf("export NPM_CONFIG_PREFIX=%q", workspaceLocalDir),
-		fmt.Sprintf("npm install -g %q >%s 2>&1", workspaceClaudePackage, workspaceClaudeInstallLog),
+		fmt.Sprintf("export PATH=%q", layout.localBinDir()+":/usr/local/bin:/usr/bin:/bin"),
+		fmt.Sprintf("export NPM_CONFIG_PREFIX=%q", layout.localDir()),
+		fmt.Sprintf("npm install -g %q >%s 2>&1", workspaceClaudePackage, layout.claudeInstallLog()),
 	}, "; ")
 
 	// The npm package is the only interactive CLI installed in a workspace.
 
 	vars := bootstrapVars{
-		User:                defaultWorkspaceUser,
-		Home:                defaultWorkspaceHome,
-		LocalDir:            workspaceLocalDir,
-		LocalBinDir:         workspaceLocalBinDir,
-		LocalNodeDir:        workspaceLocalNodeDir,
+		User:                layout.User,
+		Home:                layout.Home,
+		LocalDir:            layout.localDir(),
+		LocalBinDir:         layout.localBinDir(),
+		LocalNodeDir:        layout.localNodeDir(),
 		JJReleaseAPIURL:     workspaceJJReleaseAPIURL,
 		NodeDistIndexURL:    workspaceNodeDistIndexURL,
 		NodeMajor:           workspaceNodeMajor,
-		NodeInstallLog:      workspaceNodeInstallLog,
+		NodeInstallLog:      layout.nodeInstallLog(),
 		ClaudeInstallScript: claudeInstallScript,
 		DownloadScript:      downloadScript,
 		CodingHostB64Path:   workspaceCodingHostB64Path,
@@ -218,7 +220,7 @@ func (s *WorkspaceService) forkWorkspaceSandbox(ctx context.Context, sourceVMID 
 	if err := client.WriteFile(forkCtx, vm.ID, workspaceArtifactOwnerPath, sandbox.WriteFileRequest{Content: workspaceArtifactOwner(workspaceID)}); err != nil {
 		return vm, err
 	}
-	if err := finishWorkspaceArtifacts(forkCtx, s.sandbox, vm.ID, workspaceBootstrapScriptForKind(kind)); err != nil {
+	if err := finishWorkspaceArtifacts(forkCtx, s.sandbox, vm.ID, workspaceBootstrapScriptForKind(kind, defaultWorkspaceGuestLayout)); err != nil {
 		return vm, err
 	}
 	return vm, waitForWorkspaceArtifactBootstrap(forkCtx, client, vm.ID)
@@ -563,7 +565,7 @@ func (s *WorkspaceService) buildContainerWorkspaceVMRequest(ctx context.Context,
 	files := map[string]sandbox.SandboxFile{
 		workspaceArtifactOwnerPath: {Content: workspaceArtifactOwner(workspaceID)},
 		workspaceClaudeScriptPath: {
-			Content:    buildWorkspaceClaudeBootstrapScript(),
+			Content:    buildWorkspaceClaudeBootstrapScript(defaultWorkspaceGuestLayout),
 			Executable: true,
 		},
 	}
@@ -1642,7 +1644,7 @@ func (s *WorkspaceService) provisionWorkspaceVM(ctx context.Context, workspace d
 	if vm.ID == "" {
 		vm, err = s.createFreshWorkspaceVM(ctx, workspace, binding)
 	} else {
-		err = finishWorkspaceArtifacts(ctx, s.sandbox, vm.ID, workspaceBootstrapScriptForKind(workspace.Kind))
+		err = finishWorkspaceArtifacts(ctx, s.sandbox, vm.ID, workspaceBootstrapScriptForKind(workspace.Kind, defaultWorkspaceGuestLayout))
 		if err == nil {
 			if client, ok := s.sandbox.(workspaceArtifactClient); ok {
 				err = waitForWorkspaceArtifactBootstrap(ctx, client, vm.ID)

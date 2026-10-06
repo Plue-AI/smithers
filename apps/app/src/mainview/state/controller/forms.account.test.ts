@@ -1,6 +1,6 @@
+import { stubCommandActions } from "../../flows/StubCommandActions"
 import { expect, test } from "bun:test"
 import { createCommandRegistry, type CommandOutcome } from "../../flows/Commands"
-import type { CommandActions } from "../../flows/Flows"
 import { createAppStore } from "../AppStore"
 import { memoryStorage, settle, unavailableAgent, waitFor } from "../TestFixtures"
 import { createControllerContext } from "./context"
@@ -16,14 +16,14 @@ const fixture = async () => {
   await store.dispatch({ type: "identity.session.loaded", actor: "system", state: "signed-in", login: "will",
     admin: false, scopesPlain: null }).isPersisted.promise
   const ctx = createControllerContext(store, unavailableAgent, {})
-  const actions = {
+  const actions = stubCommandActions({
     repositoryFlows: () => undefined,
     knownRepositories: () => new Set<string>(),
     noteCommandRun: () => {},
     traceFlow: () => {},
     snapshot: () => ({ surface: "chat", typing: false, hasConnectors: true, admin: false, signedOut: false })
-  } satisfies Partial<CommandActions>
-  const registry = createCommandRegistry(actions as unknown as CommandActions)
+  })
+  const registry = createCommandRegistry(actions)
   const answers: Array<(outcome: CommandOutcome) => void> = []
   ctx.commands = { ...registry, submit: () => new Promise<CommandOutcome>(answer => { answers.push(answer) }) }
   const forms = createFormsController(ctx, { nextOrdinal: () => 1 })

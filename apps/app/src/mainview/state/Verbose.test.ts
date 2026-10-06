@@ -1,3 +1,4 @@
+import { stubCommandActions } from "../flows/StubCommandActions"
 /*
  * /verbose — the maintainer's view of everything Smithers does.
  *
@@ -7,7 +8,6 @@
  * transcript reads exactly as it would have without the switch.
  */
 import { createCommandRegistry } from "../flows/Commands"
-import type { CommandActions } from "../flows/Flows"
 import { afterEach, describe, expect, test } from "bun:test"
 import { scopedControllers } from "./ControllerTestScope"
 import { createAppStore, TRACE_MESSAGE_PREFIX, VERBOSE_OFF_TEXT, VERBOSE_ON_TEXT, verboseTrace } from "./AppStore"
@@ -143,7 +143,7 @@ describe("sensitive flow traces", () => {
         console.debug = (...args) => { logged.push(args) }
         const writes: Promise<unknown>[] = []
         const received: string[] = []
-        const actions = {
+        const actions = stubCommandActions({
           repositoryFlows: () => undefined,
           knownRepositories: () => new Set(["owner/repo"]),
           snapshot: () => ({ surface: "chat", typing: false, hasConnectors: true, admin: false, signedOut: false }),
@@ -155,8 +155,8 @@ describe("sensitive flow traces", () => {
             // A seam may echo input in its error detail.
             if (fails) return `Could not save ${value}`
           }
-        } satisfies Partial<CommandActions>
-        const commands = createCommandRegistry(actions as unknown as CommandActions)
+        })
+        const commands = createCommandRegistry(actions)
         const outcome = await commands.run("env.set", `${assignment} owner/repo`)
         await Promise.all(writes)
         expect(outcome.status).toBe(fails ? "failed" : "executed")

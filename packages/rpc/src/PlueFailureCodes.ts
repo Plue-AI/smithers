@@ -35,7 +35,7 @@ export const PLUE_FAILURE_SCHEMA_VERSION = 1
  * @since 1.0.0
  * @category constants
  */
-export const PLUE_FAILURE_DIGEST = "sha256:a63fa02541eab875fe78d6b536b831578cdf530951ed674c4c967145a5748372"
+export const PLUE_FAILURE_DIGEST = "sha256:3d3f09ce955fd35c810366c7044848d85e03caf0091488999882af46d0964292"
 
 /**
  * Whose problem a failure is — the registry's verdict, and the only question the app
@@ -501,7 +501,7 @@ export const PLUE_FAILURES = {
   "workspace_source_missing": { fault: "user", status: 404, retryAfter: 0 },
   /** plue could not verify the box's native source. */
   "workspace_source_unavailable": { fault: "infra", status: 503, retryAfter: 0 },
-  /** The requested workspace SSH user is not offered; ask for the workspace user or root. */
+  /** The requested workspace SSH user is not offered; name the workspace's own account or none. */
   "workspace_ssh_user_invalid": { fault: "user", status: 400, retryAfter: 0 },
   /** The recorded workspace VM no longer exists. Recovery details offer creation of a new workspace from owned snapshot metadata, or fresh creation. Provider restoration must succeed; the old workspace and recovery identifiers remain intact. */
   "workspace_vm_missing": { fault: "infra", status: 409, retryAfter: 0 }

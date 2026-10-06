@@ -86,7 +86,7 @@ for (const mode of ["github", "bearer"] as const) {
     expect(requests).toHaveLength(0)
     expect(store.session().draft).toBe(question)
     const prompt = [...store.collections.messages.values()].filter(message => message.action?.flow === "sign-in").at(-1)
-    const label = mode === "github" ? "Sign in with GitHub" : "Sign in"
+    const label = mode === "bearer" ? "Sign in" : "Sign in with GitHub"
     expect(prompt).toMatchObject({ text: `${label} to send this message.`, action: { label } })
     await controller.dispose()
     const reopened = await createAppStore({ kind: "localStorage", storage })
@@ -109,7 +109,7 @@ for (const mode of ["owner", "bearer", "github"] as const) for (const journal of
     refuse({ status: "error", message: "Sign in to continue.", refusal: { code: "sign_in_required", message: "Sign in to continue.", retryAt: null } })
     await waitFor(() => [...store.collections.messages.values()].some(message => message.action?.flow === "sign-in"))
     const prompt = [...store.collections.messages.values()].filter(message => message.action?.flow === "sign-in").at(-1)
-    const label = mode === "github" ? "Sign in with GitHub" : "Sign in"
+    const label = mode === "bearer" ? "Sign in" : "Sign in with GitHub"
     expect(prompt).toMatchObject({ text: `${label} to send this message.`, action: { label } })
     expect(store.session().phase).toBe("idle")
     expect(store.session().draft).toBe(newerDraft ? "My next thought" : question)

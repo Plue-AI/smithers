@@ -165,7 +165,7 @@ func workspaceZRunningQuery(workspace db.Workspace) *mockWorkspaceQuerier {
 func TestWorkspaceProvisioning_Z_BootstrapAndCLIErrorBranches(t *testing.T) {
 	oldTemplate := bootstrapTmpl
 	bootstrapTmpl = template.Must(template.New("bad").Parse(`{{template "missing" .}}`))
-	require.Panics(t, func() { _ = buildWorkspaceClaudeBootstrapScript() })
+	require.Panics(t, func() { _ = buildWorkspaceClaudeBootstrapScript(defaultWorkspaceGuestLayout) })
 	bootstrapTmpl = oldTemplate
 
 	cliPath := filepath.Join(t.TempDir(), "smithers")

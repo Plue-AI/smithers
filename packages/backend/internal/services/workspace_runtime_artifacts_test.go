@@ -21,7 +21,7 @@ type artifactRuntime struct{ workspaceapi.WorkspaceRuntime }
 
 func TestRuntimeWorkspaceCLIProbeExecutesGuestBinary(t *testing.T) {
 	bin := t.TempDir()
-	command := strings.ReplaceAll(workspaceRuntimeCLIProbe(), workspaceLocalBinDir, bin)
+	command := strings.ReplaceAll(workspaceRuntimeCLIProbe(defaultWorkspaceGuestLayout), defaultWorkspaceGuestLayout.localBinDir(), bin)
 	output, err := exec.Command("/bin/sh", "-c", command).CombinedOutput()
 	require.Error(t, err)
 	require.Contains(t, string(output), "workspace CLI missing")
@@ -41,6 +41,14 @@ func (*artifactRuntime) Isolation() workspaceapi.IsolationLevel {
 }
 func (*artifactRuntime) Capabilities() workspaceapi.WorkspaceCapabilities {
 	return workspaceapi.WorkspaceCapabilities{PersistentFiles: true, Execution: true, FileOperations: true}
+}
+
+// The fixture's guest is this backend's own agent guest.
+func (*artifactRuntime) InspectWorkspace(_ context.Context, id string) (workspaceapi.Workspace, error) {
+	return workspaceapi.Workspace{ID: id, Root: defaultWorkspaceClonePath, Home: defaultWorkspaceHome, State: workspaceapi.WorkspaceRunning}, nil
+}
+func (*artifactRuntime) ExecuteCommand(context.Context, string, workspaceapi.Command) (workspaceapi.CommandResult, error) {
+	return workspaceapi.CommandResult{Stdout: "1000\n" + defaultWorkspaceUser + "\n"}, nil
 }
 
 func TestRuntimeRepositoryStagesArtifactsBeforeRepositoryAccess(t *testing.T) {
@@ -247,7 +255,7 @@ func TestRuntimeArtifactsBootstrapMatchesPlacedEnvironment(t *testing.T) {
 			client := &runtimeArtifactClient{artifactRecordingClient: newArtifactRecordingClient(), bootstrapStatus: "done"}
 			svc := newWorkspaceServiceForTests(q, WithWorkspaceRuntime(&artifactRuntime{}), WithWorkspaceSandboxClient(client))
 			require.NoError(t, svc.ensureRuntimeWorkspaceArtifacts(t.Context(), row, row.UserID))
-			require.Equal(t, workspaceBootstrapScriptForKind(scenario.guestKind), stagedWorkspaceScript(client.artifactRecordingClient))
+			require.Equal(t, workspaceBootstrapScriptForKind(scenario.guestKind, defaultWorkspaceGuestLayout), stagedWorkspaceScript(client.artifactRecordingClient))
 		})
 	}
 }
@@ -339,13 +347,13 @@ type lifecycleArtifactRuntime struct {
 }
 
 func (r *lifecycleArtifactRuntime) InspectWorkspace(_ context.Context, id string) (workspaceapi.Workspace, error) {
-	return workspaceapi.Workspace{ID: id, State: r.state}, nil
+	return workspaceapi.Workspace{ID: id, Root: defaultWorkspaceClonePath, Home: defaultWorkspaceHome, State: r.state}, nil
 }
 func (*lifecycleArtifactRuntime) CreateWorkspace(_ context.Context, spec workspaceapi.WorkspaceSpec) (workspaceapi.Workspace, error) {
-	return workspaceapi.Workspace{ID: spec.ID, State: workspaceapi.WorkspaceRunning}, nil
+	return workspaceapi.Workspace{ID: spec.ID, Root: defaultWorkspaceClonePath, Home: defaultWorkspaceHome, State: workspaceapi.WorkspaceRunning}, nil
 }
 func (*lifecycleArtifactRuntime) StartWorkspace(_ context.Context, id string) (workspaceapi.Workspace, error) {
-	return workspaceapi.Workspace{ID: id, State: workspaceapi.WorkspaceRunning}, nil
+	return workspaceapi.Workspace{ID: id, Root: defaultWorkspaceClonePath, Home: defaultWorkspaceHome, State: workspaceapi.WorkspaceRunning}, nil
 }
 func TestRuntimeWorkspaceNeverActivatesBeforeArtifactBootstrap(t *testing.T) {
 	artifactCallsiteFixture(t)

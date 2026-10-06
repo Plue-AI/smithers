@@ -230,11 +230,23 @@ func (s *WorkspaceService) ResolveLanguageServer(ctx context.Context, sessionID 
 			Message: "no language server is registered for " + session.Language,
 		}
 	}
+	checkout := defaultWorkspaceClonePath
+	if s.runtimeGuest() {
+		workspace, err := s.loadOwnedWorkspace(ctx, session.WorkspaceID, session.RepositoryID, userID)
+		if err != nil {
+			return LanguageServerLaunch{}, err
+		}
+		layout, _, err := s.runtimeGuestPaths(ctx, workspace, userID)
+		if err != nil {
+			return LanguageServerLaunch{}, err
+		}
+		checkout = layout.Root
+	}
 	return LanguageServerLaunch{
 		SessionID:   session.ID,
 		WorkspaceID: session.WorkspaceID,
 		Language:    spec.Language,
 		Spec:        spec,
-		Command:     spec.LaunchCommand(defaultWorkspaceClonePath),
+		Command:     spec.LaunchCommand(checkout),
 	}, nil
 }

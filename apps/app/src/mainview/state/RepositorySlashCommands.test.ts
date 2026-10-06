@@ -28,7 +28,8 @@ test("the smithers repository's declared flows and the built-in stack command ar
   await settle()
   await store.dispatch({ type: "repository-flows.loaded", actor: "system", repo: "smithersai/smithers", flows: repositoryFlowsOf(projection.flows) }).isPersisted.promise
   await settle()
-  for (const name of ["review", "lint", "pr-triage", "issue-triage", "release-notes", "coding.request"]) {
+  expect(controller.commands.find("review")?.metadata.args).toBe("<number> [owner/repo]")
+  for (const name of ["lint", "pr-triage", "issue-triage", "release-notes", "coding.request"]) {
     const entry = controller.commands.find(name)
     expect({ name, grammar: typeof entry?.metadata.grammar }).toEqual({ name, grammar: "function" })
   }

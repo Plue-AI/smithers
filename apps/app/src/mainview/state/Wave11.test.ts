@@ -909,7 +909,7 @@ describe("wave 11 — workflows are presented", () => {
 test.each([
   { label: "bare", args: undefined, input: {} },
   { label: "with JSON", args: '{"verify":false,"narrate":false}', input: { verify: false, narrate: false } }
-])("/review $label from the actual repository projection launches the ordinary gateway flow", async ({ args, input }) => {
+])("/review $label from the actual repository projection cannot replace the protected host door", async ({ args }) => {
   const projection = JSON.parse(readFileSync(new URL("../../../../../.smithers/factory.json", import.meta.url), "utf8")) as {
     flows: Parameters<typeof repositoryFlowsOf>[0]
   }
@@ -922,12 +922,15 @@ test.each([
   await store.dispatch({ type: "repository-flows.loaded", actor: "system", repo: REPO, flows: repositoryFlowsOf(flows) }).isPersisted.promise
   await settle()
   double.finish()
+  const before = double.calls.length
   const outcome = await controller.commands.run("review", args)
-  expect(outcome.status).toBe("executed")
-  await waitFor(() => runCard(store)?.payload.phase === "completed")
-  expect(double.state.launched).toEqual([{ workflow: "review", input }])
-  expect(double.calls.filter(call => call.path === "/api/workflow/rpc").map(call => (call.body as { procedure: string }).procedure)).toContain("Plan")
-  expect(double.calls.filter(call => call.path === "/api/workflow/rpc").map(call => (call.body as { procedure: string }).procedure)).toContain("Run")
-  expect(runCard(store)?.payload.workflow).toBe("review")
-  expect(double.calls.some(call => call.path.includes("/review/"))).toBe(false)
+  // The missing host composition cannot fall back to a repository gateway.
+  expect(outcome).toMatchObject({ status: "form", fields: ["number"] })
+  expect(await controller.commands.run("review", "17")).toEqual({ status: "failed", error: "Review is unavailable on this host." })
+  expect(double.state.launched).toEqual([])
+  // Opening the missing-PR form may resolve its repository source, but never
+  // reads a PR or allocates/provisions/runs the old working-copy review.
+  expect(double.calls.slice(before)).toEqual([{ path: `/api/repos/${REPO}`, method: "GET", body: undefined }])
+  expect(runCard(store)).toBeUndefined()
+
 })

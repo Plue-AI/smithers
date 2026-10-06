@@ -111,6 +111,28 @@ test("retired browser PR review refuses without creating a machine or fetching P
   await store.dispose?.()
 })
 
+test("Review a PR refuses before choosing a box, including after reload", async () => {
+  const storage = memoryStorage()
+  const store = await createAppStore({ kind: "localStorage", storage })
+  await store.dispatch({ type: "identity.session.loaded", actor: "system", state: "signed-in", login: "will", admin: false, scopesPlain: null }).isPersisted.promise
+  await store.dispatch({ type: "workspaces.loaded", actor: "system", repoId: REPO, workspaces: [] }).isPersisted.promise
+  const calls: string[] = []
+  const services = { fetchImpl: async (input: RequestInfo | URL) => {
+    calls.push(new URL(String(input), "https://app.test").pathname)
+    return json(503, { code: "unavailable", message: "No review composition" })
+  } }
+  const check = async (current: AppStore) => {
+    const controller = createAppController(current, silentAgent, services)
+    expect(await controller.commands.run("prs.triage", `17 ${REPO}`)).toEqual({ status: "failed", error: "Review is unavailable on this host." })
+    expect([...current.collections.cards.values()].filter(card => card.kind === "flow-form" && card.payload.afterBox?.kind === "prs.triage")).toEqual([])
+    expect(calls.filter(path => path.includes("pulls/") || path.startsWith("/api/workflow/") || path.endsWith("/workspaces"))).toEqual([])
+    await controller.dispose()
+  }
+  await check(store)
+  const restored = await createAppStore({ kind: "localStorage", storage })
+  await check(restored)
+})
+
 test("a refused retained PR review stays visible and consumed instead of offering a duplicate launch", async () => {
   const store = await signedIn()
   await loadBox(store, REPO, BOX_A)

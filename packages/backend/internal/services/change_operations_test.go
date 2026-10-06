@@ -178,13 +178,13 @@ func TestChangeOperationServiceUndoRefusesConflictingPreview(t *testing.T) {
 }
 
 func TestWorkspaceOperationCommandsUseDryRunCopyAndRepoOnlyRevert(t *testing.T) {
-	preview := buildWorkspaceUndoPreviewCommand("op'quoted", []string{"change-a", `change\"b`})
+	preview := buildWorkspaceUndoPreviewCommand(defaultWorkspaceClonePath, "op'quoted", []string{"change-a", `change\"b`})
 	assert.Contains(t, preview, "mktemp -d")
 	assert.Contains(t, preview, "cp -a --reflink=auto")
 	assert.Contains(t, preview, "op revert --what repo")
 	assert.Contains(t, preview, "target='op'\\''quoted'")
 	assert.Contains(t, preview, `change_id("change-a")`)
-	undo := buildWorkspaceUndoCommand("op-a")
+	undo := buildWorkspaceUndoCommand(defaultWorkspaceClonePath, "op-a")
 	assert.Contains(t, undo, "op revert --what repo")
 	assert.Contains(t, undo, "git push --all")
 }

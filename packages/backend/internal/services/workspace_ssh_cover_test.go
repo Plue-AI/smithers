@@ -41,7 +41,7 @@ func TestWorkspaceSSH_Cov_BuildConnectionInfoRootRestrictsAllowedUsers(t *testin
 	)
 	svc.workspaceSSHUsername = "root"
 
-	_, err := svc.buildWorkspaceSSHConnectionInfo(context.Background(), sampleDBWorkspace("ws"))
+	_, err := svc.buildWorkspaceSSHConnectionInfo(context.Background(), sampleDBWorkspace("ws"), 1)
 	if err == nil {
 		t.Fatal("configured root was accepted")
 	}

@@ -96,6 +96,7 @@ export { Ack } from "./entries/Declare"
  * is a conscious act pinned by flows/invocable.test.ts.
  */
 export const USER_ONLY_VISIBLE: ReadonlyArray<{ readonly name: string; readonly why: string }> = [
+  { name: "settings", why: "host settings and credentials belong to the owner" },
   { name: "chat.open", why: "opening Chat and starting the selected microphone mode is the human's gesture" },
   { name: "chat.dictate", why: "microphone capture is the human's explicit gesture" },
   { name: "chat.queue", why: "the prompt queue is the human's composer" },
@@ -106,8 +107,6 @@ export const USER_ONLY_VISIBLE: ReadonlyArray<{ readonly name: string; readonly 
   { name: "billing.portal", why: "external billing portal; the human clicks" },
   { name: "admin.devtools", why: "admin panel presentation toggle" },
   { name: "debug.backend", why: "admin diagnostics presentation" },
-  { name: "cloud.sign-in", why: "external browser OAuth on the human's account; the human clicks" },
-  { name: "cloud.sign-out", why: "drops the human's cloud credential; the human clicks" },
   { name: "members", why: "people and roles are the person's call; the app agent has no path to members" },
   { name: "sign-in", why: "the GitHub OAuth redirect yanks the page; the human clicks (auth.prompt is the agent's door)" },
   { name: "sign-out", why: "drops the human's session; the human clicks" },

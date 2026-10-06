@@ -141,11 +141,11 @@ describe("§2 ranking on a fixture", () => {
 })
 
 describe("§2 actions: every action is a registered flow whose input the ref fills", () => {
-  test("a file opens with files.read and lists the code reads; nothing that needs more than the path", () => {
+  test("a file opens with files.read and keeps unvalidated code reads dark", () => {
     const actions = actionsFor({ kind: "file", ref: "src/index.ts", title: "src/index.ts" }, entries)
     expect(actions[0]).toEqual({ flow: "files.read", args: "src/index.ts", label: "Read a file from a repository", role: "open" })
     const names = actions.map((action) => action.flow)
-    expect(names).toContain("code.diagnostics")
+    expect(names).not.toContain("code.diagnostics")
     expect(names).toContain("files.list")
     // code.hover needs a line and a column the ref cannot supply.
     expect(names).not.toContain("code.hover")

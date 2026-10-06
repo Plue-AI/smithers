@@ -133,11 +133,6 @@ const (
 	workspaceJJReleaseAPIURL     = "https://api.github.com/repos/jj-vcs/jj/releases/tags/v0.39.0"
 	workspaceNodeDistIndexURL    = "https://nodejs.org/dist/index.json"
 	workspaceNodeMajor           = "26"
-	workspaceLocalDir            = defaultWorkspaceHome + "/.local"
-	workspaceLocalBinDir         = defaultWorkspaceHome + "/.local/bin"
-	workspaceLocalNodeDir        = defaultWorkspaceHome + "/.local/node"
-	workspaceNodeInstallLog      = defaultWorkspaceHome + "/.smithers/node-install.log"
-	workspaceClaudeInstallLog    = defaultWorkspaceHome + "/.smithers/claude-install.log"
 	// workspaceBunVersion pins the bun runtime installed into workspace VMs
 	// (via the npm `bun` package); keep in sync with BUN_VERSION in
 	// scripts/create-agent-snapshot.ts.
@@ -628,6 +623,9 @@ type WorkspaceService struct {
 	// by workspace session id (T-TRM-02).
 	terminalCredentials  *sync.Map
 	terminalCredentialMu *sync.Mutex
+	// runtimeGuestAccounts caches the account a sandboxed runtime runs each
+	// workspace's commands as (workspaceGuestLayout).
+	runtimeGuestAccounts *sync.Map
 	providerConnections  ProviderPoolOffer
 	providerBootstrap    bool
 	platformSeats        []modelproxy.Seat
@@ -835,6 +833,7 @@ func NewWorkspaceService(q WorkspaceQuerier, opts ...WorkspaceServiceOption) *Wo
 		headReporterRetryAt:          &sync.Map{},
 		terminalCredentials:          &sync.Map{},
 		terminalCredentialMu:         &sync.Mutex{},
+		runtimeGuestAccounts:         &sync.Map{},
 		launchSessionCleanup:         SafeGo,
 		sessionProvisionGrace:        workspaceSessionProvisionGrace,
 		q:                            q,

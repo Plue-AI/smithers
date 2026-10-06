@@ -87,7 +87,7 @@ func TestWorkspaceSSH_Z_GetWorkspaceAndBuildErrorBranches(t *testing.T) {
 		mockWorkspaceSandboxVMClient: &mockWorkspaceSandboxVMClient{},
 		createIdentityErr:            errors.New("identity failed"),
 	}))
-	_, err = svc.buildWorkspaceSSHConnectionInfo(ctx, workspace)
+	_, err = svc.buildWorkspaceSSHConnectionInfo(ctx, workspace, workspace.UserID)
 	assert.Equal(t, http.StatusInternalServerError, apiStatus(t, err))
 
 	svc = newWorkspaceServiceForTests(&mockWorkspaceQuerier{}, WithWorkspaceSandboxClient(workspaceSSHZSandboxClient{
@@ -97,21 +97,21 @@ func TestWorkspaceSSH_Z_GetWorkspaceAndBuildErrorBranches(t *testing.T) {
 			},
 		},
 	}))
-	_, err = svc.buildWorkspaceSSHConnectionInfo(ctx, workspace)
+	_, err = svc.buildWorkspaceSSHConnectionInfo(ctx, workspace, workspace.UserID)
 	assert.Equal(t, http.StatusInternalServerError, apiStatus(t, err))
 
 	svc = newWorkspaceServiceForTests(&mockWorkspaceQuerier{}, WithWorkspaceSandboxClient(workspaceSSHZSandboxClient{
 		mockWorkspaceSandboxVMClient: &mockWorkspaceSandboxVMClient{},
 		createTokenErr:               errors.New("token failed"),
 	}))
-	_, err = svc.buildWorkspaceSSHConnectionInfo(ctx, workspace)
+	_, err = svc.buildWorkspaceSSHConnectionInfo(ctx, workspace, workspace.UserID)
 	assert.Equal(t, http.StatusInternalServerError, apiStatus(t, err))
 
 	svc = newWorkspaceServiceForTests(&mockWorkspaceQuerier{},
 		WithWorkspaceSandboxClient(&mockWorkspaceSandboxVMClient{}),
 		WithWorkspaceSSHHostKeyLoader(&stubHostKeyLoader{err: errors.New("keys failed")}),
 	)
-	_, err = svc.buildWorkspaceSSHConnectionInfo(ctx, workspace)
+	_, err = svc.buildWorkspaceSSHConnectionInfo(ctx, workspace, workspace.UserID)
 	assert.Equal(t, http.StatusInternalServerError, apiStatus(t, err))
 }
 

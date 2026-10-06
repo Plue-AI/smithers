@@ -1,3 +1,4 @@
+import { stubCommandActions } from "./StubCommandActions"
 import { describe, expect, test } from "bun:test"
 import type { CommandActions } from "./Flows"
 import { adminFlows, baseFlows } from "./Flows"
@@ -404,4 +405,17 @@ test("restored model forms refuse scalar JSON before dispatch", () => {
     const entry = baseFlows(inertActions).find(row => nameOf(row) === name)!
     for (const value of ["7", "0", '"hello world"', "500000", "null", "[]"]) expect(payloadFor(name, value, entry.metadata.grammar)).toEqual({ error: "Input must be a JSON object" })
   }
+})
+
+describe("custom JSON grammar at the slash boundary", () => {
+  const grammar = (args: string | undefined) => ({ payload: JSON.parse(args ?? "{}") as Record<string, unknown> })
+  for (const args of ["7", "0", "500000", '"hello world"', "null", "true", "[]", "[{}]"]) {
+    test(`confirmation scalar ${args} supplies no named fields`, () => {
+      expect(payloadFor("confirm.cancel", args, grammar)).toEqual({ payload: {} })
+    })
+  }
+  test("a confirmation object retains both identity fields", () => {
+    expect(payloadFor("confirm.cancel", '{"confirmation":"act-1","revision":"rev-1"}', grammar))
+      .toEqual({ payload: { confirmation: "act-1", revision: "rev-1" } })
+  })
 })

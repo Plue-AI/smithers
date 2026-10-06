@@ -66,8 +66,8 @@ const goldenSnapshotSupersededGraceTTL = 15 * time.Minute
 var goldenSnapshotToolchainCheck = strings.Join([]string{
 	"test -x /usr/local/bin/bun",
 	"command -v jj >/dev/null 2>&1",
-	"test -x " + workspaceLocalBinDir + "/node",
-	"test -x " + workspaceLocalBinDir + "/npm",
+	"test -x " + defaultWorkspaceGuestLayout.localBinDir() + "/node",
+	"test -x " + defaultWorkspaceGuestLayout.localBinDir() + "/npm",
 }, " && ")
 
 var goldenSnapshotRefreshEvery = goldenSnapshotRefreshInterval

@@ -1,3 +1,4 @@
+import { resolveApplicationTarget } from "@smthrs/rpc/ApplicationTarget"
 import { expect, test } from "bun:test"
 import { createAppStore } from "../AppStore"
 import { memoryStorage, unavailableAgent, waitFor } from "../TestFixtures"
@@ -22,9 +23,9 @@ const fixture = async (provider: "github" | "local" = "github", storage = memory
     return { username: body.login, admin: false, scopes: null }
   } }
   const ctx = createControllerContext(store, unavailableAgent, {
-    // The owner's backend signs in with credentials; only the hosted redirect is the GitHub session (IdentityProvider.ts).
+    // Local identity is selected by a bearer target, independently of the host.
     bootstrap: { apiVersion: 1, host: "cloud", version: "test", buildSha: "test", authFlow: provider === "local" ? "credentials" : "redirect", sandbox: null, capabilities: ["identity"] },
-    ...(provider === "local" ? { applicationIdentity } : {}),
+    ...(provider === "local" ? { applicationIdentity, applicationTarget: resolveApplicationTarget({ apiVersion: 1, mode: "web-plue", apiOrigin: "", auth: { kind: "bearer" }, cors: "same-origin", developerExternal: false }, "https://app.test") } : {}),
     fetchImpl: async input => {
       const path = new URL(String(input), "https://app.test").pathname
       paths.push(path)

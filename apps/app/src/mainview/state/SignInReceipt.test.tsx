@@ -62,20 +62,20 @@ for (const journal of [false, true]) for (const refusedSave of [false, true]) {
       await entered.promise
       expect(store.collections.savedSignInPrompts.size).toBe(0)
       await settled()
-      expect(host.querySelector("[data-testid=transcript]")?.textContent).not.toContain("Sign in to send this message.")
+      expect(host.querySelector("[data-testid=transcript]")?.textContent).not.toContain("Sign in with GitHub to send this message.")
       // Input remains usable while the refusal waits for real persistence.
       const typing = store.dispatch({ type: "composer.changed", actor: "user", draft: "A newer draft" })
       expect(store.session().draft).toBe("A newer draft")
       await settled()
-      expect(host.querySelector("[data-testid=transcript]")?.textContent).not.toContain("Sign in to send this message.")
+      expect(host.querySelector("[data-testid=transcript]")?.textContent).not.toContain("Sign in with GitHub to send this message.")
       release.resolve()
       await typing.isPersisted.promise.catch(() => {})
       if (refusedSave) {
         await waitFor(() => [...store.collections.messages.values()].some(message => message.status !== "complete"))
-        expect(host.querySelector("[data-testid=transcript]")?.textContent).not.toContain("Sign in to send this message.")
+        expect(host.querySelector("[data-testid=transcript]")?.textContent).not.toContain("Sign in with GitHub to send this message.")
         expect([...store.collections.messages.values()].some(message => message.action?.flow === "sign-in")).toBe(false)
       } else {
-        await waitFor(() => host.textContent?.includes("Sign in to send this message.") === true)
+        await waitFor(() => host.textContent?.includes("Sign in with GitHub to send this message.") === true)
         const events = [...store.collections.transitions.values()]
         expect(events.filter(event => event.type === "chat.sign-in.required")).toHaveLength(1)
         expect(events.some(event => event.type === "http.turn.interrupted" || event.type === "message.response.completed")).toBe(false)

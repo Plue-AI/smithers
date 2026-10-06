@@ -37,13 +37,18 @@ func (s *WorkspaceService) ensureRuntimeWorkspaceArtifacts(ctx context.Context, 
 	if strings.TrimSpace(current.VmID) == "" {
 		return pkgerrors.New(pkgerrors.CodeServiceUnavailable, "workspace sandbox placement unavailable")
 	}
+	// The toolchain belongs to the runtime guest's account and home.
+	layout, err := s.workspaceGuestLayout(ctx, current, requesterID)
+	if err != nil {
+		return err
+	}
 	bootstrapCtx, err := s.workspaceRuntimeContext(ctx, current, requesterID, workspaceLifecycleOperation(current, "bootstrap"))
 	if err != nil {
 		return err
 	}
 	bootstrapCtx, cancel := context.WithTimeout(bootstrapCtx, workspaceResumeProvisionTimeout)
 	defer cancel()
-	command := workspaceRuntimeCLIProbe()
+	command := workspaceRuntimeCLIProbe(layout)
 	// A healthy running guest keeps its installed release. API deploys must
 	// not replace tools beneath an active coding host. An unbootstrapped old
 	// guest is repaired; suspended guests refresh on their next resume.
@@ -68,7 +73,7 @@ func (s *WorkspaceService) ensureRuntimeWorkspaceArtifacts(ctx context.Context, 
 			return pkgerrors.New(pkgerrors.CodeServiceUnavailable, fmt.Sprintf("workspace %s artifact unavailable on host", artifact.label)).WithCause(err)
 		}
 	}
-	if err := finishWorkspaceArtifacts(bootstrapCtx, client, current.VmID, workspaceBootstrapScriptForKind(current.Kind)); err != nil {
+	if err := finishWorkspaceArtifacts(bootstrapCtx, client, current.VmID, workspaceBootstrapScriptForKind(current.Kind, layout)); err != nil {
 		return workspaceArtifactRuntimeFailure(bootstrapCtx, "stage workspace artifacts", err)
 	}
 	if err := waitForWorkspaceArtifactBootstrap(bootstrapCtx, client, current.VmID); err != nil {
@@ -93,7 +98,9 @@ func workspaceArtifactRuntimeFailure(ctx context.Context, operation string, err 
 	return pkgerrors.New(pkgerrors.CodeServiceUnavailable, operation+": "+workspaceBootstrapDiagnostic(err.Error())).WithCause(err)
 }
 
-func workspaceRuntimeCLIProbe() string {
-	return "PATH=" + shellQuote(workspaceLocalBinDir+":/usr/local/bin") + ":$PATH; export PATH; " +
-		"if ! test -x " + shellQuote(workspaceLocalBinDir+"/smithers") + " || ! test -x " + shellQuote(workspaceLocalBinDir+"/smthrs") + "; then echo 'workspace CLI missing: smithers or smthrs' >&2; exit 1; fi; " + shellQuote(workspaceLocalBinDir+"/smithers") + " --version"
+// workspaceRuntimeCLIProbe runs the CLI installed in layout's home.
+func workspaceRuntimeCLIProbe(layout workspaceGuestLayout) string {
+	bin := layout.localBinDir()
+	return "PATH=" + shellQuote(bin+":/usr/local/bin") + ":$PATH; export PATH; " +
+		"if ! test -x " + shellQuote(bin+"/smithers") + " || ! test -x " + shellQuote(bin+"/smthrs") + "; then echo 'workspace CLI missing: smithers or smthrs' >&2; exit 1; fi; " + shellQuote(bin+"/smithers") + " --version"
 }

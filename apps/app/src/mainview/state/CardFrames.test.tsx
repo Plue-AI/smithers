@@ -116,7 +116,7 @@ describe("server-emitted card frames", () => {
     expect(upserts.filter((record) => record.actor === "system")).toHaveLength(1)
   })
 
-  test("render as PlanCard, ApprovalCard, and StatusCard with zero UI change", () => {
+  test("render plans and status while legacy approval payloads stay dark without actor authority", () => {
     const cardViewHandlers = {
       maximized: false,
       onDecideApproval: () => {},
@@ -144,7 +144,10 @@ describe("server-emitted card frames", () => {
       <CardView card={approvalCard} {...cardViewHandlers} />
     )
     expect(approvalMarkup).toContain("data-kind=\"approval\"")
-    expect(approvalMarkup).toContain("deploy:production")
+    expect(approvalMarkup).toContain("Deploy to production")
+    expect(approvalMarkup).not.toContain("deploy:production")
+    expect(approvalMarkup).not.toContain('data-flow="approval.approve"')
+    expect(approvalMarkup).not.toContain('data-flow="approval.deny"')
 
     const statusMarkup = renderToStaticMarkup(
       <CardView card={statusCard} {...cardViewHandlers} />

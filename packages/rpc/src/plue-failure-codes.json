@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "digest": "sha256:a63fa02541eab875fe78d6b536b831578cdf530951ed674c4c967145a5748372",
+  "digest": "sha256:3d3f09ce955fd35c810366c7044848d85e03caf0091488999882af46d0964292",
   "faults": [
     "user",
     "wait",
@@ -947,7 +947,7 @@
       "fault": "user",
       "status": 400,
       "retry_after": 0,
-      "doc": "The requested workspace SSH user is not offered; ask for the workspace user or root."
+      "doc": "The requested workspace SSH user is not offered; name the workspace's own account or none."
     },
     {
       "code": "workspace_vm_missing",

@@ -19,6 +19,7 @@ const createAppController = scopedControllers()
 const setup = async () => {
   const store = await createAppStore({ kind: "localStorage", storage: memoryStorage() })
   const controller = createAppController(store, silentAgent, {
+    bootstrap: { apiVersion: 1, host: "local", version: "test", buildSha: "test", capabilities: ["install"], authFlow: "credentials", sandbox: null },
     fetchImpl: async () => new Response("{}", { status: 200 })
   })
   await addWorldNote(store)

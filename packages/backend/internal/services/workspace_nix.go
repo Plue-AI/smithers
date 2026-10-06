@@ -61,22 +61,23 @@ const workspaceNixActivationWaitCommand = `i=0; until { ` + workspaceNixActivati
 	`; }; do i=$((i + 1)); [ "$i" -lt 240 ] || exit 75; sleep 0.25; done`
 
 // buildWorkspaceNixBootstrapScript renders the NixOS variant of the workspace
-// bootstrap: ~/.local links and the npm CLI and Claude packages.
-func buildWorkspaceNixBootstrapScript() string {
+// bootstrap for layout's account and home: ~/.local links and the npm CLI and
+// Claude packages.
+func buildWorkspaceNixBootstrapScript(layout workspaceGuestLayout) string {
 	claudeInstallScript := strings.Join([]string{
 		"set -euo pipefail",
-		fmt.Sprintf("export PATH=%q", workspaceLocalBinDir+":/run/current-system/sw/bin:/usr/local/bin:/usr/bin:/bin"),
-		fmt.Sprintf("export NPM_CONFIG_PREFIX=%q", workspaceLocalDir),
-		fmt.Sprintf("npm install -g %q >%s 2>&1", workspaceClaudePackage, workspaceClaudeInstallLog),
+		fmt.Sprintf("export PATH=%q", layout.localBinDir()+":/run/current-system/sw/bin:/usr/local/bin:/usr/bin:/bin"),
+		fmt.Sprintf("export NPM_CONFIG_PREFIX=%q", layout.localDir()),
+		fmt.Sprintf("npm install -g %q >%s 2>&1", workspaceClaudePackage, layout.claudeInstallLog()),
 	}, "; ")
 
 	vars := bootstrapVars{
-		User:                defaultWorkspaceUser,
-		Home:                defaultWorkspaceHome,
-		LocalDir:            workspaceLocalDir,
-		LocalBinDir:         workspaceLocalBinDir,
-		LocalNodeDir:        workspaceLocalNodeDir,
-		NodeInstallLog:      workspaceNodeInstallLog,
+		User:                layout.User,
+		Home:                layout.Home,
+		LocalDir:            layout.localDir(),
+		LocalBinDir:         layout.localBinDir(),
+		LocalNodeDir:        layout.localNodeDir(),
+		NodeInstallLog:      layout.nodeInstallLog(),
 		ClaudeInstallScript: claudeInstallScript,
 		DownloadScript:      base64.StdEncoding.EncodeToString([]byte(workspace_scripts.DownloadReleaseScript)),
 		CodingHostB64Path:   workspaceCodingHostB64Path,
@@ -118,7 +119,7 @@ func (s *WorkspaceService) applyNixGuest(req *sandbox.CreateRequest, image runti
 		req.Files = map[string]sandbox.SandboxFile{}
 	}
 	req.Files[workspaceClaudeScriptPath] = sandbox.SandboxFile{
-		Content:    buildWorkspaceNixBootstrapScript(),
+		Content:    buildWorkspaceNixBootstrapScript(defaultWorkspaceGuestLayout),
 		Executable: true,
 	}
 	for i := range req.Init.Services {
