@@ -13,7 +13,7 @@ import { createRoot } from "react-dom/client"
 import type { ShellView, ToastCard } from "@smthrs/rpc/ToastCard"
 import type { TimelineLine } from "@smthrs/rpc/TimelineCard"
 import { EdgeMap } from "./EdgeMap"
-import { ShellRail, homeLine, railEdges, railLines, railNotices, timelineActions, type RailEntry } from "./ShellRail"
+import { ShellRail, sharedRailLines, homeLine, railEdges, railLines, railNotices, timelineActions, type RailEntry } from "./ShellRail"
 import { MessageScrollerProvider } from "@smthrs/ui"
 import { ControllerTestProvider } from "./ControllerContext"
 import { createAppStore } from "./state/AppStore"
@@ -337,3 +337,30 @@ test("served wait rail actions retain the TODO and the actual branch through cat
   timelineActions(lines, (tag, input) => calls.push([tag, input])).onAction(edge.action!.tag, edge.action!.args)
   expect(calls).toEqual([["todo.resume", { n: 3 }]])
  })
+
+
+test("install shared history feeds the rail with recorded actors and the transcript jump ids", async () => {
+  const store = await createAppStore({ kind: "localStorage", storage: memoryStorage() })
+  await store.dispatch({ type: "identity.session.loaded", actor: "system", state: "signed-in", login: "smithersai", admin: false, scopesPlain: null }).isPersisted.promise
+  const shared = { id: "main", entries: [{ id: "shared-1", author: 2, authorLogin: "alice", runId: "run-1", prompt: "Choose timeout\nDetails", title: "Choose timeout", tone: "live" as const, state: "running" as const, frames: [] }] }
+  const controller = createAppController(store, silentAgent, {
+    bootstrap: { apiVersion: 1, host: "local", version: "test", buildSha: "test", capabilities: ["install", "agent", "identity"], authFlow: "none", sandbox: null },
+    fetchImpl: async input => {
+      const path = new URL(String(input), "https://install.test").pathname
+      return path === "/api/conversations/main" ? Response.json(shared)
+        : path === "/api/conversations/main/view-state" ? Response.json({})
+        : path === "/api/install" ? Response.json(installFixture())
+        : path === "/api/todos" ? Response.json([]) : new Response("", { status: 404 })
+    }
+  })
+  const host = mount(<ControllerTestProvider controller={controller}><MessageScrollerProvider>
+    <ShellRail home={false} entries={[message("private-local", "user", "Private old text")]} />
+  </MessageScrollerProvider></ControllerTestProvider>)
+  await waitFor(() => host.querySelector('[data-entry="shared-1:answer"]') !== null)
+  expect(host.querySelector('[data-entry="private-local"]')).toBeNull()
+  expect(host.querySelector('[data-entry="shared-1:prompt"] .tl-text b')?.textContent).toBe("Choose timeout")
+  expect(host.querySelector('[data-entry="shared-1:answer"]')?.getAttribute("data-tone")).toBe("live")
+  const rows = sharedRailLines(shared, { role: "member" })
+  expect(rows[0]!.glyph).toEqual({ actor: { kind: "person", login: "alice", name: "alice", avatar_url: PlaceholderAvatarUrl, color_index: 2 } })
+  expect(rows[1]!.glyph).toEqual({ actor: { kind: "agent", id: "run-1", agent: "smithers", for_member: { login: "alice", name: "alice", avatar_url: PlaceholderAvatarUrl }, avatar_url: PlaceholderAvatarUrl, color_index: 2 } })
+})
