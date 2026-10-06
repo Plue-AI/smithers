@@ -41,7 +41,7 @@ C-UI-12 Members (T-UI-09): [install roster and keyboard Add/Role/Remove](C-UI-12
 | C-J3-02 | [C-J3-02.spec.ts](C-J3-02.spec.ts) | fixme-before-implementation | T-TRM-01, T-APP-12 |
 | C-J3-03 | [C-J3-03.spec.ts](C-J3-03.spec.ts) | fixme-before-implementation | T-COL-04, T-COL-12, T-APP-10 |
 | C-J3-04 | [C-J3-04.spec.ts](C-J3-04.spec.ts) | Browser contract: two member contexts, real boot and /file dispatcher, shared channel, carets, author colours and durable reload/Reapply; second-Mac machine qualification pending | T-COL-08, T-APP-14, T-APP-14a, T-COL-08a, T-COL-08b |
-| C-J3-05 | [C-J3-05.spec.ts](C-J3-05.spec.ts) | real seam HTTP fixture; guest timing/delegation pending reference host | T-STK-06 |
+| C-J3-05 | [C-J3-05.spec.ts](C-J3-05.spec.ts) | browser-pass real seam HTTP fixture; composed two-worker Answer/Steer ordering and delegated Amend confirmation pass separately; guest model-turn timing pending reference host | T-STK-06 |
 | C-J3-06 | [C-J3-06.spec.ts](C-J3-06.spec.ts) | fixme-before-implementation | T-TRM-03, T-ACC-02, T-TRM-07, T-COL-04, T-COL-06, T-REL-02 |
 | C-J3-08 | [C-J3-08.spec.ts](C-J3-08.spec.ts) | fixme-before-implementation | T-APP-11, T-REL-02 |
 | C-J3-09 | [C-J3-09.spec.ts](C-J3-09.spec.ts) | fixme-before-implementation | T-COL-05 |
