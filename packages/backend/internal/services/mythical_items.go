@@ -2433,8 +2433,8 @@ func (st *mythicalItemStep) deliver(ctx context.Context, item db.MythicalItem) (
 }
 
 // protectedChanges lists the protected paths an outsider-started candidate
-// changes, against main's own list. Every candidate passes integrate before
-// it is verified, pushed or proposed.
+// changes, against current trusted main. Integration and every fresh
+// publication both check it; retained verification never substitutes for policy.
 func (st *mythicalItemStep) protectedChanges(ctx context.Context, item db.MythicalItem) ([]string, error) {
 	outsider := item.Outsider
 	if !outsider && item.WorkspaceID != "" {
@@ -2732,6 +2732,14 @@ func (st *mythicalItemStep) propose(ctx context.Context, item db.MythicalItem) (
 		if candidate, err = r.g.readCommit(ctx, item.CandidateHead); err != nil {
 			return nil, err
 		}
+	}
+	// Verification does not freeze outsider policy: trusted main may have
+	// changed since the check ran. Refuse before minting or pinning a PR head.
+	if refused, err := st.protectedChanges(ctx, item); err != nil {
+		return mythicalInfraOutage(item, "github", err.Error(), st.now), nil
+	} else if len(refused) > 0 {
+		return mythicalStop(item, mythicalFault{Class: "policy", Tag: "protected_paths", Kind: mythicalFailStopped},
+			"a maintainer changes protected paths: "+strings.Join(refused, ", ")), nil
 	}
 	stamp := "0 +0000"
 	if item.CreatedAt.Valid {
@@ -3213,6 +3221,30 @@ func (st *mythicalItemStep) pushProposal(ctx context.Context, item db.MythicalIt
 		if err := r.g.fetch(ctx, r.bridge.URL(), 0, 0, keep); err != nil {
 			return fmt.Errorf("fetch the pinned proposal: %s", sanitizeMirrorError(err, r.bridge.URL()))
 		}
+	}
+	// A recovered intent must still carry exactly the verified tree. Never
+	// trust the intended head alone, even when it was pinned before a crash.
+	if !item.CandidateVerified || item.CandidateHead == "" {
+		return errors.New("the TODO has no verified candidate to publish")
+	}
+	if err := st.fetchCandidate(ctx, item); err != nil {
+		return err
+	}
+	candidate, err := r.g.readCommit(ctx, item.CandidateHead)
+	if err != nil {
+		return err
+	}
+	proposal, err := r.g.readCommit(ctx, op.Head)
+	if err != nil {
+		return err
+	}
+	if proposal.Tree != candidate.Tree {
+		return errors.New("the proposal tree differs from the verified candidate")
+	}
+	if refused, err := st.protectedChanges(ctx, item); err != nil {
+		return err
+	} else if len(refused) > 0 {
+		return fmt.Errorf("a maintainer changes protected paths: %s", strings.Join(refused, ", "))
 	}
 	remote, err := r.g.lsRemote(ctx, gh.GitURL)
 	if err != nil {

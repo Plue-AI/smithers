@@ -1080,14 +1080,14 @@ func TestMythicalOutsiderItemsNeverChangeProtectedPaths(t *testing.T) {
 	ctx := context.Background()
 	submit := func(number int64, files map[string]string) db.MythicalItem {
 		t.Helper()
-		stack := o.wake()
+		o.wake()
 		item := o.item(number)
 		require.Equal(t, "running", item.State, item.Reason)
 		o.project(o.launcher.last("coding/request"), jobs.StateCompleted, fmt.Sprintf("run-%d", number), validatedRequest)
 		o.wake()
 		require.Equal(t, "delivering", o.item(number).State)
-		candidate := o.laneResult(item.WorkspaceID, stack.TipCommit, files, "✨ feat: change")
-		_, err := o.service.SubmitLane(ctx, o.repoID, o.userID, MythicalLaneSubmission{WorkspaceID: item.WorkspaceID, Base: stack.TipCommit,
+		candidate := o.laneResult(item.WorkspaceID, item.BaseCommit, files, "✨ feat: change")
+		_, err := o.service.SubmitLane(ctx, o.repoID, o.userID, MythicalLaneSubmission{WorkspaceID: item.WorkspaceID, Base: item.BaseCommit,
 			Source: candidate, RequestRunID: fmt.Sprintf("run-%d", number), Summary: "✨ feat: change"})
 		require.NoError(t, err)
 		o.wake()

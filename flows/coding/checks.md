@@ -113,6 +113,11 @@ not change the candidate. The changed export is retained under
 `.jj/smithers-checks/modified-*/source`; formatting must happen before capture.
 This failure stops correction rather than starting a repair or reproposal cycle.
 
+The stack rechecks outsider protected-path policy from current trusted `main`
+before creating a proposal and before sending a recovered push. A recovered PR
+head must have the verified candidate's tree; a pinned head alone is insufficient.
+Unreadable policy refuses publication, and candidate policy cannot replace it.
+
 ## Close scratch after contained processes
 
 The export directory and contained processes use Effect scopes. The recipe relies
