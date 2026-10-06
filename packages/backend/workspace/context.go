@@ -58,6 +58,9 @@ type PortPurpose string
 
 const PortPurposeFlowRuntime PortPurpose = "flow_runtime"
 
+// PortPurposeMachined carries the authenticated ADR 0004 private connection.
+const PortPurposeMachined PortPurpose = "machined"
+
 type PortRequest struct {
 	Port    uint16
 	Purpose PortPurpose
