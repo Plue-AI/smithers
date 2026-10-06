@@ -65,6 +65,8 @@ const RunBody = ({ card, maximized }: { readonly card: CardOf<"run">; readonly m
   const world = useDesignWorld()
   useLiveQuery(controller.store.collections.httpTurns)
   useLiveQuery(controller.store.collections.identitySessions)
+  const shared = controller.sharedConversation
+  useSyncExternalStore(shared?.subscribe ?? (() => () => {}), shared?.get ?? (() => undefined), shared?.get ?? (() => undefined))
   const source = controller.runMonitors
   const identity = controller.store.collections.identitySessions.get("identity")
   const member = controller.design.enabled ? controller.design.viewer() : identity?.login

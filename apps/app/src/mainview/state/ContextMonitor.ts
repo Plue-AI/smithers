@@ -2,7 +2,7 @@ import type { MonitorCard } from "@smthrs/rpc/MonitorCard"
 import type { HttpTurn } from "./HttpTurn"
 
 /** Inspect reads the same verified, durable preflight as the answer. No new request or inference. */
-export const contextMonitor = (turn: HttpTurn): MonitorCard | undefined => {
+export const contextMonitor = <Turn extends Pick<HttpTurn, "turnId" | "status" | "preflight" | "preflightPhase">>(turn: Turn): MonitorCard | undefined => {
   const result = turn.preflight
   if (result === undefined) return undefined
   const selected = turn.preflightPhase !== "started"

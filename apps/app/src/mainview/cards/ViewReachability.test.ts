@@ -110,3 +110,11 @@ test("T-APP-16 mounts branch navigation and Earlier from App", () => {
   for (const view of BRANCH_WIRING.views) expect(reachable.has(join(root, view))).toBe(true)
   for (const path of BRANCH_WIRING.legacy) expect(() => statSync(join(root, path))).toThrow()
 })
+
+// T-APP-17: the install conversation mounts the same Context disclosure.
+test("T-APP-17 reaches shared Context and Inspect through the app shell", () => {
+  visit(join(root, "App.tsx"))
+  for (const file of ["SharedConversation.tsx", "EntryRow.tsx", "ContextLine.tsx", "cards/RunContainer.tsx"]) {
+    expect(reachable.has(join(root, file))).toBe(true)
+  }
+})
