@@ -1,7 +1,7 @@
 import { expect, test } from "bun:test"
 import { spawnSync } from "node:child_process"
 import { createHash } from "node:crypto"
-import { cpSync, existsSync, mkdtempSync, readFileSync, rmSync } from "node:fs"
+import { constants, cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { join, resolve } from "node:path"
 
@@ -59,18 +59,34 @@ test.skipIf(process.env.SMITHERS_SERVER_BUNDLE_INTEGRATION !== "1")("production 
 
 // Use the assembled install, never a fake backend or runtime.
 const bundle = process.env.SMITHERS_TEST_SERVER_BUNDLE
+// The check runner already requires real microVMs. A requested qualification
+// must fail for missing install input instead of silently skipping its boundary.
+const required = process.env.SMITHERS_REQUIRE_SERVER_BUNDLE_TESTS === "1" || process.env.SMITHERS_REQUIRE_MICROVM_TESTS === "1"
+test.skipIf(!required)("required bundled-server qualification has an assembled install", () => {
+  expect(bundle).toBeDefined()
+  expect(existsSync(join(bundle!, "bin/smithers-server"))).toBe(true)
+})
 const boundary = bundle === undefined ? test.skip : test
 boundary("bundled server refuses missing msb despite hostile runtime overrides", () => {
   const temporary = mkdtempSync(join(tmpdir(), "smithers-server-boundary-"))
   try {
     const copy = join(temporary, "bundle")
-    cpSync(bundle!, copy, { recursive: true, verbatimSymlinks: true })
-    rmSync(join(copy, "bin", "msb"))
+    cpSync(bundle!, copy, { recursive: true, verbatimSymlinks: true, mode: constants.COPYFILE_FICLONE })
+    rmSync(join(copy, "bin/msb"))
+    const home = join(temporary, "home")
+    mkdirSync(home)
     const result = spawnSync(join(copy, "bin", "smithers-server"), [], {
       env: {
-        HOME: process.env.HOME!, PATH: "/opt/homebrew/bin:/hostile/bin:/usr/bin:/bin",
+        HOME: home, PATH: "/opt/homebrew/bin:/hostile/bin:/usr/bin:/bin",
         SMITHERS_BACKEND_MODE: "plue", SMITHERS_WORKSPACE_ISOLATION: "process",
-        SMITHERS_MICROSANDBOX_BIN: "/bin/sh", SMITHERS_BACKEND_BINARY: "/bin/sh"
+        SMITHERS_MICROSANDBOX_BIN: "/bin/sh", SMITHERS_BACKEND_BINARY: "/bin/sh",
+        SMITHERS_POSTGRES_BUNDLE_DIR: "/hostile/postgres",
+        SMITHERS_FLOW_HOST_MANIFEST: "/hostile/flow-hosts.json",
+        SMITHERS_PLATFORM_MODEL_KEYS_FILE: "/hostile/keys.json",
+        SMITHERS_OWNED_BACKEND_ORIGIN: "http://hostile.invalid:9000",
+        SMITHERS_SERVER_ADDR: "0.0.0.0:9000", SMITHERS_SSH_ADDR: "0.0.0.0:9001",
+        SMITHERS_PUBLIC_URL: "https://hostile.invalid",
+        SMITHERS_EGRESS_RELAY_PORT: "9002", SMITHERS_MICROVM_MEMORY_MIB: "1"
       }, encoding: "utf8", timeout: 30_000
     })
     expect(result.error).toBeUndefined()
@@ -78,7 +94,13 @@ boundary("bundled server refuses missing msb despite hostile runtime overrides",
     expect(result.stderr).toContain("Bundled microVM runtime is unavailable")
     expect(result.stdout).not.toContain('"setup_urls"')
     expect(result.stdout).not.toContain("SMITHERS_LOCAL_ORIGIN=")
+    // Observe the actual process boundary, including descendants reparented
+    // after launcher exit. Only this disposable bundle can match the prefix.
+    const processes = spawnSync("/bin/ps", ["-axo", "pid=,comm="], { encoding: "utf8", maxBuffer: 8 * 1024 * 1024 })
+    expect(processes.status).toBe(0)
+    expect(processes.stdout).not.toContain(copy)
+    expect(existsSync(join(home, "Library/Application Support/Smithers/postgres"))).toBe(false)
   } finally {
     rmSync(temporary, { recursive: true, force: true })
   }
-}, 60_000)
+}, 180_000)
