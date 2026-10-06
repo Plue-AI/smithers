@@ -65,11 +65,15 @@ func (s *CodingFileCredentials) Mint(ctx context.Context, hostID, bearer string,
 	err = s.workspaces.withWorkspaceMutation(ctx, binding.WorkspaceID, binding.RepositoryID, target.UserID, func(ctx context.Context, _ db.Workspace) error {
 		// Hold the live host fence while issuing. A concurrent rotation cannot
 		// produce a newly-issued token already detached from its authenticated host.
-		tx, err := s.auth.Members.Pool.Begin(ctx)
-		if err != nil {
-			return pkgerrors.Internal("begin coding file grant").WithCause(err)
+		tx := heldWorkspaceMutationTransaction(ctx, binding.WorkspaceID, target.UserID)
+		ownsTransaction := tx == nil
+		if ownsTransaction {
+			tx, err = s.auth.Members.Pool.Begin(ctx)
+			if err != nil {
+				return pkgerrors.Internal("begin coding file grant").WithCause(err)
+			}
+			defer func() { _ = tx.Rollback(context.WithoutCancel(ctx)) }()
 		}
-		defer func() { _ = tx.Rollback(context.WithoutCancel(ctx)) }()
 		var live int
 		err = tx.QueryRow(ctx, `SELECT 1 FROM flow_runtime_host_bindings
 			WHERE id=$1::uuid AND user_id=$2 AND repository_id=$3 AND workspace_id=$4::uuid
@@ -96,8 +100,10 @@ func (s *CodingFileCredentials) Mint(ctx context.Context, hostID, bearer string,
 		result = CodingFileGrant{TokenID: token.ID, Token: token.Plaintext, RunID: binding.RunID,
 			WorkspaceID: binding.WorkspaceID, RepositorySlug: slug, ExpiresAt: token.ExpiresAt.UnixMilli(), BatchDigest: binding.BatchDigest}
 
-		if err = tx.Commit(ctx); err != nil {
-			return pkgerrors.Internal("commit coding file grant").WithCause(err)
+		if ownsTransaction {
+			if err = tx.Commit(ctx); err != nil {
+				return pkgerrors.Internal("commit coding file grant").WithCause(err)
+			}
 		}
 		return nil
 	})
