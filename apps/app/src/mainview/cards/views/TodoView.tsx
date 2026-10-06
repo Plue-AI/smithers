@@ -79,7 +79,7 @@ export function TodoView({ model: todo, actions, onAction, conflictTerminal }: T
         <h2>
           <span className="todo-ref">T{todo.n}</span> {todo.title}
         </h2>
-        <StateWord state={todo.state} />
+        <StateWord state={todo.state} step={todo.state === "working" ? todo.step : undefined} />
         {todo.place && <span className="todo-title-meta">{todo.place === 1 ? "Next to merge" : `#${todo.place} in stack`}</span>}
         {todo.branch && <span className="todo-title-meta">{todo.branch.name}</span>}
         <span className="todo-owner-chip"><ActorChip actor={{ kind: "person", login: todo.owner.login, name: todo.owner.name, avatar_url: todo.owner.avatar_url,
@@ -104,7 +104,7 @@ export function TodoView({ model: todo, actions, onAction, conflictTerminal }: T
               machine: "Waiting for a machine",
               merge_order: `Waiting for T${todo.queue.after}`,
               rebase: "Waiting for a rebase",
-              daily_limit: "Daily limit",
+              daily_limit: "Daily limit reached · starts tomorrow",
             }[todo.queue.reason]
           }{" "}
           · #{todo.queue.position}
@@ -112,9 +112,8 @@ export function TodoView({ model: todo, actions, onAction, conflictTerminal }: T
       )}
       {todo.pause && (
         <p className="todo-meta">
-          Paused · {todo.pause.reason === "person" ? "Stopped" : "Daily token budget"}
+          Paused · {todo.pause.reason === "person" ? "Stopped" : "daily token budget"}
           {todo.pause.owner && ` · ${todo.pause.owner.name}`}
-          {todo.pause.resume_at && ` · ${todo.pause.resume_at}`}
         </p>
       )}
       {todo.rebase_pending && <p className="todo-meta">Rebase pending onto {todo.rebase_pending.onto} ↶ Verify</p>}

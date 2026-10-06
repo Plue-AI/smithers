@@ -259,6 +259,12 @@ func TestMythicalMergeTodoSquashesAtTheReviewedHead(t *testing.T) {
 	assert.Equal(t, map[string]string{"contents": "write"}, merges[0].Permissions, "the merge token holds only what the merge needs")
 	landed := h.item(n)
 	require.Equal(t, "landed", landed.State, landed.Reason)
+	records := mythicalChecksOf(landed).Attempts
+	require.Len(t, records, 1)
+	require.Equal(t, int32(1), records[0].Attempt)
+	require.Equal(t, "merged", records[0].Outcome)
+	require.Equal(t, landed.CandidateHead, records[0].Revision)
+
 	assert.Empty(t, landed.PendingOp)
 	assert.Equal(t, h.pull(pr).MergeCommitSHA, landed.PRMergeCommit)
 	state, merge = h.mergeCard(n)
@@ -266,6 +272,7 @@ func TestMythicalMergeTodoSquashesAtTheReviewedHead(t *testing.T) {
 	assert.Equal(t, map[string]any{"state": "done", "on_github": true}, merge)
 	h.pass()
 	assert.Len(t, h.merges(), 1, "settlement and later passes never merge again")
+	require.Equal(t, records, mythicalChecksOf(h.item(n)).Attempts)
 }
 
 // A stack pass saving the TODO while a person presses Merge (J4 row 9: the

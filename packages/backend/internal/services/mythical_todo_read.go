@@ -305,19 +305,34 @@ func modelAccessLabel(access []db.ModelAccess) string {
 }
 
 // Attempts retain the card evidence in the canonical checks column. Runtime
-// ingestion owns these snapshots; older attempts are never recomputed from the
-// current candidate. This replaces the previous current-attempt-only projection.
+// ingestion refreshes live snapshots; settlement freezes the domain outcome and
+// binding. Older attempts are never recomputed from the current candidate.
 type todoAttemptEvidence struct {
-	Attempt  int32            `json:"attempt"`
-	Revision string           `json:"revision"`
-	Items    []map[string]any `json:"items"`
+	RunID        string           `json:"run_id,omitempty"`
+	FlowDigest   string           `json:"flow_digest,omitempty"`
+	SourceCommit string           `json:"source_commit,omitempty"`
+	Generation   int64            `json:"generation,omitempty"`
+	Outcome      string           `json:"outcome,omitempty"`
+	Attempt      int32            `json:"attempt"`
+	Revision     string           `json:"revision"`
+	Items        []map[string]any `json:"items"`
 }
 
 var wikiCitationPageID = regexp.MustCompile(`^[1-9][0-9]*$`)
 var wikiCitationDigest = regexp.MustCompile(`^[0-9a-f]{64}$`)
 
 func currentTodoEvidence(item db.MythicalItem) todoAttemptEvidence {
-	evidence := todoAttemptEvidence{Attempt: item.Attempt, Revision: item.CandidateHead, Items: []map[string]any{}}
+	checks := mythicalChecksOf(item)
+	for _, stored := range checks.Attempts {
+		if stored.Attempt == item.Attempt && stored.Outcome != "" {
+			return stored
+		}
+	}
+	evidence := todoAttemptEvidence{Attempt: item.Attempt, Revision: item.CandidateHead, Items: []map[string]any{},
+		RunID: item.RequestRunID, SourceCommit: checks.FlowSource, Generation: item.Generation}
+	if item.FlowDigest.Valid {
+		evidence.FlowDigest = item.FlowDigest.String
+	}
 	for _, receipt := range mythicalReceiptsView(item) {
 		if receipt.Commit != item.CandidateHead {
 			continue
@@ -344,7 +359,6 @@ func currentTodoEvidence(item db.MythicalItem) todoAttemptEvidence {
 				"pageID": citation.PageID, "revision": citation.Revision, "digest": citation.Digest})
 		}
 	}
-	checks := mythicalChecksOf(item)
 	// The review is of the pull request head that published this candidate
 	// (Candidate); a review recorded before Candidate existed names it as Head.
 	if review := checks.Review; review != nil && item.CandidateHead != "" && review.Verdict != "" &&
@@ -386,6 +400,25 @@ func todoEvidence(item db.MythicalItem) []todoAttemptEvidence {
 		evidence = append(evidence, current)
 	}
 	return evidence
+}
+
+// Settlement and its cancellation/wait changes use the same item transaction.
+// Runtime transport status cannot replace this first domain outcome. A reopened
+// TODO keeps the closed snapshot until launch allocates a different attempt.
+func settleTodoAttemptEvidence(item db.MythicalItem, outcome string) db.MythicalItem {
+	if !mythicalTodo(item) || item.Attempt <= 0 {
+		return item
+	}
+	item = retainTodoAttemptEvidence(item)
+	checks := mythicalChecksOf(item)
+	for i := range checks.Attempts {
+		if checks.Attempts[i].Attempt == item.Attempt && checks.Attempts[i].Outcome == "" {
+			checks.Attempts[i].Outcome = outcome
+			item.Checks = checks.encode()
+			break
+		}
+	}
+	return item
 }
 
 // Steps name only phases with a persisted run binding. A proposed candidate or

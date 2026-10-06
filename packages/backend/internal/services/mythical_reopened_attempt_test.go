@@ -37,14 +37,25 @@ func TestReopenedTodoInputStartsNewPinnedAttempt(t *testing.T) {
 			item, err = q.SaveMythicalItem(ctx, item)
 			require.NoError(t, err)
 			accepted := item
+			var closedAttempt todoAttemptEvidence
 			peer := &todoRuntimeHost{digest: item.FlowDigest.String, source: checks.FlowSource}
 			_, startWorker := o.runDispatcher(t, peer.resolver(t))
 			for _, state := range []string{"closed", "open"} {
 				raw := fmt.Sprintf(`{"number":3,"state":%q,"head":{"sha":%q,"ref":"smithers/review"},"closed_at":%q,"closed_by":{"login":"alice"}}`, state, item.PRHead, time.Now().UTC().Format(time.RFC3339))
 				fact := gitHubFetchedObject{Repo: row.ID, GitHubRepository: 100, Installation: 12, Resource: GitHubRepoMetadataPulls, Number: 3, Version: state, Object: json.RawMessage(raw)}
 				require.NoError(t, pgx.BeginFunc(ctx, pool, func(tx pgx.Tx) error { _, err := o.service.consumeGitHubPullTodos(ctx, tx, fact); return err }))
+				if state == "closed" {
+					records := mythicalChecksOf(o.byID(uuidString(item.ID))).Attempts
+					require.Len(t, records, 1)
+					closedAttempt = records[0]
+					require.Equal(t, "dropped", closedAttempt.Outcome)
+					require.Equal(t, accepted.RequestRunID, closedAttempt.RunID)
+					require.Equal(t, accepted.FlowDigest.String, closedAttempt.FlowDigest)
+				}
+
 			}
 			reopened := o.byID(uuidString(item.ID))
+			require.Equal(t, closedAttempt, currentTodoEvidence(reopened))
 			require.Equal(t, "proposed", reopened.State)
 			require.Equal(t, accepted.Attempt, reopened.Attempt)
 			require.Equal(t, accepted.CandidateHead, reopened.CandidateHead)
@@ -123,6 +134,7 @@ func TestReopenedTodoInputStartsNewPinnedAttempt(t *testing.T) {
 			startWorker()
 			require.Eventually(t, func() bool { return todoState(o.byID(uuidString(item.ID))) == "working" }, 10*time.Second, 10*time.Millisecond)
 			require.Equal(t, "todo-run", o.byID(uuidString(item.ID)).RequestRunID)
+			require.Equal(t, closedAttempt, mythicalChecksOf(o.byID(uuidString(item.ID))).Attempts[0], "new work cannot rewrite the dropped attempt")
 			require.NotEqual(t, accepted.RequestRunID, o.byID(uuidString(item.ID)).RequestRunID)
 			peer.mu.Lock()
 			launches, _ := json.Marshal(peer.launches)

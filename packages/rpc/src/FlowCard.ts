@@ -54,11 +54,11 @@ export type FlowCard = z.infer<typeof FlowCardSchema>
  * @since 1.0.0
  * @category models
  */
-export type FlowViewProps = CardProps<FlowCard>
+export type FlowViewProps = CardProps<FlowCard, {}, "agent">
 
 /**
  * Typed catalog callbacks for Flow.
  * @since 1.0.0
  * @category models
  */
-export type FlowCardCallbacks = CardCallbacks<"flow.source" | "flow.plan" | "flow.run" | "flow.edit" | "todo.new">
+export type FlowCardCallbacks = CardCallbacks<"flow.source" | "flow.plan" | "flow.run" | "flow.edit" | "todo.new" | "agent">

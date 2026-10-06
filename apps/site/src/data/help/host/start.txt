@@ -4,6 +4,8 @@ Usage: smthrs host start [options]
 
 Options:
   --bundle <string>  Built server bundle directory
+  --bind <string>
+  --origin <array>
   --verbose          Show redacted diagnostic details
 
 Custom Global Options:

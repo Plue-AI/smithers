@@ -27,18 +27,16 @@ brew install smithersai/tap/smithers
 
 The per-user launchd agent needs no administrator authorization and will print a setup URL for the Mac and each configured public address.
 
-**Planned.** Only the LAN flags below await T-INS-04.
-
 | Access | Run on the Mac | Open the browser on | Example setup URL |
 | --- | --- | --- | --- |
 | Mac | `smthrs host start` | The Mac | `http://localhost:4000/setup?token=...` |
-| LAN (planned flags) | `smthrs host start --bind 0.0.0.0 --origin http://studio-mini.local:4000` | The Mac or a LAN laptop | `http://studio-mini.local:4000/setup?token=...` |
+| LAN | `smthrs host start --bind 0.0.0.0 --origin http://studio-mini.local:4000` | The Mac or a LAN laptop | `http://studio-mini.local:4000/setup?token=...` |
 
-Replace `studio-mini.local` with your Mac's LAN hostname. The planned options are `--bind <addr>` and `--origin <url>`.
+Replace `studio-mini.local` with your Mac's LAN hostname. The options are `--bind <addr>` and `--origin <url>`.
 
 ## Complete setup
 
-**Planned.** Open the printed setup link. The setup card will guide you in this order:
+Open the printed setup link. The setup card guides you in this order:
 
 1. **Address:** choose **This Mac** or a network address your teammates will use. Address comes first because the GitHub App's sign-in callback is registered to it.
 2. **GitHub App:** create the App through GitHub's app-manifest flow.
@@ -46,4 +44,4 @@ Replace `studio-mini.local` with your Mac's LAN hostname. The planned options ar
 4. **Repository:** choose the repository and install the App on it. Setup checks that GitHub allows squash merging; if it does not, enable squash merging on GitHub and retry.
 5. **Model access:** connect the three roles: **fast** for the app agent and summaries (Cerebras by default), **coding** through a provider key or ChatGPT sign-in, and **Decisions** through an AI Gateway key. Without a fast-model key, the app agent uses the coding model.
 
-The rest of the docs will be in the app at `/docs`.
+The rest of the docs are in the app at `/docs`.

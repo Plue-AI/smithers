@@ -1,14 +1,9 @@
-smthrs agent — Ask the Smithers helper and hold remote conversations
+smthrs agent — Configure an agent
 
-Usage: smthrs agent <command>
+Usage: smthrs agent <name> [options]
 
-Commands:
-  ask      Talk to the local Smithers usage helper
-  chat     Send a message to an existing remote conversation
-  list     List remote conversations
-  run      Start a remote conversation and run a prompt
-  session  Manage remote conversations
-  view     View a remote conversation
+Arguments:
+  name
 
 Custom Global Options:
   --audience <auto|human|agent>  Presentation audience; auto detects agent harnesses, CI, and terminals (default: auto)

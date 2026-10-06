@@ -213,6 +213,9 @@ func (s *MythicalService) consumeGitHubPullTodos(ctx context.Context, tx pgx.Tx,
 				checks = mythicalChecksOf(next)
 			}
 			next.Checks = checks.encode()
+			if decision.Event == "dropped" {
+				next = settleTodoAttemptEvidence(next, "dropped")
+			}
 			if decision.Event == "" && string(next.Checks) == string(item.Checks) {
 				continue
 			}

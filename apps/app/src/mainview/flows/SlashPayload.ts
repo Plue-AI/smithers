@@ -367,6 +367,7 @@ const GRAMMAR: Readonly<Record<string, Grammar>> = {
    * repo-shaped word as the description. Splitting here would change which
    * inputs name a target.
    */
+  "flow": args => structuredFields("flow", args, ["name"]) ?? required("name", args, "Flow name required"),
   "flow.new": (args) => structuredFields("flow.new", args, ["description", "repo"]) ?? ok({ description: trimmed(args) }),
   "flow.repo.choose": (args) => required("repo", args, "flow.repo.choose needs a repository name"),
   "flow.run.stop": (args) => {

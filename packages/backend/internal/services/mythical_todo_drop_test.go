@@ -163,6 +163,10 @@ func TestTodoDropCancelsTheRunAndReleasesTheLane(t *testing.T) {
 	require.Equal(t, []string{launches[0].RequestID}, o.launcher.cancelled, "the attempt's run is cancelled with the drop")
 	dropped := o.byID(id)
 	require.Equal(t, "dropped", todoState(dropped))
+	records := mythicalChecksOf(dropped).Attempts
+	require.Len(t, records, 1)
+	require.Equal(t, "dropped", records[0].Outcome)
+	require.Equal(t, "todo-run-1", records[0].RunID)
 	require.Empty(t, todoOpenWaits(dropped))
 	waits := mythicalChecksOf(dropped).Waits
 	require.Len(t, waits, 1)
@@ -181,6 +185,7 @@ func TestTodoDropCancelsTheRunAndReleasesTheLane(t *testing.T) {
 	o.wake()
 	released := o.byID(id)
 	require.Equal(t, "cancelled", released.State)
+	require.Equal(t, records, mythicalChecksOf(released).Attempts, "late cancellation preserves the domain outcome and binding")
 	require.Empty(t, released.WorkspaceID, "a dropped TODO's lane is released")
 	require.Len(t, o.launcher.byFlow("todo"), 1, "nothing starts again")
 	require.Contains(t, o.lanes.deleted, working.WorkspaceID)

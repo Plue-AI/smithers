@@ -47,3 +47,11 @@ test("T-APP-21 mounts DebugApiView through CardRenderers", () => {
   expect(reachable.has(join(root, "cards/views", API_WIRING.view))).toBe(true)
   for (const path of API_WIRING.legacy) expect(() => statSync(join(root, path))).toThrow()
 })
+
+// T-APP-05 keeps the embedded and maximized Flow card on one renderer.
+const FLOW_WIRING = { view: "FlowView.tsx", ticket: "T-APP-05", legacy: ["cards/WorkflowCards.tsx", "cards/FlowContainer.tsx"] }
+test("T-APP-05 mounts FlowView and removes both replaced renderers", () => {
+  visit(join(root, "cards/CardRenderers.tsx"))
+  expect(reachable.has(join(root, "cards/views", FLOW_WIRING.view))).toBe(true)
+  for (const path of FLOW_WIRING.legacy) expect(() => statSync(join(root, path))).toThrow()
+})

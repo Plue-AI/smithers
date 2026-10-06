@@ -2,6 +2,7 @@ import { fileArgs } from "@smthrs/rpc/FileRead"
 
 /** The typed input of every flow a card raises with structured values. */
 export interface FlowInput {
+  readonly "flow": { readonly name: string }
   readonly "wiki.save": { readonly name?: string; readonly text?: string }
   readonly "todo.drop": { readonly n: number }
   readonly "file": { readonly path: string; readonly branch?: string; readonly line?: number }
@@ -175,6 +176,7 @@ const graphLine = (payload: Payload, target: string, value: string): string => {
  * of the line.
  */
 const ENCODERS: { readonly [N in FlowWithInput]: (payload: Payload) => string } = {
+  "flow": payload => JSON.stringify(payload),
   "todo.drop": payload => JSON.stringify(payload),
   "wiki.save": payload => JSON.stringify(payload),
   "file": payload => JSON.stringify(payload),

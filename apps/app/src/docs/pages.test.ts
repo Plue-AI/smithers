@@ -72,14 +72,19 @@ const resolvesSlash = (query: string): boolean => {
   return slashTree(member, query, commands).some(row => row.kind === "flow" || row.kind === "namespace")
 }
 
-test("slash references resolve against the source flow registry", () => {
+test("slash references resolve against the generated MVP catalog and source registry", () => {
+  const catalog = JSON.parse(readFileSync(new URL("../../../../catalog.mvp.json", import.meta.url), "utf8"))
+  const slashes = new Set(catalog.operations.map((operation: { slash: string | null }) => operation.slash))
   const references = [...pages.values()].flatMap(markdown => {
     const spans = [...markdown.matchAll(/^\s*(`{3,}|~{3,})[^\n]*\n([\s\S]*?)^\s*\1\s*$/gm)].map(match => match[2]!)
     spans.push(...[...withoutFences(markdown).matchAll(/(`+)([^`\n]+)\1/g)].map(match => match[2]!))
     return spans.flatMap(span => [...span.matchAll(/(?:^|\s)\/([a-z0-9_-]+(?:\.[a-z0-9_-]+)*\.?|)(?=$|[^a-z0-9_./-])/g)].map(match => match[1]!))
   })
   expect(references.length).toBeGreaterThan(0)
-  for (const query of references) expect({ query, resolves: resolvesSlash(query) }).toEqual({ query, resolves: true })
+  for (const query of references) {
+    expect({ query, resolves: resolvesSlash(query) }).toEqual({ query, resolves: true })
+    if (query) expect(slashes.has(`/${query}`)).toBe(true)
+  }
 })
 
 
@@ -108,4 +113,12 @@ test("the docs index and release links are exact", () => {
   expect(quickstart).toContain("automatic login")
   expect(quickstart).toContain("stop the original install first")
   expect(pages.get("flows.md")).not.toMatch(/tailscale|caddy/i)
+})
+
+
+test("quickstart includes shipped LAN commands without duplicate sections", () => {
+  const quickstart = pages.get("quickstart.md")!
+  for (const command of ["brew install smithersai/tap/smithers", "smthrs host start --bind 0.0.0.0 --origin http://studio-mini.local:4000"]) expect(quickstart).toContain(command)
+  const headings = [...quickstart.matchAll(/^## (.+)$/gm)].map(match => match[1])
+  expect(new Set(headings).size).toBe(headings.length)
 })

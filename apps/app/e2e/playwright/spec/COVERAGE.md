@@ -40,7 +40,7 @@ C-UI-12 Members (T-UI-09): [install roster and keyboard Add/Role/Remove](C-UI-12
 | C-J3-08 | [C-J3-08.spec.ts](C-J3-08.spec.ts) | fixme-before-implementation | T-APP-11, T-REL-02 |
 | C-J3-09 | [C-J3-09.spec.ts](C-J3-09.spec.ts) | fixme-before-implementation | T-COL-05 |
 | C-J3-10 | [C-J3-10.spec.ts](C-J3-10.spec.ts) | fixme-before-implementation | T-TRM-05, T-REL-02 |
-| C-J5-01 | [C-J5-01.spec.ts](C-J5-01.spec.ts), [proposal → Draft](../flow-edit-proposal.spec.ts) | proposal-to-Draft passes; joint merge/Active pending | T-FLW-03, T-FLW-04, T-FLW-05, T-FLW-11, T-APP-05, T-REL-02 |
+| C-J5-01 | [C-J5-01.spec.ts](C-J5-01.spec.ts), [proposal → Draft](../flow-edit-proposal.spec.ts), [install versions](../flow-card-install.spec.ts) | proposal-to-Draft and install selection/reload/state projection pass; joint merge/Active pending | T-FLW-03, T-FLW-04, T-FLW-05, T-FLW-11, T-APP-05, T-REL-02 |
 | C-J5-02 | [C-J5-02.spec.ts](C-J5-02.spec.ts) | fixme-before-implementation | T-FLW-03, T-FLW-04, T-FLW-11 |
 | C-J5-03 | [C-J5-03.spec.ts](C-J5-03.spec.ts) | fixme-before-implementation | T-FLW-06, T-REL-02 |
 | C-J6-01 | [C-J6-01.spec.ts](C-J6-01.spec.ts) | fixme-before-implementation | T-TRM-02, T-APP-09, T-REL-02 |
@@ -59,7 +59,7 @@ C-UI-12 Members (T-UI-09): [install roster and keyboard Add/Role/Remove](C-UI-12
 | C-J11-03 | [C-J11-03.spec.ts](C-J11-03.spec.ts) | owner picker wired; Active-main instructions and per-call TODO routing pending | T-FLW-08 |
 | C-J11-04 | [C-J11-04.spec.ts](C-J11-04.spec.ts) | fixme-before-implementation | T-FLW-07, T-REL-02 |
 | C-APP-01 | [C-APP-01.spec.ts](C-APP-01.spec.ts) | browser-pass (Take over; PostgreSQL role/idempotency receipt; live toast qualification pending) | T-APP-02 |
-| C-APP-02 | [C-APP-02.spec.ts](C-APP-02.spec.ts) | browser-pass (Edit, deduplication, reload, person Drop confirm; planner/multiplayer pending) | T-APP-02 |
+| C-APP-02 | [C-APP-02.spec.ts](C-APP-02.spec.ts) | browser-pass (Edit, deduplication, reload, person Drop confirm, working step, daily admission limit, budget pause owner; planner/multiplayer pending) | T-APP-02 |
 | C-APP-03 | [C-APP-03.spec.ts](C-APP-03.spec.ts) | browser-pass (failure/slash Draft, main recipe, reload; Settings/guest qualification pending) | T-APP-02, T-APP-03 |
 | C-APP-04 | [C-APP-04.spec.ts](C-APP-04.spec.ts) | fixme-before-implementation | T-APP-16 |
 | C-APP-05 | [C-APP-05.spec.ts](C-APP-05.spec.ts) | fixme-before-implementation | T-APP-16 |
@@ -184,7 +184,7 @@ into their implementing tickets; terminal projections require isolated live
 fixtures and do not qualify gate correctness or publication refusal.
 
 | C-PRC-03 | [C-PRC-03.spec.ts](C-PRC-03.spec.ts) | fixme-before-implementation | T-PRC-03 |
-| C-REL-01 | [C-REL-01.spec.ts](C-REL-01.spec.ts) | passing UI projection; reference-host qualification pending | T-DOC-01 |
+| C-REL-01 | [C-REL-01.spec.ts](C-REL-01.spec.ts) | passing UI projection including LAN startup; reference-host qualification pending | T-DOC-01 |
 | C-REL-02 | [C-REL-02.spec.ts](C-REL-02.spec.ts) | fixme-before-implementation | T-INS-05, T-INS-08 |
 | C-REL-03 | [C-REL-03.spec.ts](C-REL-03.spec.ts) | fixme-before-implementation | T-INS-07 |
 | C-REL-04 | [C-REL-04.spec.ts](C-REL-04.spec.ts) | fixme-before-implementation | T-REL-03 |

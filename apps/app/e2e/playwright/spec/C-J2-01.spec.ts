@@ -9,7 +9,7 @@ test("C-J2-01: Issue discussion drafts an editable, placed TODO", async ({ page 
   const commits = await issueTodoInstall(page)
   await page.goto(`/${ISSUE_REPO}`)
   await say(page, "/issue 7")
-  await page.getByRole("button", { name: "Make TODO", exact: true }).press("Enter")
+  await page.getByRole("navigation", { name: "Issue actions", exact: true }).getByRole("button", { name: "Make TODO", exact: true }).press("Enter")
   const draft = page.getByRole("region", { name: "Draft", exact: true }).last()
   const prompt = draft.getByRole("textbox", { name: "Prompt", exact: true })
   await expect(prompt).toHaveValue(/retry at most 5 times with jittered backoff/, { timeout: 30_000 })

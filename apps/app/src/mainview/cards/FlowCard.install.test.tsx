@@ -46,7 +46,8 @@ test("install /flow mounts the served versions through the production card rende
   const root = createRoot(host)
   let controller: ReturnType<typeof createController> | undefined
   try {
-    const store = await createAppStore({ kind: "localStorage", storage: memoryStorage() })
+    const storage = memoryStorage()
+    const store = await createAppStore({ kind: "localStorage", storage })
     await store.dispatch({ type: "identity.session.loaded", actor: "system", state: "signed-in", login: "will", admin: false, scopesPlain: null }).isPersisted.promise
     await store.dispatch({ type: "repositories.loaded", actor: "system", repositories: [{ id: "smithersai/smithers", org: "smithersai", ownerKind: "user", name: "smithers", head: { bookmark: "main", changeId: "change-1", commitId: "a".repeat(40) } }] }).isPersisted.promise
     const bootstrap: AppBootstrap = { apiVersion: 1, host: "local", version: "test", buildSha: "test",
@@ -61,10 +62,15 @@ test("install /flow mounts the served versions through the production card rende
     expect(reads).toContain("/api/flows")
     expect(host.querySelector('.flow-path')?.textContent).toBe("flows/todo/flow.ts")
     expect(host.querySelector('.flow-steps')?.textContent).toContain("Build on this install")
-    expect([...host.querySelectorAll('[data-flow]')].map(node => node.textContent)).toEqual(["Source", "Edit"])
+    expect([...host.querySelectorAll('[data-flow]')].map(node => node.textContent)).toEqual(["builder", "Source", "Edit"])
     await act(async () => host.querySelector<HTMLButtonElement>('.flow-version[data-state="proposed"]')!.click())
     expect(host.querySelector('[data-added="true"]')?.textContent).toContain("Write the changelog")
     expect(host.querySelectorAll('[data-added="true"]')).toHaveLength(1)
+    expect(store.collections.cards.get(card.id)).toMatchObject({ payload: { memberVersions: { will: "proposed" } } })
+    await act(async () => { await controller!.flowCards() })
+    expect(host.querySelector('.flow-version[aria-pressed="true"]')?.textContent).toBe("ProposedT42")
+    await controller.presentFlow("todo", "TODO flow")
+    expect(store.collections.cards.get(card.id)).toMatchObject({ payload: { memberVersions: { will: "proposed" } } })
     await act(async () => host.querySelector<HTMLButtonElement>('.flow-version[data-state="merged-failed"]')!.click())
     expect(host.querySelector('.flow-failure pre')?.textContent).toBe("Unknown agent: reviewer")
     await act(async () => host.querySelector<HTMLButtonElement>('.flow-version[data-state="active"]')!.click())
@@ -72,10 +78,12 @@ test("install /flow mounts the served versions through the production card rende
     const versions = catalog[0]!.versions
     catalog[0]!.versions = versions.filter(version => version.state !== "proposed")
     await act(async () => { await controller!.flowCards() })
-    expect([...host.querySelectorAll("[data-flow]")].map(node => node.textContent)).toEqual(["Edit"])
-    expect(await controller.commands.submit({ name: "flow.source", actor: "user", payload: { name: "todo" } })).toMatchObject({ status: "failed" })
+    expect([...host.querySelectorAll("[data-flow]")].map(node => node.textContent)).toEqual(["builder", "Source", "Edit"])
+    expect(await controller.commands.submit({ name: "flow.source", actor: "user", payload: { name: "todo" } })).toMatchObject({ status: "executed" })
     expect(writes).toEqual([])
-    expect([...store.collections.cards.values()].filter(card => card.kind === "draft")).toHaveLength(0)
+    const sourceDraft = [...store.collections.cards.values()].find(card => card.kind === "draft")!
+    expect(sourceDraft).toMatchObject({ payload: { prompt: "Change flows/todo/flow.ts: Edit the source; start from the built-in composition when no override exists" } })
+    await controller.commands.submit({ name: "draft.discard", actor: "user", payload: { draft: sourceDraft.id } })
     catalog[0]!.versions = versions
     await act(async () => { await controller!.flowCards() })
     expect(await controller.commands.submit({ name: "flow.source", actor: "user", payload: { name: "todo" } })).toMatchObject({ status: "executed" })
@@ -107,12 +115,21 @@ test("install /flow mounts the served versions through the production card rende
     await act(async () => { await controller!.flowCards() })
     await waitFor(() => host.textContent?.includes("Build after sync") === true)
     expect(host.querySelector('.flow-steps')?.textContent).toContain("Build after sync")
+    const removed = catalog.splice(0)
+    await act(async () => { await controller!.flowCards() })
+    expect(host.querySelector('[role="alert"]')?.textContent).toBe("No flow todo")
+    catalog.push(...removed)
+    await act(async () => { await controller!.flowCards() })
+    expect(host.querySelector('.flow-steps')?.textContent).toContain("Build after sync")
     catalogUnavailable = true
     await act(async () => { expect(await controller!.flowCards()).toBeUndefined() })
     expect(host.querySelectorAll("[data-flow]")).toHaveLength(0)
     expect(await controller.commands.submit({ name: "flow.edit", actor: "user", payload: { name: "todo", request: "Second change", diff: "+second" } })).toMatchObject({ status: "failed" })
     expect([...store.collections.cards.values()].filter(card => card.kind === "draft")).toHaveLength(1)
     expect(writes).toHaveLength(1)
+    await store.settled?.()
+    const reopened = await createAppStore({ kind: "localStorage", storage })
+    expect(reopened.collections.cards.get(card.id)).toMatchObject({ payload: { memberVersions: { will: "active" } } })
   } finally {
     await act(async () => root.unmount())
     await controller?.dispose()

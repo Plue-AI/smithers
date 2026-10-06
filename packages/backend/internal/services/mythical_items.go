@@ -3425,6 +3425,7 @@ func (st *mythicalItemStep) follow(ctx context.Context, item db.MythicalItem) (*
 		next.PRState, next.State, next.Reason = "closed", "rejected", "closed on GitHub"
 		answered.GitHubClosedAt = &st.now
 		next.Checks = answered.encode()
+		next = settleTodoAttemptEvidence(next, "dropped")
 	case decision.Event == "in_review":
 		answered.GitHubReopenedAttempt = item.Attempt
 		answered.RunLaunched, answered.RunAttached = false, false
@@ -4221,7 +4222,7 @@ func mythicalLanded(item db.MythicalItem, commit string, now time.Time) db.Mythi
 	}
 	checks.Completion = &mythicalCompletion{Commit: commit, Since: now}
 	item.Checks = checks.encode()
-	return item
+	return settleTodoAttemptEvidence(item, "merged")
 }
 
 // completePending writes the evidence every landed item still owes its

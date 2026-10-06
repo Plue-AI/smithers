@@ -178,7 +178,7 @@ func mythicalDropped(item db.MythicalItem, drop todoDrop) db.MythicalItem {
 	if len(item.PendingOp) == 0 && item.PRNumber.Valid && item.PRState != "closed" {
 		next.PendingOp, _ = json.Marshal(MythicalOutboundOp{Kind: "close", Target: strconv.FormatInt(item.PRNumber.Int64, 10), Desired: "closed", Precondition: "open", State: "intended"})
 	}
-	return next
+	return settleTodoAttemptEvidence(next, "dropped")
 }
 
 // mythicalDropComment is the comment a dropped TODO's pull request closes

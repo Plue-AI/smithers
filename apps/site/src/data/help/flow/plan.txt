@@ -1,17 +1,15 @@
-smthrs flow plan — Compile a flow plan and its approval payload without executing it
+smthrs flow plan — See what a flow would run
 
-Usage: smthrs flow plan <flow> <input...> [options]
+Usage: smthrs flow plan <name> [options]
 
 Arguments:
-  flow   Discovered flow name
-  input  Input fields as key=value
+  name
 
 Options:
-  --root <string>        Project directory; defaults to the nearest Smithers project
-  --remote <string>      Remote control plane URL; defaults to SMITHERS_REMOTE
-  --mcp-config <string>  Path to the configured MCP servers
-  --quiet                Suppress progress messages
-  --data <string>        JSON input object
+  --repo <value>
+  --source-card <value>
+  --against <value>
+  --input <value>
   --verbose              Show redacted diagnostic details
 
 Custom Global Options:
