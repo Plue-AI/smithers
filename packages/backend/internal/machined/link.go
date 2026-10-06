@@ -125,7 +125,7 @@ func (r *Registry) Connect(ctx context.Context, branch string, stream net.Conn) 
 		_ = lease.Close()
 		return nil, err
 	}
-	l := &Link{Connection: lease, stream: stream, pending: make(map[uint32]chan wire.Frame), events: make(chan Event, 64), done: make(chan struct{}), next: 1, documents: make(map[uint32]chan []byte)}
+	l := &Link{Connection: lease, stream: stream, pending: make(map[uint32]chan wire.Frame), events: make(chan Event, 64), done: make(chan struct{}), next: 1, protocol: binary.BigEndian.Uint16(fields[2]), documents: make(map[uint32]chan []byte)}
 	r.mu.Lock()
 	if !lease.current() {
 		r.mu.Unlock()
@@ -150,6 +150,7 @@ type Link struct {
 	pending          map[uint32]chan wire.Frame
 	documents        map[uint32]chan []byte
 	openingDocuments int
+	protocol         uint16
 	next             uint32
 	events           chan Event
 	done             chan struct{}

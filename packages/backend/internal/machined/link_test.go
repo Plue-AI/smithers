@@ -13,10 +13,13 @@ import (
 )
 
 func daemonHandshake(stream net.Conn, a BootAuthority, credential string) error {
+	return daemonHandshakeVersion(stream, a, credential, 2)
+}
+func daemonHandshakeVersion(stream net.Conn, a BootAuthority, credential string, version uint16) error {
 	nonce := make([]byte, 32)
 	nonce[0] = 41
 	if err := wire.Write(stream, wire.Frame{Kind: wire.Hello, Payload: wire.Union(1,
-		wire.Field(1, wire.U32(0x534d4d44)), wire.Field(2, wire.U16(1)), wire.Field(3, a.ID[:]), wire.Field(4, nonce))}); err != nil {
+		wire.Field(1, wire.U32(0x534d4d44)), wire.Field(2, wire.U16(version)), wire.Field(3, a.ID[:]), wire.Field(4, nonce))}); err != nil {
 		return err
 	}
 	proof, err := wire.Read(stream)

@@ -16,6 +16,11 @@ func (r *Registry) OpenDocument(ctx context.Context, branch, path string, actor 
 	if err != nil {
 		return nil, err
 	}
+	// Live mirrors require sequenced save receipts. Retained v1 decoding does
+	// not authorize sending v2 document traffic to an older live daemon.
+	if l.protocol < wire.SequencedDocumentProtocol {
+		return nil, ErrNotReady
+	}
 	if len(actor) == 0 || len(actor) > 1024 {
 		return nil, ErrUnauthorized
 	}

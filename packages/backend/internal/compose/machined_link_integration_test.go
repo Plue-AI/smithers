@@ -28,7 +28,7 @@ func TestMachinedComposedDocumentBoundary(t *testing.T) {
 	go func() {
 		nonce := make([]byte, 32)
 		nonce[0] = 5
-		if err := wire.Write(guest, wire.Frame{Kind: wire.Hello, Payload: wire.Union(1, wire.Field(1, wire.U32(0x534d4d44)), wire.Field(2, wire.U16(1)), wire.Field(3, authority.ID[:]), wire.Field(4, nonce))}); err != nil {
+		if err := wire.Write(guest, wire.Frame{Kind: wire.Hello, Payload: wire.Union(1, wire.Field(1, wire.U32(0x534d4d44)), wire.Field(2, wire.U16(2)), wire.Field(3, authority.ID[:]), wire.Field(4, nonce))}); err != nil {
 			peer <- err
 			return
 		}
