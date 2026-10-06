@@ -12,6 +12,7 @@
 import * as Fs from "node:fs/promises"
 import * as Os from "node:os"
 import * as NodePath from "node:path"
+import * as Input from "@smthrs/targets/Input"
 import { afterAll, describe, expect, it } from "vitest"
 import type * as TargetIndex from "../src/TargetIndex.ts"
 import { serve } from "./helpers/ServeCli.ts"
@@ -57,6 +58,7 @@ const fixture = async (): Promise<string> => {
   await write(root, ".smithers/WORKSPACE.ts", workspaceModule)
   await write(root, "PACKAGE.ts", packageModule())
   await write(root, "scripts/notes.mjs", "process.stdout.write('')\n")
+  await write(root, "docs/guide.md", "# Guide\n")
   return root
 }
 
@@ -173,5 +175,131 @@ describe("TargetIndex through the CLI", () => {
     expect(listed.output).toContain("NOTES.md")
     expect(listed.output).toContain("//:targetIndex")
     expect(listed.output).not.toContain(root)
+  })
+})
+
+/**
+ * One declaration of each kind the existence gate resolves: a `Smithers.file()`,
+ * a `paths` list with an exclusion, a glob, a brace expansion, a glob under
+ * `.gitignore` rules, and a workflow an `Actionlint` requirement names.
+ */
+const declaredModule = `import { Smithers as S } from "@smthrs/targets"
+const notes = S.Generate({
+  script: S.file("//scripts/notes.mjs"),
+  data: [
+    ...S.glob(["lib/*.ts", "!lib/*.test.ts"]),
+    S.glob("docs/**/*.md"),
+    S.glob("config/{alpha,beta}.json"),
+    S.glob("assets/**/*.txt")
+  ],
+  changes: ["NOTES.md"],
+})
+const ci = S.GithubCiGen({
+  jobs: [{
+    id: "lint",
+    runsOn: "ubuntu-latest",
+    toolchain: S.CiToolchain.Needs({
+      workflowLint: S.CiToolchain.Actionlint({ release: "1.7.11", workflows: [".github/workflows/lint.yml"] })
+    }),
+    steps: [{ name: "Index", verb: S.Verb.Lint, pattern: "//:targetIndex" }]
+  }]
+})
+const targetIndex = S.TargetIndex({ summary: "Index every target." })
+export const Package = S.Package({ targets: { ci, notes, targetIndex } })
+`
+
+const declaredFixture = async (): Promise<string> => {
+  const root = await Fs.realpath(await Fs.mkdtemp(NodePath.join(Os.tmpdir(), "smthrs-declared-inputs-")))
+  temporaryDirectories.push(root)
+  await write(root, "package.json", `{ "name": "indexed", "private": true }\n`)
+  await write(root, "yarn.lock", "")
+  await write(root, ".smithers/WORKSPACE.ts", workspaceModule)
+  await write(root, "PACKAGE.ts", declaredModule)
+  await write(root, ".gitignore", "assets/scratch/\n")
+  await write(root, "scripts/notes.mjs", "process.stdout.write('')\n")
+  await write(root, "lib/notes.ts", "export {}\n")
+  await write(root, "lib/notes.test.ts", "export {}\n")
+  await write(root, "docs/guide.md", "# Guide\n")
+  await write(root, "config/alpha.json", "{}\n")
+  await write(root, "assets/logo.txt", "logo\n")
+  await write(root, ".github/workflows/lint.yml", "name: lint\n")
+  return root
+}
+
+const rename = (root: string, from: string, to: string) =>
+  Fs.mkdir(NodePath.dirname(NodePath.join(root, to)), { recursive: true }).then(() =>
+    Fs.rename(NodePath.join(root, from), NodePath.join(root, to))
+  )
+
+describe("TargetIndex declared-input existence through the CLI", () => {
+  it("passes valid declarations, then names each renamed input with its label and declaring file", async () => {
+    const root = await declaredFixture()
+    const written = await serve(root, ["target", "//:targetIndex", "--write"])
+    expect(written.exitCode, written.logs).toBe(0)
+    // `.github/workflows/ci.yml` is //:ci's own output: a missing generated
+    // file is that generator's drift failure, so the index does not refuse it.
+    const valid = await serve(root, ["lint", "//:targetIndex"])
+    expect(valid.exitCode, valid.output + valid.logs).toBe(0)
+    const ciRow = (await indexOf(root)).find((row) => row.label === "//:ci")
+    expect(ciRow?.inputs).toEqual([
+      { kind: "file", path: ".github/workflows/ci.yml" },
+      { kind: "file", path: ".github/workflows/lint.yml" }
+    ])
+
+    const cases: ReadonlyArray<{ readonly from: string; readonly to: string; readonly line: string }> = [
+      {
+        from: "scripts/notes.mjs",
+        to: "scripts/renamed.mjs",
+        line: "  scripts/notes.mjs declared by //:notes in PACKAGE.ts"
+      },
+      { from: "lib", to: "library", line: "  lib/*.ts declared by //:notes in PACKAGE.ts" },
+      { from: "docs", to: "documents", line: "  docs/**/*.md declared by //:notes in PACKAGE.ts" },
+      {
+        from: "config/alpha.json",
+        to: "config/gamma.json",
+        line: "  config/{alpha,beta}.json declared by //:notes in PACKAGE.ts"
+      },
+      {
+        from: "assets/logo.txt",
+        to: "assets/scratch/logo.txt",
+        line: "  assets/**/*.txt declared by //:notes in PACKAGE.ts"
+      },
+      {
+        from: ".github/workflows/lint.yml",
+        to: ".github/workflows/lint.yaml",
+        line: "  .github/workflows/lint.yml declared by //:ci in PACKAGE.ts"
+      }
+    ]
+    for (const entry of cases) {
+      await rename(root, entry.from, entry.to)
+      const refused = await serve(root, ["lint", "//:targetIndex"])
+      expect(refused.exitCode, entry.from).toBe(1)
+      const text = refused.output + refused.logs
+      expect(text).toContain("declared_input_missing: 1 declared input does not exist")
+      expect(text).toContain(entry.line)
+      await rename(root, entry.to, entry.from)
+    }
+
+    await rename(root, "scripts/notes.mjs", "scripts/renamed.mjs")
+    await rename(root, "docs", "documents")
+    const both = await serve(root, ["lint", "//:targetIndex"])
+    expect(both.exitCode).toBe(1)
+    expect(both.output + both.logs).toContain("declared_input_missing: 2 declared inputs do not exist")
+  })
+
+  it("keeps a glob whose static prefix exists present when it matches nothing today", async () => {
+    const root = await declaredFixture()
+    await rename(root, "docs/guide.md", "docs/guide.txt")
+    await rename(root, "lib/notes.ts", "lib/notes.mts")
+    const written = await serve(root, ["target", "//:targetIndex", "--write"])
+    expect(written.exitCode, written.output + written.logs).toBe(0)
+  })
+})
+
+describe("Input outside the TargetIndex check", () => {
+  it("expands a missing static prefix to no files and digests a missing file as undefined", async () => {
+    const root = await declaredFixture()
+    expect(await Input.expandGlob(root, "", "absent/**/*.md")).toEqual([])
+    expect(await Input.digestFile(NodePath.join(root, "absent.txt"), { workspaceRoot: root })).toBeUndefined()
   })
 })

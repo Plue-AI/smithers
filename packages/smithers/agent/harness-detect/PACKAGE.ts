@@ -4,10 +4,17 @@ import { Smithers } from "@smthrs/targets"
 
 const cwd = "packages/smithers/agent/harness-detect"
 
-const { check, circular, docs, docsFiles, fmt, lib, lint, test } = BuildAndCheckTypeScriptPackage({
+const { check, circular, docs, fmt, lib, lint, test } = BuildAndCheckTypeScriptPackage({
   deps: [],
   cwd
 })
+
+/**
+ * The package documentation as a file group. This package keeps no `docs/`
+ * directory, so the group is the README and the manifest, not the shared
+ * `docs/**\/*.md` glob, which names nothing here.
+ */
+const docsFiles = Smithers.Filegroup({ srcs: [Smithers.file("README.md"), Smithers.file("package.json")], cwd })
 
 const securityReview = Smithers.SecurityReview({
   cwd,

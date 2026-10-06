@@ -1189,6 +1189,8 @@ const artifacts = S.CiToolchain.Artifacts({
     { from: "test-results", as: "results" }
   ]
 })
+// GithubCiGen declares each named workflow as a check-mode input, so
+// //:targetIndex refuses a workflow that does not exist.
 const actionlint = S.CiToolchain.Actionlint({
   release: "1.7.11",
   workflows: [".github/workflows/ci.yml"]

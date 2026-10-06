@@ -121,3 +121,50 @@ export class PackageError extends Data.TaggedError("smithers-build/PackageError"
  * @since 0.1.0
  */
 export const isPackageError = (value: unknown): value is PackageError => value instanceof PackageError
+
+/**
+ * One declared input the target index found absent: the workspace-relative
+ * path (a file, or a glob pattern that matched no file), the label of the
+ * target that declares it, and the workspace-relative `PACKAGE.ts` that
+ * declared the target.
+ *
+ * @category models
+ * @since 1.0.0
+ */
+export interface MissingInput {
+  readonly path: string
+  readonly label: string
+  readonly sourceFile: string | undefined
+}
+
+/**
+ * The `//:targetIndex` refusal for declared inputs that do not exist: a
+ * `Smithers.file()` that names no file, a glob (with its brace alternatives,
+ * exclusions and ignore rules applied) that matches no file, or a workflow an
+ * `Actionlint` requirement names that is not on disk. Every absent input is
+ * listed, so one run names every repair.
+ *
+ * @category errors
+ * @since 1.0.0
+ */
+export class DeclaredInputMissing extends Data.TaggedError("smithers-build/DeclaredInputMissing")<{
+  readonly missing: ReadonlyArray<MissingInput>
+  readonly message: string
+}> {
+  constructor(missing: ReadonlyArray<MissingInput>) {
+    const lines = missing.map((entry) =>
+      `  ${entry.path} declared by ${entry.label}${
+        entry.sourceFile === undefined ? "" : ` in ${entry.sourceFile}`
+      }`
+    )
+    super({
+      missing,
+      message: [
+        `declared_input_missing: ${missing.length} declared input${
+          missing.length === 1 ? " does" : "s do"
+        } not exist`,
+        ...lines
+      ].join("\n")
+    })
+  }
+}

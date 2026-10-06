@@ -385,7 +385,10 @@ person the listing is aligned `LABEL`, `RULE`, and `KINDS` columns with the
 outputs after an arrow and a star on a featured row. The root `//:targetIndex`
 target (`Smithers.TargetIndex`) commits the same rows as
 `.smithers/target-index.json`: `target //:targetIndex --write` writes the
-file and `lint '//:targetIndex'` fails on drift.
+file and `lint '//:targetIndex'` fails on drift. Both refuse with
+`declared_input_missing` when a declared file, glob static prefix or
+Actionlint workflow is absent, listing each path with the target label and
+the `PACKAGE.ts` that declares it.
 
 ### graph
 

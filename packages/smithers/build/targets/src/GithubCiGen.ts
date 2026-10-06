@@ -1617,6 +1617,22 @@ export const render = (attrs: Attrs): string => {
 }
 
 /**
+ * The files a check-mode run declares: the workflow it compares, then every
+ * workflow an `Actionlint` requirement names, in declaration order and once
+ * each; a named pattern is declared as a glob. Declaring the linted workflows is what puts them in the target index,
+ * where `//:targetIndex` refuses one that does not exist, and what re-keys the
+ * check when one changes.
+ */
+const checkInputs = (attrs: Attrs): ReadonlyArray<Input.File | Input.Glob> => {
+  const paths = new Set([resolveOutputPath(attrs.output)])
+  for (const job of attrs.jobs) {
+    for (const workflow of job.toolchain.workflowLint?.workflows ?? []) paths.add(Input.resolvePath("", workflow))
+  }
+  // `CiToolchain.pathShape` admits `*`, so a declared entry may be a pattern.
+  return [...paths].map((path) => path.includes("*") ? Input.glob(`//${path}`) : Input.file(`//${path}`))
+}
+
+/**
  * Generates the GitHub Actions CI workflow from PACKAGE.ts attrs.
  *
  * The workflow is a generated root file, on the same terms as `tsconfig.json`:
@@ -1653,7 +1669,7 @@ export const GithubCiGen = Target.make("GithubCiGen", {
   kinds: ["build", "lint"],
   error: Schema.Union([WriteFileError, DriftError]),
   cache: (attrs) => attrs.mode !== "write",
-  inputs: (attrs) => attrs.mode === "write" ? [] : [Input.file(`//${resolveOutputPath(attrs.output)}`)],
+  inputs: (attrs) => attrs.mode === "write" ? [] : checkInputs(attrs),
   attrsForKind: (kind, attrs) =>
     kind === "lint" && attrs.mode === "write" ? { ...attrs, mode: "check" as const } : attrs,
   implementation: (

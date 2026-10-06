@@ -341,6 +341,17 @@ cacheable, inputs, outputs, dependencies, source?, refusal? }`. An input is a
 `kind` record (`file`, `glob`, `pnpm-workspace`, `git-diff`) whose paths are
 workspace-relative.
 
+The `TargetIndex` rule refuses declared inputs that do not exist before it
+writes or checks the file. A `file` input is absent when no file is at its
+path. A `glob` input is absent when it matches nothing and no brace
+alternative's static prefix holds a file; exclusions and `.gitignore` apply,
+and the package boundary does not. A glob whose directory exists but matches
+nothing today passes. A file that a selected target writes is skipped, since
+its generator's drift check reports it. The refusal is
+`DeclaredInputMissing` from `@smthrs/build-cli/PackageError`:
+`{ missing: [{ path, label, sourceFile }] }`, one entry per absent input,
+with `sourceFile` the workspace-relative `PACKAGE.ts` and no line number.
+
 ## Audience
 
 Import `@smthrs/build-cli/Audience` for the shared, side-effect-free consumer
