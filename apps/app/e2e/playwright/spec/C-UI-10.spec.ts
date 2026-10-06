@@ -12,7 +12,7 @@ test("C-UI-10: API playground requires confirmation and preserves member rights"
   let reads = 0
   await page.route("**/api/todos", route => { reads++; return route.fulfill({ json: { items: [{ n: 8, title: "T8" }] } }) })
   const mutations: string[] = [], keys: string[] = []
-  await page.route("**/api/repos/smithersai/smithers/secrets", route => {
+  await page.route("**/api/secrets", route => {
     mutations.push(route.request().url())
     keys.push(route.request().headers()["idempotency-key"] ?? "")
     return route.fulfill({ status: 403, json: { class: "permission", code: "forbidden", message: "Forbidden" } })
@@ -35,17 +35,15 @@ test("C-UI-10: API playground requires confirmation and preserves member rights"
   await expect(card.getByText(/200 ·/)).toBeVisible({ timeout: 60_000 })
   await expect(card).toContainText("T8")
   expect(reads).toBe(beforeSelection + 1)
-  await card.getByRole("button", { name: /^POST \/api\/repos\/\{owner\}\/\{repo\}\/secrets POST/ }).click()
+  await card.getByRole("button", { name: /^PUT \/api\/secrets PUT/ }).click()
   expect(await card.locator("input:not([type=hidden]), textarea").evaluateAll(elements => elements.map(element => {
     const id = element.id
     return Array.from(document.querySelectorAll("label")).find(label => label.htmlFor === id)?.textContent?.trim()
-  }))).toEqual(["owner", "repo", "JSON"])
-  await card.getByLabel("owner", { exact: true }).fill("smithersai")
-  await card.getByLabel("repo", { exact: true }).fill("smithers")
+  }))).toEqual(["JSON"])
   await card.getByLabel("JSON", { exact: true }).fill('{"name":"TEST_KEY","value":"canary"}')
   await card.getByRole("button", { name: "Send", exact: true }).click()
   expect(mutations).toHaveLength(0)
-  await card.getByRole("button", { name: /^Confirm POST/ }).click()
+  await card.getByRole("button", { name: /^Confirm PUT/ }).click()
   await expect(card.getByText(/403 ·/)).toBeVisible({ timeout: 60_000 })
   expect(mutations).toHaveLength(1)
   expect(keys[0]).not.toBe("")

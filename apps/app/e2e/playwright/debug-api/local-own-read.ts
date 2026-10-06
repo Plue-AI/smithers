@@ -110,7 +110,7 @@ try {
       assert.equal(selectedCase, "write")
       const count = () => sql(`SELECT count(*) FROM repository_secrets WHERE repository_id=${repo.id}`)
       assert.equal(count(), "0")
-      const values = { "path:owner": repo.owner, "path:repo": repo.name, body: JSON.stringify(fixtures.write.body) }
+      const values = { body: JSON.stringify(fixtures.write.body) }
       await seam.open(fixtures.write.operationId)
       assert.equal(requests, 0)
       await seam.send({ intent: "send", operationId: fixtures.write.operationId, values })
