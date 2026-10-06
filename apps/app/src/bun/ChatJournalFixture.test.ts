@@ -1,8 +1,9 @@
+const TURN_RETIRE_PATH = '/api/agent/turn/retire'
 import { expect, test } from "bun:test"
 import { createHash } from "node:crypto"
 import { createChatJournalFixture } from "../../e2e/support/ChatJournalFixture"
 import { AgentTurnJournalDeliverySchema, AgentTurnJournalReplySchema, agentTurnJournalDigestInput } from "@smthrs/rpc/AgentTurnJournal"
-import { TURN_REPLAY_PATH, TURN_RETIRE_PATH, TURN_ERASE_PATH } from "@smthrs/rpc/AgentApiRoutes"
+import { TURN_REPLAY_PATH, TURN_ERASE_PATH } from "@smthrs/rpc/AgentApiRoutes"
 import type { StartAgentTurnRequest } from "@smthrs/rpc/NativeAgent"
 
 const request: StartAgentTurnRequest = { runId: "stub-run", messages: [], instructions: "", journal: { version: 1, legId: "stub-leg", token: "stub_private_capability_1234567890123456" } }

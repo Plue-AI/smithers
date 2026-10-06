@@ -92,48 +92,6 @@ type AnonSandbox struct {
 	DeletedAt         pgtype.Timestamptz `json:"deleted_at"`
 }
 
-type AppTimeline struct {
-	ID          string             `json:"id"`
-	OwnerUserID int64              `json:"owner_user_id"`
-	ClientKey   string             `json:"client_key"`
-	Version     int32              `json:"version"`
-	HeadSeq     int64              `json:"head_seq"`
-	CreatedAt   time.Time          `json:"created_at"`
-	UpdatedAt   time.Time          `json:"updated_at"`
-	DeletedAt   pgtype.Timestamptz `json:"deleted_at"`
-}
-
-type AppTimelineBranch struct {
-	TimelineID string          `json:"timeline_id"`
-	Ordinal    int32           `json:"ordinal"`
-	FromSeq    int64           `json:"from_seq"`
-	Events     json.RawMessage `json:"events"`
-	CreatedAt  time.Time       `json:"created_at"`
-}
-
-type AppTimelineEvent struct {
-	TimelineID string          `json:"timeline_id"`
-	Seq        int64           `json:"seq"`
-	Payload    json.RawMessage `json:"payload"`
-	CreatedAt  time.Time       `json:"created_at"`
-}
-
-type AppTimelineMember struct {
-	TimelineID string             `json:"timeline_id"`
-	UserID     int64              `json:"user_id"`
-	Role       string             `json:"role"`
-	JoinedAt   time.Time          `json:"joined_at"`
-	RemovedAt  pgtype.Timestamptz `json:"removed_at"`
-}
-
-type AppTimelineSnapshot struct {
-	TimelineID string          `json:"timeline_id"`
-	Seq        int64           `json:"seq"`
-	State      json.RawMessage `json:"state"`
-	CreatedAt  time.Time       `json:"created_at"`
-	UpdatedAt  time.Time       `json:"updated_at"`
-}
-
 type Approval struct {
 	ID                 string             `json:"id"`
 	SessionID          string             `json:"session_id"`

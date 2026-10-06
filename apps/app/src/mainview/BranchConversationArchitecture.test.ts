@@ -13,6 +13,6 @@ test("branch conversations have no browser tool continuation", async () => {
   }
   expect(calls).toEqual([])
   expect(existsSync(resolve(import.meta.dir, "state/controller/httpTurns.ts"))).toBe(false)
-  const history = await readFile(resolve(import.meta.dir, "native/WebAgent.ts"), "utf8")
+  const history = await readFile(resolve(import.meta.dir, "native/ConversationHistory.ts"), "utf8")
   expect(history).not.toMatch(/TURN_PATH|CANCEL_PATH|TURN_RETIRE_PATH|function_call_output/)
 })

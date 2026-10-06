@@ -2,15 +2,11 @@ import { Effect } from "effect"
 import { CONVERSATIONS_PATH, CONVERSATION_REPLAY_PATH } from "@smthrs/rpc/AgentApiRoutes"
 import { AgentConversationPageSchema, AgentConversationReplaySchema } from "@smthrs/rpc/AgentTurnJournal"
 import type { FetchLike } from "@smthrs/rpc/NativeAgent"
-import { AgentJournalIntegrityError, type AgentPort } from "../runtime/AgentPort"
+import type { AgentPort } from "../runtime/AgentPort"
+import { AgentJournalIntegrityError } from "../runtime/AgentPort"
 
-export interface WebAgentOptions {
-  readonly baseUrl?: string
-  readonly fetchImpl?: FetchLike
-}
-
-/** Read-only private Earlier history. Shared turns are owned by the install host. */
-export const createWebAgent = (options: WebAgentOptions = {}): AgentPort => {
+/** Earlier reads persisted legacy conversations without granting an execution door. */
+export const createConversationHistory = (options: { readonly baseUrl?: string; readonly fetchImpl?: FetchLike } = {}): AgentPort => {
   const baseUrl = options.baseUrl ?? ""
   const fetchImpl = options.fetchImpl ?? fetch.bind(globalThis)
   // Account reads are finite JSON, with the deadline covering their body.
@@ -42,9 +38,6 @@ export const createWebAgent = (options: WebAgentOptions = {}): AgentPort => {
 
   return {
     available: false,
-    startTurn: async () => ({ status: "error", message: "Use the branch conversation to ask Smithers." }),
-    cancelTurn: async () => {},
-    subscribe: () => () => {},
     history: {
       list: async after => {
         const query = after === undefined ? "" : `?after=${encodeURIComponent(after)}`
@@ -57,6 +50,9 @@ export const createWebAgent = (options: WebAgentOptions = {}): AgentPort => {
         if (!parsed.success) throw new AgentJournalIntegrityError("Invalid account replay")
         return parsed.data
       }
-    }
+    },
+    startTurn: async () => ({ status: "error", message: "Conversation unavailable" }),
+    cancelTurn: async () => {},
+    subscribe: () => () => {}
   }
 }

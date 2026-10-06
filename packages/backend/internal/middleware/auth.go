@@ -449,7 +449,7 @@ var installMemberRoutes = []struct {
 	{http.MethodPost, "telemetry.report", regexp.MustCompile(`^/api/telemetry/errors$`)},
 	// The app agent answers a member as that member, in their own
 	// conversations.
-	{http.MethodPost, "agent.turn", regexp.MustCompile(`^/api/agent/turn(/cancel|/replay|/retire)?$`)},
+	{http.MethodPost, "agent.turn", regexp.MustCompile(`^/api/agent/turn/replay$`)},
 	{http.MethodGet, "agent.turn", regexp.MustCompile(`^/api/agent/conversations$`)},
 	{http.MethodGet, "agent.turn", regexp.MustCompile(`^/api/conversations/[^/]+$`)},
 	{http.MethodPost, "agent.turn", regexp.MustCompile(`^/api/conversations/[^/]+/prompt$`)},

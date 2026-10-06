@@ -10,7 +10,7 @@ import {
 import type { AppBootstrap } from "@smthrs/rpc/AppBootstrap"
 import type { AgentTurnFrame } from "@smthrs/rpc/NativeAgent"
 import { afterEach, expect, test } from "bun:test"
-import { createWebAgent } from "../native/WebAgent"
+import { createConversationHistory } from "../native/ConversationHistory"
 import { emptyAppProjection, projectAppEvent, seedAppProjection } from "./AppProjection"
 import type { AppTransition } from "./AppState"
 import { rootFrameId } from "./AppState"
@@ -268,7 +268,7 @@ const unrelated = async () => Response.json({})
 test("account transport bounds and validates every response without copying server error text", async () => {
   for (const status of [401, 403, 410, 503]) {
     let cancelled = false
-    const agent = createWebAgent({
+    const agent = createConversationHistory({
       fetchImpl: async () =>
         new Response(
           new ReadableStream({
@@ -283,17 +283,17 @@ test("account transport bounds and validates every response without copying serv
     expect(cancelled).toBe(true)
   }
   for (const body of [null, "not JSON", "{}", "[]"]) {
-    const agent = createWebAgent({ fetchImpl: async () => new Response(body) })
+    const agent = createConversationHistory({ fetchImpl: async () => new Response(body) })
     await expect(agent.history!.list()).rejects.toThrow("Invalid")
   }
-  const oversized = createWebAgent({ fetchImpl: async () => new Response(new Uint8Array(8 * 1024 * 1024 + 1)) })
+  const oversized = createConversationHistory({ fetchImpl: async () => new Response(new Uint8Array(8 * 1024 * 1024 + 1)) })
   await expect(oversized.history!.list()).rejects.toThrow("bound")
-  const malformedReplay = createWebAgent({ fetchImpl: async () => Response.json({ status: "ok" }) })
+  const malformedReplay = createConversationHistory({ fetchImpl: async () => Response.json({ status: "ok" }) })
   await expect(malformedReplay.history!.replay({ runId: "run", legId: "leg" })).rejects.toThrow(
     "Invalid account replay"
   )
   const queried: string[] = []
-  const valid = createWebAgent({
+  const valid = createConversationHistory({
     fetchImpl: async (input) => {
       queried.push(String(input))
       return Response.json({ status: "ok", conversations: [], next: null })
@@ -305,7 +305,7 @@ test("account transport bounds and validates every response without copying serv
 
 test("an unresponsive account response body is cancelled by the finite deadline", async () => {
   let cancelled = false
-  const agent = createWebAgent({
+  const agent = createConversationHistory({
     fetchImpl: async () =>
       new Response(
         new ReadableStream({
@@ -324,7 +324,7 @@ test("an empty browser journal restores through HTTP and reloads persisted frame
   const storage = memoryStorage(), store = await open(storage)
   await identify(store)
   const requests: string[] = [], payloads: unknown[] = [], source = responses()
-  const agent = createWebAgent({
+  const agent = createConversationHistory({
     fetchImpl: async (input, init) => {
       const url = String(input)
       requests.push(url)
@@ -385,8 +385,8 @@ test("unresolved history does not block Chat; account replacement and disposal r
     if (ending === "owner") await identify(store, "bob")
     if (ending === "dispose") await controller.dispose()
     if (ending === "new-chat") {
-      controller.send("A new question")
-      await until(() => starts === 1)
+      await store.dispatch({ type: "message.appended", actor: "user", text: "A new question" }).isPersisted.promise
+      expect(starts).toBe(0)
     }
     held.resolve(source.index)
     await settled()
@@ -403,7 +403,7 @@ const realOrigin = process.env.SMITHERS_ACCOUNT_HISTORY_ORIGIN
     const store = await open()
     await identify(store, process.env.SMITHERS_ACCOUNT_HISTORY_OWNER ?? "alice")
     const seen: string[] = []
-    const agent = createWebAgent({
+    const agent = createConversationHistory({
       baseUrl: realOrigin,
       fetchImpl: async (input, init) => {
         seen.push(String(input))

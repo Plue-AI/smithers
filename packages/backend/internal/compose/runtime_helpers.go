@@ -290,12 +290,6 @@ func sandboxPlanAdmission(policy services.BillingPolicy) middleware.SandboxPlanA
 	}
 }
 
-// appTimelineMaxRequestBodySize bounds app-timeline write bodies. Rewrites
-// carry the whole dump (service-capped at 4 MiB of payload); JSON escaping
-// can inflate past the global 1 MB default, so the timeline mount uses this
-// larger cap.
-const appTimelineMaxRequestBodySize int64 = 6 << 20
-
 // joinedBackgroundWorker gives shutdown a concrete completion boundary for a
 // worker that must finish cancellation cleanup before shared dependencies (in
 // particular the database pool) are closed.

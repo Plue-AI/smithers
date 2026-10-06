@@ -164,6 +164,24 @@ func buildRouter(
 		extras.Catalog = routes.NewPublicRepositoryCatalog(queries)
 	}
 	r := chi.NewRouter()
+	// Retired browser builds must fail before any install-authority fallback.
+	// There is no handler, credential issuance or model admission behind these addresses.
+	r.Use(func(next http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, request *http.Request) {
+			if request.URL.Path == "/api/app-timelines" || strings.HasPrefix(request.URL.Path, "/api/app-timelines/") {
+				http.NotFound(w, request)
+				return
+			}
+			if request.Method == http.MethodPost {
+				switch request.URL.Path {
+				case "/api/agent/turn", "/api/agent/turn/cancel", "/api/agent/turn/retire", "/api/chat/turn", "/api/chat/cancel":
+					http.NotFound(w, request)
+					return
+				}
+			}
+			next.ServeHTTP(w, request)
+		})
+	})
 	if config.IsSingleOwner(cfg.Auth) {
 		r.Use(middleware.RejectTenantProvisioning)
 		r.Use(middleware.RejectLocalAuth)
@@ -763,30 +781,6 @@ func buildRouter(
 			r.Use(sseTicketAuth)
 			r.With(middleware.RequireAuth, middleware.RequireScope(middleware.ScopeReadRepository), gateIssues).
 				Get("/api/repos/{owner}/{repo}/issues/state-events/stream", issueEventHandler.IssueStateFactsStream)
-		})
-	}
-
-	// App-machine timelines — the REST write path for synchronized xstate
-	// history. Authenticated with a session
-	// or read:user token; mutations gated on write:user inside Mount. The
-	// larger body cap covers whole-dump rewrites (service-capped at 4 MiB of
-	// payload; JSON escaping can inflate past the global 1 MB default).
-	if queries != nil {
-		appTimelineService := services.NewAppTimelineService(queries)
-		if pool != nil {
-			services.WithAppTimelineTxBeginner(pool)(appTimelineService)
-		}
-		appTimelineHandler := routes.NewAppTimelineHandler(appTimelineService)
-		appTimelineHandler.WriteRateLimit = middleware.AppTimelineWriteRateLimit(queries, cfg.RateLimit.AppTimelineWritePerMin)
-		r.Group(func(r chi.Router) {
-			r.Use(browserCORS(apiCORS, config.IsSingleOwner(cfg.Auth)))
-			r.Use(authLoader(queries, cfg.Auth))
-			r.Use(apiCSRFMiddleware)
-			r.Group(func(r chi.Router) {
-				r.Use(middleware.RequireAuth, middleware.RequireScope(middleware.ScopeReadUser))
-				r.Use(middleware.MaxBodySize(appTimelineMaxRequestBodySize))
-				appTimelineHandler.Mount(r)
-			})
 		})
 	}
 

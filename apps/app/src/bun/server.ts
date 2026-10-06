@@ -85,6 +85,8 @@ const redactClientError = (text: string): string => String(Redaction.redactDiagn
 export const CLIENT_ERROR_MAX_BODY = 16 * 1024
 
 /** Long conversations are replayed on every turn, so the cap is generous, not tight. */
+const encoder = new TextEncoder()
+
 const MAX_BODY_BYTES = 1024 * 1024
 /*
  * What one renderer frame may carry per branch: a cloud terminal bridge
@@ -243,8 +245,7 @@ const CLOUD_WS_REFUSAL_REASONS: Readonly<Record<number, string>> = {
 
 /** A WebSocket close reason is at most 123 UTF-8 bytes; anything longer is refused by the socket, so it is cut here. */
 const closeReasonOf = (text: string): string => {
-  const encoder = new TextEncoder()
-  let reason = text.replace(/\s+/g, " ").trim()
+    let reason = text.replace(/\s+/g, " ").trim()
   while (encoder.encode(reason).byteLength > 123) reason = reason.slice(0, -1)
   return reason
 }
@@ -353,6 +354,7 @@ export const defaultDistDir = (fromDir: string, env: Readonly<Record<string, str
   ]
   return candidates.find((dir) => existsSync(join(dir, "index.html"))) ?? candidates[candidates.length - 1]!
 }
+
 
 
 /*
@@ -703,6 +705,7 @@ export const startLocalServer = async (options: LocalServerOptions): Promise<Loc
     }))
 
   const modelEnv: ModelCredentialEnv = options.env ?? Bun.env
+  /** Offline performs no egress, so a configured model may be reached on loopback only. */
   // The backend owns admission, delivery and retirement. Keep the renderer
   // identity and sealed bytes intact; a disconnect ends delivery only.
   const relayTurn = async (request: Request, path: string, body: unknown): Promise<Response> => {

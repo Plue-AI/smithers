@@ -88,11 +88,6 @@ type RateLimitConfig struct {
 	// SMITHERS_RATE_LIMIT_APPROVAL_DECIDE_PER_MIN. Default: 30.
 	ApprovalDecidePerMin int `mapstructure:"approval_decide_per_min"`
 
-	// AppTimelineWritePerMin is the per-user rate for app-timeline writes
-	// (event appends, rewrites, snapshots, member changes). Env:
-	// SMITHERS_RATE_LIMIT_APP_TIMELINE_WRITE_PER_MIN. Default: 240.
-	AppTimelineWritePerMin int `mapstructure:"app_timeline_write_per_min"`
-
 	// BuildCachePerMinute is the per-principal rate for the smithers build
 	// cache routes (reads and publications share one bucket). Env:
 	// SMITHERS_RATE_LIMIT_BUILD_CACHE_PER_MIN. Default: 1200.
@@ -612,7 +607,6 @@ func Load(configFile string) (*Config, error) {
 	v.SetDefault("rate_limit.terminal_open_per_min", 20)
 	v.SetDefault("rate_limit.terminal_active_max", 5)
 	v.SetDefault("rate_limit.approval_decide_per_min", 30)
-	v.SetDefault("rate_limit.app_timeline_write_per_min", 240)
 	v.SetDefault("rate_limit.build_cache_per_min", 1200)
 	v.SetDefault("chat.concurrency", 0)
 	v.SetDefault("chat.queue_size", 0)
@@ -805,7 +799,6 @@ func Load(configFile string) (*Config, error) {
 		{"rate_limit.terminal_open_per_min", "SMITHERS_RATE_LIMIT_TERMINAL_OPEN_PER_MIN"},
 		{"rate_limit.terminal_active_max", "SMITHERS_RATE_LIMIT_TERMINAL_ACTIVE_MAX"},
 		{"rate_limit.approval_decide_per_min", "SMITHERS_RATE_LIMIT_APPROVAL_DECIDE_PER_MIN"},
-		{"rate_limit.app_timeline_write_per_min", "SMITHERS_RATE_LIMIT_APP_TIMELINE_WRITE_PER_MIN"},
 		{"rate_limit.build_cache_per_min", "SMITHERS_RATE_LIMIT_BUILD_CACHE_PER_MIN"},
 		{"chat.concurrency", "SMITHERS_CHAT_CONCURRENCY"},
 		{"chat.queue_size", "SMITHERS_CHAT_QUEUE_SIZE"},

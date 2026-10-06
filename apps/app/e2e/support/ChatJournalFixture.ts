@@ -1,5 +1,6 @@
+const TURN_RETIRE_PATH = "/api/agent/turn/retire"
 import { createHash } from "node:crypto"
-import { TURN_RETIRE_PATH, TURN_ERASE_PATH } from "@smthrs/rpc/AgentApiRoutes"
+import { TURN_ERASE_PATH } from "@smthrs/rpc/AgentApiRoutes"
 import { agentTurnJournalDigestInput } from "@smthrs/rpc/AgentTurnJournal"
 import type { AgentTurnBatch, AgentTurnCursor } from "@smthrs/rpc/AgentTurnJournal"
 import type { AgentTurnFrame, StartAgentTurnRequest } from "@smthrs/rpc/NativeAgent"

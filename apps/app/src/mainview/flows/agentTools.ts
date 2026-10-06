@@ -1,14 +1,4 @@
-/*
- * The one-tool agent contract ("commands are the app"), ported from flows/ui
- * src/ui/runtime/agentTools.ts: the agent reaches the app through ONE tool —
- * list the registered commands with the live app state, or execute one by
- * name through the identical code path the buttons and slash menu use.
- *
- * Wave 3b: the chat tool-call loop binds to this contract. The turn carries
- * `agentToolSpecs`; a `tool_call` frame executes through
- * `CommandRegistry.executeForAgent` (actor smithers), and the honest result
- * string below is what the continuation turn posts back to the model.
- */
+/** Browser delivery executes UI-only flows; host-bound commands refuse here. */
 import type { AgentToolSpec } from "@smthrs/rpc/NativeAgent"
 import { commandsToolSpec, decodeCommandsCall, unknownCommandResult, unknownToolResult } from "@smthrs/rpc/AgentCommands"
 import { agentFaultNote } from "@smthrs/rpc/RefusalCopy"
@@ -198,6 +188,11 @@ export const executeAgentToolCall = async (
    * as an honest failure naming the missing step — the model can tell the
    * user, but can never park work that fires after its turn ends.
    */
+  // Only per-member UI instructions are executed in this browser. Every
+  // catalog operation with an HTTP door runs in the host's author-bound loop.
+  if (target === undefined || target.metadata.http !== null || target.metadata.cli != null || target.metadata.actors?.includes("external_agent")) {
+    return "failed: this command runs on the conversation host"
+  }
   const outcome = await registry.runAsAgent(name, input.args, call.httpCall)
   switch (outcome.status) {
     case "executed":

@@ -1,14 +1,13 @@
+import { appProjectionHash } from "./AppEventStream"
 import { digest } from "@smthrs/core/Digest"
-import type { AgentTurnBatch,AgentTurnCursor } from "@smthrs/rpc/AgentTurnJournal"
+import type { AgentTurnBatch, AgentTurnCursor } from "@smthrs/rpc/AgentTurnJournal"
 import { agentTurnJournalDigestInput } from "@smthrs/rpc/AgentTurnJournal"
 import type { AgentTurnFrame } from "@smthrs/rpc/NativeAgent"
-import { expect,test } from "bun:test"
-import { appProjectionHash } from "./AppEventStream"
-import { emptyAppProjection,projectAppEvent,seedAppProjection } from "./AppProjection"
-import { type AppTransition } from "./AppState"
+import { expect, test } from "bun:test"
+import { emptyAppProjection, projectAppEvent, seedAppProjection } from "./AppProjection"
+import type { AppTransition } from "./AppState"
 import { httpToolItems } from "./HttpTurn"
 import { fixtures } from "../../../../../packages/rpc/test/fixtures/Todo"
-
 
 const token = "a".repeat(64)
 const initialCursor = (runId = "turn", legId = "leg"): AgentTurnCursor => ({ version: 1, runId, legId, batch: 0, position: 0, hash: "0".repeat(64) })

@@ -131,7 +131,7 @@ test("bootstrap warming shares the in-flight promise and retries after rejection
 })
 
 for (const [capabilities, available] of [
-  [[], undefined], [["agent"], false], [["model.turn"], false], [["agent", "model.turn"], false]
+  [[], undefined], [["install"], false], [["agent"], false], [["model.turn"], undefined], [["agent", "model.turn"], false]
 ] as const) test(`runtime agent port for capabilities ${capabilities.join(",") || "none"}`, () => {
   const bootstrap: AppBootstrap = { ...cloud, capabilities: [...capabilities] }
   const http = async () => { throw new Error("Composition must not call HTTP") }
@@ -140,7 +140,7 @@ for (const [capabilities, available] of [
   expect(runtime.http).toBe(http)
   expect(runtime.backend.agent?.available).toBe(available)
   expect(Object.keys(runtime.backend)).toEqual(available === undefined ? [] : ["agent"])
-  // Browser ports retain private history only; the install owns turn execution.
+  // Only the shared backend keeps turn journals; a model-only host's turns stream frames.
   expect(runtime.backend.agent?.journal).toBeUndefined()
 })
 

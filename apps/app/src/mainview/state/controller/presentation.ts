@@ -93,7 +93,7 @@ export const createPresentationController = (
    * checklist quotes it, so drift between what runs and what is claimed shows
    * up as a failing row rather than as a confident wrong sentence.
    */
-  const AGENT_BACKEND = "http (the host agent over /api/agent/turn)"
+  const AGENT_BACKEND = "http (the branch conversation host)"
 
   /*
    * DESIGN.md §14: what drives a turn. A read, not a switch — Smithers has one

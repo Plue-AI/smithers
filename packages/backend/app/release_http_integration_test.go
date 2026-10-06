@@ -114,7 +114,6 @@ func TestReleaseHTTPWriteAndPaginationContracts(t *testing.T) {
 	}
 	for _, tc := range []struct{ route, body string }{
 		{"/api/user/repos", `{"name":"discarded"}`},
-		{"/api/app-timelines", `{"client_key":"discarded"}`},
 		{path + "/issues", `{"title":"discarded"}`},
 		{path + "/variables", `{"name":"DISCARDED","value":"value"}`},
 		{path + "/secrets", `{"name":"DISCARDED","value":"scratch"}`},
@@ -133,11 +132,6 @@ func TestReleaseHTTPWriteAndPaginationContracts(t *testing.T) {
 	for _, suffix := range []string{" {}", " null", " broken"} {
 		request("PUT", path+"/agent-environment/secrets/DISCARDED", `{"value":"scratch"}`+suffix, 400, nil)
 	}
-	var discardedTimelines int
-	require.NoError(t, pool.QueryRow(ctx, `SELECT count(*) FROM app_timelines WHERE client_key='discarded'`).Scan(&discardedTimelines))
-	require.Zero(t, discardedTimelines, "rejected timeline documents must not persist their prefix")
-	request("POST", "/api/app-timelines", `{"client_key":"discarded","future":true}`, 201, nil)
-	request("POST", "/api/app-timelines", `{"client_key":"discarded"}`, 200, nil)
 	request("GET", "/api/repos/releaseowner/discarded", "", 404, nil)
 	request("GET", path+"/variables/DISCARDED", "", 404, nil)
 	request("GET", path+"/wiki/discarded", "", 404, nil)

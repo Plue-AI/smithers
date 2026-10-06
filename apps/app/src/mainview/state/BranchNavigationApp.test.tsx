@@ -1,6 +1,6 @@
 import { fixtures } from "@smthrs/rpc/fixtures/Confirm"
 import type { MemberConfirmation } from "@smthrs/rpc/ConfirmCard"
-import { createWebAgent } from "../native/WebAgent"
+import { createConversationHistory } from "../native/ConversationHistory"
 import historyFixture from "./testdata/earlier-history.json"
 import { GlobalRegistrator } from "@happy-dom/global-registrator"
 import { afterAll, afterEach, expect, test } from "bun:test"
@@ -70,7 +70,7 @@ test("tree refuses cycles and repeated branch identities", () => {
 test("Earlier combines two browser archives with private journal replay without restoring execution", async () => {
   const store = await createAppStore({ kind: "localStorage", storage: memoryStorage() })
   const requests: Array<{ path: string; method: string; body?: unknown }> = []
-  const history = createWebAgent({ fetchImpl: async (input, init) => {
+  const history = createConversationHistory({ fetchImpl: async (input, init) => {
     const path = String(input)
     requests.push({ path, method: init?.method ?? "GET", ...(init?.body ? { body: JSON.parse(String(init.body)) } : {}) })
     return Response.json(store.collections.identitySessions.get("identity")?.login === "alice" ? { status: "ok", conversations: [], next: null } : path.endsWith("/replay") ? historyFixture.replay : historyFixture.index)

@@ -1,3 +1,5 @@
+import { probeHostTurn } from "../host-turn-probe"
+import { csrfHeaders } from "../../../server/scripts/canary/uptime-checks"
 /*
  * Launch checklist (U7) — the row catalog.
  *
@@ -337,7 +339,7 @@ export const ROWS: ReadonlyArray<ChecklistRow> = [
           "the rendered transcript exposes no run id (no [data-run-id]), so this runner cannot address the in-flight run's cancel seam to stage a server-side kill; scripts/live-workflow-check.ts covers the killed-run surface with a run it launched itself"
         )
       }
-      await seam(page, `/api/agent/turn/cancel?runId=${encodeURIComponent(runId)}`)
+      await page.evaluate(`document.querySelector('[data-flow="stop"]')?.click()` )
       const surfaced = await waitForText(
         page,
         (text) => /\b(stopped|cancell?ed|ended)\b/i.test(replyRegion(before, text)),
@@ -557,17 +559,8 @@ export const ROWS: ReadonlyArray<ChecklistRow> = [
       if (before.record?.state !== "ok") {
         return fail(`pre-turn balance check failed — HTTP ${before.status} ${before.text.slice(0, 200)}`)
       }
-      const turn = await ctx.fetch(`${ctx.target}/api/agent/turn`, {
-        method: "POST",
-        headers: { "content-type": "application/json", ...(cookie === undefined ? {} : { cookie }) },
-        body: JSON.stringify({
-          runId: `launch-checklist-d2-${Math.trunc(ctx.now())}`,
-          messages: [{ role: "user", content: "Say the word ok and nothing else." }],
-          instructions: "Answer briefly."
-        })
-      })
-      const turnText = await turn.text()
-      const done = turnText.includes("\"type\":\"done\"")
+      const turn = await probeHostTurn(ctx.target, ctx.fetch, cookie === undefined ? {} : { cookie, ...csrfHeaders(cookie) }, `launch-checklist-d2-${Math.trunc(ctx.now())}`)
+      const done = turn.completed
       const after = await balanceNow("balance after the turn")
       const totalBefore = Number(before.record?.totalUsd)
       const totalAfter = Number(after.record?.totalUsd)
@@ -581,7 +574,7 @@ export const ROWS: ReadonlyArray<ChecklistRow> = [
       const notReduced = numeric && totalAfter >= totalBefore
       const costRecorded = numeric && (lifetimeAfter > lifetimeBefore || countAfter > countBefore)
       return verdict(
-        turn.status === 200 && done && after.record?.state === "ok" && notReduced && costRecorded,
+        turn.status === 202 && done && after.record?.state === "ok" && notReduced && costRecorded,
         `turn HTTP ${turn.status} (done frame: ${done}); totalUsd ${before.record?.totalUsd} -> ${after.record?.totalUsd} (must not drop); lifetimeChargedUsd ${before.record?.lifetimeChargedUsd} -> ${after.record?.lifetimeChargedUsd}; chargeCount ${before.record?.chargeCount} -> ${after.record?.chargeCount} (cost recording must move)`
       )
     }
@@ -616,17 +609,8 @@ export const ROWS: ReadonlyArray<ChecklistRow> = [
     probe: async (ctx) => {
       const cookie = ctx.env[ZERO_BALANCE_COOKIE]
       // Half one — chat is complimentary: the turn seam still answers at $0.
-      const turn = await ctx.fetch(`${ctx.target}/api/agent/turn`, {
-        method: "POST",
-        headers: { "content-type": "application/json", ...(cookie === undefined ? {} : { cookie }) },
-        body: JSON.stringify({
-          runId: `launch-checklist-d4-${Math.trunc(ctx.now())}`,
-          messages: [{ role: "user", content: "Say the word ok and nothing else." }],
-          instructions: "Answer briefly."
-        })
-      })
-      const turnText = await turn.text()
-      const chatWorks = turn.status === 200 && turnText.includes("\"type\":\"done\"")
+      const turn = await probeHostTurn(ctx.target, ctx.fetch, cookie === undefined ? {} : { cookie, ...csrfHeaders(cookie) }, `launch-checklist-d4-${Math.trunc(ctx.now())}`)
+      const chatWorks = turn.completed
       /*
        * Half two — non-complimentary work pauses. The pause is the client's
        * zeroBalanceGuard (controller/workflows.ts): a flow launch at $0 is
@@ -647,7 +631,7 @@ export const ROWS: ReadonlyArray<ChecklistRow> = [
       return verdict(
         chatWorks && paused.ok && !started,
         `interactive turn at $0: HTTP ${turn.status} (done frame: ${
-          turnText.includes("\"type\":\"done\"")
+          turn.completed
         }); flow launch at $0 refused with the pause statement=${paused.ok} after ${paused.elapsedMs}ms; a run started anyway=${started}; transcript: ${
           replyRegion(before, paused.text).trim().slice(0, 240)
         }`

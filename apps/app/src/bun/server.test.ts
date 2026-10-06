@@ -112,7 +112,7 @@ describe("the local origin", () => {
     expect((await fetch(`${server.origin}${APP_BOOTSTRAP_PATH}`)).status).toBe(401)
     expect((await apiFetch(APP_BOOTSTRAP_PATH, { headers: { origin: "https://evil.test" } })).status).toBe(403)
     expect((await fetch(`${server.origin}/`, { headers: { host: "evil.test" } })).status).toBe(421)
-    const plain = await apiFetch("/api/agent/turn/replay", {
+    const plain = await apiFetch("/api/agent/turn/erase", {
       method: "POST",
       headers: { "content-type": "text/plain" },
       body: JSON.stringify({ runId: "plain", messages: [], instructions: "" })
@@ -568,11 +568,13 @@ describe("the Smithers Cloud seam", () => {
 })
 
 
-test("all five retired write routes return 404 without starting an agent", async () => {
-  for (const path of ["/api/agent/turn", "/api/agent/turn/cancel", "/api/agent/turn/retire", "/api/chat/turn", "/api/chat/cancel"]) {
-    const response = await apiFetch(path, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ runId: "retired", messages: [], instructions: "never" }) })
-    expect(response.status).toBe(404)
-  }
+describe("conversation cutover", () => {
+  test("the five legacy writes return 404 and never invoke an agent", async () => {
+    for (const path of ["/api/agent/turn", "/api/agent/turn/cancel", "/api/agent/turn/retire", "/api/chat/turn", "/api/chat/cancel"]) {
+      const response = await apiFetch(path, { method: "POST", headers: { "content-type": "application/json" }, body: '{}' })
+      expect(response.status).toBe(404)
+    }
+  })
 })
 
 describe("defaultDistDir", () => {

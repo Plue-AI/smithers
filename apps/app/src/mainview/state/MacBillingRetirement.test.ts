@@ -2,7 +2,6 @@ import { expect, test } from "bun:test"
 import { createAppStore } from "./AppStore"
 import { scopedControllers } from "./ControllerTestScope"
 import { memoryStorage, silentAgent, waitFor } from "./TestFixtures"
-import { createWebAgent } from "../native/WebAgent"
 import { namespacesOf } from "../flows/registry"
 
 const createAppController = scopedControllers()
@@ -25,12 +24,11 @@ test("the Mac install has no billing palette namespace, flow, or producer", asyn
 
 test("a credit-exhausted HTTP turn on the Mac install states the typed failure with no plans card", async () => {
   const store = await createAppStore({ kind: "localStorage", storage: memoryStorage() })
-  const agent = createWebAgent({ fetchImpl: async () => Response.json({ code: "out_of_credit", message: "Model credit spent." }, { status: 402 }) })
-  const controller = createAppController(store, agent, { bootstrap: { ...bootstrap, capabilities: [...bootstrap.capabilities] },
-    fetchImpl: async () => Response.json({}, { status: 404 }) })
+  const controller = createAppController(store, silentAgent, { bootstrap: { ...bootstrap, capabilities: [...bootstrap.capabilities, "install"] },
+    fetchImpl: async (path, init) => init?.method === "POST" && String(path).endsWith("/prompt") ? Response.json({ code: "out_of_credit", message: "Model credit spent." }, { status: 402 }) : String(path).endsWith("/api/conversations/main") ? Response.json({ id: "main", entries: [] }) : Response.json({}) })
   await store.dispatch({ type: "identity.session.loaded", actor: "system", state: "signed-in", login: "will", admin: false, scopesPlain: null }).isPersisted.promise
   await controller.send("Hello")
-  await waitFor(() => store.session().phase === "idle")
-  expect([...store.collections.messages.values()].map(message => message.text)).toContain("I couldn't complete that turn. Out of credit.")
+  await waitFor(() => store.session().sharedPrompts?.[0]?.state === "failed")
+  expect(store.session().sharedPrompts?.[0]?.state).toBe("failed")
   expect([...store.collections.cards.values()].some(card => ['balance', 'billing-plans', 'grant-confirm'].includes(card.kind))).toBe(false)
 })

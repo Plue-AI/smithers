@@ -308,12 +308,17 @@ describe("the three-door law", () => {
     controller.dispose()
   })
 
-  test("every agent row of the policy table is invocable through the tool; a confirm row yields the confirm card, never a refusal", async () => {
+  test("backend agent rows refuse browser execution; UI rows keep their confirmation policy", async () => {
     const { store, controller } = await boot()
     for (const row of AGENT_ROWS) {
       const result = await execute(controller, row.name, row.args)
       expect(`${row.name}: ${result}`).not.toContain("is user-only")
       expect(`${row.name}: ${result}`).not.toStartWith(`${row.name}: unknown-command`)
+      if (controller.commands.find(row.name)?.metadata.http !== null) {
+        expect(result).toBe("failed: this command runs on the conversation host")
+        expect(confirmationFor(store, row.name)).toBeUndefined()
+        continue
+      }
       if (!row.confirm) continue
       expect(`${row.name}: ${result}`).toContain("asked the user to confirm")
       const confirmation = confirmationFor(store, row.name)
@@ -414,7 +419,7 @@ describe("the three-door law", () => {
 
 
 
-test("versioned flow doors register on the design seam; a person's flow.edit drafts at once, an agent's asks first", async () => {
+test("versioned flow doors draft for a person and refuse backend execution in the browser", async () => {
   const { flowVersionFlows } = await import("./entries/flow")
   const entries = flowVersionFlows(new Proxy({}, { get: () => () => undefined }) as never)
   expect(entries.map(nameOf)).toEqual(["flow", "flow.edit", "flow.source", "flows"])
@@ -444,12 +449,9 @@ test("versioned flow doors register on the design seam; a person's flow.edit dra
   expect((await controller.commands.run("flow.edit", "todo Add review")).status).toBe("executed")
   expect(confirmationFor(store, "flow.edit")).toBeUndefined()
   expect([...store.collections.cards.values()].some(card => card.kind === "draft")).toBe(true)
-  await execute(controller, "flow.edit", "todo Add lint")
-  expect(confirmationFor(store, "flow.edit")).toBeDefined()
-  const confirmations = [...store.collections.messages.values()].filter(message => message.action?.flow === "flow.edit").length
-  await execute(controller, "flow.edit", JSON.stringify({ name: "todo", request: "Add tests", diff: "+pnpm test" }))
-  expect([...store.collections.messages.values()].filter(message => message.action?.flow === "flow.edit")).toHaveLength(confirmations)
-  expect(store.collections.cards.get("flow:todo")).toMatchObject({ payload: { proposal: { request: "Add tests", diff: "+pnpm test" } } })
+  expect(await execute(controller, "flow.edit", "todo Add lint")).toBe("failed: this command runs on the conversation host")
+  expect(confirmationFor(store, "flow.edit")).toBeUndefined()
+
 })
 
 test("Members doors are a person's: the slash and card commands exist, and the agent has none", async () => {
