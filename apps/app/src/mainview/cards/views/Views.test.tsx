@@ -341,6 +341,7 @@ for (const key of Object.keys(expectedActions) as Array<keyof typeof expectedAct
 const expectedAskers: Record<string, string> = {
   one_click: "Claude Code for Ben",
   drop: "Smithers for Ben",
+  learning: "Smithers for Ben",
   branch: "Claude Code for Ben",
   flow: "Claude Code for Ben",
   agent: "Claude Code for Ben",
@@ -371,7 +372,7 @@ for (const [name, story] of Object.entries(confirmStories)) {
     expect(host.querySelector("h2") !== null).toBe(!["done", "cancelled", "expired"].includes(name))
     const receiptLabels: Record<string, string[]> = { done: ["Amended T12 · Ben"], cancelled: ["Cancelled"], expired: ["Expired"] }
     for (const text of receiptLabels[name] ?? story.expect) expect(host.textContent).toContain(text)
-    if (story.model.kind === "one_click" && !story.model.receipt) {
+    if (story.model.kind === "one_click" && (!("receipt" in story.model) || !story.model.receipt)) {
       const label = expectedAskers[name]
       expect(label).toBeDefined()
       expect(host.querySelector(".avatar")?.getAttribute("aria-label")).toBe(label)
