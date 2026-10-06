@@ -4,6 +4,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"reflect"
@@ -38,9 +39,15 @@ func TestInstallMetricsOwnerBoundary(t *testing.T) {
 	}
 	_, err := pool.Exec(ctx, `INSERT INTO self_host_owners(user_id) VALUES($1)`, users[0].ID)
 	require.NoError(t, err)
+	repo, err := q.CreateRepo(ctx, db.CreateRepoParams{UserID: pgtype.Int8{Int64: users[0].ID, Valid: true}, Name: "scratch", LowerName: "scratch", DefaultBookmark: "main"})
+	require.NoError(t, err)
+	for i, permission := range []string{"admin", "write", "admin"} {
+		_, err = pool.Exec(ctx, `INSERT INTO collaborators(repository_id,user_id,permission) VALUES($1,$2,$3)`, repo.ID, users[i].ID, permission)
+		require.NoError(t, err)
+	}
 	for key, value := range map[string]string{
-		"github.repository": `{"owner_login":"owner","repository_name":"scratch","repository_id":1}`,
-		"owner.access":      `{"owner_login":"owner","repository_name":"scratch","repository_id":1,"last_access_check_at":"2026-10-05T10:00:00Z"}`,
+		"github.repository": fmt.Sprintf(`{"owner_login":"owner","repository_name":"scratch","repository_id":%d}`, repo.ID),
+		"owner.access":      fmt.Sprintf(`{"owner_login":"owner","repository_name":"scratch","repository_id":%d,"last_access_check_at":"2026-10-05T10:00:00Z"}`, repo.ID),
 	} {
 		require.NoError(t, q.UpsertInstallSetting(ctx, db.UpsertInstallSettingParams{Key: key, Value: []byte(value)}))
 	}
