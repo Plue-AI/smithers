@@ -7,6 +7,7 @@ import {
   makeCloudWikiTransport,
   mergeWikiState,
   wikiAttachmentSlug,
+  wikiContentPath,
   wikiDocumentId,
   wikiDocumentPath,
   wikiPagePath
@@ -566,16 +567,38 @@ export const createCloudWikiController = (ctx: ControllerContext, nextOrdinal: (
   }
 
   /** The ordinary page door resolves vault paths and titles through the real index. */
-  const openWikiPage = async (name: string): Promise<string | void | { value: string }> => {
+  const openWikiPage = async (name: string, revision?: number): Promise<string | void | { value: string }> => {
     const repo = targetRepo()
     if (typeof repo !== "string") return repo.error
     const space = shared.space()
+    const epoch = ctx.accountEpoch, originBranch = shared.branch(), login = shared.login()
+    const current = () => !ctx.disposed && !shared.disposed() && ctx.accountEpoch === epoch && shared.branch() === originBranch && shared.login() === login
     const indexed = await loadWikiIndex(repo, space)
     if (typeof indexed === "string") return indexed
+    if (!current()) return "The account or conversation changed while the Wiki was loading."
     const wanted = name.trim()
     const page = shared.wikiIndexes.get(repo, space)?.pages.find(row =>
       row.slug === wanted || row.title === wanted || row.path === wanted || row.path.replace(/\.md$/, "") === wanted)
-    return page === undefined ? createCloudWikiPage(wanted, repo) : openCloudWiki(repo, page.slug, page.id, space)
+    if (revision === undefined) return page === undefined ? createCloudWikiPage(wanted, repo) : openCloudWiki(repo, page.slug, page.id, space)
+    if (!Number.isSafeInteger(revision) || revision <= 0 || page === undefined) return "This Wiki revision is unavailable."
+    const actor = ctx.commandActor
+    return ctx.withToast(`wiki.revision.${repo}.${space}.${page.id}.${revision}`, "Reading Wiki…", "Wiki read", async () => {
+      try {
+        const response = await ctx.boundedFetch(`${ctx.baseUrl}/api${wikiContentPath(repo, space, page.id, revision)}`)
+        if (!response.ok || !/^text\/(?:plain|markdown)(?:;|$)/i.test(response.headers.get("content-type") ?? "")) return "This Wiki revision is unavailable."
+        const markdown = await response.text()
+        if (!current()) return "The account or conversation changed while the Wiki was loading."
+        const id = `wiki-revision-${repo}-${space}-${page.id}-${revision}`
+        const previous = ctx.store.collections.cards.get(id)
+        await ctx.store.dispatch({ type: "card.upsert", actor, card: {
+          id, kind: "wiki-history", title: `${page.title} · r${revision}`, status: "active",
+          createdAt: previous?.createdAt ?? Date.now(), ordinal: nextOrdinal(),
+          payload: { repo, space, pageId: page.id, slug: page.slug, title: page.title, path: page.path,
+            revisions: [], page: 1, hasNext: false, content: { revision, markdown } }
+        } }).isPersisted.promise
+        return { value: `Opened ${page.title} at r${revision}` }
+      } catch { return "This Wiki revision is unavailable." }
+    }, false, current)
   }
 
   /** `wiki.cloud.new <title> [owner/repo]`: a Markdown page in the space, then opened. */

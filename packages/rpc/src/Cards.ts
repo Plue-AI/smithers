@@ -1041,6 +1041,8 @@ const CurrentCardSchema = z.discriminatedUnion("kind", [
     ...cardBaseShape,
     kind: z.literal("wiki-history"),
     payload: z.object({
+      /** A pinned read, separate from the live editable document. */
+      content: z.object({ revision: z.number().int().positive(), markdown: z.string() }).optional(),
       repo: z.string(),
       space: z.enum(["public", "private"]),
       pageId: z.number().int().positive(),

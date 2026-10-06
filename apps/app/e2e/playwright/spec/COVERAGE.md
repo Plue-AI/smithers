@@ -88,7 +88,7 @@ C-UI-12 Members (T-UI-09): [install roster and keyboard Add/Role/Remove](C-UI-12
 | C-UI-05 | [C-UI-05.spec.ts](C-UI-05.spec.ts) | fixme-before-implementation | T-COL-02 |
 
 | C-UI-06 | [C-UI-06.spec.ts](C-UI-06.spec.ts) | fixme-before-implementation | T-APP-16 |
-| C-UI-07 | [C-UI-07.spec.ts](C-UI-07.spec.ts), [durable Context/Inspect projection](../context-inspect.spec.ts) | projection and reload pass with journal fixture; authenticated branch prompt/SharedEntries acceptance remains fixme | T-APP-17 |
+| C-UI-07 | [C-UI-07.spec.ts](C-UI-07.spec.ts), [durable Context/Inspect projection](../context-inspect.spec.ts) | projection, pinned wiki keyboard/mouse opening and reload pass with journal fixture; authenticated branch prompt/SharedEntries acceptance remains fixme | T-APP-17 |
 | C-UI-08 | [C-UI-08.spec.ts](C-UI-08.spec.ts) | fixme-before-implementation | T-APP-22 |
 | C-UI-09 | [C-UI-09.spec.ts](C-UI-09.spec.ts), [docs.spec.ts](../docs.spec.ts) | Passing Chromium (2026-10-06): all nine combined docs cases; real HTTP agent docs.read, bundled toc, internal page/anchor links, no outside-origin request, keyboard navigation, missing-page persistence and Settings activation. The journal fixture returns 404 for replay before leg acceptance, with a regression test preserving capability rejection after acceptance. | T-APP-20, T-APP-24 |
 | C-UI-10 | [C-UI-10.spec.ts](C-UI-10.spec.ts) | browser projection and local-own real-backend browser/SQL roles; complete operation inventory and install PUT /api/secrets form; independent production app dependency guards with zero transport/SQL effects and live 201 write controls; delegated and branch-machine evidence pending | T-APP-21 |

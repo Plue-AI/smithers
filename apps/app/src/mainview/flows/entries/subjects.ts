@@ -123,9 +123,9 @@ export const subjectFlows = (actions: CommandActions): ReadonlyArray<FlowEntry> 
       }
     })),
     flow({ name: "wiki.page",   slash: "/wiki.page", cli: ["wiki","page"], journey: ["J8"], group: "Wiki", visibility: "core", actors: ["person","app_agent","external_agent"], minimumRole: "member", http: null, summary: "Open or create a page", args: "<name>", discloseToAgent: true,
-      grammar: positional("name"), agent: "run", input: Schema.Struct({ name: Schema.NonEmptyString }),
-      handler: ({ name }) => {
-        if (install()) return actions.openWikiPage(name)
+      grammar: positional("name"), agent: "run", input: Schema.Struct({ name: Schema.NonEmptyString, revision: Schema.optional(Schema.Int.check(Schema.isGreaterThanOrEqualTo(1))) }),
+      handler: ({ name, revision }) => {
+        if (revision !== undefined || install()) return actions.openWikiPage(name, revision)
         const page = findWikiPage(design.world(), name)
         if (page !== undefined) return open(wikiCard(page.id, page.title))
         const id = newWikiPage(design, name, design.viewer())
