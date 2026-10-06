@@ -346,7 +346,11 @@ export const createCommandRegistry = (actions: CommandActions, agentActions: Com
       .concat(leafEntries).filter(available)
   }
 
-  const items = (): ReadonlyArray<CatalogItem> => entries().map(itemOf)
+  const items = (): ReadonlyArray<CatalogItem> => entries().map(entry => {
+    const item = itemOf(entry)
+    return (item.name === "debug.api" || item.name === "debug-api") && !actions.debugApi.available()
+      ? { ...item, hidden: true } : item
+  })
 
   const listingItems = (): ReadonlyArray<CatalogItem> => {
     const catalog = items()

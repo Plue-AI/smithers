@@ -11,7 +11,7 @@ import operations from "../../../src/debugApi/install-operations.fixture.json"
 // Release YAML is input under test; the committed JSON is the literal oracle.
 // Like the app's existing Playwright commands, run from apps/app.
 const document = () => parse(readFileSync(resolve("../../docs/api/openapi.yaml"), "utf8")) as OpenApiDocument
-const activationBlocker = "T-CAT-01: no debug.api descriptor in packages/smithers/ui/src/app-operations; T-ACC-03: production debugApiGates has catalog=false, authorizer=false and no install provider."
+const activationBlocker = "Reference-install evidence still required; browser projection is covered by spec/C-UI-10.spec.ts. The composed install now advertises debug.api and the app binds the shared descriptor."
 
 export function debugApiScenarios(prefix: string) {
   test.describe(prefix, () => {
@@ -52,7 +52,7 @@ export function debugApiScenarios(prefix: string) {
       })
     }
     pending("slash and Advanced open through CardRenderers; selecting a literal operation sends zero requests",
-      "No test install composition supplies the catalog-backed Advanced door or activation provider.")
+      "Browser projection passes through CardRenderers separately; reference-install browser/session harness still required.")
     test("Ben Member GET /api/todos returns literal seeded 200 body; independently compare curl with Ben's session", async () => {
       test.setTimeout(900_000)
       const output = mkdtempSync(resolve(tmpdir(), "c-ui-10-read-"))
@@ -102,9 +102,9 @@ export function debugApiScenarios(prefix: string) {
       }
     })
     pending("eligible delegated app-agent and smthrs dispatch refuse debug.api as never with zero effects; scope/role refusals retain precedence",
-      "No catalog-backed debug.api app-agent/CLI dispatcher or delegated install fixture.")
+      "App agent refuses locally; T-CAT-01 shared CLI dispatcher and delegated reference-install fixture still required.")
     pending("displayed operations and form fields equal committed install fixture; Plue-only and undocumented operations absent",
-      "Release operation inventory exists; production activation and reviewed literal install form-field fixtures unavailable.")
+      "Literal operation inventory and secret form fields are checked locally; reference-install browser receipt still required.")
     pending("repository-flow execution with isolation unavailable refuses before execution with no host process",
       "POST /api/flows install execution route is absent; T-INS-02/T-FLW-01 route composition and process receipts unavailable.")
     pending("available repository-flow execution runs only in a branch machine",

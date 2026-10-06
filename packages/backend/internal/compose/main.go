@@ -1686,6 +1686,7 @@ func runWithOptions(ctx context.Context, args []string, stdout, stderr io.Writer
 	}
 	var r http.Handler = withAppBootstrap(router, newAppBootstrap(bootstrapFeatures{
 		role: options.topology, identity: authHandler != nil, install: gitHubAppSetup != nil,
+		debugAPI:     config.IsSingleOwner(cfg.Auth) && queries != nil && options.topology.servesHTTP(),
 		agent:        options.ChatHost != nil && chatService != nil && options.topology.servesHTTP(),
 		redirectAuth: githubClient != nil || strings.TrimSpace(cfg.Auth.Auth0ClientID) != "",
 		github:       gitHubImportHandler != nil && githubClient != nil,

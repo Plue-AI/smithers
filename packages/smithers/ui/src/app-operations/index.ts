@@ -124,3 +124,23 @@ export const operation = <const O extends Operation>(declared: O): O => declared
 
 /** The input of an operation that takes nothing. */
 export const NoInput = Schema.Record(Schema.String, Schema.Never)
+
+/** The person-only raw API door shared by app and command hosts. */
+export const debugApiOperation = operation({
+  name: "debug.api",
+  visibility: "advanced",
+  group: "debug",
+  actors: ["person"],
+  minimumRole: "member",
+  agent: "never",
+  summary: "Call the documented API",
+  args: "[operationId]",
+  userOnly: true,
+  userOnlyReason: "raw API bypasses flow typing and approvals; agents use flows",
+  input: Schema.Struct({
+    operationId: Schema.optional(Schema.String),
+    intent: Schema.optional(Schema.Literals(["open", "send", "confirm"])),
+    values: Schema.optional(Schema.Record(Schema.String, Schema.String)),
+    confirmation: Schema.optional(Schema.String)
+  })
+})

@@ -28,7 +28,8 @@ export const CommandsContainer = ({ catalog, dispatch, view, onView }: CommandsC
   const rank = (id: string) => { const index = NAMESPACES.findIndex(row => row.id === id); return index < 0 ? NAMESPACES.length : index }
   const model = CommandsCardSchema.parse({ groups: [...groups.entries()].sort(([a], [b]) =>
     a === "advanced" ? 1 : b === "advanced" ? -1 : rank(a) - rank(b)).map(([, group]) => group) })
-  const bindings = cardActions(dispatch, [])
+  const bindings = cardActions(dispatch, catalog.some(entry => entry.name === "debug-api" && entry.visibility === "advanced")
+    ? [{ tag: "debug.api", label: "/debug-api", command_input: {} }] : [])
   return <CommandsView model={model} actions={bindings.actions} gestures={bindings.gestures} onAction={bindings.onAction} view={view} onView={onView} />
 }
 

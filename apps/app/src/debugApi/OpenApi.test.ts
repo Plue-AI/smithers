@@ -120,3 +120,17 @@ test("release install request form comes from the document and Send remains dark
   expect(seam.get().fields).toEqual([{ name: "body", label: "JSON", kind: "text", multiline: true, required: true }])
   seam.dispose()
 })
+
+test("release secret request fields match the literal install fixture", async () => {
+  const seam = createDebugApiSeam({ document: async () => document,
+    gates: () => ({ view: true, catalog: true, authorizer: true }),
+    origin: "http://mini.local", fetch: async () => { throw Error("No request on selection") } })
+  try {
+    await seam.open("post_api_repos_owner_repo_secrets")
+    expect(seam.get().fields).toEqual([
+      { name: "path:owner", label: "owner", required: true, kind: "text" },
+      { name: "path:repo", label: "repo", required: true, kind: "text" },
+      { name: "body", label: "JSON", kind: "text", multiline: true, required: true }
+    ])
+  } finally { seam.dispose() }
+})

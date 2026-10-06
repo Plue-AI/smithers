@@ -39,3 +39,11 @@ test("the restored file editor is mounted and its replaced renderer is deleted",
   expect(reachable.has(join(root, "cards/views/CodeEditorView.tsx"))).toBe(true)
   expect(() => statSync(join(root, "cards/CodeSurface.tsx"))).toThrow()
 })
+
+// T-APP-21 adds a card without replacing a legacy renderer.
+const API_WIRING = { view: "DebugApiView.tsx", ticket: "T-APP-21", legacy: [] as string[] }
+test("T-APP-21 mounts DebugApiView through CardRenderers", () => {
+  visit(join(root, "cards/CardRenderers.tsx"))
+  expect(reachable.has(join(root, "cards/views", API_WIRING.view))).toBe(true)
+  for (const path of API_WIRING.legacy) expect(() => statSync(join(root, path))).toThrow()
+})

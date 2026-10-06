@@ -1,4 +1,5 @@
 import type { TerminalCardSource } from "./seams/TerminalSeam"
+import { debugApiOperation } from "@smthrs/ui/app-operations"
 import { bundledOpenApi } from "../../debugApi/bundled"
 import { createDebugApiSeam, debugApiFailureCopy, type DebugApiSeam, type DebugApiInput, type DebugApiGates, type OpenApiDocument } from "./seams/DebugApiSeam"
 import { confirmCancelRefusal } from "@smthrs/rpc/ConfirmCard"
@@ -1267,7 +1268,7 @@ export const createAppController = (
   const debugApi = createDebugApiSeam({
     document: services.openApi ?? bundledOpenApi, fetch: (url, init) => ctx.boundedFetch(url, { ...init, [UNRECORDED_NET]: true } as UnrecordedInit),
     origin: services.debugApiOrigin ?? (typeof window === "undefined" ? "http://localhost" : window.location.origin),
-    gates: services.debugApiGates ?? (() => ({ view: true, catalog: false, authorizer: false }))
+    gates: services.debugApiGates ?? (() => ({ view: true, catalog: debugApiOperation.name === "debug.api", authorizer: services.bootstrap?.capabilities.includes("debug.api") === true }))
   })
   ctx.onDispose(debugApi.dispose)
   ctx.onDispose(ctx.onAccountChange(debugApi.endAccount))

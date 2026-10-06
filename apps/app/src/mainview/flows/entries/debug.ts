@@ -4,6 +4,7 @@
  * the aggregator order.
  */
 import { Schema } from "effect"
+import { debugApiOperation } from "@smthrs/ui/app-operations"
 import { flow, NoPayload } from "./Declare"
 import type { FlowEntry, Namespace } from "../registry"
 import type { CommandActions } from "./Declare"
@@ -84,13 +85,8 @@ export const debugFlows = (actions: CommandActions): ReadonlyArray<FlowEntry> =>
 
 /** T-APP-21: one playground flow, with the product's slash spelling as a hidden alias. */
 export const debugApiFlows = (actions: CommandActions): ReadonlyArray<FlowEntry> => {
-  const input = Schema.Struct({ operationId: Schema.optional(Schema.String),
-    intent: Schema.optional(Schema.Literals(["open", "send", "confirm"])),
-    values: Schema.optional(Schema.Record(Schema.String, Schema.String)), confirmation: Schema.optional(Schema.String) })
-  return ["debug.api", "debug-api"].map(name => flow({ name,
-    summary: "Call the documented API", args: "[operationId]", input,
+  return ["debug.api", "debug-api"].map(name => flow({ ...debugApiOperation, name,
     hidden: name === "debug.api" || !actions.debugApi.available(),
-    userOnly: true, userOnlyReason: "raw API bypasses flow typing and approvals; agents use flows",
     handler: payload => actions.debugApiCommand(payload)
   }))
 }

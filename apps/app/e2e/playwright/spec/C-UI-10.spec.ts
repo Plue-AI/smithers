@@ -1,38 +1,48 @@
 import { expect, test } from "../browserTest"
-import { owner, say } from "./j1-fixtures"
+import { say } from "./j1-fixtures"
+import { installCloudFixture } from "../cloudFixture"
 
-// UI projection of C-UI-10; acceptance now lives in T-APP-21.
-// Reference-host and integration evidence remains required separately.
-// Written before implementation: mvp.md M-36, §6.14, Appendix A /debug-api; lands with T-APP-21
+// Browser projection receipt. PostgreSQL role effects are checked separately
+// by debug-api/local-own-read.ts on the reference install.
 test("C-UI-10: API playground requires confirmation and preserves member rights", async ({ page }) => {
-  test.fixme(true, "Written before implementation: mvp.md M-36, §6.14, Appendix A /debug-api; lands with T-APP-21")
-  // Required seed: Member Ben, documented install operations, real permission
-  // envelopes and a recording mutation endpoint; no token entry or Plue routes.
-  await owner(page)
+  await installCloudFixture(page, { capabilities: ["identity", "debug.api"] })
   await page.route("**/api/user", route => route.fulfill({ json: { id: 2, username: "ben", is_admin: false } }))
-  const mutations: string[] = []
-  page.on("request", request => {
-    if (request.method() === "PUT" && new URL(request.url()).pathname === "/api/secrets") mutations.push(request.url())
+  let reads = 0
+  await page.route("**/api/todos", route => { reads++; return route.fulfill({ json: { items: [{ n: 8, title: "T8" }] } }) })
+  const mutations: string[] = [], keys: string[] = []
+  await page.route("**/api/repos/smithersai/smithers/secrets", route => {
+    mutations.push(route.request().url())
+    keys.push(route.request().headers()["idempotency-key"] ?? "")
+    return route.fulfill({ status: 403, json: { class: "permission", code: "forbidden", message: "Forbidden" } })
   })
   await page.goto("/")
-  await say(page, "/debug-api")
-  const card = page.locator(".smithers-card").last()
-  await card.getByRole("option", { name: "GET /api/stack", exact: true }).press("Enter")
-  await expect(card.getByText("200", { exact: true })).toHaveCount(0)
-  await card.getByRole("button", { name: "Send", exact: true }).press("Enter")
-  await expect(card.getByText("200", { exact: true })).toBeVisible()
+  await say(page, "/help")
+  const help = page.getByRole("article", { name: "Commands", exact: true })
+  await help.getByText("Advanced", { exact: true }).click()
+  await help.getByRole("button", { name: /debug-api/ }).click()
+  const card = page.getByRole("article", { name: "Debug API", exact: true })
+  await expect(card).toBeVisible()
+  const beforeSelection = reads
+  await card.getByRole("button", { name: /^GET \/api\/todos(?: |$)/ }).click()
+  await expect(card.getByRole("region", { name: "Exchange" })).toHaveCount(0)
+  expect(reads).toBe(beforeSelection)
+  await card.getByRole("button", { name: "Send", exact: true }).click()
+  await expect(card.getByText(/200 ·/)).toBeVisible()
   await expect(card).toContainText("T8")
-  await card.getByRole("option", { name: "PUT /api/secrets", exact: true }).press("Enter")
-  await card.getByLabel("Body", { exact: true }).fill('{"name":"TEST_KEY","value":"canary"}')
-  await card.getByRole("button", { name: "Send", exact: true }).press("Enter")
-  await expect(card).toContainText("PUT /api/secrets")
-  await expect(card.getByText("403", { exact: true })).toHaveCount(0)
+  expect(reads).toBe(beforeSelection + 1)
+  await card.getByRole("button", { name: /^POST \/api\/repos\/\{owner\}\/\{repo\}\/secrets POST/ }).click()
+  await card.getByLabel("owner", { exact: true }).fill("smithersai")
+  await card.getByLabel("repo", { exact: true }).fill("smithers")
+  await card.getByLabel("JSON", { exact: true }).fill('{"name":"TEST_KEY","value":"canary"}')
+  await card.getByRole("button", { name: "Send", exact: true }).click()
   expect(mutations).toHaveLength(0)
-  await card.getByRole("button", { name: "Confirm", exact: true }).press("Enter")
-  await expect(card.getByText("403", { exact: true })).toBeVisible()
-  await expect(card).toContainText("permission")
+  await card.getByRole("button", { name: /^Confirm POST/ }).click()
+  await expect(card.getByText(/403 ·/)).toBeVisible()
   expect(mutations).toHaveLength(1)
+  expect(keys[0]).not.toBe("")
   await expect(card.getByLabel("Token", { exact: true })).toHaveCount(0)
-  await expect(card).not.toContainText("canary-secret-value")
   await expect(page.getByTestId("composer-input")).toBeEnabled()
+  await say(page, "/debug-api get_api_todos")
+  await expect(card.getByRole("button", { name: /^GET \/api\/todos(?: |$)/ })).toHaveAttribute("aria-pressed", "true")
+  expect(mutations).toHaveLength(1)
 })
