@@ -101,7 +101,7 @@ func TestMemberRoutesAuthorizeByRolePostgres(t *testing.T) {
 		{"GET", "/api/repos/maya/demo/mythical"}, {"GET", "/api/repos/maya/demo/mythical/events"}, {"GET", "/api/repos/maya/demo/mythical/items/T1"},
 		{"GET", "/api/github/sync"}, {"POST", "/api/github/sync"}, {"GET", "/api/live"},
 		{"GET", "/api/user/orgs"}, {"GET", "/api/user/workspaces"}, {"POST", "/api/telemetry/errors"},
-		{"POST", "/api/conversations/1/prompt"}, {"POST", "/api/agent/turn/replay"},
+		{"POST", "/api/agent/turn"}, {"POST", "/api/conversations/1/prompt"}, {"POST", "/api/agent/turn/replay"},
 		{"GET", "/api/agent/conversations"}, {"POST", "/api/agent/conversations/replay"},
 		{"GET", "/api/issues"}, {"GET", "/api/issues/2"},
 		{"GET", "/api/todos"}, {"GET", "/api/todos/1"}, {"POST", "/api/todos"}, {"POST", "/api/todos/1"}, {"POST", "/api/todos/1/answer"},
@@ -112,13 +112,17 @@ func TestMemberRoutesAuthorizeByRolePostgres(t *testing.T) {
 	for _, route := range routes {
 		router.MethodFunc(route.method, route.path, served)
 	}
+	router.Put("/api/repos/maya/demo/mythical/lanes", served)
 	ownerOnly := map[string]bool{"GET /api/install": true, "POST /api/install/setup/models": true, "GET /api/user/tokens": true, "POST /api/agent/turn/erase": true}
 	maintainerOnly := map[string]bool{"POST /api/todos/1/merge": true, "POST /api/members": true, "PATCH /api/members/alice": true, "DELETE /api/members/alice": true}
-	call := func(method, path, cookie, bearer string) (int, map[string]any) {
+	call := func(method, path, cookie, bearer string, supplied ...string) (int, map[string]any) {
 		var body *strings.Reader
 		body = strings.NewReader("{}")
 		if method == "POST" && path == "/api/todos/1" {
 			body = strings.NewReader(`{"op":"steer","text":"Continue"}`)
+		}
+		if len(supplied) == 1 {
+			body = strings.NewReader(supplied[0])
 		}
 		req := httptest.NewRequest(method, path, body)
 		if cookie != "" {
@@ -140,7 +144,7 @@ func TestMemberRoutesAuthorizeByRolePostgres(t *testing.T) {
 			want := http.StatusOK
 			switch {
 			case who == "owner":
-			case who == "member token" && (key == "GET /api/user/orgs" || key == "GET /api/user/workspaces" || key == "POST /api/telemetry/errors" || key == "GET /api/agent/conversations" || key == "POST /api/agent/conversations/replay" || key == "POST /api/conversations/1/prompt" || key == "POST /api/agent/turn/replay"):
+			case who == "member token" && (key == "GET /api/user/orgs" || key == "GET /api/user/workspaces" || key == "POST /api/telemetry/errors" || key == "GET /api/agent/conversations" || key == "POST /api/agent/conversations/replay" || key == "POST /api/agent/turn" || key == "POST /api/conversations/1/prompt" || key == "POST /api/agent/turn/replay"):
 				want = http.StatusOK
 			case ownerOnly[key], who == "off roster", who == "suspended", who == "member token":
 				want = http.StatusForbidden
@@ -196,6 +200,17 @@ func TestMemberRoutesAuthorizeByRolePostgres(t *testing.T) {
 		status, _ = call("POST", path, "", ownerToken)
 		require.Equal(t, http.StatusForbidden, status, path)
 	}
+	const submission = `{"workspaceId":"11111111-1111-4111-a111-111111111111"}`
+	status, _ = call("PUT", "/api/repos/maya/demo/mythical/lanes", "", ownerToken, submission)
+	require.Equal(t, http.StatusOK, status)
+	for _, body := range []string{`{}`, `{"workspaceId":"22222222-2222-4222-a222-222222222222"}`, submission + `{}`} {
+		status, _ = call("PUT", "/api/repos/maya/demo/mythical/lanes", "", ownerToken, body)
+		require.Equal(t, http.StatusForbidden, status, body)
+	}
+	for _, path := range []string{"/api/repos/maya/demo/mythical/wiki", "/api/user/tokens"} {
+		status, _ = call("PUT", path, "", ownerToken, submission)
+		require.Equal(t, http.StatusForbidden, status, path)
+	}
 	for _, scopes := range []string{
 		strings.Replace(landingScopes, middleware.RepositoryRestrictionScope(repo.ID), middleware.RepositoryRestrictionScope(repo.ID+1), 1),
 		strings.Replace(landingScopes, "write:repository", "read:user", 1),
@@ -204,6 +219,8 @@ func TestMemberRoutesAuthorizeByRolePostgres(t *testing.T) {
 		_, err = pool.Exec(ctx, `UPDATE access_tokens SET scopes=$2 WHERE user_id=$1`, owner.ID, scopes)
 		require.NoError(t, err)
 		status, _ = call("GET", "/api/repos/maya/demo/mythical", "", ownerToken)
+		require.Equal(t, http.StatusForbidden, status, scopes)
+		status, _ = call("PUT", "/api/repos/maya/demo/mythical/lanes", "", ownerToken, submission)
 		require.Equal(t, http.StatusForbidden, status, scopes)
 	}
 	// No unbound credential, even one minted for the owner, inherits the
