@@ -11,6 +11,7 @@ pub mod lock;
 pub mod msg;
 pub mod outbox_store;
 pub mod rpc;
+pub mod session_stream;
 pub mod stream;
 
 pub mod attrib;
