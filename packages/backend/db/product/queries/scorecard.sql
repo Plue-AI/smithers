@@ -19,7 +19,14 @@ FROM unnest(ARRAY['install_settings', 'mythical_items', 'product_job_events',
 -- Deduplicate repeated deliveries by the TODO identity.
 -- name: ScorecardTODOs :many
 SELECT i.id::text AS id, COALESCE(i.owner_id, i.created_by, 0)::bigint AS owner,
-       i.state::text AS state, i.updated_at AS state_at, i.checks, i.paused_at,
+       i.state::text AS state, i.checks, i.paused_at,
+       (SELECT COALESCE(jsonb_object_agg(receipt.state, receipt.since), '{}'::jsonb)
+        FROM (SELECT transition.state, max(transition.recorded_at) AS since
+          FROM (SELECT state, recorded_at, lag(state) OVER (ORDER BY sequence) AS previous
+            FROM product_job_events WHERE principal_id = 'todo:' || i.id::text
+              AND event_type LIKE 'todo.%') AS transition
+          WHERE transition.previous IS DISTINCT FROM transition.state
+          GROUP BY transition.state) AS receipt)::jsonb AS state_times,
        COALESCE(min(e.recorded_at), 'epoch'::timestamptz)::timestamptz AS accepted,
        (count(e.event_id) > 0)::boolean AS covered
 FROM mythical_items i

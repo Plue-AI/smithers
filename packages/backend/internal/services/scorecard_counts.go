@@ -36,6 +36,7 @@ type scorecardFacts struct {
 	// Coverage is set only by the owning source reader after its contract is
 	// integrated. It is deliberately private and absent from ScorecardService.
 	Coverage                  map[string]bool
+	IncompleteStates          map[string]bool
 	InstallStart, FirstAnswer *time.Time
 	TODOs                     []scorecardTODO
 	Actions                   []scorecardAction
@@ -52,7 +53,7 @@ func aggregateScorecard(window ScorecardWindow, facts scorecardFacts) Scorecard 
 		m := out.Measures[name]
 		missing := make([]string, 0)
 		for _, ticket := range m.MissingTickets {
-			if !facts.Coverage[ticket] {
+			if !facts.Coverage[ticket] || facts.IncompleteStates[name] {
 				missing = append(missing, ticket)
 			}
 		}

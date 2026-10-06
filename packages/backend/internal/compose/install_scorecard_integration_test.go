@@ -14,6 +14,7 @@ import (
 	"github.com/smithersai/smithers/packages/backend/internal/db"
 	"github.com/smithersai/smithers/packages/backend/internal/middleware"
 	"github.com/smithersai/smithers/packages/backend/internal/services"
+	"github.com/smithersai/smithers/packages/backend/jobs"
 	"github.com/smithersai/smithers/packages/backend/testkit/postgresfixture"
 	"github.com/stretchr/testify/require"
 )
@@ -175,5 +176,40 @@ func TestInstallScorecardOwnerReadsRealCreationReceipts(t *testing.T) {
 			require.Equal(t, sessionBefore, sessionAfter)
 		})
 	}
+
+	// State timestamps come from receipt transitions, not mutable item rows.
+	var item string
+	require.NoError(t, pool.QueryRow(ctx, `SELECT id::text FROM mythical_items WHERE repository_id=$1`, repo).Scan(&item))
+	tx, err := pool.Begin(ctx)
+	require.NoError(t, err)
+	_, err = tx.Exec(ctx, `UPDATE mythical_items SET state='cancelled',updated_at='2031-01-01T00:00:00Z' WHERE id=$1::uuid`, item)
+	require.NoError(t, err)
+	fact, _ := json.Marshal(map[string]any{"item": item})
+	_, err = jobs.RecordFactInTx(ctx, tx, jobs.Scope{TenantID: fmt.Sprint(repo), PrincipalID: "todo:" + item}, "00000000-0000-4000-8000-000000000001", "todo.dropped", "dropped", fact)
+	require.NoError(t, err)
+	_, err = tx.Exec(ctx, `UPDATE product_job_events SET recorded_at='2026-10-04T08:03:00Z' WHERE operation_id='00000000-0000-4000-8000-000000000001'`)
+	require.NoError(t, err)
+	require.NoError(t, tx.Commit(ctx))
+	readState := func() services.Scorecard {
+		request := httptest.NewRequest("GET", "http://localhost:4000/api/install/scorecard?from=2026-10-03T23:30:00-07:00&to=2026-10-17T23:30:00-07:00", nil)
+		request.RemoteAddr = "127.0.0.1:61000"
+		request.AddCookie(&http.Cookie{Name: "session", Value: "scorecard-cookie"})
+		response := httptest.NewRecorder()
+		router.ServeHTTP(response, request)
+		require.Equal(t, 200, response.Code, response.Body.String())
+		var card services.Scorecard
+		require.NoError(t, json.Unmarshal(response.Body.Bytes(), &card))
+		return card
+	}
+	require.Equal(t, float64(1), readState().Measures["dropped"].Value)
+	_, err = pool.Exec(ctx, `UPDATE mythical_items SET state='queued' WHERE id=$1::uuid`, item)
+	require.NoError(t, err)
+	require.Equal(t, float64(0), readState().Measures["dropped"].Value)
+	_, err = pool.Exec(ctx, `UPDATE mythical_items SET state='blocked' WHERE id=$1::uuid`, item)
+	require.NoError(t, err)
+	incomplete := readState()
+	require.Equal(t, "source_missing", incomplete.Measures["failed"].Verdict)
+	require.Equal(t, []string{"T-STK-01"}, incomplete.Measures["failed"].MissingTickets)
+	require.Equal(t, float64(1), incomplete.Measures["accepted"].Value)
 
 }

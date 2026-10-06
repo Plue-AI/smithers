@@ -83,7 +83,14 @@ func (q *Queries) ScorecardSourceRelations(ctx context.Context) ([]ScorecardSour
 
 const scorecardTODOs = `-- name: ScorecardTODOs :many
 SELECT i.id::text AS id, COALESCE(i.owner_id, i.created_by, 0)::bigint AS owner,
-       i.state::text AS state, i.updated_at AS state_at, i.checks, i.paused_at,
+       i.state::text AS state, i.checks, i.paused_at,
+       (SELECT COALESCE(jsonb_object_agg(receipt.state, receipt.since), '{}'::jsonb)
+        FROM (SELECT transition.state, max(transition.recorded_at) AS since
+          FROM (SELECT state, recorded_at, lag(state) OVER (ORDER BY sequence) AS previous
+            FROM product_job_events WHERE principal_id = 'todo:' || i.id::text
+              AND event_type LIKE 'todo.%') AS transition
+          WHERE transition.previous IS DISTINCT FROM transition.state
+          GROUP BY transition.state) AS receipt)::jsonb AS state_times,
        COALESCE(min(e.recorded_at), 'epoch'::timestamptz)::timestamptz AS accepted,
        (count(e.event_id) > 0)::boolean AS covered
 FROM mythical_items i
@@ -94,14 +101,14 @@ GROUP BY i.id
 `
 
 type ScorecardTODOsRow struct {
-	ID       string             `json:"id"`
-	Owner    int64              `json:"owner"`
-	State    string             `json:"state"`
-	StateAt  pgtype.Timestamptz `json:"state_at"`
-	Checks   json.RawMessage    `json:"checks"`
-	PausedAt pgtype.Timestamptz `json:"paused_at"`
-	Accepted time.Time          `json:"accepted"`
-	Covered  bool               `json:"covered"`
+	ID         string             `json:"id"`
+	Owner      int64              `json:"owner"`
+	State      string             `json:"state"`
+	Checks     json.RawMessage    `json:"checks"`
+	PausedAt   pgtype.Timestamptz `json:"paused_at"`
+	StateTimes json.RawMessage    `json:"state_times"`
+	Accepted   time.Time          `json:"accepted"`
+	Covered    bool               `json:"covered"`
 }
 
 // Creation receipts, not row creation times, establish stack acceptance.
@@ -119,9 +126,9 @@ func (q *Queries) ScorecardTODOs(ctx context.Context) ([]ScorecardTODOsRow, erro
 			&i.ID,
 			&i.Owner,
 			&i.State,
-			&i.StateAt,
 			&i.Checks,
 			&i.PausedAt,
+			&i.StateTimes,
 			&i.Accepted,
 			&i.Covered,
 		); err != nil {
