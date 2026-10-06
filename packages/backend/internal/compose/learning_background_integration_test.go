@@ -46,6 +46,8 @@ func TestLearningBackgroundHomeComposedInstall(t *testing.T) {
 	require.NoError(t, err)
 	_, err = pool.Exec(ctx, `UPDATE mythical_stacks SET state='active' WHERE repository_id=$1`, repo)
 	require.NoError(t, err)
+	_, err = q.CreateAuthSession(ctx, db.CreateAuthSessionParams{UserID: owner.ID, Username: owner.Username, SessionKey: "fixture-person", ExpiresAt: time.Now().Add(time.Hour)})
+	require.NoError(t, err)
 	ctx = middleware.ContextWithAuthInfo(ctx, &middleware.AuthInfo{User: &owner, SessionHash: "fixture-person"})
 	service := services.NewMythicalService(pool, nil)
 	_, err = service.FileTodo(ctx, repo, owner.ID, services.MythicalTodoInput{Title: "Retry", Prompt: "Use retry", Request: "fixture", Place: services.MythicalTodoPlace{Mode: "append"}})
