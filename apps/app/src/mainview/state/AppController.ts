@@ -214,7 +214,8 @@ export interface AppController extends IssueFlowsController {
   readonly removeConnector: (id: string) => string | void
   readonly selectWorldDocument: (id: string) => string | void
   readonly changeWorldDocument: (id: string, body: string) => Promise<string | void>
-  readonly listCloudWiki: (repo: string, page?: number, space?: WikiSpace) => Promise<string | { value: string }>
+  readonly openWikiPage: (name: string) => Promise<string | void | { value: string }>
+  readonly listCloudWiki: (repo?: string, page?: number, space?: WikiSpace) => Promise<string | { value: string }>
   readonly openCloudWiki: (repo: string, slug: string, expectedPageId?: number, space?: WikiSpace) => Promise<string | { value: string }>
   readonly retryCloudWiki: (id: string) => Promise<string | void | { value: string }>
   /** The Wiki spaces (#1922): the switch, the space's navigation index, a page's history, and the writes the pane offers. */
@@ -1244,7 +1245,7 @@ export const createAppController = (
   const { enqueuePrompt, removeQueuedPrompt, restoreQueuedPrompts, resumePromptQueue } = promptQueue
   const cloudWiki = actors.pair(ctx, (context) => createCloudWikiController(context, store.nextOrdinal))
   const { listCloudWiki, openCloudWiki, retryCloudWiki, attachWorldEditor,
-    setWikiSpace, setWikiPageView, loadWikiIndex, readWikiForPane, showWikiHistory, createCloudWikiPage, saveWikiAnswer, renameCloudWikiPage, deleteCloudWikiPage, attachCloudWiki, wikiIndexes } = cloudWiki
+    setWikiSpace, setWikiPageView, loadWikiIndex, readWikiForPane, openWikiPage, showWikiHistory, createCloudWikiPage, saveWikiAnswer, renameCloudWikiPage, deleteCloudWikiPage, attachCloudWiki, wikiIndexes } = cloudWiki
   const selectRepo: TabsController["selectRepo"] = async (key) => {
     const result = await selectRepoOnly(key)
     if (result === undefined && store.session().surface === "world") void readWikiForPane()
@@ -1782,6 +1783,7 @@ export const createAppController = (
     setWikiPageView,
     loadWikiIndex,
     showWikiHistory,
+    openWikiPage,
     createCloudWikiPage,
     saveWikiAnswer,
     renameCloudWikiPage,

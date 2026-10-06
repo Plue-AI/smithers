@@ -503,7 +503,9 @@ export const createCloudWikiController = (ctx: ControllerContext, nextOrdinal: (
     else void loadWikiIndex(repo, spaceArg)
   }
 
-  const listCloudWiki = async (repo: string, page = 1, spaceArg?: WikiSpace): Promise<string | { value: string }> => {
+  const listCloudWiki = async (repoArg?: string, page = 1, spaceArg?: WikiSpace): Promise<string | { value: string }> => {
+    const repo = targetRepo(repoArg)
+    if (typeof repo !== "string") return repo.error
     const space = spaceArg ?? shared.space()
     const owner = shared.login()
     if (owner === null) return "Sign in to read the repository Wiki."
@@ -806,6 +808,19 @@ export const createCloudWikiController = (ctx: ControllerContext, nextOrdinal: (
     return { value: `Embedded the history of ${found.path} (${space}): ${outcome.map((row) => `r${row.revision} ${row.deleted ? "deleted" : row.path} by ${row.author}`).join("; ") || "no revisions"}.` }
   }
 
+  /** The ordinary page door resolves vault paths and titles through the real index. */
+  const openWikiPage = async (name: string): Promise<string | void | { value: string }> => {
+    const repo = targetRepo()
+    if (typeof repo !== "string") return repo.error
+    const space = shared.space()
+    const indexed = await loadWikiIndex(repo, space)
+    if (typeof indexed === "string") return indexed
+    const wanted = name.trim()
+    const page = shared.wikiIndexes.get(repo, space)?.pages.find(row =>
+      row.slug === wanted || row.title === wanted || row.path === wanted || row.path.replace(/\.md$/, "") === wanted)
+    return page === undefined ? createCloudWikiPage(wanted, repo) : openCloudWiki(repo, page.slug, page.id, space)
+  }
+
   /** `wiki.cloud.new <title> [owner/repo]`: a Markdown page in the space, then opened. */
   const createCloudWikiPage = async (title: string, repoArg?: string, body?: string): Promise<string | void | { value: string }> => {
     const repo = targetRepo(repoArg)
@@ -1003,7 +1018,7 @@ export const createCloudWikiController = (ctx: ControllerContext, nextOrdinal: (
     }
     return false
   }
-  return { listCloudWiki, openCloudWiki, editCloudWiki, prepareCloudWiki, retryCloudWiki, attachWorldEditor, scrollEditor,
+  return { listCloudWiki, openCloudWiki, openWikiPage, editCloudWiki, prepareCloudWiki, retryCloudWiki, attachWorldEditor, scrollEditor,
     loadWikiIndex, readWikiForPane, setWikiSpace, setWikiPageView, showWikiHistory, createCloudWikiPage, saveWikiAnswer, renameCloudWikiPage, deleteCloudWikiPage, attachCloudWiki,
     wikiIndexes: shared.wikiIndexes, hasIndexedPage, invalidatePaneRead }
 }

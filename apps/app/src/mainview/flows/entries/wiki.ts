@@ -21,8 +21,8 @@ export const recommendations: ReadonlyArray<Recommendation> = [
 
 /** The bare `wiki` surface switch, registered first with the other top-level surfaces. */
 export const wikiSurfaceFlows = (actions: CommandActions): ReadonlyArray<FlowEntry> =>
-  /* MOCK SEAM (DesignWorld/subjects.ts): the seeded wiki's first page stands in for the repository wiki. */
   bind(wikiSurfaceOperations, { wiki: async () => {
+    if (actions.bootstrap?.capabilities.includes("install")) return actions.listCloudWiki()
     const page = actions.design.world().wiki[0]
     return page === undefined ? actions.showWorld() : { value: await actions.presentSubject(wikiCard(page.id, page.title)) }
   } })

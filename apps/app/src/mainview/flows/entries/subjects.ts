@@ -122,6 +122,7 @@ export const subjectFlows = (actions: CommandActions): ReadonlyArray<FlowEntry> 
     flow({ name: "wiki.page", summary: "Open or create a page", args: "<name>", discloseToAgent: true,
       grammar: positional("name"), input: Schema.Struct({ name: Schema.NonEmptyString }),
       handler: ({ name }) => {
+        if (install()) return actions.openWikiPage(name)
         const page = findWikiPage(design.world(), name)
         if (page !== undefined) return open(wikiCard(page.id, page.title))
         const id = newWikiPage(design, name, design.viewer())
