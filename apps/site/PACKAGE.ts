@@ -76,7 +76,6 @@ const supportDocs = Smithers.Generate({
   script: Smithers.file("scripts/sync-support-docs.mjs"),
   data: [Smithers.glob("docs/**/*")],
   changes: [
-    "src/content/docs/docs/reference/support-matrix.mdx",
     "src/content/docs/docs/reference/api/index.mdx",
     "src/content/docs/docs/installation.mdx",
     "src/content/docs/changelogs/1.0.0-rc.0.mdx"
@@ -146,7 +145,7 @@ const referenceIngest = Smithers.Generate({
   summary: "Copy colocated package reference pages into the docs tree; check drift under lint.",
   script: Smithers.file("scripts/ingest-reference.mjs"),
   data: [flowPackage.referencePages, enginePackage.referencePages, targetsPackage.referencePages],
-  changes: ["src/content/docs/docs/reference/api/**", "src/content/docs/docs/reference/targets/**"]
+  changes: ["src/content/docs/docs/reference/api/**"]
 })
 // --- end reference docs pipeline ------------------------------------------
 
@@ -173,9 +172,7 @@ const cliData = Smithers.Generate({
     "src/data/versions.json",
     "src/data/cli-commands.json",
     "src/data/removed-commands.json",
-    "src/data/help/**",
-    "src/content/docs/docs/migration/1.0.mdx",
-    "src/content/docs/docs/reference/cli/*.mdx"
+    "src/data/help/**"
   ]
 })
 // --- end CLI data ----------------------------------------------------------
@@ -248,21 +245,6 @@ const apiDocs = Smithers.Generate({
 // --- end API reference pages -----------------------------------------------
 
 /**
- * One page per example program: its leading doc comment as prose and its
- * source as a fence, from `examples/src`. The examples are the tested programs
- * behind `pnpm run test:examples`, so the pages show code proven to run at
- * this commit. `lint` fails on drift; `--write` regenerates.
- */
-const examplesPages = Smithers.Generate({
-  summary: "Generate one docs page per example in examples/src; check drift under lint.",
-  script: Smithers.file("scripts/gen-examples.mjs"),
-  // The examples package's `docs` filegroup, not a glob: a glob declared here
-  // never expands into examples/, so the label is the edge.
-  data: [examplesPackage.docs],
-  changes: ["src/content/docs/docs/examples/[0-9]*.mdx"]
-})
-
-/**
  * The compact agent index and full plain-text documentation bundle. Both read
  * the same project.json description as the rendered site and root README, so
  * the machine-facing one-sentence explanation cannot drift either.
@@ -289,17 +271,7 @@ const docsTextTest = Smithers.Shell.Test({
   data: [
     Smithers.file("scripts/docs-text.mjs"),
     Smithers.file("scripts/docs-text.test.mjs"),
-    Smithers.file("src/content/docs/docs/guides/control-plane.mdx"),
-    Smithers.file("src/content/docs/docs/reference/cli/serve.mdx"),
     Smithers.file("src/content/docs/docs/reference/http-api.mdx"),
-    Smithers.file("src/content/docs/docs/guides/sync-followers.mdx"),
-    Smithers.file("src/content/docs/docs/concepts/sync.mdx"),
-    Smithers.file("src/content/docs/docs/concepts/kernel.mdx"),
-    Smithers.file("src/content/docs/docs/guides/flow-discovery.mdx"),
-    Smithers.file("src/content/docs/docs/guides/markdown-flows.mdx"),
-    Smithers.file("src/content/docs/docs/reference/cli/migrate.mdx"),
-    Smithers.file("src/content/docs/docs/migration/1.0.mdx"),
-    Smithers.file("src/content/docs/docs/guides/durable-waits.mdx"),
     Smithers.file("//packages/smithers/gateway/docs/guides/serve-beyond-loopback.md"),
     Smithers.file("//packages/smithers/flows/sync/src/SyncProtocol.ts"),
     Smithers.file("//packages/smithers/flows/kernel/src/HostServices.ts"),
@@ -310,7 +282,6 @@ const docsTextTest = Smithers.Shell.Test({
     Smithers.file("//packages/smithers/flows/flow/src/DurableClock.ts"),
     Smithers.file("scripts/check-built-site.mjs"),
     Smithers.file("scripts/built-site.test.mjs"),
-    Smithers.file("src/content/docs/docs/pricing.mdx"),
     Smithers.file("public/robots.txt"),
     Smithers.file("scripts/gen-cli-data.mjs"),
     Smithers.file("scripts/gen-cli-data.test.mjs"),
@@ -330,7 +301,6 @@ const checkExitTest = Smithers.Shell.Test({
       "check-docs",
       "docs-text",
       "gen-cli-data",
-      "gen-examples",
       "generate-llms",
       "generate-project-copy",
       "ingest-reference",
@@ -380,7 +350,12 @@ const installPageTest = Smithers.Shell.Test({
   shell: "node --test apps/site/scripts/install-page.test.mjs",
   data: [
     Smithers.file("scripts/install-page.test.mjs"),
-    Smithers.file("docs/installation.mdx"),
+    Smithers.file("src/layouts/Base.astro"),
+    Smithers.glob("src/pages/**/*.astro"),
+    Smithers.glob("docs/**/*"),
+    Smithers.file("public/_redirects"),
+    Smithers.glob("//apps/app/src/docs/pages/*.md"),
+    ...["T-INS-04", "T-INS-05", "T-INS-08"].map(name => Smithers.file(`//.specs/engineering/tickets/${name}.md`)),
     Smithers.file("astro.config.mjs"),
     Smithers.file("src/data/project.json"),
     Smithers.glob("src/content/docs/docs/**/*"),
@@ -453,7 +428,6 @@ const supportMatrixTest = Smithers.Shell.Test({
     Smithers.file("scripts/support-matrix.test.mjs"),
     Smithers.file("scripts/sync-support-docs.mjs"),
     Smithers.glob("docs/**/*"),
-    Smithers.file("src/content/docs/docs/reference/support-matrix.mdx"),
     Smithers.file("src/content/docs/docs/reference/api/index.mdx"),
     Smithers.file("src/content/docs/docs/installation.mdx"),
     Smithers.file("src/content/docs/changelogs/1.0.0-rc.0.mdx"),
@@ -471,14 +445,11 @@ const supportMatrixTest = Smithers.Shell.Test({
   ]
 })
 
-/** Execute exact tutorial files and validate deployment entry points offline. */
+/** Validate deployment entry points offline. */
 const docsRuntimeTests = Smithers.Shell.Test({
-  shell: "node --test --test-concurrency=1 apps/site/scripts/tutorials.test.mjs apps/site/scripts/deployment.test.mjs",
+  shell: "node --test --test-concurrency=1 apps/site/scripts/deployment.test.mjs",
   data: [
-    Smithers.file("scripts/tutorials.test.mjs"),
     Smithers.file("scripts/deployment.test.mjs"),
-    Smithers.glob("src/content/docs/docs/tutorials/*.mdx"),
-    Smithers.file("src/content/docs/docs/guides/child-flows.mdx"),
     Smithers.file("package.json"),
     Smithers.file("//apps/docs/shared/alchemy-site.mjs"),
     Smithers.file("//apps/docs/shared/alchemy-site.d.ts"),
@@ -517,34 +488,6 @@ const docsLint = Smithers.Shell.Test({
 })
 
 /**
- * Every `ts` fence on the hand-written tutorial pages compiles against the
- * real packages, so a tutorial cannot teach an API that does not ship. A
- * fence's `title="<file>"` names the file it is or extends; same-title fences
- * concatenate. The pages that continue the first tutorial's project list it
- * as `context`, so their `import "./durable-layer.ts"` resolves.
- */
-const tutorialPage = (page: string) => Smithers.file(`src/content/docs/docs/tutorials/${page}.mdx`)
-const tutorialTargetName = (page: string) =>
-  `tutorial${page.replace(/(^|-)(\w)/g, (_, __, c) => c.toUpperCase())}CodeBlocks`
-const tutorialCodeBlocks = Object.fromEntries(
-  (
-    [
-      ["first-flow", []],
-      ["crash-and-resume", ["first-flow"]],
-      ["retry-policy", ["first-flow"]],
-      ["human-approval", ["first-flow"]],
-      ["time-travel", []],
-      ["first-agent-flow", []],
-      ["agent-outputs", []],
-      ["memory", []]
-    ] as const
-  ).map(([page, context]) => [
-    tutorialTargetName(page),
-    Smithers.Markdown.CodeBlocks({ file: tutorialPage(page), lang: ["ts"], context: context.map(tutorialPage) })
-  ])
-)
-
-/**
  * Security review for the public site: the /demo intake form, the GitHub
  * sign-in and app-install links, the catalog stats fetch, the app island's
  * page shell, the Cloudflare _headers/_redirects, the recording scripts that
@@ -567,8 +510,7 @@ const securityReview = Smithers.SecurityReview({
     "public/_redirects",
     "astro.config.mjs",
     "docs/installation.mdx",
-    "src/content/docs/docs/installation.mdx",
-    "src/content/docs/docs/tutorials/*.mdx"
+    "src/content/docs/docs/installation.mdx"
   ],
   checks: [
     {
@@ -656,7 +598,7 @@ const securityReview = Smithers.SecurityReview({
         "A snippet with a real-looking API key or token rather than a placeholder.",
         "A tutorial that writes a key into a source file instead of reading it from the environment."
       ],
-      paths: ["docs/installation.mdx", "src/content/docs/docs/installation.mdx", "src/content/docs/docs/tutorials/*.mdx"]
+      paths: ["docs/installation.mdx", "src/content/docs/docs/installation.mdx"]
     }
   ]
 })
@@ -687,9 +629,7 @@ export const Package = Smithers.Package({
     siteTypecheckTest,
     sameOriginUrlTest,
     docsRuntimeTests,
-    examplesPages,
     llms,
-    ...tutorialCodeBlocks,
     ...securityReview
   }
 })

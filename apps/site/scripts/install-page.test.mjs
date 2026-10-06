@@ -13,7 +13,6 @@ const installation = read("apps/site/docs/installation.mdx")
 // Remove each exception when its command ships. These are engineering tickets,
 // not an open-ended exemption for commands absent from an installed release.
 const planned = new Map([
-  ["smthrs host start", ["T-INS-08"]],
   ["smthrs host start --bind 0.0.0.0 --origin http://studio-mini.local:4000", ["T-INS-08", "T-INS-04"]]
 ])
 
@@ -31,7 +30,8 @@ function validateCommands(text, commands) {
     const shipped = commands.find((entry) => entry.name === name)
     const tickets = planned.get(command)
     if (tickets) {
-      assert.equal(shipped, undefined, `${name} now ships; remove its planned exception and update installation`)
+      const flags = words.filter(word => word.startsWith("--")).map(word => word.slice(2).split("=")[0])
+      assert.ok(!shipped || flags.some(flag => !shipped.schema?.options?.properties?.[flag]), `${command} now ships; remove its planned exception and update installation`)
       assert.match(section, /\*\*Planned\.\*\*/, `${command} must be explicitly planned in its section`)
       for (const ticket of tickets) assert.ok(existsSync(join(root, `.specs/engineering/tickets/${ticket}.md`)), `${ticket} must exist`)
       seen.add(command)
@@ -61,12 +61,17 @@ test("install commands exist in the source CLI or have an expiring planned excep
   const { commands } = JSON.parse(output)
   assert.ok(Array.isArray(commands) && commands.length > 0, "source CLI must return a command manifest")
   assert.deepEqual([...validateCommands(installation, commands)], [...planned.keys()])
+  for (const name of ["quickstart", "flows"]) {
+    const text = read(`apps/app/src/docs/pages/${name}.md`)
+    for (const { command } of snippets(text)) assert.ok(!planned.has(command), "in-app docs allow no planned commands")
+    assert.equal(validateCommands(text, commands).size, 0)
+  }
 })
 
 test("planned command guard rejects new commands, missing labels and shipped exceptions", () => {
   assert.throws(() => validateCommands("## Start\n```bash\nsmthrs invented\n```", []), /does not ship/)
-  assert.throws(() => validateCommands("## Start\n```bash\nsmthrs host start\n```", []), /explicitly planned/)
-  assert.throws(() => validateCommands("## Start\n**Planned.**\n```bash\nsmthrs host start\n```", [{ name: "host start" }]), /now ships/)
+  assert.throws(() => validateCommands("## Start\n```bash\nsmthrs host start --bind 0.0.0.0 --origin http://studio-mini.local:4000\n```", []), /explicitly planned/)
+  assert.throws(() => validateCommands("## Start\n**Planned.**\n```bash\nsmthrs host start --bind 0.0.0.0 --origin http://studio-mini.local:4000\n```", [{ name: "host start", schema: { options: { properties: { bind: {}, origin: {} } } } }]), /now ships/)
   assert.throws(() => validateCommands("```bash\nsmthrs doctor --invented\n```", [{ name: "doctor", schema: { options: { properties: {} } } }]), /has no --invented/)
   assert.equal(validateCommands("```bash\nsmthrs doctor --verbose\n```", [{ name: "doctor", schema: { options: { properties: { verbose: {} } } } }]).size, 0)
 })
@@ -118,4 +123,23 @@ test("planned setup puts Address and App before the owner claim and repository",
     /squash merging/, /retry/, /\*\*fast\*\*/, /\*\*coding\*\*/, /\*\*Decisions\*\*/,
     /provider key or ChatGPT sign-in/, /AI Gateway key/, /Without a fast-model key/]) assert.match(section, claim)
   assert.doesNotMatch(section, /\bjev\b/i)
+})
+
+
+test("only installation and the API remain in the published docs tree", () => {
+  const content = join(site, "src/content/docs/docs")
+  const paths = readdirSync(content, { recursive: true }).filter(path => /\.mdx?$/.test(path))
+  assert.ok(paths.includes("installation.mdx"))
+  assert.ok(paths.includes("reference/http-api.mdx"))
+  for (const path of paths) assert.ok(path === "installation.mdx" || path === "reference/http-api.mdx" || path.startsWith("reference/api/"), `retired projection remains: ${path}`)
+  const retired = JSON.parse(read("apps/site/docs/retired-projections.json"))
+  for (const path of retired) assert.equal(existsSync(join(root, path)), false, `retired projection exists: ${path}`)
+  const redirects = read("apps/site/public/_redirects")
+  for (const line of redirects.split("\n").filter(line => line && !line.startsWith("#"))) {
+    const [, destination] = line.split(/\s+/)
+    if (destination.startsWith("/docs/")) assert.ok(destination === "/docs/installation/" || destination === "/docs/reference/http-api/" || destination.startsWith("/docs/reference/api/"), `redirect points at retired page: ${line}`)
+  }
+  assert.doesNotMatch(installation, /\]\([^)]*\)/)
+  assert.equal(existsSync(join(site, "src/pages/pricing.astro")), false)
+  assert.doesNotMatch(read("apps/site/src/layouts/Base.astro"), /href="\/pricing\/"/)
 })

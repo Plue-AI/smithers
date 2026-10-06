@@ -92,7 +92,7 @@ sections.push("## Package documentation\n\n" + sites.map((site) =>
   `- [${site.name}](https://${site.domain}/llms.txt)${site.description ? `: ${site.description}` : ""}`
 ).join("\n"))
 sections.push("## Optional\n\n" + byGroup("examples").map(link).join("\n"))
-const llmsTxt = sections.join("\n\n") + "\n"
+const llmsTxt = sections.join("\n\n").trimEnd() + "\n"
 
 const ordered = [...root, ...groups.flatMap((g) => byGroup(g))]
 const llmsFull =

@@ -275,6 +275,8 @@ const codingRuntime = Smithers.NodeTest({
     Smithers.file("//flows/test/coding-stack-base.test.ts"),
     Smithers.file("//flows/test/coding-project-config.test.ts"),
     Smithers.file("//flows/test/coding-project-defaults.test.ts"),
+    Smithers.file("//flows/test/coding-build-only.test.ts"),
+    Smithers.file("//flows/test/coding-install-project.test.ts"),
     Smithers.file("//flows/test/coding-steering.test.ts"),
     Smithers.file("//flows/test/coding-request-coordinator.test.ts"),
     Smithers.file("//flows/test/factory-todo.test.ts"),
@@ -391,7 +393,10 @@ const codingBundleBun = Smithers.Shell.Test({
   timeout: "45m"
 })
 const wiki = Smithers.NodeTest({
-  runner: Smithers.testRunner([Smithers.file("//flows/test/wiki.test.ts")]),
+  runner: Smithers.testRunner([
+    Smithers.file("//flows/test/wiki.test.ts"),
+    Smithers.file("//flows/test/wiki-install-defaults.test.ts")
+  ]),
   srcs: [sources],
   deps: [],
   cwd

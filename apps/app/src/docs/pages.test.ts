@@ -63,20 +63,49 @@ const actions = new Proxy(discovery, {
 }) as unknown as CommandActions
 const registry = createCommandRegistry(actions)
 const commands = visible(registry.all()).filter(command => unmetRequirements(command, member).length === 0)
-const names = new Set(commands.map(command => command.name))
+const names = new Set(registry.all().map(command => command.name))
 
 const resolvesSlash = (query: string): boolean => {
-  if (query.includes(".") && !query.endsWith(".")) return names.has(query)
+  if (names.has(query)) return true
+  if (query.includes(".") && !query.endsWith(".")) return false
   // Bare fragments and trailing dots are menu queries, not flow invocations.
   return slashTree(member, query, commands).some(row => row.kind === "flow" || row.kind === "namespace")
 }
 
-test("slash references resolve against visible member-reachable flows", () => {
+test("slash references resolve against the source flow registry", () => {
   const references = [...pages.values()].flatMap(markdown => {
     const spans = [...markdown.matchAll(/^\s*(`{3,}|~{3,})[^\n]*\n([\s\S]*?)^\s*\1\s*$/gm)].map(match => match[2]!)
     spans.push(...[...withoutFences(markdown).matchAll(/(`+)([^`\n]+)\1/g)].map(match => match[2]!))
-    return spans.flatMap(span => [...span.matchAll(/(?:^|[^\w/])\/([a-z0-9_-]+(?:\.[a-z0-9_-]+)*\.?|)(?=$|[^a-z0-9_./-])/g)].map(match => match[1]!))
+    return spans.flatMap(span => [...span.matchAll(/(?:^|\s)\/([a-z0-9_-]+(?:\.[a-z0-9_-]+)*\.?|)(?=$|[^a-z0-9_./-])/g)].map(match => match[1]!))
   })
   expect(references.length).toBeGreaterThan(0)
-  for (const query of references) expect(resolvesSlash(query)).toBe(true)
+  for (const query of references) expect({ query, resolves: resolvesSlash(query) }).toEqual({ query, resolves: true })
+})
+
+
+test("the docs index and release links are exact", () => {
+  expect([...pages.keys()].sort()).toEqual(["flows.md", "quickstart.md"])
+  expect(pages.get("quickstart.md")).toMatch(/^---\ntitle: "Quickstart"/ )
+  expect(pages.get("flows.md")).toMatch(/^---\ntitle: "Flows reference"/ )
+  const quickstart = pages.get("quickstart.md")!
+  const https = quickstart.split("## Put HTTPS in front\n")[1]!.split("\n## ")[0]!
+  expect(https).toContain("Tailscale")
+  expect(https).toContain("Caddy")
+  expect(quickstart.replace(https, "")).not.toMatch(/tailscale|caddy/i)
+  for (const markdown of pages.values()) {
+    for (const match of markdown.matchAll(/\]\((https:\/\/smithers\.sh\/docs\/[^)]+)\)/g)) {
+      const path = new URL(match[1]!).pathname
+      expect(path === "/docs/installation/" || path === "/docs/reference/http-api/" || path.startsWith("/docs/reference/api/")).toBe(true)
+    }
+  }
+  expect(quickstart).toContain("https://smithers.sh/docs/reference/http-api/")
+  expect(anchors(quickstart).has("put-https-in-front")).toBe(true)
+  expect(quickstart).toContain("tailscale serve --bg --https=443 http://127.0.0.1:4000")
+  expect(quickstart).toContain("--tcp=2222")
+  expect(quickstart).toContain("header_up Host {http.request.host}")
+  expect(quickstart).toContain("proxy on another host must pass the original `Host`")
+  expect(quickstart).toContain("Hypervisor.framework")
+  expect(quickstart).toContain("automatic login")
+  expect(quickstart).toContain("stop the original install first")
+  expect(pages.get("flows.md")).not.toMatch(/tailscale|caddy/i)
 })

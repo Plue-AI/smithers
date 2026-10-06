@@ -116,7 +116,6 @@ test("no check ends with process.exit()", () => {
   for (const script of [
     "check-docs.mjs",
     "gen-cli-data.mjs",
-    "gen-examples.mjs",
     "generate-llms.mjs",
     "generate-project-copy.mjs",
     "ingest-reference.mjs",

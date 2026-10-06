@@ -139,6 +139,17 @@ describe("the docs doors", () => {
 test("HTTPS docs target resolves the shipped heading and refuses missing pages", async () => {
   const { controller } = await setup()
   expect(controller.docsTargetAvailable("quickstart#put-https-in-front")).toBe(true)
+  expect(controller.docsTargetAvailable("quickstart#missing-heading")).toBe(false)
   expect(controller.docsTargetAvailable("quickstart#open-the-command-list")).toBe(true)
   expect(controller.docsTargetAvailable("missing")).toBe(false)
+})
+
+
+test("the bundled docs are reachable without a test-only availability override", async () => {
+  const store = await createAppStore({ kind: "localStorage", storage: memoryStorage() })
+  const controller = createAppController(store, silentAgent, { docs: () => DOCS })
+  expect((await controller.commands.run("docs")).status).toBe("executed")
+  expect(store.collections.cards.get("docs-quickstart")).toMatchObject({ kind: "docs", payload: { markdown: expect.stringContaining("## Put HTTPS in front") } })
+  expect((await controller.commands.run("docs", "flows")).status).toBe("executed")
+  expect(store.collections.cards.get("docs-flows")).toMatchObject({ kind: "docs", payload: { markdown: expect.stringContaining("Flow.make") } })
 })
