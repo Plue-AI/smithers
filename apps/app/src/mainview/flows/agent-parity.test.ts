@@ -33,6 +33,7 @@ import { WIKI_ATTACH_USER_ONLY_REASON, WIKI_HEADING_USER_ONLY_REASON } from "@sm
  * no longer user-only fails it too.
  */
 const USER_ONLY_ALLOWLIST: Readonly<Record<string, string>> = {
+  "auth.email": "sign-in is the human's browser gesture; the agent renders the step with auth.prompt",
   "account.show": "Install status requires the owner’s person session",
   "env.remove-token": "Install controls require the owner’s person session",
   "env.set": "Install controls require the owner’s person session",
