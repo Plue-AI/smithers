@@ -646,7 +646,20 @@ export type Frame = z.infer<typeof FrameSchema>
  * not state mutations — they never gate the app, and a failure toast is
  * honest and stays until dismissed.
  */
+/** Authoritative member-routed entry facts; ordinary background work has no audience. */
+export const ToastAudienceSchema = z.object({
+  member: z.string(),
+  entryId: z.string(),
+  kind: z.enum(["needs_you", "in_review", "failed"]),
+  actorLabel: z.string(),
+  target: z.discriminatedUnion("flow", [
+    z.object({ flow: z.literal("todo"), n: z.number().int().positive() }),
+    z.object({ flow: z.literal("run"), id: z.string().min(1) })
+  ])
+})
+
 export const ToastSchema = z.object({
+  audience: ToastAudienceSchema.optional(),
   sourceCard: z.string().optional(),
   id: z.string(),
   /** The work identity ("billing.balance.refresh"): one toast per background flow. */
@@ -1604,6 +1617,7 @@ export type AppTransition =
   | {
     /* The 300ms toast law: slow background work states what is running. */
     type: "toast.shown"
+    audience?: Toast["audience"]
     sourceCard?: string
     actor: "system"
     key: string

@@ -2769,6 +2769,7 @@ export const projectAppEvent = (previous: AppProjectionSnapshot, context: AppPro
           const toast: Toast = {
             id,
             key: transition.key,
+            ...(transition.audience === undefined ? {} : { audience: transition.audience }),
             title: transition.title,
             sourceCard: transition.sourceCard,
             status: "running",
@@ -2783,6 +2784,7 @@ export const projectAppEvent = (previous: AppProjectionSnapshot, context: AppPro
           } else {
             collections.toasts.update(id, (draft) => {
               Object.assign(draft, toast)
+              if (transition.audience === undefined) delete draft.audience
             })
           }
           break

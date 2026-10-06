@@ -4,6 +4,9 @@
  * foot. A card file, not a View: it maps the transcript, the toasts and the
  * design world to the Views' props and binds their callbacks to flows.
  */
+import type { AppController } from "./state/AppController"
+import { browserNotificationAskAvailable } from "./state/controller/failures"
+import { accountOwnerOf } from "./state/AccountOwner"
 import { PlaceholderAvatarUrl } from "@smthrs/rpc/CardPrimitives"
 import type { EntryRowCard } from "@smthrs/rpc/EntryRowCard"
 import { actionFor, type CatalogTag } from "@smthrs/rpc/CardAction"
@@ -115,16 +118,17 @@ export const railEdges = (lines: ReadonlyArray<TimelineLine>, band: readonly [st
 const TOAST_TONE: Record<Toast["status"], ToastCard["tone"]> = { running: "live", ok: "done", failed: "failed", cancelled: "quiet" }
 
 /** Notices: newest first; a running toast with no action is the timeline's job, not a notice. */
-export const railNotices = (toasts: ReadonlyArray<Toast>, lines: readonly TimelineLine[] = []): ToastCard[] => [...toasts]
+export const railNotices = (toasts: ReadonlyArray<Toast>, lines: readonly TimelineLine[] = [], member?: string | null): ToastCard[] => [...toasts]
+  .filter(toast => (!toast.audience || toast.audience.member === member) && (toast.action?.flow !== "notifications.allow" || browserNotificationAskAvailable()))
   .sort((left, right) => right.createdAt - left.createdAt)
   .map(toast => {
     const entry = lines.find(line => line.entry_id === toast.sourceCard)
-    const entryAction = entry?.action
-    const todoNotice = entry !== undefined && toast.sourceCard?.startsWith("todo:")
+    const entryAction = toast.action?.flow === "notifications.allow" ? undefined : entry?.action
+    const todoNotice = toast.action?.flow !== "notifications.allow" && entry !== undefined && toast.sourceCard?.startsWith("todo:")
     return {
-      id: toast.id, title: toast.title, ...(toast.detail === "" ? {} : { detail: toast.detail }), tone: TOAST_TONE[toast.status],
-      entry_id: toast.sourceCard ?? toast.id,
-      kind: toast.status === "failed" ? "failed" : toast.status === "running" ? "progress" : "merged",
+      id: toast.id, title: toast.title, ...(toast.detail === "" ? {} : { detail: toast.detail }), tone: toast.audience ? toast.audience.kind === "needs_you" ? "attention" : toast.audience.kind === "failed" ? "failed" : "quiet" : TOAST_TONE[toast.status],
+      entry_id: toast.audience?.entryId ?? toast.sourceCard ?? toast.id,
+      kind: toast.action?.flow === "notifications.allow" ? "allow_notifications" : toast.audience?.kind ?? (toast.status === "failed" ? "failed" : toast.status === "running" ? "progress" : "merged"),
       ...(entryAction
         ? { action: entryAction }
         : todoNotice || toast.action === undefined ? {} : { action: { tag: toast.action.flow as CatalogTag, label: toast.action.label, args: { toast: toast.id } } })
@@ -145,11 +149,28 @@ export const homeLine = (home: Pick<HomeAnswer, "kind" | "model">): TimelineLine
   }
 }
 
+export const toastActions = (controller: AppController, all: readonly Toast[], onEntryAction?: (tag: CatalogTag, args?: Record<string, string>) => void) => (tag: CatalogTag, args?: Record<string, string>): void => {
+  if (tag === "notifications.allow") {
+    const toast = all.find(each => each.id === args?.toast && each.action?.flow === "notifications.allow")
+    if (!toast) return
+    void controller.commands.submit({ name: "notifications.allow", payload: {}, actor: "user" }).then(outcome => {
+      if (outcome.status === "executed") controller.runCommand("toast.dismiss", toast.id)
+    })
+    return
+  }
+  if (args?.toast === undefined) return onEntryAction?.(tag, args)
+  const toast = all.find(each => each.id === args?.toast)
+  if (toast?.action === undefined) return
+  controller.runCommand(toast.action.flow, toast.action.args)
+  if (toast.status !== "running") controller.runCommand("toast.dismiss", toast.id)
+}
+
 export function ShellRail({ entries, home }: { readonly entries: ReadonlyArray<RailEntry>; readonly home: boolean }) {
   const controller = useController()
   const scroller = useMessageScroller()
   const homeAnswer = useHome(home)
   const role = useTodoRole()
+  const { data: identities } = useLiveQuery(controller.store.collections.identitySessions)
   const { data: toasts } = useLiveQuery(controller.store.collections.toasts)
   const { data: privacyNotices } = useLiveQuery(controller.privacyNotices)
   // Transient chrome: whether the rail is wide enough for the timeline (the View reports it).
@@ -162,19 +183,14 @@ export function ShellRail({ entries, home }: { readonly entries: ReadonlyArray<R
   const band = useMessageBand(lines.map(line => line.entry_id))
   const edges = railEdges(lines, band)
   const all = [...toasts, ...privacyNotices]
-  const notices = railNotices(all, lines)
+  const member = accountOwnerOf(identities.find(identity => identity.id === "identity"))
+  const notices = railNotices(all, lines, member)
   const onView = (patch: ShellView): void => {
     if (patch.toast_hidden !== undefined) controller.runCommand("toast.dismiss", patch.toast_hidden)
     if (patch.jump_to !== undefined) scroller.scrollToMessage(patch.jump_to, { behavior: "smooth" })
     if (patch.timeline_visible !== undefined) setWide(patch.timeline_visible)
   }
-  const onToastAction = (tag: CatalogTag, args?: Record<string, string>): void => {
-    if (args?.toast === undefined) return timeline.onAction(tag, args)
-    const toast = all.find(each => each.id === args?.toast)
-    if (toast?.action === undefined) return
-    controller.runCommand(toast.action.flow, toast.action.args)
-    if (toast.status !== "running") controller.runCommand("toast.dismiss", toast.id)
-  }
+  const onToastAction = toastActions(controller, all, timeline.onAction)
   const onEdgeAction = timeline.onAction
   const last = lines.at(-1)?.entry_id ?? ""
   return <aside className="rail" aria-label="Activity" data-keyboard-pane="Timeline" data-wide={wide || undefined}>

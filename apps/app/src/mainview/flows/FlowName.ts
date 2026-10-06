@@ -282,6 +282,7 @@ export const FLOW_NAMES = [
   "todo.takeover",
   "image.add",
   "wiki.save",
+  "notifications.allow",
   "toast.dismiss",
   "triggers.approve",
   "triggers.list",

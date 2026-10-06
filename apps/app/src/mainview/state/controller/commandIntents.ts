@@ -1,3 +1,4 @@
+import { browserNotificationAskAvailable } from "./failures"
 import { decideApprovalAnswerInput } from "../ApprovalAnswerState"
 import { signInByHandoff } from "../IdentityProvider"
 import { browserWriteRefusal, lostActRefusal } from "../BrowserWriteFailure"
@@ -28,10 +29,22 @@ export const createCommandIntentLifecycle = (ctx: ControllerContext, onAccepted?
   setInputMode?: (mode: InputMode) => Promise<void>,
   prepareWikiEdit?: (id: string, body: string) => PreparedWikiEdit | undefined): CommandLifecycle => {
   const receiptEpochs = new WeakMap<CommandReceipt, number>()
+  let notificationsAskedEpoch: number | undefined
   return {
   before: createPrivacyActions(ctx).before,
   reserveGesture: (request, args, named) => {
     if (ctx.disposed || request.actor !== "user") return undefined
+    if (request.name === "notifications.allow") {
+      // Only the bound in-card door reaches the API in this original gesture.
+      if (notificationsAskedEpoch === ctx.accountEpoch || request.source !== "form" || !browserNotificationAskAvailable()) return undefined
+      const permissionAsk = [...ctx.store.collections.toasts.values()].some(toast => toast.action?.flow === "notifications.allow"
+        && toast.audience?.kind === "needs_you" && toast.audience.member === ctx.accountOwner())
+      if (!permissionAsk) return undefined
+      let notificationPermission: Promise<NotificationPermission>
+      try { notificationsAskedEpoch = ctx.accountEpoch; notificationPermission = Notification.requestPermission() } catch { return undefined }
+      void notificationPermission.catch(() => {})
+      return { name: request.name, notificationPermission, release: () => {} }
+    }
     let name = request.name
     if (name === "form.submit") {
       const id = typeof named?.cardId === "string" ? named.cardId : args?.trim()

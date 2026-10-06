@@ -9,6 +9,7 @@ export interface PreparedWikiEdit {
 
 /** Local input preparation or a browser reservation from the original human gesture. */
 export interface CommandGesture {
+  readonly notificationPermission?: Promise<NotificationPermission>
   readonly name: string
   readonly openExternal?: (url: string) => Promise<boolean>
   readonly copyText?: (text: string) => Promise<void>
